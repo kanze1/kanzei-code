@@ -1,7 +1,8 @@
 import { defer } from "./01-core.js";
 import { $ } from "./01-core.js";
-import { currentProject, syncActivityPanel, syncSidebar } from "./03-shell.js";
+import { currentProject, syncSidebar } from "./03-shell.js";
 import { renderAgentAudit, syncDynamicUiLanguage } from "./06-activity.js";
+import { reconcileTasksPanel } from "./06-agent-panel.js";
 import { askActive, updateAskQueueStatus } from "./07-events.js";
 import { refreshWorktrees } from "./09-sessions.js";
 import { lastWorkspaceSnapshot, renderWorkspace } from "./12-docs-pages.js";
@@ -42,6 +43,26 @@ export const I18N_EN = {
   "拖动角色调整位置，滚轮或右下角缩放。": "Drag to move; scroll or use the bottom-right corner to resize.",
   "选中角色后，方向键移动，+ / - 缩放，Home 复位。": "Focus the character: arrow keys move, + / - resize, and Home resets.",
   "缩放角色": "Resize character",
+  // ---- 分区:星座背景 ----
+  // UI2-0926 #10 对话背景(22-constellation-prefs.js、设置页 #backdrop-settings)。
+  "对话背景": "Chat backdrop",
+  "调整立即保存到本机。星座画在正文两侧的空白处，窄窗口时退成不影响阅读的淡水印；运行时光点沿连线流动，空闲时只缓慢闪烁。": "Changes are saved on this device immediately. The constellation sits in the empty space beside the text; in narrow windows it becomes a faint watermark that never hurts readability. While a run is active, light travels along its lines; when idle it only twinkles slowly.",
+  "显示背景": "Show backdrop",
+  "背景图案": "Pattern",
+  "北斗七星": "Big Dipper",
+  "猎户座": "Orion",
+  "仙后座": "Cassiopeia",
+  "我的图片": "My image",
+  "从图片生成": "From an image",
+  "上传图片…": "Upload image…",
+  "移除图片": "Remove image",
+  "图片只在本机转换成约 60 颗星的点集后保存，原图不保存。": "The image is converted on this device into about 60 stars; only those points are saved, never the image itself.",
+  "星点密度": "Star density",
+  "图片里没有足够清晰的轮廓，换一张试试": "The image has no clear outline; try another one",
+  "已生成星座，原图未保存": "Constellation created; the image itself was not saved",
+  "图片超过 20MB，换一张小一点的": "The image is larger than 20 MB; try a smaller one",
+  "图片分辨率过高，换一张小一点的": "The image resolution is too high; try a smaller one",
+  "图片读取失败": "Could not read the image",
   "连接中": "Connecting",
   "聆听": "Listening",
   "收音中": "Receiving audio",
@@ -706,6 +727,8 @@ export const I18N_EN = {
   "切换到设置": "Switch to settings",
   "初始化新项目目录": "Initialize a new project directory",
   "添加项目目录": "Add project directory",
+  // UI2-0926 #1 项目菜单与项目总览页头
+  "打开文件夹…": "Open folder…", "新建项目…": "New project…", "查看全部隔离工作树": "View all worktrees",
   "删除勾选的对话": "Delete selected conversations",
   "视图": "View",
   "动作": "Action",
@@ -1094,6 +1117,57 @@ export const I18N_EN = {
   "返回全部子代理": "Back to all subagents", "当前线路还没有子代理": "No subagents on this line yet",
   "停止这个子代理": "Stop this subagent", "子代理未给出回答": "The subagent returned no answer",
   "该子代理已滚出当前视图": "This subagent is no longer in the chat view", "要求结构化返回": "Structured answer required",
+  // ---- 分区:对话单列与输入区 ----
+  // UI2-0926 #11 #12:本轮结束 notice 的计数模板(07-events.js kz:done)。
+  "{n} 步": "{n} steps", "会话 {n} 条": "{n} messages in session",
+  // 输入区(#11):鞭挞菜单里的「继续文案」行说明。
+  "每轮结束自动发出的推进指令,留空用默认": "The nudge sent automatically after each round; leave empty for the default",
+  // 工具组(05-chat-render.js toolGroupSummary):每族单复数两个 key,中文单数 key 即填好 1 的原文。
+  "读取 {n} 个文件": "Read {n} files", "读取 1 个文件": "Read 1 file",
+  "修改 {n} 个文件": "Edited {n} files", "修改 1 个文件": "Edited 1 file",
+  "运行 {n} 条命令": "Ran {n} commands", "运行 1 条命令": "Ran 1 command",
+  "搜索 {n} 次": "Searched {n} times", "搜索 1 次": "Searched once",
+  "Git 操作 {n} 次": "{n} Git operations", "Git 操作 1 次": "1 Git operation",
+  "联网 {n} 次": "{n} web requests", "联网 1 次": "1 web request",
+  "条目操作 {n} 次": "{n} tracker operations", "条目操作 1 次": "1 tracker operation",
+  "工作队列 {n} 次": "{n} work-queue calls", "工作队列 1 次": "1 work-queue call",
+  "记忆操作 {n} 次": "{n} memory operations", "记忆操作 1 次": "1 memory operation",
+  "调用工具 {n} 次": "{n} tool calls", "调用工具 1 次": "1 tool call",
+  "等 {n} 次调用": "{n} calls in total", "{n} 待修正": "{n} need correction", "{n} 中断": "{n} interrupted",
+  "{n} 个工具运行中": "{n} tools running", "已完成 {n}": "{n} done", "展开或收起工具组": "Expand or collapse tool group",
+
+  // ---- 分区:后台任务侧栏与可调框 ----
+  // UI2-0926 #4 可调框与分隔条(00-frame.js / 03-layout.js)。
+  "拖动调整面板高度": "Drag to adjust panel height", "调整面板高度": "Adjust panel height",
+  // UI2-0926 #14 后台任务侧栏(06-agent-panel.js / 06-side-policy.js)。
+  "后台任务": "Background tasks", "后台任务侧栏": "Background tasks panel", "打开或收起后台任务侧栏": "Open or close the background tasks panel",
+  "关闭后台任务侧栏": "Close background tasks", "返回全部后台任务": "Back to all background tasks", "调整后台任务侧栏宽度": "Resize the background tasks panel",
+  "加宽侧栏": "Widen panel", "恢复宽度": "Restore width", "筛选与清理": "Filter and clean up", "终端条目类型": "Entry type", "成败": "Outcome",
+  "清空已完成": "Clear finished", "清空已完成的终端条目": "Clear finished terminal entries", "没有在跑的后台任务": "No background tasks running",
+  "知道了": "Got it", "确认这些失败,挪进已完成": "Acknowledge these failures and move them to Finished", "展开或收起已完成的后台任务": "Expand or collapse finished background tasks",
+  "个失败待查看": "failures to review", "1 个失败待查看": "1 failure to review", "并行委派": "Parallel delegation", "委派": "Delegation", "用时": "Time", "Token": "Tokens",
+  "停止这批子代理": "Stop this batch of subagents", "去后台任务侧栏看全": "View the full result in Background tasks",
+  "子代理与长命令的进度停靠在对话右侧;偏好存在本机 app.json,即时生效。": "Subagent and long-command progress docks to the right of the chat; saved in app.json and applied immediately.",
+  "有子代理或长命令开始时自动打开": "Open automatically when subagents or long commands start", "全部完成后自动收起(有失败时保留)": "Close automatically when everything finishes (kept open on failures)",
+  // ── 分区:记忆图谱 ──
+  "图谱": "Graph", "记忆视图": "Memory view", "记忆图谱": "Memory graph", "区域": "Area", "按代码区域筛选": "Filter by code area",
+  "图层": "Layers", "关于": "About", "关联": "Related", "实现": "Implements", "取代": "Supersedes", "提及": "Mentions",
+  "引用": "Cites", "指纹": "Fingerprint", "同主题": "Same subject", "包含": "Contains", "路径": "Path", "经由": "via",
+  "关键词": "Keyword", "含归档": "Include archived", "邻域": "Neighborhood", "1 跳": "1 hop", "2 跳": "2 hops", "3 跳": "3 hops",
+  "退出邻域": "Exit neighborhood", "适配视图": "Fit view", "文本视图": "Text view", "记忆图谱文本视图": "Memory graph as text",
+  "图例": "Legend", "决策": "Decision", "设计文档": "Design doc", "代码区域": "Code area", "模块": "Module",
+  "失败指纹": "Failure fingerprint", "需求/缺陷/决策/文档": "Requirement / defect / decision / doc",
+  "共享指纹/主题": "Shared fingerprint / subject",
+  "实心=active · 空心=候选 · 半透明=归档 · 虚线=推断/提及 · 双击进入邻域": "Solid = active · hollow = candidate · faded = archived · dashed = inferred / mention · double-click for neighborhood",
+  "个节点": "nodes", "条关系": "relations", "条记忆": "memories", "布局": "layout", "布局中…": "laying out…",
+  "正在构建记忆图谱…": "Building memory graph…", "记忆图谱加载失败": "Failed to load memory graph",
+  "图形渲染不可用,已显示文本视图": "Graph rendering unavailable; showing the text view",
+  "全部区域": "All areas", "已归档(只读)": "Archived (read-only)",
+  "打开条目": "Open entry", "打开决策文档": "Open decisions", "打开设计文档": "Open design doc", "只看该区域": "Only this area",
+  "用对话合并": "Merge via chat", "看邻域": "Show neighborhood", "没有关系": "No relations",
+  "共同指纹": "shared fingerprint", "共同主题": "shared subject", "合并这些重复记忆": "Merge these duplicate memories",
+  "选择代码区域": "Choose a code area", "选择区域…": "Choose area…", "设为区域": "Set area", "清除区域": "Clear area",
+  "区域已保存": "Area saved", "区域已清除": "Area cleared", "区域保存失败": "Failed to save area",
 };
 export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",
@@ -1113,6 +1187,7 @@ export const I18N_DYNAMIC_EN = {
   "缓存读取(已复用上下文)": "Cache read (reused context)",
   "本轮输出": "Output this round",
   "最近一次压缩纪要已收进活动面板": "The latest compaction summary is in the activity panel",
+  "最近一次压缩纪要已收进后台任务侧栏": "The latest compaction summary is in the background tasks panel",
   "合计": "Total",
   "出错": "Error",
   "出错中止": "Stopped after error",
@@ -1365,7 +1440,7 @@ export function localizedDocStatus(status) {
 export function applyLanguage() {
   // R-140 批10:MutationObserver 退役。动态字符串(状态栏/日志/活动卡/权限队列等)全部
   // 在渲染点经 t()/localizeDynamic 产出;语言切换时由 change 处理器里的 syncDynamicUiLanguage/
-  // syncActivityPanel/syncSidebar/renderProviders/refreshDocs/refreshWorktrees/
+  // reconcileTasksPanel/syncSidebar/renderProviders/refreshDocs/refreshWorktrees/
   // refreshConversationList 重渲染。这里只做两件事:同步 <html lang> 与一次性应用静态
   // data-i18n-*(初始化与切语言各一次),不再全文档扫描文本节点改写(禁止事后扫描,D-202)。
   const language = resolveUiLanguage();
@@ -1376,12 +1451,14 @@ export function applyLanguage() {
 // 消息容器内的动态文案(复制按钮、错误级别)与静态 DOM(侧栏标题、按钮属性)共用:
 // 元素渲染时写入 key,语言切换/节点插入时由这里重算 t()。这是「翻译发生在渲染点」
 // 的落地,不依赖 observer 事后词典改写。
+// data-i18n-zh:同字不同义时中文显示与 key 分开写。key 是中文原文,一字只能一译;「排队」已是状态词(Queued,
+// 工作区卡片「排队 N 条」),输入区交付方式要的是动词 Queue——key 用带限定的「排队 queue」,中文仍显示 data-i18n-zh。
 export function applyDataI18nKeys(root, language) {
   if (!root || typeof root.querySelectorAll !== "function") return;
   for (const el of root.querySelectorAll("[data-i18n-key]")) {
     const key = el.dataset.i18nKey;
     if (!key) continue;
-    const next = language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : key;
+    const next = language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : (el.dataset.i18nZh || key);
     if (el.textContent !== next) el.textContent = next;
   }
   for (const el of root.querySelectorAll("[data-i18n-title]")) {
@@ -1426,7 +1503,7 @@ export function setLanguagePreference(preference, { persist = true, rerender = t
   if (rerender) {
     applyLanguage();
     syncDynamicUiLanguage();
-    syncActivityPanel();
+    reconcileTasksPanel();
     syncSidebar();
     renderAgentAudit();
     if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
@@ -1439,6 +1516,8 @@ export function setLanguagePreference(preference, { persist = true, rerender = t
     }
     if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
     updateAskQueueStatus();
+    // 画布上的文字(记忆图谱的边标签)不在 DOM 里,靠这个事件重画。
+    document.dispatchEvent(new CustomEvent("kz:language", { detail: { language: normalized } }));
   }
 }
 export function syncLanguagePreferenceFromSettings(preference) {

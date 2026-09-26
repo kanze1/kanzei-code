@@ -163,6 +163,20 @@ impl MemoryEntry {
             .unwrap_or_default()
     }
 
+    /// 记忆图谱:frontmatter `area: kanzei-tools/edit kanzei-app/ui/memory`(空格或逗号分隔)。
+    /// 值由写入侧(memory_add/memory_update/memory_entry_save)经 AreaRegistry 归一;读侧宽容,
+    /// 缺键 = 空(图谱改用推断,见 docs/design/memory_knowledge_graph.md §3.5)。
+    pub fn areas(&self) -> Vec<String> {
+        self.field("area")
+            .map(|v| {
+                v.split(|c: char| c.is_whitespace() || c == ',' || c == '，')
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// R-162 一等字段(宽容读零迁移):extras 里查 fingerprint/trigger/valid_from/
     /// supersedes/version。旧条目没有这些键时返回 None,不报错、不迁移。
     /// 写入侧不强制——谁写了谁受益,缺键的条目只少触发少召回,不坏。

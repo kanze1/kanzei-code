@@ -4,7 +4,7 @@ import { motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setTurnPhase, turnPhase } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
-import { chatAbortRunning, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion } from "./05-chat-render.js";
+import { chatAbortRunning, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion, setToolGroupExpanded } from "./05-chat-render.js";
 import { setCtxPending, setCtxTokens } from "./03-shell.js";
 import { setCtxLimit } from "./03-shell.js";
 import { showRunMeta } from "./03-shell.js";
@@ -14,8 +14,6 @@ import { $, activePane, invoke, messages, on, trimLivePane } from "./01-core.js"
 import { languageIsEnglish, localizeDynamic, t } from "./02-i18n.js";
 import {
   activeSessionId,
-  activityPanelOpen,
-  setActivityPanelOpen,
   clearRunPending,
   ctxLimit,
   ctxPending,
@@ -36,7 +34,6 @@ import {
   setRunning,
   setStatus,
   stopElapsed,
-  syncActivityPanel,
   toast,
   toastError,
   transitionSession,
@@ -73,7 +70,6 @@ import {
   bgAdd,
   bgEnd,
   bgFinishQuiet,
-  bgProgress,
   bgQuiet,
   bgStartQuiet,
   bgStream,
@@ -110,11 +106,12 @@ import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-
 import { neuralFlowEmit } from "./22-neural-flow.js";
 // UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
 import { renderMarkdown } from "./04-markdown.js";
-import { permissionResourceText } from "./04-structured-parse.js";
+import { fillTemplate, permissionResourceText } from "./04-structured-parse.js";
 import { pathChip, renderPermissionResource, richText } from "./04-structured.js";
 import { toolResultSummary } from "./05-tool-summary.js";
 // UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
 import { subagentCopyText, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
+import { openTasksPanel } from "./06-agent-panel.js";
 
 // ---------- 事件订阅 ----------
 defer(() => {
@@ -284,16 +281,13 @@ export function renderContextDetail() {
   if (lastCompactionSummary) {
     const note = document.createElement("div");
     note.className = "sv-note";
-    note.textContent = localizeDynamic("最近一次压缩纪要已收进活动面板");
+    note.textContent = localizeDynamic("最近一次压缩纪要已收进后台任务侧栏");
     detail.append(note);
   }
   openPopover($("status-tokens"), detail, { placement: "top-end" });
   $("status-tokens").setAttribute("aria-expanded", "true");
-  if (lastCompactionEntry) {
-  setActivityPanelOpen(true);
-    syncActivityPanel();
-    lastCompactionEntry.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
+  // UI2-0926 #14:纪要在后台任务侧栏里——只打开、不切换(此前直接开活动面板,子代理面板不收,两块同屏,缺陷 D)。
+  if (lastCompactionEntry) openTasksPanel({ reveal: lastCompactionEntry });
 }
 
 export function hideContextDetail() {
@@ -367,7 +361,6 @@ defer(() => {
   on("kz:task-progress", (e) => {
     const payload = e.payload;
     agentAuditTaskProgress(payload.sessionId, payload);
-    bgProgress(payload.id, payload.text, payload.trace);
     // UI-0926 #8:子代理卡片(与侧栏)同一数据流:meta 给人格与模型,start/end 给尾迹与过程,
     // usage 是累计值(替换),text 是子代理自述。后台线路也推进(BACKGROUND_RENDER_EVENTS)。
     subagentProgress({ sessionId: payload.sessionId, id: payload.id, text: payload.text, trace: payload.trace });
@@ -639,9 +632,10 @@ defer(() => {
     // 「3/34」下一帧就被它顶掉。正常完成时清空原因槽,阶段交给 renderAutoRun 算。
     setAutoStopReason(p.halted ? t("按停止/拒绝收尾") : "");
   
+    // UI2-0926 #12:本轮结束 = 列左缘一行小字(turn-end),不画线(契约 §4.2);「steps / 会话 N 条」中英混杂改走模板。
     addMessage(
-      "notice",
-      `${t("本轮结束")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
+      "notice turn-end",
+      `${t("本轮结束")} · ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? ` · ${fillTemplate(t("会话 {n} 条"), { n: p.history })}` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
     );
     const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
     const duration = elapsedSeconds === null ? "" : ` · ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
@@ -739,7 +733,7 @@ defer(() => {
       } else if (reason === "GoalMet") {
         // R-322 B3:目标达成由**模型**判定,后端已清除目标,前端同步清输入框。
         clearGoalInput();
-        addMessage("notice", `✅ ${t("目标已达成")}:${t("模型判定条件满足,目标已清除")}`);
+        addMessage("notice", `✓ ${t("目标已达成")}:${t("模型判定条件满足,目标已清除")}`);
         log(t("目标已达成,自动清除"));
         setAutoStopReason(t("目标已达成"));
       } else if (reason === "GoalUnreachable") {
@@ -768,14 +762,15 @@ defer(() => {
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
         const msg = t("需求与缺陷已清空，自动推进已停止");
         setAutoStopReason(msg, "completed");
-        addMessage("notice", `✅ ${msg}`);
+        addMessage("notice", `✓ ${msg}`);
         log(t("自动推进停止:需求与缺陷已清空"));
       } else if (reason === "ProfileMismatch") {
         // R-199:档位条件由引擎判定,前端只显示(不再持有否决权)。
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
         const msg = t("鞭挞已关闭,当前进程不是自主推进模式");
         setAutoStopReason(msg);
-        addMessage("notice", `✅ ${msg}`);
+        // 档位不匹配不是「成功」,不带 ✓:中性通知,原因文字本身就是信息。
+        addMessage("notice", msg);
         log(t("自动推进停止:当前模式不匹配"));
       } else if (reason === "RateLimited") {
         const msg = t("provider 限流(429)，自动推进已暂停，请等待后手动恢复");
@@ -1134,6 +1129,12 @@ defer(() => {
 defer(() => {
   $("copy-context").addEventListener("click", async () => {
     const parts = [];
+    const reasoningPart = (el) => {
+      // 完整思维链:收起态也全量导出(dataset.raw 一直在),不再截首行 160 字——
+      // 摘要贴给别的 AI 没有用,断链的思考等于没复制。
+      const raw = el.querySelector(".reasoning-body")?.dataset.raw?.trim();
+      if (raw) parts.push(`### ${t("思考")}\n${raw.split("\n").map((line) => `> ${line}`).join("\n")}`);
+    };
     for (const el of activePane.children) {
       if (el.classList.contains("user")) {
         const text = (el.querySelector(".message-body")?.textContent ?? el.textContent).trim();
@@ -1142,10 +1143,20 @@ defer(() => {
         const raw = (el.dataset.raw ?? el.textContent).trim();
         if (raw) parts.push(`## ${t("助手")}\n${raw}`);
       } else if (el.classList.contains("reasoning")) {
-        // 完整思维链:收起态也全量导出(dataset.raw 一直在),不再截首行 160 字——
-        // 摘要贴给别的 AI 没有用,断链的思考等于没复制。
-        const raw = el.querySelector(".reasoning-body")?.dataset.raw?.trim();
-        if (raw) parts.push(`### ${t("思考")}\n${raw.split("\n").map((line) => `> ${line}`).join("\n")}`);
+        reasoningPart(el);
+      } else if (el.classList.contains("tool-group")) {
+        // UI2-0926 #12:工具组逐项导出(折叠态也全量):思考按思考格式,工具行按「> 工具:头 / > ⎿ 摘要」。
+        // 组不带 .msg 类,漏了这个分支整段工具轨迹会被静默丢掉。
+        for (const item of el.querySelector(".tool-group-body")?.children ?? []) {
+          if (item.classList.contains("reasoning")) {
+            reasoningPart(item);
+            continue;
+          }
+          if (!item.classList.contains("tool-msg")) continue;
+          const head = [item.querySelector(".tool-msg-name")?.textContent, item.querySelector(".tool-msg-arg")?.textContent].filter(Boolean).join(" ").trim();
+          const result = item.querySelector(".tool-msg-result")?.textContent?.trim();
+          if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
+        }
       } else if (el.classList.contains("tool-chip")) {
         const head = el.querySelector(".head")?.textContent?.trim();
         const result = el.querySelector(".result")?.textContent?.trim();
@@ -1192,6 +1203,9 @@ export function updateSearch() {
   if (searchMatches.length) {
     const current = searchMatches[searchIndex];
     current.classList.add("search-current");
+    // UI2-0926 #12:命中落在折叠的工具组里时先展开,否则 scrollIntoView 对 display:none 的行无效。
+    const group = current.closest?.(".tool-group");
+    if (group && group.dataset.expanded !== "1") setToolGroupExpanded(group, true);
     // 跳到搜索命中 = 用户明确在读某一处旧内容,不再跟随最新。这一步是**程序滚动**,
     // 跟随态的推断(05-chat-render.js)会把它当自己人忽略掉,所以在这里显式表态;
     // 否则新消息一来就把人从命中位置拽回底部,而且裁剪也不会让步。

@@ -1,3 +1,4 @@
+import { openMenu } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { motionSync } from "./01-core.js";
 import { setProcessItems } from "./03-shell.js";
@@ -46,9 +47,10 @@ import {
   updateLocalProcessItem,
 } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
+import { addMenuCheckColumn } from "./08-model-picker.js";
 import { loadModels, modelCatalogProject, restoreProjectPrefs, syncModelSelectToActiveLine } from "./08-models.js";
 import { jumpToEntry } from "./11-docs-list.js";
-import { latestDocsSnapshot, lineAuthorityLabel, renderFocusPanel } from "./12-docs-pages.js";
+import { latestDocsSnapshot, lineAuthorityLabel, refreshWorkspace, renderFocusPanel } from "./12-docs-pages.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import {
   loadConversation,
@@ -56,7 +58,7 @@ import {
   refreshGit,
   renderLineConversationHistory,
 } from "./15-views-misc.js";
-import { forProject, refreshLines } from "./20-lines.js";
+import { forProject, refreshLines, revealLinesSection } from "./20-lines.js";
 import { active_space, adopt_process_workspace, create_workspace_process, preferred_workspace_process, project_workspace, workspace_processes } from "./03-workspaces.js";
 
 import { sync_composer_scope } from "./03-workspaces.js";
@@ -70,28 +72,36 @@ import { normalizeTrackerFields, renderTestRecordFields } from "./04-structured.
 export let worktreeItems = [];
 export let worktreeLineCreateInFlight = false;
 export let worktreeLineCreateSequence = 0;
+// UI2-0926 侧栏密度:侧栏最多列 6 棵(有改动的排前),其余一条「查看全部」跳到并行线路页的工作树清单。
+// 用户现场 12 棵树 × 两行,把「各线当前在做」挤出了一屏。
+export const SIDEBAR_WORKTREE_LIMIT = 6;
 export function renderWorktrees(items) {
   worktreeItems = items ?? [];
   const list = $("worktree-list");
   list.replaceChildren();
+  const count = $("worktree-count");
   if (!worktreeItems.length) {
+    // 计数一起清:空列表时它曾停在上一个项目的旧值上。线路页的清单也同步成空态。
+    if (count) count.textContent = "";
     const empty = document.createElement("div");
     empty.className = "doc-empty";
     empty.textContent = t("暂无隔离工作树");
     list.appendChild(empty);
+    if (typeof renderLinesWorktrees === "function") renderLinesWorktrees();
     return;
   }
-  // 侧栏只做**只读呈现**:分支 + 改动量,一颗按钮都不放。差异/收活/放弃全部迁到
+  // 侧栏只做**只读呈现**:分支 + 改动量,不放操作按钮(至多一条「查看全部」跳转)。差异/收活/放弃全部迁到
   // 并行线路页——那里才有线路上下文(哪条线在跑、收活六格在哪)。侧栏的职责是
   // 「扫一眼有几棵、脏不脏」;把三颗按钮塞进两百来像素宽的行里既挤又容易误点。
   const dirty = worktreeItems.filter((item) => !item.clean).length;
-  const count = $("worktree-count");
   if (count) {
     count.textContent = dirty
       ? `${worktreeItems.length} · ${dirty} ${t("棵有改动")}`
       : String(worktreeItems.length);
   }
-  for (const item of worktreeItems) {
+  // 有改动的排前(两组内各自保持 git worktree list 的原顺序):要处理的先看到。
+  const ordered = [...worktreeItems.filter((item) => !item.clean), ...worktreeItems.filter((item) => item.clean)];
+  for (const item of ordered.slice(0, SIDEBAR_WORKTREE_LIMIT)) {
     const row = document.createElement("div");
     row.className = `worktree-entry${item.clean ? "" : " dirty"}`;
     row.title = item.path;
@@ -103,6 +113,19 @@ export function renderWorktrees(items) {
     meta.textContent = item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`;
     row.append(head, meta);
     list.appendChild(row);
+  }
+  if (ordered.length > SIDEBAR_WORKTREE_LIMIT) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "worktree-more";
+    more.textContent = `${t("查看全部隔离工作树")} (${ordered.length}) →`;
+    more.addEventListener("click", () => {
+      // 落点等线路页这轮刷新画完线路卡再滚(见 revealLinesSection);已在线路页则就地滚。
+      const arriving = !$("view-lines")?.classList.contains("active");
+      navigate_view("lines");
+      revealLinesSection("lines-worktrees", { afterRefresh: arriving });
+    });
+    list.appendChild(more);
   }
   if (typeof renderLinesWorktrees === "function") renderLinesWorktrees();
 }
@@ -892,73 +915,170 @@ export function activate_execution_root(root) {
   }
 }
 
+// ---------- UI2-0926 #1:项目只有一个切换入口 ----------
+// 侧栏头部的项目卡就是项目菜单(openProjectMenu);侧栏不再另挂一份「项目」列表(原来项目卡只是那份列表的
+// 开合把手,用户看到的是两个切换器)。菜单、项目总览卡片、命令面板读的都是这一份 projects_get 偏好,
+// 切换都走 switchProject——一处实现,守卫(D-355 的切项目事务)只写一遍。
+// 菜单只读偏好缓存,不调 workspace_snapshot:后者每个项目都要开库、跑 process_list、读轨迹,太重。
+export let lastProjectPrefs = { current: null, projects: [], names: {} };
+export function projectDisplayName(path, prefs = lastProjectPrefs) {
+  return prefs?.names?.[path] || baseName(path);
+}
+export function projectMenuEntries(prefs = lastProjectPrefs) {
+  return (prefs?.projects ?? []).map((path) => ({ path, name: projectDisplayName(path, prefs), current: path === prefs.current }));
+}
+/// 菜单里的第二行只放路径末两段(完整路径进 title):侧栏宽 280px,整条 Windows 路径只剩省略号。
+export function shortProjectPath(path) {
+  const parts = String(path ?? "").replaceAll("\\", "/").split("/").filter(Boolean);
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : parts.join("/");
+}
+
+export async function switchProject(path) {
+  try {
+    await enterProject(await invoke("projects_select", { path }));
+    return true;
+  } catch (error) {
+    toastError(`${t("切换项目失败")}:${error}`);
+    return false;
+  }
+}
+
+// 项目总览页开着时,改名/移除后卡片要跟着换;不开着就不白跑一次 workspace_snapshot。
+function refreshWorkspaceIfOpen() {
+  if ($("view-workspace")?.classList.contains("active")) void refreshWorkspace();
+}
+
+export async function renameProject(path, prefs = lastProjectPrefs) {
+  const nextName = await inputDialog({
+    title: t("项目显示名"),
+    value: projectDisplayName(path, prefs),
+  });
+  if (nextName === null || !nextName.trim()) return;
+  try {
+    renderProjects(await invoke("projects_rename", { path, name: nextName.trim() }));
+    refreshWorkspaceIfOpen();
+  } catch (err) {
+    toastError(String(err));
+  }
+}
+
+export async function removeProject(path, prefs = lastProjectPrefs) {
+  const name = projectDisplayName(path, prefs);
+  // 移除入口在项目总览卡片 ⋯ 里:移除的恰是当前项目时要换到下一个项目,但用户仍在管理项目,
+  // 不能被 enterProject 带到下一个项目记住的视图(实测落在对话页),留在总览页并刷新卡片。
+  const wasOnOverview = Boolean($("view-workspace")?.classList.contains("active"));
+  if (!(await confirmDialog({ title: t("移除项目"), message: `“${name}”吗？${t("只解除登记,不会删除磁盘文件。")}` }))) return;
+  try {
+    const wasCurrent = currentProject === path;
+    const next = await invoke("projects_remove", { path });
+    if (wasCurrent) {
+      await enterProject(next, wasOnOverview ? { view: "workspace" } : {});
+    } else {
+      renderProjects(next);
+    }
+    refreshWorkspaceIfOpen();
+  } catch (err) {
+    toastError(String(err));
+  }
+}
+
+export async function addProjectFolder() {
+  try {
+    const prefs = await invoke("projects_pick");
+    if (prefs) await enterProject(prefs);
+    refreshWorkspaceIfOpen();
+  } catch (err) {
+    toastError(String(err));
+  }
+}
+
+// 「新建项目…」暂时沿用既有的初始化流程(路径 + 显示名两次输入);新建项目弹窗另有计划替换它。
+export async function initProject() {
+  const path = await inputDialog({
+    title: t("新项目目录路径(不存在时会创建)"),
+  });
+  if (path === null || !path.trim()) return;
+  const name = await inputDialog({
+    title: t("项目显示名(可留空)"),
+    value: baseName(path.trim()),
+  });
+  if (name === null) return;
+  try {
+    const prefs = await invoke("projects_init", {
+      path: path.trim(),
+      name: name.trim() || null,
+    });
+    await enterProject(prefs, { notice: t("已初始化并切换到新项目") });
+    toast(t("项目初始化完成"));
+    refreshWorkspaceIfOpen();
+  } catch (err) {
+    toastError(String(err));
+  }
+}
+
+export let projectMenuHandle = null;
+/// 项目卡的菜单:各项目(✓ 标当前,第二行是末两段路径)| 打开文件夹… 新建项目… | 项目总览。
+/// 再点一次项目卡收起(openMenu 同锚点再调 = 收起)。✓ 列与模型芯片菜单共用 addMenuCheckColumn。
+export function openProjectMenu() {
+  const anchor = $("project-switch");
+  if (!anchor) return null;
+  const entries = projectMenuEntries();
+  const items = [
+    ...entries.map((entry) => ({
+      label: entry.name,
+      desc: shortProjectPath(entry.path),
+      checked: entry.current,
+      onSelect: entry.current ? undefined : () => void switchProject(entry.path),
+    })),
+    ...(entries.length ? ["separator"] : []),
+    { label: t("打开文件夹…"), onSelect: () => void addProjectFolder() },
+    { label: t("新建项目…"), onSelect: () => void initProject() },
+    "separator",
+    { label: t("项目总览"), onSelect: () => navigate_view("workspace") },
+  ];
+  const handle = openMenu(anchor, items, {
+    placement: "bottom-start",
+    label: t("切换项目"),
+    onClose: () => {
+      if (projectMenuHandle === handle) projectMenuHandle = null;
+    },
+  });
+  if (!handle || handle.closed) {
+    projectMenuHandle = null;
+    return null;
+  }
+  projectMenuHandle = handle;
+  const menu = handle.el;
+  menu.classList.add("project-menu");
+  addMenuCheckColumn(menu);
+  const buttons = [...menu.querySelectorAll(".k-menu-item")];
+  entries.forEach((entry, index) => {
+    if (!buttons[index]) return;
+    buttons[index].title = entry.path;
+    buttons[index].dataset.path = entry.path;
+  });
+  menu.querySelector('[aria-checked="true"]')?.focus?.();
+  return handle;
+}
+
+defer(() => {
+  const button = $("project-switch");
+  if (!button) return;
+  // 菜单按钮语义(index.html 里也写了;这里再落一次,00-surface 的 aria-expanded 同步认它)。
+  button.setAttribute("aria-haspopup", "menu");
+  button.setAttribute("aria-expanded", "false");
+  button.addEventListener("click", () => openProjectMenu());
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault?.();
+    if (!projectMenuHandle) openProjectMenu();
+  });
+});
+
 export function renderProjects(prefs) {
+  lastProjectPrefs = prefs ?? { current: null, projects: [], names: {} };
   remember_development_project(prefs.current);
   if (active_space === "dev") activate_execution_root(prefs.current);
-  const list = $("project-list");
-  list.innerHTML = "";
-  for (const path of prefs.projects) {
-    const item = document.createElement("div");
-    item.className = `project-item${path === prefs.current ? " active" : ""}`;
-    item.title = path;
-    item.setAttribute("role", "button");
-    item.tabIndex = 0;
-    item.setAttribute("aria-label", `${t("选择项目")} ${prefs.names?.[path] || baseName(path)}`);
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = prefs.names?.[path] || baseName(path);
-    const pathEl = document.createElement("span");
-    pathEl.className = "path";
-    pathEl.textContent = path;
-    const remove = document.createElement("button");
-    remove.className = "icon-btn remove";
-    remove.textContent = "×";
-    remove.title = t("移除(不删除文件)");
-    remove.setAttribute("aria-label", `${t("移除项目")} ${name.textContent}`);
-    remove.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!(await confirmDialog({ title: t("移除项目"), message: `“${name.textContent}”吗？${t("只解除登记,不会删除磁盘文件。")}` }))) return;
-      try {
-        const wasCurrent = currentProject === path;
-        const next = await invoke("projects_remove", { path });
-        if (wasCurrent) {
-          await enterProject(next);
-        } else {
-          renderProjects(next);
-        }
-      } catch (err) {
-        toastError(String(err));
-      }
-    });
-    const rename = document.createElement("button");
-    rename.className = "icon-btn rename";
-    rename.textContent = "✎";
-    rename.title = t("重命名项目(只修改显示名)");
-    rename.setAttribute("aria-label", `${t("重命名项目")} ${name.textContent}`);
-    rename.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const nextName = await inputDialog({
-        title: t("项目显示名"),
-        value: prefs.names?.[path] || baseName(path),
-      });
-      if (nextName === null || !nextName.trim()) return;
-      try {
-        renderProjects(await invoke("projects_rename", { path, name: nextName.trim() }));
-      } catch (err) {
-        toastError(String(err));
-      }
-    });
-    item.append(name, pathEl, rename, remove);
-    item.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" && e.key !== " ") return;
-      e.preventDefault();
-      item.click();
-    });
-    item.addEventListener("click", async () => {
-      await enterProject(await invoke("projects_select", { path }));
-    });
-    list.appendChild(item);
-  }
   const projectLabel = $("project-label");
   const currentProjectLabel = prefs.current
     ? (prefs.names?.[prefs.current] || baseName(prefs.current))
@@ -973,8 +1093,7 @@ export function renderProjects(prefs) {
   refreshProcesses();
 }
 
-// 侧栏工作区头。它只是 #projects-section 的开合把手 + 当前项目身份的显示位,
-// 不持有自己的列表状态——列表就是下面那个既有分区,持久化沿用 kz-collapse-projects。
+// 侧栏工作区头:当前项目身份的显示位 + 项目菜单的锚点(菜单见 openProjectMenu)。
 export function renderProjectSwitch(prefs) {
   const nameEl = $("project-switch-name");
   const pathEl = $("project-switch-path");
@@ -985,27 +1104,7 @@ export function renderProjectSwitch(prefs) {
     : localizeDynamic("未选择项目");
   pathEl.textContent = current ?? "";
   pathEl.title = current ?? "";
-  syncProjectSwitchExpanded();
 }
-
-export function projectsSectionTitle() {
-  return document.querySelector("#projects-section .section-title > span:first-child");
-}
-
-export function syncProjectSwitchExpanded() {
-  const button = $("project-switch");
-  const section = $("projects-section");
-  if (!button || !section) return;
-  button.setAttribute("aria-expanded", section.classList.contains("collapsed") ? "false" : "true");
-}
-
-defer(() => {
-  $("project-switch")?.addEventListener("click", () => {
-    // 复用分区标题的折叠处理器(它负责写 localStorage 与 aria),这里不复制一份状态。
-    projectsSectionTitle()?.click();
-    syncProjectSwitchExpanded();
-  });
-});
 
 // D-355:切项目统一事务。侧栏点击、Workspace 卡片/文档页下拉、添加/移除/初始化项目
 // 全部走这里,把「目标 process_list → 选定 active session → conversation_get」组成
@@ -1034,44 +1133,16 @@ export async function enterProject(prefs, options = {}) {
   refreshGit();
   await refreshPendingInputs();
   if (previous !== currentProject) {
+    // options.view:调用方要留在某页(总览页里移除当前项目),否则回到目标项目记住的视图。
     const workspace = project_workspace();
-    navigate_view(workspace[workspace.space].view);
+    navigate_view(options.view ?? workspace[workspace.space].view);
   }
 }
 
+// 项目总览页头的两个入口(命令面板的「打开文件夹…」「新建项目…」也点它们)。
 defer(() => {
-  $("project-init").addEventListener("click", async () => {
-    const path = await inputDialog({
-      title: t("新项目目录路径(不存在时会创建)"),
-    });
-    if (path === null || !path.trim()) return;
-    const name = await inputDialog({
-      title: t("项目显示名(可留空)"),
-      value: baseName(path.trim()),
-    });
-    if (name === null) return;
-    try {
-      const prefs = await invoke("projects_init", {
-        path: path.trim(),
-        name: name.trim() || null,
-      });
-      await enterProject(prefs, { notice: t("已初始化并切换到新项目") });
-      toast(t("项目初始化完成"));
-    } catch (err) {
-      toastError(String(err));
-    }
-  });
-});
-
-defer(() => {
-  $("project-add").addEventListener("click", async () => {
-    try {
-      const prefs = await invoke("projects_pick");
-      if (prefs) await enterProject(prefs);
-    } catch (err) {
-      toastError(String(err));
-    }
-  });
+  $("project-init")?.addEventListener("click", () => void initProject());
+  $("project-add")?.addEventListener("click", () => void addProjectFolder());
 });
 
 // ---------- 队列输入 ----------

@@ -40,7 +40,7 @@ pub(crate) fn shape(value: &serde_json::Value) -> serde_json::Value {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn contract_path() -> std::path::PathBuf {
@@ -219,6 +219,75 @@ mod tests {
             "test_runs_snapshot",
             actual,
             "test_runs_snapshot 的 IPC 形状变了",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── 分区:记忆图谱 ──
+    /// 记忆图谱夹具:两个 crate 的 workspace + 两条活动记忆(refs/area/共享指纹/subject)+
+    /// 一条归档记忆 + 一条需求 + 一篇设计文档。节点按 id 排序,首元素是 M-001(记忆节点,
+    /// 各可空字段都有值),所以契约里记下的是字段真实类型而不是 "nullable"。
+    pub(crate) fn memory_graph_fixture_project() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-ipc-memgraph-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let write = |rel: &str, text: &str| {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/kanzei-a\", \"crates/kanzei-b\"]\n",
+        );
+        write(
+            "crates/kanzei-a/Cargo.toml",
+            "[package]\nname = \"kanzei-a\"\n",
+        );
+        write("crates/kanzei-a/src/tracker.rs", "");
+        write("crates/kanzei-a/src/edit.rs", "");
+        write(
+            "crates/kanzei-b/Cargo.toml",
+            "[package]\nname = \"kanzei-b\"\n[dependencies]\nkanzei-a.workspace = true\n",
+        );
+        write("crates/kanzei-b/src/run.rs", "");
+        write(
+            ".kanzei/project/requirements.md",
+            "# Requirements\n\n## R-001 一条需求 [doing]\n- 优先级: P1\n- 说明: 改 crates/kanzei-a/src/edit.rs\n",
+        );
+        write("docs/design/x.md", "# x\n");
+        write(
+            ".kanzei/memory/M-001-a.md",
+            "---\nid: M-001\nscope: project\ncategory: fact\ntitle: edit 报 old_string\ndescription: 改文件前先读\nstatus: active\ncreated: 2026-09-01\nupdated: 2026-09-02\nsource: user\nrefs: R-001 R-999 docs/design/x.md\narea: kanzei-a/tracker\nsubject: 编辑\n---\n\n[fp:edit|old_string not found] 见 crates/kanzei-b/src/run.rs 与 M-002\n",
+        );
+        write(
+            ".kanzei/memory/M-002-b.md",
+            "---\nid: M-002\nscope: project\ncategory: sop\ntitle: 编辑先读\ndescription: 编辑流程\nstatus: candidate\ncreated: 2026-09-01\nupdated: 2026-09-01\nsource: memory-manager\nsubject: 编辑\n---\n\n[fp:edit|old_string not found] 先 read 再 edit\n",
+        );
+        write(
+            ".kanzei/memory/archive/M-003-c.md",
+            "---\nid: M-003\nscope: project\ncategory: fact\ntitle: 旧版\ndescription: 旧\nstatus: deprecated\ncreated: 2026-08-01\nupdated: 2026-08-01\nsource: user\nsuperseded_by: M-001\n---\n\n旧\n",
+        );
+        root
+    }
+
+    /// 记忆图谱 `memory_graph` 的形状契约(前端 24-memory-graph.js 与 ui-runtime-smoke 夹具共读)。
+    /// 只给项目库:本机 ~/.kanzei 的全局记忆不能进契约取样。
+    #[test]
+    fn memory_graph_形状与ipc契约一致() {
+        let root = memory_graph_fixture_project();
+        let stores = [kanzei_tools::memory::MemoryStore::project(&root)];
+        let value = crate::memory::memory_graph_with(&root, &stores);
+        assert_eq!(value["nodes"][0]["id"], "M-001", "取样首元素应是记忆节点");
+        check_contract(
+            "memory_graph",
+            shape(&value),
+            "memory_graph 的 IPC 形状变了",
         );
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -281,6 +281,89 @@ if (SMOKE_MUTATE) {
       replace: "jumpRevealId = ref;",
     },
 
+    // ── 分区:侧栏与需求页 ──
+    // UI2-0926 #1:项目卡点击打开项目菜单。删了它,侧栏就没有任何切项目入口(列表已删)。
+    projectSwitchMenu: {
+      pattern: /[ \t]*button\.addEventListener\("click", \(\) => openProjectMenu\(\)\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #1:项目菜单里非当前项目的切换。换成空操作,点了项目只收起菜单、项目不变。
+    projectMenuSwitch: {
+      pattern: /onSelect: entry\.current \? undefined : \(\) => void switchProject\(entry\.path\),/,
+      replace: "onSelect: undefined,",
+    },
+    // UI2-0926 #1:命令面板的项目候选读偏好数据。换成空集(等价于旧实现反扫已删的侧栏列表),面板里项目静默消失。
+    projectPaletteData: {
+      pattern: /for \(const project of projectMenuEntries\(\)\) \{/,
+      replace: "for (const project of []) {",
+    },
+    // UI2-0926 #1:项目总览卡片 ⋯ 的重命名。换成空操作,重命名入口(原侧栏 ✎)就此丢失。
+    workspaceCardRename: {
+      pattern: /onSelect: \(\) => void renameProject\(project\.path\) \},/,
+      replace: "onSelect: () => {} },",
+    },
+    // UI2-0926 #5:右端定宽列(优先级/复杂度)挂到行尾。删了它,优先级与复杂度整列消失(D-362 行结构与「状态在优先级前」都红)。
+    docRowTailMeta: {
+      pattern: /[ \t]*for \(const node of tail\) row\.appendChild\(node\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #5:批次格进定宽槽。退回塞进例外标记簇,有无批次格的行右端两列又被推歪。
+    docMeterSlot: {
+      pattern: /meterSlot\.appendChild\(meter\);/,
+      replace: "placeFlag(meter);",
+    },
+    // UI2-0926 #5:已有选中时勾选框整列常显。删了它,批量挑到一半,挪开鼠标勾选框就全隐形了。
+    batchPickReveal: {
+      pattern: /[ \t]*for \(const list of document\.querySelectorAll\("\.documents-list"\)\) list\.classList\.toggle\("has-selection", batchSelection\.size > 0\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #5:组头计数单独成段。删了它,组头只剩组名,计数丢了。
+    docGroupCount: {
+      pattern: /head\.append\(groupLabel, groupNum\);/,
+      replace: "head.append(groupLabel);",
+    },
+    // UI2-0926 侧栏密度:没取得条目的线只占一行。改回一律两段,侧栏又被「未取得条目」一行行撑长。
+    focusCompactLine: {
+      pattern: /section\.className = active \|\| claim \? "line-focus" : "line-focus line-focus-compact";/,
+      replace: 'section.className = "line-focus";',
+    },
+    // UI2-0926 复核:工作树里有取活声明的线不压成一行。退回只看 active,声明(条目名)和线路身份挤进一行一起被截断。
+    focusClaimTwoPart: {
+      pattern: /section\.className = active \|\| claim \? "line-focus"/,
+      replace: 'section.className = active ? "line-focus"',
+    },
+    // UI2-0926 复核:「查看全部隔离工作树 →」等线路页这轮刷新画完再滚。退回切视图后下一帧就滚,线路卡随后插进来把目标段推下去。
+    worktreeMoreAnchor: {
+      pattern: /revealLinesSection\("lines-worktrees", \{ afterRefresh: arriving \}\);/,
+      replace: 'requestAnimationFrame(() => $("lines-worktrees")?.scrollIntoView?.({ block: "start" }));',
+    },
+    // UI2-0926 复核:在项目总览里移除当前项目后留在总览页。删了它,用户被带到下一个项目记住的视图(对话页)。
+    removeProjectStaysOnOverview: {
+      pattern: /await enterProject\(next, wasOnOverview \? \{ view: "workspace" \} : \{\}\);/,
+      replace: "await enterProject(next);",
+    },
+    // UI2-0926 复核:行的 keydown 只认焦点在行本身。删了它,勾选框上按空格被行吞掉(preventDefault + 开合详情),键盘勾不上。
+    docRowKeyTarget: {
+      pattern: /[ \t]*if \(event\.target !== row\) return;\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 侧栏密度:工作树最多列 6 棵。去掉上限,12 棵树又把侧栏挤满。
+    worktreeCap: {
+      pattern: /for \(const item of ordered\.slice\(0, SIDEBAR_WORKTREE_LIMIT\)\) \{/,
+      replace: "for (const item of ordered) {",
+    },
+    // UI2-0926 侧栏密度:有改动的工作树排前。退回 git 原顺序,要处理的树可能被上限挤到「查看全部」后面。
+    worktreeDirtyFirst: {
+      pattern: /const ordered = \[\.\.\.worktreeItems\.filter\(\(item\) => !item\.clean\), \.\.\.worktreeItems\.filter\(\(item\) => item\.clean\)\];/,
+      replace: "const ordered = [...worktreeItems];",
+    },
+    // UI2-0926 侧栏密度:空工作树列表清计数。删了它,切到没有工作树的项目后计数停在上一个项目的旧值。
+    worktreeCountClear: {
+      pattern: /[ \t]*if \(count\) count\.textContent = "";\r?\n/,
+      replace: "",
+    },
+    // ── 分区:侧栏与需求页(完) ──
+
     // ---- 分区:动效 ----
     // #7:setTurnPhase 首行的后台渲染守卫。删了它,后台线的思考/工具事件会把活动线
     // 输入框上方的「思考中…」改写成别人的相位(串线)。
@@ -338,6 +421,355 @@ if (SMOKE_MUTATE) {
     saOrphanTask: {
       pattern: /const taskCall = entry \? null : orphanTaskCall\(message, part\.call_id\);/,
       replace: "const taskCall = null;",
+    },
+    // ── 分区:对话单列与输入区 ──
+    // UI2-0926 #12 工具组:实时入口退回逐行追加,连续调用不再成组。
+    toolGroupLive: {
+      pattern: /mountToolBlock\(block\);(\r?\n\s*chatToolBlocks\.set\(id, block\);)/,
+      replace: "appendToPane(block.wrap);$1",
+    },
+    // 历史回放入口退回逐行追加:实时与历史不再同构。
+    toolGroupHistory: {
+      pattern: /(block\.wrap\.dataset\.toolCallId = part\.id;\r?\n\s*)mountToolBlock\(block\);/,
+      replace: "$1appendToPane(block.wrap);",
+    },
+    // 思考块不再并入工具组:Codex 每步先给思考摘要,几乎每次调用各成一组。
+    toolGroupReasoning: {
+      pattern: /while \(tail\?\.classList\?\.contains\("reasoning"\)\)[^\n]*\n/,
+      replace: "",
+    },
+    // 收尾不同步组:组头停在运行中,失败数不出现。
+    toolGroupSync: {
+      pattern: /(block\.input = null;\r?\n)\s*syncToolGroupOf\(block\);/,
+      replace: "$1",
+    },
+    // ⎿ 摘要不再切行内代码:失败行原样露出 `k/N` 的反引号。
+    toolSumInlineCode: {
+      pattern: /groups = groups\.map\(\(group\) => group\.flatMap\(inlineCodeParts\)\);/,
+      replace: "",
+    },
+    // 裁剪按子节点计数:鞭挞长跑几百次调用只有十几个组,永远裁不掉。
+    paneUnits: {
+      pattern: /const unitsOf = [^\n]*\n/,
+      replace: "const unitsOf = () => 1;\n",
+    },
+    // 复制上下文漏掉工具组分支:整段工具轨迹静默丢失。
+    ctxToolGroup: {
+      pattern: /\} else if \(el\.classList\.contains\("tool-group"\)\) \{/,
+      replace: "} else if (false) {",
+    },
+    // 搜索命中折叠组里的行时不展开:scrollIntoView 对 display:none 无效,看起来「搜到了但没跳」。
+    searchExpandGroup: {
+      pattern: /if \(group && group\.dataset\.expanded !== "1"[^\n]*\n/,
+      replace: "",
+    },
+    // notice 又挂复制按钮(系统提示不该有复制)。
+    noticeNoActions: {
+      pattern: /if \(!String\(cls\)\.split\(\/\\s\+\/\)\.includes\("notice"\)\) \{/,
+      replace: "if (true) {",
+    },
+    // 本轮结束丢 turn-end 类(列左缘小字的样式钩子)。
+    turnEndClass: {
+      pattern: /"notice turn-end",/,
+      replace: '"notice",',
+    },
+    // 窗口边界不合并工具组:同一段工具活动在「载入更早的消息」后被切成两组。
+    earlierMerge: {
+      pattern: /if \(between\.every\(\(el\) => el\.classList\?\.contains\("earlier-hint"\)\)\) mergeAdjacentToolGroups\(lastNew, oldFirst\);/,
+      replace: "",
+    },
+    // 已有的「载入更早的消息」不挪回顶部:两窗以上时夹在中间。
+    earlierHintTop: {
+      pattern: /[ \t]*activePane\.prepend\(existing\);\r?\n/,
+      replace: "",
+    },
+    // 切语言不重算工具组标签:英文界面里组头还是中文。
+    toolGroupI18n: {
+      pattern: /[ \t]*toolGroupRelocalize\(\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #11 输入区:分支写在早退之后,没有改动时上下文带里的分支消失。
+    ctxBranchEarly: {
+      pattern: /[ \t]*if \(branch\) branch\.textContent = [^\n]*\n/,
+      replace: "",
+    },
+    // 鞭挞设置触发器(状态即入口)的读屏名不再带轮次与阶段:未开时的纯箭头按钮读屏只剩空名。
+    autorunTriggerLabel: {
+      pattern: /[ \t]*trigger\.setAttribute\("aria-label", label\);\r?\n/,
+      replace: "",
+    },
+    // 语音键退回写 textContent:麦克风图标被文字冲掉。
+    voiceIconKeep: {
+      pattern: /button\.setAttribute\("aria-label", t\(voiceKey\)\);/,
+      replace: "button.textContent = t(voiceKey);",
+    },
+    // 复核补守卫(UI2-0926 #11 #12):
+    // 历史回放没等到结果的调用不标 interrupted:组头不计「N 中断」,与实时停止收尾不同构。
+    histInterrupted: {
+      pattern: /(\/\/ 与实时停止收尾\(chatAbortRunning\)同形[^\n]*\n)[ \t]*block\.wrap\.classList\.add\("interrupted"\);\r?\n/,
+      replace: "$1",
+    },
+    // 标了 interrupted 但不同步组:组头停在「读取 1 个文件」,不计中断。
+    histInterruptedSync: {
+      pattern: /(block\.wrap\.classList\.add\("interrupted"\);\r?\n\s*block\.result\.textContent = [^\n]*\n\s*block\.result\.classList\.remove\("hidden"\);\r?\n)[ \t]*syncToolGroupOf\(block\);\r?\n(\s*\}\r?\n\}\r?\n\r?\nexport async function loadConversation)/,
+      replace: "$1$2",
+    },
+    // 窗口边界切在调用与结果之间时不配对:已完成的调用计成「1 中断」,另有一条孤儿「tool result」。
+    boundaryPair: {
+      pattern: /[ \t]*pairBoundaryOrphans\(holder, activePane\);\r?\n/,
+      replace: "",
+    },
+    // 超过 3 族不再收成「等 N 次调用」:组头把每一族都列出来,一行放不下。
+    groupSummaryEtc: {
+      pattern: /label = words\.slice\(0, 3\)\.join\(" · "\);/,
+      replace: 'label = words.join(" · ");',
+    },
+    // 窗口边界合并不看上限:合并后一组超过 30 行。
+    mergeCap: {
+      pattern: /[ \t]*if \(Number\(before\.dataset\.count\) \+ Number\(after\.dataset\.count\) > TOOL_GROUP_MAX\) return false;\r?\n/,
+      replace: "",
+    },
+    // SOP 列表退回以菜单项为锚:菜单一关锚点就不在了(弹层定位到左上角)。
+    sopAnchor: {
+      pattern: /openPopover\(\$\("composer-more"\), panel,/,
+      replace: 'openPopover($("sop-picker"), panel,',
+    },
+    // 展开继续文案时不收鞭挞菜单:菜单盖在编辑区上面。
+    continueClosesWhip: {
+      pattern: /[ \t]*closeSurface\(\$\("autorun-menu"\)\);\r?\n/,
+      replace: "",
+    },
+    // 附件芯片退回整颗点击即删:× 自己不再删除(点名字也删)。
+    attachRemove: {
+      pattern: /remove\.addEventListener\("click", \(\) => \{ attachments\.splice\(index, 1\); renderAttachments\(\); \}\);/,
+      replace: "chip.addEventListener(\"click\", () => { attachments.splice(index, 1); renderAttachments(); });",
+    },
+    // 同字不同义的中文显示(data-i18n-zh)失效:交付方式在中文界面显示成 key「排队 queue」。
+    i18nZhDisplay: {
+      pattern: /: \(el\.dataset\.i18nZh \|\| key\);/,
+      replace: ": key;",
+    },
+    // ── 分区:后台任务侧栏与可调框 ──
+    // UI2-0926 #4:窗口缩小时框按偏好重新夹紧。去掉水平 clamp,窗口缩到 700 时框宽 684 左缘却还在 400,右半截出窗。
+    frameClamp: {
+      pattern: /const left = clamp\(pref\.l != null \? pref\.l : vw - \(pref\.r \?\? MARGIN\) - w, MARGIN, vw - MARGIN - w\);/,
+      replace: "const left = pref.l != null ? pref.l : vw - (pref.r ?? MARGIN) - w;",
+    },
+    // UI2-0926 #4:手势期间 pointermove 挂在 document 捕获阶段。挂回框上,一步甩出框外时收不到 move,框不动。
+    frameGestureDoc: {
+      pattern: /document\.addEventListener\("pointermove", onMove, true\);/,
+      replace: 'el.addEventListener("pointermove", onMove, true);',
+    },
+    // UI2-0926 #4:双击复位的判据是按下时记的「在拖动区里」。删掉标记,双击标题栏不再复位。
+    frameDblclickFlag: {
+      pattern: /[ \t]*frame\.downInMove = true;\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #4:不记住的框(确认框/输入框)关闭即复位。删掉监听,下次打开还停在拖过的位置。
+    frameTransientReset: {
+      pattern: /[ \t]*el\.addEventListener\("close", \(\) => resetFrame\(frame\)\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #4:存储读写吞异常(隐私模式、配额)。去掉 try/catch,存储一抛错安装与拖动就一起崩。
+    frameStorageGuard: {
+      pattern: /try \{ return store\.get\(kind, id, hint\); \} catch \{ return null; \}/,
+      replace: "return store.get(kind, id, hint);",
+    },
+    // UI2-0926 #4 缺陷 A:分隔条写 <html> 上的 CSS 变量。改回写内联 width,收起侧栏后留一整条空栏。
+    splitCssVar: {
+      pattern: /rootStyle\.setProperty\(cssVar, `\$\{next\}px`\);/,
+      replace: "pane.style.width = `${next}px`;",
+    },
+    // UI2-0926 #4:布局偏好经 ui_prefs 写后端(D-404 本机 localStorage 重启即丢)。删掉,几何只剩本地缓存。
+    layoutPersist: {
+      pattern: /[ \t]*void uiPrefsSave\(\{ ui_layout: patch \}\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #14:用户在本次运行里关过侧栏(不论当时还有没有活)→ 压制到下一条用户消息。删掉,关掉之后鞭挞下一轮马上又弹。
+    sideSuppressRun: {
+      pattern: /[ \t]*line\.suppressedRun = line\.userRun;\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #14:值得停留的失败保留侧栏、徽标转红。删掉,子代理超时 6 秒后侧栏照样收起、失败看不见。
+    sideFailureHold: {
+      pattern: /if \(event\.hold\) line\.holds\.add\(String\(event\.key\)\);/,
+      replace: "",
+    },
+    // UI2-0926 #14:自动打开的侧栏全部结束 6 秒后收起。到点不退出自动态,侧栏永远不收。
+    sideLinger: {
+      pattern: /if \(left <= 0\) line\.auto = false;/,
+      replace: "if (left <= 0) line.auto = true;",
+    },
+    // UI2-0926 #14 缺陷 B:终端条目只收活动线路。删掉守卫,后台线路的 bash 混进当前线路的列表。
+    sideLineScope: {
+      pattern: /[ \t]*if \(renderingBackground \|\| \(sessionId && activeSessionId && sessionId !== activeSessionId\)\) return;\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #14 缺陷 E:回放的终态条目重新落位。删掉,回放出来的条目全挂在「运行中」。
+    sideReplayPlace: {
+      pattern: /\r?\n[ \t]+bgPlace\(entry\);(\r?\n[ \t]+bgRenderActions\(event\.id, entry\);)/,
+      replace: "$1",
+    },
+    // UI2-0926 #14 缺陷 F:线路还在跑时只 started 的回放条目保留运行态。当作线路已停,在跑的命令被收成「中断」。
+    sideReplayRunning: {
+      pattern: /const lineRunning = Boolean\(activeSessionId\) && sessionState\(activeSessionId\)\.running === true;/,
+      replace: "const lineRunning = false;",
+    },
+    // UI2-0926 #14 缺陷 A:侧栏只在对话视图显示。去掉视图判据,非对话视图上工具事件把侧栏弹回来。
+    sideViewGate: {
+      pattern: /const visible = chat && \(model\.pinned \|\| autoShown\);/,
+      replace: "const visible = model.pinned || autoShown;",
+    },
+    // UI2-0926 #14:自动打开不抢焦点。打开时顺手聚焦侧栏,用户正在输入框打的字就跑进了侧栏。
+    sideNoFocusSteal: {
+      pattern: /(if \(decision\.visible && !wasVisible\) \{\r?\n)/,
+      replace: '$1    $("tasks-close")?.focus?.();\n',
+    },
+    // ── 分区:后台任务侧栏与可调框(复核修复)──
+    // 后台线路上开始的子代理不触发自动打开。去掉活动线路判据,切到那条线路时侧栏空弹。
+    sideBgStartScope: {
+      pattern: /if \(onActiveLine\) sideEvent\(model, \{ type: "work-start", sid: run\.sessionId \}, sidePanelPrefs\(\)\);/,
+      replace: 'sideEvent(model, { type: "work-start", sid: run.sessionId }, sidePanelPrefs());',
+    },
+    // 不在前台的线路活全部结束时报 idle。删掉,自动打开后切走、在后台跑完的线路切回来时空弹 6 秒。
+    sideBgIdle: {
+      pattern: /[ \t]*sideEvent\(model, \{ type: "idle", sid: run\.sessionId, now: clock\(\) \}\);\r?\n/,
+      replace: "",
+    },
+    // 切进一条已经停下的线路按已到点处理。删掉,终端命令触发自动打开的线路切回来时空弹 6 秒。
+    sideSwitchInIdle: {
+      pattern: /[ \t]*sideEvent\(model, \{ type: "idle", sid: sessionId, now: clock\(\) - SIDE_AUTO_CLOSE_MS \}\);\r?\n/,
+      replace: "",
+    },
+    // 弹层(筛选菜单与原生下拉)里的 Esc 不算关闭侧栏。删掉守卫,下拉列表开着时按 Esc 整个侧栏收起、失败被确认。
+    sideEscPopover: {
+      pattern: /[ \t]*if \(event\.defaultPrevented \|\| event\.target\?\.closest\?\.\("\[popover\]"\) \|\| nativePickerOpen\(event\.target\)\) return;\r?\n/,
+      replace: "",
+    },
+    // 缺陷 B 的收尾一侧:后台线路的 kz:tool-end 不碰活动线路的条目(调用 id 可能重名)。删掉,同 id 条目被别的线路收尾。
+    sideBgEndScope: {
+      pattern: /\n[ \t]*if \(renderingBackground\) return;\r?\n([ \t]*const entry = bgEntries\.get\(id\);)/,
+      replace: "\n$1",
+    },
+    // 回放的子代理不自动打开、不保留失败。去掉 !run.replay,切线/重载时历史里的失败让徽标转红、侧栏弹出。
+    sideReplayNoHold: {
+      pattern: /if \(run && !run\.replay\) \{/,
+      replace: "if (run) {",
+    },
+    // 自动打开时保持对话的阅读位置。删掉恢复,对话列变窄重排后读到一半的位置跳走。
+    sideScrollAnchor: {
+      pattern: /[ \t]*if \(anchor\) restoreScrollAnchor\(anchor\);\r?\n/,
+      replace: "",
+    },
+    // 后端布局偏好到达时保留还没写出去的本地改动。去掉合并,启动时刚拖的宽度被后端旧值顶回去。
+    layoutAdoptPending: {
+      pattern: /for \(const \[section, bucket\] of Object\.entries\(pending \?\? \{\}\)\) \{/,
+      replace: "for (const [section, bucket] of Object.entries({})) {",
+    },
+    // 缺陷 F 的范围:只有最新一次运行里悬空的调用保留运行态。去掉 run_id 判据,更早轮次悬空的 bash 被复活成「运行中」。
+    sideReplayRunScope: {
+      pattern: /if \(lineRunning && run === latestRun\) \{/,
+      replace: "if (lineRunning) {",
+    },
+    // 抽屉宽度有自己的口径(默认 400,上限主区 − 96)。改回停靠口径,抽屉永远夹死在 320、拖不动。
+    sideDrawerWidth: {
+      pattern: /\? \{ dock, width: sideDrawerWidth\(stored, mainW\), max: sideDrawerMax\(mainW\) \}/,
+      replace: "? { dock, width: docked, max: sideMaxWidth(mainW) }",
+    },
+    // 分隔条手柄记下词条键,切语言时重译。删掉,运行中切到英文后读屏名还是中文。
+    splitI18nKeys: {
+      pattern: /[ \t]*if \(ariaKey\) handle\.dataset\.i18nAriaLabel = ariaKey;\r?\n/,
+      replace: "",
+    },
+    // 子代理行:listitem 挂在外层 div 上,不盖掉按钮语义。挂回按钮上,读屏不知道它能点开详情。
+    sideRowListitem: {
+      pattern: /item\.setAttribute\("role", "listitem"\);(\r?\n[ \t]*const row = el\("button", "tp-agent-row"\);)/,
+      replace: '$1 row.setAttribute("role", "listitem");',
+    },
+    // 子代理行的可访问名只拼一次状态词。拼两次就是「完成 — 完成 · 2 次工具 · …」。
+    sideRowAriaOnce: {
+      pattern: /const state = SA_ACTIVE\.has\(run\.state\) \? subagentStateWord\(run\.state\) \|\| t\("运行中"\) : subagentMetaText\(run, now\);/,
+      replace: 'const state = [subagentStateWord(run.state) || t("运行中"), SA_ACTIVE.has(run.state) ? "" : subagentMetaText(run, now)].filter(Boolean).join(" — ");',
+    },
+    // 小表表头/类别英文是 Claude 的「Agent」。改回通用译文,英文界面读成复数的「Subagents」。
+    sideAgentWord: {
+      pattern: /return languageIsEnglish\(\) \? "Agent" : t\("子代理"\);/,
+      replace: 'return t("子代理");',
+    },
+    // 模型列去掉 provider 前缀。删掉,窄列里只剩「ollama:qw…」。
+    sideModelShort: {
+      pattern: /return match\[2\]\.includes\(":"\) \|\| PROVIDER_PREFIX\.has\(match\[1\]\.toLowerCase\(\)\) \? match\[2\] : text;/,
+      replace: "return text;",
+    },
+
+    // ── 分区:星座背景 ──
+    // UI2-0926 #10:事件枢纽把真实运行事件扇出给对话区星座背景。删了它,背景对运行一无所知
+    // (运行中仍是静息态,光点永远不出现)。纯函数的变异在 ui-constellation-smoke.mjs 里。
+    bgEmitFanout: {
+      pattern: /[ \t]*chatBackdrop\?\.emit\(eventType, detail\);\r?\n/,
+      replace: "",
+    },
+    // 设置改动即时落到后端(D-404:本机 localStorage 重启即丢)。删了它,重启后背景偏好回到默认。
+    bgPrefsPersist: {
+      pattern: /[ \t]*void save\(\{ backdrop: serializeBackdropPrefs\(current\) \}\);\r?\n/,
+      replace: "",
+    },
+    // 启动时等后端值(≤ 250ms)再第一次发布。删了这道等待,关掉背景的用户每次启动先按默认值画一帧星座。
+    bgBootWait: {
+      pattern: /[ \t]*await Promise\.race\(\[loading, new Promise\(\(resolve\) => \{ timer = setTimeout\(resolve, timeoutMs\); \}\)\]\);\r?\n/,
+      replace: "",
+    },
+    // 滑杆拖动中(input)只改内存与画面,松手(change)才落盘。改成拖动中也落盘,拖一下写十几次 app.json。
+    bgSliderPersist: {
+      pattern: /updateBackdropPrefs\(value\(\), \{ persist: false \}\)/,
+      replace: "updateBackdropPrefs(value())",
+    },
+    // 图案单选组的方向键。删了它,键盘用户只能 Tab 到当前项、换不了图案。
+    bgRadioKeys: {
+      pattern: /[ \t]*button\.addEventListener\("keydown", onKey\);\r?\n/,
+      replace: "",
+    },
+    // html[data-backdrop] 跟随开关(画布显隐挂在它上面)。删了它,关掉背景后画布仍占着对话区。
+    bgDatasetSync: {
+      pattern: /[ \t]*document\.documentElement\.dataset\.backdrop = prefs\.enabled \? "on" : "off";\r?\n/,
+      replace: "",
+    },
+
+    // ── 分区:记忆图谱 ──
+    // 视图切换的监听。删了它,点「图谱」什么都不发生(memory_graph 不会被调用)。
+    memgraphToggle: {
+      pattern: /[ \t]*\$\("memory-view-graph"\)\?\.addEventListener\("click", \(\) => setMemoryView\("graph"\)\);\r?\n/,
+      replace: "",
+    },
+    // await memory_graph 之后的项目/代次复查。删了它,项目 A 在途的图谱会画进项目 B 的页面。
+    memgraphProjectGuard: {
+      pattern: /[ \t]*if \(project !== currentProject \|\| generation !== graphState\.generation\) return; \/\/ 竞态守卫:项目 A 的图谱不得画进项目 B\r?\n/,
+      replace: "",
+    },
+    // 复核修复:areasFor 不看载荷是否被 kz:memory-changed 作废。删了它,「设为区域」后新图落地前区域行又显示旧推断。
+    memgraphAreaInvalidate: {
+      pattern: /if \(graphState\.payloadProject !== currentProject \|\| !graphState\.payloadAt\) return null;/,
+      replace: "if (graphState.payloadProject !== currentProject) return null;",
+    },
+    // 复核修复:ensureAreaOptions 按新鲜度决定是否重取。改成「有载荷就复用」,「设为区域」后永远拿不到新图。
+    memgraphAreaRefetch: {
+      pattern: /let payload = payloadFresh\(project\) \? graphState\.payload : null;/,
+      replace: "let payload = graphState.payloadProject === project && graphState.payload ? graphState.payload : null;",
+    },
+    // 复核修复:记忆页不在前台时 kz:memory-changed 只作废不取数。去掉页面判断,切走后照样重取重排。
+    memgraphInactiveFetch: {
+      pattern: /if \(graphState\.view === "graph" && memoryPageActive\(\)\) void loadAndRender\(\{ force: true \}\);/,
+      replace: 'if (graphState.view === "graph") void loadAndRender({ force: true });',
+    },
+    // 复核修复:render() 在记忆页不在前台时直接返回。删了它,切走之后才落地的在途图谱照样重画。
+    memgraphInactiveRender: {
+      pattern: /[ \t]*if \(!memoryPageActive\(\)\) return;\r?\n/,
+      replace: "",
+    },
+    // 复核修复:切语言时重建图例。删了它,英文界面的图例仍是中文。
+    memgraphLanguage: {
+      pattern: /[ \t]*if \(\$\("memory-graph-legend"\)\?\.children\.length\) renderLegend\(\{ rebuild: true \}\);\r?\n/,
+      replace: "",
     },
   };
   const mutation = mutations[SMOKE_MUTATE];
@@ -566,6 +998,9 @@ function parseOptionsInto(el, fragment) {
     // 对 option 文本恒不生效,文档域的筛选下拉在冒烟里全是假通过。
     const keyValue = attributes.match(/\bdata-i18n-key="([^"]*)"/)?.[1];
     if (keyValue !== undefined) option.setAttribute("data-i18n-key", keyValue);
+    // 同字不同义的中文显示(交付方式「排队」,key「排队 queue」)。
+    const zhValue = attributes.match(/\bdata-i18n-zh="([^"]*)"/)?.[1];
+    if (zhValue !== undefined) option.setAttribute("data-i18n-zh", zhValue);
     const valueAttribute = attributes.match(/\bvalue="([^"]*)"/)?.[1];
     option.value = valueAttribute === undefined ? text : valueAttribute;
     // value setter 只写 _value;真实浏览器里 getAttribute("value") 也会返回该值,
@@ -761,7 +1196,8 @@ class Element {
   focus() {}
   querySelector(selector) { return queryAllFrom(this, selector)[0] ?? null; }
   querySelectorAll(selector) { return queryAllFrom(this, selector); }
-  closest(selector) { let el = this; while (el) { if (matchesCompound(el, selector)) return el; el = el.parentElement; } return null; }
+  // 逗号分组(`closest("button, a[href], …")`)按任一分支命中;00-frame.js 用它排除拖动区里的按钮。
+  closest(selector) { const alts = String(selector).split(",").map((s) => s.trim()).filter(Boolean); let el = this; while (el) { if (alts.some((alt) => matchesCompound(el, alt))) return el; el = el.parentElement; } return null; }
   setPointerCapture() {}
   scrollIntoView() {}
   scrollTo() {}
@@ -932,6 +1368,11 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
     const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
+  // ── 分区:后台任务侧栏与可调框 ── 可调框声明(bindFrames 扫描)、权限卡锚点、侧栏停靠/模式也要建到桩上。
+  for (const attribute of ["data-kz-frame", "data-kz-frame-move", "data-kz-frame-edges", "data-kz-frame-min", "data-kz-frame-stretch", "data-kz-frame-keep", "data-kz-frame-persist", "data-kz-anchor", "data-dock", "data-mode"]) {
+    const value = attributes.match(new RegExp(`(?<![\\w-])${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
   const tail = html.slice(match.index + match[0].length);
   const directText = tail.match(/^([^<]*)</)?.[1].replace(/\s+/g, " ").trim();
   if (directText) el.textContent = directText;
@@ -950,20 +1391,29 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
   }
 }
 
-// 活动面板三段是真实嵌套:#bg-list > .bg-section > #bg-running|#bg-attention|#bg-done,
-// 条目落在段容器里而不再是 #bg-list 的直接子节点。扁平造的话所有 `#bg-list .bg-entry`
+// 后台任务侧栏三段是真实嵌套:#tasks-panel > #bg-list > .bg-section > 委派卡容器 #tasks-* 与终端条目容器 #bg-*,
+// 已完成段的两个容器再包在可折叠的 #bg-done-body 里。扁平造的话所有 `#bg-list .bg-entry`
 // 断言全部落空(与上面 TABLE→tbody 同一类缺口)。
-for (const [sectionId, bodyId] of [
-  ["bg-section-running", "bg-running"],
-  ["bg-section-attention", "bg-attention"],
-  ["bg-section-done", "bg-done"],
+// ── 分区:后台任务侧栏与可调框 ── UI2-0926 #14 起每段多一个委派卡容器,已完成段多一层折叠体。
+byId.get("bg-done-body")?.append(...["tasks-done", "bg-done"].map((id) => byId.get(id)).filter(Boolean));
+for (const [sectionId, bodyIds] of [
+  ["bg-section-running", ["tasks-running", "bg-running", "bg-running-empty"]],
+  ["bg-section-attention", ["tasks-attention", "bg-attention"]],
+  ["bg-section-done", ["bg-done-body"]],
 ]) {
   const section = byId.get(sectionId);
-  const sectionBody = byId.get(bodyId);
-
-  if (!section || !sectionBody) continue;
-  section.appendChild(sectionBody);
+  const bodies = bodyIds.map((id) => byId.get(id)).filter(Boolean);
+  if (!section || bodies.length !== bodyIds.length) continue;
+  section.append(...bodies);
   byId.get("bg-list")?.appendChild(section);
+}
+for (const id of ["agent-panel-status", "bg-list", "agent-detail"]) {
+  const node = byId.get(id);
+  if (node) byId.get("tasks-panel")?.appendChild(node);
+}
+for (const id of ["agent-audit", "diff-summary"]) {
+  const node = byId.get(id);
+  if (node) byId.get("bg-list")?.appendChild(node);
 }
 
 // 主视图切换按钮只有 class 没有 id,上面那轮按 id 造不出它们;这里按 class 补造,
@@ -1920,7 +2370,7 @@ await runUiSources();
   const neuralFlowEmit = neuralFlowModule?.namespace?.neuralFlowEmit;
   assert(typeof neuralFlowEmit === "function", "R-285 neuralFlowEmit ESM 入口未注册");
   assert(
-    /const idleAlpha = isMemory \? 0\.22 : 0\.(?:19|075)/.test(source) && source.includes("const ambientProgress ="),
+    /const idleAlpha = 0\.22;/.test(source) && source.includes("const ambientProgress ="),
     "R-285 记忆流静息轨迹必须保持清晰亮度与定向流光",
   );
   assert(source.includes("const trailSteps = 5"), "R-285 业务事件脉冲必须带可辨识的流动尾迹");
@@ -1937,6 +2387,137 @@ await runUiSources();
     "记忆整理操作未接金色神经流",
   );
 }
+
+// ── 分区:星座背景 ──
+// UI2-0926 #10:对话区背景换成星座渲染器(22-constellation.js,docs/design/ui_chat_backdrop.md)。
+// 假 DOM 没有 2D 上下文:必须降级为空实现且不抛;活动感知走 OC 状态 store 的运行真源(事件枢纽扇出,
+// 变异 bgEmitFanout);设置页「对话背景」即时写 ui_prefs_set 的 backdrop 字段(D-404),html[data-backdrop] 跟随。
+// 像素、帧率与构图属于浏览器截图(scripts/ui-preview)与纯函数冒烟(ui-constellation-smoke.mjs,末尾链式 import)。
+{
+  const flowNs = esmModuleCache.get("22-neural-flow.js")?.namespace;
+  const backdrop = flowNs?.chatBackdrop;
+  assert(backdrop && backdrop.degraded === true, "星座背景:假 DOM 下必须降级为 degraded 空实现(不抛、不排定时器)");
+  assert(/id="neural-flow-chat"[^>]*\bkz-backdrop\b/.test(html), "星座背景画布缺 kz-backdrop 类");
+  assert(/<html[^>]*data-backdrop="on"/.test(html), "html 必须静态带 data-backdrop=\"on\"(默认开启;关闭由偏好模块在第一次发布时改成 off)");
+  const sessionId = vm.runInContext("activeSessionId", sandbox);
+  const states = esmModuleCache.get("03-shell.js")?.namespace?.sessionStates;
+  assert(sessionId && states, "星座背景:拿不到活动会话或 sessionStates,判据无法定位");
+  if (backdrop && sessionId && states) {
+    const saved = states.has(sessionId) ? { ...states.get(sessionId) } : null;
+    const live = states.get(sessionId) ?? {};
+    states.set(sessionId, Object.assign(live, { phase: "running", running: true, converged: false }));
+    flowNs.neuralFlowEmit("run_started", { session_id: sessionId, step: 1 });
+    assert(backdrop.snapshot().activity === "thinking", `星座背景:run_started 后活动态应为 thinking,实际 ${backdrop.snapshot().activity}`);
+    flowNs.neuralFlowEmit("tool_started", { session_id: sessionId, tool_call_id: "bg-smoke-tool", tool_name: "bash" });
+    assert(backdrop.snapshot().activity === "executing", `星座背景:tool_started 后活动态应为 executing,实际 ${backdrop.snapshot().activity}`);
+    flowNs.neuralFlowEmit("tool_completed", { session_id: "bg-smoke-background", tool_call_id: "bg-smoke-tool", ok: true });
+    assert(backdrop.snapshot().activity === "executing", "星座背景:后台会话的事件改写了活动会话的活动态");
+    flowNs.neuralFlowEmit("tool_completed", { session_id: sessionId, tool_call_id: "bg-smoke-tool", ok: true });
+    flowNs.neuralFlowEmit("run_completed", { session_id: sessionId });
+    if (saved) states.set(sessionId, Object.assign(live, saved, { running: saved.running, phase: saved.phase }));
+    else states.delete(sessionId);
+  }
+  const presetButtons = document.querySelectorAll("#backdrop-presets [data-backdrop-preset]");
+  assert(
+    presetButtons.map((button) => button.dataset.backdropPreset).join(",") === "kanzei,big-dipper,orion,cassiopeia",
+    `设置页图案卡片不对(无自定义图片时应为 kanzei/北斗/猎户/仙后):${presetButtons.map((button) => button.dataset.backdropPreset).join(",")}`,
+  );
+  assert(presetButtons.every((button) => button.getAttribute("role") === "radio"), "图案卡片必须是 role=radio");
+  const orion = presetButtons.find((button) => button.dataset.backdropPreset === "orion");
+  const kanzeiCard = presetButtons.find((button) => button.dataset.backdropPreset === "kanzei");
+  const savesBefore = invokeArgs.length;
+  orion?.click();
+  await flush();
+  const presetSave = invokeArgs.slice(savesBefore).findLast(({ cmd, args }) => cmd === "ui_prefs_set" && args?.backdrop);
+  assert(presetSave?.args.backdrop.preset === "orion", `点「猎户座」应即时写 ui_prefs_set.backdrop.preset=orion,实际 ${JSON.stringify(presetSave?.args ?? null)}`);
+  assert(!presetSave || !("custom" in presetSave.args.backdrop) || presetSave.args.backdrop.custom === null, "没有自定义图片时 backdrop.custom 应为 null");
+  assert(orion?.getAttribute("aria-checked") === "true" && kanzeiCard?.getAttribute("aria-checked") === "false", "图案卡片 aria-checked 没有随选中切换");
+  assert(orion?.getAttribute("tabindex") === "0" && kanzeiCard?.getAttribute("tabindex") === "-1", "图案单选组应是 roving tabindex(选中项 0,其余 -1)");
+  orion?.dispatchEvent({ type: "keydown", key: "ArrowRight", currentTarget: orion, preventDefault() {} });
+  await flush();
+  assert(
+    presetButtons.find((button) => button.dataset.backdropPreset === "cassiopeia")?.getAttribute("aria-checked") === "true",
+    "图案单选组:→ 应移到并选中下一个(仙后座)",
+  );
+  const toggle = byId.get("set-bg-enabled");
+  toggle.checked = false;
+  toggle.dispatchEvent({ type: "change" });
+  await flush();
+  assert(documentElement.dataset.backdrop === "off", `关闭「显示背景」后 html[data-backdrop] 应为 off,实际 ${documentElement.dataset.backdrop}`);
+  const offSave = invokeArgs.findLast(({ cmd, args }) => cmd === "ui_prefs_set" && args?.backdrop);
+  assert(offSave?.args.backdrop.enabled === false, "关闭「显示背景」没有写入 ui_prefs_set");
+  toggle.checked = true;
+  toggle.dispatchEvent({ type: "change" });
+  kanzeiCard?.click();
+  await flush();
+  assert(documentElement.dataset.backdrop === "on", "重新打开「显示背景」后 html[data-backdrop] 应回到 on");
+
+  // 滑杆(复核 minor):拖动中(input)只改内存与画面,松手(change)落盘一次。变异 bgSliderPersist。
+  const densitySlider = byId.get("set-bg-density");
+  const backdropSaves = () => invokeArgs.filter(({ cmd, args }) => cmd === "ui_prefs_set" && args?.backdrop);
+  const savesBeforeDrag = backdropSaves().length;
+  for (const value of ["120", "140", "150"]) {
+    densitySlider.value = value;
+    densitySlider.dispatchEvent({ type: "input" });
+  }
+  await flush();
+  assert(backdropSaves().length === savesBeforeDrag, `拖动星点密度滑杆(input)不应落盘,实际多写了 ${backdropSaves().length - savesBeforeDrag} 次`);
+  assert(byId.get("set-bg-density-value")?.textContent === "150%", "拖动中滑杆读数应即时跟随");
+  densitySlider.dispatchEvent({ type: "change" });
+  await flush();
+  assert(
+    backdropSaves().length === savesBeforeDrag + 1 && backdropSaves().at(-1).args.backdrop.density === 1.5,
+    `松手(change)应落盘一次且带最终值,实际 ${backdropSaves().length - savesBeforeDrag} 次 / ${JSON.stringify(backdropSaves().at(-1)?.args?.backdrop?.density)}`,
+  );
+  densitySlider.value = "100";
+  densitySlider.dispatchEvent({ type: "change" });
+  await flush();
+
+  // 启动时序(复核 minor):偏好模块等后端值(≤ 250ms)再第一次发布——后端存的是「关闭」时,第一次发布就是关闭,
+  // 不先按默认值发布一次「开启 + kanzei」(渲染器 waitForPrefs 等这次发布才开始画)。后端迟迟不回:超时后先按本地 /
+  // 默认值发布,后端值晚到再覆盖。变异 bgBootWait。
+  const prefsNs = esmModuleCache.get("22-constellation-prefs.js")?.namespace;
+  assert(typeof prefsNs?.createBackdropPrefsStore === "function", "星座背景:22-constellation-prefs.js 应导出 createBackdropPrefsStore");
+  if (typeof prefsNs?.createBackdropPrefsStore === "function") {
+    const published = [];
+    const bootSaves = [];
+    let releaseBackend = null;
+    const bootStore = prefsNs.createBackdropPrefsStore({
+      load: () => new Promise((resolve) => { releaseBackend = resolve; }),
+      save: async (patch) => { bootSaves.push(patch); },
+      storage: () => null,
+      publish: (prefs) => published.push({ ...prefs }),
+      timeoutMs: 250,
+    });
+    const booting = bootStore.boot();
+    await settle();
+    assert(published.length === 0, `后端偏好回来之前不应发布(否则先按默认值画一帧星座):${JSON.stringify(published)}`);
+    releaseBackend?.({ backdrop: { enabled: false, preset: "orion" } });
+    await booting;
+    assert(
+      published.length === 1 && published[0].enabled === false && published[0].preset === "orion",
+      `后端存「关闭 + 猎户座」时第一次发布就应是它:${JSON.stringify(published)}`,
+    );
+    const late = [];
+    let releaseSlow = null;
+    const slowStore = prefsNs.createBackdropPrefsStore({
+      load: () => new Promise((resolve) => { releaseSlow = resolve; }),
+      save: async (patch) => { bootSaves.push(patch); },
+      storage: () => null,
+      publish: (prefs) => late.push({ ...prefs }),
+      timeoutMs: 30,
+    });
+    const slowBoot = slowStore.boot();
+    await flush();
+    await slowBoot;
+    assert(late.length === 1 && late[0].enabled === true, `后端超时后应先按默认值发布一次:${JSON.stringify(late)}`);
+    releaseSlow?.({ backdrop: { enabled: false } });
+    await flush();
+    assert(late.length === 2 && late[1].enabled === false, `后端值晚到应覆盖并再发布一次:${JSON.stringify(late)}`);
+    assert(bootSaves.length === 0, "启动读后端值不应回写 app.json");
+  }
+}
+// ── 分区:星座背景 结束 ──
 
 // R-284 B3:结构化体验事件必须先归并到事实 store,再按归属分发。
 {
@@ -2165,7 +2746,8 @@ assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
   vm.runInContext("renderProjects({ current: null, projects: [], names: {} })", sandbox);
   await flush();
   assert(vm.runInContext("currentProject", sandbox) === null, "空项目偏好仍留下了当前项目");
-  assert(byId.get("project-list").children.length === 0, "空项目偏好仍渲染出项目卡片");
+  // UI2-0926 #1:侧栏项目列表已删,项目菜单/命令面板读的是 projectMenuEntries(偏好缓存)。
+  assert(vm.runInContext("projectMenuEntries().length", sandbox) === 0, "空项目偏好仍产出项目菜单项");
   assert(byId.get("project-label").textContent.includes("未选择项目"), "空项目状态未显示『未选择项目』");
   assert(byId.get("documents-project-select").disabled, "空项目状态下文档项目选择器仍可用");
   assert(
@@ -2185,11 +2767,17 @@ assert(
   "项目胶囊无障碍标签应保留完整路径",
 );
 // D-420:项目重命名与新建都走应用内输入弹窗,取消/确认语义仍由调用方消费。
+// UI2-0926 #1:重命名从侧栏列表行的 ✎ 挪进项目总览卡片的 ⋯ 菜单。
 {
-  const projectItem = byId.get("project-list").children[0];
-  assert(projectItem, "输入弹窗回归缺少项目卡片夹具");
+  sandbox.renderWorkspace({ projects: [{ path: PROJECT, name: "smoke", current: true, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] }] });
+  const projectMore = byId.get("workspace-projects").querySelector(".workspace-card-more");
+  assert(projectMore, "输入弹窗回归缺少项目总览卡片的 ⋯");
   sandbox.__inputDialogResponses.push("重命名后的项目");
-  projectItem.querySelector(".rename").click();
+  projectMore.click();
+  const renameItem = [...(esmModuleCache.get("12-docs-pages.js")?.namespace?.workspaceMenuHandle?.el?.querySelectorAll(".k-menu-item") ?? [])]
+    .find((node) => node.textContent.includes("重命名项目"));
+  assert(renameItem, "项目总览卡片 ⋯ 菜单缺「重命名项目…」");
+  renameItem?.click();
   await flush();
   const renameCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_rename");
   assert(renameCall?.args?.name === "重命名后的项目", "项目重命名未消费输入弹窗的值");
@@ -2503,22 +3091,29 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
 // D-362:文档页行内三列对齐的结构保证——可选徽标一律在标题之后成簇,不得插在
 // 优先级前面。像素位置在这个环境里量不了,但「优先级之前只允许固定宽度元素」
 // 这条结构不变量正是对齐的充要条件,行行成立则三列必然对齐。
+// UI2-0926 #5 改写(行结构 [勾选][状态][标题][例外标记][批次格槽][优先级][复杂度]):标题之前只准定宽的
+// 勾选框/状态列(标题起点行行一致);可选徽标只在 .doc-flags 里;标题之后依次是 [.doc-flags?] .doc-meter-slot
+// .pri-badge [.complexity-badge,仅需求] 并到此结束(右端三条定宽列行行对齐);批次格只在槽里,没有批次格的行也留空槽。
 {
-  const optional = ["doc-claim-fact", "complexity-meter", "blocked-badge", "clarify-badge"];
+  const optional = ["doc-claim-fact", "blocked-badge", "clarify-badge", "work-unit-badge"];
   const rows = document.querySelectorAll("#documents-req-list .doc-row, #documents-defect-list .doc-row");
   assert(rows.length > 0, "文档页列表应有行可检");
-  for (const row of rows) {
-    const kids = [...row.children];
-    const priAt = kids.findIndex((n) => n.classList.contains("pri-badge"));
-    if (priAt < 0) continue;
-    const early = kids.slice(0, priAt).filter((n) => optional.some((cls) => n.classList.contains(cls)));
-    assert(
-      early.length === 0,
-      `可选徽标不得排在优先级之前(会把三列推歪):${early.map((n) => n.className).join(",")}`,
-    );
-    const flagBox = kids.find((n) => n.classList.contains("doc-flags"));
-    if (flagBox) {
-      assert(kids[kids.length - 1] === flagBox, "doc-flags 必须是行内最后一个元素(排在标题之后)");
+  for (const [listId, withCx] of [["documents-req-list", true], ["documents-defect-list", false]]) {
+    for (const row of document.querySelectorAll(`#${listId} .doc-row`)) {
+      const kids = [...row.children];
+      const titleAt = kids.findIndex((n) => n.classList.contains("title"));
+      assert(titleAt >= 0, `${listId} 行缺标题`);
+      const lead = kids.slice(0, titleAt).filter((n) => !["doc-pick", "doc-pick-space", "st"].some((cls) => n.classList.contains(cls)));
+      assert(lead.length === 0, `标题之前只准勾选框/状态列(会把标题起点推歪):${lead.map((n) => n.className).join(",")}`);
+      const stray = kids.filter((n) => optional.some((cls) => n.classList.contains(cls)));
+      assert(stray.length === 0, `可选徽标必须收在 .doc-flags 里:${stray.map((n) => n.className).join(",")}`);
+      const tailKinds = kids.slice(titleAt + 1).map((n) => (n.classList.contains("doc-flags") ? "flags"
+        : n.classList.contains("doc-meter-slot") ? "meter"
+          : n.classList.contains("pri-badge") ? "pri"
+            : n.classList.contains("complexity-badge") ? "cx" : n.className));
+      const expected = [...(tailKinds[0] === "flags" ? ["flags"] : []), "meter", "pri", ...(withCx ? ["cx"] : [])];
+      assert(tailKinds.join(",") === expected.join(","), `${listId} 行尾结构应为 ${expected.join(",")},实为 ${tailKinds.join(",")}`);
+      assert(!row.querySelector(".doc-flags .complexity-meter"), "批次格不得混在例外标记簇里(它是定宽列,放 .doc-meter-slot)");
     }
   }
 }
@@ -2635,6 +3230,15 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     Number(total) === Number(reqReady) + Number(reqBlocked) + Number(defReady) + Number(defBlocked),
     `加法树失守:${total} ≠ ${reqReady}+${reqBlocked}+${defReady}+${defBlocked}`,
   );
+  // 配色语义(docs/design/ui_color_semantics.md):计数只有非零才着色,零挂 is-zero 一律灰——
+  // 「阻塞 0」染成琥珀等于在喊一件不存在的事。实渲染与直接调用两路都盯住(删掉 JS 里的三元就红)。
+  const statOf = (sel) => document.querySelector(`#focus-backlog ${sel}`);
+  assert(statOf('[data-kind="defect"] .backlog-stat.workable')?.classList.contains("is-zero"), "值为 0 的计数缺 is-zero(零也会按状态色着色)");
+  assert(statOf('[data-kind="req"] .backlog-stat.blocked') && !statOf('[data-kind="req"] .backlog-stat.blocked').classList.contains("is-zero"), "非零的阻塞计数不该带 is-zero(阻塞非零必须是琥珀)");
+  const tallyPagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  assert(typeof tallyPagesNs?.backlogStat === "function", "12-docs-pages.js 未导出 backlogStat");
+  assert(tallyPagesNs.backlogStat("阻塞", 0, "blocked").classList.contains("is-zero"), "阻塞=0 时 backlogStat 必须挂 is-zero");
+  assert(!tallyPagesNs.backlogStat("阻塞", 2, "blocked").classList.contains("is-zero"), "阻塞=2 时 backlogStat 不得挂 is-zero");
   // D-332:非法 lifecycle 引擎不取活,前端也不能悄悄算进总数——单列一行点名。
   payloads.docs_snapshot = {
     ...payloads.docs_snapshot,
@@ -4286,7 +4890,8 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
   h2Head.click();
   assert(h2Detail.classList.contains("hidden") && h2Head.getAttribute("aria-expanded") === "false", "再次点击工具行未收起详情");
   assert(!style.includes(".turn-divider"), "样式表仍残留无创建点的 .turn-divider");
-  assert(/\.msg\.tool-msg\s*\{[^}]*margin:\s*-4px\s+0/.test(style), "工具行间距未收紧");
+  // UI2-0926 #12:轨迹压紧改由列内节奏承担——相邻工具组/思考 6px(轮内),轮间 36px(下一条)。
+  assert(/#messages > \.msg-pane > :is\(\.tool-group, \.msg\.reasoning\) \+ :is\(\.tool-group, \.msg\.reasoning\)\s*\{[^}]*margin-top:\s*6px/.test(style), "工具行间距未收紧");
   assert(/\.msg\.user:not\(:first-child\)\s*\{[^}]*margin-top:\s*36px/.test(style), "轮间留白未显著拉开");
   const chatRenderer = esmModuleCache.get("05-chat-render.js")?.namespace;
   const activityRenderer = esmModuleCache.get("06-activity.js")?.namespace;
@@ -4306,7 +4911,7 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
     assert(compactDisplay.querySelectorAll(".diff-row").length < longDiff.length, "主区 diff 仍渲染整份文件");
     assert(compactDisplay.querySelector(".diff-omitted"), "主区 diff 缺少省略上下文提示");
     assert(compactDisplay.textContent.includes("真正的一行改动"), "主区限定 diff 丢失真实变更行");
-    assert(compactBlock?.detail.querySelector(".tool-display-more")?.textContent === "去活动面板看全", "超限 diff 缺少活动面板出口");
+    assert(compactBlock?.detail.querySelector(".tool-display-more")?.textContent === "去后台任务侧栏看全", "超限 diff 缺少后台任务侧栏出口");
     assert(
       /\.tool-msg-detail > \.tool-display\s*\{[^}]*max-height:\s*420px[^}]*overflow:\s*auto/.test(style),
       "主区 tool-display 缺少 420px 滚动上限",
@@ -4316,9 +4921,14 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
     const fullDisplay = activityRenderer?.appendDisplayBlock(activityHost, display);
     assert(activityHost.querySelectorAll(".diff-row").length === longDiff.length, "活动面板默认全量 diff 消费被裁剪");
     byId.get("messages").appendChild(compactBlock.wrap);
-    byId.get("bg-panel").classList.add("hidden");
+    // UI2-0926 #14 缺陷 C:「去后台任务侧栏看全」只打开、不切换——侧栏已开着时点它也仍然开着。
+    const tasksPanelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+    tasksPanelNs?.closeTasksPanel();
     compactBlock.detail.querySelector(".tool-display-more").click();
-    assert(!byId.get("bg-panel").classList.contains("hidden"), "活动面板出口未打开真实活动面板");
+    assert(!byId.get("tasks-panel").classList.contains("hidden"), "「去后台任务侧栏看全」没有打开后台任务侧栏");
+    compactBlock.detail.querySelector(".tool-display-more").click();
+    assert(!byId.get("tasks-panel").classList.contains("hidden"), "缺陷 C:侧栏已开着时点「去后台任务侧栏看全」把它关掉了(应只开不切换)");
+    tasksPanelNs?.closeTasksPanel();
     compactBlock.wrap.remove();
     fullDisplay?.remove?.();
   }
@@ -4411,7 +5021,8 @@ assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=T3]"), "不带 pha
   assert(isActivityToolFn("bash") === true, "R-168:bash 必须入活动栏");
   assert(isActivityToolFn("edit") === false, "R-168:成功 edit 不得入活动栏(判据被改成恒真了?)");
   assert(isActivityToolFn("read") === false, "R-168:成功 read 不得入活动栏");
-  assert(isActivityToolFn("task", { phase: "scouting" }) === true, "R-173:编排派发的 task 必须入活动栏");
+  // UI2-0926 #14:编排派发的 task 也是委派卡(主对话卡片 + 侧栏委派卡),不再重复进终端条目。
+  assert(isActivityToolFn("task", { phase: "scouting" }) === false, "UI2-0926 #14:编排派发的 task 由委派卡呈现,不得再进终端条目");
   assert(isActivityToolFn("task", { prompt: "x" }) === false, "R-168:模型自派的 task 不得入活动栏");
 }
 assert(
@@ -4434,10 +5045,10 @@ toolEnd({ payload: { id: "T3", name: "task", ok: false, preview: "子代理失�
 await flush();
 assert(bashEntry.querySelector(".bg-meta")?.textContent.includes("成功"), "结束后未在元信息里给出成败");
 assert(/\d+(\.\d+)?(ms|s)/.test(bashEntry.querySelector(".bg-meta")?.textContent ?? ""), "结束后未给出耗时");
-const taskEntry = document.querySelector("#bg-list .bg-entry[data-bg-tool=task]");
-assert(taskEntry.querySelector(".bg-meta")?.textContent.includes("内部调用"), "子代理条目未给出内部调用数");
+// UI2-0926 #14:task 的成败归委派卡(失败的子代理在卡上标红),失败也不补建终端条目。
+assert(!document.querySelector("#bg-list .bg-entry[data-bg-tool=task]"), "失败的 task 不该补建终端条目(委派卡自己标失败)");
 assert(
-  taskEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "重跑"),
+  bashEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "重跑"),
   "结束的条目缺少重跑入口",
 );
 // D-234:批次格由 Git 提交标题推导。直接 agent 与子 agent 提交都必须立即刷新快照，
@@ -4457,6 +5068,10 @@ assert(
   "子代理提交后未即时刷新 Git 推导的批次进度",
 );
 // 筛选:按类型与成败收敛,且计数要能看出"筛出/总数",否则会误以为本轮只跑了这几个工具。
+// 先补一条失败的静默工具(R-168:失败由 bgFinishQuiet 补建条目),让两种筛选都有东西可筛。
+toolStart({ payload: { id: "T-READ-FAIL", name: "read", summary: "missing.rs", input: { path: "missing.rs" }, sessionId: "sess-smoke" } });
+toolEnd({ payload: { id: "T-READ-FAIL", name: "read", ok: false, preview: "file not found: missing.rs", display: null, sessionId: "sess-smoke" } });
+await flush();
 const typeFilter = byId.get("bg-type-filter");
 typeFilter.value = "terminal";
 typeFilter._listeners.change?.forEach((fn) => fn({ target: typeFilter }));
@@ -4464,7 +5079,7 @@ assert(
   document.querySelectorAll("#bg-list .bg-entry").filter((n) => !n.classList.contains("hidden")).length === 1,
   "按类型筛选未生效",
 );
-assert(listText("bg-count").includes("/"), "筛选后未同时给出筛出数与总数");
+assert(byId.get("tasks-filter").title.includes("/"), "筛选后未同时给出筛出数与总数(写在「筛选与清理」按钮的提示里)");
 const statusFilter = byId.get("bg-status-filter");
 typeFilter.value = "all";
 typeFilter._listeners.change?.forEach((fn) => fn({ target: typeFilter }));
@@ -4472,147 +5087,88 @@ statusFilter.value = "err";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 assert(
   document.querySelectorAll("#bg-list .bg-entry").filter((n) => !n.classList.contains("hidden"))
-    .every((n) => n.dataset.bgTool === "task"),
+    .every((n) => n.dataset.bgTool === "read"),
   "按失败状态筛选未生效",
 );
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
-// ---------- R-173 编排派发的勘察/复核子代理:实时进度必须落到面板上 ----------
-// 编排对象按角色表派发的这批子代理不经模型 tool call,主对话里没有内联工具块兜底,
-// 活动面板是它们唯一的可见处。此前 name 恒为 "task" 被 R-168 一刀切静默,于是 5 勘察 +
-// 3 复核的轮次/工具进度整批落空。区分依据是后端给的 input.phase(scouting/review)。
-const orchEntry = (role) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === role);
-// 活动面板分三段之后,同一个 phase 在「运行中/需要关注/已完成」里各有一份组容器
-// (跑完的勘察收进折叠区,还在跑的留在上面)。所以「这个阶段有几条」必须跨段求和,
-// 只看第一个组会随条目落位漂移;组头的完成数本来就是跨段算的,取任一份都一样。
-const orchGroups = (phase) => [...document.querySelectorAll(`.bg-group[data-bg-phase=${phase}]`)];
-const orchGroup = (phase) => orchGroups(phase)[0];
-const orchPhaseEntries = (phase) => orchGroups(phase).flatMap((g) => [...g.querySelectorAll(".bg-entry")]);
-const orchGroupHead = (phase) => orchGroups(phase)
-  .map((g) => g.querySelector(".bg-group-head")?.textContent ?? "").find((text) => text) ?? "";
+// ---------- R-173 → UI2-0926 #14 编排派发的勘察/复核子代理:实时进度落在后台任务侧栏的委派卡上 ----------
+// 编排对象按角色表派发的这批子代理不经模型 tool call;UI-0926 #8 起它们是主对话里的子代理卡片,
+// UI2-0926 #14 起侧栏里是一张委派卡(不再重复一份终端条目):阶段行「勘察 · done/N」+ 每个子代理一个进度点、
+// 每个角色一行(角色名 · 模型 · Token · 用时)、超时与失败分开标记,同名角色跨轮重派是新的一批、新的一张卡。
+const tasksNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+assert(tasksNs && typeof tasksNs.openTasksPanel === "function", "06-agent-panel.js 未导出 openTasksPanel");
+tasksNs.openTasksPanel();
 const scoutRoles = ["architecture_scout", "runtime_scout", "test_scout"];
+const delegationCards = () => [...document.querySelectorAll(".tp-card")].filter((c) => c.dataset.kind === "delegation");
+const agentRow = (role, root = document) => root.querySelector(`.tp-agent-row[data-sa-key="sess-smoke|${role}"]`);
+const cardWithRole = (role) => delegationCards().find((c) => agentRow(role, c));
 // ① 契约时序:N 条 start 先全发完。派发瞬间就该全部可见,不能等各自跑完才冒出来。
 for (const role of scoutRoles) {
   toolStart({ payload: { id: role, name: "task", summary: `${role} · 勘察`, input: { prompt: `派给 ${role} 的完整指令`, phase: "scouting", role }, sessionId: "sess-smoke" } });
 }
-// 同一批里混一条模型自己派的 task(不带 phase):R-168 的静默口径不能被顺手打破。
+// 同一批里混一条模型自己派的 task(不带 phase):它是另一张卡,不串进编排批次。
 toolStart({ payload: { id: "MODEL_TASK", name: "task", summary: "模型自己派的子代理", input: { prompt: "review" }, sessionId: "sess-smoke" } });
 await flush();
 for (const role of scoutRoles) {
-  assert(orchEntry(role), `编排派发的勘察子代理 ${role} 没进活动面板(内部进度整批丢掉)`);
+  assert(!document.querySelector(`#bg-list .bg-entry[data-bg-id=${role}]`), `编排子代理 ${role} 不该再建终端条目(委派卡负责,不重复两份)`);
+  assert(agentRow(role), `编排派发的勘察子代理 ${role} 没进后台任务侧栏的委派卡`);
 }
-  assert(!orchEntry("MODEL_TASK"), "模型自己派的 task 被一起放行了(R-168 静默口径被打破)");
-// ② 分组:按 input.phase 分区,这是 Running/Finished 分区的雏形。
-assert(orchGroup("scouting"), "勘察子代理未按 input.phase 分组");
-assert(
-  orchGroup("scouting").querySelectorAll(".bg-entry").length === scoutRoles.length,
-  `勘察分组内条目数不对:${orchGroup("scouting").querySelectorAll(".bg-entry").length}`,
-);
-assert(orchGroupHead("scouting").includes("勘察"), `勘察分组标题缺阶段名,实得 "${orchGroupHead("scouting")}"`);
-assert(orchGroupHead("scouting").includes("0/3"), `勘察分组标题未给出完成数/总数,实得 "${orchGroupHead("scouting")}"`);
-// ③ 单条信息量:角色名(不是恒为 "task" 的工具名)、所属阶段、已运行时长与内部调用数。
-const scout = orchEntry("architecture_scout");
-assert(
-  scout.querySelector(".bg-tool")?.textContent === "architecture_scout",
-  `条目未以角色名标识,实得 "${scout.querySelector(".bg-tool")?.textContent}"(8 条都叫 task 等于没标识)`,
-);
-assert(
-  scout.querySelector(".bg-phase-badge")?.textContent === "勘察",
-  `条目未标出所属阶段,实得 "${scout.querySelector(".bg-phase-badge")?.textContent}"`,
-);
-assert(/运行中 · \d+s · 内部调用 \d+/.test(scout.querySelector(".bg-meta")?.textContent ?? ""),
-  `运行中未给出状态/已运行时长/内部调用数,实得 "${scout.querySelector(".bg-meta")?.textContent}"`);
-assert(scout.dataset.bgStatus === "running", `运行中状态未落到条目上,实得 "${scout.dataset.bgStatus}"`);
-// ④ 执行期进度:纯轮次进度(trace 为 null)与工具进度都要落到对应角色。
-taskProgress({ payload: { id: "architecture_scout", text: "第 3/12 轮", trace: null, sessionId: "sess-smoke" } });
+const scoutCard = cardWithRole("architecture_scout");
+assert(scoutCard && scoutRoles.every((role) => agentRow(role, scoutCard)), "同一批三个勘察角色没有落在同一张委派卡里");
+assert(!agentRow("MODEL_TASK", scoutCard ?? document.createElement("div")), "模型自派的 task 串进了编排批次的委派卡");
+// ② 阶段行:阶段名 + 完成数/总数 + 每个子代理一个进度点;在跑的卡在「运行中」段。
+assert(scoutCard?.querySelector(".tp-phase-label")?.textContent === "勘察", `委派卡阶段行缺阶段名,实得 "${scoutCard?.querySelector(".tp-phase-label")?.textContent}"`);
+assert(scoutCard?.querySelector(".tp-phase-count")?.textContent === "0/3", `委派卡阶段行未给出完成数/总数,实得 "${scoutCard?.querySelector(".tp-phase-count")?.textContent}"`);
+const scoutDots = [...(scoutCard?.querySelectorAll(".tp-dots i") ?? [])];
+assert(scoutDots.length === 3 && scoutDots.every((dot) => dot.dataset.s === "running"), `进度点应为 3 个在跑,实为 ${scoutDots.map((d) => d.dataset.s).join(",")}`);
+assert(scoutCard?.parentElement?.id === "tasks-running", `在跑的委派卡应在「运行中」段,实在 #${scoutCard?.parentElement?.id}`);
+assert(/3 个子代理|3 subagents/.test(scoutCard?.querySelector(".tp-card-stats")?.textContent ?? ""), `委派卡副行缺「3 个子代理」,实得 "${scoutCard?.querySelector(".tp-card-stats")?.textContent}"`);
+// ③ 单行信息量:角色名是身份;meta trace 给实际模型;usage 是累计值(替换不累加)。
+const scoutRow = agentRow("architecture_scout");
+assert(scoutRow?.querySelector(".tp-agent-label")?.textContent.includes("architecture_scout"), `委派卡的行未以角色名标识,实得 "${scoutRow?.querySelector(".tp-agent-label")?.textContent}"`);
+taskProgress({ payload: { id: "architecture_scout", text: "explore · qwen3:8b", trace: { child_id: "architecture_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
+taskProgress({ payload: { id: "architecture_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 1000, output: 200 } }, sessionId: "sess-smoke" } });
+taskProgress({ payload: { id: "architecture_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 1200, output: 300 } }, sessionId: "sess-smoke" } });
 await flush();
-assert(scout.querySelector(".bg-prog")?.textContent === "第 3/12 轮",
-  `轮次进度未挂回角色条目,实得 "${scout.querySelector(".bg-prog")?.textContent}"`);
-// ⑤ 当前正在用的工具名 —— 用户点名要的那一项。值与写入去向都断言:
-// 只断言文本看不出"写对了内容却写错了元素",dataset 探针把去向也钉死。
-taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "start", name: "grep", summary: "phase_pipeline" }, sessionId: "sess-smoke" } });
-await flush();
-assert(scout.querySelector(".bg-current")?.textContent.includes("grep"),
-  `当前工具名未显示,实得 "${scout.querySelector(".bg-current")?.textContent}"`);
-assert(scout.dataset.bgCurrentTool === "grep", `当前工具名写错了地方,实得 "${scout.dataset.bgCurrentTool}"`);
-assert(!scout.querySelector(".bg-current")?.classList.contains("hidden"), "当前工具名所在行仍是隐藏的");
-assert(!scout.querySelector(".bg-current")?.classList.contains("idle"), "工具正在跑却标成了空闲态");
-taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "end", name: "grep", ok: true, preview: "命中 12 处" }, sessionId: "sess-smoke" } });
-taskProgress({ payload: { id: "architecture_scout", text: "第 5/12 轮", trace: { child_id: "c2", phase: "start", name: "read", summary: "phase_pipeline.rs" }, sessionId: "sess-smoke" } });
-await flush();
-assert(scout.dataset.bgCurrentTool === "read", `当前工具名未跟着换到下一个工具,实得 "${scout.dataset.bgCurrentTool}"`);
-assert(/内部调用 2/.test(scout.querySelector(".bg-meta")?.textContent ?? ""),
-  `工具调用次数未累计,实得 "${scout.querySelector(".bg-meta")?.textContent}"`);
-// ⑥ 终态:成功/失败/超时三分,完成的条目继续可见。
+assert(scoutRow?.querySelector(".tp-agent-model")?.textContent === "qwen3:8b", `模型列应取 meta 的实际模型,实得 "${scoutRow?.querySelector(".tp-agent-model")?.textContent}"`);
+assert(scoutRow?.querySelector(".tp-agent-tok")?.textContent === "1.5k", `Token 列应取最新累计值 1.5k(不相加),实得 "${scoutRow?.querySelector(".tp-agent-tok")?.textContent}"`);
+assert(!/\d+s\b/.test(scoutRow?.getAttribute("aria-label") ?? "0s"), `运行中的行可访问名不该带逐秒变化的耗时:"${scoutRow?.getAttribute("aria-label")}"`);
+// ④ 终态:成功/失败/超时三分,超时与失败分开标记;有失败的批次在确认前留在「需要关注」。
 toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "勘察简报首行", display: null, sessionId: "sess-smoke" } });
 toolEnd({ payload: { id: "runtime_scout", name: "task", ok: false, preview: "(超时,未产出结果)", display: null, sessionId: "sess-smoke" } });
 toolEnd({ payload: { id: "test_scout", name: "task", ok: false, preview: "子代理内部报错", display: null, sessionId: "sess-smoke" } });
 await flush();
-assert(orchEntry("architecture_scout")?.dataset.bgStatus === "ok", "成功角色终态不对");
-assert(orchEntry("test_scout")?.dataset.bgStatus === "err", "失败角色终态不对");
-assert(orchEntry("runtime_scout")?.dataset.bgStatus === "timeout",
-  `超时角色未与失败区分开,实得 "${orchEntry("runtime_scout")?.dataset.bgStatus}"`);
-assert(orchEntry("runtime_scout")?.classList.contains("timeout"), "超时角色缺少可视区分的样式钩子");
-assert(!orchEntry("test_scout")?.classList.contains("timeout"), "普通失败被误标成超时");
-assert(orchEntry("runtime_scout")?.querySelector(".bg-meta")?.textContent.includes("超时"),
-  `超时角色元信息未写明超时,实得 "${orchEntry("runtime_scout")?.querySelector(".bg-meta")?.textContent}"`);
-assert(orchEntry("test_scout")?.querySelector(".bg-meta")?.textContent.includes("失败"), "失败角色元信息未写明失败");
-assert(scout.dataset.bgCurrentTool === "", "角色收尾后当前工具名没清掉(会一直显示最后一个工具在跑)");
-for (const role of scoutRoles) {
-  assert(orchEntry(role) && !orchEntry(role).classList.contains("hidden"), `${role} 跑完就消失了(完成的条目必须保留可见)`);
-}
-assert(orchGroupHead("scouting").includes("3/3"), `勘察分组标题未跟随完成数,实得 "${orchGroupHead("scouting")}"`);
-// ⑦ 复核阶段单独一区,与勘察分开。
+const endedCard = cardWithRole("architecture_scout");
+assert(endedCard?.querySelector(".tp-phase-count")?.textContent === "3/3", `委派卡完成数未跟随,实得 "${endedCard?.querySelector(".tp-phase-count")?.textContent}"`);
+assert(agentRow("architecture_scout")?.dataset.s === "done", "成功角色行终态不对");
+assert(agentRow("runtime_scout")?.dataset.saState === "timeout" && agentRow("runtime_scout")?.dataset.s === "warn", `超时角色未与失败区分开:${agentRow("runtime_scout")?.dataset.saState}/${agentRow("runtime_scout")?.dataset.s}`);
+assert(agentRow("test_scout")?.dataset.s === "failed", "失败角色行没有标失败");
+assert(endedCard?.parentElement?.id === "tasks-attention", `有失败的一批应留在「需要关注」段直到确认,实在 #${endedCard?.parentElement?.id}`);
+assert(/2 (个)?失败|2 fail/i.test(endedCard?.querySelector(".tp-card-stats")?.textContent ?? ""), `委派卡副行应写明 2 失败,实得 "${endedCard?.querySelector(".tp-card-stats")?.textContent}"`);
+// ⑤ 复核阶段单独一张卡。
 for (const role of ["spec_reviewer", "risk_reviewer"]) {
   toolStart({ payload: { id: role, name: "task", summary: `${role} · 复核`, input: { prompt: `派给 ${role} 的完整指令`, phase: "review", role }, sessionId: "sess-smoke" } });
 }
 await flush();
-assert(orchGroup("review"), "复核子代理未单独分区");
-assert(orchPhaseEntries("review").length === 2, "复核分组内条目数不对");
-assert(orchGroupHead("review").includes("复核"), `复核分组标题缺阶段名,实得 "${orchGroupHead("review")}"`);
-assert(orchEntry("spec_reviewer")?.querySelector(".bg-phase-badge")?.textContent === "复核", "复核条目阶段标记不对");
-assert(
-  orchPhaseEntries("scouting").length === 3,
-  "复核条目串进了勘察分组",
-);
-// ⑧ 角色名跨轮复用:同名角色再次派发要原地复位,否则第二轮的进度全写进上一轮那条终态行。
+const reviewCard = cardWithRole("spec_reviewer");
+assert(reviewCard && reviewCard !== endedCard && reviewCard.querySelector(".tp-phase-label")?.textContent === "复核" && reviewCard.querySelectorAll(".tp-agent-row").length === 2, "复核子代理未单独成一张委派卡");
+// ⑥ 同名角色跨轮重派:新的一批、新的一张卡;上一批那张卡还在(上一轮结果不被覆写,D-725)。
 toolStart({ payload: { id: "architecture_scout", name: "task", summary: "architecture_scout · 勘察", input: { prompt: "第二轮指令", phase: "scouting", role: "architecture_scout" }, sessionId: "sess-smoke" } });
 await flush();
-assert(orchEntry("architecture_scout")?.dataset.bgStatus === "running",
-  `同名角色第二轮派发未复位,实得 "${orchEntry("architecture_scout")?.dataset.bgStatus}"(面板会定格在上一轮)`);
-assert(orchPhaseEntries("scouting").length === 3, "同名角色复位时把条目复制了一份");
-assert(orchGroupHead("scouting").includes("2/3"), `复位后完成数未回退,实得 "${orchGroupHead("scouting")}"`);
+const scoutDelegations = delegationCards().filter((card) => agentRow("architecture_scout", card));
+assert(scoutDelegations.length === 2 && scoutDelegations[0] !== endedCard && scoutDelegations[0].parentElement?.id === "tasks-running", `同名角色第二轮应是新的一张在跑的委派卡(新批次在上),实得 ${scoutDelegations.length} 张`);
 toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "第二轮简报", display: null, sessionId: "sess-smoke" } });
 await flush();
 
-// ---------- R-184 P2:活动记录按 agent 归属与折叠 ----------
-// ① 编排子代理轨迹带角色色点(角色名文本始终在旁,颜色不作唯一区分);
-//    无 phase 的模型自派 task 不进活动面板,自然也不该有色点。
-assert(orchEntry("architecture_scout")?.querySelector(".bg-dot"), "编排子代理轨迹缺角色色点");
-assert(
-  !orchEntry("MODEL_TASK") || !orchEntry("MODEL_TASK").querySelector(".bg-dot"),
-  "无 phase 的模型自派 task 不该有角色色点",
-);
-// ② 角色筛选下拉动态列出全部角色(全部 + 每个出现过的角色)。
-const roleFilter = document.querySelector("#bg-role-filter");
-assert(roleFilter, "活动面板缺角色筛选下拉");
-const roleOptions = [...roleFilter.options].map((o) => o.value);
-for (const role of [...scoutRoles, "spec_reviewer", "risk_reviewer"]) {
-  assert(roleOptions.includes(role), `角色筛选下拉缺选项 ${role},实得 ${roleOptions.join(",")}`);
-}
-// ③ 切到某角色 → 只剩该角色的条目可见;切回全部 → 全部恢复。
-roleFilter.value = "architecture_scout";
-roleFilter._listeners.change?.forEach((fn) => fn({ target: roleFilter }));
-await flush();
-const visibleAfterRole = [...document.querySelectorAll("#bg-list .bg-entry")].filter((n) => !n.classList.contains("hidden"));
-assert(
-  visibleAfterRole.length >= 1 && visibleAfterRole.every((n) => n.dataset.bgRole === "architecture_scout"),
-  `按角色筛选后应只剩 architecture_scout,实得 ${visibleAfterRole.map((n) => n.dataset.bgRole).join(",")}`,
-);
-roleFilter.value = "all";
-roleFilter._listeners.change?.forEach((fn) => fn({ target: roleFilter }));
-await flush();
+// ---------- R-184 P2 → UI2-0926 #14:子代理的角色归属 ----------
+// ① 编排子代理以角色名为身份,不配哈希取色的色点(ui_color_semantics.md:身份不用色)。
+assert(!document.querySelector(".bg-dot"), "侧栏里还有角色色点(.bg-dot):身份只靠角色名文本");
+// ② 角色筛选下拉随编排条目退出终端条目而删除:每个角色在委派卡的小表里各占一行。
+assert(!byId.get("bg-role-filter"), "角色筛选已并入委派卡(每个角色一行),不该再有 #bg-role-filter");
+for (const role of [...scoutRoles, "spec_reviewer", "risk_reviewer"]) assert(agentRow(role), `委派卡里缺角色 ${role} 的一行`);
+tasksNs.closeTasksPanel();
 // ④ UI-0926 #8(R-184 折叠组退役):主对话里的子代理按**派发批次**成组,不再按角色跨轮折叠。
 // 同一批勘察是一个组(组头带阶段名与人数),每个角色一张卡;同名角色第二轮重派是新的一批、新的卡,
 // 上一轮的结果留在上一轮那张卡里(D-725「同名重派不覆写」的语义由「每次派发一张新卡」继续满足)。
@@ -6367,15 +6923,28 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   kzTest.cancelTimers();
 }
 
-// ---------- R-342 模式芯片常驻:选择器在上下文行,配色随档位 ----------
+// ---------- R-342 模式芯片常驻:选择器在工具行左段,配色随档位 ----------
 // 「区别不够明显」的根因不是缺一个旋钮,是唯一的旋钮埋在鞭挞设置弹层里——对话时
-// 根本不在视野内。这里锁两件事:①选择器留在 composer-context(不许再退回弹层);
-// ②data-mode 与 value 同步(配色靠它,漂了就等于没换色)。
+// 根本不在视野内。这里锁两件事:①选择器常驻输入区(UI2-0926 #11 起在底部工具行左段,与 Claude 的模式芯片
+// 同位),不许再退回任何弹层;②data-mode 与 value 同步(配色靠它,漂了就等于没换色)。
 {
-  const contextRow = html.slice(html.indexOf('id="composer-context"'), html.indexOf('id="attachments"'));
+  const leftStart = html.indexOf('<div class="composer-left">');
+  const leftRow = leftStart >= 0 ? html.slice(leftStart, html.indexOf('<div class="composer-right">', leftStart)) : "";
+  const selectAt = html.indexOf('id="profile-select"');
+  const inPopover = [...html.matchAll(/<div id="([\w-]+)"[^>]*popover=/g)].some((m) => {
+    const open = m.index;
+    let depth = 0;
+    const tag = /<\/?div\b/g;
+    tag.lastIndex = open;
+    for (let t = tag.exec(html); t; t = tag.exec(html)) {
+      depth += t[0] === "<div" ? 1 : -1;
+      if (depth === 0) return selectAt > open && selectAt < t.index;
+    }
+    return false;
+  });
   assert(
-    contextRow.includes('id="profile-select"') && contextRow.includes("ctx-mode"),
-    "R-342:模式选择器必须常驻输入框上方的上下文行(带 ctx-mode 芯片样式)",
+    leftRow.includes('id="profile-select"') && leftRow.includes("ctx-mode") && !inPopover,
+    "R-342:模式选择器必须常驻输入区工具行左段 .composer-left(带 ctx-mode 芯片样式),不得在任何弹层里",
   );
   const savedProfileR342 = byId.get("profile-select").value;
   for (const mode of ["dev-auto", "dev-pair"]) {
@@ -7224,7 +7793,8 @@ assert(
   assert(b9Key("回到最新") === "回到最新", "中文态回到最新应保持原文(前置失效)");
   assert(!sandbox.document.getElementById("process-tabs"), "中文态不应出现顶部进程切换条");
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", "中文态输入框 placeholder 应保持原文(前置失效)");
-  assert(b9Key("排队 queue") === "排队 queue", "中文态排队 queue option 应保持原文(前置失效)");
+  // UI2-0926 #11:交付方式选项去掉英文尾巴(「插入 steer」→「插入」),option 渲染点翻译照测。
+  assert(b9Key("插入") === "插入", "中文态插入 option 应保持原文(前置失效)");
 
   localStorageShim.setItem("kz-language", "en");
   sandbox.applyLanguage();
@@ -7238,9 +7808,10 @@ assert(
   assert(b9Key("回到最新") === "Jump to latest", `英文态「回到最新」未翻译,实际 "${b9Key("回到最新")}"`);
   assert(b9Key("全部类型") === "All types", `英文态「全部类型」未翻译(option 渲染点),实际 "${b9Key("全部类型")}"`);
   assert(b9Key("终端") === "terminal", `英文态「终端」未翻译(option 渲染点),实际 "${b9Key("终端")}"`);
-  // UI-0926 #8:子代理侧栏的「运行中/已完成/已关闭」三段已取消;侧栏静态文案改守「‹ 返回全部子代理」。
-  assert(attrOf("agent-back", "aria-label") === "Back to all subagents", `英文态子代理侧栏返回按钮 aria-label 未翻译,实际 "${attrOf("agent-back", "aria-label")}"`);
-  assert(b9Key("清空") === "Clear", `英文态「清空」未翻译,实际 "${b9Key("清空")}"`);
+  // UI2-0926 #14:后台任务侧栏的静态文案(‹ 返回、段头、清空已完成)按渲染点翻译。
+  assert(attrOf("agent-back", "aria-label") === "Back to all background tasks", `英文态后台任务侧栏返回按钮 aria-label 未翻译,实际 "${attrOf("agent-back", "aria-label")}"`);
+  assert(b9Key("后台任务") === "Background tasks", `英文态「后台任务」未翻译,实际 "${b9Key("后台任务")}"`);
+  assert(b9Key("清空已完成") === "Clear finished", `英文态「清空已完成」未翻译,实际 "${b9Key("清空已完成")}"`);
   assert(b9Key("权限请求") === "Permission request", `英文态「权限请求」未翻译,实际 "${b9Key("权限请求")}"`);
   assert(b9Key("拒绝") === "Deny", `英文态「拒绝」未翻译,实际 "${b9Key("拒绝")}"`);
   assert(b9Key("总是允许") === "Always allow", `英文态「总是允许」未翻译,实际 "${b9Key("总是允许")}"`);
@@ -7248,7 +7819,7 @@ assert(
   assert(attrOf("ask-answer", "placeholder") === "Enter your answer", `英文态回答 placeholder 未翻译(渲染点属性补齐),实际 "${attrOf("ask-answer", "placeholder")}"`);
   assert(attrOf("viewer-external", "aria-label") === "Open in external editor", `英文态 viewer-external aria-label 未翻译,实际 "${attrOf("viewer-external", "aria-label")}"`);
   assert(attrOf("prompt", "placeholder") === "What would you like to do? Paste or drop images or PDFs", `英文态输入框 placeholder 未翻译,实际 "${attrOf("prompt", "placeholder")}"`);
-  assert(b9Key("排队 queue") === "Queue", `英文态「排队 queue」未翻译(option 渲染点),实际 "${b9Key("排队 queue")}"`);
+  assert(b9Key("插入") === "Steer", `英文态「插入」未翻译(option 渲染点),实际 "${b9Key("插入")}"`);
   assert(!sandbox.document.getElementById("process-tabs"), "英文态不应出现顶部进程切换条");
   // 动态元素不被静态 key 覆写:status-mode/status-text/live-turn 都不得带 data-i18n-key,
   // 它们的文案由 JS 渲染点(t()/localizeDynamic)负责,切语言不应被 applyDataI18nKeys 触碰。
@@ -7260,7 +7831,7 @@ assert(
   assert(b9Key("权限请求") === "权限请求", `切回中文后「权限请求」未回原文,实际 "${b9Key("权限请求")}"`);
   assert(b9Key("回到最新") === "回到最新", `切回中文后「回到最新」未回原文,实际 "${b9Key("回到最新")}"`);
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", `切回中文后输入框 placeholder 未回原文,实际 "${attrOf("prompt", "placeholder")}"`);
-  assert(b9Key("排队 queue") === "排队 queue", `切回中文后「排队 queue」未回原文,实际 "${b9Key("排队 queue")}"`);
+  assert(b9Key("插入") === "插入", `切回中文后「插入」未回原文,实际 "${b9Key("插入")}"`);
 
   localStorageShim.setItem("kz-language", priorLanguage);
   sandbox.applyLanguage();
@@ -7807,25 +8378,26 @@ const docsB = {
   await flush();
 }
 
-// ---------- R-174 → UI-0926 #8 子代理侧栏:列表/详情、六字段真实数据、单条停止、审计卡、与活动面板互斥 ----------
-// R-174 的名称/类型/时长/工具次数/token/当前工具、单条停止与 transcript 全部保留,只是搬到主对话卡片与侧栏;
-// 旧面板的「运行中/已完成/已关闭」三段与「关闭/删除/清空」按 subagent_presentation.md §5.6 有意取消
-// (它们只改本地视图、不碰后端)。本段守的护栏不变:面板互斥、单条停止走 stop_task(带 taskId)且不误调
-// stop_run、运行审计摘要卡、「打开运行轨迹」回到活动面板。
+// ---------- R-174 → UI-0926 #8 → UI2-0926 #14 后台任务侧栏:列表/详情、六字段真实数据、单条停止、审计卡 ----------
+// R-174 的名称/类型/时长/工具次数/token/当前工具、单条停止与 transcript 全部保留,搬到主对话卡片与后台任务侧栏;
+// 「活动」「子代理」两块浮层合成一个停靠侧栏(UI2-0926 #14),rail 上只剩 #tasks-toggle。本段守:开关只开关这一个侧栏、
+// ↗ 进详情、单条停止走 stop_task(带 taskId)且不误调 stop_run、运行审计摘要卡、「打开运行轨迹」回到同一侧栏的条目。
 {
-  const agentToggle = byId.get("agent-toggle");
-  assert(agentToggle, "子代理面板缺少 rail 开关");
-  const agentPanel = byId.get("agent-panel");
-  const bgPanel = byId.get("bg-panel");
-  const agentBadge = byId.get("agent-badge");
+  const tasksToggle = byId.get("tasks-toggle");
+  assert(tasksToggle, "后台任务侧栏缺少 rail 开关 #tasks-toggle");
+  const tasksPanel = byId.get("tasks-panel");
+  const tasksBadge = byId.get("tasks-badge");
   const agentDetail = byId.get("agent-detail");
-  const agentList = byId.get("agent-list");
-  agentToggle.click();
-  assert(!agentPanel.classList.contains("hidden"), "点击 agent-toggle 后 #agent-panel 未展开");
-  assert(bgPanel.classList.contains("hidden"), "子代理面板打开时活动面板未收起(互斥切换失败)");
-  assert(agentPanel.dataset.mode === "list", `从 rail 打开应是列表模式,实为 ${agentPanel.dataset.mode}`);
-  agentToggle.click(); // 收起
-  assert(agentPanel.classList.contains("hidden"), "再次点击 agent-toggle 后 #agent-panel 未收起");
+  const bgList = byId.get("bg-list");
+  const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+  assert(!byId.has("bg-panel") && !byId.has("agent-panel") && !byId.has("agent-toggle") && !byId.has("activity-toggle"), "旧的活动/子代理浮层与两个开关应已合进后台任务侧栏");
+  panelNs.closeTasksPanel();
+  tasksToggle.click();
+  assert(!tasksPanel.classList.contains("hidden"), "点击 #tasks-toggle 后 #tasks-panel 未展开");
+  assert(tasksPanel.dataset.mode === "list", `从 rail 打开应是列表模式,实为 ${tasksPanel.dataset.mode}`);
+  assert(tasksToggle.getAttribute("aria-expanded") === "true", "打开侧栏后 rail 开关 aria-expanded 未同步");
+  tasksToggle.click(); // 收起
+  assert(tasksPanel.classList.contains("hidden") && tasksToggle.getAttribute("aria-expanded") === "false", "再次点击 #tasks-toggle 后侧栏未收起");
   const sA = handlers.get("kz:tool-start");
   const pA = handlers.get("kz:task-progress");
   const eA = handlers.get("kz:tool-end");
@@ -7843,10 +8415,10 @@ const docsB = {
   assert(card, "运行中的子代理没有卡片");
   assert(card?.querySelector(".sa-agent")?.textContent === "my_scout", "编排派发的子代理未以角色名作身份签");
   assert(card?.dataset.saState === "starting", `刚派发的子代理应是启动中,实为 ${card?.dataset.saState}`);
-  // rail 徽标 = 当前线路运行中的子代理数(data-running 仍是 #7 rail 点共用的布尔)。
-  const runningNow = sandbox.subagentRunningCount("sess-smoke");
-  assert(runningNow >= 1 && agentToggle.dataset.running === "true", `子代理运行时 rail 开关没有点亮,运行数 ${runningNow}`);
-  assert(agentBadge.textContent === String(runningNow) && !agentBadge.classList.contains("hidden"), `rail 徽标应显示运行数 ${runningNow},实为 "${agentBadge.textContent}"`);
+  // rail 徽标 = 当前线路在跑的数量(子代理 + 终端,强调色);data-running 仍是 #7 rail 点共用的布尔。
+  const badgeNow = panelNs.tasksPanelState().badge;
+  assert(tasksToggle.dataset.running === "true" && badgeNow?.tone === "run" && badgeNow.count >= 1, `子代理运行时 rail 开关没有点亮:${JSON.stringify(badgeNow)}`);
+  assert(tasksBadge.textContent === String(badgeNow?.count) && tasksBadge.dataset.tone === "run" && !tasksBadge.classList.contains("hidden"), `rail 徽标应显示运行数 ${badgeNow?.count},实为 "${tasksBadge.textContent}"`);
   // 字段来自真实 trace:meta 给实际人格与模型,start/end 给工具次数与当前工具,usage 是累计值。
   pA({ payload: { id: "my_scout", text: "explore · qwen3:8b", trace: { child_id: "my_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
   pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "start", name: "read", summary: "src/main.rs", input: { path: "src/main.rs" } }, sessionId: "sess-smoke" } });
@@ -7859,12 +8431,11 @@ const docsB = {
   const cardMeta = card?.querySelector(".sa-meta")?.textContent ?? "";
   assert(/1 (tool uses?|次工具)/.test(cardMeta), `卡片计数未显示工具次数,实得 "${cardMeta}"`);
   assert(/165 (tokens|token)/.test(cardMeta), `卡片计数未显示 token,实得 "${cardMeta}"`);
-  // ↗ 打开侧栏详情:与活动面板互斥;详情含描述、实际模型与 transcript(子工具行,不贴裸 JSON)。
-  bgPanel.classList.remove("hidden");
+  // ↗ 打开侧栏详情:详情含描述、实际模型与 transcript(子工具行,不贴裸 JSON)。
+  panelNs.closeTasksPanel();
   card?.querySelector(".sa-open")?.click();
-  assert(!agentPanel.classList.contains("hidden") && agentPanel.dataset.mode === "detail", `↗ 未打开侧栏详情(mode=${agentPanel.dataset.mode})`);
-  assert(bgPanel.classList.contains("hidden"), "打开子代理侧栏时活动面板未收起");
-  assert(!agentDetail.classList.contains("hidden") && agentList.classList.contains("hidden"), "详情模式下列表/详情显隐不对");
+  assert(!tasksPanel.classList.contains("hidden") && tasksPanel.dataset.mode === "detail", `↗ 未打开侧栏详情(mode=${tasksPanel.dataset.mode})`);
+  assert(!agentDetail.classList.contains("hidden") && bgList.classList.contains("hidden"), "详情模式下列表/详情显隐不对");
   assert(agentDetail.textContent.includes("勘察文件结构") && agentDetail.textContent.includes("qwen3:8b"), "侧栏详情缺描述或实际模型");
   const detailTool = agentDetail.querySelector(".tool-msg");
   assert(detailTool?.querySelector(".tool-msg-name")?.textContent === "read" && detailTool?.textContent.includes("src/main.rs"), "侧栏详情缺子工具调用(transcript)");
@@ -7888,25 +8459,34 @@ const docsB = {
   assert(card?.dataset.saState === "cancelled", `被停的子代理未收成已停止,实为 ${card?.dataset.saState}`);
   assert(/Stopped|已停止/.test(card?.querySelector(".sa-meta")?.textContent ?? ""), "被停的子代理计数行未写明已停止");
   assert(card?.querySelector(".sa-stop")?.disabled && agentDetail.querySelector(".sa-detail-stop")?.classList.contains("hidden"), "结束的子代理不应残留停止按钮");
-  const runningAfter = sandbox.subagentRunningCount("sess-smoke");
-  assert(agentBadge.textContent === (runningAfter ? String(runningAfter) : "") && agentBadge.classList.contains("hidden") === (runningAfter === 0), "子代理结束后 rail 徽标与实际运行数不符");
-  // Esc:详情回列表;列表里有当前线路的行;⌖ 定位回对话(卡片闪一下);点行再进详情;两次 Esc 关面板。
-  const escape = () => agentPanel.dispatchEvent({ type: "keydown", key: "Escape", preventDefault() {}, stopPropagation() {} });
+  const badgeAfter = panelNs.tasksPanelState().badge;
+  assert(tasksBadge.classList.contains("hidden") === !badgeAfter && tasksBadge.textContent === (badgeAfter ? String(badgeAfter.count) : ""), "子代理结束后 rail 徽标与实际状态不符");
+  // Esc:详情回列表;已完成段展开后列表里有这一批的委派卡与行;点行再进详情;⌖ 定位回对话;两次 Esc 关侧栏。
+  const escape = () => tasksPanel.dispatchEvent({ type: "keydown", key: "Escape", preventDefault() {}, stopPropagation() {} });
   escape();
-  assert(agentPanel.dataset.mode === "list" && !agentPanel.classList.contains("hidden"), "详情模式按 Esc 应回到列表而不是关面板");
-  const row = [...agentList.querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|my_scout");
-  assert(row, "列表模式缺当前线路的子代理行");
-  row?.querySelector(".sa-locate")?.click();
+  assert(tasksPanel.dataset.mode === "list" && !tasksPanel.classList.contains("hidden"), "详情模式按 Esc 应回到列表而不是关侧栏");
+  const doneWasOpen = !byId.get("bg-done-body").classList.contains("hidden");
+  if (!doneWasOpen) byId.get("bg-done-toggle").click();
+  await flush();
+  const scoutDelegation = [...tasksPanel.querySelectorAll(".tp-card")].find((c) => c.querySelector(".tp-card-title")?.textContent === "勘察文件结构");
+  assert(scoutDelegation, "已完成段展开后缺这一批的委派卡");
+  assert(scoutDelegation?.querySelector(".tp-phase-head")?.getAttribute("aria-expanded") === "false", "已完成的委派卡阶段行应默认收起");
+  scoutDelegation?.querySelector(".tp-phase-head")?.click();
+  const row = [...tasksPanel.querySelectorAll(".tp-agent-row")].find((r) => r.dataset.saKey === "sess-smoke|my_scout");
+  assert(row, "展开阶段行后缺这一批的委派卡行");
+  assert(row?.closest(".tp-card")?.parentElement?.id === "tasks-done", "被用户停止的一批(不算失败)应落在「已完成」段");
+  row?.click();
+  assert(tasksPanel.dataset.mode === "detail", "点委派卡的行没有进入详情");
+  agentDetail.querySelector(".sa-detail-locate")?.click();
   assert(card?.classList.contains("sa-flash"), "⌖ 定位到对话没有让卡片闪一下");
-  row?.querySelector(".sa-panel-main")?.click();
-  assert(agentPanel.dataset.mode === "detail", "点列表行没有进入详情");
   escape();
   escape();
-  assert(agentPanel.classList.contains("hidden"), "列表模式按 Esc 应关闭侧栏");
+  assert(tasksPanel.classList.contains("hidden"), "列表模式按 Esc 应关闭侧栏");
+  if (!doneWasOpen) byId.get("bg-done-toggle").click();
   await flush();
   handlers.get("kz:done")({ payload: { sessionId: "sess-smoke", steps: 1, history: 1, halted: false, autoAction: { type: "NoContinue" } } });
   await flush();
-  agentToggle.click();
+  tasksToggle.click();
   const auditCard = byId.get("agent-audit");
   assert(auditCard && !auditCard.classList.contains("hidden"), "运行结束后未显示运行审计摘要卡片");
   const auditText = byId.get("agent-audit-facts")?.textContent || "";
@@ -7916,42 +8496,26 @@ const docsB = {
   assert(auditText.includes("权限拒绝") || auditText.includes("Permission denials"), "审计摘要缺少权限拒绝统计");
   assert(modelText.includes("smoke-provider:main"), "审计摘要缺少主代理模型调用统计");
   assert(modelText.includes("qwen3:8b"), "审计摘要缺少子代理(实际模型)调用统计");
-  const traceButton = byId.get("agent-audit-trace");
-  traceButton.click();
-  assert(!bgPanel.classList.contains("hidden"), "运行审计摘要的运行轨迹入口未打开活动面板");
-  assert(agentPanel.classList.contains("hidden"), "打开运行轨迹后子代理侧栏未收起");
-  agentToggle.click();
-  assert(!agentPanel.classList.contains("hidden"), "打开运行轨迹后无法返回子代理面板");
-  byId.get("activity-toggle").click(); // 切换到活动面板时应立即收起子代理面板
-  assert(agentPanel.classList.contains("hidden"), "切换到活动面板后 #agent-panel 未自动收起");
-  byId.get("activity-toggle").click(); // 复位:活动面板收起
-  assert(bgPanel.classList.contains("hidden"), "断言结束后活动面板未收起");
+  // 「打开运行轨迹」= 同一个侧栏里的终端条目:留在列表模式、展开已完成段,侧栏不关。
+  byId.get("agent-audit-trace").click();
+  assert(!tasksPanel.classList.contains("hidden") && tasksPanel.dataset.mode === "list", "运行审计摘要的运行轨迹入口应留在后台任务侧栏的列表里");
+  assert(!byId.get("bg-done-body").classList.contains("hidden"), "运行轨迹入口没有展开已完成段");
+  byId.get("bg-done-toggle").click(); // 复位:已完成段收起
+  tasksToggle.click();
+  assert(tasksPanel.classList.contains("hidden"), "断言结束后侧栏未收起");
 }
-// ---------- D-350 面板 ✕ 关闭按钮:子代理面板头部的显式关闭入口 ----------
+// ---------- D-350 侧栏 ✕ 关闭按钮:后台任务侧栏头部的显式关闭入口 ----------
 {
-  // 子代理面板:展开后头部应有 ✕(#agent-close),点击后面板收起,且不误弹活动面板
-  // (agentClosePanel 只回到当前 activityPanelOpen 状态)。
-  const agentPanel = byId.get("agent-panel");
-  const bgPanel = byId.get("bg-panel");
-  const agentClose = byId.get("agent-close");
-  assert(agentClose, "D-350:子代理面板头部缺少 ✕ 关闭按钮(#agent-close)");
-  assert(
-    agentClose.title && agentClose.title.length > 0,
-    "D-350:#agent-close 缺少 title 提示",
-  );
-  byId.get("agent-toggle").click(); // 展开子代理面板
+  const tasksPanel = byId.get("tasks-panel");
+  const close = byId.get("tasks-close");
+  assert(close, "D-350:后台任务侧栏头部缺少 ✕ 关闭按钮(#tasks-close)");
+  assert(close.title && close.title.length > 0, "D-350:#tasks-close 缺少 title 提示");
+  byId.get("tasks-toggle").click();
   await flush();
-  assert(!agentPanel.classList.contains("hidden"), "D-350:前置失败——#agent-panel 未展开");
-  agentClose.click();
+  assert(!tasksPanel.classList.contains("hidden"), "D-350:前置失败——#tasks-panel 未展开");
+  close.click();
   await flush();
-  assert(agentPanel.classList.contains("hidden"), "D-350:点击 #agent-close 后 #agent-panel 未收起");
-  assert(
-    bgPanel.classList.contains("hidden"),
-    "D-350:agentClosePanel 误弹了活动面板(应回到 activityPanelOpen 状态)",
-  );
-  byId.get("agent-toggle").click(); // 复位互斥状态
-  await flush();
-
+  assert(tasksPanel.classList.contains("hidden"), "D-350:点击 #tasks-close 后 #tasks-panel 未收起");
 }
 
 // ---------- R-184 B 面:真实并列视图与合并前冲突预警 ----------
@@ -9359,6 +9923,372 @@ const docsB = {
   for (const problem of problems) issues.push(`D-381 IPC 契约:${problem}`);
 }
 
+// ── 分区:侧栏与需求页 ──
+// ---------- UI2-0926 #1「两个项目切换按钮保存上一个就好了吧,而且我们还有单独的查看所有项目页面」 ----------
+// 侧栏只剩项目卡一个切换入口(openProjectMenu,弹层唯一写法 openMenu);重命名/移除在项目总览卡片 ⋯ 里;
+// 命令面板读偏好数据(不再反扫侧栏 DOM);D-170 隔离告警不再住在默认收起的分区里。
+// 变异守卫:projectSwitchMenu / projectMenuSwitch / projectPaletteData / workspaceCardRename(另 pickerCheckMark 共用 ✓ 列)。
+{
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const docsPagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  const surfaceNs = esmModuleCache.get("00-surface.js")?.namespace;
+  const paletteNs = esmModuleCache.get("21-palette.js")?.namespace;
+  assert(sessionsNs && docsPagesNs && surfaceNs && paletteNs, "UI2 #1 前置:09/12/00/21 模块命名空间未加载");
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const saved = Object.fromEntries(["projects_get", "projects_select", "projects_rename", "projects_remove", "projects_init", "projects_pick", "workspace_snapshot"]
+    .map((cmd) => [cmd, payloads[cmd]]));
+  const priorConfirm = sandbox.confirmDialog;
+  const savedViewName = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  const prefsAB = { current: PROJECT, projects: [PROJECT, PROJECT_B], names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" } };
+  const prefsAt = (current) => ({ ...structuredClone(prefsAB), current });
+  const lastCall = (cmd) => invokeArgs.findLast((call) => call.cmd === cmd);
+  const callsOf = (cmd) => invokeArgs.filter((call) => call.cmd === cmd).length;
+  const menuEl = () => sessionsNs.projectMenuHandle?.el ?? null;
+  const menuItems = () => [...(menuEl()?.querySelectorAll(".k-menu-item") ?? [])];
+  const menuItem = (text) => menuItems().find((node) => node.textContent.includes(text));
+  const openProjectMenuByClick = async () => {
+    if (sessionsNs.projectMenuHandle) surfaceNs.closeSurface(sessionsNs.projectMenuHandle);
+    byId.get("project-switch").click();
+    await flush();
+    return menuEl();
+  };
+  try {
+    // 前面分区可能留着模态(查看器/命令面板):模态开着时之后弹出的菜单是惰性的,先收掉。
+    surfaceNs.closeSurface(byId.get("viewer-overlay"));
+    surfaceNs.closeSurface(byId.get("palette"));
+    payloads.projects_get = structuredClone(prefsAB);
+    sandbox.renderProjects(structuredClone(prefsAB));
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "UI2 #1 前置:当前项目应为 PROJECT");
+
+    // ① 结构:侧栏「项目」分区与列表删掉;项目卡是菜单按钮(不再是分区开合把手);告警常驻项目卡下方。
+    assert(!byId.has("projects-section") && !byId.has("project-list"), "侧栏仍有「项目」分区/列表(与项目卡重复的第二个切换器)");
+    const switchBtn = byId.get("project-switch");
+    assert(switchBtn?.getAttribute("aria-haspopup") === "menu" && !switchBtn.hasAttribute("aria-controls"), "项目卡必须是菜单按钮(aria-haspopup=menu,不再 aria-controls 某个分区)");
+    // 假 DOM 把按 id 建的节点拍平在 body 下,closest 判不了真实嵌套,这里按 HTML 原文判。
+    assert(/<div class="project-warn-slot" data-space-only="dev">\s*<div id="project-shared-warn"/.test(html), "D-170 隔离告警应在项目卡下方的 .project-warn-slot 里常驻(原先在默认收起的分区里,平时看不见)");
+    assert(/id="project-switch"[^>]*>[\s\S]*?<\/button>\s*(?:<!--[\s\S]*?-->\s*)?<div class="project-warn-slot"/.test(html)
+      && html.indexOf('class="project-warn-slot"') < html.indexOf('id="new-chat"'),
+    "D-170 隔离告警槽应紧跟在项目卡之后(吸顶的工作区头里、「新对话」之前)");
+    assert(!/data-collapse-default="collapsed"[^>]*>[\s\S]{0,800}id="project-shared-warn"/.test(html), "D-170 隔离告警又被放进了默认收起的分区");
+
+    // ② 点项目卡:openMenu 现造的 .k-menu.project-menu;项目项 = 偏好里的项目数,当前项 ✓;另有三个入口。
+    const menu = await openProjectMenuByClick();
+    assert(menu?.classList.contains("k-menu") && menu.classList.contains("project-menu"), "点项目卡没有打开 openMenu 项目菜单(.k-menu.project-menu)");
+    assert(switchBtn.getAttribute("aria-expanded") === "true", "项目菜单开着时项目卡 aria-expanded 应为 true");
+    const projectItems = menuItems().filter((node) => node.hasAttribute("aria-checked"));
+    assert(projectItems.length === 2, `项目菜单的项目项应与偏好一致(2),实得 ${projectItems.length}`);
+    const currentItem = projectItems.find((node) => node.getAttribute("aria-checked") === "true");
+    const otherItem = projectItems.find((node) => node.getAttribute("aria-checked") === "false");
+    assert(currentItem?.textContent.includes("smoke") && currentItem.dataset.path === PROJECT, "项目菜单当前项不是当前项目");
+    assert(currentItem?.querySelector(".picker-check")?.textContent === "✓" && otherItem?.querySelector(".picker-check")?.textContent === "", "项目菜单 ✓ 列应只标当前项目(与模型芯片共用 addMenuCheckColumn)");
+    assert(otherItem?.title === PROJECT_B, `项目项 title 应是完整路径,实为 ${otherItem?.title}`);
+    assert(otherItem?.querySelector(".k-menu-item-desc")?.textContent === sessionsNs.shortProjectPath(PROJECT_B), "项目项第二行应是缩短的路径");
+    for (const label of ["打开文件夹…", "新建项目…", "项目总览"]) assert(menuItem(label), `项目菜单缺「${label}」`);
+    // 再点项目卡 = 收起(openMenu 同锚点切换语义)。
+    switchBtn.click();
+    await flush();
+    assert(!sessionsNs.projectMenuHandle && switchBtn.getAttribute("aria-expanded") === "false", "再点项目卡应收起项目菜单");
+
+    // ③ 点非当前项目 → projects_select 切过去;再经 switchProject 切回,恢复夹具状态。
+    payloads.projects_select = () => prefsAt(PROJECT_B);
+    await openProjectMenuByClick();
+    menuItems().find((node) => node.dataset.path === PROJECT_B)?.click();
+    await flush();
+    assert(lastCall("projects_select")?.args?.path === PROJECT_B, "项目菜单点非当前项目未发 projects_select");
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT_B, "项目菜单切项目后 currentProject 未切换");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    assert(await sessionsNs.switchProject(PROJECT) === true, "switchProject 切回失败");
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "切回原项目失败(后续用例的夹具会串项目)");
+    // 点当前项只收起,不发 projects_select。
+    const selectsBefore = callsOf("projects_select");
+    await openProjectMenuByClick();
+    menuItems().find((node) => node.dataset.path === PROJECT)?.click();
+    await flush();
+    assert(callsOf("projects_select") === selectsBefore && !sessionsNs.projectMenuHandle, "点当前项目应只收起菜单,不发 projects_select");
+
+    // ④ 「新建项目…」走既有初始化流程(两次输入);「打开文件夹…」走 projects_pick;「项目总览」进 ⌂ 页。
+    payloads.projects_init = () => structuredClone(prefsAB);
+    sandbox.__inputDialogResponses.push("C:/smoke/menu-new", "菜单新项目");
+    await openProjectMenuByClick();
+    menuItem("新建项目…")?.click();
+    await flush();
+    assert(lastCall("projects_init")?.args?.path === "C:/smoke/menu-new" && lastCall("projects_init")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未走初始化流程(路径 + 显示名)");
+    const picksBefore = callsOf("projects_pick");
+    await openProjectMenuByClick();
+    menuItem("打开文件夹…")?.click();
+    await flush();
+    assert(callsOf("projects_pick") === picksBefore + 1, "项目菜单「打开文件夹…」未调 projects_pick");
+    const snapshotAB = {
+      current: PROJECT,
+      projects: [
+        { path: PROJECT, name: "smoke", current: true, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] },
+        { path: PROJECT_B, name: "smoke-b", current: false, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] },
+      ],
+    };
+    payloads.workspace_snapshot = structuredClone(snapshotAB);
+    await openProjectMenuByClick();
+    menuItem("项目总览")?.click();
+    await flush();
+    assert(byId.get("view-workspace").classList.contains("active"), "项目菜单「项目总览」未切到项目总览页");
+    assert(byId.get("workspace-projects").querySelectorAll(".workspace-card").length === 2, "项目总览页未按 workspace_snapshot 渲染卡片");
+
+    // ⑤ 命令面板:项目候选读偏好数据(不反扫侧栏 DOM),运行它走 switchProject;三个项目动作在列。
+    const entries = paletteNs.collectPaletteEntries();
+    const projectEntries = entries.filter((entry) => entry.group === "项目");
+    assert(projectEntries.length === 2 && projectEntries.map((entry) => entry.detail).join("|") === `${PROJECT}|${PROJECT_B}`, `命令面板项目候选应与偏好一致:${projectEntries.map((entry) => entry.detail).join("|")}`);
+    for (const label of ["切换项目", "打开文件夹…", "新建项目…"]) {
+      assert(entries.some((entry) => entry.group === "动作" && entry.label === label), `命令面板缺动作「${label}」`);
+    }
+    payloads.projects_select = () => prefsAt(PROJECT_B);
+    projectEntries.find((entry) => entry.detail === PROJECT_B)?.run();
+    await flush();
+    assert(lastCall("projects_select")?.args?.path === PROJECT_B && vm.runInContext("currentProject", sandbox) === PROJECT_B, "命令面板运行项目候选未切到该项目");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    await sessionsNs.switchProject(PROJECT);
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "命令面板用例切回原项目失败");
+
+    // ⑥ 项目总览卡片:标题真按钮 + ⋯ 菜单按钮;⋯ 里重命名(输入弹窗)/移除(确认弹窗,危险项)。
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    const cards = [...byId.get("workspace-projects").querySelectorAll(".workspace-card")];
+    const cardB = cards.find((card) => card.dataset.path === PROJECT_B);
+    assert(cards.every((card) => card.querySelector(".workspace-card-open") && !card.hasAttribute("role")), "项目总览卡片应是「标题真按钮 + 撑满点击层」,整卡不再是 role=button");
+    const moreB = cardB?.querySelector(".workspace-card-more");
+    assert(moreB?.getAttribute("aria-haspopup") === "menu" && moreB.getAttribute("aria-label") === "更多操作 smoke-b", `卡片 ⋯ 缺菜单按钮语义或读屏名称:${moreB?.getAttribute("aria-label")}`);
+    assert(cards.find((card) => card.dataset.path === PROJECT)?.querySelector(".workspace-card-open")?.getAttribute("aria-current") === "page", "当前项目卡片标题按钮应带 aria-current=page");
+    const cardMenu = () => [...(docsPagesNs.workspaceMenuHandle?.el?.querySelectorAll(".k-menu-item") ?? [])];
+    payloads.projects_rename = ({ path, name }) => ({ ...structuredClone(prefsAB), names: { ...prefsAB.names, [path]: name } });
+    sandbox.__inputDialogResponses.push("B 新名");
+    moreB.click();
+    await flush();
+    assert(cardMenu().map((node) => node.textContent.trim()).join("|").startsWith("重命名项目…|移除项目"), `卡片 ⋯ 菜单应是 重命名/移除:${cardMenu().map((node) => node.textContent.trim()).join("|")}`);
+    assert(cardMenu()[1]?.dataset.tone === "danger", "「移除项目」应是危险项");
+    cardMenu()[0]?.click();
+    await flush();
+    assert(lastCall("projects_rename")?.args?.path === PROJECT_B && lastCall("projects_rename")?.args?.name === "B 新名", "卡片 ⋯「重命名项目…」未发 projects_rename {path,name}");
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "重命名非当前项目不该切项目");
+    vm.runInContext("confirmDialog = () => true", sandbox);
+    payloads.projects_remove = () => ({ current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } });
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    [...byId.get("workspace-projects").querySelectorAll(".workspace-card")].find((card) => card.dataset.path === PROJECT_B)?.querySelector(".workspace-card-more")?.click();
+    await flush();
+    cardMenu().find((node) => node.textContent.includes("移除项目"))?.click();
+    await flush();
+    assert(lastCall("projects_remove")?.args?.path === PROJECT_B, "卡片 ⋯「移除项目」未发 projects_remove");
+    assert(sessionsNs.projectMenuEntries().length === 1, "移除后项目菜单的数据源(偏好缓存)未更新");
+    // ⑥b 在总览页里移除**当前**项目:换到下一个项目,但人留在总览页(不被带到下一个项目记住的对话页),卡片重拉。
+    //    变异守卫 removeProjectStaysOnOverview。
+    sandbox.renderProjects(structuredClone(prefsAB));
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === "workspace")?.click();
+    await flush();
+    assert(byId.get("view-workspace").classList.contains("active") && vm.runInContext("currentProject", sandbox) === PROJECT, "⑥b 前置:应在总览页、当前项目为 PROJECT");
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    payloads.projects_remove = () => ({ current: PROJECT_B, projects: [PROJECT_B], names: { [PROJECT_B]: "smoke-b" } });
+    [...byId.get("workspace-projects").querySelectorAll(".workspace-card")].find((card) => card.dataset.path === PROJECT)?.querySelector(".workspace-card-more")?.click();
+    await flush();
+    const snapshotsBeforeRemove = callsOf("workspace_snapshot");
+    cardMenu().find((node) => node.textContent.includes("移除项目"))?.click();
+    await flush();
+    assert(lastCall("projects_remove")?.args?.path === PROJECT && vm.runInContext("currentProject", sandbox) === PROJECT_B, "⑥b 移除当前项目后应换到下一个项目");
+    assert(byId.get("view-workspace").classList.contains("active"), `⑥b 在总览页移除当前项目后应留在总览页,实际在 ${document.querySelector(".view.active")?.id}`);
+    assert(callsOf("workspace_snapshot") > snapshotsBeforeRemove, "⑥b 移除后总览页应重拉 workspace_snapshot(卡片跟着换)");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    assert(await sessionsNs.switchProject(PROJECT) === true, "⑥b 切回原项目失败");
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "⑥b 切回原项目失败(后续用例的夹具会串项目)");
+  } finally {
+    if (sessionsNs?.projectMenuHandle) surfaceNs.closeSurface(sessionsNs.projectMenuHandle);
+    if (docsPagesNs?.workspaceMenuHandle) surfaceNs.closeSurface(docsPagesNs.workspaceMenuHandle);
+    for (const [cmd, value] of Object.entries(saved)) {
+      if (value === undefined) delete payloads[cmd];
+      else payloads[cmd] = value;
+    }
+    sandbox.confirmDialog = priorConfirm;
+    sandbox.renderProjects(structuredClone(payloads.projects_get));
+    await flush();
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === savedViewName)?.click();
+    await flush();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ---------- UI2-0926 #5「需求页面缺少字体之间的间隔和明暗关系」 ----------
+// 行结构的不变量在上面 D-362 那段(按新结构改写);这里钉住结构件:组头拆「组名 + 计数」、未设优先级写「—」
+// (字面「未设」进读屏名称)、批次格在定宽槽里、详情头拆编号/分隔/标题、「已有选中」时勾选框整列常显。
+// 变异守卫:docRowTailMeta / docMeterSlot / batchPickReveal / docGroupCount / docRowKeyTarget。
+{
+  const listNs = esmModuleCache.get("11-docs-list.js")?.namespace;
+  const coreNs = esmModuleCache.get("10-docs-core.js")?.namespace;
+  assert(listNs && coreNs, "UI2 #5 前置:10/11 模块命名空间未加载");
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const probe = document.createElement("div");
+  probe.id = "documents-ui2-probe";
+  probe.className = "doc-list documents-list";
+  document.body.appendChild(probe);
+  try {
+    listNs.batchSelection.clear();
+    listNs.syncBatchBar();
+    const probeEntries = [
+      docEntry("R-U01", "字阶样例一", "doing", { priority: "", complexity: "大", batches: { done: 1, total: 4 }, fields: [["标签", "核心"]] }),
+      docEntry("R-U02", "字阶样例二", "todo", { complexity: "中", blocked: true, block_reasons: ["依赖 R-U01"], fields: [["标签", "核心"]] }),
+      docEntry("R-U03", "字阶样例三", "todo", { fields: [["标签", "前端"]] }),
+    ];
+    listNs.renderDocList(probe, probeEntries, "req", 0, { ...coreNs.NEUTRAL_DOC_FILTERS, grouped: true });
+    const rowOf = (id) => probe.querySelector(`.doc-item[data-doc-id="${id}"] .doc-row`);
+    // ① 组头:组名与计数分开排版(组名暗色半粗、计数再细一档),计数带「N 条」读屏名称。
+    const heads = [...probe.querySelectorAll(".doc-group-head")];
+    assert(heads.length === 2, `分组视图应有 2 个组头,实得 ${heads.length}`);
+    assert(heads[0]?.querySelector(".doc-group-label")?.textContent === "核心" && heads[0]?.querySelector(".doc-group-count")?.textContent === "2",
+      `组头应拆成 .doc-group-label「核心」+ .doc-group-count「2」:${heads[0]?.textContent}`);
+    assert(heads[0]?.querySelector(".doc-group-count")?.getAttribute("aria-label") === "2 条", "组头计数缺「N 条」读屏名称");
+    // ② 未设优先级写「—」,字面「未设」与「仅参考」都还在(读屏名称 / tooltip)。
+    const unsetPri = rowOf("R-U01")?.querySelector(".pri-badge");
+    assert(unsetPri?.textContent === "—" && unsetPri.classList.contains("unset"), `未设优先级应显示「—」:${unsetPri?.textContent}`);
+    assert(unsetPri?.getAttribute("aria-label")?.includes("未设") && unsetPri.title.includes("仅参考"), `未设优先级的读屏名称/提示不全:${unsetPri?.getAttribute("aria-label")} / ${unsetPri?.title}`);
+    assert(rowOf("R-U02")?.querySelector(".pri-badge")?.getAttribute("aria-label")?.startsWith("优先级: P1"), "已设优先级的读屏名称应以「优先级: P1」开头");
+    // ③ 批次格在定宽槽里(有批次格的槽可读,没有的空槽对读屏隐藏);阻塞在例外标记簇里。
+    const slot1 = rowOf("R-U01")?.querySelector(".doc-meter-slot");
+    assert(slot1?.querySelector(".complexity-meter.batch-meter") && !slot1.hasAttribute("aria-hidden"), "有批次的行,批次格应在 .doc-meter-slot 里且槽不对读屏隐藏");
+    const slot3 = rowOf("R-U03")?.querySelector(".doc-meter-slot");
+    assert(slot3 && !slot3.children.length && slot3.getAttribute("aria-hidden") === "true", "没有批次格的行也要留空槽(右端两列才对齐),空槽对读屏隐藏");
+    assert(rowOf("R-U02")?.querySelector(".doc-flags .blocked-badge"), "阻塞标记应在标题右侧的例外标记簇里");
+    // ④ 详情头拆编号/分隔/标题;textContent 仍是「编号 · 标题」。
+    rowOf("R-U01")?.click();
+    const full = probe.querySelector('.doc-item[data-doc-id="R-U01"] .doc-full-title');
+    assert(full?.querySelector(".doc-detail-id")?.textContent === "R-U01" && full?.querySelector(".doc-detail-text")?.textContent === "字阶样例一",
+      "详情头应拆成 .doc-detail-id + .doc-detail-sep + .doc-detail-text");
+    assert(full?.textContent === "R-U01 · 字阶样例一", `详情头 textContent 应仍为「编号 · 标题」:${full?.textContent}`);
+    // ⑤ 勾选框平时透明;勾上任意一条后所有 .documents-list 带 has-selection(整列常显),清空后撤掉。
+    assert(!probe.classList.contains("has-selection"), "没有选中时列表不该带 has-selection");
+    const pick = rowOf("R-U02")?.querySelector(".doc-pick");
+    pick.checked = true;
+    pick._listeners.change?.forEach((fn) => fn({ target: pick }));
+    assert(probe.classList.contains("has-selection") && byId.get("documents-req-list").classList.contains("has-selection"),
+      "勾上一条后,文档页列表应带 has-selection(勾选框整列常显)");
+    pick.checked = false;
+    pick._listeners.change?.forEach((fn) => fn({ target: pick }));
+    assert(!probe.classList.contains("has-selection") && !byId.get("documents-req-list").classList.contains("has-selection"), "取消全部选中后 has-selection 应撤掉");
+    // ⑥ 键盘:焦点在勾选框/优先级按钮上按空格、回车,是它们自己的动作——行的 keydown 不得 preventDefault
+    //    (否则勾选框勾不上、按钮点不动),也不得开合详情;焦点在行本身时回车/空格照旧开合。
+    const row2 = rowOf("R-U02");
+    const detail2 = probe.querySelector('.doc-item[data-doc-id="R-U02"] .doc-detail');
+    const hiddenBefore = detail2?.classList.contains("hidden");
+    for (const [target, key] of [[row2?.querySelector(".doc-pick"), " "], [row2?.querySelector(".pri-badge"), "Enter"]]) {
+      let prevented = false;
+      row2.dispatchEvent({ type: "keydown", key, target, preventDefault() { prevented = true; } });
+      assert(target && !prevented && detail2?.classList.contains("hidden") === hiddenBefore,
+        `焦点在 ${target?.className} 上按「${key}」被行的 keydown 吞掉了(preventDefault=${prevented},详情${detail2?.classList.contains("hidden") === hiddenBefore ? "未" : "被"}开合)`);
+    }
+    let rowPrevented = false;
+    row2.dispatchEvent({ type: "keydown", key: " ", target: row2, preventDefault() { rowPrevented = true; } });
+    assert(rowPrevented && detail2?.classList.contains("hidden") === !hiddenBefore && row2.getAttribute("aria-expanded") === String(hiddenBefore),
+      "焦点在行本身时按空格应开合详情并同步 aria-expanded");
+  } finally {
+    probe.remove();
+    listNs?.batchSelection.clear();
+    listNs?.syncBatchBar();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ---------- UI2-0926 侧栏密度:未取得条目的线一行;工作树一行一棵、有改动的排前、最多 6 棵 + 查看全部 ----------
+// 变异守卫:focusCompactLine / focusClaimTwoPart / worktreeCap / worktreeDirtyFirst / worktreeCountClear / worktreeMoreAnchor。
+{
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const pagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  assert(sessionsNs && pagesNs, "UI2 侧栏密度前置:09-sessions / 12-docs-pages 模块命名空间未加载");
+  const focusOf = (processId) => [...document.querySelectorAll("#focus-body .line-focus")].find((node) => node.dataset.processId === processId);
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const savedWorktrees = structuredClone(sessionsNs.worktreeItems ?? []);
+  const savedViewName = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  try {
+    // ① 焦点区:有卡片的线照旧两段;真正「未取得条目」的线带 line-focus-compact(一行:身份 + 「未取得条目」);
+    //    工作树里有取活声明(claim)的线不算没取得,照旧两段(声明是条目名,压进一行会连身份一起被截断)。
+    const sections = [...document.querySelectorAll("#focus-body .line-focus")];
+    assert(sections.length > 0, "侧栏密度前置:焦点区没有线路分段");
+    const unclaimed = (section) => !section.querySelector(".focus-card") && !section.querySelector(".focus-claim-link")
+      && section.querySelector(".line-focus-empty")?.textContent === "未取得条目";
+    for (const section of sections) {
+      assert(section.classList.contains("line-focus-compact") === unclaimed(section),
+        `焦点区线路 ${section.dataset.processId}:${unclaimed(section) ? "没取得条目的线应只占一行(line-focus-compact)" : "有卡片/有取活声明的线不该压成一行"}`);
+      if (unclaimed(section)) assert(section.querySelector(".line-focus-head") && section.querySelector(".line-focus-empty"), "一行式线路分段应只有「身份」与「未取得条目」两段");
+    }
+    assert(sections.some((section) => section.classList.contains("line-focus-compact")) && sections.some((section) => section.querySelector(".focus-card")),
+      "侧栏密度前置:夹具应同时有一条取得条目的线(卡片)与一条没取得的线(一行)");
+    // ①b 取活声明线:声明查得到(可点链接)与查不到(纯文字)两种,都照旧两段,声明独占第二段。
+    const claimLine = (claim) => ({ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim, phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] });
+    try {
+      for (const [claim, linked] of [["R-002 冒烟需求二", true], ["R-9999 线路里新登记", false]]) {
+        sandbox.renderLines([claimLine(claim)]);
+        sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+        const section = focusOf("p|bg");
+        assert(section && !section.classList.contains("line-focus-compact"), `有取活声明的线(${claim})不该压成一行:${section?.className}`);
+        assert(Boolean(section?.querySelector(".focus-claim-link")) === linked && section?.querySelector(".line-focus-empty")?.textContent === claim,
+          `取活声明应独占第二段${linked ? "(查得到时是可点链接)" : "(查不到时是纯文字)"}:${section?.textContent}`);
+      }
+    } finally {
+      sandbox.renderLines(payloads.collaboration_snapshot);
+      sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+    }
+    assert(focusOf("p|bg")?.classList.contains("line-focus-compact"), "侧栏密度:恢复夹具后「未取得条目」的线应回到一行");
+    // ② 工作树:9 棵(3 棵有改动,散在中间)→ 只列 6 行,有改动的 3 棵在前且保持原顺序,末尾一条「查看全部 (9)」。
+    const trees = Array.from({ length: 9 }, (_, index) => ({
+      path: `C:/smoke/wt-${index}`, branch: `kanzei/wt-${index}`, clean: ![2, 5, 8].includes(index),
+      files: [2, 5, 8].includes(index) ? ["a.rs"] : [], bound_process: null,
+    }));
+    sessionsNs.renderWorktrees(trees);
+    const rows = [...byId.get("worktree-list").querySelectorAll(".worktree-entry")];
+    assert(rows.length === sessionsNs.SIDEBAR_WORKTREE_LIMIT && rows.length === 6, `侧栏工作树应最多列 6 棵,实得 ${rows.length}`);
+    assert(rows.slice(0, 3).map((row) => row.querySelector(".worktree-branch")?.textContent).join(",") === "kanzei/wt-2,kanzei/wt-5,kanzei/wt-8",
+      `有改动的工作树应排在前面且保持原顺序:${rows.map((row) => row.querySelector(".worktree-branch")?.textContent).join(",")}`);
+    assert(listText("worktree-count") === "9 · 3 棵有改动", `工作树计数应按全部 9 棵算:${listText("worktree-count")}`);
+    const more = byId.get("worktree-list").querySelector(".worktree-more");
+    assert(more?.textContent.includes("查看全部隔离工作树") && more.textContent.includes("(9)"), `超出上限时应有「查看全部隔离工作树 (9)」:${more?.textContent}`);
+    // 落点:从别的页跳过来时,要等线路页这轮 refreshLines(collaboration_snapshot 落地、线路卡画完)之后才滚到
+    // #lines-worktrees——先滚的话,随后插进来的线路卡把目标段推下去,停在半路(真机位置断言在 ui-workspace-smoke)。
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === "chat")?.click();
+    await flush();
+    const target = byId.get("lines-worktrees");
+    const scrolls = [];
+    const priorScroll = target.scrollIntoView;
+    target.scrollIntoView = (options) => scrolls.push({ snapshots: invokeArgs.filter((call) => call.cmd === "collaboration_snapshot").length, options });
+    try {
+      const snapshotsBefore = invokeArgs.filter((call) => call.cmd === "collaboration_snapshot").length;
+      more?.click();
+      await flush();
+      assert(byId.get("view-lines").classList.contains("active"), "「查看全部隔离工作树」应跳到并行线路页");
+      assert(scrolls.length >= 1 && scrolls.every((scroll) => scroll.snapshots > snapshotsBefore),
+        `「查看全部隔离工作树」应在线路页这轮刷新(collaboration_snapshot)画完之后才滚到工作树清单:${JSON.stringify(scrolls)} / 刷新前 ${snapshotsBefore}`);
+      assert(scrolls.at(-1)?.options?.block === "start", "工作树清单应滚到顶端(block: start)");
+      // 已在线路页再点:切视图不触发刷新,就地滚一次。
+      const count = scrolls.length;
+      more?.click();
+      assert(scrolls.length === count + 1, "已在线路页时点「查看全部隔离工作树」应就地滚到工作树清单");
+      await flush();
+    } finally {
+      target.scrollIntoView = priorScroll;
+    }
+    // ③ 不超上限时没有「查看全部」;空列表时计数一起清掉(原先停在旧值)。
+    sessionsNs.renderWorktrees(trees.slice(0, 4));
+    assert(!byId.get("worktree-list").querySelector(".worktree-more"), "不超过上限时不该有「查看全部」");
+    sessionsNs.renderWorktrees([]);
+    assert(listText("worktree-count") === "", `空工作树列表时计数应清空,实为「${listText("worktree-count")}」`);
+    assert(listText("worktree-list").includes("暂无隔离工作树"), "空工作树列表应显示空态");
+  } finally {
+    sessionsNs?.renderWorktrees(savedWorktrees);
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === savedViewName)?.click();
+    await flush();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ── 分区:侧栏与需求页(完) ──
+
 
 // ===== 分区:会话生命周期 =====
 // ---------- UI-0926 #2:新对话一次到位 ----------
@@ -9885,6 +10815,9 @@ const docsB = {
   assert(chip.textContent.includes("codex:gpt-6-luna") && sourceOf(chip) === "line",
     `① 芯片应显示本线临时覆盖 codex:gpt-6-luna:"${chip.textContent}" / ${sourceOf(chip)}`);
   assert(chip.querySelector(".picker-fast"), "① Codex Fast mode 生效时芯片应带 ⚡");
+  // 输入区芯片的 ⚡ 就是用户看到的彩色闪电:必须带 U+FE0E(文字字形),才继承 .picker-fast 的颜色、随主题取色。
+  assert(chip.querySelector(".picker-fast").textContent === "⚡︎",
+    `① 芯片 ⚡ 必须是文字字形 "⚡\\uFE0E"(彩色 emoji 不受 CSS color 控制),实际:${JSON.stringify(chip.querySelector(".picker-fast").textContent)}`);
   assert(chip.tagName === "BUTTON" && chip.getAttribute("aria-haspopup") === "menu", "① 模型芯片应是带 aria-haspopup 的按钮(不再是原生 select)");
   assert(rchip.textContent.includes("超高") && sourceOf(rchip) === "line", `① 思考芯片应显示本线的超高/临时:"${rchip.textContent}"`);
   await openMenuOf("model");
@@ -10053,7 +10986,8 @@ const docsB = {
     metaState.converged = false;
     const status = byId.get("status-model");
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
-    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡ · dev", `⑥ 状态栏格式不对:"${status.textContent}"`);
+    // ⚡ 带 U+FE0E(文字字形):彩色 emoji 不受 CSS color 控制,文字字形才随状态栏文字色。
+    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡\uFE0E · dev", `⑥ 状态栏格式不对:"${status.textContent}"`);
     assert(status.title === "上一轮实际使用", `⑥ 状态栏应说明是上一轮实际使用:"${status.title}"`);
     const before = invokeLog.filter((cmd) => cmd === "model_effective").length;
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
@@ -10887,19 +11821,24 @@ const docsB = {
       assert(traceProg("G4T-DECL") === "已拒绝", `历史轨迹里用户拒绝的 write 没说出原因:"${traceProg("G4T-DECL")}"`);
       assert(traceProg("G4T-READ") === "路径不存在 · crates/x.rs", `历史轨迹的 read 失败行未从报错首行取出相对路径:"${traceProg("G4T-READ")}"`);
 
-      // ---------- 子代理子行:参数与结果都不贴 JSON 片段 ----------
+      // ---------- 子代理的子工具行:参数与结果都不贴 JSON 片段 ----------
+      // UI2-0926 #14:编排子代理不再建终端条目,过程只在子代理卡片(尾迹与展开的「过程」)与委派卡详情里。
       toolStart({ payload: { id: "G4_SCOUT", name: "task", summary: "G4_SCOUT · 勘察", input: { prompt: "x", phase: "scouting", role: "G4_SCOUT" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "start", name: "bash", summary: '{"command":"cargo test -p kanzei-app --lib","workdir":"C:\\\\Users\\\\kanzei\\\\Documents\\\\kanzei cod' }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "end", name: "bash", ok: true, preview: "exit code: 0 (+5 lines)" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "start", name: "read", summary: "{\"path\":\"crates/x.rs\"}" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "end", name: "read", ok: true, preview: "     1\tuse std; (+9 lines)" }, sessionId: SID } });
       await flush();
-      const scoutEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4_SCOUT");
-      const childHeads = [...(scoutEntry?.querySelectorAll(".bg-child-head") ?? [])].map((n) => n.textContent);
-      const childMetas = [...(scoutEntry?.querySelectorAll(".bg-child-meta") ?? [])].map((n) => n.textContent);
-      assert(childHeads[0] === "bash cargo test -p kanzei-app --lib" && childHeads[1] === "read crates/x.rs", `子代理子行参数仍是后端入参 JSON:${JSON.stringify(childHeads)}`);
-      assert(childHeads.every((head) => !head.includes('{"')), `子代理子行 head 含 JSON 片段:${JSON.stringify(childHeads)}`);
-      assert(childMetas[0] === "退出码 0 · 输出 5 行" && childMetas[1] === "全文 10 行", `子代理子行结果未走摘要器降级口径:${JSON.stringify(childMetas)}`);
+      assert(![...document.querySelectorAll("#bg-list .bg-entry")].some((n) => n.dataset.bgId === "G4_SCOUT"), "编排子代理不该再建终端条目(过程归子代理卡片)");
+      const scoutCard = [...document.querySelectorAll(".sa-card")].find((c) => c.dataset.saKey?.endsWith("|G4_SCOUT"));
+      const childArgs = [...(scoutCard?.querySelectorAll(".sa-live .sa-line") ?? [])].map((n) => `${n.querySelector(".sa-line-name")?.textContent ?? ""} ${n.querySelector(".sa-line-arg")?.textContent ?? ""}`.trim());
+      assert(childArgs[0] === "bash cargo test -p kanzei-app --lib" && childArgs[1] === "read crates/x.rs", `子代理尾迹行参数仍是后端入参 JSON:${JSON.stringify(childArgs)}`);
+      assert(childArgs.every((head) => !head.includes('{"')), `子代理尾迹行含 JSON 片段:${JSON.stringify(childArgs)}`);
+      scoutCard?.querySelector(".sa-head")?.click();
+      await flush();
+      const childResults = [...(scoutCard?.querySelectorAll(".sa-steps .tool-msg-result") ?? [])].map((n) => n.textContent);
+      assert(childResults[0] === "⎿ 退出码 0 · 输出 5 行" && childResults[1] === "⎿ 全文 10 行", `子代理过程的子工具结果未走摘要器降级口径:${JSON.stringify(childResults)}`);
+      scoutCard?.querySelector(".sa-head")?.click();
       toolEnd({ payload: { id: "G4_SCOUT", name: "task", ok: true, preview: "勘察完成", display: null, sessionId: SID } });
       await flush();
 
@@ -12035,21 +12974,21 @@ const docsB = {
   sandbox.syncMotionVisibility();
   assert(html.dataset.kzMotion === "live", "#7 窗口恢复后动画没有恢复");
 
-  // ⑨ rail 徽标:面板收起时右上角提示「有东西在跑」。
+  // ⑨ rail 徽标:后台任务开关右上角提示「有东西在跑」(UI2-0926 #14 起一个开关管子代理与终端两类)。
   sandbox.bgAbortRunning("(动效冒烟前置)");
-  const activityToggle = byId.get("activity-toggle");
-  assert(activityToggle.dataset.running === "false", `#7 活动面板无运行项时徽标应熄灭,实为 ${activityToggle.dataset.running}`);
+  const tasksToggle = byId.get("tasks-toggle");
+  const bgRunningCountFn = esmModuleCache.get("06-activity.js")?.namespace?.bgRunningCount;
+  const anyRunning = () => sandbox.subagentRunningCount("sess-smoke") + (bgRunningCountFn?.("sess-smoke") ?? 0) > 0;
+  assert(tasksToggle.dataset.running === String(anyRunning()), `#7 rail 徽标与实际运行数不符(终端全部中止后),实为 ${tasksToggle.dataset.running}`);
   sandbox.bgAdd("MOT-BG-RAIL", "bash", "sleep 3", { command: "sleep 3" }, "sess-smoke");
-  assert(activityToggle.dataset.running === "true", "#7 活动面板有运行项时 rail 徽标未点亮");
+  assert(tasksToggle.dataset.running === "true", "#7 有终端在跑时 rail 徽标未点亮");
   sandbox.bgEnd("MOT-BG-RAIL", true, "ok", null, "success");
-  assert(activityToggle.dataset.running === "false", "#7 运行项结束后 rail 徽标未熄灭");
-  const agentToggle = byId.get("agent-toggle");
+  assert(tasksToggle.dataset.running === String(anyRunning()), "#7 终端结束后 rail 徽标未跟着实际运行数");
   // UI-0926 #8:子代理数据模型改归 05-subagents.js(旧 agentStart/agentEnd/agentEntries 已退役)。
   sandbox.subagentStart({ sessionId: "sess-smoke", id: "AG-MOTION", input: { prompt: "motion", description: "动效徽标" } });
-  assert(agentToggle.dataset.running === "true", "#7 子代理运行时 rail 徽标未点亮");
+  assert(tasksToggle.dataset.running === "true", "#7 子代理运行时 rail 徽标未点亮");
   sandbox.subagentEnd({ sessionId: "sess-smoke", id: "AG-MOTION", ok: true, outcome: "success", preview: "done" });
-  const stillRunningAgents = sandbox.subagentRunningCount("sess-smoke") > 0;
-  assert(agentToggle.dataset.running === String(stillRunningAgents), `#7 子代理结束后 rail 徽标与实际运行数不符:${agentToggle.dataset.running}`);
+  assert(tasksToggle.dataset.running === String(anyRunning()), `#7 子代理结束后 rail 徽标与实际运行数不符:${tasksToggle.dataset.running}`);
 
   // ⑩ 计数 tick:鞭挞轮次上升时 tick 一次,值不变的无参重绘不 tick。
   const roundNow = byId.get("auto-round-now");
@@ -12219,12 +13158,12 @@ const docsB = {
   const cardOf = (id, root = pane()) => [...root.querySelectorAll(".sa-card")].find((c) => c.dataset.saKey === `sess-smoke|${id}` || c.dataset.saKey?.endsWith(`|${id}`));
   const liveLines = (card) => [...(card?.querySelectorAll(".sa-live .sa-line") ?? [])];
 
-  // ① 静态:字形复用第一波 .kz-glyph 原语,本组不另写 keyframes / 无限动画;侧栏仍是 absolute 抽屉。
-  const saCss = style.split("/* ===== 分区:子代理 ===== */")[1] ?? "";
+  // ① 静态:字形复用第一波 .kz-glyph 原语,本组不另写 keyframes / 无限动画;侧栏停靠在 #main 网格第 2 列(UI2-0926 #14)。
+  const saCss = style.split("/* ===== 分区:子代理 ===== */")[1]?.split("/* ===== 分区:后台任务侧栏与可调框 ===== */")[0] ?? "";
   assert(saCss.includes(".sa-card") && saCss.includes(".sa-live"), "style.css 子代理分区缺卡片/尾迹样式");
   assert(!/@keyframes/.test(saCss) && !/\binfinite\b/.test(saCss), "子代理分区不得另写 keyframes 或无限动画(复用 .kz-glyph 原语)");
   assert(/className = "kz-glyph sa-glyph"/.test(source), "子代理字形没有复用 .kz-glyph 原语");
-  assert(/#agent-panel\s*\{[^}]*position: absolute/.test(style), "#agent-panel 必须仍是 position:absolute 的抽屉");
+  assert(/#main > #tasks-panel \{ grid-column: 2; grid-row: 1 \/ span 2; \}/.test(style) && /#main > #tasks-panel\[data-dock="drawer"\] \{[^}]*position: absolute/.test(style), "后台任务侧栏必须停靠在 #main 网格第 2 列,抽屉态 position:absolute");
   assert(coreNs?.BACKGROUND_RENDER_EVENTS?.has("kz:task-progress"), "kz:task-progress 不在后台渲染事件集合里:非活动线路的子代理卡片不会推进");
 
   // ② 单卡生命周期:卡片出现、描述是 description、永不显示调用 id;meta trace 带来实际人格。
@@ -12243,6 +13182,22 @@ const docsB = {
   await flush();
   assert(card?.querySelector(".sa-agent")?.textContent === "explore", `meta trace 后人格签应为 explore,实为 "${card?.querySelector(".sa-agent")?.textContent}"`);
   assert(card?.dataset.saState === "running", `首条进度后应转为运行中,实为 ${card?.dataset.saState}`);
+  // 配色语义(docs/design/ui_color_semantics.md):子代理「等待批准」属于「需要你」——字形 data-state=attention
+  // (琥珀慢呼吸),与主线「等首个 token」的 waiting(强调色,进行中)分开;#7 活动行那条 waiting 断言守后者。
+  // 人格签不再按角色哈希挂 line-accent-*:身份不用色,角色名即身份。
+  assert(saNs.subagentGlyph({ state: "waiting" })[1] === "attention", `子代理等待批准的字形应为 attention,实为 ${saNs.subagentGlyph({ state: "waiting" })[1]}`);
+  {
+    const run = saNs.subagentByKey("sess-smoke|call_00_ab12cd");
+    assert(run?.cardEl === card, "取不到卡片对应的子代理数据模型(判据定位失效)");
+    run.state = "waiting";
+    saNs.renderSubagentCard(run);
+    const glyph = card.querySelector(".sa-glyph");
+    assert(glyph?.dataset.state === "attention" && glyph.textContent === "⏸", `等待批准的卡片字形应为 ⏸ · attention,实为 ${glyph?.textContent} · ${glyph?.dataset.state}`);
+    run.state = "running";
+    saNs.renderSubagentCard(run);
+    assert(card.querySelector(".sa-glyph")?.dataset.state === "running", "恢复运行态后字形没有回到 running");
+  }
+  assert(!/line-accent/.test(card?.querySelector(".sa-agent")?.className ?? ""), `人格签不该再按角色哈希取色:${card?.querySelector(".sa-agent")?.className}`);
   assert(saNs.subagentDescription({ prompt: "Find where tokens are verified\nthen report" }) === "Find where tokens are verified", "没有 description 时应取 prompt 首句");
   assert(saNs.subagentDescription({ prompt: "复核 verify-policy.mjs 的门禁。再改代码" }) === "复核 verify-policy.mjs 的门禁", "描述切句把文件名里的点当成了句号");
   assert(saNs.subagentDescription({ prompt: "列出所有 **denial_hint** 文案" }) === "列出所有 denial_hint 文案", "去 markdown 时把标识符里的下划线也删了");
@@ -12409,7 +13364,8 @@ const docsB = {
   assert(p4?.dataset.saState === "cancelled" && !p4?.querySelector(".sa-glyph")?.classList.contains("kz-pop"), "停止补发的 ToolEnd 改写了终态或又弹了一次");
   await flush();
   assert(document.documentElement.dataset.kzActivity !== "running", "停止补发的 ToolEnd 把全局相位翻回了运行中");
-  assert(sandbox.subagentRunningCount("sess-smoke") === 0 && byId.get("agent-toggle").dataset.running === "false", "停止后 rail 徽标仍显示有子代理在跑");
+  const bgStillRunning = (esmModuleCache.get("06-activity.js")?.namespace?.bgRunningCount?.("sess-smoke") ?? 0) > 0;
+  assert(sandbox.subagentRunningCount("sess-smoke") === 0 && byId.get("tasks-toggle").dataset.running === String(bgStillRunning), "停止后 rail 徽标仍显示有子代理在跑");
 
   // ⑬ 超额派发:后端逐个「start、end(subagent_limit)」紧跟在同批 ToolStart 之后发出。没跑起来的卡不封口,
   //    同一批 2 张在跑 + 2 张超额仍是一组;组内有进度之后照常封口。
@@ -12433,23 +13389,22 @@ const docsB = {
   await flush();
   assert(cardOf("call_q3")?.closest(".sa-group") !== qGroup, "组内有进度之后的新派发仍并进了超额那一组");
 
-  // ⑭ 侧栏行的可访问名与卡片同一口径:运行中不带逐秒变化的耗时,时间流逝只改计数文本;终态才带计数。
+  // ⑭ 侧栏委派卡里一行的可访问名与卡片同一口径:运行中不带逐秒变化的耗时,时间流逝只改「用时」一格;终态才带计数。
   const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
   panelNs.openSubagentPanel(null);
   const q1Run = saNs.subagentByKey("sess-smoke|call_q1");
-  const q1Row = [...byId.get("agent-list").querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1");
-  const q1Main = q1Row?.querySelector(".sa-panel-main");
-  const q1Aria = q1Main?.getAttribute("aria-label") ?? "";
-  assert(/Quota one/.test(q1Aria) && /运行中/.test(q1Aria) && !/\d+s\b/.test(q1Aria), `运行中侧栏行的可访问名不对(不该带耗时):"${q1Aria}"`);
+  const q1RowOf = () => [...byId.get("tasks-panel").querySelectorAll(".tp-agent-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1");
+  const q1Aria = q1RowOf()?.getAttribute("aria-label") ?? "";
+  assert(/Quota one/.test(q1Aria) && /运行中/.test(q1Aria) && !/\d+s\b/.test(q1Aria), `运行中委派卡行的可访问名不对(不该带耗时):"${q1Aria}"`);
   q1Run.startedAt -= 7000;
-  saNs.updateSubagentRowMeta(q1Row, q1Run);
-  saNs.updateSubagentRow(q1Row, q1Run);
-  assert(/7s/.test(q1Row?.querySelector(".sa-meta")?.textContent ?? "") && q1Main?.getAttribute("aria-label") === q1Aria, "时间流逝后侧栏行的可访问名被重写了(读屏会反复播报)");
+  taskProgress({ payload: { id: "call_q1", text: "第 2/3 轮", trace: null, sessionId: "sess-smoke" } });
+  await flush();
+  assert(/7s/.test(q1RowOf()?.querySelector(".tp-agent-time")?.textContent ?? "") && q1RowOf()?.getAttribute("aria-label") === q1Aria, "时间流逝后委派卡行的可访问名被重写了(读屏会反复播报)");
   for (const id of ["call_q1", "call_q2", "call_q3"]) toolEnd({ payload: { id, name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 9000, display: null, sessionId: "sess-smoke" } });
   await flush();
-  const q1Done = [...byId.get("agent-list").querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1")?.querySelector(".sa-panel-main")?.getAttribute("aria-label") ?? "";
-  assert(/完成/.test(q1Done) && /9s/.test(q1Done), `终态侧栏行的可访问名应带状态词与计数:"${q1Done}"`);
-  panelNs.agentClosePanel();
+  const q1Done = q1RowOf()?.getAttribute("aria-label") ?? "";
+  assert(/完成/.test(q1Done) && /9s/.test(q1Done), `终态委派卡行的可访问名应带状态词与计数:"${q1Done}"`);
+  panelNs.closeTasksPanel();
 
   // ⑮ 运行审计:用户主动停止的子代理(subagent_cancelled)记为已停止,不进「失败与超时」清单;超时照常列出。
   activityNs.agentAuditBegin("sess-sa-audit");
@@ -12506,12 +13461,1422 @@ const docsB = {
   assert([...saCards("O1"), ...saCards("O2")].every((c) => c.dataset.saState === "done"), "补更早的一窗后已完成的子代理被标成了中断");
   assert(saCards("E1")[0]?.dataset.saState === "done", "补出的更早一批没有建卡");
   panelNs.openSubagentPanel(null);
-  const panelBatches = [...byId.get("agent-list").querySelectorAll(".sa-panel-batch")].map((section) => [...section.querySelectorAll(".sa-panel-row")].map((r) => r.dataset.saKey.split("|")[1]).join(","));
-  assert(panelBatches.join(" / ") === "N1 / O1,O2 / E1", `载入更早的消息后侧栏批次顺序不对(应最新在上):${panelBatches.join(" / ")}`);
-  panelNs.agentClosePanel();
+  // 回放出来的批次都已完成:展开「已完成」段与各卡的阶段行,按卡读出每一批的子代理。
+  const doneOpenBefore = !byId.get("bg-done-body").classList.contains("hidden");
+  if (!doneOpenBefore) byId.get("bg-done-toggle").click();
+  await flush();
+  const doneCards = [...byId.get("tasks-done").querySelectorAll(".tp-card")];
+  for (const doneCard of doneCards) doneCard.querySelector(".tp-phase-head")?.click();
+  const panelBatches = doneCards.map((doneCard) => [...doneCard.querySelectorAll(".tp-agent-row")].map((r) => r.dataset.saKey.split("|")[1]).join(","));
+  assert(panelBatches.slice(0, 3).join(" / ") === "N1 / O1,O2 / E1", `载入更早的消息后侧栏批次顺序不对(应最新在上):${panelBatches.join(" / ")}`);
+  if (!doneOpenBefore) byId.get("bg-done-toggle").click();
+  panelNs.closeTasksPanel();
 
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  await flush();
+}
+
+// ── 分区:对话单列与输入区 ──
+// UI2-0926 #12(docs/design/chat_presentation_contract.md §4.4):连续工具调用合成一行工具组(实时/历史同一入口
+// mountToolBlock、思考并入、正文/子代理断组、失败常驻、运行中组头、上限 30、停止收尾、裁剪按行计权、复制上下文与
+// 搜索展开、窗口边界合并、切语言重算)、⎿ 摘要里的反引号成行内代码、notice 不挂复制、本轮结束 turn-end 模板。
+// 变异守卫:toolGroupLive / toolGroupHistory / toolGroupReasoning / toolGroupSync / toolSumInlineCode / paneUnits /
+// ctxToolGroup / searchExpandGroup / noticeNoActions / turnEndClass / earlierMerge / earlierHintTop / toolGroupI18n。
+// UI2-0926 #11 输入区(⑫⑬):上下文带 + 单行工具行的结构与 .kz-ctl、鞭挞触发器读屏名、无改动时的分支、语音键图标;
+// 变异守卫 ctxBranchEarly / autorunTriggerLabel / voiceIconKeep。像素级几何见 scripts/ui-composer-geometry.mjs。
+// ⑭ 复核补守卫:历史回放中断、窗口边界配对、族措辞上限、合并上限、SOP 锚点、继续文案收菜单、附件 ×、同字不同义;
+// 变异守卫 histInterrupted / histInterruptedSync / boundaryPair / groupSummaryEtc / mergeCap / sopAnchor /
+// continueClosesWhip / attachRemove / i18nZhDisplay。
+{
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
+  assert(chatNs && typeof chatNs.mountToolBlock === "function" && typeof chatNs.toolGroupSummary === "function", "05-chat-render.js 未导出工具组入口 mountToolBlock/toolGroupSummary");
+  assert(summaryNs && typeof summaryNs.inlineCodeParts === "function", "05-tool-summary.js 未导出 inlineCodeParts");
+  const toolStart = handlers.get("kz:tool-start");
+  const toolEnd = handlers.get("kz:tool-end");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+  const SID = sandbox.activeSessionId;
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: SID } });
+  await flush();
+  chatNs.setFollowLatest(true);
+  let paneSeq = 0;
+  // 每个用例一块挂在 #messages 下的临时 pane(切语言重算按 #messages 找组;不污染真实会话 pane)。
+  const withPane = async (fn) => {
+    paneSeq += 1;
+    vm.runInContext(`globalThis.__colSave = activePane; activePane = document.createElement("div"); activePane.className = "msg-pane"; activePane.dataset.colCase = "${paneSeq}";`, sandbox);
+    const pane = sandbox.activePane;
+    byId.get("messages").appendChild(pane);
+    try {
+      await fn(pane);
+    } finally {
+      pane.remove();
+      vm.runInContext("activePane = globalThis.__colSave; delete globalThis.__colSave;", sandbox);
+    }
+  };
+  const top = (pane) => pane.children.filter((el) => !el.classList.contains("earlier-hint") && !el.classList.contains("pane-trimmed-hint"));
+  const kind = (el) => (el.classList.contains("tool-group") ? "group" : el.classList.contains("sa-group") ? "sa" : el.classList.contains("user") ? "user" : el.classList.contains("assistant") ? "assistant" : el.classList.contains("notice") ? "notice" : el.className);
+  const labelOf = (group) => group?.querySelector(".tool-group-label")?.textContent ?? "";
+  const failOf = (group) => group?.querySelector(".tool-group-fail");
+  let seq = 0;
+  const live = async (name, input, end) => {
+    seq += 1;
+    const id = `col-${seq}`;
+    toolStart({ payload: { sessionId: SID, id, name, summary: "", input } });
+    if (end) toolEnd({ payload: { sessionId: SID, id, name, ok: end.ok !== false, outcome: end.ok === false ? "failed" : "success", preview: end.content, content: end.content, contentBytes: end.content.length, contentTruncated: false, durationMs: 20 } });
+    await flush();
+    return id;
+  };
+  const READ = ["read", { path: "src/a.rs" }, { content: "     1\tfn a() {}\n     2\t" }];
+  const GLOB = ["glob", { pattern: "src/**/*.rs" }, { content: "src/a.rs\nsrc/b.rs" }];
+  const BASH_FAIL = ["bash", { command: "cargo test" }, { ok: false, content: "exit code: 101\nerror[E0425]: cannot find value" }];
+  const sig = (pane) => top(pane).map((el) => kind(el) === "group"
+    ? ["group", el.dataset.count, labelOf(el), failOf(el)?.textContent ?? "", [...el.querySelectorAll(".tool-msg")].map((row) => [row.querySelector(".tool-msg-name")?.textContent, row.querySelector(".tool-msg-result")?.textContent])]
+    : [kind(el)]);
+
+  // ① 实时:read → 思考(多行,可见)→ glob → bash(失败)合成一组;思考在组内;失败常驻、默认折叠。
+  let liveSig = null;
+  await withPane(async (pane) => {
+    await live(...READ);
+    handlers.get("kz:reasoning")({ payload: { sessionId: SID, text: "先看测试怎么挂的\n再决定改哪" } });
+    await flush();
+    await live(...GLOB);
+    await live(...BASH_FAIL);
+    const groups = top(pane).filter((el) => el.classList.contains("tool-group"));
+    assert(top(pane).length === 1 && groups.length === 1, `连续工具调用没有合成一个工具组:顶层 ${top(pane).map(kind).join(",")}`);
+    const group = groups[0];
+    assert(group?.dataset.count === "3", `工具组计数应为 3,实为 ${group?.dataset.count}`);
+    assert(group?.querySelector(".tool-group-body .reasoning"), "夹在两次调用之间的思考块没有并入工具组");
+    const label = labelOf(group);
+    assert(["读取 1 个文件", "搜索 1 次", "运行 1 条命令"].every((word) => label.includes(word)), `工具组标签不对:${label}`);
+    assert(failOf(group)?.textContent === "· 1 失败" && !failOf(group).classList.contains("hidden"), `工具组失败数不对:${failOf(group)?.textContent}`);
+    assert(group?.querySelector(".tool-group-head")?.getAttribute("aria-expanded") === "false" && group.dataset.expanded !== "1", "工具组应默认折叠");
+    assert(!group.dataset.running, "全部收尾后工具组仍标着运行中");
+    group.querySelector(".tool-group-head").click();
+    assert(group.dataset.expanded === "1" && group.querySelector(".tool-group-head").getAttribute("aria-expanded") === "true", "点组头没有展开工具组");
+    group.querySelector(".tool-group-head").click();
+    assert(group.dataset.expanded !== "1", "再点组头没有收起工具组");
+    liveSig = sig(pane);
+    // ② 断组:正文与子代理卡把组断开(组不再是 pane 末尾)。
+    handlers.get("kz:text")({ payload: { sessionId: SID, text: "测试挂在 registry。" } });
+    await flush();
+    await live(...READ);
+    toolStart({ payload: { sessionId: SID, id: "col-task-1", name: "task", summary: "复核", input: { description: "复核", prompt: "复核改动" } } });
+    await flush();
+    await live(...GLOB);
+    assert(top(pane).map(kind).join(",") === "group,assistant,group,sa,group", `正文/子代理卡没有断开工具组:${top(pane).map(kind).join(",")}`);
+    // ③ 复制上下文:组逐项导出(工具名、⎿ 摘要、组内思考),折叠态也不丢。
+    copiedResearchCitation = "";
+    byId.get("copy-context").click();
+    await flush();
+    assert(["read", "glob", "bash", "⎿", "> 先看测试怎么挂的"].every((part) => copiedResearchCitation.includes(part)), `复制上下文丢了工具组里的行或思考:${copiedResearchCitation.slice(0, 200)}`);
+    // ④ 搜索:命中只在折叠组的某一行时先展开那一组。
+    const firstGroup = top(pane)[0];
+    byId.get("chat-search-input").value = "cargo test";
+    vm.runInContext("searchIndex = 0; updateSearch()", sandbox);
+    const hit = firstGroup.querySelectorAll(".tool-msg").find((row) => row.classList.contains("search-current"));
+    assert(hit && firstGroup.dataset.expanded === "1", "搜索命中折叠工具组里的行时没有先展开该组");
+    byId.get("chat-search-input").value = "";
+    vm.runInContext("updateSearch()", sandbox);
+    chatNs.setFollowLatest(true);
+    // ⑤ 切语言:组标签在渲染点重算。
+    sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+    await flush();
+    assert(labelOf(firstGroup) === "Read 1 file · Searched once · Ran 1 command" && failOf(firstGroup)?.textContent === "· 1 failed", `切到英文后工具组标签未重算:${labelOf(firstGroup)} ${failOf(firstGroup)?.textContent}`);
+    sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+    await flush();
+  });
+
+  // ⑥ 实时与历史同构:同一序列经 renderMessagesInto 渲染,逐组签名(计数/标签/失败数/每行工具名与 ⎿)相等。
+  await withPane(async (pane) => {
+    const call = (id, [name, input]) => ({ type: "tool_call", id, name, input });
+    const result = (id, [, , end]) => ({ type: "tool_result", call_id: id, is_error: end.ok === false, content: end.content });
+    const items = [{ role: "assistant", parts: [
+      call("h1", READ), result("h1", READ),
+      { type: "reasoning", text: "先看测试怎么挂的\n再决定改哪" },
+      call("h2", GLOB), result("h2", GLOB),
+      call("h3", BASH_FAIL), result("h3", BASH_FAIL),
+    ] }];
+    viewsNs.renderMessagesInto(pane, items);
+    await flush();
+    assert(JSON.stringify(sig(pane)) === JSON.stringify(liveSig), `实时与历史回放的工具组不一致:\n实时 ${JSON.stringify(liveSig)}\n历史 ${JSON.stringify(sig(pane))}`);
+  });
+
+  // ⑦ 运行中组头:当前调用 + 已完成数;多个在跑时计数;30 行封顶另起一组;停止收尾标中断。
+  await withPane(async (pane) => {
+    for (let i = 0; i < 3; i += 1) await live(...READ);
+    await live("bash", { command: "node scripts/x.mjs" }, null);
+    const group = top(pane)[0];
+    assert(group?.dataset.running === "1", "有调用在跑时工具组没有标运行中");
+    assert(labelOf(group) === "bash node scripts/x.mjs · 已完成 3", `运行中组头应显示当前调用与已完成数,实为「${labelOf(group)}」`);
+    await live("bash", { command: "node scripts/y.mjs" }, null);
+    assert(labelOf(group) === "2 个工具运行中 · 已完成 3", `两个调用在跑时组头应计数,实为「${labelOf(group)}」`);
+    for (let i = 0; i < 25; i += 1) await live(...READ);
+    await live("bash", { command: "node scripts/z.mjs" }, null);
+    const groups = top(pane);
+    assert(groups.length === 2 && groups[0].dataset.count === "30" && groups[1].dataset.count === "1", `工具组应 30 行封顶另起一组:${groups.map((g) => g.dataset.count).join("+")}`);
+    chatNs.chatAbortRunning(pane);
+    assert(!groups[0].dataset.running && !groups[1].dataset.running, "停止收尾后工具组仍标着运行中");
+    assert(labelOf(groups[0]).includes("2 中断") && labelOf(groups[1]).includes("1 中断"), `停止收尾后组标签缺「N 中断」:${labelOf(groups[0])} / ${labelOf(groups[1])}`);
+  });
+
+  // ⑧ 裁剪按行计权:700 次调用(没有正文)也必须裁,裁剪计数按行,说明条只有一条。
+  await withPane(async (pane) => {
+    for (let i = 0; i < 700; i += 1) {
+      chatNs.chatToolStart(`trim-${i}`, "read", "", { path: `src/f${i % 7}.rs` });
+      chatNs.chatToolEnd(`trim-${i}`, true, "ok", null, "success", { content: "     1\tx", contentBytes: 8 });
+    }
+    const rows = top(pane).reduce((sum, el) => sum + Number(el.dataset.count || 0), 0);
+    assert(rows <= 601 && rows >= 400, `工具组裁剪没有按行计权:剩 ${rows} 行(应在 400~601)`);
+    assert(Number(pane.dataset.droppedLive || 0) > 0 && pane.querySelectorAll(".pane-trimmed-hint").length === 1, `工具组长跑没有裁剪或说明条不唯一(dropped=${pane.dataset.droppedLive})`);
+  });
+
+  // ⑨ 窗口化历史:窗口边界切开的同一段工具活动在补齐后合并成一组;「载入更早的消息」回到顶部。
+  {
+    const savedHistory = viewsNs.paneHistory.get(SID || "");
+    await withPane(async (pane) => {
+      const W = viewsNs.PANE_WINDOW_SIZE;
+      const total = 2 * W + 10;
+      const boundary = total - W; // 首屏渲染 items[boundary..],第一次补齐渲染 items[boundary-W..boundary)
+      const items = Array.from({ length: total }, (_, i) => (i >= boundary - 3 && i < boundary + 3)
+        ? { role: "assistant", parts: [{ type: "tool_call", id: `w${i}`, name: "read", input: { path: `src/w${i}.rs` } }, { type: "tool_result", call_id: `w${i}`, content: "     1\tx" }] }
+        : { role: i % 2 ? "user" : "assistant", parts: [{ type: "text", text: `m${i}` }] });
+      viewsNs.renderRecoveredMessages(items);
+      await flush();
+      const firstGroup = top(pane)[0];
+      assert(firstGroup?.classList.contains("tool-group") && firstGroup.dataset.count === "3", `窗口化首屏应以边界后的 3 行工具组开头:${kind(firstGroup ?? { classList: { contains: () => false } })}`);
+      vm.runInContext("loadEarlierMessages()", sandbox);
+      await flush();
+      const merged = [...pane.querySelectorAll(".tool-group")].find((group) => group.querySelectorAll(".tool-msg").some((row) => row.dataset.toolCallId === `w${boundary - 1}`));
+      assert(merged && merged.dataset.count === "6" && merged.querySelectorAll(".tool-msg").some((row) => row.dataset.toolCallId === `w${boundary}`), `窗口边界两侧的工具组没有合并:count=${merged?.dataset.count}`);
+      assert(pane.children[0]?.classList.contains("earlier-hint"), `补齐后「载入更早的消息」没有回到顶部:${pane.children[0]?.className}`);
+    });
+    if (savedHistory) viewsNs.paneHistory.set(SID || "", savedHistory);
+    else viewsNs.paneHistory.delete(SID || "");
+  }
+
+  // ⑩ ⎿ 行内代码:成对反引号成 code part,文本不再露反引号,悬停 title 保留原句;不成对的原样保留。
+  {
+    const raw = "批次字段要写成 `k/N`(如 `0/3`),实际收到 `批次: 0/5`";
+    const summary = summaryNs.toolResultSummary("req", { ok: false, outcome: "failed", content: raw });
+    const codes = summary.parts.filter((part) => part.k === "code").map((part) => part.v);
+    assert(["k/N", "0/3", "批次: 0/5"].every((value) => codes.includes(value)), `⎿ 摘要的反引号没有切成行内代码:${JSON.stringify(codes)}`);
+    assert(!summary.text.includes("`") && summary.title === raw, `⎿ 摘要文本仍含反引号或 title 丢了原句:${summary.text} / ${summary.title}`);
+    const el = document.createElement("span");
+    summaryNs.renderToolSummary(el, summary);
+    assert(el.querySelectorAll(".tool-sum-code").length === 3 && el.textContent === `⎿ ${summary.text}`, `renderToolSummary 没有把行内代码渲染成 .tool-sum-code:${el.textContent}`);
+    const odd = summaryNs.inlineCodeParts({ k: "text", v: "a `b" });
+    assert(odd.length === 1 && odd[0].v === "a `b", "不成对的反引号应原样保留");
+  }
+
+  // ⑪ notice 不挂复制;消息的复制按钮是图标 + 读屏名;本轮结束 = notice turn-end + 模板文案。
+  await withPane(async (pane) => {
+    const notice = chatNs.addMessage("notice", "x");
+    const reply = chatNs.addMessage("assistant md", "y");
+    assert(!notice.querySelector(".msg-actions"), "notice 不应挂复制按钮");
+    const copy = reply.querySelector(".msg-actions .copy-btn");
+    assert(copy && copy.querySelector(".sr-only")?.dataset.i18nKey === "复制" && copy.dataset.i18nTitle === "复制消息" && !copy.dataset.i18nKey, "复制按钮应是图标 + sr-only 读屏名(i18n key 挂在 span 上,切语言不冲掉图标)");
+    handlers.get("kz:done")({ payload: { sessionId: SID, steps: 2, halted: false, history: 5, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+    await flush();
+    const turnEnd = pane.querySelectorAll(".msg.notice").find((el) => el.classList.contains("turn-end"));
+    assert(turnEnd && turnEnd.textContent.includes("本轮结束 · 2 步 · 会话 5 条"), `本轮结束 notice 缺 turn-end 类或模板文案:${turnEnd?.textContent ?? "(无)"}`);
+  });
+
+  // ⑫ 输入区结构(UI2-0926 #11,docs/design/ui_surface_stack.md「输入区控件几何」):上下文带 + 单行工具行,
+  //    左段 附件 · 模式 · 鞭挞,右段 模型 … 发送;带与工具行里的控件全是 .kz-ctl(发送是 .kz-ctl--round,菜单内部除外);
+  //    「N 轮 · 阶段」在鞭挞设置触发器里。假 DOM 是按 id 拍平的桩,结构只能对源码配对标签扫描。
+  {
+    const footer = html.slice(html.indexOf('<footer id="composer">'), html.indexOf("</footer>", html.indexOf('<footer id="composer">')));
+    // 去掉弹层(菜单/浮层)内部:它们的控件归 surface.css 的菜单外观,不在工具行几何里。
+    let flat = footer;
+    for (;;) {
+      const open = flat.search(/<div id="[\w-]+"[^>]*popover=/);
+      if (open < 0) break;
+      let depth = 0;
+      let close = -1;
+      const tag = /<\/?div\b/g;
+      tag.lastIndex = open;
+      for (let m = tag.exec(flat); m; m = tag.exec(flat)) {
+        depth += m[0] === "<div" ? 1 : -1;
+        if (depth === 0) { close = flat.indexOf(">", m.index) + 1; break; }
+      }
+      if (close < 0) break;
+      flat = flat.slice(0, open) + flat.slice(close);
+    }
+    const order = (block, ids) => ids.map((id) => block.indexOf(`id="${id}"`));
+    const left = flat.slice(flat.indexOf('<div class="composer-left">'), flat.indexOf('<div class="composer-right">'));
+    const right = flat.slice(flat.indexOf('<div class="composer-right">'));
+    const leftAt = order(left, ["attach", "profile-select", "autorun-bar"]);
+    const rightAt = order(right, ["model-picker-group", "task-options", "composer-more", "continue-btn", "delivery-select", "voice-toggle", "stop", "send"]);
+    const ascending = (list) => list.every((value, index) => value >= 0 && (index === 0 || value > list[index - 1]));
+    assert(ascending(leftAt), `输入区工具行左段应依次为 附件 · 模式 · 鞭挞组:${JSON.stringify(leftAt)}`);
+    assert(ascending(rightAt), `输入区工具行右段应依次为 模型 · 任务设置 · 更多 · 继续 · 排队 · 语音 · 停止 · 发送:${JSON.stringify(rightAt)}`);
+    const band = flat.slice(flat.indexOf('id="composer-context"'), flat.indexOf('id="change-bar-files"'));
+    const bar = flat.slice(flat.indexOf('id="composer-bar"'));
+    const bare = [...`${band}\n${bar}`.matchAll(/<(button|select|label)\b[^>]*>/g)]
+      .map(([tag]) => tag)
+      .filter((tag) => !/\bclass="[^"]*\bkz-ctl(?:--round)?\b/.test(tag))
+      .map((tag) => tag.match(/id="([\w-]+)"/)?.[1] ?? tag.slice(0, 40));
+    assert(bare.length === 0, `上下文带/工具行里的控件必须是 .kz-ctl(同一套 28px 盒子):${bare.join(", ")}`);
+    const trigger = flat.slice(flat.indexOf('id="autorun-more"'), flat.indexOf("</button>", flat.indexOf('id="autorun-more"')));
+    assert(trigger.includes('id="auto-progress"') && trigger.includes('id="auto-phase"') && trigger.includes('id="auto-round-now"'), "鞭挞设置触发器里应含轮次(#auto-progress/#auto-round-now)与阶段(#auto-phase):状态即入口");
+    assert(!/id="(?:hint|change-bar-branch)"|class="[^"]*\b(?:composer-actions|composer-secondary|seg-btn|seg-select|ctx-select)\b/.test(footer), "旧输入区结构(#hint、分段组、.ctx-select、改动条里的分支)不应再出现");
+    const moreMenu = footer.slice(footer.indexOf('id="composer-more-menu"'));
+    assert(moreMenu.indexOf('id="sop-picker"') >= 0 && moreMenu.indexOf('id="sop-picker"') < moreMenu.indexOf('id="summarize-btn"'), "SOP 应是「更多」菜单的首项");
+  }
+  // ⑬ 输入区行为:鞭挞触发器的读屏名带轮次与阶段;无改动时分支仍显示在上下文带;语音切换不冲掉图标。
+  {
+    const whip = byId.get("auto-continue");
+    const priorWhip = whip.checked;
+    whip.checked = true;
+    vm.runInContext("renderAutoRun()", sandbox);
+    const armedLabel = byId.get("autorun-more").getAttribute("aria-label") ?? "";
+    assert(armedLabel.startsWith("鞭挞设置 · 鞭挞轮次 ") && /\d/.test(armedLabel) && /· (推进中|等待下一轮|已暂停|待命)$/.test(armedLabel), `鞭挞开着时触发器读屏名应带轮次与阶段,实为「${armedLabel}」`);
+    whip.checked = false;
+    vm.runInContext("renderAutoRun()", sandbox);
+    assert(byId.get("autorun-more").getAttribute("aria-label") === "鞭挞设置" && byId.get("autorun-more").title === "鞭挞设置", `鞭挞关着时触发器读屏名应只剩「鞭挞设置」,实为「${byId.get("autorun-more").getAttribute("aria-label")}」`);
+    whip.checked = priorWhip;
+    vm.runInContext("renderAutoRun()", sandbox);
+    const views = esmModuleCache.get("15-views-misc.js")?.namespace;
+    views.renderChangeBar({ branch: "kanzei/ui2-chat", files: [], additions: 0, deletions: 0 });
+    assert(byId.get("ctx-branch")?.textContent === "⎇ kanzei/ui2-chat" && byId.get("change-bar").classList.contains("hidden"), `无改动时上下文带应仍显示分支且收起改动按钮:「${byId.get("ctx-branch")?.textContent}」`);
+    views.renderChangeBar({ branch: "kanzei/ui2-chat", files: [{ path: "a.rs", additions: 1, deletions: 0 }], additions: 1, deletions: 0 });
+    assert(!byId.get("change-bar").classList.contains("hidden") && byId.get("change-bar-repo").textContent.startsWith("1"), "有改动时上下文带右端应出现「N 个文件 +a −d」");
+    const voice = esmModuleCache.get("23-voice.js")?.namespace?.voiceConversation;
+    const voiceButton = byId.get("voice-toggle");
+    if (voice?.onState) {
+      const before = voiceButton.textContent;
+      voice.onState("listening");
+      assert(voiceButton.getAttribute("aria-label") === "结束语音" && voiceButton.getAttribute("aria-pressed") === "true" && voiceButton.textContent === before, `语音开始后按钮应只改读屏名/按下态,不得把文字写进图标按钮(textContent「${voiceButton.textContent}」)`);
+      voice.onState("off");
+      assert(voiceButton.getAttribute("aria-label") === "语音" && voiceButton.textContent === before, "语音结束后按钮读屏名应回到「语音」且图标不被冲掉");
+    } else {
+      fail("23-voice.js 未导出 voiceConversation(无法验证语音键图标)");
+    }
+  }
+
+  // ⑭ 复核补守卫(独立复核逐条删源码仍全绿的几处新行为)。
+  // ⑭a 历史回放:没等到结果的调用标 interrupted 并同步组头「N 中断」(与实时停止收尾同形)。
+  await withPane(async (pane) => {
+    viewsNs.renderMessagesInto(pane, [{ role: "assistant", parts: [
+      { type: "tool_call", id: "hi1", name: "read", input: { path: "src/a.rs" } },
+      { type: "tool_result", call_id: "hi1", content: "     1\tfn a() {}" },
+      { type: "tool_call", id: "hi2", name: "bash", input: { command: "cargo test" } },
+    ] }]);
+    await flush();
+    const group = top(pane)[0];
+    const row = group?.querySelectorAll(".tool-msg").find((el) => el.dataset.toolCallId === "hi2");
+    assert(row?.classList.contains("interrupted") && !row.classList.contains("running"), `历史回放里没等到结果的调用应标 interrupted:${row?.className}`);
+    assert(labelOf(group).includes("1 中断"), `历史回放的工具组头应计「1 中断」,实为「${labelOf(group)}」`);
+  });
+  // ⑭b 窗口边界切在「调用」与「结果」两条消息之间:补齐后两半配回一块(已完成、不计中断),孤儿结果块删掉,再与后一组合并。
+  {
+    const savedHistory = viewsNs.paneHistory.get(SID || "");
+    await withPane(async (pane) => {
+      const W = viewsNs.PANE_WINDOW_SIZE;
+      const boundary = 12;
+      const items = Array.from({ length: W + boundary }, (_, i) => {
+        if (i === boundary - 1) return { role: "assistant", parts: [{ type: "tool_call", id: "bp1", name: "read", input: { path: "src/p1.rs" } }] };
+        if (i === boundary) return { role: "user", parts: [{ type: "tool_result", call_id: "bp1", content: "     1\tp1" }] };
+        if (i === boundary + 1) return { role: "assistant", parts: [{ type: "tool_call", id: "bp2", name: "read", input: { path: "src/p2.rs" } }, { type: "tool_result", call_id: "bp2", content: "     1\tp2" }] };
+        return { role: i % 2 ? "user" : "assistant", parts: [{ type: "text", text: `b${i}` }] };
+      });
+      viewsNs.renderRecoveredMessages(items);
+      await flush();
+      const orphans = pane.querySelectorAll(".tool-msg").filter((row) => row.dataset.orphanCallId === "bp1").length;
+      assert(orphans === 1, `窗口边界切开调用与结果时首屏应有一条孤儿结果块,实得 ${orphans}`);
+      vm.runInContext("loadEarlierMessages()", sandbox);
+      await flush();
+      const rows = pane.querySelectorAll(".tool-msg");
+      const call = rows.find((row) => row.dataset.toolCallId === "bp1");
+      const group = call?.closest(".tool-group");
+      assert(call && !call.classList.contains("interrupted") && call.classList.contains("ok"), `补齐后被窗口边界切开的调用应配上结果(ok),实为 ${call?.className}`);
+      assert(!rows.some((row) => row.dataset.orphanCallId), "补齐后孤儿结果块应被删掉");
+      assert(group?.dataset.count === "2" && labelOf(group) === "读取 2 个文件", `配对后应与后一组合并为「读取 2 个文件」(2 行),实为「${labelOf(group)}」(${group?.dataset.count} 行)`);
+    });
+    if (savedHistory) viewsNs.paneHistory.set(SID || "", savedHistory);
+    else viewsNs.paneHistory.delete(SID || "");
+  }
+  // ⑭c 族措辞:超过 3 族只列前三族,追加「等 N 次调用」;3 族以内不追加。
+  {
+    const entries = [
+      { name: "read", state: "ok", argText: "a.rs" }, { name: "bash", state: "ok", argText: "ls" },
+      { name: "glob", state: "ok", argText: "*.rs" }, { name: "git", state: "ok", argText: "status" },
+    ];
+    const four = chatNs.toolGroupSummary(entries).label;
+    const three = chatNs.toolGroupSummary(entries.slice(0, 3)).label;
+    assert(four === "读取 1 个文件 · 运行 1 条命令 · 搜索 1 次 · 等 4 次调用", `4 族时组头应只列前三族并追加「等 4 次调用」,实为「${four}」`);
+    assert(three === "读取 1 个文件 · 运行 1 条命令 · 搜索 1 次", `3 族时组头不应追加「等 N 次调用」,实为「${three}」`);
+  }
+  // ⑭d 窗口边界合并的上限:合计超过 30 行不合并,两组原样保留;不超过才合并。
+  await withPane(async (pane) => {
+    for (let i = 0; i < 20; i += 1) await live(...READ);
+    chatNs.addMessage("notice", "断组");
+    for (let i = 0; i < 15; i += 1) await live(...READ);
+    const [a, , b] = top(pane);
+    assert(chatNs.mergeAdjacentToolGroups(a, b) === false && a.dataset.count === "20" && b.dataset.count === "15" && top(pane).length === 3, `合计 35 行的两组不应合并:${a?.dataset.count}+${b?.dataset.count},顶层 ${top(pane).length}`);
+    chatNs.addMessage("notice", "断组");
+    for (let i = 0; i < 10; i += 1) await live(...READ);
+    const c = top(pane)[4];
+    assert(chatNs.mergeAdjacentToolGroups(b, c) === true && b.dataset.count === "25" && top(pane).length === 4, `合计 25 行的两组应合并:${b?.dataset.count},顶层 ${top(pane).length}`);
+  });
+  // ⑭e SOP 在「更多」菜单首项:点它先收起菜单,再以「更多」触发器为锚弹出列表(菜单一关,菜单项就不能当锚点);
+  //     继续文案的开关住在鞭挞菜单里:展开编辑区时收起鞭挞菜单。
+  {
+    const surface = esmModuleCache.get("00-surface.js")?.namespace;
+    const compose = esmModuleCache.get("08-compose-runtime.js")?.namespace;
+    const more = byId.get("composer-more");
+    const moreMenu = byId.get("composer-more-menu");
+    const sopPanel = byId.get("sop-picker-panel");
+    surface.openPopover(more, moreMenu);
+    assert(surface.isSurfaceOpen(moreMenu), "前置:「更多」菜单没有打开");
+    const pendingSop = compose.openSopPicker();
+    assert(!surface.isSurfaceOpen(moreMenu) && surface.isSurfaceOpen(sopPanel), "点 SOP 后应先收起「更多」菜单、再弹出 SOP 列表");
+    assert(more.dataset.kzAnchor && sopPanel.style.getPropertyValue("position-anchor") === more.dataset.kzAnchor, `SOP 列表应以「更多」触发器为锚:${sopPanel.style.getPropertyValue("position-anchor")} ≠ ${more.dataset.kzAnchor}`);
+    await pendingSop;
+    await flush();
+    surface.closeSurface(sopPanel);
+    const whipMenu = byId.get("autorun-menu");
+    const continuePanel = byId.get("continue-panel");
+    const toggle = byId.get("continue-toggle");
+    if (!continuePanel.classList.contains("hidden")) toggle.click();
+    surface.openPopover(byId.get("autorun-more"), whipMenu);
+    assert(surface.isSurfaceOpen(whipMenu), "前置:鞭挞菜单没有打开");
+    toggle.click();
+    assert(!continuePanel.classList.contains("hidden") && !surface.isSurfaceOpen(whipMenu), "展开继续文案时应收起鞭挞菜单(否则菜单盖在编辑区上)");
+    toggle.click();
+    surface.closeSurface(whipMenu);
+  }
+  // ⑭f 附件芯片 = 名字 + 单独的 ×:点名字不删,点 × 删这一个。
+  {
+    const shell = esmModuleCache.get("03-shell.js")?.namespace;
+    const compose = esmModuleCache.get("08-compose-runtime.js")?.namespace;
+    const saved = shell.attachments.splice(0, shell.attachments.length);
+    shell.attachments.push({ file_name: "一个很长的附件名.pdf", media_type: "application/pdf" }, { file_name: "b.png", media_type: "image/png" });
+    compose.renderAttachments();
+    const box = byId.get("attachments");
+    assert(box.children.length === 2 && box.children.every((chip) => chip.querySelector(".attachment-name") && chip.querySelector(".attachment-remove")), "附件芯片应是 名字(.attachment-name)+ 单独的 × 移除键(.attachment-remove)");
+    box.children[0].querySelector(".attachment-name").click();
+    assert(shell.attachments.length === 2, "点附件名字不应删除附件(整颗点击即删容易误触)");
+    box.children[0].querySelector(".attachment-remove").click();
+    assert(shell.attachments.length === 1 && shell.attachments[0].file_name === "b.png", `点 × 应删除该附件,剩 ${shell.attachments.map((item) => item.file_name).join(",")}`);
+    shell.attachments.splice(0, shell.attachments.length, ...saved);
+    compose.renderAttachments();
+  }
+  // ⑭g 同字不同义:交付方式「排队」在英文里是动词 Queue(「排队」这个 key 已译作状态词 Queued),中文仍显示「排队」。
+  {
+    const i18n = esmModuleCache.get("02-i18n.js")?.namespace;
+    const probe = document.createElement("div");
+    const label = document.createElement("span");
+    label.setAttribute("data-i18n-key", "排队 queue");
+    label.setAttribute("data-i18n-zh", "排队");
+    probe.appendChild(label);
+    i18n.applyDataI18nKeys(probe, "en");
+    const en = label.textContent;
+    i18n.applyDataI18nKeys(probe, "zh");
+    assert(en === "Queue" && label.textContent === "排队", `data-i18n-zh:英文应为 Queue、中文应为「排队」,实为 ${en} / ${label.textContent}`);
+    const queue = byId.get("delivery-select").options.find((option) => option.value === "queue");
+    sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+    const queueEn = queue?.textContent;
+    sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+    assert(queueEn === "Queue" && queue?.textContent === "排队", `交付方式「排队」选项:英文应为 Queue、中文应为「排队」,实为 ${queueEn} / ${queue?.textContent}`);
+  }
+
+  sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
+  vm.runInContext(`transitionSession(${JSON.stringify(SID)}, "idle")`, sandbox);
+  chatNs.setFollowLatest(true);
+  // 本分区的 BASH_FAIL 会在活动列表里留下一条失败终端条目;清掉,别让后面分区(后台任务侧栏的「需要关注」)读到它。
+  esmModuleCache.get("06-activity.js")?.namespace?.bgClear?.();
+  await flush();
+}
+
+// ── 分区:后台任务侧栏与可调框 ──
+// UI2-0926 #4 可调框与分隔条(00-frame.js / 03-layout.js,docs/design/ui_surface_stack.md §4.6)。
+// 假 DOM 没有布局:指针用例靠打桩矩形与合成事件;真实命中、捕获、滚动条冲突由浏览器样例冒烟(步骤 7)兜底。
+// 变异守卫:frameClamp / frameGestureDoc / frameDblclickFlag / frameTransientReset / frameStorageGuard /
+// splitCssVar / layoutPersist(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
+{
+  const frameNs = esmModuleCache.get("00-frame.js")?.namespace;
+  const layoutNs = esmModuleCache.get("03-layout.js")?.namespace;
+  assert(frameNs && typeof frameNs.installFrame === "function", "00-frame.js 未加载或未导出 installFrame");
+  assert(layoutNs && typeof layoutNs.setLayoutPref === "function", "03-layout.js 未加载或未导出 setLayoutPref");
+  assert(!/^\s*import\b/m.test(sources[scriptSrcs.indexOf("00-frame.js")] ?? "import"), "00-frame.js 必须零 import");
+  const rectStub = (el, rect) => {
+    el.getBoundingClientRect = () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height });
+  };
+  const pointer = (type, target, x, y, id = 1) => ({ type, target, pointerId: id, button: 0, clientX: x, clientY: y, preventDefault() {}, stopPropagation() {} });
+  const docPointer = (type, x, y, id = 1) => document.dispatchEvent(pointer(type, documentElement, x, y, id));
+  const vars = (el) => Object.fromEntries(["l", "r", "t", "b", "w", "h"].map((k) => [k, el.style.getPropertyValue(`--kz-frame-${k}`)]).filter(([, v]) => v));
+
+  // ⑩a 启动接线:index.html 里声明的框全部接上,手柄数与 edges 一致;手柄不进 Tab 序。
+  const wired = { "viewer-overlay": ["viewer", 8], "project-models-overlay": ["project-models", 8], "confirm-overlay": ["confirm", 0], "input-overlay": ["input", 0], "ask-overlay": ["ask", 2] };
+  for (const [hostId, [frameId, edges]] of Object.entries(wired)) {
+    const host = byId.get(hostId);
+    assert(host?._kzFrame?.o.id === frameId, `#${hostId} 没有接成可调框 ${frameId}(bindFrames 没扫到 data-kz-frame)`);
+    const handles = host?.children.filter((c) => c.classList.contains("k-frame-edge")) ?? [];
+    assert(handles.length === edges, `#${hostId} 应有 ${edges} 个边缘手柄,实为 ${handles.length}`);
+    assert(handles.every((h) => h.getAttribute("aria-hidden") === "true" && h.getAttribute("tabindex") === null), `#${hostId} 的手柄必须 aria-hidden 且不进 Tab 序`);
+  }
+  assert(byId.get("ask-overlay")?._kzFrame?.o.keepW === true, "权限卡移动时要记下宽度(data-kz-frame-keep=w)");
+  assert(byId.get("confirm-overlay")?._kzFrame?.o.persist === false, "确认框不记住几何(data-kz-frame-persist=no)");
+  assert(!byId.get("palette")?._kzFrame, "命令面板不是可调框");
+
+  // ⑩b 纯函数:先分支 move("move" 里含 e)、夹紧、锚最近边、只记拖过的轴、非法偏好一律当没有。
+  const lim = { minW: 420, minH: 240, vw: 1280, vh: 800 };
+  const start = { left: 210, top: 60, width: 860, height: 680 };
+  const east = frameNs.dragRect(start, "e", 100, 0, lim);
+  assert(east.width === 960 && east.left === 210, `拖右边 +100 应宽 960 左缘不动,实为 ${JSON.stringify(east)}`);
+  const moved = frameNs.dragRect(start, "move", 50, 0, lim);
+  assert(moved.width === 860 && moved.left === 260, `移动不得改宽度(守 "move".includes("e")),实为 ${JSON.stringify(moved)}`);
+  assert(frameNs.dragRect(start, "w", 1000, 0, lim).width === 420, "拖左边越过下限应夹到最小宽 420");
+  const pref = frameNs.prefFromRect({ left: 210, top: 60, width: 960, height: 680 }, { vw: 1280, vh: 800, sized: { w: true } });
+  assert(pref.r === 110 && pref.t === 60 && pref.w === 960 && pref.l === undefined && pref.h === undefined, `右半边的框应锚右、只记宽,实为 ${JSON.stringify(pref)}`);
+  const clamped = frameNs.placeFromPref({ v: 1, l: 400, t: 20, w: 600, kh: 300 }, { vw: 700, vh: 800, minW: 420, minH: 240 });
+  assert(clamped.vars.l === 92, `窗口缩小后左缘应夹到 700-8-600=92,实为 ${clamped.vars.l}`);
+  for (const bad of [null, "null", "{", JSON.stringify({ v: 2, l: 1, t: 1 }), JSON.stringify({ v: 1, l: -5, t: 1 }), JSON.stringify({ v: 1, l: 1, r: 1, t: 1 }), JSON.stringify({ v: 1, l: 1 })]) {
+    assert(frameNs.parsePref(bad) === null, `非法偏好应当作没有:${bad}`);
+  }
+  assert(frameNs.parsePref({ v: 1, r: 4, b: 5 })?.r === 4, "对象形态的合法偏好应被接受(ui_layout 存的就是对象)");
+
+  // 合成一个可调框(与查看器同构:标题栏 + 按钮 + 正文)。
+  const created = [];
+  const synth = (id, opts = {}) => {
+    const host = document.createElement("dialog");
+    host.className = "k-surface k-dialog";
+    const head = document.createElement("div");
+    head.className = "viewer-head";
+    const button = document.createElement("button");
+    head.append(button);
+    const bodyEl = document.createElement("div");
+    host.append(head, bodyEl);
+    document.body.append(host);
+    created.push(host);
+    rectStub(host, { left: 210, top: 60, width: 860, height: 680 });
+    const frame = frameNs.installFrame(host, { id, move: ".viewer-head", edges: "all", min: "420 240", ...opts });
+    return { host, head, button, frame };
+  };
+  const invokeCountBefore = invokeArgs.filter((a) => a.cmd === "ui_prefs_set" && a.args?.ui_layout).length;
+
+  // ⑩c 边缘拖动:手势期间 move/up 挂在 document 捕获阶段;落地为 CSS 变量 + data-kz-placed,偏好进 ui_layout。
+  const a = synth("smoke-edge");
+  assert(a.head.hasAttribute("data-kz-frame-grip"), "拖动区应挂 data-kz-frame-grip(给移动光标)");
+  const eHandle = a.host.children.find((c) => c.dataset.edge === "e");
+  a.host.dispatchEvent(pointer("pointerdown", eHandle, 1070, 400));
+  docPointer("pointermove", 1170, 400);
+  docPointer("pointerup", 1170, 400);
+  assert(a.host.getAttribute("data-kz-placed") === "pos w", `拖右边后应落地为 "pos w",实为 ${a.host.getAttribute("data-kz-placed")}`);
+  assert(vars(a.host).r === "110px" && vars(a.host).w === "960px", `拖右边后变量不对:${JSON.stringify(vars(a.host))}`);
+  assert(layoutNs.layoutPref("frames", "smoke-edge")?.w === 960, "拖动后的几何没有进 ui_layout.frames");
+  assert(!documentElement.dataset.kzFrameDrag, "手势结束后 html[data-kz-frame-drag] 没清掉(光标会一直是调尺寸)");
+  await flush();
+  const layoutWrites = invokeArgs.filter((a) => a.cmd === "ui_prefs_set" && a.args?.ui_layout);
+  assert(layoutWrites.length > invokeCountBefore && layoutWrites.at(-1).args.ui_layout.frames?.["smoke-edge"]?.w === 960,
+    "拖动后的几何没有经 ui_prefs_set({ ui_layout }) 写后端(本机 localStorage 重启即丢,D-404)");
+
+  // ⑩d 移动阈值与甩动:按下后 2px 不算拖;一步甩出框外也要移动(move 监听在 document 上)。
+  const b = synth("smoke-move");
+  b.host.dispatchEvent(pointer("pointerdown", b.head, 400, 80));
+  docPointer("pointermove", 402, 80);
+  assert(!b.host.hasAttribute("data-kz-placed"), "按下后 2px 的抖动被当成了拖动");
+  docPointer("pointermove", 600, 130);
+  docPointer("pointerup", 600, 130);
+  assert(b.host.getAttribute("data-kz-placed") === "pos", `甩动一步移出框外也应移动(只记位置),实为 ${b.host.getAttribute("data-kz-placed")}`);
+  // 左上 (410,110)、860×680:中心在右下半区,两轴都锚最近的边(r = 1280-410-860, b = 800-110-680)。
+  assert(vars(b.host).r === "10px" && vars(b.host).b === "10px" && !vars(b.host).w, `移动后应锚右下且不记尺寸,实为 ${JSON.stringify(vars(b.host))}`);
+
+  // ⑩e 拖动区里的按钮照常是按钮;上一次手势没收到 up 时,新手势先收尾,不出现幽灵移动。
+  const c = synth("smoke-button");
+  c.host.dispatchEvent(pointer("pointerdown", c.button, 400, 80));
+  docPointer("pointermove", 700, 300);
+  docPointer("pointerup", 700, 300);
+  assert(!c.host.hasAttribute("data-kz-placed"), "在标题栏的按钮上按下再拖,框被挪动了(按钮应照常工作)");
+  c.host.dispatchEvent(pointer("pointerdown", c.head, 400, 80, 7)); // 这一下没等到 up
+  const cHandle = c.host.children.find((h) => h.dataset.edge === "s");
+  c.host.dispatchEvent(pointer("pointerdown", cHandle, 500, 740, 8));
+  docPointer("pointermove", 800, 300, 7); // 旧手势的指针再动:不得触发移动
+  assert(!c.host.hasAttribute("data-kz-placed"), "残留的旧手势被下一次指针移动误触发成了移动");
+  docPointer("pointerup", 500, 740, 8);
+
+  // ⑩f 双击标题栏复位:判据是按下时记的「在拖动区里」,不看 dblclick 的 target。
+  b.host.dispatchEvent(pointer("pointerdown", b.head, 400, 80));
+  docPointer("pointerup", 400, 80);
+  b.host.dispatchEvent({ type: "dblclick", target: b.host });
+  assert(!b.host.hasAttribute("data-kz-placed") && layoutNs.layoutPref("frames", "smoke-move") === null, "双击标题栏没有复位(几何与偏好都应清掉)");
+  a.host.dispatchEvent(pointer("pointerdown", a.host.children.at(-1), 1070, 740)); // 手柄上按下
+  docPointer("pointerup", 1070, 740);
+  a.host.dispatchEvent({ type: "dblclick", target: a.host });
+  assert(a.host.getAttribute("data-kz-placed") === "pos w", "在非拖动区(手柄)按下后的双击不该复位");
+
+  // ⑩g 窗口缩小:按偏好重新夹紧,不改写偏好;窗口变回来恢复用户摆的位置。
+  windowShim.innerWidth = 700;
+  for (const fn of windowListeners.get("resize") ?? []) fn({ type: "resize" });
+  const narrowW = Number.parseInt(vars(a.host).w, 10);
+  assert(narrowW <= 684, `窗口缩到 700 后框宽应夹到 ≤684,实为 ${narrowW}`);
+  assert(layoutNs.layoutPref("frames", "smoke-edge")?.w === 960, "窗口缩小时偏好被夹紧值改写了(变回来就回不去)");
+  windowShim.innerWidth = 1280;
+  for (const fn of windowListeners.get("resize") ?? []) fn({ type: "resize" });
+  assert(vars(a.host).w === "960px", `窗口恢复后应回到 960,实为 ${vars(a.host).w}`);
+
+  // ⑩h 不记住的框:关闭即复位,不写存储。
+  const d = synth("smoke-transient", { persist: false, move: ":scope", edges: "" });
+  d.host.dispatchEvent(pointer("pointerdown", d.host, 400, 300));
+  docPointer("pointermove", 200, 200);
+  docPointer("pointerup", 200, 200);
+  assert(d.host.getAttribute("data-kz-placed") === "pos", "整框可拖的确认框没有移动");
+  assert(layoutNs.layoutPref("frames", "smoke-transient") === null, "不记住的框把几何写进了存储");
+  d.host.dispatchEvent({ type: "close", target: d.host });
+  assert(!d.host.hasAttribute("data-kz-placed"), "不记住的框关闭后没有复位(下次打开还在拖过的位置)");
+
+  // ⑩i 存储抛错:隐私模式/配额——安装与拖动都不抛,本次会话照常可用。
+  frameNs.setFrameStore({ get() { throw new Error("boom"); }, set() { throw new Error("boom"); } });
+  let threw = null;
+  try {
+    const e = synth("smoke-throw");
+    e.host.dispatchEvent(pointer("pointerdown", e.head, 400, 80));
+    docPointer("pointermove", 500, 90);
+    docPointer("pointerup", 500, 90);
+    assert(e.host.getAttribute("data-kz-placed") === "pos", "存储抛错时拖动没有生效");
+  } catch (error) {
+    threw = error;
+  }
+  frameNs.setFrameStore(layoutNs.layoutFrameStore);
+  assert(threw === null, `存储抛错时 installFrame/拖动抛了异常:${threw}`);
+
+  // ⑩j 键盘:框内 Alt+Shift+→ 调宽(右半边的框向左长),Alt+Shift+Home 复位。
+  const k = synth("smoke-key");
+  k.host.dispatchEvent({ type: "keydown", key: "ArrowRight", altKey: true, shiftKey: true, target: k.button, preventDefault() {} });
+  assert(vars(k.host).w === "884px", `Alt+Shift+→ 应加宽 24,实为 ${vars(k.host).w}`);
+  k.host.dispatchEvent({ type: "keydown", key: "Home", altKey: true, shiftKey: true, target: k.button, preventDefault() {} });
+  assert(!k.host.hasAttribute("data-kz-placed"), "Alt+Shift+Home 没有复位");
+
+  // ⑩k 后端偏好到达:按 ui_layout 重放(查看器被摆过的位置在重启后还在)。
+  layoutNs.adoptLayout({ frames: { viewer: { v: 1, l: 90, t: 50, w: 880 } }, splits: {} });
+  const viewer = byId.get("viewer-overlay");
+  assert(viewer.getAttribute("data-kz-placed") === "pos w" && viewer.style.getPropertyValue("--kz-frame-l") === "90px", "后端 ui_layout 到达后查看器没有按记住的几何落位");
+  layoutNs.adoptLayout({});
+  assert(!viewer.hasAttribute("data-kz-placed"), "ui_layout 清空后查看器没有回到默认居中");
+
+  // ⑩l 侧栏分隔条(缺陷 A 回归):宽度写 <html> 上的 --kz-split-sidebar,不写内联 width;偏好进 ui_layout.splits。
+  const sidebar = byId.get("sidebar");
+  const split = sidebar?._kzSplit;
+  assert(split && split.handle.getAttribute("role") === "separator", "侧栏没有装上 installSplit 分隔条");
+  rectStub(sidebar, { left: 48, top: 0, width: 280, height: 800 });
+  split.handle.dispatchEvent(pointer("pointerdown", split.handle, 328, 300));
+  split.handle.dispatchEvent(pointer("pointermove", split.handle, 448, 300));
+  split.handle.dispatchEvent(pointer("pointerup", split.handle, 448, 300));
+  assert(documentElement.style.getPropertyValue("--kz-split-sidebar") === "400px", `拖侧栏分隔条后 --kz-split-sidebar 应为 400px,实为 "${documentElement.style.getPropertyValue("--kz-split-sidebar")}"`);
+  assert(!sidebar.style.width, "侧栏分隔条又写了内联 width(压过 #sidebar.collapsed,收起后留空栏)");
+  assert(layoutNs.layoutPref("splits", "sidebar") === 400, "侧栏宽度没有进 ui_layout.splits");
+  assert(/#sidebar \{ width: var\(--kz-split-sidebar\); \}/.test(style) && /#sidebar\.collapsed \{ width: 0;/.test(style), "style.css 的 #sidebar 宽度须引用 --kz-split-sidebar 且保留 .collapsed{width:0}");
+  split.handle.dispatchEvent({ type: "dblclick", target: split.handle });
+  assert(!documentElement.style.getPropertyValue("--kz-split-sidebar") && layoutNs.layoutPref("splits", "sidebar") === null, "双击分隔条没有回到默认宽度");
+  assert(byId.get("log-panel")?._kzSplit?.handle.getAttribute("aria-orientation") === "horizontal", "日志面板顶边没有装上横向分隔条");
+  assert(byId.get("files-side")?._kzSplit, "文件树没有装上分隔条");
+  for (const el of created) el.remove();
+  for (const id of ["smoke-edge", "smoke-move", "smoke-button", "smoke-throw", "smoke-key"]) layoutNs.setLayoutPref("frames", id, null);
+  await flush();
+}
+
+// ── 分区:后台任务侧栏与可调框 ──
+// UI2-0926 #14 后台任务侧栏(docs/design/subagent_presentation.md §5.6/§7;用户原话「子代理也弄成侧栏,
+// 参考claude的结构呢？弹出也自动化一点」)。① 纯策略 06-side-policy.js 的 12+ 条场景;② 侧栏宿主的集成:
+// 自动打开不抢焦点、本次运行内用户关过就不再弹、6 秒延迟收起、失败保留与红徽标、悬停暂停、抽屉态不自动开、
+// 只在对话视图;③ 缺陷回归 A–F;④ 设置页两个开关经 ui_prefs 持久化。
+// 变异守卫:sideSuppressRun / sideFailureHold / sideLinger / sideLineScope / sideReplayPlace / sideReplayRunning /
+// sideViewGate / sideNoFocusSteal(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
+{
+  const policy = esmModuleCache.get("06-side-policy.js")?.namespace;
+  const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+  const activityNs = esmModuleCache.get("06-activity.js")?.namespace;
+  const eventsNs = esmModuleCache.get("07-events.js")?.namespace;
+  const layoutNs = esmModuleCache.get("03-layout.js")?.namespace;
+  assert(policy && typeof policy.sideDecide === "function", "06-side-policy.js 未加载或未导出 sideDecide");
+  assert(!/^\s*import\b/m.test(sources[scriptSrcs.indexOf("06-side-policy.js")] ?? "import"), "06-side-policy.js 必须零 import(纯策略,时钟由调用方注入)");
+
+  // ① 纯策略场景(迁自调查期的 side-policy.test.mjs)。
+  {
+    const A = "ses_A";
+    const B = "ses_B";
+    const on = { autoOpen: true, autoClose: true };
+    const env = (o) => ({ sid: A, view: "chat", dock: "side", active: 0, now: 0, prefs: on, ...o });
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    let m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    let d = policy.sideDecide(m, env({ active: 1, now: 1000 }));
+    assert(d.visible && d.reason === "auto" && same(d.badge, { count: 1, tone: "run" }), `策略①:首个实时子代理开始应自动打开,实为 ${JSON.stringify(d)}`);
+    d = policy.sideDecide(m, env({ active: 0, now: 2000 }));
+    assert(d.visible && d.lingerMs === policy.SIDE_AUTO_CLOSE_MS, `策略②:全部结束后应先保留 6 秒,实为 ${JSON.stringify(d)}`);
+    assert(policy.sideDecide(m, env({ active: 0, now: 2000 + policy.SIDE_AUTO_CLOSE_MS - 1 })).visible, "策略②:6 秒内不该收起");
+    d = policy.sideDecide(m, env({ active: 0, now: 2000 + policy.SIDE_AUTO_CLOSE_MS }));
+    assert(!d.visible && d.badge === null, `策略②:6 秒到点应收起、徽标清空,实为 ${JSON.stringify(d)}`);
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    policy.sideEvent(m, { type: "user-close", sid: A, active: 2 });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on); // 鞭挞下一轮又派了子代理
+    d = policy.sideDecide(m, env({ active: 1, now: 30 }));
+    assert(!d.visible && same(d.badge, { count: 1, tone: "run" }), `策略③:本次运行里关过(含鞭挞续轮)不该再弹,徽标照常计数,实为 ${JSON.stringify(d)}`);
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    assert(policy.sideDecide(m, env({ active: 1, now: 40 })).visible, "策略④:下一条用户消息应解除压制");
+    policy.sideEvent(m, { type: "failure", sid: A, key: "call_x", hold: true });
+    d = policy.sideDecide(m, env({ active: 0, now: 100 + policy.SIDE_AUTO_CLOSE_MS * 5 }));
+    assert(d.visible && same(d.badge, { count: 1, tone: "err" }) && d.lingerMs === null, `策略⑤:未确认的失败应保留、徽标转红,实为 ${JSON.stringify(d)}`);
+    policy.sideEvent(m, { type: "ack", sid: A, key: "call_y" });
+    assert(same(policy.sideDecide(m, env({ active: 0, now: 200 })).badge, { count: 1, tone: "err" }), "策略⑤:确认别的失败不该清掉这一条");
+    policy.sideEvent(m, { type: "user-close", sid: A, active: 0 });
+    d = policy.sideDecide(m, env({ active: 0, now: 200000 }));
+    assert(!d.visible && d.badge === null, "策略⑤:关闭 = 确认,之后不显示、徽标清空");
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-open", sid: A });
+    assert(policy.sideDecide(m, env({ active: 0, now: 999999 })).reason === "pinned", "策略⑥:手动打开不自动收起");
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    d = policy.sideDecide(m, env({ dock: "drawer", active: 1, now: 5 }));
+    assert(!d.visible && same(d.badge, { count: 1, tone: "run" }), "策略⑦:抽屉态不自动打开,只亮徽标");
+    assert(policy.sideDecide(m, env({ dock: "side", active: 1, now: 6 })).visible, "策略⑦:变宽后仍在自动态就显示");
+    assert(!policy.sideDecide(m, env({ sid: B, active: 0, now: 7 })).visible && policy.sideDecide(m, env({ sid: A, active: 1, now: 8 })).visible, "策略⑧:按线路记状态(A 自动开着,空闲的 B 不显示,切回 A 仍显示)");
+    assert(!policy.sideDecide(m, env({ view: "files", active: 1, now: 9 })).visible && policy.sideDecide(m, env({ active: 1, now: 10 })).visible, "策略⑨:非对话视图不显示,状态不丢");
+    policy.sideEvent(m, { type: "interact", sid: A, on: true });
+    policy.sideDecide(m, env({ active: 0, now: 100 }));
+    assert(policy.sideDecide(m, env({ active: 0, now: 100 + policy.SIDE_AUTO_CLOSE_MS * 3 })).visible, "策略⑩:悬停期间不收起");
+    policy.sideEvent(m, { type: "interact", sid: A, on: false, now: 100 + policy.SIDE_AUTO_CLOSE_MS * 3 });
+    assert(!policy.sideDecide(m, env({ active: 0, now: 100 + policy.SIDE_AUTO_CLOSE_MS * 4 })).visible, "策略⑩:离开后重新计时,到点收起");
+    m = policy.createSideModel();
+    const off = { autoOpen: false, autoClose: true };
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, off);
+    d = policy.sideDecide(m, env({ active: 1, now: 1, prefs: off }));
+    assert(!d.visible && same(d.badge, { count: 1, tone: "run" }), "策略⑪:设置关闭自动弹出后只有徽标");
+    assert(policy.sideDockMode({ mainWidth: 1272, panelWidth: 416 }) === "side" && policy.sideDockMode({ mainWidth: 952, panelWidth: 400 }) === "drawer"
+      && policy.sideDockMode({ mainWidth: 1232, panelWidth: 360 }) === "side" && policy.sideDockMode({ mainWidth: 672, panelWidth: 360 }) === "drawer", "策略⑫:停靠判据(主区宽 − 侧栏宽 ≥ 600)");
+    assert(policy.sideClampWidth(900, 1272) === 672 && policy.sideClampWidth(100, 1272) === 320 && policy.sideClampWidth(900, 2600) === 760, "策略⑫:宽度夹在 [320, min(760, 主区 − 600)]");
+    assert(policy.sideDefaultWidth(1600) === 416 && policy.sideDefaultWidth(2000) === 520 && policy.sideDefaultWidth(1000) === 360, "策略⑫:默认宽 clamp(360, 26vw, 520)");
+    // ── 分区:后台任务侧栏与可调框(复核修复)──
+    // ⑬ 关闭一律压制本次运行:延迟收起中关、失败保留中关(关的那一刻 active 恰好为 0)也算。
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    policy.sideDecide(m, env({ active: 1, now: 0 }));
+    assert(policy.sideDecide(m, env({ active: 0, now: 1000 })).lingerMs !== null, "策略⑬前置:全部结束后处于延迟收起");
+    policy.sideEvent(m, { type: "user-close", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    d = policy.sideDecide(m, env({ active: 1, now: 2000 }));
+    assert(!d.visible, `策略⑬:延迟收起期间关掉,同一次运行(鞭挞续轮)再派子代理不该再弹,实为 ${JSON.stringify(d)}`);
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    assert(policy.sideDecide(m, env({ active: 1, now: 3000 })).visible, "策略⑬:下一条用户消息之后再派子代理应重新弹出");
+    policy.sideEvent(m, { type: "failure", sid: A, key: "k1", hold: true });
+    d = policy.sideDecide(m, env({ active: 0, now: 50000 }));
+    assert(d.visible && same(d.badge, { count: 1, tone: "err" }), `策略⑬前置:失败保留,实为 ${JSON.stringify(d)}`);
+    policy.sideEvent(m, { type: "user-close", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    assert(!policy.sideDecide(m, env({ active: 1, now: 51000 })).visible, "策略⑬:失败保留期间关掉(为确认失败只能关),同一次运行再派子代理不该再弹");
+    // ⑭ idle:不在前台的线路活结束时记下时刻,切回来时已过 6 秒直接退出自动态;没过 6 秒只剩余下的延迟。
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: B });
+    policy.sideEvent(m, { type: "work-start", sid: B }, on);
+    assert(policy.sideDecide(m, env({ sid: B, active: 1, now: 100 })).visible, "策略⑭前置:B 自动打开");
+    policy.sideEvent(m, { type: "idle", sid: B, now: 1000 });
+    d = policy.sideDecide(m, env({ sid: B, active: 0, now: 1000 + policy.SIDE_AUTO_CLOSE_MS + 1 }));
+    assert(!d.visible && d.lingerMs === null, `策略⑭:后台跑完 6 秒后切回 B 不该空弹,实为 ${JSON.stringify(d)}`);
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: B });
+    policy.sideEvent(m, { type: "work-start", sid: B }, on);
+    policy.sideDecide(m, env({ sid: B, active: 1, now: 100 }));
+    policy.sideEvent(m, { type: "idle", sid: B, now: 1000 });
+    d = policy.sideDecide(m, env({ sid: B, active: 0, now: 3000 }));
+    assert(d.visible && d.lingerMs === policy.SIDE_AUTO_CLOSE_MS - 2000, `策略⑭:结束 2 秒后切回只剩 4 秒延迟收起,实为 ${JSON.stringify(d)}`);
+    // ⑮ 抽屉口径:默认 400,夹在 [320, 主区 − 96]。
+    assert(policy.sideDrawerWidth(null, 852) === 400 && policy.sideDrawerWidth(600, 852) === 600 && policy.sideDrawerWidth(900, 852) === 756
+      && policy.sideDrawerWidth(100, 852) === 320 && policy.sideDrawerMax(852) === 756 && policy.sideDrawerMax(300) === 320, "策略⑮:抽屉宽默认 400、夹在 [320, 主区 − 96]");
+  }
+
+  // ② 集成:注入时钟与焦点探针;用一条独立线路 sess-tp,不碰前面各分区的状态。
+  const tasksPanel = byId.get("tasks-panel");
+  const tasksBadge = byId.get("tasks-badge");
+  const main = byId.get("main");
+  const prompt = byId.get("prompt");
+  const toolStart = handlers.get("kz:tool-start");
+  const toolEnd = handlers.get("kz:tool-end");
+  const priorSession = sandbox.activeSessionId;
+  const priorFocus = Element.prototype.focus;
+  let fakeNow = 1_800_000_000_000;
+  panelNs.setTasksPanelClock(() => fakeNow);
+  Element.prototype.focus = function focusProbe() { document.activeElement = this; };
+  const settleAll = async () => { await flush(); panelNs.reconcileTasksPanel(); };
+  const visible = () => !tasksPanel.classList.contains("hidden");
+  const startTask = (id, extra = {}) => toolStart({ payload: { id, name: "task", summary: "", input: { prompt: id, description: `任务 ${id}`, ...extra }, sessionId: "sess-tp" } });
+  const endTask = (id, fields = {}) => toolEnd({ payload: { id, name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 1200, display: null, sessionId: "sess-tp", ...fields } });
+  sandbox.activeSessionId = "sess-tp";
+  document.body.dataset.view = "chat";
+  panelNs.closeTasksPanel();
+  panelNs.tasksPanelUserRun("sess-tp");
+  await settleAll();
+  assert(!visible(), "集成前置:新线路上侧栏应是关着的");
+  assert(/if \(!auto\) tasksPanelUserRun\(activeSessionId\);/.test(source), "sendText 的非鞭挞分支必须上报「用户发消息 = 新的一次运行」(鞭挞续轮不算)");
+
+  // 自动打开:实时子代理开跑 → 停靠出来;不抢焦点(用户正在输入框打字)。
+  document.activeElement = prompt;
+  startTask("tp-1");
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().reason === "auto", `实时子代理开跑后侧栏应自动打开,实为 ${JSON.stringify(panelNs.tasksPanelState())}`);
+  assert(main.dataset.side === "docked" && tasksPanel.dataset.dock === "side", `宽窗口应停靠,实为 side=${main.dataset.side} dock=${tasksPanel.dataset.dock}`);
+  assert(/^\d+px$/.test(documentElement.style.getPropertyValue("--kz-dock-right")) && documentElement.style.getPropertyValue("--kz-dock-right") !== "0px", "停靠时 <html> 上应写 --kz-dock-right(权限卡与芯片据此让开侧栏)");
+  assert(document.activeElement === prompt, `自动打开抢了焦点(用户正在打字),焦点落在 #${document.activeElement?.id}`);
+  assert(tasksBadge.dataset.tone === "run" && tasksBadge.textContent === "1", `在跑时徽标应为强调色计数 1,实为 ${tasksBadge.dataset.tone}/${tasksBadge.textContent}`);
+
+  // 压制:本次运行里用户关过 → 同一次运行(含鞭挞续轮)再派子代理也不弹,徽标照常计数;下一条用户消息解除。
+  panelNs.closeTasksPanel();
+  startTask("tp-2");
+  await settleAll();
+  assert(!visible(), "用户在本次运行里关过侧栏,同一次运行里再派子代理又弹出来了(应压制到下一条用户消息)");
+  assert(tasksBadge.textContent === "2" && tasksBadge.dataset.tone === "run", `压制期间徽标应照常计数 2,实为 ${tasksBadge.textContent}`);
+  endTask("tp-1");
+  endTask("tp-2");
+  await settleAll();
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-3");
+  await settleAll();
+  assert(visible(), "下一条用户消息之后,新派的子代理应重新自动打开侧栏");
+
+  // 6 秒延迟收起:全部结束后先留着,到点收起、徽标清空;悬停期间暂停。
+  endTask("tp-3");
+  await settleAll();
+  assert(visible(), "全部结束后应先保留 6 秒(不是立即收起)");
+  tasksPanel.dispatchEvent({ type: "pointerenter" });
+  fakeNow += 30_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible(), "指针停在侧栏上时不该自动收起");
+  tasksPanel.dispatchEvent({ type: "pointerleave" });
+  fakeNow += 3_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible(), "指针离开后应重新计时(3 秒时还不该收起)");
+  fakeNow += 3_100;
+  panelNs.reconcileTasksPanel();
+  assert(!visible() && tasksBadge.classList.contains("hidden"), "全部结束 6 秒后自动打开的侧栏应收起、徽标清空");
+  assert(main.dataset.side === "closed" && documentElement.style.getPropertyValue("--kz-dock-right") === "0px", "收起后 #main[data-side] 与 --kz-dock-right 没有复位");
+
+  // 失败保留:值得停留的失败(超时)让侧栏不收起、「需要关注」置顶、徽标转红;关闭 = 确认。
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-4");
+  startTask("tp-5");
+  await settleAll();
+  endTask("tp-4");
+  endTask("tp-5", { ok: false, outcome: "failed", code: "subagent_timeout", preview: "subagent timed out" });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible(), "有未确认的失败时自动打开的侧栏不该收起");
+  assert(tasksBadge.dataset.tone === "err" && !tasksBadge.classList.contains("hidden"), `有未确认的失败时徽标应转红,实为 ${tasksBadge.dataset.tone}`);
+  const failCard = [...byId.get("tasks-attention").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-5"]'));
+  assert(failCard, "有失败的一批应在「需要关注」段");
+  assert(!byId.get("bg-section-attention").classList.contains("hidden"), "「需要关注」段没有显示");
+  panelNs.closeTasksPanel();
+  await settleAll();
+  assert(!visible() && tasksBadge.classList.contains("hidden"), "关闭侧栏应确认失败、徽标清空");
+  panelNs.openTasksPanel();
+  await settleAll();
+  assert(byId.get("bg-section-attention").classList.contains("hidden"), "确认过的失败应挪出「需要关注」");
+  // 手动打开(pinned)不自动收起。
+  fakeNow += 120_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible() && panelNs.tasksPanelState().reason === "pinned", "手动打开的侧栏不该自动收起");
+
+  // 缺陷 A:切到别的视图侧栏隐藏,下一条工具事件不会把它弹回来;切回对话按状态恢复(手动打开的仍开着)。
+  eventsNs && sandbox.navigate_view("files");
+  await settleAll();
+  assert(!visible(), "切到文件视图后侧栏应隐藏");
+  toolStart({ payload: { id: "tp-bash-a", name: "bash", summary: "sleep 1", input: { command: "sleep 1" }, sessionId: "sess-tp" } });
+  await settleAll();
+  assert(!visible() && document.body.dataset.view === "files", "缺陷 A:非对话视图上一条工具事件把侧栏弹回来了");
+  assert(!tasksBadge.classList.contains("hidden"), "非对话视图上 rail 徽标照常亮(开关在所有视图都显示)");
+  sandbox.navigate_view("chat");
+  await settleAll();
+  assert(visible(), "切回对话后手动打开的侧栏应恢复显示");
+  toolEnd({ payload: { id: "tp-bash-a", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp" } });
+  await settleAll();
+
+  // 缺陷 B:后台线路的 bash 不进活动线路的列表。
+  toolStart({ payload: { id: "tp-bash-bg", name: "bash", summary: "sleep 9", input: { command: "sleep 9" }, sessionId: "sess-tp-other" } });
+  await settleAll();
+  assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=tp-bash-bg]"), "缺陷 B:另一条线路的 bash 混进了当前线路的后台任务列表");
+  assert(activityNs.bgRunningCount("sess-tp") === 0, "另一条线路的 bash 被算进了当前线路的在跑数");
+
+  // 终端命令跑满 3 秒才自动打开(短命令一闪而过不打扰)。
+  panelNs.closeTasksPanel();
+  panelNs.tasksPanelUserRun("sess-tp");
+  toolStart({ payload: { id: "tp-bash-long", name: "bash", summary: "cargo test", input: { command: "cargo test" }, sessionId: "sess-tp" } });
+  await settleAll();
+  assert(!visible(), "刚开始的终端命令不该立刻弹出侧栏(跑满 3 秒才算长命令)");
+  const longEntry = activityNs.bgEntries.get("tp-bash-long");
+  longEntry.startedAt -= 3_100;
+  activityNs.bgTick(longEntry);
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().reason === "auto", "终端命令跑满 3 秒后侧栏应自动打开");
+  toolEnd({ payload: { id: "tp-bash-long", name: "bash", ok: false, outcome: "failed", preview: "exit code: 101", display: null, sessionId: "sess-tp" } });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible() && tasksBadge.dataset.tone === "err", "跑满 3 秒后失败的终端命令是值得停留的失败:侧栏保留、徽标转红");
+  assert(document.querySelector("#bg-attention .bg-entry[data-bg-id=tp-bash-long]"), "失败的长命令应在「需要关注」段");
+  panelNs.closeTasksPanel();
+  await settleAll();
+  assert(document.querySelector("#bg-done .bg-entry[data-bg-id=tp-bash-long]"), "关闭侧栏(确认)后失败的长命令应挪进「已完成」");
+
+  // 抽屉态(对话列不足 600px)不自动打开,只亮徽标;窗口变宽后若仍在自动态就停靠出来。
+  panelNs.tasksPanelUserRun("sess-tp");
+  windowShim.innerWidth = 900;
+  startTask("tp-6");
+  await settleAll();
+  assert(!visible() && !tasksBadge.classList.contains("hidden"), "抽屉态不该自动打开,只亮徽标");
+  windowShim.innerWidth = 1280;
+  await settleAll();
+  assert(visible() && main.dataset.side === "docked", "窗口变宽后仍在自动态应停靠出来");
+  // 用户在窄窗口手动打开 = 抽屉 + 遮罩,焦点进侧栏头部。
+  panelNs.closeTasksPanel();
+  windowShim.innerWidth = 900;
+  panelNs.openTasksPanel();
+  await settleAll();
+  assert(visible() && tasksPanel.dataset.dock === "drawer" && !byId.get("tasks-scrim").classList.contains("hidden"), "窄窗口手动打开应是抽屉 + 遮罩");
+  assert(main.dataset.side === "drawer" && documentElement.style.getPropertyValue("--kz-dock-right") === "0px", "抽屉不占网格列,不该写停靠宽度");
+  assert(document.activeElement === byId.get("tasks-close"), "抽屉态手动打开时焦点应进侧栏头部(✕)");
+  byId.get("tasks-scrim").click();
+  await settleAll();
+  assert(!visible() && byId.get("tasks-scrim").classList.contains("hidden"), "点遮罩应关闭抽屉");
+  windowShim.innerWidth = 1280;
+  endTask("tp-6");
+  await settleAll();
+
+  // 缺陷 D:上下文详情里的压缩纪要入口只打开这一个侧栏(没有第二块面板可以同屏)。
+  eventsNs.addCompactionEntry("## 纪要\n- 保留了关键决定");
+  eventsNs.renderContextDetail();
+  await settleAll();
+  assert(visible() && !byId.has("bg-panel") && !byId.has("agent-panel"), "缺陷 D:压缩纪要入口应只打开后台任务侧栏");
+  eventsNs.hideContextDetail();
+  panelNs.closeTasksPanel();
+
+  // 缺陷 E:回放出来的终态条目落在「已完成」,「运行中」为空;缺陷 F:线路还在跑时只 started 的保留运行态。
+  activityNs.bgClear();
+  vm.runInContext('transitionSession("sess-tp", "idle")', sandbox);
+  activityNs.renderRecoveredTraces([{ events: [
+    { id: "tp-r1", kind: "tool.started", name: "bash", summary: "cargo build" },
+    { id: "tp-r1", kind: "tool.completed", name: "bash", ok: true, outcome: "success", preview: "exit code: 0", durationMs: 4000 },
+    { id: "tp-r2", kind: "tool.started", name: "bash", summary: "cargo test" },
+    { id: "tp-r2", kind: "tool.completed", name: "bash", ok: false, outcome: "failed", preview: "exit code: 101", durationMs: 9000 },
+    { id: "tp-r3", kind: "tool.started", name: "bash", summary: "cargo clippy" },
+  ] }]);
+  await settleAll();
+  assert(!byId.get("bg-running").querySelector(".bg-entry"), `缺陷 E:回放出来的条目还挂在「运行中」:${byId.get("bg-running").querySelectorAll(".bg-entry").map((n) => n.dataset.bgId).join(",")}`);
+  assert(["tp-r1", "tp-r2", "tp-r3"].every((id) => activityNs.bgEntries.get(id)?.section === "done"), "缺陷 E:回放的终态条目应落在「已完成」(失败也算看过了)");
+  assert(!byId.get("bg-running-count").textContent, `缺陷 E:回放后「运行中」计数应为空,实为 "${byId.get("bg-running-count").textContent}"`);
+  activityNs.bgClear();
+  vm.runInContext('transitionSession("sess-tp", "running")', sandbox);
+  activityNs.renderRecoveredTraces([{ events: [{ id: "tp-live", kind: "tool.started", name: "bash", summary: "cargo test --workspace" }] }]);
+  await settleAll();
+  const liveEntry = activityNs.bgEntries.get("tp-live");
+  assert(liveEntry && !liveEntry.done && liveEntry.section === "running", `缺陷 F:线路还在跑时回放把在跑的命令收成了「中断」:${liveEntry?.section}/${liveEntry?.done}`);
+  toolEnd({ payload: { id: "tp-live", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp" } });
+  vm.runInContext('transitionSession("sess-tp", "idle")', sandbox);
+  await settleAll();
+  assert(activityNs.bgEntries.get("tp-live")?.section === "done", "缺陷 F:真实收尾事件到了之后条目应进「已完成」");
+
+  // 委派卡:派发前那段助手话的首句作标题;主对话组头「查看全部 ↗」打开侧栏并定位到这一批。
+  // 上面缺陷 F 的用例把线路收敛成了 idle:新一轮由 kz:turn 解除收敛(收敛后的进度事件按设计会被丢弃)。
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-tp" } });
+  panelNs.tasksPanelUserRun("sess-tp");
+  sandbox.setCurrentAssistant(null);
+  handlers.get("kz:text")({ payload: { text: "分三路并行勘察:调用点、刷新方案、相关测试。", sessionId: "sess-tp" } });
+  startTask("tp-p1");
+  startTask("tp-p2");
+  startTask("tp-p3");
+  await settleAll();
+  const parCard = [...byId.get("tasks-running").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-p1"]'));
+  assert(parCard?.querySelector(".tp-card-title")?.textContent === "分三路并行勘察", `并行委派卡标题应取派发前那段话的首句,实为 "${parCard?.querySelector(".tp-card-title")?.textContent}"`);
+  assert(parCard?.querySelectorAll(".tp-agent-row").length === 3 && parCard?.querySelector(".tp-phase-count")?.textContent === "0/3", "并行委派卡应有 3 行、阶段 0/3");
+  panelNs.closeTasksPanel();
+  const group = [...document.querySelectorAll(".sa-group")].find((g) => g.querySelector('.sa-card[data-sa-key="sess-tp|tp-p1"]'));
+  group?.querySelector(".sa-group-open")?.click();
+  // 闪烁 1.2 秒后自己撤掉(flush 会立即跑完计时器),点完当场断言。
+  const revealed = [...byId.get("tasks-running").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-p1"]'));
+  assert(visible() && revealed?.classList.contains("tp-flash"), "组头「查看全部 ↗」应打开侧栏并定位(闪一下描边)到这一批的委派卡");
+  await settleAll();
+  for (const id of ["tp-p1", "tp-p2", "tp-p3"]) endTask(id);
+  await settleAll();
+  panelNs.closeTasksPanel();
+
+  // 设置页两个开关:勾选即时保存到 ui_prefs 的 ui_layout.side_panel;关掉「自动弹出」后只亮徽标。
+  const autoOpen = byId.get("set-side-auto-open");
+  assert(autoOpen && byId.get("set-side-auto-close"), "设置页缺「后台任务侧栏」两个开关");
+  autoOpen.checked = false;
+  autoOpen.dispatchEvent({ type: "change", target: autoOpen });
+  await flush();
+  const sideWrite = invokeArgs.filter((a) => a.cmd === "ui_prefs_set" && a.args?.ui_layout?.side_panel).at(-1);
+  assert(sideWrite?.args.ui_layout.side_panel.auto_open === false, "关掉「自动弹出」没有经 ui_prefs_set({ ui_layout: { side_panel } }) 持久化(本机 localStorage 重启即丢)");
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-7");
+  await settleAll();
+  assert(!visible() && !tasksBadge.classList.contains("hidden"), "关掉「自动弹出」后子代理开跑只该亮徽标");
+  endTask("tp-7");
+  autoOpen.checked = true;
+  autoOpen.dispatchEvent({ type: "change", target: autoOpen });
+  await flush();
+  layoutNs.adoptLayout({ side_panel: { auto_open: false, auto_close: false } });
+  assert(!autoOpen.checked && !byId.get("set-side-auto-close").checked, "后端 ui_layout 到达后设置页开关没有回填");
+  layoutNs.adoptLayout({});
+  assert(autoOpen.checked, "ui_layout 清空后「自动弹出」应回到默认开");
+
+  // ── 分区:后台任务侧栏与可调框(复核修复)──
+  // 变异守卫:sideSuppressRun / sideBgStartScope / sideBgIdle / sideSwitchInIdle / sideEscPopover / sideBgEndScope /
+  // sideReplayNoHold / sideScrollAnchor / layoutAdoptPending / sideReplayRunScope / sideDrawerWidth / splitI18nKeys /
+  // sideRowListitem / sideRowAriaOnce / sideAgentWord / sideModelShort。
+  await settleAll();
+  const taskProgress = handlers.get("kz:task-progress");
+  const agentRowOf = (id) => [...tasksPanel.querySelectorAll(".tp-agent-row")].find((row) => row.dataset.saKey === `sess-tp|${id}`);
+  // ⑬ 关闭一律压制本次运行:延迟收起中关(此刻没有活)、失败保留中关(为确认失败只能关),鞭挞续轮再派子代理都不弹。
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-c1");
+  await settleAll();
+  endTask("tp-c1");
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().lingerMs !== null, `复核⑬前置:全部结束后应处于 6 秒延迟收起,实为 ${JSON.stringify(panelNs.tasksPanelState())}`);
+  panelNs.closeTasksPanel();
+  startTask("tp-c2");
+  await settleAll();
+  assert(!visible(), "复核⑬:延迟收起期间关掉侧栏(此刻没有活),同一次运行(鞭挞续轮)再派子代理又弹出来了");
+  endTask("tp-c2");
+  await settleAll();
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-c3");
+  await settleAll();
+  assert(visible(), "复核⑬:下一条用户消息之后再派子代理应自动打开");
+  // 模型列只显示型号(去掉 provider 前缀),完整 id 留在 title。
+  taskProgress({ payload: { id: "tp-c3", text: "explore · ollama:qwen3.5:4b", trace: { child_id: "tp-c3", phase: "meta", agent: "explore", model: "ollama:qwen3.5:4b", summary: "fast" }, sessionId: "sess-tp" } });
+  await settleAll();
+  const c3Model = agentRowOf("tp-c3")?.querySelector(".tp-agent-model");
+  assert(c3Model?.textContent === "qwen3.5:4b" && c3Model?.title === "ollama:qwen3.5:4b", `模型列应只显示型号 qwen3.5:4b(完整 id 在 title),实为 "${c3Model?.textContent}" / "${c3Model?.title}"`);
+  endTask("tp-c3", { ok: false, outcome: "failed", code: "subagent_timeout", preview: "subagent timed out" });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible() && tasksBadge.dataset.tone === "err", "复核⑬前置:超时的子代理应让侧栏保留、徽标转红");
+  // 行结构与可访问名:listitem 在外层,按钮语义保留;终态的状态词只出现一次。
+  const c3Row = agentRowOf("tp-c3");
+  assert(c3Row && c3Row.getAttribute("role") === null && c3Row.parentElement?.getAttribute("role") === "listitem",
+    `子代理行应是 <div role=listitem> 里包原生按钮(listitem 不能盖掉按钮语义),实为 row role=${c3Row?.getAttribute("role")} / 外层 role=${c3Row?.parentElement?.getAttribute("role")}`);
+  const c3Aria = c3Row?.getAttribute("aria-label") ?? "";
+  assert((c3Aria.match(/超时/g) ?? []).length === 1 && c3Aria.includes("qwen3.5:4b"), `子代理行的可访问名应只拼一次状态词并带上模型,实为 "${c3Aria}"`);
+  panelNs.closeTasksPanel();
+  startTask("tp-c4");
+  await settleAll();
+  assert(!visible(), "复核⑬:失败保留期间关掉侧栏,同一次运行再派子代理又弹出来了");
+  endTask("tp-c4");
+  await settleAll();
+
+  // ⑭ 后台线路:在后台开始的子代理不触发自动打开;自动打开后切走、在后台跑完的线路,切回来不空弹 6 秒。
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-tp-b" } });
+  toolStart({ payload: { id: "tp-b1", name: "task", summary: "", input: { prompt: "b1", description: "后台线路的子代理" }, sessionId: "sess-tp-b" } });
+  await settleAll();
+  sandbox.activeSessionId = "sess-tp-b";
+  panelNs.agentPanelSync();
+  await settleAll();
+  assert(!visible() && tasksBadge.textContent === "1", `复核⑭:后台线路上开始的子代理,切过去时不该弹出侧栏(只亮徽标),实为 ${JSON.stringify(panelNs.tasksPanelState())}`);
+  toolEnd({ payload: { id: "tp-b1", name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 800, display: null, sessionId: "sess-tp-b" } });
+  await settleAll();
+  panelNs.tasksPanelUserRun("sess-tp-b");
+  toolStart({ payload: { id: "tp-b2", name: "task", summary: "", input: { prompt: "b2", description: "前台开跑的子代理" }, sessionId: "sess-tp-b" } });
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().reason === "auto", "复核⑭前置:活动线路上开跑的子代理应自动打开");
+  sandbox.activeSessionId = "sess-tp";
+  panelNs.agentPanelSync();
+  await settleAll();
+  toolEnd({ payload: { id: "tp-b2", name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 800, display: null, sessionId: "sess-tp-b" } });
+  await settleAll();
+  fakeNow += 7_000;
+  sandbox.activeSessionId = "sess-tp-b";
+  panelNs.agentPanelSync();
+  await settleAll();
+  assert(!visible(), `复核⑭:自动打开后切走、在后台跑完 7 秒的线路,切回来时侧栏空弹(${JSON.stringify(panelNs.tasksPanelState())})`);
+  // 终端命令触发的自动打开:后台线路的终端命令不在册,切进一条已经停下的线路按已到点处理。
+  panelNs.tasksPanelUserRun("sess-tp-b");
+  toolStart({ payload: { id: "tp-b-bash", name: "bash", summary: "cargo build", input: { command: "cargo build" }, sessionId: "sess-tp-b" } });
+  await settleAll();
+  const bBash = activityNs.bgEntries.get("tp-b-bash");
+  bBash.startedAt -= 3_100;
+  activityNs.bgTick(bBash);
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().reason === "auto", "复核⑭前置:长命令跑满 3 秒应自动打开");
+  sandbox.activeSessionId = "sess-tp";
+  panelNs.agentPanelSync();
+  activityNs.bgClear(); // loadConversation 切线时清空终端条目,之后回放
+  await settleAll();
+  vm.runInContext('transitionSession("sess-tp-b", "idle")', sandbox);
+  sandbox.activeSessionId = "sess-tp-b";
+  panelNs.agentPanelSync();
+  await settleAll();
+  assert(!visible(), `复核⑭:长命令触发自动打开、切走后线路在后台停下,切回来时侧栏空弹(${JSON.stringify(panelNs.tasksPanelState())})`);
+  sandbox.activeSessionId = "sess-tp";
+  panelNs.agentPanelSync();
+  await settleAll();
+
+  // 缺陷 B 的收尾一侧:另一条线路同 id 的 kz:tool-end 不收尾活动线路的终端条目。
+  toolStart({ payload: { id: "tp-dup", name: "bash", summary: "sleep 30", input: { command: "sleep 30" }, sessionId: "sess-tp" } });
+  await settleAll();
+  toolEnd({ payload: { id: "tp-dup", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp-other" } });
+  await settleAll();
+  assert(activityNs.bgEntries.get("tp-dup") && !activityNs.bgEntries.get("tp-dup").done, "缺陷 B(收尾一侧):另一条线路同 id 的 kz:tool-end 把活动线路的终端条目收尾了");
+  toolEnd({ payload: { id: "tp-dup", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp" } });
+  await settleAll();
+
+  // 回放的子代理(历史里的失败)不自动打开、不保留失败、徽标不转红。
+  const saNs = esmModuleCache.get("05-subagents.js")?.namespace;
+  panelNs.tasksPanelUserRun("sess-tp");
+  saNs.subagentHistoryCall("sess-tp", "tp-hist-1", { prompt: "历史里的子代理", description: "历史失败" });
+  saNs.subagentHistoryResult("sess-tp", "tp-hist-1", { ok: false, content: "子代理内部报错" });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  assert(!visible() && tasksBadge.dataset.tone !== "err", `回放出来的失败子代理让侧栏弹出或徽标转红(回放不算实时失败):visible=${visible()} tone=${tasksBadge.dataset.tone}`);
+
+  // 自动打开保持阅读位置:对话列变窄重排后,首个可见消息回到原来的屏幕位置(停靠后它下移 60px → scrollTop 补 60)。
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const coreNs = esmModuleCache.get("01-core.js")?.namespace;
+  const messagesEl = byId.get("messages");
+  const priorMessagesRect = messagesEl.getBoundingClientRect;
+  messagesEl.getBoundingClientRect = () => ({ top: 100, bottom: 700, left: 0, right: 800, width: 800, height: 600 });
+  const anchorProbe = document.createElement("div");
+  anchorProbe.getBoundingClientRect = () => {
+    const top = main.dataset.side === "docked" ? 180 : 120;
+    return { top, bottom: top + 40, left: 0, right: 800, width: 800, height: 40 };
+  };
+  coreNs.activePane.prepend(anchorProbe);
+  chatNs.setFollowLatest(false);
+  messagesEl.scrollTop = 500;
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-anchor");
+  await settleAll();
+  assert(visible() && messagesEl.scrollTop === 560, `自动打开后对话阅读位置跳了:visible=${visible()} scrollTop=${messagesEl.scrollTop}(应补偿重排位移 60 → 560)`);
+  anchorProbe.remove();
+  messagesEl.getBoundingClientRect = priorMessagesRect;
+  chatNs.setFollowLatest(true);
+  endTask("tp-anchor");
+  await settleAll();
+
+  // 抽屉宽度按自己的口径:默认 400,拖过的宽度夹到 [320, 主区 − 96];分隔条上限随形态变,不被停靠判据夹死在 320。
+  panelNs.closeTasksPanel();
+  windowShim.innerWidth = 900; // 主区 852:停靠放不下 → 抽屉
+  panelNs.openTasksPanel();
+  await settleAll();
+  const tasksSplit = tasksPanel._kzSplit;
+  assert(tasksPanel.dataset.dock === "drawer" && tasksPanel.style.getPropertyValue("--kz-tasks-w") === "400px", `抽屉默认宽应为 400,实为 ${tasksPanel.dataset.dock}/${tasksPanel.style.getPropertyValue("--kz-tasks-w")}`);
+  tasksSplit.set(600);
+  await settleAll();
+  tasksSplit.sync();
+  assert(tasksPanel.style.getPropertyValue("--kz-tasks-w") === "600px" && tasksSplit.handle.getAttribute("aria-valuemax") === "756",
+    `抽屉态拖到 600 应生效、分隔条上限为 主区 − 96 = 756,实为 w=${tasksPanel.style.getPropertyValue("--kz-tasks-w")} max=${tasksSplit.handle.getAttribute("aria-valuemax")}`);
+  tasksSplit.reset();
+  panelNs.closeTasksPanel();
+  windowShim.innerWidth = 1280;
+  await settleAll();
+
+  // 英文界面:表头与类别是 Claude 的「Agent」;单个失败的读法是单数;运行中切语言后分隔条的读屏名跟着重译。
+  const priorTasksLanguage = localStorageShim.getItem("kz-language") || "zh";
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-en1");
+  await settleAll();
+  sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+  await settleAll();
+  const enCard = [...byId.get("tasks-running").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-en1"]'));
+  const enHead = enCard?.querySelector(".tp-agents-head span")?.textContent;
+  const enKind = enCard?.querySelector(".tp-card-kind")?.textContent;
+  assert(enHead === "Agent" && enKind === "Agent", `英文界面委派卡的表头/类别应为 Claude 的「Agent」,实为 "${enHead}" / "${enKind}"`);
+  const splitAria = tasksSplit.handle.getAttribute("aria-label");
+  assert(splitAria === "Resize the background tasks panel", `运行中切到英文后,后台任务侧栏分隔条的读屏名没有重译:"${splitAria}"`);
+  endTask("tp-en1", { ok: false, outcome: "failed", code: "subagent_timeout", preview: "subagent timed out" });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  const enToggle = byId.get("tasks-toggle").getAttribute("aria-label") ?? "";
+  assert(/ · 1 failure to review$/.test(enToggle), `单个未确认失败的英文读法应为单数「1 failure to review」,实为 "${enToggle}"`);
+  sandbox.setLanguagePreference(priorTasksLanguage, { persist: true, rerender: true });
+  panelNs.closeTasksPanel();
+  await settleAll();
+
+  // Esc:弹层(筛选菜单、它里面的原生下拉)里的 Esc 归 00-surface 与浏览器,不算关闭侧栏;焦点直接在侧栏里才关。
+  panelNs.openTasksPanel();
+  await settleAll();
+  const escPopover = document.createElement("div");
+  escPopover.setAttribute("popover", "manual");
+  const escInner = document.createElement("button");
+  escPopover.appendChild(escInner);
+  tasksPanel.appendChild(escPopover);
+  tasksPanel.dispatchEvent({ type: "keydown", key: "Escape", target: escInner, preventDefault() {}, stopPropagation() {} });
+  await settleAll();
+  assert(visible(), "筛选菜单(弹层)里按 Esc 把整个侧栏关掉了:下拉列表开着时 00-surface 放行给浏览器,侧栏不该把它当成用户关闭");
+  escPopover.remove();
+  tasksPanel.dispatchEvent({ type: "keydown", key: "Escape", target: tasksPanel, preventDefault() {}, stopPropagation() {} });
+  await settleAll();
+  assert(!visible(), "对照:焦点直接在侧栏里时 Esc 应关闭侧栏");
+
+  // 后端布局偏好到达时保留启动后刚改、还没写出去的本地值(不被后端旧值顶回去)。
+  layoutNs.setLayoutPref("splits", "smoke-pending", 321);
+  layoutNs.adoptLayout({ splits: { "smoke-pending": 111 } });
+  assert(layoutNs.layoutPref("splits", "smoke-pending") === 321, `后端偏好到达时把还没写出去的本地改动顶回了旧值:${layoutNs.layoutPref("splits", "smoke-pending")}`);
+  layoutNs.setLayoutPref("splits", "smoke-pending", null);
+  layoutNs.flushLayout();
+
+  // 缺陷 F 的范围:线路在跑时只有**最新一次运行**里悬空的调用保留运行态;更早轮次悬空的(崩溃、停止时没补写
+  // completed)照旧收成「中断」,不带停止按钮、不计在跑数、不挡自动收起。
+  activityNs.bgClear();
+  vm.runInContext('transitionSession("sess-tp", "running")', sandbox);
+  activityNs.renderRecoveredTraces([
+    { run_id: "run-old", events: [{ id: "tp-old-bash", kind: "tool.started", name: "bash", summary: "cargo test(上一轮崩溃时悬空)" }] },
+    { run_id: "run-cur", partial: true, events: [{ id: "tp-cur-bash", kind: "tool.started", name: "bash", summary: "cargo build" }] },
+  ]);
+  await settleAll();
+  const oldBash = activityNs.bgEntries.get("tp-old-bash");
+  const curBash = activityNs.bgEntries.get("tp-cur-bash");
+  assert(oldBash?.done && oldBash.outcomeState === "interrupted" && oldBash.section === "done", `更早运行里悬空的调用被复活成了「运行中」:${oldBash?.section}/${oldBash?.outcomeState}`);
+  assert(curBash && !curBash.done && curBash.section === "running" && activityNs.bgRunningCount("sess-tp") === 1, `最新一次运行里在跑的调用应保留运行态(且只有它计入在跑数):${curBash?.section} / ${activityNs.bgRunningCount("sess-tp")}`);
+  toolEnd({ payload: { id: "tp-cur-bash", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp" } });
+  vm.runInContext('transitionSession("sess-tp", "idle")', sandbox);
+  await settleAll();
+
+  // 复位:时钟、焦点探针、活动线路。
+  await settleAll();
+  panelNs.closeTasksPanel();
+  panelNs.setTasksPanelClock(null);
+  Element.prototype.focus = priorFocus;
+  document.activeElement = null;
+  sandbox.activeSessionId = priorSession;
+  panelNs.agentPanelSync();
+  await flush();
+}
+
+// ── 分区:记忆图谱 ──
+// 记忆页「列表 | 图谱」(docs/design/memory_knowledge_graph.md §9):假 DOM 没有 canvas,点「图谱」必须调用
+// memory_graph 并降级到文本视图(不报错);文本视图的记忆条目数等于可见记忆数;点条目打开详情;切项目时在途的
+// memory_graph 不得把项目 A 的图画进项目 B;切回列表后列表可见。夹具按 ipc-contract.json 的 memory_graph 校验形状。
+// 复核修复另加:「设为区域」后区域行不停在旧推断、记忆页不在前台不取不画、切语言重建图例。
+// 变异守卫:memgraphToggle / memgraphProjectGuard / memgraphAreaInvalidate / memgraphAreaRefetch / memgraphInactiveFetch /
+// memgraphInactiveRender / memgraphLanguage。
+{
+  const { MEMORY_GRAPH_FIXTURE, memoryEntryFor, memoryEntriesFor } = await import("./ui-preview/memory-graph-fixture.mjs");
+  const contract = JSON.parse(await readFile(resolve(root, "scripts/ipc-contract.json"), "utf8"));
+  const shapeOf = (value) => {
+    if (Array.isArray(value)) return value.length ? [shapeOf(value[0])] : "array";
+    if (value === null || value === undefined) return "nullable";
+    if (typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((k) => [k, shapeOf(value[k])]));
+    return { string: "string", number: "number", boolean: "bool" }[typeof value] ?? typeof value;
+  };
+  const shapeProblems = [];
+  const compatible = (expected, actual, path) => {
+    if (expected === "nullable" || actual === "nullable") return;
+    const expectedList = Array.isArray(expected) || expected === "array";
+    const actualList = Array.isArray(actual) || actual === "array";
+    if (expectedList || actualList) {
+      if (!expectedList || !actualList) shapeProblems.push(`${path}: 契约 ${JSON.stringify(expected)} vs 夹具 ${JSON.stringify(actual)}`);
+      else if (Array.isArray(expected) && Array.isArray(actual)) compatible(expected[0], actual[0], `${path}[]`);
+      return;
+    }
+    if (typeof expected === "object" && typeof actual === "object") {
+      for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+        if (!(key in actual)) shapeProblems.push(`${path}.${key}:后端会发,夹具里没有`);
+        else if (!(key in expected)) shapeProblems.push(`${path}.${key}:夹具独有,后端不发`);
+        else compatible(expected[key], actual[key], `${path}.${key}`);
+      }
+      return;
+    }
+    if (expected !== actual) shapeProblems.push(`${path}: 契约 ${JSON.stringify(expected)} vs 夹具 ${JSON.stringify(actual)}`);
+  };
+  assert(contract.memory_graph, "ipc-contract.json 缺 memory_graph 条目");
+  compatible(contract.memory_graph, shapeOf(MEMORY_GRAPH_FIXTURE), "memory_graph");
+  for (const problem of shapeProblems) fail(`记忆图谱 IPC 契约:${problem}`);
+
+  const modelNs = esmModuleCache.get("24-memory-graph-model.js")?.namespace;
+  assert(modelNs && typeof modelNs.visibleGraph === "function", "24-memory-graph-model.js 未加载或未导出 visibleGraph");
+  const previousProject = sandbox.currentProject;
+  const savedGraph = payloads.memory_graph;
+  const savedGet = payloads.memory_entry_get;
+  const PROJECT_B = "C:/smoke/memgraph-b";
+  const projectB = {
+    ...MEMORY_GRAPH_FIXTURE,
+    nodes: [
+      { ...MEMORY_GRAPH_FIXTURE.nodes.find((n) => n.kind === "crate"), degree: 1 },
+      { id: "M-B01", kind: "memory", label: "M-B01", title: "只属于项目 B 的记忆", description: "b", scope: "project", category: "fact", status: "active", archived: false, updated: "2026-09-26", hits: 0, areas: [], primary_area: null, area_provenance: null, degree: 0 },
+    ],
+    edges: [],
+  };
+  payloads.memory_graph = (args) => (args?.projectDir === PROJECT_B ? projectB : MEMORY_GRAPH_FIXTURE);
+  payloads.memory_entry_get = (args) => memoryEntryFor(args?.scope, args?.id) ?? { id: args?.id, scope: args?.scope, category: "fact", title: "只属于项目 B 的记忆", description: "b", status: "active", updated: "", source: "user", refs: [], areas: [], archived: false, hits: 0, last_hit_at: 0, recalled: 0, injected: 0, read: 0, read_observed: 0, path: "", body: "b" };
+
+  const memoryBtn = [...document.querySelectorAll(".activity-item[data-view]")].find((b) => b.dataset.view === "memory");
+  memoryBtn.click();
+  await flush();
+  const graphCalls = () => invokeLog.filter((cmd) => cmd === "memory_graph").length;
+  const beforeCalls = graphCalls();
+  byId.get("memory-view-graph").click();
+  await flush();
+  assert(graphCalls() > beforeCalls, "点「图谱」没有调用 memory_graph(视图切换监听丢了?)");
+  assert(byId.get("memory-view-graph").getAttribute("aria-pressed") === "true", "「图谱」按钮没有 aria-pressed=true");
+  assert(!byId.get("memory-graph-pane").classList.contains("hidden"), "图谱面板没有显示");
+  // 假 DOM 只建带 id 的节点:工作区的 .graph-mode 由 #memory-scroll[data-view] 同一处代码设置,这里看后者。
+  assert(byId.get("memory-scroll").dataset.view === "graph", "记忆页没有切到图谱布局(#memory-scroll[data-view=graph])");
+  const tree = byId.get("memory-graph-list");
+  assert(!tree.classList.contains("hidden") && byId.get("memory-graph-canvas").classList.contains("hidden"), "假 DOM 没有 canvas:应降级为文本视图");
+  assert(listText("memory-graph-status").includes("图形渲染不可用"), `降级时状态栏要说明原因,实得:${listText("memory-graph-status")}`);
+  const filters = { ...sandbox.memoryFilterSnapshot(), archived: false, layers: modelNs.DEFAULT_LAYERS, area: "" };
+  const expected = modelNs.visibleGraph(MEMORY_GRAPH_FIXTURE, filters).nodes.filter((n) => n.kind === "memory");
+  const items = [...tree.querySelectorAll('[role="treeitem"]')].filter((el) => el.dataset.memoryId);
+  assert(expected.length > 0 && items.length === expected.length, `文本视图条目数 ${items.length} ≠ 可见记忆数 ${expected.length}`);
+  // role=img 是静态标记(ui-a11y-smoke 分区:记忆图谱 静态断言);这里看运行时写进去的带节点数的读屏名称。
+  assert(/\d+/.test(byId.get("memory-graph-canvas").getAttribute("aria-label") ?? ""), `画布的读屏名称要带节点数,实得 ${byId.get("memory-graph-canvas").getAttribute("aria-label")}`);
+  const first = items[0];
+  first.click();
+  await flush();
+  const firstTitle = expected.find((n) => n.id === first.dataset.memoryId)?.title ?? "";
+  assert(firstTitle && listText("memory-detail").includes(firstTitle.slice(0, 8)), `点文本视图条目没有在详情栏打开记忆 ${first.dataset.memoryId}`);
+
+  // 竞态:项目 A 的 memory_graph 在途时切到项目 B,A 的结果迟到也不得画进 B。
+  let release;
+  invokeGates.set("memory_graph", new Promise((resolve) => { release = resolve; }));
+  document.dispatchEvent(new sandbox.CustomEvent("kz:memory-changed", { detail: { project: sandbox.currentProject } }));
+  await settle();
+  invokeGates.delete("memory_graph");
+  sandbox.currentProject = PROJECT_B;
+  await sandbox.refreshMemory({ force: true });
+  await flush();
+  release();
+  await flush();
+  const shownIds = [...tree.querySelectorAll('[role="treeitem"]')].map((el) => el.dataset.memoryId).filter(Boolean);
+  assert(shownIds.length === 1 && shownIds[0] === "M-B01", `切到项目 B 后文本视图应只有 M-B01,实得:${shownIds.join(",")}(项目 A 的在途图谱画进了 B)`);
+
+  byId.get("memory-view-list").click();
+  await flush();
+  assert(byId.get("memory-graph-pane").classList.contains("hidden") && byId.get("memory-scroll").dataset.view === "list", "切回列表后图谱面板仍在、列表被挡住");
+  assert(byId.get("memory-view-list").getAttribute("aria-pressed") === "true", "「列表」按钮没有 aria-pressed=true");
+
+  // 复核修复:下面三段用本仓夹具的记忆条目(M-112 在里面),结束时恢复。此刻没有打开的详情(切项目时已收起),
+  // ① 里数到的 memory_graph 调用只可能来自图谱模块。
+  sandbox.currentProject = previousProject;
+  const savedEntries = payloads.memory_entries;
+  const savedSave = payloads.memory_entry_save;
+  let m112Areas = [];
+  payloads.memory_entries = (args) => memoryEntriesFor(args?.scope ?? "project").map((entry) => (entry.id === "M-112" ? { ...entry, areas: [...m112Areas] } : entry));
+  payloads.memory_entry_save = (args) => {
+    if (args?.id === "M-112" && Array.isArray(args.area)) m112Areas = [...args.area];
+    return null;
+  };
+  payloads.memory_graph = () => MEMORY_GRAPH_FIXTURE;
+  await sandbox.refreshMemory({ force: true });
+  await flush();
+
+  // ① 记忆页不在前台时 kz:memory-changed 只作废、不取数也不画(复核:管理对话结束派发它时用户可能已切走,
+  //    图谱在隐藏的 1×1 画布上重排、RAF 循环留在后台);在途请求在切走之后才落地也不画。回到记忆页再取、再画。
+  //    变异 memgraphInactiveFetch / memgraphInactiveRender。
+  byId.get("memory-view-graph").click();
+  await flush();
+  const chatViewBtn = [...document.querySelectorAll(".activity-item[data-view]")].find((b) => b.dataset.view === "chat");
+  chatViewBtn.click();
+  await flush();
+  const callsWhileAway = graphCalls();
+  document.dispatchEvent(new sandbox.CustomEvent("kz:memory-changed", { detail: { project: sandbox.currentProject } }));
+  await flush();
+  assert(graphCalls() === callsWhileAway, "记忆页不在前台时 kz:memory-changed 触发了 memory_graph 重取(应只作废,回到记忆页再取)");
+  memoryBtn.click();
+  await flush();
+  assert(graphCalls() > callsWhileAway, "回到记忆页没有重取被作废的图谱");
+  const lateGraph = structuredClone(MEMORY_GRAPH_FIXTURE);
+  lateGraph.nodes.push({ ...lateGraph.nodes.find((n) => n.id === "M-112"), id: "M-LATE1", label: "M-LATE1", title: "切走之后才落地的记忆", areas: [], primary_area: null, area_provenance: null, degree: 0 });
+  let releaseLate;
+  invokeGates.set("memory_graph", new Promise((resolve) => { releaseLate = resolve; }));
+  document.dispatchEvent(new sandbox.CustomEvent("kz:memory-changed", { detail: { project: sandbox.currentProject } }));
+  await settle();
+  invokeGates.delete("memory_graph");
+  payloads.memory_graph = () => lateGraph;
+  chatViewBtn.click();
+  await flush();
+  releaseLate();
+  await flush();
+  assert(!listText("memory-graph-list").includes("M-LATE1"), "记忆页不在前台时,在途的图谱落地后仍重画了图谱(应等回到记忆页)");
+  memoryBtn.click();
+  await flush();
+  assert(listText("memory-graph-list").includes("M-LATE1"), "回到记忆页后没有画出切走期间取到的新图");
+
+  // ② 切换语言:图例、状态栏、区域下拉的「全部区域」按当前语言重建(复核:图例只生成一次,切到英文仍是中文)。
+  //    变异 memgraphLanguage。
+  const cjk = /[一-鿿]/;
+  assert(cjk.test(listText("memory-graph-legend")), `前置失败:中文界面的图例应是中文,实得 ${listText("memory-graph-legend")}`);
+  const graphLanguage = localStorageShim.getItem("kz-language") || "zh";
+  sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+  await flush();
+  assert(listText("memory-graph-legend") && !cjk.test(listText("memory-graph-legend")), `切到英文后图例仍有中文:${listText("memory-graph-legend")}`);
+  assert(!cjk.test(listText("memory-graph-status")), `切到英文后图谱状态栏仍有中文:${listText("memory-graph-status")}`);
+  assert(!cjk.test(byId.get("memory-graph-area")?.querySelector("option")?.textContent ?? "中"), "切到英文后区域下拉的「全部区域」没有翻译");
+  sandbox.setLanguagePreference(graphLanguage, { persist: true, rerender: true });
+  await flush();
+
+  // ③ 「设为区域」后区域行不能停在旧的推断区域(复核:旧载荷既不判过期也不重取,M-112 保存后仍显示
+  //    kanzei-tools/bash、tracker)。列表模式选中 M-112;memory_graph 换成「字段 kanzei-app/ui/memory + 关键词
+  //    kanzei-llm」的新图并挂闸门:新图落地前只显示字段与「…」(旧推断已作废),落地后显示新图的推断,且真的重取了。
+  //    变异 memgraphAreaInvalidate(areasFor 不看作废)/ memgraphAreaRefetch(ensureAreaOptions 不看新鲜度)。
+  // 这段在列表模式里做(复核复现的场景);详情区域行 → ensureAreaOptions 取数与图谱模块无关。
+  byId.get("memory-view-list").click();
+  await flush();
+  const chips = () => [...document.querySelectorAll("#memory-detail .memory-area-chip")].map((chip) => `${chip.firstChild?.textContent ?? ""}|${chip.dataset.provenance}`);
+  const rowOf = (id) => [...document.querySelectorAll("#memory-list .memory-row")].find((row) => row.dataset.memoryId === id);
+  assert(rowOf("M-112"), "前置失败:夹具记忆 M-112 没有出现在列表里");
+  rowOf("M-112")?.click();
+  await flush();
+  assert(chips().some((chip) => chip.startsWith("kanzei-tools/bash|")), `前置失败:M-112 的区域行应先显示夹具推断的 kanzei-tools/bash,实得 ${chips().join(",")}`);
+  const fieldGraph = structuredClone(MEMORY_GRAPH_FIXTURE);
+  const m112Node = fieldGraph.nodes.find((n) => n.id === "M-112");
+  Object.assign(m112Node, { areas: ["area:kanzei-app/ui/memory", "area:kanzei-llm"], primary_area: "area:kanzei-app/ui/memory", area_provenance: "field" });
+  fieldGraph.edges = fieldGraph.edges.filter((e) => !(e.source === "M-112" && e.rel === "about"));
+  fieldGraph.edges.push(
+    { source: "M-112", target: "area:kanzei-app/ui/memory", rel: "about", strength: "strong", provenance: "field", via: null, anchor: null },
+    { source: "M-112", target: "area:kanzei-llm", rel: "about", strength: "weak", provenance: "keyword", via: null, anchor: null },
+  );
+  payloads.memory_graph = () => fieldGraph;
+  const callsBeforeSet = graphCalls();
+  let releaseFieldGraph;
+  invokeGates.set("memory_graph", new Promise((resolve) => { releaseFieldGraph = resolve; }));
+  const areaSelect = document.querySelector("#memory-detail #memory-area-select");
+  const setAreaBtn = [...document.querySelectorAll("#memory-detail .memory-area-controls button")].find((b) => b.textContent === "设为区域");
+  assert(areaSelect && setAreaBtn, "前置失败:详情区域行缺「选择区域」下拉或「设为区域」按钮");
+  const optionValues = [...(areaSelect?.querySelectorAll("option") ?? [])].map((o) => o.value);
+  assert(optionValues.includes("kanzei-app/ui/memory"), `「选择区域」下拉没有填入全量区域(缺 kanzei-app/ui/memory),实得 ${optionValues.length} 项`);
+  // 假 DOM 的 select 只认直接子 option、不认 optgroup 里的(harness 近似),这里给这一个下拉直接定值。
+  Object.defineProperty(areaSelect, "value", { configurable: true, get: () => "kanzei-app/ui/memory", set: () => {} });
+  setAreaBtn?.click();
+  await flush();
+  invokeGates.delete("memory_graph");
+  assert(m112Areas.join(",") === "kanzei-app/ui/memory", `「设为区域」没有带着所选区域调 memory_entry_save,实得 ${m112Areas.join(",")}`);
+  const pendingChips = chips();
+  assert(
+    pendingChips.join(",") === "kanzei-app/ui/memory|field" && document.querySelector("#memory-detail .memory-area-pending"),
+    `新图落地前区域行应只有字段 kanzei-app/ui/memory 加「…」(旧推断已作废),实得 ${pendingChips.join(",")}`,
+  );
+  releaseFieldGraph();
+  await flush();
+  assert(graphCalls() > callsBeforeSet, "「设为区域」之后没有重取 memory_graph(区域行一直用旧载荷)");
+  const settledChips = chips();
+  assert(
+    settledChips.join(",") === "kanzei-app/ui/memory|field,kanzei-llm|keyword" && !document.querySelector("#memory-detail .memory-area-pending"),
+    `新图落地后区域行应为 字段 kanzei-app/ui/memory + 关键词 kanzei-llm,实得 ${settledChips.join(",")}`,
+  );
+
+  byId.get("memory-view-list").click();
+  await flush();
+  payloads.memory_entries = savedEntries;
+  payloads.memory_entry_save = savedSave;
+  payloads.memory_graph = savedGraph;
+  payloads.memory_entry_get = savedGet;
+  await sandbox.refreshMemory({ force: true });
   await flush();
 }
 
@@ -12523,6 +14888,8 @@ if (issues.length) {
 }
 // Keep streaming/cancellation regressions in the existing frontend runtime gate.
 await import("./ui-oc-companion-smoke.mjs");
+// ── 分区:星座背景 ── 纯函数、构图、正文对比度与静态契约(失败时 import 本身 reject)。
+await import("./ui-constellation-smoke.mjs");
 await import("./ui-voice-smoke.mjs");
 await import("./ui-mobile-approval-smoke.mjs");
 console.log(

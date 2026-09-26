@@ -156,7 +156,8 @@ export async function loadLinesModelCatalog() {
 
 export function buildLineModelSelect(item) {
   const select = document.createElement("select");
-  select.className = "ctx-select line-model-select";
+  // UI2-0926 #11:.ctx-select 随输入区控件体系(.kz-ctl)删除;线路页的模型下拉回到普通 select 外观。
+  select.className = "line-model-select";
   select.title = t("模型改动下一轮生效");
   const current = item.model || "";
   const seen = new Set();
@@ -341,8 +342,8 @@ export function renderLines(lines) {
     const lineRunning = lineIsRunning(line);
     const lane = document.createElement("article");
     const code = codes.get(line.process_id) ?? "?";
-    const accentIndex = code === "M" ? 0 : ((code.charCodeAt(0) - 64) % 4) + 1;
-    lane.className = `line-lane line-accent-${accentIndex}${line.process_id === activeProcessId ? " active" : ""}`;
+    // 线路身份 = 字母代号本身(M/A/B…),不再按代号取色——身份色曾撞上琥珀/绿这些状态色。
+    lane.className = `line-lane${line.process_id === activeProcessId ? " active" : ""}`;
     lane.dataset.processId = line.process_id;
 
     const head = document.createElement("header");
@@ -952,9 +953,26 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
   return panel;
 }
 
+// UI2-0926 从别处跳进线路页、要落在页内某一段时的落点(侧栏「查看全部隔离工作树 →」)。线路卡由 refreshLines
+// 异步画出:切视图后立刻 scrollIntoView,随后插进来的线路卡会把目标段往下推,停在半路(1280@1.5 实测只露出
+// 标题和一行)。所以切进来时先记下落点,等本轮刷新收尾再滚——成功失败都滚,目标段(工作树清单)不靠这次 IPC;
+// 本来就在线路页时切视图不触发刷新,就地滚。离开线路页后落点作废,不会在下次进来时突然跳。
+let pendingLinesAnchor = null;
+export function revealLinesSection(id, { afterRefresh = true } = {}) {
+  if (!$("view-lines")?.classList.contains("active")) return;
+  if (afterRefresh) pendingLinesAnchor = id;
+  else $(id)?.scrollIntoView?.({ block: "start" });
+}
+function consumeLinesAnchor() {
+  const id = pendingLinesAnchor;
+  pendingLinesAnchor = null;
+  if (id && $("view-lines")?.classList.contains("active")) $(id)?.scrollIntoView?.({ block: "start" });
+}
+
 export async function refreshLines() {
   if (!currentProject) {
     renderLines([]);
+    consumeLinesAnchor();
     return;
   }
   if (linesRefreshInFlight) {
@@ -987,6 +1005,7 @@ export async function refreshLines() {
     }
   } finally {
     linesRefreshInFlight = false;
+    consumeLinesAnchor();
     if (linesRefreshQueued) {
       linesRefreshQueued = false;
       scheduleLinesRefresh(250);

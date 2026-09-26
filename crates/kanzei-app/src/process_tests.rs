@@ -147,7 +147,12 @@ fn 结束的_stop_watchdog句柄可被回收() {
         .lock()
         .unwrap()
         .push(std::thread::spawn(|| {}));
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    // 等线程真正结束再回收:固定睡 10ms 在机器满载(并行编译)时不够线程收尾,测试会偶发红。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !runtime.stop_watchdogs.lock().unwrap()[0].is_finished() {
+        assert!(std::time::Instant::now() < deadline, "空线程 5 秒内应结束");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     reap_stop_watchdogs(&runtime);
     assert!(runtime.stop_watchdogs.lock().unwrap().is_empty());
 }

@@ -47,8 +47,15 @@ function setupMemoryManagerFilters() {
       memoryCurrentEntryId = null;
       hideMemoryDetail();
       loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category);
+      // 记忆图谱(24-memory-graph.js)跟着同一组筛选重算可见子图。
+      document.dispatchEvent(new CustomEvent("kz:memory-filters", { detail: { project: currentProject, filters: memoryFilterSnapshot() } }));
     });
   }
+}
+
+/** 当前 范围/分类/状态/排序 筛选的快照(记忆图谱与列表共用同一组筛选)。 */
+export function memoryFilterSnapshot() {
+  return { ...memoryManagerFilters };
 }
 
 function syncMemoryManagerFilters() {
@@ -59,15 +66,30 @@ function syncMemoryManagerFilters() {
   }
 }
 
-function hideMemoryDetail() {
+export function hideMemoryDetail() {
   const box = $("memory-detail");
   if (box) {
     box.classList.add("hidden");
     box.replaceChildren();
+    delete box.dataset.graphNode;
   }
   $("memory-reader-empty")?.classList.remove("hidden");
   $("memory-scroll")?.classList.remove("has-memory-selection");
   document.dispatchEvent(new CustomEvent("kz:memory-selection-cleared", { detail: { project: currentProject } }));
+}
+
+/** 记忆图谱点了非记忆节点:放掉当前选中的记忆,详情栏交给图谱画节点详情。 */
+export function releaseMemoryDetail() {
+  memoryCurrentEntryId = null;
+  hideMemoryDetail();
+  document.querySelectorAll("#memory-list .memory-row.selected").forEach((row) => row.classList.remove("selected"));
+}
+
+// 记忆图谱注册的区域提供者:{ areasFor(scope, id) → [{ area, provenance, via }] | null, ensureAreaOptions() → Promise<[{ id, label, group }]> }。
+// 列表模式下图谱没加载过也能设区域:ensureAreaOptions 会按需取一次图谱载荷(后端有 stat 缓存)。
+let memoryAreaProvider = null;
+export function setMemoryAreaProvider(provider) {
+  memoryAreaProvider = provider;
 }
 
 export async function refreshMemory({ force = false } = {}) {
@@ -131,7 +153,7 @@ async function loadMemoryDiagnostics() {
   return request.promise;
 }
 
-async function getMemoryEntries(project, scope) {
+export async function getMemoryEntries(project, scope) {
   const key = `${project}\0${scope}`;
   const cached = memoryEntryCache.get(key);
   if (cached && (cached.pending || Date.now() - cached.at < 15000)) return cached.promise;
@@ -879,7 +901,7 @@ export function renderMemoryList(entries, { search = false } = {}) {
   }
 }
 
-export function showMemoryDetail(scope, entry, { reveal = true } = {}) {
+export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false } = {}) {
   const box = $("memory-detail");
   if (!box) return;
   const project = currentProject;
@@ -887,6 +909,7 @@ export function showMemoryDetail(scope, entry, { reveal = true } = {}) {
   $("memory-reader-empty")?.classList.add("hidden");
   $("memory-scroll")?.classList.add("has-memory-selection");
   delete box.dataset.dirty;
+  delete box.dataset.graphNode;
   box.oninput = () => { box.dataset.dirty = "true"; };
   document.dispatchEvent(new CustomEvent("kz:memory-selected", { detail: { project, scope, id: entry.id, title: entry.title } }));
   memoryCurrentEntryId = entry.id;
@@ -919,6 +942,12 @@ export function showMemoryDetail(scope, entry, { reveal = true } = {}) {
     richText(entry.source || t("未知")),
   );
   if (entry.refs && entry.refs.length) meta.append(document.createTextNode(` · ${t("引用来源")} `), richText(entry.refs.join(" ")));
+  if (readOnly) {
+    const badge = document.createElement("span");
+    badge.className = "memory-readonly-badge";
+    badge.textContent = t("已归档(只读)");
+    meta.append(document.createTextNode(" · "), badge);
+  }
   const profile = document.createElement("p");
   profile.className = "dim memory-profile";
   const lastHit = entry.last_hit_at ? new Date(entry.last_hit_at).toLocaleString() : t("从未命中");
@@ -1025,7 +1054,124 @@ export function showMemoryDetail(scope, entry, { reveal = true } = {}) {
   discuss.textContent = t("用对话修改");
   discuss.addEventListener("click", () => { showMemoryTab("chat"); $("memory-chat-input")?.focus(); });
   actions.append(save, discuss, staleBtn, deleteBtn);
-  box.append(heading, meta, profile, recall, metadata, field(t("正文"), bodyBox), actions);
+  if (readOnly) {
+    // 归档条目只读:不给保存/失效/删除/改标题,正文不给编辑入口(归档目录里的文件不在写路径上)。
+    box.dataset.readonly = "true";
+    bodyBox.querySelector(".memory-body-edit-row")?.remove();
+    box.append(heading, meta, profile, recall, field(t("正文"), bodyBox));
+    return;
+  }
+  delete box.dataset.readonly;
+  box.append(heading, meta, profile, recall, renderMemoryAreaRow(project, scope, entry), metadata, field(t("正文"), bodyBox), actions);
+}
+
+// 记忆图谱:详情里的「区域」行——当前区域(带依据徽标:字段/路径/工具/经由 D-xxx/关键词)+ 设为/清除区域。
+// 只有字段(area:)是真源,其余是图谱按信号推断的;「设为区域」把推断写成字段,优先级最高。
+function renderMemoryAreaRow(project, scope, entry) {
+  const row = document.createElement("div");
+  row.className = "memory-area-row";
+  const label = document.createElement("span");
+  label.className = "memory-detail-label";
+  label.textContent = t("区域");
+  const list = document.createElement("span");
+  list.className = "memory-area-list";
+  const fieldAreas = (entry.areas ?? []).map((area) => ({ area: `area:${area}`, provenance: "field", via: null }));
+  // 字段(entry.areas,刚从磁盘读的真源)总排最前;推断区域来自图谱载荷,去掉与字段重复的和载荷里的字段边
+  // ——载荷可能比条目旧一拍,字段以条目为准。inferred 为 null = 载荷还没取到(或刚被改动作废),末尾显示「…」。
+  const renderChips = (inferred, { pending = false } = {}) => {
+    const fieldSet = new Set(fieldAreas.map((item) => item.area));
+    const shown = [...fieldAreas, ...(inferred ?? []).filter((item) => item.provenance !== "field" && !fieldSet.has(item.area))];
+    list.replaceChildren();
+    if (!shown.length && !pending) {
+      const none = document.createElement("span");
+      none.className = "dim";
+      none.textContent = t("未归类");
+      list.append(none);
+    }
+    for (const item of shown) {
+      const chip = document.createElement("span");
+      chip.className = "memory-area-chip";
+      chip.dataset.provenance = item.provenance || "";
+      const name = document.createElement("span");
+      name.textContent = String(item.area || "").replace(/^area:/, "");
+      const why = document.createElement("em");
+      why.className = "memory-area-why";
+      const provenanceLabel = { field: t("字段"), path: t("路径"), tool: t("工具"), via: t("经由"), keyword: t("关键词") }[item.provenance] ?? "";
+      why.textContent = item.provenance === "via" && item.via ? `${provenanceLabel} ${item.via}` : provenanceLabel;
+      chip.append(name, why);
+      list.append(chip);
+    }
+    if (pending) {
+      const more = document.createElement("span");
+      more.className = "dim memory-area-pending";
+      more.textContent = "…";
+      list.append(more);
+    }
+  };
+  // 推断出的区域来自图谱载荷;列表模式下还没取过(或刚改过区域、载荷作废)就先显示字段 +「…」,取到后补上推断。
+  const inferred = memoryAreaProvider?.areasFor?.(scope, entry.id) ?? null;
+  renderChips(inferred, { pending: !inferred && Boolean(memoryAreaProvider) });
+  const select = document.createElement("select");
+  select.id = "memory-area-select";
+  select.setAttribute("aria-label", t("选择代码区域"));
+  const pending = document.createElement("option");
+  pending.value = "";
+  pending.textContent = t("选择区域…");
+  select.append(pending);
+  const setBtn = document.createElement("button");
+  setBtn.type = "button";
+  setBtn.className = "ghost mini";
+  setBtn.textContent = t("设为区域");
+  const clearBtn = document.createElement("button");
+  clearBtn.type = "button";
+  clearBtn.className = "ghost mini";
+  clearBtn.textContent = t("清除区域");
+  clearBtn.disabled = !(entry.areas ?? []).length;
+  const saveArea = async (areas) => {
+    try {
+      await invoke("memory_entry_save", { projectDir: project, scope, id: entry.id, title: null, description: null, body: null, status: null, area: areas });
+      if (project !== currentProject) return;
+      toast(areas.length ? t("区域已保存") : t("区域已清除"));
+      document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
+    } catch (err) {
+      toastError(`${t("区域保存失败")}:${err}`);
+    }
+  };
+  setBtn.addEventListener("click", () => {
+    if (!select.value) {
+      select.focus();
+      return;
+    }
+    const current = (entry.areas ?? []).filter((area) => area !== select.value);
+    void saveArea([select.value, ...current].slice(0, 4));
+  });
+  clearBtn.addEventListener("click", () => void saveArea([]));
+  const fill = (options) => {
+    let group = null;
+    let groupName = null;
+    for (const option of options ?? []) {
+      if (option.group !== groupName) {
+        groupName = option.group;
+        group = document.createElement("optgroup");
+        group.label = option.group;
+        select.append(group);
+      }
+      const node = document.createElement("option");
+      node.value = option.id;
+      node.textContent = option.label;
+      (group ?? select).append(node);
+    }
+  };
+  void memoryAreaProvider?.ensureAreaOptions?.().then((options) => {
+    if (row.isConnected === false) return;
+    fill(options);
+    renderChips(memoryAreaProvider?.areasFor?.(scope, entry.id) ?? null);
+  }).catch(() => renderChips(null));
+  const controls = document.createElement("span");
+  controls.className = "memory-area-controls";
+  controls.append(select, setBtn, clearBtn);
+  row.append(label, list, controls);
+  return row;
 }
 
 
@@ -1141,6 +1287,7 @@ defer(() => {
       clear.hidden = true;
       memoryCurrentEntryId = null;
       hideMemoryDetail();
+      document.dispatchEvent(new CustomEvent("kz:memory-search-hits", { detail: { project, ids: [], query: "" } }));
       await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category);
       return;
     }
@@ -1153,6 +1300,7 @@ defer(() => {
       memoryCurrentEntryId = null;
       hideMemoryDetail();
       renderMemoryList(hits.map((hit) => ({ ...hit, scope: hit.scope || "project" })), { search: true });
+      document.dispatchEvent(new CustomEvent("kz:memory-search-hits", { detail: { project, ids: hits.map((hit) => hit.id), query } }));
     } catch (err) {
       if (project !== currentProject || generation !== memoryListGeneration) return;
       neuralFlowEmit?.("memory_search_failed");
@@ -1168,6 +1316,7 @@ defer(() => {
   clear.addEventListener("click", async () => {
     input.value = "";
     clear.hidden = true;
+    document.dispatchEvent(new CustomEvent("kz:memory-search-hits", { detail: { project: currentProject, ids: [], query: "" } }));
     await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category);
   });
 });

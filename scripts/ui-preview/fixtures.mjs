@@ -11,6 +11,9 @@
 //   latencyMs,
 // }
 
+// ── 分区:记忆图谱 ──
+import { MEMORY_GRAPH_FIXTURE, memoryEntriesFor, memoryEntryFor } from "./memory-graph-fixture.mjs";
+
 export const PROJECT = "C:/Users/kanzei/Documents/kanzei code";
 export const PROJECT_B = "C:/Users/kanzei/Documents/持续学习";
 export const PROJECT_C = "C:/Users/kanzei/Documents/kanzei-rel-0926";
@@ -492,7 +495,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
   const state = {
     uiPrefs: {
       theme, work_priority: {}, auto_max: null, continue_prompt: null, process_auto_state: {},
-      workspace_state: {},
+      workspace_state: {}, memory_view: null,
     },
     docs: buildDocsSnapshot(),
     processes: [
@@ -533,6 +536,9 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       reasoning: "high", codexFastMode: false,
     },
   };
+  // ── 分区:星座背景 ── ?backdrop=kanzei|big-dipper|orion|cassiopeia|off 预置对话背景偏好(ui_prefs_get.backdrop,截图用);
+  // 不带参数 = 后端无记录,走默认(kanzei 标志星座)。
+  if (params.backdrop) state.uiPrefs.backdrop = params.backdrop === "off" ? { enabled: false } : { enabled: true, preset: params.backdrop };
   const ids = IDS;
   const events = liveEvents(ids);
   const askFixtures = asks(ids);
@@ -754,6 +760,11 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       { path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-r366-b2", branch: "kanzei/thread-r366-b2", clean: false, files: ["crates/kanzei-app/src/run/rewind.rs", "crates/kanzei-core/src/conversation.rs"], bound_process: IDS.lineProcess },
       { path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-d759", branch: "kanzei/thread-d759", clean: true, files: [], bound_process: IDS.idleProcess },
       { path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-r340-old", branch: "kanzei/thread-r340", clean: false, files: ["crates/kanzei-app/ui/13-memory.js"], bound_process: null },
+      // 用户现场是 12 棵、7 棵有改动:侧栏只列 6 棵(有改动的排前),其余「查看全部」。多给几棵孤儿树把上限撑出来。
+      ...["r301", "r318", "d702", "r355", "d731", "r362"].map((tag, index) => ({
+        path: `C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-${tag}`, branch: `kanzei/thread-${tag}`,
+        clean: index % 2 === 0, files: index % 2 === 0 ? [] : ["crates/kanzei-core/src/lib.rs", "docs/design/memory_control_plane.md"].slice(0, index % 3 + 1), bound_process: null,
+      })),
     ],
     worktree_harvest_candidates: [],
     pending_asks_get: () => {
@@ -850,10 +861,34 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     mobile_service_start: { address: "http://127.0.0.1:8790", token: "PREVIEW", lan: false, devices: [] },
     mobile_service_stop: null,
     // ---- 其它视图
+    // 形状对照 crates/kanzei-app/src/projects.rs workspace_snapshot:status 是会话状态(running/idle/failed),
+    // conversation 是 conversation_list 的首段 {title, message_count},recent_activity 是 run.trace 载荷
+    // ({events:[{name,text}]}),lines 是 process_list 的线级现场。三个项目与 projects_get 同序。
     workspace_snapshot: {
+      current: PROJECT,
       projects: [
-        { path: PROJECT, name: "kanzei code", current: true, status: "运行中", running_lines: 2, conversation: "R-364 B1 账单与常驻名单", recent_activity: [{ name: "bash", text: "cargo test -p kanzei-tools", events: 3 }] },
-        { path: PROJECT_B, name: "持续学习", current: false, status: "空闲", running_lines: 0, conversation: null, recent_activity: [] },
+        {
+          path: PROJECT, name: "kanzei code", current: true, status: "running", updated_at: 1790389800000, pending_count: 1,
+          conversation: { sequence: 812, created_at: 1790386200000, title: "R-364 B1 账单与常驻名单", message_count: 46 },
+          recent_activity: [{ events: [{ name: "bash", text: "cargo test -p kanzei-tools" }, { name: "edit", text: "crates/kanzei-tools/src/registry.rs" }, { name: "read", text: "docs/design/cc_codex_alignment_impl_maps.md" }] }],
+          lines: [
+            { id: IDS.mainProcess, label: "主会话", running: true, stage: "实现", branch: "release/2026-09-26-ui", worktree_path: null, profile: "dev" },
+            { id: IDS.lineProcess, label: "R-366 B2 回退事件", running: true, stage: "复核", branch: "kanzei/thread-r366-b2", worktree_path: `${PROJECT}/.kanzei/worktrees/thread-r366-b2`, profile: "dev" },
+            { id: IDS.idleProcess, label: "D-759 手机提问卡片", running: false, stage: "空闲", branch: "kanzei/thread-d759", worktree_path: `${PROJECT}/.kanzei/worktrees/thread-d759`, profile: "dev" },
+          ],
+          running_lines: 2,
+        },
+        {
+          path: PROJECT_C, name: "kanzei-rel-0926", current: false, status: "idle", updated_at: 1790371800000, pending_count: 0,
+          conversation: { sequence: 64, created_at: 1790368200000, title: "合并 release/2026-09-26-ui 并跑 verify", message_count: 12 },
+          recent_activity: [{ events: [{ name: "bash", text: "pwsh scripts/verify.ps1 -Full" }] }],
+          lines: [{ id: "d|kanzei-rel-0926", label: "主会话", running: false, stage: "空闲", branch: "main", worktree_path: null, profile: "dev" }],
+          running_lines: 0,
+        },
+        {
+          path: PROJECT_B, name: "持续学习", current: false, status: "failed", updated_at: 1790299800000, pending_count: 0,
+          conversation: null, recent_activity: [], lines: [], running_lines: 0,
+        },
       ],
     },
     files_snapshot: {
@@ -876,7 +911,14 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     run_metrics_by_category: { categories: [] },
     run_metrics_by_task: { completed_tasks: [], in_progress_tasks: [], trend: { closed_task_count: 0, completed_task_count: 0 } },
     memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
-    memory_entries: [],
+    // ── 分区:记忆图谱 ── 真实记忆子集(memory-graph-fixture.mjs);memory / memory-graph 场景读它。
+    memory_entries: (args) => memoryEntriesFor(args?.scope ?? "project"),
+    memory_graph: () => MEMORY_GRAPH_FIXTURE,
+    memory_entry_get: (args) => {
+      const entry = memoryEntryFor(args?.scope, args?.id);
+      if (!entry) throw `记忆 ${args?.id} 不存在(活动与归档里都没有)`;
+      return entry;
+    },
     memory_recalls: { rounds: [], rounds_total: 0 },
     memory_note_candidates: [],
     memory_value_flags: { zero_read: [], frequent: [], stale_archived: 0 },

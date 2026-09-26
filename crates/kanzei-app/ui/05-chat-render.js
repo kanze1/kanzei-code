@@ -2,11 +2,12 @@ import { defer } from "./01-core.js";
 import { messagePanes, motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { appendDisplayBlock, compactDiffLines, quotaNoticeHeadline, quotaTruncation } from "./06-activity.js";
+import { openTasksPanel } from "./06-agent-panel.js";
 import { $, activePane, promptBox, appendToPane, messages, trimLivePane } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdown } from "./04-markdown.js";
-import { parseJsonish, stripToolOutcome } from "./04-structured-parse.js";
+import { fillTemplate, parseJsonish, stripToolOutcome } from "./04-structured-parse.js";
 import { flushLazy, lazyMount, renderErrorDetail, renderToolArgs, renderToolResult } from "./04-structured.js";
 import { renderToolSummary, toolArgSummary, toolResultSummary, withToolDuration } from "./05-tool-summary.js";
 import { sendText } from "./08-compose-runtime.js";
@@ -101,16 +102,24 @@ export function scrollBottom(force = false) {
   scrollFlushScheduled = true;
   requestAnimationFrame(flushScrollBottom);
 }
+/// 复制图标(两个叠放的圆角方块,描边随 currentColor)。常量字面量,没有外部输入。
+export const COPY_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"/><path d="M10.5 5.5V3.6A1.1 1.1 0 0 0 9.4 2.5H3.6a1.1 1.1 0 0 0-1.1 1.1v5.8a1.1 1.1 0 0 0 1.1 1.1h1.9"/></svg>';
 export function copyButton() {
   const button = document.createElement("button");
   button.className = "copy-btn";
   button.type = "button";
-  button.textContent = t("复制");
   button.title = t("复制消息");
   // R-140 批1/批10:消息容器豁免 observer 后,容器内 t() 渲染点靠 data-i18n-key
   // 在语言切换时由 applyDataI18nKeys(document.body) 重算(渲染点翻译,不再靠事后回译)。
-  button.dataset.i18nKey = "复制";
+  // UI2-0926 #12:按钮改成图标;可读名挂在 sr-only 的 span 上——data-i18n-key 若挂在按钮本身,
+  // 切语言时 applyDataI18nKeys 写 textContent 会把 SVG 冲掉。
   button.dataset.i18nTitle = "复制消息";
+  button.innerHTML = COPY_ICON;
+  const label = document.createElement("span");
+  label.className = "sr-only";
+  label.textContent = t("复制");
+  label.dataset.i18nKey = "复制";
+  button.appendChild(label);
   return button;
 }
 
@@ -121,10 +130,14 @@ export function addMessage(cls, text) {
   const body = document.createElement("div");
   body.className = "message-body";
   body.textContent = text;
-  const actions = document.createElement("span");
-  actions.className = "msg-actions";
-  actions.appendChild(copyButton());
-  el.append(body, actions);
+  el.appendChild(body);
+  // UI2-0926 #12:notice(本轮结束、鞭挞停止…)是系统提示,不挂复制;其余消息的复制悬停出现在块下方。
+  if (!String(cls).split(/\s+/).includes("notice")) {
+    const actions = document.createElement("span");
+    actions.className = "msg-actions";
+    actions.appendChild(copyButton());
+    el.appendChild(actions);
+  }
   appendToPane(el);
   scrollBottom();
   return el;
@@ -140,7 +153,7 @@ export function addUserMessage(text, promptAttachments = []) {
     const item = document.createElement("span");
     item.className = "message-attachment";
     const kind = attachment.media_type?.startsWith("image/") ? t("图片") : "PDF";
-    item.textContent = `📎 ${attachment.file_name} · ${kind} · ${t("已发送给 agent")}`;
+    item.textContent = `${attachment.file_name} · ${kind} · ${t("已发送给 agent")}`;
     attachments.appendChild(item);
   }
   body.appendChild(attachments);
@@ -354,12 +367,12 @@ export function appendActivityNotice(parent) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "ghost mini tool-display-more";
-  button.textContent = t("去活动面板看全");
-  button.title = t("去活动面板看全");
+  button.textContent = t("去后台任务侧栏看全");
+  button.title = t("去后台任务侧栏看全");
   button.addEventListener("click", (event) => {
     event.stopPropagation();
-    // 复用活动面板唯一真实开关,保持互斥面板和持久化状态由既有消费者处理。
-    $("activity-toggle")?.click();
+    // UI2-0926 #14:只打开、不切换——此前复用 rail 开关的 click,侧栏已开着时反而把它关掉(缺陷 C)。
+    openTasksPanel({ invoker: button });
   });
   parent.appendChild(button);
 }
@@ -405,7 +418,8 @@ export function buildToolBlock(name, input) {
   });
   wrap.append(head, detail);
   // name/input 随块走:收尾时按工具摘要(实时 tool-end 不再带入参)。
-  const block = { wrap, head, icon, result, detail, name, input };
+  // argText:参数摘要的纯文本(不带括号)。工具组据此给读/写按文件去重计数,运行中组头显示当前调用。
+  const block = { wrap, head, icon, result, detail, name, input, argText: summary };
   // 历史回放补耗时要从 DOM 找回块(applyRecoveredToolDurations)。
   wrap._kzToolBlock = block;
   return block;
@@ -525,6 +539,7 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   // 入参已渲染进展开区;块经 wrap._kzToolBlock 与 DOM 同寿命,收尾后不再留一份原始入参
   // (补耗时只用 summaryBase)。
   block.input = null;
+  syncToolGroupOf(block);
 }
 
 export const chatToolBlocks = new Map();
@@ -542,7 +557,7 @@ export function chatToolStart(id, name, summary, input) {
   const block = buildToolBlock(name, input ?? { command: summary });
   block.input = input ?? null;
   block.finished = false;
-  appendToPane(block.wrap);
+  mountToolBlock(block);
   chatToolBlocks.set(id, block);
   if (chatToolBlocks.size > CHAT_TOOL_KEEP) {
     chatToolBlocks.delete(chatToolBlocks.keys().next().value);
@@ -660,10 +675,16 @@ export function playToolOutcomeMotion(id) {
   if (!wrap?.classList || !block.icon) return;
   if (wrap.classList.contains("interrupted")) {
     wrap.classList.remove("interrupted");
+    syncToolGroupOf(block);
     return;
   }
-  if (wrap.classList.contains("err")) motionOnce(block.icon, "kz-shake", 520);
-  else if (wrap.classList.contains("ok") || wrap.classList.contains("warn")) motionOnce(block.icon, "kz-pop", 360);
+  // 折叠的工具组里,失败行常驻可见,组头的「N 失败」同时抖一下(看组头的人也知道刚失败了一次)。
+  const group = toolGroupOf(block);
+  const folded = group && group.dataset.expanded !== "1" && group.dataset.count !== "1";
+  if (wrap.classList.contains("err")) {
+    motionOnce(block.icon, "kz-shake", 520);
+    if (folded && group._kzGroup?.fail) motionOnce(group._kzGroup.fail, "kz-shake", 520);
+  } else if (wrap.classList.contains("ok") || wrap.classList.contains("warn")) motionOnce(block.icon, "kz-pop", 360);
 }
 /// 某个 pane 里仍在「运行中」的工具块。chatToolBlocks 跨会话共用一张表,按块所在 pane 筛;
 /// 已被裁掉/清空的块 closest 取不到 pane,自然不算。
@@ -692,6 +713,7 @@ export function chatAbortRunning(pane = activePane) {
     block.icon.textContent = "⏹";
     block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
     block.result.classList.remove("hidden");
+    syncToolGroupOf(block);
   }
   return blocks.length;
 }
@@ -704,4 +726,191 @@ export function chatAbortRunningFor(sessionId) {
 /// withSessionRender 借它切换渲染上下文,放进去会把后台线正在流的思考块也一起熄掉。
 export function endReasoningLive() {
   currentReasoningHead?.classList?.remove("is-live");
+}
+
+// ---------- 工具组(UI2-0926 #12,参照 Claude「Ran 4 commands ›」) ----------
+// 连续的工具调用(连同夹在中间、紧挨在前面的思考块)合成一行灰字,点开看逐条 ⎿ 摘要:
+// - 实时(chatToolStart)与历史回放(renderMessageParts)唯一入口 mountToolBlock,判据只看 pane 末尾,
+//   不按 step/消息边界断组——两条路径因此同构;
+// - 正文、用户消息、notice、子代理卡、错误追加到 pane 末尾后,组就不再是末尾,自然断开;
+// - 只有 1 次调用时不显示组头(就是那一行);默认折叠,失败行在折叠态常驻可见(契约 §4.1「错了不该藏起来」);
+// - 运行中组头 = 转圈 + 当前调用;每组上限 TOOL_GROUP_MAX 行;
+// - 组不带 .msg 类:搜索与复制按行/按组各处理一次,不会重复命中。
+// 子代理时间线复用 buildToolBlock/fillToolBlock,行不在组里,syncToolGroupOf 对它是空操作。
+export const TOOL_GROUP_MAX = 30;
+const TOOL_GROUP_CHEV = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 6.5 5l-3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+let toolGroupSeq = 0;
+/// 工具组空壳:组头按钮(转圈 · 标签 · 失败数 · 待修正数 · ›)+ body(行与思考块)。
+export function buildToolGroup() {
+  const group = document.createElement("div");
+  group.className = "tool-group";
+  group.dataset.count = "0";
+  toolGroupSeq += 1;
+  const bodyId = `tool-group-body-${toolGroupSeq}`;
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "tool-group-head";
+  head.setAttribute("aria-expanded", "false");
+  head.setAttribute("aria-controls", bodyId);
+  const spin = document.createElement("span");
+  spin.className = "tool-group-spin";
+  spin.setAttribute("aria-hidden", "true");
+  const label = document.createElement("span");
+  label.className = "tool-group-label";
+  const fail = document.createElement("span");
+  fail.className = "tool-group-fail hidden";
+  const warn = document.createElement("span");
+  warn.className = "tool-group-warn hidden";
+  const chev = document.createElement("span");
+  chev.className = "tool-group-chev";
+  chev.setAttribute("aria-hidden", "true");
+  chev.innerHTML = TOOL_GROUP_CHEV;
+  head.append(spin, label, fail, warn, chev);
+  const body = document.createElement("div");
+  body.className = "tool-group-body";
+  body.id = bodyId;
+  body.setAttribute("role", "group");
+  head.addEventListener("click", () => setToolGroupExpanded(group, group.dataset.expanded !== "1"));
+  group.append(head, body);
+  group._kzGroup = { head, label, fail, warn, body };
+  return group;
+}
+export function setToolGroupExpanded(group, open) {
+  if (!group?._kzGroup) return;
+  if (open) group.dataset.expanded = "1";
+  else delete group.dataset.expanded;
+  group._kzGroup.head.setAttribute("aria-expanded", String(Boolean(open)));
+}
+/// 把一个工具块挂进当前 pane:末尾是未满的组就并进去,否则新开一组;末尾连着的思考块一起收进组。
+export function mountToolBlock(block) {
+  const pane = activePane;
+  const kids = pane.children;
+  let tail = kids[kids.length - 1] ?? null;
+  const reasoning = [];
+  while (tail?.classList?.contains("reasoning")) { reasoning.unshift(tail); tail = tail.previousElementSibling ?? null; }
+  let group = tail?.classList?.contains("tool-group") && Number(tail.dataset.count) < TOOL_GROUP_MAX ? tail : null;
+  if (!group) {
+    group = buildToolGroup();
+    appendToPane(group);
+  }
+  group._kzGroup.body.append(...reasoning, block.wrap);
+  pane.dataset.hasContent = "1";
+  syncToolGroup(group);
+  trimLivePane(pane);
+  return group;
+}
+export function toolGroupOf(block) {
+  const group = block?.wrap?.closest?.(".tool-group");
+  return group?._kzGroup ? group : null;
+}
+export function syncToolGroupOf(block) {
+  const group = toolGroupOf(block);
+  if (group) syncToolGroup(group);
+}
+function toolRowState(row) {
+  const cls = row.classList;
+  if (cls.contains("running")) return "running";
+  if (cls.contains("interrupted")) return "interrupted";
+  if (cls.contains("err")) return "err";
+  if (cls.contains("warn")) return "warn";
+  if (cls.contains("noop")) return "noop";
+  return "ok";
+}
+const countWord = (n, many, one) => (n === 1 ? one : fillTemplate(many, { n }));
+/// 族措辞:按 toolGroupEntry 的组归族,读/写按不同文件计数,其余按次数。
+const TOOL_GROUP_WORDS = {
+  read: (n) => countWord(n, t("读取 {n} 个文件"), t("读取 1 个文件")),
+  write: (n) => countWord(n, t("修改 {n} 个文件"), t("修改 1 个文件")),
+  exec: (n) => countWord(n, t("运行 {n} 条命令"), t("运行 1 条命令")),
+  search: (n) => countWord(n, t("搜索 {n} 次"), t("搜索 1 次")),
+  vcs: (n) => countWord(n, t("Git 操作 {n} 次"), t("Git 操作 1 次")),
+  net: (n) => countWord(n, t("联网 {n} 次"), t("联网 1 次")),
+  tracker: (n) => countWord(n, t("条目操作 {n} 次"), t("条目操作 1 次")),
+  plan: (n) => countWord(n, t("工作队列 {n} 次"), t("工作队列 1 次")),
+  memory: (n) => countWord(n, t("记忆操作 {n} 次"), t("记忆操作 1 次")),
+  other: (n) => countWord(n, t("调用工具 {n} 次"), t("调用工具 1 次")),
+};
+/// 纯函数:entries = [{ name, state, argText }] → { label, fail, warn, interrupted, running, text }。
+/// label 不含失败/待修正(它们单独着色、不被省略号截掉);text 是完整可读句子(aria-label 与组 body 的名字)。
+export function toolGroupSummary(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  const families = new Map();
+  let fail = 0;
+  let warn = 0;
+  let interrupted = 0;
+  const running = [];
+  for (const entry of list) {
+    const group = toolGroupEntry(entry?.name)[0];
+    const family = TOOL_GROUP_WORDS[group] ? group : "other";
+    if (!families.has(family)) families.set(family, { calls: 0, args: new Set() });
+    const bucket = families.get(family);
+    bucket.calls += 1;
+    if (entry?.argText) bucket.args.add(entry.argText);
+    if (entry?.state === "err") fail += 1;
+    else if (entry?.state === "warn") warn += 1;
+    else if (entry?.state === "interrupted") interrupted += 1;
+    else if (entry?.state === "running") running.push(entry);
+  }
+  let label;
+  if (running.length) {
+    const current = running[running.length - 1];
+    label = running.length === 1
+      ? `${current.name}${current.argText ? ` ${current.argText}` : ""}`
+      : fillTemplate(t("{n} 个工具运行中"), { n: running.length });
+    const done = list.length - running.length;
+    if (done > 0) label += ` · ${fillTemplate(t("已完成 {n}"), { n: done })}`;
+  } else {
+    const words = [...families.entries()].map(([family, bucket]) => {
+      const perFile = family === "read" || family === "write";
+      const n = perFile && bucket.args.size ? bucket.args.size : bucket.calls;
+      return TOOL_GROUP_WORDS[family](n);
+    });
+    label = words.slice(0, 3).join(" · ");
+    if (words.length > 3) label += ` · ${fillTemplate(t("等 {n} 次调用"), { n: list.length })}`;
+    if (interrupted) label += ` · ${fillTemplate(t("{n} 中断"), { n: interrupted })}`;
+  }
+  const failText = fail ? `· ${fillTemplate(t("{n} 失败"), { n: fail })}` : "";
+  const warnText = warn ? `· ${fillTemplate(t("{n} 待修正"), { n: warn })}` : "";
+  const text = [label, failText, warnText].filter(Boolean).join(" ");
+  return { label, fail, warn, interrupted, running: running.length, failText, warnText, text };
+}
+/// 按组 body 里的行重算计数、标签、失败/待修正与运行态。行态只从 classList 读(实时与历史同一真源)。
+export function syncToolGroup(group) {
+  const parts = group?._kzGroup;
+  if (!parts) return;
+  const entries = [];
+  for (const row of parts.body.children) {
+    if (!row.classList?.contains("tool-msg")) continue;
+    const block = row._kzToolBlock;
+    entries.push({
+      name: block?.name ?? row.querySelector(".tool-msg-name")?.textContent ?? "",
+      argText: block?.argText ?? "",
+      state: toolRowState(row),
+    });
+  }
+  group.dataset.count = String(entries.length);
+  const summary = toolGroupSummary(entries);
+  parts.label.textContent = summary.label;
+  parts.fail.textContent = summary.failText;
+  parts.fail.classList.toggle("hidden", !summary.fail);
+  parts.warn.textContent = summary.warnText;
+  parts.warn.classList.toggle("hidden", !summary.warn);
+  if (summary.running) group.dataset.running = "1";
+  else delete group.dataset.running;
+  parts.head.setAttribute("aria-label", `${summary.text} — ${t("展开或收起工具组")}`);
+  parts.body.setAttribute("aria-label", summary.text);
+}
+/// 切语言:组标签在渲染点经 t() 产出,全部重算一遍(06-activity.js syncDynamicUiLanguage 调用)。
+export function toolGroupRelocalize() {
+  for (const group of messages?.querySelectorAll?.(".tool-group") ?? []) syncToolGroup(group);
+}
+/// 窗口化历史补齐一窗后,窗口边界两侧的组若相邻就合并(合计不超过上限),与实时同构。
+export function mergeAdjacentToolGroups(before, after) {
+  if (!before?._kzGroup || !after?._kzGroup || before === after) return false;
+  if (Number(before.dataset.count) + Number(after.dataset.count) > TOOL_GROUP_MAX) return false;
+  before._kzGroup.body.append(...[...after._kzGroup.body.children]);
+  if (after.dataset.expanded === "1") setToolGroupExpanded(before, true);
+  after.remove();
+  syncToolGroup(before);
+  return true;
 }

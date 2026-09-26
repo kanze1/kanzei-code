@@ -8,7 +8,10 @@
 //   H  页面结构      role=dialog/menu/tooltip 的宿主必须是 <dialog> 或 popover,弹层必带 .k-surface;
 //                    <dialog> 里的 data-kz-menu 触发器,弹层必须写在同一个 dialog 内(模态外的节点是惰性的)
 //   J  脚本          只有 00-surface.js 能切换弹层的 .hidden(含先取进局部变量再切的写法);不写字面量颜色;
-//                    00-surface.js 零 import
+//                    00-surface.js / 00-frame.js 零 import;拖动/调尺寸(setPointerCapture、--kz-frame-*、
+//                    data-kz-placed)只准 00-frame.js(22-oc-* 豁免)
+//   可调框(UI2-0926 #4,§4.6):data-kz-frame 只准挂在 <dialog class="k-dialog">(命令面板除外)与 .k-card 上,
+//                    id 唯一、edges 取值合法;style.css 不得按 [data-kz-placed]/[data-kz-frame] 选择或引用 --kz-frame-*
 // 每条违例都给出「文件:行、原文、改用什么」,报错写全判据,保证门禁可以被满足。
 //
 // 用法:checkSurfaceRules({ css, surfaceCss, pwaCss, html, sources: [{ name, text }] }) → 违例数组;
@@ -24,7 +27,7 @@ const NAMED = /(?<![\w-])(?:white|black|red|green|blue|gray|grey|silver|orange|y
 const SURFACE_SEL = /(?:^|[\s,>+~(])(?:dialog(?![\w-])|::backdrop|::picker\(|:popover-open|\[popover|\.k-[a-z][\w-]*|option(?![\w-]))/;
 const LEGACY = /^(?:#(?:ask-overlay|ask-dialog|ask-reopen|viewer-overlay|viewer-dialog|confirm-overlay|confirm-dialog|input-overlay|input-dialog|palette|toast|sop-picker-panel|context-detail|file-suggestions|composer-more-menu|task-options-menu|autorun-menu|voice-settings-panel|kz-tip|kz-surface-root)|\.(?:palette|palette-box|composer-menu-panel|task-options-panel|autorun-menu|context-detail|file-suggestions|sop-picker-panel|voice-settings-panel))(?![\w-])/;
 const CHROME = /(?:^|[;{\s])(?:background(?:-color)?|box-shadow|border(?:-radius|-color)?|backdrop-filter|z-index|position|inset)\s*:/;
-const PANEL = /^#(?:bg-panel|agent-panel)(?![\w-])/;
+const PANEL = /^#tasks-panel(?![\w-])/;
 const PANEL_CHROME = /(?:^|[;{\s])(?:background(?:-color)?|box-shadow|border(?:-radius|-color)?)\s*:/;
 const FIXED = /position:\s*fixed/;
 const HIGH_Z = /z-index:\s*var\(--z-(?:float|overlay|dialog|toast)\)/;
@@ -40,6 +43,14 @@ const J1 = new RegExp(`\\$\\(\\s*["'](?:${SURFACE_IDS})["']\\s*\\)\\.classList\\
 const J1_BIND = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:\\$|document\\.getElementById)\\(\\s*["'](?:${SURFACE_IDS})["']\\s*\\)`, "g");
 const J2 = /\.style\.(?:background|backgroundColor|color|borderColor|boxShadow|outlineColor)\s*=\s*["'`](?!var\(|transparent|currentColor|inherit|["'`])/;
 const J3 = /^\s*import\b/m;
+const ZERO_IMPORT = new Set(["00-surface.js", "00-frame.js"]);
+// J4:几何手势只有一个入口。22-oc-* 是角色工作室(自带画布拖动),不在弹层体系里。
+const J4 = /setPointerCapture\(|--kz-frame-|data-kz-placed/;
+// 可调框:落位只在 surface.css §10;运行时写入的 6 个变量不要求在 CSS 里有定义(T1 豁免)。
+const FRAME_SEL = /\[data-kz-(?:placed|frame)/;
+const FRAME_VAR = /var\(\s*--kz-frame-/;
+const FRAME_RUNTIME_TOKEN = /^--kz-frame-[lrtbwh]$/;
+const FRAME_EDGES = new Set(["n", "e", "s", "w", "ne", "se", "sw", "nw"]);
 
 // 注释换成等长空白(保留换行),行号不漂移。
 function stripComments(text) {
@@ -160,7 +171,7 @@ function checkTokens(css, surfaceCss, violations) {
   const defined = (name) => new RegExp(`${name.replace(/[-]/g, "\\-")}\\s*:`).test(cleanCss) || new RegExp(`${name.replace(/[-]/g, "\\-")}\\s*:`).test(stripComments(surfaceCss));
   const cleanSurface = stripComments(surfaceCss);
   for (const m of cleanSurface.matchAll(/var\((--[a-z0-9-]+)/g)) {
-    if (defined(m[1])) continue;
+    if (defined(m[1]) || FRAME_RUNTIME_TOKEN.test(m[1])) continue;
     const line = lineAt(cleanSurface, m.index);
     violations.push({ rule: "T1", file: "surface.css", line, text: lineText(surfaceCss, line), fix: `surface.css 引用了未定义的 token ${m[1]}(style.css 与 surface.css 都没有 "${m[1]}:" 定义),会静默取到 initial。` });
   }
@@ -191,6 +202,9 @@ function checkOwnership(css, html, violations) {
     const decls = rule.body;
     if (SURFACE_SEL.test(rule.selector)) {
       violations.push({ rule: "S1", ...where, fix: "弹层外观(dialog/::backdrop/::picker(select)/:popover-open/[popover]/.k-*/option)只写在 surface.css;视图 CSS 只写尺寸与内容排版。" });
+    }
+    if (FRAME_SEL.test(rule.selector) || FRAME_VAR.test(decls)) {
+      violations.push({ rule: "S1", ...where, fix: "可调框的落位只写在 surface.css §10:00-frame.js 写 --kz-frame-* 变量与 data-kz-placed 令牌;style.css 不得按 [data-kz-placed]/[data-kz-frame] 选择,也不得引用 --kz-frame-*(视图 CSS 只写默认尺寸)。" });
     }
     const subjects = splitSelector(rule.selector).map(subjectOf);
     for (const subject of subjects) {
@@ -229,8 +243,8 @@ function checkHtml(html, violations) {
   for (const m of text.matchAll(/<(\w+)\b([^>]*)\brole="(dialog|alertdialog|menu|tooltip)"([^>]*)>/g)) {
     const attrs = `${m[2]} ${m[4]}`;
     const id = attrs.match(/\bid="([^"]+)"/)?.[1];
-    if (m[1].toLowerCase() === "dialog" || /\spopover(?:[\s=>]|$)/.test(` ${attrs}`) || id === "bg-panel" || id === "agent-panel") continue;
-    violations.push({ rule: "H", ...at(m.index), fix: `role="${m[3]}" 的宿主必须是 <dialog>(模态)或带 popover 属性的弹层(由 00-surface 开关);常驻工具窗白名单只有 #bg-panel/#agent-panel。` });
+    if (m[1].toLowerCase() === "dialog" || /\spopover(?:[\s=>]|$)/.test(` ${attrs}`)) continue;
+    violations.push({ rule: "H", ...at(m.index), fix: `role="${m[3]}" 的宿主必须是 <dialog>(模态)或带 popover 属性的弹层(由 00-surface 开关);常驻侧栏 #tasks-panel 是 <aside> 地标(${id ? `#${id}` : "此处"}不写 role=dialog)。` });
   }
   for (const m of text.matchAll(/<dialog\b[^>]*>|<[a-z][\w-]*\s[^>]*\bpopover\b[^>]*>/g)) {
     if (/class="[^"]*\bk-surface\b/.test(m[0])) continue;
@@ -248,6 +262,31 @@ function checkHtml(html, violations) {
       violations.push({ rule: "H", ...at(m.index + trigger.index), fix: `<dialog> 里的触发器 data-kz-menu="${trigger[1]}" 对应的弹层必须写在同一个 <dialog> 内:模态开着时 dialog 之外的节点是惰性的,菜单点不动。JS 菜单用 openMenu(自动挂进锚点所在的 dialog)。` });
     }
   }
+  // 可调框(00-frame.js):宿主只能是模态弹窗(命令面板除外)与停靠卡片;菜单/浮层/提示/toast/芯片跟着锚点走,不是框。
+  const frameIds = new Set();
+  for (const m of text.matchAll(/<(\w+)\b([^>]*\bdata-kz-frame[\w-]*=[^>]*)>/g)) {
+    const attrs = m[2];
+    const id = attrs.match(/\bdata-kz-frame="([^"]*)"/)?.[1];
+    const cls = attrs.match(/\bclass="([^"]*)"/)?.[1] ?? "";
+    const where = at(m.index);
+    if (id === undefined) {
+      violations.push({ rule: "H", ...where, fix: "有 data-kz-frame-* 属性就必须有 data-kz-frame=\"<id>\"(持久化键与接线都靠它)。" });
+      continue;
+    }
+    const isDialog = m[1].toLowerCase() === "dialog" && /\bk-dialog\b/.test(cls) && !/\bdata-size="palette"/.test(attrs);
+    const isCard = /\bk-card\b/.test(cls);
+    if (!isDialog && !isCard) {
+      violations.push({ rule: "H", ...where, fix: `data-kz-frame="${id}" 只准挂在 <dialog class="k-surface k-dialog">(命令面板除外)或 .k-card 上;菜单/浮层/提示/toast/芯片按锚点定位,不做成可拖的框。` });
+    }
+    if (!id || frameIds.has(id)) {
+      violations.push({ rule: "H", ...where, fix: `data-kz-frame 的 id 必须非空且唯一(重复的 "${id}" 会共用同一份几何偏好)。` });
+    }
+    frameIds.add(id);
+    const edges = attrs.match(/\bdata-kz-frame-edges="([^"]*)"/)?.[1];
+    if (edges !== undefined && edges !== "all" && !edges.trim().split(/\s+/).every((edge) => FRAME_EDGES.has(edge))) {
+      violations.push({ rule: "H", ...where, fix: `data-kz-frame-edges="${edges}" 取值非法:只能是 all 或空格分隔的 n e s w ne se sw nw。` });
+    }
+  }
   for (const m of text.matchAll(/<select\b[^>]*\b(?:multiple|size=)/g)) {
     violations.push({ rule: "H", ...at(m.index), fix: "select 不带 multiple/size(列表框模式的外观规则不同,base-select 不覆盖);要多选就换成勾选框组。" });
   }
@@ -260,6 +299,7 @@ function checkScripts(sources, violations) {
   for (const { name, text } of sources) {
     const lines = String(text).split(/\r?\n/);
     const isSurface = name === "00-surface.js";
+    const geometryOk = name === "00-frame.js" || /^22-oc-/.test(name) || !/^\d/.test(name);
     lines.forEach((raw, index) => {
       const line = raw.replace(/\/\/.*$/, "");
       if (!isSurface && J1.test(line)) {
@@ -267,6 +307,9 @@ function checkScripts(sources, violations) {
       }
       if (/^\d/.test(name) && !/^22-(?:neural-flow|oc-)/.test(name) && J2.test(line)) {
         violations.push({ rule: "J2", file: name, line: index + 1, text: raw.trim(), fix: "脚本里不写字面量颜色:写 var(--token) 或切换类名。" });
+      }
+      if (!geometryOk && J4.test(line)) {
+        violations.push({ rule: "J4", file: name, line: index + 1, text: raw.trim(), fix: "拖动/调尺寸只有一个入口:弹窗与卡片在 index.html 写 data-kz-frame*,布局两栏用 00-frame.js 的 installSplit;不要自己 setPointerCapture 或写 --kz-frame-*/data-kz-placed。" });
       }
     });
     if (!isSurface) {
@@ -282,9 +325,9 @@ function checkScripts(sources, violations) {
         }
       }
     }
-    if (isSurface && J3.test(text)) {
+    if (ZERO_IMPORT.has(name) && J3.test(text)) {
       const line = lines.findIndex((l) => /^\s*import\b/.test(l)) + 1;
-      violations.push({ rule: "J3", file: name, line, text: lines[line - 1]?.trim() ?? "", fix: "00-surface.js 必须零 import(样例页与假 DOM 冒烟要能单独加载;翻译函数经 setSurfaceTranslator 注入)。" });
+      violations.push({ rule: "J3", file: name, line, text: lines[line - 1]?.trim() ?? "", fix: `${name} 必须零 import(样例页与假 DOM 冒烟要能单独加载;翻译经 setSurfaceTranslator 注入,几何存储经 setFrameStore 注入)。` });
     }
   }
 }
@@ -331,6 +374,7 @@ export function selfTestSurfaceRules() {
     "T1 未定义 token": { css: root, surfaceCss: ".k-surface { color: var(--nope); }" },
     "S1 dialog 选择器": { css: `${root}dialog { padding: 0; }` },
     "S1 宿主外观": { css: `${root}#confirm-overlay { background: var(--panel); }` },
+    "S1 侧栏外观": { css: `${root}#tasks-panel[data-dock="side"] { box-shadow: var(--elev-3); }` },
     "S1 fixed 浮层": { css: `${root}.floaty { position: fixed; }` },
     "S1 details 下拉": { css: `${root}.dd { position: absolute; }`, html: '<details class="dd"></details>' },
     "H popover 缺 k-surface": { html: '<div id="m" popover class="menu"></div>' },
@@ -339,6 +383,16 @@ export function selfTestSurfaceRules() {
     "J1 直接切 hidden": { sources: [{ name: "07-events.js", text: '$("toast").classList.add("hidden");' }] },
     "J1 局部变量切 hidden": { sources: [{ name: "07-events.js", text: 'function f() {\n  const detail = $("context-detail");\n  detail.classList.remove("hidden");\n}' }] },
     "J3 surface import": { sources: [{ name: "00-surface.js", text: 'import { x } from "./01-core.js";' }] },
+    "J3 frame import": { sources: [{ name: "00-frame.js", text: 'import { x } from "./01-core.js";' }] },
+    "J4 自写拖动": { sources: [{ name: "07-events.js", text: "handle.setPointerCapture(event.pointerId);" }] },
+    "J4 自写框变量": { sources: [{ name: "06-agent-panel.js", text: 'el.style.setProperty("--kz-frame-w", "400px");' }] },
+    "S1 按摆放令牌选择": { css: `${root}#viewer-overlay[data-kz-placed~="w"] { width: 900px; }` },
+    "S1 引用框变量": { css: `${root}.x { width: var(--kz-frame-w); }` },
+    "H 框挂在菜单上": { html: '<div id="m" popover class="k-surface k-menu" data-kz-frame="m"></div>' },
+    "H 框挂在命令面板上": { html: '<dialog class="k-surface k-dialog" data-size="palette" data-kz-frame="p"></dialog>' },
+    "H 框 id 重复": { html: '<dialog class="k-surface k-dialog" data-kz-frame="a"></dialog><div class="k-surface k-card" popover data-kz-frame="a"></div>' },
+    "H 框 edges 非法": { html: '<dialog class="k-surface k-dialog" data-kz-frame="a" data-kz-frame-edges="left"></dialog>' },
+    "H 框缺 id": { html: '<dialog class="k-surface k-dialog" data-kz-frame-edges="all"></dialog>' },
   };
   const expectRule = (label) => label.split(" ")[0];
   const silent = [];

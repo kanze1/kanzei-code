@@ -12,6 +12,9 @@ use super::lifecycle::MemoryLifecycle;
 pub(crate) use super::retrieval::{intent_query, segment_cjk};
 use super::{date_days, parse_entry, render_entry, today, MemoryEntry, MemoryScope, STATUSES};
 
+// 归档读取、归档搬移与记忆图谱的 `area:` 字段(拆出以控制本文件体量,见 docs/design/metrics_baseline.md 回涨闸)。
+mod archive;
+
 /// 检索结果(含派生指标)。
 #[derive(Debug, Clone)]
 pub struct SearchHit {
@@ -222,38 +225,6 @@ impl MemoryStore {
         out
     }
 
-    pub fn has_archived_id(&self, id: &str) -> bool {
-        self.load_archived_ids()
-            .iter()
-            .any(|archived| archived == id)
-    }
-
-    pub(crate) fn load_archived_ids(&self) -> Vec<String> {
-        let mut out = Vec::new();
-        let Ok(dir) = std::fs::read_dir(self.archive_dir()) else {
-            return out;
-        };
-        for item in dir.flatten() {
-            if let Some(name) = item.path().file_stem().and_then(|n| n.to_str()) {
-                if let Some(id) = name.split('-').take(2).collect::<Vec<_>>().get(0..2) {
-                    out.push(format!("{}-{}", id[0], id[1]));
-                }
-            }
-        }
-        out
-    }
-
-    /// 归档条数(D-217):stale/失效条目经 archive_dead 搬入 archive/ 后在此计数,
-    /// 供整理清单展示「已归档待复查」积压。只读,不触发扫描副作用。
-    pub fn archived_count(&self) -> usize {
-        let Ok(dir) = std::fs::read_dir(self.archive_dir()) else {
-            return 0;
-        };
-        dir.flatten()
-            .filter(|p| p.path().extension().and_then(|e| e.to_str()) == Some("md"))
-            .count()
-    }
-
     /// 写入门禁:枚举校验 + description 必填 + 精确标题去重(可 force)+ refs 来源契约
     /// + subject 状态不变量(同 category+subject 至多一条 active,force 不可绕,R-149)。
     #[allow(clippy::too_many_arguments)] // 记忆条目的稳定写入接口；参数均直接映射持久化字段。
@@ -424,6 +395,33 @@ impl MemoryStore {
         expected_hash: Option<&str>,
         enforce_topic: bool,
     ) -> anyhow::Result<MemoryEntry> {
+        self.update_with_area(
+            id,
+            title,
+            description,
+            body,
+            status,
+            None,
+            expected_hash,
+            enforce_topic,
+        )
+    }
+
+    /// update 加记忆图谱的 `area:`(Some(&[]) 清除,None 不动):内容与区域一次写盘、一次
+    /// refresh_derived,expected_hash 对「只改区域」同样生效(复核:area-only 曾绕过 CAS、
+    /// 同时改内容与区域是两次独立写盘)。整段 读 → CAS → 写 持记忆树锁(同线程重入)。
+    #[allow(clippy::too_many_arguments)] // update 的全参 + area
+    pub fn update_with_area(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        body: Option<&str>,
+        status: Option<&str>,
+        area: Option<&[String]>,
+        expected_hash: Option<&str>,
+        enforce_topic: bool,
+    ) -> anyhow::Result<MemoryEntry> {
         if let Some(status) = status {
             // 兼容旧档别名:stale → deprecated(R-165 兼容映射,写入侧统一归一化)。
             let status = super::normalize_status(status);
@@ -431,8 +429,12 @@ impl MemoryStore {
                 anyhow::bail!("invalid status `{status}`; valid: {}", STATUSES.join(" | "));
             }
         }
+        let tree_lock = self.tree_lock()?;
         let entries = self.load_all();
         let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
+            if area.is_some() {
+                anyhow::bail!("unknown memory id `{id}`(归档条目只读,不能设区域)");
+            }
             anyhow::bail!("unknown memory id `{id}`");
         };
         let previous_status = entry.status.clone();
@@ -476,10 +478,14 @@ impl MemoryStore {
         if let Some(status) = status {
             entry.status = super::normalize_status(status).into();
         }
+        if let Some(areas) = area {
+            archive::set_area_field(&mut entry, areas);
+        }
         entry.updated = today();
         // 文件名沿用旧路径(slug 终身不改)。
         self.write_entry(&entry, Some(&path))?;
         self.refresh_derived()?;
+        drop(tree_lock);
         if previous_status != "deprecated" && entry.status == "deprecated" {
             let source_refs = entry.refs();
             super::record_memory_lifecycle_event(
@@ -877,36 +883,6 @@ impl MemoryStore {
         );
     }
 
-    /// 归档失效条目(D-231/R-165 验收③):deprecated/invalid 移入 archive/ 带墓碑。
-    /// 返回归档条数。引擎强制:任何 refresh_derived(写操作后)都会先归档,
-    /// 主目录只留 active/candidate——归档条目不在 load_all/FTS/检索范围内,
-    /// ID 由 load_archived_ids 保留永不复用。
-    pub fn archive_dead(&self) -> usize {
-        let entries = self.load_all();
-        let mut archived = 0usize;
-        for (path, entry) in &entries {
-            if entry.status != "deprecated" && entry.status != "invalid" {
-                continue;
-            }
-            let archive_dir = self.archive_dir();
-            std::fs::create_dir_all(&archive_dir).ok();
-            let dest = archive_dir.join(format!("{}.md", entry.file_stem()));
-            // 墓碑:保留文件(内容即追溯),目标已存在则跳过(防重复归档覆盖)。
-            if dest.exists() {
-                if std::fs::remove_file(path).is_ok() {
-                    self.record_write_log(path, Vec::new());
-                }
-            } else if std::fs::rename(path, &dest).is_ok() {
-                archived += 1;
-                // D-480:rename 同时改变源路径和 archive 目标路径。两条日志都要记，
-                // 围栏才能把「源删除 + 墓碑落盘」识别为同一次合法 memory_stale。
-                self.record_write_log(path, Vec::new());
-                self.record_write_log(&dest, render_entry(entry).into_bytes());
-            }
-        }
-        archived
-    }
-
     /// 检查 INDEX 的每条派生行仍与 Markdown 真源的 description 一致。
     /// 该断言必须位于写入前，避免生成器未来改动时静默重新引入串号。
     fn assert_index_matches_entries(
@@ -1233,6 +1209,68 @@ mod tests {
             total_ms: 1,
         })
         .unwrap();
+    }
+
+    // ── 分区:记忆图谱 ──
+    #[test]
+    fn load_archived_reads_archive_dir() {
+        let (dir, store) = temp_store();
+        let live = add(&store, "fact", "活动条目", "图谱冒烟钩子", "正文");
+        let archive = store.root.join("archive");
+        std::fs::create_dir_all(&archive).unwrap();
+        let mut old = live.clone();
+        old.id = "M-900".into();
+        old.title = "归档条目".into();
+        old.status = "deprecated".into();
+        std::fs::write(archive.join("M-900-old.md"), render_entry(&old)).unwrap();
+        std::fs::write(archive.join("notes.txt"), "不是条目").unwrap();
+        let archived = store.load_archived();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].1.id, "M-900");
+        assert_eq!(archived[0].1.status, "deprecated");
+        assert!(
+            store.load_all().iter().all(|(_, e)| e.id != "M-900"),
+            "load_all 不含归档"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn set_area_writes_dedups_and_empty_clears() {
+        let (dir, store) = temp_store();
+        let entry = add(&store, "fact", "区域条目", "图谱区域钩子", "正文");
+        let updated = store
+            .set_area(
+                &entry.id,
+                &[
+                    "kanzei-tools/edit".into(),
+                    "kanzei-tools/edit".into(),
+                    " scripts ".into(),
+                ],
+            )
+            .unwrap();
+        assert_eq!(updated.areas(), vec!["kanzei-tools/edit", "scripts"]);
+        let text = std::fs::read_to_string(
+            store
+                .load_all()
+                .into_iter()
+                .find(|(_, e)| e.id == entry.id)
+                .unwrap()
+                .0,
+        )
+        .unwrap();
+        assert!(
+            text.contains(
+                "area: kanzei-tools/edit scripts
+"
+            ),
+            "{text}"
+        );
+        let cleared = store.set_area(&entry.id, &[]).unwrap();
+        assert!(cleared.areas().is_empty());
+        assert!(cleared.extras.iter().all(|(k, _)| k != "area"));
+        assert!(store.set_area("M-404", &["scripts".into()]).is_err());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

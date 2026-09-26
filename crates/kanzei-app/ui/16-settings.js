@@ -13,7 +13,6 @@ import { fastStatusText } from "./06-activity.js";
 import { state } from "./08-compose.js";
 import { MANUAL_MODEL_SENTINEL } from "./08-models.js";
 import { openProjectModelsDialog } from "./08-project-models.js";
-import { syncProjectSwitchExpanded } from "./09-sessions.js";
 // UI-0926 #10:权限规则表的资源列按结构渲染(bash 规则是 {command, workdir} JSON)。
 import { permissionResourceText } from "./04-structured-parse.js";
 import { renderPermissionResource } from "./04-structured.js";
@@ -1225,8 +1224,8 @@ defer(() => {
     const key = `kz-collapse-${collapseKey}`;
     const legacyKey = `kz-collapse-${title.textContent.replace(/[\d\s]/g, "").slice(0, 8)}`;
     const saved = localStorage.getItem(key) ?? (legacyKey === key ? null : localStorage.getItem(legacyKey));
-    // data-collapse-default="collapsed":没有存过偏好时默认收起。项目列表用它——
-    // 当前项目已经由侧栏工作区头常驻显示,整份列表只在切项目时才需要。
+    // data-collapse-default="collapsed":没有存过偏好时默认收起(机制保留;侧栏「项目」列表删掉后,
+    // 目前没有分区用它——项目切换只剩侧栏头部的项目卡菜单,UI2-0926 #1)。
     const collapsedByDefault = section.dataset.collapseDefault === "collapsed";
     if (saved === "1" || (saved === null && collapsedByDefault)) {
       section.classList.add("collapsed");
@@ -1248,8 +1247,4 @@ defer(() => {
       toggle();
     });
   });
-});
-// 工作区头的箭头方向要跟着上面刚恢复的折叠态走(09-sessions.js 定义)。
-defer(() => {
-  if (typeof syncProjectSwitchExpanded === "function") syncProjectSwitchExpanded();
 });
