@@ -23,6 +23,8 @@ mod browser_tool;
 pub mod close_telemetry;
 pub mod conventions;
 mod cross_tree;
+/// UI2-0926 #8:本地开发服务地址发现(后台进程输出 → 预览面板空态列表)。
+pub mod dev_urls;
 mod edit;
 pub mod files;
 pub mod frontend;
@@ -38,6 +40,8 @@ mod managed;
 pub use managed::MANAGED_ROOTS;
 pub mod palette;
 mod plot_tool;
+/// UI2-0926 #8:网页预览静态服务(127.0.0.1 随机端口 + token,登记根与内存片段)。
+pub mod preview_server;
 pub mod prior_art;
 mod process;
 /// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。
