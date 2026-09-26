@@ -20,6 +20,7 @@
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-idle-direction.md`](../../../docs/design/oc-idle-direction.md)：呼吸、眨眼、视线变化与待机循环的制作和检查。
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-h3-deployment.md`](../../../docs/design/oc-h3-deployment.md)：H3 固定版本、同区双卡部署与素材生成记录。
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-voice-direction.md`](../../../docs/design/oc-voice-direction.md)：角色音色方向、C 配音选择及交接约定。
+- [identity: live_design; last_verified_commit: 246956c1] [`ui_chat_backdrop.md`](../../../docs/design/ui_chat_backdrop.md)：对话背景星座渲染器——kanzei 标志笔画转星座(主干 / 记忆 / 行动三种边,光点按事件语义流动)、北斗 / 猎户 / 仙后真实星表投影、上传图片只存导出的点集;只画在空白处(正文列 evenodd 剪掉),窄窗口水印每层 alpha 按正文对比度夹上限;空闲 ≤8 帧/秒、隐藏零定时器;设置页「对话背景」与 app.json backdrop 字段(UI2-0926 #10)。
 - [identity: live_design; last_verified_commit: 250fb219] [`research_library.md`](../../../docs/design/research_library.md)：独立课题身份、存储及开发项目可选关联(R-363；该提交为变更前基线，工作树增量已验证，待提交验收)。
 - [identity: live_design; last_verified_commit: ee1d9492] [`ui_surface_stack.md`](../../../docs/design/ui_surface_stack.md)：弹层技术栈——dialog/popover/锚点定位/base-select 顶层原语、组件层 --surface-* token、唯一的 00-surface.js(一个栈、Esc 只关栈顶、点外关闭、焦点规则)、ESLint + ui-surface-rules 静态门禁与样例页浏览器冒烟(UI-0926 #9;截图 6 白色下拉的根因与修复)。
 - [identity: live_design; last_verified_commit: ee1d9492] [`subagent_presentation.md`](../../../docs/design/subagent_presentation.md)：子代理呈现——主对话单卡(字形/人格/描述/实时计数/≤3 行尾迹)、并行成组、侧栏总览与详情、状态与数据契约;复用第一波 .kz-glyph/.k-panel/05-tool-summary 原语,后端 meta trace、稳定终态码与整轮停止补发 ToolEnd(UI-0926 #8)。
