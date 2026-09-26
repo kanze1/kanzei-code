@@ -33,6 +33,8 @@ pub mod incident;
 pub mod latex_tool;
 mod local_validation;
 mod managed;
+/// 托管目录清单单源(D-173):桌面文件页据此把托管文档设为只读(UI2-0926 #6)。
+pub use managed::MANAGED_ROOTS;
 pub mod palette;
 mod plot_tool;
 pub mod prior_art;

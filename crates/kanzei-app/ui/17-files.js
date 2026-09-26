@@ -1,26 +1,46 @@
 import { defer } from "./01-core.js";
 import { $, invoke, on } from "./01-core.js";
-import { languageIsEnglish, t } from "./02-i18n.js";
-import { currentProject, currentTheme, toast, toastError } from "./03-shell.js";
+import { t } from "./02-i18n.js";
+import { currentProject, toast, toastError } from "./03-shell.js";
+import {
+  filesDirtyPaths, humanSize, initFilesEditor, openFileDoc, resetFilesDoc, stashFilesDraft, startFilesWatch, stopFilesWatch,
+} from "./17-files-editor.js";
 
-// ---------- 文件导览(R-148):树 + 度量 + Monaco 只读预览 + AI 用途标注 ----------
+// ---------- 文件导览(R-148):树 + 度量 + AI 用途标注;编辑器在 17-files-editor.js(UI2-0926 #6) ----------
 export let filesSnapshotData = null;
 export let filesSortByLines = false;
 export const filesExpanded = new Set([""]);
 export let filesActivePath = null;
-export let monacoLoadPromise = null;
-export let filesEditor = null;
-let file_preview_generation = 0;
+export { humanSize };
+
+// 编辑器 → 树:活动文件高亮只在真的切过去之后才变(取消切换时留在原文件);脏标记变化时重画树上的点;
+// 保存/新建后静默重扫(行数、大小跟着变),新建的文件展开到可见。
+initFilesEditor({
+  onActiveChange(path) {
+    filesActivePath = path;
+    renderFilesTree();
+  },
+  onDirtyChange() {
+    renderFilesTree();
+  },
+  onSaved() {
+    void refreshFiles();
+  },
+  onCreated(path) {
+    const parts = String(path).split("/");
+    for (let i = 1; i < parts.length; i += 1) filesExpanded.add(parts.slice(0, i).join("/"));
+    void refreshFiles();
+  },
+});
 
 export function reset_files_scope() {
-  file_preview_generation += 1;
+  // 切项目是同步的,没法等确认框:未保存的修改先暂存成草稿,回到该文件时恢复。
+  stashFilesDraft();
   filesViewLeft();
+  resetFilesDoc();
   filesSnapshotData = null;
   filesActivePath = null;
-  if (filesEditor) filesEditor.setValue("");
   $("files-tree")?.replaceChildren();
-  $("files-preview-head")?.classList.add("hidden");
-  $("files-editor")?.classList.add("hidden");
 }
 
 export async function refreshFiles() {
@@ -49,18 +69,15 @@ export function showFilesView() {
   } else {
     refreshFiles();
   }
+  // 文件页可见期间轮询当前文件的外部改动(代理、别的编辑器);离开即停。
+  startFilesWatch();
 }
 export function filesViewLeft() {
+  stopFilesWatch();
   if (filesSilentRefresh) {
     clearTimeout(filesSilentRefresh);
     filesSilentRefresh = null;
   }
-}
-
-export function humanSize(bytes) {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
-  return `${bytes}B`;
 }
 
 // 平面清单 → 嵌套树。目录节点带聚合与目录标注。
@@ -97,7 +114,7 @@ export function renderFilesTree() {
   if (!annotateBtn.disabled) {
     annotateBtn.textContent = snapshot.unannotated > 0 ? `${t("标注")}(${snapshot.unannotated})` : t("标注");
   }
-  renderFilesDir(tree, buildFilesTree(snapshot), 0, snapshot);
+  renderFilesDir(tree, buildFilesTree(snapshot), 0, snapshot, filesDirtyPaths());
 }
 
 export function filesDirSorted(node, snapshot) {
@@ -113,7 +130,7 @@ export function filesDirSorted(node, snapshot) {
   return { dirs, files };
 }
 
-export function renderFilesDir(container, node, depth, snapshot) {
+export function renderFilesDir(container, node, depth, snapshot, dirtyPaths = new Set()) {
   const { dirs, files } = filesDirSorted(node, snapshot);
   for (const dir of dirs) {
     const stat = snapshot.dirs?.[dir.path] ?? { files: 0, size: 0, lines: 0 };
@@ -152,17 +169,27 @@ export function renderFilesDir(container, node, depth, snapshot) {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDir(); }
     });
     container.appendChild(row);
-    if (open) renderFilesDir(container, dir, depth + 1, snapshot);
+    if (open) renderFilesDir(container, dir, depth + 1, snapshot, dirtyPaths);
   }
   for (const file of files) {
     const row = document.createElement("div");
-    row.className = `files-row files-file${file.path === filesActivePath ? " active" : ""}`;
+    const active = file.path === filesActivePath;
+    const dirty = dirtyPaths.has(file.path);
+    row.className = `files-row files-file${active ? " active" : ""}${dirty ? " dirty" : ""}`;
     row.style.paddingLeft = `${8 + depth * 14 + 14}px`;
     row.setAttribute("role", "treeitem");
+    row.setAttribute("aria-selected", active ? "true" : "false");
     row.tabIndex = 0;
     const name = document.createElement("span");
     name.className = "files-name";
     name.textContent = file.path.split("/").pop();
+    if (dirty) {
+      // 未保存:名字后一个琥珀点(与设置页「未保存」同一种颜色),读屏名带上「未保存」。
+      const dot = document.createElement("span");
+      dot.className = "files-dirty-dot";
+      dot.setAttribute("aria-hidden", "true");
+      name.appendChild(dot);
+    }
     const measure = document.createElement("span");
     measure.className = "files-measure";
     measure.textContent = file.oversized
@@ -180,6 +207,7 @@ export function renderFilesDir(container, node, depth, snapshot) {
       note.title = file.note;
       row.appendChild(note);
     }
+    if (dirty) row.setAttribute("aria-label", `${row.textContent} · ${t("未保存")}`);
     const openFile = () => openFilePreview(file);
     row.addEventListener("click", openFile);
     row.addEventListener("keydown", (e) => {
@@ -189,92 +217,10 @@ export function renderFilesDir(container, node, depth, snapshot) {
   }
 }
 
-// Monaco 懒加载:切到文件页并首次打开文件才拉起,不拖慢主界面启动。
-export function loadMonaco() {
-  if (monacoLoadPromise) return monacoLoadPromise;
-  monacoLoadPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "vendor/monaco/loader.js";
-    script.onload = () => {
-      const base = new URL("vendor/monaco/", document.baseURI).href;
-      const paths = { vs: base.replace(/\/$/, "") };
-      window.require.config({ paths });
-      const boot = () => {
-        // Monaco's default worker assumes a directory named vs. Keep our vendor path mapping in workers too.
-        const worker = new Blob([
-          `self.MonacoEnvironment = ${JSON.stringify({ baseUrl: base })};`,
-          `self.require = ${JSON.stringify({ paths })};`,
-          `self._VSCODE_NLS_MESSAGES = ${JSON.stringify(globalThis._VSCODE_NLS_MESSAGES)};`,
-          `self._VSCODE_NLS_LANGUAGE = ${JSON.stringify(globalThis._VSCODE_NLS_LANGUAGE)};`,
-          `importScripts(${JSON.stringify(`${base}base/worker/workerMain.js`)});`,
-        ], { type: "application/javascript" });
-        const workerUrl = URL.createObjectURL(worker);
-        globalThis.MonacoEnvironment = { ...globalThis.MonacoEnvironment, getWorkerUrl: () => workerUrl };
-        window.require(["vs/editor/editor.main"], () => resolve(window.monaco), reject);
-      };
-      // The bundled translation is an AMD module: load it after the loader, before the editor.
-      if (languageIsEnglish()) boot();
-      else window.require(["vs/nls.messages.zh-cn"], boot, boot);
-    };
-    script.onerror = () => reject(new Error("monaco loader load failed"));
-    document.head.appendChild(script);
-  });
-  return monacoLoadPromise;
-}
-
-export async function openFilePreview(file) {
-  const root = currentProject;
-  const generation = ++file_preview_generation;
-  const is_current = () => root === currentProject && generation === file_preview_generation;
-  filesActivePath = file.path;
-  renderFilesTree();
-  const head = $("files-preview-head");
-  head.classList.remove("hidden");
-  $("files-preview-path").textContent = file.path;
-  $("files-preview-meta").textContent = "";
-  const placeholder = $("files-placeholder");
-  try {
-    const preview = await invoke("file_preview", { projectDir: root, path: file.path });
-    if (!is_current()) return;
-    if (preview.binary) {
-      placeholder.textContent = `${t("二进制文件")} · ${humanSize(preview.size)}`;
-      placeholder.classList.remove("hidden");
-      $("files-editor").classList.add("hidden");
-      return;
-    }
-    placeholder.classList.add("hidden");
-    $("files-editor").classList.remove("hidden");
-    const monaco = await loadMonaco();
-    if (!is_current()) return;
-    if (!filesEditor) {
-      // R-189:Monaco 主题跟随全局(暗=vs-dark/亮=vs);CSS 变量到不了 Monaco,
-      // 用与 03-shell.js 相同的主题源,初始即正确。
-      const monacoTheme = typeof currentTheme === "function" && currentTheme() === "light" ? "vs" : "vs-dark";
-      filesEditor = monaco.editor.create($("files-editor"), {
-        readOnly: true,
-        automaticLayout: true,
-        theme: monacoTheme,
-        minimap: { enabled: true },
-        fontSize: 13,
-        scrollBeyondLastLine: false,
-      });
-    }
-    const uri = monaco.Uri.file(file.path);
-    let model = monaco.editor.getModel(uri);
-    if (model) {
-      model.setValue(preview.content);
-    } else {
-      model = monaco.editor.createModel(preview.content, undefined, uri);
-    }
-    const old = filesEditor.getModel();
-    filesEditor.setModel(model);
-    if (old && old !== model) old.dispose();
-    $("files-preview-meta").textContent = `${humanSize(preview.size)}${preview.truncated ? ` · ${t("已截断预览前 4MB")}` : ""}`;
-  } catch (err) {
-    if (!is_current()) return;
-    placeholder.textContent = `${t("预览失败")}:${err}`;
-    placeholder.classList.remove("hidden");
-  }
+/// 打开文件并(可选)定位到行:树、需求页锚点、研究页产物、工具结果里的「打开文件并定位」共用。
+/// file = { path, line? };实现在 17-files-editor.js(未保存修改先问、按行定位)。
+export function openFilePreview(file) {
+  return openFileDoc(file);
 }
 
 defer(() => {

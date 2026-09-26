@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// 托管目录:write/edit 对它们硬 deny,shell 也不许绕过去改(D-173)。
-pub(crate) const MANAGED_ROOTS: &[&str] = &[".kanzei/project", ".kanzei/memory"];
+/// 桌面文件页(UI2-0926 #6)按同一份清单判只读——单源,不另抄一份。
+pub const MANAGED_ROOTS: &[&str] = &[".kanzei/project", ".kanzei/memory"];
 /// 单文件镜像上限:超过就只记指纹,能检测但无法回滚(会如实说明)。
 pub(crate) const MANAGED_SNAPSHOT_FILE_LIMIT: u64 = 4 * 1024 * 1024;
 /// 镜像文件数上限,防止有人往托管目录塞进一整棵大树把每次 bash 拖垮。

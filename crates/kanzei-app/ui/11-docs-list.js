@@ -268,7 +268,8 @@ export function researchOpenLink(key, value, topic = "") {
       // `.activity-item[data-view]` 上)。点它而不是自己 toggle class:视图切换
       // 还带着侧栏、高亮、刷新等一串副作用,复刻一遍必然漏。
       document.querySelector('.activity-item[data-view="files"]')?.click();
-      openFilePreview({ path: path.replace(/\\/g, "/") });
+      // UI2-0926 #6:锚点里的行号一并传过去,打开后定位到该行(原先解析了 line 却只传 path)。
+      openFilePreview({ path: path.replace(/\\/g, "/"), line: Number(line) });
     });
   } else {
     btn.textContent = raw;

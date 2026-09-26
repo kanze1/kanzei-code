@@ -29,6 +29,7 @@
 - [identity: live_design; last_verified_commit: ced41f3c] [`project_workspace.md`](../../../docs/design/project_workspace.md)：工作目录管理——新建项目对话框(名称/位置/默认建 Git 库、有身份时首提交、.kanzei/.gitignore 运行时忽略规则、描述进草稿)、项目状态事实 core/project-state(空项目/Git 三态/技术栈/工具链,与桌面端 project_facts 同源)与事实横幅/「无 Git」芯片/并行线入口、路径形态唯一实现 path_form 与 schema v25 去 `\\?\` 前缀迁移、git 工具只操作自己的仓库与 init 动作、bash UTF-8 与新鲜 PATH、鞭挞 Stop(AwaitingUser)与按项目状态生成的 Nudge、结伴线续跑按结伴档(UI2-0926 #13)。
 
 - [identity: live_design; last_verified_commit: 788dc43e] [`voice_interaction.md`](../../../docs/design/voice_interaction.md)：本机语音识别、流式播报、插话打断、人物嘴型与安装验证边界。
+- [identity: live_design; last_verified_commit: 64953559] [`files_editor.md`](../../../docs/design/files_editor.md)：文件页编辑与可拖拽伸缩——统一路径解析 resolve_in_root(词法拒绝 + 真实路径包含)、只读策略(.git / 托管 / 内部状态 / 二进制 / 超 4MB / 非 UTF-8)、BOM 与换行保真、file_stat / file_write 按内容指纹比较并交换与覆盖留证(quarantine files-overwrite)、写日志供跨树围栏吸收用户手改;前端保存 / 脏标记 / 冲突横幅(比较 / 用磁盘版本 / 覆盖)/ 外部改动轮询 / 切项目草稿 / 新建文件 / 按行定位,文件树分隔条沿用 installSplit 与 ui_layout(UI2-0926 #6)。
 - [identity: live_design; last_verified_commit: 568adcc8] [`memory_feedback_reliability.md`](../../../docs/design/memory_feedback_reliability.md)：记忆观测、恢复证据与信息呈现改造(R-361；568adcc8 为审计基线，首批代码在工作树完成定向验证，收益对照与任务上下文改造待推进)。
 
 - [identity: live_design; last_verified_commit: 6e816b98] [`agent_visualization_tools.md`](../../../docs/design/agent_visualization_tools.md)：Agent 绘图工具统一设计草案(R-335；架构图与 research 科学图表 API、验证、产物和迁移边界，最终引擎组合待用户评审)。

@@ -478,6 +478,88 @@ Object.assign(SCENES, {
   },
 });
 
+// ── 分区:文件编辑 ──
+// UI2-0926 #6:文件页(可编辑、可拖拽伸缩)。只走应用入口:点 rail「文件」、点树行展开/打开、在 Monaco 里打字、点保存与横幅按钮;
+// 「代理改了磁盘」= 直接改夹具的内存磁盘(真机上是另一个进程写文件)。
+// 参数 state=open|dirty|conflict|compare|readonly|blocked|new(默认 dirty),file=<相对路径>,tree=<px>(文件树宽度)。
+// blocked = 有未保存修改时保存被后端以 READONLY 拒绝(打开之后文件被转成非 UTF-8 等):仍是未保存,原因写在只读原因条。
+async function openFilesPath(ctx, path) {
+  const parts = path.split("/");
+  for (let i = 1; i < parts.length; i += 1) {
+    const dir = parts.slice(0, i).join("/");
+    const row = [...document.querySelectorAll("#files-tree .files-dir")].find((el) => el.querySelector(".files-name")?.textContent === `${parts[i - 1]}/` && el.getAttribute("aria-expanded") === "false" && Number.parseInt(el.style.paddingLeft, 10) === 8 + (i - 1) * 14);
+    if (row) row.click();
+    await waitFor(() => [...document.querySelectorAll("#files-tree .files-dir")].some((el) => el.getAttribute("aria-expanded") === "true" && el.querySelector(".files-name")?.textContent === `${parts[i - 1]}/`));
+    void dir;
+  }
+  const name = parts.at(-1);
+  const fileRow = [...document.querySelectorAll("#files-tree .files-file")].find((el) => el.querySelector(".files-name")?.textContent === name);
+  fileRow?.click();
+  await waitFor(() => document.querySelector("#files-preview-path")?.textContent === path && window.monaco?.editor?.getEditors?.()[0]?.getModel?.(), 12000);
+  await ctx.settle();
+}
+function filesMonaco() {
+  return window.monaco?.editor?.getEditors?.()[0] ?? null;
+}
+function typeInFiles(text, line = 20) {
+  const editor = filesMonaco();
+  if (!editor) return;
+  editor.setPosition({ lineNumber: line, column: editor.getModel().getLineMaxColumn(line) });
+  editor.trigger("preview", "type", { text });
+}
+Object.assign(SCENES, {
+  async files(ctx) {
+    const state = ctx.params.get("state") || "dirty";
+    await openView(ctx, "files");
+    await waitFor(() => document.querySelectorAll("#files-tree .files-row").length > 0);
+    const tree = Number(ctx.params.get("tree"));
+    if (tree > 0) document.documentElement.style.setProperty("--kz-split-files", `${tree}px`);
+    const fixtures = ctx.fixtures;
+    const path = ctx.params.get("file") || (state === "readonly" ? ".kanzei/project/requirements.md" : "crates/kanzei-tools/src/registry.rs");
+    if (state === "new") {
+      const editor = await import("/17-files-editor.js");
+      await openFilesPath(ctx, path);
+      const core = await import("/01-core.js");
+      core.setInputDialog(async () => "crates/kanzei-app/src/files_watch.rs");
+      await editor.createNewFile();
+      await waitFor(() => document.querySelector("#files-preview-path")?.textContent === "crates/kanzei-app/src/files_watch.rs", 6000);
+      await ctx.settle();
+      document.activeElement?.blur?.();
+      await ctx.sleep(200);
+      return;
+    }
+    await openFilesPath(ctx, path);
+    if (state !== "open" && state !== "readonly") {
+      typeInFiles("\r\n\r\n    /// 按档位过滤:只读档位不暴露写工具。\r\n    pub fn for_profile(&self, readonly: bool) -> usize {\r\n        self.tools.len() - usize::from(readonly)\r\n    }");
+      await ctx.sleep(80);
+    }
+    if (state === "conflict" || state === "compare") {
+      const disk = fixtures.state.fileDisk;
+      const file = disk.disk.get(path);
+      disk.disk.set(path, { ...file, text: file.text.replace("pub const RESIDENT", "/// 由 R-364 B1 账单定稿(代理刚改的)。\r\npub const RESIDENT"), mtime: disk.tick() });
+      document.querySelector("#files-save")?.click();
+      await waitFor(() => !isHidden("#files-conflict"), 4000);
+      await ctx.settle();
+    }
+    if (state === "compare") {
+      document.querySelector("#files-compare")?.click();
+      await waitFor(() => !isHidden("#files-diff"), 4000);
+      await ctx.sleep(600);
+    }
+    if (state === "blocked") {
+      // 保存被拒:打开之后磁盘上的文件被转成了 GBK(真机上后端回 READONLY:encoding)。修改仍是未保存、编辑器仍可编辑。
+      window.__kzPreview.setCommand("file_write", () => { throw "READONLY:encoding"; });
+      document.querySelector("#files-save")?.click();
+      await waitFor(() => !isHidden("#files-readonly"), 4000);
+      await ctx.settle();
+    }
+    filesMonaco()?.focus?.();
+    if (state === "readonly" || state === "open") document.activeElement?.blur?.();
+    await ctx.sleep(250);
+  },
+});
+// ── 分区:文件编辑(完) ──
+
 export const SCENE_NAMES = Object.keys(SCENES);
 
 export async function runScene(name, ctx) {
