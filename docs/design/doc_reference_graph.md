@@ -4,7 +4,7 @@
 - 日期:2026-09-25
 - 关联需求:R-368(本设计的实施条目)、R-307(依赖拓扑图,共用渲染器)、R-353(改动面账本,后续图层)、R-358(验收锚点语法统一)
 - 关联缺陷:D-749(记忆 M-* 引用校验恒失败)、D-750(依赖视图误判依赖归档条目)
-- 关联决策:A-015(图是只读投影,Markdown 唯一真源)、A-006(设计文档与决策双向引用,draft)
+- 关联决策:A-015(图是只读投影,Markdown 唯一真源)、A-006(设计文档与决策双向引用,draft);图渲染改走共享渲染器见 [memory_knowledge_graph.md](memory_knowledge_graph.md) §14(2026-09-26)
 
 ## 背景与问题
 
@@ -68,7 +68,7 @@
 - 不另起一套「链接数据库」当真源(A-015、A-001)。
 - 不对存量违规做全局强校验,否则整类文档会拒写,变成棘轮。
 - 不新增 agent 工具(D-662 工具面预算)。
-- 不引入图库(`architecture_browser.md` 已按 A-007 否决 mermaid/d3)。
+- ~~不引入图库(`architecture_browser.md` 已按 A-007 否决 mermaid/d3)。~~ 2026-09-26 起由 [memory_knowledge_graph.md](memory_knowledge_graph.md) §14 取代:用户在记忆图谱需求里明确要了图形拓扑,图可视化统一走 vendored force-graph 1.51.4(MIT,懒加载)封装的共享渲染器 `ui/24-graph-view.js`;图仍是 Markdown 的只读投影。
 - 不覆盖项目根之外的 research 课题工作区(`~/.kanzei/research-workspaces/`)。
 
 ## 讨论摘要
@@ -216,7 +216,7 @@
 3. **引用历史时间线。** 列出该文档引用关系的增删与搬运事件,每条带提交号、时间和提交说明。选中一对文档时,显示这条引用「何时建立」。
 4. **邻域关系图。**
    - 以当前文档为中心,1–2 跳。
-   - 手写 SVG 分层布局:入边在左,出边在右;颜色表示关系类型,虚线表示弱引用。
+   - 分层布局:入边在左,出边在右;虚线表示弱引用。渲染走共享渲染器 `ui/24-graph-view.js` 的 `dag-lr` 布局(2026-09-26 起,原为手写 SVG,见 memory_knowledge_graph.md §7、§14)。
    - 图层可切换:依赖 / refs / 关联头 / 弱引用。
    - 与 R-307 B3 **共用同一个渲染器**:R-307 负责依赖语义与关键路径图层,本条负责其余图层。
    - 全仓 7948 条边的全局图不可读,不做。
@@ -240,21 +240,23 @@
 | 历史来源 | git | 覆盖所有写者;代价是未提交变化只能标「未提交」,「谁、为什么」只能看提交说明 |
 | 关系类型 | 可选闭集前缀 | 旧写法零迁移;代价是现有消费方要改用统一分词 |
 | 存量问题 | 只报告不阻断 | 避免棘轮;代价是存量要靠体检面板逐步清理 |
-| 图 | 邻域图 + 手写 SVG | 不引图库;代价是布局能力有限,够 1–2 跳使用 |
+| 图 | 邻域图 + 共享渲染器(vendored force-graph,`dag-lr`) | 2026-09-26 起取代手写 SVG(memory_knowledge_graph.md §14);代价是多一个首次打开才加载的 178 KB vendor 文件 |
 
 ## 实施边界与调用方
 
-- 纯函数:`crates/kanzei-tools/src/refgraph/`(抽取、分词、历史)。测试加在模块内;调度相关的放 `tracker/scheduling_tests.rs`。
+- 纯函数:`crates/kanzei-tools/src/refgraph/`(抽取、分词、历史)。2026-09-26 记忆图谱已落地 B1 的最小子集:统一分词 `kanzei_harness::refs::split_refs`(放在 harness,供 `MemoryEntry::refs` 与 `Entry::refs` 以后迁移共用)、弱引用抽取 `refgraph::mentions`、节点键与记忆图谱投影 `refgraph::memory_graph`。测试加在模块内;调度相关的放 `tracker/scheduling_tests.rs`。
 - tracker 写入校验:`crates/kanzei-tools/src/tracker.rs` 的 `check_refs`(`859-914`)与 `actions.rs:720-736`。
 - CLI:`kz refs check|show <id>|history <id>`,入口在 `crates/kanzei/src/cli/mod.rs`。
 - 桌面:新 tauri 命令 `doc_refs_graph` / `doc_refs_history` / `doc_refs_check`,登记进 `scripts/ipc-contract.json`。不改 `docs_snapshot` 的返回结构,它被契约和冒烟 fixture 锁住。
-- 前端:`11-docs-list.js`(跳转与侧栏)、`04-markdown.js`(编号变链接)、`12-docs-pages.js`(与 R-307 共用的渲染器)、`19-arch.js`(修正它不认连字符文件名的正则,以及永远失败的 crate 兜底)。
+- 前端:`11-docs-list.js`(跳转与侧栏)、`04-markdown.js`(编号变链接)、`12-docs-pages.js`(接入与 R-307 共用的渲染器 `ui/24-graph-view.js`)、`19-arch.js`(修正它不认连字符文件名的正则,以及永远失败的 crate 兜底)。
 
 ## 变更记录
 
 - 2026-09-25:建档。两路只读勘察(现有机制 + 量化与历史可行性),用户要求「直接登记」。
   - 登记实施条目 R-368(5 批)。
   - 勘察顺带核实并登记两条缺陷:D-749(记忆 M-* 引用校验恒失败)、D-750(依赖视图把依赖已归档条目的需求误判为被阻塞)。
+
+- 2026-09-26:记忆知识图谱([memory_knowledge_graph.md](memory_knowledge_graph.md))落地 B1 最小子集(统一分词、弱引用抽取、节点键),并立「图可视化统一走 vendored force-graph 共享渲染器」,取代本文非目标里的「不引入图库」与 §8.4 的「手写 SVG」;B5 与 R-307 B3 改指向 `ui/24-graph-view.js` 的 `dag-lr` 布局。tracker 侧的决策与边界改写由集成方登记。
 
 ## 验证证据
 
