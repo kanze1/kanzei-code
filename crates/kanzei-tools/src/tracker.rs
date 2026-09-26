@@ -68,6 +68,34 @@ const WRITE_ACTIONS: &[&str] = &[
     "normalize",
 ];
 
+/// UI2-0926 #13:批次字段写成 `批次: 0/5; B1 核心模型…` 时归一成 `0/5`,说明放进「批次计划」
+/// (已有该字段就追加)。开头不是 `k/N` 的值原样留给 check_batches 报错。
+fn normalize_batch_field(fields: &mut BTreeMap<String, String>) {
+    let Some(key) = fields
+        .keys()
+        .find(|key| *key == "批次" || key.eq_ignore_ascii_case("batches"))
+        .cloned()
+    else {
+        return;
+    };
+    let Some((done, total, note)) = crate::docstore::split_batch_value(&fields[&key]) else {
+        return;
+    };
+    fields.insert(key, format!("{done}/{total}"));
+    if let Some(note) = note {
+        match fields.get_mut("批次计划") {
+            Some(existing) if existing.contains(&note) => {}
+            Some(existing) => {
+                existing.push('；');
+                existing.push_str(&note);
+            }
+            None => {
+                fields.insert("批次计划".into(), note);
+            }
+        }
+    }
+}
+
 #[derive(Deserialize, JsonSchema)]
 struct TrackerInput {
     /// 动作(取值见 enum)
@@ -339,6 +367,9 @@ impl Tool for TrackerTool {
         }
         if let Some(complexity) = input.complexity.take() {
             input.fields.insert("复杂度".into(), complexity);
+        }
+        if matches!(input.action.as_str(), "add" | "update" | "close") {
+            normalize_batch_field(&mut input.fields);
         }
         if WRITE_ACTIONS.contains(&input.action.as_str()) {
             if let Some(error) = fields::reject_engine_writes(&input.fields) {
@@ -3117,6 +3148,49 @@ mod tests {
         );
 
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// UI2-0926 #13 现场:`批次: 0/5; B1 核心模型、快速…` 整条被拒,模型反复重试。
+    /// 现在归一成 `0/5`,说明进「批次计划」字段。
+    #[tokio::test]
+    async fn 批次带附注的写法归一_说明进批次计划() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-batch-note-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"批次": "批次: 0/5; B1 核心模型、快速笔记"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        let field = |key: &str| {
+            saved[0]
+                .fields
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(field("批次").as_deref(), Some("0/5"));
+        assert_eq!(field("批次计划").as_deref(), Some("B1 核心模型、快速笔记"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 写入侧门禁必须真的接上:docstore::check_declared_batches 有实现有单测,但没有

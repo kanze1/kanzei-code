@@ -311,10 +311,18 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
 
     let shell = detected_shell();
     let mut command = tokio::process::Command::new(&shell.program);
+    // UI2-0926 #13:① 命令前加 UTF-8 输出前导(中文路径曾被 GBK→UTF-8 解码成 U+FFFD);
+    // ② PATH 每次按注册表新鲜合并(会话中途装好的工具立刻可用);③ 工作目录用 simplify
+    // 形态(cmd.exe 不认 `\\?\` 工作目录,部分工具链在它下面直接报错)。
+    // 权限判定、展示与回喂模型的都是原始 input.command,前导只在子进程参数里。
     command
         .args(&shell.args)
-        .arg(&input.command)
-        .current_dir(&workdir)
+        .arg(crate::shell::command_with_utf8_output(
+            shell.name,
+            &input.command,
+        ))
+        .env("PATH", crate::shell::fresh_path())
+        .current_dir(crate::path_form::simplify(&workdir))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -385,6 +393,8 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     // 只在 tool_pipeline 实现一处;超时后的业务善后(kill_tree/部分输出/围栏)
     // 是命令执行语义,依赖 body 内局部状态,保留在 Err 分支处理。
     let outcome = kanzei_harness::tool_pipeline::with_timeout(capture, timeout).await;
+    // 命令可能装了工具链、建了文件、git init 了:项目状态事实的缓存作废。
+    crate::project_state::invalidate();
     match outcome {
         Ok((status, out_capped, err_capped)) => {
             let mut text = String::from_utf8_lossy(&out_buf).into_owned();
@@ -717,6 +727,68 @@ mod tests {
         ));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         dir
+    }
+
+    /// UI2-0926 #13:中文项目路径曾被 GBK 输出 + UTF-8 解码弄成 U+FFFD(「MD文件保存」现场
+    /// Get-Location 输出里 6 个替换字符),pwsh 7 的着色码也原样进了模型上下文。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn 中文路径与输出不乱码且没有着色码() {
+        let base = temp_project("utf8");
+        let root = base.join("MD文件保存");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let command = match super::detected_shell().name {
+            "pwsh" | "powershell" => "Write-Output 'MD文件保存'; Get-Location".to_string(),
+            _ => "echo MD文件保存 & cd".to_string(),
+        };
+        let out = BashTool
+            .execute(serde_json::json!({ "command": command }), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            !out.content.contains('\u{FFFD}'),
+            "输出含替换字符: {}",
+            out.content
+        );
+        assert!(
+            !out.content.contains('\u{1b}'),
+            "输出含 ANSI 转义: {}",
+            out.content
+        );
+        assert!(
+            out.content.matches("MD文件保存").count() >= 2,
+            "中文原文与路径都要完整: {}",
+            out.content
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn 注册表_path_只增不减且按目录去重() {
+        let base = std::env::join_paths([r"C:\a", r"C:\B\"]).unwrap();
+        let merged = crate::shell::merge_path_lists(&base, [r"c:\b;C:\new;;", r"C:\a\;D:\x"]);
+        let dirs: Vec<String> = std::env::split_paths(&merged)
+            .map(|p| p.display().to_string())
+            .collect();
+        assert_eq!(dirs, vec![r"C:\a", r"C:\B\", r"C:\new", r"D:\x"]);
+    }
+
+    #[test]
+    fn utf8_前导只进子进程参数() {
+        let wrapped = crate::shell::command_with_utf8_output("pwsh", "Get-Location");
+        assert!(wrapped.contains("UTF8Encoding"), "{wrapped}");
+        assert!(wrapped.contains("OutputRendering='PlainText'"), "{wrapped}");
+        assert!(wrapped.ends_with("\nGet-Location"), "{wrapped}");
+        assert_eq!(
+            crate::shell::command_with_utf8_output("cmd", "dir"),
+            "chcp 65001>nul & dir"
+        );
+        assert_eq!(crate::shell::command_with_utf8_output("sh", "ls"), "ls");
     }
 
     /// D-173:托管文件的 shell 写入必须被检测、隔离、回滚——不靠匹配命令文本,

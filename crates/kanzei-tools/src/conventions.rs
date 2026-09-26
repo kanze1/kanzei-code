@@ -92,10 +92,13 @@ impl Tool for ConventionsTool {
 
         match input.action.as_str() {
             "get" => {
+                // UI2-0926 #13:新项目本来就没有规范文件,这是一条事实,不是失败——原先报错,
+                // 活动面板里多出一条红色「conventions get 失败」,模型还会反复重试。
                 if !path.exists() {
-                    return ToolOutput::error(format!(
-                        "{CONVENTIONS_REL} does not exist at {}",
-                        path.display()
+                    return ToolOutput::ok(format!(
+                        "path: {CONVENTIONS_REL}\nexists: false\n本项目还没有开发规范文件(新项目常见)。\
+                         按通用工程做法工作即可,不必再查;需要成文规范时请用户在 {CONVENTIONS_REL} \
+                         里写下(模型没有新建它的通道)。"
                     ));
                 }
                 let current = read_text(&path);
@@ -368,14 +371,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_missing_file_is_error() {
+    async fn get_missing_file_is_a_guiding_fact_not_an_error() {
         let root = tmp_dir();
         let ctx = ToolCtx::new(root.clone(), root.clone());
         let out = ConventionsTool
             .execute(serde_json::json!({ "action": "get" }), &ctx)
             .await;
-        assert!(out.is_error, "缺失文件应报错: {}", out.content);
-        assert!(out.content.contains("does not exist"), "{}", out.content);
+        assert!(
+            !out.is_error,
+            "缺失规范文件是事实,不是失败: {}",
+            out.content
+        );
+        assert!(out.content.contains("exists: false"), "{}", out.content);
+        assert!(out.content.contains("不必再查"), "{}", out.content);
     }
 
     #[tokio::test]

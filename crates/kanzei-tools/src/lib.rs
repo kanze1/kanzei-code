@@ -37,6 +37,8 @@ pub mod palette;
 mod plot_tool;
 pub mod prior_art;
 mod process;
+/// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。
+pub mod project_state;
 pub mod quarantine;
 mod question;
 mod read;
