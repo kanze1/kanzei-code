@@ -16,6 +16,7 @@ export const VERIFY_STEP_KEYS = [
   "clippy",
   "ui_connectivity",
   "ui_runtime",
+  "ui_diagram",
   "test",
 ];
 
@@ -43,6 +44,17 @@ function isRustPath(path) {
   );
 }
 
+// UI2-0926 #7:架构图浏览器门禁(scripts/ui-diagram-smoke.mjs)真渲染 docs 下全部 mermaid 与 crate 图 golden。
+// 改文档里的图、改 crate 图生成器或它的 golden、改门禁本身,都要跑它;前端改动一律带上(渲染器与样式都在 ui/)。
+function isDiagramPath(path) {
+  return (
+    (path.startsWith("docs/") && path.endsWith(".md")) ||
+    path === "crates/kanzei-tools/src/arch_diagram.rs" ||
+    path.startsWith("crates/kanzei-tools/tests/fixtures/arch_diagram/") ||
+    path === "scripts/ui-diagram-smoke.mjs"
+  );
+}
+
 function isFrontendPath(path) {
   return (
     path.startsWith("crates/kanzei-app/ui/") ||
@@ -59,9 +71,11 @@ export function classifyChangedPaths(paths, { full = false } = {}) {
   const changedPaths = [...new Set((paths ?? []).map(normalizePath).filter(Boolean))].sort();
   const hasRust = full || changedPaths.some(isRustPath);
   const hasFrontend = full || changedPaths.some(isFrontendPath);
+  const hasDiagram = hasFrontend || changedPaths.some(isDiagramPath);
   const skippedSteps = [
     ...(hasRust ? [] : RUST_STEPS),
     ...(hasFrontend ? [] : FRONTEND_STEPS),
+    ...(hasDiagram ? [] : ["ui_diagram"]),
   ];
   return {
     mode: full ? "full" : "targeted",
@@ -69,6 +83,7 @@ export function classifyChangedPaths(paths, { full = false } = {}) {
     changed_paths: changedPaths,
     run_rust: hasRust,
     run_frontend: hasFrontend,
+    run_diagram: hasDiagram,
     skipped_steps: skippedSteps,
   };
 }
