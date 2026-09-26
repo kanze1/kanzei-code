@@ -22,13 +22,22 @@ assert.deepEqual(rustOnly.skipped_steps, [
 ]);
 
 // ── 分区:架构图 ──(UI2-0926 #7:ui_diagram 步的路径触发)
-// 只改 docs 下的 markdown(比如 docs/architecture 的图):只跑图门禁,Rust 与其余前端步都跳过。
-const docsOnly = classifyChangedPaths(["docs/architecture/01_runtime_loop.md"]);
+// 只改一般设计文档:只跑图门禁(文档里的图只判能渲染、安全、点击映射),Rust 与其余前端步都跳过。
+const docsOnly = classifyChangedPaths(["docs/design/memory_system.md"]);
 assert.equal(docsOnly.run_diagram, true);
 assert.equal(docsOnly.run_frontend, false);
 assert.equal(docsOnly.run_rust, false);
-assert.ok(!docsOnly.skipped_steps.includes("ui_diagram"), "改 docs 下的图必须跑 ui_diagram");
+assert.ok(!docsOnly.skipped_steps.includes("ui_diagram"), "改 docs 下的 markdown 必须跑 ui_diagram");
 assert.ok(docsOnly.skipped_steps.includes("ui_runtime") && docsOnly.skipped_steps.includes("test"));
+// 复核修复:只改 docs/architecture 的图也要跑 Rust 测试(D1–D9 lint 在 Rust 侧读真实文件),
+// 否则只改文档时引入的 lint error 要等到后面某个无关的 Rust 提交才暴露。
+const archDoc = classifyChangedPaths(["docs/architecture/01_runtime_loop.md"]);
+assert.equal(archDoc.run_diagram, true);
+assert.equal(archDoc.run_rust, true, "改 docs/architecture 的图必须跑 Rust 测试(lint)");
+assert.ok(!archDoc.skipped_steps.includes("test") && !archDoc.skipped_steps.includes("ui_diagram"));
+assert.equal(archDoc.run_frontend, false);
+// lint 拆到 arch_diagram_lint.rs 之后同样触发图门禁。
+assert.equal(classifyChangedPaths(["crates/kanzei-tools/src/arch_diagram_lint.rs"]).run_diagram, true);
 // 改 ui/*.js:全部前端步连同图门禁一起跑(渲染器、样式都在 ui/)。
 assert.equal(frontendOnly.run_diagram, true);
 assert.ok(!frontendOnly.skipped_steps.includes("ui_diagram"));

@@ -4,7 +4,7 @@ import { t } from "./02-i18n.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { mountDiagram, preloadDiagramEngine, SEMANTIC_CLASSES } from "./04-diagram.js";
 import { renderMarkdownInto } from "./04-markdown.js";
-import { resolveRelativePath } from "./04-structured-parse.js";
+import { fillTemplate, resolveRelativePath } from "./04-structured-parse.js";
 import { currentProject, toastError } from "./03-shell.js";
 import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 
@@ -164,6 +164,12 @@ function tabSource(tab) {
   if (tab.key !== CRATE_TAB) return tab.source;
   return depsFull() ? tab.crates.mermaid.full : tab.crates.mermaid.reduced;
 }
+/// 「全部依赖」的版式:后端给的是不分组的源码(分组框会把跨组的传递边并成一圈虚线框),这里再关掉 ELK 的同向边合并,
+/// 每条传递边单独走线;样式按 data-variant 把传递边画淡,悬停节点时它的传递边才亮起来。
+function tabLayout(tab) {
+  const full = tab.key === CRATE_TAB && depsFull();
+  return { layout: full ? { mergeEdges: false } : null, variant: full ? "deps-full" : null };
+}
 function legendKinds(tab, source) {
   const kinds = SEMANTIC_CLASSES.filter((name) => new RegExp(`:::${name}\\b|^\\s*class\\s+\\S+\\s+${name}\\b`, "m").test(source));
   if (tab.key === CRATE_TAB && depsFull()) kinds.push("transitive");
@@ -260,7 +266,9 @@ function showArchDiagram(tab) {
     path: tab.path,
     sourceLine: tab.sourceLine,
     toolbarHost: tools,
-    onRendered: ({ view }) => renderArchFoot(tab, view.source, view.graph),
+    ...tabLayout(tab),
+    // 画失败时不带图的节点/边数与「点击节点」提示(没有可点的节点)。
+    onRendered: ({ view, error }) => renderArchFoot(tab, view.source, error ? null : view.graph),
   });
 }
 
@@ -286,7 +294,7 @@ function depsToggle(tab) {
       for (const other of seg.children) other.setAttribute("aria-pressed", String(other === btn));
       const source = tabSource(tab);
       renderArchFoot(tab, source, null);
-      diagramView?.setSource(source);
+      diagramView?.setSource(source, tabLayout(tab));
     });
     seg.append(btn);
   }
@@ -304,14 +312,17 @@ function renderArchFoot(tab, source, graph) {
     return node;
   };
   if (tab.key === CRATE_TAB) {
-    foot.append(span("arch-foot-path", t("由 Cargo 清单生成")));
+    // 来源说明是一句话,不是路径:不套等宽的 arch-foot-path。
+    foot.append(span("arch-foot-origin", t("由 Cargo 清单生成")));
     const hidden = Number(tab.crates.hidden_transitive ?? 0);
-    if (hidden && !depsFull()) foot.append(span("", `${t("已隐藏")} ${hidden} ${t("条可由传递得到的依赖")}`));
+    if (hidden && !depsFull()) foot.append(span("", fillTemplate(t("已隐藏 {n} 条可由传递得到的依赖"), { n: hidden })));
+    if (depsFull()) foot.append(span("", t("悬停节点看它的全部依赖")));
   } else {
     foot.append(span("arch-foot-path", tab.path));
   }
   if (graph) foot.append(span("", `${graph.nodes.size} ${t("个节点")} · ${graph.edges.length} ${t("条边")}`));
-  foot.append(span("", t("点击节点打开实现或文档")));
+  // 只在图画出来且确有可点节点时提示(加载中、出错、没有 click 行的图都不提示)。
+  if (graph?.mapped?.length) foot.append(span("", t("点击节点打开实现或文档")));
   const kinds = legendKinds(tab, source ?? "");
   if (kinds.length) {
     const legend = document.createElement("span");
@@ -341,7 +352,7 @@ function renderArchIssues(tab) {
     row.dataset.severity = issue.severity;
     const code = document.createElement("span");
     code.className = "arch-issue-code";
-    code.textContent = `${issue.code} · ${t("第")} ${issue.line} ${t("行")}`;
+    code.textContent = `${issue.code} · ${fillTemplate(t("第 {line} 行"), { line: issue.line })}`;
     const text = document.createElement("span");
     text.textContent = issue.message;
     const hint = document.createElement("span");

@@ -2657,6 +2657,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .kz-diagram.is-focusing svg g.node:not(.is-related),
 .kz-diagram.is-focusing svg path.flowchart-link:not(.is-related),
 .kz-diagram.is-focusing svg g.edgeLabel { opacity: .28; }
+/* 「全部依赖」(19-arch.js 的 data-variant):可由传递得到的依赖(虚线)平时退到背景,悬停节点时它的那几条亮起来。 */
+.kz-diagram[data-variant="deps-full"] svg path.flowchart-link.edge-pattern-dotted { opacity: .38; }
+.kz-diagram[data-variant="deps-full"].is-focusing svg path.flowchart-link.is-related { opacity: 1; }
+.kz-diagram[data-variant="deps-full"].is-focusing svg path.flowchart-link:not(.is-related) { opacity: .12; }
 .kz-diagram svg g.node.is-link { cursor: pointer; }
 .kz-diagram svg g.node.is-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 .kz-diagram-error { padding: 12px 14px; }
@@ -2722,6 +2726,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   border-top: 1px solid var(--border-soft); color: var(--dim); font-size: var(--fs-11-5);
 }
 .arch-foot-path { font-family: var(--mono); font-size: var(--fs-11); color: var(--fg); }
+.arch-foot-origin { color: var(--fg); }
 .arch-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-left: auto; }
 .arch-legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .arch-legend-swatch {

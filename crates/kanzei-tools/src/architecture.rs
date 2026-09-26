@@ -144,7 +144,9 @@ impl Tool for ArchitectureTool {
                     ToolOutput::error(report)
                 }
             }
-            "diagrams" => diagrams_report(&root),
+            // 图与 Cargo 清单是代码树里的文件:worktree 线(R-171)在自己的树里改图,自查必须读同一棵树
+            // (edit/write/read 的相对路径按 ctx.cwd 解析),不能读主根。get/check/update 仍管 .kanzei 托管的索引。
+            "diagrams" => diagrams_report(code_root(ctx)),
             "regenerate" => {
                 let current = read_index(&path);
                 ToolOutput::ok(format!(
@@ -250,8 +252,18 @@ impl Tool for ArchitectureTool {
     }
 }
 
+/// 代码树根:worktree 线上是该线自己的工作树(ctx.cwd),没设 cwd 时退回项目根。
+fn code_root(ctx: &ToolCtx) -> &Path {
+    if ctx.cwd.as_os_str().is_empty() {
+        &ctx.project_root
+    } else {
+        &ctx.cwd
+    }
+}
+
 /// `diagrams` 动作:列出 docs/architecture 下每张图与 lint 结果,附自动生成的 crate 依赖图
 /// 源码(约简版)作为新图的起点。有 error 时整体判错(同 check),只有警告照常成功。
+/// `root` 是代码树根(见 code_root):图、click 目标与 Cargo 清单都按它读。
 fn diagrams_report(root: &Path) -> ToolOutput {
     let docs = scan_diagrams(root);
     let errors: usize = docs.iter().map(|d| d.errors()).sum();
@@ -1104,6 +1116,37 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 复核修复:worktree 线(cwd ≠ project_root)在自己的树里改图,`diagrams` 必须读这棵树——
+    /// 主根上没有这张图;报出的问题行号来自 worktree 里的文件,click 目标也按 worktree 核对。
+    #[tokio::test]
+    async fn diagrams_action_reads_the_worktree_not_the_main_root() {
+        let main = temp_project("diagrams-main");
+        let worktree = temp_project("diagrams-wt");
+        std::fs::create_dir_all(worktree.join("docs/architecture")).unwrap();
+        std::fs::write(worktree.join("crates_only_here.rs"), "").unwrap();
+        let doc = "# 线上的图\n\n说明。\n\n```mermaid\nflowchart LR\n  a[\"甲\"] --> b[\"乙\"]\n  click a \"crates_only_here.rs\"\n\n  style b fill:#f00\n```\n";
+        std::fs::write(worktree.join("docs/architecture/03_line.md"), doc).unwrap();
+        let ctx = ToolCtx::new(worktree.clone(), main.clone());
+        let out = ArchitectureTool
+            .execute(json!({"action": "diagrams"}), &ctx)
+            .await;
+        assert!(
+            out.content.contains("1 file(s)")
+                && out
+                    .content
+                    .contains("docs/architecture/03_line.md:10 [D4 error]"),
+            "应扫到 worktree 里的图并给出该文件的行号:{}",
+            out.content
+        );
+        assert!(
+            !out.content.contains("目标文件不存在"),
+            "click 目标只在 worktree 里,按主根核对会误报:{}",
+            out.content
+        );
+        std::fs::remove_dir_all(&main).ok();
+        std::fs::remove_dir_all(&worktree).ok();
     }
 
     #[test]

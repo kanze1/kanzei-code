@@ -159,21 +159,23 @@ fn transitive_reduction_hides_derivable_edges() {
     std::fs::remove_dir_all(&root).ok();
 }
 
-/// 本仓真实工作区:22 条普通依赖约简成 8 条直接边(设计文档 §5 的数字),8 个成员都有分组与描述。
+/// 本仓真实工作区:只钉不变量,不钉形状——以后合理地加一条依赖或新增一个 crate 不该在这里变红
+/// (精确的边集合与计数交给夹具 golden)。每个成员都有描述、分组与入口文件;约简是正确的传递约简
+/// (隐藏的边都能经别的路径到达,保留的边都不能),而且幂等。
 #[test]
-fn real_workspace_reduces_to_eight_direct_edges() {
+fn real_workspace_members_are_described_and_reduction_is_correct() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let ws = workspace_crates(&root).expect("仓库根是 Cargo 工作区");
-    assert_eq!(ws.members.len(), 8, "{:?}", ws.members);
+    assert!(!ws.members.is_empty(), "{:?}", ws.members);
     for member in &ws.members {
         assert!(
             !member.description.is_empty(),
-            "{} 缺 [package] description",
+            "{} 缺 [package] description(crate 图节点的第二行;≤12 字才放得进卡片)",
             member.name
         );
         assert_ne!(
             member.group, "未分组",
-            "{} 缺 [package.metadata.kanzei] group",
+            "{} 缺 [package.metadata.kanzei] group(crate 图的分组框;新 crate 在 Cargo.toml 里补一行 group = \"…\")",
             member.name
         );
         assert!(
@@ -182,22 +184,45 @@ fn real_workspace_reduces_to_eight_direct_edges() {
             member.entry
         );
     }
-    let mut kept = normal_edges(&ws, false);
-    kept.sort();
-    assert_eq!(
-        kept,
-        pairs(&[
-            ("kanzei", "kanzei-tools"),
-            ("kanzei-app", "kanzei-tools"),
-            ("kanzei-core", "kanzei-harness"),
-            ("kanzei-core", "kanzei-llm"),
-            ("kanzei-harness", "kanzei-base"),
-            ("kanzei-llm", "kanzei-base"),
-            ("kanzei-memory", "kanzei-core"),
-            ("kanzei-tools", "kanzei-memory"),
-        ])
-    );
-    assert_eq!(ws.hidden_transitive(), 14);
+    let kept = normal_edges(&ws, false);
+    let hidden = normal_edges(&ws, true);
+    let all: Vec<(String, String)> = kept.iter().chain(hidden.iter()).cloned().collect();
+    // 从 from 出发、不走 from→to 这条直接边,能否到达 to。
+    let reachable_without = |from: &str, to: &str| {
+        let mut stack = vec![from.to_string()];
+        let mut seen = BTreeSet::new();
+        while let Some(node) = stack.pop() {
+            for (a, b) in &all {
+                if *a != node || (a == from && b == to) {
+                    continue;
+                }
+                if b == to {
+                    return true;
+                }
+                if seen.insert(b.clone()) {
+                    stack.push(b.clone());
+                }
+            }
+        }
+        false
+    };
+    for (from, to) in &hidden {
+        assert!(
+            reachable_without(from, to),
+            "{from}→{to} 被隐藏,却没有别的路径能到达"
+        );
+    }
+    for (from, to) in &kept {
+        assert!(
+            !reachable_without(from, to),
+            "{from}→{to} 能经别的路径到达,应当隐藏"
+        );
+    }
+    // 幂等:对约简结果再约简一次,什么都不再隐藏。
+    let (again, none) = transitive_reduction(&kept);
+    assert!(none.is_empty(), "约简结果不是不动点:{none:?}");
+    assert_eq!(again, kept);
+    assert_eq!(ws.hidden_transitive(), hidden.len());
 }
 
 fn golden(name: &str) -> String {
@@ -245,6 +270,16 @@ fn crates_mermaid_matches_golden() {
     assert!(reduced.contains("  click fx_app \"crates/app/src/main.rs\" \"fx-app · 桌面应用\"\n"));
     assert!(!reduced.contains("-.->"));
     assert_eq!(full.matches("-.->").count(), 3, "{full}");
+    // 全部依赖不分组(分组框会把跨组的传递边并成虚线框),节点照旧带说明、入口类与点击。
+    assert!(
+        !full.contains("subgraph") && !full.contains("\n  end\n"),
+        "{full}"
+    );
+    assert!(
+        full.contains("  fx_app[\"fx-app<br/>桌面应用\"]:::entry\n"),
+        "{full}"
+    );
+    assert_eq!(full.matches("  click ").count(), 5, "{full}");
     assert_eq!(reduced.matches(" --> ").count(), 3, "{reduced}");
     std::fs::remove_dir_all(&root).ok();
 }
@@ -258,7 +293,8 @@ fn lint_codes(root: &Path, source: &str) -> Vec<(usize, &'static str, Severity)>
 
 fn lint_root() -> PathBuf {
     let root = temp_root("lint");
-    write(&root, "crates/x/src/lib.rs", "");
+    // 20 行:正例里的 `:12`、`:3-9` 行号锚点落在文件范围内(超出范围是 D5 警告)。
+    write(&root, "crates/x/src/lib.rs", &"// 行\n".repeat(20));
     write(&root, "docs/design/a.md", "# a");
     root
 }
@@ -419,6 +455,53 @@ fn lint_rules_fire_with_file_line_numbers() {
         codes.iter().all(|(_, _, s)| *s == Severity::Warn),
         "{codes:?}"
     );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// 复核修复:lint 与渲染器的约定对齐,非 flowchart 只报一条规则,行号锚点漂移给警告。
+#[test]
+fn lint_matches_the_renderer_and_warns_on_drifting_line_anchors() {
+    let root = lint_root();
+    write(
+        &root,
+        "crates/x/src/run.rs",
+        "// 头\nfn helper() {}\npub fn run_once_with_parts() {}\n",
+    );
+    let base = "flowchart LR\n a[\"x\"] --> b[\"y\"]\n";
+    // F- 研究发现与渲染器 REF_TARGET 同一集合:不当成路径去找文件。
+    assert!(lint_codes(&root, &format!("{base} click a \"F-001\" \"发现\"")).is_empty());
+    // 非 flowchart:只报一条 D1(不再把 `class Foo {` 报成未知类名)。
+    let codes = lint_codes(&root, "classDiagram\n class Foo {\n  +run()\n }\n");
+    assert_eq!(codes, vec![(10, "D1", Severity::Error)], "{codes:?}");
+    let codes = lint_codes(
+        &root,
+        "---\ntitle: t\n---\n%% 注释\nsequenceDiagram\n A->>B: hi\n",
+    );
+    assert_eq!(codes, vec![(14, "D1", Severity::Error)], "{codes:?}");
+    assert!(lint_codes(&root, "graph TB\n a[\"x\"] --> b[\"y\"]").is_empty());
+    // 行号锚点:对得上不报;超出文件行数、提示里的标识符不在那一行 → D5 警告(不挡)。
+    assert!(lint_codes(
+        &root,
+        &format!("{base} click a \"crates/x/src/run.rs:3\" \"run_once_with_parts:主循环\"")
+    )
+    .is_empty());
+    for target in ["crates/x/src/run.rs:40", "crates/x/src/run.rs:2"] {
+        let codes = lint_codes(
+            &root,
+            &format!("{base} click a \"{target}\" \"run_once_with_parts:主循环\""),
+        );
+        assert_eq!(
+            codes,
+            vec![(12, "D5", Severity::Warn)],
+            "{target}: {codes:?}"
+        );
+    }
+    // 提示不是「标识符:」开头时只查行号范围。
+    assert!(lint_codes(
+        &root,
+        &format!("{base} click a \"crates/x/src/run.rs:2\" \"主循环入口\"")
+    )
+    .is_empty());
     std::fs::remove_dir_all(&root).ok();
 }
 

@@ -793,6 +793,18 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*g\.addEventListener\("click", \(event\) => \{\r?\n[ \t]*event\.preventDefault\?\.\(\);\r?\n[ \t]*event\.stopPropagation\?\.\(\);\r?\n[ \t]*activate\(\);\r?\n[ \t]*\}\);\r?\n/,
       replace: "",
     },
+    // 复核修复:错误行号经 lineMap 换回原文行号。删了它,frontmatter / 开头注释之后的错误报的是 mermaid 剥完之后的行号,
+    // 错误卡、修复提示与源码高亮全都指错行。
+    diagramLineMap: {
+      pattern: /[ \t]*if \(line\) line = original\(line\);\r?\n/,
+      replace: "",
+    },
+    // 复核修复:frontmatter 的 config 段抹成空行。删了它,聊天里带 `config: look: handDrawn` 的图会改掉外观,
+    // 带 htmlLabels 的图出 foreignObject 被整张拒绝。
+    diagramFrontmatterConfig: {
+      pattern: /[ \t]*if \(\/\^config\\s\*:\/\.test\(line\)\) \{\r?\n[ \t]*inConfig = true;\r?\n[ \t]*return BLANKED;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
     // ── 分区:架构图 结束 ──
   };
   const mutation = mutations[SMOKE_MUTATE];
@@ -1673,9 +1685,11 @@ const payloads = {
         source: 'flowchart LR\n  compose["输入区"]:::entry\n  drive["主循环"]:::focus\n  adr["决策"]\n  compose --> drive\n  drive --> adr\n  click compose "crates/kanzei-app/ui/08-compose.js" "输入区"\n  click drive "crates/kanzei-core/src/runner/drive.rs:140" "主循环"\n  click adr "D-100" "决策条目"',
       },
       {
+        // 错误出现在 frontmatter、开头注释、行内注释与 click 行之后(源码第 9 行 = 文件第 7 + 9 - 1 = 15 行):
+        // mermaid 解析前剥掉这些,jison 报的是剥完之后的第 5 行——桩引擎按同一规则报,错误卡必须换回原文行号。
         id: "02_broken", path: "docs/architecture/02_broken.md", title: "写坏的图", summary: "", source_line: 7,
-        source: 'flowchart LR\n  a["甲"] --> b["乙"]\n  c[BROKEN(]',
-        issues: [{ line: 9, severity: "error", code: "D6", message: "标签 `BROKEN(` 含括号却没加引号", hint: "写成 id[\"…\"]" }],
+        source: '---\ntitle: 写坏\n---\n%% 头注释\nflowchart LR\n  %% 注释\n  a["甲"] --> b["乙"]\n  click a "docs/x.md"\n  c[BROKEN(]',
+        issues: [{ line: 15, severity: "error", code: "D6", message: "标签 `BROKEN(` 含括号却没加引号", hint: "写成 id[\"…\"]" }],
       },
     ],
     crates: {
@@ -14909,7 +14923,7 @@ const docsB = {
 // 假 DOM 跑不了真 mermaid:注入桩引擎(04-diagram.js 的 setDiagramEngine,同 setRenderMarkdown 的接缝),
 // 只验接线——标签页、直接/全部依赖切换、节点点击走 structuredNav、错误卡行号换算、CRLF 索引分组、
 // kebab 名不算未入册、未闭合围栏不渲染。真实渲染质量由 scripts/ui-diagram-smoke.mjs(无头 Edge)兜底。
-// 变异守卫:archCrlf / archKebab / diagramOpenFence / diagramClickMap。
+// 变异守卫:archCrlf / archKebab / diagramOpenFence / diagramClickMap / diagramLineMap / diagramFrontmatterConfig。
 {
   const diagramNs = esmModuleCache.get("04-diagram.js")?.namespace;
   const archNs = esmModuleCache.get("19-arch.js")?.namespace;
@@ -14919,14 +14933,20 @@ const docsB = {
     "架构图:04-diagram.js / 19-arch.js / renderMarkdownInto 导出缺失");
   const SVG_NS = "http://www.w3.org/2000/svg";
   const rendered = [];
-  // 桩引擎:parse 遇到 BROKEN 按 mermaid 的形状抛错(hash.loc.first_line);render 把声明的节点与 --> 边编码进
-  // SVG 字符串,mount 再按 mermaid 12 的 DOM 形状(g.node#<渲染 id>-flowchart-<节点>-<n>、path[data-id=L_a_b_0])建出假节点。
+  // 桩引擎:parse 遇到 BROKEN 按 mermaid 的形状抛错(hash.loc.first_line),行号与 mermaid 12 一样按「剥掉 frontmatter、
+  // 整行 %% 注释(cleanupComments 的正则)、开头空行」之后的文本算——曾经按原文行号抛,错误卡的行号换算一直绿着;
+  // render 把声明的节点与 --> 边编码进 SVG 字符串,mount 再按 mermaid 12 的 DOM 形状
+  // (g.node#<渲染 id>-flowchart-<节点>-<n>、path[data-id=L_a_b_0])建出假节点。
+  const parsed = [];
   const stubEngine = {
     initialize() {},
     async parse(text) {
-      if (!text.includes("BROKEN")) return;
-      const error = new Error("Parse error on line 3:\n  c[BROKEN(]\n--------^\nExpecting 'SQE', got 'PS'");
-      error.hash = { loc: { first_line: 3 } };
+      parsed.push(text);
+      const cleaned = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n/, "").replace(/^\s*%%(?!{)[^\n]+\n?/gm, "").trimStart();
+      const index = cleaned.split("\n").findIndex((line) => line.includes("BROKEN"));
+      if (index < 0) return;
+      const error = new Error(`Parse error on line ${index + 1}:\n  c[BROKEN(]\n--------^\nExpecting 'SQE', got 'PS'`);
+      error.hash = { loc: { first_line: index + 1 } };
       throw error;
     },
     async render(id, text) {
@@ -15001,8 +15021,14 @@ const docsB = {
     assert(tabs()[2].querySelector(".arch-tab-count")?.textContent === "1", "有 lint 问题的图标签上应带问题数");
     assert(figure()?.dataset.state === "ready" && figure()?.dataset.nodes === "3" && figure()?.dataset.edges === "2",
       `crate 图没渲染或节点/边映射不对:${figure()?.dataset.state} ${figure()?.dataset.nodes}/${figure()?.dataset.edges}`);
-    assert(rendered.at(-1)?.includes("classDef entry ") && rendered.at(-1)?.includes("%% ·") && !/^\s*click /m.test(rendered.at(-1)),
-      "送进引擎的源码应抹掉 click 行(strict 下 mermaid 会包 <a> 导航)、末尾追加语义类");
+    assert(rendered.at(-1)?.includes("classDef entry ") && !/^\s*click /m.test(rendered.at(-1))
+      && rendered.at(-1).split("\n").length === snap.crates.mermaid.reduced.split("\n").length + 5,
+      "送进引擎的源码应把 click 行抹成空行(strict 下 mermaid 会包 <a> 导航;行数不变)、末尾追加五个语义类");
+    // frontmatter 的 config 段抹成空行(title 保留、行数不变);行内 %%{…}%% 指令去掉(diagramFrontmatterConfig → 这里红)。
+    const fm = diagramNs.prepareDiagramSource('---\ntitle: 标题\nconfig:\n  look: handDrawn\n  htmlLabels: true\n---\nflowchart LR\n  a --> b %%{init: {"theme": "forest"}}%%');
+    assert(!/config|handDrawn|htmlLabels|forest/.test(fm.text) && fm.text.includes("title: 标题") && fm.text.split("\n").length === 8,
+      `frontmatter 的 config 与行内指令应抹掉(配色/外观只由 kanzei 注入),title 保留、行数不变:${JSON.stringify(fm.text)}`);
+    assert(JSON.stringify(fm.lineMap) === "[7,8]", `lineMap 应跳过 frontmatter:${JSON.stringify(fm.lineMap)}`);
     assert(byId.get("arch-diagram-foot")?.textContent.includes("已隐藏 1 条可由传递得到的依赖"), "直接依赖模式的脚注缺「已隐藏 N 条」");
 
     // ④ 节点点击 → structuredNav.openPath(入口文件);可点节点有 role=link / tabindex / 提示(diagramClickMap → 这里红)。
@@ -15022,8 +15048,12 @@ const docsB = {
     await flush();
     assert(rendered.at(-1)?.includes("-.->") && figure()?.dataset.edges === "3", "切到「全部依赖」应渲染带虚线传递边的那份源码");
     assert(!invokeLog.slice(beforeInvokes).includes("architecture_snapshot"), "切依赖范围不该重取快照");
+    assert(figure()?.dataset.variant === "deps-full" && diagramNs.cachedDiagram(snap.crates.mermaid.full, diagramNs.currentDiagramTheme(), { mergeEdges: false }),
+      "「全部依赖」应带 data-variant=deps-full(传递边画淡、悬停亮起)并关掉 ELK 同向边合并(分组框外的虚线框)");
+    assert(byId.get("arch-diagram-foot")?.textContent.includes("悬停节点看它的全部依赖"), "「全部依赖」脚注应提示悬停看全部依赖");
     click(byId.get("arch-diagram-tools")?.querySelectorAll(".arch-seg button").find((b) => b.dataset.full === "false"));
     await flush();
+    assert(figure()?.dataset.variant === undefined, "切回「直接依赖」应去掉 deps-full 样式");
 
     // ⑥ 手写图:路径带行号、条目号走 openRef。
     click(tabs()[1]);
@@ -15037,17 +15067,23 @@ const docsB = {
     assert(byId.get("arch-diagram-foot")?.querySelectorAll(".arch-legend-swatch").map((s) => s.dataset.kind).join(",") === "entry,focus",
       "图例应只列本图用到的语义类");
 
-    // ⑦ 写坏的图:错误卡给文件行号(围栏起始行 7 + 第 3 行 - 1 = 第 9 行)、查看源码、复制修复提示;lint 问题列在图下。
+    // ⑦ 写坏的图:错误卡给原文的文件行号(围栏起始行 7 + 源码第 9 行 - 1 = 第 15 行;mermaid 报的是剥掉 frontmatter、
+    // 注释与开头空行之后的第 5 行,diagramLineMap → 这里红)、查看源码(高亮同一行)、复制修复提示;lint 问题列在图下。
     click(tabs()[2]);
     await flush();
     const errorBox = figure()?.querySelector(".kz-diagram-error");
-    assert(figure()?.dataset.state === "error" && errorBox?.textContent.includes("第 9 行") && errorBox.textContent.includes("Expecting 'SQE', got 'PS'"),
-      `错误卡没给出文件行号与 mermaid 报错:${errorBox?.textContent}`);
+    assert(figure()?.dataset.state === "error" && errorBox?.textContent.includes("第 15 行") && errorBox.textContent.includes("Expecting 'SQE', got 'PS'"),
+      `错误卡没给出原文的文件行号与 mermaid 报错(注释/click/frontmatter 之后的错误):${errorBox?.textContent}`);
     assert(errorBox?.querySelectorAll("button").map((b) => b.dataset.act).join(",") === "source,copy-hint", "错误卡缺「查看源码 / 复制修复提示」");
-    const hint = diagramNs.fixHint({ path: "docs/architecture/02_broken.md", fileLine: 9, message: "Expecting 'SQE', got 'PS'", lineText: "c[BROKEN(]" });
-    assert(hint.includes("docs/architecture/02_broken.md 第 9 行") && hint.includes("c[BROKEN(]"), `修复提示应带文件、行号与该行原文:${hint}`);
-    assert(!byId.get("arch-diagram-issues")?.classList.contains("hidden") && byId.get("arch-diagram-issues")?.textContent.includes("D6 · 第 9 行"),
+    click(errorBox?.querySelectorAll("button").find((b) => b.dataset.act === "source"));
+    const errorRow = byId.get("viewer-body")?.querySelector(".kz-source-line.is-error");
+    assert(errorRow?.textContent.includes("15") && errorRow.textContent.includes("c[BROKEN(]"), `查看源码应高亮出错的那一行(文件第 15 行):${errorRow?.textContent}`);
+    byId.get("viewer-close")?.click();
+    const hint = diagramNs.fixHint({ path: "docs/architecture/02_broken.md", fileLine: 15, message: "Expecting 'SQE', got 'PS'", lineText: "c[BROKEN(]" });
+    assert(hint.includes("docs/architecture/02_broken.md 第 15 行") && hint.includes("c[BROKEN(]"), `修复提示应带文件、行号与该行原文:${hint}`);
+    assert(!byId.get("arch-diagram-issues")?.classList.contains("hidden") && byId.get("arch-diagram-issues")?.textContent.includes("D6 · 第 15 行"),
       "lint 问题应列在图下(代码 + 文件行号)");
+    assert(!byId.get("arch-diagram-foot")?.textContent.includes("点击节点打开实现或文档"), "图没画出来时脚注不该提示「点击节点」");
     click(tabs()[0]);
     await flush();
 
@@ -15079,7 +15115,9 @@ const docsB = {
     // ⑨ 静态接线:聊天流式与思考块传 streaming:true;全站没有绕开 renderMarkdownInto 的 innerHTML 写法。
     const chatSource = sources[scriptSrcs.indexOf("05-chat-render.js")] ?? "";
     assert((chatSource.match(/renderMarkdownInto\([^\n]*\{ streaming: true \}\);/g) ?? []).length === 2, "聊天正文与思考块的流式渲染应传 { streaming: true }");
-    const bypass = scriptSrcs.filter((name, index) => name !== "04-markdown.js" && /\.innerHTML\s*=\s*renderMarkdown\(/.test(sources[index]));
+    // 04-markdown.js 以外一律不直接调 renderMarkdown(——跨行赋值、insertAdjacentHTML、模板插值都算(注释行不算)。
+    const bypass = scriptSrcs.filter((name, index) => name !== "04-markdown.js"
+      && (sources[index] ?? "").split(/\r?\n/).some((line) => !/^\s*(?:\/\/|\/?\*)/.test(line) && /\brenderMarkdown\s*\(/.test(line)));
     assert(!bypass.length, `这些文件绕开了 renderMarkdownInto(图不会渲染):${bypass.join(", ")}`);
   } finally {
     svNs.setStructuredNav(savedNav);

@@ -2,11 +2,15 @@
 // 全应用唯一的图引擎入口:架构页的大图,以及聊天、文档查看器、研究页 markdown 里闭合的 ```mermaid 围栏。
 // - 引擎:vendor/mermaid(12.0.0 ESM 分块版),第一次用到时才 import;架构页空闲期预加载。
 // - 配色只由 kanzei 注入:themeVariables 与五个语义类(entry/ext/store/focus/muted)的 classDef 在渲染时从
-//   style.css 的 --diagram-* token 读出——本文件不写任何字面量颜色;源码里的 %%{init} 指令被抹成注释(行号不变)。
-// - 安全:securityLevel strict + htmlLabels false;插入前再查一遍 SVG(script / foreignObject / on* / javascript:)。
-// - 点击:strict 下 mermaid 不绑定 click。这里解析 `click <id> "<路径[:行]>|<条目号>" ["<提示>"]`,把这些行抹成注释
+//   style.css 的 --diagram-* token 读出——本文件不写任何字面量颜色;源码里的 %%{init} 指令与 frontmatter 的
+//   config 段被抹成空行(行数不变)。
+// - 安全:securityLevel strict + htmlLabels false;插入前按标签与属性查一遍 SVG(script / foreignObject / on* /
+//   javascript: 链接),插入后再按 DOM 查一遍。
+// - 点击:strict 下 mermaid 不绑定 click。这里解析 `click <id> "<路径[:行]>|<条目号>" ["<提示>"]`,把这些行抹成空行
 //   (strict 下 mermaid 仍会把 href 包成 <a>,点了会让 WebView 自己导航),映射到 SVG 节点后走注入的导航。
-// - 串行队列(mermaid.render 不可重入)+ LRU 缓存(键 = 主题 + 源码);未闭合的围栏(<pre data-open>)永不渲染。
+// - 行号:mermaid 解析前剥掉 frontmatter、整行 %% 注释与开头空行,jison 报的是剥完之后的行号;prepareDiagramSource
+//   给出 lineMap,错误卡、修复提示与源码高亮都换回原文行号。
+// - 串行队列(mermaid.render 不可重入)+ LRU 缓存(键 = 主题 + 布局覆盖 + 源码);未闭合的围栏(<pre data-open>)永不渲染。
 // 零 import:04-markdown.js 在 Node 冒烟里被直接 import,这里不得牵出应用其它模块。翻译、导航、源码查看器、
 // 放大查看与 toast 由 04-structured.js / 15-views-misc.js 经 setDiagramHost 注入。模块顶层不碰 document。
 
@@ -33,11 +37,16 @@ const fitMin = () => {
   const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
   return Math.min(0.85, Math.max(0.6, 11 / (13 * dpr)));
 };
-/// 抹掉的行换成这句注释:mermaid 的注释是 `%%` 后至少一个字符,单独的 `%%` 会被当成节点画出来。
-const BLANKED = "%% ·";
+/// 抹掉的行换成空行:mermaid 不删中间的空行,行号不漂移(开头的空行由 lineMap 兜住)。
+const BLANKED = "";
+/// mermaid 12 的 cleanupComments 按行删的注释:`%%` 后不是 `{`。单独一个 `%%` mermaid 不删、会画成节点,这里一并抹掉。
+const COMMENT_LINE = /^\s*%%(?!\{)[^\n]*$/;
+const FRONTMATTER_FENCE = /^---\s*$/;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 3;
 const INLINE_MAX_H = 520;
+/// 页面模式画布的最低高度:矮图(适应后只有两三百像素)不再撑出大片空白把下方文档树挤下去。
+const PAGE_MIN_H = 240;
 
 // ---------- 宿主注入 ----------
 const host = {
@@ -154,7 +163,7 @@ export function semanticClassDefs(tokens) {
     "classDef muted opacity:0.72",
   ];
 }
-function mermaidConfig(tokens, theme) {
+function mermaidConfig(tokens, theme, layout = null) {
   return {
     startOnLoad: false,
     securityLevel: "strict",
@@ -165,7 +174,8 @@ function mermaidConfig(tokens, theme) {
     themeVariables: themeVariablesFromTokens(tokens, theme),
     fontFamily: tokens.font || undefined,
     flowchart: { curve: "basis", padding: 12, nodeSpacing: 32, rankSpacing: 44, diagramPadding: 12, useMaxWidth: false, htmlLabels: false, wrappingWidth: 360 },
-    elk: { nodePlacementStrategy: "BRANDES_KOEPF", considerModelOrder: "NODES_AND_EDGES", mergeEdges: true },
+    // mergeEdges 默认合并同向边(手写图与约简的 crate 图更紧凑);单张图可经 mountDiagram 的 layout 覆盖(「全部依赖」关掉它)。
+    elk: { nodePlacementStrategy: "BRANDES_KOEPF", considerModelOrder: "NODES_AND_EDGES", mergeEdges: true, ...(layout ?? {}) },
     sequence: { useMaxWidth: false },
     state: { useMaxWidth: false },
     class: { useMaxWidth: false },
@@ -217,19 +227,51 @@ export function diagramKind(source) {
   }
   return "";
 }
-/// click 行与 %%{init} 指令抹成注释(行数不变,解析错误的行号直接对应原文);flowchart 末尾追加语义类。
+/// 送进引擎前的源码:click 行、%%{…}%% 指令、整行 %% 注释、frontmatter 的 config 段都换成空行(行数不变),
+/// flowchart 末尾追加语义类。lineMap[k] = mermaid 剥掉 frontmatter 与开头空行之后第 k+1 行在原文里的行号。
 export function prepareDiagramSource(source, tokens = null) {
   const lines = String(source ?? "").replace(/\r\n?/g, "\n").split("\n");
   const clicks = [];
+  // frontmatter 只认第一行起的 `---` … `---`(mermaid 同样只认开头);config 段(含缩进子行)抹掉,title 等照留。
+  const fmEnd = FRONTMATTER_FENCE.test(lines[0] ?? "") ? lines.findIndex((line, i) => i > 0 && FRONTMATTER_FENCE.test(line)) : -1;
+  let inConfig = false;
+  let inDirective = false;
   const kept = lines.map((line, index) => {
+    if (fmEnd > 0 && index <= fmEnd) {
+      if (index === 0 || index === fmEnd) return line;
+      if (/^config\s*:/.test(line)) {
+        inConfig = true;
+        return BLANKED;
+      }
+      if (inConfig && (/^\s/.test(line) || !line.trim())) return BLANKED;
+      inConfig = false;
+      return line;
+    }
     const trimmed = line.trim();
-    if (trimmed.startsWith("%%{")) return BLANKED;
+    if (inDirective) {
+      if (trimmed.includes("}%%")) inDirective = false;
+      return BLANKED;
+    }
+    if (trimmed.startsWith("%%{")) {
+      inDirective = !trimmed.includes("}%%");
+      return BLANKED;
+    }
     if (/^click\s/.test(trimmed)) {
       const click = parseClickLine(trimmed);
       if (click) clicks.push({ ...click, sourceLine: index + 1 });
       return BLANKED;
     }
-    return line;
+    if (COMMENT_LINE.test(line)) return BLANKED;
+    // 行内的 %%{…}%% 指令(`a --> b %%{init: …}%%`)同样只由 kanzei 注入配置。
+    return line.includes("%%{") ? line.replace(/%%\{.*?\}%%/g, "") : line;
+  });
+  const lineMap = [];
+  let started = false;
+  kept.forEach((line, index) => {
+    if (fmEnd > 0 && index <= fmEnd) return;
+    if (!started && !line.trim()) return;
+    started = true;
+    lineMap.push(index + 1);
   });
   const kind = diagramKind(source);
   let text = kept.join("\n");
@@ -237,7 +279,7 @@ export function prepareDiagramSource(source, tokens = null) {
     const defs = semanticClassDefs(tokens);
     if (defs.length) text += `\n${defs.join("\n")}`;
   }
-  return { text, clicks, kind, lineCount: lines.length };
+  return { text, clicks, kind, lineCount: lines.length, lineMap };
 }
 
 // ---------- 渲染(串行队列 + LRU) ----------
@@ -256,29 +298,34 @@ function cachePut(key, value) {
   cache.set(key, value);
   while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
 }
-const cacheKey = (source, theme) => `${theme}\u0000${source}`;
-export function cachedDiagram(source, theme = currentDiagramTheme()) {
-  return cacheGet(cacheKey(source, theme));
+const layoutKey = (layout) => (layout ? JSON.stringify(layout) : "");
+const cacheKey = (source, theme, layout) => `${theme}\u0000${layoutKey(layout)}\u0000${source}`;
+export function cachedDiagram(source, theme = currentDiagramTheme(), layout = null) {
+  return cacheGet(cacheKey(source, theme, layout));
 }
+/// 插入前的字符串闸门:只看标签与属性,不看文字——标签正文里写「JavaScript: 前端」或 `online=true` 是正常内容。
 export function svgSafetyIssues(svg) {
   const text = String(svg ?? "");
   const found = [];
   if (/<script\b/i.test(text)) found.push("script");
   if (/<foreignObject\b/i.test(text)) found.push("foreignObject");
   if (/<(?:iframe|object|embed)\b/i.test(text)) found.push("embed");
-  if (/\son[a-z]+\s*=/i.test(text)) found.push("on*");
-  if (/javascript:/i.test(text)) found.push("javascript:");
+  if (/<[a-z][^<>]*\son[a-z]+\s*=/i.test(text)) found.push("on*");
+  if (/<[a-z][^<>]*\s(?:xlink:)?href\s*=\s*["']?\s*javascript:/i.test(text)) found.push("javascript:");
   return found;
 }
 function errorInfo(error, prepared) {
   const raw = String(error?.message ?? error ?? "").trim();
   let line = Number(error?.hash?.loc?.first_line) || (Number.isFinite(error?.hash?.line) ? error.hash.line + 1 : 0);
   if (!line) line = Number(raw.match(/\bline (\d+)/i)?.[1] ?? 0);
+  // jison 报的是 mermaid 剥掉 frontmatter 与开头空行之后的行号:经 lineMap 换回原文行号。
   // 错在追加的语义类里(不该发生)时,钉到原文最后一行。
-  if (line > prepared.lineCount) line = prepared.lineCount;
+  const original = (n) => prepared.lineMap?.[n - 1] ?? Math.min(n, prepared.lineCount);
+  if (line) line = original(line);
   // mermaid 的报错带源码摘录与 ^ 指示行,取最后一行实质内容(Expecting … got …)。
   const meaningful = raw.split("\n").map((s) => s.trim()).filter((s) => s && !/^[-\s]*\^$/.test(s) && !/^Parse error on line \d+:?$/i.test(s));
-  let message = meaningful.at(-1) ?? raw;
+  // langium 系图种(pie 等)把行号写在消息里(`Lexer error on line 4`),同样换成原文行号,免得与卡片上的行号打架。
+  let message = (meaningful.at(-1) ?? raw).replace(/\b(line )(\d+)/gi, (_, word, n) => `${word}${original(Number(n))}`);
   // jison 的「Expecting 'A', 'B', … 十几项, got 'X'」只留前三项:要紧的是 got 什么,不是全部候选。
   const expecting = message.match(/^Expecting (.+), got (.+)$/);
   if (expecting) {
@@ -288,15 +335,16 @@ function errorInfo(error, prepared) {
   return { line: line || null, message: message.slice(0, 240) };
 }
 /// 渲染一段 mermaid:→ { svg, id, clicks, kind } 或 { error: { line, message }, clicks }。
-export function renderDiagram(source, { theme = currentDiagramTheme() } = {}) {
-  const key = cacheKey(source, theme);
+/// layout:这张图的 ELK 覆盖项(如 { mergeEdges: false }),进缓存键。
+export function renderDiagram(source, { theme = currentDiagramTheme(), layout = null } = {}) {
+  const key = cacheKey(source, theme, layout);
   const hit = cacheGet(key);
   if (hit) return Promise.resolve(hit);
-  const job = queue.then(() => renderNow(source, theme, key));
+  const job = queue.then(() => renderNow(source, theme, key, layout));
   queue = job.catch(() => {});
   return job;
 }
-async function renderNow(source, theme, key) {
+async function renderNow(source, theme, key, layout) {
   const again = cacheGet(key);
   if (again) return again;
   const tokens = diagramTokens();
@@ -310,8 +358,8 @@ async function renderNow(source, theme, key) {
   }
   let result;
   try {
-    const config = mermaidConfig(tokens, theme);
-    const signature = JSON.stringify(config.themeVariables);
+    const config = mermaidConfig(tokens, theme, layout);
+    const signature = JSON.stringify([config.themeVariables, config.elk]);
     if (signature !== configuredSignature && typeof current.initialize === "function") {
       current.initialize(config);
       configuredSignature = signature;
@@ -480,7 +528,10 @@ function uniqueSvg(result) {
 function domUnsafe(svg) {
   if (svg.querySelector?.("script, foreignObject")) return true;
   for (const node of svg.querySelectorAll?.("*") ?? []) {
-    for (const attr of node.attributes ?? []) if (/^on/i.test(attr.name)) return true;
+    for (const attr of node.attributes ?? []) {
+      if (/^on/i.test(attr.name)) return true;
+      if (/^(?:xlink:)?href$/i.test(attr.name) && /^\s*javascript:/i.test(attr.value ?? "")) return true;
+    }
   }
   return false;
 }
@@ -490,14 +541,16 @@ export function fixHint({ path, fileLine, message, lineText }) {
   return `${fill(t("修复 {where} 的 mermaid 语法:{message}"), { where, message })}${tail}`;
 }
 
-/// 挂一张图。mode: "page"(架构页:适应/缩放/平移,高度 clamp(360, 图高, 70vh))|"inline"(markdown 里:
+/// 挂一张图。mode: "page"(架构页:适应/缩放/平移,高度 clamp(240, 图高, 70vh))|"inline"(markdown 里:
 /// 宽度撑满、最高 520、不劫持滚轮,可「放大」到查看器)。path/sourceLine 让错误行号换算成文件行号。
-/// 返回控制器 { root, theme, rerender(), setSource(src), fit(), destroy(), result }。
+/// layout:ELK 覆盖项;variant:写到 figure 的 data-variant,样式按它区分(如 "deps-full" 把传递边画淡)。
+/// 返回控制器 { root, theme, rerender(), setSource(src, { layout, variant }), fit(), destroy(), result }。
 export function mountDiagram(container, source, options = {}) {
   const mode = options.mode === "page" ? "page" : "inline";
   const figure = el("figure", "kz-diagram");
   figure.dataset.mode = mode;
   figure.dataset.state = "loading";
+  if (options.variant) figure.dataset.variant = options.variant;
   const bar = el("div", "kz-diagram-bar");
   bar.setAttribute("role", "toolbar");
   bar.setAttribute("aria-label", t("图工具"));
@@ -533,6 +586,7 @@ export function mountDiagram(container, source, options = {}) {
     root: figure,
     theme: currentDiagramTheme(),
     source: String(source ?? ""),
+    layout: options.layout ?? null,
     result: null,
     graph: null,
     scale: 1,
@@ -565,11 +619,11 @@ export function mountDiagram(container, source, options = {}) {
     if (!view.natural.w) return;
     const width = canvasSize().w || view.natural.w + 2 * PAD;
     const viewport = typeof window !== "undefined" ? window.innerHeight || 800 : 800;
-    const maxH = mode === "page" ? Math.max(360, viewport * 0.7) : INLINE_MAX_H;
+    const maxH = mode === "page" ? Math.max(PAGE_MIN_H, viewport * 0.7) : INLINE_MAX_H;
     const raw = Math.min(FIT_MAX, (width - 2 * PAD) / view.natural.w, (maxH - 2 * PAD) / view.natural.h);
     const floor = fitMin();
     view.scale = Math.max(floor, raw);
-    const height = Math.min(maxH, Math.max(mode === "page" ? 360 : 120, view.natural.h * view.scale + 2 * PAD));
+    const height = Math.min(maxH, Math.max(mode === "page" ? PAGE_MIN_H : 120, view.natural.h * view.scale + 2 * PAD));
     figure.style.setProperty("--kz-diagram-h", `${Math.round(height)}px`);
     hint.classList.toggle("hidden", raw >= floor);
     view.x = 0;
@@ -651,7 +705,7 @@ export function mountDiagram(container, source, options = {}) {
     view.theme = currentDiagramTheme();
     figure.dataset.state = "loading";
     bar.dataset.state = "loading";
-    const hit = cachedDiagram(view.source, view.theme);
+    const hit = cachedDiagram(view.source, view.theme, view.layout);
     if (hit) {
       showResult(hit);
       return Promise.resolve(hit);
@@ -659,9 +713,10 @@ export function mountDiagram(container, source, options = {}) {
     status.classList.remove("hidden");
     const wanted = view.source;
     const theme = view.theme;
-    return renderDiagram(wanted, { theme }).then(
+    const layout = view.layout;
+    return renderDiagram(wanted, { theme, layout }).then(
       (result) => {
-        if (view.source !== wanted || view.theme !== theme) return result;
+        if (view.source !== wanted || view.theme !== theme || view.layout !== layout) return result;
         showResult(result);
         return result;
       },
@@ -672,8 +727,13 @@ export function mountDiagram(container, source, options = {}) {
       },
     );
   }
-  function setSource(next) {
+  function setSource(next, { layout, variant } = {}) {
     view.source = String(next ?? "");
+    if (layout !== undefined) view.layout = layout ?? null;
+    if (variant !== undefined) {
+      if (variant) figure.dataset.variant = variant;
+      else delete figure.dataset.variant;
+    }
     return rerender();
   }
   function destroy() {

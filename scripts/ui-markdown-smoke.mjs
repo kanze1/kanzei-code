@@ -179,15 +179,21 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
   const el = { innerHTML: "", querySelectorAll: () => [] };
   assert.equal(renderMarkdownInto(el, "**x**"), el, "renderMarkdownInto 应返回宿主");
   assert.equal(el.innerHTML, "<p><strong>x</strong></p>", "renderMarkdownInto 没写进宿主");
-  // 静态门禁:04-markdown.js 以外不得再写 `x.innerHTML = renderMarkdown(…)`——那样 mermaid 围栏永远是代码块。
+  // 静态门禁:04-markdown.js 以外一律不直接调 renderMarkdown(——不只是 `x.innerHTML = renderMarkdown(…)`,跨行赋值、
+  // insertAdjacentHTML、模板插值 `${renderMarkdown(x)}` 同样绕开了图渲染(mermaid 围栏永远是代码块)。注释行不算。
+  const bypassesRenderInto = (text) => text.split(/\r?\n/).flatMap((line, index) =>
+    !/^\s*(?:\/\/|\/?\*)/.test(line) && /\brenderMarkdown\s*\(/.test(line) ? [index + 1] : []);
+  // 门禁自检:三种曾经绕过旧门禁的写法都要抓到,注释与 renderMarkdownInto 不算。
+  for (const sample of ["el.innerHTML =\n  renderMarkdown(x);", 'el.insertAdjacentHTML("beforeend", renderMarkdown(x));', "html = `<div>${renderMarkdown(x)}</div>`;"]) {
+    assert.equal(bypassesRenderInto(sample).length, 1, `静态门禁漏掉了绕开写法:${sample}`);
+  }
+  assert.equal(bypassesRenderInto("// 整条 renderMarkdown(raw) 重渲染\nrenderMarkdownInto(el, raw);").length, 0, "静态门禁误报了注释或 renderMarkdownInto");
   const { readdir } = await import("node:fs/promises");
   const uiDir = new URL("../crates/kanzei-app/ui/", import.meta.url);
   const offenders = [];
   for (const name of (await readdir(uiDir)).filter((file) => file.endsWith(".js") && file !== "04-markdown.js")) {
     const text = await readFile(new URL(name, uiDir), "utf8");
-    text.split(/\r?\n/).forEach((line, index) => {
-      if (/\.innerHTML\s*=\s*renderMarkdown\(/.test(line)) offenders.push(`${name}:${index + 1}`);
-    });
+    for (const line of bypassesRenderInto(text)) offenders.push(`${name}:${line}`);
   }
   assert.deepEqual(offenders, [], `这些地方绕开了 renderMarkdownInto(图不会渲染),改成 renderMarkdownInto(el, raw[, { streaming }]):${offenders.join(", ")}`);
 }

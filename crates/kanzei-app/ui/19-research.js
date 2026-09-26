@@ -1054,6 +1054,16 @@ export function splitResearchReportBlocks(text) {
   return blocks;
 }
 
+/// 图(SVG 里的 tspan 换成 HTML 按钮就不显示了)与代码块里的编号不装饰。缓存命中时 mermaid 图在
+/// renderMarkdownInto 里已同步插入,这里遍历得到它的文本节点。行内 code 照旧装饰(报告里常写 `S-001`)。
+function insideLiteralBlock(node, host) {
+  for (let el = node.parentNode; el && el !== host; el = el.parentNode) {
+    const tag = String(el.tagName ?? "").toLowerCase();
+    if (tag === "svg" || tag === "pre" || el.classList?.contains?.("kz-diagram")) return true;
+  }
+  return false;
+}
+
 export function decorateResearchReportReferences(host) {
   // 渲染后回扫文本节点,把引用编号替换为按钮。只认已登记的编号,避免把普通
   // 文本里的 S-/F- 误变成死链。
@@ -1066,7 +1076,7 @@ export function decorateResearchReportReferences(host) {
   const walker = document.createTreeWalker(host, 4 /* TEXT_NODE */);
   const targets = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (/\b[SF]-\d{3}\b/.test(node.nodeValue ?? "")) targets.push(node);
+    if (/\b[SF]-\d{3}\b/.test(node.nodeValue ?? "") && !insideLiteralBlock(node, host)) targets.push(node);
   }
   for (const node of targets) {
     const frag = document.createDocumentFragment();

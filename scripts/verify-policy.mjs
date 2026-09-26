@@ -49,10 +49,16 @@ function isRustPath(path) {
 function isDiagramPath(path) {
   return (
     (path.startsWith("docs/") && path.endsWith(".md")) ||
-    path === "crates/kanzei-tools/src/arch_diagram.rs" ||
+    path.startsWith("crates/kanzei-tools/src/arch_diagram") ||
     path.startsWith("crates/kanzei-tools/tests/fixtures/arch_diagram/") ||
     path === "scripts/ui-diagram-smoke.mjs"
   );
+}
+
+// docs/architecture 的图由 Rust 侧 lint(arch_diagram_lint.rs,repo_default_diagrams_have_no_lint_errors 读真实文件)
+// 把关 D1–D9:只改图也要跑 Rust 测试,否则只改文档时引入的 lint error 要等到后面某个无关的 Rust 提交才暴露。
+function isArchitectureDiagramDoc(path) {
+  return path.startsWith("docs/architecture/");
 }
 
 function isFrontendPath(path) {
@@ -69,7 +75,7 @@ function isFrontendPath(path) {
 
 export function classifyChangedPaths(paths, { full = false } = {}) {
   const changedPaths = [...new Set((paths ?? []).map(normalizePath).filter(Boolean))].sort();
-  const hasRust = full || changedPaths.some(isRustPath);
+  const hasRust = full || changedPaths.some((path) => isRustPath(path) || isArchitectureDiagramDoc(path));
   const hasFrontend = full || changedPaths.some(isFrontendPath);
   const hasDiagram = hasFrontend || changedPaths.some(isDiagramPath);
   const skippedSteps = [

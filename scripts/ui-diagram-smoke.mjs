@@ -3,20 +3,26 @@
 //
 // 假 DOM 冒烟跑不了真 mermaid,真实渲染质量全在这里:无头 Edge(playwright-core channel msedge,与
 // ui-surface-gallery-smoke 同一路线)打开 ui/gallery.html(只带 app.css 与零 import 模块),直接 import
-// 04-diagram.js,把下列图在暗/亮两套主题下按「页面模式、宽 960」各渲染一遍:
-//   - docs/architecture/*.md 的主图(架构页标签页里的那几张);
-//   - docs/**/*.md 里所有 ```mermaid 围栏(聊天/文档查看器里同一个渲染器);
-//   - crate 图生成器的 golden(crates/kanzei-tools/tests/fixtures/arch_diagram/*.mmd,含引号/反引号/截断)。
-// 逐张检查:① 能解析能渲染;② 每条 click 都映射到 SVG 节点、目标路径在仓里存在;③ 节点包围盒两两不重叠;
+// 04-diagram.js,把下列图在暗/亮两套主题下按「页面模式、宽 960」各渲染一遍。判据按范围分两级:
+//   - 架构图(scope=arch):docs/architecture/*.md 的主图(架构页标签页里的那几张)与 crate 图生成器的 golden
+//     (crates/kanzei-tools/tests/fixtures/arch_diagram/*.mmd,含引号/反引号/截断)——全部判据;
+//   - 文档里的图(scope=doc):docs/**/*.md 里其余 ```mermaid 围栏(聊天/文档查看器里同一个渲染器,inline 模式最高
+//     520、可拖动)——只要求能解析能渲染、安全、有 click 时映射率 100%;click 目标不存在只记警告,版式不判。
+//     自举线天天写 docs/design,长时序图、计划中还没建的文件都是正常内容,不该被架构图的版式判据挡住。
+// 架构图逐张检查:① 能解析能渲染;② 每条 click 都映射到 SVG 节点、目标路径在仓里存在;③ 节点包围盒两两不重叠;
 // ④ 标签文字不溢出节点形状;⑤ 适应后主标签有效字号 ≥ 11px、次行 ≥ 10px;⑥ 图自然尺寸 ≤ 2400×1600;
 // ⑦ 标签对节点底 ≥ 4.5(次要类 muted 刻意淡化,≥ 3),边对画布 ≥ 3;⑧ 没有 foreignObject/script/on*;
 // ⑨ --diagram-* token 解析结果都是 hex(mermaid 的 themeVariables 只认 hex)。
-// 截图写入 dist/ui-diagrams/<theme>-<名字>.png(dist 已在 .gitignore)。
+// 两级都查 click 的行号锚点:行号超过文件行数、提示以「标识符:」开头而那一行没有这个标识符 → 警告(与 lint 的
+// D5 警告同一判据;源码一改行号就漂,不挡门禁)。
+// 截图写入 dist/ui-diagrams/<theme>-<名字>.png,警告与结果写入 report.json(dist 已在 .gitignore)。
 // selfTestDiagramGate:语法错误、click 指向不存在的节点、带 foreignObject 的 SVG、人为重叠的包围盒、
-// 标签溢出、低对比 token 覆盖——每个坏样例必须被对应检查器抓到,任何检查器恒绿即失败。
+// 标签溢出、低对比 token 覆盖、错误行号(注释 / click 行 / frontmatter 之后)——每个坏样例必须被对应检查器抓到,
+// 任何检查器恒绿即失败;另有反例:文档里的长时序图、指向未建文件的 click 不判红,标签正文含 `online=`、
+// `JavaScript:` 的图照常渲染。
 /* global window, document, getComputedStyle */
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright-core";
@@ -27,7 +33,7 @@ const OUT = path.join(root, "dist", "ui-diagrams");
 const WIDTH = 960;
 const LIMITS = { maxW: 2400, maxH: 1600, primaryPx: 11, secondaryPx: 10, text: 4.5, mutedText: 3, edge: 3 };
 const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : null;
-const { parseClickDirectives, svgSafetyIssues } = await import(pathToFileURL(path.join(root, "crates/kanzei-app/ui/04-diagram.js")).href);
+const { svgSafetyIssues } = await import(pathToFileURL(path.join(root, "crates/kanzei-app/ui/04-diagram.js")).href);
 
 // ---------- 颜色 ----------
 export function parseColor(text) {
@@ -125,26 +131,49 @@ export function contrastViolations(nodes, edges, canvas) {
 export function sizeViolations(natural) {
   return natural.w > LIMITS.maxW || natural.h > LIMITS.maxH ? [`图自然尺寸 ${Math.round(natural.w)}×${Math.round(natural.h)} 超过 ${LIMITS.maxW}×${LIMITS.maxH},按子系统拆图`] : [];
 }
-export function clickViolations(result, { checkPaths }) {
-  const out = result.unmapped.map((c) => `click ${c.id} 在 SVG 里找不到节点(第 ${c.sourceLine} 行)`);
-  if (checkPaths) {
-    for (const c of result.clicks) {
-      if (c.path && !existsSync(path.join(root, c.path))) out.push(`click ${c.id} 的目标不存在:${c.path}`);
+export function clickViolations(result) {
+  return result.unmapped.map((c) => `click ${c.id} 在 SVG 里找不到节点(第 ${c.sourceLine} 行)`);
+}
+export function missingTargets(result) {
+  return result.clicks.filter((c) => c.path && !existsSync(path.join(root, c.path))).map((c) => `click ${c.id} 的目标不存在:${c.path}`);
+}
+/// 行号锚点漂移(与 arch_diagram_lint.rs 的 D5 警告同一判据):行号超过文件行数;提示以「标识符:」开头而那一行没有它。
+export function lineAnchorWarnings(result) {
+  const out = [];
+  for (const c of result.clicks) {
+    if (!c.path || !c.line) continue;
+    const file = path.join(root, c.path);
+    if (!existsSync(file)) continue;
+    const lines = readFileSync(file, "utf8").replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
+    if (c.line > lines.length) {
+      out.push(`click ${c.id} 的行号 ${c.line} 超过 ${c.path} 的行数 ${lines.length}`);
+      continue;
     }
+    const ident = String(c.tip ?? "").match(/^([A-Za-z_][A-Za-z0-9_]*)[:：]/)?.[1];
+    if (ident && !lines[c.line - 1].includes(ident)) out.push(`click ${c.id}:${c.path}:${c.line} 这一行里没有 ${ident},行号可能已经漂移`);
   }
   return out;
 }
-export function judge(result, { checkPaths }) {
-  if (result.error) return [`渲染失败:第 ${result.error.line ?? "?"} 行 ${result.error.message}`];
-  return [
-    ...clickViolations(result, { checkPaths }),
-    ...overlapViolations(result.nodes),
-    ...overflowViolations(result.nodes),
-    ...fontViolations(result.nodes, result.scale),
-    ...sizeViolations(result.natural),
-    ...contrastViolations(result.nodes, result.edges, result.canvas),
-    ...result.unsafe.map((what) => `SVG 含不安全内容:${what}`),
-  ];
+/// 判据按范围分级:arch(docs/architecture 主图与 crate golden)全判;doc(其余文档里的图)只判能渲染、安全、
+/// click 映射,目标不存在降为警告。返回 { red, warn }。
+export function judge(result, { checkPaths, scope = "arch" }) {
+  if (result.error) return { red: [`渲染失败:第 ${result.error.line ?? "?"} 行 ${result.error.message}`], warn: [] };
+  const red = [...clickViolations(result), ...result.unsafe.map((what) => `SVG 含不安全内容:${what}`)];
+  const warn = checkPaths ? lineAnchorWarnings(result) : [];
+  const missing = checkPaths ? missingTargets(result) : [];
+  if (scope === "arch") {
+    red.push(
+      ...missing,
+      ...overlapViolations(result.nodes),
+      ...overflowViolations(result.nodes),
+      ...fontViolations(result.nodes, result.scale),
+      ...sizeViolations(result.natural),
+      ...contrastViolations(result.nodes, result.edges, result.canvas),
+    );
+  } else {
+    warn.push(...missing);
+  }
+  return { red, warn };
 }
 
 // ---------- 取图 ----------
@@ -182,15 +211,15 @@ async function collectCases() {
       const key = `${rel}:${fence.line}`;
       if (seen.has(key)) return;
       seen.add(key);
-      // docs/architecture 只有首个围栏是标签页主图;其余围栏与别处文档一样按 markdown 里的图处理。
-      cases.push({ name: `${rel.replace(/^docs\//, "").replace(/[\\/]/g, "_").replace(/\.md$/, "")}-${fence.line}`, path: rel, line: fence.line, source: fence.source, checkPaths: true, arch: isArch && index === 0 });
+      // docs/architecture 只有首个围栏是标签页主图(全部判据);其余围栏与别处文档一样按 markdown 里的图处理。
+      cases.push({ name: `${rel.replace(/^docs\//, "").replace(/[\\/]/g, "_").replace(/\.md$/, "")}-${fence.line}`, path: rel, line: fence.line, source: fence.source, checkPaths: true, scope: isArch && index === 0 ? "arch" : "doc" });
     });
   }
   const goldenDir = path.join(root, "crates", "kanzei-tools", "tests", "fixtures", "arch_diagram");
   for (const name of ["crates_reduced.mmd", "crates_full.mmd"]) {
     const source = await readFile(path.join(goldenDir, name), "utf8");
     // golden 的 click 目标指向夹具工作区(不在本仓),只查映射不查路径。
-    cases.push({ name: `golden_${name.replace(/\.mmd$/, "")}`, path: `crates/kanzei-tools/tests/fixtures/arch_diagram/${name}`, line: 1, source: source.replace(/\r\n?/g, "\n"), checkPaths: false, arch: true });
+    cases.push({ name: `golden_${name.replace(/\.mmd$/, "")}`, path: `crates/kanzei-tools/tests/fixtures/arch_diagram/${name}`, line: 1, source: source.replace(/\r\n?/g, "\n"), checkPaths: false, scope: "arch" });
   }
   return only ? cases.filter((c) => c.path.includes(only) || c.name.includes(only)) : cases;
 }
@@ -284,14 +313,39 @@ async function measure(page, source, { theme }) {
 async function selfTestDiagramGate(page) {
   const failures = [];
   const expectRed = (what, list) => { if (!list.length) failures.push(`自检失效:${what} 没被判红`); };
+  const expectGreen = (what, list) => { if (list.length) failures.push(`自检失效:${what} 不该判红:${list.join(";")}`); };
   // 语法错误 → 渲染失败。
   const broken = await measure(page, "flowchart LR\n  a[run(x)] --> b[\"乙\"]", { theme: "dark" });
-  expectRed("语法错误", judge(broken, { checkPaths: false }));
-  // click 指向不存在的节点 → 映射失败;目标路径不存在 → 路径失败。
+  expectRed("语法错误", judge(broken, { checkPaths: false }).red);
+  // 错误行号是原文行号:mermaid 解析前剥掉注释、frontmatter 与开头空行,jison 报的是剥完之后的行号。
+  for (const [what, source, want] of [
+    ["%% 注释之后", "flowchart LR\n  %% 注释一\n  %% 注释二\n  a[\"甲\"] --> b[\"乙\"]\n  c[bad(]", 5],
+    ["click 行之后", "flowchart LR\n  a[\"甲\"] --> b[\"乙\"]\n  click a \"docs/x.md\" \"t\"\n  click b \"docs/y.md\" \"t\"\n  c[bad(]", 5],
+    ["frontmatter 与开头注释之后", "---\ntitle: 标题\n---\n%% 头\n\nflowchart LR\n  a --> b\n  c[bad(]", 8],
+  ]) {
+    const got = (await measure(page, source, { theme: "dark" })).error?.line;
+    if (got !== want) failures.push(`自检失效:错误出现在${what},报第 ${got ?? "?"} 行,实际是第 ${want} 行`);
+  }
+  // click 指向不存在的节点 → 映射失败;目标路径不存在 → 架构图判红、文档里的图只记警告。
   const ghost = await measure(page, "flowchart LR\n  a[\"甲\"] --> b[\"乙\"]\n  click nope \"crates/kanzei-app/ui/04-diagram.js\"", { theme: "dark" });
-  expectRed("click 指向不存在的节点", clickViolations(ghost, { checkPaths: false }));
+  expectRed("click 指向不存在的节点", clickViolations(ghost));
   const missing = await measure(page, "flowchart LR\n  a[\"甲\"] --> b[\"乙\"]\n  click a \"crates/no/such/file.rs\"", { theme: "dark" });
-  expectRed("click 目标文件不存在", clickViolations(missing, { checkPaths: true }));
+  expectRed("架构图 click 目标文件不存在", judge(missing, { checkPaths: true, scope: "arch" }).red);
+  const planned = judge(missing, { checkPaths: true, scope: "doc" });
+  expectGreen("文档里的图 click 指向计划中还没建的文件", planned.red);
+  expectRed("文档里的图 click 目标不存在应记警告", planned.warn);
+  // 行号锚点漂移 → 警告(本文件第 1 行没有 run_once_with_parts;行号超过文件行数)。
+  const drift = await measure(page, "flowchart LR\n  a[\"甲\"] --> b[\"乙\"]\n  click a \"scripts/ui-diagram-smoke.mjs:1\" \"run_once_with_parts:主循环\"\n  click b \"scripts/ui-diagram-smoke.mjs:99999\"", { theme: "dark" });
+  const driftJudged = judge(drift, { checkPaths: true, scope: "arch" });
+  if (lineAnchorWarnings(drift).length !== 2) failures.push(`自检失效:行号锚点漂移应报 2 条警告,实得 ${JSON.stringify(lineAnchorWarnings(drift))}`);
+  expectGreen("行号锚点漂移(警告,不挡)", driftJudged.red);
+  // 反例:文档里 45 条消息的时序图(自然高度远超 1600)只要能渲染就不判红;同一张图放进架构图判尺寸红。
+  const longSequence = await measure(page, `sequenceDiagram\n${Array.from({ length: 45 }, (_, i) => `  A->>B: 第 ${i} 步`).join("\n")}`, { theme: "dark" });
+  expectGreen("文档里的长时序图", judge(longSequence, { checkPaths: true, scope: "doc" }).red);
+  expectRed("架构图尺寸过大(长时序图)", judge(longSequence, { checkPaths: true, scope: "arch" }).red);
+  // 反例:标签正文里的 `online=`、`JavaScript:` 是文字不是属性,图照常渲染(字符串闸门只看标签与属性)。
+  const prose = await measure(page, "flowchart LR\n  a[\"status online=true\"] --> b[\"JavaScript: 前端\"]", { theme: "dark" });
+  expectGreen("标签正文含 online= / JavaScript:", prose.error ? [prose.error.message] : prose.unsafe);
   // 带 foreignObject 的 SVG → 安全检查(渲染器插入前的字符串闸门)。
   expectRed("foreignObject", svgSafetyIssues('<svg><foreignObject><div onclick="x()"></div></foreignObject></svg>'));
   // 人为重叠的包围盒 / 溢出的标签 / 过小字号 / 过大尺寸。
@@ -321,6 +375,7 @@ await mkdir(OUT, { recursive: true });
 const { origin, close } = await startPreviewServer({ port: 0 });
 const browser = await chromium.launch({ channel: "msedge", headless: true });
 const failures = [];
+const warnings = [];
 const report = [];
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
@@ -333,12 +388,15 @@ try {
     for (const item of cases) {
       const result = await measure(page, item.source, { theme });
       const tokenIssues = tokenViolations(result.tokens ?? {});
-      const issues = [...tokenIssues, ...judge(result, item)];
+      const { red, warn } = judge(result, item);
+      const issues = [...tokenIssues, ...red];
       const where = `${theme} ${item.path}:${item.line}`;
       for (const issue of issues) failures.push(`${where} ${issue}`);
+      // 警告两个主题一样,只在暗色记一次。
+      if (theme === "dark") for (const note of warn) warnings.push(`${item.path}:${item.line} ${note}`);
       const shot = path.join(OUT, `${theme}-${item.name}.png`);
       await page.locator("#kz-diagram-gate").screenshot({ path: shot }).catch(() => {});
-      report.push({ theme, path: item.path, line: item.line, ok: !issues.length, scale: result.scale, natural: result.natural, nodes: result.nodes?.length ?? 0, mapped: result.mapped ?? 0 });
+      report.push({ theme, path: item.path, line: item.line, scope: item.scope, ok: !issues.length, warnings: warn, scale: result.scale, natural: result.natural, nodes: result.nodes?.length ?? 0, mapped: result.mapped ?? 0 });
     }
   }
   if (pageErrors.length) failures.push(...pageErrors.map((e) => `页面异常:${e}`));
@@ -348,10 +406,14 @@ try {
   await close();
 }
 await writeFile(path.join(OUT, "report.json"), JSON.stringify(report, null, 2));
+if (warnings.length) {
+  console.warn(`ui-diagram-smoke 警告(${warnings.length} 条,不挡门禁):`);
+  for (const note of warnings) console.warn(` - ${note}`);
+}
 if (failures.length) {
   console.error(`ui-diagram-smoke 失败(${failures.length} 处):`);
   for (const failure of failures) console.error(` - ${failure}`);
   process.exit(1);
 }
-const archCount = cases.filter((c) => c.arch).length;
-console.log(`ui-diagram-smoke 通过:${cases.length} 张图(架构页 ${archCount} 张)× 暗/亮 真渲染,点击映射/重叠/溢出/字号/尺寸/对比度/安全/token 全过,自检 10 个坏样例均判红;截图 ${path.relative(root, OUT)}`);
+const archCount = cases.filter((c) => c.scope === "arch").length;
+console.log(`ui-diagram-smoke 通过:${cases.length} 张图(架构图 ${archCount} 张全判据,文档里的图 ${cases.length - archCount} 张判渲染/安全/点击映射)× 暗/亮 真渲染,自检坏样例均判红、反例均不判红;警告 ${warnings.length} 条;截图 ${path.relative(root, OUT)}`);
