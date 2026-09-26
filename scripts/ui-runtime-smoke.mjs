@@ -9490,6 +9490,9 @@ const docsB = {
     assert(switchBtn?.getAttribute("aria-haspopup") === "menu" && !switchBtn.hasAttribute("aria-controls"), "项目卡必须是菜单按钮(aria-haspopup=menu,不再 aria-controls 某个分区)");
     // 假 DOM 把按 id 建的节点拍平在 body 下,closest 判不了真实嵌套,这里按 HTML 原文判。
     assert(/<div class="project-warn-slot" data-space-only="dev">\s*<div id="project-shared-warn"/.test(html), "D-170 隔离告警应在项目卡下方的 .project-warn-slot 里常驻(原先在默认收起的分区里,平时看不见)");
+    assert(/id="project-switch"[^>]*>[\s\S]*?<\/button>\s*(?:<!--[\s\S]*?-->\s*)?<div class="project-warn-slot"/.test(html)
+      && html.indexOf('class="project-warn-slot"') < html.indexOf('id="new-chat"'),
+    "D-170 隔离告警槽应紧跟在项目卡之后(吸顶的工作区头里、「新对话」之前)");
     assert(!/data-collapse-default="collapsed"[^>]*>[\s\S]{0,800}id="project-shared-warn"/.test(html), "D-170 隔离告警又被放进了默认收起的分区");
 
     // ② 点项目卡:openMenu 现造的 .k-menu.project-menu;项目项 = 偏好里的项目数,当前项 ✓;另有三个入口。

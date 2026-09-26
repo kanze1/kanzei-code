@@ -320,15 +320,18 @@ body {
 .doc-empty { padding: 2px 14px; color: var(--dim); font-size: var(--fs-12); }
 /* 被筛空要显眼:一片空白会被当成数据丢失 */
 .doc-filtered-empty { color: var(--warn); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 14px; }
-/* D-170:项目隔离失效的告警。数据串项目是最严重的一类问题,必须显眼——常驻在项目卡正下方(.project-warn-slot)。 */
+/* D-170:项目隔离失效的告警。数据串项目是最严重的一类问题,必须显眼——常驻在项目卡正下方(.project-warn-slot,
+   在吸顶的工作区头里,滚动侧栏也不会被卷走)。 */
 .project-shared-warn {
-  margin: 0 12px 8px; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
+  margin: 0; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
   color: var(--alert); background: var(--alert-soft);
   border: 1px solid color-mix(in srgb, var(--alert) 28%, transparent); border-radius: var(--r-md);
   display: flex; flex-direction: column; gap: 5px; align-items: flex-start;
   word-break: break-all;
 }
 .project-shared-warn.hidden { display: none; }
+/* 告警不在时槽整个不占位:工作区头是 flex 列 + gap,空槽也会多吃一截间距。 */
+.project-warn-slot:has(> .project-shared-warn.hidden) { display: none; }
 .doc-item { padding: 6px 16px; display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
 .doc-item:hover { background: var(--surface-hover); }
 /* 取活焦点(D-207):在做条目不再染底、不画竖条——「在做」由 doing 胶囊(强调色)+ 线真在跑时的呼吸点
