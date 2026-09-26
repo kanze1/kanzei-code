@@ -18,14 +18,15 @@ use super::{cdp, pane, ColorScheme, DevicePreset, Pane};
 const LOAD_TIMEOUT: Duration = Duration::from_secs(15);
 const BACKEND: Backend = Backend::Pane;
 
-/// 在面板上执行一次 browser 动作。面板在路由之后被关掉 / 隐藏时返回 None,由调用方回落无头。
+/// 在面板上执行一次 browser 动作。面板在路由之后被关掉、或隐藏超过 [`super::VISIBLE_WAIT`]
+/// (不只是被菜单暂时遮住)时返回 None,由调用方回落无头。
 pub(crate) async fn execute(input: &BrowserInput, ctx: &ToolCtx) -> Option<ToolOutput> {
     use tauri::Manager;
     let app = super::app()?;
     let state = app.try_state::<super::PreviewState>()?;
     let _serial = state.agent.lock().await;
     let pane = pane::current(app)?;
-    if !pane.shared.meta().visible {
+    if !pane::wait_visible(&pane, super::VISIBLE_WAIT).await {
         return None;
     }
     Some(run(app, &pane, input, ctx).await)
@@ -69,7 +70,7 @@ async fn run(
             .shared
             .fail_seq
             .load(std::sync::atomic::Ordering::SeqCst);
-        pane.shared.meta().error = None;
+        pane.shared.meta().begin_navigation();
         if let Err(error) = pane::navigate(pane, &target.url) {
             return shared::browser_error(BACKEND, &error);
         }
@@ -135,13 +136,23 @@ async fn act(
                 Some(selector) => Some(element_clip(webview, selector).await?),
                 None => None,
             };
-            let (png, _, _) = pane::capture(pane, input.full_page && clip.is_none(), clip).await?;
+            let mut notes = notes.to_vec();
+            let mut full_page = input.full_page && clip.is_none();
+            if full_page && pane::is_zoomed(pane.shared.zoom()) {
+                // 设备模式下整页几何不可靠(见 pane::capture):退回可视区,并在结果里说清楚。
+                full_page = false;
+                notes.push(
+                    "设备模式(手机 / 平板 / 桌面尺寸缩放显示)下整页截图暂不支持,本次只截了面板里的可视区;需要整页请滚动后分段截图,或请用户把预览面板的设备切回「自适应」"
+                        .into(),
+                );
+            }
+            let (png, _, _) = pane::capture(pane, full_page, clip).await?;
             shared::out_screenshot(
                 BACKEND,
                 &page_url(pane),
                 &viewport_text(pane),
                 &shared::screenshot_scope(input),
-                notes,
+                &notes,
                 png,
             )
         }

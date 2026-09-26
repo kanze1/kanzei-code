@@ -9,8 +9,10 @@
 //! 4. 路由只在面板可见时走面板,截图 5 秒超时、迟到的完成回调作废(隐藏面板截图永不返回);
 //! 5. 设备模式 = 边界(设备 × 缩放,居中)+ `set_zoom(缩放)` + 触屏模拟,离开设备模式把缩放
 //!    设回 1(ZoomFactor 跨导航、跨源保持);
-//! 6. 「服务没在跑?」靠 CDP 的 Network.loadingFailed(Document)/ chrome-error 导航判断,
-//!    on_page_load 在这种情况下照样报 Finished;
+//! 6. 「服务没在跑?」只认**主 frame** 提交的 chrome-error 错误页(frameNavigated 带
+//!    unreachableUrl),具体错误码按 loaderId 从暂存的 Network.loadingFailed(Document)里取
+//!    (iframe 的失败同样会来,不能直接当页面失败,见 PaneMeta::apply);on_page_load 在这种情况下
+//!    照样报 Started / Finished,错误态只在导航开始时复位;
 //! 7. DPI 变化(WindowEvent::ScaleFactorChanged)重放边界。
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -27,8 +29,8 @@ use tauri::{
 
 use super::console::{parse_event, CdpSignal, ConsoleRing, EntryDraft, SUBSCRIBED_EVENTS};
 use super::{
-    cdp, describe_error, fit_device, nav_allowed, now_ms, state_payload, ColorScheme, DevicePreset,
-    PaneMeta, PreviewState, Rect, MAIN_LABEL, PREVIEW_LABEL,
+    cdp, fit_device, host, nav_allowed, now_ms, state_payload, ColorScheme, DevicePreset,
+    MetaEffect, PaneMeta, PreviewState, Rect, MAIN_LABEL, PREVIEW_LABEL, VISIBLE_WAIT,
 };
 
 /// 截图超时(B0:可见时 12–25 ms;隐藏时永不返回)。
@@ -68,6 +70,14 @@ impl Shared {
 
     pub(crate) fn console(&self) -> MutexGuard<'_, ConsoleRing> {
         self.console
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    /// 当前 WebView2 ZoomFactor(设备模式下 < 1)。
+    pub(crate) fn zoom(&self) -> f64 {
+        *self
+            .zoom
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
     }
@@ -113,11 +123,45 @@ async fn ensure(app: &AppHandle, host: Rect) -> Result<Pane, String> {
     if let Some(pane) = current(app) {
         return Ok(pane);
     }
+    let epoch = state.close_epoch.load(Ordering::SeqCst);
     let pane = create(app, host).await?;
-    if let Ok(mut slot) = state.slot.lock() {
-        *slot = Some(pane.clone());
+    // 比对与写入在同一把 slot 锁里:close() 先递增代次再取 slot,两边怎么交错都不会漏关。
+    let closed = {
+        let mut slot = state
+            .slot
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let closed = closed_during_creation(epoch, state.close_epoch.load(Ordering::SeqCst));
+        if !closed {
+            *slot = Some(pane.clone());
+        }
+        closed
+    };
+    if closed {
+        discard(app, &pane);
+        return Err("预览面板在创建过程中被关闭了".into());
     }
     Ok(pane)
+}
+
+/// 创建期间有没有人关过面板(关过就不能把新面板写进 slot、更不能显示)。
+pub(crate) fn closed_during_creation(epoch_before: u64, epoch_now: u64) -> bool {
+    epoch_before != epoch_now
+}
+
+/// 丢弃一块没进 slot 的面板:释放 UI 线程上的 CDP 接收器与焦点登记,再关子 webview。
+fn discard(app: &AppHandle, pane: &Pane) {
+    pane.shared.closed.store(true, Ordering::SeqCst);
+    release(app, pane.shared.generation);
+    let _ = pane.webview.close();
+}
+
+/// 释放某代面板在 UI 线程上登记的东西(CDP 事件接收器、焦点归还用的 controller)。
+fn release(app: &AppHandle, generation: u64) {
+    let _ = app.run_on_main_thread(move || {
+        cdp::release_on_ui_thread(generation);
+        host::release_panel_on_ui_thread(generation);
+    });
 }
 
 async fn create(app: &AppHandle, host: Rect) -> Result<Pane, String> {
@@ -163,32 +207,83 @@ async fn create(app: &AppHandle, host: Rect) -> Result<Pane, String> {
         Ok(Ok(Err(error))) => return Err(format!("创建预览面板失败: {error}")),
         Ok(Ok(Ok(webview))) => webview,
     };
+    let pane = Pane { webview, shared };
+    // 初始化任何一步失败:UI 线程上已登记的接收器 / 处理器随代次一起释放,再关掉空壳。
+    if let Err(error) = initialize(app, &pane).await {
+        discard(app, &pane);
+        return Err(error);
+    }
+    pane.shared.meta().alive = true;
+    spawn_console_flusher(app.clone(), Arc::downgrade(&pane.shared));
+    Ok(pane)
+}
+
+/// 建成之后、第一次导航之前:活性回环兼订阅 → 子 frame 导航闸 → *.enable → 记主 frame id →
+/// 焦点登记(B0 的顺序:先订阅、再 enable、再导航)。
+async fn initialize(app: &AppHandle, pane: &Pane) -> Result<(), String> {
+    let generation = pane.shared.generation;
     // 活性回环兼订阅:闭包被丢弃 / 超时 = 子 webview 实际没建成。
     let handler: cdp::EventHandler = {
         let app = app.clone();
-        let weak = Arc::downgrade(&shared);
+        let weak = Arc::downgrade(&pane.shared);
         Arc::new(move |name, params| handle_event(&app, &weak, name, params))
     };
-    if let Err(error) = cdp::subscribe(&webview, generation, SUBSCRIBED_EVENTS, handler).await {
-        let _ = webview.close();
-        return Err(format!(
-            "预览面板没有建成({error})。常见原因:WebView2 环境与主界面不一致。"
-        ));
-    }
+    cdp::subscribe(&pane.webview, generation, SUBSCRIBED_EVENTS, handler)
+        .await
+        .map_err(|error| {
+            format!("预览面板没有建成({error})。常见原因:WebView2 环境与主界面不一致。")
+        })?;
+    let on_blocked: cdp::BlockedHandler = {
+        let weak = Arc::downgrade(&pane.shared);
+        Arc::new(move |url| {
+            if let Some(shared) = weak.upgrade() {
+                shared
+                    .console()
+                    .push(blocked_entry(&url, "子框架"), now_ms());
+            }
+        })
+    };
+    cdp::guard_frame_navigation(&pane.webview, on_blocked)
+        .await
+        .map_err(|error| format!("预览面板初始化失败(子框架导航闸): {error}"))?;
     for method in [
         "Runtime.enable",
         "Log.enable",
         "Page.enable",
         "Network.enable",
     ] {
-        if let Err(error) = cdp::call(&webview, method, json!({}), cdp::CALL_TIMEOUT).await {
-            let _ = webview.close();
-            return Err(format!("预览面板初始化失败({method}): {error}"));
+        cdp::call(&pane.webview, method, json!({}), cdp::CALL_TIMEOUT)
+            .await
+            .map_err(|error| format!("预览面板初始化失败({method}): {error}"))?;
+    }
+    // 同文档导航(pushState)只认主 frame:先记下它的 id,之后每次主 frame 提交时刷新。
+    if let Ok(tree) = cdp::call(
+        &pane.webview,
+        "Page.getFrameTree",
+        json!({}),
+        cdp::CALL_TIMEOUT,
+    )
+    .await
+    {
+        if let Some(id) = tree["frameTree"]["frame"]["id"].as_str() {
+            pane.shared.meta().nav.main_frame_id = Some(id.to_string());
         }
     }
-    shared.meta().alive = true;
-    spawn_console_flusher(app.clone(), Arc::downgrade(&shared));
-    Ok(Pane { webview, shared })
+    host::register_panel(&pane.webview, generation);
+    Ok(())
+}
+
+/// 被导航闸拦下的地址记一条控制台警告;**不**改页面级错误态(当前页还好好的,
+/// 比如页面里的 mailto: / blob: 链接、`*.localhost` 子域的开发地址)。
+fn blocked_entry(url: &str, scope: &str) -> EntryDraft {
+    EntryDraft {
+        level: "warning".into(),
+        text: format!(
+            "已拦截{scope}导航:{url}(应用内部地址 *.localhost、file:、javascript: 等不在预览面板里打开)"
+        ),
+        url: url.to_string(),
+        ..EntryDraft::default()
+    }
 }
 
 fn builder(
@@ -209,16 +304,15 @@ fn builder(
         .disable_drag_drop_handler()
         .on_navigation(move |url| {
             let allowed = nav_allowed(url);
-            if !allowed {
-                if let Some(shared) = nav_weak.upgrade() {
-                    shared.meta().error = Some(super::PaneError {
-                        kind: super::ErrorKind::Blocked,
-                        text: format!(
-                            "已拦截导航:{url}(应用内部地址、file:、javascript: 不在面板里打开)"
-                        ),
-                    });
-                    shared.fail_seq.fetch_add(1, Ordering::SeqCst);
+            if let Some(shared) = nav_weak.upgrade() {
+                if allowed {
+                    // 顶层导航开始(含后退 / 前进 / 刷新):上一页的错误态在这里、也只在这里复位。
+                    shared.meta().begin_navigation();
                     emit_state(&nav_app, &shared);
+                } else {
+                    shared
+                        .console()
+                        .push(blocked_entry(url.as_str(), ""), now_ms());
                 }
             }
             allowed
@@ -240,10 +334,7 @@ fn builder(
             };
             match payload.event() {
                 PageLoadEvent::Started => {
-                    let mut meta = shared.meta();
-                    meta.loading = true;
-                    meta.url = payload.url().to_string();
-                    meta.error = None;
+                    shared.meta().content_loading(payload.url().as_str());
                 }
                 PageLoadEvent::Finished => {
                     shared.meta().loading = false;
@@ -265,61 +356,14 @@ fn handle_event(app: &AppHandle, weak: &Weak<Shared>, name: &'static str, params
     let Some(shared) = weak.upgrade() else {
         return;
     };
-    match parse_event(name, &params) {
-        Some(CdpSignal::Entry(draft)) => {
+    let Some(signal) = parse_event(name, &params) else {
+        return;
+    };
+    match signal {
+        CdpSignal::Entry(draft) => {
             shared.console().push(draft, now_ms());
         }
-        Some(CdpSignal::MainFrameNavigated {
-            url,
-            unreachable_url,
-        }) => {
-            shared.console().on_main_frame_navigated(false);
-            {
-                let mut meta = shared.meta();
-                match unreachable_url {
-                    Some(unreachable) => {
-                        if meta.error.is_none() {
-                            meta.error = Some(describe_error("net::ERR_FAILED", &unreachable));
-                        }
-                        meta.url = unreachable;
-                    }
-                    None => {
-                        meta.url = url;
-                        meta.error = None;
-                    }
-                }
-            }
-            emit_state(app, &shared);
-            spawn_reapply_emulation(app.clone(), shared.generation);
-            spawn_history_refresh(app.clone(), shared.generation);
-        }
-        Some(CdpSignal::DocumentFailed { error_text }) => {
-            let url = {
-                let mut meta = shared.meta();
-                let url = meta.url.clone();
-                meta.error = Some(describe_error(&error_text, &url));
-                meta.loading = false;
-                url
-            };
-            shared.console().push(
-                EntryDraft {
-                    level: "network".into(),
-                    text: format!("页面加载失败: {error_text}"),
-                    url,
-                    ..EntryDraft::default()
-                },
-                now_ms(),
-            );
-            shared.fail_seq.fetch_add(1, Ordering::SeqCst);
-            emit_state(app, &shared);
-        }
-        Some(CdpSignal::LoadEventFired) => {
-            shared.load_seq.fetch_add(1, Ordering::SeqCst);
-            shared.meta().loading = false;
-            emit_state(app, &shared);
-            spawn_history_refresh(app.clone(), shared.generation);
-        }
-        Some(CdpSignal::InspectNode { backend_node_id }) => {
+        CdpSignal::InspectNode { backend_node_id } => {
             let app = app.clone();
             let generation = shared.generation;
             tauri::async_runtime::spawn(async move {
@@ -328,7 +372,39 @@ fn handle_event(app: &AppHandle, weak: &Weak<Shared>, name: &'static str, params
                 }
             });
         }
-        None => {}
+        signal => {
+            if signal == CdpSignal::LoadEventFired {
+                shared.load_seq.fetch_add(1, Ordering::SeqCst);
+            }
+            let effect = shared.meta().apply(&signal);
+            match effect {
+                MetaEffect::None => {}
+                MetaEffect::Changed => emit_state(app, &shared),
+                MetaEffect::Committed => {
+                    shared.console().on_main_frame_navigated(false);
+                    emit_state(app, &shared);
+                    spawn_reapply_emulation(app.clone(), shared.generation);
+                    spawn_history_refresh(app.clone(), shared.generation);
+                }
+                MetaEffect::Failed(entry) => {
+                    {
+                        let mut console = shared.console();
+                        console.on_main_frame_navigated(false);
+                        console.push(entry, now_ms());
+                    }
+                    shared.fail_seq.fetch_add(1, Ordering::SeqCst);
+                    emit_state(app, &shared);
+                    spawn_history_refresh(app.clone(), shared.generation);
+                }
+                MetaEffect::SameDocument => {
+                    emit_state(app, &shared);
+                    spawn_history_refresh(app.clone(), shared.generation);
+                }
+            }
+            if signal == CdpSignal::LoadEventFired {
+                spawn_history_refresh(app.clone(), shared.generation);
+            }
+        }
     }
 }
 
@@ -467,12 +543,9 @@ pub(crate) async fn open(
     {
         let mut meta = pane.shared.meta();
         meta.host = host;
-        meta.visible = true;
-        if process_id.is_some() {
-            meta.bound_process_id = process_id;
-        }
-        meta.error = None;
-        meta.loading = true;
+        // 打开即显示:绑定按这次上报的线覆盖(null = 不绑任何线)。
+        meta.set_visibility(true, process_id, now_ms());
+        meta.begin_navigation();
         meta.url = url.to_string();
     }
     apply_bounds(&pane);
@@ -494,13 +567,9 @@ pub(crate) fn set_visible(app: &AppHandle, visible: bool, process_id: Option<Str
     let Some(pane) = current(app) else {
         return closed_payload();
     };
-    {
-        let mut meta = pane.shared.meta();
-        meta.visible = visible;
-        if process_id.is_some() {
-            meta.bound_process_id = process_id;
-        }
-    }
+    pane.shared
+        .meta()
+        .set_visibility(visible, process_id, now_ms());
     if visible {
         apply_bounds(&pane);
         let _ = pane.webview.show();
@@ -528,19 +597,22 @@ pub(crate) async fn nav(app: &AppHandle, action: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 关闭面板:释放 CDP 订阅、关子 webview、清路由状态。幂等。
+/// 关闭面板:释放 CDP 订阅与焦点登记、关子 webview、清路由状态。幂等。
+/// 面板还在创建中(slot 还是空的)时同样生效:递增关闭代次,ensure 建好后比对到就当场丢弃。
 pub(crate) fn close(app: &AppHandle) {
     let Some(state) = state(app) else {
         return;
     };
-    let pane = state.slot.lock().ok().and_then(|mut slot| slot.take());
+    state.close_epoch.fetch_add(1, Ordering::SeqCst);
+    let pane = state
+        .slot
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .take();
     let Some(pane) = pane else {
         return;
     };
-    pane.shared.closed.store(true, Ordering::SeqCst);
-    let generation = pane.shared.generation;
-    let _ = app.run_on_main_thread(move || cdp::release_on_ui_thread(generation));
-    let _ = pane.webview.close();
+    discard(app, &pane);
     emit_closed(app);
 }
 
@@ -554,16 +626,57 @@ pub(crate) fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
     Some((width, height))
 }
 
-/// 截图(可见时才截)。返回 `(base64 PNG, 宽, 高)`。
+/// 等面板露出来(前端遮挡冻结通常几百毫秒);超时返回 false。
+pub(crate) async fn wait_visible(pane: &Pane, timeout: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if pane.shared.meta().visible {
+            return true;
+        }
+        if pane.shared.closed.load(Ordering::SeqCst) || tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// ZoomFactor 不是 1(设备模式把画面缩进了面板)。
+pub(crate) fn is_zoomed(zoom: f64) -> bool {
+    (zoom - 1.0).abs() > 1e-6
+}
+
+/// captureScreenshot 的 clip:CDP 的单位是 DIP,而元素矩形是 CSS px;
+/// ZoomFactor = z 时 1 CSS px = z DIP,所以四个量都乘 z(设备模式下不换算会裁偏)。
+pub(crate) fn clip_params(clip: Rect, zoom: f64) -> Value {
+    json!({
+        "x": clip.x.max(0.0) * zoom,
+        "y": clip.y.max(0.0) * zoom,
+        "width": clip.w.max(1.0) * zoom,
+        "height": clip.h.max(1.0) * zoom,
+        "scale": 1
+    })
+}
+
+/// 截图(可见时才截;刚被遮住时最多等 [`VISIBLE_WAIT`])。返回 `(base64 PNG, 宽, 高)`。
+/// `clip` 是文档坐标的 CSS px;设备模式(ZoomFactor ≠ 1)下不做整页截图。
 pub(crate) async fn capture(
     pane: &Pane,
     full_page: bool,
     clip: Option<Rect>,
 ) -> Result<(String, u32, u32), String> {
-    if !pane.shared.meta().visible {
-        return Err("预览面板当前是隐藏的,无法截图(隐藏时截图不会返回)".into());
+    if !wait_visible(pane, VISIBLE_WAIT).await {
+        return Err(
+            "预览面板当前是隐藏的(被菜单 / 弹窗遮住,或已收起),无法截图(隐藏时截图不会返回)".into(),
+        );
     }
+    let zoom = pane.shared.zoom();
     let mut params = json!({ "format": "png" });
+    if full_page && is_zoomed(zoom) {
+        return Err(format!(
+            "设备模式(缩放 {:.0}%)下不支持整页截图:缩放下的整页几何没有验证过;请切回「自适应」再截,或只截可视区",
+            zoom * 100.0
+        ));
+    }
     if full_page {
         let metrics = cdp::call(
             &pane.webview,
@@ -581,10 +694,7 @@ pub(crate) async fn capture(
         params["captureBeyondViewport"] = json!(true);
         params["clip"] = json!({ "x": 0, "y": 0, "width": width, "height": height, "scale": 1 });
     } else if let Some(clip) = clip {
-        params["clip"] = json!({
-            "x": clip.x.max(0.0), "y": clip.y.max(0.0),
-            "width": clip.w.max(1.0), "height": clip.h.max(1.0), "scale": 1
-        });
+        params["clip"] = clip_params(clip, zoom);
     }
     let result = cdp::call(
         &pane.webview,
@@ -829,5 +939,47 @@ mod tests {
             assert!(payload.get(key).is_some(), "缺 {key}");
         }
         assert_eq!(payload["rect"]["h"], 4.0);
+    }
+
+    /// 复核修复:captureScreenshot 的 clip 单位是 DIP,设备模式(ZoomFactor < 1)下要按缩放换算,
+    /// 否则元素截图与批注裁图会裁偏。
+    #[test]
+    fn 截图clip按缩放换成dip_缩放为1时原样() {
+        let clip = Rect {
+            x: 100.0,
+            y: 40.0,
+            w: 200.0,
+            h: 50.0,
+        };
+        let same = clip_params(clip, 1.0);
+        assert_eq!(
+            (same["x"].as_f64(), same["width"].as_f64()),
+            (Some(100.0), Some(200.0))
+        );
+        let zoomed = clip_params(clip, 0.5);
+        assert_eq!(zoomed["x"].as_f64(), Some(50.0));
+        assert_eq!(zoomed["y"].as_f64(), Some(20.0));
+        assert_eq!(zoomed["width"].as_f64(), Some(100.0));
+        assert_eq!(zoomed["height"].as_f64(), Some(25.0));
+        assert_eq!(zoomed["scale"], 1);
+        let negative = clip_params(
+            Rect {
+                x: -8.0,
+                y: -8.0,
+                w: 0.0,
+                h: 0.0,
+            },
+            0.5,
+        );
+        assert_eq!(negative["x"].as_f64(), Some(0.0), "负坐标夹到 0");
+        assert_eq!(negative["width"].as_f64(), Some(0.5), "至少 1 CSS px");
+        assert!(is_zoomed(0.5) && !is_zoomed(1.0));
+    }
+
+    /// 复核修复:创建期间用户点了关闭(slot 还是空的),建好的面板不能再写进 slot。
+    #[test]
+    fn 创建期间被关闭时丢弃新面板() {
+        assert!(!closed_during_creation(3, 3));
+        assert!(closed_during_creation(3, 4));
     }
 }

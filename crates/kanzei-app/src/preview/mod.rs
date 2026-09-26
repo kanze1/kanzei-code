@@ -9,8 +9,9 @@
 //!   [`nav_allowed`]、[`route`]、[`fit_device`]、[`error_kind`]),全部有单测;
 //! - `pane`:子 webview 生命周期(B0 结论:focused(false)、共用主 webview 的 WebView2 环境、
 //!   spawn_blocking 里 add_child + 活性回环、隐藏时不截图、设备模式 = 边界缩放 + set_zoom);
-//! - `cdp`:进程内 CDP 调用 / 订阅 / 只对面板开 DevTools;
+//! - `cdp`:进程内 CDP 调用 / 订阅 / 子 frame 导航闸 / 只对面板开 DevTools;
 //! - `console`:控制台环形缓冲与 CDP 事件解析;
+//! - `host`:主窗口的焦点归还与移动通知(开 unstable 后 wry 不再替主 webview 做这两件事);
 //! - `commands`:前端 IPC 命令;`agent`:browser 工具的面板后端。
 //!
 //! 主窗口加了子 webview 以后 `get_webview_window("main")` 返回 None(B0 实测):全仓一律用
@@ -20,14 +21,18 @@ pub(crate) mod agent;
 mod cdp;
 pub(crate) mod commands;
 pub(crate) mod console;
+mod host;
 mod pane;
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::Url;
 
+use console::{CdpSignal, EntryDraft};
 pub(crate) use pane::Pane;
 #[cfg(test)]
 pub(crate) use pane::{capture_payload, pick_payload};
@@ -55,9 +60,12 @@ pub(crate) fn app() -> Option<&'static tauri::AppHandle> {
 }
 
 /// 启动时装配:记下应用句柄,挂主窗口事件——DPI 变化重放边界(DOM 的 ResizeObserver
-/// 在纯 DPI 变化时不触发)、主窗口关闭时收起面板。
+/// 在纯 DPI 变化时不触发)、主窗口关闭时收起面板;再给主窗口补上焦点归还与移动通知
+/// (`host`:开 tauri "unstable" 后主 webview 按 WindowChild 建,wry 不再挂父窗口子类化,
+/// 对所有用户生效,与是否打开过面板无关)。
 pub(crate) fn install(app: &tauri::AppHandle, main_window: &tauri::WebviewWindow) {
     let _ = APP.set(app.clone());
+    host::attach_main(main_window);
     let handle = app.clone();
     main_window.on_window_event(move |event| match event {
         tauri::WindowEvent::ScaleFactorChanged { .. } => pane::reapply_bounds(&handle),
@@ -74,8 +82,12 @@ pub(crate) struct PreviewState {
     pub(crate) slot: Mutex<Option<Pane>>,
     /// 创建面板串行化:两个并发 preview_open 不能各建一个子 webview。
     pub(crate) creating: tokio::sync::Mutex<()>,
-    /// 代理动作串行化:同一面板上 open→截图 这种序列不能被另一次调用插队。
+    /// 代理动作串行化:同一面板上 open→截图 这种序列不能被另一次调用插队
+    /// (父线与复用父线身份的子代理共用这把锁)。
     pub(crate) agent: tokio::sync::Mutex<()>,
+    /// 关闭次数。创建要好几百毫秒,期间用户点了关闭时 slot 还是空的;建好后比对它,
+    /// 变了就把刚建好的面板当场关掉,不写进 slot、不显示。
+    pub(crate) close_epoch: std::sync::atomic::AtomicU64,
 }
 
 /// 设备预设。
@@ -207,6 +219,156 @@ pub(crate) struct PaneMeta {
     /// 批注(元素选择)模式是否开着。
     #[serde(skip)]
     pub(crate) pick: bool,
+    /// 最近一次被隐藏的时刻(ms)。前端的「遮挡冻结」(菜单 / 模态压到面板上)也是
+    /// set_visible(false),路由据此区分「刚被遮住」与「早就收起」(见 [`should_wait_visible`])。
+    #[serde(skip)]
+    pub(crate) hidden_at: u64,
+    /// 主 frame 错误态的判定状态。
+    #[serde(skip)]
+    pub(crate) nav: NavTracker,
+}
+
+/// 文档失败暂存的条数上限(iframe 多的页面一次加载会有好几条)。
+const FAILURE_MEMORY: usize = 16;
+
+/// 主 frame 错误态的判定(随 PaneMeta 一起加锁)。
+///
+/// Network.loadingFailed(Document) **不分帧**:外站的广告 / 跟踪 iframe 被 WebView2 跟踪防护拦下
+/// (ERR_BLOCKED_BY_CLIENT)、iframe 目标带 X-Frame-Options(ERR_BLOCKED_BY_RESPONSE)、iframe
+/// 指向死端口,都会来一条。所以失败只**暂存**(requestId → errorText),等主 frame 真的提交了
+/// 错误页(frameNavigated 无 parentId、带 unreachableUrl)才进入错误态;错误页的 loaderId 就是
+/// 那次失败请求的 requestId(Edge 实测,主帧与子帧同一规律),据此取具体错误码。
+#[derive(Clone, Debug, Default)]
+pub(crate) struct NavTracker {
+    /// 主 frame 的 CDP frame id(创建时 Page.getFrameTree 取,主 frame 每次提交时刷新)。
+    pub(crate) main_frame_id: Option<String>,
+    failures: VecDeque<(String, String)>,
+    /// 当前错误页的 loaderId:错误页比 loadingFailed 先到时,后到的失败据此补上具体错误码。
+    error_loader: Option<String>,
+}
+
+impl NavTracker {
+    fn remember_failure(&mut self, request_id: &str, error_text: &str) {
+        self.failures
+            .push_back((request_id.to_string(), error_text.to_string()));
+        while self.failures.len() > FAILURE_MEMORY {
+            self.failures.pop_front();
+        }
+    }
+
+    fn take_failure(&mut self, request_id: &str) -> Option<String> {
+        let index = self.failures.iter().position(|(id, _)| id == request_id)?;
+        self.failures.remove(index).map(|(_, text)| text)
+    }
+}
+
+/// CDP 信号落到面板元数据之后,调用方要做的事。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MetaEffect {
+    /// 与界面无关(比如 iframe 的失败,只是暂存)。
+    None,
+    /// 元数据变了:发 kz:preview-state。
+    Changed,
+    /// 主 frame 提交了新文档:清控制台、发状态、重放设备模拟、刷新前进后退。
+    Committed,
+    /// 主 frame 提交了错误页:清控制台后记这一条、fail_seq + 1、发状态。
+    Failed(EntryDraft),
+    /// 主 frame 同文档导航(SPA 路由):发状态、刷新前进后退。
+    SameDocument,
+}
+
+impl PaneMeta {
+    /// 顶层导航开始(on_navigation 放行、preview_open、代理导航):错误态只在这里复位。
+    pub(crate) fn begin_navigation(&mut self) {
+        self.error = None;
+        self.nav.error_loader = None;
+        self.loading = true;
+    }
+
+    /// wry 的 `PageLoadEvent::Started`(= ContentLoading)。WebView2 对 chrome-error 错误页
+    /// 同样触发它(B0 的死地址有一条 started),所以这里**不碰** error——否则
+    /// 「服务没在跑?」会被自己的错误页抹掉。
+    pub(crate) fn content_loading(&mut self, url: &str) {
+        self.loading = true;
+        self.url = url.to_string();
+    }
+
+    /// 可见性上报(preview_open 视同显示)。显示时按上报的线**覆盖**绑定(null 即解绑:
+    /// 用户此刻看的上下文没有线,就不该让别的线的代理驱动这块面板);隐藏时保留绑定,
+    /// 并记下隐藏时刻。
+    pub(crate) fn set_visibility(&mut self, visible: bool, process_id: Option<String>, now: u64) {
+        if visible {
+            self.bound_process_id = process_id;
+        } else if self.visible {
+            self.hidden_at = now;
+        }
+        self.visible = visible;
+    }
+
+    /// 把一个 CDP 信号落到元数据上(纯函数,事件次序的单测都在 pure_tests)。
+    pub(crate) fn apply(&mut self, signal: &CdpSignal) -> MetaEffect {
+        match signal {
+            CdpSignal::DocumentFailed {
+                request_id,
+                error_text,
+            } => {
+                self.nav.remember_failure(request_id, error_text);
+                if !request_id.is_empty() && self.nav.error_loader.as_deref() == Some(request_id) {
+                    // 错误页先到(罕见):补上具体错误码。
+                    self.error = Some(describe_error(error_text, &self.url));
+                    return MetaEffect::Changed;
+                }
+                MetaEffect::None
+            }
+            CdpSignal::MainFrameNavigated {
+                frame_id,
+                loader_id,
+                url,
+                unreachable_url,
+            } => {
+                if !frame_id.is_empty() {
+                    self.nav.main_frame_id = Some(frame_id.clone());
+                }
+                match unreachable_url {
+                    Some(unreachable) => {
+                        let error_text = self
+                            .nav
+                            .take_failure(loader_id)
+                            .unwrap_or_else(|| "net::ERR_FAILED".to_string());
+                        self.url = unreachable.clone();
+                        self.loading = false;
+                        self.error = Some(describe_error(&error_text, unreachable));
+                        self.nav.error_loader = Some(loader_id.clone());
+                        MetaEffect::Failed(EntryDraft {
+                            level: "network".into(),
+                            text: format!("页面加载失败: {error_text}"),
+                            url: unreachable.clone(),
+                            ..EntryDraft::default()
+                        })
+                    }
+                    None => {
+                        self.url = url.clone();
+                        self.error = None;
+                        self.nav.error_loader = None;
+                        MetaEffect::Committed
+                    }
+                }
+            }
+            CdpSignal::SameDocumentNavigated { frame_id, url } => {
+                if self.nav.main_frame_id.as_deref() != Some(frame_id.as_str()) || self.url == *url
+                {
+                    return MetaEffect::None;
+                }
+                self.url = url.clone();
+                MetaEffect::SameDocument
+            }
+            CdpSignal::LoadEventFired => {
+                self.loading = false;
+                MetaEffect::Changed
+            }
+            CdpSignal::Entry(_) | CdpSignal::InspectNode { .. } => MetaEffect::None,
+        }
+    }
 }
 
 /// `kz:preview-state` 载荷。
@@ -224,7 +386,8 @@ pub(crate) enum Backend {
 /// 路由:面板存在且活着、**正在显示**、绑定了线且就是本次调用的线 → 面板;其余一律无头。
 ///
 /// 「正在显示」是硬条件:B0 实测隐藏面板上的 Page.captureScreenshot 永不返回。
-/// 子代理复用父 ctx,但 ask 对子代理恒为 Deny,默认本就用不到 browser。
+/// 子代理复用父线的 ctx(含 process_id),所以同样会路由到父线绑定的面板;
+/// 与父线的调用经 `PreviewState.agent` 串行,不会交错。
 pub(crate) fn route(meta: Option<&PaneMeta>, process_id: Option<&str>) -> Backend {
     match (meta, process_id) {
         (Some(meta), Some(process_id))
@@ -238,10 +401,54 @@ pub(crate) fn route(meta: Option<&PaneMeta>, process_id: Option<&str>) -> Backen
     }
 }
 
-/// 读当前面板状态做路由(没有面板 / 应用未装配时恒为无头)。
-pub(crate) fn route_for(process_id: Option<&str>) -> Backend {
+/// 遮挡冻结的宽限:隐藏不到这么久的面板视为「被菜单 / 模态暂时遮住」,代理调用先等它露出来。
+pub(crate) const OCCLUSION_GRACE_MS: u64 = 10_000;
+/// 等面板重新露出来的上限。
+pub(crate) const VISIBLE_WAIT: Duration = Duration::from_millis(1500);
+
+/// 面板绑定本线、活着、只是**刚被**隐藏(前端遮挡冻结也走 set_visible(false))→ 值得等一等,
+/// 免得 open→click→截图 这样的序列中途换到无头(另一张页面、另一份状态)。
+/// 早就收起的面板(用户切到别的视图)不等,直接无头,不给每次调用白加延迟。
+pub(crate) fn should_wait_visible(meta: &PaneMeta, process_id: Option<&str>, now: u64) -> bool {
+    process_id.is_some()
+        && meta.alive
+        && !meta.visible
+        // 错误页时前端主动收起面板,等不来。
+        && meta.error.is_none()
+        && meta.bound_process_id.as_deref() == process_id
+        && now.saturating_sub(meta.hidden_at) <= OCCLUSION_GRACE_MS
+}
+
+/// 权限判定用的后端预估:与 [`route_waiting`] 的结论一致(刚被遮住的面板按面板算)。
+pub(crate) fn route_hint(meta: Option<&PaneMeta>, process_id: Option<&str>, now: u64) -> Backend {
+    match meta {
+        Some(meta) if should_wait_visible(meta, process_id, now) => Backend::Pane,
+        _ => route(meta, process_id),
+    }
+}
+
+/// 权限判定用:[`route_hint`] 的当前值(没有面板 / 应用未装配时恒为无头)。
+pub(crate) fn route_hint_for(process_id: Option<&str>) -> Backend {
     let meta = current_meta();
-    route(meta.as_ref(), process_id)
+    route_hint(meta.as_ref(), process_id, now_ms())
+}
+
+/// 真正执行前的路由:面板刚被遮住时最多等 [`VISIBLE_WAIT`] 让它露出来,再定后端。
+pub(crate) async fn route_waiting(process_id: Option<&str>) -> Backend {
+    let deadline = tokio::time::Instant::now() + VISIBLE_WAIT;
+    loop {
+        let meta = current_meta();
+        if route(meta.as_ref(), process_id) == Backend::Pane {
+            return Backend::Pane;
+        }
+        let worth_waiting = meta
+            .as_ref()
+            .is_some_and(|meta| should_wait_visible(meta, process_id, now_ms()));
+        if !worth_waiting || tokio::time::Instant::now() >= deadline {
+            return Backend::Headless;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// 当前面板的元数据快照。
@@ -298,16 +505,40 @@ pub(crate) fn fit_device(host: Rect, preset: DevicePreset) -> (Rect, f64) {
 /// - about:blank、data:text/html 放行;file:、javascript: 与其它 scheme 一律拒绝。
 pub(crate) fn nav_allowed(url: &Url) -> bool {
     match url.scheme() {
-        "http" | "https" => match url.host_str() {
-            // IP 字面量(含 `[::1]`)不可能以 .localhost 结尾;域名先剥尾点再判。
-            Some(host) => {
-                let host = host.trim_end_matches('.').to_ascii_lowercase();
-                !host.is_empty() && !host.ends_with(".localhost")
-            }
-            None => false,
-        },
+        "http" | "https" => web_host_allowed(url),
         "about" => url.as_str() == "about:blank",
         "data" => url.path().to_ascii_lowercase().starts_with("text/html"),
+        _ => false,
+    }
+}
+
+/// http(s) 的 host 过闸:任何 `*.localhost` 子域一律拒绝(不看端口——tauri 的 is_local_url
+/// 也不看端口,`http://tauri.localhost:3000` 的内容来自本机 3000 端口却被当成本地源)。
+fn web_host_allowed(url: &Url) -> bool {
+    match url.host_str() {
+        // IP 字面量(含 `[::1]`)不可能以 .localhost 结尾;域名先剥尾点再判。
+        Some(host) => {
+            let host = host.trim_end_matches('.').to_ascii_lowercase();
+            !host.is_empty() && !host.ends_with(".localhost")
+        }
+        None => false,
+    }
+}
+
+/// 子 frame(iframe)的导航闸:`cdp::guard_frame_navigation` 挂在 FrameNavigationStarting 上。
+///
+/// on_navigation(NavigationStarting)只管顶层导航;而 wry 注册 custom protocol 用的是
+/// SOURCE_KINDS_ALL,子 frame 请求 `http://tauri.localhost/…` 同样会被应用协议接管,远程页面里
+/// 又注入了带 invoke key 的 `__TAURI_INTERNALS__`——所以子 frame 也要过同一条 host 规则。
+/// 与顶层相比放宽的只有页面内部常见、又拿不到新源的几种:`about:`(blank / srcdoc)、`data:`、
+/// `javascript:`(都继承或不透明于父页面的源)、`blob:`(内层源同样过 host 规则)。
+pub(crate) fn frame_nav_allowed(url: &Url) -> bool {
+    match url.scheme() {
+        "http" | "https" => web_host_allowed(url),
+        "about" | "data" | "javascript" => true,
+        "blob" => Url::parse(url.path()).ok().is_some_and(|inner| {
+            matches!(inner.scheme(), "http" | "https") && web_host_allowed(&inner)
+        }),
         _ => false,
     }
 }

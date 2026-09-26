@@ -342,9 +342,10 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
         kanzei_tools::browser::resources_for(input, None, current.as_deref())
     }
 
-    /// 不带目标的动作按「将要执行它的那个后端」的当前页判权限。
+    /// 不带目标的动作按「将要执行它的那个后端」的当前页判权限(刚被遮住、执行时会等它露出来的
+    /// 面板按面板算,与 execute 的 route_waiting 同一结论)。
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        let current = match crate::preview::route_for(ctx.process_id.as_deref()) {
+        let current = match crate::preview::route_hint_for(ctx.process_id.as_deref()) {
             crate::preview::Backend::Pane => crate::preview::current_meta()
                 .map(|meta| meta.url)
                 .filter(|url| !url.is_empty() && url != "about:blank"),
@@ -368,11 +369,14 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
             Ok(input) => input,
             Err(output) => return *output,
         };
-        if crate::preview::route_for(ctx.process_id.as_deref()) == crate::preview::Backend::Pane {
+        // 面板只是被菜单 / 弹窗暂时遮住(前端冻结)时先等它露出来,免得一串动作中途换后端。
+        if crate::preview::route_waiting(ctx.process_id.as_deref()).await
+            == crate::preview::Backend::Pane
+        {
             if let Some(output) = crate::preview::agent::execute(&input, ctx).await {
                 return output;
             }
-            // 路由之后面板被关掉 / 隐藏:回落无头,结果首行如实写 backend: headless。
+            // 路由之后面板被关掉 / 长时间隐藏:回落无头,结果首行如实写 backend: headless。
         }
         kanzei_tools::browser::execute_headless(input, ctx, true).await
     }

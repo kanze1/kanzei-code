@@ -42,13 +42,25 @@ pub(crate) struct EntryDraft {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CdpSignal {
     Entry(EntryDraft),
-    /// 主 frame 完成导航;错误页(chrome-error://)时带 unreachable_url。
+    /// 主 frame 提交了导航;错误页(chrome-error://)时带 unreachable_url。
+    /// 错误页的 loader_id 就是那次失败请求的 requestId(Edge 实测),据此取具体错误码。
     MainFrameNavigated {
+        frame_id: String,
+        loader_id: String,
         url: String,
         unreachable_url: Option<String>,
     },
-    /// 主文档加载失败(Network.loadingFailed type=Document,非取消)。
+    /// 同文档导航(pushState / replaceState / hash)。**不分帧**:是不是主 frame 由调用方按
+    /// 记下的主 frame id 判。
+    SameDocumentNavigated {
+        frame_id: String,
+        url: String,
+    },
+    /// 文档请求失败(Network.loadingFailed type=Document,非取消、非 ERR_ABORTED)。
+    /// **不分帧**:iframe 被拦(ERR_BLOCKED_BY_CLIENT / X-Frame-Options 的 ERR_BLOCKED_BY_RESPONSE)
+    /// 与 iframe 指向死端口同样会来。只有主 frame 随后提交了错误页才算页面失败(见 PaneMeta::apply)。
     DocumentFailed {
+        request_id: String,
         error_text: String,
     },
     LoadEventFired,
@@ -65,6 +77,7 @@ pub(crate) const SUBSCRIBED_EVENTS: &[&str] = &[
     "Log.entryAdded",
     "Network.loadingFailed",
     "Page.frameNavigated",
+    "Page.navigatedWithinDocument",
     "Page.loadEventFired",
     "Overlay.inspectNodeRequested",
 ];
@@ -140,7 +153,10 @@ pub(crate) fn parse_event(name: &str, params: &serde_json::Value) -> Option<CdpS
             if error_text.contains("ERR_ABORTED") {
                 return None;
             }
-            Some(CdpSignal::DocumentFailed { error_text })
+            Some(CdpSignal::DocumentFailed {
+                request_id: params["requestId"].as_str().unwrap_or("").to_string(),
+                error_text,
+            })
         }
         "Page.frameNavigated" => {
             let frame = &params["frame"];
@@ -148,10 +164,16 @@ pub(crate) fn parse_event(name: &str, params: &serde_json::Value) -> Option<CdpS
                 return None;
             }
             Some(CdpSignal::MainFrameNavigated {
+                frame_id: frame["id"].as_str().unwrap_or("").to_string(),
+                loader_id: frame["loaderId"].as_str().unwrap_or("").to_string(),
                 url: frame["url"].as_str().unwrap_or("").to_string(),
                 unreachable_url: frame["unreachableUrl"].as_str().map(str::to_string),
             })
         }
+        "Page.navigatedWithinDocument" => Some(CdpSignal::SameDocumentNavigated {
+            frame_id: params["frameId"].as_str().unwrap_or("").to_string(),
+            url: params["url"].as_str().unwrap_or("").to_string(),
+        }),
         "Page.loadEventFired" => Some(CdpSignal::LoadEventFired),
         "Overlay.inspectNodeRequested" => params["backendNodeId"]
             .as_i64()
@@ -391,14 +413,16 @@ mod tests {
     }
 
     /// B0:服务没在跑时先来 loadingFailed(Document),再来导航到 chrome-error 的 frameNavigated。
+    /// 复核修复:两者都带关联键(requestId / frame.loaderId),子帧的 frameNavigated 仍然不算。
     #[test]
     fn 主文档失败与错误页导航_取消与子帧忽略() {
         assert_eq!(
             parse_event(
                 "Network.loadingFailed",
-                &json!({"type": "Document", "errorText": "net::ERR_CONNECTION_REFUSED", "canceled": false})
+                &json!({"requestId": "R1", "type": "Document", "errorText": "net::ERR_CONNECTION_REFUSED", "canceled": false})
             ),
             Some(CdpSignal::DocumentFailed {
+                request_id: "R1".into(),
                 error_text: "net::ERR_CONNECTION_REFUSED".into()
             })
         );
@@ -416,13 +440,26 @@ mod tests {
         assert_eq!(
             parse_event(
                 "Page.frameNavigated",
-                &json!({"frame": {"id": "F", "url": "chrome-error://chromewebdata/",
+                &json!({"frame": {"id": "F", "loaderId": "R1", "url": "chrome-error://chromewebdata/",
                                   "unreachableUrl": "http://127.0.0.1:11685/"}, "type": "Navigation"})
             ),
             Some(CdpSignal::MainFrameNavigated {
+                frame_id: "F".into(),
+                loader_id: "R1".into(),
                 url: "chrome-error://chromewebdata/".into(),
                 unreachable_url: Some("http://127.0.0.1:11685/".into()),
             })
+        );
+        assert_eq!(
+            parse_event(
+                "Page.navigatedWithinDocument",
+                &json!({"frameId": "F", "url": "http://127.0.0.1:4296/spa/route-2", "navigationType": "historyApi"})
+            ),
+            Some(CdpSignal::SameDocumentNavigated {
+                frame_id: "F".into(),
+                url: "http://127.0.0.1:4296/spa/route-2".into(),
+            }),
+            "SPA 的 pushState(Edge 实测形态)"
         );
         assert_eq!(
             parse_event(

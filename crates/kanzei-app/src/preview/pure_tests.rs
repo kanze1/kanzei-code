@@ -134,6 +134,42 @@ fn nav_allowed_拒绝应用内部源与危险scheme() {
     }
 }
 
+/// 复核修复:子 frame 同样要过 *.localhost 规则(wry 的应用协议对子 frame 请求同样生效,
+/// tauri 的 is_local_url 又不看端口);页面内部常用的 about: / data: / blob: 不误伤。
+#[test]
+fn frame_nav_allowed_子框架同样拒绝应用内部源() {
+    let check = |raw: &str| frame_nav_allowed(&Url::parse(raw).unwrap());
+    for blocked in [
+        "http://tauri.localhost/index.html",
+        "http://tauri.localhost:3000/",
+        "https://ipc.localhost/cmd",
+        "http://asset.localhost/x",
+        "http://TAURI.LOCALHOST./",
+        "blob:http://tauri.localhost/0b1c",
+        "file:///C:/Windows/win.ini",
+        "chrome://settings",
+        "tauri://localhost/",
+        "ftp://example.com/",
+    ] {
+        assert!(!check(blocked), "{blocked} 必须被拒");
+    }
+    for allowed in [
+        "https://www.youtube.com/embed/x",
+        "http://localhost:5173/frame.html",
+        "http://127.0.0.1:4173/t/abc/r/def/a.html",
+        "about:blank",
+        "about:srcdoc",
+        "data:text/html,<p>x</p>",
+        "data:image/svg+xml,<svg/>",
+        "blob:http://localhost:5173/0b1c",
+        "javascript:void(0)",
+    ] {
+        assert!(check(allowed), "{allowed} 应放行");
+    }
+    // 顶层闸比子 frame 严:about:srcdoc 只该出现在 iframe 里。
+    assert!(!nav_allowed(&Url::parse("about:srcdoc").unwrap()));
+}
+
 fn meta(visible: bool, bound: Option<&str>, alive: bool) -> PaneMeta {
     PaneMeta {
         visible,
@@ -178,7 +214,255 @@ fn route_只有可见且绑定本线的面板才走面板() {
         "调用方没有线身份"
     );
     // 应用未装配(单测进程)时恒为无头。
-    assert_eq!(route_for(Some("p|a")), Backend::Headless);
+    assert_eq!(route_hint_for(Some("p|a")), Backend::Headless);
+}
+
+/// 复核修复:显示时按上报的线覆盖绑定(null 即解绑),隐藏时保留绑定并记下隐藏时刻。
+#[test]
+fn 可见性上报_显示时覆盖绑定_null即解绑_隐藏时保留() {
+    let mut meta = meta(false, Some("p|a"), true);
+    meta.set_visibility(true, Some("p|a".into()), 1_000);
+    assert_eq!(route(Some(&meta), Some("p|a")), Backend::Pane);
+
+    // 用户切到一个没有线的上下文:面板仍显示,但不再绑在上一条线上。
+    meta.set_visibility(true, None, 2_000);
+    assert_eq!(meta.bound_process_id, None);
+    assert_eq!(
+        route(Some(&meta), Some("p|a")),
+        Backend::Headless,
+        "旧线的代理不能驱动用户此刻在别的上下文里看到的面板"
+    );
+
+    meta.set_visibility(true, Some("p|b".into()), 3_000);
+    meta.set_visibility(false, None, 4_000);
+    assert_eq!(meta.bound_process_id.as_deref(), Some("p|b"), "隐藏不解绑");
+    assert_eq!(meta.hidden_at, 4_000);
+    meta.set_visibility(false, None, 9_000);
+    assert_eq!(meta.hidden_at, 4_000, "已经隐藏的再报隐藏,不刷新隐藏时刻");
+}
+
+/// 复核修复:前端的遮挡冻结也是 set_visible(false)。刚被遮住的面板值得等一等(权限预估也按面板算),
+/// 早就收起的、别的线的、错误页收起的不等。
+#[test]
+fn 刚被遮住的面板值得等_早就收起的不等() {
+    let line = Some("p|a");
+    let mut meta = meta(true, Some("p|a"), true);
+    meta.set_visibility(false, None, 100_000);
+    assert!(should_wait_visible(&meta, line, 100_500));
+    assert_eq!(
+        route(Some(&meta), line),
+        Backend::Headless,
+        "路由本身仍只认可见"
+    );
+    assert_eq!(route_hint(Some(&meta), line, 100_500), Backend::Pane);
+    assert!(
+        !should_wait_visible(&meta, line, 100_000 + OCCLUSION_GRACE_MS + 1),
+        "隐藏超过宽限:用户收起了面板,不白等"
+    );
+    assert_eq!(
+        route_hint(Some(&meta), line, 100_000 + OCCLUSION_GRACE_MS + 1),
+        Backend::Headless
+    );
+    assert!(!should_wait_visible(&meta, Some("p|b"), 100_500), "别的线");
+    assert!(!should_wait_visible(&meta, None, 100_500), "没有线身份");
+    let mut errored = meta.clone();
+    errored.error = Some(describe_error("net::ERR_CONNECTION_REFUSED", "u"));
+    assert!(
+        !should_wait_visible(&errored, line, 100_500),
+        "错误页收起的等不来"
+    );
+    let mut dead = meta.clone();
+    dead.alive = false;
+    assert!(!should_wait_visible(&dead, line, 100_500));
+    let visible = self::meta(true, Some("p|a"), true);
+    assert!(
+        !should_wait_visible(&visible, line, 100_500),
+        "可见的不用等"
+    );
+    assert_eq!(route_hint(Some(&visible), line, 0), Backend::Pane);
+    assert_eq!(route_hint(None, line, 0), Backend::Headless);
+}
+
+fn feed(meta: &mut PaneMeta, events: &[(&str, serde_json::Value)]) -> Vec<MetaEffect> {
+    events
+        .iter()
+        .filter_map(|(name, params)| console::parse_event(name, params))
+        .map(|signal| meta.apply(&signal))
+        .collect()
+}
+
+fn main_commit(loader: &str, url: &str) -> (&'static str, serde_json::Value) {
+    (
+        "Page.frameNavigated",
+        serde_json::json!({"frame": {"id": "MAIN", "loaderId": loader, "url": url}, "type": "Navigation"}),
+    )
+}
+
+fn failed(request: &str, error: &str) -> (&'static str, serde_json::Value) {
+    (
+        "Network.loadingFailed",
+        serde_json::json!({"requestId": request, "type": "Document", "errorText": error, "canceled": false}),
+    )
+}
+
+fn error_page(
+    id: &str,
+    parent: Option<&str>,
+    loader: &str,
+    unreachable: &str,
+) -> (&'static str, serde_json::Value) {
+    (
+        "Page.frameNavigated",
+        serde_json::json!({"frame": {"id": id, "parentId": parent, "loaderId": loader,
+            "url": "chrome-error://chromewebdata/", "unreachableUrl": unreachable}, "type": "Navigation"}),
+    )
+}
+
+/// 复核修复(major):主帧正常、iframe 指向死端口 / 带 X-Frame-Options 时,CDP 同样发
+/// loadingFailed(Document)。样例是 Edge 实测的事件序列(scratchpad probe):不能进入错误态,
+/// 也不能让代理 open 的 wait_load 提前以失败结束。
+#[test]
+fn iframe加载失败不进入页面错误态() {
+    let mut meta = meta(true, Some("p|a"), true);
+    meta.begin_navigation();
+    let effects = feed(
+        &mut meta,
+        &[
+            main_commit("L0", "http://127.0.0.1:4296/"),
+            failed("R1", "net::ERR_UNSAFE_PORT"),
+            failed("R2", "net::ERR_BLOCKED_BY_RESPONSE"),
+            failed("R3", "net::ERR_BLOCKED_BY_CLIENT"),
+            error_page("F1", Some("MAIN"), "R1", "http://127.0.0.1:1/dead"),
+            error_page("F2", Some("MAIN"), "R2", "http://127.0.0.1:4296/xfo"),
+            ("Page.loadEventFired", serde_json::json!({"timestamp": 1.0})),
+        ],
+    );
+    assert_eq!(meta.error, None, "iframe 的失败不是页面失败");
+    assert_eq!(meta.url, "http://127.0.0.1:4296/");
+    assert!(!meta.loading);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, MetaEffect::Failed(_))),
+        "{effects:?}"
+    );
+    assert_eq!(effects[0], MetaEffect::Committed);
+}
+
+/// 主帧死地址:loadingFailed(Document) → ContentLoading(错误页也触发)→ 主帧错误页提交。
+/// 错误码按 loaderId 取回,ContentLoading 不能把错误抹掉(两种次序都要成立)。
+#[test]
+fn 主帧死地址报服务没在跑_contentloading不清错误() {
+    let dead = "http://127.0.0.1:5173/";
+    // 次序一:失败 → ContentLoading → 错误页提交。
+    let mut meta = meta(true, Some("p|a"), true);
+    meta.begin_navigation();
+    feed(&mut meta, &[failed("RQ", "net::ERR_CONNECTION_REFUSED")]);
+    assert_eq!(meta.error, None, "只暂存,不直接进错误态");
+    meta.content_loading(dead);
+    let effects = feed(&mut meta, &[error_page("MAIN", None, "RQ", dead)]);
+    let error = meta.error.clone().expect("主帧错误页必须进入错误态");
+    assert_eq!(error.kind, ErrorKind::ConnectionRefused, "{error:?}");
+    assert!(error.text.contains("服务没在跑"));
+    assert_eq!(meta.url, dead);
+    match &effects[..] {
+        [MetaEffect::Failed(entry)] => {
+            assert_eq!(entry.level, "network");
+            assert!(entry.text.contains("ERR_CONNECTION_REFUSED"), "{entry:?}");
+        }
+        other => panic!("期望 Failed,实得 {other:?}"),
+    }
+
+    // 次序二:失败 → 错误页提交 → ContentLoading 最后才到。
+    let mut meta = self::meta(true, Some("p|a"), true);
+    meta.begin_navigation();
+    feed(
+        &mut meta,
+        &[
+            failed("RQ", "net::ERR_CONNECTION_REFUSED"),
+            error_page("MAIN", None, "RQ", dead),
+        ],
+    );
+    meta.content_loading(dead);
+    assert_eq!(
+        meta.error.as_ref().map(|e| e.kind),
+        Some(ErrorKind::ConnectionRefused),
+        "ContentLoading 不碰错误态"
+    );
+
+    // 罕见次序:错误页先到(先按 ERR_FAILED 记),随后的失败按 loaderId 补上具体错误码。
+    let mut meta = self::meta(true, Some("p|a"), true);
+    feed(&mut meta, &[error_page("MAIN", None, "RQ", dead)]);
+    assert_eq!(meta.error.as_ref().map(|e| e.kind), Some(ErrorKind::Other));
+    let effects = feed(&mut meta, &[failed("RQ", "net::ERR_CONNECTION_REFUSED")]);
+    assert_eq!(effects, vec![MetaEffect::Changed]);
+    assert_eq!(
+        meta.error.as_ref().map(|e| e.kind),
+        Some(ErrorKind::ConnectionRefused)
+    );
+    // 别的请求(比如随后 iframe 的失败)不会改写它。
+    feed(&mut meta, &[failed("OTHER", "net::ERR_BLOCKED_BY_CLIENT")]);
+    assert_eq!(
+        meta.error.as_ref().map(|e| e.kind),
+        Some(ErrorKind::ConnectionRefused)
+    );
+
+    // 错误态只在下一次导航开始时复位;成功提交同样清掉。
+    meta.begin_navigation();
+    assert_eq!(meta.error, None);
+    assert!(meta.loading);
+    feed(&mut meta, &[error_page("MAIN", None, "R9", dead)]);
+    assert!(meta.error.is_some());
+    feed(&mut meta, &[main_commit("R10", "http://127.0.0.1:5173/ok")]);
+    assert_eq!(meta.error, None);
+}
+
+#[test]
+fn 失败暂存有上限() {
+    let mut meta = meta(true, None, true);
+    for index in 0..40 {
+        feed(
+            &mut meta,
+            &[failed(&format!("R{index}"), "net::ERR_BLOCKED_BY_CLIENT")],
+        );
+    }
+    // 早被挤出去的那条取不回具体码,退回 ERR_FAILED。
+    feed(&mut meta, &[error_page("MAIN", None, "R0", "http://x/")]);
+    assert_eq!(meta.error.as_ref().map(|e| e.kind), Some(ErrorKind::Other));
+    feed(&mut meta, &[error_page("MAIN", None, "R39", "http://x/")]);
+    assert_eq!(
+        meta.error.as_ref().map(|e| e.kind),
+        Some(ErrorKind::Blocked)
+    );
+}
+
+/// 复核修复:SPA 的 pushState 只来 Page.navigatedWithinDocument,不更新就会让地址栏、
+/// 代理结果与「在系统浏览器打开」一直用旧地址。只认主 frame。
+#[test]
+fn 同文档导航只认主帧并更新地址() {
+    let mut meta = meta(true, None, true);
+    feed(&mut meta, &[main_commit("L0", "http://localhost:5173/")]);
+    assert_eq!(meta.nav.main_frame_id.as_deref(), Some("MAIN"));
+    let same = |frame: &str, url: &str| {
+        (
+            "Page.navigatedWithinDocument",
+            serde_json::json!({"frameId": frame, "url": url, "navigationType": "historyApi"}),
+        )
+    };
+    let effects = feed(&mut meta, &[same("MAIN", "http://localhost:5173/users/7")]);
+    assert_eq!(effects, vec![MetaEffect::SameDocument]);
+    assert_eq!(meta.url, "http://localhost:5173/users/7");
+    let effects = feed(&mut meta, &[same("IFRAME", "http://ads.example/x#y")]);
+    assert_eq!(effects, vec![MetaEffect::None], "iframe 的 pushState 不算");
+    assert_eq!(meta.url, "http://localhost:5173/users/7");
+    let effects = feed(&mut meta, &[same("MAIN", "http://localhost:5173/users/7")]);
+    assert_eq!(effects, vec![MetaEffect::None], "地址没变不发状态");
+    // 还不知道主 frame id 时一律不认(不猜)。
+    let mut fresh = self::meta(true, None, true);
+    assert_eq!(
+        feed(&mut fresh, &[same("MAIN", "http://localhost:5173/a")]),
+        vec![MetaEffect::None]
+    );
 }
 
 #[test]
@@ -380,11 +664,15 @@ fn 全仓不用按窗口取webview的旧接口() {
 }
 
 /// B0 的建面板规则写死在 builder 上:不抢焦点、共用主环境、spawn_blocking 里 add_child。
+/// 复核修复追加:子 frame 导航闸(FrameNavigationStarting)在建面板时挂上,判定用 frame_nav_allowed。
 #[test]
 fn 建面板遵守b0规则() {
-    let pane =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/preview/pane.rs"))
-            .unwrap();
+    let src = |rel: &str| {
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(rel))
+            .unwrap()
+            .replace("\r\n", "\n")
+    };
+    let pane = src("src/preview/pane.rs");
     for required in [
         ".focused(false)",
         ".with_environment(",
@@ -392,6 +680,7 @@ fn 建面板遵守b0规则() {
         ".on_navigation(",
         "NewWindowResponse::Deny",
         "CAPTURE_TIMEOUT",
+        "cdp::guard_frame_navigation(",
     ] {
         assert!(pane.contains(required), "pane.rs 缺 {required}");
     }
@@ -401,4 +690,74 @@ fn 建面板遵守b0规则() {
     );
     assert!(!pane.contains(".data_directory("));
     assert!(!pane.contains(".incognito("));
+    let cdp = src("src/preview/cdp.rs");
+    let guard_at = cdp
+        .find("fn guard_frame_navigation(")
+        .expect("cdp.rs 缺子 frame 导航闸");
+    let body = &cdp[guard_at..];
+    let body = &body[..body.find("\n    }\n").unwrap_or(body.len())];
+    for required in [
+        "add_FrameNavigationStarting(",
+        "frame_nav_allowed(",
+        "SetCancel(true)",
+    ] {
+        assert!(body.contains(required), "子 frame 导航闸缺 {required}");
+    }
+}
+
+/// 复核修复(major):开 unstable 后主 webview 是 WindowChild,wry 不再给父窗口挂子类化。
+/// host.rs 必须补回 WM_SETFOCUS → MoveFocus(且只在前台时)与 WM_MOVE → NotifyParentWindowPositionChanged,
+/// 并且在启动装配里挂上、面板建成时登记、关面板时释放。
+#[test]
+fn 主窗口补回焦点归还与移动通知() {
+    let src = |rel: &str| {
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(rel))
+            .unwrap()
+            .replace("\r\n", "\n")
+    };
+    let host = src("src/preview/host.rs");
+    let proc_at = host
+        .find("unsafe extern \"system\" fn host_proc(")
+        .expect("缺子类化回调");
+    let proc_body = &host[proc_at..];
+    for required in [
+        "WM_SETFOCUS => restore_focus(hwnd)",
+        "WM_MOVE | WM_MOVING => notify_moved()",
+        "DefSubclassProc(",
+    ] {
+        assert!(proc_body.contains(required), "host_proc 缺 {required}");
+    }
+    for required in [
+        "SetWindowSubclass(",
+        "MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)",
+        "NotifyParentWindowPositionChanged()",
+        "GetForegroundWindow()",
+        "add_GotFocus(",
+    ] {
+        assert!(host.contains(required), "host.rs 缺 {required}");
+    }
+    let restore_at = host.find("fn restore_focus(").unwrap();
+    let restore = &host[restore_at
+        ..host[restore_at..]
+            .find("\n}\n")
+            .map_or(host.len(), |end| restore_at + end)];
+    let foreground_at = restore
+        .find("GetForegroundWindow()")
+        .expect("转交焦点前必须查前台");
+    let move_at = restore
+        .find("MoveFocus(")
+        .expect("restore_focus 必须 MoveFocus");
+    assert!(
+        foreground_at < move_at,
+        "先查前台再转交焦点(后台调 MoveFocus 会抢前台)"
+    );
+    let module = src("src/preview/mod.rs");
+    let install_at = module.find("pub(crate) fn install(").unwrap();
+    assert!(
+        module[install_at..].contains("host::attach_main(main_window)"),
+        "启动装配里必须挂上主窗口子类化"
+    );
+    let pane = src("src/preview/pane.rs");
+    assert!(pane.contains("host::register_panel(&pane.webview, generation)"));
+    assert!(pane.contains("host::release_panel_on_ui_thread(generation)"));
 }

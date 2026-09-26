@@ -57,9 +57,11 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     # R-249 批2:验证用例要自己声明 DPI 感知,否则拿到的是虚拟化坐标。
     "Win32_UI_HiDpi",
+    # UI2-0926 #8:主窗口子类化(src/preview/host.rs 补回焦点归还与移动通知)。
+    "Win32_UI_Shell",
 ] }
 
-# UI2-0926 #8 网页预览:WebView2 COM 的唯一入口(src/preview/cdp.rs)。版本与 wry 已拉入的
-# 一致(Cargo.lock:webview2-com 0.38.2 / windows 0.61.3),不新增编译单元;只许 cdp.rs 用。
+# UI2-0926 #8 网页预览:WebView2 COM 的唯一入口(src/preview/cdp.rs 与 host.rs)。版本与 wry
+# 已拉入的一致(Cargo.lock:webview2-com 0.38.2 / windows 0.61.3),不新增编译单元;只许这两处用。
 webview2-com = "0.38"
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com"] }

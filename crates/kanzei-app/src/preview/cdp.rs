@@ -37,6 +37,9 @@ pub(crate) const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 /// 事件回调:`(事件名, 参数 JSON)`,在 UI 线程上调用,必须很快返回。
 pub(crate) type EventHandler = std::sync::Arc<dyn Fn(&'static str, Value) + Send + Sync>;
 
+/// 子 frame 导航被拦时的回调(参数是被拦的地址),在 UI 线程上调用,必须很快返回。
+pub(crate) type BlockedHandler = std::sync::Arc<dyn Fn(String) + Send + Sync>;
+
 #[cfg(windows)]
 mod imp {
     use std::cell::RefCell;
@@ -50,6 +53,7 @@ mod imp {
     };
     use webview2_com::{
         CallDevToolsProtocolMethodCompletedHandler, DevToolsProtocolEventReceivedEventHandler,
+        NavigationStartingEventHandler,
     };
     use windows::core::{HSTRING, PWSTR};
 
@@ -180,6 +184,38 @@ mod imp {
         .await
     }
 
+    /// 子 frame 导航闸:FrameNavigationStarting 上按 [`crate::preview::frame_nav_allowed`] 取消。
+    /// on_navigation(NavigationStarting)只管顶层;不挂这个,页面里的
+    /// `<iframe src="http://tauri.localhost/…">` 会被应用协议接管、拿到本地源(见 mod.rs)。
+    pub(crate) async fn guard_frame_navigation(
+        webview: &Webview,
+        on_blocked: super::BlockedHandler,
+    ) -> Result<(), String> {
+        with_core(webview, Duration::from_secs(5), move |core, _| {
+            let handler = NavigationStartingEventHandler::create(Box::new(move |_sender, args| {
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                let mut raw = PWSTR::null();
+                // SAFETY:回调在 UI 线程;take_pwstr 释放 COM 分配的字符串。
+                unsafe { args.Uri(&mut raw)? };
+                let uri = webview2_com::take_pwstr(raw);
+                let allowed = tauri::Url::parse(&uri)
+                    .is_ok_and(|url| crate::preview::frame_nav_allowed(&url));
+                if !allowed {
+                    // SAFETY:同上。
+                    unsafe { args.SetCancel(true)? };
+                    on_blocked(uri);
+                }
+                Ok(())
+            }));
+            let mut token = 0i64;
+            // SAFETY:UI 线程上的 COM 调用;处理器随面板的 ICoreWebView2 一起释放。
+            unsafe { core.add_FrameNavigationStarting(&handler, &mut token) }
+        })
+        .await
+    }
+
     /// 释放某代面板的事件接收器(须在 UI 线程上执行)。
     pub(crate) fn release_on_ui_thread(generation: u64) {
         RECEIVERS.with(|keep| {
@@ -238,7 +274,8 @@ mod imp {
 
 #[cfg(windows)]
 pub(crate) use imp::{
-    call, go, history, main_environment, open_devtools, release_on_ui_thread, subscribe,
+    call, go, guard_frame_navigation, history, main_environment, open_devtools,
+    release_on_ui_thread, subscribe,
 };
 
 #[cfg(not(windows))]
@@ -265,6 +302,12 @@ mod imp_stub {
     ) -> Result<(), String> {
         Err(UNSUPPORTED.into())
     }
+    pub(crate) async fn guard_frame_navigation(
+        _webview: &Webview,
+        _on_blocked: super::BlockedHandler,
+    ) -> Result<(), String> {
+        Err(UNSUPPORTED.into())
+    }
     pub(crate) fn release_on_ui_thread(_generation: u64) {}
     pub(crate) async fn go(_webview: &Webview, _action: &'static str) -> Result<(), String> {
         Err(UNSUPPORTED.into())
@@ -278,7 +321,9 @@ mod imp_stub {
 }
 
 #[cfg(not(windows))]
-pub(crate) use imp_stub::{call, go, history, open_devtools, release_on_ui_thread, subscribe};
+pub(crate) use imp_stub::{
+    call, go, guard_frame_navigation, history, open_devtools, release_on_ui_thread, subscribe,
+};
 
 /// Runtime.evaluate(returnByValue),页面异常转成错误。
 pub(crate) async fn evaluate(
