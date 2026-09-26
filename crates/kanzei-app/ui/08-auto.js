@@ -243,7 +243,8 @@ export function renderAutoRun() {
   el.textContent = reason ? localizeDynamic(reason) : "";
   el.classList.toggle("hidden", !reason);
   el.classList.toggle("ok", Boolean(reason) && !autoHint && auto_stop_kind === "completed");
-  $("auto-resume").classList.toggle("hidden", !(autoStopReason && !autoHint && ["off", "idle"].includes(phase)));
+  // 「模型在等你回答」时不给「继续鞭挞」:鞭挞本来就开着,该做的是回答;点它等于绕过问题接着跑(复核 minor)。
+  $("auto-resume").classList.toggle("hidden", !(autoStopReason && !autoHint && ["off", "idle"].includes(phase) && auto_stop_kind !== "waiting"));
   const pause = $("auto-pause");
   if (pause) pause.setAttribute("aria-pressed", String(autoPaused));
 }

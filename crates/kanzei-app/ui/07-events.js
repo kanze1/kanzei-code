@@ -93,6 +93,7 @@ import {
   renderAutoStatus,
   setAutoRounds,
   setAutoStopReason,
+  takeAwaitingUser,
 } from "./08-auto.js";
 import { applyAutoStopToSession, armAutoContinue, autoFailStopReasonText } from "./08-compose-runtime.js";
 import {
@@ -663,6 +664,9 @@ defer(() => {
     // NoContinue→不动作(用户拒绝/未开启)。前端不再做任何机械判定
     // (空转画像/全部阻塞/无动作 NUDGE 全部在后端,见 harness auto_run.rs)。
     const action = p.autoAction || { type: "NoContinue" };
+    // UI2-0926 #13 复核:「在等你回答」只对紧接着的那一条手动消息有效。本轮以别的结果收口(续跑、别的停机、
+    // 未开鞭挞)说明等待已经过去,标记必须清掉——否则之后真正的「手动接管」不再关鞭挞。
+    if (!(action.type === "Stop" && action.reason === "AwaitingUser")) takeAwaitingUser(p.sessionId || activeSessionId);
     if (action.type === "Continue") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });

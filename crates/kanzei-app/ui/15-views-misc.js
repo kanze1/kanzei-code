@@ -329,7 +329,10 @@ export function renderGitChip(status) {
   const chip = $("ctx-git");
   if (!chip) return;
   const repo = status?.repo;
-  const show = repo === "none" || repo === "parent";
+  // 复核 minor:研究空间不显示——独立课题在 ~/.kanzei/research-workspaces/… 下,本来就不是仓库,
+  // 在那里给「初始化 Git」等于把研究工作区 git init(研究档也不许改写仓库)。
+  // 不用 data-space-only:03-workspaces 会无条件切掉它的 .hidden,开发空间里空芯片也会冒出来。
+  const show = active_space !== "research" && (repo === "none" || repo === "parent");
   chip.classList.toggle("hidden", !show);
   if (!show) {
     chip.textContent = "";

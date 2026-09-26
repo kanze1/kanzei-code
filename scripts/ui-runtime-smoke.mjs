@@ -827,6 +827,82 @@ if (SMOKE_MUTATE) {
       pattern: /const cost = facts\?\.stacks\?\.includes\("rust"\)/,
       replace: "const cost = true",
     },
+    // ── 复核修复(工作目录管理)──
+    // 线档位不再随合并回填:重启后(localStorage 已空)自主线的续跑轮掉回结伴档。
+    wdModeRestore: {
+      pattern: /[ \t]*restoreLineModes\(\);\r?\n/,
+      replace: "",
+    },
+    // 升级前没记档位、鞭挞开着的线不再按自主档记:自举线装新版后第一轮就掉回结伴。
+    wdModeLegacy: {
+      pattern: /entry\?\.enabled === true \? "dev-auto" : null;/,
+      replace: "null;",
+    },
+    // 存档不再带 mode:切了档位,下次启动(localStorage 已空)又回到回落档位。
+    wdModeRemember: {
+      pattern: /[ \t]*\.\.\.\(mode \? \{ mode \} : \{\}\),\r?\n/,
+      replace: "",
+    },
+    // normalizeAutoState 丢掉 mode:applyAutoUiState/applyAutoStopToSession 回写时把档位抹掉。
+    wdModeNormalize: {
+      pattern: /[ \t]*\.\.\.\(LINE_MODES\.includes\(value\?\.mode\) \? \{ mode: value\.mode \} : \{\}\),\r?\n/,
+      replace: "",
+    },
+    // 旧键(`d|\\?\…`)与新键并存时旧的赢:陈值覆盖用户升级后的设置。
+    wdKeyNewerWins: {
+      pattern: /for \(const \[key, value\] of legacy\) if \(!out\.has\(key\)\) out\.set\(key, value\);/,
+      replace: "for (const [key, value] of legacy) out.set(key, value);",
+    },
+    // 「在等你回答」时仍给「继续鞭挞」:点它等于绕过问题接着跑。
+    wdAwaitResumeHidden: {
+      pattern: / && auto_stop_kind !== "waiting"\)\)/,
+      replace: "))",
+    },
+    // 「继续鞭挞」不清等待标记:之后真正的手动接管不再关鞭挞。
+    wdAwaitResumeTake: {
+      pattern: /[ \t]*takeAwaitingUser\(activeSessionId\);\r?\n/,
+      replace: "",
+    },
+    // 手动开关鞭挞不清等待标记:同上。
+    wdAwaitToggle: {
+      pattern: /[ \t]*if \(takeAwaitingUser\(activeSessionId\) && autoStopReason === t\("模型在等你回答"\)\) setAutoStopReason\(""\);\r?\n/,
+      replace: "",
+    },
+    // 本轮以别的结果收口时不清等待标记:等待早已过去,之后的手动消息仍被当成「回答」。
+    wdAwaitExpire: {
+      pattern: /[ \t]*if \(!\(action\.type === "Stop" && action\.reason === "AwaitingUser"\)\) takeAwaitingUser\(p\.sessionId \|\| activeSessionId\);\r?\n/,
+      replace: "",
+    },
+    // 后台线同上。
+    wdBgAwaitExpire: {
+      pattern: /if \(!\(action\.type === "Stop" && action\.reason === "AwaitingUser"\) && takeAwaitingUser\(sessionId\)\) refreshParallelTaskProjection\(sessionId\);/,
+      replace: "",
+    },
+    // 后台线在等你回答时侧栏行只写「空闲」:混在空闲线里漏看。
+    wdBgWaiting: {
+      pattern: /\r?\n[ \t]*: waitingNow \? t\("在等你回答"\)/,
+      replace: "",
+    },
+    // 切到在等你回答的线,原因槽是空的(applyAutoUiState 清掉后不回填)。
+    wdSwitchWaiting: {
+      pattern: /[ \t]*if \(target\?\.session_id && awaitingUserSessions\.has\(target\.session_id\)\) setAutoStopReason\(t\("模型在等你回答"\), "waiting"\);\r?\n/,
+      replace: "",
+    },
+    // 仓库还没有提交不再单独成横幅:并行线为什么不可用只藏在建线入口的 title 里。
+    wdBannerNoCommit: {
+      pattern: /[ \t]*if \(facts\.git\?\.state === "repo" && facts\.git\?\.has_commits === false\) return "no-commit";\r?\n/,
+      replace: "",
+    },
+    // 「初始化 Git」不看后端结果:已经是仓库(created:false)也报「已初始化」。
+    wdInitToast: {
+      pattern: /if \(result\?\.git\?\.created === false\) toast\(t\("本项目已经是 Git 仓库,没有重复初始化"\)\);\r?\n[ \t]*else /,
+      replace: "",
+    },
+    // 研究空间也画「无 Git」芯片:点一下就把独立课题目录 git init 了。
+    wdGitChipResearch: {
+      pattern: /const show = active_space !== "research" && \(repo === "none" \|\| repo === "parent"\);/,
+      replace: 'const show = repo === "none" || repo === "parent";',
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -14955,6 +15031,10 @@ const docsB = {
 // 并行线入口按事实禁用、target/ 冷编译文案只给 Rust 工程。
 // 变异守卫:wdBashTable / wdBashSentence / wdAwaitKeep / wdAwaitMark / wdAutoAgent / wdAutoProjectDir /
 // wdNewProjectDraft / wdBannerYield / wdWorktreeGate / wdGitChip / wdRustOnlyText。
+// 复核修复:线档位经后端落盘(wdModeRestore / wdModeLegacy / wdModeRemember / wdModeNormalize / wdKeyNewerWins)、
+// 等待标记过期与后台线「在等你回答」(wdAwaitResumeHidden / wdAwaitResumeTake / wdAwaitToggle / wdAwaitExpire /
+// wdBgAwaitExpire / wdBgWaiting / wdSwitchWaiting)、「还没有提交」横幅与按结果提示(wdBannerNoCommit / wdInitToast)、
+// 研究空间不画「无 Git」(wdGitChipResearch);新建项目主按钮专用键为手工变异(index.html 改回「创建」)。
 {
   const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
   const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
@@ -15014,6 +15094,47 @@ const docsB = {
     await flush();
     kzTest.cancelTimers();
     sandbox.releaseAutoContinue?.(SID);
+
+    // 复核:「在等你回答」只对紧接着的那一条手动消息有效。点「继续鞭挞」、手动开关鞭挞、本轮以别的结果收口,
+    // 都让等待过期——之后的手动消息是真正的接管,照常关鞭挞(stopAutoForManualInput 返回 true)。
+    const awaitNow = async () => {
+      whip.checked = true;
+      kzTest.cancelTimers();
+      handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { question: 1 }, autoAction: { type: "Stop", reason: "AwaitingUser" }, sessionId: SID } });
+      await flush();
+    };
+    const settle = () => {
+      kzTest.cancelTimers();
+      sandbox.releaseAutoContinue?.(SID);
+      sandbox.clearRunPending?.();
+    };
+    const takeoverTurnsOff = () => {
+      whip.checked = true;
+      const off = composeNs.stopAutoForManualInput();
+      whip.checked = true;
+      return off;
+    };
+    await awaitNow();
+    assert(byId.get("auto-resume").classList.contains("hidden"), "模型在等你回答时不应出现「继续鞭挞」(鞭挞本来就开着,该做的是回答)");
+    byId.get("auto-resume").click();
+    await flush();
+    settle();
+    assert(takeoverTurnsOff(), "点了「继续鞭挞」之后等待标记必须清掉——之后的手动消息应照常关鞭挞(手动接管)");
+    await awaitNow();
+    whip.checked = false;
+    whip.dispatchEvent({ type: "change" });
+    whip.checked = true;
+    whip.dispatchEvent({ type: "change" });
+    await flush();
+    settle();
+    assert(!kzTest.stopReason().includes("模型在等你回答"), `手动开关鞭挞后原因槽不应还挂着「模型在等你回答」,实为「${kzTest.stopReason()}」`);
+    assert(takeoverTurnsOff(), "手动开关鞭挞之后等待标记必须清掉——之后的手动消息应照常关鞭挞");
+    await awaitNow();
+    handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 1 }, sessionId: SID } });
+    await flush();
+    settle();
+    assert(takeoverTurnsOff(), "本轮以续跑收口后等待标记必须过期——之后的手动消息应照常关鞭挞");
+    settle();
     whip.checked = priorWhip;
     byId.get("profile-select").value = priorProfile;
   }
@@ -15078,6 +15199,14 @@ const docsB = {
     const feedback = sessionsNs.newProjectFeedback({ git: { created: true, identity_missing: true } });
     assert(feedback.kind === "warn" && feedback.text.includes("首次提交"), `缺 Git 身份时反馈应说清没有首提交,实为 ${JSON.stringify(feedback)}`);
     assert(sessionsNs.newProjectFeedback({ git: { created: true, committed: true } }).kind === "ok", "有首提交时反馈应是成功");
+    // 复核:主按钮用专用键。原先复用「创建」,它的英文是容器状态「created」,英文界面主按钮读成 created。
+    sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+    await flush();
+    const createLabel = byId.get("new-project-create").textContent.trim();
+    sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+    await flush();
+    assert(createLabel === "Create project", `英文界面新建项目主按钮应是「Create project」,实为「${createLabel}」`);
+    assert(byId.get("new-project-create").textContent.trim() === "创建项目", `中文界面新建项目主按钮应是「创建项目」,实为「${byId.get("new-project-create").textContent}」`);
     coreNs.promptBox.value = "";
     vm.runInContext(`renderProjects(${JSON.stringify(priorPrefs)})`, sandbox);
     await flush();
@@ -15098,8 +15227,16 @@ const docsB = {
     [...box.querySelectorAll("button")].find((el) => el.textContent === "初始化 Git")?.click();
     await flush();
     assert(invokeArgs.findLast(({ cmd }) => cmd === "project_git_init")?.args?.projectDir === PROJECT, "横幅「初始化 Git」未调 project_git_init");
-    assert(box.classList.contains("hidden"), "初始化 Git 后横幅应收起");
+    // 复核:初始化之后仓库还没有提交——横幅换成「还没有提交」(并行线要等第一次提交),不再只藏在建线入口的 title 里。
+    assert(!box.classList.contains("hidden") && box.dataset.kind === "no-commit" && box.textContent.includes("还没有提交") && buttons().includes("知道了"),
+      `初始化 Git(无提交)后横幅应换成「还没有提交」+[知道了],实为 ${box.dataset.kind}:${box.textContent}`);
+    assert(listText("toast").includes("已初始化 Git 仓库"), `新建了仓库应提示「已初始化 Git 仓库」,实为 ${listText("toast")}`);
     assert(String(byId.get("worktree-add").title).includes("提交"), `仓库没有提交时建线入口应说明「需要一次提交」,实为「${byId.get("worktree-add").title}」`);
+    // 复核:后端说本来就是仓库(created:false)时不能照样报「已初始化」。
+    payloads.project_git_init = () => ({ git: { created: false, branch: "main" }, facts: { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] } });
+    await sessionsNs.initProjectGit();
+    await flush();
+    assert(listText("toast").split("已初始化 Git 仓库").at(-1).includes("已经是 Git 仓库"), `created:false 时应提示「已经是 Git 仓库」,实为 ${listText("toast")}`);
     // 建线入口按事实拦下:不发 process_create。
     const createsBefore = invokeArgs.filter(({ cmd }) => cmd === "process_create").length;
     await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
@@ -15164,6 +15301,97 @@ const docsB = {
     await viewsNs.refreshGit();
     await flush();
     assert(chip.classList.contains("hidden"), "自己的仓库(或旧后端不带 repo 字段)时芯片应收起");
+    // 复核:研究空间不显示「无 Git」——独立课题目录本来就不是仓库,点一下「初始化 Git」就把研究工作区建成了仓库。
+    const devProcesses = payloads.process_list;
+    payloads.process_list = [...devProcesses, { id: "p|research-git-chip", session_id: "sess-research-git-chip", profile: "research", research_topic: "alpha-study", project_dir: PROJECT, label: "研究", running: false }];
+    await vm.runInContext('switch_workspace("research")', sandbox);
+    await flush();
+    payloads.git_status = { repo: "none", branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] };
+    await viewsNs.refreshGit();
+    await flush();
+    const researchChipShown = !chip.classList.contains("hidden");
+    await vm.runInContext('switch_workspace("dev")', sandbox);
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    payloads.git_status = priorStatus;
+    await viewsNs.refreshGit();
+    await flush();
+    assert(!researchChipShown, "研究空间不应显示「无 Git」芯片(独立课题目录不是仓库,也不该被 git init)");
+  }
+
+  // ⑦ 复核:线档位经后端落盘。鞭挞续跑轮按线档位发,档位原先只在 localStorage(本机重启即丢,D-404):
+  // 自举线每装一次新版就从自主推进掉回结伴。模拟重启——本地档位全清空,只剩后端 app.json 的 process_auto_state。
+  {
+    const devProcesses = payloads.process_list;
+    const line = { id: "p9|smoke-mode", session_id: "sess-mode", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "自主线", running: false };
+    const legacy = { id: "p10|smoke-legacy", session_id: "sess-legacy", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "旧存档线", running: false };
+    payloads.process_list = [...devProcesses, line, legacy];
+    await sandbox.refreshProcesses();
+    await flush();
+    const priorProfiles = new Map(composeNs.processProfileUi);
+    const priorSelect = byId.get("profile-select").value;
+    const priorGlobal = storage.get("kz-profile");
+    for (const key of ["kz-profile", "kz-process-profile", "kz-process-auto-state"]) storage.delete(key);
+    composeNs.processProfileUi.clear();
+    composeNs.mergeBackendAutoState({ [line.id]: { enabled: true, mode: "dev-auto" }, [legacy.id]: { enabled: true } });
+    await flush();
+    const lastRun = (id) => invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === id)?.args;
+    await composeNs.sendAutoToSession("继续", line.session_id);
+    sandbox.releaseAutoContinue(line.session_id);
+    assert(lastRun(line.id)?.agent === "dev", `重启后(本地档位已空)自主线的续跑轮应按后端记的档位发 dev,实为 ${lastRun(line.id)?.agent}`);
+    await composeNs.sendAutoToSession("继续", legacy.session_id);
+    sandbox.releaseAutoContinue(legacy.session_id);
+    assert(lastRun(legacy.id)?.agent === "dev", `升级前没记档位、鞭挞开着的线应按自主档续跑(那是它此前实际的档位),实为 ${lastRun(legacy.id)?.agent}`);
+    assert(composeNs.processAutoState.get(legacy.id)?.mode === "dev-auto", "旧存档补记的档位应写回存档(一次性迁移)");
+    // 写入侧:当前线切档位 → 存档带 mode,经 ui_prefs_set 落到后端。
+    const before = invokeArgs.length;
+    byId.get("profile-select").value = "dev-pair";
+    byId.get("profile-select").dispatchEvent({ type: "change" });
+    await flush();
+    const savedState = invokeArgs.slice(before).findLast(({ cmd, args }) => cmd === "ui_prefs_set" && args?.process_auto_state)?.args?.process_auto_state;
+    assert(savedState?.[sandbox.activeProcessId]?.mode === "dev-pair", `切档位后存档应带 mode 落后端,实为 ${JSON.stringify(savedState?.[sandbox.activeProcessId])}`);
+    // applyAutoUiState / applyAutoStopToSession 都经 normalizeAutoState 回写,不能把档位抹掉。
+    assert(composeNs.normalizeAutoState({ enabled: true, mode: "dev-auto" }).mode === "dev-auto", "normalizeAutoState 丢了 mode");
+    // 旧键(`d|\\?\…`)与新键并存时去前缀的(本版本写的、较新的)赢。
+    const keyed = composeNs.normalizeProcessKeyed([["d|\\\\?\\C:\\x", { enabled: true }], ["d|C:\\x", { enabled: false }]]);
+    assert(keyed.size === 1 && keyed.get("d|C:\\x")?.enabled === false, `旧键与新键并存时应保留新键的值,实为 ${JSON.stringify([...keyed])}`);
+    // 收尾恢复。
+    composeNs.processProfileUi.clear();
+    for (const [key, value] of priorProfiles) composeNs.processProfileUi.set(key, value);
+    composeNs.processAutoState.delete(line.id);
+    composeNs.processAutoState.delete(legacy.id);
+    if (priorGlobal !== undefined) storage.set("kz-profile", priorGlobal);
+    byId.get("profile-select").value = priorSelect;
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    await flush();
+  }
+
+  // ⑧ 复核:后台线停在「模型在等你回答」——侧栏行单独写「在等你回答」(琥珀),切过去原因槽给同一句提示;
+  // 这条线下一轮以别的结果收口,标记过期、行回到空闲。
+  {
+    const devProcesses = payloads.process_list;
+    const line = { id: "p11|smoke-bg-wait", session_id: "sess-bg-wait", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "等回答线", running: false };
+    payloads.process_list = [...devProcesses, line];
+    await sandbox.refreshProcesses();
+    await flush();
+    const row = () => [...document.querySelectorAll(".parallel-task-row")].find((el) => el.dataset.processId === line.id);
+    composeNs.handleBackgroundSessionDone({ sessionId: line.session_id, autoAction: { type: "Stop", reason: "AwaitingUser" } });
+    await flush();
+    assert(row()?.querySelector(".parallel-task-state")?.textContent === "在等你回答", `后台线在等你回答时侧栏行应写「在等你回答」,实为「${row()?.querySelector(".parallel-task-state")?.textContent}」`);
+    assert(row()?.querySelector(".kz-glyph")?.dataset.state === "attention", `在等你回答的字形应是 attention(琥珀),实为 ${row()?.querySelector(".kz-glyph")?.dataset.state}`);
+    const activeId = sandbox.activeProcessId;
+    composeNs.applyAutoUiState(line.id);
+    const reasonOnSwitch = kzTest.stopReason();
+    composeNs.applyAutoUiState(activeId);
+    assert(reasonOnSwitch.includes("模型在等你回答"), `切到在等你回答的线,原因槽应给同一句提示,实为「${reasonOnSwitch}」`);
+    composeNs.handleBackgroundSessionDone({ sessionId: line.session_id, autoAction: { type: "NoContinue" } });
+    await flush();
+    assert(row()?.querySelector(".parallel-task-state")?.textContent === "空闲", `这条线以别的结果收口后应回到空闲,实为「${row()?.querySelector(".parallel-task-state")?.textContent}」`);
+    kzTest.cancelTimers();
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    await flush();
   }
 
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });

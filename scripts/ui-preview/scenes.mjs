@@ -456,6 +456,18 @@ Object.assign(SCENES, {
     await ctx.sleep(60);
     document.activeElement?.blur?.();
   },
+  /// 复核修复:仓库已初始化但还没有提交(新建项目时本机没配 Git 身份)→「还没有提交」横幅 [知道了];
+  /// 一条后台线停在「模型在等你回答」→ 侧栏线路行写「在等你回答」(琥珀字形)。
+  async "workdir-nocommit"(ctx) {
+    await useWorkdirFacts(ctx, { state: "repo", branch: "main", has_commits: false });
+    await closeActivityPanel(ctx);
+    const shell = await import("/03-shell.js");
+    const compose = await import("/08-compose-runtime.js");
+    const idle = shell.processItems.find((item) => item.id !== shell.activeProcessId && !item.running);
+    if (idle) compose.handleBackgroundSessionDone({ sessionId: idle.session_id, autoAction: { type: "Stop", reason: "AwaitingUser" } });
+    await ctx.sleep(80);
+    document.activeElement?.blur?.();
+  },
   /// 位于上级仓库内:横幅点名上级仓库(需要注意,琥珀)+ 芯片菜单。
   async "workdir-parent"(ctx) {
     await useWorkdirFacts(ctx, { state: "parent", toplevel: "C:\\Users\\kanzei" }, "existing");

@@ -1203,8 +1203,11 @@ export const I18N_EN = {
   "建库并写好运行时文件的忽略规则": "Creates the repository and ignore rules for runtime files",
   "Git 状态": "Git status",
   "模型在等你回答(回复后自动继续)": "The model is waiting for your answer (auto-run resumes after you reply)",
-  "模型在等你回答": "The model is waiting for your answer", "鞭挞暂停": "Auto-run paused",
+  "模型在等你回答": "Waiting for your answer", "鞭挞暂停": "Auto-run paused",
   "已回复模型的提问,鞭挞在这一轮结束后继续": "Answered the model's question; auto-run continues after this round",
+  // 复核修复:新建项目按钮用专用键(「创建」的英文是容器状态 created)、还没有提交的横幅、后台线在等你回答。
+  "创建项目": "Create project", "Git 已初始化但还没有提交:并行线要等第一次提交": "Git is initialized but has no commits yet: parallel lines need a first commit",
+  "本项目已经是 Git 仓库,没有重复初始化": "This project is already a Git repository; nothing was re-initialized", "在等你回答": "Needs reply",
 };
 export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",

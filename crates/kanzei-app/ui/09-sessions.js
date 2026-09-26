@@ -31,6 +31,7 @@ import { bgClear } from "./06-activity.js";
 import { agentPanelSync } from "./06-agent-panel.js";
 import { askActive, askQueueFor, hideAsk, pumpAsk } from "./07-events.js";
 import {
+  awaitingUserSessions,
   cancelAutoContinueTimer,
   clearAutoNotices,
   renderAutoStatus,
@@ -406,17 +407,23 @@ export function parallelTaskView(item) {
   const pendingNow = state.phase === "auto_pending" || (state.auto_pending === true && !runningNow);
   const stoppingNow = state.phase === "stopping";
   const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || "";
+  // UI2-0926 #13 复核:模型在等你回答(引擎 Stop/AwaitingUser)。后台线停在这里时侧栏行原先只写「空闲」,
+  // 一条在等人的线混在空闲线里很容易漏看——单独一个状态词 + 琥珀字形(attention:等你批准/回答)。
+  const waitingNow = !runningNow && !pendingNow && !stoppingNow && awaitingUserSessions.has(item.session_id);
   const label = stoppingNow ? t("停止中…")
     : runningNow ? stage || t("运行中")
       : pendingNow ? t("鞭挞等待")
-        : t("空闲");
+        : waitingNow ? t("在等你回答")
+          : t("空闲");
   const name = `${lineAuthorityLabel(item)} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
   const title = runningNow
     ? `${name}\n${[stage || t("运行中"), state.detail].filter(Boolean).join(" · ")}`
     : pendingNow
       ? `${name}\n${t("等待下一轮")}`
-      : `${name}\n${t("点击切换到此线路")}`;
-  return { runningNow, pendingNow, stoppingNow, label, title };
+      : waitingNow
+        ? `${name}\n${t("模型在等你回答(回复后自动继续)")}`
+        : `${name}\n${t("点击切换到此线路")}`;
+  return { runningNow, pendingNow, stoppingNow, waitingNow, label, title };
 }
 export function renderParallelTaskStatus(items) {
   const target = $("parallel-task-status");
@@ -515,8 +522,8 @@ export function refreshParallelTaskProjection(sessionId) {
 /// 字形文本 ●/◐/○ 原样保留(读屏读状态词,字形 aria-hidden;既有断言读字形)。两个节点
 /// **原地更新**:逐事件投影不再重建它们,呼吸动画不会每个 kz:status 都从第 0 帧重来;
 /// 整表重绘新建的节点由 motionSync 对齐到全局相位。
-export function renderParallelTaskState(row, { runningNow, pendingNow, stoppingNow, label }) {
-  const state = stoppingNow ? "stopping" : runningNow ? "running" : pendingNow ? "pending" : "idle";
+export function renderParallelTaskState(row, { runningNow, pendingNow, stoppingNow, waitingNow = false, label }) {
+  const state = stoppingNow ? "stopping" : runningNow ? "running" : pendingNow ? "pending" : waitingNow ? "attention" : "idle";
   const mark = runningNow ? "●" : pendingNow ? "◐" : "○";
   const words = String(label ?? "");
   let glyph = row.querySelector(".kz-glyph");
@@ -1161,11 +1168,14 @@ export async function refreshProjectFacts(project = currentProject) {
   syncWorktreeEntry(facts);
   return facts;
 }
-/// 横幅一次只说一件事:上级仓库(风险)> 不是 Git 仓库 > 空项目。
+/// 横幅一次只说一件事:上级仓库(风险)> 不是 Git 仓库 > 仓库还没有提交 > 空项目。
+/// 「还没有提交」排在空项目前面(复核 minor):新建项目时本机没配 Git 身份就只 init 不提交,并行线要等第一次
+/// 提交——原先只在一闪而过的 toast 里说过,之后横幅只剩「空项目」,原因只藏在建线入口的 title 里。
 export function projectFactBannerKind(facts) {
   if (!facts) return null;
   if (facts.git?.state === "parent") return "parent";
   if (facts.git?.state === "none") return "no-git";
+  if (facts.git?.state === "repo" && facts.git?.has_commits === false) return "no-commit";
   if (facts.layout === "greenfield") return "greenfield";
   return null;
 }
@@ -1206,10 +1216,13 @@ export function renderProjectFactsBanner(facts = projectFacts, project = current
   } else if (kind === "no-git") {
     text.textContent = t("此目录不是 Git 仓库:并行线/工作树、提交与改动统计不可用");
     action(t("初始化 Git"), () => void initProjectGit());
+  } else if (kind === "no-commit") {
+    text.textContent = t("Git 已初始化但还没有提交:并行线要等第一次提交");
   } else {
     text.textContent = t("空项目:agent 会直接在这个目录里搭工程");
   }
-  action(kind === "greenfield" ? t("知道了") : t("不再提示"), () => {
+  // 纯告知的两类(空项目、还没有提交)只有「知道了」;有风险/有动作的两类是「不再提示」。
+  action(kind === "greenfield" || kind === "no-commit" ? t("知道了") : t("不再提示"), () => {
     setLayoutPref(FACTS_DISMISS, factsDismissKey(project, kind), true);
     renderProjectFactsBanner(facts, project);
   }, { ghost: true });
@@ -1226,7 +1239,9 @@ export async function initProjectGit({ nested = false } = {}) {
   }))) return null;
   try {
     const result = await invoke("project_git_init", { projectDir: project });
-    toast(t("已初始化 Git 仓库(还没有提交:第一次提交之后才能开并行线)"), { kind: "ok" });
+    // 复核 minor:按后端实际结果说话——已经是仓库时后端什么都不建(created:false),不能照样报「已初始化」。
+    if (result?.git?.created === false) toast(t("本项目已经是 Git 仓库,没有重复初始化"));
+    else toast(t("已初始化 Git 仓库(还没有提交:第一次提交之后才能开并行线)"), { kind: "ok" });
     if (project !== currentProject) return result;
     projectFacts = result?.facts ?? null;
     projectFactsFor = project;
