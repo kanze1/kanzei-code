@@ -52,8 +52,8 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("prior_art", Arc::new(crate::prior_art::PriorArtTool));
-        // R-269:浏览器工具(playwright-core 辅进程 headless 自检)。默认 Ask——
-        // 启动 headless 浏览器与截图都有副作用面,交互轮放行、自主轮按权限判定。
+        // R-269:浏览器工具(playwright-core 辅进程 headless 自检)。UI2-0926 #8 起权限分级:
+        // 本机地址 / 本地文件 / 内联片段放行,外网仍 Ask(见下方 permissions)。
         draft
             .tools
             .insert("browser", Arc::new(crate::browser_tool::BrowserTool));
@@ -86,6 +86,21 @@ impl Component for BaseComponent {
             rule("prior_art", "read:*", Effect::Allow),
             rule("prior_art", "write:*", Effect::Ask),
             rule("browser", "*", Effect::Ask),
+            // UI2-0926 #8:浏览器分级(资源形态见 browser_tool::resources_for,按解析后的 host 取)。
+            // 本机回环、本地文件、内联片段与「还没打开页面」放行;其余外网仍 Ask。
+            // 前缀带 `:`/`/` 分隔,`url:localhost.evil.com` 不会被 `url:localhost:*` 命中。
+            rule("browser", "url:localhost", Effect::Allow),
+            rule("browser", "url:localhost:*", Effect::Allow),
+            rule("browser", "url:localhost/*", Effect::Allow),
+            rule("browser", "url:127.0.0.1", Effect::Allow),
+            rule("browser", "url:127.0.0.1:*", Effect::Allow),
+            rule("browser", "url:127.0.0.1/*", Effect::Allow),
+            rule("browser", "url:[::1]", Effect::Allow),
+            rule("browser", "url:[::1]:*", Effect::Allow),
+            rule("browser", "url:[::1]/*", Effect::Allow),
+            rule("browser", "path:*", Effect::Allow),
+            rule("browser", "html:*", Effect::Allow),
+            rule("browser", "page:none", Effect::Allow),
             rule("latex", "*", Effect::Ask),
             rule("plot", "*", Effect::Ask),
         ]);
@@ -182,5 +197,65 @@ mod tests {
         assert_eq!(snapshot.evaluate("git", "stage"), Effect::Ask);
         // UI2-0926 #13:建库是写操作,先问用户(自主轮 NonInteractive 下即拒)。
         assert_eq!(snapshot.evaluate("git", "init"), Effect::Ask);
+    }
+
+    // ── 分区:网页预览后端 ──
+    /// UI2-0926 #8:browser 权限分级。资源由 browser_tool::resources_for 产出,
+    /// 这里照真实判定路径(规范化后 evaluate)逐条断言。
+    #[test]
+    fn browser权限分级_本机与本地放行_外网仍问() {
+        let root = std::env::temp_dir();
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: std::sync::Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(BaseComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let effect = |input: serde_json::Value| {
+            let resource = crate::browser_tool::resources_for(&input, None, None)
+                .pop()
+                .unwrap();
+            let normalized =
+                kanzei_harness::permission::normalize_resource_for_action("browser", &resource);
+            (resource, snapshot.evaluate("browser", &normalized))
+        };
+        for allowed in [
+            serde_json::json!({"url": "http://localhost:5173/"}),
+            serde_json::json!({"url": "http://localhost/"}),
+            serde_json::json!({"url": "http://localhost/app/x"}),
+            serde_json::json!({"url": "http://127.0.0.1:4173/t/abc/r/def/index.html"}),
+            serde_json::json!({"url": "http://[::1]:8080/"}),
+            serde_json::json!({"path": "C:/proj/site/index.html"}),
+            serde_json::json!({"html": "<p>x</p>"}),
+            serde_json::json!({"action": "screenshot"}),
+        ] {
+            let (resource, decision) = effect(allowed.clone());
+            assert_eq!(decision, Effect::Allow, "{allowed} → {resource}");
+        }
+        for asked in [
+            serde_json::json!({"url": "https://example.com/"}),
+            serde_json::json!({"url": "http://localhost.evil.com/"}),
+            serde_json::json!({"url": "http://localhost:80@evil.com/"}),
+            serde_json::json!({"url": "http://127.0.0.1.nip.io/"}),
+        ] {
+            let (resource, decision) = effect(asked.clone());
+            assert_eq!(decision, Effect::Ask, "{asked} → {resource}");
+        }
+        // 只读档位的硬 deny 先于普通放行规则:本机地址也不行。
+        let readonly_ctx = ResolveCtx {
+            profile: ProfileKind::Readonly,
+            ..ctx
+        };
+        let mut readonly = Harness::default();
+        readonly.add(BaseComponent).add(crate::ReadonlyProfile);
+        let readonly = readonly.resolve(&readonly_ctx).unwrap();
+        assert_eq!(
+            readonly.evaluate("browser", "url:localhost:5173"),
+            Effect::Deny
+        );
+        assert_eq!(readonly.evaluate("browser", "html:12345678"), Effect::Deny);
     }
 }

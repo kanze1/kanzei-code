@@ -11,16 +11,53 @@
 //
 // 生命周期:stdin 关闭(或收到 "shutdown" 请求)即关闭 browser 并退出——不留
 // 僵尸 headless 实例。空闲回收由 Rust 侧空闲超时触发 shutdown。
+//
+// UI2-0926 #8:本脚本随安装包放在 <安装目录>/scripts/ 下(tauri bundle resource),
+// 那里没有 node_modules;playwright-core 先按常规解析,失败再从 KANZEI_PLAYWRIGHT_ROOT
+// (Rust 侧传入的仓库根)解析。DOM walker 与面板后端共用 browser-dom-walker.mjs 一份。
 
-import { chromium } from "playwright-core";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { domWalker } from "./browser-dom-walker.mjs";
 
 // ---- 状态:单 browser / 单 page / 单 context(边界:不做多 tab/多上下文) ----
 let browser = null;
 let browserChannel = null;
 let context = null;
 let page = null;
-let consoleErrors = [];
-let lastError = null; // 上一次操作的错误(供诊断,不吞)
+let consoleEntries = [];
+let chromiumCache = null;
+
+// console 条目在内存里最多留这么多(按到达顺序丢头)。
+const CONSOLE_CAP = 500;
+// console all=true 时返回最近这么多条。
+const CONSOLE_ALL_LIMIT = 200;
+// wait 的上限(与 Rust 侧 MAX_WAIT_MS 一致)。
+const MAX_WAIT_MS = 10000;
+
+async function loadChromium() {
+  if (chromiumCache) return chromiumCache;
+  try {
+    chromiumCache = (await import("playwright-core")).chromium;
+    return chromiumCache;
+  } catch (first) {
+    const extra = process.env.KANZEI_PLAYWRIGHT_ROOT;
+    if (extra) {
+      try {
+        const require = createRequire(path.join(extra, "package.json"));
+        chromiumCache = require("playwright-core").chromium;
+        return chromiumCache;
+      } catch {
+        // 落到下面的统一报错。
+      }
+    }
+    throw new Error(
+      `找不到 playwright-core(${String(first?.message ?? first)})。无头浏览器需要 playwright-core:` +
+        `在 kanzei 仓库根执行 npm install,或设置 KANZEI_PLAYWRIGHT_ROOT 指向含 node_modules/playwright-core 的目录。` +
+        `桌面端打开「网页预览」面板时 browser 走面板,不需要它。`,
+    );
+  }
+}
 
 // 从 channel 名解析浏览器可执行文件:msedge -> Edge(channel: "msedge"),
 // chrome -> Chrome(channel: "chrome")。playwright-core 会找系统安装路径。
@@ -35,26 +72,33 @@ function resolveChannel(channel) {
   );
 }
 
+function resetState() {
+  browser = null;
+  browserChannel = null;
+  context = null;
+  page = null;
+}
+
+function pushConsole(entry) {
+  consoleEntries.push(entry);
+  if (consoleEntries.length > CONSOLE_CAP) consoleEntries.splice(0, consoleEntries.length - CONSOLE_CAP);
+}
+
 async function ensureBrowser(channel) {
   const requestedChannel = resolveChannel(channel ?? "msedge");
   if (browser && browser.isConnected && !browser.isConnected()) {
-    browser = null;
-    browserChannel = null;
-    context = null;
-    page = null;
+    resetState();
   }
   // 同一辅进程允许调用方显式切换 channel。旧实现一旦先开了 Edge，后续传
   // chrome 也会静默复用 Edge，工具回显与真实执行面不一致。
   if (browser && browserChannel !== requestedChannel) {
     await browser.close().catch(() => {});
-    browser = null;
-    browserChannel = null;
-    context = null;
-    page = null;
+    resetState();
   }
   if (browser) {
     return;
   }
+  const chromium = await loadChromium();
   browser = await chromium.launch({
     channel: requestedChannel,
     headless: true,
@@ -62,27 +106,43 @@ async function ensureBrowser(channel) {
   });
   browserChannel = requestedChannel;
   context = await browser.newContext({
-    // 默认桌面 viewport;移动预设由 Rust 侧按需传 viewport 覆盖。
+    // 默认桌面 viewport;移动/平板/桌面预设由 Rust 侧按需传 viewport 覆盖。
     viewport: { width: 1280, height: 720 },
     deviceScaleFactor: 1,
   });
   page = await context.newPage();
-  consoleErrors = [];
+  consoleEntries = [];
   page.on("console", (msg) => {
-    if (msg.type() === "error" || msg.type() === "warning") {
-      const location = msg.location();
-      consoleErrors.push({
-        type: msg.type(),
-        text: msg.text(),
-        url: location?.url || undefined,
-        line: Number.isInteger(location?.lineNumber) ? location.lineNumber : undefined,
-        column: Number.isInteger(location?.columnNumber) ? location.columnNumber : undefined,
-      });
-    }
+    const location = msg.location();
+    // 行列统一 1 起算(playwright 给 0 起算),与面板后端的 CDP 条目同口径。
+    pushConsole({
+      type: msg.type(),
+      text: msg.text(),
+      url: location?.url || undefined,
+      line: Number.isInteger(location?.lineNumber) ? location.lineNumber + 1 : undefined,
+      column: Number.isInteger(location?.columnNumber) ? location.columnNumber + 1 : undefined,
+    });
   });
   page.on("pageerror", (err) => {
-    consoleErrors.push({ type: "pageerror", text: String(err?.message ?? err) });
+    pushConsole({ type: "pageerror", text: String(err?.message ?? err) });
   });
+}
+
+function requirePage() {
+  if (!browser || !page) {
+    throw new Error("no browser: call open first");
+  }
+}
+
+async function applyViewport(viewport) {
+  if (viewport) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+  }
+}
+
+function clampWait(ms, fallback) {
+  const value = Number.isFinite(ms) ? ms : fallback;
+  return Math.max(0, Math.min(MAX_WAIT_MS, value));
 }
 
 async function handle(method, params) {
@@ -90,82 +150,104 @@ async function handle(method, params) {
     case "shutdown": {
       if (browser) {
         await browser.close().catch(() => {});
-        browser = null;
-        browserChannel = null;
-        context = null;
-        page = null;
+        resetState();
       }
       return { ok: true };
     }
     case "open": {
       const { url, viewport } = params ?? {};
       await ensureBrowser(params?.channel);
-      if (viewport) {
-        await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      }
+      await applyViewport(viewport);
       // console 查询只应覆盖本次导航之后的页面。否则先前 URL 的错误会污染
       // 后续页面，模型会把旧页故障归因到当前前端。
-      consoleErrors = [];
+      consoleEntries = [];
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
       return { title: await page.title().catch(() => ""), url: page.url() };
     }
+    case "emulateMedia": {
+      requirePage();
+      const scheme = params?.colorScheme;
+      await page.emulateMedia({ colorScheme: scheme === "light" || scheme === "dark" ? scheme : null });
+      return { ok: true };
+    }
     case "screenshot": {
-      const { viewport } = params ?? {};
-      if (!browser) {
-        return { error: "no browser: call open first" };
+      requirePage();
+      await applyViewport(params?.viewport);
+      let png;
+      if (params?.selector) {
+        png = await page.locator(params.selector).first().screenshot({ type: "png", timeout: 5000 });
+      } else {
+        png = await page.screenshot({ type: "png", fullPage: Boolean(params?.fullPage) });
       }
-      if (viewport) {
-        await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      }
-      const png = await page.screenshot({ type: "png", fullPage: false });
-      return { png: png.toString("base64") };
+      return { png: png.toString("base64"), url: page.url(), title: await page.title().catch(() => "") };
     }
     case "dom": {
-      const { selector } = params ?? {};
-      if (!browser) {
-        return { error: "no browser: call open first" };
-      }
-      const structure = await page.evaluate((sel) => {
-        const roots = sel ? Array.from(document.querySelectorAll(sel)) : [document.body];
-        const seen = new Set();
-        const walk = (el, depth) => {
-          if (depth > 12 || seen.has(el)) return [];
-          seen.add(el);
-          const node = {
-            tag: el.tagName ? el.tagName.toLowerCase() : "#text",
-            id: el.id || undefined,
-            cls: el.className && typeof el.className === "string" ? el.className.split(/\s+/).filter(Boolean).slice(0, 5) : undefined,
-            text: el.childElementCount === 0 ? (el.textContent || "").trim().slice(0, 80) : undefined,
-            children: [],
-          };
-          for (const child of el.children) {
-            node.children.push(...walk(child, depth + 1));
-          }
-          return [node];
-        };
-        const out = [];
-        for (const r of roots) out.push(...walk(r, 0));
-        return JSON.stringify(out);
-      }, selector ?? null);
+      requirePage();
+      const structure = await page.evaluate(domWalker, params?.selector ?? null);
       return { dom: structure, url: page.url() };
     }
     case "console": {
-      if (!browser) return { error: "no browser: call open first" };
-      return { errors: consoleErrors, url: page.url() };
+      requirePage();
+      const entries = params?.all
+        ? consoleEntries.slice(-CONSOLE_ALL_LIMIT)
+        : consoleEntries.filter((e) => e.type === "error" || e.type === "warning" || e.type === "pageerror");
+      return { errors: entries, url: page.url() };
     }
     case "click": {
+      requirePage();
       const { selector } = params ?? {};
-      if (!browser) return { error: "no browser: call open first" };
       if (!selector) return { error: "click requires selector" };
       await page.click(selector, { timeout: 5000 });
       return { ok: true, url: page.url() };
     }
     case "type": {
+      requirePage();
       const { selector, text } = params ?? {};
-      if (!browser) return { error: "no browser: call open first" };
       if (!selector || typeof text !== "string") return { error: "type requires selector and text" };
       await page.fill(selector, text);
       return { ok: true, url: page.url() };
+    }
+    case "press": {
+      requirePage();
+      const { key } = params ?? {};
+      if (!key) return { error: "press requires key" };
+      await page.keyboard.press(key);
+      return { ok: true, url: page.url() };
+    }
+    case "scroll": {
+      requirePage();
+      const { selector, dy } = params ?? {};
+      if (selector) {
+        await page.locator(selector).first().scrollIntoViewIfNeeded({ timeout: 5000 });
+      } else {
+        await page.evaluate((delta) => globalThis.scrollBy(0, delta), Number.isFinite(dy) ? dy : 600);
+      }
+      const scrollY = await page.evaluate(() => globalThis.scrollY);
+      return { ok: true, url: page.url(), scrollY };
+    }
+    case "wait": {
+      requirePage();
+      const { selector, text, ms } = params ?? {};
+      const started = Date.now();
+      if (selector) {
+        await page.waitForSelector(selector, { timeout: clampWait(ms, MAX_WAIT_MS), state: "attached" });
+      } else if (typeof text === "string" && text) {
+        await page.waitForFunction(
+          (needle) => Boolean(document.body) && document.body.innerText.includes(needle),
+          text,
+          { timeout: clampWait(ms, MAX_WAIT_MS), polling: 100 },
+        );
+      } else {
+        await page.waitForTimeout(clampWait(ms, 1000));
+      }
+      return { ok: true, url: page.url(), elapsedMs: Date.now() - started };
+    }
+    case "eval": {
+      requirePage();
+      const { expression } = params ?? {};
+      if (typeof expression !== "string" || !expression.trim()) return { error: "eval requires expression" };
+      const value = await page.evaluate(expression);
+      return { json: JSON.stringify(value === undefined ? null : value) ?? "null", url: page.url() };
     }
     default:
       return { error: `unknown method: ${method}` };
