@@ -302,6 +302,26 @@ if (SMOKE_MUTATE) {
       pattern: /onSelect: \(\) => void renameProject\(project\.path\) \},/,
       replace: "onSelect: () => {} },",
     },
+    // UI2-0926 #5:右端定宽列(优先级/复杂度)挂到行尾。删了它,优先级与复杂度整列消失(D-362 行结构与「状态在优先级前」都红)。
+    docRowTailMeta: {
+      pattern: /[ \t]*for \(const node of tail\) row\.appendChild\(node\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #5:批次格进定宽槽。退回塞进例外标记簇,有无批次格的行右端两列又被推歪。
+    docMeterSlot: {
+      pattern: /meterSlot\.appendChild\(meter\);/,
+      replace: "placeFlag(meter);",
+    },
+    // UI2-0926 #5:已有选中时勾选框整列常显。删了它,批量挑到一半,挪开鼠标勾选框就全隐形了。
+    batchPickReveal: {
+      pattern: /[ \t]*for \(const list of document\.querySelectorAll\("\.documents-list"\)\) list\.classList\.toggle\("has-selection", batchSelection\.size > 0\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #5:组头计数单独成段。删了它,组头只剩组名,计数丢了。
+    docGroupCount: {
+      pattern: /head\.append\(groupLabel, groupNum\);/,
+      replace: "head.append(groupLabel);",
+    },
     // ── 分区:侧栏与需求页(完) ──
 
     // ---- 分区:动效 ----
@@ -2533,22 +2553,29 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
 // D-362:文档页行内三列对齐的结构保证——可选徽标一律在标题之后成簇,不得插在
 // 优先级前面。像素位置在这个环境里量不了,但「优先级之前只允许固定宽度元素」
 // 这条结构不变量正是对齐的充要条件,行行成立则三列必然对齐。
+// UI2-0926 #5 改写(行结构 [勾选][状态][标题][例外标记][批次格槽][优先级][复杂度]):标题之前只准定宽的
+// 勾选框/状态列(标题起点行行一致);可选徽标只在 .doc-flags 里;标题之后依次是 [.doc-flags?] .doc-meter-slot
+// .pri-badge [.complexity-badge,仅需求] 并到此结束(右端三条定宽列行行对齐);批次格只在槽里,没有批次格的行也留空槽。
 {
-  const optional = ["doc-claim-fact", "complexity-meter", "blocked-badge", "clarify-badge"];
+  const optional = ["doc-claim-fact", "blocked-badge", "clarify-badge", "work-unit-badge"];
   const rows = document.querySelectorAll("#documents-req-list .doc-row, #documents-defect-list .doc-row");
   assert(rows.length > 0, "文档页列表应有行可检");
-  for (const row of rows) {
-    const kids = [...row.children];
-    const priAt = kids.findIndex((n) => n.classList.contains("pri-badge"));
-    if (priAt < 0) continue;
-    const early = kids.slice(0, priAt).filter((n) => optional.some((cls) => n.classList.contains(cls)));
-    assert(
-      early.length === 0,
-      `可选徽标不得排在优先级之前(会把三列推歪):${early.map((n) => n.className).join(",")}`,
-    );
-    const flagBox = kids.find((n) => n.classList.contains("doc-flags"));
-    if (flagBox) {
-      assert(kids[kids.length - 1] === flagBox, "doc-flags 必须是行内最后一个元素(排在标题之后)");
+  for (const [listId, withCx] of [["documents-req-list", true], ["documents-defect-list", false]]) {
+    for (const row of document.querySelectorAll(`#${listId} .doc-row`)) {
+      const kids = [...row.children];
+      const titleAt = kids.findIndex((n) => n.classList.contains("title"));
+      assert(titleAt >= 0, `${listId} 行缺标题`);
+      const lead = kids.slice(0, titleAt).filter((n) => !["doc-pick", "doc-pick-space", "st"].some((cls) => n.classList.contains(cls)));
+      assert(lead.length === 0, `标题之前只准勾选框/状态列(会把标题起点推歪):${lead.map((n) => n.className).join(",")}`);
+      const stray = kids.filter((n) => optional.some((cls) => n.classList.contains(cls)));
+      assert(stray.length === 0, `可选徽标必须收在 .doc-flags 里:${stray.map((n) => n.className).join(",")}`);
+      const tailKinds = kids.slice(titleAt + 1).map((n) => (n.classList.contains("doc-flags") ? "flags"
+        : n.classList.contains("doc-meter-slot") ? "meter"
+          : n.classList.contains("pri-badge") ? "pri"
+            : n.classList.contains("complexity-badge") ? "cx" : n.className));
+      const expected = [...(tailKinds[0] === "flags" ? ["flags"] : []), "meter", "pri", ...(withCx ? ["cx"] : [])];
+      assert(tailKinds.join(",") === expected.join(","), `${listId} 行尾结构应为 ${expected.join(",")},实为 ${tailKinds.join(",")}`);
+      assert(!row.querySelector(".doc-flags .complexity-meter"), "批次格不得混在例外标记簇里(它是定宽列,放 .doc-meter-slot)");
     }
   }
 }
@@ -9563,6 +9590,71 @@ const docsB = {
     await flush();
     document.querySelectorAll(".activity-item").find((node) => node.dataset.view === savedViewName)?.click();
     await flush();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ---------- UI2-0926 #5「需求页面缺少字体之间的间隔和明暗关系」 ----------
+// 行结构的不变量在上面 D-362 那段(按新结构改写);这里钉住结构件:组头拆「组名 + 计数」、未设优先级写「—」
+// (字面「未设」进读屏名称)、批次格在定宽槽里、详情头拆编号/分隔/标题、「已有选中」时勾选框整列常显。
+// 变异守卫:docRowTailMeta / docMeterSlot / batchPickReveal / docGroupCount。
+{
+  const listNs = esmModuleCache.get("11-docs-list.js")?.namespace;
+  const coreNs = esmModuleCache.get("10-docs-core.js")?.namespace;
+  assert(listNs && coreNs, "UI2 #5 前置:10/11 模块命名空间未加载");
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const probe = document.createElement("div");
+  probe.id = "documents-ui2-probe";
+  probe.className = "doc-list documents-list";
+  document.body.appendChild(probe);
+  try {
+    listNs.batchSelection.clear();
+    listNs.syncBatchBar();
+    const probeEntries = [
+      docEntry("R-U01", "字阶样例一", "doing", { priority: "", complexity: "大", batches: { done: 1, total: 4 }, fields: [["标签", "核心"]] }),
+      docEntry("R-U02", "字阶样例二", "todo", { complexity: "中", blocked: true, block_reasons: ["依赖 R-U01"], fields: [["标签", "核心"]] }),
+      docEntry("R-U03", "字阶样例三", "todo", { fields: [["标签", "前端"]] }),
+    ];
+    listNs.renderDocList(probe, probeEntries, "req", 0, { ...coreNs.NEUTRAL_DOC_FILTERS, grouped: true });
+    const rowOf = (id) => probe.querySelector(`.doc-item[data-doc-id="${id}"] .doc-row`);
+    // ① 组头:组名与计数分开排版(组名暗色半粗、计数再细一档),计数带「N 条」读屏名称。
+    const heads = [...probe.querySelectorAll(".doc-group-head")];
+    assert(heads.length === 2, `分组视图应有 2 个组头,实得 ${heads.length}`);
+    assert(heads[0]?.querySelector(".doc-group-label")?.textContent === "核心" && heads[0]?.querySelector(".doc-group-count")?.textContent === "2",
+      `组头应拆成 .doc-group-label「核心」+ .doc-group-count「2」:${heads[0]?.textContent}`);
+    assert(heads[0]?.querySelector(".doc-group-count")?.getAttribute("aria-label") === "2 条", "组头计数缺「N 条」读屏名称");
+    // ② 未设优先级写「—」,字面「未设」与「仅参考」都还在(读屏名称 / tooltip)。
+    const unsetPri = rowOf("R-U01")?.querySelector(".pri-badge");
+    assert(unsetPri?.textContent === "—" && unsetPri.classList.contains("unset"), `未设优先级应显示「—」:${unsetPri?.textContent}`);
+    assert(unsetPri?.getAttribute("aria-label")?.includes("未设") && unsetPri.title.includes("仅参考"), `未设优先级的读屏名称/提示不全:${unsetPri?.getAttribute("aria-label")} / ${unsetPri?.title}`);
+    assert(rowOf("R-U02")?.querySelector(".pri-badge")?.getAttribute("aria-label")?.startsWith("优先级: P1"), "已设优先级的读屏名称应以「优先级: P1」开头");
+    // ③ 批次格在定宽槽里(有批次格的槽可读,没有的空槽对读屏隐藏);阻塞在例外标记簇里。
+    const slot1 = rowOf("R-U01")?.querySelector(".doc-meter-slot");
+    assert(slot1?.querySelector(".complexity-meter.batch-meter") && !slot1.hasAttribute("aria-hidden"), "有批次的行,批次格应在 .doc-meter-slot 里且槽不对读屏隐藏");
+    const slot3 = rowOf("R-U03")?.querySelector(".doc-meter-slot");
+    assert(slot3 && !slot3.children.length && slot3.getAttribute("aria-hidden") === "true", "没有批次格的行也要留空槽(右端两列才对齐),空槽对读屏隐藏");
+    assert(rowOf("R-U02")?.querySelector(".doc-flags .blocked-badge"), "阻塞标记应在标题右侧的例外标记簇里");
+    // ④ 详情头拆编号/分隔/标题;textContent 仍是「编号 · 标题」。
+    rowOf("R-U01")?.click();
+    const full = probe.querySelector('.doc-item[data-doc-id="R-U01"] .doc-full-title');
+    assert(full?.querySelector(".doc-detail-id")?.textContent === "R-U01" && full?.querySelector(".doc-detail-text")?.textContent === "字阶样例一",
+      "详情头应拆成 .doc-detail-id + .doc-detail-sep + .doc-detail-text");
+    assert(full?.textContent === "R-U01 · 字阶样例一", `详情头 textContent 应仍为「编号 · 标题」:${full?.textContent}`);
+    // ⑤ 勾选框平时透明;勾上任意一条后所有 .documents-list 带 has-selection(整列常显),清空后撤掉。
+    assert(!probe.classList.contains("has-selection"), "没有选中时列表不该带 has-selection");
+    const pick = rowOf("R-U02")?.querySelector(".doc-pick");
+    pick.checked = true;
+    pick._listeners.change?.forEach((fn) => fn({ target: pick }));
+    assert(probe.classList.contains("has-selection") && byId.get("documents-req-list").classList.contains("has-selection"),
+      "勾上一条后,文档页列表应带 has-selection(勾选框整列常显)");
+    pick.checked = false;
+    pick._listeners.change?.forEach((fn) => fn({ target: pick }));
+    assert(!probe.classList.contains("has-selection") && !byId.get("documents-req-list").classList.contains("has-selection"), "取消全部选中后 has-selection 应撤掉");
+  } finally {
+    probe.remove();
+    listNs?.batchSelection.clear();
+    listNs?.syncBatchBar();
     if (priorLanguage === null) localStorageShim.removeItem("kz-language");
     else localStorageShim.setItem("kz-language", priorLanguage);
   }

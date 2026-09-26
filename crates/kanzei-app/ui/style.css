@@ -507,8 +507,8 @@ body {
 .doc-item .complexity-cell.filled, .focus-card .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
 /* UI-0926 #4:工具栏只剩「页签分段 + 筛选(n) + 更多」一行,不再是一块 17 个控件的底板。 */
 .documents-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 14px 0 10px; }
-.documents-list { max-width: 980px; border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 0; }
-.documents-list .doc-item { padding: 8px 14px; }
+/* 列表不再套外框(UI2-0926 #5:行靠留白与明暗分层,见「需求页字阶」块)。 */
+.documents-list { max-width: 980px; }
 /* 依赖视图(R-111):可做/被阻塞两层,点击条目高亮依赖链(向上依赖+向下被依赖)。 */
 .dep-view { max-width: 980px; display: flex; flex-direction: column; gap: 10px; }
 .dep-layer-head { font-size: var(--fs-12); margin: 6px 0 4px; font-weight: 600; }
@@ -2995,6 +2995,81 @@ html[lang="en"] .documents-list .doc-row .complexity-badge { flex-basis: 46px; }
 .work-unit-details > summary:hover { color: var(--fg-strong); }
 .work-unit-details > .work-unit-list { margin-bottom: 0; }
 .doc-edit-actions { gap: 6px; }
+
+/* ── UI2-0926 #5 需求页字阶:「缺少字体之间的间隔和明暗关系」(用户对照 Codex) ──
+   明暗三档:标题 --fg-strong 14px 是全行唯一的主角;状态/批次/优先级/复杂度/组头都是暗而小的元数据;
+   例外标记(阻塞、W active、被取得)是纯文字,不再是一排胶囊。间距一套刻度:列距 12,行高 36,行内边距 12。
+   颜色语义不在这里改(优先级胶囊、批次格中性、doing 强调色都照 ui_color_semantics.md 原样),只动字号、字重、
+   明暗档与间距。行结构见 11-docs-list.js renderDocList:[勾选][状态][标题][例外标记][批次格槽][优先级][复杂度]。 */
+.documents-list {
+  --doc-pad-x: 12px; --doc-col-gap: 12px; --doc-pick-w: 13px; --doc-st-w: 56px;
+  --doc-title-inset: calc(var(--doc-pad-x) + var(--doc-pick-w) + var(--doc-col-gap) + var(--doc-st-w) + var(--doc-col-gap));
+}
+#documents-scroll.compare .documents-list { --doc-title-inset: 24px; }
+.documents-list .doc-item { padding: 0; gap: 0; }
+.documents-list .doc-item:hover { background: transparent; }
+.documents-list .doc-row {
+  position: relative; align-items: center; gap: var(--doc-col-gap); min-height: 36px; padding: 7px var(--doc-pad-x);
+  border-radius: var(--r-md); transition: background var(--motion-fast) var(--ease-out);
+}
+.documents-list .doc-row:hover { background: var(--surface-hover); }
+.documents-list .doc-row[aria-expanded="true"] { background: var(--surface-selected); }
+.documents-list .doc-row .title { color: var(--fg-strong); font-size: var(--fs-14); line-height: 20px; }
+/* 状态列:暗色 12px 文字;在做 = 强调色(语义表「橙 = 进行中」),完成 = 绿。 */
+.documents-list .doc-row .st { flex: 0 0 var(--doc-st-w); font-size: var(--fs-12); font-weight: 400; color: var(--dim); }
+.documents-list .doc-row :is(.st-doing, .st-fixing) { color: var(--accent-text); font-weight: 500; }
+.documents-list .doc-row :is(.st-done, .st-fixed, .st-confirmed) { color: var(--ok); }
+/* 右端三条定宽暗列。优先级胶囊的底与字仍归 .pri-badge.P*(P0 红、P1 实底亮字、P2 无底、P3 描边),这里只定列宽;
+   未设只写「—」,不再套一个描边空框。 */
+.documents-list .doc-row .pri-badge { flex: 0 0 30px; padding: 1px 0; font-variant-numeric: tabular-nums; }
+.documents-list .doc-row .pri-badge.unset { box-shadow: none; }
+.documents-list .doc-row .pri-badge.unset:hover { box-shadow: inset 0 0 0 1px var(--border); }
+.documents-list .doc-row .complexity-badge { flex: 0 0 18px; font-size: var(--fs-12); color: var(--dim); }
+.documents-list .doc-meter-slot { flex: 0 0 44px; display: flex; align-items: center; }
+.documents-list .doc-meter-slot .complexity-meter { flex: 1 1 auto; width: 100%; height: 4px; padding: 0; gap: 2px; }
+.documents-list .doc-meter-slot .complexity-cell { height: 4px; border: 0; border-radius: 1px; background: var(--border-strong); }
+.documents-list .doc-meter-slot .complexity-cell.filled { background: var(--dim); }
+/* 4px 的细条画不下原来 1px 的强调色描边:线真在跑时当前格改用外描一圈(同一个语义,动效分区的扫光照旧)。 */
+html[data-kz-activity="running"] .documents-list .doc-item.agent-active .doc-meter-slot .complexity-cell.current { box-shadow: 0 0 0 1px var(--accent); }
+/* 例外标记:纯文字 12px,底色与描边去掉;颜色仍是各自的语义色(阻塞/待澄清琥珀,W active 强调色,其余暗)。 */
+.documents-list .doc-row .doc-flags { align-items: center; gap: 10px; }
+.documents-list .doc-flags :is(.blocked-badge, .clarify-badge, .work-unit-badge, .doc-claim-fact, .filter-exempt-flag) {
+  padding: 0; border: 0; border-radius: 0; background: transparent; font-size: var(--fs-12); font-variant-numeric: tabular-nums;
+}
+/* 勾选框平时透明,悬停/聚焦这一行、已勾上、或已有选中时出现;用 opacity 不用 visibility,键盘仍能 Tab 到。 */
+.documents-list .doc-pick { margin: 0; opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
+.documents-list .doc-row:hover .doc-pick, .documents-list .doc-row:focus-within .doc-pick,
+.documents-list .doc-pick:checked, .documents-list.has-selection .doc-pick { opacity: 1; }
+/* 已关闭条目:标题降到暗色 + 删除线,不再整行 .4 透明(那会把状态/优先级的字压到 4.5 以下)。 */
+.documents-list .doc-item.closed { opacity: 1; }
+.documents-list .doc-item.closed .title { color: var(--dim); text-decoration-color: var(--border-strong); }
+/* 组头:组名暗色 12px 半粗 + 计数再细一档,不再有实线;第一组贴顶。 */
+.documents-list .doc-group-head {
+  display: flex; align-items: baseline; gap: 6px; margin: 0; padding: 18px var(--doc-pad-x) 6px; border-bottom: 0;
+  font-size: var(--fs-12); font-weight: 600; color: var(--dim); background: var(--bg);
+}
+.documents-list > .doc-group-head:first-child, .documents-list > .drag-hint + .doc-group-head { padding-top: 6px; }
+.documents-list .doc-group-count { font-weight: 400; font-variant-numeric: tabular-nums; }
+.documents-list .drag-hint { margin: 0; padding: 0 var(--doc-pad-x) 4px; border: 0; background: transparent; font-size: var(--fs-12); }
+.documents-list .drag-hint span { flex: 0 1 auto; }
+.documents-list .drag-hint button { padding: 0 4px; border: 0; background: transparent; color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
+.documents-list .doc-archive-toggle { padding: 14px var(--doc-pad-x) 6px; font-size: var(--fs-12); }
+.documents-list .doc-archive-toggle:hover { color: var(--fg-strong); }
+/* 详情:内容缩进到标题列(与行里的标题左缘对齐);编号暗色等宽小字单独一行,标题 16px;正文 13px / 1.65,
+   字段之间 12px,键名一列 6em 暗色 12px。 */
+.documents-list .doc-detail { margin: 4px var(--doc-pad-x) 18px var(--doc-title-inset); padding: 10px 0 4px; border-left: 0; font-size: var(--fs-13); }
+.documents-list .doc-detail-head { margin-bottom: 14px; align-items: baseline; }
+.documents-list .doc-detail-head .doc-full-title { font-size: var(--fs-16); line-height: 1.4; }
+.documents-list .doc-detail-id { display: block; margin-bottom: 2px; font-family: var(--mono); font-size: var(--fs-12); font-weight: 400; color: var(--dim); }
+.documents-list .doc-detail-sep { display: none; }
+.documents-list .doc-fields-read .tf { gap: 12px; font-size: var(--fs-13); line-height: 1.65; }
+.documents-list .doc-fields-read .tf-meta { gap: 4px 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border-soft); }
+.documents-list .doc-fields-read :is(.tf-meta-key, .tf-key) { font-size: var(--fs-12); color: var(--dim); }
+.documents-list .doc-fields-read .tf-row { grid-template-columns: 6em minmax(0, 1fr); gap: 16px; }
+.documents-list .doc-fields-read .tf-key { padding-top: 2px; }
+.documents-list .doc-fields-read :is(.tf-list, .tf-timeline) li { margin: 4px 0; }
+@media (max-width: 760px) { .documents-list .doc-meter-slot { display: none; } }
+@media (prefers-reduced-motion: reduce) { .documents-list .doc-row, .documents-list .doc-pick { transition: none; } }
 
 /* UI-0926 #4 M8:线路页的取得条目是直达详情的链接;活动面板每条的行操作只在悬停/聚焦/展开时出现。 */
 .line-claim-link { padding: 0; font: inherit; text-align: left; overflow-wrap: anywhere; }
