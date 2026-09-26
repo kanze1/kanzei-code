@@ -3,12 +3,12 @@
 //! 文件页原来只有读通道(`file_preview`);这里补上写通道,以及读写两侧共用的三件事:
 //!
 //! - **路径解析 [`resolve_in_root`]**:唯一的规范化入口,`file_preview`/`file_stat`/`file_write`
-//!   都走它。先词法拒绝(空串、NUL、绝对路径、盘符、UNC、`..`、段内冒号即 ADS、Windows 保留设备名、
-//!   段尾点或空格),再按真实路径判定是否仍在项目根内——目录链接(junction/软链)指出根外的一律拒绝,
-//!   指向根内受限目录的也按真实路径判只读,不给绕过的余地。
+//!   都走它。先词法拒绝(空串、NUL 与控制字符、绝对路径、UNC、`..`;Windows 上另拒盘符与段内冒号即 ADS、
+//!   `<>"|?*`、保留设备名、段尾点或空格——别的平台上这些是合法文件名),再按真实路径判定是否仍在项目根内——
+//!   目录链接(junction/软链)指出根外的一律拒绝,指向根内受限目录的也按真实路径判只读,不给绕过的余地。
 //! - **写入策略 [`write_policy`]**:`.git` 内部、托管文档(`kanzei_tools::MANAGED_ROOTS` 单源,
-//!   直接改会被托管围栏隔离并回滚)、kanzei 内部状态文件只读;`.kanzei/kanzei.toml` 与
-//!   `.kanzei/research/**` 可写。
+//!   直接改会被托管围栏隔离并回滚)、kanzei 内部状态文件只读,在任意一个 `.kanzei` 段之后都生效
+//!   (树里嵌着的另一个 kanzei 项目同样受它自己的围栏管);`.kanzei/kanzei.toml` 与 `.kanzei/research/**` 可写。
 //! - **文本探测 [`detect_text`]**:BOM、换行(与 Monaco 建模同一条多数派规则)、混合换行、UTF-8。
 //!   编辑器读出内容时会丢 BOM、把混合换行统一成多数派,所以 BOM 由后端剥离并在保存时补回,
 //!   CRLF 文件保存后仍是 CRLF;非 UTF-8(如 GBK)只读,否则保存会把原字节写坏。
@@ -20,7 +20,7 @@
 //! 误覆盖可以取回。
 //!
 //! 与代理的关系:
-//! - 保存成功后记一条写日志(`process_id = "files-view"`,只留指纹)。worktree 线跑 bash 时
+//! - 保存成功后记一条写日志(`process_id = "files-view"`,只留指纹;根下没有 `.kanzei` 时不记,不凭空建目录)。worktree 线跑 bash 时
 //!   跨树围栏按「路径 + 指纹 + 窗口内」吸收有日志解释的变化,用户手改不会被报成他线越界。
 //! - 代理的 edit/insert 每次调用都现读磁盘再匹配锚点,用户保存后的下一次编辑天然按新内容走
 //!   (锚点被改掉时返回未命中并附上文件实际片段,等于重读;见本文件测试)。唯一整文件盲写的是
@@ -74,6 +74,12 @@ fn is_reserved_device_name(segment: &str) -> bool {
 
 /// 词法检查,返回规范化后的段(`/` 与 `\` 都当分隔符;连续分隔与 `.` 段忽略)。
 /// 只做纯字符串判定,不碰文件系统。
+///
+/// 所有平台都拒:空、NUL 与控制字符、`/` 或 `\` 开头(绝对路径、UNC;旧 file_preview 会把开头的斜杠
+/// 剥掉当相对路径,那会把项目外的绝对路径静默改读成项目里的同名文件——前端 toProjectRel 先把项目根下的
+/// 绝对路径转成相对路径,其余一律拒绝,是有意的行为变化)、`..`。
+/// 只在 Windows 上拒(在那里是非法或有歧义的名字,别的平台上是合法文件名):段内冒号(盘符、ADS)、
+/// `<>"|?*`、段尾点或空格、保留设备名。
 pub(crate) fn lexical_segments(rel: &str) -> Result<Vec<String>, String> {
     let bad = |why: &str| Err(format!("路径不合法({why}): {rel}"));
     if rel.trim().is_empty() {
@@ -93,20 +99,25 @@ pub(crate) fn lexical_segments(rel: &str) -> Result<Vec<String>, String> {
         if segment == ".." {
             return bad("不允许 ..");
         }
-        if segment.contains(':') {
-            return bad("不允许盘符或冒号");
+        if segment.chars().any(char::is_control) {
+            return bad("含控制字符");
         }
-        if segment
-            .chars()
-            .any(|ch| ch.is_control() || matches!(ch, '<' | '>' | '"' | '|' | '?' | '*'))
-        {
-            return bad("含 Windows 文件名禁用字符");
-        }
-        if segment.ends_with('.') || segment.ends_with(' ') {
-            return bad("段尾不能是点或空格");
-        }
-        if is_reserved_device_name(segment) {
-            return bad("Windows 保留设备名");
+        if cfg!(windows) {
+            if segment.contains(':') {
+                return bad("不允许盘符或冒号");
+            }
+            if segment
+                .chars()
+                .any(|ch| matches!(ch, '<' | '>' | '"' | '|' | '?' | '*'))
+            {
+                return bad("含 Windows 文件名禁用字符");
+            }
+            if segment.ends_with('.') || segment.ends_with(' ') {
+                return bad("段尾不能是点或空格");
+            }
+            if is_reserved_device_name(segment) {
+                return bad("Windows 保留设备名");
+            }
         }
         segments.push(segment.to_string());
     }
@@ -205,19 +216,35 @@ pub(crate) fn resolve_in_root(root: &Path, rel: &str) -> Result<Resolved, String
 }
 
 /// 只读原因码。前端按码给出人话(READONLY_TEXT),顺序即优先级之外的路径策略部分。
+///
+/// 托管与内部规则在**任意一个** `.kanzei` 段之后都生效,不只项目根这一层:树里嵌着的另一个 kanzei 项目
+/// (`sub/.kanzei/project/*.md`)有它自己的托管围栏,在文件页改了同样会被隔离并回滚。
 pub(crate) fn write_policy(rel: &str) -> Option<&'static str> {
     let lower = rel.replace('\\', "/").to_ascii_lowercase();
-    if lower.split('/').any(|segment| segment == ".git") {
+    let segments: Vec<&str> = lower
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if segments.contains(&".git") {
         return Some("git");
     }
-    let under = |prefix: &str| lower == prefix || lower.starts_with(&format!("{prefix}/"));
+    segments
+        .iter()
+        .enumerate()
+        .filter(|(_, segment)| **segment == ".kanzei")
+        .find_map(|(index, _)| kanzei_dir_policy(&segments[index..].join("/")))
+}
+
+/// `tail` 以 `.kanzei` 段开头(小写、`/` 分隔)。`MANAGED_ROOTS` 全部以 `.kanzei/` 开头(测试钉住)。
+fn kanzei_dir_policy(tail: &str) -> Option<&'static str> {
+    let under = |prefix: &str| tail == prefix || tail.starts_with(&format!("{prefix}/"));
     if kanzei_tools::MANAGED_ROOTS
         .iter()
         .any(|root| under(&root.to_ascii_lowercase()))
     {
         return Some("managed");
     }
-    if let Some(inner) = lower.strip_prefix(".kanzei/") {
+    if let Some(inner) = tail.strip_prefix(".kanzei/") {
         let file = inner.rsplit('/').next().unwrap_or_default();
         let internal_dir = [
             "artifacts",
@@ -553,22 +580,26 @@ pub(crate) fn write_at(
     }
     let written = kanzei_tools::content_hash(text.as_bytes());
     // 写后凭据(写日志契约:先写文档、再记日志)。失败只告警:保存本身已成功,
-    // 丢的只是跨树围栏的归因凭据。
-    if let Err(error) = kanzei_tools::write_log::record(
-        root,
-        &kanzei_tools::write_log::WriteLogEntry {
-            at_ms: now_ms(),
-            path: resolved.rel.clone(),
-            fingerprint: written.clone(),
-            content: Vec::new(),
-            run_id: None,
-            process_id: Some(FILES_VIEW_PROCESS.to_string()),
-        },
-    ) {
-        tracing::warn!(
-            "files-view write-log record failed for {}: {error}",
-            resolved.rel
-        );
+    // 丢的只是跨树围栏的归因凭据。根下没有 `.kanzei`(resolve_root 退回到了打开的目录本身)就不记:
+    // 那里没有围栏会读它,不凭空建出 `.kanzei/.write-log`——与代理 write 工具无 run 身份时不建
+    // `.kanzei` 同一口径。覆盖留证照常建目录(安全比整洁重要)。
+    if root.join(".kanzei").is_dir() {
+        if let Err(error) = kanzei_tools::write_log::record(
+            root,
+            &kanzei_tools::write_log::WriteLogEntry {
+                at_ms: now_ms(),
+                path: resolved.rel.clone(),
+                fingerprint: written.clone(),
+                content: Vec::new(),
+                run_id: None,
+                process_id: Some(FILES_VIEW_PROCESS.to_string()),
+            },
+        ) {
+            tracing::warn!(
+                "files-view write-log record failed for {}: {error}",
+                resolved.rel
+            );
+        }
     }
     Ok(result_json(
         "saved",
@@ -800,11 +831,27 @@ pub(crate) mod tests {
         assert!(!detect_text(b"ok \xE4\xBD", false).utf8);
     }
 
+    /// 只在 Windows 上非法(或有歧义)的名字:别的平台上是合法文件名,不能拒。
+    const WINDOWS_ONLY_BAD: [&str; 12] = [
+        "C:/abs.txt",
+        "C:abs.txt",
+        "a:stream",
+        "ok.txt:ads",
+        "con",
+        "sub/NUL.txt",
+        "com1.log",
+        "lpt9",
+        "trail.",
+        "space ",
+        "what?.txt",
+        "a<b>.txt",
+    ];
+
     #[test]
     fn 路径词法拒绝() {
         let root = temp_root("lexical");
         put(&root, "ok.txt", b"ok");
-        for bad in [
+        let universal = [
             "",
             "   ",
             "..",
@@ -813,21 +860,18 @@ pub(crate) mod tests {
             "a\\..\\x",
             "/etc/passwd",
             "\\windows",
-            "C:/abs.txt",
-            "C:abs.txt",
             "//server/share/x",
             "\\\\?\\C:\\x",
-            "a:stream",
-            "ok.txt:ads",
-            "con",
-            "sub/NUL.txt",
-            "com1.log",
-            "lpt9",
-            "trail.",
-            "space ",
             "nul\0byte",
-            "what?.txt",
-        ] {
+            "bell\u{7}.txt",
+        ];
+        let windows_only: &[&str] = if cfg!(windows) {
+            &WINDOWS_ONLY_BAD
+        } else {
+            &[]
+        };
+        for bad in universal.iter().chain(windows_only) {
+            let bad = *bad;
             assert!(lexical_segments(bad).is_err(), "应拒绝: {bad:?}");
             assert!(
                 resolve_in_root(&root, bad).is_err(),
@@ -861,6 +905,14 @@ pub(crate) mod tests {
         );
         assert!(lexical_segments("com10.txt").is_ok());
         assert!(lexical_segments("console.log").is_ok());
+        // Windows 专属规则只在 Windows 上生效:别的平台上这些是合法文件名,改造前 file_preview 能打开。
+        for name in WINDOWS_ONLY_BAD {
+            assert_eq!(
+                lexical_segments(name).is_err(),
+                cfg!(windows),
+                "{name:?} 只应在 Windows 上被词法拒绝"
+            );
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -948,6 +1000,10 @@ pub(crate) mod tests {
             (".kanzei/file-annotations.json", "internal"),
             (".kanzei/research/memory.lock", "internal"),
             (".kanzei/worktrees/thread-a/src/lib.rs", "internal"),
+            // 树里嵌着的另一个 kanzei 项目:它有自己的托管围栏,规则在任意一个 .kanzei 段之后都生效。
+            ("sub/.kanzei/project/x.md", "managed"),
+            ("vendor/other/.Kanzei/memory/M-1-y.md", "managed"),
+            ("sub/.kanzei/state.db", "internal"),
         ];
         for (rel, code) in cases {
             put(&root, rel, b"orig\n");
@@ -977,6 +1033,8 @@ pub(crate) mod tests {
             ".kanzei/kanzei.toml",
             ".kanzei/research/t/a.md",
             "docs/.gitkeep",
+            "sub/.kanzei/kanzei.toml",
+            "sub/kanzei/project/x.md",
         ] {
             put(&root, rel, b"orig\n");
             assert_eq!(write_policy(rel), None, "{rel}");
@@ -1101,6 +1159,7 @@ pub(crate) mod tests {
     #[test]
     fn 保存后记写日志_跨树围栏据此吸收用户手改() {
         let root = temp_root("write-log");
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
         put(&root, "notes/todo.md", b"a\n");
         let before = now_ms();
         let result = save(
@@ -1119,6 +1178,47 @@ pub(crate) mod tests {
         assert_eq!(entry.process_id.as_deref(), Some(FILES_VIEW_PROCESS));
         assert!(entry.run_id.is_none());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// resolve_root 找不到 `.kanzei` 时退回打开的目录本身:保存不能在那里凭空建出 `.kanzei/.write-log`
+    /// (没有围栏会读它;代理 write 工具无 run 身份时同样不建)。覆盖留证照常建(安全比整洁重要)。
+    #[test]
+    fn 根下没有kanzei目录时保存不凭空建写日志_留证照常() {
+        let root = temp_root("no-kanzei");
+        put(&root, "a.txt", b"a\n");
+        let result = save(
+            &root,
+            "a.txt",
+            "b\n",
+            Some(&kanzei_tools::content_hash(b"a\n")),
+        );
+        assert_eq!(result["status"], "saved");
+        assert!(!root.join(".kanzei").exists(), "不得凭空建出 .kanzei");
+        let current = kanzei_tools::content_hash(b"b\n");
+        let overwritten = write_at(
+            &root,
+            WriteRequest {
+                rel: "a.txt",
+                content: "c\n",
+                expected_hash: Some(&current),
+                bom: false,
+                evidence: true,
+            },
+        )
+        .unwrap();
+        let evidence = overwritten["evidence"].as_str().unwrap();
+        assert_eq!(std::fs::read(root.join(evidence)).unwrap(), b"b\n");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn 托管根都以kanzei段开头_嵌套项目规则依赖这一点() {
+        for root in kanzei_tools::MANAGED_ROOTS {
+            assert!(
+                root.to_ascii_lowercase().starts_with(".kanzei/"),
+                "write_policy 只在 .kanzei 段处匹配托管根,{root} 不以 .kanzei/ 开头会漏判"
+            );
+        }
     }
 
     #[test]
