@@ -25,12 +25,13 @@ export function safeMarkdownUrl(value) {
   return /^(?:https?:\/\/|mailto:)/i.test(url) && !/[\s"'<]/.test(url) ? url : null;
 }
 /// UI-0926 #10:无 scheme 的相对/盘符路径目标(可带 `:行` / `:行-行`)→ {path, line, endLine}。
-/// 只放行路径字符;带引号、尖括号、空白或其它 scheme 的一律 null(调用方回落成「label (url)」)。
+/// 只放行路径字符;带控制字符、引号、尖括号或其它 scheme 的一律 null(调用方回落成「label (url)」)。
 export function safeMarkdownPath(value) {
-  const target = String(value ?? "").trim();
-  if (!target || /[\s"'<>`]/.test(target)) return null;
+  let target = String(value ?? "").trim();
+  try { target = decodeURIComponent(target); } catch { return null; }
+  if (!target || /[\u0000-\u001f\u007f"'<>`]/.test(target)) return null;
   if (/^[a-z][\w+.-]*:/i.test(target) && !/^[A-Za-z]:[\\/]/.test(target)) return null;
-  const match = target.match(/^((?:[A-Za-z]:[\\/])?[\w.@~\-\/\\]+?)(?::(\d+)(?:-(\d+))?)?$/);
+  const match = target.match(/^((?:[A-Za-z]:[\\/])?[\p{L}\p{N}\p{M}_.@~\-\/\\ ()]+?)(?::(\d+)(?:-(\d+))?)?$/u);
   if (!match) return null;
   const path = match[1];
   if (!/[\\/]/.test(path) && !/\.[A-Za-z0-9]{1,8}$/.test(path)) return null;
@@ -45,8 +46,8 @@ export function renderInlineMarkdown(raw) {
   };
   let html = escapeHtml(raw);
   html = html.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${code}</code>`));
-  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, url) => {
-    const decodedUrl = url.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  html = html.replace(/\[([^\]]+)\]\((&lt;[^\n]+?&gt;|[^)\s]+)\)/g, (_, label, url) => {
+    const decodedUrl = url.replace(/^&lt;|&gt;$/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
     const safeUrl = safeMarkdownUrl(decodedUrl);
     if (safeUrl) return stash(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>`);
     // 相对/绝对路径链接:不带 href(不让 WebView 自己导航),点击由 04-structured 的

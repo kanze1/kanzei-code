@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use kanzei_harness::defs::{AgentMode, ProfileKind, ProfileScope, DEFAULT_AGENT_STEPS};
+use kanzei_harness::defs::{effective_agent_steps, AgentMode, ProfileKind, ProfileScope};
 use kanzei_harness::markdown::parse_frontmatter;
 use kanzei_harness::{AgentDef, KanzeiConfig, ResolveCtx};
 
@@ -168,10 +168,13 @@ fn parse_agent_file(path: &Path, source: &str) -> Option<FileAgent> {
     let profile_raw = frontmatter.get("profile").unwrap_or("all");
     let mode_raw = frontmatter.get("mode").unwrap_or("primary");
     let model = frontmatter.get("model").unwrap_or("primary").to_string();
-    let steps_raw = frontmatter.get("steps").unwrap_or("32");
+    let steps_raw = frontmatter.get("steps").unwrap_or("0");
     let scope = parse_plain::<ProfileScope>(profile_raw);
     let mode = parse_plain::<AgentMode>(mode_raw);
-    let steps = steps_raw.parse::<u32>().unwrap_or(DEFAULT_AGENT_STEPS);
+    let steps = effective_agent_steps(
+        steps_raw.parse::<u32>().unwrap_or_default(),
+        mode.unwrap_or_default(),
+    );
     let mut errors = Vec::new();
     if scope.is_none() {
         errors.push(format!("profile `{profile_raw}` 无效"));
@@ -180,7 +183,7 @@ fn parse_agent_file(path: &Path, source: &str) -> Option<FileAgent> {
         errors.push(format!("mode `{mode_raw}` 无效"));
     }
     if steps_raw.parse::<u32>().is_err() {
-        errors.push(format!("steps `{steps_raw}` 不是正整数"));
+        errors.push(format!("steps `{steps_raw}` 不是非负整数"));
     }
     let error = (!errors.is_empty()).then(|| errors.join("; "));
     Some(FileAgent {
@@ -213,7 +216,7 @@ fn builtin_entry(agent: &AgentDef, profile: ProfileKind) -> AgentDirectoryEntry 
         profile: scope_label(Some(agent.profile), "all"),
         mode: mode_label(Some(agent.mode), "unknown"),
         model: agent.model.clone(),
-        steps: agent.steps,
+        steps: effective_agent_steps(agent.steps, agent.mode),
         status: if agent.profile.includes(profile) {
             "available".into()
         } else {
@@ -281,5 +284,29 @@ mod tests {
         let value = preview(&"x".repeat(601));
         assert_eq!(value.chars().count(), 601);
         assert!(value.ends_with('…'));
+    }
+
+    #[test]
+    fn directory_shows_effective_budget_for_each_role() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-agent-directory-{}-budget.md",
+            std::process::id()
+        ));
+        for (mode, explicit, expected) in [
+            ("primary", "", 0),
+            ("subagent", "", 32),
+            ("primary", "steps: 7\n", 7),
+            ("subagent", "steps: 7\n", 7),
+        ] {
+            std::fs::write(
+                &path,
+                format!("---\nname: budget\nmode: {mode}\n{explicit}---\nPrompt"),
+            )
+            .unwrap();
+            let file = parse_agent_file(&path, "project").unwrap();
+            assert_eq!(file.entry.steps, expected);
+            assert_eq!(file.entry.status, "available");
+        }
+        std::fs::remove_file(path).unwrap();
     }
 }

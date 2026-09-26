@@ -4,18 +4,18 @@
 // 纯函数冒烟(ui-constellation-smoke)与运行时冒烟(假 DOM,渲染器走降级空实现)都看不到绘制与调度。这里用无头 Edge
 // (playwright-core channel msedge,与弹层样例冒烟同一路线)打开预览页(scripts/ui-preview,模拟 IPC 跑真实前端),
 // 插桩 clearRect 数帧、逐像素读画布,实测渲染器层面的承诺:
-//   ① 空闲 ≤ 9 帧/秒;失败会话(blocked)≤ 9 帧/秒;
-//   ② 其它视图、窗口隐藏、背景关闭、减少动态效果:0 帧;
-//   ③ 每 16ms 一次 assistant_streaming(模型流式回复的真实节奏)仍 ≥ 20 帧/秒;
+//   ① 欢迎舞台空闲 ≤ 9 帧/秒;失败会话(blocked)≤ 9 帧/秒;
+//   ② 消息对话、其它视图、窗口隐藏、背景关闭、减少动态效果:0 动画帧;
+//   ③ 欢迎舞台每 16ms 一次 assistant_streaming 仍 ≥ 20 帧/秒;
 //   ④ 连续 60 次改窗口尺寸期间画布始终非空;
-//   ⑤ 沟槽 / 窄沟 / 文案旁(不压正文的构图):正文文本矩形与避让区下的画布 alpha 全为 0;
-//   ⑥ 水印(capped):运行中逐帧取正文文本矩形下的像素合成到 --chat-bg,原本 ≥ 4.5 的字色仍 ≥ 4.5,
+//   ⑤ 欢迎页文案旁构图不压文案;深浅主题消息对话的 SVG 隐藏、Canvas 清空;
+//   ⑥ 窄屏欢迎装饰(capped):全图像素合成到 --chat-bg,原本 ≥ 4.5 的字色仍 ≥ 4.5,
 //      alpha 不超过 watermarkAlpha;
 //   ⑦ 启动:后端存「关闭」时,第一次 kz:backdrop-settings 之前画布上一笔都没画,且第一次发布就是关闭。
 // 变异:KZ_SMOKE_MUTATE=<下表 id> 时经 page.route 改写被守护的源码(必须命中,否则直接失败),期望本次运行失败。
 // 不认识的 id(其它冒烟的变异)一律忽略。截图写入 dist/ui-constellation/(已在 .gitignore 的 dist 下)。
 // page.evaluate 回调在浏览器里执行,用到的浏览器全局在这里声明给 ESLint(本文件其余部分是 node 环境)。
-/* global window, document, performance, getComputedStyle, CanvasRenderingContext2D, NodeFilter, CustomEvent, Event */
+/* global window, document, performance, getComputedStyle, CanvasRenderingContext2D, SVGElement, XMLSerializer, Image, NodeFilter, CustomEvent, Event */
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -53,9 +53,9 @@ export const BROWSER_MUTATIONS = {
   // 画布换尺寸(被清空)时同步补画一帧。删了它,拖动改窗口尺寸期间画布一直空白(④)。
   bgBrowserResize: { file: "/22-constellation.js", edits: [{ pattern: /if \(still\(\) \|\| resized\) draw\(clock\(\)\);/, replace: "if (still()) draw(clock());" }] },
   // 不压正文的构图用 evenodd 挖掉避让区。拆掉剪裁,星尘 / 连线画进正文列(⑤)。
-  bgBrowserClip: { file: "/22-constellation.js", edits: [{ pattern: /if \(!layout\.capped && layout\.avoid\?\.length\) \{/, replace: "if (false) {" }] },
+  bgBrowserClip: { file: "/22-brand-backdrop.js", edits: [{ pattern: /const holes = !layout\.capped \?/, replace: "const holes = false ?" }] },
   // 水印走离屏层 + 单一不透明度合成。拆掉离屏,水印配比直接画上画布,正文压在星上跌破 4.5(⑥)。
-  bgBrowserWatermark: { file: "/22-constellation.js", edits: [{ pattern: /if \(shown\.capped\) paintWatermark\(frame\);/, replace: "if (false) paintWatermark(frame);" }] },
+  bgBrowserWatermark: { file: "/22-brand-backdrop.js", edits: [{ pattern: /watermarkAlpha\(kit\.watermark, prefs\.opacity\)/, replace: "1" }] },
   // 启动时等第一次偏好发布才开始画。改成立即开始,关掉背景的用户启动时先闪一帧默认星座(⑦)。
   bgBrowserBoot: { file: "/22-neural-flow.js", edits: [{ pattern: /waitForPrefs: true/, replace: "waitForPrefs: false" }] },
 };
@@ -65,6 +65,29 @@ function instrument() {
   const proto = CanvasRenderingContext2D.prototype;
   const isChat = (ctx) => ctx.canvas?.id === "neural-flow-chat";
   window.__bg = { frames: 0, paints: [], prefs: [] };
+  const setSvgAttribute = SVGElement.prototype.setAttribute;
+  SVGElement.prototype.setAttribute = function (name, value) {
+    if (this.id === "neural-flow-brand" && name === "viewBox" && window.__bg.paints.length < 64) window.__bg.paints.push(performance.now());
+    return setSvgAttribute.call(this, name, value);
+  };
+  // Audit the actual SVG output as pixels too; reading its now-empty sibling canvas
+  // would silently stop checking clipping and text contrast after the renderer change.
+  window.__backdropPixels = async () => {
+    const canvas = document.getElementById("neural-flow-chat");
+    const svg = document.getElementById("neural-flow-brand");
+    if (!svg || getComputedStyle(svg).display === "none") return canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    const copy = svg.cloneNode(true);
+    copy.setAttribute("width", String(canvas.width));
+    copy.setAttribute("height", String(canvas.height));
+    const bitmap = new Image();
+    bitmap.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(copy))}`;
+    await bitmap.decode();
+    const raster = document.createElement("canvas");
+    raster.width = canvas.width; raster.height = canvas.height;
+    const g = raster.getContext("2d");
+    g.drawImage(bitmap, 0, 0);
+    return g.getImageData(0, 0, raster.width, raster.height).data;
+  };
   const clear = proto.clearRect;
   proto.clearRect = function (...args) {
     if (isChat(this)) window.__bg.frames += 1;
@@ -102,12 +125,11 @@ async function snapshot(page) {
 
 // 逐像素审计:正文文本矩形(活动 pane / 空态文案 / 语音文案里所有可见文本节点)与避让区下的画布像素。
 // 返回 { maxAlphaText, maxAlphaAvoid, minContrast: {token: ratio}, pixels, rects }。
-async function pixelAudit(page) {
-  return page.evaluate(() => {
+async function pixelAudit(page, wholeCanvas = false) {
+  return page.evaluate(async (wholeCanvas) => {
     const canvas = document.getElementById("neural-flow-chat");
-    const g = canvas.getContext("2d");
     const { width: W, height: H } = canvas;
-    const data = g.getImageData(0, 0, W, H).data;
+    const data = await window.__backdropPixels();
     const box = canvas.getBoundingClientRect();
     const scale = W / box.width;
     const css = getComputedStyle(document.documentElement);
@@ -136,6 +158,8 @@ async function pixelAudit(page) {
       range.selectNodeContents(node);
       for (const r of range.getClientRects()) if (r.width && r.height) rects.push({ x: r.left - box.left, y: r.top - box.top, w: r.width, h: r.height });
     }
+    // 窄屏装饰不一定实际碰到文字;全图审计证明任一像素放在文字下仍安全。
+    if (wholeCanvas) rects.splice(0, rects.length, { x: 0, y: 0, w: box.width, h: box.height });
     const scan = (list, visit) => {
       for (const r of list) {
         const x0 = Math.max(0, Math.floor(r.x * scale)), x1 = Math.min(W, Math.ceil((r.x + r.w) * scale));
@@ -155,7 +179,7 @@ async function pixelAudit(page) {
       for (const [name, color] of texts) minContrast[name] = Math.min(minContrast[name], ratio(color, px));
     });
     return { rects: rects.length, pixels, maxAlphaText, minContrast };
-  });
+  }, wholeCanvas);
 }
 // 避让区单独扫(避让区来自渲染器 snapshot,需要 await import,拆成两步免得 evaluate 里混 async)。
 async function avoidAudit(page) {
@@ -163,7 +187,7 @@ async function avoidAudit(page) {
     const snap = (await import("/22-neural-flow.js")).chatBackdrop.snapshot();
     const canvas = document.getElementById("neural-flow-chat");
     const { width: W, height: H } = canvas;
-    const data = canvas.getContext("2d").getImageData(0, 0, W, H).data;
+    const data = await window.__backdropPixels();
     const scale = W / canvas.getBoundingClientRect().width;
     let max = 0, count = 0;
     // 剪裁边抗锯齿:避让区四边各内缩 1 个设备像素再扫(正文文本矩形另由 pixelAudit 逐像素扫,不内缩)。
@@ -236,6 +260,20 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
     if (avoid.max > 0) fail(`${label}:避让区里有 ${avoid.count} 个画布像素非透明(最大 alpha ${avoid.max.toFixed(3)}),剪裁没挖掉正文列`);
     return { snap, pixels, avoid };
   };
+  const auditClean = async (page, label) => {
+    const snap = await snapshot(page);
+    const pixels = await pixelAudit(page);
+    const actual = await page.evaluate(() => {
+      const svg = document.getElementById("neural-flow-brand");
+      return { display: getComputedStyle(svg).display, chatBackground: getComputedStyle(document.getElementById("chat-area")).backgroundImage };
+    });
+    if (snap.placement !== "hidden" || snap.capped || actual.display !== "none") fail(`${label}:消息背后仍有装饰`);
+    if (pixels.pixels || (await avoidAudit(page)).nonBlank) fail(`${label}:背景画布未清空`);
+    if (actual.chatBackground !== "none") fail(`${label}:正文底色不应叠加纹理`);
+    const frames = await fps(page, 1000);
+    if (frames) fail(`${label}:对话背景仍在刷新(${frames} 帧/秒)`);
+    return { snap, pixels };
+  };
 
   try {
     // ---- P1 空态(1600@1.25 暗色,OC 关):文案旁构图不压正文;空闲帧率;其它视图 / 隐藏 / 关闭为 0 帧 ----
@@ -281,7 +319,7 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
 
     // ---- P2 减少动态效果:只画静帧 ----
     {
-      const { page, context, errors } = await open("chat", { reduced: true });
+      const { page, context, errors } = await open("empty", { reduced: true });
       await closePanel(page);
       await goLive(page);
       await page.waitForTimeout(600);
@@ -291,17 +329,18 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
       await context.close();
     }
 
-    // ---- P3 对话态(1600@1.25,关活动面板):沟槽不压正文;16ms 流式事件不饿死;失败会话回到空闲帧率 ----
+    // ---- P3 欢迎舞台:16ms 流式事件不饿死;失败会话回到空闲帧率 ----
     {
-      const { page, context, errors } = await open("chat");
+      const { page, context, errors } = await open("empty");
       await closePanel(page);
       await goLive(page);
       await page.waitForTimeout(2000);
-      const free = await auditFree(page, "对话态沟槽");
+      const free = await auditFree(page, "欢迎舞台");
       const stream = await page.evaluate(async () => {
         const flow = await import("/22-neural-flow.js");
         const shell = await import("/03-shell.js");
         const id = shell.activeSessionId;
+        shell.sessionStates.set(id, Object.assign(shell.sessionStates.get(id) ?? {}, { phase: "running", running: true, converged: false }));
         const f0 = window.__bg.frames;
         const timer = setInterval(() => flow.neuralFlowEmit("assistant_streaming", { session_id: id, text_length: 4 }), 16);
         await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -324,8 +363,8 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
       if (failed.snap.activity !== "blocked") fail(`判据前提:失败会话活动态应为 blocked,实际 ${failed.snap.activity}`);
       if (failed.fps > 9) fail(`停在失败会话上 ${failed.fps.toFixed(1)} 帧/秒 > 9(blocked 没有常驻动画,应按空闲)`);
       if (errors.length) fail(`对话态页面异常:${errors.join(" | ")}`);
-      notes.push(`对话态 ${free.snap.placement}、流式 16ms ${stream.fps.toFixed(1)} 帧/秒、失败会话 ${failed.fps.toFixed(1)} 帧/秒`);
-      await page.screenshot({ path: path.join(outDir, "chat-1600-dark.png") });
+      notes.push(`欢迎舞台 ${free.snap.placement}、流式 16ms ${stream.fps.toFixed(1)} 帧/秒、失败会话 ${failed.fps.toFixed(1)} 帧/秒`);
+      await page.screenshot({ path: path.join(outDir, "welcome-1600-dark.png") });
       await context.close();
     }
 
@@ -348,45 +387,50 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
       await context.close();
     }
 
-    // ---- P5 用户日常几何 1333×695@1.5 + 768 居中列(chat 组的列宽):窄沟小徽记,不压正文 ----
-    {
+    // ---- P5 消息对话:两套主题都无图案,运行事件也不触发背景帧 ----
+    for (const theme of ["dark", "light"]) {
       const COLUMN_768 = "#messages > .msg-pane { max-width: 768px; margin-inline: auto; } #view-chat #messages { padding-left: 0; padding-right: 0; }";
-      const { page, context, errors } = await open("chat", { width: 1333, height: 695, dpr: 1.5, css: COLUMN_768 });
+      const { page, context, errors } = await open("chat", { theme, width: 1333, height: 695, dpr: 1.5, css: COLUMN_768 });
       await closePanel(page);
       await goLive(page);
       await page.waitForTimeout(2000);
-      const free = await auditFree(page, "窄沟");
-      if (!String(free.snap.placement).startsWith("gutter")) fail(`用户日常几何应落在沟槽 / 窄沟,实际 ${free.snap.placement}`);
+      const free = await auditClean(page, `${theme} 消息对话`);
+      await page.evaluate(async () => {
+        const flow = await import("/22-neural-flow.js");
+        const shell = await import("/03-shell.js");
+        flow.neuralFlowEmit("assistant_streaming", { session_id: shell.activeSessionId, text_length: 4 });
+      });
+      await auditClean(page, `${theme} 流式对话`);
       if (errors.length) fail(`窄沟页面异常:${errors.join(" | ")}`);
-      notes.push(`1333×695@1.5 + 768 列:${free.snap.placement}`);
-      await page.screenshot({ path: path.join(outDir, "chat-1333-narrow-dark.png") });
+      notes.push(`${theme} 1333×695@1.5 消息对话:${free.snap.placement},0 帧`);
+      await page.screenshot({ path: path.join(outDir, `chat-1333-${theme}.png`) });
       await context.close();
     }
 
-    // ---- P6 水印(capped):窄窗口,运行中逐帧审计正文下像素,两套主题 ----
+    // ---- P6 窄屏欢迎舞台(capped):逐帧审计文案下像素,两套主题 ----
     for (const theme of ["dark", "light"]) {
-      const { page, context, errors } = await open("chat", { theme, width: 1100, height: 720, dpr: 1.5 });
+      const { page, context, errors } = await open("empty", { theme, width: 950, height: 720, dpr: 1.5 });
       await goLive(page);
       await page.waitForTimeout(1200);
       const snap = await snapshot(page);
       if (!snap.capped) {
-        fail(`${theme} 水印判据前提:1100×720 + 活动面板应落到 capped 水印,实际 ${snap.placement}`);
+        fail(`${theme} 判据前提:950×720 欢迎页应落到 capped 装饰,实际 ${snap.placement}`);
         await context.close();
         continue;
       }
       let worst = Infinity, worstName = "", maxAlpha = 0, pixels = 0;
       for (let k = 0; k < 10; k += 1) {
         await page.waitForTimeout(170);
-        const audit = await pixelAudit(page);
+        const audit = await pixelAudit(page, true);
         pixels += audit.pixels;
         maxAlpha = Math.max(maxAlpha, audit.maxAlphaText);
         for (const [name, value] of Object.entries(audit.minContrast)) if (value < worst) { worst = value; worstName = name; }
       }
-      if (!pixels) fail(`${theme} 水印判据前提:正文下没有任何水印像素(水印没压到正文,换一个窗口尺寸)`);
+      if (!pixels) fail(`${theme} 窄屏欢迎装饰未绘制(判据前提)`);
       if (worst < 4.5) fail(`${theme} 水印:正文 ${worstName} 压在水印像素上只有 ${worst.toFixed(2)}:1(< 4.5)`);
       if (maxAlpha > snap.watermarkAlpha + 2 / 255) fail(`${theme} 水印:正文下像素 alpha ${maxAlpha.toFixed(3)} 超过 watermarkAlpha ${snap.watermarkAlpha.toFixed(3)}`);
       if (errors.length) fail(`${theme} 水印页面异常:${errors.join(" | ")}`);
-      notes.push(`${theme} 水印 ${snap.placement}:正文下 ${pixels} 像素,最坏 ${worstName} ${Number.isFinite(worst) ? worst.toFixed(2) : "—"}:1,alpha ≤ ${maxAlpha.toFixed(3)}(上限 ${snap.watermarkAlpha.toFixed(3)})`);
+      notes.push(`${theme} 欢迎装饰 ${snap.placement}:全图 ${pixels} 像素,文案压在最坏像素上 ${worstName} ${Number.isFinite(worst) ? worst.toFixed(2) : "—"}:1,alpha ≤ ${maxAlpha.toFixed(3)}(上限 ${snap.watermarkAlpha.toFixed(3)})`);
       await page.screenshot({ path: path.join(outDir, `chat-watermark-${theme}.png`) });
       await context.close();
     }

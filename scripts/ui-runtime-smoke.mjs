@@ -6530,6 +6530,39 @@ assert(invokeLog.includes("fast_model_setup"), "点了一键就绪却没调后�
 handlers.get("kz:fast-setup")?.({ payload: { text: "pulling 50%(1500/3000 MB)" } });
 assert(listText("fast-status").includes("50%"), "安装进度未反映到界面");
 
+// Project conventions: draft comparison, user edits and conflict recovery.
+{
+  const conventionsUi = esmModuleCache.get("15-conventions.js").namespace;
+  const current = "# 用户规则\n保留离线能力";
+  payloads.conventions_read = { exists: true, hash: "base", content: current,
+    proposal: { base_hash: "base", hash: "draft", content: "# 建议\n保留离线能力\n增加测试命令" } };
+  payloads.conventions_save = "saved";
+  await conventionsUi.openConventions();
+  assert(byId.get("conventions-dialog").open, "规范入口未打开真实对话框");
+  byId.get("conventions-proposal").click();
+  assert(!byId.get("conventions-current").classList.contains("hidden"), "建议稿缺少当前规范对照");
+  byId.get("conventions-editor").value = "# 用户合并\n保留离线能力\n用户补充";
+  byId.get("conventions-save").click();
+  await flush();
+  const save = invokeArgs.filter((item) => item.cmd === "conventions_save").at(-1);
+  assert(save?.args.expectedHash === "base" && save.args.proposalHash === "draft", "保存丢失 CAS 或建议稿身份");
+  assert(save?.args.content.includes("用户补充"), "保存未使用用户编辑文本");
+  assert(byId.get("conventions-editor").classList.contains("hidden"), "成功后未返回渲染预览");
+  byId.get("conventions-edit").click();
+  byId.get("conventions-editor").value = "未保存的用户内容";
+  expectedPersistentError = "stale expected_hash";
+  payloads.conventions_save = () => { throw new Error("stale expected_hash"); };
+  byId.get("conventions-save").click();
+  await flush();
+  expectedPersistentError = null;
+  assert(byId.get("conventions-editor").value === "未保存的用户内容", "保存冲突丢失用户内容");
+  assert(!byId.get("conventions-editor").classList.contains("hidden"), "冲突后退出编辑");
+  assert(conventionsUi.conventionsPrompt(true).includes("conventions propose"), "重新生成没有走建议稿");
+  assert(conventionsUi.conventionsPrompt(false).includes("conventions create"), "初次生成没有写入通道");
+  byId.get("conventions-close").click();
+  payloads.conventions_save = "saved";
+}
+
 // ---------- D-167 手填模型：探测不到不等于用不了 ----------
 // UI-0926 #3:入口从原生下拉挪进输入框上方模型芯片的菜单(openMenu 现造,弹层唯一写法)。
 // 断言形态不变:紧凑列表只列本线已选/默认解析/手填过的模型,「显示全部」就地展开完整目录,

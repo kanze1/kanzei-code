@@ -539,9 +539,11 @@ pub(crate) async fn run_subagent(
     // R-327:人格选择。名字选不中静默回落默认——见 resolve_agent 的说明。
     // 注意 rt.agent 的其余用途(写租约身份、读槽登记、错误文案)保持不变:
     // 那些是**运行时身份**,不随本轮选了哪个提示词而变。
-    let selected_agent = rt
+    let mut selected_agent = rt
         .resolve_agent(input.get("agent").and_then(|v| v.as_str()))
         .clone();
+    // task 的实际调用边界决定角色，不能被自定义人格的 mode=primary 绕过。
+    selected_agent.mode = kanzei_harness::AgentMode::Subagent;
     let prompt = ["prompt", "task", "instruction", "query"]
         .iter()
         .find_map(|k| input.get(k).and_then(|v| v.as_str()))

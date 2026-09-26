@@ -1,18 +1,6 @@
-//! conventions 工具:开发规范 `.kanzei/project/conventions.md` 的专用写通道。
-//!
-//! D-235 与 D-173 同根因:`.kanzei/project/*` 对 write/edit 硬 deny,而 conventions.md
-//! 没有任何专用工具,于是模型唯一的合法写路径不可达,只能去找 shell 旁路。本工具把
-//! 那条路补上,并且比裸 write 多三层硬门禁(与 architecture 工具同源):
-//!
-//! 1. CAS(expected_hash):基于 **get 读到的那一版** 才能 patch,并发手改不会被静默覆盖。
-//! 2. 逐字替换 + 唯一命中:old_string 必须恰好出现一次,0 次或多次都拒写并说明,
-//!    防止「改错地方」和「整段内容被顶掉」这两类 edit 事故(D-004:拒绝的理由必须说
-//!    出来,绝不静默)。
-//! 3. 只认这一个文件:路径由引擎给定,输入里没有 path 参数可以指到别处。
-//!
-//! 与 architecture 的差异:conventions.md 是 15KB 级用户手写规范,整文件替换风险远高于
-//! 架构索引,所以写动作收敛为**定点补丁**(patch)而不是 update(整文件替换);读动作
-//! get 给出全文 + hash + 标题导航,让模型在不依赖外部快照的情况下完成补丁。
+//! 项目规范的 Agent 写通道：create 仅新建，propose 生成独立待审稿，patch 定点维护。
+//! 前端由用户显式保存整篇；两端共享文件锁和内容 hash，拒绝覆盖并发修改。
+//! 建议稿不进入模型上下文，采用后才成为正式规则。
 
 use std::path::Path;
 
@@ -24,19 +12,24 @@ use serde::Deserialize;
 use crate::architecture::content_hash;
 
 /// 开发规范(相对项目根)。
+pub mod drafts;
+
 pub const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 
 #[derive(Deserialize, JsonSchema)]
 struct ConventionsInput {
-    /// get(读全文+hash+标题导航) | patch(逐字替换,唯一命中才写)
+    /// get | create (absent only) | propose (separate draft) | patch (unique replacement)
     action: String,
+    /// create / propose: project-specific rules grounded in repository evidence
+    #[serde(default)]
+    content: Option<String>,
     /// patch 必填:要替换的原文(必须恰好出现一次)
     #[serde(default)]
     old_string: Option<String>,
     /// patch 必填:替换后的新文本
     #[serde(default)]
     new_string: Option<String>,
-    /// patch 必填:上一次 get 返回的 hash(并发写入保护)
+    /// patch / propose 必填:上一次 get 返回的 hash(并发写入保护)
     #[serde(default)]
     expected_hash: Option<String>,
 }
@@ -51,8 +44,9 @@ impl Tool for ConventionsTool {
 
     fn description(&self) -> String {
         format!(
-            "Read and maintain the dev rules document `{CONVENTIONS_REL}` (the ONLY write \
-             channel for it — write/edit are denied there). Actions: get (full text + hash + \
+            "Read and maintain the dev rules document `{CONVENTIONS_REL}` (the agent write \
+             channel for it — write/edit are denied there). Actions: create (content, absent file only), propose (content + expected_hash; \
+             save a separate draft for user review, never replace active rules), get (full text + hash + \
              heading navigation), patch (replace exactly one occurrence of old_string with \
              new_string; refuses when the hash from the last get is stale, when old_string \
              matches 0 places, or when it matches 2+ places — nothing is written then). \
@@ -66,7 +60,10 @@ impl Tool for ConventionsTool {
             .pointer_mut("/properties/action")
             .and_then(|v| v.as_object_mut())
         {
-            action.insert("enum".into(), serde_json::json!(["get", "patch"]));
+            action.insert(
+                "enum".into(),
+                serde_json::json!(["get", "create", "propose", "patch"]),
+            );
         }
         schema
     }
@@ -78,7 +75,7 @@ impl Tool for ConventionsTool {
 
     fn concurrency(&self, input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
         match input["action"].as_str() {
-            Some("patch") => ToolConcurrency::write_worktree(ctx),
+            Some("patch" | "create" | "propose") => ToolConcurrency::write_worktree(ctx),
             _ => ToolConcurrency::shared_worktree(ctx),
         }
     }
@@ -97,8 +94,7 @@ impl Tool for ConventionsTool {
                 if !path.exists() {
                     return ToolOutput::ok(format!(
                         "path: {CONVENTIONS_REL}\nexists: false\n本项目还没有开发规范文件(新项目常见)。\
-                         按通用工程做法工作即可,不必再查;需要成文规范时请用户在 {CONVENTIONS_REL} \
-                         里写下(模型没有新建它的通道)。"
+                         不必再查；读取项目清单、README 和测试/发布配置后，用 create 写入有来源的项目规则草案。"
                     ));
                 }
                 let current = read_text(&path);
@@ -120,6 +116,39 @@ impl Tool for ConventionsTool {
                 out.push_str("---\n");
                 out.push_str(&current);
                 ToolOutput::ok(out)
+            }
+            "create" | "propose" => {
+                let Some(content) = input.content else {
+                    return ToolOutput::error("content is required");
+                };
+                let result = if input.action == "create" {
+                    drafts::create(&ctx.project_root, &content)
+                } else {
+                    let Some(expected) = input.expected_hash else {
+                        return ToolOutput::error("expected_hash is required; call get first");
+                    };
+                    drafts::propose(&ctx.project_root, &content, &expected)
+                };
+                match result {
+                    Ok(hash) => {
+                        let rel = if input.action == "create" {
+                            CONVENTIONS_REL
+                        } else {
+                            drafts::PROPOSAL_REL
+                        };
+                        crate::record_write_log(ctx, rel, &ctx.project_root.join(rel));
+                        ToolOutput::ok(format!(
+                            "{} {rel}\nhash: {hash}\n{}",
+                            input.action,
+                            if input.action == "propose" {
+                                "建议稿待用户在规范页审阅；现有规则未改变。"
+                            } else {
+                                "项目规则已创建，用户可在规范页编辑。"
+                            }
+                        ))
+                    }
+                    Err(error) => ToolOutput::error(error),
+                }
             }
             "patch" => {
                 let Some(old_string) = input.old_string else {
@@ -200,7 +229,9 @@ impl Tool for ConventionsTool {
                 let new_content = current.replacen(&old_string, &new_string, 1);
                 write_patch_with_log(ctx, &path, current, new_content, &expected)
             }
-            other => ToolOutput::error(format!("unknown action `{other}`; valid: get | patch")),
+            other => ToolOutput::error(format!(
+                "unknown action `{other}`; valid: get | create | propose | patch"
+            )),
         }
     }
 }

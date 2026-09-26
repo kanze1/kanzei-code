@@ -230,7 +230,37 @@ pub async fn git_status(
     .map_err(|e| e.to_string())
 }
 
-/// 开发规范模板(不存在时一键创建;用户手写维护,agent 只读注入)。
+#[tauri::command]
+pub fn conventions_read(project_dir: String) -> Result<serde_json::Value, String> {
+    kanzei_tools::conventions::drafts::snapshot(&conventions_root(&project_dir))
+}
+
+#[tauri::command]
+pub fn conventions_save(
+    project_dir: String,
+    content: String,
+    expected_hash: String,
+    proposal_hash: Option<String>,
+) -> Result<String, String> {
+    kanzei_tools::conventions::drafts::save_user(
+        &conventions_root(&project_dir),
+        &content,
+        &expected_hash,
+        proposal_hash.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn conventions_discard(project_dir: String, expected_hash: String) -> Result<(), String> {
+    kanzei_tools::conventions::drafts::discard(&conventions_root(&project_dir), &expected_hash)
+}
+
+fn conventions_root(project_dir: &str) -> PathBuf {
+    kanzei_harness::config::discover_project_root(Path::new(project_dir))
+        .unwrap_or_else(|| PathBuf::from(project_dir))
+}
+
+/// 兼容旧客户端的新建入口；当前界面通过 Agent 从项目生成。
 #[tauri::command]
 pub fn conventions_init(project_dir: String) -> Result<String, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
@@ -239,29 +269,10 @@ pub fn conventions_init(project_dir: String) -> Result<String, String> {
     if path.is_file() {
         return Ok(path.display().to_string());
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(
-        &path,
-        "# 开发规范(项目特有部分)\n\n\
-         本文件只放**项目特有**规则(分支策略、架构契约、构建发布等)。\n\
-         **通用**开发规则——取活与阻塞口径、关闭边界、验收证据、标签与依赖字段、\n\
-         批次与验证节奏、代码修改原则、命名风格、测试与文档纪律、任务级并行——\n\
-         由 kanzei 引擎内置注入(R-191,单源 kanzei-harness),所有项目默认一致,\n\
-         不要抄到这里:在项目文件里复制通用规则只会漂移。\n\n\
-         ## 分支与提交流程\n\
-         - \n\n\
-         ## 架构与契约\n\
-         - \n\n\
-         ## 构建与发布\n\
-         - \n\n\
-         ## 测试要求(项目特有补充)\n\
-         - \n\n\
-         ## 禁止事项(项目特有补充)\n\
-         - \n",
-    )
-    .map_err(|e| e.to_string())?;
+    kanzei_tools::conventions::drafts::create(
+        &root,
+        "# 项目约束与规范\n\n待根据项目清单、README、测试和发布配置生成。\n",
+    )?;
     Ok(path.display().to_string())
 }
 
@@ -490,12 +501,15 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
             }).collect())
         };
     let conventions_path = root.join(CONVENTIONS_REL);
-    let conventions = match std::fs::read_to_string(&conventions_path) {
+    let mut conventions = match std::fs::read_to_string(&conventions_path) {
         Ok(text) => {
             json!({ "exists": true, "headings": text.lines().filter(|l| l.starts_with('#')).map(|l| l.trim_start_matches('#').trim()).filter(|l| !l.is_empty()).collect::<Vec<_>>() })
         }
         Err(_) => json!({ "exists": false, "headings": [] }),
     };
+    conventions["has_proposal"] = json!(root
+        .join(kanzei_tools::conventions::drafts::PROPOSAL_REL)
+        .is_file());
     Ok(json!({
         "conventions": conventions, "root": root.display().to_string(),
         // warnings 是新增字段:前端忽略未知键,所以不需要改 .js。它承载"读成功了,

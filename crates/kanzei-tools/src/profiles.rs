@@ -13,9 +13,10 @@ use crate::tracker::TrackerTool;
 use crate::work::WorkTool;
 
 mod dev;
+mod policy;
 mod readonly;
 mod research;
-pub use dev::DevProfile;
+pub use dev::{DevProfile, DEV_DEFERRED_TOOLS};
 pub use readonly::ReadonlyProfile;
 
 /// dev agent 的前端自查段。**不写进 dev 的基础提示词**:这段点名的 5 个工具
@@ -141,77 +142,6 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    #[test]
-    fn dev_system_prompt_enforces_acceptance_evidence_contract() {
-        let root = PathBuf::from("C:/kanzei-r085-test");
-        let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
-            cwd: root.clone(),
-            project_root: root,
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness.add(DevProfile).add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        let system = &snapshot.select_agent(Some("dev")).unwrap().system;
-
-        for required in [
-            "compare every acceptance item",
-            "exact implementation location",
-            "real caller or consumer",
-            "existing capability rather than this delivery",
-            "never narrow platform or scope qualifiers",
-            "keep it active and record the gap",
-            "itemize them explicitly",      // D-279:多项诉求逐项清单
-            "re-read the original message", // D-279:追问时回读核对
-        ] {
-            assert!(
-                system.contains(required),
-                "dev system prompt 缺少 R-085 完成判定约束: {required}"
-            );
-        }
-    }
-
-    /// UI2-0926 #13:cargo 专属条款(提交前 cargo 门禁、clippy 分工、CI 触发)只进 Cargo 工程。
-    /// 用户在空目录新建的 Flutter 项目里收到「提交 Rust 源码前跑 cargo …」只会误导模型。
-    #[test]
-    fn dev_conventions_cargo_条款只注入_cargo_工程() {
-        let dir = std::env::temp_dir().join(format!("kz-conv-cargo-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let render = |root: &std::path::Path| {
-            let ctx = ResolveCtx {
-                profile: ProfileKind::Dev,
-                cwd: root.to_path_buf(),
-                project_root: root.to_path_buf(),
-                config: Arc::new(KanzeiConfig::default()),
-            };
-            let mut harness = Harness::default();
-            harness.add(DevProfile).add(ConfigComponent);
-            // system baseline 含全部上下文源,dev/conventions 在其中。
-            harness.resolve(&ctx).unwrap().system_baseline()
-        };
-        let plain = render(&dir);
-        assert!(plain.contains("## 1.4 "), "通用规范照常注入");
-        assert!(
-            !plain.contains("clippy 四处分工") && !plain.contains("提交前代码门禁"),
-            "非 Cargo 项目不该收到 cargo 条款"
-        );
-        std::fs::write(
-            dir.join("Cargo.toml"),
-            "[workspace]
-",
-        )
-        .unwrap();
-        let cargo = render(&dir);
-        assert!(
-            cargo.contains("clippy 四处分工") && cargo.contains("提交前代码门禁"),
-            "Cargo 工程应收到 cargo 条款"
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    /// 取 dev 档 system prompt 的公共装配(与上面那条同一条装配线)。
     fn dev_system_prompt(tag: &str) -> String {
         let root = PathBuf::from(format!("C:/kanzei-{tag}-test"));
         let ctx = ResolveCtx {
@@ -221,211 +151,147 @@ mod tests {
             config: Arc::new(KanzeiConfig::default()),
         };
         let mut harness = Harness::default();
-        harness.add(DevProfile).add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        snapshot.select_agent(Some("dev")).unwrap().system.clone()
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(ConfigComponent);
+        harness
+            .resolve(&ctx)
+            .unwrap()
+            .select_agent(Some("dev"))
+            .unwrap()
+            .system
+            .clone()
     }
 
-    /// D-242 / D-219(2026-08-10 用户定调):WIP 单槽 + 批次协议必须在提示词里有真源。
-    ///
-    /// 反向断言是关键:只断言新文本存在的话,旧口径句子留在原地测试照样绿,
-    /// 而模型会同时读到两条互斥规则——这正是 D-242 的失效模式。
     #[test]
-    fn dev_system_prompt_enforces_wip_and_batch_contract() {
-        let system = dev_system_prompt("d242-wip");
-
+    fn core_contract_is_bounded_and_technology_neutral() {
+        let system = dev_system_prompt("compact-contract");
+        assert!(system.chars().count() < 5000);
         for required in [
-            // D-745:引擎选择一项，其余排队，保留真实人工停车。
-            "Execute only the selected item",
-            "queued by the engine",
-            "Never write parking fields or dependencies just to reduce WIP count",
-            "Preserve explicit user parking",
-            "original release conditions",
-            // ② 批次:数量由 agent 自定,上限 10,写法与提交标记有明确规矩。
-            "hard ceiling of 10",
-            "批次: 0/N",
-            "批次: k/N",
-            "<ID> B<k>",
-            "does not count toward it",
-            "the item is too big",
+            "逐条对照验收",
+            "真实调用方",
+            "Start 调用一次",
+            "Resume 直接继续",
+            "只提交自己负责",
+            "独立只读查询合在同一步",
         ] {
-            assert!(
-                system.contains(required),
-                "D-242 规则真源缺失:dev system prompt 里没有 `{required}`。\
-                 引擎照着批次门禁罚人,提示词却没教规矩,agent 只能撞门。"
-            );
+            assert!(system.contains(required), "missing {required}");
         }
-
-        assert!(
-            !system.contains("keep at most 2 requirements")
-                && !system.contains("write a `停车:` field"),
-            "D-219 旧口径残留:WIP 仍写着「最多 2 个 requirements in doing」,\
-             与新的单槽口径互斥,模型会按就近句取其一。"
-        );
-    }
-
-    /// 只读定位必须教「同一步批量发」。
-    ///
-    /// 实测(2026-08-15,本仓 state.db 2392 个 step):**85% 的 step 只含一个工具
-    /// 调用**,而并行发出的能力早就全线打通(只读工具都是 ToolConcurrency::
-    /// shared_worktree,can_parallel_tools 在生产档位恒可并行,协议侧 openai_responses
-    /// 显式 parallel_tool_calls:true)。缺的只有提示——全仓唯一教「同轮多发」的文字
-    /// 在 `task` 工具描述里,直读分支一个字都没有。连续只读游程可省 267 个往返
-    /// (全部 step 的 11.2%),这条提示就是去吃那一块。
-    #[test]
-    fn dev提示词教只读定位同步批量并行() {
-        let system = dev_system_prompt("parallel-locating");
-        for required in [
-            "SAME step",
-            "in parallel",
-            // 整批一票否决:混进一个需 Ask 的工具,can_parallel_tools 直接 false,
-            // 模型照做却拿不到并行。这句是必须项,不是修饰。
-            "PURE read-only",
-            // 只批量已决定要看的东西——否则「批量」被理解成投机多读,
-            // 上下文膨胀会盖过往返收益(省的是往返,不是 token)。
-            "do not speculatively fan out",
-        ] {
-            assert!(
-                system.contains(required),
-                "只读并行引导缺失:dev system prompt 里没有 `{required}`"
-            );
-        }
-        // 反向:旧句式把 task 子代理写成勘察的唯一出路,与新引导互斥。
-        assert!(
-            !system.contains("For codebase exploration (finding files"),
-            "旧勘察句式残留:它把 task 写成唯一出路,与「已知位置就同步批量直读」\
-             并存会让模型按就近句取其一(D-242 的复发形状)。"
-        );
-    }
-
-    /// 2026-08-13 用户定调(V4PRO 运行复盘):取活裁决已经下沉 work 工具；
-    /// prompt 只保留“执行结果”，不得再复制一套队列算法形成双真源。
-    #[test]
-    fn dev_system_prompt_enforces_resume_precedence_and_context_discipline() {
-        let system = dev_system_prompt("resume-precedence");
-        for required in [
-            "call `work next`",
-            "authoritative Resume/Start/Blocked/WipViolation",
-            "cannot bypass an existing Resume decision",
-            "do NOT re-scan",
-            "Non-semantic metadata artifacts",
-            "recoverable state",
-            "resume from the entry alone",
-            "read representative code samples",
-        ] {
-            assert!(
-                system.contains(required),
-                "取活显式序/上下文纪律真源缺失:dev system prompt 里没有 `{required}`"
-            );
-        }
-        for forbidden in ["outranks queue priority", "scan the selected first queue"] {
-            assert!(
-                !system.contains(forbidden),
-                "取活算法仍复制在 prompt 中，Resolved Control State 不是单一真源: {forbidden}"
-            );
-        }
-    }
-
-    /// 2026-08-10 用户定调③:全量测试只服务于中/大条目的收口,不再挂在每次提交上。
-    #[test]
-    fn dev_system_prompt_gates_full_suite_on_complexity() {
-        let system = dev_system_prompt("d242-cadence");
-
-        for required in [
-            "cargo test --workspace",
-            "before CLOSING",
-            "复杂度 is 中 or 大",
-            // 不可调降的底线必须同时在场,否则「小条目不跑全量」会被外推成「发版也不用跑」。
+        for inappropriate in [
+            "cargo test",
             "verify.ps1",
+            "ui_dom",
+            "V0-V3",
+            "old_string",
+            "Design freeze",
+            "<ID> B<k>",
         ] {
             assert!(
-                system.contains(required),
-                "D-242 规则真源缺失:验证节奏段没有 `{required}`,\
-                 提示词与 conventions §1.4 会再次漂开。"
+                !system.contains(inappropriate),
+                "unconditional {inappropriate}"
             );
         }
-
-        assert!(
-            !system.contains("ONCE right before committing"),
-            "旧口径残留:提示词仍要求「每次提交前全量一次」,与 §1.4 的\
-             「中/大条目关闭前」直接冲突。"
-        );
     }
 
     #[test]
-    fn dev_system_prompt_freezes_design_and_maps_edit_recovery() {
-        let system = dev_system_prompt("r236-design-freeze");
-        assert!(system.contains("Design freeze"));
-        for fact in [
-            "invariants",
-            "authoritative data sources",
-            "files expected to change",
-            "minimum tests",
-        ] {
-            assert!(system.contains(fact), "missing design-freeze fact: {fact}");
-        }
-        assert!(system.contains("insertion-clobber rejection means switch to `insert`"));
-        assert!(system.contains("missing/non-unique anchor means re-read"));
-        assert!(system.contains("identical old/new means stop"));
-    }
-
-    /// 三条定调的两份真源必须同口径:通用规则由引擎模板注入(R-191 单源,
-    /// DEFAULT_CONVENTIONS),dev system prompt 常驻,任一侧单方面改口,模型就会
-    /// 同时读到两条互斥规则——这正是 D-242/D-128 反复出现的失效模式。
-    ///
-    /// 只断言三个短 token,不锁整句措辞:规范是用户手写资产,行文随时可改,
-    /// 但「1 个槽 / 上限 10 批 / 全量只对中大」这三个判据不能悄悄消失。
-    ///
-    /// R-191 批5b:真源从项目 conventions.md 迁到引擎模板——通用节已从项目文件
-    /// 删除,若仍断言项目文件必然整段缺失;反向断言项目文件不得再含通用节,
-    /// 防「复制必然漂移」的旧病复发。
-    #[test]
-    fn conventions_与提示词对三条定调保持同口径() {
-        // 通用规则真源:引擎内置模板(编译期内嵌,所有项目一致)。
-        let text = kanzei_harness::DEFAULT_CONVENTIONS;
-
-        // 小节 = 从该二级标题起到下一个二级标题为止(`### ` 不会被误当边界)。
-        let section = |heading: &str| -> &str {
-            let start = text
-                .find(heading)
-                .unwrap_or_else(|| panic!("引擎模板里找不到小节 {heading}"));
-            let rest = &text[start + heading.len()..];
-            &rest[..rest.find("\n## ").unwrap_or(rest.len())]
+    fn resolved_context_keeps_project_scope_and_single_effective_cadence() {
+        use kanzei_harness::config::FullTestCadence;
+        let root = std::env::temp_dir().join(format!("kz-policy-matrix-{}", std::process::id()));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(root.join("pubspec.yaml"), "name: reader").unwrap();
+        std::fs::write(
+            root.join(".kanzei/project/conventions.md"),
+            "用户规则: preserve-local-first",
+        )
+        .unwrap();
+        let render = |full_test| {
+            let mut config = KanzeiConfig::default();
+            config.cadence.full_test = full_test;
+            let ctx = ResolveCtx {
+                profile: ProfileKind::Dev,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: Arc::new(config),
+            };
+            let mut harness = Harness::default();
+            harness
+                .add(crate::BaseComponent)
+                .add(DevProfile)
+                .add(ConfigComponent);
+            harness.resolve(&ctx).unwrap().system_baseline()
         };
-
-        for (heading, token, 定调) in [
-            (
-                "## 1.1 ",
-                "1 个可执行活动项",
-                "WIP 单槽(需求+缺陷合计 1 个)",
-            ),
-            ("## 1.3 ", "上限 10 批", "批数由 agent 自定、上限 10"),
-            ("## 1.4 ", "复杂度中/大", "全量测试只服务中/大条目的收口"),
+        let release = render(FullTestCadence::ReleaseOnly);
+        assert_eq!(
+            release.matches("<effective-verification-policy>").count(),
+            1
+        );
+        assert!(release.contains("仅发布前"));
+        assert!(!release.contains("关闭前一次"));
+        assert!(release.contains("preserve-local-first"));
+        for forbidden in [
+            "cargo test",
+            "clippy",
+            "verify.ps1",
+            "ui_dom",
+            "V0-V3",
+            "<project-docs>",
         ] {
-            assert!(
-                section(heading).contains(token),
-                "引擎模板 {heading} 缺少「{token}」({定调});\
-                 提示词已按新口径写,规范这侧沉默就等于半份真源(D-242)。"
-            );
+            assert!(!release.contains(forbidden), "{forbidden}");
         }
+        assert!(render(FullTestCadence::EntryClose).contains("中/大条目关闭前一次"));
+        std::fs::write(root.join("Cargo.toml"), "[workspace]").unwrap();
+        assert!(
+            !render(FullTestCadence::EntryClose).contains("clippy 四处分工"),
+            "generic Rust is not the Kanzei repository"
+        );
+        std::fs::create_dir_all(root.join("crates/kanzei-app")).unwrap();
+        std::fs::write(root.join("crates/kanzei-app/Cargo.toml"), "[package]").unwrap();
+        assert!(render(FullTestCadence::EntryClose).contains("clippy 四处分工"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
-        // R-191 单源防回归:项目 conventions.md 只放项目特有规则,不得再复制通用节。
-        let project_path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.kanzei/project/conventions.md");
-        if let Ok(project_text) = std::fs::read_to_string(&project_path) {
-            for forbidden in [
-                "## 1.1 需求取活与阻塞调度",
-                "## 1.25 完成判定与验收证据",
-                "## 2. 代码修改原则",
-                "## 10. 任务级并行",
-            ] {
-                assert!(
-                    !project_text.contains(forbidden),
-                    "项目 conventions.md 仍含通用节「{forbidden}」——\
-                     通用规则已由引擎模板单源(R-191),项目文件复制必然漂移。"
-                );
-            }
-        }
+    #[tokio::test]
+    async fn user_saved_rules_refresh_and_proposals_stay_out_of_context() {
+        use kanzei_harness::Tool;
+        let root =
+            std::env::temp_dir().join(format!("kz-conventions-refresh-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let tools_ctx = ToolCtx::new(root.clone(), root.clone());
+        let tool = crate::conventions::ConventionsTool;
+        assert!(
+            !tool
+                .execute(
+                    json!({"action":"create", "content":"user-rule-v1"}),
+                    &tools_ctx
+                )
+                .await
+                .is_error
+        );
+        let mut harness = Harness::default();
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        assert!(snapshot
+            .refreshable_system_baseline_with_report()
+            .0
+            .contains("user-rule-v1"));
+        let first_hash = crate::architecture::content_hash("user-rule-v1");
+        assert!(!tool.execute(json!({"action":"propose", "content":"unaccepted-draft", "expected_hash":first_hash}), &tools_ctx).await.is_error);
+        assert!(!snapshot.system_baseline().contains("unaccepted-draft"));
+        crate::conventions::drafts::save_user(&root, "user-rule-v2", &first_hash, None).unwrap();
+        let refreshed = snapshot.refreshable_system_baseline_with_report().0;
+        assert!(refreshed.contains("user-rule-v2"));
+        assert!(!refreshed.contains("user-rule-v1"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// R-217:dev 档注册 websearch 且默认 Ask(自主轮 NonInteractive 下即拒,
@@ -591,7 +457,10 @@ mod tests {
             config: Arc::new(KanzeiConfig::default()),
         };
         let mut harness = Harness::default();
-        harness.add(DevProfile).add(ConfigComponent);
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(ConfigComponent);
         let baseline = harness.resolve(&ctx).unwrap().system_baseline();
 
         assert!(
@@ -618,7 +487,10 @@ mod tests {
                 config: Arc::new(KanzeiConfig::default()),
             };
             let mut harness = Harness::default();
-            harness.add(DevProfile).add(ConfigComponent);
+            harness
+                .add(crate::BaseComponent)
+                .add(DevProfile)
+                .add(ConfigComponent);
             harness.resolve(&ctx).unwrap().system_baseline()
         };
 
@@ -627,22 +499,7 @@ mod tests {
         // §1.4 节奏 / §1.25 验收证据)——四个关键节必须全部出现在注入后的上下文。
         let bare = PathBuf::from("C:/kanzei-r191-default-test");
         let baseline = baseline_of(&bare);
-        for required in [
-            "通用开发规范单源",
-            "阻塞:` 字段只留给外部阻塞", // §1.1 阻塞口径
-            "批次: k/N",                 // §1.3 批次
-            "复杂度中/大",               // §1.4 节奏(全量触发点)
-            "逐条对照验收原文",          // §1.25 验收证据
-            "任务级并行",                // §10
-            "可用即关闭",                // §1.2
-            "多项诉求",                  // §1.25 D-279:用户诉求层逐项清单
-            "回读原始消息",              // §1.25 D-279:追问时不得相邻动作顶替
-        ] {
-            assert!(
-                baseline.contains(required),
-                "引擎默认模板未注入 dev 上下文: {required}"
-            );
-        }
+        assert!(baseline.contains(kanzei_harness::DEFAULT_CONVENTIONS.trim()));
         // §1.4a 提交前 cargo 门禁(D-264)只进 Cargo 工程(UI2-0926 #13):无 Cargo.toml 的项目不该收到,
         // Cargo 工程收到由 dev_conventions_cargo_条款只注入_cargo_工程 守护。
         assert!(
@@ -667,62 +524,13 @@ mod tests {
             baseline.contains(project_only),
             "项目特有规则没进上下文——R-191 拼接丢失项目文件"
         );
-        let default_pos = baseline.find("通用开发规范单源");
+        let default_pos = baseline.find("# 项目约定的来源");
         let project_pos = baseline.find("项目特有规则");
         assert!(
             default_pos.is_some() && project_pos.is_some() && default_pos < project_pos,
             "拼接顺序错误:通用规则必须在项目特有规则之前"
         );
         std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// R-191:登记硬约束必须在提示词里有真源——引擎会拒缺字段的 add,提示词不教
-    /// 规矩 agent 只会撞门。断言关键 token,不锁整句措辞。
-    #[test]
-    fn dev_system_prompt_teaches_registration_contract() {
-        let system = dev_system_prompt("r191-reg");
-        for required in [
-            "Registration contract",
-            "复杂度 (小|中|大)",
-            "severity (high|medium|low)",
-            "controlled vocabulary",
-            "rejects the call otherwise",
-            "来源",
-        ] {
-            assert!(
-                system.contains(required),
-                "R-191 登记契约缺失:dev system prompt 里没有 `{required}`。\
-                 引擎现在会拒缺字段的 add,提示词却没教字段清单。"
-            );
-        }
-    }
-
-    /// R-192:轻量级固定流程(发版/缺陷登记/新条目开工)必须注入 dev system——
-    /// 新项目场景下全文规范未在上下文里,agent 靠这段固定流程就能正确完成登记与关闭。
-    #[test]
-    fn dev_system_prompt_teaches_lightweight_fixed_flows() {
-        let system = dev_system_prompt("r192-flow");
-        for required in [
-            "Lightweight fixed flows (R-192",
-            "缺陷登记",
-            "defect add",
-            "发版",
-            "release.ps1",
-            "新条目开工",
-            "work next",
-            "work_unit",
-            "checkpoint",
-            "verify",
-            "evidence",
-            "complete",
-            "父 Outcome",
-        ] {
-            assert!(
-                system.contains(required),
-                "R-192 轻量级固定流程缺失:dev system prompt 里没有 `{required}`。\
-                 新项目场景无法降低上下文依赖。"
-            );
-        }
     }
 
     #[test]
@@ -769,7 +577,10 @@ mod tests {
             config: Arc::new(KanzeiConfig::default()),
         };
         let mut harness = Harness::default();
-        harness.add(DevProfile).add(ConfigComponent);
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(ConfigComponent);
         let baseline = harness.resolve(&ctx).unwrap().system_baseline();
 
         assert!(
@@ -914,7 +725,10 @@ mod tests {
             config: Arc::new(config),
         };
         let mut harness = Harness::default();
-        harness.add(DevProfile).add(ConfigComponent);
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
 
         assert_eq!(
@@ -1177,21 +991,14 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// R-221 B3:dev/research 都能看到 V 表口径,且不把 E0-E4 当研究证据等级。
+    /// 研究规则只驻留 research，通用开发不背负该契约。
     #[test]
     fn research_evidence_prompt_uses_v_table_and_literature_depth() {
         let dev = dev_system_prompt("r221-v-table");
-        for required in [
-            "Research evidence uses V0-V3",
-            "never E0-E4",
-            "literature evidence depth",
-            "abstract-only evidence is capped at V1",
-        ] {
-            assert!(
-                dev.contains(required),
-                "dev prompt 缺少 B3 口径: {required}"
-            );
-        }
+        assert!(
+            !dev.contains("V0-V3"),
+            "research policy must stay out of generic dev"
+        );
 
         let root = PathBuf::from("C:/kanzei-r221-v-table-research");
         let ctx = ResolveCtx {
@@ -1500,24 +1307,10 @@ mod tool_surface_budget {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    /// dev 档模型可见工具数上限(CLI/桌面共用装配;桌面另有 frontend_locate/
-    /// frontend_check/ui_dom/ui_console/ui_style/collaboration_status 六个)。
-    ///
-    /// **取值 = 当前实测值,不留余量**。留了余量就等于允许它悄悄涨到余量用尽,
-    /// 而这个面「没人盯着只会涨」正是 D-662 的机制。
-    ///
-    /// 当前 30 个按族拆:文件读写 5(read/write/edit/insert/files)、检索 3
-    /// (glob/grep/symbols)、托管文档 7(req/defect/idea/decision/architecture/
-    /// conventions/test_record)、记忆 3、执行 3(bash/git/process)、外部 4(webfetch/websearch/browser/
-    /// prior_art)、产出 2(plot/latex)、其余 3(question/work/incident)。`todowrite` 已于 2026-08-21 摘除:
-    /// 它与 tracker 的 `批次`/`进展` 是同一件事的两个真源,而后者是持久的(过夜断了也接得上),
-    /// 且 dev 提示词本就写着「批次单元格是进度从外部唯一可见的地方」。
-    ///
-    /// **抬这个数之前先回答:新工具能不能做成已有工具的一个 action?**
-    /// 记忆写路径是正面例子——memory_add/promote/update/merge/stale/inbox_clear 等
-    /// 写工具只挂在 memory-manager 子代理的迷你 run 上,主 agent 只看得见
-    /// memory_note/search/stats 三个;写读分离顺带把主面压掉了 7 个。
-    const DEV_TOOL_BUDGET: usize = 30;
+    /// D-662/R-364 双门禁按工具数计,不是 schema 字符数。
+    /// CLI resident=19 个注册工具 + core 单独追加的 task; desktop 再加 collaboration_status。
+    const DEV_RESIDENT_TOOL_BUDGET: usize = 20;
+    const DEV_DEFERRED_TOOL_BUDGET: usize = 12;
 
     /// readonly 档:只读分析,面应当明显更小。
     ///
@@ -1549,6 +1342,28 @@ mod tool_surface_budget {
             .collect();
         names.sort_unstable();
         names
+    }
+
+    fn visible_layer_counts(profile: ProfileKind) -> (usize, usize) {
+        let root = PathBuf::from("C:/kanzei-d662-budget");
+        let ctx = ResolveCtx {
+            profile,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = crate::run::build_harness(
+            |h| {
+                h.add(crate::ReadonlyProfile);
+            },
+            |_| {},
+        );
+        harness.add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        (
+            snapshot.resident_tools().len(),
+            snapshot.deferred_tools().len(),
+        )
     }
 
     fn materialized_tool_specs(profile: ProfileKind) -> Vec<kanzei_llm::ToolSpec> {
@@ -1621,7 +1436,7 @@ mod tool_surface_budget {
             .iter()
             .copied()
             .chain(deferred.iter().copied())
-            .filter(|name| *name != "task" && *name != "tool_search")
+            .filter(|name| *name != "task")
             .collect();
         for expected in expected_materialized {
             assert!(
@@ -1671,21 +1486,24 @@ mod tool_surface_budget {
         assert_eq!(row_sum, spec_sum, "账单总数必须等于逐项之和");
         let deferred_ratio = deferred_chars as f64 / spec_sum as f64 * 100.0;
         eprintln!(
-            "CLI Dev totals: resident={resident_chars}, deferred={deferred_chars} ({deferred_ratio:.2}%), unclassified={unclassified_chars}, all={spec_sum}; tool_search(B2 待接入)、core task_spec(未计入)"
+            "CLI Dev totals: resident={resident_chars}, deferred={deferred_chars} ({deferred_ratio:.2}%), unclassified={unclassified_chars}, all={spec_sum}; core task_spec(未计入)"
         );
     }
 
     #[test]
-    fn dev档工具面不超预算() {
+    fn dev档常驻与延迟目录分别符合预算() {
         let names = visible_tools(ProfileKind::Dev);
+        let (resident, deferred) = visible_layer_counts(ProfileKind::Dev);
         assert!(
-            names.len() <= DEV_TOOL_BUDGET,
-            "dev 档可见工具 {} 个,超出预算 {DEV_TOOL_BUDGET}。\n\
-             加工具前先问:能不能做成已有工具的一个 action?\n\
-             确实要加就显式抬预算,让它在 review 时被看见一次(D-662)。\n\
-             当前清单: {names:?}",
-            names.len()
+            names.contains(&"tool_search"),
+            "tool_search 必须在 Dev 常驻表中"
         );
+        assert_eq!(
+            resident + 1,
+            DEV_RESIDENT_TOOL_BUDGET,
+            "resident_tools 的 19 项之外由 core 追加 task_spec"
+        );
+        assert_eq!(deferred, DEV_DEFERRED_TOOL_BUDGET);
     }
 
     #[test]

@@ -1,20 +1,23 @@
-// UI2-0926 #10 对话背景(星座背景)的纯数据:零 import、零 DOM,node 冒烟可直接 import。
+// 对话背景的纯几何数据,零 DOM,node 冒烟可直接 import。
 // 设计见 docs/design/ui_chat_backdrop.md。
+import { AGENT_ROTATIONS, rotateAgentPoint } from "./00-brand.js";
 
-// kanzei 标志:与 index.html 空态 .logo-mark / 15-views-misc.js EMPTY_STATE_LOGO 同一组路径(viewBox 64)。
-// weight:线宽 7 的主笔画 = 2,线宽 3 的电路臂 = 1。role 语义取自 docs/design/app_icon.md「设计概念」:
-// 竖笔 = 项目执行主干(trunk),三条平行臂 = 记忆层(memory),右下粗笔 = 行动(action);
-// hub 是三层记忆汇入的决策点(下腿起点)。彗星按事件语义沿对应角色的边走,动画因此「有意义」。
+// 三个平等模块围绕共享空间。角色只决定事件光点走哪条路径,不代表主从关系。
+const agentOutline = [[25, 30], [19, 26], [19, 18], [32, 10], [45, 18], [45, 26], [39, 30], [32, 26], [25, 30]];
 export const KANZEI_LOGO_STROKES = {
   viewBox: 64,
-  hub: [21, 33],
-  strokes: [
-    { points: [[14, 8], [14, 56]], weight: 2, role: "trunk" },
-    { points: [[21, 33], [44, 56]], weight: 2, role: "action" },
-    { points: [[21.5, 31.5], [43, 8]], weight: 1, role: "memory" },
-    { points: [[25.5, 35], [50, 8]], weight: 1, role: "memory" },
-    { points: [[29.5, 38.5], [57, 8]], weight: 1, role: "memory" },
-  ],
+  hub: [32, 33],
+  // Authored module vertices connect only at explicit endpoints, never across the gaps.
+  mergeTolerance: 0.01,
+  junctionTolerance: 0,
+  strokes: AGENT_ROTATIONS.flatMap((angle, index) => {
+    const role = ["trunk", "memory", "action"][index];
+    const points = agentOutline.map((point) => rotateAgentPoint(point, angle));
+    return [
+      ...points.slice(1).map((point, i) => ({ points: [points[i], point], weight: 2, role })),
+      { points: [rotateAgentPoint([32, 26], angle), [32, 33]], weight: 2, role },
+    ];
+  }),
 };
 
 // 真实星座:[id, 中文名, 赤经(小时, J2000), 赤纬(度, J2000), 视星等]。

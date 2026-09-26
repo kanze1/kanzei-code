@@ -24,7 +24,7 @@ const HINTS_BLOCK: &str = "<memory-hints>\n与本任务可能相关的既有记�
 const USER_PROMPT: &str = "帮我修一个缺陷";
 
 /// 收一个请求、回一条 SSE 响应,返回原始请求字节。
-async fn serve_response(listener: &TcpListener, response: serde_json::Value) -> Vec<u8> {
+pub(super) async fn serve_response(listener: &TcpListener, response: serde_json::Value) -> Vec<u8> {
     // 桩服务器绝不无限等待:请求数一旦对不上,要的是变红而不是挂死整个门禁。
     let (mut stream, _) = tokio::time::timeout(std::time::Duration::from_secs(20), listener.accept())
         .await

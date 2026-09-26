@@ -221,7 +221,7 @@ export function starPresetModel(preset) {
 export function strokesToConstellation(source, { seed = 1, density = 1 } = {}) {
   const rand = seededRandom(seed);
   const size = source.viewBox;
-  const merge = size * 0.06, junction = size * 0.14, bridge = size * 0.3;
+  const merge = size * (source.mergeTolerance ?? 0.06), junction = size * (source.junctionTolerance ?? 0.14), bridge = size * 0.3;
   const spacing = (size * 0.15) / clamp(density, 0.5, 2);
   const strokes = source.strokes.map((s) => ({ ...s, keys: [{ t: 0 }, { t: 1 }] }));
   const bridges = [];
@@ -573,9 +573,30 @@ export function cometRoute(model, kind, rand = Math.random) {
     return route;
   };
   const leavesOf = (role) => [...Array(n).keys()].filter((i) => adj[i].length === 1 && adj[i][0][2] === role);
+  // Closed agent modules have no leaf tips. Find a real path to the shared hub
+  // instead of greedy walking, which can get trapped on the far side of a loop.
+  const routeTo = (start, allow, target) => {
+    const queue = [start], previous = new Map([[start, null]]);
+    for (const at of queue) {
+      if (at === target) break;
+      for (const [v, e, role] of adj[at]) if (allow(role) && !previous.has(v)) {
+        previous.set(v, [at, v, e]);
+        queue.push(v);
+      }
+    }
+    if (!previous.has(target)) return [];
+    const route = [];
+    for (let at = target; previous.get(at); at = previous.get(at)[0]) route.push(previous.get(at));
+    return route.reverse();
+  };
+  const farthestRoleNode = (role) => [...Array(n).keys()]
+    .filter((i) => i !== model.hub && adj[i].some((edge) => edge[2] === role))
+    .sort((a, b) => dist(model.points[b], model.points[model.hub]) - dist(model.points[a], model.points[model.hub]))[0];
   if (kind === "recall" && hasRole(ROLE.memory) && model.hub >= 0) {
     const tips = leavesOf(ROLE.memory);
-    if (tips.length) return walk(tips[Math.floor(rand() * tips.length)], (r) => r === ROLE.memory || r === ROLE.bridge || r === ROLE.action, model.hub);
+    const start = tips.length ? tips[Math.floor(rand() * tips.length)] : farthestRoleNode(ROLE.memory);
+    const route = routeTo(start, (r) => r === ROLE.memory, model.hub);
+    if (route.length) return route;
   }
   if (kind === "action" && hasRole(ROLE.action) && model.hub >= 0) {
     const route = walk(model.hub, (r) => r === ROLE.action, -1);
@@ -584,6 +605,10 @@ export function cometRoute(model, kind, rand = Math.random) {
   if (kind === "trunk" && hasRole(ROLE.trunk)) {
     const ends = leavesOf(ROLE.trunk).sort((a, b) => model.points[a][1] - model.points[b][1]);
     if (ends.length >= 2) return walk(ends[0], (r) => r === ROLE.trunk, ends.at(-1));
+    if (model.hub >= 0) {
+      const route = routeTo(farthestRoleNode(ROLE.trunk), (r) => r === ROLE.trunk, model.hub);
+      if (route.length) return route;
+    }
   }
   const bright = [...Array(n).keys()].filter((i) => adj[i].length).sort((a, b) => model.points[a][2] - model.points[b][2]);
   const start = bright[Math.floor(rand() * Math.min(3, bright.length))] ?? 0;
@@ -661,12 +686,9 @@ export function resolveBackdropModel(prefs, data) {
 //   capped   星座框本身压在正文上(只剩右上角水印可放)——此时不剪,渲染器把整张星座先画进离屏层,
 //            再以 watermarkAlpha 单一不透明度合成(见下方「水印」),正文压在任何像素上仍 ≥ 4.5:1。
 // 规则:空态(welcome)/ 语音(voice)画进 art 槽(OC 开时在人物身后、稍淡);槽不可见就放文案右侧空白;
-// 对话态(conversation)右沟槽够宽就放右沟槽,其次左沟槽;沟槽只够窄条(768 列两侧各约 120px,
-// 用户日常的 1333×695@1.5 就是这样)就画缩小版进窄沟;都不够才退右上角水印。
+// 对话态(conversation)直接 hidden,不占消息背景。
 export const GUTTER_MIN_W = 160;
 export const GUTTER_MIN_H = 160;
-export const GUTTER_NARROW_W = 56;
-export const GUTTER_NARROW_MARGIN = 16;
 export const BOX_MAX = 360;
 const inflate = (r, by) => ({ x: r.x - by, y: r.y - by, w: r.w + 2 * by, h: r.h + 2 * by });
 export function rectsIntersect(a, b) {
@@ -679,13 +701,14 @@ export function columnFromRects(rects, area) {
   const left = Math.min(...usable.map((r) => r.x)), right = Math.max(...usable.map((r) => r.x + r.w));
   return { x: left, y: area.y, w: right - left, h: area.h };
 }
-export function layoutBackdrop({ area, mode, slot = null, ocInSlot = false, copy = null, column = null, reserve = null, aspect = 1 }) {
+export function layoutBackdrop({ area, mode, slot = null, ocInSlot = false, copy = null, aspect = 1 }) {
+  // 有消息的对话保持纯净;装饰只出现在欢迎页和语音舞台。
+  if (mode === "conversation") return { box: { x: 0, y: 0, w: 0, h: 0 }, alpha: 0, placement: "hidden", avoid: [], capped: false };
   const fit = (box, maxW = box.w, maxH = box.h) => {
     const w = Math.min(maxW, maxH * aspect), h = w / aspect;
     return { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h };
   };
-  const text = mode === "conversation" ? column : copy;
-  const avoid = text ? [inflate(text, 12)] : [];
+  const avoid = copy ? [inflate(copy, 12)] : [];
   const done = (box, alpha, placement) => ({ box, alpha, placement, avoid, capped: avoid.some((r) => rectsIntersect(r, box)) });
   if ((mode === "welcome" || mode === "voice") && slot && slot.w > 120 && slot.h > 120) {
     if (ocInSlot) {
@@ -700,29 +723,6 @@ export function layoutBackdrop({ area, mode, slot = null, ocInSlot = false, copy
     const x = copy.x + copy.w + 32;
     const side = { x, y: area.y + 24, w: area.x + area.w - 24 - x, h: area.h - 48 };
     if (side.w >= GUTTER_MIN_W && side.h >= GUTTER_MIN_H) return done(fit(side, Math.min(side.w, BOX_MAX), Math.min(side.h, BOX_MAX)), 0.9, "side");
-  }
-  if (mode === "conversation" && column) {
-    const top = area.y + 24;
-    const upper = area.y + area.h * 0.62;
-    const rightTop = (reserve ? Math.min(upper, reserve.y - 24) : upper) - top;
-    const rightX = column.x + column.w + 24;
-    const right = { x: rightX, y: top, w: area.x + area.w - 24 - rightX, h: rightTop };
-    const left = { x: area.x + 24, y: top, w: column.x - 24 - (area.x + 24), h: upper - top };
-    for (const [gutter, placement] of [[right, "gutter"], [left, "gutter-left"]]) {
-      if (gutter.w >= GUTTER_MIN_W && gutter.h >= GUTTER_MIN_H) {
-        return done(fit(gutter, Math.min(gutter.w, BOX_MAX), Math.min(gutter.h, BOX_MAX)), 0.85, placement);
-      }
-    }
-    // 窄沟:边距收到 16,星座缩成一枚小徽记贴着列外侧;正文列照旧 evenodd 剪掉,不需要夹 alpha。
-    const m = GUTTER_NARROW_MARGIN;
-    const narrowRightX = column.x + column.w + m;
-    const narrowRight = { x: narrowRightX, y: top, w: area.x + area.w - m - narrowRightX, h: rightTop };
-    const narrowLeft = { x: area.x + m, y: top, w: column.x - m - (area.x + m), h: upper - top };
-    for (const [gutter, placement] of [[narrowRight, "gutter-narrow"], [narrowLeft, "gutter-narrow-left"]]) {
-      if (gutter.w >= GUTTER_NARROW_W && gutter.h >= GUTTER_NARROW_W * 1.5) {
-        return done(fit(gutter, gutter.w, Math.min(gutter.h, gutter.w * 2.2)), 0.85, placement);
-      }
-    }
   }
   const side = clamp(area.w * 0.3, 160, 320);
   const corner = { x: area.x + area.w - side - 28, y: area.y + 28, w: side, h: Math.min(side, area.h * 0.5) };

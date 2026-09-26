@@ -17,7 +17,7 @@ const UI = resolve(root, "crates/kanzei-app/ui");
 const coreSource = readFileSync(resolve(UI, "22-constellation-core.js"), "utf8");
 
 const MUTATIONS = {
-  // 近平行笔画不做 T 字桥接。删了它,标志三条电路臂的臂尖被连成锯齿(⑤ 臂尖断言)。
+  // 近平行笔画不做 T 字桥接。用独立笔画夹具守住,不依赖品牌图案(⑤b)。
   bgParallelBridge: {
     pattern: /\n[ \t]*if \(Math\.abs\(u\[0\] \* v\[0\] \+ u\[1\] \* v\[1\]\) \/ \(\(Math\.hypot\(\.\.\.u\) \* Math\.hypot\(\.\.\.v\)\) \|\| 1\) > Math\.cos\(Math\.PI \/ 9\)\) return;/,
     replace: "",
@@ -172,21 +172,35 @@ check("④ 猎户座与预设", () => {
   for (const preset of Object.values(STAR_PRESETS)) validModel(starPresetModel(preset));
 });
 
-// ⑤ 标志星座:单连通、18~40 颗、≥ 7 颗亮星;臂尖之间无边且每颗臂尖只连自己那条臂;角色边与 hub
+// ⑤ 三模块标志:单连通、18~40 颗、三类角色路径都汇入共享空间。
 check("⑤ kanzei 标志星座", () => {
   const m = strokesToConstellation(KANZEI_LOGO_STROKES, { seed: 5 });
   validModel(m);
   assert.equal(components(m.points.length, m.edges).length, 1, "标志星座应单连通");
   assert.ok(m.points.length >= 18 && m.points.length <= 40, `标志星数 ${m.points.length}`);
   assert.ok(m.points.filter((p) => p[2] <= 2.2).length >= 7, "端点/交汇亮星不足");
-  const tips = [...m.points.keys()].filter((i) => m.points[i][0] > 0.5).sort((a, b) => m.points[a][1] - m.points[b][1]).slice(0, 3);
-  assert.ok(!m.edges.some(([i, j]) => tips.includes(i) && tips.includes(j)), "臂尖之间被连了线");
-  for (const tip of tips) assert.equal(m.edges.filter(([i, j]) => i === tip || j === tip).length, 1, "每颗臂尖应只连自己那条臂");
   const count = (r) => m.edges.filter((e) => e[2] === r).length;
   assert.ok(count(2) >= 6 && count(1) >= 2 && count(3) >= 2, `角色边数 trunk=${count(1)} memory=${count(2)} action=${count(3)}`);
   const hubEdges = m.edges.filter(([i, j]) => i === m.hub || j === m.hub);
   assert.ok(hubEdges.length >= 3, `hub 度数 ${hubEdges.length}`);
-  assert.ok(hubEdges.some((e) => e[2] === 2) && hubEdges.some((e) => e[2] === 3), "hub 应同时连着记忆边与行动边");
+  for (const role of [1, 2, 3]) assert.ok(hubEdges.some((e) => e[2] === role), `共享空间缺少角色 ${role} 的输入`);
+});
+
+// ⑤b 通用笔画转换仍需保护近平行臂;换品牌不能让已有变异守卫失效。
+check("⑤b 平行笔画", () => {
+  const m = strokesToConstellation({
+    viewBox: 64, hub: [21, 33],
+    strokes: [
+      { points: [[14, 8], [14, 56]], weight: 2, role: "trunk" },
+      { points: [[21, 33], [44, 56]], weight: 2, role: "action" },
+      { points: [[21.5, 31.5], [43, 8]], weight: 1, role: "memory" },
+      { points: [[25.5, 35], [50, 8]], weight: 1, role: "memory" },
+      { points: [[29.5, 38.5], [57, 8]], weight: 1, role: "memory" },
+    ],
+  }, { seed: 5 });
+  const tips = [...m.points.keys()].filter((i) => m.points[i][0] > 0.5).sort((a, b) => m.points[a][1] - m.points[b][1]).slice(0, 3);
+  assert.ok(!m.edges.some(([i, j]) => tips.includes(i) && tips.includes(j)), "平行臂尖之间被连了线");
+  for (const tip of tips) assert.equal(m.edges.filter(([i, j]) => i === tip || j === tip).length, 1, "每颗臂尖应只连自己那条臂");
 });
 
 // ⑥ 泊松选点:两两距离 ≥ r
@@ -278,29 +292,16 @@ check("⑧ 偏好校验", () => {
   assert.ok(!("pixels" in stored.custom) && !("data" in stored.custom), "偏好里不得出现像素");
 });
 
-// ⑨ 构图:对话态宽屏进沟槽且不与正文列相交、正文列登记为避让区;窄屏退右上角水印(capped);空态进槽;文案右侧空白
+// ⑨ 构图:对话态关闭装饰;空态进槽或文案右侧空白。
 check("⑨ 构图", () => {
-  // 1600@1.25 的对话区(侧栏收起后约 1248 宽),正文列 768 居中(chat 组的新列宽)
   const area = { x: 0, y: 0, w: 1248, h: 760 };
-  const column = { x: 240, y: 0, w: 768, h: 760 };
-  const g = layoutBackdrop({ area, mode: "conversation", column, aspect: 1 });
-  assert.equal(g.placement, "gutter");
-  assert.ok(!rectsIntersect(g.box, column), "沟槽星座压到了正文列");
-  assert.ok(g.avoid.some((r) => r.x <= column.x && r.x + r.w >= column.x + column.w), "正文列没有登记为避让区(星尘会画进正文)");
-  assert.equal(g.capped, false);
-  // 1280@1.5:对话区约 928 宽,沟槽 80 → 连窄沟都放不下 → 右上角水印,压在正文上 → capped
-  const narrow = layoutBackdrop({ area: { x: 0, y: 0, w: 928, h: 560 }, mode: "conversation", column: { x: 80, y: 0, w: 768, h: 560 }, aspect: 1 });
-  assert.equal(narrow.placement, "corner");
-  assert.ok(narrow.alpha <= 0.5 && narrow.capped, "窄屏水印必须低透明度且标记 capped");
-  // 用户日常几何 1333×695@1.5:对话区约 1005 宽,768 列两侧各约 118 → 窄沟小徽记,不压正文、不走水印
-  const daily = { x: 118, y: 0, w: 768, h: 560 };
-  const slim = layoutBackdrop({ area: { x: 0, y: 0, w: 1005, h: 560 }, mode: "conversation", column: daily, aspect: 0.9 });
-  assert.equal(slim.placement, "gutter-narrow", `用户日常宽度应放窄沟,实际 ${slim.placement}`);
-  assert.ok(!slim.capped && !rectsIntersect(slim.box, daily), "窄沟星座压到了正文列");
-  assert.ok(slim.box.w >= 56 && slim.box.x + slim.box.w <= 1005 - 16 + 1e-6, `窄沟框 ${JSON.stringify(slim.box)}`);
-  // OC 伴侣占着右下:沟槽高度止于人物上方
-  const withOc = layoutBackdrop({ area, mode: "conversation", column, reserve: { x: 1060, y: 480, w: 164, h: 246 }, aspect: 1 });
-  assert.ok(withOc.box.y + withOc.box.h <= 480 - 24 + 1e-6, "沟槽星座压到了 OC 伴侣");
+  for (const w of [640, 928, 1005, 1248, 2400]) {
+    const hidden = layoutBackdrop({ area: { ...area, w }, mode: "conversation" });
+    assert.equal(hidden.placement, "hidden", `宽度 ${w} 的消息对话必须关闭装饰`);
+    assert.equal(hidden.alpha, 0);
+    assert.equal(hidden.box.w, 0);
+    assert.equal(hidden.capped, false);
+  }
   // 空态:进 art 槽且在槽内;文案登记为避让区
   const copy = { x: 190, y: 250, w: 400, h: 220 };
   const slot = layoutBackdrop({ area, mode: "welcome", slot: { x: 620, y: 180, w: 440, h: 380 }, copy, aspect: 1.2 });
@@ -391,8 +392,8 @@ const stack = (layers) => layers.reduce(({ cp, a }, [rgb, alpha]) => ({
 }), { cp: [0, 0, 0], a: 0 });
 const onBg = ({ cp, a }, g, bg) => bg.map((c, i) => cp[i] * g + c * (1 - g * a));
 check("⑬ 正文对比度", () => {
-  const watermark = layoutBackdrop({ area: { x: 0, y: 0, w: 928, h: 560 }, mode: "conversation", column: { x: 80, y: 0, w: 768, h: 560 }, aspect: 1 });
-  assert.ok(watermark.capped, "判据前提:窄屏水印应为 capped");
+  const watermark = layoutBackdrop({ area: { x: 0, y: 0, w: 600, h: 560 }, mode: "welcome", copy: { x: 40, y: 60, w: 520, h: 300 }, aspect: 1 });
+  assert.ok(watermark.capped, "判据前提:窄屏欢迎装饰应为 capped");
   const violations = [];
   let directBreaks = 0;
   for (const [theme, tokens] of [["暗色", darkTokens], ["亮色", lightTokens]]) {

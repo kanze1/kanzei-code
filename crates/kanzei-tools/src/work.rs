@@ -1247,7 +1247,24 @@ pub fn resolved_control_prompt(
     project_root: &std::path::Path,
     priority: WorkPriority,
 ) -> String {
-    resolved_control_prompt_of(resolve_work_selection(cwd, project_root, priority))
+    let state = resolve_work_selection(cwd, project_root, priority);
+    let tests = state
+        .as_ref()
+        .ok()
+        .and_then(|state| state.selected.as_ref())
+        .map(|selected| context::recent_test_evidence(project_root, &selected.id))
+        .unwrap_or_default();
+    let mut prompt = resolved_control_prompt_of(state);
+    if !tests.is_empty() {
+        prompt.push_str(&format!(
+            "\n<current-test-evidence>\n{}\n</current-test-evidence>\n\
+             These are recorded outcomes, refreshed automatically with the worktree facts. \
+             Do not copy them into progress after every test. Their applicability still depends \
+             on the source version and test scope; preserve that distinction at acceptance.\n",
+            serde_json::to_string(&tests).unwrap_or_default()
+        ));
+    }
+    prompt
 }
 
 /// 把**已算好**的裁决渲染成注入块。
@@ -1257,22 +1274,16 @@ pub fn resolved_control_prompt(
 /// 任务上下文灌给勘察/复核角色。算两次除了浪费,还会出现主代理与角色看到不同
 /// 条目的可能——尤其复核发生在实现段之后,重算会选到下一条。
 pub fn resolved_control_prompt_of(state: Result<ResolvedControlState, String>) -> String {
+    let guidance = state
+        .as_ref()
+        .ok()
+        .map(context::conditional_guidance)
+        .unwrap_or_default();
     let state = state
         .map(output::structured_control_output)
         .map(|state| serde_json::to_string_pretty(&state).unwrap_or_else(|_| "{}".into()))
         .unwrap_or_else(|error| json!({"decision": "error", "reason": error}).to_string());
-    format!(
-        "\n\n<resolved-control-state>\n{state}\n</resolved-control-state>\n\
-         This block is refreshed before this model step. Recent terminal facts supersede earlier errors. Execute it; do not \
-         re-arbitrate queue priority from tracker prose. Call `work next` to refresh after state changes.\n\
-         decision_locked=true 时该裁决已冻结:没有新的控制面事实(队列变化/阻塞解除/用户指示)就\
-         不要重新讨论做哪个、做不做——直接执行 selected。\n\
-         resume_reconcile 非空时:冻结的是「做哪个」,不是「已经做到哪」。先按该字段复核代码与\
-         提交、确认哪些批次已落地并把真实进度写回条目,再继续实现——否则会把已完成的批次重做一遍。\n\
-         resume_worktree 是引擎已经替你跑过的 git status/diff 结果(已排除 .kanzei 托管文档)。\
-         不要再跑一遍 git status / git diff --stat / git log 去问同一个问题——直接从这份清单\
-         接着干:先读清单里点到的文件,而不是从头重新勘察。清单为空(字段不存在)= 工作树干净。\n"
-    )
+    format!("\n\n<resolved-control-state>\n{state}\n</resolved-control-state>\n{guidance}")
 }
 
 mod context;
@@ -1388,6 +1399,18 @@ mod tests {
             "默认摘要不得携带长历史: {}",
             before.len()
         );
+        crate::test_record::append_test_run(
+            &dir,
+            "fresh automated evidence",
+            "passed",
+            Some("flutter test"),
+            Some("targeted check only"),
+            Some(&["D-001".into()]),
+        )
+        .unwrap();
+        let with_evidence = snapshot.refreshable_system_baseline_with_report().0;
+        assert!(with_evidence.contains("<current-test-evidence>"));
+        assert!(with_evidence.contains("fresh automated evidence"));
         first.status = "fixed".into();
         store.save(&[first, second]).unwrap();
         let after = snapshot.refreshable_system_baseline_with_report().0;
@@ -1402,6 +1425,10 @@ mod tests {
         assert_eq!(state["selected"]["id"], "D-002");
         assert_eq!(state["recent_completed"][0]["id"], "D-001");
         assert!(!after.contains("重复历史"));
+        assert!(
+            !after.contains("fresh automated evidence"),
+            "do not carry evidence to another item"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2770,5 +2797,35 @@ mod tests {
             Some("other-line")
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn conditional_rules_follow_selected_work_and_disappear_after_freeze() {
+        let dir = fixture("conditional-policy");
+        let mut item = entry("R-001", "todo");
+        item.fields.push(("复杂度".into(), "中".into()));
+        DocStore::open(&dir, &REQUIREMENTS).save(&[item]).unwrap();
+        let mut state = resolve_work_selection(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        let guidance = context::conditional_guidance(&state);
+        assert!(guidance.contains("Design freeze"));
+        assert!(!guidance.contains("批次规则"));
+        let selected = state.selected.as_mut().unwrap();
+        selected.fields.push(WorkField {
+            name: "设计冻结".into(),
+            value: "invariants and tests recorded".into(),
+        });
+        selected.fields.push(WorkField {
+            name: "批次".into(),
+            value: "0/3".into(),
+        });
+        let guidance = context::conditional_guidance(&state);
+        assert!(!guidance.contains("Design freeze"));
+        assert!(guidance.contains("批次规则"));
+        state.selected.as_mut().unwrap().kind = "work_unit".into();
+        let guidance = context::conditional_guidance(&state);
+        assert!(guidance.contains("work checkpoint"));
+        assert!(!guidance.contains("批次规则"));
+        state.selected = None;
+        assert!(context::conditional_guidance(&state).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

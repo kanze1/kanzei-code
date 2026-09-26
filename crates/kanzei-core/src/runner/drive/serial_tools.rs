@@ -12,6 +12,8 @@ pub(super) struct SerialToolRequest<'a> {
     pub(super) config: &'a RunnerConfig,
     pub(super) ctx: &'a ToolCtx,
     pub(super) snapshot: &'a HarnessSnapshot,
+    pub(super) specs: &'a mut Vec<ToolSpec>,
+    pub(super) context_report: &'a mut Vec<(String, usize)>,
     pub(super) tools: &'a [Arc<dyn Tool>],
     pub(super) calls: &'a [(String, String, serde_json::Value, String)],
     pub(super) subagent: Option<&'a SubagentRuntime>,
@@ -34,6 +36,8 @@ pub(super) async fn execute_serial_tool_calls(
         config,
         ctx,
         snapshot,
+        specs,
+        context_report,
         tools,
         calls,
         subagent,
@@ -155,7 +159,9 @@ pub(super) async fn execute_serial_tool_calls(
                 return Ok(super::ToolRunOutcome::Stopped);
             }
             Gate::Pass => {
-                if input.is_null() {
+                if name == kanzei_harness::tool_search::TOOL_SEARCH {
+                    run_tool_search(snapshot, &input, specs, context_report)
+                } else if input.is_null() {
                     repair_hint(tool.as_ref(), &raw_input, "tool input was not valid JSON")
                 } else {
                     // 串行路径同样接进度旁路:bash 常因权限询问走到这里,

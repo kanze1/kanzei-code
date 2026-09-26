@@ -1,3 +1,4 @@
+import { openConventions, generateConventions } from "./15-conventions.js";
 import { closeSurface, openDialog, openMenu } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
@@ -148,7 +149,7 @@ export function renderConventions(conv) {
   if (!conv || !conv.exists) {
     const empty = document.createElement("div");
     empty.className = "doc-empty";
-    empty.textContent = t("未创建,点 ＋ 生成模板;agent 会自动遵守此文件");
+    empty.textContent = t("未创建，点 ＋ 让 Agent 根据项目生成；你可以查看和编辑。");
     el.appendChild(empty);
     return;
   }
@@ -157,9 +158,9 @@ export function renderConventions(conv) {
   item.type = "button";
   item.className = "doc-item conv-entry";
   item.setAttribute("aria-label", `${t("打开开发规范")}，${conv.headings.length}${t("个章节")}`);
-  item.textContent = `${conv.headings.length}${t("个章节")} · ${t("点击查看")}`;
+  item.textContent = conv.has_proposal ? t("有新建议稿 · 点击审阅") : `${conv.headings.length}${t("个章节")} · ${t("查看和编辑")}`;
   item.title = conv.headings.slice(0, 12).join("\n");
-  item.addEventListener("click", () => openDocViewer("conventions"));
+  item.addEventListener("click", () => openConventions());
   el.appendChild(item);
 }
 
@@ -200,18 +201,10 @@ defer(() => {
 });
 
 defer(() => {
-  $("conv-init").addEventListener("click", async () => {
-    try {
-      const path = await invoke("conventions_init", { projectDir: currentProject });
-      toast(`${t("规范文件已就绪")}:${path}`);
-      refreshDocs();
-    } catch (err) {
-      toastError(String(err), { retry: () => $("conv-init").click() });
-    }
-  });
+  $("conv-init").addEventListener("click", () => void generateConventions());
 });
 defer(() => {
-  $("conv-open").addEventListener("click", () => openDocViewer("conventions"));
+  $("conv-open").addEventListener("click", () => openConventions());
 });
 
 // ---------- 应用内文档查看器:markdown/代码直接渲染,外部打开是兜底 ----------
@@ -652,11 +645,8 @@ export function renderEarlierHint() {
   activePane.prepend(hint);
 }
 
-// 空态标记 = app 图标的 K 几何(竖干 + 右上三条平行记忆层 + 右下一笔行动),
-// 与 index.html 里那份首屏静态副本同一份形状——改一处必须改两处,别让它们漂移。
-export const EMPTY_STATE_LOGO = '<svg viewBox="0 0 64 64"><g fill="none" stroke="currentColor" stroke-linecap="square">'
-  + '<path d="M14 8v48" stroke-width="7"/><path d="M21 33 44 56" stroke-width="7"/>'
-  + '<path d="M21.5 31.5 43 8M25.5 35 50 8M29.5 38.5 57 8" stroke-width="3"/></g></svg>';
+// 首屏、恢复空态与项目入口共享同一份 SVG 资产。
+export const EMPTY_STATE_LOGO = '<img src="assets/kanzei.svg" width="42" height="42" alt="">';
 export function emptyStateMarkup() {
   return `<div class="empty-state"><div class="empty-welcome"><div class="empty-copy">`
     + `<div class="empty-brand"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div><span>kanzei</span></div>`

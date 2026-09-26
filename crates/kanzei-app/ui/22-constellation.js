@@ -1,8 +1,8 @@
-// UI2-0926 #10 对话背景(星座背景)渲染器:Canvas2D,不用 pixi(pixi 只服务 OC 立绘)。设计见 docs/design/ui_chat_backdrop.md。
+// 欢迎页 / 语音舞台装饰:默认品牌用 SVG,星座预设用 Canvas2D。消息对话不绘制。设计见 docs/design/ui_chat_backdrop.md。
 //
 // 纯表现层:只消费 22-neural-flow.js 转发的真实运行事件与 OC 状态 store 的运行真源(createOcStateStore),
 // 不接管指针、不反向改变任何业务状态。颜色全部取 token(--backdrop-*、--accent、--err),两套主题自动跟随。
-// 正文保护有两道:①构图时把正文列 / 空态文案登记为避让区,绘制时 evenodd 剪掉(正文底下一个像素都不画);
+// 欢迎 / 语音文案保护:①构图时登记避让区,绘制时 evenodd 剪掉;
 // ②只剩右上角水印可放、星座本身压在正文上时,整张星座先画进离屏层,再以 watermarkAlpha 单一不透明度合成
 // (层内再怎么叠也 ≤ 1),正文压在任何像素上仍 ≥ 4.5:1(ui-constellation-smoke ⑬ 复算混色,
 // ui-constellation-browser-smoke 逐像素实测)。
@@ -11,12 +11,13 @@
 // 全程零 shadowBlur。
 import { createOcStateStore } from "./22-oc-companion.js";
 import {
-  activityBusy, bfsOrder, columnFromRects, cometRoute, edgeDepthsFrom, frameDelay, hubTone, imageToConstellation, layerAlpha,
+  activityBusy, bfsOrder, cometRoute, edgeDepthsFrom, frameDelay, hubTone, imageToConstellation, layerAlpha,
   layoutBackdrop, normalizeBackdropPrefs, poissonSelect, resolveBackdropModel, sanitizeModel, seededRandom, shouldHurry,
   watchDelay, watermarkAlpha, watermarkCap,
   GAIN, IMAGE_MAX_SIDE, IMAGE_STAR_COUNT, WAKE_THROTTLE_MS, WATERMARK_LINE_BOOST,
 } from "./22-constellation-core.js";
 import { KANZEI_LOGO_STROKES, STAR_PRESETS } from "./22-constellation-data.js";
+import { createBrandBackdrop } from "./22-brand-backdrop.js";
 
 const DATA = { KANZEI_LOGO_STROKES, STAR_PRESETS };
 const STILL_T = 2400; // 静帧(减少动态 / 预览截图)固定的时刻,保证可复现
@@ -86,8 +87,8 @@ export function getThemeKit() {
   const palette = {
     star: color("--backdrop-star", "#ececec"),
     line: color("--backdrop-line", "#9a9a9a"),
-    pulse: color("--accent", "#d25e28"),
-    error: color("--err", "#ff7b72"),
+    pulse: color("--accent", "#ff8700"),
+    error: color("--err", "#ffad66"),
     chatBg: color("--chat-bg", "#181818"),
     texts: TEXT_TOKENS.map((name) => color(name, "#e5e5e5")),
     starAlpha: number("--backdrop-star-alpha", 0.62),
@@ -411,6 +412,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
   }
 
   const painter = new Painter();
+  const brand = createBrandBackdrop(canvas);
   let started = !waitForPrefs;
   let key = "";
   let layout = null;
@@ -500,15 +502,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
       const slot = rel(empty.querySelector(".empty-art"));
       return { area, mode: "welcome", slot, ocInSlot: ocOn && Boolean(slot), copy: rel(empty.querySelector(".empty-copy")) };
     }
-    // 长对话里 pane 可能有上千个子元素:从末尾往回走 16 个,不整列展开。
-    const recent = [];
-    for (let el = pane?.lastElementChild; el && recent.length < 16; el = el.previousElementSibling) recent.push(rel(el));
-    return {
-      area,
-      mode: "conversation",
-      column: columnFromRects(recent, area) ?? rel(pane),
-      reserve: ocOn ? rel(document.querySelector("#oc-companion .oc-figure")) : null,
-    };
+    return { area, mode: "conversation" };
   }
 
   function relayout() {
@@ -518,7 +512,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
     if (!base.width || !base.height) return { changed: false, resized };
     const next = layoutBackdrop({ ...measure(base), aspect: painter.model.aspect || 1 });
     if (sameLayout(next, tween?.to ?? layout)) return { changed: false, resized };
-    if (!layout || still()) {
+    if (!layout || still() || next.placement === "hidden" || layout.placement === "hidden") {
       layout = next;
       tween = null;
     } else {
@@ -640,13 +634,14 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
     const w = size.w, h = size.h;
     ctx.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
+    brand.hide();
     if (!started || !current.enabled || !painter.model) return;
     const activity = activityNow();
     lastActivity = activity;
     const isStill = still();
     if (!isStill) advance(now, activity);
     const shown = isStill ? layout : currentLayout(now);
-    if (!shown) return;
+    if (!shown || shown.placement === "hidden") return;
     painter.kit = getThemeKit();
     painter.prefs = current;
     painter.layout = shown;
@@ -664,6 +659,10 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
       voiceGain: voice.gain,
       hubTone: hubTone(activity, { still: isStill && !preview() }),
     };
+    if (current.preset === "kanzei") {
+      brand.paint({ layout: shown, size, frame, prefs: current, kit: painter.kit, model: painter.model });
+      return;
+    }
     if (shown.capped) paintWatermark(frame);
     else {
       if (layer) layer.width = layer.height = 0;
@@ -686,7 +685,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
 
   function schedule() {
     if (destroyed) return;
-    const delay = frameDelay({ hidden: document.hidden, viewActive: viewActive(), enabled: current.enabled && started, reduced: still(), busy: isBusy(clock()) });
+    const delay = frameDelay({ hidden: document.hidden, viewActive: viewActive(), enabled: current.enabled && started && layout?.placement !== "hidden", reduced: still(), busy: isBusy(clock()) });
     if (delay === null) {
       cancelFrame();
       return;
@@ -728,7 +727,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
     watchTimer = setTimeout(() => {
       watchTimer = 0;
       const { changed, resized } = relayout();
-      if (resized || (changed && still())) draw(clock());
+      if (resized || (changed && (still() || layout?.placement === "hidden"))) draw(clock());
       if (!still()) hurry();
       scheduleWatch();
     }, preview() ? Math.min(delay, 120) : delay);
@@ -747,6 +746,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
   function refresh() {
     if (destroyed || !started) return;
     if (!active()) {
+      brand.hide();
       cancelFrame();
       scheduleWatch();
       if (!current.enabled) {
@@ -755,8 +755,9 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
       }
       return;
     }
-    const { resized } = relayout();
+    const { changed, resized } = relayout();
     scheduleWatch();
+    if (changed && layout?.placement === "hidden") draw(clock());
     // 画布换了尺寸就已被清空:同步补画一帧(拖动改窗口尺寸 / 分隔条时 ResizeObserver 每帧都来,不能留空窗)。
     if (still() || resized) draw(clock());
     if (!still()) hurry();
@@ -785,9 +786,14 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
       if (type === "tool_started") spawned = spawn(String(detail.tool_name ?? "").toLowerCase() === "memory_search" ? "recall" : "action");
       else if (["memory_search_started", "memory_recall_retrieved", "memory_recall_injected", "research_source_retrieved"].includes(type)) spawned = spawn("recall");
       if ((type === "tool_completed" && detail.ok === false) || ["run_failed", "memory_consolidation_failed", "memory_search_failed", "memory_cleanup_failed"].includes(type)) {
+        comets = [];
+        waves = [];
+        litUntil.clear();
+        redraw = null;
         ripples.push({ start: now });
         spawned = true;
       } else if (["run_completed", "context_compacted", "memory_consolidation_completed", "memory_candidate_promoted"].includes(type)) {
+        if (type === "run_completed") comets = [];
         waves.push({ start: now });
         spawned = true;
       }
@@ -833,6 +839,16 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
   themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(onChange) : null;
   resizeObserver?.observe(canvas);
+  // 只在空态与消息态切换时重排;流式正文更新不触发布局测量。
+  let wasWelcome = Boolean(document.querySelector('#messages .msg-pane[data-active="1"] .empty-state'));
+  const messageObserver = typeof MutationObserver === "function" ? new MutationObserver(() => {
+    const welcome = Boolean(document.querySelector('#messages .msg-pane[data-active="1"] .empty-state'));
+    if (welcome === wasWelcome) return;
+    wasWelcome = welcome;
+    refresh();
+  }) : null;
+  const messages = document.getElementById("messages");
+  if (messages) messageObserver?.observe(messages, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-active"] });
   refresh();
 
   return {
@@ -846,6 +862,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
       started,
       enabled: current.enabled,
       preset: current.preset,
+      renderer: current.preset === "kanzei" ? "svg" : "canvas",
       activity: activityNow(),
       busy: isBusy(clock()),
       placement: layout?.placement ?? null,
@@ -859,6 +876,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
     }),
     destroy() {
       destroyed = true;
+      brand.destroy();
       cancelFrame();
       if (watchTimer) clearTimeout(watchTimer);
       watchTimer = 0;
@@ -869,6 +887,7 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
       reducedQuery?.removeEventListener?.("change", onChange);
       themeObserver?.disconnect();
       resizeObserver?.disconnect();
+      messageObserver?.disconnect();
     },
   };
 }

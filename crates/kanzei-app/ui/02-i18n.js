@@ -11,6 +11,26 @@ import { refreshConversationList } from "./15-views-misc.js";
 import { markLanguagePreferenceDirty, renderProviders } from "./16-settings.js";
 
 export const I18N_EN = {
+  "项目约束与规范": "Project constraints and conventions",
+  "关闭项目规范": "Close project conventions",
+  "保存并生效": "Save and apply",
+  "对照建议稿": "Compare proposal",
+  "放弃建议稿": "Discard proposal",
+  "让 Agent 生成建议": "Ask Agent for a proposal",
+  "当前生效的规范": "Active project conventions",
+  "编辑项目规范": "Edit project conventions",
+  "根据项目生成规范": "Generate conventions from project",
+  "已有建议稿，请先在规范页审阅、保存或放弃。": "A proposal is pending. Review, save, or discard it in Conventions first.",
+  "建议生成后规范已修改。请对照当前规则合并；保存会保留本次打开后的并发修改保护。": "The rules changed after this proposal. Merge with the current rules before saving. Concurrent edits remain protected.",
+  "项目规范已保存": "Project conventions saved",
+  "正在编辑建议稿。请保留你要沿用的现有规则；保存后才生效。": "Editing a proposal. Keep the existing rules you want to retain. Changes take effect after saving.",
+  "当前生效规则。保存后 Agent 在下一步读取。": "Active rules. The Agent reads saved changes on its next step.",
+  "尚未生成规则。可手动填写，或让 Agent 根据项目生成。": "No conventions yet. Write them yourself or ask the Agent to draft them from the project.",
+  "尚无项目规范。": "No project conventions yet.",
+  "未创建，点 ＋ 让 Agent 根据项目生成；你可以查看和编辑。": "Not created. Click + to have the Agent draft project conventions you can review and edit.",
+  "有新建议稿 · 点击审阅": "New proposal available · Review",
+  "查看和编辑": "View and edit",
+
   "查看、整理和修订记忆，也可以直接用对话管理。": "Read, organize, and refine memories, or manage them through chat.",
   "编辑标题与召回条件": "Edit title and recall conditions",
   "直接说明你想怎么改": "Tell me what you want to change",

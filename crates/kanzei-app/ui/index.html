@@ -68,7 +68,7 @@
       <div id="workspace-bar" class="workspace-bar">
         <button type="button" id="project-switch" data-space-only="dev" class="project-switch" aria-haspopup="menu" aria-expanded="false" title="切换项目" data-i18n-title="切换项目">
           <span class="project-switch-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M5 3.5v17M5 12.6 15.4 3.5M9.4 12.6 19 20.5M9.6 9.9 17.2 3.5M11.6 8.1 19 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"/></svg>
+            <img src="assets/kanzei.svg" width="32" height="32" alt="">
           </span>
           <span class="project-switch-text">
             <span id="project-switch-name" class="project-switch-name">—</span>
@@ -165,7 +165,7 @@
         <div class="section-title">
           <span data-i18n-key="开发规范">开发规范</span>
           <span>
-            <button id="conv-init" class="icon-btn" title="创建规范模板" data-i18n-title="创建规范模板" aria-label="创建规范模板">＋</button>
+            <button id="conv-init" class="icon-btn" title="根据项目生成规范" data-i18n-title="根据项目生成规范" aria-label="根据项目生成规范">＋</button>
             <button id="conv-open" class="icon-btn" title="打开 conventions.md(agent 会遵守此文件)" data-i18n-title="打开 conventions.md(agent 会遵守此文件)" aria-label="打开 conventions.md">↗</button>
           </span>
         </div>
@@ -198,11 +198,7 @@
                   <div class="empty-copy">
                     <div class="empty-brand">
                       <div class="logo-mark" aria-hidden="true">
-                        <svg viewBox="0 0 64 64"><g fill="none" stroke="currentColor" stroke-linecap="square">
-                          <path d="M14 8v48" stroke-width="7"/>
-                          <path d="M21 33 44 56" stroke-width="7"/>
-                          <path d="M21.5 31.5 43 8M25.5 35 50 8M29.5 38.5 57 8" stroke-width="3"/>
-                        </g></svg>
+                        <img src="assets/kanzei.svg" width="42" height="42" alt="">
                       </div>
                       <span>kanzei</span>
                     </div>
@@ -1439,6 +1435,26 @@
     </div>
   </div>
   <button id="ask-reopen" class="k-surface k-chip-float ask-reopen hidden" popover="manual" type="button" title="重新打开询问" data-i18n-title="重新打开询问" aria-label="重新打开询问" data-i18n-aria-label="重新打开询问" data-i18n-key="重新打开询问">重新打开询问</button>
+
+  <dialog id="conventions-dialog" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="conventions-title">
+    <div class="viewer-head">
+      <span id="conventions-title" data-i18n-key="项目约束与规范">项目约束与规范</span>
+      <button id="conventions-close" class="icon-btn" aria-label="关闭项目规范" data-i18n-aria-label="关闭项目规范">✕</button>
+    </div>
+    <div class="conventions-body">
+      <p id="conventions-notice" class="dim"></p>
+      <div class="conventions-actions">
+        <button id="conventions-edit" class="ghost mini" data-i18n-key="编辑">编辑</button>
+        <button id="conventions-save" class="ghost mini hidden" data-i18n-key="保存并生效">保存并生效</button>
+        <button id="conventions-proposal" class="ghost mini hidden" data-i18n-key="对照建议稿">对照建议稿</button>
+        <button id="conventions-discard" class="ghost mini hidden" data-i18n-key="放弃建议稿">放弃建议稿</button>
+        <button id="conventions-generate" class="ghost mini" data-i18n-key="让 Agent 生成建议">让 Agent 生成建议</button>
+      </div>
+      <div id="conventions-current" class="md conventions-current hidden" aria-label="当前生效的规范" data-i18n-aria-label="当前生效的规范"></div>
+      <div id="conventions-preview" class="md"></div>
+      <textarea id="conventions-editor" class="conventions-editor hidden" aria-label="编辑项目规范" data-i18n-aria-label="编辑项目规范" spellcheck="false"></textarea>
+    </div>
+  </dialog>
 
   <dialog id="viewer-overlay" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="viewer-title" data-kz-frame="viewer" data-kz-frame-move=".viewer-head" data-kz-frame-edges="all" data-kz-frame-min="420 240">
     <div id="viewer-dialog">

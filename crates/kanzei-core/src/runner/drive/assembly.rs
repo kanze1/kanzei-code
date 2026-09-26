@@ -73,13 +73,10 @@ pub(super) fn assemble_run_once<'a>(
     subagent: Option<&SubagentRuntime>,
 ) -> RunOnceAssembly<'a> {
     let tools: Vec<Arc<dyn Tool>> = snapshot.materialize_tools();
-    let mut specs: Vec<ToolSpec> = tools
+    let mut specs: Vec<ToolSpec> = snapshot
+        .resident_tools()
         .iter()
-        .map(|t| ToolSpec {
-            name: t.name().to_string(),
-            description: t.description(),
-            input_schema: t.input_schema(),
-        })
+        .map(|tool| super::tool_spec(tool.as_ref()))
         .collect();
     append_subagent_spec(&mut specs, subagent.is_some(), subagent);
 
@@ -88,12 +85,15 @@ pub(super) fn assemble_run_once<'a>(
     let (refreshable_baseline, refreshable_report) =
         snapshot.refreshable_system_baseline_with_report();
     context_report.extend(refreshable_report);
+    let deferred_catalog = snapshot.deferred_catalog();
+    if let Some(catalog) = deferred_catalog.as_ref() {
+        context_report.push(("tools/catalog".into(), catalog.chars().count()));
+    }
     if !agent.system.trim().is_empty() {
         context_report.insert(0, ("agent/system".into(), agent.system.chars().count()));
     }
-    // 工具 schema 是每轮上下文里最大的一块之一(桌面 dev 档 26 个工具的完整 JSON
-    // Schema),estimate_prompt_tokens 也把它算进 prompt。账单要回答"本轮上下文里
-    // 有什么、各占多少",漏掉它等于漏掉最大的那一项(R-106)。
+    // 初始 tools/schema 只统计 resident 与 task;deferred catalog 单列 tools/catalog,
+    // 后续动态加载的 schema 各自记入 tools/loaded:<name>。预算估算始终使用当前 specs。
     let spec_chars: usize = specs.iter().map(ToolSpec::char_len).sum();
     if spec_chars > 0 {
         context_report.push(("tools/schema".into(), spec_chars));
@@ -119,6 +119,9 @@ pub(super) fn assemble_run_once<'a>(
         .into_iter()
         .filter(|s| !s.trim().is_empty())
         .collect();
+    if let Some(catalog) = deferred_catalog {
+        stable_system.push(catalog);
+    }
     if let Some(hints) = memory_hints {
         if !hints.trim().is_empty() {
             stable_system.push(hints.to_string());
@@ -160,8 +163,8 @@ pub(super) fn assemble_run_once<'a>(
     let last_estimated_tokens: Option<u64> = None;
     // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。
     let final_text = String::new();
-    // 存量 agent 可能仍带 steps=0；运行边界统一转换，不能让旧配置绕过有限上限。
-    let max_steps = kanzei_harness::effective_agent_steps(agent.steps);
+    // 主执行流保留连续工作能力；task 子代理在其运行边界获得默认有限预算。
+    let max_steps = kanzei_harness::effective_agent_steps(agent.steps, agent.mode);
     // 本次运行内已放行的 (action, resource):同一资源不重复问(用户反馈:别烦我)。
     let session_approved: std::collections::HashSet<(String, String)> =
         std::collections::HashSet::new();

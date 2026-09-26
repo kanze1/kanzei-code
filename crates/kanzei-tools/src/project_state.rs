@@ -22,6 +22,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+mod toolchains;
+
 /// 渲染上限(字符)。
 pub const RENDER_BUDGET: usize = 600;
 const CACHE_TTL: Duration = Duration::from_secs(30);
@@ -99,8 +101,20 @@ pub struct PlannedStack {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Toolchain {
     pub name: String,
-    /// 找到的可执行文件路径;None = PATH(含注册表里新加的目录)上没有。
+    /// 文件定位结果，不等于已执行版本验证；None 不代表未安装。
     pub found: Option<String>,
+    pub source: Discovery,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Discovery {
+    Path,
+    Project,
+    SdkEnvironment,
+    SdkSibling,
+    UserInstall,
+    NotFound,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -174,11 +188,23 @@ pub fn git_state_of(root: &Path) -> GitState {
 
 /// 不带缓存的探测。
 pub fn probe(root: &Path) -> ProjectFacts {
-    probe_with_path(root, &crate::shell::fresh_path())
+    probe_with_locations(
+        root,
+        &crate::shell::fresh_path(),
+        &toolchains::Locations::from_environment(),
+    )
 }
 
 /// 探测,工具链按给定 PATH 查找(测试用伪 PATH)。
 pub fn probe_with_path(root: &Path, path: &std::ffi::OsStr) -> ProjectFacts {
+    probe_with_locations(root, path, &toolchains::Locations::default())
+}
+
+fn probe_with_locations(
+    root: &Path,
+    path: &std::ffi::OsStr,
+    locations: &toolchains::Locations,
+) -> ProjectFacts {
     let root = crate::path_form::simplify(root);
     let files = count_content_files(&root);
     let stacks = detect_stacks(&root);
@@ -209,10 +235,7 @@ pub fn probe_with_path(root: &Path, path: &std::ffi::OsStr) -> ProjectFacts {
     }
     let toolchains: Vec<Toolchain> = wanted
         .iter()
-        .map(|name| Toolchain {
-            name: (*name).to_string(),
-            found: crate::shell::find_executable(name, path).map(|p| p.display().to_string()),
-        })
+        .map(|name| toolchains::discover(&root, name, path, locations))
         .collect();
     let installers = if toolchains.iter().any(|tool| tool.found.is_none()) {
         ["winget", "choco", "scoop"]
@@ -544,25 +567,6 @@ fn toolchains_for(stack: &str, root: &Path) -> &'static [&'static str] {
     }
 }
 
-/// 用户级(不需要管理员)的安装提示。flutter 没有官方 winget 包。
-fn install_hint(tool: &str) -> Option<&'static str> {
-    Some(match tool {
-        "flutter" | "dart" => {
-            "flutter: 官方 zip 解压到 %LOCALAPPDATA%\\flutter 并把 bin 加进用户 PATH(或 git clone -b stable https://github.com/flutter/flutter.git)"
-        }
-        "node" | "npm" | "pnpm" | "yarn" => {
-            "node: winget install -e --id OpenJS.NodeJS.LTS,或官方 zip 解压到 %LOCALAPPDATA% 加进用户 PATH"
-        }
-        "cargo" | "rustc" => "rust: winget install -e --id Rustlang.Rustup(按用户安装)",
-        "python" | "python3" => "python: winget install -e --id Python.Python.3.12 --scope user",
-        "go" => "go: 官方 zip 解压到 %LOCALAPPDATA%\\go 并加进用户 PATH",
-        "java" => "java: winget install -e --id Microsoft.OpenJDK.21",
-        "dotnet" => "dotnet: dotnet-install.ps1 -InstallDir %LOCALAPPDATA%\\dotnet(不需要管理员)",
-        "git" => "git: winget install -e --id Git.Git",
-        _ => return None,
-    })
-}
-
 // ---------- Git 初始化(新建项目、横幅「初始化 Git」、git 工具 action=init 共用) ----------
 
 /// `.kanzei/.gitignore` 的内容:运行时文件(可重建的派生物、本机现场)不进版本库;
@@ -720,47 +724,19 @@ pub fn render(facts: &ProjectFacts) -> String {
     let tools: Vec<String> = facts
         .toolchains
         .iter()
-        .map(|tool| {
-            format!(
-                "{} {}",
-                tool.name,
-                if tool.found.is_some() { "✓" } else { "✗" }
-            )
+        .map(|tool| match (&tool.found, tool.source) {
+            (Some(_), Discovery::Path) => format!("{}: PATH 已定位", tool.name),
+            (Some(path), _) => format!("{}: {path}", tool.name),
+            (None, _) => format!("{}: 未定位", tool.name),
         })
         .collect();
-    let missing = facts.missing();
-    if missing.is_empty() {
-        lines.push(format!("toolchains: {}", tools.join(" · ")));
-    } else {
-        lines.push(format!(
-            "toolchains: {} ——缺失的工具链按开发提示处理(question 问一次;授权后可做用户级安装)",
-            tools.join(" · ")
-        ));
-    }
+    lines.push(format!(
+        "toolchains: {} (仅定位文件，未验证版本)",
+        tools.join(" · ")
+    ));
     let mut out = format!("<project-state>\n{}\n", lines.join("\n"));
-    if !missing.is_empty() {
-        let mut hints: Vec<&str> = Vec::new();
-        for tool in &missing {
-            if let Some(hint) = install_hint(tool) {
-                if !hints.contains(&hint) {
-                    hints.push(hint);
-                }
-            }
-        }
-        if !facts.installers.is_empty() {
-            let line = format!("installers: {}\n", facts.installers.join(", "));
-            if out.chars().count() + line.chars().count() + 20 <= RENDER_BUDGET {
-                out.push_str(&line);
-            }
-        }
-        for hint in hints {
-            let line = format!("install {hint}\n");
-            if out.chars().count() + line.chars().count() + "</project-state>".len() > RENDER_BUDGET
-            {
-                break;
-            }
-            out.push_str(&line);
-        }
+    if !facts.missing().is_empty() {
+        out.push_str("未定位不等于未安装：先核查项目配置、已有 SDK 路径并运行 --version；确认缺失后再决定安装。\n");
     }
     out.push_str("</project-state>");
     if out.chars().count() > RENDER_BUDGET {
@@ -776,7 +752,7 @@ pub fn render(facts: &ProjectFacts) -> String {
 mod tests {
     use super::*;
 
-    fn temp_root(tag: &str) -> PathBuf {
+    pub(super) fn temp_root(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "kz-project-state-{tag}-{}-{}",
             std::process::id(),
@@ -881,8 +857,8 @@ mod tests {
         );
         let text = render(&facts);
         assert!(text.contains("flutter(R-001)"), "{text}");
-        assert!(text.contains("flutter ✗"), "{text}");
-        assert!(text.contains("install flutter"), "{text}");
+        assert!(text.contains("flutter: 未定位"), "{text}");
+        assert!(text.contains("未定位不等于未安装"), "{text}");
         assert!(
             text.chars().count() <= RENDER_BUDGET,
             "{}",
@@ -930,6 +906,7 @@ mod tests {
             toolchains: vec![Toolchain {
                 name: "node".into(),
                 found: None,
+                source: Discovery::NotFound,
             }],
             installers: vec!["winget".into()],
         };

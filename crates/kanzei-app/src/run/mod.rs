@@ -455,6 +455,12 @@ mod assembly_tests {
     #[test]
     fn 桌面工具schema字符账单增量() {
         let root = PathBuf::from("C:/kanzei-r364-b1-desktop-schema-bill");
+        let collaboration_probe = crate::collaboration::CollaborationProbe::new(
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            root.clone(),
+            "r364-budget-probe".into(),
+        );
         let ctx = ResolveCtx {
             profile: ProfileKind::Dev,
             cwd: root.clone(),
@@ -467,8 +473,24 @@ mod assembly_tests {
             .add(DevProfile)
             .add(ResearchProfile)
             .add(crate::harness_ext::FrontendToolsComponent)
+            .add(crate::collaboration::CollaborationComponent {
+                probe: collaboration_probe,
+            })
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
+        let resident_names: Vec<&str> = snapshot
+            .resident_tools()
+            .iter()
+            .map(|tool| tool.name())
+            .collect();
+        assert!(resident_names.contains(&"tool_search"));
+        assert!(resident_names.contains(&"collaboration_status"));
+        assert_eq!(
+            resident_names.len() + 1,
+            21,
+            "桌面 resident 另含 core task_spec"
+        );
+        assert_eq!(snapshot.deferred_tools().len(), 19);
         let all_specs: Vec<kanzei_llm::ToolSpec> = snapshot
             .materialize_tools()
             .iter()

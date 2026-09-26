@@ -1,4 +1,4 @@
-//! test_record 工具:测试记录 `.kanzei/project/tests.md` 的专用写通道。
+//! 测试记录的共享写通道：test_record 手工登记与 bash(test) 自动执行均走同一账本。
 //!
 //! R-080 的根因是「权限严了却没有配套工具」的另一个实例:`.kanzei/project/*`
 //! 对 write/edit 硬 deny、shell 对托管目录回滚,而测试记录没有任何专用写入
@@ -21,6 +21,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 mod coverage;
+pub(crate) mod execution;
 pub(crate) use coverage::available_frontend_smokes;
 use coverage::check_frontend_smoke_claim;
 pub use coverage::{
@@ -185,8 +186,9 @@ impl Tool for TestRecordTool {
 
     fn description(&self) -> String {
         format!(
-            "Record a test run into `{TEST_RUNS_REL}` (the ONLY write channel for it — \
-             write/edit are denied there). Call it after running tests: title (what was run), \
+            "Record a test run into the managed ledger `{TEST_RUNS_REL}` \
+             (raw write/edit are denied there). Prefer bash with its test object to execute and record \
+             in one call; use this tool only for tests executed outside that path. title (what was run), \
              status (running/passed/failed/skipped), optional command and summary. Terminal \
              statuses (passed/failed/skipped) are auto-archived into `{TEST_RUNS_ARCHIVE_REL}` \
              on snapshot; the sidebar lists active + archived runs."

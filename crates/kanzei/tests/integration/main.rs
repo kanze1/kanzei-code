@@ -11,6 +11,7 @@
 //! 走 `Command::env(...)`(见 `common::TestHome`)。若将来有测试需要改本进程环境，
 //! 它必须重新拆成独立 target，否则同进程并行会互相污染。
 
+mod agent_step_budget;
 mod common;
 
 mod always_allow_bash;

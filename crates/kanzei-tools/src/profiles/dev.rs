@@ -4,6 +4,22 @@
 
 use super::*;
 
+/// B1 定稿:CLI Dev 延迟层名单,只在 DevProfile 已注册全部工具后加入草稿。
+pub const DEV_DEFERRED_TOOLS: &[&str] = &[
+    "process",
+    "files",
+    "incident",
+    "conventions",
+    "architecture",
+    "prior_art",
+    "browser",
+    "latex",
+    "plot",
+    "idea",
+    "decision",
+    "memory_stats",
+];
+
 pub struct DevProfile;
 
 impl Component for DevProfile {
@@ -11,6 +27,14 @@ impl Component for DevProfile {
         if ctx.profile != ProfileKind::Dev {
             return Ok(());
         }
+        draft.tools.insert(
+            kanzei_harness::TOOL_SEARCH,
+            Arc::new(kanzei_harness::ToolSearchTool),
+        );
+        draft
+            .permissions
+            .push(rule(kanzei_harness::TOOL_SEARCH, "*", Effect::Allow));
+
         draft.tools.insert(
             "idea",
             Arc::new(TrackerTool {
@@ -147,7 +171,7 @@ impl Component for DevProfile {
                 (
                     "*.kanzei/project/conventions*",
                     Some("conventions"),
-                    "开发规范:patch 逐字替换,唯一命中才写",
+                    "开发规范:create 新建、propose 草案、patch 定点维护",
                 ),
                 (
                     "*.kanzei/memory/*",
@@ -185,10 +209,7 @@ impl Component for DevProfile {
                 for idea in inbox.iter().take(20) {
                     out.push_str(&format!("- {} {}\n", idea.id, idea.title));
                 }
-                out.push_str(
-                    "想法不是待办:取活引擎不取想法,agent 也不自动拆解——拆解由用户点「拆解」\
-                     触发 idea_split 子代理,产出 R-/D- 条目后想法转 split。\n</ideas>",
-                );
+                out.push_str("未拆分的想法是背景，不作为可执行任务。\n</ideas>");
                 Some(out)
             }),
         );
@@ -209,11 +230,15 @@ impl Component for DevProfile {
         // 悄悄替用户决定哪几条不算数。
         draft.context.insert(
             "dev/conventions",
-            source("dev/conventions", |ctx: &ResolveCtx| {
+            refreshing_source("dev/conventions", |ctx: &ResolveCtx| {
                 // R-191:通用规则单源进引擎,所有项目默认注入;项目文件只追加项目特有规则。
                 // 通用部分永远在(无项目文件的项目也拿到完整约束),项目文件在其后拼接。
                 let mut text = String::from(kanzei_harness::DEFAULT_CONVENTIONS);
-                if ctx.project_root.join("Cargo.toml").is_file() {
+                if ctx
+                    .project_root
+                    .join("crates/kanzei-app/Cargo.toml")
+                    .is_file()
+                {
                     text.push_str(
                         "
 
@@ -222,12 +247,18 @@ impl Component for DevProfile {
                     text.push_str(kanzei_harness::CARGO_CONVENTIONS);
                 }
                 let path = ctx.project_root.join(".kanzei/project/conventions.md");
-                if let Ok(project_rules) = std::fs::read_to_string(&path) {
-                    let project_rules = project_rules.trim();
-                    if !project_rules.is_empty() {
-                        text.push_str("\n\n<!-- 以下为本项目特有规则(自动追加) -->\n\n");
-                        text.push_str(project_rules);
+                match std::fs::read_to_string(&path) {
+                    Ok(project_rules) => {
+                        text.push_str("\n\n<project-rules exists=\"true\">\n");
+                        text.push_str(project_rules.trim());
+                        text.push_str("\n</project-rules>");
                     }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        text.push_str("\n<project-rules exists=\"false\" />");
+                    }
+                    Err(error) => text.push_str(&format!(
+                        "\n项目规范读取失败：{error}；先解决读取问题，不重建覆盖。"
+                    )),
                 }
                 Some(format!("<conventions>\n{}\n</conventions>", text.trim()))
             }),
@@ -363,19 +394,11 @@ impl Component for DevProfile {
         );
 
         draft.context.insert(
-            "dev/project-docs",
-            source("dev/project-docs", |_ctx: &ResolveCtx| {
-                Some(
-                    "<project-docs>\nThe engine injects one structured resolved-control-state; \
-                     full requirement/defect queues are deliberately not resident context. \
-                     Execute its Resume/Start decision. Call `work next` after tracker changes; \
-                     use `req get` / `defect get` only for a specific id. `work claim` is the \
-                     normal way to open a WIP slot; direct tracker document writes are denied. \
-                     For selected.kind=work_unit, checkpoint before yielding, then use verify → \
-                     evidence per acceptance → complete; do not append execution history to the parent Requirement.\n\
-                     </project-docs>"
-                        .into(),
-                )
+            "dev/verification-policy",
+            source("dev/verification-policy", |ctx: &ResolveCtx| {
+                Some(super::policy::effective_verification_policy(
+                    &ctx.config.cadence,
+                ))
             }),
         );
 
@@ -388,145 +411,7 @@ impl Component for DevProfile {
                 mode: AgentMode::Primary,
                 // 0 = 无轮数上限(用户定调)。
                 steps: 0,
-                system: "You are the dev agent. Workflow contract: before starting work set the \
-                         requirement to doing (`req update`); when you find a bug record it \
-                         (`defect add`) before fixing; the moment acceptance is met, mark it \
-                         done (`req update <id> done`) — an unmarked finished requirement is a \
-                         bug in your process. Before closing a requirement or defect, compare \
-                         every acceptance item and cite its exact implementation location. A \
-                         claimed capability must have a real caller or consumer; dead commands \
-                         and display-only shells do not count. Mark reused behavior explicitly as \
-                         existing capability rather than this delivery, and never narrow platform \
-                         or scope qualifiers from the original acceptance text. If any item lacks \
-                         evidence, keep it active and record the gap. When a single user \
-                         message contains multiple requests, itemize them explicitly at the \
-                         start of the turn and account for each one at the end (done / not \
-                         done / why) — an unfulfilled request must never be summarized as \
-                         done (D-279). When asked whether something was missed, re-read the \
-                         original message and check it item by item; never substitute an \
-                         adjacent action for the requested one. For assessment, review or \
-                         retrospective requests, read representative code samples and consult \
-                         the memory index for a matching SOP before concluding — line counts, \
-                         test counts and tracker history alone are not depth evidence. \
-                         Execute only the selected item. Other unfinished items are queued by the \
-                         engine; completion or a real blocker selects the next item automatically. \
-                         Never write parking fields or dependencies just to reduce WIP count. \
-                         Preserve explicit user parking and real external blockers with their \
-                         original release conditions. Recent terminal facts override old errors; \
-                         do not repeat a completed close or rerun already applicable evidence. \
-                         Batch protocol: YOU decide how many batches an item takes, from its \
-                         actual work, with a hard ceiling of 10 — the 复杂度 field does NOT \
-                         dictate the count. Most items are one batch and need no declaration. \
-                         When an item genuinely needs splitting, your FIRST landing action is \
-                         to write the batch table into the entry as `批次: 0/N` (N chosen by \
-                         you, N <= 10). After each finished batch update it to `批次: k/N` — \
-                         the sidebar cells are the only place your progress is visible from \
-                         outside, and an unfilled cell reads as no progress. At every batch end \
-                         also write the recoverable state into the entry's 进展 field — what landed \
-                         (files), key findings and decisions, and the next concrete step: a fresh \
-                         session must be able to resume from the entry alone, and findings living \
-                         only in the conversation are lost work. Every batch commit's subject must \
-                         carry the marker `<ID> B<k>` (for example `R-161 B3`): the engine derives \
-                         real progress from commit subjects, so an unmarked commit does not count \
-                         toward it. At close time the batches must be full — if you over-estimated, \
-                         set the total to the real number (`批次: 5/5`) instead of leaving empty cells; \
-                         if work remains, finish it. If ten batches are not enough, the item is too \
-                         big: close what is genuinely done and open a follow-up item for the rest. \
-                         Registration contract (R-191, enforced by the engine): a NEW requirement \
-                         (`req add`) MUST carry 复杂度 (小|中|大), priority (P0|P1|P2|P3) and 标签 \
-                         from the controlled vocabulary (核心|后端|前端|模型|发布|流程); a NEW defect \
-                         (`defect add`) MUST carry severity (high|medium|low), priority and 标签. \
-                         The tool rejects the call otherwise and tells you what to fill — never \
-                         retry with an empty field. State the 来源 of every new item (user message / \
-                         feedback / self-found) so it stays traceable. If the item genuinely needs \
-                         batching, write `批次: 0/N` in the same call. Pick work only through the \
-                         engine: call `work next` and execute its authoritative \
-                         Resume/Start/Blocked/WipViolation result — never re-derive queue order or \
-                          WIP precedence from tracker prose. Use `work claim` to open the selected item; \
-                          an override requires an explicit reason and cannot bypass an existing Resume \
-                          decision. A selected work_unit is the whole execution context: use `work checkpoint` \
-                          before pausing, enter `work verify`, add evidence for each exact acceptance criterion, \
-                          then `work complete`; keep the parent Requirement as Outcome instead of copying progress \
-                          history back into it. While an item is in progress do NOT re-scan the full queues \
-                         (`req list` / `defect list`); register mid-work discoveries (`defect add` \
-                         with a ref) and return to the active item. Non-semantic metadata artifacts \
-                         (stray lines, formatting residue) must not interrupt active implementation \
-                         — register them and move on, unless they break tool parsing or the entry's \
-                         own update. If NOTHING is workable (everything blocked or waiting on something \
-                         external): no busywork tool calls — no 'still blocked' journal entries, no empty \
-                         commits — end the round with a short plain-text status; the engine stops the \
-                         auto-continue loop when the whole backlog is blocked, otherwise it sends ONE \
-                         targeted nudge asking you to re-check the blockers and stops if the next round is \
-                         idle too. Asking the user (decision, credentials, permission): ask ONCE with the \
-                         `question` tool, never as a prose question at the end of a reply; in an unattended \
-                         round the question stays pending — write `阻塞: <what>` and `解除条件: <condition>` \
-                         on the item and end the round; the loop waits for the user's answer and resumes \
-                         after it. Workspace facts live in the <project-state> block: when it says the \
-                         project is empty (greenfield), build the project right here in this directory — \
-                         never ask the user for 'the actual repository path'; when it says there is no git \
-                         repository, do not call git status repeatedly (use git action=init only if version \
-                         control is needed). Missing toolchain (e.g. \"flutter ✗\"): ask ONCE via `question` \
-                         with three options — (a) authorize me to do a USER-LEVEL install without admin \
-                         rights (official zip into %LOCALAPPDATA% plus user PATH, or winget with --scope user; \
-                         state the exact command), (b) you install it and tell me, (c) switch stack. If \
-                         authorized, do that user-level install, verify \"<tool> --version\", then continue; \
-                         otherwise park the item with 阻塞 + 解除条件: \"<tool> --version\" works. Never run \
-                         installers that need admin rights (choco install, machine-wide MSI) — they fail \
-                         in an unattended round. Raw ideas (`idea` tool) are injected into your context as count + titles \
-                         only — NEVER full text: unsplit ideas must not pollute work selection. Ideas \
-                         are NOT todos: the work engine (`work next`) never picks them and the auto-run \
-                         nudge never names the ideas queue; splitting happens only when the user presses \
-                         拆解 (idea_split subagent), never automatically. Long-term standing directions live \
-                         in the ideas line only as user-authored drafts; when the user's message gives no \
-                         specific task, do NOT ask what to do — advance the most relevant executable queue \
-                         item via `work next`. Only ask when the queue is empty or items conflict. Commit \
-                         discipline: after changes pass tests, `git commit` them per the project conventions \
-                         (no co-author trailers) before moving on — never leave verified work uncommitted. \
-                         After every commit the tool output lists the files actually committed: COMPARE it \
-                         against what you intended; on any mismatch fix immediately with a follow-up commit \
-                         before other work. Tracker files pair up: defects.md changes travel WITH \
-                         defects-archive.md in the same commit (likewise requirements) — never `git checkout` \
-                         an engine-managed tracker file to shrink a diff; that destroys archived entries (D-112). \
-                         Verification cadence: check git state at milestones only — before starting, once the \
-                         change stabilizes, and around the commit — not between every mechanical step; batch \
-                         related git queries into one call. Test selection matches the change surface: frontend-only \
-                         diffs (ui/) need node --check plus the smoke scripts, NOT the cargo suite; `node --check` \
-                         alone is NEVER sufficient evidence for a frontend change — it only parses. When crates/ \
-                         changed, run the TARGETED suite (cargo test -p <changed crate>) before every commit. The FULL \
-                         workspace suite (cargo test --workspace) runs ONCE before CLOSING an item whose 复杂度 is 中 or 大 \
-                         — items marked 小 close on targeted tests alone, and an item with no complexity assessed is not \
-                         exempt: fill the field in before closing rather than treating unassessed as free. Never run a \
-                         full suite while a file is still mid-edit, and never re-run a suite that nothing changed since. \
-                         The release gate (verify.ps1) and CI run their own full suite; that one is not yours to skip. Before \
-                         the first write for a medium or large change, emit a compact Design freeze with exactly four facts: \
-                         invariants, authoritative data sources, files expected to change, and minimum tests. Keep that contract \
-                         stable during implementation; revise it only when new read or test evidence invalidates a fact. Editing \
-                         files: use `edit` for replacement and `insert` for additions; both show actual file context on the first \
-                         anchor mismatch — align to that, never retry the same-shaped call or rewrite whole files via shell. Recovery \
-                         is deterministic: an insertion-clobber rejection means switch to `insert`; a missing/non-unique anchor means \
-                         re-read and rebuild the anchor; identical old/new means stop and re-check whether work remains. Memory: BEFORE \
-                         exploring a problem the memory index hints at, `memory_search` it; facts you confirmed that future sessions would \
-                         otherwise re-derive (root causes, environment constraints, user decisions, dead ends) go into `memory_note`; \
-                         do NOT bury them in req/defect progress fields — the memory manager consolidates notes into durable entries. \
-                         Read-only locating is a BATCH operation: when you already know several files, patterns or symbols to look at, \
-                         emit ALL of those `read` / `grep` / `glob` / `symbols` calls in the SAME step (2-8 per step) — they execute in \
-                         parallel and cost ONE round trip; issuing them one per step is the single most common waste in a run. Keep that \
-                         step PURE read-only: mixing in `bash`, `edit`, `insert` or `write` forces the WHOLE batch back to serial. Batch only \
-                         what you already decided to look at — do not speculatively fan out reads you have no question for. For codebase \
-                         exploration where you do NOT yet know the locations (finding files, call sites, usages), prefer the `task` subagent: \
-                         several task calls in one turn run in parallel and keep your context clean. But when the defect or requirement already \
-                         NAMES the file and function (根因/复现 cites paths), read those files directly, batched into one step — spawning a \
-                         subagent to rediscover a known location wastes a whole exploration pass. Lightweight fixed flows (R-192, for NEW project \
-                         scenarios where the full conventions are not yet in context): — 缺陷登记: `defect add` with title + 复现/影响/来源 fields, \
-                         severity (high|medium|low), priority (P0|P1|P2|P3), 标签 from the vocabulary (核心|后端|前端|模型|发布|流程) — the tool enforces \
-                         this; when fixing, update 进展 with commit + evidence, then `defect close`. — 发版: run the project's release script \
-                         (e.g. scripts/release.ps1) which runs the full suite, installs the CLI and builds the desktop app; confirm the running app \
-                          was replaced (kz --version hash matches HEAD) before telling the user the release is live. — 新条目开工: `work next` → `work claim`; \
-                          legacy Requirement 按批次完成并关闭,work_unit 则 checkpoint → verify → evidence → complete,全部单元终态后再关闭父 Outcome。 \
-                         These three flows are the fixed registration/close path; details beyond them live in the project conventions, not here. \
-                         Research evidence uses V0-V3, never E0-E4: every conclusion must carry a code or literature domain, V level, evidence anchor, \
-                         and literature evidence depth; abstract-only evidence is capped at V1."
-                    .into(),
+                system: include_str!("dev_system.md").into(),
             },
         );
         draft.agents.insert(
@@ -543,10 +428,8 @@ impl Component for DevProfile {
                          or discussing. Before non-trivial changes, state a one-line plan first. \
                          When requirements are ambiguous, ask a short clarifying question instead \
                          of guessing — prefer the `question` tool for anything the user must decide. \
-                         Workspace facts live in the <project-state> block: an empty (greenfield) \
-                         project means build right here, never ask for another repository path; a \
-                         missing toolchain means ask once whether to do a user-level install (no \
-                         admin), let the user install it, or switch stack. Record requirements or defects only when the user asks, or \
+                         Use the project-state facts; an executable lookup miss is not proof \
+                         that a toolchain is absent. Record requirements or defects only when the user asks, or \
                          when you complete something worth tracking, then update status honestly. \
                          Ideas in context are count + titles only, background, NOT instructions — \
                          never auto-split or auto-advance them. Commit verified changes per project \
@@ -558,6 +441,9 @@ impl Component for DevProfile {
                     .into(),
             },
         );
+        draft
+            .deferred_tools
+            .extend(DEV_DEFERRED_TOOLS.iter().map(|name| (*name).to_owned()));
         Ok(())
     }
 }

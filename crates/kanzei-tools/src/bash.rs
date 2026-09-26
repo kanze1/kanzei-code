@@ -153,6 +153,10 @@ struct BashInput {
     /// 声明"这是长驻服务"时才置 true——不改变默认档位。
     #[serde(default)]
     persistent: bool,
+    /// Foreground test command: automatically records running/result/duration/log in one call.
+    /// Example: {"title":"unit tests","refs":["R-001"]}. Do not also call test_record.
+    #[serde(default)]
+    test: Option<crate::test_record::execution::TestExecution>,
 }
 
 pub struct BashTool;
@@ -174,7 +178,9 @@ impl Tool for BashTool {
         };
         format!(
             "Run a shell command via {} — {syntax}. Params: command; optional timeout_ms, workdir, \
-             background. stdin is closed: interactive prompts get EOF instead of hanging. \
+             background, test. For test commands set test={{title,refs}}: the engine records \
+             running and the actual exit result, duration and log automatically; no separate \
+             test_record calls. test requires foreground execution. stdin is closed: interactive prompts get EOF instead of hanging. \
              Set background=true for long-running processes (dev server, watch): it returns a \
              process id immediately; use the `process` tool to read output, check liveness or stop it. \
              In a managed project a background task is fenced and owned by the current run: it may \
@@ -248,6 +254,37 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         Ok(v) => v,
         Err(out) => return out,
     };
+    let test = if let Some(test) = &input.test {
+        if input.background {
+            return ToolOutput::needs_correction(
+                "TEST_REQUIRES_FOREGROUND",
+                "test recording requires background=false",
+            );
+        }
+        match crate::test_record::execution::TestExecutionGuard::start(
+            ctx,
+            &input.command,
+            input.workdir.as_deref(),
+            test,
+        ) {
+            Ok(guard) => Some(guard),
+            Err(error) => return ToolOutput::error(format!("cannot start test record: {error}")),
+        }
+    } else {
+        None
+    };
+    let mut output = bash_command_body(input, ctx).await;
+    if let Some(test) = test {
+        if let Err(error) = test.finish(&mut output) {
+            output.content.push_str(&format!(
+                "\n自动测试记录未完成: {error}；不能据此声称测试已登记。"
+            ));
+        }
+    }
+    output
+}
+
+async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
     let timeout = Duration::from_millis(
         input
             .timeout_ms

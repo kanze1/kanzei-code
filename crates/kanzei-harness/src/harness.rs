@@ -1,5 +1,6 @@
 //! Harness 装配:组件 → 草稿(五注册表)→ 不可变快照。
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -28,6 +29,8 @@ pub trait Component: Send + Sync {
 pub struct HarnessDraft {
     pub agents: Registry<AgentDef>,
     pub tools: Registry<Arc<dyn Tool>>,
+    /// R-364 B2:延迟目录中的工具名仍留在完整执行表里,只影响模型首轮 specs。
+    pub deferred_tools: BTreeSet<String>,
     pub skills: Registry<SkillDef>,
     pub context: Registry<Arc<dyn ContextSource>>,
     pub permissions: Ruleset,
@@ -69,6 +72,24 @@ impl Harness {
                 "harness 装配错误:以下硬 deny 资源族声明的专用工具没有注册,拒绝理由会指向不存在的工具:\n{}",
                 missing.join("\n")
             );
+        }
+        let unregistered_deferred: Vec<String> = draft
+            .deferred_tools
+            .iter()
+            .filter(|name| draft.tools.get(name.as_str()).is_none())
+            .cloned()
+            .collect();
+        if !unregistered_deferred.is_empty() {
+            anyhow::bail!(
+                "harness 装配错误:延迟工具名单包含未注册工具:\n{}",
+                unregistered_deferred.join("\n")
+            );
+        }
+        if draft
+            .deferred_tools
+            .contains(crate::tool_search::TOOL_SEARCH)
+        {
+            anyhow::bail!("harness 装配错误:tool_search 不能列入延迟工具名单");
         }
         Ok(Arc::new(HarnessSnapshot {
             ctx: ctx.clone(),
@@ -131,6 +152,51 @@ impl HarnessSnapshot {
             .filter(|(name, _)| !self.draft.permissions.action_fully_denied(name))
             .map(|(_, t)| Arc::clone(t))
             .collect()
+    }
+
+    /// R-364 B2:only defer tools when the loader itself is model-visible. A denied
+    /// `tool_search` falls back to the unchanged, fully materialized tool surface.
+    fn deferred_loading_enabled(&self) -> bool {
+        self.draft
+            .tools
+            .get(crate::tool_search::TOOL_SEARCH)
+            .is_some()
+            && !self
+                .draft
+                .permissions
+                .action_fully_denied(crate::tool_search::TOOL_SEARCH)
+    }
+
+    /// Whether a registered, permitted tool belongs to the deferred layer.
+    pub fn is_deferred(&self, name: &str) -> bool {
+        self.deferred_loading_enabled()
+            && self.draft.deferred_tools.contains(name)
+            && self.draft.tools.get(name).is_some()
+            && !self.draft.permissions.action_fully_denied(name)
+    }
+
+    /// All permitted tools declared deferred, in registry order.
+    pub fn deferred_tools(&self) -> Vec<Arc<dyn Tool>> {
+        if !self.deferred_loading_enabled() {
+            return Vec::new();
+        }
+        self.materialize_tools()
+            .into_iter()
+            .filter(|tool| self.draft.deferred_tools.contains(tool.name()))
+            .collect()
+    }
+
+    /// All permitted, initially visible tools, in registry order.
+    pub fn resident_tools(&self) -> Vec<Arc<dyn Tool>> {
+        self.materialize_tools()
+            .into_iter()
+            .filter(|tool| !self.is_deferred(tool.name()))
+            .collect()
+    }
+
+    /// The compact prompt directory for deferred tools, if any.
+    pub fn deferred_catalog(&self) -> Option<String> {
+        crate::tool_search::render_catalog(&self.deferred_tools())
     }
 
     /// 渲染 system baseline:各 Context Source 依注册顺序拼接。
@@ -224,6 +290,11 @@ impl HarnessSnapshot {
                     .map(|n| format!(" ({n})"))
                     .unwrap_or_default();
                 match managed.required_tool.as_deref() {
+                    Some(tool) if self.is_deferred(tool) => format!(
+                        "This resource is policy-managed{note}. The ONLY legal write channel is the deferred \
+                         `{tool}` tool. Load it first with the resident `tool_search` query \
+                         `select:{tool}`, then use it. Do not route around this gate."
+                    ),
                     Some(tool) => format!(
                         "This resource is policy-managed{note}. The ONLY legal write channel is \
                          the `{tool}` tool — use it instead. Do not route around this gate."
@@ -306,6 +377,123 @@ fn permission_snapshot_of(draft: &HarnessDraft) -> Vec<PermissionSnapshot> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct TestTool(&'static str);
+
+    #[async_trait::async_trait]
+    impl Tool for TestTool {
+        fn name(&self) -> &'static str {
+            self.0
+        }
+        fn description(&self) -> String {
+            format!("{} tool.", self.0)
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object", "properties":{}})
+        }
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _ctx: &crate::ToolCtx,
+        ) -> crate::ToolOutput {
+            crate::ToolOutput::ok("unused")
+        }
+    }
+
+    fn resolve_ctx() -> ResolveCtx {
+        let root = PathBuf::from("C:/r364-harness-test");
+        ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        }
+    }
+
+    fn test_tool(name: &'static str) -> Arc<dyn Tool> {
+        Arc::new(TestTool(name))
+    }
+
+    #[test]
+    fn deferred_tools_only_hide_from_resident_specs_when_loader_is_visible() {
+        let mut draft = HarnessDraft::default();
+        draft.tools.insert("resident", test_tool("resident"));
+        draft
+            .tools
+            .insert(crate::tool_search::TOOL_SEARCH, test_tool("tool_search"));
+        draft.tools.insert("deferred", test_tool("deferred"));
+        draft.deferred_tools.insert("deferred".into());
+        let snapshot = HarnessSnapshot {
+            ctx: resolve_ctx(),
+            draft,
+        };
+
+        let names =
+            |tools: Vec<Arc<dyn Tool>>| tools.iter().map(|tool| tool.name()).collect::<Vec<_>>();
+        assert_eq!(
+            names(snapshot.materialize_tools()),
+            ["resident", "tool_search", "deferred"]
+        );
+        assert_eq!(
+            names(snapshot.resident_tools()),
+            ["resident", "tool_search"]
+        );
+        assert_eq!(names(snapshot.deferred_tools()), ["deferred"]);
+        assert!(snapshot.is_deferred("deferred"));
+        assert!(snapshot
+            .deferred_catalog()
+            .unwrap()
+            .contains("deferred — deferred tool."));
+        let catalog = snapshot.deferred_catalog().unwrap();
+        assert!(catalog.contains("resident `tool_search`"));
+        assert!(catalog.contains("select:name1,name2"));
+        assert!(catalog.contains("direct calls also auto-load"));
+    }
+
+    #[test]
+    fn denied_tool_search_falls_back_to_all_materialized_tools() {
+        let mut draft = HarnessDraft::default();
+        draft.tools.insert("resident", test_tool("resident"));
+        draft
+            .tools
+            .insert(crate::tool_search::TOOL_SEARCH, test_tool("tool_search"));
+        draft.tools.insert("deferred", test_tool("deferred"));
+        draft.deferred_tools.insert("deferred".into());
+        draft.permissions.push_hard_deny(crate::rule(
+            crate::tool_search::TOOL_SEARCH,
+            "*",
+            Effect::Deny,
+        ));
+        let snapshot = HarnessSnapshot {
+            ctx: resolve_ctx(),
+            draft,
+        };
+
+        assert_eq!(snapshot.deferred_tools().len(), 0);
+        assert!(snapshot.deferred_catalog().is_none());
+        assert!(!snapshot.is_deferred("deferred"));
+        assert_eq!(snapshot.resident_tools().len(), 2);
+    }
+
+    struct InvalidDeferred(&'static str);
+    impl Component for InvalidDeferred {
+        fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+            draft.deferred_tools.insert(self.0.into());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn resolve_rejects_unregistered_or_deferred_tool_search_names() {
+        for name in ["missing", crate::tool_search::TOOL_SEARCH] {
+            let mut harness = Harness::default();
+            harness.add(InvalidDeferred(name));
+            match harness.resolve(&resolve_ctx()) {
+                Err(error) => assert!(error.to_string().contains("延迟")),
+                Ok(_) => panic!("invalid deferred name `{name}` unexpectedly resolved"),
+            }
+        }
+    }
 
     #[test]
     fn permission_snapshot_reflects_ruleset_and_hard_denies() {

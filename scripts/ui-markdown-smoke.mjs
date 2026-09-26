@@ -200,3 +200,10 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
 // ── 分区:架构图 结束 ──
 
 console.log("UI Markdown 冒烟通过：列表、表格、代码语言、安全外链与 XSS 用例已覆盖;markdown 补语法与结构化纯解析夹具已覆盖");
+
+// Real delivery paths include Chinese project names and spaces on Windows.
+assert.deepEqual(safeMarkdownPath("C:/项目/my report.md:12"), { path: "C:/项目/my report.md", line: 12, endLine: null });
+assert.deepEqual(safeMarkdownPath("docs/%E6%8A%A5%E5%91%8A.md"), { path: "docs/报告.md", line: null, endLine: null });
+assert.match(renderMarkdown("[报告](<C:/项目/my report.md:12>)"), /data-path="C:\/项目\/my report.md" data-line="12"/);
+assert.equal(safeMarkdownPath("javascript%3Aalert(1)"), null);
+assert.equal(safeMarkdownPath("docs/a%0Ab.md"), null);
