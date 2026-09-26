@@ -4,7 +4,7 @@
 - 日期：2026-08-28
 - 关联需求：R-335
 - 关联缺陷：D-721
-- 关联决策：无（最终引擎组合与迁移顺序待用户评审）
+- 关联决策：无（最终引擎组合与迁移顺序待用户评审）。**2026-09-26 部分已定**:架构图一侧由用户在 UI2-0926 #7「要那种很好看的图，而且方便agent编辑的」定调——架构图与全站 markdown 图默认 Mermaid(ELK 分层布局、token 主题)、节点可点击,见 [architecture_diagrams.md](architecture_diagrams.md);科学图表与统一 `visualize` API 仍按本文待评审。
 
 ## 背景与问题
 
@@ -59,6 +59,8 @@
 ## 最终方案
 
 “最终方案”在本设计阶段是**待评审的契约方案**，不是最终引擎批准。引擎组合的推荐默认值如下：架构以现有 `architecture_snapshot` 为兼容输入，长期模型候选为 Structurizr DSL；布局/导出优先候选为 Graphviz；Mermaid 只做轻量预览，PlantUML 只做受控高级 UML/Archimate。科学图表默认使用 Vega-Lite；Matplotlib 和 PGFPlots 仅在明确的高级权限/研究排版需求下启用。
+
+> **2026-09-26 修订(架构图一侧已定,取代上段关于架构图的推荐)**:「Mermaid 只做轻量预览」不再成立。Mermaid 12(ESM 分块版 vendored、懒加载,ELK 分层布局 + base 主题 + neo 外观,配色只由 `--diagram-*` token 注入,securityLevel strict)是架构图与全站 markdown 图的**默认引擎**;手写图的真源是 `docs/architecture/NN_slug.md`(agent 用普通 write/edit 改,`architecture {action:"diagrams"}` 自查),crate 依赖图由 Rust 从 Cargo 清单实时生成;节点点击经 structuredNav 打开源码或设计文档。Structurizr/Graphviz/PlantUML 暂不引入。细节与门禁见 [architecture_diagrams.md](architecture_diagrams.md)。科学图表部分不受影响。
 
 ### 统一 Agent API
 
@@ -229,11 +231,11 @@
 
 ## 用户待拍板项
 
-以下事项不由 Agent 自行决定，当前保持草案：
+以下事项不由 Agent 自行决定，当前保持草案(1-3 已于 2026-09-26 由用户在 UI2-0926 #7 定调,见 [architecture_diagrams.md](architecture_diagrams.md)):
 
-1. 架构最终是否采用 Structurizr DSL 作为长期模型层，及是否允许 Graphviz/Java/浏览器渲染依赖。
-2. Mermaid 是否只作为预览，PlantUML 是否允许进入默认安装，Graphviz 是否随应用打包或由用户安装。
-3. 是否支持交互式架构图（节点点击、筛选、局部展开）以及交互状态是否进入 manifest；静态 SVG/PNG/PDF 是当前最小范围。
+1. ~~架构最终是否采用 Structurizr DSL 作为长期模型层，及是否允许 Graphviz/Java/浏览器渲染依赖。~~ **已定**:不引入 Structurizr/Graphviz/Java;架构图是 docs/architecture 下的 Mermaid 文本 + Cargo 清单实时生成的 crate 图,渲染依赖只有随包的 Mermaid ESM 分块版(懒加载,浏览器内渲染)。
+2. ~~Mermaid 是否只作为预览，PlantUML 是否允许进入默认安装，Graphviz 是否随应用打包或由用户安装。~~ **已定**:Mermaid 是架构图与全站 markdown 图的默认引擎,不只做预览;PlantUML、Graphviz 不进默认安装。
+3. ~~是否支持交互式架构图（节点点击、筛选、局部展开）以及交互状态是否进入 manifest；静态 SVG/PNG/PDF 是当前最小范围。~~ **已定**:支持节点点击(`click` 行 → 打开源码/设计文档/条目)、悬停邻域高亮、适应/缩放/平移;交互状态不进 manifest(选中的标签页与依赖范围记在界面布局偏好里)。
 4. research mode 默认主题、字体、色板和 PDF/TeX 需求；当前只推荐 Vega-Lite 默认轨，不锁定视觉 taste。
 5. Python/TeX/Java 高级轨的权限模型、沙箱/超时/依赖缓存和发布包体边界。
 6. `visualize` 的最终命名、schema 版本、迁移顺序，以及是否把当前 `plot` 兼容包装为新入口。
@@ -241,6 +243,7 @@
 ## 变更记录
 
 - 2026-08-28：新增草案，承接 R-335 B1/B2 审计与先行方案对照；定义统一 envelope、两类最小闭环、错误/验证/manifest 和迁移边界。来源：`.kanzei/research/agent-visualization-tools/prior-art.md`、`T-1786922726819`、D-721。
+- 2026-09-26(UI2-0926 #7):用户要「很好看的图，而且方便agent编辑的」,待拍板项 1-3(架构图一侧)定为 Mermaid 默认 + 可点击;实现见 [architecture_diagrams.md](architecture_diagrams.md)。自绘三列 SVG(`19-arch.js` 的 renderArchGraph)已删除;「补架构图真实宽屏/大图视觉基线」由 `scripts/ui-diagram-smoke.mjs`(verify 的 ui_diagram 步)承担。
 
 ## 验证证据
 
@@ -252,6 +255,6 @@
 
 - TODO：用户评审六项待拍板项后，登记独立实现条目；不得在 R-335 设计草案中直接迁移引擎。
 - TODO：实现条目需为统一 API 增加 schema/单测、renderer capability 探测、错误 fixture、artifact hash/manifest 和真实 Agent/research consumer 回归。
-- TODO：补架构图真实宽屏/大图视觉基线；现有 smoke 的 fixture 只覆盖节点/边存在，不覆盖读图质量。
+- ~~TODO：补架构图真实宽屏/大图视觉基线；现有 smoke 的 fixture 只覆盖节点/边存在，不覆盖读图质量。~~ 2026-09-26 已由 `scripts/ui-diagram-smoke.mjs` 承担(无头 Edge 暗/亮真渲染,查重叠、溢出、字号、对比度与点击映射,截图留在 dist/ui-diagrams/)。
 - TODO：修复 D-721 的重复 click 绑定并补单击一次断言；不能用 R-335 设计文档关闭该缺陷。
 - 风险：Structurizr/Graphviz/PlantUML 的 Java/CLI/Graphviz 依赖可能影响 Windows 离线发布；Mermaid 的 C4 experimental 和布局顺序限制可能无法满足稳定架构图；Matplotlib/TeX 任意代码轨道扩大权限与复现风险；字体、主题、headless 浏览器差异可能使像素结果不稳定。
