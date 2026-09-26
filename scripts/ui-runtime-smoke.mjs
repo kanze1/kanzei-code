@@ -375,9 +375,9 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*void uiPrefsSave\(\{ ui_layout: patch \}\);\r?\n/,
       replace: "",
     },
-    // UI2-0926 #14:用户在本次运行里关过侧栏(还有活时)→ 压制到下一条用户消息。删掉,关掉之后鞭挞下一轮马上又弹。
+    // UI2-0926 #14:用户在本次运行里关过侧栏(不论当时还有没有活)→ 压制到下一条用户消息。删掉,关掉之后鞭挞下一轮马上又弹。
     sideSuppressRun: {
-      pattern: /[ \t]*if \(\(event\.active \?\? 0\) > 0\) line\.suppressedRun = line\.userRun;\r?\n/,
+      pattern: /[ \t]*line\.suppressedRun = line\.userRun;\r?\n/,
       replace: "",
     },
     // UI2-0926 #14:值得停留的失败保留侧栏、徽标转红。删掉,子代理超时 6 秒后侧栏照样收起、失败看不见。
@@ -414,6 +414,82 @@ if (SMOKE_MUTATE) {
     sideNoFocusSteal: {
       pattern: /(if \(decision\.visible && !wasVisible\) \{\r?\n)/,
       replace: '$1    $("tasks-close")?.focus?.();\n',
+    },
+    // ── 分区:后台任务侧栏与可调框(复核修复)──
+    // 后台线路上开始的子代理不触发自动打开。去掉活动线路判据,切到那条线路时侧栏空弹。
+    sideBgStartScope: {
+      pattern: /if \(onActiveLine\) sideEvent\(model, \{ type: "work-start", sid: run\.sessionId \}, sidePanelPrefs\(\)\);/,
+      replace: 'sideEvent(model, { type: "work-start", sid: run.sessionId }, sidePanelPrefs());',
+    },
+    // 不在前台的线路活全部结束时报 idle。删掉,自动打开后切走、在后台跑完的线路切回来时空弹 6 秒。
+    sideBgIdle: {
+      pattern: /[ \t]*sideEvent\(model, \{ type: "idle", sid: run\.sessionId, now: clock\(\) \}\);\r?\n/,
+      replace: "",
+    },
+    // 切进一条已经停下的线路按已到点处理。删掉,终端命令触发自动打开的线路切回来时空弹 6 秒。
+    sideSwitchInIdle: {
+      pattern: /[ \t]*sideEvent\(model, \{ type: "idle", sid: sessionId, now: clock\(\) - SIDE_AUTO_CLOSE_MS \}\);\r?\n/,
+      replace: "",
+    },
+    // 弹层(筛选菜单与原生下拉)里的 Esc 不算关闭侧栏。删掉守卫,下拉列表开着时按 Esc 整个侧栏收起、失败被确认。
+    sideEscPopover: {
+      pattern: /[ \t]*if \(event\.defaultPrevented \|\| event\.target\?\.closest\?\.\("\[popover\]"\) \|\| nativePickerOpen\(event\.target\)\) return;\r?\n/,
+      replace: "",
+    },
+    // 缺陷 B 的收尾一侧:后台线路的 kz:tool-end 不碰活动线路的条目(调用 id 可能重名)。删掉,同 id 条目被别的线路收尾。
+    sideBgEndScope: {
+      pattern: /\n[ \t]*if \(renderingBackground\) return;\r?\n([ \t]*const entry = bgEntries\.get\(id\);)/,
+      replace: "\n$1",
+    },
+    // 回放的子代理不自动打开、不保留失败。去掉 !run.replay,切线/重载时历史里的失败让徽标转红、侧栏弹出。
+    sideReplayNoHold: {
+      pattern: /if \(run && !run\.replay\) \{/,
+      replace: "if (run) {",
+    },
+    // 自动打开时保持对话的阅读位置。删掉恢复,对话列变窄重排后读到一半的位置跳走。
+    sideScrollAnchor: {
+      pattern: /[ \t]*if \(anchor\) restoreScrollAnchor\(anchor\);\r?\n/,
+      replace: "",
+    },
+    // 后端布局偏好到达时保留还没写出去的本地改动。去掉合并,启动时刚拖的宽度被后端旧值顶回去。
+    layoutAdoptPending: {
+      pattern: /for \(const \[section, bucket\] of Object\.entries\(pending \?\? \{\}\)\) \{/,
+      replace: "for (const [section, bucket] of Object.entries({})) {",
+    },
+    // 缺陷 F 的范围:只有最新一次运行里悬空的调用保留运行态。去掉 run_id 判据,更早轮次悬空的 bash 被复活成「运行中」。
+    sideReplayRunScope: {
+      pattern: /if \(lineRunning && run === latestRun\) \{/,
+      replace: "if (lineRunning) {",
+    },
+    // 抽屉宽度有自己的口径(默认 400,上限主区 − 96)。改回停靠口径,抽屉永远夹死在 320、拖不动。
+    sideDrawerWidth: {
+      pattern: /\? \{ dock, width: sideDrawerWidth\(stored, mainW\), max: sideDrawerMax\(mainW\) \}/,
+      replace: "? { dock, width: docked, max: sideMaxWidth(mainW) }",
+    },
+    // 分隔条手柄记下词条键,切语言时重译。删掉,运行中切到英文后读屏名还是中文。
+    splitI18nKeys: {
+      pattern: /[ \t]*if \(ariaKey\) handle\.dataset\.i18nAriaLabel = ariaKey;\r?\n/,
+      replace: "",
+    },
+    // 子代理行:listitem 挂在外层 div 上,不盖掉按钮语义。挂回按钮上,读屏不知道它能点开详情。
+    sideRowListitem: {
+      pattern: /item\.setAttribute\("role", "listitem"\);(\r?\n[ \t]*const row = el\("button", "tp-agent-row"\);)/,
+      replace: '$1 row.setAttribute("role", "listitem");',
+    },
+    // 子代理行的可访问名只拼一次状态词。拼两次就是「完成 — 完成 · 2 次工具 · …」。
+    sideRowAriaOnce: {
+      pattern: /const state = SA_ACTIVE\.has\(run\.state\) \? subagentStateWord\(run\.state\) \|\| t\("运行中"\) : subagentMetaText\(run, now\);/,
+      replace: 'const state = [subagentStateWord(run.state) || t("运行中"), SA_ACTIVE.has(run.state) ? "" : subagentMetaText(run, now)].filter(Boolean).join(" — ");',
+    },
+    // 小表表头/类别英文是 Claude 的「Agent」。改回通用译文,英文界面读成复数的「Subagents」。
+    sideAgentWord: {
+      pattern: /return languageIsEnglish\(\) \? "Agent" : t\("子代理"\);/,
+      replace: 'return t("子代理");',
+    },
+    // 模型列去掉 provider 前缀。删掉,窄列里只剩「ollama:qw…」。
+    sideModelShort: {
+      pattern: /return match\[2\]\.includes\(":"\) \|\| PROVIDER_PREFIX\.has\(match\[1\]\.toLowerCase\(\)\) \? match\[2\] : text;/,
+      replace: "return text;",
     },
   };
   const mutation = mutations[SMOKE_MUTATE];
@@ -12856,6 +12932,44 @@ const docsB = {
       && policy.sideDockMode({ mainWidth: 1232, panelWidth: 360 }) === "side" && policy.sideDockMode({ mainWidth: 672, panelWidth: 360 }) === "drawer", "策略⑫:停靠判据(主区宽 − 侧栏宽 ≥ 600)");
     assert(policy.sideClampWidth(900, 1272) === 672 && policy.sideClampWidth(100, 1272) === 320 && policy.sideClampWidth(900, 2600) === 760, "策略⑫:宽度夹在 [320, min(760, 主区 − 600)]");
     assert(policy.sideDefaultWidth(1600) === 416 && policy.sideDefaultWidth(2000) === 520 && policy.sideDefaultWidth(1000) === 360, "策略⑫:默认宽 clamp(360, 26vw, 520)");
+    // ── 分区:后台任务侧栏与可调框(复核修复)──
+    // ⑬ 关闭一律压制本次运行:延迟收起中关、失败保留中关(关的那一刻 active 恰好为 0)也算。
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    policy.sideDecide(m, env({ active: 1, now: 0 }));
+    assert(policy.sideDecide(m, env({ active: 0, now: 1000 })).lingerMs !== null, "策略⑬前置:全部结束后处于延迟收起");
+    policy.sideEvent(m, { type: "user-close", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    d = policy.sideDecide(m, env({ active: 1, now: 2000 }));
+    assert(!d.visible, `策略⑬:延迟收起期间关掉,同一次运行(鞭挞续轮)再派子代理不该再弹,实为 ${JSON.stringify(d)}`);
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    assert(policy.sideDecide(m, env({ active: 1, now: 3000 })).visible, "策略⑬:下一条用户消息之后再派子代理应重新弹出");
+    policy.sideEvent(m, { type: "failure", sid: A, key: "k1", hold: true });
+    d = policy.sideDecide(m, env({ active: 0, now: 50000 }));
+    assert(d.visible && same(d.badge, { count: 1, tone: "err" }), `策略⑬前置:失败保留,实为 ${JSON.stringify(d)}`);
+    policy.sideEvent(m, { type: "user-close", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    assert(!policy.sideDecide(m, env({ active: 1, now: 51000 })).visible, "策略⑬:失败保留期间关掉(为确认失败只能关),同一次运行再派子代理不该再弹");
+    // ⑭ idle:不在前台的线路活结束时记下时刻,切回来时已过 6 秒直接退出自动态;没过 6 秒只剩余下的延迟。
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: B });
+    policy.sideEvent(m, { type: "work-start", sid: B }, on);
+    assert(policy.sideDecide(m, env({ sid: B, active: 1, now: 100 })).visible, "策略⑭前置:B 自动打开");
+    policy.sideEvent(m, { type: "idle", sid: B, now: 1000 });
+    d = policy.sideDecide(m, env({ sid: B, active: 0, now: 1000 + policy.SIDE_AUTO_CLOSE_MS + 1 }));
+    assert(!d.visible && d.lingerMs === null, `策略⑭:后台跑完 6 秒后切回 B 不该空弹,实为 ${JSON.stringify(d)}`);
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: B });
+    policy.sideEvent(m, { type: "work-start", sid: B }, on);
+    policy.sideDecide(m, env({ sid: B, active: 1, now: 100 }));
+    policy.sideEvent(m, { type: "idle", sid: B, now: 1000 });
+    d = policy.sideDecide(m, env({ sid: B, active: 0, now: 3000 }));
+    assert(d.visible && d.lingerMs === policy.SIDE_AUTO_CLOSE_MS - 2000, `策略⑭:结束 2 秒后切回只剩 4 秒延迟收起,实为 ${JSON.stringify(d)}`);
+    // ⑮ 抽屉口径:默认 400,夹在 [320, 主区 − 96]。
+    assert(policy.sideDrawerWidth(null, 852) === 400 && policy.sideDrawerWidth(600, 852) === 600 && policy.sideDrawerWidth(900, 852) === 756
+      && policy.sideDrawerWidth(100, 852) === 320 && policy.sideDrawerMax(852) === 756 && policy.sideDrawerMax(300) === 320, "策略⑮:抽屉宽默认 400、夹在 [320, 主区 − 96]");
   }
 
   // ② 集成:注入时钟与焦点探针;用一条独立线路 sess-tp,不碰前面各分区的状态。
@@ -13091,6 +13205,222 @@ const docsB = {
   assert(!autoOpen.checked && !byId.get("set-side-auto-close").checked, "后端 ui_layout 到达后设置页开关没有回填");
   layoutNs.adoptLayout({});
   assert(autoOpen.checked, "ui_layout 清空后「自动弹出」应回到默认开");
+
+  // ── 分区:后台任务侧栏与可调框(复核修复)──
+  // 变异守卫:sideSuppressRun / sideBgStartScope / sideBgIdle / sideSwitchInIdle / sideEscPopover / sideBgEndScope /
+  // sideReplayNoHold / sideScrollAnchor / layoutAdoptPending / sideReplayRunScope / sideDrawerWidth / splitI18nKeys /
+  // sideRowListitem / sideRowAriaOnce / sideAgentWord / sideModelShort。
+  await settleAll();
+  const taskProgress = handlers.get("kz:task-progress");
+  const agentRowOf = (id) => [...tasksPanel.querySelectorAll(".tp-agent-row")].find((row) => row.dataset.saKey === `sess-tp|${id}`);
+  // ⑬ 关闭一律压制本次运行:延迟收起中关(此刻没有活)、失败保留中关(为确认失败只能关),鞭挞续轮再派子代理都不弹。
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-c1");
+  await settleAll();
+  endTask("tp-c1");
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().lingerMs !== null, `复核⑬前置:全部结束后应处于 6 秒延迟收起,实为 ${JSON.stringify(panelNs.tasksPanelState())}`);
+  panelNs.closeTasksPanel();
+  startTask("tp-c2");
+  await settleAll();
+  assert(!visible(), "复核⑬:延迟收起期间关掉侧栏(此刻没有活),同一次运行(鞭挞续轮)再派子代理又弹出来了");
+  endTask("tp-c2");
+  await settleAll();
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-c3");
+  await settleAll();
+  assert(visible(), "复核⑬:下一条用户消息之后再派子代理应自动打开");
+  // 模型列只显示型号(去掉 provider 前缀),完整 id 留在 title。
+  taskProgress({ payload: { id: "tp-c3", text: "explore · ollama:qwen3.5:4b", trace: { child_id: "tp-c3", phase: "meta", agent: "explore", model: "ollama:qwen3.5:4b", summary: "fast" }, sessionId: "sess-tp" } });
+  await settleAll();
+  const c3Model = agentRowOf("tp-c3")?.querySelector(".tp-agent-model");
+  assert(c3Model?.textContent === "qwen3.5:4b" && c3Model?.title === "ollama:qwen3.5:4b", `模型列应只显示型号 qwen3.5:4b(完整 id 在 title),实为 "${c3Model?.textContent}" / "${c3Model?.title}"`);
+  endTask("tp-c3", { ok: false, outcome: "failed", code: "subagent_timeout", preview: "subagent timed out" });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible() && tasksBadge.dataset.tone === "err", "复核⑬前置:超时的子代理应让侧栏保留、徽标转红");
+  // 行结构与可访问名:listitem 在外层,按钮语义保留;终态的状态词只出现一次。
+  const c3Row = agentRowOf("tp-c3");
+  assert(c3Row && c3Row.getAttribute("role") === null && c3Row.parentElement?.getAttribute("role") === "listitem",
+    `子代理行应是 <div role=listitem> 里包原生按钮(listitem 不能盖掉按钮语义),实为 row role=${c3Row?.getAttribute("role")} / 外层 role=${c3Row?.parentElement?.getAttribute("role")}`);
+  const c3Aria = c3Row?.getAttribute("aria-label") ?? "";
+  assert((c3Aria.match(/超时/g) ?? []).length === 1 && c3Aria.includes("qwen3.5:4b"), `子代理行的可访问名应只拼一次状态词并带上模型,实为 "${c3Aria}"`);
+  panelNs.closeTasksPanel();
+  startTask("tp-c4");
+  await settleAll();
+  assert(!visible(), "复核⑬:失败保留期间关掉侧栏,同一次运行再派子代理又弹出来了");
+  endTask("tp-c4");
+  await settleAll();
+
+  // ⑭ 后台线路:在后台开始的子代理不触发自动打开;自动打开后切走、在后台跑完的线路,切回来不空弹 6 秒。
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-tp-b" } });
+  toolStart({ payload: { id: "tp-b1", name: "task", summary: "", input: { prompt: "b1", description: "后台线路的子代理" }, sessionId: "sess-tp-b" } });
+  await settleAll();
+  sandbox.activeSessionId = "sess-tp-b";
+  panelNs.agentPanelSync();
+  await settleAll();
+  assert(!visible() && tasksBadge.textContent === "1", `复核⑭:后台线路上开始的子代理,切过去时不该弹出侧栏(只亮徽标),实为 ${JSON.stringify(panelNs.tasksPanelState())}`);
+  toolEnd({ payload: { id: "tp-b1", name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 800, display: null, sessionId: "sess-tp-b" } });
+  await settleAll();
+  panelNs.tasksPanelUserRun("sess-tp-b");
+  toolStart({ payload: { id: "tp-b2", name: "task", summary: "", input: { prompt: "b2", description: "前台开跑的子代理" }, sessionId: "sess-tp-b" } });
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().reason === "auto", "复核⑭前置:活动线路上开跑的子代理应自动打开");
+  sandbox.activeSessionId = "sess-tp";
+  panelNs.agentPanelSync();
+  await settleAll();
+  toolEnd({ payload: { id: "tp-b2", name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 800, display: null, sessionId: "sess-tp-b" } });
+  await settleAll();
+  fakeNow += 7_000;
+  sandbox.activeSessionId = "sess-tp-b";
+  panelNs.agentPanelSync();
+  await settleAll();
+  assert(!visible(), `复核⑭:自动打开后切走、在后台跑完 7 秒的线路,切回来时侧栏空弹(${JSON.stringify(panelNs.tasksPanelState())})`);
+  // 终端命令触发的自动打开:后台线路的终端命令不在册,切进一条已经停下的线路按已到点处理。
+  panelNs.tasksPanelUserRun("sess-tp-b");
+  toolStart({ payload: { id: "tp-b-bash", name: "bash", summary: "cargo build", input: { command: "cargo build" }, sessionId: "sess-tp-b" } });
+  await settleAll();
+  const bBash = activityNs.bgEntries.get("tp-b-bash");
+  bBash.startedAt -= 3_100;
+  activityNs.bgTick(bBash);
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().reason === "auto", "复核⑭前置:长命令跑满 3 秒应自动打开");
+  sandbox.activeSessionId = "sess-tp";
+  panelNs.agentPanelSync();
+  activityNs.bgClear(); // loadConversation 切线时清空终端条目,之后回放
+  await settleAll();
+  vm.runInContext('transitionSession("sess-tp-b", "idle")', sandbox);
+  sandbox.activeSessionId = "sess-tp-b";
+  panelNs.agentPanelSync();
+  await settleAll();
+  assert(!visible(), `复核⑭:长命令触发自动打开、切走后线路在后台停下,切回来时侧栏空弹(${JSON.stringify(panelNs.tasksPanelState())})`);
+  sandbox.activeSessionId = "sess-tp";
+  panelNs.agentPanelSync();
+  await settleAll();
+
+  // 缺陷 B 的收尾一侧:另一条线路同 id 的 kz:tool-end 不收尾活动线路的终端条目。
+  toolStart({ payload: { id: "tp-dup", name: "bash", summary: "sleep 30", input: { command: "sleep 30" }, sessionId: "sess-tp" } });
+  await settleAll();
+  toolEnd({ payload: { id: "tp-dup", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp-other" } });
+  await settleAll();
+  assert(activityNs.bgEntries.get("tp-dup") && !activityNs.bgEntries.get("tp-dup").done, "缺陷 B(收尾一侧):另一条线路同 id 的 kz:tool-end 把活动线路的终端条目收尾了");
+  toolEnd({ payload: { id: "tp-dup", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp" } });
+  await settleAll();
+
+  // 回放的子代理(历史里的失败)不自动打开、不保留失败、徽标不转红。
+  const saNs = esmModuleCache.get("05-subagents.js")?.namespace;
+  panelNs.tasksPanelUserRun("sess-tp");
+  saNs.subagentHistoryCall("sess-tp", "tp-hist-1", { prompt: "历史里的子代理", description: "历史失败" });
+  saNs.subagentHistoryResult("sess-tp", "tp-hist-1", { ok: false, content: "子代理内部报错" });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  assert(!visible() && tasksBadge.dataset.tone !== "err", `回放出来的失败子代理让侧栏弹出或徽标转红(回放不算实时失败):visible=${visible()} tone=${tasksBadge.dataset.tone}`);
+
+  // 自动打开保持阅读位置:对话列变窄重排后,首个可见消息回到原来的屏幕位置(停靠后它下移 60px → scrollTop 补 60)。
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const coreNs = esmModuleCache.get("01-core.js")?.namespace;
+  const messagesEl = byId.get("messages");
+  const priorMessagesRect = messagesEl.getBoundingClientRect;
+  messagesEl.getBoundingClientRect = () => ({ top: 100, bottom: 700, left: 0, right: 800, width: 800, height: 600 });
+  const anchorProbe = document.createElement("div");
+  anchorProbe.getBoundingClientRect = () => {
+    const top = main.dataset.side === "docked" ? 180 : 120;
+    return { top, bottom: top + 40, left: 0, right: 800, width: 800, height: 40 };
+  };
+  coreNs.activePane.prepend(anchorProbe);
+  chatNs.setFollowLatest(false);
+  messagesEl.scrollTop = 500;
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-anchor");
+  await settleAll();
+  assert(visible() && messagesEl.scrollTop === 560, `自动打开后对话阅读位置跳了:visible=${visible()} scrollTop=${messagesEl.scrollTop}(应补偿重排位移 60 → 560)`);
+  anchorProbe.remove();
+  messagesEl.getBoundingClientRect = priorMessagesRect;
+  chatNs.setFollowLatest(true);
+  endTask("tp-anchor");
+  await settleAll();
+
+  // 抽屉宽度按自己的口径:默认 400,拖过的宽度夹到 [320, 主区 − 96];分隔条上限随形态变,不被停靠判据夹死在 320。
+  panelNs.closeTasksPanel();
+  windowShim.innerWidth = 900; // 主区 852:停靠放不下 → 抽屉
+  panelNs.openTasksPanel();
+  await settleAll();
+  const tasksSplit = tasksPanel._kzSplit;
+  assert(tasksPanel.dataset.dock === "drawer" && tasksPanel.style.getPropertyValue("--kz-tasks-w") === "400px", `抽屉默认宽应为 400,实为 ${tasksPanel.dataset.dock}/${tasksPanel.style.getPropertyValue("--kz-tasks-w")}`);
+  tasksSplit.set(600);
+  await settleAll();
+  tasksSplit.sync();
+  assert(tasksPanel.style.getPropertyValue("--kz-tasks-w") === "600px" && tasksSplit.handle.getAttribute("aria-valuemax") === "756",
+    `抽屉态拖到 600 应生效、分隔条上限为 主区 − 96 = 756,实为 w=${tasksPanel.style.getPropertyValue("--kz-tasks-w")} max=${tasksSplit.handle.getAttribute("aria-valuemax")}`);
+  tasksSplit.reset();
+  panelNs.closeTasksPanel();
+  windowShim.innerWidth = 1280;
+  await settleAll();
+
+  // 英文界面:表头与类别是 Claude 的「Agent」;单个失败的读法是单数;运行中切语言后分隔条的读屏名跟着重译。
+  const priorTasksLanguage = localStorageShim.getItem("kz-language") || "zh";
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-en1");
+  await settleAll();
+  sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+  await settleAll();
+  const enCard = [...byId.get("tasks-running").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-en1"]'));
+  const enHead = enCard?.querySelector(".tp-agents-head span")?.textContent;
+  const enKind = enCard?.querySelector(".tp-card-kind")?.textContent;
+  assert(enHead === "Agent" && enKind === "Agent", `英文界面委派卡的表头/类别应为 Claude 的「Agent」,实为 "${enHead}" / "${enKind}"`);
+  const splitAria = tasksSplit.handle.getAttribute("aria-label");
+  assert(splitAria === "Resize the background tasks panel", `运行中切到英文后,后台任务侧栏分隔条的读屏名没有重译:"${splitAria}"`);
+  endTask("tp-en1", { ok: false, outcome: "failed", code: "subagent_timeout", preview: "subagent timed out" });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  const enToggle = byId.get("tasks-toggle").getAttribute("aria-label") ?? "";
+  assert(/ · 1 failure to review$/.test(enToggle), `单个未确认失败的英文读法应为单数「1 failure to review」,实为 "${enToggle}"`);
+  sandbox.setLanguagePreference(priorTasksLanguage, { persist: true, rerender: true });
+  panelNs.closeTasksPanel();
+  await settleAll();
+
+  // Esc:弹层(筛选菜单、它里面的原生下拉)里的 Esc 归 00-surface 与浏览器,不算关闭侧栏;焦点直接在侧栏里才关。
+  panelNs.openTasksPanel();
+  await settleAll();
+  const escPopover = document.createElement("div");
+  escPopover.setAttribute("popover", "manual");
+  const escInner = document.createElement("button");
+  escPopover.appendChild(escInner);
+  tasksPanel.appendChild(escPopover);
+  tasksPanel.dispatchEvent({ type: "keydown", key: "Escape", target: escInner, preventDefault() {}, stopPropagation() {} });
+  await settleAll();
+  assert(visible(), "筛选菜单(弹层)里按 Esc 把整个侧栏关掉了:下拉列表开着时 00-surface 放行给浏览器,侧栏不该把它当成用户关闭");
+  escPopover.remove();
+  tasksPanel.dispatchEvent({ type: "keydown", key: "Escape", target: tasksPanel, preventDefault() {}, stopPropagation() {} });
+  await settleAll();
+  assert(!visible(), "对照:焦点直接在侧栏里时 Esc 应关闭侧栏");
+
+  // 后端布局偏好到达时保留启动后刚改、还没写出去的本地值(不被后端旧值顶回去)。
+  layoutNs.setLayoutPref("splits", "smoke-pending", 321);
+  layoutNs.adoptLayout({ splits: { "smoke-pending": 111 } });
+  assert(layoutNs.layoutPref("splits", "smoke-pending") === 321, `后端偏好到达时把还没写出去的本地改动顶回了旧值:${layoutNs.layoutPref("splits", "smoke-pending")}`);
+  layoutNs.setLayoutPref("splits", "smoke-pending", null);
+  layoutNs.flushLayout();
+
+  // 缺陷 F 的范围:线路在跑时只有**最新一次运行**里悬空的调用保留运行态;更早轮次悬空的(崩溃、停止时没补写
+  // completed)照旧收成「中断」,不带停止按钮、不计在跑数、不挡自动收起。
+  activityNs.bgClear();
+  vm.runInContext('transitionSession("sess-tp", "running")', sandbox);
+  activityNs.renderRecoveredTraces([
+    { run_id: "run-old", events: [{ id: "tp-old-bash", kind: "tool.started", name: "bash", summary: "cargo test(上一轮崩溃时悬空)" }] },
+    { run_id: "run-cur", partial: true, events: [{ id: "tp-cur-bash", kind: "tool.started", name: "bash", summary: "cargo build" }] },
+  ]);
+  await settleAll();
+  const oldBash = activityNs.bgEntries.get("tp-old-bash");
+  const curBash = activityNs.bgEntries.get("tp-cur-bash");
+  assert(oldBash?.done && oldBash.outcomeState === "interrupted" && oldBash.section === "done", `更早运行里悬空的调用被复活成了「运行中」:${oldBash?.section}/${oldBash?.outcomeState}`);
+  assert(curBash && !curBash.done && curBash.section === "running" && activityNs.bgRunningCount("sess-tp") === 1, `最新一次运行里在跑的调用应保留运行态(且只有它计入在跑数):${curBash?.section} / ${activityNs.bgRunningCount("sess-tp")}`);
+  toolEnd({ payload: { id: "tp-cur-bash", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp" } });
+  vm.runInContext('transitionSession("sess-tp", "idle")', sandbox);
+  await settleAll();
 
   // 复位:时钟、焦点探针、活动线路。
   await settleAll();

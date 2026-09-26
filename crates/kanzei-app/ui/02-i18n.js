@@ -1105,7 +1105,7 @@ export const I18N_EN = {
   "加宽侧栏": "Widen panel", "恢复宽度": "Restore width", "筛选与清理": "Filter and clean up", "终端条目类型": "Entry type", "成败": "Outcome",
   "清空已完成": "Clear finished", "清空已完成的终端条目": "Clear finished terminal entries", "没有在跑的后台任务": "No background tasks running",
   "知道了": "Got it", "确认这些失败,挪进已完成": "Acknowledge these failures and move them to Finished", "展开或收起已完成的后台任务": "Expand or collapse finished background tasks",
-  "个失败待查看": "failures to review", "并行委派": "Parallel delegation", "委派": "Delegation", "用时": "Time", "Token": "Tokens",
+  "个失败待查看": "failures to review", "1 个失败待查看": "1 failure to review", "并行委派": "Parallel delegation", "委派": "Delegation", "用时": "Time", "Token": "Tokens",
   "停止这批子代理": "Stop this batch of subagents", "去后台任务侧栏看全": "View the full result in Background tasks",
   "子代理与长命令的进度停靠在对话右侧;偏好存在本机 app.json,即时生效。": "Subagent and long-command progress docks to the right of the chat; saved in app.json and applied immediately.",
   "有子代理或长命令开始时自动打开": "Open automatically when subagents or long commands start", "全部完成后自动收起(有失败时保留)": "Close automatically when everything finishes (kept open on failures)",

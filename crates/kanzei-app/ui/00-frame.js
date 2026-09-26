@@ -383,8 +383,10 @@ export function framePref(target) {
 // 尺寸写成 <html> 上的 CSS 变量 --kz-split-<id>(默认值在 style.css :root),视图 CSS 引用它;
 // 手柄 .resize-handle 是 position:fixed、按窗格矩形同步(窗格本身可能是滚动容器,如 #sidebar)。
 // opts: { id, side: "right"|"left"|"top"|"bottom", min, max(数字或返回数字的函数), key?(旧 localStorage 键),
-//         title?, ariaLabel?, onChange?(px|null) }
-export function installSplit(pane, { id, side = "right", min, max, key, title, ariaLabel, onChange } = {}) {
+//         title?, ariaLabel?(按当前语言译好的文案), titleKey?, ariaKey?(词条键), onChange?(px|null) }
+// 00-frame 零 import、不碰 t():文案由调用方译好传进来,词条键记到 data-i18n-title / data-i18n-aria-label,
+// 运行中切语言由 applyLanguage 经 data-i18n-* 重译(否则切到英文后分隔条的读屏名还是中文)。
+export function installSplit(pane, { id, side = "right", min, max, key, title, ariaLabel, titleKey, ariaKey, onChange } = {}) {
   if (!pane || !id || pane._kzSplit) return pane?._kzSplit ?? null;
   const cssVar = `--kz-split-${id}`;
   const rootStyle = document.documentElement.style;
@@ -398,7 +400,9 @@ export function installSplit(pane, { id, side = "right", min, max, key, title, a
   handle.setAttribute("role", "separator");
   handle.setAttribute("aria-orientation", vertical ? "horizontal" : "vertical");
   if (title) handle.title = title;
+  if (titleKey) handle.dataset.i18nTitle = titleKey;
   if (ariaLabel) handle.setAttribute("aria-label", ariaLabel);
+  if (ariaKey) handle.dataset.i18nAriaLabel = ariaKey;
   pane.appendChild(handle);
   const sync = () => {
     const r = pane.getBoundingClientRect();

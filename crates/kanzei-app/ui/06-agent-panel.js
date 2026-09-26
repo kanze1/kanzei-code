@@ -13,8 +13,8 @@
 // 数据只读 05-subagents.js 与 06-activity.js 的模型,不新增 IPC 或事件。
 import { installSplit } from "./00-frame.js";
 import { $, activePane, defer, invoke, messages, motionCount, motionSync, on } from "./01-core.js";
-import { t } from "./02-i18n.js";
-import { activeSessionId, log, navigate_view } from "./03-shell.js";
+import { languageIsEnglish, t } from "./02-i18n.js";
+import { activeSessionId, log, navigate_view, sessionState } from "./03-shell.js";
 import { onLayoutChange, setSidePanelPref, sidePanelPrefs } from "./03-layout.js";
 import { followLatest, scrollBottom } from "./05-chat-render.js";
 import {
@@ -41,12 +41,15 @@ import {
 } from "./05-subagents.js";
 import { bgAck, bgDoneOpen, bgRunningCount, bgSectionCounts, fastStatusText, onBgChange, orchPhaseLabel, setBgDoneOpen } from "./06-activity.js";
 import {
+  SIDE_AUTO_CLOSE_MS,
   SIDE_WIDTH_MIN,
   createSideModel,
   sideClampWidth,
   sideDecide,
   sideDefaultWidth,
   sideDockMode,
+  sideDrawerMax,
+  sideDrawerWidth,
   sideEvent,
   sideMaxWidth,
 } from "./06-side-policy.js";
@@ -66,6 +69,7 @@ let lingerTimer = null;
 let splitApi = null;
 let lastDecision = { visible: false, reason: null, dock: null, lingerMs: null, badge: null };
 let lastDoneOpen = null;
+let lastLanguage = null;
 let reconcileQueued = false;
 const interact = { pointer: false, focus: false, on: false };
 const cards = new Map(); // `${sid}|b${batch}` -> card
@@ -82,6 +86,16 @@ export function setTasksPanelClock(fn) {
 function isInside(node, container) {
   for (let n = node; n; n = n.parentNode) if (n === container) return true;
   return false;
+}
+// 原生下拉(base-select)的列表开着:Esc 归浏览器收列表(与 00-surface 同一判据)。
+function nativePickerOpen(node) {
+  const select = node?.closest?.("select");
+  if (!select) return false;
+  try {
+    return select.matches(":open");
+  } catch {
+    return false; // 不支持 :open 的运行时:没有页面内列表可言
+  }
 }
 function el(tag, className = "", text) {
   const node = document.createElement(tag);
@@ -113,9 +127,15 @@ function mainWidth() {
   // 没有布局的环境(假 DOM、首帧之前)按窗口宽减去 rail 估算。
   return width > 0 ? width : Math.max(0, (window.innerWidth || 0) - 48);
 }
-function panelWidth(mainW) {
+/// 停靠/抽屉与各自的宽度、上限。停靠判据只看停靠口径的宽度(夹在 [320, min(760, 主区 − 600)]);
+/// 抽屉有自己的口径(默认 400,上限主区 − 96)——停靠上限在抽屉态几乎总是 320,拿它夹抽屉就拖不动。
+function panelGeometry(mainW) {
   const stored = splitApi?.value?.() ?? null;
-  return sideClampWidth(stored ?? sideDefaultWidth(window.innerWidth || 0), mainW);
+  const docked = sideClampWidth(stored ?? sideDefaultWidth(window.innerWidth || 0), mainW);
+  const dock = sideDockMode({ mainWidth: mainW, panelWidth: docked });
+  return dock === "drawer"
+    ? { dock, width: sideDrawerWidth(stored, mainW), max: sideDrawerMax(mainW) }
+    : { dock, width: docked, max: sideMaxWidth(mainW) };
 }
 function activeCount(sessionId = sid()) {
   return subagentRunningCount(sessionId) + bgRunningCount(sessionId);
@@ -157,8 +177,8 @@ export function reconcileTasksPanel() {
   const main = $("main");
   const sessionId = sid();
   const mainW = mainWidth();
-  const width = panelWidth(mainW);
-  const dock = sideDockMode({ mainWidth: mainW, panelWidth: width });
+  const geometry = panelGeometry(mainW);
+  const { dock, width } = geometry;
   const active = activeCount(sessionId);
   const decision = sideDecide(model, { sid: sessionId, view: currentView(), dock, active, now: clock(), prefs: sidePanelPrefs() });
   const wasVisible = !panel.classList.contains("hidden");
@@ -178,9 +198,16 @@ export function reconcileTasksPanel() {
   $("tasks-scrim")?.classList.toggle("hidden", !(decision.visible && decision.dock === "drawer"));
   syncToggle(decision.visible);
   syncBadge(decision.badge, active);
-  syncWide(width, mainW);
+  syncWide(geometry);
   if (anchor) restoreScrollAnchor(anchor);
   lastDecision = decision;
+  // 卡片里的文案(表头、类别、统计)在建卡时按当时的语言写入;切语言后整表重画一次。
+  const language = languageIsEnglish() ? "en" : "zh";
+  if (language !== lastLanguage) {
+    const first = lastLanguage === null;
+    lastLanguage = language;
+    if (!first && decision.visible && wasVisible) renderTasksList();
+  }
   if (decision.visible && !wasVisible) {
     void refreshAgentPanelStatus(); // D-278:每次打开都刷新就绪状态
     renderTasksList();
@@ -224,7 +251,8 @@ function syncBadge(badge, active) {
     // 可访问名只在状态变化时重写(读屏不反复播报):「打开或收起后台任务侧栏 · 2 运行中」。
     const bits = [t("打开或收起后台任务侧栏")];
     if (badge?.tone === "run") bits.push(`${badge.count} ${t("运行中")}`);
-    else if (badge?.tone === "err") bits.push(`${badge.count} ${t("个失败待查看")}`);
+    // 英文按数量选词条(「1 failure to review」/「2 failures to review」)。
+    else if (badge?.tone === "err") bits.push(badge.count === 1 ? t("1 个失败待查看") : `${badge.count} ${t("个失败待查看")}`);
     const label = bits.join(" · ");
     if (toggle.getAttribute("aria-label") !== label) toggle.setAttribute("aria-label", label);
   }
@@ -241,11 +269,11 @@ function syncBadge(badge, active) {
     if (head.textContent !== text) head.textContent = text;
   }
 }
-function syncWide(width, mainW) {
+function syncWide({ dock, width, max }) {
   const button = $("tasks-wide");
   if (!button) return;
-  const max = sideMaxWidth(mainW);
-  const wide = max > sideDefaultWidth(window.innerWidth || 0) && width >= max - 1;
+  const base = dock === "drawer" ? sideDrawerWidth(null, mainWidth()) : sideDefaultWidth(window.innerWidth || 0);
+  const wide = max > base && width >= max - 1;
   button.setAttribute("aria-pressed", String(wide));
   const key = wide ? "恢复宽度" : "加宽侧栏";
   if (button.dataset.i18nTitle !== key) {
@@ -273,10 +301,11 @@ export function openTasksPanel({ invoker = null, key = null, batch = null, revea
   if (!run && decision.visible && decision.dock === "drawer") $("tasks-close")?.focus?.();
   return decision;
 }
-/// 用户关闭(✕、rail、Esc、遮罩):确认本线路的失败;本次运行里还有活时压制自动打开,直到下一条用户消息。
+/// 用户关闭(✕、rail、Esc、遮罩):确认本线路的失败;本次运行里不再自动打开,直到下一条用户消息
+/// (延迟收起中、失败保留中关的也算——鞭挞下一轮一派子代理就又弹出来,等于没关)。
 export function closeTasksPanel({ returnFocus = false } = {}) {
   const sessionId = sid();
-  sideEvent(model, { type: "user-close", sid: sessionId, active: activeCount(sessionId) });
+  sideEvent(model, { type: "user-close", sid: sessionId });
   ackLine(sessionId);
   resetDetail();
   reconcileTasksPanel();
@@ -373,6 +402,21 @@ function rowState(run) {
   if (run.state === "cancelled") return "stopped";
   return "done";
 }
+/// 小表表头与卡片类别:中文「子代理」,英文按 Claude 的写法是单数的「Agent」。「子代理」的通用译文是复数的
+/// 「Subagents」(菜单、统计在用),「代理」词条归网络代理(Proxy),所以这里按语言取值,不另造一个中文词条。
+function agentWord() {
+  return languageIsEnglish() ? "Agent" : t("子代理");
+}
+// 模型列只显示型号:「provider:型号」去掉 provider(ollama:qwen3.5:4b → qwen3.5:4b、codex:gpt-5.6-luna → gpt-5.6-luna)。
+// 型号自带的标签(qwen3:8b、phi3:mini-4k)不动:只在剩下的部分还带「:」(provider:型号:标签)或前缀是已知的
+// provider 名时才去。完整 id 留在单元格 title、行的可访问名与详情里。
+const PROVIDER_PREFIX = new Set(["anthropic", "claude", "codex", "openai", "deepseek", "moonshot", "kimi", "ollama", "openrouter", "local"]);
+function modelShort(id) {
+  const text = String(id ?? "");
+  const match = /^([A-Za-z][\w-]*):(.+)$/.exec(text);
+  if (!match) return text;
+  return match[2].includes(":") || PROVIDER_PREFIX.has(match[1].toLowerCase()) ? match[2] : text;
+}
 
 function buildCard(key, sessionId, batch) {
   const card = el("article", "tp-card");
@@ -385,7 +429,7 @@ function buildCard(key, sessionId, batch) {
   const stop = iconButton("tp-card-stop", "■", "停止这批子代理");
   head.append(title, stop);
   const sub = el("div", "tp-card-sub");
-  const kind = el("span", "tp-card-kind", t("子代理"));
+  const kind = el("span", "tp-card-kind", agentWord());
   const elapsed = el("span", "tp-card-elapsed");
   sub.append(kind, el("span", "tp-sep", " · "), elapsed);
   const stats = el("div", "tp-card-sub tp-card-stats");
@@ -403,7 +447,7 @@ function buildCard(key, sessionId, batch) {
   const table = el("div", "tp-agents");
   const tableHead = el("div", "tp-agents-head");
   tableHead.setAttribute("aria-hidden", "true");
-  tableHead.append(el("span", "", t("子代理")), el("span", "", t("模型")), el("span", "", t("Token")), el("span", "", t("用时")));
+  tableHead.append(el("span", "", agentWord()), el("span", "tp-agents-model", t("模型")), el("span", "", t("Token")), el("span", "", t("用时")));
   const rows = el("div", "tp-agents-rows");
   rows.setAttribute("role", "list");
   table.append(tableHead, rows);
@@ -429,11 +473,15 @@ function buildCard(key, sessionId, batch) {
 function isPhaseOpen(record) {
   return phaseOpen.has(record.key) ? phaseOpen.get(record.key) : record.section !== "done";
 }
+/// 一行 = <div role=listitem> 里包一个原生 button:listitem 不能直接挂在 button 上(会盖掉按钮语义,
+/// 读屏不知道它能点开详情)。
 function buildRow(run) {
+  const item = el("div", "tp-agent-item");
+  item.setAttribute("role", "listitem");
   const row = el("button", "tp-agent-row");
   row.type = "button";
-  row.setAttribute("role", "listitem");
   row.dataset.saKey = run.key;
+  item.appendChild(row);
   const name = el("span", "tp-agent-name");
   const glyph = el("span", "kz-glyph sa-glyph");
   glyph.setAttribute("aria-hidden", "true");
@@ -443,7 +491,7 @@ function buildRow(run) {
   const tokens = el("span", "tp-agent-tok");
   const time = el("span", "tp-agent-time");
   row.append(name, modelCell, tokens, time);
-  row._tp = { glyph, label, model: modelCell, tokens, time, aria: null };
+  row._tp = { item, glyph, label, model: modelCell, tokens, time, aria: null, title: null };
   row.addEventListener("click", () => {
     lastInvoker = row;
     showDetail(run);
@@ -466,22 +514,27 @@ function updateRow(row, run, now) {
   row.dataset.s = rowState(run);
   row.dataset.saState = run.state;
   const who = [subagentAgentName(run), run.description].filter(Boolean).join(" · ") || t("子代理");
-  if (ui.label.textContent !== who) {
-    ui.label.textContent = who;
-    ui.label.title = who;
-  }
-  const modelText = run.model || run.tier || "—";
+  if (ui.label.textContent !== who) ui.label.textContent = who;
+  const modelFull = run.model || run.tier || "";
+  const modelText = modelShort(modelFull) || "—";
   if (ui.model.textContent !== modelText) {
     ui.model.textContent = modelText;
-    ui.model.title = modelText;
+    ui.model.title = modelFull;
+  }
+  // 窄侧栏(容器查询)隐去模型列时,模型还在子代理列的 title 里。
+  const title = [who, modelFull].filter(Boolean).join(" · ");
+  if (ui.title !== title) {
+    ui.title = title;
+    ui.label.title = title;
   }
   const tokens = subagentUsageTokens(run.usage);
   const tokenText = tokens > 0 ? formatTokenCount(tokens) : "—";
   if (ui.tokens.textContent !== tokenText) ui.tokens.textContent = tokenText;
   updateRowTime(row, run, now);
-  // 可访问名与卡片同一口径:只随状态/身份变化重写,运行中不带逐秒变化的耗时。
-  const aria = [who, subagentStateWord(run.state) || t("运行中"), SA_ACTIVE.has(run.state) ? "" : subagentMetaText(run, now)]
-    .filter(Boolean).join(" — ");
+  // 可访问名与卡片同一口径:只随状态/身份变化重写,运行中不带逐秒变化的耗时。状态词只拼一次——
+  // 终态用 subagentMetaText(它以状态词开头),运行中才单独补状态词。
+  const state = SA_ACTIVE.has(run.state) ? subagentStateWord(run.state) || t("运行中") : subagentMetaText(run, now);
+  const aria = [who, state, modelShort(modelFull)].filter(Boolean).join(" — ");
   if (ui.aria !== aria) {
     ui.aria = aria;
     row.setAttribute("aria-label", aria);
@@ -538,7 +591,7 @@ function updateCard(record, now) {
     if (!row) {
       row = buildRow(run);
       ui.rowEls.set(run, row);
-      ui.rows.appendChild(row);
+      ui.rows.appendChild(row._tp.item);
     }
     updateRow(row, run, now);
   }
@@ -742,6 +795,12 @@ function renderDetail(run) {
 /// 切换线路:列表换成新线路的数据;详情不属于新线路时回到列表;按新线路的状态重算显隐与徽标。
 export function agentPanelSync() {
   if (detailRun && detailRun.sessionId !== sid()) resetDetail();
+  // 切进一条已经停下的线路:它的活是在别处结束的。子代理结束的时刻由后台 idle 记下(见 subscribe);
+  // 后台线路的终端命令不在册,结束时刻未知——按已到点处理,不因为「切过来那一刻才发现没活了」空弹 6 秒。
+  const sessionId = sid();
+  if (sessionId && !sessionState(sessionId).running && subagentRunningCount(sessionId) === 0) {
+    sideEvent(model, { type: "idle", sid: sessionId, now: clock() - SIDE_AUTO_CLOSE_MS });
+  }
   renderTasksList();
   reconcileTasksPanel();
 }
@@ -752,14 +811,21 @@ export function agentPanelSync() {
 function subscribe() {
   onSubagentChange((run) => {
     if (run && !run.replay) {
-      // 实时子代理第一次进入活动态 = work-start(自动打开的触发之一);历史回放不报。
+      const onActiveLine = (run.sessionId || "") === sid();
+      // 活动线路上实时子代理第一次进入活动态 = work-start(自动打开的触发之一);历史回放不报。
+      // 后台线路上开始的只记账不报:用户切过去时它不该空弹(§7.1「自动打开」)。
       if (SA_ACTIVE.has(run.state) && !reportedStart.has(run)) {
         reportedStart.add(run);
-        sideEvent(model, { type: "work-start", sid: run.sessionId }, sidePanelPrefs());
+        if (onActiveLine) sideEvent(model, { type: "work-start", sid: run.sessionId }, sidePanelPrefs());
       }
       if (HOLD_STATES.has(run.state) && !reportedFailure.has(run)) {
         reportedFailure.add(run);
         sideEvent(model, { type: "failure", sid: run.sessionId, key: run.key, hold: true });
+      }
+      // 不在前台的线路活全部结束:它的自动态从这一刻起计 6 秒(活动线路由 sideDecide 自己计)。
+      // 否则那条线路自动打开后切走、在后台跑完,切回来时才开始计时,侧栏空弹 6 秒。
+      if (!onActiveLine && !SA_ACTIVE.has(run.state) && subagentRunningCount(run.sessionId) === 0) {
+        sideEvent(model, { type: "idle", sid: run.sessionId, now: clock() });
       }
     }
     if (panelMode === "detail" && detailRun) {
@@ -853,9 +919,9 @@ defer(() => {
   });
   $("tasks-wide")?.addEventListener("click", () => {
     if (!splitApi) return;
-    const mainW = mainWidth();
-    if (panelWidth(mainW) >= sideMaxWidth(mainW) - 1) splitApi.reset();
-    else splitApi.set(sideMaxWidth(mainW));
+    const { width, max } = panelGeometry(mainWidth());
+    if (width >= max - 1) splitApi.reset();
+    else splitApi.set(max);
   });
   $("agent-back")?.addEventListener("click", () => {
     showList();
@@ -864,6 +930,10 @@ defer(() => {
   // Esc 挂在侧栏自身(不挂 document/window,ui_surface_stack §5):详情回列表,列表关侧栏(算用户关闭)并还焦点。
   panel?.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || event.isComposing) return;
+    // 弹层里的 Esc 归 00-surface 与浏览器:「筛选与清理」菜单里原生下拉的列表开着时,00-surface 有意放行让浏览器
+    // 收列表;事件冒泡到这里若当成「用户关闭侧栏」,会确认本线路的失败、压制本次运行,菜单与下拉的打开态还被
+    // 孤立在隐藏的侧栏里。只有焦点直接在侧栏里(不在弹层里)时才走「详情回列表 / 关闭」。
+    if (event.defaultPrevented || event.target?.closest?.("[popover]") || nativePickerOpen(event.target)) return;
     event.preventDefault?.();
     event.stopPropagation?.();
     if (panelMode === "detail") {
@@ -892,14 +962,17 @@ defer(() => {
     $(id)?.addEventListener("change", (event) => setSidePanelPref(key, Boolean(event?.target?.checked ?? $(id).checked)));
   }
   syncSettingsControls();
-  // 左缘分隔条:宽度夹在 [320, min(760, 主区 − 600)],偏好经 ui_layout.splits.tasks 持久化;⤢ 在默认宽与上限之间切换。
+  // 左缘分隔条:停靠时宽度夹在 [320, min(760, 主区 − 600)],抽屉时 [320, 主区 − 96];偏好经 ui_layout.splits.tasks
+  // 持久化;⤢ 在默认宽与当前形态的上限之间切换。
   splitApi = installSplit(panel, {
     id: "tasks",
     side: "left",
     min: SIDE_WIDTH_MIN,
-    max: () => sideMaxWidth(mainWidth()),
+    max: () => panelGeometry(mainWidth()).max,
     title: t("拖动调整面板宽度"),
+    titleKey: "拖动调整面板宽度",
     ariaLabel: t("调整后台任务侧栏宽度"),
+    ariaKey: "调整后台任务侧栏宽度",
     onChange: () => reconcileTasksPanel(),
   });
   // 主区尺寸变化(窗口缩放、左侧栏开合)重算停靠/抽屉;按帧合并。

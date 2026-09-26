@@ -4,11 +4,13 @@
 // 口径:
 // - 「本次运行」= 从用户手动发出一条消息到下一条用户消息;鞭挞自动续跑的轮次继承同一次运行
 //   (否则用户关掉侧栏后,下一轮鞭挞马上又弹开)。
-// - 自动打开只由「活动线路上开始了实时的子代理 / 跑满 3 秒的终端命令」触发;历史回放不触发。
-// - 用户在本次运行里关过 → 本次运行内不再自动打开(直到下一条用户消息)。
+// - 自动打开只由「活动线路上开始了实时的子代理 / 跑满 3 秒的终端命令」触发;历史回放、后台线路上开始的都不触发。
+// - 用户在本次运行里关过 → 本次运行内不再自动打开(直到下一条用户消息)。不论关的那一刻还有没有活:
+//   延迟收起期间、失败保留期间关掉,正是鞭挞循环里最常见的时刻,下一轮一派子代理又弹出来就等于没关。
 // - 自动打开的侧栏在全部结束后 6 秒自动收起;指针悬停/焦点在侧栏内时暂停计时;
 //   有未确认的「值得停留的失败」(实时子代理失败/超时/中断/未启动,或跑满 3 秒后失败的终端命令)时不收起。
-// - 用户手动打开(rail/↗/命令面板)= pinned,不自动收起;用户关闭 = 取消 pinned + 确认失败 + (有活时)压制本次运行。
+//   不在前台的线路由调用方报 idle(活全部结束的时刻),切回来时已过 6 秒就直接退出自动态,不空弹。
+// - 用户手动打开(rail/↗/命令面板)= pinned,不自动收起;用户关闭 = 取消 pinned + 确认失败 + 压制本次运行。
 // - 抽屉态(停靠后对话列不足 600px)不自动打开,只亮徽标;窗口变宽后若仍处于自动态则显示。
 // - 只在对话视图显示;切到别的视图不改任何状态,回来按状态重算。
 export const SIDE_AUTO_CLOSE_MS = 6000;
@@ -16,6 +18,9 @@ export const SIDE_TERMINAL_AUTO_MS = 3000;
 export const SIDE_CHAT_MIN = 600;
 export const SIDE_WIDTH_MIN = 320;
 export const SIDE_WIDTH_MAX = 760;
+/// 抽屉(盖在对话上)的口径与停靠不同:默认 400,可拖到「主区宽 − 96」(左边至少露出 96px 对话与遮罩)。
+export const SIDE_DRAWER_DEFAULT = 400;
+export const SIDE_DRAWER_GUTTER = 96;
 
 /// 默认宽度 clamp(360, 26vw, 520):1600 宽 416,2000 宽 520。
 export function sideDefaultWidth(viewportWidth) {
@@ -33,6 +38,15 @@ export function sideMaxWidth(mainWidth) {
 export function sideClampWidth(width, mainWidth) {
   return Math.round(Math.min(sideMaxWidth(mainWidth), Math.max(SIDE_WIDTH_MIN, Number(width) || 0)));
 }
+/// 抽屉宽度上限:主区宽 − 96(不低于 320)。停靠判据的上限在抽屉态几乎总是 320,不能拿来夹抽屉。
+export function sideDrawerMax(mainWidth) {
+  return Math.max(SIDE_WIDTH_MIN, Math.round((Number(mainWidth) || 0) - SIDE_DRAWER_GUTTER));
+}
+/// 抽屉宽度:用户拖过的宽度(没有就 400)夹到 [320, 主区 − 96]。
+export function sideDrawerWidth(stored, mainWidth) {
+  const want = Number(stored) > 0 ? Number(stored) : SIDE_DRAWER_DEFAULT;
+  return Math.round(Math.min(sideDrawerMax(mainWidth), Math.max(SIDE_WIDTH_MIN, want)));
+}
 
 export function createSideModel() {
   return { pinned: false, lines: new Map() };
@@ -49,12 +63,14 @@ function lineOf(model, sid) {
 
 /// 事件入口(就地改 model,返回 model)。event.type:
 ///   user-run   用户手动发消息(sendText 的非鞭挞分支):开启新的一次运行,上次的压制与失败都算看过了
-///   work-start 实时子代理开始 / 终端命令跑满 3 秒(调用方负责只报实时的)
+///   work-start 活动线路上实时子代理开始 / 终端命令跑满 3 秒(调用方负责只报实时的、活动线路的)
+///   idle       不在前台的线路活全部结束({ now } = 结束的时刻):自动态从这一刻起计 6 秒;
+///              切回来时已过 6 秒,sideDecide 直接退出自动态,不再空弹
 ///   failure    值得停留的实时失败({ key, hold })
 ///   ack        用户确认了失败(「知道了」;{ key } = 只确认打开了详情的那一次)
 ///   interact   指针进出 / 焦点进出侧栏({ on, now })
 ///   user-open  用户手动打开
-///   user-close 用户手动关闭({ active }:此刻还有活就压制本次运行)
+///   user-close 用户手动关闭:压制本次运行(不论此刻还有没有活)
 export function sideEvent(model, event, prefs = { autoOpen: true, autoClose: true }) {
   const line = lineOf(model, event.sid);
   switch (event.type) {
@@ -66,6 +82,9 @@ export function sideEvent(model, event, prefs = { autoOpen: true, autoClose: tru
     case "work-start":
       line.settledAt = 0;
       if (prefs.autoOpen && line.suppressedRun !== line.userRun) line.auto = true;
+      break;
+    case "idle":
+      if (line.auto && !line.settledAt) line.settledAt = event.now ?? 0;
       break;
     case "failure":
       if (event.hold) line.holds.add(String(event.key));
@@ -86,7 +105,7 @@ export function sideEvent(model, event, prefs = { autoOpen: true, autoClose: tru
       line.auto = false;
       line.settledAt = 0;
       line.holds.clear();
-      if ((event.active ?? 0) > 0) line.suppressedRun = line.userRun;
+      line.suppressedRun = line.userRun;
       break;
     default:
       break;

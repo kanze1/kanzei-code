@@ -3257,7 +3257,7 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 #main > #statusbar { grid-column: 1 / -1; grid-row: 3; min-width: 0; }
 #main > #tasks-panel { grid-column: 2; grid-row: 1 / span 2; }
 /* 侧栏本体:纵向排版,列表与详情各自滚动;底色、左分隔线、阴影归 surface.css 的 .k-panel[data-dock]。 */
-#tasks-panel { --kz-tasks-w: 400px; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#tasks-panel { --kz-tasks-w: 400px; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; container: tasks / inline-size; }
 #tasks-panel.hidden { display: none; }
 /* 抽屉(停靠后对话列不足 600px):盖在对话与日志上,底边到状态栏上沿;包含块是网格区域(两列都占)。 */
 #main > #tasks-panel[data-dock="drawer"] {
@@ -3308,7 +3308,7 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .tp-dots i[data-s="failed"] { background: var(--err); }
 .tp-dots i[data-s="warn"] { background: var(--warn); }
 .tp-agents { display: flex; flex-direction: column; min-width: 0; font-size: var(--fs-11-5); }
-.tp-agents-head, .tp-agent-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 30%) 50px 52px; gap: 6px; align-items: baseline; }
+.tp-agents-head, .tp-agent-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 24%) 50px 52px; gap: 6px; align-items: baseline; }
 .tp-agents-head { padding: 2px 4px; color: var(--dim); }
 .tp-agents-head > span:not(:first-child), .tp-agent-row > span:not(:first-child) { text-align: right; }
 .tp-agent-row {
@@ -3324,6 +3324,13 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .tp-agent-row[data-s="running"] .tp-agent-label { color: var(--fg-strong); }
 .tp-agent-row .sa-glyph { width: 12px; }
 .tp-agent-row[data-s="warn"] .sa-glyph { color: var(--warn); }
+/* 窄侧栏(容器查询,≤440px:1280@1.5 的停靠宽 352/360、1600@1.25 的默认宽 416、抽屉 320)隐去模型列,
+   子代理列拿回宽度、描述整段可读(Claude 的表里 Agent 列是完整的)——模型仍在子代理列的 title、行的可访问名与
+   详情里。2000@1 的默认宽 520,或用户拖宽/⤢ 之后,保留 Claude 的四列。 */
+@container tasks (max-width: 440px) {
+  .tp-agents-head, .tp-agent-row { grid-template-columns: minmax(0, 1fr) 48px 48px; }
+  .tp-agents-model, .tp-agent-model { display: none; }
+}
 .tp-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* rail 徽标:在跑 = 强调色(同 .rail-badge);没在跑但有未确认的失败 = 红(失败的语义色),--bg 字在两者上都 ≥ 4.5。 */
 #tasks-badge[data-tone="err"] { background: var(--err); }

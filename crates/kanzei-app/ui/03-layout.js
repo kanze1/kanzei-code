@@ -128,21 +128,22 @@ setFrameStore(layoutFrameStore);
 defer(() => {
   bindFrames(document);
   // 布局分隔条:尺寸写成 <html> 上的 --kz-split-<id>,style.css 的默认值与引用点在同名变量上。
+  // 文案按当前语言译好传入,词条键一并传入(切语言时经 data-i18n-* 重译)。
   installSplit($("sidebar"), {
     id: "sidebar", side: "right", min: 220, max: 460, key: "kz-sidebar-width",
-    title: t("拖动调整面板宽度"), ariaLabel: t("调整面板宽度"),
+    title: t("拖动调整面板宽度"), titleKey: "拖动调整面板宽度", ariaLabel: t("调整面板宽度"), ariaKey: "调整面板宽度",
   });
   installSplit($("log-panel"), {
     id: "log", side: "top", min: 80, max: () => Math.round(window.innerHeight * 0.6),
-    title: t("拖动调整面板高度"), ariaLabel: t("调整面板高度"),
+    title: t("拖动调整面板高度"), titleKey: "拖动调整面板高度", ariaLabel: t("调整面板高度"), ariaKey: "调整面板高度",
   });
   installSplit($("files-side"), {
     id: "files", side: "right", min: 200, max: () => Math.round(window.innerWidth * 0.5),
-    title: t("拖动调整面板宽度"), ariaLabel: t("调整面板宽度"),
+    title: t("拖动调整面板宽度"), titleKey: "拖动调整面板宽度", ariaLabel: t("调整面板宽度"), ariaKey: "调整面板宽度",
   });
   installSplit(document.querySelector("#view-memory .memory-list-pane"), {
     id: "memory", side: "right", min: 200, max: 520,
-    title: t("拖动调整面板宽度"), ariaLabel: t("调整面板宽度"),
+    title: t("拖动调整面板宽度"), titleKey: "拖动调整面板宽度", ariaLabel: t("调整面板宽度"), ariaKey: "调整面板宽度",
   });
   void uiPrefsLoad().then((prefs) => adoptLayout(prefs?.ui_layout));
   window.addEventListener("pagehide", flushLayout);

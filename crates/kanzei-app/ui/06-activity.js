@@ -894,7 +894,11 @@ export function renderRecoveredTraces(payloads) {
     if (entry) entry.replay = true;
     return entry;
   };
+  // 每条 started 属于哪次运行(payload.run_id,state.rs 按运行增量落盘);最后一个 payload 的 run_id 是最新一次运行。
+  const startedRun = new Map();
+  let latestRun;
   for (const payload of payloads || []) {
+    if (payload?.run_id !== undefined) latestRun = payload.run_id;
     for (const event of payload.events || []) {
       if (!event.id) continue; // turn.started / context.compacted 等无 id 事件不进列表
       // UI-0926 #8:落库的 task-progress(无 kind 字段)回放进子代理卡片——计数、工具列表、
@@ -908,6 +912,7 @@ export function renderRecoveredTraces(payloads) {
       }
       if (event.kind === "tool.started") {
         if (!event.name) continue;
+        startedRun.set(event.id, payload.run_id);
         // 回放与实时路径一致:终端进条目,其余静默待定(失败才补建)。
         if (bgQuiet(event.name)) {
           bgStartQuiet(event.id, event.name, event.summary || "", null);
@@ -947,12 +952,15 @@ export function renderRecoveredTraces(payloads) {
       }
     }
   }
-  // 只 started 没 completed 的:线路**还在跑**时它们就是正在跑的调用,保留运行态(缺陷 F:切到在跑的
-  // 线路时它们曾一律被收成「中断」);线路已停才是轮次中断,收敛终态,不留假 running 与停止按钮。
+  // 只 started 没 completed 的:线路**还在跑**时,**最新一次运行**里的它们就是正在跑的调用,保留运行态(缺陷 F:
+  // 切到在跑的线路时它们曾一律被收成「中断」)。更早运行里悬空的(崩溃、停止时没补写 completed)与线路已停时的
+  // 都是轮次中断,收敛终态,不留假 running、停止按钮,也不挡自动收起。不是这次回放建的条目(回放途中到达的实时调用)
+  // 按最新一次运行算。
   const lineRunning = Boolean(activeSessionId) && sessionState(activeSessionId).running === true;
   for (const [id, entry] of bgEntries) {
     if (entry.done) continue;
-    if (lineRunning) {
+    const run = startedRun.has(id) ? startedRun.get(id) : latestRun;
+    if (lineRunning && run === latestRun) {
       // 真实的收尾事件还会来(bgEnd);只是不再因为「跑满 3 秒」触发自动打开——用户是自己切过来看的。
       entry.replay = false;
       entry.longReported = true;
