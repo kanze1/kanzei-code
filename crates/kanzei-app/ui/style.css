@@ -248,6 +248,12 @@ body {
 }
 .project-switch-caret { flex: 0 0 auto; color: var(--dim); font-size: var(--fs-10); transition: transform .12s ease; }
 .project-switch[aria-expanded="true"] .project-switch-caret { transform: rotate(180deg); }
+/* UI2-0926 #1:项目卡 = 唯一的项目切换入口,点开是 openMenu 现造的项目菜单(外观归 surface.css,
+   这里只给宽度:与项目卡同宽——min-width 归弹层层(.k-menu 200px,层序压过本文件),所以写 width;
+   左右两缘与项目卡对齐靠 surface.css 的 .k-menu.project-menu { margin-inline: 0 },横向偏移归那一层)。
+   菜单开着时卡片保持中性按下态。 */
+.project-switch[aria-expanded="true"] { background: var(--surface-selected); }
+.project-menu { width: anchor-size(width); }
 /* 新对话 = 侧栏里的一行导航项(Codex 式):图标 + 文字左对齐,静止无底无框,悬停才出柔灰块。 */
 .new-chat-btn {
   display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%;
@@ -269,10 +275,13 @@ body {
 .section-title > .quickreq-form { flex: 1 0 100%; min-width: 0; }
 /* 分区标题文字可点击折叠;控件(筛选/按钮)不参与折叠切换 */
 .section-title > span:first-child { flex: 1 1 auto; min-width: 0; cursor: pointer; }
-.section-title > span:first-child::after { content: " ▾"; }
+/* 展开态的 ▾ 只在悬停/键盘聚焦标题时出现(Codex 式,常显的一排小三角是噪音);收起态的 ▸ 常显——
+   它是「这里还有内容」的唯一提示。 */
+.section-title > span:first-child::after { content: " ▾"; color: transparent; transition: color var(--motion-fast) var(--ease-out); }
+.section-title > span:first-child:is(:hover, :focus-visible)::after { color: var(--dim); }
 .section-title > span:first-child:hover { color: var(--fg-strong); }
 .sidebar-section.collapsed > *:not(.section-title) { display: none; }
-.sidebar-section.collapsed .section-title > span:first-child::after { content: " ▸"; }
+.sidebar-section.collapsed .section-title > span:first-child::after { content: " ▸"; color: var(--dim); }
 
 /* 当前进展:任务卡列表占满一行,下面只剩一行实时状态「轮次 · 当前工具」(UI-0926 #4:
    原先四行实时文字分别与任务卡阶段、对话流、焦点卡重复,删掉两行、剩下两段并成一行)。 */
@@ -304,20 +313,6 @@ body {
    ⌂ ☷ ❖ ＋ ↻ 这些字形中间会突兀得像贴上去的。 */
 .icon-btn svg { width: 14px; height: 14px; display: block; margin: 0 auto; }
 
-.project-list { display: flex; flex-direction: column; }
-.project-item {
-  padding: 8px 10px; margin: 1px 8px; min-height: 34px; border-radius: var(--r-md);
-  display: flex; align-items: center; gap: 8px; cursor: pointer;
-}
-.project-item:hover { background: var(--surface-hover); }
-.project-item.active { background: var(--surface-selected); }
-.project-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.project-item .name { font-weight: 500; color: var(--fg-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
-.project-item .path { display: none; }
-.project-item .remove, .project-item .rename { visibility: hidden; flex-shrink: 0; }
-.project-item:hover .remove, .project-item:hover .rename { visibility: visible; }
-.project-item:focus-within .remove, .project-item:focus-within .rename { visibility: visible; }
-
 .doc-filter {
   min-width: 84px; max-width: 160px; height: 26px; padding: 3px 8px;
   background: var(--input); color: var(--fg); border: 1px solid var(--border);
@@ -326,15 +321,18 @@ body {
 .doc-empty { padding: 2px 14px; color: var(--dim); font-size: var(--fs-12); }
 /* 被筛空要显眼:一片空白会被当成数据丢失 */
 .doc-filtered-empty { color: var(--warn); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 14px; }
-/* D-170:项目隔离失效的告警。数据串项目是最严重的一类问题,必须显眼 */
+/* D-170:项目隔离失效的告警。数据串项目是最严重的一类问题,必须显眼——常驻在项目卡正下方(.project-warn-slot,
+   在吸顶的工作区头里,滚动侧栏也不会被卷走)。 */
 .project-shared-warn {
-  margin: 4px 10px 6px; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
+  margin: 0; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
   color: var(--alert); background: var(--alert-soft);
   border: 1px solid color-mix(in srgb, var(--alert) 28%, transparent); border-radius: var(--r-md);
   display: flex; flex-direction: column; gap: 5px; align-items: flex-start;
   word-break: break-all;
 }
 .project-shared-warn.hidden { display: none; }
+/* 告警不在时槽整个不占位:工作区头是 flex 列 + gap,空槽也会多吃一截间距。 */
+.project-warn-slot:has(> .project-shared-warn.hidden) { display: none; }
 .doc-item { padding: 6px 16px; display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
 .doc-item:hover { background: var(--surface-hover); }
 /* 取活焦点(D-207):在做条目不再染底、不画竖条——「在做」由 doing 胶囊(强调色)+ 线真在跑时的呼吸点
@@ -384,6 +382,15 @@ body {
 .focus-block-reason { font-size: var(--fs-11); color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .focus-empty { padding: 2px; font-size: var(--fs-12); line-height: 1.5; color: var(--dim); }
 .line-focus-empty { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* UI2-0926 侧栏密度:没取得条目的线只占一行——身份在左(可省略号截断),「未取得条目」暗色小字靠右。
+   一行式只给真正没取得的线(有取活声明的线照旧两段),右边永远是这个短标签,所以它不缩、不截断
+   (英文 No claimed item 曾被 55% 上限截成 No claimed it…),让位只让左边的线路身份。 */
+.line-focus-compact { flex-direction: row; align-items: baseline; gap: 8px; }
+.line-focus-compact > .line-focus-head { flex: 1 1 auto; min-width: 0; }
+.line-focus-compact > .line-focus-empty { flex: 0 0 auto; font-size: var(--fs-11); }
+/* 「记需求 / 记缺陷」是分区标题旁的轻入口:去掉描边与底,悬停才出柔灰块(与分区标题同一明暗档)。 */
+#focus-section .section-title .ghost.mini { border-color: transparent; background: transparent; color: var(--dim); }
+#focus-section .section-title .ghost.mini:hover { background: var(--surface-hover); color: var(--fg-strong); }
 .focus-empty-global { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--fg); }
 @media (prefers-reduced-motion: reduce) { .focus-card, .focus-more { transition: none; } }
 /* 侧栏待办计数:总数一行 + 需求/缺陷各一行。三个数字构成加法树
@@ -472,8 +479,23 @@ body {
   content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px;
   border-radius: 0 3px 3px 0; background: var(--fg-strong);
 }
-.workspace-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* UI2-0926 #1:卡片与焦点卡同一种结构——标题是真按钮(.workspace-card-open,键盘可达、读屏有名),
+   ::after 撑满整卡当点击层;⋯ 叠在点击层之上。卡片大、数量少,⋯ 常显(暗色图标按钮),
+   平时隐形会让状态胶囊离右边缘空出一截,看着像没对齐。 */
 .workspace-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.workspace-card-open {
+  all: unset; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 600; color: var(--fg-strong); cursor: pointer;
+}
+.workspace-card-open::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.workspace-card:has(.workspace-card-open:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.workspace-card-head .workspace-status { margin-left: auto; }
+.workspace-card-more { position: relative; z-index: var(--z-raised); flex: 0 0 auto; width: 22px; height: 22px; }
+.workspace-card-more[aria-expanded="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+.workspace-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; max-width: 1100px; margin-bottom: 16px; }
+.workspace-head-text { min-width: 0; }
+.workspace-head-text p.dim { max-width: 78ch; margin: 0; line-height: 1.6; }
+.workspace-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 .workspace-status { padding: 2px 8px; border-radius: var(--r-pill); font-size: var(--fs-11); }
 .workspace-status.running { color: var(--accent-text); background: var(--accent-soft); }
 /* 项目卡是 --surface-raised(暗色最亮的一层):半透明底上的 --dim / --err 合成后都不到 4.5(③b),
@@ -501,8 +523,8 @@ body {
 .doc-item .complexity-cell.filled, .focus-card .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
 /* UI-0926 #4:工具栏只剩「页签分段 + 筛选(n) + 更多」一行,不再是一块 17 个控件的底板。 */
 .documents-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 14px 0 10px; }
-.documents-list { max-width: 980px; border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 0; }
-.documents-list .doc-item { padding: 8px 14px; }
+/* 列表不再套外框(UI2-0926 #5:行靠留白与明暗分层,见「需求页字阶」块)。 */
+.documents-list { max-width: 980px; }
 /* 依赖视图(R-111):可做/被阻塞两层,点击条目高亮依赖链(向上依赖+向下被依赖)。 */
 .dep-view { max-width: 980px; display: flex; flex-direction: column; gap: 10px; }
 .dep-layer-head { font-size: var(--fs-12); margin: 6px 0 4px; font-weight: 600; }
@@ -2376,10 +2398,16 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .tool-icon { flex: none; width: 15px; height: 15px; align-self: center; color: var(--dim); }
 .tool-icon svg { width: 15px; height: 15px; display: block; }
 
-/* 侧栏隔离工作树:只读两行(分支 / 归属与改动量),无按钮。 */
-.worktree-readonly .worktree-entry { display: flex; flex-direction: column; gap: 1px; padding: 3px 14px; }
-.worktree-readonly .worktree-branch { color: var(--fg); font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.worktree-readonly .worktree-meta { color: var(--dim); font-size: var(--fs-10-5); }
+/* 侧栏隔离工作树:只读一行(分支在左、改动量靠右),无操作按钮;最多 6 棵,其余一条「查看全部」跳线路页。 */
+.worktree-readonly .worktree-entry { display: flex; flex-direction: row; align-items: baseline; justify-content: space-between; gap: 8px; padding: 3px 16px; }
+.worktree-readonly .worktree-branch { flex: 1 1 auto; min-width: 0; color: var(--fg); font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worktree-readonly .worktree-meta { flex: 0 0 auto; margin-top: 0; color: var(--dim); font-size: var(--fs-10-5); font-variant-numeric: tabular-nums; }
+.worktree-more {
+  display: block; width: 100%; padding: 4px 16px; border: 0; background: transparent;
+  color: var(--dim); font: inherit; font-size: var(--fs-11); text-align: left; cursor: pointer;
+}
+.worktree-more:hover { color: var(--fg-strong); }
+.worktree-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .worktree-readonly .worktree-entry.dirty .worktree-meta { color: var(--fg); }
 /* 线路页的工作树操作台:一行一棵,右侧放操作。 */
 .lines-worktree-list { display: flex; flex-direction: column; gap: 6px; }
@@ -2989,6 +3017,88 @@ html[lang="en"] .documents-list .doc-row .complexity-badge { flex-basis: 46px; }
 .work-unit-details > summary:hover { color: var(--fg-strong); }
 .work-unit-details > .work-unit-list { margin-bottom: 0; }
 .doc-edit-actions { gap: 6px; }
+
+/* ── UI2-0926 #5 需求页字阶:「缺少字体之间的间隔和明暗关系」(用户对照 Codex) ──
+   明暗三档:标题 --fg-strong 14px 是全行唯一的主角;状态/批次/优先级/复杂度/组头都是暗而小的元数据;
+   例外标记(阻塞、W active、被取得)是纯文字,不再是一排胶囊。间距一套刻度:列距 12,行高 36,行内边距 12。
+   颜色语义不在这里改(优先级胶囊、批次格中性、doing 强调色都照 ui_color_semantics.md 原样),只动字号、字重、
+   明暗档与间距。行结构见 11-docs-list.js renderDocList:[勾选][状态][标题][例外标记][批次格槽][优先级][复杂度]。 */
+.documents-list {
+  --doc-pad-x: 12px; --doc-col-gap: 12px; --doc-pick-w: 13px; --doc-st-w: 56px;
+  --doc-title-inset: calc(var(--doc-pad-x) + var(--doc-pick-w) + var(--doc-col-gap) + var(--doc-st-w) + var(--doc-col-gap));
+}
+#documents-scroll.compare .documents-list { --doc-title-inset: 24px; }
+.documents-list .doc-item { padding: 0; gap: 0; }
+.documents-list .doc-item:hover { background: transparent; }
+.documents-list .doc-row {
+  position: relative; align-items: center; gap: var(--doc-col-gap); min-height: 36px; padding: 7px var(--doc-pad-x);
+  border-radius: var(--r-md); transition: background var(--motion-fast) var(--ease-out);
+}
+.documents-list .doc-row:hover { background: var(--surface-hover); }
+.documents-list .doc-row[aria-expanded="true"] { background: var(--surface-selected); }
+.documents-list .doc-row .title { color: var(--fg-strong); font-size: var(--fs-14); line-height: 20px; }
+/* 状态列:暗色 12px 文字;在做 = 强调色(语义表「橙 = 进行中」),完成 = 绿。 */
+/* 状态列宽按最长的状态词定:中文界面显示原词(doing/wontfix…,最宽约 46px),英文 In progress 在 12px 500
+   下约 61px,所以英文放宽到 68px(--doc-title-inset 随变量一起走,详情内容照样对齐标题)。min-width: 0 +
+   省略号兜底:列宽只由变量决定,不认识的状态词再长也只截断、不把这一行的标题推歪(全称在 tooltip)。 */
+html[lang="en"] .documents-list { --doc-st-w: 68px; }
+.documents-list .doc-row .st {
+  flex: 0 0 var(--doc-st-w); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-12); font-weight: 400; color: var(--dim);
+}
+.documents-list .doc-row :is(.st-doing, .st-fixing) { color: var(--accent-text); font-weight: 500; }
+.documents-list .doc-row :is(.st-done, .st-fixed, .st-confirmed) { color: var(--ok); }
+/* 右端三条定宽暗列。优先级胶囊的底与字仍归 .pri-badge.P*(P0 红、P1 实底亮字、P2 无底、P3 描边),这里只定列宽;
+   未设只写「—」,不再套一个描边空框。 */
+.documents-list .doc-row .pri-badge { flex: 0 0 30px; padding: 1px 0; font-variant-numeric: tabular-nums; }
+.documents-list .doc-row .pri-badge.unset { box-shadow: none; }
+.documents-list .doc-row .pri-badge.unset:hover { box-shadow: inset 0 0 0 1px var(--border); }
+.documents-list .doc-row .complexity-badge { flex: 0 0 18px; font-size: var(--fs-12); color: var(--dim); }
+.documents-list .doc-meter-slot { flex: 0 0 44px; display: flex; align-items: center; }
+.documents-list .doc-meter-slot .complexity-meter { flex: 1 1 auto; width: 100%; height: 4px; padding: 0; gap: 2px; }
+.documents-list .doc-meter-slot .complexity-cell { height: 4px; border: 0; border-radius: 1px; background: var(--border-strong); }
+.documents-list .doc-meter-slot .complexity-cell.filled { background: var(--dim); }
+/* 4px 的细条画不下原来 1px 的强调色描边:线真在跑时当前格改用外描一圈(同一个语义,动效分区的扫光照旧)。 */
+html[data-kz-activity="running"] .documents-list .doc-item.agent-active .doc-meter-slot .complexity-cell.current { box-shadow: 0 0 0 1px var(--accent); }
+/* 例外标记:纯文字 12px,底色与描边去掉;颜色仍是各自的语义色(阻塞/待澄清琥珀,W active 强调色,其余暗)。 */
+.documents-list .doc-row .doc-flags { align-items: center; gap: 10px; }
+.documents-list .doc-flags :is(.blocked-badge, .clarify-badge, .work-unit-badge, .doc-claim-fact, .filter-exempt-flag) {
+  padding: 0; border: 0; border-radius: 0; background: transparent; font-size: var(--fs-12); font-variant-numeric: tabular-nums;
+}
+/* 勾选框平时透明,悬停/聚焦这一行、已勾上、或已有选中时出现;用 opacity 不用 visibility,键盘仍能 Tab 到。 */
+.documents-list .doc-pick { margin: 0; opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
+.documents-list .doc-row:hover .doc-pick, .documents-list .doc-row:focus-within .doc-pick,
+.documents-list .doc-pick:checked, .documents-list.has-selection .doc-pick { opacity: 1; }
+/* 已关闭条目:标题降到暗色 + 删除线,不再整行 .4 透明(那会把状态/优先级的字压到 4.5 以下)。 */
+.documents-list .doc-item.closed { opacity: 1; }
+.documents-list .doc-item.closed .title { color: var(--dim); text-decoration-color: var(--border-strong); }
+/* 组头:组名暗色 12px 半粗 + 计数再细一档,不再有实线;第一组贴顶。 */
+.documents-list .doc-group-head {
+  display: flex; align-items: baseline; gap: 6px; margin: 0; padding: 18px var(--doc-pad-x) 6px; border-bottom: 0;
+  font-size: var(--fs-12); font-weight: 600; color: var(--dim); background: var(--bg);
+}
+.documents-list > .doc-group-head:first-child, .documents-list > .drag-hint + .doc-group-head { padding-top: 6px; }
+.documents-list .doc-group-count { font-weight: 400; font-variant-numeric: tabular-nums; }
+.documents-list .drag-hint { margin: 0; padding: 0 var(--doc-pad-x) 4px; border: 0; background: transparent; font-size: var(--fs-12); }
+.documents-list .drag-hint span { flex: 0 1 auto; }
+.documents-list .drag-hint button { padding: 0 4px; border: 0; background: transparent; color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
+.documents-list .doc-archive-toggle { padding: 14px var(--doc-pad-x) 6px; font-size: var(--fs-12); }
+.documents-list .doc-archive-toggle:hover { color: var(--fg-strong); }
+/* 详情:内容缩进到标题列(与行里的标题左缘对齐);编号暗色等宽小字单独一行,标题 16px;正文 13px / 1.65,
+   字段之间 12px,键名一列 6em 暗色 12px。 */
+.documents-list .doc-detail { margin: 4px var(--doc-pad-x) 18px var(--doc-title-inset); padding: 10px 0 4px; border-left: 0; font-size: var(--fs-13); }
+.documents-list .doc-detail-head { margin-bottom: 14px; align-items: baseline; }
+.documents-list .doc-detail-head .doc-full-title { font-size: var(--fs-16); line-height: 1.4; }
+.documents-list .doc-detail-id { display: block; margin-bottom: 2px; font-family: var(--mono); font-size: var(--fs-12); font-weight: 400; color: var(--dim); }
+.documents-list .doc-detail-sep { display: none; }
+.documents-list .doc-fields-read .tf { gap: 12px; font-size: var(--fs-13); line-height: 1.65; }
+.documents-list .doc-fields-read .tf-meta { gap: 4px 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border-soft); }
+.documents-list .doc-fields-read :is(.tf-meta-key, .tf-key) { font-size: var(--fs-12); color: var(--dim); }
+.documents-list .doc-fields-read .tf-row { grid-template-columns: 6em minmax(0, 1fr); gap: 16px; }
+.documents-list .doc-fields-read .tf-key { padding-top: 2px; }
+.documents-list .doc-fields-read :is(.tf-list, .tf-timeline) li { margin: 4px 0; }
+@media (max-width: 760px) { .documents-list .doc-meter-slot { display: none; } }
+@media (prefers-reduced-motion: reduce) { .documents-list .doc-row, .documents-list .doc-pick { transition: none; } }
 
 /* UI-0926 #4 M8:线路页的取得条目是直达详情的链接;活动面板每条的行操作只在悬停/聚焦/展开时出现。 */
 .line-claim-link { padding: 0; font: inherit; text-align: left; overflow-wrap: anywhere; }

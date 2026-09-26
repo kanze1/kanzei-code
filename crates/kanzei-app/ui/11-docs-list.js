@@ -72,6 +72,8 @@ export function syncBatchBar() {
     `<option value="">${kinds.size > 1 ? t("混选类型,仅可改标签") : t("改状态…")}</option>` +
     options.map(([value, label]) => `<option value="${value}">${localizeDynamic(label)}</option>`).join("");
   statusSelect.disabled = kinds.size !== 1;
+  // UI2-0926 #5:勾选框平时透明(悬停/聚焦才出),已有选中时整列常显——正在批量挑的时候不能藏。
+  for (const list of document.querySelectorAll(".documents-list")) list.classList.toggle("has-selection", batchSelection.size > 0);
 }
 
 export async function applyBatch() {
@@ -501,11 +503,22 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
   detail.className = expanded ? "doc-detail" : "doc-detail hidden";
 
   // ① 头:「编号 · 标题」(行内不显示编号,R-054,所以这里必须给全)+ 状态流转 + 编辑开关。
+  // UI2-0926 #5:编号/分隔/标题拆成三段——单页里编号是暗色等宽小字单独一行、标题 16px 最亮;
+  // textContent 仍是「R-364 · 标题」(读屏与既有断言不变)。
   const head = document.createElement("div");
   head.className = "doc-detail-head";
   const full = document.createElement("div");
   full.className = "doc-full-title";
-  full.textContent = `${entry.id} · ${entry.title}`;
+  const fullId = document.createElement("span");
+  fullId.className = "doc-detail-id";
+  fullId.textContent = entry.id;
+  const fullSep = document.createElement("span");
+  fullSep.className = "doc-detail-sep";
+  fullSep.textContent = " · ";
+  const fullText = document.createElement("span");
+  fullText.className = "doc-detail-text";
+  fullText.textContent = entry.title;
+  full.append(fullId, fullSep, fullText);
   head.appendChild(full);
   const actions = document.createElement("div");
   actions.className = "doc-actions doc-detail-actions";
@@ -941,7 +954,15 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       const head = document.createElement("div");
       head.className = "doc-group-head";
       const [groupTag, groupCount] = groupHeaders.get(position).split(" · ");
-      head.textContent = `${localizeDynamic(groupTag)} · ${groupCount}`;
+      // UI2-0926 #5:组名与计数分开排版(组名暗色半粗,计数再暗一档、等宽数字),不再用「 · 」粘成一串。
+      const groupLabel = document.createElement("span");
+      groupLabel.className = "doc-group-label";
+      groupLabel.textContent = localizeDynamic(groupTag);
+      const groupNum = document.createElement("span");
+      groupNum.className = "doc-group-count";
+      groupNum.textContent = groupCount;
+      groupNum.setAttribute("aria-label", `${groupCount} ${t("条")}`);
+      head.append(groupLabel, groupNum);
       el.appendChild(head);
     }
     position += 1;
@@ -970,10 +991,20 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     // D-362:文档页把可选徽标(被取得/批次格/阻塞/待澄清)收进标题右侧的 doc-flags,
     // 不再插在优先级前面。它们有无与宽窄各不相同,插在前面就把优先级/复杂度/标题
     // 三列逐行推歪(实测 13 行出现 7 个不同的优先级横坐标,列表没法横向扫读)。
-    // 挪到标题之后,三列起点只由固定宽度的勾选框/优先级/复杂度决定,行行一致;
-    // 徽标自己在右端聚成一簇。侧栏不动——那里行窄、条目少,原地更紧凑(验收②)。
+    // 挪到标题之后,标题起点只由固定宽度的列决定,行行一致;
+    // 徽标自己在标题右侧聚成一簇。侧栏不动——那里行窄、条目少,原地更紧凑(验收②)。
+    // UI2-0926 #5 行结构:[勾选][状态][标题][例外标记][批次格槽][优先级][复杂度]——标题紧跟状态列,
+    // 是全行最亮最大的字;元数据(批次/优先级/复杂度)是右端三条定宽暗列,行行对齐。批次格有无不一,
+    // 所以放进定宽的 .doc-meter-slot(没有批次格的行也留空槽),右端两列才不被推歪。
     const onDocsPage = surface === "documents";
+    const docsRow = onDocsPage && (kind === "req" || kind === "defect");
     const flags = [];
+    const tail = [];
+    const meterSlot = docsRow ? document.createElement("span") : null;
+    if (meterSlot) {
+      meterSlot.className = "doc-meter-slot";
+      meterSlot.setAttribute("aria-hidden", "true");
+    }
     const placeFlag = (node) => (onDocsPage ? flags.push(node) : row.appendChild(node));
     // 批量操作只在文档页:侧栏一行要尽量轻,多一个勾选框就多一层视觉噪音。
     if (onDocsPage && (kind === "req" || kind === "defect") && !entry.closed) {
@@ -1050,10 +1081,9 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       unitBadge.title = `${t("执行单元")}: ${workUnits.map((unit) => `${unit.unit_id}[${unit.status}]`).join(" · ")}`;
       placeFlag(unitBadge);
     }
-    // 复杂度(R-051):cx-* 类 + 行 tooltip 文字;体量不再画成左侧色带(色带已随优先级竖条一起去掉)。
+    // 复杂度(R-051):行 tooltip 文字 + 单页右端一列;体量不画成色带(cx-* 钩子类随色带一起删了)。
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {
-      item.classList.add(`cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`);
       row.title = `${row.title} · ${t("复杂度")}:${t(cx)}`;
     }
     // 批次进度格(R-160):格数 = 该条目的批次总数(复杂度给默认,条目可显式声明),
@@ -1084,7 +1114,12 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
           cell.setAttribute("aria-hidden", "true");
           meter.appendChild(cell);
         }
-        placeFlag(meter);
+        if (meterSlot) {
+          meterSlot.appendChild(meter);
+          meterSlot.removeAttribute("aria-hidden");
+        } else {
+          placeFlag(meter);
+        }
       }
     }
     if (blocked || externalBlocked) {
@@ -1140,9 +1175,12 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     }
     if (kind === "req" || kind === "defect") {
       const badge = document.createElement("button");
-      badge.className = `pri-badge ${/^P[0-3]$/.test(pri) ? pri : "unset"}`;
-      badge.textContent = /^P[0-3]$/.test(pri) ? pri : t("未设");
+      const priSet = /^P[0-3]$/.test(pri);
+      badge.className = `pri-badge ${priSet ? pri : "unset"}`;
+      // UI2-0926 #5:未设写「—」(与复杂度列未评估同一写法),字面「未设」进读屏名称。
+      badge.textContent = priSet ? pri : "—";
       badge.title = t("点击循环调整优先级(仅参考,不影响取活)");
+      badge.setAttribute("aria-label", `${t("优先级")}: ${priSet ? pri : t("未设")} · ${badge.title}`);
       badge.addEventListener("click", async (event) => {
         event.stopPropagation();
         const order = ["P0", "P1", "P2", "P3"];
@@ -1155,7 +1193,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
           toastError(`${t("优先级保存失败")}:${error}`);
         }
       });
-      row.appendChild(badge);
+      if (docsRow) tail.push(badge);
+      else row.appendChild(badge);
     }
     if (kind === "req" && surface === "documents") {
       // 一列只放一个字(大/中/小,未评估是「—」):每行都写「复杂度:」是纯重复,说明进 tooltip。
@@ -1164,7 +1203,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       complexityBadge.className = "complexity-badge";
       complexityBadge.textContent = assessed ? t(cx) : "—";
       complexityBadge.title = `${t("复杂度")}:${assessed ? t(cx) : t("未评估")}`;
-      row.appendChild(complexityBadge);
+      if (docsRow) tail.push(complexityBadge);
+      else row.appendChild(complexityBadge);
     }
     const title = document.createElement("span");
     title.className = "title";
@@ -1178,6 +1218,9 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       for (const node of flags) flagBox.appendChild(node);
       row.appendChild(flagBox);
     }
+    // UI2-0926 #5:右端定宽三列——批次格槽、优先级、复杂度(仅需求)。docRowTailMeta / docMeterSlot 变异守卫按这两处定位。
+    if (meterSlot) row.appendChild(meterSlot);
+    for (const node of tail) row.appendChild(node);
     item.appendChild(row);
 
     // 展开面板见 buildDocDetail:读起来是一页文档(只读优先),编辑收进头部的「编辑」开关。
@@ -1188,6 +1231,10 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     });
     item.appendChild(detail);
     row.addEventListener("keydown", (event) => {
+      // 只认焦点落在行本身:行里的勾选框/优先级按钮按空格、回车是它们自己的动作(勾选、循环优先级),
+      // 冒泡上来若在这里 preventDefault,勾选框勾不上、按钮点不动,还白白开合了详情(与 click 里 pick 的
+      // stopPropagation 同一个口径)。
+      if (event.target !== row) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       detail.classList.toggle("hidden");

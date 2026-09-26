@@ -115,6 +115,38 @@ const SCENES = {
     await openView(ctx, "lines");
   },
 
+  // ── 分区:侧栏与需求页 ──
+  /// UI2-0926 #1:项目总览页(rail ⌂)。卡片数据来自 workspace_snapshot 夹具(三个项目,形状对照后端)。
+  async workspace(ctx) {
+    await openView(ctx, "workspace");
+    await waitFor(() => document.querySelectorAll("#workspace-projects .workspace-card").length > 0);
+    document.activeElement?.blur?.();
+    await ctx.sleep(60);
+  },
+  /// UI2-0926 #1:侧栏项目卡展开的项目菜单(各项目 ✓ 当前 / 打开文件夹… / 新建项目… / 项目总览)。
+  async projects(ctx) {
+    $("#project-switch")?.click();
+    await waitFor(() => document.querySelector(".project-menu"));
+    // 合成点击没有真实指针,程序聚焦的菜单项会带键盘焦点环;截图要的是鼠标打开的样子。
+    document.activeElement?.blur?.();
+    await ctx.sleep(80);
+  },
+  /// UI2-0926 侧栏密度:侧栏滚到底——各线当前在做(未取得条目的线一行)、待办计数、隔离工作树(一行一棵、最多 6 棵)。
+  async sidebar(ctx) {
+    const sidebar = $("#sidebar");
+    if (sidebar) sidebar.scrollTop = sidebar.scrollHeight;
+    await ctx.sleep(60);
+  },
+  /// UI2-0926 #5:需求页列表本身(不展开详情),看行的字阶与明暗层级。docs 场景展开了 R-364 的详情,
+  /// 详情占满一屏,列表行反而看不全。
+  async doclist(ctx) {
+    await openView(ctx, "documents");
+    await waitFor(() => document.querySelector("#documents-req-list .doc-item[data-doc-id]"));
+    document.activeElement?.blur?.();
+    await ctx.sleep(60);
+  },
+  // ── 分区:侧栏与需求页(完) ──
+
   async empty(ctx) {
     // 走真实的「新对话」入口:它同时是缺陷 #2(旧内容残留)的复现路径。
     $("#new-chat")?.click();
@@ -145,7 +177,7 @@ const SCENES = {
     }
     if (dialog === "input") {
       const core = await import("/01-core.js");
-      void core.inputDialog({ title: "重命名项目", message: "只改侧栏显示名,不移动目录", value: "kanzei code" });
+      void core.inputDialog({ title: "重命名项目", message: "只改显示名,不移动目录", value: "kanzei code" });
       await waitFor(() => !isHidden("#input-overlay"));
       return;
     }

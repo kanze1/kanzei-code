@@ -3,8 +3,10 @@
 //
 // 用法:
 //   node scripts/ui-preview/shoot.mjs [--out <dir>] [--scenes chat,settings] [--themes dark,light]
-//                                     [--dialogs ask,confirm] [--width 1440] [--height 900] [--json]
+//                                     [--dialogs ask,confirm] [--width 1440] [--height 900] [--dpr 1] [--lang zh|en] [--json]
 // 默认输出 output/ui-preview/<scene>-<theme>.png;overlays 的非默认弹窗另存 overlays-<dialog>-<theme>.png。
+// --width/--height 是 CSS 像素,--dpr 是设备像素比(用户的三档:1280@1.5、1600@1.25、2000@1)。
+// --lang 是界面语言(默认 zh;en 用来查英文词更宽时的列对齐),同一目录下会覆盖同名截图,换语言请换 --out。
 // 任一页面出现 console.error / 未捕获异常 / 静态资源 4xx-5xx 即退出码 1。
 // 服务在脚本内以随机端口启动,结束时关闭(不影响手动开着的 5178)。
 import { mkdir } from "node:fs/promises";
@@ -24,11 +26,13 @@ const opt = (flag, fallback) => {
 const list = (value) => value.split(",").map((item) => item.trim()).filter(Boolean);
 
 const outDir = path.resolve(opt("--out", path.join(REPO, "output/ui-preview")));
-const scenes = list(opt("--scenes", "chat,agents,parallel,settings,docs,overlays,lines,empty"));
+const scenes = list(opt("--scenes", "chat,agents,parallel,settings,docs,overlays,lines,empty,workspace,projects"));
 const themes = list(opt("--themes", "dark,light"));
 const dialogs = list(opt("--dialogs", "ask,question,confirm,input,viewer,palette"));
 const width = Number(opt("--width", "1440"));
 const height = Number(opt("--height", "900"));
+const dpr = Number(opt("--dpr", "1"));
+const lang = opt("--lang", "zh") === "en" ? "en" : "zh";
 const wantJson = args.includes("--json");
 
 const shots = [];
@@ -50,7 +54,7 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 const results = [];
 try {
   for (const shot of shots) {
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, colorScheme: shot.theme });
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, colorScheme: shot.theme });
     const page = await context.newPage();
     const errors = [];
     const infos = [];
@@ -64,7 +68,7 @@ try {
       if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`);
     });
     page.on("requestfailed", (request) => errors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText ?? ""}`));
-    const query = new URLSearchParams({ theme: shot.theme, scene: shot.scene, ...(shot.dialog ? { dialog: shot.dialog } : {}) });
+    const query = new URLSearchParams({ theme: shot.theme, scene: shot.scene, ...(shot.dialog ? { dialog: shot.dialog } : {}), ...(lang === "en" ? { lang } : {}) });
     const url = `${origin}/?${query}`;
     const started = Date.now();
     let ready = false;

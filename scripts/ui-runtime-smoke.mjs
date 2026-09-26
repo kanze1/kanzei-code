@@ -281,6 +281,89 @@ if (SMOKE_MUTATE) {
       replace: "jumpRevealId = ref;",
     },
 
+    // ── 分区:侧栏与需求页 ──
+    // UI2-0926 #1:项目卡点击打开项目菜单。删了它,侧栏就没有任何切项目入口(列表已删)。
+    projectSwitchMenu: {
+      pattern: /[ \t]*button\.addEventListener\("click", \(\) => openProjectMenu\(\)\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #1:项目菜单里非当前项目的切换。换成空操作,点了项目只收起菜单、项目不变。
+    projectMenuSwitch: {
+      pattern: /onSelect: entry\.current \? undefined : \(\) => void switchProject\(entry\.path\),/,
+      replace: "onSelect: undefined,",
+    },
+    // UI2-0926 #1:命令面板的项目候选读偏好数据。换成空集(等价于旧实现反扫已删的侧栏列表),面板里项目静默消失。
+    projectPaletteData: {
+      pattern: /for \(const project of projectMenuEntries\(\)\) \{/,
+      replace: "for (const project of []) {",
+    },
+    // UI2-0926 #1:项目总览卡片 ⋯ 的重命名。换成空操作,重命名入口(原侧栏 ✎)就此丢失。
+    workspaceCardRename: {
+      pattern: /onSelect: \(\) => void renameProject\(project\.path\) \},/,
+      replace: "onSelect: () => {} },",
+    },
+    // UI2-0926 #5:右端定宽列(优先级/复杂度)挂到行尾。删了它,优先级与复杂度整列消失(D-362 行结构与「状态在优先级前」都红)。
+    docRowTailMeta: {
+      pattern: /[ \t]*for \(const node of tail\) row\.appendChild\(node\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #5:批次格进定宽槽。退回塞进例外标记簇,有无批次格的行右端两列又被推歪。
+    docMeterSlot: {
+      pattern: /meterSlot\.appendChild\(meter\);/,
+      replace: "placeFlag(meter);",
+    },
+    // UI2-0926 #5:已有选中时勾选框整列常显。删了它,批量挑到一半,挪开鼠标勾选框就全隐形了。
+    batchPickReveal: {
+      pattern: /[ \t]*for \(const list of document\.querySelectorAll\("\.documents-list"\)\) list\.classList\.toggle\("has-selection", batchSelection\.size > 0\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #5:组头计数单独成段。删了它,组头只剩组名,计数丢了。
+    docGroupCount: {
+      pattern: /head\.append\(groupLabel, groupNum\);/,
+      replace: "head.append(groupLabel);",
+    },
+    // UI2-0926 侧栏密度:没取得条目的线只占一行。改回一律两段,侧栏又被「未取得条目」一行行撑长。
+    focusCompactLine: {
+      pattern: /section\.className = active \|\| claim \? "line-focus" : "line-focus line-focus-compact";/,
+      replace: 'section.className = "line-focus";',
+    },
+    // UI2-0926 复核:工作树里有取活声明的线不压成一行。退回只看 active,声明(条目名)和线路身份挤进一行一起被截断。
+    focusClaimTwoPart: {
+      pattern: /section\.className = active \|\| claim \? "line-focus"/,
+      replace: 'section.className = active ? "line-focus"',
+    },
+    // UI2-0926 复核:「查看全部隔离工作树 →」等线路页这轮刷新画完再滚。退回切视图后下一帧就滚,线路卡随后插进来把目标段推下去。
+    worktreeMoreAnchor: {
+      pattern: /revealLinesSection\("lines-worktrees", \{ afterRefresh: arriving \}\);/,
+      replace: 'requestAnimationFrame(() => $("lines-worktrees")?.scrollIntoView?.({ block: "start" }));',
+    },
+    // UI2-0926 复核:在项目总览里移除当前项目后留在总览页。删了它,用户被带到下一个项目记住的视图(对话页)。
+    removeProjectStaysOnOverview: {
+      pattern: /await enterProject\(next, wasOnOverview \? \{ view: "workspace" \} : \{\}\);/,
+      replace: "await enterProject(next);",
+    },
+    // UI2-0926 复核:行的 keydown 只认焦点在行本身。删了它,勾选框上按空格被行吞掉(preventDefault + 开合详情),键盘勾不上。
+    docRowKeyTarget: {
+      pattern: /[ \t]*if \(event\.target !== row\) return;\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 侧栏密度:工作树最多列 6 棵。去掉上限,12 棵树又把侧栏挤满。
+    worktreeCap: {
+      pattern: /for \(const item of ordered\.slice\(0, SIDEBAR_WORKTREE_LIMIT\)\) \{/,
+      replace: "for (const item of ordered) {",
+    },
+    // UI2-0926 侧栏密度:有改动的工作树排前。退回 git 原顺序,要处理的树可能被上限挤到「查看全部」后面。
+    worktreeDirtyFirst: {
+      pattern: /const ordered = \[\.\.\.worktreeItems\.filter\(\(item\) => !item\.clean\), \.\.\.worktreeItems\.filter\(\(item\) => item\.clean\)\];/,
+      replace: "const ordered = [...worktreeItems];",
+    },
+    // UI2-0926 侧栏密度:空工作树列表清计数。删了它,切到没有工作树的项目后计数停在上一个项目的旧值。
+    worktreeCountClear: {
+      pattern: /[ \t]*if \(count\) count\.textContent = "";\r?\n/,
+      replace: "",
+    },
+    // ── 分区:侧栏与需求页(完) ──
+
     // ---- 分区:动效 ----
     // #7:setTurnPhase 首行的后台渲染守卫。删了它,后台线的思考/工具事件会把活动线
     // 输入框上方的「思考中…」改写成别人的相位(串线)。
@@ -2165,7 +2248,8 @@ assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
   vm.runInContext("renderProjects({ current: null, projects: [], names: {} })", sandbox);
   await flush();
   assert(vm.runInContext("currentProject", sandbox) === null, "空项目偏好仍留下了当前项目");
-  assert(byId.get("project-list").children.length === 0, "空项目偏好仍渲染出项目卡片");
+  // UI2-0926 #1:侧栏项目列表已删,项目菜单/命令面板读的是 projectMenuEntries(偏好缓存)。
+  assert(vm.runInContext("projectMenuEntries().length", sandbox) === 0, "空项目偏好仍产出项目菜单项");
   assert(byId.get("project-label").textContent.includes("未选择项目"), "空项目状态未显示『未选择项目』");
   assert(byId.get("documents-project-select").disabled, "空项目状态下文档项目选择器仍可用");
   assert(
@@ -2185,11 +2269,17 @@ assert(
   "项目胶囊无障碍标签应保留完整路径",
 );
 // D-420:项目重命名与新建都走应用内输入弹窗,取消/确认语义仍由调用方消费。
+// UI2-0926 #1:重命名从侧栏列表行的 ✎ 挪进项目总览卡片的 ⋯ 菜单。
 {
-  const projectItem = byId.get("project-list").children[0];
-  assert(projectItem, "输入弹窗回归缺少项目卡片夹具");
+  sandbox.renderWorkspace({ projects: [{ path: PROJECT, name: "smoke", current: true, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] }] });
+  const projectMore = byId.get("workspace-projects").querySelector(".workspace-card-more");
+  assert(projectMore, "输入弹窗回归缺少项目总览卡片的 ⋯");
   sandbox.__inputDialogResponses.push("重命名后的项目");
-  projectItem.querySelector(".rename").click();
+  projectMore.click();
+  const renameItem = [...(esmModuleCache.get("12-docs-pages.js")?.namespace?.workspaceMenuHandle?.el?.querySelectorAll(".k-menu-item") ?? [])]
+    .find((node) => node.textContent.includes("重命名项目"));
+  assert(renameItem, "项目总览卡片 ⋯ 菜单缺「重命名项目…」");
+  renameItem?.click();
   await flush();
   const renameCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_rename");
   assert(renameCall?.args?.name === "重命名后的项目", "项目重命名未消费输入弹窗的值");
@@ -2503,22 +2593,29 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
 // D-362:文档页行内三列对齐的结构保证——可选徽标一律在标题之后成簇,不得插在
 // 优先级前面。像素位置在这个环境里量不了,但「优先级之前只允许固定宽度元素」
 // 这条结构不变量正是对齐的充要条件,行行成立则三列必然对齐。
+// UI2-0926 #5 改写(行结构 [勾选][状态][标题][例外标记][批次格槽][优先级][复杂度]):标题之前只准定宽的
+// 勾选框/状态列(标题起点行行一致);可选徽标只在 .doc-flags 里;标题之后依次是 [.doc-flags?] .doc-meter-slot
+// .pri-badge [.complexity-badge,仅需求] 并到此结束(右端三条定宽列行行对齐);批次格只在槽里,没有批次格的行也留空槽。
 {
-  const optional = ["doc-claim-fact", "complexity-meter", "blocked-badge", "clarify-badge"];
+  const optional = ["doc-claim-fact", "blocked-badge", "clarify-badge", "work-unit-badge"];
   const rows = document.querySelectorAll("#documents-req-list .doc-row, #documents-defect-list .doc-row");
   assert(rows.length > 0, "文档页列表应有行可检");
-  for (const row of rows) {
-    const kids = [...row.children];
-    const priAt = kids.findIndex((n) => n.classList.contains("pri-badge"));
-    if (priAt < 0) continue;
-    const early = kids.slice(0, priAt).filter((n) => optional.some((cls) => n.classList.contains(cls)));
-    assert(
-      early.length === 0,
-      `可选徽标不得排在优先级之前(会把三列推歪):${early.map((n) => n.className).join(",")}`,
-    );
-    const flagBox = kids.find((n) => n.classList.contains("doc-flags"));
-    if (flagBox) {
-      assert(kids[kids.length - 1] === flagBox, "doc-flags 必须是行内最后一个元素(排在标题之后)");
+  for (const [listId, withCx] of [["documents-req-list", true], ["documents-defect-list", false]]) {
+    for (const row of document.querySelectorAll(`#${listId} .doc-row`)) {
+      const kids = [...row.children];
+      const titleAt = kids.findIndex((n) => n.classList.contains("title"));
+      assert(titleAt >= 0, `${listId} 行缺标题`);
+      const lead = kids.slice(0, titleAt).filter((n) => !["doc-pick", "doc-pick-space", "st"].some((cls) => n.classList.contains(cls)));
+      assert(lead.length === 0, `标题之前只准勾选框/状态列(会把标题起点推歪):${lead.map((n) => n.className).join(",")}`);
+      const stray = kids.filter((n) => optional.some((cls) => n.classList.contains(cls)));
+      assert(stray.length === 0, `可选徽标必须收在 .doc-flags 里:${stray.map((n) => n.className).join(",")}`);
+      const tailKinds = kids.slice(titleAt + 1).map((n) => (n.classList.contains("doc-flags") ? "flags"
+        : n.classList.contains("doc-meter-slot") ? "meter"
+          : n.classList.contains("pri-badge") ? "pri"
+            : n.classList.contains("complexity-badge") ? "cx" : n.className));
+      const expected = [...(tailKinds[0] === "flags" ? ["flags"] : []), "meter", "pri", ...(withCx ? ["cx"] : [])];
+      assert(tailKinds.join(",") === expected.join(","), `${listId} 行尾结构应为 ${expected.join(",")},实为 ${tailKinds.join(",")}`);
+      assert(!row.querySelector(".doc-flags .complexity-meter"), "批次格不得混在例外标记簇里(它是定宽列,放 .doc-meter-slot)");
     }
   }
 }
@@ -9367,6 +9464,372 @@ const docsB = {
   compatible(contract.docs_snapshot, shapeOf(payloads.docs_snapshot), "docs_snapshot", problems);
   for (const problem of problems) issues.push(`D-381 IPC 契约:${problem}`);
 }
+
+// ── 分区:侧栏与需求页 ──
+// ---------- UI2-0926 #1「两个项目切换按钮保存上一个就好了吧,而且我们还有单独的查看所有项目页面」 ----------
+// 侧栏只剩项目卡一个切换入口(openProjectMenu,弹层唯一写法 openMenu);重命名/移除在项目总览卡片 ⋯ 里;
+// 命令面板读偏好数据(不再反扫侧栏 DOM);D-170 隔离告警不再住在默认收起的分区里。
+// 变异守卫:projectSwitchMenu / projectMenuSwitch / projectPaletteData / workspaceCardRename(另 pickerCheckMark 共用 ✓ 列)。
+{
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const docsPagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  const surfaceNs = esmModuleCache.get("00-surface.js")?.namespace;
+  const paletteNs = esmModuleCache.get("21-palette.js")?.namespace;
+  assert(sessionsNs && docsPagesNs && surfaceNs && paletteNs, "UI2 #1 前置:09/12/00/21 模块命名空间未加载");
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const saved = Object.fromEntries(["projects_get", "projects_select", "projects_rename", "projects_remove", "projects_init", "projects_pick", "workspace_snapshot"]
+    .map((cmd) => [cmd, payloads[cmd]]));
+  const priorConfirm = sandbox.confirmDialog;
+  const savedViewName = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  const prefsAB = { current: PROJECT, projects: [PROJECT, PROJECT_B], names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" } };
+  const prefsAt = (current) => ({ ...structuredClone(prefsAB), current });
+  const lastCall = (cmd) => invokeArgs.findLast((call) => call.cmd === cmd);
+  const callsOf = (cmd) => invokeArgs.filter((call) => call.cmd === cmd).length;
+  const menuEl = () => sessionsNs.projectMenuHandle?.el ?? null;
+  const menuItems = () => [...(menuEl()?.querySelectorAll(".k-menu-item") ?? [])];
+  const menuItem = (text) => menuItems().find((node) => node.textContent.includes(text));
+  const openProjectMenuByClick = async () => {
+    if (sessionsNs.projectMenuHandle) surfaceNs.closeSurface(sessionsNs.projectMenuHandle);
+    byId.get("project-switch").click();
+    await flush();
+    return menuEl();
+  };
+  try {
+    // 前面分区可能留着模态(查看器/命令面板):模态开着时之后弹出的菜单是惰性的,先收掉。
+    surfaceNs.closeSurface(byId.get("viewer-overlay"));
+    surfaceNs.closeSurface(byId.get("palette"));
+    payloads.projects_get = structuredClone(prefsAB);
+    sandbox.renderProjects(structuredClone(prefsAB));
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "UI2 #1 前置:当前项目应为 PROJECT");
+
+    // ① 结构:侧栏「项目」分区与列表删掉;项目卡是菜单按钮(不再是分区开合把手);告警常驻项目卡下方。
+    assert(!byId.has("projects-section") && !byId.has("project-list"), "侧栏仍有「项目」分区/列表(与项目卡重复的第二个切换器)");
+    const switchBtn = byId.get("project-switch");
+    assert(switchBtn?.getAttribute("aria-haspopup") === "menu" && !switchBtn.hasAttribute("aria-controls"), "项目卡必须是菜单按钮(aria-haspopup=menu,不再 aria-controls 某个分区)");
+    // 假 DOM 把按 id 建的节点拍平在 body 下,closest 判不了真实嵌套,这里按 HTML 原文判。
+    assert(/<div class="project-warn-slot" data-space-only="dev">\s*<div id="project-shared-warn"/.test(html), "D-170 隔离告警应在项目卡下方的 .project-warn-slot 里常驻(原先在默认收起的分区里,平时看不见)");
+    assert(/id="project-switch"[^>]*>[\s\S]*?<\/button>\s*(?:<!--[\s\S]*?-->\s*)?<div class="project-warn-slot"/.test(html)
+      && html.indexOf('class="project-warn-slot"') < html.indexOf('id="new-chat"'),
+    "D-170 隔离告警槽应紧跟在项目卡之后(吸顶的工作区头里、「新对话」之前)");
+    assert(!/data-collapse-default="collapsed"[^>]*>[\s\S]{0,800}id="project-shared-warn"/.test(html), "D-170 隔离告警又被放进了默认收起的分区");
+
+    // ② 点项目卡:openMenu 现造的 .k-menu.project-menu;项目项 = 偏好里的项目数,当前项 ✓;另有三个入口。
+    const menu = await openProjectMenuByClick();
+    assert(menu?.classList.contains("k-menu") && menu.classList.contains("project-menu"), "点项目卡没有打开 openMenu 项目菜单(.k-menu.project-menu)");
+    assert(switchBtn.getAttribute("aria-expanded") === "true", "项目菜单开着时项目卡 aria-expanded 应为 true");
+    const projectItems = menuItems().filter((node) => node.hasAttribute("aria-checked"));
+    assert(projectItems.length === 2, `项目菜单的项目项应与偏好一致(2),实得 ${projectItems.length}`);
+    const currentItem = projectItems.find((node) => node.getAttribute("aria-checked") === "true");
+    const otherItem = projectItems.find((node) => node.getAttribute("aria-checked") === "false");
+    assert(currentItem?.textContent.includes("smoke") && currentItem.dataset.path === PROJECT, "项目菜单当前项不是当前项目");
+    assert(currentItem?.querySelector(".picker-check")?.textContent === "✓" && otherItem?.querySelector(".picker-check")?.textContent === "", "项目菜单 ✓ 列应只标当前项目(与模型芯片共用 addMenuCheckColumn)");
+    assert(otherItem?.title === PROJECT_B, `项目项 title 应是完整路径,实为 ${otherItem?.title}`);
+    assert(otherItem?.querySelector(".k-menu-item-desc")?.textContent === sessionsNs.shortProjectPath(PROJECT_B), "项目项第二行应是缩短的路径");
+    for (const label of ["打开文件夹…", "新建项目…", "项目总览"]) assert(menuItem(label), `项目菜单缺「${label}」`);
+    // 再点项目卡 = 收起(openMenu 同锚点切换语义)。
+    switchBtn.click();
+    await flush();
+    assert(!sessionsNs.projectMenuHandle && switchBtn.getAttribute("aria-expanded") === "false", "再点项目卡应收起项目菜单");
+
+    // ③ 点非当前项目 → projects_select 切过去;再经 switchProject 切回,恢复夹具状态。
+    payloads.projects_select = () => prefsAt(PROJECT_B);
+    await openProjectMenuByClick();
+    menuItems().find((node) => node.dataset.path === PROJECT_B)?.click();
+    await flush();
+    assert(lastCall("projects_select")?.args?.path === PROJECT_B, "项目菜单点非当前项目未发 projects_select");
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT_B, "项目菜单切项目后 currentProject 未切换");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    assert(await sessionsNs.switchProject(PROJECT) === true, "switchProject 切回失败");
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "切回原项目失败(后续用例的夹具会串项目)");
+    // 点当前项只收起,不发 projects_select。
+    const selectsBefore = callsOf("projects_select");
+    await openProjectMenuByClick();
+    menuItems().find((node) => node.dataset.path === PROJECT)?.click();
+    await flush();
+    assert(callsOf("projects_select") === selectsBefore && !sessionsNs.projectMenuHandle, "点当前项目应只收起菜单,不发 projects_select");
+
+    // ④ 「新建项目…」走既有初始化流程(两次输入);「打开文件夹…」走 projects_pick;「项目总览」进 ⌂ 页。
+    payloads.projects_init = () => structuredClone(prefsAB);
+    sandbox.__inputDialogResponses.push("C:/smoke/menu-new", "菜单新项目");
+    await openProjectMenuByClick();
+    menuItem("新建项目…")?.click();
+    await flush();
+    assert(lastCall("projects_init")?.args?.path === "C:/smoke/menu-new" && lastCall("projects_init")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未走初始化流程(路径 + 显示名)");
+    const picksBefore = callsOf("projects_pick");
+    await openProjectMenuByClick();
+    menuItem("打开文件夹…")?.click();
+    await flush();
+    assert(callsOf("projects_pick") === picksBefore + 1, "项目菜单「打开文件夹…」未调 projects_pick");
+    const snapshotAB = {
+      current: PROJECT,
+      projects: [
+        { path: PROJECT, name: "smoke", current: true, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] },
+        { path: PROJECT_B, name: "smoke-b", current: false, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] },
+      ],
+    };
+    payloads.workspace_snapshot = structuredClone(snapshotAB);
+    await openProjectMenuByClick();
+    menuItem("项目总览")?.click();
+    await flush();
+    assert(byId.get("view-workspace").classList.contains("active"), "项目菜单「项目总览」未切到项目总览页");
+    assert(byId.get("workspace-projects").querySelectorAll(".workspace-card").length === 2, "项目总览页未按 workspace_snapshot 渲染卡片");
+
+    // ⑤ 命令面板:项目候选读偏好数据(不反扫侧栏 DOM),运行它走 switchProject;三个项目动作在列。
+    const entries = paletteNs.collectPaletteEntries();
+    const projectEntries = entries.filter((entry) => entry.group === "项目");
+    assert(projectEntries.length === 2 && projectEntries.map((entry) => entry.detail).join("|") === `${PROJECT}|${PROJECT_B}`, `命令面板项目候选应与偏好一致:${projectEntries.map((entry) => entry.detail).join("|")}`);
+    for (const label of ["切换项目", "打开文件夹…", "新建项目…"]) {
+      assert(entries.some((entry) => entry.group === "动作" && entry.label === label), `命令面板缺动作「${label}」`);
+    }
+    payloads.projects_select = () => prefsAt(PROJECT_B);
+    projectEntries.find((entry) => entry.detail === PROJECT_B)?.run();
+    await flush();
+    assert(lastCall("projects_select")?.args?.path === PROJECT_B && vm.runInContext("currentProject", sandbox) === PROJECT_B, "命令面板运行项目候选未切到该项目");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    await sessionsNs.switchProject(PROJECT);
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "命令面板用例切回原项目失败");
+
+    // ⑥ 项目总览卡片:标题真按钮 + ⋯ 菜单按钮;⋯ 里重命名(输入弹窗)/移除(确认弹窗,危险项)。
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    const cards = [...byId.get("workspace-projects").querySelectorAll(".workspace-card")];
+    const cardB = cards.find((card) => card.dataset.path === PROJECT_B);
+    assert(cards.every((card) => card.querySelector(".workspace-card-open") && !card.hasAttribute("role")), "项目总览卡片应是「标题真按钮 + 撑满点击层」,整卡不再是 role=button");
+    const moreB = cardB?.querySelector(".workspace-card-more");
+    assert(moreB?.getAttribute("aria-haspopup") === "menu" && moreB.getAttribute("aria-label") === "更多操作 smoke-b", `卡片 ⋯ 缺菜单按钮语义或读屏名称:${moreB?.getAttribute("aria-label")}`);
+    assert(cards.find((card) => card.dataset.path === PROJECT)?.querySelector(".workspace-card-open")?.getAttribute("aria-current") === "page", "当前项目卡片标题按钮应带 aria-current=page");
+    const cardMenu = () => [...(docsPagesNs.workspaceMenuHandle?.el?.querySelectorAll(".k-menu-item") ?? [])];
+    payloads.projects_rename = ({ path, name }) => ({ ...structuredClone(prefsAB), names: { ...prefsAB.names, [path]: name } });
+    sandbox.__inputDialogResponses.push("B 新名");
+    moreB.click();
+    await flush();
+    assert(cardMenu().map((node) => node.textContent.trim()).join("|").startsWith("重命名项目…|移除项目"), `卡片 ⋯ 菜单应是 重命名/移除:${cardMenu().map((node) => node.textContent.trim()).join("|")}`);
+    assert(cardMenu()[1]?.dataset.tone === "danger", "「移除项目」应是危险项");
+    cardMenu()[0]?.click();
+    await flush();
+    assert(lastCall("projects_rename")?.args?.path === PROJECT_B && lastCall("projects_rename")?.args?.name === "B 新名", "卡片 ⋯「重命名项目…」未发 projects_rename {path,name}");
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "重命名非当前项目不该切项目");
+    vm.runInContext("confirmDialog = () => true", sandbox);
+    payloads.projects_remove = () => ({ current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } });
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    [...byId.get("workspace-projects").querySelectorAll(".workspace-card")].find((card) => card.dataset.path === PROJECT_B)?.querySelector(".workspace-card-more")?.click();
+    await flush();
+    cardMenu().find((node) => node.textContent.includes("移除项目"))?.click();
+    await flush();
+    assert(lastCall("projects_remove")?.args?.path === PROJECT_B, "卡片 ⋯「移除项目」未发 projects_remove");
+    assert(sessionsNs.projectMenuEntries().length === 1, "移除后项目菜单的数据源(偏好缓存)未更新");
+    // ⑥b 在总览页里移除**当前**项目:换到下一个项目,但人留在总览页(不被带到下一个项目记住的对话页),卡片重拉。
+    //    变异守卫 removeProjectStaysOnOverview。
+    sandbox.renderProjects(structuredClone(prefsAB));
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === "workspace")?.click();
+    await flush();
+    assert(byId.get("view-workspace").classList.contains("active") && vm.runInContext("currentProject", sandbox) === PROJECT, "⑥b 前置:应在总览页、当前项目为 PROJECT");
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    payloads.projects_remove = () => ({ current: PROJECT_B, projects: [PROJECT_B], names: { [PROJECT_B]: "smoke-b" } });
+    [...byId.get("workspace-projects").querySelectorAll(".workspace-card")].find((card) => card.dataset.path === PROJECT)?.querySelector(".workspace-card-more")?.click();
+    await flush();
+    const snapshotsBeforeRemove = callsOf("workspace_snapshot");
+    cardMenu().find((node) => node.textContent.includes("移除项目"))?.click();
+    await flush();
+    assert(lastCall("projects_remove")?.args?.path === PROJECT && vm.runInContext("currentProject", sandbox) === PROJECT_B, "⑥b 移除当前项目后应换到下一个项目");
+    assert(byId.get("view-workspace").classList.contains("active"), `⑥b 在总览页移除当前项目后应留在总览页,实际在 ${document.querySelector(".view.active")?.id}`);
+    assert(callsOf("workspace_snapshot") > snapshotsBeforeRemove, "⑥b 移除后总览页应重拉 workspace_snapshot(卡片跟着换)");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    assert(await sessionsNs.switchProject(PROJECT) === true, "⑥b 切回原项目失败");
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "⑥b 切回原项目失败(后续用例的夹具会串项目)");
+  } finally {
+    if (sessionsNs?.projectMenuHandle) surfaceNs.closeSurface(sessionsNs.projectMenuHandle);
+    if (docsPagesNs?.workspaceMenuHandle) surfaceNs.closeSurface(docsPagesNs.workspaceMenuHandle);
+    for (const [cmd, value] of Object.entries(saved)) {
+      if (value === undefined) delete payloads[cmd];
+      else payloads[cmd] = value;
+    }
+    sandbox.confirmDialog = priorConfirm;
+    sandbox.renderProjects(structuredClone(payloads.projects_get));
+    await flush();
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === savedViewName)?.click();
+    await flush();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ---------- UI2-0926 #5「需求页面缺少字体之间的间隔和明暗关系」 ----------
+// 行结构的不变量在上面 D-362 那段(按新结构改写);这里钉住结构件:组头拆「组名 + 计数」、未设优先级写「—」
+// (字面「未设」进读屏名称)、批次格在定宽槽里、详情头拆编号/分隔/标题、「已有选中」时勾选框整列常显。
+// 变异守卫:docRowTailMeta / docMeterSlot / batchPickReveal / docGroupCount / docRowKeyTarget。
+{
+  const listNs = esmModuleCache.get("11-docs-list.js")?.namespace;
+  const coreNs = esmModuleCache.get("10-docs-core.js")?.namespace;
+  assert(listNs && coreNs, "UI2 #5 前置:10/11 模块命名空间未加载");
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const probe = document.createElement("div");
+  probe.id = "documents-ui2-probe";
+  probe.className = "doc-list documents-list";
+  document.body.appendChild(probe);
+  try {
+    listNs.batchSelection.clear();
+    listNs.syncBatchBar();
+    const probeEntries = [
+      docEntry("R-U01", "字阶样例一", "doing", { priority: "", complexity: "大", batches: { done: 1, total: 4 }, fields: [["标签", "核心"]] }),
+      docEntry("R-U02", "字阶样例二", "todo", { complexity: "中", blocked: true, block_reasons: ["依赖 R-U01"], fields: [["标签", "核心"]] }),
+      docEntry("R-U03", "字阶样例三", "todo", { fields: [["标签", "前端"]] }),
+    ];
+    listNs.renderDocList(probe, probeEntries, "req", 0, { ...coreNs.NEUTRAL_DOC_FILTERS, grouped: true });
+    const rowOf = (id) => probe.querySelector(`.doc-item[data-doc-id="${id}"] .doc-row`);
+    // ① 组头:组名与计数分开排版(组名暗色半粗、计数再细一档),计数带「N 条」读屏名称。
+    const heads = [...probe.querySelectorAll(".doc-group-head")];
+    assert(heads.length === 2, `分组视图应有 2 个组头,实得 ${heads.length}`);
+    assert(heads[0]?.querySelector(".doc-group-label")?.textContent === "核心" && heads[0]?.querySelector(".doc-group-count")?.textContent === "2",
+      `组头应拆成 .doc-group-label「核心」+ .doc-group-count「2」:${heads[0]?.textContent}`);
+    assert(heads[0]?.querySelector(".doc-group-count")?.getAttribute("aria-label") === "2 条", "组头计数缺「N 条」读屏名称");
+    // ② 未设优先级写「—」,字面「未设」与「仅参考」都还在(读屏名称 / tooltip)。
+    const unsetPri = rowOf("R-U01")?.querySelector(".pri-badge");
+    assert(unsetPri?.textContent === "—" && unsetPri.classList.contains("unset"), `未设优先级应显示「—」:${unsetPri?.textContent}`);
+    assert(unsetPri?.getAttribute("aria-label")?.includes("未设") && unsetPri.title.includes("仅参考"), `未设优先级的读屏名称/提示不全:${unsetPri?.getAttribute("aria-label")} / ${unsetPri?.title}`);
+    assert(rowOf("R-U02")?.querySelector(".pri-badge")?.getAttribute("aria-label")?.startsWith("优先级: P1"), "已设优先级的读屏名称应以「优先级: P1」开头");
+    // ③ 批次格在定宽槽里(有批次格的槽可读,没有的空槽对读屏隐藏);阻塞在例外标记簇里。
+    const slot1 = rowOf("R-U01")?.querySelector(".doc-meter-slot");
+    assert(slot1?.querySelector(".complexity-meter.batch-meter") && !slot1.hasAttribute("aria-hidden"), "有批次的行,批次格应在 .doc-meter-slot 里且槽不对读屏隐藏");
+    const slot3 = rowOf("R-U03")?.querySelector(".doc-meter-slot");
+    assert(slot3 && !slot3.children.length && slot3.getAttribute("aria-hidden") === "true", "没有批次格的行也要留空槽(右端两列才对齐),空槽对读屏隐藏");
+    assert(rowOf("R-U02")?.querySelector(".doc-flags .blocked-badge"), "阻塞标记应在标题右侧的例外标记簇里");
+    // ④ 详情头拆编号/分隔/标题;textContent 仍是「编号 · 标题」。
+    rowOf("R-U01")?.click();
+    const full = probe.querySelector('.doc-item[data-doc-id="R-U01"] .doc-full-title');
+    assert(full?.querySelector(".doc-detail-id")?.textContent === "R-U01" && full?.querySelector(".doc-detail-text")?.textContent === "字阶样例一",
+      "详情头应拆成 .doc-detail-id + .doc-detail-sep + .doc-detail-text");
+    assert(full?.textContent === "R-U01 · 字阶样例一", `详情头 textContent 应仍为「编号 · 标题」:${full?.textContent}`);
+    // ⑤ 勾选框平时透明;勾上任意一条后所有 .documents-list 带 has-selection(整列常显),清空后撤掉。
+    assert(!probe.classList.contains("has-selection"), "没有选中时列表不该带 has-selection");
+    const pick = rowOf("R-U02")?.querySelector(".doc-pick");
+    pick.checked = true;
+    pick._listeners.change?.forEach((fn) => fn({ target: pick }));
+    assert(probe.classList.contains("has-selection") && byId.get("documents-req-list").classList.contains("has-selection"),
+      "勾上一条后,文档页列表应带 has-selection(勾选框整列常显)");
+    pick.checked = false;
+    pick._listeners.change?.forEach((fn) => fn({ target: pick }));
+    assert(!probe.classList.contains("has-selection") && !byId.get("documents-req-list").classList.contains("has-selection"), "取消全部选中后 has-selection 应撤掉");
+    // ⑥ 键盘:焦点在勾选框/优先级按钮上按空格、回车,是它们自己的动作——行的 keydown 不得 preventDefault
+    //    (否则勾选框勾不上、按钮点不动),也不得开合详情;焦点在行本身时回车/空格照旧开合。
+    const row2 = rowOf("R-U02");
+    const detail2 = probe.querySelector('.doc-item[data-doc-id="R-U02"] .doc-detail');
+    const hiddenBefore = detail2?.classList.contains("hidden");
+    for (const [target, key] of [[row2?.querySelector(".doc-pick"), " "], [row2?.querySelector(".pri-badge"), "Enter"]]) {
+      let prevented = false;
+      row2.dispatchEvent({ type: "keydown", key, target, preventDefault() { prevented = true; } });
+      assert(target && !prevented && detail2?.classList.contains("hidden") === hiddenBefore,
+        `焦点在 ${target?.className} 上按「${key}」被行的 keydown 吞掉了(preventDefault=${prevented},详情${detail2?.classList.contains("hidden") === hiddenBefore ? "未" : "被"}开合)`);
+    }
+    let rowPrevented = false;
+    row2.dispatchEvent({ type: "keydown", key: " ", target: row2, preventDefault() { rowPrevented = true; } });
+    assert(rowPrevented && detail2?.classList.contains("hidden") === !hiddenBefore && row2.getAttribute("aria-expanded") === String(hiddenBefore),
+      "焦点在行本身时按空格应开合详情并同步 aria-expanded");
+  } finally {
+    probe.remove();
+    listNs?.batchSelection.clear();
+    listNs?.syncBatchBar();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ---------- UI2-0926 侧栏密度:未取得条目的线一行;工作树一行一棵、有改动的排前、最多 6 棵 + 查看全部 ----------
+// 变异守卫:focusCompactLine / focusClaimTwoPart / worktreeCap / worktreeDirtyFirst / worktreeCountClear / worktreeMoreAnchor。
+{
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const pagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  assert(sessionsNs && pagesNs, "UI2 侧栏密度前置:09-sessions / 12-docs-pages 模块命名空间未加载");
+  const focusOf = (processId) => [...document.querySelectorAll("#focus-body .line-focus")].find((node) => node.dataset.processId === processId);
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const savedWorktrees = structuredClone(sessionsNs.worktreeItems ?? []);
+  const savedViewName = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  try {
+    // ① 焦点区:有卡片的线照旧两段;真正「未取得条目」的线带 line-focus-compact(一行:身份 + 「未取得条目」);
+    //    工作树里有取活声明(claim)的线不算没取得,照旧两段(声明是条目名,压进一行会连身份一起被截断)。
+    const sections = [...document.querySelectorAll("#focus-body .line-focus")];
+    assert(sections.length > 0, "侧栏密度前置:焦点区没有线路分段");
+    const unclaimed = (section) => !section.querySelector(".focus-card") && !section.querySelector(".focus-claim-link")
+      && section.querySelector(".line-focus-empty")?.textContent === "未取得条目";
+    for (const section of sections) {
+      assert(section.classList.contains("line-focus-compact") === unclaimed(section),
+        `焦点区线路 ${section.dataset.processId}:${unclaimed(section) ? "没取得条目的线应只占一行(line-focus-compact)" : "有卡片/有取活声明的线不该压成一行"}`);
+      if (unclaimed(section)) assert(section.querySelector(".line-focus-head") && section.querySelector(".line-focus-empty"), "一行式线路分段应只有「身份」与「未取得条目」两段");
+    }
+    assert(sections.some((section) => section.classList.contains("line-focus-compact")) && sections.some((section) => section.querySelector(".focus-card")),
+      "侧栏密度前置:夹具应同时有一条取得条目的线(卡片)与一条没取得的线(一行)");
+    // ①b 取活声明线:声明查得到(可点链接)与查不到(纯文字)两种,都照旧两段,声明独占第二段。
+    const claimLine = (claim) => ({ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim, phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] });
+    try {
+      for (const [claim, linked] of [["R-002 冒烟需求二", true], ["R-9999 线路里新登记", false]]) {
+        sandbox.renderLines([claimLine(claim)]);
+        sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+        const section = focusOf("p|bg");
+        assert(section && !section.classList.contains("line-focus-compact"), `有取活声明的线(${claim})不该压成一行:${section?.className}`);
+        assert(Boolean(section?.querySelector(".focus-claim-link")) === linked && section?.querySelector(".line-focus-empty")?.textContent === claim,
+          `取活声明应独占第二段${linked ? "(查得到时是可点链接)" : "(查不到时是纯文字)"}:${section?.textContent}`);
+      }
+    } finally {
+      sandbox.renderLines(payloads.collaboration_snapshot);
+      sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+    }
+    assert(focusOf("p|bg")?.classList.contains("line-focus-compact"), "侧栏密度:恢复夹具后「未取得条目」的线应回到一行");
+    // ② 工作树:9 棵(3 棵有改动,散在中间)→ 只列 6 行,有改动的 3 棵在前且保持原顺序,末尾一条「查看全部 (9)」。
+    const trees = Array.from({ length: 9 }, (_, index) => ({
+      path: `C:/smoke/wt-${index}`, branch: `kanzei/wt-${index}`, clean: ![2, 5, 8].includes(index),
+      files: [2, 5, 8].includes(index) ? ["a.rs"] : [], bound_process: null,
+    }));
+    sessionsNs.renderWorktrees(trees);
+    const rows = [...byId.get("worktree-list").querySelectorAll(".worktree-entry")];
+    assert(rows.length === sessionsNs.SIDEBAR_WORKTREE_LIMIT && rows.length === 6, `侧栏工作树应最多列 6 棵,实得 ${rows.length}`);
+    assert(rows.slice(0, 3).map((row) => row.querySelector(".worktree-branch")?.textContent).join(",") === "kanzei/wt-2,kanzei/wt-5,kanzei/wt-8",
+      `有改动的工作树应排在前面且保持原顺序:${rows.map((row) => row.querySelector(".worktree-branch")?.textContent).join(",")}`);
+    assert(listText("worktree-count") === "9 · 3 棵有改动", `工作树计数应按全部 9 棵算:${listText("worktree-count")}`);
+    const more = byId.get("worktree-list").querySelector(".worktree-more");
+    assert(more?.textContent.includes("查看全部隔离工作树") && more.textContent.includes("(9)"), `超出上限时应有「查看全部隔离工作树 (9)」:${more?.textContent}`);
+    // 落点:从别的页跳过来时,要等线路页这轮 refreshLines(collaboration_snapshot 落地、线路卡画完)之后才滚到
+    // #lines-worktrees——先滚的话,随后插进来的线路卡把目标段推下去,停在半路(真机位置断言在 ui-workspace-smoke)。
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === "chat")?.click();
+    await flush();
+    const target = byId.get("lines-worktrees");
+    const scrolls = [];
+    const priorScroll = target.scrollIntoView;
+    target.scrollIntoView = (options) => scrolls.push({ snapshots: invokeArgs.filter((call) => call.cmd === "collaboration_snapshot").length, options });
+    try {
+      const snapshotsBefore = invokeArgs.filter((call) => call.cmd === "collaboration_snapshot").length;
+      more?.click();
+      await flush();
+      assert(byId.get("view-lines").classList.contains("active"), "「查看全部隔离工作树」应跳到并行线路页");
+      assert(scrolls.length >= 1 && scrolls.every((scroll) => scroll.snapshots > snapshotsBefore),
+        `「查看全部隔离工作树」应在线路页这轮刷新(collaboration_snapshot)画完之后才滚到工作树清单:${JSON.stringify(scrolls)} / 刷新前 ${snapshotsBefore}`);
+      assert(scrolls.at(-1)?.options?.block === "start", "工作树清单应滚到顶端(block: start)");
+      // 已在线路页再点:切视图不触发刷新,就地滚一次。
+      const count = scrolls.length;
+      more?.click();
+      assert(scrolls.length === count + 1, "已在线路页时点「查看全部隔离工作树」应就地滚到工作树清单");
+      await flush();
+    } finally {
+      target.scrollIntoView = priorScroll;
+    }
+    // ③ 不超上限时没有「查看全部」;空列表时计数一起清掉(原先停在旧值)。
+    sessionsNs.renderWorktrees(trees.slice(0, 4));
+    assert(!byId.get("worktree-list").querySelector(".worktree-more"), "不超过上限时不该有「查看全部」");
+    sessionsNs.renderWorktrees([]);
+    assert(listText("worktree-count") === "", `空工作树列表时计数应清空,实为「${listText("worktree-count")}」`);
+    assert(listText("worktree-list").includes("暂无隔离工作树"), "空工作树列表应显示空态");
+  } finally {
+    sessionsNs?.renderWorktrees(savedWorktrees);
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === savedViewName)?.click();
+    await flush();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ── 分区:侧栏与需求页(完) ──
 
 
 // ===== 分区:会话生命周期 =====

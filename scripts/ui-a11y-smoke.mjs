@@ -45,11 +45,17 @@ for (const selector of ["activity-item", "rail-sidebar-toggle", "auto-continue",
   assert.ok(html.includes(`id="${selector}"`) || html.includes(`class="${selector}`), `缺少核心控件 ${selector}`);
 }
 assert.match(js, /activity-item[\s\S]*aria-current/);
-assert.match(js, /project-item[\s\S]*item\.click\(\)/);
+// UI2-0926 #1:项目切换只剩侧栏头部的项目卡菜单(菜单按钮语义 + click/方向键都打开 openProjectMenu);
+// 项目总览卡片是「标题真按钮 + ⋯ 菜单按钮」,重命名/移除在 ⋯ 里(读屏名称带项目名)。
+assert.match(html, /<button type="button" id="project-switch"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/, "项目卡必须是带 aria-haspopup/aria-expanded 的菜单按钮");
+assert.doesNotMatch(html, /id="project-switch"[^>]*aria-controls=/, "项目卡不再是某个分区的开合把手(不得再带 aria-controls)");
+assert.match(js, /button\.addEventListener\("click", \(\) => openProjectMenu\(\)\)/, "项目卡点击未接 openProjectMenu");
+assert.match(js, /event\.key !== "ArrowDown" && event\.key !== "ArrowUp"[\s\S]{0,120}openProjectMenu\(\)/, "项目卡方向键未接 openProjectMenu");
 assert.match(js, /doc-row[\s\S]*aria-expanded/);
-assert.match(js, /workspace-card[\s\S]*card\.click\(\)/);
-assert.match(js, /remove\.setAttribute\("aria-label"/);
-assert.match(js, /rename\.setAttribute\("aria-label"/);
+assert.match(js, /open\.className = "workspace-card-open"/, "项目总览卡片缺标题真按钮 .workspace-card-open");
+assert.match(js, /open\.setAttribute\("aria-label", `\$\{t\("选择工作区项目"\)\} \$\{project\.name\}`\)/, "项目总览卡片标题按钮缺读屏名称");
+assert.match(js, /more\.className = "icon-btn workspace-card-more"[\s\S]{0,400}more\.setAttribute\("aria-haspopup", "menu"\)[\s\S]{0,200}more\.setAttribute\("aria-label", `\$\{t\("更多操作"\)\} \$\{project\.name\}`\)/, "项目总览卡片 ⋯ 缺菜单按钮语义或带项目名的读屏名称");
+assert.match(css, /\.workspace-card-open::after \{[^}]*inset: 0/, "项目总览卡片缺撑满整卡的点击覆盖层");
 // 胶囊开关把原生勾选框视觉隐藏,必须用 opacity:0 保留可聚焦——display:none 会把它
 // 从 tab 序里摘掉,键盘用户就切不动鞭挞。#auto-allow-wrap 已随鞭挞控制台改成菜单行,
 // 勾选框恢复可见,不再走这套隐藏;仍用胶囊的只剩 #auto-continue-wrap。
@@ -515,9 +521,9 @@ assert.match(js, /t\("实际差异"\)/);
   const rules = rulesOf(cssClean);
   const bodiesFor = (selector) => rules.filter((rule) => rule.branches.includes(selector)).map((rule) => rule.body);
   for (const selector of [
-    ".project-item.active", ".parallel-task-row.active", ".workspace-switcher button.active",
+    ".parallel-task-row.active", ".workspace-switcher button.active",
     ".research-page-nav button.active", ".palette-row.active", ".files-row.active", ".arch-entry.active",
-    ".activity-item.active", ".memory-row.selected",
+    ".activity-item.active", ".memory-row.selected", '.documents-list .doc-row[aria-expanded="true"]',
   ]) {
     const bodies = bodiesFor(selector);
     assert.ok(bodies.length, `找不到选中态规则 ${selector}(判据定位失效)`);
@@ -873,6 +879,30 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     .map(([label]) => label);
   assert.deepEqual(silent, [], `颜色语义判据没能命中自己的反例(恒绿):${silent.join(", ")}`);
 }
+// ── 分区:侧栏与需求页 ──
+// UI2-0926 #5「需求页面缺少字体之间的间隔和明暗关系」:明暗三档写成机械判据——标题是全行最亮最大的字
+// (--fg-strong 14px),状态/复杂度/组头是暗而小的元数据(--dim 12px);勾选框用 opacity 隐藏(键盘仍可 Tab 到,
+// 不得用 display:none / visibility:hidden);列表不再套外框、组头不再画实线。颜色语义归 ⑥,这里只管字阶。
+{
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const bodyOf = (selector) => [...clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((m) => m[1].split(/,(?![^(]*\))/).map((b) => b.trim().replace(/\s+/g, " ")).includes(selector))
+    .map((m) => m[2]).join(";");
+  const expectDecl = (selector, pattern, why) => assert.match(bodyOf(selector), pattern, `#5 字阶:${selector} ${why}(实际:${bodyOf(selector).trim() || "找不到规则"})`);
+  expectDecl(".documents-list .doc-row .title", /color:\s*var\(--fg-strong\)/, "标题必须是最亮的 --fg-strong");
+  expectDecl(".documents-list .doc-row .title", /font-size:\s*var\(--fs-14\)/, "标题必须比元数据大一档(14px)");
+  expectDecl(".documents-list .doc-row .st", /color:\s*var\(--dim\)/, "状态列是元数据,默认暗色(在做/完成的语义色由 :is() 分支覆盖)");
+  expectDecl(".documents-list .doc-row .st", /font-size:\s*var\(--fs-12\)/, "状态列 12px");
+  expectDecl(".documents-list .doc-row .complexity-badge", /color:\s*var\(--dim\)/, "复杂度列暗色");
+  expectDecl(".documents-list .doc-group-head", /color:\s*var\(--dim\)/, "组头暗色");
+  expectDecl(".documents-list .doc-group-head", /border-bottom:\s*0/, "组头不再画实线");
+  expectDecl(".documents-list .doc-row", /min-height:\s*36px/, "行高统一 36px");
+  expectDecl(".documents-list .doc-pick", /opacity:\s*0/, "勾选框平时用 opacity 隐藏");
+  assert.doesNotMatch(bodyOf(".documents-list .doc-pick"), /display:\s*none|visibility:\s*hidden/, "#5 勾选框不得用 display:none/visibility:hidden 隐藏(键盘 Tab 不到)");
+  expectDecl(".documents-list.has-selection .doc-pick", /opacity:\s*1/, "已有选中时勾选框整列常显");
+  assert.doesNotMatch(bodyOf(".documents-list"), /border:\s*1px/, "#5 需求列表不再套外框");
+}
+
 // 彩色 emoji 绕过调色板:⚡ 必须带 U+FE0E 变成文字字形(HTML 里写 ⚡&#xFE0E;),才继承 CSS color、随主题取色。
 // 状态栏「自动放行」是静态 HTML;输入区芯片与状态栏 kz:meta 的 ⚡ 由 ui-runtime-smoke 实渲染断言。
 {
