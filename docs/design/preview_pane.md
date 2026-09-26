@@ -5,6 +5,7 @@
 - 范围:本文件是后端(Rust 与代理工具)的设计与契约真源;前端章节在文末「## 前端」,由前端实现补充。
 - B0 技术验证:一次性 Tauri 小程序(与 kanzei 同版本 tauri 2.11.5 / wry 0.55.1 / webview2-com 0.38.2)在本机全自动跑完,结论与计划调整见 §9,未能自动验证的项目见 §10。
 - 独立复核的 3 条 major 与 11 条代码 / 文档类 minor 已全部落地,正文里标「复核修复」;事件次序的实测依据见 §9.1,新增的人工验收是 §10 的 10–17 条。复核的另一条是合并衔接提示:本分支必须与前端分支在同一次集成里合入(单独合入时 ipc-event-smoke 与 ui-runtime-smoke 必然因前端订阅缺席而失败),本文保留后端正文到「## 前端」之前,由前端一节接在文末。
+- **集成收尾**(前后端合入 release/2026-09-26-ui2 之后):前端「§10 请后端处理的接缝」三条已由后端落地,正文里标「集成收尾」——片段响应带 CSP 沙箱(§2、§3)、批注完成后焦点还给主界面(§4)、主界面(重新)加载时收面板(§4);对应人工验收是 §10 的 18–20 条。
 
 ## 0. 目标与不做
 
@@ -37,6 +38,7 @@
   - **子 frame 同样过闸**(复核修复):on_navigation 对应 NavigationStarting,只管顶层;而 wry 注册 custom protocol 用 `SOURCE_KINDS_ALL`,子 frame 请求 `http://tauri.localhost/…` 同样被应用协议接管,tauri 的 `is_local_url` 又只按 scheme + domain 判、不看端口(`http://tauri.localhost:3000` 的内容来自本机 3000 端口却算本地源),远程页面里还注入了带 invoke key 的 `__TAURI_INTERNALS__`。所以建面板时在 ICoreWebView2 上挂 `FrameNavigationStarting`(`cdp::guard_frame_navigation`),按 `preview::frame_nav_allowed` 判定后 `SetCancel(true)`:http(s) 同样拒绝任何 `*.localhost` 子域;放宽的只有页面内部常见、又拿不到新源的 `about:`(blank / srcdoc)、`data:`、`javascript:` 与内层源过同一规则的 `blob:`;其余 scheme 拒绝。
   - 被拦的导航(页面里的 `mailto:`、`blob:` 链接、`*.localhost` 子域的开发地址……)只记一条 **warning** 级控制台条目(「已拦截导航」/「已拦截子框架导航」),**不**改页面级错误态——当前页还好好的,不能被错误页换掉。
   - `on_new_window` 一律 `Deny`(window.open 返回 null),放行的地址改在本面板里打开。
+- **代码片段落到不透明源**(集成收尾):静态服务上的片段(`/t/<token>/s/`)与项目文件(`/t/<token>/r/`)同源、共用 token,片段里的脚本从自己的 URL 就能拿到 token;而片段的来源(聊天里 html 代码块的「预览」——文档页、研究页里可能是抓来的网页内容——以及模型的 `browser html`)信任度低于用户自己的项目页面。所以片段响应一律带 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals`(**不**给 allow-same-origin),详见 §3。IPC 这一层片段本来就调不到(远程源,见上),沙箱挡的是「读同一静态服务上的项目文件、碰本源存储」。
 - **站点数据**:面板与主界面共用同一个 WebView2 profile。「清除本站数据」只做 CDP `Storage.clearDataForOrigin{origin: 当前源, storageTypes: "all"}`;清全部浏览数据的 API 会连 kanzei 自己存在 localStorage 里的东西一起清掉,守卫测试保证全仓代码不调用它。
 - **browser 工具权限分级**(`kanzei-tools/src/base.rs`):资源由 `browser_tool::resources_for` 按**解析后的 host** 生成(`http://localhost:80@evil.com/` 的 host 是 evil.com):
   - `url:localhost[:*|/*]`、`url:127.0.0.1[:*|/*]`、`url:[::1][:*|/*]`、`path:*`、`html:*`、`page:none`(还没打开任何页面)→ Allow;
@@ -54,6 +56,11 @@
 - **兜底根不能太宽**(复核修复):目录是盘符根、用户主目录本身或其上级(`C:\Users`)时,不整个当根,只登记**单文件根**(只提供这一个文件,同目录其它文件与 Referer 逐级查找一律 404);候选根本身太宽时同样跳过。打开桌面上的 HTML 仍以桌面目录为根(桌面在主目录之下,不算太宽)。
 - 只接受 GET / HEAD(其余 405);百分号解码(中文路径、含空格的 `kanzei code`);逐段拒绝 `.`、`..`、含 `\`、`:`、NUL 的段;canonicalize 之后必须仍在根内(符号链接越界同样 404)。
 - 目录不带尾斜杠 → 301 补斜杠;目录没有 index.html → 404,不列目录;`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`,不加 CORS 头。
+- **片段的 CSP 沙箱**(集成收尾,`preview_server::SNIPPET_CSP`):`/t/<token>/s/…` 的响应(含查无此片段的 404)一律带 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals`。
+  - 效果:片段文档落到不透明源(origin 为 `null`)。它对同一主机的 fetch / XHR 一律按跨源处理,本服务不发 CORS 头,所以读不到 `/r/` 下的任何文件(即便 root_id 泄露);没有本源的 localStorage / sessionStorage / Cookie / IndexedDB / Service Worker;弹窗(`window.open`)不放行(面板的 on_new_window 本来也 Deny)。放行的只有脚本、表单提交与 alert / confirm——片段本来就是拿来跑的演示页。CDN 上的 ES module 照常能加载(CDN 回 `Access-Control-Allow-Origin: *`,不透明源也认)。
+  - 代价(写进 §11):片段里用 localStorage 的演示会抛 SecurityError;要存储、要同源 fetch 的页面请写成文件、按路径打开。
+  - **项目文件(`/r/`)不加**,有意为之:那是用户自己项目里的页面,信任度与在该目录里起一个 `python -m http.server` 相同;多文件页面必须同源才能工作——`<script type="module">` 的 import 是 CORS 请求、`fetch('./data.json')`、localStorage 都要同源,沙箱化会让 ES module 页面白屏,正是改用静态服务要解决的问题。不同根之间靠随机 root_id 隔开(见上),页面拿不到自己根以外的 id;根路径引用(`/assets/x.js`)同样不加。
+  - 单测:`片段带沙箱csp落到不透明源_项目文件不带`(纯判定:GET/HEAD/404 都带、`/r/` 页面与 module 资源与根路径引用都不带、CSP 不含 allow-same-origin / allow-top-navigation / allow-popups)与 `真实连接_片段响应头带沙箱_项目页面不带`(真 socket,头真的写到线上)。
 - 根路径引用(Vite 构建产物的 `/assets/x.js`):只在 Referer 指向本服务某个根内页面时,从引用页所在目录逐级向上找同名文件,仍限定在同一个根内;没有图标时 `/favicon.ico` 回 204,不在控制台留 404 噪声。
 
 ## 4. 面板生命周期(`src/preview/pane.rs`)
@@ -65,6 +72,9 @@
 - 边界:前端上报 `#preview-host` 的矩形(CSS px = Tauri 逻辑像素,应用没用 zoom)。设备模式用 `preview::fit_device(host, preset) → (边界, 缩放)`:缩放 = min(1, host 宽 / 设备宽, host 高 / 设备高),下限 0.25(WebView2 ZoomFactor 的下限,超出部分裁到 host 内),边界 = 设备 × 缩放、在 host 里居中,再 `Webview::set_zoom(缩放)`;Fill 铺满 host、缩放设回 1(ZoomFactor 跨导航、跨源保持,不设回会一直缩着)。手机 / 平板另开 `Emulation.setTouchEmulationEnabled`;深浅色用 `Emulation.setEmulatedMedia` 的 `prefers-color-scheme`;每次主 frame 导航后重放一次。
 - DPI:`WindowEvent::ScaleFactorChanged` 时按记住的 host 重放边界(DOM 的 ResizeObserver 在纯 DPI 变化时不触发)。
 - 可见性:`preview_set_visible{visible, processId}`,每次上报都带当前线。**显示时按上报值覆盖绑定**(`processId: null` 即解绑:用户此刻看的上下文没有线,就不该让上一条线的代理驱动这块面板);隐藏时保留绑定并记下隐藏时刻(路由据此区分「刚被遮住」与「早就收起」,见 §5)。preview_open 视同显示,同一规则。主窗口 `CloseRequested` / `Destroyed` 时关面板;关面板释放 UI 线程上的 CDP 接收器与焦点登记。
+  - 集成收尾核对:前端 `sendVisible` 发的就是 `{visible, processId: activeProcessId ?? null}`,没有活动线时显示上报即解绑,与这里一致;`scripts/ui-preview/fixtures.mjs` 的桩同步成同一语义(此前隐藏时也覆盖绑定、关闭不清绑定)。
+- **关闭 = 释放**:`preview_close`(前端的 ✕、「更多 → 关闭页面」、启动时无条件的那一次)→ `pane::close`:递增关闭代次 → 取走 slot → 标记 closed、在 UI 线程上释放 CDP 接收器与焦点登记 → `Webview::close`(tauri-runtime-wry 从窗口的 webview 表里移除,wry 的 Drop 调 `controller.Close()` 并销毁宿主子窗口,渲染进程随之退出,验收见 §10 第 8 条)→ 发关闭态 `kz:preview-state`。没有面板时只递增代次就返回,不发事件——所以启动时那次 preview_close 无副作用。rail 开关 / Ctrl+Shift+B 只是 `set_visible(false)`(隐藏,页面保留),与前端「收起 ≠ 关闭」的约定一致。
+- **主界面(重新)加载时收面板**(集成收尾,前端启动 preview_close 的双保险):wry 的浏览器加速键默认开着,F5 / Ctrl+R 会重载主界面,Rust 侧的子 webview 却还活着、还可见,新起的前端从「没有面板」起步,原生面板会停在旧矩形上盖住对话列。main.rs 在主窗口 builder 上挂 `on_page_load` → `preview::on_main_page_load`:只认 label 为 `main` 的 `PageLoadEvent::Started`(= ContentLoading,新文档开始加载;pushState / 锚点这类同文档导航不触发;面板自己的加载、`Finished` 都不算),在异步任务里调 `pane::close`(与 preview_close 命令同一路径,不在主 webview 的 COM 回调里同步关另一个 webview)。**第一次启动的那次加载同样会来,是无害的**:那时 slot 为空,close 只递增关闭代次就返回(代次只影响「创建途中被关」的比对,那时还没有任何创建),不发事件、不碰窗口。单测 `主界面开始重新加载时收面板_只认主webview的started` 钉住判定、接线与「close 先判空」。
 - 导航失败(「服务没在跑?」)**只认主 frame**(复核修复):
   - `Network.loadingFailed{type: Document}`(非取消、非 ERR_ABORTED)**不分帧**——外站的广告 / 跟踪 iframe 被 WebView2 跟踪防护拦下(ERR_BLOCKED_BY_CLIENT)、iframe 目标带 `X-Frame-Options: DENY`(ERR_BLOCKED_BY_RESPONSE)、iframe 指向死端口(ERR_UNSAFE_PORT),都会来一条。此前直接据此进错误态,前端会把完好的页面藏起来换成错误页,代理 open 也会提前以失败结束,外站几乎必现。
   - 现在失败只**暂存**(requestId → errorText,最多 16 条);只有主 frame 真的提交了错误页(`Page.frameNavigated` 无 parentId、`url = chrome-error://chromewebdata/`、带 `unreachableUrl`)才进入错误态、`fail_seq + 1`、清控制台后记一条 network 级「页面加载失败」。错误页的 `frame.loaderId` 就是那次失败请求的 `requestId`(Edge 实测,主帧与子帧同一规律,见 §9.1),据此取具体错误码;取不到按 `net::ERR_FAILED`(kind=other),错误页先于 loadingFailed 到达时,后到的同 id 失败再补上具体码。
@@ -74,7 +84,10 @@
 - 截图:只在可见时截(隐藏时 `Page.captureScreenshot` 永不返回),刚被遮住时先等最多 1.5 秒让它露出来,5 秒超时;整页截图高度上限 16384 CSS px。设备模式下截的是面板显示尺寸(缩放后的画面),不临时改 device metrics——那会让用户眼前的画面闪一下(B0 计划调整 5 的二选一,取后者)。
   - **clip 按缩放换算**(复核修复):captureScreenshot 的 clip 单位是 DIP,元素矩形是 CSS px;ZoomFactor = z 时 1 CSS px = z DIP,四个量都乘 z(`pane::clip_params`),否则设备模式下元素截图与批注裁图会裁偏。
   - 设备模式(ZoomFactor ≠ 1)下**不做整页截图**:缩放下的整页几何(cssContentSize × z、captureBeyondViewport)没有在 WebView2 上验证过。preview_capture 明确报错;代理的 screenshot 退回可视区并在结果里写明原因。
-- 批注:`preview_pick{on}` → `DOM.enable`、`Overlay.enable`、`Overlay.setInspectMode{searchForNode}`;`Overlay.inspectNodeRequested` → `DOM.resolveNode` → `Runtime.callFunctionOn` 取选择器 / 文字(≤200 字)/ 标签 / 视口矩形 → 退出选择模式 → 按元素矩形外扩 8px(换成文档坐标,再按缩放换成 DIP)截图 → 发 `kz:preview-pick`。
+- 批注:`preview_pick{on}` → `DOM.enable`、`Overlay.enable`、`Overlay.setInspectMode{searchForNode}`;`Overlay.inspectNodeRequested` → `DOM.resolveNode` → `Runtime.callFunctionOn` 取选择器 / 文字(≤200 字)/ 标签 / 视口矩形 → 退出选择模式 → 按元素矩形外扩 8px(换成文档坐标,再按缩放换成 DIP)截图 → 发 `kz:preview-pick` → **把焦点还给主界面**(集成收尾)。
+  - 点选完成时系统焦点还在子 webview 里(用户刚在页面上点了一下),前端 `addPickAttachment` 里的 `promptBox.focus()` 只改了主文档的焦点元素,键盘输入仍进面板。`pane::return_focus_to_main`:`get_webview("main")` 的 `set_focus`(wry 里是 `MoveFocus(PROGRAMMATIC)`,恢复主文档里原来聚焦的元素,也就是刚聚焦的输入框);**不用** `get_webview_window`(第一次 add_child 之后是 None,§8)。
+  - **只在 kanzei 就是前台程序时**做(`host::main_is_foreground`:前台窗口正是主窗口句柄;面板与主界面都是它的子窗口,面板的 DevTools 窗口、别的程序在前台都不算)。B0 实测 MoveFocus 会把窗口拉到前台;截图、取元素信息要几十到几百毫秒,用户可能已经切走,这时不能把 kanzei 拽回来。判定与 set_focus 在同一个 `run_on_main_thread` 闭包里连着做,中间不给前台切换留空当。主界面的 GotFocus 随即把 host.rs 的「上次拿到焦点的是面板」清掉,之后 Alt+Tab 切回也回到主界面。
+  - 单测 `批注完成后焦点还给主界面_只在kanzei是前台时` 钉住判定(`host::foreground_is_main`,句柄未记下时一律不算前台)与「先发事件、再查前台、再 set_focus」的次序。
 
 ## 5. 代理路由与 browser 工具
 
@@ -102,13 +115,13 @@
 | `preview_set_bounds` | `x, y, w, h` | — |
 | `preview_set_visible` | `visible, processId`(显示时按它覆盖绑定,null 即解绑;隐藏时保留绑定) | kz:preview-state 同形(没有面板时为关闭态) |
 | `preview_nav` | `action: back \| forward \| reload \| stop` | — |
-| `preview_close` | — | — |
+| `preview_close` | — | —(释放面板:关子 webview、渲染进程退出、发关闭态;没有面板时是空操作。前端启动时无条件调一次,主界面重新加载时后端也自己收,见 §4) |
 | `preview_capture` | `fullPage?, clip?:{x,y,w,h}`(clip 为页面文档坐标的 CSS px,后端按缩放换算;设备模式下 fullPage 报错) | `{png(base64), width, height}` |
 | `preview_console` | `sinceSeq` | `{entries:[{seq,ts,level,text,url,line,col}]}` |
 | `preview_console_clear` | — | — |
 | `preview_device` | `preset: fill \| phone \| tablet \| desktop, scheme: auto \| light \| dark`(缺省的一项保持不变) | kz:preview-state 同形 |
 | `preview_pick` | `on` | — |
-| `preview_snippet` | `html` | `{url}` |
+| `preview_snippet` | `html` | `{url}`(`/t/<token>/s/<id>.html`,响应带 CSP 沙箱、落到不透明源,见 §3) |
 | `preview_dev_urls` | `projectDir` | `{urls:[{url, command, pid}]}` |
 | `preview_clear_site_data` | — | — |
 | `preview_open_devtools` | — | — |
@@ -122,7 +135,7 @@
 
 - `kz:preview-state`:`{url, title, loading, canBack, canForward, visible, boundProcessId, device, scheme, error?:{kind, text}}`,`kind ∈ connection_refused | unsafe_port | blocked | other`;没有错误时省略 `error`。`error` 只表示**主 frame** 提交了错误页(iframe 失败、导航闸拦下的链接都不算,后者记 warning 级控制台条目);下一次导航开始时清除。`url` 随 SPA 的 pushState 更新。面板关闭时发 `visible:false, url:""` 的关闭态。
 - `kz:preview-console`:`{entries:[...]}`,≤ 每 250 ms 合并推送一次,只推新条目(seq 单调、清空后不回退)。`level ∈ log | info | debug | warning | error | network`;`network` = 资源加载失败(Log.entryAdded source=network 的 4xx / 5xx 与 net::ERR_*、主文档加载失败),属于失败一类;`line / col` 1 起算,未知时为 null;`url` 未知时为空串。主 frame 导航后后端缓冲清空,前端据 kz:preview-state 的 url 变化决定自己的列表清不清(「保留日志」是前端行为)。
-- `kz:preview-pick`:`{selector, text, tag, rect:{x,y,w,h}, png}`(rect 为视口 CSS px;裁图失败时 png 为空串)。
+- `kz:preview-pick`:`{selector, text, tag, rect:{x,y,w,h}, png}`(rect 为视口 CSS px;裁图失败时 png 为空串)。发出之后后端把键盘焦点还给主界面(只在 kanzei 是前台程序时,见 §4「批注」),前端聚焦的输入框直接能打字。
 
 工具结果:首行 `backend: pane（用户可见）` 或 `backend: headless`;截图落盘后末行 `[tool-image] .kanzei/artifacts/tool-images/<sha>.png`(可能有多行,每张一行)。
 
@@ -132,7 +145,7 @@
 
 ## 8. 主窗口句柄的行为变化
 
-第一次 `add_child` 之后 `get_webview_window("main")` 返回 None(tauri 按「窗口里只有同名 webview」判断是不是 WebviewWindow),拖放事件改走 emit_to_window。全仓一律用 `get_webview("main")` / `get_window("main")`;守卫测试保证代码里不再出现 `get_webview_window(`。主界面的 IPC 与页面内 HTML5 拖放 B0 实测不受影响。主窗口的焦点归还与移动通知见 §1「unstable 的副作用」(`src/preview/host.rs`)。
+第一次 `add_child` 之后 `get_webview_window("main")` 返回 None(tauri 按「窗口里只有同名 webview」判断是不是 WebviewWindow),拖放事件改走 emit_to_window。全仓一律用 `get_webview("main")` / `get_window("main")`(批注后还焦点用的就是 `get_webview("main")` 的 `set_focus`);守卫测试保证代码里不再出现 `get_webview_window(`。主窗口的 `on_page_load` 挂在 `WebviewWindowBuilder` 上(build 之前),回调拿到的 WebviewWindow 由 tauri 从 webview 现组,不经 get_webview_window。主界面的 IPC 与页面内 HTML5 拖放 B0 实测不受影响。主窗口的焦点归还与移动通知见 §1「unstable 的副作用」(`src/preview/host.rs`)。
 
 ## 9. B0 结论
 
@@ -182,6 +195,9 @@
 15. (复核修复)Vite / React 路由页里点站内链接(pushState)后,地址栏、「在系统浏览器打开」与代理结果里的 url 都是新地址,后退按钮可用。
 16. (复核修复)页面里 `<iframe src="http://tauri.localhost/">` 与 `http://tauri.localhost:3000/` 不加载,控制台出现一条「已拦截子框架导航」的 warning;页面里点 `mailto:` 链接只记 warning,当前页不被错误页替换。
 17. (复核修复)代理连续 open → click → screenshot 期间用户打开一个压到面板上的菜单,整串仍走 backend: pane(不中途变成 headless)。
+18. (集成收尾)面板开着、显示着一页时在主界面按 F5 / Ctrl+R:重载后面板不残留(没有盖在对话列上的孤儿原生面板),起始页正常;第一次启动、正常使用中都不会无故收掉面板。
+19. (集成收尾)批注:点「批注」、在页面上点一个元素后,不点输入框直接打字,文字进输入框(附件与【网页批注】已在);点选后立刻 Alt+Tab 到别的程序,kanzei 不会被拉回前台。
+20. (集成收尾)对话里 html 代码块点「预览」:片段里对同一静态服务的 fetch(比如把自己地址里的 `/s/…` 换成某个 `/r/…` 项目文件)被当成跨源读不到、`localStorage` 抛 SecurityError,`alert()` 与表单照常;项目里的多文件 ES module 页面(`/r/`)照常加载、localStorage 可用。
 
 ## 11. 已知限制
 
@@ -191,6 +207,7 @@
 - 静态服务不支持 Range 请求(视频拖动进度条不可用),不列目录。同一个根内的文件互相可读(多文件页面需要);不同根、不同运行之间靠随机 root_id 隔开。
 - 截图落盘按内容寻址,同一张图在多个对话里共用一个文件;清理按修改时间(再次引用时刷新),不看引用。只落 PNG。
 - 设备模式(ZoomFactor ≠ 1)下不做整页截图;要整页请切回「自适应」。
+- 代码片段(`/s/`)是沙箱化的不透明源:用 localStorage / Cookie、同源 fetch 的演示在片段里跑不起来(抛 SecurityError 或读不到);这类页面请写成文件、按路径打开(`/r/` 不沙箱化)。
 - 代理在面板被遮住不到 10 秒时最多等 1.5 秒;面板收起超过 10 秒后走无头,两边页面状态不共享。
 
 ## 前端
@@ -232,7 +249,7 @@
   真值是稍后到达的后端偏好:用户本次启动还没动过开关之前,每次偏好到达都按它对齐。
 - **启动先无条件 `preview_close`**:主界面可以被重载(F5 / Ctrl+R,wry 的浏览器加速键默认开着),Rust 侧的子 webview 却还活着、还可见;
   前端状态机假定自己是面板的唯一真源(`alive` 从 false 起步),所以 defer 里、恢复偏好之前先收掉可能留下的孤儿面板。
-  **请后端补双保险**:主 webview 的 `PageLoadEvent::Started` 时顺手收掉面板(见 §10)。
+  **后端双保险已补**(集成收尾):主 webview 的 `PageLoadEvent::Started` 时后端自己收掉面板(后端 §4「主界面(重新)加载时收面板」);两边都是幂等的 preview_close 语义,谁先到都一样。
 - **`preview_open` 的可见性约定**:前端不假设 preview_open 对可见性做了什么——成功后清掉上报缓存,下一帧 evaluate 明确上报一次;
   此刻处于冻结(抽屉、模态、菜单还盖着)时当场补一次 `set_visible(false)`。后端现状是 preview_open 顺手 `show()`,所以这一步不能省。
   契约写死为:preview_open 之后面板的可见性以前端随后的 `preview_set_visible` 为准。
@@ -330,7 +347,8 @@ Esc、blur 清零;Enter 读完值交出焦点(与浏览器一致),blur 时按当
 修改意见:
 ```
 
-光标停在最后,不自动发送。再点一次按钮或焦点在面板工具栏上按 Esc 退出(焦点在页面里时由后端回传)。「更多 → 截图放进输入框」同一条附件路径。
+光标停在最后,不自动发送。后端发出 `kz:preview-pick` 之后把键盘焦点还给主界面(只在 kanzei 是前台程序时,后端 §4「批注」),所以不用先点输入框就能直接补修改意见。
+再点一次按钮或焦点在面板工具栏上按 Esc 退出(焦点在页面里时由后端回传)。「更多 → 截图放进输入框」同一条附件路径。
 
 ### 8. 与后台任务侧栏并存
 
@@ -364,12 +382,12 @@ Esc、blur 清零;Enter 读完值交出焦点(与浏览器一致),blur 时按当
   命令名求差在后端模块合入后自动生效;合入前已按后端分支核对过,17 个命令名全部在它的 `generate_handler!` 里。
 - 冻结 = 隐藏,冻结期间代理的 browser 走无头(提示不再触发冻结)。
 - 焦点在原生面板里时,应用快捷键(Esc、Ctrl+Shift+B、Ctrl+P)收不到,要后端经 Runtime.addBinding 回传。
-- **请后端处理的接缝**(前端做不了,写在这里等后端半边确认):
-  1. `/t/<token>/s/`(代码片段)的响应加 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals`,让片段落到不透明源。
-     片段与项目文件地址 `/t/<token>/r/` 同源,片段里的脚本能从自己的 URL 拿到 token、进而读项目文件;而代码块「预览」挂在全局的
-     `renderMarkdownInto` 上,文档页、研究页(可能含抓来的网页内容)里的 html 代码块也有这个按钮(要用户点一下才会执行)。
-  2. 发出 `kz:preview-pick` 之后把焦点还给主 webview(`get_webview("main")` 上 `set_focus`):点选完成时系统焦点还在子 webview 里,
-     `addPickAttachment` 里的 `promptBox.focus()` 接不到键盘输入。
-  3. 主 webview 的 `PageLoadEvent::Started` 时收掉面板,作为前端启动 `preview_close` 的双保险(§2)。
+- **请后端处理的接缝**(前端做不了)——**三条都已由后端在集成收尾时落地**:
+  1. 已做:`/t/<token>/s/`(代码片段)的响应(含 404)带 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals`,片段落到不透明源
+     (后端 §2、§3,`preview_server::SNIPPET_CSP`)。起因:片段与项目文件地址 `/t/<token>/r/` 同源,片段里的脚本能从自己的 URL 拿到 token、进而读项目文件;
+     而代码块「预览」挂在全局的 `renderMarkdownInto` 上,文档页、研究页(可能含抓来的网页内容)里的 html 代码块也有这个按钮(要用户点一下才会执行)。
+     `/r/` 项目页面有意不加(ES module / fetch 相对资源 / 存储都要同源),理由见后端 §3。代价:片段里用 localStorage 的演示会抛 SecurityError(后端 §11)。
+  2. 已做:发出 `kz:preview-pick` 之后后端把焦点还给主 webview(`get_webview("main")` 的 `set_focus`),只在 kanzei 是前台程序时做(后端 §4「批注」)。
+  3. 已做:主 webview 的 `PageLoadEvent::Started` 时后端收掉面板,作为前端启动 `preview_close` 的双保险;第一次启动的那次加载无害(后端 §4)。
 - 100% 缩放、跨显示器、真实系统拖放与焦点抢占只能在安装版手工验收;另加一条:拖动预览分隔条、控制台分隔条经过原生面板(§3 第 4 条),
   松手后面板位置与宽度正确、没有卡在拖动态。
