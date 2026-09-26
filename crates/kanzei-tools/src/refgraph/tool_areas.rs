@@ -6,6 +6,7 @@
 
 /// 工具名 → 区域 id(不带 `area:` 前缀)。
 pub const TOOL_AREAS: &[(&str, &str)] = &[
+    ("tool_search", "kanzei-harness/tool_search"),
     ("edit", "kanzei-tools/edit"),
     ("insert", "kanzei-tools/edit"),
     ("bash", "kanzei-tools/bash"),
