@@ -6,6 +6,7 @@ pub mod memory_consolidation;
 /// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
 pub use kanzei_base::atomic_file;
 pub use kanzei_base::content_hash;
+pub use kanzei_base::path_form;
 pub use kanzei_base::write_log;
 /// R-203:memory/、docstore、embed、replay_eval 拆入 kanzei-memory crate,经再导出
 /// 保持 `kanzei_tools::{memory,docstore,embed,replay_eval}` 全部调用点零改动。

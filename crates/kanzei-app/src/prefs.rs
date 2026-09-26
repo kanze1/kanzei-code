@@ -49,10 +49,46 @@ fn prefs_path() -> PathBuf {
         .join("app.json")
 }
 pub(crate) fn load_prefs() -> AppPrefs {
-    std::fs::read_to_string(prefs_path())
+    let mut prefs: AppPrefs = std::fs::read_to_string(prefs_path())
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    simplify_pref_keys(&mut prefs);
+    prefs
+}
+
+/// UI2-0926 #13:按进程 id / 项目路径作键的偏好,键里的 `\\?\` 前缀去掉(与 schema v25 同一条
+/// path_form 规则)。进程 id 形如 `d|\\?\C:\…` —— 身份根改成 simplify 形态之后,不迁移的话
+/// 每条线的鞭挞开关与停机设置都会在升级后「丢失」。两种写法并存时保留带前缀的那条:
+/// 升级前它才是在用的键。
+pub(crate) fn simplify_pref_keys(prefs: &mut AppPrefs) {
+    fn simplify_key(key: &str) -> Option<String> {
+        let (prefix, path) = match key.split_once('|') {
+            Some((prefix, path)) => (Some(prefix), path),
+            None => (None, key),
+        };
+        let simplified = kanzei_tools::path_form::simplify_str(path);
+        if simplified == path {
+            return None;
+        }
+        Some(match prefix {
+            Some(prefix) => format!("{prefix}|{simplified}"),
+            None => simplified.into_owned(),
+        })
+    }
+    fn migrate<V>(map: &mut HashMap<String, V>) {
+        let renames: Vec<(String, String)> = map
+            .keys()
+            .filter_map(|key| simplify_key(key).map(|to| (key.clone(), to)))
+            .collect();
+        for (from, to) in renames {
+            if let Some(value) = map.remove(&from) {
+                map.insert(to, value);
+            }
+        }
+    }
+    migrate(&mut prefs.process_auto_state);
+    migrate(&mut prefs.work_priority);
 }
 pub(crate) fn save_prefs(prefs: &AppPrefs) {
     let path = prefs_path();
@@ -268,6 +304,41 @@ mod backdrop_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 偏好键去掉_verbatim_前缀_并存时保留带前缀的值() {
+        let mut prefs = AppPrefs::default();
+        prefs
+            .process_auto_state
+            .insert(r"d|\\?\C:\proj".into(), json!({ "enabled": true }));
+        prefs.process_auto_state.insert(
+            r"p2|\\?\C:\proj".into(),
+            json!({ "enabled": true, "paused": true }),
+        );
+        prefs
+            .process_auto_state
+            .insert(r"p2|C:\proj".into(), json!({ "enabled": false }));
+        prefs
+            .work_priority
+            .insert(r"\\?\C:\proj".into(), "requirement-first".into());
+        let long = format!(r"d|\\?\C:\{}", "x".repeat(300));
+        prefs.process_auto_state.insert(long.clone(), json!({}));
+        simplify_pref_keys(&mut prefs);
+        assert_eq!(
+            prefs.process_auto_state[r"d|C:\proj"]["enabled"],
+            json!(true)
+        );
+        assert_eq!(
+            prefs.process_auto_state[r"p2|C:\proj"]["paused"],
+            json!(true)
+        );
+        assert!(!prefs.process_auto_state.contains_key(r"p2|\\?\C:\proj"));
+        assert!(
+            prefs.process_auto_state.contains_key(&long),
+            "超长路径保持原样"
+        );
+        assert_eq!(prefs.work_priority[r"C:\proj"], "requirement-first");
+    }
 
     #[test]
     fn ui_prefs_往返_新字段写入后读回() {

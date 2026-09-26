@@ -105,13 +105,18 @@ impl SessionStore {
     }
 
     /// 列出一个主项目的全部非默认线/进程,按 process_id 排序(稳定顺序)。
+    ///
+    /// UI2-0926 #13 读时兜底:v25 迁移把存量 `\\?\` 形态改成了 simplify 形态,这里仍按
+    /// 「带前缀 / 不带前缀」两种写法一起匹配,并把读出的 id 与路径归一成 simplify 形态——
+    /// 调用方传哪种写法都列得出同一批线,内存进程表只会出现一种 id。
     pub fn list_processes(&self, origin_project: &str) -> Result<Vec<StoredProcess>, StoreError> {
+        let forms = super::path_migration::path_forms(origin_project);
         let mut stmt = self.connection.prepare(
             "SELECT process_id, origin_project, project_dir, worktree_path,
                     model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic
-             FROM processes WHERE origin_project = ?1 ORDER BY process_id",
+             FROM processes WHERE origin_project IN (?1, ?2, ?3) ORDER BY process_id",
         )?;
-        let rows = stmt.query_map(params![origin_project], |row| {
+        let rows = stmt.query_map(params![forms[0], forms[1], forms[2]], |row| {
             Ok(StoredProcess {
                 process_id: row.get(0)?,
                 origin_project: row.get(1)?,
@@ -129,7 +134,28 @@ impl SessionStore {
                 updated_at: row.get(11)?,
             })
         })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+        let mut out: Vec<StoredProcess> = Vec::new();
+        for record in rows {
+            let mut record = record?;
+            record.process_id = super::path_migration::simplify_process_id(&record.process_id)
+                .unwrap_or(record.process_id);
+            record.origin_project = super::path_migration::simplify_text(&record.origin_project);
+            record.project_dir = super::path_migration::simplify_text(&record.project_dir);
+            record.worktree_path = record
+                .worktree_path
+                .map(|path| super::path_migration::simplify_text(&path));
+            // 两种写法同时在库(迁移之后又被旧形态写入)时,同一 id 只留较新的一条。
+            match out
+                .iter_mut()
+                .find(|kept| kept.process_id == record.process_id)
+            {
+                Some(kept) if kept.updated_at >= record.updated_at => {}
+                Some(kept) => *kept = record,
+                None => out.push(record),
+            }
+        }
+        out.sort_by(|a, b| a.process_id.cmp(&b.process_id));
+        Ok(out)
     }
 
     /// 删除一条线/进程注册(进程关闭时)。
@@ -155,11 +181,19 @@ impl SessionStore {
         &self,
         origin_project: &str,
     ) -> Result<Vec<String>, StoreError> {
+        let forms = super::path_migration::path_forms(origin_project);
         let mut statement = self.connection.prepare(
-            "SELECT process_id FROM retired_processes WHERE origin_project = ?1 ORDER BY process_id",
+            "SELECT process_id FROM retired_processes WHERE origin_project IN (?1, ?2, ?3) ORDER BY process_id",
         )?;
-        let rows = statement.query_map(params![origin_project], |row| row.get(0))?;
-        rows.collect::<Result<Vec<String>, _>>().map_err(Into::into)
+        let rows = statement.query_map(params![forms[0], forms[1], forms[2]], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let mut ids = rows
+            .map(|id| id.map(|id| super::path_migration::simplify_process_id(&id).unwrap_or(id)))
+            .collect::<Result<Vec<String>, _>>()?;
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
     }
 
     /// 查单条(不存在的线返回 None)。

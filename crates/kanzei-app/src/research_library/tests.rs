@@ -20,7 +20,8 @@ async fn standalone_topic_owns_storage_and_restores_its_session_without_a_projec
     assert!(entry.linked_projects.is_empty());
     assert!(!home.join("app.json").exists());
     let root = Path::new(&entry.storage_root);
-    assert!(root.starts_with(home.canonicalize().unwrap()));
+    // UI2-0926 #13:存储根是 path_form::canonical 形态(不带 `\\?\` 前缀)。
+    assert!(root.starts_with(kanzei_tools::path_form::canonical(&home).unwrap()));
     assert!(root.join(".kanzei/research/agentmem/topic.json").is_file());
     let state = crate::AppState::default();
     let process = crate::processes::lifecycle::create_process_with_tracker(

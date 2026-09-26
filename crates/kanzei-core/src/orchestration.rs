@@ -32,12 +32,8 @@ use tokio::sync::oneshot;
 /// 真窟窿。两种错误的代价不对称,所以往严的一边取。
 pub fn normalize_project_root(root: &std::path::Path) -> String {
     let raw = root.to_string_lossy();
-    // 前缀是反斜杠形态,必须在统一分隔符**之前**剥。
-    let stripped = raw
-        .strip_prefix(r"\\?\UNC\")
-        .map(|rest| format!(r"\\{rest}"))
-        .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
-        .unwrap_or_else(|| raw.to_string());
+    // 前缀是反斜杠形态,必须在统一分隔符**之前**剥(唯一实现在 kanzei_base::path_form)。
+    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
     stripped
         .replace('\\', "/")
         .to_lowercase()
