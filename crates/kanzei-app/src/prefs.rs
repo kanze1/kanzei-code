@@ -193,6 +193,8 @@ pub fn ui_prefs_get() -> serde_json::Value {
 }
 
 // UI 偏好通道的请求与持久化对象都使用 snake_case。
+// 每个参数对应 ui_prefs 通道里一个独立字段(IPC 形状即参数名),收成结构体会改动前端调用约定。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command(rename_all = "snake_case")]
 pub fn ui_prefs_set(
     theme: Option<String>,

@@ -130,7 +130,8 @@ async function pixelAudit(page) {
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       if (!node.textContent.trim()) continue;
       const el = node.parentElement;
-      if (!el || el.closest("#agent-panel, #bg-panel, #tasks-panel, #composer") || !el.checkVisibility?.()) continue;
+      // .sr-only 是只给读屏的隐形文字(如图标化复制键的「复制」),1px 剪裁、屏幕上看不见,不算正文。
+      if (!el || el.closest("#agent-panel, #bg-panel, #tasks-panel, #composer, .sr-only") || !el.checkVisibility?.()) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
       for (const r of range.getClientRects()) if (r.width && r.height) rects.push({ x: r.left - box.left, y: r.top - box.top, w: r.width, h: r.height });
@@ -214,7 +215,11 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
     if (css) await page.addStyleTag({ content: css });
     return { page, context, errors };
   }
-  const closePanel = (page) => page.evaluate(() => document.getElementById("bg-close")?.click());
+  // 合并后活动/子代理面板变成停靠的 #tasks-panel(chat 场景会自动打开);关掉它,量的是「没有侧栏时」的沟槽构图。
+  const closePanel = async (page) => {
+    await page.evaluate(() => (document.getElementById("tasks-close") ?? document.getElementById("bg-close"))?.click());
+    await page.waitForTimeout(150);
+  };
   const settle = async (page, ms = 250) => {
     await page.evaluate(() => document.dispatchEvent(new CustomEvent("kz:view-changed", { detail: { view: "chat" } })));
     await page.waitForTimeout(ms);

@@ -13887,6 +13887,8 @@ const docsB = {
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   vm.runInContext(`transitionSession(${JSON.stringify(SID)}, "idle")`, sandbox);
   chatNs.setFollowLatest(true);
+  // 本分区的 BASH_FAIL 会在活动列表里留下一条失败终端条目;清掉,别让后面分区(后台任务侧栏的「需要关注」)读到它。
+  esmModuleCache.get("06-activity.js")?.namespace?.bgClear?.();
   await flush();
 }
 
