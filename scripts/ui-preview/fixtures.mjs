@@ -11,6 +11,9 @@
 //   latencyMs,
 // }
 
+// ── 分区:记忆图谱 ──
+import { MEMORY_GRAPH_FIXTURE, memoryEntriesFor, memoryEntryFor } from "./memory-graph-fixture.mjs";
+
 export const PROJECT = "C:/Users/kanzei/Documents/kanzei code";
 export const PROJECT_B = "C:/Users/kanzei/Documents/持续学习";
 export const PROJECT_C = "C:/Users/kanzei/Documents/kanzei-rel-0926";
@@ -492,7 +495,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
   const state = {
     uiPrefs: {
       theme, work_priority: {}, auto_max: null, continue_prompt: null, process_auto_state: {},
-      workspace_state: {},
+      workspace_state: {}, memory_view: null,
     },
     docs: buildDocsSnapshot(),
     processes: [
@@ -908,7 +911,14 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     run_metrics_by_category: { categories: [] },
     run_metrics_by_task: { completed_tasks: [], in_progress_tasks: [], trend: { closed_task_count: 0, completed_task_count: 0 } },
     memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
-    memory_entries: [],
+    // ── 分区:记忆图谱 ── 真实记忆子集(memory-graph-fixture.mjs);memory / memory-graph 场景读它。
+    memory_entries: (args) => memoryEntriesFor(args?.scope ?? "project"),
+    memory_graph: () => MEMORY_GRAPH_FIXTURE,
+    memory_entry_get: (args) => {
+      const entry = memoryEntryFor(args?.scope, args?.id);
+      if (!entry) throw `记忆 ${args?.id} 不存在(活动与归档里都没有)`;
+      return entry;
+    },
     memory_recalls: { rounds: [], rounds_total: 0 },
     memory_note_candidates: [],
     memory_value_flags: { zero_read: [], frequent: [], stale_archived: 0 },

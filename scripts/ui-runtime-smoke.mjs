@@ -734,6 +734,43 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*document\.documentElement\.dataset\.backdrop = prefs\.enabled \? "on" : "off";\r?\n/,
       replace: "",
     },
+
+    // ── 分区:记忆图谱 ──
+    // 视图切换的监听。删了它,点「图谱」什么都不发生(memory_graph 不会被调用)。
+    memgraphToggle: {
+      pattern: /[ \t]*\$\("memory-view-graph"\)\?\.addEventListener\("click", \(\) => setMemoryView\("graph"\)\);\r?\n/,
+      replace: "",
+    },
+    // await memory_graph 之后的项目/代次复查。删了它,项目 A 在途的图谱会画进项目 B 的页面。
+    memgraphProjectGuard: {
+      pattern: /[ \t]*if \(project !== currentProject \|\| generation !== graphState\.generation\) return; \/\/ 竞态守卫:项目 A 的图谱不得画进项目 B\r?\n/,
+      replace: "",
+    },
+    // 复核修复:areasFor 不看载荷是否被 kz:memory-changed 作废。删了它,「设为区域」后新图落地前区域行又显示旧推断。
+    memgraphAreaInvalidate: {
+      pattern: /if \(graphState\.payloadProject !== currentProject \|\| !graphState\.payloadAt\) return null;/,
+      replace: "if (graphState.payloadProject !== currentProject) return null;",
+    },
+    // 复核修复:ensureAreaOptions 按新鲜度决定是否重取。改成「有载荷就复用」,「设为区域」后永远拿不到新图。
+    memgraphAreaRefetch: {
+      pattern: /let payload = payloadFresh\(project\) \? graphState\.payload : null;/,
+      replace: "let payload = graphState.payloadProject === project && graphState.payload ? graphState.payload : null;",
+    },
+    // 复核修复:记忆页不在前台时 kz:memory-changed 只作废不取数。去掉页面判断,切走后照样重取重排。
+    memgraphInactiveFetch: {
+      pattern: /if \(graphState\.view === "graph" && memoryPageActive\(\)\) void loadAndRender\(\{ force: true \}\);/,
+      replace: 'if (graphState.view === "graph") void loadAndRender({ force: true });',
+    },
+    // 复核修复:render() 在记忆页不在前台时直接返回。删了它,切走之后才落地的在途图谱照样重画。
+    memgraphInactiveRender: {
+      pattern: /[ \t]*if \(!memoryPageActive\(\)\) return;\r?\n/,
+      replace: "",
+    },
+    // 复核修复:切语言时重建图例。删了它,英文界面的图例仍是中文。
+    memgraphLanguage: {
+      pattern: /[ \t]*if \(\$\("memory-graph-legend"\)\?\.children\.length\) renderLegend\(\{ rebuild: true \}\);\r?\n/,
+      replace: "",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -14615,6 +14652,229 @@ const docsB = {
   document.activeElement = null;
   sandbox.activeSessionId = priorSession;
   panelNs.agentPanelSync();
+  await flush();
+}
+
+// ── 分区:记忆图谱 ──
+// 记忆页「列表 | 图谱」(docs/design/memory_knowledge_graph.md §9):假 DOM 没有 canvas,点「图谱」必须调用
+// memory_graph 并降级到文本视图(不报错);文本视图的记忆条目数等于可见记忆数;点条目打开详情;切项目时在途的
+// memory_graph 不得把项目 A 的图画进项目 B;切回列表后列表可见。夹具按 ipc-contract.json 的 memory_graph 校验形状。
+// 复核修复另加:「设为区域」后区域行不停在旧推断、记忆页不在前台不取不画、切语言重建图例。
+// 变异守卫:memgraphToggle / memgraphProjectGuard / memgraphAreaInvalidate / memgraphAreaRefetch / memgraphInactiveFetch /
+// memgraphInactiveRender / memgraphLanguage。
+{
+  const { MEMORY_GRAPH_FIXTURE, memoryEntryFor, memoryEntriesFor } = await import("./ui-preview/memory-graph-fixture.mjs");
+  const contract = JSON.parse(await readFile(resolve(root, "scripts/ipc-contract.json"), "utf8"));
+  const shapeOf = (value) => {
+    if (Array.isArray(value)) return value.length ? [shapeOf(value[0])] : "array";
+    if (value === null || value === undefined) return "nullable";
+    if (typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((k) => [k, shapeOf(value[k])]));
+    return { string: "string", number: "number", boolean: "bool" }[typeof value] ?? typeof value;
+  };
+  const shapeProblems = [];
+  const compatible = (expected, actual, path) => {
+    if (expected === "nullable" || actual === "nullable") return;
+    const expectedList = Array.isArray(expected) || expected === "array";
+    const actualList = Array.isArray(actual) || actual === "array";
+    if (expectedList || actualList) {
+      if (!expectedList || !actualList) shapeProblems.push(`${path}: 契约 ${JSON.stringify(expected)} vs 夹具 ${JSON.stringify(actual)}`);
+      else if (Array.isArray(expected) && Array.isArray(actual)) compatible(expected[0], actual[0], `${path}[]`);
+      return;
+    }
+    if (typeof expected === "object" && typeof actual === "object") {
+      for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+        if (!(key in actual)) shapeProblems.push(`${path}.${key}:后端会发,夹具里没有`);
+        else if (!(key in expected)) shapeProblems.push(`${path}.${key}:夹具独有,后端不发`);
+        else compatible(expected[key], actual[key], `${path}.${key}`);
+      }
+      return;
+    }
+    if (expected !== actual) shapeProblems.push(`${path}: 契约 ${JSON.stringify(expected)} vs 夹具 ${JSON.stringify(actual)}`);
+  };
+  assert(contract.memory_graph, "ipc-contract.json 缺 memory_graph 条目");
+  compatible(contract.memory_graph, shapeOf(MEMORY_GRAPH_FIXTURE), "memory_graph");
+  for (const problem of shapeProblems) fail(`记忆图谱 IPC 契约:${problem}`);
+
+  const modelNs = esmModuleCache.get("24-memory-graph-model.js")?.namespace;
+  assert(modelNs && typeof modelNs.visibleGraph === "function", "24-memory-graph-model.js 未加载或未导出 visibleGraph");
+  const previousProject = sandbox.currentProject;
+  const savedGraph = payloads.memory_graph;
+  const savedGet = payloads.memory_entry_get;
+  const PROJECT_B = "C:/smoke/memgraph-b";
+  const projectB = {
+    ...MEMORY_GRAPH_FIXTURE,
+    nodes: [
+      { ...MEMORY_GRAPH_FIXTURE.nodes.find((n) => n.kind === "crate"), degree: 1 },
+      { id: "M-B01", kind: "memory", label: "M-B01", title: "只属于项目 B 的记忆", description: "b", scope: "project", category: "fact", status: "active", archived: false, updated: "2026-09-26", hits: 0, areas: [], primary_area: null, area_provenance: null, degree: 0 },
+    ],
+    edges: [],
+  };
+  payloads.memory_graph = (args) => (args?.projectDir === PROJECT_B ? projectB : MEMORY_GRAPH_FIXTURE);
+  payloads.memory_entry_get = (args) => memoryEntryFor(args?.scope, args?.id) ?? { id: args?.id, scope: args?.scope, category: "fact", title: "只属于项目 B 的记忆", description: "b", status: "active", updated: "", source: "user", refs: [], areas: [], archived: false, hits: 0, last_hit_at: 0, recalled: 0, injected: 0, read: 0, read_observed: 0, path: "", body: "b" };
+
+  const memoryBtn = [...document.querySelectorAll(".activity-item[data-view]")].find((b) => b.dataset.view === "memory");
+  memoryBtn.click();
+  await flush();
+  const graphCalls = () => invokeLog.filter((cmd) => cmd === "memory_graph").length;
+  const beforeCalls = graphCalls();
+  byId.get("memory-view-graph").click();
+  await flush();
+  assert(graphCalls() > beforeCalls, "点「图谱」没有调用 memory_graph(视图切换监听丢了?)");
+  assert(byId.get("memory-view-graph").getAttribute("aria-pressed") === "true", "「图谱」按钮没有 aria-pressed=true");
+  assert(!byId.get("memory-graph-pane").classList.contains("hidden"), "图谱面板没有显示");
+  // 假 DOM 只建带 id 的节点:工作区的 .graph-mode 由 #memory-scroll[data-view] 同一处代码设置,这里看后者。
+  assert(byId.get("memory-scroll").dataset.view === "graph", "记忆页没有切到图谱布局(#memory-scroll[data-view=graph])");
+  const tree = byId.get("memory-graph-list");
+  assert(!tree.classList.contains("hidden") && byId.get("memory-graph-canvas").classList.contains("hidden"), "假 DOM 没有 canvas:应降级为文本视图");
+  assert(listText("memory-graph-status").includes("图形渲染不可用"), `降级时状态栏要说明原因,实得:${listText("memory-graph-status")}`);
+  const filters = { ...sandbox.memoryFilterSnapshot(), archived: false, layers: modelNs.DEFAULT_LAYERS, area: "" };
+  const expected = modelNs.visibleGraph(MEMORY_GRAPH_FIXTURE, filters).nodes.filter((n) => n.kind === "memory");
+  const items = [...tree.querySelectorAll('[role="treeitem"]')].filter((el) => el.dataset.memoryId);
+  assert(expected.length > 0 && items.length === expected.length, `文本视图条目数 ${items.length} ≠ 可见记忆数 ${expected.length}`);
+  // role=img 是静态标记(ui-a11y-smoke 分区:记忆图谱 静态断言);这里看运行时写进去的带节点数的读屏名称。
+  assert(/\d+/.test(byId.get("memory-graph-canvas").getAttribute("aria-label") ?? ""), `画布的读屏名称要带节点数,实得 ${byId.get("memory-graph-canvas").getAttribute("aria-label")}`);
+  const first = items[0];
+  first.click();
+  await flush();
+  const firstTitle = expected.find((n) => n.id === first.dataset.memoryId)?.title ?? "";
+  assert(firstTitle && listText("memory-detail").includes(firstTitle.slice(0, 8)), `点文本视图条目没有在详情栏打开记忆 ${first.dataset.memoryId}`);
+
+  // 竞态:项目 A 的 memory_graph 在途时切到项目 B,A 的结果迟到也不得画进 B。
+  let release;
+  invokeGates.set("memory_graph", new Promise((resolve) => { release = resolve; }));
+  document.dispatchEvent(new sandbox.CustomEvent("kz:memory-changed", { detail: { project: sandbox.currentProject } }));
+  await settle();
+  invokeGates.delete("memory_graph");
+  sandbox.currentProject = PROJECT_B;
+  await sandbox.refreshMemory({ force: true });
+  await flush();
+  release();
+  await flush();
+  const shownIds = [...tree.querySelectorAll('[role="treeitem"]')].map((el) => el.dataset.memoryId).filter(Boolean);
+  assert(shownIds.length === 1 && shownIds[0] === "M-B01", `切到项目 B 后文本视图应只有 M-B01,实得:${shownIds.join(",")}(项目 A 的在途图谱画进了 B)`);
+
+  byId.get("memory-view-list").click();
+  await flush();
+  assert(byId.get("memory-graph-pane").classList.contains("hidden") && byId.get("memory-scroll").dataset.view === "list", "切回列表后图谱面板仍在、列表被挡住");
+  assert(byId.get("memory-view-list").getAttribute("aria-pressed") === "true", "「列表」按钮没有 aria-pressed=true");
+
+  // 复核修复:下面三段用本仓夹具的记忆条目(M-112 在里面),结束时恢复。此刻没有打开的详情(切项目时已收起),
+  // ① 里数到的 memory_graph 调用只可能来自图谱模块。
+  sandbox.currentProject = previousProject;
+  const savedEntries = payloads.memory_entries;
+  const savedSave = payloads.memory_entry_save;
+  let m112Areas = [];
+  payloads.memory_entries = (args) => memoryEntriesFor(args?.scope ?? "project").map((entry) => (entry.id === "M-112" ? { ...entry, areas: [...m112Areas] } : entry));
+  payloads.memory_entry_save = (args) => {
+    if (args?.id === "M-112" && Array.isArray(args.area)) m112Areas = [...args.area];
+    return null;
+  };
+  payloads.memory_graph = () => MEMORY_GRAPH_FIXTURE;
+  await sandbox.refreshMemory({ force: true });
+  await flush();
+
+  // ① 记忆页不在前台时 kz:memory-changed 只作废、不取数也不画(复核:管理对话结束派发它时用户可能已切走,
+  //    图谱在隐藏的 1×1 画布上重排、RAF 循环留在后台);在途请求在切走之后才落地也不画。回到记忆页再取、再画。
+  //    变异 memgraphInactiveFetch / memgraphInactiveRender。
+  byId.get("memory-view-graph").click();
+  await flush();
+  const chatViewBtn = [...document.querySelectorAll(".activity-item[data-view]")].find((b) => b.dataset.view === "chat");
+  chatViewBtn.click();
+  await flush();
+  const callsWhileAway = graphCalls();
+  document.dispatchEvent(new sandbox.CustomEvent("kz:memory-changed", { detail: { project: sandbox.currentProject } }));
+  await flush();
+  assert(graphCalls() === callsWhileAway, "记忆页不在前台时 kz:memory-changed 触发了 memory_graph 重取(应只作废,回到记忆页再取)");
+  memoryBtn.click();
+  await flush();
+  assert(graphCalls() > callsWhileAway, "回到记忆页没有重取被作废的图谱");
+  const lateGraph = structuredClone(MEMORY_GRAPH_FIXTURE);
+  lateGraph.nodes.push({ ...lateGraph.nodes.find((n) => n.id === "M-112"), id: "M-LATE1", label: "M-LATE1", title: "切走之后才落地的记忆", areas: [], primary_area: null, area_provenance: null, degree: 0 });
+  let releaseLate;
+  invokeGates.set("memory_graph", new Promise((resolve) => { releaseLate = resolve; }));
+  document.dispatchEvent(new sandbox.CustomEvent("kz:memory-changed", { detail: { project: sandbox.currentProject } }));
+  await settle();
+  invokeGates.delete("memory_graph");
+  payloads.memory_graph = () => lateGraph;
+  chatViewBtn.click();
+  await flush();
+  releaseLate();
+  await flush();
+  assert(!listText("memory-graph-list").includes("M-LATE1"), "记忆页不在前台时,在途的图谱落地后仍重画了图谱(应等回到记忆页)");
+  memoryBtn.click();
+  await flush();
+  assert(listText("memory-graph-list").includes("M-LATE1"), "回到记忆页后没有画出切走期间取到的新图");
+
+  // ② 切换语言:图例、状态栏、区域下拉的「全部区域」按当前语言重建(复核:图例只生成一次,切到英文仍是中文)。
+  //    变异 memgraphLanguage。
+  const cjk = /[一-鿿]/;
+  assert(cjk.test(listText("memory-graph-legend")), `前置失败:中文界面的图例应是中文,实得 ${listText("memory-graph-legend")}`);
+  const graphLanguage = localStorageShim.getItem("kz-language") || "zh";
+  sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+  await flush();
+  assert(listText("memory-graph-legend") && !cjk.test(listText("memory-graph-legend")), `切到英文后图例仍有中文:${listText("memory-graph-legend")}`);
+  assert(!cjk.test(listText("memory-graph-status")), `切到英文后图谱状态栏仍有中文:${listText("memory-graph-status")}`);
+  assert(!cjk.test(byId.get("memory-graph-area")?.querySelector("option")?.textContent ?? "中"), "切到英文后区域下拉的「全部区域」没有翻译");
+  sandbox.setLanguagePreference(graphLanguage, { persist: true, rerender: true });
+  await flush();
+
+  // ③ 「设为区域」后区域行不能停在旧的推断区域(复核:旧载荷既不判过期也不重取,M-112 保存后仍显示
+  //    kanzei-tools/bash、tracker)。列表模式选中 M-112;memory_graph 换成「字段 kanzei-app/ui/memory + 关键词
+  //    kanzei-llm」的新图并挂闸门:新图落地前只显示字段与「…」(旧推断已作废),落地后显示新图的推断,且真的重取了。
+  //    变异 memgraphAreaInvalidate(areasFor 不看作废)/ memgraphAreaRefetch(ensureAreaOptions 不看新鲜度)。
+  // 这段在列表模式里做(复核复现的场景);详情区域行 → ensureAreaOptions 取数与图谱模块无关。
+  byId.get("memory-view-list").click();
+  await flush();
+  const chips = () => [...document.querySelectorAll("#memory-detail .memory-area-chip")].map((chip) => `${chip.firstChild?.textContent ?? ""}|${chip.dataset.provenance}`);
+  const rowOf = (id) => [...document.querySelectorAll("#memory-list .memory-row")].find((row) => row.dataset.memoryId === id);
+  assert(rowOf("M-112"), "前置失败:夹具记忆 M-112 没有出现在列表里");
+  rowOf("M-112")?.click();
+  await flush();
+  assert(chips().some((chip) => chip.startsWith("kanzei-tools/bash|")), `前置失败:M-112 的区域行应先显示夹具推断的 kanzei-tools/bash,实得 ${chips().join(",")}`);
+  const fieldGraph = structuredClone(MEMORY_GRAPH_FIXTURE);
+  const m112Node = fieldGraph.nodes.find((n) => n.id === "M-112");
+  Object.assign(m112Node, { areas: ["area:kanzei-app/ui/memory", "area:kanzei-llm"], primary_area: "area:kanzei-app/ui/memory", area_provenance: "field" });
+  fieldGraph.edges = fieldGraph.edges.filter((e) => !(e.source === "M-112" && e.rel === "about"));
+  fieldGraph.edges.push(
+    { source: "M-112", target: "area:kanzei-app/ui/memory", rel: "about", strength: "strong", provenance: "field", via: null, anchor: null },
+    { source: "M-112", target: "area:kanzei-llm", rel: "about", strength: "weak", provenance: "keyword", via: null, anchor: null },
+  );
+  payloads.memory_graph = () => fieldGraph;
+  const callsBeforeSet = graphCalls();
+  let releaseFieldGraph;
+  invokeGates.set("memory_graph", new Promise((resolve) => { releaseFieldGraph = resolve; }));
+  const areaSelect = document.querySelector("#memory-detail #memory-area-select");
+  const setAreaBtn = [...document.querySelectorAll("#memory-detail .memory-area-controls button")].find((b) => b.textContent === "设为区域");
+  assert(areaSelect && setAreaBtn, "前置失败:详情区域行缺「选择区域」下拉或「设为区域」按钮");
+  const optionValues = [...(areaSelect?.querySelectorAll("option") ?? [])].map((o) => o.value);
+  assert(optionValues.includes("kanzei-app/ui/memory"), `「选择区域」下拉没有填入全量区域(缺 kanzei-app/ui/memory),实得 ${optionValues.length} 项`);
+  // 假 DOM 的 select 只认直接子 option、不认 optgroup 里的(harness 近似),这里给这一个下拉直接定值。
+  Object.defineProperty(areaSelect, "value", { configurable: true, get: () => "kanzei-app/ui/memory", set: () => {} });
+  setAreaBtn?.click();
+  await flush();
+  invokeGates.delete("memory_graph");
+  assert(m112Areas.join(",") === "kanzei-app/ui/memory", `「设为区域」没有带着所选区域调 memory_entry_save,实得 ${m112Areas.join(",")}`);
+  const pendingChips = chips();
+  assert(
+    pendingChips.join(",") === "kanzei-app/ui/memory|field" && document.querySelector("#memory-detail .memory-area-pending"),
+    `新图落地前区域行应只有字段 kanzei-app/ui/memory 加「…」(旧推断已作废),实得 ${pendingChips.join(",")}`,
+  );
+  releaseFieldGraph();
+  await flush();
+  assert(graphCalls() > callsBeforeSet, "「设为区域」之后没有重取 memory_graph(区域行一直用旧载荷)");
+  const settledChips = chips();
+  assert(
+    settledChips.join(",") === "kanzei-app/ui/memory|field,kanzei-llm|keyword" && !document.querySelector("#memory-detail .memory-area-pending"),
+    `新图落地后区域行应为 字段 kanzei-app/ui/memory + 关键词 kanzei-llm,实得 ${settledChips.join(",")}`,
+  );
+
+  byId.get("memory-view-list").click();
+  await flush();
+  payloads.memory_entries = savedEntries;
+  payloads.memory_entry_save = savedSave;
+  payloads.memory_graph = savedGraph;
+  payloads.memory_entry_get = savedGet;
+  await sandbox.refreshMemory({ force: true });
   await flush();
 }
 

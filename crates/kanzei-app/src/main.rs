@@ -229,6 +229,8 @@ fn main() {
             memory::memory_overview,
             memory::memory_control_plane,
             memory::memory_entries,
+            memory::memory_entry_get,
+            memory::memory_graph,
             memory::memory_recalls,
             memory::memory_value_flags,
             memory::memory_entry_delete,

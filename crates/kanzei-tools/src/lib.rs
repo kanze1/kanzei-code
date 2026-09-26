@@ -39,6 +39,8 @@ mod process;
 pub mod quarantine;
 mod question;
 mod read;
+/// 记忆知识图谱与引用抽取的纯函数(R-368 B1 子集;docs/design/memory_knowledge_graph.md)。
+pub mod refgraph;
 pub mod research_environment;
 pub mod research_index;
 pub mod research_loop;

@@ -2,6 +2,8 @@
 //! 一切喂给模型的东西都是组件 → 五注册表 → 每轮不可变快照;
 //! 规则全走代码硬门禁(权限 Ruleset + 拦截器),不靠提示词恳求。
 
+/// 记忆图谱:代码区域注册表(crate/模块/前端子目录/顶层代码目录 + 依赖层带)。
+pub mod areas;
 pub mod auto_run;
 pub mod config;
 pub mod context;
@@ -18,6 +20,8 @@ pub mod permission_persist;
 pub mod progress;
 /// R-205:项目根发现与 HOME 守卫(config.rs 拆出,D-270 修复落点)。
 pub mod project_root;
+/// 统一引用分词(doc_reference_graph §2):拆分、区间展开、关系前缀、脏 token 上报。
+pub mod refs;
 pub mod registry;
 pub mod repair;
 pub mod tool;

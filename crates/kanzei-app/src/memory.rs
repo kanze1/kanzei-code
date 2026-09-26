@@ -166,6 +166,26 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
     })
 }
 
+/// memory_entries / memory_entry_get 同形:一条记忆的列表/详情数据。
+fn memory_entry_json(
+    store: &kanzei_tools::memory::MemoryStore,
+    path: &std::path::Path,
+    entry: kanzei_tools::memory::MemoryEntry,
+    profile: &std::collections::BTreeMap<String, (u64, i64)>,
+    usage: &std::collections::BTreeMap<String, kanzei_core::MemoryUsageCounts>,
+    archived: bool,
+) -> serde_json::Value {
+    let (hits, last_hit_at) = profile.get(&entry.id).copied().unwrap_or((0, 0));
+    let counts = usage.get(&entry.id).cloned().unwrap_or_default();
+    json!({"id": entry.id, "scope": store.scope.label(), "category": entry.category,
+        "title": entry.title, "description": entry.description, "status": entry.status,
+        "updated": entry.updated, "source": entry.source, "refs": entry.refs(), "areas": entry.areas(),
+        "archived": archived,
+        "hits": hits, "last_hit_at": last_hit_at, "recalled": counts.recalled,
+        "injected": counts.injected, "read": counts.read, "read_observed": counts.read_observed,
+        "path": path.display().to_string(), "body": entry.body})
+}
+
 #[tauri::command(async)]
 pub(crate) fn memory_entries(
     project_dir: String,
@@ -176,22 +196,158 @@ pub(crate) fn memory_entries(
         if store.scope.label() == scope {
             let profile = store.hit_profile();
             let usage = store.usage_counts();
-            let list: Vec<serde_json::Value> = store.load_all().into_iter()
-                .filter(|(_, entry)| category.as_deref().is_none_or(|value| entry.category == value))
+            let list: Vec<serde_json::Value> = store
+                .load_all()
+                .into_iter()
+                .filter(|(_, entry)| {
+                    category
+                        .as_deref()
+                        .is_none_or(|value| entry.category == value)
+                })
                 .map(|(path, entry)| {
-                    let (hits, last_hit_at) = profile.get(&entry.id).copied().unwrap_or((0, 0));
-                    let counts = usage.get(&entry.id).cloned().unwrap_or_default();
-                    json!({"id": entry.id, "scope": store.scope.label(), "category": entry.category,
-                        "title": entry.title, "description": entry.description, "status": entry.status,
-                        "updated": entry.updated, "source": entry.source, "refs": entry.refs(),
-                        "hits": hits, "last_hit_at": last_hit_at, "recalled": counts.recalled,
-                        "injected": counts.injected, "read": counts.read, "read_observed": counts.read_observed,
-                        "path": path.display().to_string(), "body": entry.body})
-                }).collect();
+                    memory_entry_json(&store, &path, entry, &profile, &usage, false)
+                })
+                .collect();
             return Ok(json!(list));
         }
     }
     Err(format!("未知记忆域: {scope}"))
+}
+
+/// 记忆图谱:单条记忆详情,活动或归档都能读(归档条目在图谱里是半透明节点,点开只读)。
+/// 返回 memory_entries 同形数据,archived 标出是否来自 archive/。
+#[tauri::command(async)]
+pub(crate) fn memory_entry_get(
+    project_dir: String,
+    scope: String,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    for store in memory_stores_for(&project_dir) {
+        if store.scope.label() != scope {
+            continue;
+        }
+        let profile = store.hit_profile();
+        let usage = store.usage_counts();
+        for (archived, list) in [(false, store.load_all()), (true, store.load_archived())] {
+            if let Some((path, entry)) = list.into_iter().find(|(_, entry)| entry.id == id) {
+                return Ok(memory_entry_json(
+                    &store, &path, entry, &profile, &usage, archived,
+                ));
+            }
+        }
+        return Err(format!("记忆 {id} 不存在(活动与归档里都没有)"));
+    }
+    Err(format!("未知记忆域: {scope}"))
+}
+
+// ── 分区:记忆图谱 ──
+// 图是 Markdown 真源的只读投影(docs/design/memory_knowledge_graph.md)。构建本身百毫秒级,
+// 但记忆页每次切到图谱、每次 kz:memory-changed 都会要一次;输入文件 (路径, 长度, mtime)
+// 的指纹不变就直接回缓存。命中数(index.db)不进指纹,每次现取覆盖——它随每次召回变,
+// 算进指纹缓存就几乎不命中。
+type GraphCache =
+    std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, std::sync::Arc<serde_json::Value>)>>;
+static GRAPH_CACHE: std::sync::OnceLock<GraphCache> = std::sync::OnceLock::new();
+
+fn project_root_of(project_dir: &str) -> PathBuf {
+    let cwd = PathBuf::from(project_dir);
+    kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd)
+}
+
+/// 缓存层 + 命中数覆盖。`stores` 由调用方给:命令用项目库 + 全局库,契约测试只给项目库。
+pub(crate) fn memory_graph_with(
+    root: &std::path::Path,
+    stores: &[kanzei_tools::memory::MemoryStore],
+) -> serde_json::Value {
+    let started = std::time::Instant::now();
+    let fingerprint = kanzei_tools::refgraph::input_fingerprint(root);
+    let cache = GRAPH_CACHE.get_or_init(Default::default);
+    let cached = cache.lock().ok().and_then(|map| {
+        map.get(root)
+            .filter(|(fp, _)| *fp == fingerprint)
+            .map(|(_, value)| value.clone())
+    });
+    let hit = cached.is_some();
+    let mut value = match cached {
+        Some(value) => (*value).clone(),
+        None => {
+            let inputs = kanzei_tools::refgraph::collect_inputs_from(root, stores);
+            let graph = kanzei_tools::refgraph::build_graph(&inputs);
+            let value = serde_json::to_value(&graph).unwrap_or_else(|_| json!({}));
+            if let Ok(mut map) = cache.lock() {
+                map.insert(
+                    root.to_path_buf(),
+                    (fingerprint, std::sync::Arc::new(value.clone())),
+                );
+            }
+            value
+        }
+    };
+    let hits: std::collections::HashMap<(String, String), u64> = stores
+        .iter()
+        .flat_map(|store| {
+            let scope = store.scope.label().to_string();
+            store
+                .hit_profile()
+                .into_iter()
+                .map(move |(id, (hits, _))| ((scope.clone(), id), hits))
+        })
+        .collect();
+    if let Some(nodes) = value
+        .get_mut("nodes")
+        .and_then(|nodes| nodes.as_array_mut())
+    {
+        for node in nodes.iter_mut().filter(|node| node["kind"] == "memory") {
+            let key = (
+                node["scope"].as_str().unwrap_or_default().to_string(),
+                node["id"].as_str().unwrap_or_default().to_string(),
+            );
+            node["hits"] = json!(hits.get(&key).copied().unwrap_or(0));
+        }
+    }
+    value["cache"] = json!(if hit { "hit" } else { "miss" });
+    value["build_ms"] = json!(started.elapsed().as_millis() as u64);
+    value["generated_at"] = json!(now_ms());
+    value
+}
+
+#[tauri::command(async)]
+pub(crate) fn memory_graph(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = project_root_of(&project_dir);
+    if !root.is_dir() {
+        return Err(format!("项目目录不存在:{}", root.display()));
+    }
+    Ok(memory_graph_with(
+        &root,
+        &kanzei_tools::refgraph::memory_stores(&root),
+    ))
+}
+
+/// 把用户/模型写的区域 token 归一成规范 id;任何一个解析不到就整体拒绝,报错写全判据。
+pub(crate) fn resolve_area_tokens(
+    root: &std::path::Path,
+    tokens: &[String],
+) -> Result<Vec<String>, String> {
+    let registry = kanzei_harness::areas::AreaRegistry::scan(root);
+    let mut out = Vec::new();
+    for token in tokens.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
+        match registry.resolve_token(token) {
+            Some(id) => out.push(id),
+            None => {
+                let near = registry.nearest(token, 5);
+                return Err(format!(
+                    "区域 `{token}` 在当前项目里解析不到。可写区域 id(kanzei-tools/tracker)、仓内路径\
+                     (crates/kanzei-app/ui/13-memory.js)或 Rust 路径(kanzei_tools::tracker)。{}",
+                    if near.is_empty() {
+                        String::new()
+                    } else {
+                        format!("最接近的:{}", near.join("、"))
+                    }
+                ));
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command(async)]
@@ -303,6 +459,8 @@ pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
     json!({"zero_read": zero_read, "frequent": frequent, "stale_archived": stale_archived})
 }
 
+// IPC 命令的参数就是前端 invoke 的键(每个可选字段独立,None = 不动),不适合收成结构体。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(crate) fn memory_entry_save(
     project_dir: String,
@@ -312,20 +470,35 @@ pub(crate) fn memory_entry_save(
     description: Option<String>,
     body: Option<String>,
     status: Option<String>,
+    // 记忆图谱「设为区域 / 清除区域」:Some([]) 清除,None 不动。
+    area: Option<Vec<String>>,
 ) -> Result<(), String> {
     for store in memory_stores_for(&project_dir) {
         if store.scope.label() == scope {
-            store
-                .update(
-                    &id,
-                    title.as_deref(),
-                    description.as_deref(),
-                    body.as_deref(),
-                    status.as_deref(),
-                    None,
-                    false, // A-005:UI 用户直写豁免主题一致性,用户有权写任何内容
-                )
-                .map_err(|e| e.to_string())?;
+            let resolved = match &area {
+                Some(tokens) => Some(resolve_area_tokens(&project_root_of(&project_dir), tokens)?),
+                None => None,
+            };
+            // 内容与区域一次写盘(update_with_area),不再先 update 再 set_area 两次独立写。
+            if title.is_some()
+                || description.is_some()
+                || body.is_some()
+                || status.is_some()
+                || resolved.is_some()
+            {
+                store
+                    .update_with_area(
+                        &id,
+                        title.as_deref(),
+                        description.as_deref(),
+                        body.as_deref(),
+                        status.as_deref(),
+                        resolved.as_deref(),
+                        None,
+                        false, // A-005:UI 用户直写豁免主题一致性,用户有权写任何内容
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
             return Ok(());
         }
     }
@@ -521,6 +694,92 @@ mod tests {
         );
         drop(state);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // ── 分区:记忆图谱 ──
+    #[test]
+    fn memory_graph_cache_hits_until_input_changes() {
+        let root = crate::ipc_contract::tests::memory_graph_fixture_project();
+        let stores = [kanzei_tools::memory::MemoryStore::project(&root)];
+        let first = super::memory_graph_with(&root, &stores);
+        assert_eq!(first["cache"], "miss");
+        let second = super::memory_graph_with(&root, &stores);
+        assert_eq!(second["cache"], "hit", "输入没变必须命中缓存");
+        assert_eq!(first["nodes"], second["nodes"]);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(
+            root.join(".kanzei/memory/M-002-b.md"),
+            "---\nid: M-002\nscope: project\ncategory: sop\ntitle: 标题改过了\ndescription: 编辑流程\nstatus: candidate\ncreated: 2026-09-01\nupdated: 2026-09-03\nsource: memory-manager\n---\n\n新正文\n",
+        )
+        .unwrap();
+        let third = super::memory_graph_with(&root, &stores);
+        assert_eq!(third["cache"], "miss", "记忆文件变了必须重建");
+        let node = third["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["id"] == "M-002")
+            .unwrap();
+        assert_eq!(node["title"], "标题改过了");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn memory_entry_get_returns_archived_with_flag_and_area_save_resolves() {
+        let root = crate::ipc_contract::tests::memory_graph_fixture_project();
+        let dir = root.display().to_string();
+        let archived =
+            super::memory_entry_get(dir.clone(), "project".into(), "M-003".into()).unwrap();
+        assert_eq!(archived["archived"], true);
+        assert_eq!(archived["status"], "deprecated");
+        let live = super::memory_entry_get(dir.clone(), "project".into(), "M-001".into()).unwrap();
+        assert_eq!(live["archived"], false);
+        assert_eq!(live["areas"], serde_json::json!(["kanzei-a/tracker"]));
+        assert!(super::memory_entry_get(dir.clone(), "project".into(), "M-404".into()).is_err());
+
+        // 设为区域:路径形态归一成区域 id;解析不到整体拒绝并给候选。
+        super::memory_entry_save(
+            dir.clone(),
+            "project".into(),
+            "M-002".into(),
+            None,
+            None,
+            None,
+            None,
+            Some(vec!["crates/kanzei-a/src/edit.rs".into()]),
+        )
+        .unwrap();
+        let saved = super::memory_entry_get(dir.clone(), "project".into(), "M-002".into()).unwrap();
+        assert_eq!(saved["areas"], serde_json::json!(["kanzei-a/edit"]));
+        let err = super::memory_entry_save(
+            dir.clone(),
+            "project".into(),
+            "M-002".into(),
+            None,
+            None,
+            None,
+            None,
+            Some(vec!["kanzei-a/edti".into()]),
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("kanzei-a/edti") && err.contains("kanzei-a/edit"),
+            "{err}"
+        );
+        super::memory_entry_save(
+            dir.clone(),
+            "project".into(),
+            "M-002".into(),
+            None,
+            None,
+            None,
+            None,
+            Some(vec![]),
+        )
+        .unwrap();
+        let cleared = super::memory_entry_get(dir, "project".into(), "M-002".into()).unwrap();
+        assert_eq!(cleared["areas"], serde_json::json!([]));
+        std::fs::remove_dir_all(root).ok();
     }
 
     fn entry(

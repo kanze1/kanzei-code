@@ -99,6 +99,15 @@
   --danger-btn-hover: #5c2e2b; --deny-hover: #363636;
   --danger-soft: #ff7b7224; --alert-soft: #e8b84a1f;
   --border-on-accent: #ffffff1f;
+  /* 记忆图谱(docs/design/memory_knowledge_graph.md §10):四个类别色只在图谱画布与图例里区分记忆分类,不表达状态;
+     取非状态色相(天蓝、靛、紫、梅),靠明度拉开,两套主题都过对比度与色觉异常分辨(ui-a11y-smoke 分区:记忆图谱)。
+     模块节点用独立的中灰(--border-strong 对主区只有 1.9:1,当节点色看不见)。其余是别名,只在这里定义一次。 */
+  --graph-fact: #61c0f2; --graph-sop: #b779f2; --graph-habit: #4b65d9; --graph-preference: #9e5484;
+  --graph-module: #7a7a7a;
+  --graph-context: var(--dim); --graph-crate: var(--fg-strong); --graph-concept: var(--fg);
+  --graph-edge: var(--graph-module); --graph-edge-weak: var(--border-strong);
+  --graph-label: var(--fg); --graph-label-dim: var(--dim); --graph-focus: var(--fg-strong);
+  --graph-halo: var(--fg); --graph-bg: var(--bg); --graph-hit: var(--accent-text);
   /* 组件层(弹层外观唯一真源,见 docs/design/ui_surface_stack.md):只引用上面的语义 token,
      只准 surface.css 使用;不在亮色块里重定义——主题切换只发生在语义层。 */
   --surface-bg: var(--surface-overlay); --surface-bg-raised: var(--panel2);
@@ -171,6 +180,9 @@
   --danger-btn-hover: #f9d9d6; --deny-hover: #ebebeb;
   --danger-soft: #c62b2b14; --alert-soft: #84570014;
   --border-on-accent: #0000001a;
+  /* 记忆图谱类别色与模块灰(亮色取值,同一组色相)。 */
+  --graph-fact: #2a7da6; --graph-sop: #ae6fe8; --graph-habit: #2b3cad; --graph-preference: #7c2462;
+  --graph-module: #8a8a8a;
 }
 /* ===== 主题 token 块结束:D-380 判据以此行为界(scripts/ui-a11y-smoke.mjs),勿改此行 ===== */
 /* 勾选/单选的选中色走单色主色(与主按钮一致),不用系统蓝,也不占用强调色。 */
@@ -2189,6 +2201,123 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   .memory-manager-toolbar select { min-width: 80px; }
 }
 .memory-body-edit-row { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* ── 分区:记忆图谱(docs/design/memory_knowledge_graph.md §9-§10)── */
+.memory-view-switch {
+  display: inline-flex; margin-left: auto; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; flex-shrink: 0;
+}
+.memory-view-switch button {
+  background: transparent; color: var(--dim); border: 0; border-radius: 0; padding: 5px 14px; font-size: var(--fs-12);
+}
+.memory-view-switch button + button { border-left: 1px solid var(--border); }
+.memory-view-switch button[aria-pressed="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+.memory-view-switch button:hover { color: var(--fg-strong); }
+.memory-view-switch button:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.memory-manager-workspace.graph-mode { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 16px; }
+.memory-manager-workspace.graph-mode .memory-list-pane { display: none; }
+#memory-scroll[data-view="graph"] .memory-manager-toolbar label:has(#memory-sort-filter) { display: none; }
+.graph-mode #memory-side { position: sticky; top: 0; align-self: start; max-height: calc(100vh - 96px); overflow-y: auto; }
+/* 图谱模式下没选中任何东西、停在「阅读」页签时,详情栏收成一条竖排页签栏,画布拿到整行宽度(复核:空详情栏
+   只写着「选择一条记忆」却占掉约 30% 宽度);选中节点(has-memory-selection)或点「管理对话 / 使用记录」再展开。 */
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .memory-manager-workspace.graph-mode { grid-template-columns: minmax(0, 1fr) auto; }
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .graph-mode #memory-side > .memory-tab-panel { display: none; }
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .graph-mode .memory-tabs { flex-direction: column; gap: 4px; padding: 6px 0 0; border-bottom: 0; }
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .graph-mode .memory-tabs button {
+  writing-mode: vertical-rl; padding: 10px 7px; border-bottom: 0; border-radius: var(--r-sm); color: var(--dim); letter-spacing: 1px;
+}
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .graph-mode .memory-tabs button:hover { color: var(--fg-strong); background: var(--surface-hover); }
+.memory-graph-pane { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.memory-graph-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: var(--fs-12); }
+.memory-graph-toolbar-gap { flex: 1; }
+.memory-graph-area { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); }
+.memory-graph-area select {
+  max-width: 220px; background: var(--input); border: 1px solid var(--border); color: var(--fg);
+  border-radius: var(--r-sm); padding: 4px 7px; font-size: var(--fs-12);
+}
+.memory-graph-area select:focus { outline: 1px solid var(--focus-ring); }
+.memory-graph-layers { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.memory-graph-layers button, .memory-graph-toggle, .memory-graph-ego button[data-hops] {
+  background: transparent; color: var(--dim); border: 1px solid var(--border); border-radius: var(--r-pill);
+  padding: 3px 10px; font-size: var(--fs-11-5);
+}
+.memory-graph-layers button[aria-pressed="true"], .memory-graph-toggle[aria-pressed="true"], .memory-graph-ego button[data-hops][aria-pressed="true"] {
+  background: var(--surface-selected); color: var(--fg-strong); border-color: var(--border-strong);
+}
+.memory-graph-layers button:hover, .memory-graph-toggle:hover, .memory-graph-ego button[data-hops]:hover { color: var(--fg-strong); }
+.memory-graph-layers button:focus-visible, .memory-graph-toggle:focus-visible, .memory-graph-ego button:focus-visible { outline: 1px solid var(--focus-ring); }
+.memory-graph-ego { display: inline-flex; align-items: center; gap: 6px; padding-left: 4px; }
+.memory-graph-ego strong { color: var(--fg-strong); font-weight: 600; font-family: var(--mono); font-size: var(--fs-11-5); }
+.memory-graph-ego button[data-hops] { padding: 2px 8px; min-width: 26px; }
+.memory-graph-canvas {
+  position: relative; height: max(420px, calc(100vh - 300px)); min-height: 360px; overflow: hidden;
+  border: 1px solid var(--border-soft); border-radius: var(--r-lg); background: var(--graph-bg);
+}
+.memory-graph-canvas:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.memory-graph-list {
+  height: max(420px, calc(100vh - 300px)); min-height: 360px; overflow-y: auto; margin: 0; padding: 10px 12px; list-style: none;
+  border: 1px solid var(--border-soft); border-radius: var(--r-lg); font-size: var(--fs-12); user-select: text;
+}
+.memory-graph-list ul { list-style: none; margin: 2px 0 6px; padding-left: 16px; }
+.memory-graph-list [role="treeitem"] { padding: 2px 4px; border-radius: var(--r-xs); }
+.memory-graph-list [role="treeitem"]:focus-visible { outline: 1px solid var(--focus-ring); }
+.memory-graph-tree-caption { color: var(--fg-strong); font-weight: 600; }
+.memory-graph-tree-memory { color: var(--fg); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-graph-tree-memory:hover { background: var(--surface-hover); }
+.memory-graph-tree-memory.selected { background: var(--surface-selected); color: var(--fg-strong); }
+.memory-graph-tree-memory.hit { text-decoration: underline dotted; text-underline-offset: 3px; }
+.memory-graph-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; }
+.memory-graph-legend { display: flex; gap: 4px 12px; flex-wrap: wrap; color: var(--dim); font-size: var(--fs-11); }
+.memory-graph-legend-item { display: inline-flex; align-items: center; white-space: nowrap; }
+.memory-graph-legend-note { white-space: nowrap; }
+/* 状态栏独占一行、不折行:悬停文字长短不能改变页脚高度——否则画布(弹性收缩)跟着变高变矮,尺寸一变库就清掉
+   悬停,状态栏缩回、画布又长回去,宽屏下悬停在记忆上会一直闪(复核修复时实测 1600 宽:649 ↔ 628px 来回跳)。 */
+.memory-graph-status {
+  flex: 1 0 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; line-height: 1.4; height: 1.4em;
+}
+.kz-graph-swatch { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 50%; flex-shrink: 0; }
+.kz-graph-swatch[data-kind="fact"] { background: var(--graph-fact); }
+.kz-graph-swatch[data-kind="sop"] { background: var(--graph-sop); }
+.kz-graph-swatch[data-kind="habit"] { background: var(--graph-habit); }
+.kz-graph-swatch[data-kind="preference"] { background: var(--graph-preference); }
+.kz-graph-swatch[data-kind="context"] { background: var(--graph-context); }
+.kz-graph-swatch[data-kind="crate"] { background: var(--graph-crate); width: 11px; height: 11px; }
+.kz-graph-swatch[data-kind="module"] { background: var(--graph-module); }
+.kz-graph-swatch[data-kind="concept"] { border: 1.5px solid var(--graph-concept); border-radius: 1px; transform: rotate(45deg) scale(.85); }
+.memory-graph-node-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.memory-graph-relations { display: flex; flex-direction: column; gap: 10px; padding-bottom: 20px; }
+.memory-graph-relations h3 { margin: 0 0 4px; font-size: var(--fs-12); color: var(--fg-strong); font-weight: 600; }
+.memory-graph-relations ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.memory-graph-relation {
+  width: 100%; text-align: left; background: transparent; border: 0; border-radius: var(--r-xs); color: var(--fg);
+  padding: 3px 6px; font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.memory-graph-relation:hover { background: var(--surface-hover); color: var(--fg-strong); }
+.memory-graph-relation:focus-visible { outline: 1px solid var(--focus-ring); }
+.memory-area-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: var(--fs-12); }
+.memory-area-list { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.memory-area-chip {
+  display: inline-flex; align-items: baseline; gap: 5px; padding: 1px 8px; border: 1px solid var(--border);
+  border-radius: var(--r-pill); color: var(--fg); font-family: var(--mono); font-size: var(--fs-11);
+}
+.memory-area-chip[data-provenance="field"] { border-style: solid; color: var(--fg-strong); }
+.memory-area-chip:not([data-provenance="field"]) { border-style: dashed; }
+.memory-area-why { color: var(--dim); font-style: normal; font-family: var(--sans); }
+.memory-area-controls { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }
+.memory-area-controls select {
+  max-width: 200px; background: var(--input); border: 1px solid var(--border); color: var(--fg);
+  border-radius: var(--r-sm); padding: 3px 6px; font-size: var(--fs-11-5);
+}
+.memory-readonly-badge { color: var(--fg-strong); }
+/* 图谱模式详情栏只有 320-400px:长标题不能把「关闭详情」挤成竖排。 */
+.memory-detail-head > button { flex-shrink: 0; white-space: nowrap; }
+.memory-detail-title { min-width: 0; overflow-wrap: anywhere; }
+@container (max-width: 760px) {
+  /* 窄屏:展开的详情栏排到画布下面;没选中时仍是右侧那条竖排页签栏(上面的规则选择器更具体,照样生效)。 */
+  .memory-manager-workspace.graph-mode { grid-template-columns: 1fr; }
+  .graph-mode #memory-side { position: static; max-height: none; }
+  .memory-view-switch { margin-left: 0; }
+}
 @media (max-width: 900px) {
   .memory-detail { position: static; max-height: none; }
   .memory-list-count { margin-left: 0; }

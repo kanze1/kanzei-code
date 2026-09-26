@@ -82,3 +82,4 @@ R-122（2026-08-08 用户）：缺少架构浏览入口，要求「可视化做�
 
 - 实施前输入：`direction_taste.md` §6 曾建议冻结 R-122；该建议未成为当前 tracker 状态，R-122 已按三批交付并关闭。
 - 当前边界：图形化架构图不在 R-122 范围；若用户后续明确需要图形拓扑，另立条目评估 mermaid/d3 的 vendored 体积与 A-007 判据。
+- 2026-09-26：用户在记忆图谱需求里明确要了图形拓扑，评估结论见 [memory_knowledge_graph.md](memory_knowledge_graph.md) §7、§14——图可视化统一走 vendored force-graph 共享渲染器 `ui/24-graph-view.js`，不引 mermaid/d3；`build_workspace_graph` 已委托 `AreaRegistry::crate_deps`。本页 crate 图迁到共享渲染器另立条目。

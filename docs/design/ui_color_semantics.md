@@ -76,7 +76,8 @@
 | 绿 | --ok | 一件工作成功收尾 | 完成、测试通过、门禁通过、合并、子代理完成、研究 V2 / V3、kz-dot done |
 | 红 | --err | 失败、错误,以及 P0 | failed、error、非法状态、门禁未过、加载失败、P0 胶囊、危险按钮 |
 | 灰 | --dim / --fg / --fg-strong | 其余一律中性 | todo、open、draft、空闲、停止中、已停止、可执行、被取得、被读取、记忆生效、排队投递、归档、配置来源标签、线路和角色身份、每一次工具调用成功(默认不着色,失败才红)、批次格与批次进度条(部分完成也不绿)、记忆 SOP 分类、按停止收尾的度量轮次 |
-| 蓝 | --info、--syntax-*、--diff-* | 语法 / 数据 | 只用于 .sv-json 键和代码着色,不表达任何状态 |
+| 蓝 | --info、--syntax-*、--diff-* | 语法 / 数据 | 只用于 .sv-json 键和代码着色,不表达任何状态。例外:记忆图谱的类别色里有天蓝(fact)与靛(habit),见下一行 |
+| 图谱类别色 | --graph-fact / --graph-sop / --graph-habit / --graph-preference | 记忆分类(不是状态) | 只用于记忆图谱画布与图例(.kz-graph-*、#memory-graph-*),区分 fact / sop / habit / preference 四类记忆,不表达任何状态;取非状态色相(天蓝、紫、靛、梅)靠明度拉开。门禁见 ui-a11y-smoke 分区:记忆图谱 ②(类别色只准出现在图谱选择器、必须是自己的 hex);取值与色觉异常分辨见 [memory_knowledge_graph.md](memory_knowledge_graph.md) §10 |
 
 ## 4. 具体规则
 

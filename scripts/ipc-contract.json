@@ -206,6 +206,72 @@
     "reused": "number",
     "unannotated": "number"
   },
+  "memory_graph": {
+    "areas": [
+      {
+        "band": "number",
+        "depth": "number",
+        "id": "string",
+        "kind": "string",
+        "label": "string",
+        "memories": "number",
+        "parent": "nullable"
+      }
+    ],
+    "build_ms": "number",
+    "cache": "string",
+    "edges": [
+      {
+        "anchor": "string",
+        "provenance": "nullable",
+        "rel": "string",
+        "source": "string",
+        "strength": "string",
+        "target": "string",
+        "via": "nullable"
+      }
+    ],
+    "generated_at": "number",
+    "nodes": [
+      {
+        "archived": "bool",
+        "area_provenance": "string",
+        "areas": [
+          "string"
+        ],
+        "category": "string",
+        "degree": "number",
+        "description": "string",
+        "hits": "number",
+        "id": "string",
+        "kind": "string",
+        "label": "string",
+        "primary_area": "string",
+        "scope": "string",
+        "status": "string",
+        "title": "string",
+        "updated": "string"
+      }
+    ],
+    "stats": {
+      "archived": "number",
+      "by_provenance": {
+        "field": "number",
+        "keyword": "number",
+        "none": "number",
+        "path": "number",
+        "tool": "number",
+        "via": "number"
+      },
+      "live": "number",
+      "memories": "number",
+      "unassigned": "number"
+    },
+    "version": "number",
+    "warnings": [
+      "string"
+    ]
+  },
   "model_effective": {
     "agent": "string",
     "agentError": "nullable",

@@ -203,6 +203,47 @@ const SCENES = {
     await ctx.settle();
   },
 
+  // ── 分区:记忆图谱 ──
+  /// 记忆页列表模式,选中第三条看详情(含「区域」行)。
+  async memory(ctx) {
+    await openView(ctx, "memory");
+    await waitFor(() => document.querySelectorAll("#memory-list .memory-row").length > 2);
+    document.querySelectorAll("#memory-list .memory-row")[2]?.click();
+    await ctx.sleep(120);
+    await ctx.settle();
+    document.activeElement?.blur?.();
+  },
+
+  /// 记忆页图谱模式:点「图谱」,等布局稳定;默认悬停一个模块节点、选中一条记忆(右栏出全文)。
+  /// 参数:hover=<节点 id>、select=<节点 id>、ego=<节点 id>(进 2 跳邻域)、text=1(文本视图)、archived=1(含归档)。
+  async "memory-graph"(ctx) {
+    await openView(ctx, "memory");
+    $("#memory-view-graph")?.click();
+    await waitFor(() => window.__kzMemoryGraph?.ready === true, 12000);
+    const hook = window.__kzMemoryGraph;
+    if (ctx.params.get("archived") === "1") {
+      $("#memory-graph-archived")?.click();
+      await waitFor(() => hook?.ready === true, 12000);
+    }
+    if (ctx.params.get("text") === "1") {
+      $("#memory-graph-textview")?.click();
+      await ctx.sleep(80);
+    }
+    const ego = ctx.params.get("ego");
+    if (ego) {
+      hook?.ego(ego, 2);
+      await ctx.sleep(60);
+      await waitFor(() => hook?.ready === true, 12000);
+    }
+    const select = ctx.params.has("select") ? ctx.params.get("select") : "M-009";
+    if (select) await hook?.select(select);
+    await ctx.settle();
+    const hover = ctx.params.has("hover") ? ctx.params.get("hover") : "area:kanzei-tools/edit";
+    if (hover) hook?.hover(hover);
+    document.activeElement?.blur?.();
+    await ctx.sleep(200);
+  },
+
   async empty(ctx) {
     // 走真实的「新对话」入口:它同时是缺陷 #2(旧内容残留)的复现路径。
     $("#new-chat")?.click();

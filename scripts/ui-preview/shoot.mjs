@@ -8,6 +8,7 @@
 // 默认输出 output/ui-preview/<scene>-<theme>.png;overlays 的非默认弹窗另存 overlays-<dialog>-<theme>.png。
 // --width/--height 是 CSS 像素,--dpr 是设备像素比(用户的三档:1280@1.5、1600@1.25、2000@1)。
 // --lang 是界面语言(默认 zh;en 用来查英文词更宽时的列对齐),同一目录下会覆盖同名截图,换语言请换 --out。
+//                                     [--query k=v&k2=v2](场景参数,如 memory-graph 的 hover/select/ego、backdrop=orion)
 // 任一页面出现 console.error / 未捕获异常 / 静态资源 4xx-5xx 即退出码 1。
 // 服务在脚本内以随机端口启动,结束时关闭(不影响手动开着的 5178)。
 import { mkdir } from "node:fs/promises";
@@ -27,7 +28,7 @@ const opt = (flag, fallback) => {
 const list = (value) => value.split(",").map((item) => item.trim()).filter(Boolean);
 
 const outDir = path.resolve(opt("--out", path.join(REPO, "output/ui-preview")));
-const scenes = list(opt("--scenes", "chat,agents,parallel,settings,docs,overlays,lines,empty,workspace,projects"));
+const scenes = list(opt("--scenes", "chat,agents,parallel,settings,docs,overlays,lines,empty,workspace,projects,memory,memory-graph"));
 const themes = list(opt("--themes", "dark,light"));
 const dialogs = list(opt("--dialogs", "ask,question,confirm,input,viewer,palette"));
 const width = Number(opt("--width", "1440"));
