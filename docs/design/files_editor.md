@@ -126,7 +126,7 @@
 - `scripts/ipc-contract.json` 新增三条;若别组也跑了 `KZ_UPDATE_IPC_CONTRACT`,合并按键取并集。
 - `kanzei_tools::MANAGED_ROOTS` 改为 pub 再导出;quarantine KNOWN_KINDS 多了 `files-overwrite`。
 - `ui-runtime-smoke` 里 R-189 的 Monaco 主题断言改读 `17-files-editor.js`(编辑器创建搬了家)。
-- **与兄弟分支的合并冲突(复核用 `git merge-tree` 试合)**:与 ui2/workdir 冲突在 `scripts/ui-preview/scenes.mjs`、`scripts/ui-runtime-smoke.mjs`;与 ui2/arch 冲突在 `scripts/ui-preview/shoot.mjs`(默认场景串)与 `scripts/ui-runtime-smoke.mjs`。都出在文件末尾的追加区,一律取并集:shoot.mjs 默认场景串同时保留 `files` 与 arch 组的新场景;runtime-smoke 的变异表条目与各「分区」块全部保留。合并后重跑本组 25 条 `KZ_SMOKE_MUTATE`(表的「恰好命中一处」自检能发现重复插入),再跑 `node scripts/gen-esm-graph.mjs` 收录 `17-files-editor.js`。
+- **与兄弟分支的合并冲突(复核用 `git merge-tree` 试合)**:与 ui2/workdir 冲突在 `scripts/ui-preview/scenes.mjs`、`scripts/ui-runtime-smoke.mjs`;与 ui2/arch 冲突在 `scripts/ui-preview/shoot.mjs`(默认场景串)与 `scripts/ui-runtime-smoke.mjs`。都出在文件末尾的追加区,一律取并集:shoot.mjs 默认场景串同时保留 `files` 与 arch 组的新场景;runtime-smoke 的变异表条目与各「分区」块全部保留。合并后重跑本组 25 条 `KZ_SMOKE_MUTATE`(表的「恰好命中一处」自检能发现重复插入),再跑 `node scripts/gen-esm-graph.mjs` 收录 `17-files-editor.js`。`architecture/README.md` 里本文的登记行挪到了 `voice_interaction.md` 之后:原位置(`ui_color_semantics.md` 之后)与 ui2/arch 登记 `architecture_diagrams.md` 的插入点相同会冲突,挪开后与 arch、workdir 都能自动合并(`git merge-file` 实测)。
 - **tracker 待登记**:§3 的 R-367 后续条目(文件页保存后代理 write 必须得到 FILE_CHANGED_SINCE_READ),本组不能改 tracker。
 
 ## 变更记录
