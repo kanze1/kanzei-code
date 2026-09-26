@@ -533,6 +533,9 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       reasoning: "high", codexFastMode: false,
     },
   };
+  // ── 分区:星座背景 ── ?backdrop=kanzei|big-dipper|orion|cassiopeia|off 预置对话背景偏好(ui_prefs_get.backdrop,截图用);
+  // 不带参数 = 后端无记录,走默认(kanzei 标志星座)。
+  if (params.backdrop) state.uiPrefs.backdrop = params.backdrop === "off" ? { enabled: false } : { enabled: true, preset: params.backdrop };
   const ids = IDS;
   const events = liveEvents(ids);
   const askFixtures = asks(ids);

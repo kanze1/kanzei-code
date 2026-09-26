@@ -115,6 +115,16 @@ const SCENES = {
     await openView(ctx, "lines");
   },
 
+  // ── 分区:星座背景 ── 设置页「对话背景」分组展开(图案卡片缩略图、上传、滑杆)。
+  async backdrop(ctx) {
+    await openView(ctx, "settings");
+    const group = $("#backdrop-settings");
+    if (group && !group.open) group.querySelector("summary")?.click();
+    await waitFor(() => group?.open);
+    await ctx.sleep(120);
+    group?.scrollIntoView({ block: "start" });
+  },
+
   async empty(ctx) {
     // 走真实的「新对话」入口:它同时是缺陷 #2(旧内容残留)的复现路径。
     $("#new-chat")?.click();

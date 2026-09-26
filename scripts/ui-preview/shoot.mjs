@@ -29,6 +29,9 @@ const themes = list(opt("--themes", "dark,light"));
 const dialogs = list(opt("--dialogs", "ask,question,confirm,input,viewer,palette"));
 const width = Number(opt("--width", "1440"));
 const height = Number(opt("--height", "900"));
+// --dpr 1.25 / 1.5:按真机缩放比截图(1600@1.25 = 2000px 物理宽的 125% 缩放);--query 追加 URL 参数(如 backdrop=orion)。
+const dpr = Number(opt("--dpr", "1"));
+const extraQuery = Object.fromEntries(new URLSearchParams(opt("--query", "")));
 const wantJson = args.includes("--json");
 
 const shots = [];
@@ -50,7 +53,7 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 const results = [];
 try {
   for (const shot of shots) {
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, colorScheme: shot.theme });
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, colorScheme: shot.theme });
     const page = await context.newPage();
     const errors = [];
     const infos = [];
@@ -64,7 +67,7 @@ try {
       if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`);
     });
     page.on("requestfailed", (request) => errors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText ?? ""}`));
-    const query = new URLSearchParams({ theme: shot.theme, scene: shot.scene, ...(shot.dialog ? { dialog: shot.dialog } : {}) });
+    const query = new URLSearchParams({ ...extraQuery, theme: shot.theme, scene: shot.scene, ...(shot.dialog ? { dialog: shot.dialog } : {}) });
     const url = `${origin}/?${query}`;
     const started = Date.now();
     let ready = false;
