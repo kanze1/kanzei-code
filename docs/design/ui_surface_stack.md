@@ -50,9 +50,9 @@
 ```
 
 - **不引入 `--c-*` 原始层**:主题切换只发生在语义层,组件层不在亮色块里重定义。注意 `--surface-overlay`、`--surface-raised`、`--surface-hover`、`--surface-selected` 名字带 surface 但属于语义层(两块主题里各有字面量值),组件层是「/* 组件层」那一段里的名字。
-- 现行组件层(值随语义层变):`--surface-bg`(= `--surface-overlay`)、`--surface-bg-raised`(tooltip)、`--surface-fg`/`-fg-strong`/`-muted`、`--surface-border`/`-divider`、`--surface-attention`(权限卡描边 = 强调色,「看这里」)、`--surface-item-hover`/`-item-active`(中性半透明)、`--surface-radius-sm/md/lg`、`--surface-shadow-1/2/3`(= `--elev-*`,亮色另有一套浅阴影)、`--surface-backdrop`(模态遮罩 = `--scrim`)、`--surface-backdrop-soft`(命令面板:跳转器不是确认框,背后界面要看得见)、`--surface-offset`、`--surface-motion`。
+- 现行组件层(值随语义层变):`--surface-bg`(= `--surface-overlay`)、`--surface-bg-raised`(tooltip)、`--surface-fg`/`-fg-strong`/`-muted`、`--surface-border`/`-divider`、`--surface-attention`(权限卡与提问胶囊描边 = `--warn`,「需要你」,见 [ui_color_semantics.md](ui_color_semantics.md))、`--surface-item-hover`/`-item-active`(中性半透明)、`--surface-radius-sm/md/lg`、`--surface-shadow-1/2/3`(= `--elev-*`,亮色另有一套浅阴影)、`--surface-backdrop`(模态遮罩 = `--scrim`)、`--surface-backdrop-soft`(命令面板:跳转器不是确认框,背后界面要看得见)、`--surface-offset`、`--surface-motion`。
 - 高位 z 档位 `--z-float/--z-overlay/--z-dialog/--z-toast` 已删:进入顶层的元素不需要 z-index。`--z-drawer` 留给两块常驻侧面板。
-- **嵌套主题区块的坑**:组件层在 `:root` 上以 `var()` 引用语义层,计算值在 `:root` 就定死了;某个子元素上再挂 `[data-theme="light"]` 只换语义层,组件层仍是 `:root` 的计算值。应用里主题只挂在 `<html>` 上,不受影响;样例页的静态矩阵要同屏两套主题,由 gallery.js 在亮色区块上按样式表原文把组件层重声明一遍。
+- **嵌套主题区块的坑**:组件层在 `:root` 上以 `var()` 引用语义层,计算值在 `:root` 就定死了;某个子元素上再挂 `[data-theme="light"]` 只换语义层,组件层仍是 `:root` 的计算值。应用里主题只挂在 `<html>` 上,不受影响;样例页的静态矩阵要同屏两套主题,由 gallery.js 在亮色区块上按样式表原文把 `:root` 里所有以 `var()` 定义的 token 重声明一遍(组件层 `--surface-*` 之外,`--danger`/`--alert`/`--muted`/`--dot-idle` 这类语义别名同样在 `:root` 求值;只重声明组件层时,亮色矩阵的危险菜单项拿到暗色 `--danger` #ff7b72,白底上 2.52:1)。亮色块自己给了字面量的名字不重声明。ui-surface-gallery-smoke 逐个比对区块上全部主题 token 的计算值与 `html[data-theme=light]` 上的计算值。
 
 ### 4.2 CSS 层序与文件
 
