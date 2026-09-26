@@ -155,6 +155,23 @@ pub async fn git_status(
         None => project_root,
     };
     tokio::task::spawn_blocking(move || {
+        // UI2-0926 #13:先看代码树自己是不是仓库。不是的话给出「无 Git / 位于上级仓库」的事实,
+        // 绝不把上级仓库的分支与改动当成本项目的显示出来(原先 rev-parse 在上级仓库里照样成功)。
+        match kanzei_tools::project_state::probe_cached(&root).git {
+            kanzei_tools::project_state::GitState::Repo { .. } => {}
+            kanzei_tools::project_state::GitState::None => {
+                return json!({
+                    "repo": "none", "branch": null, "changes": 0, "last": null,
+                    "additions": 0, "deletions": 0, "files": [],
+                });
+            }
+            kanzei_tools::project_state::GitState::Parent { toplevel } => {
+                return json!({
+                    "repo": "parent", "toplevel": toplevel, "branch": null, "changes": 0,
+                    "last": null, "additions": 0, "deletions": 0, "files": [],
+                });
+            }
+        }
         let run = |args: &[&str]| -> Option<String> {
             let out = hidden_command("git")
                 .args(args)
@@ -203,6 +220,7 @@ pub async fn git_status(
             );
         }
         json!({
+            "repo": "own",
             "branch": branch, "changes": changes, "last": last,
             "additions": additions, "deletions": deletions, "files": files,
         })

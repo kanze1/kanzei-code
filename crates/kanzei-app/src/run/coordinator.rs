@@ -130,6 +130,9 @@ pub(crate) async fn run_task(
     // R-322(#7):本轮模型是否用 `work handoff` 交还了控制权。与上面两项同一收口
     // 方式(事件流,不扫 messages)——理由同 D-654:轮中压缩会让消息切片错位。
     let round_handoff = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // UI2-0926 #13:本轮 question 以 pending_question 收口(问题挂起、在等用户回答)。
+    // 与 handoff 同一收口方式(事件流),轮末与最终文本兜底一起组装 AutoRunCtx::awaiting_user。
+    let round_awaiting_user = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // R-253 批8:事件处理器按投影拆四 sink——UI/typed/trace/metrics 各自持有
     // 自己的状态,新增 RunEvent 只碰对应 sink(验收⑤)。
     let mut on_event = build_event_handler(
@@ -149,7 +152,8 @@ pub(crate) async fn run_task(
             round_tools.clone(),
             round_closed.clone(),
             round_handoff.clone(),
-        ),
+        )
+        .with_awaiting_user(round_awaiting_user.clone()),
     );
 
     let mut ask = build_ask_handler(
@@ -248,6 +252,9 @@ pub(crate) async fn run_task(
     let run_started = round.run_started;
     let run_epoch_ms = round.run_epoch_ms;
     let ctx = round.ctx;
+    // UI2-0926 #13:Nudge 事实按本线代码树取活(与 `work next` 同源);下面两处 AutoRunCtx
+    // 局部变量同名 `ctx`,先把 cwd 取出来。
+    let ctx_cwd = ctx.cwd.clone();
     let _write_lease = round._write_lease;
     // R-202 批2:轮末收尾段前半(终态落库:typed 终态/会话状态/episode/轮末采集)收敛。
     let final_store = persist_round_outcome(
@@ -304,6 +311,7 @@ pub(crate) async fn run_task(
                         intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
                         // 失败轮模型没跑完,不可能声明完成;失败分类由 round_failure 承担。
                         model_declared_done: false,
+                        awaiting_user: false,
                         // R-322 B3:目标挂着时失败轮照样走退避重试(目标不该被一次 503 冲掉)。
                         goal_active: ctrl.goal.is_some(),
                         closed_this_round: 0,
@@ -338,10 +346,13 @@ pub(crate) async fn run_task(
                                 tracing::debug!("{message}");
                             }
                         }
-                        let mut payload = crate::auto_run::serialize_action(
-                            action,
-                            crate::auto_run::work_priority_enum(deps.work_priority),
-                        );
+                        let mut payload = crate::auto_run::serialize_action(action, || {
+                            crate::auto_run::nudge_facts(
+                                &ctx_cwd,
+                                &deps.project_root,
+                                crate::auto_run::work_priority_enum(deps.work_priority),
+                            )
+                        });
                         payload["rounds"] = json!(ctrl.state.rounds);
                         payload["max"] = json!(ctrl.state.max_rounds);
                         Some(payload)
@@ -380,6 +391,11 @@ pub(crate) async fn run_task(
         names.extend(subagent_tools.lock_or_recover().iter().cloned());
         names.into_iter().collect()
     };
+    // UI2-0926 #13:模型在等用户——question 挂起(主信号),或最终回复明显以向用户提问收尾
+    // (兜底)。只看**本轮**消息里最后一条助手文本。
+    let awaiting_user = round_awaiting_user.load(std::sync::atomic::Ordering::Relaxed)
+        || crate::auto_run::last_assistant_text(&summary.round_messages)
+            .is_some_and(|text| crate::auto_run::ends_with_user_question(&text));
     // D-583:真实进展签名——放在锁外算,避免在持锁期间做文件 IO/git 子进程调用。
     let progress_signature = if deps.profile == kanzei_harness::ProfileKind::Research {
         crate::research_auto::progress_signature(&deps.project_root, deps.research_topic.as_deref())
@@ -411,6 +427,7 @@ pub(crate) async fn run_task(
             intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
             // R-322(#7):模型的停机权。置位后引擎不再对「是不是真做完了」发表意见。
             model_declared_done: round_handoff.load(std::sync::atomic::Ordering::Relaxed),
+            awaiting_user,
             // R-322 B3:挂了目标就换一套停止规则——不由引擎猜还有没有活干,
             // 而是推到模型声明达成为止(详见 AutoRunCtx::goal_active)。
             goal_active: ctrl.goal.is_some(),
@@ -436,10 +453,13 @@ pub(crate) async fn run_task(
             (payload, zero_output)
         } else {
             let action = crate::auto_run::decide_auto_run(ctrl, ctx);
-            let mut payload = crate::auto_run::serialize_action(
-                action,
-                crate::auto_run::work_priority_enum(deps.work_priority),
-            );
+            let mut payload = crate::auto_run::serialize_action(action, || {
+                crate::auto_run::nudge_facts(
+                    &ctx_cwd,
+                    &deps.project_root,
+                    crate::auto_run::work_priority_enum(deps.work_priority),
+                )
+            });
             // R-322 B3:目标原文由 controller 填入(引擎不持有用户数据),
             // 前端按 Nudge 同款机制把它作为下一轮输入发回。
             if payload["type"] == json!("GoalPending") {
