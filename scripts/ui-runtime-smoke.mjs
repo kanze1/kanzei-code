@@ -360,6 +360,11 @@ if (SMOKE_MUTATE) {
       pattern: /(block\.input = null;\r?\n)\s*syncToolGroupOf\(block\);/,
       replace: "$1",
     },
+    // ⎿ 摘要不再切行内代码:失败行原样露出 `k/N` 的反引号。
+    toolSumInlineCode: {
+      pattern: /groups = groups\.map\(\(group\) => group\.flatMap\(inlineCodeParts\)\);/,
+      replace: "",
+    },
     // 裁剪按子节点计数:鞭挞长跑几百次调用只有十几个组,永远裁不掉。
     paneUnits: {
       pattern: /const unitsOf = [^\n]*\n/,
@@ -12609,13 +12614,15 @@ const docsB = {
 // ── 分区:对话单列与输入区 ──
 // UI2-0926 #12(docs/design/chat_presentation_contract.md §4.4):连续工具调用合成一行工具组(实时/历史同一入口
 // mountToolBlock、思考并入、正文/子代理断组、失败常驻、运行中组头、上限 30、停止收尾、裁剪按行计权、复制上下文与
-// 搜索展开、窗口边界合并、切语言重算)、notice 不挂复制、本轮结束 turn-end 模板。
-// 变异守卫:toolGroupLive / toolGroupHistory / toolGroupReasoning / toolGroupSync / paneUnits /
+// 搜索展开、窗口边界合并、切语言重算)、⎿ 摘要里的反引号成行内代码、notice 不挂复制、本轮结束 turn-end 模板。
+// 变异守卫:toolGroupLive / toolGroupHistory / toolGroupReasoning / toolGroupSync / toolSumInlineCode / paneUnits /
 // ctxToolGroup / searchExpandGroup / noticeNoActions / turnEndClass / earlierMerge / earlierHintTop / toolGroupI18n。
 {
   const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
   const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
   assert(chatNs && typeof chatNs.mountToolBlock === "function" && typeof chatNs.toolGroupSummary === "function", "05-chat-render.js 未导出工具组入口 mountToolBlock/toolGroupSummary");
+  assert(summaryNs && typeof summaryNs.inlineCodeParts === "function", "05-tool-summary.js 未导出 inlineCodeParts");
   const toolStart = handlers.get("kz:tool-start");
   const toolEnd = handlers.get("kz:tool-end");
   const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
@@ -12777,6 +12784,20 @@ const docsB = {
     });
     if (savedHistory) viewsNs.paneHistory.set(SID || "", savedHistory);
     else viewsNs.paneHistory.delete(SID || "");
+  }
+
+  // ⑩ ⎿ 行内代码:成对反引号成 code part,文本不再露反引号,悬停 title 保留原句;不成对的原样保留。
+  {
+    const raw = "批次字段要写成 `k/N`(如 `0/3`),实际收到 `批次: 0/5`";
+    const summary = summaryNs.toolResultSummary("req", { ok: false, outcome: "failed", content: raw });
+    const codes = summary.parts.filter((part) => part.k === "code").map((part) => part.v);
+    assert(["k/N", "0/3", "批次: 0/5"].every((value) => codes.includes(value)), `⎿ 摘要的反引号没有切成行内代码:${JSON.stringify(codes)}`);
+    assert(!summary.text.includes("`") && summary.title === raw, `⎿ 摘要文本仍含反引号或 title 丢了原句:${summary.text} / ${summary.title}`);
+    const el = document.createElement("span");
+    summaryNs.renderToolSummary(el, summary);
+    assert(el.querySelectorAll(".tool-sum-code").length === 3 && el.textContent === `⎿ ${summary.text}`, `renderToolSummary 没有把行内代码渲染成 .tool-sum-code:${el.textContent}`);
+    const odd = summaryNs.inlineCodeParts({ k: "text", v: "a `b" });
+    assert(odd.length === 1 && odd[0].v === "a `b", "不成对的反引号应原样保留");
   }
 
   // ⑪ notice 不挂复制;消息的复制按钮是图标 + 读屏名;本轮结束 = notice turn-end + 模板文案。

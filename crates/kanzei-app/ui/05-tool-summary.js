@@ -110,6 +110,23 @@ function assembleParts(groups, durationText, durAt) {
   return parts;
 }
 const partsText = (parts) => parts.map((part) => part.v).join("");
+/// UI2-0926 #12:文本 part 里成对的反引号切成 code part(≤80 字、不跨行),⎿ 行不再原样露出 `k/N` 的反引号。
+/// 不成对的反引号原样保留;非文本 part 不动。
+export function inlineCodeParts(part) {
+  if (!part || part.k !== "text" || !String(part.v).includes("`")) return [part];
+  const out = [];
+  const pattern = /`([^`\n]{1,80})`/g;
+  const value = String(part.v);
+  let last = 0;
+  for (const match of value.matchAll(pattern)) {
+    if (match.index > last) out.push(txt(value.slice(last, match.index)));
+    out.push(code(match[1]));
+    last = match.index + match[0].length;
+  }
+  if (!out.length) return [part];
+  if (last < value.length) out.push(txt(value.slice(last)));
+  return out;
+}
 /// 计数文案:n=1 用单数专用 key(英文 "1 line of output" 而不是 "1 lines of output";
 /// 中文 key 就是填好 1 的原文,中文态原样显示)。n 可带 `+` 后缀,那种一律按复数。
 function countText(n, many, one) {
@@ -884,11 +901,15 @@ export function toolResultSummary(name, ctx = {}) {
       key = "fallback.noise";
       parts = assembleParts(groups, durationText, undefined);
     }
+    // 噪声检查之后再切行内代码(反引号是摘要器自己保留的原文,不参与噪声判据);悬停 title 保留带反引号的原句。
+    const rawText = partsText(parts);
+    groups = groups.map((group) => group.flatMap(inlineCodeParts));
+    parts = assembleParts(groups, durationText, key === "fallback.noise" ? undefined : durAt);
     const summaryText = partsText(parts);
     return {
       parts,
       text: summaryText,
-      title: normalized.title ?? summaryText,
+      title: normalized.title ?? rawText,
       tone: normalized.tone ?? null,
       mode,
       rest: extra.rest ?? "",
