@@ -29,6 +29,11 @@ pub(crate) struct AppPrefs {
     pub(crate) process_auto_state: HashMap<String, Value>,
     #[serde(default)]
     pub(crate) workspace_state: HashMap<String, Value>,
+    // UI2-0926 #14/#4:界面布局偏好(后台任务侧栏开关、可调框几何、分隔条宽高)。
+    // 形如 { side_panel: {auto_open, auto_close}, frames: {id: {...}}, splits: {id: px} }。
+    // 前端只发变化的键,后端按「分区 → 键」两级合并(见 merge_ui_layout),值为 null 即删除。
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub(crate) ui_layout: Value,
 }
 
 fn prefs_path() -> PathBuf {
@@ -82,6 +87,63 @@ fn apply_ui_prefs(
     }
 }
 
+/// 布局偏好的写入上限:几何与开关只有几十个键,超过即视为异常负载,整次写入丢弃。
+const UI_LAYOUT_MAX_BYTES: usize = 64 * 1024;
+
+/// 界面布局偏好的合并写入(D-404 通道的通用字段)。
+///
+/// 两级合并:`patch` 的第一级是分区(side_panel / frames / splits),第二级是分区里的键;
+/// 第二级的值整体替换(一个框的几何 {l,t,w…} 必须整条换掉,逐字段合并会留下 l 与 r 并存的非法组合),
+/// 值为 null 即删除该键,分区为 null 即删除整个分区。patch 不是对象时忽略(不抹掉已存偏好)。
+pub(crate) fn merge_ui_layout(target: &mut Value, patch: Value) {
+    let Value::Object(sections) = patch else {
+        return;
+    };
+    if !target.is_object() {
+        *target = Value::Object(serde_json::Map::new());
+    }
+    let Some(root) = target.as_object_mut() else {
+        return;
+    };
+    for (section, value) in sections {
+        match value {
+            Value::Null => {
+                root.remove(&section);
+            }
+            Value::Object(keys) => {
+                let slot = root
+                    .entry(section)
+                    .or_insert_with(|| Value::Object(serde_json::Map::new()));
+                if !slot.is_object() {
+                    *slot = Value::Object(serde_json::Map::new());
+                }
+                if let Some(entries) = slot.as_object_mut() {
+                    for (key, entry) in keys {
+                        if entry.is_null() {
+                            entries.remove(&key);
+                        } else {
+                            entries.insert(key, entry);
+                        }
+                    }
+                }
+            }
+            other => {
+                root.insert(section, other);
+            }
+        }
+    }
+}
+
+fn apply_ui_layout(prefs: &mut AppPrefs, patch: Option<Value>) {
+    let Some(patch) = patch else {
+        return;
+    };
+    if serde_json::to_string(&patch).map_or(true, |text| text.len() > UI_LAYOUT_MAX_BYTES) {
+        return;
+    }
+    merge_ui_layout(&mut prefs.ui_layout, patch);
+}
+
 #[tauri::command]
 pub fn ui_prefs_get() -> serde_json::Value {
     let p = load_prefs();
@@ -92,6 +154,7 @@ pub fn ui_prefs_get() -> serde_json::Value {
         "continue_prompt": p.continue_prompt,
         "process_auto_state": p.process_auto_state,
         "workspace_state": p.workspace_state,
+        "ui_layout": if p.ui_layout.is_object() { p.ui_layout } else { json!({}) },
     })
 }
 
@@ -104,6 +167,7 @@ pub fn ui_prefs_set(
     continue_prompt: Option<String>,
     process_auto_state: Option<HashMap<String, Value>>,
     workspace_state: Option<HashMap<String, Value>>,
+    ui_layout: Option<Value>,
 ) -> Result<(), String> {
     let mut prefs = load_prefs();
     apply_ui_prefs(
@@ -117,6 +181,7 @@ pub fn ui_prefs_set(
     if let Some(workspace_state) = workspace_state {
         prefs.workspace_state = workspace_state;
     }
+    apply_ui_layout(&mut prefs, ui_layout);
     save_prefs(&prefs);
     Ok(())
 }
@@ -174,6 +239,76 @@ mod tests {
             restored.workspace_state["project-a"]["research"]["topic"],
             "topic-a"
         );
+    }
+
+    #[test]
+    fn ui_layout_两级合并_键整体替换_null删除() {
+        let mut p = AppPrefs::default();
+        apply_ui_layout(
+            &mut p,
+            Some(json!({
+                "side_panel": { "auto_open": true, "auto_close": true },
+                "frames": { "viewer": { "v": 1, "l": 90, "t": 50, "w": 880 } },
+                "splits": { "sidebar": 320, "tasks": 440 },
+            })),
+        );
+        // 只发变化的键:同分区其它键保留;框几何整条替换(不能残留 l 与 r 并存)。
+        apply_ui_layout(
+            &mut p,
+            Some(json!({
+                "side_panel": { "auto_open": false },
+                "frames": { "viewer": { "v": 1, "r": 40, "b": 30 } },
+                "splits": { "tasks": null },
+            })),
+        );
+        assert_eq!(p.ui_layout["side_panel"]["auto_open"], json!(false));
+        assert_eq!(p.ui_layout["side_panel"]["auto_close"], json!(true));
+        assert_eq!(
+            p.ui_layout["frames"]["viewer"],
+            json!({ "v": 1, "r": 40, "b": 30 })
+        );
+        assert!(p.ui_layout["frames"]["viewer"].get("l").is_none());
+        assert_eq!(p.ui_layout["splits"]["sidebar"], json!(320));
+        assert!(p.ui_layout["splits"].get("tasks").is_none());
+        // 分区为 null 删除整个分区;非对象 patch 忽略,不抹掉已存偏好。
+        apply_ui_layout(&mut p, Some(json!({ "frames": null })));
+        assert!(p.ui_layout.get("frames").is_none());
+        apply_ui_layout(&mut p, Some(json!("oops")));
+        apply_ui_layout(&mut p, None);
+        assert_eq!(p.ui_layout["splits"]["sidebar"], json!(320));
+    }
+
+    #[test]
+    fn ui_layout_超大负载整次丢弃() {
+        let mut p = AppPrefs::default();
+        apply_ui_layout(&mut p, Some(json!({ "splits": { "sidebar": 300 } })));
+        let huge = "x".repeat(UI_LAYOUT_MAX_BYTES + 1);
+        apply_ui_layout(&mut p, Some(json!({ "frames": { "viewer": huge } })));
+        assert!(p.ui_layout.get("frames").is_none());
+        assert_eq!(p.ui_layout["splits"]["sidebar"], json!(300));
+    }
+
+    #[test]
+    fn ui_layout_往返_旧app_json无字段回落空() {
+        let old = r#"{"projects":["p1"],"theme":"dark"}"#;
+        let mut p: AppPrefs = serde_json::from_str(old).expect("旧格式应兼容");
+        assert!(p.ui_layout.is_null());
+        // 未写过布局偏好时不往 app.json 里写 "ui_layout": null。
+        assert!(!serde_json::to_string(&p).unwrap().contains("ui_layout"));
+        apply_ui_layout(
+            &mut p,
+            Some(json!({ "frames": { "ask": { "v": 1, "r": 22, "b": 18, "w": 640 } } })),
+        );
+        let restored: AppPrefs = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(restored.ui_layout["frames"]["ask"]["w"], json!(640));
+        assert_eq!(restored.theme.as_deref(), Some("dark"));
+        // 旧 app.json 里若是非对象(手改坏了),下一次合并写入从空对象开始。
+        let mut broken = AppPrefs {
+            ui_layout: json!([1, 2]),
+            ..Default::default()
+        };
+        merge_ui_layout(&mut broken.ui_layout, json!({ "splits": { "log": 240 } }));
+        assert_eq!(broken.ui_layout, json!({ "splits": { "log": 240 } }));
     }
 
     #[test]

@@ -17,7 +17,7 @@
 // page.evaluate 回调在浏览器里执行,用到的浏览器全局在这里声明给 ESLint(本文件其余部分是 node 环境)。
 /* global window, getComputedStyle, CSS, HTMLDialogElement, HTMLElement */
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
@@ -113,6 +113,39 @@ function expected(kind, tokens) {
     case "chip": return { bg: tokens.bg, radius: tokens.radiusPill, shadow: tokens.shadow2 };
     default: return { bg: tokens.bg, radius: tokens.radiusMd, shadow: tokens.shadow2 };
   }
+}
+
+// ── 分区:后台任务侧栏与可调框 ──
+// 浏览器变异守卫(与 ui-runtime-smoke 的 KZ_SMOKE_MUTATE 同一约定):把被守护的那一处源码改坏,经 page.route
+// 喂给步骤 8 的页面,期望本冒烟失败。变异没有恰好命中一处就直接报错——守卫悄悄失效比断言变红更危险。
+// 不认识的 id 不理会(那是 ui-runtime-smoke 的变异)。
+const TASKS_BROWSER_MUTATIONS = {
+  // 权限卡锚在输入区上(anchor-name)。删掉,卡片退回右下停靠,与输入区不同宽。
+  askComposerAnchor: { file: "surface.css", pattern: /#composer \{ anchor-name: --kz-composer; \}/, replace: "" },
+  // 「重新打开询问」芯片按停靠宽度让开侧栏。去掉 --kz-dock-right,芯片压在侧栏上。
+  chipDockRight: {
+    file: "surface.css",
+    pattern: /(\.k-chip-float \{\r?\n[ \t]*position: fixed; inset: auto )calc\(22px \+ var\(--kz-dock-right, 0px\)\)( 18px auto;)/,
+    replace: "$122px$2",
+  },
+  // 弹层里的 Esc 不算关闭侧栏。删掉守卫,下拉列表开着时 Esc 整个侧栏收起。
+  escPopoverBrowser: {
+    file: "06-agent-panel.js",
+    pattern: /[ \t]*if \(event\.defaultPrevented \|\| event\.target\?\.closest\?\.\("\[popover\]"\) \|\| nativePickerOpen\(event\.target\)\) return;\r?\n/,
+    replace: "",
+  },
+  // 窄侧栏隐去模型列(容器查询)。删掉,1280 宽时子代理列只剩几个字。
+  tasksNarrowModel: { file: "style.css", pattern: /@container tasks \(max-width: [\d.]+px\) \{[\s\S]*?\r?\n\}\r?\n/, replace: "" },
+};
+async function tasksBrowserMutation() {
+  const id = process.env.KZ_SMOKE_MUTATE ?? "";
+  const mutation = TASKS_BROWSER_MUTATIONS[id];
+  if (!mutation) return null;
+  const source = await readFile(path.join(root, "crates/kanzei-app/ui", mutation.file), "utf8");
+  const hits = (source.match(new RegExp(mutation.pattern.source, "g")) ?? []).length;
+  if (hits !== 1) throw new Error(`变异 ${id} 没有恰好命中一处被守护的源码(实得 ${hits} 处):护栏已经失效,先修变异表`);
+  const type = mutation.file.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
+  return { id, file: mutation.file, type, body: source.replace(mutation.pattern, mutation.replace) };
 }
 
 export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path.join(root, "dist/ui-gallery") } = {}) {
@@ -386,6 +419,106 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
         await kbd.close();
       }
 
+      // ── 分区:后台任务侧栏与可调框 ──
+      // 7 可调框(00-frame.js,UI2-0926 #4):真实鼠标拖边(从框外 3px 处按下)、拖标题栏、一步甩动、上边夹紧、
+      //   关掉再开保留几何、窗口缩小夹紧与恢复、双击标题复位、点遮罩照常关闭、Alt+Shift+→ 加宽、卡片拖标题与左缘加宽;
+      //   菜单/浮层/提示里没有手柄。
+      if (theme === "dark") {
+        await page.setViewportSize({ width: 1280, height: 840 });
+        await page.evaluate(() => { window.__gallery.closeAll(); window.__gallery.resetFrames(); });
+        await page.mouse.move(2, 2);
+        const frameBox = (selector) => page.evaluate((sel) => {
+          const r = document.querySelector(sel).getBoundingClientRect();
+          return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+        }, selector);
+        const near = (a, b) => Math.abs(a - b) <= 1;
+        const drag = async (x0, y0, x1, y1, steps = 6) => {
+          await page.mouse.move(x0, y0);
+          await page.mouse.down();
+          await page.mouse.move(x1, y1, { steps });
+          await page.mouse.up();
+          await page.waitForTimeout(60);
+        };
+        const frames = await page.evaluate(() => window.__gallery.frames());
+        if (frames.join(",") !== "demo-lg,demo-card") fail(`dark/可调框:样例页的框清单应为 demo-lg,demo-card,实为 ${frames.join(",")}`);
+        await page.evaluate(() => window.__gallery.open("dialog-lg"));
+        await page.waitForTimeout(150);
+        const r0 = await frameBox("#demo-dialog-lg");
+        const depth0 = await page.evaluate(() => window.__gallery.stackDepth());
+        await drag(r0.right + 3, r0.top + r0.height / 2, r0.right + 103, r0.top + r0.height / 2);
+        const r1 = await frameBox("#demo-dialog-lg");
+        const alive = await page.evaluate(() => ({ open: document.querySelector("#demo-dialog-lg").open, depth: window.__gallery.stackDepth() }));
+        if (!near(r1.width, r0.width + 100) || !near(r1.left, r0.left) || !alive.open || alive.depth !== depth0) {
+          fail(`dark/可调框:从右边框外 3px 拖 +100 应只加宽 100、左缘不动、弹窗不被轻关闭 ${JSON.stringify({ r0, r1, alive })}`);
+        }
+        const head = await frameBox("#demo-dialog-lg .viewer-head");
+        await drag(head.left + 80, head.top + head.height / 2, head.left - 40, head.top + head.height / 2 - 50);
+        const r2 = await frameBox("#demo-dialog-lg");
+        if (!near(r2.width, r1.width) || !near(r2.height, r1.height) || !near(r2.left, r1.left - 120) || !near(r2.top, r1.top - 50)) {
+          fail(`dark/可调框:拖标题栏 (-120,-50) 应只移动不变尺寸 ${JSON.stringify({ r1, r2 })}`);
+        }
+        const head2 = await frameBox("#demo-dialog-lg .viewer-head");
+        await drag(head2.left + 80, head2.top + 10, head2.left + 280, head2.top + 110, 1);
+        const r3 = await frameBox("#demo-dialog-lg");
+        if (!near(r3.left, r2.left + 200) || !near(r3.top, r2.top + 100)) fail(`dark/可调框:一步甩动 (+200,+100) 没有移动到位 ${JSON.stringify({ r2, r3 })}`);
+        await drag(r3.left + r3.width / 2, r3.top - 3, r3.left + r3.width / 2, r3.top - 2003);
+        const r4 = await frameBox("#demo-dialog-lg");
+        if (!near(r4.top, 8) || !near(r4.bottom, r3.bottom)) fail(`dark/可调框:上边拖到窗外应夹在 8px、下缘不动 ${JSON.stringify({ r3, r4 })}`);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(100);
+        await page.evaluate(() => window.__gallery.open("dialog-lg"));
+        await page.waitForTimeout(150);
+        const r5 = await frameBox("#demo-dialog-lg");
+        const stored = await page.evaluate(() => localStorage.getItem("kz-frame:demo-lg"));
+        if (!near(r5.left, r4.left) || !near(r5.width, r4.width) || !stored) fail(`dark/可调框:关掉再开应保留几何并记在存储里 ${JSON.stringify({ r4, r5, stored })}`);
+        await page.setViewportSize({ width: 800, height: 500 });
+        await page.waitForTimeout(150);
+        const small = await frameBox("#demo-dialog-lg");
+        if (small.left < 7 || small.top < 7 || small.right > 793 || small.bottom > 493) fail(`dark/可调框:窗口缩到 800×500 后框应夹进 [8,792]×[8,492] ${JSON.stringify(small)}`);
+        await page.setViewportSize({ width: 1280, height: 840 });
+        await page.waitForTimeout(150);
+        const r6 = await frameBox("#demo-dialog-lg");
+        if (!near(r6.left, r5.left) || !near(r6.width, r5.width) || !near(r6.height, r5.height)) fail(`dark/可调框:窗口恢复后应回到用户摆的几何 ${JSON.stringify({ r5, r6 })}`);
+        const head3 = await frameBox("#demo-dialog-lg .viewer-head");
+        await page.mouse.dblclick(head3.left + 80, head3.top + head3.height / 2);
+        await page.waitForTimeout(100);
+        const r7 = await frameBox("#demo-dialog-lg");
+        const cleared = await page.evaluate(() => localStorage.getItem("kz-frame:demo-lg"));
+        if (!near(r7.left, r0.left) || !near(r7.top, r0.top) || !near(r7.width, r0.width) || cleared) fail(`dark/可调框:双击标题栏应回到默认居中并清掉存储 ${JSON.stringify({ r0, r7, cleared })}`);
+        await page.focus("#demo-dialog-lg-close");
+        await page.keyboard.press("Alt+Shift+ArrowRight");
+        await page.waitForTimeout(80);
+        const r8 = await frameBox("#demo-dialog-lg");
+        if (!near(r8.width, r7.width + 24)) fail(`dark/可调框:Alt+Shift+→ 应加宽 24,实为 ${r7.width}→${r8.width}`);
+        await page.mouse.click(4, 4);
+        await page.waitForTimeout(150);
+        if (await page.evaluate(() => document.querySelector("#demo-dialog-lg").open)) fail("dark/可调框:点遮罩应照常关闭弹窗(closedby=any)");
+        await page.screenshot({ path: path.join(outDir, "dark-frame-dialog.png") });
+        await page.evaluate(() => { window.__gallery.resetFrames(); window.__gallery.open("card"); });
+        await page.waitForTimeout(150);
+        const c0 = await frameBox("#demo-card");
+        const cardHead = await frameBox("#demo-card .ask-head");
+        await drag(cardHead.left + 30, cardHead.top + cardHead.height / 2, cardHead.left - 170, cardHead.top + cardHead.height / 2 - 100);
+        const c1 = await frameBox("#demo-card");
+        if (!near(c1.left, c0.left - 200) || !near(c1.top, c0.top - 100) || !near(c1.width, c0.width)) fail(`dark/可调卡片:拖标题栏应移动且保持宽度 ${JSON.stringify({ c0, c1 })}`);
+        await drag(c1.left - 3, c1.top + c1.height / 2, c1.left - 83, c1.top + c1.height / 2);
+        const c2 = await frameBox("#demo-card");
+        if (!near(c2.width, c1.width + 80) || !near(c2.right, c1.right)) fail(`dark/可调卡片:左缘加宽 80 应右缘不动 ${JSON.stringify({ c1, c2 })}`);
+        const titleBox = await frameBox("#demo-card-title");
+        const clickPromise = page.evaluate(() => new Promise((resolve) => {
+          document.querySelector("#demo-card").addEventListener("click", (event) => resolve(event.target.closest(".ask-title") ? "title" : String(event.target.className || event.target.tagName)), { once: true });
+          setTimeout(() => resolve("none"), 800);
+        }));
+        await page.mouse.click(titleBox.left + 10, titleBox.top + titleBox.height / 2);
+        const clicked = await clickPromise;
+        if (clicked !== "title") fail(`dark/可调卡片:标题上的普通点击 target 应仍在标题内(越过阈值前不捕获指针),实为 ${clicked}`);
+        const stray = await page.evaluate(() => document.querySelectorAll(".k-menu .k-frame-edge, .k-popover .k-frame-edge, .k-tooltip .k-frame-edge, .k-toast .k-frame-edge").length);
+        if (stray) fail(`dark/可调框:菜单/浮层/提示/toast 里出现了 ${stray} 个调尺寸手柄(它们不是框)`);
+        await page.screenshot({ path: path.join(outDir, "dark-frame-card.png") });
+        await page.evaluate(() => { window.__gallery.closeAll(); window.__gallery.resetFrames(); });
+        notes.push("可调框:拖边/拖标题/甩动/夹紧/复位/键盘/卡片加宽均通过");
+      }
+
       // 静态矩阵(暗色页面下两套主题同屏)
       if (theme === "dark") {
         await page.locator("#demo-matrix").scrollIntoViewIfNeeded();
@@ -458,8 +591,15 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
           try { if (el.matches(":popover-open, dialog:modal")) return false; } catch { /* 忽略 */ }
           return true;
         }).map((el) => el.id || el.className);
-        return { selects, bare, fixed, selectCount: document.querySelectorAll("select").length };
+        // ── 分区:后台任务侧栏与可调框 ── 应用里的框清单;可调尺寸的框只有一个内层容器(手柄与挂进来的菜单除外)。
+        const frameIds = [...document.querySelectorAll("[data-kz-frame]")].map((el) => el.dataset.kzFrame).sort();
+        const multiChild = [...document.querySelectorAll("[data-kz-frame-edges]")]
+          .filter((el) => [...el.children].filter((c) => !c.classList.contains("k-frame-edge") && !c.hasAttribute("popover")).length !== 1)
+          .map((el) => el.id);
+        return { selects, bare, fixed, selectCount: document.querySelectorAll("select").length, frameIds, multiChild };
       });
+      if (audit.frameIds.join(",") !== "ask,confirm,input,project-models,viewer") fail(`index.html(${theme}):可调框清单应为 ask,confirm,input,project-models,viewer,实为 ${audit.frameIds.join(",")}`);
+      if (audit.multiChild.length) fail(`index.html(${theme}):可调尺寸的框必须只有一个内层容器(裁剪与滚动下放到它):${audit.multiChild.join(", ")}`);
       if (audit.selects.length) fail(`index.html(${theme}):以下 select 不是 base-select:${audit.selects.join(", ")}`);
       if (audit.bare.length) fail(`index.html(${theme}):以下 dialog/[popover] 缺 .k-surface:${audit.bare.join(", ")}`);
       if (audit.fixed.length) fail(`index.html(${theme}):顶层以外出现 fixed 浮层(除 .resize-handle):${audit.fixed.join(", ")}`);
@@ -476,6 +616,119 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
     const geometry = await runComposerGeometry(browser, origin);
     for (const failure of geometry.failures) fail(failure);
     notes.push(...geometry.notes);
+
+    // ── 分区:后台任务侧栏与可调框 ──
+    // 8 停靠侧栏的真实布局与键盘(UI2-0926 #14 复核修复;假 DOM 看不到几何与原生下拉):
+    //   a) 1600×900 侧栏停靠时,权限卡左右边与输入区重合(同宽、锚在输入区上方)、不压侧栏;
+    //      收起成「重新打开询问」芯片后,芯片右缘 ≤ 侧栏左缘;
+    //   b) 「筛选与清理」菜单里原生下拉的列表开着时按 Esc:只收列表,侧栏与菜单都还在;再按收菜单;
+    //      焦点回到侧栏里之后 Esc 才关侧栏;
+    //   c) 侧栏不宽于 440(1280 宽的 352)时委派卡小表隐去模型列、子代理列拿回宽度;2000 宽(520)保留四列。
+    // KZ_SMOKE_MUTATE=<id>(TASKS_BROWSER_MUTATIONS)经 page.route 把被守护的源码改坏后再跑,这里必须变红。
+    {
+      const mutation = await tasksBrowserMutation();
+      if (mutation) notes.push(`[KZ_SMOKE_MUTATE=${mutation.id}] 已改坏 ${mutation.file},期望本次失败`);
+      const tasksContext = await browser.newContext({ viewport: { width: 1600, height: 900 }, colorScheme: "dark" });
+      if (mutation) {
+        await tasksContext.route(`**/${mutation.file}`, (route) => route.fulfill({ status: 200, contentType: mutation.type, body: mutation.body }));
+      }
+      const tasksErrors = [];
+      const boxOf = (page, selector) => page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el || el.classList.contains("hidden")) return null;
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+      }, selector);
+      // a) 权限卡与芯片
+      const askPage = await tasksContext.newPage();
+      askPage.on("pageerror", (error) => tasksErrors.push(String(error)));
+      await askPage.goto(`${origin}/?theme=dark&scene=overlays&dialog=ask`, { waitUntil: "load" });
+      await askPage.waitForFunction(() => window.__kzPreview?.ready === true, null, { timeout: 25000 });
+      await askPage.waitForFunction(() => !document.getElementById("ask-overlay")?.classList.contains("hidden"), null, { timeout: 5000 }).catch(() => {});
+      await askPage.click("#tasks-toggle");
+      await askPage.waitForTimeout(300);
+      const dock = await askPage.evaluate(() => document.getElementById("tasks-panel")?.dataset.dock);
+      const panelBox = await boxOf(askPage, "#tasks-panel");
+      const askBox = await boxOf(askPage, "#ask-overlay");
+      const composerBox = await boxOf(askPage, "#composer");
+      if (dock !== "side" || !panelBox || !askBox || !composerBox) {
+        fail(`后台任务侧栏/权限卡:1600 宽手动打开应停靠、权限卡可见 ${JSON.stringify({ dock, panelBox, askBox, composerBox })}`);
+      } else {
+        if (Math.abs(askBox.left - composerBox.left) > 1 || Math.abs(askBox.right - composerBox.right) > 1) {
+          fail(`后台任务侧栏/权限卡:侧栏停靠时权限卡应与输入区同宽(左右边重合)${JSON.stringify({ askBox, composerBox })}`);
+        }
+        if (askBox.bottom > composerBox.top + 1) fail(`后台任务侧栏/权限卡:权限卡应在输入区上方 ${JSON.stringify({ askBox, composerBox })}`);
+        if (askBox.right > panelBox.left + 0.5) fail(`后台任务侧栏/权限卡:权限卡压住了停靠的侧栏 ${JSON.stringify({ askBox, panelBox })}`);
+      }
+      await askPage.click("#ask-collapse");
+      await askPage.waitForTimeout(200);
+      const chipBox = await boxOf(askPage, "#ask-reopen");
+      const panelAfter = await boxOf(askPage, "#tasks-panel");
+      if (!chipBox || !panelAfter) fail(`后台任务侧栏/芯片:收起权限卡后「重新打开询问」芯片或侧栏不可见 ${JSON.stringify({ chipBox, panelAfter })}`);
+      else if (chipBox.right > panelAfter.left + 0.5) fail(`后台任务侧栏/芯片:「重新打开询问」芯片压住了停靠的侧栏(芯片右缘 ${chipBox.right} > 侧栏左缘 ${panelAfter.left})`);
+      await askPage.screenshot({ path: path.join(outDir, "tasks-ask-chip.png") });
+      await askPage.close();
+
+      // b) 弹层里的 Esc;c) 窄侧栏的小表
+      const chatPage = await tasksContext.newPage();
+      chatPage.on("pageerror", (error) => tasksErrors.push(String(error)));
+      await chatPage.goto(`${origin}/?theme=dark&scene=chat`, { waitUntil: "load" });
+      await chatPage.waitForFunction(() => window.__kzPreview?.ready === true, null, { timeout: 25000 });
+      await chatPage.waitForTimeout(300);
+      if (await chatPage.evaluate(() => document.getElementById("tasks-panel").classList.contains("hidden"))) await chatPage.click("#tasks-toggle");
+      await chatPage.waitForTimeout(200);
+      const escState = () => chatPage.evaluate(() => {
+        let picker = null;
+        try { picker = document.getElementById("bg-status-filter").matches(":open"); } catch { /* 忽略 */ }
+        return {
+          panel: !document.getElementById("tasks-panel").classList.contains("hidden"),
+          menu: document.getElementById("tasks-filter-menu").matches(":popover-open"),
+          picker,
+        };
+      });
+      await chatPage.click("#tasks-filter");
+      await chatPage.waitForTimeout(150);
+      await chatPage.click("#bg-status-filter");
+      await chatPage.waitForTimeout(200);
+      const escOpen = await escState();
+      await chatPage.keyboard.press("Escape");
+      await chatPage.waitForTimeout(200);
+      const esc1 = await escState();
+      await chatPage.keyboard.press("Escape");
+      await chatPage.waitForTimeout(200);
+      const esc2 = await escState();
+      if (!escOpen.menu || escOpen.picker !== true) fail(`后台任务侧栏/Esc:前置——筛选菜单与其中的下拉列表应都打开 ${JSON.stringify(escOpen)}`);
+      else if (!esc1.panel || !esc1.menu || esc1.picker) fail(`后台任务侧栏/Esc:下拉列表开着时按 Esc 应只收列表(侧栏与菜单都还在)${JSON.stringify(esc1)}`);
+      else if (!esc2.panel || esc2.menu) fail(`后台任务侧栏/Esc:再按 Esc 应只收菜单 ${JSON.stringify(esc2)}`);
+      const modelLayout = () => chatPage.evaluate(() => {
+        const row = document.querySelector("#tasks-panel .tp-agent-row");
+        if (!row) return null;
+        const name = row.querySelector(".tp-agent-name").getBoundingClientRect().width;
+        return {
+          panel: Math.round(document.getElementById("tasks-panel").getBoundingClientRect().width),
+          modelShown: getComputedStyle(row.querySelector(".tp-agent-model")).display !== "none",
+          nameShare: name / row.getBoundingClientRect().width,
+        };
+      });
+      await chatPage.setViewportSize({ width: 2000, height: 1040 });
+      await chatPage.waitForTimeout(400);
+      const wide = await modelLayout();
+      await chatPage.setViewportSize({ width: 1280, height: 840 });
+      await chatPage.waitForTimeout(400);
+      const narrow = await modelLayout();
+      if (!wide || !narrow) fail(`后台任务侧栏/小表:场景里应有委派卡的子代理行 ${JSON.stringify({ wide, narrow })}`);
+      else {
+        if (!(wide.panel > 440 && wide.modelShown)) fail(`后台任务侧栏/小表:2000 宽(侧栏 ${wide.panel})应保留模型列 ${JSON.stringify(wide)}`);
+        if (!(narrow.panel <= 440 && !narrow.modelShown && narrow.nameShare >= 0.55)) {
+          fail(`后台任务侧栏/小表:侧栏不宽于 440 时应隐去模型列、子代理列拿回宽度(≥55%)${JSON.stringify(narrow)}`);
+        }
+      }
+      await chatPage.screenshot({ path: path.join(outDir, "tasks-narrow-1280.png") });
+      await chatPage.close();
+      if (tasksErrors.length) fail(`后台任务侧栏:页面异常 ${tasksErrors.join(" | ")}`);
+      await tasksContext.close();
+      notes.push(`后台任务侧栏:权限卡与输入区同宽不压侧栏、芯片让开侧栏、弹层 Esc 只关栈顶、窄侧栏隐去模型列(2000 → ${wide?.panel}px 四列 / 1280 → ${narrow?.panel}px 三列)`);
+    }
   } finally {
     await browser.close();
     await close();

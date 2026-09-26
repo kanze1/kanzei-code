@@ -66,12 +66,18 @@ assert.match(css, /:focus-visible/);
 assert.equal((js.match(/function reportError\(/g) || []).length, 1, "reportError 只能有一个定义");
 assert.match(js, /function toastError\(text, options = \{\}\) \{\s*reportPersistentError\(text, options\);/);
 assert.match(js, /function reportPersistentError\([\s\S]*?\$\("log-panel"\)\.classList\.remove\("hidden"\)/);
-assert.match(html, /id="bg-panel"[^>]*role="dialog"[^>]*aria-labelledby="bg-panel-title"/);
-assert.match(html, /id="agent-panel"[^>]*role="dialog"[^>]*aria-labelledby="agent-panel-title"/);
-assert.match(html, /id="bg-close"[^>]*aria-label="关闭活动面板"/);
-assert.match(js, /if \(activityPanelOpen\) agentClosePanel\(\)/);
-assert.match(css, /#bg-panel\s*\{[^}]*position: absolute/);
-assert.match(css, /#agent-panel\s*\{[^}]*position: absolute/);
+// UI2-0926 #14:活动/子代理两块浮层合成一个停靠的后台任务侧栏(用户推翻 R-334 的浮层定调)。
+// 侧栏是 complementary 地标(<aside> + aria-labelledby),不是 dialog;rail 上只剩一个开关,带 aria-controls/expanded。
+assert.match(html, /<aside id="tasks-panel"[^>]*aria-labelledby="tasks-panel-title"/, "#tasks-panel 必须是带 aria-labelledby 的 <aside> 地标");
+assert.doesNotMatch(html, /id="tasks-panel"[^>]*role="dialog"/, "停靠侧栏不是对话框,不写 role=dialog");
+assert.match(html, /id="tasks-toggle"[^>]*aria-controls="tasks-panel"[^>]*aria-expanded="false"/, "#tasks-toggle 必须带 aria-controls=tasks-panel 与 aria-expanded");
+assert.match(html, /id="tasks-close"[^>]*aria-label="关闭后台任务侧栏"/);
+for (const gone of ["bg-panel", "agent-panel", "agent-toggle", "activity-toggle", "bg-close", "agent-close"]) {
+  assert.ok(!html.includes(`id="${gone}"`), `旧浮层/旧开关 #${gone} 应已合进后台任务侧栏`);
+}
+assert.match(js, /export function reconcileTasksPanel\(/, "侧栏显隐的唯一写入者 reconcileTasksPanel 丢失");
+assert.match(css, /#main \{\s*--kz-side-col: 0px;\s*display: grid;/, "#main 必须是网格(侧栏停靠在第 2 列)");
+assert.match(css, /#main > #tasks-panel\[data-dock="drawer"\] \{[^}]*position: absolute/, "抽屉态侧栏必须 position:absolute(盖在对话上,不推挤主区)");
 // D-662:todowrite 摘除后 #todo-panel 的规则(含抽屉上下分区)应当一条不剩。
 // 子代理面板与活动面板本就互斥切换,不会同屏,没有第二个面板能与之并存。
 assert.doesNotMatch(css, /#todo-panel/, "#todo-panel 规则应随 todowrite 一并摘除");
@@ -162,8 +168,8 @@ assert.doesNotMatch(html, /id="process-tabs"/, "顶部进程切换条不应与�
 assert.match(css, /@media \(max-width: 900px\)[\s\S]*#sidebar:not\(\.collapsed\)[\s\S]*position: absolute/);
 assert.match(css, /#sidebar:not\(\.collapsed\)[^}]*max-width: min\(320px, calc\(100vw - 360px\)\)/);
 assert.match(css, /#sidebar\.collapsed[\s\S]*width: 0/);
-assert.match(css, /#bg-panel\s*\{[^}]*position: absolute/);
-assert.match(css, /#agent-panel\s*\{[^}]*position: absolute/);
+// 侧栏停靠在网格第 2 列(从顶部到状态栏上沿);停靠判据与抽屉在 ui-narrow-layout-smoke 里真布局验证。
+assert.match(css, /#main > #tasks-panel \{ grid-column: 2; grid-row: 1 \/ span 2; \}/, "#tasks-panel 必须在 #main 网格第 2 列跨视图与日志两行");
 assert.match(js, /localStorage\.setItem\("kz-sidebar-collapsed"/);
 assert.ok(html.includes('id="send"'), "缺少发送按钮");
 assert.ok(html.includes('id="stop"'), "缺少停止按钮");
@@ -174,19 +180,27 @@ assert.match(html, /id="task-options"[^>]*data-kz-menu="task-options-menu"/);
 assert.match(html, /id="task-options-menu"[^>]*popover="manual"[\s\S]*id="auto-allow"[\s\S]*id="process-phase-pipeline-wrap"[\s\S]*id="process-tracker-writes-wrap"[\s\S]*id="composer-more"/);
 assert.doesNotMatch(html, /<details[^>]*id="(?:composer-more|task-options|autorun-more)"/, "输入区菜单不得再用 <details> 做弹层");
 assert.match(js, /function syncSidebar\(\)/);
-assert.match(js, /function syncActivityPanel\(\)/);
-assert.match(js, /localStorage\.setItem\("kz-activity-panel"/);
+// 侧栏开合不再存 localStorage(本机重启即丢,D-404);自动开合偏好经 ui_prefs 的 ui_layout.side_panel。
+assert.doesNotMatch(js, /kz-activity-panel/, "活动面板开合状态已并入后台任务侧栏的策略,不得复活 kz-activity-panel");
+assert.match(js, /export function sidePanelPrefs\(/, "后台任务侧栏的两个偏好(自动弹出/自动收起)读取入口丢失");
 // D-662:renderTodoPanel 随 todowrite 一并摘除。此前这里断言它「计划清空即隐藏」;
 // 现在断言它不复存在——留着一条针对已删函数的正向断言,下次有人重新引入
 // 同名函数时会误以为受了保护。
 assert.doesNotMatch(js, /renderTodoPanel/, "renderTodoPanel 应随 todowrite 一并摘除");
 assert.match(js, /function bgAdd\(/);
-assert.match(js, /function syncActivityPanel\(\)/);
-assert.match(js, /const setWidth = \(width\)[\s\S]*localStorage\.setItem/);
-assert.match(js, /function setupResize\(/);
+assert.doesNotMatch(js, /function syncActivityPanel\(\)/, "syncActivityPanel 已并入 reconcileTasksPanel(显隐唯一写入者)");
+// UI2-0926 #4:布局分隔条改走 00-frame.js 的 installSplit——尺寸写 <html> 上的 --kz-split-<id>、偏好经存储
+// (应用里是 ui_prefs 的 ui_layout),不再写元素内联 width(内联宽度压过 #sidebar.collapsed,收起后留空栏)。
+assert.match(js, /export function installSplit\(/, "布局分隔条的唯一入口 installSplit 丢失");
+assert.match(js, /rootStyle\.setProperty\(cssVar, `\$\{next\}px`\);\s*storeSet\("splits"/, "分隔条必须把尺寸写成 CSS 变量并经存储持久化");
+assert.doesNotMatch(js, /function setupResize\(/, "旧 setupResize(写内联 width)不得复活");
+assert.match(css, /#sidebar \{ width: var\(--kz-split-sidebar\); \}/, "#sidebar 宽度必须引用 --kz-split-sidebar");
+assert.match(css, /#sidebar\.collapsed \{ width: 0;/, "#sidebar.collapsed { width: 0 } 丢失(收起后会留空栏)");
 assert.match(js, /function setRunning\(value, statusText\)[\s\S]*send\.disabled = false/);
 assert.match(js, /已发送给 agent/);
-assert.match(js, /bgProgress\([\s\S]*appendDisplayBlock\(child\.row, trace\.display\)/);
+// UI2-0926 #14:子代理(含编排派发)的过程只归子代理卡片与委派卡,终端条目不再接 task-progress(不重复两份)。
+assert.doesNotMatch(js, /export function bgProgress\(/, "终端条目不再接子代理进度:task 的过程归委派卡");
+assert.match(js, /export function bgRunningCount\(/, "侧栏徽标与自动收起要用的终端在跑计数丢失");
 assert.match(js, /function renderRecoveredTraces\(payloads\)/);
 // 批次进度格(R-160):格子是纯装饰(aria-hidden),真正给读屏的是 meter 上的 role=img
 // 与带准确数字的 aria-label——盯住这条契约,别再锁实现字符串(旧断言锁死了
@@ -436,6 +450,8 @@ assert.match(js, /t\("实际差异"\)/);
     "--voice-level", // 23-voice.js 写音量
     "--kz-sync", // 01-core.js motionSync 写动画相位(动效分区)
     "--tf-progress", // 04-structured.js renderTrackerFields 写批次进度条宽度
+    // ── 分区:后台任务侧栏与可调框 ── 00-frame.js 按用户拖出的几何写可调框的摆放变量(surface.css §10)。
+    "--kz-frame-l", "--kz-frame-r", "--kz-frame-t", "--kz-frame-b", "--kz-frame-w", "--kz-frame-h",
   ]);
   const definedTokens = new Set([...allClean.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
   const undefinedTokens = [...new Set([...allClean.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]
@@ -499,6 +515,8 @@ assert.match(js, /t\("实际差异"\)/);
     ["--on-danger", "--danger-btn", 4.5],
     // rail 运行数徽标:主区色数字放在 accent-text 实心底上(徽标是文字)。
     ["--bg", "--accent-text", 4.5],
+    // ── 分区:后台任务侧栏与可调框 ── 后台任务徽标的失败态:主区色数字放在 --err 实心底上(#tasks-badge[data-tone=err])。
+    ["--bg", "--err", 4.5],
   );
   for (const bg of ["--bg", "--panel", "--sidebar-bg"]) pairs.push(["--focus-ring", bg, 3]);
   // 非文本:强调色填充(发送键、运行点、代号框)在主区与侧栏上可辨;发送键白色箭头在强调色填充上可辨。

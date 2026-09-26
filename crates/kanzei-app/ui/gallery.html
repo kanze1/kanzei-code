@@ -28,6 +28,7 @@
     .g-matrix .k-static:not(.k-dialog, .k-card, .k-menu, .k-panel) { width: fit-content; }
     .g-matrix .k-card { min-width: 0; }
     .g-panel { width: 320px; height: 140px; padding: 10px 12px; }
+    .g-scrim { width: 320px; height: 40px; }
     .g-completion { flex-wrap: nowrap; }
     #demo-completion-anchor { flex: 1 1 auto; min-width: 0; resize: none; font: var(--fs-12) var(--mono); }
     .g-long { max-height: none; }
@@ -139,7 +140,8 @@
     </div>
   </main>
 
-  <dialog id="demo-dialog-lg" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="demo-dialog-lg-title">
+  <!-- 可调框(00-frame.js,UI2-0926 #4):与应用查看器同构,拖标题栏移动、八向调尺寸、双击标题复位。 -->
+  <dialog id="demo-dialog-lg" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="demo-dialog-lg-title" data-kz-frame="demo-lg" data-kz-frame-move=".viewer-head" data-kz-frame-edges="all" data-kz-frame-min="420 240">
     <div id="viewer-dialog">
       <div class="viewer-head"><span id="demo-dialog-lg-title">R-364 发现记录</span><span><button type="button" id="demo-dialog-lg-external" class="icon-btn" title="在外部编辑器打开" aria-label="在外部编辑器打开">↗</button><button type="button" id="demo-dialog-lg-close" class="icon-btn" title="关闭" aria-label="关闭查看器">✕</button></span></div>
       <div id="viewer-body" class="md g-long"></div>
@@ -182,11 +184,14 @@
       <div class="confirm-buttons"><button id="confirm-cancel">取消</button><button id="confirm-safe" class="hidden">删除并安全整理</button><button id="confirm-ok">确认</button></div>
     </div>
   </dialog>
-  <div id="demo-card" class="k-surface k-card hidden" popover="manual" data-tone="attention" role="dialog" aria-modal="false" aria-labelledby="demo-card-title">
-    <div class="ask-head"><div class="ask-title" id="demo-card-title">权限请求</div></div>
-    <div class="ask-line"><span class="dim">操作</span><code>bash</code></div>
-    <div class="ask-line"><span class="dim">资源</span><code>git push origin release/2026-09-26-ui</code></div>
-    <div class="ask-buttons"><button type="button" id="demo-card-deny">拒绝</button><button type="button" class="primary" id="demo-card-allow">允许一次</button></div>
+  <!-- 停靠卡片可调框:可调尺寸的框只有一个内层容器(裁剪与滚动下放到它,手柄骑在框边上)。 -->
+  <div id="demo-card" class="k-surface k-card hidden" popover="manual" data-tone="attention" role="dialog" aria-modal="false" aria-labelledby="demo-card-title" data-kz-frame="demo-card" data-kz-frame-move=".ask-head" data-kz-frame-edges="e w" data-kz-frame-min="360 120" data-kz-frame-keep="w">
+    <div class="g-card-body">
+      <div class="ask-head"><div class="ask-title" id="demo-card-title">权限请求</div></div>
+      <div class="ask-line"><span class="dim">操作</span><code>bash</code></div>
+      <div class="ask-line"><span class="dim">资源</span><code>git push origin release/2026-09-26-ui</code></div>
+      <div class="ask-buttons"><button type="button" id="demo-card-deny">拒绝</button><button type="button" class="primary" id="demo-card-allow">允许一次</button></div>
+    </div>
   </div>
   <button type="button" id="demo-chip" class="k-surface k-chip-float hidden" popover="manual">重新打开询问</button>
   <div id="toast" class="k-surface k-toast-region hidden" popover="manual"></div>

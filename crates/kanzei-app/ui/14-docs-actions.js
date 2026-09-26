@@ -156,7 +156,7 @@ defer(() => {
   $("defect-review").addEventListener("click", runDefectReview);
 });
 
-// 三个筛选改完都要重算段计数:筛掉一半条目而段头还写着原来的数,
+// 两个筛选(类型/成败,在后台任务侧栏头部的「筛选与清理」菜单里)改完都要重算段计数:筛掉一半条目而段头还写着原来的数,
 // 比不显示更误导(「运行中 5」但底下一条都没有)。
 defer(() => {
   $("bg-type-filter").addEventListener("change", (e) => {
@@ -170,14 +170,6 @@ defer(() => {
   $("bg-status-filter").addEventListener("change", (e) => {
     bgFilters.status = e.target.value;
     localStorage.setItem("kz-bg-status", bgFilters.status);
-    applyBgFilters();
-    renderBgSections();
-  });
-});
-defer(() => {
-  $("bg-role-filter").addEventListener("change", (e) => {
-    bgFilters.role = e.target.value;
-    localStorage.setItem("kz-bg-role", bgFilters.role);
     applyBgFilters();
     renderBgSections();
   });
@@ -206,9 +198,6 @@ defer(() => {
 });
 defer(() => {
   $("bg-status-filter").value = bgFilters.status;
-});
-defer(() => {
-  $("bg-role-filter").value = bgFilters.role;
 });
 
 defer(() => {

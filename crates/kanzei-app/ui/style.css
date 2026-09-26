@@ -105,6 +105,7 @@
   --surface-shadow-1: var(--elev-1); --surface-shadow-2: var(--elev-2); --surface-shadow-3: var(--elev-3);
   --surface-backdrop: var(--scrim); --surface-offset: 6px;
   --surface-backdrop-soft: color-mix(in srgb, var(--bg) 55%, transparent);
+  --surface-panel-docked: var(--sidebar-bg); /* 后台任务侧栏:与左侧栏同色,右侧对称的一整列 */
   --surface-motion: var(--motion-fast) var(--ease-out);
   /* 动效:时长/缓动 token。无限循环只准用 loop 档(均为 2400ms 的约数,motionSync 靠它对齐相位),
      只挂在状态选择器上;窗口隐藏时 html[data-kz-motion="paused"] 统一暂停。 */
@@ -1480,20 +1481,13 @@ button:disabled { opacity: .45; cursor: default; }
 
 
 
-/* 活动/子代理面板:常驻工具窗,不进顶层;外观走 .k-surface.k-panel(surface.css),这里只写位置与尺寸。 */
-#bg-panel {
-  position: absolute; right: 16px; bottom: 32px; z-index: var(--z-drawer);
-  width: min(420px, calc(100vw - 32px)); max-height: min(70vh, 680px);
-  display: flex; flex-direction: column; min-height: 0;
-}
-#bg-panel > .resize-handle { left: -2px; }
-#bg-panel.hidden { display: none; }
+/* 后台任务侧栏(UI2-0926 #14)的位置、网格与卡片样式在文件末尾「分区:后台任务侧栏与可调框」;
+   外观走 .k-surface.k-panel[data-dock](surface.css)。下面是沿用的条目与段样式。 */
 .bg-head {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 14px; font-size: var(--fs-12); font-weight: 600; text-transform: none; letter-spacing: 0;
   color: var(--fg-strong); border-bottom: 1px solid var(--border-soft); flex-shrink: 0;
 }
-#bg-panel .bg-head #bg-close { margin-left: auto; }
 #bg-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; }
 /* 三段:运行中常驻置顶,需要关注次之,已完成折叠在最后。长跑任务不会被一串
    已完成刷走,而失败的也不会被自动收走——收错地方比不收更糟。 */
@@ -1504,39 +1498,28 @@ button:disabled { opacity: .45; cursor: default; }
   font-size: var(--fs-11); font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--dim);
   padding: 2px 2px 0; border-top: 1px solid var(--border-soft);
 }
-/* 运行中的段头钉住:面板滚动时「现在有几个终端在跑」始终可读。吸顶底色必须与面板底同值
-   (面板外观是 .k-surface.k-panel,底色 = --surface-overlay),否则滚动时露出一条色差。 */
-#bg-section-running .bg-section-title { position: sticky; top: -8px; z-index: var(--z-base); background: var(--surface-overlay); }
+/* 运行中的段头钉住:侧栏滚动时「现在有什么在跑」始终可读。吸顶底色必须与侧栏底同值
+   (.k-panel[data-dock] 的底色 = --surface-panel-docked = --sidebar-bg),否则滚动时露出一条色差。 */
+#bg-section-running .bg-section-title { position: sticky; top: -4px; z-index: var(--z-base); background: var(--sidebar-bg); }
 button.bg-section-toggle { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 #bg-section-attention .bg-section-title { color: var(--warn); border-top-color: var(--warn); }
 .bg-empty { color: var(--dim); font-size: var(--fs-11); padding: 2px 2px 4px; }
-/* R-174 → UI-0926 #8:子代理侧栏——与活动面板同族的右侧抽屉,改为全高(顶部 --sp-4 到状态栏上方)。
-   外观归 .k-surface.k-panel;这里只写位置与尺寸。列表/详情两种模式的内容样式在「分区:子代理」。 */
-#agent-panel {
-  position: absolute; top: var(--sp-4); right: 16px; bottom: 32px; z-index: var(--z-drawer);
-  width: min(480px, calc(100vw - 32px)); max-height: none;
-  display: flex; flex-direction: column; min-height: 0;
-}
-#agent-panel.hidden { display: none; }
-#agent-panel .bg-head { display: flex; align-items: center; gap: 8px; }
-/* D-350:✕ 关闭按钮贴右。 */
-#agent-panel .bg-head #agent-close { margin-left: auto; }
-/* D-278:面板就绪状态行——打开时显示「子代理就绪」或缺环文案,与设置页同源。 */
-#agent-panel .agent-panel-status {
+/* D-278:侧栏就绪状态行——fast 模型未就绪时显示缺环文案,与设置页同源。 */
+#tasks-panel .agent-panel-status {
   padding: 6px 14px; font-size: var(--fs-11); line-height: 1.45; color: var(--dim);
   border-bottom: 1px solid var(--border-soft); white-space: normal; word-break: break-word;
 }
-#agent-panel .agent-panel-status.warn-text { color: var(--warn); }
-#agent-panel .agent-audit {
-  margin: 0 8px 8px;
+#tasks-panel .agent-panel-status.warn-text { color: var(--warn); }
+#tasks-panel .agent-audit {
+  margin: 0;
   padding: 8px;
   border: 1px solid var(--border-soft);
   border-left: 2px solid var(--border-soft);
   border-radius: 4px;
   background: var(--panel2);
 }
-#agent-panel .agent-audit.hidden { display: none; }
+#tasks-panel .agent-audit.hidden { display: none; }
 .agent-audit-head { display: flex; align-items: center; gap: 6px; font-size: var(--fs-11); color: var(--fg-strong); }
 .agent-audit-head .dim { margin-left: auto; color: var(--dim); }
 .agent-audit-head .ghost { flex-shrink: 0; }
@@ -1618,10 +1601,6 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
   flex-shrink: 0; font-size: var(--fs-10); padding: 0 5px; border-radius: var(--r-pill);
   border: 1px solid var(--border); color: var(--dim); text-transform: none; letter-spacing: 0;
 }
-.bg-entry.bg-orch { border-left: 2px solid var(--border-strong); }
-/* 当前正在用的工具名:运行中高亮,工具结束后保留名字但转灰(子代理正在思考)。 */
-.bg-entry .bg-current { font-size: var(--fs-10-5); color: var(--accent-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bg-entry .bg-current.idle { color: var(--dim); }
 /* 超时与失败必须分得开:超时是被屏障砍掉、什么都没产出,不是"跑了但报错"。 */
 .bg-entry.timeout .bg-title::before { content: "⏱ "; color: var(--warn); }
 .bg-filters { display: flex; gap: 6px; padding: 0 10px 6px; }
@@ -2781,7 +2760,6 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .task-options-panel { width: 340px; }
 body[data-space="research"] #status-git, body[data-space="research"] #change-bar,
 body[data-space="research"] #change-bar-files, body[data-space="research"] #ctx-branch { display: none; }
-body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data-view="chat"]) #activity-toggle { display: none; }
 @media (max-width: 1050px) {
   .research-context-head { padding: 16px 20px; }
   .research-context-head h1 { font-size: var(--fs-18); }
@@ -3306,7 +3284,7 @@ html[data-kz-activity="running"] .reasoning-head.is-live {
 .rail-toggle[data-running="true"]:not(.active)::after { content: ""; position: absolute; top: 9px; right: 11px; width: 6px; height: 6px; border-radius: 50%; background: var(--dot-run); box-shadow: 0 0 0 2px var(--activitybar); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
 /* UI-0926 #8(子代理组迁入,按 §1 动画声明归本分区):子代理开关显示运行数徽标时,徽标取代上面的呼吸点
    (同一位置不叠两个信号);子代理卡片实时尾迹的新行一次性淡入(减少动效由全局 .01ms 规则关掉)。 */
-#agent-toggle:has(#agent-badge:not(.hidden))::after { display: none; }
+#tasks-toggle:has(#tasks-badge:not(.hidden))::after { display: none; }
 .sa-line { animation: fadein var(--motion-base) var(--ease-out); }
 /* 侧栏各线在做 / 文档页在做条目:线真在跑才动。 */
 .line-focus.is-live .line-focus-head::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--dot-run); vertical-align: 1px; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
@@ -3444,11 +3422,9 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .sa-msg { padding-left: 18px; color: var(--dim); font-size: var(--fs-12-5); }
 .sa-body-actions { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
 .sa-flash { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
-/* 侧栏:列表(按批次,新批次在上)与详情(与内联展开同一个渲染器,不限高,抽屉自身滚动)。 */
-#agent-list, #agent-detail { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-4) var(--sp-5); }
-#agent-list { display: flex; flex-direction: column; gap: var(--sp-5); }
-#agent-list.hidden, #agent-detail.hidden { display: none; }
-#agent-panel[data-mode="detail"] #agent-audit { display: none; }
+/* 侧栏详情(与内联展开同一个渲染器,不限高,侧栏自身滚动);列表模式是委派卡,样式在「分区:后台任务侧栏与可调框」。 */
+#agent-detail { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-4) var(--sp-5); }
+#agent-detail.hidden { display: none; }
 .sa-panel-empty { padding: var(--sp-4) var(--sp-1); color: var(--dim); font-size: var(--fs-12); }
 .sa-panel-batch { display: flex; flex-direction: column; gap: var(--sp-1); }
 .sa-panel-batch-title { padding: 0 var(--sp-1) var(--sp-1); color: var(--dim); font-size: var(--fs-11); }
@@ -3476,3 +3452,112 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
   font-size: var(--fs-10); font-weight: 600; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums;
   box-shadow: 0 0 0 2px var(--activitybar); pointer-events: none;
 }
+
+/* ===== 分区:后台任务侧栏与可调框 ===== */
+/* UI2-0926 #4 布局分隔条:尺寸是 <html> 上的 --kz-split-<id>(00-frame.js installSplit 写入,03-layout.js 安装;
+   几何偏好经 ui_prefs 的 ui_layout 持久化)。默认值在这里;视图规则按同名变量取值——写在原规则之后,同特异性
+   后者生效,不改原行;#sidebar.collapsed { width: 0 } 特异性更高照样生效(旧版写内联 width 压过它,收起后留空栏)。 */
+:root { --kz-split-sidebar: 280px; --kz-split-log: 180px; --kz-split-files: 340px; --kz-split-memory: 320px; --kz-dock-right: 0px; }
+#sidebar { width: var(--kz-split-sidebar); }
+#log-panel { height: var(--kz-split-log); }
+#files-side { width: var(--kz-split-files); min-width: 200px; }
+@container (min-width: 761px) {
+  .memory-manager-workspace { grid-template-columns: minmax(200px, var(--kz-split-memory)) minmax(0, 1fr); }
+}
+@container (max-width: 760px) {
+  .memory-list-pane > .resize-handle { display: none; }
+}
+/* 横向分隔条(日志面板顶边):手柄的 left/width/top 由 installSplit 按窗格矩形同步。 */
+.resize-handle[aria-orientation="horizontal"] { width: auto; height: 5px; cursor: row-resize; }
+
+/* UI2-0926 #14 后台任务侧栏:#main 由 flex 列改成网格——视图与运行日志在第 1 列,侧栏在第 2 列跨视图与日志两行
+   (从顶部到状态栏上沿),状态栏跨两列保持全宽。第 2 列宽 --kz-side-col 由 06-agent-panel.js 的 reconcileTasksPanel
+   按停靠状态写入(关闭或抽屉时 0)。写在原 #main 规则之后,display 与网格属性后者生效。 */
+#main {
+  --kz-side-col: 0px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--kz-side-col);
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+#main > .view { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; }
+#main > #log-panel { grid-column: 1; grid-row: 2; min-width: 0; }
+#main > #statusbar { grid-column: 1 / -1; grid-row: 3; min-width: 0; }
+#main > #tasks-panel { grid-column: 2; grid-row: 1 / span 2; }
+/* 侧栏本体:纵向排版,列表与详情各自滚动;底色、左分隔线、阴影归 surface.css 的 .k-panel[data-dock]。 */
+#tasks-panel { --kz-tasks-w: 400px; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; container: tasks / inline-size; }
+#tasks-panel.hidden { display: none; }
+/* 抽屉(停靠后对话列不足 600px):盖在对话与日志上,底边到状态栏上沿;包含块是网格区域(两列都占)。 */
+#main > #tasks-panel[data-dock="drawer"] {
+  grid-column: 1 / -1; position: absolute; inset: 0 0 0 auto; z-index: var(--z-drawer);
+  width: min(var(--kz-tasks-w), calc(100% - 96px));
+}
+#main > #tasks-scrim { grid-column: 1 / -1; grid-row: 1 / span 2; position: absolute; inset: 0; z-index: var(--z-panel); }
+.tp-head { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px 10px 6px 16px; flex-shrink: 0; }
+.tp-title { color: var(--fg-strong); font-size: var(--fs-13); font-weight: 600; white-space: nowrap; }
+.tp-count { color: var(--dim); font-size: var(--fs-11-5); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tp-head .icon-btn { width: 26px; height: 26px; flex: none; }
+#tasks-filter.active, #tasks-wide[aria-pressed="true"] { color: var(--fg-strong); background: var(--surface-selected); }
+#tasks-filter-menu .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#tasks-filter-menu select { max-width: 150px; }
+#tasks-panel #bg-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 12px 16px 16px; display: flex; flex-direction: column; gap: 14px; }
+#tasks-panel #bg-list.hidden { display: none; }
+#tasks-panel .bg-section-title { border-top: 0; padding: 2px 2px 4px; font-size: var(--fs-12); }
+#tasks-panel #bg-section-attention .bg-section-title { align-items: center; }
+#bg-done-body { display: flex; flex-direction: column; gap: 8px; }
+.tp-cards { display: flex; flex-direction: column; gap: 8px; }
+.tp-cards:empty { display: none; }
+#tasks-panel .bg-entry { background: var(--panel); border-radius: var(--r-lg); padding: 10px 12px; }
+/* 委派卡(Claude Background tasks 的一批 Workflow):标题 · 用时 · 「N 个子代理 · token」· 阶段进度点 · 子代理小表。
+   强调色只给「在跑」(进度点与在跑行的字形),完成是中性灰(批次进度不用绿,ui_color_semantics §4),失败红、超时类琥珀。 */
+.tp-card { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 10px 12px 12px; border: 1px solid var(--border-soft); border-radius: var(--r-lg); background: var(--panel); }
+.tp-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tp-card-title {
+  flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--fg-strong);
+  font: inherit; font-size: var(--fs-13); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.tp-card-title:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.tp-card-stop { width: 22px; height: 22px; color: var(--dim); font-size: var(--fs-11); }
+.tp-card-stop.is-off { visibility: hidden; }
+.tp-card-sub { color: var(--dim); font-size: var(--fs-11-5); font-variant-numeric: tabular-nums; }
+.tp-card-kind { color: var(--fg); }
+.tp-card-desc { margin: 6px 0 2px; color: var(--dim); font-size: var(--fs-12); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tp-phase { margin-top: 8px; padding: 6px 8px 8px; border-radius: var(--r-md); background: var(--surface-hover); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tp-phase-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 0; border: 0; background: transparent;
+  color: var(--fg); font: inherit; font-size: var(--fs-12); text-align: left; cursor: pointer;
+}
+.tp-phase-count { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; }
+.tp-phase-caret { width: 12px; color: var(--dim); text-align: center; }
+.tp-dots { display: flex; flex-wrap: wrap; gap: 3px; }
+.tp-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); }
+.tp-dots i:is([data-s="done"], [data-s="stopped"]) { background: var(--dim); }
+.tp-dots i[data-s="running"] { background: var(--accent); }
+.tp-dots i[data-s="failed"] { background: var(--err); }
+.tp-dots i[data-s="warn"] { background: var(--warn); }
+.tp-agents { display: flex; flex-direction: column; min-width: 0; font-size: var(--fs-11-5); }
+.tp-agents-head, .tp-agent-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 24%) 50px 52px; gap: 6px; align-items: baseline; }
+.tp-agents-head { padding: 2px 4px; color: var(--dim); }
+.tp-agents-head > span:not(:first-child), .tp-agent-row > span:not(:first-child) { text-align: right; }
+.tp-agent-row {
+  width: 100%; padding: 3px 4px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg);
+  font: inherit; font-size: var(--fs-11-5); text-align: left; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.tp-agent-row:hover { background: var(--surface-hover); }
+.tp-agent-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-agent-name { display: flex; align-items: baseline; gap: 6px; }
+.tp-agent-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tp-agent-model, .tp-agent-tok, .tp-agent-time { color: var(--dim); }
+.tp-agent-row:is([data-s="done"], [data-s="stopped"]) .tp-agent-label { color: var(--dim); }
+.tp-agent-row[data-s="running"] .tp-agent-label { color: var(--fg-strong); }
+.tp-agent-row .sa-glyph { width: 12px; }
+.tp-agent-row[data-s="warn"] .sa-glyph { color: var(--warn); }
+/* 窄侧栏(容器查询,≤440px:1280@1.5 的停靠宽 352/360、1600@1.25 的默认宽 416、抽屉 320)隐去模型列,
+   子代理列拿回宽度、描述整段可读(Claude 的表里 Agent 列是完整的)——模型仍在子代理列的 title、行的可访问名与
+   详情里。2000@1 的默认宽 520,或用户拖宽/⤢ 之后,保留 Claude 的四列。 */
+@container tasks (max-width: 440px) {
+  .tp-agents-head, .tp-agent-row { grid-template-columns: minmax(0, 1fr) 48px 48px; }
+  .tp-agents-model, .tp-agent-model { display: none; }
+}
+.tp-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* rail 徽标:在跑 = 强调色(同 .rail-badge);没在跑但有未确认的失败 = 红(失败的语义色),--bg 字在两者上都 ≥ 4.5。 */
+#tasks-badge[data-tone="err"] { background: var(--err); }

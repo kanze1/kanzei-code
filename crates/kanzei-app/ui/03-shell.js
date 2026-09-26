@@ -5,7 +5,7 @@ import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
 import { parseErrorText } from "./04-structured-parse.js";
 import { renderErrorDetail } from "./04-structured.js";
 import { fastStatusText } from "./06-activity.js";
-import { agentClosePanel } from "./06-agent-panel.js";
+import { reconcileTasksPanel } from "./06-agent-panel.js";
 import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
@@ -22,73 +22,9 @@ import { refreshLines } from "./20-lines.js";
 import { active_space, remember_workspace_view, view_allowed } from "./03-workspaces.js";
 import { open_research_chat } from "./19-research-navigation.js";
 
-export function setupResize(elementId, key, side, min, max) {
-  const element = $(elementId);
-  if (!element) return;
-  const saved = Number.parseInt(localStorage.getItem(key), 10);
-  if (Number.isFinite(saved)) element.style.width = `${Math.min(max, Math.max(min, saved))}px`;
-  const handle = document.createElement("div");
-  handle.className = "resize-handle";
-  handle.title = t("拖动调整面板宽度");
-  handle.tabIndex = 0;
-  handle.setAttribute("role", "separator");
-  handle.setAttribute("aria-orientation", "vertical");
-  handle.setAttribute("aria-label", t("调整面板宽度"));
-  element.appendChild(handle);
-  const syncHandle = () => {
-    const rect = element.getBoundingClientRect();
-    handle.style.top = `${rect.top}px`;
-    handle.style.height = `${rect.height}px`;
-    handle.style.left = `${(side === "right" ? rect.right : rect.left) - 2}px`;
-  };
-  const setWidth = (width) => {
-    const next = Math.min(max, Math.max(min, Math.round(width)));
-    element.style.width = `${next}px`;
-    localStorage.setItem(key, String(next));
-    syncHandle();
-  };
-  const resetWidth = () => {
-    localStorage.removeItem(key);
-    element.style.width = "";
-    syncHandle();
-  };
-  syncHandle();
-  if ("ResizeObserver" in window) new ResizeObserver(syncHandle).observe(element);
-  window.addEventListener("resize", syncHandle);
-  let dragging = false;
-  handle.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    dragging = true;
-    handle.classList.add("dragging");
-    handle.setPointerCapture(event.pointerId);
-    document.body.style.cursor = "col-resize";
-  });
-  handle.addEventListener("pointermove", (event) => {
-    if (!dragging) return;
-    const rect = element.getBoundingClientRect();
-    setWidth(side === "right" ? event.clientX - rect.left : rect.right - event.clientX);
-  });
-  handle.addEventListener("keydown", (event) => {
-    if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
-    event.preventDefault();
-    if (event.key === "Home") return resetWidth();
-    const rect = element.getBoundingClientRect();
-    const delta = side === "right" ? (event.key === "ArrowRight" ? 8 : -8) : (event.key === "ArrowLeft" ? 8 : -8);
-    setWidth(rect.width + delta);
-  });
-  handle.addEventListener("dblclick", resetWidth);
-  const stop = () => {
-    dragging = false;
-    handle.classList.remove("dragging");
-    document.body.style.cursor = "";
-  };
-  handle.addEventListener("pointerup", stop);
-  handle.addEventListener("pointercancel", stop);
-  handle.addEventListener("lostpointercapture", stop);
-}
-defer(() => {
-  setupResize("sidebar", "kz-sidebar-width", "right", 220, 460);
-});
+// 布局分隔条(侧栏宽、日志高、文件树宽、记忆列表宽)归 00-frame.js 的 installSplit,在 03-layout.js 统一安装:
+// 尺寸写成 <html> 上的 --kz-split-<id>,不再写元素内联 width(内联宽度压过 #sidebar.collapsed{width:0},
+// 拖过宽度再收起侧栏会留一整条空栏——UI2-0926 #4 的缺陷 A)。
 export let activeProcessId = null;
 export function setActiveProcessId(v) { activeProcessId = v; }
 export let activeSessionId = null;
@@ -143,12 +79,9 @@ export function navigate_view(view) {
   const item = document.querySelector(`.activity-item[data-view="${view}"]`);
   if (!item || !$(`view-${view}`)) return;
   document.body.dataset.view = view;
-  if (view !== "chat") {
-    // UI-0926 #8:经 agentClosePanel 收起,agentPanelOpen 与 DOM 保持一致(先关子代理面板,
-    // 它会按 activityPanelOpen 同步活动面板;随后照旧把活动面板也收起)。
-    agentClosePanel();
-    $("bg-panel")?.classList.add("hidden");
-  }
+  // UI2-0926 #14:后台任务侧栏只在对话视图显示。切视图只触发重算、不改侧栏状态——此前只给面板加
+  // hidden、开关状态不变,下一条工具事件又把它弹回来,浮在文件等视图上(缺陷 A)。切回对话按状态恢复。
+  reconcileTasksPanel();
   remember_workspace_view(view);
   document.querySelectorAll(".activity-item[data-view]").forEach((i) => {
     i.classList.remove("active");
@@ -325,38 +258,7 @@ defer(() => {
 defer(() => {
   window.addEventListener("focus", resetTitleOnFocus);
 });
-export let activityPanelOpen = localStorage.getItem("kz-activity-panel") === "1";
-export function setActivityPanelOpen(value) { activityPanelOpen = Boolean(value); }
-
-export function syncActivityPanel() {
-  $("bg-panel").classList.toggle("hidden", !activityPanelOpen);
-  const toggle = $("activity-toggle");
-  toggle.classList.toggle("active", activityPanelOpen);
-  // 开关搬到 rail 后按钮内容是 SVG:再写 textContent 会把图标整个抹掉,
-  // 状态只走 class + aria-pressed + title。
-  toggle.setAttribute("aria-pressed", activityPanelOpen ? "true" : "false");
-  toggle.title = activityPanelOpen ? t("隐藏右侧活动面板") : t("显示右侧活动面板");
-}
-
-export function closeActivityPanel() {
-  activityPanelOpen = false;
-  localStorage.setItem("kz-activity-panel", "0");
-  syncActivityPanel();
-  $("activity-toggle")?.focus();
-}
-
-defer(() => {
-  $("activity-toggle").addEventListener("click", () => {
-    activityPanelOpen = !activityPanelOpen;
-    localStorage.setItem("kz-activity-panel", activityPanelOpen ? "1" : "0");
-    if (activityPanelOpen) agentClosePanel();
-    syncActivityPanel();
-  });
-  $("bg-close")?.addEventListener("click", closeActivityPanel);
-});
-defer(() => {
-  syncActivityPanel();
-});
+// 活动面板与子代理面板合成了后台任务侧栏(UI2-0926 #14),开关、自动开合与徽标归 06-agent-panel.js。
 
 export let sidebarCollapsed = localStorage.getItem("kz-sidebar-collapsed") === "1";
 export function setSidebarCollapsed(value) { sidebarCollapsed = Boolean(value); }

@@ -3,7 +3,8 @@
    - 这里只引用组件层 --surface-* 与语义 token,不写任何字面量颜色(ui-surface-rules C1/T1);
    - 视图 CSS(style.css)不得给弹层写底色、边框、圆角、阴影、z-index、position(S1);
    - 层序优先于选择器特异性:style.css 里就算写了 #confirm-overlay { background: … } 也压不过这里。
-   - 本层只管「长什么样、浮在哪」;宽度等尺寸按视图需要写在 style.css(本层不写同名属性的除外)。 */
+   - 本层只管「长什么样、浮在哪」;宽度等尺寸按视图需要写在 style.css(本层不写同名属性的除外)。
+   - 用户拖动/调尺寸之后的几何归 00-frame.js:只写 --kz-frame-* 变量与 data-kz-placed 令牌,落位规则在 §10。 */
 
 /* ---------- 0 共同外观 ---------- */
 .k-surface {
@@ -75,14 +76,27 @@ dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backd
 
 /* ---------- 3 停靠卡片(权限/提问)与浮动芯片:不轻关闭,不参与模态 ---------- */
 .k-card {
-  position: fixed; inset: auto 22px 18px auto; margin: 0;
+  position: fixed; inset: auto calc(22px + var(--kz-dock-right, 0px)) 18px auto; margin: 0;
   min-width: min(380px, calc(100vw - 44px)); max-width: min(560px, calc(100vw - 44px));
   max-height: 60vh; overflow: auto; padding: 16px 18px;
   box-shadow: var(--surface-shadow-3); font-size: var(--fs-13);
 }
 .k-card[data-tone="attention"], .k-chip-float { border-color: var(--surface-attention); }
+/* 权限卡(UI2-0926 #4):对话视图里默认停在输入区正上方、与输入区同宽(输入区宽 = 对话列宽),
+   跟着对话列走——后台任务侧栏停靠让对话列变窄时它一起变窄,不压侧栏。锚点失效(输入区不可见)时
+   退回右下停靠。用户拖过之后以 §10 的摆放为准(:not([data-kz-placed]));非对话视图同样退回右下。 */
+#composer { anchor-name: --kz-composer; }
+body:not([data-view]:not([data-view="chat"])) .k-card[data-kz-anchor="composer"]:not([data-kz-placed]) {
+  position-anchor: --kz-composer;
+  top: auto;
+  left: anchor(left, 50%); /* 回退值只能是长度:写 auto 整条声明无效(实测 Edge 153 退回收缩宽度) */
+  right: anchor(right, calc(22px + var(--kz-dock-right, 0px)));
+  bottom: calc(anchor(top, 8px) + 10px);
+  width: auto; min-width: 0; max-width: none; /* popover 的 UA 宽度是 fit-content,不写 auto 就不会撑满左右锚点 */
+}
+/* 「重新打开询问」芯片与右下停靠的卡片按后台任务侧栏的停靠宽度让开(--kz-dock-right 由 06-agent-panel.js 写在 <html> 上)。 */
 .k-chip-float {
-  position: fixed; inset: auto 22px 18px auto; margin: 0;
+  position: fixed; inset: auto calc(22px + var(--kz-dock-right, 0px)) 18px auto; margin: 0;
   border-radius: var(--r-pill); padding: 7px 12px;
   color: var(--surface-fg-strong); font-size: var(--fs-12-5); cursor: pointer;
 }
@@ -150,6 +164,14 @@ option:disabled { color: var(--surface-muted); }
 
 /* ---------- 7 常驻侧面板:不进顶层,只共享外观;位置与尺寸仍写在 style.css ---------- */
 .k-panel { border-color: var(--surface-divider); }
+/* 后台任务侧栏(UI2-0926 #14)停靠:与左侧栏对称的一整列,无圆角无阴影,只有左侧一条分隔线;
+   抽屉(对话列不足 600px):同一个元素盖在对话上,加 3 档阴影;遮罩压一层浅色,点它关闭。 */
+.k-panel[data-dock="side"], .k-panel[data-dock="drawer"] {
+  background: var(--surface-panel-docked); border-width: 0 0 0 1px; border-radius: 0;
+}
+.k-panel[data-dock="side"] { box-shadow: none; }
+.k-panel[data-dock="drawer"] { box-shadow: var(--surface-shadow-3); }
+.k-scrim { background: var(--surface-backdrop-soft); }
 
 /* ---------- 8 入场动效(减少动效的全局 !important 规则会自动压平) ---------- */
 :where(dialog.k-surface, .k-surface[popover]:not(.k-toast-region, .k-tooltip), .k-toast) {
@@ -158,6 +180,49 @@ option:disabled { color: var(--surface-muted); }
 @starting-style {
   :where(dialog.k-surface[open], .k-surface[popover]:popover-open:not(.k-toast-region, .k-tooltip), .k-toast) { opacity: 0; translate: 0 4px; }
 }
+/* 侧栏出现只淡入(不做宽度动画:对话列重排一次到位,滚动锚点才恢复得准)。 */
+:where(.k-panel[data-dock]) { transition: opacity var(--surface-motion); }
+@starting-style {
+  :where(.k-panel[data-dock]) { opacity: 0; }
+}
 
 /* ---------- 9 样例页静态预览:把顶层弹层按普通块画出来 ---------- */
 .k-surface.k-static { position: relative; inset: auto; margin: 0; display: block; translate: none; opacity: 1; }
+
+/* ---------- 10 可调框(00-frame.js,ui_surface_stack §4.6):位置与尺寸只来自 --kz-frame-* 与 data-kz-placed ----------
+   选择器 (0,3,0) 排在本文件最后,压过 .k-dialog[data-size="lg"] 与权限卡的锚定摆放;几何属性不做过渡(拖动即时生效)。 */
+.k-surface[data-kz-frame][data-kz-placed~="pos"] {
+  inset: var(--kz-frame-t, auto) var(--kz-frame-r, auto) var(--kz-frame-b, auto) var(--kz-frame-l, auto);
+  margin: 0;
+}
+.k-surface[data-kz-frame][data-kz-placed~="w"] { width: var(--kz-frame-w); min-width: 0; max-width: none; }
+.k-surface[data-kz-frame][data-kz-placed~="h"] { height: var(--kz-frame-h); max-height: none; }
+/* 可调尺寸的框:手柄骑在边上(外露 6px),框本体不能裁剪;裁剪与滚动下放到唯一的内层容器
+   (#viewer-dialog/#project-models-dialog/#ask-dialog)。排除 [popover]:openMenu 会把菜单挂进 dialog 成为直接子元素。
+   display 只改打开态,否则 :is() 的特异性压过 dialog:not([open]){display:none},关着的框会被画出来。 */
+dialog.k-surface[data-kz-frame-edges][open], .k-card[data-kz-frame-edges]:popover-open {
+  overflow: visible; display: flex; flex-direction: column;
+}
+:is(dialog.k-surface[open], .k-card:popover-open)[data-kz-frame-edges] > :not(.k-frame-edge, [popover]) {
+  flex: 1 1 auto; min-height: 0; overflow: auto; border-radius: inherit;
+}
+.k-frame-edge { position: absolute; z-index: 2; touch-action: none; }
+.k-frame-edge[data-edge="n"] { top: -6px; left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.k-frame-edge[data-edge="s"] { bottom: -6px; left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.k-frame-edge[data-edge="e"] { right: -6px; top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.k-frame-edge[data-edge="w"] { left: -6px; top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.k-frame-edge[data-edge="ne"] { top: -6px; right: -6px; width: 16px; height: 16px; cursor: nesw-resize; }
+.k-frame-edge[data-edge="sw"] { bottom: -6px; left: -6px; width: 16px; height: 16px; cursor: nesw-resize; }
+.k-frame-edge[data-edge="nw"] { top: -6px; left: -6px; width: 16px; height: 16px; cursor: nwse-resize; }
+.k-frame-edge[data-edge="se"] { bottom: -6px; right: -6px; width: 16px; height: 16px; cursor: nwse-resize; }
+/* 拖动区(标题栏)给移动光标;整框可拖(:scope)的确认框/输入框不改光标,正文照常是文字。 */
+.k-surface [data-kz-frame-grip] { cursor: move; }
+/* 拖动中:统一光标、禁止选中文字(本层排在 app 层之后,按钮自己的 pointer 光标也压得过)。 */
+html[data-kz-frame-drag] * { user-select: none; }
+html[data-kz-frame-drag="move"] * { cursor: move; }
+html:is([data-kz-frame-drag="n"], [data-kz-frame-drag="s"]) * { cursor: ns-resize; }
+html:is([data-kz-frame-drag="e"], [data-kz-frame-drag="w"]) * { cursor: ew-resize; }
+html:is([data-kz-frame-drag="ne"], [data-kz-frame-drag="sw"]) * { cursor: nesw-resize; }
+html:is([data-kz-frame-drag="nw"], [data-kz-frame-drag="se"]) * { cursor: nwse-resize; }
+html[data-kz-frame-drag="col"] * { cursor: col-resize; }
+html[data-kz-frame-drag="row"] * { cursor: row-resize; }

@@ -1,7 +1,8 @@
 import { defer } from "./01-core.js";
 import { $ } from "./01-core.js";
-import { currentProject, syncActivityPanel, syncSidebar } from "./03-shell.js";
+import { currentProject, syncSidebar } from "./03-shell.js";
 import { renderAgentAudit, syncDynamicUiLanguage } from "./06-activity.js";
+import { reconcileTasksPanel } from "./06-agent-panel.js";
 import { askActive, updateAskQueueStatus } from "./07-events.js";
 import { refreshWorktrees } from "./09-sessions.js";
 import { lastWorkspaceSnapshot, renderWorkspace } from "./12-docs-pages.js";
@@ -1114,6 +1115,20 @@ export const I18N_EN = {
   "调用工具 {n} 次": "{n} tool calls", "调用工具 1 次": "1 tool call",
   "等 {n} 次调用": "{n} calls in total", "{n} 待修正": "{n} need correction", "{n} 中断": "{n} interrupted",
   "{n} 个工具运行中": "{n} tools running", "已完成 {n}": "{n} done", "展开或收起工具组": "Expand or collapse tool group",
+
+  // ---- 分区:后台任务侧栏与可调框 ----
+  // UI2-0926 #4 可调框与分隔条(00-frame.js / 03-layout.js)。
+  "拖动调整面板高度": "Drag to adjust panel height", "调整面板高度": "Adjust panel height",
+  // UI2-0926 #14 后台任务侧栏(06-agent-panel.js / 06-side-policy.js)。
+  "后台任务": "Background tasks", "后台任务侧栏": "Background tasks panel", "打开或收起后台任务侧栏": "Open or close the background tasks panel",
+  "关闭后台任务侧栏": "Close background tasks", "返回全部后台任务": "Back to all background tasks", "调整后台任务侧栏宽度": "Resize the background tasks panel",
+  "加宽侧栏": "Widen panel", "恢复宽度": "Restore width", "筛选与清理": "Filter and clean up", "终端条目类型": "Entry type", "成败": "Outcome",
+  "清空已完成": "Clear finished", "清空已完成的终端条目": "Clear finished terminal entries", "没有在跑的后台任务": "No background tasks running",
+  "知道了": "Got it", "确认这些失败,挪进已完成": "Acknowledge these failures and move them to Finished", "展开或收起已完成的后台任务": "Expand or collapse finished background tasks",
+  "个失败待查看": "failures to review", "1 个失败待查看": "1 failure to review", "并行委派": "Parallel delegation", "委派": "Delegation", "用时": "Time", "Token": "Tokens",
+  "停止这批子代理": "Stop this batch of subagents", "去后台任务侧栏看全": "View the full result in Background tasks",
+  "子代理与长命令的进度停靠在对话右侧;偏好存在本机 app.json,即时生效。": "Subagent and long-command progress docks to the right of the chat; saved in app.json and applied immediately.",
+  "有子代理或长命令开始时自动打开": "Open automatically when subagents or long commands start", "全部完成后自动收起(有失败时保留)": "Close automatically when everything finishes (kept open on failures)",
 };
 export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",
@@ -1133,6 +1148,7 @@ export const I18N_DYNAMIC_EN = {
   "缓存读取(已复用上下文)": "Cache read (reused context)",
   "本轮输出": "Output this round",
   "最近一次压缩纪要已收进活动面板": "The latest compaction summary is in the activity panel",
+  "最近一次压缩纪要已收进后台任务侧栏": "The latest compaction summary is in the background tasks panel",
   "合计": "Total",
   "出错": "Error",
   "出错中止": "Stopped after error",
@@ -1385,7 +1401,7 @@ export function localizedDocStatus(status) {
 export function applyLanguage() {
   // R-140 批10:MutationObserver 退役。动态字符串(状态栏/日志/活动卡/权限队列等)全部
   // 在渲染点经 t()/localizeDynamic 产出;语言切换时由 change 处理器里的 syncDynamicUiLanguage/
-  // syncActivityPanel/syncSidebar/renderProviders/refreshDocs/refreshWorktrees/
+  // reconcileTasksPanel/syncSidebar/renderProviders/refreshDocs/refreshWorktrees/
   // refreshConversationList 重渲染。这里只做两件事:同步 <html lang> 与一次性应用静态
   // data-i18n-*(初始化与切语言各一次),不再全文档扫描文本节点改写(禁止事后扫描,D-202)。
   const language = resolveUiLanguage();
@@ -1448,7 +1464,7 @@ export function setLanguagePreference(preference, { persist = true, rerender = t
   if (rerender) {
     applyLanguage();
     syncDynamicUiLanguage();
-    syncActivityPanel();
+    reconcileTasksPanel();
     syncSidebar();
     renderAgentAudit();
     if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();

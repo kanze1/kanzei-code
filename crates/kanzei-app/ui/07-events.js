@@ -14,8 +14,6 @@ import { $, activePane, invoke, messages, on, trimLivePane } from "./01-core.js"
 import { languageIsEnglish, localizeDynamic, t } from "./02-i18n.js";
 import {
   activeSessionId,
-  activityPanelOpen,
-  setActivityPanelOpen,
   clearRunPending,
   ctxLimit,
   ctxPending,
@@ -36,7 +34,6 @@ import {
   setRunning,
   setStatus,
   stopElapsed,
-  syncActivityPanel,
   toast,
   toastError,
   transitionSession,
@@ -73,7 +70,6 @@ import {
   bgAdd,
   bgEnd,
   bgFinishQuiet,
-  bgProgress,
   bgQuiet,
   bgStartQuiet,
   bgStream,
@@ -115,6 +111,7 @@ import { pathChip, renderPermissionResource, richText } from "./04-structured.js
 import { toolResultSummary } from "./05-tool-summary.js";
 // UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
 import { subagentCopyText, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
+import { openTasksPanel } from "./06-agent-panel.js";
 
 // ---------- 事件订阅 ----------
 defer(() => {
@@ -284,16 +281,13 @@ export function renderContextDetail() {
   if (lastCompactionSummary) {
     const note = document.createElement("div");
     note.className = "sv-note";
-    note.textContent = localizeDynamic("最近一次压缩纪要已收进活动面板");
+    note.textContent = localizeDynamic("最近一次压缩纪要已收进后台任务侧栏");
     detail.append(note);
   }
   openPopover($("status-tokens"), detail, { placement: "top-end" });
   $("status-tokens").setAttribute("aria-expanded", "true");
-  if (lastCompactionEntry) {
-  setActivityPanelOpen(true);
-    syncActivityPanel();
-    lastCompactionEntry.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
+  // UI2-0926 #14:纪要在后台任务侧栏里——只打开、不切换(此前直接开活动面板,子代理面板不收,两块同屏,缺陷 D)。
+  if (lastCompactionEntry) openTasksPanel({ reveal: lastCompactionEntry });
 }
 
 export function hideContextDetail() {
@@ -367,7 +361,6 @@ defer(() => {
   on("kz:task-progress", (e) => {
     const payload = e.payload;
     agentAuditTaskProgress(payload.sessionId, payload);
-    bgProgress(payload.id, payload.text, payload.trace);
     // UI-0926 #8:子代理卡片(与侧栏)同一数据流:meta 给人格与模型,start/end 给尾迹与过程,
     // usage 是累计值(替换),text 是子代理自述。后台线路也推进(BACKGROUND_RENDER_EVENTS)。
     subagentProgress({ sessionId: payload.sessionId, id: payload.id, text: payload.text, trace: payload.trace });

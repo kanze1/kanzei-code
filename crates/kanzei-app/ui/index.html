@@ -31,12 +31,9 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm3 3h10M7 12h6M7 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="rail-section-separator" aria-hidden="true"></div>
-      <button type="button" id="agent-toggle" class="activity-item rail-toggle" title="子代理面板" data-i18n-title="子代理面板" aria-label="打开或收起子代理面板" data-i18n-aria-label="打开或收起子代理面板" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="6.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="17.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8.6 11.2 15.8 7.4M8.6 12.8l7.2 3.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span id="agent-badge" class="rail-badge hidden" aria-hidden="true"></span></button>
-      <!-- 活动面板开关从顶栏搬到 rail:它和子代理面板一样是**布局开关**不是视图切换,
-           两个同类开关放在一起;顶栏因此可以整条删掉(见 #view-chat)。 -->
-      <button type="button" id="activity-toggle" class="activity-item rail-toggle" title="显示/隐藏右侧活动面板" data-i18n-title="显示/隐藏右侧活动面板" aria-label="显示或隐藏右侧活动面板" data-i18n-aria-label="显示或隐藏右侧活动面板" aria-pressed="false">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12.5h3.6l2.2-6.2 3.7 12.4 2.4-8 1.6 3.3H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
+      <!-- UI2-0926 #14:后台任务侧栏的唯一开关(取代「子代理」「活动」两个开关),所有视图都显示——在别的视图点它
+           先回到对话再打开。徽标:有东西在跑显示数量(强调色);没在跑但有未看的失败显示红色。 -->
+      <button type="button" id="tasks-toggle" class="activity-item rail-toggle" title="后台任务" data-i18n-title="后台任务" aria-label="打开或收起后台任务侧栏" aria-controls="tasks-panel" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14.5 4.5v15M16.8 8.6h1.5M16.8 11.6h1.5M16.8 14.6h1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span id="tasks-badge" class="rail-badge hidden" aria-hidden="true"></span></button>
       <button type="button" class="activity-item" data-view="metrics" title="运行画像" data-i18n-title="运行画像" aria-label="切换到运行画像" data-i18n-aria-label="切换到运行画像">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16M7 20V11M12 20V5M17 20v-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
@@ -1099,6 +1096,18 @@
               <input type="checkbox" id="set-sound-stopped" checked>
             </div>
           </details>
+          <details class="settings-group" open>
+            <summary data-i18n-key="后台任务侧栏">后台任务侧栏</summary>
+            <p class="dim" data-i18n-key="子代理与长命令的进度停靠在对话右侧;偏好存在本机 app.json,即时生效。">子代理与长命令的进度停靠在对话右侧;偏好存在本机 app.json,即时生效。</p>
+            <div class="form-row">
+              <label for="set-side-auto-open"><span data-i18n-key="有子代理或长命令开始时自动打开">有子代理或长命令开始时自动打开</span></label>
+              <input type="checkbox" id="set-side-auto-open" checked>
+            </div>
+            <div class="form-row">
+              <label for="set-side-auto-close"><span data-i18n-key="全部完成后自动收起(有失败时保留)">全部完成后自动收起(有失败时保留)</span></label>
+              <input type="checkbox" id="set-side-auto-close" checked>
+            </div>
+          </details>
 
           <div class="settings-actions">
             <span id="settings-dirty" class="settings-dirty hidden" role="status" data-i18n-key="未保存 — 改动要点「保存」才会写入配置并生效">未保存 — 改动要点「保存」才会写入配置并生效</span>            <span id="update-result" class="dim"></span>
@@ -1127,6 +1136,83 @@
           </div>
         </div>
       </div>
+
+      <!-- UI2-0926 #14 后台任务侧栏(Claude 式停靠侧栏,docs/design/subagent_presentation.md §5.6):取代浮在正文上的
+           「活动」与「子代理」两块浮层。停靠在 #main 网格第 2 列(从顶部到状态栏上沿,对话列与日志随之变窄);
+           对话列不足 600px 时改抽屉 + 遮罩。显隐、停靠/抽屉、rail 徽标的唯一写入者是 06-agent-panel.js 的
+           reconcileTasksPanel(自动开合策略在 06-side-policy.js)。外观归 surface.css 的 .k-panel[data-dock]。 -->
+      <div id="tasks-scrim" class="k-scrim hidden" aria-hidden="true"></div>
+      <aside id="tasks-panel" class="k-surface k-panel hidden" data-dock="side" data-mode="list" aria-labelledby="tasks-panel-title">
+        <div class="tp-head">
+          <button type="button" id="agent-back" class="icon-btn hidden" title="返回全部后台任务" data-i18n-title="返回全部后台任务" aria-label="返回全部后台任务" data-i18n-aria-label="返回全部后台任务">‹</button>
+          <span id="tasks-panel-title" class="tp-title" data-i18n-key="后台任务">后台任务</span>
+          <span id="tasks-count" class="tp-count" data-i18n-raw></span>
+          <span id="diff-summary-toggle" class="diff-summary-label"></span>
+          <span class="spacer"></span>
+          <button type="button" id="tasks-filter" class="icon-btn" data-kz-menu="tasks-filter-menu" title="筛选与清理" data-i18n-title="筛选与清理" aria-label="筛选与清理" data-i18n-aria-label="筛选与清理">⋯</button>
+          <div id="tasks-filter-menu" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-end" role="group" aria-label="筛选与清理" data-i18n-aria-label="筛选与清理">
+            <div class="menu-row"><span class="menu-row-main"><span class="menu-row-title" data-i18n-key="终端条目类型">终端条目类型</span></span>
+              <select id="bg-type-filter" class="doc-filter" title="按工具类型筛选" data-i18n-title="按工具类型筛选">
+                <option value="all" data-i18n-key="全部类型">全部类型</option>
+                <option value="terminal" data-i18n-key="终端">终端</option>
+                <option value="file" data-i18n-key="文件">文件</option>
+                <option value="tracker" data-i18n-key="追踪">追踪</option>
+                <option value="memory" data-i18n-key="记忆">记忆</option>
+                <option value="other" data-i18n-key="其他">其他</option>
+              </select>
+            </div>
+            <div class="menu-row"><span class="menu-row-main"><span class="menu-row-title" data-i18n-key="成败">成败</span></span>
+              <select id="bg-status-filter" class="doc-filter" title="按成败状态筛选" data-i18n-title="按成败状态筛选">
+                <option value="all" data-i18n-key="全部状态">全部状态</option>
+                <option value="running" data-i18n-key="运行中">运行中</option>
+                <option value="ok" data-i18n-key="成功">成功</option>
+                <option value="err" data-i18n-key="失败">失败</option>
+              </select>
+            </div>
+            <button type="button" id="bg-clear-done" class="k-menu-item hidden" title="清空已完成的终端条目" data-i18n-title="清空已完成的终端条目"><span data-i18n-key="清空已完成">清空已完成</span></button>
+          </div>
+          <button type="button" id="tasks-wide" class="icon-btn" aria-pressed="false" title="加宽侧栏" data-i18n-title="加宽侧栏" aria-label="加宽侧栏" data-i18n-aria-label="加宽侧栏">⤢</button>
+          <button type="button" id="tasks-close" class="icon-btn" title="关闭后台任务侧栏" data-i18n-title="关闭后台任务侧栏" aria-label="关闭后台任务侧栏" data-i18n-aria-label="关闭后台任务侧栏">✕</button>
+        </div>
+        <div id="agent-panel-status" class="agent-panel-status hidden" role="status"></div>
+        <!-- 三段:运行中 / 需要关注(未确认的失败,「知道了」一键确认)/ 已完成(折叠,展开才渲染委派卡)。
+             每段里委派卡(#tasks-*,06-agent-panel.js)在前,终端条目(#bg-*,06-activity.js)在后。 -->
+        <div id="bg-list" class="tp-scroll">
+          <section class="bg-section" id="bg-section-running">
+            <div class="bg-section-title"><span data-i18n-key="运行中">运行中</span> <span id="bg-running-count" class="dim"></span></div>
+            <div id="tasks-running" class="tp-cards"></div>
+            <div id="bg-running"></div>
+            <div id="bg-running-empty" class="bg-empty" data-i18n-key="没有在跑的后台任务">没有在跑的后台任务</div>
+          </section>
+          <section class="bg-section hidden" id="bg-section-attention">
+            <div class="bg-section-title"><span data-i18n-key="需要关注">需要关注</span> <span id="bg-attention-count" class="dim"></span><span class="spacer"></span><button type="button" id="tasks-ack" class="ghost mini" title="确认这些失败,挪进已完成" data-i18n-title="确认这些失败,挪进已完成"><span data-i18n-key="知道了">知道了</span></button></div>
+            <div id="tasks-attention" class="tp-cards"></div>
+            <div id="bg-attention"></div>
+          </section>
+          <section class="bg-section hidden" id="bg-section-done">
+            <button type="button" id="bg-done-toggle" class="bg-section-title bg-section-toggle" aria-expanded="false" aria-controls="bg-done-body" title="展开或收起已完成的后台任务" data-i18n-title="展开或收起已完成的后台任务">
+              <span class="bg-section-caret" aria-hidden="true">▸</span>
+              <span data-i18n-key="已完成">已完成</span> <span id="bg-done-count" class="dim"></span>
+            </button>
+            <div id="bg-done-body" class="hidden">
+              <div id="tasks-done" class="tp-cards"></div>
+              <div id="bg-done"></div>
+            </div>
+          </section>
+          <section id="agent-audit" class="agent-audit hidden" aria-live="polite">
+            <div class="agent-audit-head">
+              <span data-i18n-key="运行审计摘要">运行审计摘要</span>
+              <span id="agent-audit-state" class="dim"></span>
+              <button type="button" id="agent-audit-trace" class="ghost mini" data-i18n-key="打开运行轨迹" data-i18n-title="打开运行轨迹">打开运行轨迹</button>
+            </div>
+            <div id="agent-audit-facts" class="agent-audit-facts"></div>
+            <div id="agent-audit-models" class="agent-audit-models"></div>
+            <div id="agent-audit-failures" class="agent-audit-failures hidden"></div>
+          </section>
+          <div id="diff-summary" class="diff-summary hidden"></div>
+        </div>
+        <div id="agent-detail" class="sa-panel-detail hidden"></div>
+      </aside>
 
       <div id="log-panel" class="hidden">
         <div class="log-head">
@@ -1160,79 +1246,9 @@
         </div>
       </footer>
     </main>
-
-
-    <aside id="bg-panel" class="k-surface k-panel hidden" role="dialog" aria-modal="false" aria-labelledby="bg-panel-title">
-      <div class="bg-head"><span id="bg-panel-title" data-i18n-key="活动">活动</span> <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span><span class="spacer"></span><button type="button" id="bg-clear-done" class="ghost mini hidden" title="清空已完成的活动条目" data-i18n-title="清空已完成的活动条目"><span data-i18n-key="清空">清空</span></button><button type="button" id="bg-close" class="icon-btn" title="关闭活动面板" data-i18n-title="关闭活动面板" aria-label="关闭活动面板" data-i18n-aria-label="关闭活动面板">✕</button></div>
-      <div class="bg-filters">
-        <select id="bg-type-filter" class="doc-filter" title="按工具类型筛选" data-i18n-title="按工具类型筛选">
-          <option value="all" data-i18n-key="全部类型">全部类型</option>
-          <option value="terminal" data-i18n-key="终端">终端</option>
-          <option value="file" data-i18n-key="文件">文件</option>
-          <option value="tracker" data-i18n-key="追踪">追踪</option>
-          <option value="agent" data-i18n-key="子代理">子代理</option>
-          <option value="memory" data-i18n-key="记忆">记忆</option>
-          <option value="other" data-i18n-key="其他">其他</option>
-        </select>
-        <select id="bg-status-filter" class="doc-filter" title="按成败状态筛选" data-i18n-title="按成败状态筛选">
-          <option value="all" data-i18n-key="全部状态">全部状态</option>
-          <option value="running" data-i18n-key="运行中">运行中</option>
-          <option value="ok" data-i18n-key="成功">成功</option>
-          <option value="err" data-i18n-key="失败">失败</option>
-        </select>
-        <select id="bg-role-filter" class="doc-filter" title="按子代理角色筛选" data-i18n-title="按子代理角色筛选">
-          <option value="all" data-i18n-key="全部子代理">全部子代理</option>
-        </select>
-      </div>
-      <div id="diff-summary" class="diff-summary hidden"></div>
-      <!-- 活动面板分三段:在跑的常驻置顶,成功完成的自动收进折叠区,失败/需确认的
-           留在可见处。长时间任务(全量测试那种)于是不会被一串已完成刷走。 -->
-      <div id="bg-list">
-        <div class="bg-section" id="bg-section-running">
-          <div class="bg-section-title"><span data-i18n-key="运行中">运行中</span> <span id="bg-running-count" class="dim"></span></div>
-          <div id="bg-running"></div>
-          <div id="bg-running-empty" class="bg-empty" data-i18n-key="没有在跑的工具">没有在跑的工具</div>
-        </div>
-        <div class="bg-section hidden" id="bg-section-attention">
-          <div class="bg-section-title"><span data-i18n-key="需要关注">需要关注</span> <span id="bg-attention-count" class="dim"></span></div>
-          <div id="bg-attention"></div>
-        </div>
-        <div class="bg-section hidden" id="bg-section-done">
-          <button type="button" id="bg-done-toggle" class="bg-section-title bg-section-toggle" aria-expanded="false" aria-controls="bg-done" title="展开或收起已完成的活动条目" data-i18n-title="展开或收起已完成的活动条目">
-            <span class="bg-section-caret" aria-hidden="true">▸</span>
-            <span data-i18n-key="已完成">已完成</span> <span id="bg-done-count" class="dim"></span>
-          </button>
-          <div id="bg-done" class="hidden"></div>
-        </div>
-      </div>
-    </aside>
-
-    <!-- UI-0926 #8 子代理侧栏:全高抽屉,list(当前线路全部子代理,按批次)/ detail(一次委派的完整过程)
-         两种模式,由 06-agent-panel.js 驱动;外观归 .k-surface.k-panel。 -->
-    <aside id="agent-panel" class="k-surface k-panel hidden" role="dialog" aria-modal="false" aria-labelledby="agent-panel-title" data-mode="list">
-      <div class="bg-head">
-        <button type="button" id="agent-back" class="icon-btn hidden" title="返回全部子代理" data-i18n-title="返回全部子代理" aria-label="返回全部子代理" data-i18n-aria-label="返回全部子代理">‹</button>
-        <span id="agent-panel-title" data-i18n-key="子代理">子代理</span>
-        <span id="agent-running-count" class="dim" data-i18n-raw></span>
-        <button type="button" id="agent-close" class="icon-btn" title="关闭子代理面板" data-i18n-title="关闭子代理面板" aria-label="关闭子代理面板" data-i18n-aria-label="关闭子代理面板">✕</button>
-      </div>
-      <div id="agent-panel-status" class="agent-panel-status hidden" role="status"></div>
-      <div id="agent-list" class="sa-panel-list"></div>
-      <div id="agent-detail" class="sa-panel-detail hidden"></div>
-      <section id="agent-audit" class="agent-audit hidden" aria-live="polite">
-        <div class="agent-audit-head">
-          <span data-i18n-key="运行审计摘要">运行审计摘要</span>
-          <span id="agent-audit-state" class="dim"></span>
-          <button type="button" id="agent-audit-trace" class="ghost mini" data-i18n-key="打开运行轨迹" data-i18n-title="打开运行轨迹">打开运行轨迹</button>
-        </div>
-        <div id="agent-audit-facts" class="agent-audit-facts"></div>
-        <div id="agent-audit-models" class="agent-audit-models"></div>
-        <div id="agent-audit-failures" class="agent-audit-failures hidden"></div>
-      </section>
-    </aside>
   </div>
 
-  <div id="ask-overlay" class="k-surface k-card hidden" popover="manual" data-tone="attention" role="dialog" aria-modal="false" aria-labelledby="ask-title">
+  <div id="ask-overlay" class="k-surface k-card hidden" popover="manual" data-tone="attention" role="dialog" aria-modal="false" aria-labelledby="ask-title" data-kz-anchor="composer" data-kz-frame="ask" data-kz-frame-move=".ask-head" data-kz-frame-edges="e w" data-kz-frame-min="360 120" data-kz-frame-keep="w">
     <div id="ask-dialog">
       <div class="ask-head">
         <div class="ask-title" id="ask-title" data-i18n-key="权限请求">权限请求</div>
@@ -1265,7 +1281,7 @@
   </div>
   <button id="ask-reopen" class="k-surface k-chip-float ask-reopen hidden" popover="manual" type="button" title="重新打开询问" data-i18n-title="重新打开询问" aria-label="重新打开询问" data-i18n-aria-label="重新打开询问" data-i18n-key="重新打开询问">重新打开询问</button>
 
-  <dialog id="viewer-overlay" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="viewer-title">
+  <dialog id="viewer-overlay" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="viewer-title" data-kz-frame="viewer" data-kz-frame-move=".viewer-head" data-kz-frame-edges="all" data-kz-frame-min="420 240">
     <div id="viewer-dialog">
       <div class="viewer-head">
         <span id="viewer-title"></span>
@@ -1278,7 +1294,7 @@
     </div>
   </dialog>
 
-  <dialog id="input-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="input-title">
+  <dialog id="input-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="input-title" data-kz-frame="input" data-kz-frame-move=":scope" data-kz-frame-persist="no">
     <div id="input-dialog">
       <div class="confirm-title" id="input-title" data-i18n-raw></div>
       <div id="input-message" class="input-message hidden" data-i18n-raw></div>
@@ -1291,7 +1307,7 @@
   </dialog>
 
   <!-- UI-0926 #3 项目模型配置:只写本项目 .kanzei/kanzei.toml 的 [models] 五个键(08-project-models.js)。 -->
-  <dialog id="project-models-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="project-models-title">
+  <dialog id="project-models-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="project-models-title" data-kz-frame="project-models" data-kz-frame-move=".pm-title" data-kz-frame-edges="all" data-kz-frame-min="420 260">
     <div id="project-models-dialog">
       <div class="confirm-title pm-title"><span id="project-models-title" data-i18n-key="项目模型配置">项目模型配置</span> <span id="project-models-name" class="dim" data-i18n-raw></span></div>
       <p class="dim pm-intro" data-i18n-key="只写本项目的配置文件;未覆盖的项继承全局默认。">只写本项目的配置文件;未覆盖的项继承全局默认。</p>
@@ -1304,7 +1320,7 @@
     </div>
   </dialog>
 
-  <dialog id="confirm-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="confirm-title">
+  <dialog id="confirm-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="confirm-title" data-kz-frame="confirm" data-kz-frame-move=":scope" data-kz-frame-persist="no">
     <div id="confirm-dialog">
       <div class="confirm-title" id="confirm-title" data-i18n-raw></div>
       <div id="confirm-message" data-i18n-raw></div>
@@ -1331,9 +1347,11 @@
 
   <!-- 分区脚本:弹层与外观 -->
   <script type="module" src="00-surface.js"></script>
+  <script type="module" src="00-frame.js"></script>
   <script type="module" src="01-core.js"></script>
   <script type="module" src="02-i18n.js"></script>
   <script type="module" src="03-shell.js"></script>
+  <script type="module" src="03-layout.js"></script>
   <script type="module" src="03-workspaces.js"></script>
   <script type="module" src="04-markdown.js"></script>
   <!-- 分区脚本:工具行与结构化渲染 -->
@@ -1342,6 +1360,7 @@
   <script type="module" src="05-chat-render.js"></script>
   <!-- 分区脚本:子代理 -->
   <script type="module" src="05-subagents.js"></script>
+  <script type="module" src="06-side-policy.js"></script>
   <script type="module" src="06-agent-panel.js"></script>
   <script type="module" src="06-activity.js"></script>
   <script type="module" src="07-events.js"></script>
