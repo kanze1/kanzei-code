@@ -162,7 +162,8 @@ pub(crate) async fn preview_open_external(app: AppHandle) -> Result<(), String> 
         .map_err(|e| format!("打开系统浏览器失败: {e}"))
 }
 
-/// 对话里 `[tool-image]` 标记指向的截图。只收 `.kanzei/artifacts/tool-images/<sha256>.<ext>`。
+/// 对话里 `[tool-image]` 标记指向的截图。只收 `.kanzei/artifacts/tool-images/<sha256>.png`
+/// (后端只落 PNG,与契约和前端的 TOOL_IMAGE_REL 一致)。
 #[tauri::command]
 pub(crate) async fn tool_image(project_dir: String, rel: String) -> Result<Value, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
@@ -193,9 +194,7 @@ pub(crate) fn tool_image_path(root: &Path, rel: &str) -> Result<PathBuf, String>
     let (stem, ext) = name
         .rsplit_once('.')
         .ok_or_else(|| format!("截图文件名不合法: {name}"))?;
-    let valid = stem.len() == 64
-        && stem.bytes().all(|b| b.is_ascii_hexdigit())
-        && matches!(ext, "png" | "jpg" | "webp" | "gif");
+    let valid = stem.len() == 64 && stem.bytes().all(|b| b.is_ascii_hexdigit()) && ext == "png";
     if !valid {
         return Err(format!("截图文件名不合法: {name}"));
     }
@@ -255,7 +254,10 @@ mod tests {
         // 目录里但文件名不合规的:只能靠文件名规则拦,不能指望路径包含判定。
         std::fs::write(root.join(TOOL_IMAGES_REL).join("notes.txt"), b"x").unwrap();
         std::fs::write(root.join(TOOL_IMAGES_REL).join("short.png"), b"x").unwrap();
-        for bad_name in ["notes.txt", "short.png"] {
+        // 复核修复:契约只认 <sha>.png;真实存在的 <sha>.jpg 也必须被文件名规则拒绝。
+        let jpg = format!("{}.jpg", "b".repeat(64));
+        std::fs::write(root.join(TOOL_IMAGES_REL).join(&jpg), b"x").unwrap();
+        for bad_name in ["notes.txt", "short.png", jpg.as_str()] {
             assert!(
                 tool_image_path(&root, &format!("{TOOL_IMAGES_REL}/{bad_name}")).is_err(),
                 "{bad_name} 必须被文件名规则拒绝"

@@ -288,6 +288,7 @@ pub(crate) fn materialize_tool_output(
 ) {
     let markers = super::tool_images::persist_tool_images(
         output,
+        tool_name,
         &ctx.project_root,
         TOOL_RESULT_STORAGE_QUOTA_BYTES,
         TOOL_RESULT_QUOTA_LOCK_BUDGET,

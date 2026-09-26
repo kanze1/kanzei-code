@@ -2,8 +2,11 @@
 //!
 //! 此前 browser / ui_screenshot / plot 的图片只进模型:ToolEnd 事件不带图,用户在对话里
 //! 看不到模型看到的画面。这里在统一消费出口([`super::tool_exec::materialize_tool_output`])
-//! 把 `output.images` 按内容 sha256 写到 `.kanzei/artifacts/tool-images/<sha>.<ext>`,
+//! 把 `output.images` 按内容 sha256 写到 `.kanzei/artifacts/tool-images/<sha>.png`,
 //! 并在 content **末尾**追加一行 `[tool-image] <相对路径>`:
+//! - 只收 image/png:IPC 契约与前端(24-preview.js 的 TOOL_IMAGE_REL、tool_image 命令)只认
+//!   `<sha>.png`,别的格式写出来只会在对话里露出一行认不出的标记;截图类工具产出的都是 PNG;
+//! - `read` 读图片文件不落盘:源文件本来就在盘上,复制一份只占配额;
 //! - 实时显示与历史回放是同一机制——回放读的就是消息里的 ToolResult content;
 //! - 模型也看得到这个路径,需要时可以直接 `deliver` 给用户;
 //! - 标记在外置/截断**之后**追加,1 MiB 以上结果被外置时也不会丢(风险 10)。
@@ -11,7 +14,8 @@
 //! 配额:与 D-349 大结果外置同属一个 2 GiB 配额(tool-results + tool-images 合计),
 //! 同一把跨进程配额锁。超额或拿不到锁时只是不落盘、不加标记,模型照常收到图片。
 //! 清理:每个项目根在本进程第一次落图时(即应用启动后的第一次)按「最近 300 张、14 天内」
-//! 清理一次,之后每新写 50 张再清一次。
+//! 清理一次,之后每新写 50 张再清一次。清理按修改时间;同内容再次被引用时刷新修改时间,
+//! 免得一张 15 天前写过、今天又出现在新消息里的截图在下一轮清理时被删。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -37,15 +41,10 @@ const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
 /// 每个项目根在本进程里新写了多少张(None = 还没做过首次清理)。
 static NEW_SINCE_PRUNE: Mutex<Option<HashMap<PathBuf, usize>>> = Mutex::new(None);
 
-fn extension_for(media_type: &str) -> Option<&'static str> {
-    match media_type {
-        "image/png" => Some("png"),
-        "image/jpeg" | "image/jpg" => Some("jpg"),
-        "image/webp" => Some("webp"),
-        "image/gif" => Some("gif"),
-        _ => None,
-    }
-}
+/// 落盘的唯一格式(与 IPC 契约 `<sha>.png` 一致)。
+const PERSISTED_MEDIA_TYPE: &str = "image/png";
+/// 图片来自盘上已有文件的工具:不复制、不加标记。
+const SOURCE_ON_DISK_TOOLS: [&str; 1] = ["read"];
 
 /// tool-images 目录的总字节数(不存在记 0)。与 tool-results 合计进同一配额。
 pub(crate) fn tool_images_bytes(project_root: &Path) -> std::io::Result<u64> {
@@ -69,19 +68,23 @@ pub(crate) fn tool_images_bytes(project_root: &Path) -> std::io::Result<u64> {
 /// 把 output.images 落盘,返回要追加到 content 末尾的标记行(已存在的同内容图片直接复用)。
 pub(crate) fn persist_tool_images(
     output: &kanzei_harness::ToolOutput,
+    tool_name: &str,
     project_root: &Path,
     quota_bytes: u64,
     lock_budget: Duration,
 ) -> Vec<String> {
-    if output.images.is_empty() || project_root.as_os_str().is_empty() {
+    if output.images.is_empty()
+        || project_root.as_os_str().is_empty()
+        || SOURCE_ON_DISK_TOOLS.contains(&tool_name)
+    {
         return Vec::new();
     }
     prune_once(project_root);
     let mut markers = Vec::new();
     for image in &output.images {
-        let Some(ext) = extension_for(&image.media_type) else {
+        if !image.media_type.eq_ignore_ascii_case(PERSISTED_MEDIA_TYPE) {
             continue;
-        };
+        }
         let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(image.data.as_bytes())
         else {
             continue;
@@ -93,7 +96,7 @@ pub(crate) fn persist_tool_images(
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect();
-        let rel = format!("{TOOL_IMAGES_DIR}/{sha}.{ext}");
+        let rel = format!("{TOOL_IMAGES_DIR}/{sha}.png");
         let path = project_root.join(&rel);
         match store(project_root, &path, &bytes, quota_bytes, lock_budget) {
             Ok(written) => {
@@ -121,7 +124,8 @@ pub(crate) fn append_markers(output: &mut kanzei_harness::ToolOutput, markers: &
     output.content.push_str(&markers.join("\n"));
 }
 
-/// 落盘一张;返回是否新写。同名同长度视为已存在(内容寻址),不取锁、不计配额。
+/// 落盘一张;返回是否新写。同名同长度视为已存在(内容寻址),不取锁、不计配额,
+/// 但刷新修改时间——清理按修改时间判龄,被新消息再次引用的图不能按「写入那天」算。
 fn store(
     project_root: &Path,
     path: &Path,
@@ -136,6 +140,7 @@ fn store(
             .is_some()
     };
     if existing(path) {
+        touch(path);
         return Ok(false);
     }
     let _guard = match super::tool_exec::lock_tool_result_storage(project_root, lock_budget) {
@@ -144,6 +149,7 @@ fn store(
         Err(error) => return Err(format!("配额锁不可用: {error}")),
     };
     if existing(path) {
+        touch(path);
         return Ok(false);
     }
     let used = super::tool_exec::artifact_storage_bytes(project_root)
@@ -155,6 +161,17 @@ fn store(
     }
     kanzei_base::atomic_file::write_atomic_bytes(path, bytes).map_err(|error| error.to_string())?;
     Ok(true)
+}
+
+/// 把修改时间刷成现在(失败只记日志:最坏是这张图按旧日期被清理)。
+fn touch(path: &Path) {
+    let result = std::fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_modified(SystemTime::now()));
+    if let Err(error) = result {
+        tracing::warn!(%error, path = %path.display(), "工具截图复用时没能刷新修改时间");
+    }
 }
 
 fn prune_once(project_root: &Path) {
@@ -365,11 +382,12 @@ mod tests {
         std::fs::write(results.join("big.txt"), vec![b'x'; 64]).unwrap();
         let output = shot("x", &[9]);
         // 已占 64 字节,配额 80:再写 40 字节的图就超了。
-        let markers = persist_tool_images(&output, &root, 80, Duration::from_millis(50));
+        let markers = persist_tool_images(&output, "browser", &root, 80, Duration::from_millis(50));
         assert!(markers.is_empty(), "超额不得加标记");
         assert!(!root.join(TOOL_IMAGES_DIR).exists() || tool_images_bytes(&root).unwrap() == 0);
         // 配额充足时照常写;图片字节计入合计口径。
-        let markers = persist_tool_images(&output, &root, 1024, Duration::from_millis(50));
+        let markers =
+            persist_tool_images(&output, "browser", &root, 1024, Duration::from_millis(50));
         assert_eq!(markers.len(), 1);
         assert_eq!(tool_images_bytes(&root).unwrap(), 40);
         assert_eq!(
@@ -392,15 +410,104 @@ mod tests {
                 data: png(1),
             },
         ]);
-        let markers = persist_tool_images(&output, &root, u64::MAX, Duration::from_millis(50));
+        let markers = persist_tool_images(
+            &output,
+            "browser",
+            &root,
+            u64::MAX,
+            Duration::from_millis(50),
+        );
         assert!(markers.is_empty());
         append_markers(&mut output, &markers);
         assert_eq!(output.content, "x", "没有标记时 content 逐字节不变");
         // 没有项目根(ToolCtx::default)时不往进程 cwd 写。
-        assert!(
-            persist_tool_images(&shot("x", &[1]), Path::new(""), u64::MAX, Duration::ZERO)
-                .is_empty()
+        assert!(persist_tool_images(
+            &shot("x", &[1]),
+            "browser",
+            Path::new(""),
+            u64::MAX,
+            Duration::ZERO
+        )
+        .is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 复核修复:契约与前端只认 `<sha>.png`。jpeg / webp / gif 不落盘、不加标记(否则对话里
+    /// 露出一行认不出的 `[tool-image] ….jpg`);`read` 读图片文件时源文件本来就在盘上,不复制。
+    #[test]
+    fn 只落png_read读图不复制() {
+        let root = root("png-only");
+        for media_type in ["image/jpeg", "image/webp", "image/gif"] {
+            let output = ToolOutput::ok("x").with_images(vec![ToolImage {
+                media_type: media_type.into(),
+                data: png(4),
+            }]);
+            let markers =
+                persist_tool_images(&output, "plot", &root, u64::MAX, Duration::from_millis(50));
+            assert!(markers.is_empty(), "{media_type} 不得落盘");
+        }
+        let markers = persist_tool_images(
+            &shot("x", &[4]),
+            "read",
+            &root,
+            u64::MAX,
+            Duration::from_millis(50),
         );
+        assert!(markers.is_empty(), "read 的图片源文件已在盘上");
+        assert!(!root.join(TOOL_IMAGES_DIR).exists() || tool_images_bytes(&root).unwrap() == 0);
+        let markers = persist_tool_images(
+            &shot("x", &[4]),
+            "browser",
+            &root,
+            u64::MAX,
+            Duration::from_millis(50),
+        );
+        assert_eq!(markers.len(), 1);
+        assert!(markers[0].ends_with(".png"), "{}", markers[0]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 复核修复:同内容再次被引用时刷新修改时间,清理按修改时间判龄,不能把今天还在用的图删掉。
+    #[test]
+    fn 复用已有截图时刷新修改时间() {
+        let root = root("touch");
+        let output = shot("x", &[6]);
+        let markers = persist_tool_images(
+            &output,
+            "browser",
+            &root,
+            u64::MAX,
+            Duration::from_millis(50),
+        );
+        let path = root.join(markers[0].trim_start_matches("[tool-image] "));
+        let old = SystemTime::now() - Duration::from_secs(15 * 24 * 3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let again = persist_tool_images(
+            &output,
+            "browser",
+            &root,
+            u64::MAX,
+            Duration::from_millis(50),
+        );
+        assert_eq!(again, markers, "同内容同路径");
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert!(
+            SystemTime::now()
+                .duration_since(modified)
+                .is_ok_and(|age| age < Duration::from_secs(3600)),
+            "复用时必须刷新修改时间"
+        );
+        assert_eq!(
+            prune_tool_images(path.parent().unwrap(), 300, KEEP_AGE, SystemTime::now()),
+            0,
+            "刚被引用过的图不被清理"
+        );
+        assert!(path.is_file());
         std::fs::remove_dir_all(&root).ok();
     }
 
