@@ -543,16 +543,6 @@ export async function uiPrefsSave(patch) {
   }
 }
 
-// R-184 P2:子代理角色名 → 确定性强调色(0-4)。活动面板角色色点与主对话折叠组共用,
-// 只做确定性映射(同一角色刷新不变),不承诺语义排序;角色名文本是主标识,颜色是辅助
-// (design §2.2 不得只靠颜色区分)。
-export function agentRoleAccent(role) {
-  if (!role) return 0;
-  let sum = 0;
-  for (let i = 0; i < role.length; i += 1) sum = (sum * 31 + role.charCodeAt(i)) >>> 0;
-  return (sum % 4) + 1;
-}
-
 // R-267:`messages` 只是**滚动容器**;消息本体挂在它下面的 per-session pane 里。
 // 这个分工是整个改造能低风险落地的关键——滚动/跟随/复制那几处照旧读 `messages`,
 // 一行不用改;只有「往哪儿追加」换成 activePane。

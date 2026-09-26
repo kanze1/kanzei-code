@@ -1,29 +1,35 @@
-/* kanzei — 中性灰阶 + 单一陶土橙强调(参照 Codex 桌面端)。表面只靠明度分层;
-   强调色只承载「运行中 / 链接 / 品牌 / 看这里」四类信号,选中、焦点、悬停一律中性。 */
+/* kanzei — 中性灰阶 + 单一 Codex 橙强调(参照 Codex 桌面端)。表面只靠明度分层;
+   强调色只承载「运行中 / 链接 / 品牌 / 看这里」四类信号,选中、焦点、悬停一律中性。
+   状态色一种含义一种颜色,语义表见 docs/design/ui_color_semantics.md。 */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 /* R-189:默认主题 = 暗色。:root 保留 dark 语义 token,
    [data-theme="light"] 覆盖为亮色组;切换只改 html[data-theme],不碰引用点。 */
 :root {
-  /* 表面层级(暗):侧栏/活动栏 < 主区 < 抬升(输入区/卡片)< 浮层(菜单/弹窗),全部 R=G=B 纯中性。
+  /* 表面层级(暗,对齐 Codex 桌面端实测):主区 #181818 是全屏最暗的一块,侧栏/活动栏亮一档 #1f1f1f,
+     卡片 < 抬升(输入区 #303030,明显浮起)≈ 浮层,全部 R=G=B 纯中性。旧版主区比侧栏亮、输入区只高 8 级,
+     整屏像一块中灰——「发灰」的根因。
      --surface-hover/-selected 与 --accent-soft 是半透明值,只用于下方已有不透明表面的元素;
      浮起的元素(浮钮/菜单/弹窗)一律用不透明的 --panel2 / --surface-overlay。 */
-  --bg: #1e1e1e; --panel: #262626; --panel2: #2e2e2e; --input: #242424;
-  --surface-raised: #262626; --surface-overlay: #2a2a2a;
-  --surface-hover: #ffffff0b; --surface-selected: #ffffff12;
-  --border: #3a3a3a; --border-soft: #2d2d2d; --border-strong: #4a4a4a;
-  --fg: #d6d6d6; --fg-strong: #ececec; --dim: #a0a0a0;
-  /* 唯一强调色:陶土橙。填充与文字分别给值,文字值在所有表面上 ≥ 4.5:1。 */
-  --accent: #d97a48; --accent-hover: #e48c5e; --accent-soft: #d97a4829;
-  --accent-text: #ee9d6b;
-  --memory-flow: #c98a66; --memory-flow-hot: #ee9d6b; --memory-flow-dim: #4a4a4a;
-  /* 状态色降饱和;alert 与 warn 同值——「注意/风险」统一琥珀,与强调橙分开。 */
-  --ok: #7ec79a; --err: #f28b82; --warn: #dcb45e; --info: #8fb4e3;
-  --alert: #dcb45e;
+  --bg: #181818; --panel: #232323; --panel2: #2a2a2a; --input: #212121;
+  --surface-raised: #303030; --surface-overlay: #2c2c2c;
+  --surface-hover: #ffffff0d; --surface-selected: #ffffff14;
+  --border: #343434; --border-soft: #282828; --border-strong: #464646;
+  --fg: #e5e5e5; --fg-strong: #ffffff; --dim: #9a9a9a;
+  /* 唯一强调色:Codex 橙。填充 #d25e28(发送键同色,配白色图标),文字 #ff8549(所有表面 ≥ 5:1)。
+     强调色的含义只有一个:「正在进行」(运行中/在做/待续跑)+ 品牌 + 真链接 + 一次性的「看这里」闪烁。 */
+  --accent: #d25e28; --accent-hover: #e2703a; --accent-soft: #d25e2829;
+  --accent-text: #ff8549;
+  --memory-flow: var(--accent); --memory-flow-hot: var(--accent-text); --memory-flow-dim: var(--border-strong);
+  /* 状态色:一种含义一种颜色(docs/design/ui_color_semantics.md)。
+     warn = 需要注意(阻塞/卡住/等你/风险);ok = 一件工作成功收尾;err = 失败/错误/P0;
+     info 不再表达任何状态,只留给语法与数据着色(JSON 键等)。alert 是 warn 的别名。 */
+  --ok: #5fc98c; --err: #ff7b72; --warn: #e8b84a; --info: #8fb4e3;
+  --alert: var(--warn);
   --danger: var(--err); --muted: var(--dim);
-  --statusbar: #181818; --statusbar-run: #231d1a;
-  --statusbar-fg: #a0a0a0; --statusbar-run-fg: #ee9d6b;
-  --chat-bg: #1e1e1e;
-  --user-bubble: #2e2e2e; --user-bubble-border: #2e2e2e;
+  --statusbar: #181818; --statusbar-run: #271d19;
+  --statusbar-fg: var(--dim); --statusbar-run-fg: var(--accent-text);
+  --chat-bg: #181818;
+  --user-bubble: #2b2b2b; --user-bubble-border: #2b2b2b;
   --on-danger: #ffd7d2;
   --mono: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
   --sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
@@ -33,30 +39,34 @@
   /* 原生控件(勾选框、下拉弹层、日期选择、文本光标)默认按浅色渲染,在深色界面里
      会是一块刺眼的白底。声明配色让浏览器用深色变体——这是全局一次性的解法(D-154)。 */
   color-scheme: dark;
-  /* R-189:徽章/状态胶囊底色,亮色组成对给值。 */
-  --badge-err: #3b2b2a; --badge-warn: #352f22; --badge-info: #283039;
-  --badge-alert: #352f22; --badge-ok: #263229;
-  --badge-err-soft: #f28b8230; --badge-warn-soft: #dcb45e26; --badge-soft: #ffffff14;
-  --badge-ok-soft: #7ec79a2e;
-  /* 活动栏与侧栏同色,左侧成为一整列(Codex 只有一条侧栏)。 */
-  --activitybar: #181818; --sidebar-bg: #181818; --scrollbar: #3a3a3a; --scrollbar-hover: #565656;
-  --activity-fg: #8f8f8f; --activity-active: #ececec;
+  /* 徽章/状态胶囊底色 = 对应状态色约 12% 叠在 --bg 上的不透明值;亮色组成对给值。 */
+  --badge-err: #342423; --badge-warn: #312b1e; --badge-info: #262b31;
+  --badge-alert: var(--badge-warn); --badge-ok: #212e26;
+  --badge-err-soft: #ff7b7230; --badge-warn-soft: #e8b84a26; --badge-soft: #ffffff14;
+  --badge-ok-soft: #5fc98c2e;
+  /* 活动栏与侧栏同色、比主区亮一档,左侧成为一整列(Codex 只有一条侧栏)。 */
+  --activitybar: #1f1f1f; --sidebar-bg: #1f1f1f; --scrollbar: #3a3a3a; --scrollbar-hover: #555555;
+  --activity-fg: #9a9a9a; --activity-active: #ffffff;
 
-  --code-bg: #171717; --code-output-bg: #1a1a1a; --danger-btn: #4a2a28;
-  --code-inline: #2e2e2e; --bg-deep: #161616;
+  /* 代码块必须比主区亮(主区已是最深),否则 #171717 的代码块在 #181818 上看不见边。 */
+  --code-bg: #202020; --code-output-bg: #1c1c1c; --danger-btn: #4a2624;
+  --code-inline: #2a2a2a; --bg-deep: #141414;
 
-  /* R-189:diff/语法着色(c 类)。diff 底色原先是逃逸在规则里的 rgba,现收进 token。 */
-  --diff-add: #7ec79a; --diff-del: #f28b82; --diff-repl: #f7768e; --diff-str: #e0af68;
+  /* diff 增删与 ok/err 同源(同一种「加=绿、删=红」不再各调一套)。 */
+  --diff-add: var(--ok); --diff-del: var(--err); --diff-repl: #f7768e; --diff-str: #e0af68;
   --diff-add-bg: #2ea04326; --diff-del-bg: #f8514926; --diff-empty-bg: #ffffff06; --diff-hover: #ffffff0a;
-  --on-accent: #1a1a1a;
-  /* 主按钮单色:暗色下近白底黑字(Codex 黑色圆形发送键在暗色里的镜像)。 */
-  --primary-bg: #ececec; --primary-fg: #171717; --primary-hover: #ffffff;
+  /* 强调色填充上的前景:白(Codex 发送键白色箭头,图标 3.9:1 ≥ 3)。强调色填充上不放正文字。 */
+  --on-accent: #ffffff;
+  /* 主按钮单色:暗色下近白底黑字(对话框确认等);发送键例外,走强调色填充(见 #send)。 */
+  --primary-bg: #f0f0f0; --primary-fg: #181818; --primary-hover: #ffffff;
   /* 焦点环中性灰,与背景对比 ≥ 3:1(WCAG 2.2 非文本)。 */
-  --focus-ring: #a0a0a0;
+  --focus-ring: #9a9a9a;
   --syntax-comment: #6a9955; --syntax-string: #ce9178; --syntax-number: #b5cea8; --syntax-keyword: #569cd6;
-  --line-1: #7ba7c4; --line-2: #d3a14a; --line-3: #8fb87a; --line-4: #aa83bd;
-  --dot-idle: #7ec79a; --dot-run: #d97a48;
-  --diff-line-number: #7a7a7a; --arch-unindexed: #dcb45e; --log-gold: #dcb45e;
+  /* 弃用(下一版删):线路/角色身份不再用色,字母代号与角色名即身份;保留为中性别名只为兼容。 */
+  --line-1: var(--fg-strong); --line-2: var(--fg-strong); --line-3: var(--fg-strong); --line-4: var(--fg-strong);
+  /* 空闲 = 中性灰(空闲不是「成功」);运行 = 强调色。 */
+  --dot-idle: var(--dim); --dot-run: var(--accent);
+  --diff-line-number: #7a7a7a; --arch-unindexed: var(--warn); --log-gold: var(--warn);
   /* D-380 排版:字号 1:1 token 化(并档是改像素的决定,须用户拍板,不在配色里顺手做)。 */
   --fs-9: 9px; --fs-9-5: 9.5px; --fs-10: 10px; --fs-10-5: 10.5px; --fs-11: 11px; --fs-11-5: 11.5px; --fs-12: 12px; --fs-12-5: 12.5px; --fs-13: 13px; --fs-13-5: 13.5px; --fs-14: 14px;
   --fs-15: 15px; --fs-16: 16px; --fs-18: 18px; --fs-20: 20px; --fs-25: 25px; --fs-34: 34px;
@@ -66,23 +76,24 @@
   /* D-380 间距:6 档目标音阶,新代码用它。 */
   --sp-1: 2px; --sp-2: 4px; --sp-3: 6px; --sp-4: 8px; --sp-5: 12px; --sp-6: 16px;
   --shadow: #00000066; --shadow-strong: #00000080;
-  /* 阴影阶梯:1 = 贴面卡片,2 = 下拉/浮钮/toast,3 = 对话框/抽屉面板;composer 单独一档。 */
+  /* 阴影阶梯:1 = 贴面卡片,2 = 下拉/浮钮/toast,3 = 对话框/抽屉面板;composer 单独一档。
+     主区更深之后同样的阴影更难看见,2/3/composer 各加深一档。 */
   --elev-1: 0 1px 2px #00000040;
-  --elev-2: 0 6px 20px #00000059;
-  --elev-3: 0 16px 48px #00000073;
-  --elev-composer: 0 1px 2px #00000033, 0 8px 24px #00000040;
+  --elev-2: 0 6px 20px #00000066;
+  --elev-3: 0 16px 48px #00000080;
+  --elev-composer: 0 1px 2px #00000040, 0 8px 24px #0000004d;
   --scrim: #00000099;
   --sunken: #0000001f; --sunken-mid: #00000026; --sunken-strong: #00000033;
   --hover-wash: #ffffff0a; --on-ok: #0f1a12;
-  --danger-btn-hover: #5c322f; --deny-hover: #333333;
-  --danger-soft: #f28b8224; --alert-soft: #dcb45e1f;
+  --danger-btn-hover: #5c2e2b; --deny-hover: #363636;
+  --danger-soft: #ff7b7224; --alert-soft: #e8b84a1f;
   --border-on-accent: #ffffff1f;
   /* 组件层(弹层外观唯一真源,见 docs/design/ui_surface_stack.md):只引用上面的语义 token,
      只准 surface.css 使用;不在亮色块里重定义——主题切换只发生在语义层。 */
   --surface-bg: var(--surface-overlay); --surface-bg-raised: var(--panel2);
   --surface-fg: var(--fg); --surface-fg-strong: var(--fg-strong); --surface-muted: var(--dim);
   --surface-border: var(--border); --surface-divider: var(--border-soft);
-  --surface-attention: var(--accent);
+  --surface-attention: var(--warn);
   --surface-item-hover: var(--surface-hover); --surface-item-active: var(--surface-selected);
   --surface-radius-sm: var(--r-sm); --surface-radius-md: var(--r-lg); --surface-radius-lg: var(--r-lg);
   --surface-shadow-1: var(--elev-1); --surface-shadow-2: var(--elev-2); --surface-shadow-3: var(--elev-3);
@@ -98,26 +109,26 @@
 }
 /* R-189:亮色主题——在默认 dark 之上覆盖 token 值,引用点零改动。 */
 [data-theme="light"] {
-  /* 亮色:主区纯白,侧栏浅中性灰,卡片/浮层白底靠 1px 软边 + 柔阴影分层。 */
+  /* 亮色:主区纯白,侧栏浅中性灰,卡片/浮层白底靠 1px 软边 + 柔阴影分层。
+     别名 token(--alert、--dot-idle、--dot-run、--memory-flow 三个、--statusbar-fg 两个、--diff-add、--diff-del、
+     --log-gold、--arch-unindexed、--badge-alert、--line-1..4)只在 :root 定义一次,这里不得重给字面值——
+     重给就把「一种含义一种颜色」拆回两套。注释里别写星号紧跟斜杠:它会提前结束注释,把下一条声明吞掉。 */
   --bg: #ffffff; --panel: #ffffff; --panel2: #f2f2f2; --input: #ffffff;
   --surface-raised: #ffffff; --surface-overlay: #ffffff;
   --surface-hover: #00000009; --surface-selected: #0000000d;
   --border: #dcdcdc; --border-soft: #ebebeb; --border-strong: #c7c7c7;
   --fg: #2b2b2b; --fg-strong: #0d0d0d; --dim: #656565;
-  --accent: #c96a33; --accent-hover: #b45a26; --accent-soft: #c96a331a;
+  /* 强调色与暗色同一个填充值(品牌只有一个橙);文字值加深到白底 ≥ 5.9:1。 */
+  --accent: #d25e28; --accent-hover: #b84f1f; --accent-soft: #d25e281a;
   --accent-text: #a04b1a;
-  --memory-flow: #c98a66; --memory-flow-hot: #a04b1a; --memory-flow-dim: #d4d4d4;
   --ok: #1d7a3c; --err: #c62b2b; --warn: #8a5b00; --info: #2b64a4;
-  --alert: #8a5b00;
-  --danger: var(--err); --muted: var(--dim);
   --statusbar: #f7f7f7; --statusbar-run: #f4efeb;
-  --statusbar-fg: #656565; --statusbar-run-fg: #a04b1a;
   color-scheme: light;
   --chat-bg: #ffffff;
   --user-bubble: #f2f2f2; --user-bubble-border: #f2f2f2;
   --on-danger: #b42318;
   --badge-err: #fcebea; --badge-warn: #f8f0dd; --badge-info: #eaf1f9;
-  --badge-alert: #f8f0dd; --badge-ok: #e8f4ec;
+  --badge-ok: #e8f4ec;
   --badge-err-soft: #c62b2b1f; --badge-warn-soft: #8a5b001f; --badge-soft: #0000000d;
   --badge-ok-soft: #1d7a3c1f;
   --activitybar: #f7f7f7; --sidebar-bg: #f7f7f7; --scrollbar: #d4d4d4; --scrollbar-hover: #b0b0b0;
@@ -126,15 +137,13 @@
   --code-bg: #f7f7f7; --code-output-bg: #f7f7f7; --danger-btn: #fdeceb;
   --code-inline: #efefef; --bg-deep: #f5f5f5;
 
-  --diff-add: #1a7f37; --diff-del: #cf222e; --diff-repl: #8250df; --diff-str: #953800;
+  --diff-repl: #8250df; --diff-str: #953800;
   --diff-add-bg: #1a7f371a; --diff-del-bg: #cf222e14; --diff-empty-bg: #00000005; --diff-hover: #00000009;
   --on-accent: #ffffff;
   --primary-bg: #0d0d0d; --primary-fg: #ffffff; --primary-hover: #2f2f2f;
   --focus-ring: #7a7a7a;
   --syntax-comment: #6a737d; --syntax-string: #032f62; --syntax-number: #005cc5; --syntax-keyword: #d73a49;
-  --line-1: #1f6b96; --line-2: #9a6700; --line-3: #1a7f37; --line-4: #8250df;
-  --dot-idle: #1d7a3c; --dot-run: #c96a33;
-  --diff-line-number: #8c8c8c; --arch-unindexed: #8a5b00; --log-gold: #8a5b00;
+  --diff-line-number: #8c8c8c;
   /* 亮色的阴影不能照抄暗色的深黑:同样的值在浅底上是一块脏印子。 */
   --shadow: #0000001a; --shadow-strong: #00000024;
   --elev-1: 0 1px 2px #0000000d;
@@ -278,9 +287,9 @@ body {
 .queue-empty { color: var(--dim); font-size: var(--fs-11); padding: 2px 4px; }
 .queue-entry { background: var(--panel2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 6px 7px; display: flex; gap: 6px; align-items: flex-start; }
 .queue-entry .queue-prompt { flex: 1; min-width: 0; font-size: var(--fs-11-5); line-height: 1.35; white-space: pre-wrap; word-break: break-word; max-height: 48px; overflow: hidden; }
-.queue-entry .queue-delivery { color: var(--info); font: var(--fs-10) var(--mono); flex-shrink: 0; }
-.queue-entry .queue-cancel { color: var(--err); padding: 0 3px; font-size: var(--fs-11); background: transparent; flex-shrink: 0; }
-.queue-entry .queue-cancel:hover { color: var(--fg-strong); background: var(--danger-soft); }
+.queue-entry .queue-delivery { color: var(--dim); font: var(--fs-10) var(--mono); flex-shrink: 0; }
+.queue-entry .queue-cancel { color: var(--dim); padding: 0 3px; font-size: var(--fs-11); background: transparent; flex-shrink: 0; }
+.queue-entry .queue-cancel:hover { color: var(--err); background: var(--danger-soft); }
 .section-title em { font-style: normal; color: var(--dim); }
 .chat-select-all { font-size: var(--fs-10); color: var(--dim); cursor: pointer; margin-right: 3px; text-transform: none; letter-spacing: 0; }
 .icon-btn {
@@ -325,13 +334,9 @@ body {
 .project-shared-warn.hidden { display: none; }
 .doc-item { padding: 6px 16px; display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
 .doc-item:hover { background: var(--surface-hover); }
-/* 取活焦点(D-207):在做的高亮呼吸。排队顺序不由前端推断。 */
-.doc-item.agent-active {
-  border-left: 3px solid var(--ok);
-  padding-left: 11px;
-  background: color-mix(in srgb, var(--ok) 9%, transparent);
-}
-.doc-claim-fact { color: var(--ok); font-size: var(--fs-11); white-space: nowrap; }
+/* 取活焦点(D-207):在做条目不再染底、不画竖条——「在做」由 doing 胶囊(强调色)+ 线真在跑时的呼吸点
+   与批次当前格扫光表达(动效分区)。取得声明是归属事实,中性。 */
+.doc-claim-fact { color: var(--dim); font-size: var(--fs-11); white-space: nowrap; }
 /* 「各线当前在做」焦点卡片(UI-0926 #4 精简):卡面只留编号/状态/阻塞/优先级/⋯ + 两行标题
    (+ 多批次时的批次格、阻塞时一行原因);整卡可点直达详情,其余信息在标题的 tooltip 里。
    D-105:状态、阻塞用文字表达;焦点依据用左边框线型表达(实线 = 运行证据/取得线,虚线 = 推断),
@@ -352,9 +357,7 @@ body {
   background-image: linear-gradient(var(--surface-hover), var(--surface-hover));
 }
 .focus-card:has(.focus-open:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.line-focus.is-live .focus-card { border-left-color: var(--accent); }
 .focus-card.src-order, .focus-card.src-runtime-stale { border-left-style: dashed; }
-.focus-card.blocked { border-left-color: var(--warn); }
 .focus-head { display: flex; align-items: center; gap: 6px; min-height: 20px; }
 .focus-id { font-family: var(--mono); font-size: var(--fs-11); color: var(--dim); }
 .focus-head-spacer { flex: 1 1 auto; }
@@ -389,9 +392,10 @@ body {
 .backlog-kind { min-width: 2.6em; }
 .backlog-stat { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; }
 .backlog-num { font-family: inherit; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--fg-strong); }
-.backlog-stat.workable .backlog-num { color: var(--ok); }
+/* 可执行 = 中性(「能做」不是「做完」,绿色只给成功收尾);阻塞/非法非零才着色,零一律灰。 */
 .backlog-stat.blocked .backlog-num { color: var(--warn); }
 .backlog-stat.invalid .backlog-num { color: var(--err); }
+.backlog-stat.is-zero .backlog-num { color: var(--dim); font-weight: 500; }
 /* 排序 vs 拖拽:两件事挨在一条工具条上极易混,常显说明是三重冗余里的第一重
    (另两重是非手动排序下的锁提示与 draggable=false)。 */
 #documents-sort-note { flex-basis: 100%; font-size: var(--fs-11); }
@@ -448,7 +452,8 @@ body {
 }
 .file-suggestion:hover, .file-suggestion.active { background: var(--surface-selected); }
 .research-subtitle { font-size: var(--fs-11); color: var(--muted); margin: 6px 0 2px; }
-.ref-link { border: 0; background: transparent; color: var(--accent-text); cursor: pointer; padding: 0 2px; }
+.ref-link { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0 2px; text-decoration: underline dotted; text-underline-offset: 3px; text-decoration-color: var(--border-strong); }
+.ref-link:hover { color: var(--accent-text); text-decoration-color: currentColor; }
 .ref-highlight { outline: 1px solid var(--accent); border-radius: 4px; }
 /* 项目卡:一行一张太浪费横向空间,窄了又读不完路径。auto-fill + 360px 下限让它
    在宽屏自动排成两三列,窄屏退回单列,不需要断点。 */
@@ -486,12 +491,9 @@ body {
 }
 /* 填充色此前只在 `#req-list` 下定义:侧栏列表整体搬进单页后,#documents-req-list 里的
    已完成格会全是透明的——批次进度条看着永远是空的。按条目类名限定即可,与容器无关。 */
-.doc-item.pri-P0 .complexity-cell.filled, .focus-card.pri-P0 .complexity-cell.filled { background: var(--err); border-color: var(--err); }
-.doc-item.pri-P1 .complexity-cell.filled, .focus-card.pri-P1 .complexity-cell.filled { background: var(--warn); border-color: var(--warn); }
-.doc-item.pri-P2 .complexity-cell.filled, .focus-card.pri-P2 .complexity-cell.filled { background: var(--info); border-color: var(--info); }
-.doc-item.pri-P3 .complexity-cell.filled, .focus-card.pri-P3 .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
-.doc-item:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3) .complexity-cell.filled,
-.focus-card:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3) .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
+/* 批次格是进度不是状态:已完成格一律中性实心,不随优先级换色(旧版 P1 琥珀格 = 阻塞色,P2 蓝格)。
+   唯一的彩色是「线真在跑时的当前格」(强调色描边 + 扫光,动效分区)。 */
+.doc-item .complexity-cell.filled, .focus-card .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
 /* UI-0926 #4:工具栏只剩「页签分段 + 筛选(n) + 更多」一行,不再是一块 17 个控件的底板。 */
 .documents-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 14px 0 10px; }
 .documents-list { max-width: 980px; border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 0; }
@@ -499,7 +501,7 @@ body {
 /* 依赖视图(R-111):可做/被阻塞两层,点击条目高亮依赖链(向上依赖+向下被依赖)。 */
 .dep-view { max-width: 980px; display: flex; flex-direction: column; gap: 10px; }
 .dep-layer-head { font-size: var(--fs-12); margin: 6px 0 4px; font-weight: 600; }
-.dep-layer-head.ready { color: var(--ok); }
+.dep-layer-head.ready { color: var(--fg-strong); }
 .dep-layer-head.blocked { color: var(--warn); }
 .dep-layer { border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: 6px 0; }
 .dep-entry { display: flex; align-items: baseline; gap: 8px; padding: 6px 14px; cursor: pointer; border-radius: var(--r-sm); }
@@ -508,7 +510,7 @@ body {
 .dep-entry-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dep-meta { font-size: var(--fs-11); flex-shrink: 0; }
 .dep-entry.closed { opacity: .5; }
-.dep-entry.dep-lit { background: var(--panel2); outline: 1px solid var(--accent); }
+.dep-entry.dep-lit { background: var(--surface-selected); }
 .dep-entry:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .doc-row {
   display: flex; align-items: baseline; gap: 7px; width: 100%; min-width: 0;
@@ -527,7 +529,6 @@ body {
 #view-research .doc-item.closed { opacity: 1; }
 #finding-list .doc-item.closed .title,
 #view-research .doc-item.closed .title { text-decoration: none; }
-#finding-list .doc-item.closed { border-left: 2px solid var(--ok); padding-left: 12px; }
 /* 研究工件标题是长句(论文全名/结论一句话),截断成「A Survey of Agent Memory in
    the Secon...」等于看不见。研究侧改为换行显示,不省略。 */
 #source-list .doc-item .title,
@@ -537,21 +538,20 @@ body {
 .doc-open-src { flex: 0 0 auto; opacity: .55; padding: 0 4px; }
 .doc-item:hover .doc-open-src,
 .doc-open-src:focus-visible { opacity: 1; color: var(--accent-text); }
-.doc-item.external-blocked { border-left: 2px solid var(--warn); }
 .blocked-badge { color: var(--warn); background: var(--alert-soft); border: 0; border-radius: var(--r-pill); padding: 1px 7px; font-size: var(--fs-10); white-space: nowrap; }
-.clarify-badge { color: var(--accent-text); background: var(--accent-soft); border: 0; border-radius: var(--r-pill); padding: 1px 7px; font-size: var(--fs-10); white-space: nowrap; }
-.doc-archive-toggle { color: var(--ok); padding: 5px 14px; font-size: var(--fs-11); background: transparent; border: 0; width: 100%; text-align: left; cursor: pointer; }
+.clarify-badge { color: var(--warn); background: var(--alert-soft); border: 0; border-radius: var(--r-pill); padding: 1px 7px; font-size: var(--fs-10); white-space: nowrap; }
+.doc-archive-toggle { color: var(--dim); padding: 5px 14px; font-size: var(--fs-11); background: transparent; border: 0; width: 100%; text-align: left; cursor: pointer; }
 .doc-archive-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.doc-archive-list { border-left: 2px solid var(--ok); margin: 0 14px 5px; padding-left: 8px; }
-.archived-entry { color: var(--ok); font-size: var(--fs-11); padding: 3px 0; white-space: normal; overflow-wrap: anywhere; }
+.doc-archive-list { border-left: 2px solid var(--border-soft); margin: 0 14px 5px; padding-left: 8px; }
+.archived-entry { color: var(--dim); font-size: var(--fs-11); padding: 3px 0; white-space: normal; overflow-wrap: anywhere; }
 .test-entry { padding: 3px 14px; font-size: var(--fs-11); white-space: normal; overflow-wrap: anywhere; }
 .test-passed { color: var(--ok); }
 .test-failed { color: var(--danger); }
-.test-running { color: var(--accent); }
+.test-running { color: var(--accent-text); }
 /* R-130:测试→条目映射徽标——可点跳转的 R-/D- 条目号。 */
 .test-entry-refs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 .test-ref-chip {
-  font-family: var(--mono, monospace); font-size: var(--fs-10); color: var(--info);
+  font-family: var(--mono, monospace); font-size: var(--fs-10); color: var(--dim);
   background: transparent; border: 1px solid var(--border-soft); border-radius: var(--r-pill);
   padding: 0 6px; cursor: pointer;
 }
@@ -560,35 +560,15 @@ body {
 .worktree-entry { padding: 4px 14px; font-size: var(--fs-11); }
 .worktree-entry > div:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worktree-entry > div:last-child { display: flex; gap: 4px; margin-top: 4px; }
-.worktree-entry .worktree-merge { color: var(--ok); }
-/* 优先级色带:内缩圆角短条(不再通栏硬边框);ID 同色分层。 */
+/* 优先级只编码一次:行内胶囊。左侧色条与 ID 染色全部去掉(旧版同一信息画三遍:竖条 + ID + 胶囊)。 */
 .doc-item { position: relative; }
-.doc-item.pri-P0::before, .doc-item.pri-P1::before,
-.doc-item.pri-P2::before, .doc-item.pri-P3::before {
-  content: ""; position: absolute; left: 4px; top: 5px; bottom: 5px;
-  width: 3px; border-radius: 2px;
-}
-.doc-item.pri-P0::before { background: var(--err); }
-.doc-item.pri-P0 .id { color: var(--err); }
-.doc-item.pri-P1::before { background: var(--alert, var(--warn)); }
-.doc-item.pri-P1 .id { color: var(--alert, var(--warn)); }
-.doc-item.pri-P2::before { background: var(--info); opacity: .8; }
-.doc-item.pri-P3::before { background: var(--border); }
 .pri-badge { font-size: var(--fs-10); border-radius: var(--r-pill); padding: 0 6px; flex-shrink: 0; font-family: inherit; font-weight: 600; border: 0; cursor: pointer; }
-/* 色条统一宽度；复杂度已有独立文字，不再重复编码到粗细上。 */
-.doc-item.cx-s::before, .doc-item.cx-m::before, .doc-item.cx-l::before {
-  content: ""; position: absolute; left: 4px; top: 5px; bottom: 5px; border-radius: 2px;
-}
-.doc-item.cx-s::before, .doc-item.cx-m::before, .doc-item.cx-l::before { width: 3px; }
-/* 无优先级时竖线的缺省色(放最后会盖掉优先级色,故用 :not 收窄) */
-.doc-item[class*="cx-"]:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3)::before {
-  background: var(--border);
-}
+/* P0 = 红(紧急,与「失败」同属「立刻处理」);P1/P2 中性,靠亮度与字重分层;P3/未定只描边。
+   胶囊底用半透明 --badge-soft:焦点卡本身是 --panel2 底,不透明 panel2 会让胶囊消失。 */
 .pri-badge.P0 { background: var(--badge-err); color: var(--err); }
-.pri-badge.P1 { background: var(--badge-warn); color: var(--alert); }
-.pri-badge.P2 { background: var(--badge-info); color: var(--info); }
-.pri-badge.P3 { background: var(--panel2); color: var(--dim); }
-.pri-badge.unset { background: var(--panel2); color: var(--dim); }
+.pri-badge.P1 { background: var(--badge-soft); color: var(--fg-strong); }
+.pri-badge.P2 { background: var(--badge-soft); color: var(--dim); }
+.pri-badge.P3, .pri-badge.unset { background: transparent; color: var(--dim); box-shadow: inset 0 0 0 1px var(--border); }
 /* brightness(1.3) 在亮色下会把徽标漂白;改成同色细描边。 */
 .pri-badge:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent); }
 
@@ -629,29 +609,26 @@ body {
 .lines-section-head > span { font-size: var(--fs-11); }
 .lines-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
 .line-lane {
-  --line-color: var(--accent-text); min-width: 0; padding: 22px 24px 18px;
+  min-width: 0; padding: 22px 24px 18px;
   border-bottom: 1px solid var(--border); border-left: 3px solid transparent;
   transition: background .16s ease, border-color .16s ease;
 }
 .line-lane + .line-lane { border-right: 0; }
 .line-lane:hover { background: var(--hover-wash); }
 .line-lane.active { background: var(--surface-selected); border-left-color: transparent; }
-.line-accent-0 { --line-color: var(--accent-text); }
-.line-accent-1 { --line-color: var(--line-1); }
-.line-accent-2 { --line-color: var(--line-2); }
-.line-accent-3 { --line-color: var(--line-3); }
-.line-accent-4 { --line-color: var(--line-4); }
 .line-lane-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .line-identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .line-agent-code {
   width: 26px; height: 26px; display: grid; place-items: center; flex-shrink: 0;
-  border: 1px solid var(--line-color); color: var(--line-color); font: 600 var(--fs-12) var(--mono);
+  border: 1px solid var(--border-strong); color: var(--fg-strong); font: 600 var(--fs-12) var(--mono);
 }
 .line-identity h3 { color: var(--fg-strong); font-size: var(--fs-13); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line-identity code { display: block; margin-top: 2px; color: var(--dim); font-size: var(--fs-9-5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line-running-state { position: relative; padding-left: 11px; color: var(--dim); font-size: var(--fs-10); white-space: nowrap; }
 .line-running-state::before { content: ""; position: absolute; left: 0; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .line-running-state.running { color: var(--accent-text); }
+/* 线路身份不用色(M/A/B 字母即身份);只有真在跑的线把代号框点亮为强调色。 */
+.line-lane:has(.line-running-state.running) .line-agent-code { border-color: var(--accent); color: var(--accent-text); }
 .line-running-state.suspected-stuck { color: var(--warn); }
 .line-running-state.failed { color: var(--err); }
 .line-running-state.completed { color: var(--ok); }
@@ -806,8 +783,9 @@ body {
    颜色由 JS 写 data-mode,真源仍是选择器自己的 value。 */
 .ctx-select.ctx-mode { min-width: 92px; }
 .ctx-select.ctx-mode[data-mode="dev-pair"] { color: var(--fg); background: var(--surface-hover); }
-.ctx-select.ctx-mode[data-mode="dev-auto"] { background: var(--alert-soft); color: var(--alert); }
-.ctx-select.ctx-mode[data-mode="research"] { background: var(--badge-info); color: var(--info); }
+/* 自主推进 = 强调色文字、无底(Codex「完全访问」同款:引擎自己在推进 = 进行中家族);研究与结伴中性。 */
+.ctx-select.ctx-mode[data-mode="dev-auto"] { background: transparent; color: var(--accent-text); }
+.ctx-select.ctx-mode[data-mode="research"] { color: var(--fg); background: var(--surface-hover); }
 #process-phase-pipeline-wrap, #process-tracker-writes-wrap { font-size: var(--fs-11); color: var(--dim); display: flex; gap: 4px; align-items: center; }
 #process-tracker-writes-wrap.hidden { display: none; }
 /* 「任务设置」「更多」触发器(原 details>summary):低调文字按钮,展开态与悬停同为中性高亮。
@@ -895,7 +873,7 @@ select {
 #chat-search input { width: 130px; padding: 3px 6px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-11); }
 #chat-search-count { color: var(--dim); font-size: var(--fs-11); min-width: 34px; text-align: center; }
 .search-hit { outline: 1px solid var(--accent-hover); background: color-mix(in srgb, var(--accent) 22%, transparent); }
-.search-current { outline-color: var(--warn); }
+.search-current { outline: 2px solid var(--accent-text); }
 /* 空态是一幅完整构图：操作提示与 OC 并排，窄主区自动收为单列。 */
 .empty-state {
   flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
@@ -924,7 +902,7 @@ select {
 .oc-figure[data-oc-locked="false"] { pointer-events: auto; touch-action: none; user-select: none; cursor: grab; z-index: var(--z-raised); }
 .oc-figure.oc-adjusting { cursor: grabbing; z-index: var(--z-panel); }
 .oc-figure:focus-visible { outline: 1px dashed var(--focus-ring); outline-offset: 4px; border-radius: var(--r-xs); }
-.oc-resize { position: absolute; right: 0; bottom: 2px; width: 24px; height: 24px; padding: 3px; color: var(--accent-text); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-sm); cursor: nwse-resize; opacity: 0; transition: opacity 120ms; }
+.oc-resize { position: absolute; right: 0; bottom: 2px; width: 24px; height: 24px; padding: 3px; color: var(--dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-sm); cursor: nwse-resize; opacity: 0; transition: opacity 120ms; }
 .oc-resize svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; pointer-events: none; }
 .oc-figure[data-oc-locked="false"]:is(:hover, :focus-within, .oc-adjusting) .oc-resize { opacity: 1; }
 .oc-figure[data-oc-locked="true"] .oc-resize { visibility: hidden; pointer-events: none; }
@@ -1055,9 +1033,9 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 }
 .tool-chip .head { color: var(--fg); word-break: break-all; }
 .tool-chip .result { color: var(--dim); white-space: pre-wrap; word-break: break-all; }
-.tool-chip.ok .head::before { content: "✓ "; color: var(--ok); }
+.tool-chip.ok .head::before { content: "✓ "; color: var(--dim); }
 .tool-chip.err .head::before { content: "✗ "; color: var(--err); }
-.tool-chip.running .head::before { content: "● "; color: var(--warn); }
+.tool-chip.running .head::before { content: "● "; color: var(--accent); }
 .msg.error {
   color: var(--err); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--err) 30%, transparent);
   border-radius: var(--r-lg); padding: 10px 14px; max-width: 92%; white-space: pre-wrap; word-break: break-word;
@@ -1360,7 +1338,7 @@ button:disabled { opacity: .45; cursor: default; }
 #bg-section-running .bg-section-title { position: sticky; top: -8px; z-index: var(--z-base); background: var(--surface-overlay); }
 button.bg-section-toggle { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-#bg-section-attention .bg-section-title { color: var(--err); border-top-color: var(--err); }
+#bg-section-attention .bg-section-title { color: var(--warn); border-top-color: var(--warn); }
 .bg-empty { color: var(--dim); font-size: var(--fs-11); padding: 2px 2px 4px; }
 /* R-174 → UI-0926 #8:子代理侧栏——与活动面板同族的右侧抽屉,改为全高(顶部 --sp-4 到状态栏上方)。
    外观归 .k-surface.k-panel;这里只写位置与尺寸。列表/详情两种模式的内容样式在「分区:子代理」。 */
@@ -1445,8 +1423,8 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .bg-entry .bg-title:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .bg-entry .bg-prog { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bg-entry .bg-meta { color: var(--dim); font-size: var(--fs-10-5); }
-.bg-entry.running .bg-title::before { content: "● "; color: var(--warn); }
-.bg-entry.ok .bg-title::before { content: "✓ "; color: var(--ok); }
+.bg-entry.running .bg-title::before { content: "● "; color: var(--accent); }
+.bg-entry.ok .bg-title::before { content: "✓ "; color: var(--dim); }
 .bg-entry.noop .bg-title::before { content: "↪ "; color: var(--dim); }
 .bg-entry.warn .bg-title::before { content: "⚠ "; color: var(--warn); }
 .bg-entry.err .bg-title::before { content: "✗ "; color: var(--err); }
@@ -1474,7 +1452,6 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .bg-entry .bg-current { font-size: var(--fs-10-5); color: var(--accent-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bg-entry .bg-current.idle { color: var(--dim); }
 /* 超时与失败必须分得开:超时是被屏障砍掉、什么都没产出,不是"跑了但报错"。 */
-.bg-entry.timeout { border-left-color: var(--warn); }
 .bg-entry.timeout .bg-title::before { content: "⏱ "; color: var(--warn); }
 .bg-filters { display: flex; gap: 6px; padding: 0 10px 6px; }
 .bg-filters .doc-filter { flex: 1; min-width: 0; height: 24px; font-size: var(--fs-11); }
@@ -1527,9 +1504,8 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 /* R-124:待确认候选 */
 .memory-candidates { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto; }
 .memory-candidate { background: var(--panel2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 6px 8px; }
-.memory-candidate.sop { border-left: 2px solid var(--info); }
 .memory-candidate-head { display: flex; gap: 6px; align-items: baseline; font-size: var(--fs-11-5); }
-.memory-candidate-hint { font-family: var(--mono); font-size: var(--fs-10); color: var(--info); flex-shrink: 0; }
+.memory-candidate-hint { font-family: var(--mono); font-size: var(--fs-10); color: var(--dim); flex-shrink: 0; }
 .memory-candidate-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-candidate-detail { font-size: var(--fs-10-5); margin: 4px 0; max-height: 120px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 .memory-candidate-actions { display: flex; gap: 6px; justify-content: flex-end; }
@@ -1553,14 +1529,13 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .memory-row.dormant { opacity: .68; }
 .memory-dormant-flag { font-style: normal; color: var(--warn); }
 /* R-150:零采纳候选(召回≥3 采纳=0)——语义显著但决策无关 */
-.memory-row.zero-read { border-left: 2px solid var(--warn); }
 .memory-zero-read-flag { font-style: normal; color: var(--warn); }
 .memory-flags-head { font-size: var(--fs-11); color: var(--dim); margin: 8px 0 2px; }
 .memory-flag-row { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: baseline; width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--border-soft); padding: 3px 0; font-size: var(--fs-11-5); cursor: pointer; }
 .memory-flag-row:hover .memory-row-title { color: var(--fg-strong); }
 .memory-flag-row .memory-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-flag-row.zero-read .memory-row-id { color: var(--warn); }
-.memory-flag-row.recurring .memory-row-id { color: var(--info); }
+.memory-flag-row.recurring .memory-row-id { color: var(--dim); }
 .memory-profile { font-size: var(--fs-11); margin-bottom: 4px; }
 button.ghost.danger { color: var(--err); }
 button.ghost.danger:hover { background: var(--danger-soft); }
@@ -1569,7 +1544,7 @@ button.ghost.danger:hover { background: var(--danger-soft); }
 .bg-child { margin: 3px 0 0 8px; padding: 4px 6px; border-left: 2px solid var(--border); background: var(--panel); font-size: var(--fs-10-5); }
 .bg-child-head { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bg-child-meta { color: var(--dim); margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
-.bg-child.ok { border-left-color: var(--ok); }
+.bg-child.ok { border-left-color: var(--border); }
 .bg-child.noop { border-left-color: var(--dim); }
 .bg-child.warn { border-left-color: var(--warn); }
 .bg-child.err { border-left-color: var(--err); }
@@ -1587,7 +1562,7 @@ button.ghost.danger:hover { background: var(--danger-soft); }
 }
 #ctx-bar.hidden { display: none; }
 #ctx-bar-fill {
-  display: block; height: 100%; width: 0; background: var(--info);
+  display: block; height: 100%; width: 0; background: var(--dim);
   transition: width .3s ease; border-radius: var(--r-pill);
 }
 #ctx-bar.warn #ctx-bar-fill { background: var(--warn); }
@@ -1683,9 +1658,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   border: 1px solid var(--border-soft); border-left: 3px solid var(--border);
   border-radius: var(--r-md); padding: 6px 8px; background: var(--panel2);
 }
-.work-unit-card.active, .work-unit-card.verifying { border-left-color: var(--accent); }
-.work-unit-card.blocked { border-left-color: var(--alert); }
-.work-unit-card.done { border-left-color: var(--ok); opacity: .82; }
+.work-unit-card.done { opacity: .82; }
 .work-unit-head { display: flex; justify-content: space-between; gap: 8px; color: var(--dim); }
 .work-unit-status { font-size: var(--fs-10); text-transform: uppercase; letter-spacing: .04em; }
 .work-unit-objective { margin-top: 3px; color: var(--fg); }
@@ -1755,7 +1728,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 #auto-continue-wrap:has(input:checked) {
   background: var(--surface-selected); border-color: var(--border-strong); color: var(--fg-strong);
 }
-#auto-continue-wrap:has(input:checked)::before { content: "●"; color: var(--ok); }
+#auto-continue-wrap:has(input:checked)::before { content: "●"; color: var(--accent); }
 /* 自动放行是有风险的闸门:菜单行里开启时整行染色,一眼看得出它开着。 */
 #auto-allow-wrap:has(input:checked) { background: var(--badge-warn); color: var(--fg-strong); }
 #auto-allow-wrap:has(input:checked) .menu-row-title { color: var(--alert); }
@@ -1835,12 +1808,12 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .dl.del { background: var(--diff-del-bg); color: var(--diff-del); }
 .dl.ctx { color: var(--dim); }
 .diff-stat { color: var(--dim); font-size: var(--fs-11); margin-left: 8px; }
-.tool-chip.ok .diff-stat { color: var(--ok); }
+.tool-chip.ok .diff-stat { color: var(--dim); }
 #status-git { opacity: .85; }
 /* R-223:「自动放行」常驻警示徽标——警示色,提示"权限门禁已松开且会记住"。 */
 #status-auto-allow {
-  color: var(--log-gold);
-  border: 1px solid color-mix(in srgb, var(--log-gold) 50%, transparent);
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
   border-radius: var(--r-pill);
   padding: 0 8px;
   margin-left: 8px;
@@ -1967,16 +1940,15 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .memory-row:focus-visible { outline: 1px solid var(--focus-ring); }
 .memory-row.selected { border-color: var(--border-soft); background: var(--surface-selected); box-shadow: none; }
 .memory-row.stale { opacity: 0.62; }
-.memory-row.sop { border-left: 3px solid var(--info); }
 .memory-row-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .memory-row-title { font-weight: 600; color: var(--fg-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-status-badge { flex-shrink: 0; margin-left: auto; padding: 1px 5px; border: 1px solid var(--border-soft); border-radius: var(--r-pill); font-size: var(--fs-10); color: var(--dim); }
-.memory-status-badge.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, var(--border)); }
+.memory-status-badge.active { color: var(--dim); }
 .memory-status-badge.stale { color: var(--warn); }
 .memory-row-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.45; }
 .memory-row-cat.sop {
   align-self: flex-start; font-style: normal; font-size: var(--fs-9-5); letter-spacing: 0.5px;
-  color: var(--info); border: 1px solid currentColor; border-radius: var(--r-pill); padding: 0 5px;
+  color: var(--dim); border: 1px solid currentColor; border-radius: var(--r-pill); padding: 0 5px;
 }
 .memory-row-id { font-family: var(--mono, monospace); color: var(--dim); flex-shrink: 0; }
 .memory-sop-step { border-left: 2px solid var(--border-soft); padding-left: 8px; margin: 2px 0; }
@@ -2101,7 +2073,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 }
 .memory-bill-bar {
   position: absolute; left: 0; bottom: 0; height: 2px;
-  background: var(--accent); opacity: 0.7;
+  background: var(--dim); opacity: 0.7;
 }
 .memory-bill-name { font-family: var(--mono, monospace); }
 .memory-episodes { display: flex; flex-direction: column; gap: 6px; padding-bottom: 40px; }
@@ -2156,7 +2128,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   content: ""; position: absolute; left: 0; bottom: 0; height: 2px;
   width: var(--auto-progress, 0%); background: var(--accent); transition: width .2s;
 }
-.autorun-bar[data-phase="pending"] .auto-phase { color: var(--warn); }
+.autorun-bar[data-phase="pending"] .auto-phase { color: var(--accent-text); }
 .auto-reason {
   display: inline-flex; align-items: center; max-width: 44ch; padding: 1px 8px; border-radius: var(--r-pill);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2219,10 +2191,6 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 /* 同一轮内部的轨迹压紧;下一轮用户消息再恢复明确的呼吸区。 */
 .msg.user:not(:first-child) { margin-top: 36px; }
 
-/* R-184 P2:子代理角色色点(活动面板轨迹)。颜色来自
-   line-accent-* 的 --line-color;色点旁必有角色名文本,颜色不作唯一区分。 */
-.bg-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-color, var(--dim)); flex-shrink: 0; align-self: center; }
-
 /* UI-0926 #6:工具行整行改比例字体;只有工具名与代码记号(路径/命令/正则,.is-code 与
    .tool-sum-code)用等宽——此前整行 mono,人话摘要读起来像日志。 */
 .tool-msg-head {
@@ -2236,7 +2204,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .tool-msg-head:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
 .tool-msg-status { width: 12px; flex: none; }
 .tool-msg.running .tool-msg-status { color: var(--accent-text); }
-.tool-msg.ok .tool-msg-status { color: var(--ok); }
+.tool-msg.ok .tool-msg-status { color: var(--dim); }
 .tool-msg.noop .tool-msg-status { color: var(--dim); }
 .tool-msg.warn .tool-msg-status { color: var(--warn); }
 .tool-msg.err .tool-msg-status { color: var(--err); }
@@ -2359,7 +2327,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   font-size: var(--fs-11); font-weight: 600; color: var(--fg-strong);
   margin: 10px 6px 4px; letter-spacing: 0.02em;
 }
-.arch-group-head.unindexed { color: var(--arch-unindexed); }
+.arch-group-head.unindexed { color: var(--warn); }
 .arch-entry {
   display: flex; flex-direction: column; gap: 1px;
   padding: 6px 8px; margin: 2px 0; font-size: var(--fs-12); line-height: 1.4;
@@ -2403,7 +2371,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .worktree-readonly .worktree-entry { display: flex; flex-direction: column; gap: 1px; padding: 3px 14px; }
 .worktree-readonly .worktree-branch { color: var(--fg); font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worktree-readonly .worktree-meta { color: var(--dim); font-size: var(--fs-10-5); }
-.worktree-readonly .worktree-entry.dirty .worktree-meta { color: var(--warn); }
+.worktree-readonly .worktree-entry.dirty .worktree-meta { color: var(--fg); }
 /* 线路页的工作树操作台:一行一棵,右侧放操作。 */
 .lines-worktree-list { display: flex; flex-direction: column; gap: 6px; }
 .lines-worktree-row {
@@ -2517,11 +2485,11 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .research-card-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
 .research-card-id { font-family: var(--mono); font-size: var(--fs-11); color: var(--muted); }
 .research-badge { font-size: var(--fs-11); padding: 1px 7px; border-radius: var(--r-pill); background: var(--panel2); color: var(--dim); }
-/* V 等级是可信度分层,给固定色阶:推测灰 → 二手蓝 → 一手绿 → 交叉验证金。 */
+/* V 等级是可信度分层:推测/二手中性(灰 → 亮),一手/交叉验证 = 已证实(绿;V3 加描边)。金色是「注意」,不能表示「最可信」。 */
 .v-badge.v-v0 { background: var(--panel2); color: var(--muted); }
-.v-badge.v-v1 { background: color-mix(in srgb, var(--info) 20%, transparent); color: var(--info); }
+.v-badge.v-v1 { background: var(--panel2); color: var(--fg); }
 .v-badge.v-v2 { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); }
-.v-badge.v-v3 { background: color-mix(in srgb, var(--warn) 26%, transparent); color: var(--warn); }
+.v-badge.v-v3 { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
 /* 标题给全:研究工件的标题是论文全名或一句话结论,截断等于看不见。 */
 .research-card-title { color: var(--fg-strong); line-height: 1.5; margin-bottom: 4px; }
 .research-card-gist { color: var(--dim); font-size: var(--fs-12); line-height: 1.55; margin-bottom: 6px; }
@@ -2556,11 +2524,11 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .research-roadmap-canvas { overflow-x: auto; margin-top: 8px; }
 #research-roadmap-graph { display: block; min-width: 640px; width: 100%; height: auto; color: var(--dim); }
 .research-roadmap-edge { stroke: var(--border); stroke-width: 1.5; }
-.research-roadmap-edge.edge-supersedes { stroke: var(--accent); stroke-dasharray: 5 4; }
+.research-roadmap-edge.edge-supersedes { stroke: var(--dim); stroke-dasharray: 5 4; }
 .research-roadmap-node { cursor: pointer; outline: none; }
 .research-roadmap-node rect { fill: var(--panel); stroke: var(--border); stroke-width: 1.2; }
 .research-roadmap-node:hover rect, .research-roadmap-node:focus rect { stroke: var(--fg-strong); stroke-width: 2; }
-.research-roadmap-node.node-running rect { stroke: var(--info); }
+.research-roadmap-node.node-running rect { stroke: var(--accent); }
 .research-roadmap-node.node-done rect { stroke: var(--ok); }
 .research-roadmap-node.node-abandoned rect { stroke: var(--muted); opacity: .75; }
 .research-roadmap-node-id { fill: var(--muted); font: var(--fs-10) var(--mono); }
@@ -2627,13 +2595,13 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .research-context-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 22px 28px 18px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
 .research-context-head h1 { font-size: var(--fs-20); line-height: 1.35; margin: 4px 0 0; overflow-wrap: anywhere; }
 .research-context-head p { margin: 0; font-size: var(--fs-11); overflow-wrap: anywhere; }
-.research-load-error { margin: 12px 28px; color: var(--warn); }
+.research-load-error { margin: 12px 28px; color: var(--err); }
 .research-overview { padding: 28px; overflow: auto; flex: 1; max-width: 920px; }
 .research-overview h2 { margin: 0 0 12px; font-size: var(--fs-25); }
 .research-overview-list { margin: 28px 0; border-top: 1px solid var(--border-soft); }
 .research-overview-list button { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; text-align: left; padding: 19px 0; background: none; border: 0; border-bottom: 1px solid var(--border-soft); font: inherit; color: var(--fg); cursor: pointer; }
 .research-overview-list button span { color: var(--muted); text-align: right; }
-.research-overview-list button:hover strong { color: var(--accent-text); }
+.research-overview-list button:hover strong { color: var(--fg-strong); text-decoration: underline; text-underline-offset: 3px; }
 .research-workspace > .research-overview, .research-workspace > .research-side, .research-workspace > .research-main { display: none; }
 .research-workspace[data-page="overview"] > .research-overview { display: block; }
 .research-auto-panel { margin: 24px 0; padding: 20px 0; border-top: 1px solid var(--border); }
@@ -2705,9 +2673,9 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
   flex: 0 0 auto; padding: 0 6px; border-radius: var(--r-pill);
   font-size: var(--fs-10-5); line-height: 16px; background: var(--panel2); color: var(--dim);
 }
-.picker-source[data-source="line"] { background: var(--accent-soft); color: var(--accent-text); }
-.picker-source[data-source="project"], .pm-state[data-state="override"] { background: var(--badge-info); color: var(--info); }
-.picker-fast { flex: 0 0 auto; color: var(--warn); font-size: var(--fs-11); }
+/* 来源标签是配置事实不是状态:全中性,「临时」(偏离默认)用更亮的字区分,文字本身说清来源。 */
+.picker-source[data-source="line"], .pm-state[data-state="override"] { background: var(--badge-soft); color: var(--fg-strong); }
+.picker-fast { flex: 0 0 auto; color: var(--dim); font-size: var(--fs-11); }
 .picker-btn.is-pending .picker-label { color: var(--dim); }
 .picker-btn.is-error, .picker-btn.is-error .picker-label { color: var(--err); }
 @media (max-width: 1024px) { .picker-btn { max-width: 170px; } #reasoning-picker { max-width: 120px; } }
@@ -2744,6 +2712,9 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
 /* UI-0926 #5 配色:发送键 = 32px 单色圆形图标按钮(Codex 式);停止/语音与它同高,收成胶囊。
    读屏名称来自 sr-only 的「发送」与 03-shell.js setRunning 写入的 aria-label(都走 t())。 */
 #send { width: 32px; height: 32px; padding: 0; border-radius: var(--r-pill); display: inline-grid; place-items: center; flex-shrink: 0; }
+/* 发送键 = Codex 橙填充 + 白色箭头(品牌主动作);禁用态回落 button.primary 的中性禁用样式。 */
+#send:not(:disabled) { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+#send:not(:disabled):hover { background: var(--accent-hover); }
 #send svg { width: 16px; height: 16px; display: block; }
 #stop, #voice-toggle { height: 32px; padding: 0 14px; border-radius: var(--r-pill); }
 .msg.md a:hover { text-decoration-color: currentColor; }
@@ -2751,10 +2722,6 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
    :where() 特异性为 0,任何组件自己的 :focus 规则都压得过它。 */
 :where(button, summary, [role="button"]):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 :where(input, textarea, select):focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
-/* 运行态统一用强调色(原先绿/琥珀混用)。下面两条的原规则行同时带着动效声明(归动效分区),
-   颜色在这里覆盖,免得两边改同一行;合并后可就地并回原行。 */
-.tool-chip.running .head::before, .bg-entry.running .bg-title::before { color: var(--accent); }
-.doc-item.agent-active { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 
 /* ===== 分区:工具行与结构化渲染 ===== */
 /* UI-0926 #6:⎿ 摘要里的分段(05-tool-summary.js renderToolSummary)。只用 token,不用 opacity。 */
@@ -2776,9 +2743,9 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
 button.sv-chip { cursor: pointer; }
 button.sv-chip:hover { border-color: var(--border-strong); background: var(--surface-hover); }
 button.sv-chip:focus-visible, .sv-linklike:focus-visible, .sv-search-title:focus-visible, .sv-test-head:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 1px; }
-.sv-chip.sv-ref { font-family: var(--mono); font-size: var(--fs-11); color: var(--accent-text); }
+.sv-chip.sv-ref { font-family: var(--mono); font-size: var(--fs-11); color: var(--fg); }
 .sv-chip.sv-ref.is-static { color: var(--dim); }
-.sv-chip.sv-path { font-family: var(--mono); font-size: var(--fs-11); background: var(--code-inline); border-color: transparent; color: var(--accent-text); }
+.sv-chip.sv-path { font-family: var(--mono); font-size: var(--fs-11); background: var(--code-inline); border-color: transparent; color: var(--fg); }
 .sv-chip.sv-url { color: var(--accent-text); }
 .sv-chip.sv-code { margin: 2px 0; font-family: var(--mono); font-size: var(--fs-11); color: var(--warn); }
 .sv-rich { overflow-wrap: anywhere; }
@@ -2892,7 +2859,7 @@ button.sv-chip:focus-visible, .sv-linklike:focus-visible, .sv-search-title:focus
 .md-quote { margin: 6px 0; padding: 2px 10px; border-left: 3px solid var(--border-strong); color: var(--dim); }
 .md-task { margin-right: 2px; color: var(--dim); font-family: var(--sans); }
 .md-task-item { list-style: none; }
-a.md-path { cursor: pointer; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
+a.md-path { cursor: pointer; color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 .md hr, .sv-md hr { margin: 10px 0; border: 0; border-top: 1px solid var(--border-soft); }
 
 /* tracker 字段只读视图 */
@@ -2960,7 +2927,7 @@ a.md-path { cursor: pointer; color: var(--accent-text); text-decoration: underli
 #documents-filter-count {
   min-width: 16px; padding: 0 5px; border-radius: var(--r-pill); text-align: center;
   font-style: normal; font-size: var(--fs-10-5); font-variant-numeric: tabular-nums;
-  background: var(--accent-soft); color: var(--accent-text);
+  background: var(--badge-soft); color: var(--fg-strong);
 }
 #documents-filter-count:empty { display: none; }
 .documents-filter-panel { width: min(340px, calc(100vw - 32px)); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -3039,14 +3006,16 @@ html[lang="en"] .documents-list .doc-row .complexity-badge { flex-basis: 46px; }
 @keyframes kz-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-2px); } 40% { transform: translateX(2px); } 60% { transform: translateX(-1.5px); } 80% { transform: translateX(1px); } }
 @keyframes kz-tick { from { transform: translateY(45%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 /* 原语:CSS 画的点(可带扩散环) / 文本字形(只呼吸;字形文本保留给冒烟与视觉,对读屏隐藏——状态由相邻文案表达)。
-   data-state = idle | running | waiting | pending | stopping | done | failed。第二波的运行态字形复用它们:
+   data-state = idle | running | waiting | pending | stopping | attention | done | failed。
+   颜色:idle/stopping 灰 · running/waiting/pending 强调色(pending = 待续跑,慢呼吸)· attention 琥珀(等你批准/回答)· done 绿 · failed 红。第二波的运行态字形复用它们:
    .kz-glyph 要 aria-hidden 且旁边配一段可读文案;.kz-dot 的扩散环画在 ::after 上,自身与祖先都不能 overflow:hidden。 */
 .kz-dot { position: relative; display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .kz-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; }
-.kz-dot[data-state="idle"], .kz-dot[data-state="done"] { background: var(--dot-idle); }
+.kz-dot[data-state="idle"], .kz-dot[data-state="stopping"] { background: var(--dot-idle); }
+.kz-dot[data-state="done"] { background: var(--ok); }
 .kz-dot[data-state="failed"] { background: var(--err); }
-.kz-dot[data-state="running"], .kz-dot[data-state="waiting"] { background: var(--dot-run); }
-.kz-dot[data-state="pending"], .kz-dot[data-state="stopping"] { background: var(--warn); }
+.kz-dot[data-state="running"], .kz-dot[data-state="waiting"], .kz-dot[data-state="pending"] { background: var(--dot-run); }
+.kz-dot[data-state="attention"] { background: var(--warn); animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
 .kz-dot[data-state="running"]::after { animation: kz-ring var(--motion-loop) var(--ease-out) infinite; animation-delay: var(--kz-sync, 0ms); }
 .kz-dot[data-state="waiting"] { animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
 .kz-dot[data-state="pending"] { animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
@@ -3057,8 +3026,9 @@ html[lang="en"] .documents-list .doc-row .complexity-badge { flex-basis: 46px; }
 .kz-glyph[data-state="failed"] { color: var(--err); }
 .kz-glyph[data-state="running"] { color: var(--dot-run); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
 .kz-glyph[data-state="waiting"] { color: var(--dot-run); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
-.kz-glyph[data-state="pending"] { color: var(--warn); animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
-.kz-glyph[data-state="stopping"] { color: var(--warn); animation: kz-breathe var(--motion-loop-fast) var(--ease-in-out) infinite; }
+.kz-glyph[data-state="pending"] { color: var(--accent-text); animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.kz-glyph[data-state="attention"] { color: var(--warn); animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.kz-glyph[data-state="stopping"] { color: var(--dim); animation: kz-breathe var(--motion-loop-fast) var(--ease-in-out) infinite; }
 /* 一次性:只由 motionOnce 在状态真正跳变时挂上、定时摘除;历史回放不经过这些调用点。 */
 .kz-pop { animation: kz-pop var(--motion-base) var(--ease-spring) 1; }
 .kz-shake { animation: kz-shake var(--motion-slow) var(--ease-out) 1; }
@@ -3077,7 +3047,6 @@ html[lang="en"] .documents-list .doc-row .complexity-badge { flex-basis: 46px; }
 #turn-activity { flex: none; display: flex; align-items: center; gap: 8px; width: calc(100% - 48px); max-width: 1080px; min-height: 20px; margin: 0 auto 6px; padding: 0 22px; color: var(--dim); font-size: var(--fs-12); }
 .turn-activity-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .turn-activity-elapsed { flex: none; font-family: var(--mono); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
-#turn-activity:is([data-phase="pending"], [data-phase="stopping"]) .turn-activity-label { color: var(--warn); }
 #turn-activity:is([data-phase="waiting"], [data-phase="thinking"], [data-phase="generating"], [data-phase="tool"], [data-phase="working"]) .turn-activity-label,
 html[data-kz-activity="running"] .reasoning-head.is-live {
   background-image: linear-gradient(90deg, var(--shimmer-base) 0 40%, var(--shimmer-hot) 50%, var(--shimmer-base) 60% 100%);
@@ -3113,12 +3082,12 @@ html[data-kz-activity="running"] .doc-item.agent-active :is(.st-doing, .st-fixin
 .workspace-status.running::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
 html[data-kz-activity="running"] .ctx-project::after { animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
 /* 鞭挞控制台:推进中不定进度扫光,等下一轮慢呼吸;「待命」保持静止。 */
-.autorun-bar[data-phase="running"] .auto-progress::after { width: 40%; background: linear-gradient(90deg, transparent, var(--warn), transparent); animation: kz-sweep var(--motion-loop) var(--ease-in-out) infinite; }
+.autorun-bar[data-phase="running"] .auto-progress::after { width: 40%; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: kz-sweep var(--motion-loop) var(--ease-in-out) infinite; }
 .autorun-bar[data-phase="running"] #auto-continue-wrap::before { animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
 .autorun-bar[data-phase="pending"] .auto-phase { display: inline-block; animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
 /* 等用户:收起的提问 / 研究待选方向 —— 慢呼吸。收起的提问胶囊是弹层宿主,外观(边框/圆角/定位)归弹层组
    的 surface.css;这里只用文本字形(.kz-glyph 同款:字形 + 颜色 + 呼吸),不碰宿主外观。读屏读 aria-label,不读它。 */
-#ask-reopen::before { content: "●"; display: inline-block; margin-right: 6px; color: var(--accent); font-size: var(--fs-10); vertical-align: 1px; }
+#ask-reopen::before { content: "●"; display: inline-block; margin-right: 6px; color: var(--warn); font-size: var(--fs-10); vertical-align: 1px; }
 #ask-reopen:not(.hidden)::before { animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
 .research-auto-stages:is([data-live="true"], [data-waiting="true"]) [aria-current="step"]::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; vertical-align: 1px; }
 html[data-kz-activity="running"] .research-auto-stages[data-live="true"] [aria-current="step"]::before { background: var(--dot-run); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
@@ -3138,8 +3107,8 @@ button[aria-busy="true"]::after { content: ""; display: inline-block; width: 10p
 /* 纪律④:窗口隐藏即暂停;减少动效时运行态退化为慢呼吸(环/扫光/弹跳/抖动由全局 reduce 规则关闭)。 */
 html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[data-kz-motion="paused"] *::after { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) {
-  .kz-dot:is([data-state="running"], [data-state="waiting"], [data-state="pending"], [data-state="stopping"]),
-  .kz-glyph:is([data-state="running"], [data-state="waiting"], [data-state="pending"], [data-state="stopping"]),
+  .kz-dot:is([data-state="running"], [data-state="waiting"], [data-state="pending"], [data-state="stopping"], [data-state="attention"]),
+  .kz-glyph:is([data-state="running"], [data-state="waiting"], [data-state="pending"], [data-state="stopping"], [data-state="attention"]),
   .tool-msg.running .tool-msg-status::before, .line-running-state.running::before,
   .rail-toggle[data-running="true"]:not(.active)::after, button[aria-busy="true"]::after {
     animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite !important;
@@ -3147,7 +3116,7 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
   #turn-activity:is([data-phase="waiting"], [data-phase="thinking"], [data-phase="generating"], [data-phase="tool"], [data-phase="working"]) .turn-activity-label,
   .reasoning-head.is-live { background-image: none !important; color: var(--dim) !important; }
   .complexity-cell.current::after { display: none; }
-  .autorun-bar[data-phase="running"] .auto-progress::after { width: 100%; background: var(--warn); }
+  .autorun-bar[data-phase="running"] .auto-progress::after { width: 100%; background: var(--accent); }
 }
 
 /* ===== 分区:子代理 ===== */
@@ -3183,7 +3152,7 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .sa-head:hover .sa-desc { color: var(--fg-strong); }
 .sa-head:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-xs); }
 .sa-glyph { flex: none; width: 12px; text-align: center; font-size: var(--fs-11); line-height: 1; }
-.sa-agent { flex: none; color: var(--line-color, var(--fg-strong)); font-family: var(--mono); font-size: var(--fs-12-5); font-weight: 600; }
+.sa-agent { flex: none; color: var(--fg-strong); font-family: var(--mono); font-size: var(--fs-12-5); font-weight: 600; }
 .sa-desc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
 .sa-chip { flex: none; padding: 0 6px; border: 1px solid var(--border-soft); border-radius: var(--r-pill); color: var(--dim); font-size: var(--fs-11); }
 .sa-now { flex: 0 1 32%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-family: var(--mono); font-size: var(--fs-12); }
@@ -3266,7 +3235,7 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 /* rail 开关的运行数徽标(取代 #7 的呼吸点:同一位置不叠两个信号;让位规则写在动效分区 rail 点旁边)。 */
 .rail-badge {
   position: absolute; top: 5px; right: 6px; min-width: 15px; height: 15px; padding: 0 4px;
-  border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent);
+  border-radius: var(--r-pill); background: var(--accent-text); color: var(--bg);
   font-size: var(--fs-10); font-weight: 600; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums;
   box-shadow: 0 0 0 2px var(--activitybar); pointer-events: none;
 }

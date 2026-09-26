@@ -199,7 +199,14 @@ assert.match(css, /\.doc-row \.complexity-meter \{ flex: 0 0 \d+px; width: \d+px
 // 批次格填充色曾只在 `#req-list` 下定义,列表搬进单页后 #documents-req-list 里的已完成格
 // 全是透明的。改按条目类名限定后,容器 id 不得再出现在批次格规则里。
 assert.doesNotMatch(css, /#req-list \.doc-item/, "批次格/条目样式仍按已删除的 #req-list 容器限定");
-assert.match(css, /\.doc-item\.pri-P1 \.complexity-cell\.filled, \.focus-card\.pri-P1 \.complexity-cell\.filled/);
+// 配色语义(docs/design/ui_color_semantics.md):批次格是进度不是状态——已完成格一律中性,
+// 不随优先级换色(旧版 P1 琥珀格与「阻塞」同色、P2 蓝格);唯一的彩色是线真在跑时的当前格。
+assert.match(
+  css,
+  /\.doc-item \.complexity-cell\.filled, \.focus-card \.complexity-cell\.filled \{ background: var\(--dim\); border-color: var\(--dim\); \}/,
+  "批次格已完成格应一律中性:.doc-item/.focus-card 的 .complexity-cell.filled 用 var(--dim)",
+);
+assert.doesNotMatch(css, /\.pri-P[0-3][^{]*\.complexity-cell/, "批次格不得再按优先级(.pri-P*)着色");
 assert.match(css, /\.focus-card \{/, "缺少侧栏焦点卡片样式");
 // UI-0926 #4 精简焦点卡:整卡的点击目标是真按钮(键盘可达)并带读屏名称;「⋯」声明自己弹菜单;
 // 撑满覆盖层让整卡可点;任务卡关闭按钮是带线路名的图标按钮。

@@ -699,7 +699,7 @@ export function formatRunMeta(meta) {
   if (!meta) return "";
   const parts = [meta.model];
   if (meta.reasoning && meta.reasoning !== "off") parts.push(reasoningLabel(meta.reasoning));
-  if (meta.codexFastMode) parts.push("⚡");
+  if (meta.codexFastMode) parts.push("⚡\uFE0E"); // 文字字形,随状态栏文字色(彩色 emoji 不受主题控制)
   if (meta.profile) parts.push(meta.profile);
   return parts.filter(Boolean).join(" · ");
 }

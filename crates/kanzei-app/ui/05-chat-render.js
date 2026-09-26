@@ -140,7 +140,7 @@ export function addUserMessage(text, promptAttachments = []) {
     const item = document.createElement("span");
     item.className = "message-attachment";
     const kind = attachment.media_type?.startsWith("image/") ? t("图片") : "PDF";
-    item.textContent = `📎 ${attachment.file_name} · ${kind} · ${t("已发送给 agent")}`;
+    item.textContent = `${attachment.file_name} · ${kind} · ${t("已发送给 agent")}`;
     attachments.appendChild(item);
   }
   body.appendChild(attachments);

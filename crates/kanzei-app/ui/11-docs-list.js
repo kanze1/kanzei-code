@@ -946,7 +946,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     }
     position += 1;
     const item = document.createElement("div");
-    // 优先级着色(pri-P0 红 / P1 黄 / P2 蓝 / P3 灰):扫一眼就知道轻重。
+    // pri-P* 只是条目上的钩子类:优先级的颜色只编码在 .pri-badge 胶囊上(P0 红,P1/P2 中性亮/灰,
+    // P3 描边),行上不再画色条、编号不染色(docs/design/ui_color_semantics.md)。
     const pri = (entry.priority || "").toUpperCase();
     // 阻塞状态由后端调度器计算,前端只负责展示,保证列表顺序与 agent 取活一致。
     const blockedReasons = Array.isArray(entry.block_reasons) ? entry.block_reasons : [];
@@ -1049,7 +1050,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       unitBadge.title = `${t("执行单元")}: ${workUnits.map((unit) => `${unit.unit_id}[${unit.status}]`).join(" · ")}`;
       placeFlag(unitBadge);
     }
-    // 复杂度(R-051):侧栏用三格电量图标表达体量，与左侧优先级色带同色并放在最前面。
+    // 复杂度(R-051):cx-* 类 + 行 tooltip 文字;体量不再画成左侧色带(色带已随优先级竖条一起去掉)。
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {
       item.classList.add(`cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`);

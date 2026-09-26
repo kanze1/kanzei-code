@@ -848,9 +848,10 @@ export function backlogTally(entries, kind) {
 }
 // 一个「标签 数字」对。标签挂 data-i18n-key 交给 applyDataI18nKeys 就地翻译,
 // 不依赖 refreshDocs 重渲——切语言时侧栏未必在文档视图里,拿不到那次刷新。
+// 值为 0 时挂 is-zero:阻塞/非法只有非零才着色(ui_color_semantics.md),零一律灰。
 export function backlogStat(labelKey, value, cls) {
   const stat = document.createElement("span");
-  stat.className = `backlog-stat ${cls}`;
+  stat.className = `backlog-stat ${cls}${Number(value) === 0 ? " is-zero" : ""}`;
   const label = document.createElement("span");
   label.className = "backlog-label";
   label.dataset.i18nKey = labelKey;

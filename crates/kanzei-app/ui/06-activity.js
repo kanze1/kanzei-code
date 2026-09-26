@@ -1,6 +1,5 @@
 import { defer } from "./01-core.js";
 import { motionCount } from "./01-core.js";
-import { agentRoleAccent } from "./01-core.js";
 import { escapeHtml } from "./04-markdown.js";
 import { $, invoke, messages } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
@@ -446,13 +445,8 @@ export function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
   toolName.className = "bg-tool";
   // 编排派发的这批里,"task" 对所有 8 条都一样,毫无区分度;角色名才是身份。
   toolName.textContent = phase ? id : name;
-  // R-184 P2:编排派发的子代理轨迹带角色色点(●,按角色名确定性取色),与主对话
-  // 折叠组同源;色点旁始终有角色名文本,颜色只作辅助不唯一承载区分。
-  const dot = phase ? document.createElement("span") : null;
-  if (dot) {
-    dot.className = `bg-dot line-accent-${agentRoleAccent(id)}`;
-    dot.setAttribute("aria-hidden", "true");
-  }
+  // 角色身份只靠角色名文本,不再配哈希取色的色点(ui_color_semantics.md:身份不用色——
+  // 4 种身份色正好撞上琥珀/绿这些状态色)。
   const target = document.createElement("span");
   target.className = "bg-target";
   // 后端 summarize_input(kanzei-core/src/runner/compaction.rs)把整坨入参 JSON 截到 160 字,
@@ -461,7 +455,7 @@ export function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
   // 挑不出来再回落后端 summary(回放事件不带 input,靠的就是这一级),最后回落空串。
   const shown = toolCallSummary(name, input) || String(summary ?? "");
   target.textContent = shown;
-  title.append(...(dot ? [dot] : []), toolName, target);
+  title.append(toolName, target);
   // 所属阶段随条目走,不只挂在组标题上:筛选/滚动之后单看一行也要知道它是勘察还是复核。
   if (phase) {
     const badge = document.createElement("span");

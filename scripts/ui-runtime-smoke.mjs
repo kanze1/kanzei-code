@@ -4587,13 +4587,13 @@ toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: 
 await flush();
 
 // ---------- R-184 P2:活动记录按 agent 归属与折叠 ----------
-// ① 编排子代理轨迹带角色色点(角色名文本始终在旁,颜色不作唯一区分);
-//    无 phase 的模型自派 task 不进活动面板,自然也不该有色点。
-assert(orchEntry("architecture_scout")?.querySelector(".bg-dot"), "编排子代理轨迹缺角色色点");
+// ① 编排子代理轨迹以 .bg-tool 里的角色名为身份,不再配哈希取色的色点
+//    (ui_color_semantics.md:身份不用色——4 种身份色曾撞上琥珀/绿这些状态色)。
 assert(
-  !orchEntry("MODEL_TASK") || !orchEntry("MODEL_TASK").querySelector(".bg-dot"),
-  "无 phase 的模型自派 task 不该有角色色点",
+  orchEntry("architecture_scout")?.querySelector(".bg-tool")?.textContent === "architecture_scout",
+  `编排子代理轨迹应以角色名为身份,实得 "${orchEntry("architecture_scout")?.querySelector(".bg-tool")?.textContent}"`,
 );
+assert(!document.querySelector(".bg-dot"), "活动面板里还有角色色点(.bg-dot):身份只靠角色名文本");
 // ② 角色筛选下拉动态列出全部角色(全部 + 每个出现过的角色)。
 const roleFilter = document.querySelector("#bg-role-filter");
 assert(roleFilter, "活动面板缺角色筛选下拉");
@@ -10053,7 +10053,8 @@ const docsB = {
     metaState.converged = false;
     const status = byId.get("status-model");
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
-    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡ · dev", `⑥ 状态栏格式不对:"${status.textContent}"`);
+    // ⚡ 带 U+FE0E(文字字形):彩色 emoji 不受 CSS color 控制,文字字形才随状态栏文字色。
+    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡\uFE0E · dev", `⑥ 状态栏格式不对:"${status.textContent}"`);
     assert(status.title === "上一轮实际使用", `⑥ 状态栏应说明是上一轮实际使用:"${status.title}"`);
     const before = invokeLog.filter((cmd) => cmd === "model_effective").length;
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });

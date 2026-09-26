@@ -5,7 +5,7 @@
 //          正文与卡片内联展开同一个渲染器(指令 / 过程 / 结果),不设高度上限。
 // 数据只读 05-subagents.js 的模型;旧面板的「运行中/已完成/已关闭」三段与「关闭/删除/清空」按设计取消
 // (它们只改本地视图、不碰后端,用户还得理解「关闭≠停止≠删除」)。
-import { $, agentRoleAccent, defer, invoke, motionSync, on } from "./01-core.js";
+import { $, defer, invoke, motionSync, on } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeSessionId, log, setActivityPanelOpen, syncActivityPanel } from "./03-shell.js";
 import {
@@ -214,7 +214,7 @@ function renderDetail(run) {
   detailUi.glyph.textContent = char;
   const label = subagentAgentName(run);
   detailUi.agent.textContent = label;
-  detailUi.agent.className = `sa-agent line-accent-${agentRoleAccent(label)}${label ? "" : " hidden"}`;
+  detailUi.agent.className = `sa-agent${label ? "" : " hidden"}`;
   detailUi.desc.textContent = run.description || t("子代理");
   detailUi.desc.title = run.description;
   detailUi.word.textContent = subagentStateWord(run.state) || t("运行中");

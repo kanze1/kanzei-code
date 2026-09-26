@@ -131,7 +131,8 @@ function fillChip(button, spec) {
   if (spec.fast) {
     const fast = document.createElement("span");
     fast.className = "picker-fast";
-    fast.textContent = "⚡";
+    // U+FE0E 强制文字字形:彩色 emoji 不受 CSS color 控制,文字字形才继承 .picker-fast 的颜色。
+    fast.textContent = "⚡\uFE0E";
     fast.setAttribute("aria-hidden", "true");
     parts.push(fast);
   }

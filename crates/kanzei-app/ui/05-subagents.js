@@ -6,7 +6,7 @@
 //
 // 数据只在这里:runsBySession(侧栏列表)与 liveIndex(`${sessionId}|${id}` → 最新一次委派)。
 // DOM 只是投影:卡片节点被裁剪/清空后,模型照常推进,侧栏照常可看。
-import { $, activePane, agentRoleAccent, appendToPane, defer, invoke, motionOnce, motionSync, renderingBackground } from "./01-core.js";
+import { $, activePane, appendToPane, defer, invoke, motionOnce, motionSync, renderingBackground } from "./01-core.js";
 import { languageIsEnglish, t } from "./02-i18n.js";
 import { activeProcessId, activeSessionId, currentProject, processItems, toast, toastError } from "./03-shell.js";
 import { renderMarkdown } from "./04-markdown.js";
@@ -26,7 +26,8 @@ const SA_GLYPH = {
   starting: ["●", "running"],
   running: ["●", "running"],
   stopping: ["●", "stopping"],
-  waiting: ["⏸", "waiting"],
+  // 等待批准属于「需要你」(琥珀 attention),不是主线「等首个 token」的 waiting(强调色,进行中)。
+  waiting: ["⏸", "attention"],
   background: ["◌", "pending"],
   done: ["✓", "done"],
   empty: ["○", "idle"],
@@ -781,7 +782,7 @@ export function renderSubagentCard(run, { motion = false, skipGroup = false } = 
   if (stateChanged && motion && !run.replay && !SA_ACTIVE.has(state) && state !== "cancelled") motionOnce(ui.glyph, "kz-pop", 360);
   const label = subagentAgentName(run);
   ui.agent.textContent = label;
-  ui.agent.className = `sa-agent line-accent-${agentRoleAccent(label)}${label ? "" : " hidden"}`;
+  ui.agent.className = `sa-agent${label ? "" : " hidden"}`;
   const description = run.description || t("子代理");
   if (ui.desc.textContent !== description) ui.desc.textContent = description;
   ui.desc.title = run.description;
@@ -1187,7 +1188,7 @@ export function updateSubagentRow(row, run) {
   ui.glyph.textContent = char;
   const label = subagentAgentName(run);
   ui.agent.textContent = label;
-  ui.agent.className = `sa-agent line-accent-${agentRoleAccent(label)}${label ? "" : " hidden"}`;
+  ui.agent.className = `sa-agent${label ? "" : " hidden"}`;
   ui.desc.textContent = run.description || t("子代理");
   ui.desc.title = run.description;
   updateSubagentRowMeta(row, run);

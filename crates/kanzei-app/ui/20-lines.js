@@ -341,8 +341,8 @@ export function renderLines(lines) {
     const lineRunning = lineIsRunning(line);
     const lane = document.createElement("article");
     const code = codes.get(line.process_id) ?? "?";
-    const accentIndex = code === "M" ? 0 : ((code.charCodeAt(0) - 64) % 4) + 1;
-    lane.className = `line-lane line-accent-${accentIndex}${line.process_id === activeProcessId ? " active" : ""}`;
+    // 线路身份 = 字母代号本身(M/A/B…),不再按代号取色——身份色曾撞上琥珀/绿这些状态色。
+    lane.className = `line-lane${line.process_id === activeProcessId ? " active" : ""}`;
     lane.dataset.processId = line.process_id;
 
     const head = document.createElement("header");
