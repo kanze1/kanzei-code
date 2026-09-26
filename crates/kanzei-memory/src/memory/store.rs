@@ -222,6 +222,54 @@ impl MemoryStore {
         out
     }
 
+    /// 记忆图谱:扫描 archive/ 加载全部归档条目(与 load_all 同写法;解析不了的跳过)。
+    /// 只读,不触发归档搬移或派生物重建。
+    pub fn load_archived(&self) -> Vec<(PathBuf, MemoryEntry)> {
+        let mut out = Vec::new();
+        let Ok(dir) = std::fs::read_dir(self.archive_dir()) else {
+            return out;
+        };
+        for item in dir.flatten() {
+            let path = item.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                let entry = parse_entry(&text);
+                if !entry.id.is_empty() {
+                    out.push((path, entry));
+                }
+            }
+        }
+        out.sort_by(|a, b| a.1.id.cmp(&b.1.id));
+        out
+    }
+
+    /// 记忆图谱:写 frontmatter `area:`(规范区域 id,空格分隔);空切片 = 删除该键。
+    /// 归一与存在性校验归调用方(AreaRegistry::resolve_token),这里只落盘。持记忆树锁,
+    /// 写后 refresh_derived(与 update 同一条派生物链)。只改活动条目:归档条目只读。
+    pub fn set_area(&self, id: &str, areas: &[String]) -> anyhow::Result<MemoryEntry> {
+        let _tree_lock = self.tree_lock()?;
+        let Some((path, mut entry)) = self.load_all().into_iter().find(|(_, e)| e.id == id) else {
+            anyhow::bail!("unknown memory id `{id}`(归档条目只读,不能设区域)");
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        let value = areas
+            .iter()
+            .map(|a| a.trim())
+            .filter(|a| !a.is_empty() && seen.insert(a.to_string()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        entry.extras.retain(|(key, _)| key != "area");
+        if !value.is_empty() {
+            entry.extras.push(("area".to_string(), value));
+        }
+        entry.updated = today();
+        self.write_entry(&entry, Some(&path))?;
+        self.refresh_derived()?;
+        Ok(entry)
+    }
+
     pub fn has_archived_id(&self, id: &str) -> bool {
         self.load_archived_ids()
             .iter()
@@ -1233,6 +1281,68 @@ mod tests {
             total_ms: 1,
         })
         .unwrap();
+    }
+
+    // ── 分区:记忆图谱 ──
+    #[test]
+    fn load_archived_reads_archive_dir() {
+        let (dir, store) = temp_store();
+        let live = add(&store, "fact", "活动条目", "图谱冒烟钩子", "正文");
+        let archive = store.root.join("archive");
+        std::fs::create_dir_all(&archive).unwrap();
+        let mut old = live.clone();
+        old.id = "M-900".into();
+        old.title = "归档条目".into();
+        old.status = "deprecated".into();
+        std::fs::write(archive.join("M-900-old.md"), render_entry(&old)).unwrap();
+        std::fs::write(archive.join("notes.txt"), "不是条目").unwrap();
+        let archived = store.load_archived();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].1.id, "M-900");
+        assert_eq!(archived[0].1.status, "deprecated");
+        assert!(
+            store.load_all().iter().all(|(_, e)| e.id != "M-900"),
+            "load_all 不含归档"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn set_area_writes_dedups_and_empty_clears() {
+        let (dir, store) = temp_store();
+        let entry = add(&store, "fact", "区域条目", "图谱区域钩子", "正文");
+        let updated = store
+            .set_area(
+                &entry.id,
+                &[
+                    "kanzei-tools/edit".into(),
+                    "kanzei-tools/edit".into(),
+                    " scripts ".into(),
+                ],
+            )
+            .unwrap();
+        assert_eq!(updated.areas(), vec!["kanzei-tools/edit", "scripts"]);
+        let text = std::fs::read_to_string(
+            store
+                .load_all()
+                .into_iter()
+                .find(|(_, e)| e.id == entry.id)
+                .unwrap()
+                .0,
+        )
+        .unwrap();
+        assert!(
+            text.contains(
+                "area: kanzei-tools/edit scripts
+"
+            ),
+            "{text}"
+        );
+        let cleared = store.set_area(&entry.id, &[]).unwrap();
+        assert!(cleared.areas().is_empty());
+        assert!(cleared.extras.iter().all(|(k, _)| k != "area"));
+        assert!(store.set_area("M-404", &["scripts".into()]).is_err());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

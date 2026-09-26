@@ -24,6 +24,32 @@ fn store_for(ctx: &ToolCtx, scope: &str) -> anyhow::Result<MemoryStore> {
     }
 }
 
+/// 记忆图谱 `area:`:每项经 AreaRegistry 归一成规范区域 id;任何一个解析不到就整体拒绝,
+/// 报错列出该 token 与最多 5 个最接近的区域 id(报错写全判据)。
+fn resolve_areas(ctx: &ToolCtx, tokens: &[String]) -> Result<Vec<String>, String> {
+    let registry = kanzei_harness::areas::AreaRegistry::scan(&ctx.project_root);
+    let mut out = Vec::new();
+    for token in tokens.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
+        match registry.resolve_token(token) {
+            Some(id) => out.push(id),
+            None => {
+                let near = registry.nearest(token, 5);
+                return Err(format!(
+                    "area `{token}` does not resolve to a code area of this project. Use an area id \
+                     (kanzei-tools/tracker), a repo path (crates/kanzei-app/ui/13-memory.js) or a Rust path \
+                     (kanzei_tools::tracker); omit area if unsure.{}",
+                    if near.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" Closest: {}", near.join(", "))
+                    }
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn rejected(store: &MemoryStore, note_head: &str, reason: impl Into<String>) -> ToolOutput {
     let reason = reason.into();
     store.record_manager_decision("rejected", &reason, note_head);
@@ -129,6 +155,9 @@ struct AddInput {
     /// 与既有条目标题精确重复时仍强制新增
     #[serde(default)]
     force: bool,
+    /// 记忆图谱:这条记忆说的是哪些代码区域(区域 id / 仓内路径 / Rust 路径),写入前归一;拿不准就不写。
+    #[serde(default)]
+    area: Option<Vec<String>>,
 }
 
 pub struct MemoryAddTool;
@@ -140,7 +169,7 @@ impl Tool for MemoryAddTool {
     }
 
     fn description(&self) -> String {
-        "Create a durable memory entry. ALWAYS memory_search first. Params: scope(global|project), category, title, description (retrieval hook), body; optional source, refs (source IDs that must exist), subject, force (only bypasses the semantic uncertainty gate; never bypasses provenance, delivery-state, subject, or title-duplicate gates).".into()
+        "Create a durable memory entry. ALWAYS memory_search first. Params: scope(global|project), category, title, description (retrieval hook), body; optional source, refs (source IDs that must exist), subject, force (only bypasses the semantic uncertainty gate; never bypasses provenance, delivery-state, subject, or title-duplicate gates), area (code areas this memory is about, e.g. kanzei-tools/tracker or crates/kanzei-app/ui/13-memory.js; omit if unsure).".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -157,6 +186,15 @@ impl Tool for MemoryAddTool {
             Err(e) => return ToolOutput::error(e.to_string()),
         };
         let body = input.body.as_deref().unwrap_or("");
+        let areas = match input
+            .area
+            .as_deref()
+            .map(|tokens| resolve_areas(ctx, tokens))
+        {
+            Some(Ok(areas)) => areas,
+            Some(Err(reason)) => return rejected(&store, &input.title, reason),
+            None => Vec::new(),
+        };
         if input
             .source
             .as_deref()
@@ -206,7 +244,14 @@ impl Tool for MemoryAddTool {
             input.subject.as_deref(),
             input.force,
         ) {
-            Ok(AddOutcome::Added(e)) => ToolOutput::ok(format!("added {} [{}] {}", e.id, e.category, e.title)),
+            Ok(AddOutcome::Added(e)) => {
+                if !areas.is_empty() {
+                    if let Err(error) = store.set_area(&e.id, &areas) {
+                        return ToolOutput::error(format!("added {} but area write failed: {error}", e.id));
+                    }
+                }
+                ToolOutput::ok(format!("added {} [{}] {}", e.id, e.category, e.title))
+            }
             Ok(AddOutcome::Duplicate(e)) => rejected(
                 &store,
                 &input.title,
@@ -263,6 +308,9 @@ struct UpdateInput {
     /// 期间有并发写即拒绝)。与 conventions 工具 expected_hash 同源。
     #[serde(default)]
     expected_hash: Option<String>,
+    /// 记忆图谱:整体替换代码区域(区域 id / 仓内路径 / Rust 路径);传空数组清除,不传不动。
+    #[serde(default)]
+    area: Option<Vec<String>>,
 }
 
 pub struct MemoryUpdateTool;
@@ -274,7 +322,7 @@ impl Tool for MemoryUpdateTool {
     }
 
     fn description(&self) -> String {
-        "Evolve an existing memory entry (title/description/body). Params: scope, id; optional title, description, body.".into()
+        "Evolve an existing memory entry (title/description/body). Params: scope, id; optional title, description, body, area (code areas this memory is about, e.g. kanzei-tools/tracker or crates/kanzei-app/ui/13-memory.js; replaces the list, [] clears; omit if unsure).".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -310,17 +358,52 @@ impl Tool for MemoryUpdateTool {
                 }
             }
         }
-        match store.update(
-            &input.id,
-            input.title.as_deref(),
-            input.description.as_deref(),
-            input.body.as_deref(),
-            None,
-            input.expected_hash.as_deref(),
-            true, // D-282:manager 写路径强制 description 主题一致性(防选错条目覆盖)
-        ) {
-            Ok(e) => ToolOutput::ok(format!("updated {} [{}] {}", e.id, e.status, e.title)),
-            Err(e) => ToolOutput::error(e.to_string()),
+        let areas = match input
+            .area
+            .as_deref()
+            .map(|tokens| resolve_areas(ctx, tokens))
+        {
+            Some(Ok(areas)) => Some(areas),
+            Some(Err(reason)) => return ToolOutput::error(reason),
+            None => None,
+        };
+        let content_change =
+            input.title.is_some() || input.description.is_some() || input.body.is_some();
+        let updated = if content_change || areas.is_none() {
+            store.update(
+                &input.id,
+                input.title.as_deref(),
+                input.description.as_deref(),
+                input.body.as_deref(),
+                None,
+                input.expected_hash.as_deref(),
+                true, // D-282:manager 写路径强制 description 主题一致性(防选错条目覆盖)
+            )
+        } else {
+            store
+                .load_all()
+                .into_iter()
+                .find(|(_, e)| e.id == input.id)
+                .map(|(_, e)| e)
+                .ok_or_else(|| anyhow::anyhow!("unknown memory id `{}`", input.id))
+        };
+        match (updated, areas) {
+            (Ok(_), Some(areas)) => match store.set_area(&input.id, &areas) {
+                Ok(e) => ToolOutput::ok(format!(
+                    "updated {} [{}] {} (area: {})",
+                    e.id,
+                    e.status,
+                    e.title,
+                    if areas.is_empty() {
+                        "cleared".to_string()
+                    } else {
+                        areas.join(" ")
+                    }
+                )),
+                Err(e) => ToolOutput::error(e.to_string()),
+            },
+            (Ok(e), None) => ToolOutput::ok(format!("updated {} [{}] {}", e.id, e.status, e.title)),
+            (Err(e), _) => ToolOutput::error(e.to_string()),
         }
     }
 }
@@ -787,6 +870,135 @@ mod tests {
             )
             .await;
         assert!(no_reason.is_error);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    // ── 分区:记忆图谱 ──
+    /// 带 Cargo workspace 的临时项目:area 解析要有真实的区域注册表。
+    fn area_project(tag: &str) -> (PathBuf, ToolCtx) {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-area-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for (rel, text) in [
+            (
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"crates/kanzei-tools\"]\n",
+            ),
+            (
+                "crates/kanzei-tools/Cargo.toml",
+                "[package]\nname = \"kanzei-tools\"\n",
+            ),
+            ("crates/kanzei-tools/src/edit.rs", ""),
+            ("crates/kanzei-tools/src/tracker.rs", ""),
+        ] {
+            let path = dir.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+            ..Default::default()
+        };
+        (dir, ctx)
+    }
+
+    #[tokio::test]
+    async fn memory_add_area_normalized_and_persisted() {
+        let (dir, ctx) = area_project("add");
+        let added = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "sop", "title": "改文件先读再改",
+                       "description": "edit 前必读", "body": "先 read",
+                       "area": ["crates/kanzei-tools/src/edit.rs", "kanzei_tools::tracker"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!added.is_error, "{}", added.content);
+        let store = MemoryStore::project(&dir);
+        let (path, entry) = store.load_all().into_iter().next().unwrap();
+        assert_eq!(
+            entry.areas(),
+            vec!["kanzei-tools/edit", "kanzei-tools/tracker"]
+        );
+        let text = std::fs::read_to_string(path).unwrap();
+        assert!(
+            text.contains("area: kanzei-tools/edit kanzei-tools/tracker\n"),
+            "{text}"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn memory_add_unknown_area_rejected_with_candidates() {
+        let (dir, ctx) = area_project("reject");
+        let out = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "sop", "title": "区域写错",
+                       "description": "d", "body": "b", "area": ["kanzei-tools/edti"]}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error);
+        assert!(
+            out.content.contains("kanzei-tools/edti") && out.content.contains("kanzei-tools/edit"),
+            "{}",
+            out.content
+        );
+        assert!(
+            MemoryStore::project(&dir).load_all().is_empty(),
+            "整体拒绝,不落盘"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn memory_update_area_replaces_and_empty_clears() {
+        let (dir, ctx) = area_project("update");
+        let added = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "sop", "title": "区域演化",
+                       "description": "区域演化钩子", "body": "正文", "area": ["kanzei-tools/edit"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!added.is_error, "{}", added.content);
+        let id = MemoryStore::project(&dir).load_all()[0].1.id.clone();
+        let replaced = MemoryUpdateTool
+            .execute(
+                json!({"scope": "project", "id": id, "area": ["kanzei-tools/tracker"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!replaced.is_error, "{}", replaced.content);
+        assert_eq!(
+            MemoryStore::project(&dir).load_all()[0].1.areas(),
+            vec!["kanzei-tools/tracker"]
+        );
+        let cleared = MemoryUpdateTool
+            .execute(json!({"scope": "project", "id": id, "area": []}), &ctx)
+            .await;
+        assert!(!cleared.is_error, "{}", cleared.content);
+        assert!(MemoryStore::project(&dir).load_all()[0]
+            .1
+            .areas()
+            .is_empty());
+        let bad = MemoryUpdateTool
+            .execute(
+                json!({"scope": "project", "id": id, "area": ["nope/nothing"]}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            bad.is_error && bad.content.contains("nope/nothing"),
+            "{}",
+            bad.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
