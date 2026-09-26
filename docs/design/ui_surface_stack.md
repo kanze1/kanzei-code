@@ -122,6 +122,7 @@ bindMenus(root)          // 扫 [data-kz-menu="<弹层 id>"]:aria-haspopup/contr
 showCard(el, { onEscape, focus: "auto"|"none", initialFocus });  hideCard(el)
 toast(message, { kind: "info"|"ok"|"warn"|"err", timeout }) → remove()                   // 最多 3 条;err 用 role=alert(默认 6s),其余 role=status(2.6s);过期只隐藏、留到下一条再清
 installTooltips(root)    // 接管全局 title:悬停 450ms/键盘聚焦立即显示,title 暂挪进 data-kz-tip,离开还回;.monaco-editor 内不接管
+                         // 锚点或其祖先带 data-kz-tip-side="inline-start" 时提示走侧向(与锚点同一行、放左边,放不下翻右;UI2-0926 #8 网页预览面板)
 onSurfaceChange(fn) → off()   // UI2-0926 #8:栈变化钩子,fn([{ el, type }]);模态激活、任何关闭、锚定弹层/卡片打开、toast 区域显隐、提示显隐各通知一次
 surfaceElements() → [{ el, type }]  // 此刻浮着的全部弹层(栈 + 显示中的提示 + 有条目的 toast 区域),订阅方布局变化后主动重判用
 ```
@@ -130,7 +131,8 @@ surfaceElements() → [{ el, type }]  // 此刻浮着的全部弹层(栈 + 显�
 ① 常驻浮层让开它——`.k-card`、`.k-chip-float`、`.k-toast-region` 的 inset 右值加 `var(--surface-safe-right, 0px)`(卡片/芯片与 `--kz-dock-right` 取大者),
 该变量由 24-preview.js 写在 `<html>` 上 = 视口右缘到预览面板左缘的距离,面板关闭、非对话视图、窄屏占满时为 0;
 ② 临时弹层压上去时冻结——24-preview.js 订阅 `onSurfaceChange`,栈里有模态、或任一弹层矩形与 `#preview-host` 相交,就先截一帧放进 `#preview-freeze`、
-再隐藏原生面板,不再遮挡时(去抖 120ms)恢复。钩子零依赖、不做几何,相交判定归订阅方。设计与路由后果见 [preview_pane.md](preview_pane.md) §前端。
+再隐藏原生面板,不再遮挡时(去抖 120ms)恢复。钩子零依赖、不做几何,相交判定归订阅方。提示(tooltip)不参与冻结(短暂且小,冻结会让被预览的页面
+反复收到 visibilitychange),面板里的提示改走侧向摆位(`#preview-dock[data-kz-tip-side]`),不落进占位框。设计与路由后果见 [preview_pane.md](preview_pane.md) §前端。
 
 导入习惯不变:01-core.js 仍导出 `confirmDialog`/`inputDialog`(连同冒烟接缝 `setConfirmDialog`/`setInputDialog`),内部委托 00-surface;03-shell.js 的 `toast(text, { kind })` 负责本地化后交给 surface 的 toast,`toastError` 仍写日志面板(长错误不交给会自动消失的 toast)。
 
@@ -342,6 +344,7 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 - 2026-09-26(UI2-0926 #6,ui2/files 分支):文件树分隔条上限改按文件页宽度(给编辑器留 360px)并换专属读屏名;`installSplit` 的手柄加 `aria-controls` 指向窗格。文件页编辑的弹层(未保存确认、新建文件输入、保存反馈)全部走本模块的 confirmDialog / inputDialog / toast,设计见 [files_editor.md](files_editor.md)。
 
 - 2026-09-26(UI2-0926 #8,ui2/webfe 分支):00-surface.js 新增 `onSurfaceChange`/`surfaceElements`(网页预览冻结用的零依赖栈变化钩子);surface.css 常驻浮层宿主的 inset 右值加 `--surface-safe-right`(组件层默认 0px);门禁新增 P 组预览遮挡规则,带 4 条反例自测。
+- 2026-09-26(UI2-0926 #8 复核修复):tooltip 支持侧向摆位——`showTipNow` 查锚点祖先的 `data-kz-tip-side`,抄到 `#kz-tip[data-side]`,surface.css `.k-tooltip[data-side="inline-start"]` 给 `position-area: center inline-start` + `flip-inline`;网页预览面板整体声明它(工具栏贴着原生子 webview,上下两个方向都会落进占位框)。
 
 ## 验证证据
 
