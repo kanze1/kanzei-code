@@ -1294,7 +1294,7 @@ export const I18N_EN = {
   "视口与配色": "Viewport and color scheme", "视口": "Viewport", "配色": "Color scheme",
   "自适应": "Fill", "手机": "Phone", "平板": "Tablet", "桌面": "Desktop", "浅色": "Light", "深色": "Dark",
   "批注模式": "Annotation mode", "批注:点选页面元素,连同截图放进输入框": "Annotate: pick a page element and put it, with a screenshot, into the input box",
-  "收起网页预览": "Hide web preview", "收起网页预览(Ctrl+Shift+B,页面保留)": "Hide the web preview (Ctrl+Shift+B; the page is kept)",
+  "关闭网页预览": "Close web preview", "关闭网页预览(释放页面;只想收起用 Ctrl+Shift+B)": "Close the web preview (releases the page; to just hide it, use Ctrl+Shift+B)",
   "在上方输入网址、端口号(如 5173)或项目里的 HTML 文件路径。代理的 browser 工具在当前这条线上运行时,操作的就是这里的页面。": "Type a URL, a port (e.g. 5173) or the path of an HTML file in the project above. When the agent's browser tool runs on the current line, it drives this page.",
   "本地开发服务": "Local dev servers", "重新检测": "Detect again", "重新检测本地开发服务": "Detect local dev servers again",
   "没有检测到在跑的开发服务:只认 kanzei 启动的后台进程输出里的本机地址": "No running dev server detected: only local addresses printed by background processes kanzei started are recognized",

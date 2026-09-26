@@ -136,6 +136,9 @@ body:not([data-view]:not([data-view="chat"])) .k-card[data-kz-anchor="composer"]
   font-size: var(--fs-12); line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere;
   pointer-events: none;
 }
+/* 侧向摆位(锚点或祖先带 data-kz-tip-side="inline-start",00-surface showTipNow 抄到 data-side):与锚点同一行、放在左边,
+   放不下翻到右边。UI2-0926 #8:网页预览面板的工具栏贴着原生子 webview,上下两个方向都会落进占位框被原生面板盖住。 */
+.k-tooltip[data-side="inline-start"] { position-area: center inline-start; position-try-fallbacks: flip-inline; }
 
 /* ---------- 6 原生下拉:列表进入页面、走同一套外观;按钮态仍归视图(style.css)管 ---------- */
 select, ::picker(select) { appearance: base-select; }

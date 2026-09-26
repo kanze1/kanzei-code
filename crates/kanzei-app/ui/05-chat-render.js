@@ -507,7 +507,8 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   }
   appendDisplayBlock(block.detail, display, { compact: true });
   if (jsonValue && typeof jsonValue === "object") lazyMount(block.detail, () => renderToolResult(block.name, jsonValue));
-  if (shots.images.length || previewTarget) mountToolShots(block, shots.images, { action: previewTarget });
+  // 「在预览中打开」只给成功的结果:等待批准(needs_confirmation)、失败的 browser 块没有可预览的页面。
+  mountToolShots(block, shots.images, { action: view.state === "success" ? previewTarget : null });
   if (display?.kind === "pending_question" && typeof display.question === "string") {
     block.icon.textContent = "⏸";
     block.summaryBase = null;

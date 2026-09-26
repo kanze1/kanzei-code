@@ -24,7 +24,7 @@ import { highlightLine, renderLocalValidation, renderToolArgs, renderToolResult,
 import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
 import { state } from "./08-compose.js";
-import { decorateFileCard } from "./24-preview.js";
+import { decorateFileCard, extractToolImages } from "./24-preview.js";
 
 // ---------- 后台任务侧栏里的终端条目(R-037 → UI2-0926 #14):完整工具活动入列,详情点击展开 ----------
 // 侧栏的显隐、停靠与徽标归 06-agent-panel.js(reconcileTasksPanel);这里只维护条目,变化经 onBgChange 通知。
@@ -808,6 +808,10 @@ export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
   if (renderingBackground) return;
   const entry = bgEntries.get(id);
   if (!entry) return;
+  // UI2-0926 #8:[tool-image] 截图标记行与对话里的工具行同一个摘法(24-preview.js extractToolImages),
+  // 摘要与失败详情只看去掉标记的正文,侧栏里不出现原始标记行。
+  if (typeof extra.content === "string") extra = { ...extra, content: extractToolImages(extra.content).content };
+  if (typeof preview === "string") preview = extractToolImages(preview).content;
   const view = activityOutcomeView(ok, outcome);
   // 实时流是执行期的临时视图,终态由 display 的完整输出接管,避免同一份输出双份并存。
   if (entry.live) {

@@ -441,8 +441,9 @@
         <!-- UI2-0926 #8 网页预览停靠面板(24-preview.js;docs/design/preview_pane.md §前端):对话视图的最后一个子元素,
              打开时 #view-chat 切成两列网格(左:对话列;右:本面板,左缘分隔条可拖);对话视图窄于 800px 时占满、工具栏出现「对话 | 预览」。
              面板本体是原生子 webview,盖在 #preview-host 上、永远画在 HTML 之上:#preview-host 必须是空元素、没有背景;
-             冻结帧 / 起始页 / 错误页是它的兄弟节点;面板里的菜单用 openMenu 现造(打开前先冻结),不放常驻浮层(ui-surface-rules P 组)。 -->
-        <section id="preview-dock" class="pv-dock" aria-label="网页预览" data-i18n-aria-label="网页预览">
+             冻结帧 / 起始页 / 错误页是它的兄弟节点;面板里的菜单用 openMenu 现造(打开前先冻结),不放常驻浮层(ui-surface-rules P 组);
+             面板里的提示走侧向(data-kz-tip-side),不落进占位框。✕ = 关闭(释放页面);rail 开关与 Ctrl+Shift+B = 收起(页面保留)。 -->
+        <section id="preview-dock" class="pv-dock" aria-label="网页预览" data-i18n-aria-label="网页预览" data-kz-tip-side="inline-start">
           <div class="pv-toolbar" role="toolbar" aria-label="网页预览工具栏" data-i18n-aria-label="网页预览工具栏">
             <div class="pv-tabs" role="group" aria-label="对话与预览" data-i18n-aria-label="对话与预览">
               <button type="button" id="preview-tab-chat" class="pv-tab" aria-pressed="false" data-i18n-key="对话">对话</button>
@@ -456,7 +457,7 @@
             <button type="button" id="preview-pick" class="icon-btn pv-btn" aria-pressed="false" title="批注:点选页面元素,连同截图放进输入框" data-i18n-title="批注:点选页面元素,连同截图放进输入框" aria-label="批注模式" data-i18n-aria-label="批注模式" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5 10.2 19l2.1-6.2 6.2-2.1Z M13.2 13.7l5.3 5.3"/></svg></button>
             <button type="button" id="preview-console-toggle" class="icon-btn pv-btn" aria-pressed="false" aria-controls="preview-console" title="控制台" data-i18n-title="控制台" aria-label="控制台"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1ZM7 10l2.5 2L7 14M12.5 14H17"/></svg><span id="preview-console-badge" class="pv-badge hidden" aria-hidden="true"></span></button>
             <button type="button" id="preview-more" class="icon-btn pv-btn" aria-haspopup="menu" aria-expanded="false" title="更多" data-i18n-title="更多" aria-label="更多" data-i18n-aria-label="更多"><svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg></button>
-            <button type="button" id="preview-close" class="icon-btn pv-btn" title="收起网页预览(Ctrl+Shift+B,页面保留)" data-i18n-title="收起网页预览(Ctrl+Shift+B,页面保留)" aria-label="收起网页预览" data-i18n-aria-label="收起网页预览">✕</button>
+            <button type="button" id="preview-close" class="icon-btn pv-btn" title="关闭网页预览(释放页面;只想收起用 Ctrl+Shift+B)" data-i18n-title="关闭网页预览(释放页面;只想收起用 Ctrl+Shift+B)" aria-label="关闭网页预览" data-i18n-aria-label="关闭网页预览">✕</button>
           </div>
           <div id="preview-stage" class="pv-stage" data-device="fill">
             <div id="preview-host" aria-hidden="true"></div>

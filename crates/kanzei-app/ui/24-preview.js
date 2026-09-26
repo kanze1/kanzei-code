@@ -16,7 +16,7 @@
 // 纯函数(normalizeAddress / fitDevice / extractToolImages / previewColumnFor …)导出给冒烟直接测。
 import { closeSurface, isModalOpen, onSurfaceChange, openMenu, surfaceElements } from "./00-surface.js";
 import { installSplit } from "./00-frame.js";
-import { $, confirmDialog, defer, invoke, on } from "./01-core.js";
+import { $, confirmDialog, defer, invoke, on, promptBox } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, log, navigate_view, toast } from "./03-shell.js";
 import { layoutPref, onLayoutChange, setLayoutPref } from "./03-layout.js";
@@ -35,6 +35,11 @@ export const PREVIEW_RECENT_MAX = 5;
 export const PREVIEW_RELOAD_DEBOUNCE_MS = 300;
 export const PREVIEW_UNFREEZE_MS = 120;
 export const PREVIEW_CAPTURE_TIMEOUT_MS = 5000;
+/// 冻结用截图的预算:可见态截图实测 12–25ms(B0),到点还没回就先隐藏原生面板、开菜单,冻结帧先空着(露出舞台底色),
+/// 截图迟到且同一次冻结仍在时再补上。5s 的超时只留给「截图放进输入框」这类显式截图——页面卡死时菜单不能等 6 秒才出来。
+export const PREVIEW_FREEZE_CAPTURE_MS = 300;
+/// 最近地址单条上限:data: 地址与超长地址不记(一条 64KB 的 data URL 会让 ui_layout 补丁整个被拒,同批的宽度也跟着丢)。
+export const PREVIEW_RECENT_ITEM_MAX = 2048;
 /// 设备预设(CSS px);fill = 占满面板。后端按「设备 × 缩放」居中摆放并 set_zoom,冻结帧按同一口径摆位。
 export const PREVIEW_DEVICES = { fill: null, phone: [390, 844], tablet: [768, 1024], desktop: [1280, 800] };
 const DEVICE_ORDER = ["fill", "phone", "tablet", "desktop"];
@@ -48,39 +53,64 @@ const TOOL_IMAGE_REL = /^\.kanzei\/artifacts\/tool-images\/[\w.-]+\.png$/i;
 function decodeSafe(text) {
   try { return decodeURIComponent(text); } catch { return text; }
 }
+const WRAP_PAIRS = { '"': '"', "'": "'", "`": "`", "<": ">" };
+const PAGE_FILE = /\.(?:html?|xhtml|svg)$/i;
+const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
+const IPV4_HOST = /^\d{1,3}(?:\.\d{1,3}){3}(?::\d{2,5})?$/;
+/// 主机名样子:至少一个点,顶级域是字母(out.v2 这类目录名不算);可带端口。
+const NAMED_HOST = /^(?:[\p{L}\p{N}_-]+\.)+\p{L}{2,}(?::\d{2,5})?$/u;
+/// 补上路径部分的 "/"(`host` + `?q` → `host/?q`)。
+function withSlash(rest) {
+  if (!rest) return "/";
+  return rest.startsWith("/") ? rest : `/${rest}`;
+}
 /// 地址栏输入 → { kind: "url"|"path"|"invalid", target, display }。url 交给后端直接导航;path(项目相对或绝对路径)
 /// 由后端换成 127.0.0.1 静态服务的地址(远程源,没有 IPC)。后端还会再校验一遍,这里只负责「说人话的补全」。
 export function normalizeAddress(raw) {
-  const text = String(raw ?? "").trim().replace(/^["'<]+|["'>]+$/g, "").trim();
+  let text = String(raw ?? "").trim();
+  // 只剥成对出现的包裹(复制来的 "…"、'…'、<…>);data:text/html,<h1>x</h1> 里的尖括号不动。
+  for (let m = text.match(/^(["'`<])([\s\S]*)(["'`>])$/); m && WRAP_PAIRS[m[1]] === m[3]; m = text.match(/^(["'`<])([\s\S]*)(["'`>])$/)) {
+    text = m[2].trim();
+  }
   const url = (target) => ({ kind: "url", target, display: target });
   const path = (target) => ({ kind: "path", target, display: target });
   if (!text) return { kind: "invalid", reason: "empty" };
   if (/^\d{2,5}$/.test(text)) return url(`http://localhost:${text}/`);
   let m = text.match(/^:(\d{2,5})([/?#].*)?$/);
-  if (m) return url(`http://localhost:${m[1]}${m[2]?.startsWith("/") ? m[2] : `/${m[2] ?? ""}`}`);
+  if (m) return url(`http://localhost:${m[1]}${withSlash(m[2])}`);
   m = text.match(/^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:\d{2,5})?([/?#].*)?$/i);
   if (m) {
     const host = m[1].toLowerCase() === "0.0.0.0" ? "localhost" : m[1].toLowerCase();
-    return url(`http://${host}${m[2] ?? ""}${m[3]?.startsWith("/") ? m[3] : `/${m[3] ?? ""}`}`);
+    return url(`http://${host}${m[2] ?? ""}${withSlash(m[3])}`);
   }
   m = text.match(/^(https?):\/\/([^/?#\s]+)(.*)$/i);
-  if (m) return url(`${m[1].toLowerCase()}://${m[2]}${m[3] ? (m[3].startsWith("/") ? m[3] : `/${m[3]}`) : "/"}`);
+  if (m) return url(`${m[1].toLowerCase()}://${m[2]}${withSlash(m[3])}`);
   if (/^about:blank$/i.test(text)) return url("about:blank");
   if (/^data:text\/html[,;]/i.test(text)) return url(text);
-  m = text.match(/^file:\/\/\/?(.+)$/i);
+  // file:///C:/x、file:///home/x 是本机路径;file://localhost/… 同上;file://server/share/… 是 UNC,主机名要留着。
+  m = text.match(/^file:\/\/([^/]*)\/(.*)$/i);
   if (m) {
-    const rest = decodeSafe(m[1]);
-    return path(/^[A-Za-z]:[\\/]/.test(rest) ? rest : `/${rest.replace(/^\/+/, "")}`);
+    const host = m[1].toLowerCase();
+    const rest = decodeSafe(m[2]);
+    if (host && host !== "localhost") return path(`//${m[1]}/${rest}`);
+    return path(DRIVE_PATH.test(rest) ? rest : `/${rest.replace(/^\/+/, "")}`);
   }
-  // 其它 scheme(javascript:、tauri:、ftp:…)一律不认;盘符路径 C:\ 不算 scheme。
-  if (/^[a-z][\w+.-]*:/i.test(text) && !/^[A-Za-z]:[\\/]/.test(text)) return { kind: "invalid", reason: "scheme" };
-  const domainLike = /^[\w-]+(?:\.[\w-]+)+(?::\d{2,5})?(?:[/?#].*)?$/;
-  if (/^[A-Za-z]:[\\/]/.test(text) || /^\.{0,2}[\\/]/.test(text) || /\.(?:html?|xhtml|svg)$/i.test(text)) return path(text);
-  if (/[\\/]/.test(text) && !domainLike.test(text)) return path(text);
-  if (domainLike.test(text) && !/\s/.test(text)) {
-    m = text.match(/^([^/?#]+)(.*)$/);
-    return url(`https://${m[1]}${m[2] ? (m[2].startsWith("/") ? m[2] : `/${m[2]}`) : "/"}`);
+  // 其它 scheme(javascript:、tauri:、ftp:…)一律不认;盘符路径 C:\ 与「主机:端口」(example.com:8080)不算 scheme。
+  m = text.match(/^([a-z][\w+.-]*):(.*)$/i);
+  if (m && !DRIVE_PATH.test(text) && !/^\d{2,5}(?:[/?#]|$)/.test(m[2])) return { kind: "invalid", reason: "scheme" };
+  if (DRIVE_PATH.test(text) || /^\.{0,2}[\\/]/.test(text)) return path(text);
+  // 首段像主机(example.com、docs.example.com、192.168.1.5:3000)→ 网址;首段本身就是网页文件名(index.html?x=1)的除外。
+  m = text.match(/^([^/\\?#]+)(.*)$/);
+  const first = m?.[1] ?? "";
+  const bareFirst = first.replace(/:\d{2,5}$/, "");
+  if (!/\s/.test(text) && (IPV4_HOST.test(first) || (NAMED_HOST.test(first) && !PAGE_FILE.test(bareFirst))) && !m[2].startsWith("\\")) {
+    // IP 字面量与带端口的主机多半是局域网里的开发服务(vite --host 打印的那种),只有 http;其余补 https。
+    const scheme = IPV4_HOST.test(first) || /:\d{2,5}$/.test(first) ? "http" : "https";
+    return url(`${scheme}://${first}${withSlash(m[2])}`);
   }
+  // 扩展名按去掉 ?# 之后的部分判:index.html?x=1 仍是项目文件。
+  if (PAGE_FILE.test(text.replace(/[?#].*$/, ""))) return path(text);
+  if (/[\\/]/.test(text)) return path(text);
   return { kind: "invalid", reason: "unknown" };
 }
 /// 本机地址(localhost / 127.0.0.1 / [::1]):对话里点这类链接直接在面板打开。
@@ -149,18 +179,22 @@ export function browserPreviewTarget(input, content) {
   const url = (typeof src.url === "string" && src.url.trim()) || text.match(/\burl:\s*([^\s)]+)/i)?.[1] || "";
   return url && /^(?:https?:|about:blank)/i.test(url) ? { kind: "url", target: url } : null;
 }
-/// 控制台条目的类别:error / warn / network / info(按级别与文本判;后端的级别名大小写不一)。
+/// 网络失败的文本特征(级别没标 network 时的兜底):net::ERR_*、Failed to load resource、HTTP 4xx/5xx、「GET /x 500」。
+const NETWORK_TEXT = /\bnet::ERR_|Failed to load resource|\bHTTP [45]\d\d\b|\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\S+\s+[45]\d\d\b/;
+/// 控制台条目的类别:error / warn / network / info。契约约定网络来源的条目 level = "network"(后端 Log.entryAdded
+/// source=network 的 4xx/5xx 与 net::ERR_*、主文档加载失败),按级别判为先;文本启发式只给没标 network 的错误级条目兜底。
 export function consoleKind(entry) {
   const level = String(entry?.level ?? "").toLowerCase();
   const text = String(entry?.text ?? "");
-  if (/net|network|request/.test(level) || /\bnet::ERR_|Failed to load resource|\bHTTP [45]\d\d\b/.test(text)) return "network";
-  if (/^(?:err|error|exception|assert|fatal)/.test(level)) return "error";
+  if (/^net(?:work)?(?:[-_]|$)/.test(level)) return "network";
+  if (/^(?:err|error|exception|assert|fatal)/.test(level)) return NETWORK_TEXT.test(text) ? "network" : "error";
   if (/^warn/.test(level)) return "warn";
   return "info";
 }
+/// 级别筛选。「错误」含网络失败(网络条目全是加载失败),错误角标与筛选、红色高亮同一口径。
 export function consoleMatches(entry, level) {
   if (!level || level === "all") return true;
-  return entry.kind === level || (level === "error" && entry.kind === "network" && /error/i.test(String(entry.level)));
+  return entry.kind === level || (level === "error" && entry.kind === "network");
 }
 
 // ---------- 状态 ----------
@@ -188,6 +222,11 @@ let boundsQueued = false;
 let reloadTimer = null;
 let splitApi = null;
 let userToggled = false;
+/// 地址栏正在被用户编辑(input 置位;Enter / Esc / blur 清零)。不能看 document.activeElement:焦点点进原生子 webview 时
+/// 主文档的 activeElement 不变,地址栏会一直拒收 kz:preview-state 带来的真实地址。
+let addressEditing = false;
+/// 错误页上次写进 DOM 的内容(role=alert:内容没变就不重写,免得读屏每条状态事件都重播一遍)。
+let errorShown = "";
 
 function currentView() {
   return document.body?.dataset?.view || "chat";
@@ -265,7 +304,9 @@ function onLayoutResize() {
   const wasNarrow = state.narrow;
   measureNarrow();
   if (wasNarrow !== state.narrow) {
-    if (!state.narrow) state.tab = "preview";
+    // 因布局变化(窗口变窄、侧栏展开)进入窄屏时停在「对话」页签:用户没要求看预览,对话不该被整个藏起来;
+    // 用户主动打开(setOpen / openPreviewTarget)时才停在「预览」。回到宽屏两列并排,页签无意义,复位成预览。
+    state.tab = state.narrow ? "chat" : "preview";
     applyLayout();
   } else {
     syncSafeRight();
@@ -304,11 +345,16 @@ function baseVisible() {
   return state.open && state.alive && !state.error && currentView() === "chat" && !(state.narrow && state.tab === "chat");
 }
 /// 有没有 HTML 浮层压在占位框上:模态(整窗遮罩)一定算;其余弹层按矩形相交判;后台任务侧栏的抽屉态也算。
+/// 提示(tooltip)不算:它短暂且小,面板里的提示改走侧向摆位(#preview-dock[data-kz-tip-side]),不进占位框;
+/// 为它冻结会让被预览的页面每次悬停都收到 visibilitychange,代理的 browser 也会中途被切到无头。
+/// 拖动分隔条/框体期间(html[data-kz-frame-drag])也按遮挡处理:指针划过原生面板时,跨窗口的鼠标捕获没有验证过。
 function isOccluded() {
   if (isModalOpen()) return true;
+  if (document.documentElement?.dataset?.kzFrameDrag) return true; // 拖动期间冻结
   const host = hostRect();
   if (!host) return false;
-  for (const { el: node } of surfaceElements()) {
+  for (const { el: node, type } of surfaceElements()) {
+    if (type === "tooltip") continue; // 提示不冻结
     if (rectsIntersect(host, node?.getBoundingClientRect?.())) return true; // 相交判定
   }
   const drawer = $("tasks-panel");
@@ -371,12 +417,23 @@ async function capture(options = {}) {
     return null;
   }
 }
+/// 截图与预算赛跑:预算内回来就用,到点返回 null(截图本身不取消,调用方可以等它迟到)。
+function withinBudget(promise, ms) {
+  let timer = null;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
 /// 冻结:先截当前画面(面板可见时才截得到,隐藏态截图会挂起)放进 #preview-freeze,再隐藏原生面板。
+/// 截图只等 PREVIEW_FREEZE_CAPTURE_MS:页面死循环、渲染进程忙时截图迟迟不回,弹层不能一直被原生面板盖着;
+/// 到点先隐藏、冻结帧留空,截图迟到且同一次冻结(freezeGen)仍在时再补上。
 /// force = 自家工具栏的菜单:菜单还没开就先冻住,开出来时不会先被原生面板盖一下。
 async function startFreeze({ force = false } = {}) {
   const gen = ++freezeGen;
   freezePending = true;
-  const shot = sent.visible === true ? await capture() : null;
+  const pending = sent.visible === true ? capture() : null;
+  const shot = pending ? await withinBudget(pending, PREVIEW_FREEZE_CAPTURE_MS) : null;
   if (gen !== freezeGen) return false;
   freezePending = false;
   if (!baseVisible() || (!force && !isOccluded())) {
@@ -387,6 +444,11 @@ async function startFreeze({ force = false } = {}) {
   setFreezeImage(shot);
   showFreeze(true);
   sendVisible(false);
+  if (pending && !shot) {
+    void pending.then((late) => {
+      if (late && frozen && gen === freezeGen) setFreezeImage(late);
+    });
+  }
   return true;
 }
 function setFreezeImage(shot) {
@@ -423,11 +485,17 @@ async function withFrozen(fn) {
 }
 
 // ---------- 打开 / 关闭 ----------
+/// 值不值得记进最近列表:data: 地址、代码片段地址、超长地址不记(见 PREVIEW_RECENT_ITEM_MAX)。
+function recentWorthy(item) {
+  return typeof item === "string" && Boolean(item) && item.length <= PREVIEW_RECENT_ITEM_MAX && !/^data:/i.test(item) && !/\/t\/[^/?#]+\/s\//i.test(item);
+}
 function recentList() {
   const value = layoutPref("preview", "recent");
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item).slice(0, PREVIEW_RECENT_MAX) : [];
+  // 读的时候也过一遍:旧版本存进去的超长条目不再跟着每次补丁重发。
+  return Array.isArray(value) ? value.filter(recentWorthy).slice(0, PREVIEW_RECENT_MAX) : [];
 }
 function rememberRecent(display) {
+  if (!recentWorthy(display)) return;
   const list = recentList().filter((item) => item !== display);
   list.unshift(display);
   setLayoutPref("preview", "recent", list.slice(0, PREVIEW_RECENT_MAX));
@@ -461,8 +529,21 @@ export function openPreviewDock() {
   if (!state.open) setOpen(true);
   else if (state.narrow && state.tab !== "preview") setTab("preview");
 }
+/// 收起停靠面板(页面保留):rail、Ctrl+Shift+B、命令面板。焦点在面板里时还给 rail 开关(面板 display:none 后焦点会掉到 body)。
 export function closePreviewDock() {
+  const active = document.activeElement;
+  const hadFocus = Boolean(active?.closest?.("#preview-dock"));
   setOpen(false);
+  if (!hadFocus) return;
+  const toggle = $("preview-toggle");
+  toggle?.focus?.();
+  if (document.activeElement !== toggle) promptBox?.focus?.();
+}
+/// 面板上的 ✕:关闭 = 释放页面(preview_close,渲染进程退出,声音、定时器、HMR 轮询都停)再收起。
+/// 只想暂时收起、页面留着用 rail 开关或 Ctrl+Shift+B。
+export async function closePreviewPage() {
+  if (state.alive) await releasePage();
+  closePreviewDock();
 }
 /// rail 开关与 Ctrl+Shift+B:关着(或不在对话视图)就打开;窄屏停在「对话」页签时切回预览;否则收起(页面保留)。
 export function togglePreview() {
@@ -507,8 +588,10 @@ export async function openPreviewTarget(input, { record = true } = {}) {
   }
   state.alive = true;
   if (bounds.w > 0) lastBounds = bounds;
-  // 已有面板时 preview_open 只导航,不保证把被隐藏(错误页/冻结)的面板重新露出来:可见性不做假设,下一帧 evaluate 明确上报一次。
+  // preview_open 对可见性的处理不做假设(后端现在会顺手 show):下一帧 evaluate 明确上报一次。
+  // 冻结中(抽屉/模态/菜单还盖着)evaluate 走「已冻结」分支什么都不发,所以这里当场补一次隐藏,原生面板不会盖到弹层上。
   sent = { visible: null, processId: undefined };
+  if (frozen) sendVisible(false);
   if (target.kind === "path") state.staticProject = currentProject;
   if (state.device !== "fill" || state.scheme !== "auto") sendDevice();
   if (record) rememberRecent(target.display);
@@ -651,7 +734,7 @@ export function addConsoleEntries(entries) {
     entry.kind = consoleKind(entry);
     consoleEntries.push(entry);
     consoleSeqs.add(seq);
-    if (entry.kind === "error") consoleErrors += 1;
+    if (consoleMatches(entry, "error")) consoleErrors += 1; // 角标与「错误」筛选同一口径(含网络失败)
     added = true;
   }
   if (!added) return;
@@ -659,7 +742,7 @@ export function addConsoleEntries(entries) {
   while (consoleEntries.length > PREVIEW_CONSOLE_MAX) {
     const old = consoleEntries.shift();
     consoleSeqs.delete(old.seq);
-    if (old.kind === "error") consoleErrors -= 1;
+    if (consoleMatches(old, "error")) consoleErrors -= 1;
   }
   renderConsole();
   syncConsoleBadge();
@@ -727,7 +810,7 @@ function setConsoleOpen(open) {
 // ---------- 界面同步 ----------
 function setAddress(text) {
   const input = $("preview-address");
-  if (!input || document.activeElement === input) return;
+  if (!input || addressEditing) return;
   input.value = text ?? "";
 }
 function syncToggle() {
@@ -791,7 +874,10 @@ function renderError() {
   if (!box) return;
   const error = state.alive || state.error?.kind === "open" ? state.error : null;
   box.classList.toggle("hidden", !error);
-  if (!error) return;
+  if (!error) {
+    errorShown = "";
+    return;
+  }
   const where = displayUrl(state.url);
   const copy = {
     connection_refused: [t("服务没在跑？"), `${where ? `${where} ` : ""}${t("拒绝连接。开发服务可能还没启动,或者已经退出。")}`],
@@ -799,6 +885,10 @@ function renderError() {
     blocked: [t("这个地址被拦下了"), t("预览面板不打开应用内部地址、file: 与脚本链接;项目里的文件直接输入路径即可。")],
     open: [t("网页预览打开失败"), ""],
   }[error.kind] ?? [t("页面打不开"), ""];
+  // role=alert:加载状态、标题变化的每条 kz:preview-state 都会走到这里;内容(类别、文案、原文、地址、语言)没变就不碰 DOM。
+  const key = JSON.stringify([error.kind, copy[0], copy[1], error.text]);
+  if (key === errorShown) return;
+  errorShown = key;
   const title = $("preview-error-title");
   if (title) title.textContent = copy[0];
   const text = $("preview-error-text");
@@ -987,10 +1077,16 @@ function previewActionButton(target) {
   return button;
 }
 /// 05-chat-render 的 fillToolBlock 调用:工具行下方的截图缩略图(点开进查看器)与 browser 的「在预览中打开」。
-/// 挂在行头之后、折叠详情之前:不展开也看得见模型看到的画面。
+/// 挂在行头之后、折叠详情之前:不展开也看得见模型看到的画面。同一个块可能被填第二次(停止后补发的 ToolEnd、
+/// 孤儿结果回填):先摘掉上一次的,缩略图与「在预览中打开」不成对重复;这次没有可显示的就只摘不挂。
 export function mountToolShots(block, images, { action = null } = {}) {
   const wrap = block?.wrap;
-  if (!wrap || (!images?.length && !action)) return null;
+  if (!wrap) return null;
+  for (const old of [...(wrap.children ?? [])]) {
+    if (old.classList?.contains("tool-shots")) old.remove();
+  }
+  wrap.classList.remove("has-shot");
+  if (!images?.length && !action) return null;
   const strip = el("div", "tool-shots");
   images.slice(0, 4).forEach((rel, index) => {
     strip.append(thumbButton(`${t("查看截图")} ${index + 1}`, () => loadToolImage(rel), `${t("截图")} · ${block.name ?? ""}`));
@@ -1072,7 +1168,7 @@ function adoptPrefs() {
 }
 function wireToolbar() {
   $("preview-toggle")?.addEventListener("click", () => togglePreview());
-  $("preview-close")?.addEventListener("click", () => closePreviewDock());
+  $("preview-close")?.addEventListener("click", () => void closePreviewPage());
   $("preview-back")?.addEventListener("click", () => void navPreview("back"));
   $("preview-forward")?.addEventListener("click", () => void navPreview("forward"));
   $("preview-reload")?.addEventListener("click", () => void navPreview(state.loading ? "stop" : "reload"));
@@ -1101,13 +1197,29 @@ function wireToolbar() {
     if (path) void openPreviewTarget(path);
   });
   const address = $("preview-address");
-  // 地址栏自己的键:Enter 打开;Esc 放弃编辑、恢复当前地址(局部 Esc,挂在输入框自己身上)。
+  // 编辑态:用户敲了字才算(只是点进来不挡后端的地址回写);离开输入框按当前页面地址回填(与浏览器一致)。
+  address?.addEventListener("input", () => { addressEditing = true; });
+  address?.addEventListener("blur", () => {
+    if (!addressEditing) return;
+    addressEditing = false;
+    address.value = displayUrl(state.url);
+  });
+  // 地址栏自己的键:Enter 打开并交出焦点;Esc 放弃编辑、恢复当前地址(局部 Esc,挂在输入框自己身上)。
   address?.addEventListener("keydown", (event) => {
     if (event.isComposing) return;
     if (event.key === "Enter") {
       event.preventDefault?.();
-      void openPreviewTarget(address.value);
+      const value = address.value;
+      // 认不出的地址:toast 提示,留在编辑态让用户改(不回填、不交出焦点)。
+      if (normalizeAddress(value).kind === "invalid") {
+        void openPreviewTarget(value);
+        return;
+      }
+      addressEditing = false;
+      address.blur?.();
+      void openPreviewTarget(value);
     } else if (event.key === "Escape" && !state.picking) {
+      addressEditing = false;
       address.value = displayUrl(state.url);
       address.blur?.();
     }
@@ -1122,6 +1234,10 @@ function wireToolbar() {
 }
 
 defer(() => {
+  // 主界面可能被重载(F5 / Ctrl+R:wry 的浏览器加速键默认开着),Rust 侧的子 webview 却还活着、还可见。
+  // 这里的状态机假定自己是面板的唯一真源(alive 从 false 起步),所以启动先无条件收掉可能留下的孤儿面板;
+  // 启动本来就只恢复到起始页,没有副作用。
+  void invoke("preview_close").catch(() => {});
   addMarkdownHook((root) => decorateCodeBlocks(root));
   wireToolbar();
   splitApi = installSplit($("preview-dock"), {
@@ -1154,6 +1270,10 @@ defer(() => {
   on("kz:preview-console", (event) => addConsoleEntries(event.payload?.entries));
   on("kz:preview-pick", (event) => onPreviewPick(event.payload));
   onSurfaceChange(() => scheduleEvaluate());
+  // 拖动分隔条 / 框体的起止(00-frame 在 pointerdown 时写、结束时删 html[data-kz-frame-drag]):按帧重判,拖动期间冻结。
+  for (const type of ["pointerdown", "pointerup", "pointercancel", "lostpointercapture"]) {
+    document.addEventListener(type, () => { if (state.open && state.alive) scheduleEvaluate(); }, true);
+  }
   onLayoutChange((section) => {
     if (section === "*") adoptPrefs();
   });

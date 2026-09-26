@@ -801,6 +801,11 @@ function showTipNow() {
   if (!target || !text) return;
   const el = tipElement();
   el.textContent = text;
+  // 摆位方向:锚点或其祖先的 data-kz-tip-side(目前只有 inline-start)。网页预览面板里的提示走侧向:
+  // 默认的上方/翻到下方会落进原生子 webview 的占位框,被原生面板盖住(UI2-0926 #8)。
+  const side = target.closest?.("[data-kz-tip-side]")?.dataset?.kzTipSide ?? "";
+  if (side) el.dataset.side = side;
+  else delete el.dataset.side;
   anchorTo(el, target);
   mirrorHidden(el, false);
   showNative(el);

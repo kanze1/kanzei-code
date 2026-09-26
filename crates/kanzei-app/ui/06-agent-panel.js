@@ -53,7 +53,7 @@ import {
   sideEvent,
   sideMaxWidth,
 } from "./06-side-policy.js";
-import { previewColumnWidth } from "./24-preview.js";
+import { PREVIEW_NARROW, previewColumnWidth } from "./24-preview.js";
 
 // 值得停留的实时失败:失败/超时/中断/未启动。用户自己停的(cancelled)不算。
 const HOLD_STATES = new Set(["failed", "timeout", "interrupted", "rejected"]);
@@ -131,11 +131,13 @@ function mainWidth() {
 /// 停靠/抽屉与各自的宽度、上限。停靠判据只看停靠口径的宽度(夹在 [320, min(760, 主区 − 600)]);
 /// 抽屉有自己的口径(默认 400,上限主区 − 96)——停靠上限在抽屉态几乎总是 320,拿它夹抽屉就拖不动。
 /// UI2-0926 #8:网页预览开着时对话视图里还并排着预览栏——停靠判据按「停靠后对话视图宽减去预览栏」算,
-/// 否则侧栏一停靠,对话列就被夹到 600px 以下。
+/// 否则侧栏一停靠,对话列就被夹到 600px 以下。预览栏按「停靠后仍要并排」取宽(对话视图至少按 800 算):
+/// 停靠后对话视图窄于 800 时预览会切进窄屏、把整个对话列藏到「对话」页签后面(1333 宽窗口的主区 1005 − 侧栏 360 = 645),
+/// 那种停靠不算数,判抽屉。
 function panelGeometry(mainW) {
   const stored = splitApi?.value?.() ?? null;
   const docked = sideClampWidth(stored ?? sideDefaultWidth(window.innerWidth || 0), mainW);
-  const previewCol = previewColumnWidth(mainW - docked);
+  const previewCol = previewColumnWidth(Math.max(mainW - docked, PREVIEW_NARROW));
   const dock = sideDockMode({ mainWidth: mainW - previewCol, panelWidth: docked });
   return dock === "drawer"
     ? { dock, width: sideDrawerWidth(stored, mainW), max: sideDrawerMax(mainW) }
