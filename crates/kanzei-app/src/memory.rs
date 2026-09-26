@@ -479,21 +479,25 @@ pub(crate) fn memory_entry_save(
                 Some(tokens) => Some(resolve_area_tokens(&project_root_of(&project_dir), tokens)?),
                 None => None,
             };
-            if title.is_some() || description.is_some() || body.is_some() || status.is_some() {
+            // 内容与区域一次写盘(update_with_area),不再先 update 再 set_area 两次独立写。
+            if title.is_some()
+                || description.is_some()
+                || body.is_some()
+                || status.is_some()
+                || resolved.is_some()
+            {
                 store
-                    .update(
+                    .update_with_area(
                         &id,
                         title.as_deref(),
                         description.as_deref(),
                         body.as_deref(),
                         status.as_deref(),
+                        resolved.as_deref(),
                         None,
                         false, // A-005:UI 用户直写豁免主题一致性,用户有权写任何内容
                     )
                     .map_err(|e| e.to_string())?;
-            }
-            if let Some(areas) = resolved {
-                store.set_area(&id, &areas).map_err(|e| e.to_string())?;
             }
             return Ok(());
         }

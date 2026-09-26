@@ -367,29 +367,19 @@ impl Tool for MemoryUpdateTool {
             Some(Err(reason)) => return ToolOutput::error(reason),
             None => None,
         };
-        let content_change =
-            input.title.is_some() || input.description.is_some() || input.body.is_some();
-        let updated = if content_change || areas.is_none() {
-            store.update(
-                &input.id,
-                input.title.as_deref(),
-                input.description.as_deref(),
-                input.body.as_deref(),
-                None,
-                input.expected_hash.as_deref(),
-                true, // D-282:manager 写路径强制 description 主题一致性(防选错条目覆盖)
-            )
-        } else {
-            store
-                .load_all()
-                .into_iter()
-                .find(|(_, e)| e.id == input.id)
-                .map(|(_, e)| e)
-                .ok_or_else(|| anyhow::anyhow!("unknown memory id `{}`", input.id))
-        };
-        match (updated, areas) {
-            (Ok(_), Some(areas)) => match store.set_area(&input.id, &areas) {
-                Ok(e) => ToolOutput::ok(format!(
+        // 内容与区域一次写盘:expected_hash 对「只改区域」同样生效(复核:area-only 曾绕过 CAS)。
+        match store.update_with_area(
+            &input.id,
+            input.title.as_deref(),
+            input.description.as_deref(),
+            input.body.as_deref(),
+            None,
+            areas.as_deref(),
+            input.expected_hash.as_deref(),
+            true, // D-282:manager 写路径强制 description 主题一致性(防选错条目覆盖)
+        ) {
+            Ok(e) => match areas {
+                Some(areas) => ToolOutput::ok(format!(
                     "updated {} [{}] {} (area: {})",
                     e.id,
                     e.status,
@@ -400,10 +390,9 @@ impl Tool for MemoryUpdateTool {
                         areas.join(" ")
                     }
                 )),
-                Err(e) => ToolOutput::error(e.to_string()),
+                None => ToolOutput::ok(format!("updated {} [{}] {}", e.id, e.status, e.title)),
             },
-            (Ok(e), None) => ToolOutput::ok(format!("updated {} [{}] {}", e.id, e.status, e.title)),
-            (Err(e), _) => ToolOutput::error(e.to_string()),
+            Err(e) => ToolOutput::error(e.to_string()),
         }
     }
 }
@@ -999,6 +988,57 @@ mod tests {
             "{}",
             bad.content
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 复核:只改区域也要过 expected_hash(CAS);过期 hash 拒绝且不落盘,当前 hash 放行。
+    #[tokio::test]
+    async fn memory_update_area_only_honors_expected_hash() {
+        let (dir, ctx) = area_project("cas");
+        let added = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "sop", "title": "区域并发",
+                       "description": "区域并发钩子", "body": "正文", "area": ["kanzei-tools/edit"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!added.is_error, "{}", added.content);
+        let store = MemoryStore::project(&dir);
+        let (_, entry) = store.load_all().into_iter().next().unwrap();
+        let stale = kanzei_base::content_hash(b"someone else's older render");
+        let rejected = MemoryUpdateTool
+            .execute(
+                json!({"scope": "project", "id": entry.id, "area": ["kanzei-tools/tracker"],
+                       "expected_hash": stale}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            rejected.is_error && rejected.content.contains("expected_hash"),
+            "{}",
+            rejected.content
+        );
+        assert_eq!(
+            MemoryStore::project(&dir).load_all()[0].1.areas(),
+            vec!["kanzei-tools/edit"],
+            "过期 hash 不得落盘"
+        );
+        let current = kanzei_base::content_hash(crate::memory::render_entry(&entry).as_bytes());
+        let accepted = MemoryUpdateTool
+            .execute(
+                json!({"scope": "project", "id": entry.id, "area": ["kanzei-tools/tracker"],
+                       "body": "正文(改)", "expected_hash": current}),
+                &ctx,
+            )
+            .await;
+        assert!(!accepted.is_error, "{}", accepted.content);
+        let (_, after) = MemoryStore::project(&dir)
+            .load_all()
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(after.areas(), vec!["kanzei-tools/tracker"]);
+        assert_eq!(after.body, "正文(改)", "内容与区域同一次写盘");
         std::fs::remove_dir_all(dir).ok();
     }
 

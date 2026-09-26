@@ -246,28 +246,10 @@ impl MemoryStore {
     }
 
     /// 记忆图谱:写 frontmatter `area:`(规范区域 id,空格分隔);空切片 = 删除该键。
-    /// 归一与存在性校验归调用方(AreaRegistry::resolve_token),这里只落盘。持记忆树锁,
-    /// 写后 refresh_derived(与 update 同一条派生物链)。只改活动条目:归档条目只读。
+    /// 归一与存在性校验归调用方(AreaRegistry::resolve_token),这里只落盘。与 update 走同一条
+    /// 写路径(update_with_area:持记忆树锁、一次写盘、写后 refresh_derived)。只改活动条目:归档条目只读。
     pub fn set_area(&self, id: &str, areas: &[String]) -> anyhow::Result<MemoryEntry> {
-        let _tree_lock = self.tree_lock()?;
-        let Some((path, mut entry)) = self.load_all().into_iter().find(|(_, e)| e.id == id) else {
-            anyhow::bail!("unknown memory id `{id}`(归档条目只读,不能设区域)");
-        };
-        let mut seen = std::collections::BTreeSet::new();
-        let value = areas
-            .iter()
-            .map(|a| a.trim())
-            .filter(|a| !a.is_empty() && seen.insert(a.to_string()))
-            .collect::<Vec<_>>()
-            .join(" ");
-        entry.extras.retain(|(key, _)| key != "area");
-        if !value.is_empty() {
-            entry.extras.push(("area".to_string(), value));
-        }
-        entry.updated = today();
-        self.write_entry(&entry, Some(&path))?;
-        self.refresh_derived()?;
-        Ok(entry)
+        self.update_with_area(id, None, None, None, None, Some(areas), None, false)
     }
 
     pub fn has_archived_id(&self, id: &str) -> bool {
@@ -472,6 +454,33 @@ impl MemoryStore {
         expected_hash: Option<&str>,
         enforce_topic: bool,
     ) -> anyhow::Result<MemoryEntry> {
+        self.update_with_area(
+            id,
+            title,
+            description,
+            body,
+            status,
+            None,
+            expected_hash,
+            enforce_topic,
+        )
+    }
+
+    /// update 加记忆图谱的 `area:`(Some(&[]) 清除,None 不动):内容与区域一次写盘、一次
+    /// refresh_derived,expected_hash 对「只改区域」同样生效(复核:area-only 曾绕过 CAS、
+    /// 同时改内容与区域是两次独立写盘)。整段 读 → CAS → 写 持记忆树锁(同线程重入)。
+    #[allow(clippy::too_many_arguments)] // update 的全参 + area
+    pub fn update_with_area(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        body: Option<&str>,
+        status: Option<&str>,
+        area: Option<&[String]>,
+        expected_hash: Option<&str>,
+        enforce_topic: bool,
+    ) -> anyhow::Result<MemoryEntry> {
         if let Some(status) = status {
             // 兼容旧档别名:stale → deprecated(R-165 兼容映射,写入侧统一归一化)。
             let status = super::normalize_status(status);
@@ -479,8 +488,12 @@ impl MemoryStore {
                 anyhow::bail!("invalid status `{status}`; valid: {}", STATUSES.join(" | "));
             }
         }
+        let tree_lock = self.tree_lock()?;
         let entries = self.load_all();
         let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
+            if area.is_some() {
+                anyhow::bail!("unknown memory id `{id}`(归档条目只读,不能设区域)");
+            }
             anyhow::bail!("unknown memory id `{id}`");
         };
         let previous_status = entry.status.clone();
@@ -524,10 +537,24 @@ impl MemoryStore {
         if let Some(status) = status {
             entry.status = super::normalize_status(status).into();
         }
+        if let Some(areas) = area {
+            let mut seen = std::collections::BTreeSet::new();
+            let value = areas
+                .iter()
+                .map(|a| a.trim())
+                .filter(|a| !a.is_empty() && seen.insert(a.to_string()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            entry.extras.retain(|(key, _)| key != "area");
+            if !value.is_empty() {
+                entry.extras.push(("area".to_string(), value));
+            }
+        }
         entry.updated = today();
         // 文件名沿用旧路径(slug 终身不改)。
         self.write_entry(&entry, Some(&path))?;
         self.refresh_derived()?;
+        drop(tree_lock);
         if previous_status != "deprecated" && entry.status == "deprecated" {
             let source_refs = entry.refs();
             super::record_memory_lifecycle_event(
