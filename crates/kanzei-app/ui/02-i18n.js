@@ -1094,6 +1094,25 @@ export const I18N_EN = {
   "返回全部子代理": "Back to all subagents", "当前线路还没有子代理": "No subagents on this line yet",
   "停止这个子代理": "Stop this subagent", "子代理未给出回答": "The subagent returned no answer",
   "该子代理已滚出当前视图": "This subagent is no longer in the chat view", "要求结构化返回": "Structured answer required",
+  // ── 分区:记忆图谱 ──
+  "图谱": "Graph", "记忆视图": "Memory view", "记忆图谱": "Memory graph", "区域": "Area", "按代码区域筛选": "Filter by code area",
+  "图层": "Layers", "关于": "About", "关联": "Related", "实现": "Implements", "取代": "Supersedes", "提及": "Mentions",
+  "引用": "Cites", "指纹": "Fingerprint", "同主题": "Same subject", "包含": "Contains", "路径": "Path", "经由": "via",
+  "关键词": "Keyword", "含归档": "Include archived", "邻域": "Neighborhood", "1 跳": "1 hop", "2 跳": "2 hops", "3 跳": "3 hops",
+  "退出邻域": "Exit neighborhood", "适配视图": "Fit view", "文本视图": "Text view", "记忆图谱文本视图": "Memory graph as text",
+  "图例": "Legend", "决策": "Decision", "设计文档": "Design doc", "代码区域": "Code area", "模块": "Module",
+  "失败指纹": "Failure fingerprint", "需求/缺陷/决策/文档": "Requirement / defect / decision / doc",
+  "共享指纹/主题": "Shared fingerprint / subject",
+  "实心=active · 空心=候选 · 半透明=归档 · 虚线=推断/提及 · 双击进入邻域": "Solid = active · hollow = candidate · faded = archived · dashed = inferred / mention · double-click for neighborhood",
+  "个节点": "nodes", "条关系": "relations", "条记忆": "memories", "布局": "layout", "布局中…": "laying out…",
+  "正在构建记忆图谱…": "Building memory graph…", "记忆图谱加载失败": "Failed to load memory graph",
+  "图形渲染不可用,已显示文本视图": "Graph rendering unavailable; showing the text view",
+  "全部区域": "All areas", "已归档(只读)": "Archived (read-only)",
+  "打开条目": "Open entry", "打开决策文档": "Open decisions", "打开设计文档": "Open design doc", "只看该区域": "Only this area",
+  "用对话合并": "Merge via chat", "看邻域": "Show neighborhood", "没有关系": "No relations",
+  "共同指纹": "shared fingerprint", "共同主题": "shared subject", "合并这些重复记忆": "Merge these duplicate memories",
+  "选择代码区域": "Choose a code area", "选择区域…": "Choose area…", "设为区域": "Set area", "清除区域": "Clear area",
+  "区域已保存": "Area saved", "区域已清除": "Area cleared", "区域保存失败": "Failed to save area",
 };
 export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",
@@ -1439,6 +1458,8 @@ export function setLanguagePreference(preference, { persist = true, rerender = t
     }
     if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
     updateAskQueueStatus();
+    // 画布上的文字(记忆图谱的边标签)不在 DOM 里,靠这个事件重画。
+    document.dispatchEvent(new CustomEvent("kz:language", { detail: { language: normalized } }));
   }
 }
 export function syncLanguagePreferenceFromSettings(preference) {

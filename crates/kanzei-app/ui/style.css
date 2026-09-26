@@ -90,6 +90,15 @@
   --danger-btn-hover: #5c2e2b; --deny-hover: #363636;
   --danger-soft: #ff7b7224; --alert-soft: #e8b84a1f;
   --border-on-accent: #ffffff1f;
+  /* 记忆图谱(docs/design/memory_knowledge_graph.md §10):四个类别色只在图谱画布与图例里区分记忆分类,不表达状态;
+     取非状态色相(天蓝、靛、紫、梅),靠明度拉开,两套主题都过对比度与色觉异常分辨(ui-a11y-smoke 分区:记忆图谱)。
+     模块节点用独立的中灰(--border-strong 对主区只有 1.9:1,当节点色看不见)。其余是别名,只在这里定义一次。 */
+  --graph-fact: #61c0f2; --graph-sop: #b779f2; --graph-habit: #4b65d9; --graph-preference: #9e5484;
+  --graph-module: #7a7a7a;
+  --graph-context: var(--dim); --graph-crate: var(--fg-strong); --graph-concept: var(--fg);
+  --graph-edge: var(--graph-module); --graph-edge-weak: var(--border-strong);
+  --graph-label: var(--fg); --graph-label-dim: var(--dim); --graph-focus: var(--fg-strong);
+  --graph-halo: var(--fg); --graph-bg: var(--bg); --graph-hit: var(--accent-text);
   /* 组件层(弹层外观唯一真源,见 docs/design/ui_surface_stack.md):只引用上面的语义 token,
      只准 surface.css 使用;不在亮色块里重定义——主题切换只发生在语义层。 */
   --surface-bg: var(--surface-overlay); --surface-bg-raised: var(--panel2);
@@ -159,6 +168,9 @@
   --danger-btn-hover: #f9d9d6; --deny-hover: #ebebeb;
   --danger-soft: #c62b2b14; --alert-soft: #84570014;
   --border-on-accent: #0000001a;
+  /* 记忆图谱类别色与模块灰(亮色取值,同一组色相)。 */
+  --graph-fact: #2a7da6; --graph-sop: #ae6fe8; --graph-habit: #2b3cad; --graph-preference: #7c2462;
+  --graph-module: #8a8a8a;
 }
 /* ===== 主题 token 块结束:D-380 判据以此行为界(scripts/ui-a11y-smoke.mjs),勿改此行 ===== */
 /* 勾选/单选的选中色走单色主色(与主按钮一致),不用系统蓝,也不占用强调色。 */

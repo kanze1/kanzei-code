@@ -863,6 +863,8 @@ export function applyTheme(theme) {
   const moon = $("theme-icon-moon");
   if (sun) sun.classList.toggle("hidden", theme !== "light");
   if (moon) moon.classList.toggle("hidden", theme !== "dark");
+  // 画布类视图(记忆图谱)不走 CSS 级联,靠这个事件重读 --graph-* token 后重画。
+  document.dispatchEvent(new CustomEvent("kz:theme", { detail: { theme } }));
 }
 export function initTheme() {
   const saved = localStorage.getItem(THEME_STORAGE_KEY);
