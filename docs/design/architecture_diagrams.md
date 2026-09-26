@@ -155,7 +155,7 @@ CSS(style.css,app 层)只写 mermaid 内联 `<style>` 不写的东西——那�
 - 节点/边的 DOM 形状(`…-flowchart-<id>-<n>`、`L_a_b_n`)不是公开 API:两套选择器兜底,门禁要求点击映射率 100%,结构一变就红。
 - 包体约多 5.4MB(ESM 分块版);第一次画 flowchart 加载约 3MB JS。
 - tauri CSP 目前为 null;将来收紧 CSP 时 mermaid 生成的内联 `<style>` 需要 `style-src 'unsafe-inline'`。
-- 许可:elkjs 为 EPL-2.0(按文件生效),分块原样分发并附声明(vendor/mermaid/THIRD_PARTY.md),不得修改分块。许可原文收在 `vendor/mermaid/LICENSES-THIRD-PARTY.txt`:分块自带的 banner(lodash-es、DOMPurify、cytoscape 内的片段)、d3 7.9.0 与各 d3-* 模块及 roughjs 4.6.6 的 LICENSE(取自本机 npm 缓存里同版本的 tarball)、Apache-2.0 条款全文。**尚缺**:elkjs 的 EPL-2.0 全文与 KaTeX、cytoscape 本体、marked、stylis、dayjs、khroma、dagre-d3-es、chevrotain 版权行等约二十个包在锁定版本下的 LICENSE 原文——要从 npm registry 再下载这些包,需用户另行同意(本轮只获准下载 mermaid 12.0.0 本身)。
+- 许可:elkjs 为 EPL-2.0(按文件生效),分块原样分发并附声明(vendor/mermaid/THIRD_PARTY.md),不得修改分块。许可原文收在 `vendor/mermaid/LICENSES-THIRD-PARTY.txt`:分块自带的 banner(lodash-es、DOMPurify、cytoscape 内的片段)、d3 7.9.0 与各 d3-* 模块及 roughjs 4.6.6 的 LICENSE(取自本机 npm 缓存里同版本的 tarball)、Apache-2.0 条款全文。其余约二十个随分块打包的组件(elkjs 的 EPL-2.0 全文、KaTeX、cytoscape 本体、cose-base/layout-base/fcose、d3-sankey、dagre-d3-es、khroma、marked、stylis、dayjs、chevrotain、@mermaid-js/parser、langium、vscode-languageserver-types、es-toolkit、uuid、ts-dedent、@braintree/sanitize-url、@iconify/utils、@upsetjs/venn.js)的 LICENSE 原文已于 2026-09-26 从 npm registry 取回,收在 Part D(版本按 mermaid 12.0.0 声明的依赖范围解析到最新匹配版本,逐条写在小标题里)。
 - 集成接缝:与 ui2/files 合并时 README 索引行、`scripts/ui-preview/shoot.mjs` 默认场景清单、ui-runtime-smoke 会冲突,与 ui2/workdir 合并时 ui-runtime-smoke 会冲突——都是同一位置的追加块,取并集。自举树的 R-364 WIP 把 architecture 列为延迟工具,本分支把它的 description 从约 1.0KB 扩到约 2.6KB(源码字符):合进自举线后要重跑 R-364 的 schema 字符账单与各档预算测试,确认延迟目录预算没被撑爆。
 - 聊天里模型生成的 mermaid 是半可信输入:按威胁模型不做对抗防御,保留 strict + htmlLabels false + 插入前后两道 SVG 检查;单图最多 200 条边、50000 字符。
 - 待用户拍板:crate 图是否也在聊天里提供「插入当前 crate 图」的快捷方式;是否给研究页的探索路线图换成同一渲染器(现为自绘,本文不动)。
@@ -164,7 +164,7 @@ CSS(style.css,app 层)只写 mermaid 内联 `<style>` 不写的东西——那�
 
 - 2026-09-26:起草并实施(ui2/arch 分支,UI2-0926 #7)。相对最初方案的调整:crate 图改为 LR(8 个 crate 链深 6 层,TB 在横向画布上只能缩到 0.5)、crate 描述压到 ≤12 字;适应下限按设备像素算;muted 透明度 .6 → .72(门禁对比度);手写图 01 重画为 6 层 12 节点;ELK 由不合并边改为合并同向边(mergeEdges);D7 定为警告、D6 只报确定解析失败的字符;选中标签页存 `ui_layout` 而不是 localStorage(D-404)。
 
-- 2026-09-26(复核修复):错误行号经 lineMap 换回原文行号(注释/click 行改抹成空行,frontmatter 与开头空行由 lineMap 兜住);frontmatter 的 config 段与行内指令抹掉;`diagrams` 动作读代码树根(ctx.cwd);ui_diagram 判据按范围分级(文档里的图只判渲染/安全/点击映射),docs/architecture 的改动同时跑 Rust 测试;真实工作区测试只钉不变量;行号锚点漂移给 D5 警告、两张默认图只锚到文件;字符串安全闸门只看标签与属性;lint 认 F- 条目号、非 flowchart 只报一条 D1,lint 拆到 arch_diagram_lint.rs;「全部依赖」不分组 + 关同向边合并 + 传递边画淡、悬停亮起;页面模式画布下限 360 → 240;英文 lint 行与脚注用模板、出错时不提示点击、来源说明不套路径样式;研究报告的引用装饰跳过图与代码块;renderMarkdown 静态门禁收紧到 04-markdown.js 以外零调用;vendor 补 LICENSES-THIRD-PARTY.txt(部分,尚缺项见 §11)。
+- 2026-09-26(复核修复):错误行号经 lineMap 换回原文行号(注释/click 行改抹成空行,frontmatter 与开头空行由 lineMap 兜住);frontmatter 的 config 段与行内指令抹掉;`diagrams` 动作读代码树根(ctx.cwd);ui_diagram 判据按范围分级(文档里的图只判渲染/安全/点击映射),docs/architecture 的改动同时跑 Rust 测试;真实工作区测试只钉不变量;行号锚点漂移给 D5 警告、两张默认图只锚到文件;字符串安全闸门只看标签与属性;lint 认 F- 条目号、非 flowchart 只报一条 D1,lint 拆到 arch_diagram_lint.rs;「全部依赖」不分组 + 关同向边合并 + 传递边画淡、悬停亮起;页面模式画布下限 360 → 240;英文 lint 行与脚注用模板、出错时不提示点击、来源说明不套路径样式;研究报告的引用装饰跳过图与代码块;renderMarkdown 静态门禁收紧到 04-markdown.js 以外零调用;vendor 补 LICENSES-THIRD-PARTY.txt(集成时补齐 Part D,见 §11)。
 
 ## 验证证据
 

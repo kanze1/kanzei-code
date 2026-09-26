@@ -56,15 +56,9 @@ whole mermaid build and update `README.md`.
 - **LICENSE files from the npm tarballs** (Part B): d3 7.9.0 and each `d3-*` module
   (ISC, Mike Bostock / Observable, Inc.), roughjs 4.6.6 (MIT, Preet Shihn).
 - **Apache License 2.0 terms** (Part C): chevrotain, and DOMPurify's Apache option.
-- **Still to be added** — the upstream LICENSE files at the bundled versions are not
-  in this repository yet (fetching them needs another download from the npm registry):
-  elkjs (EPL-2.0 full text), KaTeX, cytoscape's own notice, cytoscape-cose-bilkent,
-  cose-base, layout-base, cytoscape-fcose, d3-sankey, dagre-d3-es, khroma, marked,
-  stylis, dayjs, chevrotain's copyright line, @mermaid-js/parser, langium,
-  vscode-languageserver-types, es-toolkit, uuid, ts-dedent, @braintree/sanitize-url,
-  @iconify/utils, @upsetjs/venn.js. Until then the license terms are those named in the
-  table above:
-  - MIT: same terms as `LICENSE` (mermaid), with each project's own copyright holders.
-  - EPL-2.0: https://www.eclipse.org/legal/epl-2.0/
-  - MPL-2.0: https://www.mozilla.org/MPL/2.0/
-  - ISC: https://opensource.org/license/isc-license-txt · BSD-3-Clause: https://opensource.org/license/bsd-3-clause
+- **LICENSE files from the npm tarballs of the remaining components** (Part D): elkjs (EPL-2.0 full
+  text), KaTeX, cytoscape, cytoscape-cose-bilkent, cose-base (1.x and 2.x), layout-base,
+  cytoscape-fcose, d3-sankey, dagre-d3-es, khroma, marked, stylis, dayjs, chevrotain,
+  @mermaid-js/parser, langium, vscode-languageserver-types, es-toolkit (incl. NOTICE), uuid, ts-dedent,
+  @braintree/sanitize-url, @iconify/utils, @upsetjs/venn.js — fetched from registry.npmjs.org
+  (versions listed in each Part D header).
