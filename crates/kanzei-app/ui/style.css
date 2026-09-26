@@ -22,6 +22,11 @@
   --accent: #d25e28; --accent-hover: #e2703a; --accent-soft: #d25e2829;
   --accent-text: #ff8c52;
   --memory-flow: var(--accent); --memory-flow-hot: var(--accent-text); --memory-flow-dim: var(--border-strong);
+  /* 对话背景(星座背景,22-constellation.js,docs/design/ui_chat_backdrop.md):星与连线是中性灰,运行光点复用
+     --accent、失败涟漪复用 --err。alpha 是基准值,渲染器再乘构图系数与不透明度偏好;水印压在正文上时另按
+     正文对比度逐层夹上限(ui-constellation-smoke 的第 13 条)。 */
+  --backdrop-star: #ececec; --backdrop-line: #9a9a9a;
+  --backdrop-star-alpha: .62; --backdrop-line-alpha: .22; --backdrop-dust-alpha: .32;
   /* 状态色:一种含义一种颜色(docs/design/ui_color_semantics.md)。
      warn = 需要注意(阻塞/卡住/等你/风险);ok = 一件工作成功收尾;err = 失败/错误/P0;
      info 不再表达任何状态,只留给语法与数据着色(JSON 键等)。alert 是 warn 的别名。 */
@@ -124,6 +129,8 @@
      让「在做」「阻塞」胶囊(半透明底)放进悬停中的焦点卡(--panel2 叠 --surface-hover)也 ≥ 4.5。 */
   --accent: #d25e28; --accent-hover: #b84f1f; --accent-soft: #d25e281a;
   --accent-text: #9a4817;
+  --backdrop-star: #1f1f1f; --backdrop-line: #5c5c5c;
+  --backdrop-star-alpha: .7; --backdrop-line-alpha: .26; --backdrop-dust-alpha: .3;
   --ok: #1d7a3c; --err: #c62b2b; --warn: #845700; --info: #2b64a4;
   --statusbar: #f7f7f7; --statusbar-run: #f4efeb;
   color-scheme: light;
@@ -856,12 +863,10 @@ select {
   background: var(--chat-bg); container-type: inline-size;
 }
 .neural-flow-canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
-.neural-flow-chat {
-  position: absolute; inset: 0; z-index: var(--z-base); opacity: .45;
-  /* 神经场只在主区外围显形,消息正文所在的中部保持安静。 */
-  -webkit-mask-image: radial-gradient(92% 88% at 86% 36%, #000 0 26%, rgba(0,0,0,.72) 49%, transparent 82%);
-  mask-image: radial-gradient(92% 88% at 86% 36%, #000 0 26%, rgba(0,0,0,.72) 49%, transparent 82%);
-}
+/* UI2-0926 #10 星座背景:画布铺满对话区,但只在空白处作画——正文列 / 空态文案由渲染器按实测位置剪掉,
+   不再靠整张蒙版和整体不透明度压暗(旧神经场的线会穿过「开始一段新对话」)。关闭背景时画布整块不显示。 */
+.neural-flow-chat { position: absolute; inset: 0; z-index: var(--z-base); }
+html[data-backdrop="off"] .neural-flow-chat { display: none; }
 #messages { position: relative; z-index: var(--z-raised); }
 /* 顶栏删除后对话直接顶到窗口边,首条消息需要自己的呼吸位;限宽与输入区同一档
    (1080px)让两块视觉上是同一列,宽屏下不再一条到底。 */
@@ -918,6 +923,22 @@ select {
 .oc-range-row output { min-width: 52px; font-variant-numeric: tabular-nums; color: var(--dim); }
 #oc-settings .form-row select { max-width: 300px; }
 #oc-settings input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; padding: 0; }
+/* ── 分区:星座背景 ── 设置页「对话背景」:图案卡片是 role=radio 的按钮,选中态中性(与侧栏选中同一套),
+   缩略图由 22-constellation.js 用同一个渲染器画静帧。 */
+#backdrop-settings input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; padding: 0; }
+.backdrop-row { align-items: flex-start; }
+.backdrop-presets { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.backdrop-preset {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 108px; padding: 6px 6px 7px;
+  border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--panel); color: var(--dim);
+  font: inherit; font-size: var(--fs-11); cursor: pointer;
+}
+.backdrop-preset:hover { border-color: var(--border); color: var(--fg); }
+.backdrop-preset[aria-checked="true"] { border-color: var(--border-strong); background: var(--surface-selected); color: var(--fg-strong); }
+.backdrop-preset:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 1px; }
+.backdrop-thumb { display: block; width: 94px; height: 60px; border-radius: var(--r-sm); background: var(--chat-bg); }
+.backdrop-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* ── 分区:星座背景 结束 ── */
 .oc-poster { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; }
 .oc-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .oc-stage[data-oc-ready="true"] > .oc-poster { visibility: hidden; }
@@ -948,8 +969,12 @@ select {
 .oc-toggle { flex-direction: column; gap: 3px; height: 46px; }
 .oc-toggle > span { font-size: var(--fs-10); line-height: 1; }
 .oc-toggle[aria-pressed="true"] { color: var(--fg-strong); background: var(--surface-selected); }
-html[data-oc-enabled="false"] :is(.empty-art, .voice-art, #oc-companion) { display: none !important; }
-html[data-oc-enabled="false"] .empty-welcome { grid-template-columns: 1fr; max-width: 540px; }
+html[data-oc-enabled="false"] :is(.voice-art, #oc-companion) { display: none !important; }
+/* 星座背景开着时,OC 关闭也保留空态的 art 槽(左文案、右星座两栏);槽里的人物照旧隐藏。
+   关掉背景即回到单列居中。三条分开写::is() 会取其中 #id 的特异度,合写会误伤下面的覆盖。 */
+html[data-oc-enabled="false"]:not([data-backdrop="on"]) .empty-art { display: none !important; }
+html[data-oc-enabled="false"] .empty-art .oc-figure { display: none !important; }
+html[data-oc-enabled="false"]:not([data-backdrop="on"]) .empty-welcome { grid-template-columns: 1fr; max-width: 540px; }
 html[data-oc-enabled="false"] #messages { padding-right: 24px; }
 html[data-oc-enabled="false"] .voice-stage { grid-template-columns: minmax(0, 640px); justify-content: center; }
 html[data-oc-enabled="false"] .voice-stage-copy { padding-right: 0; }
@@ -979,7 +1004,6 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 .voice-mode #composer { padding-top: 4px; padding-bottom: 8px; }
 .voice-mode #voice-panel { margin: 0; padding: 6px 0; }
 .voice-mode .voice-settings { position: absolute; left: 16px; bottom: 12px; }
-.voice-mode .neural-flow-chat { opacity: .9; }
 .voice-mode.voice-transcript #messages { display: flex; position: absolute; inset: 68px 24px 20px 53%; padding: 20px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--r-lg); z-index: var(--z-panel); }
 .voice-mode.voice-transcript .voice-stage-copy { visibility: hidden; }
 .voice-mode.voice-transcript #messages .empty-art { display: none; }
@@ -1916,10 +1940,8 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .memory-warn { color: var(--warn); font-size: var(--fs-12); margin: 8px 0 0; }
 @media (max-width: 720px) {
   .memory-flow-stage { height: 124px; }
-  .neural-flow-chat { opacity: .18; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .neural-flow-chat { opacity: .18; }
   .memory-flow-state { transition: none; }
 }
 

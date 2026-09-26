@@ -2,32 +2,34 @@ import { defer } from "./01-core.js";
 import { $ } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeSessionId, sessionStates } from "./03-shell.js";
+import { createConstellationBackdrop } from "./22-constellation.js";
+import { initBackdropSettings, readBackdropPrefs } from "./22-constellation-prefs.js";
 import { initOcCompanion } from "./22-oc-companion.js";
 import { initOcPreference } from "./22-oc-preference.js";
 
-// R-285 事件神经流。OC 与画布共享真实事件，视觉层不接管运行状态。
-// 顶层声明作为所有 classic script 的统一事件入口；初始化前保持可安全调用。
+// R-285 事件枢纽。OC、对话区星座背景(UI2-0926 #10,22-constellation.js)与记忆页神经场共享真实事件,
+// 视觉层不接管运行状态。顶层声明作为所有 classic script 的统一事件入口；初始化前保持可安全调用。
+// 对话区旧的随机「神经场」变体(随机撒点、随机弯线、拽到 OC 脸上的长线)已由星座背景取代;
+// 这里的 NeuralField 只剩记忆页 #neural-flow-memory 一个实例。
 export let neuralFlowEmit = null;
 export let ocVoiceSignal = null;
+export let chatBackdrop = null;
 export function setNeuralFlowEmit(value) { neuralFlowEmit = value; }
 // 视觉层只消费真实运行事件；Canvas 丢帧、隐藏或关闭不会反向改变任何业务状态。
 defer(() => {
   initOcPreference($("oc-toggle"));
-  const chatCanvas = $("neural-flow-chat");
+  initBackdropSettings();
   const memoryCanvas = $("neural-flow-memory");
   const stateLabel = $("memory-flow-state");
-  const companion = initOcCompanion($("chat-area"), {
+  const runtimeSource = {
     getSessionId: () => activeSessionId,
     getRuntime: (id) => sessionStates.get(id),
-  });
-  let lastVoicePulseAt = 0;
+  };
+  const companion = initOcCompanion($("chat-area"), runtimeSource);
+  chatBackdrop = createConstellationBackdrop($("neural-flow-chat"), { ...runtimeSource, prefs: readBackdropPrefs() });
   ocVoiceSignal = (sessionId, phase, level) => {
     companion?.voice(sessionId, phase, level);
-    if (sessionId !== activeSessionId || !["speaking", "listening", "thinking"].includes(phase)) return;
-    const now = flowNow();
-    if (now - lastVoicePulseAt < (phase === "speaking" ? 220 : 1100)) return;
-    lastVoicePulseAt = now;
-    fields.filter(field => field.variant === "chat").forEach(field => field.trigger(phase === "listening" ? "recall" : "stream", .35 + Math.min(.5, level || 0)));
+    chatBackdrop?.voice(sessionId, phase, level);
   };
   const reducedMotion = typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -73,9 +75,8 @@ defer(() => {
   }
 
   class NeuralField {
-    constructor(canvas, variant, seed) {
+    constructor(canvas, seed) {
       this.canvas = canvas;
-      this.variant = variant;
       this.random = seededRandom(seed);
       this.context = typeof canvas?.getContext === "function" ? canvas.getContext("2d") : null;
       this.width = 0;
@@ -84,7 +85,7 @@ defer(() => {
       this.edges = [];
       this.pulses = [];
       this.bursts = [];
-      this.energy = variant === "memory" ? 0.22 : 0.12;
+      this.energy = 0.22;
       this.lastFrameAt = 0;
       this.colors = [themeColor("--memory-flow", "#c9962e"), themeColor("--memory-flow-hot", "#f0d58c"), themeColor("--err", "#d0684e")];
       if (!this.context) return;
@@ -114,46 +115,14 @@ defer(() => {
       this.width = width;
       this.height = height;
       if (changed || !this.nodes.length) this.buildTopology();
-      this.connectPortrait();
-    }
-
-    connectPortrait() {
-      if (this.variant !== "chat" || !this.nodes.length) return;
-      const host = $("view-chat")?.classList.contains("voice-mode") ? $("voice-stage")?.querySelector(".oc-figure")
-        : $("chat-area")?.querySelector('.msg-pane[data-active="1"] .empty-art .oc-figure') || $("oc-companion")?.querySelector(".oc-figure");
-      const rect = host?.getBoundingClientRect();
-      const canvasRect = this.canvas.getBoundingClientRect();
-      if (!rect?.width || !rect.height) return;
-      const signature = [rect.left, rect.top, rect.width, rect.height, this.width, this.height].map(Math.round).join(":");
-      if (signature === this.portraitSignature) return;
-      this.portraitSignature = signature;
-      // 光路的汇聚点随人物所在位置变化，落在面部光纹附近。
-      this.nodes[0].x = rect.left - canvasRect.left + rect.width * .66;
-      this.nodes[0].y = rect.top - canvasRect.top + rect.height * .42;
-      this.nodes[0].weight = 1;
-      this.nodes[0].radius = 2.2;
-      this.edges = this.edges.filter(edge => edge.from !== 0 && edge.to !== 0);
-      const anchor = this.nodes[0];
-      const nearest = this.nodes.map((node, index) => ({ index, distance: Math.hypot(node.x - anchor.x, node.y - anchor.y) }))
-        .filter(item => item.index && item.distance > rect.width * .35).sort((a, b) => a.distance - b.distance).slice(0, 3);
-      for (const { index } of nearest) this.edges.push({ from: 0, to: index, bend: 24, weight: .85, phase: this.random(), speed: .00007, signal: true, portrait: true });
-      this.pulses = [];
     }
 
     buildTopology() {
-      this.portraitSignature = null;
-      const count = this.variant === "memory" ? 46 : 38;
+      const count = 46;
       this.nodes = [];
-      const voiceLayout = this.variant === "chat" && $("view-chat")?.classList.contains("voice-mode");
       for (let index = 0; index < count; index += 1) {
-        const focus = this.variant === "chat" && index < 29;
-        const x = this.variant === "memory"
-          ? 0.05 + this.random() * 0.9
-          : voiceLayout ? (focus ? 0.08 + this.random() * 0.5 : 0.58 + this.random() * .38)
-            : focus ? 0.48 + this.random() * 0.5 : 0.12 + this.random() * 0.46;
-        const y = this.variant === "memory"
-          ? 0.16 + this.random() * 0.7
-          : 0.06 + this.random() * 0.88;
+        const x = 0.05 + this.random() * 0.9;
+        const y = 0.16 + this.random() * 0.7;
         this.nodes.push({
           x: x * this.width,
           y: y * this.height,
@@ -183,7 +152,7 @@ defer(() => {
             weight: 0.25 + this.random() * 0.75,
             phase: this.random(),
             speed: 0.000035 + this.random() * 0.000035,
-            signal: this.random() > (this.variant === "memory" ? 0.82 : 0.9),
+            signal: this.random() > 0.82,
           });
         });
       });
@@ -204,7 +173,6 @@ defer(() => {
 
     trigger(kind, intensity = 0.7) {
       if (!this.context) return;
-      if (this.activeInView()) this.connectPortrait();
       const now = flowNow();
       const strength = Math.max(0.15, Math.min(1, intensity));
       this.energy = Math.max(this.energy, strength);
@@ -241,7 +209,6 @@ defer(() => {
         else if (kind === "write" || kind === "crystal") score += centerX * 0.55 + centerY * 0.25;
         else if (kind === "run") score += (1 - centerX) * 0.45 + centerY * 0.2;
         else score += edge.weight * 0.45;
-        if (edge.portrait) score += .65;
         return { index, score };
       }).sort((a, b) => b.score - a.score);
       return ranked[offset % Math.min(ranked.length, 12)].index;
@@ -264,10 +231,9 @@ defer(() => {
       const ctx = this.context;
       ctx.clearRect(0, 0, this.width, this.height);
       const [base, hot, error] = this.colors;
-      const isMemory = this.variant === "memory";
-      const idleAlpha = isMemory ? 0.22 : 0.19;
+      const idleAlpha = 0.22;
       const breathing = reducedMotion ? 0.72 : 0.74 + Math.sin(now / 1500) * 0.14;
-      const energy = Math.max(this.variant === "memory" ? 0.18 : 0.08, this.energy);
+      const energy = Math.max(0.18, this.energy);
 
       ctx.lineCap = "round";
       for (const edge of this.edges) {
@@ -280,10 +246,10 @@ defer(() => {
         ctx.quadraticCurveTo(point.mx, point.my, to.x, to.y);
         ctx.strokeStyle = edge.weight > 0.78 ? hot : base;
         ctx.globalAlpha = idleAlpha * (0.55 + edge.weight * 0.45) * (0.75 + energy * 0.5);
-        ctx.lineWidth = (isMemory ? 0.72 : 0.48) + edge.weight * (isMemory ? 0.52 : 0.42);
+        ctx.lineWidth = 0.72 + edge.weight * 0.52;
         if (edge.weight > 0.72) {
           ctx.shadowColor = base;
-          ctx.shadowBlur = isMemory ? 5 : 2.5;
+          ctx.shadowBlur = 5;
         }
         ctx.stroke();
         ctx.restore();
@@ -300,15 +266,15 @@ defer(() => {
           ctx.moveTo(tail.x, tail.y);
           ctx.lineTo(head.x, head.y);
           ctx.strokeStyle = hot;
-          ctx.lineWidth = isMemory ? 1.6 : 0.9;
-          ctx.globalAlpha = (isMemory ? 0.5 : 0.18) * (0.68 + ambientFade * 0.32);
+          ctx.lineWidth = 1.6;
+          ctx.globalAlpha = 0.5 * (0.68 + ambientFade * 0.32);
           ctx.shadowColor = hot;
-          ctx.shadowBlur = isMemory ? 10 : 5;
+          ctx.shadowBlur = 10;
           ctx.stroke();
           ctx.beginPath();
-          ctx.arc(head.x, head.y, (isMemory ? 1.05 : 0.7) + edge.weight * 0.5, 0, Math.PI * 2);
+          ctx.arc(head.x, head.y, 1.05 + edge.weight * 0.5, 0, Math.PI * 2);
           ctx.fillStyle = hot;
-          ctx.globalAlpha = (isMemory ? 0.72 : 0.3) * (0.72 + ambientFade * 0.28);
+          ctx.globalAlpha = 0.72 * (0.72 + ambientFade * 0.28);
           ctx.fill();
           ctx.restore();
         }
@@ -323,7 +289,7 @@ defer(() => {
         ctx.globalAlpha = (idleAlpha * 1.55 + energy * 0.055) * breathing;
         if (node.weight > 0.72) {
           ctx.shadowColor = node.weight > 0.76 ? hot : base;
-          ctx.shadowBlur = isMemory ? 8 : 4;
+          ctx.shadowBlur = 8;
         }
         ctx.fill();
         ctx.restore();
@@ -396,17 +362,17 @@ defer(() => {
       }
       this.bursts = nextBursts;
       ctx.globalAlpha = 1;
-      this.energy += ((this.variant === "memory" ? 0.18 : 0.08) - this.energy) * 0.026;
+      this.energy += (0.18 - this.energy) * 0.026;
     }
   }
 
-  function addField(canvas, variant, seed) {
+  function addField(canvas, name, seed) {
     if (!canvas) return;
-    const field = new NeuralField(canvas, variant, seed);
+    const field = new NeuralField(canvas, seed);
+    field.name = name;
     if (field.context) fields.push(field);
   }
 
-  addField(chatCanvas, "chat", 28501);
   addField(memoryCanvas, "memory", 28502);
 
   function setMemoryState(label, settleAfterMs = 0) {
@@ -455,6 +421,7 @@ defer(() => {
   neuralFlowEmit = (eventType, detail = {}) => {
     // 后台事件只更新所属会话的表现缓存；画布仍只呈现活动会话。
     companion?.emit(eventType, detail);
+    chatBackdrop?.emit(eventType, detail);
     if (detail.session_id && activeSessionId && detail.session_id !== activeSessionId) return;
     if (eventType === "assistant_streaming") {
       const now = flowNow();
@@ -494,7 +461,7 @@ defer(() => {
     for (const field of fields) if (field.activeInView()) { field.resize(); if (reducedMotion) field.draw(flowNow()); }
     if (!reducedMotion && !frameHandle && fields.some(field => field.activeInView())) frameHandle = requestAnimationFrame(renderFrame);
   }
-  for (const event of ["kz:view-changed", "kz:voice-layout", "kz:oc-preference", "kz:memory-tab", "visibilitychange"]) document.addEventListener(event, resumeFields);
+  for (const event of ["kz:view-changed", "kz:memory-tab", "visibilitychange"]) document.addEventListener(event, resumeFields);
   document.addEventListener("toggle", resumeFields, true);
   const themeObserver = new MutationObserver(() => {
     for (const field of fields) field.colors = [themeColor("--memory-flow", "#c9962e"), themeColor("--memory-flow-hot", "#f0d58c"), themeColor("--err", "#d0684e")];
@@ -509,6 +476,7 @@ defer(() => {
   window.addEventListener?.("beforeunload", () => {
     if (frameHandle) cancelAnimationFrame(frameHandle);
     companion?.destroy();
+    chatBackdrop?.destroy();
     themeObserver.disconnect();
     fields.forEach((field) => field.resizeObserver?.disconnect());
   });

@@ -339,6 +339,29 @@ if (SMOKE_MUTATE) {
       pattern: /const taskCall = entry \? null : orphanTaskCall\(message, part\.call_id\);/,
       replace: "const taskCall = null;",
     },
+
+    // ── 分区:星座背景 ──
+    // UI2-0926 #10:事件枢纽把真实运行事件扇出给对话区星座背景。删了它,背景对运行一无所知
+    // (运行中仍是静息态,光点永远不出现)。纯函数的变异在 ui-constellation-smoke.mjs 里。
+    bgEmitFanout: {
+      pattern: /[ \t]*chatBackdrop\?\.emit\(eventType, detail\);\r?\n/,
+      replace: "",
+    },
+    // 设置改动即时落到后端(D-404:本机 localStorage 重启即丢)。删了它,重启后背景偏好回到默认。
+    bgPrefsPersist: {
+      pattern: /[ \t]*void uiPrefsSave\(\{ backdrop: serializeBackdropPrefs\(current\) \}\);\r?\n/,
+      replace: "",
+    },
+    // 图案单选组的方向键。删了它,键盘用户只能 Tab 到当前项、换不了图案。
+    bgRadioKeys: {
+      pattern: /[ \t]*button\.addEventListener\("keydown", onKey\);\r?\n/,
+      replace: "",
+    },
+    // html[data-backdrop] 跟随开关(空态两栏与画布显隐都挂在它上面)。删了它,关掉背景后空态仍是两栏。
+    bgDatasetSync: {
+      pattern: /[ \t]*document\.documentElement\.dataset\.backdrop = current\.enabled \? "on" : "off";\r?\n/,
+      replace: "",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -1920,7 +1943,7 @@ await runUiSources();
   const neuralFlowEmit = neuralFlowModule?.namespace?.neuralFlowEmit;
   assert(typeof neuralFlowEmit === "function", "R-285 neuralFlowEmit ESM 入口未注册");
   assert(
-    /const idleAlpha = isMemory \? 0\.22 : 0\.(?:19|075)/.test(source) && source.includes("const ambientProgress ="),
+    /const idleAlpha = 0\.22;/.test(source) && source.includes("const ambientProgress ="),
     "R-285 记忆流静息轨迹必须保持清晰亮度与定向流光",
   );
   assert(source.includes("const trailSteps = 5"), "R-285 业务事件脉冲必须带可辨识的流动尾迹");
@@ -1937,6 +1960,72 @@ await runUiSources();
     "记忆整理操作未接金色神经流",
   );
 }
+
+// ── 分区:星座背景 ──
+// UI2-0926 #10:对话区背景换成星座渲染器(22-constellation.js,docs/design/ui_chat_backdrop.md)。
+// 假 DOM 没有 2D 上下文:必须降级为空实现且不抛;活动感知走 OC 状态 store 的运行真源(事件枢纽扇出,
+// 变异 bgEmitFanout);设置页「对话背景」即时写 ui_prefs_set 的 backdrop 字段(D-404),html[data-backdrop] 跟随。
+// 像素、帧率与构图属于浏览器截图(scripts/ui-preview)与纯函数冒烟(ui-constellation-smoke.mjs,末尾链式 import)。
+{
+  const flowNs = esmModuleCache.get("22-neural-flow.js")?.namespace;
+  const backdrop = flowNs?.chatBackdrop;
+  assert(backdrop && backdrop.degraded === true, "星座背景:假 DOM 下必须降级为 degraded 空实现(不抛、不排定时器)");
+  assert(/id="neural-flow-chat"[^>]*\bkz-backdrop\b/.test(html), "星座背景画布缺 kz-backdrop 类");
+  assert(/<html[^>]*data-backdrop="on"/.test(html), "html 必须静态带 data-backdrop=\"on\"(默认开启,首帧就是两栏空态,不闪)");
+  const sessionId = vm.runInContext("activeSessionId", sandbox);
+  const states = esmModuleCache.get("03-shell.js")?.namespace?.sessionStates;
+  assert(sessionId && states, "星座背景:拿不到活动会话或 sessionStates,判据无法定位");
+  if (backdrop && sessionId && states) {
+    const saved = states.has(sessionId) ? { ...states.get(sessionId) } : null;
+    const live = states.get(sessionId) ?? {};
+    states.set(sessionId, Object.assign(live, { phase: "running", running: true, converged: false }));
+    flowNs.neuralFlowEmit("run_started", { session_id: sessionId, step: 1 });
+    assert(backdrop.snapshot().activity === "thinking", `星座背景:run_started 后活动态应为 thinking,实际 ${backdrop.snapshot().activity}`);
+    flowNs.neuralFlowEmit("tool_started", { session_id: sessionId, tool_call_id: "bg-smoke-tool", tool_name: "bash" });
+    assert(backdrop.snapshot().activity === "executing", `星座背景:tool_started 后活动态应为 executing,实际 ${backdrop.snapshot().activity}`);
+    flowNs.neuralFlowEmit("tool_completed", { session_id: "bg-smoke-background", tool_call_id: "bg-smoke-tool", ok: true });
+    assert(backdrop.snapshot().activity === "executing", "星座背景:后台会话的事件改写了活动会话的活动态");
+    flowNs.neuralFlowEmit("tool_completed", { session_id: sessionId, tool_call_id: "bg-smoke-tool", ok: true });
+    flowNs.neuralFlowEmit("run_completed", { session_id: sessionId });
+    if (saved) states.set(sessionId, Object.assign(live, saved, { running: saved.running, phase: saved.phase }));
+    else states.delete(sessionId);
+  }
+  const presetButtons = document.querySelectorAll("#backdrop-presets [data-backdrop-preset]");
+  assert(
+    presetButtons.map((button) => button.dataset.backdropPreset).join(",") === "kanzei,big-dipper,orion,cassiopeia",
+    `设置页图案卡片不对(无自定义图片时应为 kanzei/北斗/猎户/仙后):${presetButtons.map((button) => button.dataset.backdropPreset).join(",")}`,
+  );
+  assert(presetButtons.every((button) => button.getAttribute("role") === "radio"), "图案卡片必须是 role=radio");
+  const orion = presetButtons.find((button) => button.dataset.backdropPreset === "orion");
+  const kanzeiCard = presetButtons.find((button) => button.dataset.backdropPreset === "kanzei");
+  const savesBefore = invokeArgs.length;
+  orion?.click();
+  await flush();
+  const presetSave = invokeArgs.slice(savesBefore).findLast(({ cmd, args }) => cmd === "ui_prefs_set" && args?.backdrop);
+  assert(presetSave?.args.backdrop.preset === "orion", `点「猎户座」应即时写 ui_prefs_set.backdrop.preset=orion,实际 ${JSON.stringify(presetSave?.args ?? null)}`);
+  assert(!presetSave || !("custom" in presetSave.args.backdrop) || presetSave.args.backdrop.custom === null, "没有自定义图片时 backdrop.custom 应为 null");
+  assert(orion?.getAttribute("aria-checked") === "true" && kanzeiCard?.getAttribute("aria-checked") === "false", "图案卡片 aria-checked 没有随选中切换");
+  assert(orion?.getAttribute("tabindex") === "0" && kanzeiCard?.getAttribute("tabindex") === "-1", "图案单选组应是 roving tabindex(选中项 0,其余 -1)");
+  orion?.dispatchEvent({ type: "keydown", key: "ArrowRight", currentTarget: orion, preventDefault() {} });
+  await flush();
+  assert(
+    presetButtons.find((button) => button.dataset.backdropPreset === "cassiopeia")?.getAttribute("aria-checked") === "true",
+    "图案单选组:→ 应移到并选中下一个(仙后座)",
+  );
+  const toggle = byId.get("set-bg-enabled");
+  toggle.checked = false;
+  toggle.dispatchEvent({ type: "change" });
+  await flush();
+  assert(documentElement.dataset.backdrop === "off", `关闭「显示背景」后 html[data-backdrop] 应为 off,实际 ${documentElement.dataset.backdrop}`);
+  const offSave = invokeArgs.findLast(({ cmd, args }) => cmd === "ui_prefs_set" && args?.backdrop);
+  assert(offSave?.args.backdrop.enabled === false, "关闭「显示背景」没有写入 ui_prefs_set");
+  toggle.checked = true;
+  toggle.dispatchEvent({ type: "change" });
+  kanzeiCard?.click();
+  await flush();
+  assert(documentElement.dataset.backdrop === "on", "重新打开「显示背景」后 html[data-backdrop] 应回到 on");
+}
+// ── 分区:星座背景 结束 ──
 
 // R-284 B3:结构化体验事件必须先归并到事实 store,再按归属分发。
 {
@@ -12552,6 +12641,8 @@ if (issues.length) {
 }
 // Keep streaming/cancellation regressions in the existing frontend runtime gate.
 await import("./ui-oc-companion-smoke.mjs");
+// ── 分区:星座背景 ── 纯函数、构图、正文对比度与静态契约(失败时 import 本身 reject)。
+await import("./ui-constellation-smoke.mjs");
 await import("./ui-voice-smoke.mjs");
 await import("./ui-mobile-approval-smoke.mjs");
 console.log(
