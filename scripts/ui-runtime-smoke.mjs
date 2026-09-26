@@ -771,6 +771,79 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*if \(\$\("memory-graph-legend"\)\?\.children\.length\) renderLegend\(\{ rebuild: true \}\);\r?\n/,
       replace: "",
     },
+
+    // ── 分区:文件编辑 ── UI2-0926 #6(17-files-editor.js / 17-files.js / 03-layout.js / 00-frame.js)。
+    // 保存必须带打开时的内容指纹做比较并交换;换成 null,后端会把代理刚改的内容直接盖掉。
+    filesSaveCas: {
+      pattern: /const expectedHash = overwrite \? \(doc\.conflict\?\.exists \? doc\.conflict\.hash : null\) : doc\.hash;/,
+      replace: "const expectedHash = null;",
+    },
+    // BOM 由后端补回:前端不传 bom,带 BOM 的文件保存一次就丢了 BOM。
+    filesBomRoundtrip: {
+      pattern: /expectedHash, bom: doc\.bom, evidence,/,
+      replace: "expectedHash, bom: false, evidence,",
+    },
+    // 保存成功时以「发起保存那一刻」的版本为干净点;改成返回时的版本,保存期间继续输入的内容被算成已保存。
+    filesTypingDuringSave: {
+      pattern: /doc\.savedVersion = version;/,
+      replace: "doc.savedVersion = model.getAlternativeVersionId();",
+    },
+    // 冲突横幅的显隐。删了它,保存被拒时用户什么都看不到。
+    filesConflictBanner: {
+      pattern: /show\(\$\("files-conflict"\), Boolean\(conflict\)\);/,
+      replace: 'show($("files-conflict"), false);',
+    },
+    // 覆盖磁盘版本前留证。关掉它,误覆盖代理的改动就找不回来。
+    filesOverwriteEvidence: {
+      pattern: /const evidence = Boolean\(overwrite && doc\.conflict\?\.exists\);/,
+      replace: "const evidence = false;",
+    },
+    // 切文件前的未保存确认。删了它,切换文件会静默丢掉修改。
+    filesDirtyGuard: {
+      pattern: /if \(isFilesDirty\(\)\) \{(\r?\n\s*)const choice = await confirmDialog\(/,
+      replace: "if (false) {$1const choice = await confirmDialog(",
+    },
+    // 只读原因落到 Monaco 的 readOnly。写死 false,托管文档又能在编辑器里改(保存虽被后端拒,体验是假的)。
+    filesReadonlyApply: {
+      pattern: /readOnly: Boolean\(doc\.readonly\),/,
+      replace: "readOnly: false,",
+    },
+    // 外部改动遇到未保存修改时进冲突。删了这支,轮询会用磁盘版本盖掉用户正在改的内容。
+    filesExternalReloadDirty: {
+      pattern: /if \(isFilesDirty\(\)\) \{(\r?\n\s*)doc\.conflict = \{ hash: typeof preview\.hash/,
+      replace: "if (false) {$1doc.conflict = { hash: typeof preview.hash",
+    },
+    // 切项目时暂存草稿。删了它,切项目会静默丢掉未保存的修改。
+    filesDraftStash: {
+      pattern: /[ \t]*stashFilesDraft\(\);\r?\n/,
+      replace: "",
+    },
+    // 打开文件后定位到行(「打开文件并定位」)。删了它,链接只打开不定位(原先的缺陷)。
+    filesLineReveal: {
+      pattern: /\n  if \(line > 0\) revealLine\(line\);\r?\n  return true;\r?\n\}/,
+      replace: "\n  return true;\n}",
+    },
+    // 文件页 Ctrl/Cmd+S 兜底。去掉按键判断里的放行,焦点在树/头部时 Ctrl+S 落到 WebView2 默认行为。
+    filesCtrlSFallback: {
+      pattern: /if \(String\(event\.key\)\.toLowerCase\(\) !== "s"\) return;/,
+      replace: "return;",
+    },
+    // 文件树分隔条上限按文件页宽度给编辑器留 360px;退回窗口一半,侧栏开着时编辑器会被挤没。
+    filesSplitMax: {
+      pattern: /return layoutWidth > 0 \? Math\.max\(200, Math\.round\(layoutWidth - 360\)\) : Math\.round\(window\.innerWidth \* 0\.5\);/,
+      replace: "return Math.round(window.innerWidth * 0.5);",
+    },
+    // 分隔条 aria-controls 指向被调尺寸的窗格。
+    filesSplitControls: {
+      pattern: /[ \t]*if \(pane\.id\) handle\.setAttribute\("aria-controls", pane\.id\);\r?\n/,
+      replace: "",
+    },
+    // 重载读盘失败时保住带未保存修改的 model。删了这支,「用磁盘版本」撞上文件刚被删,用户的修改随 model 一起被释放。
+    filesReloadKeepsDirty: {
+      pattern: /if \(keep && isFilesDirty\(\)\) \{/,
+      replace: "if (false) {",
+    },
+    // ── 分区:文件编辑(完) ──
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -9500,8 +9573,8 @@ const docsB = {
   await flush();
   assert(document.documentElement.getAttribute("data-theme") !== "light", "R-189:切回暗色失败");
   assert(storage.get("kz-theme") === "dark", "R-189:暗色未持久化");
-  // Monaco setTheme 联动:17-files.js 创建编辑器时按当前主题选 vs/vs-dark。
-  const filesSrc = await readFile(resolve(root, "crates", "kanzei-app", "ui", "17-files.js"), "utf8");
+  // Monaco setTheme 联动:文件页创建编辑器时按当前主题选 vs/vs-dark(UI2-0926 #6 起编辑器在 17-files-editor.js)。
+  const filesSrc = await readFile(resolve(root, "crates", "kanzei-app", "ui", "17-files-editor.js"), "utf8");
   assert(
     filesSrc.includes('currentTheme() === "light" ? "vs" : "vs-dark"'),
     "R-189:Monaco 编辑器主题未跟随全局主题",
@@ -14879,6 +14952,493 @@ const docsB = {
   await sandbox.refreshMemory({ force: true });
   await flush();
 }
+
+// ── 分区:文件编辑 ──
+// UI2-0926 #6「文件浏览要带编辑功能，而且也是做成可拖拽伸缩的」(docs/design/files_editor.md)。
+// 假 DOM 里没有 Monaco:经 17-files-editor.js 的 setMonacoLoader 接缝换成桩(model 的 alternativeVersionId、
+// EOL、撤销栈、命令表按 Monaco 语义近似),后端三条命令用一块内存「磁盘」模拟(指纹、冲突、只读、留证)。
+// 场景:S0 夹具与 IPC 契约 / S1 编辑保存(Ctrl+S、BOM、CRLF、保存期间继续输入)/ S2 冲突横幅(覆盖留证、用磁盘版本、比较)/
+// S3 切文件的未保存确认 / S4 只读原因 / S5 外部改动轮询 / S6 切项目草稿 / S7 行定位 / S8 分隔条 / S9 Ctrl+S 兜底 / S10 新建。
+// 变异守卫:filesSaveCas / filesBomRoundtrip / filesTypingDuringSave / filesConflictBanner / filesOverwriteEvidence /
+// filesDirtyGuard / filesReadonlyApply / filesExternalReloadDirty / filesDraftStash / filesLineReveal / filesCtrlSFallback /
+// filesSplitMax / filesSplitControls / filesReloadKeepsDirty(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
+{
+  const editorNs = esmModuleCache.get("17-files-editor.js")?.namespace;
+  const filesNs = esmModuleCache.get("17-files.js")?.namespace;
+  const layoutNs = esmModuleCache.get("03-layout.js")?.namespace;
+  const i18nNs = esmModuleCache.get("02-i18n.js")?.namespace;
+  assert(editorNs && typeof editorNs.setMonacoLoader === "function" && typeof editorNs.openFileDoc === "function", "17-files-editor.js 未加载或未导出 setMonacoLoader/openFileDoc");
+  assert(filesNs && typeof filesNs.openFilePreview === "function", "17-files.js 未加载或未导出 openFilePreview");
+
+  // ---- Monaco 桩 ----
+  const KeyMod = { CtrlCmd: 2048 };
+  const KeyCode = { KeyS: 49 };
+  const EndOfLineSequence = { LF: 0, CRLF: 1 };
+  const SAVE_KEY = KeyMod.CtrlCmd | KeyCode.KeyS;
+  const stubModels = [];
+  const stubEditors = [];
+  const stubDiffs = [];
+  let versionSeq = 0;
+  const splitLines = (text) => String(text ?? "").split(/\r\n|\r|\n/);
+  class StubModel {
+    constructor(value, language, uri) {
+      const text = String(value ?? "");
+      const crlf = (text.match(/\r\n/g) ?? []).length;
+      const total = (text.match(/\r\n|\r|\n/g) ?? []).length;
+      this.uri = uri ?? { scheme: "inmemory", path: `/model-${stubModels.length}` };
+      this.language = language || "plaintext";
+      this.eol = total && crlf * 2 > total ? "\r\n" : "\n";
+      this.lines = splitLines(text);
+      this.alt = ++versionSeq;
+      this.undoStack = [];
+      this.listeners = [];
+      this.disposed = false;
+      stubModels.push(this);
+    }
+    _changed() { for (const fn of this.listeners) fn({}); }
+    getValue() { return this.lines.join(this.eol); }
+    setValue(text) { this.lines = splitLines(text); this.undoStack = []; this.alt = ++versionSeq; this._changed(); }
+    pushEditOperations(_selections, ops) {
+      this.undoStack.push({ lines: this.lines.slice(), alt: this.alt });
+      this.lines = splitLines(ops.at(-1)?.text ?? "");
+      this.alt = ++versionSeq;
+      this._changed();
+      return null;
+    }
+    pushStackElement() {}
+    getFullModelRange() { return { startLineNumber: 1, startColumn: 1, endLineNumber: this.lines.length, endColumn: this.lines.at(-1).length + 1 }; }
+    // 测试用:在末尾打字 / 撤销一步。
+    type(text) { this.undoStack.push({ lines: this.lines.slice(), alt: this.alt }); this.lines = splitLines(this.getValue() + text); this.alt = ++versionSeq; this._changed(); }
+    undo() { const prev = this.undoStack.pop(); if (!prev) return; this.lines = prev.lines; this.alt = prev.alt; this._changed(); }
+    getAlternativeVersionId() { return this.alt; }
+    setEOL(sequence) { this.eol = sequence === EndOfLineSequence.CRLF ? "\r\n" : "\n"; this.alt = ++versionSeq; this._changed(); }
+    getEOL() { return this.eol; }
+    onDidChangeContent(fn) { this.listeners.push(fn); return { dispose() {} }; }
+    getLineCount() { return this.lines.length; }
+    getLineMaxColumn(line) { return (this.lines[line - 1] ?? "").length + 1; }
+    getLanguageId() { return this.language; }
+    dispose() { this.disposed = true; }
+  }
+  const monacoStub = {
+    KeyMod, KeyCode,
+    Uri: { file: (path) => ({ scheme: "file", path: `/${path}` }) },
+    editor: {
+      EndOfLineSequence,
+      create(el, options) {
+        const editor = {
+          el, options: { ...options }, model: null, commands: [], revealed: null, position: null, selection: null, focused: 0,
+          getModel() { return this.model; },
+          setModel(model) { this.model = model; },
+          updateOptions(next) { Object.assign(this.options, next); },
+          addCommand(keybinding, fn) { this.commands.push({ keybinding, fn }); return this.commands.length; },
+          revealLineInCenter(line) { this.revealed = line; },
+          setPosition(position) { this.position = position; },
+          setSelection(selection) { this.selection = selection; },
+          focus() { this.focused += 1; },
+          dispose() {},
+        };
+        stubEditors.push(editor);
+        return editor;
+      },
+      createModel: (value, language, uri) => new StubModel(value, language, uri),
+      getModel: (uri) => stubModels.find((model) => !model.disposed && model.uri?.path === uri?.path) ?? null,
+      createDiffEditor(el, options) {
+        const modified = { commands: [], addCommand(keybinding, fn) { this.commands.push({ keybinding, fn }); } };
+        const diff = { el, options, model: null, disposed: false, setModel(model) { this.model = model; }, getModifiedEditor: () => modified, dispose() { this.disposed = true; } };
+        stubDiffs.push(diff);
+        return diff;
+      },
+      setTheme() {},
+    },
+  };
+  editorNs.setMonacoLoader(async () => monacoStub);
+
+  // ---- 内存磁盘 + 后端桩 ----
+  const djb2 = (text) => { let h = 5381; for (const ch of text) h = ((h * 33) ^ ch.codePointAt(0)) >>> 0; return h.toString(16).padStart(8, "0"); };
+  const fingerprint = (file) => `fnv-${djb2(`${file.bom ? "\uFEFF" : ""}${file.text}`)}`;
+  const disk = new Map();
+  let clock = 1000;
+  const putDisk = (path, text, { bom = false } = {}) => disk.set(path, { text, bom, mtime: (clock += 10) });
+  const readonlyOf = (path) => (/^\.kanzei\/(project|memory)\//i.test(path) ? "managed" : /(^|\/)\.git\//i.test(path) ? "git" : null);
+  const eolOf = (text) => { const crlf = (text.match(/\r\n/g) ?? []).length; const total = (text.match(/\r\n|\r|\n/g) ?? []).length; return total && crlf * 2 > total ? "crlf" : "lf"; };
+  const writes = [];
+  const smokeFileSnapshot = {
+    files: [
+      { path: "src/lib.rs", size: 40, lines: 2, oversized: false, note: null },
+      { path: "src/main.rs", size: 20, lines: 1, oversized: false, note: null },
+      { path: "docs/note.md", size: 10, chars: 10, oversized: false, note: null },
+      { path: ".kanzei/project/requirements.md", size: 12, chars: 12, oversized: false, note: null },
+    ],
+    dirs: { "": { files: 4, size: 82, lines: 3 }, src: { files: 2, size: 60, lines: 3 }, docs: { files: 1, size: 10, lines: 0 }, ".kanzei": { files: 1, size: 12, lines: 0 }, ".kanzei/project": { files: 1, size: 12, lines: 0 } },
+    dirNotes: {}, annotated: 0, annotatable: 4, unannotated: 4, reused: 0,
+  };
+  const savedPayloads = Object.fromEntries(["file_preview", "file_stat", "file_write", "files_snapshot"].map((cmd) => [cmd, payloads[cmd]]));
+  payloads.files_snapshot = smokeFileSnapshot;
+  payloads.file_preview = ({ path }) => {
+    const file = disk.get(path);
+    if (!file) throw new Error(`无法打开 ${path}: 文件不存在`);
+    const size = file.text.length + (file.bom ? 3 : 0);
+    return {
+      content: file.text, binary: false, truncated: false, size, hash: fingerprint(file), bom: file.bom,
+      eol: eolOf(file.text), mixedEol: /\r\n/.test(file.text) && /(^|[^\r])\n/.test(file.text), encoding: "utf-8", mtimeMs: file.mtime, readonly: readonlyOf(path),
+    };
+  };
+  payloads.file_stat = ({ path }) => {
+    const file = disk.get(path);
+    return file ? { exists: true, size: file.text.length + (file.bom ? 3 : 0), mtimeMs: file.mtime } : { exists: false, size: 0, mtimeMs: null };
+  };
+  payloads.file_write = ({ path, content, expectedHash, bom, evidence }) => {
+    writes.push({ path, content, expectedHash, bom, evidence });
+    const code = readonlyOf(path);
+    if (code) throw new Error(`READONLY:${code}`);
+    const file = disk.get(path);
+    if (file) {
+      const current = fingerprint(file);
+      if (expectedHash !== current) return { status: "conflict", hash: current, size: file.text.length, mtimeMs: file.mtime, exists: true, evidence: null };
+    } else if (expectedHash != null) {
+      return { status: "conflict", hash: null, size: 0, mtimeMs: null, exists: false, evidence: null };
+    }
+    const next = { text: content, bom: Boolean(bom), mtime: (clock += 10) };
+    disk.set(path, next);
+    return { status: "saved", hash: fingerprint(next), size: content.length, mtimeMs: next.mtime, exists: true, evidence: evidence && file ? `.kanzei/quarantine/files-overwrite-${clock}/${path}` : null };
+  };
+  const priorConfirm = sandbox.confirmDialog;
+  const priorInput = sandbox.inputDialog;
+  const priorProject = sandbox.currentProject;
+  const view = byId.get("view-files");
+  const hidden = (id) => byId.get(id)?.classList.contains("hidden") !== false;
+  const editor = () => editorNs.filesEditor;
+  const model = () => editorNs.filesEditor?.getModel?.();
+  const doc = () => editorNs.filesDoc;
+  const saveCommand = () => editor()?.commands.find((command) => command.keybinding === SAVE_KEY)?.fn;
+  const lastWrite = () => writes.at(-1);
+  const treeRow = (name) => (byId.get("files-tree")?.querySelectorAll(".files-file") ?? []).find((row) => row.querySelector(".files-name")?.textContent === name);
+  const open = async (path, line) => { const result = editorNs.openFileDoc({ path, ...(line ? { line } : {}) }); await flush(); return result; };
+  try {
+    sandbox.currentProject = PROJECT;
+    // 前面分区可能留着模态(查看器/命令面板)。
+    for (const id of ["viewer-overlay", "palette", "confirm-overlay", "input-overlay"]) esmModuleCache.get("00-surface.js")?.namespace?.closeSurface?.(byId.get(id));
+    filesNs.reset_files_scope();
+    for (const el of document.querySelectorAll(".view")) el.classList.remove("active");
+    filesNs.showFilesView();
+    filesNs.filesExpanded.add("src");
+    await flush();
+
+    // S0 夹具形状与 IPC 契约一致(契约由 kanzei-app ipc_contract 测试拿真实命令跑出来)。
+    {
+      const contract = JSON.parse(await readFile(resolve(root, "scripts/ipc-contract.json"), "utf8"));
+      const shapeOf = (value) => {
+        if (Array.isArray(value)) return value.length ? [shapeOf(value[0])] : "array";
+        if (value === null || value === undefined) return "nullable";
+        if (typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((k) => [k, shapeOf(value[k])]));
+        return { string: "string", number: "number", boolean: "bool" }[typeof value] ?? typeof value;
+      };
+      putDisk("src/lib.rs", "fn a() {}\r\nfn b() {}\r\n", { bom: true });
+      const samples = {
+        file_preview: payloads.file_preview({ path: "src/lib.rs" }),
+        file_stat: payloads.file_stat({ path: "src/lib.rs" }),
+        file_write: { status: "saved", hash: "fnv-0", size: 1, mtimeMs: 1, exists: true, evidence: ".kanzei/quarantine/files-overwrite-1/src/lib.rs" },
+      };
+      for (const [cmd, sample] of Object.entries(samples)) {
+        assert(contract[cmd], `ipc-contract.json 缺 ${cmd} 条目(跑 KZ_UPDATE_IPC_CONTRACT=1 cargo test -p kanzei-app ${cmd}_形状)`);
+        const expected = contract[cmd] ?? {};
+        const actual = shapeOf(sample);
+        for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+          const want = expected[key];
+          const got = actual[key];
+          const ok = want !== undefined && got !== undefined && (want === "nullable" || got === "nullable" || want === got);
+          assert(ok, `${cmd}.${key}:契约 ${JSON.stringify(want)} vs 冒烟夹具 ${JSON.stringify(got)}(夹具与后端真实形状要一起改)`);
+        }
+      }
+      for (const code of Object.keys(editorNs.READONLY_TEXT)) {
+        assert(i18nNs.I18N_EN[editorNs.READONLY_TEXT[code]], `只读原因 ${code} 缺英文词条(READONLY_TEXT 经 t() 间接取值,i18n 静态冒烟看不见)`);
+      }
+      assert(editorNs.toProjectRel("C:\\smoke\\project\\src\\lib.rs", PROJECT) === "src/lib.rs" && editorNs.toProjectRel("./src/lib.rs", PROJECT) === "src/lib.rs",
+        "工具结果里项目根下的绝对路径 / ./ 前缀应转成相对根的路径");
+    }
+
+    // S1 编辑与保存:可编辑、脏标记(头部 + 树)、Ctrl+S 走比较并交换、BOM 与 CRLF 原样回传、撤销回原点 = 干净。
+    {
+      putDisk("src/lib.rs", "fn a() {}\r\nfn b() {}\r\n", { bom: true });
+      await open("src/lib.rs");
+      const opened = payloads.file_preview({ path: "src/lib.rs" }).hash;
+      assert(editor()?.options.readOnly === false, `可编辑文件的 Monaco 应为 readOnly:false,实为 ${editor()?.options.readOnly}`);
+      assert(editor()?.options.unusualLineTerminators === "off", "可编辑态要关掉 unusualLineTerminators 弹窗(原样保留 U+2028)");
+      assert(model()?.getValue() === "fn a() {}\r\nfn b() {}\r\n", `CRLF 文件打开后 model 应保持 CRLF,实为 ${JSON.stringify(model()?.getValue())}`);
+      assert(typeof saveCommand() === "function", "编辑器没有绑定 Ctrl/Cmd+S 命令");
+      assert(!editorNs.isFilesDirty() && hidden("files-dirty") && byId.get("files-save")?.disabled === true, "刚打开的文件不应是脏的,保存键应禁用");
+      assert(!hidden("files-preview-head") && byId.get("files-preview-path")?.textContent === "src/lib.rs", "头部应显示当前文件路径");
+      assert(/UTF-8 BOM/.test(byId.get("files-preview-meta")?.textContent ?? "") && /CRLF/.test(byId.get("files-preview-meta")?.textContent ?? ""), `头部应显示编码与换行,实为 "${byId.get("files-preview-meta")?.textContent}"`);
+      assert(treeRow("lib.rs")?.getAttribute("aria-selected") === "true", "树里当前文件行应 aria-selected=true");
+      model().type("// x");
+      assert(editorNs.isFilesDirty() && !hidden("files-dirty") && byId.get("files-save")?.disabled === false && !hidden("files-discard"), "改动后应出现「未保存」与可用的保存键/放弃修改");
+      assert(treeRow("lib.rs")?.classList.contains("dirty") && treeRow("lib.rs")?.querySelector(".files-dirty-dot") && /未保存/.test(treeRow("lib.rs")?.getAttribute("aria-label") ?? ""), "树上的脏文件应有 .dirty、琥珀点与带「未保存」的读屏名");
+      model().undo();
+      assert(!editorNs.isFilesDirty(), "撤销回原点应算干净(alternativeVersionId 语义)");
+      model().type("// x");
+      await saveCommand()();
+      await flush();
+      const write = lastWrite();
+      assert(write?.path === "src/lib.rs" && write.expectedHash === opened, `保存必须带打开时的内容指纹做比较并交换,实为 ${JSON.stringify(write?.expectedHash)}`);
+      assert(write?.bom === true, "带 BOM 的文件保存时要让后端补回 BOM(bom:true)");
+      assert(write?.content.includes("\r\n") && !write.content.includes("\uFEFF"), "保存内容应保持 CRLF 且不含 BOM 字符(BOM 由后端补)");
+      assert(!editorNs.isFilesDirty() && hidden("files-dirty") && !treeRow("lib.rs")?.classList.contains("dirty"), "保存成功后应回到干净");
+      assert(doc()?.hash === fingerprint(disk.get("src/lib.rs")), "保存成功后 doc.hash 应换成写出内容的指纹(下次保存以它为准)");
+      // 保存期间继续输入:保存返回后那部分仍算未保存。
+      model().type("\r\n// y");
+      let release;
+      invokeGates.set("file_write", new Promise((resolveGate) => { release = resolveGate; }));
+      const pending = editorNs.saveFilesDoc();
+      await flush();
+      assert(byId.get("files-save")?.disabled === true && byId.get("files-save")?.getAttribute("aria-busy") === "true", "保存进行中保存键应禁用并 aria-busy");
+      model().type(" more");
+      invokeGates.delete("file_write");
+      release();
+      await pending;
+      await flush();
+      assert(editorNs.isFilesDirty() && !hidden("files-dirty"), "保存期间继续输入的内容保存返回后仍应是未保存");
+      await saveCommand()();
+      await flush();
+      assert(!editorNs.isFilesDirty(), "再保存一次应干净");
+    }
+
+    // S2 冲突:打开后磁盘被改 → 保存返回冲突,横幅出现、编辑器内容不动、轮询暂停;覆盖磁盘版本带冲突指纹 + 留证;用磁盘版本重载;比较开关 diff。
+    {
+      putDisk("src/lib.rs", "base\n");
+      editorNs.resetFilesDoc();
+      await open("src/lib.rs");
+      model().type("mine");
+      putDisk("src/lib.rs", "agent changed\n");
+      await saveCommand()();
+      await flush();
+      assert(doc()?.conflict?.exists === true && doc().conflict.hash === fingerprint(disk.get("src/lib.rs")), `冲突应记下磁盘现状指纹,实为 ${JSON.stringify(doc()?.conflict)}`);
+      assert(!hidden("files-conflict") && /id="files-conflict"[^>]*role="alert"/.test(html), "冲突横幅应显示(role=alert)");
+      assert(model()?.getValue() === "base\nmine", `冲突时编辑器里的修改不能丢,实为 ${JSON.stringify(model()?.getValue())}`);
+      assert(disk.get("src/lib.rs").text === "agent changed\n", "冲突时不得写盘");
+      assert(await editorNs.filesWatchTick() === false, "冲突未决时轮询应暂停");
+      const writesBefore = writes.length;
+      await saveCommand()();
+      await flush();
+      assert(writes.length === writesBefore, "冲突未决时 Ctrl+S 不应再发普通保存(提示去横幅里选)");
+      // 比较:打开 diff(左 = 磁盘版本,右 = 当前 model),再点关闭并释放磁盘 model。
+      byId.get("files-compare").click();
+      await flush();
+      const diff = stubDiffs.at(-1);
+      assert(diff && diff.model?.modified === model() && diff.model?.original?.getValue() === "agent changed\n", "比较应以磁盘版本为左、当前 model 为右");
+      assert(!hidden("files-diff") && hidden("files-editor") && !hidden("files-compare-head") && byId.get("files-compare")?.getAttribute("aria-pressed") === "true", "比较时应显示 diff 与说明条,隐藏单编辑器");
+      assert(diff.getModifiedEditor().commands.some((command) => command.keybinding === SAVE_KEY), "比较视图的右侧编辑器也要能 Ctrl+S");
+      const original = diff.model.original;
+      byId.get("files-diff").dispatchEvent({ type: "keydown", key: "Escape", defaultPrevented: false, preventDefault() {} });
+      await flush();
+      assert(diff.disposed && original.disposed && hidden("files-diff") && !hidden("files-editor"), "Esc 应关闭比较并释放 diff 与磁盘 model");
+      // 覆盖磁盘版本:按冲突指纹交换、要求留证。
+      byId.get("files-overwrite").click();
+      await flush();
+      const overwrite = lastWrite();
+      assert(overwrite?.expectedHash === fingerprint({ text: "agent changed\n", bom: false }) && overwrite.evidence === true, `覆盖磁盘版本应带冲突指纹并要求留证,实为 ${JSON.stringify(overwrite)}`);
+      assert(disk.get("src/lib.rs").text === "base\nmine" && !doc()?.conflict && hidden("files-conflict"), "覆盖后应写盘并收起横幅");
+      // 用磁盘版本:重新读盘,干净,Ctrl+Z 还能回到刚才的修改。
+      model().type(" again");
+      putDisk("src/lib.rs", "agent v2\n");
+      await saveCommand()();
+      await flush();
+      assert(doc()?.conflict, "第二次冲突应再次出横幅");
+      byId.get("files-use-disk").click();
+      await flush();
+      assert(model()?.getValue() === "agent v2\n" && !editorNs.isFilesDirty() && !doc()?.conflict, "用磁盘版本应重载为磁盘内容且干净");
+      model().undo();
+      assert(model()?.getValue() === "base\nmine again" && editorNs.isFilesDirty(), "用磁盘版本后 Ctrl+Z 应能回到自己的修改(保留撤销)");
+      // 选「用磁盘版本」时文件恰好被删:未保存的修改不能丢,转成「已删除」冲突,按钮变「重新创建」,重新创建不带指纹。
+      editorNs.resetFilesDoc();
+      putDisk("src/lib.rs", "keep me\n");
+      await open("src/lib.rs");
+      model().type("unsaved");
+      putDisk("src/lib.rs", "agent v3\n");
+      await saveCommand()();
+      await flush();
+      disk.delete("src/lib.rs");
+      byId.get("files-use-disk").click();
+      await flush();
+      assert(model() && !model().disposed && model().getValue() === "keep me\nunsaved", "重载读盘失败时不得释放带未保存修改的 model");
+      assert(doc()?.conflict?.exists === false && byId.get("files-overwrite")?.textContent === i18nNs.t("重新创建"), "文件已删时横幅应改成「重新创建」");
+      byId.get("files-overwrite").click();
+      await flush();
+      assert(lastWrite()?.expectedHash === null && lastWrite()?.evidence === false && disk.get("src/lib.rs")?.text === "keep me\nunsaved", "重新创建应不带指纹写回编辑器内容");
+      editorNs.resetFilesDoc();
+    }
+
+    // S3 切文件:有未保存修改时先问;取消 = 留在原文件(不释放 model、树高亮不动),不保存 = 丢弃,保存 = 先保存再切。
+    {
+      putDisk("src/lib.rs", "one\n");
+      putDisk("src/main.rs", "fn main() {}\n");
+      await open("src/lib.rs");
+      model().type("edit");
+      const kept = model();
+      let asked = null;
+      sandbox.confirmDialog = (options) => { asked = options; return Promise.resolve(false); };
+      const cancelled = await open("src/main.rs");
+      assert(asked?.okText === i18nNs.t("保存") && asked?.safeText === i18nNs.t("不保存"), `未保存确认应是 保存 / 不保存 / 取消,实为 ${JSON.stringify(asked)}`);
+      assert(!cancelled && doc()?.path === "src/lib.rs" && model() === kept && !kept.disposed && kept.getValue() === "one\nedit", "取消切换应留在原文件且修改完好");
+      assert(filesNs.filesActivePath === "src/lib.rs", "取消切换时树高亮不应跳到新文件");
+      sandbox.confirmDialog = () => Promise.resolve(true);
+      await open("src/main.rs");
+      assert(disk.get("src/lib.rs").text === "one\nedit" && doc()?.path === "src/main.rs", "选「保存」应先保存再切换");
+      model().type("x");
+      sandbox.confirmDialog = () => Promise.resolve("safe");
+      await open("src/lib.rs");
+      assert(doc()?.path === "src/lib.rs" && disk.get("src/main.rs").text === "fn main() {}\n", "选「不保存」应丢弃修改后切换");
+      sandbox.confirmDialog = priorConfirm;
+    }
+
+    // S4 只读:托管文档 readOnly、只读原因条、隐藏保存键、Ctrl+S 不写盘;跳转按钮指向对应页面。
+    {
+      putDisk(".kanzei/project/requirements.md", "# Requirements\n");
+      await open(".kanzei/project/requirements.md");
+      assert(doc()?.readonly === "managed" && editor()?.options.readOnly === true, `托管文档应只读,实为 ${doc()?.readonly} / ${editor()?.options.readOnly}`);
+      assert(String(editor()?.options.readOnlyMessage?.value ?? "").includes("托管"), "Monaco 的只读提示应说明原因");
+      assert(!hidden("files-readonly") && /托管围栏/.test(byId.get("files-readonly-text")?.textContent ?? ""), "只读原因条应显示并说明托管围栏");
+      assert(!hidden("files-readonly-goto") && byId.get("files-readonly-goto")?.dataset.view === "documents", "托管需求文档应给出「打开需求页」");
+      assert(hidden("files-save") && hidden("files-discard"), "只读文件不显示保存/放弃修改");
+      const writesBefore = writes.length;
+      await saveCommand()();
+      await flush();
+      assert(writes.length === writesBefore, "只读文件 Ctrl+S 不得调 file_write");
+    }
+
+    // S5 外部改动:干净 → 静默重载并提示「已从磁盘更新」;有未保存修改 → 进冲突,编辑器内容不动。只 touch 不重载。
+    {
+      putDisk("docs/note.md", "v1\n");
+      await open("docs/note.md");
+      disk.get("docs/note.md").mtime = (clock += 10);
+      const reads = invokeArgs.filter((call) => call.cmd === "file_preview").length;
+      await editorNs.filesWatchTick();
+      await flush();
+      const readsAfterTouch = invokeArgs.filter((call) => call.cmd === "file_preview").length;
+      assert(readsAfterTouch === reads + 1 && model()?.getValue() === "v1\n", "只 touch(内容没变)应只核对指纹、不重载");
+      assert(await editorNs.filesWatchTick() === false && invokeArgs.filter((call) => call.cmd === "file_preview").length === readsAfterTouch, "touch 后记下新时间,下一拍不再读内容");
+      putDisk("docs/note.md", "v2 from agent\n");
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(model()?.getValue() === "v2 from agent\n" && !editorNs.isFilesDirty(), "干净的文件被外部改动后应静默重载");
+      assert(byId.get("files-sync")?.textContent === i18nNs.t("已从磁盘更新") && /id="files-sync"[^>]*role="status"/.test(html), "静默重载应在头部提示「已从磁盘更新」(role=status)");
+      model().type("mine");
+      putDisk("docs/note.md", "v3 from agent\n");
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(doc()?.conflict?.exists === true && model()?.getValue() === "v2 from agent\nmine", "有未保存修改时外部改动应进冲突态、不动编辑器内容");
+      byId.get("files-use-disk").click();
+      await flush();
+      disk.delete("docs/note.md");
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(!doc() && /已在磁盘上被删除/.test(byId.get("files-placeholder")?.textContent ?? ""), "干净的文件被删后应关掉并说明");
+    }
+
+    // S6 切项目:未保存修改暂存为草稿,回到该文件恢复(变脏);草稿之后磁盘又变 → 直接冲突。
+    {
+      putDisk("src/main.rs", "fn main() {}\n");
+      await open("src/main.rs");
+      model().type("draft");
+      filesNs.reset_files_scope();
+      await flush();
+      assert(editorNs.filesDraftCount() === 1 && !doc(), "切项目时未保存修改应暂存为草稿并清空编辑器");
+      filesNs.showFilesView();
+      await flush();
+      await open("src/main.rs");
+      assert(model()?.getValue() === "fn main() {}\ndraft" && editorNs.isFilesDirty() && editorNs.filesDraftCount() === 0, "回到该文件应恢复草稿且是未保存状态");
+      filesNs.reset_files_scope();
+      putDisk("src/main.rs", "changed meanwhile\n");
+      filesNs.showFilesView();
+      await flush();
+      await open("src/main.rs");
+      assert(doc()?.conflict?.exists === true && model()?.getValue() === "fn main() {}\ndraft", "草稿之后磁盘又变了应直接进冲突态");
+      byId.get("files-use-disk").click();
+      await flush();
+    }
+
+    // S7 行定位:从链接打开时定位到行(新打开与已打开两种)。
+    {
+      putDisk("src/lib.rs", "l1\nl2\nl3\nl4\n");
+      await open("src/lib.rs", 3);
+      assert(editor()?.revealed === 3 && editor()?.position?.lineNumber === 3 && editor()?.selection?.startLineNumber === 3, `打开文件并定位应滚到第 3 行并选中,实为 ${editor()?.revealed}`);
+      await filesNs.openFilePreview({ path: "src/lib.rs", line: 2 });
+      await flush();
+      assert(editor()?.revealed === 2, "已打开的文件再定位应直接滚到行");
+    }
+
+    // S8 文件树分隔条:installSplit 的分隔条(aria-controls、读屏名)、上限按文件页宽度给编辑器留 360px、宽度进 ui_layout。
+    {
+      const side = byId.get("files-side");
+      const split = side?._kzSplit;
+      assert(split && split.handle.getAttribute("role") === "separator" && split.handle.getAttribute("aria-orientation") === "vertical", "文件树没有装上 installSplit 分隔条");
+      assert(split.handle.getAttribute("aria-controls") === "files-side", "分隔条应 aria-controls 指向 #files-side");
+      assert(split.handle.getAttribute("aria-label") === i18nNs.t("调整文件树宽度") && split.handle.dataset.i18nAriaLabel === "调整文件树宽度", "分隔条读屏名应是「调整文件树宽度」并可随语言重译");
+      side.getBoundingClientRect = () => ({ left: 328, top: 0, width: 340, height: 700, right: 668, bottom: 700 });
+      byId.get("files-layout").getBoundingClientRect = () => ({ left: 328, top: 0, width: 700, height: 700, right: 1028, bottom: 700 });
+      split.handle.dispatchEvent({ type: "keydown", key: "ArrowRight", preventDefault() {} });
+      assert(documentElement.style.getPropertyValue("--kz-split-files") === "340px", `文件页宽 700 时上限应是 700 − 360 = 340,实为 "${documentElement.style.getPropertyValue("--kz-split-files")}"`);
+      byId.get("files-layout").getBoundingClientRect = () => ({ left: 328, top: 0, width: 1000, height: 700, right: 1328, bottom: 700 });
+      split.handle.dispatchEvent({ type: "keydown", key: "ArrowRight", preventDefault() {} });
+      assert(documentElement.style.getPropertyValue("--kz-split-files") === "348px" && layoutNs.layoutPref("splits", "files") === 348, "方向键加宽后宽度应写 --kz-split-files 并进 ui_layout.splits.files");
+      assert(split.handle.getAttribute("aria-valuemax") === "640", `aria-valuemax 应随文件页宽度重算(1000 − 360),实为 ${split.handle.getAttribute("aria-valuemax")}`);
+      split.handle.dispatchEvent({ type: "keydown", key: "Home", preventDefault() {} });
+      assert(!documentElement.style.getPropertyValue("--kz-split-files") && layoutNs.layoutPref("splits", "files") === null, "Home 应复位文件树宽度");
+      assert(/#files-side \{ width: var\(--kz-split-files\); min-width: 200px; \}/.test(style), "style.css 的 #files-side 宽度须引用 --kz-split-files");
+      delete side.getBoundingClientRect;
+      delete byId.get("files-layout").getBoundingClientRect;
+    }
+
+    // S9 Ctrl+S 兜底:焦点在树/头部时也保存,并 preventDefault(否则 WebView2 默认行为);只读/模态时不管。
+    {
+      putDisk("src/lib.rs", "k\n");
+      editorNs.resetFilesDoc();
+      await open("src/lib.rs");
+      model().type("!");
+      const fallback = (windowListeners.get("keydown") ?? []).find((fn) => String(fn).includes("saveFilesDoc"));
+      assert(fallback, "文件页没有注册 Ctrl/Cmd+S 兜底监听");
+      let prevented = false;
+      fallback?.({ key: "s", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, defaultPrevented: false, preventDefault() { prevented = true; } });
+      await flush();
+      assert(prevented && disk.get("src/lib.rs").text === "k\n!", "焦点不在编辑器时 Ctrl+S 也应保存并阻止默认行为");
+      view.classList.remove("active");
+      prevented = false;
+      fallback?.({ key: "s", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, defaultPrevented: false, preventDefault() { prevented = true; } });
+      assert(!prevented, "离开文件页后 Ctrl+S 兜底不应生效");
+      view.classList.add("active");
+    }
+
+    // S10 新建文件:输入相对路径 → 不带指纹写空文件(已存在即冲突不覆盖)→ 展开祖先目录并打开。
+    {
+      sandbox.inputDialog = () => Promise.resolve("src/new/mod.rs");
+      await editorNs.createNewFile();
+      await flush();
+      const create = writes.find((write) => write.path === "src/new/mod.rs");
+      assert(create && create.expectedHash === null && create.content === "", `新建应以 expectedHash:null 写空文件,实为 ${JSON.stringify(create)}`);
+      assert(doc()?.path === "src/new/mod.rs" && filesNs.filesExpanded.has("src/new"), "新建后应打开该文件并展开祖先目录");
+      sandbox.inputDialog = () => Promise.resolve("src/lib.rs");
+      const before = disk.get("src/lib.rs").text;
+      await editorNs.createNewFile();
+      await flush();
+      assert(disk.get("src/lib.rs").text === before && doc()?.path === "src/lib.rs", "新建一个已存在的路径不得覆盖,直接打开");
+      sandbox.inputDialog = priorInput;
+    }
+  } finally {
+    sandbox.confirmDialog = priorConfirm;
+    sandbox.inputDialog = priorInput;
+    invokeGates.delete("file_write");
+    filesNs.reset_files_scope();
+    filesNs.filesViewLeft();
+    view?.classList.remove("active");
+    for (const [cmd, value] of Object.entries(savedPayloads)) {
+      if (value === undefined) delete payloads[cmd];
+      else payloads[cmd] = value;
+    }
+    editorNs.setMonacoLoader(null);
+    sandbox.currentProject = priorProject;
+    await flush();
+  }
+}
+// ── 分区:文件编辑(完) ──
 
 if (issues.length) {
   reportedIssues = true;
