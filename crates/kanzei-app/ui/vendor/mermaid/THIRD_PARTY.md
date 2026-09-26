@@ -47,8 +47,24 @@ whole mermaid build and update `README.md`.
 
 ## Full license texts
 
-- MIT: see `LICENSE` (mermaid) — the other MIT components use the same terms with their
-  own copyright holders (named in the upstream repositories above).
-- EPL-2.0: https://www.eclipse.org/legal/epl-2.0/
-- MPL-2.0: https://www.mozilla.org/MPL/2.0/ · Apache-2.0: https://www.apache.org/licenses/LICENSE-2.0
-- ISC: https://opensource.org/license/isc-license-txt · BSD-3-Clause: https://opensource.org/license/bsd-3-clause
+`LICENSES-THIRD-PARTY.txt` in this directory collects the texts that ship with the build:
+
+- **Kept as banners inside the chunks** (copied verbatim into Part A): lodash-es
+  (MIT), DOMPurify 3.4.12 (MPL-2.0 OR Apache-2.0; redistributed under Apache-2.0), and
+  the third-party snippets inside cytoscape (Promises/A+ thenable, jQuery event object,
+  bezier and spring function generators; MIT).
+- **LICENSE files from the npm tarballs** (Part B): d3 7.9.0 and each `d3-*` module
+  (ISC, Mike Bostock / Observable, Inc.), roughjs 4.6.6 (MIT, Preet Shihn).
+- **Apache License 2.0 terms** (Part C): chevrotain, and DOMPurify's Apache option.
+- **Still to be added** — the upstream LICENSE files at the bundled versions are not
+  in this repository yet (fetching them needs another download from the npm registry):
+  elkjs (EPL-2.0 full text), KaTeX, cytoscape's own notice, cytoscape-cose-bilkent,
+  cose-base, layout-base, cytoscape-fcose, d3-sankey, dagre-d3-es, khroma, marked,
+  stylis, dayjs, chevrotain's copyright line, @mermaid-js/parser, langium,
+  vscode-languageserver-types, es-toolkit, uuid, ts-dedent, @braintree/sanitize-url,
+  @iconify/utils, @upsetjs/venn.js. Until then the license terms are those named in the
+  table above:
+  - MIT: same terms as `LICENSE` (mermaid), with each project's own copyright holders.
+  - EPL-2.0: https://www.eclipse.org/legal/epl-2.0/
+  - MPL-2.0: https://www.mozilla.org/MPL/2.0/
+  - ISC: https://opensource.org/license/isc-license-txt · BSD-3-Clause: https://opensource.org/license/bsd-3-clause

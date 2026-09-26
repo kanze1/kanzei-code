@@ -18,7 +18,9 @@
     `core.autocrlf=true` may show CRLF in the working tree, which is harmless for JS.
 - `LICENSE` is the unmodified upstream MIT license. Third-party code bundled inside the
   chunks (ELK layout under EPL-2.0, DOMPurify, KaTeX, cytoscape, d3, …) is listed with
-  licenses and source locations in `THIRD_PARTY.md`. The chunks must not be edited
+  licenses and source locations in `THIRD_PARTY.md`; the license texts and copyright
+  notices available so far are collected in `LICENSES-THIRD-PARTY.txt` (added by Kanzei,
+  not part of the upstream tarball). The chunks must not be edited
   (EPL-2.0 applies per file to the ELK chunk).
 
 ## How Kanzei loads it
