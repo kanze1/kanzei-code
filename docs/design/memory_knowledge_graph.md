@@ -74,12 +74,14 @@
   - 只看 .md:index.db、锁文件、WAL 是派生物,读图谱本身(查命中数)就可能创建或改动它们,算进来缓存永不命中(单测实测过)。
   - 目录只看条目名:改代码不该让图谱缓存失效,区域只取决于有哪些文件。
   - 命中数不进指纹,每次现取覆盖(它随每次召回变)。
-- 前端:15 秒缓存;`kz:memory-changed` 强制重取。
+- 前端:15 秒缓存(`payloadFresh`:同一项目、15 秒内、之后没有改动)。`kz:memory-changed` 让载荷作废:数据代次 `epoch` 加一、`payloadAt` 置 0、在途的旧请求不再复用,落地时按 `epoch` 丢弃(`storePayload`);图谱模式且记忆页在前台时立即强制重取,否则只作废,回到记忆页(`kz:view-changed`)再取、再画。
+- 详情「区域」行与图谱共用这份载荷:`areasFor` 在载荷被改动作废时返回 null(只显示字段与「…」,不拿旧推断冒充现状),仅仅过了 15 秒的旧载荷照常先显示;`ensureAreaOptions` 在载荷不新鲜时重取并写回,取到后重画区域片。字段(条目的 `areas`,刚从磁盘读的真源)总排最前,推断区域去掉与字段重复的和载荷里的字段边(载荷可能比条目旧一拍)。
 
 ## 6. area 字段写入
 
 - `memory_add` / `memory_update` 新增可选 `area: string[]`,工具描述加一句「optional area: code areas this memory is about, e.g. kanzei-tools/tracker or crates/kanzei-app/ui/13-memory.js; omit if unsure」。每项经 `resolve_token` 归一,任何一项解析不到就整体拒绝,报错列出该 token 与至多 5 个最接近的区域 id。update 的 area 是整体替换,`[]` 清除,不传不动。
-- `MemoryStore::set_area(id, &[String])`:持记忆树锁,写或删 extras 的 `area` 键(空格分隔、去重),写后 refresh_derived;归档条目只读。
+- `MemoryStore::update_with_area(id, title, description, body, status, area, expected_hash, enforce_topic)`:`update` 的全参加 `area`(`Some(&[])` 清除、`None` 不动),整段 读 → CAS → 写 持记忆树锁,内容与区域**一次写盘、一次 refresh_derived**;`update` 与 `set_area(id, &[String])` 都委托给它。`area` 写 extras 的 `area` 键(空格分隔、去重);归档条目只读。
+- `memory_update` 只改区域时同样过 `expected_hash`(复核:曾经绕过 CAS 直接 load_all + set_area,调用方传的 hash 被静默忽略;同时改内容与区域是两次独立写盘)。`memory_entry_save` 同样一次写盘。
 - 桌面端 `memory_entry_save` 新增 `area` 参数(同样归一与报错);新命令 `memory_entry_get(project_dir, scope, id)` 读活动或归档条目,返回与 `memory_entries` 同形的数据加 `archived`;`memory_entries` 补 `areas` 与 `archived`。
 - 工具 schema 只多一个可选字段,不新增工具(D-662 工具面预算)。
 
@@ -101,7 +103,14 @@
 - **颜色**只从 `--graph-*` token 读(`getComputedStyle`),`kz:theme` / `kz:language` 事件触发重读重画;脚本里没有字面量颜色(C1/J2 门禁照常覆盖)。
 - **关闭库自带浮动提示**(nodeLabel/linkLabel 返回空串):悬停信息写页面状态栏,不另起浮层(ui_surface_stack.md 的弹层唯一写法)。
 - **自绘**:节点(圆、空心环、半透明虚线环、菱形、R/D/A/§ 字形)与边(强实线/弱虚线、关系边 3px 箭头、contains 细线);标签在帧末统一画,屏幕空间网格贪心抢位(选中 > 悬停 > 悬停邻居 > 检索命中 > crate > 模块 > 记忆按度数);边标签只给度数 ≤ 8 的悬停/选中节点画(模块这类枢纽一悬停十几条「关于」,叠成一团反而读不出);节点有屏幕像素下限半径(缩小看全局时不缩成看不见的点)。
-- **生命周期**:视图隐藏或切回列表时 `pauseAnimation`,回来 `resume`;`destroy()` 只依赖 pause、清空 host、释放引用(库的 `_destructor` 没有文档)。
+- **生命周期**:视图隐藏或切回列表时 `pauseAnimation`,回来 `resume`;记忆页不在前台时 `render()` 直接返回(隐藏的画布只有 1×1,在上面重排还会把 RAF 循环留在后台);`destroy()` 只依赖 pause、清空 host、释放引用(库的 `_destructor` 没有文档)。
+- **边标签参与抢位**:悬停/选中节点入射边的关系标签(「关于」「指纹」…)与节点标签一起进 `placeLabels`,优先级 -1(低于任何节点标签),放不下就不画——不再压住「M-009 edit 报 old_str」这类节点标签。
+- **确定性初始位置**:新节点的初始抖动用 `seededJitter(id)`(FNV-1a 哈希后过 murmur3 fmix32 雪崩,x、y 两个种子),不用随机数;d3-force 自己的随机源是固定种子的 LCG,所以同一份数据每次打开都是同一张图,用户记得住「edit 那团在 tools 左上」。裸 FNV-1a 对 M-001/M-002 这类连号 id 高位几乎不变,新节点会排成一条斜线(冒烟的 4×4 铺格与相邻间距断言盯住)。
+- **减少动效**(`prefers-reduced-motion: reduce`,建视图时读一次,与 22-neural-flow.js 等画布同口径):适配视图与检索聚焦 0ms;`warmupTicks(400)`(库的 warmup 循环在 alpha < d3AlphaMin 时自己停,约 152 步)加 `cooldownTicks(0)`,首帧就是收敛后的布局;拖拽时被拖的节点跟手,邻居不被带着动。
+- **拖拽带动邻居**:库的拖拽只把 alphaTarget 提到 0.3 并重置倒计时,但每帧先判 alpha < d3AlphaMin——布局稳定后 alpha 早已低于门槛,引擎当帧就停,邻居纹丝不动(复核修复时浏览器冒烟实测发现,是设 d3AlphaMin 带出来的)。拖拽期间把门槛放到 0,松手后恢复;减少动效时不放开。
+- **画布尺寸变化**(选中节点时右侧详情栏展开、画布变窄):保持视图中心不动;选中的节点被挤出可视区就平移过去。
+- **dag-lr 遇环**:库默认 `onDagError` 直接 throw「Invalid DAG structure」,引用图天然有环(互相 refs);设成空函数,环上的回边不参与分层、照常画出来。
+- **聚类与外壳的 crate 分组**在 `cloneForRender` 里按载荷算好挂在节点上(`clusterId`),区域表按载荷缓存:聚类力每个 tick、外壳每帧都要查,复核基准 700 节点 × 150 tick 从 509ms 降到 3ms。
 
 ## 8. 纯函数模型
 
@@ -115,7 +124,9 @@
 ## 9. 记忆页交互
 
 - 工具栏末尾「列表 | 图谱」分段开关(`aria-pressed`);选择存 `~/.kanzei/app.json` 的 `memory_view`(prefs.rs 独立字段,D-404:本机 WebView2 localStorage 不落盘),localStorage 只作旧值兼容。
-- 图谱模式:工作区两列(画布 | 右侧详情栏,详情栏 sticky 且可独立滚动),列表与排序隐藏;窄屏容器(≤ 760px)画布全宽,有选中时才显示详情栏。
+- 图谱模式:没选中任何东西、停在「阅读」页签时,右侧详情栏收成一条竖排页签栏(阅读 / 管理对话 / 使用记录,约 31px),画布拿到整行宽度;选中节点或点「管理对话 / 使用记录」再展开成两列(画布 | 详情栏 320–400px,sticky 且可独立滚动)。复核:空详情栏只写着「选择一条记忆」却占掉约 30% 宽度。列表与排序隐藏;窄屏容器(≤ 760px)展开的详情栏排到画布下面。
+- 状态栏独占一行、不折行(超长省略):悬停文字长短不能改变页脚高度——否则画布(弹性收缩)跟着变高变矮,尺寸一变库就清掉悬停,状态栏缩回、画布又长回去,宽屏下悬停在记忆上会一直闪(复核修复时 1600 宽实测 649 ↔ 628px 来回跳)。
+- 切换语言(`kz:language`):画布标签由渲染器重画;图例、区域下拉、状态栏、文本视图分组名、画布读屏名称、非记忆节点详情由 24-memory-graph.js 重建(带 data-i18n-key 的按钮由 02-i18n.js 自己切)。
 - 工具栏:区域(按 crate 分组,只列有记忆的区域)、图层(关于/关联/取代/指纹/提及)、含归档、邻域条(「邻域 M-009 · 1 2 3 · 退出邻域」,只在邻域模式显示)、适配视图、文本视图。
 - 联动:现有 范围/分类/状态 筛选变化派发 `kz:memory-filters`,图谱按同一组筛选重算(不重排,位置按 项目+id 保留);检索命中派发 `kz:memory-search-hits`,图上画强调色命中环、其余淡出、居中第一条,清空检索取消;列表选中(`kz:memory-selected`)同步选中环;切项目(`kz:memory-project`)清空状态并用代次守卫,项目 A 在途的图谱不会画进项目 B。
 - 悬停:邻居高亮、其余淡出,状态栏写「id · 标题 · 分类/状态 · 关于 区域(依据)」。
@@ -140,7 +151,7 @@
 - 其余 `--graph-*` 是别名(只在 :root 定义一次):上下文节点 --dim、crate --fg-strong、概念 --fg(空心菱形,中性)、强边 = 模块灰、弱边 --border-strong(装饰性虚线,豁免对比度)、标签 --fg / --dim、选中与悬停环 --fg-strong(中性)、外壳 --fg(5% 透明度)、背景 --bg;**检索命中环 --accent-text**(语义表「一次性的看这里」)。门禁见 §13。
 - 节点:记忆半径 6 + min(6, 1.5·log2(1+hits)),crate 15,模块 8,其它 5.5;active 实心、候选/影子空心环、deprecated/invalid/归档 40% 透明加虚线环;需求/缺陷/决策/文档是灰色小圆内写 R/D/A/§。
 - 边:强实线 0.8px、关系边带箭头;about 依据为字段/路径画实线、其余虚线;提及/引用虚线。
-- 标签:crate 总显示;模块缩放 ≥ 0.55;记忆 ≥ 0.85 显示编号、≥ 2.4 附标题前 14 字;其它 ≥ 1.8;悬停/选中/命中及其邻居总显示。
+- 标签:crate 总显示;模块缩放 ≥ 0.3;记忆 ≥ 0.35 显示编号、≥ 2.4 附标题前 14 字;其它 ≥ 1.8;悬停/选中/命中及其邻居总显示。阈值按适配视图的实际缩放定:1600×960 约 0.9、1280×690 约 0.45(画布只有 420px 高),原来的 0.85 / 0.55 让默认画面里的记忆全是无名彩点;叠字由屏幕空间抢位剔除,降阈值不会叠字。
 - 区域外壳:同一 crate 的节点画一圈圆角凸包(线宽 36 世界单位、5% 透明度),放大到 2 倍以上或邻域模式下隐藏。
 
 ## 11. 布局
@@ -156,6 +167,7 @@
 - `loadForceGraph` 失败或环境没有 canvas(假 DOM)就显示文本视图,状态栏写「图形渲染不可用,已显示文本视图」。
 - 文本视图:按 crate → 模块分组的树(`role=tree`/`treeitem`/`group`,方向键、Home/End 移动,回车打开),「文本视图」开关随时可切。
 - 画布 `role=img`,读屏名称带节点数与关系数,`aria-describedby` 指向状态栏(`role=status`);画布本身不可逐节点聚焦,这一点由文本视图补齐。
+- 减少动效(`prefers-reduced-motion: reduce`):适配与聚焦不做动画、布局在首帧前跑完、拖拽不带动邻居(§7)。
 
 ## 13. 门禁与测试
 
@@ -163,14 +175,14 @@
 |---|---|
 | kanzei-harness | areas:工作区扫描、依赖深度与层带(含成环)、非 Cargo 回退、resolve_token 各形态与拒绝、本仓层带;refs:split_refs 契约 |
 | kanzei-tools refgraph | 提及 ASCII 边界、[[标题]];区域优先级 field>path>tool>via>keyword 与 4 个上限;scripts 降权、via 只来自结构化 refs、隐藏目录不算区域;supersedes 双向去重;概念保留/丢弃;活动优先与归档标记;悬空进 warnings;未用模块不出节点;节点同形;collect_inputs 与指纹稳定/失效;注册工具全有区域或豁免;词表区域在本仓都解析得到 |
-| kanzei-memory | load_archived、set_area(去重/清除/拒绝);memory_add 的 area 归一落盘、未知区域整体拒绝并给候选、memory_update 替换与清除 |
+| kanzei-memory | load_archived、set_area(去重/清除/拒绝);memory_add 的 area 归一落盘、未知区域整体拒绝并给候选、memory_update 替换与清除、只改区域时过期 expected_hash 被拒且不落盘、内容与区域同一次写盘 |
 | kanzei-app | memory_graph 缓存命中/改文件后重建;memory_entry_get 读归档;memory_entry_save 的 area 归一与报错;memory_graph 形状契约;memory_view 偏好;build_workspace_graph 原单测 |
-| ui-memory-graph-smoke.mjs | 纯模型 10 组;vendor SHA-256(换行按 LF 归一)/长度/README/LICENSE/加载方式;变异自检 anchor_finite、ego_contains、default_mentions(`KZ_GRAPH_MUTATE=<id>` 可单独复核,期望非零退出);`--browser`:vendor 请求 200、零 pageerror/console.error、布局 < 3 秒、画布非空白、程序化悬停写状态栏、切主题像素变化、重排后 crate 仍钉在层带上、文本视图条目数 = 可见记忆数、677 节点 / 1866 边稳定 < 3 秒 |
+| ui-memory-graph-smoke.mjs | 纯模型 11 组(含确定性抖动);vendor SHA-256(换行按 LF 归一)/长度/README/LICENSE/加载方式,24-graph-view.js 不得用随机数定初始位置、必须设 onDagError;变异自检 anchor_finite、ego_contains、default_mentions、jitter_seeded、jitter_avalanche(`KZ_GRAPH_MUTATE=<id>` 可单独复核,期望非零退出);`--browser`:vendor 请求 200、零 pageerror/console.error、布局 < 3 秒、画布非空白、默认视图记忆编号标签 ≥ 5(1600×960 与 1280×690@1.5 两档)、没选中时详情栏收成竖排页签栏且选中后展开、真鼠标悬停记忆节点停得住(状态栏不闪、画布高度不变)、拖拽记忆节点带动邻居、悬停时边标签照样画、程序化悬停写状态栏、切主题像素变化、重排后 crate 仍钉在层带上、文本视图条目数 = 可见记忆数、677 节点 / 1866 边(区域表补到 225 个)稳定 < 3 秒、dag-lr 带环小图不抛错且能稳定;减少动效上下文(1280×690@1.5):首帧后 0 帧、与常规布局逐点相同(最大坐标差 < 0.5)、拖拽不带动邻居 |
 | ui-a11y-smoke 分区:记忆图谱 | 节点与强边对 --bg/--panel ≥ 3、标签 ≥ 4.5、选中/命中环 ≥ 3(两套主题);类别色只准出现在图谱选择器、必须是自己的 hex;--graph-* 别名不得指向状态色(--graph-hit 例外);画布/状态栏/树/开关的标记;4 个反例自测 |
-| ui-runtime-smoke 分区:记忆图谱 | 点「图谱」调 memory_graph、假 DOM 降级文本视图、条目数、点条目开详情、切项目竞态、切回列表;夹具按契约校验;变异 memgraphToggle、memgraphProjectGuard |
+| ui-runtime-smoke 分区:记忆图谱 | 点「图谱」调 memory_graph、假 DOM 降级文本视图、条目数、点条目开详情、切项目竞态、切回列表;记忆页不在前台时 kz:memory-changed 不取数、切走后才落地的在途图谱不画、回到记忆页再取再画;切到英文后图例/状态栏/区域下拉无中文;列表模式「设为区域」:新图落地前区域行只有字段与「…」、落地后是新图的推断且真的重取了;夹具按契约校验;变异 memgraphToggle、memgraphProjectGuard、memgraphInactiveFetch、memgraphInactiveRender、memgraphLanguage、memgraphAreaInvalidate、memgraphAreaRefetch |
 | verify / CI | `ui-memory-graph-smoke --browser` 挂在 verify.ps1 的 ui_a11y 步(检查键集合不变,git.rs 的对齐守卫不用改),ci.yml 同步 |
 
-预览:`node scripts/ui-preview/shoot.mjs --scenes memory,memory-graph --themes dark,light --width 1600 --height 960 --scale 1.25`(另有 1280×690@1.5);memory-graph 场景参数 `hover`/`select`/`ego`/`text=1`/`archived=1`(`--query` 传入)。夹具 `scripts/ui-preview/memory-graph-fixture.mjs` 是本仓真实记忆的子集(29 条项目记忆 + 相连的归档/条目/指纹 + 全部 crate,全局记忆换成 3 条合成条目),用 `KZ_MEMORY_GRAPH_DUMP=<out.json> cargo test -p kanzei-tools refgraph::tests::dump_repo_graph` 取样后切出。
+预览:`node scripts/ui-preview/shoot.mjs --scenes memory,memory-graph --themes dark,light --width 1600 --height 960 --dpr 1.25`(另有 `--width 1280 --height 690 --dpr 1.5`;设备像素比参数与其它分支统一为 `--dpr`,`--query` 先展开、theme/scene/dialog 不被它覆盖);memory-graph 场景参数 `hover`/`select`/`ego`/`text=1`/`archived=1`(`--query` 传入)。夹具 `scripts/ui-preview/memory-graph-fixture.mjs` 是本仓真实记忆的子集(29 条项目记忆 + 相连的归档/条目/指纹 + 全部 crate,全局记忆换成 3 条合成条目),用 `KZ_MEMORY_GRAPH_DUMP=<out.json> cargo test -p kanzei-tools refgraph::tests::dump_repo_graph` 取样后切出。
 
 ## 14. 决策记录
 
@@ -199,10 +211,32 @@
 ## 17. 验证证据
 
 - 本仓真实数据(调试构建):收集 94–220 ms、构建 150–170 ms;537 节点 / 1595 边;默认视图(项目库、active)在夹具上 65 节点 / 89 边、25 条记忆,布局约 0.2 秒稳定。
-- 规模:无头 Edge 153 上 677 节点 / 1866 边约 0.94 秒稳定(39 帧,中位帧 11.6 ms;`ui-memory-graph-smoke --browser` 的上限是 3 秒)。设 d3AlphaMin 之前要跑满 200 帧、约 2.6–3.1 秒。
+- 规模:无头 Edge 153 上 677 节点 / 1866 边约 0.94 秒稳定(39 帧,中位帧 11.6 ms;`ui-memory-graph-smoke --browser` 的上限是 3 秒)。设 d3AlphaMin 之前要跑满 200 帧、约 2.6–3.1 秒。复核修复后区域表补到 225 个(真实量级)再测:0.5–0.7 秒。
+- 复核修复后(2026-09-26):夹具默认视图 1600×960 适配缩放 0.88–0.91、记忆编号标签 19 个;1280×690@1.5 缩放 0.45、8 个;减少动效首帧后 0 帧、与常规布局最大坐标差 0.000;拖一个记忆节点约 220 帧、带动 56 个节点。
 - 截图:1600×960@1.25 与 1280×690@1.5,暗/亮两套主题;图谱默认视图、悬停模块、选中记忆、邻域、文本视图、指纹节点详情、列表模式的区域行都看过(截图在会话 scratchpad,不入库)。
 
-## 18. TODO 与风险
+## 18. 复核修复记录(2026-09-26)
+
+独立复核(group memgraph)的发现与处理,守卫都做过变异自检(删掉被守护的代码,对应断言变红):
+
+| 发现 | 处理 | 守卫 |
+|---|---|---|
+| major:「设为区域 / 清除区域」后区域行仍是旧推断,像保存失败 | `payloadFresh` + `epoch`/`storePayload`(§5);区域行字段排前、推断去重 | runtime:memgraphAreaInvalidate、memgraphAreaRefetch |
+| 记忆页不在前台时 kz:memory-changed 在 1×1 画布上重排、RAF 留在后台 | 只作废不取数;`render()` 在记忆页不在前台时返回 | runtime:memgraphInactiveFetch、memgraphInactiveRender |
+| 聚类力/外壳每次新建区域 Map | `clusterId` 挂节点 + 区域表按载荷缓存(§7) | 冒烟合成大图补到 225 个区域测稳定时间(性能,不设变异) |
+| 切语言后图例、状态栏、区域下拉仍是旧语言 | `kz:language` 重建 DOM 文案(§9);顺带修了点非记忆节点时 releaseMemoryDetail 清掉选中环 | runtime:memgraphLanguage |
+| 没有处理 prefers-reduced-motion | §7 减少动效 | 浏览器:首帧后 0 帧、与常规布局逐点相同(warmup 变异)、拖拽不带动邻居 |
+| 默认画面记忆无名、空详情栏占 30% 宽 | 标签阈值(§10);竖排页签栏(§9) | 浏览器:两档记忆编号 ≥ 5(阈值变异)、页签栏宽度(CSS 变异) |
+| shoot.mjs 用 `--scale`,与四个兄弟分支的 `--dpr` 冲突 | 改 `--dpr`,`--query` 与 bg 分支同写法(先展开,theme/scene 不被覆盖) | — |
+| ui_color_semantics.md 没登记图谱类别色 | 语义色表加一行、蓝色行注明例外 | a11y ② 早已限制类别色只在图谱选择器 |
+| 边标签压节点标签 | 边标签进抢位(§7) | 浏览器:悬停时边标签照样画(变异:抢位后一律不画) |
+| 布局每次不一样 | `seededJitter`(§7) | 纯模型 jitter_seeded / jitter_avalanche;静态:不得用随机数;浏览器:两种动效逐点相同 |
+| memory_update 只改区域绕过 expected_hash、两次写盘 | `update_with_area`(§6) | kanzei-memory 单测(变异:只改区域时丢掉 hash → 变红) |
+| dag-lr 无测试、遇环 throw | `onDagError` 空函数(§7) | 静态:必须设 onDagError;浏览器:带环小图不抛错、能稳定 |
+
+复核修复时另外发现并修掉两处(都由新加的浏览器断言抓出):拖拽不带动邻居(d3AlphaMin 让稳定后的拖拽当帧就停,§7)、宽屏悬停记忆节点闪烁(状态栏折行改变页脚高度,§9)。减少动效下的 `cooldownTicks(0)` 是兜底:warmup 收敛后首帧已被 alphaMin 判据停下,两者叠加无法用断言区分,没有单独的变异守卫。
+
+## 19. TODO 与风险
 
 - 区域推断会误判(例如带 `[fp:bash|…]` 的 SSE 记忆被归到 bash)。缓解:推断关系画虚线并写依据,详情里一键「设为区域」写成字段,字段优先级最高。
 - 全量视图(含归档、开提及)会挤成一团;默认只看活动记忆、提及关、空 crate 不画,并提供区域筛选与邻域模式。
