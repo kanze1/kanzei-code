@@ -42,6 +42,7 @@ jobs:
           node scripts/ipc-event-smoke.mjs
           node scripts/parallel-lines-regression.mjs
           node scripts/ui-a11y-smoke.mjs
+          node scripts/ui-memory-graph-smoke.mjs --browser
           node scripts/ui-i18n-smoke.mjs
           node scripts/ui-markdown-smoke.mjs
           node scripts/ui-connectivity.mjs

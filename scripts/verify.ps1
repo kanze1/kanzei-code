@@ -86,6 +86,9 @@ if ($policy.run_frontend) {
     }
     Step-With-Timing "ui_a11y" "ui_a11y" {
         node "$root\scripts\ui-a11y-smoke.mjs"
+        # 记忆图谱(docs/design/memory_knowledge_graph.md §11):纯模型 + vendor SHA-256 + 变异自检 + 无头 Edge 真渲染。
+        # 挂在 ui_a11y 步里(检查键集合不变,见 git.rs gate_checklists_align_across_git_verify_and_ci);前一条失败就不跑。
+        if ($LASTEXITCODE -eq 0) { node "$root\scripts\ui-memory-graph-smoke.mjs" --browser }
     }
     Step-With-Timing "ui_i18n" "ui_i18n" {
         node "$root\scripts\ui-i18n-smoke.mjs"

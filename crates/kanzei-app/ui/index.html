@@ -678,6 +678,10 @@
             <button type="button" id="memory-refresh" class="ghost" data-i18n-key="刷新">刷新</button>
             <button type="button" class="ghost" id="memory-consolidate-btn" title="立即让 memory-manager 消化 inbox 草稿" data-i18n-title="立即让 memory-manager 消化 inbox 草稿"><span data-i18n-key="整理 inbox">整理 inbox</span></button>
             <span id="memory-inbox-badge" class="dim"></span>
+            <div class="memory-view-switch" role="group" aria-label="记忆视图" data-i18n-aria-label="记忆视图">
+              <button type="button" id="memory-view-list" aria-pressed="true" data-i18n-key="列表">列表</button>
+              <button type="button" id="memory-view-graph" aria-pressed="false" data-i18n-key="图谱">图谱</button>
+            </div>
           </div>
           <div class="memory-manager-toolbar" role="search" aria-label="记忆列表筛选" data-i18n-aria-label="记忆列表筛选">
             <label><span data-i18n-key="范围">范围</span><select id="memory-scope-filter" aria-label="记忆范围" data-i18n-aria-label="记忆范围"></select></label>
@@ -687,6 +691,37 @@
             <span id="memory-list-count" class="memory-list-count dim"></span>
           </div>
           <div class="memory-manager-workspace">
+            <section id="memory-graph-pane" class="memory-graph-pane hidden" aria-labelledby="memory-graph-title">
+              <h2 id="memory-graph-title" class="sr-only" data-i18n-key="记忆图谱">记忆图谱</h2>
+              <div class="memory-graph-toolbar">
+                <label class="memory-graph-area"><span data-i18n-key="区域">区域</span><select id="memory-graph-area" aria-label="按代码区域筛选" data-i18n-aria-label="按代码区域筛选"></select></label>
+                <div id="memory-graph-layers" class="memory-graph-layers" role="group" aria-label="图层" data-i18n-aria-label="图层">
+                  <button type="button" data-layer="about" aria-pressed="true" data-i18n-key="关于">关于</button>
+                  <button type="button" data-layer="refs" aria-pressed="true" data-i18n-key="关联">关联</button>
+                  <button type="button" data-layer="supersedes" aria-pressed="true" data-i18n-key="取代">取代</button>
+                  <button type="button" data-layer="concepts" aria-pressed="true" data-i18n-key="指纹">指纹</button>
+                  <button type="button" data-layer="mentions" aria-pressed="false" data-i18n-key="提及">提及</button>
+                </div>
+                <button type="button" id="memory-graph-archived" class="memory-graph-toggle" aria-pressed="false" data-i18n-key="含归档">含归档</button>
+                <div id="memory-graph-ego" class="memory-graph-ego hidden" role="group" aria-label="邻域" data-i18n-aria-label="邻域">
+                  <span class="dim" data-i18n-key="邻域">邻域</span>
+                  <strong id="memory-graph-ego-center"></strong>
+                  <button type="button" data-hops="1" aria-pressed="false" title="1 跳" data-i18n-title="1 跳">1</button>
+                  <button type="button" data-hops="2" aria-pressed="true" title="2 跳" data-i18n-title="2 跳">2</button>
+                  <button type="button" data-hops="3" aria-pressed="false" title="3 跳" data-i18n-title="3 跳">3</button>
+                  <button type="button" id="memory-graph-ego-exit" class="ghost mini" data-i18n-key="退出邻域">退出邻域</button>
+                </div>
+                <span class="memory-graph-toolbar-gap"></span>
+                <button type="button" id="memory-graph-fit" class="ghost mini" data-i18n-key="适配视图">适配视图</button>
+                <button type="button" id="memory-graph-textview" class="memory-graph-toggle" aria-pressed="false" data-i18n-key="文本视图">文本视图</button>
+              </div>
+              <div id="memory-graph-canvas" class="memory-graph-canvas" role="img" tabindex="0" aria-label="记忆图谱" data-i18n-aria-label="记忆图谱" aria-describedby="memory-graph-status"></div>
+              <ul id="memory-graph-list" class="memory-graph-list hidden" role="tree" aria-label="记忆图谱文本视图" data-i18n-aria-label="记忆图谱文本视图"></ul>
+              <div class="memory-graph-foot">
+                <div id="memory-graph-legend" class="memory-graph-legend" aria-label="图例" data-i18n-aria-label="图例"></div>
+                <div id="memory-graph-status" class="memory-graph-status" role="status" data-i18n-raw></div>
+              </div>
+            </section>
             <section class="memory-list-pane" aria-labelledby="memory-list-title">
               <div class="memory-pane-head"><h2 id="memory-list-title" data-i18n-key="记忆条目">记忆条目</h2><span id="memory-list-state" class="dim"></span></div>
               <div id="memory-list" class="memory-list" aria-label="记忆条目列表" data-i18n-aria-label="记忆条目列表"></div>
@@ -1367,6 +1402,9 @@
   <script type="module" src="21-palette.js"></script>
   <script type="module" src="22-neural-flow.js"></script>
   <script type="module" src="23-voice.js"></script>
+  <script type="module" src="24-memory-graph-model.js"></script>
+  <script type="module" src="24-graph-view.js"></script>
+  <script type="module" src="24-memory-graph.js"></script>
   <script type="module" src="18-startup.js"></script>
 </body>
 </html>

@@ -29,6 +29,9 @@ pub(crate) struct AppPrefs {
     pub(crate) process_auto_state: HashMap<String, Value>,
     #[serde(default)]
     pub(crate) workspace_state: HashMap<String, Value>,
+    /// 记忆页视图:"list" | "graph"(记忆图谱)。单独一个字段,与其它 UI 布局偏好互不牵连。
+    #[serde(default)]
+    pub(crate) memory_view: Option<String>,
 }
 
 fn prefs_path() -> PathBuf {
@@ -82,6 +85,13 @@ fn apply_ui_prefs(
     }
 }
 
+/// 记忆页视图偏好:只认 list / graph,其它值忽略(不把脏值写进 app.json)。
+fn apply_memory_view(prefs: &mut AppPrefs, memory_view: Option<String>) {
+    if let Some(view) = memory_view.filter(|v| v == "list" || v == "graph") {
+        prefs.memory_view = Some(view);
+    }
+}
+
 #[tauri::command]
 pub fn ui_prefs_get() -> serde_json::Value {
     let p = load_prefs();
@@ -92,6 +102,7 @@ pub fn ui_prefs_get() -> serde_json::Value {
         "continue_prompt": p.continue_prompt,
         "process_auto_state": p.process_auto_state,
         "workspace_state": p.workspace_state,
+        "memory_view": p.memory_view,
     })
 }
 
@@ -104,6 +115,7 @@ pub fn ui_prefs_set(
     continue_prompt: Option<String>,
     process_auto_state: Option<HashMap<String, Value>>,
     workspace_state: Option<HashMap<String, Value>>,
+    memory_view: Option<String>,
 ) -> Result<(), String> {
     let mut prefs = load_prefs();
     apply_ui_prefs(
@@ -117,6 +129,7 @@ pub fn ui_prefs_set(
     if let Some(workspace_state) = workspace_state {
         prefs.workspace_state = workspace_state;
     }
+    apply_memory_view(&mut prefs, memory_view);
     save_prefs(&prefs);
     Ok(())
 }
@@ -174,6 +187,21 @@ mod tests {
             restored.workspace_state["project-a"]["research"]["topic"],
             "topic-a"
         );
+    }
+
+    #[test]
+    fn memory_view_偏好只收_list_graph_旧文件回落默认() {
+        let mut p = AppPrefs::default();
+        apply_memory_view(&mut p, Some("graph".into()));
+        assert_eq!(p.memory_view.as_deref(), Some("graph"));
+        apply_memory_view(&mut p, Some("canvas".into()));
+        assert_eq!(p.memory_view.as_deref(), Some("graph"), "非法值忽略");
+        apply_memory_view(&mut p, None);
+        assert_eq!(p.memory_view.as_deref(), Some("graph"), "None 不变");
+        let restored: AppPrefs = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(restored.memory_view.as_deref(), Some("graph"));
+        let old: AppPrefs = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(old.memory_view.is_none());
     }
 
     #[test]

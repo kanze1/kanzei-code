@@ -881,4 +881,106 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
   assert.equal(bareBolts, 0, `index.html 里有 ${bareBolts} 处不带 U+FE0E 的 ⚡:彩色 emoji 不受 CSS color 控制,写成 ⚡&#xFE0E;`);
 }
 
+// ── 分区:记忆图谱 ──
+// docs/design/memory_knowledge_graph.md §10。画布颜色只从 --graph-* token 读(24-graph-view.js readGraphPalette),
+// CSS 级联管不到画布,所以对比度与语义在这里静态把关:
+//   ① 对比度:节点与实线(类别色、上下文灰、crate、模块、概念、强边)对 --bg / --panel ≥ 3(非文本);
+//      标签对 --bg ≥ 4.5;选中环、检索命中环对 --bg ≥ 3。暗色与亮色都算。--graph-edge-weak 是装饰性的虚线,豁免。
+//   ② 语义:四个类别色(fact/sop/habit/preference)是图谱专用的数据色,只准出现在图谱选择器里(.kz-graph-*、
+//      #memory-graph-*),且必须是自己的 hex、不得借状态色;其余 --graph-* 别名不得指向状态色——唯一例外是检索命中
+//      --graph-hit → --accent-text(语义表「一次性的看这里」)。
+//   ③ 标记:画布 role=img + aria-describedby 状态栏;视图切换、图层、含归档、文本视图按钮带 aria-pressed;文本视图 role=tree。
+// 自测:三个反例必须各自报出(列表行借类别色、概念节点借琥珀、类别色写成状态色别名)。
+function memoryGraphTokenViolations(styleText) {
+  const strip = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "");
+  const clean = strip(styleText);
+  const block = (pattern) => Object.fromEntries(
+    [...(clean.match(pattern)?.[1] ?? "").matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
+  );
+  const dark = block(/:root\s*\{([^}]*)\}/);
+  const light = { ...dark, ...block(/\[data-theme="light"\]\s*\{([^}]*)\}/) };
+  const out = [];
+  const resolve = (tokens, name, seen = new Set()) => {
+    const value = tokens[name];
+    if (!value) return null;
+    const alias = value.match(/^var\((--[a-z0-9-]+)\)$/);
+    if (alias && !seen.has(alias[1])) return resolve(tokens, alias[1], seen.add(name));
+    const hex = value.match(/^#([0-9a-fA-F]{6})$/);
+    return hex ? [0, 1, 2].map((i) => parseInt(hex[1].slice(i * 2, i * 2 + 2), 16)) : null;
+  };
+  const lum = (rgb) => rgb.map((c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const ratio = (a, b) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const CATEGORY = ["--graph-fact", "--graph-sop", "--graph-habit", "--graph-preference"];
+  const MARKS = [...CATEGORY, "--graph-context", "--graph-crate", "--graph-module", "--graph-concept", "--graph-edge"];
+  const pairs = [
+    ...MARKS.flatMap((fg) => ["--bg", "--panel"].map((bg) => [fg, bg, 3])),
+    ["--graph-label", "--bg", 4.5], ["--graph-label-dim", "--bg", 4.5],
+    ["--graph-focus", "--bg", 3], ["--graph-hit", "--bg", 3],
+  ];
+  for (const [theme, tokens] of [["暗色", dark], ["亮色", light]]) {
+    for (const [fg, bg, floor] of pairs) {
+      const a = resolve(tokens, fg);
+      const b = resolve(tokens, bg);
+      if (!a || !b) {
+        out.push(`①${theme} ${fg} / ${bg} 解析不到 6 位 hex(未定义或别名链断了)`);
+        continue;
+      }
+      const r = ratio(a, b);
+      if (r < floor) out.push(`①${theme} ${fg} 在 ${bg} 上 ${r.toFixed(2)} < ${floor}。改法:调 ${fg} 的明度(亮色块与暗色块各一份)`);
+    }
+  }
+  const STATUS = /^var\(--(?:ok|warn|alert|err|danger|info|accent|accent-text|dot-run|diff-add|diff-del|badge-[a-z]+)\)$/;
+  for (const name of CATEGORY) {
+    for (const [theme, tokens] of [["暗色", dark], ["亮色", block(/\[data-theme="light"\]\s*\{([^}]*)\}/)]]) {
+      if (!/^#[0-9a-fA-F]{6}$/.test(tokens[name] ?? "")) out.push(`②${theme} ${name} 必须是图谱专用的 6 位 hex(不借状态色、不做别名),实际:${tokens[name] ?? "未定义"}`);
+    }
+  }
+  for (const [name, value] of Object.entries(dark)) {
+    if (!name.startsWith("--graph-") || name === "--graph-hit") continue;
+    if (STATUS.test(value)) out.push(`② ${name} 指向了状态色 ${value}:图谱里颜色只表达节点种类,状态色(橙/琥珀/绿/红/蓝)在别处有专属含义`);
+  }
+  if (dark["--graph-hit"] !== "var(--accent-text)") out.push(`② --graph-hit 必须是 var(--accent-text)(检索命中 = 一次性的「看这里」),实际:${dark["--graph-hit"] ?? "未定义"}`);
+  const rules = [...clean.replace(/:root\s*\{[^}]*\}/, "").replace(/\[data-theme="light"\]\s*\{[^}]*\}/, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  for (const [, selector, body] of rules) {
+    const used = CATEGORY.filter((name) => body.includes(`var(${name})`));
+    if (!used.length) continue;
+    const branches = selector.split(",").map((b) => b.trim()).filter(Boolean);
+    const outside = branches.filter((b) => !/\.kz-graph-|#memory-graph-|\.memory-graph-/.test(b));
+    if (outside.length) out.push(`② 图谱类别色 ${used.join("/")} 用到了图谱之外:${outside.join(", ")}。改法:列表/徽章等界面元素的分类一律中性(ui_color_semantics.md「记忆 SOP 分类」为灰)`);
+  }
+  return out;
+}
+{
+  const violations = memoryGraphTokenViolations(css);
+  assert.deepEqual(violations, [], `记忆图谱配色判据未通过:\n${violations.join("\n")}`);
+  const rootAt = css.indexOf(":root {");
+  const counterexamples = [
+    ["②", `${css}\n.memory-row.fact { color: var(--graph-fact); }`],
+    ["②", css.slice(0, rootAt + 7) + "\n  --graph-concept: var(--warn);" + css.slice(rootAt + 7).replace(/--graph-concept:\s*[^;]+;/, "")],
+    ["②", css.replace(/(\[data-theme="light"\]\s*\{[\s\S]*?)--graph-sop:\s*#[0-9a-fA-F]{6};/, "$1--graph-sop: var(--ok);")],
+    ["①", css.replace(/(:root\s*\{[\s\S]*?)--graph-habit:\s*#[0-9a-fA-F]{6};/, "$1--graph-habit: #1c1c1c;")],
+  ];
+  const silent = counterexamples
+    .map(([id, mutated], index) => [`${id}#${index}`, memoryGraphTokenViolations(mutated).some((v) => v.startsWith(id))])
+    .filter(([, caught]) => !caught)
+    .map(([label]) => label);
+  assert.deepEqual(silent, [], `记忆图谱配色判据没能命中自己的反例(恒绿):${silent.join(", ")}`);
+  // ③ 标记
+  const tag = (id) => html.match(new RegExp(`<[a-z]+[^>]*\\bid="${id}"[^>]*>`))?.[0] ?? "";
+  assert.ok(/role="img"/.test(tag("memory-graph-canvas")) && /aria-describedby="memory-graph-status"/.test(tag("memory-graph-canvas")), "#memory-graph-canvas 要有 role=img 与 aria-describedby=memory-graph-status(画布本身读不出内容)");
+  assert.ok(/role="status"/.test(tag("memory-graph-status")), "#memory-graph-status 要是 role=status(悬停与布局信息写在这里)");
+  assert.ok(/role="tree"/.test(tag("memory-graph-list")), "#memory-graph-list(文本视图)要是 role=tree");
+  for (const id of ["memory-view-list", "memory-view-graph", "memory-graph-archived", "memory-graph-textview"]) {
+    assert.ok(/aria-pressed="(?:true|false)"/.test(tag(id)), `#${id} 是开关按钮,要有 aria-pressed`);
+  }
+  const layerButtons = [...html.matchAll(/<button[^>]*data-layer="[a-z]+"[^>]*>/g)].map((m) => m[0]);
+  assert.ok(layerButtons.length === 5 && layerButtons.every((b) => /aria-pressed="(?:true|false)"/.test(b)), "图层按钮(5 个)都要有 aria-pressed");
+}
+
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);
