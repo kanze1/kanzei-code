@@ -35,6 +35,8 @@ const height = Number(opt("--height", "900"));
 const dpr = Number(opt("--dpr", "1")) || 1;
 const dprTag = dpr === 1 ? "" : `@${dpr}`;
 const lang = opt("--lang", "zh") === "en" ? "en" : "zh";
+// --query 追加 URL 参数(如 backdrop=orion)。
+const extraQuery = Object.fromEntries(new URLSearchParams(opt("--query", "")));
 const wantJson = args.includes("--json");
 
 const shots = [];
@@ -70,7 +72,7 @@ try {
       if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`);
     });
     page.on("requestfailed", (request) => errors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText ?? ""}`));
-    const query = new URLSearchParams({ theme: shot.theme, scene: shot.scene, ...(shot.dialog ? { dialog: shot.dialog } : {}), ...(lang === "en" ? { lang } : {}) });
+    const query = new URLSearchParams({ ...extraQuery, theme: shot.theme, scene: shot.scene, ...(shot.dialog ? { dialog: shot.dialog } : {}), ...(lang === "en" ? { lang } : {}) });
     const url = `${origin}/?${query}`;
     const started = Date.now();
     let ready = false;

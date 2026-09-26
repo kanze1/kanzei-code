@@ -19,6 +19,10 @@ pub(crate) struct AppPrefs {
     // localStorage 仅作旧值兼容(前端先读本地旧值,后端值回来后覆盖)。
     #[serde(default)]
     pub(crate) theme: Option<String>,
+    // UI2-0926 #10 对话背景(星座背景):开关、图案、密度、不透明度与「我的图片」导出的点集。
+    // 只存点集,从不存原图;序列化上限 BACKDROP_MAX_BYTES。见 docs/design/ui_chat_backdrop.md。
+    #[serde(default)]
+    pub(crate) backdrop: Option<Value>,
     #[serde(default)]
     pub(crate) work_priority: HashMap<String, String>,
     #[serde(default)]
@@ -144,11 +148,30 @@ fn apply_ui_layout(prefs: &mut AppPrefs, patch: Option<Value>) {
     merge_ui_layout(&mut prefs.ui_layout, patch);
 }
 
+/// 对话背景偏好的序列化上限。点集 64 颗星约 2KB,200 星 / 400 边的上限也远低于它;
+/// 超限说明前端误把原图或像素塞了进来,整条拒绝、原值不变。
+pub(crate) const BACKDROP_MAX_BYTES: usize = 64 * 1024;
+
+fn apply_backdrop(prefs: &mut AppPrefs, backdrop: Option<Value>) -> Result<(), String> {
+    let Some(value) = backdrop else {
+        return Ok(());
+    };
+    let size = serde_json::to_string(&value).map_or(usize::MAX, |text| text.len());
+    if size > BACKDROP_MAX_BYTES {
+        return Err(format!(
+            "对话背景偏好过大({size} 字节,上限 {BACKDROP_MAX_BYTES}):只保存星座点集,不保存图片"
+        ));
+    }
+    prefs.backdrop = Some(value);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn ui_prefs_get() -> serde_json::Value {
     let p = load_prefs();
     json!({
         "theme": p.theme,
+        "backdrop": p.backdrop,
         "work_priority": p.work_priority,
         "auto_max": p.auto_max,
         "continue_prompt": p.continue_prompt,
@@ -162,6 +185,7 @@ pub fn ui_prefs_get() -> serde_json::Value {
 #[tauri::command(rename_all = "snake_case")]
 pub fn ui_prefs_set(
     theme: Option<String>,
+    backdrop: Option<Value>,
     work_priority: Option<HashMap<String, String>>,
     auto_max: Option<u32>,
     continue_prompt: Option<String>,
@@ -170,6 +194,7 @@ pub fn ui_prefs_set(
     ui_layout: Option<Value>,
 ) -> Result<(), String> {
     let mut prefs = load_prefs();
+    apply_backdrop(&mut prefs, backdrop)?;
     apply_ui_prefs(
         &mut prefs,
         theme,
@@ -184,6 +209,45 @@ pub fn ui_prefs_set(
     apply_ui_layout(&mut prefs, ui_layout);
     save_prefs(&prefs);
     Ok(())
+}
+
+#[cfg(test)]
+mod backdrop_tests {
+    use super::*;
+
+    #[test]
+    fn backdrop_往返写入后读回() {
+        let mut p = AppPrefs::default();
+        let value = json!({
+            "enabled": true, "preset": "custom", "density": 1.2, "opacity": 0.8,
+            "custom": {"v": 1, "kind": "image", "points": [[0.1, 0.2, 2.4], [0.5, 0.5, 1.8], [0.9, 0.7, 3.1]], "edges": [[0, 1, 0], [1, 2, 0]], "hub": -1}
+        });
+        apply_backdrop(&mut p, Some(value.clone())).expect("小于上限应写入");
+        let restored: AppPrefs = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(restored.backdrop, Some(value));
+        apply_backdrop(&mut p, None).expect("None 不变更");
+        assert_eq!(p.backdrop.as_ref().unwrap()["preset"], "custom");
+    }
+
+    #[test]
+    fn backdrop_旧app_json无该字段_回落none() {
+        let old = r#"{"projects":["p1"],"theme":"dark"}"#;
+        let p: AppPrefs = serde_json::from_str(old).expect("旧格式应兼容");
+        assert!(p.backdrop.is_none());
+        assert_eq!(p.theme.as_deref(), Some("dark"));
+    }
+
+    #[test]
+    fn backdrop_超过上限被拒绝且原值不变() {
+        let mut p = AppPrefs {
+            backdrop: Some(json!({"preset": "orion"})),
+            ..Default::default()
+        };
+        let huge = json!({"preset": "custom", "pixels": "x".repeat(BACKDROP_MAX_BYTES)});
+        let err = apply_backdrop(&mut p, Some(huge)).expect_err("超限必须拒绝");
+        assert!(err.contains("上限"), "{err}");
+        assert_eq!(p.backdrop, Some(json!({"preset": "orion"})));
+    }
 }
 
 #[cfg(test)]

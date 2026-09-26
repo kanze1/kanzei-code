@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-oc-enabled="false">
+<html lang="zh-CN" data-oc-enabled="false" data-backdrop="on">
 <head>
   <meta charset="UTF-8" />
   <title>kanzei</title>
@@ -177,9 +177,10 @@
            对话区因此直接顶到窗口边,主区高度多出 38px。 -->
       <div id="view-chat" class="view active">
         <div id="chat-area">
-          <!-- R-285 神经流(颜色取 --memory-flow,随主题与强调色变化):纯表现层,不接管指针也不成为运行真源。
-               动画由 22-neural-flow.js 消费真实 kz:* / memory 操作事件。 -->
-          <canvas id="neural-flow-chat" class="neural-flow-canvas neural-flow-chat" aria-hidden="true"></canvas>
+          <!-- UI2-0926 #10 星座背景(22-constellation.js,颜色取 --backdrop-* token):纯表现层,不接管指针也不成为运行真源;
+               只画在空白处(空态 art 槽 / 正文两侧沟槽),正文列按实测位置剪掉。活动感知来自 22-neural-flow.js 转发的
+               真实 kz:* 事件与 OC 状态 store。id 沿用旧神经场,减少连带改动。 -->
+          <canvas id="neural-flow-chat" class="neural-flow-canvas neural-flow-chat kz-backdrop" aria-hidden="true"></canvas>
           <!-- R-267:#messages 是**滚动容器**,消息本体挂在它下面的 per-session
                `.msg-pane` 里(每个会话一个,同时只显示一个)。切线 = 换显示的 pane,
                不再重建 DOM;后台会话的实时事件也直接渲染进各自 pane,不再丢弃。
@@ -1112,6 +1113,19 @@
           <div class="settings-actions">
             <span id="settings-dirty" class="settings-dirty hidden" role="status" data-i18n-key="未保存 — 改动要点「保存」才会写入配置并生效">未保存 — 改动要点「保存」才会写入配置并生效</span>            <span id="update-result" class="dim"></span>
           </div>
+          </details>
+
+          <!-- UI2-0926 #10 对话背景:即时保存(ui_prefs_set 的 backdrop 字段 → ~/.kanzei/app.json;localStorage 只作缓存,D-404)。
+               图案卡片由 22-constellation-prefs.js 渲染成 role=radio 的按钮组(方向键切换,选中中性)。 -->
+          <details id="backdrop-settings" class="settings-group">
+            <summary data-i18n-key="对话背景">对话背景</summary>
+            <p class="dim" data-i18n-key="调整立即保存到本机。星座画在正文两侧的空白处，窄窗口时退成不影响阅读的淡水印；运行时光点沿连线流动，空闲时只缓慢闪烁。">调整立即保存到本机。星座画在正文两侧的空白处，窄窗口时退成不影响阅读的淡水印；运行时光点沿连线流动，空闲时只缓慢闪烁。</p>
+            <div class="form-row"><label for="set-bg-enabled" data-i18n-key="显示背景">显示背景</label><input id="set-bg-enabled" type="checkbox" checked /></div>
+            <div class="form-row backdrop-row"><label id="backdrop-presets-label" data-i18n-key="背景图案">背景图案</label><div id="backdrop-presets" class="backdrop-presets" role="radiogroup" aria-labelledby="backdrop-presets-label"></div></div>
+            <div class="form-row"><label id="backdrop-image-label" data-i18n-key="从图片生成">从图片生成</label><div class="backdrop-actions"><button id="backdrop-upload" class="ghost" type="button" data-i18n-key="上传图片…">上传图片…</button><button id="backdrop-remove" class="ghost" type="button" hidden data-i18n-key="移除图片">移除图片</button><input id="backdrop-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden /></div></div>
+            <p class="dim" data-i18n-key="图片只在本机转换成约 60 颗星的点集后保存，原图不保存。">图片只在本机转换成约 60 颗星的点集后保存，原图不保存。</p>
+            <div class="form-row oc-range-row"><label for="set-bg-density" data-i18n-key="星点密度">星点密度</label><input id="set-bg-density" type="range" min="0" max="200" step="10" value="100" /><output id="set-bg-density-value" for="set-bg-density">100%</output></div>
+            <div class="form-row oc-range-row"><label for="set-bg-opacity" data-i18n-key="不透明度">不透明度</label><input id="set-bg-opacity" type="range" min="20" max="150" step="5" value="100" /><output id="set-bg-opacity-value" for="set-bg-opacity">100%</output></div>
           </details>
 
           <details id="oc-settings" class="settings-group">
