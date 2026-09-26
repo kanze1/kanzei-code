@@ -172,6 +172,45 @@ mod tests {
         }
     }
 
+    /// UI2-0926 #13:cargo 专属条款(提交前 cargo 门禁、clippy 分工、CI 触发)只进 Cargo 工程。
+    /// 用户在空目录新建的 Flutter 项目里收到「提交 Rust 源码前跑 cargo …」只会误导模型。
+    #[test]
+    fn dev_conventions_cargo_条款只注入_cargo_工程() {
+        let dir = std::env::temp_dir().join(format!("kz-conv-cargo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let render = |root: &std::path::Path| {
+            let ctx = ResolveCtx {
+                profile: ProfileKind::Dev,
+                cwd: root.to_path_buf(),
+                project_root: root.to_path_buf(),
+                config: Arc::new(KanzeiConfig::default()),
+            };
+            let mut harness = Harness::default();
+            harness.add(DevProfile).add(ConfigComponent);
+            // system baseline 含全部上下文源,dev/conventions 在其中。
+            harness.resolve(&ctx).unwrap().system_baseline()
+        };
+        let plain = render(&dir);
+        assert!(plain.contains("## 1.4 "), "通用规范照常注入");
+        assert!(
+            !plain.contains("clippy 四处分工") && !plain.contains("提交前代码门禁"),
+            "非 Cargo 项目不该收到 cargo 条款"
+        );
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]
+",
+        )
+        .unwrap();
+        let cargo = render(&dir);
+        assert!(
+            cargo.contains("clippy 四处分工") && cargo.contains("提交前代码门禁"),
+            "Cargo 工程应收到 cargo 条款"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// 取 dev 档 system prompt 的公共装配(与上面那条同一条装配线)。
     fn dev_system_prompt(tag: &str) -> String {
         let root = PathBuf::from(format!("C:/kanzei-{tag}-test"));
@@ -596,7 +635,6 @@ mod tests {
             "逐条对照验收原文",          // §1.25 验收证据
             "任务级并行",                // §10
             "可用即关闭",                // §1.2
-            "compile_gate",              // §1.4 提交前代码门禁(D-264)
             "多项诉求",                  // §1.25 D-279:用户诉求层逐项清单
             "回读原始消息",              // §1.25 D-279:追问时不得相邻动作顶替
         ] {
@@ -605,6 +643,12 @@ mod tests {
                 "引擎默认模板未注入 dev 上下文: {required}"
             );
         }
+        // §1.4a 提交前 cargo 门禁(D-264)只进 Cargo 工程(UI2-0926 #13):无 Cargo.toml 的项目不该收到,
+        // Cargo 工程收到由 dev_conventions_cargo_条款只注入_cargo_工程 守护。
+        assert!(
+            !baseline.contains("compile_gate"),
+            "非 Cargo 项目不该收到 cargo 专属的提交门禁条款"
+        );
 
         // ② 有项目文件:两段拼接,通用在前、项目特有在后。
         let root = std::env::temp_dir().join(format!(
@@ -808,6 +852,8 @@ mod tests {
         // 架构索引现在有了合法通道,而且读/校验默认放行。
         assert_eq!(snapshot.evaluate("architecture", "get"), Effect::Allow);
         assert_eq!(snapshot.evaluate("architecture", "check"), Effect::Allow);
+        // UI2-0926 #7:架构图 lint 是只读动作,默认放行(agent 改完图直接自查)。
+        assert_eq!(snapshot.evaluate("architecture", "diagrams"), Effect::Allow);
         assert_eq!(snapshot.evaluate("architecture", "update"), Effect::Ask);
 
         // conventions 的读动作默认放行、写动作(patch)逐次询问——与 architecture 同口径。
@@ -1227,7 +1273,8 @@ mod tests {
         for subcommand in ["status", "diff", "log"] {
             assert_eq!(snapshot.evaluate("git", subcommand), Effect::Allow);
         }
-        for subcommand in ["stage", "commit", "merge_ff", "finalize"] {
+        // UI2-0926 #13 复核:git 工具新增的 init(建库)同样硬拒绝。
+        for subcommand in ["stage", "commit", "merge_ff", "finalize", "init"] {
             assert_eq!(
                 snapshot.evaluate("git", subcommand),
                 Effect::Deny,
@@ -1330,6 +1377,9 @@ mod tests {
                 "git {subcommand} 应放行"
             );
         }
+        // UI2-0926 #13 复核:建库(git init)不落到默认 ask,只读档位硬拒绝。
+        assert_eq!(snapshot.evaluate("git", "init"), Effect::Deny);
+        assert!(snapshot.denial_hint("git", "init").contains("不建仓库"));
         // 工具物化:所有写入、命令与专用副作用工具从工具表摘除,模型根本拿不到。
         let names: Vec<&str> = snapshot
             .materialize_tools()

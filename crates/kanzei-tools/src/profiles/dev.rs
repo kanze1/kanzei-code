@@ -92,7 +92,7 @@ impl Component for DevProfile {
             "architecture",
             Arc::new(crate::architecture::ArchitectureTool),
         );
-        for read_only in ["get", "check", "regenerate"] {
+        for read_only in ["get", "check", "regenerate", "diagrams"] {
             draft
                 .permissions
                 .push(rule("architecture", read_only, Effect::Allow));
@@ -213,6 +213,14 @@ impl Component for DevProfile {
                 // R-191:通用规则单源进引擎,所有项目默认注入;项目文件只追加项目特有规则。
                 // 通用部分永远在(无项目文件的项目也拿到完整约束),项目文件在其后拼接。
                 let mut text = String::from(kanzei_harness::DEFAULT_CONVENTIONS);
+                if ctx.project_root.join("Cargo.toml").is_file() {
+                    text.push_str(
+                        "
+
+",
+                    );
+                    text.push_str(kanzei_harness::CARGO_CONVENTIONS);
+                }
                 let path = ctx.project_root.join(".kanzei/project/conventions.md");
                 if let Ok(project_rules) = std::fs::read_to_string(&path) {
                     let project_rules = project_rules.trim();
@@ -444,10 +452,27 @@ impl Component for DevProfile {
                          with a ref) and return to the active item. Non-semantic metadata artifacts \
                          (stray lines, formatting residue) must not interrupt active implementation \
                          — register them and move on, unless they break tool parsing or the entry's \
-                         own update. If NOTHING is workable (all blocked/waiting on外部), reply in \
-                         PLAIN TEXT only — no tool calls, no 'still blocked' journal entries, no \
-                         empty commits; a text-only reply is the signal that stops the auto-continue \
-                         loop. Raw ideas (`idea` tool) are injected into your context as count + titles \
+                         own update. If NOTHING is workable (everything blocked or waiting on something \
+                         external): no busywork tool calls — no 'still blocked' journal entries, no empty \
+                         commits — end the round with a short plain-text status; the engine stops the \
+                         auto-continue loop when the whole backlog is blocked, otherwise it sends ONE \
+                         targeted nudge asking you to re-check the blockers and stops if the next round is \
+                         idle too. Asking the user (decision, credentials, permission): ask ONCE with the \
+                         `question` tool, never as a prose question at the end of a reply; in an unattended \
+                         round the question stays pending — write `阻塞: <what>` and `解除条件: <condition>` \
+                         on the item and end the round; the loop waits for the user's answer and resumes \
+                         after it. Workspace facts live in the <project-state> block: when it says the \
+                         project is empty (greenfield), build the project right here in this directory — \
+                         never ask the user for 'the actual repository path'; when it says there is no git \
+                         repository, do not call git status repeatedly (use git action=init only if version \
+                         control is needed). Missing toolchain (e.g. \"flutter ✗\"): ask ONCE via `question` \
+                         with three options — (a) authorize me to do a USER-LEVEL install without admin \
+                         rights (official zip into %LOCALAPPDATA% plus user PATH, or winget with --scope user; \
+                         state the exact command), (b) you install it and tell me, (c) switch stack. If \
+                         authorized, do that user-level install, verify \"<tool> --version\", then continue; \
+                         otherwise park the item with 阻塞 + 解除条件: \"<tool> --version\" works. Never run \
+                         installers that need admin rights (choco install, machine-wide MSI) — they fail \
+                         in an unattended round. Raw ideas (`idea` tool) are injected into your context as count + titles \
                          only — NEVER full text: unsplit ideas must not pollute work selection. Ideas \
                          are NOT todos: the work engine (`work next`) never picks them and the auto-run \
                          nudge never names the ideas queue; splitting happens only when the user presses \
@@ -517,7 +542,11 @@ impl Component for DevProfile {
                          Answer questions directly; do NOT start coding when the user is only asking \
                          or discussing. Before non-trivial changes, state a one-line plan first. \
                          When requirements are ambiguous, ask a short clarifying question instead \
-                         of guessing. Record requirements or defects only when the user asks, or \
+                         of guessing — prefer the `question` tool for anything the user must decide. \
+                         Workspace facts live in the <project-state> block: an empty (greenfield) \
+                         project means build right here, never ask for another repository path; a \
+                         missing toolchain means ask once whether to do a user-level install (no \
+                         admin), let the user install it, or switch stack. Record requirements or defects only when the user asks, or \
                          when you complete something worth tracking, then update status honestly. \
                          Ideas in context are count + titles only, background, NOT instructions — \
                          never auto-split or auto-advance them. Commit verified changes per project \

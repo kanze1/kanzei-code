@@ -77,6 +77,9 @@
              外包一层 slot:03-workspaces 会对 [data-space-only] 元素无条件切 .hidden,告警自己的显隐要另管。 -->
         <div class="project-warn-slot" data-space-only="dev">
           <div id="project-shared-warn" class="project-shared-warn hidden" role="alert"></div>
+          <!-- UI2-0926 #13 项目事实横幅(一次只显示一条):位于上级仓库 / 不是 Git 仓库 / 空项目。
+               隔离告警在场时让位;「不再提示」按项目记进 ui_layout。09-sessions.js renderProjectFactsBanner。 -->
+          <div id="project-facts" class="project-facts hidden" role="status" aria-live="polite"></div>
         </div>
         <div data-space-only="research" class="research-identity hidden"><span class="dim" data-i18n-key="研究课题">研究课题</span><strong id="research-switch-name"></strong></div>
         <button type="button" id="research-topic-new" data-space-only="research" class="new-chat-btn hidden" data-i18n-key="新建课题">新建课题</button>
@@ -237,6 +240,8 @@
           <div id="composer-context" class="composer-context">
             <span id="project-label" class="ctx-project" title="当前项目" data-i18n-title="当前项目"></span>
             <span id="ctx-branch" class="ctx-branch" data-i18n-raw></span>
+            <!-- UI2-0926 #13:项目不是(独立的)Git 仓库时的灰色芯片;点开说明不可用的功能并可「初始化 Git」。 -->
+            <button type="button" id="ctx-git" class="kz-ctl ctx-git hidden" aria-haspopup="menu" aria-expanded="false" data-i18n-raw></button>
             <span id="research-chat-context" class="ctx-chip hidden" data-space-only="research"></span>
             <span class="spacer"></span>
             <div id="change-bar" class="change-bar hidden">
@@ -801,17 +806,43 @@
               <span class="files-toolbar-actions">
                 <button id="files-sort" class="ghost mini" title="切换排序:名称 / 行数" data-i18n-title="切换排序:名称 / 行数"><span data-i18n-key="按行数">按行数</span></button>
                 <button id="files-annotate" class="ghost mini" title="用 fast 模型为文件生成一句话用途标注(增量,只标新增或已变化的文件)" data-i18n-title="用 fast 模型为文件生成一句话用途标注(增量,只标新增或已变化的文件)"><span data-i18n-key="标注">标注</span></button>
+                <button id="files-new" class="icon-btn" title="新建文件(相对项目根的路径)" data-i18n-title="新建文件(相对项目根的路径)" aria-label="新建文件" data-i18n-aria-label="新建文件">＋</button>
                 <button id="files-refresh" class="icon-btn" title="重新扫描" data-i18n-title="重新扫描" aria-label="重新扫描文件树" data-i18n-aria-label="重新扫描文件树">⟳</button>
               </span>
             </div>
             <div id="files-tree" role="tree" aria-label="项目文件树" data-i18n-aria-label="项目文件树"></div>
           </div>
           <div id="files-main">
+            <!-- UI2-0926 #6 文件编辑:头部 = 未保存标记 · 路径 · 编码/换行 · 同步提示 · [放弃修改][保存];
+                 下面依次是只读原因条、冲突横幅(比较 / 用磁盘版本 / 覆盖磁盘版本)、比较视图的说明条。 -->
             <div id="files-preview-head" class="hidden">
+              <span id="files-dirty" class="files-dirty hidden" role="status"><span class="files-dirty-dot" aria-hidden="true"></span><span data-i18n-key="未保存">未保存</span></span>
               <span id="files-preview-path"></span>
               <span id="files-preview-meta" class="dim"></span>
+              <span id="files-sync" class="files-sync dim" role="status"></span>
+              <span class="files-head-actions">
+                <button id="files-discard" type="button" class="ghost mini hidden" data-i18n-key="放弃修改">放弃修改</button>
+                <button id="files-save" type="button" class="primary mini" disabled aria-keyshortcuts="Control+S" title="保存(Ctrl+S)" data-i18n-title="保存(Ctrl+S)"><span data-i18n-key="保存">保存</span></button>
+              </span>
+            </div>
+            <div id="files-readonly" class="files-readonly hidden" role="note">
+              <span id="files-readonly-text"></span>
+              <button id="files-readonly-goto" type="button" class="ghost mini hidden" data-view="documents"></button>
+            </div>
+            <div id="files-conflict" class="files-conflict hidden" role="alert">
+              <span id="files-conflict-text"></span>
+              <span class="files-conflict-actions">
+                <button id="files-compare" type="button" class="ghost mini" aria-pressed="false" data-i18n-key="比较">比较</button>
+                <button id="files-use-disk" type="button" class="ghost mini"></button>
+                <button id="files-overwrite" type="button" class="ghost mini danger" title="用编辑器里的内容覆盖磁盘;被覆盖的磁盘版本先留证到 .kanzei/quarantine" data-i18n-title="用编辑器里的内容覆盖磁盘;被覆盖的磁盘版本先留证到 .kanzei/quarantine"></button>
+              </span>
+            </div>
+            <div id="files-compare-head" class="files-compare-head hidden">
+              <span data-i18n-key="对照:红色行只在磁盘版本里,绿色行只在你的修改里;你这一侧可以继续编辑">对照:红色行只在磁盘版本里,绿色行只在你的修改里;你这一侧可以继续编辑</span>
+              <button id="files-compare-close" type="button" class="ghost mini" data-i18n-key="关闭比较">关闭比较</button>
             </div>
             <div id="files-editor"></div>
+            <div id="files-diff" class="hidden"></div>
             <div id="files-placeholder" class="dim" data-i18n-key="选择左侧文件查看内容 · 目录行显示聚合度量 · 「标注」用 fast 模型生成用途说明">选择左侧文件查看内容 · 目录行显示聚合度量 · 「标注」用 fast 模型生成用途说明</div>
           </div>
         </div>
@@ -820,14 +851,22 @@
       <div id="view-arch" class="view">
         <div id="arch-scroll">
           <h1 data-i18n-key="架构浏览">架构浏览</h1>
-          <p class="dim" data-i18n-key="设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。">设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。</p>
+          <p class="dim" data-i18n-key="上方是架构图:第一张 crate 依赖图由 Cargo 清单实时生成,其余是 docs/architecture/ 下的手写图,点节点打开实现或文档。下方左侧是 docs/design 文档树(按索引状态分层),右侧是架构索引原文。">上方是架构图:第一张 crate 依赖图由 Cargo 清单实时生成,其余是 docs/architecture/ 下的手写图,点节点打开实现或文档。下方左侧是 docs/design 文档树(按索引状态分层),右侧是架构索引原文。</p>
           <div class="arch-quick-actions">
             <button id="arch-goto-memory" class="ghost" title="跳转到记忆页维护记忆条目(编辑/整理/重心设置走既有 memory 命令)" data-i18n-title="跳转到记忆页维护记忆条目(编辑/整理/重心设置走既有 memory 命令)"><span data-i18n-key="记忆管理">记忆管理</span></button>
           </div>
+          <section id="arch-diagram-card" aria-label="架构图" data-i18n-aria-label="架构图">
+            <div id="arch-diagram-head">
+              <div id="arch-diagram-tabs" role="tablist" aria-label="选择架构图" data-i18n-aria-label="选择架构图"></div>
+              <div id="arch-diagram-tools"></div>
+            </div>
+            <div id="arch-diagram-canvas" role="tabpanel"></div>
+            <div id="arch-diagram-foot"></div>
+            <div id="arch-diagram-issues" class="hidden" aria-label="图检查提示" data-i18n-aria-label="图检查提示"></div>
+          </section>
           <div id="arch-layout">
             <div id="arch-tree-wrap">
               <div id="arch-summary" class="dim"></div>
-              <div id="arch-graph" class="arch-graph" aria-label="架构图" data-i18n-aria-label="架构图"></div>
               <div id="arch-tree" role="tree" aria-label="设计文档树" data-i18n-aria-label="设计文档树" data-i18n-raw></div>
             </div>
             <div id="arch-index">
@@ -1369,6 +1408,32 @@
     </div>
   </dialog>
 
+  <!-- UI2-0926 #13 新建项目:名称 / 位置(可浏览)/ 初始化 Git(默认勾选)/ 一句话描述(创建后放进输入框当草稿,不自动发送)。
+       09-sessions.js openNewProjectDialog → projects_create。 -->
+  <dialog id="new-project-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="new-project-title">
+    <div id="new-project-dialog">
+      <div class="confirm-title" id="new-project-title" data-i18n-key="新建项目">新建项目</div>
+      <label class="np-field" for="new-project-name"><span data-i18n-key="项目名称">项目名称</span></label>
+      <input id="new-project-name" type="text" autocomplete="off" spellcheck="false" />
+      <label class="np-field" for="new-project-parent"><span data-i18n-key="位置">位置</span></label>
+      <div class="np-row">
+        <input id="new-project-parent" type="text" autocomplete="off" spellcheck="false" />
+        <button type="button" id="new-project-browse" class="ghost" data-i18n-key="浏览…">浏览…</button>
+      </div>
+      <div id="new-project-preview" class="np-preview" data-i18n-raw></div>
+      <label class="np-check"><input id="new-project-git" type="checkbox" checked /><span data-i18n-key="初始化 Git 仓库">初始化 Git 仓库</span></label>
+      <div class="np-hint" data-i18n-key="启用并行线、提交与改动统计;本机配置了 Git 身份时会顺手做一次首提交">启用并行线、提交与改动统计;本机配置了 Git 身份时会顺手做一次首提交</div>
+      <label class="np-field" for="new-project-desc"><span data-i18n-key="一句话描述(可选)">一句话描述(可选)</span></label>
+      <textarea id="new-project-desc" rows="2" placeholder="例如:手机上用的 Markdown 上下文库" data-i18n-placeholder="例如:手机上用的 Markdown 上下文库"></textarea>
+      <div class="np-hint" data-i18n-key="创建后放进输入框当第一条消息的草稿,不会自动发送">创建后放进输入框当第一条消息的草稿,不会自动发送</div>
+      <div id="new-project-error" class="np-error hidden" role="alert" data-i18n-raw></div>
+      <div class="confirm-buttons">
+        <button type="button" id="new-project-cancel" data-i18n-key="取消">取消</button>
+        <button type="button" id="new-project-create" class="primary" data-i18n-key="创建项目">创建项目</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="confirm-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="confirm-title" data-kz-frame="confirm" data-kz-frame-move=":scope" data-kz-frame-persist="no">
     <div id="confirm-dialog">
       <div class="confirm-title" id="confirm-title" data-i18n-raw></div>
@@ -1402,6 +1467,7 @@
   <script type="module" src="03-shell.js"></script>
   <script type="module" src="03-layout.js"></script>
   <script type="module" src="03-workspaces.js"></script>
+  <script type="module" src="04-diagram.js"></script>
   <script type="module" src="04-markdown.js"></script>
   <!-- 分区脚本:工具行与结构化渲染 -->
   <script type="module" src="04-structured-parse.js"></script>
@@ -1429,6 +1495,7 @@
   <script type="module" src="14-docs-actions.js"></script>
   <script type="module" src="15-views-misc.js"></script>
   <script type="module" src="16-settings.js"></script>
+  <script type="module" src="17-files-editor.js"></script>
   <script type="module" src="17-files.js"></script>
   <script type="module" src="19-arch.js"></script>
   <script type="module" src="20-lines.js"></script>

@@ -158,6 +158,16 @@ if ($policy.run_frontend) {
 } else {
     Write-Host "==> skip ui_runtime: no frontend paths in verify range" -ForegroundColor DarkGray
 }
+# UI2-0926 #7:架构图门禁(docs/design/architecture_diagrams.md §8)。无头 Edge 真渲染 docs 下全部 mermaid 与
+# crate 图 golden,查解析、点击映射、重叠、溢出、字号、对比度、安全;改前端、docs 下的 markdown、crate 图生成器
+# 或它的 golden 都会触发(verify-policy.mjs 的 isDiagramPath)。
+if ($policy.run_diagram) {
+    Step-With-Timing "ui_diagram" "ui_diagram (架构图:无头 Edge 真渲染 docs 下的 mermaid)" {
+        node "$root\scripts\ui-diagram-smoke.mjs"
+    }
+} else {
+    Write-Host "==> skip ui_diagram: no diagram/frontend paths in verify range" -ForegroundColor DarkGray
+}
 if ($policy.run_rust) {
     Step-With-Timing "test" "test" {
         cargo test --workspace --manifest-path "$root\Cargo.toml"

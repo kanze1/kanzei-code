@@ -403,6 +403,8 @@ export function installSplit(pane, { id, side = "right", min, max, key, title, a
   if (titleKey) handle.dataset.i18nTitle = titleKey;
   if (ariaLabel) handle.setAttribute("aria-label", ariaLabel);
   if (ariaKey) handle.dataset.i18nAriaLabel = ariaKey;
+  // 读屏要知道这条分隔条调的是哪一栏(WAI-ARIA separator:aria-controls 指向被调尺寸的窗格)。
+  if (pane.id) handle.setAttribute("aria-controls", pane.id);
   pane.appendChild(handle);
   const sync = () => {
     const r = pane.getBoundingClientRect();

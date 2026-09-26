@@ -13,6 +13,8 @@
 
 // ── 分区:记忆图谱 ──
 import { MEMORY_GRAPH_FIXTURE, memoryEntriesFor, memoryEntryFor } from "./memory-graph-fixture.mjs";
+// ── 分区:架构图 ──
+import { archSnapshot } from "./arch-fixture.mjs";
 
 export const PROJECT = "C:/Users/kanzei/Documents/kanzei code";
 export const PROJECT_B = "C:/Users/kanzei/Documents/持续学习";
@@ -487,6 +489,114 @@ function asks(ids = IDS) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// ── 分区:文件编辑 ── UI2-0926 #6:文件页的内存磁盘。形状对照 crates/kanzei-app/src/files_edit.rs(file_preview /
+// file_stat / file_write)与 scripts/ipc-contract.json;指纹只求稳定可区分(真机是 FNV-1a)。托管文档只读,CRLF 文件保持 CRLF。
+const PREVIEW_REGISTRY_RS = [
+  "//! 工具注册表:按档位收集工具,生成常驻 schema 账单(R-364 B1)。",
+  "",
+  "use std::collections::BTreeMap;",
+  "use std::sync::Arc;",
+  "",
+  "use kanzei_harness::{Tool, ToolCtx};",
+  "",
+  "/// 常驻工具名单:每个都要有保留理由,其余按需加载(tool_search)。",
+  "pub const RESIDENT: &[&str] = &[",
+  "    \"read\", \"edit\", \"write\", \"bash\", \"grep\", \"glob\", \"work\", \"req\",",
+  "];",
+  "",
+  "pub struct Registry {",
+  "    tools: BTreeMap<&'static str, Arc<dyn Tool>>,",
+  "}",
+  "",
+  "impl Registry {",
+  "    pub fn new() -> Self {",
+  "        Self { tools: BTreeMap::new() }",
+  "    }",
+  "",
+  "    /// 注册一个工具;同名后者覆盖前者(档位组件按顺序叠加)。",
+  "    pub fn add(&mut self, tool: Arc<dyn Tool>) {",
+  "        self.tools.insert(tool.name(), tool);",
+  "    }",
+  "",
+  "    /// schema 字符账单:description + parameters 的字符数,按工具列出。",
+  "    pub fn schema_bill(&self) -> Vec<(&'static str, usize, usize)> {",
+  "        self.tools",
+  "            .values()",
+  "            .map(|tool| {",
+  "                let schema = tool.input_schema().to_string();",
+  "                (tool.name(), tool.description().chars().count(), schema.chars().count())",
+  "            })",
+  "            .collect()",
+  "    }",
+  "",
+  "    pub fn resident(&self, ctx: &ToolCtx) -> impl Iterator<Item = &Arc<dyn Tool>> {",
+  "        let _ = ctx;",
+  "        self.tools.values().filter(|tool| RESIDENT.contains(&tool.name()))",
+  "    }",
+  "}",
+  "",
+].join("\r\n");
+const PREVIEW_REQUIREMENTS_MD = [
+  "# Requirements",
+  "",
+  "## R-364 工具延迟加载:常驻层约 20 个工具,其余经 tool_search 按需加载 [doing]",
+  "- 优先级: P1",
+  "- 复杂度: 大",
+  "- 批次: 0/4",
+  "- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.2。",
+  "",
+  "## R-366 回退:每条用户消息一个检查点 [doing]",
+  "- 优先级: P1",
+  "- 批次: 1/4",
+  "",
+].join("\n");
+const PREVIEW_FILES_DOC_MD = "# 文件页编辑\n\n- 身份: live_design\n- 一句话: 文件浏览带编辑、可拖拽伸缩。\n";
+function previewFileDisk() {
+  let clock = 1790389800000;
+  const disk = new Map();
+  const put = (path, text, { bom = false, note = null } = {}) => disk.set(path, { text, bom, note, mtime: (clock += 1000) });
+  put("crates/kanzei-tools/src/registry.rs", PREVIEW_REGISTRY_RS, { note: "工具注册与 schema 账单" });
+  put("crates/kanzei-tools/src/edit.rs", "//! edit 工具:精确字符串替换。\n\npub struct EditTool;\n", { note: "精确替换编辑" });
+  put("crates/kanzei-app/src/files_edit.rs", "//! 文件页编辑:路径解析、只读策略、BOM/换行、file_stat/file_write。\n", { note: "文件页写通道" });
+  put("crates/kanzei-app/ui/17-files-editor.js", "// 文件页编辑:保存、冲突、轮询、草稿。\nexport const FILES_WATCH_MS = 2000;\n", { note: "文件页编辑器" });
+  put("docs/design/files_editor.md", PREVIEW_FILES_DOC_MD, { bom: true });
+  put(".kanzei/project/requirements.md", PREVIEW_REQUIREMENTS_MD, { note: "需求清单(托管)" });
+  put(".kanzei/kanzei.toml", "[models]\nprimary = \"codex:gpt-5.6-luna\"\n");
+  put("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n");
+  return { disk, tick: () => (clock += 1000) };
+}
+function previewFingerprint(file) {
+  let h = 0xcbf29ce4;
+  for (const ch of `${file.bom ? "\uFEFF" : ""}${file.text}`) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193) >>> 0;
+  return `fnv-${h.toString(16).padStart(16, "0")}`;
+}
+function previewReadonly(path) {
+  if (/(^|\/)\.git(\/|$)/i.test(path)) return "git";
+  if (/^\.kanzei\/(project|memory)(\/|$)/i.test(path)) return "managed";
+  return null;
+}
+function previewFilesSnapshot(disk) {
+  const files = [...disk.entries()].map(([path, file]) => {
+    const lines = file.text.split(/\r\n|\n/).length - (file.text.endsWith("\n") ? 1 : 0);
+    const md = /\.md$/i.test(path);
+    return { path, size: file.text.length + (file.bom ? 3 : 0), lines: md ? null : lines, chars: md ? file.text.length : null, oversized: false, note: file.note };
+  });
+  files.push({ path: "crates/kanzei-app/ui/09-sessions.js", size: 48120, lines: 1140, oversized: true, note: "线路与会话" });
+  const dirs = { "": { files: 0, size: 0, lines: 0 } };
+  for (const file of files) {
+    const parts = file.path.split("/");
+    for (let i = 0; i < parts.length; i += 1) {
+      const key = parts.slice(0, i).join("/");
+      dirs[key] ??= { files: 0, size: 0, lines: 0 };
+      dirs[key].files += 1;
+      dirs[key].size += file.size;
+      dirs[key].lines += file.lines ?? 0;
+    }
+  }
+  return { files, dirs, dirNotes: { crates: "Rust workspace", "crates/kanzei-tools": "内置工具" }, annotated: 5, annotatable: 9, unannotated: 4, reused: 0 };
+}
+// ── 分区:文件编辑(完) ──
+
 export function createFixtures({ scene = "chat", theme = "dark", params = {} } = {}) {
   const now = Date.now();
   const running = scene === "chat" || scene === "agents";
@@ -496,8 +606,11 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     uiPrefs: {
       theme, work_priority: {}, auto_max: null, continue_prompt: null, process_auto_state: {},
       workspace_state: {}, memory_view: null,
+      // ── 分区:架构图 ── 场景参数 tab=<标签 key>、full=1 落到 ui_layout.arch(架构页读它选标签与依赖范围)。
+      ...(params.tab || params.full ? { ui_layout: { arch: { ...(params.tab ? { diagram: params.tab } : {}), ...(params.full === "1" ? { deps_full: true } : {}) } } } : {}),
     },
     docs: buildDocsSnapshot(),
+    fileDisk: previewFileDisk(), // ── 分区:文件编辑 ──
     processes: [
       {
         id: IDS.mainProcess, origin_project: PROJECT, project_dir: PROJECT, worktree_path: null, branch: "release/2026-09-26-ui",
@@ -891,15 +1004,39 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
         },
       ],
     },
-    files_snapshot: {
-      files: [
-        { path: "crates/kanzei-tools/src/registry.rs", size: 18432, lines: 402, oversized: false, note: "工具注册与 schema 账单" },
-        { path: "crates/kanzei-app/ui/09-sessions.js", size: 48120, lines: 1140, oversized: true, note: "线路与会话" },
-      ],
-      dirs: { "": { files: 2, size: 66552, lines: 1542 }, crates: { files: 2, size: 66552, lines: 1542 } },
-      dirNotes: { crates: "Rust workspace" },
-      unannotated: 0,
+    // ── 分区:文件编辑 ── 内存磁盘(previewFileDisk):场景 files 经 state.fileDisk 模拟「代理改了磁盘」。
+    files_snapshot: () => previewFilesSnapshot(state.fileDisk.disk),
+    file_preview: ({ path } = {}) => {
+      const file = state.fileDisk.disk.get(path);
+      if (!file) throw `无法打开 ${path}: 文件不存在`;
+      const crlf = (file.text.match(/\r\n/g) ?? []).length;
+      const total = (file.text.match(/\r\n|\r|\n/g) ?? []).length;
+      return {
+        content: file.text, binary: false, truncated: false, size: file.text.length + (file.bom ? 3 : 0), hash: previewFingerprint(file),
+        bom: file.bom, eol: total && crlf * 2 > total ? "crlf" : "lf", mixedEol: crlf > 0 && crlf < total, encoding: "utf-8",
+        mtimeMs: file.mtime, readonly: previewReadonly(path),
+      };
     },
+    file_stat: ({ path } = {}) => {
+      const file = state.fileDisk.disk.get(path);
+      return file ? { exists: true, size: file.text.length + (file.bom ? 3 : 0), mtimeMs: file.mtime } : { exists: false, size: 0, mtimeMs: null };
+    },
+    file_write: ({ path, content, expectedHash, bom, evidence } = {}) => {
+      const code = previewReadonly(path);
+      if (code) throw `READONLY:${code}`;
+      const disk = state.fileDisk.disk;
+      const file = disk.get(path);
+      if (file) {
+        const current = previewFingerprint(file);
+        if (expectedHash !== current) return { status: "conflict", hash: current, size: file.text.length, mtimeMs: file.mtime, exists: true, evidence: null };
+      } else if (expectedHash != null) {
+        return { status: "conflict", hash: null, size: 0, mtimeMs: null, exists: false, evidence: null };
+      }
+      const next = { text: String(content ?? ""), bom: Boolean(bom), note: file?.note ?? null, mtime: state.fileDisk.tick() };
+      disk.set(path, next);
+      return { status: "saved", hash: previewFingerprint(next), size: next.text.length, mtimeMs: next.mtime, exists: true, evidence: evidence && file ? `.kanzei/quarantine/files-overwrite-${next.mtime}/${path}` : null };
+    },
+    // ── 分区:文件编辑(完) ──
     architecture_snapshot: {
       index_path: `${PROJECT}/.kanzei/project/architecture/README.md`,
       index: "# 架构索引\n\n- [`memory_control_plane.md`](../../../docs/design/memory_control_plane.md):记忆控制平面基线。\n",
@@ -914,6 +1051,8 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     // ── 分区:记忆图谱 ── 真实记忆子集(memory-graph-fixture.mjs);memory / memory-graph 场景读它。
     memory_entries: (args) => memoryEntriesFor(args?.scope ?? "project"),
     memory_graph: () => MEMORY_GRAPH_FIXTURE,
+    // ── 分区:架构图 ──
+    architecture_snapshot: () => archSnapshot(params),
     memory_entry_get: (args) => {
       const entry = memoryEntryFor(args?.scope, args?.id);
       if (!entry) throw `记忆 ${args?.id} 不存在(活动与归档里都没有)`;

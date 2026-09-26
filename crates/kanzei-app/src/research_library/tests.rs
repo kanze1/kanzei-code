@@ -20,7 +20,8 @@ async fn standalone_topic_owns_storage_and_restores_its_session_without_a_projec
     assert!(entry.linked_projects.is_empty());
     assert!(!home.join("app.json").exists());
     let root = Path::new(&entry.storage_root);
-    assert!(root.starts_with(home.canonicalize().unwrap()));
+    // UI2-0926 #13:存储根是 path_form::canonical 形态(不带 `\\?\` 前缀)。
+    assert!(root.starts_with(kanzei_tools::path_form::canonical(&home).unwrap()));
     assert!(root.join(".kanzei/research/agentmem/topic.json").is_file());
     let state = crate::AppState::default();
     let process = crate::processes::lifecycle::create_process_with_tracker(
@@ -142,5 +143,69 @@ fn concurrent_creates_keep_both_entries_and_corrupt_registry_is_not_overwritten(
         std::fs::read_to_string(home.join("research-library.json")).unwrap(),
         "broken"
     );
+    std::fs::remove_dir_all(home).unwrap();
+}
+
+// ── 分区:工作目录管理(UI2-0926 #13 复核)──
+
+/// 登记表里存的是升级前 `\?\C:\…` 形态:第一次进研究空间不能把每个课题以新编号再登记一遍。
+/// 迁移后一个课题一条、编号不变、存储根与关联项目是 simplify 形态;dev 构建期间已经多出来的
+/// 重复登记合并进编号最小的那条。
+#[cfg(windows)]
+#[test]
+fn verbatim_登记表迁移后不重复登记_编号不变() {
+    let home = temporary_root("verbatim");
+    let project = home.join("proj");
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+    crate::research_topics::create_topic(&project, "agentmem", "Agent memory").unwrap();
+    let plain = kanzei_tools::path_form::canonical(&project)
+        .unwrap()
+        .display()
+        .to_string();
+    let verbatim = format!(r"\\?\{plain}");
+    let entry = |id: &str, topic: Option<&str>, kind: &str, root: &str| {
+        serde_json::json!({
+            "id": id, "topic": topic, "label": "x", "kind": kind,
+            "storage_root": root, "linked_projects": [root], "standalone": false,
+        })
+    };
+    let seeded = serde_json::json!({
+        "next_id": 3,
+        "entries": [
+            entry("topic-00000001", Some("agentmem"), "research", &verbatim),
+            entry("topic-00000002", None, "unbound", &verbatim),
+            // dev 构建跑过一次留下的重复登记(simplify 形态、大写盘符之外完全同一目录)。
+            entry("topic-00000003", Some("agentmem"), "research", &plain.to_uppercase()),
+        ],
+    });
+    std::fs::write(
+        home.join("research-library.json"),
+        serde_json::to_string(&seeded).unwrap(),
+    )
+    .unwrap();
+    let projects = vec![verbatim.clone()];
+    let first = list_library(&home, &projects).unwrap();
+    let second = list_library(&home, &projects).unwrap();
+    assert_eq!(first, second, "第二次进入不得再变");
+    let entries = second["entries"].as_array().unwrap();
+    let ids: Vec<&str> = entries.iter().map(|e| e["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["topic-00000001", "topic-00000002"], "{entries:#?}");
+    for entry in entries {
+        let root = entry["storage_root"].as_str().unwrap();
+        assert!(!root.starts_with(r"\\?\"), "{root}");
+        for linked in entry["linked_projects"].as_array().unwrap() {
+            assert!(!linked.as_str().unwrap().starts_with(r"\\?\"), "{linked}");
+        }
+    }
+    assert_eq!(
+        entries[0]["linked_projects"].as_array().unwrap().len(),
+        1,
+        "同一目录的两种写法只算一个关联项目"
+    );
+    let stored: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join("research-library.json")).unwrap())
+            .unwrap();
+    assert_eq!(stored["next_id"], 3, "迁移不消耗新编号");
+    assert!(!stored.to_string().contains(r"\\\\?\\"), "{stored}");
     std::fs::remove_dir_all(home).unwrap();
 }

@@ -94,6 +94,202 @@ fn which(name: &str) -> Option<PathBuf> {
     None
 }
 
+// ---------- UI2-0926 #13:新鲜 PATH 与工具链查找 ----------
+//
+// kzapp 进程的 PATH 在启动那一刻就定死了:用户(或 agent 经授权)在会话中途装好 flutter/node,
+// 注册表里的用户 PATH 已经更新,子进程继承的仍是旧值,于是 bash 与工具链探测都「看不见」
+// 刚装好的工具(「MD文件保存」现场:装完 flutter 还得重启应用)。这里每次按需合并注册表里的
+// 用户/系统 PATH:只追加进程 PATH 里还没有的目录,不删、不改顺序(只增不减)。
+
+/// 进程 PATH ∪ 注册表 PATH(HKCU\Environment、HKLM\…\Session Manager\Environment)里新增的目录。
+/// 非 Windows 平台就是进程 PATH。
+pub fn fresh_path() -> std::ffi::OsString {
+    let process = std::env::var_os("PATH").unwrap_or_default();
+    #[cfg(windows)]
+    {
+        let registry = [registry_path(true), registry_path(false)];
+        merge_path_lists(&process, registry.iter().flatten().map(String::as_str))
+    }
+    #[cfg(not(windows))]
+    {
+        process
+    }
+}
+
+/// 把 `extra` 里的 `;` 分隔列表追加到 `base` 末尾,已有目录(忽略大小写与尾分隔符)跳过。
+pub fn merge_path_lists<'a>(
+    base: &std::ffi::OsStr,
+    extra: impl IntoIterator<Item = &'a str>,
+) -> std::ffi::OsString {
+    let key = |dir: &str| {
+        dir.trim()
+            .trim_end_matches(['\\', '/'])
+            .replace('/', "\\")
+            .to_lowercase()
+    };
+    let mut dirs: Vec<PathBuf> = std::env::split_paths(base).collect();
+    let mut seen: std::collections::HashSet<String> =
+        dirs.iter().map(|dir| key(&dir.to_string_lossy())).collect();
+    for list in extra {
+        for dir in list.split(';') {
+            let trimmed = dir.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if seen.insert(key(trimmed)) {
+                dirs.push(PathBuf::from(trimmed));
+            }
+        }
+    }
+    std::env::join_paths(dirs).unwrap_or_else(|_| base.to_os_string())
+}
+
+/// 在给定 PATH 里找可执行文件。Windows 上按 PATHEXT 补扩展名(`flutter` → `flutter.bat`),
+/// 名字自带扩展名时也照认。
+pub fn find_executable(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
+    #[cfg(windows)]
+    let exts: Vec<String> = {
+        let raw = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        raw.split(';')
+            .map(str::trim)
+            .filter(|ext| !ext.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect()
+    };
+    for dir in std::env::split_paths(path) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        let plain = dir.join(name);
+        #[cfg(not(windows))]
+        if plain.is_file() {
+            return Some(plain);
+        }
+        #[cfg(windows)]
+        {
+            let has_ext = std::path::Path::new(name)
+                .extension()
+                .map(|ext| format!(".{}", ext.to_string_lossy().to_ascii_lowercase()))
+                .is_some_and(|ext| exts.contains(&ext));
+            if has_ext && plain.is_file() {
+                return Some(plain);
+            }
+            for ext in &exts {
+                let candidate = dir.join(format!("{name}{ext}"));
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 读注册表里的 PATH(展开 `%VAR%`)。读不到返回 None,绝不报错——这是锦上添花的信息。
+#[cfg(windows)]
+fn registry_path(user: bool) -> Option<String> {
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn RegGetValueW(
+            hkey: isize,
+            sub_key: *const u16,
+            value: *const u16,
+            flags: u32,
+            kind: *mut u32,
+            data: *mut u16,
+            bytes: *mut u32,
+        ) -> i32;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn ExpandEnvironmentStringsW(src: *const u16, dst: *mut u16, size: u32) -> u32;
+    }
+    const HKEY_CURRENT_USER: isize = -2_147_483_647; // 0x80000001 符号扩展
+    const HKEY_LOCAL_MACHINE: isize = -2_147_483_646; // 0x80000002
+    const RRF_RT_REG_SZ: u32 = 0x0000_0002;
+    const RRF_RT_REG_EXPAND_SZ: u32 = 0x0000_0004;
+    const RRF_NOEXPAND: u32 = 0x1000_0000;
+    let wide = |text: &str| -> Vec<u16> { text.encode_utf16().chain(std::iter::once(0)).collect() };
+    let (hkey, sub_key) = if user {
+        (HKEY_CURRENT_USER, wide("Environment"))
+    } else {
+        (
+            HKEY_LOCAL_MACHINE,
+            wide(r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+        )
+    };
+    let value = wide("Path");
+    let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND;
+    let mut bytes: u32 = 0;
+    // SAFETY: 第一次只问长度(data 为空);第二次缓冲按返回的字节数分配,调用方持有全部指针。
+    unsafe {
+        let status = RegGetValueW(
+            hkey,
+            sub_key.as_ptr(),
+            value.as_ptr(),
+            flags,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut bytes,
+        );
+        if status != 0 || bytes == 0 {
+            return None;
+        }
+        let mut buffer: Vec<u16> = vec![0; (bytes as usize).div_ceil(2) + 1];
+        let mut size = (buffer.len() * 2) as u32;
+        let status = RegGetValueW(
+            hkey,
+            sub_key.as_ptr(),
+            value.as_ptr(),
+            flags,
+            std::ptr::null_mut(),
+            buffer.as_mut_ptr(),
+            &mut size,
+        );
+        if status != 0 {
+            return None;
+        }
+        let raw_len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+        let raw: Vec<u16> = buffer[..raw_len]
+            .iter()
+            .copied()
+            .chain(std::iter::once(0))
+            .collect();
+        let needed = ExpandEnvironmentStringsW(raw.as_ptr(), std::ptr::null_mut(), 0);
+        if needed == 0 {
+            return Some(String::from_utf16_lossy(&raw[..raw_len]));
+        }
+        let mut expanded: Vec<u16> = vec![0; needed as usize + 1];
+        let written =
+            ExpandEnvironmentStringsW(raw.as_ptr(), expanded.as_mut_ptr(), expanded.len() as u32);
+        if written == 0 {
+            return Some(String::from_utf16_lossy(&raw[..raw_len]));
+        }
+        let len = expanded
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(expanded.len());
+        Some(String::from_utf16_lossy(&expanded[..len]))
+    }
+}
+
+/// UI2-0926 #13:bash 子进程的输出编码。pwsh/powershell 默认按控制台代码页(中文系统是 GBK)
+/// 往重定向的 stdout 写字节,bash 工具按 UTF-8 解码,中文路径就被实打实地弄成了 U+FFFD
+/// (「MD文件保存」现场 Get-Location 输出里 6 个替换字符);pwsh 7 还会把 ANSI 着色码写进
+/// 输出。这里在命令前加一段前导:输出编码设为无 BOM 的 UTF-8、关掉着色;cmd 用 chcp 65001。
+/// 前导失败(没有控制台等)不影响命令本身。
+pub fn command_with_utf8_output(shell_name: &str, command: &str) -> String {
+    match shell_name {
+        "pwsh" | "powershell" => format!(
+            "try{{[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)}}catch{{}};\
+             $OutputEncoding=[System.Text.UTF8Encoding]::new($false);\
+             if($PSStyle){{$PSStyle.OutputRendering='PlainText'}};\n{command}"
+        ),
+        "cmd" => format!("chcp 65001>nul & {command}"),
+        _ => command.to_string(),
+    }
+}
+
 /// 目标 pid 此刻是否还活着。
 ///
 /// D-262 的验收判据是「进程树真的消失」而不是「击杀函数返回了」,这就需要一个能对

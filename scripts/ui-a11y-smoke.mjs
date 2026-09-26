@@ -452,6 +452,8 @@ assert.match(js, /t\("实际差异"\)/);
     "--tf-progress", // 04-structured.js renderTrackerFields 写批次进度条宽度
     // ── 分区:后台任务侧栏与可调框 ── 00-frame.js 按用户拖出的几何写可调框的摆放变量(surface.css §10)。
     "--kz-frame-l", "--kz-frame-r", "--kz-frame-t", "--kz-frame-b", "--kz-frame-w", "--kz-frame-h",
+    // ── 分区:架构图 ── 04-diagram.js 按「适应」后的图高写画布高度(clamp 在脚本里算)。
+    "--kz-diagram-h",
   ]);
   const definedTokens = new Set([...allClean.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
   const undefinedTokens = [...new Set([...allClean.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]
@@ -1164,5 +1166,55 @@ function memoryGraphTokenViolations(styleText) {
   const layerButtons = [...html.matchAll(/<button[^>]*data-layer="[a-z]+"[^>]*>/g)].map((m) => m[0]);
   assert.ok(layerButtons.length === 5 && layerButtons.every((b) => /aria-pressed="(?:true|false)"/.test(b)), "图层按钮(5 个)都要有 aria-pressed");
 }
+
+// ── 分区:文件编辑 ──
+// UI2-0926 #6(docs/design/files_editor.md):文件页编辑的无障碍与颜色语义静态判据。
+// ① 状态与告警:冲突横幅 role=alert(保存被拒要被读出来)、未保存 / 同步提示 role=status、只读原因 role=note;
+//    保存键 aria-keyshortcuts=Control+S;比较是开关(aria-pressed);新建是带读屏名的图标键。
+// ② 分隔条复用 00-frame installSplit(不另写拖拽):文件树那条的读屏名是「调整文件树宽度」,分隔条 aria-controls 指向窗格;
+//    树行 aria-selected 标当前文件。
+// ③ 颜色:未保存 = 琥珀(--warn,与设置页 .settings-dirty 同色,ui_color_semantics §3「配置未保存」),冲突横幅 = --alert-soft 浅底。
+// 判据自带反例自测(每条喂一条必须命中的样本)。
+function filesEditorA11yViolations(htmlText, cssText, sourceText) {
+  const out = [];
+  const tag = (id) => htmlText.match(new RegExp(`<[a-z]+[^>]*\\bid="${id}"[^>]*>`))?.[0] ?? "";
+  const clean = cssText.replace(/\/\*[\s\S]*?\*\//g, "");
+  const bodyOf = (selector) => [...clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((m) => m[1].split(/,(?![^(]*\))/).map((b) => b.trim().replace(/\s+/g, " ")).includes(selector))
+    .map((m) => m[2]).join(";");
+  if (!/role="alert"/.test(tag("files-conflict"))) out.push("①a #files-conflict 必须 role=alert(保存被拒/磁盘版本变了要被读屏读出来)");
+  if (!/role="status"/.test(tag("files-dirty"))) out.push("①b #files-dirty(未保存)必须 role=status");
+  if (!/role="status"/.test(tag("files-sync"))) out.push("①c #files-sync(已从磁盘更新)必须 role=status");
+  if (!/role="note"/.test(tag("files-readonly"))) out.push("①d #files-readonly(只读原因)必须 role=note");
+  if (!/aria-keyshortcuts="Control\+S"/.test(tag("files-save"))) out.push("①e #files-save 必须 aria-keyshortcuts=\"Control+S\"");
+  if (!/aria-pressed="(?:true|false)"/.test(tag("files-compare"))) out.push("①f #files-compare 是开关,必须带 aria-pressed");
+  if (!/aria-label="新建文件"/.test(tag("files-new")) || !/data-i18n-aria-label="新建文件"/.test(tag("files-new"))) out.push("①g #files-new 图标键必须有可译的读屏名「新建文件」");
+  if (!/installSplit\(\$\("files-side"\), \{[\s\S]{0,600}?ariaKey: "调整文件树宽度"/.test(sourceText)) out.push("②a 文件树分隔条必须经 installSplit 安装,读屏名「调整文件树宽度」(词条键 ariaKey,切语言重译)");
+  if (!/if \(pane\.id\) handle\.setAttribute\("aria-controls", pane\.id\);/.test(sourceText)) out.push("②b installSplit 的分隔条必须 aria-controls 指向被调尺寸的窗格");
+  if (!/row\.setAttribute\("aria-selected", active \? "true" : "false"\)/.test(sourceText)) out.push("②c 文件树行必须用 aria-selected 标出当前文件");
+  if (!/background:\s*var\(--warn\)/.test(bodyOf(".files-dirty-dot"))) out.push("③a .files-dirty-dot(未保存点)必须是 var(--warn)(琥珀 = 需要注意/配置未保存)");
+  if (!/color:\s*var\(--warn\)/.test(bodyOf(".files-dirty"))) out.push("③b .files-dirty(未保存)字色必须是 var(--warn)");
+  if (!/background:\s*var\(--alert-soft\)/.test(bodyOf(".files-conflict"))) out.push("③c .files-conflict 必须是 --alert-soft 浅底(与 .settings-effective 同款,不画彩色左竖条)");
+  if (/border-left:/.test(bodyOf(".files-conflict"))) out.push("③d .files-conflict 不得画彩色左竖条(ui_color_semantics §4)");
+  return out;
+}
+{
+  const violations = filesEditorA11yViolations(html, css, js);
+  assert.deepEqual(violations, [], `文件编辑无障碍/配色判据未通过:\n${violations.join("\n")}`);
+  const counterexamples = [
+    ["①a", html.replace(/(id="files-conflict"[^>]*) role="alert"/, "$1"), css, js],
+    ["①e", html.replace(/ aria-keyshortcuts="Control\+S"/, ""), css, js],
+    ["②b", html, css, js.replace(/if \(pane\.id\) handle\.setAttribute\("aria-controls", pane\.id\);/, "")],
+    ["②c", html, css, js.replace(/row\.setAttribute\("aria-selected", active \? "true" : "false"\)/, "")],
+    ["③a", html, css.replace(/(\.files-dirty-dot \{[^}]*background:\s*)var\(--warn\)/, "$1var(--ok)"), js],
+    ["③d", html, css.replace(/(\.files-conflict \{)/, "$1 border-left: 3px solid var(--warn);"), js],
+  ];
+  const silent = counterexamples
+    .map(([id, h, c, j], index) => [`${id}#${index}`, filesEditorA11yViolations(h, c, j).some((v) => v.startsWith(id))])
+    .filter(([, caught]) => !caught)
+    .map(([label]) => label);
+  assert.deepEqual(silent, [], `文件编辑判据没能命中自己的反例(恒绿):${silent.join(", ")}`);
+}
+// ── 分区:文件编辑(完) ──
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);

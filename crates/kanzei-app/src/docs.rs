@@ -155,6 +155,24 @@ pub async fn git_status(
         None => project_root,
     };
     tokio::task::spawn_blocking(move || {
+        // UI2-0926 #13:先看代码树自己是不是仓库。不是的话给出「无 Git / 位于上级仓库」的事实,
+        // 绝不把上级仓库的分支与改动当成本项目的显示出来(原先 rev-parse 在上级仓库里照样成功)。
+        // 只读 .git/HEAD/refs(git_state_of),不跑整套项目探测——bash 每跑完一条就作废探测缓存。
+        match kanzei_tools::project_state::git_state_of(&root) {
+            kanzei_tools::project_state::GitState::Repo { .. } => {}
+            kanzei_tools::project_state::GitState::None => {
+                return json!({
+                    "repo": "none", "branch": null, "changes": 0, "last": null,
+                    "additions": 0, "deletions": 0, "files": [],
+                });
+            }
+            kanzei_tools::project_state::GitState::Parent { toplevel } => {
+                return json!({
+                    "repo": "parent", "toplevel": toplevel, "branch": null, "changes": 0,
+                    "last": null, "additions": 0, "deletions": 0, "files": [],
+                });
+            }
+        }
         let run = |args: &[&str]| -> Option<String> {
             let out = hidden_command("git")
                 .args(args)
@@ -203,6 +221,7 @@ pub async fn git_status(
             );
         }
         json!({
+            "repo": "own",
             "branch": branch, "changes": changes, "last": last,
             "additions": additions, "deletions": deletions, "files": files,
         })
@@ -894,10 +913,32 @@ pub fn architecture_snapshot(project_dir: String) -> Result<serde_json::Value, S
         "index_path": index_path.display().to_string(),
         "index": index,
         "design_docs": docs,
-        // R-188:代码生成的架构图数据——workspace crate 依赖边 + 设计文档节点。
-        // 纯代码从 Cargo.toml 抽取,非文生图/预置图;前端据此渲染 mermaid。
+        // UI2-0926 #7(docs/design/architecture_diagrams.md):docs/architecture/*.md 的手写图
+        // (标题/说明/首个 mermaid 围栏/起始行号/lint 问题)与 crate 依赖图(每次从 Cargo 清单
+        // 生成,直接依赖与全部依赖两份 mermaid 源码)。前端 19-arch.js 用 04-diagram.js 渲染。
+        "diagrams": kanzei_tools::arch_diagram::scan_diagrams(&root),
+        "crates": crates_snapshot(&root),
+        // 兼容字段(R-188 的旧依赖边二元组):新前端不再读,保留一个版本后删除。
         "graph": build_workspace_graph(&root),
     }))
+}
+
+/// crate 依赖图快照:成员(包名/描述/分组/入口)、边(normal/dev/build + 是否可由传递得到)、
+/// 两份 mermaid 源码。不是 Cargo 工作区时为 null(前端只显示手写图)。
+fn crates_snapshot(root: &Path) -> serde_json::Value {
+    use kanzei_tools::arch_diagram::{crates_mermaid, workspace_crates};
+    let Some(ws) = workspace_crates(root) else {
+        return serde_json::Value::Null;
+    };
+    json!({
+        "members": ws.members,
+        "edges": ws.edges,
+        "mermaid": {
+            "reduced": crates_mermaid(&ws, false),
+            "full": crates_mermaid(&ws, true),
+        },
+        "hidden_transitive": ws.hidden_transitive(),
+    })
 }
 
 /// R-188 验收①:从 workspace 真实数据源(Cargo.toml members + 各 crate 的内部依赖)

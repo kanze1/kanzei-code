@@ -19,6 +19,8 @@ mod conversation;
 mod docs;
 mod experience_events;
 mod fast_model;
+/// UI2-0926 #6:文件页编辑(路径解析、只读策略、BOM/换行、file_stat/file_write)。
+mod files_edit;
 mod files_view;
 mod harness_ext;
 /// D-381:Rust↔JS 的 IPC 形状契约(见模块头:93 个命令里 30+ 个手搓 JSON 过 IPC,
@@ -179,10 +181,15 @@ fn main() {
             ui_probe_result,
             files_view::files_snapshot,
             files_view::file_preview,
+            files_edit::file_stat,
+            files_edit::file_write,
             files_view::files_annotate,
             projects::projects_get,
             projects::projects_add,
             projects::projects_init,
+            projects::projects_create,
+            projects::project_git_init,
+            projects::project_facts,
             projects::projects_rename,
             projects::projects_pick,
             projects::projects_remove,

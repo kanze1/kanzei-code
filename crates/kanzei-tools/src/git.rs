@@ -1935,7 +1935,7 @@ prunable gitdir file points to non-existent location
     ///
     /// 口径:verify.ps1 的 `Step-With-Timing "<key>"` 键集合必须等于固定清单
     /// {fmt, clippy, test, ui_runtime, ui_lint, ipc_event_contract,
-    /// parallel_lines_regression, ui_a11y, ui_i18n, ui_markdown, ui_connectivity,
+    /// parallel_lines_regression, ui_a11y, ui_i18n, ui_markdown, ui_connectivity, ui_diagram,
     /// metrics_build, crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
     /// smoke 脚本名);smoke 脚本与 npm ci 在两侧同现同隐。
     /// ui_syntax 已删(P0-2):ESLint 解析错误覆盖 node --check 的全部检查面。
@@ -1979,6 +1979,7 @@ prunable gitdir file points to non-existent location
             "ui_i18n",
             "ui_markdown",
             "ui_connectivity",
+            "ui_diagram",
             "metrics_build",
             "crate_sync",
             "ps1_bom",
@@ -1997,7 +1998,7 @@ prunable gitdir file points to non-existent location
         );
 
         // ② 每个键在 ci.yml 有对应标记(命令文本或 smoke 脚本名)。
-        let markers: [(&str, &str); 14] = [
+        let markers: [(&str, &str); 15] = [
             ("metrics_build", "cargo build -q -p kanzei"),
             ("fmt", "cargo fmt --all -- --check"),
             ("clippy", "cargo clippy --workspace --all-targets"),
@@ -2010,6 +2011,7 @@ prunable gitdir file points to non-existent location
             ("ui_i18n", "ui-i18n-smoke.mjs"),
             ("ui_markdown", "ui-markdown-smoke.mjs"),
             ("ui_connectivity", "ui-connectivity.mjs"),
+            ("ui_diagram", "ui-diagram-smoke.mjs"),
             ("crate_sync", "check-readme-crates.mjs"),
             ("ps1_bom", "check-ps1-bom.mjs"),
         ];
@@ -2027,6 +2029,7 @@ prunable gitdir file points to non-existent location
             "ui-i18n-smoke.mjs",
             "ui-markdown-smoke.mjs",
             "ui-connectivity.mjs",
+            "ui-diagram-smoke.mjs",
         ] {
             assert_eq!(
                 ci.contains(script),
@@ -2075,10 +2078,10 @@ prunable gitdir file points to non-existent location
              测试代码的 lint 覆盖只由 CI 承担"
         );
 
-        // ⑥ 注入 dev 提示词的通用规范(DEFAULT_CONVENTIONS §1.4)必须如实描述上面的分工:
+        // ⑥ 注入 dev 提示词的 Cargo 工程规范(CARGO_CONVENTIONS §1.4a)必须如实描述上面的分工:
         //    旧文案把提交门禁写成 all-targets clippy,弱模型据此误判「提交成功=测试代码
         //    lint 已过」(D-758 叙述失实)。门禁再改,规范文本也跟着变红。
-        let conventions = kanzei_harness::DEFAULT_CONVENTIONS;
+        let conventions = kanzei_harness::CARGO_CONVENTIONS;
         assert!(
             conventions.contains("cargo clippy --workspace -- -D warnings"),
             "规范 §1.4 必须写出提交门禁的真实 clippy 命令(不含测试目标)"
@@ -2819,5 +2822,94 @@ prunable gitdir file points to non-existent location
             "纯前端改动不得被 source_test_gate 拦"
         );
         std::fs::remove_dir_all(root).ok();
+    }
+
+    // ── 分区:工作目录管理(UI2-0926 #13)──
+
+    /// 项目目录只是落在上级仓库里:status 是一条事实(点名上级仓库),stage/commit 拒绝,
+    /// 绝不对上级仓库动手。
+    #[tokio::test]
+    async fn 上级仓库内的项目_只读给事实_写操作拒绝且点名上级仓库() {
+        let parent = temp_repo("parent-repo");
+        commit_file(&parent, "outer.txt", "x\n", "上级仓库的提交");
+        let project = parent.join("child-project");
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        std::fs::write(project.join("a.txt"), "a\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: project.clone(),
+            project_root: project.clone(),
+            ..Default::default()
+        };
+        let status = GitTool
+            .execute(serde_json::json!({"action": "status"}), &ctx)
+            .await;
+        assert!(
+            !status.is_error,
+            "status 应是事实而非失败行: {}",
+            status.content
+        );
+        assert!(status.content.contains("上级仓库"), "{}", status.content);
+        assert!(status.content.contains("action=init"), "{}", status.content);
+        let staged = GitTool
+            .execute(
+                serde_json::json!({"action": "stage", "files": ["a.txt"]}),
+                &ctx,
+            )
+            .await;
+        assert!(staged.is_error, "{}", staged.content);
+        assert!(staged.content.contains("已拒绝操作"), "{}", staged.content);
+        let parent_status = run_git(&parent, &["status", "--porcelain"]).await.unwrap();
+        assert!(
+            !parent_status.lines().any(|line| line.starts_with('A')),
+            "上级仓库的暂存区不得被动: {parent_status}"
+        );
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[tokio::test]
+    async fn 非仓库_status_是事实_init_建独立仓库() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-git-norepo-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let status = GitTool
+            .execute(serde_json::json!({"action": "status"}), &ctx)
+            .await;
+        // 临时目录的上级恰好是仓库时(某些 CI)会走上级仓库分支,两种事实都不是失败行。
+        assert!(!status.is_error, "{}", status.content);
+        assert!(status.content.starts_with("not a"), "{}", status.content);
+        let commit = GitTool
+            .execute(
+                serde_json::json!({"action": "commit", "message": "x", "expected_hash": "h"}),
+                &ctx,
+            )
+            .await;
+        assert!(commit.is_error, "{}", commit.content);
+        let init = GitTool
+            .execute(serde_json::json!({"action": "init"}), &ctx)
+            .await;
+        assert!(!init.is_error, "{}", init.content);
+        assert!(root.join(".git").is_dir());
+        assert!(root.join(".kanzei").join(".gitignore").is_file());
+        let status = GitTool
+            .execute(serde_json::json!({"action": "status"}), &ctx)
+            .await;
+        assert!(!status.is_error, "{}", status.content);
+        assert!(!status.content.starts_with("not a"), "{}", status.content);
+        let again = GitTool
+            .execute(serde_json::json!({"action": "init"}), &ctx)
+            .await;
+        assert!(again.content.contains("already"), "{}", again.content);
+        std::fs::remove_dir_all(&root).ok();
     }
 }

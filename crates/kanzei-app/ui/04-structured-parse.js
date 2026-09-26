@@ -173,6 +173,32 @@ export function looksLikeNumberedSource(line) {
   return /^(?:fn|let|const|var|pub|impl|struct|enum|use|mod|def|class|function|import|export|return|async|await|match)\b/.test(rest)
     && /[(){};=<>:[\]]/.test(rest);
 }
+/// UI2-0926 #13:表格/列表式的命令输出不是人话,末行不能拿来当 bash 摘要(截图「退出码 0 · state.db-wal」:
+/// Get-Command 表格 + Get-ChildItem 名称列表,末行是一个文件名)。判据:有表头分隔行(`---- ----`)、
+/// PowerShell Format-List 的「键 : 值」占多数、或几乎全是单 token 行(名称列表)。
+export function looksLikeTableOutput(lines) {
+  const rows = (lines ?? []).map((line) => String(line ?? "").trim()).filter(Boolean);
+  if (rows.length < 2) return false;
+  if (rows.some((row) => /^-{3,}(?:\s+-{3,})*$/.test(row))) return true;
+  const keyValue = rows.filter((row) => /^[\w .()-]{1,40}?\s+:(?:\s|$)/.test(row)).length;
+  if (keyValue * 2 > rows.length) return true;
+  // 名称列表:几乎全是单个 token 的行(中日韩文字行不算——中文句子本来就不含空格)。至少 3 行才下这个判断。
+  if (rows.length < 3) return false;
+  const singleToken = rows.filter((row) => !/\s/.test(row) && !/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(row)).length;
+  return singleToken * 5 >= rows.length * 4;
+}
+/// UI2-0926 #13:能当 bash 摘要的「一句话」——中日韩字符 ≥4,或空格分词后 ≥3 个 token 且其中 ≥2 个是字母词;
+/// 单个路径/文件名(`state.db-wal`、`src/main.rs`)不算。isProse 本身不改(别的工具的摘要还用它)。
+export function isSentence(line) {
+  const text = String(line ?? "").trim();
+  if (!text) return false;
+  if (/^[\w.\-\\/:~@+]+$/.test(text)) return false;
+  const cjk = (text.match(/[㐀-鿿぀-ヿ가-힯]/g) ?? []).length;
+  if (cjk >= 4) return true;
+  const tokens = text.split(/\s+/);
+  const words = tokens.filter((token) => /^[A-Za-z][A-Za-z'’-]*[,.;:!?]?$/.test(token));
+  return tokens.length >= 3 && words.length >= 2;
+}
 /// 像一句人话:≥2 个中日韩字符或 ≥3 个英文单词,且符号占比 ≤20%。
 export function isProse(line) {
   const text = String(line ?? "").trim();

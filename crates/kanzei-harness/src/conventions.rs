@@ -7,3 +7,7 @@
 
 /// 通用开发规范全文。
 pub const DEFAULT_CONVENTIONS: &str = include_str!("../assets/default_conventions.md");
+
+/// Rust/Cargo 工程专属条款(提交前 cargo 门禁、clippy 分工、CI 触发方式):只在项目根有
+/// `Cargo.toml` 时拼在通用规范之后注入——非 Cargo 项目(如 Flutter、网页)不该收到 cargo 规则。
+pub const CARGO_CONVENTIONS: &str = include_str!("../assets/cargo_conventions.md");

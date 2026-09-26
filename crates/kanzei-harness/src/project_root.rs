@@ -99,17 +99,13 @@ pub fn resolve_project_root(explicit: Option<&Path>, cwd: &Path) -> anyhow::Resu
 /// 的那一层:路径不存在或读不到时 `canonicalize` 给不出身份,这里的结论就是最后的兜底。
 pub(crate) fn dir_key(path: &Path) -> String {
     let raw = path.to_string_lossy();
-    let stripped = raw
-        .strip_prefix(r"\\?\UNC\")
-        .map(|rest| format!(r"\\{rest}"))
-        .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
-        .unwrap_or_else(|| raw.to_string());
+    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
     // 分隔符与大小写只在 Windows 上等价;Linux 下 `C:` 与 `c:` 是两个目录,
     // 归一过头会把不同路径判成同一个。
     #[cfg(windows)]
     let unified = stripped.replace('/', "\\").to_lowercase();
     #[cfg(not(windows))]
-    let unified = stripped;
+    let unified = stripped.into_owned();
     let key = normalize_resource(&unified);
     key.trim_end_matches(['\\', '/']).to_string()
 }

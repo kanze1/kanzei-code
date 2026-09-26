@@ -85,12 +85,15 @@ import {
   clearGoalInput,
   continuePrompt,
   currentAutoRounds,
+  focusPendingQuestion,
+  markAwaitingUser,
   noActionRounds,
   setNoActionRounds,
   releaseAutoContinue,
   renderAutoStatus,
   setAutoRounds,
   setAutoStopReason,
+  takeAwaitingUser,
 } from "./08-auto.js";
 import { applyAutoStopToSession, armAutoContinue, autoFailStopReasonText } from "./08-compose-runtime.js";
 import {
@@ -105,7 +108,7 @@ import { refreshDocs, refreshDocsSoon } from "./14-docs-actions.js";
 import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-misc.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";
 // UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
-import { renderMarkdown } from "./04-markdown.js";
+import { renderMarkdownInto } from "./04-markdown.js";
 import { fillTemplate, permissionResourceText } from "./04-structured-parse.js";
 import { pathChip, renderPermissionResource, richText } from "./04-structured.js";
 import { toolResultSummary } from "./05-tool-summary.js";
@@ -208,7 +211,7 @@ export function addCompactionEntry(summary) {
   // UI-0926 #10:纪要本身是 markdown(标题/列表),按 markdown 渲染而不是原文堆字。
   const detail = document.createElement("div");
   detail.className = "bg-detail md sv-md";
-  detail.innerHTML = renderMarkdown(String(summary ?? ""));
+  renderMarkdownInto(detail, String(summary ?? ""));
   el.append(title, detail);
   title.addEventListener("click", () => {
     detail.classList.toggle("hidden");
@@ -233,7 +236,7 @@ export function addSummaryEntry(summary, path = "") {
   title.textContent = t("对话小总结 · 点击查看");
   const detail = document.createElement("div");
   detail.className = "bg-detail md sv-md";
-  detail.innerHTML = renderMarkdown(String(summary ?? ""));
+  renderMarkdownInto(detail, String(summary ?? ""));
   if (path) {
     const archived = document.createElement("div");
     archived.className = "sv-archived";
@@ -661,6 +664,9 @@ defer(() => {
     // NoContinue→不动作(用户拒绝/未开启)。前端不再做任何机械判定
     // (空转画像/全部阻塞/无动作 NUDGE 全部在后端,见 harness auto_run.rs)。
     const action = p.autoAction || { type: "NoContinue" };
+    // UI2-0926 #13 复核:「在等你回答」只对紧接着的那一条手动消息有效。本轮以别的结果收口(续跑、别的停机、
+    // 未开鞭挞)说明等待已经过去,标记必须清掉——否则之后真正的「手动接管」不再关鞭挞。
+    if (!(action.type === "Stop" && action.reason === "AwaitingUser")) takeAwaitingUser(p.sessionId || activeSessionId);
     if (action.type === "Continue") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
@@ -742,6 +748,16 @@ defer(() => {
         addMessage("notice", `${t("目标推不动")}:${t("连续多轮无实质进展,目标已清除,请改写条件后重试")} (${action.max ?? ""})`);
         log(t("目标连续推不动,已停止并清除"));
         setAutoStopReason(t("目标推不动,已清除"));
+      } else if (reason === "AwaitingUser") {
+        // UI2-0926 #13:模型在等你回答(question 挂起,或最后一句明显在问你)。鞭挞保持勾选、不挂续跑;
+        // 你回复的那一条不会被当成「手动接管」关掉鞭挞,回答那一轮结束后引擎照常续跑。
+        markAwaitingUser(p.sessionId || activeSessionId);
+        const msg = t("模型在等你回答(回复后自动继续)");
+        // 输入区的停机原因槽只放短句(长句会把工具行挤成两行);完整说法进对话 notice。
+        setAutoStopReason(t("模型在等你回答"), "waiting");
+        addMessage("notice", `⏸ ${msg}`);
+        log(`${t("鞭挞暂停")}:${t("模型在等你回答")}`);
+        if (!p.sessionId || p.sessionId === activeSessionId) focusPendingQuestion();
       } else if (reason === "ModelDeclaredDone") {
         // R-322(#7):模型自己交还了控制权。措辞必须与其余原因区分——这不是引擎
         // 判定它该停,是它说做完了。写成「引擎停止了它」会让人误以为被打断。
@@ -943,7 +959,7 @@ export function pumpAsk() {
     // UI-0926 #10:问题正文按 markdown 渲染(列表/代码/路径链接);注解里的编号/路径可点。
     const questionHost = $("ask-question");
     questionHost.classList.add("md", "sv-md");
-    questionHost.innerHTML = renderMarkdown(String(askActive.question ?? ""));
+    renderMarkdownInto(questionHost, String(askActive.question ?? ""));
     const multi = isMultiSelectAsk(askActive);
     askSelectedOptions.length = 0;
     const options = $("ask-options");

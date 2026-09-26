@@ -177,6 +177,32 @@
     "warnings": "array",
     "work_units": "array"
   },
+  "file_preview": {
+    "binary": "bool",
+    "bom": "bool",
+    "content": "string",
+    "encoding": "string",
+    "eol": "string",
+    "hash": "string",
+    "mixedEol": "bool",
+    "mtimeMs": "number",
+    "readonly": "nullable",
+    "size": "number",
+    "truncated": "bool"
+  },
+  "file_stat": {
+    "exists": "bool",
+    "mtimeMs": "number",
+    "size": "number"
+  },
+  "file_write": {
+    "evidence": "string",
+    "exists": "bool",
+    "hash": "string",
+    "mtimeMs": "number",
+    "size": "number",
+    "status": "string"
+  },
   "files_snapshot": {
     "annotatable": "number",
     "annotated": "number",

@@ -68,10 +68,7 @@ pub fn worktree_command(root: &Path, args: &[&str]) -> Result<std::process::Outp
 /// 一次都成功不了(R-177 验收①)。反过来 `current_dir` 不必剥,保持原样即可。
 pub fn git_arg_path(path: &Path) -> String {
     let raw = path.display().to_string();
-    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
-        return format!(r"\\{rest}");
-    }
-    raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
+    kanzei_base::path_form::strip_verbatim(&raw).into_owned()
 }
 
 /// 一树一线查重用的路径键。
@@ -83,11 +80,8 @@ pub fn git_arg_path(path: &Path) -> String {
 /// 两条路径经过同一套归一后仍然可比——这是查重能对上的原因。
 pub fn worktree_key(path: &Path) -> String {
     let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let raw = resolved.display().to_string().replace('\\', "/");
-    let stripped = match raw.strip_prefix("//?/UNC/") {
-        Some(rest) => format!("//{rest}"),
-        None => raw.strip_prefix("//?/").unwrap_or(&raw).to_string(),
-    };
+    let raw = resolved.display().to_string();
+    let stripped = kanzei_base::path_form::strip_verbatim(&raw).replace('\\', "/");
     let trimmed = stripped.trim_end_matches('/');
     if cfg!(windows) {
         trimmed.to_lowercase()

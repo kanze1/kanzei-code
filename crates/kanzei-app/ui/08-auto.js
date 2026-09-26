@@ -1,6 +1,6 @@
 import { defer } from "./01-core.js";
 import { motionCount } from "./01-core.js";
-import { $, invoke, uiPrefsLoad } from "./01-core.js";
+import { $, activePane, invoke, messages, uiPrefsLoad } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -14,7 +14,7 @@ import {
   toast,
   transitionSession,
 } from "./03-shell.js";
-import { __kzProcessAutoState, normalizeAutoState, processAutoState } from "./08-compose-runtime.js";
+import { __kzProcessAutoState, normalizeAutoState, processAutoState, processProfileUi } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
 import { refreshProcesses } from "./09-sessions.js";
 
@@ -89,6 +89,42 @@ export function selectedAgent() {
   return { profile: "dev", agent: "dev-pair" };
 }
 
+// UI2-0926 #13:鞭挞续跑轮按**这条线实际的档位**发。原先 sendAutoToSession 把 dev 两档一律写成
+// agent "dev",于是勾了鞭挞的结伴线,续跑轮其实按自主档跑(Nudge、核查轮都开),与界面上「结伴档轻控制
+// 续跑,引擎不追加推进指令」的承诺相反。活动线读模式芯片(就是用户眼前那个值);后台线读本线记住的档位,
+// 回落规则与 applyProfileValue 相同(主线沿用全局偏好,并行线默认结伴)。
+export function lineAgent(item) {
+  if (!item) return { profile: "dev", agent: "dev-pair" };
+  if (item.profile === "research") return { profile: "research", agent: "research" };
+  if (item.id === activeProcessId) return selectedAgent();
+  const remembered = processProfileUi.get(item.id);
+  const globalChoice = localStorage.getItem("kz-profile");
+  const mode = remembered && remembered !== "research"
+    ? remembered
+    : String(item.id ?? "").startsWith("d|") && ["dev-pair", "dev-auto"].includes(globalChoice) ? globalChoice : "dev-pair";
+  return { profile: "dev", agent: mode === "dev-auto" ? "dev" : "dev-pair" };
+}
+
+// UI2-0926 #13:模型在等你回答(引擎 Stop/AwaitingUser)。按会话记下:这时用户手动发出的消息就是回答,
+// 不按「收到手动输入」关掉鞭挞——回答那一轮结束后引擎照常续跑。
+export const awaitingUserSessions = new Set();
+export function markAwaitingUser(sessionId) {
+  if (sessionId) awaitingUserSessions.add(sessionId);
+}
+export function takeAwaitingUser(sessionId) {
+  return Boolean(sessionId) && awaitingUserSessions.delete(sessionId);
+}
+// 滚到那个待回答的问题:question 工具挂起的问题块(带「回复此问题」按钮),否则最后一条助手回复。
+export function focusPendingQuestion() {
+  const scope = activePane || messages;
+  if (!scope?.querySelectorAll) return null;
+  const replies = [...scope.querySelectorAll(".pending-question-reply")];
+  const target = replies.at(-1)?.closest?.(".tool-msg") || replies.at(-1)
+    || [...scope.querySelectorAll(".msg.assistant")].at(-1);
+  target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  return target ?? null;
+}
+
 // R-322:门禁强度的**唯一真源是后端** `intensity_for_agent`(crates/kanzei-app/src/
 // auto_run.rs)。这里只是回显,判据必须与那边逐条一致——两处漂开就会出现「界面说
 // 结伴、引擎按自主跑」,而这正是本条目要消除的那类不可见错位。改一边必须改另一边。
@@ -117,8 +153,14 @@ export function renderHarnessIntensity() {
     desc.textContent = t("有人监督:引擎不推进、不插核查轮、不标冗余;模型说完成即停");
   }
 }
+// UI2-0926 #13:取活顺序的存储键只有一种写法。原先自主轮读 `kz-work-priority:${item.origin_project}`
+// (进程记录里的 `\\?\C:\…`),写入键却是 currentProject(`C:\…`),于是自主轮永远读不到用户选的顺序。
+export function workPriorityKeyFor(project) {
+  const key = String(project || "default").replace(/^\\\\\?\\(?!UNC\\)/, "");
+  return `kz-work-priority:${key}`;
+}
 export function workPriorityStorageKey() {
-  return `kz-work-priority:${currentProject || "default"}`;
+  return workPriorityKeyFor(currentProject);
 }
 export function selectedWorkPriority() {
   return $("work-priority-select").value === "requirement-first" ? "requirement-first" : "defect-first";
@@ -201,7 +243,8 @@ export function renderAutoRun() {
   el.textContent = reason ? localizeDynamic(reason) : "";
   el.classList.toggle("hidden", !reason);
   el.classList.toggle("ok", Boolean(reason) && !autoHint && auto_stop_kind === "completed");
-  $("auto-resume").classList.toggle("hidden", !(autoStopReason && !autoHint && ["off", "idle"].includes(phase)));
+  // 「模型在等你回答」时不给「继续鞭挞」:鞭挞本来就开着,该做的是回答;点它等于绕过问题接着跑(复核 minor)。
+  $("auto-resume").classList.toggle("hidden", !(autoStopReason && !autoHint && ["off", "idle"].includes(phase) && auto_stop_kind !== "waiting"));
   const pause = $("auto-pause");
   if (pause) pause.setAttribute("aria-pressed", String(autoPaused));
 }

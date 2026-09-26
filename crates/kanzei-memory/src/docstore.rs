@@ -159,6 +159,25 @@ mod tests {
     #[test]
     fn 声明批数上限十批_超出拒绝并给出出路() {
         assert_eq!(
+            split_batch_value("批次: 0/5; B1 核心模型、快速笔记"),
+            Some((0, 5, Some("B1 核心模型、快速笔记".to_string())))
+        );
+        assert_eq!(split_batch_value(" 3 ／ 7 "), Some((3, 7, None)));
+        assert_eq!(
+            split_batch_value("2/4(B3 渲染)"),
+            Some((2, 4, Some("B3 渲染".to_string())))
+        );
+        assert_eq!(split_batch_value("batches: 1/2"), Some((1, 2, None)));
+        assert_eq!(split_batch_value("B1 0/5"), None, "开头不是 k/N 的仍拒收");
+        assert_eq!(split_batch_value("3/11/2"), None);
+        assert_eq!(
+            check_declared_batches("批次: 0/5; B1 核心模型", None),
+            Ok((0, 5)),
+            "带附注的写法应放行"
+        );
+        let refused = check_declared_batches("乱写", None).unwrap_err();
+        assert!(refused.contains("批次计划"), "{refused}");
+        assert_eq!(
             check_declared_batches("0/10", None),
             Ok((0, 10)),
             "10 是合法上界"

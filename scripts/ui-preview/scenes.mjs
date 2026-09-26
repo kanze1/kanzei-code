@@ -244,6 +244,24 @@ const SCENES = {
     await ctx.sleep(200);
   },
 
+  // ── 分区:架构图 ──
+  /// 架构页:上方图卡(crate 依赖图 / 手写图标签页)、下方文档树与索引。等 mermaid 懒加载并渲染完。
+  /// 参数:tab=<标签 key>(crates / 01_runtime_loop / 02_harness_registries …)、full=1(全部依赖)、
+  /// broken=1(追加一张写坏的图,配 tab=03_broken_example 看错误卡)、hover=<节点 id>(看邻域高亮)。
+  async arch(ctx) {
+    await openView(ctx, "arch");
+    const figure = () => $("#arch-diagram-canvas .kz-diagram");
+    await waitFor(() => figure() && figure().dataset.state !== "loading", 20000);
+    const hover = ctx.params.get("hover");
+    if (hover) {
+      const node = [...(figure()?.querySelectorAll("g.node") ?? [])].find((g) => new RegExp(`-flowchart-${hover}-\\d+$`).test(g.id));
+      node?.dispatchEvent(new PointerEvent("pointerenter"));
+    }
+    document.activeElement?.blur?.();
+    await ctx.sleep(160);
+    await ctx.settle();
+  },
+
   async empty(ctx) {
     // 走真实的「新对话」入口:它同时是缺陷 #2(旧内容残留)的复现路径。
     $("#new-chat")?.click();
@@ -377,6 +395,188 @@ Object.assign(SCENES, {
     document.activeElement?.blur?.();
   },
 });
+
+// ── 分区:工作目录管理 ──
+// UI2-0926 #13:新建项目对话框、非 Git 项目的事实横幅与「无 Git」芯片、上级仓库横幅、
+// 「模型在等你回答」(question 挂起 + Stop/AwaitingUser)与截图同款 bash 摘要(输出 N 行)。
+// 只走应用入口:setCommand 换后端事实、调导出的刷新函数、回放 kz:* 事件。
+const WORKDIR_ROOT = "C:\\Users\\kanzei\\Desktop\\MD文件保存";
+async function useWorkdirFacts(ctx, git, layout = "greenfield") {
+  const preview = window.__kzPreview;
+  preview.setCommand("project_facts", () => ({
+    root: WORKDIR_ROOT, layout, files: layout === "greenfield" ? 0 : 7, git, stacks: [],
+    planned: [{ stack: "flutter", from: "R-001" }],
+    toolchains: [{ name: "git", found: "C:\\Program Files\\Git\\cmd\\git.exe" }, { name: "flutter", found: null }, { name: "dart", found: null }],
+    installers: ["winget"],
+  }));
+  preview.setCommand("git_status", () => git.state === "repo"
+    ? { repo: "own", branch: git.branch ?? "main", changes: 0, last: null, additions: 0, deletions: 0, files: [] }
+    : { repo: git.state === "parent" ? "parent" : "none", toplevel: git.toplevel ?? null, branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] });
+  const sessions = await import("/09-sessions.js");
+  const views = await import("/15-views-misc.js");
+  await sessions.refreshProjectFacts();
+  await views.refreshGit();
+  await ctx.settle();
+}
+/// 模型在等你回答:bash(截图同款表格 + 名称列表)→ 散文 → question 挂起 → Stop/AwaitingUser。
+async function replayAwaitingUser(ctx) {
+  const { emit, fixtures, sleep } = ctx;
+  const sessionId = fixtures.events.meta.sessionId;
+  const whip = $("#auto-continue");
+  if (whip && !whip.checked) whip.click();
+  emit("kz:meta", fixtures.events.meta);
+  emit("kz:turn", { sessionId, step: 1, maxSteps: 0 });
+  const bashOut = "exit code: 0\n\nCommandType     Name       Version    Source\n-----------     ----       -------    ------\nApplication     git.exe    2.47.0.0   C:\\Program Files\\Git\\cmd\\git.exe\n\nC:\\Users\\kanzei\\Desktop\\MD文件保存\n.kanzei\nkanzei.toml\nstate.db\nstate.db-shm\nstate.db-wal";
+  emit("kz:tool-start", { sessionId, id: "wd-bash", name: "bash", summary: "Get-Command flutter,dart,git", input: { command: "Get-Command flutter,dart,git -ErrorAction SilentlyContinue | Format-Table; Get-ChildItem -Force -Name" } });
+  emit("kz:tool-end", { sessionId, id: "wd-bash", name: "bash", ok: true, outcome: "success", preview: bashOut.slice(0, 80), content: bashOut, contentBytes: bashOut.length, contentTruncated: false, durationMs: 1200, display: { kind: "terminal", command: "Get-Command flutter,dart,git", exitCode: 0, output: bashOut.slice(14), full: bashOut.slice(14) } });
+  await sleep(30);
+  emit("kz:text", { sessionId, text: "这是一个空项目(只有 `.kanzei`),我会直接在这个目录里搭 Flutter 工程。本机 PATH 上没有 Flutter/Dart,需要先定下怎么装。" });
+  await sleep(30);
+  const pending = { kind: "pending_question", question: "本机没有 Flutter SDK,怎么处理?", options: [
+    { label: "授权我做用户级安装", note: "官方 zip 解压到 %LOCALAPPDATA%\\flutter,不需要管理员" },
+    { label: "我自己装好后告诉你" },
+    { label: "换技术栈" },
+  ] };
+  emit("kz:tool-start", { sessionId, id: "wd-q", name: "question", summary: "question", input: { question: pending.question } });
+  emit("kz:tool-end", { sessionId, id: "wd-q", name: "question", ok: false, outcome: "needs_confirmation", code: "QUESTION_PENDING", preview: "QUESTION_PENDING", content: JSON.stringify(pending), contentBytes: 200, contentTruncated: false, durationMs: 5, display: pending });
+  emit("kz:step", fixtures.events.step);
+  emit("kz:done", { sessionId, steps: 4, halted: false, history: 12, elapsedMs: 8200, input: 52000, output: 900, cacheRead: 40000, cacheWrite: 0, tools: { bash: 1, question: 1 }, autoAction: { type: "Stop", reason: "AwaitingUser" } });
+  emit("kz:idle", { sessionId, reason: "completed" });
+  await sleep(80);
+  await ctx.settle();
+}
+Object.assign(SCENES, {
+  /// 新建项目对话框(项目卡菜单「新建项目…」的真实入口)。
+  async "workdir-new"(ctx) {
+    await useWorkdirFacts(ctx, { state: "repo", branch: "main", has_commits: true }, "existing");
+    const sessions = await import("/09-sessions.js");
+    sessions.openNewProjectDialog();
+    await waitFor(() => !isHidden("#new-project-overlay"));
+    const set = (id, value) => {
+      const el = $(id);
+      if (!el) return;
+      el.value = value;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    set("#new-project-name", "MD文件保存");
+    set("#new-project-parent", "C:\\Users\\kanzei\\Desktop");
+    set("#new-project-desc", "手机上用的 Markdown 上下文库:阅读渲染清晰、顺手");
+    await ctx.sleep(80);
+    document.activeElement?.blur?.();
+  },
+  /// 非 Git 的空项目:侧栏事实横幅 [初始化 Git][不再提示] + 上下文带「无 Git」芯片 + 模型在等你回答。
+  async "workdir-nogit"(ctx) {
+    await useWorkdirFacts(ctx, { state: "none" });
+    await closeActivityPanel(ctx);
+    await replayAwaitingUser(ctx);
+    const chat = await import("/05-chat-render.js");
+    chat.scrollBottom(true);
+    await ctx.sleep(60);
+    document.activeElement?.blur?.();
+  },
+  /// 复核修复:仓库已初始化但还没有提交(新建项目时本机没配 Git 身份)→「还没有提交」横幅 [知道了];
+  /// 一条后台线停在「模型在等你回答」→ 侧栏线路行写「在等你回答」(琥珀字形)。
+  async "workdir-nocommit"(ctx) {
+    await useWorkdirFacts(ctx, { state: "repo", branch: "main", has_commits: false });
+    await closeActivityPanel(ctx);
+    const shell = await import("/03-shell.js");
+    const compose = await import("/08-compose-runtime.js");
+    const idle = shell.processItems.find((item) => item.id !== shell.activeProcessId && !item.running);
+    if (idle) compose.handleBackgroundSessionDone({ sessionId: idle.session_id, autoAction: { type: "Stop", reason: "AwaitingUser" } });
+    await ctx.sleep(80);
+    document.activeElement?.blur?.();
+  },
+  /// 位于上级仓库内:横幅点名上级仓库(需要注意,琥珀)+ 芯片菜单。
+  async "workdir-parent"(ctx) {
+    await useWorkdirFacts(ctx, { state: "parent", toplevel: "C:\\Users\\kanzei" }, "existing");
+    await closeActivityPanel(ctx);
+    const views = await import("/15-views-misc.js");
+    views.openGitChipMenu();
+    await ctx.sleep(80);
+  },
+});
+
+// ── 分区:文件编辑 ──
+// UI2-0926 #6:文件页(可编辑、可拖拽伸缩)。只走应用入口:点 rail「文件」、点树行展开/打开、在 Monaco 里打字、点保存与横幅按钮;
+// 「代理改了磁盘」= 直接改夹具的内存磁盘(真机上是另一个进程写文件)。
+// 参数 state=open|dirty|conflict|compare|readonly|blocked|new(默认 dirty),file=<相对路径>,tree=<px>(文件树宽度)。
+// blocked = 有未保存修改时保存被后端以 READONLY 拒绝(打开之后文件被转成非 UTF-8 等):仍是未保存,原因写在只读原因条。
+async function openFilesPath(ctx, path) {
+  const parts = path.split("/");
+  for (let i = 1; i < parts.length; i += 1) {
+    const dir = parts.slice(0, i).join("/");
+    const row = [...document.querySelectorAll("#files-tree .files-dir")].find((el) => el.querySelector(".files-name")?.textContent === `${parts[i - 1]}/` && el.getAttribute("aria-expanded") === "false" && Number.parseInt(el.style.paddingLeft, 10) === 8 + (i - 1) * 14);
+    if (row) row.click();
+    await waitFor(() => [...document.querySelectorAll("#files-tree .files-dir")].some((el) => el.getAttribute("aria-expanded") === "true" && el.querySelector(".files-name")?.textContent === `${parts[i - 1]}/`));
+    void dir;
+  }
+  const name = parts.at(-1);
+  const fileRow = [...document.querySelectorAll("#files-tree .files-file")].find((el) => el.querySelector(".files-name")?.textContent === name);
+  fileRow?.click();
+  await waitFor(() => document.querySelector("#files-preview-path")?.textContent === path && window.monaco?.editor?.getEditors?.()[0]?.getModel?.(), 12000);
+  await ctx.settle();
+}
+function filesMonaco() {
+  return window.monaco?.editor?.getEditors?.()[0] ?? null;
+}
+function typeInFiles(text, line = 20) {
+  const editor = filesMonaco();
+  if (!editor) return;
+  editor.setPosition({ lineNumber: line, column: editor.getModel().getLineMaxColumn(line) });
+  editor.trigger("preview", "type", { text });
+}
+Object.assign(SCENES, {
+  async files(ctx) {
+    const state = ctx.params.get("state") || "dirty";
+    await openView(ctx, "files");
+    await waitFor(() => document.querySelectorAll("#files-tree .files-row").length > 0);
+    const tree = Number(ctx.params.get("tree"));
+    if (tree > 0) document.documentElement.style.setProperty("--kz-split-files", `${tree}px`);
+    const fixtures = ctx.fixtures;
+    const path = ctx.params.get("file") || (state === "readonly" ? ".kanzei/project/requirements.md" : "crates/kanzei-tools/src/registry.rs");
+    if (state === "new") {
+      const editor = await import("/17-files-editor.js");
+      await openFilesPath(ctx, path);
+      const core = await import("/01-core.js");
+      core.setInputDialog(async () => "crates/kanzei-app/src/files_watch.rs");
+      await editor.createNewFile();
+      await waitFor(() => document.querySelector("#files-preview-path")?.textContent === "crates/kanzei-app/src/files_watch.rs", 6000);
+      await ctx.settle();
+      document.activeElement?.blur?.();
+      await ctx.sleep(200);
+      return;
+    }
+    await openFilesPath(ctx, path);
+    if (state !== "open" && state !== "readonly") {
+      typeInFiles("\r\n\r\n    /// 按档位过滤:只读档位不暴露写工具。\r\n    pub fn for_profile(&self, readonly: bool) -> usize {\r\n        self.tools.len() - usize::from(readonly)\r\n    }");
+      await ctx.sleep(80);
+    }
+    if (state === "conflict" || state === "compare") {
+      const disk = fixtures.state.fileDisk;
+      const file = disk.disk.get(path);
+      disk.disk.set(path, { ...file, text: file.text.replace("pub const RESIDENT", "/// 由 R-364 B1 账单定稿(代理刚改的)。\r\npub const RESIDENT"), mtime: disk.tick() });
+      document.querySelector("#files-save")?.click();
+      await waitFor(() => !isHidden("#files-conflict"), 4000);
+      await ctx.settle();
+    }
+    if (state === "compare") {
+      document.querySelector("#files-compare")?.click();
+      await waitFor(() => !isHidden("#files-diff"), 4000);
+      await ctx.sleep(600);
+    }
+    if (state === "blocked") {
+      // 保存被拒:打开之后磁盘上的文件被转成了 GBK(真机上后端回 READONLY:encoding)。修改仍是未保存、编辑器仍可编辑。
+      window.__kzPreview.setCommand("file_write", () => { throw "READONLY:encoding"; });
+      document.querySelector("#files-save")?.click();
+      await waitFor(() => !isHidden("#files-readonly"), 4000);
+      await ctx.settle();
+    }
+    filesMonaco()?.focus?.();
+    if (state === "readonly" || state === "open") document.activeElement?.blur?.();
+    await ctx.sleep(250);
+  },
+});
+// ── 分区:文件编辑(完) ──
 
 export const SCENE_NAMES = Object.keys(SCENES);
 

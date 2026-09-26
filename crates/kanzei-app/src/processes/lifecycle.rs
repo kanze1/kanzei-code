@@ -238,6 +238,28 @@ pub(crate) async fn create_process_with_tracker(
     if work_item_id.is_some() && worktree_name.is_none() {
         return Err("条目绑定只适用于带独立工作树的并行线".into());
     }
+    // UI2-0926 #13:工作树线需要一个**有提交的独立仓库**。原先要一路跑到 `git worktree add`
+    // 才失败(无 Git / 上级仓库 / 没有 HEAD 三种都是),报出来的是 git 的原话;这里先说清原因。
+    if worktree_name.is_some() {
+        match kanzei_tools::project_state::git_state_of(&root) {
+            kanzei_tools::project_state::GitState::Repo {
+                has_commits: true, ..
+            } => {}
+            kanzei_tools::project_state::GitState::Repo { .. } => {
+                return Err(
+                    "并行线需要仓库里至少有一次提交(工作树从 HEAD 分出);先提交一次再开线".into(),
+                )
+            }
+            kanzei_tools::project_state::GitState::None => {
+                return Err("并行线需要 Git:本项目还不是 Git 仓库,先在项目头「初始化 Git」".into())
+            }
+            kanzei_tools::project_state::GitState::Parent { toplevel } => {
+                return Err(format!(
+                    "并行线需要本项目自己的 Git 仓库:它只是位于上级仓库 {toplevel} 内,先「初始化 Git」建独立仓库"
+                ))
+            }
+        }
+    }
 
     // ① 建树只排 Git 工作树元数据闸，不排主线源码写租约。guard 持有到绑定落库结束，
     //    让「建 ref/目录 → 注册线路」在同一应用内保持原子顺序。

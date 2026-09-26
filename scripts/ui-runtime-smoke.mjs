@@ -771,6 +771,303 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*if \(\$\("memory-graph-legend"\)\?\.children\.length\) renderLegend\(\{ rebuild: true \}\);\r?\n/,
       replace: "",
     },
+    // ── 分区:工作目录管理 ──
+    // UI2-0926 #13:bash 成功兜底不再先判表格/键值输出:Format-List 的末行「Detail : waiting …」被当成人话。
+    wdBashTable: {
+      pattern: /\} else if \(!looksLikeTableOutput\(bodyLines\)\) \{/,
+      replace: "} else if (true) {",
+    },
+    // 末行不再要求是句子:单个文件名(src/main.rs、state.db-wal)又被当成摘要。
+    wdBashSentence: {
+      pattern: /if \(last && isSentence\(last\)\) return \[last\];/,
+      replace: "if (last) return [last];",
+    },
+    // 模型在等你回答时,回复不再豁免「手动接管」:一回复鞭挞就被关掉,回答那一轮之后不会自动继续。
+    wdAwaitKeep: {
+      pattern: /[ \t]*if \(takeAwaitingUser\(activeSessionId\)\) \{\r?\n[^\n]*\r?\n[^\n]*\r?\n[ \t]*return false;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
+    // Stop(AwaitingUser) 不再记「在等你」:同上,回复被当成手动接管。
+    wdAwaitMark: {
+      pattern: /[ \t]*markAwaitingUser\(p\.sessionId \|\| activeSessionId\);\r?\n/,
+      replace: "",
+    },
+    // 续跑轮退回写死 agent:结伴线的续跑轮按自主档跑(Nudge、核查轮都开)。
+    wdAutoAgent: {
+      pattern: /agent: mode\.agent,(\r?\n\s*researchTopic: research \?)/,
+      replace: 'agent: research ? "research" : "dev",$1',
+    },
+    // 续跑轮退回用进程记录里的 project_dir:\\?\ 前缀漏进系统提示/bash 工作目录,取活顺序键也对不上。
+    wdAutoProjectDir: {
+      pattern: /const projectDir = String\(item\.origin_project \|\| item\.project_dir \|\| currentProject\)\.replace\([^\n]*\);/,
+      replace: "const projectDir = item.project_dir;",
+    },
+    // 一句话描述不再进输入框:新建项目后第一条消息的草稿丢了。
+    wdNewProjectDraft: {
+      pattern: /[ \t]*promptBox\.value = result\.description;\r?\n/,
+      replace: "",
+    },
+    // 事实横幅不再给 D-170 隔离告警让位:两条叠在项目卡下面。
+    wdBannerYield: {
+      pattern: /if \(!kind \|\| dismissed \|\| sharedShown\) \{/,
+      replace: "if (!kind || dismissed) {",
+    },
+    // 建线入口不再按事实拦下:没有提交的仓库一路跑到 git worktree add 才报 git 的原话。
+    wdWorktreeGate: {
+      pattern: /[ \t]*if \(blocked\) \{\r?\n[ \t]*toast\(blocked, \{ kind: "warn" \}\);\r?\n[ \t]*return;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
+    // refreshGit 不再画「无 Git」芯片:非 Git 项目的分支与改动统计又悄悄空着。
+    wdGitChip: {
+      pattern: /[ \t]*renderGitChip\(g\);\r?\n/,
+      replace: "",
+    },
+    // target/ 冷编译文案又对所有工程说。
+    wdRustOnlyText: {
+      pattern: /const cost = facts\?\.stacks\?\.includes\("rust"\)/,
+      replace: "const cost = true",
+    },
+    // ── 复核修复(工作目录管理)──
+    // 线档位不再随合并回填:重启后(localStorage 已空)自主线的续跑轮掉回结伴档。
+    wdModeRestore: {
+      pattern: /[ \t]*restoreLineModes\(\);\r?\n/,
+      replace: "",
+    },
+    // 升级前没记档位、鞭挞开着的线不再按自主档记:自举线装新版后第一轮就掉回结伴。
+    wdModeLegacy: {
+      pattern: /entry\?\.enabled === true \? "dev-auto" : null;/,
+      replace: "null;",
+    },
+    // 存档不再带 mode:切了档位,下次启动(localStorage 已空)又回到回落档位。
+    wdModeRemember: {
+      pattern: /[ \t]*\.\.\.\(mode \? \{ mode \} : \{\}\),\r?\n/,
+      replace: "",
+    },
+    // normalizeAutoState 丢掉 mode:applyAutoUiState/applyAutoStopToSession 回写时把档位抹掉。
+    wdModeNormalize: {
+      pattern: /[ \t]*\.\.\.\(LINE_MODES\.includes\(value\?\.mode\) \? \{ mode: value\.mode \} : \{\}\),\r?\n/,
+      replace: "",
+    },
+    // 旧键(`d|\\?\…`)与新键并存时旧的赢:陈值覆盖用户升级后的设置。
+    wdKeyNewerWins: {
+      pattern: /for \(const \[key, value\] of legacy\) if \(!out\.has\(key\)\) out\.set\(key, value\);/,
+      replace: "for (const [key, value] of legacy) out.set(key, value);",
+    },
+    // 「在等你回答」时仍给「继续鞭挞」:点它等于绕过问题接着跑。
+    wdAwaitResumeHidden: {
+      pattern: / && auto_stop_kind !== "waiting"\)\)/,
+      replace: "))",
+    },
+    // 「继续鞭挞」不清等待标记:之后真正的手动接管不再关鞭挞。
+    wdAwaitResumeTake: {
+      pattern: /[ \t]*takeAwaitingUser\(activeSessionId\);\r?\n/,
+      replace: "",
+    },
+    // 手动开关鞭挞不清等待标记:同上。
+    wdAwaitToggle: {
+      pattern: /[ \t]*if \(takeAwaitingUser\(activeSessionId\) && autoStopReason === t\("模型在等你回答"\)\) setAutoStopReason\(""\);\r?\n/,
+      replace: "",
+    },
+    // 本轮以别的结果收口时不清等待标记:等待早已过去,之后的手动消息仍被当成「回答」。
+    wdAwaitExpire: {
+      pattern: /[ \t]*if \(!\(action\.type === "Stop" && action\.reason === "AwaitingUser"\)\) takeAwaitingUser\(p\.sessionId \|\| activeSessionId\);\r?\n/,
+      replace: "",
+    },
+    // 后台线同上。
+    wdBgAwaitExpire: {
+      pattern: /if \(!\(action\.type === "Stop" && action\.reason === "AwaitingUser"\) && takeAwaitingUser\(sessionId\)\) refreshParallelTaskProjection\(sessionId\);/,
+      replace: "",
+    },
+    // 后台线在等你回答时侧栏行只写「空闲」:混在空闲线里漏看。
+    wdBgWaiting: {
+      pattern: /\r?\n[ \t]*: waitingNow \? t\("在等你回答"\)/,
+      replace: "",
+    },
+    // 切到在等你回答的线,原因槽是空的(applyAutoUiState 清掉后不回填)。
+    wdSwitchWaiting: {
+      pattern: /[ \t]*if \(target\?\.session_id && awaitingUserSessions\.has\(target\.session_id\)\) setAutoStopReason\(t\("模型在等你回答"\), "waiting"\);\r?\n/,
+      replace: "",
+    },
+    // 仓库还没有提交不再单独成横幅:并行线为什么不可用只藏在建线入口的 title 里。
+    wdBannerNoCommit: {
+      pattern: /[ \t]*if \(facts\.git\?\.state === "repo" && facts\.git\?\.has_commits === false\) return "no-commit";\r?\n/,
+      replace: "",
+    },
+    // 「初始化 Git」不看后端结果:已经是仓库(created:false)也报「已初始化」。
+    wdInitToast: {
+      pattern: /if \(result\?\.git\?\.created === false\) toast\(t\("本项目已经是 Git 仓库,没有重复初始化"\)\);\r?\n[ \t]*else /,
+      replace: "",
+    },
+    // 研究空间也画「无 Git」芯片:点一下就把独立课题目录 git init 了。
+    wdGitChipResearch: {
+      pattern: /const show = active_space !== "research" && \(repo === "none" \|\| repo === "parent"\);/,
+      replace: 'const show = repo === "none" || repo === "parent";',
+    },
+
+    // ── 分区:文件编辑 ── UI2-0926 #6(17-files-editor.js / 17-files.js / 03-layout.js / 00-frame.js)。
+    // 保存必须带打开时的内容指纹做比较并交换;换成 null,后端会把代理刚改的内容直接盖掉。
+    filesSaveCas: {
+      pattern: /const expectedHash = overwrite \? \(doc\.conflict\?\.exists \? doc\.conflict\.hash : null\) : doc\.hash;/,
+      replace: "const expectedHash = null;",
+    },
+    // BOM 由后端补回:前端不传 bom,带 BOM 的文件保存一次就丢了 BOM。
+    filesBomRoundtrip: {
+      pattern: /expectedHash, bom: doc\.bom, evidence,/,
+      replace: "expectedHash, bom: false, evidence,",
+    },
+    // 保存成功时以「发起保存那一刻」的版本为干净点;改成返回时的版本,保存期间继续输入的内容被算成已保存。
+    filesTypingDuringSave: {
+      pattern: /doc\.savedVersion = version;/,
+      replace: "doc.savedVersion = model.getAlternativeVersionId();",
+    },
+    // 冲突横幅的显隐。删了它,保存被拒时用户什么都看不到。
+    filesConflictBanner: {
+      pattern: /show\(\$\("files-conflict"\), Boolean\(conflict\)\);/,
+      replace: 'show($("files-conflict"), false);',
+    },
+    // 覆盖磁盘版本前留证。关掉它,误覆盖代理的改动就找不回来。
+    filesOverwriteEvidence: {
+      pattern: /const evidence = Boolean\(overwrite && doc\.conflict\?\.exists\);/,
+      replace: "const evidence = false;",
+    },
+    // 切文件前的未保存确认。删了它,切换文件会静默丢掉修改。
+    filesDirtyGuard: {
+      pattern: /if \(isFilesDirty\(\)\) \{(\r?\n\s*\/\/ 保存已被后端拒过)/,
+      replace: "if (false) {$1",
+    },
+    // 只读原因落到 Monaco 的 readOnly。写死 false,托管文档又能在编辑器里改(保存虽被后端拒,体验是假的)。
+    filesReadonlyApply: {
+      pattern: /readOnly: Boolean\(doc\.readonly\),/,
+      replace: "readOnly: false,",
+    },
+    // 外部改动遇到未保存修改时进冲突。删了这支,轮询会用磁盘版本盖掉用户正在改的内容。
+    filesExternalReloadDirty: {
+      pattern: /if \(isFilesDirty\(\)\) \{(\r?\n\s*)doc\.conflict = \{ hash: typeof preview\.hash/,
+      replace: "if (false) {$1doc.conflict = { hash: typeof preview.hash",
+    },
+    // 切项目时暂存草稿。删了它,切项目会静默丢掉未保存的修改。
+    filesDraftStash: {
+      pattern: /[ \t]*stashFilesDraft\(\);\r?\n/,
+      replace: "",
+    },
+    // 打开文件后定位到行(「打开文件并定位」)。删了它,链接只打开不定位(原先的缺陷)。
+    filesLineReveal: {
+      pattern: /\n  if \(line > 0\) revealLine\(line\);\r?\n  return true;\r?\n\}/,
+      replace: "\n  return true;\n}",
+    },
+    // 文件页 Ctrl/Cmd+S 兜底。去掉按键判断里的放行,焦点在树/头部时 Ctrl+S 落到 WebView2 默认行为。
+    filesCtrlSFallback: {
+      pattern: /if \(String\(event\.key\)\.toLowerCase\(\) !== "s"\) return;/,
+      replace: "return;",
+    },
+    // 文件树分隔条上限按文件页宽度给编辑器留 360px;退回窗口一半,侧栏开着时编辑器会被挤没。
+    filesSplitMax: {
+      pattern: /return layoutWidth > 0 \? Math\.max\(200, Math\.round\(layoutWidth - 360\)\) : Math\.round\(window\.innerWidth \* 0\.5\);/,
+      replace: "return Math.round(window.innerWidth * 0.5);",
+    },
+    // 分隔条 aria-controls 指向被调尺寸的窗格。
+    filesSplitControls: {
+      pattern: /[ \t]*if \(pane\.id\) handle\.setAttribute\("aria-controls", pane\.id\);\r?\n/,
+      replace: "",
+    },
+    // 重载读盘失败时保住带未保存修改的 model。删了这支,「用磁盘版本」撞上文件刚被删,用户的修改随 model 一起被释放。
+    filesReloadKeepsDirty: {
+      pattern: /if \(keep && isFilesDirty\(\)\) \{/,
+      replace: "if (false) {",
+    },
+    // 复核修复(以下 11 条):
+    // 保存被后端以 READONLY 拒绝时记成 blocked。改回记成 readonly,isFilesDirty() 立刻为假:未保存标记消失、
+    // 切文件不再确认、切项目不存草稿——修改随 model 一起被释放(无头 Edge 实测复现过)。
+    filesSaveRejectBlocked: {
+      pattern: /doc\.blocked = code;/,
+      replace: "doc.readonly = code;",
+    },
+    // 草稿恢复时文件已不能写:草稿照样恢复,按保存被拒处理。删了它,草稿进了只读编辑器且不算未保存。
+    filesDraftIntoBlocked: {
+      pattern: /if \(draft && doc\.readonly\) \{/,
+      replace: "if (false) {",
+    },
+    // 轮询把刚读到的磁盘版本交给重载。去掉它,重载再读一次盘,那次读盘途中打的字会被盖掉。
+    filesWatchReuseRead: {
+      pattern: /\{ keep: true, note: t\("已从磁盘更新"\), preview, ifClean: true \}/,
+      replace: '{ keep: true, note: t("已从磁盘更新"), ifClean: true }',
+    },
+    // 静默重载在替换前复查脏状态。删了它,等 Monaco/读盘期间打的字被磁盘版本盖掉且标成干净。
+    filesReloadRecheckDirty: {
+      pattern: /if \(ifClean && isFilesDirty\(\)\) \{/,
+      replace: "if (false) {",
+    },
+    // 只替换变化的区间。去掉公共前缀,编辑退化成从第 1 行起替换,光标被挤走。
+    filesMinimalReload: {
+      pattern: /while \(start < limit && before\.charCodeAt\(start\) === after\.charCodeAt\(start\)\) start \+= 1;/,
+      replace: "",
+    },
+    // 重载时按后端探测设 EOL。删了它,磁盘从 LF 改成 CRLF 后 model 仍是 LF,下次保存把 CRLF 写回 LF。
+    filesEolReload: {
+      pattern: /model\.setEOL\(eolSequence\(monaco, doc\.eol\)\);/,
+      replace: "",
+    },
+    // 草稿按文件所属项目(doc.root)记。改成切换后的 currentProject,项目 A 的草稿会注入项目 B 的同名文件。
+    filesDraftKeyRoot: {
+      pattern: /drafts\.set\(draftKey\(doc\.root, doc\.path\), \{/,
+      replace: "drafts.set(draftKey(currentProject, doc.path), {",
+    },
+    // 模态打开时 Ctrl+S 兜底让路。删了它,确认框开着时按 Ctrl+S 会在背后保存文件。
+    filesCtrlSModal: {
+      pattern: /classList\.contains\("active"\) \|\| isModalOpen\(\)\) return;/,
+      replace: 'classList.contains("active")) return;',
+    },
+    // 保存成功后关掉比较视图。删了它,冲突已了结,左侧过时的磁盘版本还摆着。
+    filesSaveClosesCompare: {
+      pattern: /doc\.blocked = null;\r?\n\s*closeCompare\(\);/,
+      replace: "doc.blocked = null;",
+    },
+    // 头部文字没变就不碰节点。去掉比较,冲突横幅(role=alert)每敲一个键被读屏重读一遍。
+    filesHeadSetText: {
+      pattern: /if \(el && el\.textContent !== text\) el\.textContent = text;/,
+      replace: "if (el) el.textContent = text;",
+    },
+    // 切语言重画头部与横幅。删了它,英文界面的横幅按钮要等下一次渲染才变。
+    filesLanguageRerender: {
+      pattern: /[ \t]*document\.addEventListener\("kz:language", \(\) => \{\r?\n\s*if \(filesDoc\) applyReadonly\(filesDoc\);\r?\n\s*renderFilesHead\(\);\r?\n\s*\}\);\r?\n/,
+      replace: "",
+    },
+    // ── 分区:文件编辑(完) ──
+
+    // ── 分区:架构图 ──(UI2-0926 #7)
+    // 索引按行切之前的 CRLF 归一化。删了它,磁盘上 CRLF 的 README 章节标题一个都匹配不上,60 篇已入册文档全丢。
+    archCrlf: {
+      pattern: /return String\(index \?\? ""\)\.replace\(\/\\r\\n\?\/g, "\\n"\)\.split\("\\n"\);/,
+      replace: 'return String(index ?? "").split("\\n");',
+    },
+    // 入册判定的文件名正则认 kebab 名。改回只认 snake_case,oc-*.md 这类在索引里的文档又被误报成「未入册」。
+    archKebab: {
+      pattern: /\[a-z0-9_-\]\*\\\.md\)`\?\\\]\/;/,
+      replace: "[a-z0-9_]*\\.md)`?\\]/;",
+    },
+    // hydrateDiagrams 跳过未闭合围栏。删了它,流式输出写到一半的 mermaid 也会被渲染(半截图、每帧报错)。
+    diagramOpenFence: {
+      pattern: /[ \t]*if \(pre\.dataset\?\.open === "true" \|\| pre\.getAttribute\?\.\("data-open"\) === "true"\) continue;\r?\n/,
+      replace: "",
+    },
+    // bindDiagram 的节点点击。删了它,图节点有链接样式却点了没反应(strict 下 mermaid 自己不绑 click)。
+    diagramClickMap: {
+      pattern: /[ \t]*g\.addEventListener\("click", \(event\) => \{\r?\n[ \t]*event\.preventDefault\?\.\(\);\r?\n[ \t]*event\.stopPropagation\?\.\(\);\r?\n[ \t]*activate\(\);\r?\n[ \t]*\}\);\r?\n/,
+      replace: "",
+    },
+    // 复核修复:错误行号经 lineMap 换回原文行号。删了它,frontmatter / 开头注释之后的错误报的是 mermaid 剥完之后的行号,
+    // 错误卡、修复提示与源码高亮全都指错行。
+    diagramLineMap: {
+      pattern: /[ \t]*if \(line\) line = original\(line\);\r?\n/,
+      replace: "",
+    },
+    // 复核修复:frontmatter 的 config 段抹成空行。删了它,聊天里带 `config: look: handDrawn` 的图会改掉外观,
+    // 带 htmlLabels 的图出 foreignObject 被整张拒绝。
+    diagramFrontmatterConfig: {
+      pattern: /[ \t]*if \(\/\^config\\s\*:\/\.test\(line\)\) \{\r?\n[ \t]*inConfig = true;\r?\n[ \t]*return BLANKED;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
+    // ── 分区:架构图 结束 ──
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -1634,14 +1931,37 @@ const payloads = {
   research_arxiv_preview: (args) => ({ title: `arXiv ${args?.url ?? ""}`, text: "# arXiv 正文\n\n正文级抽取内容…", depth: "正文级", source_url: args?.url, path: `C:/smoke/project/.kanzei/research/${args?.topic}/fulltext/2301.12345.html` }),
   docs_archive_entries: (args) => args?.kind === "req" ? [docEntry("R-000", "已归档需求", "done")] : [docEntry("D-000", "已归档缺陷", "fixed")],
   // R-122:架构浏览。含一篇未入册文档,验证"未入册"分组可见。
+  // ── 分区:架构图 ── 索引是 CRLF(磁盘上的 README 就是 CRLF;LF 桩曾让章节正则的失配一直绿着)、
+  // 含一篇 kebab 名文档(命名不合规,不是未入册)、两张手写图(一张故意写坏)与 crate 图两份源码。
   architecture_snapshot: {
     index_path: "C:/smoke/parent/.kanzei/project/architecture/README.md",
-    index: "# 架构索引\n\n### 现行基线\n\n- [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线。\n",
+    index: "# 架构索引\r\n\r\n### 现行基线\r\n\r\n- [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线。\r\n\r\n### 历史快照\r\n\r\n- [`oc-playback.md`](../../../docs/design/oc-playback.md):角色动画(kebab 名)。\r\n",
     design_docs: [
       { name: "direction_taste.md", title: "方向基线", bytes: 512 },
       { name: "memory_system.md", title: "Memory 系统设计基线", bytes: 2048 },
+      { name: "oc-playback.md", title: "角色动画播放", bytes: 256 },
     ],
-    // R-188:workspace crate 依赖边(代码生成架构图数据源)。
+    diagrams: [
+      {
+        id: "01_runtime_loop", path: "docs/architecture/01_runtime_loop.md", title: "运行时主循环", summary: "一轮任务怎么跑。", source_line: 5, issues: [],
+        source: 'flowchart LR\n  compose["输入区"]:::entry\n  drive["主循环"]:::focus\n  adr["决策"]\n  compose --> drive\n  drive --> adr\n  click compose "crates/kanzei-app/ui/08-compose.js" "输入区"\n  click drive "crates/kanzei-core/src/runner/drive.rs:140" "主循环"\n  click adr "D-100" "决策条目"',
+      },
+      {
+        // 错误出现在 frontmatter、开头注释、行内注释与 click 行之后(源码第 9 行 = 文件第 7 + 9 - 1 = 15 行):
+        // mermaid 解析前剥掉这些,jison 报的是剥完之后的第 5 行——桩引擎按同一规则报,错误卡必须换回原文行号。
+        id: "02_broken", path: "docs/architecture/02_broken.md", title: "写坏的图", summary: "", source_line: 7,
+        source: '---\ntitle: 写坏\n---\n%% 头注释\nflowchart LR\n  %% 注释\n  a["甲"] --> b["乙"]\n  click a "docs/x.md"\n  c[BROKEN(]',
+        issues: [{ line: 15, severity: "error", code: "D6", message: "标签 `BROKEN(` 含括号却没加引号", hint: "写成 id[\"…\"]" }],
+      },
+    ],
+    crates: {
+      members: [], edges: [], hidden_transitive: 1,
+      mermaid: {
+        reduced: 'flowchart LR\n  subgraph grp_1["入口"]\n    kanzei_app["kanzei-app<br/>Tauri 桌面端"]:::entry\n  end\n  kanzei_tools["kanzei-tools<br/>内置工具"]\n  kanzei_core["kanzei-core<br/>主循环"]\n  kanzei_app --> kanzei_tools\n  kanzei_tools --> kanzei_core\n  click kanzei_app "crates/kanzei-app/src/main.rs" "kanzei-app · Tauri 桌面端"\n  click kanzei_tools "crates/kanzei-tools/src/lib.rs" "kanzei-tools · 内置工具"',
+        full: 'flowchart LR\n  subgraph grp_1["入口"]\n    kanzei_app["kanzei-app<br/>Tauri 桌面端"]:::entry\n  end\n  kanzei_tools["kanzei-tools<br/>内置工具"]\n  kanzei_core["kanzei-core<br/>主循环"]\n  kanzei_app --> kanzei_tools\n  kanzei_app -.-> kanzei_core\n  kanzei_tools --> kanzei_core\n  click kanzei_app "crates/kanzei-app/src/main.rs" "kanzei-app · Tauri 桌面端"\n  click kanzei_tools "crates/kanzei-tools/src/lib.rs" "kanzei-tools · 内置工具"',
+      },
+    },
+    // R-188 兼容字段(新前端不再读,后端保留一个版本)。
     graph: [
       ["kanzei-app", "kanzei-core"],
       ["kanzei-app", "kanzei-tools"],
@@ -2782,12 +3102,19 @@ assert(
   const renameCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_rename");
   assert(renameCall?.args?.name === "重命名后的项目", "项目重命名未消费输入弹窗的值");
 
-  sandbox.__inputDialogResponses.push("C:/smoke/new-project", "新项目显示名");
+  // UI2-0926 #13:「新建项目…」不再是两次输入(路径 + 显示名),改为新建项目对话框 → projects_create。
+  payloads.projects_create = (args) => ({ prefs: structuredClone(payloads.projects_get), path: `${args.parent}\\${args.name}`, facts: null, git: { created: true, committed: true, identity_missing: false, branch: "main" }, gitError: null, description: args.description });
   byId.get("project-init").click();
   await flush();
-  const initCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_init");
-  assert(initCall?.args?.path === "C:/smoke/new-project", "新建项目未消费目录输入");
-  assert(initCall?.args?.name === "新项目显示名", "新建项目未消费显示名输入");
+  assert(!byId.get("new-project-overlay").classList.contains("hidden"), "项目总览「新建项目…」未打开新建项目对话框");
+  byId.get("new-project-name").value = "新项目显示名";
+  byId.get("new-project-parent").value = "C:/smoke";
+  byId.get("new-project-create").click();
+  await flush();
+  const initCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_create");
+  assert(initCall?.args?.parent === "C:/smoke" && initCall?.args?.name === "新项目显示名", "新建项目未按对话框的名称与位置调用 projects_create");
+  assert(initCall?.args?.gitInit === true, "新建项目对话框的「初始化 Git」应默认勾选");
+  assert(byId.get("new-project-overlay").classList.contains("hidden"), "创建成功后新建项目对话框未关闭");
   vm.runInContext(`renderProjects(${JSON.stringify(payloads.projects_get)})`, sandbox);
   await flush();
 }
@@ -7383,7 +7710,7 @@ assert(
   assert(treeText.includes("未入册") || treeText.includes("not indexed"), "索引外的文档未进「未入册」分组");
   assert(treeText.includes("现行基线") || treeText.includes("基线"), "索引章节分组未渲染");
   assert((byId.get("arch-index-body")?.textContent ?? "").includes("方向基线"), "右侧索引原文未渲染");
-  assert((byId.get("arch-summary")?.textContent ?? "").includes("2"), "架构汇总缺文档计数");
+  assert(/^3\D/.test(byId.get("arch-summary")?.textContent ?? ""), `架构汇总缺文档计数:${byId.get("arch-summary")?.textContent}`);
   // 点击文档行应经 docs_read_custom 打开应用内查看器。
   const row = [...tree.querySelectorAll(".arch-entry")].find((r) => r.textContent.includes("memory_system.md"));
   assert(row, "架构树缺少可点击的文档行");
@@ -9382,37 +9709,17 @@ const docsB = {
   vm.runInContext('saveSoundSettings({enabled:true, volume:0.12, completed:true, failed:true, stopped:true})', sandbox);
 }
 
-// ---------- R-188 架构图:代码生成的 SVG 依赖图 ----------
-// 架构浏览页在文字树之外渲染依赖图 SVG;图数据为空时隐藏降级文字树。
+// ---------- R-188 架构图 → UI2-0926 #7 ----------
+// 自绘 SVG 依赖图已由 Mermaid 渲染的架构图卡取代(docs/design/architecture_diagrams.md),
+// 用例在文件末尾「分区:架构图」:桩图引擎下断言标签页、节点点击走 structuredNav、错误卡、流式不渲染。
 {
-  // 先切到架构视图触发 refreshArch。
   document.querySelector('.activity-item[data-view="arch"]')?.click();
   await flush();
-  const graphHost = byId.get("arch-graph");
-  assert(graphHost, "R-188:架构浏览页缺少 #arch-graph 图容器");
-  const svg = graphHost.querySelector("svg.arch-svg");
-  assert(svg, "R-188:架构图未渲染为 SVG(应代码生成,非文生图/预置图)");
-  assert(
-    svg.querySelectorAll("g.arch-node").length >= 6,
-    `R-188:SVG 节点数不足(桩 graph 有 6 crate),实得 ${svg.querySelectorAll("g.arch-node").length}`,
-  );
-  assert(
-    svg.querySelectorAll("line").length >= 6,
-    `R-188:SVG 依赖边数不足(桩 graph 有 6 边),实得 ${svg.querySelectorAll("line").length}`,
-  );
-  // 图渲染不替换文字树(降级视图仍在)。
+  assert(!byId.get("arch-graph"), "旧的自绘 SVG 容器 #arch-graph 不该复活(架构图只走 04-diagram.js)");
+  assert(byId.get("arch-diagram-card") && byId.get("arch-diagram-tabs") && byId.get("arch-diagram-canvas"), "架构页缺少图卡(#arch-diagram-card / tabs / canvas)");
   assert(
     (byId.get("arch-tree")?.childNodes?.length ?? byId.get("arch-tree")?.childElementCount ?? 0) > 0,
-    "R-188:架构图渲染后文字树被清空(降级视图必须保留)",
-  );
-  // 节点可点击定位(点击 app 节点应尝试打开 crate Cargo.toml)。
-  const appNode = [...svg.querySelectorAll("g.arch-node")].find((g) => g.getAttribute("aria-label") === "kanzei-app");
-  assert(appNode, "R-188:SVG 缺少 kanzei-app 节点");
-  appNode.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {} });
-  await flush();
-  assert(
-    invokeLog.some((cmd) => cmd === "docs_read_custom"),
-    "R-188:点击图节点未触发文档/Cargo 定位读取",
+    "架构图渲染后文字树被清空(文档树必须保留)",
   );
 }
 
@@ -9500,8 +9807,8 @@ const docsB = {
   await flush();
   assert(document.documentElement.getAttribute("data-theme") !== "light", "R-189:切回暗色失败");
   assert(storage.get("kz-theme") === "dark", "R-189:暗色未持久化");
-  // Monaco setTheme 联动:17-files.js 创建编辑器时按当前主题选 vs/vs-dark。
-  const filesSrc = await readFile(resolve(root, "crates", "kanzei-app", "ui", "17-files.js"), "utf8");
+  // Monaco setTheme 联动:文件页创建编辑器时按当前主题选 vs/vs-dark(UI2-0926 #6 起编辑器在 17-files-editor.js)。
+  const filesSrc = await readFile(resolve(root, "crates", "kanzei-app", "ui", "17-files-editor.js"), "utf8");
   assert(
     filesSrc.includes('currentTheme() === "light" ? "vs" : "vs-dark"'),
     "R-189:Monaco 编辑器主题未跟随全局主题",
@@ -10009,13 +10316,18 @@ const docsB = {
     await flush();
     assert(callsOf("projects_select") === selectsBefore && !sessionsNs.projectMenuHandle, "点当前项目应只收起菜单,不发 projects_select");
 
-    // ④ 「新建项目…」走既有初始化流程(两次输入);「打开文件夹…」走 projects_pick;「项目总览」进 ⌂ 页。
-    payloads.projects_init = () => structuredClone(prefsAB);
-    sandbox.__inputDialogResponses.push("C:/smoke/menu-new", "菜单新项目");
+    // ④ 「新建项目…」打开新建项目对话框(UI2-0926 #13);「打开文件夹…」走 projects_pick;「项目总览」进 ⌂ 页。
+    payloads.projects_create = (args) => ({ prefs: structuredClone(prefsAB), path: `${args.parent}\\${args.name}`, facts: null, git: null, gitError: null, description: null });
     await openProjectMenuByClick();
     menuItem("新建项目…")?.click();
     await flush();
-    assert(lastCall("projects_init")?.args?.path === "C:/smoke/menu-new" && lastCall("projects_init")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未走初始化流程(路径 + 显示名)");
+    assert(!byId.get("new-project-overlay").classList.contains("hidden"), "项目菜单「新建项目…」未打开新建项目对话框");
+    byId.get("new-project-name").value = "菜单新项目";
+    byId.get("new-project-parent").value = "C:/smoke";
+    byId.get("new-project-create").click();
+    await flush();
+    assert(lastCall("projects_create")?.args?.parent === "C:/smoke" && lastCall("projects_create")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未经对话框调用 projects_create");
+    assert(byId.get("new-project-overlay").classList.contains("hidden"), "项目菜单新建项目后对话框未关闭");
     const picksBefore = callsOf("projects_pick");
     await openProjectMenuByClick();
     menuItem("打开文件夹…")?.click();
@@ -11893,7 +12205,8 @@ const docsB = {
   assert(!missingSv.length, `04-structured.js 缺少导出:${missingSv.join(", ")}`);
   const svSource = sources[scriptSrcs.indexOf("04-structured.js")] ?? "";
   const innerHtmlWrites = svSource.match(/\.innerHTML\s*=/g) ?? [];
-  assert(innerHtmlWrites.length === 1 && /box\.innerHTML = renderMarkdown\(/.test(svSource), `04-structured.js 只准把 renderMarkdown 的输出写进 innerHTML,实得 ${innerHtmlWrites.length} 处写入`);
+  // UI2-0926 #7:markdown 一律经 renderMarkdownInto 写入(它顺带把闭合的 mermaid 围栏换成图),本文件零 innerHTML。
+  assert(innerHtmlWrites.length === 0 && /renderMarkdownInto\(box, /.test(svSource), `04-structured.js 不得写 innerHTML(markdown 走 renderMarkdownInto),实得 ${innerHtmlWrites.length} 处写入`);
   assert(!/createDocumentFragment/.test(svSource), "04-structured.js 不得用 DocumentFragment(冒烟 harness 没有,真机与冒烟会分叉)");
   assert(activityNs?.highlightLine === svNs?.highlightLine, "06-activity.js 的 highlightLine 应转出 04-structured.js 的同一实现(唯一真源)");
   const summarySource = sources[scriptSrcs.indexOf("05-tool-summary.js")] ?? "";
@@ -14879,6 +15192,1267 @@ const docsB = {
   await sandbox.refreshMemory({ force: true });
   await flush();
 }
+
+// ── 分区:工作目录管理 ──
+// UI2-0926 #13(docs/design/project_workspace.md):bash 成功摘要只收句子(表格/名称列表/文件名 → 输出 N 行)、
+// 模型在等你回答(Stop/AwaitingUser:鞭挞保持勾选、不挂续跑、回复不算「手动接管」)、鞭挞续跑轮按本线实际档位与
+// simplify 形态的项目根发、新建项目对话框(Git 默认勾选、描述进草稿不发送)、项目事实横幅、「无 Git」芯片、
+// 并行线入口按事实禁用、target/ 冷编译文案只给 Rust 工程。
+// 变异守卫:wdBashTable / wdBashSentence / wdAwaitKeep / wdAwaitMark / wdAutoAgent / wdAutoProjectDir /
+// wdNewProjectDraft / wdBannerYield / wdWorktreeGate / wdGitChip / wdRustOnlyText。
+// 复核修复:线档位经后端落盘(wdModeRestore / wdModeLegacy / wdModeRemember / wdModeNormalize / wdKeyNewerWins)、
+// 等待标记过期与后台线「在等你回答」(wdAwaitResumeHidden / wdAwaitResumeTake / wdAwaitToggle / wdAwaitExpire /
+// wdBgAwaitExpire / wdBgWaiting / wdSwitchWaiting)、「还没有提交」横幅与按结果提示(wdBannerNoCommit / wdInitToast)、
+// 研究空间不画「无 Git」(wdGitChipResearch);新建项目主按钮专用键为手工变异(index.html 改回「创建」)。
+{
+  const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  const composeNs = esmModuleCache.get("08-compose-runtime.js")?.namespace;
+  const autoNs = esmModuleCache.get("08-auto.js")?.namespace;
+  const coreNs = esmModuleCache.get("01-core.js")?.namespace;
+  assert(summaryNs?.toolResultSummary && sessionsNs?.openNewProjectDialog && sessionsNs?.refreshProjectFacts && viewsNs?.renderGitChip && composeNs?.sendAutoToSession && autoNs?.lineAgent,
+    "工作目录管理:入口未导出(toolResultSummary / openNewProjectDialog / refreshProjectFacts / renderGitChip / sendAutoToSession / lineAgent)");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+  await flush();
+  // 前面分区可能留着模态(查看器/命令面板):先收掉,本分区要开新建项目对话框。
+  for (const id of ["viewer-overlay", "palette", "confirm-overlay", "input-overlay"]) {
+    if (byId.get(id)?.open) byId.get(id).close?.();
+  }
+  await flush();
+
+  // ① bash 成功摘要:截图同款(Get-Command 表格 + Get-ChildItem 名称,末行 state.db-wal)→ 输出 N 行。
+  {
+    const bash = (content) => summaryNs.toolResultSummary("bash", { ok: true, content, roots: [] }).text;
+    const shot = bash("exit code: 0\n\nCommandType     Name       Version    Source\n-----------     ----       -------    ------\nApplication     git.exe    2.47.0.0   C:\\Program Files\\Git\\cmd\\git.exe\n\nC:\\Users\\kanzei\\Desktop\\MD文件保存\n.kanzei\nkanzei.toml\nstate.db\nstate.db-shm\nstate.db-wal");
+    assert(/^退出码 0 · 输出 \d+ 行$/.test(shot) && !shot.includes("state.db"), `截图同款 bash 输出的摘要应是「输出 N 行」,实为「${shot}」`);
+    const names = bash("exit code: 0\n.kanzei\nlib\npubspec.yaml\nstate.db-wal");
+    assert(names === "退出码 0 · 输出 4 行", `名称列表的摘要应是「输出 4 行」,实为「${names}」`);
+    const formatList = bash("exit code: 0\nName    : web\nState   : Running on port 3000\nDetail  : waiting for new connections");
+    assert(formatList === "退出码 0 · 输出 3 行", `Format-List 键值输出的摘要应是「输出 3 行」,实为「${formatList}」`);
+    const fileName = bash("exit code: 0\nsrc/main.rs");
+    assert(fileName === "退出码 0 · 输出 1 行", `单个文件名不是人话,摘要应是「输出 1 行」,实为「${fileName}」`);
+    const sentence = bash("exit code: 0\nCollecting foo\nSuccessfully installed foo-1.2");
+    assert(sentence === "退出码 0 · Successfully installed foo-1.2", `真正的句子仍要显示,实为「${sentence}」`);
+  }
+
+  // ② 模型在等你回答:鞭挞保持勾选、不挂续跑、提示;回复这一条不关鞭挞。
+  {
+    const SID = sandbox.activeSessionId;
+    const whip = byId.get("auto-continue");
+    const priorWhip = whip.checked;
+    const priorProfile = byId.get("profile-select").value;
+    byId.get("profile-select").value = "dev-auto";
+    whip.checked = true;
+    kzTest.cancelTimers();
+    handlers.get("kz:done")?.({ payload: { steps: 4, halted: false, tools: { question: 1 }, autoAction: { type: "Stop", reason: "AwaitingUser" }, sessionId: SID } });
+    await flush();
+    assert(whip.checked, "Stop(AwaitingUser) 不应取消鞭挞勾选(回复后要自动继续)");
+    assert(!kzTest.timerSessions().includes(SID), "Stop(AwaitingUser) 不应挂续跑定时器");
+    assert(kzTest.stopReason().includes("模型在等你回答"), `停机原因应是「模型在等你回答」,实为「${kzTest.stopReason()}」`);
+    assert([...document.querySelectorAll("#messages .msg")].some((el) => el.textContent.includes("模型在等你回答")), "对话里缺「模型在等你回答」提示");
+    const updatesBefore = invokeArgs.length;
+    coreNs.promptBox.value = "就是这个目录,工具你可以自己装";
+    composeNs.send();
+    await flush();
+    const turnedOff = invokeArgs.slice(updatesBefore).some(({ cmd, args }) => cmd === "auto_state_update" && args?.enabled === false);
+    assert(whip.checked && !turnedOff, "回复模型的提问被当成「手动接管」关掉了鞭挞(回复后应自动继续)");
+    assert(!kzTest.stopReason().includes("收到手动输入"), `回复提问不应显示「收到手动输入,鞭挞已停止」,实为「${kzTest.stopReason()}」`);
+    handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { edit: 1 }, sessionId: SID } });
+    await flush();
+    kzTest.cancelTimers();
+    sandbox.releaseAutoContinue?.(SID);
+
+    // 复核:「在等你回答」只对紧接着的那一条手动消息有效。点「继续鞭挞」、手动开关鞭挞、本轮以别的结果收口,
+    // 都让等待过期——之后的手动消息是真正的接管,照常关鞭挞(stopAutoForManualInput 返回 true)。
+    const awaitNow = async () => {
+      whip.checked = true;
+      kzTest.cancelTimers();
+      handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { question: 1 }, autoAction: { type: "Stop", reason: "AwaitingUser" }, sessionId: SID } });
+      await flush();
+    };
+    const settle = () => {
+      kzTest.cancelTimers();
+      sandbox.releaseAutoContinue?.(SID);
+      sandbox.clearRunPending?.();
+    };
+    const takeoverTurnsOff = () => {
+      whip.checked = true;
+      const off = composeNs.stopAutoForManualInput();
+      whip.checked = true;
+      return off;
+    };
+    await awaitNow();
+    assert(byId.get("auto-resume").classList.contains("hidden"), "模型在等你回答时不应出现「继续鞭挞」(鞭挞本来就开着,该做的是回答)");
+    byId.get("auto-resume").click();
+    await flush();
+    settle();
+    assert(takeoverTurnsOff(), "点了「继续鞭挞」之后等待标记必须清掉——之后的手动消息应照常关鞭挞(手动接管)");
+    await awaitNow();
+    whip.checked = false;
+    whip.dispatchEvent({ type: "change" });
+    whip.checked = true;
+    whip.dispatchEvent({ type: "change" });
+    await flush();
+    settle();
+    assert(!kzTest.stopReason().includes("模型在等你回答"), `手动开关鞭挞后原因槽不应还挂着「模型在等你回答」,实为「${kzTest.stopReason()}」`);
+    assert(takeoverTurnsOff(), "手动开关鞭挞之后等待标记必须清掉——之后的手动消息应照常关鞭挞");
+    await awaitNow();
+    handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 1 }, sessionId: SID } });
+    await flush();
+    settle();
+    assert(takeoverTurnsOff(), "本轮以续跑收口后等待标记必须过期——之后的手动消息应照常关鞭挞");
+    settle();
+    whip.checked = priorWhip;
+    byId.get("profile-select").value = priorProfile;
+  }
+
+  // ③ 鞭挞续跑轮:结伴线按 dev-pair 发(不再写死 dev)、项目根不带 \\?\、取活顺序键与写入键一致。
+  {
+    const devProcesses = payloads.process_list;
+    const VERBATIM = `\\\\?\\${PROJECT.replaceAll("/", "\\")}`;
+    const line = { id: "p7|smoke-pair", session_id: "sess-pair-auto", profile: "dev", project_dir: VERBATIM, origin_project: VERBATIM, label: "结伴线", running: false };
+    payloads.process_list = [...devProcesses, line];
+    await sandbox.refreshProcesses();
+    await flush();
+    const plain = PROJECT.replaceAll("/", "\\");
+    storage.set(`kz-work-priority:${plain}`, "requirement-first");
+    const lastRun = () => invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === line.id)?.args;
+    await composeNs.sendAutoToSession("继续", "sess-pair-auto");
+    let request = lastRun();
+    assert(request?.agent === "dev-pair" && request?.profile === "dev", `结伴线的鞭挞续跑轮应按 dev-pair 发,实为 ${request?.agent}`);
+    assert(request?.projectDir === plain && !String(request?.projectDir).includes("\\\\?\\"), `续跑轮的 projectDir 应是去掉 \\\\?\\ 前缀的项目根,实为 ${request?.projectDir}`);
+    assert(request?.workPriority === "requirement-first", `续跑轮读不到用户选的取活顺序(键不一致),实为 ${request?.workPriority}`);
+    sandbox.releaseAutoContinue("sess-pair-auto");
+    composeNs.processProfileUi.set(line.id, "dev-auto");
+    await composeNs.sendAutoToSession("继续", "sess-pair-auto");
+    request = lastRun();
+    assert(request?.agent === "dev", `自主线的续跑轮应按 dev 发,实为 ${request?.agent}`);
+    sandbox.releaseAutoContinue("sess-pair-auto");
+    composeNs.processProfileUi.delete(line.id);
+    storage.delete(`kz-work-priority:${plain}`);
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    await flush();
+  }
+
+  // ④ 新建项目对话框:Git 默认勾选、描述进输入框当草稿(不发送)、失败留在对话框里说原因、首提交缺身份要说。
+  {
+    const overlay = byId.get("new-project-overlay");
+    const priorPrefs = structuredClone(payloads.projects_get);
+    payloads.projects_create = (args) => ({ prefs: structuredClone(priorPrefs), path: `${args.parent}\\${args.name}`, facts: null, git: { created: true, committed: false, identity_missing: true, branch: "main" }, gitError: null, description: args.description });
+    sessionsNs.openNewProjectDialog();
+    await flush();
+    assert(!overlay.classList.contains("hidden") && overlay.open, "新建项目对话框未以模态打开");
+    assert(byId.get("new-project-git").checked === true, "「初始化 Git 仓库」应默认勾选");
+    byId.get("new-project-name").value = "MD文件保存";
+    byId.get("new-project-parent").value = "C:\\Users\\kanzei\\Desktop";
+    byId.get("new-project-name").dispatchEvent({ type: "input" });
+    assert(byId.get("new-project-preview").textContent.includes("C:\\Users\\kanzei\\Desktop\\MD文件保存"), `预览应写出将创建的完整路径,实为「${byId.get("new-project-preview").textContent}」`);
+    invokeFailures.set("projects_create", "「C:\\Users\\kanzei\\Desktop\\MD文件保存」已存在且不是空目录;换个名字,或用「打开文件夹…」打开它");
+    byId.get("new-project-create").click();
+    await flush();
+    assert(!overlay.classList.contains("hidden") && !byId.get("new-project-error").classList.contains("hidden") && byId.get("new-project-error").textContent.includes("打开文件夹"), "创建失败时对话框应留着并说出原因");
+    invokeFailures.delete("projects_create");
+    byId.get("new-project-desc").value = "手机上用的 Markdown 上下文库";
+    const runsBefore = invokeArgs.filter(({ cmd }) => cmd === "run_prompt").length;
+    coreNs.promptBox.value = "";
+    byId.get("new-project-create").click();
+    await flush();
+    const call = invokeArgs.findLast(({ cmd }) => cmd === "projects_create")?.args;
+    assert(call?.name === "MD文件保存" && call?.parent === "C:\\Users\\kanzei\\Desktop" && call?.gitInit === true && call?.description === "手机上用的 Markdown 上下文库", `projects_create 入参不对:${JSON.stringify(call)}`);
+    assert(overlay.classList.contains("hidden"), "创建成功后对话框应关闭");
+    assert(coreNs.promptBox.value === "手机上用的 Markdown 上下文库", `一句话描述应进输入框当草稿,实为「${coreNs.promptBox.value}」`);
+    assert(invokeArgs.filter(({ cmd }) => cmd === "run_prompt").length === runsBefore, "一句话描述不得自动发送");
+    const feedback = sessionsNs.newProjectFeedback({ git: { created: true, identity_missing: true } });
+    assert(feedback.kind === "warn" && feedback.text.includes("首次提交"), `缺 Git 身份时反馈应说清没有首提交,实为 ${JSON.stringify(feedback)}`);
+    assert(sessionsNs.newProjectFeedback({ git: { created: true, committed: true } }).kind === "ok", "有首提交时反馈应是成功");
+    // 复核:主按钮用专用键。原先复用「创建」,它的英文是容器状态「created」,英文界面主按钮读成 created。
+    sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+    await flush();
+    const createLabel = byId.get("new-project-create").textContent.trim();
+    sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+    await flush();
+    assert(createLabel === "Create project", `英文界面新建项目主按钮应是「Create project」,实为「${createLabel}」`);
+    assert(byId.get("new-project-create").textContent.trim() === "创建项目", `中文界面新建项目主按钮应是「创建项目」,实为「${byId.get("new-project-create").textContent}」`);
+    coreNs.promptBox.value = "";
+    vm.runInContext(`renderProjects(${JSON.stringify(priorPrefs)})`, sandbox);
+    await flush();
+  }
+
+  // ⑤ 项目事实横幅:不是仓库 → [初始化 Git][不再提示];上级仓库 → 点名上级、[在此初始化独立仓库];空项目;隔离告警在场时让位。
+  {
+    const box = byId.get("project-facts");
+    const shared = byId.get("project-shared-warn");
+    const buttons = () => [...box.querySelectorAll("button")].map((el) => el.textContent);
+    payloads.project_facts = { root: PROJECT, layout: "existing", files: 12, git: { state: "none" }, stacks: ["node"], planned: [], toolchains: [], installers: [] };
+    shared.classList.add("hidden");
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    assert(!box.classList.contains("hidden") && box.dataset.kind === "no-git", `不是 Git 仓库时横幅应出现(no-git),实为 ${box.dataset.kind}`);
+    assert(buttons().includes("初始化 Git") && buttons().includes("不再提示"), `无 Git 横幅应有 [初始化 Git][不再提示],实为 ${buttons().join("|")}`);
+    assert(byId.get("worktree-add").getAttribute("aria-disabled") === "true" && String(byId.get("worktree-add").title).includes("Git"), "无 Git 时建线入口应禁用并说明原因");
+    payloads.project_git_init = () => ({ git: { created: true, branch: "main" }, facts: { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] } });
+    [...box.querySelectorAll("button")].find((el) => el.textContent === "初始化 Git")?.click();
+    await flush();
+    assert(invokeArgs.findLast(({ cmd }) => cmd === "project_git_init")?.args?.projectDir === PROJECT, "横幅「初始化 Git」未调 project_git_init");
+    // 复核:初始化之后仓库还没有提交——横幅换成「还没有提交」(并行线要等第一次提交),不再只藏在建线入口的 title 里。
+    assert(!box.classList.contains("hidden") && box.dataset.kind === "no-commit" && box.textContent.includes("还没有提交") && buttons().includes("知道了"),
+      `初始化 Git(无提交)后横幅应换成「还没有提交」+[知道了],实为 ${box.dataset.kind}:${box.textContent}`);
+    assert(listText("toast").includes("已初始化 Git 仓库"), `新建了仓库应提示「已初始化 Git 仓库」,实为 ${listText("toast")}`);
+    assert(String(byId.get("worktree-add").title).includes("提交"), `仓库没有提交时建线入口应说明「需要一次提交」,实为「${byId.get("worktree-add").title}」`);
+    // 复核:后端说本来就是仓库(created:false)时不能照样报「已初始化」。
+    payloads.project_git_init = () => ({ git: { created: false, branch: "main" }, facts: { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] } });
+    await sessionsNs.initProjectGit();
+    await flush();
+    assert(listText("toast").split("已初始化 Git 仓库").at(-1).includes("已经是 Git 仓库"), `created:false 时应提示「已经是 Git 仓库」,实为 ${listText("toast")}`);
+    // 建线入口按事实拦下:不发 process_create。
+    const createsBefore = invokeArgs.filter(({ cmd }) => cmd === "process_create").length;
+    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
+    await flush();
+    assert(invokeArgs.filter(({ cmd }) => cmd === "process_create").length === createsBefore, "仓库没有提交时建线不应发 process_create");
+    // 上级仓库:点名上级仓库。
+    payloads.project_facts = { root: PROJECT, layout: "existing", files: 3, git: { state: "parent", toplevel: "C:\\outer" }, stacks: [], planned: [], toolchains: [], installers: [] };
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    assert(box.dataset.kind === "parent" && box.textContent.includes("C:\\outer") && buttons().includes("在此初始化独立仓库"), `上级仓库横幅不对:${box.textContent}`);
+    // 隔离告警在场时让位。
+    shared.classList.remove("hidden");
+    sessionsNs.renderProjectFactsBanner();
+    assert(box.classList.contains("hidden"), "D-170 隔离告警在场时事实横幅应让位");
+    shared.classList.add("hidden");
+    // 空项目:[知道了] 之后按项目记住不再出现。
+    payloads.project_facts = { root: PROJECT, layout: "greenfield", files: 0, git: { state: "repo", branch: "main", has_commits: true }, stacks: [], planned: [], toolchains: [], installers: [] };
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    assert(box.dataset.kind === "greenfield" && box.textContent.includes("空项目"), `空项目横幅不对:${box.textContent}`);
+    assert(byId.get("worktree-add").getAttribute("aria-disabled") !== "true", "有提交的仓库不应禁用建线入口");
+    [...box.querySelectorAll("button")].find((el) => el.textContent === "知道了")?.click();
+    await flush();
+    assert(box.classList.contains("hidden"), "点「知道了」后空项目横幅应收起");
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    assert(box.classList.contains("hidden"), "「知道了」应按项目记住,再次刷新不再出现");
+    // 建线确认框:target/ 与冷编译只对 Rust 工程说。
+    let confirmMessage = "";
+    const priorConfirm = sandbox.confirmDialog;
+    sandbox.confirmDialog = (options) => { confirmMessage = options?.message ?? ""; return Promise.resolve(false); };
+    payloads.project_facts = { root: PROJECT, layout: "existing", files: 30, git: { state: "repo", branch: "main", has_commits: true }, stacks: ["node"], planned: [], toolchains: [], installers: [] };
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
+    await flush();
+    assert(confirmMessage && !confirmMessage.includes("target/") && !confirmMessage.includes("冷编译"), `非 Rust 工程的建线确认不应提 target/ 冷编译:${confirmMessage}`);
+    payloads.project_facts = { ...payloads.project_facts, stacks: ["rust"] };
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
+    await flush();
+    assert(confirmMessage.includes("target/"), `Rust 工程的建线确认应提 target/ 成本:${confirmMessage}`);
+    sandbox.confirmDialog = priorConfirm;
+    delete payloads.project_facts;
+    await sessionsNs.refreshProjectFacts(PROJECT);
+  }
+
+  // ⑥ 上下文带「无 Git」芯片:git_status 的 repo 字段为 none/parent 时出现,own/缺字段时收起;点开可初始化。
+  {
+    const chip = byId.get("ctx-git");
+    const priorStatus = payloads.git_status;
+    payloads.git_status = { repo: "none", branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] };
+    await viewsNs.refreshGit();
+    await flush();
+    assert(!chip.classList.contains("hidden") && chip.textContent === "无 Git", `不是 Git 仓库时上下文带应有「无 Git」芯片,实为「${chip.textContent}」`);
+    assert(String(chip.getAttribute("aria-label")).includes("不可用"), "「无 Git」芯片的读屏名应说明哪些功能不可用");
+    const handle = viewsNs.openGitChipMenu();
+    const items = [...(handle?.el?.querySelectorAll(".k-menu-item") ?? [])].map((el) => el.textContent);
+    assert(items.some((text) => text.includes("初始化 Git")), `「无 Git」芯片菜单缺「初始化 Git」:${items.join("|")}`);
+    if (handle) esmModuleCache.get("00-surface.js")?.namespace?.closeSurface?.(handle);
+    payloads.git_status = { repo: "parent", toplevel: "C:\\outer", branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] };
+    await viewsNs.refreshGit();
+    await flush();
+    assert(!chip.classList.contains("hidden") && String(chip.title).includes("C:\\outer"), `位于上级仓库时芯片应点名上级仓库,实为「${chip.title}」`);
+    payloads.git_status = priorStatus;
+    await viewsNs.refreshGit();
+    await flush();
+    assert(chip.classList.contains("hidden"), "自己的仓库(或旧后端不带 repo 字段)时芯片应收起");
+    // 复核:研究空间不显示「无 Git」——独立课题目录本来就不是仓库,点一下「初始化 Git」就把研究工作区建成了仓库。
+    const devProcesses = payloads.process_list;
+    payloads.process_list = [...devProcesses, { id: "p|research-git-chip", session_id: "sess-research-git-chip", profile: "research", research_topic: "alpha-study", project_dir: PROJECT, label: "研究", running: false }];
+    await vm.runInContext('switch_workspace("research")', sandbox);
+    await flush();
+    payloads.git_status = { repo: "none", branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] };
+    await viewsNs.refreshGit();
+    await flush();
+    const researchChipShown = !chip.classList.contains("hidden");
+    await vm.runInContext('switch_workspace("dev")', sandbox);
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    payloads.git_status = priorStatus;
+    await viewsNs.refreshGit();
+    await flush();
+    assert(!researchChipShown, "研究空间不应显示「无 Git」芯片(独立课题目录不是仓库,也不该被 git init)");
+  }
+
+  // ⑦ 复核:线档位经后端落盘。鞭挞续跑轮按线档位发,档位原先只在 localStorage(本机重启即丢,D-404):
+  // 自举线每装一次新版就从自主推进掉回结伴。模拟重启——本地档位全清空,只剩后端 app.json 的 process_auto_state。
+  {
+    const devProcesses = payloads.process_list;
+    const line = { id: "p9|smoke-mode", session_id: "sess-mode", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "自主线", running: false };
+    const legacy = { id: "p10|smoke-legacy", session_id: "sess-legacy", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "旧存档线", running: false };
+    payloads.process_list = [...devProcesses, line, legacy];
+    await sandbox.refreshProcesses();
+    await flush();
+    const priorProfiles = new Map(composeNs.processProfileUi);
+    const priorSelect = byId.get("profile-select").value;
+    const priorGlobal = storage.get("kz-profile");
+    for (const key of ["kz-profile", "kz-process-profile", "kz-process-auto-state"]) storage.delete(key);
+    composeNs.processProfileUi.clear();
+    composeNs.mergeBackendAutoState({ [line.id]: { enabled: true, mode: "dev-auto" }, [legacy.id]: { enabled: true } });
+    await flush();
+    const lastRun = (id) => invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === id)?.args;
+    await composeNs.sendAutoToSession("继续", line.session_id);
+    sandbox.releaseAutoContinue(line.session_id);
+    assert(lastRun(line.id)?.agent === "dev", `重启后(本地档位已空)自主线的续跑轮应按后端记的档位发 dev,实为 ${lastRun(line.id)?.agent}`);
+    await composeNs.sendAutoToSession("继续", legacy.session_id);
+    sandbox.releaseAutoContinue(legacy.session_id);
+    assert(lastRun(legacy.id)?.agent === "dev", `升级前没记档位、鞭挞开着的线应按自主档续跑(那是它此前实际的档位),实为 ${lastRun(legacy.id)?.agent}`);
+    assert(composeNs.processAutoState.get(legacy.id)?.mode === "dev-auto", "旧存档补记的档位应写回存档(一次性迁移)");
+    // 写入侧:当前线切档位 → 存档带 mode,经 ui_prefs_set 落到后端。
+    const before = invokeArgs.length;
+    byId.get("profile-select").value = "dev-pair";
+    byId.get("profile-select").dispatchEvent({ type: "change" });
+    await flush();
+    const savedState = invokeArgs.slice(before).findLast(({ cmd, args }) => cmd === "ui_prefs_set" && args?.process_auto_state)?.args?.process_auto_state;
+    assert(savedState?.[sandbox.activeProcessId]?.mode === "dev-pair", `切档位后存档应带 mode 落后端,实为 ${JSON.stringify(savedState?.[sandbox.activeProcessId])}`);
+    // applyAutoUiState / applyAutoStopToSession 都经 normalizeAutoState 回写,不能把档位抹掉。
+    assert(composeNs.normalizeAutoState({ enabled: true, mode: "dev-auto" }).mode === "dev-auto", "normalizeAutoState 丢了 mode");
+    // 旧键(`d|\\?\…`)与新键并存时去前缀的(本版本写的、较新的)赢。
+    const keyed = composeNs.normalizeProcessKeyed([["d|\\\\?\\C:\\x", { enabled: true }], ["d|C:\\x", { enabled: false }]]);
+    assert(keyed.size === 1 && keyed.get("d|C:\\x")?.enabled === false, `旧键与新键并存时应保留新键的值,实为 ${JSON.stringify([...keyed])}`);
+    // 收尾恢复。
+    composeNs.processProfileUi.clear();
+    for (const [key, value] of priorProfiles) composeNs.processProfileUi.set(key, value);
+    composeNs.processAutoState.delete(line.id);
+    composeNs.processAutoState.delete(legacy.id);
+    if (priorGlobal !== undefined) storage.set("kz-profile", priorGlobal);
+    byId.get("profile-select").value = priorSelect;
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    await flush();
+  }
+
+  // ⑧ 复核:后台线停在「模型在等你回答」——侧栏行单独写「在等你回答」(琥珀),切过去原因槽给同一句提示;
+  // 这条线下一轮以别的结果收口,标记过期、行回到空闲。
+  {
+    const devProcesses = payloads.process_list;
+    const line = { id: "p11|smoke-bg-wait", session_id: "sess-bg-wait", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "等回答线", running: false };
+    payloads.process_list = [...devProcesses, line];
+    await sandbox.refreshProcesses();
+    await flush();
+    const row = () => [...document.querySelectorAll(".parallel-task-row")].find((el) => el.dataset.processId === line.id);
+    composeNs.handleBackgroundSessionDone({ sessionId: line.session_id, autoAction: { type: "Stop", reason: "AwaitingUser" } });
+    await flush();
+    assert(row()?.querySelector(".parallel-task-state")?.textContent === "在等你回答", `后台线在等你回答时侧栏行应写「在等你回答」,实为「${row()?.querySelector(".parallel-task-state")?.textContent}」`);
+    assert(row()?.querySelector(".kz-glyph")?.dataset.state === "attention", `在等你回答的字形应是 attention(琥珀),实为 ${row()?.querySelector(".kz-glyph")?.dataset.state}`);
+    const activeId = sandbox.activeProcessId;
+    composeNs.applyAutoUiState(line.id);
+    const reasonOnSwitch = kzTest.stopReason();
+    composeNs.applyAutoUiState(activeId);
+    assert(reasonOnSwitch.includes("模型在等你回答"), `切到在等你回答的线,原因槽应给同一句提示,实为「${reasonOnSwitch}」`);
+    composeNs.handleBackgroundSessionDone({ sessionId: line.session_id, autoAction: { type: "NoContinue" } });
+    await flush();
+    assert(row()?.querySelector(".parallel-task-state")?.textContent === "空闲", `这条线以别的结果收口后应回到空闲,实为「${row()?.querySelector(".parallel-task-state")?.textContent}」`);
+    kzTest.cancelTimers();
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    await flush();
+  }
+
+  sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
+  await flush();
+}
+
+// ── 分区:文件编辑 ──
+// UI2-0926 #6「文件浏览要带编辑功能，而且也是做成可拖拽伸缩的」(docs/design/files_editor.md)。
+// 假 DOM 里没有 Monaco:经 17-files-editor.js 的 setMonacoLoader 接缝换成桩(model 的 alternativeVersionId、
+// EOL、撤销栈、命令表按 Monaco 语义近似),后端三条命令用一块内存「磁盘」模拟(指纹、冲突、只读、留证)。
+// 场景:S0 夹具与 IPC 契约 / S1 编辑保存(Ctrl+S、BOM、CRLF、保存期间继续输入)/ S2 冲突横幅(覆盖留证、用磁盘版本、比较)/
+// S3 切文件的未保存确认 / S4 只读原因 / S5 外部改动轮询 / S5b 静默重载(只读一次盘、最小编辑、途中打字进冲突、LF→CRLF)/
+// S6 切项目草稿(真实调用顺序)/ S7 行定位 / S8 分隔条 / S9 Ctrl+S 兜底(含模态让路)/ S11 保存被拒 ≠ 只读 / S10 新建。
+// 变异守卫:filesSaveCas / filesBomRoundtrip / filesTypingDuringSave / filesConflictBanner / filesOverwriteEvidence /
+// filesDirtyGuard / filesReadonlyApply / filesExternalReloadDirty / filesDraftStash / filesLineReveal / filesCtrlSFallback /
+// filesSplitMax / filesSplitControls / filesReloadKeepsDirty;复核修复:filesSaveRejectBlocked / filesDraftIntoBlocked /
+// filesWatchReuseRead / filesReloadRecheckDirty / filesMinimalReload / filesEolReload / filesDraftKeyRoot / filesCtrlSModal /
+// filesSaveClosesCompare / filesHeadSetText / filesLanguageRerender(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
+{
+  const editorNs = esmModuleCache.get("17-files-editor.js")?.namespace;
+  const filesNs = esmModuleCache.get("17-files.js")?.namespace;
+  const layoutNs = esmModuleCache.get("03-layout.js")?.namespace;
+  const i18nNs = esmModuleCache.get("02-i18n.js")?.namespace;
+  assert(editorNs && typeof editorNs.setMonacoLoader === "function" && typeof editorNs.openFileDoc === "function", "17-files-editor.js 未加载或未导出 setMonacoLoader/openFileDoc");
+  assert(filesNs && typeof filesNs.openFilePreview === "function", "17-files.js 未加载或未导出 openFilePreview");
+
+  // ---- Monaco 桩 ----
+  const KeyMod = { CtrlCmd: 2048 };
+  const KeyCode = { KeyS: 49 };
+  const EndOfLineSequence = { LF: 0, CRLF: 1 };
+  const SAVE_KEY = KeyMod.CtrlCmd | KeyCode.KeyS;
+  const stubModels = [];
+  const stubEditors = [];
+  const stubDiffs = [];
+  let versionSeq = 0;
+  const splitLines = (text) => String(text ?? "").split(/\r\n|\r|\n/);
+  class StubModel {
+    constructor(value, language, uri) {
+      const text = String(value ?? "");
+      const crlf = (text.match(/\r\n/g) ?? []).length;
+      const total = (text.match(/\r\n|\r|\n/g) ?? []).length;
+      this.uri = uri ?? { scheme: "inmemory", path: `/model-${stubModels.length}` };
+      this.language = language || "plaintext";
+      this.eol = total && crlf * 2 > total ? "\r\n" : "\n";
+      this.lines = splitLines(text);
+      this.alt = ++versionSeq;
+      this.undoStack = [];
+      this.listeners = [];
+      this.disposed = false;
+      stubModels.push(this);
+    }
+    _changed() { for (const fn of this.listeners) fn({}); }
+    getValue() { return this.lines.join(this.eol); }
+    setValue(text) { this.lines = splitLines(text); this.undoStack = []; this.alt = ++versionSeq; this._changed(); }
+    // 按范围应用编辑(从后往前,偏移互不影响);插入文本里的换行归一成 model 的换行(Monaco 同样如此)。
+    // lastEdits 记下最近一次编辑的范围:静默重载要只替换变化的区间(光标与选区随编辑平移)。
+    pushEditOperations(_selections, ops) {
+      this.undoStack.push({ lines: this.lines.slice(), alt: this.alt });
+      let text = this.getValue();
+      const sorted = [...ops].sort((a, b) => this._offsetAt(b.range.startLineNumber, b.range.startColumn) - this._offsetAt(a.range.startLineNumber, a.range.startColumn));
+      for (const op of sorted) {
+        const from = this._offsetAt(op.range.startLineNumber, op.range.startColumn);
+        const to = this._offsetAt(op.range.endLineNumber, op.range.endColumn);
+        text = text.slice(0, from) + String(op.text ?? "") + text.slice(to);
+      }
+      this.lines = splitLines(text);
+      this.lastEdits = ops.map((op) => ({ ...op.range }));
+      this.alt = ++versionSeq;
+      this._changed();
+      return null;
+    }
+    _offsetAt(line, column) {
+      let offset = 0;
+      for (let i = 0; i < line - 1 && i < this.lines.length; i += 1) offset += this.lines[i].length + this.eol.length;
+      return offset + column - 1;
+    }
+    getPositionAt(offset) {
+      let rest = Math.max(0, offset);
+      for (let i = 0; i < this.lines.length; i += 1) {
+        if (rest <= this.lines[i].length) return { lineNumber: i + 1, column: rest + 1 };
+        rest -= this.lines[i].length + this.eol.length;
+      }
+      return { lineNumber: this.lines.length, column: this.lines.at(-1).length + 1 };
+    }
+    pushStackElement() {}
+    getFullModelRange() { return { startLineNumber: 1, startColumn: 1, endLineNumber: this.lines.length, endColumn: this.lines.at(-1).length + 1 }; }
+    // 测试用:在末尾打字 / 撤销一步。
+    type(text) { this.undoStack.push({ lines: this.lines.slice(), alt: this.alt }); this.lines = splitLines(this.getValue() + text); this.alt = ++versionSeq; this._changed(); }
+    undo() { const prev = this.undoStack.pop(); if (!prev) return; this.lines = prev.lines; this.alt = prev.alt; this._changed(); }
+    getAlternativeVersionId() { return this.alt; }
+    setEOL(sequence) { this.eol = sequence === EndOfLineSequence.CRLF ? "\r\n" : "\n"; this.alt = ++versionSeq; this._changed(); }
+    getEOL() { return this.eol; }
+    onDidChangeContent(fn) { this.listeners.push(fn); return { dispose() {} }; }
+    getLineCount() { return this.lines.length; }
+    getLineMaxColumn(line) { return (this.lines[line - 1] ?? "").length + 1; }
+    getLanguageId() { return this.language; }
+    dispose() { this.disposed = true; }
+  }
+  const monacoStub = {
+    KeyMod, KeyCode,
+    Uri: { file: (path) => ({ scheme: "file", path: `/${path}` }) },
+    editor: {
+      EndOfLineSequence,
+      create(el, options) {
+        const editor = {
+          el, options: { ...options }, model: null, commands: [], revealed: null, position: null, selection: null, focused: 0,
+          getModel() { return this.model; },
+          setModel(model) { this.model = model; },
+          updateOptions(next) { Object.assign(this.options, next); },
+          addCommand(keybinding, fn) { this.commands.push({ keybinding, fn }); return this.commands.length; },
+          revealLineInCenter(line) { this.revealed = line; },
+          setPosition(position) { this.position = position; },
+          setSelection(selection) { this.selection = selection; },
+          focus() { this.focused += 1; },
+          dispose() {},
+        };
+        stubEditors.push(editor);
+        return editor;
+      },
+      createModel: (value, language, uri) => new StubModel(value, language, uri),
+      getModel: (uri) => stubModels.find((model) => !model.disposed && model.uri?.path === uri?.path) ?? null,
+      createDiffEditor(el, options) {
+        const modified = { commands: [], addCommand(keybinding, fn) { this.commands.push({ keybinding, fn }); } };
+        const diff = { el, options, model: null, disposed: false, setModel(model) { this.model = model; }, getModifiedEditor: () => modified, dispose() { this.disposed = true; } };
+        stubDiffs.push(diff);
+        return diff;
+      },
+      setTheme() {},
+    },
+  };
+  editorNs.setMonacoLoader(async () => monacoStub);
+
+  // ---- 内存磁盘 + 后端桩 ----
+  const djb2 = (text) => { let h = 5381; for (const ch of text) h = ((h * 33) ^ ch.codePointAt(0)) >>> 0; return h.toString(16).padStart(8, "0"); };
+  const fingerprint = (file) => `fnv-${djb2(`${file.bom ? "\uFEFF" : ""}${file.text}`)}`;
+  const disk = new Map();
+  let clock = 1000;
+  const putDisk = (path, text, { bom = false, binary = false } = {}) => disk.set(path, { text, bom, binary, mtime: (clock += 10) });
+  // forcedReadonly:模拟「打开之后磁盘上的文件变了性质」(被转成 GBK、加了只读属性……):预览报只读、写入被拒。
+  const forcedReadonly = new Map();
+  const readonlyOf = (path) => forcedReadonly.get(path) ?? (/^\.kanzei\/(project|memory)\//i.test(path) ? "managed" : /(^|\/)\.git\//i.test(path) ? "git" : null);
+  const eolOf = (text) => { const crlf = (text.match(/\r\n/g) ?? []).length; const total = (text.match(/\r\n|\r|\n/g) ?? []).length; return total && crlf * 2 > total ? "crlf" : "lf"; };
+  const writes = [];
+  const smokeFileSnapshot = {
+    files: [
+      { path: "src/lib.rs", size: 40, lines: 2, oversized: false, note: null },
+      { path: "src/main.rs", size: 20, lines: 1, oversized: false, note: null },
+      { path: "docs/note.md", size: 10, chars: 10, oversized: false, note: null },
+      { path: ".kanzei/project/requirements.md", size: 12, chars: 12, oversized: false, note: null },
+    ],
+    dirs: { "": { files: 4, size: 82, lines: 3 }, src: { files: 2, size: 60, lines: 3 }, docs: { files: 1, size: 10, lines: 0 }, ".kanzei": { files: 1, size: 12, lines: 0 }, ".kanzei/project": { files: 1, size: 12, lines: 0 } },
+    dirNotes: {}, annotated: 0, annotatable: 4, unannotated: 4, reused: 0,
+  };
+  const savedPayloads = Object.fromEntries(["file_preview", "file_stat", "file_write", "files_snapshot"].map((cmd) => [cmd, payloads[cmd]]));
+  payloads.files_snapshot = smokeFileSnapshot;
+  payloads.file_preview = ({ path }) => {
+    const file = disk.get(path);
+    if (!file) throw new Error(`无法打开 ${path}: 文件不存在`);
+    const size = file.text.length + (file.bom ? 3 : 0);
+    if (file.binary) {
+      return { content: "", binary: true, truncated: false, size, hash: fingerprint(file), bom: false, eol: "lf", mixedEol: false, encoding: "unknown", mtimeMs: file.mtime, readonly: "binary" };
+    }
+    return {
+      content: file.text, binary: false, truncated: false, size, hash: fingerprint(file), bom: file.bom,
+      eol: eolOf(file.text), mixedEol: /\r\n/.test(file.text) && /(^|[^\r])\n/.test(file.text), encoding: "utf-8", mtimeMs: file.mtime, readonly: readonlyOf(path),
+    };
+  };
+  payloads.file_stat = ({ path }) => {
+    const file = disk.get(path);
+    return file ? { exists: true, size: file.text.length + (file.bom ? 3 : 0), mtimeMs: file.mtime } : { exists: false, size: 0, mtimeMs: null };
+  };
+  payloads.file_write = ({ path, content, expectedHash, bom, evidence }) => {
+    writes.push({ path, content, expectedHash, bom, evidence });
+    const code = readonlyOf(path);
+    if (code) throw new Error(`READONLY:${code}`);
+    const file = disk.get(path);
+    if (file?.binary) throw new Error("READONLY:binary"); // 与 files_edit.rs 一致:磁盘上已是二进制就拒写
+    if (file) {
+      const current = fingerprint(file);
+      if (expectedHash !== current) return { status: "conflict", hash: current, size: file.text.length, mtimeMs: file.mtime, exists: true, evidence: null };
+    } else if (expectedHash != null) {
+      return { status: "conflict", hash: null, size: 0, mtimeMs: null, exists: false, evidence: null };
+    }
+    const next = { text: content, bom: Boolean(bom), mtime: (clock += 10) };
+    disk.set(path, next);
+    return { status: "saved", hash: fingerprint(next), size: content.length, mtimeMs: next.mtime, exists: true, evidence: evidence && file ? `.kanzei/quarantine/files-overwrite-${clock}/${path}` : null };
+  };
+  const priorConfirm = sandbox.confirmDialog;
+  const priorInput = sandbox.inputDialog;
+  const priorProject = sandbox.currentProject;
+  const view = byId.get("view-files");
+  const hidden = (id) => byId.get(id)?.classList.contains("hidden") !== false;
+  const editor = () => editorNs.filesEditor;
+  const model = () => editorNs.filesEditor?.getModel?.();
+  const doc = () => editorNs.filesDoc;
+  const saveCommand = () => editor()?.commands.find((command) => command.keybinding === SAVE_KEY)?.fn;
+  const lastWrite = () => writes.at(-1);
+  const treeRow = (name) => (byId.get("files-tree")?.querySelectorAll(".files-file") ?? []).find((row) => row.querySelector(".files-name")?.textContent === name);
+  const open = async (path, line) => { const result = editorNs.openFileDoc({ path, ...(line ? { line } : {}) }); await flush(); return result; };
+  try {
+    sandbox.currentProject = PROJECT;
+    // 前面分区可能留着模态(查看器/命令面板)。
+    for (const id of ["viewer-overlay", "palette", "confirm-overlay", "input-overlay"]) esmModuleCache.get("00-surface.js")?.namespace?.closeSurface?.(byId.get(id));
+    filesNs.reset_files_scope();
+    for (const el of document.querySelectorAll(".view")) el.classList.remove("active");
+    filesNs.showFilesView();
+    filesNs.filesExpanded.add("src");
+    await flush();
+
+    // S0 夹具形状与 IPC 契约一致(契约由 kanzei-app ipc_contract 测试拿真实命令跑出来)。
+    {
+      const contract = JSON.parse(await readFile(resolve(root, "scripts/ipc-contract.json"), "utf8"));
+      const shapeOf = (value) => {
+        if (Array.isArray(value)) return value.length ? [shapeOf(value[0])] : "array";
+        if (value === null || value === undefined) return "nullable";
+        if (typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((k) => [k, shapeOf(value[k])]));
+        return { string: "string", number: "number", boolean: "bool" }[typeof value] ?? typeof value;
+      };
+      putDisk("src/lib.rs", "fn a() {}\r\nfn b() {}\r\n", { bom: true });
+      const samples = {
+        file_preview: payloads.file_preview({ path: "src/lib.rs" }),
+        file_stat: payloads.file_stat({ path: "src/lib.rs" }),
+        file_write: { status: "saved", hash: "fnv-0", size: 1, mtimeMs: 1, exists: true, evidence: ".kanzei/quarantine/files-overwrite-1/src/lib.rs" },
+      };
+      for (const [cmd, sample] of Object.entries(samples)) {
+        assert(contract[cmd], `ipc-contract.json 缺 ${cmd} 条目(跑 KZ_UPDATE_IPC_CONTRACT=1 cargo test -p kanzei-app ${cmd}_形状)`);
+        const expected = contract[cmd] ?? {};
+        const actual = shapeOf(sample);
+        for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+          const want = expected[key];
+          const got = actual[key];
+          const ok = want !== undefined && got !== undefined && (want === "nullable" || got === "nullable" || want === got);
+          assert(ok, `${cmd}.${key}:契约 ${JSON.stringify(want)} vs 冒烟夹具 ${JSON.stringify(got)}(夹具与后端真实形状要一起改)`);
+        }
+      }
+      for (const code of Object.keys(editorNs.READONLY_TEXT)) {
+        assert(i18nNs.I18N_EN[editorNs.READONLY_TEXT[code]], `只读原因 ${code} 缺英文词条(READONLY_TEXT 经 t() 间接取值,i18n 静态冒烟看不见)`);
+      }
+      // labelled("标签", 内容) 同理:标签经 t() 间接取值。
+      const editorSource = sources[scriptSrcs.indexOf("17-files-editor.js")] ?? "";
+      const labels = [...editorSource.matchAll(/labelled\("([^"]+)"/g)].map((match) => match[1]);
+      assert(labels.length >= 10, `前置:17-files-editor.js 里应能找到 labelled("…") 调用,实得 ${labels.length} 处`);
+      for (const label of labels) assert(i18nNs.I18N_EN[label] || i18nNs.I18N_DYNAMIC_EN?.[label], `labelled 标签「${label}」缺英文词条`);
+      assert(editorNs.toProjectRel("C:\\smoke\\project\\src\\lib.rs", PROJECT) === "src/lib.rs" && editorNs.toProjectRel("./src/lib.rs", PROJECT) === "src/lib.rs",
+        "工具结果里项目根下的绝对路径 / ./ 前缀应转成相对根的路径");
+    }
+
+    // S1 编辑与保存:可编辑、脏标记(头部 + 树)、Ctrl+S 走比较并交换、BOM 与 CRLF 原样回传、撤销回原点 = 干净。
+    {
+      putDisk("src/lib.rs", "fn a() {}\r\nfn b() {}\r\n", { bom: true });
+      await open("src/lib.rs");
+      const opened = payloads.file_preview({ path: "src/lib.rs" }).hash;
+      assert(editor()?.options.readOnly === false, `可编辑文件的 Monaco 应为 readOnly:false,实为 ${editor()?.options.readOnly}`);
+      assert(editor()?.options.unusualLineTerminators === "off", "可编辑态要关掉 unusualLineTerminators 弹窗(原样保留 U+2028)");
+      assert(model()?.getValue() === "fn a() {}\r\nfn b() {}\r\n", `CRLF 文件打开后 model 应保持 CRLF,实为 ${JSON.stringify(model()?.getValue())}`);
+      assert(typeof saveCommand() === "function", "编辑器没有绑定 Ctrl/Cmd+S 命令");
+      assert(!editorNs.isFilesDirty() && hidden("files-dirty") && byId.get("files-save")?.disabled === true, "刚打开的文件不应是脏的,保存键应禁用");
+      assert(!hidden("files-preview-head") && byId.get("files-preview-path")?.textContent === "src/lib.rs", "头部应显示当前文件路径");
+      assert(/UTF-8 BOM/.test(byId.get("files-preview-meta")?.textContent ?? "") && /CRLF/.test(byId.get("files-preview-meta")?.textContent ?? ""), `头部应显示编码与换行,实为 "${byId.get("files-preview-meta")?.textContent}"`);
+      assert(treeRow("lib.rs")?.getAttribute("aria-selected") === "true", "树里当前文件行应 aria-selected=true");
+      model().type("// x");
+      assert(editorNs.isFilesDirty() && !hidden("files-dirty") && byId.get("files-save")?.disabled === false && !hidden("files-discard"), "改动后应出现「未保存」与可用的保存键/放弃修改");
+      assert(treeRow("lib.rs")?.classList.contains("dirty") && treeRow("lib.rs")?.querySelector(".files-dirty-dot") && /未保存/.test(treeRow("lib.rs")?.getAttribute("aria-label") ?? ""), "树上的脏文件应有 .dirty、琥珀点与带「未保存」的读屏名");
+      model().undo();
+      assert(!editorNs.isFilesDirty(), "撤销回原点应算干净(alternativeVersionId 语义)");
+      model().type("// x");
+      await saveCommand()();
+      await flush();
+      const write = lastWrite();
+      assert(write?.path === "src/lib.rs" && write.expectedHash === opened, `保存必须带打开时的内容指纹做比较并交换,实为 ${JSON.stringify(write?.expectedHash)}`);
+      assert(write?.bom === true, "带 BOM 的文件保存时要让后端补回 BOM(bom:true)");
+      assert(write?.content.includes("\r\n") && !write.content.includes("\uFEFF"), "保存内容应保持 CRLF 且不含 BOM 字符(BOM 由后端补)");
+      assert(!editorNs.isFilesDirty() && hidden("files-dirty") && !treeRow("lib.rs")?.classList.contains("dirty"), "保存成功后应回到干净");
+      assert(doc()?.hash === fingerprint(disk.get("src/lib.rs")), "保存成功后 doc.hash 应换成写出内容的指纹(下次保存以它为准)");
+      // 保存期间继续输入:保存返回后那部分仍算未保存。
+      model().type("\r\n// y");
+      let release;
+      invokeGates.set("file_write", new Promise((resolveGate) => { release = resolveGate; }));
+      const pending = editorNs.saveFilesDoc();
+      await flush();
+      assert(byId.get("files-save")?.disabled === true && byId.get("files-save")?.getAttribute("aria-busy") === "true", "保存进行中保存键应禁用并 aria-busy");
+      model().type(" more");
+      invokeGates.delete("file_write");
+      release();
+      await pending;
+      await flush();
+      assert(editorNs.isFilesDirty() && !hidden("files-dirty"), "保存期间继续输入的内容保存返回后仍应是未保存");
+      await saveCommand()();
+      await flush();
+      assert(!editorNs.isFilesDirty(), "再保存一次应干净");
+    }
+
+    // S2 冲突:打开后磁盘被改 → 保存返回冲突,横幅出现、编辑器内容不动、轮询暂停;覆盖磁盘版本带冲突指纹 + 留证;用磁盘版本重载;比较开关 diff。
+    {
+      putDisk("src/lib.rs", "base\n");
+      editorNs.resetFilesDoc();
+      await open("src/lib.rs");
+      model().type("mine");
+      putDisk("src/lib.rs", "agent changed\n");
+      await saveCommand()();
+      await flush();
+      assert(doc()?.conflict?.exists === true && doc().conflict.hash === fingerprint(disk.get("src/lib.rs")), `冲突应记下磁盘现状指纹,实为 ${JSON.stringify(doc()?.conflict)}`);
+      assert(!hidden("files-conflict") && /id="files-conflict"[^>]*role="alert"/.test(html), "冲突横幅应显示(role=alert)");
+      assert(model()?.getValue() === "base\nmine", `冲突时编辑器里的修改不能丢,实为 ${JSON.stringify(model()?.getValue())}`);
+      assert(disk.get("src/lib.rs").text === "agent changed\n", "冲突时不得写盘");
+      assert(await editorNs.filesWatchTick() === false, "冲突未决时轮询应暂停");
+      const writesBefore = writes.length;
+      await saveCommand()();
+      await flush();
+      assert(writes.length === writesBefore, "冲突未决时 Ctrl+S 不应再发普通保存(提示去横幅里选)");
+      // 读屏:横幅文字没变时,敲键不得重写 role=alert 容器与 role=status 的同步提示(换一次文本节点读屏就重读一遍)。
+      {
+        const spied = ["files-conflict-text", "files-sync"].map((id) => byId.get(id));
+        let rewrites = 0;
+        for (const el of spied) {
+          let proto = Object.getPrototypeOf(el);
+          let descriptor = null;
+          while (proto && !(descriptor = Object.getOwnPropertyDescriptor(proto, "textContent"))) proto = Object.getPrototypeOf(proto);
+          Object.defineProperty(el, "textContent", {
+            configurable: true,
+            get() { return descriptor.get.call(this); },
+            set(value) { rewrites += 1; descriptor.set.call(this, value); },
+          });
+        }
+        model().type("x");
+        model().type("y");
+        for (const el of spied) delete el.textContent;
+        model().undo();
+        model().undo();
+        assert(rewrites === 0, `冲突横幅/同步提示文字没变时,每次按键不得重写文本(读屏会重读),实际重写 ${rewrites} 次`);
+      }
+      // 切语言:横幅按钮(渲染点 t() 写的,没有 data-i18n-key)随语言重写。
+      {
+        const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+        sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+        await flush();
+        const useDiskEn = byId.get("files-use-disk")?.textContent;
+        const overwriteEn = byId.get("files-overwrite")?.textContent;
+        sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+        await flush();
+        const useDiskZh = byId.get("files-use-disk")?.textContent;
+        sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
+        await flush();
+        assert(useDiskEn === i18nNs.I18N_EN["用磁盘版本"] && overwriteEn === i18nNs.I18N_EN["覆盖磁盘版本"], `切到英文后冲突横幅按钮应立即变英文,实为 ${JSON.stringify([useDiskEn, overwriteEn])}`);
+        assert(useDiskZh === "用磁盘版本", `切回中文后冲突横幅按钮应回到中文,实为 ${JSON.stringify(useDiskZh)}`);
+      }
+      // 比较:打开 diff(左 = 磁盘版本,右 = 当前 model),再点关闭并释放磁盘 model。
+      byId.get("files-compare").click();
+      await flush();
+      const diff = stubDiffs.at(-1);
+      assert(diff && diff.model?.modified === model() && diff.model?.original?.getValue() === "agent changed\n", "比较应以磁盘版本为左、当前 model 为右");
+      assert(!hidden("files-diff") && hidden("files-editor") && !hidden("files-compare-head") && byId.get("files-compare")?.getAttribute("aria-pressed") === "true", "比较时应显示 diff 与说明条,隐藏单编辑器");
+      assert(diff.getModifiedEditor().commands.some((command) => command.keybinding === SAVE_KEY), "比较视图的右侧编辑器也要能 Ctrl+S");
+      const original = diff.model.original;
+      byId.get("files-diff").dispatchEvent({ type: "keydown", key: "Escape", defaultPrevented: false, preventDefault() {} });
+      await flush();
+      assert(diff.disposed && original.disposed && hidden("files-diff") && !hidden("files-editor"), "Esc 应关闭比较并释放 diff 与磁盘 model");
+      // 覆盖磁盘版本(在比较视图里点):按冲突指纹交换、要求留证;成功后比较视图收起(冲突已了结,左侧的磁盘版本已过时)。
+      byId.get("files-compare").click();
+      await flush();
+      const reopened = stubDiffs.at(-1);
+      assert(editorNs.isFilesComparing() && reopened && !reopened.disposed, "前置:比较视图应已重新打开");
+      byId.get("files-overwrite").click();
+      await flush();
+      const overwrite = lastWrite();
+      assert(overwrite?.expectedHash === fingerprint({ text: "agent changed\n", bom: false }) && overwrite.evidence === true, `覆盖磁盘版本应带冲突指纹并要求留证,实为 ${JSON.stringify(overwrite)}`);
+      assert(disk.get("src/lib.rs").text === "base\nmine" && !doc()?.conflict && hidden("files-conflict"), "覆盖后应写盘并收起横幅");
+      assert(!editorNs.isFilesComparing() && reopened.disposed && hidden("files-diff") && !hidden("files-editor") && hidden("files-compare-head"), "保存成功后应关掉比较视图、回到单编辑器");
+      // 用磁盘版本:重新读盘,干净,Ctrl+Z 还能回到刚才的修改。
+      model().type(" again");
+      putDisk("src/lib.rs", "agent v2\n");
+      await saveCommand()();
+      await flush();
+      assert(doc()?.conflict, "第二次冲突应再次出横幅");
+      byId.get("files-use-disk").click();
+      await flush();
+      assert(model()?.getValue() === "agent v2\n" && !editorNs.isFilesDirty() && !doc()?.conflict, "用磁盘版本应重载为磁盘内容且干净");
+      model().undo();
+      assert(model()?.getValue() === "base\nmine again" && editorNs.isFilesDirty(), "用磁盘版本后 Ctrl+Z 应能回到自己的修改(保留撤销)");
+      // 选「用磁盘版本」时文件恰好被删:未保存的修改不能丢,转成「已删除」冲突,按钮变「重新创建」,重新创建不带指纹。
+      editorNs.resetFilesDoc();
+      putDisk("src/lib.rs", "keep me\n");
+      await open("src/lib.rs");
+      model().type("unsaved");
+      putDisk("src/lib.rs", "agent v3\n");
+      await saveCommand()();
+      await flush();
+      disk.delete("src/lib.rs");
+      byId.get("files-use-disk").click();
+      await flush();
+      assert(model() && !model().disposed && model().getValue() === "keep me\nunsaved", "重载读盘失败时不得释放带未保存修改的 model");
+      assert(doc()?.conflict?.exists === false && byId.get("files-overwrite")?.textContent === i18nNs.t("重新创建"), "文件已删时横幅应改成「重新创建」");
+      byId.get("files-overwrite").click();
+      await flush();
+      assert(lastWrite()?.expectedHash === null && lastWrite()?.evidence === false && disk.get("src/lib.rs")?.text === "keep me\nunsaved", "重新创建应不带指纹写回编辑器内容");
+      editorNs.resetFilesDoc();
+    }
+
+    // S3 切文件:有未保存修改时先问;取消 = 留在原文件(不释放 model、树高亮不动),不保存 = 丢弃,保存 = 先保存再切。
+    {
+      putDisk("src/lib.rs", "one\n");
+      putDisk("src/main.rs", "fn main() {}\n");
+      await open("src/lib.rs");
+      model().type("edit");
+      const kept = model();
+      let asked = null;
+      sandbox.confirmDialog = (options) => { asked = options; return Promise.resolve(false); };
+      const cancelled = await open("src/main.rs");
+      assert(asked?.okText === i18nNs.t("保存") && asked?.safeText === i18nNs.t("不保存"), `未保存确认应是 保存 / 不保存 / 取消,实为 ${JSON.stringify(asked)}`);
+      assert(!cancelled && doc()?.path === "src/lib.rs" && model() === kept && !kept.disposed && kept.getValue() === "one\nedit", "取消切换应留在原文件且修改完好");
+      assert(filesNs.filesActivePath === "src/lib.rs", "取消切换时树高亮不应跳到新文件");
+      sandbox.confirmDialog = () => Promise.resolve(true);
+      await open("src/main.rs");
+      assert(disk.get("src/lib.rs").text === "one\nedit" && doc()?.path === "src/main.rs", "选「保存」应先保存再切换");
+      model().type("x");
+      sandbox.confirmDialog = () => Promise.resolve("safe");
+      await open("src/lib.rs");
+      assert(doc()?.path === "src/lib.rs" && disk.get("src/main.rs").text === "fn main() {}\n", "选「不保存」应丢弃修改后切换");
+      sandbox.confirmDialog = priorConfirm;
+    }
+
+    // S4 只读:托管文档 readOnly、只读原因条、隐藏保存键、Ctrl+S 不写盘;跳转按钮指向对应页面。
+    {
+      putDisk(".kanzei/project/requirements.md", "# Requirements\n");
+      await open(".kanzei/project/requirements.md");
+      assert(doc()?.readonly === "managed" && editor()?.options.readOnly === true, `托管文档应只读,实为 ${doc()?.readonly} / ${editor()?.options.readOnly}`);
+      assert(String(editor()?.options.readOnlyMessage?.value ?? "").includes("托管"), "Monaco 的只读提示应说明原因");
+      assert(!hidden("files-readonly") && /托管围栏/.test(byId.get("files-readonly-text")?.textContent ?? ""), "只读原因条应显示并说明托管围栏");
+      assert(!hidden("files-readonly-goto") && byId.get("files-readonly-goto")?.dataset.view === "documents", "托管需求文档应给出「打开需求页」");
+      assert(hidden("files-save") && hidden("files-discard"), "只读文件不显示保存/放弃修改");
+      const writesBefore = writes.length;
+      await saveCommand()();
+      await flush();
+      assert(writes.length === writesBefore, "只读文件 Ctrl+S 不得调 file_write");
+    }
+
+    // S5 外部改动:干净 → 静默重载并提示「已从磁盘更新」;有未保存修改 → 进冲突,编辑器内容不动。只 touch 不重载。
+    {
+      putDisk("docs/note.md", "v1\n");
+      await open("docs/note.md");
+      disk.get("docs/note.md").mtime = (clock += 10);
+      const reads = invokeArgs.filter((call) => call.cmd === "file_preview").length;
+      await editorNs.filesWatchTick();
+      await flush();
+      const readsAfterTouch = invokeArgs.filter((call) => call.cmd === "file_preview").length;
+      assert(readsAfterTouch === reads + 1 && model()?.getValue() === "v1\n", "只 touch(内容没变)应只核对指纹、不重载");
+      assert(await editorNs.filesWatchTick() === false && invokeArgs.filter((call) => call.cmd === "file_preview").length === readsAfterTouch, "touch 后记下新时间,下一拍不再读内容");
+      putDisk("docs/note.md", "v2 from agent\n");
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(model()?.getValue() === "v2 from agent\n" && !editorNs.isFilesDirty(), "干净的文件被外部改动后应静默重载");
+      assert(byId.get("files-sync")?.textContent === i18nNs.t("已从磁盘更新") && /id="files-sync"[^>]*role="status"/.test(html), "静默重载应在头部提示「已从磁盘更新」(role=status)");
+      model().type("mine");
+      putDisk("docs/note.md", "v3 from agent\n");
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(doc()?.conflict?.exists === true && model()?.getValue() === "v2 from agent\nmine", "有未保存修改时外部改动应进冲突态、不动编辑器内容");
+      byId.get("files-use-disk").click();
+      await flush();
+      disk.delete("docs/note.md");
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(!doc() && /已在磁盘上被删除/.test(byId.get("files-placeholder")?.textContent ?? ""), "干净的文件被删后应关掉并说明");
+    }
+
+    // S5b 静默重载:只读一次盘(轮询刚读到的版本直接交给重载);只替换变化的行区间(光标/选区随编辑平移);
+    // 重载途中(还在等 Monaco / 读盘)用户开始打字 → 进冲突态、不盖掉;磁盘从 LF 改成 CRLF → model 换行跟上。
+    {
+      const previews = () => invokeArgs.filter((call) => call.cmd === "file_preview").length;
+      putDisk("docs/note.md", "l1\nl2\nl3\nl4\nl5\n");
+      await open("docs/note.md");
+      putDisk("docs/note.md", "l1\nl2\nL3 by agent\nl4\nl5\n");
+      const readsBefore = previews();
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(previews() === readsBefore + 1, `轮询发现外部改动后只应读一次盘(读到的版本直接交给重载,第二次读盘途中打的字会被盖掉),实为 ${previews() - readsBefore} 次`);
+      assert(model()?.getValue() === "l1\nl2\nL3 by agent\nl4\nl5\n" && !editorNs.isFilesDirty(), "干净文件应静默重载为磁盘内容");
+      const edit = model()?.lastEdits?.at(-1);
+      assert(edit && edit.startLineNumber === 3 && edit.endLineNumber === 3, `静默重载应只替换变化的那一行(整篇替换会让光标跳位),实为 ${JSON.stringify(edit)}`);
+      // 重载途中打字:把 Monaco 加载挂住(脏检查之后、替换之前的那段 await),期间打字。
+      let releaseMonaco;
+      const monacoGate = new Promise((resolveGate) => { releaseMonaco = resolveGate; });
+      editorNs.setMonacoLoader(() => monacoGate.then(() => monacoStub));
+      putDisk("docs/note.md", "l1\nl2\nL3 v2\nl4\nl5\n");
+      const tick = editorNs.filesWatchTick();
+      await flush();
+      model().type("typed");
+      releaseMonaco();
+      await tick;
+      await flush();
+      editorNs.setMonacoLoader(async () => monacoStub);
+      assert(model()?.getValue() === "l1\nl2\nL3 by agent\nl4\nl5\ntyped" && editorNs.isFilesDirty(), `重载途中打的字不能被磁盘版本盖掉,实为 ${JSON.stringify(model()?.getValue())}`);
+      assert(doc()?.conflict?.exists === true && doc().conflict.hash === fingerprint(disk.get("docs/note.md")) && !hidden("files-conflict"), "重载途中变脏应改进冲突态(带磁盘现状指纹)");
+      byId.get("files-use-disk").click();
+      await flush();
+      assert(model()?.getValue() === "l1\nl2\nL3 v2\nl4\nl5\n" && !editorNs.isFilesDirty(), "前置:用磁盘版本后应干净");
+      // 干净文件在磁盘上从 LF 改成 CRLF(行内容不变):重载后 model 的换行要跟着变,下次保存才仍是 CRLF。
+      putDisk("docs/note.md", "l1\r\nl2\r\nL3 v2\r\nl4\r\nl5\r\n");
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(model()?.getEOL() === "\r\n" && !editorNs.isFilesDirty(), `磁盘从 LF 改成 CRLF 后重载,model 换行应为 CRLF,实为 ${JSON.stringify(model()?.getEOL())}`);
+      // 有未保存修改时磁盘上的文件被换成二进制(代理生成了图片之类):轮询在进 loadDoc 之前就判脏进冲突——
+      // loadDoc 的二进制分支会释放 model,重载里的复查排在它后面兜不住这一支。
+      model().type("mine");
+      const kept = model();
+      putDisk("docs/note.md", "PNG\0data", { binary: true });
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(doc()?.conflict?.exists === true && model() === kept && !kept.disposed && kept.getValue().endsWith("mine"), "有未保存修改时磁盘被换成二进制,应进冲突态且保住带修改的 model");
+      // 覆盖一个已变成二进制的文件:后端拒(READONLY:binary)→ 记成保存被拒,修改仍在、仍是未保存。
+      byId.get("files-overwrite").click();
+      await flush();
+      assert(doc()?.blocked === "binary" && editorNs.isFilesDirty() && model() === kept && disk.get("docs/note.md").binary, "覆盖已变成二进制的文件被拒时应记成保存被拒,修改仍在");
+      byId.get("files-use-disk").click();
+      await flush();
+      assert(doc()?.binary && !model() && !hidden("files-placeholder"), "选「用磁盘版本」后显示二进制占位");
+    }
+
+    // S6 切项目:按真实顺序(activate_execution_root 先 setCurrentProject 再 reset_files_scope)。
+    // 草稿按文件所属项目记(doc.root),不按切换后的当前项目:另一个项目里的同名文件不得被注入草稿;
+    // 回到原项目的该文件恢复(变脏);草稿之后磁盘又变 → 直接冲突。
+    const OTHER_PROJECT = "C:/smoke/files-other-project";
+    const switchProject = async (next) => {
+      sandbox.currentProject = next;
+      filesNs.reset_files_scope();
+      filesNs.showFilesView();
+      await flush();
+    };
+    {
+      putDisk("src/main.rs", "fn main() {}\n");
+      await open("src/main.rs");
+      model().type("draft");
+      await switchProject(OTHER_PROJECT);
+      assert(editorNs.filesDraftCount() === 1 && !doc(), "切项目时未保存修改应暂存为草稿并清空编辑器");
+      await open("src/main.rs");
+      assert(doc()?.root === OTHER_PROJECT && model()?.getValue() === "fn main() {}\n" && !editorNs.isFilesDirty() && editorNs.filesDraftCount() === 1,
+        `另一个项目里的同名文件不得被注入草稿(草稿按文件所属项目记),实为 ${JSON.stringify(model()?.getValue())}`);
+      await switchProject(PROJECT);
+      await open("src/main.rs");
+      assert(model()?.getValue() === "fn main() {}\ndraft" && editorNs.isFilesDirty() && editorNs.filesDraftCount() === 0, "回到原项目的该文件应恢复草稿且是未保存状态");
+      await switchProject(OTHER_PROJECT);
+      putDisk("src/main.rs", "changed meanwhile\n");
+      await switchProject(PROJECT);
+      await open("src/main.rs");
+      assert(doc()?.conflict?.exists === true && model()?.getValue() === "fn main() {}\ndraft", "草稿之后磁盘又变了应直接进冲突态");
+      byId.get("files-use-disk").click();
+      await flush();
+    }
+
+    // S7 行定位:从链接打开时定位到行(新打开与已打开两种)。
+    {
+      putDisk("src/lib.rs", "l1\nl2\nl3\nl4\n");
+      await open("src/lib.rs", 3);
+      assert(editor()?.revealed === 3 && editor()?.position?.lineNumber === 3 && editor()?.selection?.startLineNumber === 3, `打开文件并定位应滚到第 3 行并选中,实为 ${editor()?.revealed}`);
+      await filesNs.openFilePreview({ path: "src/lib.rs", line: 2 });
+      await flush();
+      assert(editor()?.revealed === 2, "已打开的文件再定位应直接滚到行");
+    }
+
+    // S8 文件树分隔条:installSplit 的分隔条(aria-controls、读屏名)、上限按文件页宽度给编辑器留 360px、宽度进 ui_layout。
+    {
+      const side = byId.get("files-side");
+      const split = side?._kzSplit;
+      assert(split && split.handle.getAttribute("role") === "separator" && split.handle.getAttribute("aria-orientation") === "vertical", "文件树没有装上 installSplit 分隔条");
+      assert(split.handle.getAttribute("aria-controls") === "files-side", "分隔条应 aria-controls 指向 #files-side");
+      assert(split.handle.getAttribute("aria-label") === i18nNs.t("调整文件树宽度") && split.handle.dataset.i18nAriaLabel === "调整文件树宽度", "分隔条读屏名应是「调整文件树宽度」并可随语言重译");
+      side.getBoundingClientRect = () => ({ left: 328, top: 0, width: 340, height: 700, right: 668, bottom: 700 });
+      byId.get("files-layout").getBoundingClientRect = () => ({ left: 328, top: 0, width: 700, height: 700, right: 1028, bottom: 700 });
+      split.handle.dispatchEvent({ type: "keydown", key: "ArrowRight", preventDefault() {} });
+      assert(documentElement.style.getPropertyValue("--kz-split-files") === "340px", `文件页宽 700 时上限应是 700 − 360 = 340,实为 "${documentElement.style.getPropertyValue("--kz-split-files")}"`);
+      byId.get("files-layout").getBoundingClientRect = () => ({ left: 328, top: 0, width: 1000, height: 700, right: 1328, bottom: 700 });
+      split.handle.dispatchEvent({ type: "keydown", key: "ArrowRight", preventDefault() {} });
+      assert(documentElement.style.getPropertyValue("--kz-split-files") === "348px" && layoutNs.layoutPref("splits", "files") === 348, "方向键加宽后宽度应写 --kz-split-files 并进 ui_layout.splits.files");
+      assert(split.handle.getAttribute("aria-valuemax") === "640", `aria-valuemax 应随文件页宽度重算(1000 − 360),实为 ${split.handle.getAttribute("aria-valuemax")}`);
+      split.handle.dispatchEvent({ type: "keydown", key: "Home", preventDefault() {} });
+      assert(!documentElement.style.getPropertyValue("--kz-split-files") && layoutNs.layoutPref("splits", "files") === null, "Home 应复位文件树宽度");
+      assert(/#files-side \{ width: var\(--kz-split-files\); min-width: 200px; \}/.test(style), "style.css 的 #files-side 宽度须引用 --kz-split-files");
+      delete side.getBoundingClientRect;
+      delete byId.get("files-layout").getBoundingClientRect;
+    }
+
+    // S9 Ctrl+S 兜底:焦点在树/头部时也保存,并 preventDefault(否则 WebView2 默认行为);只读/模态时不管。
+    {
+      putDisk("src/lib.rs", "k\n");
+      editorNs.resetFilesDoc();
+      await open("src/lib.rs");
+      model().type("!");
+      const fallback = (windowListeners.get("keydown") ?? []).find((fn) => String(fn).includes("saveFilesDoc"));
+      assert(fallback, "文件页没有注册 Ctrl/Cmd+S 兜底监听");
+      let prevented = false;
+      fallback?.({ key: "s", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, defaultPrevented: false, preventDefault() { prevented = true; } });
+      await flush();
+      assert(prevented && disk.get("src/lib.rs").text === "k\n!", "焦点不在编辑器时 Ctrl+S 也应保存并阻止默认行为");
+      view.classList.remove("active");
+      prevented = false;
+      fallback?.({ key: "s", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, defaultPrevented: false, preventDefault() { prevented = true; } });
+      assert(!prevented, "离开文件页后 Ctrl+S 兜底不应生效");
+      view.classList.add("active");
+      // 模态(确认框、命令面板……)打开时 Ctrl+S 不归文件页:不保存、不拦默认行为(焦点在模态里,用户没在看编辑器)。
+      const surfaceNs = esmModuleCache.get("00-surface.js")?.namespace;
+      model().type("?");
+      const pendingConfirm = surfaceNs.confirmDialog({ title: "smoke", message: "modal" });
+      await flush();
+      assert(surfaceNs.isModalOpen(), "前置:确认框应已作为模态打开");
+      const writesBeforeModal = writes.length;
+      prevented = false;
+      fallback?.({ key: "s", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, defaultPrevented: false, preventDefault() { prevented = true; } });
+      await flush();
+      surfaceNs.closeSurface(byId.get("confirm-overlay"), false);
+      await pendingConfirm;
+      await flush();
+      assert(writes.length === writesBeforeModal && !prevented && editorNs.isFilesDirty(), "模态打开时 Ctrl+S 兜底不应保存,也不应拦默认行为");
+      await saveCommand()();
+      await flush();
+    }
+
+    // S11 保存被拒(打开之后磁盘上的文件变了性质:被转成 GBK / 加了只读属性 / 超 4MB / 变二进制)≠ 打开即只读。
+    // 未保存修改必须仍受保护:头部与树上的琥珀点在、编辑器可编辑、切文件照样确认(只给 不保存 / 取消)、切项目照样存草稿;
+    // 原因写在只读原因条里。草稿恢复时文件已不能写:草稿照样恢复(能看、能复制),按保存被拒处理。
+    {
+      putDisk("src/lib.rs", "one\n");
+      putDisk("src/main.rs", "fn main() {}\n");
+      editorNs.resetFilesDoc();
+      await open("src/lib.rs");
+      model().type("mine");
+      forcedReadonly.set("src/lib.rs", "encoding");
+      await saveCommand()();
+      await flush();
+      assert(doc()?.blocked === "encoding" && !doc()?.readonly, `保存被拒应记成 blocked 而不是 readonly,实为 blocked=${doc()?.blocked} readonly=${doc()?.readonly}`);
+      assert(editorNs.isFilesDirty() && !hidden("files-dirty") && treeRow("lib.rs")?.classList.contains("dirty"), "保存被拒后修改仍是未保存(头部「未保存」与树上的琥珀点都在)");
+      assert(editor()?.options.readOnly === false && model()?.getValue() === "one\nmine", "保存被拒不应把编辑器变成只读,修改应还在");
+      assert(!hidden("files-readonly") && /保存被拒/.test(byId.get("files-readonly-text")?.textContent ?? "") && /UTF-8/.test(byId.get("files-readonly-text")?.textContent ?? ""), `只读原因条应说明保存被拒及原因,实为 "${byId.get("files-readonly-text")?.textContent}"`);
+      let asked = null;
+      sandbox.confirmDialog = (options) => { asked = options; return Promise.resolve(false); };
+      const switched = await open("src/main.rs");
+      sandbox.confirmDialog = priorConfirm;
+      assert(asked && !switched && doc()?.path === "src/lib.rs" && model()?.getValue() === "one\nmine", "保存被拒后切文件仍要弹未保存确认,取消则留在原文件");
+      assert(asked?.okText === i18nNs.t("不保存") && !asked?.safeText && asked?.danger === true, `保存被拒时切文件的确认只给「不保存 / 取消」,实为 ${JSON.stringify(asked)}`);
+      // 切项目仍存草稿;回来时文件还是不能写 → 草稿照样恢复,按保存被拒处理(可编辑、未保存)。
+      await switchProject(OTHER_PROJECT);
+      assert(editorNs.filesDraftCount() === 1, "保存被拒后切项目仍应把修改暂存成草稿");
+      await switchProject(PROJECT);
+      await open("src/lib.rs");
+      assert(model()?.getValue() === "one\nmine" && doc()?.blocked === "encoding" && !doc()?.readonly && editorNs.isFilesDirty() && editor()?.options.readOnly === false && editorNs.filesDraftCount() === 0,
+        `草稿恢复时文件已不能写:草稿应照样恢复为未保存、按保存被拒处理,实为 ${JSON.stringify({ value: model()?.getValue(), blocked: doc()?.blocked, readonly: doc()?.readonly })}`);
+      // 原因解除(转回 UTF-8)后可以正常保存,保存被拒的提示随之消失。
+      forcedReadonly.delete("src/lib.rs");
+      await saveCommand()();
+      await flush();
+      assert(disk.get("src/lib.rs").text === "one\nmine" && !doc()?.blocked && hidden("files-readonly") && !editorNs.isFilesDirty(), "原因解除后应能保存并收起保存被拒的说明");
+    }
+
+    // S10 新建文件:输入相对路径 → 不带指纹写空文件(已存在即冲突不覆盖)→ 展开祖先目录并打开。
+    {
+      sandbox.inputDialog = () => Promise.resolve("src/new/mod.rs");
+      await editorNs.createNewFile();
+      await flush();
+      const create = writes.find((write) => write.path === "src/new/mod.rs");
+      assert(create && create.expectedHash === null && create.content === "", `新建应以 expectedHash:null 写空文件,实为 ${JSON.stringify(create)}`);
+      assert(doc()?.path === "src/new/mod.rs" && filesNs.filesExpanded.has("src/new"), "新建后应打开该文件并展开祖先目录");
+      sandbox.inputDialog = () => Promise.resolve("src/lib.rs");
+      const before = disk.get("src/lib.rs").text;
+      await editorNs.createNewFile();
+      await flush();
+      assert(disk.get("src/lib.rs").text === before && doc()?.path === "src/lib.rs", "新建一个已存在的路径不得覆盖,直接打开");
+      sandbox.inputDialog = priorInput;
+    }
+  } finally {
+    sandbox.confirmDialog = priorConfirm;
+    sandbox.inputDialog = priorInput;
+    invokeGates.delete("file_write");
+    filesNs.reset_files_scope();
+    filesNs.filesViewLeft();
+    view?.classList.remove("active");
+    for (const [cmd, value] of Object.entries(savedPayloads)) {
+      if (value === undefined) delete payloads[cmd];
+      else payloads[cmd] = value;
+    }
+    editorNs.setMonacoLoader(null);
+    sandbox.currentProject = priorProject;
+    await flush();
+  }
+}
+// ── 分区:文件编辑(完) ──
+
+// ── 分区:架构图 ── UI2-0926 #7(docs/design/architecture_diagrams.md)。
+// 假 DOM 跑不了真 mermaid:注入桩引擎(04-diagram.js 的 setDiagramEngine,同 setRenderMarkdown 的接缝),
+// 只验接线——标签页、直接/全部依赖切换、节点点击走 structuredNav、错误卡行号换算、CRLF 索引分组、
+// kebab 名不算未入册、未闭合围栏不渲染。真实渲染质量由 scripts/ui-diagram-smoke.mjs(无头 Edge)兜底。
+// 变异守卫:archCrlf / archKebab / diagramOpenFence / diagramClickMap / diagramLineMap / diagramFrontmatterConfig。
+{
+  const diagramNs = esmModuleCache.get("04-diagram.js")?.namespace;
+  const archNs = esmModuleCache.get("19-arch.js")?.namespace;
+  const svNs = esmModuleCache.get("04-structured.js")?.namespace;
+  const markdownNs = esmModuleCache.get("04-markdown.js")?.namespace;
+  assert(diagramNs?.setDiagramEngine && diagramNs?.hydrateDiagrams && archNs?.renderArch && svNs?.setStructuredNav && markdownNs?.renderMarkdownInto,
+    "架构图:04-diagram.js / 19-arch.js / renderMarkdownInto 导出缺失");
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const rendered = [];
+  // 桩引擎:parse 遇到 BROKEN 按 mermaid 的形状抛错(hash.loc.first_line),行号与 mermaid 12 一样按「剥掉 frontmatter、
+  // 整行 %% 注释(cleanupComments 的正则)、开头空行」之后的文本算——曾经按原文行号抛,错误卡的行号换算一直绿着;
+  // render 把声明的节点与 --> 边编码进 SVG 字符串,mount 再按 mermaid 12 的 DOM 形状
+  // (g.node#<渲染 id>-flowchart-<节点>-<n>、path[data-id=L_a_b_0])建出假节点。
+  const parsed = [];
+  const stubEngine = {
+    initialize() {},
+    async parse(text) {
+      parsed.push(text);
+      const cleaned = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n/, "").replace(/^\s*%%(?!{)[^\n]+\n?/gm, "").trimStart();
+      const index = cleaned.split("\n").findIndex((line) => line.includes("BROKEN"));
+      if (index < 0) return;
+      const error = new Error(`Parse error on line ${index + 1}:\n  c[BROKEN(]\n--------^\nExpecting 'SQE', got 'PS'`);
+      error.hash = { loc: { first_line: index + 1 } };
+      throw error;
+    },
+    async render(id, text) {
+      rendered.push(text);
+      const nodes = [...new Set([...text.matchAll(/^\s*([A-Za-z_]\w*)\s*\[/gm)].map((m) => m[1]))];
+      const edges = [...text.matchAll(/^\s*([A-Za-z_]\w*)\s*-(?:->|\.->)\s*([A-Za-z_]\w*)/gm)].map((m) => [m[1], m[2]]);
+      const body = nodes.map((node, index) => `<g class="node" id="${id}-flowchart-${node}-${index}"></g>`).join("")
+        + edges.map(([a, b]) => `<path data-id="L_${a}_${b}_0"></path>`).join("");
+      return { svg: `<svg id="${id}" width="640" height="240">${body}</svg>` };
+    },
+    mount(stage, svg) {
+      const root = document.createElementNS(SVG_NS, "svg");
+      const head = svg.match(/<svg id="([^"]+)" width="(\d+)" height="(\d+)"/);
+      root.setAttribute("id", head[1]);
+      root.setAttribute("width", head[2]);
+      root.setAttribute("height", head[3]);
+      for (const [, nodeId] of svg.matchAll(/<g class="node" id="([^"]+)">/g)) {
+        const g = document.createElementNS(SVG_NS, "g");
+        g.setAttribute("class", "node");
+        g.setAttribute("id", nodeId);
+        root.appendChild(g);
+      }
+      for (const [, edgeId] of svg.matchAll(/<path data-id="([^"]+)">/g)) {
+        const path = document.createElementNS(SVG_NS, "path");
+        path.setAttribute("data-id", edgeId);
+        root.appendChild(path);
+      }
+      stage.replaceChildren(root);
+      return root;
+    },
+  };
+  diagramNs.setDiagramEngine(stubEngine);
+  // 假 DOM 没有 getComputedStyle:给一份 --diagram-* 的 hex 值,语义类才会追加(真值由 ui-diagram-smoke 在浏览器里查)。
+  const hadGcs = Object.prototype.hasOwnProperty.call(sandbox, "getComputedStyle");
+  const savedGcs = sandbox.getComputedStyle;
+  const DIAGRAM_TOKENS = {
+    "--diagram-canvas": "#232323", "--diagram-cluster": "#181818", "--diagram-cluster-border": "#282828",
+    "--diagram-node": "#2a2a2a", "--diagram-node-border": "#464646", "--diagram-text": "#ffffff",
+    "--diagram-muted": "#9e9e9e", "--diagram-edge": "#9e9e9e", "--diagram-accent": "#d25e28", "--diagram-accent-soft": "#d25e2829",
+  };
+  sandbox.getComputedStyle = () => ({ getPropertyValue: (name) => DIAGRAM_TOKENS[name] ?? "" });
+  const navCalls = [];
+  const savedNav = { ...svNs.structuredNav };
+  svNs.setStructuredNav({
+    openRef: (id) => navCalls.push(["ref", id]),
+    openPath: (path, line) => navCalls.push(["path", path, line]),
+  });
+  const click = (el) => el?.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {} });
+  const figure = () => byId.get("arch-diagram-canvas")?.querySelector(".kz-diagram");
+  const nodeOf = (id) => figure()?.querySelectorAll("g.node").find((g) => new RegExp(`-flowchart-${id}-\\d+$`).test(g.id));
+  const tabs = () => byId.get("arch-diagram-tabs")?.querySelectorAll(".arch-diagram-tab") ?? [];
+  try {
+    const snap = payloads.architecture_snapshot;
+    archNs.renderArch(snap);
+    await flush();
+
+    // ① CRLF 索引:两个章节分组都在(archCrlf 删掉换行归一化 → 章节正则全落空 → 这里红)。
+    const heads = byId.get("arch-tree").querySelectorAll(".arch-group-head").map((h) => h.textContent);
+    assert(heads.some((h) => h.startsWith("现行基线(")) && heads.some((h) => h.startsWith("历史快照(")),
+      `CRLF 索引下章节分组丢失(磁盘上的 README 是 CRLF):${JSON.stringify(heads)}`);
+    // ② kebab 名文档在它的章节里、标「命名不合规」,未入册只有真没入册的那一篇(archKebab → 这里红)。
+    const unindexedHead = heads.find((h) => h.includes("未入册"));
+    assert(unindexedHead === "未入册(1)", `kebab 名文档被误判成未入册:${unindexedHead}`);
+    const kebabRow = byId.get("arch-tree").querySelectorAll(".arch-entry").find((row) => row.textContent.includes("oc-playback.md"));
+    assert(kebabRow?.textContent.includes("命名不合规") && !kebabRow.textContent.includes("未入册"), `kebab 名文档应标「命名不合规」:${kebabRow?.textContent}`);
+
+    // ③ 标签页:crate 图固定第一个并选中,其后是手写图;role=tab + aria-selected。
+    const tabTitles = tabs().map((tab) => tab.textContent);
+    assert(tabTitles.length === 3 && tabTitles[0].startsWith("Crate 依赖") && tabTitles[1].startsWith("运行时主循环") && tabTitles[2].startsWith("写坏的图"),
+      `架构图标签页不对:${JSON.stringify(tabTitles)}`);
+    assert(tabs().every((tab) => tab.getAttribute("role") === "tab") && tabs()[0].getAttribute("aria-selected") === "true", "标签页缺 role=tab / 选中态");
+    assert(tabs()[2].querySelector(".arch-tab-count")?.textContent === "1", "有 lint 问题的图标签上应带问题数");
+    assert(figure()?.dataset.state === "ready" && figure()?.dataset.nodes === "3" && figure()?.dataset.edges === "2",
+      `crate 图没渲染或节点/边映射不对:${figure()?.dataset.state} ${figure()?.dataset.nodes}/${figure()?.dataset.edges}`);
+    assert(rendered.at(-1)?.includes("classDef entry ") && !/^\s*click /m.test(rendered.at(-1))
+      && rendered.at(-1).split("\n").length === snap.crates.mermaid.reduced.split("\n").length + 5,
+      "送进引擎的源码应把 click 行抹成空行(strict 下 mermaid 会包 <a> 导航;行数不变)、末尾追加五个语义类");
+    // frontmatter 的 config 段抹成空行(title 保留、行数不变);行内 %%{…}%% 指令去掉(diagramFrontmatterConfig → 这里红)。
+    const fm = diagramNs.prepareDiagramSource('---\ntitle: 标题\nconfig:\n  look: handDrawn\n  htmlLabels: true\n---\nflowchart LR\n  a --> b %%{init: {"theme": "forest"}}%%');
+    assert(!/config|handDrawn|htmlLabels|forest/.test(fm.text) && fm.text.includes("title: 标题") && fm.text.split("\n").length === 8,
+      `frontmatter 的 config 与行内指令应抹掉(配色/外观只由 kanzei 注入),title 保留、行数不变:${JSON.stringify(fm.text)}`);
+    assert(JSON.stringify(fm.lineMap) === "[7,8]", `lineMap 应跳过 frontmatter:${JSON.stringify(fm.lineMap)}`);
+    assert(byId.get("arch-diagram-foot")?.textContent.includes("已隐藏 1 条可由传递得到的依赖"), "直接依赖模式的脚注缺「已隐藏 N 条」");
+
+    // ④ 节点点击 → structuredNav.openPath(入口文件);可点节点有 role=link / tabindex / 提示(diagramClickMap → 这里红)。
+    const appNode = nodeOf("kanzei_app");
+    assert(appNode?.classList.contains("is-link") && appNode.getAttribute("role") === "link" && appNode.getAttribute("tabindex") === "0",
+      "可点击的图节点缺 is-link / role=link / tabindex");
+    assert(appNode?.getAttribute("title") === "kanzei-app · Tauri 桌面端", `图节点提示应取 click 行的第三段:${appNode?.getAttribute("title")}`);
+    click(appNode);
+    assert(JSON.stringify(navCalls.at(-1)) === JSON.stringify(["path", "crates/kanzei-app/src/main.rs", null]),
+      `crate 节点点击应经 structuredNav.openPath 打开入口文件:${JSON.stringify(navCalls.at(-1))}`);
+    const coreNode = nodeOf("kanzei_core");
+    assert(coreNode && !coreNode.classList.contains("is-link"), "没有 click 行的节点不该变成链接");
+
+    // ⑤ 直接依赖 / 全部依赖:只换源码,不重取快照。
+    const beforeInvokes = invokeLog.length;
+    click(byId.get("arch-diagram-tools")?.querySelectorAll(".arch-seg button").find((b) => b.dataset.full === "true"));
+    await flush();
+    assert(rendered.at(-1)?.includes("-.->") && figure()?.dataset.edges === "3", "切到「全部依赖」应渲染带虚线传递边的那份源码");
+    assert(!invokeLog.slice(beforeInvokes).includes("architecture_snapshot"), "切依赖范围不该重取快照");
+    assert(figure()?.dataset.variant === "deps-full" && diagramNs.cachedDiagram(snap.crates.mermaid.full, diagramNs.currentDiagramTheme(), { mergeEdges: false }),
+      "「全部依赖」应带 data-variant=deps-full(传递边画淡、悬停亮起)并关掉 ELK 同向边合并(分组框外的虚线框)");
+    assert(byId.get("arch-diagram-foot")?.textContent.includes("悬停节点看它的全部依赖"), "「全部依赖」脚注应提示悬停看全部依赖");
+    click(byId.get("arch-diagram-tools")?.querySelectorAll(".arch-seg button").find((b) => b.dataset.full === "false"));
+    await flush();
+    assert(figure()?.dataset.variant === undefined, "切回「直接依赖」应去掉 deps-full 样式");
+
+    // ⑥ 手写图:路径带行号、条目号走 openRef。
+    click(tabs()[1]);
+    await flush();
+    assert(tabs()[1].getAttribute("aria-selected") === "true" && byId.get("arch-diagram-foot")?.textContent.includes("docs/architecture/01_runtime_loop.md"),
+      "切到手写图后脚注应显示源文件路径");
+    click(nodeOf("drive"));
+    assert(JSON.stringify(navCalls.at(-1)) === JSON.stringify(["path", "crates/kanzei-core/src/runner/drive.rs", 140]), `带行号的 click 目标:${JSON.stringify(navCalls.at(-1))}`);
+    click(nodeOf("adr"));
+    assert(JSON.stringify(navCalls.at(-1)) === JSON.stringify(["ref", "D-100"]), `条目号 click 目标应走 openRef:${JSON.stringify(navCalls.at(-1))}`);
+    assert(byId.get("arch-diagram-foot")?.querySelectorAll(".arch-legend-swatch").map((s) => s.dataset.kind).join(",") === "entry,focus",
+      "图例应只列本图用到的语义类");
+
+    // ⑦ 写坏的图:错误卡给原文的文件行号(围栏起始行 7 + 源码第 9 行 - 1 = 第 15 行;mermaid 报的是剥掉 frontmatter、
+    // 注释与开头空行之后的第 5 行,diagramLineMap → 这里红)、查看源码(高亮同一行)、复制修复提示;lint 问题列在图下。
+    click(tabs()[2]);
+    await flush();
+    const errorBox = figure()?.querySelector(".kz-diagram-error");
+    assert(figure()?.dataset.state === "error" && errorBox?.textContent.includes("第 15 行") && errorBox.textContent.includes("Expecting 'SQE', got 'PS'"),
+      `错误卡没给出原文的文件行号与 mermaid 报错(注释/click/frontmatter 之后的错误):${errorBox?.textContent}`);
+    assert(errorBox?.querySelectorAll("button").map((b) => b.dataset.act).join(",") === "source,copy-hint", "错误卡缺「查看源码 / 复制修复提示」");
+    click(errorBox?.querySelectorAll("button").find((b) => b.dataset.act === "source"));
+    const errorRow = byId.get("viewer-body")?.querySelector(".kz-source-line.is-error");
+    assert(errorRow?.textContent.includes("15") && errorRow.textContent.includes("c[BROKEN(]"), `查看源码应高亮出错的那一行(文件第 15 行):${errorRow?.textContent}`);
+    byId.get("viewer-close")?.click();
+    const hint = diagramNs.fixHint({ path: "docs/architecture/02_broken.md", fileLine: 15, message: "Expecting 'SQE', got 'PS'", lineText: "c[BROKEN(]" });
+    assert(hint.includes("docs/architecture/02_broken.md 第 15 行") && hint.includes("c[BROKEN(]"), `修复提示应带文件、行号与该行原文:${hint}`);
+    assert(!byId.get("arch-diagram-issues")?.classList.contains("hidden") && byId.get("arch-diagram-issues")?.textContent.includes("D6 · 第 15 行"),
+      "lint 问题应列在图下(代码 + 文件行号)");
+    assert(!byId.get("arch-diagram-foot")?.textContent.includes("点击节点打开实现或文档"), "图没画出来时脚注不该提示「点击节点」");
+    click(tabs()[0]);
+    await flush();
+
+    // ⑧ markdown 里的图:闭合围栏渲染,未闭合(流式写到一半,<pre data-open>)不渲染(diagramOpenFence → 这里红)。
+    assert(markdownNs.renderMarkdown("```mermaid\nflowchart LR\n  a --> b\n").includes('<pre class="code" data-open="true">'),
+      "未闭合的围栏应带 data-open");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const fence = (text, open) => {
+      const pre = document.createElement("pre");
+      pre.className = "code";
+      if (open) pre.setAttribute("data-open", "true");
+      const code = document.createElement("code");
+      code.className = "language-mermaid";
+      code.textContent = text;
+      pre.appendChild(code);
+      host.appendChild(pre);
+      return pre;
+    };
+    fence('flowchart LR\n  x["甲"] --> y["乙"]', false);
+    const openPre = fence('flowchart LR\n  p["写到一半', true);
+    diagramNs.hydrateDiagrams(host, { streaming: true });
+    await flush();
+    assert(host.querySelectorAll(".kz-diagram-host").length === 1 && host.querySelector(".kz-diagram")?.dataset.state === "ready",
+      "闭合的 mermaid 围栏应换成图");
+    assert(openPre.parentNode === host && !rendered.some((text) => text.includes("写到一半")), "未闭合的围栏在流式中不得渲染(半截图)");
+    host.remove();
+
+    // ⑨ 静态接线:聊天流式与思考块传 streaming:true;全站没有绕开 renderMarkdownInto 的 innerHTML 写法。
+    const chatSource = sources[scriptSrcs.indexOf("05-chat-render.js")] ?? "";
+    assert((chatSource.match(/renderMarkdownInto\([^\n]*\{ streaming: true \}\);/g) ?? []).length === 2, "聊天正文与思考块的流式渲染应传 { streaming: true }");
+    // 04-markdown.js 以外一律不直接调 renderMarkdown(——跨行赋值、insertAdjacentHTML、模板插值都算(注释行不算)。
+    const bypass = scriptSrcs.filter((name, index) => name !== "04-markdown.js"
+      && (sources[index] ?? "").split(/\r?\n/).some((line) => !/^\s*(?:\/\/|\/?\*)/.test(line) && /\brenderMarkdown\s*\(/.test(line)));
+    assert(!bypass.length, `这些文件绕开了 renderMarkdownInto(图不会渲染):${bypass.join(", ")}`);
+  } finally {
+    svNs.setStructuredNav(savedNav);
+    if (hadGcs) sandbox.getComputedStyle = savedGcs;
+    else delete sandbox.getComputedStyle;
+  }
+}
+// ── 分区:架构图 结束 ──
 
 if (issues.length) {
   reportedIssues = true;

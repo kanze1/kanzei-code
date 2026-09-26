@@ -9,6 +9,7 @@
 //! 不承担任何业务规则。
 
 pub mod atomic_file;
+pub mod path_form;
 pub mod write_log;
 
 /// FNV-1a 64 位哈希 → 十六进制内容指纹(R-203 从 tools/files.rs 下沉单源)。

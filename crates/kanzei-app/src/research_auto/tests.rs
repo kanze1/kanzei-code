@@ -21,6 +21,7 @@ fn context<'a>(tools: &'a [String], signature: &'a str) -> AutoRunCtx<'a> {
         intensity: kanzei_harness::HarnessIntensity::Autonomous,
         auto_allowed: false,
         model_declared_done: false,
+        awaiting_user: false,
         goal_active: false,
         closed_this_round: 50,
         verify_every_n: 1,

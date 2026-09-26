@@ -9,7 +9,7 @@
 import { $, activePane, appendToPane, defer, invoke, motionOnce, motionSync, renderingBackground } from "./01-core.js";
 import { languageIsEnglish, t } from "./02-i18n.js";
 import { activeProcessId, activeSessionId, currentProject, processItems, toast, toastError } from "./03-shell.js";
-import { renderMarkdown } from "./04-markdown.js";
+import { renderMarkdownInto } from "./04-markdown.js";
 import { cleanInline, parseJsonish, stripToolOutcome } from "./04-structured-parse.js";
 import { renderJsonTree } from "./04-structured.js";
 import { buildToolBlock, clearEmptyState, fillToolBlock, scrollBottom, setFollowLatest, toolIconNode, updateLatestButton } from "./05-chat-render.js";
@@ -938,7 +938,7 @@ function buildView(view) {
   prompt.className = "sa-section sa-section-prompt";
   const promptBody = document.createElement("div");
   promptBody.className = "sa-prompt md sv-md";
-  promptBody.innerHTML = renderMarkdown(run.prompt || run.description || "");
+  renderMarkdownInto(promptBody, run.prompt || run.description || "");
   prompt.append(sectionTitle("指令"), promptBody);
   // 默认显示 4 行左右;长指令给「展开全文」。
   if (view.inline && (run.prompt.split(/\r?\n/).length > 4 || run.prompt.length > 280)) {
@@ -1009,7 +1009,7 @@ export function renderSubagentTimeline(view) {
     if (entry.kind === "text") {
       const message = document.createElement("div");
       message.className = "sa-msg md sv-md";
-      message.innerHTML = renderMarkdown(entry.text);
+      renderMarkdownInto(message, entry.text);
       view.stepsEl.appendChild(message);
       continue;
     }
@@ -1072,7 +1072,7 @@ export function renderSubagentTimeline(view) {
       if (json && typeof json === "object") host.appendChild(renderJsonTree(json));
       else {
         host.classList.add("md", "sv-md");
-        host.innerHTML = renderMarkdown(body);
+        renderMarkdownInto(host, body);
       }
     }
   }

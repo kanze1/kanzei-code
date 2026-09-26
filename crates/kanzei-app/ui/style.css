@@ -108,6 +108,13 @@
   --graph-edge: var(--graph-module); --graph-edge-weak: var(--border-strong);
   --graph-label: var(--fg); --graph-label-dim: var(--dim); --graph-focus: var(--fg-strong);
   --graph-halo: var(--fg); --graph-bg: var(--bg); --graph-hit: var(--accent-text);
+  /* 架构图与 markdown 里的图(docs/design/architecture_diagrams.md):04-diagram.js 渲染时读这组 token,注入 mermaid
+     的 themeVariables 与五个语义类。mermaid 只认 hex,所以只准别名到 hex token(ui-diagram-smoke 查解析结果)。
+     分组是凹下去的底、节点是凸起的卡片;亮色块只改 cluster 与 node 两项,两套主题同一视觉语义。 */
+  --diagram-canvas: var(--panel); --diagram-cluster: var(--bg); --diagram-cluster-border: var(--border-soft);
+  --diagram-node: var(--panel2); --diagram-node-border: var(--border-strong); --diagram-text: var(--fg-strong);
+  --diagram-muted: var(--dim); --diagram-edge: var(--dim);
+  --diagram-accent: var(--accent); --diagram-accent-soft: var(--accent-soft);
   /* 组件层(弹层外观唯一真源,见 docs/design/ui_surface_stack.md):只引用上面的语义 token,
      只准 surface.css 使用;不在亮色块里重定义——主题切换只发生在语义层。 */
   --surface-bg: var(--surface-overlay); --surface-bg-raised: var(--panel2);
@@ -183,6 +190,8 @@
   /* 记忆图谱类别色与模块灰(亮色取值,同一组色相)。 */
   --graph-fact: #2a7da6; --graph-sop: #ae6fe8; --graph-habit: #2b3cad; --graph-preference: #7c2462;
   --graph-module: #8a8a8a;
+  /* 图:白底上分组压一层浅灰、节点回到白卡片(暗色是分组更深、节点更亮,同一层次关系)。 */
+  --diagram-cluster: var(--bg-deep); --diagram-node: var(--panel);
 }
 /* ===== 主题 token 块结束:D-380 判据以此行为界(scripts/ui-a11y-smoke.mjs),勿改此行 ===== */
 /* 勾选/单选的选中色走单色主色(与主按钮一致),不用系统蓝,也不占用强调色。 */
@@ -1503,6 +1512,8 @@ button:disabled { opacity: .45; cursor: default; }
 .statusbar-btn {
   background: transparent; border: none; color: inherit; cursor: pointer;
   font-size: var(--fs-11-5); padding: 0 6px; opacity: .9;
+  /* 状态栏右段被长用量串挤窄时「日志」被竖排成两行(1333 宽截图可见):按钮不参与收缩、不换行。 */
+  white-space: nowrap; flex: none;
 }
 .statusbar-btn:hover { opacity: 1; text-decoration: underline; }
 
@@ -2549,7 +2560,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-11);
 }
-.files-toolbar-actions { display: flex; align-items: center; gap: 6px; }
+.files-toolbar-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+/* UI2-0926 #6:工具栏多了「＋ 新建文件」,窄树里按钮不能折成两行字;挤不下时让左边的度量摘要换行。 */
+#files-summary { min-width: 0; line-height: 1.45; }
+.files-toolbar-actions button { white-space: nowrap; }
 #files-tree { flex: 1; overflow: auto; padding: 4px 0; }
 .files-row {
   display: flex;
@@ -2575,27 +2589,208 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   min-width: 0;
 }
 #files-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* ── 分区:文件编辑 ── UI2-0926 #6(docs/design/files_editor.md):头部一行 = 未保存标记 · 路径(省略号)· 编码/换行 ·
+   同步提示 · 右端 [放弃修改][保存];放不下时按钮换到第二行靠右。颜色只用现有 token:未保存 = 琥珀(与设置页
+   .settings-dirty 同色,ui_color_semantics §3「配置未保存」),冲突横幅 = .settings-effective 同款浅底软边,
+   只读原因条中性。 */
 #files-preview-head {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 6px 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 10px;
+  row-gap: 4px;
+  min-height: 36px;
+  padding: 5px 12px;
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-12);
-  font-family: var(--mono);
 }
 #files-preview-head.hidden { display: none; }
+#files-preview-path {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg-strong); font-family: var(--mono);
+}
+#files-preview-meta { flex: none; font-family: var(--mono); font-size: var(--fs-11); white-space: nowrap; }
+.files-sync { flex: none; font-size: var(--fs-11); white-space: nowrap; }
+.files-sync:empty { display: none; }
+.files-head-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.files-dirty { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--warn); font-size: var(--fs-11-5); white-space: nowrap; }
+.files-dirty-dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.files-row .files-dirty-dot { margin-left: 6px; vertical-align: 1px; }
+.files-readonly {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  padding: 6px 12px; border-bottom: 1px solid var(--border);
+  color: var(--dim); font-size: var(--fs-11-5); line-height: 1.5;
+}
+.files-conflict {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+  margin: 8px 12px 6px; padding: 8px 12px;
+  color: var(--fg); font-size: var(--fs-12); line-height: 1.5;
+  background: var(--alert-soft); border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+  border-radius: var(--r-md);
+}
+#files-conflict-text { flex: 1 1 280px; min-width: 0; }
+.files-conflict-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#files-compare[aria-pressed="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+.files-compare-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 12px; border-bottom: 1px solid var(--border);
+  color: var(--dim); font-size: var(--fs-11-5);
+}
 #files-editor { flex: 1; min-height: 0; }
 #files-editor.hidden { display: none; }
+#files-diff { flex: 1; min-height: 0; }
 #files-placeholder { padding: 24px; font-size: var(--fs-12); }
 #files-placeholder.hidden { display: none; }
 
-/* ---------- 架构浏览(R-122) ---------- */
+/* ---------- 图(UI2-0926 #7,04-diagram.js;docs/design/architecture_diagrams.md) ----------
+   颜色全部来自 --diagram-* token:mermaid 内联的 <style> 不分层、压过这里对同一元素的声明,所以这里只写它不写的
+   (圆角、tspan 的字重与次要色、悬停淡化的 opacity、焦点环、光标),不跟它抢节点底色与描边。 */
+.kz-diagram {
+  position: relative; margin: 0; min-width: 0;
+  background: var(--diagram-canvas); border: 1px solid var(--border-soft); border-radius: var(--r-lg); overflow: hidden;
+}
+.kz-diagram[data-mode="inline"] { margin: 8px 0; }
+.kz-diagram-canvas {
+  position: relative; height: var(--kz-diagram-h, 240px); overflow: hidden;
+  outline: none;
+}
+.kz-diagram[data-pannable] .kz-diagram-canvas { cursor: grab; touch-action: none; }
+.kz-diagram[data-panning] .kz-diagram-canvas { cursor: grabbing; }
+.kz-diagram-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.kz-diagram-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.kz-diagram-stage > svg { display: block; max-width: none; overflow: visible; }
+.kz-diagram[data-state="error"] .kz-diagram-canvas { display: none; }
+.kz-diagram-bar {
+  position: absolute; top: 8px; right: 8px; z-index: var(--z-base);
+  display: flex; align-items: center; gap: 1px; padding: 2px;
+  background: var(--panel2); border: 1px solid var(--border-soft); border-radius: var(--r-md);
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+/* markdown 里的图:工具条平时收起,悬停或键盘进入时出现,不跟正文抢眼。 */
+.kz-diagram[data-mode="inline"] .kz-diagram-bar { opacity: 0; }
+.kz-diagram[data-mode="inline"]:is(:hover, :focus-within) .kz-diagram-bar { opacity: 1; }
+.kz-diagram[data-state="error"] .kz-diagram-bar { display: none; }
+/* 页面模式把工具条放进宿主(架构页标签栏右侧),不压在图上。 */
+.kz-diagram-bar.is-docked { position: static; padding: 0; background: transparent; border: 0; }
+/* 图没画出来时缩放控件没有意义,只留「源码 / 复制」。 */
+.kz-diagram-bar:not([data-state="ready"]) :is([data-act="fit"], [data-act="zoom-in"], [data-act="zoom-out"], [data-act="actual"], .kz-diagram-zoom) { display: none; }
+.kz-diagram-btn {
+  height: 24px; min-width: 24px; padding: 0 7px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--dim); font: inherit; font-size: var(--fs-12); line-height: 24px; cursor: pointer;
+}
+.kz-diagram-btn:hover { background: var(--surface-hover); color: var(--fg-strong); }
+.kz-diagram-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.kz-diagram-zoom { min-width: 38px; text-align: center; color: var(--dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+.kz-diagram-status {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  margin: 0; color: var(--dim); font-size: var(--fs-12); pointer-events: none;
+}
+.kz-diagram-hint { position: absolute; left: 10px; bottom: 8px; margin: 0; color: var(--dim); font-size: var(--fs-11); pointer-events: none; }
+.kz-diagram svg g.node rect.label-container, .kz-diagram svg g.node rect.basic { rx: 8px; ry: 8px; }
+.kz-diagram svg g.cluster rect { rx: 12px; ry: 12px; }
+/* 两行卡片:第一行是名字(加粗),<br/> 之后是说明(次要色、小一号)。单行标签保持常规字重。 */
+/* 内层 tspan 自带 font-weight="normal" 属性,字重要写到内层上才压得过它。 */
+.kz-diagram svg g.node text tspan.row:first-child:not(:only-child) tspan { font-weight: 600; }
+.kz-diagram svg g.node text tspan.row + tspan.row { fill: var(--diagram-muted); font-size: var(--fs-12); baseline-shift: -3px; }
+/* mermaid 的行距是 1.1em,两行卡片的说明行紧贴着名字的降部:说明行下移 3px,整段上提 1.5px 保持居中。 */
+.kz-diagram svg g.node text:has(tspan.row + tspan.row) { transform: translateY(-1.5px); }
+.kz-diagram svg g.node, .kz-diagram svg path.flowchart-link, .kz-diagram svg g.edgeLabel {
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.kz-diagram.is-focusing svg g.node:not(.is-related),
+.kz-diagram.is-focusing svg path.flowchart-link:not(.is-related),
+.kz-diagram.is-focusing svg g.edgeLabel { opacity: .28; }
+/* 「全部依赖」(19-arch.js 的 data-variant):可由传递得到的依赖(虚线)平时退到背景,悬停节点时它的那几条亮起来。 */
+.kz-diagram[data-variant="deps-full"] svg path.flowchart-link.edge-pattern-dotted { opacity: .38; }
+.kz-diagram[data-variant="deps-full"].is-focusing svg path.flowchart-link.is-related { opacity: 1; }
+.kz-diagram[data-variant="deps-full"].is-focusing svg path.flowchart-link:not(.is-related) { opacity: .12; }
+.kz-diagram svg g.node.is-link { cursor: pointer; }
+.kz-diagram svg g.node.is-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+.kz-diagram-error { padding: 12px 14px; }
+.kz-diagram-error-title { color: var(--err); font-weight: 600; font-size: var(--fs-13); }
+.kz-diagram-error-msg {
+  margin: 6px 0 10px; color: var(--fg); font-family: var(--mono); font-size: var(--fs-12);
+  white-space: pre-wrap; word-break: break-word; user-select: text;
+}
+.kz-diagram-error-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.kz-diagram-error-actions .kz-diagram-btn { border: 1px solid var(--border); color: var(--fg); }
+.kz-diagram-fallback, .kz-diagram-source { margin: 10px 0 0; max-height: 240px; overflow: auto; user-select: text; }
+.kz-diagram-source { margin: 0; border-top: 1px solid var(--border-soft); border-radius: 0; }
+/* 查看器里的图源码:带文件行号,出错行浅红底。 */
+#viewer-body.kz-source-view { padding: 0; }
+.kz-source { margin: 0; padding: 10px 0; border-radius: 0; line-height: 1.6; user-select: text; }
+.kz-source-line { display: block; padding: 0 16px 0 0; white-space: pre-wrap; word-break: break-all; }
+.kz-source-line.is-error { background: var(--danger-soft); }
+.kz-source-no { display: inline-block; width: 4.5em; padding-right: 14px; text-align: right; color: var(--dim); user-select: none; }
+#viewer-body.kz-diagram-viewer { padding: 12px; }
+#viewer-body.kz-diagram-viewer .kz-diagram { height: 100%; display: flex; flex-direction: column; }
+#viewer-body.kz-diagram-viewer .kz-diagram-canvas { flex: 1; height: auto; min-height: 360px; }
+
+/* ---------- 架构浏览(R-122;UI2-0926 #7 上图下两栏) ---------- */
 #view-arch.active { display: flex; }
 #view-arch { min-height: 0; }
 #arch-scroll { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: 16px 20px; }
 .arch-quick-actions { display: flex; gap: 8px; margin: 8px 0 4px; }
-#arch-layout { display: flex; flex: 1; min-height: 0; gap: 16px; margin-top: 8px; }
+#arch-diagram-card {
+  flex: 0 0 auto; margin-top: 8px; min-width: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--border-soft); border-radius: var(--r-lg); background: var(--diagram-canvas); overflow: hidden;
+}
+#arch-diagram-head {
+  display: flex; align-items: flex-end; gap: 12px; padding: 4px 10px 0;
+  border-bottom: 1px solid var(--border-soft); background: var(--panel2);
+}
+#arch-diagram-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.arch-diagram-tab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px 7px;
+  border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--dim);
+  font: inherit; font-size: var(--fs-12-5); white-space: nowrap; cursor: pointer;
+}
+.arch-diagram-tab:hover { color: var(--fg-strong); }
+.arch-diagram-tab[aria-selected="true"] { color: var(--fg-strong); border-bottom-color: var(--fg-strong); font-weight: 600; }
+.arch-diagram-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.arch-tab-count {
+  min-width: 16px; padding: 0 5px; border-radius: var(--r-pill); background: var(--badge-soft);
+  color: var(--fg); font-size: var(--fs-10-5); font-weight: 500; line-height: 16px; text-align: center;
+}
+#arch-diagram-tools { display: flex; align-items: center; gap: 6px; padding-bottom: 5px; flex-shrink: 0; }
+.arch-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--r-pill); }
+.arch-seg button {
+  height: 22px; padding: 0 10px; border: 0; border-radius: var(--r-pill); background: transparent;
+  color: var(--dim); font: inherit; font-size: var(--fs-11-5); cursor: pointer;
+}
+.arch-seg button:hover { color: var(--fg-strong); }
+.arch-seg button[aria-pressed="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+.arch-seg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
+#arch-diagram-canvas { min-width: 0; }
+#arch-diagram-canvas > .kz-diagram { border: 0; border-radius: 0; }
+#arch-diagram-canvas > .arch-diagram-empty { margin: 0; padding: 28px 16px; color: var(--dim); font-size: var(--fs-12-5); line-height: 1.6; }
+#arch-diagram-foot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px;
+  border-top: 1px solid var(--border-soft); color: var(--dim); font-size: var(--fs-11-5);
+}
+.arch-foot-path { font-family: var(--mono); font-size: var(--fs-11); color: var(--fg); }
+.arch-foot-origin { color: var(--fg); }
+.arch-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-left: auto; }
+.arch-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.arch-legend-swatch {
+  display: inline-block; width: 16px; height: 11px; border-radius: 3px;
+  border: 1px solid var(--diagram-node-border); background: var(--diagram-node);
+}
+.arch-legend-swatch[data-kind="entry"] { border: 1.5px solid var(--diagram-text); }
+.arch-legend-swatch[data-kind="ext"] { border-style: dashed; border-color: var(--diagram-muted); background: var(--diagram-canvas); }
+.arch-legend-swatch[data-kind="store"] { background: var(--diagram-cluster); }
+.arch-legend-swatch[data-kind="focus"] { border-color: var(--diagram-accent); background: var(--diagram-accent-soft); }
+.arch-legend-swatch[data-kind="muted"] { opacity: .72; }
+.arch-legend-swatch[data-kind="transitive"] { width: 18px; height: 0; border: 0; border-top: 1.5px dashed var(--diagram-edge); border-radius: 0; background: none; }
+#arch-diagram-issues { padding: 6px 12px 10px; border-top: 1px solid var(--border-soft); font-size: var(--fs-11-5); }
+.arch-issue { display: flex; gap: 8px; padding: 2px 0; color: var(--fg); line-height: 1.5; }
+.arch-issue-code { flex-shrink: 0; font-family: var(--mono); color: var(--dim); }
+.arch-issue[data-severity="error"] .arch-issue-code { color: var(--err); }
+.arch-issue[data-severity="warn"] .arch-issue-code { color: var(--warn); }
+.arch-issue-hint { color: var(--dim); }
+#arch-layout { display: flex; flex: 0 0 auto; height: 480px; min-height: 0; gap: 16px; margin-top: 16px; }
+.arch-entry-flag { color: var(--dim); }
 #arch-tree-wrap {
   width: 380px; min-width: 280px; max-width: 480px;
   display: flex; flex-direction: column; min-height: 0;
@@ -3708,3 +3903,47 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .tp-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* rail 徽标:在跑 = 强调色(同 .rail-badge);没在跑但有未确认的失败 = 红(失败的语义色),--bg 字在两者上都 ≥ 4.5。 */
 #tasks-badge[data-tone="err"] { background: var(--err); }
+/* ===== 分区:工作目录管理 ===== */
+/* UI2-0926 #13(docs/design/project_workspace.md):项目事实横幅、上下文带的「无 Git」芯片、新建项目对话框。
+   只用语义 token:横幅默认中性(空项目 / 无 Git 是事实不是故障),位于上级仓库时是「需要注意」(琥珀,与 D-170 隔离告警同族);
+   芯片是中性 .kz-ctl(灰),不染色。 */
+.project-warn-slot:has(> .project-shared-warn.hidden):has(> .project-facts:not(.hidden)) { display: block; }
+.project-facts {
+  margin: 0; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
+  color: var(--fg); background: var(--panel2);
+  border: 1px solid var(--border-soft); border-radius: var(--r-md);
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+  word-break: break-word;
+}
+.project-facts.hidden { display: none; }
+.project-facts[data-kind="parent"] {
+  color: var(--alert); background: var(--alert-soft);
+  border-color: color-mix(in srgb, var(--alert) 28%, transparent);
+}
+/* 复核:横幅折两行时别把最后一个字孤零零挤到第二行。 */
+.project-facts-text { text-wrap: pretty; }
+.project-facts-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.project-facts-actions button { font-size: var(--fs-11); padding: 2px 8px; }
+.ctx-git { color: var(--dim); font-size: var(--fs-11-5); flex: none; }
+.ctx-git.hidden { display: none; }
+/* 研究空间不显示「无 Git」:独立课题目录本来就不是仓库,也不该被 git init(renderGitChip 同样判;切空间到下一次 refreshGit 之间靠这条)。 */
+body[data-space="research"] .ctx-git { display: none; }
+/* 复核:线路行「在等你回答」——状态词与字形同为琥珀(attention = 等你批准/回答),不再和「空闲」一样灰。 */
+.parallel-task-row .kz-glyph[data-state="attention"] ~ .parallel-task-state { color: var(--warn); }
+#new-project-dialog { display: flex; flex-direction: column; gap: 6px; }
+#new-project-dialog .np-field { margin-top: 6px; color: var(--fg-strong); font-size: var(--fs-12-5); }
+#new-project-dialog :is(input[type="text"], textarea) {
+  width: 100%; box-sizing: border-box; background: var(--input); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--r-md); padding: 7px 8px;
+  font-family: inherit; font-size: var(--fs-13);
+}
+#new-project-dialog textarea { resize: vertical; min-height: 48px; line-height: 1.5; }
+#new-project-dialog :is(input[type="text"], textarea):focus { outline: none; border-color: var(--focus-ring); }
+#new-project-dialog .np-row { display: flex; gap: 6px; align-items: center; }
+#new-project-dialog .np-row input { flex: 1 1 auto; min-width: 0; }
+#new-project-dialog .np-row button { flex: none; }
+.np-preview { color: var(--dim); font-size: var(--fs-11-5); font-family: var(--mono); word-break: break-all; min-height: 1.5em; }
+.np-check { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--fg-strong); cursor: pointer; }
+.np-hint { color: var(--dim); font-size: var(--fs-11-5); line-height: 1.5; }
+.np-error { color: var(--err); font-size: var(--fs-12); line-height: 1.5; word-break: break-word; }
+.np-error.hidden { display: none; }
