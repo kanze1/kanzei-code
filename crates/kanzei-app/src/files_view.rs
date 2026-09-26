@@ -15,7 +15,7 @@ use kanzei_tools::files::{
     Annotation, FileEntry,
 };
 
-fn resolve_root(project_dir: &str) -> PathBuf {
+pub(crate) fn resolve_root(project_dir: &str) -> PathBuf {
     kanzei_harness::config::discover_project_root(Path::new(project_dir))
         .unwrap_or_else(|| PathBuf::from(project_dir))
 }
@@ -90,48 +90,16 @@ pub async fn files_snapshot(project_dir: String) -> Result<serde_json::Value, St
     }))
 }
 
-/// 文件预览(Monaco 只读打开)。路径必须落在项目根内;超限文件截断并如实标注。
-/// D-233 批1:async 化——与 files_snapshot 同理,大文件读取不该占主线程。
+/// 文件预览(文件页 Monaco 打开)。路径解析、只读判定、BOM/换行/编码探测都在 files_edit(UI2-0926 #6),
+/// 与 file_stat/file_write 共用同一个规范化入口。原有 content/binary/truncated/size 四个字段语义不变
+/// (11-docs-list、19-research* 依赖),其余字段只加不改:hash/bom/eol/mixedEol/encoding/mtimeMs/readonly。
+/// D-233 批1:async 化——大文件读取不该占主线程,放进阻塞线程池。
 #[tauri::command]
 pub async fn file_preview(project_dir: String, path: String) -> Result<serde_json::Value, String> {
-    const MAX_PREVIEW_BYTES: u64 = 4 * 1024 * 1024;
     let root = resolve_root(&project_dir);
-    let rel = path.trim_matches(['/', '\\']);
-    // 逃逸检查:canonicalize 后必须仍在根内。软链接/.. 都在这里挡下。
-    let abs = root.join(rel);
-    let canon = std::fs::canonicalize(&abs).map_err(|e| format!("无法打开 {rel}: {e}"))?;
-    let canon_root = std::fs::canonicalize(&root).map_err(|e| e.to_string())?;
-    if !canon.starts_with(&canon_root) {
-        return Err(format!("路径越界: {rel}"));
-    }
-    let meta = std::fs::metadata(&canon).map_err(|e| e.to_string())?;
-    if !meta.is_file() {
-        return Err(format!("不是文件: {rel}"));
-    }
-    let truncated = meta.len() > MAX_PREVIEW_BYTES;
-    let bytes = if truncated {
-        use std::io::Read;
-        let mut file = std::fs::File::open(&canon).map_err(|e| e.to_string())?;
-        let mut buf = vec![0u8; MAX_PREVIEW_BYTES as usize];
-        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
-        buf.truncate(n);
-        buf
-    } else {
-        std::fs::read(&canon).map_err(|e| e.to_string())?
-    };
-    // 二进制判据:头 8KB 含 NUL。二进制不进 Monaco,前端显示占位。
-    let binary = bytes.iter().take(8192).any(|b| *b == 0);
-    let content = if binary {
-        String::new()
-    } else {
-        String::from_utf8_lossy(&bytes).into_owned()
-    };
-    Ok(json!({
-        "content": content,
-        "binary": binary,
-        "truncated": truncated,
-        "size": meta.len(),
-    }))
+    tauri::async_runtime::spawn_blocking(move || crate::files_edit::preview_at(&root, &path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// AI 用途标注(增量):只标「没标过或内容已变」的文件,逐个调 fast 模型,

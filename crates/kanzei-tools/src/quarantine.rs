@@ -11,7 +11,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-const KNOWN_KINDS: &[&str] = &["shell", "shell-with-log", "cross-tree", "bg"];
+/// `files-overwrite`:桌面文件页「覆盖磁盘版本」前留下的被覆盖版本(UI2-0926 #6)。
+const KNOWN_KINDS: &[&str] = &[
+    "shell",
+    "shell-with-log",
+    "cross-tree",
+    "bg",
+    "files-overwrite",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuarantineEntry {
@@ -260,6 +267,35 @@ mod tests {
         assert_eq!(report.freed_bytes, 5);
         assert!(!root.join(".kanzei/quarantine/bg-100").exists());
         assert!(cleanup(&root, None, None, true).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    // ── 分区:文件编辑 ──
+    /// UI2-0926 #6:文件页「覆盖磁盘版本」的留证目录是已知类型,能按类型与时间清理;
+    /// 不登记就会被当成未知证据永久保留。
+    #[test]
+    fn 文件页覆盖留证是已知类型可按时间清理() {
+        let root = temp_project("files-overwrite");
+        fs::create_dir_all(root.join(".kanzei/quarantine/files-overwrite-100/src")).unwrap();
+        fs::write(
+            root.join(".kanzei/quarantine/files-overwrite-100/src/a.rs"),
+            "old",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".kanzei/quarantine/files-overwrite-900")).unwrap();
+        let entries = inspect(&root).unwrap();
+        assert!(entries
+            .iter()
+            .all(|entry| entry.kind.as_deref() == Some("files-overwrite")));
+        assert_eq!(
+            classify("files-overwrite-100"),
+            Some(("files-overwrite".into(), 100))
+        );
+        let report = cleanup(&root, Some("files-overwrite"), Some(500), true).unwrap();
+        assert_eq!(report.removed_dirs, 1);
+        assert_eq!(report.freed_bytes, 3);
+        assert!(!root.join(".kanzei/quarantine/files-overwrite-100").exists());
+        assert!(root.join(".kanzei/quarantine/files-overwrite-900").is_dir());
         let _ = fs::remove_dir_all(root);
     }
 }

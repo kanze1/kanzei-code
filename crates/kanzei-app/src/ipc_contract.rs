@@ -304,4 +304,57 @@ pub(crate) mod tests {
         check_contract("files_snapshot", actual, "files_snapshot 的 IPC 形状变了");
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    // ── 分区:文件编辑 ──
+    /// UI2-0926 #6:文件页三条命令的形状契约(前端 17-files-editor.js 与 ui-runtime-smoke 夹具共读)。
+    /// 取样:可编辑的 UTF-8 文件(readonly 为 null → "nullable",夹具给只读原因码同样合法)。
+    #[tokio::test]
+    async fn file_preview_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(
+            &crate::files_view::file_preview(root.display().to_string(), "src/main.rs".into())
+                .await
+                .expect("夹具项目应能预览源码文件"),
+        );
+        check_contract("file_preview", actual, "file_preview 的 IPC 形状变了");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn file_stat_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(
+            &crate::files_edit::file_stat(root.display().to_string(), "src/main.rs".into())
+                .await
+                .expect("夹具项目应能取到文件状态"),
+        );
+        check_contract("file_stat", actual, "file_stat 的 IPC 形状变了");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 取样「覆盖磁盘版本」那一次写入:evidence 有值,六个字段都不是 null。
+    #[tokio::test]
+    async fn file_write_形状与ipc契约一致() {
+        let root = fixture_project();
+        let expected = kanzei_tools::content_hash(
+            b"fn main() {}
+",
+        );
+        let actual = shape(
+            &crate::files_edit::file_write(
+                root.display().to_string(),
+                "src/main.rs".into(),
+                "fn main() { println!(\"hi\"); }
+"
+                .into(),
+                Some(expected),
+                Some(false),
+                Some(true),
+            )
+            .await
+            .expect("夹具项目应能写入源码文件"),
+        );
+        check_contract("file_write", actual, "file_write 的 IPC 形状变了");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
