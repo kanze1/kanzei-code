@@ -483,9 +483,10 @@ fn export_project_data_copies_selected_work_materials() {
 #[test]
 fn project_root_normalizes_equivalent_paths() {
     let current = std::env::current_dir().unwrap();
+    // UI2-0926 #13:身份根是去掉 `\\?\` 前缀的 canonical 形态(path_form::canonical)。
     assert_eq!(
         normalized_project_root(Path::new(".")),
-        std::fs::canonicalize(current).unwrap()
+        kanzei_tools::path_form::canonical(&current).unwrap()
     );
 }
 
@@ -508,4 +509,31 @@ fn d506_hot_path_mutex_locks_use_poison_recovery() {
             "D-506 热路径仍存在 poisoned mutex panic 写法: {file}"
         );
     }
+}
+
+/// UI2-0926 #13:项目身份根是进程 id、ProcessInfo.project_dir 与鞭挞轮 projectDir 的唯一来源,
+/// 必须是去掉 verbatim 前缀的经典形态;传入 verbatim 与裸路径两种写法得到同一个进程 id。
+#[test]
+fn 项目身份根不带_verbatim_前缀且两种入参同一进程id() {
+    let dir = std::env::temp_dir().join(format!(
+        "kz-root-form-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(dir.join(".kanzei")).unwrap();
+    let bare = crate::normalized_project_root(&dir);
+    assert!(
+        !bare.display().to_string().starts_with(r"\\?\"),
+        "{}",
+        bare.display()
+    );
+    let verbatim = std::fs::canonicalize(&dir).unwrap();
+    assert_eq!(
+        crate::state::default_process_id(&crate::normalized_project_root(&verbatim)),
+        crate::state::default_process_id(&bare)
+    );
+    std::fs::remove_dir_all(&dir).ok();
 }

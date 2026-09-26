@@ -15,7 +15,7 @@ use super::{build_commit_plan, commit, merge_ff, stage};
 
 #[derive(Deserialize, JsonSchema)]
 struct GitInput {
-    /// status | diff | log | stage | commit | commit_plan | preflight | merge_ff | finalize
+    /// status | diff | log | stage | commit | commit_plan | preflight | merge_ff | finalize | init
     action: String,
     /// diff/log 按路径过滤;stage 的逐文件相对路径(禁止目录和通配符)。
     #[serde(default)]
@@ -57,7 +57,7 @@ impl Tool for GitTool {
     }
 
     fn description(&self) -> String {
-        "Safe Git status/diff/log/stage/commit/commit_plan/finalize/merge_ff. commit_plan (also called preflight) reports affected crates, test evidence, governance metadata, and the safe explicit stage set before mutations. log shows recent commits (count, optional path filter). stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. merge_ff fast-forwards branch `into` from ref `from` (finds the worktree where `into` is checked out; refuses non-fast-forward). Do not use bash for git add/commit/merge.".into()
+        "Safe Git status/diff/log/stage/commit/commit_plan/finalize/merge_ff/init. commit_plan (also called preflight) reports affected crates, test evidence, governance metadata, and the safe explicit stage set before mutations. log shows recent commits (count, optional path filter). stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. merge_ff fast-forwards branch `into` from ref `from` (finds the worktree where `into` is checked out; refuses non-fast-forward). init creates an independent repository (branch main) in the project root and writes .kanzei/.gitignore for runtime files; it asks the user first. The tool only operates on the project's OWN repository: when the project folder merely sits inside a parent repository it refuses instead of touching the parent. Do not use bash for git add/commit/merge/init.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -77,7 +77,8 @@ impl Tool for GitTool {
                     "commit_plan",
                     "preflight",
                     "merge_ff",
-                    "finalize"
+                    "finalize",
+                    "init"
                 ]),
             );
         }
@@ -119,8 +120,22 @@ async fn git_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> 
         Ok(value) => value,
         Err(output) => return output,
     };
-    if let Err(error) = ensure_repository(&ctx.cwd).await {
-        return ToolOutput::error(error);
+    if input.action == "init" {
+        return init_repository(ctx).await;
+    }
+    // UI2-0926 #13:只操作项目**自己的**仓库。非仓库时 status/diff/log 是一条事实(不是失败行),
+    // 其余动作报错并给出路;项目目录只是落在上级仓库里时一律拒绝——原先 ensure_repository 只看
+    // rev-parse 成不成功,于是对上级仓库做了 status/stage/commit。
+    match repository_state(ctx).await {
+        RepoState::Own => {}
+        state => {
+            let read_only = matches!(input.action.as_str(), "status" | "diff" | "log");
+            return if read_only {
+                ToolOutput::ok(state.fact())
+            } else {
+                ToolOutput::error(state.refusal(&input.action))
+            };
+        }
     }
     match input.action.as_str() {
         "status" => match run_git(&ctx.cwd, &["status", "--short", "--branch"]).await {
@@ -199,15 +214,111 @@ async fn git_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> 
         "merge_ff" => merge_ff(&ctx.cwd, input.from, input.into).await,
         "finalize" => finalize(ctx, input.files, input.message, input.requirement_id).await,
         other => ToolOutput::error(format!(
-            "unknown action `{other}`; valid: status | diff | log | commit_plan | preflight | stage | commit | merge_ff | finalize"
+            "unknown action `{other}`; valid: status | diff | log | commit_plan | preflight | stage | commit | merge_ff | finalize | init"
         )),
     }
 }
 
-async fn ensure_repository(cwd: &Path) -> Result<(), String> {
-    run_git(cwd, &["rev-parse", "--show-toplevel"])
-        .await
-        .map(|_| ())
+/// 代码树与 Git 的关系。
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RepoState {
+    /// 代码树根就是仓库顶层(主根或工作树线)。
+    Own,
+    /// 不在任何仓库里。
+    NotRepo { tree: String },
+    /// 代码树只是落在上级仓库里。
+    Parent { tree: String, toplevel: String },
+}
+
+impl RepoState {
+    fn fact(&self) -> String {
+        match self {
+            RepoState::Own => String::new(),
+            RepoState::NotRepo { tree } => format!(
+                "not a git repository: {tree} 不是 Git 仓库(也不在任何仓库里)。并行线/工作树、提交与差异\
+                 不可用;需要版本管理时用 git action=init 建库(会先征得用户同意)。"
+            ),
+            RepoState::Parent { tree, toplevel } => format!(
+                "not an independent git repository: {tree} 只是位于上级仓库 {toplevel} 内。git 工具不读、\
+                 不改上级仓库;需要版本管理时用 git action=init 在项目根建独立仓库,或让用户把上级仓库根\
+                 登记为项目。"
+            ),
+        }
+    }
+
+    fn refusal(&self, action: &str) -> String {
+        match self {
+            RepoState::Own => String::new(),
+            RepoState::NotRepo { tree } => format!(
+                "git {action} refused: {tree} 不是 Git 仓库。先用 git action=init 建库(需要用户同意),\
+                 或者不做版本管理、直接交付文件。"
+            ),
+            RepoState::Parent { tree, toplevel } => format!(
+                "git {action} refused: 本项目 {tree} 不是 Git 仓库,检测到上级仓库 {toplevel},已拒绝操作\
+                 (那是另一个项目的历史)。出路:git action=init 在项目根建独立仓库,或让用户把 {toplevel} \
+                 登记为项目。"
+            ),
+        }
+    }
+}
+
+fn dir_key(path: &Path) -> String {
+    let resolved = crate::path_form::canonical_or_simplified(path);
+    let text = resolved.display().to_string().replace('/', "\\");
+    let trimmed = text.trim_end_matches('\\').to_string();
+    if cfg!(windows) {
+        trimmed.to_lowercase()
+    } else {
+        trimmed
+    }
+}
+
+pub(crate) async fn repository_state(ctx: &ToolCtx) -> RepoState {
+    let tree = crate::base::code_tree_root(&ctx.cwd, &ctx.project_root);
+    let tree_text = crate::path_form::simplify(&tree).display().to_string();
+    match run_git(&ctx.cwd, &["rev-parse", "--show-toplevel"]).await {
+        Err(_) => RepoState::NotRepo { tree: tree_text },
+        Ok(top) => {
+            let top = top.lines().next().unwrap_or_default().trim().to_string();
+            if dir_key(Path::new(&top)) == dir_key(&tree) {
+                RepoState::Own
+            } else {
+                RepoState::Parent {
+                    tree: tree_text,
+                    toplevel: crate::path_form::simplify(Path::new(&top))
+                        .display()
+                        .to_string(),
+                }
+            }
+        }
+    }
+}
+
+/// `init`:在代码树根建独立仓库并补 `.kanzei/.gitignore`(权限默认 Ask,自主轮会被拒)。
+async fn init_repository(ctx: &ToolCtx) -> ToolOutput {
+    let tree = crate::base::code_tree_root(&ctx.cwd, &ctx.project_root);
+    if repository_state(ctx).await == RepoState::Own {
+        return ToolOutput::ok("already a git repository (nothing to do)");
+    }
+    let root = tree.clone();
+    let result =
+        tokio::task::spawn_blocking(move || crate::project_state::git_init(&root, false)).await;
+    match result {
+        Ok(Ok(outcome)) => ToolOutput::ok(format!(
+            "initialized an independent git repository at {} (branch {}){}. The repository has no \
+             commit yet: parallel lines/worktrees need one — stage and commit the project files \
+             when they are ready.",
+            crate::path_form::simplify(&tree).display(),
+            outcome.branch,
+            if outcome.gitignore_written {
+                "; wrote .kanzei/.gitignore for runtime files"
+            } else {
+                ""
+            }
+        )),
+        Ok(Err(error)) => ToolOutput::error(error),
+        Err(error) => ToolOutput::error(format!("git init task failed: {error}")),
+    }
 }
 
 pub(crate) fn normalize_files(

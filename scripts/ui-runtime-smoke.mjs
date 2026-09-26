@@ -771,6 +771,138 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*if \(\$\("memory-graph-legend"\)\?\.children\.length\) renderLegend\(\{ rebuild: true \}\);\r?\n/,
       replace: "",
     },
+    // ── 分区:工作目录管理 ──
+    // UI2-0926 #13:bash 成功兜底不再先判表格/键值输出:Format-List 的末行「Detail : waiting …」被当成人话。
+    wdBashTable: {
+      pattern: /\} else if \(!looksLikeTableOutput\(bodyLines\)\) \{/,
+      replace: "} else if (true) {",
+    },
+    // 末行不再要求是句子:单个文件名(src/main.rs、state.db-wal)又被当成摘要。
+    wdBashSentence: {
+      pattern: /if \(last && isSentence\(last\)\) return \[last\];/,
+      replace: "if (last) return [last];",
+    },
+    // 模型在等你回答时,回复不再豁免「手动接管」:一回复鞭挞就被关掉,回答那一轮之后不会自动继续。
+    wdAwaitKeep: {
+      pattern: /[ \t]*if \(takeAwaitingUser\(activeSessionId\)\) \{\r?\n[^\n]*\r?\n[^\n]*\r?\n[ \t]*return false;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
+    // Stop(AwaitingUser) 不再记「在等你」:同上,回复被当成手动接管。
+    wdAwaitMark: {
+      pattern: /[ \t]*markAwaitingUser\(p\.sessionId \|\| activeSessionId\);\r?\n/,
+      replace: "",
+    },
+    // 续跑轮退回写死 agent:结伴线的续跑轮按自主档跑(Nudge、核查轮都开)。
+    wdAutoAgent: {
+      pattern: /agent: mode\.agent,(\r?\n\s*researchTopic: research \?)/,
+      replace: 'agent: research ? "research" : "dev",$1',
+    },
+    // 续跑轮退回用进程记录里的 project_dir:\\?\ 前缀漏进系统提示/bash 工作目录,取活顺序键也对不上。
+    wdAutoProjectDir: {
+      pattern: /const projectDir = String\(item\.origin_project \|\| item\.project_dir \|\| currentProject\)\.replace\([^\n]*\);/,
+      replace: "const projectDir = item.project_dir;",
+    },
+    // 一句话描述不再进输入框:新建项目后第一条消息的草稿丢了。
+    wdNewProjectDraft: {
+      pattern: /[ \t]*promptBox\.value = result\.description;\r?\n/,
+      replace: "",
+    },
+    // 事实横幅不再给 D-170 隔离告警让位:两条叠在项目卡下面。
+    wdBannerYield: {
+      pattern: /if \(!kind \|\| dismissed \|\| sharedShown\) \{/,
+      replace: "if (!kind || dismissed) {",
+    },
+    // 建线入口不再按事实拦下:没有提交的仓库一路跑到 git worktree add 才报 git 的原话。
+    wdWorktreeGate: {
+      pattern: /[ \t]*if \(blocked\) \{\r?\n[ \t]*toast\(blocked, \{ kind: "warn" \}\);\r?\n[ \t]*return;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
+    // refreshGit 不再画「无 Git」芯片:非 Git 项目的分支与改动统计又悄悄空着。
+    wdGitChip: {
+      pattern: /[ \t]*renderGitChip\(g\);\r?\n/,
+      replace: "",
+    },
+    // target/ 冷编译文案又对所有工程说。
+    wdRustOnlyText: {
+      pattern: /const cost = facts\?\.stacks\?\.includes\("rust"\)/,
+      replace: "const cost = true",
+    },
+    // ── 复核修复(工作目录管理)──
+    // 线档位不再随合并回填:重启后(localStorage 已空)自主线的续跑轮掉回结伴档。
+    wdModeRestore: {
+      pattern: /[ \t]*restoreLineModes\(\);\r?\n/,
+      replace: "",
+    },
+    // 升级前没记档位、鞭挞开着的线不再按自主档记:自举线装新版后第一轮就掉回结伴。
+    wdModeLegacy: {
+      pattern: /entry\?\.enabled === true \? "dev-auto" : null;/,
+      replace: "null;",
+    },
+    // 存档不再带 mode:切了档位,下次启动(localStorage 已空)又回到回落档位。
+    wdModeRemember: {
+      pattern: /[ \t]*\.\.\.\(mode \? \{ mode \} : \{\}\),\r?\n/,
+      replace: "",
+    },
+    // normalizeAutoState 丢掉 mode:applyAutoUiState/applyAutoStopToSession 回写时把档位抹掉。
+    wdModeNormalize: {
+      pattern: /[ \t]*\.\.\.\(LINE_MODES\.includes\(value\?\.mode\) \? \{ mode: value\.mode \} : \{\}\),\r?\n/,
+      replace: "",
+    },
+    // 旧键(`d|\\?\…`)与新键并存时旧的赢:陈值覆盖用户升级后的设置。
+    wdKeyNewerWins: {
+      pattern: /for \(const \[key, value\] of legacy\) if \(!out\.has\(key\)\) out\.set\(key, value\);/,
+      replace: "for (const [key, value] of legacy) out.set(key, value);",
+    },
+    // 「在等你回答」时仍给「继续鞭挞」:点它等于绕过问题接着跑。
+    wdAwaitResumeHidden: {
+      pattern: / && auto_stop_kind !== "waiting"\)\)/,
+      replace: "))",
+    },
+    // 「继续鞭挞」不清等待标记:之后真正的手动接管不再关鞭挞。
+    wdAwaitResumeTake: {
+      pattern: /[ \t]*takeAwaitingUser\(activeSessionId\);\r?\n/,
+      replace: "",
+    },
+    // 手动开关鞭挞不清等待标记:同上。
+    wdAwaitToggle: {
+      pattern: /[ \t]*if \(takeAwaitingUser\(activeSessionId\) && autoStopReason === t\("模型在等你回答"\)\) setAutoStopReason\(""\);\r?\n/,
+      replace: "",
+    },
+    // 本轮以别的结果收口时不清等待标记:等待早已过去,之后的手动消息仍被当成「回答」。
+    wdAwaitExpire: {
+      pattern: /[ \t]*if \(!\(action\.type === "Stop" && action\.reason === "AwaitingUser"\)\) takeAwaitingUser\(p\.sessionId \|\| activeSessionId\);\r?\n/,
+      replace: "",
+    },
+    // 后台线同上。
+    wdBgAwaitExpire: {
+      pattern: /if \(!\(action\.type === "Stop" && action\.reason === "AwaitingUser"\) && takeAwaitingUser\(sessionId\)\) refreshParallelTaskProjection\(sessionId\);/,
+      replace: "",
+    },
+    // 后台线在等你回答时侧栏行只写「空闲」:混在空闲线里漏看。
+    wdBgWaiting: {
+      pattern: /\r?\n[ \t]*: waitingNow \? t\("在等你回答"\)/,
+      replace: "",
+    },
+    // 切到在等你回答的线,原因槽是空的(applyAutoUiState 清掉后不回填)。
+    wdSwitchWaiting: {
+      pattern: /[ \t]*if \(target\?\.session_id && awaitingUserSessions\.has\(target\.session_id\)\) setAutoStopReason\(t\("模型在等你回答"\), "waiting"\);\r?\n/,
+      replace: "",
+    },
+    // 仓库还没有提交不再单独成横幅:并行线为什么不可用只藏在建线入口的 title 里。
+    wdBannerNoCommit: {
+      pattern: /[ \t]*if \(facts\.git\?\.state === "repo" && facts\.git\?\.has_commits === false\) return "no-commit";\r?\n/,
+      replace: "",
+    },
+    // 「初始化 Git」不看后端结果:已经是仓库(created:false)也报「已初始化」。
+    wdInitToast: {
+      pattern: /if \(result\?\.git\?\.created === false\) toast\(t\("本项目已经是 Git 仓库,没有重复初始化"\)\);\r?\n[ \t]*else /,
+      replace: "",
+    },
+    // 研究空间也画「无 Git」芯片:点一下就把独立课题目录 git init 了。
+    wdGitChipResearch: {
+      pattern: /const show = active_space !== "research" && \(repo === "none" \|\| repo === "parent"\);/,
+      replace: 'const show = repo === "none" || repo === "parent";',
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -2782,12 +2914,19 @@ assert(
   const renameCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_rename");
   assert(renameCall?.args?.name === "重命名后的项目", "项目重命名未消费输入弹窗的值");
 
-  sandbox.__inputDialogResponses.push("C:/smoke/new-project", "新项目显示名");
+  // UI2-0926 #13:「新建项目…」不再是两次输入(路径 + 显示名),改为新建项目对话框 → projects_create。
+  payloads.projects_create = (args) => ({ prefs: structuredClone(payloads.projects_get), path: `${args.parent}\\${args.name}`, facts: null, git: { created: true, committed: true, identity_missing: false, branch: "main" }, gitError: null, description: args.description });
   byId.get("project-init").click();
   await flush();
-  const initCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_init");
-  assert(initCall?.args?.path === "C:/smoke/new-project", "新建项目未消费目录输入");
-  assert(initCall?.args?.name === "新项目显示名", "新建项目未消费显示名输入");
+  assert(!byId.get("new-project-overlay").classList.contains("hidden"), "项目总览「新建项目…」未打开新建项目对话框");
+  byId.get("new-project-name").value = "新项目显示名";
+  byId.get("new-project-parent").value = "C:/smoke";
+  byId.get("new-project-create").click();
+  await flush();
+  const initCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_create");
+  assert(initCall?.args?.parent === "C:/smoke" && initCall?.args?.name === "新项目显示名", "新建项目未按对话框的名称与位置调用 projects_create");
+  assert(initCall?.args?.gitInit === true, "新建项目对话框的「初始化 Git」应默认勾选");
+  assert(byId.get("new-project-overlay").classList.contains("hidden"), "创建成功后新建项目对话框未关闭");
   vm.runInContext(`renderProjects(${JSON.stringify(payloads.projects_get)})`, sandbox);
   await flush();
 }
@@ -10009,13 +10148,18 @@ const docsB = {
     await flush();
     assert(callsOf("projects_select") === selectsBefore && !sessionsNs.projectMenuHandle, "点当前项目应只收起菜单,不发 projects_select");
 
-    // ④ 「新建项目…」走既有初始化流程(两次输入);「打开文件夹…」走 projects_pick;「项目总览」进 ⌂ 页。
-    payloads.projects_init = () => structuredClone(prefsAB);
-    sandbox.__inputDialogResponses.push("C:/smoke/menu-new", "菜单新项目");
+    // ④ 「新建项目…」打开新建项目对话框(UI2-0926 #13);「打开文件夹…」走 projects_pick;「项目总览」进 ⌂ 页。
+    payloads.projects_create = (args) => ({ prefs: structuredClone(prefsAB), path: `${args.parent}\\${args.name}`, facts: null, git: null, gitError: null, description: null });
     await openProjectMenuByClick();
     menuItem("新建项目…")?.click();
     await flush();
-    assert(lastCall("projects_init")?.args?.path === "C:/smoke/menu-new" && lastCall("projects_init")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未走初始化流程(路径 + 显示名)");
+    assert(!byId.get("new-project-overlay").classList.contains("hidden"), "项目菜单「新建项目…」未打开新建项目对话框");
+    byId.get("new-project-name").value = "菜单新项目";
+    byId.get("new-project-parent").value = "C:/smoke";
+    byId.get("new-project-create").click();
+    await flush();
+    assert(lastCall("projects_create")?.args?.parent === "C:/smoke" && lastCall("projects_create")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未经对话框调用 projects_create");
+    assert(byId.get("new-project-overlay").classList.contains("hidden"), "项目菜单新建项目后对话框未关闭");
     const picksBefore = callsOf("projects_pick");
     await openProjectMenuByClick();
     menuItem("打开文件夹…")?.click();
@@ -14877,6 +15021,380 @@ const docsB = {
   payloads.memory_graph = savedGraph;
   payloads.memory_entry_get = savedGet;
   await sandbox.refreshMemory({ force: true });
+  await flush();
+}
+
+// ── 分区:工作目录管理 ──
+// UI2-0926 #13(docs/design/project_workspace.md):bash 成功摘要只收句子(表格/名称列表/文件名 → 输出 N 行)、
+// 模型在等你回答(Stop/AwaitingUser:鞭挞保持勾选、不挂续跑、回复不算「手动接管」)、鞭挞续跑轮按本线实际档位与
+// simplify 形态的项目根发、新建项目对话框(Git 默认勾选、描述进草稿不发送)、项目事实横幅、「无 Git」芯片、
+// 并行线入口按事实禁用、target/ 冷编译文案只给 Rust 工程。
+// 变异守卫:wdBashTable / wdBashSentence / wdAwaitKeep / wdAwaitMark / wdAutoAgent / wdAutoProjectDir /
+// wdNewProjectDraft / wdBannerYield / wdWorktreeGate / wdGitChip / wdRustOnlyText。
+// 复核修复:线档位经后端落盘(wdModeRestore / wdModeLegacy / wdModeRemember / wdModeNormalize / wdKeyNewerWins)、
+// 等待标记过期与后台线「在等你回答」(wdAwaitResumeHidden / wdAwaitResumeTake / wdAwaitToggle / wdAwaitExpire /
+// wdBgAwaitExpire / wdBgWaiting / wdSwitchWaiting)、「还没有提交」横幅与按结果提示(wdBannerNoCommit / wdInitToast)、
+// 研究空间不画「无 Git」(wdGitChipResearch);新建项目主按钮专用键为手工变异(index.html 改回「创建」)。
+{
+  const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  const composeNs = esmModuleCache.get("08-compose-runtime.js")?.namespace;
+  const autoNs = esmModuleCache.get("08-auto.js")?.namespace;
+  const coreNs = esmModuleCache.get("01-core.js")?.namespace;
+  assert(summaryNs?.toolResultSummary && sessionsNs?.openNewProjectDialog && sessionsNs?.refreshProjectFacts && viewsNs?.renderGitChip && composeNs?.sendAutoToSession && autoNs?.lineAgent,
+    "工作目录管理:入口未导出(toolResultSummary / openNewProjectDialog / refreshProjectFacts / renderGitChip / sendAutoToSession / lineAgent)");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+  await flush();
+  // 前面分区可能留着模态(查看器/命令面板):先收掉,本分区要开新建项目对话框。
+  for (const id of ["viewer-overlay", "palette", "confirm-overlay", "input-overlay"]) {
+    if (byId.get(id)?.open) byId.get(id).close?.();
+  }
+  await flush();
+
+  // ① bash 成功摘要:截图同款(Get-Command 表格 + Get-ChildItem 名称,末行 state.db-wal)→ 输出 N 行。
+  {
+    const bash = (content) => summaryNs.toolResultSummary("bash", { ok: true, content, roots: [] }).text;
+    const shot = bash("exit code: 0\n\nCommandType     Name       Version    Source\n-----------     ----       -------    ------\nApplication     git.exe    2.47.0.0   C:\\Program Files\\Git\\cmd\\git.exe\n\nC:\\Users\\kanzei\\Desktop\\MD文件保存\n.kanzei\nkanzei.toml\nstate.db\nstate.db-shm\nstate.db-wal");
+    assert(/^退出码 0 · 输出 \d+ 行$/.test(shot) && !shot.includes("state.db"), `截图同款 bash 输出的摘要应是「输出 N 行」,实为「${shot}」`);
+    const names = bash("exit code: 0\n.kanzei\nlib\npubspec.yaml\nstate.db-wal");
+    assert(names === "退出码 0 · 输出 4 行", `名称列表的摘要应是「输出 4 行」,实为「${names}」`);
+    const formatList = bash("exit code: 0\nName    : web\nState   : Running on port 3000\nDetail  : waiting for new connections");
+    assert(formatList === "退出码 0 · 输出 3 行", `Format-List 键值输出的摘要应是「输出 3 行」,实为「${formatList}」`);
+    const fileName = bash("exit code: 0\nsrc/main.rs");
+    assert(fileName === "退出码 0 · 输出 1 行", `单个文件名不是人话,摘要应是「输出 1 行」,实为「${fileName}」`);
+    const sentence = bash("exit code: 0\nCollecting foo\nSuccessfully installed foo-1.2");
+    assert(sentence === "退出码 0 · Successfully installed foo-1.2", `真正的句子仍要显示,实为「${sentence}」`);
+  }
+
+  // ② 模型在等你回答:鞭挞保持勾选、不挂续跑、提示;回复这一条不关鞭挞。
+  {
+    const SID = sandbox.activeSessionId;
+    const whip = byId.get("auto-continue");
+    const priorWhip = whip.checked;
+    const priorProfile = byId.get("profile-select").value;
+    byId.get("profile-select").value = "dev-auto";
+    whip.checked = true;
+    kzTest.cancelTimers();
+    handlers.get("kz:done")?.({ payload: { steps: 4, halted: false, tools: { question: 1 }, autoAction: { type: "Stop", reason: "AwaitingUser" }, sessionId: SID } });
+    await flush();
+    assert(whip.checked, "Stop(AwaitingUser) 不应取消鞭挞勾选(回复后要自动继续)");
+    assert(!kzTest.timerSessions().includes(SID), "Stop(AwaitingUser) 不应挂续跑定时器");
+    assert(kzTest.stopReason().includes("模型在等你回答"), `停机原因应是「模型在等你回答」,实为「${kzTest.stopReason()}」`);
+    assert([...document.querySelectorAll("#messages .msg")].some((el) => el.textContent.includes("模型在等你回答")), "对话里缺「模型在等你回答」提示");
+    const updatesBefore = invokeArgs.length;
+    coreNs.promptBox.value = "就是这个目录,工具你可以自己装";
+    composeNs.send();
+    await flush();
+    const turnedOff = invokeArgs.slice(updatesBefore).some(({ cmd, args }) => cmd === "auto_state_update" && args?.enabled === false);
+    assert(whip.checked && !turnedOff, "回复模型的提问被当成「手动接管」关掉了鞭挞(回复后应自动继续)");
+    assert(!kzTest.stopReason().includes("收到手动输入"), `回复提问不应显示「收到手动输入,鞭挞已停止」,实为「${kzTest.stopReason()}」`);
+    handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { edit: 1 }, sessionId: SID } });
+    await flush();
+    kzTest.cancelTimers();
+    sandbox.releaseAutoContinue?.(SID);
+
+    // 复核:「在等你回答」只对紧接着的那一条手动消息有效。点「继续鞭挞」、手动开关鞭挞、本轮以别的结果收口,
+    // 都让等待过期——之后的手动消息是真正的接管,照常关鞭挞(stopAutoForManualInput 返回 true)。
+    const awaitNow = async () => {
+      whip.checked = true;
+      kzTest.cancelTimers();
+      handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { question: 1 }, autoAction: { type: "Stop", reason: "AwaitingUser" }, sessionId: SID } });
+      await flush();
+    };
+    const settle = () => {
+      kzTest.cancelTimers();
+      sandbox.releaseAutoContinue?.(SID);
+      sandbox.clearRunPending?.();
+    };
+    const takeoverTurnsOff = () => {
+      whip.checked = true;
+      const off = composeNs.stopAutoForManualInput();
+      whip.checked = true;
+      return off;
+    };
+    await awaitNow();
+    assert(byId.get("auto-resume").classList.contains("hidden"), "模型在等你回答时不应出现「继续鞭挞」(鞭挞本来就开着,该做的是回答)");
+    byId.get("auto-resume").click();
+    await flush();
+    settle();
+    assert(takeoverTurnsOff(), "点了「继续鞭挞」之后等待标记必须清掉——之后的手动消息应照常关鞭挞(手动接管)");
+    await awaitNow();
+    whip.checked = false;
+    whip.dispatchEvent({ type: "change" });
+    whip.checked = true;
+    whip.dispatchEvent({ type: "change" });
+    await flush();
+    settle();
+    assert(!kzTest.stopReason().includes("模型在等你回答"), `手动开关鞭挞后原因槽不应还挂着「模型在等你回答」,实为「${kzTest.stopReason()}」`);
+    assert(takeoverTurnsOff(), "手动开关鞭挞之后等待标记必须清掉——之后的手动消息应照常关鞭挞");
+    await awaitNow();
+    handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 1 }, sessionId: SID } });
+    await flush();
+    settle();
+    assert(takeoverTurnsOff(), "本轮以续跑收口后等待标记必须过期——之后的手动消息应照常关鞭挞");
+    settle();
+    whip.checked = priorWhip;
+    byId.get("profile-select").value = priorProfile;
+  }
+
+  // ③ 鞭挞续跑轮:结伴线按 dev-pair 发(不再写死 dev)、项目根不带 \\?\、取活顺序键与写入键一致。
+  {
+    const devProcesses = payloads.process_list;
+    const VERBATIM = `\\\\?\\${PROJECT.replaceAll("/", "\\")}`;
+    const line = { id: "p7|smoke-pair", session_id: "sess-pair-auto", profile: "dev", project_dir: VERBATIM, origin_project: VERBATIM, label: "结伴线", running: false };
+    payloads.process_list = [...devProcesses, line];
+    await sandbox.refreshProcesses();
+    await flush();
+    const plain = PROJECT.replaceAll("/", "\\");
+    storage.set(`kz-work-priority:${plain}`, "requirement-first");
+    const lastRun = () => invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === line.id)?.args;
+    await composeNs.sendAutoToSession("继续", "sess-pair-auto");
+    let request = lastRun();
+    assert(request?.agent === "dev-pair" && request?.profile === "dev", `结伴线的鞭挞续跑轮应按 dev-pair 发,实为 ${request?.agent}`);
+    assert(request?.projectDir === plain && !String(request?.projectDir).includes("\\\\?\\"), `续跑轮的 projectDir 应是去掉 \\\\?\\ 前缀的项目根,实为 ${request?.projectDir}`);
+    assert(request?.workPriority === "requirement-first", `续跑轮读不到用户选的取活顺序(键不一致),实为 ${request?.workPriority}`);
+    sandbox.releaseAutoContinue("sess-pair-auto");
+    composeNs.processProfileUi.set(line.id, "dev-auto");
+    await composeNs.sendAutoToSession("继续", "sess-pair-auto");
+    request = lastRun();
+    assert(request?.agent === "dev", `自主线的续跑轮应按 dev 发,实为 ${request?.agent}`);
+    sandbox.releaseAutoContinue("sess-pair-auto");
+    composeNs.processProfileUi.delete(line.id);
+    storage.delete(`kz-work-priority:${plain}`);
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    await flush();
+  }
+
+  // ④ 新建项目对话框:Git 默认勾选、描述进输入框当草稿(不发送)、失败留在对话框里说原因、首提交缺身份要说。
+  {
+    const overlay = byId.get("new-project-overlay");
+    const priorPrefs = structuredClone(payloads.projects_get);
+    payloads.projects_create = (args) => ({ prefs: structuredClone(priorPrefs), path: `${args.parent}\\${args.name}`, facts: null, git: { created: true, committed: false, identity_missing: true, branch: "main" }, gitError: null, description: args.description });
+    sessionsNs.openNewProjectDialog();
+    await flush();
+    assert(!overlay.classList.contains("hidden") && overlay.open, "新建项目对话框未以模态打开");
+    assert(byId.get("new-project-git").checked === true, "「初始化 Git 仓库」应默认勾选");
+    byId.get("new-project-name").value = "MD文件保存";
+    byId.get("new-project-parent").value = "C:\\Users\\kanzei\\Desktop";
+    byId.get("new-project-name").dispatchEvent({ type: "input" });
+    assert(byId.get("new-project-preview").textContent.includes("C:\\Users\\kanzei\\Desktop\\MD文件保存"), `预览应写出将创建的完整路径,实为「${byId.get("new-project-preview").textContent}」`);
+    invokeFailures.set("projects_create", "「C:\\Users\\kanzei\\Desktop\\MD文件保存」已存在且不是空目录;换个名字,或用「打开文件夹…」打开它");
+    byId.get("new-project-create").click();
+    await flush();
+    assert(!overlay.classList.contains("hidden") && !byId.get("new-project-error").classList.contains("hidden") && byId.get("new-project-error").textContent.includes("打开文件夹"), "创建失败时对话框应留着并说出原因");
+    invokeFailures.delete("projects_create");
+    byId.get("new-project-desc").value = "手机上用的 Markdown 上下文库";
+    const runsBefore = invokeArgs.filter(({ cmd }) => cmd === "run_prompt").length;
+    coreNs.promptBox.value = "";
+    byId.get("new-project-create").click();
+    await flush();
+    const call = invokeArgs.findLast(({ cmd }) => cmd === "projects_create")?.args;
+    assert(call?.name === "MD文件保存" && call?.parent === "C:\\Users\\kanzei\\Desktop" && call?.gitInit === true && call?.description === "手机上用的 Markdown 上下文库", `projects_create 入参不对:${JSON.stringify(call)}`);
+    assert(overlay.classList.contains("hidden"), "创建成功后对话框应关闭");
+    assert(coreNs.promptBox.value === "手机上用的 Markdown 上下文库", `一句话描述应进输入框当草稿,实为「${coreNs.promptBox.value}」`);
+    assert(invokeArgs.filter(({ cmd }) => cmd === "run_prompt").length === runsBefore, "一句话描述不得自动发送");
+    const feedback = sessionsNs.newProjectFeedback({ git: { created: true, identity_missing: true } });
+    assert(feedback.kind === "warn" && feedback.text.includes("首次提交"), `缺 Git 身份时反馈应说清没有首提交,实为 ${JSON.stringify(feedback)}`);
+    assert(sessionsNs.newProjectFeedback({ git: { created: true, committed: true } }).kind === "ok", "有首提交时反馈应是成功");
+    // 复核:主按钮用专用键。原先复用「创建」,它的英文是容器状态「created」,英文界面主按钮读成 created。
+    sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+    await flush();
+    const createLabel = byId.get("new-project-create").textContent.trim();
+    sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+    await flush();
+    assert(createLabel === "Create project", `英文界面新建项目主按钮应是「Create project」,实为「${createLabel}」`);
+    assert(byId.get("new-project-create").textContent.trim() === "创建项目", `中文界面新建项目主按钮应是「创建项目」,实为「${byId.get("new-project-create").textContent}」`);
+    coreNs.promptBox.value = "";
+    vm.runInContext(`renderProjects(${JSON.stringify(priorPrefs)})`, sandbox);
+    await flush();
+  }
+
+  // ⑤ 项目事实横幅:不是仓库 → [初始化 Git][不再提示];上级仓库 → 点名上级、[在此初始化独立仓库];空项目;隔离告警在场时让位。
+  {
+    const box = byId.get("project-facts");
+    const shared = byId.get("project-shared-warn");
+    const buttons = () => [...box.querySelectorAll("button")].map((el) => el.textContent);
+    payloads.project_facts = { root: PROJECT, layout: "existing", files: 12, git: { state: "none" }, stacks: ["node"], planned: [], toolchains: [], installers: [] };
+    shared.classList.add("hidden");
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    assert(!box.classList.contains("hidden") && box.dataset.kind === "no-git", `不是 Git 仓库时横幅应出现(no-git),实为 ${box.dataset.kind}`);
+    assert(buttons().includes("初始化 Git") && buttons().includes("不再提示"), `无 Git 横幅应有 [初始化 Git][不再提示],实为 ${buttons().join("|")}`);
+    assert(byId.get("worktree-add").getAttribute("aria-disabled") === "true" && String(byId.get("worktree-add").title).includes("Git"), "无 Git 时建线入口应禁用并说明原因");
+    payloads.project_git_init = () => ({ git: { created: true, branch: "main" }, facts: { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] } });
+    [...box.querySelectorAll("button")].find((el) => el.textContent === "初始化 Git")?.click();
+    await flush();
+    assert(invokeArgs.findLast(({ cmd }) => cmd === "project_git_init")?.args?.projectDir === PROJECT, "横幅「初始化 Git」未调 project_git_init");
+    // 复核:初始化之后仓库还没有提交——横幅换成「还没有提交」(并行线要等第一次提交),不再只藏在建线入口的 title 里。
+    assert(!box.classList.contains("hidden") && box.dataset.kind === "no-commit" && box.textContent.includes("还没有提交") && buttons().includes("知道了"),
+      `初始化 Git(无提交)后横幅应换成「还没有提交」+[知道了],实为 ${box.dataset.kind}:${box.textContent}`);
+    assert(listText("toast").includes("已初始化 Git 仓库"), `新建了仓库应提示「已初始化 Git 仓库」,实为 ${listText("toast")}`);
+    assert(String(byId.get("worktree-add").title).includes("提交"), `仓库没有提交时建线入口应说明「需要一次提交」,实为「${byId.get("worktree-add").title}」`);
+    // 复核:后端说本来就是仓库(created:false)时不能照样报「已初始化」。
+    payloads.project_git_init = () => ({ git: { created: false, branch: "main" }, facts: { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] } });
+    await sessionsNs.initProjectGit();
+    await flush();
+    assert(listText("toast").split("已初始化 Git 仓库").at(-1).includes("已经是 Git 仓库"), `created:false 时应提示「已经是 Git 仓库」,实为 ${listText("toast")}`);
+    // 建线入口按事实拦下:不发 process_create。
+    const createsBefore = invokeArgs.filter(({ cmd }) => cmd === "process_create").length;
+    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
+    await flush();
+    assert(invokeArgs.filter(({ cmd }) => cmd === "process_create").length === createsBefore, "仓库没有提交时建线不应发 process_create");
+    // 上级仓库:点名上级仓库。
+    payloads.project_facts = { root: PROJECT, layout: "existing", files: 3, git: { state: "parent", toplevel: "C:\\outer" }, stacks: [], planned: [], toolchains: [], installers: [] };
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    assert(box.dataset.kind === "parent" && box.textContent.includes("C:\\outer") && buttons().includes("在此初始化独立仓库"), `上级仓库横幅不对:${box.textContent}`);
+    // 隔离告警在场时让位。
+    shared.classList.remove("hidden");
+    sessionsNs.renderProjectFactsBanner();
+    assert(box.classList.contains("hidden"), "D-170 隔离告警在场时事实横幅应让位");
+    shared.classList.add("hidden");
+    // 空项目:[知道了] 之后按项目记住不再出现。
+    payloads.project_facts = { root: PROJECT, layout: "greenfield", files: 0, git: { state: "repo", branch: "main", has_commits: true }, stacks: [], planned: [], toolchains: [], installers: [] };
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    assert(box.dataset.kind === "greenfield" && box.textContent.includes("空项目"), `空项目横幅不对:${box.textContent}`);
+    assert(byId.get("worktree-add").getAttribute("aria-disabled") !== "true", "有提交的仓库不应禁用建线入口");
+    [...box.querySelectorAll("button")].find((el) => el.textContent === "知道了")?.click();
+    await flush();
+    assert(box.classList.contains("hidden"), "点「知道了」后空项目横幅应收起");
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    assert(box.classList.contains("hidden"), "「知道了」应按项目记住,再次刷新不再出现");
+    // 建线确认框:target/ 与冷编译只对 Rust 工程说。
+    let confirmMessage = "";
+    const priorConfirm = sandbox.confirmDialog;
+    sandbox.confirmDialog = (options) => { confirmMessage = options?.message ?? ""; return Promise.resolve(false); };
+    payloads.project_facts = { root: PROJECT, layout: "existing", files: 30, git: { state: "repo", branch: "main", has_commits: true }, stacks: ["node"], planned: [], toolchains: [], installers: [] };
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
+    await flush();
+    assert(confirmMessage && !confirmMessage.includes("target/") && !confirmMessage.includes("冷编译"), `非 Rust 工程的建线确认不应提 target/ 冷编译:${confirmMessage}`);
+    payloads.project_facts = { ...payloads.project_facts, stacks: ["rust"] };
+    await sessionsNs.refreshProjectFacts(PROJECT);
+    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
+    await flush();
+    assert(confirmMessage.includes("target/"), `Rust 工程的建线确认应提 target/ 成本:${confirmMessage}`);
+    sandbox.confirmDialog = priorConfirm;
+    delete payloads.project_facts;
+    await sessionsNs.refreshProjectFacts(PROJECT);
+  }
+
+  // ⑥ 上下文带「无 Git」芯片:git_status 的 repo 字段为 none/parent 时出现,own/缺字段时收起;点开可初始化。
+  {
+    const chip = byId.get("ctx-git");
+    const priorStatus = payloads.git_status;
+    payloads.git_status = { repo: "none", branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] };
+    await viewsNs.refreshGit();
+    await flush();
+    assert(!chip.classList.contains("hidden") && chip.textContent === "无 Git", `不是 Git 仓库时上下文带应有「无 Git」芯片,实为「${chip.textContent}」`);
+    assert(String(chip.getAttribute("aria-label")).includes("不可用"), "「无 Git」芯片的读屏名应说明哪些功能不可用");
+    const handle = viewsNs.openGitChipMenu();
+    const items = [...(handle?.el?.querySelectorAll(".k-menu-item") ?? [])].map((el) => el.textContent);
+    assert(items.some((text) => text.includes("初始化 Git")), `「无 Git」芯片菜单缺「初始化 Git」:${items.join("|")}`);
+    if (handle) esmModuleCache.get("00-surface.js")?.namespace?.closeSurface?.(handle);
+    payloads.git_status = { repo: "parent", toplevel: "C:\\outer", branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] };
+    await viewsNs.refreshGit();
+    await flush();
+    assert(!chip.classList.contains("hidden") && String(chip.title).includes("C:\\outer"), `位于上级仓库时芯片应点名上级仓库,实为「${chip.title}」`);
+    payloads.git_status = priorStatus;
+    await viewsNs.refreshGit();
+    await flush();
+    assert(chip.classList.contains("hidden"), "自己的仓库(或旧后端不带 repo 字段)时芯片应收起");
+    // 复核:研究空间不显示「无 Git」——独立课题目录本来就不是仓库,点一下「初始化 Git」就把研究工作区建成了仓库。
+    const devProcesses = payloads.process_list;
+    payloads.process_list = [...devProcesses, { id: "p|research-git-chip", session_id: "sess-research-git-chip", profile: "research", research_topic: "alpha-study", project_dir: PROJECT, label: "研究", running: false }];
+    await vm.runInContext('switch_workspace("research")', sandbox);
+    await flush();
+    payloads.git_status = { repo: "none", branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] };
+    await viewsNs.refreshGit();
+    await flush();
+    const researchChipShown = !chip.classList.contains("hidden");
+    await vm.runInContext('switch_workspace("dev")', sandbox);
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    payloads.git_status = priorStatus;
+    await viewsNs.refreshGit();
+    await flush();
+    assert(!researchChipShown, "研究空间不应显示「无 Git」芯片(独立课题目录不是仓库,也不该被 git init)");
+  }
+
+  // ⑦ 复核:线档位经后端落盘。鞭挞续跑轮按线档位发,档位原先只在 localStorage(本机重启即丢,D-404):
+  // 自举线每装一次新版就从自主推进掉回结伴。模拟重启——本地档位全清空,只剩后端 app.json 的 process_auto_state。
+  {
+    const devProcesses = payloads.process_list;
+    const line = { id: "p9|smoke-mode", session_id: "sess-mode", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "自主线", running: false };
+    const legacy = { id: "p10|smoke-legacy", session_id: "sess-legacy", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "旧存档线", running: false };
+    payloads.process_list = [...devProcesses, line, legacy];
+    await sandbox.refreshProcesses();
+    await flush();
+    const priorProfiles = new Map(composeNs.processProfileUi);
+    const priorSelect = byId.get("profile-select").value;
+    const priorGlobal = storage.get("kz-profile");
+    for (const key of ["kz-profile", "kz-process-profile", "kz-process-auto-state"]) storage.delete(key);
+    composeNs.processProfileUi.clear();
+    composeNs.mergeBackendAutoState({ [line.id]: { enabled: true, mode: "dev-auto" }, [legacy.id]: { enabled: true } });
+    await flush();
+    const lastRun = (id) => invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === id)?.args;
+    await composeNs.sendAutoToSession("继续", line.session_id);
+    sandbox.releaseAutoContinue(line.session_id);
+    assert(lastRun(line.id)?.agent === "dev", `重启后(本地档位已空)自主线的续跑轮应按后端记的档位发 dev,实为 ${lastRun(line.id)?.agent}`);
+    await composeNs.sendAutoToSession("继续", legacy.session_id);
+    sandbox.releaseAutoContinue(legacy.session_id);
+    assert(lastRun(legacy.id)?.agent === "dev", `升级前没记档位、鞭挞开着的线应按自主档续跑(那是它此前实际的档位),实为 ${lastRun(legacy.id)?.agent}`);
+    assert(composeNs.processAutoState.get(legacy.id)?.mode === "dev-auto", "旧存档补记的档位应写回存档(一次性迁移)");
+    // 写入侧:当前线切档位 → 存档带 mode,经 ui_prefs_set 落到后端。
+    const before = invokeArgs.length;
+    byId.get("profile-select").value = "dev-pair";
+    byId.get("profile-select").dispatchEvent({ type: "change" });
+    await flush();
+    const savedState = invokeArgs.slice(before).findLast(({ cmd, args }) => cmd === "ui_prefs_set" && args?.process_auto_state)?.args?.process_auto_state;
+    assert(savedState?.[sandbox.activeProcessId]?.mode === "dev-pair", `切档位后存档应带 mode 落后端,实为 ${JSON.stringify(savedState?.[sandbox.activeProcessId])}`);
+    // applyAutoUiState / applyAutoStopToSession 都经 normalizeAutoState 回写,不能把档位抹掉。
+    assert(composeNs.normalizeAutoState({ enabled: true, mode: "dev-auto" }).mode === "dev-auto", "normalizeAutoState 丢了 mode");
+    // 旧键(`d|\\?\…`)与新键并存时去前缀的(本版本写的、较新的)赢。
+    const keyed = composeNs.normalizeProcessKeyed([["d|\\\\?\\C:\\x", { enabled: true }], ["d|C:\\x", { enabled: false }]]);
+    assert(keyed.size === 1 && keyed.get("d|C:\\x")?.enabled === false, `旧键与新键并存时应保留新键的值,实为 ${JSON.stringify([...keyed])}`);
+    // 收尾恢复。
+    composeNs.processProfileUi.clear();
+    for (const [key, value] of priorProfiles) composeNs.processProfileUi.set(key, value);
+    composeNs.processAutoState.delete(line.id);
+    composeNs.processAutoState.delete(legacy.id);
+    if (priorGlobal !== undefined) storage.set("kz-profile", priorGlobal);
+    byId.get("profile-select").value = priorSelect;
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    await flush();
+  }
+
+  // ⑧ 复核:后台线停在「模型在等你回答」——侧栏行单独写「在等你回答」(琥珀),切过去原因槽给同一句提示;
+  // 这条线下一轮以别的结果收口,标记过期、行回到空闲。
+  {
+    const devProcesses = payloads.process_list;
+    const line = { id: "p11|smoke-bg-wait", session_id: "sess-bg-wait", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "等回答线", running: false };
+    payloads.process_list = [...devProcesses, line];
+    await sandbox.refreshProcesses();
+    await flush();
+    const row = () => [...document.querySelectorAll(".parallel-task-row")].find((el) => el.dataset.processId === line.id);
+    composeNs.handleBackgroundSessionDone({ sessionId: line.session_id, autoAction: { type: "Stop", reason: "AwaitingUser" } });
+    await flush();
+    assert(row()?.querySelector(".parallel-task-state")?.textContent === "在等你回答", `后台线在等你回答时侧栏行应写「在等你回答」,实为「${row()?.querySelector(".parallel-task-state")?.textContent}」`);
+    assert(row()?.querySelector(".kz-glyph")?.dataset.state === "attention", `在等你回答的字形应是 attention(琥珀),实为 ${row()?.querySelector(".kz-glyph")?.dataset.state}`);
+    const activeId = sandbox.activeProcessId;
+    composeNs.applyAutoUiState(line.id);
+    const reasonOnSwitch = kzTest.stopReason();
+    composeNs.applyAutoUiState(activeId);
+    assert(reasonOnSwitch.includes("模型在等你回答"), `切到在等你回答的线,原因槽应给同一句提示,实为「${reasonOnSwitch}」`);
+    composeNs.handleBackgroundSessionDone({ sessionId: line.session_id, autoAction: { type: "NoContinue" } });
+    await flush();
+    assert(row()?.querySelector(".parallel-task-state")?.textContent === "空闲", `这条线以别的结果收口后应回到空闲,实为「${row()?.querySelector(".parallel-task-state")?.textContent}」`);
+    kzTest.cancelTimers();
+    payloads.process_list = devProcesses;
+    await sandbox.refreshProcesses();
+    await flush();
+  }
+
+  sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   await flush();
 }
 

@@ -2820,4 +2820,93 @@ prunable gitdir file points to non-existent location
         );
         std::fs::remove_dir_all(root).ok();
     }
+
+    // ── 分区:工作目录管理(UI2-0926 #13)──
+
+    /// 项目目录只是落在上级仓库里:status 是一条事实(点名上级仓库),stage/commit 拒绝,
+    /// 绝不对上级仓库动手。
+    #[tokio::test]
+    async fn 上级仓库内的项目_只读给事实_写操作拒绝且点名上级仓库() {
+        let parent = temp_repo("parent-repo");
+        commit_file(&parent, "outer.txt", "x\n", "上级仓库的提交");
+        let project = parent.join("child-project");
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        std::fs::write(project.join("a.txt"), "a\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: project.clone(),
+            project_root: project.clone(),
+            ..Default::default()
+        };
+        let status = GitTool
+            .execute(serde_json::json!({"action": "status"}), &ctx)
+            .await;
+        assert!(
+            !status.is_error,
+            "status 应是事实而非失败行: {}",
+            status.content
+        );
+        assert!(status.content.contains("上级仓库"), "{}", status.content);
+        assert!(status.content.contains("action=init"), "{}", status.content);
+        let staged = GitTool
+            .execute(
+                serde_json::json!({"action": "stage", "files": ["a.txt"]}),
+                &ctx,
+            )
+            .await;
+        assert!(staged.is_error, "{}", staged.content);
+        assert!(staged.content.contains("已拒绝操作"), "{}", staged.content);
+        let parent_status = run_git(&parent, &["status", "--porcelain"]).await.unwrap();
+        assert!(
+            !parent_status.lines().any(|line| line.starts_with('A')),
+            "上级仓库的暂存区不得被动: {parent_status}"
+        );
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[tokio::test]
+    async fn 非仓库_status_是事实_init_建独立仓库() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-git-norepo-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let status = GitTool
+            .execute(serde_json::json!({"action": "status"}), &ctx)
+            .await;
+        // 临时目录的上级恰好是仓库时(某些 CI)会走上级仓库分支,两种事实都不是失败行。
+        assert!(!status.is_error, "{}", status.content);
+        assert!(status.content.starts_with("not a"), "{}", status.content);
+        let commit = GitTool
+            .execute(
+                serde_json::json!({"action": "commit", "message": "x", "expected_hash": "h"}),
+                &ctx,
+            )
+            .await;
+        assert!(commit.is_error, "{}", commit.content);
+        let init = GitTool
+            .execute(serde_json::json!({"action": "init"}), &ctx)
+            .await;
+        assert!(!init.is_error, "{}", init.content);
+        assert!(root.join(".git").is_dir());
+        assert!(root.join(".kanzei").join(".gitignore").is_file());
+        let status = GitTool
+            .execute(serde_json::json!({"action": "status"}), &ctx)
+            .await;
+        assert!(!status.is_error, "{}", status.content);
+        assert!(!status.content.starts_with("not a"), "{}", status.content);
+        let again = GitTool
+            .execute(serde_json::json!({"action": "init"}), &ctx)
+            .await;
+        assert!(again.content.contains("already"), "{}", again.content);
+        std::fs::remove_dir_all(&root).ok();
+    }
 }

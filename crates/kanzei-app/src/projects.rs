@@ -16,20 +16,198 @@ fn base_name(path: &str) -> String {
         .to_owned()
 }
 fn strip_verbatim(p: PathBuf) -> String {
-    let s = p.display().to_string();
-    s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
+    kanzei_tools::path_form::simplify(&p).display().to_string()
 }
 
 /// 项目空间首次落 `.kanzei/` 时同步创建先行调研骨架。返回 true 只表示本次是
 /// 首次初始化；重复选择/添加项目绝不覆盖已经填写的 prior-art 工件。
+///
+/// UI2-0926 #13:首次初始化同时写 `.kanzei/.gitignore`(state.db*、*.lock、.write-log/、
+/// artifacts/ 等运行时文件不进版本库;project/*.md 照常入库)。已有 `.kanzei` 的老项目不补写——
+/// 它们多半在自己的根 .gitignore 里管着(kanzei 仓库就是),凭空多出一个未跟踪文件只会添乱。
 fn initialize_kanzei_space(dir: &Path) -> Result<bool, String> {
     let first_init = !dir.join(".kanzei").exists();
     std::fs::create_dir_all(dir.join(".kanzei"))
         .map_err(|e| format!("创建项目配置目录失败: {e}"))?;
     if first_init {
         kanzei_tools::prior_art::start_project_init(dir)?;
+        kanzei_tools::project_state::ensure_kanzei_gitignore(dir)
+            .map_err(|e| format!("写 .kanzei/.gitignore 失败: {e}"))?;
     }
     Ok(first_init)
+}
+
+/// 新项目名:能直接当 Windows 目录名用。
+fn validate_project_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("项目名称不能为空".into());
+    }
+    if name.chars().count() > 100 {
+        return Err("项目名称太长(最多 100 个字)".into());
+    }
+    if let Some(bad) = name.chars().find(|c| {
+        matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+    }) {
+        return Err(format!("项目名称不能包含「{bad}」"));
+    }
+    if name.ends_with('.') || name == ".." {
+        return Err("项目名称不能以「.」结尾".into());
+    }
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or(name)
+        .trim_end()
+        .to_ascii_uppercase();
+    let reserved = ["CON", "PRN", "AUX", "NUL"]
+        .iter()
+        .any(|word| stem == *word)
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        return Err(format!("「{name}」是 Windows 保留名,换一个名字"));
+    }
+    Ok(name.to_string())
+}
+
+/// 目录里除 `.kanzei` 外有没有别的东西。
+fn has_content_besides_kanzei(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_name() != ".kanzei")
+        })
+        .unwrap_or(false)
+}
+
+fn register_project(dir: &Path, display_name: Option<&str>) -> AppPrefs {
+    let canonical = dir
+        .canonicalize()
+        .map(strip_verbatim)
+        .unwrap_or_else(|_| dir.display().to_string());
+    let mut prefs = load_prefs();
+    if !prefs.projects.contains(&canonical) {
+        prefs.projects.push(canonical.clone());
+    }
+    if let Some(name) = display_name.map(str::trim).filter(|v| !v.is_empty()) {
+        prefs.names.insert(canonical.clone(), name.to_owned());
+    }
+    prefs.current = Some(canonical);
+    save_prefs(&prefs);
+    projects_get()
+}
+
+/// UI2-0926 #13 新建项目(对话框):在 `parent` 下建 `name` 目录 + `.kanzei`(含运行时忽略规则),
+/// `git_init` 时建独立仓库;本机配了 git 身份就再做一次首提交(并行线要 HEAD)。
+/// `description` 原样带回,前端放进输入框当第一条消息的草稿(不自动发送)。
+/// 新建项目的磁盘部分(不碰 app.json,可单测):返回 (目录, git 结果, git 失败原因)。
+pub(crate) fn create_project_dir(
+    parent: &str,
+    name: &str,
+    git_init: bool,
+) -> Result<
+    (
+        PathBuf,
+        Option<kanzei_tools::project_state::GitInitOutcome>,
+        Option<String>,
+    ),
+    String,
+> {
+    let name = validate_project_name(name)?;
+    let parent_dir = PathBuf::from(parent.trim());
+    if !parent_dir.is_dir() {
+        return Err(format!("位置不存在: {}", parent_dir.display()));
+    }
+    let dir = parent_dir.join(&name);
+    if dir.exists() && (!dir.is_dir() || has_content_besides_kanzei(&dir)) {
+        return Err(format!(
+            "「{}」已存在且不是空目录;换个名字,或用「打开文件夹…」打开它",
+            dir.display()
+        ));
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建项目目录失败: {e}"))?;
+    initialize_kanzei_space(&dir)?;
+    // 已有的空 `.kanzei`(比如上次创建到一半)同样补上忽略规则。
+    kanzei_tools::project_state::ensure_kanzei_gitignore(&dir)
+        .map_err(|e| format!("写 .kanzei/.gitignore 失败: {e}"))?;
+    if !git_init {
+        return Ok((dir, None, None));
+    }
+    match kanzei_tools::project_state::git_init(&dir, true) {
+        Ok(outcome) => Ok((dir, Some(outcome), None)),
+        // git 不在 PATH 上等:项目照样建好,界面给出警告。
+        Err(error) => Ok((dir, None, Some(error))),
+    }
+}
+
+/// 阻塞工作(git 子进程、目录遍历、PATH × PATHEXT 扫描、注册表)放到阻塞线程池:同步的
+/// `#[tauri::command]` 跑在主线程上,对话框会让整个 WebView 卡住几百毫秒(复核 minor,
+/// 与 `git_status` 同一做法)。
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("后台任务失败: {error}"))?
+}
+
+#[tauri::command]
+pub async fn projects_create(
+    parent: String,
+    name: String,
+    git_init: bool,
+    description: Option<String>,
+) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let (dir, git, git_error) = create_project_dir(&parent, &name, git_init)?;
+        let prefs = register_project(&dir, Some(name.trim()));
+        let root = crate::normalized_project_root(&dir);
+        Ok(json!({
+            "prefs": prefs,
+            "path": root.display().to_string(),
+            "facts": kanzei_tools::project_state::probe(&root),
+            "git": git,
+            "gitError": git_error,
+            "description": description.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()),
+        }))
+    })
+    .await
+}
+
+/// UI2-0926 #13:给已有的非 Git 项目建独立仓库(横幅/芯片的「初始化 Git」)。只 init + 补
+/// `.kanzei/.gitignore`,不自动提交——已有文件里可能有不该进库的东西,首提交交给用户或 agent。
+/// 项目位于上级仓库内时也在项目根建嵌套仓库(前端先确认过)。
+#[tauri::command]
+pub async fn project_git_init(project_dir: String) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let root = crate::normalized_project_root(Path::new(&project_dir));
+        if !root.is_dir() {
+            return Err(format!("项目目录不存在: {}", root.display()));
+        }
+        let outcome = kanzei_tools::project_state::git_init(&root, false)?;
+        Ok(json!({
+            "git": outcome,
+            "facts": kanzei_tools::project_state::probe(&root),
+        }))
+    })
+    .await
+}
+
+/// UI2-0926 #13:项目状态事实(与 agent 上下文里的 `<project-state>` 同源)。
+#[tauri::command]
+pub async fn project_facts(project_dir: String) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let root = crate::normalized_project_root(Path::new(&project_dir));
+        if !root.is_dir() {
+            return Err(format!("项目目录不存在: {}", root.display()));
+        }
+        serde_json::to_value(kanzei_tools::project_state::probe_cached(&root))
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -411,6 +589,73 @@ pub(crate) fn base_name_for_snapshot(path: &str) -> String {
 mod prior_art_init_tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    // ── 分区:工作目录管理(UI2-0926 #13)──
+
+    fn temp_parent(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-project-create-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn 新建项目_建目录_忽略规则_git_默认建库() {
+        let parent = temp_parent("git");
+        let (dir, git, error) =
+            create_project_dir(&parent.display().to_string(), "MD文件保存", true).unwrap();
+        assert_eq!(dir, parent.join("MD文件保存"));
+        assert!(dir.join(".kanzei").is_dir());
+        let ignore = std::fs::read_to_string(dir.join(".kanzei/.gitignore")).unwrap();
+        assert!(
+            ignore.contains("state.db-*") && ignore.contains("*.lock"),
+            "{ignore}"
+        );
+        assert!(ignore.contains("artifacts/"), "{ignore}");
+        if error.is_none() {
+            let git = git.expect("git 结果");
+            assert!(git.created);
+            assert!(dir.join(".git").exists());
+            // 本机有 git 身份就有首提交(并行线要 HEAD),否则明确标出缺身份。
+            assert!(git.committed || git.identity_missing, "{git:?}");
+        }
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn 新建项目_不勾_git_只建目录_非空目标拒绝() {
+        let parent = temp_parent("plain");
+        let (dir, git, _) =
+            create_project_dir(&parent.display().to_string(), "demo", false).unwrap();
+        assert!(git.is_none());
+        assert!(!dir.join(".git").exists());
+        std::fs::create_dir_all(parent.join("taken")).unwrap();
+        std::fs::write(parent.join("taken").join("x.txt"), "x").unwrap();
+        let err = create_project_dir(&parent.display().to_string(), "taken", false).unwrap_err();
+        assert!(err.contains("打开文件夹"), "{err}");
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn 项目名校验() {
+        assert!(validate_project_name("  ").is_err());
+        assert!(validate_project_name("a/b").is_err());
+        assert!(validate_project_name("a:b").is_err());
+        assert!(validate_project_name("con").is_err());
+        assert!(validate_project_name("COM3.txt").is_err());
+        assert!(validate_project_name("dots.").is_err());
+        assert_eq!(
+            validate_project_name(" 手机 Markdown ").unwrap(),
+            "手机 Markdown"
+        );
+        assert_eq!(validate_project_name("console").unwrap(), "console");
+    }
 
     #[test]
     fn 首次初始化创建prior_art骨架且重复进入不覆盖() {

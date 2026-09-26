@@ -328,7 +328,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS file_checkpoints_path
                      ON file_checkpoints(path_key, updated_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '24')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '25')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -458,6 +458,12 @@ impl SessionStore {
                  )",
             params![super::LEGACY_SEEDED],
         )?;
+        // v25(UI2-0926 #13):存量路径与进程 id 去 `\\?\` 前缀。只对从旧版本升上来的库做;
+        // 新库里没有旧形态。进程 id 形如 `d|<根>` / `p3|<根>`,改形态就是改主键——
+        // 漏迁任何一张表,并行线就会从界面消失、工作树变成孤儿。
+        if current.is_some_and(|version| version < 25) {
+            super::path_migration::simplify_stored_paths(&tx)?;
+        }
         tx.commit()?;
         if reclaimed > 0 {
             tracing::info!(reclaimed, "v15 迁移:legacy_seeded 整包副本改回引用");
@@ -1203,7 +1209,8 @@ mod tests {
             .unwrap();
         assert!(table_exists, "v23 库升级后必须有检查点表");
         assert!(index_exists, "v23 库升级后必须有检查点索引");
-        assert_eq!(version, "24");
+        // 一路升到当前版本(v25 起还有路径形态迁移,见 path_migration.rs)。
+        assert_eq!(version, SCHEMA_VERSION.to_string());
         assert!(store.backup_path(23).unwrap().is_file());
         drop(store);
         std::fs::remove_dir_all(dir).ok();

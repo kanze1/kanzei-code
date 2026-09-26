@@ -52,10 +52,13 @@ import {
   autoRounds,
   autoStopAfterRound,
   autoStopReason,
+  awaitingUserSessions,
   cancelAutoContinueTimer,
   continuePrompt,
   currentAutoRounds,
   currentGoalText,
+  lineAgent,
+  markAwaitingUser,
   noActionRounds,
   releaseAutoContinue,
   renderAutoStatus,
@@ -71,6 +74,8 @@ import {
   setAutoStopReason,
   setNoActionRounds,
   syncAutoRunState,
+  takeAwaitingUser,
+  workPriorityKeyFor,
   workPriorityStorageKey,
 } from "./08-auto.js";
 import { state } from "./08-compose.js";
@@ -171,14 +176,18 @@ export async function sendAutoToSession(prompt, sessionId) {
     setRunning(true, t("准备中"));
   }
   try {
+    // UI2-0926 #13:① 按本线实际档位发(结伴线的续跑轮真按结伴档跑);② 项目根用 origin_project
+    // (主根身份,后端已给 simplify 形态,这里再防一道旧形态);③ 取活顺序键与写入键同一个函数。
+    const mode = lineAgent(item);
+    const projectDir = String(item.origin_project || item.project_dir || currentProject).replace(/^\\\\\?\\(?!UNC\\)/, "");
     await invoke("run_prompt", {
       prompt,
-      projectDir: item.project_dir,
-      profile: research ? "research" : "dev",
-      agent: research ? "research" : "dev",
+      projectDir,
+      profile: mode.profile,
+      agent: mode.agent,
       researchTopic: research ? item.research_topic : undefined,
       model: item.model || null,
-      workPriority: localStorage.getItem(`kz-work-priority:${item.origin_project}`) === "requirement-first" ? "requirement-first" : "defect-first",
+      workPriority: localStorage.getItem(workPriorityKeyFor(projectDir)) === "requirement-first" ? "requirement-first" : "defect-first",
       delivery: "queue",
       attachments: [],
       processId: item.id,
@@ -210,6 +219,8 @@ export function handleBackgroundSessionDone(payload) {
   const action = payload.autoAction || { type: "NoContinue" };
   const state = sessionState(sessionId);
   state.auto_rounds = action.rounds ?? state.auto_rounds ?? 0;
+  // UI2-0926 #13 复核:与活动线 kz:done 同一口径——本轮不是以「在等你回答」收口,等待标记就过期了。
+  if (!(action.type === "Stop" && action.reason === "AwaitingUser") && takeAwaitingUser(sessionId)) refreshParallelTaskProjection(sessionId);
   if (action.type === "Continue" || action.type === "Nudge" || action.type === "VerifyRound") {
     transitionSession(sessionId, "auto_pending", { auto_rounds: state.auto_rounds });
     refreshParallelTaskProjection(sessionId);
@@ -217,6 +228,8 @@ export function handleBackgroundSessionDone(payload) {
   } else if (action.type === "Stop") {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
+    // UI2-0926 #13:后台线的模型在等你回答——鞭挞保持开着,切过去回复后照常续跑。
+    if (action.reason === "AwaitingUser") markAwaitingUser(sessionId);
     // 引擎判定该线不能再续跑(全阻塞/清空/档位不符)时,后台线自己的鞭挞存档
     // 也要置关——否则切回该线时勾选框回显"开着",与引擎的实际停机对不上;
     // 本轮后停是一次性意图,同样要在所属线上落地取消,不能等用户切回来。
@@ -560,6 +573,12 @@ defer(() => {
 });
 export function stopAutoForManualInput() {
   if (!$('auto-continue').checked) return false;
+  // UI2-0926 #13:模型在等你回答时,手动发的这一条就是回答——鞭挞保持开着,回答那一轮结束后照常续跑。
+  if (takeAwaitingUser(activeSessionId)) {
+    setAutoStopReason("");
+    log(t("已回复模型的提问,鞭挞在这一轮结束后继续"));
+    return false;
+  }
   $('auto-continue').checked = false;
   rememberAutoUiState();
   setAutoRounds(activeSessionId, 0);
@@ -754,6 +773,8 @@ defer(() => {
 // 复用 change 分支既有的档位提示,不在这里再判一次。
 defer(() => {
   $("auto-resume").addEventListener("click", () => {
+    // UI2-0926 #13 复核:恢复鞭挞即结束「在等你回答」——之后手动发的消息是真正的接管,照常关鞭挞。
+    takeAwaitingUser(activeSessionId);
     const toggle = $("auto-continue");
     if (!toggle.checked) {
       toggle.checked = true;
@@ -844,6 +865,8 @@ defer(() => {
       // 模型说完成即停。想要重门禁的用户自己切 dev-auto——那是**显式**选择,不再被替选。
       addMessage("notice", t("结伴档鞭挞:轻控制续跑,引擎不追加推进指令,模型说完成即停"));
     }
+    // UI2-0926 #13 复核:手动开关鞭挞同样结束「在等你回答」(关了再开是用户重新表态,不再是等回答)。
+    if (takeAwaitingUser(activeSessionId) && autoStopReason === t("模型在等你回答")) setAutoStopReason("");
     setAutoRounds(activeSessionId, 0);
     rememberAutoUiState();
     // 开鞭挞的这一刻就要看到「勘察复核未开」提示,而不是等下一轮结束才显示。
@@ -888,10 +911,25 @@ defer(() => {
 // R-115:这份映射必须落盘。早期只放在内存里,重启后它是空的,回退分支就把模式
 // 降级成结伴开发——哪怕 kz-profile 里明明存着自主推进(D-155)。
 export const PROCESS_PROFILE_KEY = "kz-process-profile";
-export const processProfileUi = new Map(
-  Object.entries(readJson(PROCESS_PROFILE_KEY, {})).filter(([, v]) =>
-    ["dev-pair", "dev-auto", "research"].includes(v),
-  ),
+export const LINE_MODES = ["dev-pair", "dev-auto", "research"];
+// UI2-0926 #13:进程 id 去掉了 `\\?\` 前缀(schema v25),本地存的旧键同样归一(`d|\\?\C:\x` → `d|C:\x`)。
+export function normalizeProcessKey(key) {
+  return String(key).replace(/\|\\\\\?\\(?!UNC\\)/, "|");
+}
+// 两种写法并存时去前缀的那条赢:只有本版本才写去前缀的键,它一定是较新的写入(与后端 simplify_pref_keys 同一口径)。
+export function normalizeProcessKeyed(entries) {
+  const out = new Map();
+  const legacy = [];
+  for (const [key, value] of entries) {
+    const simplified = normalizeProcessKey(key);
+    if (simplified === key) out.set(key, value);
+    else legacy.push([simplified, value]);
+  }
+  for (const [key, value] of legacy) if (!out.has(key)) out.set(key, value);
+  return out;
+}
+export const processProfileUi = normalizeProcessKeyed(
+  Object.entries(readJson(PROCESS_PROFILE_KEY, {})).filter(([, v]) => LINE_MODES.includes(v)),
 );
 export function persistProcessProfiles() {
   writeJson(PROCESS_PROFILE_KEY, Object.fromEntries(processProfileUi));
@@ -901,25 +939,56 @@ export function persistProcessProfiles() {
 // 尚未配置的并行线时会把主线的勾选状态直接写进新 session，甚至让旧线路的定时器
 // 在新线路上发送继续指令。没有记录的并行线默认关闭，必须由用户在该线路主动开启。
 export const PROCESS_AUTO_STATE_KEY = "kz-process-auto-state";
-export const processAutoState = new Map(
+// UI2-0926 #13 复核:本地存的旧键同样归一——不归一的话 `d|\\?\…` 陈值合并进来、经 persist 写回 app.json,
+// 下次启动又把用户升级后的设置(比如关掉的鞭挞)改回去。
+export const processAutoState = normalizeProcessKeyed(
   Object.entries(readJson(PROCESS_AUTO_STATE_KEY, {})).filter(([, value]) => value && typeof value === "object"),
 );
 // R-264 B3：为 08-compose.js 的 ESM 测试 facade 提供线路级状态访问。
 export const __kzProcessAutoState = processAutoState;
 globalThis.__kzProcessAutoState = processAutoState;
+// UI2-0926 #13 复核:线档位与鞭挞开关一样经后端落盘。鞭挞续跑轮按线档位发(lineAgent),而档位原先只在
+// localStorage(kz-profile / kz-process-profile),本机重启即丢(D-404)——自举线每装一次新版就从自主推进
+// 掉回结伴,续跑轮没了 Nudge 与核查轮,还带上结伴提示与权限询问。档位随 process_auto_state 的 mode 字段进
+// app.json,合并时回填 processProfileUi:后端记着 mode → 以它为准;本地有档位 → 补进后端;都没有但鞭挞开着 →
+// 记为自主推进(升级前续跑轮一律按自主档跑,这就是那条线一直以来实际的档位)。
+export function restoreLineModes() {
+  let changed = false;
+  for (const [processId, entry] of processAutoState) {
+    if (LINE_MODES.includes(entry?.mode)) {
+      processProfileUi.set(processId, entry.mode);
+      continue;
+    }
+    const local = processProfileUi.get(processId);
+    const mode = LINE_MODES.includes(local) ? local : entry?.enabled === true ? "dev-auto" : null;
+    if (!mode) continue;
+    processAutoState.set(processId, { ...entry, mode });
+    processProfileUi.set(processId, mode);
+    changed = true;
+  }
+  persistProcessProfiles();
+  return changed;
+}
 // D-404:localStorage 可能重启即丢;后端 app.json 是权威。合并完成前 persist 只写
 // localStorage(禁止用本地旧值先覆盖后端权威值),合并后双写并刷新当前线控件。
 export let uiPrefsAutoStateMerged = false;
+/// 把后端(app.json)的 process_auto_state 合并进本地映射:后端是权威;键归一;同一次合并里回填线档位。
+export function mergeBackendAutoState(savedMap) {
+  const saved = normalizeProcessKeyed(
+    Object.entries(savedMap || {}).filter(([, v]) => v && typeof v === "object"),
+  );
+  for (const [k, v] of saved) processAutoState.set(k, v);
+  // 档位回填必须在 applyProfileValue / lineAgent 读 processProfileUi 之前(同一次合并里)。
+  restoreLineModes();
+  uiPrefsAutoStateMerged = true;
+  if (activeProcessId && $("auto-continue")) {
+    applyAutoUiState(activeProcessId);
+    // 启动时的第一次回显可能早于这次合并(用的是回落档位):按刚恢复的线档位再回显一次。
+    applyProfileValue(processItems.find((item) => item.id === activeProcessId)?.profile);
+  } else persistProcessAutoState();
+}
 defer(() => {
-  void uiPrefsLoad().then((p) => {
-    const saved = p.process_auto_state || {};
-    for (const [k, v] of Object.entries(saved)) {
-      if (v && typeof v === "object") processAutoState.set(k, v);
-    }
-    uiPrefsAutoStateMerged = true;
-    if (activeProcessId && $("auto-continue")) applyAutoUiState(activeProcessId);
-    else persistProcessAutoState();
-  });
+  void uiPrefsLoad().then((p) => mergeBackendAutoState(p.process_auto_state));
 });
 export function normalizeAutoState(value, _processId) {
   const storedMax = Number.parseInt(value?.maxRounds, 10);
@@ -934,6 +1003,8 @@ export function normalizeAutoState(value, _processId) {
     maxRounds: Number.isFinite(storedMax)
       ? Math.min(100, Math.max(1, storedMax))
       : Number.isFinite(legacyMax) ? Math.min(100, Math.max(1, legacyMax)) : DEFAULT_AUTO_CONTINUE_MAX,
+    // UI2-0926 #13 复核:线档位随鞭挞存档落盘(见 restoreLineModes);没有记录就不带这个键。
+    ...(LINE_MODES.includes(value?.mode) ? { mode: value.mode } : {}),
   };
 }
 export function persistProcessAutoState() {
@@ -946,15 +1017,25 @@ export function persistProcessAutoState() {
 // 显示的是**算出来的值**,不是用户意图;把它当意图写回去,一次算错就永久固化——
 // 用户每次开 app 都得重设模式与鞭挞,正是这条路径自我延续的结果。
 export let applyingProfileEcho = false;
+// UI2-0926 #13 复核:要记进存档的线档位。当前线读模式芯片(就是用户眼前、刚操作过的那个值),
+// 其余线读本线记住的档位;都没有就沿用存档里原有的。
+function lineModeToRemember(processId, previous) {
+  if (processId === activeProcessId && selectedAgent().profile === "dev") return $("profile-select").value;
+  const remembered = processProfileUi.get(processId);
+  if (LINE_MODES.includes(remembered)) return remembered;
+  return LINE_MODES.includes(previous?.mode) ? previous.mode : undefined;
+}
 export function rememberAutoUiState(processId = activeProcessId) {
   if (!processId || applyingProfileEcho) return;
   const previous = processAutoState.get(processId);
+  const mode = lineModeToRemember(processId, previous);
   processAutoState.set(processId, {
     enabled: $("auto-continue").checked,
     paused: autoPaused,
     stopAfterRound: autoStopAfterRound,
     // 旧配置只保留在状态投影中,不再发送给引擎作硬门禁。
     maxRounds: Number.isFinite(Number(previous?.maxRounds)) ? previous.maxRounds : autoContinueMax(),
+    ...(mode ? { mode } : {}),
   });
   persistProcessAutoState();
 }
@@ -1000,6 +1081,8 @@ export function applyAutoUiState(processId) {
   // 用户按别人的停机理由去判断当前线。切换即清,由新线自己的事件重新写。
   setAutoHint("");
   setAutoStopReason("");
+  // UI2-0926 #13 复核:切到一条模型在等你回答的线(后台时收到的 Stop/AwaitingUser),同一句提示回到原因槽。
+  if (target?.session_id && awaitingUserSessions.has(target.session_id)) setAutoStopReason(t("模型在等你回答"), "waiting");
   renderAutoStatus();
   persistProcessAutoState();
 }

@@ -577,10 +577,18 @@ impl Default for AppState {
     }
 }
 
+/// 项目身份根:发现 + canonicalize + 去 `\\?\` 前缀(UI2-0926 #13)。
+///
+/// 它是进程记录(`processes.origin_project/project_dir`)、`d|` 进程 id 与经 IPC 发给前端的
+/// `ProcessInfo.project_dir` 的唯一来源。原先直接用 `std::fs::canonicalize`,Windows 上产出
+/// `\\?\C:\…`,鞭挞轮拿它当 projectDir,于是系统提示、bash 工作目录、绝对路径权限规则与取活
+/// 顺序的存储键在手动轮与鞭挞轮是两种写法(docs/design/project_workspace.md §3)。存量记录由
+/// schema v25 迁移改写。
 pub(crate) fn normalized_project_root(path: &Path) -> PathBuf {
     let root =
         kanzei_harness::config::discover_project_root(path).unwrap_or_else(|| path.to_path_buf());
-    std::fs::canonicalize(&root).unwrap_or(root)
+    kanzei_tools::path_form::canonical(&root)
+        .unwrap_or_else(|_| kanzei_tools::path_form::simplify(&root))
 }
 pub(crate) fn default_process_id(root: &Path) -> String {
     format!("d|{}", root.display())

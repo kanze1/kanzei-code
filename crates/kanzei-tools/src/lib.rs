@@ -6,6 +6,7 @@ pub mod memory_consolidation;
 /// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
 pub use kanzei_base::atomic_file;
 pub use kanzei_base::content_hash;
+pub use kanzei_base::path_form;
 pub use kanzei_base::write_log;
 /// R-203:memory/、docstore、embed、replay_eval 拆入 kanzei-memory crate,经再导出
 /// 保持 `kanzei_tools::{memory,docstore,embed,replay_eval}` 全部调用点零改动。
@@ -36,6 +37,8 @@ pub mod palette;
 mod plot_tool;
 pub mod prior_art;
 mod process;
+/// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。
+pub mod project_state;
 pub mod quarantine;
 mod question;
 mod read;
@@ -81,8 +84,9 @@ pub use profiles::{
 pub use shell::detected_shell;
 pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};
 pub use work::{
-    active_claims_by_line, release_line_claims, resolve_work_decision, resolved_control_prompt,
-    resolved_control_prompt_of, ResolvedControlState, WorkDecision, WorkTool,
+    active_claims_by_line, release_line_claims, resolve_work_decision, resolve_work_selection,
+    resolved_control_prompt, resolved_control_prompt_of, ResolvedControlState, WorkDecision,
+    WorkTool,
 };
 
 use kanzei_harness::Tool;

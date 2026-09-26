@@ -1503,6 +1503,8 @@ button:disabled { opacity: .45; cursor: default; }
 .statusbar-btn {
   background: transparent; border: none; color: inherit; cursor: pointer;
   font-size: var(--fs-11-5); padding: 0 6px; opacity: .9;
+  /* 状态栏右段被长用量串挤窄时「日志」被竖排成两行(1333 宽截图可见):按钮不参与收缩、不换行。 */
+  white-space: nowrap; flex: none;
 }
 .statusbar-btn:hover { opacity: 1; text-decoration: underline; }
 
@@ -3708,3 +3710,47 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .tp-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* rail 徽标:在跑 = 强调色(同 .rail-badge);没在跑但有未确认的失败 = 红(失败的语义色),--bg 字在两者上都 ≥ 4.5。 */
 #tasks-badge[data-tone="err"] { background: var(--err); }
+/* ===== 分区:工作目录管理 ===== */
+/* UI2-0926 #13(docs/design/project_workspace.md):项目事实横幅、上下文带的「无 Git」芯片、新建项目对话框。
+   只用语义 token:横幅默认中性(空项目 / 无 Git 是事实不是故障),位于上级仓库时是「需要注意」(琥珀,与 D-170 隔离告警同族);
+   芯片是中性 .kz-ctl(灰),不染色。 */
+.project-warn-slot:has(> .project-shared-warn.hidden):has(> .project-facts:not(.hidden)) { display: block; }
+.project-facts {
+  margin: 0; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
+  color: var(--fg); background: var(--panel2);
+  border: 1px solid var(--border-soft); border-radius: var(--r-md);
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+  word-break: break-word;
+}
+.project-facts.hidden { display: none; }
+.project-facts[data-kind="parent"] {
+  color: var(--alert); background: var(--alert-soft);
+  border-color: color-mix(in srgb, var(--alert) 28%, transparent);
+}
+/* 复核:横幅折两行时别把最后一个字孤零零挤到第二行。 */
+.project-facts-text { text-wrap: pretty; }
+.project-facts-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.project-facts-actions button { font-size: var(--fs-11); padding: 2px 8px; }
+.ctx-git { color: var(--dim); font-size: var(--fs-11-5); flex: none; }
+.ctx-git.hidden { display: none; }
+/* 研究空间不显示「无 Git」:独立课题目录本来就不是仓库,也不该被 git init(renderGitChip 同样判;切空间到下一次 refreshGit 之间靠这条)。 */
+body[data-space="research"] .ctx-git { display: none; }
+/* 复核:线路行「在等你回答」——状态词与字形同为琥珀(attention = 等你批准/回答),不再和「空闲」一样灰。 */
+.parallel-task-row .kz-glyph[data-state="attention"] ~ .parallel-task-state { color: var(--warn); }
+#new-project-dialog { display: flex; flex-direction: column; gap: 6px; }
+#new-project-dialog .np-field { margin-top: 6px; color: var(--fg-strong); font-size: var(--fs-12-5); }
+#new-project-dialog :is(input[type="text"], textarea) {
+  width: 100%; box-sizing: border-box; background: var(--input); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--r-md); padding: 7px 8px;
+  font-family: inherit; font-size: var(--fs-13);
+}
+#new-project-dialog textarea { resize: vertical; min-height: 48px; line-height: 1.5; }
+#new-project-dialog :is(input[type="text"], textarea):focus { outline: none; border-color: var(--focus-ring); }
+#new-project-dialog .np-row { display: flex; gap: 6px; align-items: center; }
+#new-project-dialog .np-row input { flex: 1 1 auto; min-width: 0; }
+#new-project-dialog .np-row button { flex: none; }
+.np-preview { color: var(--dim); font-size: var(--fs-11-5); font-family: var(--mono); word-break: break-all; min-height: 1.5em; }
+.np-check { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--fg-strong); cursor: pointer; }
+.np-hint { color: var(--dim); font-size: var(--fs-11-5); line-height: 1.5; }
+.np-error { color: var(--err); font-size: var(--fs-12); line-height: 1.5; word-break: break-word; }
+.np-error.hidden { display: none; }

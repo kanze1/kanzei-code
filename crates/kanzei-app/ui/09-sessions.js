@@ -1,10 +1,12 @@
-import { openMenu } from "./00-surface.js";
+import { closeSurface, isSurfaceOpen, openDialog, openMenu } from "./00-surface.js";
 import { defer } from "./01-core.js";
-import { motionSync } from "./01-core.js";
+import { motionSync, promptBox } from "./01-core.js";
 import { setProcessItems } from "./03-shell.js";
 import { setActiveProcessId, setActiveSessionId } from "./03-shell.js";
 import { $, confirmDialog, inputDialog, invoke } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
+import { layoutPref, setLayoutPref } from "./03-layout.js";
+import { fillTemplate } from "./04-structured-parse.js";
 import {
   activeProcessId,
   activeSessionId,
@@ -29,6 +31,7 @@ import { bgClear } from "./06-activity.js";
 import { agentPanelSync } from "./06-agent-panel.js";
 import { askActive, askQueueFor, hideAsk, pumpAsk } from "./07-events.js";
 import {
+  awaitingUserSessions,
   cancelAutoContinueTimer,
   clearAutoNotices,
   renderAutoStatus,
@@ -262,6 +265,13 @@ export function renderLinesWorktrees() {
 }
 export async function createWorktreeLine(event) {
   if (!currentProject || worktreeLineCreateInFlight) return;
+  // UI2-0926 #13:没有有提交的独立仓库就开不了工作树线——先说原因,不要一路跑到 git worktree add 才报 git 的原话。
+  const facts = projectFactsFor === currentProject ? projectFacts : await refreshProjectFacts();
+  const blocked = worktreeBlockedReason(facts);
+  if (blocked) {
+    toast(blocked, { kind: "warn" });
+    return;
+  }
   const fromLinesView = (event?.currentTarget?.id || event?.target?.id) === "lines-add";
   const workItemId = fromLinesView ? String($("lines-work-item")?.value ?? "").trim() : "";
   if (fromLinesView && !workItemId) {
@@ -294,7 +304,11 @@ export async function createWorktreeLine(event) {
   }
   if (workItemSelect) workItemSelect.disabled = true;
   if (linesAddLabel) linesAddLabel.textContent = t("创建中…");
-  if (!(await confirmDialog({ title: t("创建并行线路"), message: `${t("创建并行线路将新建独立工作树")}:${t("每线独立 target/ 目录,磁盘占用随线路数成倍增加;首次冷编译需数分钟")}。${binding}\n${t("继续创建吗")}` }))) {
+  // target/ 与冷编译是 Rust 工程的代价,只在识别到 rust 栈时才这么说。
+  const cost = facts?.stacks?.includes("rust")
+    ? t("每线独立 target/ 目录,磁盘占用随线路数成倍增加;首次冷编译需数分钟")
+    : t("每条线是一份完整的工作树检出,磁盘占用随线路数增加");
+  if (!(await confirmDialog({ title: t("创建并行线路"), message: `${t("创建并行线路将新建独立工作树")}:${cost}。${binding}\n${t("继续创建吗")}` }))) {
     restore();
     return;
   }
@@ -393,17 +407,23 @@ export function parallelTaskView(item) {
   const pendingNow = state.phase === "auto_pending" || (state.auto_pending === true && !runningNow);
   const stoppingNow = state.phase === "stopping";
   const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || "";
+  // UI2-0926 #13 复核:模型在等你回答(引擎 Stop/AwaitingUser)。后台线停在这里时侧栏行原先只写「空闲」,
+  // 一条在等人的线混在空闲线里很容易漏看——单独一个状态词 + 琥珀字形(attention:等你批准/回答)。
+  const waitingNow = !runningNow && !pendingNow && !stoppingNow && awaitingUserSessions.has(item.session_id);
   const label = stoppingNow ? t("停止中…")
     : runningNow ? stage || t("运行中")
       : pendingNow ? t("鞭挞等待")
-        : t("空闲");
+        : waitingNow ? t("在等你回答")
+          : t("空闲");
   const name = `${lineAuthorityLabel(item)} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
   const title = runningNow
     ? `${name}\n${[stage || t("运行中"), state.detail].filter(Boolean).join(" · ")}`
     : pendingNow
       ? `${name}\n${t("等待下一轮")}`
-      : `${name}\n${t("点击切换到此线路")}`;
-  return { runningNow, pendingNow, stoppingNow, label, title };
+      : waitingNow
+        ? `${name}\n${t("模型在等你回答(回复后自动继续)")}`
+        : `${name}\n${t("点击切换到此线路")}`;
+  return { runningNow, pendingNow, stoppingNow, waitingNow, label, title };
 }
 export function renderParallelTaskStatus(items) {
   const target = $("parallel-task-status");
@@ -502,8 +522,8 @@ export function refreshParallelTaskProjection(sessionId) {
 /// 字形文本 ●/◐/○ 原样保留(读屏读状态词,字形 aria-hidden;既有断言读字形)。两个节点
 /// **原地更新**:逐事件投影不再重建它们,呼吸动画不会每个 kz:status 都从第 0 帧重来;
 /// 整表重绘新建的节点由 motionSync 对齐到全局相位。
-export function renderParallelTaskState(row, { runningNow, pendingNow, stoppingNow, label }) {
-  const state = stoppingNow ? "stopping" : runningNow ? "running" : pendingNow ? "pending" : "idle";
+export function renderParallelTaskState(row, { runningNow, pendingNow, stoppingNow, waitingNow = false, label }) {
+  const state = stoppingNow ? "stopping" : runningNow ? "running" : pendingNow ? "pending" : waitingNow ? "attention" : "idle";
   const mark = runningNow ? "●" : pendingNow ? "◐" : "○";
   const words = String(label ?? "");
   let glyph = row.querySelector(".kz-glyph");
@@ -866,6 +886,8 @@ export async function checkProjectIsolation() {
   // 无损修复过就只留一行日志,不打扰——用户看到的内容没有任何变化。
   if (info.autoRepaired) log(`${t("已为本项目建立独立空间")}:${info.selected}`);
   box.classList.toggle("hidden", !info.shared);
+  // 事实横幅在隔离告警在场时让位:告警显隐一变就重排一次。
+  renderProjectFactsBanner();
   if (!info.shared) {
     // 顺带体检一次全部项目:受影响的往往不止当前这个,切一个发现一个太慢。
     reportIsolationAcrossProjects();
@@ -903,6 +925,7 @@ export function activate_execution_root(root) {
   // 也覆盖了启动这一次——currentProject 在这里才第一次确定。
   restoreProjectPrefs();
   checkProjectIsolation();
+  void refreshProjectFacts(root);
   if (previousProject !== currentProject) {
     setActiveProcessId(null);
     setActiveSessionId(null);
@@ -992,27 +1015,267 @@ export async function addProjectFolder() {
   }
 }
 
-// 「新建项目…」暂时沿用既有的初始化流程(路径 + 显示名两次输入);新建项目弹窗另有计划替换它。
+// 「新建项目…」(项目卡菜单、项目总览页头、命令面板)一律打开新建项目对话框。
 export async function initProject() {
-  const path = await inputDialog({
-    title: t("新项目目录路径(不存在时会创建)"),
+  return openNewProjectDialog();
+}
+
+// ---------- UI2-0926 #13:新建项目对话框 · 项目事实横幅 · 并行线入口 ----------
+// 「MD文件保存」现场:✦ 只让人手敲一个路径和名字,然后建目录和 .kanzei——不初始化 Git、不写运行时文件的
+// 忽略规则、事后也不提示「这里没有 Git,并行线/提交/差异条都用不了」。事实由后端 project_facts 一处探测
+// (与 agent 上下文里的 <project-state> 同源),这里只负责呈现。docs/design/project_workspace.md。
+
+/// 新建项目的默认位置:上次用过的位置 → 当前项目的上级目录。
+export function defaultNewProjectParent(project = currentProject) {
+  const saved = layoutPref("new_project", "parent");
+  if (typeof saved === "string" && saved.trim()) return saved;
+  const path = String(project || "");
+  const cut = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return cut > 0 ? path.slice(0, cut) : "";
+}
+/// 「将创建:<位置>\<名称>」:分隔符跟着位置的写法走。
+export function newProjectTargetPath(parent, name) {
+  const base = String(parent ?? "").trim().replace(/[\\/]+$/, "");
+  const leaf = String(name ?? "").trim();
+  if (!base || !leaf) return "";
+  return `${base}${base.includes("/") && !base.includes("\\") ? "/" : "\\"}${leaf}`;
+}
+function syncNewProjectPreview() {
+  const preview = $("new-project-preview");
+  if (!preview) return;
+  const target = newProjectTargetPath($("new-project-parent")?.value, $("new-project-name")?.value);
+  preview.textContent = target ? fillTemplate(t("将创建:{path}"), { path: target }) : "";
+}
+function showNewProjectError(message) {
+  const box = $("new-project-error");
+  if (!box) return;
+  box.textContent = message || "";
+  box.classList.toggle("hidden", !message);
+}
+let newProjectHandle = null;
+export function openNewProjectDialog() {
+  const overlay = $("new-project-overlay");
+  if (!overlay) return null;
+  if (isSurfaceOpen(overlay)) return newProjectHandle;
+  $("new-project-name").value = "";
+  $("new-project-parent").value = defaultNewProjectParent();
+  $("new-project-git").checked = true;
+  $("new-project-desc").value = "";
+  showNewProjectError("");
+  syncNewProjectPreview();
+  newProjectHandle = openDialog(overlay, {
+    initialFocus: $("new-project-name"),
+    onClose: () => { newProjectHandle = null; },
   });
-  if (path === null || !path.trim()) return;
-  const name = await inputDialog({
-    title: t("项目显示名(可留空)"),
-    value: baseName(path.trim()),
-  });
-  if (name === null) return;
+  return newProjectHandle;
+}
+/// 创建完成后的一句反馈:Git 做到哪一步要说清(首提交需要本机 Git 身份;没有首提交就开不了并行线)。
+export function newProjectFeedback(result) {
+  if (result?.gitError) return { text: `${t("项目已建好,但 Git 初始化失败")}:${result.gitError}`, kind: "warn" };
+  if (result?.git?.committed) return { text: t("项目已建好:Git 已初始化并做了首次提交"), kind: "ok" };
+  if (result?.git?.identity_missing) {
+    return { text: t("项目已建好,Git 已初始化;本机没有配置 Git 身份(user.name / user.email),没有做首次提交——并行线要等第一次提交之后才能用"), kind: "warn" };
+  }
+  if (result?.git) return { text: t("项目已建好,Git 已初始化"), kind: "ok" };
+  return { text: t("项目已建好(没有初始化 Git)"), kind: "ok" };
+}
+let newProjectSubmitting = false;
+export async function submitNewProject() {
+  if (newProjectSubmitting) return;
+  const name = $("new-project-name").value.trim();
+  const parent = $("new-project-parent").value.trim();
+  if (!name) return showNewProjectError(t("项目名称不能为空"));
+  if (!parent) return showNewProjectError(t("先选择项目的位置"));
+  showNewProjectError("");
+  const create = $("new-project-create");
+  newProjectSubmitting = true;
+  create.disabled = true;
+  create.setAttribute("aria-busy", "true");
   try {
-    const prefs = await invoke("projects_init", {
-      path: path.trim(),
-      name: name.trim() || null,
+    const description = $("new-project-desc").value.trim();
+    const result = await invoke("projects_create", {
+      parent,
+      name,
+      gitInit: $("new-project-git").checked,
+      description: description || null,
     });
-    await enterProject(prefs, { notice: t("已初始化并切换到新项目") });
-    toast(t("项目初始化完成"));
+    setLayoutPref("new_project", "parent", parent);
+    closeSurface($("new-project-overlay"));
+    await enterProject(result.prefs, { notice: t("已新建并切换到新项目") });
+    // 一句话描述只进输入框当草稿,不自动发送(用户 2026-09-26 定):先看一眼、改一改再发。
+    if (result.description) {
+      promptBox.value = result.description;
+      promptBox.dispatchEvent(new Event("input", { bubbles: true }));
+      promptBox.focus?.();
+    }
+    const feedback = newProjectFeedback(result);
+    toast(feedback.text, { kind: feedback.kind });
     refreshWorkspaceIfOpen();
   } catch (err) {
-    toastError(String(err));
+    showNewProjectError(String(err));
+  } finally {
+    newProjectSubmitting = false;
+    create.disabled = false;
+    create.removeAttribute("aria-busy");
+  }
+}
+defer(() => {
+  const overlay = $("new-project-overlay");
+  if (!overlay) return;
+  for (const id of ["new-project-name", "new-project-parent"]) {
+    $(id).addEventListener("input", () => {
+      showNewProjectError("");
+      syncNewProjectPreview();
+    });
+    $(id).addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) return;
+      event.preventDefault?.();
+      void submitNewProject();
+    });
+  }
+  $("new-project-browse").addEventListener("click", async () => {
+    try {
+      const picked = await invoke("export_pick_dir");
+      if (!picked) return;
+      $("new-project-parent").value = picked;
+      syncNewProjectPreview();
+    } catch (err) {
+      showNewProjectError(String(err));
+    }
+  });
+  $("new-project-cancel").addEventListener("click", () => closeSurface(overlay));
+  $("new-project-create").addEventListener("click", () => void submitNewProject());
+});
+
+/// 当前项目的事实(横幅、并行线入口、Rust 专属文案共用)。project_facts 失败时为 null(界面不猜)。
+export let projectFacts = null;
+export let projectFactsFor = null;
+let projectFactsGeneration = 0;
+export async function refreshProjectFacts(project = currentProject) {
+  if (!project) return null;
+  const generation = ++projectFactsGeneration;
+  let facts = null;
+  try {
+    facts = await invoke("project_facts", { projectDir: project });
+  } catch {
+    facts = null;
+  }
+  // 切项目后迟到的结果不得画进新项目。
+  if (generation !== projectFactsGeneration || project !== currentProject) return null;
+  projectFacts = facts;
+  projectFactsFor = project;
+  renderProjectFactsBanner(facts, project);
+  syncWorktreeEntry(facts);
+  return facts;
+}
+/// 横幅一次只说一件事:上级仓库(风险)> 不是 Git 仓库 > 仓库还没有提交 > 空项目。
+/// 「还没有提交」排在空项目前面(复核 minor):新建项目时本机没配 Git 身份就只 init 不提交,并行线要等第一次
+/// 提交——原先只在一闪而过的 toast 里说过,之后横幅只剩「空项目」,原因只藏在建线入口的 title 里。
+export function projectFactBannerKind(facts) {
+  if (!facts) return null;
+  if (facts.git?.state === "parent") return "parent";
+  if (facts.git?.state === "none") return "no-git";
+  if (facts.git?.state === "repo" && facts.git?.has_commits === false) return "no-commit";
+  if (facts.layout === "greenfield") return "greenfield";
+  return null;
+}
+const FACTS_DISMISS = "project_facts";
+function factsDismissKey(project, kind) {
+  return `${project}|${kind}`;
+}
+export function renderProjectFactsBanner(facts = projectFacts, project = currentProject) {
+  const box = $("project-facts");
+  if (!box) return;
+  const kind = projectFactBannerKind(facts);
+  const dismissed = Boolean(kind) && layoutPref(FACTS_DISMISS, factsDismissKey(project, kind)) === true;
+  // D-170 隔离告警在场时让位:那是更严重的一类问题,两条叠着只会稀释它。
+  const sharedShown = $("project-shared-warn") && !$("project-shared-warn").classList.contains("hidden");
+  if (!kind || dismissed || sharedShown) {
+    box.classList.add("hidden");
+    box.replaceChildren();
+    delete box.dataset.kind;
+    return;
+  }
+  box.dataset.kind = kind;
+  const text = document.createElement("div");
+  text.className = "project-facts-text";
+  const actions = document.createElement("div");
+  actions.className = "project-facts-actions";
+  const action = (label, handler, { ghost = false } = {}) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = ghost ? "ghost mini" : "mini";
+    button.textContent = label;
+    button.addEventListener("click", handler);
+    actions.appendChild(button);
+    return button;
+  };
+  if (kind === "parent") {
+    text.textContent = fillTemplate(t("此目录位于上级仓库 {path} 内:kanzei 不会操作上级仓库,并行线、提交与改动统计都不可用"), { path: facts.git.toplevel });
+    action(t("在此初始化独立仓库"), () => void initProjectGit({ nested: true }));
+  } else if (kind === "no-git") {
+    text.textContent = t("此目录不是 Git 仓库:并行线/工作树、提交与改动统计不可用");
+    action(t("初始化 Git"), () => void initProjectGit());
+  } else if (kind === "no-commit") {
+    text.textContent = t("Git 已初始化但还没有提交:并行线要等第一次提交");
+  } else {
+    text.textContent = t("空项目:agent 会直接在这个目录里搭工程");
+  }
+  // 纯告知的两类(空项目、还没有提交)只有「知道了」;有风险/有动作的两类是「不再提示」。
+  action(kind === "greenfield" || kind === "no-commit" ? t("知道了") : t("不再提示"), () => {
+    setLayoutPref(FACTS_DISMISS, factsDismissKey(project, kind), true);
+    renderProjectFactsBanner(facts, project);
+  }, { ghost: true });
+  box.replaceChildren(text, actions);
+  box.classList.remove("hidden");
+}
+/// 横幅与「无 Git」芯片共用的「初始化 Git」。位于上级仓库内时先确认(嵌套仓库合法,但要说清)。
+export async function initProjectGit({ nested = false } = {}) {
+  const project = currentProject;
+  if (!project) return null;
+  if (nested && !(await confirmDialog({
+    title: t("在此初始化独立仓库"),
+    message: t("会在本项目目录里新建一个独立的 Git 仓库(嵌套在上级仓库里)。上级仓库不受影响,但它会把这个目录看成一个未跟踪的子仓库。继续吗?"),
+  }))) return null;
+  try {
+    const result = await invoke("project_git_init", { projectDir: project });
+    // 复核 minor:按后端实际结果说话——已经是仓库时后端什么都不建(created:false),不能照样报「已初始化」。
+    if (result?.git?.created === false) toast(t("本项目已经是 Git 仓库,没有重复初始化"));
+    else toast(t("已初始化 Git 仓库(还没有提交:第一次提交之后才能开并行线)"), { kind: "ok" });
+    if (project !== currentProject) return result;
+    projectFacts = result?.facts ?? null;
+    projectFactsFor = project;
+    renderProjectFactsBanner(projectFacts, project);
+    syncWorktreeEntry(projectFacts);
+    refreshGit();
+    return result;
+  } catch (err) {
+    toastError(`${t("初始化 Git 失败")}:${err}`);
+    return null;
+  }
+}
+/// 并行线(工作树)需要一个有提交的独立仓库;不满足时说出原因。facts 未知时不拦(交给后端)。
+export function worktreeBlockedReason(facts) {
+  const git = facts?.git;
+  if (!git) return "";
+  if (git.state === "none") return t("并行线需要 Git:本项目还不是 Git 仓库,先「初始化 Git」");
+  if (git.state === "parent") return t("并行线需要本项目自己的 Git 仓库:它只是位于上级仓库内,先「初始化 Git」建独立仓库");
+  if (git.state === "repo" && !git.has_commits) return t("并行线需要仓库里至少有一次提交(工作树从 HEAD 分出),先提交一次");
+  return "";
+}
+/// 建线入口的禁用态与原因(aria-disabled + title,不动 disabled:那是建线在途的防重入位)。
+export function syncWorktreeEntry(facts = projectFacts) {
+  const reason = worktreeBlockedReason(facts);
+  for (const button of [$("worktree-add"), $("lines-add")].filter(Boolean)) {
+    if (reason) {
+      button.setAttribute("aria-disabled", "true");
+      button.dataset.blockedReason = reason;
+      button.title = reason;
+    } else if (button.dataset.blockedReason) {
+      button.removeAttribute("aria-disabled");
+      delete button.dataset.blockedReason;
+      button.removeAttribute("title");
+    }
   }
 }
 

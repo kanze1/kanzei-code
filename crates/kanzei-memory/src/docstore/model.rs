@@ -213,11 +213,61 @@ pub fn batch_progress_with_derived_done(entry: &Entry, derived_done: Option<u32>
     (done, total)
 }
 
-/// 解析 `3/11`;宽容对待空格与全角斜杠(手写文档常见)。
+/// 解析 `3/11`;宽容对待空格与全角斜杠(手写文档常见),以及见 [`split_batch_value`] 的附注写法。
 fn parse_batches(raw: &str) -> Option<(u32, u32)> {
-    let normalized = raw.replace('／', "/");
-    let (done, total) = normalized.trim().split_once('/')?;
-    Some((done.trim().parse().ok()?, total.trim().parse().ok()?))
+    split_batch_value(raw).map(|(done, total, _)| (done, total))
+}
+
+/// 宽容拆分批次字段的原始写法(UI2-0926 #13)。模型常把值写成 `批次: 0/5; B1 核心模型、快速…`
+/// ——重复的键名前缀、`k/N` 之后跟一段批次规划。原先整条拒收,错误信息只说「要写成 k/N」,
+/// 模型不知道该怎么安置那段说明,只能反复重试。这里认出 `k/N` 本体,其余作为附注返回,
+/// 由写入侧归一成 `k/N` 并把附注放进「批次计划」字段。
+///
+/// 返回 (已完成, 总数, 附注)。前面不是 `k/N` 时返回 None。
+pub fn split_batch_value(raw: &str) -> Option<(u32, u32, Option<String>)> {
+    let mut text = raw.trim().replace('／', "/");
+    for prefix in ["批次", "batches", "batch"] {
+        if text
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        {
+            let rest = text[prefix.len()..].trim_start();
+            if let Some(rest) = rest.strip_prefix([':', '：']) {
+                text = rest.trim_start().to_string();
+            }
+            break;
+        }
+    }
+    let digits_end = |s: &str| s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    let done_len = digits_end(&text);
+    if done_len == 0 {
+        return None;
+    }
+    let done: u32 = text[..done_len].parse().ok()?;
+    let after_done = text[done_len..].trim_start();
+    let after_slash = after_done.strip_prefix('/')?.trim_start();
+    let total_len = digits_end(after_slash);
+    if total_len == 0 {
+        return None;
+    }
+    let total: u32 = after_slash[..total_len].parse().ok()?;
+    let rest = after_slash[total_len..]
+        .trim_start_matches(|c: char| {
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    ';' | '；' | ',' | '，' | '、' | ':' | '：' | '-' | '—' | '(' | '（'
+                )
+        })
+        .trim_end_matches([')', '）'])
+        .trim();
+    // `3/11` 后面紧跟数字或斜杠(`3/11/2`)不是附注,是写错了。
+    if rest.starts_with(|c: char| c.is_ascii_digit() || c == '/')
+        && after_slash[total_len..].starts_with(|c: char| c.is_ascii_digit() || c == '/')
+    {
+        return None;
+    }
+    Some((done, total, (!rest.is_empty()).then(|| rest.to_string())))
 }
 
 /// 写入侧校验:条目**本次声明**批次时的唯一判据。
@@ -241,7 +291,10 @@ pub fn check_declared_batches(
     existing_total: Option<u32>,
 ) -> Result<(u32, u32), String> {
     let Some((done, total)) = parse_batches(raw) else {
-        return Err(format!("批次字段要写成 `k/N`(如 `0/3`),实际收到 `{raw}`。"));
+        return Err(format!(
+            "批次字段要写成 `k/N`(如 `0/3`),实际收到 `{raw}`。批次规划之类的说明可以跟在后面\
+             (`0/5; B1 …`,会自动归入「批次计划」字段),但开头必须是 `已完成/总数` 两个数字。"
+        ));
     };
     if total == 0 {
         return Err("批次总数不能为 0;不分批就别写这个字段。".into());

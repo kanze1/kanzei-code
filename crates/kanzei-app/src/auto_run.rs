@@ -10,7 +10,7 @@ use std::path::Path;
 
 use kanzei_harness::auto_run::{
     nudge_prompt, AutoRunAction, AutoRunCtx, AutoRunState, AutoStopReason, BacklogStatus,
-    WorkPriority,
+    NudgeFacts, SelectedItem, WorkPriority,
 };
 use serde_json::json;
 use tauri::State;
@@ -229,6 +229,12 @@ pub fn progress_signature(project_root: &Path) -> String {
     let mut hasher = DefaultHasher::new();
     observation.observed_head.hash(&mut hasher);
     observation.observed_worktree_hash.hash(&mut hasher);
+    // UI2-0926 #13:非 Git 项目的 git 观测全部失败,HEAD 与工作树哈希是常量,签名只剩
+    // tracker 字节会变——连续三轮只写代码不动 tracker 就被零产出熔断误停。没有独立仓库时
+    // 并入项目树指纹(`.kanzei` 与构建目录之外文件的路径/大小/修改时间,遍历有上限)。
+    if !kanzei_tools::project_state::git_state_of(project_root).is_repo() {
+        kanzei_tools::project_state::tree_fingerprint(project_root).hash(&mut hasher);
+    }
     for rel in [
         ".kanzei/project/defects.md",
         ".kanzei/project/requirements.md",
@@ -240,12 +246,222 @@ pub fn progress_signature(project_root: &Path) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+/// UI2-0926 #13:Nudge 文案的事实——引擎当前选中项(与 `work next` 同源)、项目里实际存在的
+/// tracker 队列文件(按取活顺序)、等用户拍板的阻塞条目。只在真的要发 Nudge 时才算。
+pub fn nudge_facts(cwd: &Path, project_root: &Path, work_priority: WorkPriority) -> NudgeFacts {
+    let mut names = ["defects.md", "requirements.md"];
+    if work_priority == WorkPriority::RequirementFirst {
+        names.reverse();
+    }
+    let queues = names
+        .iter()
+        .filter(|name| project_root.join(".kanzei/project").join(name).is_file())
+        .map(|name| (*name).to_string())
+        .collect();
+    // 不做全量交付对账(include_reconciliation = false):Nudge 只要选中项与阻塞原因。
+    let decision = kanzei_tools::resolve_work_selection(cwd, project_root, work_priority).ok();
+    let selected = decision
+        .as_ref()
+        .and_then(|state| state.selected.as_ref())
+        .map(|item| SelectedItem {
+            id: item.id.clone(),
+            title: item.title.clone(),
+            status: item.lifecycle_status.clone(),
+        });
+    let user_blocked = decision
+        .map(|state| {
+            state
+                .blocked_items
+                .iter()
+                .filter(|item| {
+                    item.block_reasons.iter().any(|reason| {
+                        let lower = reason.to_lowercase();
+                        lower.contains("用户") || lower.contains("user") || lower.contains("拍板")
+                    })
+                })
+                .map(|item| item.id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    NudgeFacts {
+        selected,
+        queues,
+        user_blocked,
+    }
+}
+
+/// UI2-0926 #13 兜底判据:最终回复是否明显以**向用户提问 / 请用户提供或决定**收尾。
+///
+/// 主信号是 question 工具(pending_question);这一条只兜「模型用散文提问」的情形——「MD文件保存」
+/// 现场模型最后一句是「请提供实际应用仓库的路径…」,引擎看不出来,先 Continue 再 Nudge。
+/// 判据刻意保守(用户 2026-09-26 接受偶尔误停:代价是回一句话就续跑):
+/// - 只看去掉代码块之后的最后一段(末段是选项列表时连同前一段);
+/// - 末句以 `？`/`?` 结尾,或含「请提供/请确认/请选择…」「please provide/confirm…」这类直接请求;
+/// - 客套的收尾邀请(「如有问题请告诉我」「需要的话随时说」「feel free to…」)不算。
+pub fn ends_with_user_question(text: &str) -> bool {
+    let tail = last_paragraph(&strip_fenced_code(text));
+    let trimmed = tail
+        .trim_end_matches(|c: char| {
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    '*' | '_' | '`' | '"' | '\'' | '”' | '’' | '」' | '』' | ')' | '）' | ']'
+                )
+        })
+        .to_string();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let lower = trimmed.to_lowercase();
+    // 最后一句(按句末标点切)。
+    let last_sentence = {
+        let body = trimmed.trim_end_matches(['？', '?', '。', '.', '！', '!']);
+        let cut = body
+            .rfind(['。', '！', '!', '？', '?', '\n'])
+            .map(|at| at + body[at..].chars().next().map_or(1, char::len_utf8))
+            .unwrap_or(0);
+        trimmed[cut..].trim().to_lowercase()
+    };
+    const OFFERS: &[&str] = &[
+        "如有",
+        "如果有问题",
+        "有问题",
+        "随时",
+        "如需",
+        "需要的话",
+        "如果需要",
+        "如果你需要",
+        "feel free",
+        "if you have",
+        "if you need",
+        "anytime",
+        "happy to",
+    ];
+    if OFFERS.iter().any(|offer| last_sentence.contains(offer)) {
+        return false;
+    }
+    if trimmed.ends_with('？') || trimmed.ends_with('?') {
+        return true;
+    }
+    const REQUESTS: &[&str] = &[
+        "请提供",
+        "请确认",
+        "请选择",
+        "请告诉我",
+        "请回复",
+        "请决定",
+        "请指定",
+        "请补充",
+        "请授权",
+        "请你提供",
+        "请你确认",
+        "请你选择",
+        "请您提供",
+        "请您确认",
+        "请您选择",
+        "需要你提供",
+        "需要你确认",
+        "需要你决定",
+        "需要你选择",
+        "需要你授权",
+        "需要您确认",
+        "等你确认",
+        "等你决定",
+        "please provide",
+        "please confirm",
+        "please choose",
+        "please select",
+        "please let me know",
+        "please tell me",
+        "please reply",
+        "please decide",
+        "please advise",
+        "let me know which",
+        "let me know whether",
+        "waiting for your",
+    ];
+    REQUESTS
+        .iter()
+        .any(|request| last_sentence.contains(request))
+        || (REQUESTS.iter().any(|request| lower.contains(request)) && tail.lines().count() <= 3)
+}
+
+/// 本轮**最后一条**助手消息的正文(多段文本拼接)。那条消息带工具调用(轮中旁白,如「先确认 X
+/// 是否存在?」+ 调工具)或没有正文(只有推理)时返回 None——不往前找更早的旁白:那不是收尾的话,
+/// 拿来判「在问用户」会误停(复核 minor)。
+pub fn last_assistant_text(messages: &[kanzei_llm::Message]) -> Option<String> {
+    let message = messages
+        .iter()
+        .rev()
+        .find(|message| message.role == kanzei_llm::Role::Assistant)?;
+    if message
+        .parts
+        .iter()
+        .any(|part| matches!(part, kanzei_llm::Part::ToolCall { .. }))
+    {
+        return None;
+    }
+    let text: Vec<&str> = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            kanzei_llm::Part::Text { text } if !text.trim().is_empty() => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    (!text.is_empty()).then(|| text.join("\n\n"))
+}
+
+fn strip_fenced_code(text: &str) -> String {
+    let mut out = String::new();
+    let mut in_fence = false;
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") || line.trim_start().starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if !in_fence {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn last_paragraph(text: &str) -> String {
+    let paragraphs: Vec<&str> = text
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|block| !block.is_empty())
+        .collect();
+    let Some(last) = paragraphs.last() else {
+        return String::new();
+    };
+    let is_list = last.lines().all(|line| {
+        let line = line.trim_start();
+        line.starts_with("- ")
+            || line.starts_with("* ")
+            || line.split_once(['.', '、', ')']).is_some_and(|(head, _)| {
+                !head.is_empty() && head.chars().all(|c| c.is_ascii_digit())
+            })
+    });
+    if is_list && paragraphs.len() >= 2 {
+        // 「你想选哪种?」+ 空行 + 选项列表:问题在列表前一段。
+        return paragraphs[paragraphs.len() - 2].to_string();
+    }
+    last.to_string()
+}
+
 /// 判定结果序列化给前端:`{"type":"Continue"|"Nudge"|"NoContinue"|"Stop","prompt":...}`。
-/// Nudge 文案由引擎生成(nudge_prompt),前端不持模板。
-pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> serde_json::Value {
+/// Nudge 文案由引擎按项目状态生成(nudge_prompt + nudge_facts),前端不持模板;事实只在
+/// 真的要发 Nudge 时才计算(`nudge` 惰性求值)。
+pub fn serialize_action(
+    action: AutoRunAction,
+    nudge: impl FnOnce() -> NudgeFacts,
+) -> serde_json::Value {
     match action {
         AutoRunAction::Continue => json!({ "type": "Continue" }),
-        AutoRunAction::Nudge => json!({ "type": "Nudge", "prompt": nudge_prompt(work_priority) }),
+        AutoRunAction::Nudge => json!({ "type": "Nudge", "prompt": nudge_prompt(&nudge()) }),
         // R-144:核查轮——前端收到后把核查指令作为下一轮输入发回(与 Nudge 同款
         // 机制),主代理用只读 task 子代理(read/glob/grep)核对最近关闭条目的
         // 验收证据与真实调用方;发现问题生成候选缺陷或退回依据。核查指令由引擎
@@ -289,6 +505,8 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
                 // R-322 B3:目标达成/推不动。两者都要让前端清除目标输入。
                 AutoStopReason::GoalMet => ("GoalMet", None),
                 AutoStopReason::GoalUnreachable(n) => ("GoalUnreachable", Some(n)),
+                // UI2-0926 #13:模型在等用户回答。前端保持鞭挞开着、不挂续跑、提示并定位问题。
+                AutoStopReason::AwaitingUser => ("AwaitingUser", None),
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
             if let Some(max) = max {
@@ -529,6 +747,7 @@ mod tests {
             halted: false,
             intensity: kanzei_harness::HarnessIntensity::Autonomous,
             model_declared_done: false,
+            awaiting_user: false,
             goal_active: false,
             steps: 0,
             tools: &[],
@@ -617,13 +836,164 @@ mod tests {
         assert_eq!(second.state.max_rounds, 2);
     }
 
+    // ── 分区:工作目录管理(UI2-0926 #13)──
+
+    /// 兜底判据的样本:「MD文件保存」现场的最后一段必须判真;陈述、反问后自答、客套邀请、
+    /// 代码块里的问号必须判假。
+    #[test]
+    fn 最后一句在问用户_中英文样本() {
+        use super::ends_with_user_question as asks;
+        // 正例
+        assert!(asks("我检查了工作目录:里面只有 .kanzei。\n\n请提供实际应用仓库的路径，或确认这个空目录就是目标项目，并准备好 Flutter/Dart 工具链。"));
+        assert!(asks("B1 已完成。\n\n接下来用 Riverpod 还是 Bloc？"));
+        assert!(asks(
+            "两种方案各有取舍,你想选哪种?\n\n1. 本地 SQLite\n2. 纯文件"
+        ));
+        assert!(asks(
+            "需要你确认是否允许我在 %LOCALAPPDATA% 安装 Flutter SDK。"
+        ));
+        assert!(asks("Setup is blocked on the toolchain. Please confirm whether I may install Flutter under %LOCALAPPDATA%."));
+        assert!(asks("Which database should I use for the offline index?"));
+        assert!(asks("**要不要我先把 B2 拆成两批？**"));
+        // 反例
+        assert!(!asks("已完成 R-001 B1，下一步补测试。"));
+        assert!(!asks(
+            "为什么会失败？原因是缓存没刷新,已修复并补了回归测试。"
+        ));
+        assert!(!asks("全部改完了。如有问题请告诉我。"));
+        assert!(!asks("Done. Feel free to ask if you need anything else?"));
+        assert!(!asks("示例:\n\n```\nwhat is this?\n```"));
+        assert!(!asks("我确认了是否存在冲突:没有冲突,已提交。"));
+        assert!(!asks(""));
+    }
+
+    /// 复核 minor:只看本轮最后一条助手消息,且它不能带工具调用。最后一条只有推理时,不得回头
+    /// 拿更早的轮中旁白(「要先确认 X 吗?」+ 工具调用)去判「在问用户」。
+    #[test]
+    fn 最后一条助手消息才算收尾_带工具调用或只有推理都不算() {
+        use kanzei_llm::{Message, Part, Role};
+        let narration = Message {
+            role: Role::Assistant,
+            parts: vec![
+                Part::Text {
+                    text: "要先确认 X 吗？".into(),
+                },
+                Part::ToolCall {
+                    id: "c1".into(),
+                    name: "glob".into(),
+                    input: serde_json::json!({ "pattern": "X*" }),
+                },
+            ],
+        };
+        let result = Message {
+            role: Role::User,
+            parts: vec![Part::ToolResult {
+                call_id: "c1".into(),
+                content: "X.md".into(),
+                is_error: false,
+            }],
+        };
+        let reasoning_only = Message {
+            role: Role::Assistant,
+            parts: vec![Part::Reasoning {
+                text: "done".into(),
+                signature: None,
+            }],
+        };
+        assert_eq!(
+            super::last_assistant_text(&[narration.clone(), result.clone(), reasoning_only]),
+            None,
+            "最后一条只有推理:不回头读旁白"
+        );
+        assert_eq!(
+            super::last_assistant_text(std::slice::from_ref(&narration)),
+            None,
+            "带工具调用的旁白不是收尾"
+        );
+        let closing = Message {
+            role: Role::Assistant,
+            parts: vec![Part::Text {
+                text: "接下来用 Riverpod 还是 Bloc？".into(),
+            }],
+        };
+        assert_eq!(
+            super::last_assistant_text(&[narration, result, closing]).as_deref(),
+            Some("接下来用 Riverpod 还是 Bloc？")
+        );
+    }
+
+    #[test]
+    fn 非_git_项目写代码后进展签名会变() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-sig-nogit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n",
+        )
+        .unwrap();
+        if kanzei_tools::project_state::probe(&dir).git.is_repo() {
+            return;
+        }
+        let before = super::progress_signature(&dir);
+        std::fs::create_dir_all(dir.join("lib")).unwrap();
+        std::fs::write(dir.join("lib/main.dart"), "void main() {}").unwrap();
+        kanzei_tools::project_state::invalidate();
+        let after = super::progress_signature(&dir);
+        assert_ne!(before, after, "只写代码不动 tracker 也必须算进展");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 等用户序列化_与_nudge_按项目状态生成() {
+        let v = super::serialize_action(
+            kanzei_harness::auto_run::AutoRunAction::Stop(super::AutoStopReason::AwaitingUser),
+            || panic!("Stop 不应计算 Nudge 事实"),
+        );
+        assert_eq!(v["type"], "Stop");
+        assert_eq!(v["reason"], "AwaitingUser");
+
+        let dir = std::env::temp_dir().join(format!(
+            "kz-nudge-facts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-001 移动端 Markdown 上下文库 [doing]\n- 优先级: P1\n- 复杂度: 大\n- 标签: 核心\n",
+        )
+        .unwrap();
+        let facts = super::nudge_facts(&dir, &dir, super::WorkPriority::DefectFirst);
+        assert_eq!(facts.queues, vec!["requirements.md".to_string()]);
+        let v = super::serialize_action(kanzei_harness::auto_run::AutoRunAction::Nudge, || {
+            facts.clone()
+        });
+        let prompt = v["prompt"].as_str().unwrap();
+        assert!(!prompt.contains("defects.md"), "{prompt}");
+        assert!(
+            prompt.contains("R-001") || prompt.contains("work next"),
+            "{prompt}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// R-144:VerifyRound 序列化必须携带引擎生成的核查指令 prompt(前端据此发回
     /// 核查轮输入),不能是空壳。
     #[test]
     fn verifyround序列化_携带核查指令prompt() {
         let v = super::serialize_action(
             kanzei_harness::auto_run::AutoRunAction::VerifyRound,
-            super::WorkPriority::DefectFirst,
+            super::NudgeFacts::default,
         );
         assert_eq!(v["type"], "VerifyRound");
         let prompt = v["prompt"].as_str().unwrap_or("");

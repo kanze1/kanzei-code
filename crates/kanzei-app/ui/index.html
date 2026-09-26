@@ -77,6 +77,9 @@
              外包一层 slot:03-workspaces 会对 [data-space-only] 元素无条件切 .hidden,告警自己的显隐要另管。 -->
         <div class="project-warn-slot" data-space-only="dev">
           <div id="project-shared-warn" class="project-shared-warn hidden" role="alert"></div>
+          <!-- UI2-0926 #13 项目事实横幅(一次只显示一条):位于上级仓库 / 不是 Git 仓库 / 空项目。
+               隔离告警在场时让位;「不再提示」按项目记进 ui_layout。09-sessions.js renderProjectFactsBanner。 -->
+          <div id="project-facts" class="project-facts hidden" role="status" aria-live="polite"></div>
         </div>
         <div data-space-only="research" class="research-identity hidden"><span class="dim" data-i18n-key="研究课题">研究课题</span><strong id="research-switch-name"></strong></div>
         <button type="button" id="research-topic-new" data-space-only="research" class="new-chat-btn hidden" data-i18n-key="新建课题">新建课题</button>
@@ -237,6 +240,8 @@
           <div id="composer-context" class="composer-context">
             <span id="project-label" class="ctx-project" title="当前项目" data-i18n-title="当前项目"></span>
             <span id="ctx-branch" class="ctx-branch" data-i18n-raw></span>
+            <!-- UI2-0926 #13:项目不是(独立的)Git 仓库时的灰色芯片;点开说明不可用的功能并可「初始化 Git」。 -->
+            <button type="button" id="ctx-git" class="kz-ctl ctx-git hidden" aria-haspopup="menu" aria-expanded="false" data-i18n-raw></button>
             <span id="research-chat-context" class="ctx-chip hidden" data-space-only="research"></span>
             <span class="spacer"></span>
             <div id="change-bar" class="change-bar hidden">
@@ -1365,6 +1370,32 @@
       <div class="confirm-buttons">
         <button type="button" id="project-models-cancel" data-i18n-key="取消">取消</button>
         <button type="button" id="project-models-save" class="primary" data-i18n-key="保存">保存</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- UI2-0926 #13 新建项目:名称 / 位置(可浏览)/ 初始化 Git(默认勾选)/ 一句话描述(创建后放进输入框当草稿,不自动发送)。
+       09-sessions.js openNewProjectDialog → projects_create。 -->
+  <dialog id="new-project-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="new-project-title">
+    <div id="new-project-dialog">
+      <div class="confirm-title" id="new-project-title" data-i18n-key="新建项目">新建项目</div>
+      <label class="np-field" for="new-project-name"><span data-i18n-key="项目名称">项目名称</span></label>
+      <input id="new-project-name" type="text" autocomplete="off" spellcheck="false" />
+      <label class="np-field" for="new-project-parent"><span data-i18n-key="位置">位置</span></label>
+      <div class="np-row">
+        <input id="new-project-parent" type="text" autocomplete="off" spellcheck="false" />
+        <button type="button" id="new-project-browse" class="ghost" data-i18n-key="浏览…">浏览…</button>
+      </div>
+      <div id="new-project-preview" class="np-preview" data-i18n-raw></div>
+      <label class="np-check"><input id="new-project-git" type="checkbox" checked /><span data-i18n-key="初始化 Git 仓库">初始化 Git 仓库</span></label>
+      <div class="np-hint" data-i18n-key="启用并行线、提交与改动统计;本机配置了 Git 身份时会顺手做一次首提交">启用并行线、提交与改动统计;本机配置了 Git 身份时会顺手做一次首提交</div>
+      <label class="np-field" for="new-project-desc"><span data-i18n-key="一句话描述(可选)">一句话描述(可选)</span></label>
+      <textarea id="new-project-desc" rows="2" placeholder="例如:手机上用的 Markdown 上下文库" data-i18n-placeholder="例如:手机上用的 Markdown 上下文库"></textarea>
+      <div class="np-hint" data-i18n-key="创建后放进输入框当第一条消息的草稿,不会自动发送">创建后放进输入框当第一条消息的草稿,不会自动发送</div>
+      <div id="new-project-error" class="np-error hidden" role="alert" data-i18n-raw></div>
+      <div class="confirm-buttons">
+        <button type="button" id="new-project-cancel" data-i18n-key="取消">取消</button>
+        <button type="button" id="new-project-create" class="primary" data-i18n-key="创建项目">创建项目</button>
       </div>
     </div>
   </dialog>

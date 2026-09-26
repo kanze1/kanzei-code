@@ -1,4 +1,4 @@
-import { closeSurface, openDialog } from "./00-surface.js";
+import { closeSurface, openDialog, openMenu } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
@@ -67,7 +67,8 @@ import {
 import { bgClear, renderRecoveredTraces } from "./06-activity.js";
 import { addSummaryEntry } from "./07-events.js";
 import { cancelAutoContinueTimer } from "./08-auto.js";
-import { processRunning, processSwitchGeneration, refreshProcesses, switchProcess } from "./09-sessions.js";
+import { initProjectGit, processRunning, processSwitchGeneration, refreshProcesses, switchProcess } from "./09-sessions.js";
+import { fillTemplate } from "./04-structured-parse.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { forProject } from "./20-lines.js";
 import { active_space, create_workspace_process, project_workspace } from "./03-workspaces.js";
@@ -321,6 +322,55 @@ defer(() => {
   });
 });
 
+// UI2-0926 #13:项目不是(独立的)Git 仓库时,上下文带里一枚灰色「无 Git」芯片。原先 git_status 失败就把
+// 分支与改动统计悄悄清空,用户看不出「为什么没有」;上级仓库的情况更糟——显示的是上级仓库的分支与改动。
+// 真源是 git_status 的 repo 字段(own / none / parent);没有这个字段(旧后端)按 own 处理,不显示芯片。
+export function renderGitChip(status) {
+  const chip = $("ctx-git");
+  if (!chip) return;
+  const repo = status?.repo;
+  // 复核 minor:研究空间不显示——独立课题在 ~/.kanzei/research-workspaces/… 下,本来就不是仓库,
+  // 在那里给「初始化 Git」等于把研究工作区 git init(研究档也不许改写仓库)。
+  // 不用 data-space-only:03-workspaces 会无条件切掉它的 .hidden,开发空间里空芯片也会冒出来。
+  const show = active_space !== "research" && (repo === "none" || repo === "parent");
+  chip.classList.toggle("hidden", !show);
+  if (!show) {
+    chip.textContent = "";
+    chip.removeAttribute("title");
+    chip.removeAttribute("aria-label");
+    delete chip.dataset.repo;
+    delete chip.dataset.toplevel;
+    return;
+  }
+  chip.dataset.repo = repo;
+  if (status?.toplevel) chip.dataset.toplevel = status.toplevel;
+  else delete chip.dataset.toplevel;
+  chip.textContent = t("无 Git");
+  const why = repo === "parent"
+    ? fillTemplate(t("本项目只是位于上级仓库 {path} 内,不是独立的 Git 仓库"), { path: status.toplevel ?? "" })
+    : t("本项目不是 Git 仓库");
+  const label = `${why}:${t("并行线/工作树、提交与改动统计不可用")}`;
+  chip.title = label;
+  chip.setAttribute("aria-label", label);
+}
+export function openGitChipMenu() {
+  const chip = $("ctx-git");
+  if (!chip || chip.classList.contains("hidden")) return null;
+  const parent = chip.dataset.repo === "parent";
+  // 说明放在标题行(不可点),菜单里只有一个动作——首项就是能做的事,键盘焦点不会落在一行说明上。
+  return openMenu(chip, [
+    { heading: `${parent ? t("位于上级仓库内,不是独立仓库") : t("此目录不是 Git 仓库")}:${t("并行线/工作树、提交与改动统计不可用")}` },
+    {
+      label: parent ? t("在此初始化独立仓库") : t("初始化 Git"),
+      desc: t("建库并写好运行时文件的忽略规则"),
+      onSelect: () => void initProjectGit({ nested: parent }),
+    },
+  ], { placement: "top-start", label: t("Git 状态") });
+}
+defer(() => {
+  $("ctx-git")?.addEventListener("click", () => openGitChipMenu());
+});
+
 export let gitRefreshGeneration = 0;
 export async function refreshGit(processId = activeProcessId) {
   if (!currentProject) return;
@@ -345,6 +395,7 @@ export async function refreshGit(processId = activeProcessId) {
       : "";
     $("status-git").title = g.last ? `${t("最近提交")}:${g.last}` : "";
     renderChangeBar(g);
+    renderGitChip(g);
   } catch {
     if (
       currentProject !== forProject
@@ -353,6 +404,7 @@ export async function refreshGit(processId = activeProcessId) {
     ) return;
     $("status-git").textContent = "";
     renderChangeBar(null);
+    renderGitChip(null);
   }
 }
 

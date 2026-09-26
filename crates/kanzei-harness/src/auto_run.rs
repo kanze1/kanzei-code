@@ -100,6 +100,10 @@ pub enum AutoStopReason {
     /// R-322 B3:目标条件挂着,但连续 GOAL_IDLE_ROUND_LIMIT 轮没有实质动作。
     /// 目标可能表述不清、或者根本达不到——继续推只会烧钱,停下来让用户改条件。
     GoalUnreachable(u32),
+    /// UI2-0926 #13:模型在等用户回答(本轮用 question 提了问、问题还挂着,或者最终回复
+    /// 明显以向用户提问收尾)。与 ModelDeclaredDone 同属模型的停机权:引擎不再推进,
+    /// 但鞭挞保持开着——用户一回复,下一轮照常续跑。挂着的目标不清除。
+    AwaitingUser,
 }
 
 /// 轮末判定结果。
@@ -139,34 +143,62 @@ pub enum WorkPriority {
     DefectFirst,
 }
 
-impl WorkPriority {
-    pub fn first_queue(&self) -> &'static str {
-        match self {
-            WorkPriority::RequirementFirst => "requirements.md",
-            WorkPriority::DefectFirst => "defects.md",
-        }
-    }
-    pub fn second_queue(&self) -> &'static str {
-        match self {
-            WorkPriority::RequirementFirst => "defects.md",
-            WorkPriority::DefectFirst => "requirements.md",
-        }
-    }
+/// 引擎当前选中的条目(取自 `resolve_work_decision`,与 `work next` 同源)。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SelectedItem {
+    pub id: String,
+    pub title: String,
+    pub status: String,
 }
 
-/// 无动作时追加的具体推进指令(原 NUDGE_PROMPT,前端模板按取活顺序替换)。
-/// 引擎生成后作为用户消息注入,规则不再驻留在可编辑文案里。
-pub fn nudge_prompt(work_priority: WorkPriority) -> String {
-    let first = work_priority.first_queue();
-    let second = work_priority.second_queue();
-    format!(
-        "上一轮没有产生任何实质动作。不要再做可行性判断,直接执行:\n\
-         从 {first} 最上面一条开始,说出它的下一个最小可执行步骤(具体到文件和改动),然后立刻做掉。\n\
-         那一条一时推不动就跳到下一条,{second} 同理——总有一条是能动手的。\n\
-         如果每一条都标着阻塞:先复核阻塞是否还成立。多数是你自己历轮写下的,解除条件早已满足,\n\
-         清空这些条目的「阻塞」字段再取活;真正卡住的只有等用户拍板的那几条,把它们点名列给用户。\n\
-         不要为了凑动作去做与当前条目无关的事,也不要只更新追踪文档就算一轮。"
-    )
+/// UI2-0926 #13:Nudge 文案的输入——**只取项目的真实状态**。
+///
+/// 原文案写死了 kanzei 自己的队列(「从 defects.md 最上面一条开始…requirements.md 同理」)
+/// 和语气(「不要再做可行性判断」):「MD文件保存」项目根本没有 defects.md,而那一轮的
+/// 「可行性判断」(缺 Flutter 工具链)恰恰是正当的;它还与 dev 提示「只执行引擎选中的条目」
+/// 冲突。现在文案由这三项事实派生,不出现项目里不存在的文件名。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NudgeFacts {
+    /// 引擎当前选中的条目;None = 没有可取的条目(全阻塞/清空/没有 tracker)。
+    pub selected: Option<SelectedItem>,
+    /// 项目里实际存在的 tracker 队列文件名(如 `requirements.md`)。
+    pub queues: Vec<String>,
+    /// 等用户拍板的活动条目 id(阻塞字段指向用户)。
+    pub user_blocked: Vec<String>,
+}
+
+/// 无动作时追加的具体推进指令(自主档才会发)。引擎生成后作为用户消息注入。
+pub fn nudge_prompt(facts: &NudgeFacts) -> String {
+    let mut out = String::from("上一轮没有实质动作。\n");
+    match (&facts.selected, facts.queues.is_empty()) {
+        (Some(item), _) => out.push_str(&format!(
+            "引擎当前选中 {}「{}」({}):说出它的下一个最小可执行步骤(具体到文件),然后立刻做掉。\n",
+            item.id, item.title, item.status
+        )),
+        (None, false) => out.push_str(&format!(
+            "用 `work next` 取引擎选中的条目(队列:{}),说出它的下一个最小可执行步骤(具体到文件),然后立刻做掉。\n",
+            facts.queues.join("、")
+        )),
+        (None, true) => out.push_str(
+            "项目里还没有 tracker 条目:按用户最近一条消息继续;要做的事先用 req add 登记再推进。\n",
+        ),
+    }
+    out.push_str(
+        "如果确实卡在用户的决定或外部条件上(比如缺工具链):用 question 工具问一次,在条目上写\
+         「阻塞: …」与「解除条件: …」后结束本轮——不要用散文提问。\n\
+         标着阻塞的条目先复核阻塞是否还成立:多数是你自己历轮写下的,解除条件可能早已满足,\
+         满足了就清空「阻塞」字段再取活。",
+    );
+    if facts.user_blocked.is_empty() {
+        out.push('\n');
+    } else {
+        out.push_str(&format!(
+            "真正等用户拍板的是 {},把它们点名列给用户。\n",
+            facts.user_blocked.join("、")
+        ));
+    }
+    out.push_str("不要为了凑动作去做与当前条目无关的事,也不要只更新追踪文档就算一轮。");
+    out
 }
 
 /// R-144:验收核查轮指令。自主推进每关闭 N 条后,引擎生成这条核查指令作为下一轮
@@ -342,6 +374,13 @@ impl AutoRunState {
             } else {
                 AutoStopReason::ModelDeclaredDone
             });
+        }
+        // UI2-0926 #13:模型在等用户回答——停机权的另一种形态。放在所有任务判断
+        // (Nudge/ZeroOutput/GoalPending/VerifyRound)之前:问题挂着的时候再推一轮,
+        // 模型只能要么复述问题、要么替用户拍板,两样都是错的(「MD文件保存」现场:模型在要
+        // 仓库路径,引擎先 Continue 再 Nudge)。两档一致;目标挂着也停,但不清除目标。
+        if ctx.awaiting_user {
+            return self.stop_with(AutoStopReason::AwaitingUser);
         }
         let no_action = ctx.steps <= 1 || !has_progress_tools(ctx.tools);
         // R-322 B3:目标挂着 → 一轮没动作**不停**,复述用户给的条件再推一轮。
@@ -556,6 +595,11 @@ pub struct AutoRunCtx<'a> {
     /// 控制权交给模型。资源类停止(限流/致命/连数/ZeroOutput)仍在引擎手里——
     /// 那些不是对「任务完成了没有」的判断。
     pub model_declared_done: bool,
+    /// UI2-0926 #13:模型本轮在等用户回答。来源(调用方组装):① 本轮 question 调用以
+    /// `pending_question` 收口(自主轮没有人当场回答,问题挂起);② 兜底:最终助手文本明显
+    /// 以向用户提问收尾(保守的散文判据,见桌面端 `ends_with_user_question`)。
+    /// 与 `model_declared_done` 一样是模型的停机权,引擎不得否决。
+    pub awaiting_user: bool,
     /// R-322 B3:是否挂着用户给定的目标条件。
     ///
     /// 挂上之后停止规则整体换掉:**不再由引擎猜「还有没有活干」**——
@@ -608,6 +652,7 @@ mod tests {
             // 既有测试全部锚定自主档(引入强度维度前的行为),逐条断言不变。
             intensity: HarnessIntensity::Autonomous,
             model_declared_done: false,
+            awaiting_user: false,
             goal_active: false,
             steps: 1,
             tools,
@@ -1001,6 +1046,7 @@ mod tests {
             halted: false,
             intensity: HarnessIntensity::Autonomous,
             model_declared_done: false,
+            awaiting_user: false,
             goal_active: false,
             steps: 2,
             tools: &t,
@@ -1121,14 +1167,150 @@ mod tests {
         assert_eq!(AutoRunState::new(10).max_rounds, 10);
     }
 
+    /// UI2-0926 #13:文案只取项目真实状态——不写不存在的文件名,不再说「不要再做可行性判断」,
+    /// 给出 question/阻塞 的出路,并保留「复核阻塞是否还成立」(kanzei 自举靠它复核历轮阻塞)。
     #[test]
-    fn nudge_prompt_按取活顺序生成() {
-        let p = nudge_prompt(WorkPriority::RequirementFirst);
-        assert!(p.contains("requirements.md 最上面一条"));
-        assert!(p.contains("defects.md 同理"));
-        let p2 = nudge_prompt(WorkPriority::DefectFirst);
-        assert!(p2.contains("defects.md 最上面一条"));
-        assert!(p2.contains("requirements.md 同理"));
+    fn nudge_prompt_按项目状态生成() {
+        let facts = NudgeFacts {
+            selected: Some(SelectedItem {
+                id: "R-001".into(),
+                title: "移动端 Markdown 上下文库".into(),
+                status: "doing".into(),
+            }),
+            queues: vec!["requirements.md".into()],
+            user_blocked: Vec::new(),
+        };
+        let p = nudge_prompt(&facts);
+        assert!(
+            p.contains("R-001「移动端 Markdown 上下文库」(doing)"),
+            "{p}"
+        );
+        assert!(!p.contains("defects.md"), "项目里没有的文件不得出现: {p}");
+        assert!(!p.contains("可行性判断"), "{p}");
+        assert!(p.contains("question"), "{p}");
+        assert!(p.contains("解除条件"), "{p}");
+        assert!(p.contains("复核阻塞是否还成立"), "{p}");
+
+        let blocked = nudge_prompt(&NudgeFacts {
+            selected: None,
+            queues: vec!["defects.md".into(), "requirements.md".into()],
+            user_blocked: vec!["R-007".into(), "D-003".into()],
+        });
+        assert!(blocked.contains("work next"), "{blocked}");
+        assert!(blocked.contains("defects.md、requirements.md"), "{blocked}");
+        assert!(blocked.contains("R-007、D-003"), "{blocked}");
+
+        let empty = nudge_prompt(&NudgeFacts::default());
+        assert!(empty.contains("还没有 tracker 条目"), "{empty}");
+        assert!(!empty.contains(".md"), "{empty}");
+    }
+
+    /// UI2-0926 #13:等用户是模型的停机权——两档都停,即使本轮有进展工具;
+    /// 排在 Nudge/GoalPending/ZeroOutput 之前,排在资源/用户段之后;目标不被清除。
+    #[test]
+    fn 模型在等用户_两档都停_优先于任务判断() {
+        let tools = mk_tools(&["edit", "bash"]);
+        for intensity in [HarnessIntensity::Autonomous, HarnessIntensity::Paired] {
+            let mut state = AutoRunState::new(10);
+            state.rounds = 3;
+            let ctx = AutoRunCtx {
+                intensity,
+                awaiting_user: true,
+                steps: 8,
+                ..ctx_with_tools(&tools)
+            };
+            assert_eq!(
+                state.decide(&ctx),
+                AutoRunAction::Stop(AutoStopReason::AwaitingUser),
+                "{intensity:?}"
+            );
+            assert_eq!(state.rounds, 0);
+        }
+        // 无动作轮(本来会 Nudge)与挂着目标(本来会 GoalPending)都让位。
+        let idle = mk_tools(&["read"]);
+        let mut state = AutoRunState::new(10);
+        state.rounds = 1;
+        assert_eq!(
+            state.decide(&AutoRunCtx {
+                awaiting_user: true,
+                ..ctx_with_tools(&idle)
+            }),
+            AutoRunAction::Stop(AutoStopReason::AwaitingUser)
+        );
+        let mut state = AutoRunState::new(10);
+        assert_eq!(
+            state.decide(&AutoRunCtx {
+                awaiting_user: true,
+                goal_active: true,
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::AwaitingUser),
+            "目标挂着也停(目标由调用方保留,不像 GoalMet 那样清除)"
+        );
+        // 零产出熔断也让位:同一签名连续多轮,只要在等用户就先停在 AwaitingUser。
+        let mut state = AutoRunState::new(10);
+        let busy = AutoRunCtx {
+            steps: 4,
+            progress_signature: "same",
+            ..ctx_with_tools(&tools)
+        };
+        for _ in 0..ZERO_OUTPUT_ROUND_LIMIT - 1 {
+            assert_eq!(state.decide(&busy), AutoRunAction::Continue);
+        }
+        assert_eq!(
+            state.decide(&AutoRunCtx {
+                awaiting_user: true,
+                ..busy.clone()
+            }),
+            AutoRunAction::Stop(AutoStopReason::AwaitingUser)
+        );
+    }
+
+    /// 资源/用户段仍排在前面:暂停、本轮后停、致命/限流失败、backlog 全阻塞不被「等用户」遮住。
+    #[test]
+    fn 等用户不遮住资源与用户段() {
+        let tools = mk_tools(&["edit"]);
+        let mut paused = AutoRunState::new(10);
+        paused.paused = true;
+        assert_eq!(
+            paused.decide(&AutoRunCtx {
+                awaiting_user: true,
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::Paused)
+        );
+        let mut stop_after = AutoRunState::new(10);
+        stop_after.stop_after_round = true;
+        assert_eq!(
+            stop_after.decide(&AutoRunCtx {
+                awaiting_user: true,
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::StopAfterRound)
+        );
+        for (failure, reason) in [
+            (RoundFailure::Fatal, AutoStopReason::FatalError),
+            (RoundFailure::RateLimited, AutoStopReason::RateLimited),
+        ] {
+            let mut state = AutoRunState::new(10);
+            assert_eq!(
+                state.decide(&AutoRunCtx {
+                    awaiting_user: true,
+                    round_failure: Some(failure),
+                    ..ctx_with_tools(&tools)
+                }),
+                AutoRunAction::Stop(reason)
+            );
+        }
+        let mut blocked = AutoRunState::new(10);
+        assert_eq!(
+            blocked.decide(&AutoRunCtx {
+                awaiting_user: true,
+                backlog: BacklogStatus::AllBlocked,
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::AllBlocked)
+        );
     }
 
     // ---- R-322:门禁强度与模型停机权 ----

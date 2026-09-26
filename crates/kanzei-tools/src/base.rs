@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use kanzei_harness::{rule, source, Component, Effect, HarnessDraft, ResolveCtx};
+use kanzei_harness::{
+    refreshing_source, rule, source, Component, Effect, HarnessDraft, ResolveCtx,
+};
 
 use crate::shell::detected_shell;
 
@@ -91,17 +93,57 @@ impl Component for BaseComponent {
         draft.context.insert(
             "core/env",
             source("core/env", |ctx: &ResolveCtx| {
+                // UI2-0926 #13:路径一律 simplify 形态——鞭挞轮曾把 `\\?\C:\…` 写进这一行。
                 Some(format!(
                     "Environment: OS {}, cwd {}, project root {}, shell {}, profile {:?}.",
                     std::env::consts::OS,
-                    ctx.cwd.display(),
-                    ctx.project_root.display(),
+                    crate::path_form::simplify(&ctx.cwd).display(),
+                    crate::path_form::simplify(&ctx.project_root).display(),
                     detected_shell().name,
                     ctx.profile,
                 ))
             }),
         );
+        // UI2-0926 #13:项目状态事实(所有档位)。轮内每步刷新(bash 可能刚装了工具、建了文件),
+        // 但探测结果有 30 秒缓存、bash 跑完即作废;事实不变时文本逐字节不变,不打断 prompt 缓存。
+        // 代码树是工作树线时按 cwd 探测(工作树自己的 .git 文件、自己的清单),否则按项目根。
+        draft.context.insert(
+            "core/project-state",
+            refreshing_source("core/project-state", |ctx: &ResolveCtx| {
+                let tree = code_tree_root(&ctx.cwd, &ctx.project_root);
+                let facts = crate::project_state::probe_cached(&tree);
+                Some(crate::project_state::render(&facts))
+            }),
+        );
         Ok(())
+    }
+}
+
+/// 代码树根:cwd 在项目根之内(或相等)时就是项目根;否则(工作树线)是 cwd 自己。
+pub(crate) fn code_tree_root(
+    cwd: &std::path::Path,
+    project_root: &std::path::Path,
+) -> std::path::PathBuf {
+    let key = |path: &std::path::Path| {
+        let text = crate::path_form::strip_verbatim(&path.to_string_lossy()).replace('/', "\\");
+        let trimmed = text.trim_end_matches('\\').to_string();
+        if cfg!(windows) {
+            trimmed.to_lowercase()
+        } else {
+            trimmed
+        }
+    };
+    if project_root.as_os_str().is_empty() {
+        return cwd.to_path_buf();
+    }
+    let (cwd_key, root_key) = (key(cwd), key(project_root));
+    if cwd_key == root_key
+        || cwd_key.starts_with(&format!("{root_key}\\"))
+        || cwd.as_os_str().is_empty()
+    {
+        project_root.to_path_buf()
+    } else {
+        cwd.to_path_buf()
     }
 }
 
@@ -138,5 +180,7 @@ mod tests {
         assert_eq!(snapshot.evaluate("grep", "anything"), Effect::Allow);
         assert_eq!(snapshot.evaluate("git", "status"), Effect::Allow);
         assert_eq!(snapshot.evaluate("git", "stage"), Effect::Ask);
+        // UI2-0926 #13:建库是写操作,先问用户(自主轮 NonInteractive 下即拒)。
+        assert_eq!(snapshot.evaluate("git", "init"), Effect::Ask);
     }
 }

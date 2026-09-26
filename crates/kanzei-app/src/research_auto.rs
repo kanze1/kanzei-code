@@ -2,7 +2,7 @@
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use kanzei_harness::auto_run::{AutoRunAction, AutoRunCtx, WorkPriority};
+use kanzei_harness::auto_run::{AutoRunAction, AutoRunCtx, NudgeFacts};
 use kanzei_tools::research_workflow::{self as workflow, Stage, Workflow};
 use serde_json::{json, Value};
 
@@ -121,7 +121,8 @@ pub(crate) fn decide(
     ctx.model_declared_done = false;
     ctx.verify_every_n = 0;
     let action = crate::auto_run::decide_auto_run(ctrl, ctx);
-    let mut payload = crate::auto_run::serialize_action(action, WorkPriority::DefectFirst);
+    // 研究档是轻控制(Paired),不会 Nudge;事实给空即可。
+    let mut payload = crate::auto_run::serialize_action(action, NudgeFacts::default);
     if matches!(action, AutoRunAction::Continue | AutoRunAction::GoalPending) {
         payload["type"] = json!("Continue");
         payload["prompt"] = json!(state.guidance());

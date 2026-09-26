@@ -1117,11 +1117,7 @@ pub fn project_session_id(project_root: &Path) -> String {
 /// 产出反斜杠,这条路径不会被走到。
 pub(crate) fn session_identity(project_root: &Path) -> String {
     let raw = project_root.to_string_lossy();
-    let stripped = raw
-        .strip_prefix(r"\\?\UNC\")
-        .map(|rest| format!(r"\\{rest}"))
-        .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
-        .unwrap_or_else(|| raw.to_string());
+    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
     stripped.trim_end_matches(['\\', '/']).to_lowercase()
 }
 

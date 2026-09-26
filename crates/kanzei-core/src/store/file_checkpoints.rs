@@ -72,16 +72,12 @@ pub fn file_checkpoint_path_key(abs_path: &Path) -> String {
 /// `C:\Users\Kanzei\proj`、`c:\users\kanzei\proj`、`\\?\C:\Users\Kanzei\proj` 三者两两不等。
 fn path_compare_key(path: &Path) -> String {
     let raw = path.to_string_lossy();
-    let stripped = raw
-        .strip_prefix(r"\\?\UNC\")
-        .map(|rest| format!(r"\\{rest}"))
-        .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
-        .unwrap_or_else(|| raw.to_string());
+    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
     // 分隔符与大小写只在 Windows 上等价;其它平台上 `A` 与 `a` 是两个目录。
     #[cfg(windows)]
     let unified = stripped.replace('/', "\\").to_lowercase();
     #[cfg(not(windows))]
-    let unified = stripped;
+    let unified = stripped.into_owned();
     let key = kanzei_harness::permission::normalize_resource(&unified);
     key.trim_end_matches(['\\', '/']).to_string()
 }

@@ -412,6 +412,9 @@ pub(crate) struct MetricsSink {
     /// 被权限拦下或执行失败的 handoff 不算数据。
     pending_handoffs: Mutex<std::collections::HashSet<String>>,
     round_handoff: Arc<std::sync::atomic::AtomicBool>,
+    /// UI2-0926 #13:本轮 question 以 `pending_question` 收口(问题挂起、在等用户回答)。
+    /// 交互轮里用户当场回答,结果是 `User answer: …`,不置位;被权限拒绝/取消的也不置位。
+    round_awaiting_user: Arc<std::sync::atomic::AtomicBool>,
     /// R-319:显式收尾事务状态。只由真实工具结果推进，不接受模型自报。
     transaction_calls: Mutex<HashMap<String, (String, serde_json::Value)>>,
     tests_passed: std::sync::atomic::AtomicBool,
@@ -445,6 +448,7 @@ impl MetricsSink {
             round_closed,
             pending_handoffs: Mutex::new(std::collections::HashSet::new()),
             round_handoff,
+            round_awaiting_user: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             transaction_calls: Mutex::new(HashMap::new()),
             tests_passed: std::sync::atomic::AtomicBool::new(false),
             tests_failed: std::sync::atomic::AtomicBool::new(false),
@@ -455,6 +459,23 @@ impl MetricsSink {
             unexpected_tool: std::sync::atomic::AtomicBool::new(false),
             approval_seen: std::sync::atomic::AtomicBool::new(false),
             extension_used: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+    /// UI2-0926 #13:接上「在等用户」检测位(轮末读它组装 AutoRunCtx::awaiting_user)。
+    pub(crate) fn with_awaiting_user(mut self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self {
+        self.round_awaiting_user = flag;
+        self
+    }
+    /// UI2-0926 #13:question 的 ToolEnd 带 `pending_question` 展示 = 问题挂起在等用户。
+    fn note_question_end(&self, name: &str, display: Option<&serde_json::Value>) {
+        if name == "question"
+            && display
+                .and_then(|value| value.get("kind"))
+                .and_then(serde_json::Value::as_str)
+                == Some("pending_question")
+        {
+            self.round_awaiting_user
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
     /// R-143:git commit 调用意图登记(成功与否由 ToolEnd ok 收口)。
@@ -728,6 +749,7 @@ pub(crate) fn build_event_handler(
                 artifact,
             } => {
                 let duration_ms = metrics.resolve_tool_end(&id, &name, ok);
+                metrics.note_question_end(&name, display.as_ref());
                 trace.record(json!({
                     "kind": "tool.completed", "id": id, "name": name, "ok": ok,
                     "outcome": outcome, "code": code,
@@ -1141,6 +1163,27 @@ mod tests {
             round_handoff.clone(),
         );
         ((sink, round_tools, round_closed), round_handoff)
+    }
+
+    /// UI2-0926 #13:question 以 pending_question 收口才算「在等用户」;交互轮当场回答了、
+    /// 被取消/拒绝(没有 pending 展示)、别的工具碰巧带同名 kind,都不置位。
+    #[test]
+    fn question挂起才置位等用户() {
+        let ((sink, _, _), _) = mk_metrics_sink_full();
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let sink = sink.with_awaiting_user(flag.clone());
+        sink.note_question_end("question", None);
+        sink.note_question_end("question", Some(&json!({ "kind": "text" })));
+        sink.note_question_end("bash", Some(&json!({ "kind": "pending_question" })));
+        assert!(
+            !flag.load(std::sync::atomic::Ordering::Relaxed),
+            "已回答/被拒绝/别的工具都不算在等用户"
+        );
+        sink.note_question_end(
+            "question",
+            Some(&json!({ "kind": "pending_question", "question": "装 Flutter 吗?" })),
+        );
+        assert!(flag.load(std::sync::atomic::Ordering::Relaxed));
     }
 
     /// R-322(#7):handoff 必须成功执行才算模型声明了完成——被拦下/失败的调用
