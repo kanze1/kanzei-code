@@ -338,6 +338,14 @@ async function runBrowser() {
     const after = await sample();
     if (!after || after.hash === before?.hash) failures.push("kz:theme 切到亮色后画布像素没有变化(画布没按 --graph-* token 重画)");
     await page.evaluate(async () => (await import("/03-shell.js")).applyTheme("dark"));
+    // 重排后 crate 仍钉在层带上:同带 y 完全相同,不同 y 至多 4 个(库的 dagMode 设置会清掉复用节点的 fx/fy,
+    // 曾让第二次 setData 之后整张架构骨架散掉)。
+    await page.click("#memory-graph-archived");
+    await page.waitForFunction(() => window.__kzMemoryGraph?.ready === true, null, { timeout: 30000 });
+    const crateRows = await page.evaluate(() => window.__kzMemoryGraph.positions().filter((p) => p.kind === "crate").map((p) => Math.round(p.y * 1000) / 1000));
+    if (!crateRows.length || new Set(crateRows).size > 4) failures.push(`重排后 crate 没有钉在层带上(y = ${crateRows.join(", ")})`);
+    await page.click("#memory-graph-archived");
+    await page.waitForFunction(() => window.__kzMemoryGraph?.ready === true, null, { timeout: 30000 });
     await page.click("#memory-graph-textview");
     await page.waitForTimeout(150);
     const tree = await page.evaluate(() => ({

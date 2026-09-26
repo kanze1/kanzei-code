@@ -75,6 +75,7 @@ const debugHook = {
   hover: (id) => hoverNode(id),
   select: (id) => clickNode(id),
   ego: (id, hops) => enterEgo(id, hops),
+  positions: () => (graphState.graph?.positions() ?? []).map((p) => ({ ...p, kind: nodeById(p.id)?.kind ?? null })),
 };
 window.__kzMemoryGraph = debugHook;
 
@@ -746,6 +747,8 @@ defer(() => {
   $("memory-graph-fit")?.addEventListener("click", () => graphState.graph?.fit(400));
   $("memory-graph-textview")?.addEventListener("click", () => {
     graphState.textView = !graphState.textView;
+    // 从文本视图切回画布时给渲染器再一次机会(上次可能只是 vendor 文件没取到)。
+    if (!graphState.textView && graphState.graphFailed) graphState.graphFailed = !canvasSupported();
     void render();
   });
   // 元素级 Esc:只在焦点落在画布或文本树上时退出邻域(全局 Esc 归 00-surface.js 的弹层栈)。

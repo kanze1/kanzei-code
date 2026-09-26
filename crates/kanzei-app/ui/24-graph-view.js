@@ -152,6 +152,7 @@ export async function createGraphView(host, opts = {}) {
   let destroyed = false;
   let lastClick = { id: null, at: 0 };
   let redrawTimer = 0;
+  let currentDag = null;
 
   const fg = ForceGraph()(host);
   const size = () => {
@@ -303,9 +304,12 @@ export async function createGraphView(host, opts = {}) {
       ctx.closePath();
       ctx.fill();
     }
-    // 边标签只给度数不大的悬停/选中节点画:模块、crate 这类枢纽一悬停就是十几条「关于」,叠成一团反而读不出。
+    // 边标签只给度数不大的悬停/选中节点画;模块、crate 这类枢纽的边几乎全是同一种「关于/包含」,
+    // 一悬停就是一圈重复的字,叠在记忆标签上反而读不出——它们的关系由状态栏与详情栏说明。
     const labelOwner = incident(link, hoverId) ? hoverId : selectedId;
-    if (on && opts.relLabel && (neighbors.get(labelOwner)?.size ?? 0) <= 8) {
+    const owner = labelOwner === endOf(link.source)?.id ? endOf(link.source) : endOf(link.target);
+    const hub = owner?.kind === "crate" || owner?.kind === "module";
+    if (on && opts.relLabel && !hub && (neighbors.get(labelOwner)?.size ?? 0) <= 8) {
       const label = opts.relLabel(link.rel);
       if (label) {
         const fontPx = 10 / scale;
@@ -390,13 +394,17 @@ export async function createGraphView(host, opts = {}) {
       ctx.arc(node.x, node.y, radius(node) + 2, 0, 2 * Math.PI);
       ctx.fill();
     })
+    // 连线不参与指针命中(悬停/点击只认节点):库默认每帧把全部连线再画一遍到命中缓冲,千条边时这是大头。
+    .linkPointerAreaPaint(() => {})
     .linkCanvasObjectMode(() => "replace")
     .linkCanvasObject(paintLink)
     .onRenderFramePre(framePre)
     .onRenderFramePost(framePost)
     .enablePointerInteraction(true)
     .enableNodeDrag(true)
-    .d3AlphaDecay(0.035)
+    .d3AlphaDecay(0.04)
+    // force-graph 默认 d3AlphaMin=0,只靠 cooldownTicks 收工:没有这条,再小的图也要跑满 200 帧。
+    .d3AlphaMin(0.002)
     .cooldownTicks(200)
     .onNodeHover((node) => {
       hoverId = node ? node.id : null;
@@ -450,6 +458,13 @@ export async function createGraphView(host, opts = {}) {
       anchors = options.anchors ?? new Map();
       unassigned = options.unassigned ?? { x: 0, y: 0 };
       hopOf = options.hopOf ?? new Map();
+      // dagMode 的 onChange 会把「当前」graphData 里全部节点的 fx/fy 清掉(库内实现,每次设置都触发);
+      // 节点对象在两次 setData 之间是复用的,所以必须先设 dagMode、再钉 crate,且只在真的变了时才设。
+      const nextDag = layout === "dag-lr" ? "lr" : null;
+      if (nextDag !== currentDag) {
+        fg.dagMode(nextDag);
+        currentDag = nextDag;
+      }
       data = { nodes: next.nodes ?? [], links: next.links ?? [] };
       neighbors = neighborsOf(data.links);
       for (const node of data.nodes) {
@@ -473,12 +488,9 @@ export async function createGraphView(host, opts = {}) {
           node.y = finite(anchor.y) + (Math.random() - 0.5) * 80;
         }
       }
-      fg.dagMode(layout === "dag-lr" ? "lr" : null);
       fg.d3Force("cluster", layout === "ego" ? radialForce(hopOf, 130) : layout === "clusters" ? clusterForce((n) => opts.clusterOf?.(n), anchors, unassigned, (n) => (n.kind === "module" ? 0.06 : 0.035)) : null);
-      fg.warmupTicks(Math.min(120, Math.floor(60000 / Math.max(1, data.nodes.length))));
-      settleStarted = performance.now();
-      settledOnce = false;
-      fg.graphData(data);
+      // 力的参数必须在 graphData 之前设好:换数据会立刻用当前的力跑 warmup,之后再改参数、再 reheat
+      // 等于把 warmup 白跑一遍(实测 677 节点要多跑到 cooldownTicks 上限才停,稳定时间多一倍)。
       // 模块像花瓣一样围着 crate 散开,记忆再围着模块:模块斥力大、记忆斥力小。
       const CHARGE = { crate: -300, module: -140, memory: -28 };
       fg.d3Force("charge")?.strength((node) => CHARGE[node.kind] ?? -24);
@@ -494,7 +506,10 @@ export async function createGraphView(host, opts = {}) {
           if (link.rel === "about" && link.strength === "weak") return 0.3;
           return 0.45;
         });
-      fg.d3ReheatSimulation();
+      fg.warmupTicks(Math.min(120, Math.floor(80000 / Math.max(1, data.nodes.length))));
+      settleStarted = performance.now();
+      settledOnce = false;
+      fg.graphData(data);
     },
     highlight(ids) {
       hits = ids && ids.length ? new Set(ids) : null;
