@@ -278,6 +278,22 @@ export function openRuntimeSource(title, source, { line = null, startLine = 1 } 
   openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
   target?.scrollIntoView?.({ block: "center" });
 }
+/// UI2-0926 #8:工具截图 / 交付图片的大图查看(src 是 data URL,由 24-preview.js 经 tool_image / delivered_image 取来)。
+export function openRuntimeImage(title, src) {
+  viewerKind = null;
+  $("viewer-title").textContent = title;
+  const body = $("viewer-body");
+  body.className = "kz-image-view";
+  body.replaceChildren();
+  const img = document.createElement("img");
+  img.className = "kz-image-view-img";
+  img.alt = title;
+  img.setAttribute("src", src);
+  body.append(img);
+  body.scrollTop = 0;
+  $("viewer-external").classList.add("hidden");
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+}
 /// 聊天/文档里的图「放大」:在查看器里按页面模式重挂一张(适应/缩放/平移)。
 export function openRuntimeDiagram(title, source, { path = null, sourceLine = 1 } = {}) {
   viewerKind = null;

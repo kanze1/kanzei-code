@@ -45,6 +45,64 @@ const backendOnly = [...backendEvents].filter((e) => !frontendEvents.has(e)).sor
 const frontendOnly = [...frontendEvents].filter((e) => !backendEvents.has(e)).sort();
 const MIN_IPC_EVENTS = 10;
 
+// ── 分区:网页预览前端 ── UI2-0926 #8 复核:命令名求差。前端 invoke("x") 的字面命令名必须在 main.rs 的 generate_handler! 里注册
+// (按最后一段函数名,认 #[tauri::command(rename = "x")])。前后两半并行开发时,命令名一旦对不上,真机只在日志里留一条 warn。
+// 网页预览这一族(preview_* / tool_image / delivered_image)在后端模块 crates/kanzei-app/src/preview/ 合入之前不判(前端半边单独跑),
+// 合入后自动生效——不是常设豁免。KNOWN_UNREGISTERED 只收本特性之前就存在的缺陷,各自写明去处;新增条目等于放过真缺陷。
+{
+  const KNOWN_UNREGISTERED = {
+    run_tool_process_stop: "既有缺陷(早于 UI2-0926 #8):06-activity.js 的「停止后台进程」调用了从未注册的命令,另立任务修",
+  };
+  const PREVIEW_FAMILY = /^(?:preview_[a-z_]+|tool_image|delivered_image)$/;
+  const srcDir = path.join(root, "crates/kanzei-app/src");
+  const mainRs = fs.readFileSync(path.join(srcDir, "main.rs"), "utf8");
+  const handlerBody = mainRs.match(/generate_handler!\[([\s\S]*?)\]/)?.[1] ?? "";
+  const renamed = new Map();
+  for (const file of walk(srcDir)) {
+    const src = fs.readFileSync(file, "utf8");
+    for (const m of src.matchAll(/#\[tauri::command\(rename\s*=\s*"([^"]+)"\)\]\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)/g)) renamed.set(m[2], m[1]);
+  }
+  const registered = new Set(
+    [...handlerBody.replace(/\/\/[^\n]*/g, "").matchAll(/([A-Za-z_]\w*)\s*(?=,|$)/g)].map((m) => renamed.get(m[1]) ?? m[1]),
+  );
+  const invoked = new Map();
+  const uiDir = path.join(root, "crates/kanzei-app/ui");
+  for (const file of fs.readdirSync(uiDir).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(uiDir, file), "utf8");
+    for (const m of src.matchAll(/\binvoke\(\s*"([a-z][a-z0-9_]*)"/g)) {
+      if (!invoked.has(m[1])) invoked.set(m[1], new Set());
+      invoked.get(m[1]).add(file);
+    }
+  }
+  const previewBackendMerged = fs.existsSync(path.join(srcDir, "preview"));
+  const missing = [];
+  let deferred = 0;
+  for (const [cmd, files] of invoked) {
+    if (registered.has(cmd) || cmd in KNOWN_UNREGISTERED) continue;
+    if (PREVIEW_FAMILY.test(cmd) && !previewBackendMerged) {
+      deferred += 1;
+      continue;
+    }
+    missing.push(`${cmd}(${[...files].join(", ")})`);
+  }
+  const stale = Object.keys(KNOWN_UNREGISTERED).filter((cmd) => registered.has(cmd) || !invoked.has(cmd));
+  if (registered.size < 50 || invoked.size < 50) {
+    console.error(`IPC 命令求差拒绝异常低计数:注册 ${registered.size},前端调用 ${invoked.size}(generate_handler! 或 invoke 解析失效)`);
+    process.exitCode = 1;
+  } else if (missing.length || stale.length) {
+    if (missing.length) console.error(`IPC 命令求差失败:前端 invoke 了 generate_handler! 里没有注册的命令(${missing.length}): ${missing.join(", ")}`);
+    if (stale.length) console.error(`KNOWN_UNREGISTERED 过期(已注册或前端已不再调用),删掉这些条目: ${stale.join(", ")}`);
+    process.exitCode = 1;
+  } else {
+    const known = Object.keys(KNOWN_UNREGISTERED).length;
+    console.log(
+      `IPC 命令求差通过:前端 invoke ${invoked.size} 个命令名,${invoked.size - deferred - known} 个已注册(generate_handler! 共 ${registered.size} 个)` +
+        `${known ? `;既有缺陷 ${known} 个(KNOWN_UNREGISTERED)` : ""}${deferred ? `;网页预览后端未合入,暂不判 ${deferred} 个预览命令` : ""}`,
+    );
+  }
+}
+// ── 分区:网页预览前端(完) ──
+
 if (backendEvents.size < MIN_IPC_EVENTS || frontendEvents.size < MIN_IPC_EVENTS) {
   console.error(
     `IPC 事件契约求差拒绝空集/异常低计数:后端 ${backendEvents.size},前端 ${frontendEvents.size},下限 ${MIN_IPC_EVENTS}`,

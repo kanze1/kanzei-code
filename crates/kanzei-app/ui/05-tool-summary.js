@@ -704,13 +704,35 @@ function summarizeConventions(s) {
   const headings = s.lines.slice(start + 1, end < 0 ? undefined : end).filter((line) => /^ {2}#/.test(line)).length;
   return { groups: [fillTemplate(t("{n} 节"), { n: formatCount(headings) })], key: "conventions" };
 }
+// UI2-0926 #8:browser 由引擎路由到网页预览面板或无头浏览器,结果首行写明走了哪边
+// (`backend: pane(用户可见)` / `backend: headless`);新动作 screenshot/press/scroll/wait/eval。
+// ⎿ 行 = 动作 · 主机(或文件名)· 面板/无头。旧版无头结果(没有 backend 行)照旧显示「截图 主机」。
+const BROWSER_ACTION_LABELS = {
+  open: () => t("打开"), screenshot: () => t("截图"), dom: () => t("读 DOM"), console: () => t("控制台"),
+  click: () => t("点击"), type: () => t("输入"), press: () => t("按键"), scroll: () => t("滚动"),
+  wait: () => t("等待"), eval: () => t("执行脚本"),
+};
+export function browserBackendOf(text) {
+  return String(text ?? "").match(/^backend:\s*(pane|headless)\b/m)?.[1] ?? null;
+}
 function summarizeBrowser(s) {
-  const head = firstLine(s.lines).trim();
-  if (/^浏览器已打开并截图/.test(head)) {
-    const host = urlParts(s.text.match(/^url: (\S+)/m)?.[1])?.host ?? "";
-    return { groups: [t("截图"), host ? [code(host)] : null], key: "browser.screenshot" };
+  const backend = browserBackendOf(s.text);
+  const body = backend ? s.lines.filter((line) => !/^backend:/.test(line.trim())) : s.lines;
+  const head = firstLine(body).trim();
+  const urlText = (typeof s.input.url === "string" && s.input.url) || s.text.match(/\burl:\s*([^\s)]+)/i)?.[1] || "";
+  const host = urlParts(urlText)?.host ?? "";
+  if (!backend) {
+    if (/^浏览器已打开并截图/.test(head)) return { groups: [t("截图"), host ? [code(host)] : null], key: "browser.screenshot" };
+    return null;
   }
-  return null;
+  const action = String(s.input.action ?? "").trim().toLowerCase();
+  const path = typeof s.input.path === "string" && s.input.path ? s.input.path.split(/[\\/]/).pop() : "";
+  const where = host || path || (typeof s.input.html === "string" && s.input.html ? t("代码片段") : "");
+  const label = BROWSER_ACTION_LABELS[action]?.() ?? (action || t("浏览器"));
+  return {
+    groups: [label, where ? [code(where)] : null, backend === "pane" ? t("面板") : t("无头")],
+    key: `browser.${BROWSER_ACTION_LABELS[action] ? action : "result"}`,
+  };
 }
 function summarizeFrontend(s) {
   const head = firstLine(s.lines).trim();
@@ -1124,8 +1146,13 @@ export const TOOL_ARG_SUMMARIZERS = {
   browser(input) {
     const action = pickString(input, "action");
     const url = pickString(input, "url");
-    const target = url ? urlSummary(url) : pickString(input, "selector");
-    return { text: [action, target].filter(Boolean).join(" "), code: Boolean(target) };
+    const path = pickString(input, "path");
+    // UI2-0926 #8:新参数 html(内联片段)、key(按键)、expression(执行脚本);没有目标时退到选择器。
+    const target = url ? urlSummary(url)
+      : path ? path.split(/[\\/]/).pop()
+        : pickString(input, "html") ? t("代码片段")
+          : pickString(input, "key") || clipText(pickString(input, "expression"), 40) || pickString(input, "selector", "text");
+    return { text: [action, target].filter(Boolean).join(" "), title: url || path || undefined, code: Boolean(target) };
   },
   deliver(input, roots) {
     const path = pickString(input, "path");

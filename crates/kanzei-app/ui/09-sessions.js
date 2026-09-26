@@ -29,6 +29,7 @@ import {
 import { addMessage } from "./05-chat-render.js";
 import { bgClear } from "./06-activity.js";
 import { agentPanelSync } from "./06-agent-panel.js";
+import { previewLineSync } from "./24-preview.js";
 import { askActive, askQueueFor, hideAsk, pumpAsk } from "./07-events.js";
 import {
   awaitingUserSessions,
@@ -611,6 +612,8 @@ export function renderProcesses(items) {
     applySessionMeta(activeSessionId);
     // UI-0926 #8:子代理侧栏与 rail 徽标跟着活动线走。
     agentPanelSync();
+    // UI2-0926 #8:网页预览的可见性上报带上新活动线(代理的 browser 只在「面板显示着这条线」时走面板)。
+    previewLineSync();
     // 兜底改选(活动线被注销/被工作空间过滤)时视图必须跟着换:只改 activeSessionId 不换
     // pane,新活动线的实时事件会走快路径写进旧线的 pane,新对话清的也是错的那块。
     // 首次选中、切项目(previousProcessId 为空)与切工作空间期间由调用方自己装载。
@@ -740,6 +743,7 @@ export async function switchProcess(processId, forceReload = false) {
   applySessionMeta(activeSessionId);
   // UI-0926 #8:子代理侧栏换成新线路的数据(详情不属于新线路时回到列表),徽标重算。
   agentPanelSync();
+  previewLineSync();
   void syncAutoRunState();
   // 下面有一次显式 await refreshPendingAsks(),先认领这个会话,免得 renderProcesses
   // 里的补拉守卫又打一次 pending_asks_get(结果会被 id 去重,只是白跑一趟)。

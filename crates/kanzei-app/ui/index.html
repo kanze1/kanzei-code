@@ -34,6 +34,9 @@
       <!-- UI2-0926 #14:后台任务侧栏的唯一开关(取代「子代理」「活动」两个开关),所有视图都显示——在别的视图点它
            先回到对话再打开。徽标:有东西在跑显示数量(强调色);没在跑但有未看的失败显示红色。 -->
       <button type="button" id="tasks-toggle" class="activity-item rail-toggle" title="后台任务" data-i18n-title="后台任务" aria-label="打开或收起后台任务侧栏" aria-controls="tasks-panel" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14.5 4.5v15M16.8 8.6h1.5M16.8 11.6h1.5M16.8 14.6h1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span id="tasks-badge" class="rail-badge hidden" aria-hidden="true"></span></button>
+      <!-- UI2-0926 #8:网页预览开关(24-preview.js,Ctrl+Shift+B)。在别的视图点它先回到对话再打开;开着时点它收起(页面保留);
+           窄屏停在「对话」页签时点它切回预览。 -->
+      <button type="button" id="preview-toggle" class="activity-item rail-toggle" title="网页预览(Ctrl+Shift+B)" data-i18n-title="网页预览(Ctrl+Shift+B)" aria-label="打开或收起网页预览" data-i18n-aria-label="打开或收起网页预览" aria-controls="preview-dock" aria-expanded="false" aria-keyshortcuts="Control+Shift+B"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6ZM3.4 9.6h17.2M3.4 14.4h17.2M12 3.2c2.4 2.6 3.6 5.6 3.6 8.8s-1.2 6.2-3.6 8.8c-2.4-2.6-3.6-5.6-3.6-8.8s1.2-6.2 3.6-8.8Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button type="button" class="activity-item" data-view="metrics" title="运行画像" data-i18n-title="运行画像" aria-label="切换到运行画像" data-i18n-aria-label="切换到运行画像">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16M7 20V11M12 20V5M17 20v-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
@@ -435,6 +438,73 @@
             </div>
           </div>
         </footer>
+        <!-- UI2-0926 #8 网页预览停靠面板(24-preview.js;docs/design/preview_pane.md §前端):对话视图的最后一个子元素,
+             打开时 #view-chat 切成两列网格(左:对话列;右:本面板,左缘分隔条可拖);对话视图窄于 800px 时占满、工具栏出现「对话 | 预览」。
+             面板本体是原生子 webview,盖在 #preview-host 上、永远画在 HTML 之上:#preview-host 必须是空元素、没有背景;
+             冻结帧 / 起始页 / 错误页是它的兄弟节点;面板里的菜单用 openMenu 现造(打开前先冻结),不放常驻浮层(ui-surface-rules P 组);
+             面板里的提示走侧向(data-kz-tip-side),不落进占位框。✕ = 关闭(释放页面);rail 开关与 Ctrl+Shift+B = 收起(页面保留)。 -->
+        <section id="preview-dock" class="pv-dock" aria-label="网页预览" data-i18n-aria-label="网页预览" data-kz-tip-side="inline-start">
+          <div class="pv-toolbar" role="toolbar" aria-label="网页预览工具栏" data-i18n-aria-label="网页预览工具栏">
+            <div class="pv-tabs" role="group" aria-label="对话与预览" data-i18n-aria-label="对话与预览">
+              <button type="button" id="preview-tab-chat" class="pv-tab" aria-pressed="false" data-i18n-key="对话">对话</button>
+              <button type="button" id="preview-tab-preview" class="pv-tab" aria-pressed="true" data-i18n-key="预览">预览</button>
+            </div>
+            <button type="button" id="preview-back" class="icon-btn pv-btn" title="后退" data-i18n-title="后退" aria-label="后退" data-i18n-aria-label="后退" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></button>
+            <button type="button" id="preview-forward" class="icon-btn pv-btn" title="前进" data-i18n-title="前进" aria-label="前进" data-i18n-aria-label="前进" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg></button>
+            <button type="button" id="preview-reload" class="icon-btn pv-btn" title="重新加载" data-i18n-title="重新加载" aria-label="重新加载" data-i18n-aria-label="重新加载" data-loading="0" disabled><svg class="pv-ic-reload" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12a7 7 0 1 1-2.05-4.95M19 4.8V9h-4.2"/></svg><svg class="pv-ic-stop" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
+            <input id="preview-address" class="pv-address" type="text" autocomplete="off" spellcheck="false" placeholder="网址、端口(如 5173)或项目里的 HTML 路径" data-i18n-placeholder="网址、端口(如 5173)或项目里的 HTML 路径" aria-label="地址" data-i18n-aria-label="地址" />
+            <button type="button" id="preview-device" class="icon-btn pv-btn" aria-haspopup="menu" aria-expanded="false" title="视口与配色" data-i18n-title="视口与配色" aria-label="视口与配色" data-i18n-aria-label="视口与配色" data-device="fill"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5.5h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1ZM7 19h4M9 15.5V19M18 8.5h2.5a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H18a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1Z"/></svg></button>
+            <button type="button" id="preview-pick" class="icon-btn pv-btn" aria-pressed="false" title="批注:点选页面元素,连同截图放进输入框" data-i18n-title="批注:点选页面元素,连同截图放进输入框" aria-label="批注模式" data-i18n-aria-label="批注模式" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5 10.2 19l2.1-6.2 6.2-2.1Z M13.2 13.7l5.3 5.3"/></svg></button>
+            <button type="button" id="preview-console-toggle" class="icon-btn pv-btn" aria-pressed="false" aria-controls="preview-console" title="控制台" data-i18n-title="控制台" aria-label="控制台"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1ZM7 10l2.5 2L7 14M12.5 14H17"/></svg><span id="preview-console-badge" class="pv-badge hidden" aria-hidden="true"></span></button>
+            <button type="button" id="preview-more" class="icon-btn pv-btn" aria-haspopup="menu" aria-expanded="false" title="更多" data-i18n-title="更多" aria-label="更多" data-i18n-aria-label="更多"><svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg></button>
+            <button type="button" id="preview-close" class="icon-btn pv-btn" title="关闭网页预览(释放页面;只想收起用 Ctrl+Shift+B)" data-i18n-title="关闭网页预览(释放页面;只想收起用 Ctrl+Shift+B)" aria-label="关闭网页预览" data-i18n-aria-label="关闭网页预览">✕</button>
+          </div>
+          <div id="preview-stage" class="pv-stage" data-device="fill">
+            <div id="preview-host" aria-hidden="true"></div>
+            <img id="preview-freeze" class="pv-freeze hidden" alt="" aria-hidden="true" />
+            <div id="preview-empty" class="pv-empty">
+              <div class="pv-empty-inner">
+                <h2 class="pv-empty-title" data-i18n-key="网页预览">网页预览</h2>
+                <p class="pv-empty-hint" data-i18n-key="在上方输入网址、端口号(如 5173)或项目里的 HTML 文件路径。代理的 browser 工具在当前这条线上运行时,操作的就是这里的页面。">在上方输入网址、端口号(如 5173)或项目里的 HTML 文件路径。代理的 browser 工具在当前这条线上运行时,操作的就是这里的页面。</p>
+                <section class="pv-section" aria-labelledby="preview-dev-title">
+                  <div class="pv-section-head"><span id="preview-dev-title" data-i18n-key="本地开发服务">本地开发服务</span><button type="button" id="preview-dev-refresh" class="icon-btn" title="重新检测" data-i18n-title="重新检测" aria-label="重新检测本地开发服务" data-i18n-aria-label="重新检测本地开发服务">⟳</button></div>
+                  <div id="preview-dev-list" class="pv-list"></div>
+                  <p id="preview-dev-none" class="pv-none" data-i18n-key="没有检测到在跑的开发服务:只认 kanzei 启动的后台进程输出里的本机地址">没有检测到在跑的开发服务:只认 kanzei 启动的后台进程输出里的本机地址</p>
+                </section>
+                <section id="preview-recent" class="pv-section hidden" aria-labelledby="preview-recent-title">
+                  <div class="pv-section-head"><span id="preview-recent-title" data-i18n-key="最近打开">最近打开</span></div>
+                  <div id="preview-recent-list" class="pv-list"></div>
+                </section>
+              </div>
+            </div>
+            <div id="preview-error" class="pv-error hidden" role="alert">
+              <div class="pv-error-inner">
+                <h2 id="preview-error-title" class="pv-error-title" data-i18n-raw></h2>
+                <p id="preview-error-text" class="pv-error-text" data-i18n-raw></p>
+                <code id="preview-error-code" class="pv-error-code hidden" data-i18n-raw></code>
+                <div class="pv-error-actions">
+                  <button type="button" id="preview-error-retry" class="ghost mini" data-i18n-key="重试">重试</button>
+                  <button type="button" id="preview-error-tasks" class="ghost mini" data-i18n-key="看后台进程">看后台进程</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="preview-console" class="pv-console hidden" role="region" aria-label="控制台" data-i18n-aria-label="控制台">
+            <div class="pv-console-head">
+              <span class="pv-console-title" data-i18n-key="控制台">控制台</span>
+              <div class="pv-levels" role="group" aria-label="按级别筛选" data-i18n-aria-label="按级别筛选">
+                <button type="button" class="pv-level" data-level="all" aria-pressed="true" data-i18n-key="全部">全部</button>
+                <button type="button" class="pv-level" data-level="error" aria-pressed="false" data-i18n-key="错误">错误</button>
+                <button type="button" class="pv-level" data-level="warn" aria-pressed="false" data-i18n-key="警告">警告</button>
+                <button type="button" class="pv-level" data-level="network" aria-pressed="false" data-i18n-key="网络">网络</button>
+              </div>
+              <span class="spacer"></span>
+              <button type="button" id="preview-console-clear" class="icon-btn" title="清空控制台" data-i18n-title="清空控制台" aria-label="清空控制台" data-i18n-aria-label="清空控制台">⌫</button>
+              <button type="button" id="preview-console-close" class="icon-btn" title="收起控制台" data-i18n-title="收起控制台" aria-label="收起控制台" data-i18n-aria-label="收起控制台">✕</button>
+            </div>
+            <div id="preview-console-list" class="pv-console-list" role="log" aria-live="off" aria-label="控制台输出" data-i18n-aria-label="控制台输出"></div>
+          </div>
+        </section>
       </div>
 
       <div id="view-workspace" class="view">
@@ -821,6 +891,7 @@
               <span id="files-preview-meta" class="dim"></span>
               <span id="files-sync" class="files-sync dim" role="status"></span>
               <span class="files-head-actions">
+                <button id="files-open-preview" type="button" class="ghost mini hidden" title="在对话旁的网页预览里渲染这个文件(磁盘上的版本)" data-i18n-title="在对话旁的网页预览里渲染这个文件(磁盘上的版本)" data-i18n-key="在预览中打开">在预览中打开</button>
                 <button id="files-discard" type="button" class="ghost mini hidden" data-i18n-key="放弃修改">放弃修改</button>
                 <button id="files-save" type="button" class="primary mini" disabled aria-keyshortcuts="Control+S" title="保存(Ctrl+S)" data-i18n-title="保存(Ctrl+S)"><span data-i18n-key="保存">保存</span></button>
               </span>
@@ -1506,6 +1577,7 @@
   <script type="module" src="24-memory-graph-model.js"></script>
   <script type="module" src="24-graph-view.js"></script>
   <script type="module" src="24-memory-graph.js"></script>
+  <script type="module" src="24-preview.js"></script>
   <script type="module" src="18-startup.js"></script>
 </body>
 </html>

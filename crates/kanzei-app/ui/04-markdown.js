@@ -238,12 +238,22 @@ export function isTableSeparator(line) {
 
 export function setRenderMarkdown(value) { renderMarkdown = value; }
 
-/// 把 markdown 渲染进 el(唯一入口):写 HTML,再把闭合的 ```mermaid 围栏换成图。
+// UI2-0926 #8:渲染后装饰钩子(24-preview.js 给闭合的 ```html / ```svg 代码块加「预览」)。本模块不知道装饰方是谁,
+// 保持只依赖 04-diagram;钩子抛错只告警,不影响正文渲染。
+const markdownHooks = [];
+export function addMarkdownHook(fn) {
+  if (typeof fn === "function") markdownHooks.push(fn);
+}
+
+/// 把 markdown 渲染进 el(唯一入口):写 HTML,再把闭合的 ```mermaid 围栏换成图,最后跑装饰钩子。
 /// streaming:流式每帧重渲的调用方(聊天正文/思考块)——未闭合的围栏本来就带 data-open 不渲染,
 /// 已闭合的缓存命中同步替换,不闪。
 export function renderMarkdownInto(el, raw, { streaming = false } = {}) {
   if (!el) return el;
   el.innerHTML = renderMarkdown(String(raw ?? ""));
   hydrateDiagrams(el, { streaming });
+  for (const hook of markdownHooks) {
+    try { hook(el, { streaming }); } catch (err) { console.warn(`markdown 装饰钩子失败: ${err}`); }
+  }
   return el;
 }

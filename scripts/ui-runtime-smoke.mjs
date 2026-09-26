@@ -1068,6 +1068,125 @@ if (SMOKE_MUTATE) {
       replace: "",
     },
     // ── 分区:架构图 结束 ──
+    // ── 分区:网页预览前端 ──(UI2-0926 #8,24-preview.js)
+    // 切视图时的可见性重判。删了它,切到文件视图后原生面板还浮在别的视图上(代理也还按面板路由)。
+    previewHideOnViewSwitch: {
+      pattern: /[ \t]*document\.addEventListener\("kz:view-changed", \(\) => \{ applyLayout\(\); scheduleBounds\(\); scheduleEvaluate\(\); \}\);\r?\n/,
+      replace: "",
+    },
+    // 弹层与占位框的相交判定。删了它,菜单/卡片压在面板上时不冻结,被原生面板盖住看不见。
+    previewFreezeOnSurface: {
+      pattern: /[ \t]*if \(rectsIntersect\(host, node\?\.getBoundingClientRect\?\.\(\)\)\) return true; \/\/ 相交判定\r?\n/,
+      replace: "",
+    },
+    // 可见性上报带当前线的 processId。去掉它,后端不知道面板绑定哪条线,代理的 browser 永远走无头(或串到别的线)。
+    previewBindProcess: {
+      pattern: /invoke\("preview_set_visible", \{ visible, processId \}\)/,
+      replace: 'invoke("preview_set_visible", { visible })',
+    },
+    // 工具截图标记的渲染分支(05-chat-render.js fillToolBlock)。删了它,模型看到的截图又只进模型,对话里看不见。
+    toolImageMarker: {
+      pattern: /[ \t]*mountToolShots\(block, shots\.images, \{ action: view\.state === "success" \? previewTarget : null \}\);\r?\n/,
+      replace: "",
+    },
+    // 写文件后自动刷新本项目静态页。删了它,代理改完文件,面板里还是旧页面。
+    previewReloadOnWrite: {
+      pattern: /[ \t]*reloadTimer = setTimeout\(\(\) => \{ reloadTimer = null; if \(state\.alive && isProjectStaticUrl\(state\.url\)\) void navPreview\("reload"\); \}, PREVIEW_RELOAD_DEBOUNCE_MS\);\r?\n/,
+      replace: "",
+    },
+    // 后台任务侧栏的停靠判据算上预览栏(06-agent-panel.js)。改回 0,预览开着时侧栏照样停靠,对话列被夹到 600px 以下。
+    previewTasksReserve: {
+      pattern: /const previewCol = previewColumnWidth\(Math\.max\(mainW - docked, PREVIEW_NARROW\)\);/,
+      replace: "const previewCol = 0;",
+    },
+    // 复核修复:预览栏按「停靠后仍要并排」取宽(对话视图至少按 800 算)。改回 mainW − docked,1333 宽窗口(主区 1005)
+    // 停靠后对话视图只剩 645,预览切进窄屏,整个对话列被藏到「对话」页签后面。
+    previewDockNarrowFloor: {
+      pattern: /previewColumnWidth\(Math\.max\(mainW - docked, PREVIEW_NARROW\)\)/,
+      replace: "previewColumnWidth(mainW - docked)",
+    },
+    // 复核修复:地址栏看显式编辑标记。改回看 activeElement,焦点点进原生子 webview 后主文档的 activeElement 不变,
+    // 回车后地址栏永远停在「5173」,真实地址与页内跳转都写不进来。
+    previewAddressEditing: {
+      pattern: /if \(!input \|\| addressEditing\) return;/,
+      replace: "if (!input || document.activeElement === input) return;",
+    },
+    // 复核修复:冻结用截图只等预算。改回死等截图,页面卡死时菜单、模态被原生面板盖住最长 6 秒。
+    previewFreezeBudget: {
+      pattern: /const shot = pending \? await withinBudget\(pending, PREVIEW_FREEZE_CAPTURE_MS\) : null;/,
+      replace: "const shot = pending ? await pending : null;",
+    },
+    // 复核修复:✕ = 关闭页面(preview_close)。改回只收起,正在放声音的页面、开发页的轮询在 ✕ 之后继续跑。
+    previewCloseReleases: {
+      pattern: /\$\("preview-close"\)\?\.addEventListener\("click", \(\) => void closePreviewPage\(\)\);/,
+      replace: '$("preview-close")?.addEventListener("click", () => closePreviewDock());',
+    },
+    // 复核修复:启动先收掉主界面重载留下的孤儿面板。删了它,F5 之后原生面板停在旧矩形上盖住对话,前端却以为没有页面。
+    previewStartupClose: {
+      pattern: /[ \t]*void invoke\("preview_close"\)\.catch\(\(\) => \{\}\);\r?\n/,
+      replace: "",
+    },
+    // 复核修复:提示不冻结。删了它,悬停面板工具栏按钮就截图 → 隐藏 → 恢复,被预览的页面反复收到 visibilitychange。
+    previewTooltipNoFreeze: {
+      pattern: /[ \t]*if \(type === "tooltip"\) continue; \/\/ 提示不冻结\r?\n/,
+      replace: "",
+    },
+    // 复核修复:冻结中 preview_open 之后补一次隐藏。删了它,抽屉还盖着时点「预览」,后端顺手 show 的原生面板盖到抽屉上。
+    previewFrozenOpen: {
+      pattern: /[ \t]*if \(frozen\) sendVisible\(false\);\r?\n/,
+      replace: "",
+    },
+    // 复核修复:拖动分隔条期间冻结。删了它,指针划过原生面板时依赖未验证的跨窗口鼠标捕获。
+    previewFrameDragFreeze: {
+      pattern: /[ \t]*if \(document\.documentElement\?\.dataset\?\.kzFrameDrag\) return true; \/\/ 拖动期间冻结\r?\n/,
+      replace: "",
+    },
+    // 复核修复:因布局变化进入窄屏停在「对话」页签。改回只在离开窄屏时复位,窗口一变窄对话列就被整个藏起来。
+    previewLayoutNarrowChat: {
+      pattern: /state\.tab = state\.narrow \? "chat" : "preview";/,
+      replace: 'if (!state.narrow) state.tab = "preview";',
+    },
+    // 复核修复:面板里的提示走侧向摆位(00-surface showTipNow)。删了它,工具栏提示翻到按钮下方,落进占位框被原生面板盖住。
+    previewTipSide: {
+      pattern: /if \(side\) el\.dataset\.side = side;\r?\n\s*else delete el\.dataset\.side;/,
+      replace: "delete el.dataset.side;",
+    },
+    // 复核修复:错误页内容没变不重写。删了它,role=alert 的错误页每条加载/标题状态事件都被读屏重播。
+    previewErrorNoRewrite: {
+      pattern: /[ \t]*if \(key === errorShown\) return;\r?\n/,
+      replace: "",
+    },
+    // 复核修复:同一个工具块填第二次先摘掉旧的缩略图条。删了它,停止后补发的 ToolEnd / 孤儿回填让缩略图与按钮成对重复。
+    previewShotsDedupe: {
+      pattern: /[ \t]*if \(old\.classList\?\.contains\("tool-shots"\)\) old\.remove\(\);\r?\n/,
+      replace: "",
+    },
+    // 复核修复:「在预览中打开」只给成功的结果。去掉判据,等待批准 / 失败的 browser 块也给入口。
+    previewOpenInSuccessOnly: {
+      pattern: /\{ action: view\.state === "success" \? previewTarget : null \}/,
+      replace: "{ action: previewTarget }",
+    },
+    // 复核修复:后台任务侧栏的摘要与失败详情也摘 [tool-image] 标记行(06-activity bgEnd)。
+    previewBgMarker: {
+      pattern: /[ \t]*if \(typeof extra\.content === "string"\) extra = \{ \.\.\.extra, content: extractToolImages\(extra\.content\)\.content \};\r?\n[ \t]*if \(typeof preview === "string"\) preview = extractToolImages\(preview\)\.content;\r?\n/,
+      replace: "",
+    },
+    // 复核修复:data: 与超长地址不进最近列表。删了它,一条大 data URL 让 ui_layout 补丁整个被拒,同批的宽度一起丢。
+    previewRecentSkip: {
+      pattern: /[ \t]*if \(!recentWorthy\(display\)\) return;\r?\n/,
+      replace: "",
+    },
+    // 复核修复:错误角标与「错误」筛选同一口径(含网络失败)。改回只数 kind=error,两行红色角标只显示 1。
+    previewConsoleBadgeNetwork: {
+      pattern: /if \(consoleMatches\(entry, "error"\)\) consoleErrors \+= 1;/,
+      replace: 'if (entry.kind === "error") consoleErrors += 1;',
+    },
+    // 复核修复:焦点在面板里时收起,焦点还给 rail 开关。删了它,面板 display:none 后焦点掉到 body。
+    previewCloseFocus: {
+      pattern: /if \(!hadFocus\) return;/,
+      replace: "return;",
+    },
+    // ── 分区:网页预览前端(完) ──
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -1670,6 +1789,12 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
     const value = attributes.match(new RegExp(`(?<![\\w-])${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
+  // ── 分区:网页预览前端 ── 提示的侧向摆位声明(00-surface showTipNow 查锚点祖先的 data-kz-tip-side)。
+  {
+    const value = attributes.match(/(?<![\w-])data-kz-tip-side="([^"]*)"/)?.[1];
+    if (value !== undefined) el.setAttribute("data-kz-tip-side", value);
+  }
+  // ── 分区:网页预览前端(完) ──
   const tail = html.slice(match.index + match[0].length);
   const directText = tail.match(/^([^<]*)</)?.[1].replace(/\s+/g, " ").trim();
   if (directText) el.textContent = directText;
@@ -16453,6 +16578,727 @@ const docsB = {
   }
 }
 // ── 分区:架构图 结束 ──
+
+// ── 分区:网页预览前端 ── UI2-0926 #8(24-preview.js;docs/design/preview_pane.md §前端)。
+// 后端 preview_* 命令与 kz:preview-* 事件由另一半实现,这里按 IPC 契约 mock:① 纯函数(地址规范化、设备摆位、截图标记、
+// 预览栏宽、browser 目标、控制台分类);② 打开面板 → preview_open/preview_set_bounds 收到 #preview-host 的矩形;
+// ③ 切到别的视图 set_visible(false)、切回 true,都带 processId,切线换 processId;④ 与占位框相交的菜单 → 先
+// preview_capture 再 set_visible(false)、#preview-freeze 可见,关菜单后恢复;不相交的菜单不冻结;⑤ kz:tool-end(write, ok)
+// 且面板是本项目静态页 → 防抖后恰好一次 reload;⑥ kz:preview-pick → 附件 +1、输入框含「网页批注」;⑦ 工具块正文带
+// [tool-image] 行 → 缩略图 img、标记行不进摘要与详情、无头结果给「在预览中打开」;⑧ deliver 卡片:.png 缩略图、.html「预览」;
+// ⑨ 与后台任务侧栏并存:预览打开时停靠判据算上预览栏(改抽屉),抽屉盖到面板上时冻结;⑩ 控制台 ≤500 条、错误角标、
+// 连接被拒的错误页;⑪ Ctrl+Shift+B、代码块「预览」、localhost 链接、onSurfaceChange 钩子;⑫ 最近列表与 ✕ 关闭页面。
+// 变异守卫:previewHideOnViewSwitch / previewFreezeOnSurface / previewBindProcess / toolImageMarker / previewReloadOnWrite /
+// previewTasksReserve(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
+// 复核修复追加(用例就地写在各段里):previewDockNarrowFloor / previewLayoutNarrowChat / previewAddressEditing / previewFreezeBudget /
+// previewCloseReleases / previewCloseFocus / previewStartupClose / previewTooltipNoFreeze / previewTipSide / previewFrozenOpen /
+// previewFrameDragFreeze / previewErrorNoRewrite / previewShotsDedupe / previewOpenInSuccessOnly / previewBgMarker / previewRecentSkip /
+// previewConsoleBadgeNetwork。
+{
+  const pv = esmModuleCache.get("24-preview.js")?.namespace;
+  const surfaceNs = esmModuleCache.get("00-surface.js")?.namespace;
+  const coreNs = esmModuleCache.get("01-core.js")?.namespace;
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const activityNs = esmModuleCache.get("06-activity.js")?.namespace;
+  const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+  const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
+  assert(pv && typeof pv.normalizeAddress === "function" && typeof pv.openPreviewTarget === "function" && typeof pv.previewState === "function",
+    "网页预览:24-preview.js 未加载或导出缺失(normalizeAddress / openPreviewTarget / previewState)");
+  assert(typeof surfaceNs?.onSurfaceChange === "function" && typeof surfaceNs?.surfaceElements === "function", "网页预览:00-surface.js 缺 onSurfaceChange / surfaceElements");
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  // ① 纯函数
+  {
+    const n = (value) => pv.normalizeAddress(value);
+    const cases = [
+      ["5173", "url", "http://localhost:5173/"],
+      [":3000/x", "url", "http://localhost:3000/x"],
+      ["localhost:8080", "url", "http://localhost:8080/"],
+      ["127.0.0.1:4173/app?x=1", "url", "http://127.0.0.1:4173/app?x=1"],
+      ["0.0.0.0:8000", "url", "http://localhost:8000/"],
+      ["https://example.com", "url", "https://example.com/"],
+      ["example.com/docs", "url", "https://example.com/docs"],
+      ["docs/index.html", "path", "docs/index.html"],
+      ["C:\\Users\\kanzei\\Documents\\kanzei code\\页面.html", "path", "C:\\Users\\kanzei\\Documents\\kanzei code\\页面.html"],
+      ["file:///C:/x/%E9%A1%B5.html", "path", "C:/x/页.html"],
+      ["\"./out/report.svg\"", "path", "./out/report.svg"],
+      // 复核修复:扩展名按去掉 ?# 的部分判、首段像主机才是网址、IP 与带端口的主机补 http、只剥成对的包裹、file:// 留主机名。
+      ["index.html?x=1", "path", "index.html?x=1"],
+      ["example.com/page.html", "url", "https://example.com/page.html"],
+      ["docs.example.com/index.html", "url", "https://docs.example.com/index.html"],
+      ["192.168.1.5:3000", "url", "http://192.168.1.5:3000/"],
+      ["example.com:8080/x", "url", "http://example.com:8080/x"],
+      ["data:text/html,<h1>x</h1>", "url", "data:text/html,<h1>x</h1>"],
+      ["<http://localhost:5173/>", "url", "http://localhost:5173/"],
+      ["file://server/share/a.html", "path", "//server/share/a.html"],
+      ["file://localhost/C:/x/a.html", "path", "C:/x/a.html"],
+      ["out.v2/index.html", "path", "out.v2/index.html"],
+    ];
+    for (const [input, kind, target] of cases) {
+      const got = n(input);
+      assert(got.kind === kind && got.target === target, `地址规范化 ${JSON.stringify(input)} 应为 ${kind} ${target},实得 ${JSON.stringify(got)}`);
+    }
+    for (const bad of ["", "javascript:alert(1)", "tauri://localhost/", "ftp://x/y", "hello world"]) {
+      assert(n(bad).kind === "invalid", `地址规范化应拒绝 ${JSON.stringify(bad)},实得 ${JSON.stringify(n(bad))}`);
+    }
+    const fill = pv.fitDevice({ x: 10, y: 20, w: 360, h: 700 }, "fill");
+    assert(fill.x === 10 && fill.y === 20 && fill.w === 360 && fill.h === 700 && fill.scale === 1, `fitDevice fill 应等于占位框,实得 ${JSON.stringify(fill)}`);
+    const phone = pv.fitDevice({ x: 0, y: 0, w: 360, h: 700 }, "phone");
+    const expectScale = Math.min(360 / 390, 700 / 844);
+    assert(Math.abs(phone.scale - expectScale) < 1e-9 && Math.abs(phone.x - (360 - 390 * expectScale) / 2) < 1e-9 && Math.abs(phone.y - (700 - 844 * expectScale) / 2) < 1e-9,
+      `fitDevice 手机 390×844 放进 360×700 应按 ${expectScale.toFixed(3)} 缩放并居中,实得 ${JSON.stringify(phone)}`);
+    assert(pv.fitDevice({ x: 0, y: 0, w: 2000, h: 1400 }, "tablet").scale === 1, "fitDevice 设备比占位框小时不放大(scale 不超过 1)");
+    const marker = "backend: headless\n已截图\nurl: http://localhost:5173/\n[tool-image] .kanzei/artifacts/tool-images/0a1b2c.png\n[tool-image] .kanzei/artifacts/tool-images/0a1b2c.png\n";
+    const shots = pv.extractToolImages(marker);
+    assert(same(shots.images, [".kanzei/artifacts/tool-images/0a1b2c.png"]) && !shots.content.includes("[tool-image]") && shots.content.endsWith("url: http://localhost:5173/"),
+      `extractToolImages 应摘出去重后的一张截图并去掉标记行,实得 ${JSON.stringify(shots)}`);
+    assert(pv.extractToolImages("[tool-image] ../../etc/passwd").images.length === 0, "extractToolImages 只认 .kanzei/artifacts/tool-images/ 下的 png");
+    assert(pv.previewColumnFor(1000) === 480 && pv.previewColumnFor(799) === 0 && pv.previewColumnFor(900, 700) === 480 && pv.previewColumnFor(2000, 200) === 360,
+      "previewColumnFor 口径应是 clamp(360, 分隔条或 48%, 宽 − 420),窄于 800 为 0");
+    assert(pv.isLocalPreviewUrl("http://localhost:5173/a") && pv.isLocalPreviewUrl("http://[::1]:8000") && pv.isLocalPreviewUrl("https://127.0.0.1/")
+      && !pv.isLocalPreviewUrl("https://example.com/") && !pv.isLocalPreviewUrl("http://localhost.evil.com/"), "isLocalPreviewUrl 只认 localhost / 127.0.0.1 / [::1]");
+    assert(pv.browserPreviewTarget({ action: "open", url: "http://localhost:5173/" }, "backend: pane（用户可见）\nurl: http://localhost:5173/") === null,
+      "走面板的 browser 结果不该再给「在预览中打开」");
+    assert(same(pv.browserPreviewTarget({ action: "open", path: "site/index.html" }, "backend: headless\nurl: http://127.0.0.1:1/t/x/r/0/site/index.html"), { kind: "path", target: "site/index.html" }),
+      "无头 browser 打开项目文件:「在预览中打开」应按 path(静态服务地址带每次启动都变的 token)");
+    assert(same(pv.browserPreviewTarget({ action: "screenshot" }, "backend: headless\n已截图\nurl: http://localhost:3000/x"), { kind: "url", target: "http://localhost:3000/x" }),
+      "无头 browser 没有入参地址时从输出的 url: 行取");
+    assert(pv.consoleKind({ level: "error", text: "Uncaught TypeError" }) === "error" && pv.consoleKind({ level: "warning", text: "x" }) === "warn"
+      && pv.consoleKind({ level: "error", text: "Failed to load resource: 404" }) === "network" && pv.consoleKind({ level: "log", text: "hi" }) === "info",
+    "consoleKind 分类:错误 / 警告 / 网络 / 其它");
+    // 复核修复:契约里网络来源的条目 level = "network"(后端 console.rs),按级别判为先;「GET … 500」这类错误级文本兜底归网络;
+    // 「错误」筛选与角标都含网络失败。
+    assert(pv.consoleKind({ level: "network", text: "页面加载失败: net::ERR_CONNECTION_REFUSED" }) === "network"
+      && pv.consoleKind({ level: "error", text: "GET http://localhost:5173/api 500 (Internal Server Error)" }) === "network"
+      && pv.consoleMatches({ kind: "network", level: "network" }, "error") && !pv.consoleMatches({ kind: "warn", level: "warning" }, "error"),
+    "consoleKind 应按 level=network 判网络、错误级的「GET … 500」兜底归网络;「错误」筛选含网络失败");
+    // 复核修复:启动先无条件 preview_close(主界面 F5 重载后 Rust 侧的子 webview 还活着、还可见,前端却从「没有页面」起步)。
+    const firstClose = invokeArgs.findIndex((call) => call.cmd === "preview_close");
+    const firstOpen = invokeArgs.findIndex((call) => call.cmd === "preview_open");
+    assert(firstClose >= 0 && (firstOpen < 0 || firstClose < firstOpen), "网页预览:启动时应先 preview_close 收掉主界面重载留下的孤儿面板(变异 previewStartupClose)");
+    assert(["kz:preview-state", "kz:preview-console", "kz:preview-pick"].every((name) => coreNs?.SESSIONLESS_EVENTS?.has(name)),
+      "kz:preview-state / kz:preview-console / kz:preview-pick 必须登记进 SESSIONLESS_EVENTS(面板不归哪条运行会话)");
+    const summarize = (content, input) => summaryNs.toolResultSummary("browser", { ok: true, content, input }).text;
+    const paneLine = summarize("backend: pane（用户可见）\n已截图\nurl: http://localhost:5173/", { action: "screenshot" });
+    assert(paneLine.includes("截图") && paneLine.includes("localhost:5173") && paneLine.includes("面板"), `browser 摘要应写明动作 · 主机 · 面板,实得 ${paneLine}`);
+    const headlessLine = summarize("backend: headless\n已按键 Enter", { action: "press", key: "Enter" });
+    assert(headlessLine.includes("按键") && headlessLine.includes("无头"), `browser 摘要应认新动作 press 与无头后端,实得 ${headlessLine}`);
+    assert(summaryNs.toolArgSummary("browser", { action: "eval", expression: "document.title" }).text.includes("document.title"), "browser 参数摘要应覆盖 expression");
+    assert(summaryNs.toolArgSummary("browser", { action: "open", html: "<h1>x</h1>" }).text.includes("代码片段"), "browser 参数摘要应覆盖 html");
+  }
+
+  // ② 面板集成。桩:按 IPC 契约回形状;占位框与面板的矩形由这里给(假 DOM 没有布局)。
+  const saved = {};
+  for (const cmd of ["preview_open", "preview_set_bounds", "preview_set_visible", "preview_nav", "preview_capture", "preview_console", "preview_console_clear",
+    "preview_device", "preview_pick", "preview_snippet", "preview_dev_urls", "preview_close", "tool_image", "delivered_image"]) saved[cmd] = payloads[cmd];
+  const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  payloads.preview_dev_urls = { urls: [{ url: "http://localhost:5173/", command: "npm run dev", pid: 4242 }] };
+  payloads.preview_capture = { png: PNG, width: 560, height: 600 };
+  payloads.preview_console = { entries: [] };
+  payloads.preview_snippet = { url: "http://127.0.0.1:50001/t/tok/s/1.html" };
+  payloads.tool_image = { png: PNG };
+  payloads.delivered_image = { png: PNG };
+  // 桩的形状对照 scripts/ipc-contract.json:条目由后端半边随 Rust 取样测试登记(ipc_contract.rs);登记了就必须对得上。
+  {
+    const contract = JSON.parse(await readFile(resolve(root, "scripts/ipc-contract.json"), "utf8"));
+    const shapeOf = (value) => {
+      if (Array.isArray(value)) return value.length ? [shapeOf(value[0])] : "array";
+      if (value === null || value === undefined) return "nullable";
+      if (typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((k) => [k, shapeOf(value[k])]));
+      return { string: "string", number: "number", boolean: "bool" }[typeof value] ?? typeof value;
+    };
+    const mismatch = (expected, actual, path, out) => {
+      if (expected === "nullable" || actual === "nullable" || expected === "array" || actual === "array") return out;
+      if (Array.isArray(expected) && Array.isArray(actual)) return mismatch(expected[0], actual[0], `${path}[]`, out);
+      if (expected && actual && typeof expected === "object" && typeof actual === "object" && !Array.isArray(expected) && !Array.isArray(actual)) {
+        for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+          if (!(key in actual)) out.push(`${path}.${key}:后端会发,桩里没有`);
+          else if (!(key in expected)) out.push(`${path}.${key}:桩独有,后端不发`);
+          else mismatch(expected[key], actual[key], `${path}.${key}`, out);
+        }
+        return out;
+      }
+      if (JSON.stringify(expected) !== JSON.stringify(actual)) out.push(`${path}: 契约 ${JSON.stringify(expected)} vs 桩 ${JSON.stringify(actual)}`);
+      return out;
+    };
+    const consoleSample = { entries: [{ seq: 1, ts: 1, level: "log", text: "x", url: "http://localhost:5173/", line: 1, col: 1 }] };
+    for (const [cmd, sample] of [["preview_capture", payloads.preview_capture], ["preview_console", consoleSample], ["preview_dev_urls", payloads.preview_dev_urls],
+      ["preview_snippet", payloads.preview_snippet], ["tool_image", payloads.tool_image], ["delivered_image", payloads.delivered_image]]) {
+      if (!contract[cmd]) continue;
+      for (const problem of mismatch(contract[cmd], shapeOf(sample), cmd, [])) fail(`网页预览 IPC 契约:${problem}`);
+    }
+  }
+  const mark = () => invokeArgs.length;
+  const callsSince = (from, cmd) => invokeArgs.slice(from).filter((call) => !cmd || call.cmd === cmd);
+  const lastCall = (cmd) => [...invokeArgs].reverse().find((call) => call.cmd === cmd) ?? null;
+  const pid = shellNs.activeProcessId;
+  const host = byId.get("preview-host");
+  const dock = byId.get("preview-dock");
+  const view = byId.get("view-chat");
+  let hostBox = { left: 700, top: 40, width: 560, height: 600 };
+  const box = (b) => ({ ...b, right: b.left + b.width, bottom: b.top + b.height, x: b.left, y: b.top });
+  host.getBoundingClientRect = () => box(hostBox);
+  dock.getBoundingClientRect = () => box({ left: 696, top: 0, width: 584, height: 800 });
+  byId.get("preview-stage").getBoundingClientRect = () => box({ left: 696, top: 40, width: 584, height: 600 });
+  const resize = () => { for (const fn of windowListeners.get("resize") ?? []) fn({ type: "resize" }); };
+  const statePayload = (extra = {}) => ({ payload: { url: "", title: "", loading: false, canBack: false, canForward: false, visible: true, boundProcessId: pid, device: "fill", scheme: "auto", ...extra } });
+  // 前面分区可能留着模态/菜单:模态开着时面板一律冻结,先收掉。
+  for (const item of surfaceNs.surfaceElements()) if (!["toast", "tooltip"].includes(item.type)) surfaceNs.closeSurface(item.el);
+  if (panelNs.tasksPanelState().visible) panelNs.closeTasksPanel();
+  sandbox.navigate_view("chat");
+  await flush();
+
+  let from = mark();
+  byId.get("preview-toggle").click();
+  await flush();
+  assert(view.dataset.preview === "open" && pv.previewState().open, "点 rail 的网页预览开关没有打开停靠面板(#view-chat[data-preview=open])");
+  assert(byId.get("preview-toggle").getAttribute("aria-expanded") === "true", "网页预览开关没有 aria-expanded=true");
+  assert(callsSince(from, "preview_dev_urls").some((call) => call.args?.projectDir === shellNs.currentProject), "打开面板(起始页)应按当前项目取一次本地开发服务 preview_dev_urls");
+  assert(listText("preview-dev-list").includes("http://localhost:5173/") && listText("preview-dev-list").includes("npm run dev"), `起始页应列出检测到的开发服务与启动命令,实得 ${listText("preview-dev-list")}`);
+  assert(!byId.get("preview-empty").classList.contains("hidden"), "页面还没打开时应显示起始页");
+  assert(callsSince(from, "preview_set_visible").length === 0, "还没有页面时不该上报可见性(后端还没有面板)");
+  assert(document.documentElement.style.getPropertyValue("--surface-safe-right") === "584px", `面板打开时应把 --surface-safe-right 写成视口右缘到面板左缘的距离(584px),实得 ${document.documentElement.style.getPropertyValue("--surface-safe-right")}`);
+
+  from = mark();
+  const address = byId.get("preview-address");
+  address.value = "5173";
+  address.dispatchEvent({ type: "keydown", key: "Enter", preventDefault() {} });
+  await flush();
+  const opened = callsSince(from, "preview_open")[0];
+  assert(opened?.args?.target === "http://localhost:5173/" && same(opened.args.bounds, { x: 700, y: 40, w: 560, h: 600 }) && opened.args.processId === pid,
+    `地址栏 5173 回车应 preview_open{target: http://localhost:5173/, bounds: #preview-host 的矩形, processId: 当前线},实得 ${JSON.stringify(opened?.args)}`);
+  assert(byId.get("preview-empty").classList.contains("hidden"), "页面打开后起始页应收起");
+  from = mark();
+  hostBox = { left: 640, top: 40, width: 620, height: 560 };
+  resize();
+  await flush();
+  assert(same(lastCall("preview_set_bounds")?.args, { x: 640, y: 40, w: 620, h: 560 }) && callsSince(from, "preview_set_bounds").length === 1,
+    `占位框变了应经 preview_set_bounds 同步一次新矩形,实得 ${JSON.stringify(callsSince(from, "preview_set_bounds").map((call) => call.args))}`);
+  from = mark();
+  resize();
+  await flush();
+  assert(callsSince(from, "preview_set_bounds").length === 0, "矩形没变时不该重复 preview_set_bounds");
+  // 复核修复:地址栏编辑态看显式标记(变异 previewAddressEditing)。真机上焦点点进原生子 webview 后主文档的 activeElement 不变;
+  // 假 DOM 的 blur 是空操作,正好复现「activeElement 一直停在地址栏」。
+  {
+    const savedFocus = Element.prototype.focus;
+    Element.prototype.focus = function focusProbe() { document.activeElement = this; };
+    address.focus();
+    address.value = "5173";
+    address.dispatchEvent({ type: "input" });
+    address.dispatchEvent({ type: "keydown", key: "Enter", preventDefault() {} });
+    await flush();
+    handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5173/" }));
+    await flush();
+    assert(address.value === "http://localhost:5173/", `聚焦地址栏回车后,kz:preview-state 带来的规范化地址应写回地址栏,实得 ${JSON.stringify(address.value)}`);
+    handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5173/about", canBack: true }));
+    await flush();
+    assert(address.value === "http://localhost:5173/about", `页内跳转的地址也应写回地址栏,实得 ${JSON.stringify(address.value)}`);
+    address.value = "localh";
+    address.dispatchEvent({ type: "input" });
+    handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5173/next" }));
+    await flush();
+    assert(address.value === "localh", "用户正在地址栏里打字时,后端的地址不该覆盖输入");
+    address.dispatchEvent({ type: "blur" });
+    assert(address.value === "http://localhost:5173/next", `离开地址栏应按当前页面地址回填,实得 ${JSON.stringify(address.value)}`);
+    address.value = "hello world";
+    address.dispatchEvent({ type: "input" });
+    address.dispatchEvent({ type: "keydown", key: "Enter", preventDefault() {} });
+    await flush();
+    assert(address.value === "hello world", "认不出的地址回车后应留在编辑态(toast 提示,不回填)");
+    address.dispatchEvent({ type: "keydown", key: "Escape", preventDefault() {} });
+    assert(address.value === "http://localhost:5173/next", "Esc 应放弃编辑、恢复当前地址");
+    Element.prototype.focus = savedFocus;
+    document.activeElement = null;
+  }
+
+  // ③ 视图切换与 processId 绑定(变异 previewHideOnViewSwitch / previewBindProcess)。
+  sandbox.navigate_view("files");
+  await flush();
+  let vis = lastCall("preview_set_visible")?.args;
+  assert(vis?.visible === false && vis?.processId === pid, `切到文件视图应 preview_set_visible{visible:false, processId},实得 ${JSON.stringify(vis)}`);
+  assert(document.documentElement.style.getPropertyValue("--surface-safe-right") === "", "非对话视图 --surface-safe-right 应清零");
+  sandbox.navigate_view("chat");
+  await flush();
+  vis = lastCall("preview_set_visible")?.args;
+  assert(vis?.visible === true && vis?.processId === pid, `切回对话应 preview_set_visible{visible:true, processId},实得 ${JSON.stringify(vis)}`);
+  shellNs.setActiveProcessId("p-preview-other");
+  pv.previewLineSync();
+  await flush();
+  vis = lastCall("preview_set_visible")?.args;
+  assert(vis?.visible === true && vis?.processId === "p-preview-other", `切线后可见性上报应换成新活动线的 processId,实得 ${JSON.stringify(vis)}`);
+  shellNs.setActiveProcessId(pid);
+  pv.previewLineSync();
+  await flush();
+
+  // ④ 遮挡冻结(变异 previewFreezeOnSurface)。
+  from = mark();
+  const farMenu = surfaceNs.openMenu(byId.get("composer-more"), [{ label: "远处", onSelect() {} }], { label: "far" });
+  farMenu.el.getBoundingClientRect = () => box({ left: 20, top: 500, width: 200, height: 120 });
+  await flush();
+  assert(callsSince(from, "preview_capture").length === 0 && !callsSince(from, "preview_set_visible").some((call) => call.args?.visible === false), "不压在占位框上的菜单不该冻结面板");
+  surfaceNs.closeSurface(farMenu);
+  await flush();
+  from = mark();
+  const menu = surfaceNs.openMenu(byId.get("preview-more"), [{ label: "近处", onSelect() {} }], { label: "near" });
+  menu.el.getBoundingClientRect = () => box({ left: 1000, top: 60, width: 220, height: 180 });
+  await flush();
+  const seq = callsSince(from).map((call) => `${call.cmd}${call.cmd === "preview_set_visible" ? `:${call.args?.visible}` : ""}`);
+  const captureAt = seq.indexOf("preview_capture");
+  const hideAt = seq.indexOf("preview_set_visible:false");
+  assert(captureAt >= 0 && hideAt > captureAt, `与占位框相交的菜单:应先 preview_capture 再 set_visible(false),实际顺序 ${seq.join(" → ")}`);
+  const freeze = byId.get("preview-freeze");
+  assert(!freeze.classList.contains("hidden") && String(freeze.getAttribute("src")).startsWith("data:image/png;base64,"), "冻结时 #preview-freeze 应显示截到的那一帧");
+  assert(pv.previewState().frozen, "冻结状态没有记上");
+  from = mark();
+  surfaceNs.closeSurface(menu);
+  await flush();
+  assert(lastCall("preview_set_visible")?.args?.visible === true && freeze.classList.contains("hidden") && !pv.previewState().frozen, "菜单关掉后应恢复原生面板、收起冻结帧");
+  from = mark();
+  surfaceNs.openDialog(byId.get("viewer-overlay"), {});
+  await flush();
+  assert(callsSince(from, "preview_set_visible").some((call) => call.args?.visible === false), "模态打开(整窗遮罩)应冻结面板");
+  surfaceNs.closeSurface(byId.get("viewer-overlay"));
+  await flush();
+  assert(lastCall("preview_set_visible")?.args?.visible === true, "模态关掉后应恢复面板");
+  {
+    const seen = [];
+    const off = surfaceNs.onSurfaceChange((snapshot) => seen.push(snapshot.map((item) => item.type).join(",")));
+    const handle = surfaceNs.openMenu(byId.get("preview-device"), [{ label: "a", onSelect() {} }], { label: "hook" });
+    surfaceNs.closeSurface(handle);
+    off();
+    assert(seen.length >= 2 && seen[0].includes("menu") && !seen.at(-1).includes("menu"), `onSurfaceChange 应在菜单打开与关闭时各通知一次(快照含/不含 menu),实得 ${JSON.stringify(seen)}`);
+    await flush();
+  }
+  // 复核修复:工具栏提示不冻结(变异 previewTooltipNoFreeze),且面板里的提示走侧向摆位(不进占位框)。
+  {
+    // 假 DOM 按 id 造的节点是扁平的(都挂在 body 下):在 #preview-dock 里放一个探针按钮,祖先链才真实。
+    const reloadButton = document.createElement("button");
+    reloadButton.setAttribute("title", "重新加载");
+    dock.append(reloadButton);
+    from = mark();
+    document.dispatchEvent({ type: "focusin", target: reloadButton });
+    const tipItem = surfaceNs.surfaceElements().find((item) => item.type === "tooltip");
+    assert(tipItem, "聚焦面板工具栏按钮应显示提示(前提)");
+    if (tipItem) tipItem.el.getBoundingClientRect = () => box({ left: 900, top: 44, width: 80, height: 24 });
+    await flush();
+    assert(tipItem?.el.dataset.side === "inline-start", `网页预览面板里的提示应走侧向摆位(data-side=inline-start),实得 ${tipItem?.el.dataset.side}`);
+    assert(callsSince(from, "preview_capture").length === 0 && !callsSince(from, "preview_set_visible").some((call) => call.args?.visible === false),
+      "工具栏提示压到占位框上也不该冻结(提示短暂且小;冻结会让页面反复收到 visibilitychange、代理中途切到无头)");
+    document.dispatchEvent({ type: "focusout", target: reloadButton });
+    if (tipItem) delete tipItem.el.getBoundingClientRect;
+    reloadButton.remove();
+    await flush();
+    document.dispatchEvent({ type: "focusin", target: byId.get("tasks-toggle") });
+    const railTip = surfaceNs.surfaceElements().find((item) => item.type === "tooltip");
+    assert(!railTip || railTip.el.dataset.side === undefined, "面板外的提示照旧默认摆位(不带 data-side)");
+    document.dispatchEvent({ type: "focusout", target: byId.get("tasks-toggle") });
+    await flush();
+  }
+  // 复核修复:冻结用截图只等预算(变异 previewFreezeBudget)。截图永不返回时,预算到点就隐藏原生面板并打开菜单,
+  // 截图迟到且同一次冻结仍在时补上冻结帧。假定时器默认一次冲掉所有定时器,这里临时记下时长、只推进到预算为止。
+  {
+    let releaseCapture = null;
+    invokeGates.set("preview_capture", new Promise((resolveGate) => { releaseCapture = resolveGate; }));
+    const savedSetTimeout = sandbox.setTimeout;
+    sandbox.setTimeout = (fn, ms) => { const handle = { fn, ms: Number(ms) || 0 }; pendingTimers.add(handle); return handle; };
+    const advance = async (limit) => {
+      for (let round = 0; round < 12; round += 1) {
+        await settle();
+        for (const fn of rafQueue.splice(0)) await fn();
+        for (const handle of [...pendingTimers]) {
+          if (!pendingTimers.has(handle) || handle.interval || (handle.ms ?? 0) > limit) continue;
+          pendingTimers.delete(handle);
+          await handle.fn();
+        }
+      }
+    };
+    // 「更多」菜单从工具栏往下展开,真机上落在占位框里;假 DOM 没有布局,开出来那一刻给它一个相交的矩形。
+    const offMenuRect = surfaceNs.onSurfaceChange((snapshot) => {
+      for (const item of snapshot) if (item.type === "menu") item.el.getBoundingClientRect = () => box({ left: 1000, top: 60, width: 220, height: 180 });
+    });
+    try {
+      assert(pv.previewState().sent.visible === true, "截图预算用例的前提:面板此刻可见");
+      from = mark();
+      byId.get("preview-more").click();
+      await advance(pv.PREVIEW_FREEZE_CAPTURE_MS);
+      assert(callsSince(from, "preview_capture").length === 1 && callsSince(from, "preview_set_visible").some((call) => call.args?.visible === false),
+        `截图迟迟不回时,预算(${pv.PREVIEW_FREEZE_CAPTURE_MS}ms)内应先 set_visible(false),实际 ${callsSince(from).map((call) => call.cmd).join(" → ")}`);
+      const moreMenu = surfaceNs.surfaceElements().find((item) => item.type === "menu");
+      assert(moreMenu, "截图迟迟不回时「更多」菜单也应在预算内打开(页面卡死时它是逃生口)");
+      assert(!freeze.classList.contains("hidden") && !freeze.getAttribute("src"), "预算到点时冻结帧先空着(露出舞台底色)");
+      releaseCapture();
+      invokeGates.delete("preview_capture");
+      await advance(pv.PREVIEW_FREEZE_CAPTURE_MS);
+      assert(String(freeze.getAttribute("src")).startsWith("data:image/png;base64,"), "截图迟到、同一次冻结仍在时应补上冻结帧");
+      if (moreMenu) surfaceNs.closeSurface(moreMenu.el);
+    } finally {
+      offMenuRect();
+      invokeGates.delete("preview_capture");
+      sandbox.setTimeout = savedSetTimeout;
+    }
+    await flush();
+    assert(lastCall("preview_set_visible")?.args?.visible === true && freeze.classList.contains("hidden"), "菜单关掉后应恢复原生面板");
+  }
+  // 复核修复:拖动分隔条/框体期间冻结(变异 previewFrameDragFreeze)。
+  {
+    from = mark();
+    document.documentElement.dataset.kzFrameDrag = "col";
+    document.dispatchEvent({ type: "pointerdown", target: dock, button: 0 });
+    await flush();
+    assert(callsSince(from, "preview_set_visible").some((call) => call.args?.visible === false), "拖动分隔条期间应冻结原生面板(指针划过原生面板时不依赖跨窗口鼠标捕获)");
+    delete document.documentElement.dataset.kzFrameDrag;
+    document.dispatchEvent({ type: "pointerup", target: dock, button: 0 });
+    await flush();
+    assert(lastCall("preview_set_visible")?.args?.visible === true, "拖动结束后应恢复原生面板");
+  }
+
+  // ⑤ 写文件后自动刷新本项目静态页(变异 previewReloadOnWrite)。
+  const STATIC_URL = "http://127.0.0.1:50001/t/tok123/r/0/docs/index.html";
+  handlers.get("kz:preview-state")(statePayload({ url: STATIC_URL, title: "文档", canBack: true }));
+  await flush();
+  assert(address.value === "docs/index.html", `静态服务地址在地址栏里应去掉 token、只显示项目相对路径,实得 ${address.value}`);
+  assert(byId.get("preview-back").disabled === false && byId.get("preview-forward").disabled === true, "后退/前进按钮应跟随 canBack/canForward");
+  from = mark();
+  const sid = sandbox.activeSessionId;
+  handlers.get("kz:tool-end")({ payload: { id: "pv-w1", name: "write", ok: true, preview: "wrote docs/index.html", display: null, sessionId: sid } });
+  handlers.get("kz:tool-end")({ payload: { id: "pv-w2", name: "edit", ok: true, preview: "edited docs/app.css", display: null, sessionId: sid } });
+  handlers.get("kz:tool-end")({ payload: { id: "pv-w3", name: "write", ok: false, preview: "failed", display: null, sessionId: sid } });
+  await flush();
+  const reloads = callsSince(from, "preview_nav").filter((call) => call.args?.action === "reload");
+  assert(reloads.length === 1, `本项目静态页开着时连续两次写文件成功应防抖成恰好一次 reload,实得 ${reloads.length} 次`);
+  handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5173/" }));
+  await flush();
+  from = mark();
+  handlers.get("kz:tool-end")({ payload: { id: "pv-w4", name: "write", ok: true, preview: "wrote src/App.tsx", display: null, sessionId: sid } });
+  await flush();
+  assert(callsSince(from, "preview_nav").length === 0, "开发服务页不该在写文件后被刷新(靠它自己的 HMR)");
+
+  // ⑥ 批注:点选结果进附件与输入框。
+  {
+    const beforeAttachments = shellNs.attachments.length;
+    const beforePrompt = coreNs.promptBox.value;
+    coreNs.promptBox.value = "";
+    handlers.get("kz:preview-state")(statePayload({ url: STATIC_URL }));
+    await flush();
+    handlers.get("kz:preview-pick")({ payload: { selector: "#login > button.primary", text: "  登录  ", tag: "button", rect: { x: 1, y: 2, w: 3, h: 4 }, png: PNG } });
+    await flush();
+    const pick = shellNs.attachments.at(-1);
+    assert(shellNs.attachments.length === beforeAttachments + 1 && pick?.media_type === "image/png" && pick?.data === PNG && /^preview-pick-\d+\.png$/.test(pick?.file_name ?? ""),
+      `kz:preview-pick 应把局部截图作为 1 个 png 附件放进输入框,实得 ${JSON.stringify(shellNs.attachments.map((item) => item.file_name))}`);
+    const prompt = coreNs.promptBox.value;
+    assert(prompt.includes("网页批注") && prompt.includes("docs/index.html") && prompt.includes("#login > button.primary") && prompt.includes("登录") && /修改意见[:：]$/.test(prompt),
+      `批注应在输入框写上【网页批注】地址 / 元素 / 修改意见:,实得 ${JSON.stringify(prompt)}`);
+    assert(!pv.previewState().picking, "点选完成后应退出批注模式");
+    shellNs.attachments.splice(beforeAttachments);
+    coreNs.promptBox.value = beforePrompt;
+  }
+
+  // ⑦ 工具截图缩略图(变异 toolImageMarker)。
+  {
+    from = mark();
+    const block = chatNs.buildToolBlock("browser", { action: "screenshot", url: "http://localhost:5173/" });
+    chatNs.fillToolBlock(block, {
+      ok: true,
+      content: "backend: headless\n已截图(不刷新页面)\nurl: http://localhost:5173/\nviewport: 1280x720\n[tool-image] .kanzei/artifacts/tool-images/5f2e.png",
+      input: { action: "screenshot", url: "http://localhost:5173/" },
+    });
+    await flush();
+    const strip = block.wrap.querySelector(".tool-shots");
+    const img = strip?.querySelector(".pv-thumb-img");
+    assert(strip && String(img?.getAttribute("src")).startsWith("data:image/png;base64,"), "工具正文带 [tool-image] 行时,工具行下方应渲染截图缩略图(经 tool_image 取图)");
+    assert(callsSince(from, "tool_image").some((call) => call.args?.rel === ".kanzei/artifacts/tool-images/5f2e.png" && call.args?.projectDir === shellNs.currentProject), "缩略图应按 {projectDir, rel} 调 tool_image");
+    assert(block.wrap.classList.contains("has-shot"), "带截图的工具行应标 has-shot(折叠的工具组里最后一张截图常驻)");
+    assert(!block.wrap.textContent.includes("[tool-image]"), "[tool-image] 标记行不该出现在 ⎿ 摘要或展开区里");
+    assert(block.result.textContent.includes("无头"), `无头 browser 的 ⎿ 摘要应写明走了无头,实得 ${block.result.textContent}`);
+    const openIn = strip?.querySelector(".pv-open-in");
+    assert(openIn, "无头 browser 结果应给「在预览中打开」");
+    from = mark();
+    openIn?.click();
+    await flush();
+    assert(callsSince(from, "preview_open").some((call) => call.args?.target === "http://localhost:5173/"), "「在预览中打开」应在面板打开该地址");
+    const paneBlock = chatNs.buildToolBlock("browser", { action: "screenshot" });
+    chatNs.fillToolBlock(paneBlock, { ok: true, content: "backend: pane（用户可见）\n已截图\nurl: http://localhost:5173/\n[tool-image] .kanzei/artifacts/tool-images/77aa.png", input: { action: "screenshot" } });
+    await flush();
+    assert(paneBlock.wrap.querySelector(".tool-shots") && !paneBlock.wrap.querySelector(".pv-open-in"), "走面板的结果照样显示截图,但不给「在预览中打开」");
+    // 复核修复:同一个块被填第二次(停止后补发的 ToolEnd、孤儿结果回填)不重复挂缩略图与按钮;等待批准 / 失败的块不给「在预览中打开」。
+    chatNs.fillToolBlock(block, {
+      ok: true,
+      content: "backend: headless\n已截图(不刷新页面)\nurl: http://localhost:5173/\n[tool-image] .kanzei/artifacts/tool-images/5f2e.png",
+      input: { action: "screenshot", url: "http://localhost:5173/" },
+    });
+    await flush();
+    assert(block.wrap.querySelectorAll(".tool-shots").length === 1 && block.wrap.querySelectorAll(".pv-open-in").length === 1,
+      `同一个工具块填两次,缩略图条与「在预览中打开」应各只有一份,实得 ${block.wrap.querySelectorAll(".tool-shots").length} / ${block.wrap.querySelectorAll(".pv-open-in").length}`);
+    const confirmBlock = chatNs.buildToolBlock("browser", { action: "open", url: "https://example.com/" });
+    chatNs.fillToolBlock(confirmBlock, { ok: false, outcome: "needs_confirmation", content: "backend: headless\n需要批准才能访问外网", input: { action: "open", url: "https://example.com/" } });
+    const failBlock = chatNs.buildToolBlock("browser", { action: "open", url: "http://localhost:5199/" });
+    chatNs.fillToolBlock(failBlock, { ok: false, outcome: "failed", content: "backend: headless\nnet::ERR_CONNECTION_REFUSED", input: { action: "open", url: "http://localhost:5199/" } });
+    await flush();
+    assert(!confirmBlock.wrap.querySelector(".pv-open-in") && !failBlock.wrap.querySelector(".pv-open-in"), "等待批准、失败的 browser 块不该给「在预览中打开」");
+    // 后台任务侧栏的条目:摘要与失败详情同样摘掉 [tool-image] 标记行。
+    activityNs.bgAdd("pv-bg-shot", "browser", "截图", { action: "screenshot" }, sandbox.activeSessionId);
+    const shotBody = "backend: headless\n截图失败\n[tool-image] .kanzei/artifacts/tool-images/9c9c.png";
+    activityNs.bgEnd("pv-bg-shot", false, shotBody, null, "failed", { content: shotBody });
+    const bgEntry = document.querySelector('[data-bg-id="pv-bg-shot"]');
+    assert(bgEntry && !bgEntry.textContent.includes("[tool-image]") && bgEntry.textContent.includes("截图失败"),
+      `后台任务侧栏的摘要与详情不该出现 [tool-image] 原始标记行,实得 ${JSON.stringify(bgEntry?.textContent)}`);
+    activityNs.bgAck?.();
+  }
+
+  // ⑧ 交付卡片。
+  {
+    from = mark();
+    const imageCard = activityNs.renderFileCard({ kind: "file", path: "out/chart.png", name: "chart.png", bytes: 2048 });
+    await flush();
+    const thumb = imageCard.querySelector(".file-card-thumb");
+    assert(thumb && String(thumb.querySelector(".pv-thumb-img")?.getAttribute("src")).startsWith("data:image/png;base64,"), "交付的 .png 应显示缩略图(兑现 deliver 的「图片可内联预览」)");
+    assert(callsSince(from, "delivered_image").some((call) => call.args?.path === "out/chart.png" && call.args?.projectDir === shellNs.currentProject), "交付图片缩略图应按 {projectDir, path} 调 delivered_image");
+    const htmlCard = activityNs.renderFileCard({ kind: "file", path: "site/index.html", name: "index.html", bytes: 900 });
+    const previewButton = htmlCard.querySelector(".file-card-preview");
+    assert(previewButton && previewButton.textContent === "预览", "交付的 .html 应有「预览」按钮");
+    from = mark();
+    previewButton?.click();
+    await flush();
+    assert(callsSince(from, "preview_open").some((call) => call.args?.target === "site/index.html"), "交付卡片「预览」应在面板打开该文件路径(后端换成静态服务地址)");
+    assert(!activityNs.renderFileCard({ kind: "file", path: "notes.md", name: "notes.md", bytes: 10 }).querySelector(".file-card-thumb"), "非图片交付不该有缩略图");
+  }
+
+  // ⑨ 与后台任务侧栏并存(变异 previewTasksReserve):预览开着时停靠判据算上预览栏;抽屉盖到面板上时冻结。
+  {
+    // 前面分区可能拖过后台任务侧栏的宽度:按默认宽(1280 窗口 → 360)算,结束时还原。
+    const layoutNs = esmModuleCache.get("03-layout.js")?.namespace;
+    const savedTasksSplit = layoutNs.layoutPref("splits", "tasks");
+    layoutNs.setLayoutPref("splits", "tasks", null);
+    panelNs.openTasksPanel();
+    await flush();
+    assert(panelNs.tasksPanelState().dock === "drawer", `预览打开时后台任务侧栏的停靠判据应减去预览栏(1232 宽:对话列 1232 − 360 − 419 < 600 → 抽屉),实得 ${panelNs.tasksPanelState().dock}`);
+    from = mark();
+    byId.get("tasks-panel").getBoundingClientRect = () => box({ left: 880, top: 0, width: 400, height: 800 });
+    document.dispatchEvent(new sandbox.CustomEvent("kz:tasks-layout", { detail: { visible: true, dock: "drawer" } }));
+    await flush();
+    assert(callsSince(from, "preview_set_visible").some((call) => call.args?.visible === false), "后台任务侧栏的抽屉盖在网页预览上时应冻结面板");
+    // 复核修复:冻结中(抽屉还盖着)打开新地址,preview_open 之后要补一次隐藏(变异 previewFrozenOpen):后端导航时会顺手 show。
+    {
+      from = mark();
+      await pv.openPreviewTarget("http://localhost:5173/next");
+      await flush();
+      const seqOpen = callsSince(from).map((call) => `${call.cmd}${call.cmd === "preview_set_visible" ? `:${call.args?.visible}` : ""}`);
+      const openAt = seqOpen.indexOf("preview_open");
+      const afterOpen = seqOpen.slice(openAt + 1);
+      assert(openAt >= 0 && afterOpen.includes("preview_set_visible:false") && !afterOpen.includes("preview_set_visible:true"),
+        `抽屉盖着面板时打开新地址,preview_open 之后应 set_visible(false)、不露出原生面板,实际 ${seqOpen.join(" → ")}`);
+    }
+    panelNs.closeTasksPanel();
+    await flush();
+    assert(lastCall("preview_set_visible")?.args?.visible === true, "抽屉关掉后应恢复面板");
+    delete byId.get("tasks-panel").getBoundingClientRect;
+    pv.closePreviewDock();
+    await flush();
+    panelNs.openTasksPanel();
+    await flush();
+    assert(panelNs.tasksPanelState().dock === "side", `预览收起后后台任务侧栏应照旧停靠(1232 − 360 ≥ 600),实得 ${panelNs.tasksPanelState().dock}`);
+    panelNs.closeTasksPanel();
+    await flush();
+    assert(lastCall("preview_set_visible")?.args?.visible === false, "收起停靠面板应隐藏原生面板(页面保留)");
+    pv.openPreviewDock();
+    await flush();
+    assert(lastCall("preview_set_visible")?.args?.visible === true, "重新打开停靠面板应直接恢复上次的页面");
+    // 复核修复:1333×695 窗口(主区 1005、侧栏默认 360)预览开着时,侧栏停靠会让对话视图只剩 645 → 预览切进窄屏、
+    // 对话列被整个藏起来;这种停靠不算数,判抽屉(变异 previewDockNarrowFloor)。
+    {
+      const savedInner = windowShim.innerWidth;
+      windowShim.innerWidth = 1053; // 假 DOM 的主区宽按「窗口宽 − rail 48」估算 → 1005
+      try {
+        panelNs.openTasksPanel();
+        await flush();
+        const tasks = panelNs.tasksPanelState();
+        assert(tasks.dock === "drawer", `主区 1005、预览开着:停靠后对话视图 645 < 800,预览会进窄屏——后台任务侧栏应判抽屉,实得 ${tasks.dock}`);
+        view.getBoundingClientRect = () => box({ left: 48, top: 0, width: 1005 - (tasks.dock === "side" ? tasks.width : 0), height: 800 });
+        resize();
+        await flush();
+        assert(!pv.previewState().narrow, "后台任务侧栏打开后,预览不该被挤进窄屏(对话列要一直看得见)");
+        panelNs.closeTasksPanel();
+        await flush();
+        // 因布局变化(而不是用户主动打开)进入窄屏时停在「对话」页签;回到宽屏复位成并排。
+        view.getBoundingClientRect = () => box({ left: 48, top: 0, width: 700, height: 800 });
+        resize();
+        await flush();
+        assert(pv.previewState().narrow && pv.previewState().tab === "chat" && lastCall("preview_set_visible")?.args?.visible === false,
+          `窗口变窄进入窄屏时应停在「对话」页签(原生面板隐藏),实得 ${JSON.stringify({ narrow: pv.previewState().narrow, tab: pv.previewState().tab })}`);
+        view.getBoundingClientRect = () => box({ left: 48, top: 0, width: 1005, height: 800 });
+        resize();
+        await flush();
+        assert(!pv.previewState().narrow && pv.previewState().tab === "preview" && lastCall("preview_set_visible")?.args?.visible === true, "回到宽屏应恢复并排、露出原生面板");
+      } finally {
+        delete view.getBoundingClientRect;
+        windowShim.innerWidth = savedInner;
+        resize();
+        await flush();
+      }
+    }
+    layoutNs.setLayoutPref("splits", "tasks", savedTasksSplit);
+  }
+
+  // ⑩ 控制台与错误页。
+  {
+    handlers.get("kz:preview-console")({ payload: { entries: [
+      { seq: 101, ts: 1, level: "error", text: "Uncaught Error: boom", url: STATIC_URL.replace("index.html", "app.js"), line: 12, col: 5 },
+      { seq: 102, ts: 2, level: "log", text: "hello" },
+      { seq: 102, ts: 2, level: "log", text: "hello(重复)" },
+    ] } });
+    await flush();
+    assert(pv.previewState().consoleCount === 2 && pv.previewState().consoleErrors === 1, `控制台应按 seq 去重、计错误数,实得 ${JSON.stringify(pv.previewState())}`);
+    assert(listText("preview-console-badge") === "1" && !byId.get("preview-console-badge").classList.contains("hidden"), "控制台按钮应显示错误计数角标");
+    assert((byId.get("preview-console-toggle").getAttribute("aria-label") ?? "").includes("1"), "控制台按钮的读屏名称应带错误数");
+    // 复核修复:角标与「错误」筛选同一口径——网络失败(契约 level = "network")也算错误。
+    handlers.get("kz:preview-console")({ payload: { entries: [
+      { seq: 103, ts: 3, level: "network", text: "GET http://localhost:5173/missing.js 404 (Not Found)", url: "http://localhost:5173/missing.js", line: null, col: null },
+    ] } });
+    await flush();
+    assert(pv.previewState().consoleErrors === 2 && listText("preview-console-badge") === "2",
+      `网络失败也应计入错误角标(与「错误」筛选、红色高亮同一口径),实得 ${pv.previewState().consoleErrors} / ${listText("preview-console-badge")}`);
+    byId.get("preview-console-toggle").click();
+    await flush();
+    const srcTitles = [...byId.get("preview-console-list").querySelectorAll(".pv-log-src")].map((node) => node.title);
+    assert(!byId.get("preview-console").classList.contains("hidden") && listText("preview-console-list").includes("app.js:12:5") && srcTitles.includes("docs/app.js:12:5"),
+      `打开控制台应列出条目与来源(列里 文件名:行:列,悬停是去掉 token 的完整 url:行:列),实得 ${listText("preview-console-list")} / ${JSON.stringify(srcTitles)}`);
+    handlers.get("kz:preview-console")({ payload: { entries: Array.from({ length: 600 }, (_, index) => ({ seq: 1000 + index, ts: index, level: "log", text: `line ${index}` })) } });
+    await flush();
+    assert(pv.previewState().consoleCount === 500, `控制台最多保留 500 条,实得 ${pv.previewState().consoleCount}`);
+    byId.get("preview-console-toggle").click();
+    await flush();
+    from = mark();
+    handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5199/", error: { kind: "connection_refused", text: "net::ERR_CONNECTION_REFUSED" } }));
+    await flush();
+    assert(!byId.get("preview-error").classList.contains("hidden") && listText("preview-error-title").includes("服务没在跑"), `连接被拒应显示「服务没在跑？」错误页,实得 ${listText("preview-error-title")}`);
+    assert(callsSince(from, "preview_set_visible").some((call) => call.args?.visible === false), "错误页显示期间应隐藏原生面板(HTML 错误页要露出来)");
+    // 复核修复:错误页是 role=alert,加载状态、标题变化的状态事件不该重写它(读屏会反复播报)。
+    {
+      const titleNode = byId.get("preview-error-title");
+      const shown = titleNode.textContent;
+      let writes = 0;
+      Object.defineProperty(titleNode, "textContent", { configurable: true, get: () => shown, set: () => { writes += 1; } });
+      const refused = { kind: "connection_refused", text: "net::ERR_CONNECTION_REFUSED" };
+      handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5199/", title: "localhost", loading: true, error: refused }));
+      await flush();
+      handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5199/", title: "localhost", loading: false, error: refused }));
+      await flush();
+      delete titleNode.textContent;
+      assert(writes === 0, `同一个错误的后续状态事件不该重写 role=alert 的错误页(读屏会重播),实写 ${writes} 次`);
+    }
+    byId.get("preview-error-tasks").click();
+    await flush();
+    assert(panelNs.tasksPanelState().visible, "错误页「看后台进程」应打开后台任务侧栏");
+    panelNs.closeTasksPanel();
+    handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5199/" }));
+    await flush();
+    assert(byId.get("preview-error").classList.contains("hidden") && lastCall("preview_set_visible")?.args?.visible === true, "错误消失后应收起错误页、恢复面板");
+  }
+
+  // ⑪ Ctrl+Shift+B、代码块「预览」、localhost 链接、文件页按钮。
+  {
+    const keydown = (event) => { for (const fn of windowListeners.get("keydown") ?? []) fn({ preventDefault() {}, ...event }); };
+    keydown({ type: "keydown", key: "B", ctrlKey: true, shiftKey: true });
+    await flush();
+    assert(!pv.previewState().open, "Ctrl+Shift+B 应收起网页预览");
+    keydown({ type: "keydown", key: "b", ctrlKey: true, shiftKey: true });
+    await flush();
+    assert(pv.previewState().open, "再按 Ctrl+Shift+B 应重新打开");
+    const container = document.createElement("div");
+    const mkPre = (lang, text, open = false) => {
+      const pre = document.createElement("pre");
+      pre.className = "code";
+      if (open) pre.setAttribute("data-open", "true");
+      const code = document.createElement("code");
+      code.className = `language-${lang}`;
+      code.textContent = text;
+      pre.append(code);
+      container.append(pre);
+      return pre;
+    };
+    const htmlPre = mkPre("html", "<h1>你好</h1>");
+    const jsPre = mkPre("js", "1 + 1");
+    const openPre = mkPre("svg", "<svg>", true);
+    pv.decorateCodeBlocks(container);
+    pv.decorateCodeBlocks(container);
+    assert(htmlPre.querySelectorAll(".code-preview").length === 1 && !jsPre.querySelector(".code-preview") && !openPre.querySelector(".code-preview"),
+      "只有闭合的 html/svg 代码块加一个「预览」(重复装饰不叠加;流式写到一半的 data-open 不加)");
+    from = mark();
+    htmlPre.querySelector(".code-preview").click();
+    await flush();
+    assert(callsSince(from, "preview_snippet").some((call) => call.args?.html === "<h1>你好</h1>") && callsSince(from, "preview_open").some((call) => call.args?.target === "http://127.0.0.1:50001/t/tok/s/1.html"),
+      "代码块「预览」应 preview_snippet{html} 再在面板打开返回的地址");
+    assert((sources[scriptSrcs.indexOf("24-preview.js")] ?? "").includes("addMarkdownHook((root) => decorateCodeBlocks(root))"), "代码块装饰要挂在 renderMarkdownInto 的钩子上(markdown 唯一入口)");
+    const link = document.createElement("a");
+    link.setAttribute("href", "http://localhost:5173/app");
+    byId.get("messages").append(link);
+    from = mark();
+    let prevented = false;
+    document.dispatchEvent({ type: "click", target: link, defaultPrevented: false, preventDefault() { prevented = true; } });
+    await flush();
+    assert(prevented && callsSince(from, "preview_open").some((call) => call.args?.target === "http://localhost:5173/app"), "对话里的 localhost 链接应拦下并在面板打开");
+    link.setAttribute("href", "https://example.com/");
+    from = mark();
+    prevented = false;
+    document.dispatchEvent({ type: "click", target: link, defaultPrevented: false, preventDefault() { prevented = true; } });
+    await flush();
+    assert(!prevented && callsSince(from, "preview_open").length === 0, "外网链接照旧交给系统,不进面板");
+    link.remove();
+    assert(/id="files-open-preview"[^>]*class="[^"]*hidden/.test(html) && (sources[scriptSrcs.indexOf("17-files-editor.js")] ?? "").includes('show($("files-open-preview")'), "文件页头部应有「在预览中打开」(网页类文件才显示)");
+    assert(/<section id="preview-dock"[\s\S]*?<\/section>\s*<\/div>\s*<div id="view-workspace"/.test(html), "#preview-dock 必须是 #view-chat 的最后一个子元素");
+  }
+
+  // ⑫ 复核修复:最近列表不记 data: 与超长地址(一条大 data URL 会让 ui_layout 补丁整个被拒);✕ = 关闭页面(变异 previewCloseReleases),
+  // 焦点还给 rail 开关。
+  {
+    const layoutNs = esmModuleCache.get("03-layout.js")?.namespace;
+    await pv.openPreviewTarget("data:text/html,<h1>x</h1>");
+    await pv.openPreviewTarget(`http://localhost:5173/?q=${"x".repeat(3000)}`);
+    await flush();
+    const recent = layoutNs.layoutPref("preview", "recent") ?? [];
+    assert(Array.isArray(recent) && !recent.some((item) => /^data:/i.test(item) || item.length > pv.PREVIEW_RECENT_ITEM_MAX),
+      `最近列表不该记 data: 地址与超过 ${pv.PREVIEW_RECENT_ITEM_MAX} 字的地址,实得 ${JSON.stringify(recent.map((item) => item.slice(0, 40)))}`);
+    handlers.get("kz:preview-state")(statePayload({ url: "http://localhost:5173/" }));
+    await flush();
+    assert(pv.previewState().alive && pv.previewState().open, "✕ 用例的前提:面板开着且有页面");
+    const savedFocus = Element.prototype.focus;
+    Element.prototype.focus = function focusProbe() { document.activeElement = this; };
+    const closeButton = byId.get("preview-close");
+    // 假 DOM 扁平:焦点落在 #preview-dock 里的探针上(真机上就是 ✕ 自己)。
+    const focusProbe = document.createElement("button");
+    dock.append(focusProbe);
+    document.activeElement = focusProbe;
+    from = mark();
+    closeButton.click();
+    await flush();
+    focusProbe.remove();
+    assert(callsSince(from, "preview_close").length === 1 && !pv.previewState().alive && !pv.previewState().open,
+      "面板上的 ✕ 应关闭页面(preview_close,渲染进程退出、声音与轮询都停)并收起面板");
+    assert(document.activeElement === byId.get("preview-toggle"), `焦点在面板里时收起,焦点应还给 rail 开关,实得 #${document.activeElement?.id}`);
+    Element.prototype.focus = savedFocus;
+    document.activeElement = null;
+    from = mark();
+    pv.openPreviewDock();
+    await flush();
+    assert(!byId.get("preview-empty").classList.contains("hidden") && callsSince(from, "preview_set_visible").length === 0,
+      "✕ 之后重新打开应回到起始页(没有页面,不上报可见性)");
+    assert(/关闭网页预览/.test(closeButton.getAttribute("aria-label") ?? ""), "✕ 的读屏名称应是「关闭网页预览」(不再是收起)");
+  }
+
+  // 收尾:收起面板、释放桩。
+  pv.closePreviewDock();
+  await flush();
+  for (const [cmd, value] of Object.entries(saved)) {
+    if (value === undefined) delete payloads[cmd];
+    else payloads[cmd] = value;
+  }
+  delete host.getBoundingClientRect;
+  delete dock.getBoundingClientRect;
+  delete byId.get("preview-stage").getBoundingClientRect;
+}
+// ── 分区:网页预览前端(完) ──
 
 if (issues.length) {
   reportedIssues = true;

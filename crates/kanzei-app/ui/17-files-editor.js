@@ -182,6 +182,8 @@ export function renderFilesHead() {
   const discard = $("files-discard");
   show(save, !doc.readonly);
   show(discard, dirty && !doc.readonly);
+  // UI2-0926 #8:网页类文件可在对话旁的网页预览里渲染(预览的是磁盘上的版本)。
+  show($("files-open-preview"), /\.(?:html?|xhtml|svg)$/i.test(doc.path));
   save.disabled = !dirty || doc.saving || Boolean(doc.readonly);
   save.setAttribute("aria-busy", doc.saving ? "true" : "false");
   // 只读原因条:为什么只读、去哪改(托管文档给跳转);保存被拒(doc.blocked)也在这里说明,编辑器照样可编辑、可复制。

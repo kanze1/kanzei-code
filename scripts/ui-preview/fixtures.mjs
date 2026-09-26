@@ -597,6 +597,115 @@ function previewFilesSnapshot(disk) {
 }
 // ── 分区:文件编辑(完) ──
 
+// ── 分区:网页预览前端 ── UI2-0926 #8:按 IPC 契约(docs/design/preview_pane.md)模拟 preview_* 与 tool_image / delivered_image。
+// 浏览器预览里没有原生子 webview:preview_open 只回放一条 kz:preview-state(真机由后端导航后发),截图 / 缩略图用 canvas
+// 现画一张假页面。?state=error 时打开的页面报「连接被拒」。
+const PREVIEW_STATIC = "http://127.0.0.1:52341/t/0f3a9c7d/r/0/";
+function previewUrlFor(target) {
+  const text = String(target ?? "");
+  if (/^[a-z][\w+.-]*:/i.test(text) && !/^[A-Za-z]:[\\/]/.test(text)) return text;
+  return `${PREVIEW_STATIC}${text.replace(/\\/g, "/").replace(/^\.?\//, "")}`;
+}
+/// 一张假网页截图(base64 PNG,不带 data: 前缀)。只在浏览器里调用(Node 侧 mockedCommandNames 不会执行它)。
+export async function previewPagePng({ title = "Acme Dashboard", chart = false, width = 900, height = 600 } = {}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const g = canvas.getContext("2d");
+  g.fillStyle = "#f6f7f9";
+  g.fillRect(0, 0, width, height);
+  g.fillStyle = "#1f2a44";
+  g.fillRect(0, 0, width, 64);
+  g.fillStyle = "#ffffff";
+  g.font = "600 24px 'Segoe UI', sans-serif";
+  g.fillText(title, 32, 41);
+  g.font = "15px 'Segoe UI', sans-serif";
+  g.fillStyle = "#c9d3ea";
+  g.fillText("概览   订单   用户   设置", width - 300, 40);
+  const cards = [["今日订单", "1,284"], ["转化率", "3.9%"], ["退款", "12"]];
+  cards.forEach(([label, value], index) => {
+    const x = 32 + index * ((width - 96) / 3 + 16);
+    const w = (width - 96) / 3;
+    g.fillStyle = "#ffffff";
+    g.fillRect(x, 92, w, 104);
+    g.strokeStyle = "#e3e6ec";
+    g.strokeRect(x + 0.5, 92.5, w - 1, 103);
+    g.fillStyle = "#6b7280";
+    g.font = "15px 'Segoe UI', sans-serif";
+    g.fillText(label, x + 18, 124);
+    g.fillStyle = "#111827";
+    g.font = "600 32px 'Segoe UI', sans-serif";
+    g.fillText(value, x + 18, 172);
+  });
+  g.fillStyle = "#ffffff";
+  g.fillRect(32, 220, width - 64, height - 252);
+  g.strokeStyle = "#e3e6ec";
+  g.strokeRect(32.5, 220.5, width - 65, height - 253);
+  g.strokeStyle = chart ? "#e0662c" : "#3b82f6";
+  g.lineWidth = 3;
+  g.beginPath();
+  const points = [0.62, 0.48, 0.55, 0.36, 0.42, 0.28, 0.33, 0.2, 0.26];
+  points.forEach((v, i) => {
+    const x = 64 + i * ((width - 128) / (points.length - 1));
+    const y = 240 + v * (height - 300);
+    if (i) g.lineTo(x, y);
+    else g.moveTo(x, y);
+  });
+  g.stroke();
+  return canvas.toDataURL("image/png").split(",")[1];
+}
+function previewCommands(params) {
+  const pane = { url: "", visible: false, processId: null, bounds: null };
+  const errorMode = params.state === "error";
+  const stateOf = () => ({
+    url: pane.url, title: errorMode ? "" : "Acme Dashboard", loading: false, canBack: !errorMode, canForward: false,
+    visible: pane.visible, boundProcessId: pane.processId, device: "fill", scheme: "auto",
+    ...(errorMode ? { error: { kind: "connection_refused", text: "net::ERR_CONNECTION_REFUSED" } } : {}),
+  });
+  return {
+    preview_open: (args, ctx) => {
+      pane.url = previewUrlFor(args?.target);
+      pane.visible = true;
+      pane.processId = args?.processId ?? null;
+      pane.bounds = args?.bounds ?? null;
+      setTimeout(() => ctx.emit("kz:preview-state", stateOf()), 20);
+      return null;
+    },
+    preview_set_bounds: (args) => {
+      pane.bounds = args;
+      return null;
+    },
+    preview_set_visible: (args) => {
+      pane.visible = Boolean(args?.visible);
+      pane.processId = args?.processId ?? null;
+      return null;
+    },
+    preview_nav: () => null,
+    preview_close: () => {
+      pane.url = "";
+      return null;
+    },
+    preview_capture: async () => ({ png: await previewPagePng(), width: 900, height: 600 }),
+    preview_console: () => ({ entries: [] }),
+    preview_console_clear: () => null,
+    preview_device: () => null,
+    preview_pick: () => null,
+    preview_snippet: () => ({ url: `${PREVIEW_STATIC.replace("/r/0/", "/s/")}1.html` }),
+    preview_dev_urls: () => ({
+      urls: [
+        { url: "http://localhost:5173/", command: "npm run dev -- --host", pid: 18244 },
+        { url: "http://localhost:6006/", command: "npm run storybook", pid: 18302 },
+      ],
+    }),
+    preview_clear_site_data: () => null,
+    preview_open_devtools: () => null,
+    preview_open_external: () => null,
+    tool_image: async (args) => ({ png: await previewPagePng({ title: /login/.test(String(args?.rel ?? "")) ? "Acme · 登录" : "Acme Dashboard" }) }),
+    delivered_image: async () => ({ png: await previewPagePng({ title: "dashboard.png", chart: true }) }),
+  };
+}
+// ── 分区:网页预览前端(完) ──
+
 export function createFixtures({ scene = "chat", theme = "dark", params = {} } = {}) {
   const now = Date.now();
   const running = scene === "chat" || scene === "agents";
@@ -1064,6 +1173,8 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     memory_control_plane: { backlog: 0, oldest_waiting: null, batch: null, promotion_gaps: 0, recall: { recalled: 0, injected: 0, read: 0, read_observed: 0 }, effects: [], experience_facts: [] },
     memory_context_bill: { turns: [] },
     memory_chat_history: [],
+    // ── 分区:网页预览前端 ──
+    ...previewCommands(params),
   };
 
   const EMPTY_ARRAY = /(_list|_entries|_history|_candidates|_templates|_recalls|_page)$/;
