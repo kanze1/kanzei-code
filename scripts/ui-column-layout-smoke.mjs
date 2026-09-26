@@ -3,13 +3,15 @@
 //
 // 用户截图 13:正文、运行活动行、输入区三条左边各在一处(style.css 旧规则给 OC 立绘留 222px 右沟,OC 关着也整列
 // 左移 100px;列宽又各有一套写法)。静态断言(ui-a11y-smoke「对话单列」)只能锁住写法,这里在无头 Edge 里真量:
-//   1. column 场景(空闲:历史 + 一轮已结束 + 发一条消息后的回复)在 1280/1600/2000@1 与 1600@1.5:
+//   1. column 场景(空闲:历史 + 一轮已结束 + 发一条消息后的回复)在用户三档缩放 1280@1.5、1600@1.25、2000@1 与 1600@1:
 //      以 pane 左右边为基准 L/R,正文首行字、工具组、子代理卡、notice 左缘 = L,子代理卡、用户气泡、输入区右缘 = R,
 //      输入区左缘 = L(容差 1px);pane 宽 = min(768, 对话区宽 − 2×沟);#messages 左右内边距 0;
 //   2. 工具组:折叠的多行组里失败行可见、成功行收起;单行组不显示组头;⎿ 摘要紧跟参数(间距 0~16px);
+//      复制行(强制显形)在块下方、助手靠左/用户靠右,且不压下一块(至少量到一对「消息 → notice」);
 //   3. composer 场景(运行中):活动行字形左缘 = L = 输入区左缘;
 //   4. empty 场景:空态文案与输入区同一条中线(±1px);
-//   5. 自检:注入「222px 右沟」与「折叠态藏起失败行」两种回归,判据必须变红,否则报「判据失效」。
+//   5. 自检:注入「222px 右沟」「折叠态藏起失败行」「notice 前距 12px」「复制行回右上角」四种回归,判据必须变红,
+//      否则报「判据失效」。
 // page.evaluate 回调在浏览器里执行,用到的浏览器全局在这里声明给 ESLint(本文件其余部分是 node 环境)。
 /* global window, document, getComputedStyle, NodeFilter */
 import { mkdir } from "node:fs/promises";
@@ -18,11 +20,12 @@ import { pathToFileURL } from "node:url";
 import { chromium } from "playwright-core";
 import { startPreviewServer } from "./ui-preview/server.mjs";
 
+// 用户的三档缩放(1280@1.5、1600@1.25、2000@1 CSS px)+ 1600@1 对照。
 const COMBOS = [
-  { width: 1280, height: 1000, dpr: 1 },
-  { width: 1600, height: 1000, dpr: 1 },
+  { width: 1280, height: 1000, dpr: 1.5 },
+  { width: 1600, height: 1000, dpr: 1.25 },
   { width: 2000, height: 1000, dpr: 1 },
-  { width: 1600, height: 1000, dpr: 1.5 },
+  { width: 1600, height: 1000, dpr: 1 },
 ];
 const TOLERANCE = 1;
 const MUTATIONS = {
@@ -30,6 +33,10 @@ const MUTATIONS = {
   gutter222: "#messages { padding-right: 222px; }",
   // 折叠态把失败行也藏起来(契约 §4.1「错了不该藏起来」)。
   hideFailures: ".tool-group:not([data-expanded='1']) > .tool-group-body > .tool-msg.err { display: none; }",
+  // 复核 major:notice 前距压回 12px,每轮最后一条回复的复制行压在「本轮结束」上。
+  noticeGap: ".msg.notice { margin-top: 12px !important; }",
+  // 复制行回到块右上角(旧版漂在段落右上、压住首行最后几个字)。
+  copyTopRight: ".msg-actions { top: 0 !important; left: auto !important; right: 0 !important; }",
 };
 
 async function openScene(browser, origin, { scene, theme = "dark", width, height, dpr, mutate = "" }) {
@@ -119,7 +126,40 @@ function measureColumn({ tolerance, checkGroups }) {
     }
     if (!rows) out.push("没有可见的工具行可测 ⎿ 间距");
   }
-  return { failures: out, info: { L: Math.round(L * 10) / 10, R: Math.round(R * 10) / 10, width: Math.round(P.width) } };
+  // 复制行(.msg-actions,悬停才显形):强制显形后量。它是绝对定位、不占流内高度,位置全靠下一块的前距让出来——
+  // 须在块**下方**(顶边 ≥ 块底边),助手靠左(左缘在块左缘 ±8)、用户靠右(右缘 = 块右缘),且不与下一个兄弟块相交。
+  // 最常见的位置是每轮最后一条回复 → 「本轮结束」notice(复核实测 notice 前距 12px 时叠 11px),必须至少量到一对。
+  // 错误卡的「重试」是流内常驻(position: static),不在此列。
+  const force = document.createElement("style");
+  force.textContent = ".msg-actions { opacity: 1 !important; transition: none !important; }";
+  document.head.appendChild(force);
+  let copyRows = 0;
+  let beforeNotice = 0;
+  for (const block of pane.children) {
+    const actions = [...block.children].find((el) => el.classList.contains("msg-actions"));
+    if (!actions || !visible(block) || getComputedStyle(actions).position !== "absolute") continue;
+    copyRows += 1;
+    const A = rect(actions);
+    const B = rect(block);
+    const isUser = block.classList.contains("user");
+    const tag = `${isUser ? "用户消息" : "正文"}「${(block.textContent || "").trim().slice(0, 12)}」`;
+    if (A.top < B.bottom - 0.5) out.push(`${tag}的复制行不在块下方(顶 ${A.top.toFixed(1)} < 块底 ${B.bottom.toFixed(1)})`);
+    if (isUser ? Math.abs(A.right - B.right) > tolerance : Math.abs(A.left - B.left) > 8) {
+      out.push(`${tag}的复制行没有贴${isUser ? "右" : "左"}(复制行 ${A.left.toFixed(1)}→${A.right.toFixed(1)},块 ${B.left.toFixed(1)}→${B.right.toFixed(1)})`);
+    }
+    const next = block.nextElementSibling;
+    if (!next || !visible(next)) continue;
+    if (next.classList.contains("notice")) beforeNotice += 1;
+    const N = rect(next);
+    const overlap = Math.min(A.bottom, N.bottom) - Math.max(A.top, N.top);
+    if (overlap > 0.5 && A.left < N.right && A.right > N.left) {
+      out.push(`${tag}的复制行压在下一块(${next.className})上 ${overlap.toFixed(1)}px(下一块前距 ${getComputedStyle(next).marginTop})`);
+    }
+  }
+  force.remove();
+  if (!copyRows) out.push("没有带复制行的消息可测(场景数据变了)");
+  if (!beforeNotice) out.push("没有「消息 → notice」相邻对可测复制行让位(场景数据变了)");
+  return { failures: out, info: { L: Math.round(L * 10) / 10, R: Math.round(R * 10) / 10, width: Math.round(P.width), copyRows } };
 }
 
 function measureActivity({ tolerance }) {
@@ -175,7 +215,7 @@ export async function runColumnLayoutSmoke({ channel = "msedge", shotsDir = null
     const empty = await openScene(browser, origin, { scene: "empty", width: 1600, height: 1000, dpr: 1 });
     for (const failure of await empty.page.evaluate(measureEmpty, { tolerance: TOLERANCE })) failures.push(`empty 1600@1:${failure}`);
     await empty.context.close();
-    // 自检:两种回归都必须被判红。
+    // 自检:每种回归都必须被判红。
     for (const [id, css] of Object.entries(MUTATIONS)) {
       const probe = await openScene(browser, origin, { scene: "column", width: 1600, height: 1000, dpr: 1, mutate: css });
       const result = await probe.page.evaluate(measureColumn, { tolerance: TOLERANCE, checkGroups: true });
@@ -199,5 +239,5 @@ if (entry) {
     for (const failure of failures) console.error(` - ${failure}`);
     process.exit(1);
   }
-  console.log(`对话单列浏览器冒烟通过:${notes.join(";")};工具组折叠/单行/⎿ 间距、活动行、空态同轴;两种注入回归均被判红`);
+  console.log(`对话单列浏览器冒烟通过:${notes.join(";")};工具组折叠/单行/⎿ 间距、复制行让位、活动行、空态同轴;${Object.keys(MUTATIONS).length} 种注入回归均被判红`);
 }

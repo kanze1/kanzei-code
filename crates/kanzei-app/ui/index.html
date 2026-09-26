@@ -425,9 +425,10 @@
             </div>
               <button id="continue-btn" type="button" class="kz-ctl" title="按当前文案继续推进" data-i18n-title="按当前文案继续推进"><span data-i18n-key="继续">继续</span></button>
               <!-- UI2-0926 #11:选项去掉英文尾巴(「排队 queue」→「排队」),运行态工具行在 768 列宽里放得下一行;
-                   交付方式的完整说明在悬停提示里。 -->
+                   交付方式的完整说明在悬停提示里。「排队」这个 key 已译作状态词 Queued,这里要动词 Queue:
+                   key 用「排队 queue」,中文显示走 data-i18n-zh(见 02-i18n.js applyDataI18nKeys)。 -->
               <select id="delivery-select" class="kz-ctl" title="输入交付方式" data-i18n-title="输入交付方式">
-                <option value="queue" data-i18n-key="排队">排队</option>
+                <option value="queue" data-i18n-key="排队 queue" data-i18n-zh="排队">排队</option>
                 <option value="steer" data-i18n-key="插入">插入</option>
               </select>
               <button id="voice-toggle" class="kz-ctl kz-ctl--icon" type="button" aria-pressed="false" title="语音" data-i18n-title="语音" aria-label="语音" data-i18n-aria-label="语音"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg></button>

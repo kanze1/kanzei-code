@@ -1394,12 +1394,14 @@ export function applyLanguage() {
 // 消息容器内的动态文案(复制按钮、错误级别)与静态 DOM(侧栏标题、按钮属性)共用:
 // 元素渲染时写入 key,语言切换/节点插入时由这里重算 t()。这是「翻译发生在渲染点」
 // 的落地,不依赖 observer 事后词典改写。
+// data-i18n-zh:同字不同义时中文显示与 key 分开写。key 是中文原文,一字只能一译;「排队」已是状态词(Queued,
+// 工作区卡片「排队 N 条」),输入区交付方式要的是动词 Queue——key 用带限定的「排队 queue」,中文仍显示 data-i18n-zh。
 export function applyDataI18nKeys(root, language) {
   if (!root || typeof root.querySelectorAll !== "function") return;
   for (const el of root.querySelectorAll("[data-i18n-key]")) {
     const key = el.dataset.i18nKey;
     if (!key) continue;
-    const next = language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : key;
+    const next = language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : (el.dataset.i18nZh || key);
     if (el.textContent !== next) el.textContent = next;
   }
   for (const el of root.querySelectorAll("[data-i18n-title]")) {

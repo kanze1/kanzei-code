@@ -51,6 +51,7 @@ import {
   renderReasoningBlock,
   setFollowLatest,
   scrollBottom,
+  syncToolGroup,
   syncToolGroupOf,
   updateLatestButton,
 } from "./05-chat-render.js";
@@ -411,6 +412,39 @@ export function renderMessagesInto(container, items) {
   }
 }
 
+/// 窗口边界恰好切在「调用」与「结果」两条消息之间时:较早一窗(holder)里的调用没等到结果、被标成 interrupted;
+/// 较新一窗(pane)里是一条配不上的孤儿「tool result」块(renderMessageParts 记下了它的调用 id 与结果)。
+/// 补出较早一窗后按调用 id 把两半配回一块:用孤儿的结果填调用块、删掉孤儿,孤儿所在的组只剩思考块就拆掉组壳、
+/// 思考块留在原位;两组各自重算。否则相邻合并后组头把已完成的调用计成「1 中断」,整行还是灰的。
+/// 只用 children / classList / dataset / closest / insertBefore:冒烟的假 DOM 同样支持。
+export function pairBoundaryOrphans(holder, pane) {
+  const orphans = new Map();
+  for (const row of pane?.querySelectorAll?.(".tool-msg") ?? []) {
+    if (row.dataset?.orphanCallId && row._kzOrphanResult) orphans.set(row.dataset.orphanCallId, row);
+  }
+  if (!orphans.size) return 0;
+  let paired = 0;
+  for (const row of holder?.querySelectorAll?.(".tool-msg") ?? []) {
+    const orphan = orphans.get(row.dataset?.toolCallId);
+    if (!orphan || !row.classList.contains("interrupted") || !row._kzToolBlock) continue;
+    orphans.delete(row.dataset.toolCallId);
+    row.classList.remove("interrupted");
+    fillToolBlock(row._kzToolBlock, orphan._kzOrphanResult);
+    const group = orphan.closest(".tool-group");
+    orphan.remove();
+    if (group?._kzGroup) {
+      const body = group._kzGroup.body;
+      if ([...body.children].some((el) => el.classList.contains("tool-msg"))) syncToolGroup(group);
+      else {
+        for (const el of [...body.children]) group.parentNode.insertBefore(el, group);
+        group.remove();
+      }
+    }
+    paired += 1;
+  }
+  return paired;
+}
+
 /// 向上补齐一窗。保持滚动位置:前插会把内容顶下去,按高度差回补 scrollTop,
 /// 否则用户每次触顶都会被弹到别处。
 export function loadEarlierMessages() {
@@ -429,6 +463,8 @@ export function loadEarlierMessages() {
     subagentPrependEnd();
   }
   const before = messages.scrollHeight;
+  // 边界切在「调用」与「结果」之间:先把两半按调用 id 配回一块(可能删掉只剩孤儿的组),再算相邻合并。
+  pairBoundaryOrphans(holder, activePane);
   // UI2-0926 #12:窗口边界会把同一段工具活动切成两组。记下旧内容的第一个节点(跳过顶部提示条)
   // 与新一窗的最后一个节点,前插之后两者相邻就合并(合计不超过上限),与实时渲染同构。
   const isHint = (el) => el?.classList?.contains("earlier-hint") || el?.classList?.contains("pane-trimmed-hint");
@@ -601,8 +637,13 @@ export function renderMessageParts(items) {
           anchoredTaskCalls.add(taskCall);
           subagentHistoryOrphan(activeSessionId, part.call_id, taskCall.input, { ok: !part.is_error, content: part.content });
         } else {
-          // 配对不上(历史被压缩过):独立成块,总比丢掉强。
+          // 配对不上(历史被压缩过,或窗口边界把调用切到了更早一窗):独立成块,总比丢掉强。
+          // 记下调用 id 与结果:补出更早一窗后 pairBoundaryOrphans 据此把两半配回一块。
           const orphan = buildToolBlock("tool result", {});
+          if (part.call_id) {
+            orphan.wrap.dataset.orphanCallId = part.call_id;
+            orphan.wrap._kzOrphanResult = { ok: !part.is_error, content: part.content };
+          }
           mountToolBlock(orphan);
           fillToolBlock(orphan, { ok: !part.is_error, content: part.content });
         }

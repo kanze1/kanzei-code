@@ -686,6 +686,9 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     ".tool-msg.ok .tool-msg-status", ".tool-chip.ok .head::before", ".bg-entry.ok .bg-title::before",
     ".doc-archive-toggle", ".archived-entry",
     ".memory-status-badge.active", ".memory-recall-hit.read .memory-recall-flag", ".queue-entry .queue-delivery", ".v-badge.v-v1",
+    // 鞭挞开关圆点与阶段字的「静息态」(选择器不带 [data-phase] 前缀 = 开着但待命、或尚未开):中性。
+    // 推进中 / 等待下一轮以 .autorun-bar[data-phase=…] 开头,不在此列,由下面的 ⑥w 要求强调色。
+    "#auto-continue-wrap", ".auto-phase",
   ];
   // 编号/路径引用:平时中性,悬停/聚焦才变橙(语义表「引用中性 + 虚下划线,悬停才变橙」)。同样按前缀匹配,
   // 但 :hover / :focus* 分支放行——.ref-link:hover 用 --accent-text 是合法的,只按前缀匹配会误判。
@@ -744,6 +747,31 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     [".pri-badge.P0", "--err"],
   ]) {
     if (!bodiesOf(selector).includes(`var(${token})`)) out.push(`⑥p ${selector} 必须用 var(${token})(语义表),实际:${bodiesOf(selector) || "找不到规则"}`);
+  }
+  // (w) 输入区鞭挞组(UI2-0926 #11 复核):开关圆点 / 轮次 / 阶段字一律不得用绿——开关打开不是「一件工作成功收尾」;
+  //     推进中与等待下一轮(pending,待续跑)属进行中家族:圆点背景必须是 --accent,pending 阶段字的颜色必须是强调色家族。
+  //     复核实测圆点曾是 --ok、pending 阶段字曾是 --warn,⑥a-⑥t 都没覆盖这两个选择器。
+  {
+    const WHIP_SUBJECT = /^(?:#auto-continue-wrap|\.auto-phase|\.auto-progress)(?![\w-])/;
+    const OK_VAR = /var\(--(?:ok|badge-ok|diff-add)(?:-[a-z]+)?\)/;
+    // 主体取法同 subjectOf,但先把括号里的内容抹掉::has(> input:checked) 里的 > 不是组合符(subjectOf 会在那里切开)。
+    const whipSubject = (branch) => subjectOf(branch.replace(/\((?:[^()]|\([^()]*\))*\)/g, "()"));
+    const declValues = (body, prop) => [...body.matchAll(new RegExp(String.raw`(?:^|;)\s*${prop}\s*:\s*([^;]+)`, "g"))].map((m) => m[1].trim());
+    const phaseRules = (phase, subject) => rules.filter((rule) => rule.branches.some((branch) => branch.includes(`[data-phase="${phase}"]`) && whipSubject(branch) === subject));
+    for (const { branches, body } of rules) {
+      const whip = branches.filter((branch) => WHIP_SUBJECT.test(whipSubject(branch)));
+      if (whip.length && OK_VAR.test(body)) out.push(`⑥w 鞭挞组用了成功绿:${whip.join(", ")} { ${body.trim()} }。改法:开着待命 = 中性(currentColor),推进中/等待下一轮 = --accent`);
+    }
+    for (const phase of ["running", "pending"]) {
+      const fills = phaseRules(phase, "#auto-continue-wrap::before").flatMap((rule) => declValues(rule.body, "background(?:-color)?"));
+      if (!fills.some((value) => value === "var(--accent)") || fills.some((value) => value !== "var(--accent)")) {
+        out.push(`⑥w .autorun-bar[data-phase="${phase}"] 的开关圆点背景必须是 var(--accent)(进行中家族),实际:${fills.join(" / ") || "找不到规则"}`);
+      }
+    }
+    const pendingText = phaseRules("pending", ".auto-phase").flatMap((rule) => declValues(rule.body, "color"));
+    if (!pendingText.length || pendingText.some((value) => !/^var\(--accent(?:-text)?\)$/.test(value))) {
+      out.push(`⑥w 等待下一轮(pending)的阶段字颜色必须是 --accent-text(进行中家族,与活动行、kz-dot pending 一致),实际:${pendingText.join(" / ") || "找不到规则"}`);
+    }
   }
   // (e) 别名 token 在 :root 只定义一次、指向语义表里的那一个颜色,亮色块不得重给字面值——
   //     重给就把「一种含义一种颜色」又拆回两套(旧版 --alert/--log-gold/--arch-unindexed 与 --warn 同值四个名)。
@@ -865,6 +893,11 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     ["⑥g", mutateRoot("--surface-raised", "#262626")],
     ["⑥p", dropRule(/\.backlog-stat\.is-zero \.backlog-num \{[^}]*\}/)],
     ["⑥p", dropRule(/\.kz-glyph\[data-state="attention"\] \{[^}]*\}/)],
+    // 输入区鞭挞组(复核):开关一开就是绿点、推进中圆点换成别的色、等待下一轮的阶段字用琥珀、待命圆点染强调色。
+    ["⑥w", `${css}\n#auto-continue-wrap:has(> input:checked)::before { border: 0; background: var(--ok); }`],
+    ["⑥w", dropRule(/\.autorun-bar:is\(\[data-phase="running"\], \[data-phase="pending"\]\) #auto-continue-wrap::before \{[^}]*\}/)],
+    ["⑥w", `${css}\n.autorun-bar:is([data-phase="pending"], [data-phase="paused"]) .auto-phase { color: var(--warn); }`],
+    ["⑥d", `${css}\n#auto-continue-wrap:has(> input:checked)::before { background: var(--accent); }`],
   ];
   const silent = counterexamples
     .map(([id, mutated], index) => [`${id}#${index}`, colorSemanticsViolations(mutated, surfaceCss).some((v) => v.startsWith(id))])
@@ -912,6 +945,8 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     const messages = bodiesOf(text, "#messages").join(";");
     if (!/scrollbar-gutter:\s*stable both-edges/.test(messages)) out.push("#messages 缺 scrollbar-gutter: stable both-edges(滚动条让 pane 比输入区偏 4px)");
     if (!/padding:\s*\d+px 0 \d+px/.test(messages)) out.push("#messages 左右内边距必须为 0(列宽由 pane 自己决定)");
+    // 复核:错误卡的「重试」常驻在流内(复制行悬停才显形,重试若跟着藏起来,出错时还得先找按钮)。
+    if (!bodiesOf(text, ".msg.error > .msg-actions").some((body) => /position:\s*static/.test(body) && /opacity:\s*1\b/.test(body))) out.push("错误卡的「重试」不再常驻:.msg.error > .msg-actions 须 position: static + opacity: 1");
     if (!bodiesOf(text, '.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err)').some((body) => /display:\s*flex/.test(body))) {
       out.push("工具组折叠态失败行不再常驻可见(契约 §4.1「错了不该藏起来」)");
     }
@@ -935,6 +970,7 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     ["滚动条对称", swap("scrollbar-gutter: stable both-edges;", "")],
     ["失败常驻", swap('.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err) { display: flex; }', "")],
     ["单行组头", swap('.tool-group[data-count="1"] > .tool-group-head { display: none; }', "")],
+    ["重试常驻", swap(".msg.error > .msg-actions { position: static; opacity: 1; margin-top: 8px; }", ".msg.error > .msg-actions { margin-top: 8px; }")],
     ["组转圈", swap('.tool-group[data-running="1"] .tool-group-spin { display: inline-block; animation: kz-spin var(--motion-spin) linear infinite; }', '.tool-group[data-running="1"] .tool-group-spin { display: inline-block; }')],
   ];
   const silent = counterexamples.filter(([, text]) => columnViolations(text).length === 0).map(([label]) => label);
