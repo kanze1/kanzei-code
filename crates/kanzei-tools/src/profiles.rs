@@ -635,7 +635,6 @@ mod tests {
             "逐条对照验收原文",          // §1.25 验收证据
             "任务级并行",                // §10
             "可用即关闭",                // §1.2
-            "compile_gate",              // §1.4 提交前代码门禁(D-264)
             "多项诉求",                  // §1.25 D-279:用户诉求层逐项清单
             "回读原始消息",              // §1.25 D-279:追问时不得相邻动作顶替
         ] {
@@ -644,6 +643,12 @@ mod tests {
                 "引擎默认模板未注入 dev 上下文: {required}"
             );
         }
+        // §1.4a 提交前 cargo 门禁(D-264)只进 Cargo 工程(UI2-0926 #13):无 Cargo.toml 的项目不该收到,
+        // Cargo 工程收到由 dev_conventions_cargo_条款只注入_cargo_工程 守护。
+        assert!(
+            !baseline.contains("compile_gate"),
+            "非 Cargo 项目不该收到 cargo 专属的提交门禁条款"
+        );
 
         // ② 有项目文件:两段拼接,通用在前、项目特有在后。
         let root = std::env::temp_dir().join(format!(
