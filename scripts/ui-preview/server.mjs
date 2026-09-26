@@ -28,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const UI_ROOT = path.resolve(HERE, "../../crates/kanzei-app/ui");
 export const PREVIEW_ROOT = HERE;
-const PREVIEW_FILES = new Set(["mock-ipc.js", "fixtures.mjs", "scenes.mjs", "memory-graph-fixture.mjs"]);
+const PREVIEW_FILES = new Set(["mock-ipc.js", "fixtures.mjs", "scenes.mjs", "memory-graph-fixture.mjs", "arch-fixture.mjs"]);
 const MOCK_TAG = '<script src="/__preview/mock-ipc.js"></script>';
 
 const TYPES = {
