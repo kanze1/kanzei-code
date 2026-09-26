@@ -323,6 +323,34 @@ export function addFiles(files) {
   }
 }
 
+// UI2-0926 #8 网页预览:截图 / 批注裁图进附件(结构同 addFiles:{file_name, media_type, data(base64)})。
+export function addPngAttachment(fileName, png) {
+  if (typeof png !== "string" || !png) return false;
+  attachments.push({ file_name: String(fileName || "preview.png"), media_type: "image/png", data: png });
+  renderAttachments();
+  return true;
+}
+let pickSeq = 0;
+/// 批注模式点选一个元素(kz:preview-pick):局部截图进附件,输入框末尾写上「【网页批注】地址 / 元素 / 修改意见:」,
+/// 光标停在最后,用户补一句就能发。不自动发送。
+export function addPickAttachment({ png, url = "", selector = "", text = "", tag = "" } = {}) {
+  pickSeq += 1;
+  addPngAttachment(`preview-pick-${pickSeq}.png`, png);
+  const snippet = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const target = String(selector || tag || "").trim();
+  const lines = [
+    `${t("【网页批注】")}${url}`,
+    `${t("元素")}:${target ? `\`${target}\`` : "—"}${snippet ? ` ("${snippet}")` : ""}`,
+    `${t("修改意见")}:`,
+  ];
+  const block = lines.join("\n");
+  const before = promptBox.value.replace(/\s+$/, "");
+  promptBox.value = before ? `${before}\n\n${block}` : block;
+  promptBox.dispatchEvent(new Event("input", { bubbles: true }));
+  promptBox.focus();
+  promptBox.setSelectionRange?.(promptBox.value.length, promptBox.value.length);
+}
+
 defer(() => {
   $("attach").addEventListener("click", () => $("attachment-input").click());
 });

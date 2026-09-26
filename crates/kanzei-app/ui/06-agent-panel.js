@@ -53,6 +53,7 @@ import {
   sideEvent,
   sideMaxWidth,
 } from "./06-side-policy.js";
+import { previewColumnWidth } from "./24-preview.js";
 
 // 值得停留的实时失败:失败/超时/中断/未启动。用户自己停的(cancelled)不算。
 const HOLD_STATES = new Set(["failed", "timeout", "interrupted", "rejected"]);
@@ -129,10 +130,13 @@ function mainWidth() {
 }
 /// 停靠/抽屉与各自的宽度、上限。停靠判据只看停靠口径的宽度(夹在 [320, min(760, 主区 − 600)]);
 /// 抽屉有自己的口径(默认 400,上限主区 − 96)——停靠上限在抽屉态几乎总是 320,拿它夹抽屉就拖不动。
+/// UI2-0926 #8:网页预览开着时对话视图里还并排着预览栏——停靠判据按「停靠后对话视图宽减去预览栏」算,
+/// 否则侧栏一停靠,对话列就被夹到 600px 以下。
 function panelGeometry(mainW) {
   const stored = splitApi?.value?.() ?? null;
   const docked = sideClampWidth(stored ?? sideDefaultWidth(window.innerWidth || 0), mainW);
-  const dock = sideDockMode({ mainWidth: mainW, panelWidth: docked });
+  const previewCol = previewColumnWidth(mainW - docked);
+  const dock = sideDockMode({ mainWidth: mainW - previewCol, panelWidth: docked });
   return dock === "drawer"
     ? { dock, width: sideDrawerWidth(stored, mainW), max: sideDrawerMax(mainW) }
     : { dock, width: docked, max: sideMaxWidth(mainW) };
@@ -201,6 +205,8 @@ export function reconcileTasksPanel() {
   syncWide(geometry);
   if (anchor) restoreScrollAnchor(anchor);
   lastDecision = decision;
+  // UI2-0926 #8:网页预览据此重算原生面板的位置与遮挡(抽屉盖在它上面要冻结)。
+  if (layoutChanges) document.dispatchEvent(new CustomEvent("kz:tasks-layout", { detail: { visible: decision.visible, dock: decision.dock } }));
   // 卡片里的文案(表头、类别、统计)在建卡时按当时的语言写入;切语言后整表重画一次。
   const language = languageIsEnglish() ? "en" : "zh";
   if (language !== lastLanguage) {

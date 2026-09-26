@@ -370,9 +370,23 @@ function checkPreviewOcclusion(css, surfaceCss, html, violations) {
       const line = lineAt(text, host.index);
       violations.push({ rule: "P", file: "index.html", line, text: lineText(text, line).slice(0, 160), fix: `#preview-host 必须是空元素(开标签后紧跟 ${closing}):它只是原生预览面板的占位框,里面的任何内容都被原生窗口盖住;冻结截图、空态、错误页写成它的兄弟节点(#preview-freeze / #preview-empty / #preview-error)。` });
     }
-    const dock = text.match(/<section\b[^>]*\bid="preview-dock"[^>]*>[\s\S]*?<\/section>/);
+    // 面板里还嵌着 <section>(起始页分组):按嵌套层数找配对的 </section>,不能用非贪婪正则截到第一个闭标签。
+    const open = text.match(/<section\b[^>]*\bid="preview-dock"[^>]*>/);
+    let dock = null;
+    if (open) {
+      let depth = 0;
+      const tags = /<section\b[^>]*>|<\/section>/g;
+      tags.lastIndex = open.index;
+      for (let m = tags.exec(text); m; m = tags.exec(text)) {
+        depth += m[0].startsWith("</") ? -1 : 1;
+        if (depth === 0) {
+          dock = { index: open.index, body: text.slice(open.index, m.index + m[0].length) };
+          break;
+        }
+      }
+    }
     if (dock) {
-      for (const m of dock[0].matchAll(/\bclass="([^"]*)"/g)) {
+      for (const m of dock.body.matchAll(/\bclass="([^"]*)"/g)) {
         if (!DOCK_PERSISTENT.test(m[1])) continue;
         const line = lineAt(text, dock.index + m.index);
         violations.push({ rule: "P", file: "index.html", line, text: lineText(text, line).slice(0, 160), fix: "#preview-dock 里不得放常驻浮层(.k-card/.k-chip-float/.k-toast-region/.k-panel/.k-scrim):它们压在原生预览面板上会被盖住。面板里的菜单用 openMenu 现造(打开时面板自动冻结),提示走 toast。" });
@@ -457,7 +471,7 @@ export function selfTestSurfaceRules() {
     "P toast 不让开预览": { surfaceCss: ".k-card { inset: auto calc(22px + var(--surface-safe-right, 0px)) 18px auto; }\n.k-chip-float { inset: auto var(--surface-safe-right, 0px) 18px auto; }\n.k-toast-region { inset: auto 0 40px 0; }" },
     "P 占位框有子元素": { html: '<section id="preview-dock"><div id="preview-host"><span>x</span></div></section>' },
     "P 占位框有背景": { css: `${root}#preview-host { background: var(--panel); }` },
-    "P 面板里有常驻浮层": { html: '<section id="preview-dock"><div id="preview-host"></div><div class="k-surface k-card" popover></div></section>' },
+    "P 面板里有常驻浮层": { html: '<section id="preview-dock"><div id="preview-host"></div><section class="pv-section"></section><div class="k-surface k-card" popover></div></section>' },
   };
   const expectRule = (label) => label.split(" ")[0];
   const silent = [];

@@ -24,6 +24,7 @@ import { highlightLine, renderLocalValidation, renderToolArgs, renderToolResult,
 import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
 import { state } from "./08-compose.js";
+import { decorateFileCard } from "./24-preview.js";
 
 // ---------- 后台任务侧栏里的终端条目(R-037 → UI2-0926 #14):完整工具活动入列,详情点击展开 ----------
 // 侧栏的显隐、停靠与徽标归 06-agent-panel.js(reconcileTasksPanel);这里只维护条目,变化经 onBgChange 通知。
@@ -745,6 +746,8 @@ export function renderFileCard(display) {
     actions.appendChild(button);
   }
   card.appendChild(actions);
+  // UI2-0926 #8:图片显示缩略图(点开看大图),.html 加「预览」(在网页预览面板打开)。
+  decorateFileCard(card, actions, display);
   return card;
 }
 

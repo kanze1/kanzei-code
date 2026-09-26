@@ -91,6 +91,10 @@ export const SESSIONLESS_EVENTS = new Set([
   "kz:ui-probe",
   "kz:annotate-progress",
   "kz:mobile-message", // D-387:手机消息注入桌面后刷新会话列表(全局,无运行会话)。
+  // UI2-0926 #8 网页预览面板:面板状态、控制台批量、批注点选都属于窗口里那一个面板,不归哪条运行会话。
+  "kz:preview-state",
+  "kz:preview-console",
+  "kz:preview-pick",
 ]);
 // R-284 B3:结构化体验事件的前端归并层。旧 kz:* 事件继续由各现有 handler
 // 消费；kz:experience 先按 session/topic/entity 归并到 store,再分发到表现层和工作台。

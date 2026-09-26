@@ -3947,3 +3947,133 @@ body[data-space="research"] .ctx-git { display: none; }
 .np-hint { color: var(--dim); font-size: var(--fs-11-5); line-height: 1.5; }
 .np-error { color: var(--err); font-size: var(--fs-12); line-height: 1.5; word-break: break-word; }
 .np-error.hidden { display: none; }
+/* ===== 分区:网页预览 ===== */
+/* UI2-0926 #8 网页预览停靠面板(24-preview.js;docs/design/preview_pane.md §前端)。
+   打开时 #view-chat 由 flex 列切成两列网格:左列对话(#chat-area / #turn-activity / #composer),右列 #preview-dock 占满整高,
+   不另加包裹层。右列宽 = clamp(360px, 分隔条宽(默认 48%), max(360px, 100% − 420px)),与 24-preview.js previewColumnFor 同一口径。
+   对话列里活动行与输入区的宽度改按网格格子算(100% 而不是 100cqi——#view-chat 这个容器此时含着预览栏);
+   正文 pane 的 cqi 本来就取 #chat-area(只在左列),三者照旧同宽同中轴。
+   窄屏(对话视图窄于 800px,24-preview.js 写 data-preview-narrow="chat|preview"):预览占满,工具栏出现「对话 | 预览」。
+   原生面板盖在 #preview-host 上、永远画在 HTML 之上:占位框不得有背景与子元素(ui-surface-rules P 组),舞台底色写在 #preview-stage;
+   左缘分隔条的手柄骑在面板左边 ±3px,占位框左侧让出 4px,手柄不被原生面板盖住。 */
+:root { --kz-split-preview: 48%; --kz-split-preview-console: 200px; }
+#preview-dock { display: none; }
+#view-chat.active[data-preview="open"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(360px, var(--kz-split-preview), max(360px, 100% - 420px));
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+#view-chat[data-preview="open"] > #chat-area { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; }
+#view-chat[data-preview="open"] > #turn-activity { grid-column: 1; grid-row: 2; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); }
+#view-chat[data-preview="open"] > #composer { grid-column: 1; grid-row: 3; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); }
+#view-chat[data-preview="open"] > #preview-dock { display: flex; grid-column: 2; grid-row: 1 / -1; }
+/* 窄屏:单列;「预览」页签时对话三件收起、面板占满,「对话」页签时面板收起(原生面板同时隐藏,24-preview.js)。 */
+#view-chat.active[data-preview="open"][data-preview-narrow] { grid-template-columns: minmax(0, 1fr); }
+#view-chat[data-preview="open"][data-preview-narrow="preview"] > :is(#chat-area, #turn-activity, #composer) { display: none; }
+#view-chat[data-preview="open"][data-preview-narrow="preview"] > #preview-dock { grid-column: 1; border-left: 0; }
+#view-chat[data-preview="open"][data-preview-narrow="chat"] > #preview-dock { display: none; }
+#view-chat[data-preview-narrow] > #preview-dock > .resize-handle { display: none; }
+#preview-dock {
+  position: relative; flex-direction: column; min-width: 0; min-height: 0;
+  background: var(--chat-bg); border-left: 1px solid var(--border-soft);
+}
+.pv-toolbar {
+  display: flex; align-items: center; gap: 2px; flex: none; min-width: 0; min-height: 40px;
+  padding: 6px 8px 6px 10px; border-bottom: 1px solid var(--border-soft);
+}
+.pv-tabs { display: none; flex: none; gap: 2px; margin-right: 6px; }
+#view-chat[data-preview-narrow] .pv-tabs { display: inline-flex; }
+.pv-tab {
+  padding: 3px 10px; border: 0; border-radius: var(--r-sm); background: transparent;
+  color: var(--dim); font-size: var(--fs-12); font-weight: 500;
+}
+.pv-tab:hover { color: var(--fg-strong); background: var(--surface-hover); }
+.pv-tab[aria-pressed="true"] { color: var(--fg-strong); background: var(--surface-selected); }
+.pv-btn { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; }
+.pv-btn svg { width: 16px; height: 16px; }
+.pv-btn:disabled { opacity: .4; cursor: default; background: transparent; }
+.pv-btn[aria-pressed="true"] { color: var(--fg-strong); background: var(--surface-selected); }
+#preview-reload .pv-ic-stop { display: none; }
+#preview-reload[data-loading="1"] .pv-ic-reload { display: none; }
+#preview-reload[data-loading="1"] .pv-ic-stop { display: block; }
+.pv-address {
+  flex: 1 1 auto; min-width: 72px; height: 28px; margin: 0 4px; padding: 0 12px;
+  background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-pill);
+  font: inherit; font-size: var(--fs-12-5);
+}
+.pv-address::placeholder { color: var(--dim); }
+.pv-address:focus { outline: none; border-color: var(--focus-ring); }
+/* 控制台按钮上的错误计数:与后台任务徽标的失败态同一套(--err 实心底、--bg 字)。 */
+.pv-badge {
+  position: absolute; top: 0; right: -2px; min-width: 14px; height: 14px; padding: 0 3px;
+  border-radius: var(--r-pill); background: var(--err); color: var(--bg);
+  font-size: var(--fs-9-5); font-weight: 600; line-height: 14px; text-align: center; font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.pv-stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* 设备模式:原生面板按「设备 × 缩放」居中,四周露出舞台底。 */
+.pv-stage:not([data-device="fill"]) { background: var(--panel2); }
+#preview-host { position: absolute; inset: 0 0 0 4px; }
+.pv-freeze { position: absolute; left: 4px; top: 0; width: calc(100% - 4px); height: 100%; object-fit: fill; pointer-events: none; }
+.pv-empty, .pv-error {
+  position: absolute; inset: 0; overflow: auto; display: flex; justify-content: center;
+  padding: 40px 24px 24px; background: var(--chat-bg);
+}
+.pv-empty-inner, .pv-error-inner { display: flex; flex-direction: column; gap: 14px; width: min(460px, 100%); }
+.pv-empty-title, .pv-error-title { color: var(--fg-strong); font-size: var(--fs-16); font-weight: 600; line-height: 1.4; }
+.pv-empty-hint, .pv-error-text { color: var(--dim); font-size: var(--fs-12-5); line-height: 1.6; }
+.pv-section { display: flex; flex-direction: column; gap: 4px; }
+.pv-section-head { display: flex; align-items: center; justify-content: space-between; min-height: 22px; color: var(--dim); font-size: var(--fs-11-5); }
+.pv-list { display: flex; flex-direction: column; gap: 2px; }
+.pv-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 6px 10px;
+  border: 0; border-radius: var(--r-md); background: transparent; color: var(--fg); text-align: left; cursor: pointer;
+}
+.pv-item:hover { background: var(--surface-hover); }
+.pv-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.pv-item-main, .pv-item-sub { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-item-main { color: var(--fg-strong); font-family: var(--mono); font-size: var(--fs-12-5); }
+.pv-item-sub { color: var(--dim); font-family: var(--mono); font-size: var(--fs-11); }
+.pv-none { color: var(--dim); font-size: var(--fs-12); line-height: 1.5; }
+.pv-error-code { color: var(--dim); font-family: var(--mono); font-size: var(--fs-11-5); overflow-wrap: anywhere; }
+.pv-error-actions { display: flex; gap: 8px; }
+.pv-console {
+  position: relative; flex: none; display: flex; flex-direction: column;
+  height: var(--kz-split-preview-console); min-height: 96px; max-height: 70%;
+  background: var(--code-output-bg); border-top: 1px solid var(--border-soft);
+}
+.pv-console-head { display: flex; align-items: center; gap: 6px; flex: none; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--border-soft); }
+.pv-console-title { margin-right: 6px; color: var(--fg-strong); font-size: var(--fs-12); font-weight: 600; }
+.pv-levels { display: inline-flex; gap: 2px; }
+.pv-level { padding: 2px 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); font-size: var(--fs-11-5); font-weight: 500; }
+.pv-level:hover { color: var(--fg-strong); background: var(--surface-hover); }
+.pv-level[aria-pressed="true"] { color: var(--fg-strong); background: var(--surface-selected); }
+.pv-console-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 0; font-family: var(--mono); font-size: var(--fs-12); line-height: 1.5; }
+.pv-log { display: flex; align-items: baseline; gap: 12px; padding: 2px 12px; border-bottom: 1px solid var(--border-soft); color: var(--fg); }
+.pv-log-text { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pv-log-src { flex: none; max-width: 45%; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-log[data-level="error"], .pv-log[data-level="network"] { color: var(--err); }
+.pv-log[data-level="warn"] { color: var(--warn); }
+.pv-log-empty { padding: 10px 12px; color: var(--dim); font-family: var(--sans); }
+/* 对话里的入口:工具截图缩略图(挂在工具行头之后、折叠详情之前,不展开也看得见)、交付图片、代码块「预览」、大图查看。 */
+.tool-shots { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 6px 18px; }
+.pv-thumb {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 168px; height: 105px; padding: 0; overflow: hidden;
+  border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--panel2); cursor: zoom-in;
+}
+.pv-thumb:hover { border-color: var(--border-strong); }
+.pv-thumb:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.pv-thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.pv-thumb:not(.is-ready) .pv-thumb-img { visibility: hidden; }
+.pv-thumb-missing { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 6px; color: var(--dim); font-size: var(--fs-11); text-align: center; }
+.file-card-thumb { width: 240px; height: 150px; margin: 6px 0 2px; }
+.file-card-thumb .pv-thumb-img { object-fit: contain; object-position: center; }
+/* 折叠的工具组里,最后一张截图所在的行常驻可见(与失败行同理:模型看到的画面不该藏起来)。 */
+.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.has-shot) { display: flex; }
+.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body > .tool-msg.has-shot:not(:has(~ .tool-msg.has-shot)) { display: block; }
+pre.code.has-preview { position: relative; }
+pre.code.has-preview > .code-preview { position: absolute; top: 6px; right: 6px; }
+#viewer-body.kz-image-view { display: flex; align-items: center; justify-content: center; padding: 12px; background: var(--panel2); }
+.kz-image-view-img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+/* ===== 分区:网页预览(完) ===== */
