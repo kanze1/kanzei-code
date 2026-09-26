@@ -76,7 +76,7 @@ dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backd
 
 /* ---------- 3 停靠卡片(权限/提问)与浮动芯片:不轻关闭,不参与模态 ---------- */
 .k-card {
-  position: fixed; inset: auto calc(22px + var(--kz-dock-right, 0px)) 18px auto; margin: 0;
+  position: fixed; inset: auto calc(22px + max(var(--kz-dock-right, 0px), var(--surface-safe-right, 0px))) 18px auto; margin: 0;
   min-width: min(380px, calc(100vw - 44px)); max-width: min(560px, calc(100vw - 44px));
   max-height: 60vh; overflow: auto; padding: 16px 18px;
   box-shadow: var(--surface-shadow-3); font-size: var(--fs-13);
@@ -90,13 +90,16 @@ body:not([data-view]:not([data-view="chat"])) .k-card[data-kz-anchor="composer"]
   position-anchor: --kz-composer;
   top: auto;
   left: anchor(left, 50%); /* 回退值只能是长度:写 auto 整条声明无效(实测 Edge 153 退回收缩宽度) */
-  right: anchor(right, calc(22px + var(--kz-dock-right, 0px)));
+  right: anchor(right, calc(22px + max(var(--kz-dock-right, 0px), var(--surface-safe-right, 0px))));
   bottom: calc(anchor(top, 8px) + 10px);
   width: auto; min-width: 0; max-width: none; /* popover 的 UA 宽度是 fit-content,不写 auto 就不会撑满左右锚点 */
 }
-/* 「重新打开询问」芯片与右下停靠的卡片按后台任务侧栏的停靠宽度让开(--kz-dock-right 由 06-agent-panel.js 写在 <html> 上)。 */
+/* 「重新打开询问」芯片与右下停靠的卡片按后台任务侧栏的停靠宽度让开(--kz-dock-right 由 06-agent-panel.js 写在 <html> 上)。
+   UI2-0926 #8:网页预览面板打开时还要让开它——原生子 webview 永远画在 HTML 之上,浮层落到它上面就看不见。
+   --surface-safe-right = 视口右缘到预览面板左缘的距离(预览 + 其右侧停靠的后台任务侧栏),由 24-preview.js 写在 <html> 上,
+   面板关闭、非对话视图、窄屏占满时为 0;与 --kz-dock-right 取大者(预览打开时前者已含后者)。 */
 .k-chip-float {
-  position: fixed; inset: auto calc(22px + var(--kz-dock-right, 0px)) 18px auto; margin: 0;
+  position: fixed; inset: auto calc(22px + max(var(--kz-dock-right, 0px), var(--surface-safe-right, 0px))) 18px auto; margin: 0;
   border-radius: var(--r-pill); padding: 7px 12px;
   color: var(--surface-fg-strong); font-size: var(--fs-12-5); cursor: pointer;
 }
@@ -104,8 +107,9 @@ body:not([data-view]:not([data-view="chat"])) .k-card[data-kz-anchor="composer"]
 .k-chip-float:hover { background-image: linear-gradient(var(--surface-item-hover), var(--surface-item-hover)); }
 
 /* ---------- 4 toast:区域本身透明,条目是 .k-surface ---------- */
+/* 预览面板打开时 toast 在它左边的区域里居中(--surface-safe-right 见 §3 芯片注释)。 */
 .k-toast-region {
-  position: fixed; inset: auto 0 40px 0; margin: 0 auto;
+  position: fixed; inset: auto var(--surface-safe-right, 0px) 40px 0; margin: 0 auto;
   width: max-content; max-width: min(560px, 90vw);
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   background: none; border: 0; border-radius: 0; box-shadow: none; padding: 0;

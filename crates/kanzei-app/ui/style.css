@@ -124,7 +124,7 @@
   --surface-item-hover: var(--surface-hover); --surface-item-active: var(--surface-selected);
   --surface-radius-sm: var(--r-sm); --surface-radius-md: var(--r-lg); --surface-radius-lg: var(--r-lg);
   --surface-shadow-1: var(--elev-1); --surface-shadow-2: var(--elev-2); --surface-shadow-3: var(--elev-3);
-  --surface-backdrop: var(--scrim); --surface-offset: 6px;
+  --surface-backdrop: var(--scrim); --surface-offset: 6px; --surface-safe-right: 0px;
   --surface-backdrop-soft: color-mix(in srgb, var(--bg) 55%, transparent);
   --surface-panel-docked: var(--sidebar-bg); /* 后台任务侧栏:与左侧栏同色,右侧对称的一整列 */
   --surface-motion: var(--motion-fast) var(--ease-out);

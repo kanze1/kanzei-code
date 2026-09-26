@@ -122,7 +122,15 @@ bindMenus(root)          // 扫 [data-kz-menu="<弹层 id>"]:aria-haspopup/contr
 showCard(el, { onEscape, focus: "auto"|"none", initialFocus });  hideCard(el)
 toast(message, { kind: "info"|"ok"|"warn"|"err", timeout }) → remove()                   // 最多 3 条;err 用 role=alert(默认 6s),其余 role=status(2.6s);过期只隐藏、留到下一条再清
 installTooltips(root)    // 接管全局 title:悬停 450ms/键盘聚焦立即显示,title 暂挪进 data-kz-tip,离开还回;.monaco-editor 内不接管
+onSurfaceChange(fn) → off()   // UI2-0926 #8:栈变化钩子,fn([{ el, type }]);模态激活、任何关闭、锚定弹层/卡片打开、toast 区域显隐、提示显隐各通知一次
+surfaceElements() → [{ el, type }]  // 此刻浮着的全部弹层(栈 + 显示中的提示 + 有条目的 toast 区域),订阅方布局变化后主动重判用
 ```
+
+**网页预览的遮挡(UI2-0926 #8)**:网页预览面板是 Tauri 子 webview(原生窗口),永远画在 HTML 之上,z-index 管不着。浮层只有两条活路:
+① 常驻浮层让开它——`.k-card`、`.k-chip-float`、`.k-toast-region` 的 inset 右值加 `var(--surface-safe-right, 0px)`(卡片/芯片与 `--kz-dock-right` 取大者),
+该变量由 24-preview.js 写在 `<html>` 上 = 视口右缘到预览面板左缘的距离,面板关闭、非对话视图、窄屏占满时为 0;
+② 临时弹层压上去时冻结——24-preview.js 订阅 `onSurfaceChange`,栈里有模态、或任一弹层矩形与 `#preview-host` 相交,就先截一帧放进 `#preview-freeze`、
+再隐藏原生面板,不再遮挡时(去抖 120ms)恢复。钩子零依赖、不做几何,相交判定归订阅方。设计与路由后果见 [preview_pane.md](preview_pane.md) §前端。
 
 导入习惯不变:01-core.js 仍导出 `confirmDialog`/`inputDialog`(连同冒烟接缝 `setConfirmDialog`/`setInputDialog`),内部委托 00-surface;03-shell.js 的 `toast(text, { kind })` 负责本地化后交给 surface 的 toast,`toastError` 仍写日志面板(长错误不交给会自动消失的 toast)。
 
@@ -217,6 +225,7 @@ installTooltips(root)    // 接管全局 title:悬停 450ms/键盘聚焦立即�
 - **T1 token 分层**:组件层名字只准 surface.css 使用;不在 `[data-theme="light"]` 里重定义;surface.css 引用的每个 token 在 style.css 或 surface.css 里有定义(00-frame.js 运行时写入的 `--kz-frame-l/r/t/b/w/h` 豁免);不出现 `--c-*`。
 - **S1 外观归属**(style.css):选择器含 `dialog`/`::backdrop`/`::picker(`/`:popover-open`/`[popover`/`.k-*`/`option` 即违例;主体是弹层宿主(`#confirm-overlay`、`.autorun-menu` 等)时不得声明底色/边框/圆角/阴影/backdrop-filter/z-index/position/inset;`#tasks-panel` 不得声明底色/边框/阴影(停靠与抽屉的外观在 surface.css 的 `.k-panel[data-dock]`);不得按 `[data-kz-placed]`/`[data-kz-frame]` 选择、不得引用 `--kz-frame-*`(框的落位只在 surface.css §10);`position: fixed` 只许 `.resize-handle`;不得引用已删的高位 z;模糊 ≥16px 的大阴影只许 `#composer`、`#composer:focus-within`、`#sidebar:not(.collapsed)`;外观属性不得 `!important`;index.html 里 `<details>` 的 id/class 作主体时不得 `position: absolute|fixed`。
 - **H 页面结构**(index.html):`role="dialog|alertdialog|menu|tooltip"` 的宿主须是 `<dialog>` 或带 `popover`(白名单已删:常驻侧栏 `#tasks-panel` 是 `<aside>` 地标);`data-kz-frame` 只准挂在 `<dialog class="k-dialog">`(命令面板除外)或 `.k-card` 上,id 非空且唯一,有 `data-kz-frame-*` 就必须有 `data-kz-frame`,`data-kz-frame-edges` 只能是 `all` 或 `n e s w ne se sw nw`;每个 `<dialog>` 与 `[popover]` 必带 `k-surface`;`<dialog>` 里的 `data-kz-menu` 触发器,对应弹层必须写在同一个 dialog 内;输入区菜单不得再是 `<details>`;`<select>` 不带 `multiple`/`size`;不写内联颜色样式。
+- **P 预览遮挡**(UI2-0926 #8):surface.css 里选择器分支等于 `.k-card` / `.k-chip-float` / `.k-toast-region` 的规则至少一条声明 inset,且每条 inset 都引用 `--surface-safe-right`;index.html 的 `#preview-host` 是空元素(开标签后紧跟闭标签);style.css 不得给 `#preview-host` 背景;`<section id="preview-dock">` 里不得出现 `.k-card/.k-chip-float/.k-toast-region/.k-panel/.k-scrim`。
 - **J 脚本**:J1 除 00-surface.js 外不得 `$("<弹层 id>").classList.add|remove|toggle("hidden")`,也不得先取进局部变量再切(`const detail = $("context-detail"); … detail.classList.remove("hidden")`,同一顶层函数体内配对);J2 `ui/[0-9]*.js`(22-neural-flow 与 22-oc-* 除外)不得给 `.style.background/color/…` 赋字面量;J3 00-surface.js 与 00-frame.js 零 import;J4 拖动/调尺寸只有一个入口:编号脚本(22-oc-* 角色工作室除外)不得出现 `setPointerCapture(`、`--kz-frame-`、`data-kz-placed`,只准 00-frame.js。
 
 每条违例输出「文件:行、原文、改用什么」,同一改法只说一遍。模块自带反例自测(`selfTestSurfaceRules`),每条规则喂一条必须命中的样本,任何判据恒绿先在 a11y 冒烟里红。
@@ -331,6 +340,8 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 - 2026-09-26(UI2-0926 #4/#14):新增 §4.6 00-frame.js(框与分隔条唯一入口,几何经 `ui_prefs.ui_layout` 持久化)、surface.css §10 可调框落位;`#bg-panel`/`#agent-panel` 合成停靠的 `#tasks-panel`(`.k-panel[data-dock]`、`.k-scrim`、`--surface-panel-docked`、运行时变量 `--kz-dock-right`),H 组删掉 role=dialog 的侧面板白名单;权限卡锚在输入区上方。门禁新增 H 组可调框规则、S1 侧栏外观与框落位、T1 运行时变量豁免、J3 覆盖 00-frame.js、J4 几何手势唯一入口,均带反例自测。
 - 2026-09-26(UI2-0926 #14#4 复核修复):`installSplit` 增加 `titleKey`/`ariaKey`(切语言重译);后台任务侧栏的分隔条上限按形态分开(抽屉 `主区宽 − 96`);侧栏自己的 Esc 监听跳过弹层内的按键(`[popover]` 里、或原生下拉列表开着),交给本模块与浏览器——此前「筛选与清理」菜单里下拉列表开着时按 Esc,00-surface 按设计放行,冒泡到侧栏被当成用户关闭。浏览器冒烟步骤 6 增补侧栏几何、芯片让位、弹层 Esc 与窄侧栏小表,并引入 `page.route` 变异守卫。
 - 2026-09-26(UI2-0926 #6,ui2/files 分支):文件树分隔条上限改按文件页宽度(给编辑器留 360px)并换专属读屏名;`installSplit` 的手柄加 `aria-controls` 指向窗格。文件页编辑的弹层(未保存确认、新建文件输入、保存反馈)全部走本模块的 confirmDialog / inputDialog / toast,设计见 [files_editor.md](files_editor.md)。
+
+- 2026-09-26(UI2-0926 #8,ui2/webfe 分支):00-surface.js 新增 `onSurfaceChange`/`surfaceElements`(网页预览冻结用的零依赖栈变化钩子);surface.css 常驻浮层宿主的 inset 右值加 `--surface-safe-right`(组件层默认 0px);门禁新增 P 组预览遮挡规则,带 4 条反例自测。
 
 ## 验证证据
 
