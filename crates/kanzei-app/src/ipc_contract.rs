@@ -357,4 +357,125 @@ pub(crate) mod tests {
         check_contract("file_write", actual, "file_write 的 IPC 形状变了");
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    // ── 分区:网页预览后端 ──
+    /// UI2-0926 #8:预览面板的三个事件载荷与纯构造的命令返回(前端 24-preview.js、06-activity.js
+    /// 与 ui-runtime-smoke 夹具共读)。可空字段取样时都给了值,契约里记的是真实类型。
+    #[test]
+    fn 预览面板事件与载荷_形状与ipc契约一致() {
+        use crate::preview::{
+            console::{console_payload, ConsoleRing, EntryDraft},
+            describe_error, state_payload, ColorScheme, DevicePreset, PaneMeta,
+        };
+        let meta = PaneMeta {
+            url: "http://localhost:5173/".into(),
+            title: "Vite App".into(),
+            loading: false,
+            can_back: true,
+            can_forward: false,
+            visible: true,
+            bound_process_id: Some("d|C:/proj".into()),
+            device: DevicePreset::Phone,
+            scheme: ColorScheme::Dark,
+            error: Some(describe_error(
+                "net::ERR_CONNECTION_REFUSED",
+                "http://localhost:5173/",
+            )),
+            ..PaneMeta::default()
+        };
+        check_contract(
+            "kz:preview-state",
+            shape(&state_payload(&meta)),
+            "kz:preview-state 的载荷形状变了",
+        );
+        let mut ring = ConsoleRing::default();
+        ring.push(
+            EntryDraft {
+                level: "error".into(),
+                text: "Uncaught Error: boom".into(),
+                url: "http://localhost:5173/src/main.ts".into(),
+                line: Some(12),
+                col: Some(5),
+            },
+            1_790_000_000_000,
+        );
+        let console = shape(&console_payload(&ring.since(0)));
+        check_contract(
+            "kz:preview-console",
+            console.clone(),
+            "kz:preview-console 的载荷形状变了",
+        );
+        check_contract("preview_console", console, "preview_console 的返回形状变了");
+        check_contract(
+            "kz:preview-pick",
+            shape(&crate::preview::pick_payload(
+                &serde_json::json!({"selector": "#go", "text": "Go", "tag": "button",
+                                    "rect": {"x": 1.0, "y": 2.0, "w": 30.0, "h": 20.0}}),
+                "iVBORw0KGgo=".into(),
+            )),
+            "kz:preview-pick 的载荷形状变了",
+        );
+        check_contract(
+            "preview_capture",
+            shape(&crate::preview::capture_payload(
+                "iVBORw0KGgo=".into(),
+                900,
+                630,
+            )),
+            "preview_capture 的返回形状变了",
+        );
+        check_contract(
+            "preview_dev_urls",
+            shape(&crate::preview::commands::dev_urls_payload(&[
+                kanzei_tools::dev_urls::DevUrl {
+                    url: "http://localhost:5173/".into(),
+                    command: "npm run dev".into(),
+                    pid: Some(4242),
+                },
+            ])),
+            "preview_dev_urls 的返回形状变了",
+        );
+    }
+
+    #[tokio::test]
+    async fn 预览片段与图片命令_形状与ipc契约一致() {
+        let snippet = crate::preview::commands::preview_snippet("<p>契约</p>".into())
+            .await
+            .expect("片段应能登记");
+        check_contract(
+            "preview_snippet",
+            shape(&snippet),
+            "preview_snippet 的返回形状变了",
+        );
+
+        let root = fixture_project();
+        let images = root.join(crate::preview::commands::TOOL_IMAGES_REL);
+        std::fs::create_dir_all(&images).unwrap();
+        let name = format!("{}.png", "0".repeat(64));
+        std::fs::write(images.join(&name), b"\x89PNG\r\n\x1a\n").unwrap();
+        std::fs::write(root.join("chart.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let tool_image = crate::preview::commands::tool_image(
+            root.display().to_string(),
+            format!("{}/{name}", crate::preview::commands::TOOL_IMAGES_REL),
+        )
+        .await
+        .expect("截图应能读取");
+        check_contract(
+            "tool_image",
+            shape(&tool_image),
+            "tool_image 的返回形状变了",
+        );
+        let delivered = crate::preview::commands::delivered_image(
+            root.display().to_string(),
+            root.join("chart.png").display().to_string(),
+        )
+        .await
+        .expect("交付图片应能读取");
+        check_contract(
+            "delivered_image",
+            shape(&delivered),
+            "delivered_image 的返回形状变了",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

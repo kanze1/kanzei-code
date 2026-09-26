@@ -19,7 +19,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 reqwest.workspace = true
 futures.workspace = true
-tauri = { version = "2", features = [] }
+# UI2-0926 #8 网页预览:"unstable" 打开 Window::add_child(子 webview 面板)。调用集中在
+# src/preview/pane.rs 一处;升级 tauri 小版本时重跑 docs/design/preview_pane.md 的 B0 验收清单。
+tauri = { version = "2", features = ["unstable"] }
 rfd = "0.15"
 dirs.workspace = true
 toml.workspace = true
@@ -46,6 +48,8 @@ tracing-subscriber.workspace = true
 # windows-sys(而不是另引 windows crate)——同一套 API 的两份绑定共存只会让
 # 「该用哪个」在后面每次改动时重新问一遍。其它平台由 screenshot.rs 的 cfg 分支
 # 返回「未实现」,不编译失败。
+# 唯一例外(UI2-0926 #8):WebView2 的 COM 接口(进程内 CDP、共用环境)只有
+# webview2-com + windows 这一条路,见下方;普通 Win32 调用仍一律走 windows-sys。
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Threading",
@@ -55,3 +59,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_HiDpi",
 ] }
 
+# UI2-0926 #8 网页预览:WebView2 COM 的唯一入口(src/preview/cdp.rs)。版本与 wry 已拉入的
+# 一致(Cargo.lock:webview2-com 0.38.2 / windows 0.61.3),不新增编译单元;只许 cdp.rs 用。
+webview2-com = "0.38"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com"] }

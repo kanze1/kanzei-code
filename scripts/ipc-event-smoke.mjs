@@ -41,6 +41,27 @@ for (const file of fs.readdirSync(path.join(root, "crates/kanzei-app/ui")).filte
   for (const m of src.matchAll(FRONTEND_RE)) frontendEvents.add(m[1]);
 }
 
+// ── 分区:网页预览后端 ──
+// UI2-0926 #8:网页预览面板的三个事件没有会话归属(面板是全局的,不跟某条线走),必须登记进
+// 01-core.js 的 SESSIONLESS_EVENTS 并经 on() 订阅,否则前端「没有 sessionId 就丢弃」的纪律会
+// 把它们静默吞掉。事件名与载荷形状见 docs/design/preview_pane.md §6 与 scripts/ipc-contract.json。
+{
+  const PREVIEW_EVENTS = ["kz:preview-state", "kz:preview-console", "kz:preview-pick"];
+  const core = fs.readFileSync(path.join(root, "crates/kanzei-app/ui/01-core.js"), "utf8");
+  const sessionless = core.match(/SESSIONLESS_EVENTS\s*=\s*new Set\(\[([\s\S]*?)\]\)/)?.[1] ?? "";
+  const gaps = [];
+  for (const name of PREVIEW_EVENTS) {
+    if (!backendEvents.has(name)) gaps.push(`${name}:后端没有 emit`);
+    if (!frontendEvents.has(name)) gaps.push(`${name}:前端没有 on() 订阅`);
+    if (!sessionless.includes(`"${name}"`)) gaps.push(`${name}:未登记进 01-core.js 的 SESSIONLESS_EVENTS`);
+  }
+  if (gaps.length) {
+    console.error(`网页预览事件接线不全(UI2-0926 #8,${gaps.length} 处):`);
+    for (const gap of gaps) console.error(`  ${gap}`);
+    process.exit(1);
+  }
+}
+
 const backendOnly = [...backendEvents].filter((e) => !frontendEvents.has(e)).sort();
 const frontendOnly = [...frontendEvents].filter((e) => !backendEvents.has(e)).sort();
 const MIN_IPC_EVENTS = 10;

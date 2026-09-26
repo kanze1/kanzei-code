@@ -37,6 +37,8 @@ mod model_config;
 mod orchestration_trace;
 mod phase_pipeline;
 mod prefs;
+/// UI2-0926 #8:网页预览面板(子 webview + 进程内 CDP)与 browser 工具的面板后端。
+mod preview;
 mod processes;
 mod projection_gate;
 mod projects;
@@ -114,6 +116,7 @@ fn main() {
         .manage(AppState::default())
         .manage(voice::VoiceState::default())
         .manage(memory_chat::MemoryChatState::default())
+        .manage(preview::PreviewState::default())
         // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
         .setup(|app| {
             let handle = app.handle().clone();
@@ -154,6 +157,8 @@ fn main() {
                 }
             }
             let main_window = builder.build()?;
+            // UI2-0926 #8:网页预览面板的装配(应用句柄 + DPI 变化重放边界 + 关窗收面板)。
+            preview::install(app.handle(), &main_window);
             // R-249 批2:窗口句柄装进静态,截图工具据此抓真实画面。取不到句柄
             // (非 Windows / 平台不支持)时不装——工具会如实报「窗口未就绪」,
             // 而不是拿一个假句柄去抓出别人的窗口。
@@ -313,7 +318,24 @@ fn main() {
             agent_container::agent_container_upgrade,
             agent_container::agent_container_rollback,
             agent_directory::agent_directory_get,
-            agent_directory::agent_directory_open
+            agent_directory::agent_directory_open,
+            preview::commands::preview_open,
+            preview::commands::preview_set_bounds,
+            preview::commands::preview_set_visible,
+            preview::commands::preview_nav,
+            preview::commands::preview_close,
+            preview::commands::preview_capture,
+            preview::commands::preview_console,
+            preview::commands::preview_console_clear,
+            preview::commands::preview_device,
+            preview::commands::preview_pick,
+            preview::commands::preview_snippet,
+            preview::commands::preview_dev_urls,
+            preview::commands::preview_clear_site_data,
+            preview::commands::preview_open_devtools,
+            preview::commands::preview_open_external,
+            preview::commands::tool_image,
+            preview::commands::delivered_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
