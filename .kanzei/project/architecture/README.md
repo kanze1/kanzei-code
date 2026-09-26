@@ -21,7 +21,7 @@
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-h3-deployment.md`](../../../docs/design/oc-h3-deployment.md)：H3 固定版本、同区双卡部署与素材生成记录。
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-voice-direction.md`](../../../docs/design/oc-voice-direction.md)：角色音色方向、C 配音选择及交接约定。
 - [identity: live_design; last_verified_commit: 250fb219] [`research_library.md`](../../../docs/design/research_library.md)：独立课题身份、存储及开发项目可选关联(R-363；该提交为变更前基线，工作树增量已验证，待提交验收)。
-- [identity: live_design; last_verified_commit: ee1d9492] [`ui_surface_stack.md`](../../../docs/design/ui_surface_stack.md)：弹层技术栈——dialog/popover/锚点定位/base-select 顶层原语、组件层 --surface-* token、唯一的 00-surface.js(一个栈、Esc 只关栈顶、点外关闭、焦点规则)、ESLint + ui-surface-rules 静态门禁与样例页浏览器冒烟(UI-0926 #9;截图 6 白色下拉的根因与修复)。
+- [identity: live_design; last_verified_commit: febe66df] [`ui_surface_stack.md`](../../../docs/design/ui_surface_stack.md)：弹层技术栈——dialog/popover/锚点定位/base-select 顶层原语、组件层 --surface-* token、唯一的 00-surface.js(一个栈、Esc 只关栈顶、点外关闭、焦点规则)、ESLint + ui-surface-rules 静态门禁与样例页浏览器冒烟(UI-0926 #9;截图 6 白色下拉的根因与修复);§11 输入区控件几何——上下文带 + 单行工具行、28px 静默控件 .kz-ctl、全局 select 居中与细 V 形箭头、ui-composer-geometry 浏览器测量(UI2-0926 #11)。
 - [identity: live_design; last_verified_commit: ee1d9492] [`subagent_presentation.md`](../../../docs/design/subagent_presentation.md)：子代理呈现——主对话单卡(字形/人格/描述/实时计数/≤3 行尾迹)、并行成组、侧栏总览与详情、状态与数据契约;复用第一波 .kz-glyph/.k-panel/05-tool-summary 原语,后端 meta trace、稳定终态码与整轮停止补发 ToolEnd(UI-0926 #8)。
 - [identity: live_design; last_verified_commit: ee1d9492] [`ui_color_semantics.md`](../../../docs/design/ui_color_semantics.md)：界面配色——深色表面按 Codex 实测分层(主区最深、侧栏亮一档、输入区浮起、标题纯白)与语义色表(橙=进行中、琥珀=需要注意、绿=成功收尾、红=失败与 P0、灰=其余、蓝只给代码),ui-a11y-smoke ③b 叠色对比度(胶囊底 ∘ 卡底 ∘ 悬停合成后算)、⑥ 颜色语义门禁与运行时守卫(UI2-0926 #2#3,含复核修复)。
 
@@ -58,7 +58,7 @@
 - [identity: validated_design; last_verified_commit: c0ea88d] [`ci_release_evidence_chain.md`](../../../docs/design/ci_release_evidence_chain.md)：CI 与发布证据链——本地门禁 + commit 锚定(R-152/R-146/R-156/R-298 done)。
 - [identity: validated_design; last_verified_commit: e791536] [`continue_prompt_dissection.md`](../../../docs/design/continue_prompt_dissection.md)：继续文案拆解与鞭挞引擎化——实施前拆解与 R-128/R-157/R-169/R-170 交付映射。
 - [identity: validated_design; last_verified_commit: e791536] [`deep_parallel_dev.md`](../../../docs/design/deep_parallel_dev.md)：任务级并行基线——一线一 worktree、diff/合并/恢复与模型隔离(R-177/R-178/R-179/R-182 done)。
-- [identity: live_design; last_verified_commit: cf20bf6c] [`chat_presentation_contract.md`](../../../docs/design/chat_presentation_contract.md)：主对话区分层契约——正文/轨迹/后台三层,工具一行可展开、轮间留白、单行思考不成块;附 state.db 复核的正文与轨迹字节比(R-350~R-352,D-725)。
+- [identity: live_design; last_verified_commit: febe66df] [`chat_presentation_contract.md`](../../../docs/design/chat_presentation_contract.md)：主对话区分层契约——正文/轨迹/后台三层,工具一行可展开、轮间留白、单行思考不成块;附 state.db 复核的正文与轨迹字节比(R-350~R-352,D-725);§4.4 单列与工具组——列宽唯一真源 --chat-col、连续工具调用合成一行、失败常驻、ui-column-layout-smoke 浏览器量边(UI2-0926 #12)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`interaction_modes.md`](../../../docs/design/interaction_modes.md)：双人格与对话为主布局设计(R-036 done)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`m2_sqlite_store.md`](../../../docs/design/m2_sqlite_store.md)：SQLite 会话存储 Schema v1(R-003 done)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`memory_decision_sufficiency.md`](../../../docs/design/memory_decision_sufficiency.md)：Memory 判据层升级——决策充分性(R-145/R-150 done,含边界拍板与实证修正记录)。

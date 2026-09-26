@@ -127,7 +127,12 @@ installTooltips(root)    // 接管全局 title:悬停 450ms/键盘聚焦立即�
 
 ### 4.5 原生 select:为什么是 base-select 而不是 JS 替身
 
-几十个 select 的 `.value`/`.options`/`change` 被业务代码直接使用,假 DOM 冒烟也专门模拟了 SELECT 的规范语义;JS 替身会把这些全部打断。`appearance: base-select` 保留原生语义、键盘首字母跳转与表单行为,同时让列表变成顶层弹层、由 surface.css 绘制;按钮态仍归视图(`.ctx-select` 的透明芯片不受影响)。门禁禁止 `multiple`/`size`(列表框模式外观规则不同)。
+几十个 select 的 `.value`/`.options`/`change` 被业务代码直接使用,假 DOM 冒烟也专门模拟了 SELECT 的规范语义;JS 替身会把这些全部打断。`appearance: base-select` 保留原生语义、键盘首字母跳转与表单行为,同时让列表变成顶层弹层、由 surface.css 绘制;按钮态仍归视图(输入区的透明芯片是 `.kz-ctl`,见 §11)。门禁禁止 `multiple`/`size`(列表框模式外观规则不同)。
+
+两处 base-select 的坑(UI2-0926 #11 补):
+
+- base-select 的 UA 按钮盒在 flex 行里被块化成 `display: flex`,但 `align-items` 计算值是 `normal`(= stretch)。固定高度的下拉(输入区模式芯片 30px)里已选文字与 `::picker-icon` 被拉满后顶在上半截(实测墨迹偏离中线 4.31px)。**style.css 的基础 `select` 规则必须带 `align-items: center`**,全应用 51 个 select 一次修好;浏览器冒烟 §7.3 第 7 项逐个核对计算值。
+- `::picker-icon` 的 UA 默认内容是 `counter(disclosure-open)` 的实心 ▼ 字形,字号随文本、基线不齐,与其它菜单触发器的箭头不是一个东西。surface.css §6 把它换成细 V 形遮罩 `var(--icon-chevron)`(与 `.kz-chev`、`.picker-btn::after` 共用,token 定义在 style.css `:root`),`select:open` 时翻转 180°。
 
 ## 5. 唯一写法(给人和弱模型的决策表)
 
@@ -143,7 +148,8 @@ installTooltips(root)    // 接管全局 title:悬停 450ms/键盘聚焦立即�
 | 需要持续引起注意的停靠卡片 | `showCard(el, { onEscape })` / `hideCard(el)` | ./00-surface.js |
 | 一句话反馈 | `toast(t("…"), { kind })`;长错误用 `toastError` | ./03-shell.js |
 | 给控件加说明 | `title=` 加 `data-i18n-title`,tooltip 层自动接管 | 不需要 JS |
-| 下拉选择 | 原生 `<select>`;视图 CSS 只写尺寸和按钮态 | 不需要 JS |
+| 下拉选择 | 原生 `<select>`;视图 CSS 只写尺寸和按钮态(输入区里加 `.kz-ctl`,垂直居中已由基础 select 规则保证) | 不需要 JS |
+| 输入区(composer)里的按钮/下拉/开关 | `class="kz-ctl"`(图标按钮再加 `kz-ctl--icon`,发送 `kz-ctl--round`);下拉箭头用 `<span class="kz-chev">` | 不需要 JS,见 §11 |
 | 常驻侧面板 | `class="k-surface k-panel"`;视图 CSS 只写位置和尺寸 | 不需要 JS |
 
 **禁止**:新增 `position:fixed` 浮层;自带遮罩;在视图 CSS 里给弹层写底色、边框、圆角、阴影、z-index、position;`window.alert/confirm/prompt`;把 `<details>` 当下拉用;document 或 window 级的 Esc 监听;直接切换弹层的 `.hidden`;直接调 `showModal/showPopover/hidePopover`。
@@ -199,6 +205,7 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
    弹窗里的菜单:JS 菜单挂在 dialog 内,真实鼠标点击菜单项走到 onSelect 且只关菜单;静态 data-kz-menu 菜单里的勾选框勾得上;Esc 先关菜单再关弹窗。补全列表与宽锚点同宽且左缘对齐(锚点 >420px)。键盘打开查看器同构弹窗时初始焦点不弹 tooltip(新开一个鼠标没进过的页面测,另有键盘聚焦出提示的对照)。
 5. index.html 运行时对照(预览服务注入模拟 IPC):所有 select 计算为 `base-select`;所有 `dialog, [popover]` 带 `k-surface`;除 `.resize-handle` 外没有顶层以外、正在显示的 `position: fixed` 元素。
 6. 截图写入 `dist/ui-gallery/<theme>-<demo>.png`、`matrix.png`、`<theme>-index.png`(dist 已在 .gitignore)。
+7. 输入区控件几何(UI2-0926 #11,`scripts/ui-composer-geometry.mjs`,见 §11.4):1100@1、1280@1.5、1600@1.25、2000@1 × 暗/亮 × 运行/空闲(另加超长项目名),每次运行附带三种注入回归的自检。
 
 已实测:删掉 base-select 那一行,或去掉 §4.4 的迟到 close 守卫,这份冒烟都会红。ui_lint 步骤因此增加约 20 秒并依赖本机 Edge(本机与 windows-latest 都有)。
 
@@ -222,9 +229,67 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 - 权限卡的聚焦策略变为「正在输入时不抢焦点」,属于行为变化,需写进发版说明。
 - `closedby` 与 `popover="hint"` 不可用时有退化路径;base-select 与锚点定位不可用时浏览器冒烟直接失败。
 
+## 11. 输入区控件几何(UI2-0926 #11)
+
+用户截图 13:「这里的渲染也有问题」——模式芯片文字贴在上半截、看上去「异常高」;鞭挞组两层描边错位。实测输入区控件有 7 种高度(15/16/19/24/26/27/28/30/32)、4 种字号,没有「控件高度」这个概念;旧控件多由高特异性的 ID 规则各写各的尺寸,任何统一类都压不过。
+
+### 11.1 根因
+
+| # | 根因 |
+|---|---|
+| A | base-select 的 `align-items: normal`(见 §4.5),固定 30px 高的模式芯片文字与 ▼ 顶在上半截;它又是那一排唯一有实底的控件,把错位放大成「异常高」。用户说的「盖住项目名和模型首字母」实为截图上红框线压字,芯片本体没有叠压邻居。 |
+| B | `::picker-icon` 只上了色,形状仍是 UA 实心 ▼;其它触发器用文本「▾」,模型/思考芯片没有箭头——一行里三种下拉指示。 |
+| D | 鞭挞组容器 `.autorun-bar` 在 armed/running 时自己画圆角边框与底色,左右内边距却是 0;内部「鞭挞」又是带描边的胶囊,两层描边相切叠成双线,「推进中」贴着右框。 |
+| E | 鞭挞组四个成员四种高度(26/27/19/15)、三种字号;轮次徽标为一条常态宽度为 0 的进度条留了不对称内边距,数字上偏。 |
+| F | 没有控件几何 token;每个控件各写尺寸,多由 ID 规则写死。 |
+| G | 停机原因胶囊是 inline-flex,匿名文本画不出省略号;`#hint` 无写入方;`.ctx-project::after` 动画挂在已删的伪元素上。 |
+
+### 11.2 结构(参照 Claude Code 桌面 / Codex)
+
+```
+#composer(卡片,container: composer / inline-size;宽度 = 对话列表达式,见 chat_presentation_contract.md §4.4)
+├─ #composer-context 上下文带:项目名 · ⎇ 分支 ……………… [N 个文件 +a −d ⌄](#change-bar)   ← 卡片顶部通栏 + 下方细线
+├─ #change-bar-files 展开的文件清单(带下方通栏)
+├─ 附件条 / #prompt / 继续文案编辑区 / 排队条 / 语音面板
+└─ #composer-bar 工具行(单行;放不下时右段整体换到第二行靠右,不隐藏任何控件)
+   ├─ .composer-left :[＋ 附件] [模式 ⌄] [● 鞭挞] [N 轮 · 阶段 ⌄](= 鞭挞设置触发器) 停机原因… [继续鞭挞]
+   └─ .composer-right:[模型 ⌄] [思考 ⌄] [⚙ 任务设置] [⋯ 更多] [继续](仅空闲)|[排队 ⌄](仅运行) [🎤] [停止](仅运行) [↑ 发送]
+```
+
+- SOP 是「更多」菜单首项(点开后收起菜单、以「更多」触发器为锚弹出 SOP 列表);继续文案是鞭挞菜单「刹车」分区末尾一行。
+- 「继续」与「排队」占同一个位置,只读 `html[data-kz-activity]`:运行/停止中显示交付方式,其余显示「继续」(鞭挞轮间 pending 显示「继续」,与 sendText 在 running=false 时不看交付方式一致)。交付方式选项去掉英文尾巴(「排队」「插入」),完整说明在悬停提示。
+- 来源标签只标偏离默认的来源(全局/内置不占位,完整来源仍在 title / aria-label / 菜单里)。
+- 模式芯片不再有实底:自主推进是强调色文字(进行中家族),结伴与研究中性(语义色表见 ui_color_semantics.md)。
+- 停机原因是纯文字(`inline-block` + `line-height: 28px` 才画得出省略号,上限 24ch);附件芯片 = 名字(省略号)+ 单独的 × 移除键。
+- 语音键是麦克风图标:23-voice.js 只写 title / aria-label / data-i18n-*,不再写 textContent(会冲掉图标)。
+
+### 11.3 几何(唯一真源 `.kz-ctl`)
+
+- token(style.css `:root` 非颜色区):`--ctl-h: 28px`、`--ctl-h-lg: 32px`、`--ctl-px: 10px`、`--ctl-gap: 4px`、`--ctl-group-gap: 12px`;`--icon-chevron` 为 data:svg 遮罩(遮罩只取 alpha,SVG 里的描边色无关紧要,C1 不命中)。
+- `.kz-ctl`:`inline-flex`、居中、高 28、左右 10、胶囊、透明底、无边框、12px、字重 400、单行。悬停 `--surface-hover` + `--fg-strong`;`[aria-expanded=true]` / `[aria-pressed=true]` / `:has(> input:checked)` 用 `--surface-selected`;焦点 2px `--focus-ring` 内描边。一律中性,不染强调色。
+- 变体:`.kz-ctl--icon` 28×28(svg 16px);`.kz-ctl--round` 32 圆(发送,强调色填充归「发送键」规则);`#stop` 同高胶囊 + `--danger` 字 / `--danger-soft` 底,保留文字。
+- 箭头:`.kz-chev`、`.picker-btn::after`、`select::picker-icon` 共用 10px 细 V 形,展开翻转。
+- 鞭挞组:容器不画框不加底(`.autorun-bar` 的 border / background 只准 0 / none);开关的 `::before` 是 7px 圆点(关 = 1.5px 空心描边,开 = `--ok` 实心,推进中呼吸);触发器未开时收成 28×28 纯箭头,开着显示「N 轮 · 阶段」,推进中不重复「推进中」(活动行已说),等下一轮/暂停的阶段字用 `--warn`。触发器的读屏名由 08-auto.js 写(「鞭挞设置 · 鞭挞轮次 N · 阶段」),静态 data-i18n-* 摘掉以免切语言被冲回。
+- 窄宽以 composer 自身为查询容器(列宽由对话列 token 决定,视口宽度不再代表 composer 宽度):≤860px 收项目级来源标签、模型芯片上限 200px;≤640px 收全部来源标签、模型 150 / 思考 110;再窄右段整体换行。768 列宽下运行态为单行。
+- 上下文带与文件清单用 `margin-inline: calc(-1 * var(--composer-px))` + `max-width: none` 通栏到卡片边缘,文字左缘与输入框正文对齐(`--composer-px + 6px`);选择器写成 `#composer > :is(#composer-context, #change-bar-files)`(2,0,0),压过 `#composer > *:where(…)` 的 auto 外边距与 `max-width: 100%`。
+- 删除:`.ctx-select`、`.seg-btn` / `.seg-select`、`.composer-actions`、`.composer-secondary`、`#hint`、改动条里的分支与 ▸ 字形、`.auto-progress::after` 进度条与扫光、`.ctx-project::after` 死规则;线路页的模型下拉回到普通 select 外观。
+
+### 11.4 门禁
+
+- **浏览器几何**(`scripts/ui-composer-geometry.mjs`,由 ui-surface-gallery-smoke §6 调用,§7.3 第 7 项):① `#composer` 内可见 `.kz-ctl` 高 28±0.5、`.kz-ctl--round` 高 32±0.5;② 页面里全部 select 的 `align-items` 计算值为 center;③ 输入区可见控件(`.kz-ctl`、发送、项目名、分支、停机原因)包围盒两两不交且都在 `#composer` 内,超长项目名必须截断;④ 模式芯片元素截图在页内用 `createImageBitmap` + `OffscreenCanvas` 找墨迹纵向范围,中心偏离盒中线 ≤1.5 CSS px;⑤ 输入区占满列宽(≥760)时工具行单行。测量期间收起 toast(只影响测量)。每次运行都注入三种回归(`select { align-items: normal }`、`#model-picker { height: 30px }`、`#profile-select { margin-left: -24px }`),任一没被判红即报「测量判据失效」。基线(改前)在 1600@1.25 上 ② ④ 为红(51 个 select 为 normal,墨迹偏离 4.31px)。
+- **静态**(ui-a11y-smoke「分区:对话单列与输入区」):基础 select 有 `align-items: center`;`--ctl-h: 28px` 存在且 `.kz-ctl` 高度走它;旧类(`.ctx-select` / `.seg-*` / `.composer-secondary` / `.composer-actions`)不再出现;`.autorun-bar` 与其 running/paused 变体不画框不加底;surface.css 的 `select::picker-icon` 用 `--icon-chevron`;`#delivery-select` 与 `#continue-btn` 各有一条按 `html[data-kz-activity]` 门控的规则。自带 7 个反例。
+- **运行时**(ui-runtime-smoke 同分区 ⑫⑬):源码配对标签扫描左右段控件顺序、带与工具行控件全是 `.kz-ctl`、「N 轮 · 阶段」在触发器里、SOP 是「更多」首项;行为断言触发器读屏名、无改动时的分支、语音键不冲掉图标;变异守卫 `ctxBranchEarly` / `autorunTriggerLabel` / `voiceIconKeep`。R-342 断言改为「模式芯片在工具行左段、不在任何弹层」。
+
+### 11.5 接缝
+
+- 列宽与左右边归对话列(chat_presentation_contract.md §4.4);composer 只消费列宽表达式,自己的左右内边距走 `--composer-px`。
+- 状态栏仍重复显示分支、模型、思考(非本节范围,记给状态栏负责方)。
+- `#composer` 是 size container 后,锚在 composer 内的顶层弹层(鞭挞菜单、任务设置、更多、SOP 列表、文件补全)定位已在预览里复核。
+
 ## 变更记录
 
 - 2026-09-26:起草并实施(release/2026-09-26-ui 分支,G3「弹层与外观」)。相对最初方案的调整:不引入 `--c-*` 原始层(组件层直接引用语义层);菜单/浮层用 `popover="manual"` + 模块统一点外关闭(替代 `popover="auto"`,理由见 §4.4);保留 `#viewer-dialog`/`#confirm-dialog`/`#input-dialog`/`#ask-dialog` 为纯排版容器以保住全部元素 id;浏览器冒烟新增「确认框排队」用例并据此修掉迟到 close 事件关掉排队弹窗的时序缺陷。
+- 2026-09-26(UI2-0926 #11,ui2/chat 分支):§4.5 补 base-select 的两处坑(全局 `align-items: center`、`::picker-icon` 细 V 形遮罩);§5 决策表加输入区 `.kz-ctl` 一行;§7.3 加第 7 项输入区几何;新增 §11「输入区控件几何」。
 - 2026-09-26(评审修正):弹窗里的菜单挂进锚点所在的 dialog(原先挂 body,模态开着时惰性、点不动)+ 门禁 H 组与模态外弹层告警;停靠卡片让位卡片外输入框/Monaco 的局部 Esc;程序化聚焦不弹 tooltip;补全列表放开 420px 宽度上限;toast 改浅底 + 软边;J1 覆盖局部变量写法。样例页与两份冒烟各补对应用例,手工变异均已实跑变红。
 
 ## 验证证据
