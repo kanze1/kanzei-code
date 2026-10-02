@@ -1,5 +1,6 @@
 //! 提交模型消息和工具结果，并保留本轮未压缩消息。
-use super::{Message, Part, RunEvent};
+use super::halt::append_halted_tool_results;
+use super::{CancellationToken, Message, Part, RunEvent};
 
 pub(super) fn commit_assistant_message(
     messages: &mut Vec<Message>,
@@ -44,4 +45,62 @@ pub(super) fn record_round_message(round_messages: &mut Vec<Message>, event: &Ru
         | RunEvent::ToolResultsCommitted { message, .. } => round_messages.push(message.clone()),
         _ => {}
     }
+}
+
+/// R-202 批6:步骤消息提交段的产物。
+pub(super) enum StepMessageOutcome {
+    /// 消息已提交、存在待执行工具调用,继续工具批执行。
+    Proceed,
+    /// 提前收尾(calls 为空 = 纯文本步 / D-342 停止占位),调用方构造 RunSummary。
+    Return { halted_by_user: bool },
+}
+
+/// R-202 批6:步骤消息提交——final_text 提取、assistant 消息落库、以及
+/// 「无工具调用」与「产出了调用但停止已置位」两条提前收尾路径。
+///
+/// 行为与原内联段逐字节对齐(行为零变更):
+/// - final_text 只取 Text part 拼接(推理/工具调用不进收尾文本);
+/// - calls 为空 → halted_by_user 如实反映停止状态(D-342);
+/// - 停止已置位 → 全部调用以取消占位配对后 halted 收尾。
+pub(super) fn commit_step_messages(
+    parts: Vec<Part>,
+    calls: &[(String, String, serde_json::Value, String)],
+    final_text: &mut String,
+    messages: &mut Vec<Message>,
+    step: u32,
+    halt: Option<&CancellationToken>,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) -> StepMessageOutcome {
+    *final_text = parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if !parts.is_empty() {
+        commit_assistant_message(messages, parts, step, on_event);
+    }
+
+    if calls.is_empty() {
+        return StepMessageOutcome::Return {
+            // D-342:纯文本步收尾时停止可能已置位,如实标 halted。
+            halted_by_user: halt.is_some_and(|token| token.is_cancelled()),
+        };
+    }
+
+    // D-342:模型产出了工具调用但停止已置位——一个工具都不执行,全部以
+    // 取消占位配对(与权限拒绝同款形态),halted 正常收尾。
+    if halt.is_some_and(|token| token.is_cancelled()) {
+        let mut results = Vec::new();
+        append_halted_tool_results(&mut results, calls, 0);
+        // 本步工具一个都没执行,不可能有图片。
+        commit_tool_results(messages, results, Vec::new(), step, on_event);
+        return StepMessageOutcome::Return {
+            halted_by_user: true,
+        };
+    }
+    StepMessageOutcome::Proceed
 }
