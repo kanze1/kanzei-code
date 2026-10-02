@@ -1,0 +1,481 @@
+//! D-381:Rust↔JS 的 IPC 形状契约。
+//!
+//! 为什么需要这个文件:全仓 93 个 `#[tauri::command]` 里 30+ 个返回
+//! `serde_json::Value`,错误一律 `String`。也就是说**应用最丰富的数据结构是在 IPC 上
+//! 手搓 JSON 过去的**——每个字段名在 Rust 和 JS 两侧各写一遍字符串字面量,中间没有
+//! 任何编译期或测试期的连接。而前端冒烟断言的是 `scripts/ui-runtime-smoke.mjs` 里
+//! **前端作者手写的 fixture**:后端改一个字段名 → cargo test 全绿 → 六条前端冒烟
+//! 全绿 → 真实界面碎。这是全仓唯一一条「两侧都改对了才对、但没人检查」的缝,
+//! 而它下游挂着整个界面(D-207 那类「界面展示的值与后端事实对不上」的结构性来源)。
+//!
+//! 做法不是把 30 个命令一次性改成 typed struct(那是 R 级改造),而是先把**形状**
+//! 钉在一份两侧共读的产物上:
+//!   - 本模块的测试拿真实命令跑一遍,把键结构抽出来与 `scripts/ipc-contract.json` 比对;
+//!   - `scripts/ui-runtime-smoke.mjs` 拿同一份文件校验它的 fixture。
+//! 于是「Rust 改了形状」和「fixture 与后端不一致」各自都有一条会红的路径。
+
+/// 把一个 JSON 值抽成**只剩形状**的骨架:对象保留键并递归,数组取第一个元素为样本,
+/// 标量退化成类型名。值本身不参与比较——契约管的是"有哪些键、各是什么类型",
+/// 不是"这次跑出来的内容"。
+pub(crate) fn shape(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.iter()
+                .map(|(key, child)| (key.clone(), shape(child)))
+                .collect(),
+        ),
+        // 空数组无从取样:记成 "array" 而不是猜。契约里出现 "array" 就说明这次
+        // 取样没覆盖到,应该把夹具造得更真一点,而不是让它长期空着。
+        serde_json::Value::Array(items) => match items.first() {
+            Some(first) => serde_json::json!([shape(first)]),
+            None => serde_json::json!("array"),
+        },
+        serde_json::Value::String(_) => serde_json::json!("string"),
+        serde_json::Value::Number(_) => serde_json::json!("number"),
+        serde_json::Value::Bool(_) => serde_json::json!("bool"),
+        // null 不能定形:Option 字段取样到 None 时,契约记 "null" 会把
+        // "这个键可能是字符串"这一事实丢掉。用 nullable 显式标出来。
+        serde_json::Value::Null => serde_json::json!("nullable"),
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    fn contract_path() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ipc-contract.json")
+    }
+
+    /// 造一个内容足够真的临时项目:每种文档至少一条、字段齐全,
+    /// 否则抽出来的形状里到处是 "array"(没取到样),契约就成了摆设。
+    fn fixture_project() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-ipc-contract-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-001 一条需求 [doing]\n- 复杂度: 中\n- 优先级: P1\n- 批次: 1/2\n- 取得线: p1\n- refs: D-001\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".kanzei/project/defects.md"),
+            "# Defects\n\n## D-001 一条缺陷 [open] (high)\n- 优先级: P2\n- 复杂度: 小\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".kanzei/project/ideas.md"),
+            "# Ideas\n\n## I-001 一条想法 [todo]\n- 优先级: P3\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".kanzei/project/conventions.md"),
+            "# Conventions\n\n## 1. 一节\n正文\n",
+        )
+        .unwrap();
+        // R-299:扩展 fixture——tests.md(test_runs_snapshot 读)与源码文件
+        // (files_snapshot 读),让高频 command 契约取样有真实样本而非空 "array"。
+        std::fs::write(
+            root.join(".kanzei/project/tests.md"),
+            "# Tests\n\n## T-1 一条测试 [passed]\n- 标题: sample\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        root
+    }
+
+    /// D-381:`docs_snapshot` 的形状必须与两侧共读的契约文件一致。
+    ///
+    /// 这条测试红了有两种可能,处理方式**不同**:
+    ///   - 有意改形状:更新 `scripts/ipc-contract.json`,**并且**同步
+    ///     `scripts/ui-runtime-smoke.mjs` 的 `payloads.docs_snapshot` fixture
+    ///     与真正读这些字段的 `ui/*.js`。三处一起动才叫改完。
+    ///   - 无意改形状:那正是本判据要拦的——后端改名不会让任何既有测试变红。
+    #[test]
+    fn docs_snapshot_形状与ipc契约一致() {
+        let root = fixture_project();
+        let snapshot = crate::docs::docs_snapshot(root.display().to_string())
+            .expect("夹具项目应能取到文档快照");
+        let actual = shape(&snapshot);
+
+        // 有意改形状时的更新入口:`KZ_UPDATE_IPC_CONTRACT=1 cargo test -p kanzei-app 形状`。
+        // 刻意做成显式开关而不是「自动写回」——自动写回会让契约永远等于现状,
+        // 判据也就永远不会红,等于没有。
+        if std::env::var("KZ_UPDATE_IPC_CONTRACT").is_ok() {
+            let mut all: serde_json::Value = std::fs::read_to_string(contract_path())
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            all["docs_snapshot"] = actual.clone();
+            std::fs::write(
+                contract_path(),
+                serde_json::to_string_pretty(&all).unwrap() + "\n",
+            )
+            .unwrap();
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+
+        let expected: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(contract_path()).expect("读不到 scripts/ipc-contract.json"),
+        )
+        .expect("ipc-contract.json 不是合法 JSON");
+        let expected = expected
+            .get("docs_snapshot")
+            .expect("契约缺 docs_snapshot 条目");
+
+        assert_eq!(
+            &actual,
+            expected,
+            "docs_snapshot 的 IPC 形状变了。\n\
+             实际:{}\n\
+             要么这是有意的——同步 scripts/ipc-contract.json + ui-runtime-smoke.mjs 的 \
+             payloads.docs_snapshot + 真正读这些字段的 ui/*.js(三处一起动);\n\
+             要么这是无意的——后端改名在 IPC 那侧不会让任何既有测试变红,本判据就是补这一条。",
+            serde_json::to_string_pretty(&actual).unwrap_or_default()
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn 形状抽取只保留键与类型() {
+        let value = serde_json::json!({
+            "n": 1, "s": "x", "b": true, "nil": null,
+            "list": [{ "k": "v" }, { "k": "另一个" }],
+            "empty": [],
+        });
+        assert_eq!(
+            shape(&value),
+            serde_json::json!({
+                "n": "number", "s": "string", "b": "bool", "nil": "nullable",
+                "list": [{ "k": "string" }],
+                "empty": "array",
+            })
+        );
+    }
+
+    /// R-299 共享门禁:某 command 的实际形状与 ipc-contract.json 的条目比对。
+    /// `KZ_UPDATE_IPC_CONTRACT=1` 时写回(显式更新入口,非自动);否则严格断言。
+    /// 红了的两种可能:有意改形状(更新契约 + ui fixture + ui/*.js 三处同步)
+    /// 或无意改形状(后端改名漏同步——本判据就是要拦的)。
+    pub(crate) fn check_contract(key: &str, actual: serde_json::Value, context: &str) {
+        let path = contract_path();
+        if std::env::var("KZ_UPDATE_IPC_CONTRACT").is_ok() {
+            let mut all: serde_json::Value = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            all[key] = actual.clone();
+            std::fs::write(&path, serde_json::to_string_pretty(&all).unwrap() + "\n").unwrap();
+            return;
+        }
+        let expected: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("读不到 scripts/ipc-contract.json"),
+        )
+        .expect("ipc-contract.json 不是合法 JSON");
+        assert_eq!(
+            &actual,
+            expected
+                .get(key)
+                .unwrap_or_else(|| panic!("契约缺 {key} 条目")),
+            "{context}\n实际:{}\n要么这是有意的——同步 scripts/ipc-contract.json + \
+             ui-runtime-smoke.mjs 的 fixture + 真正读这些字段的 ui/*.js(三处一起动);\n\
+             要么这是无意的——后端改名在 IPC 那侧不会让任何既有测试变红,本判据就是补这一条。",
+            serde_json::to_string_pretty(&actual).unwrap_or_default()
+        );
+    }
+
+    /// R-299:高频 command `project_root_info` 形状契约。
+    #[test]
+    fn project_root_info_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(&crate::projects::project_root_info(
+            root.display().to_string(),
+        ));
+        check_contract(
+            "project_root_info",
+            actual,
+            "project_root_info 的 IPC 形状变了",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// R-299:高频 command `test_runs_snapshot` 形状契约。
+    #[test]
+    fn test_runs_snapshot_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(
+            &crate::docs::test_runs_snapshot(root.display().to_string())
+                .expect("夹具项目应能取到测试快照"),
+        );
+        check_contract(
+            "test_runs_snapshot",
+            actual,
+            "test_runs_snapshot 的 IPC 形状变了",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── 分区:记忆图谱 ──
+    /// 记忆图谱夹具:两个 crate 的 workspace + 两条活动记忆(refs/area/共享指纹/subject)+
+    /// 一条归档记忆 + 一条需求 + 一篇设计文档。节点按 id 排序,首元素是 M-001(记忆节点,
+    /// 各可空字段都有值),所以契约里记下的是字段真实类型而不是 "nullable"。
+    pub(crate) fn memory_graph_fixture_project() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-ipc-memgraph-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let write = |rel: &str, text: &str| {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/kanzei-a\", \"crates/kanzei-b\"]\n",
+        );
+        write(
+            "crates/kanzei-a/Cargo.toml",
+            "[package]\nname = \"kanzei-a\"\n",
+        );
+        write("crates/kanzei-a/src/tracker.rs", "");
+        write("crates/kanzei-a/src/edit.rs", "");
+        write(
+            "crates/kanzei-b/Cargo.toml",
+            "[package]\nname = \"kanzei-b\"\n[dependencies]\nkanzei-a.workspace = true\n",
+        );
+        write("crates/kanzei-b/src/run.rs", "");
+        write(
+            ".kanzei/project/requirements.md",
+            "# Requirements\n\n## R-001 一条需求 [doing]\n- 优先级: P1\n- 说明: 改 crates/kanzei-a/src/edit.rs\n",
+        );
+        write("docs/design/x.md", "# x\n");
+        write(
+            ".kanzei/memory/M-001-a.md",
+            "---\nid: M-001\nscope: project\ncategory: fact\ntitle: edit 报 old_string\ndescription: 改文件前先读\nstatus: active\ncreated: 2026-09-01\nupdated: 2026-09-02\nsource: user\nrefs: R-001 R-999 docs/design/x.md\narea: kanzei-a/tracker\nsubject: 编辑\n---\n\n[fp:edit|old_string not found] 见 crates/kanzei-b/src/run.rs 与 M-002\n",
+        );
+        write(
+            ".kanzei/memory/M-002-b.md",
+            "---\nid: M-002\nscope: project\ncategory: sop\ntitle: 编辑先读\ndescription: 编辑流程\nstatus: candidate\ncreated: 2026-09-01\nupdated: 2026-09-01\nsource: memory-manager\nsubject: 编辑\n---\n\n[fp:edit|old_string not found] 先 read 再 edit\n",
+        );
+        write(
+            ".kanzei/memory/archive/M-003-c.md",
+            "---\nid: M-003\nscope: project\ncategory: fact\ntitle: 旧版\ndescription: 旧\nstatus: deprecated\ncreated: 2026-08-01\nupdated: 2026-08-01\nsource: user\nsuperseded_by: M-001\n---\n\n旧\n",
+        );
+        root
+    }
+
+    /// 记忆图谱 `memory_graph` 的形状契约(前端 24-memory-graph.js 与 ui-runtime-smoke 夹具共读)。
+    /// 只给项目库:本机 ~/.kanzei 的全局记忆不能进契约取样。
+    #[test]
+    fn memory_graph_形状与ipc契约一致() {
+        let root = memory_graph_fixture_project();
+        let stores = [kanzei_tools::memory::MemoryStore::project(&root)];
+        let value = crate::memory::memory_graph_with(&root, &stores);
+        assert_eq!(value["nodes"][0]["id"], "M-001", "取样首元素应是记忆节点");
+        check_contract(
+            "memory_graph",
+            shape(&value),
+            "memory_graph 的 IPC 形状变了",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// R-299:高频 command `files_snapshot` 形状契约。
+    #[tokio::test]
+    async fn files_snapshot_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(
+            &crate::files_view::files_snapshot(root.display().to_string())
+                .await
+                .expect("夹具项目应能取到文件快照"),
+        );
+        check_contract("files_snapshot", actual, "files_snapshot 的 IPC 形状变了");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── 分区:文件编辑 ──
+    /// UI2-0926 #6:文件页三条命令的形状契约(前端 17-files-editor.js 与 ui-runtime-smoke 夹具共读)。
+    /// 取样:可编辑的 UTF-8 文件(readonly 为 null → "nullable",夹具给只读原因码同样合法)。
+    #[tokio::test]
+    async fn file_preview_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(
+            &crate::files_view::file_preview(root.display().to_string(), "src/main.rs".into())
+                .await
+                .expect("夹具项目应能预览源码文件"),
+        );
+        check_contract("file_preview", actual, "file_preview 的 IPC 形状变了");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn file_stat_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(
+            &crate::files_edit::file_stat(root.display().to_string(), "src/main.rs".into())
+                .await
+                .expect("夹具项目应能取到文件状态"),
+        );
+        check_contract("file_stat", actual, "file_stat 的 IPC 形状变了");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 取样「覆盖磁盘版本」那一次写入:evidence 有值,六个字段都不是 null。
+    #[tokio::test]
+    async fn file_write_形状与ipc契约一致() {
+        let root = fixture_project();
+        let expected = kanzei_tools::content_hash(
+            b"fn main() {}
+",
+        );
+        let actual = shape(
+            &crate::files_edit::file_write(
+                root.display().to_string(),
+                "src/main.rs".into(),
+                "fn main() { println!(\"hi\"); }
+"
+                .into(),
+                Some(expected),
+                Some(false),
+                Some(true),
+            )
+            .await
+            .expect("夹具项目应能写入源码文件"),
+        );
+        check_contract("file_write", actual, "file_write 的 IPC 形状变了");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── 分区:网页预览后端 ──
+    /// UI2-0926 #8:预览面板的三个事件载荷与纯构造的命令返回(前端 24-preview.js、06-activity.js
+    /// 与 ui-runtime-smoke 夹具共读)。可空字段取样时都给了值,契约里记的是真实类型。
+    #[test]
+    fn 预览面板事件与载荷_形状与ipc契约一致() {
+        use crate::preview::{
+            console::{console_payload, ConsoleRing, EntryDraft},
+            describe_error, state_payload, ColorScheme, DevicePreset, PaneMeta,
+        };
+        let meta = PaneMeta {
+            url: "http://localhost:5173/".into(),
+            title: "Vite App".into(),
+            loading: false,
+            can_back: true,
+            can_forward: false,
+            visible: true,
+            bound_process_id: Some("d|C:/proj".into()),
+            device: DevicePreset::Phone,
+            scheme: ColorScheme::Dark,
+            error: Some(describe_error(
+                "net::ERR_CONNECTION_REFUSED",
+                "http://localhost:5173/",
+            )),
+            ..PaneMeta::default()
+        };
+        check_contract(
+            "kz:preview-state",
+            shape(&state_payload(&meta)),
+            "kz:preview-state 的载荷形状变了",
+        );
+        let mut ring = ConsoleRing::default();
+        ring.push(
+            EntryDraft {
+                level: "error".into(),
+                text: "Uncaught Error: boom".into(),
+                url: "http://localhost:5173/src/main.ts".into(),
+                line: Some(12),
+                col: Some(5),
+            },
+            1_790_000_000_000,
+        );
+        let console = shape(&console_payload(&ring.since(0)));
+        check_contract(
+            "kz:preview-console",
+            console.clone(),
+            "kz:preview-console 的载荷形状变了",
+        );
+        check_contract("preview_console", console, "preview_console 的返回形状变了");
+        check_contract(
+            "kz:preview-pick",
+            shape(&crate::preview::pick_payload(
+                &serde_json::json!({"selector": "#go", "text": "Go", "tag": "button",
+                                    "rect": {"x": 1.0, "y": 2.0, "w": 30.0, "h": 20.0}}),
+                "iVBORw0KGgo=".into(),
+            )),
+            "kz:preview-pick 的载荷形状变了",
+        );
+        check_contract(
+            "preview_capture",
+            shape(&crate::preview::capture_payload(
+                "iVBORw0KGgo=".into(),
+                900,
+                630,
+            )),
+            "preview_capture 的返回形状变了",
+        );
+        check_contract(
+            "preview_dev_urls",
+            shape(&crate::preview::commands::dev_urls_payload(&[
+                kanzei_tools::dev_urls::DevUrl {
+                    url: "http://localhost:5173/".into(),
+                    command: "npm run dev".into(),
+                    pid: Some(4242),
+                },
+            ])),
+            "preview_dev_urls 的返回形状变了",
+        );
+    }
+
+    #[tokio::test]
+    async fn 预览片段与图片命令_形状与ipc契约一致() {
+        let snippet = crate::preview::commands::preview_snippet("<p>契约</p>".into())
+            .await
+            .expect("片段应能登记");
+        check_contract(
+            "preview_snippet",
+            shape(&snippet),
+            "preview_snippet 的返回形状变了",
+        );
+
+        let root = fixture_project();
+        let images = root.join(crate::preview::commands::TOOL_IMAGES_REL);
+        std::fs::create_dir_all(&images).unwrap();
+        let name = format!("{}.png", "0".repeat(64));
+        std::fs::write(images.join(&name), b"\x89PNG\r\n\x1a\n").unwrap();
+        std::fs::write(root.join("chart.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        let tool_image = crate::preview::commands::tool_image(
+            root.display().to_string(),
+            format!("{}/{name}", crate::preview::commands::TOOL_IMAGES_REL),
+        )
+        .await
+        .expect("截图应能读取");
+        check_contract(
+            "tool_image",
+            shape(&tool_image),
+            "tool_image 的返回形状变了",
+        );
+        let delivered = crate::preview::commands::delivered_image(
+            root.display().to_string(),
+            root.join("chart.png").display().to_string(),
+        )
+        .await
+        .expect("交付图片应能读取");
+        check_contract(
+            "delivered_image",
+            shape(&delivered),
+            "delivered_image 的返回形状变了",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

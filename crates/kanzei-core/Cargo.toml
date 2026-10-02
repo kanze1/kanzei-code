@@ -1,0 +1,32 @@
+[package]
+name = "kanzei-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "会话主循环与事件"
+
+[package.metadata.kanzei]
+# 架构图 crate 依赖图的分组(docs/design/architecture_diagrams.md)
+group = "运行时"
+
+[dependencies]
+kanzei-llm.workspace = true
+kanzei-harness.workspace = true
+kanzei-base.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+rusqlite.workspace = true
+async-trait.workspace = true
+# UI2-0926 #8:工具截图落盘要把 ToolImage 的 base64 解回字节(0.22 已在 Cargo.lock)。
+base64.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true

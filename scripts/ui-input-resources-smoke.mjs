@@ -1,0 +1,98 @@
+/* global window, document, DataTransfer, DragEvent */
+import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { chromium } from "playwright-core";
+import { startPreviewServer } from "./ui-preview/server.mjs";
+
+const server = await startPreviewServer({ port:0 });
+const browser = await chromium.launch({ channel:"msedge", headless:true });
+const page = await browser.newPage({ viewport:{width:1600,height:1000} });
+const output = "output/playwright/input-resources"; await mkdir(output,{recursive:true});
+const checks = [], errors = [];
+const check = (value,label) => { assert(value,label); checks.push(label); };
+const settle = () => page.evaluate(() => window.__kzPreview.settle());
+const clickable = selector => page.locator(selector).evaluate(el => { const r=el.getBoundingClientRect(); return r.width>0 && r.height>0 && el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)); });
+page.on("pageerror",error => errors.push(error.message));
+try {
+  await page.goto(`${server.origin}/?scene=chat&theme=dark`);
+  await page.waitForFunction(() => window.__kzPreview?.ready); await settle();
+  const originalSession = await page.evaluate(async () => (await import("/03-shell.js")).activeSessionId);
+  check(await clickable("#new-chat"), "Project sidebar has a visible, clickable new-conversation button");
+  await page.locator("#workbench-chat-history").click();
+  check(await page.locator(".project-session-menu").isVisible(), "Sidebar history opens the existing conversation switcher");
+  await page.keyboard.press("Escape");
+  await page.locator("#preview-toggle").click(); await settle();
+  check(await page.locator("#view-chat").getAttribute("data-preview") === "open", "Preview is open for the overlap regression");
+  const header=await page.locator("#project-space-nav").boundingBox(), preview=await page.locator("#preview-dock").boundingBox();
+  check(header.x+header.width <= preview.x+1, "Preview and conversation header occupy separate columns");
+  check(await clickable("#new-chat"), "The sidebar new-discussion entry remains clickable with preview open (the page header no longer duplicates it)");
+  await page.locator("#new-chat").click(); await settle();
+  check(await page.locator("body").getAttribute("data-conversation-kind") === "discussion", "Sidebar creates a new discussion through the existing conversation action");
+  await page.locator("#workbench-chat-history").click();
+  await page.locator(`.project-session-menu [data-conversation-id="${originalSession}"] .workbench-session-link`).click(); await settle();
+  check(await page.locator("body").getAttribute("data-conversation-kind") === "main", "Sidebar history returns to the original main conversation");
+  await page.screenshot({path:`${output}/sidebar-preview-dark.png`});
+  await page.locator("#preview-close").click(); await settle();
+  await page.locator("#attachment-input").setInputFiles("tests/fixtures/attachments/budget.xlsx");
+  await page.locator('#attachments [data-kind="sheet"]').waitFor();
+  check((await page.locator("#attachment-input").getAttribute("accept")).includes(".xls"), "File picker advertises Excel formats");
+  const prompt="检查 https://github.com/kanzei/example 和 github.com/acme/repo，以及 https://example.com/budget.xlsx。";
+  await page.locator("#prompt").fill(prompt);
+  check(await page.locator("#composer-links a").count() === 3, "Full and scheme-less Git URLs are recognized without swallowing punctuation");
+  check(await page.locator('#composer-links [data-kind="git"]').count() === 2 && await page.locator('#composer-links [data-kind="sheet"]').count() === 1, "Git and spreadsheet links receive their own icons");
+  check(await page.locator("#prompt").inputValue() === prompt, "Link recognition preserves the exact draft");
+  await page.screenshot({path:`${output}/attachments-links-dark.png`});
+  await page.locator('#composer-links a[href="https://github.com/kanzei/example"]').click(); await settle();
+  check(await page.evaluate(() => window.__kzPreview.calls.findLast(c=>c.cmd==="preview_open")?.args.target) === "https://github.com/kanzei/example", "Clicking a composer repository link opens the workbench preview");
+  await page.locator("#preview-close").click(); await settle();
+  await page.evaluate(async () => {
+    const shell = await import("/03-shell.js");
+    shell.setRunning(true);
+  });
+  const callsBefore = await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt").length);
+  await page.locator("#send").click(); await settle();
+  check(await page.locator("#prompt").inputValue() === prompt && await page.locator('#attachments [data-kind="sheet"]').count() === 1, "Busy attachment send preserves the full draft and file");
+  check(await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt").length) === callsBefore, "Unsupported attachment queue is stopped before submission");
+  await page.evaluate(async () => {
+    const f = await window.__kzPreview.fixtures();
+    for (const p of f.state.processes) p.running = false;
+    await (await import("/09-sessions.js")).refreshProcesses();
+    const shell = await import("/03-shell.js");
+    window.__kzPreview.emit("kz:idle", { sessionId:shell.activeSessionId });
+    window.__kzPreview.setCommand("run_prompt", () => null);
+  });
+  await settle();
+  await page.locator("#send").click(); await settle();
+  const sent=await page.evaluate(() => window.__kzPreview.calls.findLast(c=>c.cmd==="run_prompt")?.args);
+  check(sent?.attachments?.[0]?.file_name === "budget.xlsx" && sent.attachments[0].data.length>0, "Excel bytes are included in the real composer request");
+  check(await page.locator('.msg.user .message-attachment [data-kind="sheet"]').count()>0, "Sent attachments retain their type icon");
+  check(await page.locator('.msg.user a[href="https://github.com/kanzei/example"] [data-kind="git"]').count()>0, "User messages contain clickable Git links and icons");
+  check(!await page.locator("#composer-links").isVisible(), "Sending clears link previews with the draft");
+  await page.locator('.msg.user a[href="https://github.com/kanzei/example"]').click(); await settle();
+  check(await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="preview_open" && c.args.target==="https://github.com/kanzei/example").length) === 2, "Clicking the sent repository link also opens the preview");
+  await page.locator("#preview-close").click(); await settle();
+  const types=await page.evaluate(async () => {
+    const {renderMarkdownInto}=await import("/04-markdown.js");
+    const {renderUserContent}=await import("/05-chat-render.js");
+    const el=document.createElement("div");
+    renderMarkdownInto(el,"[表格](file.xlsx) [PDF](file.pdf) [文档](file.docx) [代码](file.rs) [压缩包](file.zip) [音频](file.mp3) [视频](file.mp4) [应用](file.apk) [图片](file.png) [演示](file.pptx) [Markdown](file.md) [字体](file.ttf) [未知](file.abc)");
+    const icons=[...el.querySelectorAll(".resource-icon")].map(icon=>icon.dataset.kind);
+    renderUserContent(el,"【附件：预算.xlsx】\n工作表：预算\n苹果\t12.5");
+    return {icons,collapsed:!!el.querySelector("details:not([open])"),sheet:!!el.querySelector('[data-kind="sheet"]')};
+  });
+  check(new Set(types.icons).size === 13, "All recognized file categories and the unknown-file fallback have icons");
+  check(types.collapsed && types.sheet, "Restored spreadsheet content is an expandable file instead of a large user bubble");
+  await page.locator("#prompt").fill("");
+  await page.locator("#prompt").evaluate(el=>{const dataTransfer=new DataTransfer();dataTransfer.setData("text/uri-list","https://gitlab.com/acme/project");el.dispatchEvent(new DragEvent("drop",{bubbles:true,cancelable:true,dataTransfer}));});
+  check(await page.locator('#composer-links [data-kind="git"]').count()===1, "Dragging a repository URL inserts and recognizes the link");
+  await page.setViewportSize({width:800,height:760}); await settle();
+  await page.screenshot({path:`${output}/input-narrow.png`});
+  check(await clickable("#rail-sidebar-toggle"), "The sidebar toggle stays reachable at narrow width, so the single new-discussion entry can be brought back");
+  await page.setViewportSize({width:1600,height:1000});
+  await page.evaluate(()=>document.documentElement.setAttribute("data-theme","light")); await settle();
+  await page.screenshot({path:`${output}/input-light.png`});
+  check(errors.length===0,`No UI errors: ${errors.join("; ")}`);
+  await writeFile(`${output}/acceptance.json`,JSON.stringify({checks,errors},null,2));
+  console.log(`${checks.length} input/resource browser checks passed`);
+} catch(error) { await page.screenshot({path:`${output}/failure.png`}).catch(()=>{}); console.error({checks,errors}); throw error; }
+finally { await browser.close(); await server.close(); }

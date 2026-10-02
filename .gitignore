@@ -1,0 +1,49 @@
+/target
+*.log
+.env
+.kanzei/summaries/
+*.pending
+.kanzei/state.db
+# SQLite 边车与记忆索引都是可重建派生物(A-001:真源是 markdown,库删了能全量重建)。
+.kanzei/state.db-shm
+.kanzei/state.db-wal
+# R-148 文件用途标注缓存:按内容 hash 失效、运行时重建,不是仓库资产。
+.kanzei/file-annotations.json
+# schema 升级前的整库备份(D-175):本机回退用的退路,不是仓库资产。
+.kanzei/state.db.v*.bak
+.kanzei/memory/index.db
+.kanzei/memory/index.db-journal
+.kanzei/memory/inbox.md
+# shell 越权写入托管文档时,改后的版本先隔离留证再回滚(D-173);是证据不是资产。
+.kanzei/quarantine/
+# R-138 docstore 跨进程写锁的句柄文件:零字节、运行时产物,句柄随进程退出由 OS 关闭。
+.kanzei/**/*.lock
+# R-310 工具失手遥测与 D-349 大结果外置:两者都按 run 产生、无界增长,是运行时
+# 产物不是仓库资产(与 state.db / file-annotations.json 同类)。此前有 2 个 run_*.json
+# 被误提交,本次一并 untrack。
+.kanzei/artifacts/
+# R-138 原子写(tmp+rename)的同目录临时文件。正常路径写完即改名消失;留下来的
+# 是**替换失败时保留的现场**(内含未落盘的新内容),按错误提示处理,别提交。
+.kanzei/**/*.tmp
+# 打包时由 package.ps1 从 target/release 复制进来的 kz sidecar,是构建产物。
+crates/kanzei-app/binaries/
+/dist
+crates/kanzei-app/icons/android/
+crates/kanzei-app/icons/ios/
+
+# Local H3 deployment profiles contain machine-specific GPU UUIDs.
+# 本机运行游标与临时告警不属于源码。
+.kanzei/memory/inbox.checkpoint.json
+.kanzei/project/auto-run-alerts.jsonl
+__pycache__/
+*.pyc
+
+# 并行线的私有 target(每树一个,避免共享 target 让 cargo 把别树产物判 Fresh 复用)
+.target-private/
+.target-merge/
+# R-142 前端 ESLint:npm 依赖是 devDependency 产物,不入库(冒烟依赖它,CI/发版前 npm ci)
+node_modules/
+
+# D-324 实验/诊断产物槽位:自举与手工实验的输出落这里,不是仓库资产
+output/
+.playwright-cli/

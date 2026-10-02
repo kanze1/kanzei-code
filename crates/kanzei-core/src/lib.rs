@@ -1,0 +1,57 @@
+//! kanzei-core: session 运行时。
+//! M0:内存态一次性 runner;M2 起换成 SQLite 事件溯源 + steer/queue 调度。
+
+pub mod assemble;
+pub mod experience_events;
+pub mod history;
+pub mod notification;
+pub mod orchestration;
+pub mod phase;
+pub mod replay;
+pub mod research;
+pub mod research_runner;
+pub mod runner;
+pub mod store;
+
+pub use assemble::build_route;
+pub use history::filter_message_history;
+pub use notification::AgentNotification;
+pub use phase::{PhaseOrchestrator, ScoutTask};
+pub use research::{
+    ensure_result_artifact_skeleton, load_research_topic, parse_exploration_markdown,
+    ExperimentResult, ExperimentResultStatus, ExplorationDocument, ExplorationFrontmatter,
+    ExplorationStatus, ParsedExploration, ResearchDiagnostic, ResearchError, ResearchTopic,
+    ResultArtifactSkeleton,
+};
+pub use research_runner::{
+    parse_callback_line, CallbackStats, ParsedCallbackLine, ResearchCallbackEvent, CALLBACK_PREFIX,
+    MAX_CALLBACK_LINE_BYTES,
+};
+pub use runner::{
+    compact_conversation, compact_conversation_with_model, compaction_budget, completed_entry,
+    estimate_conversation_tokens, is_usable_failure_kind, mask_volatile_payload,
+    normalize_fp_marker, pending_background_subagents, prune_conversation,
+    prune_conversation_with_archive, run_once, run_once_with_parts, run_read_agent, run_subagent,
+    summarize_failures, summarize_metrics, summarize_tools, ui_tool_content, AskFuture, AskOption,
+    AskPolicy, AskReply, AskRequest, AskResponse, BackgroundEventSink, CancellationToken,
+    CompletedEntry, DelegationFuture, DelegationHost, DigestModel, FailureSignal, RecallHit,
+    RecallOutcome, RecallPolicy, RecallRunOutcome, RecallTrigger, RecallWatch, RunEvent,
+    RunMetrics, RunSummary, RunnerConfig, SubagentOptions, SubagentRuntime,
+    SubagentTranscriptProvider, TaskCancellationGuard, TaskCancellations, TaskTrace,
+    TOOL_END_UI_CONTENT_MAX,
+};
+pub use store::{
+    compare_shadow, prepare_typed_session, project_session_facts,
+    project_session_facts_with_surface, project_session_id, project_state_path, store_open_count,
+    summarize_shadow_reports, AdmittedInput, ArtifactCleanupPlan, ArtifactFileReport, Delivery,
+    EpisodeRecord, FunnelCounts, MemoryRecallObservation, MemoryUsageCounts, RecallEvent,
+    RecallLinkStats, RecallMetrics, ResearchRunEvent, ResearchRunRecord, Session,
+    SessionArtifactReport, SessionDeletionPlan, SessionDeletionResult, SessionFact,
+    SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection, SessionStore,
+    SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, StorageBackupReport,
+    StorageCleanupPlan, StorageCleanupResult, StorageReport, StoreError, StoredEvent,
+    StoredProcess, StoredWorkEvent, TypedSessionWriter, WorkCheckpoint, WorkEvidence, WorkFact,
+    WorkProjection, WorkUnitSpec, WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS,
+    MAX_WORK_ITEM_CHARS, MAX_WORK_LIST_ITEMS, MAX_WORK_OBJECTIVE_CHARS, SUBAGENT_TRANSCRIPT,
+    WORK_PROJECTION_FORMAT_VERSION,
+};

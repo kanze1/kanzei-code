@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kanzei · 多项目总控原型</title>
+  <link rel="stylesheet" href="console.css">
+  <script defer src="../../../crates/kanzei-app/ui/vendor/force-graph/force-graph-1.51.4.min.js"></script>
+  <script defer src="console.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="Kanzei 总控台">
+      <img src="../../../crates/kanzei-app/ui/assets/kanzei.svg" alt="" width="33" height="33">
+      <span>kanzei<span class="brand-caption">个人开发空间</span></span>
+    </a>
+    <div class="space-label">工作空间</div>
+    <nav aria-label="主要导航">
+      <button class="nav-item selected" data-view="overview"><span class="nav-icon">▦</span>总控台</button>
+      <button class="nav-item" data-view="deliveries"><span class="nav-icon">▣</span>成果与验收<span class="count" id="nav-deliveries">3</span></button>
+      <button class="nav-item" data-view="decisions"><span class="nav-icon">⑂</span>决策与偏好<span class="count" id="nav-decisions">3</span></button>
+      <button class="nav-item" data-view="memory"><span class="nav-icon">⌘</span>记忆关系</button>
+    </nav>
+    <div class="space-label project-label">项目<span>03</span></div>
+    <div id="project-nav" class="project-nav"></div>
+    <div class="sidebar-bottom">
+      <span class="avatar">K</span><div>我的工作空间<small>本机 · 自主开发</small></div>
+    </div>
+  </aside>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="breadcrumb">工作空间<span>/</span><strong id="breadcrumb-view">总控台</strong></div>
+      <div class="topbar-actions"><span class="prototype-label">交互原型 · 示例数据</span><button class="text-button" id="reset-demo">重置示例</button></div>
+    </header>
+    <main>
+      <div class="page-heading">
+        <div><div class="eyebrow">WORKSPACE / 01</div><h1 id="page-title">多项目总控</h1><p id="page-description">查看各项目进展、可用成果和自主决定。</p></div>
+        <button class="primary" id="review-wave">审阅这一波 <span>↗</span></button>
+      </div>
+      <div class="summary" aria-label="所有项目概况" id="summary"></div>
+      <div class="workspace-grid">
+        <div class="work-surface">
+          <div class="toolbar"><div class="scope-tabs" id="scope-tabs" aria-label="项目范围"></div><span class="snapshot-label">示例波次 · 09.27</span></div>
+          <div id="main-content"></div>
+        </div>
+        <aside class="inspector" aria-label="详情与审阅" id="inspector"></aside>
+      </div>
+      <footer class="page-footer"><span>示例状态 · 刷新后恢复</span><span>本页操作只改变示例数据</span></footer>
+    </main>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

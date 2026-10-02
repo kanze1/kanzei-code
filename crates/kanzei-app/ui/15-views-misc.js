@@ -1,0 +1,1259 @@
+import { layoutPref, setLayoutPref } from "./03-layout.js";
+import { isGeneralChat, openGeneralChat } from "./03-general-scope.js";
+import { segmentTitle, syncHistoryIfOpen } from "./12-session-tree.js";
+import { loadDeliveredFiles } from "./06-deliveries.js";
+import { closeSurface, openDialog, openMenu } from "./00-surface.js";
+import { defer } from "./01-core.js";
+import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
+import { setCurrentReasoningHead } from "./05-chat-render.js";
+import { setCtxTokens } from "./03-shell.js";
+import { setActivePane } from "./01-core.js";
+import { escapeHtml } from "./04-markdown.js";
+import {
+  $,
+  activePane,
+  appendToPane,
+  confirmDialog,
+  discardSessionPane,
+  invoke,
+  messages,
+  promptBox,
+  resetPane,
+  showPane,
+} from "./01-core.js";
+import { t } from "./02-i18n.js";
+import {
+  activeLineBusy,
+  activeProcessId,
+  activeSessionId,
+  ctxTokens,
+  currentAssistant,
+  currentProject,
+  currentReasoning,
+  ensureChatView,
+  log,
+  processItems,
+  renderTokens,
+  running,
+  sessionState,
+  setStatus,
+  syncNewChatEnabled,
+  toast,
+  toastError,
+} from "./03-shell.js";
+import { mountDiagram, setDiagramHost } from "./04-diagram.js";
+import { renderMarkdownInto } from "./04-markdown.js";
+import {
+  addMessage,
+  appendCitations,
+  addUserMessage,
+  renderUserContent,
+  applyRecoveredToolDurations,
+  buildReasoningBlock,
+  buildToolBlock,
+  currentReasoningHead,
+  fillToolBlock,
+  followLatest,
+  mergeAdjacentToolGroups,
+  mountToolBlock,
+  noteProgrammaticScroll,
+  renderReasoningBlock,
+  setFollowLatest,
+  scrollBottom,
+  syncToolGroup,
+  syncToolGroupOf,
+  updateLatestButton,
+} from "./05-chat-render.js";
+import {
+  isSubagentSpawn,
+  subagentHistoryCall,
+  subagentHistoryOrphan,
+  subagentHistoryResult,
+  subagentPrependBegin,
+  subagentPrependEnd,
+  subagentResetSession,
+  subagentSealPaneTail,
+} from "./05-subagents.js";
+import { bgClear, renderRecoveredTraces } from "./06-activity.js";
+import { addSummaryEntry } from "./07-events.js";
+import { cancelAutoContinueTimer } from "./08-auto.js";
+import { initProjectGit, processRunning, processSwitchGeneration, projectFactsStale, refreshProcesses, refreshProjectFacts, switchProcess } from "./09-sessions.js";
+import { fillTemplate, formatByteSize, stripInternalHandoff } from "./04-structured-parse.js";
+import { refreshDocs } from "./14-docs-actions.js";
+import { forProject } from "./20-lines.js";
+import { active_space, create_workspace_process, project_workspace } from "./03-workspaces.js";
+
+// R-053 快速记录(记需求/记缺陷)的表单随入口迁到需求页「＋ 新建」菜单:见 14-docs-quick.js。
+// 原来的版本挂在被隐藏的侧栏分区里(0×0),命令面板点了毫无反应(UX-053/B7)。
+
+// 开发规范(项目约束与规范)的入口在需求页「更多 → 开发规范…」(14-docs-quick.js → 15-conventions.js openConventions),
+// 生成建议稿在规范对话框里;原来的侧栏「开发规范」分区从不可见,已删(UX-069 / B5)。
+
+// ---------- 应用内文档查看器:markdown/代码直接渲染,外部打开是兜底 ----------
+export let viewerKind = null;
+export function openRuntimeMarkdown(title, content) {
+  viewerKind = null;
+  $("viewer-title").textContent = title;
+  const body = $("viewer-body");
+  body.className = "md";
+  renderMarkdownInto(body, content ?? "");
+  body.scrollTop = 0;
+  $("viewer-external").classList.add("hidden");
+  // <dialog> 模态经原语打开:原生惰性化背景、Esc/点外关闭、关闭后焦点归还;已开着则只换内容。
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+}
+export async function openDocViewer(kind) {
+  try {
+    const doc = await invoke("docs_read", { projectDir: currentProject, kind });
+    viewerKind = kind;
+    $("viewer-external").classList.remove("hidden");
+    $("viewer-title").textContent = doc.name;
+    const body = $("viewer-body");
+    if (doc.name.endsWith(".md")) {
+      body.className = "md";
+      renderMarkdownInto(body, doc.content);
+    } else {
+      body.className = "";
+      body.innerHTML = `<pre class="code">${escapeHtml(doc.content)}</pre>`;
+    }
+    body.scrollTop = 0;
+    openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  } catch (err) {
+    toastError(String(err), { retry: () => openDocViewer(kind) });
+  }
+}
+/// 源码查看(图的「查看源码」/错误卡):带文件行号的只读代码,出错行高亮并滚进视口。
+export function openRuntimeSource(title, source, { line = null, startLine = 1 } = {}) {
+  viewerKind = null;
+  $("viewer-title").textContent = title;
+  const body = $("viewer-body");
+  body.className = "kz-source-view";
+  body.replaceChildren();
+  const pre = document.createElement("pre");
+  pre.className = "code kz-source";
+  let target = null;
+  String(source ?? "").replace(/\r\n?/g, "\n").split("\n").forEach((text, index) => {
+    const row = document.createElement("span");
+    row.className = "kz-source-line";
+    const number = document.createElement("span");
+    number.className = "kz-source-no";
+    number.textContent = String(startLine + index);
+    const code = document.createElement("span");
+    code.textContent = text || " ";
+    row.append(number, code);
+    if (line && index + 1 === line) {
+      row.classList.add("is-error");
+      target = row;
+    }
+    pre.append(row);
+  });
+  body.append(pre);
+  body.scrollTop = 0;
+  $("viewer-external").classList.add("hidden");
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  target?.scrollIntoView?.({ block: "center" });
+}
+/// UI2-0926 #8:工具截图 / 交付图片的大图查看(src 是 data URL,由 24-preview.js 经 tool_image / delivered_image 取来)。
+export function openRuntimeImage(title, src) {
+  viewerKind = null;
+  $("viewer-title").textContent = title;
+  const body = $("viewer-body");
+  body.className = "kz-image-view";
+  body.replaceChildren();
+  const img = document.createElement("img");
+  img.className = "kz-image-view-img";
+  img.alt = title;
+  img.setAttribute("src", src);
+  body.append(img);
+  body.scrollTop = 0;
+  $("viewer-external").classList.add("hidden");
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+}
+/// 聊天/文档里的图「放大」:在查看器里按页面模式重挂一张(适应/缩放/平移)。
+export function openRuntimeDiagram(title, source, { path = null, sourceLine = 1 } = {}) {
+  viewerKind = null;
+  $("viewer-title").textContent = title;
+  const body = $("viewer-body");
+  body.className = "kz-diagram-viewer";
+  body.replaceChildren();
+  $("viewer-external").classList.add("hidden");
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  mountDiagram(body, source, { mode: "page", title, path, sourceLine });
+}
+defer(() => {
+  $("viewer-close").addEventListener("click", () => closeSurface($("viewer-overlay")));
+  setDiagramHost({
+    openSource: ({ title, source, line, startLine, path }) => openRuntimeSource(`${t("图源码")} · ${path || title}`, source, { line, startLine }),
+    openLarge: ({ title, source, path, sourceLine }) => openRuntimeDiagram(title, source, { path, sourceLine }),
+    toast: (text, kind) => toast(text, { kind }),
+  });
+});
+defer(() => {
+  $("viewer-external").addEventListener("click", () => {
+    if (viewerKind) invoke("docs_open", { projectDir: currentProject, kind: viewerKind }).catch((e) => toastError(String(e), { retry: () => $("viewer-external").click() }));
+  });
+});
+
+// ---------- git 状态 ----------
+// 输入框上方的「本轮改动」条。数据取 git 真源(git_status 的 numstat),不靠把
+// kz:tool-end 的 diff 事件在前端累加——事件累加会漏掉手工改动、漏掉 agent 用 bash
+// 改的文件,而且切会话/重连后归零,给出的数字与工作树对不上。
+export let changeBarOpen = false;
+export function renderChangeBar(status) {
+  const bar = $("change-bar");
+  if (!bar) return;
+  const files = status?.files ?? [];
+  const additions = status?.additions ?? 0;
+  const deletions = status?.deletions ?? 0;
+  // UI2-0926 #11:分支住在上下文带左侧(项目名旁),没有改动时也要看得见,所以在早退之前写。
+  const branch = $("ctx-branch");
+  if (branch) branch.textContent = status?.branch ? `⎇ ${status.branch}` : "";
+  const box = $("change-bar-files");
+  // 没有改动就把改动按钮与清单都收起来:它是「这一轮把工作树改成了什么样」的答案,没答案不占位置。
+  if (!files.length) {
+    bar.classList.add("hidden");
+    box?.classList.add("hidden");
+    return;
+  }
+  bar.classList.remove("hidden");
+  $("change-bar-repo").textContent = `${files.length} ${t("个文件")}`;
+  $("change-bar-add").textContent = `+${additions}`;
+  $("change-bar-del").textContent = `−${deletions}`;
+  box.classList.toggle("hidden", !changeBarOpen);
+  // 箭头(.kz-chev)随 aria-expanded 旋转,不再改字形。
+  $("change-bar-toggle").setAttribute("aria-expanded", String(changeBarOpen));
+  if (!changeBarOpen) return;
+  box.replaceChildren();
+  for (const file of files) {
+    const row = document.createElement("div");
+    row.className = "change-file";
+    const path = document.createElement("span");
+    path.className = "change-file-path";
+    path.textContent = file.path;
+    path.title = file.path;
+    row.appendChild(path);
+    if (file.untracked) {
+      const tag = document.createElement("span");
+      tag.className = "change-file-tag dim";
+      tag.textContent = t("未跟踪");
+      row.appendChild(tag);
+    } else if (file.binary) {
+      const tag = document.createElement("span");
+      tag.className = "change-file-tag dim";
+      tag.textContent = t("二进制");
+      row.appendChild(tag);
+    } else {
+      const add = document.createElement("span");
+      add.className = "change-add";
+      add.textContent = `+${file.additions}`;
+      const del = document.createElement("span");
+      del.className = "change-del";
+      del.textContent = `−${file.deletions}`;
+      row.append(add, del);
+    }
+    box.appendChild(row);
+  }
+}
+defer(() => {
+  $("change-bar-toggle")?.addEventListener("click", () => {
+    changeBarOpen = !changeBarOpen;
+    void refreshGit();
+  });
+});
+
+// UI2-0926 #13:项目不是(独立的)Git 仓库时,上下文带里一枚灰色「无 Git」芯片。原先 git_status 失败就把
+// 分支与改动统计悄悄清空,用户看不出「为什么没有」;上级仓库的情况更糟——显示的是上级仓库的分支与改动。
+// 真源是 git_status 的 repo 字段(own / none / parent);没有这个字段(旧后端)按 own 处理,不显示芯片。
+export function renderGitChip(status) {
+  const chip = $("ctx-git");
+  if (!chip) return;
+  const repo = status?.repo;
+  // 复核 minor:研究空间不显示——独立课题在 ~/.kanzei/research-workspaces/… 下,本来就不是仓库,
+  // 在那里给「初始化 Git」等于把研究工作区 git init(研究档也不许改写仓库)。
+  // 不用 data-space-only:03-workspaces 会无条件切掉它的 .hidden,开发空间里空芯片也会冒出来。
+  const show = active_space !== "research" && (repo === "none" || repo === "parent");
+  chip.classList.toggle("hidden", !show);
+  if (!show) {
+    chip.textContent = "";
+    chip.removeAttribute("title");
+    chip.removeAttribute("aria-label");
+    delete chip.dataset.repo;
+    delete chip.dataset.toplevel;
+    return;
+  }
+  chip.dataset.repo = repo;
+  if (status?.toplevel) chip.dataset.toplevel = status.toplevel;
+  else delete chip.dataset.toplevel;
+  chip.textContent = t("无 Git");
+  const why = repo === "parent"
+    ? fillTemplate(t("本项目只是位于上级仓库 {path} 内,不是独立的 Git 仓库"), { path: status.toplevel ?? "" })
+    : t("本项目不是 Git 仓库");
+  const label = `${why}:${t("独立任务/工作树、提交与改动统计不可用")}`;
+  chip.title = label;
+  chip.setAttribute("aria-label", label);
+}
+export function openGitChipMenu() {
+  const chip = $("ctx-git");
+  if (!chip || chip.classList.contains("hidden")) return null;
+  const parent = chip.dataset.repo === "parent";
+  // 说明放在标题行(不可点),菜单里只有一个动作——首项就是能做的事,键盘焦点不会落在一行说明上。
+  return openMenu(chip, [
+    { heading: `${parent ? t("位于上级仓库内,不是独立仓库") : t("此目录不是 Git 仓库")}:${t("独立任务/工作树、提交与改动统计不可用")}` },
+    {
+      label: t("初始化并首次提交"),
+      desc: t("建库、写好忽略规则并提交一次,之后就能新建独立任务"),
+      onSelect: () => void initProjectGit({ nested: parent, commit: true }),
+    },
+    {
+      label: t("仅初始化 Git"),
+      desc: t("建库并写好运行时文件的忽略规则"),
+      onSelect: () => void initProjectGit({ nested: parent }),
+    },
+  ], { placement: "top-start", label: t("Git 状态") });
+}
+defer(() => {
+  $("ctx-git")?.addEventListener("click", () => openGitChipMenu());
+});
+
+export let gitRefreshGeneration = 0;
+export async function refreshGit(processId = activeProcessId) {
+  if (!currentProject) return;
+  const forProject = currentProject;
+  const forProcessId = processId || null;
+  const target = processItems.find((item) => item.id === forProcessId);
+  const worktreePath = target?.worktree_path || null;
+  const generation = ++gitRefreshGeneration;
+  try {
+    const g = await invoke("git_status", {
+      projectDir: forProject,
+      worktreePath,
+    });
+    // Git 查询是异步的;切线或切项目后,旧线路的迟到结果不得覆盖当前线路。
+    if (
+      currentProject !== forProject
+      || activeProcessId !== forProcessId
+      || generation !== gitRefreshGeneration
+    ) return;
+    $("status-git").textContent = g.branch
+      ? `⎇ ${g.branch}${g.changes ? ` +${g.changes}` : ""}`
+      : "";
+    $("status-git").title = g.last ? `${t("最近提交")}:${g.last}` : "";
+    renderChangeBar(g);
+    renderGitChip(g);
+    // 项目根的 git_status 与缓存的项目事实对不上(agent 刚 init / 提交过):横幅与开线入口别再按旧事实拦人(UX-129)。
+    if (!worktreePath && projectFactsStale(g, forProject)) void refreshProjectFacts(forProject);
+  } catch {
+    if (
+      currentProject !== forProject
+      || activeProcessId !== forProcessId
+      || generation !== gitRefreshGeneration
+    ) return;
+    $("status-git").textContent = "";
+    renderChangeBar(null);
+    renderGitChip(null);
+  }
+}
+
+// 运行中改文件/跑命令后刷新工作区徽章,合并 600ms 内的连续变更。
+export let gitLiveTimer = null;
+export function refreshGitSoon() {
+  clearTimeout(gitLiveTimer);
+  gitLiveTimer = setTimeout(() => {
+    gitLiveTimer = null;
+    refreshGit();
+  }, 600);
+}
+
+// R-267 批2:消息窗口化。
+//
+// 恢复历史时**只渲染尾部一窗**,其余留在内存里,向上滚到顶再按窗补齐。
+// 两个理由缺一不可:
+//   - 长会话的全量渲染本身就贵(实测主会话 993 条消息 / 1665 个 part,其中 272 处
+//     要走 renderMarkdown),切一次线卡一次;
+//   - 批1 之后 pane 常驻,多个长会话叠起来的 DOM 是新的内存来源——不窗口化的话,
+//     批1 省下的重渲染会换成常驻内存,拆东墙补西墙。
+export const PANE_WINDOW_SIZE = 120;
+/// 每条会话的完整历史与「已渲染到哪」:sessionId → { items, rendered }。
+/// 存的是数据不是 DOM,长会话的未渲染部分只占它自己那点 JSON。
+export const paneHistory = new Map();
+
+/// 清空某会话的窗口化历史缓存。**清 DOM 必须连它一起清**:只清 pane 的话,pane 变短、
+/// #messages 的 scrollTop 被浏览器夹到 0,滚动监听把这当成「触顶」,loadEarlierMessages
+/// 就从这份缓存里把旧对话一窗一窗补回到新对话上方——「新对话要点好几次才干净」的主因。
+export function forgetPaneHistory(sessionId) {
+  paneHistory.set(sessionId || "", { items: [], rendered: 0 });
+}
+
+/// 会话纪元:每开一次新段(新对话)就 +1。loadConversation 在发请求前记下纪元,
+/// 结果落地时纪元变了就丢弃——早于 conversation_clear 发出的 conversation_get /
+/// conversation_trace_get 迟到时,不得把旧段整页画回刚开的新对话。
+export const conversationEpochs = new Map();
+export function conversationEpoch(sessionId) {
+  return conversationEpochs.get(sessionId || "") || 0;
+}
+export function bumpConversationEpoch(sessionId) {
+  const key = sessionId || "";
+  const next = conversationEpoch(key) + 1;
+  conversationEpochs.set(key, next);
+  return next;
+}
+
+/// 把 `items` 渲染进 `container`。复用同一套配对/思考块/markdown 逻辑——
+/// 窗口化不能有第二份渲染实现,否则「首屏」与「补齐」两段迟早长歪。
+export function renderMessagesInto(container, items) {
+  const savedPane = activePane;
+  setActivePane(container);
+  try {
+    renderMessageParts(items);
+  } finally {
+    setActivePane(savedPane);
+  }
+}
+
+/// 窗口边界恰好切在「调用」与「结果」两条消息之间时:较早一窗(holder)里的调用没等到结果、被标成 interrupted;
+/// 较新一窗(pane)里是一条配不上的孤儿「tool result」块(renderMessageParts 记下了它的调用 id 与结果)。
+/// 补出较早一窗后按调用 id 把两半配回一块:用孤儿的结果填调用块、删掉孤儿,孤儿所在的组只剩思考块就拆掉组壳、
+/// 思考块留在原位;两组各自重算。否则相邻合并后组头把已完成的调用计成「1 中断」,整行还是灰的。
+/// 只用 children / classList / dataset / closest / insertBefore:冒烟的假 DOM 同样支持。
+export function pairBoundaryOrphans(holder, pane) {
+  const orphans = new Map();
+  for (const row of pane?.querySelectorAll?.(".tool-msg") ?? []) {
+    if (row.dataset?.orphanCallId && row._kzOrphanResult) orphans.set(row.dataset.orphanCallId, row);
+  }
+  if (!orphans.size) return 0;
+  let paired = 0;
+  for (const row of holder?.querySelectorAll?.(".tool-msg") ?? []) {
+    const orphan = orphans.get(row.dataset?.toolCallId);
+    if (!orphan || !row.classList.contains("interrupted") || !row._kzToolBlock) continue;
+    orphans.delete(row.dataset.toolCallId);
+    row.classList.remove("interrupted");
+    fillToolBlock(row._kzToolBlock, orphan._kzOrphanResult);
+    const group = orphan.closest(".tool-group");
+    orphan.remove();
+    if (group?._kzGroup) {
+      const body = group._kzGroup.body;
+      if ([...body.children].some((el) => el.classList.contains("tool-msg"))) syncToolGroup(group);
+      else {
+        for (const el of [...body.children]) group.parentNode.insertBefore(el, group);
+        group.remove();
+      }
+    }
+    paired += 1;
+  }
+  return paired;
+}
+
+/// 向上补齐一窗。保持滚动位置:前插会把内容顶下去,按高度差回补 scrollTop,
+/// 否则用户每次触顶都会被弹到别处。
+export function loadEarlierMessages() {
+  const history = paneHistory.get(activeSessionId || "");
+  if (!history) return false;
+  const remaining = history.items.length - history.rendered;
+  if (remaining <= 0) return false;
+  const start = Math.max(0, remaining - PANE_WINDOW_SIZE);
+  const chunk = history.items.slice(start, remaining);
+  const holder = document.createElement("div");
+  // UI-0926 #8:这一窗补出的子代理比已有的旧——侧栏列表里排在已有批次之下,不被当成最新一批。
+  subagentPrependBegin(activeSessionId);
+  try {
+    renderMessagesInto(holder, chunk);
+  } finally {
+    subagentPrependEnd();
+  }
+  const before = messages.scrollHeight;
+  // 边界切在「调用」与「结果」之间:先把两半按调用 id 配回一块(可能删掉只剩孤儿的组),再算相邻合并。
+  pairBoundaryOrphans(holder, activePane);
+  // UI2-0926 #12:窗口边界会把同一段工具活动切成两组。记下旧内容的第一个节点(跳过顶部提示条)
+  // 与新一窗的最后一个节点,前插之后两者相邻就合并(合计不超过上限),与实时渲染同构。
+  const isHint = (el) => el?.classList?.contains("earlier-hint") || el?.classList?.contains("pane-trimmed-hint");
+  const oldFirst = [...activePane.children].find((el) => !isHint(el)) ?? null;
+  const newKids = holder.children;
+  const lastNew = newKids[newKids.length - 1] ?? null;
+  activePane.prepend(...[...holder.childNodes]);
+  // 中间只隔着「载入更早的消息」入口(下面 renderEarlierHint 会把它挪回顶部)才算相邻;隔着实时裁剪
+  // 说明条就是真断层(那段被裁掉了),不合并。
+  const kids = [...activePane.children];
+  const between = lastNew && oldFirst ? kids.slice(kids.indexOf(lastNew) + 1, kids.indexOf(oldFirst)) : [];
+  if (between.every((el) => el.classList?.contains("earlier-hint"))) mergeAdjacentToolGroups(lastNew, oldFirst);
+  history.rendered += chunk.length;
+  messages.scrollTop += messages.scrollHeight - before;
+  // 这里**不能**去冲抵 droppedLive。补进来的 chunk 取自 history.items 里
+  // rendered 之前、从未渲染过的段;而 droppedLive 记的是已被 trimLivePane 从 pane
+  // 头部裁掉、且因 history.rendered 从不回退而永不重渲的那批。两个集合按构造互斥,
+  // 相减无条件是错的:受控 A/B 实测,减了之后每补一窗就少记一窗,补两次提示条直接
+  // 归零消失,而中间那段断层仍在——正好造出这段注释本想避免的「无标记断层」。
+  renderEarlierHint();
+  return true;
+}
+
+/// 实时裁剪的顶部说明条。与「载入更早的消息」分开是因为语义不同:那条是「数据还在
+/// 手上,点一下就补齐」;这条是「本地视图为了保持流畅丢掉了,完整内容在后端对话历史里,
+/// 切走再切回会按窗口重建」。做成静态说明而不是按钮——运行中重载对话会把正在写入的
+/// pane 整个换掉,不该给一个跑着的时候点了会出事的入口。
+export function renderTrimmedHint(pane) {
+  const target = pane || activePane;
+  if (!target || typeof target.querySelector !== "function") return;
+  const dropped = Number(target.dataset.droppedLive || 0);
+  const existing = target.querySelector(".pane-trimmed-hint");
+  if (dropped <= 0) {
+    if (existing) existing.remove();
+    return;
+  }
+  const label = `${t("较早的")} ${dropped} ${t("条已移出视图以保持流畅")}`;
+  if (existing) {
+    existing.textContent = label;
+    return;
+  }
+  const hint = document.createElement("div");
+  hint.className = "pane-trimmed-hint";
+  hint.textContent = label;
+  target.prepend(hint);
+}
+
+/// 顶部提示条:还剩多少条没渲染。它同时是入口(点它补齐)与状态(还剩多少)。
+export function renderEarlierHint() {
+  const history = paneHistory.get(activeSessionId || "");
+  const remaining = history ? history.items.length - history.rendered : 0;
+  const existing = activePane.querySelector(".earlier-hint");
+  if (remaining <= 0) {
+    if (existing) existing.remove();
+    return;
+  }
+  const label = `${t("载入更早的消息")} · ${t("还有")} ${remaining} ${t("条")}`;
+  if (existing) {
+    existing.textContent = label;
+    // 补齐一窗是前插:已有的提示条会被新内容压到中间。挪回顶部(它是入口,必须在最上面)。
+    activePane.prepend(existing);
+    return;
+  }
+  const hint = document.createElement("button");
+  hint.type = "button";
+  hint.className = "earlier-hint";
+  hint.textContent = label;
+  hint.addEventListener("click", () => loadEarlierMessages());
+  activePane.prepend(hint);
+}
+
+// 首屏、恢复空态与项目入口共享同一份 SVG 资产。
+export const EMPTY_STATE_LOGO = '<img src="assets/kanzei.svg" width="42" height="42" alt="">';
+export function emptyStateMarkup() {
+  return `<div class="empty-state"><div class="empty-welcome"><div class="empty-copy">`
+    + `<div class="empty-brand"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div><span>kanzei</span></div>`
+    + `<h1 data-i18n-key="开始一段对话">${t("开始一段对话")}</h1>`
+    + `<p class="hint" data-i18n-key="描述任务，或添加图片与 PDF。">${t("描述任务，或添加图片与 PDF。")}</p>`
+    // 与 index.html 的静态空态同一套键位(真实键位:Enter 发送、Shift+Enter 换行;Ctrl+Enter 也能发,不单列)。
+    + `<div class="empty-shortcuts"><span><kbd>Enter</kbd><span data-i18n-key="发送">${t("发送")}</span></span>`
+    + `<span><kbd>Shift + Enter</kbd><span data-i18n-key="换行">${t("换行")}</span></span>`
+    + `<span><kbd>Ctrl/Cmd + P</kbd><span data-i18n-key="命令面板">${t("命令面板")}</span></span>`
+    + `<span><kbd>Ctrl + F</kbd><span data-i18n-key="搜索对话">${t("搜索对话")}</span></span></div></div>`
+    + `</div></div>`;
+}
+
+export function renderRecoveredMessages(items) {
+  setFollowLatest(true);
+  // UI-0926 #8:重载历史前丢掉该会话已结束的子代理 run(卡片随 pane 一起重建),运行中的保留。
+  subagentResetSession(activeSessionId);
+  anchoredTaskCalls = new WeakSet();
+  resetPane();
+  setCurrentAssistant(null);
+  setCurrentReasoning(null);
+  setCurrentReasoningHead(null);
+  const all = items ?? [];
+  paneHistory.set(activeSessionId || "", { items: all, rendered: 0 });
+  const tail = all.slice(Math.max(0, all.length - PANE_WINDOW_SIZE));
+  paneHistory.get(activeSessionId || "").rendered = tail.length;
+  renderMessageParts(tail);
+  if (!all.length) {
+    resetPane();
+    activePane.innerHTML = emptyStateMarkup();
+  }
+  renderEarlierHint();
+  scrollBottom(true);
+}
+
+/// UI-0926 #8:结果在已渲染的窗口里、调用在更早窗口里的 task 调用(按 part 对象认领,调用 id 重复也不串)。
+/// 每次整页重载时换新。
+let anchoredTaskCalls = new WeakSet();
+
+/// 窗口边界把调用与结果切开时,结果在这一窗里配不上调用。沿完整历史往回找发出这批调用的那条消息
+/// (跳过只装结果的消息,停在最近一条带调用的消息上),那里有同 id 的 task 调用就返回它。
+function orphanTaskCall(message, callId) {
+  const items = paneHistory.get(activeSessionId || "")?.items;
+  if (!items || !callId) return null;
+  for (let index = items.indexOf(message) - 1; index >= 0; index -= 1) {
+    const parts = items[index]?.parts ?? [];
+    if (parts.some((part) => part.type === "tool_call")) {
+      const call = parts.find((part) => part.type === "tool_call" && part.id === callId);
+      return call?.name === "task" ? call : null;
+    }
+    if (!parts.some((part) => part.type === "tool_result")) return null;
+  }
+  return null;
+}
+
+/// 渲染一段消息(配对 tool_call/tool_result、思考块、markdown)。
+/// 首屏与向上补齐共用它。
+export function renderMessageParts(items) {
+  // 调用与结果按 call_id 配对成一块渲染:原先每个 part 各占一行,
+  // 结果行只显示原始 call id,对人毫无信息量(用户 2026-08-08 反馈"太丑")。
+  const pending = new Map();
+  for (const message of items ?? []) {
+    let lastAssistantElement = null;
+    // UI-0926 #8:一条带调用的消息 = 新的一批,先封住 pane 末尾还开着的子代理组。
+    if (message.parts?.some?.((part) => part.type === "tool_call")) subagentSealPaneTail();
+    for (const part of message.parts ?? []) {
+      // UI-0926 #8:task 回放成与实时同形的子代理卡片(过程与计数随后由 run.trace 回放补齐)。
+      if (part.type === "tool_call" && part.name === "task" && isSubagentSpawn(part.input) && part.id) {
+        // 结果在更晚的窗口里、已经按孤儿结果建过卡(见下):认领,不建第二张、不标中断。
+        if (anchoredTaskCalls.has(part)) continue;
+        subagentHistoryCall(activeSessionId, part.id, part.input);
+        pending.set(part.id, { subagent: true });
+        continue;
+      }
+      if (part.type === "tool_call") {
+        const block = buildToolBlock(part.name || "tool", part.input);
+        // 轨迹里的耗时按调用 id 回填(applyRecoveredToolDurations)。
+        if (part.id) block.wrap.dataset.toolCallId = part.id;
+        mountToolBlock(block);
+        if (part.id) pending.set(part.id, { block, input: part.input });
+        continue;
+      }
+      if (part.type === "tool_result") {
+        const entry = pending.get(part.call_id);
+        // UI-0926 #8:窗口边界把 task 的调用切到了更早的窗口:就在这里用那次调用的入参建卡、收成终态。
+        const taskCall = entry ? null : orphanTaskCall(message, part.call_id);
+        if (entry?.subagent) {
+          pending.delete(part.call_id);
+          subagentHistoryResult(activeSessionId, part.call_id, { ok: !part.is_error, content: part.content });
+        } else if (entry) {
+          pending.delete(part.call_id);
+          fillToolBlock(entry.block, {
+            ok: !part.is_error,
+            content: part.content,
+            input: entry.input,
+          });
+        } else if (taskCall && isSubagentSpawn(taskCall.input)) {
+          anchoredTaskCalls.add(taskCall);
+          subagentHistoryOrphan(activeSessionId, part.call_id, taskCall.input, { ok: !part.is_error, content: part.content });
+        } else {
+          // 配对不上(历史被压缩过,或窗口边界把调用切到了更早一窗):独立成块,总比丢掉强。
+          // 记下调用 id 与结果:补出更早一窗后 pairBoundaryOrphans 据此把两半配回一块。
+          const orphan = buildToolBlock("tool result", {});
+          if (part.call_id) {
+            orphan.wrap.dataset.orphanCallId = part.call_id;
+            orphan.wrap._kzOrphanResult = { ok: !part.is_error, content: part.content };
+          }
+          mountToolBlock(orphan);
+          fillToolBlock(orphan, { ok: !part.is_error, content: part.content });
+        }
+        continue;
+      }
+      if (part.type === "hosted") {
+        if (part.kind === "web_search_call") {
+          const raw = part.raw ?? {};
+          const action = raw.action ?? {};
+          const queries = Array.isArray(action.queries)
+            ? action.queries.map((item) => ({ q: String(item?.q ?? "") })).filter((item) => item.q)
+            : [];
+          const query = String(action.query ?? queries.map((item) => item.q).join(" · ") ?? "");
+          const input = queries.length ? { queries } : { query: query || t("搜索结果") };
+          const block = buildToolBlock("web_search", input);
+          if (raw.id) block.wrap.dataset.toolCallId = String(raw.id);
+          mountToolBlock(block);
+          fillToolBlock(block, {
+            ok: true,
+            outcome: "success",
+            preview: t("搜索结果"),
+            input,
+            content: JSON.stringify({ backend: "model_native", query: query || t("搜索结果"), results: [] }),
+          });
+        } else if (part.kind === "citations") {
+          appendCitations(part.raw, lastAssistantElement);
+        }
+        continue;
+      }
+      if (part.type === "reasoning") {
+        // 思考块此前在恢复时被整个丢弃(循环只认 text/tool_*):重开会话后思维链从
+        // DOM 消失,复制上下文也拿不到。按实时同款折叠块恢复,完整 raw 进 dataset。
+        if (part.text?.trim()) {
+          const block = buildReasoningBlock(part.text);
+          appendToPane(block.wrap);
+          renderReasoningBlock(block.body);
+        }
+        continue;
+      }
+      if (message.role === "user" && ["image", "document"].includes(part.type)) {
+        addUserMessage("", [{ file_name:part.type === "image" ? t("图片") : "PDF", media_type:part.media_type }]);
+        continue;
+      }
+      if (part.type !== "text" || !part.text?.trim()) continue;
+      const el = addMessage(message.role === "assistant" ? "assistant md" : "user", "");
+      if (message.role === "assistant") {
+        lastAssistantElement = el;
+        el.dataset.raw = part.text;
+        // 历史回放与实时流同一道防线:模型复述的内部交接字段不显示(UX-037)。
+        renderMarkdownInto(el.querySelector(".message-body"), stripInternalHandoff(part.text));
+      } else {
+        renderUserContent(el.querySelector(".message-body"), part.text);
+      }
+    }
+  }
+  // 没等到结果的调用(轮次被中断,或**窗口边界**把调用与结果切开了):标出来,
+  // 不要停在"运行中"的假象上。窗口边界这一侧补齐后会重新配上,不影响最终形态。
+  for (const [callId, { block, subagent }] of pending) {
+    if (subagent) {
+      subagentHistoryResult(activeSessionId, callId, { interrupted: true });
+      continue;
+    }
+    block.wrap.classList.remove("running");
+    // 与实时停止收尾(chatAbortRunning)同形:标 interrupted,工具组标签据此计「N 中断」。
+    block.wrap.classList.add("interrupted");
+    block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
+    block.result.classList.remove("hidden");
+    syncToolGroupOf(block);
+  }
+}
+
+export async function loadConversation(sequence = null, switchGeneration = null, force = false) {
+  if (!currentProject) return;
+  // 启动时项目列表与历史恢复并行触发,先确保进程列表已选出主会话,再锁定
+  // processId。否则首次 conversation_get 可能带着 null,历史会被竞态丢掉。
+  // D-355:refreshProcesses 按项目键控(单飞去项目化),这里 await 到的是**当前项目**
+  // 自己的列表刷新 Promise——A 的 process_list 在途时切到 B,等到的就是 B 的列表,
+  // B 的 activeProcessId 就绪后 conversation_get 才带着 B 的 projectDir/processId 发出。
+  if (!activeProcessId && typeof refreshProcesses === "function") await refreshProcesses();
+  if (!currentProject || !activeProcessId) return;
+  // R-267:D-356 的「快照 + 补齐」整套退役。
+  //
+  // 原来的做法是切走时存一份 innerHTML、切回时塞回去,再挂一句「快照截至上次切走时,
+  // 本轮完成后自动补齐」——因为后台会话的渲染事件被丢弃了,那段确实是缺的。
+  // 现在每个会话有自己的 pane 且后台事件直接渲染进去,pane 里已经是**最新**的:
+  // 已有内容就直接用,既不重拉也不需要那句免责声明。
+  //
+  // 仅当 pane 是空的(首次进入该会话,或它被 MESSAGE_PANE_MAX 淘汰过)才往下走
+  // 完整装载。这也是淘汰策略敢做的原因:最坏情况退化成改造前的重建,不是缺口。
+  // 但这条捷径只对「装载当前会话」成立。指定了 sequence 就是用户在侧栏点了某份
+  // **历史快照**——它跟当前 pane 里那段是两回事,直接复用等于什么都没做,而调用方
+  // (openConversationForProcess)紧接着还会写一句「已打开历史对话 #N」。用户看到
+  // 提示、屏幕没变化,只会以为界面坏了。有 sequence 时一律走下面的真装载。
+  if (!force && sequence === null && activeSessionId && showPane(activeSessionId)) {
+    scrollBottom(true);
+    return;
+  }
+  // 走真装载:只认领 pane,**不提前清空**。renderRecoveredMessages 拿到结果后自己会
+  // resetPane,提前清只在两种坏情况下露头:conversation_get 失败时当前会话内容被抹掉
+  // 且错误行又把 hasContent 置回 1(切走切回都不自愈),以及请求在途时主区白屏。
+  if (activeSessionId) showPane(activeSessionId);
+  // 线程切换是异步的:conversation_get 与 trace_get 之间用户可能再次切线。
+  // 两个 IPC 必须锁定同一项目/同一进程,且晚返回的旧请求不能覆盖当前线程。
+  const forProject = currentProject;
+  const forProcessId = activeProcessId;
+  // 新对话会递增该会话的纪元:在途的旧段装载迟到时不得覆盖新段的欢迎页。
+  const forSessionId = activeSessionId;
+  const forEpoch = conversationEpoch(forSessionId);
+  const isCurrent = () =>
+    (switchGeneration === null || switchGeneration === processSwitchGeneration) &&
+    currentProject === forProject &&
+    activeProcessId === forProcessId &&
+    conversationEpoch(forSessionId) === forEpoch;
+  try {
+    bgClear();
+    const deliveryRequest = loadDeliveredFiles(forProject, { force: true });
+    const history = await invoke("conversation_get", {
+      projectDir: forProject,
+      processId: forProcessId,
+      sequence,
+    });
+    await deliveryRequest;
+    if (!isCurrent()) return;
+    renderRecoveredMessages(history);
+    const traces = await invoke("conversation_trace_get", {
+      projectDir: forProject,
+      processId: forProcessId,
+      sequence,
+    });
+    if (!isCurrent()) return;
+    renderRecoveredTraces(traces);
+    applyRecoveredToolDurations(traces);
+    log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${traces.length} ${t("组工具轨迹")}`);
+  } catch (err) {
+    addMessage("error", `${t("历史消息恢复失败")}:${err}`);
+    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => loadConversation(sequence) });
+  }
+}
+
+// 历史对话按线路归属渲染:后端本来就按 process_id 隔离 session,前端不能再把
+// 当前线路的快照扁平化到一个全局列表,否则用户看不出「这段历史属于哪条线」。
+// 勾选态必须活在 DOM 之外。侧栏线路列表每 3 秒被 process_list 轮询整体
+// replaceChildren 重建一次(09-sessions.js renderParallelTaskStatus),勾选框是
+// 每次新建的——只要有任何一条线在跑,用户永远勾不满三条就被抹掉一次,
+// 「勾选后点删除」这条唯一的删除路径在运行期间根本走不完。
+export const conversationChecked = new Map(); // processId -> Set(JSON.stringify(sequences))
+export const conversationItemsByProcess = new Map();
+export const conversationErrorsByProcess = new Map();
+export let conversationListGeneration = 0;
+
+export function lineHistoryElement(processId) {
+  return [...document.querySelectorAll(".parallel-line-history")]
+    .find((element) => element.dataset.processId === processId) ?? null;
+}
+
+export function historyProcessItem(processId) {
+  return processItems.find((item) => item.id === processId) ?? null;
+}
+
+/// 历史段 → 只读文字稿(markdown)。UX-004 / UX-033:原先把旧段装进当前对话的 pane——新消息会混进旧段、
+/// 回不到当前对话,运行中的主对话(几乎总在跑)还直接被拦。现在旧段只进文档查看器:当前对话的 pane、
+/// 草稿与运行完全不受影响,运行中也能看。
+export function historyTranscript(items, limit = 300) {
+  const list = Array.isArray(items) ? items : [];
+  const shown = list.slice(-limit);
+  const blocks = [];
+  if (shown.length < list.length) {
+    blocks.push(`> ${fillTemplate(t("只显示最后 {shown} 条消息,共 {total} 条"), { shown: shown.length, total: list.length })}`);
+  }
+  for (const message of shown) {
+    const who = message.role === "assistant" ? t("助手") : message.role === "user" ? t("你") : String(message.role ?? "");
+    const lines = [];
+    // 连续的工具调用并成一行,免得一条消息里十几次调用占满一屏。
+    let tools = [];
+    const flushTools = () => {
+      if (tools.length) lines.push(`> ${t("调用工具")} ${tools.map((name) => `\`${name}\``).join(" ")}`);
+      tools = [];
+    };
+    for (const part of message.parts ?? []) {
+      if (part.type === "tool_call") { tools.push(part.name || "tool"); continue; }
+      flushTools();
+      if (part.type === "text" && part.text?.trim()) {
+        lines.push(message.role === "assistant" ? stripInternalHandoff(part.text.trim()) : part.text.trim());
+      } else if (["image", "document"].includes(part.type)) lines.push(`> ${part.type === "image" ? t("图片") : "PDF"}`);
+    }
+    flushTools();
+    if (lines.length) blocks.push(`**${who}**\n\n${lines.join("\n\n")}`);
+  }
+  return blocks.join("\n\n---\n\n") || t("这段对话没有可显示的文字");
+}
+export async function openConversationForProcess(processId, sequence, { project = currentProject, title = "" } = {}) {
+  let history;
+  try {
+    history = await invoke("conversation_get", { projectDir: project, processId, sequence });
+  } catch (err) {
+    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => openConversationForProcess(processId, sequence, { project, title }) });
+    return;
+  }
+  openRuntimeMarkdown(`${title || t("历史对话")} · ${t("只读")}`, historyTranscript(history));
+}
+/// 已关闭(注销)线路的对话:只读查看(UX-035)。会话 id 是进程 id 的纯函数,注销后 conversation_list / conversation_get 照样取得到。
+/// 一条线可能有好几段(开过新对话):最近的几段由新到旧拼成一份文字稿,每段一个小标题。
+export async function openClosedConversation(project, entry, title = "") {
+  const processId = entry?.id;
+  if (!processId) return;
+  const name = title || entry.title || t("已关闭的对话");
+  const blocks = [];
+  try {
+    const list = await invoke("conversation_list", { projectDir: project, processId });
+    const segments = [...(Array.isArray(list) ? list : [])].sort((a, b) => (Number(b.sequence) || 0) - (Number(a.sequence) || 0)).slice(0, 5);
+    for (const segment of segments) {
+      const history = await invoke("conversation_get", { projectDir: project, processId, sequence: segment.sequence });
+      blocks.push(`### ${segmentTitle(segment.title)}\n\n${historyTranscript(history)}`);
+    }
+    if (!blocks.length) blocks.push(historyTranscript(await invoke("conversation_get", { projectDir: project, processId, sequence: null })));
+  } catch (err) {
+    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => openClosedConversation(project, entry, title) });
+    return;
+  }
+  openRuntimeMarkdown(`${name} · ${t("已关闭")} · ${t("只读")}`, blocks.join("\n\n---\n\n"));
+}
+
+/// 删除落地后按线路收拾主区。被删的段可能正显示在某个 pane 里(当前段,或用户打开过的
+/// 那段历史):pane 与窗口化缓存都得作废,否则删掉的对话还留在屏幕上,触顶还会从缓存补回来。
+async function settleDeletedConversationView(processId, target, clearedCurrent) {
+  const isActive = processId === activeProcessId;
+  const sessionId = isActive ? activeSessionId : target?.session_id;
+  if (!sessionId) return;
+  // 删掉了当前段:排上的续跑那一轮会带着「继续」指令落进空段,撤掉。
+  if (clearedCurrent) cancelAutoContinueTimer(sessionId);
+  // 作废删除前发出、还没落地的装载:迟到的结果不得把删掉的内容画回来。
+  bumpConversationEpoch(sessionId);
+  if (!isActive) {
+    // 后台线:丢掉它的 pane 与缓存,下次进来按剩余历史重建。
+    paneHistory.delete(sessionId);
+    discardSessionPane(sessionId);
+    return;
+  }
+  if (clearedCurrent) {
+    // 当前段已空:给与新对话同构的欢迎页(清 pane、窗口化缓存与活动面板)。
+    showFreshConversation();
+    return;
+  }
+  // 删的是旧段:主区可能正显示着被删的那段历史,按当前段重新装载。
+  resetPane();
+  forgetPaneHistory(sessionId);
+  await loadConversation();
+}
+
+/// 删掉某条线里的若干对话段(右键「删除这段历史…」「清空对话…」共用)。真删、不可恢复:确认框点名并列出
+/// 删什么、留什么;运行中先拒绝并写明原因。「安全整理」已不挂在删除上,移到 设置 → 存储整理。
+export async function deleteConversationsForProcess(processId, sequences, { project = currentProject, title = "", subject = "", okText = "" } = {}) {
+  if (!sequences.length) {
+    toast(t("没有可删除的对话段"));
+    return;
+  }
+  const local = project === currentProject;
+  // 运行中拦截:runner 正往这条线写对话,删掉当前段会与写入交错留下半截轮次。
+  // 后端持 lifecycle 锁再判一次;这里先挡住,不白弹一次确认框。
+  const target = local ? historyProcessItem(processId) : null;
+  if (target && processRunning(target)) {
+    toast(t("运行中,先停止再删除对话"), { kind: "warn" });
+    return;
+  }
+  const confirmed = await confirmDialog({
+    title: title || t("删除历史对话"),
+    message: `${subject ? `「${subject}」\n` : ""}${fillTemplate(t("将删除 {count} 段对话"), { count: sequences.length })}${t("，此操作不可撤销")}`,
+    list: [
+      t("对话消息、工具调用与结果"),
+      t("运行轨迹、子代理记录与压缩摘要"),
+      t("这段对话里已结束输入的原文"),
+      t("保留:用量统计、已提炼的记忆与需求记录"),
+    ],
+    okText: okText || t("删除"),
+    danger: true,
+  });
+  if (!confirmed) return;
+  let result;
+  try {
+    result = await invoke("conversation_delete", { projectDir: project, processId, sequences });
+  } catch (err) {
+    // 后端持 lifecycle 锁判定该线在跑(前端预检时 kz:turn 还没到):给与预检同一句已翻译的
+    // 提示,不把后端的中文原文甩进英文界面,也不给「重试」——停下之前重试只会再被拒。
+    if (String(err).includes("对话运行中")) {
+      toast(t("运行中,先停止再删除对话"), { kind: "warn" });
+      return;
+    }
+    toastError(String(err), { retry: () => deleteConversationsForProcess(processId, sequences, { project, title, subject, okText }) });
+    return;
+  }
+  // 旧后端只回删除条数:按段数提示,主区照旧段处理(重载)。
+  const outcome = typeof result === "number" ? { segments: sequences.length } : (result ?? {});
+  const clearedCurrent = Boolean(outcome.cleared_current);
+  if (local) await settleDeletedConversationView(processId, target, clearedCurrent);
+  toast(`${t("已删除")} ${outcome.segments ?? sequences.length} ${t("段对话")}${clearedCurrent ? ` · ${t("当前对话已删除")}` : ""}`, { kind: "ok" });
+  conversationChecked.delete(processId);
+  if (local) await refreshConversationLists();
+}
+
+/// 整条会话被删(process_purge)后收拾前端残留:它的 pane、窗口化缓存、流式装配与待续跑计时器。
+/// 活动会话不在这里处理——列表刷新会把活动线换成主对话并重新装载。
+export function forgetDeletedSession(sessionId) {
+  if (!sessionId) return;
+  cancelAutoContinueTimer(sessionId);
+  bumpConversationEpoch(sessionId);
+  paneHistory.delete(sessionId);
+  discardSessionPane(sessionId);
+}
+
+// 历史对话默认收起。每条线路都挂一份完整快照列表,四五条线一起展开时侧栏
+// 前两屏全是历史标题,当前在做什么反而被挤下去。展开态按线路记在 app.json 的
+// ui_layout.history_open[线路 id](A12:原先存 localStorage,本机重启即丢),手动展开过的线路下次进来仍是展开的。
+export const lineHistoryOpen = {
+  has: (processId) => layoutPref("history_open", processId) === true,
+  add: (processId) => setLayoutPref("history_open", processId, true),
+  delete: (processId) => setLayoutPref("history_open", processId, null),
+};
+
+export function renderLineConversationHistory(processId) {
+  const el = lineHistoryElement(processId);
+  if (!el) return;
+  // UX-036:内容没变就不重建——整块重建会丢掉滚动位置与键盘焦点(列表刷新、轮询都会走到这里)。
+  const signature = JSON.stringify([
+    String(conversationErrorsByProcess.get(processId) ?? ""),
+    (conversationItemsByProcess.get(processId) ?? []).map((item) => [item.sequence, item.title, item.message_count]),
+    lineHistoryOpen.has(processId), currentProject, t("历史对话"),
+  ]);
+  if (el._historySignature === signature) return;
+  el._historySignature = signature;
+  el.replaceChildren();
+  el.removeAttribute("title");
+  const error = conversationErrorsByProcess.get(processId);
+  if (error) {
+    // 一行说清失败,原始错误进 tooltip(长错误不在侧栏铺开)。
+    el.classList.remove("empty");
+    el.textContent = t("历史对话加载失败");
+    el.title = String(error);
+    return;
+  }
+  const items = conversationItemsByProcess.get(processId);
+  // 加载中与「一条历史都没有」都不占行:每条线路下一行「加载中…」/「历史对话 (0)」只是噪音。
+  if (!items || !items.length) {
+    el.classList.add("empty");
+    return;
+  }
+  el.classList.remove("empty");
+  const open = lineHistoryOpen.has(processId);
+  el.classList.toggle("open", open);
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "parallel-history-head";
+  head.setAttribute("aria-expanded", open ? "true" : "false");
+  head.title = t("展开或收起该对话的历史");
+  const caret = document.createElement("span");
+  caret.className = "parallel-history-caret";
+  caret.setAttribute("aria-hidden", "true");
+  caret.textContent = "▸";
+  const label = document.createElement("span");
+  label.className = "parallel-history-label";
+  label.textContent = `${t("历史对话")} ${items.length}`;
+  head.append(caret, label);
+  head.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (lineHistoryOpen.has(processId)) lineHistoryOpen.delete(processId);
+    else lineHistoryOpen.add(processId);
+    renderLineConversationHistory(processId);
+  });
+  el.appendChild(head);
+  if (!open) return;
+  const body = document.createElement("div");
+  body.className = "parallel-history-body";
+  const list = document.createElement("div");
+  list.className = "parallel-history-list";
+  for (const item of [...items].reverse()) {
+    // 点开 = 只读查看(openConversationForProcess);删除并入右键「删除这段历史…」(12-session-menus.js 事件委托),
+    // 不再有勾选框与批量删除按钮。行可聚焦,Enter/空格同点击。
+    const row = document.createElement("div");
+    row.className = "parallel-history-row";
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.title = t("点击只读查看 · 右键可删除这段历史");
+    row.dataset.ctx = "segment";
+    row.dataset.project = currentProject;
+    row.dataset.processId = processId;
+    row.dataset.sequence = String(item.sequence);
+    row.dataset.seqs = JSON.stringify(item.sequences ?? [item.sequence]);
+    row.dataset.title = segmentTitle(item.title);
+    row.dataset.key = `${currentProject}\u001f${processId}\u001f${item.sequence}`;
+    const title = document.createElement("span");
+    title.className = "title";
+    // 条数缺失(旧后端/桩)时不写「(undefined 条)」。
+    const count = Number.isFinite(item.message_count) ? ` (${item.message_count} ${t("条")})` : "";
+    title.textContent = `${segmentTitle(item.title)}${count}`;
+    row.append(title);
+    const view = () => void openConversationForProcess(processId, item.sequence, { title: item.title });
+    row.addEventListener("click", view);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); view(); }
+    });
+    list.appendChild(row);
+  }
+  body.append(list);
+  el.appendChild(body);
+}
+
+export async function refreshConversationLists() {
+  if (!currentProject) return;
+  const forProject = currentProject;
+  const generation = ++conversationListGeneration;
+  const targets = processItems.slice();
+  if (!targets.length) return;
+  const results = await Promise.all(targets.map(async (process) => {
+    try {
+      return { processId: process.id, items: await invoke("conversation_list", { projectDir: forProject, processId: process.id }) };
+    } catch (error) {
+      return { processId: process.id, error };
+    }
+  }));
+  if (generation !== conversationListGeneration || currentProject !== forProject) return;
+  const errors = [];
+  for (const result of results) {
+    if (result.error) {
+      conversationErrorsByProcess.set(result.processId, result.error);
+      errors.push(`${result.processId}:${result.error}`);
+    } else {
+      conversationErrorsByProcess.delete(result.processId);
+      conversationItemsByProcess.set(result.processId, result.items ?? []);
+    }
+    renderLineConversationHistory(result.processId);
+  }
+  const known = new Set(targets.map((process) => process.id));
+  for (const processId of conversationItemsByProcess.keys()) {
+    if (!known.has(processId)) conversationItemsByProcess.delete(processId);
+  }
+  // 「对话与历史」弹层的「更早的历史对话」读的是这份缓存:开着就跟着刷新(内容不变不重建)。
+  syncHistoryIfOpen();
+  if (errors.length) {
+    const message = `${t("历史对话加载失败")}:${errors.join("; ")}`;
+    log(message, "warn");
+    toastError(message, { retry: refreshConversationLists });
+  }
+}
+
+export async function refreshConversationList() {
+  return refreshConversationLists();
+}
+
+// 设置 → 存储整理(原来挂在删除确认上的「删除并安全整理」:它整理的是整个项目的存储,与勾了哪几段对话无关,
+// 文案与行为不符,UX-034 / B37)。清无引用的工具结果文件与旧迁移备份;失败给可重试的错误。
+defer(() => {
+  const button = $("storage-cleanup");
+  if (!button) return;
+  const run = async () => {
+    if (!currentProject) { toast(t("先选择一个项目")); return; }
+    const result = $("storage-cleanup-result");
+    button.disabled = true;
+    if (result) result.textContent = `${t("整理存储")}…`;
+    try {
+      const cleanup = await invoke("conversation_cleanup", { projectDir: currentProject });
+      const failures = [...(cleanup.artifact_cleanup_errors ?? []), ...(cleanup.backup_cleanup_errors ?? [])];
+      if (failures.length) {
+        if (result) result.textContent = t("存储整理部分失败");
+        toastError(`${t("存储整理部分失败")}\n${failures.join("\n")}`, { retry: run });
+        return;
+      }
+      const text = `${t("存储整理完成,释放")} ${formatByteSize(cleanup.actual_freed_bytes ?? 0)}`;
+      if (result) result.textContent = text;
+      toast(text, { kind: "ok" });
+    } catch (err) {
+      if (result) result.textContent = String(err);
+      toastError(`${t("存储整理失败")}: ${String(err)}`, { retry: run });
+    } finally {
+      button.disabled = false;
+    }
+  };
+  button.addEventListener("click", () => void run());
+});
+
+// ---------- 新对话 ----------
+// R-267:D-356 的 sessionDomCache(切走存 innerHTML 字符串、上限 30 份)整套删除。
+// 它存在的唯一理由是「后台会话的渲染事件被丢弃,切回时得有个东西顶上」;现在
+// per-session pane 就是活的 DOM,不需要把它序列化成字符串再解析回来——那既是缺口的
+// 来源,也是切换卡顿的来源(每次切换一次多 MB 的 innerHTML 解析)。
+// `cacheSessionDom` / `dropSessionDomCache` 一并退役,调用点改为无操作或直接删除。
+
+// 会话是否仍处于运行中。pane 淘汰要用它——正在往里写的会话永不淘汰。
+// 口径:只有 starting/running/stopping 判活。
+export function sessionLiveNow(sessionId) {
+  return ["starting", "running", "stopping"].includes(sessionState(sessionId).phase);
+}
+export function clearChat(noticeText) {
+  resetPane();
+  forgetPaneHistory(activeSessionId);
+  setCurrentAssistant(null);
+  setCurrentReasoning(null);
+  setCurrentReasoningHead(null);
+  setCtxTokens(0);
+  renderTokens();
+  if (noticeText) addMessage("notice", noticeText);
+}
+
+/// 新段的视图:与「空历史恢复」同构的欢迎页,输入框聚焦。不往转录区插 notice——
+/// 那句提示夹在旧内容与新内容之间,正是「旧对话残留在『已开启新对话』上方」的样子。
+export function showFreshConversation() {
+  // 顺手把越界可见的 pane 收起来(同一时刻只显示一个)。
+  if (activeSessionId) showPane(activeSessionId);
+  clearChat();
+  activePane.innerHTML = emptyStateMarkup();
+  setFollowLatest(true);
+  noteProgrammaticScroll();
+  messages.scrollTop = 0;
+  updateLatestButton();
+  // 活动面板随对话走,与切线一致。
+  bgClear();
+  // UI-0926 #8:子代理侧栏同理——新段里没有旧段的委派(运行中的保留)。
+  subagentResetSession(activeSessionId);
+  promptBox.focus();
+}
+
+/// 新讨论始终创建只读会话，继承模型与思考强度；主对话保留自己的运行与历史。
+async function startConversationOnNewLine() {
+  const from = processItems.find((item) => item.id === activeProcessId);
+  const item = await create_workspace_process(null, () => true, {
+    discussion: true,
+    ...(from?.model ? { model: from.model } : {}),
+    ...(from?.reasoning ? { reasoning: from.reasoning } : {}),
+  });
+  if (!item || activeProcessId !== item.id) return;
+  // 不在对话页(需求 / 概览 / 文件…)发起「新讨论」:先跳回对话页,再清空并聚焦输入框——否则只是在后台悄悄建了条讨论,
+  // 页面纹丝不动(UX-005 / D14)。已在对话页是空操作;「先讨论」(26-project-conversations.js)等调用方都走这里。
+  ensureChatView();
+  showFreshConversation();
+  toast(t("已开启讨论，结论可交给主对话执行"));
+}
+
+/// 「新对话」唯一入口:侧栏按钮、命令面板、Ctrl/Cmd+Shift+N 都汇到 #new-chat 的 click。
+/// 开发空间统一新建只读讨论，不再按主对话的忙闲状态改变含义。
+/// 在途期间按钮禁用并标 aria-busy，防止重复创建。
+let newChatInFlight = false;
+export async function startNewConversation() {
+  // 在途守卫放在最前:研究空间连点「新对话」也只建一条(原来研究分支在守卫之前,两下建两条,UX-103)。
+  if (newChatInFlight) return;
+  if (active_space === "research") {
+    newChatInFlight = true;
+    try { await create_workspace_process(project_workspace().research.topic); }
+    catch (error) { toastError(String(error)); }
+    finally { newChatInFlight = false; }
+    return;
+  }
+  if (!currentProject || document.body.dataset.appScope === "global") {
+    newChatInFlight = true;
+    try { await openGeneralChat({ newChat: true }); }
+    catch (error) { toastError(String(error)); }
+    finally { newChatInFlight = false; }
+    return;
+  }
+  newChatInFlight = true;
+  const button = $("new-chat");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    if (isGeneralChat()) await openGeneralChat({ newChat: true });
+    else await startConversationOnNewLine();
+  } catch (err) {
+    toastError(String(err), { retry: () => void startNewConversation() });
+  } finally {
+    newChatInFlight = false;
+    button.removeAttribute("aria-busy");
+    syncNewChatEnabled();
+  }
+}
+
+defer(() => {
+  $("new-chat").addEventListener("click", () => void startNewConversation());
+});
+
+// ---------- 对话总结 ----------
+defer(() => {
+  $("summarize-btn").addEventListener("click", async () => {
+    if (!currentProject) {
+      toast(t("先选择一个项目"));
+      return;
+    }
+    const transcript = [...messages.querySelectorAll(".msg, .tool-chip")]
+      .map((el) => el.textContent.trim())
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 60000);
+    if (!transcript) {
+      toast(t("当前没有可总结的对话"));
+      return;
+    }
+    $("summarize-btn").disabled = true;
+    setStatus(`${t("总结中")}(fast model)`, true);
+    log(t("开始总结当前对话…"));
+    try {
+      const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
+      addSummaryEntry(r.summary, r.path);
+      toast(t("小总结已收纳到活动面板"));
+      log(`${t("总结完成,已收纳并存档")}:${r.path}`);
+    } catch (err) {
+      toastError(`${t("总结失败")}:${err}`, { retry: () => $("summarize-btn").click() });
+    } finally {
+      $("summarize-btn").disabled = false;
+      setStatus(running ? t("运行中") : t("空闲"), running);
+    }
+  });
+});
+
+defer(() => {
+  for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["idea-open", "idea"]]) {
+    $(btn).addEventListener("click", () => openDocViewer(kind));
+  };
+});

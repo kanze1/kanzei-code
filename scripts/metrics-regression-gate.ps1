@@ -1,0 +1,108 @@
+﻿param(
+    [string]$Root = (Split-Path -Parent $PSScriptRoot),
+    [string]$MetricsOutputPath = ""
+)
+
+$ErrorActionPreference = "Stop"
+# verify.ps1 可能把 FileSystem provider 名称附在本地路径前。
+$providerPrefix = "Microsoft.PowerShell.Core\FileSystem::"
+if ($Root.StartsWith($providerPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $Root = $Root.Substring($providerPrefix.Length)
+}
+# PowerShell 的文件系统 cmdlet 在 Windows 扩展路径(`\\?\`)下无法稳定执行
+# Test-Path/Get-Content；verify.ps1 从同一工作树启动时会把扩展或 provider-qualified 前缀传入 Root。
+# 仅去掉 Windows 本地盘的扩展前缀，UNC/普通路径保持原样。
+if ($Root.StartsWith("\\?\")) {
+    $Root = $Root.Substring(4)
+}
+$baselinePath = Join-Path $Root "docs\design\metrics_baseline.md"
+if (-not (Test-Path $baselinePath)) {
+    throw "metrics baseline not found: $baselinePath"
+}
+
+function Normalize-PathKey([string]$Value) {
+    return (($Value.Trim() -replace "\\", "/").TrimStart("./"))
+}
+
+$baseline = @{}
+$baselineVersion = $null
+foreach ($line in Get-Content -LiteralPath $baselinePath) {
+    if ($line -match 'metrics_format_version:\s*(?<version>v\d+)') {
+        $baselineVersion = $Matches.version
+    }
+    if ($line -match '^\|\s*\d+\s*\|\s*(?<path>[^|]+?)\s*\|\s*\d+\s*\|\s*(?<production>\d+)\s*\|') {
+        $key = Normalize-PathKey $Matches.path
+        $baseline[$key] = [int]$Matches.production
+    }
+}
+if ([string]::IsNullOrWhiteSpace($baselineVersion)) {
+    throw "metrics baseline missing 口径版本; refusing to compare incompatible readings"
+}
+if ($baseline.Count -lt 10) {
+    throw "metrics baseline has too few parsed rows ($($baseline.Count)); refusing to run a false-green gate"
+}
+
+$kz = Join-Path $Root "target\debug\kz.exe"
+if ([string]::IsNullOrWhiteSpace($MetricsOutputPath)) {
+    Push-Location $Root
+    try {
+        $metricsOutput = @(& $kz metrics --top 30 2>&1)
+    } finally {
+        Pop-Location
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "kz metrics failed (exit=$LASTEXITCODE)"
+    }
+} else {
+    # 定向测试注入只含版本行的 fixture，验证口径漂移在解析 Top-30 前拒绝出数。
+    $metricsOutput = @(Get-Content -LiteralPath $MetricsOutputPath)
+}
+
+$metricsVersion = $null
+foreach ($line in $metricsOutput) {
+    if ($line -match '^metrics format:\s*(?<version>\S+)') {
+        $metricsVersion = $Matches.version
+        break
+    }
+}
+if ([string]::IsNullOrWhiteSpace($metricsVersion) -or $metricsVersion -ne $baselineVersion) {
+    throw "metrics format version mismatch; refusing to emit metrics: baseline=$baselineVersion current=$metricsVersion"
+}
+
+$current = @()
+foreach ($line in $metricsOutput) {
+    if ($line -match '(?<path>crates[\\/]\S+)\s+(?<total>\d+)\s+(?<production>\d+)\s+(?<tests>\d+)\s+(?<functions>\d+)\s+(?<max_fn>\d+)\s+(?<args>\d+)\s*$') {
+        $current += [pscustomobject]@{
+            Path = Normalize-PathKey $Matches.path
+            Production = [int]$Matches.production
+        }
+    }
+}
+if ($current.Count -eq 0) {
+    throw "kz metrics returned no parseable Top-30 rows; refusing to pass"
+}
+
+$failures = @()
+$growthAllowance = 100
+foreach ($entry in $baseline.GetEnumerator()) {
+    $row = $current | Where-Object { $_.Path -eq $entry.Key } | Select-Object -First 1
+    if ($null -eq $row) {
+        continue
+    }
+    $growth = $row.Production - [int]$entry.Value
+    if ($growth -gt $growthAllowance) {
+        $failures += "$($entry.Key): production lines grew $growth (baseline $($entry.Value), current $($row.Production), allowance $growthAllowance)"
+    }
+}
+
+$baselineGiantCount = @($baseline.Values | Where-Object { [int]$_ -gt 1200 }).Count
+$currentGiantCount = @($current | Where-Object { $_.Production -gt 1200 }).Count
+if ($currentGiantCount -gt ($baselineGiantCount + 1)) {
+    $failures += "Top-30 giant count grew from $baselineGiantCount to $currentGiantCount (allowance 1)"
+}
+
+if ($failures.Count -gt 0) {
+    throw "metrics regression gate failed:`n$($failures -join "`n")"
+}
+
+Write-Host "metrics regression gate passed: $($current.Count) rows, giants $currentGiantCount/$baselineGiantCount, per-file allowance $growthAllowance" -ForegroundColor Green

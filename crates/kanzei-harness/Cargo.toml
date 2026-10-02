@@ -1,0 +1,26 @@
+[package]
+name = "kanzei-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "注册表与拦截器"
+
+[package.metadata.kanzei]
+# 架构图 crate 依赖图的分组(docs/design/architecture_diagrams.md)
+group = "运行时"
+
+[dependencies]
+kanzei-base.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+anyhow.workspace = true
+dirs.workspace = true
+tracing.workspace = true
+# progress 模块:工具进度接力的 task-local 通道。
+tokio.workspace = true
+futures.workspace = true

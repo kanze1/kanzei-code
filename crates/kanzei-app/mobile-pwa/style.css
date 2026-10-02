@@ -1,0 +1,153 @@
+/* kanzei 移动端 PWA(R-271):移动 viewport 布局,轻交互遥控器。 */
+/* UX-164:颜色全部走 token,浅色/深色各一组(跟随系统);token 块之后不得再写字面量颜色。 */
+:root {
+  color-scheme: light dark;
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --fg: #1a1a1a;
+  --fg-strong: #1f2937;
+  --muted: #6b7280;
+  --muted-strong: #4b5563;
+  --line: #d0d3d8;
+  --line-soft: #eeeeee;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --accent-soft: #eff6ff;
+  --accent-text: #1d4ed8;
+  --neutral-btn: #e5e7eb;
+  --neutral-btn-fg: #1f2937;
+  --danger: #dc2626;
+  --danger-solid: #dc2626;
+  --ok: #15803d;
+  --warn: #b45309;
+  --warn-fg: #ffffff;
+  --code-bg: #f3f4f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418;
+    --card: #1b1f26;
+    --fg: #e6e8eb;
+    --fg-strong: #f3f4f6;
+    --muted: #9aa3af;
+    --muted-strong: #b6bdc7;
+    --line: #374151;
+    --line-soft: #2a2f38;
+    --shadow: rgba(0, 0, 0, 0.4);
+    --accent: #2563eb;
+    --accent-fg: #ffffff;
+    --accent-soft: #172554;
+    --accent-text: #93c5fd;
+    --neutral-btn: #374151;
+    --neutral-btn-fg: #f3f4f6;
+    --danger: #f87171;
+    --danger-solid: #b91c1c;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --warn-fg: #1b1f26;
+    --code-bg: #0f1217;
+  }
+}
+/* ===== 主题 token 块结束:之后一律引用 token(scripts/ui-surface-rules.mjs C1 判据以此行为界),勿改此行 ===== */
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 0; padding: 16px;
+  background: var(--bg); color: var(--fg);
+  max-width: 480px; margin: 0 auto;
+}
+h1 { font-size: 20px; margin: 8px 0 12px; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+label { display: block; margin-bottom: 4px; font-size: 14px; color: var(--muted-strong); }
+.card {
+  background: var(--card); border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 10px;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+input, select {
+  width: 100%; padding: 10px 12px; font-size: 16px;
+  border: 1px solid var(--line); border-radius: 6px; margin-bottom: 8px;
+  background: var(--card); color: var(--fg);
+}
+button {
+  width: 100%; min-height: 44px; padding: 12px; font-size: 16px;
+  background: var(--accent); color: var(--accent-fg); border: none; border-radius: 6px;
+  cursor: pointer;
+}
+button:active { opacity: 0.8; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+button.secondary { background: var(--neutral-btn); color: var(--neutral-btn-fg); }
+button.danger { background: var(--danger-solid); color: var(--accent-fg); }
+/* 文字按钮:低强调的次级动作(刷新、总是允许、解除配对入口)。 */
+button.link {
+  width: auto; min-height: 36px; padding: 6px 4px; font-size: 14px;
+  background: none; color: var(--accent-text); text-decoration: underline;
+}
+button.danger-text { color: var(--danger); }
+.muted { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.status {
+  font-size: 12px; font-weight: normal; color: var(--muted); margin-left: 8px;
+}
+/* 连接状态芯片:绿=已连上,琥珀=连不上在重试(注意),中性灰=连接中。 */
+.status[data-state="connected"] { color: var(--ok); }
+.status[data-state="error"] { color: var(--warn); }
+.badge {
+  display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px;
+  background: var(--warn); color: var(--warn-fg);
+  font-size: 12px; font-weight: 600; text-align: center; vertical-align: middle;
+}
+.row-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.row-head label { margin-bottom: 0; }
+/* UI-0926 #8:通知行「字形 · 身份 · 摘要 · 时间」;子代理行左缩进。 */
+.notice {
+  display: grid; grid-template-columns: 14px auto minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px;
+  padding: 8px 0; border-bottom: 1px solid var(--line-soft);
+  font-size: 14px;
+}
+.notice:last-child { border-bottom: none; }
+.notice-sub { padding-left: 12px; }
+.notice-glyph { text-align: center; color: var(--muted); }
+.notice-glyph[data-status="running"] { color: var(--accent-text); animation: notice-breathe 2.4s ease-in-out infinite; }
+.notice-glyph[data-status="failed"] { color: var(--danger); }
+.notice-who { color: var(--fg-strong); font-weight: 600; font-size: 13px; white-space: nowrap; }
+.notice-summary { min-width: 0; word-break: break-word; }
+.notice-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@keyframes notice-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .notice-glyph[data-status="running"] { animation: none; }
+}
+/* 审批卡:来源行 → 内容 → 操作。拒绝是次要样式、批准是主按钮,二者隔开(UX-134)。 */
+.approval-origin { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+.approval-actions, .question-actions, .confirm-actions {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;
+}
+.approval-actions button, .question-actions button, .confirm-actions button { margin-bottom: 0; }
+.approval-always { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; margin-top: 4px; }
+.approval-always .muted { margin: 0; }
+.question-options { display: grid; gap: 8px; margin: 8px 0; }
+.question-option {
+  text-align: left; background: var(--card); color: var(--fg-strong);
+  border: 1px solid var(--line); padding: 10px 12px;
+}
+.question-option.selected, .question-option[aria-pressed="true"] {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text);
+}
+.question-option-label { display: block; font-weight: 600; }
+.question-option-note { display: block; margin-top: 4px; font-size: 13px; color: var(--muted-strong); }
+.question-status { margin-bottom: 0; }
+/* 列表状态行(加载中/空/查询失败)独立于卡片;卡片内失败提示为空时不占位。 */
+.approval-status[hidden], .approval-card-status:empty { display: none; }
+.approval-card-status { margin-bottom: 0; }
+/* UI-0926 #10:bash 权限资源拆成动作 + 命令块 + 工作目录;命令保留真实换行。 */
+.approval-desc { white-space: pre-wrap; word-break: break-word; }
+.approval-action { display: block; font-weight: 600; margin-bottom: 4px; }
+.approval-cmd { margin: 0; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; background: var(--code-bg); border-radius: 6px; }
+.approval-workdir { margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; word-break: break-all; }
+
+#notice-list { max-height: 50vh; overflow-y: auto; }
+/* 解除配对:和审批区拉开距离,低强调;点开后先内联确认(UX-137)。 */
+.device-footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line-soft); text-align: center; }
+.device-footer .card { text-align: left; margin-top: 8px; }

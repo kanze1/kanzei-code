@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      # v5 起跑在 Node 24 上;v4 目标 Node 20 已被 GitHub 弃用(Actions 面板黄条警告)
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # R-209:前端检查依赖 eslint(ui-lint-smoke.mjs),先 npm ci 装齐依赖。
+      - name: npm ci
+        run: npm ci
+      # 本清单必须与 scripts/verify.ps1 逐项同步(R-209 守护测试
+      # gate_checklists_align_across_git_verify_and_ci 机械比对,任一侧增删一步即红)。
+      - name: metrics build
+        run: cargo build -q -p kanzei
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: ui smoke
+        shell: bash
+        run: |
+          node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+          node scripts/ui-lint-smoke.mjs
+          node scripts/ipc-event-smoke.mjs
+          node scripts/parallel-lines-regression.mjs
+          node scripts/ui-a11y-smoke.mjs
+          node scripts/ui-memory-graph-smoke.mjs --browser
+          node scripts/ui-i18n-smoke.mjs
+          node scripts/ui-markdown-smoke.mjs
+          node scripts/ui-connectivity.mjs
+          node scripts/ui-diagram-smoke.mjs
+          node scripts/check-readme-crates.mjs
+          node scripts/check-ps1-bom.mjs

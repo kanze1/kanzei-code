@@ -1,0 +1,453 @@
+//! kzapp — kanzei Tauri 桌面端。
+//! 前端为静态页面(ui/),经 command + event 通信:
+//! run_prompt → kz:* 流式事件;kz:ask 权限弹窗 → answer_ask;stop_run 中止;
+//! projects_* 多项目管理(~/.kanzei/app.json);settings_* 全局配置表单。
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use tauri::Emitter;
+
+pub(crate) use kanzei_core::{run_once_with_parts, AskFuture};
+pub(crate) use kanzei_harness::ConfigComponent;
+
+mod agent_directory;
+mod agent_team;
+mod async_mailbox;
+mod attachments;
+mod auto_run;
+mod collaboration;
+mod commands;
+mod conversation;
+mod conversation_actions;
+mod decisions;
+mod deliveries;
+mod desktop_bridge;
+mod docs;
+mod durable_questions;
+mod experience_events;
+mod fast_model;
+/// UX-089:文件页未保存草稿的落盘(file_draft_save / file_draft_clear / file_drafts_load)。
+mod files_draft;
+/// UI2-0926 #6:文件页编辑(路径解析、只读策略、BOM/换行、file_stat/file_write)。
+mod files_edit;
+mod files_view;
+mod general_chat;
+mod harness_ext;
+/// D-381:Rust↔JS 的 IPC 形状契约(见模块头:93 个命令里 30+ 个手搓 JSON 过 IPC,
+/// 而前端冒烟断言的是前端自己写的 fixture,后端改名两侧全绿、界面碎)。
+/// 纯判据模块,不参与产品构建。
+#[cfg(test)]
+mod ipc_contract;
+mod manual_compact;
+mod memory;
+mod memory_chat;
+mod mobile;
+mod mobile_notify;
+/// UI-0926 #3:模型配置的展示真源(model_effective)与项目级模型覆盖的逐键编辑。
+mod model_config;
+mod orchestration_trace;
+mod phase_pipeline;
+mod prefs;
+/// UI2-0926 #8:网页预览面板(子 webview + 进程内 CDP)与 browser 工具的面板后端。
+mod preview;
+mod processes;
+mod projection_gate;
+mod projects;
+mod research_auto;
+mod research_latex;
+mod research_library;
+mod research_topics;
+mod run;
+mod runtime_continuation;
+mod runtime_service;
+mod schedules;
+mod screenshot;
+mod settings;
+mod side_question;
+mod softwire;
+mod state;
+mod subagents;
+mod terminal_monitor;
+mod typed_events;
+mod update;
+mod verification_monitor;
+mod voice;
+mod voice_service;
+mod workspace;
+
+#[cfg(test)]
+pub(crate) use projects::{export_project_data, ExportOptions};
+
+pub(crate) use settings::global_config_path;
+
+#[cfg(test)]
+pub(crate) use settings::{ProviderPayload, SettingsPayload};
+
+#[cfg(test)]
+pub(crate) use update::{
+    installed_cli_is_older, pending_path, release_is_newer, release_verdict, update_helper_path,
+    update_log_at, validate_installer, wait_for_parent_exit, ReleaseVerdict,
+};
+
+pub(crate) use state::{
+    ensure_default_process, flush_live_run, flush_live_trace, halt_runtime_immediately,
+    normalized_project_root, pending_ask_payload, process_info, process_session_id,
+    prompt_attachment_parts, record_live_trace, record_live_trace_at_path,
+    record_unpersisted_artifact, runtime_for, stop_runtime_and_finalize, take_pending_ask,
+    ui_probe, ui_probe_result, with_session_id, AppState, LiveRun, MutexPoisonExt, PendingAsk,
+    ProcessHandle, ProcessInfo, ProjectRoot, PromptAttachment, SessionRuntime, WorktreeInfo,
+    WorktreeRoot, UI_PROBE_EMIT,
+};
+
+#[cfg(test)]
+mod state_tests;
+
+#[cfg(test)]
+mod permission_tests;
+
+#[cfg(test)]
+mod conversation_tests;
+
+#[cfg(test)]
+mod process_tests;
+
+#[cfg(test)]
+mod update_tests_update;
+
+#[cfg(test)]
+mod phase_pipeline_tests;
+
+fn main() {
+    if let Some(code) =
+        kanzei_tools::verification::worker_entry(&std::env::args().skip(1).collect::<Vec<_>>())
+    {
+        std::process::exit(code);
+    }
+    let service = runtime_service::is_service();
+    let _service_lock = if service {
+        match runtime_service::service_lock() {
+            Ok(Some(lock)) => Some(lock),
+            _ => return,
+        }
+    } else {
+        None
+    };
+    if !service && update::startup_update() {
+        return;
+    }
+    // 安装器只装得了 kzapp,CLI 得由这里搬到位——两者共用一个库,版本必须同步(D-175)。
+    if !service {
+        update::sync_bundled_cli();
+    }
+    // 窗口创建之前自清孤儿 webview(D-171):上一个实例被强杀留下的
+    // msedgewebview2 会锁住数据目录,不清的话本次启动必黑屏。
+    if !service {
+        update::cleanup_orphan_webviews();
+    }
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
+        )
+        .init();
+    tauri::Builder::default()
+        .manage(AppState::default())
+        .manage(voice::VoiceState::default())
+        .manage(memory_chat::MemoryChatState::default())
+        .manage(preview::PreviewState::default())
+        // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            let _ = UI_PROBE_EMIT.set(Box::new(move |payload| {
+                let _ = handle.emit("kz:ui-probe", payload);
+            }));
+            // D-387:手机消息注入桌面后的 UI 通知出口——kz:mobile-message 事件驱动
+            // 前端刷新会话列表(消费方闭环:手机发→桌面可见)。
+            let msg_handle = app.handle().clone();
+            let _ = crate::state::MOBILE_MESSAGE_EMIT.set(Box::new(move |session_id, text| {
+                let _ = msg_handle.emit(
+                    "kz:mobile-message",
+                    serde_json::json!({ "session_id": session_id, "text": text }),
+                );
+            }));
+            // 窗口从 tauri.conf.json 自动创建改为这里手动创建(R-101 E2 harness):
+            // 配置里 `"create": false`,由 from_config 按同一份配置建窗口,生产路径
+            // 行为不变;仅当环境变量 KANZEI_E2E_CDP 非空时注入 --remote-debugging-port
+            // 打开 WebView2 DevTools 协议,供 E2 脚本通过 CDP 驱动真实 UI。
+            if !service {
+                runtime_service::install_client(app.handle());
+            }
+            let mut window_config = app
+                .config()
+                .app
+                .windows
+                .first()
+                .cloned()
+                .ok_or_else(|| "tauri.conf.json 未配置任何窗口".to_string())?;
+            if service {
+                window_config.visible = false;
+                window_config.skip_taskbar = true;
+                window_config.url = tauri::WebviewUrl::App("runtime.html".into());
+                window_config.data_directory = Some(runtime_service::directory().join("webview"));
+            }
+            let mut builder =
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?;
+            if let Ok(port) = std::env::var("KANZEI_E2E_CDP") {
+                if !port.trim().is_empty() {
+                    // D-289:Chromium M111+ 的 CDP 要求显式 origin 白名单,否则
+                    // playwright-core connectOverCDP(非 DevTools 客户端)握手被拒。
+                    // 仅 E2 注入时携带,生产路径不带这两个参数。
+                    builder = builder.additional_browser_args(&format!(
+                        "--remote-debugging-port={} --remote-allow-origins=*",
+                        port.trim()
+                    ));
+                }
+            }
+            // UX-012:关掉 Tauri 默认的拖放处理。Windows 上它会在 WebView2 窗口上注册自己的 IDropTarget,
+            // 页面里的 HTML5 拖放(把文件拖进输入框当附件、需求/文档列表的拖拽排序)一律收不到事件;
+            // 前端没有用 tauri://drag-drop 的地方(网页预览子 webview 同样关着)。关掉之后浏览器默认行为是
+            // 「文件落在没人处理的地方 = 导航到该文件」,由前端 17-files.js 的全局 dragover/drop 兜底拦下。
+            builder = builder.disable_drag_drop_handler();
+            // UI2-0926 #8:主界面开始(重新)加载(F5 / Ctrl+R)时收掉网页预览面板,
+            // 与前端启动时的 preview_close 互为双保险;第一次启动的加载无害(还没有面板)。
+            let page_app = app.handle().clone();
+            builder = builder.on_page_load(move |window, payload| {
+                preview::on_main_page_load(&page_app, window.label(), payload.event())
+            });
+            let main_window = builder.build()?;
+            tauri::async_runtime::spawn(schedules::scheduler(app.handle().clone()));
+            // UI2-0926 #8:网页预览面板的装配(应用句柄 + DPI 变化重放边界 + 关窗收面板)。
+            if service {
+                runtime_service::install_service(app.handle(), &main_window)?;
+            } else {
+                preview::install(app.handle(), &main_window);
+            }
+            if service || runtime_service::embedded() {
+                workspace::install_recovery(app.handle());
+            }
+            if service {
+                durable_questions::recover_outbox(main_window.as_ref().window().clone());
+            }
+
+            verification_monitor::start(app.handle().clone(), main_window.as_ref().window());
+            // R-249 批2:窗口句柄装进静态,截图工具据此抓真实画面。取不到句柄
+            // (非 Windows / 平台不支持)时不装——工具会如实报「窗口未就绪」,
+            // 而不是拿一个假句柄去抓出别人的窗口。
+            #[cfg(windows)]
+            if let Ok(hwnd) = main_window.hwnd() {
+                let _ = state::UI_WINDOW_HANDLE.set(hwnd.0 as isize);
+            }
+            #[cfg(not(windows))]
+            let _ = &main_window;
+            // R-190 启动即保活:fast 指向本地 Ollama 且 CLI 已装但服务未运行 → 自动拉起。
+            // 未安装 / 外部 provider / 已运行 → 零动作;失败不阻塞启动(状态由常驻探测如实反映)。
+            tauri::async_runtime::spawn(async move {
+                let _ = fast_model::fast_model_ensure_running().await;
+            });
+            Ok(())
+        })
+        .invoke_handler(runtime_service::route(tauri::generate_handler![
+            terminal_monitor::terminal_monitor,
+            side_question::side_question_send,
+            side_question::side_question_list,
+            side_question::side_question_stop,
+            runtime_service::runtime_status,
+            runtime_service::runtime_shutdown,
+            voice::voice_settings_get,
+            voice::voice_settings_set,
+            voice::voice_status,
+            voice::voice_start,
+            voice::voice_speak,
+            voice::voice_transcribe,
+            voice::voice_cancel,
+            ui_probe_result,
+            files_view::files_snapshot,
+            files_view::file_preview,
+            files_edit::file_stat,
+            files_edit::file_write,
+            files_draft::file_draft_save,
+            files_draft::file_draft_clear,
+            files_draft::file_drafts_load,
+            files_view::files_annotate,
+            files_view::files_annotate_cancel,
+            projects::projects_get,
+            projects::projects_add,
+            projects::projects_init,
+            projects::projects_create,
+            projects::project_git_init,
+            projects::project_facts,
+            projects::projects_rename,
+            projects::projects_pick,
+            projects::projects_remove,
+            projects::projects_reorder,
+            projects::projects_select,
+            projects::workspace_snapshot,
+            workspace::workspace_overview,
+            softwire::softwire_questions,
+            softwire::softwire_answer_question,
+            decisions::decision_review,
+            decisions::work_delivery_accept,
+            decisions::verification_cancel,
+            docs::docs_snapshot,
+            research_topics::research_topic_create,
+            research_library::research_library_list,
+            research_library::research_library_create,
+            research_library::research_library_link_projects,
+            research_auto::research_workflow_get,
+            research_auto::research_workflow_start,
+            research_auto::research_workflow_update,
+            docs::research_plan_get,
+            docs::research_plan_approve,
+            docs::docs_archive_entries,
+            commands::run::run_prompt,
+            commands::run::stop_run,
+            commands::run::tool_process::run_tool_process_stop,
+            commands::run::stop_task,
+            agent_team::agent_team_command,
+            commands::run::answer_ask,
+            commands::run::permission_rule_add,
+            commands::run::pending_asks_get,
+            commands::run::open_delivered_path,
+            commands::os_open::reveal_path,
+            commands::os_open::open_tools_list,
+            commands::os_open::open_with,
+            commands::os_open::open_tools_save,
+            deliveries::delivered_files,
+            deliveries::batch_evidence,
+            deliveries::save_delivered_file,
+            auto_run::auto_state_update,
+            auto_run::auto_state_reset,
+            settings::settings_get,
+            settings::settings_save,
+            settings::settings_open,
+            model_config::model_effective,
+            model_config::project_models_get,
+            model_config::project_models_save,
+            model_config::project_config_open,
+            prefs::ui_prefs_get,
+            prefs::ui_prefs_set,
+            projects::export_pick_dir,
+            projects::export_project_data,
+            settings::permission_rules_get,
+            settings::permission_rule_delete,
+            settings::provider_test,
+            update::update_check_command,
+            update::update_install_command,
+            subagents::quick_req,
+            subagents::idea_split,
+            subagents::defect_review,
+            memory::memory_overview,
+            memory::memory_control_plane,
+            memory::memory_entries,
+            memory::memory_archived_entries,
+            memory::memory_entry_restore,
+            memory::memory_entry_get,
+            memory::memory_graph,
+            memory::memory_recalls,
+            memory::memory_value_flags,
+            memory::memory_entry_delete,
+            memory::memory_note_candidates,
+            memory::memory_note_discard,
+            commands::run::run_metrics,
+            commands::run::run_metrics_by_category,
+            commands::run::run_metrics_by_task,
+            projects::project_root_info,
+            projects::project_detach,
+            projects::projects_isolation_report,
+            fast_model::fast_model_status,
+            fast_model::fast_model_setup,
+            memory::memory_entry_save,
+            memory::memory_search_page,
+            memory::memory_context_bill,
+            memory::memory_consolidate,
+            memory::memory_consolidate_note,
+            memory_chat::memory_chat_history,
+            memory_chat::memory_chat_send,
+            memory_chat::memory_chat_reset,
+            memory_chat::memory_chat_stop,
+            run::app_info,
+            commands::models::models_list,
+            docs::docs_update,
+            docs::webfetch_preview,
+            research_latex::research_latex_templates,
+            research_latex::research_latex_create,
+            research_latex::research_latex_insert_figure,
+            research_latex::research_latex_compile,
+            research_latex::research_latex_history,
+            research_latex::research_latex_pdf,
+            docs::research_arxiv_preview,
+            docs::docs_open,
+            commands::summarize::summarize_chat,
+            docs::git_status,
+            docs::conventions_init,
+            docs::conventions_read,
+            docs::conventions_save,
+            docs::conventions_discard,
+            conversation::conversation_clear,
+            manual_compact::conversation_compact,
+            schedules::schedule_action,
+            conversation_actions::conversation_action,
+            conversation::conversation_delete,
+            conversation::conversation_cleanup,
+            docs::docs_read,
+            docs::docs_read_custom,
+            docs::architecture_snapshot,
+            conversation::conversation_get,
+            conversation::conversation_shadow_get,
+            conversation::conversation_trace_get,
+            conversation::conversation_list,
+            processes::lifecycle::list_pending_inputs,
+            processes::lifecycle::cancel_input,
+            projects::project_files,
+            processes::lifecycle::process_list,
+            processes::lifecycle::process_create,
+            processes::lifecycle::process_update,
+            general_chat::general_chat_open,
+            general_chat::general_chat_location,
+            general_chat::general_chat_link,
+            processes::lifecycle::process_close,
+            processes::lifecycle::process_rename,
+            processes::lifecycle::process_purge,
+            processes::lifecycle::process_closed_list,
+            collaboration::collaboration_snapshot,
+            processes::workspace::worktree_create,
+            processes::workspace::worktree_list,
+            processes::workspace::worktree_diff,
+            processes::workspace::worktree_merge,
+            processes::workspace::worktree_merge_preview,
+            processes::workspace::worktree_discard,
+            processes::gate::worktree_gate,
+            processes::gate::worktree_post_merge_gate,
+            processes::workspace::worktree_harvest_candidates,
+            processes::workspace::worktree_harvest_writeback,
+            docs::test_runs_snapshot,
+            docs::test_run_record,
+            docs::test_runs_init_refs,
+            mobile::mobile_service_start,
+            mobile::mobile_service_stop,
+            mobile::mobile_device_revoke,
+            mobile::mobile_device_list,
+            mobile::mobile_pair_code_regenerate,
+            mobile_notify::mobile_push_status,
+            agent_directory::agent_directory_get,
+            agent_directory::agent_directory_open,
+            preview::commands::preview_open,
+            preview::commands::preview_set_bounds,
+            preview::commands::preview_set_visible,
+            preview::commands::preview_nav,
+            preview::commands::preview_close,
+            preview::commands::preview_capture,
+            preview::commands::preview_console,
+            preview::commands::preview_console_clear,
+            preview::commands::preview_device,
+            preview::commands::preview_pick,
+            preview::commands::preview_snippet,
+            preview::commands::preview_dev_urls,
+            preview::commands::preview_clear_site_data,
+            preview::commands::preview_open_devtools,
+            preview::commands::preview_open_external,
+            preview::commands::tool_image,
+            preview::commands::delivered_image
+        ]))
+        .run(tauri::generate_context!())
+        .expect("error while running kanzei app");
+}

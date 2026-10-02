@@ -1,0 +1,115 @@
+/* Conversation and observation share the same editor and project palette. */
+body[data-space="dev"] #view-chat.active {
+  display: grid; grid-template-columns: minmax(0, 1fr) 286px;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "head head" "chat work" "activity work" "composer work";
+  gap: 0; min-height: 0;
+}
+body[data-space="dev"] #project-space-nav { grid-area: head; padding-bottom: 10px; min-width: 0; flex-wrap: wrap; }
+#project-conversation-kind { color: var(--dim); font-size: 12px; margin-right: auto; }
+body[data-space="dev"] #chat-area { grid-area: chat; min-width: 0; }
+body[data-space="dev"] #turn-activity { grid-area: activity; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); margin-inline: auto; }
+body[data-space="dev"] #view-chat > #composer { grid-area: composer; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); max-width: none; margin: 8px auto 18px; }
+body[data-space="dev"] #messages > .msg-pane { width: min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)); }
+.project-chat-work { grid-area: work; min-height: 0; overflow: auto; border-left: 1px solid var(--border); padding: 20px 16px; background: var(--chat-bg); }
+.project-chat-work .sw-work-focus { padding: 0; height: auto; min-height: 100%; border: none; }
+.project-chat-work .sw-work-rows { flex: 0 0 auto; overflow: visible; }
+.project-chat-work .sw-idle-lines { display: none; }
+.project-chat-work .sw-work-focus > header { font-size: 14px; }
+.project-chat-work .sw-backlog { margin-top: auto; }
+.project-work-fact { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; color: var(--dim); }
+.project-work-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+#composer > .project-work-switch, #composer.sw-composer > .project-work-switch {
+  display: flex !important; align-items: center; gap: 4px; max-width: none;
+  margin: 0 0 8px; padding: 0 0 9px; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+#composer > .project-work-switch[hidden] { display: none !important; }
+.project-work-switch button { border: none; padding: 6px 11px; border-radius: 8px; background: transparent; color: var(--dim); white-space: nowrap; }
+.project-work-switch [data-work-surface] { font-size: 14px; font-weight: 550; }
+.project-work-switch [aria-pressed="true"] { background: var(--panel2); color: var(--fg); box-shadow: inset 0 -2px var(--accent); }
+.project-work-switch button:hover { color: var(--fg); background: var(--surface-hover); }
+.project-work-switch .project-overview-signal { overflow: hidden; text-overflow: ellipsis; max-width: 180px; color: var(--accent-text); }
+.project-overview-signal::before { content: ""; width: 6px; height: 6px; display: inline-block; border-radius: 50%; margin-right: 7px; background: currentColor; }
+.project-overview-signal[data-state="running"]::before { animation: project-run-breath 2.4s ease-in-out infinite; }
+.project-overview-signal[data-state="starting"]::before { background: transparent; border: 1.5px solid currentColor; border-right-color: transparent; animation: project-run-spin .8s linear infinite; }
+.project-overview-signal[data-state="idle"] { color: var(--dim); }
+.project-work-toggle { display: none; }
+.project-onboarding { margin: 20px 24px 0; padding: 16px 18px; border-left: 2px solid var(--accent); background: var(--panel); border-radius: 0 10px 10px 0; }
+.project-onboarding p { margin: 0 0 10px; line-height: 1.6; }
+.project-onboarding > div { display: flex; gap: 8px; }
+.project-onboarding[hidden], .project-onboarding [hidden] { display: none !important; }
+.project-handoff-form { display: flex; flex-direction: column; gap: 12px; }
+.project-handoff-form textarea { min-height: 180px; resize: vertical; width: 100%; padding: 10px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+.project-handoff-form select { width: 100%; min-width: 0; }
+.project-form-error { color: var(--accent-text); overflow-wrap: anywhere; }
+body[data-conversation-kind="discussion"] :is(#profile-select, #auto-continue-wrap, #autorun-more, #auto-status, #work-priority-select, #subagent-control, .sw-composer-run) { display: none !important; }
+body[data-space="research"] :is(.project-chat-work, .project-onboarding) { display: none !important; }
+body[data-general-chat="true"] #view-chat.active {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "head" "chat" "activity" "composer";
+}
+body[data-general-chat="true"] :is(.project-chat-work, .project-onboarding, #project-work-switch, #project-conversation-kind, #profile-select, #auto-continue-wrap, #autorun-more, #auto-status, #work-priority-select, .sw-composer-run) { display: none !important; }
+body:not([data-general-chat="true"]) #general-chat-link,
+body[data-general-chat="true"] #project-warn-slot,
+body[data-general-chat="true"] #session-history [data-act="new-task"] { display: none !important; }
+#general-chat-link { margin-left: auto; }
+body[data-general-chat="true"] #workbench-conversation-actions,
+body[data-general-chat="true"] #project-space-nav { display: flex !important; }
+body[data-general-chat="true"] #composer .sw-composer-head { display: none !important; }
+body[data-general-chat="true"] #composer-context { display: flex !important; }
+body[data-general-chat="true"] #composer-context > :not(#subagent-control) { display: none !important; }
+body[data-general-chat="true"] #subagent-control { margin-left: auto; }
+body[data-general-chat="true"] #sg-permissions { display: none; }
+.sw-tabs [data-tab="network"], .sw-tabs [data-tab="conversation"] { display: none; }
+@keyframes project-run-breath { 50% { opacity: .4; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent); } }
+@keyframes project-run-spin { to { transform: rotate(360deg); } }
+/* A child task owns the contextual rail while open. The requirement entry is
+   still reachable from the composer, without adding another narrow column. */
+body[data-space="dev"] #main[data-side="docked"] #view-chat.active { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "chat" "activity" "composer"; }
+#main[data-side="docked"] .project-chat-work { display: none; }
+#main[data-side="docked"] .project-work-toggle { display: inline-flex; }
+/* Preview and the conversation header must occupy separate grid cells. The
+   original three-row preview layout otherwise overlays the header actions. */
+body[data-space="dev"] #view-chat.active[data-preview="open"] {
+  grid-template-columns: minmax(0, 1fr) clamp(360px, var(--kz-split-preview), max(360px, 100% - 420px));
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "head preview" "chat preview" "activity preview" "composer preview";
+}
+body[data-space="dev"] #view-chat[data-preview="open"] > #chat-area { grid-area: chat; }
+body[data-space="dev"] #view-chat[data-preview="open"] > #turn-activity { grid-area: activity; }
+body[data-space="dev"] #view-chat[data-preview="open"] > #composer { grid-area: composer; }
+body[data-space="dev"] #view-chat[data-preview="open"] > #preview-dock { grid-area: preview; }
+#view-chat[data-preview="open"] .project-chat-work { display: none; }
+#view-chat[data-preview="open"] .project-work-toggle { display: inline-flex; }
+body[data-space="dev"] #view-chat.active[data-preview="open"][data-preview-narrow] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "head" "chat" "activity" "composer";
+}
+body[data-space="dev"] #view-chat.active[data-preview="open"][data-preview-narrow="preview"] {
+  grid-template-rows: minmax(0, 1fr); grid-template-areas: "preview";
+}
+body[data-space="dev"] #view-chat[data-preview-narrow="preview"] > #project-space-nav { display: none; }
+@media (max-width: 1240px) {
+  body[data-space="dev"] #view-chat.active { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "chat" "activity" "composer"; }
+  .project-chat-work { display: none; }
+  .project-work-toggle { display: inline-flex; }
+}
+.project-chat-work.is-open { display: block !important; position: fixed; inset: 70px 16px 210px auto; margin: 0; width: min(340px, calc(100vw - 32px)); height: auto; max-height: none; z-index: 70; border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--elev-2); background: var(--panel); }
+/* UX-038:抽屉形态的需求栏/交给主对话表单底边落在输入区上沿(锚点 --kz-composer 见 surface.css),不再盖住输入区右端的「交给主对话 / 需求」按钮;锚点不可用时回到原来的 210px。 */
+.project-chat-work.is-open { position-anchor: --kz-composer; bottom: calc(anchor(top, 210px) + 8px); }
+.project-chat-work.is-open .project-handoff-form textarea { min-height: 120px; }
+@media (max-width: 680px) {
+  body[data-space="dev"] #project-space-nav { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
+  body[data-space="dev"] #view-chat > #composer { margin-bottom: 8px; }
+  .project-work-switch { flex-wrap: wrap; }
+  .project-work-switch button { padding: 5px 7px; }
+  .project-work-switch .project-overview-signal { max-width: 100px; }
+  .project-onboarding { margin: 12px; padding: 12px; }
+  body[data-space="dev"] #composer-bar { flex-direction: column; align-items: stretch; gap: 6px; }
+  body[data-space="dev"] :is(.composer-left, .composer-right) { width: 100%; min-width: 0; flex-wrap: wrap; }
+  body[data-space="dev"] .composer-right { justify-content: flex-end; }
+  body[data-space="dev"] .composer-right > * { max-width: 100%; }
+  body[data-space="dev"] .tool-sum-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #status-version { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .project-overview-signal::before { animation: none !important; } }

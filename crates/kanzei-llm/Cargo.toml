@@ -1,0 +1,31 @@
+[package]
+name = "kanzei-llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "多协议模型适配"
+
+[package.metadata.kanzei]
+# 架构图 crate 依赖图的分组(docs/design/architecture_diagrams.md)
+group = "运行时"
+
+[dependencies]
+kanzei-base.workspace = true
+tokio.workspace = true
+futures.workspace = true
+bytes.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+url.workspace = true
+async-stream.workspace = true
+chrono = "0.4"
+dirs.workspace = true
+
+[dev-dependencies]
+kanzei-harness = { path = "../kanzei-harness" }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"

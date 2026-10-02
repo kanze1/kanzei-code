@@ -1,0 +1,218 @@
+[models]
+primary = "codex:gpt-6-luna"
+fast = "codex:gpt-6-luna"
+compact = "codex:gpt-6-luna"
+reasoning = "xhigh"
+codex_fast_mode = true
+
+# 2026-08-20:provider 定义已迁到全局 ~/.kanzei/kanzei.toml(桌面端设置页
+# Provider 表格只读全局配置,写这里的自定义 provider 保存时会报 unknown
+# provider——D-591)。llama-local 已挪过去;opencode-zen 是当时不知道全局
+# 已有走 opencode.ai/zen/go/v1、配好真实 key 的 OPEN-code provider 时误建
+# 的重复品(用的还是未验证过兼容性的 /zen/v1 端点),故直接删除不迁移。
+
+[profile]
+
+[[permissions.rules]]
+action = "req"
+resource = "*"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-ChildItem *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "git *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-Content *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-ChildItem *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-Content *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "./scripts/release.ps1"
+effect = "allow"
+
+[[permissions.rules]]
+action = "defect"
+resource = "*"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-Process *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-Item *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "git *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "edit"
+resource = "crates/kanzei-app/ui/style.css"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git status --short; git log --oneline -5","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = """{"command":"select-string -path crates/kanzei-app/src/main.rs,crates/kanzei-app/ui/main.js,crates/kanzei-app/ui/index.html -pattern 'kanzei_build_info','v0.1.0','version','日志' | select-object -first 120 path,linenumber,line","workdir":"c:/users/kanzei/documents/kanzei code"}"""
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git status --short --branch; git rev-parse --short head; get-item /"$env:userprofile/.cargo/bin/kzapp.exe/" | select-object fullname,length,lastwritetime","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git status --short --branch","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git add .kanzei/project; git commit -m /"整理发版前需求与缺陷追踪/"","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git log --format=/"%h %an <%ae> | %s/" -1; git log --format=/"%h %an <%ae> | %s/" origin/dev..dev","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"get-childitem -path /"docs/" -recurse -file | select-object fullname, length, lastwritetime | format-table -autosize","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"write-host /"=== temp update log ===/"; if (test-path /"$env:temp/kanzei-update.log/") { get-content /"$env:temp/kanzei-update.log/" } else { write-host /"(不存在)/" }; write-host /"=== temp helper/installer ===/"; get-childitem /"$env:temp/" -filter /"kanzei-*/" -erroraction silentlycontinue | select-object name, length, lastwritetime; write-host /"=== localappdata kanzei ===/"; get-childitem /"$env:localappdata/kanzei/" -erroraction silentlycontinue | select-object name, length, lastwritetime; write-host /"=== running kzapp ===/"; get-process kzapp -erroraction silentlycontinue | select-object id, starttime, path","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"./scripts/release.ps1 -skiptests 2>&1 | foreach-object { $_ }","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"write-host /"=== 安装位版本 ===/"; (get-item /"$env:localappdata/kanzei/kzapp.exe/").versioninfo | select-object productversion, fileversion | format-list; write-host /"=== 文件时间 ===/"; get-item /"$env:localappdata/kanzei/kzapp.exe/" | select-object lastwritetime, length | format-list; write-host /"=== 进程 ===/"; get-process -name /"kzapp/",/"msedgewebview2/" -erroraction silentlycontinue | select-object id, processname, starttime | format-table; write-host /"=== kz cli ===/"; kz --version 2>&1; write-host /"=== pending ===/"; test-path /"$env:localappdata/kanzei/kzapp.exe.pending/"","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git grep -n /"cleanup_orphan_webviews/" -- crates/kanzei-app/src/main.rs","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = """{"command":"(get-content 'crates/kanzei-app/src/main.rs').count","workdir":"c:/users/kanzei/documents/kanzei code"}"""
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git worktree list","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = """{"command":"Get-Content '.kanzei/project/tests-archive.md' -TotalCount 40; Write-Host '=== 重复编号统计 ==='; (Select-String -Path '.kanzei/project/tests-archive.md' -Pattern 'T-[0-9]*' -AllMatches).Matches.Value | Group-Object | Where-Object { $_.Count -gt 1 } | Select-Object Name, Count","workdir":"c:/users/kanzei/documents/kanzei code"}"""
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"grep -o \"T-[0-9]*\" .kanzei/project/tests-archive.md | sort | uniq -c | sort -rn | Select-Object -First 10","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+# conventions patch 永久放行(用户 2026-08-12 决定):引擎默认只放行 conventions get,
+# patch 落在 Ask 上;而自主推进/鞭挞轮是 NonInteractive 档位,Ask 被直接跳过——
+# 自动轮因此永远做不了 R-191 这类规范下沉。放行后自动轮可改 conventions.md,
+# 代价是 agent 能改自己的规则书(D-235 原本要防的就是这个,此处是显式让渡)。
+[[permissions.rules]]
+action = "conventions"
+resource = "patch"
+effect = "allow"
+
+# D-295:test_record 白名单(用户 2026-08-12 交互轮批准)——D-264 source_test_gate 要求
+# 「暂存源码改动之后收尾的 passed 测试记录」,autonomous 档位若不放行 test_record,
+# 任何 Rust 源码提交都会被门禁与权限双杀死锁,已验证代码只能滞留工作树。
+[[permissions.rules]]
+action = "test_record"
+resource = "*"
+effect = "allow"
+
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"Get-ChildItem -Recurse -Depth 2 -Include *.ps1,*.toml,*.json,*.conf* -Path scripts,src-tauri,crates/kanzei-app 2>$null | Select-Object -First 5 FullName; Get-ChildItem scripts | Select-Object Name","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "process"
+resource = "process output"
+effect = "allow"
+
+# D-209 取活:autonomous 档位放行 work claim(引擎裁决 defect-first 队首 D-209)
+[[permissions.rules]]
+action = "work"
+resource = "write:claim"
+effect = "allow"
+
+[[permissions.rules]]
+action = "insert"
+resource = "crates/kanzei-app/src/phase_pipeline_tests.rs"
+effect = "allow"
+
+[[permissions.rules]]
+action = "insert"
+resource = "crates/kanzei-app/ui/index.html"
+effect = "allow"
+
+[[permissions.rules]]
+action = "idea"
+resource = "read:list"
+effect = "allow"
+
+[[permissions.rules]]
+action = "work"
+resource = "read:get_unit"
+effect = "allow"
+
+[[permissions.rules]]
+action = "insert"
+resource = "crates/kanzei-app/ui/style.css"
+effect = "allow"
+
+[[permissions.rules]]
+action = "work"
+resource = "read:list_units"
+effect = "allow"
+
+[[permissions.rules]]
+action = "decision"
+resource = "write:add"
+effect = "allow"

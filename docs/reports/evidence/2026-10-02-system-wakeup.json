@@ -1,0 +1,50 @@
+{
+  "started": {
+    "data": {
+      "host": "system",
+      "name": "hosted-probe",
+      "pid": 34068,
+      "run_id": "sched-hosted-probe-1790913061810761200",
+      "run_session_id": "ses_project_b62c6bc2b6619024#sched-hosted-probe-1790913061810761200",
+      "slot_identity": "hosted-probe:1790913060000",
+      "slot_ms": 1790913060000,
+      "started_at_ms": 1790913061815,
+      "timeout_secs": 10,
+      "trigger": "system"
+    },
+    "sequence": 14,
+    "type": "schedule.run_started"
+  },
+  "source": "Windows Task Scheduler native timer, no desktop app launched",
+  "observed_at": "2026-10-02T03:51:56.2996280Z",
+  "last_run_time": "2026-10-02T11:51:01.0000000+08:00",
+  "last_task_result": 0,
+  "finished": {
+    "data": {
+      "candidate_head": null,
+      "declined": [],
+      "duration_ms": 290,
+      "error": null,
+      "finished_at_ms": 1790913062110,
+      "name": "hosted-probe",
+      "ok": true,
+      "run_id": "sched-hosted-probe-1790913061810761200",
+      "run_session_id": "ses_project_b62c6bc2b6619024#sched-hosted-probe-1790913061810761200",
+      "slot_ms": 1790913060000,
+      "summary": "HOSTED_ACTUAL_OUTPUT",
+      "text": "HOSTED_ACTUAL_OUTPUT\r\n",
+      "worktree": null,
+      "writeback": [
+        {
+          "channel": "file:reports/hosted.txt",
+          "detail": "\\\\?\\C:\\Users\\kanzei\\AppData\\Local\\Temp\\kz-hosted-harness-39296\\reports\\hosted.txt",
+          "ok": true
+        }
+      ]
+    },
+    "sequence": 15,
+    "type": "schedule.run_finished"
+  },
+  "writeback": "HOSTED_ACTUAL_OUTPUT\r\n",
+  "task_name": "Kanzei-5c0314d7b847-hosted-probe"
+}

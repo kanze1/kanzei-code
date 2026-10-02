@@ -1,0 +1,610 @@
+{
+  "decision_review": {
+    "delivery": "nullable",
+    "decision": {
+      "call_id": "string",
+      "created_at": "number",
+      "id": "string",
+      "missing_fact": "nullable",
+      "options": "array",
+      "process_id": "string",
+      "project": "string",
+      "question": "string",
+      "resolution": {
+        "answer": "string",
+        "impact": "string",
+        "preference_refs": "array",
+        "rationale": "string"
+      },
+      "review": {
+        "action": "string",
+        "feedback": "string",
+        "preference_id": "string",
+        "request_id": "string",
+        "reviewed_at": "number",
+        "rework_input_id": "string",
+        "scope": "string"
+      },
+      "revision": "number",
+      "run_id": "string",
+      "session_id": "string",
+      "status": "string",
+      "work_unit_id": "nullable"
+    },
+    "preference_error": "nullable"
+  },
+  "delivered_image": {
+    "png": "string"
+  },
+  "docs_snapshot": {
+    "archived": {
+      "defect": "number",
+      "finding": "number",
+      "idea": "number",
+      "req": "number",
+      "source": "number"
+    },
+    "conventions": {
+      "exists": "bool",
+      "has_proposal": "bool",
+      "headings": [
+        "string"
+      ]
+    },
+    "defects": [
+      {
+        "batches": {
+          "done": "number",
+          "total": "number"
+        },
+        "block_reasons": "array",
+        "blocked": "bool",
+        "claimed_by": "nullable",
+        "closed": "bool",
+        "complexity": "string",
+        "dependencies": "array",
+        "dependents": "array",
+        "execution_model": "nullable",
+        "fields": [
+          [
+            "string"
+          ]
+        ],
+        "id": "string",
+        "nextStatuses": [
+          "string"
+        ],
+        "prior_art": "nullable",
+        "priority": "string",
+        "severity": "string",
+        "status": "string",
+        "title": "string",
+        "work_units": "array"
+      }
+    ],
+    "findings": "array",
+    "ideas": [
+      {
+        "batches": {
+          "done": "number",
+          "total": "number"
+        },
+        "block_reasons": "array",
+        "blocked": "bool",
+        "claimed_by": "nullable",
+        "closed": "bool",
+        "complexity": "nullable",
+        "dependencies": "array",
+        "dependents": "array",
+        "execution_model": "nullable",
+        "fields": [
+          [
+            "string"
+          ]
+        ],
+        "id": "string",
+        "nextStatuses": [
+          "string"
+        ],
+        "prior_art": "nullable",
+        "priority": "string",
+        "severity": "nullable",
+        "status": "string",
+        "title": "string",
+        "work_units": "array"
+      }
+    ],
+    "incident_metrics": {
+      "by_class": {
+        "development_defect": {
+          "escaped": "number",
+          "escaped_rate": "number",
+          "occurrences": "number",
+          "promotions": "number",
+          "repair_duration_ms_average": "nullable",
+          "repair_duration_ms_total": "number",
+          "repair_duration_samples": "number"
+        },
+        "execution_incident": {
+          "escaped": "number",
+          "escaped_rate": "number",
+          "occurrences": "number",
+          "promotions": "number",
+          "repair_duration_ms_average": "nullable",
+          "repair_duration_ms_total": "number",
+          "repair_duration_samples": "number"
+        },
+        "product_defect": {
+          "escaped": "number",
+          "escaped_rate": "number",
+          "occurrences": "number",
+          "promotions": "number",
+          "repair_duration_ms_average": "nullable",
+          "repair_duration_ms_total": "number",
+          "repair_duration_samples": "number"
+        },
+        "regression": {
+          "escaped": "number",
+          "escaped_rate": "number",
+          "occurrences": "number",
+          "promotions": "number",
+          "repair_duration_ms_average": "nullable",
+          "repair_duration_ms_total": "number",
+          "repair_duration_samples": "number"
+        }
+      },
+      "historical_replay": {
+        "consistent": "bool",
+        "consistent_count": "number",
+        "execution_incidents_excluded": "number",
+        "formal_defect_samples": "number",
+        "sample_count": "number",
+        "samples": [
+          {
+            "consistent": "bool",
+            "defect_id": "string",
+            "excluded_from_formal_defect_total": "bool",
+            "expected_class": "string",
+            "rationale": "string"
+          }
+        ]
+      },
+      "overall": {
+        "escaped": "number",
+        "escaped_rate": "number",
+        "repair_duration_ms_average": "nullable",
+        "repair_duration_ms_total": "number",
+        "repair_duration_samples": "number"
+      },
+      "promotion_events": "number",
+      "schema_version": "number",
+      "total_events": "number",
+      "total_occurrences": "number"
+    },
+    "requirements": [
+      {
+        "batches": {
+          "done": "number",
+          "total": "number"
+        },
+        "block_reasons": "array",
+        "blocked": "bool",
+        "claimed_by": "string",
+        "closed": "bool",
+        "complexity": "string",
+        "dependencies": "array",
+        "dependents": "array",
+        "execution_model": "nullable",
+        "fields": [
+          [
+            "string"
+          ]
+        ],
+        "id": "string",
+        "nextStatuses": [
+          "string"
+        ],
+        "prior_art": "nullable",
+        "priority": "string",
+        "severity": "nullable",
+        "status": "string",
+        "title": "string",
+        "work_units": "array"
+      }
+    ],
+    "research_topics": "array",
+    "root": "string",
+    "sources": "array",
+    "warnings": "array",
+    "work_units": "array"
+  },
+  "file_drafts_load": [
+    {
+      "bom": "bool",
+      "content": "string",
+      "eol": "string",
+      "hash": "string",
+      "path": "string",
+      "savedAtMs": "number"
+    }
+  ],
+  "file_preview": {
+    "binary": "bool",
+    "bom": "bool",
+    "content": "string",
+    "encoding": "string",
+    "eol": "string",
+    "hash": "string",
+    "mixedEol": "bool",
+    "mtimeMs": "number",
+    "readonly": "nullable",
+    "size": "number",
+    "truncated": "bool"
+  },
+  "file_stat": {
+    "exists": "bool",
+    "mtimeMs": "number",
+    "size": "number"
+  },
+  "file_write": {
+    "evidence": "string",
+    "exists": "bool",
+    "hash": "string",
+    "mtimeMs": "number",
+    "size": "number",
+    "status": "string"
+  },
+  "files_snapshot": {
+    "annotatable": "number",
+    "annotated": "number",
+    "dirNotes": {},
+    "dirs": {
+      "": {
+        "files": "number",
+        "lines": "number",
+        "size": "number"
+      },
+      "src": {
+        "files": "number",
+        "lines": "number",
+        "size": "number"
+      }
+    },
+    "files": [
+      {
+        "chars": "nullable",
+        "lines": "number",
+        "note": "nullable",
+        "oversized": "bool",
+        "path": "string",
+        "size": "number"
+      }
+    ],
+    "reused": "number",
+    "unannotated": "number"
+  },
+  "kz:preview-console": {
+    "entries": [
+      {
+        "col": "number",
+        "level": "string",
+        "line": "number",
+        "seq": "number",
+        "text": "string",
+        "ts": "number",
+        "url": "string"
+      }
+    ]
+  },
+  "kz:preview-pick": {
+    "png": "string",
+    "rect": {
+      "h": "number",
+      "w": "number",
+      "x": "number",
+      "y": "number"
+    },
+    "selector": "string",
+    "tag": "string",
+    "text": "string"
+  },
+  "kz:preview-state": {
+    "boundProcessId": "string",
+    "canBack": "bool",
+    "canForward": "bool",
+    "device": "string",
+    "error": {
+      "kind": "string",
+      "text": "string"
+    },
+    "loading": "bool",
+    "scheme": "string",
+    "title": "string",
+    "url": "string",
+    "visible": "bool"
+  },
+  "memory_graph": {
+    "areas": [
+      {
+        "band": "number",
+        "depth": "number",
+        "id": "string",
+        "kind": "string",
+        "label": "string",
+        "memories": "number",
+        "parent": "nullable"
+      }
+    ],
+    "build_ms": "number",
+    "cache": "string",
+    "edges": [
+      {
+        "anchor": "string",
+        "provenance": "nullable",
+        "rel": "string",
+        "source": "string",
+        "strength": "string",
+        "target": "string",
+        "via": "nullable"
+      }
+    ],
+    "generated_at": "number",
+    "nodes": [
+      {
+        "archived": "bool",
+        "area_provenance": "string",
+        "areas": [
+          "string"
+        ],
+        "category": "string",
+        "degree": "number",
+        "description": "string",
+        "hits": "number",
+        "id": "string",
+        "kind": "string",
+        "label": "string",
+        "primary_area": "string",
+        "scope": "string",
+        "status": "string",
+        "title": "string",
+        "updated": "string"
+      }
+    ],
+    "stats": {
+      "archived": "number",
+      "by_provenance": {
+        "field": "number",
+        "keyword": "number",
+        "none": "number",
+        "path": "number",
+        "tool": "number",
+        "via": "number"
+      },
+      "live": "number",
+      "memories": "number",
+      "unassigned": "number"
+    },
+    "version": "number",
+    "warnings": [
+      "string"
+    ]
+  },
+  "model_effective": {
+    "agent": "string",
+    "agentError": "nullable",
+    "codexFastMode": {
+      "active": "bool",
+      "applies": "bool",
+      "enabled": "bool",
+      "source": "string"
+    },
+    "contextLimit": "number",
+    "defaultModel": {
+      "error": "nullable",
+      "followsPrimary": "bool",
+      "ref": "string",
+      "resolved": "string",
+      "role": "string",
+      "source": "string"
+    },
+    "defaultReasoning": {
+      "source": "string",
+      "value": "string"
+    },
+    "model": {
+      "error": "nullable",
+      "followsPrimary": "bool",
+      "ref": "string",
+      "resolved": "string",
+      "role": "nullable",
+      "source": "string"
+    },
+    "reasoning": {
+      "source": "string",
+      "value": "string"
+    }
+  },
+  "open_tools_list": [
+    {
+      "args": "array",
+      "available": "bool",
+      "builtin": "bool",
+      "command": "nullable",
+      "id": "string",
+      "label": "string"
+    }
+  ],
+  "preview_capture": {
+    "height": "number",
+    "png": "string",
+    "width": "number"
+  },
+  "preview_console": {
+    "entries": [
+      {
+        "col": "number",
+        "level": "string",
+        "line": "number",
+        "seq": "number",
+        "text": "string",
+        "ts": "number",
+        "url": "string"
+      }
+    ]
+  },
+  "preview_dev_urls": {
+    "urls": [
+      {
+        "command": "string",
+        "pid": "number",
+        "url": "string"
+      }
+    ]
+  },
+  "preview_snippet": {
+    "url": "string"
+  },
+  "process_closed_list": [
+    {
+      "closed_at": "number",
+      "id": "string",
+      "ordinal": "number",
+      "session_id": "string",
+      "title": "string",
+      "title_custom": "bool",
+      "updated_at": "number"
+    }
+  ],
+  "process_info": {
+    "authority": "string",
+    "branch": "nullable",
+    "id": "string",
+    "kind": "string",
+    "label": "string",
+    "manual_models": "array",
+    "model": "nullable",
+    "ordinal": "nullable",
+    "origin_project": "string",
+    "phase_pipeline": "bool",
+    "profile": "nullable",
+    "project_dir": "string",
+    "reasoning": "nullable",
+    "research_topic": "nullable",
+    "running": "bool",
+    "session_id": "string",
+    "stage": "string",
+    "subagents_enabled": "bool",
+    "title": "nullable",
+    "title_custom": "bool",
+    "tracker_writes": "bool",
+    "updated_at": "nullable",
+    "worktree_path": "nullable"
+  },
+  "project_root_info": {
+    "autoRepaired": "bool",
+    "resolved": "string",
+    "selected": "string",
+    "shared": "bool"
+  },
+  "test_runs_snapshot": {
+    "active": "array",
+    "archive_path": "string",
+    "archived": [
+      {
+        "fields": [
+          {
+            "key": "string",
+            "value": "string"
+          }
+        ],
+        "id": "string",
+        "refs": "array",
+        "status": "string",
+        "title": "string"
+      }
+    ],
+    "path": "string"
+  },
+  "tool_image": {
+    "png": "string"
+  },
+  "verification_cancel": "nullable",
+  "work_delivery_accept": {
+    "accepted_at": "number",
+    "source_sequence": "number",
+    "unit_id": "string"
+  },
+  "workspace_overview": {
+    "current": "string",
+    "observed_at": "number",
+    "projects": [
+      {
+        "content_revision": "string",
+        "counts": {
+          "decisions": "number",
+          "in_progress": "number",
+          "missing_facts": "number",
+          "ready_to_try": "number",
+          "verifying": "number"
+        },
+        "current": "bool",
+        "current_items": [
+          {
+            "batches": {
+              "done": "number",
+              "source": "string",
+              "total": "number"
+            },
+            "claimed_by": "nullable",
+            "id": "string",
+            "kind": "string",
+            "owner_lines": [
+              {
+                "id": "string",
+                "label": "string",
+                "running": "bool"
+              }
+            ],
+            "priority": "string",
+            "project_id": "string",
+            "running": "bool",
+            "status": "string",
+            "title": "string"
+          }
+        ],
+        "current_items_total": "number",
+        "error": "nullable",
+        "freshness": "string",
+        "lines": [
+          {
+            "available": "bool",
+            "branch": "nullable",
+            "current_item_id": "string",
+            "id": "string",
+            "kind": "string",
+            "label": "string",
+            "ordinal": "nullable",
+            "profile": "nullable",
+            "running": "bool",
+            "session_id": "string",
+            "stage": "string",
+            "title": "nullable",
+            "title_custom": "bool",
+            "updated_at": "number",
+            "worktree_path": "nullable"
+          }
+        ],
+        "lines_total": "number",
+        "name": "string",
+        "observed_at": "number",
+        "path": "string",
+        "pending_count": "number",
+        "project_id": "string",
+        "recent_progress": "nullable",
+        "running_lines": "number",
+        "status": "string",
+        "updated_at": "nullable"
+      }
+    ]
+  }
+}

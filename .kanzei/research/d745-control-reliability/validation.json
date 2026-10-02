@@ -1,0 +1,84 @@
+{
+  "recorded_at": "2026-09-06T03:10:06.553457+00:00",
+  "base_commit": "4a85596cbcb5f8a4fe056f11b741317a14216f75",
+  "branch": "kanzei/control-reliability",
+  "source_state": "uncommitted",
+  "checks": [
+    {
+      "command": "cargo test -p kanzei-tools --lib --offline --quiet -- --test-threads=1",
+      "passed": 545,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "command": "cargo test -p kanzei-tools --lib work::tests --offline --quiet -- --test-threads=1",
+      "passed": 34,
+      "failed": 0,
+      "note": "轻量裁决改动后的相关回归"
+    },
+    {
+      "command": "cargo test -p kanzei-core --lib --offline --quiet -- --test-threads=1",
+      "passed": 287,
+      "failed": 0
+    },
+    {
+      "command": "cargo test -p kanzei-memory --lib --offline --quiet -- --test-threads=1",
+      "passed": 169,
+      "failed": 0
+    },
+    {
+      "command": "cargo test -p kanzei-memory --lib explicit_memory_queries --offline --quiet -- --test-threads=1",
+      "passed": 1,
+      "failed": 0,
+      "note": "补充向量通道锚点拒绝后的回归"
+    },
+    {
+      "command": "cargo clippy -p kanzei-tools -p kanzei-memory -p kanzei-core -p kanzei-harness -p kanzei-app -p kanzei --all-targets --offline -- -D warnings",
+      "result": "passed"
+    },
+    {
+      "command": "cargo check -p kanzei-app -p kanzei --tests --offline",
+      "result": "passed"
+    },
+    {
+      "command": "node --experimental-vm-modules scripts/ui-runtime-smoke.mjs",
+      "result": "passed",
+      "note": "增加阻塞事项回复与历史问题回放后的最终运行"
+    },
+    {
+      "command": "node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs",
+      "result": "passed"
+    },
+    {
+      "command": "cargo fmt --all -- --check; node scripts/ipc-event-smoke.mjs; node scripts/check-ps1-bom.mjs",
+      "result": "passed"
+    }
+  ],
+  "snapshot": {
+    "default_characters": 7432,
+    "default_lines": 244,
+    "full_characters": 60648,
+    "full_lines": 934,
+    "default_elapsed_ms_single_sample": 692,
+    "selected": "D-742",
+    "queued": [
+      "D-745",
+      "R-360",
+      "R-361"
+    ]
+  },
+  "not_verified": [
+    "原生桌面冷启动与退出重启",
+    "真实 provider 上任务表现收益对照",
+    "新提交 full verify 及发布安装"
+  ],
+  "restored_parking": [
+    "R-360",
+    "R-361",
+    "D-742"
+  ],
+  "preserved_user_blockers": [
+    "D-504",
+    "R-287"
+  ]
+}

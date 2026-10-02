@@ -1,0 +1,397 @@
+//! kanzei-tools: 内置工具 + 双模式 profile 组件。
+
+pub mod arch_diagram;
+pub mod architecture;
+pub mod memory_consolidation;
+/// 原子写原语下沉到 kanzei-llm(依赖图最底层,D-261):llm 的 auth/store 与
+/// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
+pub use kanzei_base::atomic_file;
+pub use kanzei_base::content_hash;
+pub use kanzei_base::path_form;
+pub use kanzei_base::write_log;
+/// R-203:memory/、docstore、embed、replay_eval 拆入 kanzei-memory crate,经再导出
+/// 保持 `kanzei_tools::{memory,docstore,embed,replay_eval}` 全部调用点零改动。
+pub use kanzei_memory::docstore;
+pub use kanzei_memory::embed;
+pub use kanzei_memory::memory;
+pub use kanzei_memory::replay_eval;
+pub mod background;
+mod base;
+pub mod bash;
+mod browser_tool;
+pub mod schedules;
+/// UI2-0926 #8:browser 工具对桌面端面板后端开放的共用面(输入、schema、目标解析、权限资源、
+/// 输出格式、无头执行)。两个后端的输出格式只在 browser_tool 里写一份。
+pub mod browser {
+    pub use crate::browser_tool::{
+        browser_error, current_url, description, dom_walker_expression, execute_headless,
+        format_console_item, input_schema, out_click, out_console, out_dom, out_eval, out_open,
+        out_press, out_screenshot, out_scroll, out_type, out_wait, parse_browser_input,
+        parse_viewport, resolve_nav_target, resources_for, screenshot_scope, scroll_scope,
+        set_current_url, url_resource, validate, viewport_label, wait_scope, Backend,
+        BrowserAction, BrowserInput, ConsoleItem, NavTarget, CONSOLE_ALL_LIMIT, HEADLESS_PANE_HINT,
+        MAX_EVAL_CHARS, MAX_SCREENSHOT_BYTES, MAX_WAIT_MS,
+    };
+}
+/// R-311:条目关闭收尾链遥测与滚动汇总，供 tracker 写入与 `kz metrics` 消费。
+pub mod close_telemetry;
+pub mod conventions;
+mod cross_tree;
+/// UI2-0926 #8:本地开发服务地址发现(后台进程输出 → 预览面板空态列表)。
+pub mod dev_urls;
+mod edit;
+pub mod files;
+pub mod frontend;
+mod git;
+pub mod git_batches;
+mod glob;
+mod grep;
+pub mod incident;
+pub mod latex_tool;
+mod local_validation;
+mod managed;
+/// 托管目录清单单源(D-173):桌面文件页据此把托管文档设为只读(UI2-0926 #6)。
+pub use managed::MANAGED_ROOTS;
+pub mod palette;
+mod plot_tool;
+/// UI2-0926 #8:网页预览静态服务(127.0.0.1 随机端口 + token,登记根与内存片段)。
+pub mod preview_server;
+pub mod prior_art;
+mod process;
+/// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。
+pub mod project_state;
+pub mod quarantine;
+mod question;
+mod read;
+#[cfg(test)]
+mod read_receipt_tests;
+/// 记忆知识图谱与引用抽取的纯函数(R-368 B1 子集;docs/design/memory_knowledge_graph.md)。
+pub mod refgraph;
+pub mod research_control;
+pub mod research_environment;
+pub mod research_index;
+pub mod research_loop;
+pub mod research_plan;
+pub mod research_runner;
+pub mod research_verify;
+pub mod research_workflow;
+pub mod research_write;
+pub use read::pdf_to_text;
+pub mod run;
+mod shell;
+pub mod team;
+pub mod test_record;
+pub mod tracker;
+mod web_refs;
+/// D-413:研究工作台要在应用内打开文献正文,桌面命令直接复用本工具的抓取与
+/// HTML→文本管线(不另造第二套抓取逻辑,免得代理/超时/截断口径分叉)。
+pub mod webfetch;
+
+pub mod verification;
+mod websearch;
+pub mod work;
+/// R-207:worktree 生命周期内核(建线/回执/回滚/合并预检),桌面与 CLI 共用。
+pub mod worktree;
+mod write;
+
+pub mod profiles;
+pub mod subagent;
+pub mod symbols;
+
+pub use background::kill_process as kill_background_processes_for_process;
+/// 运行停止时回收本项目的后台进程,避免留下孤儿 dev server(R-097)。
+pub use background::kill_project as kill_background_processes;
+pub use base::BaseComponent;
+/// R-177 内容③:线清单的真源是 `git worktree list --porcelain`。解析器不新造,
+/// 从 `merge_ff` 已在用的那一个抽出来复用。
+pub use git::{parse_worktree_list, WorktreeEntry};
+pub use profiles::{
+    frontend_inspection_guidance, prompt_tool_mentions, prompt_tool_search_selects, DevProfile,
+    GeneralChatProfile, ReadonlyProfile, ResearchProfile, DEV_DEFERRED_TOOLS,
+};
+pub use shell::{detected_shell, fresh_path};
+pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};
+pub use work::{
+    active_claims_by_line, release_line_claims, resolve_work_decision, resolve_work_selection,
+    resolved_control_prompt, resolved_control_prompt_of, ResolvedControlState, WorkDecision,
+    WorkTool,
+};
+
+use kanzei_harness::Tool;
+
+/// 工具输入解析的公共入口:serde 失败时返回纠错反馈而不是崩溃。
+/// ToolOutput 是统一的纠错回馈契约，此处保留完整错误值而不改变调用方错误语义。
+#[allow(clippy::result_large_err)]
+pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(
+    tool: &dyn Tool,
+    input: serde_json::Value,
+) -> Result<T, kanzei_harness::ToolOutput> {
+    let raw = input.to_string();
+    serde_json::from_value(input)
+        .map_err(|e| kanzei_harness::tool::repair_hint(tool, &raw, &e.to_string()))
+}
+
+/// 为路径类工具生成可执行的缺失路径诊断：只扫描目标同目录的文件，避免把
+/// 整个项目树噪声塞进错误结果；memory 路径额外给出项目真源根目录。
+pub(crate) fn missing_path_hint(
+    path: &std::path::Path,
+    raw_path: &str,
+    project_root: &std::path::Path,
+) -> String {
+    let mut message = format!("path not found: {}", path.display());
+    let looks_like_memory = path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("memory")
+    }) || raw_path
+        .split(['/', char::from(92)])
+        .any(|part| part.eq_ignore_ascii_case("memory"));
+    if looks_like_memory {
+        message.push_str(&format!(
+            "\n正确的项目 memory 根路径: {}",
+            project_root.join(".kanzei").join("memory").display()
+        ));
+    }
+
+    let Some(parent) = path.parent() else {
+        return message;
+    };
+    let Some(target_name) = path.file_name().map(|name| name.to_string_lossy()) else {
+        return message;
+    };
+    let mut candidates: Vec<(usize, String)> = std::fs::read_dir(parent)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            if !entry.file_type().ok()?.is_file() {
+                return None;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            Some((path_name_distance(&target_name, &name), name))
+        })
+        .collect();
+    candidates.sort();
+    candidates.truncate(5);
+    if candidates.is_empty() {
+        message.push_str(&format!(
+            "\n同目录最近邻文件候选: {} 中没有可列出的文件",
+            parent.display()
+        ));
+    } else {
+        message.push_str(&format!("\n同目录最近邻文件候选 ({}):", parent.display()));
+        for (_, name) in candidates {
+            message.push_str(&format!("\n  - {name}"));
+        }
+    }
+    message
+}
+
+fn path_name_distance(left: &str, right: &str) -> usize {
+    let left: Vec<char> = left.to_lowercase().chars().collect();
+    let right: Vec<char> = right.to_lowercase().chars().collect();
+    let mut previous: Vec<usize> = (0..=right.len()).collect();
+    for (row, left_char) in left.iter().enumerate() {
+        let mut current = vec![row + 1; right.len() + 1];
+        for (column, right_char) in right.iter().enumerate() {
+            current[column + 1] = if left_char == right_char {
+                previous[column]
+            } else {
+                1 + previous[column]
+                    .min(previous[column + 1])
+                    .min(current[column])
+            };
+        }
+        previous = current;
+    }
+    previous[right.len()]
+}
+
+/// 联网工具的代理策略:与 LLM 请求同一套(配置驱动,loopback 豁免)。
+///
+/// **配置取 `ctx.project_root`,不取 `ctx.cwd`**(R-182 内容④)。代理是主根资产;
+/// 线上线后 cwd 是 worktree,那里的 `.kanzei/kanzei.toml` 是被 git checkout 出来的
+/// 分支副本,读它等于让「能不能联网」取决于这条线的分支停在哪一代。判据与 F6 同源:
+/// 凡 `.kanzei/**` 资产走 project_root,凡仓库源码走 cwd。
+///
+/// webfetch 与 websearch 两处原本各写一遍同样的 match,一并收敛到这里。
+pub(crate) fn tool_proxy(ctx: &kanzei_harness::ToolCtx) -> kanzei_llm::proxy::ProxyConfig {
+    use kanzei_llm::proxy::ProxyConfig;
+    match kanzei_harness::KanzeiConfig::load_at_root(&ctx.project_root)
+        .ok()
+        .and_then(|c| c.proxy)
+    {
+        Some(p) if p == "off" => ProxyConfig::Disabled,
+        Some(p) if p == "env" => ProxyConfig::Env,
+        Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
+        _ => ProxyConfig::Env,
+    }
+}
+
+/// D-393:latex/plot 等写盘工具的 workdir 路径边界校验。
+///
+/// 输入 workdir 必须是**相对路径**(绝对路径直接拒绝,防 `cwd.join` 替换基底)、
+/// 不含 `..` 段(防穿越);canonicalize 后必须落在**研究工件目录**白名单
+/// (`<cwd>/.kanzei/research` 或 `<cwd>/research` 子树)内——R-273/R-274 条目
+/// 边界「限研究工件目录与显式指定目录」此前只存在于 schema 描述文本,这里落码。
+///
+/// 返回 canonicalize 后的路径(后续写盘基于它,白名单边界生效)。
+pub(crate) fn resolve_research_workdir(
+    cwd: &std::path::Path,
+    workdir: &str,
+) -> Result<std::path::PathBuf, String> {
+    let workdir = workdir.trim();
+    if workdir.is_empty() {
+        return Err("workdir 不能为空".into());
+    }
+    let raw = std::path::Path::new(workdir);
+    // 绝对路径拒绝:Windows 盘符/UNC 与 POSIX 根会让 join 替换基底;
+    // has_root 兜底 Windows 的 root-relative(`/etc`、`\etc` 无盘符前缀也替换基底)。
+    if raw.is_absolute() || raw.has_root() || workdir.contains(':') {
+        return Err(format!(
+            "workdir 必须是相对路径(绝对/根路径会让 join 替换项目基底): {workdir:?}"
+        ));
+    }
+    // `..` 穿越拒绝(任意层级)。
+    if workdir.split(['/', '\\']).any(|seg| seg == "..") {
+        return Err(format!("workdir 不得含 `..` 路径段(防穿越): {workdir:?}"));
+    }
+    let joined = cwd.join(workdir);
+    let canonical = joined
+        .canonicalize()
+        .map_err(|e| format!("工作目录不存在或不可访问 {}: {e}", joined.display()))?;
+    let cwd_canon = cwd
+        .canonicalize()
+        .map_err(|e| format!("cwd 不可解析: {e}"))?;
+    let research_root = cwd_canon.join(".kanzei").join("research");
+    let research_root_alt = cwd_canon.join("research");
+    if !canonical.starts_with(&research_root) && !canonical.starts_with(&research_root_alt) {
+        return Err(format!(
+            "workdir 必须在研究工件目录内: {workdir:?} 解析为 {};\
+             允许范围: {} 或 {}。\
+             研究产物的 tex/spec/图统一放研究工件目录;确需其它目录请让用户手动处理。",
+            canonical.display(),
+            research_root.display(),
+            research_root_alt.display()
+        ));
+    }
+    Ok(canonical)
+}
+
+/// D-398:写者工具统一记写日志(路径+写后指纹+身份)——围栏收口对账的归因凭据。
+/// 专用写者(写者工具)成功落盘后调用;先写文档再记日志(「写后」凭据,
+/// write_log 模块头契约)。所有专用写者必须接线:test_record/conventions/
+/// architecture/tracker 活动+归档——半上线(部分写者有凭据、部分没有)比不接
+/// 线更危险:无凭据的合法写者会被围栏当越界回滚。
+pub(crate) fn record_write_log(
+    ctx: &kanzei_harness::ToolCtx,
+    rel_path: &str,
+    abs_path: &std::path::Path,
+) {
+    if let Ok(content) = std::fs::read(abs_path) {
+        // D-399:record 失败至少告警(模块契约「宁可失败不静默」)——日志丢失 =
+        // 该次写入失去归因凭据,围栏收口会把它当越界,必须让调用方看到。
+        if let Err(e) = crate::write_log::record(
+            &ctx.project_root,
+            &crate::write_log::WriteLogEntry {
+                at_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or_default(),
+                path: rel_path.replace('\\', "/"),
+                fingerprint: crate::content_hash(&content),
+                content: content.clone(),
+                run_id: ctx.run_id.clone(),
+                process_id: ctx.process_id.clone(),
+            },
+        ) {
+            eprintln!("[write-log] record failed for {rel_path}: {e}");
+        }
+    }
+}
+
+/// Windows 上禁止外部子进程新建控制台窗口(D-238)。
+/// 桌面端是 GUI 进程(没有控制台可继承),不设 CREATE_NO_WINDOW 时,每次
+/// spawn git/cargo/taskkill 等外部程序都会闪出一个黑色 cmd 窗口。std 与
+/// tokio 两种 Command 各自有 creation_flags,统一收敛到这里,避免各处重复。
+#[cfg(windows)]
+pub(crate) fn hide_console(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hide_console(_command: &mut std::process::Command) {}
+
+#[cfg(windows)]
+pub(crate) fn hide_console_async(command: &mut tokio::process::Command) {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hide_console_async(_command: &mut tokio::process::Command) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-research-workdir-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// D-393:研究工件目录(.kanzei/research 与 research)内的相对路径放行,返回 canonical。
+    #[test]
+    fn workdir白名单_研究目录内放行() {
+        let root = temp_root("ok");
+        std::fs::create_dir_all(root.join(".kanzei").join("research").join("topic-a")).unwrap();
+        std::fs::create_dir_all(root.join("research")).unwrap();
+        let p = resolve_research_workdir(&root, ".kanzei/research/topic-a").unwrap();
+        assert!(p.is_absolute(), "返回 canonical 绝对路径: {}", p.display());
+        assert!(
+            p.ends_with(".kanzei\\research\\topic-a") || p.ends_with(".kanzei/research/topic-a")
+        );
+        let p2 = resolve_research_workdir(&root, "research").unwrap();
+        assert!(p2.ends_with("research"));
+        // 目录不存在 → 明确报错。
+        let err = resolve_research_workdir(&root, ".kanzei/research/missing").unwrap_err();
+        assert!(err.contains("不存在"), "{err}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-393:绝对路径 / `..` / 研究目录之外的相对路径一律拒绝(任意路径可写收口)。
+    #[test]
+    fn workdir白名单_绝对路径与穿越拒绝() {
+        let root = temp_root("reject");
+        std::fs::create_dir_all(root.join(".kanzei").join("research")).unwrap();
+        // 绝对路径(Windows 盘符)。
+        let abs = resolve_research_workdir(&root, "C:\\Users\\public").unwrap_err();
+        assert!(abs.contains("相对路径"), "绝对路径拒绝: {abs}");
+        // 绝对路径(POSIX 根)。
+        let abs2 = resolve_research_workdir(&root, "/etc").unwrap_err();
+        assert!(abs2.contains("相对路径"), "{abs2}");
+        // `..` 穿越。
+        let dotdot = resolve_research_workdir(&root, ".kanzei/research/../..").unwrap_err();
+        assert!(dotdot.contains(".."), "穿越拒绝: {dotdot}");
+        // 研究目录之外(cwd 自身)。
+        let outside = resolve_research_workdir(&root, ".").unwrap_err();
+        assert!(outside.contains("研究工件目录"), "目录外拒绝: {outside}");
+        // 空 workdir。
+        let empty = resolve_research_workdir(&root, "  ").unwrap_err();
+        assert!(empty.contains("不能为空"), "{empty}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+}

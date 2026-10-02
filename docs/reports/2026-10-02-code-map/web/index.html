@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Kanzei · 代码审查地图</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script defer src="data.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#view=features"><span class="brand-mark" aria-hidden="true">k.</span><span>kanzei<span class="brand-caption">代码审查地图</span></span></a>
+      <nav aria-label="审查内容" id="navigation"></nav>
+      <div class="sidebar-bottom">
+        <div class="snapshot-label">源码快照</div>
+        <div id="snapshot-date"></div>
+        <code id="snapshot-head"></code>
+        <div class="snapshot-branch" id="snapshot-branch"></div>
+        <p>标注保存在此浏览器。<br>可导出，继续整理代码和决策。</p>
+      </div>
+    </aside>
+    <main class="workspace">
+      <header class="page-header">
+        <div><div class="eyebrow">REPOSITORY REVIEW</div><h1 id="page-title">整理候选</h1><p id="page-description"></p></div>
+        <button id="export" class="button secondary">导出当前结果 <span aria-hidden="true">↗</span></button>
+      </header>
+      <section class="controls" aria-label="筛选">
+        <label class="search-box"><span aria-hidden="true">⌕</span><input id="search" type="search" aria-label="搜索" placeholder="搜索问题、模块、决策或源码…" autocomplete="off"><kbd>/</kbd></label>
+        <div class="filter-row">
+          <label><span class="sr-only">功能域</span><select id="domain" aria-label="功能域"></select></label>
+          <label id="kind-wrap"><span class="sr-only">问题类型</span><select id="kind" aria-label="问题类型"></select></label>
+          <label id="priority-wrap"><span class="sr-only">优先级</span><select id="priority" aria-label="优先级"><option value="">全部优先级</option><option value="1">P1 · 先处理</option><option value="2">P2 · 收拢</option><option value="3">P3 · 清理</option></select></label>
+          <label id="certainty-wrap"><span class="sr-only">证据状态</span><select id="certainty" aria-label="证据状态"><option value="">全部证据状态</option><option>源码确认</option><option>待运行确认</option><option>需判断用途</option></select></label>
+          <label id="review-wrap"><span class="sr-only">我的标注</span><select id="review-filter" aria-label="我的标注"><option value="">全部标注</option><option value="unreviewed">未审阅</option><option value="reviewed">已审阅</option><option value="done">已处理</option></select></label>
+          <button id="reset" class="text-button">清空筛选</button>
+        </div>
+      </section>
+      <div class="result-toolbar">
+        <div id="quick-filters" class="quick-filters" aria-label="快捷筛选"></div>
+        <div class="result-meta"><span id="result-count" aria-live="polite"></span><select id="sort" aria-label="排序"><option value="priority">优先级排序</option><option value="name">名称排序</option><option value="size">行数排序</option></select></div>
+      </div>
+      <div class="content-split">
+        <section class="results-region" aria-label="结果列表">
+          <div id="result-list"></div>
+          <div id="empty-state" hidden><span aria-hidden="true">⌕</span><h2>没有匹配结果</h2><p>换个关键词，或减少筛选条件。</p><button id="empty-reset" class="button secondary">清空筛选</button></div>
+          <div class="pagination" id="pagination"></div>
+        </section>
+        <aside class="inspector" id="inspector" aria-label="选中条目详情"><button class="inspector-close text-button" id="inspector-close">关闭详情 ×</button><div id="detail"></div></aside>
+      </div>
+      <footer class="workspace-footer"><span id="footer-snapshot"></span><span>源码判断与整理建议 · 标注不修改原代码和 A 决策</span></footer>
+    </main>
+  </div>
+  <dialog id="source-dialog" aria-labelledby="source-title">
+    <div class="source-header"><div><h2 id="source-title">源码</h2><p id="source-meta"></p></div><button id="source-close" class="button secondary" aria-label="关闭源码">关闭 ×</button></div>
+    <div id="source-content"></div>
+    <div class="source-footer"><button id="source-prev" class="text-button">← 前一段</button><span id="source-range"></span><button id="source-next" class="text-button">后一段 →</button></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

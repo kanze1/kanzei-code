@@ -1,0 +1,1053 @@
+//! 运行装配域(R-253 批2,纯搬迁自 run/mod.rs)。
+//!
+//! 独立理由:装配是「把一轮跑起来需要的全部依赖准备好」——配置/harness/模型/
+//! 鉴权/会话/typed 写入器/写租约/执行身份,一次 [`assemble_run`] 返回
+//! [`RunAssembly`]。它与事件归约(events)、执行流水线(execution)、落库
+//! (persistence)、协调(coordinator)各自独立成域:装配回答「需要什么」,
+//! 执行回答「怎么跑」,持久化回答「跑完怎么落」,三个变更理由不再挤在同一文件
+//! (照 files_view.rs 模式)。
+//!
+//! 危险点(搬迁纪律):①取根必须在加载配置之前(R-177 内容⑧)——worktree 里的
+//! kanzei.toml 是分支副本,读它会让线的行为取决于分支停在哪一代;②project_write_key
+//! 与 worktree_key 必须分开取(写主根的串行、写代码的并行);⑥typed_flush_task 是
+//! spawn 出来的弱引用定时任务,跨模块传递时不能被当成没人用的字段删掉;⑨stage 闭包
+//! 签名保持 `&(dyn Fn(&str, String) + Sync)`,不各自改成泛型 impl Fn。
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use kanzei_harness::orchestration::ProjectExecutionCoordinator;
+use kanzei_harness::{KanzeiConfig, ResolveCtx, ToolCtx};
+use serde_json::json;
+use tauri::Emitter;
+
+use crate::state::MutexPoisonExt;
+use crate::{
+    prompt_attachment_parts, typed_events, with_session_id, LiveRun, PendingAsk, PromptAttachment,
+};
+
+mod components;
+use components::{DiscussionBoundary, TrackerWritePolicyComponent};
+
+/// R-253 批7b:进入运行域的调用契约三分组之一——**本轮输入**(`RoundRequest`)。
+/// IPC 入口(run_prompt)解析后的「这一轮要跑什么」:提示词、附件、工作目录/主根/
+/// 会话身份、投递方式、已准入输入、进程身份。
+/// 生命周期:一次性——随本轮产生、随本轮消费,不跨轮复用。
+pub(crate) struct RoundRequest {
+    pub(crate) prompt: String,
+    pub(crate) attachments: Option<Vec<PromptAttachment>>,
+    pub(crate) project_dir: String,
+    // R-141:项目主根由调用方(run_prompt)在 IPC 入口解析一次后显式传入,
+    // 线路径内不再做根发现。worktree 线上线后 project_dir 是代码树、main_root
+    // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
+    pub(crate) main_root: PathBuf,
+    pub(crate) session_id: String,
+    pub(crate) delivery: kanzei_core::Delivery,
+    pub(crate) promoted_input: Option<kanzei_core::AdmittedInput>,
+    pub(crate) process_id: String,
+    pub(crate) work_item_id: Option<String>,
+}
+
+/// R-253 批7b:调用契约三分组之二——**运行档位**(`RunMode`)。
+/// 决定这一轮怎么跑:子代理准入、tracker 写开关、模型/档位覆盖、自主推进与放行。
+/// 生命周期:本轮级模式配置——装配期消费;轮末仍有残留用途(`phase_pipeline_enabled`
+/// 决定写租约释放路径),故 run_task 先拷贝 bool 再整体移入装配。
+pub(crate) struct RunMode {
+    pub(crate) execution_batch: bool,
+    // 高级「勘察复核」(进程级开关):完整角色表,5 个勘察 + 3 个复核(受 max_tasks_per_turn
+    // 截断)。它不是子代理总闸——总闸是 `subagents_enabled`;何时装配流水线见
+    // `uses_phase_pipeline`。
+    pub(crate) phase_pipeline_enabled: bool,
+    // 进程级「子代理」总开关。关闭时本轮无 task 工具、无勘察复核、无子代理核查轮;
+    // 开启(默认)时模型按需派 task,不因执行批次或自主推进自动插入固定角色。
+    pub(crate) subagents_enabled: bool,
+    pub(crate) block_tracker_writes: bool,
+    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
+    pub(crate) profile: Option<String>,
+    pub(crate) research_topic: Option<String>,
+    pub(crate) agent_name: Option<String>,
+    pub(crate) model_override: Option<String>,
+    pub(crate) work_priority: Option<String>,
+    pub(crate) reasoning_override: Option<String>,
+    pub(crate) autonomous: bool,
+    pub(crate) auto_allow: bool,
+}
+
+impl RunMode {
+    /// 本轮是否装配阶段流水线(勘察 → 实现 → 复核)。这是流水线的唯一闸门判据:
+    ///
+    /// - 只读档位(讨论)与关闭子代理总开关:永远不装配;
+    /// - 高级「勘察复核」开着:完整角色表,每个任务都走(含手动对话与研究档);
+    /// - 未显式启用高级流水线时,执行批次、自主推进与手动对话都由模型按需调 `task`;
+    /// - 装配后的勘察/复核一律是必需委派:失败或空结果会阻止本轮继续。
+    pub(crate) fn uses_phase_pipeline(&self) -> bool {
+        self.profile.as_deref() != Some("readonly")
+            && self.subagents_enabled
+            && self.phase_pipeline_enabled
+    }
+
+    /// 本轮是否跑在并行线(独立任务)上:权限询问走 NonInteractive,不冒泡到用户弹窗(D-272)。
+    ///
+    /// 只读讨论(readonly)不算:它是用户正在对话的会话,线 id 虽然也是 `p{n}|…`,权限询问必须能弹给用户。
+    pub(crate) fn runs_on_parallel_line(&self, process_id: &str) -> bool {
+        is_parallel_process_id(process_id) && self.profile.as_deref() != Some("readonly")
+    }
+}
+
+/// 并行线的进程身份:`p<数字>|<项目>`;默认线是 `d|…`(UX-147)。旧版曾写成 `p|…`,同样认作并行线。
+///
+/// 此前判定写死 `starts_with("p|")`,而线 id 自 R-178 起是 `p{n}|…`——条件永不命中,并行线实际一直是
+/// Interactive:问到权限就挂起等人,D-272「并行线/自举线不得把询问串到用户弹窗」的隔离整个失效。
+pub(crate) fn is_parallel_process_id(process_id: &str) -> bool {
+    let Some((head, _project)) = process_id.split_once('|') else {
+        return false;
+    };
+    head.strip_prefix('p')
+        .is_some_and(|digits| digits.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// R-253 批7b:调用契约三分组之三——**运行时句柄**(`RuntimeHandles`)。
+/// AppState/SessionRuntime 里跨轮存活的共享句柄(asks 表、会话历史、live 画像、
+/// 停止令牌槽、项目协调器……),Arc 克隆即持有,装配与轮末收尾共用同一批句柄。
+/// 生命周期:会话级——跨轮存活,不随本轮结束而销毁。
+pub(crate) struct RuntimeHandles {
+    pub(crate) asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
+    pub(crate) ask_seq: Arc<AtomicU64>,
+    pub(crate) collaboration_probe: crate::collaboration::CollaborationProbe,
+    pub(crate) current_stage: Arc<Mutex<String>>,
+    pub(crate) conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    pub(crate) live_run: Arc<Mutex<LiveRun>>,
+    // R-174:本会话的单条停止注册表。塞进 SubagentRuntime.cancellations 供
+    // run_subagent 挂取消 token;stop_task 命令从 SessionRuntime 拿同一实例命中。
+    pub(crate) task_cancellations: Arc<kanzei_core::TaskCancellations>,
+    pub(crate) auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
+    // R-171:项目级协调器(所有 ProcessHandle 共享)。主对话 writer run
+    // 在此获取写租约并持有到本轮结束;RAII 保证任何结束路径都释放。
+    pub(crate) coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
+    // D-342 协作式停止:本会话的停止令牌槽(SessionRuntime.halt)与 run 代数。
+    // run 开始时换代并安装新令牌;stop 取走令牌 cancel,run 在检查点 halted 收尾。
+    pub(crate) halt_slot: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
+    pub(crate) run_generation: Arc<AtomicU64>,
+}
+
+/// R-202 批1:run_task 装配段的产物聚合。装配(配置/harness/模型/鉴权/会话/typed/
+/// 写租约/执行身份)收敛为一次函数调用返回,run_task 主体只管三段编排
+/// (装配 → 事件循环 → 轮末收尾),不再背负 300+ 行前置准备。
+/// R-253 批7:装配产物按生命周期三分——`RuntimeDeps`(本轮不变的依赖:配置解析的
+/// 产物)、`SessionContext`(会话事务:开库、准入、typed 写入器)、`RoundContext`
+/// (单轮身份与编排:run id/timing/trace/pipeline/写租约/执行身份)。
+/// 严禁做成一个 28 字段的 `RunContext`——那只是把 parameter monolith 换成
+/// context monolith;对每一个参数组都要能说出它属于哪一层生命周期。
+pub(crate) struct RuntimeDeps {
+    pub(crate) project_root: PathBuf,
+    pub(crate) research_topic: Option<String>,
+    pub(crate) config: Arc<KanzeiConfig>,
+    pub(crate) profile: kanzei_harness::ProfileKind,
+    pub(crate) rctx: ResolveCtx,
+    pub(crate) snapshot: Arc<kanzei_harness::HarnessSnapshot>,
+    pub(crate) agent: kanzei_harness::AgentDef,
+    pub(crate) work_priority: &'static str,
+    pub(crate) resolved: kanzei_harness::config::ResolvedModel,
+    pub(crate) proxy: kanzei_llm::ProxyConfig,
+    pub(crate) route: kanzei_llm::Route,
+    pub(crate) client: kanzei_llm::LlmClient,
+    pub(crate) runner_config: kanzei_core::RunnerConfig,
+    pub(crate) ask_source: &'static str,
+}
+
+pub(crate) struct SessionContext {
+    pub(crate) prior: Vec<kanzei_llm::Message>,
+    pub(crate) state_path: PathBuf,
+    pub(crate) store: kanzei_core::SessionStore,
+    pub(crate) promoted_input_id: String,
+    pub(crate) prompt: String,
+    pub(crate) initial_parts: Vec<kanzei_llm::Part>,
+    pub(crate) typed_writer: Arc<Mutex<typed_events::TypedEventWriter>>,
+    pub(crate) typed_flush_task: tauri::async_runtime::JoinHandle<()>,
+}
+
+pub(crate) struct RoundContext {
+    pub(crate) run_id: String,
+    pub(crate) work_item_id: Option<String>,
+    pub(crate) run_started: std::time::Instant,
+    pub(crate) run_epoch_ms: i64,
+    pub(crate) orchestration_trace: Arc<crate::orchestration_trace::SessionEventObserver>,
+    pub(crate) pipeline: Option<crate::phase_pipeline::PhasePipeline>,
+    pub(crate) _write_lease: Option<WriterLeaseTrace>,
+    pub(crate) ctx: ToolCtx,
+}
+
+/// 装配产物(内部结构,由三个生命周期分组组成)。
+pub(crate) struct RunAssembly {
+    pub(crate) deps: RuntimeDeps,
+    pub(crate) session: SessionContext,
+    pub(crate) round: RoundContext,
+}
+
+/// R-202 批1:run_task 的装配段(原 :85-399)——从 run_task 内联的 300+ 行收敛为
+/// 独立函数。行为零变更:时序、阶段汇报、错误信息、状态机转移与事件顺序与内联时
+/// 完全一致;所有装配产物经 [`RunAssembly`] 一次返回,run_task 解构后继续三段编排。
+/// stage 闭包由调用方传入(捕获 current_stage/window/session_id,装配与轮末共用)。
+/// R-253 批7b:调用参数按生命周期分组打包——`RoundRequest`(本轮输入)/`RunMode`
+/// (运行档位)/`&RuntimeHandles`(会话级句柄,装配只借用:collaboration_probe 经
+/// Clone 进 harness,coordinator 经 Arc::clone),加 window/stage/halt_token 三个
+/// 装配独有输入,共 6 参,消 too_many。禁止再退化成 20+ 扁平参数。
+pub(crate) async fn assemble_run(
+    window: &tauri::Window,
+    stage: &(dyn Fn(&str, String) + Sync),
+    request: RoundRequest,
+    mode: RunMode,
+    handles: &RuntimeHandles,
+    halt_token: kanzei_core::CancellationToken,
+) -> anyhow::Result<RunAssembly> {
+    let general = crate::general_chat::is_general_root(&request.main_root);
+    let cwd = if general {
+        let path =
+            kanzei_harness::general_conversation_workspace(&request.main_root, &request.session_id);
+        std::fs::create_dir_all(&path)?;
+        path
+    } else {
+        PathBuf::from(&request.project_dir)
+    };
+    anyhow::ensure!(cwd.is_dir(), "工作目录不存在: {}", request.project_dir);
+
+    // R-050 D1「运行时重定向主根」的落点:cwd 是代码工作树(线上线后 = worktree),
+    // project_root 恒为主根——托管文档、state.db、记忆全部走它。
+    // 取根必须在**加载配置之前**:R-177 内容⑧,配置是主根资产,worktree 里的
+    // `.kanzei/kanzei.toml` 是被 git checkout 出来的分支副本,读它等于让线的行为
+    // 取决于分支停在哪一代。
+    let project_root = request.main_root;
+    stage("配置", format!("加载 {}", project_root.display()));
+    let (config, config_warnings) = KanzeiConfig::load_with_warnings_at_root(&project_root)?;
+    let config = Arc::new(config);
+    report_config_warnings(window, &request.session_id, &config, &config_warnings);
+    let profile = resolve_profile(mode.profile.as_deref(), &config)?;
+    let rctx = ResolveCtx {
+        profile,
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+        config: config.clone(),
+    };
+
+    let work_priority = normalize_work_priority(mode.work_priority.as_deref());
+    let mut harness = build_run_harness(
+        mode.block_tracker_writes,
+        Some(handles.collaboration_probe.clone()),
+    );
+    if !crate::general_chat::is_general_root(&project_root) {
+        harness.add(kanzei_tools::work::WorkControlContext(
+            crate::auto_run::work_priority_enum(work_priority),
+        ));
+    }
+    if let Some(topic) = &mode.research_topic {
+        harness.add(kanzei_tools::research_workflow::ResearchWorkflowContext(
+            topic.clone(),
+        ));
+    }
+    let snapshot = harness.resolve(&rctx)?;
+    let mut agent = snapshot.select_agent(mode.agent_name.as_deref())?.clone();
+    if !general {
+        append_dev_guidance(&mut agent.system, profile, work_priority, &config);
+    }
+    if let Some(topic) = mode.research_topic.as_deref() {
+        agent.system.push_str(&format!("\n\n当前研究课题: {topic}。本会话的研究工件位于 .kanzei/research/{topic}/。来源、发现、计划、实验和报告均使用该 topic；其他课题仅在用户明确要求比较时读取，不改变当前课题归属。"));
+    }
+    // 启动快照仅供角色任务上下文；主代理的裁决由 WorkControlContext 每步刷新。
+    let control_state = (!general && profile == kanzei_harness::ProfileKind::Dev).then(|| {
+        kanzei_tools::resolve_work_decision(
+            &cwd,
+            &project_root,
+            crate::auto_run::work_priority_enum(work_priority),
+        )
+    });
+    stage(
+        "装配",
+        format!(
+            "harness 就绪:agent {} · {} 个工具",
+            agent.name,
+            snapshot.materialize_tools().len()
+        ),
+    );
+
+    // 界面模型下拉直选优先于 agent 定义(R-178 P2 五层链 ①②③:本轮直选 → 线持久
+    // 选择 → agent 默认;④⑤ 由 config.resolve_model 承担)。桌面与 CLI 共用
+    // kanzei_harness::config::resolve_model_chain,同一真源。
+    let model_ref = kanzei_harness::config::resolve_model_chain(
+        mode.model_override.as_deref(),
+        None,
+        &agent.model,
+    );
+    let resolved = config.resolve_model(&model_ref)?;
+    let proxy = resolve_proxy(&config);
+    stage(
+        "鉴权",
+        auth_stage_detail(
+            &resolved.provider_name,
+            &resolved.model,
+            resolved.provider.auth.is_some(),
+        ),
+    );
+    let route = kanzei_core::build_route(&resolved, &proxy).await?;
+    let client = new_llm_client(&proxy)?;
+    let ctx = ToolCtx::new(cwd.clone(), project_root.clone())
+        .with_session_id(request.session_id.clone())
+        .with_work_priority(crate::auto_run::work_priority_enum(work_priority));
+    // R-256:RunnerConfig 构造与 CLI 共用 kanzei_tools::run::build_runner_config(对照表 #12)。
+    let mut runner_config = kanzei_tools::run::build_runner_config(
+        &resolved,
+        &config,
+        mode.reasoning_override.as_deref(),
+        &ctx.project_root,
+        // D-281:自动轮默认 NonInteractive(避免后台 ASK 挂起弹窗);用户勾选
+        // 自动放行后传 AutoAllow——权限询问直接放行并落 PermissionResolved
+        // 事件,不再静默 declined(开关因此对鞭挞/自主推进轮生效)。
+        if mode.autonomous || mode.runs_on_parallel_line(&request.process_id) {
+            if mode.auto_allow {
+                kanzei_core::AskPolicy::AutoAllow
+            } else {
+                kanzei_core::AskPolicy::NonInteractive
+            }
+        } else {
+            kanzei_core::AskPolicy::Interactive
+        },
+        // D-342:主对话 run 全部接停止令牌(协作式停止的接收端)。
+        Some(halt_token),
+    );
+    runner_config.digest_model =
+        Some(kanzei_tools::run::build_digest_model(&config, &proxy, &resolved, &route).await);
+    runner_config.digest_model.as_mut().unwrap().archive_root = Some(rctx.project_root.clone());
+    // R-322:门禁强度按 agent 取默认值。build_runner_config 是 CLI/桌面共用的
+    // 构造器,它给的是保守默认(Autonomous = 引入前行为);桌面端知道当前 agent,
+    // 在这里落到真实档位。轮末判定用的强度取自同一个函数(coordinator.rs),
+    // 两处必须同源——否则会出现「运行时按结伴跑、轮末按自主判」的错位。
+    let runner_config = kanzei_core::RunnerConfig {
+        hosted_tools: Vec::new(),
+        intensity: crate::auto_run::intensity_for_agent(&agent.name),
+        ..runner_config
+    };
+    let ask_source = if mode.autonomous {
+        "autonomous"
+    } else if mode.runs_on_parallel_line(&request.process_id) {
+        "parallel"
+    } else {
+        "primary"
+    };
+    // R-182 内容①:不再无条件强制串行写。
+    //
+    // R-171 在这里无条件设 ReadParallelWriteSerial,于是主对话**每一轮**的普通工具
+    // 都 max in-flight = 1 —— 连三次 read 都要排队。冲突判定本来就由每个工具自己
+    // 声明的 ToolConcurrency 承担(写工具一律 write_worktree(ctx),同一棵树上的两次
+    // 写自然互斥;读工具 shared_worktree 之间无冲突),阶段再加一层是重复且过严。
+    // 现在留 RunnerConfig 的默认值(Default),要收紧就显式设策略。
+
+    let state_path = kanzei_core::project_state_path(&ctx.project_root);
+    let mut store = kanzei_core::SessionStore::open(&state_path)?;
+    store.create_session(
+        &request.session_id,
+        &ctx.project_root.display().to_string(),
+        None,
+    )?;
+    let is_new_input = request.promoted_input.is_none();
+    let promoted = if let Some(input) = request.promoted_input {
+        input
+    } else {
+        let input_id = format!(
+            "input_{}",
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+        );
+        if let Some(item_id) = request.work_item_id.as_deref() {
+            store.admit_work_input(&request.session_id, &input_id, &request.prompt, item_id)?;
+        } else if mode.execution_batch || mode.autonomous {
+            store.admit_batch_input(
+                &request.session_id,
+                &input_id,
+                &request.prompt,
+                request.delivery,
+            )?;
+        } else {
+            store.admit_input(
+                &request.session_id,
+                &input_id,
+                &request.prompt,
+                request.delivery,
+            )?;
+        }
+        store.append_event(
+            &request.session_id,
+            "prompt.admitted",
+            &json!({ "input_id": input_id, "delivery": if matches!(request.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
+        )?;
+        store
+            .promote_next_input(&request.session_id)?
+            .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?
+    };
+    if is_new_input {
+        store.append_event(
+            &request.session_id,
+            "prompt.promoted",
+            &json!({ "input_id": promoted.input_id, "delivery": if matches!(promoted.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
+        )?;
+    }
+    let work_item_id = store.input_work_item(&request.session_id, &promoted.input_id)?;
+    anyhow::ensure!(
+        work_item_id.is_none()
+            || (profile == kanzei_harness::ProfileKind::Dev && !mode.block_tracker_writes),
+        "当前对话不能领取需求，请返回可写的开发主对话开始"
+    );
+    let requested_task_context = work_item_id
+        .as_deref()
+        .map(|id| super::work_start::requested_task_context(&ctx.project_root, id))
+        .transpose()?;
+    let prompt = promoted.prompt;
+    let initial_parts = prompt_attachment_parts(request.attachments.unwrap_or_default())?;
+    let mut typed_user_parts = initial_parts.clone();
+    if !prompt.is_empty() {
+        typed_user_parts.insert(
+            0,
+            kanzei_llm::Part::Text {
+                text: prompt.clone(),
+            },
+        );
+    }
+    // promoted → running,并记住本轮身份与墙钟(D-173)。少了 running/completed 这段
+    // 生命周期,跑完的输入永远停在 promoted,以后任何一次停止都会把它追认成 cancelled。
+    let promoted_input_id = promoted.input_id.clone();
+    store.start_input(&promoted_input_id)?;
+    let completion_goal = handles
+        .auto_runs
+        .lock_or_recover()
+        .get(&request.session_id)
+        .and_then(|controller| controller.goal.clone());
+    // 完成声明契约只给开发档(UX-008):只读讨论与研究档没有 work 工具、轮末也不消费
+    // handoff,注入只会让模型把范围/目标/证据当散文讲给用户。判据见 context_prompt_for。
+    if let Some(contract) = kanzei_harness::handoff::context_prompt_for(
+        profile,
+        &promoted_input_id,
+        completion_goal.as_deref(),
+    ) {
+        agent.system.push_str(&contract);
+    }
+    // Capture once before scouts or any write/claim by this run. Later working
+    // tree observations are not evidence of what existed at this boundary.
+    let (run_id, baseline_context) = super::baseline::prepare(
+        if general { &ctx.project_root } else { &ctx.cwd },
+        &mut store,
+        &request.session_id,
+        &mut agent.system,
+    )
+    .await?;
+    // R-241 shadow 双写：先从最新 legacy snapshot 幂等 seed，并闭合上次强杀留下的
+    // open draft/tool；再提交本轮 user fact。失败只留在 writer report，不改变旧主路径。
+    let typed_writer = Arc::new(Mutex::new(typed_events::TypedEventWriter::new(
+        &state_path,
+        &request.session_id,
+        &run_id,
+    )));
+    if let Err(error) = typed_events::prepare_session(&store, &request.session_id) {
+        typed_writer.lock().unwrap().record_error(error);
+    }
+    // Snapshot history before admitting this turn's user fact. Reading it later
+    // would feed the current input to the model twice, including async callbacks.
+    let persisted = if crate::projection_gate::read_path_uses_projection("runner_prior") {
+        crate::conversation::project_latest_segment(&store, &request.session_id)
+            .map_err(anyhow::Error::msg)?
+    } else {
+        crate::conversation::recover_messages(&store, &request.session_id)?
+    };
+    let prior = crate::conversation::conversation_prior(
+        &handles.conversation,
+        &request.session_id,
+        persisted,
+    );
+    typed_writer.lock().unwrap().user_message(
+        &promoted_input_id,
+        kanzei_llm::Message {
+            role: kanzei_llm::Role::User,
+            parts: typed_user_parts,
+        },
+    );
+    // 单独的弱引用定时 flush：provider 静默时仍满足 750ms 持久化上界；run 正常
+    // 终态后观察到 terminal 退出，run 被强制 abort 后所有强引用释放，Weak 失效退出。
+    let typed_flush_writer = Arc::downgrade(&typed_writer);
+    let typed_flush_task = tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+        loop {
+            interval.tick().await;
+            let Some(writer) = typed_flush_writer.upgrade() else {
+                break;
+            };
+            let mut writer = writer.lock().unwrap();
+            writer.flush_due();
+            if writer.is_terminal() {
+                break;
+            }
+        }
+    });
+    let run_started = std::time::Instant::now();
+    // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
+    // 先于 episode 落库,只能靠时间窗归因到本轮,与 CLI 同一口径)。
+    let run_epoch_ms = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_default();
+    store.set_status(&request.session_id, "running")?;
+    super::append_run_notification(&store, &request.session_id, "running", "任务已开始", false)?;
+    store.append_event(
+        &request.session_id,
+        "session.status_changed",
+        &json!({ "status": "running" }),
+    )?;
+    // R-171 批3:主对话 writer run 获取项目级写租约并持有到本轮结束。
+    // 权限询问发生在租约获取之前(设计不变量 6)——此处无询问,直接申请;
+    // RAII:任何结束路径(正常/错误/取消/abort)都会 drop 释放,绝不永久占用。
+    // 注意:acquire_writer_lease 在项目已有 writer 时会排队等待,这是「串行写」
+    // 的强制点——第二个 ProcessHandle 必须等当前 writer 释放后才能拿到租约。
+    // R-173 批5:writer 事件经 OrchestrationEvent 的**单一出口**落 session_events。
+    // 这里原本是三处手写字符串 + 手拼 payload,与枚举没有类型联系——改名或加字段时
+    // 编译器不会提醒,两边必然漂移。现在类型名与 payload 都由事件自己给出。
+    let orchestration_trace = Arc::new(crate::orchestration_trace::SessionEventObserver::open(
+        &state_path,
+        &request.session_id,
+    )?);
+    // 阶段流水线仅兼容显式启用的高级配置。子代理总开关只允许模型按需委派,
+    // 执行批次与自主推进不再隐式插入固定勘察/复核。
+    // 判据不成立 → 不构造编排对象,与引入前逐字节相同。闸门与构造都在
+    // phase_pipeline::start_if_enabled 里,那里可以脱离 Tauri Window 直接测
+    // (见 phase_pipeline_tests.rs 的两条闸门测试)。
+    //
+    // 自主推进只管「轮末要不要自动发下一条」,不决定要派哪些子代理。
+    let pipeline = crate::phase_pipeline::start_if_enabled(
+        mode.uses_phase_pipeline(),
+        &config,
+        &proxy,
+        Arc::clone(&handles.coordinator) as Arc<dyn ProjectExecutionCoordinator>,
+        Arc::clone(&orchestration_trace) as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
+        ctx.project_root.clone(),
+        // R-182 内容①:流水线路径的写租约同样按代码树仲裁。
+        ctx.cwd.clone(),
+        &run_id,
+        &request.process_id,
+        stage,
+    )
+    .await
+    // 把本轮冻结的裁决快照灌给勘察/复核角色。角色表的 brief 是写死的通用描述
+    // (「本次任务会写到哪里」),没有「本次任务」的指代物它就只能回答本仓库的
+    // 写入面——D-368 那轮 write_surface_scout 返回 store/processes.rs 即此。
+    .map(|pipeline| {
+        pipeline
+            .with_required_delegation(!mode.phase_pipeline_enabled)
+            .with_baseline_context(baseline_context.clone())
+            .with_task_context(requested_task_context.or_else(|| {
+                control_state
+                    .as_ref()
+                    .and_then(|state| state.as_ref().ok())
+                    .and_then(crate::phase_pipeline::render_task_context)
+            }))
+    });
+    // 写租约的取得时机是两条路的**唯一实质差异**,判定抽在 phase_pipeline 里
+    // 以便直接测(见 `acquire_plain_lease_if_needed` 的文档与它的定向测试)。
+    // 不带独立 worktree 的并行线与主线共用同一棵代码树,必须先等写入槽。
+    // 这一段等待发生在真正发出模型请求之前,不能把它投影成“等待模型响应”。
+    if pipeline.is_none() && profile != kanzei_harness::ProfileKind::Readonly {
+        stage(
+            "排队",
+            "等待当前代码树写入槽；同一工作树上的对话将按顺序执行…".into(),
+        );
+    }
+    let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
+        pipeline.is_some() || profile == kanzei_harness::ProfileKind::Readonly,
+        handles.coordinator.as_ref(),
+        orchestration_trace.as_ref(),
+        &ctx.project_root,
+        // R-182 内容①:仲裁范围 = 本轮代码树。线绑了 worktree 就在自己那棵树上
+        // 仲裁写权,两条线互不排队——这是「同一项目 N 条线能同时跑」的落点。
+        &ctx.cwd,
+        &run_id,
+        &request.process_id,
+        &request.session_id,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
+    // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径由
+    // WriterLeaseTrace::drop 补写 Released,acquired/released 始终成对(D-303)。
+    // 流水线路径的租约由编排对象持有。
+    let _write_lease = plain_lease.map(|lease| {
+        WriterLeaseTrace::new(
+            lease,
+            Arc::clone(&orchestration_trace),
+            ctx.project_root.clone(),
+            run_id.clone(),
+            request.process_id.to_string(),
+        )
+    });
+    // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
+    // task 禁用(设计不变量 3/5)。
+    //
+    // R-141 拆开这两把键,服务的是 R-050 D1「运行时重定向主根」:worktree 线
+    // 上线后,同一项目的 N 棵树以 cwd=worktree、project_root=主根 运行,于是——
+    //
+    // ① `project_write_key` = **规范化主根**,N 棵树必须**相同**。
+    //    主根 `.kanzei` 的 tracker/记忆是所有线唯一的共享写点,键一旦随树分裂,
+    //    跨进程单写仲裁就被绕过(两条线同时重写同一个 docstore = lost update)。
+    //    这里取 normalized_project_root:它比 project_root 多一次 canonicalize,
+    //    保证不同路径写法落进同一个仲裁桶,且与 run_prompt 算给会话 id/进程归属
+    //    的那个身份键逐字节相同。它只 canonicalize 显式选中的主根,不向祖先
+    //    发现项目;线路径不做根发现这条不变式仍然成立。
+    // ② `worktree_key` = **代码树**,N 棵树必须**不同**。
+    //    它是工具内并发锁键,bash/git/edit 真实作用于 ctx.cwd;若拿主根当键,
+    //    互不相干的两棵树会因为主根相同而彼此串锁、白白串行。
+    //
+    // 一句话:写主根的串行,写代码的并行。改任何一行前先确认这条不变式还成立。
+    let project_write_key = crate::normalized_project_root(&ctx.project_root)
+        .display()
+        .to_string();
+    let worktree_key = ctx.cwd.display().to_string();
+    let mut ctx = ctx;
+    ctx = ctx.with_identity(
+        worktree_key,
+        project_write_key,
+        run_id.clone(),
+        request.process_id.to_string(),
+    );
+    let _ = window.emit(
+        "kz:meta",
+        with_session_id(
+            run_meta_payload(profile, &agent.name, &resolved, &runner_config),
+            &request.session_id,
+        ),
+    );
+
+    Ok(RunAssembly {
+        deps: RuntimeDeps {
+            project_root,
+            research_topic: mode.research_topic,
+            config,
+            profile,
+            rctx,
+            snapshot,
+            agent,
+            work_priority,
+            resolved,
+            proxy,
+            route,
+            client,
+            runner_config,
+            ask_source,
+        },
+        session: SessionContext {
+            prior,
+            state_path,
+            store,
+            promoted_input_id,
+            prompt,
+            initial_parts,
+            typed_writer,
+            typed_flush_task,
+        },
+        round: RoundContext {
+            run_id,
+            work_item_id,
+            run_started,
+            run_epoch_ms,
+            orchestration_trace,
+            pipeline,
+            _write_lease,
+            ctx,
+        },
+    })
+}
+
+pub(crate) struct WriterLeaseTrace {
+    pub(crate) _lease: kanzei_harness::orchestration::WriterLease,
+    observer: Arc<crate::orchestration_trace::SessionEventObserver>,
+    project_root: std::path::PathBuf,
+    run_id: String,
+    process_id: String,
+    released: std::sync::atomic::AtomicBool,
+}
+
+impl WriterLeaseTrace {
+    pub(crate) fn new(
+        lease: kanzei_harness::orchestration::WriterLease,
+        observer: Arc<crate::orchestration_trace::SessionEventObserver>,
+        project_root: std::path::PathBuf,
+        run_id: String,
+        process_id: String,
+    ) -> Self {
+        Self {
+            _lease: lease,
+            observer,
+            project_root,
+            run_id,
+            process_id,
+            released: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// 正常路径在写 Released 事件后调用,标记已释放,Drop 不再补写。
+    pub(crate) fn mark_released(&self) {
+        self.released
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Drop for WriterLeaseTrace {
+    fn drop(&mut self) {
+        if self.released.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        // 异常/abort/停止路径:租约已由 WriterLease Drop 回调释放,这里补写审计事件,
+        // 让 acquired/released 在会话事件流里成对。落库失败只记日志,不阻断收尾。
+        use kanzei_harness::orchestration::PhaseObserver;
+        self.observer.observe(
+            &kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
+                project_root: self.project_root.clone(),
+                run_id: self.run_id.clone(),
+                process_id: self.process_id.clone(),
+            },
+        );
+    }
+}
+
+pub(crate) fn new_llm_client(
+    proxy: &kanzei_llm::ProxyConfig,
+) -> anyhow::Result<kanzei_llm::LlmClient> {
+    Ok(kanzei_llm::LlmClient::new(proxy)?)
+}
+
+pub(crate) fn auth_stage_detail(provider_name: &str, model: &str, has_auth: bool) -> String {
+    format!(
+        "{}:{}{}",
+        provider_name,
+        model,
+        if has_auth {
+            "(订阅登录态,可能刷新令牌)"
+        } else {
+            ""
+        }
+    )
+}
+
+pub(crate) fn resolve_proxy(
+    config: &kanzei_harness::config::KanzeiConfig,
+) -> kanzei_llm::ProxyConfig {
+    match config.proxy.as_deref() {
+        Some("off") => kanzei_llm::ProxyConfig::Disabled,
+        Some("env") | None => kanzei_llm::ProxyConfig::Env,
+        Some(proxy) => kanzei_llm::ProxyConfig::Explicit(proxy.to_string()),
+    }
+}
+
+pub(crate) fn append_dev_guidance(
+    system: &mut String,
+    profile: kanzei_harness::ProfileKind,
+    work_priority: &str,
+    config: &kanzei_harness::config::KanzeiConfig,
+) {
+    if profile != kanzei_harness::ProfileKind::Dev {
+        return;
+    }
+    system.push('\n');
+    system.push('\n');
+    // 通用执行与节奏在 tools profile 中单源注入，桌面只补自身能力边界。
+    let _ = (work_priority, config);
+    system.push_str("Desktop: ui inspection tools inspect the running Kanzei UI, not an arbitrary project's browser or mobile app. Before committing shared work, use `collaboration_status` to check ownership.");
+}
+
+/// kz:meta 载荷:本轮**实际**使用的模型、思考档与 Fast mode(UI-0926 #3)。
+///
+/// 状态栏据此显示「上一轮实际使用」;reasoning/codexFastMode 直接取自已构造好的
+/// RunnerConfig(即真正发出去的请求参数),不再只报模型——此前开跑后也看不到思考档,
+/// 与输入框上方「下一轮将使用」不一致时前端会据此重取 model_effective。
+pub(crate) fn run_meta_payload(
+    profile: kanzei_harness::ProfileKind,
+    agent_name: &str,
+    resolved: &kanzei_harness::config::ResolvedModel,
+    runner_config: &kanzei_core::RunnerConfig,
+) -> serde_json::Value {
+    json!({
+        "profile": format!("{profile:?}").to_lowercase(),
+        "agent": agent_name,
+        "model": format!("{}:{}", resolved.provider_name, resolved.model),
+        "contextLimit": resolved.provider.context_limit,
+        "reasoning": runner_config.reasoning.as_str(),
+        "codexFastMode": runner_config.service_tier.is_some(),
+    })
+}
+
+pub(crate) fn build_run_harness(
+    block_tracker_writes: bool,
+    collaboration_probe: Option<crate::collaboration::CollaborationProbe>,
+) -> kanzei_harness::Harness {
+    // R-256 批4:与 CLI 共用 kanzei_tools::run::build_harness(对照表 #5 公共部分单点);
+    // FrontendTools 在 Markdown 前(middle),TrackerWritePolicy/Collaboration 在
+    // Config 后(tail),顺序与原来逐字节一致。
+    kanzei_tools::run::build_harness(
+        |harness| {
+            harness.add(crate::harness_ext::FrontendToolsComponent);
+            // R-221 B1:桌面端也注册 readonly 档位；组件只在 ProfileKind::Readonly 生效。
+            harness.add(kanzei_tools::ReadonlyProfile);
+        },
+        |harness| {
+            harness.add(DiscussionBoundary);
+            harness.add(TrackerWritePolicyComponent {
+                block: block_tracker_writes,
+            });
+            if let Some(probe) = collaboration_probe.as_ref() {
+                harness.add(crate::collaboration::CollaborationComponent {
+                    probe: probe.clone(),
+                });
+            }
+            harness.add(crate::general_chat::GeneralChatBoundary);
+        },
+    )
+}
+
+/// R-177 F11:分支线默认只读主根 tracker。规则放在 ConfigComponent 之后,
+/// 因而用户的通用 kanzei.toml allow 不能意外打开这条线级显式开关。
+pub(crate) fn resolve_profile(
+    profile: Option<&str>,
+    config: &kanzei_harness::config::KanzeiConfig,
+) -> anyhow::Result<kanzei_harness::ProfileKind> {
+    match profile.filter(|profile| !profile.is_empty()) {
+        Some(profile) => profile
+            .parse()
+            .map_err(|error: String| anyhow::anyhow!(error)),
+        None => Ok(config.default_profile()),
+    }
+}
+
+pub(crate) fn normalize_work_priority(value: Option<&str>) -> &'static str {
+    match value {
+        Some("requirement-first") => "requirement-first",
+        _ => "defect-first",
+    }
+}
+
+pub(crate) fn report_config_warnings(
+    window: &tauri::Window,
+    session_id: &str,
+    config: &kanzei_harness::config::KanzeiConfig,
+    config_warnings: &[String],
+) {
+    for warning in config_warnings {
+        super::emit_stage(window, session_id, "配置", warning.clone());
+    }
+    for warning in config.bash_permission_warnings() {
+        super::emit_stage(window, session_id, "权限", warning);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{append_dev_guidance, build_run_harness};
+    use kanzei_harness::ProfileKind;
+
+    /// UX-147:并行线 id 是 `p{n}|…`,判定必须认得数字编号;默认线 `d|…`、无分隔符与带字母的都不是。
+    #[test]
+    fn 并行线判定认得数字编号而不是写死_p_竖线() {
+        use super::is_parallel_process_id;
+        for id in ["p1|C:/proj", "p26|C:/proj", "p10|C:\\a|b", "p|C:/proj"] {
+            assert!(is_parallel_process_id(id), "{id} 应判为并行线");
+        }
+        for id in [
+            "d|C:/proj",
+            "px|C:/proj",
+            "p1x|C:/proj",
+            "p1",
+            "",
+            "|p1",
+            "main",
+        ] {
+            assert!(!is_parallel_process_id(id), "{id} 不应判为并行线");
+        }
+    }
+
+    /// UX-147:并行线上的普通/自主轮走 NonInteractive;只读讨论(用户在对话)与默认线不受影响。
+    #[test]
+    fn 并行线讨论不算无人值守() {
+        let mut mode = super::RunMode {
+            execution_batch: false,
+            phase_pipeline_enabled: false,
+            subagents_enabled: true,
+            block_tracker_writes: false,
+            profile: Some("dev".into()),
+            research_topic: None,
+            agent_name: None,
+            model_override: None,
+            work_priority: None,
+            reasoning_override: None,
+            autonomous: false,
+            auto_allow: false,
+        };
+        assert!(mode.runs_on_parallel_line("p3|C:/proj"));
+        assert!(!mode.runs_on_parallel_line("d|C:/proj"));
+        mode.profile = Some("readonly".into());
+        assert!(
+            !mode.runs_on_parallel_line("p3|C:/proj"),
+            "只读讨论是用户正在对话的会话,权限询问要能弹出来"
+        );
+    }
+
+    #[test]
+    fn 桌面装配线注册_readonly_档位并保留只读权限() {
+        let root = std::path::PathBuf::from("C:/kanzei-r221-desktop");
+        let ctx = kanzei_harness::ResolveCtx {
+            profile: ProfileKind::Readonly,
+            cwd: root.clone(),
+            project_root: root,
+            config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
+        };
+        let snapshot = build_run_harness(false, None).resolve(&ctx).unwrap();
+        let agent = snapshot.select_agent(Some("readonly")).unwrap();
+        assert_eq!(agent.name, "readonly");
+        assert_eq!(
+            snapshot.evaluate("read", "*"),
+            kanzei_harness::Effect::Allow
+        );
+        assert_eq!(snapshot.evaluate("bash", "*"), kanzei_harness::Effect::Deny);
+        for (action, resource) in [
+            ("req", "write:add"),
+            ("work", "write:next"),
+            ("deliver", "*"),
+            ("memory_note", "*"),
+            ("git", "commit"),
+        ] {
+            assert_eq!(
+                snapshot.evaluate(action, resource),
+                kanzei_harness::Effect::Deny,
+                "discussion must not mutate {action}"
+            );
+        }
+        assert_eq!(
+            snapshot.evaluate("git", "status"),
+            kanzei_harness::Effect::Allow
+        );
+    }
+
+    #[test]
+    fn execution_batches_and_autonomous_runs_leave_delegation_to_the_model() {
+        let mut mode = super::RunMode {
+            execution_batch: false,
+            phase_pipeline_enabled: false,
+            subagents_enabled: true,
+            block_tracker_writes: false,
+            profile: Some("dev".into()),
+            research_topic: None,
+            agent_name: None,
+            model_override: None,
+            work_priority: None,
+            reasoning_override: None,
+            autonomous: false,
+            auto_allow: false,
+        };
+        assert!(
+            !mode.uses_phase_pipeline(),
+            "ordinary conversation is not an execution batch"
+        );
+        mode.execution_batch = true;
+        assert!(
+            !mode.uses_phase_pipeline(),
+            "batch execution must not force scout/review"
+        );
+        mode.subagents_enabled = false;
+        assert!(!mode.uses_phase_pipeline());
+        mode.subagents_enabled = true;
+        mode.execution_batch = false;
+        mode.autonomous = true;
+        assert!(
+            !mode.uses_phase_pipeline(),
+            "auto-run must not force scout/review"
+        );
+        mode.profile = Some("readonly".into());
+        assert!(!mode.uses_phase_pipeline());
+        mode.profile = Some("research".into());
+        assert!(!mode.uses_phase_pipeline(), "research has its own workflow");
+    }
+
+    /// UX-077:高级「勘察复核」不分批次与否都装配(含手动对话与研究档),
+    /// 但仍受只读档位与子代理总开关约束;执行批次本身不触发高级流水线。
+    #[test]
+    fn 高级勘察复核不依赖批次但受只读与子代理总闸约束() {
+        let mode = |profile: &str, advanced: bool, subagents: bool| super::RunMode {
+            execution_batch: false,
+            phase_pipeline_enabled: advanced,
+            subagents_enabled: subagents,
+            block_tracker_writes: false,
+            profile: Some(profile.into()),
+            research_topic: None,
+            agent_name: None,
+            model_override: None,
+            work_priority: None,
+            reasoning_override: None,
+            autonomous: false,
+            auto_allow: false,
+        };
+        assert!(mode("dev", true, true).uses_phase_pipeline());
+        assert!(mode("research", true, true).uses_phase_pipeline());
+        assert!(!mode("readonly", true, true).uses_phase_pipeline());
+        assert!(!mode("dev", true, false).uses_phase_pipeline());
+        assert!(!mode("dev", false, true).uses_phase_pipeline());
+        // 总闸关着时,执行批次与自主推进也不再多出子代理。
+        let mut batch = mode("dev", false, false);
+        batch.execution_batch = true;
+        batch.autonomous = true;
+        assert!(!batch.uses_phase_pipeline());
+    }
+
+    #[test]
+    fn 开发提示词强制逐文件暂存并在提交前刷新协作状态() {
+        let config = kanzei_harness::config::KanzeiConfig::default();
+        let mut system = String::new();
+        append_dev_guidance(&mut system, ProfileKind::Dev, "defect-first", &config);
+        assert!(system.contains("`collaboration_status`"));
+        assert!(system.contains("running Kanzei UI"));
+        assert!(!system.contains("cargo test"));
+
+        let mut research = String::new();
+        append_dev_guidance(
+            &mut research,
+            ProfileKind::Research,
+            "defect-first",
+            &config,
+        );
+        assert!(research.is_empty(), "提交纪律只属于开发档位");
+    }
+
+    /// UI-0926 #3:kz:meta 带上本轮实际的思考档与 Fast mode,取自真正发出去的 RunnerConfig。
+    #[test]
+    fn run_meta_payload_reports_reasoning_and_fast_mode() {
+        let mut config = kanzei_harness::KanzeiConfig::default();
+        config.models.reasoning = Some("high".into());
+        config.fill_defaults(); // primary=codex:gpt-5.6-luna → Fast mode 内置开启
+        let resolved = config.resolve_model("primary").unwrap();
+        let runner = kanzei_tools::run::build_runner_config(
+            &resolved,
+            &config,
+            None,
+            std::path::Path::new("C:/kanzei-run-meta"),
+            kanzei_core::AskPolicy::Interactive,
+            None,
+        );
+        let payload = super::run_meta_payload(ProfileKind::Dev, "dev", &resolved, &runner);
+        assert_eq!(payload["model"], "codex:gpt-5.6-luna");
+        assert_eq!(payload["reasoning"], "high");
+        assert_eq!(payload["codexFastMode"], true);
+        assert_eq!(payload["profile"], "dev");
+        assert_eq!(payload["agent"], "dev");
+        // 本线覆盖成 xhigh:载荷报的是覆盖后的实际档位,不是配置默认档。
+        let runner = kanzei_tools::run::build_runner_config(
+            &resolved,
+            &config,
+            Some("xhigh"),
+            std::path::Path::new("C:/kanzei-run-meta"),
+            kanzei_core::AskPolicy::Interactive,
+            None,
+        );
+        let payload = super::run_meta_payload(ProfileKind::Dev, "dev", &resolved, &runner);
+        assert_eq!(payload["reasoning"], "xhigh");
+    }
+}

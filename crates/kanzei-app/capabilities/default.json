@@ -1,0 +1,7 @@
+{
+  "$schema": "https://schema.tauri.app/capability/1",
+  "identifier": "default",
+  "description": "主窗口:允许核心 API(事件监听是前端接收 kz:* 运行事件的通道;allow-destroy 给文件页有未保存修改时的关窗确认:前端 onCloseRequested 拦下关闭,用户决定之后由它真正关窗)",
+  "windows": ["*"],
+  "permissions": ["core:default", "core:window:allow-destroy"]
+}

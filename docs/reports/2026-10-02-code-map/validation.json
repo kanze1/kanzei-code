@@ -1,0 +1,23 @@
+{
+  "checked_at_utc": "2026-10-02T01:33:11.174260+00:00",
+  "head": "21c36e9d3a332ebb10a1e0d841887713d9911571",
+  "inventory_captured_at_utc": "2026-10-02T01:33:03.910648+00:00",
+  "status": "passed",
+  "scope": "Static report integrity: source and document hashes, links/line ranges, counts, command registration, and decision crosswalk. This is not application compilation or runtime acceptance.",
+  "metrics": {
+    "source_files": 657,
+    "source_lines": 294977,
+    "symbol_declarations": 10029,
+    "uncommitted_source_files": 269,
+    "tauri_commands": 163,
+    "sql_table_names": 27,
+    "existing_documents": 102,
+    "resource_paths": 79
+  },
+  "links_checked": 11107,
+  "decision_entries_checked": 19,
+  "known_source_wiring_gaps": [
+    "run_tool_process_stop"
+  ],
+  "errors": []
+}

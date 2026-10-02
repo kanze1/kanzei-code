@@ -1,0 +1,233 @@
+{
+  "version": 3,
+  "web_items_registration": {
+    "status": "registered_by_user",
+    "reported_date": "2026-10-02",
+    "basis": "用户确认网页中的问题均已登记；后续处理以已有登记条目为准。"
+  },
+  "handled_issue_ids": [
+    "K01",
+    "K02",
+    "K03",
+    "K04",
+    "K05",
+    "K06",
+    "K07",
+    "K08",
+    "K09",
+    "K10",
+    "K11",
+    "K12",
+    "K13",
+    "K14",
+    "K15",
+    "K16",
+    "K17",
+    "K18",
+    "K19",
+    "K20",
+    "K21",
+    "K22"
+  ],
+  "excluded_issue_ids": [
+    "K19",
+    "K21"
+  ],
+  "handling_basis": "用户说明优先问题已处理；这是审阅清单状态，不作为源码修复验收。",
+  "candidates": [
+    {
+      "id": "C01",
+      "title": "收拢研究的多套推进流程",
+      "domain": "研究",
+      "kind": "收拢入口",
+      "priority": 2,
+      "members": [
+        "F053",
+        "F054",
+        "F061"
+      ],
+      "rationale": "plan / loop / AUTO 各有阶段、预算和恢复入口，维护面较大。",
+      "recommendation": "保留研究能力，选择一个主要工作流入口；复用阶段、预算和恢复机制，减少并列控制面。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "AUTO 作为研究主控制面；plan/loop 复用其阶段、暂停与预算，旧课题保留兼容入口。",
+        "verification": "AUTO 暂停和阶段拦截、旧预算不能覆盖主预算的回归通过。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    },
+    {
+      "id": "C02",
+      "title": "收拢两条论文写作链路",
+      "domain": "研究",
+      "kind": "收拢入口",
+      "priority": 2,
+      "members": [
+        "F058",
+        "F063"
+      ],
+      "rationale": "分节写作与 AUTO 论文流程都承担写作、核验和编译回环。",
+      "recommendation": "统一章节工件与编译服务，保留 AUTO 数值证据检查；研究写作工具作为同一链路的操作入口。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "分节写作与 AUTO 使用同一论文工件和编译服务；修复稿件必须重新核验。",
+        "verification": "同一路径写作、数值核验不能绕过、修复后回到核验、旧 PDF 不能冒充新编译的回归通过。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    },
+    {
+      "id": "C03",
+      "title": "合并勘察复核与 task 的编排层",
+      "domain": "运行",
+      "kind": "收拢入口",
+      "priority": 2,
+      "members": [
+        "F022"
+      ],
+      "rationale": "子代理派发与勘察复核流水线存在两条编排入口。",
+      "recommendation": "保留子代理、读写槽和复核屏障，把固定勘察/复核作为共享调度器的策略，减少专门编排代码。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "task 与勘察复核共用子代理执行、超时和取消处理；固定角色与屏障保留为策略。",
+        "verification": "共享超时会取消未完成任务；子代理和流水线回归通过。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    },
+    {
+      "id": "C04",
+      "title": "评估子代理容器的独立维护价值",
+      "domain": "运行",
+      "kind": "简化配置",
+      "priority": 3,
+      "members": [
+        "F021"
+      ],
+      "rationale": "容器注册、升级、回滚与既有 Agent 配置、Harness 快照同时存在。",
+      "recommendation": "若没有独立容器版本发布场景，合并到 Agent 配置管理；保留实际模型与工具快照能力。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "移除只保存 JSON 清单的容器注册、升级、回滚入口；实际 Agent 配置与快照继续保留。",
+        "verification": "无剩余生产引用；Rust 编译、IPC 契约和 UI 检查通过。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    },
+    {
+      "id": "C05",
+      "title": "收敛多套绘图后端",
+      "domain": "研究",
+      "kind": "简化配置",
+      "priority": 3,
+      "members": [
+        "F064"
+      ],
+      "rationale": "Vega-Lite、PGFPlots、matplotlib 三条轨道增加依赖与验收成本。",
+      "recommendation": "保留绘图工具，选定主轨；其余后端仅在确有图型或出版需求时作为按需适配器。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "Vega-Lite 为默认绘图入口；PGFPlots 和 matplotlib 抽到显式选择的适配器。",
+        "verification": "未知引擎和未选择适配器的输入被明确拒绝；绘图回归通过。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    },
+    {
+      "id": "C06",
+      "title": "把记忆专用对话和图谱收为附加界面",
+      "domain": "记忆",
+      "kind": "可选能力",
+      "priority": 3,
+      "members": [
+        "F045",
+        "F046"
+      ],
+      "rationale": "这两套界面不承担记忆真源、检索或生命周期规则。",
+      "recommendation": "核心记忆编辑保留；专用对话可与普通会话入口合并，图谱按需打开，减少常驻交互维护。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "记忆专用对话与图谱通过共享加载器首次打开时加载；核心编辑和检索继续常驻。",
+        "verification": "真实浏览器确认默认未加载、首次对话和图谱入口可用。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    },
+    {
+      "id": "C07",
+      "title": "把移动端桥接做成可选模块",
+      "domain": "桌面",
+      "kind": "可选能力",
+      "priority": 3,
+      "members": [
+        "F072",
+        "F073"
+      ],
+      "rationale": "PWA、配对、消息/审批桥和 KDE Connect 构成独立的维护面。",
+      "recommendation": "有手机遥控需求时保留；从桌面核心启动链拆出，统一启停和依赖检测。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "移动端 UI 从主设置模块拆出，按需加载；KDE Connect 通知单独启用并检查依赖。",
+        "verification": "真实浏览器确认默认不调用手机接口、展开设置才加载；通知默认关闭。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    },
+    {
+      "id": "C08",
+      "title": "把本地语音运行时做成可选模块",
+      "domain": "桌面",
+      "kind": "可选能力",
+      "priority": 3,
+      "members": [
+        "F074"
+      ],
+      "rationale": "语音需要额外服务、模型下载、CUDA 检测和启动脚本。",
+      "recommendation": "文本交互保留为默认；语音集中在一个可选模块，按需安装和启动。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "语音界面与运行时首次使用才加载；关闭后停止会话归属轮询。",
+        "verification": "真实浏览器确认默认没有语音加载和设置调用，首次检查入口可用。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    },
+    {
+      "id": "C09",
+      "title": "收敛伴随视觉与状态动画",
+      "domain": "表现",
+      "kind": "可选能力",
+      "priority": 3,
+      "members": [
+        "F075"
+      ],
+      "rationale": "星座、神经流、OC companion 等表现系统都有独立资源和控制逻辑。",
+      "recommendation": "保留最小运行状态反馈，复杂动画统一开关；低使用率表现和素材生成脚本移出核心维护范围。",
+      "resolution": {
+        "status": "done",
+        "date": "2026-10-02",
+        "summary": "保留轻量状态反馈；复杂视觉统一开关，默认关闭；素材制作脚本移到 extras。",
+        "verification": "真实浏览器确认默认不加载渲染器，开关与关闭销毁通过；既有视觉回归通过。 正式版本 59f17d67 的 15 项全量检查全部通过；公开安装包摘要与下载核对通过。",
+        "report": "docs/reports/2026-10-02-web-cleanup.md",
+        "commit": "59f17d6798ed4fb2fff488e0e60b8e1cbe78a5d7",
+        "release_url": "https://github.com/kanze1/kanzei-code/releases/tag/build-59f17d67"
+      }
+    }
+  ]
+}

@@ -1,0 +1,734 @@
+//! 运行协调域(R-253 批6,纯搬迁自 run/mod.rs)。
+//!
+//! 独立理由:run_task 是 Round Coordinator——把装配/事件循环/轮末收尾三段编排起来,
+//! 并持有「同一轮怎么衔接」的决策(prior 恢复、子代理运行时构造、自动推进判定、
+//! 自动 push)。它与装配(assembly)、执行(execution)、落库(persistence)各自独立:
+//! 协调回答「这段编排怎么走」,装配回答「需要什么」,执行回答「怎么跑」,
+//! 落库回答「跑完怎么落」(照 files_view.rs 模式)。
+//!
+//! 危险点(搬迁纪律):③`prior` 的恢复必须留在这里——`SessionStore` 非 `Sync`,
+//! 跨 `await` 持引用会破坏 future 的 `Send` 约束;`run_execution_loop` 只消费
+//! `&[Message]`。⑤`_write_lease` RAII guard 的 Release 事件配对见 persistence.rs。
+//! ⑨`stage` 闭包签名保持 `&(dyn Fn(&str, String) + Sync)`。
+
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+
+use serde_json::json;
+use tauri::{Emitter, Manager};
+
+use crate::{record_live_trace, with_session_id, MutexPoisonExt};
+
+use super::assembly::{assemble_run, RoundRequest, RunAssembly, RunMode, RuntimeHandles};
+use super::events::{
+    build_ask_handler, build_event_handler, MetricsSink, TraceSink, TypedEventSink, UiEventSink,
+};
+use super::execution::run_execution_loop;
+use super::persistence::{
+    finalize_round, persist_round_outcome, FinalizeOutcome, FinalizeRound, FinalizeSession,
+    RoundReport,
+};
+use super::{emit_stage, maybe_push_after_commit};
+
+/// R-202 批2:run_task(原 run.rs 的 Round Coordinator)。装配 → 事件循环 → 轮末收尾。
+/// R-253 批7b:调用参数按生命周期三分——`RoundRequest`(本轮输入)/`RunMode`(运行档位)/
+/// `RuntimeHandles`(会话级句柄),共 4 参,消 too_many。三组均见 assembly.rs 的
+/// 生命周期说明,禁止再退化成 30+ 扁平参数。
+pub(crate) async fn run_task(
+    window: &tauri::Window,
+    request: RoundRequest,
+    mode: RunMode,
+    handles: RuntimeHandles,
+) -> anyhow::Result<()> {
+    // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
+    // session_id/process_id 在 request 整体移入装配后仍需使用,先克隆供全程引用;
+    // phase_pipeline_enabled/autonomous 是运行档位中轮末/执行段仍要消费的残留位。
+    let session_id = request.session_id.clone();
+    let process_id = request.process_id.clone();
+    let subagents_enabled = mode.subagents_enabled;
+    let autonomous = mode.autonomous;
+    let stage = |name: &str, detail: String| {
+        *handles.current_stage.lock_or_recover() = name.to_string();
+        emit_stage(window, &session_id, name, detail);
+    };
+
+    // D-342:换代 + 安装本 run 的停止令牌。换代在前——stop 的兜底硬杀按代数比对,
+    // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
+    handles.run_generation.fetch_add(1, Ordering::SeqCst);
+    let halt_token = kanzei_core::CancellationToken::new();
+    *handles.halt_slot.lock_or_recover() = Some(halt_token.clone());
+
+    let RunAssembly {
+        deps,
+        session,
+        mut round,
+    } = assemble_run(window, &stage, request, mode, &handles, halt_token).await?;
+    round.ctx.read_ledger = Some(
+        crate::runtime_for(&window.app_handle().state::<crate::AppState>(), &session_id)
+            .read_ledger
+            .clone(),
+    );
+    round.ctx.async_mailbox = Some(crate::async_mailbox::for_session(
+        window,
+        &round.ctx.project_root,
+        &session_id,
+        Some(process_id.clone()),
+    ));
+    let phase_pipeline_enabled =
+        round.pipeline.is_some() || deps.profile == kanzei_harness::ProfileKind::Readonly;
+
+    // R-253 批7:RunAssembly 三分后按需取字段——session 的 move 型字段(store/
+    // typed_flush_task)取出,其余经引用访问;deps/round 保持整体(不再解构),
+    // 供执行循环与轮末收尾按生命周期分组传入。
+    let state_path = session.state_path.clone();
+    // SessionStore 非 Sync:recover_messages 同步用后即弃,不跨 await 持引用
+    // (危险点③——跨 await 持引用会破坏 future Send 约束)。move owned 而非借用。
+    let store = session.store;
+    let promoted_input_id = session.promoted_input_id.clone();
+    let prompt = session.prompt.clone();
+    let initial_parts = &session.initial_parts;
+    let typed_writer = session.typed_writer.clone();
+    let typed_flush_task = session.typed_flush_task;
+    let inbox_path = state_path.clone();
+    let inbox_owner = session_id.clone();
+    let inbox_writer = typed_writer.clone();
+    let inbox_runtime =
+        crate::runtime_for(&window.app_handle().state::<crate::AppState>(), &session_id);
+    round.ctx.input_inbox = Some(kanzei_harness::InputInbox::new(move || {
+        let _lifecycle = inbox_runtime.lifecycle.lock_or_recover();
+        if inbox_runtime
+            .halt
+            .lock_or_recover()
+            .as_ref()
+            .is_some_and(|h| h.is_cancelled())
+        {
+            return Ok(Vec::new());
+        }
+        let store = kanzei_core::SessionStore::open(&inbox_path).map_err(|e| e.to_string())?;
+        let inputs = store
+            .promote_steers(&inbox_owner)
+            .map_err(|e| e.to_string())?;
+        let mut delivered = Vec::new();
+        for input in inputs {
+            let mut writer = inbox_writer.lock_or_recover();
+            writer.steering_message(
+                &input.input_id,
+                kanzei_llm::Message::user_text(input.prompt.clone()),
+            );
+            if !writer.errors().is_empty() {
+                return Err(format!("插话落盘失败：{:?}", writer.errors()));
+            }
+            store
+                .finish_input(&input.input_id, true)
+                .map_err(|e| e.to_string())?;
+            delivered.push(kanzei_harness::AsyncNotice {
+                id: input.input_id,
+                text: input.prompt,
+            });
+        }
+        Ok(delivered)
+    }));
+    // round 在 run_execution_loop 期间整体被 &mut 借用(执行循环驱动 round.pipeline),
+    // 轮末字段(ctx/_write_lease/run_started/run_epoch_ms)在调用返回后移出;
+    // 这里只 clone 调用前后都要用的身份字段。
+    let run_id = round.run_id.clone();
+    let orchestration_trace = round.orchestration_trace.clone();
+
+    let event_window = window.clone();
+    let session_id_for_events = session_id.clone();
+    let emit_event = move |name: &str, payload: serde_json::Value| {
+        event_window.emit(name, with_session_id(payload, &session_id_for_events))
+    };
+    // R-202 批1:writer 事件闭包原在装配段内联,随 assemble_run 收敛后由
+    // 解构出的 orchestration_trace 重建——单一出口语义不变(OrchestrationEvent 落
+    // session_events),正常路径收尾与 WriterLeaseTrace::drop 兜底都用它。
+    let writer_event = |event: kanzei_harness::orchestration::OrchestrationEvent| {
+        use kanzei_harness::orchestration::PhaseObserver;
+        orchestration_trace.observe(&event);
+    };
+    // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
+    let live = handles.live_run.clone();
+    live.lock_or_recover().begin(
+        &run_id,
+        &promoted_input_id,
+        &prompt,
+        &deps.resolved.provider_name,
+        &deps.resolved.model,
+    );
+    let trace_log = live.clone();
+    // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
+    // 于是"时间花在模型、shell 还是等用户""用户点了几次权限"事后统统无从查证,
+    // 只能从最终对话快照反推。这里按 id 记开始时刻,收尾时连耗时一起写进 run.trace。
+    let tool_started: Arc<Mutex<HashMap<String, std::time::Instant>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    // R-143:自举循环批次提交后自动 push 的检测位。ToolStart(action=commit)置 pending,
+    // ToolEnd(ok=true)把 pending 提升为 committed;失败/非 commit 只清 pending。
+    // 轮末(decide_auto_run 之后)读 committed,true 才触发 push。
+    let committed_this_round = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pending_commit_call = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // D-361:本轮子代理内部用过的工具名。事件处理器边跑边收,轮末并进鞭挞的工具
+    // 画像——委派出去的活也是活,不能因为主轮只留下一个 task 调用就判成空转。
+    let subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>> =
+        Arc::new(Mutex::new(std::collections::BTreeSet::new()));
+    // D-654:主轮工具画像与成功关闭数的真源改为事件流(ToolStart/ToolEnd 边跑
+    // 边收)。原口径按 `summary.messages[prior.len()..]` 切片,轮中上下文压缩把
+    // 消息列表结构性删短后切片错位甚至切空——本轮真实的 edit/bash 全部不进画像,
+    // 鞭挞误判「连续两轮无实质动作」自停;close 计数扫全历史则每轮重复计入。
+    let round_tools: Arc<Mutex<std::collections::BTreeSet<String>>> =
+        Arc::new(Mutex::new(std::collections::BTreeSet::new()));
+    let round_closed = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    // R-322(#7):本轮模型是否用 `work handoff` 交还了控制权。与上面两项同一收口
+    // 方式(事件流,不扫 messages)——理由同 D-654:轮中压缩会让消息切片错位。
+    let round_handoff = Arc::new(Mutex::new(None));
+    // UI2-0926 #13:本轮 question 以 pending_question 收口(问题挂起、在等用户回答)。
+    // 与 handoff 同一收口方式(事件流),轮末与最终文本兜底一起组装 AutoRunCtx::awaiting_user。
+    let round_awaiting_user = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // R-253 批8:事件处理器按投影拆四 sink——UI/typed/trace/metrics 各自持有
+    // 自己的状态,新增 RunEvent 只碰对应 sink(验收⑤)。
+    let mut on_event = build_event_handler(
+        UiEventSink::new(emit_event, session_id.clone(), run_id.clone()),
+        TypedEventSink::new(typed_writer.clone()),
+        TraceSink::new(
+            trace_log,
+            state_path.clone(),
+            session_id.clone(),
+            run_id.clone(),
+        ),
+        MetricsSink::new(
+            tool_started,
+            committed_this_round.clone(),
+            pending_commit_call,
+            subagent_tools.clone(),
+            round_tools.clone(),
+            round_closed.clone(),
+            round_handoff.clone(),
+        )
+        .with_awaiting_user(round_awaiting_user.clone()),
+    );
+
+    let mut ask = build_ask_handler(
+        handles.asks.clone(),
+        handles.ask_seq.clone(),
+        deps.ask_source,
+        window,
+        round.ctx.project_root.clone(),
+        session_id.clone(),
+    );
+
+    let prior = session.prior;
+    if !prior.is_empty() {
+        stage("对话", format!("延续对话({} 条历史消息)", prior.len()));
+    }
+
+    // Shared read-only baseline; desktop attaches a durable delegation host below.
+    // The per-session subagent switch controls whether task is registered.
+    // R-279:子代理 transcript 事件落库/恢复回调——sink 写主会话 session_events
+    // (subagent.transcript 快照事件),provider 按 subagent_transcript gate 从事件
+    // 恢复续跑 prior(gate 关回退进程内 TranscriptStore)。
+    let transcript_sink_state = state_path.clone();
+    let transcript_sink_session = session_id.clone();
+    let transcript_sink: Option<kanzei_core::BackgroundEventSink> = Some(std::sync::Arc::new(
+        move |_call_id: &str, payload: serde_json::Value| {
+            if let Ok(store) = kanzei_core::SessionStore::open(&transcript_sink_state) {
+                let _ =
+                    store.append_event(&transcript_sink_session, "subagent.transcript", &payload);
+            }
+        },
+    ));
+    let transcript_provider_state = state_path.clone();
+    let transcript_provider_session = session_id.clone();
+    let transcript_provider: Option<kanzei_core::SubagentTranscriptProvider> = Some(
+        std::sync::Arc::new(move |call_id: &str| -> Option<Vec<kanzei_llm::Message>> {
+            if !crate::projection_gate::read_path_uses_projection("subagent_transcript") {
+                return None; // gate 关:回退进程内 TranscriptStore,行为与切换前一致
+            }
+            let store = kanzei_core::SessionStore::open(&transcript_provider_state).ok()?;
+            store
+                .recover_subagent_transcript(&transcript_provider_session, call_id)
+                .ok()
+                .flatten()
+        }),
+    );
+    let mut subagent_rt = if subagents_enabled {
+        kanzei_tools::run::build_subagent_runtime(
+            &deps.rctx,
+            &deps.config,
+            &deps.proxy,
+            &deps.resolved,
+            &deps.route,
+            Some(Arc::clone(&handles.coordinator)
+                as Arc<
+                    dyn kanzei_harness::orchestration::ProjectExecutionCoordinator,
+                >),
+            Some(handles.task_cancellations.clone()),
+            transcript_sink,
+            transcript_provider,
+        )
+        .await?
+    } else {
+        None
+    };
+
+    if let Some(runtime) = subagent_rt.as_mut() {
+        runtime.options.reasoning = deps.runner_config.reasoning;
+        runtime.options.ask_policy = Some(deps.runner_config.ask_policy);
+        let child_window = window.clone();
+        let child_asks = handles.asks.clone();
+        let child_seq = handles.ask_seq.clone();
+        let child_root = round.ctx.project_root.clone();
+        let child_session = session_id.clone();
+        runtime.ask_router = Some(Arc::new(move |request| {
+            let mut ask = build_ask_handler(
+                child_asks.clone(),
+                child_seq.clone(),
+                "子代理",
+                &child_window,
+                child_root.clone(),
+                child_session.clone(),
+            );
+            ask(request)
+        }));
+        let events_window = window.clone();
+        let team = kanzei_tools::team::AgentTeam::attach(
+            deps.rctx.clone(),
+            round.ctx.clone(),
+            runtime.clone(),
+            deps.client.clone(),
+            Some(Arc::new(move |job| {
+                let _ = events_window.emit(
+                    "kz:agent-job",
+                    serde_json::json!({"sessionId":job.owner,"job":job}),
+                );
+            })),
+        )?;
+        team.set_parent(&prior);
+        team.set_ask_router(super::events::build_team_ask_router(
+            handles.asks.clone(),
+            handles.ask_seq.clone(),
+            window,
+            round.ctx.project_root.clone(),
+            session_id.clone(),
+        ));
+        runtime.options.host = Some(Arc::new(team));
+    }
+
+    // R-202 批2:事件循环段——附件提示 → 记忆预检索 → 勘察 → 主循环
+    // (run_once_with_parts)→ 复核修正(run_review_and_fixup),收敛为独立函数。
+    // R-253 批7b:执行输入打包(ExecutionInput)+ 生命周期分组(deps/round)。
+    let execution_input = crate::run::execution::ExecutionInput {
+        stage: &stage,
+        initial_parts,
+        prompt: &prompt,
+        autonomous,
+        subagent_rt: &subagent_rt,
+        prior: &prior,
+    };
+    let run_result =
+        run_execution_loop(&deps, &mut round, &execution_input, &mut on_event, &mut ask).await;
+    // R-253 批7b:调用返回后 round 可整体取回——执行循环只借用了 round.ctx 与
+    // round.pipeline(不相交字段),其余轮末字段在此移出供收尾段使用。
+    let run_started = round.run_started;
+    let run_epoch_ms = round.run_epoch_ms;
+    let ctx = round.ctx;
+    // UI2-0926 #13:Nudge 事实按本线代码树取活(与 `work next` 同源);下面两处 AutoRunCtx
+    // 局部变量同名 `ctx`,先把 cwd 取出来。
+    let ctx_cwd = ctx.cwd.clone();
+    let _write_lease = round._write_lease;
+    // R-202 批2:轮末收尾段前半(终态落库:typed 终态/会话状态/episode/轮末采集)收敛。
+    let final_store = persist_round_outcome(
+        &state_path,
+        window,
+        &session_id,
+        &run_result,
+        &typed_writer,
+        &prior,
+        &ctx,
+        &prompt,
+        &deps.resolved,
+        &run_id,
+        &promoted_input_id,
+        &run_started,
+        run_epoch_ms,
+        &live,
+    );
+    let summary = match run_result {
+        Ok(summary) => summary,
+        Err(error) => {
+            // D-403:失败轮不再在轮末判定之前提前返回。鞭挞已武装(ctrl.enabled)
+            // 时,把失败按瞬态/致命分类送进同一个 auto_run 状态机:瞬态退避重试
+            // (连续 MAX_FAILED_ROUNDS 轮才停),致命立即停;停摆经通知桥发手机。
+            // 没开鞭挞时保持原行为——用户在场,错误直接返回。
+            //
+            // 判据从「rounds > 0」改成「鞭挞武装了没有」:rounds 在任何 Stop 与手动
+            // 发送时都归零,原判据会让「停摆后手动发一句继续」恢复的那一轮再断网时
+            // 静默断链(见 crate::auto_run::should_retry_failed_round)。
+            let collaboration_blocked = error.to_string().starts_with("协作受阻");
+            let rate_limited =
+                !collaboration_blocked && crate::auto_run::is_rate_limited_run_error(&error);
+            let transient = !collaboration_blocked
+                && !rate_limited
+                && crate::auto_run::is_transient_run_error(&error);
+            let auto_payload = {
+                let mut controllers = handles.auto_runs.lock_or_recover();
+                let ctrl = controllers.entry(session_id.clone()).or_default();
+                if !crate::auto_run::should_retry_failed_round(ctrl) {
+                    None
+                } else {
+                    let signature = if deps.profile == kanzei_harness::ProfileKind::Research {
+                        crate::research_auto::progress_signature(
+                            &deps.project_root,
+                            deps.research_topic.as_deref(),
+                        )
+                    } else {
+                        crate::auto_run::progress_signature(&deps.project_root)
+                    };
+                    let ctx = kanzei_harness::auto_run::AutoRunCtx {
+                        backlog: crate::auto_run::backlog_status(&deps.project_root),
+                        halted: false,
+                        steps: 0,
+                        tools: &[],
+                        // R-322 B2:同上,判据放宽到 profile(失败轮的退避重试对
+                        // 结伴档的轻 loop 一样要生效)。
+                        auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev),
+                        intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
+                        // 失败轮模型没跑完,不可能声明完成;失败分类由 round_failure 承担。
+                        completion: None,
+                        awaiting_user: false,
+                        // R-322 B3:目标挂着时失败轮照样走退避重试(目标不该被一次 503 冲掉)。
+                        goal_active: ctrl.goal.is_some(),
+                        closed_this_round: 0,
+                        verify_every_n: 0,
+                        progress_signature: &signature,
+                        round_failure: Some(if rate_limited {
+                            kanzei_harness::auto_run::RoundFailure::RateLimited
+                        } else if transient {
+                            kanzei_harness::auto_run::RoundFailure::Transient
+                        } else {
+                            kanzei_harness::auto_run::RoundFailure::Fatal
+                        }),
+                    };
+                    if deps.profile == kanzei_harness::ProfileKind::Research {
+                        Some(Err(crate::research_auto::decide(
+                            ctrl,
+                            ctx,
+                            &deps.project_root,
+                            deps.research_topic.as_deref(),
+                        )))
+                    } else {
+                        let action = crate::auto_run::decide_auto_run(ctrl, ctx);
+                        Some(Ok((
+                            action,
+                            json!(ctrl.state.rounds),
+                            json!(ctrl.state.max_rounds),
+                        )))
+                    }
+                }
+            };
+            // UI2-0926 #13 复核:手机通知(网络)与 Nudge 事实(tracker + git)在锁外做。
+            // Err = 研究档已序列化好的载荷;Ok = 开发档的判定与锁内取的计数镜像。
+            let auto_payload = auto_payload.map(|decided| match decided {
+                Err(research_payload) => research_payload,
+                Ok((action, rounds, max)) => {
+                    if let kanzei_harness::auto_run::AutoRunAction::Stop(
+                        kanzei_harness::auto_run::AutoStopReason::RepeatedFailure(n),
+                    ) = action
+                    {
+                        // 过夜停摆必须让人知道:经 LAN 推送桥发手机通知(尽力而为)。
+                        if let Ok(message) = crate::mobile_notify::notify_mobile(
+                            "kanzei 自动运行停摆",
+                            &format!("连续 {n} 轮运行失败,鞭挞已停止。最后错误: {error}"),
+                        ) {
+                            tracing::debug!("{message}");
+                        }
+                    }
+                    let mut payload = crate::auto_run::serialize_action(action, || {
+                        crate::auto_run::nudge_facts(
+                            &ctx_cwd,
+                            &deps.project_root,
+                            crate::auto_run::work_priority_enum(deps.work_priority),
+                        )
+                    });
+                    payload["rounds"] = rounds;
+                    payload["max"] = max;
+                    payload
+                }
+            });
+            if let Some(auto) = auto_payload {
+                let _ = window.emit(
+                    "kz:auto-fail",
+                    with_session_id(
+                        json!({ "autoAction": auto, "error": error.to_string() }),
+                        &session_id,
+                    ),
+                );
+            }
+            return Err(error);
+        }
+    };
+
+    let history_len = summary.messages.len();
+    // R-076:本轮工具画像随 kz:done 带给前端。D-655:使用 runner
+    // 提供的稳定本轮消息真源,不再以 prior.len() 盲切压缩后的 messages。
+    let this_run_tools = kanzei_core::summarize_tools(&summary.round_messages);
+    // R-169:自主推进判定后端化——轮末用 harness 状态机判定下一步,结果随
+    // kz:done 带给前端执行(发下一条/NUDGE/停止);前端不再承载任何机械判定。
+    let backlog = if crate::general_chat::is_general_root(&deps.project_root) {
+        kanzei_harness::auto_run::BacklogStatus::Unknown
+    } else {
+        crate::auto_run::backlog_status(&deps.project_root)
+    };
+    // D-361:主轮画像 + 本轮子代理内部用过的工具。两者合并后,「委派」按子代理
+    // 实际干了什么判定;子代理确实什么也没干时,合并后仍只有 task,空转判定照旧
+    // 生效(has_progress_tools 的语义没被削弱)。
+    // D-654:主轮画像的真源是事件流(round_tools,ToolStart 边跑边收),不再依赖
+    // summary.messages 的 prior.len() 切片——轮中上下文压缩会把消息列表结构性
+    // 删短;本轮真实调用不会因此从事件画像中消失。轮末 episode/metrics/harvest
+    // 则统一读取 summary.round_messages。
+    let tools_vec: Vec<String> = {
+        let mut names: std::collections::BTreeSet<String> = round_tools.lock_or_recover().clone();
+        names.extend(subagent_tools.lock_or_recover().iter().cloned());
+        names.into_iter().collect()
+    };
+    // 自主决定不等待用户；缺少事实只影响依赖任务。散文提问兜底只用于交互模式。
+    let awaiting_user = crate::auto_run::awaiting_user_for_round(
+        round_awaiting_user.load(std::sync::atomic::Ordering::Relaxed),
+        crate::auto_run::last_assistant_text(&summary.round_messages).as_deref(),
+        !matches!(
+            deps.runner_config.ask_policy,
+            kanzei_core::AskPolicy::Interactive
+        ),
+        backlog,
+    );
+    // D-583:真实进展签名——放在锁外算,避免在持锁期间做文件 IO/git 子进程调用。
+    let progress_signature = if crate::general_chat::is_general_root(&deps.project_root) {
+        kanzei_core::store::stable_json_hash(&summary.round_messages)
+    } else if deps.profile == kanzei_harness::ProfileKind::Research {
+        crate::research_auto::progress_signature(&deps.project_root, deps.research_topic.as_deref())
+    } else {
+        crate::auto_run::progress_signature(&deps.project_root)
+    };
+    // UI2-0926 #13 复核:锁内只做判定、取计数镜像与目标;Nudge 事实(tracker 读取 + git 观测)
+    // 放到锁外算——auto_runs 是全会话共享的 std Mutex,同步命令 auto_state_update 在主线程上等它
+    // (D-583 同一原则:持锁期间不做文件 IO 与 git 子进程)。
+    enum Decided {
+        Research(serde_json::Value),
+        Dev {
+            action: kanzei_harness::auto_run::AutoRunAction,
+            goal_prompt: Option<String>,
+            goal_active: bool,
+            rounds: serde_json::Value,
+            max: serde_json::Value,
+        },
+    }
+    // 下一轮核查遵循用户最新保存的总开关,不沿用本轮开始时的快照。
+    let allow_subagent_verification = store
+        .get_process(&process_id)
+        .ok()
+        .flatten()
+        .map(|process| process.subagents_enabled)
+        .unwrap_or(subagents_enabled);
+    let handoff = round_handoff.lock_or_recover().clone();
+    let has_pending_inputs = store
+        .list_pending_inputs(&session_id)
+        .map(|items| !items.is_empty())
+        .unwrap_or(true);
+    let decided = {
+        let mut controllers = handles.auto_runs.lock_or_recover();
+        let ctrl = controllers.entry(session_id.clone()).or_default();
+        let ctx =
+            kanzei_harness::auto_run::AutoRunCtx {
+                backlog,
+                halted: summary.halted_by_user,
+                steps: summary.steps,
+                tools: &tools_vec,
+                progress_signature: &progress_signature,
+                // R-199 起档位条件下沉引擎;R-322 B2 把判据从 agent 放宽到 profile。
+                //
+                // 原判据 `profile==Dev && agent=="dev"` 让结伴档永远 Stop(ProfileMismatch),
+                // 于是「系统级 loop 之外的简单 loop」根本不存在——用户勾鞭挞会被 R-224
+                // 静默切成 dev-auto(连人格一起换掉),而不是拿到一条轻控制的 loop。
+                // 现在 dev 两档都允许续跑,**区别落在 HarnessIntensity 而不是能不能跑**:
+                // 结伴档不 Nudge、不插核查轮、不标冗余,模型说完成即停。
+                // research 由课题工作流覆盖续跑判据；readonly 仍然拒绝。
+                auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev),
+                // R-322:门禁强度按 agent 取默认值。与 auto_allowed 是**两件事**——
+                // 后者答「能不能自动发下一条」,前者答「引擎对任务判断介入多深」。
+                // 结伴档即使手动一问一答也按 Paired 跑:Nudge/核查轮/冗余提醒都不该
+                // 在用户盯着屏幕的时候插进来。
+                intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
+                // 核对当前输入和目标;排队输入未消费时不能宣布整次委托完成。
+                completion: handoff.as_ref().filter(|_| !has_pending_inputs).and_then(
+                    |declaration| declaration.bound_scope(&promoted_input_id, ctrl.goal.as_deref()),
+                ),
+                awaiting_user,
+                // R-322 B3:挂了目标就换一套停止规则——不由引擎猜还有没有活干,
+                // 而是推到模型声明达成为止(详见 AutoRunCtx::goal_active)。
+                goal_active: ctrl.goal.is_some(),
+                // R-144:本轮关闭条目数(req/defect close 成功计数)。D-654:改事件收口
+                // (ToolStart 登记意图 + ToolEnd ok 计数)——原实现扫全历史 messages,
+                // 历史 close 每轮重复计入,verify_every_n 节律被刷穿。
+                closed_this_round: round_closed.load(std::sync::atomic::Ordering::Relaxed),
+                // 核查轮会派 readonly 子代理,总开关关闭时不再安排它。
+                verify_every_n: if allow_subagent_verification {
+                    kanzei_harness::KanzeiConfig::load_at_root(&deps.project_root)
+                        .map(|c| c.cadence.verify_every_n)
+                        .unwrap_or(0)
+                } else {
+                    0
+                },
+                // D-403:本轮正常完成——失败轮走上面的失败分支,不经过这里。
+                round_failure: None,
+            };
+        if deps.profile == kanzei_harness::ProfileKind::Research {
+            Decided::Research(crate::research_auto::decide(
+                ctrl,
+                ctx,
+                &deps.project_root,
+                deps.research_topic.as_deref(),
+            ))
+        } else {
+            use kanzei_harness::auto_run::{AutoRunAction, AutoStopReason};
+            let action = crate::auto_run::decide_auto_run(ctrl, ctx);
+            // R-322 B3:目标原文由 controller 填入(引擎不持有用户数据),
+            // 前端按 Nudge 同款机制把它作为下一轮输入发回。
+            let goal_prompt = matches!(action, AutoRunAction::GoalPending)
+                .then(|| ctrl.goal.clone().unwrap_or_default());
+            // 达成或判定不可达 → 目标是一次性意图,就地清除(D-111 同型:一次性
+            // 意图留着会在下一段无关对话里继续生效)。前端收到 reason 后同步清输入框。
+            if matches!(
+                action,
+                AutoRunAction::Stop(AutoStopReason::GoalMet | AutoStopReason::GoalUnreachable(_))
+            ) {
+                ctrl.goal = None;
+            }
+            // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
+            Decided::Dev {
+                action,
+                goal_prompt,
+                goal_active: ctrl.goal.is_some(),
+                rounds: json!(ctrl.state.rounds),
+                max: json!(ctrl.state.max_rounds),
+            }
+        }
+    };
+    let auto_action_json = match decided {
+        Decided::Research(payload) => {
+            let zero_output = payload["reason"] == "ZeroOutput";
+            (payload, zero_output)
+        }
+        Decided::Dev {
+            action,
+            goal_prompt,
+            goal_active,
+            rounds,
+            max,
+        } => {
+            // 锁已释放:Nudge 事实只在真的要发 Nudge 时才算(惰性)。
+            let mut payload = crate::auto_run::serialize_action(action, || {
+                crate::auto_run::nudge_facts(
+                    &ctx_cwd,
+                    &deps.project_root,
+                    crate::auto_run::work_priority_enum(deps.work_priority),
+                )
+            });
+            if let Some(goal) = goal_prompt {
+                payload["prompt"] = json!(goal);
+            }
+            if let Some(declaration) = &handoff {
+                payload["handoff"] = json!(declaration);
+            }
+            payload["goalActive"] = json!(goal_active);
+            payload["rounds"] = rounds;
+            payload["max"] = max;
+            (
+                payload,
+                matches!(
+                    action,
+                    kanzei_harness::auto_run::AutoRunAction::Stop(
+                        kanzei_harness::auto_run::AutoStopReason::ZeroOutput(_)
+                    )
+                ),
+            )
+        }
+    };
+    // D-583:熔断留痕——不能只在 UI 一次性事件里过一眼(会话一多就沉底找不到)。
+    // 与过夜停摆(RepeatedFailure)同一手法:追加审计行 + 尽力而为推手机通知。
+    let (auto_action_json, zero_output_tripped) = auto_action_json;
+    if zero_output_tripped {
+        crate::auto_run::record_zero_output_alert(
+            &deps.project_root,
+            &session_id,
+            &progress_signature,
+        );
+        // 验收①「点名阻塞清单」:诊断里直接带上卡住的条目,别让人再去翻文档找。
+        let blocked = crate::auto_run::blocked_wip_summary(&deps.project_root);
+        let blocked_line = if blocked.is_empty() {
+            "没有条目标记阻塞——卡点不在外部阻塞,需要人工复核最近几轮进展。".to_string()
+        } else {
+            format!("卡住的条目:{}", blocked.join(" | "))
+        };
+        if let Ok(message) = crate::mobile_notify::notify_mobile(
+            "kanzei 自动运行熔断",
+            &format!(
+                "连续 {} 轮真实状态未变化(文件/提交/需求记录均无实质改动),鞭挞已停止。{blocked_line}",
+                kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT
+            ),
+        ) {
+            tracing::debug!("{message}");
+        }
+    }
+    // R-143:自举循环批次提交后自动 push。仅当本轮确有 git commit 成功(检测位在
+    // on_event 的 ToolStart/ToolEnd 置位);push 失败经 stage 可见但不阻断本轮收尾。
+    let trace_state_path = state_path.clone();
+    let trace_session_id = session_id.clone();
+    let trace_live = live.clone();
+    maybe_push_after_commit(
+        committed_this_round.load(std::sync::atomic::Ordering::Relaxed),
+        &ctx.cwd,
+        &|name, detail| stage(name, detail),
+        &|entry| {
+            if let Ok(trace_store) = kanzei_core::SessionStore::open(&trace_state_path) {
+                record_live_trace(&trace_store, &trace_session_id, &trace_live, entry);
+            }
+        },
+    )
+    .await;
+    // R-202 批2:轮末收尾段后半(对话落库/轮末压缩/kz:done/租约释放/令牌回收)收敛。
+    // R-253 批7b:参数按生命周期分组(FinalizeSession/FinalizeRound/FinalizeOutcome/
+    // RoundReport + deps/handles/subagent_rt)。
+    finalize_round(
+        &deps,
+        &handles,
+        FinalizeSession {
+            conversation: &handles.conversation,
+            session_id: &session_id,
+            typed_writer: &typed_writer,
+            typed_flush_task,
+            final_store,
+        },
+        FinalizeRound {
+            ctx: &ctx,
+            run_id: &run_id,
+            process_id: &process_id,
+            _write_lease: &_write_lease,
+            writer_event: &writer_event,
+            phase_pipeline_enabled,
+        },
+        FinalizeOutcome {
+            summary: &summary,
+            history_len,
+            this_run_tools: &this_run_tools,
+            auto_action_json: &auto_action_json,
+            elapsed_ms: run_started.elapsed().as_millis() as u64,
+        },
+        RoundReport {
+            window,
+            stage: &stage,
+            live: &live,
+        },
+        &subagent_rt,
+    )
+    .await?;
+    Ok(())
+}

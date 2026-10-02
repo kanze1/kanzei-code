@@ -1,0 +1,1434 @@
+import { closeSurface, hideCard, isModalOpen, onEscapeFallthrough, openPopover, showCard } from "./00-surface.js";
+import { defer } from "./01-core.js";
+import { motionOnce } from "./01-core.js";
+import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
+import { setTurnPhase, turnPhase } from "./03-shell.js";
+import { setCurrentReasoningHead } from "./05-chat-render.js";
+import { appendCitations, clearHostedSearchBlocks, chatAbortRunning, chatToolBlocks, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion, setToolGroupExpanded } from "./05-chat-render.js";
+import { setCtxPending, setCtxTokens } from "./03-shell.js";
+import { setCtxLimit } from "./03-shell.js";
+import { showRunMeta } from "./03-shell.js";
+import { effectiveModel, refreshEffectiveModel } from "./08-models.js";
+import { previewNoteToolEnd } from "./24-preview.js";
+import { autoRounds } from "./08-auto.js";
+import { $, activePane, invoke, isImeComposing, messages, on, promptBox, trimLivePane } from "./01-core.js";
+import { languageIsEnglish, localizeDynamic, localizedStage, t } from "./02-i18n.js";
+import {
+  activeSessionId,
+  clearRunPending,
+  ctxLimit,
+  ctxPending,
+  ctxTokens,
+  currentAssistant,
+  currentProject,
+  currentReasoning,
+  log,
+  markFirstSignal,
+  notifyRunState,
+  processItems,
+  renderTokens,
+  reportPersistentError,
+  roundElapsedSeconds,
+  runTokens,
+  running,
+  sessionMetaCache,
+  setRunPending,
+  setRunning,
+  setStatus,
+  stopElapsed,
+  toast,
+  toastError,
+  transitionSession,
+} from "./03-shell.js";
+import {
+  addMessage,
+  appendAssistant,
+  appendReasoning,
+  chatToolEnd,
+  chatToolStart,
+  clearEmptyState,
+  currentReasoningHead,
+  followLatest,
+  setFollowLatest,
+  outputChars,
+  setOutputChars,
+  reportError,
+  scrollBottom,
+  toolCallSummary,
+  updateLatestButton,
+} from "./05-chat-render.js";
+import {
+  BG_MAX,
+  agentAuditBegin,
+  agentAuditFinish,
+  agentAuditMeta,
+  agentAuditPermission,
+  agentAuditPrompt,
+  agentAuditStep,
+  agentAuditTaskEnd,
+  agentAuditTaskProgress,
+  agentAuditTaskStart,
+  bgAbortRunning,
+  bgAdd,
+  bgEnd,
+  bgFinishQuiet,
+  bgQuiet,
+  bgStartQuiet,
+  bgStream,
+  isActivityTool,
+  liveIdle,
+  liveSet,
+  liveTurn,
+  recordDiffSummary,
+} from "./06-activity.js";
+import {
+  autoContinueTimers,
+  cancelAutoContinueTimer,
+  clearGoalInput,
+  continuePrompt,
+  currentAutoRounds,
+  focusPendingQuestion,
+  markAwaitingUser,
+  noActionRounds,
+  setNoActionRounds,
+  releaseAutoContinue,
+  renderAutoStatus,
+  setAutoRounds,
+  setAutoStopReason,
+  takeAwaitingUser,
+} from "./08-auto.js";
+import { applyAutoStopToSession, armAutoContinue, autoFailStopReasonText } from "./08-compose-runtime.js";
+import {
+  refreshParallelTaskProjection,
+  refreshPendingInputs,
+  refreshProcesses,
+  renderParallelTaskStatus,
+  renderProcesses,
+} from "./09-sessions.js";
+import { markRuntimeFocusStale, setRuntimeFocus } from "./12-docs-pages.js";
+import { refreshDocs, refreshDocsSoon } from "./14-docs-actions.js";
+import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-misc.js";
+import { neuralFlowEmit } from "./22-neural-flow.js";
+import { autoAllowEnabled, onLayoutChange, setAutoAllowEnabled } from "./03-layout.js";
+// UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
+import { renderMarkdownInto } from "./04-markdown.js";
+import { fillTemplate, permissionResourceText, stripInternalHandoff } from "./04-structured-parse.js";
+import { pathChip, renderPermissionResource } from "./04-structured.js";
+import { toolResultSummary } from "./05-tool-summary.js";
+// UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
+import { isSubagentSpawn, subagentByKey, subagentKey, subagentCopyText, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
+import { openTasksPanel } from "./06-agent-panel.js";
+import { restoreAgent } from "./27-agent-team.js";
+
+// UX-037:交付声明里的范围/目标/验收标准/证据是引擎内部记录(目标常是输入 id),不进用户可见通知;
+// 只露模型自己写的一句人话摘要(summary),且截断。没有摘要就什么都不跟。
+export function handoffSummaryTail(handoff) {
+  const summary = typeof handoff?.summary === "string" ? handoff.summary.replace(/\s+/g, " ").trim() : "";
+  if (!summary) return "";
+  return ` · ${summary.length > 80 ? `${summary.slice(0, 80)}…` : summary}`;
+}
+
+// ---------- 事件订阅 ----------
+defer(() => {
+  on("kz:status", (e) => {
+    const p = e.payload;
+    log(`[${p.stage}] ${p.detail}`);
+    // 状态事件按 sessionId 先进入会话状态机,后台线路也要能在侧栏逐条显示阶段。
+    if (p.sessionId) renderParallelTaskStatus(processItems);
+    if (running && !/权限|permission/i.test(p.stage || "")) setStatus(`${localizedStage(p.stage)} · ${p.detail}`, true);
+  });
+});
+defer(() => {
+  on("kz:meta", (e) => {
+    const p = e.payload;
+    agentAuditMeta(p.sessionId, p.model);
+    // 每条线的 run 启动都发 kz:meta。状态栏与 ctxLimit 只让活跃会话写——否则并行线
+    // 一开轮就把主线的模型/上下文上限顶掉,界面看起来像模型切换没生效。
+    if (p.sessionId) sessionMetaCache.set(p.sessionId, p);
+    if (!p.sessionId || p.sessionId === activeSessionId) {
+      showRunMeta(p);
+      setCtxLimit(p.contextLimit ?? null);
+      // UI-0926 #3:这一轮实际用的与输入框上方「下一轮将使用」对不上(配置刚在别处改过、
+      // agent 换了),说明芯片那份已过期:重取一次,两处重新对齐。
+      const next = effectiveModel;
+      if (next?.model?.resolved && (next.model.resolved !== p.model || (p.reasoning && next.reasoning?.value !== p.reasoning))) {
+        void refreshEffectiveModel();
+      }
+    }
+    log(`${t("模型")} ${p.model} · agent ${p.agent} · profile ${p.profile}${p.contextLimit ? ` · ${t("上下文上限")} ${Math.round(p.contextLimit / 1000)}k` : ""}`);
+  });
+});
+defer(() => {
+  on("kz:turn", (e) => {
+    const p = e.payload;
+    // D-593:本轮 provider usage 尚未返回时,保留上一轮真实值但明确标为等待模型,
+    // 不把冻结的旧数字伪装成当前轮最终占用。
+    setCtxPending(true);
+    renderTokens();
+    if (p.step === 1) agentAuditBegin(p.sessionId);
+    neuralFlowEmit?.("run_started", { session_id: p.sessionId, step: p.step });
+    // 新一轮 run 开跑:上一轮的「在做」运行证据降级为遗留(不删除)——删了就是
+    // 每轮开头一段"未绑定条目"空窗;新证据到达时自然覆盖。
+    if (p.step === 1) markRuntimeFocusStale(p.sessionId);
+    if (p.step > 1) {
+      clearEmptyState();
+      // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
+    }
+    // 活动面板跨轮保留历史,由用户主动清空/切换项目时清理。
+    endReasoningLive();
+    setTurnPhase("waiting");
+    setCurrentAssistant(null);
+    setCurrentReasoning(null);
+    setCurrentReasoningHead(null);
+    const roundLabel = languageIsEnglish() ? `Round ${p.step}${p.maxSteps > 0 ? `/${p.maxSteps}` : ""}` : p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`;
+    liveTurn(roundLabel);
+    if (running) setStatus(`${roundLabel} · ${t("等待模型")}`, true);
+  });
+});
+defer(() => {
+  on("kz:text", (e) => {
+    markFirstSignal();
+    neuralFlowEmit?.("assistant_streaming", { session_id: e.payload.sessionId, text_length: e.payload.text?.length ?? 0 });
+    // 文本开始后,后续思考属于新的思考段。
+    endReasoningLive();
+    setTurnPhase("generating");
+    setCurrentReasoning(null);
+    setCurrentReasoningHead(null);
+    if (running) setStatus("生成中" + ` · ${(outputChars / 1000).toFixed(1)}k`, true);
+    appendAssistant(e.payload.text);
+  });
+});
+defer(() => {
+  on("kz:reasoning", (e) => {
+    markFirstSignal();
+    neuralFlowEmit?.("reasoning_active", { session_id: e.payload.sessionId });
+    setTurnPhase("thinking");
+    if (running) setStatus("思考中", true);
+    appendReasoning(e.payload.text);
+  });
+});
+// R-037 对话为主:工具活动一律不进主对话区,收束到右侧活动面板。
+export let lastCompactionSummary = "";
+export let lastCompactionEntry = null;
+
+export function addCompactionEntry(summary) {
+  const el = document.createElement("div");
+  el.className = "bg-entry ok compaction-entry";
+  const title = document.createElement("button");
+  title.type = "button";
+  title.className = "bg-title";
+  title.setAttribute("aria-label", t("展开或收起上下文压缩纪要"));
+  title.setAttribute("aria-expanded", "true");
+  title.textContent = t("上下文压缩 · 点击查看纪要");
+  // UI-0926 #10:纪要本身是 markdown(标题/列表),按 markdown 渲染而不是原文堆字。
+  const detail = document.createElement("div");
+  detail.className = "bg-detail md sv-md";
+  renderMarkdownInto(detail, String(summary ?? ""));
+  el.append(title, detail);
+  title.addEventListener("click", () => {
+    detail.classList.toggle("hidden");
+    title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+  });
+  // 压缩/总结这类通知也落「运行中」段。原来直接挂 #bg-list 并按 firstElementChild
+  // 裁剪——分段之后那会把段骨架当成最老的条目摘掉。裁剪只在本段内按 .bg-entry 走。
+  const notices = $("bg-running") ?? $("bg-list");
+  notices.appendChild(el);
+  while (notices.querySelectorAll(".bg-entry").length > BG_MAX) notices.querySelector(".bg-entry").remove();
+  lastCompactionEntry = el;
+}
+
+export function addSummaryEntry(summary, path = "") {
+  const el = document.createElement("div");
+  el.className = "bg-entry ok summary-entry";
+  const title = document.createElement("button");
+  title.type = "button";
+  title.className = "bg-title";
+  title.setAttribute("aria-label", t("展开或收起对话总结"));
+  title.setAttribute("aria-expanded", "true");
+  title.textContent = t("对话小总结 · 点击查看");
+  const detail = document.createElement("div");
+  detail.className = "bg-detail md sv-md";
+  renderMarkdownInto(detail, String(summary ?? ""));
+  if (path) {
+    const archived = document.createElement("div");
+    archived.className = "sv-archived";
+    archived.append(document.createTextNode(`${t("已存档")}: `), pathChip(path));
+    detail.append(archived);
+  }
+  el.append(title, detail);
+  title.addEventListener("click", () => {
+    detail.classList.toggle("hidden");
+    title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+  });
+  // 压缩/总结这类通知也落「运行中」段。原来直接挂 #bg-list 并按 firstElementChild
+  // 裁剪——分段之后那会把段骨架当成最老的条目摘掉。裁剪只在本段内按 .bg-entry 走。
+  const notices = $("bg-running") ?? $("bg-list");
+  notices.appendChild(el);
+  while (notices.querySelectorAll(".bg-entry").length > BG_MAX) notices.querySelector(".bg-entry").remove();
+  return el;
+}
+export function renderContextDetail() {
+  const detail = $("context-detail");
+  const tokens = runTokens;
+  const total = tokens.input + tokens.cacheRead + tokens.output;
+  // UI-0926 #10:键值两列(标签 | 数值),不再用 innerHTML 拼 <br>。
+  const title = document.createElement("strong");
+  title.textContent = localizeDynamic("上下文成分");
+  const table = document.createElement("div");
+  table.className = "sv-kv sv-context";
+  const row = (labelText, value) => {
+    const line = document.createElement("div");
+    line.className = "sv-kv-row";
+    const key = document.createElement("span");
+    key.className = "sv-k";
+    key.textContent = localizeDynamic(labelText);
+    const cell = document.createElement("span");
+    cell.className = "sv-v sv-num";
+    cell.textContent = typeof value === "number" ? `${value.toLocaleString()} tokens` : value;
+    line.append(key, cell);
+    table.append(line);
+  };
+  // 占用与占比放第一行(UX-044:原来气泡里只有 tokens 数,看不出离上限还有多远)。
+  if (ctxTokens > 0) {
+    const used = `${(ctxTokens / 1000).toFixed(1)}k`;
+    row("上下文占用", ctxLimit ? `${used} / ${Math.round(ctxLimit / 1000)}k (${Math.round((ctxTokens / ctxLimit) * 100)}%)` : used);
+  }
+  row("输入上下文(系统/历史/工具结果)", tokens.input);
+  row("缓存读取(已复用上下文)", tokens.cacheRead);
+  row("本轮输出", tokens.output);
+  row("合计", total);
+  detail.replaceChildren(title, table);
+  if (lastCompactionSummary) {
+    const note = document.createElement("div");
+    note.className = "sv-note";
+    note.textContent = localizeDynamic("最近一次压缩纪要已收进活动面板");
+    detail.append(note);
+  }
+  openPopover($("status-tokens"), detail, { placement: "top-end" });
+  $("status-tokens").setAttribute("aria-expanded", "true");
+  // UI2-0926 #14:纪要在后台任务侧栏里——只打开、不切换(此前直接开活动面板,子代理面板不收,两块同屏,缺陷 D)。
+  if (lastCompactionEntry) openTasksPanel({ reveal: lastCompactionEntry });
+}
+
+export function hideContextDetail() {
+  closeSurface($("context-detail"));
+  $("status-tokens").setAttribute("aria-expanded", "false");
+}
+export function toggleContextDetail() {
+  if ($("context-detail").classList.contains("hidden")) renderContextDetail();
+  else hideContextDetail();
+}
+
+defer(() => {
+  $("status-tokens").title = t("点击查看上下文成分");
+});
+defer(() => {
+  $("status-tokens").classList.add("context-clickable");
+});
+// Esc 与点外关闭由 00-surface 的弹层栈统一处理(锚点按钮自身除外,点它是切换)。
+defer(() => {
+  $("status-tokens").addEventListener("click", toggleContextDetail);
+});
+on("kz:tool-start", (e) => {
+  markFirstSignal();
+  neuralFlowEmit?.("tool_started", {
+    session_id: e.payload.sessionId,
+    tool_call_id: e.payload.id,
+    tool_name: e.payload.name,
+  });
+  // 后端 summarize_input 把整坨入参 JSON 截到 160 字,对所有工具一视同仁——直接拼进
+  // 运行日志与「当前动作」行,edit/write 就显示成 `{"new_string":"…","old_strin…`。
+  // 与活动栏标题、主对话工具块用同一个 toolCallSummary 挑字段,挑不出来再回落后端摘要。
+  // 顺带修掉 summary 缺省时 `.slice()` 直接抛的隐患(事件里 summary 并非必填)。
+  const shown = toolCallSummary(e.payload.name, e.payload.input) || String(e.payload.summary ?? "");
+  agentAuditTaskStart(e.payload.sessionId, e.payload);
+  log(`${t("工具")} ${e.payload.name} ${shown}`);
+  endReasoningLive();
+  setTurnPhase("tool");
+  setCurrentAssistant(null);
+  setCurrentReasoning(null);
+  // UI-0926 #8:task(模型自派与编排派发)在主对话里是一张子代理卡片,同批并行的合成一组;
+  // 其余工具照旧是内联工具行。
+  if (e.payload.name === "task" && isSubagentSpawn(e.payload.input)) {
+    subagentStart({ sessionId: e.payload.sessionId, id: e.payload.id, input: e.payload.input, summary: e.payload.summary });
+  } else {
+    chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  }
+  // 活动面板保留完整工具轨迹,入参一并传下去以支持编排阶段、角色和完整详情。
+  if (bgQuiet(e.payload.name, e.payload.input)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
+  liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
+  setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
+});
+defer(() => {
+  on("kz:hosted-tool", (e) => {
+    const p = e.payload || {};
+    if (p.kind === "citations") {
+      appendCitations(p.detail);
+      return;
+    }
+    const action = p.detail?.action ?? {};
+    const queries = Array.isArray(action.queries)
+      ? action.queries.map((item) => ({ q: String(item?.q ?? "") })).filter((item) => item.q)
+      : [];
+    const query = String(action.query ?? queries.map((item) => item.q).join(" · ") ?? "");
+    const input = queries.length ? { queries } : { query: query || t("搜索结果") };
+    if (p.status === "running") {
+      markFirstSignal();
+      endReasoningLive();
+      setTurnPhase("tool");
+      setCurrentAssistant(null);
+      setCurrentReasoning(null);
+      const summary = query || t("搜索结果");
+      chatToolStart(p.id, "web_search", summary, input);
+      bgAdd(p.id, "web_search", summary, input, p.sessionId);
+      liveSet("live-action", `⚙ web_search ${summary.slice(0, 60)}`);
+      setStatus(`${t("工具执行中")} · web_search`, true);
+      return;
+    }
+    if (p.status === "completed" && p.kind === "web_search_call") {
+      const content = JSON.stringify({
+        backend: "model_native",
+        query: query || input.queries?.map((item) => item.q).join(" · ") || t("搜索结果"),
+        results: [],
+      });
+      chatToolEnd(p.id, true, t("搜索结果"), null, "success", { content, input });
+      bgEnd(p.id, true, t("搜索结果"), null, "success", { content });
+      playToolOutcomeMotion(p.id);
+    }
+  });
+});
+
+export function isBatchCommit(event) {
+  return event?.name === "git"
+    && event.ok
+    && /^committed verified staged set\b/.test(event.preview || "");
+}
+// 从工具结果文本里抽条目 ID(R-xxx/D-xxx):tracker 更新与批次提交标题都以它开头,
+// 这是「agent 实际在做谁」的运行证据(D-207 三修),喂给 setRuntimeFocus。
+export function workItemIdFrom(text) {
+  return String(text ?? "").match(/\b([RD]-\d{1,4})\b/)?.[1] ?? null;
+}
+
+// 工具执行中的增量输出(bash 等):活动面板对应条目实时追加。
+defer(() => {
+  on("kz:tool-progress", (e) => {
+    bgStream(e.payload.id, e.payload.chunk);
+  });
+});
+defer(() => {
+  on("kz:task-progress", (e) => {
+    const payload = e.payload;
+    agentAuditTaskProgress(payload.sessionId, payload);
+    // UI-0926 #8:子代理卡片(与侧栏)同一数据流:meta 给人格与模型,start/end 给尾迹与过程,
+    // usage 是累计值(替换),text 是子代理自述。后台线路也推进(BACKGROUND_RENDER_EVENTS)。
+    subagentProgress({ sessionId: payload.sessionId, id: payload.id, text: payload.text, trace: payload.trace });
+    // 子代理不会单独发顶层 tool-end；它每提交一个批次时由 task-progress 带回。
+    // 这里马上重新取 Git 推导的进度，不等 parent task 或整轮结束。
+    // 「在做」运行证据③:子代理的批次提交同样指认实际在推的条目。
+    if (isBatchCommit(payload.trace)) {
+      setRuntimeFocus(workItemIdFrom(payload.trace?.preview), payload.sessionId);
+      refreshDocsSoon();
+    }
+  });
+});
+defer(() => {
+  on("kz:tool-end", (e) => {
+    const p = e.payload;
+    agentAuditTaskEnd(p.sessionId, p);
+    neuralFlowEmit?.("tool_completed", {
+      session_id: p.sessionId,
+      tool_call_id: p.id,
+      tool_name: p.name,
+      ok: p.ok,
+    });
+    const outcome = p.outcome || (p.ok ? "success" : "failed");
+    const outcomeLabel = outcome === "noop" ? t("无需修改")
+      : outcome === "needs_confirmation" ? t("需要确认")
+        : outcome === "needs_correction" ? t("需要修正")
+          : p.ok ? t("成功") : t("失败");
+    // JSON 结果的 preview 只是 `{ (+40 lines)`:日志行改用同一个摘要器的人话。
+    const logResult = /^[{[]/.test(String(p.preview ?? "").trim())
+      ? toolResultSummary(p.name, { ok: p.ok, outcome, code: p.code, content: p.content, preview: p.preview, contentTruncated: p.contentTruncated, contentBytes: p.contentBytes, display: p.display }).text
+      : p.preview;
+    log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${logResult}`, outcome === "success" ? "" : "warn");
+    // 工作焦点:req/defect/idea 的增改结果最能代表"它在干哪件事"。侧栏原来另有一行
+    // #live-focus 抄一遍这条结果,与「各线当前在做」焦点卡重复,UI-0926 #4 删掉;焦点卡靠下面的运行证据。
+    if (p.ok && ["req", "defect", "idea"].includes(p.name)) {
+      // 「在做」运行证据①:update 型 tracker 结果(取活时标 doing/fixing、批次进展
+      // 都走这里)。add(快记新增)与 close(刚收尾)不指向正在做的条目,不采。
+      if (["req", "defect"].includes(p.name) && /^updated:/.test(p.preview)) {
+        setRuntimeFocus(workItemIdFrom(p.preview), p.sessionId);
+      }
+      // 文档已经变了,侧栏列表与状态按钮跟着刷新,不等本轮结束。
+      refreshDocsSoon();
+    }
+    // Git 提交标题是批次进度的真源，成功提交后立即重拉文档快照。
+    // 「在做」运行证据②:批次提交标题以条目 ID 开头,是最强的"实际在推谁"信号。
+    if (isBatchCommit(p)) {
+      setRuntimeFocus(workItemIdFrom(p.preview), p.sessionId);
+      refreshDocsSoon();
+    }
+    // 测试记录同理:跑完测试后左侧应立即出现结果。
+    if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
+    // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。
+    if (p.ok && ["write", "edit", "multiedit", "bash"].includes(p.name)) refreshGitSoon();
+    // UI2-0926 #8:网页预览开着本项目的静态页时,写文件成功后防抖刷新(开发服务靠自己的 HMR,不重复刷新)。
+    previewNoteToolEnd(p);
+    // UI-0926 #6:tool-end 带与历史同源的正文与耗时,⎿ 行与活动面板进度行按工具摘要。
+    const toolEndExtra = {
+      content: p.content,
+      contentTruncated: p.contentTruncated,
+      contentBytes: p.contentBytes,
+      code: p.code,
+      durationMs: p.durationMs,
+    };
+    // UI-0926 #8:task 的终态收进子代理卡片(code 优先分类;停止补发的 ToolEnd 只校准终态,
+    // 不复活运行态),其余工具照旧填主对话工具行。
+    if (p.name === "task" && subagentByKey(subagentKey(p.sessionId, p.id))) {
+      subagentEnd({ sessionId: p.sessionId, id: p.id, ok: p.ok, outcome, code: p.code, preview: p.preview, display: p.display, content: p.content, durationMs: p.durationMs });
+    } else {
+      chatToolEnd(p.id, p.ok, p.preview, p.display, outcome, toolEndExtra);
+      mountBlockedAllow(p.id);
+    }
+    recordDiffSummary(p.display);
+    // #7:实时收尾的一次性反馈(成功弹一下/失败抖一下);停止收尾之后才到的只撤「中断」标记。
+    playToolOutcomeMotion(p.id);
+    // 活动栏统一保留工具轨迹；历史兼容待定路径仍由 bgFinishQuiet 收尾，
+    // 随后由 bgEnd 更新完成态和错误详情。
+    bgFinishQuiet(p.id, p.ok);
+    bgEnd(p.id, p.ok, p.preview, p.display, outcome, toolEndExtra);
+    // #7:停止发出后/已停止之后才到的 ToolEnd(停止补发)只收尾工具行,不得把相位与状态栏
+    // 翻回「运行中」——否则活动行在已停止后重新扫光,直到下一次 setRunning(false)。
+    if (running && turnPhase !== "stopping") {
+      setTurnPhase(paneHasRunningTool() || subagentRunningCount(activeSessionId) > 0 ? "tool" : "waiting");
+      setStatus("运行中", true);
+    }
+  });
+});
+defer(() => {
+  on("kz:step", (e) => {
+    const p = e.payload;
+    setCtxPending(false);
+    agentAuditStep(p.sessionId, p);
+    runTokens.input += p.input;
+    runTokens.output += p.output;
+    runTokens.cacheRead += p.cacheRead;
+    runTokens.cacheWrite += p.cacheWrite;
+    // 本轮 prompt 体积 ≈ 当前上下文占用。
+    setCtxTokens(p.input + p.cacheRead);
+    renderTokens();
+    log(`${t("一轮完成")}:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
+  });
+});
+defer(() => {
+  on("kz:permission-resolved", (e) => {
+    const payload = e.payload || {};
+    agentAuditPermission(payload.sessionId, payload);
+    // 并行线/自主轮上要批准的操作被 NonInteractive 当场拦下:记下来,工具行收尾后挂「允许并记住」(UX-147)。
+    if (payload.decision === "declined" && payload.source === "noninteractive" && payload.tool_call_id) noteBlockedToolCall(payload);
+  });
+});
+
+// UX-147:并行线(独立任务)与自主推进轮没有人坐在屏幕前,要批准的操作由后端 NonInteractive 当场拒掉,以工具错误回喂模型。
+// 对话里这一行原先只剩「需要批准 · 自主运行已跳过」一句死文字——除了打开全局自动放行,没有任何办法让下一次通过。
+// 这里在被拦的工具行上挂一个「允许并记住」:点了就把这一条(同一操作 + 同一资源,与权限卡的「允许并记住」同口径)写进项目
+// .kanzei/kanzei.toml,之后遇到同样的操作就不会再被拦。
+const blockedToolCalls = new Map();
+function noteBlockedToolCall(payload) {
+  blockedToolCalls.set(payload.tool_call_id, { action: payload.action, resource: payload.resource });
+  if (blockedToolCalls.size > 200) blockedToolCalls.delete(blockedToolCalls.keys().next().value);
+}
+export function mountBlockedAllow(toolCallId) {
+  const info = blockedToolCalls.get(toolCallId);
+  if (!info) return null;
+  blockedToolCalls.delete(toolCallId);
+  const wrap = chatToolBlocks.get(toolCallId)?.wrap;
+  if (!wrap || wrap.querySelector(".blocked-allow")) return null;
+  const summary = permissionResourceText(info.action, info.resource);
+  const projectDir = currentProject;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ghost mini blocked-allow";
+  button.textContent = t("允许并记住");
+  button.title = t("把这一条原样写入项目 .kanzei/kanzei.toml(只对完全相同的这一条生效),之后遇到同样的操作就不会再被拦");
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await invoke("permission_rule_add", { projectDir, action: info.action, resource: info.resource });
+      button.textContent = t("已记住,下次放行");
+      toastRemembered(info.action, info.resource, summary, projectDir);
+    } catch (error) {
+      button.disabled = false;
+      reportPersistentError(`${t("放行失败")}:${error}`);
+    }
+  });
+  wrap.appendChild(button);
+  return button;
+}
+
+defer(() => {
+  on("kz:error", (e) => {
+    const payload = e.payload ?? {};
+    if (payload.terminal !== false) {
+      setCtxPending(false);
+      renderTokens();
+    }
+    const message = payload.message;
+    const terminal = payload.terminal !== false;
+    if (terminal) reportError(message);
+    else reportPersistentError(message);
+    // 持久化告警等非终态错误不能把仍在运行的会话投影成空闲；真正运行失败由
+    // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
+    if (terminal) {
+      neuralFlowEmit?.("run_failed", { session_id: payload.sessionId, message });
+      agentAuditFinish(payload.sessionId || activeSessionId, "failed");
+      const failedSession = payload.sessionId || activeSessionId;
+      releaseAutoContinue(failedSession);
+      // D-291:取消续跑定时器只属于终态分支。原来它在函数开头无条件执行,一条
+      // terminal=false 的告警(比如持久化警告)就能掐掉已排好的下一轮,而 auto_pending
+      // 仍是 true——界面从此停在「等待下一轮」,不报错也不再动。
+      //
+      // 但 D-403 的失败退避重试是**终态错误自己排的**那一枪:同一次失败,后端先发
+      // kz:auto-fail(RetryAfterFailure) 让前端按 delayMs 排上重试,紧接着 run_task 的
+      // Err 分支发这条 terminal 错误。无条件取消等于自己掐掉刚排的重试——界面停在
+      // 「失败重试 1/3 · 15s」,那一轮永不到来(用户 2026-08-17 报告:中途断一下网,
+      // 鞭挞不再自动重试,手动发一句「继续」才恢复)。带 retryLabel 的定时器只报错、
+      // 不取消,并把等待横幅按重试文案重挂(下面的 setRunning 会清掉 runControlPending);
+      // 用户主动停止/关鞭挞/切线路走的是各自的取消路径,不受此例外影响。
+      const retryLabel = autoContinueTimers.get(failedSession)?.retryLabel ?? null;
+      if (!retryLabel) cancelAutoContinueTimer(failedSession);
+      stopElapsed();
+      if (activeSessionId && !retryLabel) {
+        // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
+        // terminal_status 由 transitionSession failed 分支折算为「出错」。
+        // 重试在途时不改写相位:kz:auto-fail 已把它投影成 auto_pending(带轮次),
+        // 覆成 failed 会让侧栏与横幅都说「出错」,而其实下一轮正在等着发。
+        transitionSession(activeSessionId, "failed");
+      }
+      setRunning(false, "出错");
+      if (retryLabel && (!payload.sessionId || payload.sessionId === activeSessionId)) setRunPending(retryLabel);
+      bgAbortRunning(`(${localizeDynamic("出错中止")})`);
+      chatAbortRunning();
+      endReasoningLive();
+      liveIdle("出错");
+      notifyRunState("failed", message);
+    }
+    $("log-panel").classList.remove("hidden");
+    refreshProcesses();
+  });
+});
+// 流中途断开后重放本轮:后端会把本轮从头重新生成,已渲染的残缺输出必须丢掉,
+// 否则重放出的文本会接在半截内容后面变成重复段落。本轮工具尚未执行,无副作用。
+defer(() => {
+  on("kz:stream-restart", (e) => {
+    const p = e.payload ?? {};
+    clearHostedSearchBlocks();
+    if (currentAssistant) {
+      currentAssistant.remove();
+      setCurrentAssistant(null);
+    }
+    endReasoningLive();
+    setTurnPhase("waiting");
+    setCurrentReasoning(null);
+    setCurrentReasoningHead(null);
+    setOutputChars(0);
+    addMessage("notice", `⟳ ${localizeDynamic("连接中断,正在重新请求本轮")}(${p.attempt}/${p.max})`);
+    log(`${localizeDynamic("连接中断,重放本轮")} ${p.attempt}/${p.max},${localizeDynamic("等待")} ${p.delayMs}ms`, "warn");
+    setStatus(`${t("连接中断")} · ${t("重放本轮")} ${p.attempt}/${p.max}`, true);
+  });
+});
+defer(() => {
+  on("kz:compacted", (e) => {
+    neuralFlowEmit?.("context_compacted", { session_id: e.payload?.sessionId });
+    setCtxPending(false);
+    lastCompactionSummary = e.payload?.summary ?? "";
+    addMessage("notice", `🗜 ${t("上下文占用过高,已自动压缩为纪要并延续对话")}`);
+    if (lastCompactionSummary) addCompactionEntry(lastCompactionSummary);
+    log(t("自动压缩完成:多轮历史已替换为纪要"));
+    setCtxTokens(0);
+    renderTokens();
+  });
+});
+defer(() => {
+  on("kz:stopped", (e) => {
+    neuralFlowEmit?.("run_stopped", { session_id: e.payload?.sessionId });
+    setCtxPending(false);
+    renderTokens();
+    agentAuditFinish(e.payload?.sessionId, "stopped");
+    releaseAutoContinue(e.payload?.sessionId || activeSessionId);
+    cancelAutoContinueTimer(e.payload?.sessionId || activeSessionId);
+    hideAsk();
+    const cancelled = e.payload?.cancelled_queue ?? 0;
+    addMessage("notice", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
+    log(cancelled > 0 ? `${t("已手动停止并取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已手动停止"));
+    stopElapsed();
+    setRunning(false, "已停止");
+    bgAbortRunning(`(${t("已停止")})`);
+    chatAbortRunning();
+    endReasoningLive();
+    liveIdle("已停止");
+    notifyRunState("stopped", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
+    refreshPendingInputs();
+    refreshProcesses();
+  });
+});
+// R-086:会话真正转空闲(后端 run loop 退出,排队输入已跑完或失败中断)。
+// 视图的收尾归 kz:done/kz:error/kz:stopped,这里只把标签页按状态机重画一次——
+// 订阅本身也是必需的:on() 里的会话状态机收敛逻辑挂在订阅回调上。
+defer(() => {
+  on("kz:idle", (e) => {
+    releaseAutoContinue(e.payload?.sessionId || activeSessionId);
+    renderProcesses(processItems);
+  });
+});
+
+// D-403:失败轮的自动续跑判定(后端在 run 失败且自动链已武装时发 kz:auto-fail,
+// 携带与 kz:done 同构的 autoAction)。瞬态失败 → 按 delayMs 退避重试;
+// RepeatedFailure/FatalError → 停止并展示原因(停摆通知已由后端经推送桥发手机)。
+defer(() => {
+  on("kz:auto-fail", (e) => {
+    const p = e.payload;
+    const action = p.autoAction || { type: "NoContinue" };
+    releaseAutoContinue(p.sessionId);
+    if (action.type === "RetryAfterFailure") {
+      setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId));
+      const secs = Math.round((action.delayMs ?? 15000) / 1000);
+      const label = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3} · ${secs}s`;
+      addMessage("notice", `${t("本轮运行失败(瞬态错误),将自动退避重试")} · ${label}`);
+      log(`${t("鞭挞")}:${label}`);
+      renderAutoStatus(label);
+      if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(label);
+      // 第 5 个参数是重试标记:随后必然到来的 terminal kz:error 靠它认出「这一枪是
+      // 失败重试」而放行,不再把它当成残留定时器掐掉。
+      armAutoContinue(continuePrompt(), p.sessionId, 0, action.delayMs ?? 15000, label);
+    } else if (action.type === "Stop") {
+      if (p.sessionId) transitionSession(p.sessionId, "idle");
+      if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();
+      setAutoRounds(p.sessionId || activeSessionId, action.rounds ?? currentAutoRounds(p.sessionId || activeSessionId));
+      cancelAutoContinueTimer(p.sessionId || activeSessionId);
+      // 文案与后台线共用一份(08-compose.js autoFailStopReasonText),同一件事不能两种说法。
+      const reasonText = autoFailStopReasonText(action.reason, action.message);
+      addMessage("notice", `${t("鞭挞停止")}:${reasonText}`);
+      log(`${t("鞭挞停止")}:${reasonText}`);
+      setAutoStopReason(reasonText);
+    }
+  });
+});
+
+defer(() => {
+  on("kz:done", async (e) => {
+    const p = e.payload;
+    setCtxPending(false);
+    renderTokens();
+    agentAuditFinish(p.sessionId, p.halted ? "stopped" : "completed");
+    neuralFlowEmit?.(p.halted ? "run_stopped" : "run_completed", { session_id: p.sessionId, halted: Boolean(p.halted) });
+    releaseAutoContinue(p.sessionId);
+    // R-267:轮末不再需要「原子回灌」。那套是为了修补「切走期间缺一段」——而缺口
+    // 本身已经不存在了:后台会话的渲染事件全程进它自己的 pane,轮末 pane 里就是完整的。
+    // 一并去掉的还有回灌带来的两个老毛病:清掉轮末「完成/权限被拦」notice(R-223/R-224),
+    // 以及异步回灌与后续渲染交错吞块。
+    // 「本轮完成」是**阶段**不是**停机原因**,写进原因槽等于每轮都往里灌一句与
+    // 「为什么不再继续」无关的话——而原因槽是无参重绘的回落值,灌进去之后轮次
+    // 「3/34」下一帧就被它顶掉。正常完成时清空原因槽,阶段交给 renderAutoRun 算。
+    setAutoStopReason(p.halted ? t("按停止/拒绝收尾") : "");
+  
+    // UI2-0926 #12:本轮结束 = 列左缘一行小字(turn-end),不画线(契约 §4.2);「steps / 会话 N 条」中英混杂改走模板。
+    addMessage(
+      "notice turn-end",
+      `${t("本轮结束")} · ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? ` · ${fillTemplate(t("历史 {n} 条"), { n: p.history })}` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
+    );
+    const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
+    const duration = elapsedSeconds === null ? "" : ` · ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
+    log(`${t("运行完成")}: ${p.steps} ${t("轮")}${duration}`);
+    stopElapsed();
+    notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按停止/拒绝收尾") : `${t("本轮结束")} ${p.steps} ${t("轮")}`);
+    // kz:done 只是本轮结束，不是会话级 idle；排队输入或鞭挞续跑仍可能马上开始。
+    // 真正收回 stop 和运行态由 kz:idle/kz:stopped 的会话状态机负责。
+    if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
+    else setRunning(false);
+    // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
+    refreshConversationList();
+    // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
+    liveIdle(`${t("空闲")} · ${t("上轮")} ${p.steps} ${t("轮")} ${t("完成")}`);
+    refreshDocs();
+    refreshGit();
+    refreshPendingInputs();
+  
+    // R-169:鞭挞判定已引擎化(harness auto_run 状态机)——kz:done 携带 autoAction,
+    // 前端只执行:Continue→续跑;Nudge→发引擎生成的推进指令;Stop→停+显示原因;
+    // NoContinue→不动作(用户拒绝/未开启)。前端不再做任何机械判定
+    // (空转画像/全部阻塞/无动作 NUDGE 全部在后端,见 harness auto_run.rs)。
+    const action = p.autoAction || { type: "NoContinue" };
+    if (action.handoff && ["Continue", "Nudge", "GoalPending", "VerifyRound"].includes(action.type)) {
+      // UX-037:交付声明里的 handoff_target/criterion 是引擎内部字段(目标常是输入 id),通知里不打印;
+      // 只在模型给了一句人话摘要(summary)时跟在后面。
+      addMessage("notice", `${t("交付记录已登记，鞭挞继续")}${handoffSummaryTail(action.handoff)}`);
+    }
+    // UI2-0926 #13 复核:「在等你回答」只对紧接着的那一条手动消息有效。本轮以别的结果收口(续跑、别的停机、
+    // 未开鞭挞)说明等待已经过去,标记必须清掉——否则之后真正的「手动接管」不再关鞭挞。
+    if (!(action.type === "Stop" && action.reason === "AwaitingUser")) takeAwaitingUser(p.sessionId || activeSessionId);
+    if (action.type === "Continue") {
+      setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
+      if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("自主推进")} ${autoRounds} · 2 ${t("秒后继续")}…`);
+      renderAutoStatus(`${t("自主推进")} ${autoRounds} · ${t("等待下一轮")}`);
+      if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
+      // 收口对象跟着本轮的会话走:并行线结束时 activeSessionId 可能已经是别人了,
+      // 拿它清 pending 会把另一条线的横幅清掉,而这条线自己一直挂着(D-291)。
+      armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
+    } else if (action.type === "Nudge") {
+      setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
+      addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
+      log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
+      renderAutoStatus(`${t("无动作 · 追加推进指令")} · ${autoRounds}`);
+      if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作 · 追加推进指令")} ${autoRounds} · 2 ${t("秒后继续")}…`);
+      if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
+      // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
+      // 复制的 setTimeout,四个条件各自静默 return——两处副本还漏掉了 pending 收口。
+      armAutoContinue(action.prompt, p.sessionId);
+    } else if (action.type === "GoalPending") {
+      // R-322 B3:目标未达成,把**用户自己写的**条件作为下一轮输入发回。
+      // 与 Nudge 走同一条闸门(armAutoContinue),区别只在文案来源:那条是引擎
+      // 发明的「去 backlog 找活」,这条是用户的原话——引擎不发明工作。
+      setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
+      log(`${t("目标推进")}:${t("条件未达成,继续")}`);
+      renderAutoStatus(`${t("目标推进")} ${autoRounds}`);
+      if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("目标推进")} ${autoRounds} · 2 ${t("秒后继续")}…`);
+      if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
+      // prompt 由后端从 controller.goal 填入;万一为空则回落默认续跑文案,不空发。
+      armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
+    } else if (action.type === "VerifyRound") {
+      // R-144:已关闭 N 条,插入一轮只读验收核查(SubagentBase read/glob/grep)。
+      // 核查不进入主 conversation/queue:核查指令(action.prompt,引擎生成)作为
+      // 下一轮输入发回,主代理用只读 task 子代理核对验收证据与真实调用方,
+      // 发现问题生成候选缺陷或退回依据;前端只显示状态并继续。
+      setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
+      addMessage("notice", t("已关闭 N 条,插入一轮只读验收核查(核对验收结果与真实调用方)"));
+      log(`${t("鞭挞")}:${t("验收核查轮")}`);
+      renderAutoStatus(`${t("验收核查轮")} ${autoRounds}`);
+      if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("验收核查轮")} ${autoRounds} · 2 ${t("秒后继续")}…`);
+      if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
+      armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
+    } else if (action.type === "Stop") {
+      if (p.sessionId) transitionSession(p.sessionId, "idle");
+      if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();
+      setAutoRounds(p.sessionId || activeSessionId, action.rounds ?? currentAutoRounds(p.sessionId || activeSessionId));
+      setNoActionRounds(0);
+      cancelAutoContinueTimer(p.sessionId || activeSessionId);
+      const reason = action.reason;
+      if (reason === "ResearchWaiting" || reason === "ResearchCompleted") {
+        applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
+        const message = action.message || t("请查看研究课题概览");
+        setAutoStopReason(message, reason === "ResearchCompleted" ? "completed" : "waiting");
+        addMessage("notice", message);
+      } else if (reason === "Paused") {
+        addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,在鞭挞设置里点「恢复鞭挞」继续")}`);
+        setAutoStopReason("已暂停");
+      } else if (reason === "StopAfterRound") {
+        applyAutoStopToSession(p.sessionId || activeSessionId, { stopAfterRound: false });
+        addMessage("notice", `${t("鞭挞停止")}:${t("本轮后停")}(${t("已自动取消勾选,再点鞭挞即可继续")})`);
+        log(`${t("鞭挞停止")}:${t("本轮后停")}`);
+        setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
+      } else if (reason === "MaxRounds") {
+        // 兼容旧版事件:新引擎不会产生 MaxRounds,旧事件也不能向用户宣称仍有次数硬上限。
+        addMessage("notice", `${t("鞭挞停止")}:${t("旧版鞭挞状态已兼容,请重新触发")}`);
+        setAutoStopReason(t("鞭挞停止"));
+      } else if (reason === "GoalMet") {
+        // R-322 B3:目标达成由**模型**判定,后端已清除目标,前端同步清输入框。
+        clearGoalInput();
+        addMessage("notice", `✓ ${t("目标已达成")}:${t("模型判定条件满足,目标已清除")}`);
+        log(t("目标已达成,自动清除"));
+        setAutoStopReason(t("目标已达成"));
+      } else if (reason === "GoalUnreachable") {
+        // 条件多半含糊或不可达——停下来让用户改条件,别继续烧钱。
+        clearGoalInput();
+        addMessage("notice", `${t("目标推不动")}:${t("连续多轮无实质进展,目标已清除,请改写条件后重试")} (${action.max ?? ""})`);
+        log(t("目标连续推不动,已停止并清除"));
+        setAutoStopReason(t("目标推不动,已清除"));
+      } else if (reason === "AwaitingUser") {
+        // UI2-0926 #13:模型在等你回答(question 挂起,或最后一句明显在问你)。鞭挞保持勾选、不挂续跑;
+        // 你回复的那一条不会被当成「手动接管」关掉鞭挞,回答那一轮结束后引擎照常续跑。
+        markAwaitingUser(p.sessionId || activeSessionId);
+        const msg = t("模型在等你回答(回复后自动继续)");
+        // 输入区的停机原因槽只放短句(长句会把工具行挤成两行);完整说法进对话 notice。
+        setAutoStopReason(t("模型在等你回答"), "waiting");
+        addMessage("notice", `⏸ ${msg}`);
+        log(`${t("鞭挞暂停")}:${t("模型在等你回答")}`);
+        if (!p.sessionId || p.sessionId === activeSessionId) focusPendingQuestion();
+      } else if (reason === "ModelDeclaredDone") {
+        // R-322(#7):模型自己交还了控制权。措辞必须与其余原因区分——这不是引擎
+        // 判定它该停,是它说做完了。写成「引擎停止了它」会让人误以为被打断。
+        addMessage("notice", `${t("本次任务完成")}${handoffSummaryTail(action.handoff)}`);
+        log(t("本次任务完成"));
+        setAutoStopReason(t("本次任务完成"));
+      } else if (reason === "NoAction") {
+        addMessage("notice", `${t("鞭挞停止")}:${t("连续两轮没有实质动作(可能条目已完成或确实无可推进项)")}`);
+        log(`${t("鞭挞停止")}:${t("连续两轮无动作,鞭挞停止")}`);
+        setAutoStopReason(t("连续两轮无动作,鞭挞停止"));
+      } else if (reason === "AllBlocked") {
+        applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
+        const msg = t("任务尚未完成，当前均有阻塞或停车条件；请在文档页查看并回复待确认事项");
+        setAutoStopReason(msg, "waiting");
+        addMessage("notice", `⏸ ${msg}`);
+        log(t("鞭挞停止:需求与缺陷全部被阻塞"));
+      } else if (reason === "BacklogEmpty") {
+        applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
+        const msg = t("需求与缺陷已清空，鞭挞已停止");
+        setAutoStopReason(msg, "completed");
+        addMessage("notice", `✓ ${msg}`);
+        log(t("鞭挞停止:需求与缺陷已清空"));
+      } else if (reason === "ProfileMismatch") {
+        // R-199:档位条件由引擎判定,前端只显示(不再持有否决权)。
+        applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
+        const msg = t("鞭挞已关闭,当前对话不是自主推进模式");
+        setAutoStopReason(msg);
+        // 档位不匹配不是「成功」,不带 ✓:中性通知,原因文字本身就是信息。
+        addMessage("notice", msg);
+        log(t("鞭挞停止:当前模式不匹配"));
+      } else if (reason === "RateLimited") {
+        const msg = t("provider 限流(429)，鞭挞已暂停，请等待后手动恢复");
+        setAutoStopReason(msg);
+        addMessage("notice", `${t("鞭挞停止")}:${msg}`);
+        log(`${t("鞭挞停止")}:${msg}`);
+      }
+    }
+    // NoContinue:用户拒绝/未开启——不续跑不重置,等手动输入重新武装。
+  });
+});
+
+// ---------- 权限弹窗 ----------
+// 这张停靠卡承载权限请求;提问复用 softwire 的原事项答复通道。
+// 当前会话的前台 question 自动展开回复详情,后台/其它会话的提问进入「待我处理」。
+export const askQueues = new Map();
+export let askActive = null;
+export let askCollapsed = false;
+// UX-149:新卡出现后 600ms 内答复键不响应。上一张卡刚被点掉、紧跟着出现下一张时,连点的第二下会落在
+// 同一个位置的「允许一次」上,批准一条用户根本没看过的请求。
+export const ASK_ARM_MS = 600;
+let askArmedUntil = 0;
+let askArmTimer = null;
+export function askArmed() {
+  return Date.now() >= askArmedUntil;
+}
+function armAskCard() {
+  askArmedUntil = Date.now() + ASK_ARM_MS;
+  const dialog = $("ask-dialog");
+  if (!dialog) return;
+  dialog.dataset.arming = "1";
+  clearTimeout(askArmTimer);
+  askArmTimer = setTimeout(() => {
+    askArmTimer = null;
+    delete dialog.dataset.arming;
+  }, ASK_ARM_MS);
+}
+
+export function askSessionId(payload) {
+  return payload?.sessionId || activeSessionId || "__default__";
+}
+
+export function askQueueFor(sessionId) {
+  let queue = askQueues.get(sessionId);
+  if (!queue) {
+    queue = [];
+    askQueues.set(sessionId, queue);
+  }
+  return queue;
+}
+
+// UX-146:别的线路/项目在等批准时,当前界面原先一点动静都没有(线路行仍写「运行中」、也不弹通知)。
+// 这里给一条可见的 toast + 日志,窗口不在前台时再发系统通知;线路行的状态词由 parallelTaskView 读 askQueues 得出。
+const askElsewhereNotified = new Set();
+export function notifyAskElsewhere(payload) {
+  const key = `${payload.sessionId}:${payload.id}`;
+  if (askElsewhereNotified.has(key)) return;
+  askElsewhereNotified.add(key);
+  if (askElsewhereNotified.size > 200) askElsewhereNotified.delete(askElsewhereNotified.values().next().value);
+  const line = processItems.find((item) => item.session_id === payload.sessionId);
+  const where = line ? line.title || line.label : t("另一条对话");
+  const what = permissionResourceText(payload.action, payload.resource);
+  const text = `${where} ${t("在等你批准")}: ${what.length > 80 ? `${what.slice(0, 80)}…` : what}`;
+  log(text, "warn");
+  toast(text, { kind: "warn" });
+  if ((!document.hasFocus() || document.hidden) && "Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification(t("在等你批准"), { body: text, tag: "kanzei-ask" });
+    } catch (error) {
+      log(`${t("系统通知不可用")}:${error}`, "warn");
+    }
+  }
+  renderParallelTaskStatus(processItems);
+  document.dispatchEvent(new CustomEvent("kz:asks-changed"));
+}
+
+defer(() => {
+  on("kz:input-received", ({ payload }) => {
+    if (payload.sessionId === activeSessionId) void refreshPendingInputs();
+  });
+  on("kz:ask-resolved", ({ payload }) => {
+    const queue = askQueueFor(payload.sessionId);
+    const index = queue.findIndex(ask => ask.id === payload.id);
+    if (index >= 0) queue.splice(index, 1);
+    if (askActive?.id === payload.id && askActive.sessionId === payload.sessionId) {
+      askActive = null; askCollapsed = false;
+      hideCard($("ask-overlay")); hideCard($("ask-reopen"));
+      pumpAsk();
+    }
+    updateAskQueueStatus();
+    renderParallelTaskStatus(processItems);
+  });
+  on("kz:ask", (e) => {
+    const sessionId = askSessionId(e.payload);
+    e.payload.sessionId = sessionId;
+    agentAuditPrompt(sessionId, e.payload);
+    // 后端的 NonInteractive 策略不会产生 kz:ask(并行线/自主轮的权限询问当场 declined 并以工具错误回喂模型);
+    // 这里仍做一层防御,避免旧运行或第三方事件把并行/自举线的询问冒泡到当前用户弹窗。
+    if (!e.payload.agentId && (e.payload.source === "parallel" || e.payload.source === "autonomous")) {
+      log(`${t("后台询问已跳过")}: ${e.payload.action || e.payload.question || "ASK"}`);
+      return;
+    }
+    // 提问走原事项回复通道:它负责当前会话的前台展示以及后台待处理计数。
+    if (e.payload.kind === "question") {
+      document.dispatchEvent(new CustomEvent("kz:work-question", { detail: e.payload }));
+      return;
+    }
+    // 自动放行(yolo):后台会话也必须直接得到答复,不能因不在当前页签而挂起。
+    if ($("auto-allow").checked) {
+      log(`${t("自动放行")}:${permissionResourceText(e.payload.action, e.payload.resource)}`);
+      invoke("answer_ask", { id: e.payload.id, reply: "once" }).catch((err) =>
+        reportPersistentError(`${t("自动放行失败")}:${err}`)
+      );
+      return;
+    }
+    askQueueFor(sessionId).push(e.payload);
+    if (sessionId === activeSessionId) pumpAsk();
+    else notifyAskElsewhere(e.payload);
+  });
+});
+
+// R-223:「自动放行」常驻警示徽标——开启时状态栏可见,重启后仍显示
+// (写 app.json 的 ui_layout.prefs.auto_allow,语义是"会记住"而非"仅本次";localStorage 在本机重启即丢,D-404)。
+export function syncAutoAllowBadge() {
+  const on = $("auto-allow").checked;
+  $("status-auto-allow").classList.toggle("hidden", !on);
+}
+defer(() => {
+  $("auto-allow").checked = autoAllowEnabled();
+  // 后端 ui_layout 稍后到达(启动时先按缓存落地):按到达的值对一次,开关与状态栏徽标一起跟上。
+  onLayoutChange((section) => {
+    if (section !== "*" && section !== "prefs") return;
+    const on = autoAllowEnabled();
+    if ($("auto-allow").checked === on) return;
+    $("auto-allow").checked = on;
+    syncAutoAllowBadge();
+  });
+});
+defer(() => {
+  $("auto-allow").addEventListener("change", () => {
+    setAutoAllowEnabled($("auto-allow").checked);
+    syncAutoAllowBadge();
+    // 由关变开的那一下弹一次(启动时的同步不播);常驻警示不做循环,避免一直唠叨。
+    if ($("auto-allow").checked) motionOnce($("status-auto-allow"), "kz-pop", 500);
+    log($("auto-allow").checked ? t("已开启自动放行(所有权限询问直接通过;此选择会被记住)") : t("已关闭自动放行"));
+  });
+});
+defer(() => {
+  syncAutoAllowBadge();
+});
+
+export function updateAskQueueStatus() {
+  const queue = activeSessionId ? askQueueFor(activeSessionId) : [];
+  const total = (askActive ? 1 : 0) + queue.length;
+  const status = $("ask-queue-status");
+  const preview = $("ask-queue-preview");
+  // 只有排着队才写「当前请求 1/N」;单条请求时这一行整个收起(原先常驻一句「当前无其他待处理请求」)。
+  status.textContent = total > 1
+    ? `${t("当前请求")} 1/${total} · ${languageIsEnglish() ? `${total - 1} ${t("条待处理")}` : `${t("还有")} ${total - 1} ${t("条待处理")}`}`
+    : "";
+  status.classList.toggle("hidden", total <= 1);
+  const lines = queue.slice(0, 4).map((item, index) => {
+    const text = permissionResourceText(item.action, item.resource);
+    return `${index + 2}. ${item.agentId ? `${item.source || item.agentId} · ` : ""}${text}`;
+  });
+  preview.textContent = lines.join("\n");
+  preview.classList.toggle("hidden", lines.length === 0);
+  // 收起后的小芯片带上待处理数量,别让人以为只有一条。
+  const reopen = $("ask-reopen");
+  if (reopen) reopen.textContent = total > 1 ? `${t("重新打开询问")} · ${total}` : t("重新打开询问");
+  // 侧栏项目行 / 会话行的「等你批准」圆点读 askQueues(12-workbench.js 监听):队列一变就通知,不等 3 秒轮询(UX-146)。
+  document.dispatchEvent(new CustomEvent("kz:asks-changed"));
+}
+
+export function pumpAsk() {
+  if (askActive || !activeSessionId) {
+    updateAskQueueStatus();
+    return;
+  }
+  const queue = askQueueFor(activeSessionId);
+  if (queue.length === 0) {
+    updateAskQueueStatus();
+    return;
+  }
+  askActive = queue.shift();
+  if (askActive.kind === "question") {
+    // 重载/切回恢复的提问同样交给原事项回复通道,前台等待问题会自动呈现。
+    document.dispatchEvent(new CustomEvent("kz:work-question", { detail: askActive }));
+    askActive = null;
+    pumpAsk();
+    return;
+  }
+  $("ask-title").textContent = t("权限请求");
+  const source = $("ask-source");
+  source.classList.toggle("hidden", !askActive.agentId);
+  source.textContent = askActive.agentId ? `${t("子代理")} · ${askActive.source || askActive.agentId} ↗` : "";
+  source.onclick = async () => {
+    if (!askActive?.agentId) return;
+    const request = askActive;
+    source.disabled = true;
+    try {
+      if (!await restoreAgent(request.agentId, request.sessionId) || askActive !== request) return;
+      collapseAsk();
+      openTasksPanel({ key: subagentKey(request.sessionId, request.agentId), invoker: source });
+    } catch (error) { reportPersistentError(String(error)); }
+    finally { source.disabled = false; }
+  };
+  $("ask-action").textContent = askActive.action;
+  // UI-0926 #10:bash 资源是 {command, workdir} JSON——拆成命令代码块 + 工作目录 chip;
+  // 「记住为」与资源相同时不再重复一遍。
+  $("ask-resource").replaceChildren(renderPermissionResource(askActive.action, askActive.resource));
+  const remember = askActive.remember ?? askActive.resource;
+  if (remember === askActive.resource) {
+    $("ask-remember").textContent = `${askActive.action} · ${t("同上")}`;
+  } else {
+    $("ask-remember").replaceChildren(document.createTextNode(`${askActive.action} `), renderPermissionResource(askActive.action, remember));
+  }
+  askCollapsed = false;
+  showAskCard();
+  armAskCard();
+  updateAskQueueStatus();
+}
+
+// 权限卡是停靠卡片(00-surface showCard):不轻关闭、不参与模态。
+// Esc 经弹层栈只作用于栈顶——确认框/命令面板开着时按 Esc 关的是它们,不会顺手碰这条请求。
+// UX-121:Esc 只是**折叠**(留一枚「重新打开询问」芯片,请求仍在),不再替用户拒绝——一次手滑的 Esc 就把
+// 模型正等着的权限判成「拒绝」、整轮停机,是最不可逆的一种按键。拒绝只能点「拒绝」。
+// 焦点 "auto":用户正在别处打字时不抢焦点;要抢也只落在卡片容器上(UX-149),不落在任何一个答复键上——
+// 旧实现一弹出就把焦点抢到「允许一次」,下一个空格/回车就放行了。
+export function showAskCard() {
+  showCard($("ask-overlay"), {
+    onEscape: () => collapseAsk(),
+    focus: "auto",
+    initialFocus: "#ask-overlay",
+  });
+  hideCard($("ask-reopen"));
+}
+
+export function collapseAsk() {
+  if (!askActive) return;
+  askCollapsed = true;
+  hideCard($("ask-overlay"));
+  showCard($("ask-reopen"), { focus: "none" });
+  updateAskQueueStatus();
+}
+
+export function reopenAsk() {
+  if (!askActive) {
+    hideCard($("ask-reopen"));
+    pumpAsk();
+    return;
+  }
+  askCollapsed = false;
+  showAskCard();
+  updateAskQueueStatus();
+}
+
+export function hideAsk(preserveActive = false) {
+  if (preserveActive) {
+    // 只是切走(换线/换项目):当前请求放回它自己会话的队首,切回来还在;不碰别的队列。
+    if (askActive) askQueueFor(askActive.sessionId).unshift(askActive);
+  } else if (activeSessionId) {
+    askQueueFor(activeSessionId).length = 0;
+  }
+  askActive = null;
+  askCollapsed = false;
+  hideCard($("ask-overlay"));
+  hideCard($("ask-reopen"));
+  updateAskQueueStatus();
+}
+// UX-148:「允许并记住」成功后的提示。「记住」只记**完全相同的这一条**(同一命令 + 同一目录 / 同一路径),写进项目
+// .kanzei/kanzei.toml——提示里说清范围,并带「撤销」(删掉刚写进去的那条放行规则,走设置页「权限规则」同一套命令)。
+function toastRemembered(action, resource, summary, projectDir) {
+  const shown = summary.length > 80 ? `${summary.slice(0, 80)}…` : summary;
+  toast(`${t("已记住")}: ${shown}(${t("仅此一条,写入项目 .kanzei/kanzei.toml")})`, {
+    kind: "ok",
+    action: {
+      label: t("撤销"),
+      onClick: async () => {
+        try {
+          const data = await invoke("permission_rules_get", { projectDir });
+          const rule = [...(data?.rules ?? [])].reverse().find((item) => item.action === action && item.resource === resource);
+          if (!rule) {
+            toast(t("这条规则已经不在了"));
+            return;
+          }
+          await invoke("permission_rule_delete", { projectDir, index: rule.index });
+          toast(t("已撤销,之后遇到同样的请求会再次询问"), { kind: "ok" });
+        } catch (error) {
+          reportPersistentError(`${t("撤销失败")}:${error}`);
+        }
+      },
+    },
+  });
+}
+export async function answerAsk(reply) {
+  if (!askActive) return;
+  const id = askActive.id;
+  const { action, resource } = askActive;
+  const projectDir = currentProject;
+  const summary = permissionResourceText(askActive.action, askActive.resource);
+  askActive = null;
+  askCollapsed = false;
+  hideCard($("ask-overlay"));
+  hideCard($("ask-reopen"));
+  updateAskQueueStatus();
+  const replyLabel = reply === "deny" ? t("拒绝") : reply === "always" ? t("允许并记住") : reply;
+  log(`${t("权限")} ${replyLabel} — ${summary}`);
+  try {
+    await invoke("answer_ask", { id, reply });
+    // UX-148:「记住」只记**完全相同的这一条**(同一命令 + 同一目录 / 同一路径),写进项目配置。
+    // 成功要看得见,并说清范围——不能让人以为这一类操作从此都不问了。
+    if (reply === "always") toastRemembered(action, resource, summary, projectDir);
+  } catch (err) {
+    reportPersistentError(`${t("权限应答失败")}:${err}`);
+  }
+  renderParallelTaskStatus(processItems);
+  pumpAsk();
+}
+
+// 答复键统一过「防误触」窗口(UX-149):只拦鼠标/触摸点出来的(event.detail > 0)——键盘 Enter/Space 与程序化点击
+// detail 为 0,照常放行;卡片出现的头 600ms 内的指针点击一律忽略。
+function answerAskGuarded(event, reply) {
+  if (event?.detail > 0 && !askArmed()) return;
+  void answerAsk(reply);
+}
+defer(() => {
+  $("ask-collapse").addEventListener("click", collapseAsk);
+});
+defer(() => {
+  $("ask-reopen").addEventListener("click", reopenAsk);
+});
+defer(() => {
+  $("ask-deny").addEventListener("click", (event) => answerAskGuarded(event, "deny"));
+});
+defer(() => {
+  $("ask-always").addEventListener("click", (event) => answerAskGuarded(event, "always"));
+});
+defer(() => {
+  $("ask-allow").addEventListener("click", (event) => answerAskGuarded(event, "once"));
+});
+// ---------- 阅读辅助 ----------
+export async function copyReadable(el) {
+  // 复制与所见一致:助手消息界面上藏起来的内部交接块(HTML 注释、交接范围/目标…)不能经剪贴板带出去。
+  const raw = el.dataset.raw && el.classList.contains("assistant") ? stripInternalHandoff(el.dataset.raw).trim() : el.dataset.raw;
+  const text = raw || [...el.childNodes]
+    .filter((node) => !(node.nodeType === Node.ELEMENT_NODE && node.classList.contains("msg-actions")))
+    .map((node) => node.textContent || "")
+    .join("")
+    .trim();
+  if (!text) return toast(t("没有可复制的内容"));
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t("已复制"));
+  } catch (err) {
+    toastError(`${t("复制失败")}:${err}`);
+  }
+}
+defer(() => {
+  messages.addEventListener("click", (event) => {
+    const button = event.target.closest(".copy-btn");
+    if (button) copyReadable(button.closest(".msg, .tool-chip"));
+  });
+});
+
+// ---------- 复制上下文:整段对话导出为 markdown(贴给其他 AI 用) ----------
+defer(() => {
+  $("copy-context").addEventListener("click", async () => {
+    const parts = [];
+    const reasoningPart = (el) => {
+      // 完整思维链:收起态也全量导出(dataset.raw 一直在),不再截首行 160 字——
+      // 摘要贴给别的 AI 没有用,断链的思考等于没复制。
+      const raw = el.querySelector(".reasoning-body")?.dataset.raw?.trim();
+      if (raw) parts.push(`### ${t("思考")}\n${raw.split("\n").map((line) => `> ${line}`).join("\n")}`);
+    };
+    for (const el of activePane.children) {
+      if (el.classList.contains("user")) {
+        const text = (el.querySelector(".message-body")?.textContent ?? el.textContent).trim();
+        if (text) parts.push(`## ${t("用户")}\n${text}`);
+      } else if (el.classList.contains("assistant")) {
+        const raw = stripInternalHandoff(el.dataset.raw ?? el.textContent).trim();
+        if (raw) parts.push(`## ${t("助手")}\n${raw}`);
+      } else if (el.classList.contains("reasoning")) {
+        reasoningPart(el);
+      } else if (el.classList.contains("tool-group")) {
+        // UI2-0926 #12:工具组逐项导出(折叠态也全量):思考按思考格式,工具行按「> 工具:头 / > ⎿ 摘要」。
+        // 组不带 .msg 类,漏了这个分支整段工具轨迹会被静默丢掉。
+        for (const item of el.querySelector(".tool-group-body")?.children ?? []) {
+          if (item.classList.contains("reasoning")) {
+            reasoningPart(item);
+            continue;
+          }
+          if (!item.classList.contains("tool-msg")) continue;
+          const head = [item.querySelector(".tool-msg-name")?.textContent, item.querySelector(".tool-msg-arg")?.textContent].filter(Boolean).join(" ").trim();
+          const result = item.querySelector(".tool-msg-result")?.textContent?.trim();
+          if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
+        }
+      } else if (el.classList.contains("tool-chip")) {
+        const head = el.querySelector(".head")?.textContent?.trim();
+        const result = el.querySelector(".result")?.textContent?.trim();
+        if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
+      } else if (el.classList.contains("sa-group")) {
+        // D-727:子代理以卡片为单位导出(身份 · 描述 / 计数 / 结果前 400 字),同批并行的逐张导出;
+        // 展开区里的子工具行不重复贴进上下文。
+        const text = subagentCopyText(el);
+        if (text) parts.push(text);
+      } else if (el.classList.contains("turn-divider")) {
+        parts.push(`---\n${el.textContent}`);
+      } else if (el.classList.contains("pane-trimmed-hint") || el.classList.contains("earlier-hint")) {
+        // activePane 可能只是当前可见窗口:剪裁/尚未补齐都不能在导出时静默丢失。
+        const hint = el.textContent?.trim();
+        if (hint) parts.push(`> ⚠ ${hint}`);
+      } else if (el.classList.contains("msg")) {
+        // 其余消息形态(error 等)不再被静默跳过:主对话缺失错误上下文,导出就失真。
+        // 错误卡的展开区是结构化视图,导出取级别 + dataset.raw 原文。
+        const text = (el.dataset?.raw ? `${el.querySelector(".error-level")?.textContent ?? ""} ${el.dataset.raw}` : el.textContent)?.trim();
+        if (text) parts.push(`> ${text.slice(0, 500)}`);
+      }
+    }
+    if (!parts.length) {
+      toast(t("当前没有可复制的对话"));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(parts.join("\n\n"));
+      toast(`${t("已复制上下文")}(${parts.length} ${t("段")})`);
+    } catch (err) {
+      toastError(`${t("复制上下文失败")}:${err}`);
+    }
+  });
+});
+
+export let searchMatches = [];
+export let searchIndex = 0;
+export function updateSearch() {
+  const query = $("chat-search-input").value.trim().toLowerCase();
+  document.querySelectorAll(".search-hit, .search-current").forEach((el) => el.classList.remove("search-hit", "search-current"));
+  searchMatches = query ? [...activePane.querySelectorAll(".msg, .tool-chip")].filter((el) => el.textContent.toLowerCase().includes(query)) : [];
+  searchIndex = Math.min(searchIndex, Math.max(0, searchMatches.length - 1));
+  searchMatches.forEach((el) => el.classList.add("search-hit"));
+  if (searchMatches.length) {
+    const current = searchMatches[searchIndex];
+    current.classList.add("search-current");
+    // UI2-0926 #12:命中落在折叠的工具组里时先展开,否则 scrollIntoView 对 display:none 的行无效。
+    const group = current.closest?.(".tool-group");
+    if (group && group.dataset.expanded !== "1") setToolGroupExpanded(group, true);
+    // 跳到搜索命中 = 用户明确在读某一处旧内容,不再跟随最新。这一步是**程序滚动**,
+    // 跟随态的推断(05-chat-render.js)会把它当自己人忽略掉,所以在这里显式表态;
+    // 否则新消息一来就把人从命中位置拽回底部,而且裁剪也不会让步。
+    setFollowLatest(false);
+    current.scrollIntoView({ block: "center" });
+    updateLatestButton();
+  }
+  $("chat-search-count").textContent = query ? `${searchMatches.length ? searchIndex + 1 : 0}/${searchMatches.length}` : "";
+}
+export function moveSearch(delta) {
+  if (!searchMatches.length) return;
+  searchIndex = (searchIndex + delta + searchMatches.length) % searchMatches.length;
+  updateSearch();
+}
+// 对话搜索 = 对话区右上角的浮条(UX-047:原先藏在「更多」弹层里、没有 Ctrl+F)。浮条不再住在弹层菜单里,
+// 所以「宿主菜单收起时搜索条看不见、击键掉进待发消息」那类问题也不存在了:点「更多 → 搜索」、命令面板、Ctrl+F
+// 三个入口都经 openChatSearch,一律是「打开并聚焦」(绝不当开关反向关掉);关闭靠 Esc / ✕。
+export function openChatSearch() {
+  closeSurface($("composer-more-menu"));
+  $("chat-search").classList.remove("hidden");
+  const input = $("chat-search-input");
+  input.focus();
+  input.select?.();
+  // 重新打开时,上次的关键词连同命中一起回来。
+  if (input.value.trim()) updateSearch();
+}
+export function closeChatSearch() {
+  $("chat-search").classList.add("hidden");
+  $("chat-search-input").value = "";
+  searchIndex = 0;
+  updateSearch(); // 清掉命中高亮与计数
+  promptBox.focus();
+}
+defer(() => {
+  $("chat-search-toggle").addEventListener("click", openChatSearch);
+});
+// 浮条开着时 Esc 在对话区任意位置都关(原来只在搜索框自己的 keydown 里处理,点一下消息区再按 Esc 毫无反应,
+// 而 ✕ 的提示写着「关闭搜索(Esc)」);切换对话后命中与计数按新对话重算(否则残留着旧对话的「1/4」与高亮)。
+defer(() => {
+  onEscapeFallthrough((event) => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.keyCode === 229) return false;
+    if ($("chat-search").classList.contains("hidden")) return false;
+    closeChatSearch();
+    return true;
+  });
+  // 听 kz:pane-shown 而不是 kz:conversation-selected:后者发在 pane 切换之前(activePane 仍是上一条对话),重算会落在旧 pane 上。
+  document.addEventListener("kz:pane-shown", () => {
+    if ($("chat-search").classList.contains("hidden")) return;
+    searchIndex = 0;
+    updateSearch();
+  });
+});
+defer(() => {
+  $("chat-search-close")?.addEventListener("click", closeChatSearch);
+});
+defer(() => {
+  window.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || String(event.key).toLowerCase() !== "f") return;
+    // 只在对话视图接管 Ctrl+F;模态开着(确认框、命令面板)让路;其它页面保留默认行为。
+    const view = document.body?.dataset?.view;
+    if (isModalOpen() || (view && view !== "chat")) return;
+    event.preventDefault();
+    openChatSearch();
+  });
+});
+defer(() => {
+  $("chat-search-input").addEventListener("input", () => { searchIndex = 0; updateSearch(); });
+});
+defer(() => {
+  $("chat-search-input").addEventListener("keydown", (event) => {
+    if (isImeComposing(event)) return;
+    if (event.key === "Enter") moveSearch(event.shiftKey ? -1 : 1);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeChatSearch();
+    }
+  });
+});
+defer(() => {
+  $("chat-search-prev").addEventListener("click", () => moveSearch(-1));
+});
+defer(() => {
+  $("chat-search-next").addEventListener("click", () => moveSearch(1));
+});
+defer(() => {
+  $("jump-latest").addEventListener("click", () => {
+    // 这里先把 followLatest 置 true,于是随后 scroll 事件里的 wasReading 恒为 false,
+    // 05-chat-render.js 那条「滚回底部补裁」永远轮不到执行(实测:点按钮后 pane 仍是
+    // 880 条、dropped=0)。补裁在这个最主要的入口上自己收口。
+    // 顺序要紧:先恢复跟随,再补裁。反过来的话 trimLivePane 仍按「用户在读历史」让步,
+    // 这次补裁等于没调(实测 pane 仍是 900 条、dropped=0)。
+    setFollowLatest(true);
+    if (typeof trimLivePane === "function") trimLivePane(activePane);
+    scrollBottom(true);
+    messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
+  });
+});

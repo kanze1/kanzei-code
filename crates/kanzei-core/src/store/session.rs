@@ -1,0 +1,1743 @@
+//! session 域(R-155 S6):会话生命周期、打开/路径身份与迁移前备份。
+//! StoreError/Session/SessionStore 类型定义留 mod.rs(跨域共享契约)。
+
+mod artifact_refs;
+use artifact_refs::{collect_artifact_references, normalize_artifact_relative_path};
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+
+use super::{
+    now_ms, Session, SessionStore, StorageReport, StoreError, HOUSEKEEPING_FREELIST_THRESHOLD,
+    HOUSEKEEPING_INTERVAL_MS,
+};
+
+impl SessionStore {
+    pub fn open(path: &Path) -> Result<Self, StoreError> {
+        Self::open_internal(path, true)
+    }
+
+    /// 显式安全整理专用打开路径：迁移完成后不自动触发 housekeeping，调用方先检查静止状态。
+    pub fn open_for_explicit_cleanup(path: &Path) -> Result<Self, StoreError> {
+        Self::open_internal(path, false)
+    }
+
+    fn open_internal(path: &Path, run_housekeeping: bool) -> Result<Self, StoreError> {
+        // D-374:见 mod.rs::OPEN_COUNTS——open 的次数是一条可断言的性能事实。
+        super::note_store_open(path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+        }
+        let mut connection = Connection::open(path)?;
+        // 同一个 state.db 会被大量短命连接并发读写(每个 Tauri 命令、每次运行、移动端线程各开一条)。
+        // 默认 rollback journal + busy_timeout=0 会让并发写直接 SQLITE_BUSY,
+        // 表现为运行成功却报失败、事件丢失、入队被拒(D-064)。
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
+        connection.set_transaction_behavior(TransactionBehavior::Immediate);
+        let store = Self {
+            connection,
+            path: Some(path.to_path_buf()),
+        };
+        store.migrate()?;
+        // D-298:普通 open 仍保留既有 housekeeping；显式安全整理路径禁止在静止性检查前触发。
+        if run_housekeeping {
+            if let Err(error) = store.maintain_housekeeping() {
+                tracing::warn!(
+                    error = %error,
+                    path = %path.display(),
+                    "state.db housekeeping failed; open continues"
+                );
+            }
+        }
+        Ok(store)
+    }
+
+    pub fn open_in_memory() -> Result<Self, StoreError> {
+        let mut connection = Connection::open_in_memory()?;
+        connection.set_transaction_behavior(TransactionBehavior::Immediate);
+        let store = Self {
+            connection,
+            path: None,
+        };
+        store.migrate()?;
+        Ok(store)
+    }
+
+    pub fn create_session(
+        &self,
+        session_id: &str,
+        project_root: &str,
+        title: Option<&str>,
+    ) -> Result<Session, StoreError> {
+        let now = now_ms();
+        self.connection.execute(
+            "INSERT INTO sessions(session_id, project_root, title, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'idle', ?4, ?4)
+                 ON CONFLICT(session_id) DO NOTHING",
+            params![session_id, project_root, title, now],
+        )?;
+        self.get_session(session_id)?
+            .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows.into())
+    }
+
+    pub fn get_session(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT session_id, project_root, title, status, created_at, updated_at
+                     FROM sessions WHERE session_id = ?1",
+                params![session_id],
+                |row| {
+                    Ok(Session {
+                        session_id: row.get(0)?,
+                        project_root: row.get(1)?,
+                        title: row.get(2)?,
+                        status: row.get(3)?,
+                        created_at: row.get(4)?,
+                        updated_at: row.get(5)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// 用户给会话起的名字(UX-009,存 `sessions.title`)。`None`/空白 = 清除命名,回到自动名。
+    ///
+    /// 会话行还不存在时顺手建出来:新开的讨论在发第一条消息前没有会话行,用户却可以先改名。
+    /// **不动 `updated_at`**:改名不是会话活动,侧栏按「最近活动」排序时不能因此跳动。
+    pub fn set_session_title(
+        &self,
+        session_id: &str,
+        project_root: &str,
+        title: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let title = title.map(str::trim).filter(|value| !value.is_empty());
+        self.connection.execute(
+            "INSERT INTO sessions(session_id, project_root, title, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'idle', ?4, ?4)
+                 ON CONFLICT(session_id) DO UPDATE SET title = excluded.title",
+            params![session_id, project_root, title, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// 会话里第一条有内容的用户输入(零 token 自动标题的来源,取前缀由调用方做)。
+    ///
+    /// 已被取消的输入不算(用户没真正发出去);「历史对话」删除会把已结束输入的原文就地清空,
+    /// 清空了的跳过,于是标题永远不会泄漏已被删除的内容。
+    pub fn first_input_prompt(&self, session_id: &str) -> Result<Option<String>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT prompt FROM session_inputs
+                     WHERE session_id = ?1 AND status <> 'cancelled' AND prompt <> ''
+                     ORDER BY created_at, rowid LIMIT 1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// 更新会话生命周期状态，并同步更新时间。
+    ///
+    /// 状态值由 runner 约定为 `idle`、`running`、`failed`；存储层不限制
+    /// 未来新增的状态，以便迁移时保持向后兼容。
+    pub fn set_status(&self, session_id: &str, status: &str) -> Result<(), StoreError> {
+        let changed = self.connection.execute(
+            "UPDATE sessions SET status = ?1, updated_at = ?2 WHERE session_id = ?3",
+            params![status, now_ms(), session_id],
+        )?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows.into());
+        }
+        Ok(())
+    }
+
+    /// D-298:state.db 空闲时机条件整理。
+    ///
+    /// 两个动作都在 open 的公共路径上执行,但都用 schema_meta 节流(默认 24 小时
+    /// 一次),避免每次命令都付 VACUUM/备份扫描成本:
+    ///
+    /// 1. **freelist 死页回收**:`PRAGMA freelist_count / page_count` 占比超过
+    ///    [`HOUSEKEEPING_FREELIST_THRESHOLD`] 时执行 `VACUUM`,把频繁增删事件
+    ///    留下的死页还给磁盘。实测主会话库 82MB 中约 68MB 是 freelist 死页。
+    /// 2. **迁移备份只保留最近一版**:`state.db.v<N>.bak` 是升级时的退路,但只
+    ///    有最近一次迁移前的旧库才有回退价值,更早的备份永久占磁盘(D-298 实测
+    ///    9 份约 59MB),只保留版本号最大的那一份。
+    ///
+    /// 任一步失败都只记日志不阻断 open——整理是磁盘卫生,不是正确性。
+    pub(crate) fn maintain_housekeeping(&self) -> Result<(), StoreError> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let now = now_ms();
+        let last: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'housekeeping_at'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse().ok());
+        if last.is_some_and(|at| now.saturating_sub(at) < HOUSEKEEPING_INTERVAL_MS) {
+            return Ok(());
+        }
+        // 节流窗口内不再尝试;先记时间,失败也不反复重试(下次 open 若已过窗口仍会做)。
+        if let Err(error) = self.connection.execute(
+            "INSERT INTO schema_meta(key, value) VALUES ('housekeeping_at', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![now.to_string()],
+        ) {
+            tracing::warn!(error = %error, path = %path.display(), "记录 state.db housekeeping 时间失败");
+        }
+
+        // ① freelist 死页回收。VACUUM 不能在事务内,此处无活跃事务(open 刚完成 migrate)。
+        let freelist: i64 = self
+            .connection
+            .pragma_query_value(None, "freelist_count", |row| row.get(0))
+            .unwrap_or(0);
+        let pages: i64 = self
+            .connection
+            .pragma_query_value(None, "page_count", |row| row.get(0))
+            .unwrap_or(0);
+        if pages > 0 && freelist as f64 / pages as f64 > HOUSEKEEPING_FREELIST_THRESHOLD {
+            tracing::info!(
+                freelist,
+                pages,
+                "state.db freelist 死页超阈值,执行 VACUUM 回收"
+            );
+            if let Err(error) = self.connection.execute("VACUUM", []) {
+                tracing::warn!(
+                    error = %error,
+                    path = %path.display(),
+                    freelist,
+                    pages,
+                    "state.db VACUUM failed"
+                );
+            }
+        }
+
+        // ② 迁移备份只保留最近一版。备份命名 state.db.v<N>.bak,按版本号取最大。
+        if let Some(parent) = path.parent() {
+            let stem = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let mut backups: Vec<(i64, PathBuf)> = std::fs::read_dir(parent)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path())
+                .filter_map(|candidate| {
+                    let name = candidate.file_name()?.to_string_lossy().into_owned();
+                    let version = name
+                        .strip_prefix(&format!("{stem}.v"))?
+                        .strip_suffix(".bak")?
+                        .parse::<i64>()
+                        .ok()?;
+                    Some((version, candidate))
+                })
+                .collect();
+            backups.sort_by_key(|(version, _)| *version);
+            if backups.len() > 1 {
+                let keep = backups.pop().map(|(_, p)| p).unwrap_or_default();
+                for (version, old) in backups {
+                    tracing::info!(version, "删除过期迁移备份 {}", old.display());
+                    if let Err(error) = std::fs::remove_file(&old) {
+                        tracing::warn!(
+                            error = %error,
+                            version,
+                            path = %old.display(),
+                            "删除过期迁移备份失败"
+                        );
+                    }
+                }
+                let _ = keep;
+            }
+        }
+        Ok(())
+    }
+
+    /// 迁移前的整库备份:state.db.v<旧版本>.bak。
+    ///
+    /// 用 VACUUM INTO 而不是复制文件——库跑在 WAL 模式下,单独拷 .db 会漏掉
+    /// -wal 里尚未 checkpoint 的事务,拷出来的是个残缺快照。VACUUM INTO 由
+    /// SQLite 自己生成一致副本。内存库无需备份。
+    pub(crate) fn backup_before_upgrade(&self, from_version: i64) -> Result<(), StoreError> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let backup = path.with_extension(format!("db.v{from_version}.bak"));
+        // 上一次升级尝试留下的同名备份直接覆盖:它描述的是同一个旧版本。
+        // VACUUM INTO 要求目标不存在,所以必须先删。
+        if let Err(error) = std::fs::remove_file(&backup) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    error = %error,
+                    path = %backup.display(),
+                    "覆盖迁移备份前删除旧备份失败"
+                );
+            }
+        }
+        self.connection
+            .execute("VACUUM INTO ?1", params![backup.to_string_lossy()])?;
+        Ok(())
+    }
+
+    /// 已存在的迁移前备份路径(供调用方提示用户如何回退)。
+    pub fn backup_path(&self, from_version: i64) -> Option<PathBuf> {
+        let backup = self
+            .path
+            .as_ref()?
+            .with_extension(format!("db.v{from_version}.bak"));
+        backup.is_file().then_some(backup)
+    }
+
+    /// 从迁移前备份里把被抹掉的输入状态位捞回来(D-180 续)。
+    ///
+    /// v6 的回填来晚了一步:它要修的那批 `promoted`,在 v5 期间的两次停止里已经
+    /// 被 `finalize_interrupt` 抹成 `cancelled`,于是回填在真实机器上扑了个空。
+    /// 唯一还留着原始状态的地方,是升级时 `VACUUM INTO` 出来的那份备份。
+    ///
+    /// 判定刻意用备份当权威,而不是猜:备份里是 `promoted` 的,说明它在 v5 之前
+    /// **被提升执行过**却没有终态可记(那时根本没有 completed);备份里已经是
+    /// `cancelled` 的,是用户当年真的取消过,不动。备份里根本没有的(升级之后
+    /// 才产生的输入),更不动——这台机器上 21:40 那条就属于此类,它是真被停掉的。
+    pub(crate) fn recover_legacy_input_status(&self) -> Result<(), StoreError> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let Some(parent) = path.parent() else {
+            return Ok(());
+        };
+        let stem = path
+            .file_name()
+            .map(|name| format!("{}.v", name.to_string_lossy()))
+            .unwrap_or_default();
+        let mut backups: Vec<PathBuf> = std::fs::read_dir(parent)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|candidate| {
+                let name = candidate
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned());
+                name.is_some_and(|name| name.starts_with(&stem) && name.ends_with(".bak"))
+            })
+            .collect();
+        backups.sort();
+        let mut recovered = 0usize;
+        for backup in backups {
+            // 备份可能来自更旧的 schema、也可能损坏;单个失败不该阻断迁移。
+            let attached = self
+                .connection
+                .execute_batch(&format!(
+                    "ATTACH DATABASE '{}' AS legacy",
+                    backup.to_string_lossy().replace('\'', "''")
+                ))
+                .is_ok();
+            if !attached {
+                continue;
+            }
+            let updated = self.connection.execute(
+                "UPDATE session_inputs SET status = 'completed'
+                     WHERE status = 'cancelled'
+                       AND input_id IN (
+                           SELECT input_id FROM legacy.session_inputs WHERE status = 'promoted'
+                       )",
+                [],
+            );
+            recovered += updated.unwrap_or(0);
+            let _ = self.connection.execute_batch("DETACH DATABASE legacy");
+        }
+        if recovered > 0 {
+            tracing::info!(recovered, "v7 迁移:从备份恢复了被抹掉的输入状态位");
+        }
+        // 落一个可回查的痕迹:回填是推断值,事后要能知道动过多少条。
+        self.connection.execute(
+            "INSERT INTO schema_meta(key, value) VALUES ('legacy_inputs_recovered', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![recovered.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// v7 从备份恢复的输入条数(事后核对用)。
+    pub fn legacy_inputs_recovered(&self) -> Option<usize> {
+        self.connection
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'legacy_inputs_recovered'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse().ok())
+    }
+}
+
+impl SessionStore {
+    /// 只读打开状态库；不迁移、不 housekeeping，供显式统计入口使用。
+    pub fn open_read_only(path: &Path) -> Result<Self, StoreError> {
+        let connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        Ok(Self {
+            connection,
+            path: Some(path.to_path_buf()),
+        })
+    }
+}
+
+impl SessionStore {
+    /// 生成显式安全整理计划；读取完整占用和可释放文件，但不写数据库或磁盘。
+    pub fn storage_cleanup_plan(
+        &self,
+        project_root: &Path,
+    ) -> Result<super::StorageCleanupPlan, StoreError> {
+        let report = self.storage_report(project_root)?;
+        let artifact_plan = self.artifact_cleanup_plan(project_root)?;
+        let migration_backups = migration_backup_reports(self.path.as_deref());
+        let keep_version = migration_backups.iter().map(|backup| backup.version).max();
+        let deletable_backup_versions: Vec<_> = migration_backups
+            .iter()
+            .filter(|backup| Some(backup.version) != keep_version)
+            .map(|backup| backup.version)
+            .collect();
+        let estimated_reclaim_bytes = artifact_plan.unreferenced_artifact_bytes.saturating_add(
+            migration_backups
+                .iter()
+                .filter(|backup| Some(backup.version) != keep_version)
+                .map(|backup| backup.bytes)
+                .sum(),
+        );
+        let blocked_reason = runtime_block_reason(&self.connection)?;
+        Ok(super::StorageCleanupPlan {
+            dry_run: true,
+            eligible: blocked_reason.is_none(),
+            blocked_reason,
+            report,
+            unreferenced: artifact_plan.unreferenced,
+            migration_backups,
+            deletable_backup_versions,
+            estimated_reclaim_bytes,
+        })
+    }
+
+    /// 执行显式安全整理：先重查静止状态，再 checkpoint/VACUUM，最后删除可核对的文件。
+    pub fn cleanup_storage(
+        &self,
+        project_root: &Path,
+    ) -> Result<super::StorageCleanupResult, StoreError> {
+        let plan = self.storage_cleanup_plan(project_root)?;
+        if !plan.eligible {
+            return Err(StoreError::InvalidInput(
+                plan.blocked_reason
+                    .unwrap_or_else(|| "运行仍未静止".to_string()),
+            ));
+        }
+        if let Some(reason) = runtime_block_reason(&self.connection)? {
+            return Err(StoreError::InvalidInput(reason));
+        }
+        let before = plan.report.clone();
+        let checkpointed = checkpoint_wal(&self.connection)?;
+        self.connection.execute("VACUUM", [])?;
+        let mut deleted_artifacts = Vec::new();
+        let mut deleted_artifact_bytes = 0u64;
+        let mut artifact_cleanup_errors = Vec::new();
+        for artifact in &plan.unreferenced {
+            let Some(path) = safe_artifact_path(project_root, &artifact.relative_path) else {
+                artifact_cleanup_errors.push(format!("拒绝路径逃逸: {}", artifact.relative_path));
+                continue;
+            };
+            let bytes = file_size(&path);
+            match std::fs::remove_file(path) {
+                Ok(()) => {
+                    deleted_artifacts.push(artifact.relative_path.clone());
+                    deleted_artifact_bytes = deleted_artifact_bytes.saturating_add(bytes);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    artifact_cleanup_errors.push(format!("{}: {error}", artifact.relative_path))
+                }
+            }
+        }
+        let keep_version = plan
+            .migration_backups
+            .iter()
+            .map(|backup| backup.version)
+            .max();
+        let mut deleted_backups = Vec::new();
+        let mut deleted_backup_bytes = 0u64;
+        let mut backup_cleanup_errors = Vec::new();
+        for backup in &plan.migration_backups {
+            if Some(backup.version) == keep_version {
+                continue;
+            }
+            let Some(path) = self
+                .path
+                .as_ref()
+                .and_then(|state| state.parent())
+                .map(|parent| parent.join(&backup.relative_path))
+            else {
+                backup_cleanup_errors.push(format!("无法定位迁移备份: {}", backup.relative_path));
+                continue;
+            };
+            let bytes = file_size(&path);
+            match std::fs::remove_file(path) {
+                Ok(()) => {
+                    deleted_backups.push(backup.relative_path.clone());
+                    deleted_backup_bytes = deleted_backup_bytes.saturating_add(bytes);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    backup_cleanup_errors.push(format!("{}: {error}", backup.relative_path))
+                }
+            }
+        }
+        let after = self.storage_report(project_root)?;
+        let actual_freed_bytes = deleted_artifact_bytes
+            .saturating_add(deleted_backup_bytes)
+            .saturating_add(
+                database_total_bytes(&before).saturating_sub(database_total_bytes(&after)),
+            );
+        Ok(super::StorageCleanupResult {
+            before,
+            after,
+            checkpointed,
+            vacuumed: true,
+            deleted_artifacts,
+            deleted_backups,
+            artifact_cleanup_errors,
+            backup_cleanup_errors,
+            actual_freed_bytes,
+        })
+    }
+}
+
+impl SessionStore {
+    /// R-245 B2/B3:只读读取存储占用，并把 session_events 中的 artifact 引用与磁盘文件对账。
+    /// 不执行 DELETE、VACUUM、checkpoint 或备份处置；显式整理批次另行实现。
+    pub fn storage_report(&self, project_root: &Path) -> Result<StorageReport, StoreError> {
+        let owned_state_path;
+        let state_path = if let Some(path) = self.path.as_deref() {
+            path
+        } else {
+            owned_state_path = project_state_path(project_root);
+            owned_state_path.as_path()
+        };
+        let page_count: i64 = self
+            .connection
+            .pragma_query_value(None, "page_count", |row| row.get(0))?;
+        let freelist_pages: i64 =
+            self.connection
+                .pragma_query_value(None, "freelist_count", |row| row.get(0))?;
+        let state_db_bytes = file_size(state_path);
+        let wal_bytes = file_size(&PathBuf::from(format!("{}-wal", state_path.display())));
+        let shm_bytes = file_size(&PathBuf::from(format!("{}-shm", state_path.display())));
+        let artifacts_root = project_root.join(".kanzei/artifacts/tool-results");
+        let mut report = StorageReport {
+            state_db_bytes,
+            wal_bytes,
+            shm_bytes,
+            page_count,
+            freelist_pages,
+            artifact_files: 0,
+            artifact_bytes: 0,
+            unreferenced_artifact_files: 0,
+            unreferenced_artifact_bytes: 0,
+            shadow_files: 0,
+            shadow_bytes: 0,
+            migration_backup_files: 0,
+            migration_backup_bytes: 0,
+        };
+        collect_artifact_files(&artifacts_root, false, &mut report);
+        let plan = self.artifact_cleanup_plan(project_root)?;
+        report.unreferenced_artifact_files = plan.unreferenced_artifact_files;
+        report.unreferenced_artifact_bytes = plan.unreferenced_artifact_bytes;
+        if let Some(parent) = state_path.parent() {
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    if name.starts_with("state.db.v") && name.ends_with(".bak") {
+                        report.migration_backup_files += 1;
+                        report.migration_backup_bytes = report
+                            .migration_backup_bytes
+                            .saturating_add(file_size(&entry.path()));
+                    }
+                }
+            }
+        }
+        Ok(report)
+    }
+
+    /// 构造 artifact 引用图和无引用候选。该入口严格只读，返回的计划永远是 dry-run。
+    pub fn artifact_cleanup_plan(
+        &self,
+        project_root: &Path,
+    ) -> Result<super::ArtifactCleanupPlan, StoreError> {
+        let mut references = BTreeMap::new();
+        let mut statement = self
+            .connection
+            .prepare("SELECT payload_json FROM session_events")?;
+        let payloads = statement.query_map([], |row| row.get::<_, String>(0))?;
+        for payload in payloads {
+            let payload = payload?;
+            let value: serde_json::Value = serde_json::from_str(&payload)?;
+            collect_artifact_references(&value, &mut references);
+        }
+
+        let artifact_root = project_root.join(".kanzei/artifacts/tool-results");
+        let mut files = Vec::new();
+        collect_artifact_inventory(&artifact_root, project_root, false, &references, &mut files);
+        let total_artifact_files = files.len() as u64;
+        let total_artifact_bytes = files.iter().map(|file| file.bytes).sum();
+        let referenced_artifact_files =
+            files.iter().filter(|file| file.reference_count > 0).count() as u64;
+        let referenced_artifact_bytes = files
+            .iter()
+            .filter(|file| file.reference_count > 0)
+            .map(|file| file.bytes)
+            .sum();
+        let unreferenced: Vec<_> = files
+            .into_iter()
+            .filter(|file| file.reference_count == 0)
+            .collect();
+        let unreferenced_artifact_files = unreferenced.len() as u64;
+        let unreferenced_artifact_bytes = unreferenced.iter().map(|file| file.bytes).sum();
+
+        Ok(super::ArtifactCleanupPlan {
+            dry_run: true,
+            total_artifact_files,
+            total_artifact_bytes,
+            referenced_artifact_files,
+            referenced_artifact_bytes,
+            unreferenced_artifact_files,
+            unreferenced_artifact_bytes,
+            unreferenced,
+        })
+    }
+}
+
+impl SessionStore {
+    /// 构造选定会话的删除计划。默认 dry-run，计划包含不可恢复范围和 artifact 处置。
+    pub fn session_deletion_plan(
+        &self,
+        session_id: &str,
+        project_root: &Path,
+    ) -> Result<super::SessionDeletionPlan, StoreError> {
+        self.session_deletion_plan_with(session_id, project_root, false)
+    }
+
+    /// `ignore_missing_artifacts`:被事件引用、磁盘上却找不到(或在项目根之外)的 artifact 不再
+    /// 挡住删除。独立任务的工具产物可能落在工作树根,主根下查不到;那些引用随会话一起删掉,
+    /// 没有文件可清,拦住只会让「删除对话」永远走不通(`purge_session` 用)。
+    fn session_deletion_plan_with(
+        &self,
+        session_id: &str,
+        project_root: &Path,
+        ignore_missing_artifacts: bool,
+    ) -> Result<super::SessionDeletionPlan, StoreError> {
+        let session = self
+            .get_session(session_id)?
+            .ok_or_else(|| StoreError::InvalidInput(format!("会话不存在: {session_id}")))?;
+        let active_inputs: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM session_inputs
+                 WHERE session_id = ?1 AND status IN ('pending', 'promoted', 'running')",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        let blocked_reason = if session.status == "running" {
+            Some("会话仍在运行".to_string())
+        } else if active_inputs > 0 {
+            Some("会话仍有未结束输入".to_string())
+        } else {
+            None
+        };
+        let event_count = count_for_session(&self.connection, "session_events", session_id)?;
+        let input_count = count_for_session(&self.connection, "session_inputs", session_id)?;
+        let episode_count = count_for_session(&self.connection, "episodes", session_id)?;
+        let recall_event_count: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM recall_events
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        let memory_source_count: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM memory_sources
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        let memory_recovery_count: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM memory_recoveries
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        // agent_notifications / delivery_cursors 按 thread_id 归属;桌面与手机线程的
+        // thread_id 就是 session_id。
+        let notification_count: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM agent_notifications WHERE thread_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+
+        let session_references = collect_event_references(&self.connection, Some(session_id))?;
+        let all_references = collect_event_references(&self.connection, None)?;
+        let artifact_root = project_root.join(".kanzei/artifacts/tool-results");
+        let mut files = Vec::new();
+        collect_artifact_inventory(
+            &artifact_root,
+            project_root,
+            false,
+            &all_references,
+            &mut files,
+        );
+        let mut target_artifacts = Vec::new();
+        let mut deletable_artifacts = Vec::new();
+        let mut missing_artifacts = Vec::new();
+        for file in files {
+            let session_reference_count = artifact_reference_count(&session_references, &file);
+            if session_reference_count == 0 {
+                continue;
+            }
+            let global_reference_count = artifact_reference_count(&all_references, &file);
+            let artifact = super::SessionArtifactReport {
+                artifact_id: file.artifact_id,
+                relative_path: file.relative_path,
+                bytes: file.bytes,
+                session_reference_count,
+                other_reference_count: global_reference_count
+                    .saturating_sub(session_reference_count),
+            };
+            if artifact.other_reference_count == 0 {
+                deletable_artifacts.push(artifact.clone());
+            }
+            target_artifacts.push(artifact);
+        }
+        for key in session_references.keys() {
+            if !target_artifacts.iter().any(|artifact| {
+                artifact_reference_key_matches(key, &artifact.artifact_id, &artifact.relative_path)
+            }) {
+                missing_artifacts.push(key.clone());
+            }
+        }
+        let blocked_reason = blocked_reason.or_else(|| {
+            (!ignore_missing_artifacts && !missing_artifacts.is_empty())
+                .then(|| "存在缺失或不安全的 artifact 引用".to_string())
+        });
+        Ok(super::SessionDeletionPlan {
+            dry_run: true,
+            session_id: session_id.to_string(),
+            eligible: blocked_reason.is_none(),
+            blocked_reason,
+            event_count,
+            input_count,
+            episode_count,
+            recall_event_count,
+            memory_source_count,
+            memory_recovery_count,
+            notification_count,
+            target_artifacts,
+            deletable_artifacts,
+            missing_artifacts,
+        })
+    }
+
+    /// 提交会话删除后再清理 artifact；物理文件失败不回滚已提交数据，但结果可重试。
+    pub fn delete_session(
+        &self,
+        session_id: &str,
+        project_root: &Path,
+    ) -> Result<super::SessionDeletionResult, StoreError> {
+        self.delete_session_with(session_id, project_root, false)
+    }
+
+    /// 「删除对话」的真删:与 [`Self::delete_session`] 同一事务与同一批运行中/未结束输入守卫,
+    /// 只是不再被「artifact 引用缺失」拦住(见 `session_deletion_plan_with`)。
+    pub fn purge_session(
+        &self,
+        session_id: &str,
+        project_root: &Path,
+    ) -> Result<super::SessionDeletionResult, StoreError> {
+        self.delete_session_with(session_id, project_root, true)
+    }
+
+    fn delete_session_with(
+        &self,
+        session_id: &str,
+        project_root: &Path,
+        ignore_missing_artifacts: bool,
+    ) -> Result<super::SessionDeletionResult, StoreError> {
+        let plan =
+            self.session_deletion_plan_with(session_id, project_root, ignore_missing_artifacts)?;
+        if !plan.eligible {
+            return Err(StoreError::InvalidInput(
+                plan.blocked_reason
+                    .unwrap_or_else(|| "会话删除计划不可执行".to_string()),
+            ));
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        let status: String = tx.query_row(
+            "SELECT status FROM sessions WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        let active_inputs: u64 = tx.query_row(
+            "SELECT COUNT(*) FROM session_inputs
+                 WHERE session_id = ?1 AND status IN ('pending', 'promoted', 'running')",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        if status == "running" || active_inputs > 0 {
+            return Err(StoreError::InvalidInput(
+                "会话在删除提交前变为活动状态".to_string(),
+            ));
+        }
+        let deleted_recall_events = tx.execute(
+            "DELETE FROM recall_events
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+        )? as u64;
+        let deleted_memory_sources = tx.execute(
+            "DELETE FROM memory_sources
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+        )? as u64;
+        // memory_recoveries.episode_id REFERENCES episodes 且无级联,连接上开着外键:
+        // 漏删它,只要会话有过一次「失败后恢复」证据,删 episodes 就报 FOREIGN KEY
+        // constraint failed,整个事务回滚。
+        let deleted_memory_recoveries = tx.execute(
+            "DELETE FROM memory_recoveries
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+        )? as u64;
+        let deleted_episodes = tx.execute(
+            "DELETE FROM episodes WHERE session_id = ?1",
+            params![session_id],
+        )? as u64;
+        let deleted_events = tx.execute(
+            "DELETE FROM session_events WHERE session_id = ?1",
+            params![session_id],
+        )? as u64;
+        let deleted_inputs = tx.execute(
+            "DELETE FROM session_inputs WHERE session_id = ?1",
+            params![session_id],
+        )? as u64;
+        let deleted_notifications = tx.execute(
+            "DELETE FROM agent_notifications WHERE thread_id = ?1",
+            params![session_id],
+        )? as u64;
+        tx.execute(
+            "DELETE FROM delivery_cursors WHERE thread_id = ?1",
+            params![session_id],
+        )?;
+        let deleted_sessions = tx.execute(
+            "DELETE FROM sessions WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        if deleted_sessions != 1 {
+            return Err(StoreError::InvalidInput("删除会话行数异常".to_string()));
+        }
+        tx.commit()?;
+
+        let remaining_references = collect_event_references(&self.connection, None)?;
+        let mut deleted_artifacts = Vec::new();
+        let mut artifact_cleanup_errors = Vec::new();
+        for artifact in plan.deletable_artifacts {
+            if artifact_reference_key_count(&remaining_references, &artifact) > 0 {
+                continue;
+            }
+            let Some(path) = safe_artifact_path(project_root, &artifact.relative_path) else {
+                artifact_cleanup_errors.push(format!("拒绝路径逃逸: {}", artifact.relative_path));
+                continue;
+            };
+            match std::fs::remove_file(&path) {
+                Ok(()) => deleted_artifacts.push(artifact.relative_path),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    artifact_cleanup_errors.push(format!("{}: {error}", artifact.relative_path))
+                }
+            }
+        }
+        Ok(super::SessionDeletionResult {
+            session_id: session_id.to_string(),
+            deleted_events,
+            deleted_inputs,
+            deleted_episodes,
+            deleted_recall_events,
+            deleted_memory_sources,
+            deleted_memory_recoveries,
+            deleted_notifications,
+            deleted_artifacts,
+            artifact_cleanup_errors,
+        })
+    }
+}
+
+fn count_for_session(
+    connection: &Connection,
+    table: &str,
+    session_id: &str,
+) -> Result<u64, StoreError> {
+    let sql = format!("SELECT COUNT(*) FROM {table} WHERE session_id = ?1");
+    Ok(connection.query_row(&sql, params![session_id], |row| row.get(0))?)
+}
+
+fn collect_event_references(
+    connection: &Connection,
+    session_id: Option<&str>,
+) -> Result<BTreeMap<String, u64>, StoreError> {
+    let mut statement = match session_id {
+        Some(_) => {
+            connection.prepare("SELECT payload_json FROM session_events WHERE session_id = ?1")?
+        }
+        None => connection.prepare("SELECT payload_json FROM session_events")?,
+    };
+    let mut rows = match session_id {
+        Some(session_id) => statement.query(params![session_id])?,
+        None => statement.query([])?,
+    };
+    let mut references = BTreeMap::new();
+    while let Some(row) = rows.next()? {
+        let payload: String = row.get(0)?;
+        let value: serde_json::Value = serde_json::from_str(&payload)?;
+        collect_artifact_references(&value, &mut references);
+    }
+    Ok(references)
+}
+
+fn artifact_reference_count(
+    references: &BTreeMap<String, u64>,
+    file: &super::ArtifactFileReport,
+) -> u64 {
+    references
+        .get(&format!("id:{}", file.artifact_id))
+        .copied()
+        .unwrap_or_default()
+        .saturating_add(
+            references
+                .get(&format!("path:{}", file.relative_path))
+                .copied()
+                .unwrap_or_default(),
+        )
+}
+
+fn artifact_reference_key_matches(key: &str, artifact_id: &str, relative_path: &str) -> bool {
+    key == format!("id:{artifact_id}") || key == format!("path:{relative_path}")
+}
+
+fn artifact_reference_key_count(
+    references: &BTreeMap<String, u64>,
+    artifact: &super::SessionArtifactReport,
+) -> u64 {
+    references
+        .get(&format!("id:{}", artifact.artifact_id))
+        .copied()
+        .unwrap_or_default()
+        .saturating_add(
+            references
+                .get(&format!("path:{}", artifact.relative_path))
+                .copied()
+                .unwrap_or_default(),
+        )
+}
+
+fn safe_artifact_path(project_root: &Path, relative_path: &str) -> Option<PathBuf> {
+    let normalized = normalize_artifact_relative_path(relative_path)?;
+    let path = project_root.join(&normalized);
+    if path.strip_prefix(project_root).is_ok() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+fn runtime_block_reason(connection: &Connection) -> Result<Option<String>, StoreError> {
+    let running_sessions: u64 = connection.query_row(
+        "SELECT COUNT(*) FROM sessions WHERE status = 'running'",
+        [],
+        |row| row.get(0),
+    )?;
+    if running_sessions > 0 {
+        return Ok(Some(format!("仍有 {running_sessions} 个对话运行中")));
+    }
+    let active_inputs: u64 = connection.query_row(
+        "SELECT COUNT(*) FROM session_inputs WHERE status IN ('pending', 'promoted', 'running')",
+        [],
+        |row| row.get(0),
+    )?;
+    if active_inputs > 0 {
+        return Ok(Some(format!("仍有 {active_inputs} 个输入未结束")));
+    }
+    Ok(None)
+}
+
+fn checkpoint_wal(connection: &Connection) -> Result<bool, StoreError> {
+    let (busy, _log, _checkpointed): (i64, i64, i64) =
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+    if busy != 0 {
+        return Err(StoreError::InvalidInput(format!(
+            "SQLite WAL checkpoint 忙碌，未执行安全整理: busy={busy}"
+        )));
+    }
+    Ok(true)
+}
+
+fn migration_backup_reports(path: Option<&Path>) -> Vec<super::StorageBackupReport> {
+    let Some(path) = path else {
+        return Vec::new();
+    };
+    let Some(parent) = path.parent() else {
+        return Vec::new();
+    };
+    let stem = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut backups: Vec<_> = std::fs::read_dir(parent)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            let version = name
+                .strip_prefix(&format!("{stem}.v"))?
+                .strip_suffix(".bak")?
+                .parse::<i64>()
+                .ok()?;
+            Some(super::StorageBackupReport {
+                version,
+                relative_path: name,
+                bytes: file_size(&path),
+            })
+        })
+        .collect();
+    backups.sort_by_key(|backup| backup.version);
+    backups
+}
+
+fn database_total_bytes(report: &StorageReport) -> u64 {
+    report
+        .state_db_bytes
+        .saturating_add(report.wal_bytes)
+        .saturating_add(report.shm_bytes)
+}
+
+fn file_size(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
+fn collect_artifact_inventory(
+    path: &Path,
+    project_root: &Path,
+    in_shadow: bool,
+    references: &BTreeMap<String, u64>,
+    files: &mut Vec<super::ArtifactFileReport>,
+) {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let child_shadow = in_shadow || entry.file_name() == "shadow";
+            collect_artifact_inventory(&path, project_root, child_shadow, references, files);
+        } else if path.is_file() && !in_shadow {
+            let relative_path = path
+                .strip_prefix(project_root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let artifact_id = path
+                .file_stem()
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let reference_count = references
+                .get(&format!("id:{artifact_id}"))
+                .copied()
+                .unwrap_or_default()
+                .saturating_add(
+                    references
+                        .get(&format!("path:{relative_path}"))
+                        .copied()
+                        .unwrap_or_default(),
+                );
+            files.push(super::ArtifactFileReport {
+                artifact_id,
+                relative_path,
+                bytes: file_size(&path),
+                reference_count,
+            });
+        }
+    }
+}
+
+fn collect_artifact_files(path: &Path, in_shadow: bool, report: &mut StorageReport) {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let child_shadow = in_shadow || entry.file_name() == "shadow";
+            collect_artifact_files(&path, child_shadow, report);
+        } else if path.is_file() {
+            let bytes = file_size(&path);
+            if in_shadow {
+                report.shadow_files += 1;
+                report.shadow_bytes = report.shadow_bytes.saturating_add(bytes);
+            } else {
+                report.artifact_files += 1;
+                report.artifact_bytes = report.artifact_bytes.saturating_add(bytes);
+            }
+        }
+    }
+}
+
+pub fn project_state_path(project_root: &Path) -> PathBuf {
+    project_root.join(".kanzei").join("state.db")
+}
+
+pub fn project_session_id(project_root: &Path) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    session_identity(project_root).hash(&mut hasher);
+    format!("ses_project_{:016x}", hasher.finish())
+}
+
+/// 会话身份用的路径形态(D-176)。
+///
+/// 同一个目录必须只有一个会话 id。桌面端走 `normalized_project_root`,里面的
+/// `std::fs::canonicalize` 在 Windows 上会返回 `\\?\C:\...` 扩展长度前缀;CLI 走
+/// 裸 `discover_project_root`,拿到的是 `C:\...`。两者只做 lowercase 后哈希,于是
+/// 同一个项目裂成两条会话线,历史与队列互相看不见——实测本仓库就同时存在
+/// `ses_project_c0b8d63…`(裸)与 `ses_project_ce2fce9…`(canonical)两条。
+///
+/// 这里剥掉 `\\?\` / `\\?\UNC\` 前缀并去掉末尾分隔符。**分隔符刻意不做统一**:
+/// 裸路径形态的哈希必须与历史保持一致,否则所有既有会话会一次性全部改名、
+/// 历史集体失联。代价是 `C:/x` 这种正斜杠写法仍算另一个 id,但实际调用方
+/// (discover_project_root / canonicalize / PathBuf::display)在 Windows 上一律
+/// 产出反斜杠,这条路径不会被走到。
+pub(crate) fn session_identity(project_root: &Path) -> String {
+    let raw = project_root.to_string_lossy();
+    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
+    stripped.trim_end_matches(['\\', '/']).to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::testutil::store;
+    use crate::store::*;
+    use std::path::Path;
+
+    #[test]
+    fn text_context_archive_references_protect_spilled_results() {
+        let mut refs = BTreeMap::new();
+        collect_artifact_references(
+            &serde_json::json!({"surface":["压缩原文：read `C:\\repo\\.kanzei\\artifacts\\tool-results\\context-abc.json`"]}),
+            &mut refs,
+        );
+        assert_eq!(
+            refs.get("path:.kanzei/artifacts/tool-results/context-abc.json"),
+            Some(&1)
+        );
+        collect_artifact_references(
+            &serde_json::json!("read .kanzei/artifacts/tool-results/../escape"),
+            &mut refs,
+        );
+        assert_eq!(refs.len(), 1);
+    }
+
+    #[test]
+    fn storage_report_is_read_only_and_counts_artifacts_and_backups() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-storage-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let store = SessionStore::open(&state_path).unwrap();
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(artifact_root.join("shadow")).unwrap();
+        std::fs::write(artifact_root.join("result.txt"), b"abc").unwrap();
+        std::fs::write(artifact_root.join("shadow/telemetry.json"), b"12345").unwrap();
+        std::fs::write(root.join(".kanzei/state.db.v16.bak"), b"backup").unwrap();
+
+        let before = store.storage_report(&root).unwrap();
+        assert!(before.state_db_bytes > 0);
+        assert_eq!(before.artifact_files, 1);
+        assert_eq!(before.artifact_bytes, 3);
+        assert_eq!(before.shadow_files, 1);
+        assert_eq!(before.shadow_bytes, 5);
+        assert_eq!(before.migration_backup_files, 1);
+        assert_eq!(before.migration_backup_bytes, 6);
+        assert!(state_path.exists());
+        assert_eq!(before.unreferenced_artifact_files, 1);
+        assert_eq!(before.unreferenced_artifact_bytes, 3);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn artifact_plan_tracks_references_rejects_path_escape_and_is_read_only() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-artifact-plan-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses_artifacts", "C:/project", None)
+            .unwrap();
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(artifact_root.join("shadow")).unwrap();
+        std::fs::write(artifact_root.join("kept.txt"), b"kept").unwrap();
+        std::fs::write(artifact_root.join("path-ref.bin"), b"path").unwrap();
+        std::fs::write(artifact_root.join("orphan.log"), b"orphan").unwrap();
+        std::fs::write(artifact_root.join("shadow/telemetry.json"), b"shadow").unwrap();
+        store
+            .append_event(
+                "ses_artifacts",
+                "tool.completed",
+                &serde_json::json!({"artifact": {"artifact_id": "kept"}}),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_artifacts",
+                "tool.completed",
+                &serde_json::json!({
+                    "artifact": {"relative_path": ".kanzei/artifacts/tool-results/path-ref.bin"}
+                }),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_artifacts",
+                "tool.completed",
+                &serde_json::json!({
+                    "artifact": {
+                        "artifact_id": "not-a-file",
+                        "relative_path": ".kanzei/artifacts/tool-results/../orphan.log"
+                    }
+                }),
+            )
+            .unwrap();
+
+        let before_data_version: i64 = store
+            .connection
+            .pragma_query_value(None, "data_version", |row| row.get(0))
+            .unwrap();
+        let before_events = store.list_events("ses_artifacts", 0).unwrap().len();
+        let plan = store.artifact_cleanup_plan(&root).unwrap();
+        let after_data_version: i64 = store
+            .connection
+            .pragma_query_value(None, "data_version", |row| row.get(0))
+            .unwrap();
+
+        assert!(plan.dry_run);
+        assert_eq!(plan.total_artifact_files, 3);
+        assert_eq!(plan.referenced_artifact_files, 2);
+        assert_eq!(plan.unreferenced_artifact_files, 1);
+        assert_eq!(plan.unreferenced_artifact_bytes, 6);
+        assert_eq!(
+            plan.unreferenced[0].relative_path,
+            ".kanzei/artifacts/tool-results/orphan.log"
+        );
+        assert_eq!(
+            before_events,
+            store.list_events("ses_artifacts", 0).unwrap().len()
+        );
+        assert_eq!(before_data_version, after_data_version);
+        assert!(artifact_root.join("orphan.log").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn 会话删除计划和执行保持引用安全并可重试() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-session-delete-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let artifact_path = root.join(".kanzei/artifacts/tool-results/shared.bin");
+        std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        std::fs::write(&artifact_path, b"shared artifact").unwrap();
+        let store = SessionStore::open(&state_path).unwrap();
+        for session_id in ["ses-delete-one", "ses-delete-two"] {
+            store
+                .create_session(session_id, &root.display().to_string(), None)
+                .unwrap();
+            store
+                .append_event(
+                    session_id,
+                    "tool.completed",
+                    &serde_json::json!({"artifact": {"artifact_id": "shared"}}),
+                )
+                .unwrap();
+        }
+
+        let plan = store
+            .session_deletion_plan("ses-delete-one", &root)
+            .unwrap();
+        assert!(plan.eligible);
+        assert_eq!(plan.event_count, 1);
+        assert_eq!(plan.target_artifacts.len(), 1);
+        assert!(plan.deletable_artifacts.is_empty());
+        assert_eq!(plan.target_artifacts[0].other_reference_count, 1);
+
+        let read_only = SessionStore::open_read_only(&state_path).unwrap();
+        assert!(read_only.delete_session("ses-delete-one", &root).is_err());
+        assert!(read_only.get_session("ses-delete-one").unwrap().is_some());
+        drop(read_only);
+
+        let first = store.delete_session("ses-delete-one", &root).unwrap();
+        assert_eq!(first.deleted_events, 1);
+        assert!(first.deleted_artifacts.is_empty());
+        assert!(artifact_path.exists());
+        assert!(store.get_session("ses-delete-one").unwrap().is_none());
+        drop(store);
+
+        let reopened = SessionStore::open_read_only(&state_path).unwrap();
+        assert!(reopened.get_session("ses-delete-one").unwrap().is_none());
+        assert!(reopened.get_session("ses-delete-two").unwrap().is_some());
+        drop(reopened);
+
+        let store = SessionStore::open(&state_path).unwrap();
+        let second = store.delete_session("ses-delete-two", &root).unwrap();
+        assert_eq!(second.deleted_events, 1);
+        assert_eq!(
+            second.deleted_artifacts,
+            vec![".kanzei/artifacts/tool-results/shared.bin"]
+        );
+        assert!(!artifact_path.exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// UI-0926 #1:memory_recoveries.episode_id 引用 episodes 且无级联,连接开着外键。
+    /// 漏删它时,会话只要有过一次「失败后恢复」证据,整会话删除就 FOREIGN KEY
+    /// constraint failed 整体回滚;通知与投递游标同属该会话,一并删除。
+    #[test]
+    fn 会话删除连带清理恢复证据与通知() {
+        use kanzei_llm::{Message, Part};
+        let root = std::env::temp_dir().join(format!(
+            "kz-ui0926-session-delete-recoveries-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = SessionStore::open(&project_state_path(&root)).unwrap();
+        store
+            .create_session("ses-recover", &root.display().to_string(), None)
+            .unwrap();
+        let episode = store
+            .append_episode(&EpisodeRecord {
+                session_id: "ses-recover",
+                run_id: "run-recover",
+                ..Default::default()
+            })
+            .unwrap();
+        let edit = |id: &str, error: bool| {
+            vec![
+                Message::assistant(vec![Part::ToolCall {
+                    id: id.into(),
+                    name: "edit".into(),
+                    input: serde_json::json!({"path": "src/lib.rs"}),
+                }]),
+                Message::tool_results(vec![Part::ToolResult {
+                    call_id: id.into(),
+                    is_error: error,
+                    content: if error { "old_string not found" } else { "ok" }.into(),
+                }]),
+            ]
+        };
+        let mut messages = edit("failure", true);
+        messages.extend(edit("fixed", false));
+        store.record_episode_recoveries(episode, &messages).unwrap();
+        assert!(store
+            .has_memory_recovery(episode, "[fp:edit|old_string not found]")
+            .unwrap());
+        store
+            .append_notification_atomic("ses-recover", "completed", "完成", false)
+            .unwrap();
+        store
+            .set_delivery_cursor("phone-1", "ses-recover", 1)
+            .unwrap();
+
+        let plan = store.session_deletion_plan("ses-recover", &root).unwrap();
+        assert!(plan.eligible);
+        assert_eq!(plan.memory_recovery_count, 1);
+        assert_eq!(plan.notification_count, 1);
+
+        let result = store
+            .delete_session("ses-recover", &root)
+            .expect("有恢复证据的会话也必须能整会话删除");
+        assert_eq!(result.deleted_episodes, 1);
+        assert_eq!(result.deleted_memory_recoveries, 1);
+        assert_eq!(result.deleted_notifications, 1);
+        let remaining = |sql: &str| -> i64 {
+            store
+                .connection
+                .query_row(sql, [], |row| row.get(0))
+                .unwrap()
+        };
+        assert_eq!(remaining("SELECT COUNT(*) FROM memory_recoveries"), 0);
+        assert_eq!(
+            remaining("SELECT COUNT(*) FROM agent_notifications WHERE thread_id = 'ses-recover'"),
+            0
+        );
+        assert_eq!(
+            remaining("SELECT COUNT(*) FROM delivery_cursors WHERE thread_id = 'ses-recover'"),
+            0
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 会话删除计划拒绝运行中会话() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-session-delete-active-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses-active", &root.display().to_string(), None)
+            .unwrap();
+        store.set_status("ses-active", "running").unwrap();
+        let plan = store.session_deletion_plan("ses-active", &root).unwrap();
+        assert!(!plan.eligible);
+        assert_eq!(plan.blocked_reason.as_deref(), Some("会话仍在运行"));
+        assert!(store.delete_session("ses-active", &root).is_err());
+        assert!(store.get_session("ses-active").unwrap().is_some());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 显式安全整理只在静止时执行并核对释放量() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-storage-cleanup-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let artifact_path = root.join(".kanzei/artifacts/tool-results/orphan.bin");
+        std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        std::fs::write(&artifact_path, b"orphan artifact").unwrap();
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses-cleanup", &root.display().to_string(), None)
+            .unwrap();
+        for version in [1i64, 2] {
+            std::fs::copy(
+                &state_path,
+                state_path.with_file_name(format!("state.db.v{version}.bak")),
+            )
+            .unwrap();
+        }
+
+        let plan = store.storage_cleanup_plan(&root).unwrap();
+        assert!(plan.eligible);
+        assert_eq!(plan.unreferenced.len(), 1);
+        assert_eq!(plan.migration_backups.len(), 2);
+        assert_eq!(plan.deletable_backup_versions, vec![1]);
+        assert!(plan.estimated_reclaim_bytes >= b"orphan artifact".len() as u64);
+        assert!(artifact_path.exists());
+        assert!(state_path.with_file_name("state.db.v1.bak").exists());
+
+        let result = store.cleanup_storage(&root).unwrap();
+        assert!(result.checkpointed);
+        assert!(result.vacuumed);
+        assert_eq!(
+            result.deleted_artifacts,
+            vec![".kanzei/artifacts/tool-results/orphan.bin"]
+        );
+        assert_eq!(result.deleted_backups, vec!["state.db.v1.bak"]);
+        assert!(result.actual_freed_bytes > 0);
+        assert!(!artifact_path.exists());
+        assert!(!state_path.with_file_name("state.db.v1.bak").exists());
+        assert!(state_path.with_file_name("state.db.v2.bak").exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 显式安全整理拒绝运行中会话且不删除文件() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-storage-cleanup-active-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let artifact_path = root.join(".kanzei/artifacts/tool-results/orphan.bin");
+        std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        std::fs::write(&artifact_path, b"orphan artifact").unwrap();
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses-cleanup-active", &root.display().to_string(), None)
+            .unwrap();
+        store.set_status("ses-cleanup-active", "running").unwrap();
+
+        let plan = store.storage_cleanup_plan(&root).unwrap();
+        assert!(!plan.eligible);
+        assert!(plan.blocked_reason.is_some());
+        assert!(store.cleanup_storage(&root).is_err());
+        assert!(artifact_path.exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 会话状态更新并刷新时间() {
+        let store = store();
+        let before = store.get_session("ses_test").unwrap().unwrap();
+        store.set_status("ses_test", "running").unwrap();
+        let after = store.get_session("ses_test").unwrap().unwrap();
+        assert_eq!(after.status, "running");
+        assert!(after.updated_at >= before.updated_at);
+        assert!(matches!(
+            store.set_status("missing", "running"),
+            Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
+        ));
+    }
+
+    /// UX-009:改名只写 title,不碰最近活动时间;空白 = 清除;会话行不存在时先建出来。
+    #[test]
+    fn 会话命名不动活动时间且可清除() {
+        let store = store();
+        let before = store.get_session("ses_test").unwrap().unwrap();
+        store
+            .set_session_title("ses_test", "C:/p", Some("  方案对照  "))
+            .unwrap();
+        let named = store.get_session("ses_test").unwrap().unwrap();
+        assert_eq!(named.title.as_deref(), Some("方案对照"));
+        assert_eq!(named.updated_at, before.updated_at, "改名不是会话活动");
+        store
+            .set_session_title("ses_test", "C:/p", Some("   "))
+            .unwrap();
+        assert_eq!(store.get_session("ses_test").unwrap().unwrap().title, None);
+        store
+            .set_session_title("ses_fresh", "C:/p", Some("先改名"))
+            .unwrap();
+        let fresh = store.get_session("ses_fresh").unwrap().unwrap();
+        assert_eq!(fresh.title.as_deref(), Some("先改名"));
+        assert_eq!(fresh.status, "idle");
+    }
+
+    /// 自动标题的来源:按提交顺序的第一条**有内容**且**未取消**的输入。
+    #[test]
+    fn 首条输入标题跳过取消与已清空的输入() {
+        let store = store();
+        assert_eq!(store.first_input_prompt("ses_test").unwrap(), None);
+        store
+            .admit_input("ses_test", "in-a", "又撤回的一条", Delivery::Queue)
+            .unwrap();
+        assert!(store.cancel_input("ses_test", "in-a").unwrap());
+        store
+            .admit_input("ses_test", "in-b", "", Delivery::Queue)
+            .unwrap();
+        assert_eq!(store.first_input_prompt("ses_test").unwrap(), None);
+        store
+            .admit_input("ses_test", "in-c", "真正的首条", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "in-d", "后来的一条", Delivery::Queue)
+            .unwrap();
+        assert_eq!(
+            store.first_input_prompt("ses_test").unwrap().as_deref(),
+            Some("真正的首条")
+        );
+    }
+
+    /// 删除对话(purge)不被「引用的 artifact 文件已不在」拦住,普通 delete_session 仍然拦。
+    #[test]
+    fn purge会话忽略缺失的artifact引用() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-ux009-purge-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = SessionStore::open(&project_state_path(&root)).unwrap();
+        store
+            .create_session("ses-ghost", &root.display().to_string(), None)
+            .unwrap();
+        store
+            .append_event(
+                "ses-ghost",
+                "tool.completed",
+                &serde_json::json!({"artifact": {"artifact_id": "ghost"}}),
+            )
+            .unwrap();
+        let plan = store.session_deletion_plan("ses-ghost", &root).unwrap();
+        assert!(!plan.eligible, "普通删除计划仍把缺失引用当阻塞项");
+        assert!(store.delete_session("ses-ghost", &root).is_err());
+        let result = store.purge_session("ses-ghost", &root).unwrap();
+        assert_eq!(result.deleted_events, 1);
+        assert!(store.get_session("ses-ghost").unwrap().is_none());
+        // 运行中的守卫不因 purge 放松。
+        store
+            .create_session("ses-busy", &root.display().to_string(), None)
+            .unwrap();
+        store.set_status("ses-busy", "running").unwrap();
+        assert!(store.purge_session("ses-busy", &root).is_err());
+        drop(store);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 同一目录的各种路径写法收敛到同一个会话id() {
+        let bare = Path::new(r"C:\Users\kanzei\Documents\kanzei code");
+        let canonical = Path::new(r"\\?\C:\Users\kanzei\Documents\kanzei code");
+        assert_eq!(project_session_id(bare), project_session_id(canonical));
+        // 大小写与末尾分隔符同样不该分裂会话。
+        assert_eq!(
+            project_session_id(bare),
+            project_session_id(Path::new(r"C:\Users\Kanzei\Documents\KANZEI CODE\"))
+        );
+        // UNC 的扩展长度前缀映射回普通 UNC 写法。
+        assert_eq!(
+            project_session_id(Path::new(r"\\?\UNC\server\share\proj")),
+            project_session_id(Path::new(r"\\server\share\proj"))
+        );
+        // 不同目录仍然是不同会话。
+        assert_ne!(
+            project_session_id(bare),
+            project_session_id(Path::new(r"C:\Users\kanzei\Documents\other"))
+        );
+
+        // 向后兼容的硬约束:裸路径的身份串必须仍是"原样小写",否则既有会话
+        // 会被一次性改名、全部历史失联。这里不断言哈希字面量——DefaultHasher
+        // 跨 Rust 版本不保证稳定,断言身份串才是真正的不变量。
+        assert_eq!(
+            super::session_identity(bare),
+            r"c:\users\kanzei\documents\kanzei code"
+        );
+    }
+
+    /// D-298 验收②:迁移备份只保留最近一版,更早的清理掉。
+    #[test]
+    fn 迁移备份只保留最近一版() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-housekeeping-bak-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        let store = SessionStore::open(&path).unwrap();
+        store.create_session("ses", "C:/p", None).unwrap();
+        drop(store);
+        // 手工造三份备份(v4/v7/v12),模拟历史迁移残留。
+        for version in [4i64, 7, 12] {
+            std::fs::copy(&path, dir.join(format!("state.db.v{version}.bak"))).unwrap();
+        }
+        let store = SessionStore::open(&path).unwrap();
+        // 显式评估:清掉节流时间戳,否则本次 open 落在窗口内跳过整理。
+        store
+            .connection
+            .execute("DELETE FROM schema_meta WHERE key = 'housekeeping_at'", [])
+            .unwrap();
+        store.maintain_housekeeping().unwrap();
+        drop(store);
+        let backups: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("state.db.v") && name.ends_with(".bak"))
+            .collect();
+        assert_eq!(backups.len(), 1, "只应保留最近一版备份,实得 {backups:?}");
+        assert_eq!(backups[0], "state.db.v12.bak", "应保留版本号最大的那份");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-298 验收③:freelist 死页超阈值时 VACUUM 把库文件收回活数据量级。
+    /// 通过大量增删制造 freelist,断言整理后 page_count 显著下降。
+    #[test]
+    fn freelist超阈值时vacuum回收死页() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-housekeeping-vacuum-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store.create_session("ses", "C:/p", None).unwrap();
+            // 大量写入撑大库,再删除制造 freelist 死页。
+            for index in 0..2000 {
+                store
+                    .append_event(
+                        "ses",
+                        "run.trace",
+                        &serde_json::json!({"run_id": format!("run_{}", index / 10), "events": [{"kind": "tool.started", "id": index}]}),
+                    )
+                    .unwrap();
+            }
+            store
+                .connection
+                .execute("DELETE FROM session_events", [])
+                .unwrap();
+            let freelist: i64 = store
+                .connection
+                .pragma_query_value(None, "freelist_count", |row| row.get(0))
+                .unwrap();
+            let pages: i64 = store
+                .connection
+                .pragma_query_value(None, "page_count", |row| row.get(0))
+                .unwrap();
+            assert!(
+                pages > 0 && freelist as f64 / pages as f64 > 0.5,
+                "前置条件:freelist 占比应超阈值,实得 {freelist}/{pages}"
+            );
+            // 手动清空 housekeeping_at 让当前 open 立即评估,再触发 VACUUM。
+            store
+                .connection
+                .execute("DELETE FROM schema_meta WHERE key = 'housekeeping_at'", [])
+                .unwrap();
+            store.maintain_housekeeping().unwrap();
+            let after_pages: i64 = store
+                .connection
+                .pragma_query_value(None, "page_count", |row| row.get(0))
+                .unwrap();
+            assert!(
+                after_pages < pages,
+                "VACUUM 后 page_count 应下降:前 {pages} → 后 {after_pages}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kanzei · 并行 Agent 图标</title>
+<style>
+:root{color-scheme:light;--paper:#f7f6f2;--ink:#191c2b;--muted:#696d77;--line:#dadbdc;--surface:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;transition:background .2s,color .2s}
+body[data-theme="dark"]{color-scheme:dark;--paper:#121521;--ink:#eeeef5;--muted:#9ea4b9;--line:#343949;--surface:#1d2232}
+main{max-width:1260px;margin:auto;padding:44px 36px}
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);padding-bottom:26px}
+.kicker{font-size:11px;letter-spacing:.18em;color:var(--muted);margin:0 0 12px}
+h1{font-size:30px;line-height:1.3;letter-spacing:-.03em;margin:0 0 10px;font-weight:650}
+.subtitle{color:var(--muted);margin:0;font-size:14px}
+button{font:inherit;white-space:nowrap;padding:7px 13px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--ink);cursor:pointer}
+button:hover{border-color:#ff8700}
+button:focus-visible,a:focus-visible{outline:2px solid #ff8700;outline-offset:4px}
+.palette{display:flex;gap:22px;flex-wrap:wrap;margin:22px 0 34px;font-size:12px;color:var(--muted)}
+.swatch{display:inline-block;width:13px;height:13px;border-radius:50%;vertical-align:-2px;margin-right:7px;border:1px solid #85889455}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:36px}
+figure{margin:0;min-width:0}
+.hero{width:100%;aspect-ratio:1;object-fit:contain;display:block;border-radius:14px}
+.caption{display:flex;gap:10px;align-items:baseline;margin-top:22px}
+.index{font:12px/1 monospace;color:var(--muted)}
+h2{font-size:18px;margin:0;font-weight:650}
+.recommend{font-size:11px;background:var(--ink);color:var(--paper);padding:1px 7px;border-radius:4px;margin-left:auto}
+.desc{color:var(--muted);font-size:13px;margin:10px 0 22px;min-height:42px}
+.sizes{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;min-height:109px;border-top:1px solid var(--line);padding:17px 0 0}
+.scale{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--muted);font:10px/1.5 monospace}
+.scale img{display:block;object-fit:contain;border-radius:15%}
+.download{display:inline-block;margin-top:22px;font-size:12px;color:var(--ink);text-underline-offset:4px}
+footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;color:var(--muted);font-size:12px}
+footer p{margin:0} footer a{color:inherit}
+@media(max-width:780px){main{padding:26px 20px}header{gap:14px}h1{font-size:23px}.grid{grid-template-columns:1fr;gap:42px;max-width:400px;margin:auto}.desc{min-height:0}.palette{gap:14px}footer{display:block}footer p+p{margin-top:12px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div><p class="kicker">KANZEI / ICON EXPLORATION / 2026.09</p><h1>并行 Agent，三种表达</h1><p class="subtitle">亮橙作底，墨蓝构形，少量电光青点亮协作节点。</p></div>
+<button id="theme" type="button" aria-pressed="false">切换深色背景</button>
+</header>
+<div class="palette">
+<span><i class="swatch" style="background:#ff8700"></i>亮橙 #FF8700</span>
+<span><i class="swatch" style="background:#191c2b"></i>墨蓝 #191C2B</span>
+<span><i class="swatch" style="background:#39d8f6"></i>电光青 #39D8F6</span>
+</div>
+<div class="grid">
+<figure>
+<img class="hero" src="kanzei-parallel-streams-v1.png" width="1254" height="1254" alt="并行汇合：三路独立推进，朝同一方向汇合。最直接地表达并行执行。">
+<figcaption><div class="caption"><span class="index">A</span><h2>并行汇合</h2></div><p class="desc">三路独立推进，朝同一方向汇合。最直接地表达并行执行。</p></figcaption>
+<div class="sizes" aria-label="小尺寸预览"><span class="scale"><img src="kanzei-parallel-streams-v1.png" width="16" height="16" alt="并行汇合 16 像素预览">16px</span><span class="scale"><img src="kanzei-parallel-streams-v1.png" width="24" height="24" alt="并行汇合 24 像素预览">24px</span><span class="scale"><img src="kanzei-parallel-streams-v1.png" width="32" height="32" alt="并行汇合 32 像素预览">32px</span><span class="scale"><img src="kanzei-parallel-streams-v1.png" width="48" height="48" alt="并行汇合 48 像素预览">48px</span><span class="scale"><img src="kanzei-parallel-streams-v1.png" width="64" height="64" alt="并行汇合 64 像素预览">64px</span></div>
+<a class="download" href="kanzei-parallel-streams-v1.png" download>下载 A · PNG 原图 ↗</a>
+</figure>
+<figure>
+<img class="hero" src="kanzei-collaborative-modules-v1.png" width="1254" height="1254" alt="模块协作：三个独立模块围绕共享空间。轮廓紧凑，适合作为主图标。">
+<figcaption><div class="caption"><span class="index">B</span><h2>模块协作</h2><span class="recommend">推荐</span></div><p class="desc">三个独立模块围绕共享空间。轮廓紧凑，适合作为主图标。</p></figcaption>
+<div class="sizes" aria-label="小尺寸预览"><span class="scale"><img src="kanzei-collaborative-modules-v1.png" width="16" height="16" alt="模块协作 16 像素预览">16px</span><span class="scale"><img src="kanzei-collaborative-modules-v1.png" width="24" height="24" alt="模块协作 24 像素预览">24px</span><span class="scale"><img src="kanzei-collaborative-modules-v1.png" width="32" height="32" alt="模块协作 32 像素预览">32px</span><span class="scale"><img src="kanzei-collaborative-modules-v1.png" width="48" height="48" alt="模块协作 48 像素预览">48px</span><span class="scale"><img src="kanzei-collaborative-modules-v1.png" width="64" height="64" alt="模块协作 64 像素预览">64px</span></div>
+<a class="download" href="kanzei-collaborative-modules-v1.png" download>下载 B · PNG 原图 ↗</a>
+</figure>
+<figure>
+<img class="hero" src="kanzei-shared-workspace-v1.png" width="1254" height="1254" alt="共享空间：四个单元面向共同工作区。强调团队协作与多 Agent 参与。">
+<figcaption><div class="caption"><span class="index">C</span><h2>共享空间</h2></div><p class="desc">四个单元面向共同工作区。强调团队协作与多 Agent 参与。</p></figcaption>
+<div class="sizes" aria-label="小尺寸预览"><span class="scale"><img src="kanzei-shared-workspace-v1.png" width="16" height="16" alt="共享空间 16 像素预览">16px</span><span class="scale"><img src="kanzei-shared-workspace-v1.png" width="24" height="24" alt="共享空间 24 像素预览">24px</span><span class="scale"><img src="kanzei-shared-workspace-v1.png" width="32" height="32" alt="共享空间 32 像素预览">32px</span><span class="scale"><img src="kanzei-shared-workspace-v1.png" width="48" height="48" alt="共享空间 48 像素预览">48px</span><span class="scale"><img src="kanzei-shared-workspace-v1.png" width="64" height="64" alt="共享空间 64 像素预览">64px</span></div>
+<a class="download" href="kanzei-shared-workspace-v1.png" download>下载 C · PNG 原图 ↗</a>
+</figure>
+</div>
+<footer><p>设计概念 v1 · 内置 imagegen 生成 · 1254 × 1254 PNG</p><p><a href="kanzei-parallel-agents-v1.prompt.md">查看设计提示词</a></p></footer>
+</main>
+<script>
+document.getElementById("theme").addEventListener("click",function(){
+const dark=document.body.dataset.theme!=="dark";
+document.body.dataset.theme=dark?"dark":"light";
+this.textContent=dark?"切换浅色背景":"切换深色背景";
+this.setAttribute("aria-pressed",String(dark));
+});
+</script>
+</body>
+</html>
+

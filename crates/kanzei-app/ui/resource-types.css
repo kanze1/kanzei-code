@@ -1,0 +1,18 @@
+.resource-icon { display:inline-block; width:1em; height:1em; flex:none; vertical-align:-.15em; }
+.resource-mark { display:inline-flex; align-items:center; flex:none; }
+.resource-mark .resource-icon { width:16px; height:16px; }
+.resource-link > .resource-icon, .resource-link > .resource-mark { margin-right:.3em; }
+.resource-link { overflow-wrap:anywhere; }
+.msg.user .resource-link { color:var(--accent-text); text-decoration:underline; text-underline-offset:3px; }
+.msg.user .resource-link:hover { color:var(--fg-strong); }
+.attachment-chip .resource-mark, .message-attachment .resource-mark { color:var(--accent-text); }
+.message-attachment { display:inline-flex; align-items:center; gap:7px; }
+.file-card-name .resource-mark { margin-right:7px; vertical-align:middle; }
+.composer-links { display:flex; flex-wrap:wrap; gap:6px; max-height:74px; overflow:auto; padding:4px 0 8px; }
+.composer-link { display:inline-flex; align-items:center; gap:7px; max-width:100%; padding:5px 8px; border-radius:6px; background:var(--surface-hover); color:var(--fg); text-decoration:none; font-size:12px; }
+.composer-link > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.composer-link:hover { color:var(--accent-text); background:var(--surface-selected); }
+.composer-link:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+.message-file-content { margin-top:8px; }
+.message-file-content summary { cursor:pointer; display:flex; align-items:center; gap:7px; }
+.message-file-content pre { max-height:320px; overflow:auto; white-space:pre-wrap; font-size:12px; }

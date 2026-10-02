@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Kanzei · Softwire 体验版</title>
+  <link rel="stylesheet" href="softwire.css">
+  <script src="softwire.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="navigation" aria-label="工作台导航">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">k</span>kanzei<span class="brand-dot">.</span></div>
+      <button type="button" class="overview-link" id="overview-button"><span data-icon="grid"></span><span>全部项目</span><span class="quiet">2</span></button>
+      <button type="button" class="inbox-link" id="inbox-button"><span data-icon="inbox"></span><span>工作消息</span><span id="inbox-count" class="unread-count">3</span></button>
+      <div class="nav-label">项目</div>
+      <nav class="project-list" aria-label="选择项目">
+        <button type="button" data-project="kanzei" class="project active" aria-current="page"><span class="project-dot"></span><span>kanzei code<small>搜索与引用链路</small></span></button>
+        <button type="button" data-project="reader" class="project"><span class="project-dot quiet-dot"></span><span>阅读器<small>附件全文检索</small></span></button>
+      </nav>
+      <div class="nav-bottom"><div class="softwire-label">SOFTWIRE <span class="connection-dot" aria-hidden="true"></span></div><span class="demo-label">交互体验 · 示例数据</span></div>
+    </aside>
+
+    <main class="workspace" id="workspace">
+      <header class="topbar"><div><button type="button" id="breadcrumb-projects" class="breadcrumb-home">项目</button><span class="breadcrumb-slash">/</span><span id="project-name">kanzei code</span></div><div class="topbar-actions"><button type="button" id="experience-toggle" class="experience-toggle" aria-pressed="true" title="自动演示回执，不调用真实模型"><span class="experience-dot" aria-hidden="true"></span><span id="experience-label">体验中</span></button><button type="button" id="simulate-message" class="icon-button" aria-label="模拟来信" title="模拟来信"><span data-icon="mail"></span></button><button type="button" id="simulate" class="icon-button" aria-label="模拟下一步" title="模拟下一步"><span data-icon="step"></span></button><button type="button" id="experience-menu-toggle" class="icon-button" aria-label="体验选项" aria-expanded="false" title="体验选项"><span data-icon="sliders"></span></button></div><div id="experience-menu" class="experience-menu" hidden><p>示例数据，不调用模型或修改项目。</p><button type="button" id="restart-experience">重新体验</button><button type="button" id="undo-restart" hidden>恢复刚才的现场</button><small id="storage-state">现场保存在当前浏览器</small></div></header>
+      <section id="overview" hidden aria-labelledby="overview-title">
+        <div class="overview-heading"><h1 id="overview-title">项目</h1></div>
+        <button type="button" class="overview-project" data-project="kanzei"><span><strong>kanzei code</strong><small>搜索与引用链路</small></span><span>1 条旧版本引用待核对</span><span aria-hidden="true">→</span></button>
+        <button type="button" class="overview-project" data-project="reader"><span><strong>阅读器</strong><small>附件全文检索</small></span><span>等待下一项安排</span><span aria-hidden="true">→</span></button>
+      </section>
+
+      <div class="project-workspace" id="project-workspace">
+        <header class="work-heading"><div><span class="sr-only" id="work-id">当前工作</span><button type="button" class="requirement-entry" data-select="work"><span class="requirement-mark" data-icon="target"></span><span id="requirement-label">R-365 · 网页搜索与抓取升级</span><span class="requirement-state" title="需求进行中" aria-label="需求进行中"></span></button><h1 id="work-title">搜索与引用链路</h1></div><div class="live-state"><span class="live-dot" aria-hidden="true"></span><span id="run-state">运行中</span><small id="step-label">18</small></div></header>
+        <section class="batch-strip" aria-label="当前需求、批次与运行状态"><button type="button" class="batch-entry" data-select="batch"><span id="batch-id">B2 / 5</span><strong id="batch-name">引用回溯</strong><span data-icon="chevron"></span><span class="sr-only" id="batch-status">实施中</span></button><div class="batch-stages" id="batch-stages" aria-label="批次阶段"></div><div class="batch-execution"><span class="sr-only" id="batch-runtime">主执行运行中 · 验证待回复</span><span data-icon="commit"></span><span class="batch-delivery" id="batch-delivery">未交付</span></div></section>
+        <div class="view-toolbar"><div class="view-tabs" role="group" aria-label="工作面展示"><button type="button" data-view="flow" aria-pressed="true"><span data-icon="network"></span>工作网络</button><button type="button" data-view="conversation" aria-pressed="false"><span data-icon="chat"></span>对话</button><button type="button" data-view="replay" aria-pressed="false"><span data-icon="history"></span>回放</button></div><button type="button" id="alert-button" class="alert-link"><span data-icon="warning"></span><span id="alert-text">旧版记忆</span></button></div>
+
+        <section class="work-surface" id="work-surface" aria-label="当前工作详情">
+          <div id="flow-view">
+            <div class="flow-map" id="flow-map">
+              <svg class="wires" id="wires" aria-hidden="true"></svg>
+              <div class="flow-lane source-lane"><div class="lane-label">依据</div><div id="source-nodes"></div></div>
+              <div class="flow-lane agent-lane"><div class="lane-label">执行</div><div id="agent-nodes"></div></div>
+              <div class="flow-lane action-lane"><div class="lane-label">行动</div><div id="action-nodes"></div></div>
+            </div>
+            <div class="canvas-bottom"><button type="button" id="attention-shortcut" class="attention-shortcut"><span class="attention-symbol" data-icon="chat"></span><span><small id="attention-owner">验证管理</small><strong id="attention-question">先验证哪个使用场景</strong></span><span class="attention-reply" data-icon="reply"></span></button><details class="visual-key"><summary aria-label="查看状态图例" title="状态图例"><span data-icon="info"></span></summary><div><span><i class="legend-running"></i>运行</span><span><i class="legend-waiting">!</i>待处理</span><span><i class="legend-done">✓</i>完成</span><span><i class="legend-folded"></i>归档</span></div></details></div>
+          </div>
+          <div id="conversation-view" hidden><div class="surface-heading"><h2>工作对话</h2></div><div id="messages" class="messages"></div></div>
+          <div id="replay-view" hidden><div class="surface-heading"><h2>执行回放</h2><label class="replay-picker">查看请求 <select id="replay-step" aria-label="选择历史请求"></select></label></div><div id="replay-content"></div></div>
+          <div id="context-view" hidden><div class="surface-heading"><div><span class="eyebrow">本步实际装入</span><h2 id="manifest-title">请求 18 的上下文</h2></div><button type="button" data-panel-close class="quiet-button">返回工作面 ×</button></div><div id="context-items"></div></div>
+          <div id="evidence-view" hidden><nav class="evidence-breadcrumb" aria-label="依据位置"><button type="button" id="evidence-back"><span data-icon="back"></span><span id="evidence-parent">记忆管理</span></button><span data-icon="chevron"></span><span>依据</span></nav><div class="surface-heading evidence-heading"><div><span class="eyebrow" id="evidence-kind"></span><h2 id="evidence-title" tabindex="-1"></h2></div><span id="evidence-version"></span></div><div id="evidence-content"></div></div>
+          <div id="detail-view" hidden><div class="module-breadcrumb"><button type="button" id="back-network"><span data-icon="back"></span>工作网络</button><span id="module-owner">记忆管理</span></div><div class="surface-heading module-heading"><div><span class="eyebrow" id="detail-kind">记忆管理</span><h2 id="detail-title" tabindex="-1">检索约定.md</h2></div><div class="module-tabs" role="group" aria-label="模块内容"><button type="button" data-module-tab="manage" aria-pressed="true">管理</button><button type="button" data-module-tab="chat" aria-pressed="false">对话</button></div></div><div id="module-management"><div id="module-resources" class="module-resources"></div><div id="detail-content"></div></div><div id="module-messages" class="messages" hidden></div></div>
+          <div id="inbox-view" hidden><div class="surface-heading inbox-heading"><div><span class="eyebrow">跨项目收件箱</span><h2>工作消息 <span id="inbox-summary"></span></h2></div><button type="button" id="close-inbox" class="quiet-button">返回刚才的工作 ×</button></div><div class="inbox-layout"><nav id="interaction-list" aria-label="工作消息列表"></nav><article class="interaction-thread"><div id="interaction-header"></div><div id="interaction-content"></div><div id="interaction-choices" class="reply-choices"></div><div id="interaction-replies"></div></article></div></div>
+          <div id="settings-view" hidden><div class="surface-heading"><div><span class="eyebrow">当前工作 · 覆盖项目默认</span><h2>执行设置</h2></div><button type="button" data-panel-close class="quiet-button">收起 ×</button></div><form id="settings-form" class="execution-settings"><label>模型档位<select name="model" id="model-select"><option value="primary">主模型 · 项目默认</option><option value="fast">快速模型 · 演示档位</option></select></label><label>工具范围<select name="tools" id="tools-select"><option value="all">读取、修改、执行</option><option value="readonly">只读与检索</option></select></label><label class="switch-label"><span>允许新派发子代理<small>已经运行的子代理继续收尾</small></span><input type="checkbox" name="subagents" id="subagents-toggle" checked></label><div class="settings-submit"><span class="quiet">保存后，在下次请求边界生效。</span><button type="submit" class="primary">保存本次设置</button></div></form></div>
+        </section>
+
+        <section class="operation-dock" id="operation-dock" aria-label="就地操作台">
+          <div class="dock-titlebar"><button type="button" id="drag-handle" aria-label="拖动对话框；悬浮时也可用方向键移动"><span class="drag-grip" data-icon="grip"></span><span class="recipient-symbol" data-icon="agent"></span><span id="dock-recipient">kanzei code / 主执行</span></button><div class="dock-actions"><span id="delivery-label" class="delivery-icon" title="下次请求送达" aria-label="下次请求送达"><span data-icon="clock"></span></span><button type="button" id="float-toggle" class="icon-button" aria-pressed="false" aria-label="悬浮对话框" title="悬浮对话框"><span data-icon="float"></span></button></div></div>
+          <div class="focus-strip" id="focus-strip"><div class="focus-content sr-only"><span id="focus-kind"></span><strong id="focus-title"></strong><span id="focus-version"></span><p id="focus-description"></p></div><div class="focus-actions" id="focus-actions"></div></div>
+          <form class="composer" id="composer-form"><div class="composer-target"><span id="receiver-label" class="sr-only">发给：主执行</span><span id="reference-label"></span></div><label class="sr-only" for="instruction">补充要求或纠正当前工作</label><textarea id="instruction" rows="2" placeholder="安排下一步…"></textarea><div class="composer-bottom"><button type="button" id="context-button" class="context-button" aria-expanded="false"><span data-icon="layers"></span><span id="context-label" class="sr-only">本步上下文</span><strong id="context-total">12.4k</strong></button><span class="sr-only" id="context-caption"></span><button type="button" id="settings-button" class="settings-button" aria-expanded="false"><span data-icon="sliders"></span><span id="model-label">主模型</span><span class="sr-only" id="effective-settings"></span></button><label class="scope-label"><span class="sr-only">作用范围</span><select id="scope" aria-label="指令作用范围"><option value="work">当前工作</option><option value="project">项目偏好候选</option></select></label><span class="queue-label" id="queue-label"></span><button type="button" class="quiet-button" id="return-live" hidden>返回当前</button><button type="submit" class="primary send-button" id="send" aria-label="发给主执行" title="发给主执行"><span data-icon="up"></span></button></div></form>
+          <footer class="dock-footer" id="dock-footer"><span class="notice" id="notice" role="status" aria-live="polite"></span></footer>
+          <div class="reply-complete" id="reply-complete" hidden><span><span data-icon="check"></span>已处理</span><button type="button" id="reply-return">返回工作 <span data-icon="back"></span></button></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <aside id="message-toast" class="message-toast" aria-label="新工作消息" hidden><div class="toast-top"><strong id="toast-sender">验证管理</strong><button type="button" id="toast-dismiss" aria-label="稍后处理这条消息">×</button></div><p id="toast-body"></p><div class="toast-bottom"><span id="toast-scope"></span><button type="button" id="toast-reply">打开回复 →</button></div></aside>
+  <span id="arrival-announcement" class="sr-only" aria-live="polite"></span>
+</body>
+</html>

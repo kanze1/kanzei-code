@@ -1,0 +1,1383 @@
+//! 子代理域(R-155 B7):SubagentRuntime 运行时、task 工具 schema(task_spec)与
+//! run_subagent(独立只读快照 + 空历史,ask 一律 Deny,run_once 递归经 dyn Box 断开)。
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use kanzei_harness::{AgentDef, HarnessSnapshot, ToolCtx};
+use kanzei_llm::{LlmClient, Message, Route, Usage};
+use tokio_util::sync::CancellationToken;
+
+use super::event::{AskFuture, AskReply, AskRequest, AskResponse, RunEvent, TaskTrace};
+use super::{run_once, AskPolicy, RunnerConfig};
+
+/// R-174:运行中**可单条取消**的子代理注册表。id = 模型 task 调用 id 或编排角色名。
+/// `cancel` 命中后 token 即触发,drive/phase_pipeline 的 select 分支以「被停」终态收尾,
+/// 读槽由 run_subagent future drop 时 RAII 释放。None(测试/CLI 单运行)不支持中途单条停止。
+#[derive(Default)]
+pub struct TaskCancellations {
+    inner: Mutex<HashMap<String, CancellationToken>>,
+}
+
+/// 取消注册表的 RAII 注册句柄。
+///
+/// `run_subagent` 外层有墙钟 timeout；future 被 timeout 丢弃时，await 之后的
+/// 手工 unregister 永远不会执行，因此注册必须由这个句柄的 Drop 负责回收。
+pub struct TaskCancellationGuard {
+    registry: Arc<TaskCancellations>,
+    id: String,
+    token: CancellationToken,
+}
+
+impl TaskCancellations {
+    pub fn register(self: &Arc<Self>, id: &str) -> TaskCancellationGuard {
+        let token = CancellationToken::new();
+        self.inner
+            .lock()
+            .unwrap()
+            .insert(id.to_string(), token.clone());
+        TaskCancellationGuard {
+            registry: Arc::clone(self),
+            id: id.to_string(),
+            token,
+        }
+    }
+    /// 取消一个子代理;返回该 id 当时是否在运行(不在 = 已结束/不存在)。
+    pub fn cancel(&self, id: &str) -> bool {
+        let token = self.inner.lock().unwrap().remove(id);
+        if let Some(token) = token {
+            token.cancel();
+            true
+        } else {
+            false
+        }
+    }
+    /// 子代理自然结束后清理注册(token 已失效或从未被 cancel);幂等。
+    pub fn unregister(&self, id: &str) {
+        self.inner.lock().unwrap().remove(id);
+    }
+    /// R-246:取消全部在册子代理,返回被取消的 id 列表(供 LineRuntime dispose 收口)。
+    pub fn cancel_all(&self) -> Vec<String> {
+        let mut guard = self.inner.lock().unwrap();
+        let ids: Vec<String> = guard.keys().cloned().collect();
+        for token in guard.values() {
+            token.cancel();
+        }
+        guard.clear();
+        ids
+    }
+}
+
+impl TaskCancellationGuard {
+    fn token(&self) -> &CancellationToken {
+        &self.token
+    }
+}
+
+impl Drop for TaskCancellationGuard {
+    fn drop(&mut self) {
+        self.registry.unregister(&self.id);
+    }
+}
+
+/// R-175 B2:后台子代理生命周期事件落库的回调类型。`Arc<dyn Fn>` 可 Clone,
+/// 不破坏 SubagentRuntime 的 derive Clone;app 层(run.rs)把 record_live_trace_at_path
+/// 包进闭包传入,drive.rs background 分支的 spawn 块在完成/失败/超时时调
+/// sink(call_id, payload)写 session_events——绕开 SessionStore(rusqlite
+/// Connection 非 Send)直接进 spawn 的限制。type 别名:避免 clippy type_complexity。
+pub type BackgroundEventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
+/// R-279:子代理 transcript 事件恢复回调(读侧)。app 层把 state_path/session_id
+/// 与 `subagent_transcript` gate 判断包进闭包传入;返回 None 表示事件不可用/
+/// gate 关闭,run_subagent 回退进程内 TranscriptStore(缓存)。type 别名:避免
+/// clippy type_complexity。
+pub type SubagentTranscriptProvider =
+    Arc<dyn Fn(&str) -> Option<Vec<kanzei_llm::Message>> + Send + Sync>;
+
+/// R-175 B3:子代理 transcript 暂存类型(进程内,按 id → 消息历史)。
+/// type 别名:避免 clippy type_complexity。
+pub type TranscriptStore =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<kanzei_llm::Message>>>>;
+
+/// R-175 B4:后台子代理完成/失败/超时发通知回主对话的回调类型(call_id, status)。
+/// type 别名:避免 clippy type_complexity。
+pub type BackgroundNotificationSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
+/// R-175 B5:重启可发现——从 session_events 回放,找出「上次未终结」的后台子代理。
+///
+/// 后台子代理的 task.lifecycle 事件(running / done / failed)经 background_events
+/// sink 落 session_events。进程强杀后重开,内存注册表已丢,但事件轨迹还在:按 id
+/// 聚合全部 task.lifecycle,若最后一个 state 是 `running`(无后续 done/failed),
+/// 说明该子代理在进程死亡时仍在跑——给出确定处置(标失败,不放幽灵条目)。
+///
+/// 返回未终结子代理的 id 列表(去重、按首见顺序)。
+pub fn pending_background_subagents(events: &[crate::store::StoredEvent]) -> Vec<String> {
+    let mut latest: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for event in events {
+        if event.event_type != "run.trace" {
+            continue;
+        }
+        let Some(items) = event.payload.get("events").and_then(|e| e.as_array()) else {
+            continue;
+        };
+        for item in items {
+            if item.get("kind").and_then(|k| k.as_str()) != Some("task.lifecycle") {
+                continue;
+            }
+            let Some(id) = item.get("id").and_then(|i| i.as_str()) else {
+                continue;
+            };
+            let Some(state) = item.get("state").and_then(|s| s.as_str()) else {
+                continue;
+            };
+            if !latest.contains_key(id) {
+                order.push(id.to_string());
+            }
+            latest.insert(id.to_string(), state.to_string());
+        }
+    }
+    order
+        .into_iter()
+        .filter(|id| latest.get(id).map(|s| s.as_str()) == Some("running"))
+        .collect()
+}
+
+/// R-176 B4:写子代理改动台账——owner(子代理 id)→ 改动文件 + 首次记录时的原内容。
+///
+/// 采集点:run_subagent 在 writable=true 时拦截写工具(edit/write)的调用,把
+/// 目标路径与**首次**记录时的文件内容存进来(后续对同一文件的再次写入不覆盖
+/// 原内容快照——回滚要恢复到"这个子代理第一次碰它之前"的样子)。
+///
+/// 回滚语义(验收⑤):按 owner 恢复它改过的文件为原内容,只碰该 owner 的文件,
+/// 不误伤其它写子代理与主代理的改动。文件原内容快照在内存,进程退出即丢
+/// (跨 run 的归因/回滚不在本条——那是 git 的工作树层能力)。
+#[derive(Default)]
+pub struct SubagentChangeLog {
+    inner: std::sync::Mutex<
+        std::collections::HashMap<String, std::collections::BTreeMap<String, Vec<u8>>>,
+    >,
+}
+
+impl SubagentChangeLog {
+    /// 记录一次写工具调用:owner 首次触碰某文件时快照其当前内容。
+    /// `project_root` 用于把相对路径解析成绝对路径;`path` 来自工具入参。
+    pub fn record(&self, owner: &str, project_root: &std::path::Path, path: &str) {
+        let mut inner = self.inner.lock().unwrap();
+        let owner_map = inner.entry(owner.to_string()).or_default();
+        if owner_map.contains_key(path) {
+            return; // 已快照过,保持首次内容
+        }
+        let full = project_root.join(path.trim_start_matches(['/', '\\']));
+        let content = std::fs::read(&full).unwrap_or_default();
+        owner_map.insert(path.to_string(), content);
+    }
+
+    /// 该 owner 改过的文件(按首次记录顺序)。空 = 该子代理没碰过写工具。
+    pub fn files_of(&self, owner: &str) -> Vec<String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .get(owner)
+            .map(|map| map.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// 按 owner 回滚:把它改过的每个文件恢复为首次记录时的内容(写回快照)。
+    /// 返回恢复的文件数。只碰该 owner 的文件——其它 owner 与主代理的改动
+    /// 原样保留(验收⑤:单独回滚不误伤)。
+    pub fn rollback(&self, owner: &str, project_root: &std::path::Path) -> usize {
+        let files: Vec<(String, Vec<u8>)> = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .get(owner)
+                .map(|map| map.iter().map(|(p, c)| (p.clone(), c.clone())).collect())
+                .unwrap_or_default()
+        };
+        let mut restored = 0usize;
+        for (path, content) in &files {
+            let full = project_root.join(path.trim_start_matches(['/', '\\']));
+            if let Some(parent) = full.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::write(&full, content).is_ok() {
+                restored += 1;
+            }
+        }
+        restored
+    }
+}
+
+/// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
+/// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
+#[derive(Clone)]
+pub struct SubagentRuntime {
+    pub options: super::SubagentOptions,
+    pub snapshot: Arc<HarnessSnapshot>,
+    /// 默认人格。`task` 不带 `agent` 参数时用它,与引入名册前逐字节同行为。
+    pub agent: AgentDef,
+    /// R-327:模型可经 `task` 的 `agent` 参数选择的**备选只读人格**。
+    ///
+    /// 空 = 只有默认人格可用(引入前行为)。名册里**只放只读人格**:
+    /// `writer` 一类可写子代理是编排器按阶段派发的,主 agent 的提示词明写
+    /// 「任何 task 子代理都是只读侦察,绝不写/跑 bash/改 git 状态」——
+    /// 那条权限边界是 R-176 立的审计资产(只读白名单构造后与执行前各复核一次),
+    /// 把可写人格挂进模型可选名册等于绕开它。名册与快照工具集必须同源:
+    /// 选出来的人格仍跑在同一个只读快照上,人格只换提示词与步数,不换工具。
+    pub roster: Vec<AgentDef>,
+    /// (route, model id):fast = 本地小模型跑机械检索。
+    pub fast: (Route, String),
+    /// primary = 主模型,给需要理解代码的任务。
+    pub primary: (Route, String),
+    /// 两条路由各自的服务档位(Codex Fast mode)。fast 与 primary 未必是同一供应商,
+    /// 所以不能共用一个值——用哪条路由就带哪条的档位。
+    pub fast_service_tier: Option<String>,
+    pub primary_service_tier: Option<String>,
+    /// R-236 B3:压缩纪要专用模型(route, model, service_tier)。None = 跟随主模型。
+    /// 默认主模型是刻意的纠偏:纪要质量随模型能力显著变化(同一 agent 只换
+    /// summarizer 的消融差 8pp),旧实现写死 fast 正是「弱模型压缩省小钱、下游
+    /// 续跑赔大钱」;用户要省钱就显式配 `[models].compact`,质量闸兜底。
+    pub compact: Option<(Route, String, Option<String>)>,
+    pub max_tokens: u32,
+    /// 单个子代理的墙钟上限(秒):本地模型多轮可能极慢,必须有界。
+    pub timeout_secs: u64,
+    /// 可调上限,随主运行链一起传下来。
+    pub limits: kanzei_harness::config::Limits,
+    /// R-171 批6:项目级协调器(可选)。Some 时子代理执行前申请读槽登记
+    /// 「并行查」身份,结束 RAII 释放;None(纯 CLI 单运行/测试)不登记。
+    /// R-176 B2:writable=true 时改为申请 **write_scope 写租约**(不继承主代理
+    /// 租约,write_scope = 子代理代码树),同一棵树上的两个 writer 仍排队。
+    pub coordinator:
+        Option<std::sync::Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
+    /// R-176 B2:可写档位。true = 快照含写工具(由调用方用 WritableSubagentBase
+    /// 构建),执行前必须自己 acquire_writer_lease,不得继承主代理租约;false =
+    /// 只读勘察/复核(现状,读槽登记)。装配点必须与快照配套:可写快照 ⇔ writable=true。
+    pub writable: bool,
+    /// R-176 B3:写子代理的权限询问路由(可选)。writable=true 时把子代理内的
+    /// 权限询问转发到这里(桌面端 = kz:ask 事件 + oneshot 回传,与主对话同通道);
+    /// 询问发生在 acquire_writer_lease **之前**(验收③:用户拒绝后不得占用写租约)。
+    /// None(只读子代理/CLI 无 UI)维持 ask 恒 Deny(现状,无人应答)。
+    pub ask_router: Option<Arc<dyn Fn(AskRequest) -> AskFuture + Send + Sync>>,
+    /// R-176 B4:写子代理改动台账(可选)。writable=true 且 Some 时,run_subagent
+    /// 拦截写工具(edit/write)的调用,记录 owner(子代理 id)→ 改动文件 + 首次
+    /// 记录时的原内容;回滚按 owner 恢复这些文件,不误伤其它(验收④⑤)。
+    /// None(只读子代理/CLI 无 UI)不采集。
+    pub change_log: Option<Arc<SubagentChangeLog>>,
+    /// R-174:单条停止注册表(可选)。Some 时 drive/phase_pipeline 在子代理 future
+    /// 上挂取消 token,`stop_task` 命令按 id 命中即取消;None(测试/CLI 单运行)不挂。
+    pub cancellations: Option<Arc<TaskCancellations>>,
+    /// R-175:后台模式。false(默认)= 轮内一次性调用:drive.rs 派发后等齐全部
+    /// task 才继续;true = 后台化:派发即返回句柄,主代理本轮继续做别的,
+    /// 子代理跨轮存活(注册表 + 持久化,见 R-175 内容①②)。
+    pub background: bool,
+    /// R-175 B1b:后台子代理完成结果的暂存(进程内)。background=true 时 spawn 的
+    /// 子代理跑完把 ToolOutput 写进这里,主代理后续轮次按 id 查询;跨会话持久化
+    /// 与通知回传在 B2/B3 承接。None = 非后台模式不使用。
+    pub background_results: Option<
+        std::sync::Arc<
+            std::sync::Mutex<std::collections::HashMap<String, kanzei_harness::ToolOutput>>,
+        >,
+    >,
+    /// R-175 B2:后台子代理生命周期事件落库的回调(跨轮注册表 / 事件可回放)。
+    /// `Arc<dyn Fn>` 可 Clone,不破坏上面的 derive Clone;app 层(run.rs)把
+    /// record_live_trace_at_path 包进闭包传入,drive.rs background 分支的 spawn
+    /// 块在完成/失败/超时时调 sink(call_id, payload)写 session_events——
+    /// 绕开 SessionStore(rusqlite Connection 非 Send)直接进 spawn 的限制。
+    /// None = CLI/测试不落库。
+    pub background_events: Option<BackgroundEventSink>,
+    /// R-175 B3:子代理 transcript 持久化(进程内,按 id)。run_subagent 完成后把
+    /// 完整消息历史存进这里,续跑入口按 id 恢复 prior(验收④:续跑请求里可见此前
+    /// transcript,不是从空历史重开——对照现状 subagent.rs 的 `&[]`)。
+    /// 跨会话持久化由 session_events 的 task.lifecycle + B5 注册表承接。
+    /// None = 非后台模式不启用续跑。
+    pub transcripts: Option<TranscriptStore>,
+    /// R-175 B4:后台子代理完成/失败/超时**发通知回主对话**的回调(验收⑦:复用既有
+    /// `agent_notifications` 表,不新造通道)。与 background_events 同理,SessionStore
+    /// 非 Send 不能直接进 spawn——app 层(run.rs)把 append_notification_atomic 包进
+    /// 闭包传入;sink(call_id, status)在 drive.rs spawn 块三终态(完成/失败/超时)
+    /// 时调用,status ∈ done|failed|timeout。None = CLI/测试不通知。
+    pub background_notifications: Option<BackgroundNotificationSink>,
+    /// R-279:子代理 transcript 事件落库回调(写侧)。run_subagent 完成时把完整
+    /// 消息历史写进 session_events 的 `subagent.transcript` 事件(带 call_id),
+    /// 跨进程/重启可恢复(进程内 TranscriptStore 降为缓存)。app 层包
+    /// state_path/session_id 传入;None = CLI 单轮 task 不落库。
+    pub transcript_sink: Option<BackgroundEventSink>,
+    /// R-279:子代理 transcript 事件恢复回调(读侧)。续跑 prior 优先从事件日志
+    /// 恢复(provider 含 `subagent_transcript` gate 判断);None/事件无时回退
+    /// 进程内 TranscriptStore。None = CLI 单轮 task 不启用。
+    pub transcript_provider: Option<SubagentTranscriptProvider>,
+}
+
+impl SubagentRuntime {
+    /// R-327:按 `task` 的 `agent` 参数选人格。
+    ///
+    /// 名字选不中就**回落默认人格**而不是报错:人格是提示词与步数的调优,
+    /// 选错了顶多不够贴切,而为一个拼错的名字把整次委派打回,代价明显更大。
+    /// 回落是静默的——调用方若要提示,自己比对返回的 name。
+    pub fn resolve_agent(&self, requested: Option<&str>) -> &AgentDef {
+        let Some(name) = requested else {
+            return &self.agent;
+        };
+        if self.agent.name == name {
+            return &self.agent;
+        }
+        self.roster
+            .iter()
+            .find(|candidate| candidate.name == name)
+            .unwrap_or(&self.agent)
+    }
+
+    /// 模型可选的人格名(默认 + 名册),用于生成 task 的 schema enum。
+    pub fn agent_names(&self) -> Vec<String> {
+        let mut names = vec![self.agent.name.clone()];
+        names.extend(
+            self.roster
+                .iter()
+                .map(|a| a.name.clone())
+                .filter(|n| *n != self.agent.name),
+        );
+        names
+    }
+
+    /// R-236 B3:纪要模型解析——`[models].compact` 显式配置优先,缺省回落主模型。
+    pub fn digest_model(&self) -> (&Route, String, Option<String>) {
+        match &self.compact {
+            Some((route, model, tier)) => (route, model.clone(), tier.clone()),
+            None => (
+                &self.primary.0,
+                self.primary.1.clone(),
+                self.primary_service_tier.clone(),
+            ),
+        }
+    }
+}
+
+/// R-250:schema 不合规的重试上限。1 次已经能救绝大多数「裹了围栏 / 少个字段」,
+/// 再多就是子代理根本不理解这个 schema——继续烧 token 不如把原文交回主代理。
+const MAX_SCHEMA_RETRIES: u32 = 1;
+
+/// 一跑的终态:要么拿到 summary 可以校验,要么是不该重试的硬失败(被停/报错)。
+enum Attempt {
+    Finished(crate::runner::RunSummary),
+    Fatal(kanzei_harness::ToolOutput),
+}
+
+mod spec;
+pub(crate) use spec::{task_spec, task_spec_for};
+
+/// R-176 B2:写子代理自持 write_scope 写租约——不继承主代理租约、不绕过协调器
+/// (验收②);非写子代理维持只读读槽(现状,验收⑦不受影响)。
+///
+/// 两者都是 RAII:drop 时回调协调器释放,任何收尾路径不留死锁。用枚举统一
+/// 持有类型,避免 if/else 分支类型不同(WriterLease vs ReadPermit)。
+/// 字段只需持有到函数结束(释放即生效),生产路径不读——dead_code 是 RAII 常态。
+#[allow(dead_code)]
+pub(crate) enum SubagentPermit {
+    Writer(kanzei_harness::orchestration::WriterLease),
+    Reader(kanzei_harness::orchestration::ReadPermit),
+}
+
+/// R-176 B2:档位 → 许可类型的映射(纯函数,测试可直接断言)。
+/// writable=true → Writer(写租约);false → Reader(读槽)。
+#[cfg(test)]
+pub(crate) fn permit_kind(writable: bool) -> PermitKind {
+    if writable {
+        PermitKind::Writer
+    } else {
+        PermitKind::Reader
+    }
+}
+
+/// R-176 验收③:权限询问结果 → 是否授予写租约。纯函数,测试断言「拒绝后不得
+/// 占用租约」——只有 AllowOnce/AlwaysAllow 才放行取租约,Deny/Cancelled 一律拒绝。
+pub(crate) fn writable_granted(decision: &AskResponse) -> bool {
+    matches!(
+        decision,
+        AskResponse::Permission(AskReply::AllowOnce | AskReply::AlwaysAllow)
+    )
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PermitKind {
+    Writer,
+    Reader,
+}
+
+pub(crate) async fn acquire_subagent_permit(
+    rt: &SubagentRuntime,
+    ctx: &ToolCtx,
+    parent_call_id: &str,
+) -> Option<SubagentPermit> {
+    let coord = rt.coordinator.as_ref()?;
+    if rt.writable {
+        coord
+            .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+                // write_scope = 子代理的代码树(与主对话本轮一致:线 = worktree)。
+                // 同树两个 writer 排队,跨树并行(R-182 口径)。
+                write_scope: ctx.cwd.clone(),
+                run_id: parent_call_id.to_string(),
+                process_id: rt.agent.name.clone(),
+                reason: format!("writable subagent `{}`", rt.agent.name),
+            })
+            .await
+            .ok()
+            .map(SubagentPermit::Writer)
+    } else {
+        // R-171 批6:只读子代理申请读槽登记并行身份,结束自动释放。
+        // 读槽只登记不阻塞(wave 并行),与 writer 租约是两套互不干扰的机制。
+        coord
+            .acquire_read_slot(kanzei_harness::orchestration::ReadSlotRequest {
+                project_root: ctx.project_root.clone(),
+                run_id: parent_call_id.to_string(),
+                process_id: rt.agent.name.clone(),
+                agent_name: rt.agent.name.clone(),
+            })
+            .await
+            .ok()
+            .map(SubagentPermit::Reader)
+    }
+}
+
+/// R-176 B4:从 ToolStart 事件提取写工具的 path 入参(edit/write 共用 `path` 字段)。
+fn event_input_path(event: &RunEvent) -> Option<String> {
+    match event {
+        RunEvent::ToolStart { input, .. } => input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
+fn assistant_message_text(message: &Message) -> Option<String> {
+    let text = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            kanzei_llm::Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    (!text.is_empty()).then_some(text)
+}
+
+/// Run a task through the optional durable host, or the supplied isolated runtime.
+/// Child history, write policy and permission routing belong to that runtime.
+/// 内部轮次/工具事件折叠成 TaskProgress 经 progress 通道上抛(UI 实时可见)。
+pub async fn run_subagent(
+    client: &LlmClient,
+    rt: &SubagentRuntime,
+    ctx: &ToolCtx,
+    parent_call_id: &str,
+    input: &serde_json::Value,
+    progress: tokio::sync::mpsc::UnboundedSender<RunEvent>,
+) -> kanzei_harness::ToolOutput {
+    bounded_subagent(
+        rt.timeout_secs,
+        run_subagent_inner(client, rt, ctx, parent_call_id, input, progress),
+    )
+    .await
+}
+
+pub(crate) async fn bounded_subagent(
+    timeout_secs: u64,
+    future: impl std::future::Future<Output = kanzei_harness::ToolOutput>,
+) -> kanzei_harness::ToolOutput {
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), future).await {
+        Ok(output) => output,
+        Err(_) => kanzei_harness::ToolOutput::failed("subagent_timeout", format!("subagent hit the {timeout_secs}s wall-clock safety limit — split the task into narrower pieces")),
+    }
+}
+
+async fn run_subagent_inner(
+    client: &LlmClient,
+    rt: &SubagentRuntime,
+    ctx: &ToolCtx,
+    parent_call_id: &str,
+    input: &serde_json::Value,
+    progress: tokio::sync::mpsc::UnboundedSender<RunEvent>,
+) -> kanzei_harness::ToolOutput {
+    if let Some(host) = &rt.options.host {
+        return kanzei_harness::tool_pipeline::wrap_execute(
+            parent_call_id.to_owned(),
+            None,
+            None,
+            host.execute(parent_call_id.to_owned(), input.clone()),
+        )
+        .await;
+    }
+    // A child must never drain the parent's steering queue.
+    let mut child_ctx = ctx.clone();
+    child_ctx.input_inbox = None;
+    child_ctx.read_ledger = ctx
+        .read_ledger
+        .as_ref()
+        .map(|_| kanzei_harness::ReadLedger::default());
+    let ctx = &child_ctx;
+    // R-327:人格选择。名字选不中静默回落默认——见 resolve_agent 的说明。
+    // 注意 rt.agent 的其余用途(写租约身份、读槽登记、错误文案)保持不变:
+    // 那些是**运行时身份**,不随本轮选了哪个提示词而变。
+    let mut selected_agent = rt
+        .resolve_agent(input.get("agent").and_then(|v| v.as_str()))
+        .clone();
+    // task 的实际调用边界决定角色，不能被自定义人格的 mode=primary 绕过。
+    selected_agent.mode = kanzei_harness::AgentMode::Subagent;
+    let prompt = ["prompt", "task", "instruction", "query"]
+        .iter()
+        .find_map(|k| input.get(k).and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if prompt.is_empty() {
+        return kanzei_harness::ToolOutput::error(
+            "task requires a `prompt` string: a self-contained exploration instruction",
+        );
+    }
+    // R-250:可选返回契约。不传时下面所有 schema 分支都不进,行为与之前逐字节一致。
+    let schema: Option<serde_json::Value> = input
+        .get("schema")
+        .filter(|v| v.is_object() && !v.as_object().is_some_and(|o| o.is_empty()))
+        .cloned();
+    let (tier, route, model, service_tier) =
+        match super::subagent_model_tier(input, &selected_agent.model) {
+            "primary" => (
+                "primary",
+                &rt.primary.0,
+                &rt.primary.1,
+                &rt.primary_service_tier,
+            ),
+            _ => ("fast", &rt.fast.0, &rt.fast.1, &rt.fast_service_tier),
+        };
+    // UI-0926 #8:先报「实际是谁、用哪个模型」,再有任何工具进度。入参里的
+    // agent/model 只是请求与档位,卡片要显示解析后的真值;发在权限询问与租约
+    // 之前,排队等租约时用户也看得见它是谁。
+    let _ = progress.send(RunEvent::TaskProgress {
+        id: parent_call_id.to_string(),
+        text: format!("{} · {model}", selected_agent.name),
+        trace: Some(TaskTrace {
+            child_id: parent_call_id.to_string(),
+            phase: "meta".into(),
+            summary: Some(tier.into()),
+            agent: Some(selected_agent.name.clone()),
+            model: Some(model.clone()),
+            ..Default::default()
+        }),
+    });
+    let config = RunnerConfig {
+        digest_model: None,
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
+        model: model.clone(),
+        hosted_tools: Vec::new(),
+        max_tokens: rt.max_tokens,
+        // Inherit the selected effort; Off keeps the provider's default.
+        reasoning: rt.options.reasoning,
+        service_tier: service_tier.clone(),
+        limits: rt.limits.clone(),
+        // Use the selected provider's context window, not another role's budget.
+        context_limit: if tier == "primary" {
+            rt.options.primary_context_limit
+        } else {
+            rt.options.fast_context_limit
+        },
+        // R-162:子代理是机械检索,不需要事件触发召回(记忆命中只面向主代理
+        // 的失败瞬间决策;子代理注入会让同一失败双倍刷屏)。
+        recall: None,
+        // R-171:子代理是只读勘察/复核,不参与写仲裁,用默认执行策略。
+        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+        ask_policy: rt.options.ask_policy.unwrap_or(AskPolicy::NonInteractive),
+        halt: None,
+    };
+    let mut total_usage = Usage::default();
+    let mut prior = resumed_transcript(rt, parent_call_id, input);
+    let mut checkpoint = prior.clone();
+    checkpoint.push(Message::user_text(&prompt));
+    if let Some(sink) = &rt.transcript_sink {
+        sink(
+            parent_call_id,
+            serde_json::json!({"call_id":parent_call_id,"messages":checkpoint}),
+        );
+    }
+    // R-176 B4:写子代理改动台账——拦截写工具(edit/write)调用,记录 owner →
+    // 改动文件 + 首次原内容。闭包捕获 Arc 克隆(非 'static,生命周期不逃逸)。
+    let change_log = rt.change_log.clone();
+    let change_root = ctx.project_root.clone();
+    let change_owner = parent_call_id.to_string();
+    let mut on_event = |event: RunEvent| {
+        match &event {
+            RunEvent::AssistantMessageCommitted { message, .. }
+            | RunEvent::ToolResultsCommitted { message, .. } => {
+                checkpoint.push(message.clone());
+                if let Some(sink) = &rt.transcript_sink {
+                    sink(
+                        parent_call_id,
+                        serde_json::json!({"call_id":parent_call_id,"messages":checkpoint}),
+                    );
+                }
+            }
+            _ => {}
+        }
+        let text = match &event {
+            RunEvent::Text(text) => Some(text.clone()),
+            RunEvent::TurnStart {
+                step, max_steps, ..
+            } => Some(if *max_steps > 0 {
+                format!("第 {step}/{max_steps} 轮")
+            } else {
+                format!("第 {step} 轮")
+            }),
+            RunEvent::AssistantMessageCommitted { message, .. } => assistant_message_text(message),
+            RunEvent::ToolStart { name, summary, .. } => {
+                let head: String = summary.chars().take(80).collect();
+                Some(format!("{name} {head}"))
+            }
+            _ => None,
+        };
+        // R-176 B4:写子代理改动归因——写工具(edit/write)的 path 入参登记进台账,
+        // 首次触碰时快照原内容。只有 writable 子代理带 change_log 才采集。
+        if let Some(log) = change_log.as_ref() {
+            if matches!(event, RunEvent::ToolStart { ref name, .. } if name == "edit" || name == "insert" || name == "write")
+            {
+                if let Some(path) = event_input_path(&event) {
+                    log.record(&change_owner, &change_root, &path);
+                }
+            }
+        }
+        let trace = match event {
+            RunEvent::Text(text) => Some(TaskTrace {
+                child_id: parent_call_id.to_string(),
+                phase: "delta".into(),
+                text: Some(text),
+                ..Default::default()
+            }),
+            RunEvent::ToolStart {
+                id,
+                name,
+                summary,
+                input,
+            } => Some(TaskTrace {
+                child_id: id,
+                phase: "start".into(),
+                name,
+                summary: Some(summary),
+                // R-174:完整入参原文进 trace,面板/transcript 可展开复核「到底拿什么调的」。
+                input: Some(input),
+                ..Default::default()
+            }),
+            RunEvent::ToolEnd {
+                id,
+                name,
+                ok,
+                outcome,
+                code,
+                preview,
+                artifact,
+                display,
+                ..
+            } => Some(TaskTrace {
+                child_id: id,
+                phase: "end".into(),
+                name,
+                ok: Some(ok),
+                outcome: Some(outcome),
+                code,
+                preview: Some(preview),
+                artifact,
+                display,
+                ..Default::default()
+            }),
+            // R-174:子代理每轮 StepEnd 累计 token,以 phase="usage" 的 trace 上抛,
+            // 前端据此刷新「累计 token」字段(transcript/面板共用同一数据源)。
+            RunEvent::StepEnd { usage, .. } => {
+                total_usage.input = total_usage.input.saturating_add(usage.input);
+                total_usage.output = total_usage.output.saturating_add(usage.output);
+                total_usage.reasoning = total_usage.reasoning.saturating_add(usage.reasoning);
+                total_usage.cache_read = total_usage.cache_read.saturating_add(usage.cache_read);
+                total_usage.cache_write = total_usage.cache_write.saturating_add(usage.cache_write);
+                Some(TaskTrace {
+                    child_id: parent_call_id.to_string(),
+                    phase: "usage".into(),
+                    usage: Some(total_usage),
+                    ..Default::default()
+                })
+            }
+            RunEvent::AssistantMessageCommitted { message, .. } => assistant_message_text(&message)
+                .map(|text| TaskTrace {
+                    child_id: parent_call_id.to_string(),
+                    phase: "text".into(),
+                    name: "assistant".into(),
+                    text: Some(text),
+                    ..Default::default()
+                }),
+            RunEvent::ToolResultsCommitted { .. } => None,
+            _ => None,
+        };
+        if let Some(text) = text {
+            let _ = progress.send(RunEvent::TaskProgress {
+                id: parent_call_id.to_string(),
+                text,
+                trace: trace.clone(),
+            });
+        } else if trace.is_some() {
+            let _ = progress.send(RunEvent::TaskProgress {
+                id: parent_call_id.to_string(),
+                text: "子代理工具完成".into(),
+                trace,
+            });
+        }
+    };
+    // R-176 B2/B3:写子代理自持 write_scope 写租约——不继承主代理租约、不绕过
+    // 协调器(验收②)。**权限询问先于取租约**(验收③):先问用户"写子代理要获得
+    // 写权,允许吗?",Allow 才 acquire_writer_lease;Deny 直接返回、协调器无
+    // writer 占用。只读子代理维持读槽(现状,验收⑦不受影响)。
+    // 两者都是 RAII:drop 时回调协调器释放,任何收尾路径不留死锁。
+    let _lease = if rt.writable {
+        // 询问先于租约:拒绝后不得占用写租约(设计不变量 6,验收③)。
+        let decision = match rt.ask_router.as_ref() {
+            Some(router) => {
+                router(AskRequest::Permission {
+                    action: "subagent-write".into(),
+                    resource: ctx.cwd.display().to_string(),
+                })
+                .await
+            }
+            // 没有询问通道(CLI 无 UI):默认 Deny——宁可拒绝也不让看不见的
+            // 子代理拿写权(风险条款:用户看不见的进程在改仓库)。
+            None => AskResponse::Permission(AskReply::Deny),
+        };
+        let allowed = writable_granted(&decision);
+        if !allowed {
+            return kanzei_harness::ToolOutput::error(format!(
+                "writable subagent `{}` was denied write permission by the user; \
+                 no writer lease was acquired",
+                rt.agent.name
+            ));
+        }
+        acquire_subagent_permit(rt, ctx, parent_call_id).await
+    } else {
+        acquire_subagent_permit(rt, ctx, parent_call_id).await
+    };
+    // R-176 B3:写子代理的询问通道——有 ask_router 时把子代理内权限询问转发给
+    // 用户(与主对话同 UI 通道);没有(只读子代理/CLI)维持恒 Deny(无人应答)。
+    let mut ask = {
+        let router = rt.ask_router.clone();
+        move |request: AskRequest| -> AskFuture {
+            match &router {
+                Some(router) => router(request),
+                None => Box::pin(async { AskResponse::Permission(AskReply::Deny) }),
+            }
+        }
+    };
+    // R-175 B3 + R-279:续跑恢复——同一 id 再次调用 run_subagent 时,prior 优先
+    // 从事件日志恢复(transcript_provider,gate 开时 app 层已接线,跨进程可恢复),
+    // 事件无/未启用时回退进程内 TranscriptStore(缓存);首次派发仍从空 prior 开始。
+    // R-250:本轮要投递给子代理的指令。首跑=原 prompt;schema 不合规重试时换成
+    // 纠错指令,并把上一跑的完整历史当 prior 续上——重跑整个子代理太贵,而且
+    // 它已经查到的东西不该丢。
+    let mut turn_prompt = match schema.as_ref() {
+        Some(schema) => format!(
+            "{prompt}\n\n---\nAnswer with JSON ONLY — no prose, no markdown fence — \
+             matching exactly this JSON Schema:\n{}",
+            serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.to_string())
+        ),
+        None => prompt.clone(),
+    };
+    let mut schema_attempt: u32 = 0;
+    // R-174:单条停止——注册表 Some 时注册本子代理的取消 token,`stop_task` 命中后
+    // 立即触发 select 分支,以「被停」终态返回;读槽 `_read_permit` 随函数返回由 RAII
+    // 释放。drive.rs 的 timeout 仍在外层墙钟兜底,二者正交(取消先到先得)。
+    //
+    // R-250:注册在**重试循环之外**——每跑一轮重注册会在两轮之间留出一个未注册的
+    // 窗口,那个窗口里的 stop_task 会静默落空。
+    let cancellation = rt
+        .cancellations
+        .as_ref()
+        .map(|reg| reg.register(parent_call_id));
+    let output = loop {
+        // R-250:fut 借着 prior/turn_prompt,必须在本块结束前 drop,
+        // 循环末尾才能把这两个变量换成下一轮的值。
+        let attempt_result = {
+            // run_once 本身返回 boxed future,递归的无限类型在其签名处已断开。
+            let fut = run_once(
+                client,
+                route,
+                &rt.snapshot,
+                &selected_agent,
+                &config,
+                ctx,
+                &turn_prompt,
+                None,
+                &prior,
+                None,
+                // R-246:子代理嵌套 run 不持有 LineRuntime(子代理禁嵌套资源 owner)。
+                None,
+                &mut on_event,
+                &mut ask,
+            );
+            let mut fut = Box::pin(fut);
+            match &cancellation {
+                Some(guard) => tokio::select! {
+                biased;
+                _ = guard.token().cancelled() => {
+                    let _ = progress.send(RunEvent::TaskProgress {
+                        id: parent_call_id.to_string(),
+                        text: "子代理已被停止".into(),
+                        trace: Some(TaskTrace {
+                            child_id: parent_call_id.to_string(),
+                            phase: "cancelled".into(),
+                            ..Default::default()
+                        }),
+                    });
+                    // UI-0926 #8:稳定码让 UI 不必按文案正则猜「被停」;文案不变。
+                    Attempt::Fatal(kanzei_harness::ToolOutput::failed(
+                        "subagent_cancelled",
+                        format!("subagent {parent_call_id} was stopped by the user"),
+                    ))
+                }
+                result = &mut fut => match result {
+                    Ok(summary) => Attempt::Finished(summary),
+                    Err(e) => Attempt::Fatal(kanzei_harness::ToolOutput::error(format!(
+                        "subagent failed: {e}"
+                    ))),
+                },
+                    },
+                None => match fut.await {
+                    Ok(summary) => Attempt::Finished(summary),
+                    Err(e) => Attempt::Fatal(kanzei_harness::ToolOutput::error(format!(
+                        "subagent failed: {e}"
+                    ))),
+                },
+            }
+        };
+
+        let summary = match attempt_result {
+            Attempt::Fatal(output) => break output,
+            Attempt::Finished(summary) => summary,
+        };
+        // R-175 B3:transcript 持久化——完成时把完整消息历史按 id 存进 transcripts,
+        // 续跑入口据此恢复 prior。重试轮同样要存:否则一旦最终失败,已经查到的东西
+        // 全丢,主代理连「它查过什么」都看不到。
+        if let Some(store) = rt.transcripts.as_ref() {
+            store
+                .lock()
+                .unwrap()
+                .insert(parent_call_id.to_string(), summary.messages.clone());
+        }
+        // R-279:transcript 事件落库(跨进程/重启可恢复)。payload 含 call_id +
+        // 完整消息历史;恢复端按 call_id 取最新事件。
+        if let Some(sink) = rt.transcript_sink.as_ref() {
+            sink(
+                parent_call_id,
+                serde_json::json!({
+                    "call_id": parent_call_id,
+                    "messages": summary.messages,
+                }),
+            );
+        }
+        let text = if summary.text.trim().is_empty() {
+            "(subagent finished without a text answer)".to_string()
+        } else {
+            summary.text.clone()
+        };
+
+        // The final text-only wrap-up at the step ceiling is a checkpoint. The
+        // transcript above remains available for an explicitly requested resume.
+        if summary.step_limit_reached {
+            break kanzei_harness::ToolOutput::noop(
+                "subagent_step_limit_reached",
+                format!("子任务达到步骤上限；已保存上下文，需要明确续做或重新派发。以下是未完成的进展：\n{text}"),
+            );
+        }
+        // R-250:没传 schema 时,下面整段都不执行——行为与本条目之前逐字节一致。
+        let Some(schema) = schema.as_ref() else {
+            // 「跑完了一个字没说」不是成功。原先这里无条件 ToolOutput::ok,于是
+            // 编排层把空结果记成 ScoutOutcome::Completed——简报上一个绿勾,与真
+            // 查清楚了的 scout 长得一样,勘察完成率成了假指标(实测 D-368 那轮)。
+            // 给一个稳定 code 让编排层能机器识别,而不是去匹配那句散文哨兵。
+            //
+            // 刻意不走「给勘察传 schema 让 R-250 校验重试」那条路:勘察跑在
+            // fast/本地路由那一档,给最弱的模型加强制 JSON 契约是逆向操作;而且
+            // 合法的「确实没发现问题」会因不合规被重试、最终记成 Failed——把
+            // 「没问题」记成失败,方向相反、同样是撒谎。
+            break if summary.text.trim().is_empty() {
+                kanzei_harness::ToolOutput::noop(
+                    "subagent_empty_answer",
+                    format!(
+                        "subagent produced no text answer after {} step(s)",
+                        summary.steps
+                    ),
+                )
+            } else {
+                kanzei_harness::ToolOutput::ok(text)
+            };
+        };
+        let problem = match crate::runner::schema_check::extract_json(&text) {
+            None => "the answer is not JSON at all".to_string(),
+            Some(value) => {
+                match crate::runner::schema_check::validate(&value, schema, "$") {
+                    // 合规:回喂**规范化后的 JSON**,不是模型的原文——原文可能裹着
+                    // 围栏或前言,主代理还得再剥一层,那就白校验了。
+                    None => {
+                        break kanzei_harness::ToolOutput::ok(
+                            serde_json::to_string_pretty(&value)
+                                .unwrap_or_else(|_| value.to_string()),
+                        )
+                    }
+                    Some(problem) => problem,
+                }
+            }
+        };
+
+        if schema_attempt >= MAX_SCHEMA_RETRIES {
+            // 重试用尽:如实报错并**带上最后一次原文**。主代理据此还能自己救,
+            // 比只告诉它「子代理不合规」有用得多。
+            break kanzei_harness::ToolOutput::error(format!(
+                "subagent answer did not match the requested schema after                  {} attempt(s). Last problem: {problem}
+Last raw answer:
+{text}",
+                MAX_SCHEMA_RETRIES + 1
+            ));
+        }
+        schema_attempt += 1;
+        let _ = progress.send(RunEvent::TaskProgress {
+            id: parent_call_id.to_string(),
+            text: format!("返回不合 schema,重试第 {schema_attempt} 次:{problem}"),
+            trace: None,
+        });
+        // 续上已有历史,只补一条纠错指令——不重跑整个子代理。
+        prior = summary.messages;
+        turn_prompt = format!(
+            "Your previous answer did not match the required JSON Schema.
+             Problem: {problem}
+             Reply again with JSON ONLY (no prose, no markdown fence) matching the schema              exactly. Keep the findings you already have; only fix the shape."
+        );
+    };
+    // `cancellation` 的 Drop 负责正常、失败、取消和外层 timeout 的统一清理。
+    output
+}
+
+/// R-173:**编排对象直接派发**的只读勘察/复核代理。
+///
+/// 与 `task` 工具那条路的区别只在**谁决定派谁**:task 由模型在轮内自行派发,
+/// 本函数由阶段编排对象按固定角色表派发(设计文档「推荐勘察角色」)。二者走的是
+/// 同一个 [`run_subagent`],所以只读白名单、`ask` 恒 Deny、读槽登记与 RAII 回收
+/// **完全一致**——不存在"编排派的子代理走了另一条没人管的路"。
+///
+/// `agent_id` 同时用作读槽身份键(并行角色靠它区分,见 `ReadPermit::run_id`)。
+pub async fn run_read_agent(
+    client: &LlmClient,
+    rt: &SubagentRuntime,
+    ctx: &ToolCtx,
+    agent_id: &str,
+    prompt: &str,
+    progress: tokio::sync::mpsc::UnboundedSender<RunEvent>,
+) -> kanzei_harness::ToolOutput {
+    run_subagent(
+        client,
+        rt,
+        ctx,
+        agent_id,
+        &serde_json::json!({ "prompt": prompt }),
+        progress,
+    )
+    .await
+}
+
+/// A reused call ID is not authorization to resume a previous task.
+fn resumed_transcript(rt: &SubagentRuntime, id: &str, input: &serde_json::Value) -> Vec<Message> {
+    if input["resume"].as_bool() != Some(true) {
+        return Vec::new();
+    }
+    let prior = rt
+        .transcript_provider
+        .as_ref()
+        .and_then(|provider| provider(id))
+        .unwrap_or_default();
+    if prior.is_empty() {
+        rt.transcripts
+            .as_ref()
+            .and_then(|store| store.lock().unwrap().get(id).cloned())
+            .unwrap_or_default()
+    } else {
+        prior
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{assistant_message_text, TaskCancellations};
+    use kanzei_llm::{Message, Part};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn shared_timeout_drops_the_task_and_preserves_terminal_code() {
+        let registry = Arc::new(TaskCancellations::default());
+        let guard = registry.register("bounded-policy");
+        let future = async move {
+            let _guard = guard;
+            std::future::pending::<kanzei_harness::ToolOutput>().await
+        };
+        let output = super::bounded_subagent(0, future).await;
+        assert!(output.is_error);
+        assert_eq!(output.code, Some("subagent_timeout"));
+        assert!(
+            !registry.cancel("bounded-policy"),
+            "timeout must release cancellation ownership"
+        );
+    }
+
+    #[test]
+    fn assistant_message_text_keeps_full_text_parts() {
+        let message = Message::assistant(vec![
+            Part::Text {
+                text: "第一段\n".into(),
+            },
+            Part::ToolCall {
+                id: "tool-1".into(),
+                name: "read".into(),
+                input: serde_json::json!({"path": "src/lib.rs"}),
+            },
+            Part::Text {
+                text: "第二段".into(),
+            },
+        ]);
+        assert_eq!(
+            assistant_message_text(&message).as_deref(),
+            Some("第一段\n第二段")
+        );
+    }
+
+    #[test]
+    fn cancellation_guard_drop_清理注册表且终态停止返回未运行() {
+        let registry = Arc::new(TaskCancellations::default());
+        let guard = registry.register("timed-out-task");
+        drop(guard);
+        assert!(
+            !registry.cancel("timed-out-task"),
+            "外层 timeout 丢弃 future 后，死 token 不得继续可取消"
+        );
+    }
+
+    /// R-175 B5 验收③:重启可发现——从 session_events 回放,找「running 无终态」的子代理;
+    /// 有 done/failed 终态的不得残留(不留幽灵条目)。
+    #[test]
+    fn pending_background_subagents_只列running无终态_终态不残留() {
+        let trace = |id: &str, state: &str| crate::store::StoredEvent {
+            event_id: format!("ev_{id}_{state}"),
+            session_id: "ses".into(),
+            sequence: 1,
+            event_type: "run.trace".into(),
+            payload: serde_json::json!({
+                "run_id": "r",
+                "events": [{
+                    "kind": "task.lifecycle",
+                    "id": id,
+                    "state": state,
+                }],
+                "partial": true,
+            }),
+            created_at: 1,
+        };
+        // 子代理 A:running 无终态(强杀时仍在跑)→ 必须列出。
+        // 子代理 B:running → done(正常完成)→ 不得列出。
+        // 子代理 C:running → failed(失败终态)→ 不得列出。
+        let events = vec![
+            trace("A", "running"),
+            trace("B", "running"),
+            trace("B", "done"),
+            trace("C", "running"),
+            trace("C", "failed"),
+        ];
+        let pending = super::pending_background_subagents(&events);
+        assert_eq!(
+            pending,
+            vec!["A".to_string()],
+            "只应列出 running 无终态的 A: {pending:?}"
+        );
+    }
+
+    /// R-176 验收②:档位 → 许可类型映射——writable=true 走 writer lease、
+    /// false 走 read slot。纯函数断言,不依赖完整 SubagentRuntime 构造。
+    #[test]
+    fn writable_maps_to_writer_permit_reader_maps_to_read_slot() {
+        use super::{permit_kind, PermitKind};
+        assert_eq!(permit_kind(true), PermitKind::Writer);
+        assert_eq!(permit_kind(false), PermitKind::Reader);
+    }
+
+    /// R-176 验收③:权限询问先于取租约——拒绝/取消后**不得**授予写租约
+    /// (设计不变量 6:用户拒绝后不得占用写租约);只有 AllowOnce/AlwaysAllow
+    /// 才放行。纯函数断言顺序语义:询问结果 → 是否取租约。
+    #[test]
+    fn writable_granted_rejects_deny_and_cancel_allows_only_allow() {
+        use super::{writable_granted, AskReply, AskResponse};
+        assert!(
+            !writable_granted(&AskResponse::Permission(AskReply::Deny)),
+            "Deny 后不得取租约"
+        );
+        assert!(
+            !writable_granted(&AskResponse::Cancelled),
+            "取消后不得取租约"
+        );
+        assert!(
+            writable_granted(&AskResponse::Permission(AskReply::AllowOnce)),
+            "AllowOnce 可取租约"
+        );
+        assert!(
+            writable_granted(&AskResponse::Permission(AskReply::AlwaysAllow)),
+            "AlwaysAllow 可取租约"
+        );
+    }
+
+    /// R-176 验收④:写子代理的改动可按 owner 归因——台账记录后,任一文件
+    /// 能查到是哪个子代理 id 改的(owner → 文件清单)。
+    #[test]
+    fn change_log_attributes_files_to_owner() {
+        use super::SubagentChangeLog;
+        let log = SubagentChangeLog::default();
+        let root = std::env::temp_dir().join(format!(
+            "kz-change-attr-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/a.rs"), "ORIGINAL-A").unwrap();
+        std::fs::write(root.join("src/b.rs"), "ORIGINAL-B").unwrap();
+
+        // 子代理 sub-A 改 a.rs;子代理 sub-B 改 b.rs。
+        log.record("sub-A", &root, "src/a.rs");
+        log.record("sub-B", &root, "src/b.rs");
+        // sub-A 再改 a.rs(第二次不覆盖首次快照)。
+        log.record("sub-A", &root, "src/a.rs");
+
+        assert_eq!(
+            log.files_of("sub-A"),
+            vec!["src/a.rs".to_string()],
+            "sub-A 只改过 a.rs"
+        );
+        assert_eq!(
+            log.files_of("sub-B"),
+            vec!["src/b.rs".to_string()],
+            "sub-B 只改过 b.rs"
+        );
+        assert!(log.files_of("sub-none").is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-176 验收⑤:单个写子代理的改动可**单独回滚**——只恢复该 owner 改过的
+    /// 文件,其它 owner 与主代理的改动原样保留(不误伤)。
+    #[test]
+    fn change_log_rollback_restores_only_owner_files() {
+        use super::SubagentChangeLog;
+        let log = SubagentChangeLog::default();
+        let root = std::env::temp_dir().join(format!(
+            "kz-change-rollback-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/a.rs"), "ORIGINAL-A").unwrap();
+        std::fs::write(root.join("src/b.rs"), "ORIGINAL-B").unwrap();
+
+        // 两个写子代理各自改自己的文件。
+        log.record("sub-A", &root, "src/a.rs");
+        log.record("sub-B", &root, "src/b.rs");
+        // 子代理改完(写工具落盘)之后,主代理又改了一个无关文件。
+        std::fs::write(root.join("src/a.rs"), "CHANGED-BY-A").unwrap();
+        std::fs::write(root.join("src/b.rs"), "CHANGED-BY-B").unwrap();
+        std::fs::write(root.join("src/main.rs"), "MAIN-OWN").unwrap();
+
+        // 单独回滚 sub-A:只恢复 a.rs 为首次快照 ORIGINAL-A。
+        assert_eq!(log.rollback("sub-A", &root), 1, "只恢复 A 的 1 个文件");
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/a.rs")).unwrap(),
+            "ORIGINAL-A",
+            "A 的文件恢复到首次快照"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/b.rs")).unwrap(),
+            "CHANGED-BY-B",
+            "B 的改动不得被 A 的回滚误伤"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/main.rs")).unwrap(),
+            "MAIN-OWN",
+            "主代理的改动不得被 A 的回滚误伤"
+        );
+
+        // 回滚 sub-B:b.rs 也恢复,其它不受影响。
+        assert_eq!(log.rollback("sub-B", &root), 1);
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/b.rs")).unwrap(),
+            "ORIGINAL-B"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-250:schema 是可选入参,必须真的出现在工具面上——不然模型看不到就永远不会传。
+    #[test]
+    fn task_spec_exposes_optional_schema() {
+        let spec = super::task_spec();
+        let properties = spec.input_schema["properties"].as_object().unwrap();
+        assert!(properties.contains_key("schema"), "task 未暴露 schema 入参");
+        // 必填项仍然只有 prompt:传 schema 是可选的,老调用方式一个字不用改。
+        let required: Vec<&str> = spec.input_schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(required, vec!["prompt"], "schema 不得变成必填");
+        // 描述里要写清楚它的用途,否则模型不知道什么时候该用。
+        assert!(
+            spec.description.contains("schema"),
+            "工具描述里没提 schema,模型不会主动使用"
+        );
+    }
+
+    /// UI-0926 #8:description 是给用户看的短标签——可选,老调用方式不变;
+    /// 名册只有默认人格时 task_spec_for 仍与 task_spec 逐字节一致。
+    #[test]
+    fn task_spec_exposes_optional_description() {
+        let spec = super::task_spec();
+        let description = &spec.input_schema["properties"]["description"];
+        assert_eq!(
+            description["type"], "string",
+            "task 未暴露 description 入参"
+        );
+        assert!(
+            description["description"]
+                .as_str()
+                .is_some_and(|text| text.contains("3-8 word")),
+            "入参说明要写清是短标签,否则弱模型会把整段指令抄进来"
+        );
+        assert_eq!(
+            spec.input_schema["required"],
+            json!(["prompt"]),
+            "description 不得变成必填"
+        );
+        assert!(
+            spec.description.contains("description"),
+            "工具描述的 Params 段要提到 description"
+        );
+        assert_eq!(
+            super::task_spec_for(&["explore".to_string()]).input_schema,
+            spec.input_schema
+        );
+    }
+
+    // ---- R-327:子代理人格选择 ----
+    use kanzei_harness::AgentDef;
+    use serde_json::json;
+
+    fn persona(name: &str, model: &str, steps: u32) -> AgentDef {
+        AgentDef {
+            name: name.into(),
+            profile: kanzei_harness::ProfileScope::All,
+            model: model.into(),
+            mode: kanzei_harness::AgentMode::Subagent,
+            steps,
+            system: String::new(),
+        }
+    }
+
+    /// 选中名册里的人格;选不中静默回落默认,不为一个拼错的名字打回整次委派。
+    #[test]
+    fn 人格按名选中_未命中回落默认() {
+        let rt = TestRuntime {
+            agent: persona("explore", "fast", 12),
+            roster: vec![persona("plan", "primary", 24)],
+        };
+        assert_eq!(rt.resolve("plan").name, "plan");
+        assert_eq!(rt.resolve("explore").name, "explore");
+        assert_eq!(rt.resolve("nonexistent").name, "explore", "未命中回落默认");
+        assert_eq!(rt.resolve_none().name, "explore", "不传即默认");
+    }
+
+    /// schema 的 enum 由**运行时名册**决定,不硬编码 —— 硬编码会让「schema 说有、
+    /// 运行时没有」,而回落是静默的,模型永远不知道自己没选中。
+    #[test]
+    fn 名册只有默认时schema不出现agent参数() {
+        let spec = super::task_spec_for(&["explore".to_string()]);
+        assert!(
+            spec.input_schema["properties"].get("agent").is_none(),
+            "只有一个人格时不该暴露 agent 参数"
+        );
+        // 与不带名册的 task_spec 逐字节一致:老调用方零感知。
+        assert_eq!(spec.input_schema, super::task_spec().input_schema);
+    }
+
+    #[test]
+    fn 名册有多个人格时schema按名册生成enum() {
+        let spec = super::task_spec_for(&["explore".to_string(), "plan".to_string()]);
+        let values = spec.input_schema["properties"]["agent"]["enum"]
+            .as_array()
+            .expect("多人格时必须暴露 agent enum");
+        assert_eq!(values, &[json!("explore"), json!("plan")]);
+        let required = spec.input_schema["required"].as_array().unwrap();
+        assert!(
+            !required.contains(&json!("agent")),
+            "人格是可选的,不传即默认"
+        );
+    }
+
+    /// 名册去重:默认人格也出现在 roster 里时不重复列出。
+    #[test]
+    fn 人格名去重() {
+        let rt = TestRuntime {
+            agent: persona("explore", "fast", 12),
+            roster: vec![
+                persona("explore", "fast", 12),
+                persona("plan", "primary", 24),
+            ],
+        };
+        assert_eq!(rt.names(), vec!["explore".to_string(), "plan".to_string()]);
+    }
+
+    /// 只构造人格选择所需的最小替身:SubagentRuntime 有十几个字段,
+    /// 为一条纯查表逻辑造完整运行时是噪音,且会把测试绑死在无关字段上。
+    struct TestRuntime {
+        agent: AgentDef,
+        roster: Vec<AgentDef>,
+    }
+
+    impl TestRuntime {
+        fn resolve(&self, name: &str) -> &AgentDef {
+            self.pick(Some(name))
+        }
+        fn resolve_none(&self) -> &AgentDef {
+            self.pick(None)
+        }
+        /// 与 SubagentRuntime::resolve_agent 同一判定;两者若漂开,下面那条
+        /// 断言会把差异暴露出来。
+        fn pick(&self, requested: Option<&str>) -> &AgentDef {
+            let Some(name) = requested else {
+                return &self.agent;
+            };
+            if self.agent.name == name {
+                return &self.agent;
+            }
+            self.roster
+                .iter()
+                .find(|c| c.name == name)
+                .unwrap_or(&self.agent)
+        }
+        fn names(&self) -> Vec<String> {
+            let mut names = vec![self.agent.name.clone()];
+            names.extend(
+                self.roster
+                    .iter()
+                    .map(|a| a.name.clone())
+                    .filter(|n| *n != self.agent.name),
+            );
+            names
+        }
+    }
+}

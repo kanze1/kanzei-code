@@ -1,0 +1,99 @@
+/* 项目总览的同一入口：信息按行排列，沿用全局主题与弹层。 */
+#workspace-scroll { --console-line: color-mix(in srgb, var(--fg) 12%, transparent); }
+#workspace-console, .console-projects { max-width: 1200px; }
+/* 计数条:紧凑的角标按钮(UX-063)——点哪个切到对应页签。原来是 32px 大数字,看着像按钮却点不动。 */
+.console-summary { display: flex; flex-wrap: wrap; gap: 8px; padding: 18px 0 16px; border-bottom: 1px solid var(--console-line); }
+.console-metric { display: inline-flex; align-items: baseline; gap: 8px; padding: 4px 12px; border: 1px solid var(--console-line); border-radius: var(--r-pill, 999px); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.console-metric:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.console-metric:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.console-metric strong { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.console-metric span { color: var(--muted); font-size: 12px; }
+.console-toolbar { display: flex; gap: 12px; align-items: center; margin: 22px 0 10px; flex-wrap: wrap; }
+.console-tabs { display: flex; gap: 4px; margin-right: auto; }
+.console-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 9px 12px; border-radius: 0; }
+.console-tab[aria-pressed="true"] { color: var(--fg); border-bottom-color: var(--accent, #ff8700); }
+.console-freshness { font-size: 11px; margin-bottom: 18px; }
+.console-projects { display: flex; flex-direction: column; gap: 0; }
+.console-projects[hidden], .console-projects .workspace-card[hidden] { display: none; }
+.console-projects .workspace-card { max-width: none; border-radius: 0; border: 0; border-bottom: 1px solid var(--console-line); background: transparent; padding: 18px 4px; }
+.console-projects .workspace-card.current { box-shadow: none; border-left: 2px solid var(--accent, #ff8700); padding-left: 14px; }
+.console-projects .workspace-summary { margin-top: 10px; }
+.console-projects .workspace-path { font-size: 11px; }
+.console-section-head, .console-operations { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.console-section-head { padding-bottom: 16px; }
+.console-section-head span { font-size: 12px; }
+.console-decision, .console-delivery { padding: 22px 4px; border-bottom: 1px solid var(--console-line); }
+.console-enter { animation: console-enter 200ms ease-out both; }
+.console-update-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px 27px; color: var(--warn, #df994a); font-size: 12px; }
+.console-update-notice[hidden], #workspace-console [hidden] { display: none; }
+.console-decision-head, .console-delivery summary { display: flex; align-items: baseline; gap: 12px; }
+.console-decision-head strong, .console-delivery summary strong { flex: 1; font-size: 14px; font-weight: 550; overflow-wrap: anywhere; }
+.console-decision-head input { flex: 0 0 auto; accent-color: var(--accent, #ff8700); }
+.console-origin { font-size: 11px; margin: 9px 0 14px 27px; overflow-wrap: anywhere; }
+.console-answer { font-size: 17px; margin: 10px 0 16px 27px; line-height: 1.6; }
+.console-reason { display: grid; grid-template-columns: 80px 1fr; gap: 8px 14px; margin: 14px 0 18px 27px; font-size: 12px; line-height: 1.65; }
+.console-reason dt { color: var(--muted); }
+.console-reason dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.console-status { font-size: 11px; color: var(--muted); white-space: nowrap; }
+/* 文字用 --accent-text(亮色主题加深一档,小字在白底 ≥ 4.5:1);--accent 是填充/品牌色,小字用它在亮色下只有 4.0:1。 */
+.console-status.decided, .console-preference { color: var(--accent-text, var(--accent, #ff8700)); }
+.console-error, .console-missing, .console-status.stale { color: var(--warn, #df994a); overflow-wrap: anywhere; }
+.console-empty { padding: 48px 0; color: var(--muted); max-width: 560px; line-height: 1.8; }
+.console-explainer { font-size: 12px; line-height: 1.7; }
+.console-delivery summary { cursor: pointer; }
+.console-chevron { flex: 0 0 auto; color: var(--muted); font-size: 11px; transition: transform var(--motion-fast, 120ms) var(--ease-out, ease-out); }
+.console-delivery[open] .console-chevron { transform: rotate(90deg); }
+.console-delivery-project { flex: 0 1 auto; max-width: 28%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { .console-chevron { transition: none; } }
+.console-delivery[open] summary { margin-bottom: 16px; }
+.console-delivery p { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.console-evidence { white-space: pre-wrap; font-family: var(--mono, monospace); }
+.console-operations { margin: 16px 0 0 27px; }
+.console-rework, .console-preference { font-size: 12px; }
+.decision-editing { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0 27px; padding: 16px; background: color-mix(in srgb, var(--fg) 3%, transparent); border-left: 2px solid var(--accent, #ff8700); }
+.decision-editing textarea { flex: 1 0 100%; width: 100%; resize: vertical; box-sizing: border-box; min-height: 88px; font: inherit; line-height: 1.7; }
+.decision-editing select { margin-right: auto; }
+@keyframes console-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .console-decision, .console-delivery { animation: none; } }
+@media (max-width: 720px) {
+  body[data-view="workspace"] #status-version { flex: 0 1 auto; max-width: 20vw; }
+}
+@media (max-width: 720px) { .console-summary { gap: 8px; } .console-toolbar { align-items: stretch; } .console-tabs { flex: 1 0 100%; } .console-tab { padding: 8px; } .console-decision-head, .console-delivery summary { flex-wrap: wrap; } .console-reason { grid-template-columns: 1fr; gap: 2px; } .console-reason dd { margin-bottom: 8px; } .decision-editing, .console-answer, .console-origin, .console-reason, .console-operations { margin-left: 0; } }
+
+/* ---------- 需求页:工具条、新建表单、测试页签、归档行、读取失败条 ---------- */
+/* 依赖视图是页内切换按钮:按下态与「按标签分组」同一套中性选中色。 */
+.documents-view-toggle[aria-pressed="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+/* 读取失败条(UX-066):带重试;失败时上一个项目的列表整体藏起来,免得读成新项目的数据。 */
+.documents-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; padding: 8px 12px; border-radius: var(--r-md); color: var(--warn); background: var(--alert-soft); font-size: var(--fs-12); }
+.documents-error.hidden { display: none; }
+#documents-scroll.documents-stale :is(.documents-list, .dep-view, .documents-batch-bar, #defect-incident-metrics) { display: none; }
+/* 新建表单(记需求/记缺陷/记想法):页面内的一块,不是浮层。 */
+.documents-quick-slot:empty { display: none; }
+.documents-quick-slot { max-width: 980px; margin: 0 0 12px; }
+.documents-quick-form { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: var(--r-md); }
+.documents-quick-title { font-size: var(--fs-12); font-weight: 600; color: var(--fg-strong); }
+.documents-quick-form textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px; padding: 6px 8px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-12); }
+.documents-quick-hint { font-size: var(--fs-11); }
+.documents-quick-bar { display: flex; gap: 6px; justify-content: flex-end; }
+/* 空列表给下一步 */
+.doc-empty-guided { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px var(--doc-pad-x, 12px); font-size: var(--fs-13); }
+/* 测试页签:状态筛选 + 搜索,先进行中后历史 */
+.documents-tests-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; }
+.documents-tests-search { flex: 1 1 220px; max-width: 360px; min-width: 0; }
+.documents-list .test-entry { padding: 3px var(--doc-pad-x, 12px); font-size: var(--fs-12); }
+.documents-list .sv-test-head { display: flex; align-items: baseline; gap: 8px; overflow: hidden; }
+.documents-list .sv-test-head .test-icon { flex: 0 0 auto; width: 1em; text-align: center; }
+.documents-list .sv-test-head .test-status { flex: 0 0 auto; min-width: 3.2em; font-size: var(--fs-11); }
+.documents-list .sv-test-head .test-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-strong); }
+.documents-list .sv-test-head .test-time { flex: 0 0 auto; font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+.documents-list .sv-test-head .test-stale { flex: 0 0 auto; color: var(--warn); background: var(--alert-soft); border-radius: var(--r-pill); padding: 0 7px; font-size: var(--fs-10); }
+.documents-list .test-entry-refs { margin-left: calc(1em + 8px); }
+.documents-list .tests-more { margin: 8px var(--doc-pad-x, 12px); }
+/* 归档行可展开(UX-068) */
+.documents-list .archived-entry { padding: 0; }
+.documents-list .archived-row { display: block; width: 100%; padding: 3px 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; white-space: normal; overflow-wrap: anywhere; }
+.documents-list .archived-row:hover { color: var(--fg-strong); }
+.documents-list .archived-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.documents-list .archived-detail { margin: 2px 0 8px 12px; padding: 6px 0 2px; border-left: 0; color: var(--fg); }
+/* 想法行右端的「拆解」按钮 */
+.documents-list .doc-row .idea-split { flex: 0 0 auto; }

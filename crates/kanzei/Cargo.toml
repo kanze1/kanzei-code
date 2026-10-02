@@ -1,0 +1,28 @@
+[package]
+name = "kanzei"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "kz 命令行"
+
+[package.metadata.kanzei]
+# 架构图 crate 依赖图的分组(docs/design/architecture_diagrams.md)
+group = "入口"
+
+[[bin]]
+name = "kz"
+path = "src/main.rs"
+
+[dependencies]
+kanzei-core.workspace = true
+kanzei-llm.workspace = true
+kanzei-tools.workspace = true
+kanzei-harness.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+toml.workspace = true

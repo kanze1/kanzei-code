@@ -1,0 +1,310 @@
+import { closeSurface } from "./00-surface.js";
+import { defer } from "./01-core.js";
+import { $, invoke, on } from "./01-core.js";
+import { t } from "./02-i18n.js";
+import { currentProject, processItems, running, toast, toastError } from "./03-shell.js";
+import { applyBgFilters, bgDoneOpen, bgEntries, bgFilters, bgSync, renderBgSections, setBgDoneOpen } from "./06-activity.js";
+import { refreshWorktrees } from "./09-sessions.js";
+import { saveDocFilters } from "./10-docs-core.js";
+import { applyBatch, batchSelection, clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
+import { refreshTests } from "./12-docs-tests.js";
+import {
+  DOC_FILTER_DEFAULTS,
+  dependencyViewOpen,
+  setDependencyViewOpen,
+  docFilterTargets,
+  documentFilters,
+  documentsKind,
+  latestDocsSnapshot,
+  renderDocsSnapshot,
+  renderDocuments,
+  selectWorkspaceProject,
+  setDocumentsKind,
+  showDocsLoadError,
+  refreshWorkspaceSoon,
+} from "./12-docs-pages.js";
+import { openRuntimeMarkdown, refreshConversationList } from "./15-views-misc.js";
+import { forProject } from "./20-lines.js";
+
+// await 前后各认一次项目。这份快照是替 forProject 取的:await 期间用户切走了,它就是
+// **上一个项目**的数据,照旧渲染的后果不止"闪一下上个项目的列表"——syncDocumentFilters
+// 会拿新项目的筛选去旧项目的条目里判「这标签还在不在」,判否就回落并落盘(D-169 那段),
+// 而落盘走的是**新项目**的键:用户在新项目从没设过筛选,列表却永久少一批,重启也回不来。
+// 挂起的跳转高亮不必在这条路径上作废:切项目必然跟着 selectWorkspaceProject 自己那次
+// refreshDocs,由那次重绘消费(目标不在新项目的列表里就自然作罢),不会留成悬挂高亮。
+export async function refreshDocs({ extras = document.body.dataset.view !== "documents" } = {}) {
+  if (!currentProject) return;
+  const forProject = currentProject;
+  let rendered = false;
+  try {
+    const snapshot = await invoke("docs_snapshot", { projectDir: forProject });
+    if (currentProject !== forProject) return;
+    renderDocsSnapshot(snapshot);
+    rendered = true;
+    if (extras) {
+      await refreshConversationList();
+      await refreshTests();
+      await refreshWorktrees();
+    }
+  } catch (err) {
+    // 这次刷新没能走到 renderDocsSnapshot,跨视图跳转挂起的高亮就永远等不到人消费。
+    // 留着它 = 悬挂高亮:之后任意一次无关刷新都会把它兑现,用户没点跳转条目却自己亮了。
+    // 但只作废**属于自己那次刷新**的挂起跳转:成功路径上面已按项目收敛,失败路径必须对称
+    // (D-250)。替旧项目发出的刷新若在用户切走之后才抛错,新项目刚排上的高亮不该被它连坐。
+    if (currentProject === forProject) {
+      clearPendingJump();
+      // 页面级错误条(UX-066):切项目后页面处于 inert 等新快照,失败时没人解除就一直灰着、
+      // 新项目名下还留着上个项目的列表;这里解除 inert、藏掉过期列表,并给一个带重试的条。
+      // 只管「文档没读成/没画成」:快照已画好后的附加刷新(对话列表、测试、工作树)失败,
+      // 需求页的内容是对的,不该顶一条「读取失败」。
+      if (!rendered) showDocsLoadError(String(err), refreshDocs);
+    }
+    // 报错不设项目守卫:刷新确实失败了,与用户此刻停在哪个项目无关,该看见就得看见。
+    toastError(`${t("项目文档刷新失败")}:${err}`, { retry: refreshDocs });
+  }
+}
+
+// agent 在运行中改需求/缺陷/目标时,侧栏必须跟着动:否则状态、计数和状态流转按钮
+// 会一直停在开跑前的样子,要等本轮结束才更新(D-098)。合并 400ms 内的连续变更。
+export let docsLiveTimer = null;
+export function refreshDocsSoon() {
+  if (document.hidden) return;
+  if (["workspace", "project"].includes(document.body.dataset.view)) { refreshWorkspaceSoon(); return; }
+  if (!currentProject) return;
+  clearTimeout(docsLiveTimer);
+  docsLiveTimer = setTimeout(async () => {
+    docsLiveTimer = null;
+    if (document.hidden) return;
+    if (["workspace", "project"].includes(document.body.dataset.view)) { refreshWorkspaceSoon(); return; }
+    // 重绘会清空列表容器:用户正在拖拽排序、或单页里有没保存的条目编辑时先让路,
+    // 稍后再刷(编辑态与草稿虽然跨重绘保留,agent 连续改台账时整表重建仍会打断输入法组字)。
+    // 新建表单(14-docs-quick.js)住在列表容器之外的槽位里,不受重绘影响,不用让路。
+    // 只在单页开着时让:人已经离开单页,草稿照样跨重绘保留,侧栏焦点卡不能因此停更。
+    const editingDraft = $("view-documents")?.classList.contains("active")
+      && document.querySelector(".doc-detail.editing .doc-edit[data-dirty]");
+    if (document.querySelector(".doc-item.dragging") || editingDraft) {
+      refreshDocsSoon();
+      return;
+    }
+    // 同 refreshDocs:await 前后各认一次项目。这条路径由 agent 的文档变更事件驱动,
+    // 合并窗口本身就有 400ms,在飞的概率比手动刷新更高。
+    const forProject = currentProject;
+    try {
+      const snapshot = await invoke("docs_snapshot", { projectDir: forProject });
+      if (currentProject !== forProject) return;
+      renderDocsSnapshot(snapshot);
+    } catch (err) {
+      // 同 refreshDocs:没重绘成 = 挂起的跳转高亮没人消费,不作废就会在下一次
+      // 无关刷新上突然亮起来。同样只作废属于自己那次刷新的(D-250):这条路径由 agent 的
+      // 文档变更事件驱动、自带 400ms 合并窗口,定时器落地时用户早就可能切走了,
+      // 撞上的概率比 refreshDocs 更高,不能只在上面那处加守卫。
+      if (currentProject === forProject) clearPendingJump();
+      console.error(err);
+    }
+  }, 400);
+}
+
+// 兜底轮询:agent 经 write/bash 直改台账文件时不产生 tracker 工具事件,侧栏要等
+// 整轮结束(kz:done)才刷(D-098 只覆盖了 req/defect 工具路径)。任一线路运行中
+// 每 20 秒补一次快照(仍走 refreshDocsSoon 的合并窗口与让路逻辑);空闲不打扰。
+defer(() => {
+  setInterval(() => {
+    if (document.hidden || ["workspace", "project"].includes(document.body.dataset.view)) return;
+    const anyRunning = typeof processItems !== "undefined"
+      && processItems.some((item) => item.running);
+    if (anyRunning) refreshDocsSoon();
+  }, 20000);
+});
+
+defer(() => {
+  $("documents-project-select").addEventListener("change", (event) => {
+    if (event.target.value && event.target.value !== currentProject) selectWorkspaceProject(event.target.value);
+  });
+});
+
+defer(() => {
+  $("documents-tab-req").addEventListener("click", () => { setDocumentsKind("req"); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
+defer(() => {
+  $("documents-tab-defect").addEventListener("click", () => { setDocumentsKind("defect"); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
+// 测试记录已从侧栏搬到这里:切过去顺手刷一次,否则看到的是上次 refreshDocs 的旧快照。
+defer(() => {
+  $("documents-tab-tests").addEventListener("click", () => {
+    setDocumentsKind("tests");
+    if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+    refreshTests();
+  });
+});
+// 想法收件箱(B19):原先只在被隐藏的侧栏里,现在是需求页的页签。
+defer(() => {
+  $("documents-tab-ideas").addEventListener("click", () => { setDocumentsKind("ideas"); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
+defer(() => {
+  $("documents-dep-toggle").addEventListener("click", () => { setDependencyViewOpen(!dependencyViewOpen); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
+
+export async function runDefectReview() {
+  if (!currentProject) {
+    toast(t("先在左侧「项目」里添加并选择一个目录"));
+    return;
+  }
+  const button = $("defect-review");
+  const status = $("defect-review-status");
+  button.disabled = true;
+  status.textContent = t("正在审查缺陷…");
+  try {
+    const result = await invoke("defect_review", { projectDir: currentProject });
+    if (result.empty) {
+      status.textContent = t("当前没有活动缺陷");
+      toast(t("当前没有活动缺陷"));
+      return;
+    }
+    status.textContent = t("审查完成");
+    openRuntimeMarkdown(t("缺陷自动审查报告"), result.report);
+  } catch (err) {
+    status.textContent = t("审查失败");
+    toastError(`${t("审查失败")}:${err}`, { retry: runDefectReview });
+  } finally {
+    button.disabled = false;
+  }
+}
+defer(() => {
+  $("defect-review").addEventListener("click", runDefectReview);
+});
+
+// 两个筛选(类型/成败,在后台任务侧栏头部的「筛选与清理」菜单里)改完都要重算段计数:筛掉一半条目而段头还写着原来的数,
+// 比不显示更误导(「运行中 5」但底下一条都没有)。
+defer(() => {
+  $("bg-type-filter").addEventListener("change", (e) => {
+    bgFilters.type = e.target.value;
+    localStorage.setItem("kz-bg-type", bgFilters.type);
+    applyBgFilters();
+    renderBgSections();
+  });
+});
+defer(() => {
+  $("bg-status-filter").addEventListener("change", (e) => {
+    bgFilters.status = e.target.value;
+    localStorage.setItem("kz-bg-status", bgFilters.status);
+    applyBgFilters();
+    renderBgSections();
+  });
+});
+// 已完成段的折叠:记住用户的选择,别每次刷新都弹回收起。
+defer(() => {
+  $("bg-done-toggle").addEventListener("click", () => {
+    setBgDoneOpen(!bgDoneOpen);
+    localStorage.setItem("kz-bg-done-open", bgDoneOpen ? "1" : "0");
+    renderBgSections();
+  });
+});
+// 清空只摘已完成那一段——在跑的和需要关注的一条都不动。
+defer(() => {
+  $("bg-clear-done").addEventListener("click", () => {
+    for (const [id, entry] of [...bgEntries]) {
+      if (entry.section !== "done") continue;
+      entry.el.remove();
+      bgEntries.delete(id);
+    }
+    bgSync();
+  });
+});
+defer(() => {
+  $("bg-type-filter").value = bgFilters.type;
+});
+defer(() => {
+  $("bg-status-filter").value = bgFilters.status;
+});
+
+defer(() => {
+  $("documents-batch-apply").addEventListener("click", applyBatch);
+});
+defer(() => {
+  $("documents-batch-clear").addEventListener("click", () => { batchSelection.clear(); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
+// 筛选写进 docFilterTargets() 给出的每个队列:对照模式下两边共用同一套条件。
+// 但只写给**确实拥有该字段**的队列:缺陷没有复杂度/排序口径(documentFilters.defect
+// 里根本没这两个键)。凭空写进去,锁提示的 `key in reqFilterState` 就会列出
+// 「复杂度=大」,而 docDragEnabled 的缺陷分支只看 status/priority/tag/blocked——
+// 提示说锁了、实际仍可拖,是 D-211 的反向脱节。
+export function applyDocFilter(field, value) {
+  // 用户动了筛选 = 回到「按筛选看」:跳转时的临时放行就此作废。
+  clearJumpReveal();
+  for (const kind of docFilterTargets()) {
+    if (!(field in documentFilters[kind])) continue;
+    documentFilters[kind][field] = value;
+  }
+  saveDocFilters();
+  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+}
+// 「清除全部」(生效筛选 chip 行):当前队列按项目持久化的筛选与排序全部回默认值并落盘。
+// 默认值只取 DOC_FILTER_DEFAULTS 一份;分组开关不在其中(全局记,见 bindGroupToggle)。
+export function clearDocFilters() {
+  clearJumpReveal();
+  for (const kind of docFilterTargets()) Object.assign(documentFilters[kind], DOC_FILTER_DEFAULTS[kind]);
+  saveDocFilters();
+  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+}
+// 「更多」菜单里全是一次性动作(审查、打开原文):点完就收起菜单。依赖视图已升为工具条上的页内切换。
+// 菜单宿主是 data-kz-menu 静态弹层,开关一律经 00-surface(不直接切 .hidden)。
+defer(() => {
+  const menu = $("documents-more-menu");
+  if (!menu) return;
+  for (const id of ["defect-review", "req-open", "defect-open", "idea-open"]) {
+    $(id)?.addEventListener("click", () => closeSurface(menu));
+  }
+});
+// 交付方式(插入/排队)是个人习惯,全局记一份即可,不按项目分。
+defer(() => {
+  $("delivery-select").addEventListener("change", (event) => {
+    localStorage.setItem("kz-delivery", event.target.value);
+  });
+});
+defer(() => {
+  $("documents-status-filter").addEventListener("change", (e) => applyDocFilter("status", e.target.value));
+});
+defer(() => {
+  $("documents-priority-filter").addEventListener("change", (e) => applyDocFilter("priority", e.target.value));
+});
+defer(() => {
+  $("documents-complexity-filter").addEventListener("change", (e) => applyDocFilter("complexity", e.target.value));
+});
+defer(() => {
+  $("documents-tag-filter").addEventListener("change", (e) => applyDocFilter("tag", e.target.value));
+});
+defer(() => {
+  $("documents-blocked-filter").addEventListener("change", (e) => applyDocFilter("blocked", e.target.value));
+});
+// 排序走 applyDocFilter:它只改 documentFilters(显示口径),永远不会碰 docs_update(reorder)。
+// 能改取活顺序的入口只有一个——手动排序下的拖拽,见 commitDocOrder。
+defer(() => {
+  $("documents-sort").addEventListener("change", (e) => applyDocFilter("sort", e.target.value));
+});
+// 分组开关(用户定调:按受控标签分组展示):关掉即回纯开发顺序+拖拽。
+// 完整列表只剩单页视图一处,开关也只剩这一个。
+export function bindGroupToggle(id, storageKey, apply) {
+  const btn = $(id);
+  if (!btn) return;
+  const sync = (on) => {
+    btn.setAttribute("aria-pressed", String(on));
+    btn.classList.toggle("active", on);
+  };
+  sync(apply(null));
+  btn.addEventListener("click", () => {
+    const on = apply("toggle");
+    localStorage.setItem(storageKey, on ? "1" : "0");
+    sync(on);
+    if (latestDocsSnapshot) renderDocsSnapshot(latestDocsSnapshot);
+  });
+}
+defer(() => {
+  bindGroupToggle("documents-group-toggle", "kz-grouped-docs", (op) => {
+    if (op === "toggle") {
+      const next = !documentFilters.req.grouped;
+      documentFilters.req.grouped = next;
+      documentFilters.defect.grouped = next;
+    }
+    return documentFilters.req.grouped;
+  });
+});

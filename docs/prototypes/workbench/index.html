@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kanzei · 工作台</title>
+  <link rel="stylesheet" href="workbench.css">
+  <script src="workbench.js" defer></script>
+</head>
+<body>
+  <a href="#main" class="skip">跳到主内容</a>
+  <aside class="sidebar" aria-label="主导航">
+    <a href="#home" class="brand"><span class="brand-mark" aria-hidden="true">K</span>kanzei<span class="brand-dot">.</span></a>
+    <nav class="global-nav">
+      <a href="#home" data-nav="home"><span aria-hidden="true">▦</span>工作台</a>
+      <a href="#inbox" data-nav="inbox"><span aria-hidden="true">▤</span>待我处理 <span class="count" data-inbox-count>3</span></a>
+    </nav>
+    <div class="nav-label">项目</div>
+    <nav id="project-nav" class="project-nav"></nav>
+    <div class="sidebar-bottom">
+      <a href="#preferences" data-nav="preferences">记忆与偏好 <span>↗</span></a>
+      <a href="#settings" data-nav="settings">设置 <span>↗</span></a>
+      <div class="prototype-label"><i></i>交互原型 · 示例数据</div>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div id="breadcrumb">全局 / 工作台</div>
+      <div class="top-actions"><span class="mobile-demo">示例数据</span><span id="freshness" role="status">刚刚更新</span><button id="simulate" class="quiet">模拟进展更新 <span aria-hidden="true">↻</span></button></div>
+    </header>
+    <main id="main" tabindex="-1"></main>
+  </div>
+  <dialog id="detail" aria-labelledby="detail-title"><div id="detail-content"></div><button class="close-dialog" aria-label="关闭详情">×</button></dialog>
+  <dialog id="new-goal" aria-labelledby="goal-title">
+    <form id="goal-form">
+      <div class="eyebrow">新目标</div><h2 id="goal-title">交给哪个项目？</h2>
+      <label>项目<select id="goal-project" required></select></label>
+      <label>希望得到什么<textarea id="goal-text" required maxlength="2000" rows="4" placeholder="写下一个可使用、可检查的结果"></textarea></label>
+      <p class="muted">保存到项目待办，随后可进入项目安排推进。</p>
+      <div class="form-actions"><button type="button" class="quiet close-goal">取消</button><button class="primary" type="submit">保存目标</button></div>
+    </form>
+  </dialog>
+  <div id="toast" role="status" hidden></div>
+</body>
+</html>

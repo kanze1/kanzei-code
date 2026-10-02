@@ -1,0 +1,66 @@
+async (page) => {
+  const base = 'http://127.0.0.1:41739/';
+  const key = 'kanzei.code-audit.reviews.v1';
+  const checks = [], errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const assert = (condition, label) => { if (!condition) throw new Error(label); checks.push(label); };
+  const count = () => page.locator('#result-list .result-row').count();
+  const nav = text => page.getByRole('navigation', {name:'审查内容'}).getByRole('button', {name:new RegExp('^'+text)}).click();
+  await page.goto(base);
+  const prior = await page.evaluate(k => localStorage.getItem(k), key);
+  try {
+    await page.evaluate(k => localStorage.removeItem(k), key);
+    await page.reload();
+    assert(await count() === 0, '默认待整理为零');
+    assert(await page.getByRole('heading',{name:'本轮整理已完成',exact:true}).isVisible(), '完成提示明确');
+    await page.getByRole('button',{name:'已整理',exact:true}).click();
+    assert(await count() === 9, '九项源码完成记录可查看');
+    assert(await page.getByRole('heading',{name:'已完成 · 2026-10-02',exact:true}).isVisible(), '详情显示源码完成日期');
+    assert(await page.getByRole('heading',{name:'验证结果',exact:true}).isVisible(), '详情展示验证依据');
+    await page.getByRole('combobox',{name:'整理方向',exact:true}).selectOption('可选能力');
+    assert(await count() === 4, '已整理支持按方向筛选');
+    await page.getByRole('combobox',{name:'功能域',exact:true}).selectOption('记忆');
+    assert(await count() === 1, '完成项支持组合筛选');
+    await page.getByRole('combobox',{name:'处理判断',exact:true}).selectOption('保留');
+    await page.locator('#review-note').fill('保留专用对话；验收后仍可查阅。');
+    const personal = await page.evaluate(k => JSON.parse(localStorage.getItem(k)).C06, key);
+    await page.reload();
+    await page.getByRole('button',{name:'已整理',exact:true}).click();
+    await page.locator('[data-record="C06"]').click();
+    assert(await page.locator('#review-note').inputValue() === personal.note, '个人备注刷新保留');
+    assert(await page.locator('#review-choice').inputValue() === '保留', '源码完成状态不覆盖个人判断');
+    await nav('问题记录');
+    assert(await count() === 20, '历史问题仍保留二十项归档');
+    await page.getByRole('button',{name:'待处理',exact:true}).click();
+    assert(await count() === 0, '旧问题不重新成为待办');
+    await nav('A 决策对照');
+    assert(await count() === 19, '十九条 A 决策资料保留');
+    await nav('源码索引');
+    const sourceCount = await page.evaluate(() => window.KANZEI_AUDIT.files.length);
+    assert((await page.locator('#result-count').textContent()).replace(/,/g,'').includes(String(sourceCount)), '全量源码索引可用');
+    await page.getByRole('searchbox',{name:'搜索',exact:true}).fill('research_control.rs');
+    assert(await count() === 1, '新共享研究控制器已进入索引');
+    await page.getByRole('button',{name:'查看源码',exact:true}).click();
+    await page.locator('#source-dialog').waitFor({state:'visible'});
+    assert((await page.locator('#source-content').textContent()).includes('Shared control'), '新模块源码预览可读');
+    await page.getByRole('button',{name:'关闭源码'}).click();
+    await nav('整理候选');
+    await page.getByRole('button',{name:'已整理',exact:true}).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button',{name:'导出当前结果'}).click();
+    const download = await downloadPromise;
+    await download.saveAs('C:/Users/kanzei/Documents/kanzei code/output/playwright/code-map-completed-export.json');
+    assert(download.suggestedFilename().includes('features'), '完成记录与个人标注可导出');
+    await page.setViewportSize({width:1440,height:960});
+    await page.screenshot({path:'C:/Users/kanzei/Documents/kanzei code/output/playwright/code-map-completed-desktop.png'});
+    await page.setViewportSize({width:390,height:844});
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), '窄屏无横向溢出');
+    await page.screenshot({path:'C:/Users/kanzei/Documents/kanzei code/output/playwright/code-map-completed-mobile.png'});
+    assert(errors.length === 0, '浏览器页面错误为零');
+    return {status:'passed',checks,errors};
+  } finally {
+    await page.evaluate(({k,value}) => { if(value===null)localStorage.removeItem(k);else localStorage.setItem(k,value); }, {k:key,value:prior});
+    await page.setViewportSize({width:1440,height:960});
+    await page.goto(base);
+  }
+}

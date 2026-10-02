@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kanzei-base",
+    "crates/kanzei-harness",
+    "crates/kanzei-llm",
+    "crates/kanzei-core",
+    "crates/kanzei-memory",
+    "crates/kanzei-tools",
+    "crates/kanzei",
+    "crates/kanzei-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
+
+[workspace.dependencies]
+kanzei-base = { path = "crates/kanzei-base" }
+kanzei-harness = { path = "crates/kanzei-harness" }
+kanzei-llm = { path = "crates/kanzei-llm" }
+kanzei-core = { path = "crates/kanzei-core" }
+kanzei-memory = { path = "crates/kanzei-memory" }
+kanzei-tools = { path = "crates/kanzei-tools" }
+
+tokio = { version = "1", features = ["full"] }
+# R-249:read 读图片需在 Rust 侧做 base64(桌面端附件的编码在 JS 侧,复用不了)。
+# 0.22 已在 Cargo.lock 中(reqwest 传递依赖),提为直接依赖不新增下载。
+base64 = "0.22"
+# R-249 批2:窗口截图的 PNG 编码。0.17 已在 Cargo.lock 中,不新增下载。
+png = "0.17"
+tokio-util = { version = "0.7", features = ["rt"] }
+futures = "0.3"
+bytes = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json", "gzip"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+schemars = "0.8"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+similar = "2"
+globset = "0.4"
+ignore = "0.4"
+tantivy = "0.22"
+grep-searcher = "0.1"
+grep-regex = "0.1"
+url = "2"
+async-stream = "0.3"
+async-trait = "0.1"
+toml = "0.8"
+toml_edit = "0.22"
+dirs = "5"
+# R-275 批2:调色板校验链的 CIEDE2000/Lab 转换(palette crate 内置)。
+palette = "0.7"
+# R-275 批3:用户板注册表为进程级静态,注册/查询相关测试需串行隔离。
+serial_test = "3"
+
+[profile.release]
+lto = "thin"
+strip = true

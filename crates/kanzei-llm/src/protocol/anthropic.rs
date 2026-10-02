@@ -1,0 +1,1109 @@
+//! Anthropic Messages 协议:body 构造 + SSE 状态机。
+//! 参照官方流式事件序列:
+//! message_start → content_block_start/delta/stop* → message_delta → message_stop。
+
+use std::collections::{HashMap, HashSet};
+
+use serde_json::{json, Value};
+
+use crate::error::LlmError;
+use crate::event::{FinishReason, LlmEvent, Usage};
+use crate::request::{LlmRequest, Part, Role};
+use crate::sse::SseEvent;
+
+use super::ProtocolState;
+
+pub fn build_body(request: &LlmRequest) -> Value {
+    build_body_for_channel(request, "anthropic_messages")
+}
+
+pub fn build_body_for_channel(request: &LlmRequest, provider_channel: &str) -> Value {
+    let mut body = json!({
+        "model": request.model,
+        "max_tokens": request.max_tokens,
+        "stream": true,
+    });
+
+    if !request.system.is_empty() {
+        // cache 断点放在 system 末块:Context Epoch 内 baseline 字节不变,稳定命中。
+        let last = request.system.len() - 1;
+        let system: Vec<Value> = request
+            .system
+            .iter()
+            .enumerate()
+            .map(|(i, text)| {
+                let mut block = json!({"type": "text", "text": text});
+                if i == last {
+                    block["cache_control"] = json!({"type": "ephemeral"});
+                }
+                block
+            })
+            .collect();
+        body["system"] = Value::Array(system);
+    }
+
+    let mut messages: Vec<Value> = request
+        .messages
+        .iter()
+        .map(|message| message_to_value(message, provider_channel))
+        .collect();
+    // 第二个 cache 断点:最后一条消息的最后一个内容块(增量对话前缀复用)。
+    if let Some(blocks) = messages
+        .last_mut()
+        .and_then(|m| m["content"].as_array_mut())
+    {
+        // Provider-owned hosted blocks must replay byte-for-byte. Cache only client blocks.
+        if let Some(last_block) = blocks.iter_mut().rev().find(|block| {
+            matches!(
+                block["type"].as_str(),
+                Some(
+                    "text"
+                        | "tool_use"
+                        | "tool_result"
+                        | "thinking"
+                        | "redacted_thinking"
+                        | "image"
+                )
+            )
+        }) {
+            last_block["cache_control"] = json!({"type": "ephemeral"});
+        }
+    }
+    body["messages"] = Value::Array(messages);
+
+    let mut tools: Vec<Value> = request
+        .tools
+        .iter()
+        .map(|tool| {
+            json!({
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": sanitize_input_schema(&tool.input_schema),
+            })
+        })
+        .collect();
+    tools.extend(request.hosted_tools.iter().cloned());
+    if !tools.is_empty() {
+        body["tools"] = Value::Array(tools);
+    }
+    let adaptive_thinking = supports_adaptive_thinking(&request.model);
+    let effort_level = anthropic_effort_level(&request.model, request.reasoning);
+    if let Some(level) = effort_level {
+        body["output_config"]["effort"] = json!(level);
+    }
+
+    // Claude 4.6+ uses adaptive thinking with effort. Older models use a fixed budget;
+    // Opus 4.5 supports both controls, so it receives effort plus the legacy budget.
+    let thinking_enabled = if request.reasoning.enabled() && adaptive_thinking {
+        body["thinking"] = json!({"type": "adaptive"});
+        if matches!(effort_level, Some("xhigh" | "max")) {
+            body["max_tokens"] = json!(request.max_tokens.max(65_536));
+        }
+        true
+    } else if let Some(budget) = request.reasoning.budget_tokens() {
+        // Fixed thinking budget must fit inside max_tokens. Thinking requests omit temperature.
+        let min_output = budget.saturating_add(4096);
+        if request.max_tokens < min_output {
+            body["max_tokens"] = json!(min_output);
+        }
+        body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
+        true
+    } else {
+        false
+    };
+    if !thinking_enabled {
+        if let Some(t) = request.temperature {
+            body["temperature"] = json!(t);
+        }
+    }
+    body
+}
+
+fn model_has(model: &str, fragments: &[&str]) -> bool {
+    let model = model.to_ascii_lowercase();
+    fragments.iter().any(|fragment| model.contains(fragment))
+}
+
+fn supports_adaptive_thinking(model: &str) -> bool {
+    model_has(
+        model,
+        &[
+            "opus-4-6",
+            "sonnet-4-6",
+            "opus-4-7",
+            "opus-4-8",
+            "opus-5",
+            "opus-5-5",
+            "sonnet-5",
+            "fable-5",
+            "fable-5-1",
+            "mythos-5",
+            "mythos-5-1",
+            "mythos-preview",
+        ],
+    )
+}
+
+fn supports_anthropic_effort(model: &str) -> bool {
+    supports_adaptive_thinking(model) || model_has(model, &["opus-4-5"])
+}
+
+fn supports_xhigh_effort(model: &str) -> bool {
+    model_has(
+        model,
+        &[
+            "opus-4-7",
+            "opus-4-8",
+            "opus-5",
+            "opus-5-5",
+            "sonnet-5",
+            "fable-5",
+            "fable-5-1",
+            "mythos-5",
+            "mythos-5-1",
+            "mythos-preview",
+        ],
+    )
+}
+
+fn anthropic_effort_level(
+    model: &str,
+    effort: crate::request::ReasoningEffort,
+) -> Option<&'static str> {
+    use crate::request::ReasoningEffort as E;
+
+    if !supports_anthropic_effort(model) {
+        return None;
+    }
+    match effort {
+        E::Off => None,
+        E::None => None,
+        E::Low => Some("low"),
+        E::Medium => Some("medium"),
+        E::High => Some("high"),
+        E::XHigh if supports_xhigh_effort(model) => Some("xhigh"),
+        E::XHigh => Some("high"),
+        E::Max if supports_max_effort(model) => Some("max"),
+        E::Max => Some("high"),
+    }
+}
+
+fn supports_max_effort(model: &str) -> bool {
+    model_has(
+        model,
+        &[
+            "opus-4-6",
+            "sonnet-4-6",
+            "opus-4-7",
+            "opus-4-8",
+            "opus-5",
+            "opus-5-5",
+            "sonnet-5",
+            "fable-5",
+            "fable-5-1",
+            "mythos-5",
+            "mythos-5-1",
+            "mythos-preview",
+        ],
+    )
+}
+
+fn message_to_value(message: &crate::request::Message, provider_channel: &str) -> Value {
+    let role = match message.role {
+        Role::User => "user",
+        Role::Assistant => "assistant",
+    };
+    let content: Vec<Value> = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            Part::Text { text } => Some(json!({"type": "text", "text": text})),
+            Part::Image { media_type, data } => Some(json!({
+                "type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}
+            })),
+            Part::Document { media_type, data } => Some(json!({
+                "type": "document", "source": {"type": "base64", "media_type": media_type, "data": data}
+            })),
+            Part::Reasoning { text, signature } => {
+                // R-137:thinking 块协议回放——多轮工具调用时,assistant 的 thinking 块
+                // 必须按 Anthropic 协议原样回传(含 signature),否则 thinking+工具第二轮
+                // 直接被 400(原实现丢 Reasoning 导致)。有 signature → thinking 块;
+                // 无 signature(非 thinking 模型/旧会话) → 以可见 assistant 文本保留(R-094 结论)。
+                match signature {
+                    Some(sig) => Some(json!({
+                        "type": "thinking", "thinking": text, "signature": sig,
+                    })),
+                    None if !text.is_empty() => Some(json!({"type": "text", "text": text})),
+                    None => None,
+                }
+            }
+            Part::ToolCall { id, name, input } => Some(json!({
+                "type": "tool_use", "id": id, "name": name, "input": input,
+            })),
+            Part::ToolResult { call_id, content, is_error } => {
+                let mut v = json!({
+                    "type": "tool_result", "tool_use_id": call_id, "content": content,
+                });
+                if *is_error {
+                    v["is_error"] = json!(true);
+                }
+                Some(v)
+            }
+            Part::Hosted {
+                channel,
+                protocol,
+                kind,
+                raw,
+            } if protocol == "anthropic" && channel == provider_channel && kind != "citations" => {
+                Some(raw.clone())
+            }
+            Part::Hosted { .. } => None,
+        })
+        .collect();
+    json!({"role": role, "content": content})
+}
+
+enum Block {
+    Text {
+        citations: Vec<Value>,
+    },
+    Thinking {
+        signature: Option<String>,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input_json: String,
+    },
+    ServerToolUse {
+        raw: Value,
+        input_json: String,
+    },
+    ServerResult {
+        raw: Value,
+    },
+}
+
+#[derive(Default)]
+pub struct AnthropicState {
+    blocks: HashMap<usize, Block>,
+    ignored_blocks: HashSet<usize>,
+    usage: Usage,
+    stop_reason: Option<FinishReason>,
+    provider_channel: String,
+}
+
+impl AnthropicState {
+    pub fn with_provider_channel(provider_channel: &str) -> Self {
+        Self {
+            provider_channel: provider_channel.to_string(),
+            ..Self::default()
+        }
+    }
+}
+
+impl ProtocolState for AnthropicState {
+    fn step(&mut self, event: &SseEvent) -> Result<Vec<LlmEvent>, LlmError> {
+        let data: Value = match serde_json::from_str(&event.data) {
+            Ok(v) => v,
+            Err(_) if event.data.is_empty() => Value::Null,
+            Err(e) => return Err(LlmError::Protocol(format!("bad SSE data: {e}"))),
+        };
+        let kind = data["type"].as_str().unwrap_or(event.event.as_str());
+        let mut out = Vec::new();
+        match kind {
+            "message_start" => {
+                let usage = &data["message"]["usage"];
+                self.usage.input = usage["input_tokens"].as_u64().unwrap_or(0);
+                self.usage.cache_read = usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
+                self.usage.cache_write = usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+                if let Some(requests) = usage["server_tool_use"]["web_search_requests"].as_u64() {
+                    self.usage.web_search_requests = self.usage.web_search_requests.max(requests);
+                }
+                out.push(LlmEvent::StepStart);
+            }
+            "content_block_start" => {
+                let index = data["index"].as_u64().unwrap_or(0) as usize;
+                let block = &data["content_block"];
+                match block["type"].as_str().unwrap_or("") {
+                    "text" => {
+                        self.ignored_blocks.remove(&index);
+                        self.blocks.insert(
+                            index,
+                            Block::Text {
+                                citations: Vec::new(),
+                            },
+                        );
+                        out.push(LlmEvent::TextStart { index });
+                    }
+                    "thinking" | "redacted_thinking" => {
+                        self.ignored_blocks.remove(&index);
+                        self.blocks
+                            .insert(index, Block::Thinking { signature: None });
+                        out.push(LlmEvent::ReasoningStart { index });
+                    }
+                    "tool_use" => {
+                        self.ignored_blocks.remove(&index);
+                        let id = block["id"].as_str().unwrap_or("").to_string();
+                        let name = block["name"].as_str().unwrap_or("").to_string();
+                        self.blocks.insert(
+                            index,
+                            Block::ToolUse {
+                                id: id.clone(),
+                                name: name.clone(),
+                                input_json: String::new(),
+                            },
+                        );
+                        out.push(LlmEvent::ToolInputStart { index, id, name });
+                    }
+                    "server_tool_use" => {
+                        self.ignored_blocks.remove(&index);
+                        let id = block["id"].as_str().unwrap_or("").to_string();
+                        let name = block["name"].as_str().unwrap_or("").to_string();
+                        if name == "web_search" {
+                            self.usage.web_search_requests =
+                                self.usage.web_search_requests.saturating_add(1);
+                        }
+                        self.blocks.insert(
+                            index,
+                            Block::ServerToolUse {
+                                raw: block.clone(),
+                                input_json: String::new(),
+                            },
+                        );
+                        out.push(LlmEvent::HostedStart {
+                            index,
+                            id,
+                            name,
+                            channel: self.provider_channel.clone(),
+                            protocol: "anthropic".into(),
+                        });
+                    }
+                    other if other.ends_with("_tool_result") => {
+                        self.ignored_blocks.remove(&index);
+                        self.blocks
+                            .insert(index, Block::ServerResult { raw: block.clone() });
+                    }
+                    other => {
+                        tracing::debug!(kind = other, index, "ignoring unknown content block");
+                        self.ignored_blocks.insert(index);
+                    }
+                }
+            }
+            "content_block_delta" => {
+                let index = data["index"].as_u64().unwrap_or(0) as usize;
+                if self.ignored_blocks.contains(&index) {
+                    return Ok(out);
+                }
+                let delta = &data["delta"];
+                match delta["type"].as_str().unwrap_or("") {
+                    "text_delta" if matches!(self.blocks.get(&index), Some(Block::Text { .. })) => {
+                        out.push(LlmEvent::TextDelta {
+                            index,
+                            text: delta["text"].as_str().unwrap_or("").to_string(),
+                        });
+                    }
+                    "thinking_delta"
+                        if matches!(self.blocks.get(&index), Some(Block::Thinking { .. })) =>
+                    {
+                        out.push(LlmEvent::ReasoningDelta {
+                            index,
+                            text: delta["thinking"].as_str().unwrap_or("").to_string(),
+                        });
+                    }
+                    "input_json_delta" => {
+                        let partial = delta["partial_json"].as_str().unwrap_or("");
+                        let mut local_tool = false;
+                        match self.blocks.get_mut(&index) {
+                            Some(Block::ToolUse { input_json, .. }) => {
+                                input_json.push_str(partial);
+                                local_tool = true;
+                            }
+                            Some(Block::ServerToolUse { input_json, .. }) => {
+                                input_json.push_str(partial);
+                            }
+                            _ => {}
+                        }
+                        if local_tool {
+                            out.push(LlmEvent::ToolInputDelta {
+                                index,
+                                delta: partial.to_string(),
+                            });
+                        }
+                    }
+                    "citations_delta" => {
+                        if let Some(Block::Text { citations }) = self.blocks.get_mut(&index) {
+                            if let Some(citation) = delta.get("citation") {
+                                citations.push(citation.clone());
+                            }
+                        }
+                    }
+                    "signature_delta" => {
+                        if let Some(Block::Thinking { signature }) = self.blocks.get_mut(&index) {
+                            let sig = delta["signature"].as_str().unwrap_or("");
+                            signature.get_or_insert_with(String::new).push_str(sig);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            "content_block_stop" => {
+                let index = data["index"].as_u64().unwrap_or(0) as usize;
+                self.ignored_blocks.remove(&index);
+                match self.blocks.remove(&index) {
+                    Some(Block::Text { citations }) => {
+                        out.push(LlmEvent::TextEnd { index });
+                        if !citations.is_empty() {
+                            out.push(LlmEvent::HostedItem {
+                                index,
+                                channel: self.provider_channel.clone(),
+                                protocol: "anthropic".into(),
+                                kind: "citations".into(),
+                                raw: Value::Array(citations),
+                            });
+                        }
+                    }
+                    Some(Block::Thinking { signature }) => {
+                        out.push(LlmEvent::ReasoningEnd { index, signature })
+                    }
+                    Some(Block::ToolUse {
+                        id,
+                        name,
+                        input_json,
+                    }) => {
+                        let raw = if input_json.is_empty() {
+                            "{}".to_string()
+                        } else {
+                            input_json
+                        };
+                        // 解析失败不报错:input 置 Null,raw_input 交给上层修复回路。
+                        let input = serde_json::from_str(&raw).unwrap_or(Value::Null);
+                        out.push(LlmEvent::ToolCall {
+                            id,
+                            name,
+                            input,
+                            raw_input: raw,
+                        });
+                    }
+                    Some(Block::ServerToolUse {
+                        mut raw,
+                        input_json,
+                        ..
+                    }) => {
+                        if !input_json.is_empty() {
+                            if let Ok(input) = serde_json::from_str::<Value>(&input_json) {
+                                raw["input"] = input;
+                            }
+                        }
+                        out.push(LlmEvent::HostedItem {
+                            index,
+                            channel: self.provider_channel.clone(),
+                            protocol: "anthropic".into(),
+                            kind: "server_tool_use".into(),
+                            raw,
+                        });
+                    }
+                    Some(Block::ServerResult { raw }) => {
+                        let kind = raw["type"]
+                            .as_str()
+                            .filter(|kind| kind.ends_with("_tool_result"))
+                            .unwrap_or("server_tool_result")
+                            .to_string();
+                        out.push(LlmEvent::HostedItem {
+                            index,
+                            channel: self.provider_channel.clone(),
+                            protocol: "anthropic".into(),
+                            kind,
+                            raw,
+                        });
+                    }
+                    None => {}
+                }
+            }
+            "message_delta" => {
+                if let Some(reason) = data["delta"]["stop_reason"].as_str() {
+                    self.stop_reason = Some(map_stop_reason(reason));
+                }
+                if let Some(output) = data["usage"]["output_tokens"].as_u64() {
+                    self.usage.output = output;
+                }
+                if let Some(requests) =
+                    data["usage"]["server_tool_use"]["web_search_requests"].as_u64()
+                {
+                    self.usage.web_search_requests = self.usage.web_search_requests.max(requests);
+                }
+            }
+            "message_stop" => {
+                out.push(LlmEvent::StepFinish {
+                    reason: self.stop_reason.clone().unwrap_or(FinishReason::EndTurn),
+                    usage: self.usage,
+                });
+            }
+            "ping" | "" => {}
+            "error" => {
+                let err = &data["error"];
+                return Err(LlmError::classify_provider(
+                    err["type"].as_str().unwrap_or("unknown").to_string(),
+                    err["message"]
+                        .as_str()
+                        .unwrap_or("unknown error")
+                        .to_string(),
+                ));
+            }
+            other => {
+                tracing::debug!(kind = other, "ignoring unknown SSE event");
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// D-426:Anthropic 的 `input_schema` 不接受**顶层** oneOf/allOf/anyOf,整条请求会被
+/// 400 拒掉(`tools.N.custom.input_schema: input_schema does not support oneOf, allOf,
+/// or anyOf at the top level`)——一个工具违规,claude 系模型就一个工具都用不了。
+///
+/// 我们的 tracker 类工具(req/defect/idea/source/finding/decision)正是用顶层
+/// `allOf` + `if/then` 表达 R-191 的「action=add 时 severity/priority/复杂度/标签必填」。
+/// 那份约束对 OpenAI/DeepSeek 合法且有用,所以不在工具侧删,只在这条 wire 上摘掉。
+///
+/// 摘掉只损失一条**提示**:必填本身仍由工具自己的登记门禁强制——缺字段会返回
+/// needs_correction 并点名缺哪几个,模型下一步就能补齐。嵌套在 properties 里的
+/// 组合器不受影响(Anthropic 只禁顶层)。
+fn sanitize_input_schema(schema: &Value) -> Value {
+    let Some(obj) = schema.as_object() else {
+        return schema.clone();
+    };
+    if !["oneOf", "allOf", "anyOf"]
+        .iter()
+        .any(|k| obj.contains_key(*k))
+    {
+        return schema.clone();
+    }
+    let mut schema = schema.clone();
+    let obj = schema
+        .as_object_mut()
+        .expect("just checked it is an object");
+    obj.remove("oneOf");
+    obj.remove("allOf");
+    obj.remove("anyOf");
+    schema
+}
+
+fn map_stop_reason(reason: &str) -> FinishReason {
+    match reason {
+        "end_turn" => FinishReason::EndTurn,
+        "max_tokens" => FinishReason::MaxTokens,
+        "stop_sequence" => FinishReason::StopSequence,
+        "tool_use" => FinishReason::ToolUse,
+        "refusal" => FinishReason::Refusal,
+        other => FinishReason::Other(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::request::{Message, ReasoningEffort, ToolSpec};
+
+    fn feed(state: &mut AnthropicState, event: &str, data: &str) -> Vec<LlmEvent> {
+        state
+            .step(&SseEvent {
+                event: event.into(),
+                data: data.into(),
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn hosted_tool_history_replays_only_on_same_anthropic_channel() {
+        let channel = "anthropic:api_key:abcd";
+        let raw = json!({
+            "type":"server_tool_use",
+            "id":"srv_opaque",
+            "name":"web_search",
+            "input":{"query":"rust release"}
+        });
+        let request = LlmRequest {
+            model: "claude-sonnet-4-6".into(),
+            system: vec![],
+            messages: vec![Message::assistant(vec![Part::Hosted {
+                channel: channel.into(),
+                protocol: "anthropic".into(),
+                kind: "server_tool_use".into(),
+                raw: raw.clone(),
+            }])],
+            tools: vec![],
+            hosted_tools: vec![
+                json!({"type":"web_search_20260209","name":"web_search","max_uses":5}),
+            ],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let same = build_body_for_channel(&request, channel);
+        assert_eq!(same["tools"][0]["type"], "web_search_20260209");
+        assert_eq!(same["messages"][0]["content"][0], raw);
+        let other = build_body_for_channel(&request, "anthropic:other_key:efgh");
+        assert!(other["messages"][0]["content"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn server_search_blocks_and_citations_roundtrip_with_usage_and_pause_turn() {
+        let channel = "anthropic:subscription:abcd";
+        let mut state = AnthropicState::with_provider_channel(channel);
+        feed(
+            &mut state,
+            "message_start",
+            r#"{"type":"message_start","message":{"usage":{"input_tokens":1}}}"#,
+        );
+        let started = feed(
+            &mut state,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}}}"#,
+        );
+        assert!(
+            matches!(&started[0], LlmEvent::HostedStart { channel: actual, protocol, name, .. }
+            if actual == channel && protocol == "anthropic" && name == "web_search")
+        );
+        let partial = serde_json::json!({
+            "type":"content_block_delta",
+            "index":0,
+            "delta":{"type":"input_json_delta","partial_json":"{\"query\":\"rust release\"}"}
+        })
+        .to_string();
+        feed(&mut state, "content_block_delta", &partial);
+        let use_item = feed(
+            &mut state,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":0}"#,
+        );
+        assert!(
+            matches!(&use_item[0], LlmEvent::HostedItem { kind, raw, .. }
+            if kind == "server_tool_use" && raw["input"]["query"] == "rust release")
+        );
+        let result = feed(
+            &mut state,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"srv_1","content":[{"type":"web_search_result","url":"https://example.org"}]}}"#,
+        );
+        assert!(result.is_empty());
+        let result = feed(
+            &mut state,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":1}"#,
+        );
+        assert!(matches!(&result[0], LlmEvent::HostedItem { kind, raw, .. }
+            if kind == "web_search_tool_result" && raw["tool_use_id"] == "srv_1"));
+        feed(
+            &mut state,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":2,"content_block":{"type":"text","text":"fact"}}"#,
+        );
+        feed(
+            &mut state,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":2,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://example.org","title":"Source"}}}"#,
+        );
+        let citations = feed(
+            &mut state,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":2}"#,
+        );
+        assert!(citations.iter().any(
+            |event| matches!(event, LlmEvent::HostedItem { kind, raw, .. }
+            if kind == "citations" && raw[0]["url"] == "https://example.org")
+        ));
+        feed(
+            &mut state,
+            "message_delta",
+            r#"{"type":"message_delta","delta":{"stop_reason":"pause_turn"},"usage":{"output_tokens":3,"server_tool_use":{"web_search_requests":1}}}"#,
+        );
+        let finished = feed(&mut state, "message_stop", r#"{"type":"message_stop"}"#);
+        assert!(
+            matches!(finished.as_slice(), [LlmEvent::StepFinish { reason: FinishReason::Other(reason), usage }]
+            if reason == "pause_turn" && usage.web_search_requests == 1)
+        );
+    }
+
+    #[test]
+    fn unknown_content_block_is_ignored_without_poisoning_following_blocks() {
+        let mut state = AnthropicState::default();
+        assert!(feed(
+            &mut state,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_future_block"}}"#,
+        )
+        .is_empty());
+        assert!(feed(
+            &mut state,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hidden"}}"#,
+        )
+        .is_empty());
+        assert!(feed(
+            &mut state,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":0}"#,
+        )
+        .is_empty());
+
+        let events = feed(
+            &mut state,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"text"}}"#,
+        );
+        assert!(matches!(
+            events.as_slice(),
+            [LlmEvent::TextStart { index: 1 }]
+        ));
+        let events = feed(
+            &mut state,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"visible"}}"#,
+        );
+        assert!(matches!(
+            events.as_slice(),
+            [LlmEvent::TextDelta { index: 1, text }] if text == "visible"
+        ));
+    }
+    #[test]
+    fn full_tool_call_stream() {
+        let mut s = AnthropicState::default();
+        let ev = feed(
+            &mut s,
+            "message_start",
+            r#"{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_read_input_tokens":80,"cache_creation_input_tokens":5}}}"#,
+        );
+        assert_eq!(ev, vec![LlmEvent::StepStart]);
+
+        feed(
+            &mut s,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+        );
+        let ev = feed(
+            &mut s,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"你好"}}"#,
+        );
+        assert_eq!(
+            ev,
+            vec![LlmEvent::TextDelta {
+                index: 0,
+                text: "你好".into()
+            }]
+        );
+        feed(
+            &mut s,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":0}"#,
+        );
+
+        feed(
+            &mut s,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu_1","name":"read"}}"#,
+        );
+        feed(
+            &mut s,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}"#,
+        );
+        feed(
+            &mut s,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"a.txt\"}"}}"#,
+        );
+        let ev = feed(
+            &mut s,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":1}"#,
+        );
+        assert_eq!(
+            ev,
+            vec![LlmEvent::ToolCall {
+                id: "tu_1".into(),
+                name: "read".into(),
+                input: serde_json::json!({"path": "a.txt"}),
+                raw_input: r#"{"path":"a.txt"}"#.into(),
+            }]
+        );
+
+        feed(
+            &mut s,
+            "message_delta",
+            r#"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":42}}"#,
+        );
+        let ev = feed(&mut s, "message_stop", r#"{"type":"message_stop"}"#);
+        assert_eq!(
+            ev,
+            vec![LlmEvent::StepFinish {
+                reason: FinishReason::ToolUse,
+                usage: Usage {
+                    input: 100,
+                    output: 42,
+                    reasoning: 0,
+                    cache_read: 80,
+                    cache_write: 5,
+                    web_search_requests: 0,
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn malformed_tool_json_becomes_null_not_error() {
+        let mut s = AnthropicState::default();
+        feed(
+            &mut s,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_2","name":"edit"}}"#,
+        );
+        feed(
+            &mut s,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\": oops"}}"#,
+        );
+        let ev = feed(
+            &mut s,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":0}"#,
+        );
+        match &ev[0] {
+            LlmEvent::ToolCall {
+                input, raw_input, ..
+            } => {
+                assert_eq!(*input, Value::Null);
+                assert_eq!(raw_input, "{\"path\": oops");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn overflow_error_is_classified() {
+        let mut s = AnthropicState::default();
+        let err = s
+            .step(&SseEvent {
+                event: "error".into(),
+                data: r#"{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000"}}"#.into(),
+            })
+            .unwrap_err();
+        assert!(err.is_context_overflow());
+    }
+
+    #[test]
+    fn rate_limit_kind_with_token_message_is_not_context_overflow() {
+        let mut s = AnthropicState::default();
+        let err = s
+            .step(&SseEvent {
+                event: "error".into(),
+                data: r#"{"type":"error","error":{"type":"rate_limit_error","message":"token limit reached for this minute"}}"#.into(),
+            })
+            .unwrap_err();
+        assert!(err.is_rate_limited());
+        assert!(!err.is_context_overflow());
+    }
+
+    /// D-426:顶层 allOf/oneOf/anyOf 必须在发出前摘掉,否则 Anthropic 400 整条请求。
+    /// schema 的其余部分(含 properties 里的嵌套组合器)必须逐字保留。
+    #[test]
+    fn 顶层组合器被摘掉而_schema_其余部分逐字保留() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": { "enum": ["add", "list"] },
+                // 嵌套的组合器是合法的,不许动。
+                "refs": { "anyOf": [{"type": "array"}, {"type": "null"}] }
+            },
+            "required": ["action"],
+            "allOf": [{
+                "if": { "properties": { "action": { "const": "add" } }, "required": ["action"] },
+                "then": { "required": ["title", "severity", "priority"] }
+            }]
+        });
+        let req = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec![],
+            messages: vec![Message::user_text("hi")],
+            tools: vec![ToolSpec {
+                name: "defect".into(),
+                description: "track defects".into(),
+                input_schema: schema,
+            }],
+            hosted_tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let sent = &build_body(&req)["tools"][0]["input_schema"];
+        assert!(sent.get("allOf").is_none(), "顶层 allOf 未摘掉: {sent}");
+        assert_eq!(sent["type"], "object");
+        assert_eq!(sent["required"], serde_json::json!(["action"]));
+        assert_eq!(
+            sent["properties"]["refs"]["anyOf"],
+            serde_json::json!([{"type": "array"}, {"type": "null"}]),
+            "properties 里的嵌套组合器被误删了"
+        );
+    }
+
+    #[test]
+    fn body_places_cache_breakpoints() {
+        let req = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec!["agent prompt".into(), "harness baseline".into()],
+            messages: vec![Message::user_text("hi"), Message::user_text("again")],
+            tools: vec![ToolSpec {
+                name: "read".into(),
+                description: "read a file".into(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+            hosted_tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let body = build_body(&req);
+        assert!(body["system"][0].get("cache_control").is_none());
+        assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
+        assert!(body["messages"][0]["content"][0]
+            .get("cache_control")
+            .is_none());
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert_eq!(body["tools"][0]["name"], "read");
+    }
+
+    /// 思考强度→thinking 预算;开启时必须抬高 max_tokens 且不带 temperature。
+    #[test]
+    fn thinking_budget_and_max_tokens_follow_effort() {
+        let base = |effort, max_tokens, temperature| LlmRequest {
+            model: "claude-3-7-sonnet".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::user_text("hi")],
+            tools: vec![],
+            hosted_tools: vec![],
+            max_tokens,
+            temperature,
+            reasoning: effort,
+            service_tier: None,
+        };
+
+        // 关闭:不发 thinking,temperature 照常透传
+        let body = build_body(&base(ReasoningEffort::Off, 1024, Some(0.5)));
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["temperature"], 0.5);
+        assert_eq!(body["max_tokens"], 1024);
+
+        // 开启:带 budget,max_tokens 被抬到 budget 之上,且不带 temperature
+        let body = build_body(&base(ReasoningEffort::Medium, 1024, Some(0.5)));
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 12288);
+        assert!(body.get("temperature").is_none());
+        assert!(body["max_tokens"].as_u64().unwrap() > 12288);
+
+        // 用户已给足输出上限时不下调
+        let body = build_body(&base(ReasoningEffort::Low, 65536, None));
+        assert_eq!(body["max_tokens"], 65536);
+        assert_eq!(body["thinking"]["budget_tokens"], 4096);
+    }
+
+    /// R-137:thinking 块协议回放——多轮工具调用的请求体必须把 assistant 的
+    /// thinking 块连同 signature 原样回传(否则第二轮 400);无 signature 的
+    /// reasoning 降级为可见 assistant 文本;thinking 块后跟工具调用。
+    #[test]
+    fn thinking_replay_roundtrips_signature_and_tool_sequence() {
+        let req = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::assistant(vec![
+                Part::Reasoning {
+                    text: "让我先读文件".into(),
+                    signature: Some("SIG123".into()),
+                },
+                Part::ToolCall {
+                    id: "toolu_1".into(),
+                    name: "read".into(),
+                    input: serde_json::json!({"path": "a.rs"}),
+                },
+                Part::Text {
+                    text: "下一步".into(),
+                },
+            ])],
+            tools: vec![],
+            hosted_tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let body = build_body(&req);
+        let content = &body["messages"][0]["content"];
+        // ①signature 原样回传,thinking 块按协议字段名输出。
+        assert_eq!(content[0]["type"], "thinking");
+        assert_eq!(content[0]["thinking"], "让我先读文件");
+        assert_eq!(content[0]["signature"], "SIG123");
+        // ②thinking 块之后工具调用紧随其后(块序不被打乱)。
+        assert_eq!(content[1]["type"], "tool_use");
+        assert_eq!(content[1]["id"], "toolu_1");
+        assert_eq!(content[1]["name"], "read");
+        assert_eq!(content[2]["type"], "text");
+        assert_eq!(content[2]["text"], "下一步");
+    }
+
+    /// R-137:无 signature 的 reasoning(非 thinking 模型/旧会话)以可见文本保留,
+    /// 不丢信息也不按 thinking 块回传(会因缺 signature 被服务端拒)。
+    #[test]
+    fn reasoning_without_signature_falls_back_to_visible_text() {
+        let req = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::assistant(vec![
+                Part::Reasoning {
+                    text: "思考过程".into(),
+                    signature: None,
+                },
+                Part::Text {
+                    text: "结论".into(),
+                },
+            ])],
+            tools: vec![],
+            hosted_tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let body = build_body(&req);
+        let content = &body["messages"][0]["content"];
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "思考过程");
+        assert!(content[0].get("signature").is_none());
+        assert_eq!(content[1]["type"], "text");
+        // 空 reasoning(无文本无签名)整体跳过,不产生空块。
+        let req2 = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::assistant(vec![Part::Reasoning {
+                text: String::new(),
+                signature: None,
+            }])],
+            tools: vec![],
+            hosted_tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let body = build_body(&req2);
+        assert_eq!(body["messages"][0]["content"].as_array().unwrap().len(), 0);
+    }
+}

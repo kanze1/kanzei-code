@@ -1,0 +1,1022 @@
+//! Project registry commands and per-project isolation checks.
+
+use crate::normalized_project_root;
+use crate::prefs::{load_prefs, save_prefs, AppPrefs};
+use serde::Deserialize;
+use serde_json::json;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn base_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
+        .to_owned()
+}
+fn strip_verbatim(p: PathBuf) -> String {
+    kanzei_tools::path_form::simplify(&p).display().to_string()
+}
+
+/// 项目空间首次落 `.kanzei/` 时同步创建先行调研骨架。返回 true 只表示本次是
+/// 首次初始化；重复选择/添加项目绝不覆盖已经填写的 prior-art 工件。
+///
+/// UI2-0926 #13:首次初始化同时写 `.kanzei/.gitignore`(state.db*、*.lock、.write-log/、
+/// artifacts/ 等运行时文件不进版本库;project/*.md 照常入库)。已有 `.kanzei` 的老项目不补写——
+/// 它们多半在自己的根 .gitignore 里管着(kanzei 仓库就是),凭空多出一个未跟踪文件只会添乱。
+fn initialize_kanzei_space(dir: &Path) -> Result<bool, String> {
+    let first_init = !dir.join(".kanzei").exists();
+    std::fs::create_dir_all(dir.join(".kanzei"))
+        .map_err(|e| format!("创建项目配置目录失败: {e}"))?;
+    if first_init {
+        kanzei_tools::prior_art::start_project_init(dir)?;
+        kanzei_tools::project_state::ensure_kanzei_gitignore(dir)
+            .map_err(|e| format!("写 .kanzei/.gitignore 失败: {e}"))?;
+    }
+    Ok(first_init)
+}
+
+/// 新项目名:能直接当 Windows 目录名用。
+fn validate_project_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("项目名称不能为空".into());
+    }
+    if name.chars().count() > 100 {
+        return Err("项目名称太长(最多 100 个字)".into());
+    }
+    if let Some(bad) = name.chars().find(|c| {
+        matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+    }) {
+        return Err(format!("项目名称不能包含「{bad}」"));
+    }
+    if name.ends_with('.') || name == ".." {
+        return Err("项目名称不能以「.」结尾".into());
+    }
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or(name)
+        .trim_end()
+        .to_ascii_uppercase();
+    let reserved = ["CON", "PRN", "AUX", "NUL"]
+        .iter()
+        .any(|word| stem == *word)
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        return Err(format!("「{name}」是 Windows 保留名,换一个名字"));
+    }
+    Ok(name.to_string())
+}
+
+/// 目录里除 `.kanzei` 外有没有别的东西。
+fn has_content_besides_kanzei(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_name() != ".kanzei")
+        })
+        .unwrap_or(false)
+}
+
+fn register_project(dir: &Path, display_name: Option<&str>) -> Result<AppPrefs, String> {
+    if crate::general_chat::is_general_root(dir) {
+        return Err("无项目对话的存储目录不能登记为项目".into());
+    }
+    let canonical = dir
+        .canonicalize()
+        .map(strip_verbatim)
+        .unwrap_or_else(|_| dir.display().to_string());
+    let _guard = crate::prefs::write_guard()?;
+    let mut prefs = load_prefs();
+    if !prefs.projects.contains(&canonical) {
+        prefs.projects.push(canonical.clone());
+    }
+    if let Some(name) = display_name.map(str::trim).filter(|v| !v.is_empty()) {
+        prefs.names.insert(canonical.clone(), name.to_owned());
+    }
+    prefs.current = Some(canonical);
+    save_prefs(&prefs)?;
+    Ok(projects_get())
+}
+
+/// UI2-0926 #13 新建项目(对话框):在 `parent` 下建 `name` 目录 + `.kanzei`(含运行时忽略规则),
+/// `git_init` 时建独立仓库;本机配了 git 身份就再做一次首提交(并行线要 HEAD)。
+/// `description` 原样带回,前端放进输入框当第一条消息的草稿(不自动发送)。
+/// 新建项目的磁盘部分(不碰 app.json,可单测):返回 (目录, git 结果, git 失败原因)。
+pub(crate) fn create_project_dir(
+    parent: &str,
+    name: &str,
+    git_init: bool,
+) -> Result<
+    (
+        PathBuf,
+        Option<kanzei_tools::project_state::GitInitOutcome>,
+        Option<String>,
+    ),
+    String,
+> {
+    let name = validate_project_name(name)?;
+    let parent_dir = PathBuf::from(parent.trim());
+    if !parent_dir.is_dir() {
+        return Err(format!("位置不存在: {}", parent_dir.display()));
+    }
+    let dir = parent_dir.join(&name);
+    if dir.exists() && (!dir.is_dir() || has_content_besides_kanzei(&dir)) {
+        return Err(format!(
+            "「{}」已存在且不是空目录;换个名字,或用「添加项目文件夹…」打开它",
+            dir.display()
+        ));
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建项目目录失败: {e}"))?;
+    initialize_kanzei_space(&dir)?;
+    // 已有的空 `.kanzei`(比如上次创建到一半)同样补上忽略规则。
+    kanzei_tools::project_state::ensure_kanzei_gitignore(&dir)
+        .map_err(|e| format!("写 .kanzei/.gitignore 失败: {e}"))?;
+    if !git_init {
+        return Ok((dir, None, None));
+    }
+    match kanzei_tools::project_state::git_init(&dir, true) {
+        Ok(outcome) => Ok((dir, Some(outcome), None)),
+        // git 不在 PATH 上等:项目照样建好,界面给出警告。
+        Err(error) => Ok((dir, None, Some(error))),
+    }
+}
+
+/// 阻塞工作(git 子进程、目录遍历、PATH × PATHEXT 扫描、注册表)放到阻塞线程池:同步的
+/// `#[tauri::command]` 跑在主线程上,对话框会让整个 WebView 卡住几百毫秒(复核 minor,
+/// 与 `git_status` 同一做法)。
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("后台任务失败: {error}"))?
+}
+
+#[tauri::command]
+pub async fn projects_create(
+    parent: String,
+    name: String,
+    git_init: bool,
+    description: Option<String>,
+) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let (dir, git, git_error) = create_project_dir(&parent, &name, git_init)?;
+        let prefs = register_project(&dir, Some(name.trim()))?;
+        let root = crate::normalized_project_root(&dir);
+        Ok(json!({
+            "prefs": prefs,
+            "path": root.display().to_string(),
+            "facts": kanzei_tools::project_state::probe(&root),
+            "git": git,
+            "gitError": git_error,
+            "description": description.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()),
+        }))
+    })
+    .await
+}
+
+/// UI2-0926 #13:给已有的非 Git 项目建独立仓库(横幅/芯片的「初始化 Git」)。默认只 init + 补
+/// `.kanzei/.gitignore`,不自动提交——已有文件里可能有不该进库的东西,前端对非空项目先确认。
+/// `initial_commit`(UX-128「初始化并首次提交」):init 之后用默认提交信息做一次首提交,让并行线有 HEAD;
+/// 已经 init 过、还没有提交的仓库也能用它补这一次提交。没做成的原因(缺 git 身份、文件过多、签名/钩子失败)
+/// 在返回的 `git.identity_missing` / `git.commit_error` 里,仓库本身已建好。
+/// 项目位于上级仓库内时也在项目根建嵌套仓库(前端先确认过)。
+#[tauri::command]
+pub async fn project_git_init(
+    project_dir: String,
+    initial_commit: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let root = crate::normalized_project_root(Path::new(&project_dir));
+        if !root.is_dir() {
+            return Err(format!("项目目录不存在: {}", root.display()));
+        }
+        let outcome =
+            kanzei_tools::project_state::git_init(&root, initial_commit.unwrap_or(false))?;
+        Ok(json!({
+            "git": outcome,
+            "facts": kanzei_tools::project_state::probe(&root),
+        }))
+    })
+    .await
+}
+
+/// UI2-0926 #13:项目状态事实(与 agent 上下文里的 `<project-state>` 同源)。
+#[tauri::command]
+pub async fn project_facts(project_dir: String) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let root = crate::normalized_project_root(Path::new(&project_dir));
+        if !root.is_dir() {
+            return Err(format!("项目目录不存在: {}", root.display()));
+        }
+        serde_json::to_value(kanzei_tools::project_state::probe_cached(&root))
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn projects_get() -> AppPrefs {
+    normalize_prefs(load_prefs())
+}
+
+fn normalize_prefs(mut prefs: AppPrefs) -> AppPrefs {
+    // A disconnected drive or temporarily inaccessible directory is still a registered
+    // project. Keep its identity so the workbench can show stale data and an explicit error.
+    prefs.names.retain(|path, _| prefs.projects.contains(path));
+    if !prefs
+        .current
+        .as_ref()
+        .is_some_and(|current| prefs.projects.contains(current))
+    {
+        prefs.current = prefs.projects.first().cloned();
+    }
+    prefs
+}
+
+#[tauri::command]
+pub fn projects_init(path: String, name: Option<String>) -> Result<AppPrefs, String> {
+    let dir = PathBuf::from(&path);
+    if crate::general_chat::is_general_root(&dir) {
+        return Err("无项目对话的存储目录不能登记为项目".into());
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建项目目录失败: {e}"))?;
+    initialize_kanzei_space(&dir)?;
+    let canonical = dir
+        .canonicalize()
+        .map(strip_verbatim)
+        .unwrap_or(path.clone());
+    let _guard = crate::prefs::write_guard()?;
+    let mut prefs = load_prefs();
+    if !prefs.projects.contains(&canonical) {
+        prefs.projects.push(canonical.clone());
+    }
+    let display_name = name
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| base_name(&canonical));
+    prefs.names.insert(canonical.clone(), display_name);
+    prefs.current = Some(canonical);
+    save_prefs(&prefs)?;
+    Ok(projects_get())
+}
+
+#[tauri::command]
+pub fn projects_rename(path: String, name: String) -> Result<AppPrefs, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("项目名称不能为空".into());
+    }
+    let _guard = crate::prefs::write_guard()?;
+    let mut prefs = load_prefs();
+    if !prefs.projects.iter().any(|project| project == &path) {
+        return Err("项目不在项目列表中".into());
+    }
+    prefs.names.insert(path, name.to_owned());
+    save_prefs(&prefs)?;
+    Ok(projects_get())
+}
+
+#[tauri::command]
+pub fn projects_add(path: String) -> Result<AppPrefs, String> {
+    let dir = PathBuf::from(&path);
+    if crate::general_chat::is_general_root(&dir) {
+        return Err("无项目对话的存储目录不能登记为项目".into());
+    }
+    if !dir.is_dir() {
+        return Err(format!("目录不存在: {path}"));
+    }
+    initialize_kanzei_space(&dir)?;
+    let canonical = dir
+        .canonicalize()
+        .map(strip_verbatim)
+        .unwrap_or(path.clone());
+    let _guard = crate::prefs::write_guard()?;
+    let mut prefs = load_prefs();
+    if !prefs.projects.contains(&canonical) {
+        prefs.projects.push(canonical.clone());
+    }
+    prefs.current = Some(canonical);
+    save_prefs(&prefs)?;
+    Ok(projects_get())
+}
+
+fn root_has_data(root: &Path) -> bool {
+    let k = root.join(".kanzei");
+    ["project", "memory"].iter().any(|sub| {
+        k.join(sub)
+            .read_dir()
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false)
+    }) || k.join("state.db").is_file()
+}
+pub(crate) fn ensure_project_isolated(dir: &Path) -> bool {
+    if dir.join(".kanzei").is_dir() {
+        return false;
+    }
+    let Some(resolved) = kanzei_harness::config::discover_project_root(dir) else {
+        return false;
+    };
+    if std::fs::canonicalize(&resolved).ok() == std::fs::canonicalize(dir).ok()
+        || root_has_data(&resolved)
+    {
+        return false;
+    }
+    initialize_kanzei_space(dir).is_ok()
+}
+
+#[tauri::command]
+pub fn project_root_info(project_dir: String) -> serde_json::Value {
+    let selected = PathBuf::from(&project_dir);
+    let repaired = ensure_project_isolated(&selected);
+    let resolved = kanzei_harness::config::discover_project_root(&selected)
+        .unwrap_or_else(|| selected.clone());
+    let same = std::fs::canonicalize(&selected).ok() == std::fs::canonicalize(&resolved).ok();
+    json!({"selected": selected.display().to_string(), "resolved": resolved.display().to_string(), "shared": !same, "autoRepaired": repaired})
+}
+
+#[tauri::command]
+pub fn projects_isolation_report() -> serde_json::Value {
+    let prefs = load_prefs();
+    let mut shared = Vec::new();
+    let mut repaired = Vec::new();
+    for path in &prefs.projects {
+        let dir = PathBuf::from(path);
+        if !dir.is_dir() {
+            continue;
+        }
+        if ensure_project_isolated(&dir) {
+            repaired.push(path.clone());
+            continue;
+        }
+        let resolved =
+            kanzei_harness::config::discover_project_root(&dir).unwrap_or_else(|| dir.clone());
+        if std::fs::canonicalize(&resolved).ok() != std::fs::canonicalize(&dir).ok() {
+            shared.push(json!({"project": path, "resolved": resolved.display().to_string()}));
+        }
+    }
+    json!({"shared": shared, "autoRepaired": repaired})
+}
+
+#[tauri::command]
+pub fn project_detach(project_dir: String) -> Result<(), String> {
+    let dir = PathBuf::from(&project_dir);
+    if !dir.is_dir() {
+        return Err(format!("目录不存在: {project_dir}"));
+    }
+    initialize_kanzei_space(&dir)?;
+    std::fs::create_dir_all(dir.join(".kanzei").join("project"))
+        .map_err(|e| format!("创建项目空间失败: {e}"))?;
+    let resolved =
+        kanzei_harness::config::discover_project_root(&dir).unwrap_or_else(|| dir.clone());
+    if std::fs::canonicalize(&resolved).ok() != std::fs::canonicalize(&dir).ok() {
+        return Err(format!(
+            "已创建 {}/.kanzei,但项目根仍解析为 {} —— 请检查目录权限",
+            dir.display(),
+            resolved.display()
+        ));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn projects_pick() -> Result<Option<AppPrefs>, String> {
+    let picked = rfd::AsyncFileDialog::new().pick_folder().await;
+    match picked {
+        Some(handle) => projects_add(handle.path().display().to_string()).map(Some),
+        None => Ok(None),
+    }
+}
+
+fn collect_project_files(root: &Path, dir: &Path, query: &str, results: &mut Vec<String>) {
+    if results.len() >= 50 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        if results.len() >= 50 {
+            break;
+        }
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            if matches!(
+                name.as_str(),
+                ".git" | ".kanzei" | "target" | "node_modules"
+            ) {
+                continue;
+            }
+            collect_project_files(root, &path, query, results);
+        } else if path.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if query.is_empty()
+                || relative
+                    .to_ascii_lowercase()
+                    .contains(&query.to_ascii_lowercase())
+            {
+                results.push(relative);
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn project_files(project_dir: String, query: String) -> Result<Vec<String>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    if !root.is_dir() {
+        return Err(format!("项目目录不存在: {}", root.display()));
+    }
+    let mut results = Vec::new();
+    collect_project_files(&root, &root, query.trim(), &mut results);
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn export_pick_dir() -> Result<Option<String>, String> {
+    Ok(rfd::AsyncFileDialog::new()
+        .pick_folder()
+        .await
+        .map(|handle| handle.path().display().to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ExportOptions {
+    pub(crate) project_dir: String,
+    pub(crate) output_dir: String,
+    pub(crate) include_memory: bool,
+    pub(crate) include_requirements: bool,
+    pub(crate) include_defects: bool,
+    pub(crate) include_config: bool,
+}
+
+fn copy_export_file(
+    root: &Path,
+    destination: &Path,
+    relative: &str,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
+    let source = root.join(relative);
+    if !source.is_file() {
+        return Ok(());
+    }
+    let target = destination.join(relative);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?;
+    }
+    std::fs::copy(&source, &target).map_err(|e| format!("导出 {} 失败: {e}", source.display()))?;
+    files.push(relative.replace('\\', "/"));
+    Ok(())
+}
+
+fn copy_export_tree(
+    source: &Path,
+    destination: &Path,
+    relative: &str,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
+    if !source.is_dir() {
+        return Ok(());
+    }
+    for item in std::fs::read_dir(source).map_err(|e| format!("读取导出目录失败: {e}"))? {
+        let item = item.map_err(|e| format!("读取导出条目失败: {e}"))?;
+        let child_relative = Path::new(relative).join(item.file_name());
+        let child_source = item.path();
+        if child_source.is_dir() {
+            copy_export_tree(
+                &child_source,
+                destination,
+                &child_relative.display().to_string(),
+                files,
+            )?;
+        } else if child_source.is_file() {
+            let relative_text = child_relative.display().to_string();
+            let target = destination.join(&child_relative);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?;
+            }
+            std::fs::copy(&child_source, &target)
+                .map_err(|e| format!("导出 {} 失败: {e}", child_source.display()))?;
+            files.push(relative_text.replace('\\', "/"));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, String> {
+    let root = normalized_project_root(Path::new(&options.project_dir));
+    let output_base = PathBuf::from(options.output_dir.trim());
+    if output_base.as_os_str().is_empty() {
+        return Err("请先选择导出目录".into());
+    }
+    std::fs::create_dir_all(&output_base).map_err(|e| format!("创建导出目录失败: {e}"))?;
+    let root_canonical = root
+        .canonicalize()
+        .map_err(|e| format!("项目目录无法解析: {e}"))?;
+    let output_canonical = output_base
+        .canonicalize()
+        .map_err(|e| format!("导出目录无法解析: {e}"))?;
+    if output_canonical.starts_with(&root_canonical) {
+        return Err("导出目录不能位于项目目录内".into());
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    let destination = output_canonical.join(format!("kanzei-export-{stamp}"));
+    std::fs::create_dir_all(&destination).map_err(|e| format!("创建导出包目录失败: {e}"))?;
+    let mut files = Vec::new();
+    if options.include_memory {
+        copy_export_tree(
+            &root.join(".kanzei/memory"),
+            &destination,
+            ".kanzei/memory",
+            &mut files,
+        )?;
+    }
+    if options.include_requirements {
+        for relative in [
+            ".kanzei/project/requirements.md",
+            ".kanzei/project/requirements-archive.md",
+        ] {
+            copy_export_file(&root, &destination, relative, &mut files)?;
+        }
+    }
+    if options.include_defects {
+        for relative in [
+            ".kanzei/project/defects.md",
+            ".kanzei/project/defects-archive.md",
+        ] {
+            copy_export_file(&root, &destination, relative, &mut files)?;
+        }
+    }
+    if options.include_config {
+        copy_export_file(&root, &destination, ".kanzei/kanzei.toml", &mut files)?;
+    }
+    if files.is_empty() {
+        let _ = std::fs::remove_dir_all(&destination);
+        return Err("没有可导出的工作资料".into());
+    }
+    files.sort();
+    Ok(json!({ "path": destination.display().to_string(), "files": files }))
+}
+
+/// 该项目下正在运行的对话(展示名)。移除项目前用它拦截:有运行线时解除登记会让它们「隐形运行」
+/// ——界面上看不见、却仍在写项目文件。
+pub(crate) fn running_conversation_names(
+    state: &crate::state::AppState,
+    project_path: &str,
+) -> Vec<String> {
+    use crate::processes::naming::order_key;
+    use std::sync::atomic::Ordering;
+    let root = normalized_project_root(Path::new(project_path));
+    let handles = state
+        .processes
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|process| process.origin_project.0 == root)
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut running = handles
+        .iter()
+        .filter(|process| {
+            let session_id = crate::process_session_id(&root, Some(&process.id));
+            state
+                .runtimes
+                .lock()
+                .unwrap()
+                .get(&session_id)
+                .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst))
+        })
+        .map(|process| crate::process_info(state, process))
+        .collect::<Vec<_>>();
+    running.sort_by(|a, b| order_key(&a.id).cmp(&order_key(&b.id)));
+    running.into_iter().map(|info| info.label).collect()
+}
+
+/// 移除项目:**只解除登记**,磁盘上的项目文件与 `.kanzei/` 一概不动。
+/// 有运行中的对话时拒绝并说明;并清掉 app.json 里它留下的显示名、工作区状态、任务优先级、
+/// 各线鞭挞设置与侧栏置顶/排序/展开态。
+#[tauri::command]
+pub fn projects_remove(
+    state: tauri::State<'_, crate::state::AppState>,
+    path: String,
+) -> Result<AppPrefs, String> {
+    let running = running_conversation_names(&state, &path);
+    if !running.is_empty() {
+        return Err(format!(
+            "该项目有 {} 个对话正在运行({});先停止它们再移除项目。移除只解除登记,不会删除磁盘上的文件",
+            running.len(),
+            running.join("、")
+        ));
+    }
+    let _guard = crate::prefs::write_guard()?;
+    let mut prefs = load_prefs();
+    prefs.projects.retain(|p| p != &path);
+    crate::prefs::purge_project_prefs(&mut prefs, &path);
+    if prefs.current.as_deref() == Some(path.as_str()) {
+        prefs.current = prefs.projects.first().cloned();
+    }
+    save_prefs(&prefs)?;
+    Ok(projects_get())
+}
+
+/// 把登记项目按给定顺序重排。`paths` 里没登记过的路径忽略;已登记却没出现在 `paths` 里的项目
+/// 保持原有相对顺序排在后面(绝不因为漏传而丢项目)。`current` 不动:它仍是已登记项目,
+/// `projects[0]` 作为 current 失效回退的目标也始终有效。
+pub(crate) fn reorder_projects(current: &[String], wanted: &[String]) -> Vec<String> {
+    let mut result: Vec<String> = Vec::with_capacity(current.len());
+    for path in wanted {
+        if let Some(existing) = current
+            .iter()
+            .find(|candidate| crate::prefs::same_project_path(candidate, path))
+        {
+            if !result.contains(existing) {
+                result.push(existing.clone());
+            }
+        }
+    }
+    for path in current {
+        if !result.contains(path) {
+            result.push(path.clone());
+        }
+    }
+    result
+}
+
+#[tauri::command]
+pub fn projects_reorder(paths: Vec<String>) -> Result<(), String> {
+    let _guard = crate::prefs::write_guard()?;
+    let mut prefs = load_prefs();
+    let reordered = reorder_projects(&prefs.projects, &paths);
+    if reordered != prefs.projects {
+        prefs.projects = reordered;
+        save_prefs(&prefs)?;
+    }
+    Ok(())
+}
+#[tauri::command]
+pub fn projects_select(path: String) -> Result<AppPrefs, String> {
+    let _guard = crate::prefs::write_guard()?;
+    let mut prefs = load_prefs();
+    if prefs.projects.contains(&path) {
+        ensure_project_isolated(Path::new(&path));
+        prefs.current = Some(path);
+    }
+    save_prefs(&prefs)?;
+    Ok(prefs)
+}
+
+pub(crate) fn base_name_for_snapshot(path: &str) -> String {
+    base_name(path)
+}
+
+#[cfg(test)]
+mod prior_art_init_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // ── 分区:工作目录管理(UI2-0926 #13)──
+
+    fn temp_parent(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-project-create-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn 新建项目_建目录_忽略规则_git_默认建库() {
+        let parent = temp_parent("git");
+        let (dir, git, error) =
+            create_project_dir(&parent.display().to_string(), "MD文件保存", true).unwrap();
+        assert_eq!(dir, parent.join("MD文件保存"));
+        assert!(dir.join(".kanzei").is_dir());
+        let ignore = std::fs::read_to_string(dir.join(".kanzei/.gitignore")).unwrap();
+        assert!(
+            ignore.contains("state.db-*") && ignore.contains("*.lock"),
+            "{ignore}"
+        );
+        assert!(ignore.contains("artifacts/"), "{ignore}");
+        if error.is_none() {
+            let git = git.expect("git 结果");
+            assert!(git.created);
+            assert!(dir.join(".git").exists());
+            // 本机有 git 身份就有首提交(并行线要 HEAD),否则明确标出缺身份。
+            assert!(git.committed || git.identity_missing, "{git:?}");
+        }
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn 新建项目_不勾_git_只建目录_非空目标拒绝() {
+        let parent = temp_parent("plain");
+        let (dir, git, _) =
+            create_project_dir(&parent.display().to_string(), "demo", false).unwrap();
+        assert!(git.is_none());
+        assert!(!dir.join(".git").exists());
+        std::fs::create_dir_all(parent.join("taken")).unwrap();
+        std::fs::write(parent.join("taken").join("x.txt"), "x").unwrap();
+        let err = create_project_dir(&parent.display().to_string(), "taken", false).unwrap_err();
+        assert!(err.contains("添加项目文件夹"), "{err}");
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    /// UX-128:横幅上的「初始化并首次提交」——命令一步建库并(本机有 git 身份时)提交,
+    /// 没做成的原因随返回值带回;不要首提交时行为与从前一致(只 init)。
+    #[tokio::test]
+    async fn 初始化git_可选首次提交() {
+        let git_available = std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if !git_available {
+            return;
+        }
+        let parent = temp_parent("git-late");
+        let (dir, _, _) = create_project_dir(&parent.display().to_string(), "late", false).unwrap();
+        let project = dir.display().to_string();
+
+        let plain = project_git_init(project.clone(), None).await.unwrap();
+        assert_eq!(plain["git"]["created"], true);
+        assert_eq!(plain["git"]["committed"], false);
+        assert!(plain["git"].get("commit_error").is_none(), "{plain}");
+        assert_eq!(plain["facts"]["git"]["has_commits"], false, "{plain}");
+
+        // 仓库已存在、还没有提交:再要首提交就补做;缺本机身份时如实标出而不是报错。
+        let late = project_git_init(project.clone(), Some(true)).await.unwrap();
+        assert_eq!(late["git"]["created"], false, "{late}");
+        let git = &late["git"];
+        assert!(
+            git["committed"] == true || git["identity_missing"] == true,
+            "{late}"
+        );
+        if git["committed"] == true {
+            assert_eq!(late["facts"]["git"]["has_commits"], true, "{late}");
+        }
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn 项目名校验() {
+        assert!(validate_project_name("  ").is_err());
+        assert!(validate_project_name("a/b").is_err());
+        assert!(validate_project_name("a:b").is_err());
+        assert!(validate_project_name("con").is_err());
+        assert!(validate_project_name("COM3.txt").is_err());
+        assert!(validate_project_name("dots.").is_err());
+        assert_eq!(
+            validate_project_name(" 手机 Markdown ").unwrap(),
+            "手机 Markdown"
+        );
+        assert_eq!(validate_project_name("console").unwrap(), "console");
+    }
+
+    #[test]
+    fn 首次初始化创建prior_art骨架且重复进入不覆盖() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-project-prior-art-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(initialize_kanzei_space(&root).unwrap());
+        let path = root.join(".kanzei/research/project-init/prior-art.md");
+        assert!(path.is_file());
+        std::fs::write(&path, "用户已填写").unwrap();
+        assert!(!initialize_kanzei_space(&root).unwrap());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "用户已填写");
+    }
+}
+
+/// 工作区 = **跨项目的运行现场**:一眼看出哪个项目在跑、跑的是哪条线、卡在哪。
+/// 原来这里只给「项目 + 当前对话 + 最近活动」——那些侧栏和文档页里全都有,
+/// 等于把别处的信息又摆了一遍。真正只有这里能回答的是「另外那个项目现在怎么样」,
+/// 所以补 lines:每条线的运行态、阶段、正在用的工具、归属分支。
+#[tauri::command(async)]
+pub(crate) fn workspace_snapshot(
+    state: tauri::State<'_, crate::state::AppState>,
+    project_dir: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let _ = project_dir;
+    let prefs = projects_get();
+    let mut projects = Vec::new();
+    for path in &prefs.projects {
+        // 单个项目不可读时保留它的错误行，其余项目仍可查看。
+        let snapshot = (|| -> Result<serde_json::Value, String> {
+            let root = normalized_project_root(Path::new(path));
+            let session_id = kanzei_core::project_session_id(&root);
+            let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+                .map_err(|e| e.to_string())?;
+            let session = store
+                .create_session(&session_id, &root.display().to_string(), None)
+                .map_err(|e| e.to_string())?;
+            let conversations =
+                crate::conversation::conversation_list(path.clone(), None).unwrap_or_default();
+            let recent = crate::conversation::conversation_trace_get(path.clone(), None, None)
+                .unwrap_or_default();
+            // 线级现场。process_list 已经做了「恢复注册 + 剪掉死线」,直接复用它的结论,
+            // 不在这里另写一套枚举——两套口径迟早会对不上。
+            let lines = crate::processes::process_list(state.clone(), path.clone())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|info| {
+                    json!({
+                        "id": info.id,
+                        "label": info.label,
+                        "running": info.running,
+                        "stage": info.stage,
+                        "branch": info.branch,
+                        "worktree_path": info.worktree_path,
+                        "profile": info.profile,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let running_lines = lines
+                .iter()
+                .filter(|line| line["running"].as_bool() == Some(true))
+                .count();
+            let mut sessions = std::collections::BTreeSet::from([session_id.clone()]);
+            sessions.extend(
+                lines
+                    .iter()
+                    .filter_map(|line| line["id"].as_str())
+                    .map(|id| crate::process_session_id(&root, Some(id))),
+            );
+            let pending_count = sessions
+                .iter()
+                .map(|id| store.list_pending_inputs(id).map(|v| v.len()))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .sum::<usize>();
+            let decisions = store
+                .list_decisions(&session_id)
+                .map_err(|e| e.to_string())?;
+            kanzei_tools::verification::recover(&root).map_err(|e| e.to_string())?;
+            let verification_jobs = kanzei_tools::verification::list_jobs(&root).map_err(|e| e.to_string())?.into_iter().take(100).map(|job| json!({
+                "id": job.id, "unit_id": job.unit_id, "status": job.status, "source_fingerprint": job.source_fingerprint,
+                "snapshot": job.snapshot, "log_path": job.log_path, "exit_code": job.exit_code,
+                "updated_at": job.updated_at, "error": job.error, "environment": job.environment,
+            })).collect::<Vec<_>>();
+            let work_units = store.list_work_units(None).map_err(|e| e.to_string())?;
+            let work_acceptances = store
+                .list_work_acceptances(&session_id)
+                .map_err(|e| e.to_string())?;
+            let rework = decisions
+                .iter()
+                .filter_map(|d| d.review.as_ref())
+                .filter_map(|r| r.rework_input_id.as_ref())
+                .map(|id| store.input_status(id).map(|status| (id.clone(), status)))
+                .collect::<Result<std::collections::BTreeMap<_, _>, _>>()
+                .map_err(|e| e.to_string())?;
+            Ok(json!({
+                "path": path,
+                "name": prefs.names.get(path).cloned().unwrap_or_else(|| base_name_for_snapshot(path)),
+                "current": prefs.current.as_deref() == Some(path.as_str()),
+                "status": session.status,
+                "updated_at": session.updated_at,
+                "pending_count": pending_count,
+                "conversation": conversations.first(),
+                "recent_activity": recent.into_iter().rev().take(8).collect::<Vec<_>>(),
+                "lines": lines,
+                "running_lines": running_lines,
+                "decisions": decisions,
+                "work_units": work_units,
+                "verification_jobs": verification_jobs,
+                "work_acceptances": work_acceptances,
+                "rework": rework,
+                "error": null,
+            }))
+        })();
+        projects.push(snapshot.unwrap_or_else(|error| json!({
+            "path": path,
+            "name": prefs.names.get(path).cloned().unwrap_or_else(|| base_name_for_snapshot(path)),
+            "current": prefs.current.as_deref() == Some(path.as_str()),
+            "error": error,
+        })));
+    }
+    Ok(json!({ "current": prefs.current, "projects": projects,
+        "observed_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64 }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn empty_project_preferences_stay_empty() {
+        let prefs = normalize_prefs(AppPrefs::default());
+
+        assert!(prefs.projects.is_empty());
+        assert_eq!(prefs.current, None);
+        assert!(prefs.names.is_empty());
+    }
+
+    #[test]
+    fn 重排项目_缺失的保留在后_多余的忽略_路径写法无关() {
+        let current: Vec<String> = [r"C:\a", r"C:\b", r"C:\c", r"C:\d"]
+            .map(String::from)
+            .to_vec();
+        let wanted: Vec<String> = [r"c:/c/", r"C:\a", r"C:\ghost", r"C:\c"]
+            .map(String::from)
+            .to_vec();
+        // 写法不同的 c 命中已登记的 C:\c(只出现一次);ghost 忽略;漏传的 b、d 保持原相对顺序排后面。
+        assert_eq!(
+            reorder_projects(&current, &wanted),
+            [r"C:\c", r"C:\a", r"C:\b", r"C:\d"]
+        );
+        assert_eq!(
+            reorder_projects(&current, &[]),
+            current,
+            "什么都不传 = 顺序不变"
+        );
+        assert!(
+            reorder_projects(&[], &wanted).is_empty(),
+            "不会凭空登记项目"
+        );
+        let once = reorder_projects(&current, &wanted);
+        assert_eq!(
+            reorder_projects(&once, &once),
+            once,
+            "排好的结果再排一次不变"
+        );
+    }
+
+    #[test]
+    fn 移除项目前能列出运行中的对话_空闲时为空() {
+        use std::sync::atomic::Ordering;
+        let dir = std::env::temp_dir().join(format!(
+            "kz-remove-running-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = crate::normalized_project_root(&dir);
+        let state = crate::state::AppState::default();
+        let main = crate::ensure_default_process(&state, &root);
+        let path = root.display().to_string();
+        assert!(running_conversation_names(&state, &path).is_empty());
+        let session = crate::process_session_id(&root, Some(&main.id));
+        crate::runtime_for(&state, &session)
+            .running
+            .store(true, Ordering::SeqCst);
+        assert_eq!(running_conversation_names(&state, &path), ["主对话"]);
+        // 别的项目不受影响。
+        assert!(running_conversation_names(&state, r"C:\kz-no-such-project").is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unavailable_projects_keep_their_identity_for_stale_rows() {
+        let prefs = AppPrefs {
+            projects: vec!["missing".into(), "kept".into()],
+            current: Some("missing".into()),
+            names: HashMap::from([
+                ("missing".into(), "旧项目".into()),
+                ("kept".into(), "保留项目".into()),
+            ]),
+            ..Default::default()
+        };
+
+        let prefs = normalize_prefs(prefs);
+
+        assert_eq!(prefs.projects, ["missing", "kept"]);
+        assert_eq!(prefs.current.as_deref(), Some("missing"));
+        assert_eq!(prefs.names.len(), 2);
+        assert_eq!(
+            prefs.names.get("kept").map(String::as_str),
+            Some("保留项目")
+        );
+    }
+}
