@@ -1,19 +1,23 @@
 //! 提交模型消息和工具结果，并保留本轮未压缩消息。
 use super::halt::append_halted_tool_results;
-use super::{CancellationToken, Message, Part, RunEvent};
+use super::{CancellationToken, Message, MessageCommitReceipt, Part, RunEvent};
 
 pub(super) fn commit_assistant_message(
     messages: &mut Vec<Message>,
     parts: Vec<Part>,
     step: u32,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
-) {
+) -> anyhow::Result<()> {
     let message = Message::assistant(parts);
+    let commit = MessageCommitReceipt::default();
     on_event(RunEvent::AssistantMessageCommitted {
         step,
         message: message.clone(),
+        commit: commit.clone(),
     });
+    commit.check().map_err(anyhow::Error::msg)?;
     messages.push(message);
+    Ok(())
 }
 
 /// R-249:`images` 追加在**所有** ToolResult 之后。
@@ -27,23 +31,31 @@ pub(super) fn commit_tool_results(
     images: Vec<Part>,
     step: u32,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
-) {
+) -> anyhow::Result<()> {
     let mut results = results;
     results.extend(images);
     let message = Message::tool_results(results);
+    let commit = MessageCommitReceipt::default();
     on_event(RunEvent::ToolResultsCommitted {
         step,
         message: message.clone(),
+        commit: commit.clone(),
     });
+    commit.check().map_err(anyhow::Error::msg)?;
     messages.push(message);
+    Ok(())
 }
 
 /// D-655:只记录主 runner 提交的本轮消息;事件发生在消息进入可压缩 history 前。
 pub(super) fn record_round_message(round_messages: &mut Vec<Message>, event: &RunEvent) {
     match event {
-        RunEvent::AssistantMessageCommitted { message, .. }
-        | RunEvent::ToolResultsCommitted { message, .. }
-        | RunEvent::InputMessageCommitted { message, .. } => round_messages.push(message.clone()),
+        RunEvent::AssistantMessageCommitted {
+            message, commit, ..
+        }
+        | RunEvent::ToolResultsCommitted {
+            message, commit, ..
+        } if commit.check().is_ok() => round_messages.push(message.clone()),
+        RunEvent::InputMessageCommitted { message, .. } => round_messages.push(message.clone()),
         _ => {}
     }
 }
@@ -59,7 +71,7 @@ pub(super) enum StepMessageOutcome {
 /// R-202 批6:步骤消息提交——final_text 提取、assistant 消息落库、以及
 /// 「无工具调用」与「产出了调用但停止已置位」两条提前收尾路径。
 ///
-/// 行为与原内联段逐字节对齐(行为零变更):
+/// 提交拒绝返回错误；成功提交保留原来的收尾语义：
 /// - final_text 只取 Text part 拼接(推理/工具调用不进收尾文本);
 /// - calls 为空 → halted_by_user 如实反映停止状态(D-342);
 /// - 停止已置位 → 全部调用以取消占位配对后 halted 收尾。
@@ -71,7 +83,7 @@ pub(super) fn commit_step_messages(
     step: u32,
     halt: Option<&CancellationToken>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
-) -> StepMessageOutcome {
+) -> anyhow::Result<StepMessageOutcome> {
     *final_text = parts
         .iter()
         .filter_map(|p| match p {
@@ -82,14 +94,14 @@ pub(super) fn commit_step_messages(
         .join("\n");
 
     if !parts.is_empty() {
-        commit_assistant_message(messages, parts, step, on_event);
+        commit_assistant_message(messages, parts, step, on_event)?;
     }
 
     if calls.is_empty() {
-        return StepMessageOutcome::Return {
+        return Ok(StepMessageOutcome::Return {
             // D-342:纯文本步收尾时停止可能已置位,如实标 halted。
             halted_by_user: halt.is_some_and(|token| token.is_cancelled()),
-        };
+        });
     }
 
     // D-342:模型产出了工具调用但停止已置位——一个工具都不执行,全部以
@@ -98,17 +110,57 @@ pub(super) fn commit_step_messages(
         let mut results = Vec::new();
         append_halted_tool_results(&mut results, calls, 0);
         // 本步工具一个都没执行,不可能有图片。
-        commit_tool_results(messages, results, Vec::new(), step, on_event);
-        return StepMessageOutcome::Return {
+        commit_tool_results(messages, results, Vec::new(), step, on_event)?;
+        return Ok(StepMessageOutcome::Return {
             halted_by_user: true,
-        };
+        });
     }
-    StepMessageOutcome::Proceed
+    Ok(StepMessageOutcome::Proceed)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejected_messages_never_enter_runtime_or_round_history() {
+        let prior = Message::user_text("already committed");
+        let mut messages = vec![prior.clone()];
+        let mut round = Vec::new();
+        let mut sink = |event| {
+            match &event {
+                RunEvent::AssistantMessageCommitted { commit, .. }
+                | RunEvent::ToolResultsCommitted { commit, .. } => {
+                    commit.reject("fixture durable rejection");
+                }
+                _ => unreachable!(),
+            }
+            record_round_message(&mut round, &event);
+        };
+        assert!(commit_assistant_message(
+            &mut messages,
+            vec![Part::Text {
+                text: "rejected".into()
+            }],
+            1,
+            &mut sink,
+        )
+        .is_err());
+        assert!(commit_tool_results(
+            &mut messages,
+            vec![Part::ToolResult {
+                call_id: "call".into(),
+                content: "rejected result".into(),
+                is_error: false,
+            }],
+            Vec::new(),
+            1,
+            &mut sink,
+        )
+        .is_err());
+        assert_eq!(messages, vec![prior]);
+        assert!(round.is_empty());
+    }
 
     #[test]
     fn steering_receipt_matches_actual_typed_projection_in_message_order() {
@@ -151,6 +203,7 @@ mod tests {
             &RunEvent::AssistantMessageCommitted {
                 step: 1,
                 message: answer.clone(),
+                commit: Default::default(),
             },
         );
         writer.finish(crate::SessionTurnTerminal::Completed);

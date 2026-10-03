@@ -31,14 +31,38 @@ pub(crate) fn make_event_handler(
             let _ = stdout.flush();
         }
         kanzei_core::RunEvent::Reasoning(_) => {}
-        kanzei_core::RunEvent::AssistantMessageCommitted { step, message } => typed_writer
-            .lock()
-            .unwrap()
-            .assistant_committed(step, message),
-        kanzei_core::RunEvent::ToolResultsCommitted { step, message } => typed_writer
-            .lock()
-            .unwrap()
-            .tool_results_committed(step, message),
+        kanzei_core::RunEvent::AssistantMessageCommitted {
+            step,
+            message,
+            commit,
+        } => {
+            let mut writer = typed_writer.lock().unwrap();
+            if !writer.assistant_committed(step, message) {
+                commit.reject(
+                    writer
+                        .errors()
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| "durable assistant message commit rejected".into()),
+                );
+            }
+        }
+        kanzei_core::RunEvent::ToolResultsCommitted {
+            step,
+            message,
+            commit,
+        } => {
+            let mut writer = typed_writer.lock().unwrap();
+            if !writer.tool_results_committed(step, message) {
+                commit.reject(
+                    writer
+                        .errors()
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| "durable tool results commit rejected".into()),
+                );
+            }
+        }
         kanzei_core::RunEvent::ToolStart { name, summary, .. } => {
             let _ = writeln!(stdout, "\n\x1b[36m● {name}\x1b[0m {summary}");
         }
@@ -177,6 +201,54 @@ mod tests {
     };
     use kanzei_llm::{Message, Part};
     use serde_json::json;
+
+    #[test]
+    fn handler_rejects_terminal_commits_even_without_new_writer_errors() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-c3-cli-terminal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.db");
+        let store = SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        let writer = Arc::new(Mutex::new(TypedSessionWriter::new(&path, "ses", "turn")));
+        writer.lock().unwrap().turn_started(1, 1);
+        writer
+            .lock()
+            .unwrap()
+            .finish(kanzei_core::SessionTurnTerminal::Completed);
+        let assistant = kanzei_core::runner::MessageCommitReceipt::default();
+        let result = kanzei_core::runner::MessageCommitReceipt::default();
+        let mut handler = make_event_handler(writer.clone());
+        handler(kanzei_core::RunEvent::AssistantMessageCommitted {
+            step: 1,
+            message: Message::assistant(Vec::new()),
+            commit: assistant.clone(),
+        });
+        handler(kanzei_core::RunEvent::ToolResultsCommitted {
+            step: 1,
+            message: Message::tool_results(Vec::new()),
+            commit: result.clone(),
+        });
+        let errors = writer.lock().unwrap().errors().to_vec();
+        drop(handler);
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(assistant.check().is_err());
+        assert!(result.check().is_err());
+        assert!(
+            errors.is_empty(),
+            "terminal refusals must not fabricate writer errors"
+        );
+    }
 
     #[test]
     fn work_context_handler_forwards_original_source_and_rejects_later_mobile_fact() {

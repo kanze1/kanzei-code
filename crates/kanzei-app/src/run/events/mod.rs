@@ -204,17 +204,33 @@ impl TypedEventSink {
     fn push_text(&self, text: &str) {
         self.writer.lock().unwrap().push_text(text);
     }
-    fn assistant_committed(&self, step: u32, message: kanzei_llm::Message) {
-        self.writer
-            .lock()
-            .unwrap()
-            .assistant_committed(step, message);
+    fn assistant_committed(&self, step: u32, message: kanzei_llm::Message) -> Result<(), String> {
+        let mut writer = self.writer.lock().unwrap();
+        if writer.assistant_committed(step, message) {
+            Ok(())
+        } else {
+            Err(writer
+                .errors()
+                .last()
+                .cloned()
+                .unwrap_or_else(|| "durable assistant message commit rejected".into()))
+        }
     }
-    fn tool_results_committed(&self, step: u32, message: kanzei_llm::Message) {
-        self.writer
-            .lock()
-            .unwrap()
-            .tool_results_committed(step, message);
+    fn tool_results_committed(
+        &self,
+        step: u32,
+        message: kanzei_llm::Message,
+    ) -> Result<(), String> {
+        let mut writer = self.writer.lock().unwrap();
+        if writer.tool_results_committed(step, message) {
+            Ok(())
+        } else {
+            Err(writer
+                .errors()
+                .last()
+                .cloned()
+                .unwrap_or_else(|| "durable tool results commit rejected".into()))
+        }
     }
     fn stream_restarted(&self) {
         self.writer.lock().unwrap().stream_restarted();
@@ -725,8 +741,10 @@ pub(crate) fn build_event_handler(
             RunEvent::InputMessageCommitted { input_id, .. } => {
                 ui.emit("kz:input-received", json!({"inputId":input_id}))
             }
-            RunEvent::AssistantMessageCommitted { step, message } => {
-                typed.assistant_committed(step, message);
+            RunEvent::AssistantMessageCommitted { step, message, commit } => {
+                if let Err(error) = typed.assistant_committed(step, message) {
+                    commit.reject(error);
+                }
                 Ok(())
             }
             RunEvent::HostedTool {
@@ -816,8 +834,10 @@ pub(crate) fn build_event_handler(
                     }),
                 )
             }
-            RunEvent::ToolResultsCommitted { step, message } => {
-                typed.tool_results_committed(step, message);
+            RunEvent::ToolResultsCommitted { step, message, commit } => {
+                if let Err(error) = typed.tool_results_committed(step, message) {
+                    commit.reject(error);
+                }
                 Ok(())
             }
             // 轮内主动压缩:UI 要看得见"什么时候让的路、让掉了多少",
@@ -1094,6 +1114,46 @@ pub(crate) fn build_ask_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_sink_reports_terminal_commit_refusal_without_new_writer_errors() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-c3-app-terminal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.db");
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        let writer = Arc::new(Mutex::new(typed_events::TypedEventWriter::new(
+            &path, "ses", "turn",
+        )));
+        writer.lock().unwrap().turn_started(1, 1);
+        writer
+            .lock()
+            .unwrap()
+            .finish(kanzei_core::SessionTurnTerminal::Completed);
+        let sink = TypedEventSink::new(writer.clone());
+        let assistant = sink.assistant_committed(1, kanzei_llm::Message::assistant(Vec::new()));
+        let results = sink.tool_results_committed(1, kanzei_llm::Message::tool_results(Vec::new()));
+        let errors = writer.lock().unwrap().errors().to_vec();
+        drop(sink);
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(assistant.is_err());
+        assert!(results.is_err());
+        assert!(
+            errors.is_empty(),
+            "terminal refusals must not fabricate writer errors"
+        );
+    }
 
     #[test]
     fn only_deliver_file_display_is_persisted_for_console() {

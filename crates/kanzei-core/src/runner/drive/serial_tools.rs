@@ -69,7 +69,7 @@ pub(super) async fn execute_serial_tool_calls(
                 std::mem::take(pending_images),
                 step,
                 on_event,
-            );
+            )?;
             return Ok(super::ToolRunOutcome::Stopped);
         }
         if let Some(reason) = batch.reject(&name, &input, ctx) {
@@ -169,7 +169,7 @@ pub(super) async fn execute_serial_tool_calls(
                     std::mem::take(pending_images),
                     step,
                     on_event,
-                );
+                )?;
                 return Ok(super::ToolRunOutcome::Stopped);
             }
             Gate::Pass => {

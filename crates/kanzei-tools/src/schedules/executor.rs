@@ -441,29 +441,46 @@ async fn run_steps(
                     .unwrap()
                     .user_message(&format!("{run_id}-{index}"), Message::user_text(&prompt));
                 let event_writer = writer.clone();
-                let mut handler = |event| match event {
-                    RunEvent::TurnStart {
-                        step, max_steps, ..
-                    } => event_writer.lock().unwrap().turn_started(step, max_steps),
-                    RunEvent::Text(text) => event_writer.lock().unwrap().push_text(&text),
-                    RunEvent::AssistantMessageCommitted { step, message } => event_writer
-                        .lock()
-                        .unwrap()
-                        .assistant_committed(step, message),
-                    RunEvent::ToolResultsCommitted { step, message } => event_writer
-                        .lock()
-                        .unwrap()
-                        .tool_results_committed(step, message),
-                    RunEvent::PermissionResolved {
-                        action,
-                        resource,
-                        decision,
-                        ..
-                    } if decision == "declined" || decision == "deny" => outcome
-                        .declined
-                        .push(json!({"action":action,"resource":resource})),
-                    _ => {}
-                };
+                let mut handler =
+                    |event| match event {
+                        RunEvent::TurnStart {
+                            step, max_steps, ..
+                        } => event_writer.lock().unwrap().turn_started(step, max_steps),
+                        RunEvent::Text(text) => event_writer.lock().unwrap().push_text(&text),
+                        RunEvent::AssistantMessageCommitted {
+                            step,
+                            message,
+                            commit,
+                        } => {
+                            let mut writer = event_writer.lock().unwrap();
+                            if !writer.assistant_committed(step, message) {
+                                commit.reject(writer.errors().last().cloned().unwrap_or_else(
+                                    || "durable assistant message commit rejected".into(),
+                                ));
+                            }
+                        }
+                        RunEvent::ToolResultsCommitted {
+                            step,
+                            message,
+                            commit,
+                        } => {
+                            let mut writer = event_writer.lock().unwrap();
+                            if !writer.tool_results_committed(step, message) {
+                                commit.reject(writer.errors().last().cloned().unwrap_or_else(
+                                    || "durable tool results commit rejected".into(),
+                                ));
+                            }
+                        }
+                        RunEvent::PermissionResolved {
+                            action,
+                            resource,
+                            decision,
+                            ..
+                        } if decision == "declined" || decision == "deny" => outcome
+                            .declined
+                            .push(json!({"action":action,"resource":resource})),
+                        _ => {}
+                    };
                 let mut ask = |_| -> kanzei_core::AskFuture {
                     Box::pin(async { AskResponse::Permission(AskReply::Deny) })
                 };

@@ -1135,16 +1135,16 @@ impl TypedSessionWriter {
         self.draft.finalized = false;
     }
 
-    pub fn assistant_committed(&mut self, source_step: u32, message: Message) {
+    pub fn assistant_committed(&mut self, source_step: u32, message: Message) -> bool {
         if self.terminal {
-            return;
+            return false;
         }
         if self.source_step != Some(source_step) {
             self.errors.push(format!(
                 "assistant commit source step {source_step} != active source step {:?}",
                 self.source_step
             ));
-            return;
+            return false;
         }
         self.flush_draft();
         let message_id = self.draft.message_id(&self.turn_id);
@@ -1175,19 +1175,22 @@ impl TypedSessionWriter {
         if self.append(facts) {
             self.draft.finalized = true;
             self.open_calls.extend(calls);
+            true
+        } else {
+            false
         }
     }
 
-    pub fn tool_results_committed(&mut self, source_step: u32, message: Message) {
+    pub fn tool_results_committed(&mut self, source_step: u32, message: Message) -> bool {
         if self.terminal {
-            return;
+            return false;
         }
         if self.source_step != Some(source_step) {
             self.errors.push(format!(
                 "tool results source step {source_step} != active source step {:?}",
                 self.source_step
             ));
-            return;
+            return false;
         }
         let mut facts = Vec::new();
         let mut resolved = Vec::new();
@@ -1214,6 +1217,9 @@ impl TypedSessionWriter {
             for call_id in resolved {
                 self.open_calls.remove(&call_id);
             }
+            true
+        } else {
+            false
         }
     }
 
@@ -1522,20 +1528,20 @@ mod tests {
         writer.turn_started(2, 1);
         writer.push_text("late delta");
         writer.stream_restarted();
-        writer.assistant_committed(
+        assert!(!writer.assistant_committed(
             2,
             Message::assistant(vec![Part::Text {
                 text: "late assistant".into(),
             }]),
-        );
-        writer.tool_results_committed(
+        ));
+        assert!(!writer.tool_results_committed(
             2,
             Message::assistant(vec![Part::ToolResult {
                 call_id: "late-call".into(),
                 content: "late result".into(),
                 is_error: false,
             }]),
-        );
+        ));
         writer.flush_due();
         writer.finish(SessionTurnTerminal::Completed);
 

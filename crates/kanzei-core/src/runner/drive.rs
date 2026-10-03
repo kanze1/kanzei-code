@@ -152,8 +152,40 @@ pub fn run_once_with_parts<'a>(
         let round_messages_for_events = std::sync::Arc::clone(&round_messages);
         let outer_on_event = on_event;
         let mut on_event = move |event: RunEvent| {
-            record_round_message(&mut round_messages_for_events.lock().unwrap(), &event);
+            let pending_round = match &event {
+                RunEvent::AssistantMessageCommitted {
+                    step,
+                    message,
+                    commit,
+                } => Some(RunEvent::AssistantMessageCommitted {
+                    step: *step,
+                    message: message.clone(),
+                    commit: commit.clone(),
+                }),
+                RunEvent::ToolResultsCommitted {
+                    step,
+                    message,
+                    commit,
+                } => Some(RunEvent::ToolResultsCommitted {
+                    step: *step,
+                    message: message.clone(),
+                    commit: commit.clone(),
+                }),
+                RunEvent::InputMessageCommitted { input_id, message } => {
+                    Some(RunEvent::InputMessageCommitted {
+                        input_id: input_id.clone(),
+                        message: message.clone(),
+                    })
+                }
+                _ => None,
+            };
             outer_on_event(event);
+            if let Some(pending_round) = pending_round {
+                record_round_message(
+                    &mut round_messages_for_events.lock().unwrap(),
+                    &pending_round,
+                );
+            }
         };
         let halt = config.halt.as_ref();
         let halted = || halt.is_some_and(|token| token.is_cancelled());
@@ -330,7 +362,7 @@ pub fn run_once_with_parts<'a>(
                 step,
                 halt,
                 &mut on_event,
-            ) {
+            )? {
                 StepMessageOutcome::Proceed => {}
                 StepMessageOutcome::Return { mut halted_by_user } => {
                     if let Some(host) = subagent.and_then(|rt| rt.options.host.as_ref()) {
@@ -461,7 +493,7 @@ pub fn run_once_with_parts<'a>(
                 &mut redundancy,
                 &mut recall,
                 &mut on_event,
-            ) {
+            )? {
                 StepFinalOutcome::Continue => {}
                 StepFinalOutcome::Break => break,
                 StepFinalOutcome::Return { halted_by_user } => {
@@ -1248,7 +1280,7 @@ fn finalize_step(
     redundancy: &mut RedundancyWatch,
     recall: &mut RecallWatch<'_>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
-) -> StepFinalOutcome {
+) -> anyhow::Result<StepFinalOutcome> {
     // R-100:工具结果回喂前就地注入冗余提醒(不阻断)。
     // results 与 calls 按下标对齐(并行 wave 与串行路径同上),见 redundancy::note_step。
     redundancy.note_step(&ctx.project_root, calls, results);
@@ -1261,25 +1293,25 @@ fn finalize_step(
         pending_images,
         step,
         on_event,
-    );
+    )?;
 
     // D-342 步末检查点:本步工具已全部有终态(真实或取消占位),停止在此
     // 收尾——配对完整,下一轮 prior 无孤儿。并行 wave 被停止打断的路径
     // 从这里返回。
     if halt.is_some_and(|token| token.is_cancelled()) {
-        return StepFinalOutcome::Return {
+        return Ok(StepFinalOutcome::Return {
             halted_by_user: true,
-        };
+        });
     }
     if matches!(finish, FinishReason::MaxTokens | FinishReason::Refusal) {
-        return StepFinalOutcome::Return {
+        return Ok(StepFinalOutcome::Return {
             halted_by_user: false,
-        };
+        });
     }
     if last_step {
-        return StepFinalOutcome::Break;
+        return Ok(StepFinalOutcome::Break);
     }
-    StepFinalOutcome::Continue
+    Ok(StepFinalOutcome::Continue)
 }
 /// R-202 批7:段函数独立单测(验收①)。commit_step_messages / finalize_step 是
 /// 抽离后具备独立输入输出边界的纯逻辑段,不依赖 provider/网络/重夹具即可验证。
@@ -1317,6 +1349,7 @@ mod tests {
             &RunEvent::AssistantMessageCommitted {
                 step: 1,
                 message: current_call,
+                commit: Default::default(),
             },
         );
         record_round_message(
@@ -1324,12 +1357,14 @@ mod tests {
             &RunEvent::ToolResultsCommitted {
                 step: 1,
                 message: current_result,
+                commit: Default::default(),
             },
         );
         record_round_message(
             &mut round_messages,
             &RunEvent::AssistantMessageCommitted {
                 step: 2,
+                commit: Default::default(),
                 message: Message::assistant(vec![Part::ToolCall {
                     id: "current-2".into(),
                     name: "edit".into(),
@@ -1341,6 +1376,7 @@ mod tests {
             &mut round_messages,
             &RunEvent::ToolResultsCommitted {
                 step: 2,
+                commit: Default::default(),
                 message: Message::tool_results(vec![Part::ToolResult {
                     call_id: "current-2".into(),
                     content: "old_string not found in current.rs".into(),
@@ -1381,7 +1417,7 @@ mod tests {
         );
         // 纯文本步:calls 为空 → Return{halted_by_user:false},停止未置位。
         assert!(matches!(
-            outcome,
+            outcome.unwrap(),
             StepMessageOutcome::Return {
                 halted_by_user: false
             }
@@ -1413,7 +1449,7 @@ mod tests {
             &mut |_| {},
         );
         // 有工具调用且未停止 → Proceed,交给工具批执行。
-        assert!(matches!(outcome, StepMessageOutcome::Proceed));
+        assert!(matches!(outcome.unwrap(), StepMessageOutcome::Proceed));
         assert_eq!(messages.len(), 1);
     }
 
@@ -1435,7 +1471,7 @@ mod tests {
         );
         // 模型产出了调用但停止已置位:一个工具都不执行,取消占位配对后 halted 收尾。
         assert!(matches!(
-            outcome,
+            outcome.unwrap(),
             StepMessageOutcome::Return {
                 halted_by_user: true
             }
@@ -1474,7 +1510,7 @@ mod tests {
             &mut RecallWatch::new(None),
             &mut |_| {},
         );
-        assert!(matches!(outcome, StepFinalOutcome::Continue));
+        assert!(matches!(outcome.unwrap(), StepFinalOutcome::Continue));
         // 工具结果以 user 角色落库,结果已从 results 取走(mem::take)。
         assert_eq!(messages.len(), 1);
         assert!(matches!(messages[0].role, Role::User));
@@ -1508,7 +1544,7 @@ mod tests {
         );
         // MaxTokens/Refusal:步末终止但非用户停止。
         assert!(matches!(
-            outcome,
+            outcome.unwrap(),
             StepFinalOutcome::Return {
                 halted_by_user: false
             }
@@ -1564,7 +1600,7 @@ mod tests {
             &mut RecallWatch::new(None),
             &mut |_| {},
         );
-        assert!(matches!(outcome, StepFinalOutcome::Break));
+        assert!(matches!(outcome.unwrap(), StepFinalOutcome::Break));
     }
 
     #[test]
@@ -1594,10 +1630,338 @@ mod tests {
             &mut |_| {},
         );
         assert!(matches!(
-            outcome,
+            outcome.unwrap(),
             StepFinalOutcome::Return {
                 halted_by_user: true
             }
         ));
+    }
+}
+
+#[cfg(test)]
+mod commit_ack_tests {
+    use super::*;
+    use kanzei_harness::{
+        rule, Component, Effect, Harness, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx,
+    };
+    use serde_json::{json, Value};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    struct CountingTool(Arc<AtomicUsize>);
+
+    #[async_trait::async_trait]
+    impl Tool for CountingTool {
+        fn name(&self) -> &'static str {
+            "counting_probe"
+        }
+        fn description(&self) -> String {
+            "Count actual executions without external effects".into()
+        }
+        fn input_schema(&self) -> Value {
+            json!({"type":"object","properties":{}})
+        }
+        async fn execute(&self, _input: Value, _ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            kanzei_harness::ToolOutput::ok("executed once")
+        }
+    }
+
+    struct ProbeComponent(Arc<AtomicUsize>);
+
+    impl Component for ProbeComponent {
+        fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+            draft
+                .tools
+                .insert("counting_probe", Arc::new(CountingTool(self.0.clone())));
+            draft
+                .permissions
+                .push(rule("counting_probe", "*", Effect::Allow));
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum FailurePoint {
+        RecoveredAssistant,
+        ToolResultSql,
+        None,
+        Stateless,
+    }
+
+    async fn respond(listener: &TcpListener, body: Value, requests: &AtomicUsize) {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0; 4096];
+        let header_end = loop {
+            let n = socket.read(&mut buffer).await.unwrap();
+            assert!(n > 0);
+            request.extend_from_slice(&buffer[..n]);
+            if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+        let length = String::from_utf8_lossy(&request[..header_end])
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().unwrap())
+            })
+            .unwrap_or(0);
+        while request.len() < header_end + length {
+            let n = socket.read(&mut buffer).await.unwrap();
+            assert!(n > 0);
+            request.extend_from_slice(&buffer[..n]);
+        }
+        requests.fetch_add(1, Ordering::SeqCst);
+        let data = format!("data: {body}\n\ndata: [DONE]\n\n");
+        let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        data.len()
+    );
+        socket.write_all(head.as_bytes()).await.unwrap();
+        socket.write_all(data.as_bytes()).await.unwrap();
+    }
+
+    async fn run_real_commit_fixture(point: FailurePoint) {
+        let root = std::env::temp_dir().join(format!(
+            "kz-c3-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.db");
+        let store = crate::SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        if matches!(point, FailurePoint::ToolResultSql) {
+            rusqlite::Connection::open(&path)
+                .unwrap()
+                .execute_batch(
+                    "CREATE TRIGGER reject_result BEFORE INSERT ON session_events
+             WHEN NEW.event_type = 'session.tool_result_committed'
+             BEGIN SELECT RAISE(ABORT, 'fixture rejects durable result'); END;",
+                )
+                .unwrap();
+        }
+        let executions = Arc::new(AtomicUsize::new(0));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut harness = Harness::default();
+        harness.add(ProbeComponent(executions.clone()));
+        let snapshot = harness
+            .resolve(&ResolveCtx {
+                profile: ProfileKind::Dev,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: Arc::new(KanzeiConfig::default()),
+            })
+            .unwrap();
+        let agent: AgentDef = serde_json::from_value(json!({
+            "name":"fixture", "profile":"dev", "mode":"primary", "steps":3, "system":"test"
+        }))
+        .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_requests = requests.clone();
+        let server = tokio::spawn(async move {
+            respond(
+                &listener,
+                json!({"choices":[{
+            "index":0,
+            "delta":{"tool_calls":[{"index":0,"id":"call","type":"function",
+                "function":{"name":"counting_probe","arguments":"{}"}}]},
+            "finish_reason":"tool_calls"
+        }],"usage":{"prompt_tokens":1,"completion_tokens":1}}),
+                &server_requests,
+            )
+            .await;
+            // Old code really asks for this second step. Fixed failure code ends before it.
+            respond(
+                &listener,
+                json!({"choices":[{
+            "index":0,"delta":{"content":"done"},"finish_reason":"stop"
+        }],"usage":{"prompt_tokens":1,"completion_tokens":1}}),
+                &server_requests,
+            )
+            .await;
+        });
+        let client = LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+        let route = Route::openai_at(&format!("http://{address}/v1"), None);
+        let config = RunnerConfig {
+            hosted_tools: vec![],
+            digest_model: None,
+            intensity: kanzei_harness::HarnessIntensity::Autonomous,
+            model: "mock".into(),
+            max_tokens: 128,
+            reasoning: kanzei_llm::ReasoningEffort::Off,
+            service_tier: None,
+            context_limit: None,
+            limits: Default::default(),
+            recall: None,
+            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+            ask_policy: AskPolicy::NonInteractive,
+            halt: None,
+        };
+        let ctx = ToolCtx::new(root.clone(), root.clone()).with_session_id("ses".into());
+        let mut writer = crate::TypedSessionWriter::new(&path, "ses", "turn");
+        if !matches!(point, FailurePoint::Stateless) {
+            writer.user_message("input", Message::user_text("run probe"));
+        }
+        let mut recovered = false;
+        let outcome =
+            {
+                let mut sink =
+                    |event| match event {
+                        _ if matches!(point, FailurePoint::Stateless) => {}
+                        RunEvent::TurnStart {
+                            step, max_steps, ..
+                        } => {
+                            writer.turn_started(step, max_steps);
+                            if matches!(point, FailurePoint::RecoveredAssistant) && !recovered {
+                                // Real independent connection/prepare recovery closes this still-live turn.
+                                let recovery_store = crate::SessionStore::open(&path).unwrap();
+                                crate::prepare_typed_session(&recovery_store, "ses").unwrap();
+                                recovered = true;
+                            }
+                        }
+                        RunEvent::Text(text) => writer.push_text(&text),
+                        RunEvent::AssistantMessageCommitted {
+                            step,
+                            message,
+                            commit,
+                        } => {
+                            let persisted = writer.assistant_committed(step, message);
+                            if !persisted {
+                                commit.reject(
+                                    writer.errors().last().cloned().unwrap_or_else(|| {
+                                        "typed assistant commit rejected".into()
+                                    }),
+                                );
+                            }
+                        }
+                        RunEvent::ToolResultsCommitted {
+                            step,
+                            message,
+                            commit,
+                        } => {
+                            let persisted = writer.tool_results_committed(step, message);
+                            if !persisted {
+                                commit.reject(
+                                    writer.errors().last().cloned().unwrap_or_else(|| {
+                                        "typed tool result commit rejected".into()
+                                    }),
+                                );
+                            }
+                        }
+                        _ => {}
+                    };
+                let mut ask = |_| -> AskFuture {
+                    Box::pin(async { AskResponse::Permission(AskReply::Deny) })
+                };
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    run_once(
+                        &client,
+                        &route,
+                        &snapshot,
+                        &agent,
+                        &config,
+                        &ctx,
+                        "run probe",
+                        None,
+                        &[],
+                        None,
+                        None,
+                        &mut sink,
+                        &mut ask,
+                    ),
+                )
+                .await
+                .unwrap()
+            };
+        server.abort();
+        let _ = server.await;
+        let facts = store.list_session_facts("ses").unwrap();
+        let durable_calls = facts
+            .iter()
+            .filter(|(_, fact)| matches!(fact.fact, crate::SessionFact::ToolCalled { .. }))
+            .count();
+        let durable_results = facts
+            .iter()
+            .filter(|(_, fact)| matches!(fact.fact, crate::SessionFact::ToolResultCommitted { .. }))
+            .count();
+        let actual_executions = executions.load(Ordering::SeqCst);
+        let actual_requests = requests.load(Ordering::SeqCst);
+        let typed_errors = writer.errors().to_vec();
+        drop(writer);
+        drop(store);
+        // Cleanup precedes assertions so the deliberate old-code negative does not leak fixtures.
+        std::fs::remove_dir_all(root).unwrap();
+        match point {
+            FailurePoint::RecoveredAssistant => {
+                assert!(outcome.is_err(), "rejected commit must fail the runner; requests={actual_requests}, effects={actual_executions}, durable_calls={durable_calls}, durable_results={durable_results}");
+                assert!(!typed_errors.is_empty());
+                assert_eq!((durable_calls, durable_results), (0, 0));
+                assert_eq!(
+                    actual_requests, 1,
+                    "no next provider request after rejection"
+                );
+                assert_eq!(actual_executions, 0, "no tool before durable ToolCalled");
+            }
+            FailurePoint::ToolResultSql => {
+                assert!(
+                    outcome.is_err(),
+                    "failed durable result must fail the runner; requests={actual_requests}, effects={actual_executions}, durable_calls={durable_calls}, durable_results={durable_results}"
+                );
+                assert!(!typed_errors.is_empty());
+                assert_eq!((durable_calls, durable_results), (1, 0));
+                assert_eq!(
+                    actual_requests, 1,
+                    "do not feed an uncommitted result to another step"
+                );
+                assert_eq!(
+                    actual_executions, 1,
+                    "never repeat an already executed tool"
+                );
+            }
+            FailurePoint::None => {
+                let summary = outcome.unwrap();
+                assert!(typed_errors.is_empty());
+                assert_eq!((durable_calls, durable_results), (1, 1));
+                assert_eq!((actual_requests, actual_executions), (2, 1));
+                assert_eq!(summary.round_messages, summary.messages);
+            }
+            FailurePoint::Stateless => {
+                let summary = outcome.unwrap();
+                assert!(typed_errors.is_empty());
+                assert_eq!((durable_calls, durable_results), (0, 0));
+                assert_eq!((actual_requests, actual_executions), (2, 1));
+                assert_eq!(summary.round_messages, summary.messages);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn recovered_turn_rejects_tool_declaration_before_actual_execution() {
+        run_real_commit_fixture(FailurePoint::RecoveredAssistant).await;
+    }
+    #[tokio::test]
+    async fn failed_tool_result_commit_stops_before_next_provider_request() {
+        run_real_commit_fixture(FailurePoint::ToolResultSql).await;
+    }
+    #[tokio::test]
+    async fn successful_durable_commit_keeps_actual_tool_and_round_receipts() {
+        run_real_commit_fixture(FailurePoint::None).await;
+    }
+
+    #[tokio::test]
+    async fn stateless_reader_runs_tools_without_a_durable_ack_consumer() {
+        run_real_commit_fixture(FailurePoint::Stateless).await;
     }
 }

@@ -1,0 +1,175 @@
+{
+  "package": "C3",
+  "status": "verified_ready_for_integration",
+  "verified": true,
+  "initial_read_baseline": "b9f3ae24f14e7786ebe8df09573d4d3ac43a3a31",
+  "implementation_start": "f0dd9d57",
+  "local_A2": "abd7b1308dc162fb49855831c6f618781d3a00e5",
+  "original_A2": "95b7b99d88ecb5f95d7ccb1489875a8b67385c5b",
+  "validated_baseline": "abd7b1308dc162fb49855831c6f618781d3a00e5",
+  "full_files": [
+    "crates/kanzei-core/src/runner/drive.rs",
+    "crates/kanzei-core/src/runner/drive/history.rs",
+    "crates/kanzei-core/src/runner/drive/serial_tools.rs"
+  ],
+  "slice_files": [
+    "crates/kanzei-core/src/runner/event.rs",
+    "crates/kanzei-core/src/store/typed.rs",
+    "crates/kanzei-app/src/run/events/mod.rs",
+    "crates/kanzei/src/cli/run/events.rs",
+    "crates/kanzei-tools/src/schedules/executor.rs"
+  ],
+  "issues": [
+    {
+      "priority": "P1",
+      "root": "durable_commit_without_execution_receipt",
+      "reachable": "independent same-session prepare rejects active writer assistant+ToolCalled while old runner executes; rejected result can reach next provider request"
+    }
+  ],
+  "checks": [
+    {
+      "name": "rustfmt --edition 2021 eight source files",
+      "exit_code": 0
+    },
+    {
+      "name": "git diff --check",
+      "exit_code": 0
+    },
+    {
+      "name": "all Rust constructors, patterns and writer callers",
+      "status": "inspected"
+    }
+  ],
+  "cargo": [
+    {
+      "command": "cargo test -p kanzei-core commit_ack_tests -- --test-threads=1",
+      "exit_code": 0,
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C3/positive-runner.log"
+    },
+    {
+      "command": "cargo test -p kanzei-core",
+      "exit_code": 0,
+      "passed": 408,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C3/core-full.log"
+    },
+    {
+      "command": "cargo test -p kanzei cli::run::events::tests -- --test-threads=1",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C3/cli-events.log",
+      "note": "integration binary selected zero tests; not counted as extra evidence"
+    },
+    {
+      "command": "cargo test -p kanzei-app run::events::tests -- --test-threads=1",
+      "exit_code": 0,
+      "passed": 19,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C3/app-events.log"
+    },
+    {
+      "command": "cargo check -p kanzei-core -p kanzei -p kanzei-app -p kanzei-tools --all-targets",
+      "exit_code": 0,
+      "log": "output/C3/all-targets-check.log"
+    },
+    {
+      "command": "cargo clippy -p kanzei-core -p kanzei -p kanzei-app -p kanzei-tools --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/C3/clippy.log"
+    }
+  ],
+  "negative_controls": [
+    {
+      "change": "remove only history assistant/tool-result receipt checks, preserve new public API and fixtures",
+      "command": "cargo test -p kanzei-core commit_ack_tests -- --test-threads=1",
+      "exit_code": 101,
+      "passed": 2,
+      "failed": 2,
+      "ignored": 0,
+      "log": "output/C3/negative-old-void-runner.log",
+      "assistant_refusal": {
+        "durable_results": 0,
+        "durable_calls": 0,
+        "effects": 1,
+        "requests": 2
+      },
+      "result_refusal": {
+        "durable_results": 0,
+        "durable_calls": 1,
+        "effects": 1,
+        "requests": 2
+      },
+      "normal_and_stateless": "passed",
+      "restore": "output/C3/negative-restoration.json",
+      "byte_restored": true,
+      "sha256": "43d9befd5783b280bfc76d6aeafaf1786345fc6aa6e99a936fb2cd7572fe33b4",
+      "mtime_refreshed": true,
+      "correct_source_recompiled": true,
+      "fixture_cleanup": "before assertions; no leaked negative fixture"
+    }
+  ],
+  "invariants": [
+    "no tool/subagent before accepted assistant+ToolCalled batch",
+    "no next provider request with rejected tool results",
+    "rejected message absent from runtime and round history",
+    "first durable rejection preserved",
+    "terminal refusal false without fabricated writer error",
+    "default stateless consumer remains accepted",
+    "A2 original source and event-sequence CAS unchanged"
+  ],
+  "scope_limits": [
+    "no real state.db or credentials",
+    "no push or release",
+    "no global coverage edits",
+    "active recovery owner exclusion tracked for follow-up"
+  ],
+  "verification_limits": [
+    "scheduler executor has no standalone tests; real sink reviewed and all targets compiled",
+    "full workspace tests not repeated; root integrates M2/D1 and C3 on main and validates callers",
+    "active prepare recovery owner exclusion is a real open follow-up, not counted as fixed"
+  ],
+  "final_source_sha256": [
+    {
+      "path": "crates/kanzei-core/src/runner/drive.rs",
+      "sha256": "e32066157e4647c96903a8a0b883d9c57f9d7f6af13e1afe656ab0d006c2b696"
+    },
+    {
+      "path": "crates/kanzei-core/src/runner/drive/history.rs",
+      "sha256": "43d9befd5783b280bfc76d6aeafaf1786345fc6aa6e99a936fb2cd7572fe33b4"
+    },
+    {
+      "path": "crates/kanzei-core/src/runner/drive/serial_tools.rs",
+      "sha256": "3b051b5a70bc153f804599639737ceacc29ec93af183abed756c88e87ee9636a"
+    },
+    {
+      "path": "crates/kanzei-core/src/runner/event.rs",
+      "sha256": "3bf66845d814f51160d57e7a946fb9916fe22a856161ca8da128b5369181c5e2"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/typed.rs",
+      "sha256": "ff1e7e7c6fd4bc04f913d0d8290149067666dc2496d2ce9c7b3814ef6b1d555d"
+    },
+    {
+      "path": "crates/kanzei-app/src/run/events/mod.rs",
+      "sha256": "4446fcd1bcf614fb66366669b8a5e224316c505723fce79ae63b4edad6b8d937"
+    },
+    {
+      "path": "crates/kanzei/src/cli/run/events.rs",
+      "sha256": "6cde79c35c630cc0e8dc59ee12b5ffb3baef29fe653438443f21458c09b39bc1"
+    },
+    {
+      "path": "crates/kanzei-tools/src/schedules/executor.rs",
+      "sha256": "bcde55b5cb5aaff4cc001ecd89194cd59e23ee010a616fb450dd3d71822b4a93"
+    }
+  ],
+  "build_generated_files": [
+    "app generated desktop/windows JSON had canonical git diff exit0; exact baseline restored after backup; excluded from commit"
+  ]
+}

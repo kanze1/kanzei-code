@@ -4,11 +4,34 @@
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU32},
-    Arc,
+    Arc, Mutex,
 };
 
 use kanzei_harness::ToolArtifact;
 use kanzei_llm::{FinishReason, Message, Usage};
+
+/// Synchronous durable consumers reject a message before it enters runner history.
+/// Consumers without persistence leave the receipt accepted; the first rejection wins.
+#[derive(Clone, Debug, Default)]
+pub struct MessageCommitReceipt {
+    error: Arc<Mutex<Option<String>>>,
+}
+
+impl MessageCommitReceipt {
+    pub fn reject(&self, error: impl Into<String>) {
+        self.error
+            .lock()
+            .unwrap()
+            .get_or_insert_with(|| error.into());
+    }
+
+    pub fn check(&self) -> Result<(), String> {
+        match self.error.lock().unwrap().as_ref() {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+}
 
 /// 子代理内部事件折叠出的一条轨迹(TaskProgress 的 trace)。
 ///
@@ -80,11 +103,12 @@ pub enum RunEvent {
         input_id: String,
         message: Message,
     },
-    /// provider 一步的 assistant 消息已完整组装并进入 history。它先于任何工具
-    /// 副作用发出，因此持久化层可在同一事务提交 assistant + tool_called 事实。
+    /// provider 一步的 assistant 消息已完整组装，等待进入 history。持久化消费者
+    /// 先在同一事务提交 assistant + tool_called；拒绝后不得执行任何工具副作用。
     AssistantMessageCommitted {
         step: u32,
         message: Message,
+        commit: MessageCommitReceipt,
     },
     ToolStart {
         /// 工具调用 id:并行工具(task)结束顺序不定,UI 靠它配对 start/end。
@@ -131,11 +155,12 @@ pub enum RunEvent {
         /// D-349:大结果写入 durable artifact 后的可恢复引用。
         artifact: Option<ToolArtifact>,
     },
-    /// 本步整组工具结果已进入 history。包含真实结果、权限拒绝、未知工具和停止
-    /// 占位；持久化层由此生成与模型 prior 一致的 tool result facts。
+    /// 本步整组工具结果等待进入 history。包含真实结果、权限拒绝、未知工具和停止
+    /// 占位；持久化消费者拒绝后不得将结果回喂给下一次 provider 请求。
     ToolResultsCommitted {
         step: u32,
         message: Message,
+        commit: MessageCommitReceipt,
     },
     /// 子代理运行中的实时状态(轮次/正在用的工具),挂在对应 task 块上。
     TaskProgress {
@@ -386,6 +411,21 @@ pub(super) fn preview(content: &str) -> String {
         p.push_str(&format!(" (+{} lines)", lines - 1));
     }
     p
+}
+
+#[cfg(test)]
+mod message_commit_tests {
+    use super::MessageCommitReceipt;
+
+    #[test]
+    fn stateless_receipt_allows_and_first_durable_rejection_is_preserved() {
+        let receipt = MessageCommitReceipt::default();
+        assert!(receipt.check().is_ok());
+        let later_sink = receipt.clone();
+        receipt.reject("first durable failure");
+        later_sink.reject("later failure");
+        assert_eq!(later_sink.check(), Err("first durable failure".into()));
+    }
 }
 
 #[cfg(test)]
