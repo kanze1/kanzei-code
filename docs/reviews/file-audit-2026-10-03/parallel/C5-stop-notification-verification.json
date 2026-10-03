@@ -1,0 +1,110 @@
+{
+  "package": "C5-stop-notification",
+  "started_baseline": "19d95cfa47519262f8519f0c63c7d55068c8c238",
+  "branch": "kanzei/audit-c5-stop-notification",
+  "status": "verified",
+  "full_review_files": [],
+  "necessary_slices": ["crates/kanzei-app/src/run/persistence.rs"],
+  "source_dependency_file_count": 1,
+  "report_file_count": 3,
+  "full_coverage_added": 0,
+  "new_independent_bugs": {"P0": 0, "P1": 0, "P2": 0},
+  "classification": "P1 supplement to existing C5 outcome/Stop root cause",
+  "new_test_functions": 0,
+  "strengthened_real_fixtures": [
+    "durable_outcome_stop_wins_after_provider_returns",
+    "durable_outcome_accepts_cooperative_stop_with_cancelled_input",
+    "durable_outcome_commits_before_success_publication",
+    "durable_outcome_stop_after_commit_preserves_completed_input_and_terminal"
+  ],
+  "verification": {
+    "actual_pwa_consumer": {
+      "command": "node output/C5-stop-notification/consumer-check.cjs",
+      "exit_code": 0,
+      "log": "consumer-check.log",
+      "native_dom_e2e": false
+    },
+    "standalone_fmt": {"exit_code": 0},
+    "diff_source_ready": {"exit_code": 0, "log": "diff-source-ready.log"},
+    "rust_targeted_initial": {
+      "command": "cargo test -p kanzei-app run::persistence::tests -- --nocapture",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log": "persistence-targeted-positive.log"
+    },
+    "rust_targeted_after_restore": {
+      "command": "cargo test -p kanzei-app run::persistence::tests -- --nocapture",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log": "persistence-targeted-final.log"
+    },
+    "check": {
+      "command": "cargo check -p kanzei-app --all-targets",
+      "exit_code": 0,
+      "log": "check-final.log"
+    },
+    "clippy": {
+      "command": "cargo clippy -p kanzei-app --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "clippy-final.log"
+    },
+    "fmt": {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "fmt-final.log"
+    },
+    "diff": {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "log": "diff-final.log"
+    }
+  },
+  "negative_control": {
+    "status": "actual_assertions_failed_as_expected",
+    "mutation": "literal old notification/mobile/after_success production block from original C5 leaf",
+    "command": "cargo test -p kanzei-app durable_outcome -- --nocapture",
+    "keeps_real_new_assertions": true,
+    "requires_actual_assertion_failure": true,
+    "build_succeeded": true,
+    "exit_code": 101,
+    "passed_controls": 8,
+    "failed_fault_tests": 2,
+    "failed_tests": [
+      "durable_outcome_accepts_cooperative_stop_with_cancelled_input",
+      "durable_outcome_stop_wins_after_provider_returns"
+    ],
+    "actual_assertion": "persisted notification.status was succeeded; expected stopped",
+    "normal_control_passed": [
+      "durable_outcome_commits_before_success_publication",
+      "durable_outcome_stop_after_commit_preserves_completed_input_and_terminal"
+    ],
+    "log": "negative-old-notification.log",
+    "mutation_diff": "negative-old-publication-diff.log"
+  },
+  "restoration": {
+    "path": "crates/kanzei-app/src/run/persistence.rs",
+    "sha256": "d949743ab58b72e5c58f2a3adedea1fd9da88847bf47100b0654a008358ae29a",
+    "byte_equal": true,
+    "mtime_ns": 1791018620500515800,
+    "all_own_rust_mtimes_refreshed": 422,
+    "logs": ["restoration-before.json", "restoration-after.json"]
+  },
+  "source_sha256": [
+    {"path": "crates/kanzei-app/src/run/persistence.rs", "sha256": "d949743ab58b72e5c58f2a3adedea1fd9da88847bf47100b0654a008358ae29a"}
+  ],
+  "supplement_full_workspace_test": false,
+  "supplement_full_core_test": false,
+  "supplement_full_app_test": false,
+  "native_ui_e2e": false,
+  "logs": "output/C5-stop-notification",
+  "original_leaf_and_evidence_unchanged": true,
+  "no_schema_api_change": true,
+  "budget_result_changed": false,
+  "no_push_release": true,
+  "no_global_coverage_edit": true,
+  "c6_source_changed": false
+}

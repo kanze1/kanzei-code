@@ -420,12 +420,22 @@ fn persist_round_outcome_with_effects(
         current_episode_id = Some(episode_id);
     }
     live.lock_or_recover().flushed = true;
-    if let Err(error) = append_run_notification(&store, session_id, "succeeded", "任务完成", false)
-    {
-        (effects.report)("写入完成通知", error.to_string());
+    if summary.halted_by_user {
+        if let Err(error) =
+            append_run_notification(&store, session_id, "stopped", "任务已停止", false)
+        {
+            (effects.report)("写入停止通知", error.to_string());
+        }
+        (effects.mobile)("kanzei 任务已停止", "运行已按停止/拒绝收尾");
+    } else {
+        if let Err(error) =
+            append_run_notification(&store, session_id, "succeeded", "任务完成", false)
+        {
+            (effects.report)("写入完成通知", error.to_string());
+        }
+        (effects.mobile)("kanzei 任务完成", "运行已成功结束");
+        (effects.after_success)(current_episode_id);
     }
-    (effects.mobile)("kanzei 任务完成", "运行已成功结束");
-    (effects.after_success)(current_episode_id);
     Ok(PersistedRoundOutcome {
         store,
         stopped: summary.halted_by_user,
@@ -1103,6 +1113,7 @@ mod tests {
         }
         let reports = Mutex::new(Vec::new());
         let mobile_messages = Mutex::new(Vec::new());
+        let mobile_bodies = Mutex::new(Vec::new());
         let post_success = Mutex::new(Vec::new());
         let harvests = Mutex::new(Vec::new());
         let report = |op: &str, error: String| {
@@ -1112,22 +1123,23 @@ mod tests {
             );
             reports.lock_or_recover().push((op.to_owned(), error));
         };
-        let mobile = |title: &str, _: &str| {
+        let mobile = |title: &str, body: &str| {
             assert!(
                 runtime.lifecycle.try_lock().is_ok(),
                 "notify holds lifecycle"
             );
             // External publication must observe the already committed outcome.
-            let expected = if title.ends_with("完成") {
-                "run.completed"
-            } else {
+            let expected = if title.ends_with("失败") {
                 "run.failed"
+            } else {
+                "run.completed"
             };
             assert_eq!(
                 store.list_events_by_type("ses", 0, expected).unwrap().len(),
                 1
             );
             mobile_messages.lock_or_recover().push(title.to_owned());
+            mobile_bodies.lock_or_recover().push(body.to_owned());
         };
         let harvest = |messages: &[kanzei_llm::Message]| {
             assert!(
@@ -1316,15 +1328,31 @@ mod tests {
                     .iter()
                     .map(|x| x.status.as_str())
                     .collect::<Vec<_>>(),
-                ["succeeded"]
+                [if stopped { "stopped" } else { "succeeded" }]
             );
             assert_eq!(
                 episodes.iter().map(|x| x.2.as_str()).collect::<Vec<_>>(),
                 [if stopped { "halted" } else { "completed" }]
             );
-            assert_eq!(post_success.lock_or_recover().len(), 1);
+            assert_eq!(post_success.lock_or_recover().len(), usize::from(!stopped));
             assert_eq!(harvests.lock_or_recover().len(), 1);
-            assert_eq!(*mobile_messages.lock_or_recover(), ["kanzei 任务完成"]);
+            assert_eq!(
+                *mobile_messages.lock_or_recover(),
+                [if stopped {
+                    "kanzei 任务已停止"
+                } else {
+                    "kanzei 任务完成"
+                }]
+            );
+            if stopped {
+                assert!(notifications
+                    .iter()
+                    .all(|notice| notice.summary == "任务已停止" && !notice.requires_action));
+                assert!(!notifications
+                    .iter()
+                    .any(|notice| notice.status == "succeeded"));
+                assert_eq!(*mobile_bodies.lock_or_recover(), ["运行已按停止/拒绝收尾"]);
+            }
             assert!(reports.lock_or_recover().is_empty());
         }
         drop(writer);
