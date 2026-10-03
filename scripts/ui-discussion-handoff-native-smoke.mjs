@@ -126,6 +126,7 @@ try {
   check((await invoke("projects_get")).projects.length === 0, "Native handoff uses only the disposable app profile");
   await invoke("projects_init", { path: project, name: "番剧讨论交接与提问验收" });
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
+  await page.evaluate(async () => { const prefs = await window.__TAURI__.core.invoke("projects_get"); await (await import("./09-sessions.js")).enterProject(prefs); });
   owner = (await invoke("process_list", { projectDir: project })).find(line => !["readonly", "research"].includes(line.profile));
   assert(owner, "Main executor exists");
   await invoke("process_update", { processId: owner.id, subagentsEnabled: false, phasePipeline: false });
@@ -136,6 +137,9 @@ try {
   await until(async () => { discussion = (await invoke("process_list", { projectDir: project })).find(line => line.id !== owner.id); return discussion && (await selected()).processId === discussion.id; }, "UI-created discussion");
   await invoke("auto_state_update", { sessionId: discussion.session_id, enabled: false });
   check(discussion.session_id !== owner.session_id && discussion.profile === "dev", "New conversation has an ordinary development identity");
+  // This scenario exercises an explicitly read-only discussion, not a secondary rank.
+  await invoke("process_update", { processId: discussion.id, profile: "readonly" });
+  await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, discussion.id);
   check(await page.locator("#prompt").inputValue() === "", "Creating a discussion preserves the main draft and starts a separate composer");
   for (const [scope, kind] of [[libraryScope, "discussion-library"], [syncScope, "discussion-sync"]]) {
     await page.locator("#prompt").fill(scope); await page.locator("#send").click();

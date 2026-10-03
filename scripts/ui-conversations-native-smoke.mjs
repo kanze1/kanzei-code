@@ -85,6 +85,7 @@ try {
   check(requests[0]?.messages.some(m => m.role === "system" && JSON.stringify(m).includes("发现记录")), "Capture instructions include the fields required for medium and large requirements");
   let captureCalls = requests.length;
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true", null, { timeout: 30000 });
+  await page.evaluate(async () => { const prefs = await window.__TAURI__.core.invoke("projects_get"); await (await import("./09-sessions.js")).enterProject(prefs); });
   const owner = (await invoke("process_list", { projectDir: project })).find(p => !["readonly", "research"].includes(p.profile));
   assert(owner, "Main executor exists");
   check(await page.locator("body").getAttribute("data-view") === "chat", "Native project enters its main conversation");
