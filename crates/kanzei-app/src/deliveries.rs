@@ -233,7 +233,7 @@ pub(crate) fn delivered_files(project_dir: String) -> Result<Vec<Value>, String>
 fn project_receipts(root: &Path, store: &SessionStore) -> Result<Vec<Value>, String> {
     let events = store.delivery_events().map_err(|e| e.to_string())?;
     let processes = store
-        .list_processes(&shown(root))
+        .list_processes(&root.display().to_string())
         .map_err(|e| e.to_string())?;
     let mut rows = Vec::new();
     let mut recorded = HashSet::new();
@@ -536,6 +536,43 @@ mod tests {
         assert_eq!(resolve(&shown(&project.0), &shown(&file)).unwrap(), file);
         assert!(resolve(&shown(&unrelated.0), &shown(&file)).is_err());
         assert!(delivered_files(shown(&unrelated.0)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn legacy_delivery_uses_registered_worktree_with_native_project_identity() {
+        let project = Fixture::new();
+        let worktree = Fixture::new();
+        project.file("old.apk");
+        let file = worktree.file("old.apk");
+        let root = crate::normalized_project_root(&project.0);
+        let native_root = root.display().to_string();
+        let session = format!("{}#p1", kanzei_core::project_session_id(&root));
+        let store = SessionStore::open(&project_state_path(&root)).unwrap();
+        store.create_session(&session, &native_root, None).unwrap();
+        store
+            .upsert_process(&kanzei_core::StoredProcess {
+                process_id: format!("p1|{native_root}"),
+                origin_project: native_root.clone(),
+                project_dir: native_root,
+                worktree_path: Some(worktree.0.display().to_string()),
+                model: None,
+                profile: None,
+                research_topic: None,
+                reasoning: None,
+                manual_models: vec![],
+                phase_pipeline: false,
+                subagents_enabled: false,
+                tracker_writes_enabled: false,
+                updated_at: 1,
+            })
+            .unwrap();
+        store.append_event(&session, "session.tool_called", &json!({"turn_id":"r","fact":{"call_id":"c","name":"deliver","input":{"path":"old.apk"}}})).unwrap();
+        store.append_event(&session, "session.tool_result_committed", &json!({"turn_id":"r","fact":{"call_id":"c","is_error":false,"content":"[delivered] old.apk (8 bytes)"}})).unwrap();
+        let rows = delivered_files(shown(&root)).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["path"], shown(&file));
+        assert_eq!(rows[0]["worktree_root"], shown(&worktree.0));
+        assert_eq!(rows[0]["status"], "available");
     }
     #[test]
     fn duplicate_deliveries_show_latest_receipt_without_losing_source_events() {

@@ -732,6 +732,15 @@ fn conversation_cleanup_command_runs_explicit_storage_cleanup() {
 
 #[test]
 fn conversation_delete_removes_projected_segment() {
+    check_projected_segment_deletion(false);
+}
+
+#[test]
+fn conversation_delete_removes_rewound_segment_selected_from_list() {
+    check_projected_segment_deletion(true);
+}
+
+fn check_projected_segment_deletion(rewound: bool) {
     // D-421:投影模式下 conversation_delete 收到的是投影段末的 typed fact sequence,
     // 必须删除整段(typed facts + 快照)而不是只删快照——否则「删不掉」。
     use kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore};
@@ -792,6 +801,20 @@ fn conversation_delete_removes_projected_segment() {
         )
         .unwrap();
     write_turn(&store, "run-b", "第二段问题", "第二段回答");
+    let rewind_sequence = if rewound {
+        Some(
+            store
+                .append_event(
+                    &session_id,
+                    "conversation.rewind",
+                    &serde_json::json!({"surface":[Message::user_text("第二段回退后")]}),
+                )
+                .unwrap()
+                .sequence,
+        )
+    } else {
+        None
+    };
     drop(store);
 
     let before =
@@ -799,6 +822,12 @@ fn conversation_delete_removes_projected_segment() {
     assert_eq!(before.len(), 2, "reset 划分两段");
     // 新段最后 typed fact 的 sequence(UI 勾选传的就是它)。
     let new_segment_seq = before[1]["sequence"].as_i64().expect("新段应有 sequence");
+    if let Some(sequence) = rewind_sequence {
+        assert_eq!(
+            new_segment_seq, sequence,
+            "必须使用列表实际回报的 rewind sequence"
+        );
+    }
 
     let outcome = crate::conversation::delete_conversation_segments(
         &AppState::default(),
@@ -817,6 +846,16 @@ fn conversation_delete_removes_projected_segment() {
         crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
     assert_eq!(after.len(), 1, "删除后只剩旧段");
     assert_eq!(after[0]["title"], "第一段问题");
+    if let Some(sequence) = rewind_sequence {
+        let store = SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+        assert!(
+            store
+                .event_by_sequence(&session_id, sequence)
+                .unwrap()
+                .is_none(),
+            "回退正文也必须删掉"
+        );
+    }
 
     std::fs::remove_dir_all(root).unwrap();
 }

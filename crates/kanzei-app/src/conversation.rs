@@ -588,7 +588,10 @@ fn deletion_ranges(
         else {
             continue;
         };
-        if event.event_type == "conversation.updated" {
+        if matches!(
+            event.event_type.as_str(),
+            "conversation.updated" | "conversation.rewind"
+        ) {
             ranges.insert(legacy_segment_range(&boundaries, &snapshots, sequence));
             continue;
         }

@@ -493,6 +493,26 @@ include!("runtime_events.rs");
 mod tests {
     use super::*;
     #[test]
+    fn detached_journal_keeps_hosted_tools_and_schedule_notifications() {
+        let mut journal = Journal::default();
+        // These events have live UI consumers and are emitted by the detached
+        // runner/scheduler. Only registered service listeners reach the journal.
+        for name in ["kz:hosted-tool", "kz:schedule-run"] {
+            if EVENTS.contains(&name) {
+                journal.append(name, json!({"sessionId":"owner","notify":true}));
+            }
+        }
+        let replay = journal.since(0);
+        let names: Vec<_> = replay["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["kz:hosted-tool", "kz:schedule-run"]);
+        assert_eq!(replay["cursor"], 2);
+    }
+    #[test]
     fn journal_reports_eviction_and_keeps_monotonic_cursor() {
         let mut journal = Journal::default();
         for i in 0..4100 {

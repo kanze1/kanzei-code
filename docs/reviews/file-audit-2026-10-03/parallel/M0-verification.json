@@ -1,0 +1,51 @@
+{
+  "package": "M0",
+  "baseline": "f5a72fe0",
+  "core_caller_baseline": "30fa309d",
+  "host": "Windows",
+  "full_files": [
+    {
+      "path": "crates/kanzei-app/src/runtime_service.rs",
+      "judgment": "P1"
+    },
+    {
+      "path": "crates/kanzei-app/src/runtime_events.rs",
+      "judgment": "P1"
+    },
+    {
+      "path": "crates/kanzei-app/src/runtime_service/compatibility.rs",
+      "judgment": "PASS"
+    },
+    {
+      "path": "crates/kanzei-app/src/runtime_continuation.rs",
+      "judgment": "PASS"
+    },
+    {
+      "path": "crates/kanzei-app/ui/24-schedules.js",
+      "judgment": "P1"
+    }
+  ],
+  "contract_slice_files": [
+    "crates/kanzei-app/src/conversation.rs",
+    "crates/kanzei-app/src/conversation_tests.rs",
+    "crates/kanzei-app/src/deliveries.rs"
+  ],
+  "validation": {
+    "app_tests": {
+      "passed": 534,
+      "failed": 0
+    },
+    "schedule_notification_tests": {
+      "passed": 3,
+      "failed": 0
+    },
+    "ui_runtime": "90 modules / browser suites passed",
+    "eslint": "passed"
+  },
+  "logs": [
+    "output/parallel-app-M0-20261003.log",
+    "output/parallel-schedule-before-20261003.log",
+    "output/parallel-schedule-after-20261003.log",
+    "output/parallel-ui-runtime-20261003.log"
+  ]
+}

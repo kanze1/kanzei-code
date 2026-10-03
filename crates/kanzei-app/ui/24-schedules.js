@@ -100,4 +100,4 @@ export async function showSchedules() {
   project.addEventListener("change", () => { void reload().catch(error => toastError(String(error))); });
   openDialog(dialog, { onClose: () => dialog.replaceChildren() }); await reload();
 }
-on("kz:schedule-run", payload => { if (payload.notify) toast(payload.error || `${payload.name}: ${payload.result?.summary || t("已完成")}`); });
+on("kz:schedule-run", ({ payload }) => { if (payload.notify) toast(payload.error || `${payload.name}: ${payload.result?.summary || t("已完成")}`); });
