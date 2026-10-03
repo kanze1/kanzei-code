@@ -1,7 +1,7 @@
 //! Project registry commands and per-project isolation checks.
 
 use crate::normalized_project_root;
-use crate::prefs::{load_prefs, save_prefs, AppPrefs};
+use crate::prefs::{load_prefs, load_prefs_for_write, save_prefs, AppPrefs};
 use serde::Deserialize;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -92,7 +92,7 @@ fn register_project(dir: &Path, display_name: Option<&str>) -> Result<AppPrefs, 
         .map(strip_verbatim)
         .unwrap_or_else(|_| dir.display().to_string());
     let _guard = crate::prefs::write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     if !prefs.projects.contains(&canonical) {
         prefs.projects.push(canonical.clone());
     }
@@ -253,7 +253,7 @@ pub fn projects_init(path: String, name: Option<String>) -> Result<AppPrefs, Str
         .map(strip_verbatim)
         .unwrap_or(path.clone());
     let _guard = crate::prefs::write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     if !prefs.projects.contains(&canonical) {
         prefs.projects.push(canonical.clone());
     }
@@ -276,7 +276,7 @@ pub fn projects_rename(path: String, name: String) -> Result<AppPrefs, String> {
         return Err("项目名称不能为空".into());
     }
     let _guard = crate::prefs::write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     if !prefs.projects.iter().any(|project| project == &path) {
         return Err("项目不在项目列表中".into());
     }
@@ -300,7 +300,7 @@ pub fn projects_add(path: String) -> Result<AppPrefs, String> {
         .map(strip_verbatim)
         .unwrap_or(path.clone());
     let _guard = crate::prefs::write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     if !prefs.projects.contains(&canonical) {
         prefs.projects.push(canonical.clone());
     }
@@ -456,13 +456,39 @@ pub async fn export_pick_dir() -> Result<Option<String>, String> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ExportOptions {
+    #[serde(alias = "project_dir")]
     pub(crate) project_dir: String,
+    #[serde(alias = "output_dir")]
     pub(crate) output_dir: String,
+    #[serde(alias = "include_memory")]
     pub(crate) include_memory: bool,
+    #[serde(alias = "include_requirements")]
     pub(crate) include_requirements: bool,
+    #[serde(alias = "include_defects")]
     pub(crate) include_defects: bool,
+    #[serde(alias = "include_config")]
     pub(crate) include_config: bool,
+}
+
+fn reserve_export_dir(output: &Path, stamp: u64) -> Result<PathBuf, String> {
+    let mut suffix = 0_u64;
+    loop {
+        let name = if suffix == 0 {
+            format!("kanzei-export-{stamp}")
+        } else {
+            format!("kanzei-export-{stamp}-{suffix}")
+        };
+        let destination = output.join(name);
+        match std::fs::create_dir(&destination) {
+            Ok(()) => return Ok(destination),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                suffix += 1;
+            }
+            Err(error) => return Err(format!("创建导出包目录失败: {error}")),
+        }
+    }
 }
 
 fn copy_export_file(
@@ -539,8 +565,7 @@ pub fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, 
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_secs();
-    let destination = output_canonical.join(format!("kanzei-export-{stamp}"));
-    std::fs::create_dir_all(&destination).map_err(|e| format!("创建导出包目录失败: {e}"))?;
+    let destination = reserve_export_dir(&output_canonical, stamp)?;
     let mut files = Vec::new();
     if options.include_memory {
         copy_export_tree(
@@ -570,7 +595,7 @@ pub fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, 
         copy_export_file(&root, &destination, ".kanzei/kanzei.toml", &mut files)?;
     }
     if files.is_empty() {
-        let _ = std::fs::remove_dir_all(&destination);
+        let _ = std::fs::remove_dir(&destination);
         return Err("没有可导出的工作资料".into());
     }
     files.sort();
@@ -628,7 +653,7 @@ pub fn projects_remove(
         ));
     }
     let _guard = crate::prefs::write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     prefs.projects.retain(|p| p != &path);
     crate::prefs::purge_project_prefs(&mut prefs, &path);
     if prefs.current.as_deref() == Some(path.as_str()) {
@@ -664,7 +689,7 @@ pub(crate) fn reorder_projects(current: &[String], wanted: &[String]) -> Vec<Str
 #[tauri::command]
 pub fn projects_reorder(paths: Vec<String>) -> Result<(), String> {
     let _guard = crate::prefs::write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     let reordered = reorder_projects(&prefs.projects, &paths);
     if reordered != prefs.projects {
         prefs.projects = reordered;
@@ -675,7 +700,7 @@ pub fn projects_reorder(paths: Vec<String>) -> Result<(), String> {
 #[tauri::command]
 pub fn projects_select(path: String) -> Result<AppPrefs, String> {
     let _guard = crate::prefs::write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     if prefs.projects.contains(&path) {
         ensure_project_isolated(Path::new(&path));
         prefs.current = Some(path);
@@ -686,6 +711,83 @@ pub fn projects_select(path: String) -> Result<AppPrefs, String> {
 
 pub(crate) fn base_name_for_snapshot(path: &str) -> String {
     base_name(path)
+}
+
+#[cfg(test)]
+mod prefs_failure_tests {
+    use super::*;
+    use crate::prefs::failure_tests::{
+        assert_rejected_unchanged, damaged_inputs, fixture, with_home,
+    };
+
+    #[test]
+    fn registry_writers_keep_failed_read_bytes_and_report_directory_side_effects() {
+        with_home("projects", |home| {
+            let good = fixture(home);
+            let a = good["projects"][0].as_str().unwrap().to_owned();
+            let b = good["projects"][1].as_str().unwrap().to_owned();
+            for (kind, bytes) in damaged_inputs(&good) {
+                for writer in ["register", "init", "rename", "add", "reorder", "select"] {
+                    let dir = home.join(format!("{kind}-{writer}"));
+                    if writer == "register" || writer == "add" {
+                        std::fs::create_dir(&dir).unwrap();
+                    }
+                    let path = dir.display().to_string();
+                    assert_rejected_unchanged(home, &bytes, || match writer {
+                        "register" => register_project(&dir, Some("New project")).map(|_| ()),
+                        "init" => projects_init(path.clone(), None).map(|_| ()),
+                        "rename" => projects_rename(a.clone(), "Renamed".into()).map(|_| ()),
+                        "add" => projects_add(path.clone()).map(|_| ()),
+                        "reorder" => projects_reorder(vec![b.clone(), a.clone()]),
+                        "select" => projects_select(a.clone()).map(|_| ()),
+                        _ => unreachable!(),
+                    });
+                    if writer == "init" || writer == "add" {
+                        assert!(dir.join(".kanzei/.gitignore").is_file(), "directory initialization precedes registry persistence and is retained on failure");
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn registry_writers_preserve_other_normal_fields_and_allow_first_registration() {
+        with_home("project-controls", |home| {
+            let initial = home.join("initial");
+            std::fs::create_dir(&initial).unwrap();
+            register_project(&initial, Some("First project")).unwrap();
+            assert!(home.join("app.json").is_file());
+            let good = fixture(home);
+            let a = good["projects"][0].as_str().unwrap().to_owned();
+            let b = good["projects"][1].as_str().unwrap().to_owned();
+            for writer in ["register", "init", "rename", "add", "reorder", "select"] {
+                std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap()).unwrap();
+                let dir = home.join(format!("normal-{writer}"));
+                if writer == "register" || writer == "add" {
+                    std::fs::create_dir(&dir).unwrap();
+                }
+                let path = dir.display().to_string();
+                match writer {
+                    "register" => register_project(&dir, Some("New project")).map(|_| ()),
+                    "init" => projects_init(path, None).map(|_| ()),
+                    "rename" => projects_rename(a.clone(), "Renamed".into()).map(|_| ()),
+                    "add" => projects_add(path).map(|_| ()),
+                    "reorder" => projects_reorder(vec![b.clone(), a.clone()]),
+                    "select" => projects_select(b.clone()).map(|_| ()),
+                    _ => unreachable!(),
+                }
+                .unwrap();
+                let after: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap()).unwrap();
+                assert_eq!(after["names"][&b], "Kept B", "{writer}");
+                assert_eq!(after["open_tools"], good["open_tools"], "{writer}");
+                assert_eq!(
+                    after["process_auto_state"], good["process_auto_state"],
+                    "{writer}"
+                );
+            }
+        });
+    }
 }
 
 #[cfg(test)]
@@ -924,6 +1026,151 @@ pub(crate) fn workspace_snapshot(
     }
     Ok(json!({ "current": prefs.current, "projects": projects,
         "observed_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64 }))
+}
+
+#[cfg(test)]
+mod export_failure_tests {
+    use super::*;
+    use crate::prefs::failure_tests::with_home;
+    use std::collections::HashSet;
+    use std::sync::{Arc, Barrier};
+
+    fn options(project: &Path, output: &Path, include_requirements: bool) -> ExportOptions {
+        ExportOptions {
+            project_dir: project.display().to_string(),
+            output_dir: output.display().to_string(),
+            include_memory: false,
+            include_requirements,
+            include_defects: false,
+            include_config: false,
+        }
+    }
+
+    fn exported_path(result: &serde_json::Value) -> PathBuf {
+        PathBuf::from(result["path"].as_str().unwrap())
+    }
+
+    #[test]
+    fn export_options_accept_real_ui_camel_and_legacy_snake_payloads() {
+        with_home("export-options", |home| {
+            let project = home.join("project");
+            let output = home.join("output");
+            let relative = ".kanzei/project/requirements.md";
+            std::fs::create_dir_all(project.join(".kanzei/project")).unwrap();
+            std::fs::write(project.join(relative), b"requirements").unwrap();
+            for payload in [
+                json!({
+                    "projectDir": project.display().to_string(),
+                    "outputDir": output.display().to_string(),
+                    "includeMemory": false,
+                    "includeRequirements": true,
+                    "includeDefects": false,
+                    "includeConfig": false,
+                }),
+                json!({
+                    "project_dir": project.display().to_string(),
+                    "output_dir": output.display().to_string(),
+                    "include_memory": false,
+                    "include_requirements": true,
+                    "include_defects": false,
+                    "include_config": false,
+                }),
+            ] {
+                let parsed: ExportOptions = serde_json::from_value(payload).unwrap();
+                assert_eq!(parsed.project_dir, project.display().to_string());
+                assert_eq!(parsed.output_dir, output.display().to_string());
+                assert!(!parsed.include_memory);
+                assert!(parsed.include_requirements);
+                assert!(!parsed.include_defects);
+                assert!(!parsed.include_config);
+                let result = export_project_data(parsed).unwrap();
+                assert_eq!(result["files"], json!([relative]));
+                assert_eq!(
+                    std::fs::read(exported_path(&result).join(relative)).unwrap(),
+                    b"requirements"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn successful_exports_survive_later_export_and_empty_failure() {
+        with_home("export-preserve", |home| {
+            let project = home.join("project");
+            let output = home.join("output");
+            let relative = ".kanzei/project/requirements.md";
+            std::fs::create_dir_all(project.join(".kanzei/project")).unwrap();
+            std::fs::write(project.join(relative), b"FIRST_SNAPSHOT").unwrap();
+            let first =
+                exported_path(&export_project_data(options(&project, &output, true)).unwrap());
+            std::fs::write(project.join(relative), b"SECOND_SNAPSHOT").unwrap();
+            let second =
+                exported_path(&export_project_data(options(&project, &output, true)).unwrap());
+            let error = export_project_data(options(&project, &output, false)).unwrap_err();
+            assert_eq!(error, "没有可导出的工作资料");
+            assert_eq!(
+                std::fs::read(first.join(relative)).ok(),
+                Some(b"FIRST_SNAPSHOT".to_vec()),
+                "后续导出或空包清理不能覆盖/删除已成功的第一份正文"
+            );
+            assert_eq!(
+                std::fs::read(second.join(relative)).ok(),
+                Some(b"SECOND_SNAPSHOT".to_vec()),
+                "空包清理不能删除已成功的第二份正文"
+            );
+            assert_ne!(first, second, "每次成功导出必须拥有不同的目录");
+            assert_eq!(std::fs::read_dir(&output).unwrap().count(), 2);
+        });
+    }
+
+    #[test]
+    fn fixed_timestamp_reservations_exclusively_own_each_directory() {
+        with_home("export-reserve", |home| {
+            let output = home.join("output");
+            std::fs::create_dir(&output).unwrap();
+            let barrier = Arc::new(Barrier::new(8));
+            let workers = (0..8)
+                .map(|id| {
+                    let output = output.clone();
+                    let barrier = Arc::clone(&barrier);
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        let reserved = reserve_export_dir(&output, 42).unwrap();
+                        std::fs::write(reserved.join("owner"), id.to_string()).unwrap();
+                        (reserved, id.to_string())
+                    })
+                })
+                .collect::<Vec<_>>();
+            let reserved = workers
+                .into_iter()
+                .map(|worker| worker.join().unwrap())
+                .collect::<Vec<_>>();
+            let unique = reserved
+                .iter()
+                .map(|(path, _)| path)
+                .collect::<HashSet<_>>();
+            assert_eq!(unique.len(), 8, "同一秒并发导出不能复用目录");
+            for (path, owner) in reserved {
+                assert_eq!(std::fs::read_to_string(path.join("owner")).unwrap(), owner);
+            }
+            assert_eq!(std::fs::read_dir(output).unwrap().count(), 8);
+        });
+    }
+
+    #[test]
+    fn reservation_skips_existing_paths_and_returns_other_io_errors() {
+        with_home("export-reserve-error", |home| {
+            let occupied = home.join("kanzei-export-42");
+            std::fs::write(&occupied, b"existing-file").unwrap();
+            let reserved = reserve_export_dir(home, 42).unwrap();
+            assert_eq!(reserved, home.join("kanzei-export-42-1"));
+            assert_eq!(std::fs::read(&occupied).unwrap(), b"existing-file");
+            let missing_parent = home.join("missing");
+            let error = reserve_export_dir(&missing_parent, 42).unwrap_err();
+            assert!(error.contains("创建导出包目录失败"));
+            assert!(!missing_parent.exists());
+        });
+    }
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
 
-use crate::prefs::{load_prefs, save_prefs, write_guard, OpenToolConfig};
+use crate::prefs::{load_prefs, load_prefs_for_write, save_prefs, write_guard, OpenToolConfig};
 use crate::state::{default_process_id, AppState};
 use crate::{normalized_project_root, MutexPoisonExt};
 
@@ -560,9 +560,53 @@ pub fn open_with(
 pub fn open_tools_save(tools: Vec<OpenToolConfig>) -> Result<(), String> {
     let tools = validate_tools(tools)?;
     let _guard = write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     prefs.open_tools = tools;
     save_prefs(&prefs)
+}
+
+#[cfg(test)]
+mod prefs_failure_tests {
+    use super::*;
+    use crate::prefs::failure_tests::{
+        assert_rejected_unchanged, damaged_inputs, fixture, with_home,
+    };
+
+    fn replacement_tools() -> Vec<OpenToolConfig> {
+        vec![OpenToolConfig {
+            id: "changed".into(),
+            label: "Changed tool".into(),
+            command: "fixture-not-run.exe".into(),
+            args: vec!["{path}".into()],
+        }]
+    }
+
+    #[test]
+    fn tool_writer_keeps_failed_read_bytes() {
+        with_home("tools", |home| {
+            let good = fixture(home);
+            for (_, bytes) in damaged_inputs(&good) {
+                assert_rejected_unchanged(home, &bytes, || open_tools_save(replacement_tools()));
+            }
+        });
+    }
+
+    #[test]
+    fn tool_writer_preserves_normal_fields_and_initializes_not_found() {
+        with_home("tool-controls", |home| {
+            open_tools_save(replacement_tools()).unwrap();
+            assert!(home.join("app.json").is_file());
+            let good = fixture(home);
+            std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap()).unwrap();
+            open_tools_save(replacement_tools()).unwrap();
+            let after: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap()).unwrap();
+            assert_eq!(after["open_tools"][0]["id"], "changed");
+            for field in ["projects", "names", "theme", "process_auto_state"] {
+                assert_eq!(after[field], good[field], "{field}");
+            }
+        });
+    }
 }
 
 #[cfg(test)]

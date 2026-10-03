@@ -67,12 +67,23 @@ fn prefs_path() -> PathBuf {
         .join("app.json")
 }
 pub(crate) fn load_prefs() -> AppPrefs {
-    let mut prefs: AppPrefs = std::fs::read_to_string(prefs_path())
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
+    load_prefs_for_write().unwrap_or_default()
+}
+
+/// 写入必须基于成功读取的状态；仅首次无文件允许默认初始化。
+/// 只读展示仍由 load_prefs 保持既有 best-effort 回落，不授权覆盖损坏原文。
+pub(crate) fn load_prefs_for_write() -> Result<AppPrefs, String> {
+    let path = prefs_path();
+    let mut prefs: AppPrefs = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text)
+            .map_err(|error| format!("解析偏好文件 {} 失败: {error}", path.display()))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => AppPrefs::default(),
+        Err(error) => {
+            return Err(format!("读取偏好文件 {} 失败: {error}", path.display()));
+        }
+    };
     simplify_pref_keys(&mut prefs);
-    prefs
+    Ok(prefs)
 }
 
 /// UI2-0926 #13:按进程 id / 项目路径作键的偏好,键里的 `\\?\` 前缀去掉(与 schema v25 同一条
@@ -438,7 +449,7 @@ pub fn ui_prefs_set(
     memory_view: Option<String>,
 ) -> Result<(), String> {
     let _guard = write_guard()?;
-    let mut prefs = load_prefs();
+    let mut prefs = load_prefs_for_write()?;
     apply_backdrop(&mut prefs, backdrop)?;
     apply_ui_prefs(
         &mut prefs,
@@ -454,6 +465,164 @@ pub fn ui_prefs_set(
     apply_ui_layout(&mut prefs, ui_layout);
     apply_memory_view(&mut prefs, memory_view);
     save_prefs(&prefs)
+}
+
+#[cfg(test)]
+pub(crate) mod failure_tests {
+    use super::*;
+    use std::path::Path;
+
+    pub(crate) fn with_home(tag: &str, test: impl FnOnce(&Path)) {
+        let home = std::env::temp_dir().join(format!(
+            "kz-prefs-failure-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&home).unwrap();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::settings::with_kanzei_home(&home, || test(&home))
+        }));
+        std::fs::remove_dir_all(home).unwrap();
+        result.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    }
+
+    pub(crate) fn fixture(home: &Path) -> Value {
+        let a = home.join("registered-A");
+        let b = home.join("registered-B");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let a = a.display().to_string();
+        let b = b.display().to_string();
+        json!({
+            "projects": [a, b], "current": a, "names": {&a: "Kept A", &b: "Kept B"},
+            "theme": "dark", "work_priority": {&a: "high"},
+            "process_auto_state": {format!("p1|{a}"): {"enabled": true}, format!("p2|{a}"): {"enabled": false}},
+            "open_tools": [{"id": "kept", "label": "Kept tool", "command": "fixture-unused.exe", "args": ["{path}"]}]
+        })
+    }
+
+    pub(crate) fn damaged_inputs(good: &Value) -> Vec<(&'static str, Vec<u8>)> {
+        let normal = serde_json::to_vec(good).unwrap();
+        let mut utf8 = normal.clone();
+        utf8.push(0xff);
+        let mut json = normal;
+        json.pop();
+        let mut typed = good.clone();
+        typed["auto_max"] = json!("not-a-u32");
+        vec![
+            ("utf8", utf8),
+            ("json", json),
+            ("typed", serde_json::to_vec(&typed).unwrap()),
+        ]
+    }
+
+    pub(crate) fn assert_rejected_unchanged(
+        home: &Path,
+        bytes: &[u8],
+        write: impl FnOnce() -> Result<(), String>,
+    ) {
+        let path = home.join("app.json");
+        std::fs::write(&path, bytes).unwrap();
+        let result = write();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "failed original read must not publish default preferences"
+        );
+        let error = result.expect_err(
+            "a failed read must be reported rather than accepted as a successful save/noop",
+        );
+        assert!(error.contains("app.json"), "{error}");
+        assert!(
+            error.contains("读取偏好文件") || error.contains("解析偏好文件"),
+            "{error}"
+        );
+    }
+
+    fn save_theme() -> Result<(), String> {
+        ui_prefs_set(
+            Some("light".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn rejected_theme(case: &str) {
+        with_home(case, |home| {
+            let good = fixture(home);
+            let bytes = damaged_inputs(&good)
+                .into_iter()
+                .find(|(name, _)| *name == case)
+                .unwrap()
+                .1;
+            assert_rejected_unchanged(home, &bytes, save_theme);
+            assert!(
+                load_prefs().projects.is_empty(),
+                "readonly best-effort contract remains unchanged"
+            );
+        });
+    }
+
+    #[test]
+    fn ui_setter_keeps_invalid_utf8_original_bytes() {
+        rejected_theme("utf8");
+    }
+
+    #[test]
+    fn ui_setter_keeps_invalid_json_original_bytes() {
+        rejected_theme("json");
+    }
+
+    #[test]
+    fn ui_setter_keeps_invalid_typed_field_original_bytes() {
+        rejected_theme("typed");
+    }
+
+    #[test]
+    fn ui_setter_initializes_not_found_and_preserves_normal_unrelated_fields() {
+        with_home("controls", |home| {
+            assert!(!home.join("app.json").exists());
+            save_theme().unwrap();
+            assert_eq!(
+                load_prefs_for_write().unwrap().theme.as_deref(),
+                Some("light")
+            );
+            let good = fixture(home);
+            std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap()).unwrap();
+            save_theme().unwrap();
+            let after: Value =
+                serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap()).unwrap();
+            assert_eq!(after["theme"], "light");
+            for field in [
+                "projects",
+                "names",
+                "open_tools",
+                "work_priority",
+                "process_auto_state",
+            ] {
+                assert_eq!(after[field], good[field], "{field}");
+            }
+        });
+    }
+
+    #[test]
+    fn ui_setter_refuses_io_read_failure_before_attempting_replacement() {
+        with_home("io", |home| {
+            std::fs::create_dir(home.join("app.json")).unwrap();
+            let error = save_theme().unwrap_err();
+            assert!(error.contains("读取偏好文件"), "{error}");
+            assert!(home.join("app.json").is_dir());
+        });
+    }
 }
 
 #[cfg(test)]
