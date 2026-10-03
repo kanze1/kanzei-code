@@ -1,0 +1,193 @@
+{
+  "task": "A4",
+  "baseline": "0e5355c67e716afcb3e9ad892b7e74245bb25d24",
+  "branch": "kanzei/audit-a4-state",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code",
+  "status": "ui_verified_pending_native_integration",
+  "environment": {
+    "os": "Windows",
+    "node": "v22.14.0"
+  },
+  "repository_review_complete": false,
+  "cargo_executed": false,
+  "native_tauri_executed": false,
+  "push_or_release": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-app/ui/03-shell.js",
+      "judgment": "P1",
+      "scope": "full file review",
+      "sha256": "2bea9ce5a3b657dcfb5d97da24cedf87ff4fce140342e368df210a177fe3a231",
+      "sha256_utf8_lf": "4e97e03a03c55b578fc0f7ae204a501f1800acaccb192b46b7fa8bcb4f0ca7f3",
+      "lines": 1266
+    },
+    {
+      "path": "crates/kanzei-app/ui/01-core.js",
+      "judgment": "P1",
+      "scope": "full file review",
+      "sha256": "bedb069c771891ec6914e5b838a7c521ae7759ee71079dbb43272c900125da87",
+      "sha256_utf8_lf": "db0fce82fe83cebb137d3f32c5cb9d1c02d5156370eec9137a8e71e4aa246dee",
+      "lines": 954
+    }
+  ],
+  "contract_slices": [
+    {
+      "path": "scripts/ui-runtime-smoke.mjs",
+      "judgment": "PASS",
+      "scope": "TextEncoder fixture plus two asynchronous receipt assertions only",
+      "sha256": "b920546c13bcb2bfe6a21b24ac4be2f62f1925c33018b879b0945f9c2d7c86f8",
+      "sha256_utf8_lf": "fc641966a452316f6efd3e73c5ba90c43895c03cd4bafc851737c195f15fc8bd",
+      "lines": 17802
+    }
+  ],
+  "regression_files": [
+    {
+      "path": "scripts/ui-state-ownership-smoke.mjs",
+      "judgment": "PASS",
+      "scope": "15 real module state regression cases",
+      "sha256": "7578ac3a603fcf151f1f68008b666e1d6579fe44a74616aeb6175f8673ae410e",
+      "sha256_utf8_lf": "7578ac3a603fcf151f1f68008b666e1d6579fe44a74616aeb6175f8673ae410e",
+      "lines": 326
+    }
+  ],
+  "roots": [
+    {
+      "severity": "P1",
+      "id": "A4-theme",
+      "condition": "missing local theme with durable value, or delayed startup hydrate after user selection"
+    },
+    {
+      "severity": "P1",
+      "id": "A4-prefs",
+      "condition": "same-window get/save or save/save receipts out of order, or real partial layout patch"
+    },
+    {
+      "severity": "P1",
+      "id": "A4-stream",
+      "condition": "09 changes session before 15 cached-pane shortcut; later 07/05 delta reuses old active pointer"
+    }
+  ],
+  "unchanged_contracts": [
+    "public API arguments/returns",
+    "IPC and app.json fields",
+    "sessionStreams shape",
+    "save failure remains silent",
+    "native Rust source"
+  ],
+  "baseline_owners": [
+    {
+      "path": "crates/kanzei-app/ui/03-shell.js",
+      "sha256_git_blob": "f13dafab19eca49ab342845a434b3084690c8bf64059631cc87ee40488710fbd"
+    },
+    {
+      "path": "crates/kanzei-app/ui/01-core.js",
+      "sha256_git_blob": "bdec7f49274ee3953f505624c696607d87578d1e26373b9eb3da1d2f0c739e0b"
+    }
+  ],
+  "baseline_disk_raw_sha256": {
+    "crates/kanzei-app/ui/01-core.js": "08cfd43d17ad3fc0a445ecc39b545a303e5f1ddf3181eef1bcc42fa5319ff242",
+    "crates/kanzei-app/ui/03-shell.js": "2be30cf9ffb2e05caf40b700a74c21650d75371c2a353e4b6f8efad2fae14db2"
+  },
+  "checks": [
+    {
+      "command": "node --experimental-vm-modules scripts/ui-state-ownership-smoke.mjs",
+      "exit_code": 0,
+      "passed": 15,
+      "failed": 0
+    },
+    {
+      "command": "node --experimental-vm-modules scripts/ui-state-ownership-smoke.mjs --before",
+      "exit_code": 1,
+      "passed": 5,
+      "failed": 10,
+      "expected": true,
+      "failure_class": "ERR_ASSERTION actual persisted/cache/pane state",
+      "owners_loaded_from_fixed_git_baseline": true,
+      "current_owner_files_never_overwritten": true
+    },
+    {
+      "command": "node --experimental-vm-modules scripts/ui-permission-identity-smoke.mjs",
+      "exit_code": 0,
+      "passed": 12,
+      "failed": 0
+    },
+    {
+      "command": "node scripts/ui-i18n-smoke.mjs",
+      "exit_code": 0,
+      "resource_keys": 2926,
+      "html_texts": 651,
+      "dynamic_contracts": 56
+    },
+    {
+      "command": "ESLint from primary checkout, 01-core.js and 03-shell.js",
+      "exit_code": 0,
+      "errors": 0,
+      "warnings": 0
+    },
+    {
+      "command": "node --check for 2 owners and 2 test scripts",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    {
+      "command": "node --experimental-vm-modules --experimental-loader ./output/audit-a4-state/runtime-loader.mjs scripts/ui-runtime-smoke.mjs",
+      "exit_code": 0,
+      "scope": "complete runtime and browser child gates",
+      "dependency_source": "existing primary node_modules/playwright-core/index.mjs; no install or linked node_modules"
+    }
+  ],
+  "fixture_adaptation": {
+    "first_runtime_failures": 2,
+    "original_fixture_replay_exit": 1,
+    "product_negative": false,
+    "reasons": [
+      "sound assertion ran before queued Promise save completed",
+      "last global invoke was a valid later prefs save; identify B conversation_get in current switch calls instead"
+    ],
+    "replay_log": "output/audit-a4-state/runtime-fixture-before.log",
+    "initial_dependency_missing_log": "output/audit-a4-state/runtime.log"
+  },
+  "verification_boundaries": [
+    "Native ui_prefs IO is controlled receipt; production app.json/credentials/DB never read",
+    "Actual full 01/03/05/07/15 ESM executes; 09 early identity change contract emulated from read source, not entire 09 function",
+    "Complete browser child gates exercise fixture HTTP/DOM; no native Tauri or Rust claim",
+    "Only 2 UI production files add full coverage; caller reads and runtime script slice do not"
+  ],
+  "logs": [
+    {
+      "path": "output/audit-a4-state/before.log",
+      "sha256": "3cab76286881274b38e69c66c7b225b51d329aee97aa12ccccda8920127977fc"
+    },
+    {
+      "path": "output/audit-a4-state/after.log",
+      "sha256": "9dab00c129cbd3d10bddf878ed35f2f731cd08c62bf3908c79c7b387aa988e7b"
+    },
+    {
+      "path": "output/audit-a4-state/permissions.log",
+      "sha256": "f3948941d3330e46f71232823959ec44df9c462d0897e17101096ca91245c904"
+    },
+    {
+      "path": "output/audit-a4-state/i18n.log",
+      "sha256": "54fd7e9af48f838587bc8d286e2928158a9a8ab0481d6303d2e4c523ffceade3"
+    },
+    {
+      "path": "output/audit-a4-state/eslint.log",
+      "sha256": "ff67fe1cafea65b02eef941ab3a7b12650d02363eb292b70517741d3f57bd473"
+    },
+    {
+      "path": "output/audit-a4-state/runtime-fixture-before.log",
+      "sha256": "dc23e10e5367586b99fac89f4d4473312db536fc700d33dbedc5882988756b3c"
+    },
+    {
+      "path": "output/audit-a4-state/runtime.log",
+      "sha256": "932101b70e6926b97a8af3367b1aaf4f374f7157c76a4317678d511bf361da35"
+    },
+    {
+      "path": "output/audit-a4-state/runtime-complete.log",
+      "sha256": "9356ef44e98a423ff49e635080aba0cdcaeab71646cc078f8201f160e60542bc"
+    }
+  ]
+}

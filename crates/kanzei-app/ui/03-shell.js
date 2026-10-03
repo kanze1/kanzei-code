@@ -1164,14 +1164,13 @@ export function clearRunPending() {
 // 默认暗色(现状);切亮色改 html[data-theme="light"],CSS token 组接管换色;
 // 原生控件 color-scheme 已随 token 组同步;Monaco 主题由 17-files.js 读这里。
 export const THEME_STORAGE_KEY = "kz-theme";
+let themeEditGeneration = 0;
 export function currentTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
-export function applyTheme(theme) {
+function renderTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem(THEME_STORAGE_KEY, theme);
-  // D-404:后端 app.json 持久化(WebView2 localStorage 数据文件缺失时重启不丢)。
-  void uiPrefsSave({ theme });
   // Monaco 已初始化时同步编辑器主题(vs-dark/vs)。
   if (typeof monaco !== "undefined" && monaco.editor) {
     monaco.editor.setTheme(theme === "light" ? "vs" : "vs-dark");
@@ -1189,12 +1188,22 @@ export function applyTheme(theme) {
   // 画布类视图(记忆图谱)不走 CSS 级联,靠这个事件重读 --graph-* token 后重画。
   document.dispatchEvent(new CustomEvent("kz:theme", { detail: { theme } }));
 }
+export function applyTheme(theme) {
+  themeEditGeneration += 1;
+  renderTheme(theme);
+  // D-404:只有用户选择才写回;启动显示缺省值不能覆盖后端偏好。
+  void uiPrefsSave({ theme });
+}
 export function initTheme() {
   const saved = localStorage.getItem(THEME_STORAGE_KEY);
-  applyTheme(saved === "light" || saved === "dark" ? saved : "dark");
+  const legacyTheme = saved === "light" || saved === "dark" ? saved : null;
+  const generation = themeEditGeneration;
+  renderTheme(legacyTheme || "dark");
   // D-404:localStorage 旧值可能已丢;后端 app.json 是权威,有值则覆盖。
   void uiPrefsLoad().then((p) => {
-    if (p.theme === "light" || p.theme === "dark") applyTheme(p.theme);
+    if (generation !== themeEditGeneration) return;
+    if (p.theme === "light" || p.theme === "dark") renderTheme(p.theme);
+    else if (legacyTheme) void uiPrefsSave({ theme: legacyTheme });
   });
 }
 defer(() => {

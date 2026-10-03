@@ -584,20 +584,59 @@ export function writeJson(key, value) {
 // 旧值兼容(读时先本地后后端,写时双写)。uiPrefsSave 失败静默——偏好丢失可接受,
 // 不该打断当前操作。
 export let uiPrefsCache = null;
-export async function uiPrefsLoad(refresh = false) {
-  if (refresh || !uiPrefsCache) {
-    try {
-      uiPrefsCache = (await invoke("ui_prefs_get")) || {};
-    } catch {
-      return uiPrefsCache || {};
-    }
+let uiPrefsQueue = Promise.resolve();
+function queueUiPrefs(operation) {
+  const result = uiPrefsQueue.then(operation, operation);
+  uiPrefsQueue = result.catch(() => {});
+  return result;
+}
+function prefsObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function mergeUiPrefsPatch(prefs, patch) {
+  const merged = { ...prefs };
+  for (const key of ["theme", "backdrop", "work_priority", "auto_max", "continue_prompt", "process_auto_state", "workspace_state"]) {
+    if (patch[key] !== undefined && patch[key] !== null) merged[key] = patch[key];
   }
-  return uiPrefsCache;
+  if (patch.memory_view === "list" || patch.memory_view === "graph") merged.memory_view = patch.memory_view;
+  // prefs.rs 按分区/键合并;几何等键值整体替换,两个层次的 null 都表示删除。
+  if (prefsObject(patch.ui_layout) && new TextEncoder().encode(JSON.stringify(patch.ui_layout)).length <= 64 * 1024) {
+    const layout = { ...(prefsObject(prefs.ui_layout) ? prefs.ui_layout : {}) };
+    for (const [section, value] of Object.entries(patch.ui_layout)) {
+      if (value === null) delete layout[section];
+      else if (prefsObject(value)) {
+        const keys = { ...(prefsObject(layout[section]) ? layout[section] : {}) };
+        for (const [key, entry] of Object.entries(value)) {
+          if (entry === null) delete keys[key];
+          else keys[key] = entry;
+        }
+        layout[section] = keys;
+      } else layout[section] = value;
+    }
+    merged.ui_layout = layout;
+  }
+  return merged;
+}
+export async function uiPrefsLoad(refresh = false) {
+  return queueUiPrefs(async () => {
+    if (refresh || !uiPrefsCache) {
+      try {
+        uiPrefsCache = (await invoke("ui_prefs_get")) || {};
+      } catch {
+        return uiPrefsCache || {};
+      }
+    }
+    return uiPrefsCache;
+  });
 }
 export async function uiPrefsSave(patch) {
   try {
-    await invoke("ui_prefs_set", patch);
-    if (uiPrefsCache) uiPrefsCache = { ...uiPrefsCache, ...patch };
+    // 排队前冻结请求,避免调用方随后修改对象改变原本要保存的偏好。
+    const snapshot = JSON.parse(JSON.stringify(patch));
+    await queueUiPrefs(async () => {
+      await invoke("ui_prefs_set", snapshot);
+      if (uiPrefsCache) uiPrefsCache = mergeUiPrefsPatch(uiPrefsCache, snapshot);
+    });
   } catch {
     /* 写入失败静默:下次启动回退 localStorage 旧值 */
   }
@@ -656,6 +695,20 @@ export function paneFor(sessionId, { forDisplay = false } = {}) {
 /// 返回 true = 该 pane 已有内容(切回来即见),false = 新建的空 pane(调用方需要装历史)。
 export function showPane(sessionId) {
   const pane = paneFor(sessionId, { forDisplay: true });
+  if (activePane !== pane) {
+    // switchProcess 已先改 activeSessionId;流式指针仍属于离开的 pane。
+    const outgoingId = activePane?.dataset.sessionId;
+    if (messagePanes.get(outgoingId) === activePane) {
+      const outgoing = streamStateFor(outgoingId);
+      outgoing.assistant = currentAssistant;
+      outgoing.reasoning = currentReasoning;
+      outgoing.reasoningHead = currentReasoningHead;
+    }
+    const incoming = streamStateFor(sessionId);
+    setCurrentAssistant(incoming.assistant);
+    setCurrentReasoning(incoming.reasoning);
+    setCurrentReasoningHead(incoming.reasoningHead);
+  }
   for (const other of [...messages.children]) {
     if (other === pane || !other.classList.contains("msg-pane")) continue;
     other.classList.add("hidden");

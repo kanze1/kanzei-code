@@ -2534,6 +2534,7 @@ const sandbox = {
   setInterval: (fn) => { const h = { fn, interval: true }; pendingTimers.add(h); return h; },
   clearInterval: (h) => pendingTimers.delete(h),
   structuredClone: globalThis.structuredClone,
+  TextEncoder: globalThis.TextEncoder,
   requestAnimationFrame: (fn) => { rafQueue.push(fn); return rafQueue.length; },
   cancelAnimationFrame: () => {},
 };
@@ -10087,6 +10088,7 @@ const docsB = {
   assert(disabled === false, "R-187:总开关关闭后提示音不应播放");
   // 提示音偏好写 app.json 的 ui_layout.prefs.sound(本机 localStorage 重启即丢,D-404),不再只写 localStorage。
   esmModuleCache.get("03-layout.js")?.namespace.flushLayout();
+  await flush(); // uiPrefsSave 的原 Promise 合同,等同窗队列真正提交后再检查。
   assert(
     invokeArgs.some(({ cmd, args }) => cmd === "ui_prefs_set" && args?.ui_layout?.prefs?.sound?.enabled === false)
       && storage.get("kz-sound-settings") == null,
@@ -10290,11 +10292,12 @@ const docsB = {
     'for (const [id, pane] of [...messagePanes]) { pane.remove(); messagePanes.delete(id); }; activePane = paneFor(activeSessionId || "");',
     sandbox,
   );
+  const bInvokesStart = invokeArgs.length;
   const bSwitchLate = sandbox.switchProject(PROJECT_B, { view: "chat" }); // B 的 conversation_get 卡在闸门
   await settle();
   assert(
-    invokeArgs.at(-1)?.cmd === "conversation_get" && invokeArgs.at(-1)?.args?.projectDir === PROJECT_B,
-    `前置失败:B 的 conversation_get 没有在途(${JSON.stringify(invokeArgs.at(-1))})`,
+    invokeArgs.slice(bInvokesStart).some(({ cmd, args }) => cmd === "conversation_get" && args?.projectDir === PROJECT_B),
+    `前置失败:B 的 conversation_get 没有在途(${JSON.stringify(invokeArgs.slice(bInvokesStart))})`,
   );
   invokeGates.delete("conversation_get"); // 只卡住 B 那一次:已在 await 的调用握着自己那个 promise
   // 切回 A 前必须把 projects_select 桩改回 A:桩是按命令返回固定值的,不改的话
