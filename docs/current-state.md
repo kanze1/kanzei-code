@@ -21,6 +21,8 @@
 | 检索反馈 | 召回、注入、读取分别记账；读取或注入不证明采纳，不作为在线采纳率排序依据 | [记忆反馈契约](design/memory_feedback_reliability.md) |
 | Global 偏好 | 决策复核能向 global store 保存；当前 Dev 常驻偏好和 memory_search 仍以 project 为主，不能把保存成功说成跨项目生效 | `crates/kanzei-app/src/decisions.rs`、`crates/kanzei-tools/src/profiles/dev.rs`、`crates/kanzei-memory/src/memory/tools.rs` |
 | 并发 | 文档与记忆写入使用 FileLock；源码通过 worktree 隔离；进程内读槽/写槽和跨进程可见性各有职责 | `crates/kanzei-base/src/atomic_file.rs`、`crates/kanzei-core/src/runner/subagent.rs` |
+| 基础文件设施 | FileLock 统一使用标准库 OS 锁；CAS 在同一锁内校验并替换；日志区分正文、仅指纹、删除，查询错误显式返回；源码写入凭据按物理工作树隔离 | [基础设施重构与影响](reports/2026-10-03-base-refactor.md) |
+| 内容指纹 | 字节指纹统一使用 base 的 FNV-1a；architecture/conventions 在工具层先归一 CRLF/LF。旧规范建议稿保留原文与身份，基础版本无法核实时提示人工对照，保存仍校验本次读取的当前规范 | `crates/kanzei-tools/src/lib.rs`、`crates/kanzei-tools/src/conventions/drafts.rs` |
 | 会话与工作 | `state.db` 保存会话原始事件、运行状态、Work Unit 事件；这些不能从记忆 Markdown 重建。typed 与 legacy 恢复路径仍并存 | `crates/kanzei-core/src/store/`、`crates/kanzei-app/src/projection_gate.rs` |
 | 子代理 | task 支持持续团队：持久 ID、消息、继续/停止/重启、独立可写工作树、diff/adopt；自定义 Markdown persona 与步数保留，协作快照包含 children。应用重启后不自动重放写操作 | `crates/kanzei-tools/src/team/`、`crates/kanzei-app/src/agent_team.rs` |
 | 回退与分叉 | 用户消息旁 ↶：对话/代码/两者回退、外部变化预览与留证后强制还原、对话前缀分叉。Shell/Git/tracker/服务副作用不自动撤销，分叉不复制原工作树代码 | [入口与边界](reports/2026-10-02-harness-repair.md) |
@@ -48,3 +50,5 @@
 D-772、D-773、D-774 的具体修复和验收见 [自举修复记录](reports/2026-10-02-bootstrap-fixes.md)。
 
 桌面与独立后台按编入二进制的构建标识握手；升级时等待旧任务结束，再退出旧后台并连接新版本。当前发布仅支持 Windows x64 NSIS，CLI 与桌面端同批构建，重复打包复用提交时间标识。细节见 [桌面热修正](reports/2026-10-03-desktop-hotfix.md)。
+
+底层工作树已整合，后续后台基线与恢复失败路径修复见 [整合与运行状态修复](reports/2026-10-03-integration-and-runtime-fixes.md)。本轮仅本地整合，未发布。

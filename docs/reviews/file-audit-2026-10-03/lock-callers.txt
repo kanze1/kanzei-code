@@ -1,0 +1,110 @@
+crates\kanzei\tests\integration\d364_concurrent_doc_add.rs:80:    let lock = kanzei_tools::atomic_file::lock_exclusive(&req).expect("主进程应拿到锁");
+crates\kanzei\tests\integration\d364_concurrent_doc_add.rs:121:    let lock = kanzei_tools::atomic_file::lock_exclusive(&req).expect("主进程应拿到锁");
+crates\kanzei\tests\integration\d368_concurrent_memory_write.rs:130:    let fence = kanzei_tools::atomic_file::lock_exclusive(&root.join(".kanzei/memory"))
+crates\kanzei-tools\src\background.rs:271:                match crate::atomic_file::try_lock_exclusive(
+crates\kanzei-base\src\atomic_file.rs:252:pub fn lock_exclusive(target: &Path) -> std::io::Result<FileLock> {
+crates\kanzei-base\src\atomic_file.rs:253:    match try_lock_exclusive(target, DEFAULT_LOCK_BUDGET)? {
+crates\kanzei-base\src\atomic_file.rs:271:pub fn try_lock_exclusive(target: &Path, budget: Duration) -> std::io::Result<Option<FileLock>> {
+crates\kanzei-base\src\atomic_file.rs:357:pub fn lock_shared(target: &Path) -> std::io::Result<FileLock> {
+crates\kanzei-base\src\atomic_file.rs:358:    match try_lock_shared(target, DEFAULT_LOCK_BUDGET)? {
+crates\kanzei-base\src\atomic_file.rs:377:pub fn try_lock_shared(target: &Path, budget: Duration) -> std::io::Result<Option<FileLock>> {
+crates\kanzei-base\src\atomic_file.rs:720:        let a = try_lock_shared(&target, Duration::from_millis(50))
+crates\kanzei-base\src\atomic_file.rs:724:        let b = try_lock_shared(&target, Duration::from_millis(50))
+crates\kanzei-base\src\atomic_file.rs:730:            try_lock_shared(&target2, Duration::from_millis(200))
+crates\kanzei-base\src\atomic_file.rs:747:        let 写锁 = lock_exclusive(&target).unwrap();
+crates\kanzei-base\src\atomic_file.rs:751:            let 被挡 = try_lock_shared(&target2, Duration::from_millis(80))
+crates\kanzei-base\src\atomic_file.rs:755:            let 之后 = try_lock_shared(&target2, Duration::from_secs(2)).unwrap();
+crates\kanzei-base\src\atomic_file.rs:773:        let 读锁一 = try_lock_shared(&target, Duration::from_millis(50))
+crates\kanzei-base\src\atomic_file.rs:776:        let 读锁二 = try_lock_shared(&target, Duration::from_millis(50))
+crates\kanzei-base\src\atomic_file.rs:781:            let 被挡 = try_lock_exclusive(&target2, Duration::from_millis(80))
+crates\kanzei-base\src\atomic_file.rs:784:            let 之后 = try_lock_exclusive(&target2, Duration::from_secs(2)).unwrap();
+crates\kanzei-base\src\atomic_file.rs:802:        let 外层 = lock_exclusive(&target).unwrap();
+crates\kanzei-base\src\atomic_file.rs:804:        let 内层 = try_lock_shared(&target, Duration::from_millis(50))
+crates\kanzei-base\src\atomic_file.rs:812:            std::thread::spawn(move || try_lock_exclusive(&target2, Duration::from_secs(1))
+crates\kanzei-base\src\atomic_file.rs:826:        let _读锁 = try_lock_shared(&target, Duration::from_millis(50))
+crates\kanzei-base\src\atomic_file.rs:830:        let 结果 = try_lock_exclusive(&target, Duration::from_secs(5));
+crates\kanzei-base\src\atomic_file.rs:943:        let 外层 = try_lock_exclusive(&target, DEFAULT_LOCK_BUDGET)
+crates\kanzei-base\src\atomic_file.rs:948:        let 内层 = try_lock_exclusive(&target, DEFAULT_LOCK_BUDGET).unwrap();
+crates\kanzei-base\src\atomic_file.rs:956:                try_lock_exclusive(&target, Duration::from_millis(80))
+crates\kanzei-base\src\atomic_file.rs:967:                try_lock_exclusive(&target, DEFAULT_LOCK_BUDGET)
+crates\kanzei-base\src\atomic_file.rs:981:        let 持有 = try_lock_exclusive(&target, DEFAULT_LOCK_BUDGET)
+crates\kanzei-base\src\atomic_file.rs:989:                try_lock_exclusive(&target, Duration::from_millis(50)).map(|lock| lock.is_none())
+crates\kanzei-base\src\atomic_file.rs:1080:        let 外部 = try_lock_exclusive(&target, DEFAULT_LOCK_BUDGET)
+crates\kanzei-base\src\atomic_file.rs:1088:                let result = try_lock_exclusive(&target, Duration::from_millis(80));
+crates\kanzei-base\src\atomic_file.rs:1111:        let 外部 = try_lock_exclusive(&target, DEFAULT_LOCK_BUDGET)
+crates\kanzei-base\src\atomic_file.rs:1118:                let result = try_lock_shared(&target, Duration::from_millis(120));
+crates\kanzei-tools\src\conventions.rs:266:    let _lock = match crate::atomic_file::lock_exclusive(path) {
+crates\kanzei-memory\src\docstore\repository.rs:94:        crate::atomic_file::lock_exclusive(&self.path)
+crates\kanzei-memory\src\docstore\repository.rs:102:        crate::atomic_file::try_lock_exclusive(&self.path, budget)
+crates\kanzei-memory\src\docstore\repository.rs:116:        // 排他持有者内部调 load 走重入(见 atomic_file 的 try_lock_shared),不自锁。
+crates\kanzei-memory\src\docstore\repository.rs:117:        let _lock = crate::atomic_file::lock_shared(&self.path)?;
+crates\kanzei-tools\src\conventions\drafts.rs:44:    let _lock = crate::atomic_file::lock_exclusive(&path).map_err(|e| e.to_string())?;
+crates\kanzei-tools\src\conventions\drafts.rs:61:    let _lock = crate::atomic_file::lock_exclusive(&path).map_err(|e| e.to_string())?;
+crates\kanzei-tools\src\conventions\drafts.rs:86:    let _lock = crate::atomic_file::lock_exclusive(&path).map_err(|e| e.to_string())?;
+crates\kanzei-tools\src\conventions\drafts.rs:122:    let _lock = crate::atomic_file::lock_exclusive(&root.join(CONVENTIONS_REL))
+crates\kanzei-tools\src\incident.rs:379:    kanzei_base::atomic_file::lock_exclusive(path).map_err(|error| error.to_string())
+crates\kanzei-tools\src\latex_tool\paper.rs:7:    let _lock = match kanzei_base::atomic_file::lock_exclusive(&lock) {
+crates\kanzei-tools\src\managed.rs:284:/// 直接返回空锁组——`try_lock_exclusive` 会 `create_dir_all` 父目录,在一个不是
+crates\kanzei-tools\src\managed.rs:306:                let lock = crate::atomic_file::try_lock_shared(path, LOCK_ACQUIRE_BUDGET)
+crates\kanzei-tools\src\managed.rs:540:            let _lock = crate::atomic_file::lock_exclusive(&memory_root).unwrap();
+crates\kanzei-tools\src\managed.rs:595:            crate::atomic_file::try_lock_exclusive(&doc2, std::time::Duration::from_millis(150))
+crates\kanzei-tools\src\managed.rs:608:            crate::atomic_file::try_lock_exclusive(&doc, std::time::Duration::from_secs(2))
+crates\kanzei-tools\src\managed.rs:677:                crate::atomic_file::try_lock_exclusive(&req, std::time::Duration::from_millis(150))
+crates\kanzei-tools\src\managed.rs:699:            std::thread::spawn(move || crate::atomic_file::lock_exclusive(&req).is_ok())
+crates\kanzei-tools\src\managed.rs:755:                crate::atomic_file::try_lock_exclusive(
+crates\kanzei-tools\src\managed.rs:782:            std::thread::spawn(move || crate::atomic_file::lock_exclusive(&mem_root).is_ok())
+crates\kanzei-memory\src\memory\inbox.rs:479:        let tree_lock = crate::atomic_file::try_lock_exclusive(
+crates\kanzei-memory\src\memory\telemetry.rs:21:        let Ok(Some(_tree_lock)) = crate::atomic_file::try_lock_exclusive(
+crates\kanzei-memory\src\memory\store.rs:186:        Ok(crate::atomic_file::lock_exclusive(&self.root)?)
+crates\kanzei-tools\src\prior_art.rs:476:    let _lock = kanzei_base::atomic_file::lock_exclusive(&state_path)
+crates\kanzei-core\src\runner\tool_exec.rs:168:    kanzei_base::atomic_file::try_lock_exclusive(&target, budget)
+crates\kanzei-core\src\store\rewind.rs:352:        kanzei_base::atomic_file::try_lock_exclusive(&path, std::time::Duration::from_secs(2))
+crates\kanzei-tools\src\research_index.rs:61:    let _lock = kanzei_base::atomic_file::lock_exclusive(path)
+crates\kanzei-tools\src\research_loop.rs:103:    let _lock = kanzei_base::atomic_file::lock_exclusive(&path)
+crates\kanzei-tools\src\research_plan.rs:187:    let _lock = kanzei_base::atomic_file::lock_exclusive(&path)
+crates\kanzei-tools\src\research_verify.rs:36:    let _lock = kanzei_base::atomic_file::lock_exclusive(path)
+crates\kanzei-tools\src\research_write.rs:253:    let _lock = kanzei_base::atomic_file::lock_exclusive(path)
+crates\kanzei-tools\src\research_workflow.rs:201:    let _lock = kanzei_base::atomic_file::lock_exclusive(&path).map_err(|e| e.to_string())?;
+crates\kanzei-tools\src\research_workflow.rs:231:    let _lock = kanzei_base::atomic_file::lock_exclusive(&file).map_err(|e| e.to_string())?;
+crates\kanzei-tools\src\research_workflow.rs:295:    let _lock = kanzei_base::atomic_file::lock_exclusive(&file).map_err(|e| e.to_string())?;
+crates\kanzei-tools\src\research_workflow.rs:710:        Some(kanzei_base::atomic_file::lock_exclusive(&file).map_err(|e| e.to_string())?)
+crates\kanzei-tools\src\symbols.rs:32:    /// (如 `try_lock_exclusive` 或 `crate::atomic_file::try_lock_exclusive`),
+crates\kanzei-tools\src\symbols.rs:478:    // R-265:限定路径解释——`crate::atomic_file::try_lock_exclusive` 等带 crate
+crates\kanzei-tools\src\symbols.rs:1518:    /// R-265 验收①/②:对**真实仓库**穿透跨 crate re-export——try_lock_exclusive
+crates\kanzei-tools\src\symbols.rs:1537:        // ①验收①:define=try_lock_exclusive 命中 kanzei-base/src/atomic_file.rs。
+crates\kanzei-tools\src\symbols.rs:1538:        let report = resolve_define(&files, "try_lock_exclusive", repo);
+crates\kanzei-tools\src\symbols.rs:1540:            report.contains("atomic_file.rs") && report.contains("try_lock_exclusive"),
+crates\kanzei-tools\src\symbols.rs:1545:        // 让 try_lock_exclusive 在 kanzei-tools crate 可见——模块整体型链。
+crates\kanzei-tools\src\schedules\executor.rs:240:            kanzei_base::atomic_file::lock_exclusive(&definition).map_err(|e| e.to_string())?;
+crates\kanzei-app\src\decisions.rs:187:    let _guard = kanzei_tools::atomic_file::lock_exclusive(&root.join(".kanzei/decision-reviews"))
+crates\kanzei-app\src\decisions.rs:233:        kanzei_tools::atomic_file::lock_exclusive(&memory.root.join("decision-preferences"))?;
+crates\kanzei-tools\src\schedules\hosts.rs:263:                kanzei_base::atomic_file::lock_exclusive(&lock_path).map_err(|e| e.to_string())?;
+crates\kanzei-tools\src\schedules\mod.rs:414:    let _lock = kanzei_base::atomic_file::try_lock_exclusive(&path, Duration::from_millis(100))
+crates\kanzei-harness\src\pending_question.rs:15:    let _lock = atomic_file::lock_exclusive(&path).map_err(|e| e.to_string())?;
+crates\kanzei-harness\src\pending_question.rs:58:    let _lock = atomic_file::lock_exclusive(&path).map_err(|e| e.to_string())?;
+crates\kanzei-tools\src\team\workspace.rs:140:        kanzei_base::atomic_file::lock_exclusive(&actual.join(".kanzei/general-workspace.lock"))?;
+crates\kanzei-tools\src\test_record.rs:55:/// ——`atomic_file::try_lock_exclusive` 的定位就是这条"做不成也无所谓"的路径。
+crates\kanzei-tools\src\test_record.rs:71:    crate::atomic_file::lock_exclusive(&root.join(TEST_RUNS_REL)).map_err(|e| e.to_string())
+crates\kanzei-tools\src\test_record.rs:347:/// 卡住是拿更重的问题换更轻的(`atomic_file::try_lock_exclusive` 的定位即此)。
+crates\kanzei-tools\src\test_record.rs:356:    let Some(_lock) = crate::atomic_file::try_lock_exclusive(active_path, ARCHIVE_LOCK_BUDGET)
+crates\kanzei-tools\src\test_record.rs:1901:        let 锁 = crate::atomic_file::lock_exclusive(&目标).unwrap();
+crates\kanzei-tools\src\test_record.rs:1943:        let 锁 = crate::atomic_file::lock_exclusive(&目标).unwrap();
+crates\kanzei-tools\src\web_refs.rs:45:    let _lock = crate::atomic_file::lock_exclusive(&path).map_err(|error| error.to_string())?;
+crates\kanzei-tools\src\web_refs.rs:93:    let _lock = crate::atomic_file::lock_exclusive(&path).map_err(|error| error.to_string())?;
+crates\kanzei-tools\src\write.rs:138:            kanzei_base::atomic_file::try_lock_exclusive(&path, std::time::Duration::from_secs(2))?
+crates\kanzei-tools\src\tracker.rs:429:            match crate::atomic_file::lock_exclusive(&work_selection_path) {
+crates\kanzei-tools\src\verification\worker.rs:25:        crate::atomic_file::try_lock_exclusive(&job_file(&root, id)?, Duration::ZERO)?
+crates\kanzei-tools\src\verification\worker.rs:58:        if let Some(lock) = crate::atomic_file::try_lock_exclusive(&resource, Duration::ZERO)? {
+crates\kanzei-tools\src\verification\mod.rs:118:    Ok(crate::atomic_file::lock_exclusive(
+crates\kanzei-tools\src\verification\mod.rs:289:        if let Some(_guard) = crate::atomic_file::try_lock_exclusive(
+crates\kanzei-tools\src\work\log.rs:77:    let Ok(_guard) = kanzei_base::atomic_file::lock_exclusive(&path) else {
+crates\kanzei-tools\src\work\tool.rs:135:    let _work_lock = match crate::atomic_file::lock_exclusive(&work_lock_path) {
+crates\kanzei-tools\src\work\tool.rs:637:        let _work_lock = match crate::atomic_file::lock_exclusive(&work_lock_path) {
+crates\kanzei-app\src\memory_chat.rs:16:    atomic_file::{lock_exclusive, write_atomic_cas},
+crates\kanzei-app\src\memory_chat.rs:89:    let _lock = lock_exclusive(&path).map_err(|error| error.to_string())?;
+crates\kanzei-app\src\memory_chat.rs:251:    let _lock = lock_exclusive(&path).map_err(|error| error.to_string())?;
+crates\kanzei-app\src\prefs.rs:239:    kanzei_tools::atomic_file::lock_exclusive(&prefs_path()).map_err(|e| e.to_string())
+crates\kanzei-app\src\research_library.rs:4:use kanzei_tools::atomic_file::{lock_exclusive, write_atomic};
+crates\kanzei-app\src\research_library.rs:42:    let _lock = lock_exclusive(&path).map_err(|e| e.to_string())?;
+crates\kanzei-app\src\runtime_service.rs:372:    kanzei_tools::atomic_file::try_lock_exclusive(&directory().join("owner"), Duration::ZERO)
+crates\kanzei-app\src\schedules.rs:26:        kanzei_tools::atomic_file::try_lock_exclusive(path, std::time::Duration::from_secs(2))

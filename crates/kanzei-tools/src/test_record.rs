@@ -226,6 +226,10 @@ impl Tool for TestRecordTool {
         } else {
             String::new()
         };
+        let _lock = match lock_test_runs(&root) {
+            Ok(lock) => lock,
+            Err(error) => return ToolOutput::error(error),
+        };
         match record_test_run_with_duration(
             &root,
             input.id.as_deref(),
@@ -240,12 +244,11 @@ impl Tool for TestRecordTool {
             Ok(snapshot) => {
                 // D-398:test_record 是 tests.md 与 tests-archive.md 的专用写者——
                 // 写日志(围栏收口归因凭据;此前零接入,窗口重叠即被误回滚)。
-                crate::record_write_log(ctx, TEST_RUNS_REL, &root.join(TEST_RUNS_REL));
-                crate::record_write_log(
-                    ctx,
-                    TEST_RUNS_ARCHIVE_REL,
-                    &root.join(TEST_RUNS_ARCHIVE_REL),
-                );
+                for path in TEST_RUNS_GOVERNANCE_PATHS {
+                    if let Err(error) = crate::record_write_log(ctx, path, &root.join(path)) {
+                        return ToolOutput::error(error);
+                    }
+                }
                 ToolOutput::ok(render_snapshot(&snapshot))
             }
             Err(err) => ToolOutput::error(err),
@@ -2266,7 +2269,7 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        let logs = crate::write_log::entries_after(&root, 0);
+        let logs = crate::write_log::entries_after(&root, 0).unwrap();
         let paths: Vec<String> = logs.iter().map(|l| l.path.clone()).collect();
         assert!(
             paths.iter().any(|p| p.ends_with(TEST_RUNS_REL)),

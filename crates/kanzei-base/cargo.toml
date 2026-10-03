@@ -2,6 +2,7 @@
 name = "kanzei-base"
 version.workspace = true
 edition.workspace = true
+rust-version = "1.89"
 license.workspace = true
 description = "原子写与文件锁"
 

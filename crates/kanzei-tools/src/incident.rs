@@ -215,7 +215,6 @@ impl Tool for IncidentTool {
         match input.action {
             IncidentAction::Record => match append_record(&path, &input, ctx) {
                 Ok(record) => {
-                    crate::record_write_log(ctx, INCIDENTS_REL, &path);
                     let mut content = serde_json::to_string_pretty(&record).unwrap();
                     if let Err(warning) = commit_promotion_gate(&ctx.project_root) {
                         content.push_str("\n\n");
@@ -229,10 +228,7 @@ impl Tool for IncidentTool {
                 let incident_id = input.incident_id.as_deref().unwrap_or_default();
                 let defect_id = input.defect_id.as_deref().unwrap_or_default();
                 match append_promotion(&path, incident_id, defect_id, ctx) {
-                    Ok(event) => {
-                        crate::record_write_log(ctx, INCIDENTS_REL, &path);
-                        ToolOutput::ok(serde_json::to_string_pretty(&event).unwrap())
-                    }
+                    Ok(event) => ToolOutput::ok(serde_json::to_string_pretty(&event).unwrap()),
                     Err(error) => ToolOutput::error(format!("incident 晋升互链失败: {error}")),
                 }
             }
@@ -311,6 +307,7 @@ fn append_record(
         promotion_reason: None,
     };
     append_locked(path, &record)?;
+    crate::record_write_log(ctx, INCIDENTS_REL, path)?;
     Ok(record)
 }
 
@@ -372,6 +369,7 @@ fn append_promotion(
         promotion_reason: Some("incident promotion acknowledged by defect linkage".into()),
     };
     append_locked(path, &event)?;
+    crate::record_write_log(ctx, INCIDENTS_REL, path)?;
     Ok(event)
 }
 

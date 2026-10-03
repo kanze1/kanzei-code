@@ -575,7 +575,11 @@ impl Tool for TrackerTool {
         if !output.is_error && WRITE_ACTIONS.contains(&action_str.as_str()) {
             // 活动文件记写日志(D-398 收敛到共享 helper;路径+写后指纹+身份)。
             if let Ok(relative) = store.path.strip_prefix(&ctx.project_root) {
-                crate::record_write_log(ctx, &relative.display().to_string(), &store.path);
+                if let Err(error) =
+                    crate::record_write_log(ctx, &relative.display().to_string(), &store.path)
+                {
+                    return ToolOutput::error(error);
+                }
             }
             // D-569:fix_terminal/archive_fill/normalize 也可能改写归档文件,必须和
             // archive 一样记录归档侧凭据,否则 bash 围栏会把合法修复回滚。
@@ -584,7 +588,11 @@ impl Tool for TrackerTool {
             {
                 let archive_file = store.archive_file();
                 if let Ok(relative) = archive_file.strip_prefix(&ctx.project_root) {
-                    crate::record_write_log(ctx, &relative.display().to_string(), &archive_file);
+                    if let Err(error) =
+                        crate::record_write_log(ctx, &relative.display().to_string(), &archive_file)
+                    {
+                        return ToolOutput::error(error);
+                    }
                 }
             }
         }
@@ -3899,7 +3907,7 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        let logs = crate::write_log::entries_after(&dir, 0);
+        let logs = crate::write_log::entries_after(&dir, 0).unwrap();
         let active_rel = store
             .path
             .strip_prefix(&dir)
@@ -4721,7 +4729,7 @@ mod tests {
         assert!(!out.is_error, "{}", out.content);
 
         // 写日志落盘,且路径/指纹/身份与本次写入一致。
-        let logs = crate::write_log::entries_after(&dir, 0);
+        let logs = crate::write_log::entries_after(&dir, 0).unwrap();
         assert_eq!(logs.len(), 1, "一次 add 应产出一条写日志");
         let log = &logs[0];
         assert_eq!(

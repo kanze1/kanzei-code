@@ -95,30 +95,35 @@ pub(crate) fn write_error(
 ///
 /// 写日志是 bash 围栏收口对账的归因凭据:跨树围栏看到其它线树里的文件变了,
 /// 查日志即可区分「该线专用工具的合法自写」与「他线 shell 越界写」。
-/// `path` 用相对 `ctx.cwd` 的路径(跨树快照的 key 就是相对树根的路径,而
-/// worktree 线的 cwd 就是树根,两端口径天然一致)。先写文档再记日志(「写后」
-/// 凭据,见 write_log 模块头契约)。
-pub(crate) fn record_worktree_write_log(ctx: &ToolCtx, rel_path: &str, content: &[u8]) {
+/// 日志根与 checkpoint 共用代码树根判定；文件路径解析后相对树根记录。
+/// 子目录 cwd、绝对路径和相对路径使用同一本日志、同一个键。
+fn record_worktree_write_log(ctx: &ToolCtx, path: &Path, content: &[u8]) -> std::io::Result<()> {
     if ctx.run_id.is_none() || ctx.project_root.as_os_str().is_empty() {
-        return;
+        return Ok(());
     }
-    let key = rel_path.replace('\\', "/");
-    let _ = crate::write_log::record(
-        &ctx.project_root,
+    let root = kanzei_core::store::file_checkpoint_tree_root(&ctx.cwd, &ctx.project_root)
+        .canonicalize()?;
+    let path = path.canonicalize()?;
+    // 只为本工作树内的文件提供归因凭据；工具允许的树外文件不属于这本日志。
+    let Ok(relative) = path.strip_prefix(&root) else {
+        return Ok(());
+    };
+    crate::write_log::record(
+        &root,
         &crate::write_log::WriteLogEntry {
             at_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or_default(),
-            path: key,
+                .map_err(std::io::Error::other)?
+                .as_millis(),
+            path: relative.display().to_string().replace('\\', "/"),
             fingerprint: crate::content_hash(content),
-            content: content.to_vec(),
+            content: crate::write_log::LoggedContent::Stored(content.to_vec()),
             run_id: ctx.run_id.clone(),
             process_id: ctx.process_id.clone(),
         },
-    );
+    )
+    .map(|_| ())
 }
-
 /// R-366 B1:带身份的写入先登记文件前像,写后记后像哈希。
 ///
 /// 审计 18:前像、落盘、后像整段放进一个 spawn_blocking——稳态只 open 一次 state.db,
@@ -170,6 +175,9 @@ pub(crate) async fn file_checkpointed_write(
             )?,
             None => kanzei_base::atomic_file::write_atomic_bytes_guarded(&path, &bytes, check)?,
         }
+        record_worktree_write_log(&ctx, &path, &bytes).map_err(|error| {
+            std::io::Error::other(format!("文件已写入，但写入凭据记录失败：{error}"))
+        })?;
         if let Some(ledger) = &ctx.read_ledger {
             ledger.record(&path, crate::content_hash(&bytes));
         }
@@ -322,8 +330,6 @@ impl Tool for WriteTool {
         if let Err(e) = file_checkpointed_write(ctx, &path, input.content.as_bytes()).await {
             return write_error(&path, e, "WRITE_FAILED");
         }
-        // D-395:写日志凭据——write 是专用写者,写后留痕供跨树围栏吸收。
-        record_worktree_write_log(ctx, &input.path, input.content.as_bytes());
         let mut message = format!("wrote {} bytes to {}", input.content.len(), path.display());
         let validation = crate::local_validation::validate_after_write(
             &path,
@@ -567,7 +573,7 @@ mod tests {
             .unwrap();
         assert_eq!((pre_exists, blob, pre_bytes), (0, None, 0));
         assert!(root.join(".kanzei/.write-log").is_dir());
-        let logs = crate::write_log::entries_after(&root, 0);
+        let logs = crate::write_log::entries_after(&root, 0).unwrap();
         assert!(
             logs.iter().any(|entry| {
                 entry.path == "created.txt"
@@ -608,6 +614,62 @@ mod tests {
         assert!(!output.is_error, "{output:?}");
         assert!(!root_without_project.join(".kanzei").exists());
         std::fs::remove_dir_all(root_without_project).ok();
+    }
+
+    #[tokio::test]
+    async fn write_logs_belong_to_physical_worktree_and_failures_reach_caller() {
+        use kanzei_harness::Tool;
+
+        let project = checkpoint_temp_root("journal-project");
+        let tree = checkpoint_temp_root("journal-tree");
+        let ctx = ToolCtx::new(tree.clone(), project.clone()).with_identity(
+            "tree-key".into(),
+            "project-key".into(),
+            "journal-run".into(),
+            "journal-process".into(),
+        );
+        let output = WriteTool
+            .execute(
+                serde_json::json!({"path": "new.txt", "content": "first"}),
+                &ctx,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        let logs = crate::write_log::entries_after(&tree, 0).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].path, "new.txt");
+        assert!(logs[0].matches_content(Some(b"first")));
+        assert!(!project.join(".kanzei/.write-log").exists());
+
+        let outside = project.join("outside.txt");
+        let output = WriteTool
+            .execute(
+                serde_json::json!({"path": outside, "content": "outside"}),
+                &ctx,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        assert_eq!(std::fs::read_to_string(outside).unwrap(), "outside");
+        assert_eq!(crate::write_log::entries_after(&tree, 0).unwrap().len(), 1);
+
+        std::fs::write(tree.join(".kanzei/.write-log/0-broken.log"), "broken").unwrap();
+        let output = WriteTool
+            .execute(
+                serde_json::json!({"path": "new.txt", "content": "second"}),
+                &ctx,
+            )
+            .await;
+        assert!(output.is_error, "{output:?}");
+        assert!(
+            output.content.contains("文件已写入，但写入凭据记录失败"),
+            "{output:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(tree.join("new.txt")).unwrap(),
+            "second"
+        );
+        std::fs::remove_dir_all(tree).unwrap();
+        std::fs::remove_dir_all(project).unwrap();
     }
 
     fn checkpoint_temp_root(label: &str) -> std::path::PathBuf {
@@ -669,6 +731,10 @@ mod tests {
         assert_eq!(tree_root, root.to_string_lossy());
         assert_eq!(rel_path, "sub/x.txt");
         assert_eq!(pre_exists, 0);
+        let logs = crate::write_log::entries_after(&root, 0).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].path, "sub/x.txt");
+        assert!(!sub.join(".kanzei/.write-log").exists());
         drop(db);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -890,6 +956,9 @@ mod tests {
             "Sub/X.txt"
         };
         assert_eq!(from_relative, expected);
+        let logs = crate::write_log::entries_after(&root, 0).unwrap();
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0].path, logs[1].path);
         drop(db);
         std::fs::remove_dir_all(&root).ok();
     }

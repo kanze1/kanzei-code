@@ -450,7 +450,7 @@ pub(crate) fn check_registration(
         Some(input.id),
     )?;
     if start.created {
-        crate::record_write_log(ctx, &start.relative_path, &start.absolute_path);
+        crate::record_write_log(ctx, &start.relative_path, &start.absolute_path)?;
     }
     // 捕获用户意图先落 todo；完整双侧调研仍是进入实施的硬门禁。
     Ok(Some(("先行调研".into(), start.relative_path)))
@@ -553,7 +553,11 @@ impl Tool for PriorArtTool {
             ) {
                 Ok(start) => {
                     if start.created {
-                        crate::record_write_log(ctx, &start.relative_path, &start.absolute_path);
+                        if let Err(error) =
+                            crate::record_write_log(ctx, &start.relative_path, &start.absolute_path)
+                        {
+                            return ToolOutput::error(error);
+                        }
                     }
                     ToolOutput::ok(
                         serde_json::json!({

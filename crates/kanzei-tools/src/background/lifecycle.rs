@@ -124,16 +124,40 @@ pub(super) async fn reconcile(
     let baseline = process.baseline();
     let current = ManagedSnapshot::capture(&root);
     let change = crate::managed::diff(&baseline, &current)?;
-    let (legitimate, breach) = change.partition(kanzei_harness::managed_fence::write_in_progress);
+    let (_, breach) = change.partition(kanzei_harness::managed_fence::write_in_progress);
     if breach.is_empty() {
         return None;
     }
-    let (quarantine, restored) = crate::managed::quarantine_and_restore(
+    let (quarantine, restored) = match crate::managed::quarantine_and_restore(
         &root,
         &baseline,
         &breach,
+        &[],
         &format!("bg-{}", process.id),
-    );
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            let message = format!("\n[managed-files] 自动回滚失败：{error}\n");
+            super::registration::append_bounded(
+                &process.output,
+                &process.truncated,
+                message.as_bytes(),
+            );
+            process
+                .output_total
+                .fetch_add(message.len() as u64, std::sync::atomic::Ordering::SeqCst);
+            // A failed evidence copy/restore must not let the violating process
+            // keep writing. Preserve its output and stop it just as on success.
+            if kill_on_breach {
+                if let Some(pid) = process.pid {
+                    if crate::shell::kill_tree(pid).await {
+                        process.mark_terminated();
+                    }
+                }
+            }
+            return None;
+        }
+    };
     let record = BreachRecord {
         at_ms: now_ms(),
         touched: breach.touched().into_iter().cloned().collect(),
@@ -148,14 +172,9 @@ pub(super) async fn reconcile(
             }
         }
     }
-    let mut new_baseline = baseline;
-    let legitimate_paths: Vec<&str> = legitimate
-        .touched()
-        .into_iter()
-        .map(|s| s.as_str())
-        .collect();
-    new_baseline.absorb_paths(&current, &legitimate_paths);
-    process.set_baseline(new_baseline);
+    // Only the window-close observer commits legitimate changes. An unrelated
+    // breach must neither absorb an open window nor overwrite a newer baseline
+    // published while process termination was awaiting completion.
     Some(record)
 }
 

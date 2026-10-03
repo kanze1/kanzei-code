@@ -525,20 +525,30 @@ pub(crate) fn enforce_other_trees_with_command(
     // D-395:写日志对账——窗口内该树自己线的专用工具写入(有日志且写后指纹 ==
     // 当前快照指纹)视为合法自写,吸收进基线不回滚不报告。与托管围栏同口径
     // (R-268):只认窗口起点之后的日志,终态一致才算命中。三态适配(D-396):
-    // 只有拿得到写后内容(Content)或删除(按空内容)才可对账吸收;Fingerprint
+    // 只有拿得到写后内容(Content)或确认删除才可对账吸收;Fingerprint
     // 无内容可验指纹,宁可保留报告也不吸收。
-    let logs = crate::write_log::entries_after(project_root, window_start_ms);
-    let covered_by_log = |rel: &str, after_image: &Option<FileImage>| -> bool {
-        let fingerprint = match after_image {
-            Some(FileImage::Content { bytes, .. }) => crate::content_hash(bytes),
-            Some(FileImage::Fingerprint { .. }) | Some(FileImage::Absent) => return false,
-            None => crate::content_hash(&[]),
-        };
-        logs.iter().any(|entry| {
-            entry.path == rel && entry.fingerprint == fingerprint && entry.at_ms >= window_start_ms
-        })
-    };
     for (root, before_files) in &before.trees {
+        // 每棵物理工作树拥有自己的日志，两个树的同名文件不能互相提供写入凭据。
+        let logs = match crate::write_log::entries_after(root, window_start_ms) {
+            Ok(logs) => logs,
+            Err(error) => {
+                return Some(format!(
+                    "[cross-tree] {} 写日志读取失败，无法核实写入归因：{error}",
+                    root.display()
+                ))
+            }
+        };
+        let latest = crate::write_log::latest_by_path(&logs);
+        let covered_by_log = |rel: &str, after_image: &Option<FileImage>| -> bool {
+            let content = match after_image {
+                Some(FileImage::Content { bytes, .. }) => Some(bytes.as_slice()),
+                Some(FileImage::Fingerprint { .. }) | Some(FileImage::Absent) => return false,
+                None => None,
+            };
+            latest
+                .get(rel)
+                .is_some_and(|entry| entry.matches_content(content))
+        };
         let after_files = after_meta.get(root).cloned().unwrap_or_default();
         let mut tree_changes = BTreeMap::new();
         for (rel, before_image) in before_files {
@@ -837,7 +847,7 @@ mod tests {
         let new_content = "B 线窗口内自己的修改\n".as_bytes();
         std::fs::write(b.join(rel), new_content).unwrap();
         crate::write_log::record(
-            &root,
+            &b,
             &crate::write_log::WriteLogEntry {
                 at_ms: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -845,7 +855,7 @@ mod tests {
                     .as_millis(),
                 path: rel.to_string(),
                 fingerprint: crate::content_hash(new_content),
-                content: new_content.to_vec(),
+                content: kanzei_base::write_log::LoggedContent::Stored(new_content.to_vec()),
                 run_id: Some("run-b".into()),
                 process_id: Some("proc-b".into()),
             },
@@ -871,6 +881,30 @@ mod tests {
             "B 线的自写必须原样保留"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn same_relative_path_in_other_tree_cannot_supply_a_credential() {
+        let root = git_repo("kz-ct-log-scope");
+        let b = add_worktree(&root, "line-b");
+        let before = capture_other_trees(&root, &root).unwrap();
+        let bytes = b"same bytes in different trees";
+        std::fs::write(b.join("seed.txt"), bytes).unwrap();
+        crate::write_log::record(
+            &root,
+            &crate::write_log::WriteLogEntry {
+                at_ms: 100,
+                path: "seed.txt".into(),
+                fingerprint: crate::content_hash(bytes),
+                content: crate::write_log::LoggedContent::Stored(bytes.to_vec()),
+                run_id: Some("run-main".into()),
+                process_id: None,
+            },
+        )
+        .unwrap();
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), None, 0).unwrap();
+        assert!(report.contains("seed.txt"), "{report}");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// D-395:同一窗口内 A 越界写 B 树(无写日志凭据)照旧检出——吸收只认

@@ -832,57 +832,40 @@ impl MemoryStore {
             Some(p) => p.to_path_buf(),
             None => self.root.join(format!("{}.md", entry.file_stem())),
         };
-        crate::atomic_file::write_atomic(&path, &render_entry(entry))?;
-        // R-268:写后记写日志——围栏收口对账的归因凭据(memory 写入口与 tracker
-        // 同口径:先写文档再记日志)。global scope 无项目主根,不记。
-        if let Some(project_root) = &self.project_root {
-            if let Ok(relative) = path.strip_prefix(project_root) {
-                let rendered = render_entry(entry);
-                // D-399:record 失败至少告警(契约「宁可失败不静默」)。
-                if let Err(e) = kanzei_base::write_log::record(
-                    project_root,
-                    &kanzei_base::write_log::WriteLogEntry {
-                        at_ms: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis())
-                            .unwrap_or_default(),
-                        path: relative.display().to_string().replace('\\', "/"),
-                        fingerprint: kanzei_base::content_hash(rendered.as_bytes()),
-                        content: rendered.into_bytes(),
-                        run_id: None,
-                        process_id: None,
-                    },
-                ) {
-                    eprintln!("[write-log] record failed for {}: {e}", relative.display());
-                }
-            }
-        }
+        let rendered = render_entry(entry);
+        crate::atomic_file::write_atomic(&path, &rendered)?;
+        self.record_write_log(&path, Some(rendered.into_bytes()))?;
         Ok(())
     }
 
-    fn record_write_log(&self, path: &Path, content: Vec<u8>) {
+    /// 在记忆树写锁内调用；None 表示合法删除，Some(empty) 表示空文件。
+    pub(super) fn record_write_log(
+        &self,
+        path: &Path,
+        content: Option<Vec<u8>>,
+    ) -> anyhow::Result<()> {
         let Some(project_root) = &self.project_root else {
-            return;
+            return Ok(());
         };
-        let Ok(relative) = path.strip_prefix(project_root) else {
-            return;
-        };
-        let _ = kanzei_base::write_log::record(
+        let relative = path.strip_prefix(project_root)?;
+        kanzei_base::write_log::record(
             project_root,
             &kanzei_base::write_log::WriteLogEntry {
                 at_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or_default(),
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_millis(),
                 path: relative.display().to_string().replace('\\', "/"),
-                fingerprint: kanzei_base::content_hash(&content),
-                content,
+                fingerprint: kanzei_base::content_hash(content.as_deref().unwrap_or(&[])),
+                content: content.map_or(
+                    kanzei_base::write_log::LoggedContent::Deleted,
+                    kanzei_base::write_log::LoggedContent::Stored,
+                ),
                 run_id: None,
                 process_id: None,
             },
-        );
+        )?;
+        Ok(())
     }
-
     /// 检查 INDEX 的每条派生行仍与 Markdown 真源的 description 一致。
     /// 该断言必须位于写入前，避免生成器未来改动时静默重新引入串号。
     fn assert_index_matches_entries(
@@ -941,7 +924,7 @@ impl MemoryStore {
         // D-368:派生物重建(归档搬移 + INDEX.md + FTS index.db)整体持记忆树锁,
         // 并与围栏收口共享锁互斥,让 after 快照只看到完整终态。
         let _tree_lock = self.tree_lock()?;
-        let _archived = self.archive_dead();
+        let _archived = self.archive_dead()?;
         let entries = self.load_all();
         // INDEX.md:一行一条(仅 active),candidate 折叠为计数(未验证不占索引面)。
         let mut index = format!("# Memory Index ({})\n\n", self.scope.label());
@@ -963,28 +946,7 @@ impl MemoryStore {
             Self::assert_index_matches_entries(&index, &entries)?;
         }
         crate::atomic_file::write_atomic(&self.index_md(), &index)?;
-        // R-268:INDEX.md 是围栏可见的托管文件,写后记日志(同 write_entry 口径)。
-        if let Some(project_root) = &self.project_root {
-            if let Ok(relative) = self.index_md().strip_prefix(project_root) {
-                // D-399:record 失败至少告警。
-                if let Err(e) = kanzei_base::write_log::record(
-                    project_root,
-                    &kanzei_base::write_log::WriteLogEntry {
-                        at_ms: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis())
-                            .unwrap_or_default(),
-                        path: relative.display().to_string().replace('\\', "/"),
-                        fingerprint: kanzei_base::content_hash(index.as_bytes()),
-                        content: index.into_bytes(),
-                        run_id: None,
-                        process_id: None,
-                    },
-                ) {
-                    eprintln!("[write-log] record failed for {}: {e}", relative.display());
-                }
-            }
-        }
+        self.record_write_log(&self.index_md(), Some(index.into_bytes()))?;
 
         let conn = self.open_db()?;
         conn.execute("DELETE FROM memory_fts", [])?;
@@ -1005,29 +967,7 @@ impl MemoryStore {
         }
         // R-268:FTS index.db 是围栏可见的托管文件(SQLite 二进制),写后记日志——
         // 指纹 + 内容快照(库通常小;围栏收口按日志吸收,不把它当越界回滚)。
-        if let Some(project_root) = &self.project_root {
-            if let Ok(relative) = self.db_path().strip_prefix(project_root) {
-                if let Ok(db_bytes) = std::fs::read(self.db_path()) {
-                    // D-399:record 失败至少告警。
-                    if let Err(e) = kanzei_base::write_log::record(
-                        project_root,
-                        &kanzei_base::write_log::WriteLogEntry {
-                            at_ms: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or_default(),
-                            path: relative.display().to_string().replace('\\', "/"),
-                            fingerprint: kanzei_base::content_hash(&db_bytes),
-                            content: db_bytes,
-                            run_id: None,
-                            process_id: None,
-                        },
-                    ) {
-                        eprintln!("[write-log] record failed for {}: {e}", relative.display());
-                    }
-                }
-            }
-        }
+        self.record_write_log(&self.db_path(), Some(std::fs::read(self.db_path())?))?;
         Ok(())
     }
 
@@ -2117,13 +2057,13 @@ mod tests {
             .root
             .join(format!("{}.md", entry.file_stem()))
             .exists());
-        let logs = kanzei_base::write_log::entries_after(&dir, 0);
+        let logs = kanzei_base::write_log::entries_after(&dir, 0).unwrap();
         let source_path = format!(".kanzei/memory/{}.md", entry.file_stem());
         let archive_path = format!(".kanzei/memory/archive/{}.md", entry.file_stem());
         assert!(
             logs.iter().any(|log| {
                 log.path == source_path
-                    && log.content.is_empty()
+                    && log.content == kanzei_base::write_log::LoggedContent::Deleted
                     && log.fingerprint == kanzei_base::content_hash(&[])
             }),
             "归档必须为源文件删除留下写日志: {logs:?}"

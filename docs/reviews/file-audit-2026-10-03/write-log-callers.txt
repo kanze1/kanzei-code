@@ -1,0 +1,71 @@
+crates\kanzei-base\src\write_log.rs:24:pub struct WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:40:impl WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:59:pub fn record(project_root: &Path, entry: &WriteLogEntry) -> std::io::Result<PathBuf> {
+crates\kanzei-base\src\write_log.rs:83:    entry: WriteLogEntry,
+crates\kanzei-base\src\write_log.rs:201:fn encode(entry: &WriteLogEntry) -> String {
+crates\kanzei-base\src\write_log.rs:218:fn decode(text: &str) -> Option<WriteLogEntry> {
+crates\kanzei-base\src\write_log.rs:236:    Some(WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:250:pub fn entries_after(project_root: &Path, at_ms: u128) -> Vec<WriteLogEntry> {
+crates\kanzei-base\src\write_log.rs:272:pub fn last_content(project_root: &Path, path: &str) -> Option<Vec<u8>> {
+crates\kanzei-base\src\write_log.rs:325:    fn entry(at: u128, path: &str, content: &[u8]) -> WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:326:        WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:342:        assert_eq!(last_content(&root, path), Some(Vec::new()));
+crates\kanzei-base\src\write_log.rs:355:        assert_eq!(last_content(&root, a), Some(b"three".to_vec()));
+crates\kanzei-base\src\write_log.rs:356:        assert_eq!(last_content(&root, b), Some(b"two".to_vec()));
+crates\kanzei-base\src\write_log.rs:365:        assert_eq!(last_content(&root, "doc"), Some(b"new".to_vec()));
+crates\kanzei-base\src\write_log.rs:392:                last_content(&root, &format!("doc-{n}")),
+crates\kanzei-base\src\write_log.rs:452:            &WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:486:            &WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:498:            &WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:511:            &WriteLogEntry {
+crates\kanzei-base\src\write_log.rs:521:        assert_eq!(last_content(&root, p).unwrap(), b"v2", "取同路径最后一条");
+crates\kanzei-base\src\write_log.rs:523:            last_content(&root, ".kanzei/project/none.md").is_none(),
+crates\kanzei-base\src\write_log.rs:541:        assert_eq!(last_content(&root, "quiet"), Some(b"checkpoint".to_vec()));
+crates\kanzei-base\src\write_log.rs:542:        assert_eq!(last_content(&root, "busy"), Some(b"v519".to_vec()));
+crates\kanzei-base\src\write_log.rs:552:        assert_eq!(last_content(&root, "doc"), Some(b"old".to_vec()));
+crates\kanzei-base\src\write_log.rs:557:            last_content(&root, "doc"),
+crates\kanzei-base\src\write_log.rs:562:        assert_eq!(last_content(&root, "doc"), Some(Vec::new()));
+crates\kanzei-base\src\write_log.rs:565:            last_content(&root, "doc"),
+crates\kanzei-base\src\write_log.rs:570:        assert_eq!(last_content(&root, "doc"), Some(b"next".to_vec()));
+crates\kanzei-tools\src\edit.rs:894:        let logs = crate::write_log::entries_after(&dir, 0);
+crates\kanzei-tools\src\cross_tree.rs:530:    let logs = crate::write_log::entries_after(project_root, window_start_ms);
+crates\kanzei-tools\src\cross_tree.rs:839:        crate::write_log::record(
+crates\kanzei-tools\src\cross_tree.rs:841:            &crate::write_log::WriteLogEntry {
+crates\kanzei-memory\src\memory\store.rs:842:                if let Err(e) = kanzei_base::write_log::record(
+crates\kanzei-memory\src\memory\store.rs:844:                    &kanzei_base::write_log::WriteLogEntry {
+crates\kanzei-memory\src\memory\store.rs:870:        let _ = kanzei_base::write_log::record(
+crates\kanzei-memory\src\memory\store.rs:872:            &kanzei_base::write_log::WriteLogEntry {
+crates\kanzei-memory\src\memory\store.rs:970:                if let Err(e) = kanzei_base::write_log::record(
+crates\kanzei-memory\src\memory\store.rs:972:                    &kanzei_base::write_log::WriteLogEntry {
+crates\kanzei-memory\src\memory\store.rs:1012:                    if let Err(e) = kanzei_base::write_log::record(
+crates\kanzei-memory\src\memory\store.rs:1014:                        &kanzei_base::write_log::WriteLogEntry {
+crates\kanzei-memory\src\memory\store.rs:2120:        let logs = kanzei_base::write_log::entries_after(&dir, 0);
+crates\kanzei-tools\src\conventions.rs:480:        let logs = crate::write_log::entries_after(&root, 0);
+crates\kanzei-tools\src\managed.rs:151:    logs: &[crate::write_log::WriteLogEntry],
+crates\kanzei-tools\src\managed.rs:486:    let logs = crate::write_log::entries_after(project_root, window_start_ms);
+crates\kanzei-tools\src\managed.rs:617:            assert!(!crate::write_log::entries_after(&root, 0).is_empty());
+crates\kanzei-tools\src\managed.rs:642:        crate::write_log::record(
+crates\kanzei-tools\src\managed.rs:644:            &crate::write_log::WriteLogEntry {
+crates\kanzei-tools\src\managed.rs:677:            crate::write_log::record(
+crates\kanzei-tools\src\managed.rs:679:                &crate::write_log::WriteLogEntry {
+crates\kanzei-tools\src\managed.rs:707:        crate::write_log::record(
+crates\kanzei-tools\src\managed.rs:709:            &crate::write_log::WriteLogEntry {
+crates\kanzei-tools\src\managed.rs:1008:        crate::write_log::record(
+crates\kanzei-tools\src\managed.rs:1010:            &crate::write_log::WriteLogEntry {
+crates\kanzei-tools\src\managed.rs:1081:        crate::write_log::record(
+crates\kanzei-tools\src\managed.rs:1083:            &crate::write_log::WriteLogEntry {
+crates\kanzei-tools\src\managed.rs:1135:        crate::write_log::record(
+crates\kanzei-tools\src\managed.rs:1137:            &crate::write_log::WriteLogEntry {
+crates\kanzei-tools\src\lib.rs:296:        if let Err(e) = crate::write_log::record(
+crates\kanzei-tools\src\lib.rs:298:            &crate::write_log::WriteLogEntry {
+crates\kanzei-memory\src\memory\inbox.rs:141:        let _ = kanzei_base::write_log::record(
+crates\kanzei-memory\src\memory\inbox.rs:143:            &kanzei_base::write_log::WriteLogEntry {
+crates\kanzei-tools\src\write.rs:106:    let _ = crate::write_log::record(
+crates\kanzei-tools\src\write.rs:108:        &crate::write_log::WriteLogEntry {
+crates\kanzei-tools\src\write.rs:570:        let logs = crate::write_log::entries_after(&root, 0);
+crates\kanzei-tools\src\tracker.rs:3902:        let logs = crate::write_log::entries_after(&dir, 0);
+crates\kanzei-tools\src\tracker.rs:4724:        let logs = crate::write_log::entries_after(&dir, 0);
+crates\kanzei-tools\src\test_record.rs:2287:        let logs = crate::write_log::entries_after(&root, 0);
+crates\kanzei-app\src\files_edit.rs:587:        if let Err(error) = kanzei_tools::write_log::record(
+crates\kanzei-app\src\files_edit.rs:589:            &kanzei_tools::write_log::WriteLogEntry {
+crates\kanzei-app\src\files_edit.rs:1172:        let entries = kanzei_tools::write_log::entries_after(&root, before);

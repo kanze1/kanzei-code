@@ -1,0 +1,156 @@
+crates\kanzei-tools\src\architecture.rs:140:                    content_hash(&current),
+crates\kanzei-tools\src\architecture.rs:149:                    content_hash(&current),
+crates\kanzei-tools\src\architecture.rs:166:                    content_hash(&current),
+crates\kanzei-tools\src\architecture.rs:181:                let current_hash = content_hash(&current);
+crates\kanzei-tools\src\architecture.rs:250:                    content_hash(&content),
+crates\kanzei-tools\src\architecture.rs:336:pub(crate) fn content_hash(content: &str) -> String {
+crates\kanzei-tools\src\architecture.rs:761:        let hash = content_hash(original);
+crates\kanzei-tools\src\architecture.rs:901:        let hash = content_hash(moved);
+crates\kanzei-tools\src\architecture.rs:965:        let hash = content_hash(original);
+crates\kanzei-base\src\write_log.rs:33:    /// 只能判一致不能回滚)。空正文且指纹为 content_hash(b"") 则是合法空文件。
+crates\kanzei-base\src\write_log.rs:44:        (!self.content.is_empty() || self.fingerprint == crate::content_hash(b""))
+crates\kanzei-base\src\write_log.rs:329:            fingerprint: crate::content_hash(content),
+crates\kanzei-base\src\write_log.rs:455:                fingerprint: crate::content_hash(content.as_bytes()),
+crates\kanzei-base\src\write_log.rs:465:        assert_eq!(all[0].fingerprint, crate::content_hash(content.as_bytes()));
+crates\kanzei-base\src\lib.rs:18:pub fn content_hash(bytes: &[u8]) -> String {
+crates\kanzei-base\src\lib.rs:23:pub fn file_content_hash(path: &std::path::Path) -> std::io::Result<String> {
+crates\kanzei-base\src\lib.rs:56:        let a = content_hash(b"old_string not found");
+crates\kanzei-base\src\lib.rs:57:        let b = content_hash(b"old_string not found");
+crates\kanzei-base\src\lib.rs:58:        let c = content_hash(b"cargo build network error");
+crates\kanzei-memory\src\memory\tools.rs:715:            kanzei_base::content_hash(crate::memory::render_entry(&before.1).as_bytes());
+crates\kanzei-memory\src\memory\tools.rs:799:            kanzei_base::content_hash(crate::memory::render_entry(&entry).as_bytes());
+crates\kanzei-memory\src\memory\tools.rs:875:                kanzei_base::content_hash(crate::memory::render_entry(&entry).as_bytes());
+crates\kanzei-memory\src\memory\store.rs:443:            let current = kanzei_base::content_hash(render_entry(&entry).as_bytes());
+crates\kanzei-memory\src\memory\store.rs:538:        let current_hash = kanzei_base::content_hash(super::render_entry(&entry).as_bytes());
+crates\kanzei-memory\src\memory\store.rs:850:                        fingerprint: kanzei_base::content_hash(rendered.as_bytes()),
+crates\kanzei-memory\src\memory\store.rs:878:                fingerprint: kanzei_base::content_hash(&content),
+crates\kanzei-memory\src\memory\store.rs:978:                        fingerprint: kanzei_base::content_hash(index.as_bytes()),
+crates\kanzei-memory\src\memory\store.rs:1020:                            fingerprint: kanzei_base::content_hash(&db_bytes),
+crates\kanzei-memory\src\memory\store.rs:2127:                    && log.fingerprint == kanzei_base::content_hash(&[])
+crates\kanzei-memory\src\memory\store.rs:2140:                    && log.fingerprint == kanzei_base::content_hash(&archived_bytes)
+crates\kanzei-memory\src\memory\store.rs:3768:        let stale_hash = kanzei_base::content_hash(render(&e.id).as_bytes());
+crates\kanzei-memory\src\memory\store.rs:3790:        let fresh_hash = kanzei_base::content_hash(render(&e.id).as_bytes());
+crates\kanzei-harness\src\project_root.rs:102:    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
+crates\kanzei-app\src\commands\os_open.rs:159:    let simplified = kanzei_tools::path_form::simplify(path);
+crates\kanzei-harness\src\home.rs:43:        .join(kanzei_base::content_hash(session.as_bytes()))
+crates\kanzei-tools\src\git\tool.rs:265:    let resolved = crate::path_form::canonical_or_simplified(path);
+crates\kanzei-tools\src\git\tool.rs:277:    let tree_text = crate::path_form::simplify(&tree).display().to_string();
+crates\kanzei-tools\src\git\tool.rs:288:                    toplevel: crate::path_form::simplify(Path::new(&top))
+crates\kanzei-tools\src\git\tool.rs:311:            crate::path_form::simplify(&tree).display(),
+crates\kanzei-tools\src\write.rs:45:    match kanzei_base::file_content_hash(path) {
+crates\kanzei-tools\src\write.rs:114:            fingerprint: crate::content_hash(content),
+crates\kanzei-tools\src\write.rs:174:            ledger.record(&path, crate::content_hash(&bytes));
+crates\kanzei-tools\src\worktree.rs:71:    kanzei_base::path_form::strip_verbatim(&raw).into_owned()
+crates\kanzei-tools\src\worktree.rs:84:    let stripped = kanzei_base::path_form::strip_verbatim(&raw).replace('\\', "/");
+crates\kanzei-tools\src\browser_tool.rs:344:    let raw = crate::path_form::strip_verbatim(&abs.to_string_lossy()).into_owned();
+crates\kanzei-core\src\store\session.rs:1141:    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
+crates\kanzei-tools\src\cross_tree.rs:533:            Some(FileImage::Content { bytes, .. }) => crate::content_hash(bytes),
+crates\kanzei-tools\src\cross_tree.rs:535:            None => crate::content_hash(&[]),
+crates\kanzei-tools\src\cross_tree.rs:847:                fingerprint: crate::content_hash(new_content),
+crates\kanzei-tools\src\browser_tool\headless.rs:759:            crate::path_form::strip_verbatim(
+crates\kanzei-tools\src\conventions.rs:119:                    content_hash(&current),
+crates\kanzei-tools\src\conventions.rs:189:                        content_hash(&read_text(&path))
+crates\kanzei-tools\src\conventions.rs:199:                let current_hash = content_hash(&current);
+crates\kanzei-tools\src\conventions.rs:290:        content_hash(&new_content),
+crates\kanzei-tools\src\conventions.rs:411:            text.contains(&content_hash(SAMPLE)),
+crates\kanzei-tools\src\conventions.rs:443:                    "expected_hash": content_hash(SAMPLE),
+crates\kanzei-tools\src\conventions.rs:456:            out.content.contains(&content_hash(&written)),
+crates\kanzei-tools\src\conventions.rs:474:                    "expected_hash": content_hash(SAMPLE),
+crates\kanzei-tools\src\conventions.rs:495:            Some(&content_hash(SAMPLE)),
+crates\kanzei-tools\src\conventions.rs:514:            Some(&content_hash(SAMPLE)),
+crates\kanzei-tools\src\conventions.rs:571:            "expected_hash": content_hash(crlf),
+crates\kanzei-tools\src\conventions.rs:594:            "expected_hash": content_hash(lf),
+crates\kanzei-tools\src\conventions.rs:615:            "expected_hash": content_hash(crlf),
+crates\kanzei-memory\src\memory\manager.rs:1008:        let stale = kanzei_base::content_hash(b"someone else's older render");
+crates\kanzei-memory\src\memory\manager.rs:1026:        let current = kanzei_base::content_hash(crate::memory::render_entry(&entry).as_bytes());
+crates\kanzei-tools\src\bash.rs:391:        .current_dir(crate::path_form::simplify(&workdir))
+crates\kanzei-tools\src\base.rs:115:                    crate::path_form::simplify(&ctx.cwd).display(),
+crates\kanzei-tools\src\base.rs:116:                    crate::path_form::simplify(&ctx.project_root).display(),
+crates\kanzei-tools\src\base.rs:143:        let text = crate::path_form::strip_verbatim(&path.to_string_lossy()).replace('/', "\\");
+crates\kanzei-memory\src\memory\inbox.rs:149:                fingerprint: kanzei_base::content_hash(content),
+crates\kanzei-tools\src\conventions\drafts.rs:26:        json!({ "exists": path.is_file(), "path": path, "hash": content_hash(&content), "content": content, "proposal": proposal }),
+crates\kanzei-tools\src\conventions\drafts.rs:54:    Ok(content_hash(content))
+crates\kanzei-tools\src\conventions\drafts.rs:63:    if content_hash(&current) != expected {
+crates\kanzei-tools\src\conventions\drafts.rs:70:    let hash = content_hash(content);
+crates\kanzei-tools\src\conventions\drafts.rs:87:    if content_hash(&read_current(root)?) != expected {
+crates\kanzei-tools\src\conventions\drafts.rs:104:    Ok(content_hash(content))
+crates\kanzei-core\src\store\path_migration.rs:6://! `sessions.project_root` 都存成了 verbatim 形态。身份根改成 `path_form::canonical` 之后,
+crates\kanzei-core\src\store\path_migration.rs:9://! 规则:只改写 [`kanzei_base::path_form::simplify_str`] 判定可安全去前缀的值(超长路径、保留名
+crates\kanzei-core\src\store\path_migration.rs:14:use kanzei_base::path_form::simplify_str;
+crates\kanzei-app\src\memory_chat.rs:82:    Ok((history, content_hash(raw.as_bytes())))
+crates\kanzei-app\src\memory_chat.rs:91:    write_atomic_cas(&path, &raw, expected, |text| content_hash(text.as_bytes()))?;
+crates\kanzei-app\src\memory_chat.rs:92:    Ok(content_hash(raw.as_bytes()))
+crates\kanzei-app\src\memory_chat.rs:109:        "refs": entry.refs(), "expected_hash": content_hash(render_entry(&entry).as_bytes())}),
+crates\kanzei-core\src\store\mod.rs:53://     sessions 里存的 `\\?\` 前缀路径与进程 id 改成 kanzei_base::path_form::simplify 形态
+crates\kanzei-app\src\ipc_contract.rs:339:        let expected = kanzei_tools::content_hash(
+crates\kanzei-core\src\store\file_checkpoints.rs:75:    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
+crates\kanzei-tools\src\schedules\mod.rs:395:                payload["revision"] = json!(kanzei_base::content_hash(text.as_bytes()));
+crates\kanzei-tools\src\schedules\mod.rs:518:                    event["data"]["revision"] == kanzei_base::content_hash(text.as_bytes())
+crates\kanzei-app\src\state_tests.rs:487:    // UI2-0926 #13:身份根是去掉 `\\?\` 前缀的 canonical 形态(path_form::canonical)。
+crates\kanzei-app\src\state_tests.rs:490:        kanzei_tools::path_form::canonical(&current).unwrap()
+crates\kanzei-app\src\state_tests.rs:505:    assert_eq!(roots[0], kanzei_tools::path_form::canonical(&a).unwrap());
+crates\kanzei-app\src\state_tests.rs:506:    assert_eq!(roots[1], kanzei_tools::path_form::canonical(&b).unwrap());
+crates\kanzei-tools\src\schedules\hosts.rs:59:        let invoke=format!("$ErrorActionPreference='Stop'; [IO.Directory]::CreateDirectory({}) | Out-Null; try {{ & {} schedule run {} --project-root {} --trigger system *> {}; exit $LASTEXITCODE }} catch {{ [IO.File]::WriteAllText({},($_ | Out-String)); exit 1 }}",ps(&kanzei_base::path_form::simplify(host_log.parent().unwrap()).display().to_string()),ps(&cli.display().to_string()),ps(&def.name),ps(&kanzei_base::path_form::simplify(root).display().to_string()),ps(&kanzei_base::path_form::simplify(&host_log).display().to_string()),ps(&kanzei_base::path_form::simplify(&host_log).display().to_string()));
+crates\kanzei-tools\src\schedules\hosts.rs:99:        format!("$ErrorActionPreference='Stop'; $action=New-ScheduledTaskAction -Execute {} -WorkingDirectory {} -Argument {}; $trigger={trigger}; $settings=New-ScheduledTaskSettingsSet {catchup} -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -WakeToRun -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds {}); $principal=New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited; Register-ScheduledTask -TaskName {task} -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null",ps(&wscript.display().to_string()),ps(&kanzei_base::path_form::simplify(root).display().to_string()),ps(&format!("//B //Nologo \"{}\"",kanzei_base::path_form::simplify(&launcher).display())),def.timeout_secs+120)
+crates\kanzei-app\src\files_view.rs:175:                let stamp_now = kanzei_tools::files::content_hash(&bytes_now);
+crates\kanzei-app\src\state.rs:630:    kanzei_tools::path_form::canonical(path)
+crates\kanzei-app\src\state.rs:631:        .unwrap_or_else(|_| kanzei_tools::path_form::simplify(path))
+crates\kanzei-app\src\files_edit.rs:406:        "hash": (!truncated).then(|| kanzei_tools::content_hash(&bytes)),
+crates\kanzei-app\src\files_edit.rs:453:        .map(|bytes| kanzei_tools::content_hash(&bytes))
+crates\kanzei-app\src\files_edit.rs:505:        let current = kanzei_tools::content_hash(&bytes);
+crates\kanzei-app\src\files_edit.rs:534:                kanzei_tools::content_hash(live.as_bytes())
+crates\kanzei-app\src\files_edit.rs:581:    let written = kanzei_tools::content_hash(text.as_bytes());
+crates\kanzei-app\src\files_edit.rs:693:        assert_eq!(hash, kanzei_tools::content_hash(b"one\n"));
+crates\kanzei-app\src\files_edit.rs:697:        assert_eq!(result["hash"], kanzei_tools::content_hash(b"two\n"));
+crates\kanzei-app\src\files_edit.rs:718:            kanzei_tools::content_hash(b"agent changed\n")
+crates\kanzei-app\src\files_edit.rs:741:        let opened = kanzei_tools::content_hash(b"x");
+crates\kanzei-app\src\files_edit.rs:759:        assert_eq!(result["hash"], kanzei_tools::content_hash(b"keep"));
+crates\kanzei-app\src\files_edit.rs:1016:            let hash = kanzei_tools::content_hash(b"orig\n");
+crates\kanzei-app\src\files_edit.rs:1041:            let hash = kanzei_tools::content_hash(b"orig\n");
+crates\kanzei-app\src\files_edit.rs:1059:        let hash = kanzei_tools::content_hash(gbk);
+crates\kanzei-app\src\files_edit.rs:1073:        let hash = kanzei_tools::content_hash(&big);
+crates\kanzei-app\src\files_edit.rs:1088:        let hash = kanzei_tools::content_hash(b"PNG\0\0data");
+crates\kanzei-app\src\files_edit.rs:1111:        let current = kanzei_tools::content_hash(b"agent version\n");
+crates\kanzei-app\src\files_edit.rs:1169:            Some(&kanzei_tools::content_hash(b"a\n")),
+crates\kanzei-app\src\files_edit.rs:1177:        assert_eq!(entry.fingerprint, kanzei_tools::content_hash(b"b\n"));
+crates\kanzei-app\src\files_edit.rs:1193:            Some(&kanzei_tools::content_hash(b"a\n")),
+crates\kanzei-app\src\files_edit.rs:1197:        let current = kanzei_tools::content_hash(b"b\n");
+crates\kanzei-app\src\files_edit.rs:1251:        let opened = kanzei_tools::content_hash(b"alpha\nbeta\ngamma\n");
+crates\kanzei-app\src\files_draft.rs:37:        kanzei_tools::content_hash(rel.as_bytes())
+crates\kanzei-tools\src\managed.rs:492:                let fingerprint = crate::content_hash(
+crates\kanzei-tools\src\managed.rs:565:                        serde_json::json!({"action":"patch", "old_string":"old rule", "new_string":"new rule", "expected_hash":crate::architecture::content_hash(old)}),
+crates\kanzei-tools\src\managed.rs:574:                        serde_json::json!({"action":"update", "content":old.replace("old", "new"), "expected_hash":crate::architecture::content_hash(old)}),
+crates\kanzei-tools\src\managed.rs:647:                fingerprint: crate::content_hash(b"old"),
+crates\kanzei-tools\src\managed.rs:682:                    fingerprint: crate::content_hash(legal.as_bytes()),
+crates\kanzei-tools\src\managed.rs:712:                fingerprint: crate::content_hash(b"not stored"),
+crates\kanzei-tools\src\managed.rs:1013:                fingerprint: crate::content_hash(new_content.as_bytes()),
+crates\kanzei-tools\src\managed.rs:1086:                fingerprint: crate::content_hash(req_new.as_bytes()),
+crates\kanzei-tools\src\managed.rs:1140:                fingerprint: crate::content_hash(legit.as_bytes()),
+crates\kanzei-app\src\schedules.rs:148:            tasks.push(json!({"definition":def,"revision":kanzei_tools::content_hash(text.as_bytes()),"next_ms":next,"history":history}));
+crates\kanzei-app\src\schedules.rs:184:        expected_hash.as_deref() != Some(kanzei_tools::content_hash(text.as_bytes()).as_str())
+crates\kanzei-tools\src\lib.rs:304:                fingerprint: crate::content_hash(&content),
+crates\kanzei-tools\src\read.rs:106:            .and_then(|_| kanzei_base::file_content_hash(&path_for_read).ok());
+crates\kanzei-tools\src\read.rs:110:                if kanzei_base::file_content_hash(&path_for_read).ok().as_ref() != Some(&before) {
+crates\kanzei-tools\src\tracker.rs:4734:            crate::content_hash(&on_disk),
+crates\kanzei-tools\src\project_state.rs:172:    let key = crate::path_form::simplify(root).display().to_string();
+crates\kanzei-tools\src\project_state.rs:191:    git_state(&crate::path_form::simplify(root))
+crates\kanzei-tools\src\project_state.rs:213:    let root = crate::path_form::simplify(root);
+crates\kanzei-tools\src\project_state.rs:388:                toplevel: crate::path_form::simplify(dir).display().to_string(),
+crates\kanzei-tools\src\project_state.rs:727:                assert_eq!(PathBuf::from(toplevel), crate::path_form::simplify(&root))
+crates\kanzei-tools\src\project_state\git_init.rs:95:    let root = crate::path_form::simplify(root);
+crates\kanzei-app\src\deliveries.rs:20:    let simple = kanzei_tools::path_form::simplify(Path::new(&native))
+crates\kanzei-tools\src\profiles.rs:316:        let first_hash = crate::architecture::content_hash("user-rule-v1");
+crates\kanzei-app\src\projects.rs:19:    kanzei_tools::path_form::simplify(&p).display().to_string()
+crates\kanzei-app\src\research_library\tests.rs:23:    // UI2-0926 #13:存储根是 path_form::canonical 形态(不带 `\\?\` 前缀)。
+crates\kanzei-app\src\research_library\tests.rs:24:    assert!(root.starts_with(kanzei_tools::path_form::canonical(&home).unwrap()));
+crates\kanzei-app\src\research_library\tests.rs:161:    let plain = kanzei_tools::path_form::canonical(&project)
+crates\kanzei-app\src\research_library.rs:59:    kanzei_tools::path_form::strip_verbatim(root).to_lowercase()
+crates\kanzei-app\src\research_library.rs:82:    /// UI2-0926 #13 复核:`storage_root` / `linked_projects` 改写成 path_form::simplify 形态;
+crates\kanzei-app\src\research_library.rs:88:                kanzei_tools::path_form::simplify_str(&entry.storage_root).into_owned();
+crates\kanzei-app\src\research_library.rs:90:                *project = kanzei_tools::path_form::simplify_str(project).into_owned();
+crates\kanzei-app\src\run\baseline.rs:337:            kanzei_tools::path_form::simplify(&root)
+crates\kanzei-core\src\runner\drive\batch.rs:107:            let path = kanzei_base::path_form::canonical_or_simplified(&path);
+crates\kanzei-core\src\runner\drive\batch.rs:108:            let root = kanzei_base::path_form::canonical_or_simplified(&ctx.cwd);
+crates\kanzei-core\src\orchestration.rs:36:    let stripped = kanzei_base::path_form::strip_verbatim(&raw);
+crates\kanzei-app\src\prefs.rs:90:        let simplified = kanzei_tools::path_form::simplify_str(path);
+crates\kanzei-app\src\prefs.rs:117:        kanzei_tools::path_form::simplify_str(path)

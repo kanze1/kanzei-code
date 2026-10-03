@@ -1,0 +1,14 @@
+crates\kanzei-base\src\atomic_file.rs:112:pub fn write_atomic_cas(
+crates\kanzei-base\src\atomic_file.rs:844:            write_atomic_cas(&first_path, "first", "before", |live| {
+crates\kanzei-base\src\atomic_file.rs:854:            let result = write_atomic_cas(&second_path, "second", "before", str::to_owned);
+crates\kanzei-base\src\atomic_file.rs:1224:        write_atomic_cas(&path, "新内容", &指纹("旧内容"), 指纹).unwrap();
+crates\kanzei-base\src\atomic_file.rs:1228:        let err = write_atomic_cas(&path, "覆盖内容", &指纹("别的"), 指纹).unwrap_err();
+crates\kanzei-tools\src\architecture.rs:227:                    crate::atomic_file::write_atomic_cas(&path, &content, &expected, content_hash)
+crates\kanzei-tools\src\architecture.rs:334:/// 写盘本体是 kanzei_base::atomic_file::write_atomic_cas(D-261 并轨,R-208 迁出),
+crates\kanzei-tools\src\conventions.rs:282:    if let Err(e) = crate::atomic_file::write_atomic_cas(path, &new_content, expected, content_hash)
+crates\kanzei-app\src\files_edit.rs:17://! 打开时记下指纹,保存时只有磁盘指纹仍相同才原子替换(`write_atomic_cas`),否则返回
+crates\kanzei-app\src\files_edit.rs:533:            kanzei_tools::atomic_file::write_atomic_cas(&resolved.abs, &text, &current, |live| {
+crates\kanzei-tools\src\conventions\drafts.rs:99:    crate::atomic_file::write_atomic_cas(&path, content, expected, content_hash)?;
+crates\kanzei-app\src\memory_chat.rs:16:    atomic_file::{lock_exclusive, write_atomic_cas},
+crates\kanzei-app\src\memory_chat.rs:91:    write_atomic_cas(&path, &raw, expected, |text| content_hash(text.as_bytes()))?;
+crates\kanzei-tools\src\team\tools.rs:166:                crate::atomic_file::write_atomic_cas(&path, content, &revision, |s| {

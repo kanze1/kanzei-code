@@ -92,7 +92,9 @@ defer(() => {
   $("conventions-proposal").addEventListener("click", () => {
     const proposal = view.snapshot.proposal;
     // A stale draft remains readable but cannot silently replace a newer user edit.
-    if (proposal.base_hash !== view.snapshot.hash) {
+    if (view.snapshot.proposal_base_matches_current == null) {
+      toast(t("这份建议稿来自旧版本，请对照当前规范检查后保存。"));
+    } else if (!view.snapshot.proposal_base_matches_current) {
       toast(t("建议生成后规范已修改。请对照当前规则合并；保存会保留本次打开后的并发修改保护。"));
     }
     view.draft = true;

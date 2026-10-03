@@ -157,7 +157,7 @@ impl BackgroundProcess {
         self.baseline.lock().unwrap().clone()
     }
 
-    /// 推进对账基线:合法写入被吸收后调用,越界回滚后也要调用(树已回到基线)。
+    /// 推进对账基线:仅由合法写入窗口关闭后的吸收操作调用。
     pub(crate) fn set_baseline(&self, snapshot: ManagedSnapshot) {
         *self.baseline.lock().unwrap() = snapshot;
     }
@@ -793,6 +793,72 @@ mod tests {
             "窗口外写入应回滚到上一次合法写入的内容(基线已被窗口吸收)"
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn failed_quarantine_still_stops_the_violating_background_process() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("failed-quarantine");
+        std::fs::write(root.join(".kanzei/quarantine"), "blocks evidence directory").unwrap();
+        let command = match crate::shell::detected_shell().name {
+            "pwsh" | "powershell" => "Start-Sleep -Seconds 30",
+            "cmd" => "ping -n 30 127.0.0.1 >nul",
+            _ => "sleep 30",
+        };
+        let id = start_background(&root, command, "failed-quarantine").await;
+        let process = get(&id).unwrap();
+        let path = root.join(".kanzei/project/defects.md");
+        std::fs::write(&path, "preserve this unquarantined edit").unwrap();
+        reconcile(&process, true).await;
+        let stopped = !process.is_running();
+        stop(&id).await;
+        assert!(stopped, "restore failure must not leave the writer running");
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "preserve this unquarantined edit"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mixed_breach_does_not_absorb_an_open_writer_window() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("mixed-window");
+        let target = root.join(".kanzei/project/defects.md");
+        let memory = root.join(".kanzei/memory/mixed.md");
+        std::fs::create_dir_all(memory.parent().unwrap()).unwrap();
+        std::fs::write(&memory, "baseline memory").unwrap();
+        let command = match crate::shell::detected_shell().name {
+            "pwsh" | "powershell" => "Start-Sleep -Seconds 30",
+            "cmd" => "ping -n 30 127.0.0.1 >nul",
+            _ => "sleep 30",
+        };
+        let id = start_background(&root, command, "mixed-window").await;
+        let process = get(&id).unwrap();
+        let original = process.baseline();
+        let mut window = Box::pin(kanzei_harness::managed_fence::tool_scope(
+            "defect",
+            std::future::pending::<()>(),
+        ));
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(20), &mut window).await;
+        std::fs::write(&target, "writer still running").unwrap();
+        std::fs::write(&memory, "outside allowed prefix").unwrap();
+        let breach = reconcile(&process, false).await;
+        let during = process.baseline();
+        let memory_after = std::fs::read_to_string(&memory).unwrap();
+        drop(window);
+        let after = process.baseline();
+        stop(&id).await;
+        assert!(breach.is_some());
+        assert_eq!(memory_after, "baseline memory");
+        assert_eq!(
+            during, original,
+            "an unrelated breach must not commit an open writer window"
+        );
+        assert_eq!(after, ManagedSnapshot::capture(&root));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// D-258 验收核心:窗口开着时守卫**不推进基线**。旧实现里,后台进程只要赶上

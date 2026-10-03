@@ -50,6 +50,7 @@ impl TestExecutionGuard {
         // Keep the Markdown ledger one line; the artifact retains the exact command.
         let recorded_command = command.replace('\r', "\\r").replace('\n', "\\n");
         let fingerprint = crate::git::source_endorsement_fingerprint(&ctx.cwd).unwrap_or_default();
+        let _lock = super::lock_test_runs(&ctx.project_root)?;
         let snapshot = super::record_test_run_with_duration(
             &ctx.project_root,
             None,
@@ -82,17 +83,19 @@ impl TestExecutionGuard {
             started: Instant::now(),
             finished: false,
         };
-        guard.note_writes();
+        guard.note_writes()?;
         Ok(guard)
     }
 
-    fn note_writes(&self) {
+    fn note_writes(&self) -> Result<(), String> {
         for path in super::TEST_RUNS_GOVERNANCE_PATHS {
-            crate::record_write_log(&self.ctx, path, &self.ctx.project_root.join(path));
+            crate::record_write_log(&self.ctx, path, &self.ctx.project_root.join(path))?;
         }
+        Ok(())
     }
 
     fn record_terminal(&self, status: &str, summary: &str) -> Result<(), String> {
+        let _lock = super::lock_test_runs(&self.ctx.project_root)?;
         super::record_test_run_with_duration(
             &self.ctx.project_root,
             Some(&self.id),
@@ -104,7 +107,7 @@ impl TestExecutionGuard {
             Some(self.started.elapsed().as_secs_f64()),
             Some(&self.fingerprint),
         )?;
-        self.note_writes();
+        self.note_writes()?;
         Ok(())
     }
 

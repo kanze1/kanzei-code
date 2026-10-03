@@ -500,31 +500,29 @@ fn resolve_define(
             shown_path(file, project_root)
         ));
     }
-    // 再导出链:两型都算——①符号直连(exported == symbol:as 新名/花括号列表项);
-    // ②模块整体(exported == 宿主模块名,该模块内符号经此链可见)。
+    // 从符号及定义文件出发，沿实际再导出继续收集宿主模块。
+    // 文件拆为内部模块后，链可以经过多层；每条记录只处理一次。
+    let mut visible_names: std::collections::HashSet<String> = hits
+        .iter()
+        .filter_map(|(file, _, _, _)| file.file_stem())
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .collect();
+    visible_names.insert(symbol.to_string());
+    let mut pending: Vec<_> = reexports.iter().collect();
     let mut chain: Vec<String> = Vec::new();
-    for re in &reexports {
-        if re.exported == symbol {
-            chain.push(format!(
-                "  {}:{}  {}",
-                shown_path(&re.file, project_root),
-                re.line,
-                re.source_line.trim()
-            ));
-            continue;
-        }
-        // 模块整体型:命中定义文件的宿主模块名(stem)与导出名一致。
-        for (file, _, _, _) in &hits {
-            let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned());
-            if stem.as_deref() == Some(re.exported.as_str()) {
-                chain.push(format!(
-                    "  {}:{}  {}",
-                    shown_path(&re.file, project_root),
-                    re.line,
-                    re.source_line.trim()
-                ));
-                break;
-            }
+    while let Some(index) = pending
+        .iter()
+        .position(|re| visible_names.contains(&re.exported))
+    {
+        let re = pending.remove(index);
+        chain.push(format!(
+            "  {}:{}  {}",
+            shown_path(&re.file, project_root),
+            re.line,
+            re.source_line.trim()
+        ));
+        if let Some(stem) = re.file.file_stem() {
+            visible_names.insert(stem.to_string_lossy().into_owned());
         }
     }
     chain.sort();
@@ -1534,10 +1532,12 @@ mod tests {
             return; // 非本仓库环境(如打包后),跳过真实文件断言。
         }
         let files = collect_rs_files(&crates);
-        // ①验收①:define=try_lock_exclusive 命中 kanzei-base/src/atomic_file.rs。
+        // 定义在内部 lock.rs，经 atomic_file.rs 再导出后继续到 kanzei-tools。
         let report = resolve_define(&files, "try_lock_exclusive", repo);
         assert!(
-            report.contains("atomic_file.rs") && report.contains("try_lock_exclusive"),
+            report.contains("atomic_file/lock.rs")
+                && report.contains("atomic_file.rs")
+                && report.contains("try_lock_exclusive"),
             "{}",
             report
         );

@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-03",
+  "parents": [
+    "abb596f0eb59ab32d13c32f0952aa6771a9b3e21",
+    "fd36faa3a1ca82ad4ad18da594fea8fd57a87d50"
+  ],
+  "workspace_tests": {
+    "passed": 2217,
+    "failed": 0,
+    "ignored": 5,
+    "log": "output/integration-20261003/verified-workspace-tests.log"
+  },
+  "clippy": {
+    "passed": true,
+    "log": "output/integration-20261003/clippy.log"
+  },
+  "ui_runtime": {
+    "passed": true,
+    "log": "output/integration-20261003/ui-runtime.log"
+  },
+  "linux_current_run_verified": false,
+  "release_performed": false,
+  "repository_review_complete": false,
+  "source_sha256": {
+    "crates/kanzei-app/src/files_edit.rs": "ec59c1d36c2da35cf275ef313d8ed8d0814c25c9497b56a7980e75b799ce9dcd",
+    "crates/kanzei-app/ui/02-i18n.js": "a8344dccc214aae4620715d6aa2b0510fdfaa76ae51a8d884cac5a60f5dd461e",
+    "crates/kanzei-app/ui/15-conventions.js": "f6d39f13f3b6fffaf7f922a2c3749b9c13d3d9a09ebd79dd22eaf8f4fa098935",
+    "crates/kanzei-base/cargo.toml": "230a56270d0d933854074c76208602ac9f68070eb89fb56ef02f8063ba89c3f3",
+    "crates/kanzei-base/src/atomic_file.rs": "5338dc8c1d22c7a889ec341fb31483e9a3889cf91f88edbe53ddbab4d32ad0d1",
+    "crates/kanzei-base/src/atomic_file/lock.rs": "5a7605849b99139d42df1de6673d346478ed0c86c7a84b5aa7a05e4acbd7e433",
+    "crates/kanzei-base/src/atomic_file/lock_tests.rs": "a92c3ebdd838f459aded075ae3f0c38b6b67fe7a724d72c4afd4b55eb76e1a56",
+    "crates/kanzei-base/src/atomic_file/tests.rs": "1bd60dd6e39c6d9a396038f5b95c48bc87b8c694a17067712dd45c22614ac84e",
+    "crates/kanzei-base/src/lib.rs": "aa0bb354276aa278d5b4f44929e1c0f05d7af4024efb03413bfda91d96ca3996",
+    "crates/kanzei-base/src/path_form.rs": "7b77e0f661fb887b5331c7e391f2ddd16c74dcb719d66621505da15c5c3790e8",
+    "crates/kanzei-base/src/write_log.rs": "80936fb39e3190f072464be0330b9e28d8e4ebcf82a3716bd2e276b058c7940c",
+    "crates/kanzei-base/src/write_log/codec.rs": "761994f3f4be0a6cb59b39897ce1052e42e1c237508e36d53c3d2af77e0c3b05",
+    "crates/kanzei-base/src/write_log/tests.rs": "2cabda3083f9777a94f8f57b30d4bffc1acf4b8a55c49bea5804bee557113ff0",
+    "crates/kanzei-memory/src/memory/inbox.rs": "80b75666674273d8a0c2ca851c85c76354a79b0152715059baea51fd01b24f41",
+    "crates/kanzei-memory/src/memory/store.rs": "5521989684abfbca343a46cfe7807938b044833945ec7d73d902b8c7a287f2d7",
+    "crates/kanzei-memory/src/memory/store/archive.rs": "adb3b5c734bf306093eab0a189a332095607d578947bd0b2701f63138db9f8ad",
+    "crates/kanzei-tools/src/architecture.rs": "005d24f4ce3efe25a5807ca7a1acaf3297780e5ccbe98a0a40027e30e93c5a16",
+    "crates/kanzei-tools/src/background.rs": "79693a504a303ecd2f2677d227d44e92187e54e4eb8a77f8177d3692ad958426",
+    "crates/kanzei-tools/src/background/lifecycle.rs": "9e60f948af5512463986f85ce4afbaaf8269eb38042bdd7ab626727c073030ba",
+    "crates/kanzei-tools/src/conventions.rs": "4608a18ba193e3f39b9c8f3252c5cafe567c2f90b3f0aa016886ca6e3e89e1bf",
+    "crates/kanzei-tools/src/conventions/drafts.rs": "7c8781e9b7d370ea1d268993beffcd84ce19007fc1474df6884b07b99825567f",
+    "crates/kanzei-tools/src/cross_tree.rs": "9497270fa834d99e76dbe2821d2d6c7e664a5a3046b045177bccc56f72a527d6",
+    "crates/kanzei-tools/src/edit.rs": "ff7e98e8a1986286e0a8bcbcc957dc3e91707bbfad3b995b23fae6d78ba59d8d",
+    "crates/kanzei-tools/src/incident.rs": "816740d93b22e0a730bfd825ecb0066c869202c67db49f6fe11ad01f40dec3c7",
+    "crates/kanzei-tools/src/lib.rs": "2afb2b47c9a570e268b27a9b683237ad3ff58fda28507fa3e1dbe17a8fbd27ee",
+    "crates/kanzei-tools/src/managed.rs": "64e01f294ce0b9d3d923d3d2cedff63c83f7d026135798779ccde604f217f36a",
+    "crates/kanzei-tools/src/prior_art.rs": "d370bf79423d0710de10a868affc66da946169085822fc70decd3cb2bbfd6d32",
+    "crates/kanzei-tools/src/profiles.rs": "b07d23f045be0639f594110331162e5c693876705d2106d51b60e3fa94e8710c",
+    "crates/kanzei-tools/src/symbols.rs": "b3b45d1e45836920f6934fcba834a67916d46ae4ca77e7f6bbceaf90ff55a030",
+    "crates/kanzei-tools/src/test_record.rs": "9020649e61bdf1d8f8a46c24aebb37963b8e2214061fb1bd17fb2b81f79c2475",
+    "crates/kanzei-tools/src/test_record/execution.rs": "efabcd5e5bd0ac8ece4f469e1406f7c8cfb9f1e37f988590773c854f040aac47",
+    "crates/kanzei-tools/src/tracker.rs": "9291923bb0efb320bd5f9043b78d7dab73a3c483af2479b45b4b3937e184f20c",
+    "crates/kanzei-tools/src/write.rs": "b6256dae3bb1f1e8a86accbf24a9a53883b0c3d1ad9ef98e90f564a800c8e68e",
+    "scripts/file-audit-inventory.py": "24dc89b4240a03d2614979ceb8e201152229dadb92dcdcf0c189c890d3eb635b",
+    "scripts/ui-runtime-smoke.mjs": "d31186a5ff6955bc8bd05cf40c6140556fd908855d453a26124dc79d4025cf79"
+  }
+}

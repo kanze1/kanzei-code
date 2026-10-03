@@ -8,7 +8,7 @@
 //! 这里给两种形态,别混用:
 //!
 //! - [`simplify`] / [`canonical`]:**可以继续当路径用**的形态。规则与 `dunce` 相同——只有剥掉前缀
-//!   之后语义不变时才剥:长度超过 260(UTF-16 计)、含 DOS 保留名(CON/NUL/COM1…,带扩展名也算)、
+//!   之后语义不变时才剥:经典形态长度达到 260(UTF-16 计，含末尾 NUL 的预算)、含 DOS 保留名(CON/NUL/COM1…,带扩展名也算)、
 //!   组件以点或空格结尾、组件含非法字符、`.`/`..` 组件、没有根目录的 `\\?\C:`,一律原样返回——
 //!   这些路径只有 verbatim 形态才能被 Win32 正确解析,剥了反而打不开。比 dunce 多一条:
 //!   `\\?\UNC\server\share\…` 在同样的安全条件下化为 `\\server\share\…`。
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 const VERBATIM: &str = r"\\?\";
 const VERBATIM_UNC: &str = r"\\?\UNC\";
-/// Win32 经典路径上限(MAX_PATH);超过它的路径必须保留 verbatim 形态。
+/// Win32 经典路径上限，包含结尾 NUL；路径本身必须短于此值。
 const MAX_PATH: usize = 260;
 /// 单个文件名的上限(UTF-16 计)。
 const MAX_COMPONENT: usize = 255;
@@ -47,7 +47,8 @@ pub fn simplify_str(raw: &str) -> Cow<'_, str> {
     if !raw.starts_with(VERBATIM) {
         return Cow::Borrowed(raw);
     }
-    if raw.encode_utf16().count() > MAX_PATH {
+    let candidate = strip_verbatim(raw);
+    if candidate.encode_utf16().count() >= MAX_PATH {
         return Cow::Borrowed(raw);
     }
     if let Some(rest) = raw.strip_prefix(VERBATIM_UNC) {
@@ -62,7 +63,7 @@ pub fn simplify_str(raw: &str) -> Cow<'_, str> {
         if !components_safe(parts) {
             return Cow::Borrowed(raw);
         }
-        return Cow::Owned(format!(r"\\{rest}"));
+        return candidate;
     }
     let rest = &raw[VERBATIM.len()..];
     // 只认盘符形态 `X:\…`;`\\?\Volume{…}`、`\\?\GLOBALROOT` 这类没有等价的经典写法。
@@ -73,7 +74,7 @@ pub fn simplify_str(raw: &str) -> Cow<'_, str> {
     if !components_safe(rest[3..].split('\\')) {
         return Cow::Borrowed(raw);
     }
-    Cow::Borrowed(rest)
+    candidate
 }
 
 /// [`simplify_str`] 的 Path 版。非 UTF-8 的路径原样返回(无法无损地操作)。
@@ -145,6 +146,33 @@ fn is_reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn candidate_length_reserves_nul_for_drive_and_unc() {
+        for prefix in [r"C:\a\", r"\\srv\share\"] {
+            for length in [259, 260, 261] {
+                let candidate = format!("{prefix}{}", "a".repeat(length - prefix.len()));
+                let raw = if let Some(unc) = candidate.strip_prefix(r"\\") {
+                    format!(r"\\?\UNC\{unc}")
+                } else {
+                    format!(r"\\?\{candidate}")
+                };
+                assert_eq!(candidate.encode_utf16().count(), length);
+                let expected = if length < MAX_PATH { &candidate } else { &raw };
+                assert_eq!(simplify_str(&raw), expected.as_str());
+            }
+        }
+    }
+
+    #[test]
+    fn length_counts_utf16_units_not_bytes_or_characters() {
+        let candidate = format!(r"C:\a\{}", "😀".repeat(127));
+        assert_eq!(candidate.encode_utf16().count(), 259);
+        let raw = format!(r"\\?\{candidate}");
+        assert_eq!(simplify_str(&raw), candidate.as_str());
+        let raw_260 = format!("{raw}x");
+        assert_eq!(simplify_str(&raw_260), raw_260.as_str());
+    }
 
     #[test]
     fn 盘符形态去掉前缀() {

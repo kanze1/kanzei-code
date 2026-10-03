@@ -131,65 +131,77 @@ pub(crate) fn diff(before: &ManagedSnapshot, after: &ManagedSnapshot) -> Option<
     (!change.is_empty()).then_some(change)
 }
 
-/// 隔离留证 + 回滚到 `before`。返回(留证目录, 实际回滚成功的文件数)。
+/// 隔离留证后恢复到窗口内最新合法状态；没有窗口内凭据时使用 `before`。
+/// 返回(留证目录, 实际回滚成功的文件数)。
 ///
 /// 先隔离再回滚:哪怕这次改动其实来自用户手改,内容也一份不丢,可原样取回。
 pub(crate) fn quarantine_and_restore(
     project_root: &Path,
     before: &ManagedSnapshot,
     change: &ManagedChange,
+    logs: &[crate::write_log::WriteLogEntry],
     tag: &str,
-) -> (std::path::PathBuf, usize) {
+) -> std::io::Result<(std::path::PathBuf, usize)> {
+    use crate::write_log::LoggedContent;
+    enum Restore<'a> {
+        Content(&'a [u8]),
+        Delete,
+    }
+    let latest = crate::write_log::latest_by_path(logs);
+    // 先确定每个恢复目标；缺正文是错误，不能回退到更老快照。
+    let mut plan = Vec::new();
+    for path in change.touched() {
+        let restore = match latest.get(path.as_str()) {
+            Some(entry) => match &entry.content {
+                LoggedContent::Stored(bytes) => Restore::Content(bytes),
+                LoggedContent::Deleted => Restore::Delete,
+                LoggedContent::FingerprintOnly => {
+                    return Err(std::io::Error::other(format!(
+                        "{path} 的最后合法写入未保存正文，无法自动回滚"
+                    )))
+                }
+            },
+            None => match before.files.get(path) {
+                Some(Some(bytes)) => Restore::Content(bytes),
+                None => Restore::Delete,
+                Some(None) => {
+                    return Err(std::io::Error::other(format!(
+                        "{path} 的快照没有正文，无法自动回滚"
+                    )))
+                }
+            },
+        };
+        plan.push((path, restore));
+    }
     let quarantine = project_root.join(".kanzei/quarantine").join(format!(
         "{tag}-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or_default()
+            .map_err(std::io::Error::other)?
+            .as_nanos()
     ));
-    let mut restored = 0usize;
-    for path in change.modified.iter().chain(change.created.iter()) {
+    // 留证失败直接停止，不能声称“已保存原修改”。
+    for (path, _) in &plan {
         let absolute = project_root.join(path);
-        let saved = quarantine.join(path);
-        if let Some(parent) = saved.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if absolute.try_exists()? {
+            let saved = quarantine.join(path);
+            std::fs::create_dir_all(saved.parent().unwrap())?;
+            std::fs::copy(&absolute, saved)?;
         }
-        let _ = std::fs::copy(&absolute, &saved);
-        match before.files.get(path) {
-            // 动作前存在:写回原内容(内容超限没镜像的只能保持现状,由调用方点名)。
-            Some(Some(original)) => {
-                // D-399:该路径若有合法写日志(同路径「先合法写后越界写」),回滚到
-                // 最后一次合法日志内容,而不是窗口开点(窗口开点会丢掉合法写)。
-                let restore_content = crate::write_log::last_content(project_root, path)
-                    .unwrap_or_else(|| original.clone());
-                if std::fs::write(&absolute, restore_content).is_ok() {
-                    restored += 1;
-                }
-            }
-            Some(None) => {}
-            // 动作前不存在:删掉新建的。
-            None => {
-                if std::fs::remove_file(&absolute).is_ok() {
-                    restored += 1;
+    }
+    let restored = plan.len();
+    for (path, restore) in plan {
+        let absolute = project_root.join(path);
+        match restore {
+            Restore::Content(bytes) => crate::atomic_file::write_atomic_bytes(&absolute, bytes)?,
+            Restore::Delete => {
+                if absolute.try_exists()? {
+                    std::fs::remove_file(&absolute)?;
                 }
             }
         }
     }
-    for path in &change.deleted {
-        if let Some(Some(original)) = before.files.get(path) {
-            let absolute = project_root.join(path);
-            // D-399:被删文件若有合法写日志,回滚到合法终态(同先合法写后越界删)。
-            let restore_content = crate::write_log::last_content(project_root, path)
-                .unwrap_or_else(|| original.clone());
-            if let Some(parent) = absolute.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if std::fs::write(&absolute, restore_content).is_ok() {
-                restored += 1;
-            }
-        }
-    }
-    (quarantine, restored)
+    Ok((quarantine, restored))
 }
 
 /// 托管文档的**活动文件**锁清单(D-364)。
@@ -354,10 +366,7 @@ fn collect_files(dir: &Path, project_root: &Path, snapshot: &mut ManagedSnapshot
             return;
         }
         let path = entry.path();
-        // D-364:跳过锁文件(`<stem>.lock`,跨进程写锁的运行时产物,已进 .gitignore)。
-        // 锁文件被 `share_mode(0)` 独占句柄持有,`metadata()` 读取会被拒绝——快照把它
-        // 算进去会因「读不到属性」记成超限文件,整棵托管树判为不可回滚(D-364 实测)。
-        // 它也不是文档内容,本就不该进镜像。
+        // 锁文件是持久留存的协调标记，不是文档内容，不进入恢复镜像。
         if path.extension().and_then(|e| e.to_str()) == Some("lock") {
             continue;
         }
@@ -400,7 +409,11 @@ pub(crate) fn enforce_managed_files(
         .map(|s| s.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    let (quarantine, restored) = quarantine_and_restore(project_root, &before, &change, "shell");
+    let (quarantine, restored) =
+        match quarantine_and_restore(project_root, &before, &change, &[], "shell") {
+            Ok(result) => result,
+            Err(error) => return Some(format!("[managed-files] 回滚失败：{error}")),
+        };
 
     let incomplete = if after_incomplete {
         format!(
@@ -466,30 +479,30 @@ pub(crate) fn enforce_managed_files_with_writer_log(
     }
     let after_incomplete = !after.is_complete();
     let change = diff(&before, &after)?;
-    let logs = crate::write_log::entries_after(project_root, window_start_ms);
+    let logs = match crate::write_log::entries_after(project_root, window_start_ms) {
+        Ok(logs) => logs,
+        Err(error) => {
+            return Some(format!(
+                "[managed-files] 写日志读取失败，未执行自动回滚：{error}"
+            ))
+        }
+    };
+    let latest = crate::write_log::latest_by_path(&logs);
     // 日志命中判据:窗口内对该路径有过写入,且写后指纹 == 当前快照指纹
     // (终态一致 = 专用工具的最后一次写就是我们看到的形态;此后没有人再动它)。
     let covered = |path: &str| -> bool {
-        logs.iter().any(|entry| {
-            entry.path == path && {
-                let fingerprint = crate::content_hash(
-                    after
-                        .files
-                        .get(path)
-                        .map(|content| content.as_deref().unwrap_or_default())
-                        .unwrap_or_default(),
-                );
-                entry.fingerprint == fingerprint
-            }
-        })
+        let content = match after.files.get(path) {
+            Some(Some(bytes)) => Some(bytes.as_slice()),
+            Some(None) => return false,
+            None => None,
+        };
+        latest
+            .get(path)
+            .is_some_and(|entry| entry.matches_content(content))
     };
-    let (legitimate, breach) = change.partition(covered);
+    let (_, breach) = change.partition(covered);
     if breach.is_empty() {
         // 全部变化都有合法写日志解释:吸收进基线,不算越界。
-        let paths: Vec<&str> = legitimate.touched().iter().map(|s| s.as_str()).collect();
-        // before 是本次窗口的基线;吸收后本函数丢弃,调用方(前台 bash)无需保留。
-        let _absorbed = before;
-        let _ = paths;
         return None;
     }
     let listed = breach
@@ -499,7 +512,10 @@ pub(crate) fn enforce_managed_files_with_writer_log(
         .collect::<Vec<_>>()
         .join(", ");
     let (quarantine, restored) =
-        quarantine_and_restore(project_root, &before, &breach, "shell-with-log");
+        match quarantine_and_restore(project_root, &before, &breach, &logs, "shell-with-log") {
+            Ok(result) => result,
+            Err(error) => return Some(format!("[managed-files] 回滚失败：{error}")),
+        };
 
     let incomplete = if after_incomplete {
         format!(
@@ -525,6 +541,187 @@ pub(crate) fn enforce_managed_files_with_writer_log(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dedicated_writers_keep_document_lock_through_log_publication() {
+        use kanzei_harness::{Tool, ToolCtx};
+        for kind in ["conventions", "architecture", "test_record"] {
+            let root = temp_project(kind);
+            std::fs::create_dir_all(root.join("docs/design")).unwrap();
+            std::fs::write(root.join("docs/design/harness_m1.md"), "# Design").unwrap();
+            let (tool, relative, old, input): (Box<dyn Tool>, _, _, _) = match kind {
+                "conventions" => {
+                    let old = "# Rules\nold rule\n";
+                    (
+                        Box::new(crate::conventions::ConventionsTool),
+                        crate::conventions::CONVENTIONS_REL,
+                        old,
+                        serde_json::json!({"action":"patch", "old_string":"old rule", "new_string":"new rule", "expected_hash":crate::content_hash(old.as_bytes())}),
+                    )
+                }
+                "architecture" => {
+                    let old = "# Architecture\n\n- [`harness_m1.md`](../../../docs/design/harness_m1.md): old\n";
+                    (
+                        Box::new(crate::architecture::ArchitectureTool),
+                        crate::architecture::ARCHITECTURE_REL,
+                        old,
+                        serde_json::json!({"action":"update", "content":old.replace("old", "new"), "expected_hash":crate::content_hash(old.as_bytes())}),
+                    )
+                }
+                _ => (
+                    Box::new(crate::test_record::TestRecordTool),
+                    crate::test_record::TEST_RUNS_REL,
+                    "",
+                    serde_json::json!({"title":"publication lock test", "status":"running"}),
+                ),
+            };
+            let path = root.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, old).unwrap();
+            let publication =
+                crate::atomic_file::lock_exclusive(&root.join(".kanzei/.write-log/journal"))
+                    .unwrap();
+            let context = ToolCtx::new(root.clone(), root.clone());
+            let writer = std::thread::spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(tool.execute(input, &context))
+            });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while std::fs::read_to_string(&path).unwrap_or_default() == old
+                && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            let changed = std::fs::read_to_string(&path).unwrap_or_default() != old;
+            let fence_blocked =
+                crate::atomic_file::try_lock_shared(&path, std::time::Duration::ZERO)
+                    .unwrap()
+                    .is_none();
+            drop(publication);
+            let result = writer.join().unwrap();
+            assert!(!result.is_error, "{kind}: {}", result.content);
+            assert!(changed, "{kind} did not reach the publication boundary");
+            assert!(
+                fence_blocked,
+                "{kind} released its document before publishing the receipt"
+            );
+            assert!(!crate::write_log::entries_after(&root, 0)
+                .unwrap()
+                .is_empty());
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn failed_quarantine_must_not_overwrite_the_only_copy() {
+        let root = temp_project("quarantine-failure");
+        let path = root.join(".kanzei/project/requirements.md");
+        std::fs::write(&path, "before").unwrap();
+        let before = ManagedSnapshot::capture(&root);
+        std::fs::write(&path, "user changes").unwrap();
+        std::fs::write(root.join(".kanzei/quarantine"), "blocks directory creation").unwrap();
+        let change = diff(&before, &ManagedSnapshot::capture(&root)).unwrap();
+        assert!(quarantine_and_restore(&root, &before, &change, &[], "test").is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "user changes");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn log_state(root: &Path, content: crate::write_log::LoggedContent, bytes: &[u8]) -> PathBuf {
+        crate::write_log::record(
+            root,
+            &crate::write_log::WriteLogEntry {
+                at_ms: 100,
+                path: ".kanzei/project/requirements.md".into(),
+                fingerprint: crate::content_hash(bytes),
+                content,
+                run_id: None,
+                process_id: None,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn rollback_respects_empty_deleted_and_newly_created_legal_states() {
+        use crate::write_log::LoggedContent;
+        for (existed, state, expected) in [
+            (
+                true,
+                LoggedContent::Stored(Vec::new()),
+                Some(b"".as_slice()),
+            ),
+            (true, LoggedContent::Deleted, None),
+            (
+                false,
+                LoggedContent::Stored(b"created legally".to_vec()),
+                Some(b"created legally".as_slice()),
+            ),
+        ] {
+            let root = temp_project("typed-rollback");
+            let path = root.join(".kanzei/project/requirements.md");
+            if existed {
+                std::fs::write(&path, "original").unwrap();
+            }
+            let before = ManagedSnapshot::capture(&root);
+            log_state(&root, state, expected.unwrap_or(&[]));
+            std::fs::write(&path, "unattributed edit").unwrap();
+            let report = enforce_managed_files_with_writer_log(&root, before, 0).unwrap();
+            assert!(report.contains("ROLLED BACK"), "{report}");
+            assert_eq!(std::fs::read(&path).ok().as_deref(), expected);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn absent_body_or_corrupt_log_never_falls_back_to_old_snapshot() {
+        use crate::write_log::LoggedContent;
+        for corrupt in ["omitted", "syntax", "body"] {
+            let root = temp_project("unavailable-rollback");
+            let path = root.join(".kanzei/project/requirements.md");
+            std::fs::write(&path, "old baseline").unwrap();
+            let before = ManagedSnapshot::capture(&root);
+            let log = log_state(
+                &root,
+                LoggedContent::FingerprintOnly,
+                b"new legitimate body",
+            );
+            if corrupt == "syntax" {
+                std::fs::write(&log, "broken record").unwrap();
+            } else if corrupt == "body" {
+                let text = std::fs::read_to_string(&log).unwrap();
+                std::fs::write(&log, text.replace("omitted", "data:626164")).unwrap();
+            }
+            std::fs::write(&path, "unattributed edit").unwrap();
+            let report = enforce_managed_files_with_writer_log(&root, before, 0).unwrap();
+            assert!(report.contains("失败"), "{report}");
+            assert!(!report.contains("ROLLED BACK"), "{report}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "unattributed edit");
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn log_before_window_cannot_replace_newer_opening_snapshot() {
+        let root = temp_project("window-baseline");
+        let path = root.join(".kanzei/project/requirements.md");
+        log_state(
+            &root,
+            crate::write_log::LoggedContent::Stored(b"old journal".to_vec()),
+            b"old journal",
+        );
+        std::fs::write(&path, "newer opening snapshot").unwrap();
+        let before = ManagedSnapshot::capture(&root);
+        std::fs::write(&path, "unattributed edit").unwrap();
+        enforce_managed_files_with_writer_log(&root, before, 101).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "newer opening snapshot"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     /// D-603 回归:旧收口预算只有 500ms,冷 CI 的合法 memory 写事务稍慢就被误报成
     /// “cross-fence attribution was NOT enforced”。这里确定性持有树锁 800ms:
@@ -813,7 +1010,9 @@ mod tests {
                 at_ms: window_start + 1,
                 path: ".kanzei/project/requirements.md".into(),
                 fingerprint: crate::content_hash(new_content.as_bytes()),
-                content: new_content.as_bytes().to_vec(),
+                content: kanzei_base::write_log::LoggedContent::Stored(
+                    new_content.as_bytes().to_vec(),
+                ),
                 run_id: Some("run-a".into()),
                 process_id: Some("proc-a".into()),
             },
@@ -886,7 +1085,7 @@ mod tests {
                 at_ms: window_start + 1,
                 path: ".kanzei/project/requirements.md".into(),
                 fingerprint: crate::content_hash(req_new.as_bytes()),
-                content: req_new.as_bytes().to_vec(),
+                content: kanzei_base::write_log::LoggedContent::Stored(req_new.as_bytes().to_vec()),
                 run_id: Some("run-a".into()),
                 process_id: Some("proc-a".into()),
             },
@@ -940,7 +1139,7 @@ mod tests {
                 at_ms: window_start + 1,
                 path: ".kanzei/project/requirements.md".into(),
                 fingerprint: crate::content_hash(legit.as_bytes()),
-                content: legit.as_bytes().to_vec(),
+                content: kanzei_base::write_log::LoggedContent::Stored(legit.as_bytes().to_vec()),
                 run_id: Some("run-a".into()),
                 process_id: Some("proc-a".into()),
             },

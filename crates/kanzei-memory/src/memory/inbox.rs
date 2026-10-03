@@ -9,7 +9,7 @@
 //! discard_note/clear_inbox 共用同一把锁,避免并发 append 互吃;树锁还与 bash 围栏
 //! 的收口共享锁互斥,确保 after 快照不读到写事务中间态。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::store::MemoryStore;
 use super::today;
@@ -131,34 +131,11 @@ impl MemoryStore {
         self.root.join("inbox.checkpoint.json")
     }
 
-    fn record_inbox_write_log(&self, path: &Path, content: &[u8]) {
-        let Some(project_root) = &self.project_root else {
-            return;
-        };
-        let Ok(relative) = path.strip_prefix(project_root) else {
-            return;
-        };
-        let _ = kanzei_base::write_log::record(
-            project_root,
-            &kanzei_base::write_log::WriteLogEntry {
-                at_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or_default(),
-                path: relative.display().to_string().replace('\\', "/"),
-                fingerprint: kanzei_base::content_hash(content),
-                content: content.to_vec(),
-                run_id: None,
-                process_id: None,
-            },
-        );
-    }
-
     pub fn write_inbox_checkpoint(&self, checkpoint: &InboxCheckpoint) -> anyhow::Result<()> {
         let _lock = self.tree_lock()?;
         let text = serde_json::to_string_pretty(checkpoint)? + "\n";
         crate::atomic_file::write_atomic(&self.inbox_checkpoint_path(), &text)?;
-        self.record_inbox_write_log(&self.inbox_checkpoint_path(), text.as_bytes());
+        self.record_write_log(&self.inbox_checkpoint_path(), Some(text.into_bytes()))?;
         Ok(())
     }
 
@@ -176,7 +153,7 @@ impl MemoryStore {
         let _lock = self.tree_lock()?;
         if path.is_file() {
             crate::atomic_file::write_atomic(&path, "# Memory Inbox\n")?;
-            self.record_inbox_write_log(&path, b"# Memory Inbox\n");
+            self.record_write_log(&path, Some(b"# Memory Inbox\n".to_vec()))?;
         }
         Ok(())
     }
@@ -253,7 +230,7 @@ impl MemoryStore {
             },
         ));
         crate::atomic_file::write_atomic(&path, &text)?;
-        self.record_inbox_write_log(&path, text.as_bytes());
+        self.record_write_log(&path, Some(text.into_bytes()))?;
         drop(tree_lock);
         audit();
         Ok(path)
@@ -344,7 +321,7 @@ impl MemoryStore {
         }
         let path = self.root.join("inbox.md");
         crate::atomic_file::write_atomic(&path, &next)?;
-        self.record_inbox_write_log(&path, next.as_bytes());
+        self.record_write_log(&path, Some(next.into_bytes()))?;
         Ok(removed)
     }
 

@@ -6501,7 +6501,28 @@ assert(listText("fast-status").includes("50%"), "安装进度未反映到界面"
 {
   const conventionsUi = esmModuleCache.get("15-conventions.js").namespace;
   const current = "# 用户规则\n保留离线能力";
+  for (const [baseMatches, notice] of [
+    [null, "这份建议稿来自旧版本，请对照当前规范检查后保存。"],
+    [false, "建议生成后规范已修改。请对照当前规则合并；保存会保留本次打开后的并发修改保护。"],
+  ]) {
+    payloads.conventions_read = { exists: true, hash: "fnv-current", content: current,
+      proposal_base_matches_current: baseMatches,
+      proposal: { base_hash: baseMatches === null ? "0123456789abcdef" : "fnv-old",
+        hash: "03434cc9ff86a7fd", content: "# 待审建议\n保留用户内容" } };
+    payloads.conventions_save = "fnv-saved";
+    await conventionsUi.openConventions();
+    byId.get("conventions-proposal").click();
+    assert(byId.get("toast").children.at(-1)?.textContent.includes(sandbox.t(notice)), "旧算法与真实修改没有分别提示");
+    assert(byId.get("conventions-editor").value.includes("保留用户内容"), "旧建议稿无法读取");
+    byId.get("conventions-save").click();
+    await flush();
+    const legacySave = invokeArgs.filter((item) => item.cmd === "conventions_save").at(-1);
+    assert(legacySave?.args.expectedHash === "fnv-current", "保存旧建议稿必须校验本次打开的当前规范");
+    assert(legacySave?.args.proposalHash === "03434cc9ff86a7fd", "旧建议稿身份被重新计算");
+    byId.get("conventions-close").click();
+  }
   payloads.conventions_read = { exists: true, hash: "base", content: current,
+    proposal_base_matches_current: true,
     proposal: { base_hash: "base", hash: "draft", content: "# 建议\n保留离线能力\n增加测试命令" } };
   payloads.conventions_save = "saved";
   await conventionsUi.openConventions();

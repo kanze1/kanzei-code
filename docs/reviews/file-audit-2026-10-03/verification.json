@@ -1,0 +1,133 @@
+{
+  "observed_at": "2026-10-03T10:07:51.336228+08:00",
+  "baseline": "abb596f0eb59ab32d13c32f0952aa6771a9b3e21",
+  "repository_review_complete": false,
+  "production_files_modified": [
+    "crates/kanzei-base/src/atomic_file.rs",
+    "crates/kanzei-base/src/write_log.rs",
+    "crates/kanzei-tools/src/architecture.rs",
+    "crates/kanzei-tools/src/conventions.rs",
+    "crates/kanzei-tools/src/managed.rs",
+    "crates/kanzei-tools/src/test_record.rs"
+  ],
+  "source_sha256": {
+    "crates/kanzei-base/src/atomic_file.rs": "63bf604dcc605c188283e2ad034068ad7a3aa7470d302365f724849a866ce080",
+    "crates/kanzei-base/src/write_log.rs": "d5f8903a99765f0770590cc914d132e1cf62eec3adab243d76d055784fa1da1c",
+    "crates/kanzei-tools/src/architecture.rs": "f32db5a44d3e1316e7299a1e4bb4b550c2dcbcaebbfcdc1a7c086c3a61b27239",
+    "crates/kanzei-tools/src/conventions.rs": "b59d9ecbcc729896e67094dda8b25e555ff1207a42ff391b7e17f629356f0919",
+    "crates/kanzei-tools/src/managed.rs": "0c3784382c91bddb0b0d1fb294e7e432aadc14369a856c104885fbaa02f79de7",
+    "crates/kanzei-tools/src/test_record.rs": "cf3f11533a7167f4c80b0fe51afe83daa440ea7327a28f68fdc5600fb4d93014"
+  },
+  "checks": [
+    {
+      "command": "cargo check --workspace --all-targets",
+      "exit_code": 0,
+      "log": "output/file-audit-check.log",
+      "note": "Passed before final writer-scope changes; final all-targets type checking also performed by clippy."
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/file-audit-clippy.log",
+      "final_source": true
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "final_source": true
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "final_source": true
+    },
+    {
+      "command": "cargo test -p kanzei-base -p kanzei-harness -p kanzei-memory -p kanzei-tools --lib -- --test-threads=4",
+      "exit_code": 0,
+      "results": {
+        "kanzei-base": {
+          "passed": 39,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 0
+        },
+        "kanzei-harness": {
+          "passed": 201,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 0
+        },
+        "kanzei-memory": {
+          "passed": 178,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 0
+        },
+        "kanzei-tools": {
+          "passed": 745,
+          "failed": 0,
+          "ignored": 1,
+          "filtered_out": 0
+        }
+      },
+      "log": "output/file-audit-tests.log",
+      "note": "After writer-scope fixes. Subsequently made malformed legacy receipt handling tolerant; reran final base and direct app caller tests, plus workspace clippy."
+    },
+    {
+      "command": "cargo test -p kanzei-base --lib -- --test-threads=4",
+      "exit_code": 0,
+      "results": [
+        {
+          "passed": 39,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 0
+        }
+      ],
+      "log": "output/file-audit-base-final.log",
+      "final_source": true
+    },
+    {
+      "command": "cargo test -p kanzei-app files_edit -- --test-threads=4",
+      "exit_code": 0,
+      "results": [
+        {
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 513
+        }
+      ],
+      "log": "output/file-audit-app-tests.log",
+      "final_source": true
+    },
+    {
+      "command": "cargo test -p kanzei-app memory_chat -- --test-threads=4",
+      "exit_code": 0,
+      "results": [
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 525
+        }
+      ],
+      "log": "output/file-audit-memory-chat.log",
+      "final_source": true
+    },
+    {
+      "command": "cargo test -p kanzei-tools --lib dedicated_writers_keep_document_lock_through_log_publication",
+      "before_exit_code": 101,
+      "after_exit_code": 0,
+      "before_log": "output/file-audit-publication-before.log",
+      "after_log": "output/file-audit-publication-after.log"
+    }
+  ],
+  "platform": "Windows x86_64 / rustc 1.98.0",
+  "unverified": [
+    "Linux/macOS execution",
+    "installed desktop full E2E",
+    "full file-level review of remaining repository"
+  ],
+  "release_performed": false
+}

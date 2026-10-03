@@ -472,6 +472,8 @@ pub(crate) fn write_at(
     if let Some(code) = write_policy(&resolved.rel) {
         return Err(readonly_error(code));
     }
+    let _lock = kanzei_tools::atomic_file::lock_exclusive(&resolved.abs)
+        .map_err(|error| error.to_string())?;
     let text = if request.bom {
         format!("\u{FEFF}{}", request.content)
     } else {
@@ -579,27 +581,23 @@ pub(crate) fn write_at(
         }
     }
     let written = kanzei_tools::content_hash(text.as_bytes());
-    // 写后凭据(写日志契约:先写文档、再记日志)。失败只告警:保存本身已成功,
-    // 丢的只是跨树围栏的归因凭据。根下没有 `.kanzei`(resolve_root 退回到了打开的目录本身)就不记:
+    // 写后凭据：先写文档，再记日志；失败明确告知文件已保存、凭据未完成。
+    // 根下没有 `.kanzei`(resolve_root 退回到了打开的目录本身)就不记:
     // 那里没有围栏会读它,不凭空建出 `.kanzei/.write-log`——与代理 write 工具无 run 身份时不建
     // `.kanzei` 同一口径。覆盖留证照常建目录(安全比整洁重要)。
     if root.join(".kanzei").is_dir() {
-        if let Err(error) = kanzei_tools::write_log::record(
+        kanzei_tools::write_log::record(
             root,
             &kanzei_tools::write_log::WriteLogEntry {
                 at_ms: now_ms(),
                 path: resolved.rel.clone(),
                 fingerprint: written.clone(),
-                content: Vec::new(),
+                content: kanzei_tools::write_log::LoggedContent::FingerprintOnly,
                 run_id: None,
                 process_id: Some(FILES_VIEW_PROCESS.to_string()),
             },
-        ) {
-            tracing::warn!(
-                "files-view write-log record failed for {}: {error}",
-                resolved.rel
-            );
-        }
+        )
+        .map_err(|error| format!("文件已保存，但写入凭据记录失败：{error}"))?;
     }
     Ok(result_json(
         "saved",
@@ -1029,6 +1027,13 @@ pub(crate) mod tests {
             save_err(&root, ".kanzei/memory/M-999-new.md", None),
             "READONLY:managed"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn 非受限路径可以保存() {
+        // 只读测试会故意创建无效的内部日志；可写路径使用独立的正常项目。
+        let root = temp_root("writable-policy");
         for rel in [
             ".kanzei/kanzei.toml",
             ".kanzei/research/t/a.md",
@@ -1046,6 +1051,29 @@ pub(crate) mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn 日志损坏时明确报告已保存但凭据失败() {
+        let root = temp_root("bad-journal");
+        put(&root, ".kanzei/.write-log/1-broken.log", b"broken");
+        let error = write_at(
+            &root,
+            WriteRequest {
+                rel: "new.txt",
+                content: "saved content",
+                expected_hash: None,
+                bom: false,
+                evidence: false,
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("文件已保存，但写入凭据记录失败"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(root.join("new.txt")).unwrap(),
+            "saved content"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1169,7 +1197,7 @@ pub(crate) mod tests {
             Some(&kanzei_tools::content_hash(b"a\n")),
         );
         assert_eq!(result["status"], "saved");
-        let entries = kanzei_tools::write_log::entries_after(&root, before);
+        let entries = kanzei_tools::write_log::entries_after(&root, before).unwrap();
         let entry = entries
             .iter()
             .find(|entry| entry.path == "notes/todo.md")

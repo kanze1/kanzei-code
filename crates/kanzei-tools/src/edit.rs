@@ -551,8 +551,6 @@ impl Tool for EditTool {
         {
             return crate::write::write_error(&path, e, "EDIT_WRITE_FAILED");
         }
-        // D-395:写日志凭据——edit 是专用写者,写后留痕供跨树围栏吸收。
-        crate::write::record_worktree_write_log(ctx, &input.path, updated.as_bytes());
         self.misses.lock().unwrap().remove(&path);
         let mut message = format!(
             "replaced {count} occurrence(s) in {}{ending_note}{whitespace_note}",
@@ -795,8 +793,6 @@ impl Tool for InsertTool {
         {
             return crate::write::write_error(&path, error, "INSERT_WRITE_FAILED");
         }
-        // D-395:写日志凭据——insert 是专用写者,写后留痕供跨树围栏吸收。
-        crate::write::record_worktree_write_log(ctx, &input.path, updated.as_bytes());
         let mut message = format!(
             "inserted content {} unique anchor in {}",
             match input.position {
@@ -891,7 +887,7 @@ mod tests {
             "gamma\nanchor\ninserted\nomega\n"
         );
         assert!(dir.join(".kanzei/.write-log").is_dir());
-        let logs = crate::write_log::entries_after(&dir, 0);
+        let logs = crate::write_log::entries_after(&dir, 0).unwrap();
         assert!(
             logs.iter().any(|entry| {
                 entry.path == "target.txt"

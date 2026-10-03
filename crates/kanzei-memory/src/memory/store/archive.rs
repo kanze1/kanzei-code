@@ -75,7 +75,8 @@ impl MemoryStore {
     /// 返回归档条数。引擎强制:任何 refresh_derived(写操作后)都会先归档,
     /// 主目录只留 active/candidate——归档条目不在 load_all/FTS/检索范围内,
     /// ID 由 load_archived_ids 保留永不复用。
-    pub fn archive_dead(&self) -> usize {
+    pub fn archive_dead(&self) -> anyhow::Result<usize> {
+        let _tree_lock = self.tree_lock()?;
         let entries = self.load_all();
         let mut archived = 0usize;
         for (path, entry) in &entries {
@@ -83,22 +84,22 @@ impl MemoryStore {
                 continue;
             }
             let archive_dir = self.archive_dir();
-            std::fs::create_dir_all(&archive_dir).ok();
+            std::fs::create_dir_all(&archive_dir)?;
             let dest = archive_dir.join(format!("{}.md", entry.file_stem()));
             // 墓碑:保留文件(内容即追溯),目标已存在则跳过(防重复归档覆盖)。
             if dest.exists() {
-                if std::fs::remove_file(path).is_ok() {
-                    self.record_write_log(path, Vec::new());
-                }
-            } else if std::fs::rename(path, &dest).is_ok() {
+                std::fs::remove_file(path)?;
+                self.record_write_log(path, None)?;
+            } else {
+                std::fs::rename(path, &dest)?;
                 archived += 1;
                 // D-480:rename 同时改变源路径和 archive 目标路径。两条日志都要记，
                 // 围栏才能把「源删除 + 墓碑落盘」识别为同一次合法 memory_stale。
-                self.record_write_log(path, Vec::new());
-                self.record_write_log(&dest, render_entry(entry).into_bytes());
+                self.record_write_log(path, None)?;
+                self.record_write_log(&dest, Some(render_entry(entry).into_bytes()))?;
             }
         }
-        archived
+        Ok(archived)
     }
 
     /// 撤销归档 / 从归档恢复:把 archive/ 里的条目搬回主目录并改成 `status`(candidate|shadow|active)。
@@ -138,7 +139,7 @@ impl MemoryStore {
         // 先写主目录再删归档:中途失败只会留下重复(archive_dead 会按「目标已存在」收拾),不会丢条目。
         self.write_entry(&entry, None)?;
         std::fs::remove_file(&path)?;
-        self.record_write_log(&path, Vec::new());
+        self.record_write_log(&path, None)?;
         self.refresh_derived()?;
         Ok(entry)
     }

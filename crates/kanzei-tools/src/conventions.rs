@@ -9,7 +9,7 @@ use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::architecture::content_hash;
+use crate::normalized_text_hash;
 
 /// 开发规范(相对项目根)。
 pub mod drafts;
@@ -104,7 +104,7 @@ impl Tool for ConventionsTool {
                     .collect();
                 let mut out = format!(
                     "path: {CONVENTIONS_REL}\nhash: {}\nlines: {}\nheadings:\n",
-                    content_hash(&current),
+                    normalized_text_hash(&current),
                     current.lines().count(),
                 );
                 for heading in headings.iter().take(60) {
@@ -121,6 +121,10 @@ impl Tool for ConventionsTool {
                 let Some(content) = input.content else {
                     return ToolOutput::error("content is required");
                 };
+                let _lock = match crate::atomic_file::lock_exclusive(&path) {
+                    Ok(lock) => lock,
+                    Err(error) => return ToolOutput::error(error.to_string()),
+                };
                 let result = if input.action == "create" {
                     drafts::create(&ctx.project_root, &content)
                 } else {
@@ -136,7 +140,11 @@ impl Tool for ConventionsTool {
                         } else {
                             drafts::PROPOSAL_REL
                         };
-                        crate::record_write_log(ctx, rel, &ctx.project_root.join(rel));
+                        if let Err(error) =
+                            crate::record_write_log(ctx, rel, &ctx.project_root.join(rel))
+                        {
+                            return ToolOutput::error(error);
+                        }
                         ToolOutput::ok(format!(
                             "{} {rel}\nhash: {hash}\n{}",
                             input.action,
@@ -174,7 +182,7 @@ impl Tool for ConventionsTool {
                     return ToolOutput::error(format!(
                         "`expected_hash` is required for patch — call `get` first and pass the \
                          hash it returned. Current hash: {}",
-                        content_hash(&read_text(&path))
+                        normalized_text_hash(&read_text(&path))
                     ));
                 };
                 if !path.exists() {
@@ -184,7 +192,7 @@ impl Tool for ConventionsTool {
                     ));
                 }
                 let current = read_text(&path);
-                let current_hash = content_hash(&current);
+                let current_hash = normalized_text_hash(&current);
                 if expected != current_hash {
                     return ToolOutput::error(format!(
                         "stale expected_hash `{expected}`; the file is now `{current_hash}` \
@@ -244,38 +252,29 @@ fn write_patch_with_log(
     new_content: String,
     expected: &str,
 ) -> ToolOutput {
-    let out = write_patch(path, current, new_content, expected);
-    if !out.is_error {
-        crate::record_write_log(ctx, CONVENTIONS_REL, path);
-    }
-    out
-}
-
-/// 执行写盘 + 产出 diff 显示。new_content 里的裸换行统一为文件既有风格(CRLF 文件不
-/// 因 LF 参数产生混合换行)。
-fn write_patch(path: &Path, current: String, new_content: String, expected: &str) -> ToolOutput {
+    let _lock = match crate::atomic_file::lock_exclusive(path) {
+        Ok(lock) => lock,
+        Err(error) => return ToolOutput::error(error.to_string()),
+    };
+    // 保持原文件换行风格；同一外层锁覆盖 CAS 与凭据记录。
     let new_content = if current.contains("\r\n") {
         normalize_lf(&new_content).replace('\n', "\r\n")
     } else {
         new_content
     };
-    // D-364:conventions.md 与 bash 围栏共用同一把锁——围栏命令窗口内,并发 patch
-    // 在锁上等待,命令结束后落盘,不会被围栏的快照回滚误抹掉。CAS 防并发手改,
-    // 锁防围栏误回滚,两者互补。expected 若是窗口前读的,等锁拿到后 CAS 会如实报
-    // stale,绝不假成功。
-    let _lock = match crate::atomic_file::lock_exclusive(path) {
-        Ok(lock) => lock,
-        Err(e) => return ToolOutput::error(format!("cannot lock {CONVENTIONS_REL}: {e}")),
-    };
-    if let Err(e) = crate::atomic_file::write_atomic_cas(path, &new_content, expected, content_hash)
+    if let Err(e) =
+        crate::atomic_file::write_atomic_cas(path, &new_content, expected, normalized_text_hash)
     {
         return ToolOutput::error(e);
+    }
+    if let Err(error) = crate::record_write_log(ctx, CONVENTIONS_REL, path) {
+        return ToolOutput::error(error);
     }
     let diff_lines = new_content.lines().count() as i64 - current.lines().count() as i64;
     ToolOutput::ok(format!(
         "patched {CONVENTIONS_REL} ({} lines, {diff_lines:+} vs before)\nhash: {}",
         new_content.lines().count(),
-        content_hash(&new_content),
+        normalized_text_hash(&new_content),
     ))
     .with_display(serde_json::json!({
         "kind": "diff",
@@ -396,7 +395,7 @@ mod tests {
         assert!(text.contains("## 2. 代码修改原则"), "标题导航缺失: {text}");
         assert!(text.contains("小步可验证"), "全文未返回: {text}");
         assert!(
-            text.contains(&content_hash(SAMPLE)),
+            text.contains(&normalized_text_hash(SAMPLE)),
             "get 未返回当前 hash: {text}"
         );
     }
@@ -428,7 +427,7 @@ mod tests {
                     "action": "patch",
                     "old_string": "全量测试只在关闭前跑",
                     "new_string": "全量测试只在复杂度中/大条目关闭前跑(引擎已接管)",
-                    "expected_hash": content_hash(SAMPLE),
+                    "expected_hash": normalized_text_hash(SAMPLE),
                 }),
                 &ctx,
             )
@@ -441,7 +440,7 @@ mod tests {
             "无关小节被改动: {written}"
         );
         assert!(
-            out.content.contains(&content_hash(&written)),
+            out.content.contains(&normalized_text_hash(&written)),
             "返回 hash 与落盘内容不一致: {}",
             out.content
         );
@@ -459,13 +458,13 @@ mod tests {
                     "action": "patch",
                     "old_string": "全量测试只在关闭前跑",
                     "new_string": "全量测试只在关闭前跑(改)",
-                    "expected_hash": content_hash(SAMPLE),
+                    "expected_hash": normalized_text_hash(SAMPLE),
                 }),
                 &ctx,
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        let logs = crate::write_log::entries_after(&root, 0);
+        let logs = crate::write_log::entries_after(&root, 0).unwrap();
         assert!(
             logs.iter().any(|l| l.path.ends_with(CONVENTIONS_REL)),
             "conventions.md 应有写日志: {:?}",
@@ -480,7 +479,7 @@ mod tests {
             "patch",
             Some("这句话在文件里不存在"),
             Some("替换"),
-            Some(&content_hash(SAMPLE)),
+            Some(&normalized_text_hash(SAMPLE)),
         )
         .await;
         assert!(out.is_error, "0 命中不应成功: {}", out.content);
@@ -499,7 +498,7 @@ mod tests {
             "patch",
             Some("## "),
             Some("# "),
-            Some(&content_hash(SAMPLE)),
+            Some(&normalized_text_hash(SAMPLE)),
         )
         .await;
         assert!(out.is_error, "多命中不应成功: {}", out.content);
@@ -556,7 +555,7 @@ mod tests {
             "action": "patch",
             "old_string": "- 旧行一。\n- 旧行二。",
             "new_string": "- 新行。",
-            "expected_hash": content_hash(crlf),
+            "expected_hash": normalized_text_hash(crlf),
         });
         let out = ConventionsTool.execute(input.clone(), &ctx).await;
         assert!(
@@ -579,7 +578,7 @@ mod tests {
             "action": "patch",
             "old_string": "- 甲。\r\n\r\n## 2.",
             "new_string": "- 乙。\r\n\r\n## 2.",
-            "expected_hash": content_hash(lf),
+            "expected_hash": normalized_text_hash(lf),
         });
         let out2 = ConventionsTool.execute(input2.clone(), &ctx2).await;
         assert!(
@@ -600,7 +599,7 @@ mod tests {
             "action": "patch",
             "old_string": "- 需求列表按文件顺序自上而下扫描，顺序代表用户意图；priority 只用于背景判断，不得改变取活顺序。\n- **`阻塞:` 字段只留给外部阻塞**——即解除权不在 agent 手里的四类：①已经把方案发给用户、正在等回复；②缺凭据/权限/环境；③依赖外部服务或他人；④用户明确宣布该条自己直营。写入时必须带**具名的解除人**（谁做什么才能解除），写不出具名解除人的就不是外部阻塞。",
             "new_string": "- 替换行。",
-            "expected_hash": content_hash(crlf),
+            "expected_hash": normalized_text_hash(crlf),
         });
         let out = ConventionsTool.execute(input.clone(), &ctx).await;
         assert!(

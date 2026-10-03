@@ -3,12 +3,18 @@
 pub mod arch_diagram;
 pub mod architecture;
 pub mod memory_consolidation;
-/// 原子写原语下沉到 kanzei-llm(依赖图最底层,D-261):llm 的 auth/store 与
-/// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
+/// 原子写、文件锁和字节指纹由 kanzei-base 提供,各工具共用同一套实现。
 pub use kanzei_base::atomic_file;
 pub use kanzei_base::content_hash;
 pub use kanzei_base::path_form;
 pub use kanzei_base::write_log;
+
+/// 架构索引与项目规范按文本内容比较版本,忽略 CRLF/LF 差异。
+/// 换行规则留在工具层;指纹算法和格式仍由 kanzei-base 唯一实现。
+pub(crate) fn normalized_text_hash(content: &str) -> String {
+    content_hash(content.replace("\r\n", "\n").as_bytes())
+}
+
 /// R-203:memory/、docstore、embed、replay_eval 拆入 kanzei-memory crate,经再导出
 /// 保持 `kanzei_tools::{memory,docstore,embed,replay_eval}` 全部调用点零改动。
 pub use kanzei_memory::docstore;
@@ -289,29 +295,33 @@ pub(crate) fn record_write_log(
     ctx: &kanzei_harness::ToolCtx,
     rel_path: &str,
     abs_path: &std::path::Path,
-) {
-    if let Ok(content) = std::fs::read(abs_path) {
-        // D-399:record 失败至少告警(模块契约「宁可失败不静默」)——日志丢失 =
-        // 该次写入失去归因凭据,围栏收口会把它当越界,必须让调用方看到。
-        if let Err(e) = crate::write_log::record(
-            &ctx.project_root,
-            &crate::write_log::WriteLogEntry {
-                at_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or_default(),
-                path: rel_path.replace('\\', "/"),
-                fingerprint: crate::content_hash(&content),
-                content: content.clone(),
-                run_id: ctx.run_id.clone(),
-                process_id: ctx.process_id.clone(),
-            },
-        ) {
-            eprintln!("[write-log] record failed for {rel_path}: {e}");
-        }
-    }
+) -> Result<(), String> {
+    let _lock = atomic_file::lock_exclusive(abs_path).map_err(|error| error.to_string())?;
+    let content = match std::fs::read(abs_path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("写入后读取 {rel_path} 失败：{error}")),
+    };
+    write_log::record(
+        &ctx.project_root,
+        &write_log::WriteLogEntry {
+            at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|error| error.to_string())?
+                .as_millis(),
+            path: rel_path.replace('\\', "/"),
+            fingerprint: content_hash(content.as_deref().unwrap_or(&[])),
+            content: content.map_or(
+                write_log::LoggedContent::Deleted,
+                write_log::LoggedContent::Stored,
+            ),
+            run_id: ctx.run_id.clone(),
+            process_id: ctx.process_id.clone(),
+        },
+    )
+    .map_err(|error| format!("文件已写入，但 {rel_path} 的写入凭据记录失败：{error}"))?;
+    Ok(())
 }
-
 /// Windows 上禁止外部子进程新建控制台窗口(D-238)。
 /// 桌面端是 GUI 进程(没有控制台可继承),不设 CREATE_NO_WINDOW 时,每次
 /// spawn git/cargo/taskkill 等外部程序都会闪出一个黑色 cmd 窗口。std 与
