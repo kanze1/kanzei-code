@@ -5,7 +5,7 @@ use super::{
 };
 use crate::docs::{docs_archive_entries, docs_snapshot};
 // R-153 批10:缺陷审查迁到 subagents、模型角色校验迁到 settings。
-use crate::settings::validate_model_roles;
+use crate::settings::settings_save_at_path;
 use crate::subagents::{defect_review, defect_review_report, defect_review_snapshot};
 // R-153 批5:项目隔离/分离已迁到 projects 模块,测试跟着改从模块导入。
 use crate::projects::{ensure_project_isolated, project_detach};
@@ -113,8 +113,18 @@ fn 保存前拦住指向不存在_provider_的模型角色() {
             context_limit: None,
         }],
     };
-    assert!(validate_model_roles(&payload("deepsek:chat")).is_err());
-    assert!(validate_model_roles(&payload("deepseek:chat")).is_ok());
+    let path = std::env::temp_dir().join(format!(
+        "kanzei-role-validation-{}-{}.toml",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    assert!(settings_save_at_path(payload("deepsek:chat"), &path).is_err());
+    assert!(!path.exists(), "非法角色不能提交配置");
+    assert!(settings_save_at_path(payload("deepseek:chat"), &path).is_ok());
+    std::fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -638,9 +648,16 @@ fn selected_child_docs_permissions_and_memory_keep_parent_material_untouched() {
         PathBuf::from(rules["path"].as_str().unwrap()),
         normalized_project_root(&permission_child).join(".kanzei/kanzei.toml")
     );
-    assert!(
-        crate::settings::permission_rule_delete(permission_child.display().to_string(), 0).is_err()
-    );
+    assert!(crate::settings::permission_rule_delete(
+        permission_child.display().to_string(),
+        0,
+        kanzei_harness::permission::Rule {
+            action: "bash".into(),
+            resource: "cargo test".into(),
+            effect: kanzei_harness::permission::Effect::Allow,
+        },
+    )
+    .is_err());
     assert_eq!(
         std::fs::read_to_string(base.join(".kanzei/kanzei.toml")).unwrap(),
         parent_config

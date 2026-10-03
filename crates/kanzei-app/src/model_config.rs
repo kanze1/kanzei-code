@@ -728,47 +728,19 @@ pub(crate) fn apply_project_models_patch(
     Ok(doc)
 }
 
-/// 读-改-写,写之前复读一次:自举 Agent 可能同时往同一个文件追加 `[[permissions.rules]]`
-/// (「总是允许」),两次读之间文件变了就在新内容上重做,不覆盖别人刚追加的规则。
+/// 在配置共同锁内读取、应用模型补丁并原子提交，和「允许并记住」串行。
 pub(crate) fn save_project_models_file(
     path: &Path,
     set: &ProjectModelsSet,
     unset: &[String],
     probe: &KanzeiConfig,
 ) -> Result<(), String> {
-    save_project_models_file_with(path, set, unset, probe, || {})
-}
-
-/// `between_reads` 在「读 + 改」与「写前复读」之间调用——只给测试注入并发追加用。
-fn save_project_models_file_with(
-    path: &Path,
-    set: &ProjectModelsSet,
-    unset: &[String],
-    probe: &KanzeiConfig,
-    mut between_reads: impl FnMut(),
-) -> Result<(), String> {
-    for _ in 0..4 {
-        let before = crate::settings::settings_read_text(path)?;
-        let doc = apply_project_models_patch(
-            before.as_deref().unwrap_or_default(),
-            path,
-            set,
-            unset,
-            probe,
-        )?;
-        if before.as_deref() == Some(doc.to_string().as_str()) {
-            return Ok(()); // 没有实际变化:不碰文件
-        }
-        between_reads();
-        if crate::settings::settings_read_text(path)? != before {
-            continue; // 期间被别人改过:在新内容上重做
-        }
-        return crate::settings::settings_write_document(doc, path);
-    }
-    Err(format!(
-        "{} 在保存期间被反复改写,为免覆盖别人的改动已放弃,请重试",
-        path.display()
-    ))
+    kanzei_harness::config::update_config_document(path, |doc| {
+        *doc = apply_project_models_patch(&doc.to_string(), path, set, unset, probe)
+            .map_err(anyhow::Error::msg)?;
+        Ok(())
+    })
+    .map_err(|error| format!("保存项目模型配置失败 {}: {error}", path.display()))
 }
 
 #[tauri::command]
@@ -1400,6 +1372,42 @@ mod tests {
     }
 
     #[test]
+    fn project_models_save_edits_and_unsets_valid_inline_models() {
+        let dir = temp_dir("inline-models");
+        let path = dir.join("kanzei.toml");
+        std::fs::write(&path, "# Keep\nmodels = { primary = 'local:llama', scout = 'local:scout' }\n[providers.local]\nprotocol = 'openai'\nbase_url = 'http://x'\n").unwrap();
+        save_project_models_file(
+            &path,
+            &ProjectModelsSet {
+                reasoning: Some("xhigh".into()),
+                ..Default::default()
+            },
+            &["primary".into()],
+            &probe_with_local(),
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let config: KanzeiConfig = toml::from_str(&text).unwrap();
+        assert!(text.contains("# Keep"));
+        assert_eq!(config.models.primary, None);
+        assert_eq!(config.models.reasoning.as_deref(), Some("xhigh"));
+        assert_eq!(config.models.scout.as_deref(), Some("local:scout"));
+        assert_eq!(config.providers["local"].base_url, "http://x");
+        std::fs::write(&path, "models = { primary = 'local:llama' }\n").unwrap();
+        save_project_models_file(
+            &path,
+            &ProjectModelsSet::default(),
+            &["primary".into()],
+            &probe_with_local(),
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let doc: toml_edit::DocumentMut = text.parse().unwrap();
+        assert!(!doc.contains_key("models"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn project_models_save_rejects_invalid() {
         let dir = temp_dir("reject");
         let path = dir.join("kanzei.toml");
@@ -1462,7 +1470,7 @@ mod tests {
 
     #[test]
     fn project_models_save_rebases_on_concurrent_append() {
-        // 两次读之间有人追加了一条「总是允许」规则:在新内容上重做,规则不能丢。
+        // 先持有共同锁；模型保存必须等待权限事务，并读到该事务提交的内容。
         let root = temp_dir("rebase");
         let path = root.join(".kanzei/kanzei.toml");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -1471,16 +1479,31 @@ mod tests {
             reasoning: Some("low".into()),
             ..Default::default()
         };
-        let mut appended = false;
-        save_project_models_file_with(&path, &set, &[], &probe_with_local(), || {
-            // 第一次读完、写之前,自举 Agent 的「总是允许」追加了一条规则(真实持久化函数)。
-            if !appended {
-                appended = true;
-                kanzei_harness::config::append_allow_rule(&root, "bash", "cargo test").unwrap();
-            }
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let mut worker = None;
+        let mut completed_early = false;
+        kanzei_harness::config::update_config_document(&path, |doc| {
+            let worker_path = path.clone();
+            worker = Some(std::thread::spawn(move || {
+                started_tx.send(()).unwrap();
+                let result = save_project_models_file(&worker_path, &set, &[], &probe_with_local());
+                done_tx.send(result).unwrap();
+            }));
+            started_rx.recv().unwrap();
+            completed_early = done_rx
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_ok();
+            let permissions: toml_edit::DocumentMut =
+                "[[permissions.rules]]\naction = 'bash'\nresource = 'cargo test'\neffect = 'allow'\n"
+                    .parse()?;
+            doc["permissions"] = permissions["permissions"].clone();
+            Ok(())
         })
         .unwrap();
-        assert!(appended);
+        worker.unwrap().join().unwrap();
+        assert!(!completed_early, "模型保存绕过了已持有的权限配置锁");
+        done_rx.recv().unwrap().unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let config: KanzeiConfig = toml::from_str(&text).unwrap();
         assert_eq!(

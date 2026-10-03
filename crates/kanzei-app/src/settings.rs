@@ -102,7 +102,7 @@ pub(crate) fn global_config_path() -> PathBuf {
 
 /// 设置标量并保留原值上的空白/行尾注释装饰。
 pub(crate) fn settings_set_value(
-    table: &mut toml_edit::Table,
+    table: &mut dyn toml_edit::TableLike,
     key: &str,
     value: impl Into<toml_edit::Value>,
 ) {
@@ -110,11 +110,15 @@ pub(crate) fn settings_set_value(
     if let Some(existing) = table.get(key).and_then(|item| item.as_value()) {
         *value.decor_mut() = existing.decor().clone();
     }
-    table[key] = toml_edit::Item::Value(value);
+    if let Some(existing) = table.get_mut(key) {
+        *existing = toml_edit::Item::Value(value);
+    } else {
+        table.insert(key, toml_edit::Item::Value(value));
+    }
 }
 
 pub(crate) fn settings_set_or_remove(
-    table: &mut toml_edit::Table,
+    table: &mut dyn toml_edit::TableLike,
     key: &str,
     value: Option<String>,
 ) {
@@ -127,7 +131,7 @@ pub(crate) fn settings_set_or_remove(
 }
 
 pub(crate) fn settings_set_or_reset(
-    table: &mut toml_edit::Table,
+    table: &mut dyn toml_edit::TableLike,
     key: &str,
     value: Option<String>,
     default_value: &str,
@@ -142,7 +146,7 @@ pub(crate) fn settings_set_or_reset(
 }
 
 pub(crate) fn settings_set_or_remove_num(
-    table: &mut toml_edit::Table,
+    table: &mut dyn toml_edit::TableLike,
     key: &str,
     value: Option<impl Into<toml_edit::Value>>,
 ) {
@@ -157,11 +161,17 @@ pub(crate) fn settings_set_or_remove_num(
 pub(crate) fn settings_table<'a>(
     doc: &'a mut toml_edit::DocumentMut,
     name: &str,
-) -> Result<&'a mut toml_edit::Table, String> {
-    doc.entry(name)
-        .or_insert(toml_edit::table())
-        .as_table_mut()
+) -> Result<&'a mut dyn toml_edit::TableLike, String> {
+    settings_item_table(doc.entry(name).or_insert(toml_edit::table()))
         .ok_or_else(|| format!("配置节 `{name}` 不是表,无法保存设置"))
+}
+
+fn settings_item_table(item: &mut toml_edit::Item) -> Option<&mut dyn toml_edit::TableLike> {
+    // Loader 接受两种合法 TOML 表；编辑保留它们的表示与装饰。
+    if let Some(table) = item.as_table_mut() {
+        table.set_implicit(true);
+    }
+    item.as_table_like_mut()
 }
 
 fn project_root_for_settings(project_dir: Option<&str>) -> Option<PathBuf> {
@@ -212,22 +222,11 @@ fn provider_sources(
 /// UI-0926 #3:设置页只写**全局**默认,校验基线因此也只看全局——全局文件 + 内置默认,
 /// 再叠加当前表单 provider。此前基线掺了当前项目的 provider:只在项目文件里定义的
 /// provider 能让全局 primary 通过校验,换到别的项目这份全局配置就解析不了。
-pub(crate) fn validate_model_roles(payload: &SettingsPayload) -> Result<(), String> {
-    let mut probe = config_from_file(&global_config_path());
-    probe.fill_defaults();
-    for p in &payload.providers {
-        probe.providers.insert(
-            p.name.trim().to_string(),
-            kanzei_harness::config::ProviderConfig {
-                protocol: p.protocol.clone(),
-                base_url: p.base_url.clone(),
-                api_key_env: p.api_key_env.clone(),
-                api_key: p.api_key.clone(),
-                auth: p.auth.clone(),
-                context_limit: p.context_limit,
-            },
-        );
-    }
+fn validate_model_roles(
+    payload: &SettingsPayload,
+    config: &kanzei_harness::KanzeiConfig,
+) -> Result<(), String> {
+    let mut probe = config.clone();
     probe.fill_defaults();
     for (role, value) in [
         ("primary", &payload.primary),
@@ -245,20 +244,6 @@ pub(crate) fn validate_model_roles(payload: &SettingsPayload) -> Result<(), Stri
     Ok(())
 }
 
-pub(crate) fn settings_read_document(path: &Path) -> Result<toml_edit::DocumentMut, String> {
-    let text = settings_read_text(path)?.unwrap_or_default();
-    settings_parse_document(&text, path)
-}
-
-/// 读配置原文;文件不存在 = None(与「空文件」区分开,供写前复读比对用)。
-pub(crate) fn settings_read_text(path: &Path) -> Result<Option<String>, String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("读取配置失败 {}: {e}", path.display())),
-    }
-}
-
 /// 把已读到的原文解析成可文档化编辑的 toml(先按 KanzeiConfig 做语义校验)。
 pub(crate) fn settings_parse_document(
     text: &str,
@@ -268,19 +253,6 @@ pub(crate) fn settings_parse_document(
         .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))?;
     text.parse()
         .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))
-}
-
-pub(crate) fn settings_write_document(
-    doc: toml_edit::DocumentMut,
-    path: &Path,
-) -> Result<(), String> {
-    let text = doc.to_string();
-    toml::from_str::<kanzei_harness::KanzeiConfig>(&text)
-        .map_err(|e| format!("保存结果自校验失败,已放弃写入: {e}"))?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
 pub(crate) fn settings_apply_scalar_fields(
@@ -310,7 +282,6 @@ pub(crate) fn settings_apply_scalar_fields(
         "env",
     );
     let profile = settings_table(doc, "profile")?;
-    profile.set_implicit(true);
     // readonly 也是合法档位(defs.rs ProfileKind)。设置页的下拉只列 dev/research,
     // 但文件里写着 readonly 的用户不能因为路过一次设置页就被静默降级成 dev——
     // 白名单少一个值,表现出来就是"我明明没动这一项,保存后它自己变了"。
@@ -494,8 +465,10 @@ pub(crate) fn settings_apply_providers(
     doc: &mut toml_edit::DocumentMut,
     payload: &SettingsPayload,
 ) -> Result<(), String> {
+    let inline_providers = doc
+        .get("providers")
+        .is_some_and(toml_edit::Item::is_inline_table);
     let providers = settings_table(doc, "providers")?;
-    providers.set_implicit(true);
     if !payload.providers.is_empty() {
         let keep: std::collections::BTreeSet<&str> = payload
             .providers
@@ -522,10 +495,12 @@ pub(crate) fn settings_apply_providers(
             }
             continue;
         }
-        let Some(provider) = providers
-            .entry(&name)
-            .or_insert(toml_edit::table())
-            .as_table_mut()
+        let empty_provider = if inline_providers {
+            toml_edit::value(toml_edit::InlineTable::new())
+        } else {
+            toml_edit::table()
+        };
+        let Some(provider) = settings_item_table(providers.entry(&name).or_insert(empty_provider))
         else {
             return Err(format!("配置节 `providers.{name}` 不是表,无法保存设置"));
         };
@@ -693,17 +668,20 @@ pub(crate) fn settings_save_at_path_impl(
 ) -> Result<(), String> {
     // 以现有配置文本为底,只改设置页管理的键:注释、排版、未知字段原样保留(D-082)。
     // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
-    let mut doc = settings_read_document(path)?;
-    settings_apply_scalar_fields(&mut doc, &payload)?;
-    settings_apply_limits(&mut doc, &payload)?;
-    settings_apply_providers(&mut doc, &payload)?;
-    settings_apply_cadence(&mut doc, &payload)?;
-    settings_write_document(doc, path)
+    kanzei_harness::config::update_config_document(path, |doc| {
+        settings_apply_scalar_fields(doc, &payload).map_err(anyhow::Error::msg)?;
+        settings_apply_limits(doc, &payload).map_err(anyhow::Error::msg)?;
+        settings_apply_providers(doc, &payload).map_err(anyhow::Error::msg)?;
+        settings_apply_cadence(doc, &payload).map_err(anyhow::Error::msg)?;
+        let saved = toml::from_str::<kanzei_harness::KanzeiConfig>(&doc.to_string())?;
+        validate_model_roles(&payload, &saved).map_err(anyhow::Error::msg)?;
+        Ok(())
+    })
+    .map_err(|error| format!("保存配置失败 {}: {error}", path.display()))
 }
 
 #[cfg(test)]
 pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
-    validate_model_roles(&payload)?;
     settings_save_at_path_impl(payload, path)
 }
 
@@ -715,7 +693,6 @@ pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Re
 /// scope/projectDir,Tauri 会忽略多余参数,结果也只会写全局,不会误写项目文件。
 #[tauri::command]
 pub fn settings_save(payload: SettingsPayload) -> Result<(), String> {
-    validate_model_roles(&payload)?;
     settings_save_at_path_impl(payload, &global_config_path())
 }
 /// 「打开配置原文」在文件不存在时铺的底:**只有注释,一个键都不写**。
@@ -782,10 +759,14 @@ pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
 # [permissions]\n\
 #   non_interactive = \"deny\" | \"rules_only\" | \"allow_listed\"\n\
 #   # rules = [{ action = \"bash\", resource = \"...\", effect = \"allow\" }, ...]\n";
-    let doc: toml_edit::DocumentMut = template
-        .parse()
-        .map_err(|e| format!("内置配置模板不是合法 toml(这是 bug): {e}"))?;
-    settings_write_document(doc, path)
+    kanzei_harness::config::update_config_document(path, |doc| {
+        // settings_open 的先行检查不是写入依据；在同一事务内确认尚未创建。
+        if !path.try_exists()? {
+            *doc = template.parse()?;
+        }
+        Ok(())
+    })
+    .map_err(|error| format!("创建配置失败 {}: {error}", path.display()))
 }
 
 #[tauri::command]
@@ -809,10 +790,12 @@ fn project_permission_config(project_dir: &str) -> PathBuf {
 #[tauri::command]
 pub fn permission_rules_get(project_dir: String) -> Result<serde_json::Value, String> {
     let path = project_permission_config(&project_dir);
-    let config: kanzei_harness::KanzeiConfig = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| toml::from_str(&text).ok())
-        .unwrap_or_default();
+    let config: kanzei_harness::KanzeiConfig = match std::fs::read_to_string(&path) {
+        Ok(text) => toml::from_str(&text)
+            .map_err(|error| format!("权限配置格式错误 {}: {error}", path.display()))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+        Err(error) => return Err(format!("读取权限配置失败 {}: {error}", path.display())),
+    };
     let rules = config.permissions.rules.iter().enumerate()
         .filter(|(_, rule)| rule.effect == kanzei_harness::permission::Effect::Allow)
         .map(|(index, rule)| json!({
@@ -823,21 +806,41 @@ pub fn permission_rules_get(project_dir: String) -> Result<serde_json::Value, St
 }
 
 #[tauri::command]
-pub fn permission_rule_delete(project_dir: String, index: usize) -> Result<(), String> {
+pub fn permission_rule_delete(
+    project_dir: String,
+    index: usize,
+    expected_rule: kanzei_harness::permission::Rule,
+) -> Result<(), String> {
     let path = project_permission_config(&project_dir);
-    let text =
-        std::fs::read_to_string(&path).map_err(|error| format!("读取权限规则失败: {error}"))?;
-    let mut config: kanzei_harness::KanzeiConfig =
-        toml::from_str(&text).map_err(|error| format!("配置格式错误: {error}"))?;
-    let Some(rule) = config.permissions.rules.get(index) else {
-        return Err("权限规则不存在或已被删除".into());
-    };
-    if rule.effect != kanzei_harness::permission::Effect::Allow {
-        return Err("只能删除已记住的放行规则".into());
-    }
-    config.permissions.rules.remove(index);
-    let text = toml::to_string_pretty(&config).map_err(|error| error.to_string())?;
-    std::fs::write(&path, text).map_err(|error| format!("写入权限规则失败: {error}"))
+    kanzei_harness::config::update_config_document(&path, |doc| {
+        let config: kanzei_harness::KanzeiConfig = toml::from_str(&doc.to_string())?;
+        let Some(rule) = config.permissions.rules.get(index) else {
+            anyhow::bail!("权限规则不存在或已被删除");
+        };
+        if rule.effect != kanzei_harness::permission::Effect::Allow {
+            anyhow::bail!("只能删除已记住的放行规则");
+        }
+        if rule.action != expected_rule.action
+            || rule.resource != expected_rule.resource
+            || rule.effect != expected_rule.effect
+        {
+            anyhow::bail!("权限规则已变化，请刷新后重试");
+        }
+        let rules = doc
+            .get_mut("permissions")
+            .and_then(toml_edit::Item::as_table_like_mut)
+            .and_then(|permissions| permissions.get_mut("rules"))
+            .ok_or_else(|| anyhow::anyhow!("权限规则不存在或已被删除"))?;
+        if let Some(rules) = rules.as_array_of_tables_mut() {
+            rules.remove(index);
+        } else if let Some(rules) = rules.as_array_mut() {
+            rules.remove(index);
+        } else {
+            anyhow::bail!("permissions.rules 不是规则数组，拒绝删除");
+        }
+        Ok(())
+    })
+    .map_err(|error| format!("删除权限规则失败 {}: {error}", path.display()))
 }
 #[tauri::command]
 pub async fn provider_test(
@@ -954,6 +957,242 @@ pub(crate) fn with_kanzei_home<R>(home: &Path, f: impl FnOnce() -> R) -> R {
 
 #[cfg(test)]
 mod tests {
+    fn allow(resource: &str) -> kanzei_harness::permission::Rule {
+        kanzei_harness::permission::Rule {
+            action: "bash".into(),
+            resource: resource.into(),
+            effect: kanzei_harness::permission::Effect::Allow,
+        }
+    }
+
+    fn assert_config_write_waits(
+        tag: &str,
+        initial: &str,
+        write: impl FnOnce(PathBuf) -> Result<(), String> + Send + 'static,
+    ) {
+        let path = 临时配置(tag);
+        std::fs::write(&path, initial).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let mut worker = None;
+        let mut completed_early = false;
+        kanzei_harness::config::update_config_document(&path, |doc| {
+            let worker_path = path.clone();
+            worker = Some(std::thread::spawn(move || {
+                started_tx.send(()).unwrap();
+                done_tx.send(write(worker_path)).unwrap();
+            }));
+            started_rx.recv().unwrap();
+            completed_early = done_rx
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_ok();
+            doc["cadence"]["verify_every_n"] = toml_edit::value(19);
+            Ok(())
+        })
+        .unwrap();
+        worker.unwrap().join().unwrap();
+        assert!(!completed_early, "{tag} 绕过了已持有的共同配置锁");
+        done_rx.recv().unwrap().unwrap();
+        let saved: kanzei_harness::KanzeiConfig =
+            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.cadence.verify_every_n, 19, "{tag} 覆盖了已提交配置");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn settings_save_waits_for_config_transaction() {
+        assert_config_write_waits("settings-lock", "", |path| {
+            let mut payload = 空载荷(vec![]);
+            payload.language = Some("en".into());
+            settings_save_at_path_impl(payload, &path)
+        });
+    }
+
+    #[test]
+    fn settings_save_rejects_model_of_removed_provider_without_committing() {
+        let home = 临时配置("removed-provider").with_extension("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let path = home.join("kanzei.toml");
+        let original = "[models]\nprimary = 'removed:model'\n[providers.removed]\nprotocol = 'openai'\nbase_url = 'http://removed'\n[providers.kept]\nprotocol = 'openai'\nbase_url = 'http://kept'\n";
+        std::fs::write(&path, original).unwrap();
+        with_kanzei_home(&home, || {
+            let providers = || {
+                vec![ProviderPayload {
+                    name: "kept".into(),
+                    protocol: "openai".into(),
+                    base_url: "http://kept".into(),
+                    api_key_env: None,
+                    api_key: None,
+                    auth: None,
+                    context_limit: None,
+                }]
+            };
+            for role in ["primary", "fast", "compact"] {
+                let mut payload = 空载荷(providers());
+                match role {
+                    "primary" => payload.primary = "removed:model".into(),
+                    "fast" => payload.fast = "removed:model".into(),
+                    _ => payload.compact = "removed:model".into(),
+                }
+                let error = settings_save(payload).unwrap_err();
+                assert!(error.contains("removed:model") && error.contains(role));
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            }
+            let mut payload = 空载荷(providers());
+            payload.primary = "kept:model".into();
+            settings_save(payload).unwrap();
+            let mut saved: kanzei_harness::KanzeiConfig =
+                toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert!(!saved.providers.contains_key("removed"));
+            saved.fill_defaults();
+            assert!(saved.resolve_model("kept:model").is_ok());
+        });
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn settings_save_edits_valid_inline_sections() {
+        let path = 临时配置("inline-settings");
+        std::fs::write(&path,
+            "# Keep\nmodels = { reasoning = 'xhigh', scout = 'local:scout' }\nprofile = { default = 'readonly' }\nlimits = { max_tokens = 10, compact_buffer_tokens = 321 }\ncadence = { verify_every_n = 19 }\nproviders = { local = { protocol = 'openai', base_url = 'http://x' } }\n"
+        ).unwrap();
+        let mut payload = 空载荷(vec![ProviderPayload {
+            name: "local".into(),
+            protocol: "openai".into(),
+            base_url: "http://new".into(),
+            api_key_env: None,
+            api_key: None,
+            auth: None,
+            context_limit: None,
+        }]);
+        payload.reasoning = Some("xhigh".into());
+        payload.profile_default = Some("readonly".into());
+        payload.cadence = Some(Default::default());
+        settings_save_at_path_impl(payload, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let saved: kanzei_harness::KanzeiConfig = toml::from_str(&text).unwrap();
+        assert!(text.contains("# Keep"));
+        assert_eq!(saved.models.reasoning.as_deref(), Some("xhigh"));
+        assert_eq!(saved.models.scout.as_deref(), Some("local:scout"));
+        assert_eq!(saved.profile.default.as_deref(), Some("readonly"));
+        assert_eq!(saved.limits.compact_buffer_tokens, Some(321));
+        assert_eq!(saved.cadence.verify_every_n, 19);
+        assert_eq!(saved.providers["local"].base_url, "http://new");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn settings_bootstrap_waits_and_preserves_concurrent_creation() {
+        assert_config_write_waits("bootstrap-lock", "", |path| settings_bootstrap_file(&path));
+    }
+
+    #[test]
+    fn settings_bootstrap_preserves_existing_bytes_and_rejects_read_failure() {
+        let path = 临时配置("bootstrap-existing");
+        let text = "# Existing configuration\n[models]\nreasoning = 'xhigh'\n";
+        std::fs::write(&path, text).unwrap();
+        settings_bootstrap_file(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(settings_bootstrap_file(&path).is_err());
+        assert!(path.is_dir());
+        std::fs::remove_dir(&path).unwrap();
+    }
+
+    #[test]
+    fn permission_delete_rejects_stale_identity_and_preserves_formats() {
+        let path = 临时配置("permissions-formats");
+        let project = path.with_extension("project");
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        let config_path = project.join(".kanzei/kanzei.toml");
+        for text in [
+            "# Keep\n[permissions]\nnon_interactive = 'deny'\nrules = [{ action = 'bash', resource = 'A', effect = 'allow' }, { action = 'bash', resource = 'B', effect = 'allow' }]\n[extra]\nkeep = 7\n",
+            "# Keep\n[permissions]\nnon_interactive = 'deny'\n[[permissions.rules]]\naction = 'bash'\nresource = 'A'\neffect = 'allow'\n[[permissions.rules]]\naction = 'bash'\nresource = 'B'\neffect = 'allow'\n[extra]\nkeep = 7\n",
+            "# Keep\npermissions = { non_interactive = 'deny', rules = [{ action = 'bash', resource = 'A', effect = 'allow' }, { action = 'bash', resource = 'B', effect = 'allow' }] }\n[extra]\nkeep = 7\n",
+        ] {
+            std::fs::write(&config_path, text).unwrap();
+            permission_rule_delete(project.display().to_string(), 0, allow("A")).unwrap();
+            let after = std::fs::read_to_string(&config_path).unwrap();
+            assert!(after.contains("# Keep") && after.contains("keep = 7"));
+            assert!(permission_rule_delete(project.display().to_string(), 0, allow("A")).is_err());
+            assert_eq!(std::fs::read_to_string(&config_path).unwrap(), after);
+            let rules = permission_rules_get(project.display().to_string()).unwrap();
+            assert_eq!(rules["rules"].as_array().unwrap().len(), 1);
+            assert_eq!(rules["rules"][0]["resource"], "B");
+            let mut deny = allow("B");
+            deny.effect = kanzei_harness::permission::Effect::Deny;
+            assert!(permission_rule_delete(project.display().to_string(), 0, deny).is_err());
+            permission_rule_delete(project.display().to_string(), 0, allow("B")).unwrap();
+            assert!(permission_rules_get(project.display().to_string()).unwrap()["rules"]
+                .as_array().unwrap().is_empty());
+        }
+        std::fs::remove_file(config_path).unwrap();
+        // The base lock owns a sidecar; remove only this test's unique fixture.
+        std::fs::remove_dir_all(project).unwrap();
+    }
+
+    #[test]
+    fn permission_delete_waits_for_config_transaction() {
+        let project = 临时配置("permission-delete-lock").with_extension("project");
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        let path = project.join(".kanzei/kanzei.toml");
+        std::fs::write(
+            &path,
+            "[permissions]\nrules = [{action = 'bash', resource = 'A', effect = 'allow'}]\n",
+        )
+        .unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let mut worker = None;
+        let mut completed_early = false;
+        kanzei_harness::config::update_config_document(&path, |doc| {
+            let worker_project = project.display().to_string();
+            worker = Some(std::thread::spawn(move || {
+                started_tx.send(()).unwrap();
+                done_tx
+                    .send(permission_rule_delete(worker_project, 0, allow("A")))
+                    .unwrap();
+            }));
+            started_rx.recv().unwrap();
+            completed_early = done_rx
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_ok();
+            doc["cadence"]["verify_every_n"] = toml_edit::value(19);
+            Ok(())
+        })
+        .unwrap();
+        worker.unwrap().join().unwrap();
+        assert!(!completed_early, "权限删除绕过了共同配置锁");
+        done_rx.recv().unwrap().unwrap();
+        let saved: kanzei_harness::KanzeiConfig =
+            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.cadence.verify_every_n, 19);
+        assert!(saved.permissions.rules.is_empty());
+        std::fs::remove_dir_all(project).unwrap();
+    }
+
+    #[test]
+    fn permission_rules_get_distinguishes_missing_invalid_and_read_failure() {
+        let project = 临时配置("permission-read").with_extension("project");
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        let config_path = project.join(".kanzei/kanzei.toml");
+        assert!(
+            permission_rules_get(project.display().to_string()).unwrap()["rules"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        std::fs::write(&config_path, "[permissions\n").unwrap();
+        let error = permission_rules_get(project.display().to_string()).unwrap_err();
+        assert!(error.contains("权限配置格式错误") && error.contains("kanzei.toml"));
+        std::fs::remove_file(&config_path).unwrap();
+        std::fs::create_dir(&config_path).unwrap();
+        let error = permission_rules_get(project.display().to_string()).unwrap_err();
+        assert!(error.contains("读取权限配置失败") && error.contains("kanzei.toml"));
+        std::fs::remove_dir_all(project).unwrap();
+    }
+
     use super::*;
     use kanzei_harness::KanzeiConfig;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1386,8 +1625,8 @@ mod tests {
             let mut project_provider = 空载荷(vec![]);
             project_provider.primary = "llama-local:7b".into();
             (
-                validate_model_roles(&global_provider),
-                validate_model_roles(&project_provider),
+                settings_save(global_provider),
+                settings_save(project_provider),
             )
         });
         global_result.expect("全局文件里配了的 provider,表单清单没带也必须能通过");

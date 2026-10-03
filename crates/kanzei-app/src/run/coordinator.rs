@@ -141,7 +141,13 @@ pub(crate) async fn run_task(
 
     let event_window = window.clone();
     let session_id_for_events = session_id.clone();
-    let emit_event = move |name: &str, payload: serde_json::Value| {
+    let permission_project_for_events = deps.project_root.display().to_string();
+    let emit_event = move |name: &str, mut payload: serde_json::Value| {
+        if name == "kz:permission-resolved" {
+            if let Some(fields) = payload.as_object_mut() {
+                fields.insert("projectDir".into(), json!(permission_project_for_events));
+            }
+        }
         event_window.emit(name, with_session_id(payload, &session_id_for_events))
     };
     // R-202 批1:writer 事件闭包原在装配段内联,随 assemble_run 收敛后由

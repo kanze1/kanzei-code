@@ -1,0 +1,634 @@
+{
+  "task": "M3",
+  "status": "verified_in_root_combination",
+  "verified": true,
+  "observed_at": "2026-10-03T15:05:48.671639",
+  "read_snapshot": "04b33f61",
+  "implementation_baseline": "0e5355c6",
+  "repository_review_complete": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-app/src/settings.rs",
+      "judgment": "P1",
+      "sha256": "f7712eb05b9470f50859d8c974416a1eebde23b000de69e09208c4494738099d",
+      "sha256_lf": "f7712eb05b9470f50859d8c974416a1eebde23b000de69e09208c4494738099d",
+      "lines": 1931
+    },
+    {
+      "path": "crates/kanzei-app/src/model_config.rs",
+      "judgment": "P1",
+      "sha256": "7d16f46189f9b52f28ce72a44155837fc61d9dfff073b3ca1ad8e01801717265",
+      "sha256_lf": "7d16f46189f9b52f28ce72a44155837fc61d9dfff073b3ca1ad8e01801717265",
+      "lines": 1594
+    }
+  ],
+  "slice_files": [
+    {
+      "path": "crates/kanzei-app/src/run/coordinator.rs",
+      "judgment": "P1",
+      "sha256": "628242498fd3df9ff748316f3534fbaa90cf94b2fd000eab4c332675b141175b",
+      "sha256_lf": "ca24012d5d1ef9b71d60ab16d7981f2cc1c0cd0d8f50aa9a04b6fa8d1af72014",
+      "lines": 744
+    },
+    {
+      "path": "crates/kanzei-app/src/state_tests.rs",
+      "judgment": "PASS",
+      "sha256": "c9dc1069e457cc2c354495bdabc19209ce32acc31d16c6c1af9162ac88a425a7",
+      "sha256_lf": "c9dc1069e457cc2c354495bdabc19209ce32acc31d16c6c1af9162ac88a425a7",
+      "lines": 757
+    }
+  ],
+  "issues": [
+    {
+      "priority": "P1",
+      "root": "D1-C1-shared-config-transaction"
+    },
+    {
+      "priority": "P1",
+      "root": "D1-C4-A3-permission-identity"
+    },
+    {
+      "priority": "P1",
+      "root": "valid-inline-config-edit"
+    },
+    {
+      "priority": "P1",
+      "root": "validate-final-provider-state"
+    },
+    {
+      "priority": "P2",
+      "root": "D1-C5-query-failure-semantics"
+    }
+  ],
+  "targeted": {
+    "observed_at": "2026-10-03T14:54:18.278897",
+    "isolation": {
+      "KANZEI_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\.kanzei",
+      "USERPROFILE": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+      "HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+      "APPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Roaming",
+      "LOCALAPPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Local",
+      "CARGO_TARGET_DIR": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+      "CARGO_HOME": "C:\\Users\\kanzei\\.cargo",
+      "RUSTUP_HOME": "C:\\Users\\kanzei\\.rustup",
+      "PLAYWRIGHT_BROWSERS_PATH": "C:\\Users\\kanzei\\AppData\\Local\\ms-playwright"
+    },
+    "checks": [
+      {
+        "name": "settings-tests",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "settings::tests",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 0,
+        "seconds": 18.77,
+        "log": "output\\parallel-M3\\settings-tests.log",
+        "log_sha256": "2e42ee198356d6a60cc7c9918824fa864ca6f51c80f4d2e4df6249e3acb722d6"
+      },
+      {
+        "name": "model-tests",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "model_config::tests",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 0,
+        "seconds": 0.95,
+        "log": "output\\parallel-M3\\model-tests.log",
+        "log_sha256": "ab529a778ec941c09c20948d6a046d55faa1840bbd5f56570205c2199b8ad2f1"
+      }
+    ]
+  },
+  "negative_controls": {
+    "checks": [
+      {
+        "name": "settings-unlocked",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "settings::tests::settings_save_waits_for_config_transaction",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 11.98,
+        "log": "output\\parallel-M3\\negative-settings-unlocked.log",
+        "log_sha256": "9e23c268c7e36e697b18a3b8a914f3ac43f260b81990d72153500259faec6c38",
+        "real_assertion_failure": true
+      },
+      {
+        "name": "models-unlocked",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "model_config::tests::project_models_save_rebases_on_concurrent_append",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 12.04,
+        "log": "output\\parallel-M3\\negative-models-unlocked.log",
+        "log_sha256": "8be1c33fd725a24bb55eef5039653f0ee0e2863a55a98ba5ce2bbff10780a07b",
+        "real_assertion_failure": true
+      },
+      {
+        "name": "bootstrap-unlocked",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "settings::tests::settings_bootstrap_waits_and_preserves_concurrent_creation",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 10.36,
+        "log": "output\\parallel-M3\\negative-bootstrap-unlocked.log",
+        "log_sha256": "e96dfca5b7d56588acae6247c212ec3f9b6102f83f8d3205b0cf58cffbf83d57",
+        "real_assertion_failure": true
+      },
+      {
+        "name": "bootstrap-overwrite",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "settings::tests::settings_bootstrap_preserves_existing_bytes_and_rejects_read_failure",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 8.34,
+        "log": "output\\parallel-M3\\negative-bootstrap-overwrite.log",
+        "log_sha256": "9662a6b81c90660c47fbab59e2e66e986bd74cb8f58e38b1ed9d800b0fc702e6",
+        "real_assertion_failure": true
+      },
+      {
+        "name": "delete-stale-index",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "settings::tests::permission_delete_rejects_stale_identity_and_preserves_formats",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 11.67,
+        "log": "output\\parallel-M3\\negative-delete-stale-index.log",
+        "log_sha256": "1c098bc89d82c8199dbcb17faf9d07cd62d4a8cb94b94c7ee1c2facd4c210bc6",
+        "real_assertion_failure": true
+      },
+      {
+        "name": "query-swallowed-error",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "settings::tests::permission_rules_get_distinguishes_missing_invalid_and_read_failure",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 9.67,
+        "log": "output\\parallel-M3\\negative-query-swallowed-error.log",
+        "log_sha256": "859d0451150122adb142e437a6d1b52ff994036b7e93bd66db9cf2b6e320448f",
+        "real_assertion_failure": true
+      },
+      {
+        "name": "inline-rejected",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "valid_inline",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 9.93,
+        "log": "output\\parallel-M3\\negative-inline-rejected.log",
+        "log_sha256": "f5431ba22bea48193ef15404f69478277e91fbd70059e7bdf0ff82663113eaff",
+        "real_assertion_failure": true
+      },
+      {
+        "name": "removed-provider-accepted",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "settings::tests::settings_save_rejects_model_of_removed_provider_without_committing",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 9.78,
+        "log": "output\\parallel-M3\\negative-removed-provider-accepted.log",
+        "log_sha256": "da40e74279ac5e92a3652896fc484130b8921be35740fea92798cca170710a71",
+        "real_assertion_failure": true
+      },
+      {
+        "name": "delete-unlocked",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "settings::tests::permission_delete_waits_for_config_transaction",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 101,
+        "seconds": 12.91,
+        "log": "output\\parallel-M3\\negative-delete-unlocked.log",
+        "log_sha256": "dc519c62a12e71eefe3f0903a308c012eb68e8356bcb1e242588a99926493698",
+        "real_assertion_failure": true
+      }
+    ],
+    "exact_bytes_restored": {
+      "crates\\kanzei-app\\src\\settings.rs": true,
+      "crates\\kanzei-app\\src\\model_config.rs": true
+    }
+  },
+  "negative_run": {
+    "observed_at": "2026-10-03T14:57:07.337462",
+    "isolation": {
+      "KANZEI_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\.kanzei",
+      "USERPROFILE": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+      "HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+      "APPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Roaming",
+      "LOCALAPPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Local",
+      "CARGO_TARGET_DIR": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+      "CARGO_HOME": "C:\\Users\\kanzei\\.cargo",
+      "RUSTUP_HOME": "C:\\Users\\kanzei\\.rustup",
+      "PLAYWRIGHT_BROWSERS_PATH": "C:\\Users\\kanzei\\AppData\\Local\\ms-playwright"
+    },
+    "checks": [
+      {
+        "name": "M3-negatives",
+        "command": [
+          "C:\\ProgramData\\miniconda3\\python.exe",
+          "C:\\Users\\kanzei\\Documents\\kanzei code\\output\\parallel-M3\\negative.py"
+        ],
+        "exit_code": 0,
+        "seconds": 96.76,
+        "log": "output\\parallel-M3\\M3-negatives.log",
+        "log_sha256": "a6271568b3834c29ed234e17608fbcff3e0f0b89be14eab80874a8d4434f518e"
+      }
+    ]
+  },
+  "integration": {
+    "observed_at": "2026-10-03T15:05:23.673593",
+    "isolation": {
+      "KANZEI_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\.kanzei",
+      "USERPROFILE": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+      "HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+      "APPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Roaming",
+      "LOCALAPPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Local",
+      "CARGO_TARGET_DIR": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+      "CARGO_HOME": "C:\\Users\\kanzei\\.cargo",
+      "RUSTUP_HOME": "C:\\Users\\kanzei\\.rustup",
+      "PLAYWRIGHT_BROWSERS_PATH": "C:\\Users\\kanzei\\AppData\\Local\\ms-playwright"
+    },
+    "checks": [
+      {
+        "name": "workspace-check",
+        "command": [
+          "cargo",
+          "check",
+          "--workspace",
+          "--all-targets"
+        ],
+        "exit_code": 0,
+        "seconds": 21.5,
+        "log": "output\\parallel-M3\\workspace-check.log",
+        "log_sha256": "5323fa21bd5befff5d09c7e75921deb85c9b52ba9b13228617d00ff53bf54f25"
+      },
+      {
+        "name": "workspace-test",
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--",
+          "--quiet"
+        ],
+        "exit_code": 0,
+        "seconds": 160.03,
+        "log": "output\\parallel-M3\\workspace-test.log",
+        "log_sha256": "6605112b2c42a2ccd9420aa7780b6bf44480221b4e463a49ea70986ed098f9a2"
+      },
+      {
+        "name": "workspace-clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 23.1,
+        "log": "output\\parallel-M3\\workspace-clippy.log",
+        "log_sha256": "dc87e5d39120170d6c20add86347b29a70bc9853c680aebecc41ef3457336179"
+      },
+      {
+        "name": "workspace-fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 1.88,
+        "log": "output\\parallel-M3\\workspace-fmt.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "diff-check",
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 0.06,
+        "log": "output\\parallel-M3\\diff-check.log",
+        "log_sha256": "d27869b2833e4aa684fe9b17e6acb30e54241e69b7fbc3cb961b267fa0fc68bc"
+      },
+      {
+        "name": "native-build",
+        "command": [
+          "cargo",
+          "build",
+          "-p",
+          "kanzei-app",
+          "--bin",
+          "kzapp"
+        ],
+        "exit_code": 0,
+        "seconds": 24.79,
+        "log": "output\\parallel-M3\\native-build.log",
+        "log_sha256": "052be6b6cd5438298a54f51abe2ec93eca6128e72e3924eeec68f5d21bb13e1b"
+      },
+      {
+        "name": "permission-ui",
+        "command": [
+          "node",
+          "--experimental-vm-modules",
+          "scripts/ui-permission-identity-smoke.mjs"
+        ],
+        "exit_code": 0,
+        "seconds": 0.17,
+        "log": "output\\parallel-M3\\permission-ui.log",
+        "log_sha256": "c91cae05070a9343226b85ec10014f6fda8070ca63a7ec6de79eebaad4417deb"
+      },
+      {
+        "name": "ipc-event",
+        "command": [
+          "node",
+          "scripts/ipc-event-smoke.mjs"
+        ],
+        "exit_code": 0,
+        "seconds": 0.11,
+        "log": "output\\parallel-M3\\ipc-event.log",
+        "log_sha256": "6eb1fa37ea383b8ad6483268777e3a8363474f1bb214e29e45c690955c447377"
+      },
+      {
+        "name": "ui-runtime",
+        "command": [
+          "node",
+          "--experimental-vm-modules",
+          "scripts/ui-runtime-smoke.mjs"
+        ],
+        "exit_code": 0,
+        "seconds": 243.54,
+        "log": "output\\parallel-M3\\ui-runtime.log",
+        "log_sha256": "19eb935febf53e5669dcfe013b25606ac294ad0ac9c5f53d4a9bc1b1a48c1a71"
+      }
+    ]
+  },
+  "workspace_test_totals": {
+    "passed": 2336,
+    "failed": 0,
+    "ignored": 5,
+    "suites": 16,
+    "rows": [
+      [
+        53,
+        0,
+        0
+      ],
+      [
+        41,
+        0,
+        0
+      ],
+      [
+        564,
+        0,
+        0
+      ],
+      [
+        38,
+        0,
+        0
+      ],
+      [
+        409,
+        0,
+        0
+      ],
+      [
+        211,
+        0,
+        0
+      ],
+      [
+        67,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        3
+      ],
+      [
+        178,
+        0,
+        0
+      ],
+      [
+        775,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ]
+  },
+  "initial_failures": [
+    {
+      "record": "output\\parallel-M3\\targeted-caller-initial-failure.json",
+      "observed_at": "2026-10-03T14:52:48.351903",
+      "isolation": {
+        "KANZEI_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\.kanzei",
+        "USERPROFILE": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+        "HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+        "APPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Roaming",
+        "LOCALAPPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Local",
+        "CARGO_TARGET_DIR": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+        "CARGO_HOME": "C:\\Users\\kanzei\\.cargo",
+        "RUSTUP_HOME": "C:\\Users\\kanzei\\.rustup",
+        "PLAYWRIGHT_BROWSERS_PATH": "C:\\Users\\kanzei\\AppData\\Local\\ms-playwright"
+      },
+      "checks": [
+        {
+          "name": "settings-tests",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "kanzei-app",
+            "settings::tests",
+            "--",
+            "--quiet"
+          ],
+          "exit_code": 101,
+          "seconds": 10.6,
+          "log": "output\\parallel-M3\\settings-tests.log",
+          "log_sha256": "08afc320bf5d8a5a5bb69fa52ce934289205d0fcf6f1b2d6db60d0d15be18a32"
+        }
+      ]
+    },
+    {
+      "record": "output\\parallel-M3\\targeted-decor-initial-failure.json",
+      "observed_at": "2026-10-03T14:48:57.125867",
+      "isolation": {
+        "KANZEI_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\.kanzei",
+        "USERPROFILE": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+        "HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+        "APPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Roaming",
+        "LOCALAPPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Local",
+        "CARGO_TARGET_DIR": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+        "CARGO_HOME": "C:\\Users\\kanzei\\.cargo",
+        "RUSTUP_HOME": "C:\\Users\\kanzei\\.rustup",
+        "PLAYWRIGHT_BROWSERS_PATH": "C:\\Users\\kanzei\\AppData\\Local\\ms-playwright"
+      },
+      "checks": [
+        {
+          "name": "settings-tests",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "kanzei-app",
+            "settings::tests",
+            "--",
+            "--quiet"
+          ],
+          "exit_code": 101,
+          "seconds": 17.82,
+          "log": "output\\parallel-M3\\settings-tests.log",
+          "log_sha256": "c001cc5ba0d95c4fec9c5ee4322bcff9def3b67d9ed3a65e8981764eefff1c6a"
+        }
+      ]
+    },
+    {
+      "record": "output\\parallel-M3\\targeted-inline-initial-failure.json",
+      "observed_at": "2026-10-03T14:47:11.521453",
+      "isolation": {
+        "KANZEI_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\.kanzei",
+        "USERPROFILE": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+        "HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+        "APPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Roaming",
+        "LOCALAPPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Local",
+        "CARGO_TARGET_DIR": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+        "CARGO_HOME": "C:\\Users\\kanzei\\.cargo",
+        "RUSTUP_HOME": "C:\\Users\\kanzei\\.rustup",
+        "PLAYWRIGHT_BROWSERS_PATH": "C:\\Users\\kanzei\\AppData\\Local\\ms-playwright"
+      },
+      "checks": [
+        {
+          "name": "settings-tests",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "kanzei-app",
+            "settings::tests",
+            "--",
+            "--quiet"
+          ],
+          "exit_code": 101,
+          "seconds": 17.58,
+          "log": "output\\parallel-M3\\settings-tests.log",
+          "log_sha256": "574f4dd08ff5749b8aa70bb73cb0ff8d9737bcf5eef99296fc0c619873f794cf"
+        }
+      ]
+    }
+  ],
+  "native_build": {
+    "path": "target/debug/kzapp.exe",
+    "sha256": "23cf09e9c37f977f20d4a425a3050f1ef7b0e1154dc25109b8a75ede9370baf0",
+    "bytes": 82754048
+  },
+  "limits": [
+    "No Linux rerun",
+    "No physical phone/LAN or real desktop window E2E",
+    "Noncooperating external editors bypass internal lock protocol",
+    "Active-session owner and cross-profile team recovery are separate next-wave work"
+  ]
+}
