@@ -75,7 +75,7 @@ function build() {
 export async function openAsyncWorkspace(initial = "", selected = "question") {
   if (!currentProject || !activeSessionId) return;
   build(); scope = { project: currentProject, process: activeProcessId, session: activeSessionId }; tab = selected;
-  $("async-recipient").textContent = `${projectDisplayName(currentProject)} · ${activeProcessId?.startsWith("d|") ? t("主对话") : t("当前对话")}`;
+  $("async-recipient").textContent = `${projectDisplayName(currentProject)} · ${t("当前对话")}`;
   input.value = initial || drafts.get(scopeKey()) || ""; visible = true;
   openPopover(null, panel, { manual: true, onClose: () => { visible = false; ++refreshSerial; } });
   await refresh(); if (selected === "question") input.focus();

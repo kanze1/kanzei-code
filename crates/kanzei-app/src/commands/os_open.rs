@@ -22,7 +22,7 @@ use std::process::{Command, Stdio};
 use serde_json::{json, Value};
 
 use crate::prefs::{load_prefs, load_prefs_for_write, save_prefs, write_guard, OpenToolConfig};
-use crate::state::{default_process_id, AppState};
+use crate::state::AppState;
 use crate::{normalized_project_root, MutexPoisonExt};
 
 /// 自配工具的数量上限(设置页一屏放得下,也防止误把几百行贴进来)。
@@ -419,8 +419,7 @@ pub(crate) fn resolve_target(
     process_id: Option<&str>,
 ) -> Result<PathBuf, String> {
     let root = normalized_project_root(Path::new(project_dir));
-    let default_id = default_process_id(&root);
-    let worktree = match process_id.filter(|id| !id.is_empty() && *id != default_id) {
+    let worktree = match process_id.filter(|id| !id.is_empty()) {
         Some(id) => process_worktree(state, &root, id)?,
         None => None,
     };

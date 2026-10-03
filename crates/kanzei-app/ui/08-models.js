@@ -211,7 +211,7 @@ export async function migrateLegacyModelPrefs() {
   const legacyModel = legacyModelPrefValue();
   const legacyManual = legacyManualModels();
   if (!legacyModel && legacyManual.length === 0) return;
-  const defaultProcess = processItems.find((item) => item.id.startsWith("d|"));
+  const defaultProcess = processItems.find((item) => item.id === activeProcessId);
   if (!defaultProcess) return; // 默认进程尚未就绪,待 process_list 后由 loadModels 再触发
   const patch = {};
   if (legacyModel) patch.model = legacyModel;
@@ -228,13 +228,13 @@ export async function migrateLegacyModelPrefs() {
 }
 export function manualModels() {
   const legacy = legacyManualModels();
-  const list = legacy.length > 0 ? legacy : (processItems.find((item) => item.id.startsWith("d|"))?.manual_models ?? []);
+  const list = legacy.length > 0 ? legacy : (processItems.find((item) => item.id === activeProcessId)?.manual_models ?? []);
   return Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
 }
 export function addManualModel(id) {
   const list = manualModels();
   if (!list.includes(id)) list.push(id);
-  const defaultProcess = processItems.find((item) => item.id.startsWith("d|"));
+  const defaultProcess = processItems.find((item) => item.id === activeProcessId);
   if (defaultProcess) {
     updateLocalProcessItem(defaultProcess.id, { manual_models: list });
     return queueProcessUpdate(defaultProcess.id, { manualModels: list })

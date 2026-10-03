@@ -481,11 +481,15 @@ fn lines_带命名事实并按数字序排() {
     );
     assert_eq!(
         column("label"),
-        [json!("方案对照"), json!("独立任务 3"), json!("讨论 10")]
+        [json!("方案对照"), json!("对话 3"), json!("讨论 10")]
     );
     assert_eq!(
         column("kind"),
-        [json!("discussion"), json!("task"), json!("discussion")]
+        [
+            json!("discussion"),
+            json!("conversation"),
+            json!("discussion")
+        ]
     );
     assert_eq!(
         column("title"),

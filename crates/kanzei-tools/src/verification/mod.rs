@@ -48,6 +48,9 @@ fn default_resource() -> String {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VerificationJob {
     pub id: String,
+    /// Results return to the conversation that submitted this job, regardless of its ID format.
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub project: PathBuf,
     pub source: PathBuf,
     pub snapshot: PathBuf,
@@ -207,6 +210,7 @@ fn prepare(
     let (manifest, fingerprint) = snapshot::freeze(&source, &snapshot)?;
     let mut job = VerificationJob {
         id,
+        session_id: ctx.session_id.clone(),
         project: root,
         source,
         snapshot,

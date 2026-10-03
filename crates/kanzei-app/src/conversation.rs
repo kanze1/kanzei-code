@@ -37,6 +37,17 @@ pub(crate) fn clear_conversation(
     }
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
+    // A late clear request must not recreate a closed or deleted identity.
+    let id = process_id
+        .map(str::to_owned)
+        .unwrap_or_else(|| crate::state::legacy_process_id(&root));
+    if store
+        .list_retired_process_ids(&root.display().to_string())
+        .map_err(|e| e.to_string())?
+        .contains(&id)
+    {
+        return Err("对话已关闭或删除".into());
+    }
     store
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;

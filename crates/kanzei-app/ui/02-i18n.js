@@ -12,6 +12,21 @@ import { refreshConversationList } from "./15-views-misc.js";
 import { persistLanguagePreference, renderProviders } from "./16-settings.js";
 
 export const I18N_EN = {
+  "目标项目的对话暂不可用": "No conversation is available in the target project",
+  "交给其它对话": "Send to another conversation",
+  "交给其它项目的对话": "Send to a conversation in another project",
+  "交给哪个项目的对话": "Choose the destination project",
+  "对话暂不可用，请刷新后重试": "Conversation unavailable. Refresh and try again.",
+  "返回对话": "Return to conversation",
+  "选择对话": "Choose a conversation",
+  "写下要交给「{name}」对话的结论或下一步…": "Write the conclusion or next step for a conversation in {name}…",
+  "写下要交给其它对话的结论或下一步…": "Write the conclusion or next step for another conversation…",
+  "交给其它对话的结论": "Conclusion for another conversation",
+  "发送给对话": "Send to conversation",
+  "交给「{name}」的对话": "Send to a conversation in {name}",
+  "已送给「{name}」的对话，运行中会按队列处理": "Sent to a conversation in {name}; queued if running",
+  "已送给对话，运行中会按队列处理": "Sent to the conversation; queued if running",
+
   "更多操作": "More actions",
   "搜索对话": "Search chats",
   "搜索名称或项目": "Search titles or projects",

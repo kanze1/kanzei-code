@@ -451,9 +451,8 @@ export function on(event, handler) {
 function mobileMessageTarget(sessionId) {
   const line = processItems.find((item) => item.session_id === sessionId);
   if (!line) return { line: null, where: "" };
-  if (line.authority === "primary") return { line, where: t("主对话") };
   const named = typeof line.title === "string" ? line.title.trim() : "";
-  const kind = line.profile === "readonly" ? t("讨论") : t("独立任务");
+  const kind = t("对话");
   return { line, where: named || `${kind}${line.ordinal ? ` ${line.ordinal}` : ""}` };
 }
 export function handleMobileMessage(payload) {

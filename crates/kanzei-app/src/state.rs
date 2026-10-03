@@ -453,14 +453,13 @@ pub(crate) struct ProcessHandle {
     pub(crate) project_dir: ProjectRoot,
     /// 执行工作树**只**由这个字段承担;类型与主根不同,传反编译不过。
     pub(crate) worktree_path: Option<WorktreeRoot>,
-    /// git 工作树对应的真实分支名。默认线为 None;分支线由 git 真源恢复。
+    /// git 工作树对应的真实分支名。共享项目目录为 None;独立工作树由 git 真源恢复。
     pub(crate) branch: Option<String>,
     pub(crate) model: Arc<Mutex<Option<String>>>,
     pub(crate) profile: Arc<Mutex<Option<String>>>,
     pub(crate) research_topic: Arc<Mutex<Option<String>>>,
     pub(crate) reasoning: Arc<Mutex<Option<String>>>,
-    /// 项目级手填模型候选(R-178 批3)。project 级数据挂默认进程行承载;
-    /// 线进程该字段为 None 语义 = 「跟随项目默认进程的候选列表」。
+    /// 当前对话的手填模型候选；各对话独立持久化。
     /// 前端下拉的「手填」候选从 process_info 回读,不再以 localStorage 为真源。
     pub(crate) manual_models: Arc<Mutex<Vec<String>>>,
     /// 「高级勘察复核」(2026-08-11 用户定调;界面上的开关已于 UX-039 撤掉,字段与后端语义保留,
@@ -497,21 +496,19 @@ pub(crate) struct ProcessInfo {
     /// 见 [`ProcessHandle::subagents_enabled`]。前端 `process_list` 回显用。
     pub(crate) subagents_enabled: bool,
     pub(crate) tracker_writes: bool,
-    /// 主代理拥有写入、比对、合并与发版职责;并行线/子代理只在自己的边界内工作。
-    pub(crate) authority: String,
     /// 当前会话阶段,用于侧栏逐条投影并行任务状态。
     pub(crate) stage: String,
     pub(crate) running: bool,
-    /// 展示名(永不为空):用户命名 ‖ 首条消息前 48 字 ‖ 类型+序号(「主对话」「讨论 3」)。
+    /// 展示名(永不为空):用户命名 ‖ 首条消息前 48 字 ‖ 类型+序号(「对话」「讨论 3」)。
     /// 界面不再露出 `pN`/「默认」(UX-009)。
     pub(crate) label: String,
-    /// 有效标题:用户命名,没有就是自动标题;主对话与还没发过消息的对话为 None。
+    /// 有效标题:用户命名,没有就是自动标题;还没发过消息且没有命名的对话为 None。
     pub(crate) title: Option<String>,
     /// `title` 是用户命名的(可「恢复默认名」);false = 自动标题或没有标题。
     pub(crate) title_custom: bool,
     /// `main` | `discussion` | `task` | `research`,见 `processes::naming::ProcessKind`。
     pub(crate) kind: String,
-    /// 编号(`p12` 的 12);主对话没有。
+    /// 编号(`p12` 的 12);旧格式身份没有。
     pub(crate) ordinal: Option<u64>,
     /// 会话最近活动时间(毫秒,`sessions.updated_at`);会话行还没建出来为 None。
     pub(crate) updated_at: Option<i64>,
@@ -593,7 +590,7 @@ pub(crate) struct AppState {
     /// 轮末由 run.rs 只消费所属会话的控制器，不能串扰后台进程。
     pub(crate) auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
     /// R-171 项目级执行协调器:所有 ProcessHandle 共享同一实例,按规范化主根分桶。
-    /// 「并行查、串行写」的强制点——主对话 writer run 在这里获取写租约。
+    /// 「并行查、串行写」的强制点——共享项目目录的 writer run 在这里获取写租约。
     pub(crate) coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
     /// Git 工作树元数据操作的进程内串行闸。
     ///
@@ -631,12 +628,12 @@ pub(crate) fn normalized_project_root(path: &Path) -> PathBuf {
     kanzei_tools::path_form::canonical(path)
         .unwrap_or_else(|_| kanzei_tools::path_form::simplify(path))
 }
-pub(crate) fn default_process_id(root: &Path) -> String {
+pub(crate) fn legacy_process_id(root: &Path) -> String {
     format!("d|{}", root.display())
 }
 pub(crate) fn process_session_id(root: &Path, process_id: Option<&str>) -> String {
     let base = kanzei_core::project_session_id(root);
-    let default_id = default_process_id(root);
+    let default_id = legacy_process_id(root);
     match process_id.filter(|id| !id.is_empty() && *id != default_id) {
         Some(id) => {
             let prefix = id.split_once('|').map(|(prefix, _)| prefix).unwrap_or(id);
@@ -645,10 +642,11 @@ pub(crate) fn process_session_id(root: &Path, process_id: Option<&str>) -> Strin
         None => base,
     }
 }
+#[cfg(test)]
 pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHandle {
-    let id = default_process_id(root);
+    let id = legacy_process_id(root);
     let mut processes = state.processes.lock_or_recover();
-    processes
+    let process = processes
         .entry(id.clone())
         .or_insert_with(|| ProcessHandle {
             id: id.clone(),
@@ -667,7 +665,10 @@ pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHa
             subagents_enabled: Arc::new(AtomicBool::new(true)),
             tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
         })
-        .clone()
+        .clone();
+    drop(processes);
+    crate::processes::registry::persist_process(root, &process).unwrap();
+    process
 }
 /// 单条线的对外信息(建线/改线的返回值用)。命名事实自己只读开一次 state.db;
 /// 列表类调用(process_list / workspace lines)一次开库、逐条走 [`process_info_with`]。
@@ -726,11 +727,6 @@ pub(crate) fn process_info_with(
         phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
         subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
         tracker_writes: process.tracker_writes_enabled.load(Ordering::SeqCst),
-        authority: if process.id.starts_with("d|") {
-            "primary".into()
-        } else {
-            "parallel".into()
-        },
         stage,
         running,
         label: naming.display(kind, ordinal),

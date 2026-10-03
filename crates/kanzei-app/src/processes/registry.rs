@@ -28,6 +28,7 @@ use kanzei_tools::worktree as wt;
 pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Result<(), String> {
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    restore_legacy_conversation(&store, root)?;
     let origin = root.display().to_string();
     let stored = store
         .list_processes(&origin)
@@ -104,6 +105,98 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
             .store(record.tracker_writes_enabled, Ordering::SeqCst);
     }
     Ok(())
+}
+
+/// Older versions could store the first conversation without a registration.
+/// Adopt that history as an ordinary conversation. Retired identities are never reused.
+pub(crate) fn restore_legacy_conversation(
+    store: &kanzei_core::SessionStore,
+    root: &Path,
+) -> Result<(), String> {
+    let id = crate::state::legacy_process_id(root);
+    if store.get_process(&id).map_err(|e| e.to_string())?.is_some()
+        || store
+            .get_session(&kanzei_core::project_session_id(root))
+            .map_err(|e| e.to_string())?
+            .is_none()
+    {
+        return Ok(());
+    }
+    store
+        .insert_new_process(&kanzei_core::StoredProcess {
+            process_id: id,
+            origin_project: root.display().to_string(),
+            project_dir: root.display().to_string(),
+            worktree_path: None,
+            model: None,
+            profile: None,
+            research_topic: None,
+            reasoning: None,
+            manual_models: Vec::new(),
+            phase_pipeline: false,
+            subagents_enabled: true,
+            tracker_writes_enabled: false,
+            updated_at: crate::run::now_ms(),
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open an existing conversation, or explicitly create one when the project is empty.
+/// Listing/restoring never calls this, so closing the last conversation remains durable.
+#[cfg(test)]
+pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<ProcessHandle, String> {
+    restore_processes_from_store_once(state, root)?;
+    let existing = state
+        .processes
+        .lock_or_recover()
+        .values()
+        .filter(|p| p.origin_project.0 == root)
+        .min_by(|a, b| super::naming::order_key(&a.id).cmp(&super::naming::order_key(&b.id)))
+        .cloned();
+    if let Some(process) = existing {
+        return Ok(process);
+    }
+    let created = register_process(
+        state,
+        root,
+        &root.display().to_string(),
+        None,
+        None,
+        None,
+        ThreadSettings {
+            model: None,
+            profile: Some("dev".into()),
+            research_topic: None,
+            reasoning: None,
+            phase_pipeline: None,
+            subagents_enabled: None,
+            tracker_writes: None,
+        },
+    )?;
+    state
+        .processes
+        .lock_or_recover()
+        .get(&created.id)
+        .cloned()
+        .ok_or_else(|| "对话创建后已被关闭".into())
+}
+
+/// Resolve an explicit identity without granting a special first-conversation role.
+pub(crate) fn resolve_conversation(
+    state: &AppState,
+    root: &Path,
+    id: Option<&str>,
+) -> Result<ProcessHandle, String> {
+    restore_processes_from_store_once(state, root)?;
+    let id = id.filter(|id| !id.is_empty()).ok_or("请选择一段对话")?;
+    state
+        .processes
+        .lock_or_recover()
+        .get(id)
+        .filter(|p| p.origin_project.0 == root)
+        .cloned()
+        .ok_or_else(|| "对话不存在或已被关闭".into())
 }
 
 /// 项目首次进入时恢复持久进程注册；同一运行期后续刷新只读内存运行态。

@@ -569,15 +569,15 @@ export function renderContextBill(data) {
 /// 一轮属于哪段对话:主对话 / 独立任务或讨论的名字;对话已经不在列表里(线路关闭了)就说「已关闭」。
 function metricsRoundLine(round) {
   const item = processItems.find((entry) => entry.session_id === round.sessionId);
-  if (item) return String(item.id ?? "").startsWith("d|") ? t("主对话") : (item.title || item.label || t("独立任务"));
-  return String(round.sessionId ?? "").includes("#") ? t("已关闭的任务") : t("主对话");
+  if (item) return item.title || item.label || t("对话");
+  return t("已关闭的任务");
 }
 
 /// 跳到这一轮所在的对话。对话已被关闭(不在 process_list 里)就说清楚,不假装能打开。
 async function openMetricsRound(round) {
   const target = round.sessionId
     ? processItems.find((entry) => entry.session_id === round.sessionId)
-    : processItems.find((entry) => String(entry.id ?? "").startsWith("d|"));
+    : processItems.find((entry) => entry.id === activeProcessId);
   if (!target) {
     toast(t("这一轮所在的对话已关闭,没法跳转"));
     return;

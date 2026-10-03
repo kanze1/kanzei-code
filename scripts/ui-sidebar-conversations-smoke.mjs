@@ -67,7 +67,11 @@ try {
   await projectLink.click(); await settle();
   check(await projectLink.getAttribute("aria-expanded") === "true" && await projectGroup.locator(".workbench-session-list").isVisible() && await projectRows().count() === 4, "Clicking the project name opens its conversation list");
   await projectLink.click(); await settle();
-  check(await projectLink.getAttribute("aria-expanded") === "true", "Clicking an open project keeps its conversations expanded");
+  check(await projectLink.getAttribute("aria-expanded") === "false" && await projectRows().count() === 0, "Clicking an open project collapses its conversations");
+  await page.evaluate(async () => { await (await import("/09-sessions.js")).refreshProcesses(); }); await settle();
+  check(await projectLink.getAttribute("aria-expanded") === "false", "Polling preserves the collapsed state");
+  await projectLink.click(); await settle();
+  check(await projectLink.getAttribute("aria-expanded") === "true", "The same project can be reopened after collapsing");
   const sidebarRows = page.locator("#workbench-project-list [data-ctx='session'], #workbench-general-list [data-ctx='session']");
   check(await sidebarRows.locator(".workbench-session-dot, .workbench-session-activity, .workbench-session-tag").count() === 0, "Project and projectless conversation rows have no leading dot or type badge");
   check(await projectOwner().locator(".workbench-session-name").innerText() === "侧栏标题显示修复" && await generalOwner().locator(".workbench-session-name").innerText() === "日常对话", "Stored automatic titles are shown for project and projectless main conversations");

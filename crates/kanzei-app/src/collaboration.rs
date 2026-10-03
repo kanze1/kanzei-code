@@ -424,7 +424,6 @@ pub(crate) async fn collaboration_snapshot(
     project_dir: String,
 ) -> Result<Vec<CollaborationLine>, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
-    crate::ensure_default_process(&state, &root);
     crate::processes::restore_processes_from_store_once(&state, &root)?;
     let probe = CollaborationProbe::new(
         state.processes.clone(),

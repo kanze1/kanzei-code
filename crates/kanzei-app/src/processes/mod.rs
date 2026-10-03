@@ -13,6 +13,8 @@
 //! `worktree_path` 承担,`ProjectRoot` / `WorktreeRoot` 是两个不同 newtype,
 //! 互相传参编译器直接拒绝(反例注释见 state.rs)。
 
+#[cfg(test)]
+mod conversation_tests;
 pub(crate) mod gate;
 pub(crate) mod lifecycle;
 pub(crate) mod naming;

@@ -1166,7 +1166,7 @@ export function showFreshConversation() {
 async function startConversationOnNewLine() {
   const from = processItems.find((item) => item.id === activeProcessId);
   const item = await create_workspace_process(null, () => true, {
-    discussion: true,
+    discussion: false,
     ...(from?.model ? { model: from.model } : {}),
     ...(from?.reasoning ? { reasoning: from.reasoning } : {}),
   });
@@ -1175,7 +1175,7 @@ async function startConversationOnNewLine() {
   // 页面纹丝不动(UX-005 / D14)。已在对话页是空操作;「先讨论」(26-project-conversations.js)等调用方都走这里。
   ensureChatView();
   showFreshConversation();
-  toast(t("已开启讨论，结论可交给主对话执行"));
+  toast(t("新对话"));
 }
 
 /// 「新对话」唯一入口:侧栏按钮、命令面板、Ctrl/Cmd+Shift+N 都汇到 #new-chat 的 click。

@@ -98,10 +98,7 @@ pub(crate) async fn deliver(
     }
     let process = value["process_id"].as_str();
     crate::processes::registry::restore_processes_from_store_once(state, root)?;
-    if process.is_some_and(|id| {
-        id != crate::state::default_process_id(root)
-            && !state.processes.lock_or_recover().contains_key(id)
-    }) {
+    if process.is_some_and(|id| !state.processes.lock_or_recover().contains_key(id)) {
         return Err("原对话已关闭，回复已保存".into());
     }
     let reply = value["reply"].as_str().ok_or("回复记录损坏")?;

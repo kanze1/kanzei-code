@@ -83,14 +83,14 @@ async fn execute_impl(
         return Ok(json!({"job":store.get(id)?,"history":store.history(id)?}));
     }
     let process = match process_id {
-        Some(id) if id != crate::state::default_process_id(&root) => state
+        Some(id) => state
             .processes
             .lock()
             .unwrap()
             .get(id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("原执行的对话不存在"))?,
-        _ => crate::ensure_default_process(state, &root),
+        _ => return Err(anyhow::anyhow!("请选择一段对话")),
     };
     if normalized_project_root(&process.origin_project.0) != root {
         anyhow::bail!("子任务所属项目不匹配");

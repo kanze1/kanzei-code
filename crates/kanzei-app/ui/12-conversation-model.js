@@ -3,7 +3,6 @@
 // A closed execution removes sending capabilities, not record management capabilities.
 export function conversationRecord(project, item, { closed = false, general = false, kind, name, pinned = false } = {}) {
   const ordinal = Number(item.ordinal) || Number(/^p(\d+)\|/.exec(String(item.id))?.[1]) || 0;
-  const main = kind === "main";
   const updatedAt = Number(item.updated_at ?? item.updatedAt);
   return {
     id: item.id,
@@ -22,7 +21,7 @@ export function conversationRecord(project, item, { closed = false, general = fa
     updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0,
     worktree: closed ? "" : item.worktree_path || "",
     branch: closed ? "" : item.branch || "",
-    capabilities: { rename: true, delete: !main || closed, send: !closed, reorder: !closed },
+    capabilities: { rename: true, delete: true, send: !closed, reorder: !closed },
   };
 }
 

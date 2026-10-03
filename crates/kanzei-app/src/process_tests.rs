@@ -4,11 +4,11 @@ use super::{
     process_session_id, runtime_for, stop_runtime_and_finalize, take_pending_ask, AppState,
     PendingAsk, SessionRuntime,
 };
-// R-153 批4:default_process_id 已迁到 state 模块。
+// R-153 批4:legacy_process_id 已迁到 state 模块。
 use crate::processes::{
     persist_process, restore_processes_from_store, restore_processes_from_store_once,
 };
-use crate::state::{default_process_id, ensure_default_process, process_info};
+use crate::state::{ensure_default_process, legacy_process_id, process_info};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -207,7 +207,7 @@ fn 停止时在飞轨迹与episode先落库再abort() {
 #[test]
 fn process_sessions_are_isolated_but_default_keeps_legacy_id() {
     let root = Path::new(r"C:\project");
-    let default_id = default_process_id(root);
+    let default_id = legacy_process_id(root);
     assert_eq!(
         process_session_id(root, None),
         kanzei_core::project_session_id(root)

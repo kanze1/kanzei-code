@@ -7,8 +7,8 @@
 //! 门禁步骤表(照 files_view.rs 模式)。
 //!
 //! 危险点(搬迁纪律):关线顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」,
-//! 旧顺序先 git remove 再注销会让运行中的进程在脚下删目录;默认线(`d|`)不销毁只
-//! 复位;注销是运行会话终点,统一出口先落飞轨迹再清 ask 再收敛输入(cancelled)。
+//! 旧顺序先 git remove 再注销会让运行中的进程在脚下删目录。所有对话统一注销，
+//! 注销是运行会话终点,统一出口先落飞轨迹再清 ask 再收敛输入(cancelled)。
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -17,10 +17,12 @@ use kanzei_harness::{Tool, ToolCtx};
 use serde_json::json;
 use tauri::State;
 
-use crate::state::{default_process_id, process_info_with, process_kind_of};
+#[cfg(test)]
+use crate::state::legacy_process_id;
+use crate::state::{process_info_with, process_kind_of};
 use crate::{
-    ensure_default_process, halt_runtime_immediately, normalized_project_root, process_info,
-    process_session_id, AppState, ProcessHandle, ProcessInfo, WorktreeRoot,
+    halt_runtime_immediately, normalized_project_root, process_info, process_session_id, AppState,
+    ProcessHandle, ProcessInfo, WorktreeRoot,
 };
 use kanzei_tools::worktree as wt;
 
@@ -43,9 +45,6 @@ pub fn list_pending_inputs(
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(&root, process_id.as_deref());
     store
-        .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|e| e.to_string())?;
-    store
         .list_pending_inputs(&session_id)
         .map_err(|error| error.to_string())
 }
@@ -60,9 +59,6 @@ pub fn cancel_input(
     let state_path = kanzei_core::project_state_path(&root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(&root, process_id.as_deref());
-    store
-        .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|e| e.to_string())?;
     let cancelled = store
         .cancel_input(&session_id, &input_id)
         .map_err(|error| error.to_string())?;
@@ -92,7 +88,6 @@ pub(crate) fn list_processes(
     project_dir: &str,
 ) -> Result<Vec<ProcessInfo>, String> {
     let root = normalized_project_root(Path::new(project_dir));
-    let default = ensure_default_process(state, &root);
     // R-178 D3:启动/切换项目时从 state.db 恢复本项目的线/进程注册
     // (页签不丢 + 线级模型/profile/reasoning/勘察复核开关回填)。
     restore_processes_from_store_once(state, &root)?;
@@ -100,7 +95,7 @@ pub(crate) fn list_processes(
     // 记录。列表刷新是用户可见的恢复点，必须先收掉这些死线，不能让它们继续出现在
     // 页签里，直到发送时才以不存在的 cwd 失败。
     prune_missing_worktree_processes(state, &root)?;
-    let mut handles = state
+    let handles = state
         .processes
         .lock()
         .unwrap()
@@ -108,9 +103,6 @@ pub(crate) fn list_processes(
         .filter(|process| process.origin_project.0 == root)
         .cloned()
         .collect::<Vec<_>>();
-    if !handles.iter().any(|item| item.id == default.id) {
-        handles.push(default);
-    }
     // 命名事实(用户命名/首条消息/最近活动)一次开库给全部线用;库读不到就回落到类型 + 序号。
     let store = open_naming_store(&root);
     let general = crate::general_chat::is_general_root(&root);
@@ -133,29 +125,9 @@ pub(crate) fn list_processes(
             process_info_with(state, process, &naming)
         })
         .collect::<Vec<_>>();
-    // 数字序:主对话在前,p2 在 p10 之前(原先按 id 字符串排,p10 会挤到 p2 前面)。
+    // 数字序:p2 在 p10 之前(原先按 id 字符串排,p10 会挤到 p2 前面)。
     result.sort_by(|a, b| order_key(&a.id).cmp(&order_key(&b.id)));
     Ok(result)
-}
-
-/// 取本项目下的一条进程:默认线保证存在,其它线先确保已从 state.db 恢复。
-/// 进程不存在或不属于该项目都拒绝,不静默当成别的东西。
-fn owned_process(state: &AppState, root: &Path, process_id: &str) -> Result<ProcessHandle, String> {
-    if process_id == default_process_id(root) {
-        return Ok(ensure_default_process(state, root));
-    }
-    restore_processes_from_store_once(state, root)?;
-    let process = state
-        .processes
-        .lock()
-        .unwrap()
-        .get(process_id)
-        .cloned()
-        .ok_or_else(|| "对话不存在或已被删除".to_string())?;
-    if process.origin_project.0 != root {
-        return Err("这个对话不属于当前项目".into());
-    }
-    Ok(process)
 }
 
 /// 对话的存续不依赖执行进程。已注销的身份仍能管理自己的历史记录，
@@ -165,9 +137,6 @@ fn owned_conversation(
     root: &Path,
     process_id: &str,
 ) -> Result<Option<ProcessHandle>, String> {
-    if process_id == default_process_id(root) {
-        return owned_process(state, root, process_id).map(Some);
-    }
     restore_processes_from_store_once(state, root)?;
     if let Some(process) = state.processes.lock().unwrap().get(process_id).cloned() {
         if process.origin_project.0 != root {
@@ -194,7 +163,7 @@ fn owned_conversation(
 }
 
 /// 重命名一段对话(UX-009)。写 `sessions.title`(state.db),空白 = 清除命名、回到自动名。
-/// 主对话也能改名;运行中也能改(改名不碰运行态,也不刷新「最近活动」)。
+/// 旧格式对话也能改名;运行中也能改(改名不碰运行态,也不刷新「最近活动」)。
 #[tauri::command]
 pub fn process_rename(
     state: State<'_, AppState>,
@@ -224,7 +193,7 @@ pub(crate) fn rename_process(
 
 /// 删除一段对话及其线路登记(真删,不可恢复)。
 ///
-/// - 运行中拒绝(不替用户停);主对话不能删,只能「清空对话」。
+/// - 所有对话使用相同的关闭与删除规则；运行中先停止再删除。
 /// - 先走 [`close_process`]:停止 → 注销 → 回收后台进程 → 按**关闭线路语义**处置工作树——只回收
 ///   「干净且已合并」的树,否则原样留着,绝不静默丢活。
 /// - 工作树被留下时对话记录也保留(树和它的上下文要能对上),只把线路从列表移除并说明;
@@ -239,9 +208,6 @@ pub(crate) async fn purge_process(
     process_id: &str,
     forget_prefs: &(dyn Fn(&str) -> Result<(), String> + Sync),
 ) -> Result<String, String> {
-    if process_id.starts_with("d|") {
-        return Err("主对话不能删除;想重新开始请用「清空对话」".into());
-    }
     let root = normalized_project_root(Path::new(project_dir));
     // 删除是幂等操作：旧窗口/菜单持有的退役身份可以再次确认删除，不能因此复活记录。
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
@@ -355,7 +321,7 @@ pub async fn process_purge(
 /// 这里把「身份已注销、但库里还留着有内容的会话」的线路列出来,前端在侧栏/历史弹层的「已关闭」折叠分组里
 /// 只读查看(用既有的 `conversation_get`,会话 id 是进程 id 的纯函数,注销后照样取得到)。
 ///
-/// 不列:主对话(不会被注销)、被「删除对话」真删的(会话行已没了)、从未发过消息也没命名的空线。
+/// 不列:被删除的记录、从未发过消息也没命名的空对话。旧版第一条对话同样可关闭。
 /// 退役账本不记 profile,所以类型无从判断——名字只给 `title`(用户命名 ‖ 首条消息前 48 字),
 /// 取不到就由前端按 `ordinal` 补「已关闭的对话 N」。字段是 snake_case,与 `process_list` 一致。
 #[tauri::command]
@@ -376,14 +342,11 @@ pub(crate) fn closed_processes(project_dir: &str) -> Result<Vec<serde_json::Valu
         .map_err(|e| format!("读取已关闭独立任务失败: {e}"))?;
     let mut closed = Vec::new();
     for (id, closed_at) in retired {
-        if id.starts_with("d|") {
-            continue;
-        }
         let session_id = process_session_id(&root, Some(&id));
         let Some(session) = store.get_session(&session_id).map_err(|e| e.to_string())? else {
             continue;
         };
-        let naming = load_naming(&store, &session_id, ProcessKind::Task);
+        let naming = load_naming(&store, &session_id, ProcessKind::Conversation);
         if naming.title().is_none() && session.updated_at <= session.created_at {
             continue;
         }
@@ -541,7 +504,6 @@ pub(crate) async fn create_process_with_tracker(
     if research_topic.is_some() && worktree_name.is_some() {
         return Err("研究对话不能创建开发工作树".into());
     }
-    ensure_default_process(state, &root);
     // 恒主根:见本文件头的「字段口径」。worktree 路径只进 worktree_path。
     let project = root.display().to_string();
     let worktree_name = worktree_name.filter(|value| !value.trim().is_empty());
@@ -780,7 +742,7 @@ pub fn process_update(
             .tracker_writes_enabled
             .store(tracker_writes, Ordering::SeqCst);
     }
-    // R-178 D3:任何字段变更同步落库(含默认进程——它是「主对话」的模型/开关状态,
+    // R-178 D3:任何对话的字段变更都同步落库(模型和开关状态,
     // 重启后要用库值回填)。D-367:project_dir 恒主根,直接取类型化路径。
     let root = &process.project_dir.0;
     persist_process(root, &process)?;
@@ -844,98 +806,60 @@ pub(crate) async fn close_process(
     if let Some(team) = kanzei_tools::team::find(root, &session_id) {
         team.stop_all();
     }
-    if process_id.starts_with("d|") {
-        let state_path = kanzei_core::project_state_path(root);
-        let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
-        if let Some(runtime) = state.runtimes.lock().unwrap().get(&session_id).cloned() {
-            if runtime.running.load(Ordering::SeqCst) {
-                halt_runtime_immediately(&runtime, &store, &session_id)
-                    .map_err(|e| format!("关闭主对话时收尾对话失败: {e}"))?;
-            } else {
-                let _lifecycle = runtime.lifecycle.lock().unwrap();
-                runtime.retire_async();
-                runtime.asks.lock().unwrap().clear();
-            }
-        }
-        // 自主推进控制器与进程生命周期同源；关闭后不能继承旧轮数。
-        state.auto_runs.lock().unwrap().remove(&session_id);
-        *process.model.lock().unwrap() = None;
-        *process.profile.lock().unwrap() = None;
-        // 默认进程不销毁,只复位;复位值必须与 ensure_default_process 的默认一致(关)。
-        process
-            .phase_pipeline_enabled
-            .store(false, Ordering::SeqCst);
-        process.subagents_enabled.store(true, Ordering::SeqCst);
-        process
-            .tracker_writes_enabled
-            .store(false, Ordering::SeqCst);
-        // R-178 D3:复位后的空状态也要落库,否则重启后库里的旧值又回填回来。
-        persist_process(root, process)?;
-        let cancelled = cancel_pending_inputs_on_close(&store, &session_id)?;
-        Ok(if cancelled > 0 {
-            format!("主对话已停止并复位；已取消 {cancelled} 条排队输入")
-        } else {
-            "主对话已停止并复位".into()
-        })
+    // 关闭顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」。旧顺序先跑
+    // git worktree remove，再进 unregister 停运行；运行中的进程仍把该树当 cwd 时，
+    // 可能在它脚下删目录。process 已在上面克隆，注销后仍保有处置所需路径。
+    let released = unregister_parallel_process(state, root, &process_id)?;
+    let killed = kanzei_tools::kill_background_processes_for_process(root, &process_id).await;
+    // 注销之后运行时已停,不会再有 promote 与取消赛跑;此时清排队输入最稳。
+    let state_path = kanzei_core::project_state_path(root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    let _ = store.create_session(&session_id, &root.display().to_string(), None);
+    let cancelled = cancel_pending_inputs_on_close(&store, &session_id)?;
+    let disposal = process
+        .worktree_path
+        .as_ref()
+        .map(|worktree| reclaim_worktree_on_close(root, worktree.as_path()));
+    if let Some(Err(kept)) = disposal.as_ref() {
+        // 留下来的树此刻已经无主(绑定行删了)。它至少得在**审计流里可发现**,
+        // 否则磁盘上有树、库里没线、界面上没入口,三缺一地彻底失联。
+        let _ = store.append_event(
+            &session_id,
+            "worktree.orphaned",
+            &json!({ "process_id": process_id, "detail": kept }),
+        );
+    }
+    let background = (killed > 0).then(|| format!("；已回收 {killed} 个后台终端"));
+    let dropped = (cancelled > 0).then(|| format!("；已取消 {cancelled} 条排队输入"));
+    let release = if released.is_empty() {
+        String::new()
     } else {
-        // 关闭顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」。旧顺序先跑
-        // git worktree remove，再进 unregister 停运行；运行中的进程仍把该树当 cwd 时，
-        // 可能在它脚下删目录。process 已在上面克隆，注销后仍保有处置所需路径。
-        let released = unregister_parallel_process(state, root, &process_id)?;
-        let killed = kanzei_tools::kill_background_processes_for_process(root, &process_id).await;
-        // 注销之后运行时已停,不会再有 promote 与取消赛跑;此时清排队输入最稳。
-        let state_path = kanzei_core::project_state_path(root);
-        let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
-        let _ = store.create_session(&session_id, &root.display().to_string(), None);
-        let cancelled = cancel_pending_inputs_on_close(&store, &session_id)?;
-        let disposal = process
-            .worktree_path
-            .as_ref()
-            .map(|worktree| reclaim_worktree_on_close(root, worktree.as_path()));
-        if let Some(Err(kept)) = disposal.as_ref() {
-            // 留下来的树此刻已经无主(绑定行删了)。它至少得在**审计流里可发现**,
-            // 否则磁盘上有树、库里没线、界面上没入口,三缺一地彻底失联。
-            let _ = store.append_event(
-                &session_id,
-                "worktree.orphaned",
-                &json!({ "process_id": process_id, "detail": kept }),
-            );
-        }
-        let background = (killed > 0).then(|| format!("；已回收 {killed} 个后台终端"));
-        let dropped = (cancelled > 0).then(|| format!("；已取消 {cancelled} 条排队输入"));
-        let release = if released.is_empty() {
-            String::new()
-        } else {
-            format!("；已释放需求绑定 {}", released.join(", "))
-        };
-        let dropped = dropped.unwrap_or_default();
-        match disposal {
-            Some(Ok(())) => Ok(format!(
-                "已关闭,并回收已合并的干净工作树{}{dropped}{release}",
-                background.unwrap_or_default(),
-            )),
-            Some(Err(kept)) => Ok(format!(
-                "已关闭；{kept}{}{dropped}{release}",
-                background.unwrap_or_default(),
-            )),
-            None => Ok(format!(
-                "已关闭{}{dropped}{release}",
-                background.unwrap_or_default(),
-            )),
-        }
+        format!("；已释放需求绑定 {}", released.join(", "))
+    };
+    let dropped = dropped.unwrap_or_default();
+    match disposal {
+        Some(Ok(())) => Ok(format!(
+            "已关闭,并回收已合并的干净工作树{}{dropped}{release}",
+            background.unwrap_or_default(),
+        )),
+        Some(Err(kept)) => Ok(format!(
+            "已关闭；{kept}{}{dropped}{release}",
+            background.unwrap_or_default(),
+        )),
+        None => Ok(format!(
+            "已关闭{}{dropped}{release}",
+            background.unwrap_or_default(),
+        )),
     }
 }
 
-/// 注销一条非默认进程及其持久化登记。工作树已被成功摘除、启动恢复发现目录消失、
+/// 注销一条对话的进程及其持久化登记。工作树已被成功摘除、启动恢复发现目录消失、
 /// 或用户显式关线时都复用这一出口，避免只删目录却留下会话继续拿它当 cwd。
 pub(crate) fn unregister_parallel_process(
     state: &AppState,
     root: &Path,
     process_id: &str,
 ) -> Result<Vec<String>, String> {
-    if process_id.starts_with("d|") {
-        return Err("主对话不能关闭".into());
-    }
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(root, Some(process_id));
@@ -1061,6 +985,10 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
 
+    fn owned_process(state: &AppState, root: &Path, id: &str) -> Result<ProcessHandle, String> {
+        super::super::registry::resolve_conversation(state, root, Some(id))
+    }
+
     fn temp_project(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "kz-ux009-{tag}-{}-{}",
@@ -1109,14 +1037,14 @@ mod tests {
         assert_eq!((first.ordinal, first.title.as_deref()), (Some(1), None));
         assert!(!first.title_custom);
 
-        // 数字序:主对话在前,p2 在 p10 之前。
+        // 数字序:p2 在 p10 之前。
         let list = list_processes(&state, &project).unwrap();
         let ordinals: Vec<_> = list.iter().map(|item| item.ordinal).collect();
-        let expected: Vec<_> = std::iter::once(None).chain((1..=11).map(Some)).collect();
+        let expected: Vec<_> = (1..=11).map(Some).collect();
         assert_eq!(ordinals, expected);
         assert_eq!(
             (list[0].kind.as_str(), list[0].label.as_str()),
-            ("main", "主对话")
+            ("discussion", "讨论 1")
         );
 
         // 用户命名(整理空白)→ 优先于一切;空白 = 清除,回到类型 + 序号。
@@ -1155,11 +1083,14 @@ mod tests {
         rename_process(&state, &project, &third, "").unwrap();
         assert_eq!(info_of(&state, &project, &third).label, "梳理登录需求");
 
-        // 主对话也能改名,但不会因为首条消息被改名。
-        let main_id = default_process_id(&root);
+        // 旧格式对话也能改名,但不会因为首条消息被改名。
+        let main_id = crate::ensure_default_process(&state, &root).id;
         rename_process(&state, &project, &main_id, "总控").unwrap();
         let main = info_of(&state, &project, &main_id);
-        assert_eq!((main.label.as_str(), main.kind.as_str()), ("总控", "main"));
+        assert_eq!(
+            (main.label.as_str(), main.kind.as_str()),
+            ("总控", "conversation")
+        );
 
         // 不存在的对话、过长的名字都拒绝。
         let error = rename_process(&state, &project, "p99|nowhere", "x").unwrap_err();
@@ -1169,9 +1100,9 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// 删除对话 = 真删记录 + 注销登记;运行中与主对话拒绝,且拒绝时什么都不动。
+    /// 删除对话 = 真删记录 + 注销登记;运行中与不存在身份拒绝,且拒绝时什么都不动。
     #[tokio::test]
-    async fn 删除对话_真删记录与登记_运行中与主对话拒绝() {
+    async fn 删除对话_真删记录与登记_运行中与不存在身份拒绝() {
         let root = temp_project("purge");
         let project = root.display().to_string();
         let state = AppState::default();
@@ -1199,10 +1130,10 @@ mod tests {
             Ok(())
         };
 
-        let error = purge_process(&state, &project, &default_process_id(&root), &forget)
+        let error = purge_process(&state, &project, &legacy_process_id(&root), &forget)
             .await
             .unwrap_err();
-        assert!(error.contains("不能删除"), "{error}");
+        assert!(error.contains("不存在"), "{error}");
 
         let runtime = crate::runtime_for(&state, &session_id);
         runtime.running.store(true, Ordering::SeqCst);
@@ -1230,13 +1161,13 @@ mod tests {
             .list_retired_process_ids(&project)
             .unwrap()
             .contains(&target.id));
-        // 旁观的那条不受影响,列表里只剩主对话和它。
+        // 旁观的那条不受影响,列表里只剩它。
         let ids: Vec<_> = list_processes(&state, &project)
             .unwrap()
             .into_iter()
             .map(|item| item.id)
             .collect();
-        assert_eq!(ids, [default_process_id(&root), bystander.id.clone()]);
+        assert_eq!(ids, [bystander.id.clone()]);
 
         assert_eq!(
             purge_process(&state, &project, &target.id, &forget)
@@ -1271,7 +1202,7 @@ mod tests {
     }
 
     /// UX-035:关闭线路只注销身份、对话记录还在——「已关闭」清单把有内容的列出来(最近关闭的在前),
-    /// 真删的、从没用过的空线、主对话都不列;清单的 id 能直接喂给只读的 `conversation_get`。
+    /// 真删的、从没用过的空线都不列;清单的 id 能直接喂给只读的 `conversation_get`。
     #[tokio::test]
     async fn 已关闭线路清单_有内容的才列_真删与空线不列() {
         let root = temp_project("closed-list");

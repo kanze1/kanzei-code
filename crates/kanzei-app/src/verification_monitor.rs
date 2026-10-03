@@ -44,15 +44,29 @@ fn should_enqueue_terminal_result(
 fn owning_process<'a>(
     unit: &kanzei_core::WorkProjection,
     processes: &'a [ProcessInfo],
+    session_id: Option<&str>,
+    store: &kanzei_core::SessionStore,
 ) -> Option<&'a ProcessInfo> {
-    match unit.claimed_by.as_deref() {
-        Some(branch) => processes
-            .iter()
-            .find(|process| process.branch.as_deref() == Some(branch)),
-        None => processes
-            .iter()
-            .find(|process| process.id.starts_with("d|")),
+    if let Some(session_id) = session_id {
+        return processes.iter().find(|p| p.session_id == session_id);
     }
+    // Legacy jobs have no recipient. Recover only an unambiguous matching owner.
+    let mut candidates = processes
+        .iter()
+        .filter(|process| match unit.claimed_by.as_deref() {
+            Some(branch) => process.branch.as_deref() == Some(branch),
+            None => {
+                process.worktree_path.is_none()
+                    && store
+                        .latest_work_claim(&process.session_id, None)
+                        .ok()
+                        .flatten()
+                        .as_deref()
+                        == Some(unit.requirement_id.as_str())
+            }
+        });
+    let candidate = candidates.next()?;
+    candidates.next().is_none().then_some(candidate)
 }
 
 fn wake_input_id(job_id: &str) -> String {
@@ -193,7 +207,9 @@ pub(crate) fn start(app: tauri::AppHandle, window: tauri::Window) {
                     {
                         continue;
                     }
-                    let Some(process) = owning_process(&unit, &processes) else {
+                    let Some(process) =
+                        owning_process(&unit, &processes, job.session_id.as_deref(), &store)
+                    else {
                         continue;
                     };
                     let input_id = wake_input_id(&job.id);
@@ -264,6 +280,68 @@ pub(crate) fn start(app: tauri::AppHandle, window: tauri::Window) {
 mod tests {
     use super::*;
     use kanzei_core::SessionStore;
+
+    #[tokio::test]
+    async fn verification_returns_to_its_conversation_without_first_peer_fallback() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-verification-owner-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let root = crate::normalized_project_root(&root);
+        let project = root.display().to_string();
+        let state = AppState::default();
+        let mut peers = Vec::new();
+        for _ in 0..2 {
+            peers.push(
+                crate::processes::create_process(
+                    &state,
+                    &project,
+                    None,
+                    Some("dev".into()),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap(),
+            );
+        }
+        let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        store
+            .create_work_unit(kanzei_core::WorkUnitSpec {
+                unit_id: "R-001/W1".into(),
+                requirement_id: "R-001".into(),
+                objective: "recipient isolation".into(),
+                scope: vec![],
+                dependencies: vec![],
+                acceptance: vec!["exact session".into()],
+                verification: vec![],
+                base_revision: "fixture".into(),
+            })
+            .unwrap();
+        let unit = store.get_work_unit("R-001/W1").unwrap().unwrap();
+        assert_eq!(
+            owning_process(&unit, &peers, Some(&peers[1].session_id), &store)
+                .unwrap()
+                .id,
+            peers[1].id
+        );
+        assert!(owning_process(&unit, &peers[..1], Some(&peers[1].session_id), &store).is_none());
+        assert!(owning_process(&unit, &peers, None, &store).is_none());
+        let mut claimed = unit;
+        claimed.claimed_by = Some("shared-branch".into());
+        peers[0].branch = claimed.claimed_by.clone();
+        assert_eq!(
+            owning_process(&claimed, &peers, None, &store).unwrap().id,
+            peers[0].id
+        );
+        peers[1].branch = claimed.claimed_by.clone();
+        assert!(owning_process(&claimed, &peers, None, &store).is_none());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn terminal_results_are_woken_once_and_retried_until_admitted() {

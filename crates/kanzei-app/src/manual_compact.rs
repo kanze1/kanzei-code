@@ -65,7 +65,7 @@ pub(crate) async fn conversation_compact(
             .get(id)
             .cloned()
             .ok_or("对话不存在或已被删除")?,
-        None => crate::ensure_default_process(&state, &root),
+        None => return Err("请选择一段对话".into()),
     };
     if normalized_project_root(&process.origin_project.0) != root {
         return Err("对话不属于当前项目".into());

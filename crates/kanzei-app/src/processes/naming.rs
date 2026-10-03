@@ -2,7 +2,7 @@
 //!
 //! 界面上的会话原来只叫 `p26` / 「默认」,既没法认也没法改名。现在的名字规则:
 //! 用户命名(`sessions.title`)‖ 首条消息前 48 字(零 token,与 conversation.rs 的历史对话
-//! 标题同口径)‖ 类型 + 序号(「主对话」「讨论 3」「独立任务 5」)。
+//! 标题同口径)‖ 类型 + 序号(「对话」「讨论 3」「对话 5」)。
 //!
 //! 纯函数全在这里(可单测);读 state.db 只有 [`load_naming`] 一处,调用方负责开库——
 //! `process_list` 一次开库给全部线用,不为每条线各开一次。
@@ -16,48 +16,42 @@ pub(crate) const TITLE_MAX_CHARS: usize = 60;
 /// 自动标题取首条消息的前多少字(conversation.rs 的历史对话标题同为 48)。
 pub(crate) const AUTO_TITLE_CHARS: usize = 48;
 
-/// 对话类型。判据只看进程 id 与持久 profile,与前端 `profile === "readonly"` 即「讨论」同一口径。
+/// 对话类型。判据只看持久 profile,与前端 `profile === "readonly"` 即「讨论」同一口径。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProcessKind {
-    Main,
     Discussion,
-    Task,
+    Conversation,
     Research,
 }
 
 impl ProcessKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            ProcessKind::Main => "main",
             ProcessKind::Discussion => "discussion",
-            ProcessKind::Task => "task",
+            ProcessKind::Conversation => "conversation",
             ProcessKind::Research => "research",
         }
     }
 
-    /// 界面用词(全站命名词表:主对话 / 讨论 / 独立任务;研究会话单独叫「研究」)。
+    /// 界面用词(全站命名词表:对话 / 讨论;研究会话单独叫「研究」)。
     pub(crate) fn word(self) -> &'static str {
         match self {
-            ProcessKind::Main => "主对话",
             ProcessKind::Discussion => "讨论",
-            ProcessKind::Task => "独立任务",
+            ProcessKind::Conversation => "对话",
             ProcessKind::Research => "研究",
         }
     }
 }
 
-pub(crate) fn process_kind(process_id: &str, profile: Option<&str>) -> ProcessKind {
-    if process_id.starts_with("d|") {
-        return ProcessKind::Main;
-    }
+pub(crate) fn process_kind(_process_id: &str, profile: Option<&str>) -> ProcessKind {
     match profile {
         Some("research") => ProcessKind::Research,
         Some("readonly") => ProcessKind::Discussion,
-        _ => ProcessKind::Task,
+        _ => ProcessKind::Conversation,
     }
 }
 
-/// 编号:`p12|<项目>` 里的 12。主对话(`d|…`)与其它形态没有。
+/// 编号:`p12|<项目>` 里的 12。旧格式(`d|…`)与其它形态没有。
 pub(crate) fn process_ordinal(process_id: &str) -> Option<u64> {
     process_id
         .split('|')
@@ -67,20 +61,17 @@ pub(crate) fn process_ordinal(process_id: &str) -> Option<u64> {
         .ok()
 }
 
-/// 没有任何标题可用时的展示名:「主对话」「讨论 3」「独立任务 5」。
+/// 没有任何标题可用时的展示名:「对话」「讨论 3」「对话 5」。
 pub(crate) fn fallback_label(kind: ProcessKind, ordinal: Option<u64>) -> String {
     match (kind, ordinal) {
-        (ProcessKind::Main, _) | (_, None) => kind.word().to_string(),
+        (_, None) => kind.word().to_string(),
         (_, Some(ordinal)) => format!("{} {ordinal}", kind.word()),
     }
 }
 
-/// 线路顺序键:主对话在最前,其后 `pN` 按**数字**升序(p2 在 p10 之前),其它形态垫底、
+/// 线路顺序键:`pN` 按**数字**升序(p2 在 p10 之前),其它形态垫底、
 /// 彼此按 id 字面序。原先按 id 字符串排,p10 会挤到 p2 前面(UX-162)。
 pub(crate) fn order_key(process_id: &str) -> (u8, u64, &str) {
-    if process_id.starts_with("d|") {
-        return (0, 0, process_id);
-    }
     match process_ordinal(process_id) {
         Some(ordinal) => (1, ordinal, process_id),
         None => (2, 0, process_id),
@@ -156,6 +147,7 @@ pub(crate) fn load_naming(
     let custom = session
         .as_ref()
         .and_then(|session| session.title.clone())
+        .map(|title| title.trim().to_string())
         .filter(|title| !title.trim().is_empty());
     let auto = if custom.is_none() {
         let input = store
@@ -240,11 +232,11 @@ mod tests {
 
     #[test]
     fn 类型只看进程id与profile() {
-        assert_eq!(process_kind("d|C:\\proj", None), ProcessKind::Main);
-        // 主对话即便被设成只读 profile 也是主对话。
+        assert_eq!(process_kind("d|C:\\proj", None), ProcessKind::Conversation);
+        // 旧格式与新格式都按显式 profile 确定模式。
         assert_eq!(
             process_kind("d|C:\\proj", Some("readonly")),
-            ProcessKind::Main
+            ProcessKind::Discussion
         );
         assert_eq!(
             process_kind("p3|C:\\proj", Some("readonly")),
@@ -254,8 +246,11 @@ mod tests {
             process_kind("p4|C:\\proj", Some("research")),
             ProcessKind::Research
         );
-        assert_eq!(process_kind("p5|C:\\proj", Some("dev")), ProcessKind::Task);
-        assert_eq!(process_kind("p6|C:\\proj", None), ProcessKind::Task);
+        assert_eq!(
+            process_kind("p5|C:\\proj", Some("dev")),
+            ProcessKind::Conversation
+        );
+        assert_eq!(process_kind("p6|C:\\proj", None), ProcessKind::Conversation);
     }
 
     #[test]
@@ -268,21 +263,24 @@ mod tests {
 
     #[test]
     fn 没有标题时回落到类型加序号且不再出现pn与默认() {
-        assert_eq!(fallback_label(ProcessKind::Main, None), "主对话");
+        assert_eq!(fallback_label(ProcessKind::Conversation, None), "对话");
         assert_eq!(fallback_label(ProcessKind::Discussion, Some(3)), "讨论 3");
-        assert_eq!(fallback_label(ProcessKind::Task, Some(26)), "独立任务 26");
-        assert_eq!(fallback_label(ProcessKind::Task, None), "独立任务");
+        assert_eq!(
+            fallback_label(ProcessKind::Conversation, Some(26)),
+            "对话 26"
+        );
+        assert_eq!(fallback_label(ProcessKind::Conversation, None), "对话");
         for label in [
-            fallback_label(ProcessKind::Main, None),
+            fallback_label(ProcessKind::Conversation, None),
             fallback_label(ProcessKind::Discussion, Some(3)),
-            fallback_label(ProcessKind::Task, Some(26)),
+            fallback_label(ProcessKind::Conversation, Some(26)),
         ] {
             assert!(!label.contains('p') && !label.contains("默认"), "{label}");
         }
     }
 
     #[test]
-    fn 线路按数字序排_主对话在最前() {
+    fn 线路按数字序排_旧格式没有特殊顺位() {
         let mut ids = vec![
             "p10|C:\\proj".to_string(),
             "p2|C:\\proj".to_string(),
@@ -295,11 +293,11 @@ mod tests {
         assert_eq!(
             ids,
             [
-                "d|C:\\proj",
                 "p1|C:\\proj",
                 "p2|C:\\proj",
                 "p10|C:\\proj",
                 "p11|C:\\proj",
+                "d|C:\\proj",
                 "x|odd"
             ]
         );
@@ -338,7 +336,10 @@ mod tests {
             auto: Some("不会用到".into()),
             updated_at: Some(1),
         };
-        assert_eq!(custom.display(ProcessKind::Task, Some(7)), "方案对照");
+        assert_eq!(
+            custom.display(ProcessKind::Conversation, Some(7)),
+            "方案对照"
+        );
         let auto = SessionNaming {
             custom: None,
             auto: Some("修登录页".into()),
@@ -365,7 +366,7 @@ mod tests {
                 )
                 .unwrap();
         }
-        let main = load_naming(&store, "ses_main", ProcessKind::Main);
+        let main = load_naming(&store, "ses_main", ProcessKind::Conversation);
         assert_eq!(main.title(), Some("帮我梳理一下需求"));
         assert!(main.updated_at.is_some());
         let discussion = load_naming(&store, "ses_disc", ProcessKind::Discussion);
@@ -378,7 +379,7 @@ mod tests {
         assert_eq!(renamed.auto, None, "有用户命名就不再读首条消息");
         // 会话行不存在:全空,调用方回落到类型 + 序号。
         assert_eq!(
-            load_naming(&store, "ses_none", ProcessKind::Task),
+            load_naming(&store, "ses_none", ProcessKind::Conversation),
             SessionNaming::default()
         );
     }
@@ -409,7 +410,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            load_naming(&store, "ses_legacy", ProcessKind::Main).title(),
+            load_naming(&store, "ses_legacy", ProcessKind::Conversation).title(),
             Some("存量对话的话题")
         );
         assert_eq!(
@@ -429,7 +430,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(
-                load_naming(&store, session, ProcessKind::Main).title(),
+                load_naming(&store, session, ProcessKind::Conversation).title(),
                 Some(title),
                 "后续 inbox 输入不能覆盖更早的实际用户消息"
             );
@@ -439,7 +440,7 @@ mod tests {
                 .append_event(session, "conversation.reset", &serde_json::json!({}))
                 .unwrap();
             assert_eq!(
-                load_naming(&store, session, ProcessKind::Main).title(),
+                load_naming(&store, session, ProcessKind::Conversation).title(),
                 None
             );
             store
@@ -451,7 +452,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(
-                load_naming(&store, session, ProcessKind::Main).title(),
+                load_naming(&store, session, ProcessKind::Conversation).title(),
                 Some("清空后的新话题")
             );
         }
@@ -459,7 +460,7 @@ mod tests {
             .set_session_title("ses_mobile", "C:/general", Some("我起的名字"))
             .unwrap();
         assert_eq!(
-            load_naming(&store, "ses_mobile", ProcessKind::Main).title(),
+            load_naming(&store, "ses_mobile", ProcessKind::Conversation).title(),
             Some("我起的名字")
         );
     }

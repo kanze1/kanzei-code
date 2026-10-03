@@ -1238,7 +1238,7 @@ mod tests {
         crate::runtime_for(&state, &session)
             .running
             .store(true, Ordering::SeqCst);
-        assert_eq!(running_conversation_names(&state, &path), ["主对话"]);
+        assert_eq!(running_conversation_names(&state, &path), ["对话"]);
         // 别的项目不受影响。
         assert!(running_conversation_names(&state, r"C:\kz-no-such-project").is_empty());
         std::fs::remove_dir_all(&dir).ok();
