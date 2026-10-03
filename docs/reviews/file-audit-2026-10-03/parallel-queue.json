@@ -1,9 +1,9 @@
 {
   "code_baseline": "0d0875ab",
   "inventory_baseline": "7287f1ca93511985b5538cccdd7eea4b2fd3f507",
-  "inventory_total": 511,
+  "inventory_total": 512,
   "full_reviews_at_start": 30,
-  "pending_full_reviews": 461,
+  "pending_full_reviews": 447,
   "note": "Planning queue only. No new review certification. Split each group into exact file-owned packages; respect dependency gates in parallel-plan.md. Anthropic-specific work is deferred when identified, including mixed files only for that slice.",
   "counts_by_group": {
     "entry-service": 138,
@@ -41,302 +41,6 @@
   },
   "files": [
     {
-      "file": "crates/kanzei/src/cli/artifacts.rs",
-      "lines_at_inventory": 336,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/compact.rs",
-      "lines_at_inventory": 79,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/config.rs",
-      "lines_at_inventory": 13,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/eval.rs",
-      "lines_at_inventory": 118,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/lock.rs",
-      "lines_at_inventory": 94,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/memory.rs",
-      "lines_at_inventory": 136,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/metrics.rs",
-      "lines_at_inventory": 666,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/mod.rs",
-      "lines_at_inventory": 1101,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/quarantine.rs",
-      "lines_at_inventory": 121,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/events.rs",
-      "lines_at_inventory": 168,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/finalize.rs",
-      "lines_at_inventory": 280,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/permissions.rs",
-      "lines_at_inventory": 94,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/run.rs",
-      "lines_at_inventory": 475,
-      "group": "entry-service",
-      "prior_review": "slice",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/schedule.rs",
-      "lines_at_inventory": 136,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/shadow.rs",
-      "lines_at_inventory": 80,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/tracker.rs",
-      "lines_at_inventory": 236,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/work.rs",
-      "lines_at_inventory": 145,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/cli/worktree.rs",
-      "lines_at_inventory": 77,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/src/main.rs",
-      "lines_at_inventory": 21,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
-      "lines_at_inventory": 279,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
-      "lines_at_inventory": 530,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
-      "lines_at_inventory": 908,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
-      "lines_at_inventory": 101,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/common/mod.rs",
-      "lines_at_inventory": 57,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
-      "lines_at_inventory": 301,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
-      "lines_at_inventory": 333,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
-      "lines_at_inventory": 60,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/d364_concurrent_doc_add.rs",
-      "lines_at_inventory": 234,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/d368_concurrent_memory_write.rs",
-      "lines_at_inventory": 197,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/global_home_guard.rs",
-      "lines_at_inventory": 52,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
-      "lines_at_inventory": 131,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
-      "lines_at_inventory": 349,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
-      "lines_at_inventory": 362,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
-      "lines_at_inventory": 372,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
-      "lines_at_inventory": 398,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
-      "lines_at_inventory": 277,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
-      "lines_at_inventory": 327,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
       "file": "crates/kanzei-app/build.rs",
       "lines_at_inventory": 31,
       "group": "entry-service",
@@ -365,7 +69,7 @@
       "lines_at_inventory": 175,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -373,7 +77,7 @@
       "lines_at_inventory": 85,
       "group": "entry-service",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -425,8 +129,8 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
-      "lines_at_inventory": 339,
+      "file": "crates/kanzei-app/src/commands/run.rs",
+      "lines_at_inventory": 1423,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
@@ -441,16 +145,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/commands/run/tool_process.rs",
-      "lines_at_inventory": 9,
+      "file": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
+      "lines_at_inventory": 339,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/commands/run.rs",
-      "lines_at_inventory": 1423,
+      "file": "crates/kanzei-app/src/commands/run/tool_process.rs",
+      "lines_at_inventory": 9,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
@@ -469,7 +173,7 @@
       "lines_at_inventory": 837,
       "group": "entry-service",
       "prior_review": "contract_slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/M0.md"
     },
@@ -486,7 +190,7 @@
       "lines_at_inventory": 1384,
       "group": "entry-service",
       "prior_review": "contract_slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/M0.md"
     },
@@ -503,13 +207,21 @@
       "lines_at_inventory": 552,
       "group": "entry-service",
       "prior_review": "contract_slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/M0.md"
     },
     {
       "file": "crates/kanzei-app/src/desktop_bridge.rs",
       "lines_at_inventory": 227,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "full_review_complete",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-app/src/docs.rs",
+      "lines_at_inventory": 1007,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
@@ -524,19 +236,11 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/docs.rs",
-      "lines_at_inventory": 1007,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
       "file": "crates/kanzei-app/src/durable_questions.rs",
       "lines_at_inventory": 166,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -560,7 +264,7 @@
       "lines_at_inventory": 495,
       "group": "entry-service",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -584,7 +288,7 @@
       "lines_at_inventory": 481,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -600,7 +304,7 @@
       "lines_at_inventory": 111,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -617,6 +321,14 @@
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-app/src/mobile.rs",
+      "lines_at_inventory": 1682,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -640,15 +352,7 @@
       "lines_at_inventory": 150,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei-app/src/mobile.rs",
-      "lines_at_inventory": 1682,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -684,16 +388,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
-      "lines_at_inventory": 178,
+      "file": "crates/kanzei-app/src/phase_pipeline.rs",
+      "lines_at_inventory": 890,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/phase_pipeline.rs",
-      "lines_at_inventory": 890,
+      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
+      "lines_at_inventory": 178,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
@@ -800,7 +504,7 @@
       "lines_at_inventory": 1435,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -852,16 +556,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/research_auto/tests.rs",
-      "lines_at_inventory": 93,
+      "file": "crates/kanzei-app/src/research_auto.rs",
+      "lines_at_inventory": 134,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/research_auto.rs",
-      "lines_at_inventory": 134,
+      "file": "crates/kanzei-app/src/research_auto/tests.rs",
+      "lines_at_inventory": 93,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
@@ -876,16 +580,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/research_library/tests.rs",
-      "lines_at_inventory": 211,
+      "file": "crates/kanzei-app/src/research_library.rs",
+      "lines_at_inventory": 311,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/research_library.rs",
-      "lines_at_inventory": 311,
+      "file": "crates/kanzei-app/src/research_library/tests.rs",
+      "lines_at_inventory": 211,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
@@ -900,18 +604,18 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/run/assembly/components.rs",
-      "lines_at_inventory": 96,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
       "file": "crates/kanzei-app/src/run/assembly.rs",
       "lines_at_inventory": 1040,
       "group": "entry-service",
       "prior_review": "slice",
+      "status": "contract_slice_only",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-app/src/run/assembly/components.rs",
+      "lines_at_inventory": 96,
+      "group": "entry-service",
+      "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
@@ -928,7 +632,7 @@
       "lines_at_inventory": 734,
       "group": "entry-service",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -960,7 +664,7 @@
       "lines_at_inventory": 636,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -976,7 +680,7 @@
       "lines_at_inventory": 79,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": null,
       "completed_package": "M0",
       "report": "parallel/M0.md",
@@ -987,18 +691,7 @@
       "lines_at_inventory": 36,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "reviewed_full",
-      "initial_package": null,
-      "completed_package": "M0",
-      "report": "parallel/M0.md",
-      "integrated_commit": "fbb85333"
-    },
-    {
-      "file": "crates/kanzei-app/src/runtime_service/compatibility.rs",
-      "lines_at_inventory": 186,
-      "group": "entry-service",
-      "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": null,
       "completed_package": "M0",
       "report": "parallel/M0.md",
@@ -1009,7 +702,18 @@
       "lines_at_inventory": 531,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
+      "initial_package": null,
+      "completed_package": "M0",
+      "report": "parallel/M0.md",
+      "integrated_commit": "fbb85333"
+    },
+    {
+      "file": "crates/kanzei-app/src/runtime_service/compatibility.rs",
+      "lines_at_inventory": 186,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "full_review_complete",
       "initial_package": null,
       "completed_package": "M0",
       "report": "parallel/M0.md",
@@ -1092,7 +796,7 @@
       "lines_at_inventory": 52,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -1124,7 +828,7 @@
       "lines_at_inventory": 364,
       "group": "entry-service",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -1144,16 +848,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/workspace/tests.rs",
-      "lines_at_inventory": 500,
+      "file": "crates/kanzei-app/src/workspace.rs",
+      "lines_at_inventory": 474,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-app/src/workspace.rs",
-      "lines_at_inventory": 474,
+      "file": "crates/kanzei-app/src/workspace/tests.rs",
+      "lines_at_inventory": 500,
       "group": "entry-service",
       "prior_review": "none",
       "status": "pending",
@@ -1572,7 +1276,7 @@
       "lines_at_inventory": 617,
       "group": "ui",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -1788,7 +1492,7 @@
       "lines_at_inventory": 103,
       "group": "ui",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": null,
       "completed_package": "M0",
       "report": "parallel/M0.md",
@@ -1895,7 +1599,7 @@
       "lines_at_inventory": 223,
       "group": "base",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "A0",
       "completed_package": "A0",
       "report": "parallel/A0.md",
@@ -1906,7 +1610,7 @@
       "lines_at_inventory": 262,
       "group": "base",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "A0",
       "completed_package": "A0",
       "report": "parallel/A0.md",
@@ -1917,7 +1621,7 @@
       "lines_at_inventory": 179,
       "group": "base",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "A0",
       "completed_package": "A0",
       "report": "parallel/A0.md",
@@ -1928,7 +1632,7 @@
       "lines_at_inventory": 78,
       "group": "base",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "A0",
       "completed_package": "A0",
       "report": "parallel/A0.md",
@@ -1939,7 +1643,7 @@
       "lines_at_inventory": 235,
       "group": "base",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "A0",
       "completed_package": "A0",
       "report": "parallel/A0.md",
@@ -2042,6 +1746,14 @@
       "initial_package": null
     },
     {
+      "file": "crates/kanzei-core/src/runner/drive.rs",
+      "lines_at_inventory": 1603,
+      "group": "core-runtime",
+      "prior_review": "slice",
+      "status": "contract_slice_only",
+      "initial_package": null
+    },
+    {
       "file": "crates/kanzei-core/src/runner/drive/assembly.rs",
       "lines_at_inventory": 248,
       "group": "core-runtime",
@@ -2078,7 +1790,7 @@
       "lines_at_inventory": 106,
       "group": "core-runtime",
       "prior_review": "none",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -2110,7 +1822,7 @@
       "lines_at_inventory": 239,
       "group": "core-runtime",
       "prior_review": "contract_slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/B0.md"
     },
@@ -2131,14 +1843,6 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-core/src/runner/drive.rs",
-      "lines_at_inventory": 1603,
-      "group": "core-runtime",
-      "prior_review": "slice",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
       "file": "crates/kanzei-core/src/runner/event.rs",
       "lines_at_inventory": 510,
       "group": "core-runtime",
@@ -2147,16 +1851,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-core/src/runner/item_context/tests.rs",
-      "lines_at_inventory": 337,
+      "file": "crates/kanzei-core/src/runner/item_context.rs",
+      "lines_at_inventory": 300,
       "group": "core-runtime",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-core/src/runner/item_context.rs",
-      "lines_at_inventory": 300,
+      "file": "crates/kanzei-core/src/runner/item_context/tests.rs",
+      "lines_at_inventory": 337,
       "group": "core-runtime",
       "prior_review": "none",
       "status": "pending",
@@ -2211,16 +1915,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
-      "lines_at_inventory": 69,
+      "file": "crates/kanzei-core/src/runner/subagent.rs",
+      "lines_at_inventory": 1383,
       "group": "core-runtime",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-core/src/runner/subagent.rs",
-      "lines_at_inventory": 1383,
+      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
+      "lines_at_inventory": 69,
       "group": "core-runtime",
       "prior_review": "none",
       "status": "pending",
@@ -2231,7 +1935,7 @@
       "lines_at_inventory": 1739,
       "group": "core-runtime",
       "prior_review": "contract_slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/B0.md"
     },
@@ -2252,11 +1956,19 @@
       "initial_package": null
     },
     {
+      "file": "crates/kanzei-core/src/store/artifact_liveness.rs",
+      "lines_at_inventory": 289,
+      "group": "core-store",
+      "prior_review": "none",
+      "initial_package": null,
+      "status": "full_review_complete"
+    },
+    {
       "file": "crates/kanzei-core/src/store/decisions.rs",
       "lines_at_inventory": 710,
       "group": "core-store",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -2264,7 +1976,7 @@
       "lines_at_inventory": 125,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -2288,7 +2000,7 @@
       "lines_at_inventory": 1377,
       "group": "core-store",
       "prior_review": "slice",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "C0",
       "completed_package": "C0",
       "report": "parallel/C0.md",
@@ -2315,7 +2027,7 @@
       "lines_at_inventory": 145,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -2323,7 +2035,7 @@
       "lines_at_inventory": 424,
       "group": "core-store",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "C0",
       "completed_package": "C0",
       "report": "parallel/C0.md",
@@ -2334,7 +2046,7 @@
       "lines_at_inventory": 256,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -2342,7 +2054,7 @@
       "lines_at_inventory": 459,
       "group": "core-store",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "C0",
       "completed_package": "C0",
       "report": "parallel/C0.md",
@@ -2353,7 +2065,7 @@
       "lines_at_inventory": 479,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -2377,18 +2089,7 @@
       "lines_at_inventory": 1299,
       "group": "core-store",
       "prior_review": "none",
-      "status": "reviewed_full",
-      "initial_package": "C0",
-      "completed_package": "C0",
-      "report": "parallel/C0.md",
-      "integrated_commit": "30fa309d"
-    },
-    {
-      "file": "crates/kanzei-core/src/store/session/artifact_refs.rs",
-      "lines_at_inventory": 79,
-      "group": "core-store",
-      "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "C0",
       "completed_package": "C0",
       "report": "parallel/C0.md",
@@ -2399,7 +2100,18 @@
       "lines_at_inventory": 1743,
       "group": "core-store",
       "prior_review": "slice",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
+      "initial_package": "C0",
+      "completed_package": "C0",
+      "report": "parallel/C0.md",
+      "integrated_commit": "30fa309d"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/session/artifact_refs.rs",
+      "lines_at_inventory": 79,
+      "group": "core-store",
+      "prior_review": "none",
+      "status": "full_review_complete",
       "initial_package": "C0",
       "completed_package": "C0",
       "report": "parallel/C0.md",
@@ -2410,7 +2122,7 @@
       "lines_at_inventory": 976,
       "group": "core-store",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -2430,16 +2142,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-core/src/store/typed/projection.rs",
-      "lines_at_inventory": 444,
+      "file": "crates/kanzei-core/src/store/typed.rs",
+      "lines_at_inventory": 2531,
       "group": "core-store",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-core/src/store/typed.rs",
-      "lines_at_inventory": 2531,
+      "file": "crates/kanzei-core/src/store/typed/projection.rs",
+      "lines_at_inventory": 444,
       "group": "core-store",
       "prior_review": "none",
       "status": "pending",
@@ -2458,7 +2170,7 @@
       "lines_at_inventory": 329,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null
     },
     {
@@ -2474,7 +2186,7 @@
       "lines_at_inventory": 70,
       "group": "harness",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "B0",
       "completed_package": "B0",
       "report": "parallel/B0.md",
@@ -2483,6 +2195,14 @@
     {
       "file": "crates/kanzei-harness/src/auto_run.rs",
       "lines_at_inventory": 1766,
+      "group": "harness",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-harness/src/config.rs",
+      "lines_at_inventory": 2460,
       "group": "harness",
       "prior_review": "none",
       "status": "pending",
@@ -2531,14 +2251,6 @@
     {
       "file": "crates/kanzei-harness/src/config/web.rs",
       "lines_at_inventory": 50,
-      "group": "harness",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei-harness/src/config.rs",
-      "lines_at_inventory": 2460,
       "group": "harness",
       "prior_review": "none",
       "status": "pending",
@@ -2605,7 +2317,7 @@
       "lines_at_inventory": 311,
       "group": "harness",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "B0",
       "completed_package": "B0",
       "report": "parallel/B0.md",
@@ -2624,7 +2336,7 @@
       "lines_at_inventory": 987,
       "group": "harness",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "B0",
       "completed_package": "B0",
       "report": "parallel/B0.md",
@@ -2635,7 +2347,7 @@
       "lines_at_inventory": 206,
       "group": "harness",
       "prior_review": "none",
-      "status": "reviewed_full",
+      "status": "full_review_complete",
       "initial_package": "B0",
       "completed_package": "B0",
       "report": "parallel/B0.md",
@@ -2722,6 +2434,14 @@
       "initial_package": null
     },
     {
+      "file": "crates/kanzei-memory/src/docstore.rs",
+      "lines_at_inventory": 1309,
+      "group": "memory",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
       "file": "crates/kanzei-memory/src/docstore/archive.rs",
       "lines_at_inventory": 592,
       "group": "memory",
@@ -2764,14 +2484,6 @@
     {
       "file": "crates/kanzei-memory/src/docstore/validation.rs",
       "lines_at_inventory": 386,
-      "group": "memory",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei-memory/src/docstore.rs",
-      "lines_at_inventory": 1309,
       "group": "memory",
       "prior_review": "none",
       "status": "pending",
@@ -2898,16 +2610,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-memory/src/memory/store/archive.rs",
-      "lines_at_inventory": 245,
+      "file": "crates/kanzei-memory/src/memory/store.rs",
+      "lines_at_inventory": 3744,
       "group": "memory",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-memory/src/memory/store.rs",
-      "lines_at_inventory": 3744,
+      "file": "crates/kanzei-memory/src/memory/store/archive.rs",
+      "lines_at_inventory": 245,
       "group": "memory",
       "prior_review": "none",
       "status": "pending",
@@ -2998,15 +2710,24 @@
       "lines_at_inventory": 1171,
       "group": "tools",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-tools/src/background.rs",
+      "lines_at_inventory": 1671,
+      "group": "tools",
+      "prior_review": "contract_slice",
+      "status": "contract_slice_only",
+      "initial_package": null,
+      "slice_report": "parallel/B0.md"
     },
     {
       "file": "crates/kanzei-tools/src/background/lifecycle.rs",
       "lines_at_inventory": 273,
       "group": "tools",
       "prior_review": "contract_slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/B0.md"
     },
@@ -3015,7 +2736,7 @@
       "lines_at_inventory": 143,
       "group": "tools",
       "prior_review": "none",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -3035,15 +2756,6 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/background.rs",
-      "lines_at_inventory": 1671,
-      "group": "tools",
-      "prior_review": "contract_slice",
-      "status": "pending",
-      "initial_package": null,
-      "slice_report": "parallel/B0.md"
-    },
-    {
       "file": "crates/kanzei-tools/src/base.rs",
       "lines_at_inventory": 263,
       "group": "tools",
@@ -3060,16 +2772,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
-      "lines_at_inventory": 867,
+      "file": "crates/kanzei-tools/src/browser_tool.rs",
+      "lines_at_inventory": 1011,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/browser_tool.rs",
-      "lines_at_inventory": 1011,
+      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
+      "lines_at_inventory": 867,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3084,18 +2796,18 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/conventions/drafts.rs",
-      "lines_at_inventory": 279,
-      "group": "tools",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
       "file": "crates/kanzei-tools/src/conventions.rs",
       "lines_at_inventory": 631,
       "group": "tools",
       "prior_review": "slice",
+      "status": "contract_slice_only",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-tools/src/conventions/drafts.rs",
+      "lines_at_inventory": 279,
+      "group": "tools",
+      "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
@@ -3134,6 +2846,14 @@
     {
       "file": "crates/kanzei-tools/src/frontend.rs",
       "lines_at_inventory": 429,
+      "group": "tools",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-tools/src/git.rs",
+      "lines_at_inventory": 2990,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3188,14 +2908,6 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/git.rs",
-      "lines_at_inventory": 2990,
-      "group": "tools",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
       "file": "crates/kanzei-tools/src/git_batches.rs",
       "lines_at_inventory": 380,
       "group": "tools",
@@ -3228,16 +2940,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/latex_tool/paper.rs",
-      "lines_at_inventory": 59,
+      "file": "crates/kanzei-tools/src/latex_tool.rs",
+      "lines_at_inventory": 794,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/latex_tool.rs",
-      "lines_at_inventory": 794,
+      "file": "crates/kanzei-tools/src/latex_tool/paper.rs",
+      "lines_at_inventory": 59,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3264,7 +2976,7 @@
       "lines_at_inventory": 1164,
       "group": "tools",
       "prior_review": "slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -3272,21 +2984,13 @@
       "lines_at_inventory": 669,
       "group": "tools",
       "prior_review": "contract_slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/B0.md"
     },
     {
       "file": "crates/kanzei-tools/src/palette.rs",
       "lines_at_inventory": 1266,
-      "group": "tools",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei-tools/src/plot_tool/adapters.rs",
-      "lines_at_inventory": 161,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3301,8 +3005,24 @@
       "initial_package": null
     },
     {
+      "file": "crates/kanzei-tools/src/plot_tool/adapters.rs",
+      "lines_at_inventory": 161,
+      "group": "tools",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
       "file": "crates/kanzei-tools/src/preview_server.rs",
       "lines_at_inventory": 1258,
+      "group": "tools",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-tools/src/prior_art.rs",
+      "lines_at_inventory": 703,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3325,16 +3045,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/prior_art.rs",
-      "lines_at_inventory": 703,
+      "file": "crates/kanzei-tools/src/process.rs",
+      "lines_at_inventory": 565,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/process.rs",
-      "lines_at_inventory": 565,
+      "file": "crates/kanzei-tools/src/profiles.rs",
+      "lines_at_inventory": 1610,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3381,8 +3101,8 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/profiles.rs",
-      "lines_at_inventory": 1610,
+      "file": "crates/kanzei-tools/src/project_state.rs",
+      "lines_at_inventory": 893,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3399,14 +3119,6 @@
     {
       "file": "crates/kanzei-tools/src/project_state/toolchains.rs",
       "lines_at_inventory": 195,
-      "group": "tools",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei-tools/src/project_state.rs",
-      "lines_at_inventory": 893,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3485,16 +3197,16 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/research_control/tests.rs",
-      "lines_at_inventory": 212,
+      "file": "crates/kanzei-tools/src/research_control.rs",
+      "lines_at_inventory": 57,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/research_control.rs",
-      "lines_at_inventory": 57,
+      "file": "crates/kanzei-tools/src/research_control/tests.rs",
+      "lines_at_inventory": 212,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3543,6 +3255,14 @@
     {
       "file": "crates/kanzei-tools/src/research_verify.rs",
       "lines_at_inventory": 610,
+      "group": "tools",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow.rs",
+      "lines_at_inventory": 737,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3605,14 +3325,6 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/research_workflow.rs",
-      "lines_at_inventory": 737,
-      "group": "tools",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
       "file": "crates/kanzei-tools/src/research_write.rs",
       "lines_at_inventory": 967,
       "group": "tools",
@@ -3633,7 +3345,7 @@
       "lines_at_inventory": 740,
       "group": "tools",
       "prior_review": "contract_slice",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/B0.md"
     },
@@ -3690,7 +3402,7 @@
       "lines_at_inventory": 1096,
       "group": "tools",
       "prior_review": "none",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -3706,7 +3418,7 @@
       "lines_at_inventory": 943,
       "group": "tools",
       "prior_review": "none",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null
     },
     {
@@ -3726,6 +3438,14 @@
       "initial_package": null
     },
     {
+      "file": "crates/kanzei-tools/src/test_record.rs",
+      "lines_at_inventory": 2284,
+      "group": "tools",
+      "prior_review": "slice",
+      "status": "contract_slice_only",
+      "initial_package": null
+    },
+    {
       "file": "crates/kanzei-tools/src/test_record/coverage.rs",
       "lines_at_inventory": 988,
       "group": "tools",
@@ -3742,10 +3462,18 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/test_record.rs",
-      "lines_at_inventory": 2284,
+      "file": "crates/kanzei-tools/src/tracker.rs",
+      "lines_at_inventory": 5109,
       "group": "tools",
-      "prior_review": "slice",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/actions.rs",
+      "lines_at_inventory": 862,
+      "group": "tools",
+      "prior_review": "none",
       "status": "pending",
       "initial_package": null
     },
@@ -3768,14 +3496,6 @@
     {
       "file": "crates/kanzei-tools/src/tracker/actions/normalize.rs",
       "lines_at_inventory": 379,
-      "group": "tools",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei-tools/src/tracker/actions.rs",
-      "lines_at_inventory": 862,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3808,14 +3528,6 @@
     {
       "file": "crates/kanzei-tools/src/tracker/validation.rs",
       "lines_at_inventory": 281,
-      "group": "tools",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
-      "file": "crates/kanzei-tools/src/tracker.rs",
-      "lines_at_inventory": 5109,
       "group": "tools",
       "prior_review": "none",
       "status": "pending",
@@ -3886,6 +3598,14 @@
       "initial_package": null
     },
     {
+      "file": "crates/kanzei-tools/src/work.rs",
+      "lines_at_inventory": 2862,
+      "group": "tools",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
       "file": "crates/kanzei-tools/src/work/context.rs",
       "lines_at_inventory": 175,
       "group": "tools",
@@ -3934,14 +3654,6 @@
       "initial_package": null
     },
     {
-      "file": "crates/kanzei-tools/src/work.rs",
-      "lines_at_inventory": 2862,
-      "group": "tools",
-      "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
-    },
-    {
       "file": "crates/kanzei-tools/src/worktree.rs",
       "lines_at_inventory": 785,
       "group": "tools",
@@ -3956,14 +3668,351 @@
       "prior_review": "none",
       "status": "pending",
       "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/artifacts.rs",
+      "lines_at_inventory": 336,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/compact.rs",
+      "lines_at_inventory": 79,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "full_review_complete",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/config.rs",
+      "lines_at_inventory": 13,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/eval.rs",
+      "lines_at_inventory": 118,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/lock.rs",
+      "lines_at_inventory": 94,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/memory.rs",
+      "lines_at_inventory": 136,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/metrics.rs",
+      "lines_at_inventory": 666,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/mod.rs",
+      "lines_at_inventory": 1101,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/quarantine.rs",
+      "lines_at_inventory": 121,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/run.rs",
+      "lines_at_inventory": 475,
+      "group": "entry-service",
+      "prior_review": "slice",
+      "status": "contract_slice_only",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/events.rs",
+      "lines_at_inventory": 168,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/finalize.rs",
+      "lines_at_inventory": 280,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "contract_slice_only",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/permissions.rs",
+      "lines_at_inventory": 94,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/schedule.rs",
+      "lines_at_inventory": 136,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/shadow.rs",
+      "lines_at_inventory": 80,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/tracker.rs",
+      "lines_at_inventory": 236,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/work.rs",
+      "lines_at_inventory": 145,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/cli/worktree.rs",
+      "lines_at_inventory": 77,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/src/main.rs",
+      "lines_at_inventory": 21,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
+      "lines_at_inventory": 279,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
+      "lines_at_inventory": 530,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
+      "lines_at_inventory": 908,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
+      "lines_at_inventory": 101,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/common/mod.rs",
+      "lines_at_inventory": 57,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
+      "lines_at_inventory": 301,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
+      "lines_at_inventory": 333,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
+      "lines_at_inventory": 60,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/d364_concurrent_doc_add.rs",
+      "lines_at_inventory": 234,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/d368_concurrent_memory_write.rs",
+      "lines_at_inventory": 197,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/global_home_guard.rs",
+      "lines_at_inventory": 52,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
+      "lines_at_inventory": 131,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
+      "lines_at_inventory": 349,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
+      "lines_at_inventory": 362,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
+      "lines_at_inventory": 372,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
+      "lines_at_inventory": 398,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
+      "lines_at_inventory": 277,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
+    },
+    {
+      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
+      "lines_at_inventory": 327,
+      "group": "entry-service",
+      "prior_review": "none",
+      "status": "pending",
+      "initial_package": null
     }
   ],
-  "current_full_reviews": 50,
-  "last_integrated_commit": "fbb85333",
+  "current_full_reviews": 65,
+  "last_integrated_commit": "c9b83757d6d58d3252ffbab979d6671f5d6fae15",
   "execution_model": "Sol",
   "active_packages": {
-    "A1": "artifact publication/compaction persistence",
-    "B1": "callbacks/stop lifecycle",
-    "C1": "retired processes/monotonic delivery cursor"
+    "A2": {
+      "owner": "audit_a0",
+      "full_scope": [
+        "crates/kanzei-core/src/runner/item_context.rs",
+        "crates/kanzei-core/src/runner/event.rs",
+        "crates/kanzei/src/cli/run/events.rs",
+        "crates/kanzei-core/src/runner/item_context/tests.rs"
+      ],
+      "gate": "typed writer edit after C2; Cargo root -> C2 -> B2 -> A2"
+    },
+    "B2": {
+      "owner": "audit_b0",
+      "full_scope": [
+        "crates/kanzei-tools/src/team/mod.rs",
+        "crates/kanzei-tools/src/team/store.rs",
+        "crates/kanzei-tools/src/team/tests.rs"
+      ],
+      "gate": "validation after C2; app agent_team registry caller slice"
+    },
+    "C2": {
+      "owner": "audit_c0",
+      "full_scope": [
+        "crates/kanzei-core/src/store/typed.rs",
+        "crates/kanzei-core/src/store/typed/projection.rs"
+      ],
+      "gate": "first Cargo slot after round-2 integration"
+    },
+    "M2": {
+      "owner": "root",
+      "full_scope": [
+        "crates/kanzei-app/src/mobile.rs"
+      ],
+      "gate": "typed helper after C2; device persistence and service lifecycle"
+    }
+  },
+  "remaining_counts_by_group": {
+    "entry-service": 126,
+    "tools": 126,
+    "harness": 26,
+    "memory": 28,
+    "ui": 89,
+    "core-runtime": 38,
+    "core-store": 13,
+    "llm": 1
   }
 }

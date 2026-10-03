@@ -101,3 +101,11 @@ flowchart TD
 - 已收口：日志换行编码、托管窗口项目归因与基线并发、迁移事务与历史正文清理、后台事件桥及通知消费。回退段删除与交付工作树路由是调用链切片修复。
 - 当前 A1 沿工件归档 → 压缩 → 会话提交 → GC 检查未提交正文；C1 沿进程退役和通知游标检查晚写；B1 沿旧问题回复 → 邮箱/子任务 → 停止检查复活窗口。
 - 逐文件记录、分包验证和尚未完成的边界见 [第一轮整合记录](parallel-round-1.md)。全工作区整合检查与 main 同步在第二轮收包后执行。
+
+## Sol 并行第二轮与当前进度
+
+- A1/B1/C1/M1 已整合并通过当前 Windows 全工作区验证：2275 passed、0 failed、5 原有 ignored；check/Clippy/fmt、IPC 与完整 UI/浏览器回归通过。逐文件及全部验证边界见 [第二轮整合记录](parallel-round-2.md)。
+- 新增 15 个全文记录，累计 **65/512**；尚未全文审查 **447**。新增 artifact_liveness 文件计入分母；调用方切片没有计为全文。
+- 七层口径仅 base 全量完成，其余六层仍有未审支线。core store 13/26、runtime 1/39；harness 6/32、llm 15/16、memory 0/28、tools 0/126、CLI/app 19/145、UI 2/91。
+- 状态 owner 收口：session_events 真源 → 原 source/sequence CAS → cache；工件发布共享锁 → GC 非阻塞独占；原 mailbox/generation → stop/callback 准入；退役表 → 进程别名；认证设备 → 通知/SSE 游标与撤销。
+- 下一轮 C2 先稳 typed 事务/投影，B2 修 team worker 生命周期，A2 修 work-context source，主代理 M2 修手机凭据/消息持久化与服务 owner。已确认的多进程 team 恢复及工具副作用无提交 ack 问题保留在后续执行链，不能用本轮验证宣称它们已修。
