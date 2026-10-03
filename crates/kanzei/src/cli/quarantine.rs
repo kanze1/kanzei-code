@@ -14,14 +14,21 @@ struct QuarantineArgs {
 
 fn parse_args(args: &[String]) -> anyhow::Result<QuarantineArgs> {
     let mut parsed = QuarantineArgs::default();
+    let mut dry_run = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "--apply" => parsed.apply = true,
+            "--apply" => {
+                if dry_run {
+                    anyhow::bail!("--apply 与 --dry-run 不能同时使用");
+                }
+                parsed.apply = true;
+            }
             "--dry-run" => {
                 if parsed.apply {
                     anyhow::bail!("--apply 与 --dry-run 不能同时使用");
                 }
+                dry_run = true;
             }
             "--type" => {
                 let value = args
@@ -110,6 +117,7 @@ mod tests {
     #[test]
     fn apply与dry_run互斥且apply允许解析() {
         assert!(parse_args(&["--apply".into(), "--dry-run".into()]).is_err());
+        assert!(parse_args(&["--dry-run".into(), "--apply".into()]).is_err());
         assert!(parse_args(
             &["--apply", "--type", "bg"]
                 .iter()

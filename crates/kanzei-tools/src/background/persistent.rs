@@ -35,57 +35,88 @@ pub(crate) fn registry_path(project_root: &Path) -> PathBuf {
         .join("registry.json")
 }
 
-pub(super) fn load_registry(project_root: &Path) -> Vec<PersistentEntry> {
-    let path = registry_path(project_root);
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Vec::new();
+fn read_registry(path: &Path) -> Result<Vec<PersistentEntry>, String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("读取后台登记 {} 失败: {error}", path.display())),
     };
-    serde_json::from_str(&text).unwrap_or_default()
+    serde_json::from_str(&text)
+        .map_err(|error| format!("后台登记 {} 损坏: {error}", path.display()))
 }
 
-/// 写注册表走 atomic_file 原语(验收⑤:全仓不出现第二套写原语)。
-pub(super) fn save_registry(project_root: &Path, entries: &[PersistentEntry]) {
+pub(super) fn load_registry(project_root: &Path) -> Result<Vec<PersistentEntry>, String> {
     let path = registry_path(project_root);
-    if let Ok(text) = serde_json::to_string_pretty(entries) {
-        let _ = crate::atomic_file::write_atomic(&path, &text);
-    }
+    let _lock = crate::atomic_file::lock_shared(&path).map_err(|error| error.to_string())?;
+    read_registry(&path)
+}
+
+fn update_registry<T>(
+    project_root: &Path,
+    update: impl FnOnce(&mut Vec<PersistentEntry>) -> T,
+) -> Result<T, String> {
+    let path = registry_path(project_root);
+    let _lock = crate::atomic_file::lock_exclusive(&path).map_err(|error| error.to_string())?;
+    let mut entries = read_registry(&path)?;
+    let result = update(&mut entries);
+    let text = serde_json::to_string_pretty(&entries).map_err(|error| error.to_string())?;
+    crate::atomic_file::write_atomic(&path, &text)
+        .map_err(|error| format!("保存后台登记 {} 失败: {error}", path.display()))?;
+    Ok(result)
+}
+
+pub(super) fn insert_registry_entry(
+    project_root: &Path,
+    entry: PersistentEntry,
+) -> Result<(), String> {
+    update_registry(project_root, |entries| {
+        entries.retain(|existing| existing.id != entry.id);
+        entries.push(entry);
+    })
+}
+
+#[cfg(test)]
+pub(super) fn save_registry(
+    project_root: &Path,
+    entries: &[PersistentEntry],
+) -> Result<(), String> {
+    update_registry(project_root, |stored| *stored = entries.to_vec())
 }
 
 /// 从注册表移除指定条目。进程自然退出/显式停止/被杀后调用,不留幽灵条目。
-pub(super) fn remove_registry_entry(project_root: &Path, id: &str) {
-    let mut entries = load_registry(project_root);
-    let before = entries.len();
-    entries.retain(|e| e.id != id);
-    if entries.len() != before {
-        save_registry(project_root, &entries);
-    }
+pub(super) fn remove_registry_entry(project_root: &Path, id: &str) -> Result<bool, String> {
+    update_registry(project_root, |entries| {
+        let before = entries.len();
+        entries.retain(|e| e.id != id);
+        entries.len() != before
+    })
 }
 
 /// R-180 验收②:列出跨 run 注册表中上次登记的 persistent 服务,并给出 pid 活性。
 ///
 /// 返回 `(条目, pid 是否存活)`。幽灵条目(pid 已死——强杀 kzapp 后进程没能活下来)
 /// 由调用方用 [`mark_registry_failed`] 标失败并清理,本函数只读不写。
-pub fn discover_persistent(project_root: &Path) -> Vec<(PersistentEntry, bool)> {
-    load_registry(project_root)
+pub fn discover_persistent(project_root: &Path) -> Result<Vec<(PersistentEntry, bool)>, String> {
+    Ok(load_registry(project_root)?
         .into_iter()
         .map(|entry| {
             let alive = crate::shell::process_alive(entry.pid);
             (entry, alive)
         })
-        .collect()
+        .collect())
 }
 
 /// 把注册表条目标记为失败并移除(pid 已死的幽灵条目)。返回是否命中。
-pub fn mark_registry_failed(project_root: &Path, id: &str) -> bool {
+pub fn mark_registry_failed(project_root: &Path, id: &str) -> Result<bool, String> {
     if let Some(process) = super::get(id) {
         if process.is_running() {
-            return false;
+            return Ok(false);
         }
         for completion in [&process.exit_completion, &process.guard_completion] {
             match completion.completed() {
                 Err(error) => {
                     super::lifecycle::record_cleanup_error(&process, &error);
-                    return false;
+                    return Err(error);
                 }
                 Ok(Err(error)) => super::lifecycle::record_cleanup_error(&process, &error),
                 Ok(Ok(())) => {}
@@ -93,18 +124,10 @@ pub fn mark_registry_failed(project_root: &Path, id: &str) -> bool {
         }
         if let Err(error) = super::lifecycle::finish_restore(&process) {
             super::lifecycle::record_cleanup_error(&process, &error);
-            return false;
+            return Err(error);
         }
     }
-    let mut entries = load_registry(project_root);
-    let before = entries.len();
-    entries.retain(|e| e.id != id);
-    if entries.len() != before {
-        save_registry(project_root, &entries);
-        true
-    } else {
-        false
-    }
+    remove_registry_entry(project_root, id)
 }
 
 /// R-180 验收②"接管":把注册表里 pid 仍存活的长驻服务接回当前进程的内存注册表,
@@ -112,16 +135,21 @@ pub fn mark_registry_failed(project_root: &Path, id: &str) -> bool {
 ///
 /// 接管后重新拍基线并挂守卫:长驻服务脱离 owner run 不等于脱离文件隔离(D-174
 /// 归因/回滚约束原样生效,验收④)。
-pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<BackgroundProcess>> {
+pub async fn adopt_persistent(
+    project_root: &Path,
+    id: &str,
+) -> Result<Option<Arc<BackgroundProcess>>, String> {
     if let Some(existing) = super::get(id)
         .filter(|p| p.project_root == project_root.display().to_string() && p.is_running())
     {
-        return Some(existing);
+        return Ok(Some(existing));
     }
-    let entries = load_registry(project_root);
-    let entry = entries.iter().find(|e| e.id == id)?.clone();
+    let entries = load_registry(project_root)?;
+    let Some(entry) = entries.into_iter().find(|e| e.id == id) else {
+        return Ok(None);
+    };
     if !crate::shell::process_alive(entry.pid) {
-        return None;
+        return Ok(None);
     }
     let log_path = std::env::temp_dir()
         .join("kanzei-bg-logs")
@@ -189,8 +217,8 @@ pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<Backg
                     super::lifecycle::record_cleanup_error(&completed, &error);
                     return Err(error);
                 }
+                remove_registry_entry(&watch_root, &watch_id)?;
                 super::registry().lock().unwrap().remove(&watch_id);
-                remove_registry_entry(&watch_root, &watch_id);
                 return Ok(());
             }
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -201,7 +229,7 @@ pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<Backg
         super::install_window_observer_once();
         super::spawn_guard(process.clone());
     }
-    Some(process)
+    Ok(Some(process))
 }
 
 async fn log_snapshot(path: &Path) -> (u64, Vec<u8>) {
@@ -228,7 +256,7 @@ async fn log_snapshot(path: &Path) -> (u64, Vec<u8>) {
 /// 若该服务已接回内存注册表(adopt 过),先做终态对账再清出磁盘注册表;
 /// 内存对象保留在注册表供 output 回看最后日志(与 stop 语义一致)。
 pub async fn kill_registered_result(project_root: &Path, id: &str) -> Result<bool, String> {
-    let entries = load_registry(project_root);
+    let entries = load_registry(project_root)?;
     let Some(entry) = entries.iter().find(|e| e.id == id).cloned() else {
         return Ok(false);
     };
@@ -237,7 +265,7 @@ pub async fn kill_registered_result(project_root: &Path, id: &str) -> Result<boo
     } else if crate::shell::process_alive(entry.pid) && !crate::shell::kill_tree(entry.pid).await {
         return Err(format!("未能终止 persistent 服务 {id}，注册项已保留"));
     }
-    remove_registry_entry(project_root, id);
+    remove_registry_entry(project_root, id)?;
     Ok(true)
 }
 
@@ -248,5 +276,90 @@ pub async fn kill_registered(project_root: &Path, id: &str) -> bool {
             tracing::error!(%error, process=id, "persistent stop cleanup failed");
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn root(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "kz-registry-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+    fn entry(id: &str) -> PersistentEntry {
+        PersistentEntry {
+            id: id.into(),
+            command: "fixture".into(),
+            project_root: String::new(),
+            workdir: String::new(),
+            owner: BackgroundOwner {
+                run_id: "fixture".into(),
+                process_id: "fixture".into(),
+                write_key: "fixture".into(),
+            },
+            started_at_ms: 0,
+            pid: 0,
+            log: format!("{id}.log"),
+        }
+    }
+    #[test]
+    fn registry_transaction_serializes_read_modify_write() {
+        let root = root("transaction");
+        insert_registry_entry(&root, entry("old")).unwrap();
+        let (loaded_tx, loaded_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let first_root = root.clone();
+        let first = std::thread::spawn(move || {
+            update_registry(&first_root, |entries| {
+                loaded_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                entries.retain(|e| e.id != "old");
+            })
+            .unwrap()
+        });
+        loaded_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let second_root = root.clone();
+        let second = std::thread::spawn(move || {
+            insert_registry_entry(&second_root, entry("new")).unwrap();
+            done_tx.send(()).unwrap();
+        });
+        let early = done_rx.recv_timeout(std::time::Duration::from_millis(150));
+        release_tx.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        assert!(
+            early.is_err(),
+            "writer must wait for the entire read/modify/write transaction"
+        );
+        let entries = load_registry(&root).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "new");
+    }
+    #[test]
+    fn registry_corruption_and_io_errors_do_not_become_empty_success() {
+        for bytes in [b"invalid json".as_slice(), &[0xff, 0xfe]] {
+            let root = root("corrupt");
+            let path = registry_path(&root);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, bytes).unwrap();
+            assert!(discover_persistent(&root).is_err());
+            assert!(insert_registry_entry(&root, entry("new")).is_err());
+            assert!(remove_registry_entry(&root, "old").is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+        let root = root("io");
+        let path = registry_path(&root);
+        std::fs::create_dir_all(&path).unwrap();
+        assert!(insert_registry_entry(&root, entry("new")).is_err());
+        assert!(discover_persistent(&root).is_err());
     }
 }

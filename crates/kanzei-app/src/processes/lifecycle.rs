@@ -713,41 +713,89 @@ pub fn process_update(
     {
         return Err("无项目对话不启用项目阶段或条目流程".into());
     }
-    if let Some(model) = model {
-        *process.model.lock().unwrap() = Some(model).filter(|value| !value.trim().is_empty());
-    }
-    if let Some(profile) = profile {
-        *process.profile.lock().unwrap() = Some(profile).filter(|value| !value.trim().is_empty());
-    }
-    if let Some(reasoning) = reasoning {
-        // 空串 = 清除本进程覆盖,回落配置默认档。
-        *process.reasoning.lock().unwrap() =
-            Some(reasoning).filter(|value| !value.trim().is_empty());
-    }
-    if let Some(manual_models) = manual_models {
-        *process.manual_models.lock().unwrap() = manual_models;
-    }
-    if let Some(phase_pipeline) = phase_pipeline {
-        process
-            .phase_pipeline_enabled
-            .store(phase_pipeline, Ordering::SeqCst);
-    }
-    if let Some(subagents_enabled) = subagents_enabled {
-        process
-            .subagents_enabled
-            .store(subagents_enabled, Ordering::SeqCst);
-    }
-    if let Some(tracker_writes) = tracker_writes {
-        process
-            .tracker_writes_enabled
-            .store(tracker_writes, Ordering::SeqCst);
-    }
+    persist_settings_update(&process, |process| {
+        if let Some(model) = model {
+            *process.model.lock().unwrap() = Some(model).filter(|value| !value.trim().is_empty());
+        }
+        if let Some(profile) = profile {
+            *process.profile.lock().unwrap() =
+                Some(profile).filter(|value| !value.trim().is_empty());
+        }
+        if let Some(reasoning) = reasoning {
+            // 空串 = 清除本进程覆盖,回落配置默认档。
+            *process.reasoning.lock().unwrap() =
+                Some(reasoning).filter(|value| !value.trim().is_empty());
+        }
+        if let Some(manual_models) = manual_models {
+            *process.manual_models.lock().unwrap() = manual_models;
+        }
+        if let Some(phase_pipeline) = phase_pipeline {
+            process
+                .phase_pipeline_enabled
+                .store(phase_pipeline, Ordering::SeqCst);
+        }
+        if let Some(subagents_enabled) = subagents_enabled {
+            process
+                .subagents_enabled
+                .store(subagents_enabled, Ordering::SeqCst);
+        }
+        if let Some(tracker_writes) = tracker_writes {
+            process
+                .tracker_writes_enabled
+                .store(tracker_writes, Ordering::SeqCst);
+        }
+    })?;
     // R-178 D3:任何对话的字段变更都同步落库(模型和开关状态,
     // 重启后要用库值回填)。D-367:project_dir 恒主根,直接取类型化路径。
     let root = &process.project_dir.0;
-    persist_process(root, &process)?;
     mark_project_restored(&state, root);
     Ok(process_info(&state, &process))
+}
+
+/// Keep the published settings intact until their durable replacement succeeds.
+/// Holding the existing settings locks also serializes concurrent updates.
+fn persist_settings_update(
+    process: &ProcessHandle,
+    update: impl FnOnce(&ProcessHandle),
+) -> Result<(), String> {
+    use std::sync::{atomic::AtomicBool, Arc, Mutex};
+    let mut model = process.model.lock().unwrap();
+    let mut profile = process.profile.lock().unwrap();
+    let mut reasoning = process.reasoning.lock().unwrap();
+    let mut manual_models = process.manual_models.lock().unwrap();
+    let mut candidate = process.clone();
+    candidate.model = Arc::new(Mutex::new(model.clone()));
+    candidate.profile = Arc::new(Mutex::new(profile.clone()));
+    candidate.reasoning = Arc::new(Mutex::new(reasoning.clone()));
+    candidate.manual_models = Arc::new(Mutex::new(manual_models.clone()));
+    candidate.phase_pipeline_enabled = Arc::new(AtomicBool::new(
+        process.phase_pipeline_enabled.load(Ordering::SeqCst),
+    ));
+    candidate.subagents_enabled = Arc::new(AtomicBool::new(
+        process.subagents_enabled.load(Ordering::SeqCst),
+    ));
+    candidate.tracker_writes_enabled = Arc::new(AtomicBool::new(
+        process.tracker_writes_enabled.load(Ordering::SeqCst),
+    ));
+    update(&candidate);
+    persist_process(&candidate.project_dir.0, &candidate)?;
+    *model = candidate.model.lock().unwrap().clone();
+    *profile = candidate.profile.lock().unwrap().clone();
+    *reasoning = candidate.reasoning.lock().unwrap().clone();
+    *manual_models = candidate.manual_models.lock().unwrap().clone();
+    process.phase_pipeline_enabled.store(
+        candidate.phase_pipeline_enabled.load(Ordering::SeqCst),
+        Ordering::SeqCst,
+    );
+    process.subagents_enabled.store(
+        candidate.subagents_enabled.load(Ordering::SeqCst),
+        Ordering::SeqCst,
+    );
+    process.tracker_writes_enabled.store(
+        candidate.tracker_writes_enabled.load(Ordering::SeqCst),
+        Ordering::SeqCst,
+    );
+    Ok(())
 }
 
 /// 关线/复位前清空该会话尚未消费的排队输入。admitted 而未 promote 的输入若不
@@ -984,6 +1032,46 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn settings_write_failure_preserves_runtime_and_success_publishes() {
+        let root = temp_project("settings-failure");
+        let state = AppState::default();
+        let info = discussion(&state, &root.display().to_string()).await;
+        let process = owned_process(&state, &root, &info.id).unwrap();
+        let old_model = process.model.lock().unwrap().clone();
+        let old_subagents = process.subagents_enabled.load(Ordering::SeqCst);
+        let db = rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
+        db.execute_batch("CREATE TRIGGER reject_settings BEFORE UPDATE ON processes BEGIN SELECT RAISE(FAIL, 'audit settings write failure'); END;").unwrap();
+        let change = |candidate: &ProcessHandle| {
+            *candidate.model.lock().unwrap() = Some("changed:model".into());
+            candidate
+                .subagents_enabled
+                .store(!old_subagents, Ordering::SeqCst);
+        };
+        let error = persist_settings_update(&process, change).unwrap_err();
+        assert!(error.contains("audit settings write failure"), "{error}");
+        assert_eq!(*process.model.lock().unwrap(), old_model);
+        assert_eq!(
+            process.subagents_enabled.load(Ordering::SeqCst),
+            old_subagents
+        );
+        db.execute_batch("DROP TRIGGER reject_settings").unwrap();
+        persist_settings_update(&process, change).unwrap();
+        assert_eq!(
+            process.model.lock().unwrap().as_deref(),
+            Some("changed:model")
+        );
+        assert_eq!(
+            process.subagents_enabled.load(Ordering::SeqCst),
+            !old_subagents
+        );
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        let stored = store.get_process(&process.id).unwrap().unwrap();
+        assert_eq!(stored.model.as_deref(), Some("changed:model"));
+        assert_eq!(stored.subagents_enabled, !old_subagents);
+    }
 
     fn owned_process(state: &AppState, root: &Path, id: &str) -> Result<ProcessHandle, String> {
         super::super::registry::resolve_conversation(state, root, Some(id))

@@ -58,7 +58,7 @@ pub(crate) async fn read_log_tail(path: &Path) -> Vec<u8> {
 /// `owner` 是归属身份,`baseline` 必须是 **spawn 之前** 拍下的托管镜像——
 /// 晚一刻拍就会把这个进程自己的副作用算进基线,围栏从此永远看不见它。
 #[cfg(test)]
-pub(crate) fn register(
+pub(crate) async fn register(
     child: tokio::process::Child,
     command: String,
     project_root: &Path,
@@ -77,6 +77,8 @@ pub(crate) fn register(
         persistent,
         None,
     )
+    .await
+    .expect("test background registration")
 }
 
 async fn finish_reader(mut reader: tokio::task::JoinHandle<()>) {
@@ -110,7 +112,7 @@ pub(super) fn prune_finished(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn register_with_mailbox(
+pub(crate) async fn register_with_mailbox(
     mut child: tokio::process::Child,
     command: String,
     project_root: &Path,
@@ -119,7 +121,7 @@ pub(crate) fn register_with_mailbox(
     baseline: ManagedSnapshot,
     persistent: bool,
     mailbox: Option<kanzei_harness::AsyncMailbox>,
-) -> Arc<BackgroundProcess> {
+) -> Result<Arc<BackgroundProcess>, String> {
     let id = next_id();
     let output = Arc::new(Mutex::new(Vec::new()));
     let output_total = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -141,7 +143,7 @@ pub(crate) fn register_with_mailbox(
     // R-180 B3:persistent 服务登记跨 run 注册表(与日志同目录,atomic_file 原语)。
     // 强杀 kzapp 后 wait 任务没机会跑,条目残留在磁盘——正是"重启后能列出上次
     // 未终结长驻服务"的数据来源;自然退出/显式 stop 时从注册表移除(见下)。
-    if persistent {
+    let registration_error = if persistent {
         let entry = PersistentEntry {
             id: id.clone(),
             command: command.clone(),
@@ -152,11 +154,10 @@ pub(crate) fn register_with_mailbox(
             pid: pid.unwrap_or(0),
             log: format!("{id}.log"),
         };
-        let mut entries = load_registry(project_root);
-        entries.retain(|e| e.id != id);
-        entries.push(entry);
-        save_registry(project_root, &entries);
-    }
+        insert_registry_entry(project_root, entry).err()
+    } else {
+        None
+    };
 
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
@@ -174,12 +175,20 @@ pub(crate) fn register_with_mailbox(
         readers.push(tokio::spawn(async move {
             let mut chunk = [0u8; 8192];
             let mut pending_log = Vec::new();
-            let mut since_flush = std::time::Instant::now();
+            let mut flush_tick = tokio::time::interval(std::time::Duration::from_secs(2));
+            flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut stream = stream;
             loop {
-                let read = match &mut stream {
-                    Ok(out) => out.read(&mut chunk).await,
-                    Err(err) => err.read(&mut chunk).await,
+                let read = tokio::select! {
+                    read = async { match &mut stream {
+                        Ok(out) => out.read(&mut chunk).await,
+                        Err(err) => err.read(&mut chunk).await,
+                    }} => read,
+                    _ = flush_tick.tick(), if log_path.is_some() && !pending_log.is_empty() => {
+                        append_log_chunk(log_path.as_ref().unwrap(), &pending_log).await;
+                        pending_log.clear();
+                        continue;
+                    }
                 };
                 match read {
                     Ok(0) | Err(_) => break,
@@ -197,14 +206,12 @@ pub(crate) fn register_with_mailbox(
                         append_bounded(&full_output, &truncated, &chunk[..n]);
                         if log_path.is_some() {
                             pending_log.extend_from_slice(&chunk[..n]);
-                            let due = pending_log.len() >= 64 * 1024
-                                || since_flush.elapsed() >= std::time::Duration::from_secs(2);
+                            let due = pending_log.len() >= 64 * 1024;
                             if due {
                                 if let Some(path) = &log_path {
                                     let pending = std::mem::take(&mut pending_log);
                                     append_log_chunk(path, &pending).await;
                                 }
-                                since_flush = std::time::Instant::now();
                             }
                         }
                     }
@@ -283,10 +290,11 @@ pub(crate) fn register_with_mailbox(
                     Err(error) => Err(error),
                 };
                 match result {
-                    Ok(()) => {
-                        remove_registry_entry(&reg_root, &reg_id);
-                        None
-                    }
+                    Ok(()) => remove_registry_entry(&reg_root, &reg_id)
+                        .err()
+                        .inspect(|error| {
+                            super::lifecycle::record_cleanup_error(&completed, error);
+                        }),
                     Err(error) => {
                         super::lifecycle::record_cleanup_error(&completed, &error);
                         Some(error)
@@ -319,7 +327,13 @@ pub(crate) fn register_with_mailbox(
         install_window_observer_once();
         spawn_guard(process.clone());
     }
-    process
+    if let Some(error) = registration_error {
+        return Err(match super::lifecycle::stop_owned(&process).await {
+            Ok(_) => format!("{error}; 已停止未能持久登记的后台进程 {}", process.id),
+            Err(cleanup) => format!("{error}; 后台进程 {} 清理未完成: {cleanup}", process.id),
+        });
+    }
+    Ok(process)
 }
 
 #[cfg(all(test, windows))]

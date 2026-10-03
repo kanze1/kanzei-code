@@ -288,15 +288,40 @@ impl CollaborationProbe {
 }
 
 fn current_tool(trace: &[serde_json::Value]) -> Option<String> {
-    let latest = trace.iter().rev().find(|event| {
-        matches!(
-            event.get("kind").and_then(serde_json::Value::as_str),
-            Some("tool.started" | "tool.completed")
-        )
-    })?;
-    (latest.get("kind")?.as_str()? == "tool.started")
-        .then(|| latest.get("name")?.as_str().map(str::to_string))
-        .flatten()
+    let mut completed = std::collections::HashSet::new();
+    for event in trace.iter().rev() {
+        match event.get("kind").and_then(serde_json::Value::as_str) {
+            Some("tool.completed") => {
+                if let Some(id) = event.get("id").and_then(serde_json::Value::as_str) {
+                    completed.insert(id);
+                }
+            }
+            Some("tool.started") => {
+                let id = event.get("id").and_then(serde_json::Value::as_str);
+                if id.is_none_or(|id| !completed.contains(id)) {
+                    return event
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+#[test]
+fn parallel_tool_completion_keeps_the_other_tool_visible() {
+    let mut trace = vec![
+        serde_json::json!({"kind":"tool.started","id":"A","name":"read"}),
+        serde_json::json!({"kind":"tool.started","id":"B","name":"grep"}),
+        serde_json::json!({"kind":"tool.completed","id":"B","name":"grep"}),
+    ];
+    assert_eq!(current_tool(&trace).as_deref(), Some("read"));
+    trace.push(serde_json::json!({"kind":"tool.completed","id":"A","name":"read"}));
+    assert_eq!(current_tool(&trace), None);
 }
 
 /// 协作视图里的线名:类型 + 序号(「主对话」「独立任务 3」),不再露出 `pN`/「默认」。

@@ -203,10 +203,16 @@ pub async fn server(root: &Path, def: &ScheduleDef, enabled: bool) -> Result<(),
     } else {
         String::new()
     };
-    let command=format!("set -eu; tmp=$(mktemp); (crontab -l 2>/dev/null || true) | grep -F -v {} > \"$tmp\" || true; {} crontab \"$tmp\"; rm -f \"$tmp\"",sh(&marker),if enabled{format!("printf '%s\\n' {} >> \"$tmp\";",sh(&cron))}else{String::new()});
+    let command = cron_update_command(&marker, enabled.then_some(cron.as_str()));
     checked("ssh", &ssh_args(&env.host, command))
         .await
         .map(|_| ())
+}
+
+fn cron_update_command(marker: &str, cron: Option<&str>) -> String {
+    // Match the literal trailing marker, not prefixes of another task name.
+    let filter = format!("awk -v marker={} 'length($0) < length(marker) || substr($0, length($0) - length(marker) + 1) != marker'", sh(marker));
+    format!("set -eu; tmp=$(mktemp); (crontab -l 2>/dev/null || true) | {filter} > \"$tmp\"; {} crontab \"$tmp\"; rm -f \"$tmp\"", cron.map(|line| format!("printf '%s\\n' {} >> \"$tmp\";", sh(line))).unwrap_or_default())
 }
 /// A remote immediate run is detached; history is subsequently pulled like a cron run.
 pub async fn run_server_now(root: &Path, def: &ScheduleDef) -> Result<(), String> {
@@ -317,6 +323,57 @@ pub async fn pull(root: &Path, def: &ScheduleDef) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cron_update_preserves_tasks_whose_names_share_a_prefix() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-cron-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cron_file = root.join("crontab");
+        let marker = "# kanzei:project:check";
+        let other = "* * * * * other # kanzei:project:check-long\n";
+        std::fs::write(&cron_file, format!("* * * * * old {marker}\n{other}")).unwrap();
+        let shell = if cfg!(windows) {
+            let output = std::process::Command::new("git")
+                .arg("--exec-path")
+                .output()
+                .unwrap();
+            let path = PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+            path.ancestors().nth(3).unwrap().join("usr/bin/bash.exe")
+        } else {
+            PathBuf::from("sh")
+        };
+        for line in [None, Some("* * * * * new # kanzei:project:check")] {
+            let script = format!("PATH=/usr/bin:$PATH; crontab() {{ if [ \"$1\" = -l ]; then cat \"$AUDIT_CRON\"; else cat \"$1\" > \"$AUDIT_CRON\"; fi; }}; {}", cron_update_command(marker, line));
+            let mut command = std::process::Command::new(&shell);
+            crate::hide_console(&mut command);
+            let output = command
+                .arg("-c")
+                .arg(script)
+                .env("AUDIT_CRON", &cron_file)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let text = std::fs::read_to_string(&cron_file).unwrap();
+            assert!(text.contains(other));
+            assert!(!text.contains(" old "));
+            assert_eq!(
+                text.lines().filter(|line| line.ends_with(marker)).count(),
+                usize::from(line.is_some())
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn cron_and_quoting_preserve_names() {
         assert_eq!(

@@ -415,7 +415,7 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
         // 归因地基:owner 身份来自 ToolCtx(R-171 双键),托管基线就是本次
         // spawn 之前刚拍下的 managed_before——后台守卫的对账起点必须是
         // "进程还没跑起来"的那一刻,晚一点都会把自己的副作用算进基线。
-        let process = crate::background::register_with_mailbox(
+        let process = match crate::background::register_with_mailbox(
             child,
             input.command.clone(),
             &ctx.project_root,
@@ -425,7 +425,12 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
             // R-180:长驻档位透传。persistent=true 时 owner run 收尾不再收它。
             input.persistent,
             ctx.async_mailbox.clone(),
-        );
+        )
+        .await
+        {
+            Ok(process) => process,
+            Err(error) => return ToolOutput::failed("BACKGROUND_REGISTRATION_FAILED", error),
+        };
         let rendered = format!(
             "background: true\nprocess_id: {}\npid: {}\ncommand: {}",
             process.id,

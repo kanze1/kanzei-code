@@ -219,6 +219,7 @@ async fn resolve_scout_route(
                 format!("{}:{}", resolved.provider_name, resolved.model),
             );
             Some(ScoutRoute {
+                context_limit: resolved.provider.context_limit,
                 service_tier: config.service_tier_for(&resolved),
                 model: resolved.model.clone(),
                 route,
@@ -624,6 +625,7 @@ impl PhasePipeline {
 
 /// 编排派发的只读代理用哪条路由。`None` = 沿用模板的 `fast`(与引入前一致)。
 pub(crate) struct ScoutRoute {
+    pub(crate) context_limit: Option<u64>,
     pub(crate) route: kanzei_llm::Route,
     pub(crate) model: String,
     pub(crate) service_tier: Option<String>,
@@ -654,6 +656,8 @@ impl PhasePipeline {
             runtime.primary = runtime.fast.clone();
             runtime.fast_service_tier = scout.service_tier.clone();
             runtime.primary_service_tier = scout.service_tier.clone();
+            runtime.options.fast_context_limit = scout.context_limit;
+            runtime.options.primary_context_limit = scout.context_limit;
         }
         runtime
     }
@@ -737,6 +741,78 @@ pub(crate) async fn acquire_plain_lease_if_needed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scout_route_replaces_context_limits_without_changing_review_runtime() {
+        struct Observer;
+        impl PhaseObserver for Observer {
+            fn observe(&self, _: &kanzei_harness::orchestration::OrchestrationEvent) {}
+        }
+        let root = std::env::temp_dir();
+        let config = Arc::new(kanzei_harness::config::KanzeiConfig::default());
+        let snapshot = kanzei_harness::Harness::default()
+            .resolve(&kanzei_harness::ResolveCtx {
+                profile: kanzei_harness::ProfileKind::Dev,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: config.clone(),
+            })
+            .unwrap();
+        let route = kanzei_llm::Route::openai_at("http://127.0.0.1:1/v1", Some("fixture"));
+        let mut template = SubagentRuntime {
+            options: Default::default(),
+            roster: Vec::new(),
+            snapshot,
+            agent: kanzei_tools::explore_agent(),
+            fast: (route.clone(), "fast".into()),
+            primary: (route.clone(), "primary".into()),
+            fast_service_tier: None,
+            primary_service_tier: None,
+            compact: None,
+            max_tokens: 256,
+            timeout_secs: 30,
+            limits: config.limits.clone(),
+            coordinator: None,
+            writable: false,
+            ask_router: None,
+            change_log: None,
+            cancellations: None,
+            background: false,
+            background_results: None,
+            background_events: None,
+            transcripts: None,
+            background_notifications: None,
+            transcript_sink: None,
+            transcript_provider: None,
+        };
+        template.options.fast_context_limit = Some(64_000);
+        template.options.primary_context_limit = Some(128_000);
+        for context_limit in [Some(32_000), None] {
+            let pipeline = PhasePipeline::start(
+                Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
+                Arc::new(Observer),
+                root.clone(),
+                root.clone(),
+                "fixture",
+                "fixture",
+                &config.limits,
+                Some(ScoutRoute {
+                    context_limit,
+                    route: route.clone(),
+                    model: "scout".into(),
+                    service_tier: None,
+                }),
+            );
+            let scout = pipeline.runtime_as(&template, "runtime_scout");
+            assert_eq!(scout.fast.1, "scout");
+            assert_eq!(scout.options.fast_context_limit, context_limit);
+            assert_eq!(scout.options.primary_context_limit, context_limit);
+            let review = pipeline.runtime_as(&template, "contract_reviewer");
+            assert_eq!(review.primary.1, "primary");
+            assert_eq!(review.options.primary_context_limit, Some(128_000));
+            assert_eq!(template.options.fast_context_limit, Some(64_000));
+        }
+    }
 
     fn report(role: &'static str, text: &str, ok: bool) -> RoleReport {
         RoleReport {

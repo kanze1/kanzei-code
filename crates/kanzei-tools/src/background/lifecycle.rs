@@ -436,7 +436,8 @@ pub(super) async fn stop_owned(process: &Arc<BackgroundProcess>) -> Result<bool,
         record_cleanup_error(process, error);
     })?;
     if process.persistent {
-        super::remove_registry_entry(Path::new(&process.project_root), &process.id);
+        super::remove_registry_entry(Path::new(&process.project_root), &process.id)
+            .inspect_err(|error| record_cleanup_error(process, error))?;
     }
     Ok(was_running)
 }

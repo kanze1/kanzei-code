@@ -47,7 +47,9 @@ pub use persistent::{
     adopt_persistent, discover_persistent, kill_registered, kill_registered_result,
     mark_registry_failed, PersistentEntry,
 };
-use persistent::{load_registry, remove_registry_entry, save_registry};
+use persistent::{insert_registry_entry, remove_registry_entry};
+#[cfg(test)]
+use persistent::{load_registry, save_registry};
 mod registration;
 #[cfg(test)]
 pub(crate) use lifecycle::set_final_guard_hook;
@@ -598,6 +600,88 @@ pub(crate) mod tests {
             "cmd" => "ping -n 300 127.0.0.1 >nul",
             _ => "sleep 300",
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn persistent_idle_output_flushes_before_process_exit() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("idle-flush");
+        let shell = crate::shell::detected_shell();
+        let separator = if shell.name == "cmd" { " & " } else { "; " };
+        let command = format!("echo AUDIT_IDLE_READY{separator}{}", linger());
+        let out = crate::bash::BashTool
+            .execute(
+                serde_json::json!({"command":command,"background":true,"persistent":true}),
+                &ctx_for(&root, "idle-flush"),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let id = out
+            .content
+            .lines()
+            .find_map(|s| s.strip_prefix("process_id: "))
+            .unwrap();
+        let process = get(id).unwrap();
+        assert!(wait_until(|| process.output().contains("AUDIT_IDLE_READY"), 10_000).await);
+        let log = process.log_path.as_ref().unwrap();
+        let flushed = wait_until(
+            || std::fs::read_to_string(log).is_ok_and(|text| text.contains("AUDIT_IDLE_READY")),
+            4000,
+        )
+        .await;
+        let still_running = process.is_running();
+        stop_result(id).await.unwrap();
+        assert!(
+            still_running,
+            "flush must happen while the service is idle and alive"
+        );
+        assert!(
+            flushed,
+            "small output must reach disk without another read or EOF"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn persistent_registration_failure_stops_the_spawned_child_and_preserves_evidence() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("registration-failure");
+        let path = persistent::registry_path(&root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "invalid registry evidence").unwrap();
+        let shell = crate::shell::detected_shell();
+        let mut command = tokio::process::Command::new(&shell.program);
+        crate::hide_console(command.as_std_mut());
+        let child = command
+            .args(&shell.args)
+            .arg(linger())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        let result = register_with_mailbox(
+            child,
+            linger().into(),
+            &root,
+            &root,
+            test_owner(),
+            ManagedSnapshot::capture(&root),
+            true,
+            None,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(
+            !crate::shell::process_alive(pid),
+            "failure must not orphan the spawned service"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "invalid registry evidence"
+        );
     }
 
     /// 读回孙进程 pid;拿不到就返回 None(cmd/POSIX 分支不回传真 pid)。
@@ -1423,7 +1507,8 @@ pub(crate) mod tests {
             test_owner(),
             ManagedSnapshot::capture(&root),
             false,
-        );
+        )
+        .await;
         assert!(get(&handle.id).is_some(), "进程应登记在注册表");
         assert_eq!(handle.owner, test_owner(), "后台任务必须带 owner 身份");
         assert!(handle.breaches().is_empty(), "未越界时不该有归因记录");
@@ -1702,7 +1787,7 @@ pub(crate) mod tests {
 
         // 模拟"强杀 kzapp 后重开":内存注册表已经没了,但磁盘注册表还在——
         // discover 从磁盘读,pid 活性判定为 running。
-        let entries = discover_persistent(&root);
+        let entries = discover_persistent(&root).unwrap();
         let (entry, alive) = entries
             .iter()
             .find(|(e, _)| e.id == id)
@@ -1713,6 +1798,7 @@ pub(crate) mod tests {
         // 接管:重建内存对象,pid 一致、is_running 成立、日志路径可回看。
         let adopted = adopt_persistent(&root, &id)
             .await
+            .unwrap()
             .expect("running 服务应可接管");
         assert!(adopted.is_running(), "接管后应视为运行中");
         assert_eq!(adopted.pid, Some(entry.pid), "接管应保持原 pid");
@@ -1724,7 +1810,7 @@ pub(crate) mod tests {
         let gone = wait_until(|| !crate::shell::process_alive(entry.pid), 15_000).await;
         assert!(gone, "kill 后进程树必须真的消失");
         assert!(
-            discover_persistent(&root).is_empty(),
+            discover_persistent(&root).unwrap().is_empty(),
             "处置后注册表应清空,不留幽灵条目"
         );
         std::fs::remove_file(persistent::registry_path(&root)).ok();
@@ -1751,7 +1837,7 @@ pub(crate) mod tests {
             pid: u32::MAX - 1,
             log: "bg-ghost.log".into(),
         };
-        save_registry(&root, &[ghost]);
+        save_registry(&root, &[ghost]).unwrap();
 
         let out = crate::process::ProcessTool
             .execute(
@@ -1766,7 +1852,7 @@ pub(crate) mod tests {
             out.content
         );
         assert!(
-            discover_persistent(&root).is_empty(),
+            discover_persistent(&root).unwrap().is_empty(),
             "幽灵条目清出后注册表不应残留"
         );
         std::fs::remove_file(persistent::registry_path(&root)).ok();
@@ -1859,11 +1945,12 @@ pub(crate) mod tests {
             pid,
             log: "bg-adopt.log".into(),
         };
-        save_registry(&root, &[entry]);
+        save_registry(&root, &[entry]).unwrap();
 
         // adopt 接管:重建内存对象并重新挂守卫(基于接管时重拍的基线)。
         let adopted = adopt_persistent(&root, "bg-adopt")
             .await
+            .unwrap()
             .expect("running 服务应可接管");
         assert_eq!(adopted.pid, Some(pid), "接管保持原 pid");
 
@@ -1991,7 +2078,10 @@ pub(crate) mod tests {
             .await;
         assert!(!killed.is_error, "{}", killed.content);
         assert!(killed.content.contains("killed"), "{}", killed.content);
-        assert!(discover_persistent(&root).is_empty(), "kill 后注册表应清空");
+        assert!(
+            discover_persistent(&root).unwrap().is_empty(),
+            "kill 后注册表应清空"
+        );
         std::fs::remove_file(persistent::registry_path(&root)).ok();
         std::fs::remove_dir_all(&root).ok();
     }
@@ -2304,9 +2394,10 @@ pub(crate) mod tests {
                     pid: child.id().unwrap(),
                     log: format!("{id}.log"),
                 }],
-            );
+            )
+            .unwrap();
             external = Some(child);
-            adopt_persistent(&root, &id).await.unwrap()
+            adopt_persistent(&root, &id).await.unwrap().unwrap()
         } else {
             register(
                 child,
@@ -2317,6 +2408,7 @@ pub(crate) mod tests {
                 ManagedSnapshot::capture(&root),
                 true,
             )
+            .await
         };
         let target = root.join(".kanzei/project/defects.md");
         std::fs::write(root.join(".kanzei/quarantine"), "blocks evidence directory").unwrap();
@@ -2348,19 +2440,30 @@ pub(crate) mod tests {
             "failed cleanup must keep the original baseline in memory"
         );
         assert!(
-            load_registry(&root).iter().any(|p| p.id == process.id),
+            load_registry(&root)
+                .unwrap()
+                .iter()
+                .any(|p| p.id == process.id),
             "automatic exit/watcher must preserve the failed persistent record"
         );
         let discovered = crate::process::ProcessTool
             .execute(serde_json::json!({"action":"discover"}), &ctx)
             .await;
         assert!(
-            discovered.content.contains("cleanup not confirmed"),
+            discovered.is_error,
+            "failed repair must be visible as a failed discovery"
+        );
+        assert_eq!(discovered.code, Some("PROCESS_REGISTRY_FAILED"));
+        assert!(
+            discovered.content.contains("回滚"),
             "{}",
             discovered.content
         );
         assert!(
-            load_registry(&root).iter().any(|p| p.id == process.id),
+            load_registry(&root)
+                .unwrap()
+                .iter()
+                .any(|p| p.id == process.id),
             "read-only discovery cannot discard pending repair"
         );
         assert_eq!(
@@ -2373,7 +2476,10 @@ pub(crate) mod tests {
             .await;
         assert!(!retry.is_error, "{}", retry.content);
         assert_eq!(std::fs::read_to_string(&target).unwrap(), ORIGINAL_DEFECTS);
-        assert!(load_registry(&root).iter().all(|p| p.id != process.id));
+        assert!(load_registry(&root)
+            .unwrap()
+            .iter()
+            .all(|p| p.id != process.id));
         registration::prune_finished(&mut history, 0);
         assert!(
             history.is_empty(),

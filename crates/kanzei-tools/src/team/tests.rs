@@ -344,7 +344,9 @@ async fn owned_process_fixture(
         crate::managed::ManagedSnapshot::capture(&team.0.root),
         false,
         None,
-    );
+    )
+    .await
+    .unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         while !process.output().contains("D2_BACKGROUND_READY") {
             assert!(process.is_running());
@@ -597,7 +599,9 @@ async fn finishing_callback_panic_reaps_real_process_before_last_owner_release()
         baseline,
         false,
         None,
-    );
+    )
+    .await
+    .unwrap();
     let pid = process.pid().unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         while !process.output().contains("D2_BACKGROUND_READY") {
@@ -734,7 +738,9 @@ async fn failed_final_restore_rejects_admission_until_real_retry_succeeds() {
         baseline,
         false,
         None,
-    );
+    )
+    .await
+    .unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         while !process.output().contains("D2_BACKGROUND_READY") {
             tokio::time::sleep(Duration::from_millis(10)).await;

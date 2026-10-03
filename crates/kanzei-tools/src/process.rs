@@ -247,7 +247,10 @@ impl Tool for ProcessTool {
                 wait_for(id, input.until.as_deref(), input.timeout_secs).await
             }
             "discover" => {
-                let items = crate::background::discover_persistent(&ctx.project_root);
+                let items = match crate::background::discover_persistent(&ctx.project_root) {
+                    Ok(items) => items,
+                    Err(error) => return ToolOutput::failed("PROCESS_REGISTRY_FAILED", error),
+                };
                 if items.is_empty() {
                     return ToolOutput::ok(
                         "(no persistent services registered from previous runs)",
@@ -260,10 +263,10 @@ impl Tool for ProcessTool {
                     } else {
                         // pid 已死 = 强杀后进程没能活下来,标失败并清出注册表,
                         // 不留幽灵条目(验收②)。
-                        if crate::background::mark_registry_failed(&ctx.project_root, &entry.id) {
-                            "failed (pruned)"
-                        } else {
-                            "exited (cleanup not confirmed; entry not pruned by this operation)"
+                        match crate::background::mark_registry_failed(&ctx.project_root, &entry.id) {
+                            Ok(true) => "failed (pruned)",
+                            Ok(false) => "exited (cleanup not confirmed; entry not pruned by this operation)",
+                            Err(error) => return ToolOutput::failed("PROCESS_REGISTRY_FAILED", error),
                         }
                     };
                     out.push_str(&format!(
@@ -288,7 +291,7 @@ impl Tool for ProcessTool {
                     return ToolOutput::error("adopt requires `id`");
                 };
                 match crate::background::adopt_persistent(&ctx.project_root, id).await {
-                    Some(process) => {
+                    Ok(Some(process)) => {
                         let log_hint = process
                             .log_path
                             .as_ref()
@@ -299,9 +302,10 @@ impl Tool for ProcessTool {
                             process.pid().map_or("-".into(), |v| v.to_string())
                         ))
                     }
-                    None => ToolOutput::error(format!(
+                    Ok(None) => ToolOutput::error(format!(
                         "cannot adopt `{id}`: not in the cross-run registry or its process is no longer alive"
                     )),
+                    Err(error) => ToolOutput::failed("PROCESS_REGISTRY_FAILED", error),
                 }
             }
             "kill" => {

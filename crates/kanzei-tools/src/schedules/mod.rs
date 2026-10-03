@@ -325,8 +325,43 @@ pub fn render(def: &ScheduleDef) -> String {
 }
 pub fn set_enabled(text: &str, enabled: bool) -> String {
     let mut lines: Vec<_> = text.lines().map(str::to_owned).collect();
-    if let Some(line) = lines.iter_mut().find(|line| line.starts_with("enabled:")) {
-        *line = format!("enabled: {enabled}");
+    if lines.is_empty() {
+        return text.to_string();
+    }
+    let end = lines
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, line)| line.trim() == "---")
+        .map(|(index, _)| index)
+        .unwrap_or(lines.len());
+    // Block scalar content belongs to the step, even if it says `enabled:`.
+    let mut index = 1;
+    let mut enabled_index = None;
+    while index < end {
+        let raw = &lines[index];
+        let trimmed = raw.trim();
+        if trimmed.starts_with("enabled:") {
+            enabled_index = Some(index);
+            break;
+        }
+        let block_indent = trimmed
+            .strip_prefix("- ")
+            .and_then(|item| item.split_once(':'))
+            .filter(|(_, value)| scalar(value) == "|")
+            .map(|_| raw.len() - raw.trim_start().len());
+        index += 1;
+        if let Some(indent) = block_indent {
+            while index < end
+                && (lines[index].trim().is_empty()
+                    || lines[index].len() - lines[index].trim_start().len() > indent)
+            {
+                index += 1;
+            }
+        }
+    }
+    if let Some(index) = enabled_index {
+        lines[index] = format!("enabled: {enabled}");
     } else {
         lines.insert(1, format!("enabled: {enabled}"));
     }
@@ -789,5 +824,24 @@ mod tests {
             .enabled
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn toggle_only_updates_the_parsed_frontmatter_enabled_field() {
+        let text = "---\nname: check\n  enabled: true\nwhen: 每 15 分钟\nsteps:\n  - run: echo ready\n---\nenabled: example\n";
+        assert!(parse(text, "check").unwrap().enabled);
+        let disabled = set_enabled(text, false);
+        assert!(!parse(&disabled, "check").unwrap().enabled);
+        assert!(disabled.ends_with("enabled: example\n"));
+        let missing = text.replace("  enabled: true\n", "");
+        let enabled = set_enabled(&missing, true);
+        assert!(parse(&enabled, "check").unwrap().enabled);
+        assert!(enabled.ends_with("enabled: example\n"));
+        let block = "---\nwhen: 每 15 分钟\nsteps:\n  - prompt: |\n      enabled: example\n  enabled: true\n---\n";
+        let disabled = set_enabled(block, false);
+        assert!(!parse(&disabled, "check").unwrap().enabled);
+        assert_eq!(
+            format!("{:?}", parse(&disabled, "check").unwrap().steps),
+            format!("{:?}", parse(block, "check").unwrap().steps)
+        );
     }
 }
