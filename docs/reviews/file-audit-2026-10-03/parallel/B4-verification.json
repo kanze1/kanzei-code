@@ -1,0 +1,731 @@
+{
+  "package": "B4",
+  "baseline": "29e2e3d4e9c9881e73d941d94b14c5fce5c13331",
+  "branch": "kanzei/audit-b4-background-stop",
+  "status": "verified_related_packages",
+  "files": [
+    {
+      "path": "crates/kanzei-tools/src/background.rs",
+      "review": "necessary_slice",
+      "judgment": "P0",
+      "sha256": "369faa76bb6482a82b823aa8779d22e8b6fbe41d006ff3b6370cd4aa94977302",
+      "sha256_lf": "369faa76bb6482a82b823aa8779d22e8b6fbe41d006ff3b6370cd4aa94977302",
+      "bytes": 103899,
+      "lines": 2387,
+      "baseline_git_blob_sha256_lf": "5ebf97f06bad985975517ab3ae02109d2de6b376f29c4619cd9e13723fc22202"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/lifecycle.rs",
+      "review": "full",
+      "judgment": "P0",
+      "sha256": "1a06fc67d9fbbf93442a471348bff02cea3dc3a7e3f875590e5ae4378e4e58cc",
+      "sha256_lf": "1a06fc67d9fbbf93442a471348bff02cea3dc3a7e3f875590e5ae4378e4e58cc",
+      "bytes": 17381,
+      "lines": 493,
+      "baseline_git_blob_sha256_lf": "d8503a15813e72f3ae1ce6081aa1790f629033bdf86e6e519e1b653b526ba03b"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/registration.rs",
+      "review": "necessary_slice",
+      "judgment": "P0",
+      "sha256": "1b87b656904df58ace3bd4a97b10b99bb2be1f8a469429374745e6cf65cc794c",
+      "sha256_lf": "1b87b656904df58ace3bd4a97b10b99bb2be1f8a469429374745e6cf65cc794c",
+      "bytes": 15253,
+      "lines": 406,
+      "baseline_git_blob_sha256_lf": "f250571261a8707a4f0d5e05a6317155900fdab56fa8bd38741ac261a9e68109"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/persistent.rs",
+      "review": "necessary_slice",
+      "judgment": "P1",
+      "sha256": "81087b5ed6928cc5998b8c00d342278162dad4a335ddf9fb2a80dcafb13c6fec",
+      "sha256_lf": "81087b5ed6928cc5998b8c00d342278162dad4a335ddf9fb2a80dcafb13c6fec",
+      "bytes": 10031,
+      "lines": 252,
+      "baseline_git_blob_sha256_lf": "b4cb00b466f3e66fc7b8498f5345ad68c92b766a8c8e1295d038f51902257b9c"
+    },
+    {
+      "path": "crates/kanzei-tools/src/process.rs",
+      "review": "necessary_slice",
+      "judgment": "P1",
+      "sha256": "7e2df69192306200d384960828fb71ecb7bb4b7dd7cc7b4f59a6f9fcb3c223f2",
+      "sha256_lf": "3a570cc59fd7389176d6b582373e032b237b6d001e59e217e33412c1b8f51830",
+      "bytes": 27419,
+      "lines": 564,
+      "baseline_git_blob_sha256_lf": "ff2a83efb6ac5400addce792ddd6a981528b58f435919e1ffce49e1572a1741a"
+    }
+  ],
+  "new_full_files": 1,
+  "necessary_slice_files": 4,
+  "public_coverage_modified": false,
+  "roots_fixed": {
+    "P0": 1,
+    "P1": 1,
+    "P2": 0
+  },
+  "root_deduplication": "stop/final-guard/legal-window data rollback is one P0; swallowed restore failure and premature pruning one P1; success receipt and history prune iterations introduce no additional historical roots",
+  "regressions_added": 8,
+  "background_subset": {
+    "passed": 40,
+    "failed": 0,
+    "ignored": 1,
+    "log": "background-positive-final.log"
+  },
+  "tools_full": {
+    "passed": 798,
+    "failed": 0,
+    "ignored": 3,
+    "doctest_passed": 0,
+    "log": "tools-full.log"
+  },
+  "negative": {
+    "origin": "checks-before-clippy-fix/negative-results.json + checks-before-clippy-fix/negative-runner-complete.log",
+    "raw_log_versions": "first raw logs overwritten by short supplemental rerun are final lint/fixture-only delta controls; others retain complete original run; all 12 original result/restore records kept before launch",
+    "source_delta": "negative-source-final-delta.json + final-small-delta.txt; reconstructed old source SHA labeled as after-run inverse, not contemporaneously sampled",
+    "count": 12,
+    "assertion_failures": 12,
+    "safe_one_test_controls_passed": 12,
+    "results": [
+      {
+        "case": "old_stop_and_observer",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::stop_receipt_preserves_later_legal_write_after_final_guard",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::scoped_terminal_stop_rejects_foreign_project_and_keeps_other_process_alive",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "old_stop_restore",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::project_stop_reports_restore_failure_and_retries_after_join",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::scoped_terminal_stop_rejects_foreign_project_and_keeps_other_process_alive",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "old_observer",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::stopped_guard_absorbs_legal_window_and_cancelled_waiter_is_safe",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::same_tool_windows_closed_out_of_order_keep_their_own_opening_snapshot",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "old_registered_remove",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::persistent_stop_restore_failure_retains_registered_and_adopted_records",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::persistent_注册表登记_强杀后重开可发现_可接管可杀掉",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "old_adopted_remove",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::persistent_kill_restore_failure_retains_registered_and_adopted_records",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::persistent_注册表登记_强杀后重开可发现_可接管可杀掉",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "old_discover_prune",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::persistent_stop_restore_failure_retains_registered_and_adopted_records",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::persistent_幽灵条目_discover标失败并清理不留幽灵",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "old_reader_abort",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::registration::tests::timed_out_reader_join_waits_until_real_file_handle_is_closed",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::terminal_completion_callback_has_final_output_and_keeps_result_queryable",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "pre_receipt_normal",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::completed_stop_and_reapers_preserve_subsequent_legal_write",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::scoped_terminal_stop_rejects_foreign_project_and_keeps_other_process_alive",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "pre_receipt_repaired",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::repaired_stop_receipt_preserves_subsequent_legal_write",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::scoped_terminal_stop_rejects_foreign_project_and_keeps_other_process_alive",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "pre_failed_observer",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::project_stop_reports_restore_failure_and_retries_after_join",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::scoped_terminal_stop_rejects_foreign_project_and_keeps_other_process_alive",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "old_prune_pending",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::stopped_guard_absorbs_legal_window_and_cancelled_waiter_is_safe",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::scoped_terminal_stop_rejects_foreign_project_and_keeps_other_process_alive",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      },
+      {
+        "case": "old_prune_failed",
+        "negative_exit": 101,
+        "real_assertion_failure": true,
+        "control_exit": 0,
+        "control_ran_one": true,
+        "commands": [
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::persistent_stop_restore_failure_retains_registered_and_adopted_records",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "background::tests::persistent_幽灵条目_discover标失败并清理不留幽灵",
+            "--",
+            "--exact",
+            "--nocapture"
+          ]
+        ],
+        "exact_original_bytes_restored": {
+          "crates/kanzei-tools/src/background.rs": true,
+          "crates/kanzei-tools/src/background/lifecycle.rs": true,
+          "crates/kanzei-tools/src/background/registration.rs": true,
+          "crates/kanzei-tools/src/background/persistent.rs": true,
+          "crates/kanzei-tools/src/process.rs": true
+        }
+      }
+    ],
+    "restore_proof": "finally compared all five source snapshots by exact bytes on every case; source hash below measured after complete restoration; equivalent old production branches retain private regression scaffolding, not complete old source"
+  },
+  "checks": [
+    {
+      "args": [
+        "test",
+        "--offline",
+        "--target-dir",
+        "C:/Users/kanzei/Documents/kanzei code/target",
+        "-p",
+        "kanzei-tools"
+      ],
+      "log": "output/parallel-B4/tools-full.log",
+      "exit_code": 0,
+      "name": "tools-full"
+    },
+    {
+      "args": [
+        "check",
+        "--offline",
+        "--target-dir",
+        "C:/Users/kanzei/Documents/kanzei code/target",
+        "-p",
+        "kanzei-tools",
+        "-p",
+        "kanzei-app",
+        "--all-targets"
+      ],
+      "log": "output/parallel-B4/check-related.log",
+      "exit_code": 0,
+      "name": "check-related"
+    },
+    {
+      "args": [
+        "clippy",
+        "--offline",
+        "--target-dir",
+        "C:/Users/kanzei/Documents/kanzei code/target",
+        "-p",
+        "kanzei-tools",
+        "-p",
+        "kanzei-app",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "log": "output/parallel-B4/clippy-related.log",
+      "exit_code": 0,
+      "name": "clippy-related"
+    },
+    {
+      "args": [
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "log": "output/parallel-B4/fmt.log",
+      "exit_code": 0,
+      "name": "fmt"
+    }
+  ],
+  "fixture_restore_validation": "original out-of-order legal requirements.md fixture restored; actual one-test PASS then final full tools/check/Clippy/fmt/diff; defect prefix is whole project subtree on this baseline, prior fixture was legal; incidental replacement did not establish a bug",
+  "preserved_failures": {
+    "tools_first": {
+      "passed": 797,
+      "failed": 1,
+      "ignored": 3,
+      "exit_code": 101,
+      "log": "tools-full-initial.log",
+      "reason": "MiKTeX pdflatex first invocation in self-created B4 profile failed; subsequent passes produced PDF but compile outcome false; self-profile initialization test passed then full tools passed"
+    },
+    "negative_attempt": {
+      "log_dir": "negative-attempt-before-prune",
+      "pre_receipt_repaired": "PASS, retained new failed observer still absorbed writes; corrected equivalent old boundary and independent real repair regression then failed assertion"
+    },
+    "fixture_failures": [
+      "background-positive.log",
+      "stop-debug.log",
+      "stop-debug-2.log",
+      "background-positive-4.log"
+    ],
+    "compile_failure": "background-positive-2.log",
+    "clippy_first": "checks-before-clippy-fix/clippy-related.log",
+    "interrupted_extra_controls": "negative-runner-source-final.log: completed prefix + current case finally restoration, output slot blocked intentionally to stop; PermissionError is operator cancellation, not product failure",
+    "invalid_new_fixture_tool_name": "repair-receipt-positive.log",
+    "fixture_explanation": "blocking test hook moved to block_in_place; before-reconcile hook kept before baseline lock; no new production deadlock claim; requirement was not a real managed writer name; corrected to defect; accidental replacement of old legal requirements.md fixture restored and directly retested"
+  },
+  "environment": {
+    "profile": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-B4\\profile",
+    "kanzei_home": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-B4\\profile\\.kanzei",
+    "temp": "C:/Users/kanzei/.codex/audit-fixtures/parallel-B4/temp",
+    "toolchain_cache": "output/parallel-D1/profile/.cargo + .rustup",
+    "runtime_appdata_cache": "output/parallel-D2/profile/AppData/Roaming + Local",
+    "miktex_initialization_observed": "self-created output/parallel-B4/profile/AppData/Local/MiKTeX; real retry passed; no true user configuration copied",
+    "target": "C:/Users/kanzei/Documents/kanzei code/target",
+    "parallel_cargo": false,
+    "refresh": "final-checks.ps1 refreshed all nonvendor/binaries Rust sources under crates before final package checks"
+  },
+  "manual_judgment": [],
+  "remaining": [
+    "root fresh workspace/native/UI integration certificate pending; no old workspace result used",
+    "physical termination/restore errors stay explicit and retryable, not automatically repaired",
+    "expired bg<ms>-<seq> ID rejection candidate belongs to later package, no B4 change"
+  ],
+  "evidence": {
+    "directory": "output/parallel-B4",
+    "index": "output/parallel-B4/evidence-index.json",
+    "sha256": "c28472ca142ed42bcf37035f34816d0d47cd3065704ab7677056cb8f8e1cdfcb",
+    "files": 93,
+    "bytes": 507794
+  }
+}

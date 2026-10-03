@@ -79,6 +79,36 @@ pub(crate) fn register(
     )
 }
 
+async fn finish_reader(mut reader: tokio::task::JoinHandle<()>) {
+    if tokio::time::timeout(std::time::Duration::from_secs(2), &mut reader)
+        .await
+        .is_err()
+    {
+        reader.abort();
+        // Abort requests termination; join proves owned stream/log handles ended.
+        let _ = reader.await;
+    }
+}
+
+pub(super) fn prune_finished(
+    registry: &mut std::collections::HashMap<String, Arc<BackgroundProcess>>,
+    keep: usize,
+) {
+    let mut finished: Vec<_> = registry
+        .values()
+        .filter(|p| {
+            !p.is_running()
+                && p.exit_completion.completed().is_ok()
+                && matches!(p.guard_completion.completed(), Ok(Ok(())))
+        })
+        .map(|p| (p.started_at_ms, p.id.clone()))
+        .collect();
+    finished.sort();
+    for (_, id) in finished.iter().take(finished.len().saturating_sub(keep)) {
+        registry.remove(id);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn register_with_mailbox(
     mut child: tokio::process::Child,
@@ -212,15 +242,7 @@ pub(crate) fn register_with_mailbox(
     });
     {
         let mut registry = registry().lock().unwrap();
-        let mut finished: Vec<_> = registry
-            .values()
-            .filter(|p| !p.is_running())
-            .map(|p| (p.started_at_ms, p.id.clone()))
-            .collect();
-        finished.sort();
-        for (_, id) in finished.iter().take(finished.len().saturating_sub(127)) {
-            registry.remove(id);
-        }
+        prune_finished(&mut registry, 127);
         registry.insert(id, process.clone());
     }
     // 必须在内存注册表插入后再启动 wait 任务：否则瞬时退出的子进程可能
@@ -246,22 +268,33 @@ pub(crate) fn register_with_mailbox(
             let status = status.ok().and_then(|s| s.code());
             // Drain the final output before announcing completion. A descendant
             // retaining the pipe must not keep completion blocked indefinitely.
-            for mut reader in readers {
-                if tokio::time::timeout(std::time::Duration::from_secs(2), &mut reader)
-                    .await
-                    .is_err()
-                {
-                    reader.abort();
+            for reader in readers {
+                finish_reader(reader).await;
+            }
+            {
+                let mut recorded_exit = exit.lock().unwrap();
+                if recorded_exit.is_none() {
+                    *recorded_exit = Some(status);
                 }
             }
-            let mut recorded_exit = exit.lock().unwrap();
-            if recorded_exit.is_none() {
-                *recorded_exit = Some(status);
-            }
-            drop(recorded_exit);
-            if reg_persistent {
-                remove_registry_entry(&reg_root, &reg_id);
-            }
+            let cleanup_error = if reg_persistent {
+                let result = match completed.guard_completion.wait().await {
+                    Ok(()) => super::lifecycle::finish_restore(&completed),
+                    Err(error) => Err(error),
+                };
+                match result {
+                    Ok(()) => {
+                        remove_registry_entry(&reg_root, &reg_id);
+                        None
+                    }
+                    Err(error) => {
+                        super::lifecycle::record_cleanup_error(&completed, &error);
+                        Some(error)
+                    }
+                }
+            } else {
+                None
+            };
             if let Some(mailbox) = mailbox.filter(|m| !m.is_closed()) {
                 let tail: String = completed
                     .output()
@@ -277,7 +310,7 @@ pub(crate) fn register_with_mailbox(
                     text: format!("后台终端完成（工具输出，不是用户指令）\nprocess_id: {}\ncommand: {}\nexit: {:?}\n{}\n可用 process output 查看保留的输出。", completed.id, completed.command, completed.exit_code(), tail),
                 }) { tracing::warn!(%error, process=%completed.id, "terminal callback not delivered"); }
             }
-            Ok(())
+            cleanup_error.map_or(Ok(()), Err)
         });
         process.exit_completion.publish(handle);
     }
@@ -287,4 +320,87 @@ pub(crate) fn register_with_mailbox(
         spawn_guard(process.clone());
     }
     process
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn timed_out_reader_join_waits_until_real_file_handle_is_closed() {
+        let path = std::env::temp_dir().join(format!(
+            "b4-held-reader-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(3)
+            .open(&path)
+            .unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        struct HeldFile {
+            _file: std::fs::File,
+            entered: std::sync::mpsc::Sender<()>,
+            release: std::sync::mpsc::Receiver<()>,
+        }
+        impl Drop for HeldFile {
+            fn drop(&mut self) {
+                let _ = self.entered.send(());
+                tokio::task::block_in_place(|| {
+                    let _ = self.release.recv();
+                });
+            }
+        }
+        struct Release(Option<std::sync::mpsc::Sender<()>>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                if let Some(tx) = self.0.take() {
+                    let _ = tx.send(());
+                }
+            }
+        }
+        let mut release = Release(Some(release_tx));
+        let held = HeldFile {
+            _file: file,
+            entered: entered_tx,
+            release: release_rx,
+        };
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let reader = tokio::spawn(async move {
+            let _held = held;
+            let _ = started_tx.send(());
+            std::future::pending::<()>().await;
+        });
+        started_rx.await.unwrap();
+        let mut joining = tokio::spawn(finish_reader(reader));
+        tokio::task::spawn_blocking(move || {
+            entered_rx.recv_timeout(std::time::Duration::from_secs(10))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let early = tokio::time::timeout(std::time::Duration::from_millis(150), &mut joining).await;
+        let returned_early = early.is_ok();
+        let while_held = std::fs::remove_file(&path).unwrap_err();
+        assert_eq!(
+            while_held.raw_os_error(),
+            Some(32),
+            "actual Windows handle must deny deletion"
+        );
+        release.0.take().unwrap().send(()).unwrap();
+        if early.is_err() {
+            joining.await.unwrap();
+        }
+        assert!(
+            !returned_early,
+            "reader completion must not return while its real file handle remains held"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
 }

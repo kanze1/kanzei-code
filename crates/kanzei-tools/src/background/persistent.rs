@@ -77,6 +77,25 @@ pub fn discover_persistent(project_root: &Path) -> Vec<(PersistentEntry, bool)> 
 
 /// 把注册表条目标记为失败并移除(pid 已死的幽灵条目)。返回是否命中。
 pub fn mark_registry_failed(project_root: &Path, id: &str) -> bool {
+    if let Some(process) = super::get(id) {
+        if process.is_running() {
+            return false;
+        }
+        for completion in [&process.exit_completion, &process.guard_completion] {
+            match completion.completed() {
+                Err(error) => {
+                    super::lifecycle::record_cleanup_error(&process, &error);
+                    return false;
+                }
+                Ok(Err(error)) => super::lifecycle::record_cleanup_error(&process, &error),
+                Ok(Ok(())) => {}
+            }
+        }
+        if let Err(error) = super::lifecycle::finish_restore(&process) {
+            super::lifecycle::record_cleanup_error(&process, &error);
+            return false;
+        }
+    }
     let mut entries = load_registry(project_root);
     let before = entries.len();
     entries.retain(|e| e.id != id);
@@ -123,24 +142,6 @@ pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<Backg
     let watch_output = output.clone();
     let watch_full = full_output.clone();
     let watch_total = output_total.clone();
-    tokio::spawn(async move {
-        loop {
-            let (size, bytes) = log_snapshot(&watch_log).await;
-            {
-                let mut output = watch_output.lock().unwrap();
-                *output = bytes.clone();
-                watch_total.store(size, std::sync::atomic::Ordering::SeqCst);
-            }
-            *watch_full.lock().unwrap() = super::read_log_tail(&watch_log).await;
-            if !crate::shell::process_alive(watch_pid) {
-                *exit_watch.lock().unwrap() = Some(None);
-                super::registry().lock().unwrap().remove(&watch_id);
-                remove_registry_entry(&watch_root, &watch_id);
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-    });
     let baseline = Arc::new(Mutex::new(ManagedSnapshot::capture(project_root)));
     let guarded = crate::managed::managed_scope_exists(project_root);
     let process = Arc::new(BackgroundProcess {
@@ -162,12 +163,40 @@ pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<Backg
         baseline,
         breaches: Arc::new(Mutex::new(Vec::new())),
         guard_completion: super::GuardCompletion::new(guarded),
-        exit_completion: super::GuardCompletion::new(false),
+        exit_completion: super::GuardCompletion::new(true),
     });
     super::registry()
         .lock()
         .unwrap()
         .insert(process.id.clone(), process.clone());
+    let completed = process.clone();
+    let watcher = tokio::spawn(async move {
+        loop {
+            let (size, bytes) = log_snapshot(&watch_log).await;
+            {
+                let mut output = watch_output.lock().unwrap();
+                *output = bytes.clone();
+                watch_total.store(size, std::sync::atomic::Ordering::SeqCst);
+            }
+            *watch_full.lock().unwrap() = super::read_log_tail(&watch_log).await;
+            if !crate::shell::process_alive(watch_pid) {
+                *exit_watch.lock().unwrap() = Some(None);
+                let result = match completed.guard_completion.wait().await {
+                    Ok(()) => super::lifecycle::finish_restore(&completed),
+                    Err(error) => Err(error),
+                };
+                if let Err(error) = result {
+                    super::lifecycle::record_cleanup_error(&completed, &error);
+                    return Err(error);
+                }
+                super::registry().lock().unwrap().remove(&watch_id);
+                remove_registry_entry(&watch_root, &watch_id);
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+    process.exit_completion.publish(watcher);
     if guarded {
         super::install_window_observer_once();
         super::spawn_guard(process.clone());
@@ -198,23 +227,26 @@ async fn log_snapshot(path: &Path) -> (u64, Vec<u8>) {
 ///
 /// 若该服务已接回内存注册表(adopt 过),先做终态对账再清出磁盘注册表;
 /// 内存对象保留在注册表供 output 回看最后日志(与 stop 语义一致)。
-pub async fn kill_registered(project_root: &Path, id: &str) -> bool {
+pub async fn kill_registered_result(project_root: &Path, id: &str) -> Result<bool, String> {
     let entries = load_registry(project_root);
     let Some(entry) = entries.iter().find(|e| e.id == id).cloned() else {
-        return false;
+        return Ok(false);
     };
-    let process = super::get(id);
-    let killed = if crate::shell::process_alive(entry.pid) {
-        crate::shell::kill_tree(entry.pid).await
-    } else {
-        false
-    };
-    if let Some(process) = process.as_ref().filter(|_| killed) {
-        process.mark_terminated();
-    }
-    if let Some(p) = process {
-        super::reconcile(&p, false).await;
+    if let Some(process) = super::get(id) {
+        super::lifecycle::stop_owned(&process).await?;
+    } else if crate::shell::process_alive(entry.pid) && !crate::shell::kill_tree(entry.pid).await {
+        return Err(format!("未能终止 persistent 服务 {id}，注册项已保留"));
     }
     remove_registry_entry(project_root, id);
-    true
+    Ok(true)
+}
+
+pub async fn kill_registered(project_root: &Path, id: &str) -> bool {
+    match kill_registered_result(project_root, id).await {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::error!(%error, process=id, "persistent stop cleanup failed");
+            false
+        }
+    }
 }

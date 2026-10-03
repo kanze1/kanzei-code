@@ -230,12 +230,10 @@ impl Tool for ProcessTool {
                         ),
                     );
                 }
-                if crate::background::stop(id).await {
-                    ToolOutput::ok(format!("stopped {id}"))
-                } else if crate::background::get(id).is_some_and(|p| p.is_running()) {
-                    ToolOutput::failed("PROCESS_STOP_FAILED", format!("{id} is still running"))
-                } else {
-                    ToolOutput::ok(format!("{id} was already finished"))
+                match crate::background::stop_result(id).await {
+                    Ok(true) => ToolOutput::ok(format!("stopped {id}")),
+                    Ok(false) => ToolOutput::ok(format!("{id} was already finished")),
+                    Err(error) => ToolOutput::failed("PROCESS_STOP_FAILED", error),
                 }
             }
             // R-180 B3 验收②:跨 run 注册表——列出上次未终结的长驻服务并给确定处置。
@@ -262,8 +260,11 @@ impl Tool for ProcessTool {
                     } else {
                         // pid 已死 = 强杀后进程没能活下来,标失败并清出注册表,
                         // 不留幽灵条目(验收②)。
-                        crate::background::mark_registry_failed(&ctx.project_root, &entry.id);
-                        "failed (pruned)"
+                        if crate::background::mark_registry_failed(&ctx.project_root, &entry.id) {
+                            "failed (pruned)"
+                        } else {
+                            "exited (cleanup not confirmed; entry not pruned by this operation)"
+                        }
                     };
                     out.push_str(&format!(
                         "{} [{}] pid={} owner={} started={} log={} :: {}\n",
@@ -307,12 +308,10 @@ impl Tool for ProcessTool {
                 let Some(id) = input.id.as_deref() else {
                     return ToolOutput::error("kill requires `id`");
                 };
-                if crate::background::kill_registered(&ctx.project_root, id).await {
-                    ToolOutput::ok(format!(
-                        "killed registered persistent service {id} and removed its entry"
-                    ))
-                } else {
-                    ToolOutput::error(format!("unknown registered persistent service `{id}`"))
+                match crate::background::kill_registered_result(&ctx.project_root, id).await {
+                    Ok(true) => ToolOutput::ok(format!("killed registered persistent service {id} and removed its entry")),
+                    Ok(false) => ToolOutput::error(format!("unknown registered persistent service `{id}`")),
+                    Err(error) => ToolOutput::failed("PROCESS_STOP_FAILED", error),
                 }
             }
             other => ToolOutput::error(format!(

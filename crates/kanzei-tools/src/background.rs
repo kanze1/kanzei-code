@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 mod lifecycle;
 pub mod monitor;
-pub use lifecycle::{get, kill_process, kill_project, list, stop};
+pub use lifecycle::{get, kill_process, kill_project, list, stop, stop_result};
 
 /// 用户界面只停止指定项目的一条后台进程，不能误停其它项目或整个运行。
 pub async fn stop_for_project(root: &std::path::Path, id: &str) -> Result<bool, String> {
@@ -30,7 +30,7 @@ pub async fn stop_for_project(root: &std::path::Path, id: &str) -> Result<bool, 
     {
         return Err("后台进程不属于当前项目".into());
     }
-    let stopped = stop(id).await;
+    let stopped = stop_result(id).await?;
     if process.is_running() {
         return Err(format!("未能终止后台进程 {id}，进程仍在运行"));
     }
@@ -38,11 +38,14 @@ pub async fn stop_for_project(root: &std::path::Path, id: &str) -> Result<bool, 
 }
 
 mod persistent;
+#[cfg(test)]
+use lifecycle::reconcile;
 use lifecycle::{
-    install_window_observer_once, next_id, now_ms, project_hash, reconcile, registry, spawn_guard,
+    install_window_observer_once, next_id, now_ms, project_hash, registry, spawn_guard,
 };
 pub use persistent::{
-    adopt_persistent, discover_persistent, kill_registered, mark_registry_failed, PersistentEntry,
+    adopt_persistent, discover_persistent, kill_registered, kill_registered_result,
+    mark_registry_failed, PersistentEntry,
 };
 use persistent::{load_registry, remove_registry_entry, save_registry};
 mod registration;
@@ -64,6 +67,7 @@ enum GuardTask {
     NotRequired,
     Pending,
     Running(GuardJoin),
+    Recovered,
 }
 struct GuardCompletion {
     task: Mutex<GuardTask>,
@@ -98,7 +102,7 @@ impl GuardCompletion {
             notified.as_mut().enable();
             let completion = {
                 match &*self.task.lock().unwrap() {
-                    GuardTask::NotRequired => return Ok(()),
+                    GuardTask::NotRequired | GuardTask::Recovered => return Ok(()),
                     GuardTask::Pending => None,
                     GuardTask::Running(completion) => Some(completion.clone()),
                 }
@@ -112,7 +116,7 @@ impl GuardCompletion {
     fn completed(&self) -> Result<Result<(), String>, String> {
         let completion = {
             match &*self.task.lock().unwrap() {
-                GuardTask::NotRequired => return Ok(Ok(())),
+                GuardTask::NotRequired | GuardTask::Recovered => return Ok(Ok(())),
                 GuardTask::Pending => return Err("后台文件守卫尚未登记完成".into()),
                 GuardTask::Running(completion) => completion.clone(),
             }
@@ -120,6 +124,17 @@ impl GuardCompletion {
         completion
             .now_or_never()
             .ok_or_else(|| "后台文件守卫仍在收尾".into())
+    }
+    fn restore_succeeded(&self) -> bool {
+        let completion = match &*self.task.lock().unwrap() {
+            GuardTask::Recovered => return true,
+            GuardTask::Running(completion) => completion.clone(),
+            GuardTask::NotRequired | GuardTask::Pending => return false,
+        };
+        matches!(completion.now_or_never(), Some(Ok(())))
+    }
+    fn record_recovery(&self) {
+        *self.task.lock().unwrap() = GuardTask::Recovered;
     }
 }
 
@@ -1964,5 +1979,409 @@ pub(crate) mod tests {
         assert!(discover_persistent(&root).is_empty(), "kill 后注册表应清空");
         std::fs::remove_file(persistent::registry_path(&root)).ok();
         std::fs::remove_dir_all(&root).ok();
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stop_receipt_preserves_later_legal_write_after_final_guard() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("stop-final-guard");
+        let target = root.join(".kanzei/project/defects.md");
+        let id = start_background(&root, linger(), "stop-final-guard").await;
+        let process = get(&id).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let held = Mutex::new(Some(release_rx));
+        let guarded_id = id.clone();
+        set_final_guard_hook(Some(Arc::new(move |seen| {
+            if seen == guarded_id {
+                if let Some(held) = held.lock().unwrap().take() {
+                    let _ = entered_tx.send(());
+                    tokio::task::block_in_place(|| {
+                        let _ = held.recv();
+                    });
+                }
+            }
+        })));
+        struct ReleaseFinalGuard(Option<std::sync::mpsc::Sender<()>>);
+        impl Drop for ReleaseFinalGuard {
+            fn drop(&mut self) {
+                set_final_guard_hook(None);
+                if let Some(release) = self.0.take() {
+                    let _ = release.send(());
+                }
+            }
+        }
+        let mut release = ReleaseFinalGuard(Some(release_tx));
+        let stopping_id = id.clone();
+        let mut stopping = tokio::spawn(async move { stop(&stopping_id).await });
+        tokio::task::spawn_blocking(move || {
+            entered_rx.recv_timeout(std::time::Duration::from_secs(10))
+        })
+        .await
+        .unwrap()
+        .expect("last real guard must reach the held reconcile");
+        // A receipt while this real writer is held enables the next legal tool.
+        // The old branch must exercise the actual subsequent rollback, not just
+        // assert that a future happened to complete earlier.
+        let early =
+            tokio::time::timeout(std::time::Duration::from_millis(150), &mut stopping).await;
+        let returned_early = early.is_ok();
+        let legal = "LEGAL_AFTER_STOP_RECEIPT\n";
+        if returned_early {
+            assert!(early.unwrap().unwrap());
+            kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
+                std::fs::write(&target, legal).unwrap();
+            })
+            .await;
+        }
+        release.0.take().unwrap().send(()).unwrap();
+        if !returned_early {
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_secs(10), stopping)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            );
+            kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
+                std::fs::write(&target, legal).unwrap();
+            })
+            .await;
+        }
+        process.exit_completion.wait().await.unwrap();
+        process.guard_completion.wait().await.unwrap();
+        eprintln!(
+            "stop_returned_before_last_guard={returned_early}; breaches={:?}",
+            process.breaches()
+        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), legal,
+            "a completed stop must not leave an old guard that rolls back the next legal tool write");
+        assert!(
+            !returned_early,
+            "stop must join its actual final guard before the receipt"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn completed_stop_and_reapers_preserve_subsequent_legal_write() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("stop-cleanup-receipt");
+        let target = root.join(".kanzei/project/defects.md");
+        let id = start_background_with_process(&root, linger(), "parent:child:1", "child").await;
+        assert!(stop_result(&id).await.unwrap());
+        let legal = "LEGAL_AFTER_SUCCESSFUL_CLEANUP\n";
+        kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
+            std::fs::write(&target, legal).unwrap();
+        })
+        .await;
+        assert!(!stop_result(&id).await.unwrap());
+        assert_eq!(kill_project(&root).await, 0);
+        wait_child_cleanup(&root, "parent", "child").await.unwrap();
+        retry_child_cleanup(&root, "parent", "child").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            legal,
+            "a successful cleanup receipt must prevent replaying an old baseline"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn repaired_stop_receipt_preserves_subsequent_legal_write() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("repaired-stop-receipt");
+        let target = root.join(".kanzei/project/defects.md");
+        let id = start_background(&root, linger(), "repaired-stop-receipt").await;
+        std::fs::write(root.join(".kanzei/quarantine"), "block restore").unwrap();
+        std::fs::write(&target, "breach requiring repair").unwrap();
+        assert!(stop_result(&id).await.is_err());
+        std::fs::remove_file(root.join(".kanzei/quarantine")).unwrap();
+        assert!(!stop_result(&id).await.unwrap());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), ORIGINAL_DEFECTS);
+        let legal = "LEGAL_AFTER_FAILED_GUARD_REPAIR\n";
+        kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
+            std::fs::write(&target, legal).unwrap();
+        })
+        .await;
+        assert!(!stop_result(&id).await.unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            legal,
+            "successful compensation must retire the failed guard's old baseline"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn project_stop_reports_restore_failure_and_retries_after_join() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("stop-restore-error");
+        let target = root.join(".kanzei/project/defects.md");
+        let id = start_background(&root, linger(), "stop-restore-error").await;
+        let process = get(&id).unwrap();
+        std::fs::write(root.join(".kanzei/quarantine"), "blocks evidence directory").unwrap();
+        std::fs::write(&target, "unquarantined edit").unwrap();
+        let result = stop_for_project(&root, &id).await;
+        // Join on the old branch too so a failing assertion leaves no own worker.
+        let _ = process.exit_completion.wait().await;
+        let _ = process.guard_completion.wait().await;
+        assert!(!process.is_running());
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "unquarantined edit"
+        );
+        let error =
+            result.expect_err("a stopped PID is not successful cleanup when restore failed");
+        assert!(error.contains("回滚"), "{error}");
+        let other = root.join(".kanzei/project/defects-archive.md");
+        kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
+            std::fs::write(&other, "LEGAL_WHILE_FAILED_GUARD\n").unwrap();
+        })
+        .await;
+        std::fs::remove_file(root.join(".kanzei/quarantine")).unwrap();
+        let (first, second) =
+            tokio::join!(stop_for_project(&root, &id), stop_for_project(&root, &id));
+        assert!(
+            !first.unwrap() && !second.unwrap(),
+            "both retries preserve AlreadyStopped"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&other).unwrap_or_default(),
+            "LEGAL_WHILE_FAILED_GUARD\n",
+            "failed cleanup records still absorb legitimate windows until repaired"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            ORIGINAL_DEFECTS,
+            "cached guard failure cannot prevent a fresh successful restore"
+        );
+        let legal = "LEGAL_AFTER_REPAIR_RECEIPT\n";
+        kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
+            std::fs::write(&target, legal).unwrap();
+        })
+        .await;
+        assert!(!stop_result(&id).await.unwrap());
+        assert_eq!(kill_project(&root).await, 0);
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            legal,
+            "a repaired failed guard must not replay its baseline on later cleanup"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stopped_guard_absorbs_legal_window_and_cancelled_waiter_is_safe() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("stopping-window");
+        let target = root.join(".kanzei/project/defects.md");
+        let id = start_background(&root, linger(), "stopping-window").await;
+        let process = get(&id).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let held = Mutex::new(Some(release_rx));
+        let guarded_id = id.clone();
+        set_final_guard_hook(Some(Arc::new(move |seen| {
+            if seen == guarded_id {
+                if let Some(held) = held.lock().unwrap().take() {
+                    let _ = entered_tx.send(());
+                    tokio::task::block_in_place(|| {
+                        let _ = held.recv();
+                    });
+                }
+            }
+        })));
+        struct Release(Option<std::sync::mpsc::Sender<()>>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                set_final_guard_hook(None);
+                if let Some(tx) = self.0.take() {
+                    let _ = tx.send(());
+                }
+            }
+        }
+        let mut release = Release(Some(release_tx));
+        let first_id = id.clone();
+        let first = tokio::spawn(async move { stop_result(&first_id).await });
+        tokio::task::spawn_blocking(move || {
+            entered_rx.recv_timeout(std::time::Duration::from_secs(10))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        let second_id = id.clone();
+        let mut second = tokio::spawn(async move { stop_result(&second_id).await });
+        let early = tokio::time::timeout(std::time::Duration::from_millis(150), &mut second).await;
+        let returned_early = early.is_ok();
+        const LEGAL: &str = "LEGAL_WHILE_LAST_GUARD_HELD\n";
+        let mut history = std::collections::HashMap::from([(id.clone(), process.clone())]);
+        registration::prune_finished(&mut history, 0);
+        let kept_pending_baseline = history.contains_key(&id);
+        kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
+            std::fs::write(&target, LEGAL).unwrap();
+        })
+        .await;
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), LEGAL);
+        release.0.take().unwrap().send(()).unwrap();
+        let stopped = match early {
+            Ok(result) => result.unwrap(),
+            Err(_) => second.await.unwrap(),
+        };
+        assert!(!stopped.unwrap(), "second request preserves AlreadyStopped");
+        process.exit_completion.wait().await.unwrap();
+        process.guard_completion.wait().await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            LEGAL,
+            "a stopped but still writable final guard must absorb a completed legal window"
+        );
+        assert!(
+            !returned_early,
+            "AlreadyStopped must join the same last guard"
+        );
+        assert!(process.breaches().is_empty());
+        assert!(
+            kept_pending_baseline,
+            "registration history pruning must retain a pending guard"
+        );
+        registration::prune_finished(&mut history, 0);
+        assert!(
+            history.is_empty(),
+            "successfully joined history is eligible for normal pruning"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    async fn persistent_restore_failure_case(adopted: bool, kill: bool) {
+        let root = temp_managed_project(if adopted {
+            "adopt-stop-error"
+        } else {
+            "registered-stop-error"
+        });
+        let shell = crate::shell::detected_shell();
+        let mut command = tokio::process::Command::new(&shell.program);
+        command
+            .args(&shell.args)
+            .arg(linger())
+            .current_dir(&root)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        let child = command.spawn().unwrap();
+        let mut external = None;
+        let process = if adopted {
+            let id = next_id();
+            save_registry(
+                &root,
+                &[PersistentEntry {
+                    id: id.clone(),
+                    command: linger().into(),
+                    project_root: root.display().to_string(),
+                    workdir: root.display().to_string(),
+                    owner: test_owner(),
+                    started_at_ms: now_ms(),
+                    pid: child.id().unwrap(),
+                    log: format!("{id}.log"),
+                }],
+            );
+            external = Some(child);
+            adopt_persistent(&root, &id).await.unwrap()
+        } else {
+            register(
+                child,
+                linger().into(),
+                &root,
+                &root,
+                test_owner(),
+                ManagedSnapshot::capture(&root),
+                true,
+            )
+        };
+        let target = root.join(".kanzei/project/defects.md");
+        std::fs::write(root.join(".kanzei/quarantine"), "blocks evidence directory").unwrap();
+        std::fs::write(&target, "PERSISTENT_UNQUARANTINED_EDIT").unwrap();
+        let ctx = ctx_for(&root, "persistent-stop-error");
+        let action = if kill { "kill" } else { "stop" };
+        let output = crate::process::ProcessTool
+            .execute(serde_json::json!({"action":action,"id":process.id}), &ctx)
+            .await;
+        let _ = process.exit_completion.wait().await;
+        let _ = process.guard_completion.wait().await;
+        if let Some(mut child) = external {
+            let _ = child.wait().await;
+        }
+        assert!(
+            output.is_error,
+            "{action} restore failure must be explicit: {}",
+            output.content
+        );
+        assert_eq!(output.code, Some("PROCESS_STOP_FAILED"));
+        let mut history = std::collections::HashMap::from([(process.id.clone(), process.clone())]);
+        registration::prune_finished(&mut history, 0);
+        assert!(
+            history.contains_key(&process.id),
+            "registration cannot discard a failed cleanup baseline"
+        );
+        assert!(
+            get(&process.id).is_some(),
+            "failed cleanup must keep the original baseline in memory"
+        );
+        assert!(
+            load_registry(&root).iter().any(|p| p.id == process.id),
+            "automatic exit/watcher must preserve the failed persistent record"
+        );
+        let discovered = crate::process::ProcessTool
+            .execute(serde_json::json!({"action":"discover"}), &ctx)
+            .await;
+        assert!(
+            discovered.content.contains("cleanup not confirmed"),
+            "{}",
+            discovered.content
+        );
+        assert!(
+            load_registry(&root).iter().any(|p| p.id == process.id),
+            "read-only discovery cannot discard pending repair"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "PERSISTENT_UNQUARANTINED_EDIT"
+        );
+        std::fs::remove_file(root.join(".kanzei/quarantine")).unwrap();
+        let retry = crate::process::ProcessTool
+            .execute(serde_json::json!({"action":action,"id":process.id}), &ctx)
+            .await;
+        assert!(!retry.is_error, "{}", retry.content);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), ORIGINAL_DEFECTS);
+        assert!(load_registry(&root).iter().all(|p| p.id != process.id));
+        registration::prune_finished(&mut history, 0);
+        assert!(
+            history.is_empty(),
+            "recovered history remains eligible for normal pruning"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn persistent_stop_restore_failure_retains_registered_and_adopted_records() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        for adopted in [false, true] {
+            persistent_restore_failure_case(adopted, false).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn persistent_kill_restore_failure_retains_registered_and_adopted_records() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        for adopted in [false, true] {
+            persistent_restore_failure_case(adopted, true).await;
+        }
     }
 }

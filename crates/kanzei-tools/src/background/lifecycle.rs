@@ -140,7 +140,7 @@ fn running_processes() -> Vec<Arc<BackgroundProcess>> {
         .lock()
         .unwrap()
         .values()
-        .filter(|p| p.is_running())
+        .filter(|p| p.is_running() || !p.guard_completion.restore_succeeded())
         .cloned()
         .collect()
 }
@@ -187,6 +187,7 @@ pub(crate) fn set_final_guard_hook(hook: Option<BeforeAbsorbHook>) {
 }
 
 /// 一次对账。返回 Some = 检测到越界(已隔离并回滚)。
+#[cfg(test)]
 pub(super) async fn reconcile(
     process: &Arc<BackgroundProcess>,
     kill_on_breach: bool,
@@ -212,20 +213,42 @@ async fn reconcile_result(
     result
 }
 
-fn reconcile_restore(process: &Arc<BackgroundProcess>) -> Result<Option<BreachRecord>, String> {
+pub(super) fn reconcile_restore(
+    process: &Arc<BackgroundProcess>,
+) -> Result<Option<BreachRecord>, String> {
+    #[cfg(test)]
+    run_before_reconcile_hook(&process.id);
+    let baseline = process.baseline.lock().unwrap();
+    reconcile_restore_locked(process, &baseline)
+}
+
+/// Retry only an ended failed guard. The existing baseline lock serializes the
+/// restore with legal window commits and publication of its successful receipt.
+pub(super) fn finish_restore(process: &Arc<BackgroundProcess>) -> Result<(), String> {
+    let _ = process.guard_completion.completed()?;
+    let baseline = process.baseline.lock().unwrap();
+    if process.guard_completion.restore_succeeded() {
+        return Ok(());
+    }
+    reconcile_restore_locked(process, &baseline)?;
+    process.guard_completion.record_recovery();
+    Ok(())
+}
+
+fn reconcile_restore_locked(
+    process: &Arc<BackgroundProcess>,
+    baseline: &ManagedSnapshot,
+) -> Result<Option<BreachRecord>, String> {
     let root = PathBuf::from(&process.project_root);
     if !crate::managed::managed_scope_exists(&root) {
         return Ok(None);
     }
-    #[cfg(test)]
-    run_before_reconcile_hook(&process.id);
     let (breach, restore) = {
         // Closed commits and new Opened snapshots use this same mutex. Keep
         // the decision and synchronous restore together so a stale baseline
         // cannot roll back a legitimate write that just finished.
-        let baseline = process.baseline.lock().unwrap();
         let current = ManagedSnapshot::capture(&root);
-        let Some(change) = crate::managed::diff(&baseline, &current) else {
+        let Some(change) = crate::managed::diff(baseline, &current) else {
             return Ok(None);
         };
         let (_, breach) =
@@ -235,7 +258,7 @@ fn reconcile_restore(process: &Arc<BackgroundProcess>) -> Result<Option<BreachRe
         }
         let restore = crate::managed::quarantine_and_restore(
             &root,
-            &baseline,
+            baseline,
             &breach,
             &[],
             &format!("bg-{}", process.id),
@@ -270,7 +293,7 @@ fn reconcile_restore(process: &Arc<BackgroundProcess>) -> Result<Option<BreachRe
     Ok(Some(record))
 }
 
-fn record_cleanup_error(process: &BackgroundProcess, error: &str) {
+pub(super) fn record_cleanup_error(process: &BackgroundProcess, error: &str) {
     let message = format!("\n[managed-files] {error}\n");
     super::registration::append_bounded(&process.output, &process.truncated, message.as_bytes());
     process
@@ -325,7 +348,7 @@ pub(crate) async fn wait_child_cleanup(
         }
         // The join result proves that the old writer ended; a fresh restore
         // retries failures rather than making a cached JoinError permanent.
-        reconcile_restore(&process)?;
+        finish_restore(&process)?;
     }
     Ok(notes)
 }
@@ -344,7 +367,7 @@ pub(crate) fn retry_child_cleanup(root: &Path, owner: &str, child: &str) -> Resu
         if let Err(error) = process.guard_completion.completed()? {
             record_cleanup_error(&process, &error);
         }
-        reconcile_restore(&process)?;
+        finish_restore(&process)?;
     }
     Ok(())
 }
@@ -385,46 +408,61 @@ pub fn list(project_root: &Path) -> Vec<Arc<BackgroundProcess>> {
     items
 }
 
-pub async fn stop(id: &str) -> bool {
-    let Some(process) = get(id) else {
-        return false;
-    };
-    if !process.is_running() {
-        return false;
-    }
-    if let Some(pid) = process.pid {
+/// Stop receipts cover the last output reader and the last managed restore.
+/// A prior join failure proves the task ended; fresh restore may repair it.
+pub(super) async fn stop_owned(process: &Arc<BackgroundProcess>) -> Result<bool, String> {
+    let was_running = process.is_running();
+    if was_running {
+        let pid = process
+            .pid
+            .ok_or_else(|| format!("后台进程 {} 没有可终止的 pid", process.id))?;
         if !crate::shell::kill_tree(pid).await {
-            return false;
+            return Err(format!("未能终止后台进程 {}，进程仍在运行", process.id));
         }
         process.mark_terminated();
     }
-    if process.is_running() {
-        return false;
+    for completion in [&process.exit_completion, &process.guard_completion] {
+        if let Err(error) = completion.wait().await {
+            record_cleanup_error(process, &error);
+        }
     }
-    reconcile(&process, false).await;
+    if process.is_running() {
+        return Err(format!(
+            "后台进程 {} 仍在运行，不能完成停止清理",
+            process.id
+        ));
+    }
+    finish_restore(process).inspect_err(|error| {
+        record_cleanup_error(process, error);
+    })?;
     if process.persistent {
         super::remove_registry_entry(Path::new(&process.project_root), &process.id);
     }
-    true
+    Ok(was_running)
+}
+
+pub async fn stop_result(id: &str) -> Result<bool, String> {
+    let Some(process) = get(id) else {
+        return Ok(false);
+    };
+    stop_owned(&process).await
+}
+
+pub async fn stop(id: &str) -> bool {
+    match stop_result(id).await {
+        Ok(stopped) => stopped,
+        Err(error) => {
+            if let Some(process) = get(id) {
+                record_cleanup_error(&process, &error);
+            }
+            tracing::error!(%error, process=id, "background stop cleanup failed");
+            false
+        }
+    }
 }
 
 pub async fn kill_project(project_root: &Path) -> usize {
-    let mut killed = 0usize;
-    for process in list(project_root) {
-        if process.persistent {
-            continue;
-        }
-        if process.is_running() {
-            if let Some(pid) = process.pid {
-                if crate::shell::kill_tree(pid).await {
-                    process.mark_terminated();
-                }
-                killed += 1;
-            }
-            reconcile(&process, false).await;
-        }
-    }
-    killed
+    kill_processes(list(project_root)).await
 }
 
 pub async fn kill_process(project_root: &Path, process_id: &str) -> usize {
@@ -442,14 +480,13 @@ async fn kill_processes(processes: Vec<Arc<BackgroundProcess>>) -> usize {
         if process.persistent {
             continue;
         }
-        if process.is_running() {
-            if let Some(pid) = process.pid {
-                if crate::shell::kill_tree(pid).await {
-                    process.mark_terminated();
-                }
-                killed += 1;
+        match stop_owned(&process).await {
+            Ok(true) => killed += 1,
+            Ok(false) => {}
+            Err(error) => {
+                record_cleanup_error(&process, &error);
+                tracing::error!(%error, process=%process.id, "background reap cleanup failed");
             }
-            reconcile(&process, false).await;
         }
     }
     killed
