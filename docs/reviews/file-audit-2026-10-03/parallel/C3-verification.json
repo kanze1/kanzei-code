@@ -171,5 +171,19 @@
   ],
   "build_generated_files": [
     "app generated desktop/windows JSON had canonical git diff exit0; exact baseline restored after backup; excluded from commit"
-  ]
+  ],
+  "root_integration": {
+    "verified": true,
+    "code_commit": "b2983292",
+    "report": "../parallel-round-4.md",
+    "workspace_tests": {
+      "passed": 2336,
+      "failed": 0,
+      "ignored": 5
+    },
+    "ipc": true,
+    "ui_runtime": true,
+    "source_equal_after_CRLF_normalization": true,
+    "coverage_updated_by_root": true
+  }
 }

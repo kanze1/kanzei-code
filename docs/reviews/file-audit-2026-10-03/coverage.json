@@ -12,12 +12,16 @@
     "crates/kanzei-app/src/manual_compact.rs",
     "crates/kanzei-app/src/mobile.rs",
     "crates/kanzei-app/src/mobile/sse.rs",
+    "crates/kanzei-app/src/model_config.rs",
     "crates/kanzei-app/src/run/input.rs",
     "crates/kanzei-app/src/runtime_continuation.rs",
     "crates/kanzei-app/src/runtime_events.rs",
     "crates/kanzei-app/src/runtime_service.rs",
     "crates/kanzei-app/src/runtime_service/compatibility.rs",
+    "crates/kanzei-app/src/settings.rs",
     "crates/kanzei-app/src/terminal_monitor.rs",
+    "crates/kanzei-app/ui/07-events.js",
+    "crates/kanzei-app/ui/16-settings.js",
     "crates/kanzei-app/ui/17-files-editor.js",
     "crates/kanzei-app/ui/24-schedules.js",
     "crates/kanzei-base/src/atomic_file.rs",
@@ -30,6 +34,9 @@
     "crates/kanzei-base/src/write_log/codec.rs",
     "crates/kanzei-base/src/write_log/tests.rs",
     "crates/kanzei-core/src/history.rs",
+    "crates/kanzei-core/src/runner/drive.rs",
+    "crates/kanzei-core/src/runner/drive/history.rs",
+    "crates/kanzei-core/src/runner/drive/serial_tools.rs",
     "crates/kanzei-core/src/runner/event.rs",
     "crates/kanzei-core/src/runner/item_context.rs",
     "crates/kanzei-core/src/runner/item_context/tests.rs",
@@ -49,12 +56,20 @@
     "crates/kanzei-core/src/store/typed/projection.rs",
     "crates/kanzei-core/src/store/workspace.rs",
     "crates/kanzei-harness/src/async_mailbox.rs",
+    "crates/kanzei-harness/src/config.rs",
+    "crates/kanzei-harness/src/config/cadence.rs",
+    "crates/kanzei-harness/src/config/embeddings.rs",
+    "crates/kanzei-harness/src/config/limits.rs",
+    "crates/kanzei-harness/src/config/models.rs",
+    "crates/kanzei-harness/src/config/permissions.rs",
+    "crates/kanzei-harness/src/config/web.rs",
     "crates/kanzei-harness/src/defs.rs",
     "crates/kanzei-harness/src/home.rs",
     "crates/kanzei-harness/src/managed_fence.rs",
     "crates/kanzei-harness/src/markdown.rs",
     "crates/kanzei-harness/src/orchestration.rs",
     "crates/kanzei-harness/src/pending_question.rs",
+    "crates/kanzei-harness/src/permission_persist.rs",
     "crates/kanzei-harness/src/progress.rs",
     "crates/kanzei-harness/src/project_root.rs",
     "crates/kanzei-harness/src/refs.rs",
@@ -93,12 +108,10 @@
     "crates/kanzei-app/src/run/events/mod.rs",
     "crates/kanzei-app/src/run/persistence.rs",
     "crates/kanzei-app/src/state.rs",
+    "crates/kanzei-app/src/state_tests.rs",
     "crates/kanzei-app/src/typed_events.rs",
     "crates/kanzei-app/src/verification_monitor.rs",
     "crates/kanzei-app/ui/17-files.js",
-    "crates/kanzei-core/src/runner/drive.rs",
-    "crates/kanzei-core/src/runner/drive/history.rs",
-    "crates/kanzei-core/src/runner/drive/serial_tools.rs",
     "crates/kanzei-core/src/runner/tool_exec.rs",
     "crates/kanzei-core/src/store/decisions.rs",
     "crates/kanzei-core/src/store/task.rs",
@@ -143,7 +156,6 @@
     "crates/kanzei-app/src/mobile/approvals.rs",
     "crates/kanzei-app/src/mobile/pwa.rs",
     "crates/kanzei-app/src/mobile_notify.rs",
-    "crates/kanzei-app/src/model_config.rs",
     "crates/kanzei-app/src/orchestration_trace.rs",
     "crates/kanzei-app/src/permission_tests.rs",
     "crates/kanzei-app/src/phase_pipeline.rs",
@@ -179,10 +191,8 @@
     "crates/kanzei-app/src/run/work_start.rs",
     "crates/kanzei-app/src/schedules.rs",
     "crates/kanzei-app/src/screenshot.rs",
-    "crates/kanzei-app/src/settings.rs",
     "crates/kanzei-app/src/side_question.rs",
     "crates/kanzei-app/src/softwire.rs",
-    "crates/kanzei-app/src/state_tests.rs",
     "crates/kanzei-app/src/subagents.rs",
     "crates/kanzei-app/src/subagents_capture_tests.rs",
     "crates/kanzei-app/src/update.rs",
@@ -217,7 +227,6 @@
     "crates/kanzei-app/ui/06-agent-panel.js",
     "crates/kanzei-app/ui/06-deliveries.js",
     "crates/kanzei-app/ui/06-side-policy.js",
-    "crates/kanzei-app/ui/07-events.js",
     "crates/kanzei-app/ui/08-auto.js",
     "crates/kanzei-app/ui/08-compose-runtime.js",
     "crates/kanzei-app/ui/08-compose.js",
@@ -241,7 +250,6 @@
     "crates/kanzei-app/ui/15-conventions.js",
     "crates/kanzei-app/ui/15-views-misc.js",
     "crates/kanzei-app/ui/16-mobile.js",
-    "crates/kanzei-app/ui/16-settings.js",
     "crates/kanzei-app/ui/18-optional-ui.js",
     "crates/kanzei-app/ui/18-startup.js",
     "crates/kanzei-app/ui/19-arch.js",
@@ -322,20 +330,12 @@
     "crates/kanzei-core/src/store/work.rs",
     "crates/kanzei-harness/src/areas.rs",
     "crates/kanzei-harness/src/auto_run.rs",
-    "crates/kanzei-harness/src/config.rs",
-    "crates/kanzei-harness/src/config/cadence.rs",
-    "crates/kanzei-harness/src/config/embeddings.rs",
-    "crates/kanzei-harness/src/config/limits.rs",
-    "crates/kanzei-harness/src/config/models.rs",
-    "crates/kanzei-harness/src/config/permissions.rs",
-    "crates/kanzei-harness/src/config/web.rs",
     "crates/kanzei-harness/src/context.rs",
     "crates/kanzei-harness/src/conventions.rs",
     "crates/kanzei-harness/src/handoff.rs",
     "crates/kanzei-harness/src/harness.rs",
     "crates/kanzei-harness/src/lib.rs",
     "crates/kanzei-harness/src/permission.rs",
-    "crates/kanzei-harness/src/permission_persist.rs",
     "crates/kanzei-harness/src/read_ledger.rs",
     "crates/kanzei-harness/src/repair.rs",
     "crates/kanzei-harness/src/tool.rs",
@@ -1340,13 +1340,256 @@
       "contract_slice_evidence": {},
       "full_review_reopened_slices": {},
       "next": "D1 lower -> M3 settings/model/UI; C3 tool commit ack; supported profile B3 native proof"
+    },
+    {
+      "report": "parallel/D1.md",
+      "integrated_commit": "04b33f61",
+      "full_files": {
+        "crates/kanzei-harness/src/config.rs": {
+          "judgment": "P1",
+          "sha256": "a1860bda13f50cc4ca275295378ad32a23a578d87078100b7b5d0922a5a2d877",
+          "sha256_lf": "ceb19822865b35f89131aab320fd99148d1d0984dc7cef697476a96ced0e6ce8",
+          "lines": 2661,
+          "child_commit": "585cde3bc1f3e3bbe5b03e0d439dde1453d9f435",
+          "child_sha256_lf": "ceb19822865b35f89131aab320fd99148d1d0984dc7cef697476a96ced0e6ce8",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/permission_persist.rs": {
+          "judgment": "P1",
+          "sha256": "f65c738847359c28254d61df0aad485c20faa480d8da113ecd039d573b0017dc",
+          "sha256_lf": "c655748278cf54a24d0a380802bc65087d3cd3af874c67605bf4affcebed6b7e",
+          "lines": 95,
+          "child_commit": "585cde3bc1f3e3bbe5b03e0d439dde1453d9f435",
+          "child_sha256_lf": "c655748278cf54a24d0a380802bc65087d3cd3af874c67605bf4affcebed6b7e",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/config/cadence.rs": {
+          "judgment": "P1",
+          "sha256": "32df34229ba21dfae92105fc3bc716f545e2926a891b7e464ff64db21633761d",
+          "sha256_lf": "e7ed5a8b8946bfe205f68ff1eca3bb3e4d92ecd8417f8a948dda6ba5fbcfee8f",
+          "lines": 123,
+          "child_commit": "585cde3bc1f3e3bbe5b03e0d439dde1453d9f435",
+          "child_sha256_lf": "e7ed5a8b8946bfe205f68ff1eca3bb3e4d92ecd8417f8a948dda6ba5fbcfee8f",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/config/embeddings.rs": {
+          "judgment": "PASS",
+          "sha256": "dff2cc70cd0f9dff29ac4b90695d2816ee67d8ebe1d4b6e62e02c66f42f9e75b",
+          "sha256_lf": "1f1af1d144af0fff5aa2d57295d52cbbdbf994ac5c09a1811206483ac7a88a1a",
+          "lines": 27,
+          "child_commit": "585cde3bc1f3e3bbe5b03e0d439dde1453d9f435",
+          "child_sha256_lf": "1f1af1d144af0fff5aa2d57295d52cbbdbf994ac5c09a1811206483ac7a88a1a",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/config/web.rs": {
+          "judgment": "PASS",
+          "sha256": "3a62439f2929d41477ecab7a0bed73b76395012e85b1c9b79be3b5028d6aefca",
+          "sha256_lf": "3a62439f2929d41477ecab7a0bed73b76395012e85b1c9b79be3b5028d6aefca",
+          "lines": 50,
+          "child_commit": "585cde3bc1f3e3bbe5b03e0d439dde1453d9f435",
+          "child_sha256_lf": "3a62439f2929d41477ecab7a0bed73b76395012e85b1c9b79be3b5028d6aefca",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/config/limits.rs": {
+          "judgment": "PASS",
+          "sha256": "285966dbb0524d578c7f5ce0fa4a7133974795c0d7bdec68dddc7fe749d3b0c7",
+          "sha256_lf": "19b731028a0ec7d2284618d2c37cab225830441757ed71f957c559aae4b1e3a4",
+          "lines": 135,
+          "child_commit": "585cde3bc1f3e3bbe5b03e0d439dde1453d9f435",
+          "child_sha256_lf": "19b731028a0ec7d2284618d2c37cab225830441757ed71f957c559aae4b1e3a4",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/config/models.rs": {
+          "judgment": "PASS",
+          "sha256": "eb98b7c6fd3fc0020dbab793c242e83aa503c100591f58ed6c89e9b3415b27ea",
+          "sha256_lf": "9a279443a31bf4826f8e3da3f491aa2dfc7ab94742c88c52548e4add6310c6f1",
+          "lines": 150,
+          "child_commit": "585cde3bc1f3e3bbe5b03e0d439dde1453d9f435",
+          "child_sha256_lf": "9a279443a31bf4826f8e3da3f491aa2dfc7ab94742c88c52548e4add6310c6f1",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/config/permissions.rs": {
+          "judgment": "PASS",
+          "sha256": "d9ec0f79a665eb2f011b711fb1d5216a7de10c4025d27e78c854eb4ada5bb600",
+          "sha256_lf": "d9ec0f79a665eb2f011b711fb1d5216a7de10c4025d27e78c854eb4ada5bb600",
+          "lines": 251,
+          "child_commit": "585cde3bc1f3e3bbe5b03e0d439dde1453d9f435",
+          "child_sha256_lf": "d9ec0f79a665eb2f011b711fb1d5216a7de10c4025d27e78c854eb4ada5bb600",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        }
+      },
+      "contract_slice_files": [],
+      "contract_slice_evidence": {},
+      "full_review_reopened_slices": {},
+      "next": "C4 active session owner; D2 cross-process team owner; A4 UI state/preferences"
+    },
+    {
+      "report": "parallel/C3.md",
+      "integrated_commit": "aa14eb0e",
+      "full_files": {
+        "crates/kanzei-core/src/runner/drive.rs": {
+          "judgment": "P1",
+          "sha256": "21f766c874d02ba1a4f3252bc9cc18dba89e143f11de64b49c6cf14f5a9f020b",
+          "sha256_lf": "e32066157e4647c96903a8a0b883d9c57f9d7f6af13e1afe656ab0d006c2b696",
+          "lines": 1967,
+          "child_commit": "3a36b0de8e08c20a9cabf59175f0829d404f3646",
+          "child_sha256_lf": "e32066157e4647c96903a8a0b883d9c57f9d7f6af13e1afe656ab0d006c2b696",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-core/src/runner/drive/history.rs": {
+          "judgment": "P1",
+          "sha256": "1e9110b86ccedbb77b3392ec2fd28664012ba0006ce0d2657939506ccc4f3c62",
+          "sha256_lf": "43d9befd5783b280bfc76d6aeafaf1786345fc6aa6e99a936fb2cd7572fe33b4",
+          "lines": 217,
+          "child_commit": "3a36b0de8e08c20a9cabf59175f0829d404f3646",
+          "child_sha256_lf": "43d9befd5783b280bfc76d6aeafaf1786345fc6aa6e99a936fb2cd7572fe33b4",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-core/src/runner/drive/serial_tools.rs": {
+          "judgment": "P1",
+          "sha256": "3b051b5a70bc153f804599639737ceacc29ec93af183abed756c88e87ee9636a",
+          "sha256_lf": "67d8ff0c675dc7163b67768aa9af91b822481a4bef61d9dc0ba9bf43d5612af2",
+          "lines": 240,
+          "child_commit": "3a36b0de8e08c20a9cabf59175f0829d404f3646",
+          "child_sha256_lf": "67d8ff0c675dc7163b67768aa9af91b822481a4bef61d9dc0ba9bf43d5612af2",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/src/run/events/mod.rs",
+        "crates/kanzei-tools/src/schedules/executor.rs"
+      ],
+      "contract_slice_evidence": {
+        "crates/kanzei-app/src/run/events/mod.rs": {
+          "judgment": "P1",
+          "sha256": "e14ff050f888fcbb7ee7690f018134eca2e9018c910c8cd812e1a041ae06783e",
+          "sha256_lf": "4446fcd1bcf614fb66366669b8a5e224316c505723fce79ae63b4edad6b8d937",
+          "lines": 1648,
+          "child_commit": "3a36b0de8e08c20a9cabf59175f0829d404f3646",
+          "child_sha256_lf": "4446fcd1bcf614fb66366669b8a5e224316c505723fce79ae63b4edad6b8d937",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-tools/src/schedules/executor.rs": {
+          "judgment": "P1",
+          "sha256": "150a88c439dc3bd4df5bc354706c68704b6e35dda07863bdb0f2b54d55656a75",
+          "sha256_lf": "bcde55b5cb5aaff4cc001ecd89194cd59e23ee010a616fb450dd3d71822b4a93",
+          "lines": 757,
+          "child_commit": "3a36b0de8e08c20a9cabf59175f0829d404f3646",
+          "child_sha256_lf": "bcde55b5cb5aaff4cc001ecd89194cd59e23ee010a616fb450dd3d71822b4a93",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        }
+      },
+      "full_review_reopened_slices": {
+        "crates/kanzei-core/src/runner/event.rs": {
+          "judgment": "P1",
+          "sha256": "b93ab1a4156ac79996970f2437dd0684922d38c066f371bd00f45f355640e71c",
+          "sha256_lf": "3bf66845d814f51160d57e7a946fb9916fe22a856161ca8da128b5369181c5e2",
+          "lines": 553,
+          "child_commit": "3a36b0de8e08c20a9cabf59175f0829d404f3646",
+          "child_sha256_lf": "3bf66845d814f51160d57e7a946fb9916fe22a856161ca8da128b5369181c5e2",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-core/src/store/typed.rs": {
+          "judgment": "P1",
+          "sha256": "ff1e7e7c6fd4bc04f913d0d8290149067666dc2496d2ce9c7b3814ef6b1d555d",
+          "sha256_lf": "41033dfcd7e450e38e7e2d53562746ecb7dce5450190b527459711203d0e1ffa",
+          "lines": 3237,
+          "child_commit": "3a36b0de8e08c20a9cabf59175f0829d404f3646",
+          "child_sha256_lf": "41033dfcd7e450e38e7e2d53562746ecb7dce5450190b527459711203d0e1ffa",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei/src/cli/run/events.rs": {
+          "judgment": "P1",
+          "sha256": "a14261c597af88444d2ad0e0287c2b6e0e85cbe6abe99290aece36c520529cbc",
+          "sha256_lf": "6cde79c35c630cc0e8dc59ee12b5ffb3baef29fe653438443f21458c09b39bc1",
+          "lines": 341,
+          "child_commit": "3a36b0de8e08c20a9cabf59175f0829d404f3646",
+          "child_sha256_lf": "6cde79c35c630cc0e8dc59ee12b5ffb3baef29fe653438443f21458c09b39bc1",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        }
+      },
+      "next": "C4 active session owner; D2 cross-process team owner; A4 UI state/preferences"
+    },
+    {
+      "report": "parallel/A3.md",
+      "integrated_commit": "0e5355c6",
+      "full_files": {
+        "crates/kanzei-app/ui/07-events.js": {
+          "judgment": "P1",
+          "sha256": "2278024e533993b65480be1b4668818490a39ab440efc383c9673f75b7f02eef",
+          "sha256_lf": "d0a9a1590a8982ecfd5a198bef0ecb73899f4485cec236078d09dcd604847de3",
+          "lines": 1449,
+          "child_commit": "9db202a211982f18531e896929940adc32c674c4",
+          "child_sha256_lf": "d0a9a1590a8982ecfd5a198bef0ecb73899f4485cec236078d09dcd604847de3",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-app/ui/16-settings.js": {
+          "judgment": "P1",
+          "sha256": "abef88c31733de4d461b53ed6914d6fe913b419e837cbc15753e45d964e45e41",
+          "sha256_lf": "27618720f5dc3743bb9bace4d70269ffb9a8794ad108bde34b47ef91880b3f3d",
+          "lines": 1522,
+          "child_commit": "9db202a211982f18531e896929940adc32c674c4",
+          "child_sha256_lf": "27618720f5dc3743bb9bace4d70269ffb9a8794ad108bde34b47ef91880b3f3d",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        }
+      },
+      "contract_slice_files": [],
+      "contract_slice_evidence": {},
+      "full_review_reopened_slices": {},
+      "next": "C4 active session owner; D2 cross-process team owner; A4 UI state/preferences"
+    },
+    {
+      "report": "parallel/M3.md",
+      "integrated_commit": "b2983292",
+      "full_files": {
+        "crates/kanzei-app/src/settings.rs": {
+          "judgment": "P1",
+          "sha256": "f7712eb05b9470f50859d8c974416a1eebde23b000de69e09208c4494738099d",
+          "sha256_lf": "f7712eb05b9470f50859d8c974416a1eebde23b000de69e09208c4494738099d",
+          "lines": 1931,
+          "integration_content_check": "equal_to_verified_M3_committed_source"
+        },
+        "crates/kanzei-app/src/model_config.rs": {
+          "judgment": "P1",
+          "sha256": "7d16f46189f9b52f28ce72a44155837fc61d9dfff073b3ca1ad8e01801717265",
+          "sha256_lf": "7d16f46189f9b52f28ce72a44155837fc61d9dfff073b3ca1ad8e01801717265",
+          "lines": 1594,
+          "integration_content_check": "equal_to_verified_M3_committed_source"
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/src/run/coordinator.rs",
+        "crates/kanzei-app/src/state_tests.rs"
+      ],
+      "contract_slice_evidence": {
+        "crates/kanzei-app/src/run/coordinator.rs": {
+          "judgment": "P1",
+          "sha256": "628242498fd3df9ff748316f3534fbaa90cf94b2fd000eab4c332675b141175b",
+          "sha256_lf": "ca24012d5d1ef9b71d60ab16d7981f2cc1c0cd0d8f50aa9a04b6fa8d1af72014",
+          "lines": 744,
+          "integration_content_check": "equal_to_verified_M3_committed_source"
+        },
+        "crates/kanzei-app/src/state_tests.rs": {
+          "judgment": "PASS",
+          "sha256": "c9dc1069e457cc2c354495bdabc19209ce32acc31d16c6c1af9162ac88a425a7",
+          "sha256_lf": "c9dc1069e457cc2c354495bdabc19209ce32acc31d16c6c1af9162ac88a425a7",
+          "lines": 757,
+          "integration_content_check": "equal_to_verified_M3_committed_source"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "next": "C4 active session owner; D2 cross-process team owner; A4 UI state/preferences"
     }
   ],
-  "parallel_integration_report": "parallel-round-3.md",
+  "parallel_integration_report": "parallel-round-4.md",
   "outside_inventory_contract_slice_reviews": [
+    "scripts/ui-i18n-smoke.mjs",
     "scripts/ui-runtime-smoke.mjs"
   ],
   "current_inventory_total": 512,
-  "current_full_review_count": 80,
-  "current_pending_full_review_count": 432
+  "current_full_review_count": 95,
+  "current_pending_full_review_count": 417,
+  "regression_support_files": [
+    "scripts/ui-permission-identity-smoke.mjs"
+  ]
 }

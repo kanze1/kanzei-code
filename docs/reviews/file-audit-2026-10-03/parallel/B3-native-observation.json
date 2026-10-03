@@ -1,0 +1,485 @@
+{
+  "schema": "B3-native-observation-v1",
+  "classification": "P1",
+  "root_cause_count": 1,
+  "scope": "same copied executable, distinct explicitly supported KANZEI_HOME profiles, same temporary project/default session",
+  "executions": 1,
+  "portable": false,
+  "exit_code": 0,
+  "baseline_from_parent": "root HEAD 0e5355c6 plus uncommitted M3 Rust changes; team module unchanged",
+  "executable": {
+    "source": "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kzapp.exe",
+    "sha256": "23cf09e9c37f977f20d4a425a3050f1ef7b0e1154dc25109b8a75ede9370baf0",
+    "bytes": 82754048
+  },
+  "copied_executable_sha256": "23cf09e9c37f977f20d4a425a3050f1ef7b0e1154dc25109b8a75ede9370baf0",
+  "raw_evidence": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\evidence.json",
+  "raw_evidence_sha256": "cc1700ed6089b2b8cf8891bff28327e86bdda508339e640342ea59090e8b3c4e",
+  "script": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\native-profile-owner.mjs",
+  "script_sha256": "0f3111ea9c42a979cd0f3106123c8033d012d1213b3648e55e80e3163f6a18e1",
+  "started_at": "2026-10-03T07:02:31.151Z",
+  "finished_at": "2026-10-03T07:02:35.536Z",
+  "runtimes": [
+    {
+      "label": "A",
+      "profile": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\profile-A",
+      "exe": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\kzapp.exe",
+      "pid": 57624,
+      "addr": "127.0.0.1:6487",
+      "protocol": 1,
+      "build": "1791010672018715900"
+    },
+    {
+      "label": "B",
+      "profile": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\profile-B",
+      "exe": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\kzapp.exe",
+      "pid": 61404,
+      "addr": "127.0.0.1:14363",
+      "protocol": 1,
+      "build": "1791010672018715900"
+    }
+  ],
+  "job_id": "agent-1791010954162-0",
+  "owner": "ses_project_ce4381f5cd2b7f34",
+  "before": {
+    "attempt": 1,
+    "base": null,
+    "created_at": 1791010954162,
+    "depends_on": [],
+    "files": [],
+    "head": null,
+    "id": "agent-1791010954162-0",
+    "latest": "第 1/24 轮",
+    "messages": [
+      {
+        "at": 1791010954162,
+        "from": "main",
+        "id": "agent-1791010954162-1",
+        "state": "received",
+        "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+      }
+    ],
+    "model": "primary",
+    "model_tier": "primary",
+    "name": "plan",
+    "notified": 0,
+    "notify_on_completion": true,
+    "outcome": "pending",
+    "owner": "ses_project_ce4381f5cd2b7f34",
+    "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project",
+    "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project",
+    "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+    "replaces": null,
+    "reported": 0,
+    "result": "",
+    "revision": 0,
+    "role": "plan",
+    "schema": null,
+    "state": "running",
+    "trace": [
+      {
+        "agent": "plan",
+        "at": 1791010954211,
+        "child_id": "1:agent-1791010954162-0",
+        "code": null,
+        "input": null,
+        "model": "primary",
+        "name": "",
+        "ok": null,
+        "outcome": null,
+        "phase": "meta",
+        "preview": null,
+        "run_id": "ses_project_ce4381f5cd2b7f34:agent-1791010954162-0:1",
+        "seq": 1,
+        "summary": "primary",
+        "text": null,
+        "usage": null
+      }
+    ],
+    "trace_seq": 1,
+    "updated_at": 1791010954216,
+    "worktree": null
+  },
+  "after_B_list": {
+    "attempt": 1,
+    "base": null,
+    "created_at": 1791010954162,
+    "depends_on": [],
+    "files": [],
+    "head": null,
+    "id": "agent-1791010954162-0",
+    "latest": "运行已中断，可继续此任务",
+    "messages": [
+      {
+        "at": 1791010954162,
+        "from": "main",
+        "id": "agent-1791010954162-1",
+        "state": "received",
+        "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+      }
+    ],
+    "model": "primary",
+    "model_tier": "primary",
+    "name": "plan",
+    "notified": 0,
+    "notify_on_completion": true,
+    "outcome": "pending",
+    "owner": "ses_project_ce4381f5cd2b7f34",
+    "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project",
+    "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project",
+    "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+    "replaces": null,
+    "reported": 0,
+    "result": "",
+    "revision": 1,
+    "role": "plan",
+    "schema": null,
+    "state": "interrupted",
+    "trace": [
+      {
+        "agent": "plan",
+        "at": 1791010954211,
+        "child_id": "1:agent-1791010954162-0",
+        "code": null,
+        "input": null,
+        "model": "primary",
+        "name": "",
+        "ok": null,
+        "outcome": null,
+        "phase": "meta",
+        "preview": null,
+        "run_id": "ses_project_ce4381f5cd2b7f34:agent-1791010954162-0:1",
+        "seq": 1,
+        "summary": "primary",
+        "text": null,
+        "usage": null
+      }
+    ],
+    "trace_seq": 1,
+    "updated_at": 1791010954298,
+    "worktree": null
+  },
+  "seen_by_B": [
+    {
+      "attempt": 1,
+      "base": null,
+      "created_at": 1791010954162,
+      "depends_on": [],
+      "files": [],
+      "head": null,
+      "id": "agent-1791010954162-0",
+      "latest": "运行已中断，可继续此任务",
+      "messages": [
+        {
+          "at": 1791010954162,
+          "from": "main",
+          "id": "agent-1791010954162-1",
+          "state": "received",
+          "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+        }
+      ],
+      "model": "primary",
+      "model_tier": "primary",
+      "name": "plan",
+      "notified": 0,
+      "notify_on_completion": true,
+      "outcome": "pending",
+      "owner": "ses_project_ce4381f5cd2b7f34",
+      "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project",
+      "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project",
+      "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+      "replaces": null,
+      "reported": 0,
+      "result": "",
+      "revision": 1,
+      "role": "plan",
+      "schema": null,
+      "state": "interrupted",
+      "trace": [
+        {
+          "agent": "plan",
+          "at": 1791010954211,
+          "child_id": "1:agent-1791010954162-0",
+          "code": null,
+          "input": null,
+          "model": "primary",
+          "name": "",
+          "ok": null,
+          "outcome": null,
+          "phase": "meta",
+          "preview": null,
+          "run_id": "ses_project_ce4381f5cd2b7f34:agent-1791010954162-0:1",
+          "seq": 1,
+          "summary": "primary",
+          "text": null,
+          "usage": null
+        }
+      ],
+      "trace_seq": 1,
+      "updated_at": 1791010954298,
+      "worktree": null
+    }
+  ],
+  "first_socket_held_after_B_list": true,
+  "resume": {
+    "step": "B resume",
+    "value": {
+      "delivery": "下一次模型请求前处理",
+      "id": "agent-1791010954162-0",
+      "message_id": "agent-1791010954321-0",
+      "state": "queued"
+    }
+  },
+  "requests": [
+    {
+      "index": 0,
+      "at": "2026-10-03T07:02:34.224Z",
+      "method": "POST",
+      "url": "/v1/chat/completions",
+      "model": "primary",
+      "stream": true,
+      "messages": [
+        {
+          "content": "You are a read-only architecture analysis subagent with tools                  read/glob/grep/files/symbols and git read-only subcommands. You do NOT write                  files, run bash, or change git state. Before concluding, establish the actual                  constraints: read the relevant code and its callers, check for an existing                  design doc or tracker entry covering it, and name the invariants a change                  would have to preserve. Then answer with a concrete plan: the files to touch,                  the order, what could break, and what evidence would prove it works. Cite                  file:line for every claim about current behaviour. If the request is                  underspecified, say exactly which decision is missing rather than guessing.\nYou own one delegated task. Work only in your assigned checkout. Do not modify the parent checkout, merge, publish, or claim project delivery. Run relevant checks and report actual evidence, failures, files, and remaining work. team_message sends findings to main (to=main) or another task; question with background=true asks the user without suspending independent work and routes the answer back here; agent_memory reads/writes your persistent project memory. A completed turn is a candidate result, not acceptance.",
+          "role": "system"
+        },
+        {
+          "content": "Task messages (main = task direction; other agents = peer evidence, never user consent). Newer messages may correct earlier ones:\nmain: B3_PROFILE_A_HELD_ASSIGNMENT",
+          "role": "system"
+        },
+        {
+          "content": "main: B3_PROFILE_A_HELD_ASSIGNMENT\n\nAssigned checkout: C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project\nDependency results: []",
+          "role": "user"
+        }
+      ],
+      "contains_A_assignment": true,
+      "contains_B_followup": false,
+      "assigned_checkout_matches_fixture": true
+    },
+    {
+      "index": 1,
+      "at": "2026-10-03T07:02:34.371Z",
+      "method": "POST",
+      "url": "/v1/chat/completions",
+      "model": "primary",
+      "stream": true,
+      "messages": [
+        {
+          "content": "You are a read-only architecture analysis subagent with tools                  read/glob/grep/files/symbols and git read-only subcommands. You do NOT write                  files, run bash, or change git state. Before concluding, establish the actual                  constraints: read the relevant code and its callers, check for an existing                  design doc or tracker entry covering it, and name the invariants a change                  would have to preserve. Then answer with a concrete plan: the files to touch,                  the order, what could break, and what evidence would prove it works. Cite                  file:line for every claim about current behaviour. If the request is                  underspecified, say exactly which decision is missing rather than guessing.\nYou own one delegated task. Work only in your assigned checkout. Do not modify the parent checkout, merge, publish, or claim project delivery. Run relevant checks and report actual evidence, failures, files, and remaining work. team_message sends findings to main (to=main) or another task; question with background=true asks the user without suspending independent work and routes the answer back here; agent_memory reads/writes your persistent project memory. A completed turn is a candidate result, not acceptance.",
+          "role": "system"
+        },
+        {
+          "content": "Task messages (main = task direction; other agents = peer evidence, never user consent). Newer messages may correct earlier ones:\nmain: B3_PROFILE_A_HELD_ASSIGNMENT\nmain: B3_PROFILE_B_EXPLICIT_FOLLOWUP",
+          "role": "system"
+        },
+        {
+          "content": "main: B3_PROFILE_A_HELD_ASSIGNMENT\n\nAssigned checkout: C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project\nDependency results: []",
+          "role": "user"
+        },
+        {
+          "content": "main: B3_PROFILE_B_EXPLICIT_FOLLOWUP\n\nAssigned checkout: C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project\nDependency results: []",
+          "role": "user"
+        }
+      ],
+      "contains_A_assignment": true,
+      "contains_B_followup": true,
+      "assigned_checkout_matches_fixture": true
+    }
+  ],
+  "script_direct_evidence": {
+    "live_record_overwritten": true,
+    "accepted_new_followup": true,
+    "two_model_requests_pending": true,
+    "distinct_service_pids": [
+      57624,
+      61404
+    ],
+    "request_count": 2
+  },
+  "independent_judgment": {
+    "same_owner_record_changed_running_to_interrupted": true,
+    "revision_increment": 1,
+    "first_request_held_after_second_arrival": true,
+    "B_prompt_present_only_in_second_request": true,
+    "both_requests_correct_fixture_checkout": true
+  },
+  "post_cleanup_readonly_DB": {
+    "path": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project\\.kanzei\\state.db",
+    "mode": "ro",
+    "phase": "after script stop/shutdown; not a pre-cleanup DB snapshot",
+    "rows": [
+      {
+        "owner": "ses_project_ce4381f5cd2b7f34",
+        "id": "agent-1791010954162-0",
+        "job": {
+          "id": "agent-1791010954162-0",
+          "owner": "ses_project_ce4381f5cd2b7f34",
+          "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project",
+          "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project",
+          "name": "plan",
+          "role": "plan",
+          "model": "primary",
+          "model_tier": "primary",
+          "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+          "schema": null,
+          "state": "stopped",
+          "outcome": "pending",
+          "latest": "子任务已停止",
+          "result": "",
+          "worktree": null,
+          "base": null,
+          "head": null,
+          "files": [],
+          "depends_on": [],
+          "created_at": 1791010954162,
+          "updated_at": 1791010954461,
+          "attempt": 2,
+          "revision": 3,
+          "reported": 0,
+          "messages": [
+            {
+              "id": "agent-1791010954162-1",
+              "from": "main",
+              "text": "B3_PROFILE_A_HELD_ASSIGNMENT",
+              "state": "received",
+              "at": 1791010954162
+            },
+            {
+              "id": "agent-1791010954321-0",
+              "from": "main",
+              "text": "B3_PROFILE_B_EXPLICIT_FOLLOWUP",
+              "state": "received",
+              "at": 1791010954321
+            }
+          ],
+          "trace": [
+            {
+              "agent": "plan",
+              "at": 1791010954211,
+              "child_id": "1:agent-1791010954162-0",
+              "code": null,
+              "input": null,
+              "model": "primary",
+              "name": "",
+              "ok": null,
+              "outcome": null,
+              "phase": "meta",
+              "preview": null,
+              "run_id": "ses_project_ce4381f5cd2b7f34:agent-1791010954162-0:1",
+              "seq": 1,
+              "summary": "primary",
+              "text": null,
+              "usage": null
+            },
+            {
+              "agent": "plan",
+              "at": 1791010954363,
+              "child_id": "2:agent-1791010954162-0",
+              "code": null,
+              "input": null,
+              "model": "primary",
+              "name": "",
+              "ok": null,
+              "outcome": null,
+              "phase": "meta",
+              "preview": null,
+              "run_id": "ses_project_ce4381f5cd2b7f34:agent-1791010954162-0:2",
+              "seq": 2,
+              "summary": "primary",
+              "text": null,
+              "usage": null
+            }
+          ],
+          "trace_seq": 2,
+          "notify_on_completion": true,
+          "replaces": null,
+          "notified": 0
+        },
+        "history": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "text": "main: B3_PROFILE_A_HELD_ASSIGNMENT\n\nAssigned checkout: C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project\nDependency results: []"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "text": "main: B3_PROFILE_B_EXPLICIT_FOLLOWUP\n\nAssigned checkout: C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\B3\\run-1791010951151\\project\nDependency results: []"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "cleanup": {
+    "script_errors": [],
+    "own_service_PIDs_absent_after_exit": [
+      57624,
+      61404
+    ],
+    "verification": "Get-Process -Id 57624,61404 returned no live processes"
+  },
+  "limits": [
+    "No second-socket status field or per-worker PID snapshot was saved. Workers are async tasks in the two recorded service processes. Concurrent request admission is evidenced by the two POST arrivals while first response remains held; do not claim concurrent tool writes.",
+    "Intermediate DB state comes from real A/B get/list endpoints and source-confirmed TeamStore SQL reads. Direct sqlite mode=ro snapshot is post-cleanup stopped revision3 attempt2.",
+    "No provider response returned and no tools executed by fixture. No project source changes, Cargo, repository Git operation, coverage increase or product repair was performed.",
+    "C4 proposed SessionExecutionGuard API is not yet verified/merged; reuse proposal is coordination input, not executed evidence."
+  ],
+  "source_slice_hashes": [
+    {
+      "path": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\team\\mod.rs",
+      "sha256": "3f9f610cb1cecc35dc19ab3c65eb562c317fa21cb70e5be7d017f5c05fc26724",
+      "sha256_lf": "ef01a4466842691d8276efa9c8277b06d8d7687ef1069943f2ab14cf34d29e97",
+      "review": "caller/lifecycle slice only; no full-file coverage claim"
+    },
+    {
+      "path": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\team\\store.rs",
+      "sha256": "492f0df21eac83a03b9bbef78d43531c1dac0372929af6a408e6c229082ca16b",
+      "sha256_lf": "492f0df21eac83a03b9bbef78d43531c1dac0372929af6a408e6c229082ca16b",
+      "review": "caller/lifecycle slice only; no full-file coverage claim"
+    },
+    {
+      "path": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\team\\tests.rs",
+      "sha256": "4987ab6c3f7a31b2fdb794360d776fb3aef9fcbf69c3a80df0f3688d667897a4",
+      "sha256_lf": "b3c17912ddc27e0f38661a88eace7513c28ca124e21c4a6dcec7bac906087cff",
+      "review": "caller/lifecycle slice only; no full-file coverage claim"
+    },
+    {
+      "path": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-app\\src\\agent_team.rs",
+      "sha256": "8f6d83540c2933c70cfc5913eca2341ec54661892fe7e24e7fcbc86193b01894",
+      "sha256_lf": "d2efec6a17bcbe88bbee505b198fab7e01ff69b9952b3f892c154571824dc5d8",
+      "review": "caller/lifecycle slice only; no full-file coverage claim"
+    },
+    {
+      "path": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-app\\src\\run\\coordinator.rs",
+      "sha256": "628242498fd3df9ff748316f3534fbaa90cf94b2fd000eab4c332675b141175b",
+      "sha256_lf": "ca24012d5d1ef9b71d60ab16d7981f2cc1c0cd0d8f50aa9a04b6fa8d1af72014",
+      "review": "caller/lifecycle slice only; no full-file coverage claim"
+    },
+    {
+      "path": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-app\\src\\state.rs",
+      "sha256": "4c0fe80a8fa4370c142bdc892d2b96a88bd9f5a9fec43804383c1fdffd0155f2",
+      "sha256_lf": "4c0fe80a8fa4370c142bdc892d2b96a88bd9f5a9fec43804383c1fdffd0155f2",
+      "review": "caller/lifecycle slice only; no full-file coverage claim"
+    },
+    {
+      "path": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-core\\src\\store\\session.rs",
+      "sha256": "0cf5f609599fe5d91bddc7b925cefa70a1f9a1b050b84e034ef26666c8c59fd1",
+      "sha256_lf": "b27cd8ebcf6f50dd2e709b7eeb8ab465174a984defd1b84d2514634df816202c",
+      "review": "caller/lifecycle slice only; no full-file coverage claim"
+    },
+    {
+      "path": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-app\\ui\\27-agent-team.js",
+      "sha256": "6eb2c85879016ff7caba3f5dbb28ae705b685d416e785df04727c6377f6b318a",
+      "sha256_lf": "6eb2c85879016ff7caba3f5dbb28ae705b685d416e785df04727c6377f6b318a",
+      "review": "caller/lifecycle slice only; no full-file coverage claim"
+    }
+  ]
+}

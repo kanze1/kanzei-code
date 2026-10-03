@@ -3,7 +3,7 @@
   "baseline": "441e0c2983b8e8aeaf287bfc330d3df76d5b01b2",
   "branch": "kanzei/audit-a3-ui",
   "worktree": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code",
-  "status": "ui_verified_pending_native_integration",
+  "status": "verified_in_root_combination",
   "environment": {
     "os": "Windows",
     "node": "v22.14.0"
@@ -193,11 +193,7 @@
     "save": "settings payload sends selector value unchanged",
     "backend_readback": "root verified clean settings.rs already accepts xhigh; original behavior PASS, no new issue/fix"
   },
-  "integration_remaining": [
-    "root M3 expected-rule deletion transaction",
-    "root coordinator real projectDir source field",
-    "unified IPC/full UI/Rust validation after native integration"
-  ],
+  "integration_remaining": [],
   "boundaries": {
     "cargo_run": false,
     "full_runtime_smoke_run": false,
@@ -213,5 +209,20 @@
     "Fixture executes complete actual 07/16 module source and their subscriber/click functions; dependencies and DOM are controlled.",
     "Native emit and real 01-core routing are read-verified, not executed in this fixture.",
     "No new persistent fields/schema/framework/dependency or global render context changes."
-  ]
+  ],
+  "root_integration": {
+    "verified": true,
+    "code_commit": "b2983292",
+    "report": "../parallel-round-4.md",
+    "workspace_tests": {
+      "passed": 2336,
+      "failed": 0,
+      "ignored": 5
+    },
+    "ipc": true,
+    "ui_runtime": true,
+    "source_equal_after_CRLF_normalization": true,
+    "coverage_updated_by_root": true
+  },
+  "child_handoff_status": "ui_verified_pending_native_integration"
 }

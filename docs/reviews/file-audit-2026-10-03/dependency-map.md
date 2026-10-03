@@ -59,7 +59,7 @@ flowchart TD
 - memory/lib.rs：R-203 拆分与再导出；scheduling 复制有历史依赖原因，不能仅凭重复删除。
 - docs/architecture/01_runtime_loop.md、02_harness_registries.md：执行链和注册表。
 - docs/design/architecture_diagrams.md：Cargo 清单是 crate 图真源。
-- 原有未跟踪 `问题.MD` 仅作线索，逐项核实，不沿用未经验证的严重等级。
+- 原有未跟踪 `问题.MD` 保持未读取、未修改、未提交；本轮判断来自实际源码、调用链和回归证据。
 
 ## 覆盖口径
 
@@ -117,3 +117,11 @@ flowchart TD
 - owner 收口：Immediate 事务内权威状态 → seed/projection；真实 source/version → work-context CAS；设备持久提交 → 鉴权 cache；手机原子输入 → canonical cache；team 唯一注册/token/attempt → 生命周期；服务槽 → listener 释放。
 - 纠正第二轮“已确认多进程 team 恢复”表述：普通同 executable/home 窗口已有 service_lock，跨 portable/profile 共享项目尚需原生实测，未计为已确认问题。工具无持久提交 ack 的真实拒绝路径由 C3 修复中。
 - 下一条底层到上层链：D1 共同配置文档事务 → M3 settings/models/规则身份 → A3 权限界面；C3 并行推进 durable ack → drive → 工具。当前未合入的新包不计入 80 文件。A 家专属继续暂缓。
+
+## Sol 并行第四轮与最新进度
+
+- D1/C3/A3/M3 已整合，Windows 全工作区 **2336 passed / 0 failed / 5 原有 ignored**；check/Clippy/fmt、IPC 与完整 UI/浏览器回归通过。见 [第四轮整合记录](parallel-round-4.md)。
+- 新增 15 个全文审查，累计 **95/512**，剩余 **417**；其中 28 个仅检查了合同切片，389 个尚未审查。仍只有 base 全量完成：harness 19/32、llm 15/16、core store 15/26 + runtime 7/39、memory 0/28、tools 3/126、CLI/app 23/145、UI 4/91。
+- owner 收口：配置文件路径锁 → 文档读改写/最终模型校验 → 原子提交；规则原项目与完整 tuple → 删除 IPC/权限事件 → UI 操作；typed 持久接受结果 → 同步 receipt → drive 后续工具/模型请求。
+- 下一条链：C4 跨进程 session 执行 owner → CLI/desktop 恢复和输入收尾；D2 复用该 primitive → team worker 的恢复/准入/释放；A4 UI 偏好与 pane 状态 owner → M4 会话调用方和入口服务。
+- B3 已用同 executable、不同受支持 profile 的真实双进程证实 team 错误恢复及第二模型请求准入，见 [原生观察](parallel/B3-native.md)。这条 P1 正由 D2 修复，未计入本轮已修复结果。新包尚未合入，不计入 95 文件。

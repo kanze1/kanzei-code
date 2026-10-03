@@ -1,5 +1,5 @@
 {
-  "baseline": "654213886aec3b19df67752263a8da569bf50ed3",
+  "baseline": "b298329218d32ec8b4ab405a0a89fc423bbf367c",
   "method": "Lexical source inventory, including cfg/test branches. Not a resolved call graph. Review judgments live only in report.md.",
   "packages": [
     {
@@ -396,7 +396,7 @@
     },
     {
       "file": "crates/kanzei/src/cli/run/events.rs",
-      "lines": 269,
+      "lines": 341,
       "modules": [],
       "imports": [
         "std::io::{stdout, Write as _}",
@@ -2888,7 +2888,7 @@
     },
     {
       "file": "crates/kanzei-app/src/model_config.rs",
-      "lines": 1571,
+      "lines": 1594,
       "modules": [],
       "imports": [
         "std::collections::HashSet",
@@ -3026,22 +3026,22 @@
         {
           "kind": "fn",
           "name": "save_project_models_file",
-          "line": 733
+          "line": 732
         },
         {
           "kind": "fn",
           "name": "project_models_save",
-          "line": 775
+          "line": 747
         },
         {
           "kind": "fn",
           "name": "project_config_open",
-          "line": 788
+          "line": 760
         },
         {
           "kind": "fn",
           "name": "project_model_overrides",
-          "line": 830
+          "line": 802
         }
       ]
     },
@@ -5231,7 +5231,7 @@
     },
     {
       "file": "crates/kanzei-app/src/run/coordinator.rs",
-      "lines": 738,
+      "lines": 744,
       "modules": [],
       "imports": [
         "std::collections::HashMap",
@@ -5258,7 +5258,7 @@
     },
     {
       "file": "crates/kanzei-app/src/run/events/mod.rs",
-      "lines": 1588,
+      "lines": 1648,
       "modules": [],
       "imports": [
         "std::collections::HashMap",
@@ -5303,47 +5303,47 @@
         {
           "kind": "struct",
           "name": "TraceSink",
-          "line": 225
+          "line": 241
         },
         {
           "kind": "fn",
           "name": "new",
-          "line": 250
+          "line": 266
         },
         {
           "kind": "struct",
           "name": "MetricsSink",
-          "line": 402
+          "line": 418
         },
         {
           "kind": "fn",
           "name": "new",
-          "line": 439
+          "line": 455
         },
         {
           "kind": "fn",
           "name": "with_awaiting_user",
-          "line": 472
+          "line": 488
         },
         {
           "kind": "fn",
           "name": "build_event_handler",
-          "line": 671
+          "line": 687
         },
         {
           "kind": "struct",
           "name": "AskSource",
-          "line": 975
+          "line": 995
         },
         {
           "kind": "fn",
           "name": "build_team_ask_router",
-          "line": 987
+          "line": 1007
         },
         {
           "kind": "fn",
           "name": "build_ask_handler",
-          "line": 1025
+          "line": 1045
         }
       ]
     },
@@ -5805,7 +5805,7 @@
     },
     {
       "file": "crates/kanzei-app/src/settings.rs",
-      "lines": 1692,
+      "lines": 1931,
       "modules": [],
       "imports": [
         "std::path::{Path, PathBuf}",
@@ -5851,127 +5851,107 @@
         {
           "kind": "fn",
           "name": "settings_set_or_remove",
-          "line": 115
+          "line": 119
         },
         {
           "kind": "fn",
           "name": "settings_set_or_reset",
-          "line": 128
+          "line": 132
         },
         {
           "kind": "fn",
           "name": "settings_set_or_remove_num",
-          "line": 143
+          "line": 147
         },
         {
           "kind": "fn",
           "name": "settings_table",
-          "line": 156
+          "line": 160
         },
         {
           "kind": "fn",
           "name": "config_from_file",
-          "line": 173
-        },
-        {
-          "kind": "fn",
-          "name": "validate_model_roles",
-          "line": 215
-        },
-        {
-          "kind": "fn",
-          "name": "settings_read_document",
-          "line": 247
-        },
-        {
-          "kind": "fn",
-          "name": "settings_read_text",
-          "line": 254
+          "line": 183
         },
         {
           "kind": "fn",
           "name": "settings_parse_document",
-          "line": 263
-        },
-        {
-          "kind": "fn",
-          "name": "settings_write_document",
-          "line": 272
+          "line": 248
         },
         {
           "kind": "fn",
           "name": "settings_apply_scalar_fields",
-          "line": 285
+          "line": 257
         },
         {
           "kind": "fn",
           "name": "settings_apply_model_fields",
-          "line": 335
+          "line": 306
         },
         {
           "kind": "fn",
           "name": "settings_apply_limits",
-          "line": 369
+          "line": 340
         },
         {
           "kind": "fn",
           "name": "settings_apply_cadence",
-          "line": 419
+          "line": 390
         },
         {
           "kind": "fn",
           "name": "settings_apply_providers",
-          "line": 493
+          "line": 464
         },
         {
           "kind": "fn",
           "name": "settings_get",
-          "line": 577
+          "line": 552
         },
         {
           "kind": "fn",
           "name": "settings_save_at_path_impl",
-          "line": 689
+          "line": 664
         },
         {
           "kind": "fn",
           "name": "settings_save_at_path",
-          "line": 705
+          "line": 684
         },
         {
           "kind": "fn",
           "name": "settings_save",
-          "line": 717
+          "line": 695
         },
         {
           "kind": "fn",
           "name": "settings_bootstrap_file",
-          "line": 728
+          "line": 705
         },
         {
           "kind": "fn",
           "name": "settings_open",
-          "line": 792
+          "line": 773
         },
         {
           "kind": "fn",
           "name": "permission_rules_get",
-          "line": 810
+          "line": 791
         },
         {
           "kind": "fn",
           "name": "permission_rule_delete",
-          "line": 826
+          "line": 809
         },
         {
           "kind": "fn",
           "name": "provider_test",
-          "line": 843
+          "line": 846
         },
         {
           "kind": "fn",
           "name": "with_kanzei_home",
-          "line": 942
+          "line": 945
         }
       ]
     },
@@ -6269,12 +6249,12 @@
     },
     {
       "file": "crates/kanzei-app/src/state_tests.rs",
-      "lines": 740,
+      "lines": 757,
       "modules": [],
       "imports": [
         "super::{\n    export_project_data, normalized_project_root, ExportOptions, ProviderPayload, SettingsPayload,\n}",
         "crate::docs::{docs_archive_entries, docs_snapshot}",
-        "crate::settings::validate_model_roles",
+        "crate::settings::settings_save_at_path",
         "crate::subagents::{defect_review, defect_review_report, defect_review_snapshot}",
         "crate::projects::{ensure_project_isolated, project_detach}",
         "std::path::{Path, PathBuf}",
@@ -6913,7 +6893,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/07-events.js",
-      "lines": 1434,
+      "lines": 1449,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -7081,7 +7061,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/16-settings.js",
-      "lines": 1498,
+      "lines": 1522,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -8575,11 +8555,11 @@
     },
     {
       "file": "crates/kanzei-core/src/runner/drive/history.rs",
-      "lines": 164,
+      "lines": 217,
       "modules": [],
       "imports": [
         "super::halt::append_halted_tool_results",
-        "super::{CancellationToken, Message, Part, RunEvent}",
+        "super::{CancellationToken, Message, MessageCommitReceipt, Part, RunEvent}",
         "super::*"
       ],
       "public_api": [
@@ -8591,22 +8571,22 @@
         {
           "kind": "fn",
           "name": "commit_tool_results",
-          "line": 24
+          "line": 28
         },
         {
           "kind": "fn",
           "name": "record_round_message",
-          "line": 42
+          "line": 50
         },
         {
           "kind": "enum",
           "name": "StepMessageOutcome",
-          "line": 52
+          "line": 64
         },
         {
           "kind": "fn",
           "name": "commit_step_messages",
-          "line": 66
+          "line": 78
         }
       ]
     },
@@ -8768,7 +8748,7 @@
     },
     {
       "file": "crates/kanzei-core/src/runner/drive.rs",
-      "lines": 1603,
+      "lines": 1967,
       "modules": [
         "question",
         "tool_catalog",
@@ -8794,7 +8774,13 @@
         "context_budget::enforce_context_budget",
         "halt::{append_halted_tool_results, halt_signalled}",
         "super::*",
-        "serde_json::json"
+        "serde_json::json",
+        "super::*",
+        "kanzei_harness::{\n        rule, Component, Effect, Harness, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx,\n    }",
+        "serde_json::{json, Value}",
+        "std::sync::atomic::{AtomicUsize, Ordering}",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
       ],
       "public_api": [
         {
@@ -8810,18 +8796,19 @@
         {
           "kind": "fn",
           "name": "reached_step_ceiling",
-          "line": 1214
+          "line": 1246
         }
       ]
     },
     {
       "file": "crates/kanzei-core/src/runner/event.rs",
-      "lines": 513,
+      "lines": 553,
       "modules": [],
       "imports": [
-        "std::sync::{\n    atomic::{AtomicBool, AtomicU32},\n    Arc,\n}",
+        "std::sync::{\n    atomic::{AtomicBool, AtomicU32},\n    Arc, Mutex,\n}",
         "kanzei_harness::ToolArtifact",
         "kanzei_llm::{FinishReason, Message, Usage}",
+        "super::MessageCommitReceipt",
         "super::AskOption",
         "serde_json::json",
         "super::{ui_tool_content, RunEvent, TOOL_END_UI_CONTENT_MAX}",
@@ -8831,83 +8818,98 @@
       "public_api": [
         {
           "kind": "struct",
+          "name": "MessageCommitReceipt",
+          "line": 16
+        },
+        {
+          "kind": "fn",
+          "name": "reject",
+          "line": 21
+        },
+        {
+          "kind": "fn",
+          "name": "check",
+          "line": 27
+        },
+        {
+          "kind": "struct",
           "name": "TaskTrace",
-          "line": 18
+          "line": 41
         },
         {
           "kind": "struct",
           "name": "WorkContextReport",
-          "line": 50
+          "line": 73
         },
         {
           "kind": "enum",
           "name": "RunEvent",
-          "line": 63
+          "line": 86
         },
         {
           "kind": "const",
           "name": "TOOL_END_UI_CONTENT_MAX",
-          "line": 208
+          "line": 233
         },
         {
           "kind": "fn",
           "name": "ui_tool_content",
-          "line": 212
+          "line": 237
         },
         {
           "kind": "fn",
           "name": "tool_end",
-          "line": 227
+          "line": 252
         },
         {
           "kind": "fn",
           "name": "drain_task_events",
-          "line": 243
+          "line": 268
         },
         {
           "kind": "struct",
           "name": "RunSummary",
-          "line": 252
+          "line": 277
         },
         {
           "kind": "enum",
           "name": "AskReply",
-          "line": 285
+          "line": 310
         },
         {
           "kind": "struct",
           "name": "AskOption",
-          "line": 297
+          "line": 322
         },
         {
           "kind": "fn",
           "name": "plain",
-          "line": 305
+          "line": 330
         },
         {
           "kind": "fn",
           "name": "from_json",
-          "line": 317
+          "line": 342
         },
         {
           "kind": "enum",
           "name": "AskRequest",
-          "line": 352
+          "line": 377
         },
         {
           "kind": "enum",
           "name": "AskResponse",
-          "line": 369
+          "line": 394
         },
         {
           "kind": "type",
           "name": "AskFuture",
-          "line": 376
+          "line": 401
         },
         {
           "kind": "fn",
           "name": "preview",
-          "line": 377
+          "line": 402
         }
       ]
     },
@@ -11297,7 +11299,7 @@
     },
     {
       "file": "crates/kanzei-core/src/store/typed.rs",
-      "lines": 3231,
+      "lines": 3237,
       "modules": [
         "projection"
       ],
@@ -11555,32 +11557,32 @@
         {
           "kind": "fn",
           "name": "tool_results_committed",
-          "line": 1180
+          "line": 1183
         },
         {
           "kind": "fn",
           "name": "finish",
-          "line": 1219
+          "line": 1225
         },
         {
           "kind": "fn",
           "name": "write_shadow_report",
-          "line": 1260
+          "line": 1266
         },
         {
           "kind": "fn",
           "name": "commit_work_context_surface",
-          "line": 1296
+          "line": 1302
         },
         {
           "kind": "fn",
           "name": "errors",
-          "line": 1343
+          "line": 1349
         },
         {
           "kind": "fn",
           "name": "record_error",
-          "line": 1347
+          "line": 1353
         }
       ]
     },
@@ -12037,7 +12039,7 @@
     },
     {
       "file": "crates/kanzei-harness/src/config/cadence.rs",
-      "lines": 120,
+      "lines": 123,
       "modules": [],
       "imports": [
         "serde::{Deserialize, Serialize}"
@@ -12076,7 +12078,7 @@
         {
           "kind": "const",
           "name": "CADENCE_KEYS",
-          "line": 113
+          "line": 116
         }
       ]
     },
@@ -12381,7 +12383,7 @@
     },
     {
       "file": "crates/kanzei-harness/src/config.rs",
-      "lines": 2460,
+      "lines": 2661,
       "modules": [
         "cadence",
         "embeddings",
@@ -12407,6 +12409,8 @@
         "super::*",
         "crate::project_root::*",
         "std::path::PathBuf",
+        "std::sync::mpsc",
+        "std::time::Duration",
         "crate::config::NonInteractive"
       ],
       "public_api": [
@@ -12438,42 +12442,47 @@
         {
           "kind": "fn",
           "name": "fill_defaults",
-          "line": 217
+          "line": 224
         },
         {
           "kind": "fn",
           "name": "service_tier_for",
-          "line": 258
+          "line": 265
         },
         {
           "kind": "fn",
           "name": "resolve_model",
-          "line": 263
+          "line": 270
         },
         {
           "kind": "fn",
           "name": "default_profile",
-          "line": 316
+          "line": 323
         },
         {
           "kind": "fn",
           "name": "hosted_tools_for",
-          "line": 328
+          "line": 335
+        },
+        {
+          "kind": "fn",
+          "name": "update_config_document",
+          "line": 404
         },
         {
           "kind": "const",
           "name": "TOP_LEVEL_KEYS",
-          "line": 397
+          "line": 435
         },
         {
           "kind": "fn",
           "name": "config_reference",
-          "line": 483
+          "line": 521
         },
         {
           "kind": "fn",
           "name": "resolve_model_chain",
-          "line": 732
+          "line": 770
         }
       ]
     },
@@ -13339,11 +13348,11 @@
     },
     {
       "file": "crates/kanzei-harness/src/permission_persist.rs",
-      "lines": 100,
+      "lines": 95,
       "modules": [],
       "imports": [
         "std::path::{Path, PathBuf}",
-        "crate::config::KanzeiConfig",
+        "crate::config::update_config_document",
         "crate::permission::Rule"
       ],
       "public_api": [
@@ -13365,7 +13374,7 @@
         {
           "kind": "fn",
           "name": "generalize_resource",
-          "line": 97
+          "line": 92
         }
       ]
     },
@@ -20083,7 +20092,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/schedules/executor.rs",
-      "lines": 740,
+      "lines": 757,
       "modules": [],
       "imports": [
         "super::*",
@@ -20108,7 +20117,7 @@
         {
           "kind": "fn",
           "name": "writeback",
-          "line": 644
+          "line": 661
         }
       ]
     },

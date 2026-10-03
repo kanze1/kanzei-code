@@ -1,9 +1,9 @@
 {
   "code_baseline": "0d0875ab",
-  "inventory_baseline": "7287f1ca93511985b5538cccdd7eea4b2fd3f507",
+  "inventory_baseline": "b298329218d32ec8b4ab405a0a89fc423bbf367c",
   "inventory_total": 512,
   "full_reviews_at_start": 30,
-  "pending_full_reviews": 432,
+  "pending_full_reviews": 417,
   "note": "Planning queue only. No new review certification. Split each group into exact file-owned packages; respect dependency gates in parallel-plan.md. Anthropic-specific work is deferred when identified, including mixed files only for that slice.",
   "counts_by_group": {
     "entry-service": 138,
@@ -429,9 +429,9 @@
       "lines_at_inventory": 1571,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 1571
+      "current_lines": 1594
     },
     {
       "file": "crates/kanzei-app/src/orchestration_trace.rs",
@@ -728,7 +728,7 @@
       "prior_review": "slice",
       "status": "contract_slice_only",
       "initial_package": null,
-      "current_lines": 738
+      "current_lines": 744
     },
     {
       "file": "crates/kanzei-app/src/run/events/mod.rs",
@@ -737,7 +737,7 @@
       "prior_review": "none",
       "status": "contract_slice_only",
       "initial_package": null,
-      "current_lines": 1588
+      "current_lines": 1648
     },
     {
       "file": "crates/kanzei-app/src/run/execution.rs",
@@ -853,9 +853,9 @@
       "lines_at_inventory": 1692,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 1692
+      "current_lines": 1931
     },
     {
       "file": "crates/kanzei-app/src/side_question.rs",
@@ -889,9 +889,9 @@
       "lines_at_inventory": 740,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "contract_slice_only",
       "initial_package": null,
-      "current_lines": 740
+      "current_lines": 757
     },
     {
       "file": "crates/kanzei-app/src/subagents.rs",
@@ -1231,9 +1231,9 @@
       "lines_at_inventory": 1434,
       "group": "ui",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 1434
+      "current_lines": 1449
     },
     {
       "file": "crates/kanzei-app/ui/08-auto.js",
@@ -1447,9 +1447,9 @@
       "lines_at_inventory": 1498,
       "group": "ui",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 1498
+      "current_lines": 1522
     },
     {
       "file": "crates/kanzei-app/ui/17-files-editor.js",
@@ -2029,9 +2029,9 @@
       "lines_at_inventory": 1603,
       "group": "core-runtime",
       "prior_review": "slice",
-      "status": "contract_slice_only",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 1603
+      "current_lines": 1967
     },
     {
       "file": "crates/kanzei-core/src/runner/drive/assembly.rs",
@@ -2074,9 +2074,9 @@
       "lines_at_inventory": 106,
       "group": "core-runtime",
       "prior_review": "none",
-      "status": "contract_slice_only",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 164
+      "current_lines": 217
     },
     {
       "file": "crates/kanzei-core/src/runner/drive/parallel_tools.rs",
@@ -2110,7 +2110,7 @@
       "lines_at_inventory": 239,
       "group": "core-runtime",
       "prior_review": "contract_slice",
-      "status": "contract_slice_only",
+      "status": "full_review_complete",
       "initial_package": null,
       "slice_report": "parallel/B0.md",
       "current_lines": 240
@@ -2140,7 +2140,7 @@
       "prior_review": "none",
       "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 513
+      "current_lines": 553
     },
     {
       "file": "crates/kanzei-core/src/runner/item_context.rs",
@@ -2481,7 +2481,7 @@
       "prior_review": "none",
       "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 3231
+      "current_lines": 3237
     },
     {
       "file": "crates/kanzei-core/src/store/typed/projection.rs",
@@ -2545,25 +2545,25 @@
       "lines_at_inventory": 2460,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 2460
+      "current_lines": 2661
     },
     {
       "file": "crates/kanzei-harness/src/config/cadence.rs",
       "lines_at_inventory": 120,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 120
+      "current_lines": 123
     },
     {
       "file": "crates/kanzei-harness/src/config/embeddings.rs",
       "lines_at_inventory": 27,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
       "current_lines": 27
     },
@@ -2572,7 +2572,7 @@
       "lines_at_inventory": 135,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
       "current_lines": 135
     },
@@ -2581,7 +2581,7 @@
       "lines_at_inventory": 150,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
       "current_lines": 150
     },
@@ -2590,7 +2590,7 @@
       "lines_at_inventory": 251,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
       "current_lines": 251
     },
@@ -2599,7 +2599,7 @@
       "lines_at_inventory": 50,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
       "current_lines": 50
     },
@@ -2725,9 +2725,9 @@
       "lines_at_inventory": 100,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 100
+      "current_lines": 95
     },
     {
       "file": "crates/kanzei-harness/src/progress.rs",
@@ -3948,7 +3948,7 @@
       "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/B0.md",
-      "current_lines": 740
+      "current_lines": 757
     },
     {
       "file": "crates/kanzei-tools/src/schedules/hosts.rs",
@@ -4407,7 +4407,7 @@
       "prior_review": "none",
       "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 269
+      "current_lines": 341
     },
     {
       "file": "crates/kanzei/src/cli/run/finalize.rs",
@@ -4658,64 +4658,54 @@
       "current_lines": 327
     }
   ],
-  "current_full_reviews": 80,
-  "last_integrated_commit": "65421388",
+  "current_full_reviews": 95,
+  "last_integrated_commit": "b2983292",
   "execution_model": "Sol",
   "active_packages": {
-    "D1": {
-      "owner": "audit_d0",
-      "status": "lower verified in 585cde3b; integration waits M3 callers",
-      "full_scope": [
-        "crates/kanzei-harness/src/config.rs",
-        "crates/kanzei-harness/src/permission_persist.rs",
-        "crates/kanzei-harness/src/config/cadence.rs",
-        "crates/kanzei-harness/src/config/embeddings.rs",
-        "crates/kanzei-harness/src/config/web.rs",
-        "crates/kanzei-harness/src/config/limits.rs",
-        "crates/kanzei-harness/src/config/models.rs",
-        "crates/kanzei-harness/src/config/permissions.rs"
-      ],
-      "gate": "shared configuration transaction before M3 writers; not counted in current verified baseline"
+    "C4": {
+      "status": "source_and_fixture_work_in_progress",
+      "branch": "kanzei/audit-c4-session-owner",
+      "scope": "core session_execution primitive; typed/inbox/CLI/app necessary caller slices",
+      "gate": "exclusive Cargo currently C4; own binary needed for 2CLI proof"
     },
-    "C3": {
-      "owner": "audit_c0",
-      "full_scope": [
-        "crates/kanzei-core/src/runner/drive.rs",
-        "crates/kanzei-core/src/runner/drive/history.rs",
-        "crates/kanzei-core/src/runner/drive/serial_tools.rs"
-      ],
-      "gate": "owns current Cargo slot; durable commit acknowledgement before effects"
+    "D2": {
+      "status": "dependency_map_in_progress",
+      "branch": "kanzei/audit-d2-team-owner",
+      "scope": "team worker/recovery/claim owner necessary slices",
+      "gate": "reuse verified C4 primitive; no duplicate lock-worker; Cargo after C4"
     },
-    "M3": {
-      "owner": "root",
+    "A4": {
+      "status": "UI_behavior_regressions_in_progress",
+      "branch": "kanzei/audit-a4-state",
       "full_scope": [
-        "crates/kanzei-app/src/settings.rs",
-        "crates/kanzei-app/src/model_config.rs"
+        "crates/kanzei-app/ui/03-shell.js",
+        "crates/kanzei-app/ui/01-core.js"
       ],
-      "gate": "consume D1 API, versioned rule deletion/query failures/xhigh preservation"
+      "gate": "own leaf commit and root combined UI verification"
     },
-    "A3": {
-      "owner": "audit_a0",
-      "full_scope": [
-        "crates/kanzei-app/ui/07-events.js",
-        "crates/kanzei-app/ui/16-settings.js"
+    "M4": {
+      "status": "queued",
+      "scope": [
+        "crates/kanzei-app/ui/09-sessions.js",
+        "crates/kanzei-app/src/main.rs"
       ],
-      "gate": "M3 expectedRule and captured project contract; delayed response/confirmation/blocked retry regression"
+      "gate": "UI lower owner A4 first; native recovery lower C4/D2 first"
     },
     "B3": {
-      "owner": "audit_b0",
-      "status": "native repro prepared; not a confirmed bug",
-      "gate": "new verified native binary and isolated supported profiles; ordinary desktop windows already share service_lock"
+      "status": "native_P1_confirmed_not_fixed",
+      "report": "parallel/B3-native.md",
+      "gate": "D2 implemented source + new native verification; no tool-write observation claim"
     }
   },
   "remaining_counts_by_group": {
-    "core-runtime": 35,
-    "tools": 123,
-    "entry-service": 124,
-    "memory": 28,
-    "ui": 89,
-    "harness": 21,
+    "entry-service": 122,
+    "ui": 87,
+    "core-runtime": 32,
     "core-store": 11,
-    "llm": 1
-  }
+    "harness": 13,
+    "llm": 1,
+    "memory": 28,
+    "tools": 123
+  },
+  "counts_by_group_is_historical_initial_queue": true
 }

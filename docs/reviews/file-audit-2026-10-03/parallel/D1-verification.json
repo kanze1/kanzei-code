@@ -16,7 +16,8 @@
       "full_source_and_tests_read": true,
       "prior_full_review_overlap": false,
       "code_changed": true,
-      "decision": "P1_lower_implementation_pending_execution"
+      "decision": "P1",
+      "read_phase_decision": "P1_lower_implementation_pending_execution"
     },
     {
       "path": "crates/kanzei-harness/src/permission_persist.rs",
@@ -32,7 +33,8 @@
       "full_source_and_tests_read": true,
       "prior_full_review_overlap": false,
       "code_changed": true,
-      "decision": "P1_lower_implementation_pending_execution"
+      "decision": "P1",
+      "read_phase_decision": "P1_lower_implementation_pending_execution"
     },
     {
       "path": "crates/kanzei-harness/src/config/cadence.rs",
@@ -48,7 +50,8 @@
       "full_source_and_tests_read": true,
       "prior_full_review_overlap": false,
       "code_changed": true,
-      "decision": "P1_lower_implementation_pending_execution"
+      "decision": "P1",
+      "read_phase_decision": "P1_lower_implementation_pending_execution"
     },
     {
       "path": "crates/kanzei-harness/src/config/embeddings.rs",
@@ -64,7 +67,8 @@
       "full_source_and_tests_read": true,
       "prior_full_review_overlap": false,
       "code_changed": false,
-      "decision": "static_PASS_unchanged"
+      "decision": "PASS",
+      "read_phase_decision": "static_PASS_unchanged"
     },
     {
       "path": "crates/kanzei-harness/src/config/web.rs",
@@ -80,7 +84,8 @@
       "full_source_and_tests_read": true,
       "prior_full_review_overlap": false,
       "code_changed": false,
-      "decision": "static_PASS_unchanged"
+      "decision": "PASS",
+      "read_phase_decision": "static_PASS_unchanged"
     },
     {
       "path": "crates/kanzei-harness/src/config/limits.rs",
@@ -96,7 +101,8 @@
       "full_source_and_tests_read": true,
       "prior_full_review_overlap": false,
       "code_changed": false,
-      "decision": "static_PASS_unchanged"
+      "decision": "PASS",
+      "read_phase_decision": "static_PASS_unchanged"
     },
     {
       "path": "crates/kanzei-harness/src/config/models.rs",
@@ -112,7 +118,8 @@
       "full_source_and_tests_read": true,
       "prior_full_review_overlap": false,
       "code_changed": false,
-      "decision": "static_PASS_unchanged"
+      "decision": "PASS",
+      "read_phase_decision": "static_PASS_unchanged"
     },
     {
       "path": "crates/kanzei-harness/src/config/permissions.rs",
@@ -128,14 +135,15 @@
       "full_source_and_tests_read": true,
       "prior_full_review_overlap": false,
       "code_changed": false,
-      "decision": "static_PASS_unchanged"
+      "decision": "PASS",
+      "read_phase_decision": "static_PASS_unchanged"
     }
   ],
   "public_api": "config::update_config_document(path: &Path, edit: impl FnOnce(&mut toml_edit::DocumentMut) -> anyhow::Result<()>) -> anyhow::Result<()>",
   "P1_root_causes_in_lower_package": 3,
-  "shared_writer_chain_complete": false,
-  "app_adaptation_pending_root_M3": true,
-  "coverage_updated": false,
+  "shared_writer_chain_complete": true,
+  "app_adaptation_pending_root_M3": false,
+  "coverage_updated": true,
   "stage_or_commit": "exact six-file commit authorized; artifact snapshot is included in that commit",
   "rust_execution": "passed",
   "executed_tests": [
@@ -453,5 +461,24 @@
     "log": "output/parallel-D1/initial-lock-probe-failure.log",
     "subsequent_full_validation_passed": true
   },
-  "submission": "snapshot before exact 6-file commit authorized by root; source byte hashes above"
+  "submission": "snapshot before exact 6-file commit authorized by root; source byte hashes above",
+  "root_integration": {
+    "verified": true,
+    "code_commit": "b2983292",
+    "report": "../parallel-round-4.md",
+    "workspace_tests": {
+      "passed": 2336,
+      "failed": 0,
+      "ignored": 5
+    },
+    "ipc": true,
+    "ui_runtime": true,
+    "source_equal_after_CRLF_normalization": true,
+    "coverage_updated_by_root": true
+  },
+  "child_handoff_state": {
+    "shared_writer_chain_complete": false,
+    "app_adaptation_pending_root_M3": true,
+    "coverage_updated": false
+  }
 }
