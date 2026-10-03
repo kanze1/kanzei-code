@@ -1167,7 +1167,7 @@ mod tests {
             .into_iter()
             .map(|item| item.id)
             .collect();
-        assert_eq!(ids, [bystander.id.clone()]);
+        assert_eq!(ids.as_slice(), std::slice::from_ref(&bystander.id));
 
         assert_eq!(
             purge_process(&state, &project, &target.id, &forget)
