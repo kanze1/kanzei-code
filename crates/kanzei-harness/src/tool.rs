@@ -38,6 +38,8 @@ impl ToolOutcome {
 /// 工具执行上下文。
 #[derive(Debug, Clone)]
 pub struct ToolCtx {
+    /// Same coordinator as the run's writer lease; inherited by child tools.
+    pub execution_coordinator: Option<crate::orchestration::ExecutionCoordinator>,
     pub cwd: std::path::PathBuf,
     /// 项目根(.kanzei/.git 所在);工作区文档(requirements/defects/sources)挂在这下面。
     pub project_root: std::path::PathBuf,
@@ -54,6 +56,8 @@ pub struct ToolCtx {
     pub process_id: Option<String>,
     /// 对话归属由入口显式传入；工作树、项目和会话不能互相代替。
     pub session_id: Option<String>,
+    /// Independent browser state for a child agent; None is the main session page.
+    pub browser_owner: Option<String>,
     /// Session/child mailbox. Ending a turn never closes it; explicit stop does.
     pub async_mailbox: Option<crate::AsyncMailbox>,
     pub input_inbox: Option<crate::InputInbox>,
@@ -66,6 +70,7 @@ pub struct ToolCtx {
 impl Default for ToolCtx {
     fn default() -> Self {
         ToolCtx {
+            execution_coordinator: None,
             cwd: std::path::PathBuf::new(),
             project_root: std::path::PathBuf::new(),
             project_workflow: true,
@@ -74,6 +79,7 @@ impl Default for ToolCtx {
             run_id: None,
             process_id: None,
             session_id: None,
+            browser_owner: None,
             async_mailbox: None,
             input_inbox: None,
             read_ledger: None,
@@ -83,6 +89,12 @@ impl Default for ToolCtx {
 }
 
 impl ToolCtx {
+    /// Isolate a child's browser without changing its conversation or writer identity.
+    pub fn with_browser_child(mut self, call_id: &str) -> Self {
+        self.browser_owner = Some(serde_json::json!([self.browser_owner, call_id]).to_string());
+        self
+    }
+
     /// R-141:显式主根绑定——**不做任何根发现**。
     ///
     /// `cwd` 是实际代码工作树,`project_root` 是项目身份真源(`.kanzei` 托管文档、
@@ -90,6 +102,7 @@ impl ToolCtx {
     pub fn new(cwd: std::path::PathBuf, project_root: std::path::PathBuf) -> Self {
         let project_workflow = !crate::is_general_conversation_root(&project_root);
         ToolCtx {
+            execution_coordinator: None,
             cwd,
             project_root,
             project_workflow,
@@ -98,6 +111,7 @@ impl ToolCtx {
             run_id: None,
             process_id: None,
             session_id: None,
+            browser_owner: None,
             async_mailbox: None,
             input_inbox: None,
             read_ledger: None,

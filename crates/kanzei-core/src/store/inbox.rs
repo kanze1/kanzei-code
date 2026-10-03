@@ -299,6 +299,18 @@ impl SessionStore {
         one: bool,
     ) -> Result<Vec<AdmittedInput>, StoreError> {
         let tx = self.connection.unchecked_transaction()?;
+        let inputs = self.promote_where_tx(&tx, session_id, delivery, one)?;
+        tx.commit()?;
+        Ok(inputs)
+    }
+
+    pub(super) fn promote_where_tx(
+        &self,
+        tx: &Transaction<'_>,
+        session_id: &str,
+        delivery: &str,
+        one: bool,
+    ) -> Result<Vec<AdmittedInput>, StoreError> {
         let limit = if one { " LIMIT 1" } else { "" };
         let sql = format!(
             "SELECT input_id, session_id, prompt, delivery, created_at
@@ -317,13 +329,12 @@ impl SessionStore {
                 params![now_ms(), input.input_id],
             )?;
             append_event_tx(
-                &tx,
+                tx,
                 session_id,
                 "prompt.promoted",
                 &serde_json::json!({"input_id": input.input_id, "delivery": input.delivery.as_str()}),
             )?;
         }
-        tx.commit()?;
         Ok(inputs)
     }
 }

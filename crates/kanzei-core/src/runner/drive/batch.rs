@@ -50,6 +50,40 @@ fn read_small(path: &Path) -> Option<Vec<u8>> {
         .flatten()
 }
 
+fn write_target(name: &str, input: &Value, ctx: &ToolCtx) -> Option<(String, PathBuf)> {
+    let relative = match name {
+        "edit" | "insert" | "write" => input["path"].as_str().map(str::to_owned),
+        "req" | "defect"
+            if matches!(input["action"].as_str(), Some("add" | "update" | "close"))
+                && ctx.cwd == ctx.project_root =>
+        {
+            Some(format!(
+                ".kanzei/project/{}.md",
+                if name == "req" {
+                    "requirements"
+                } else {
+                    "defects"
+                }
+            ))
+        }
+        _ => None,
+    }?;
+    let path = ctx.cwd.join(&relative);
+    let path = kanzei_base::path_form::canonical_or_simplified(&path);
+    let root = kanzei_base::path_form::canonical_or_simplified(&ctx.cwd);
+    let Ok(relative) = path.strip_prefix(root) else {
+        return None;
+    };
+    if relative
+        .components()
+        .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    let key = relative.to_string_lossy().replace('\\', "/");
+    Some((key, path))
+}
+
 impl Batch {
     pub(super) fn new(enabled: bool) -> Self {
         Self {
@@ -80,42 +114,12 @@ impl Batch {
             if self.reject(name, input, ctx).is_some() {
                 continue;
             }
-            let relative = match name.as_str() {
-                "edit" | "insert" | "write" => input["path"].as_str().map(str::to_owned),
-                "req" | "defect"
-                    if matches!(input["action"].as_str(), Some("add" | "update" | "close"))
-                        && ctx.cwd == ctx.project_root =>
-                {
-                    Some(format!(
-                        ".kanzei/project/{}.md",
-                        if name == "req" {
-                            "requirements"
-                        } else {
-                            "defects"
-                        }
-                    ))
-                }
-                _ => None,
-            };
             if name == "bash" && !verification_command(input["command"].as_str().unwrap_or("")) {
                 self.shell_changes = true;
             }
-            let Some(relative) = relative else {
+            let Some((key, path)) = write_target(name, input, ctx) else {
                 continue;
             };
-            let path = ctx.cwd.join(&relative);
-            let path = kanzei_base::path_form::canonical_or_simplified(&path);
-            let root = kanzei_base::path_form::canonical_or_simplified(&ctx.cwd);
-            let Ok(relative) = path.strip_prefix(root) else {
-                continue;
-            };
-            if relative
-                .components()
-                .any(|part| matches!(part, std::path::Component::ParentDir))
-            {
-                continue;
-            }
-            let key = relative.to_string_lossy().replace('\\', "/");
             if let Some(source) = self.files.get_mut(&key) {
                 if source.after != read_small(&path) {
                     source.owned = false;
@@ -157,12 +161,30 @@ impl Batch {
         if !self.enabled {
             return;
         }
+        let written = calls
+            .iter()
+            .zip(results)
+            .filter_map(|((_, name, input, _), result)| {
+                matches!(
+                    result,
+                    Part::ToolResult {
+                        is_error: false,
+                        ..
+                    }
+                )
+                .then(|| write_target(name, input, ctx).map(|(key, _)| key))
+                .flatten()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
         for (relative, source) in &mut self.files {
             let after = read_small(&ctx.cwd.join(relative));
             if !relative.starts_with(".kanzei/project/") && source.after != after {
                 self.committed = false;
                 self.validated = false;
                 self.progress_recorded = false;
+            }
+            if source.after != after && !written.contains(relative) {
+                source.owned = false;
             }
             source.after = after;
         }
@@ -429,6 +451,39 @@ mod tests {
         batch.before_calls(&calls, &repo.ctx());
         std::fs::write(repo.0.join(path), "fn changed() {}\n").unwrap();
         batch.observe(&calls, &[result(true, "written")], &repo.ctx());
+    }
+
+    #[test]
+    fn unrelated_observation_cannot_absorb_external_file_changes() {
+        let repo = Repo::new();
+        let mut batch = Batch::new(true);
+        edited(&repo, &mut batch, "own.rs");
+        let read = [call("read", json!({"path":"mixed.rs"}))];
+        batch.before_calls(&read, &repo.ctx());
+        std::fs::write(repo.0.join("own.rs"), "external edit\n").unwrap();
+        batch.observe(&read, &[result(true, "read")], &repo.ctx());
+        assert!(!batch.files["own.rs"].owned);
+        batch.prepare(33, &repo.ctx());
+        for action in ["stage", "finalize"] {
+            assert!(batch
+                .reject(
+                    "git",
+                    &json!({"action":action,"files":["own.rs"]}),
+                    &repo.ctx()
+                )
+                .is_some());
+        }
+    }
+
+    #[test]
+    fn failed_write_cannot_claim_changed_bytes() {
+        let repo = Repo::new();
+        let mut batch = Batch::new(true);
+        let calls = [call("write", json!({"path":"own.rs"}))];
+        batch.before_calls(&calls, &repo.ctx());
+        std::fs::write(repo.0.join("own.rs"), "changed despite failure\n").unwrap();
+        batch.observe(&calls, &[result(false, "failed")], &repo.ctx());
+        assert!(!batch.files["own.rs"].owned);
     }
 
     #[test]

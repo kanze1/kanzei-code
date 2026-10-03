@@ -59,25 +59,40 @@ pub fn parse_trace_payload(payload: &str, case_id: &str) -> Option<ReplayCase> {
     let root: Value = serde_json::from_str(payload).ok()?;
     let events = root.get("events")?.as_array()?;
     // tool.id → (name, input, started_index),配对 completed。
-    let mut pending: std::collections::HashMap<String, (String, String)> =
+    let mut pending: std::collections::HashMap<String, (String, String, usize)> =
         std::collections::HashMap::new();
-    let mut steps: Vec<ReplayStep> = Vec::new();
-    for event in events {
-        let kind = event.get("kind")?.as_str()?;
+    let mut steps: Vec<(usize, ReplayStep)> = Vec::new();
+    let mut completed = std::collections::HashSet::new();
+    for (index, event) in events.iter().enumerate() {
+        let Some(kind) = event.get("kind").and_then(Value::as_str) else {
+            continue;
+        };
         match kind {
             "tool.started" => {
-                let id = event.get("id")?.as_str()?;
-                let name = event.get("name")?.as_str()?.to_string();
+                let (Some(id), Some(name)) = (
+                    event.get("id").and_then(Value::as_str),
+                    event.get("name").and_then(Value::as_str),
+                ) else {
+                    continue;
+                };
+                if completed.contains(id) {
+                    continue;
+                }
+                let name = name.to_string();
                 let input = event
                     .get("summary")
                     .and_then(|s| s.as_str())
                     .unwrap_or("")
                     .to_string();
-                pending.insert(id.to_string(), (name, input));
+                pending
+                    .entry(id.to_string())
+                    .or_insert((name, input, index));
             }
             "tool.completed" => {
-                let id = event.get("id")?.as_str()?;
-                let Some((name, input)) = pending.remove(id) else {
+                let Some(id) = event.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some((name, input, index)) = pending.remove(id) else {
                     continue; // 缺配对的 completed(数据截断),跳过。
                 };
                 let ok = event.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -90,17 +105,23 @@ pub fn parse_trace_payload(payload: &str, case_id: &str) -> Option<ReplayCase> {
                     .get("durationMs")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
-                steps.push(ReplayStep {
-                    tool: name,
-                    input,
-                    ok,
-                    error,
-                    duration_ms,
-                });
+                completed.insert(id.to_string());
+                steps.push((
+                    index,
+                    ReplayStep {
+                        tool: name,
+                        input,
+                        ok,
+                        error,
+                        duration_ms,
+                    },
+                ));
             }
             _ => {} // turn.started 等只做节奏标记,回放不需要。
         }
     }
+    steps.sort_by_key(|(index, _)| *index);
+    let steps = steps.into_iter().map(|(_, step)| step).collect();
     let outcome = root
         .get("outcome")
         .and_then(|v| v.as_str())
@@ -857,5 +878,29 @@ mod tests {
         assert!(parse_trace_payload("not json", "t").is_none());
         assert!(parse_trace_payload("{}", "t").is_none());
         assert!(parse_trace_payload("[]", "t").is_none());
+    }
+}
+
+#[cfg(test)]
+mod audit_regression {
+    #[test]
+    fn missing_metadata_and_reverse_completion_preserve_call_order() {
+        let payload = serde_json::json!({"events":[
+            {"kind":"tool.started","id":"a","name":"first"},
+            {"task":"progress"},
+            {"kind":"tool.started"},
+            {"kind":"tool.started","id":"b","name":"second"},
+            {"kind":"tool.completed","id":"b","ok":true},
+            {"kind":"tool.completed","id":"a","ok":false}
+        ]});
+        let case = super::parse_trace_payload(&payload.to_string(), "case").unwrap();
+        assert_eq!(
+            case.steps
+                .iter()
+                .map(|s| s.tool.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+        assert_eq!(case.tool_failures(), 1);
     }
 }

@@ -141,31 +141,7 @@ pub fn source_endorsement_fingerprint(cwd: &Path) -> Result<String, String> {
         }
     }
     if !present.is_empty() {
-        // 一次子进程批量算 blob hash:--stdin-paths 按行读路径,与工作区文件内容
-        // 一一对应,输出行序与输入一致。
-        let mut hash_command = std::process::Command::new("git");
-        crate::hide_console(&mut hash_command);
-        let mut child = hash_command
-            .args(["hash-object", "--stdin-paths"])
-            .current_dir(cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| format!("cannot run git hash-object: {e}"))?;
-        {
-            use std::io::Write;
-            let stdin = child
-                .stdin
-                .as_mut()
-                .ok_or("hash-object stdin unavailable")?;
-            for path in &present {
-                writeln!(stdin, "{path}").map_err(|e| format!("hash-object write: {e}"))?;
-            }
-        }
-        let hashed = child
-            .wait_with_output()
-            .map_err(|e| format!("hash-object failed: {e}"))?;
+        let hashed = hash_source_paths(cwd, &present)?;
         if !hashed.status.success() {
             return Ok(String::new());
         }
@@ -201,29 +177,7 @@ pub(crate) fn source_endorsement_fingerprint_for_paths(
         }
     }
     if !present.is_empty() {
-        let mut hash_command = std::process::Command::new("git");
-        crate::hide_console(&mut hash_command);
-        let mut child = hash_command
-            .args(["hash-object", "--stdin-paths"])
-            .current_dir(cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| format!("cannot run git hash-object: {e}"))?;
-        {
-            use std::io::Write;
-            let stdin = child
-                .stdin
-                .as_mut()
-                .ok_or("hash-object stdin unavailable")?;
-            for path in &present {
-                writeln!(stdin, "{path}").map_err(|e| format!("hash-object write: {e}"))?;
-            }
-        }
-        let hashed = child
-            .wait_with_output()
-            .map_err(|e| format!("hash-object failed: {e}"))?;
+        let hashed = hash_source_paths(cwd, &present)?;
         if !hashed.status.success() {
             return Ok(String::new());
         }
@@ -241,6 +195,39 @@ pub(crate) fn source_endorsement_fingerprint_for_paths(
     }
     entries.sort();
     Ok(format!("v2 {}", entries.join(",")))
+}
+
+/// Drain stdout while feeding stdin: either pipe can exceed the OS pipe capacity.
+/// Both callers share this primitive, and every spawned child is waited on even
+/// if the input writer fails. Closing the writer also sends Git its EOF.
+fn hash_source_paths(cwd: &Path, paths: &[String]) -> Result<std::process::Output, String> {
+    let mut command = std::process::Command::new("git");
+    crate::hide_console(&mut command);
+    let mut child = command
+        .args(["hash-object", "--stdin-paths"])
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run git hash-object: {e}"))?;
+    let mut stdin = child.stdin.take().expect("piped hash-object stdin");
+    std::thread::scope(|scope| {
+        let writer = scope.spawn(move || -> std::io::Result<()> {
+            use std::io::Write;
+            for path in paths {
+                writeln!(stdin, "{path}")?;
+            }
+            Ok(())
+        });
+        let output = child.wait_with_output();
+        let written = writer
+            .join()
+            .map_err(|_| "hash-object input writer panicked".to_string())?;
+        let output = output.map_err(|e| format!("hash-object failed: {e}"))?;
+        written.map_err(|e| format!("hash-object write: {e}"))?;
+        Ok(output)
+    })
 }
 
 /// v2 指纹解析:`v2 path@sha12,…` → 路径到 blob 前缀的映射;非 v2 形态返回 None。
@@ -1068,35 +1055,34 @@ fn validate_ref(raw: &str) -> Result<String, String> {
 /// 开放给模型——不产生合并提交、不动索引内容、非快进直接拒绝(D-173 的边界不破)。
 /// 发版流程(kanzei-release 树 ff dev→main)此前卡在"bash 拦 merge、工具没 merge"
 /// 的空档里,只能让用户手跑,就是这个动作的由来。
-async fn merge_ff(cwd: &Path, from: Option<String>, into: Option<String>) -> ToolOutput {
+async fn merge_ff(ctx: &ToolCtx, from: Option<String>, into: Option<String>) -> ToolOutput {
     let mut diagnostics = Vec::new();
-    let output = merge_ff_body(cwd, from, into, &mut diagnostics).await;
+    let output = merge_ff_body(ctx, from, into, &mut diagnostics).await;
     with_git_diagnostics(output, &diagnostics)
 }
 
 async fn merge_ff_body(
-    cwd: &Path,
+    ctx: &ToolCtx,
     from: Option<String>,
     into: Option<String>,
     diagnostics: &mut Vec<String>,
 ) -> ToolOutput {
+    let cwd = &ctx.cwd;
     let from = match from.as_deref().map(validate_ref) {
         Some(Ok(name)) => name,
         Some(Err(error)) => return ToolOutput::error(error),
         None => return ToolOutput::error("`from` is required for merge_ff (例如 dev)"),
     };
     // 来源必须能解析成提交,报错要在改任何东西之前。
-    match run_git(
+    let source_commit = match run_git(
         cwd,
         &["rev-parse", "--verify", &format!("{from}^{{commit}}")],
     )
     .await
     {
-        Ok(output) => {
-            output.take_stdout(diagnostics);
-        }
+        Ok(output) => output.take_stdout(diagnostics).trim().to_string(),
         Err(error) => return ToolOutput::error(format!("无法解析来源 `{from}`:{error}")),
-    }
+    };
     let (target_label, merge_dir, ref_update) = match into.as_deref().map(validate_ref) {
         Some(Err(error)) => return ToolOutput::error(error),
         Some(Ok(into)) => {
@@ -1109,11 +1095,68 @@ async fn merge_ff_body(
                 // merge --ff-only,工作区文件与 HEAD 一起前进。
                 Some(path) => (into, Some(path), None),
                 // 谁都没检出:快进纯属引用更新,`git fetch . from:into` 天然拒绝非快进。
-                None => (into.clone(), None, Some(format!("{from}:{into}"))),
+                None => (into.clone(), None, Some(format!("{source_commit}:{into}"))),
             }
         }
         None => (String::from("HEAD"), Some(cwd.to_path_buf()), None),
     };
+    // A run already owns cwd. Never wait for B while retaining A's lease:
+    // two simultaneous cross-tree merges would otherwise deadlock.
+    let cross_tree = match merge_dir.as_deref() {
+        Some(dir) => match (std::fs::canonicalize(dir), std::fs::canonicalize(cwd)) {
+            (Ok(target), Ok(current)) => target != current,
+            _ => return ToolOutput::error("merge_ff cannot resolve worktree identities"),
+        },
+        None => false,
+    };
+    let _target_lease = match merge_dir.as_deref() {
+        Some(dir) if cross_tree => {
+            let Some(coordinator) = ctx.execution_coordinator.as_ref() else {
+                return ToolOutput::error("merge_ff cannot acquire the target worktree writer lease; run this operation from the target worktree");
+            };
+            use futures::FutureExt;
+            use kanzei_harness::orchestration::WriterLeaseRequest;
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let request_id = format!(
+                "git-merge-{}-{}",
+                std::process::id(),
+                SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
+            let lease = coordinator
+                .0
+                .acquire_writer_lease(WriterLeaseRequest {
+                    write_scope: dir.to_path_buf(),
+                    run_id: request_id.clone(),
+                    process_id: ctx.process_id.clone().unwrap_or_else(|| "git".into()),
+                    reason: "merge_ff target worktree".into(),
+                })
+                .now_or_never();
+            match lease {
+                Some(Ok(lease)) => Some(lease),
+                Some(Err(error)) => return ToolOutput::error(error),
+                None => {
+                    coordinator.0.cancel_waiter(&request_id);
+                    return ToolOutput::needs_correction(
+                        "GIT_TARGET_BUSY",
+                        "merge_ff target worktree has an active writer; retry after it finishes",
+                    );
+                }
+            }
+        }
+        _ => None,
+    };
+    // The target branch can move during lease acquisition. Refuse if the
+    // worktree was rebound, rather than merging into its new branch.
+    if let (Some(dir), Some(expected)) = (merge_dir.as_deref(), into.as_deref()) {
+        match run_git(dir, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await {
+            Ok(output) if output.stdout.trim() == expected.trim() => {}
+            _ => {
+                return ToolOutput::error(
+                    "merge_ff target worktree changed branch; retry with the current target",
+                )
+            }
+        }
+    }
     let before = run_git(
         merge_dir.as_deref().unwrap_or(cwd),
         &["rev-parse", "--short", &target_label],
@@ -1122,7 +1165,7 @@ async fn merge_ff_body(
     .map(|output| output.take_stdout(diagnostics).trim().to_string())
     .unwrap_or_else(|_| "?".into());
     let result = match (&merge_dir, &ref_update) {
-        (Some(dir), _) => run_git(dir, &["merge", "--ff-only", &from]).await,
+        (Some(dir), _) => run_git(dir, &["merge", "--ff-only", &source_commit]).await,
         (None, Some(spec)) => run_git(cwd, &["fetch", ".", spec]).await,
         (None, None) => unreachable!("merge_ff target must be a worktree or a ref update"),
     };
@@ -1641,6 +1684,9 @@ prunable gitdir file points to non-existent location
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            execution_coordinator: Some(kanzei_harness::orchestration::ExecutionCoordinator(
+                std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
+            )),
             ..Default::default()
         };
         let out = GitTool
@@ -1672,6 +1718,99 @@ prunable gitdir file points to non-existent location
     }
 
     /// 分支没检出在任何工作树时退化为纯引用快进;历史分叉必须干净失败。
+    #[tokio::test]
+    async fn merge_ff_refuses_busy_target_and_releases_target_after_merge() {
+        use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLeaseRequest};
+        let root = temp_repo("ff-target-owner");
+        commit_file(&root, "a.txt", "v1\n", "initial");
+        git_in(&root, &["branch", "target"]);
+        let target = root.join("target-tree");
+        git_in(
+            &root,
+            &["worktree", "add", "-q", target.to_str().unwrap(), "target"],
+        );
+        commit_file(&root, "a.txt", "v2\n", "advance");
+        let coordinator = std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new());
+        let request = |scope: &Path, id: &str| WriterLeaseRequest {
+            write_scope: scope.into(),
+            run_id: id.into(),
+            process_id: id.into(),
+            reason: "test".into(),
+        };
+        let _source = coordinator
+            .acquire_writer_lease(request(&root, "source-run"))
+            .await
+            .unwrap();
+        let target_writer = coordinator
+            .acquire_writer_lease(request(&target, "target-run"))
+            .await
+            .unwrap();
+        let mut ctx = ToolCtx::new(root.clone(), root.clone());
+        ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator(
+            coordinator.clone(),
+        ));
+        let input = serde_json::json!({"action":"merge_ff", "from":"HEAD", "into":"target"});
+        assert_eq!(
+            GitTool.concurrency(&input, &ctx),
+            kanzei_harness::ToolConcurrency::Exclusive
+        );
+        let denied = GitTool.execute(input.clone(), &ctx).await;
+        assert_eq!(denied.code, Some("GIT_TARGET_BUSY"), "{}", denied.content);
+        assert_eq!(
+            std::fs::read_to_string(target.join("a.txt"))
+                .unwrap()
+                .trim(),
+            "v1"
+        );
+        assert!(coordinator.snapshot(&target).waiting_writers.is_empty());
+        drop(target_writer);
+        let merged = GitTool.execute(input.clone(), &ctx).await;
+        assert!(!merged.is_error, "{}", merged.content);
+        assert_eq!(
+            std::fs::read_to_string(target.join("a.txt"))
+                .unwrap()
+                .trim(),
+            "v2"
+        );
+        assert!(coordinator.snapshot(&target).writer_run_id.is_none());
+        assert_eq!(
+            coordinator.snapshot(&root).writer_run_id.as_deref(),
+            Some("source-run")
+        );
+        commit_file(&root, "a.txt", "v3\n", "source diverges");
+        commit_file(&target, "b.txt", "target\n", "target diverges");
+        let rejected = GitTool.execute(input, &ctx).await;
+        assert!(rejected.is_error);
+        assert!(coordinator.snapshot(&target).writer_run_id.is_none());
+        git_in(
+            &root,
+            &["worktree", "remove", "--force", target.to_str().unwrap()],
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fingerprint_drains_both_pipes_for_large_source_sets() {
+        let root = temp_repo("fingerprint-large");
+        std::fs::create_dir_all(root.join("crates")).unwrap();
+        let paths: Vec<String> = (0..5000)
+            .map(|i| format!("crates/source_{i:05}.rs"))
+            .collect();
+        for path in &paths {
+            std::fs::write(root.join(path), "pub fn example() {}\n").unwrap();
+        }
+        let explicit = source_endorsement_fingerprint_for_paths(&root, &paths).unwrap();
+        let discovered = source_endorsement_fingerprint(&root).unwrap();
+        assert_eq!(explicit, discovered);
+        assert_eq!(parse_fingerprint_entries(&explicit).unwrap().len(), 5000);
+        // Git closing stdin on an invalid path must still reap the process.
+        assert!(!hash_source_paths(&root, &["missing.rs".into()])
+            .unwrap()
+            .status
+            .success());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn merge_ff_updates_unchecked_branch_and_refuses_divergence() {
         let root = temp_repo("ffref");

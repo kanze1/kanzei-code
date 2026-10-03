@@ -274,6 +274,9 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             "cli".into(),
         );
     // R-256:RunnerConfig 构造与桌面共用 kanzei_tools::run::build_runner_config(对照表 #12)。
+    ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator(
+        std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
+    ));
     // CLI 无 reasoning 覆盖；--autonomous 复用 App 自主决策协议，不更改工具权限。
     let mut runner_config = kanzei_tools::run::build_runner_config(
         &resolved,

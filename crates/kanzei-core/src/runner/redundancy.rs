@@ -1,6 +1,5 @@
 //! 冗余机械门禁域(R-155 B3):RedundancyWatch 就地提醒(R-100 模式 1 git 重复 /
-//! 模式 2 全量测试白跑 / 模式 3 已知缺陷路径)。is_full_test_command /
-//! defect_known_path_hint / trim_path_token / is_path_like 随域迁移;
+//! 已知缺陷路径)。defect_known_path_hint / trim_path_token / is_path_like 随域迁移;
 //! is_git_query 双归属提 pub(crate) 于 metrics,此处显式导入。
 
 use crate::runner::metrics::is_git_query;
@@ -9,12 +8,9 @@ use kanzei_llm::Part;
 /// R-100 机械门禁:对可机械识别的冗余模式在工具结果中就地处提醒(不阻断,
 /// 先观察后升级)。状态按单次运行持有——轮与轮之间不复用,避免跨轮误报。
 ///
-/// 三种模式(全在工具结果文本追加 `[冗余提醒]` 前缀,summarize_metrics 按前缀计数):
-/// 1. 同一工作树无变化时的重复 git status/diff:以上一次同类的工具结果内容为
-///    工作树指纹,内容一致即判无变化;
-/// 2. 无文件变更的重复全量测试:以上一次 git status/diff 的结果内容为指纹,
-///    全量测试之间指纹未变即判白跑;
-/// 3. 缺陷记录已含文件路径仍调 task:task prompt 里引用 D-xxx 且该缺陷条目
+/// 两种提示均使用 `[冗余提醒]` 前缀供 summarize_metrics 计数:
+/// 1. Git 查询输出重复，仅描述输出，不据此推断源码或测试有效性。
+/// 2. 缺陷记录已含文件路径仍调 task:task prompt 里引用 D-xxx 且该缺陷条目
 ///    字段已含的路径也出现在 prompt 里,说明是在让子代理重新探索已知位置。
 #[derive(Default)]
 pub(crate) struct RedundancyWatch {
@@ -22,12 +18,8 @@ pub(crate) struct RedundancyWatch {
     /// 引擎再往工具结果里塞一行只是噪音。`false` = 整个 watcher 静默(不改任何
     /// 工具结果),与引入冗余门禁之前逐字节一致。
     enabled: bool,
-    /// 上一次 git status/diff 的结果内容(工作树指纹,None = 尚未见过)。
+    /// 上一次 git status/diff 的结果内容(None = 尚未见过)。
     last_git_content: Option<String>,
-    /// 最近一次全量测试时的指纹。
-    last_full_test_tree: Option<String>,
-    /// 本轮是否已跑过全量测试。
-    full_test_ran: bool,
 }
 
 impl RedundancyWatch {
@@ -71,32 +63,11 @@ impl RedundancyWatch {
                         if let Some(prev) = &self.last_git_content {
                             if prev == &original {
                                 content.push_str(
-                                    "\n[冗余提醒] 工作树与上次 git status/diff 无变化,这次查询可省",
+                                    "\n[冗余提醒] 本次 Git 查询输出与上次相同；输出相同不代表文件内容未变",
                                 );
                             }
                         }
                         self.last_git_content = Some(original);
-                    } else {
-                        let command = input
-                            .get("command")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_lowercase();
-                        if is_full_test_command(&command) {
-                            if self.full_test_ran {
-                                if let (Some(cur), Some(prev)) =
-                                    (&self.last_git_content, &self.last_full_test_tree)
-                                {
-                                    if cur == prev {
-                                        content.push_str(
-                                            "\n[冗余提醒] 自上次全量测试以来工作树无变更,这次测试可省",
-                                        );
-                                    }
-                                }
-                            }
-                            self.last_full_test_tree = self.last_git_content.clone();
-                            self.full_test_ran = true;
-                        }
                     }
                 }
                 "task" => {
@@ -109,18 +80,6 @@ impl RedundancyWatch {
             }
         }
     }
-}
-
-/// 全量测试判定:覆盖整个 workspace 的 cargo 测试命令。
-/// `cargo test --workspace` 系列显式全量;不带 `-p` 的 `cargo test` 在工作区根
-/// 跑的就是全量(把 -p 定向测试排除在外,定向不算全量)。
-fn is_full_test_command(command: &str) -> bool {
-    let c = command.to_lowercase();
-    if !(c.contains("cargo test") || c.contains("cargo nextest")) {
-        return false;
-    }
-    const FULL_FLAGS: &[&str] = &["--workspace", "--all", "--all-targets"];
-    FULL_FLAGS.iter().any(|f| c.contains(f)) || !c.contains(" -p ")
 }
 
 /// R-100 模式 3:task prompt 引用缺陷 D-xxx 且该缺陷记录字段已含的路径也出现在
@@ -254,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn 全量测试_工作树未变时_就地提醒() {
+    fn 相同_git输出不能证明全量测试可省() {
         let mut watch = RedundancyWatch::new(true);
         let dir = std::env::temp_dir().join(format!("kz-red-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).ok();
@@ -292,7 +251,19 @@ mod tests {
             "首次全量测试不该提醒"
         );
 
-        // 第二次:git status 内容一致,再跑全量 → 提醒。
+        let edits = vec![(
+            "e1".into(),
+            "edit".into(),
+            serde_json::json!({"path":"crates/kanzei-app/ui/main.js"}),
+            "".into(),
+        )];
+        let mut edited = vec![Part::ToolResult {
+            call_id: "e1".into(),
+            content: "written".into(),
+            is_error: false,
+        }];
+        watch.note_step(&dir, &edits, &mut edited);
+        // 第二次 Git 输出相同，也不能断言测试可省。
         let calls2 = vec![
             (
                 "g2".into(),
@@ -321,7 +292,7 @@ mod tests {
         ];
         watch.note_step(&dir, &calls2, &mut results2);
         assert!(
-            result_content(&results2[1]).contains("[冗余提醒]"),
+            !result_content(&results2[1]).contains("[冗余提醒]"),
             "{}",
             result_content(&results2[1])
         );

@@ -35,6 +35,11 @@ pub(crate) fn clear_conversation(
     if runtime.running.load(Ordering::SeqCst) {
         return Err("对话运行中,不能在它脚下开新段;请先停止它,或新建讨论".into());
     }
+    let _owner = kanzei_core::store::session_execution::try_acquire(
+        &kanzei_core::project_state_path(&root),
+        &session_id,
+    )
+    .map_err(|e| format!("对话正在执行，不能修改历史：{e}"))?;
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     // A late clear request must not recreate a closed or deleted identity.
@@ -550,6 +555,11 @@ pub(crate) fn delete_conversation_segments(
     if runtime.running.load(Ordering::SeqCst) {
         return Err("对话运行中,先停止再删除历史对话".into());
     }
+    let _owner = kanzei_core::store::session_execution::try_acquire(
+        &kanzei_core::project_state_path(&root),
+        &session_id,
+    )
+    .map_err(|e| format!("对话正在执行，不能修改历史：{e}"))?;
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     // 先把全部区间算完再删:删一段会改动快照与序号,边做边算会让后面的区间漂移。

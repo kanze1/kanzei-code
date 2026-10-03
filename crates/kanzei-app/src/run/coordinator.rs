@@ -38,6 +38,32 @@ pub(super) fn should_retry_failed_outcome(
     !halt_token.is_cancelled() && crate::auto_run::should_retry_failed_round(controller)
 }
 
+fn steering_inbox(
+    writer: Arc<Mutex<kanzei_core::TypedSessionWriter>>,
+    runtime: Arc<crate::SessionRuntime>,
+    halt: kanzei_core::CancellationToken,
+) -> kanzei_harness::InputInbox {
+    kanzei_harness::InputInbox::new(move || {
+        let _lifecycle = runtime.lifecycle.lock_or_recover();
+        if halt.is_cancelled() {
+            return Ok(Vec::new());
+        }
+        writer
+            .lock_or_recover()
+            .take_pending_steers()
+            .map(|inputs| {
+                inputs
+                    .into_iter()
+                    .map(|input| kanzei_harness::AsyncNotice {
+                        id: input.input_id,
+                        text: input.prompt,
+                    })
+                    .collect()
+            })
+            .map_err(|error| format!("插话落盘失败：{error}"))
+    })
+}
+
 /// R-202 批2:run_task(原 run.rs 的 Round Coordinator)。装配 → 事件循环 → 轮末收尾。
 /// R-253 批7b:调用参数按生命周期三分——`RoundRequest`(本轮输入)/`RunMode`(运行档位)/
 /// `RuntimeHandles`(会话级句柄),共 4 参,消 too_many。三组均见 assembly.rs 的
@@ -99,44 +125,11 @@ pub(crate) async fn run_task(
     let initial_parts = &session.initial_parts;
     let typed_writer = session.typed_writer.clone();
     let typed_flush_task = session.typed_flush_task;
-    let inbox_path = state_path.clone();
-    let inbox_owner = session_id.clone();
-    let inbox_writer = typed_writer.clone();
-    let inbox_runtime = execution_runtime.clone();
-    round.ctx.input_inbox = Some(kanzei_harness::InputInbox::new(move || {
-        let _lifecycle = inbox_runtime.lifecycle.lock_or_recover();
-        if inbox_runtime
-            .halt
-            .lock_or_recover()
-            .as_ref()
-            .is_some_and(|h| h.is_cancelled())
-        {
-            return Ok(Vec::new());
-        }
-        let store = kanzei_core::SessionStore::open(&inbox_path).map_err(|e| e.to_string())?;
-        let inputs = store
-            .promote_steers(&inbox_owner)
-            .map_err(|e| e.to_string())?;
-        let mut delivered = Vec::new();
-        for input in inputs {
-            let mut writer = inbox_writer.lock_or_recover();
-            writer.steering_message(
-                &input.input_id,
-                kanzei_llm::Message::user_text(input.prompt.clone()),
-            );
-            if !writer.errors().is_empty() {
-                return Err(format!("插话落盘失败：{:?}", writer.errors()));
-            }
-            store
-                .finish_input(&input.input_id, true)
-                .map_err(|e| e.to_string())?;
-            delivered.push(kanzei_harness::AsyncNotice {
-                id: input.input_id,
-                text: input.prompt,
-            });
-        }
-        Ok(delivered)
-    }));
+    round.ctx.input_inbox = Some(steering_inbox(
+        typed_writer.clone(),
+        execution_runtime.clone(),
+        halt_token.clone(),
+    ));
     // round 在 run_execution_loop 期间整体被 &mut 借用(执行循环驱动 round.pipeline),
     // 轮末字段(ctx/_write_lease/run_started/run_epoch_ms)在调用返回后移出;
     // 这里只 clone 调用前后都要用的身份字段。
@@ -715,6 +708,7 @@ pub(crate) async fn run_task(
     maybe_push_after_commit(
         committed_this_round.load(std::sync::atomic::Ordering::Relaxed),
         &ctx.cwd,
+        &halt_token,
         &|name, detail| stage(name, detail),
         &|entry| {
             if let Ok(trace_store) = kanzei_core::SessionStore::open(&trace_state_path) {
@@ -761,3 +755,6 @@ pub(crate) async fn run_task(
     .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod steering_tests;

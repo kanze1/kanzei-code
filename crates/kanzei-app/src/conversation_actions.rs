@@ -66,6 +66,8 @@ pub(crate) async fn conversation_action(
             .unwrap_or_else(|| root.clone())
     };
     let state_path = kanzei_core::project_state_path(&root);
+    let _owner = kanzei_core::store::session_execution::try_acquire(&state_path, &session_id)
+        .map_err(|e| format!("对话正在执行，不能修改历史：{e}"))?;
     let plan = {
         let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
         if !store

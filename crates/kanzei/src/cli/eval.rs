@@ -67,7 +67,7 @@ pub(crate) async fn replay_eval_cli(args: &[String]) -> anyhow::Result<()> {
     let store = kanzei_core::SessionStore::open(&state_path)?;
     store.create_session(&session_id, &project_root.display().to_string(), None)?;
     // 多取 5 倍,过滤掉无失败步骤与解析失败的,凑满 limit。
-    let traces = store.list_trace_payloads(&session_id, limit.saturating_mul(5))?;
+    let traces = store.list_replay_trace_payloads(&session_id, limit.saturating_mul(5))?;
     let mut cases: Vec<kanzei_core::replay::ReplayCase> = Vec::new();
     for (event_id, payload) in &traces {
         let Some(case) = kanzei_core::replay::parse_trace_payload(payload, event_id) else {

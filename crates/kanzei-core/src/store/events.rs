@@ -596,6 +596,55 @@ impl SessionStore {
         Ok(rows)
     }
 
+    /// Recent complete trace groups; incremental chunks are one replay case.
+    /// Legacy payloads without run_id retain their independent event identity.
+    pub fn list_replay_trace_payloads(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "WITH traces AS (
+                SELECT event_id, sequence, payload_json,
+                  CASE WHEN length(json_extract(payload_json, '$.run_id')) > 0
+                  THEN 'run:' || json_extract(payload_json, '$.run_id')
+                  ELSE 'event:' || event_id END AS trace_key
+                FROM session_events WHERE session_id = ?1 AND event_type = 'run.trace'
+             ), recent AS (
+                SELECT trace_key, MAX(sequence) AS last_sequence FROM traces
+                GROUP BY trace_key ORDER BY last_sequence DESC LIMIT ?2
+             ) SELECT traces.trace_key, traces.payload_json FROM traces
+               JOIN recent USING(trace_key)
+               ORDER BY recent.last_sequence DESC, traces.sequence ASC",
+        )?;
+        let mut groups: Vec<(String, Value)> = Vec::new();
+        let rows = statement.query_map(
+            params![session_id, limit.min(i64::MAX as usize) as i64],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        for row in rows {
+            let (key, payload) = row?;
+            let value: Value = serde_json::from_str(&payload)?;
+            if groups.last().is_none_or(|(previous, _)| previous != &key) {
+                groups.push((key, serde_json::json!({"events": []})));
+            }
+            let (_, aggregate) = groups.last_mut().expect("group just inserted");
+            if let Some(events) = value.get("events").and_then(Value::as_array) {
+                aggregate["events"]
+                    .as_array_mut()
+                    .unwrap()
+                    .extend(events.iter().cloned());
+            }
+            if let Some(outcome) = value.get("outcome").filter(|value| !value.is_null()) {
+                aggregate["outcome"] = outcome.clone();
+            }
+        }
+        Ok(groups
+            .into_iter()
+            .map(|(id, value)| (id, value.to_string()))
+            .collect())
+    }
+
     /// D-297 验收③:run.trace 保留策略——每会话只保留最近 `keep_rounds` 轮的轨迹行。
     /// 增量事件与整包补写共用顶层 `run_id` 字段(payload_json 内),按 run_id 分组、
     /// 保留 sequence 最新的一组,更早的整组删除。返回删除的行数。
@@ -1152,6 +1201,48 @@ mod tests {
             .unwrap();
         assert!(store
             .incomplete_compaction_diagnostics("ses_test")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn replay_groups_incremental_chunks_and_limits_runs_not_rows() {
+        let store = store();
+        store
+            .create_session("replay-chunks", "C:/replay", None)
+            .unwrap();
+        let start =
+            serde_json::json!({"kind":"tool.started","id":"a","name":"edit","summary":"source"});
+        let end =
+            serde_json::json!({"kind":"tool.completed","id":"a","ok":false,"error":"conflict"});
+        for payload in [
+            serde_json::json!({"events":[],"outcome":"legacy"}),
+            serde_json::json!({"run_id":"r1","events":[start.clone()]}),
+            serde_json::json!({"run_id":"r2","events":[]}),
+            serde_json::json!({"run_id":"r1","events":[end.clone()]}),
+            serde_json::json!({"run_id":"r1","events":[start,end],"outcome":"failed"}),
+        ] {
+            store
+                .append_event("replay-chunks", "run.trace", &payload)
+                .unwrap();
+        }
+        let groups = store
+            .list_replay_trace_payloads("replay-chunks", 1)
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        let case = crate::replay::parse_trace_payload(&groups[0].1, &groups[0].0).unwrap();
+        assert_eq!(case.steps.len(), 1);
+        assert_eq!(case.tool_failures(), 1);
+        assert_eq!(case.outcome, "failed");
+        assert_eq!(
+            store
+                .list_replay_trace_payloads("replay-chunks", 10)
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(store
+            .list_replay_trace_payloads("replay-chunks", 0)
             .unwrap()
             .is_empty());
     }

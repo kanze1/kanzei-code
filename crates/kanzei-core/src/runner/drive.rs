@@ -653,7 +653,12 @@ async fn stream_request_step(
             reasoning: config.reasoning,
             service_tier: config.service_tier.clone(),
         };
-        let mut stream = match client
+        // Stop can win while the inbox or context maintenance runs after the
+        // step-start check. Never poll the provider first when already stopped.
+        let opened = tokio::select! {
+            biased;
+            _ = halt_signalled(halt) => return Ok(StepOutcome::Stopped),
+            result = client
             .stream_with_retry_notice_with_limits(
                 route,
                 &request,
@@ -670,8 +675,9 @@ async fn stream_request_step(
                     });
                 },
             )
-            .await
-        {
+            => result,
+        };
+        let mut stream = match opened {
             Err(error) if error.is_context_overflow() => {
                 if recover_context_overflow(messages, overflow_recoveries, overflow_traces) {
                     continue;

@@ -161,6 +161,17 @@ fn 新对话在运行中的会话上拒绝开新段且不写reset() {
     assert_eq!(resets(), 0, "运行中被拒绝时不得写 conversation.reset");
 
     running.store(false, Ordering::SeqCst);
+    let owner = kanzei_core::store::session_execution::try_acquire(
+        &kanzei_core::project_state_path(&project_root),
+        &session_id,
+    )
+    .unwrap();
+    assert!(clear_conversation(&state, &project_dir, None).is_err());
+    assert!(
+        crate::conversation::delete_conversation_segments(&state, &project_dir, &[], None).is_err()
+    );
+    assert_eq!(resets(), 0, "外部执行 owner 也必须阻止历史写入");
+    drop(owner);
     clear_conversation(&state, &project_dir, None).expect("空闲会话应能开新段");
     assert_eq!(resets(), 1, "空闲时开新段应恰好写一条 conversation.reset");
 

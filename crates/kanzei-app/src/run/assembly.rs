@@ -644,6 +644,9 @@ async fn prepare_session(
             .to_string();
         let worktree_key = ctx.cwd.display().to_string();
         let mut ctx = ctx;
+        ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator(
+            handles.coordinator.clone(),
+        ));
         ctx = ctx.with_identity(
             worktree_key,
             project_write_key,

@@ -400,6 +400,17 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
     fn snapshot(&self, project_root: &Path) -> CoordinatorSnapshot;
 }
 
+/// Shared with tools that must acquire another worktree's write scope.
+#[derive(Clone)]
+pub struct ExecutionCoordinator(pub std::sync::Arc<dyn ProjectExecutionCoordinator>);
+
+impl std::fmt::Debug for ExecutionCoordinator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutionCoordinator")
+            .finish_non_exhaustive()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // R-173 阶段编排契约
 //

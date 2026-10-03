@@ -1066,6 +1066,50 @@ impl TypedSessionWriter {
         )])
     }
 
+    /// A delivery is visible only when promotion, typed facts and input receipts
+    /// all commit. A failed delivery leaves the whole FIFO pending for retry.
+    pub fn take_pending_steers(&mut self) -> Result<Vec<super::AdmittedInput>, SessionFactError> {
+        let mut next_invariant = self.invariant.clone();
+        let result = (|| {
+            if self.terminal {
+                return Err(SessionFactError::Invariant("turn already finalized".into()));
+            }
+            let store = SessionStore::open(&self.state_path)?;
+            let tx = Transaction::new_unchecked(&store.connection, TransactionBehavior::Immediate)
+                .map_err(StoreError::from)?;
+            let inputs = store.promote_where_tx(&tx, &self.session_id, "steer", false)?;
+            let facts = inputs
+                .iter()
+                .map(|input| {
+                    SessionFactEnvelope::new(
+                        &self.turn_id,
+                        None,
+                        SessionFact::SteeringMessageCommitted {
+                            input_id: input.input_id.clone(),
+                            message: Message::user_text(input.prompt.clone()),
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            store.append_session_facts_tx(&tx, &self.session_id, &mut next_invariant, &facts)?;
+            for input in &inputs {
+                if !super::inbox::finish_input_in(&tx, &input.input_id, true)? {
+                    return Err(SessionFactError::Invariant(format!(
+                        "input {} is not active",
+                        input.input_id
+                    )));
+                }
+            }
+            tx.commit().map_err(StoreError::from)?;
+            Ok(inputs)
+        })();
+        match &result {
+            Ok(_) => self.invariant = next_invariant,
+            Err(error) => self.errors.push(error.to_string()),
+        }
+        result
+    }
+
     /// source step 是单次 runner 调用内的局部编号；流水线可能多次从 1 开始。
     /// writer 另分配单调 logical step 落库，避免同一用户 turn 内跨阶段撞号。
     pub fn turn_started(&mut self, source_step: u32, max_steps: u32) {

@@ -92,6 +92,9 @@ impl Tool for GitTool {
     fn concurrency(&self, input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
         match input["action"].as_str() {
             Some("status" | "diff" | "log") => ToolConcurrency::shared_worktree(ctx),
+            // The target is resolved asynchronously and may be another tree.
+            // Serialize this batch; merge_ff also acquires the target run lease.
+            Some("merge_ff") => ToolConcurrency::Exclusive,
             _ => ToolConcurrency::write_worktree(ctx),
         }
     }
@@ -210,7 +213,7 @@ async fn git_body_with_diagnostics(
             Ok(plan) => plan.render(),
             Err(error) => ToolOutput::error(error),
         },
-        "merge_ff" => merge_ff(&ctx.cwd, input.from, input.into).await,
+        "merge_ff" => merge_ff(ctx, input.from, input.into).await,
         "finalize" => finalize(ctx, input.files, input.message, input.requirement_id).await,
         other => ToolOutput::error(format!(
             "unknown action `{other}`; valid: status | diff | log | commit_plan | preflight | stage | commit | merge_ff | finalize | init"

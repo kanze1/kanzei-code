@@ -115,7 +115,7 @@ pub use profiles::{
     frontend_inspection_guidance, prompt_tool_mentions, prompt_tool_search_selects, DevProfile,
     GeneralChatProfile, ReadonlyProfile, ResearchProfile, DEV_DEFERRED_TOOLS,
 };
-pub use shell::{detected_shell, fresh_path};
+pub use shell::{detected_shell, fresh_path, kill_tree};
 pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};
 pub use work::{
     active_claims_by_line, release_line_claims, resolve_work_decision, resolve_work_selection,

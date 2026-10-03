@@ -72,10 +72,11 @@ pub(crate) fn now_ms() -> i64 {
 pub(crate) async fn maybe_push_after_commit(
     committed: bool,
     cwd: &std::path::Path,
+    halt: &kanzei_core::CancellationToken,
     on_stage: &(dyn Fn(&str, String) + Sync),
     on_trace: &(dyn Fn(serde_json::Value) + Sync),
 ) {
-    if !committed {
+    if !committed || halt.is_cancelled() {
         return;
     }
     on_stage("推送", "本轮有提交,自动 git push…".into());
@@ -86,7 +87,14 @@ pub(crate) async fn maybe_push_after_commit(
     {
         command.creation_flags(0x0800_0000);
     }
-    let output = command.arg("-C").arg(cwd).arg("push").output().await;
+    command
+        .arg("-C")
+        .arg(cwd)
+        .arg("push")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "Never")
+        .stdin(std::process::Stdio::null());
+    let output = push_output(command, halt, std::time::Duration::from_secs(60)).await;
     let entry = match output {
         Ok(out) if out.status.success() => {
             json!({ "kind": "push", "ok": true, "at": now_ms() })
@@ -107,6 +115,52 @@ pub(crate) async fn maybe_push_after_commit(
         }
     };
     on_trace(entry);
+}
+
+/// A separate task owns the child until cancellation cleanup completes, even
+/// when the round watchdog aborts the caller while it is waiting for push.
+async fn push_output(
+    mut command: tokio::process::Command,
+    halt: &kanzei_core::CancellationToken,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    struct CancelOnDrop(kanzei_core::CancellationToken);
+    impl Drop for CancelOnDrop {
+        fn drop(&mut self) {
+            self.0.cancel();
+        }
+    }
+    let cancel = halt.child_token();
+    let _guard = CancelOnDrop(cancel.clone());
+    command
+        .kill_on_drop(true)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let task = tokio::spawn(async move {
+        if cancel.is_cancelled() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "自动 push 已取消",
+            ));
+        }
+        let child = command.spawn()?;
+        let pid = child.id();
+        let output = child.wait_with_output();
+        tokio::pin!(output);
+        let reason = tokio::select! {
+            biased;
+            result = &mut output => return result,
+            _ = cancel.cancelled() => (std::io::ErrorKind::Interrupted, "自动 push 已取消"),
+            _ = tokio::time::sleep(timeout) => (std::io::ErrorKind::TimedOut, "自动 push 超时"),
+        };
+        if let Some(pid) = pid {
+            kanzei_tools::kill_tree(pid).await;
+        }
+        // Dropping output also kills the direct child on platforms where the
+        // existing process-tree primitive cannot terminate descendants.
+        Err(std::io::Error::new(reason.0, reason.1))
+    });
+    task.await.map_err(std::io::Error::other)?
 }
 
 pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: String) {
@@ -259,6 +313,7 @@ mod auto_push_tests {
         maybe_push_after_commit(
             true,
             &repo,
+            &kanzei_core::CancellationToken::new(),
             &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
             &|entry| traces.lock().unwrap().push(entry),
         )
@@ -289,6 +344,7 @@ mod auto_push_tests {
         maybe_push_after_commit(
             false,
             &repo,
+            &kanzei_core::CancellationToken::new(),
             &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
             &|entry| traces.lock().unwrap().push(entry),
         )
@@ -318,6 +374,7 @@ mod auto_push_tests {
         maybe_push_after_commit(
             true,
             &repo,
+            &kanzei_core::CancellationToken::new(),
             &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
             &|entry| traces.lock().unwrap().push(entry),
         )
@@ -696,5 +753,156 @@ mod persistence_boundary_tests {
         assert_eq!(notifications[1].sequence, 2);
         assert_eq!(notifications[1].status, "succeeded");
         assert_eq!(notifications[1].summary, "任务完成");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod push_lifetime_tests {
+    use super::push_output;
+    use std::{path::PathBuf, time::Duration};
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "kz-push-lifetime-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("child.ps1"),
+                "$PID | Set-Content child.pid; Start-Sleep -Seconds 60",
+            )
+            .unwrap();
+            std::fs::write(dir.join("parent.ps1"),
+                "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','child.ps1'; $PID | Set-Content parent.pid; Start-Sleep -Seconds 60").unwrap();
+            Self(dir)
+        }
+        fn command(&self) -> tokio::process::Command {
+            let mut command = tokio::process::Command::new("powershell");
+            command
+                .args([
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "parent.ps1",
+                ])
+                .current_dir(&self.0)
+                .creation_flags(0x0800_0000);
+            command
+        }
+        async fn pids(&self) -> Vec<u32> {
+            tokio::time::timeout(Duration::from_secs(15), async {
+                loop {
+                    let pids = ["parent.pid", "child.pid"]
+                        .iter()
+                        .map(|name| {
+                            std::fs::read_to_string(self.0.join(name))
+                                .ok()?
+                                .trim()
+                                .parse::<u32>()
+                                .ok()
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    if let Some(pids) = pids {
+                        return pids;
+                    }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            })
+            .await
+            .expect("fixture process tree started")
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn alive(pid: u32) -> bool {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> isize;
+            fn GetExitCodeProcess(handle: isize, code: *mut u32) -> i32;
+            fn CloseHandle(handle: isize) -> i32;
+        }
+        // SAFETY: local handle is queried and closed exactly once.
+        unsafe {
+            let handle = OpenProcess(0x1000, 0, pid);
+            if handle == 0 {
+                return false;
+            }
+            let mut code = 0;
+            let queried = GetExitCodeProcess(handle, &mut code);
+            CloseHandle(handle);
+            queried != 0 && code == 259
+        }
+    }
+    async fn gone(pids: &[u32]) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while pids.iter().any(|pid| alive(*pid)) {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("push child and descendant must both terminate");
+    }
+    #[tokio::test]
+    async fn push_cancellation_terminates_process_tree() {
+        let fixture = Fixture::new();
+        let halt = kanzei_core::CancellationToken::new();
+        let worker_halt = halt.clone();
+        let command = fixture.command();
+        let worker = tokio::spawn(async move {
+            push_output(command, &worker_halt, Duration::from_secs(60)).await
+        });
+        let pids = fixture.pids().await;
+        halt.cancel();
+        assert_eq!(
+            worker.await.unwrap().unwrap_err().kind(),
+            std::io::ErrorKind::Interrupted
+        );
+        gone(&pids).await;
+    }
+    #[tokio::test]
+    async fn aborting_push_caller_still_terminates_process_tree() {
+        let fixture = Fixture::new();
+        let command = fixture.command();
+        let worker = tokio::spawn(async move {
+            push_output(
+                command,
+                &kanzei_core::CancellationToken::new(),
+                Duration::from_secs(60),
+            )
+            .await
+        });
+        let pids = fixture.pids().await;
+        worker.abort();
+        assert!(worker.await.unwrap_err().is_cancelled());
+        gone(&pids).await;
+    }
+    #[tokio::test]
+    async fn push_timeout_terminates_process_tree() {
+        let fixture = Fixture::new();
+        let command = fixture.command();
+        let worker = tokio::spawn(async move {
+            push_output(
+                command,
+                &kanzei_core::CancellationToken::new(),
+                Duration::from_secs(8),
+            )
+            .await
+        });
+        let pids = fixture.pids().await;
+        assert_eq!(
+            worker.await.unwrap().unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut
+        );
+        gone(&pids).await;
     }
 }
