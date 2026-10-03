@@ -73,16 +73,7 @@ async fn execute_impl(
     let action = input["action"].as_str().unwrap_or("list");
     let mut team = kanzei_tools::team::find(&root, &owner);
     if team.is_none() && matches!(action, "list" | "get") {
-        let store = kanzei_tools::team::store::TeamStore::open(&root, &owner)?;
-        for job in store.list()? {
-            if job.active() {
-                store.update(&job.id, |j| {
-                    j.state = "interrupted".into();
-                    j.latest = "运行已中断，可继续此任务".into();
-                    j.revision += 1;
-                })?;
-            }
-        }
+        let store = kanzei_tools::team::store_for_inspection(&root, &owner)?;
         if action == "list" {
             return Ok(json!(store.list()?));
         }

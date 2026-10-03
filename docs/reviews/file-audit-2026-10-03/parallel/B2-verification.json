@@ -1,0 +1,302 @@
+{
+  "task": "B2",
+  "baseline": "5b2686e0",
+  "initial_baseline": "a962248c",
+  "integrated_C2_original": "b9f3ae24f14e7786ebe8df09573d4d3ac43a3a31",
+  "validation_parent_commit": "ed34c4b3",
+  "branch": "kanzei/audit-b2",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code",
+  "status": "verified",
+  "environment": "Windows",
+  "repository_review_complete": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-tools/src/team/store.rs",
+      "judgment": "PASS",
+      "sha256": "3835d4798fa86a1c850ce7538f4ddac5bb768b3eece7b078d82d6f726173ad99",
+      "sha256_utf8_lf": "492f0df21eac83a03b9bbef78d43531c1dac0372929af6a408e6c229082ca16b",
+      "lines": 147
+    },
+    {
+      "path": "crates/kanzei-tools/src/team/mod.rs",
+      "judgment": "P1",
+      "sha256": "ef01a4466842691d8276efa9c8277b06d8d7687ef1069943f2ab14cf34d29e97",
+      "sha256_utf8_lf": "ef01a4466842691d8276efa9c8277b06d8d7687ef1069943f2ab14cf34d29e97",
+      "lines": 1346
+    },
+    {
+      "path": "crates/kanzei-tools/src/team/tests.rs",
+      "judgment": "PASS",
+      "sha256": "b3c17912ddc27e0f38661a88eace7513c28ca124e21c4a6dcec7bac906087cff",
+      "sha256_utf8_lf": "b3c17912ddc27e0f38661a88eace7513c28ca124e21c4a6dcec7bac906087cff",
+      "lines": 1886
+    }
+  ],
+  "contract_slices": [
+    {
+      "path": "crates/kanzei-app/src/agent_team.rs",
+      "judgment": "P1",
+      "sha256": "d2efec6a17bcbe88bbee505b198fab7e01ff69b9952b3f892c154571824dc5d8",
+      "sha256_utf8_lf": "d2efec6a17bcbe88bbee505b198fab7e01ff69b9952b3f892c154571824dc5d8",
+      "lines": 254,
+      "scope": "list/get absent snapshot recovery caller only; B1 full review not recounted"
+    }
+  ],
+  "fixed_root_causes": {
+    "P0": 0,
+    "P1": 6,
+    "P2": 0
+  },
+  "roots": [
+    "duplicate process-local registry owners",
+    "orphan recovery overwrites live owner",
+    "late ask prefix and worker state admission",
+    "completion/stop/failure loses admitted continuation",
+    "adopt/resume commit race",
+    "persistence failure leaves phantom owner/infinite wait/uncancelled worker or replays cancelled queue"
+  ],
+  "new_regression_tests": [
+    "failed_launch_state_write_does_not_leave_a_phantom_worker_and_retry_can_start",
+    "failed_completion_state_write_releases_owner_and_wait_returns_error",
+    "wait_cannot_observe_new_job_before_its_worker_is_registered",
+    "concurrent_registration_creates_one_state_owner",
+    "stop_cancels_worker_even_when_pending_question_record_is_corrupt",
+    "cancelled_cleanup_does_not_relaunch_queued_followup_after_stop_save_failure",
+    "stop_all_cancels_known_worker_even_when_job_store_cannot_be_read",
+    "stop_all_cancels_real_worker_when_state_write_fails_and_does_not_relaunch",
+    "inspection_rechecks_registry_after_an_absent_snapshot_and_recovers_only_orphans",
+    "stop_after_success_before_worker_cleanup_finishes_stopped",
+    "cleanup_hands_queued_resume_to_one_new_worker_and_old_cleanup_cannot_remove_it",
+    "ask_registration_and_stop_share_lifecycle_and_late_asks_do_not_persist",
+    "timed_out_worker_hands_off_new_explicit_resume_without_replaying_original_messages",
+    "ask_rejects_retired_token_and_old_attempt_but_admits_current_attempt",
+    "adoption_serializes_done_check_apply_and_commit_against_resume"
+  ],
+  "checks": [
+    {
+      "command": "cargo test -p kanzei-tools --lib team::tests:: -- --quiet",
+      "log": "output/parallel-b2/team-final-pre-negative.log",
+      "exit_code": 0,
+      "log_sha256": "b63e35c9e373c907ea686d4f3485f2168a1e77037a934509cdf5b3e65b10415b",
+      "actual_recompile_in_log": true,
+      "passed": 31,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test -p kanzei-tools -- --quiet",
+      "log": "output/parallel-b2/tools-test-retry.log",
+      "exit_code": 0,
+      "log_sha256": "c7360b4902c7b9e14bdaef0729d9eceee4eb44007bd04bd1723e026fb6967199",
+      "actual_recompile_in_log": false,
+      "passed": 775,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "command": "cargo test -p kanzei-app -- --quiet",
+      "log": "output/parallel-b2/app-test-final.log",
+      "exit_code": 0,
+      "log_sha256": "90c6c80f8303079bda2976c78c82710d00e258cd42865b5c27148cb57cf8bc50",
+      "actual_recompile_in_log": true,
+      "passed": 546,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo check -p kanzei-tools -p kanzei-app",
+      "log": "output/parallel-b2/check-final.log",
+      "exit_code": 0,
+      "log_sha256": "32ffac61ad84728fdbae6b5e294cff70af38708be2cc9db98b55168ad9e20dc8",
+      "actual_recompile_in_log": true
+    },
+    {
+      "command": "cargo clippy -p kanzei-tools -p kanzei-app --all-targets -- -D warnings",
+      "log": "output/parallel-b2/clippy-final.log",
+      "exit_code": 0,
+      "log_sha256": "88a86eea2dca072d15038edb26aca119ad0af2e24f661b33586eaa23a2f2ed28",
+      "actual_recompile_in_log": true
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "log": "output/parallel-b2/fmt-final.log",
+      "exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "actual_recompile_in_log": false
+    }
+  ],
+  "negative_controls": [
+    {
+      "case": "registry",
+      "test": "concurrent_registration_creates_one_state_owner",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-registry.log",
+      "log_sha256": "7c84906704a2ec2bec9c914210b7b18950305d7e77201f901752f026dd2d46f2"
+    },
+    {
+      "case": "recovery",
+      "test": "inspection_rechecks_registry_after_an_absent_snapshot_and_recovers_only_orphans",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-recovery.log",
+      "log_sha256": "0f62d6b4b08656c9d76ff9e58e9d8fba59b3fec503bc2bc3ca740fa5a3a59ae5"
+    },
+    {
+      "case": "successful-cleanup",
+      "test": "stop_after_success_before_worker_cleanup_finishes_stopped",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-successful-cleanup.log",
+      "log_sha256": "74ed57af6e2e390127043691f7072146a1dd7ac1d355ce92c894b3fe3c529913"
+    },
+    {
+      "case": "ask-prefix",
+      "test": "ask_registration_and_stop_share_lifecycle_and_late_asks_do_not_persist",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-ask-prefix.log",
+      "log_sha256": "cbc28f006d2b51edf1a8e72110d2c59eac031b34e278401b94cdfa9a4b24d709"
+    },
+    {
+      "case": "adopt",
+      "test": "adoption_serializes_done_check_apply_and_commit_against_resume",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-adopt.log",
+      "log_sha256": "348d8af9107b0ee732c71f67443123aaa6c31d47f9591f5dcea633697ea3f313"
+    },
+    {
+      "case": "launch-failure",
+      "test": "failed_launch_state_write_does_not_leave_a_phantom_worker_and_retry_can_start",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-launch-failure.log",
+      "log_sha256": "71a2274991297637306fe58355697495839a0837f18cff23ff95fa77caed99bb"
+    },
+    {
+      "case": "failed-cleanup",
+      "test": "timed_out_worker_hands_off_new_explicit_resume_without_replaying_original_messages",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-failed-cleanup.log",
+      "log_sha256": "02c50c65d8989bec7f53002e22a8b9c09ae8641bf8f8d1734cd2b6081975f124"
+    },
+    {
+      "case": "token-identity",
+      "test": "ask_rejects_retired_token_and_old_attempt_but_admits_current_attempt",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-token-identity.log",
+      "log_sha256": "7624297a10f7c409db10a305fd4f662e5ab3922f2e865950cdfe94f4a99112f6"
+    },
+    {
+      "case": "ownerless-wait",
+      "test": "failed_completion_state_write_releases_owner_and_wait_returns_error",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-ownerless-wait.log",
+      "log_sha256": "a1cbf0e6cd9ebcd74ce7d0c7da2f537f84641d1b3bb01ded0afe231ae5210ed1"
+    },
+    {
+      "case": "spawn-boundary",
+      "test": "wait_cannot_observe_new_job_before_its_worker_is_registered",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-spawn-boundary.log",
+      "log_sha256": "52f93abaa769d6f014fd23ae3e0f9a554e1297f1b7591eee70ed1819c03940f8"
+    },
+    {
+      "case": "stop-write",
+      "test": "stop_all_cancels_real_worker_when_state_write_fails_and_does_not_relaunch",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-stop-write.log",
+      "log_sha256": "61c727959db0c032e377c276fa3a249b32f98f7cb1f4c1c1e46fdc2e80d25860"
+    },
+    {
+      "case": "stop-question",
+      "test": "stop_cancels_worker_even_when_pending_question_record_is_corrupt",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-stop-question.log",
+      "log_sha256": "ce08062b7eb04299590edce8665552193292cb1a70f61dc97f5d1cb4154359a7"
+    },
+    {
+      "case": "stop-read",
+      "test": "stop_all_cancels_known_worker_even_when_job_store_cannot_be_read",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-stop-read.log",
+      "log_sha256": "aa3772e3f39d158ff7021f4a2ef7f12eb9df3882197827a434123a437069572d"
+    },
+    {
+      "case": "cancelled-handoff",
+      "test": "cancelled_cleanup_does_not_relaunch_queued_followup_after_stop_save_failure",
+      "exit_code": 101,
+      "assertion_failed": true,
+      "log": "output/parallel-b2/negative-cancelled-handoff.log",
+      "log_sha256": "7797275b13f4f4b79f6a99bf4614ef9dd7d162479cf79c231b7bda527df041d3"
+    }
+  ],
+  "initial_failures": [
+    {
+      "command": "cargo test -p kanzei-tools --lib team::tests:: -- --quiet",
+      "log": "output/parallel-b2/pre-team.log",
+      "exit_code": 101,
+      "log_sha256": "35999dc6044a6001c640d81856358850e7f54ee7ee374acb3e0adbcba3d51769",
+      "actual_recompile_in_log": true,
+      "passed": 24,
+      "failed": 1,
+      "ignored": 0,
+      "classification": "actual regression: failed ToolOutput returns Ok and still loses accepted continuation; repaired and same test passes"
+    },
+    {
+      "command": "cargo test -p kanzei-tools -- --quiet",
+      "log": "output/parallel-b2/tools-test-final.log",
+      "exit_code": 101,
+      "log_sha256": "347aeda993d8dd10413c03d9165b922b121ceb4da62ac9c5722d018da31152df",
+      "actual_recompile_in_log": true,
+      "passed": 772,
+      "failed": 3,
+      "ignored": 1,
+      "classification": "environment: two native browser tests missing worktree playwright-core; isolated MiKTeX first concurrent pdflatex.fmt build Windows error 183; existing dependency root and initialized isolated cache then complete retry passes",
+      "details_log": "output/parallel-b2/miktex-isolated-initialization.log"
+    }
+  ],
+  "isolation": {
+    "KANZEI_HOME_USERPROFILE_HOME_APPDATA_LOCALAPPDATA": "output/parallel-b2/profile",
+    "CARGO_HOME_RUSTUP_HOME": "existing toolchain cache only",
+    "CARGO_TARGET_DIR": "C:/Users/kanzei/Documents/kanzei code/target",
+    "KANZEI_PLAYWRIGHT_ROOT": "C:/Users/kanzei/Documents/kanzei code (existing node_modules)",
+    "application_state": "temporary Git projects/SQLite and local HTTP mock only",
+    "real_user_state_read": false
+  },
+  "source_restoration": {
+    "negative_script_asserts_exact_original_bytes": true,
+    "mtime_refreshed_after_final_negative": true,
+    "final_compilation_and_clippy_after_restoration": true,
+    "generated_schema_content_equal_restored": true
+  },
+  "contracts": {
+    "added_internal_public_API": "team::store_for_inspection(root,owner) -> Result<TeamStore>",
+    "callers_adapted": [
+      "app/agent_team list/get recovery"
+    ],
+    "private_worker_identity": "Arc<CancellationToken>",
+    "persistent_format_change": false,
+    "UI_or_IPC_format_change": false,
+    "locks": "TEAMS synchronous no callbacks/await/lifecycle; team.lifecycle -> active/store/questions -> app lifecycle; writer lease acquired before team adopt; all async wait/reap outside lifecycle"
+  },
+  "remaining_boundaries": [
+    "app main actor late ask and final cancel_owner belongs to A2/root; B2 does not claim full app ask chain safe",
+    "different supported portable/profile runtimes sharing a project need native reproduction before grading; same-executable/home desktop windows already share service_lock and are not a B2 P1",
+    "persistence unavailable leaves original stored fact; wait errors, cancellation still proceeds, explicit stop/resume after fault clears"
+  ],
+  "scripts": [
+    "output/parallel-b2/verify-env.ps1",
+    "output/parallel-b2/negative.py",
+    "output/parallel-b2/final-checks.ps1",
+    "output/parallel-b2/build-verification.py"
+  ]
+}

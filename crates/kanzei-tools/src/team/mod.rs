@@ -26,6 +26,7 @@ use tokio::sync::{Notify, Semaphore};
 pub type TeamEvent = Arc<dyn Fn(&AgentJob) + Send + Sync>;
 pub type TeamAsk =
     Arc<dyn Fn(&AgentJob, kanzei_core::AskRequest) -> kanzei_core::AskFuture + Send + Sync>;
+type ParentAsk = Arc<dyn Fn(kanzei_core::AskRequest) -> kanzei_core::AskFuture + Send + Sync>;
 #[derive(Clone)]
 pub struct AgentTeam(Arc<Inner>);
 struct Inner {
@@ -37,7 +38,7 @@ struct Inner {
     runtime: Mutex<SubagentRuntime>,
     client: LlmClient,
     lifecycle: Mutex<()>,
-    active: Mutex<HashMap<String, CancellationToken>>,
+    active: Mutex<HashMap<String, Arc<CancellationToken>>>,
     parent: Mutex<Vec<Message>>,
     event: Mutex<Option<TeamEvent>>,
     ask_router: Mutex<Option<TeamAsk>>,
@@ -60,6 +61,47 @@ pub fn find(root: &Path, owner: &str) -> Option<AgentTeam> {
         .unwrap()
         .get(&key(root, owner))
         .cloned()
+}
+fn get_or_register(
+    root: &Path,
+    owner: &str,
+    create: impl FnOnce() -> Result<AgentTeam>,
+) -> Result<AgentTeam> {
+    let mut teams = TEAMS.get_or_init(Default::default).lock().unwrap();
+    let key = key(root, owner);
+    if let Some(team) = teams.get(&key) {
+        return Ok(team.clone());
+    }
+    // Creation only opens/reconciles the store and constructs the owner. It must
+    // never emit an event, publish a mailbox notice, or wait for a worker.
+    let team = create()?;
+    teams.insert(key, team.clone());
+    Ok(team)
+}
+
+fn recover_interrupted(store: &TeamStore) -> Result<()> {
+    for job in store.list()? {
+        if job.active() {
+            store.update(&job.id, |j| {
+                j.state = "interrupted".into();
+                j.latest = "运行已中断，可继续此任务".into();
+                j.updated_at = now().max(j.updated_at + 1);
+                j.revision += 1;
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Recover persisted jobs only while no registered runtime owns this team.
+pub fn store_for_inspection(root: &Path, owner: &str) -> Result<TeamStore> {
+    let teams = TEAMS.get_or_init(Default::default).lock().unwrap();
+    if let Some(team) = teams.get(&key(root, owner)) {
+        return Ok(team.0.store.clone());
+    }
+    let store = TeamStore::open(root, owner)?;
+    recover_interrupted(&store)?;
+    Ok(store)
 }
 pub fn now() -> u64 {
     SystemTime::now()
@@ -109,55 +151,43 @@ impl AgentTeam {
         // A team outlives a turn; never retain or drain its parent's turn writer.
         ctx.input_inbox = None;
         runtime.options.host = None;
-        if let Some(team) = find(&ctx.project_root, &owner) {
-            if let Some(mailbox) = ctx.async_mailbox.clone() {
-                team.set_mailbox(mailbox);
-            }
-            *team.0.runtime.lock().unwrap() = runtime;
-            *team.0.config.lock().unwrap() = config;
-            if event.is_some() {
-                *team.0.event.lock().unwrap() = event;
-            }
-            return Ok(team);
+        let root = ctx.project_root.clone();
+        let mailbox = ctx.async_mailbox.clone();
+        let team = get_or_register(&root, &owner, || {
+            let store = TeamStore::open(&ctx.project_root, &owner)?;
+            // An interrupted process has no live worker. Never replay writes automatically.
+            recover_interrupted(&store)?;
+            let team = Self(Arc::new(Inner {
+                mailbox: Mutex::new(ctx.async_mailbox.clone()),
+                child_mailboxes: Mutex::new(HashMap::new()),
+                child_ledgers: Mutex::new(HashMap::new()),
+                notification_lock: Mutex::new(()),
+                root: ctx.project_root.clone(),
+                ctx,
+                owner: owner.clone(),
+                store,
+                config: Mutex::new(config.clone()),
+                runtime: Mutex::new(runtime.clone()),
+                client,
+                lifecycle: Mutex::new(()),
+                active: Mutex::new(HashMap::new()),
+                parent: Mutex::new(Vec::new()),
+                event: Mutex::new(event.clone()),
+                ask_router: Mutex::new(None),
+                changed: Notify::new(),
+                slots: Arc::new(Semaphore::new(4)),
+                spawn_lock: tokio::sync::Mutex::new(()),
+            }));
+            Ok(team)
+        })?;
+        if let Some(mailbox) = mailbox {
+            team.set_mailbox(mailbox);
         }
-        let store = TeamStore::open(&ctx.project_root, &owner)?;
-        // An interrupted process has no live worker. Never replay writes automatically.
-        for job in store.list()? {
-            if job.active() {
-                store.update(&job.id, |j| {
-                    j.state = "interrupted".into();
-                    j.latest = "运行已中断，可继续此任务".into();
-                    j.updated_at = now();
-                    j.revision += 1;
-                })?;
-            }
+        *team.0.runtime.lock().unwrap() = runtime;
+        *team.0.config.lock().unwrap() = config;
+        if event.is_some() {
+            *team.0.event.lock().unwrap() = event;
         }
-        let team = Self(Arc::new(Inner {
-            mailbox: Mutex::new(ctx.async_mailbox.clone()),
-            child_mailboxes: Mutex::new(HashMap::new()),
-            child_ledgers: Mutex::new(HashMap::new()),
-            notification_lock: Mutex::new(()),
-            root: ctx.project_root.clone(),
-            ctx,
-            owner: owner.clone(),
-            store,
-            config: Mutex::new(config),
-            runtime: Mutex::new(runtime),
-            client,
-            lifecycle: Mutex::new(()),
-            active: Mutex::new(HashMap::new()),
-            parent: Mutex::new(Vec::new()),
-            event: Mutex::new(event),
-            ask_router: Mutex::new(None),
-            changed: Notify::new(),
-            slots: Arc::new(Semaphore::new(4)),
-            spawn_lock: tokio::sync::Mutex::new(()),
-        }));
-        TEAMS
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap()
-            .insert(key(&team.0.root, &owner), team.clone());
         Ok(team)
     }
     pub fn list(&self) -> Result<Vec<AgentJob>> {
@@ -251,18 +281,27 @@ impl AgentTeam {
         self.stop_locked(id)
     }
     fn stop_locked(&self, id: &str) -> Result<()> {
-        let job = self.resolve(id)?;
-        kanzei_harness::pending_question::cancel_owner(
+        let job = match self.resolve(id) {
+            Ok(job) => job,
+            Err(error) => {
+                self.close_child_mailbox(id);
+                if let Some(cancel) = self.0.active.lock().unwrap().get(id) {
+                    cancel.cancel();
+                }
+                return Err(error);
+            }
+        };
+        let questions_cancelled = kanzei_harness::pending_question::cancel_owner(
             &self.0.ctx.project_root,
             &self.0.owner,
             Some(&job.id),
         )
-        .map_err(anyhow::Error::msg)?;
+        .map_err(anyhow::Error::msg);
         if let Some(mailbox) = self.0.child_mailboxes.lock().unwrap().remove(&job.id) {
             mailbox.close();
         }
         let cancel = self.0.active.lock().unwrap().get(&job.id).cloned();
-        self.update(&job.id, |j| {
+        let saved = self.update(&job.id, |j| {
             j.state = if cancel.is_some() {
                 "stopping"
             } else {
@@ -275,10 +314,12 @@ impl AgentTeam {
                     m.state = "cancelled".into();
                 }
             }
-        })?;
+        });
         if let Some(cancel) = cancel {
             cancel.cancel();
         }
+        saved?;
+        questions_cancelled?;
         Ok(())
     }
     pub fn stop_all(&self) {
@@ -288,7 +329,9 @@ impl AgentTeam {
         }
         let ids: Vec<_> = self.0.active.lock().unwrap().keys().cloned().collect();
         for id in ids {
-            let _ = self.stop_locked(&id);
+            if let Err(error) = self.stop_locked(&id) {
+                tracing::error!(%error, child=id, "child stop state could not be saved");
+            }
         }
     }
     fn close_child_mailbox(&self, id: &str) {
@@ -396,9 +439,22 @@ impl AgentTeam {
                     .transpose()?;
                 loop {
                     let notify = self.0.changed.notified();
-                    let jobs = self.list()?;
-                    let workers: std::collections::HashSet<_> =
-                        self.0.active.lock().unwrap().keys().cloned().collect();
+                    let (jobs, workers) = {
+                        let _lifecycle = self.0.lifecycle.lock().unwrap();
+                        let jobs = self.list()?;
+                        let workers: std::collections::HashSet<_> =
+                            self.0.active.lock().unwrap().keys().cloned().collect();
+                        if action == "wait" {
+                            if let Some(job) = jobs.iter().find(|j| {
+                                j.active()
+                                    && !workers.contains(&j.id)
+                                    && wanted.as_ref().is_none_or(|w| w.id == j.id)
+                            }) {
+                                bail!("子任务 {} 没有运行中的执行者；状态保存或启动失败，可明确续做或停止", job.id);
+                            }
+                        }
+                        (jobs, workers)
+                    };
                     let active = jobs.iter().any(|j| {
                         (j.active() || workers.contains(&j.id))
                             && wanted.as_ref().is_none_or(|w| w.id == j.id)
@@ -437,29 +493,38 @@ impl AgentTeam {
                     json!({"id":j.id,"files":j.files,"diff":workspace::diff(&self.0.ctx.cwd,j.base.as_deref().context("无工作树")?,j.head.as_deref().context("子任务尚未产生改动快照")?)?}),
                 )
             }
-            "adopt" => {
-                if self.0.config.lock().unwrap().profile != kanzei_harness::ProfileKind::Dev {
-                    bail!("当前模式不能采纳代码改动");
-                }
-                let j = self.resolve(input["id"].as_str().context("需要子任务 id")?)?;
-                if j.active() || j.state != "done" {
-                    bail!("先等待子任务完成，再检查和采纳改动");
-                }
-                if j.outcome == "adopted" {
-                    return Ok(json!(j));
-                }
-                workspace::adopt(
-                    &self.0.ctx.cwd,
-                    j.base.as_deref().context("无工作树")?,
-                    j.head.as_deref().context("没有改动快照")?,
-                )?;
-                Ok(json!(self.update(&j.id, |j| {
-                    j.outcome = "adopted".into();
-                    j.revision += 1;
-                })?))
-            }
+            "adopt" => Ok(json!(self.adopt_with(
+                input["id"].as_str().context("需要子任务 id")?,
+                workspace::adopt,
+            )?)),
             _ => bail!("未知子任务操作：{action}"),
         }
+    }
+    fn adopt_with(
+        &self,
+        id: &str,
+        apply: impl FnOnce(&Path, &str, &str) -> Result<()>,
+    ) -> Result<AgentJob> {
+        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        if self.0.config.lock().unwrap().profile != kanzei_harness::ProfileKind::Dev {
+            bail!("当前模式不能采纳代码改动");
+        }
+        let job = self.resolve(id)?;
+        if job.active() || job.state != "done" {
+            bail!("先等待子任务完成，再检查和采纳改动");
+        }
+        if job.outcome == "adopted" {
+            return Ok(job);
+        }
+        apply(
+            &self.0.ctx.cwd,
+            job.base.as_deref().context("无工作树")?,
+            job.head.as_deref().context("没有改动快照")?,
+        )?;
+        self.update(&job.id, |job| {
+            job.outcome = "adopted".into();
+            job.revision += 1;
+        })
     }
     /// Desktop panels inspect complete persisted records without filling a model's
     /// context or acknowledging result revisions merely by opening a panel.
@@ -584,9 +649,12 @@ impl AgentTeam {
                 at: now(),
             }],
         };
-        self.0.store.insert(&job, &history)?;
-        self.emit(&job);
-        self.launch(&id)?;
+        {
+            let _lifecycle = self.0.lifecycle.lock().unwrap();
+            self.0.store.insert(&job, &history)?;
+            self.emit(&job);
+            self.launch_locked(&id)?;
+        }
         drop(creation);
         if input["background"].as_bool() == Some(false) {
             return Box::pin(self.command("", json!({"action":"wait","id":id}))).await;
@@ -692,54 +760,190 @@ impl AgentTeam {
         }
         Ok(reply)
     }
-    fn launch(&self, id: &str) -> Result<()> {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
-        self.launch_locked(id)
-    }
     fn launch_locked(&self, id: &str) -> Result<()> {
-        if matches!(self.0.store.get(id)?.state.as_str(), "stopped" | "stopping") {
+        let job = self.0.store.get(id)?;
+        if matches!(job.state.as_str(), "stopped" | "stopping") {
             return Ok(());
         }
+        let queued_at_launch: Vec<_> = job
+            .messages
+            .iter()
+            .filter(|message| message.state == "queued")
+            .map(|message| message.id.clone())
+            .collect();
         let mut active = self.0.active.lock().unwrap();
         if active.contains_key(id) {
             return Ok(());
         }
-        let cancel = CancellationToken::new();
+        let cancel = Arc::new(CancellationToken::new());
         active.insert(id.into(), cancel.clone());
-        self.update(id, |j| {
+        drop(active);
+        if let Err(error) = self.update(id, |j| {
             j.state = "queued".into();
-        })?;
+        }) {
+            self.0.active.lock().unwrap().remove(id);
+            self.0.changed.notify_waiters();
+            return Err(error);
+        }
         let team = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            let result = tokio::select! {biased;_=cancel.cancelled()=>Err(anyhow::anyhow!("子任务已停止")),r=team.worker(&id)=>r};
-            if let Err(error) = result {
-                if cancel.is_cancelled() {
-                    team.close_child_mailbox(&id);
-                    crate::background::kill_process(&team.0.root, &id).await;
-                }
-                let state = if cancel.is_cancelled() {
-                    "stopped"
-                } else {
-                    "failed"
-                };
-                let _ = team.update(&id, |j| {
-                    j.state = state.into();
-                    j.latest = error.to_string();
-                    j.revision += 1;
-                });
-            }
-            team.0.active.lock().unwrap().remove(&id);
-            team.0.changed.notify_waiters();
-            // A message may have arrived between the worker's final check and removal.
-            if team.0.store.get(&id).is_ok_and(|j| {
-                matches!(j.state.as_str(), "done" | "queued")
-                    && j.messages.iter().any(|m| m.state == "queued")
-            }) {
-                let _ = team.launch(&id);
+            let result = tokio::select! {biased;_=cancel.cancelled()=>Err(anyhow::anyhow!("子任务已停止")),r=team.worker(&id, &cancel)=>r};
+            if !team.finish_worker(&id, &cancel, &result, false, &queued_at_launch) {
+                crate::background::kill_process(&team.0.root, &id).await;
+                team.finish_worker(&id, &cancel, &result, true, &queued_at_launch);
             }
         });
         Ok(())
+    }
+
+    fn finish_worker(
+        &self,
+        id: &str,
+        cancel: &Arc<CancellationToken>,
+        result: &Result<()>,
+        cleaned: bool,
+        queued_at_launch: &[String],
+    ) -> bool {
+        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        if !self
+            .0
+            .active
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|current| Arc::ptr_eq(current, cancel))
+        {
+            return true;
+        }
+        // Stop can arrive after worker() returned Ok. Keep ownership until its
+        // processes are reaped, and never wait for them under lifecycle.
+        if cancel.is_cancelled() && !cleaned {
+            self.close_child_mailbox(id);
+            return false;
+        }
+        let error = if cancel.is_cancelled() {
+            Some("子任务已停止".to_owned())
+        } else {
+            result.as_ref().err().map(ToString::to_string)
+        };
+        if let Some(error) = error {
+            if let Err(error) = self.update(id, |j| {
+                j.state = if cancel.is_cancelled() {
+                    "stopped"
+                } else if j.messages.iter().any(|message| {
+                    message.state == "queued" && !queued_at_launch.contains(&message.id)
+                }) {
+                    "queued"
+                } else {
+                    "failed"
+                }
+                .into();
+                j.latest = error;
+                j.revision += 1;
+            }) {
+                tracing::error!(%error, child=id, "child final state could not be saved");
+            }
+        } else if self.0.store.get(id).is_ok_and(|j| {
+            j.state == "failed"
+                && j.messages.iter().any(|message| {
+                    message.state == "queued" && !queued_at_launch.contains(&message.id)
+                })
+        }) {
+            // The runner reports model/tool failures as a failed ToolOutput,
+            // so worker() may return Ok after saving a failed state.
+            if let Err(error) = self.update(id, |j| {
+                j.state = "queued".into();
+                j.revision += 1;
+            }) {
+                tracing::error!(%error, child=id, "child continuation state could not be saved");
+            }
+        }
+        self.0.active.lock().unwrap().remove(id);
+        self.0.changed.notify_waiters();
+        // Message admission and cleanup use the same owner lock, so an explicit
+        // continuation queued before cleanup is handed to exactly one new worker.
+        if !cancel.is_cancelled()
+            && self.0.store.get(id).is_ok_and(|j| {
+                matches!(j.state.as_str(), "done" | "queued")
+                    && j.messages.iter().any(|m| m.state == "queued")
+            })
+        {
+            if let Err(error) = self.launch_locked(id) {
+                tracing::error!(%error, child=id, "child continuation could not be launched");
+            }
+        }
+        true
+    }
+
+    fn check_worker_locked(
+        &self,
+        id: &str,
+        cancel: &Arc<CancellationToken>,
+        attempt: Option<u32>,
+    ) -> Result<AgentJob> {
+        if cancel.is_cancelled()
+            || !self
+                .0
+                .active
+                .lock()
+                .unwrap()
+                .get(id)
+                .is_some_and(|current| Arc::ptr_eq(current, cancel))
+        {
+            bail!("子任务执行已结束");
+        }
+        let job = self.0.store.get(id)?;
+        if matches!(job.state.as_str(), "stopped" | "stopping")
+            || attempt.is_some_and(|attempt| job.attempt != attempt)
+        {
+            bail!("子任务执行已结束");
+        }
+        Ok(job)
+    }
+
+    fn worker_update(
+        &self,
+        id: &str,
+        cancel: &Arc<CancellationToken>,
+        attempt: Option<u32>,
+        f: impl FnOnce(&mut AgentJob),
+    ) -> Result<AgentJob> {
+        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        self.check_worker_locked(id, cancel, attempt)?;
+        self.update(id, f)
+    }
+
+    fn begin_ask(
+        &self,
+        job: &AgentJob,
+        cancel: &Arc<CancellationToken>,
+        request: kanzei_core::AskRequest,
+        router: Option<&TeamAsk>,
+        parent: Option<&ParentAsk>,
+    ) -> kanzei_core::AskFuture {
+        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        if !self
+            .check_worker_locked(&job.id, cancel, Some(job.attempt))
+            .is_ok_and(|current| matches!(current.state.as_str(), "running" | "waiting_user"))
+        {
+            return Box::pin(async { kanzei_core::AskResponse::Cancelled });
+        }
+        if matches!(&request,kanzei_core::AskRequest::Permission{action,..} if action=="subagent-write")
+        {
+            return Box::pin(async {
+                kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
+            });
+        }
+        // Routers synchronously persist/register the question here; only their
+        // returned reply future waits. Stop uses this same lifecycle boundary.
+        if let Some(router) = router {
+            router(job, request)
+        } else if let Some(parent) = parent {
+            parent(request)
+        } else {
+            Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
+        }
     }
     fn observe(
         &self,
@@ -783,7 +987,7 @@ impl AgentTeam {
         Ok(())
     }
 
-    async fn worker(&self, id: &str) -> Result<()> {
+    async fn worker(&self, id: &str, cancel: &Arc<CancellationToken>) -> Result<()> {
         let initial = self.0.store.get(id)?;
         for dependency in &initial.depends_on {
             loop {
@@ -792,14 +996,14 @@ impl AgentTeam {
                     break;
                 }
                 if !dep.active() {
-                    self.update(id, |j| {
+                    self.worker_update(id, cancel, None, |j| {
                         j.state = "blocked".into();
                         j.latest = format!("依赖 {} 尚未完成", dep.name);
                         j.revision += 1;
                     })?;
                     return Ok(());
                 }
-                self.update(id, |j| {
+                self.worker_update(id, cancel, None, |j| {
                     j.state = "waiting".into();
                     j.latest = format!("等待 {}", dep.name);
                 })?;
@@ -814,12 +1018,12 @@ impl AgentTeam {
             if !self.0.ctx.project_workflow {
                 workspace::ensure_general_repository(&self.0.ctx.cwd, &self.0.ctx.project_root)?;
             }
-            self.update(id, |j| j.latest = "准备独立工作树".into())?;
+            self.worker_update(id, cancel, None, |j| j.latest = "准备独立工作树".into())?;
             use sha2::{Digest, Sha256};
             let owner = format!("{:x}", Sha256::digest(self.0.owner.as_bytes()));
             let (tree, base) =
                 workspace::prepare(&self.0.ctx.cwd, &format!("{}-{id}", &owner[..10]))?;
-            self.update(id, |j| {
+            self.worker_update(id, cancel, None, |j| {
                 j.worktree = Some(tree.clone());
                 j.base = Some(base);
             })?;
@@ -843,10 +1047,10 @@ impl AgentTeam {
                 .cloned()
                 .collect();
             if queued.is_empty() {
-                self.update(id, |j| j.state = "done".into())?;
+                self.worker_update(id, cancel, None, |j| j.state = "done".into())?;
                 return Ok(());
             }
-            self.update(id, |j| {
+            let running_job = self.worker_update(id, cancel, None, |j| {
                 j.state = "running".into();
                 j.attempt += 1;
                 for m in &mut j.messages {
@@ -905,18 +1109,14 @@ impl AgentTeam {
             runtime.roster.clear();
             let parent_router = runtime.ask_router.clone();
             let team_router = self.0.ask_router.lock().unwrap().clone();
-            let ask_job = job.clone();
+            let ask_job = running_job.clone();
+            let ask_cancel = cancel.clone();
             let ask_team = self.clone();
             let ask_id = id.to_owned();
             let ask_slot = slot.clone();
             let ask_slots = self.0.slots.clone();
             runtime.ask_router = Some(Arc::new(move |request| {
-                if matches!(&request,kanzei_core::AskRequest::Permission{action,..} if action=="subagent-write")
-                {
-                    return Box::pin(async {
-                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
-                    });
-                }
+                let immediate = matches!(&request,kanzei_core::AskRequest::Permission{action,..} if action=="subagent-write");
                 let background = matches!(
                     &request,
                     kanzei_core::AskRequest::Question {
@@ -924,37 +1124,48 @@ impl AgentTeam {
                         ..
                     }
                 );
-                let reply = if let Some(router) = &team_router {
-                    router(&ask_job, request)
-                } else if let Some(router) = &parent_router {
-                    router(request)
-                } else {
-                    Box::pin(async {
-                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny)
-                    })
-                };
-                if background {
+                let reply = ask_team.begin_ask(
+                    &ask_job,
+                    &ask_cancel,
+                    request,
+                    team_router.as_ref(),
+                    parent_router.as_ref(),
+                );
+                if background || immediate {
                     return reply;
                 }
                 let team = ask_team.clone();
                 let id = ask_id.clone();
                 let slot = ask_slot.clone();
                 let slots = ask_slots.clone();
+                let cancel = ask_cancel.clone();
+                let attempt = ask_job.attempt;
                 Box::pin(async move {
                     slot.lock().unwrap().take();
-                    let _ = team.update(&id, |j| {
-                        j.state = "waiting_user".into();
-                        j.latest = "等待你的答复".into();
-                    });
-                    let result = reply.await;
-                    match slots.acquire_owned().await {
-                        Ok(permit) => *slot.lock().unwrap() = Some(permit),
-                        Err(_) => return kanzei_core::AskResponse::Cancelled,
+                    if team
+                        .worker_update(&id, &cancel, Some(attempt), |j| {
+                            j.state = "waiting_user".into();
+                            j.latest = "等待你的答复".into();
+                        })
+                        .is_err()
+                    {
+                        return kanzei_core::AskResponse::Cancelled;
                     }
-                    let _ = team.update(&id, |j| {
-                        j.state = "running".into();
-                        j.latest = "已收到答复，继续执行".into();
-                    });
+                    let result = reply.await;
+                    let permit = match slots.acquire_owned().await {
+                        Ok(permit) => permit,
+                        Err(_) => return kanzei_core::AskResponse::Cancelled,
+                    };
+                    if team
+                        .worker_update(&id, &cancel, Some(attempt), |j| {
+                            j.state = "running".into();
+                            j.latest = "已收到答复，继续执行".into();
+                        })
+                        .is_err()
+                    {
+                        return kanzei_core::AskResponse::Cancelled;
+                    }
+                    *slot.lock().unwrap() = Some(permit);
                     result
                 })
             }));
@@ -1006,7 +1217,11 @@ impl AgentTeam {
             ctx.worktree_key = Some(crate::worktree::worktree_key(&tree));
             ctx.process_id = Some(id.into());
             ctx.run_id = Some(format!("{}:{id}:{}", self.0.owner, job.attempt + 1));
-            ctx.async_mailbox = Some(self.child_mailbox(id));
+            ctx.async_mailbox = Some({
+                let _lifecycle = self.0.lifecycle.lock().unwrap();
+                self.check_worker_locked(id, cancel, Some(running_job.attempt))?;
+                self.child_mailbox(id)
+            });
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             // Only an explicit continuation (or the explicitly requested fork)
             // restores the durable child transcript. A new spawn starts fresh.
@@ -1038,14 +1253,14 @@ impl AgentTeam {
             if writing {
                 let base = job.base.as_deref().context("missing child base")?;
                 let (head, files) = workspace::result(&tree, base, id)?;
-                self.update(id, |j| {
+                self.worker_update(id, cancel, Some(running_job.attempt), |j| {
                     j.head = Some(head);
                     j.files = files;
                     j.outcome = "candidate".into();
                 })?;
             }
             let failed = output.is_error || output.code == Some("subagent_empty_answer");
-            self.update(id, |j| {
+            self.worker_update(id, cancel, Some(running_job.attempt), |j| {
                 j.result = output.content.clone();
                 j.state = if failed { "failed" } else { "done" }.into();
                 if output.code == Some("subagent_step_limit_reached") {

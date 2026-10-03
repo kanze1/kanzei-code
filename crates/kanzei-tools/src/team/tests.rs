@@ -6,6 +6,825 @@ use tokio::{
     net::TcpListener,
 };
 
+fn fixture_worker(team: &AgentTeam) -> (AgentJob, Arc<CancellationToken>) {
+    let job = team
+        .0
+        .store
+        .update("question-child", |job| job.state = "running".into())
+        .unwrap();
+    let token = Arc::new(CancellationToken::new());
+    team.0
+        .active
+        .lock()
+        .unwrap()
+        .insert(job.id.clone(), token.clone());
+    (job, token)
+}
+
+fn background_question(id: u64) -> kanzei_core::AskRequest {
+    kanzei_core::AskRequest::Question {
+        question: format!("question {id}"),
+        options: vec![],
+        default: None,
+        multiple: false,
+        background: true,
+        callback_id: Some(format!("callback-{id}")),
+    }
+}
+
+#[tokio::test]
+async fn failed_launch_state_write_does_not_leave_a_phantom_worker_and_retry_can_start() {
+    let team = team(
+        project(),
+        "http://127.0.0.1:9/v1",
+        "launch-write-failure-owner",
+    );
+    let db = rusqlite::Connection::open(kanzei_core::project_state_path(&team.0.root)).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_queued_write BEFORE UPDATE ON agent_team_jobs BEGIN SELECT RAISE(ABORT, 'injected queued write failure'); END;").unwrap();
+    let error = team
+        .command(
+            "failed-launch-child",
+            json!({"agent":"plan","prompt":"initial work"}),
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("injected queued write failure"));
+    assert!(
+        team.0.active.lock().unwrap().is_empty(),
+        "a failed state write must not register a worker that was never spawned"
+    );
+    assert_eq!(team.resolve("failed-launch-child").unwrap().state, "queued");
+    let error = tokio::time::timeout(
+        Duration::from_secs(1),
+        team.command("", json!({"action":"wait","id":"failed-launch-child"})),
+    )
+    .await
+    .expect("a launch that returned Err must not leave wait pending")
+    .unwrap_err();
+    assert!(error.to_string().contains("没有运行中的执行者"));
+    db.execute_batch("DROP TRIGGER reject_queued_write;")
+        .unwrap();
+    team.ui_command(
+        json!({"action":"resume","id":"failed-launch-child","prompt":"explicit retry"}),
+    )
+    .await
+    .unwrap();
+    assert!(team
+        .0
+        .active
+        .lock()
+        .unwrap()
+        .contains_key("failed-launch-child"));
+    team.stop_all();
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        team.command("", json!({"action":"wait"})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        team.resolve("failed-launch-child").unwrap().state,
+        "stopped"
+    );
+}
+
+#[tokio::test]
+async fn failed_completion_state_write_releases_owner_and_wait_returns_error() {
+    let team = answered_question_team("completion-write-failure-owner");
+    let (job, token) = fixture_worker(&team);
+    let db = rusqlite::Connection::open(kanzei_core::project_state_path(&team.0.root)).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_final_state BEFORE UPDATE ON agent_team_jobs BEGIN SELECT RAISE(ABORT, 'injected final state failure'); END;").unwrap();
+    assert!(team.finish_worker(
+        &job.id,
+        &token,
+        &Err(anyhow::anyhow!("worker failed")),
+        true,
+        &[]
+    ));
+    assert!(team.0.active.lock().unwrap().is_empty());
+    assert_eq!(team.resolve(&job.id).unwrap().state, "running");
+    let error = tokio::time::timeout(
+        Duration::from_secs(1),
+        team.command("", json!({"action":"wait","id":job.id})),
+    )
+    .await
+    .expect("failed persistence cannot keep a completed worker's wait alive")
+    .unwrap_err();
+    assert!(error.to_string().contains("没有运行中的执行者"));
+    db.execute_batch("DROP TRIGGER reject_final_state;")
+        .unwrap();
+    team.stop(&job.id).unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
+    team.ui_command(
+        json!({"action":"resume","id":job.id,"prompt":"explicit retry after save failure"}),
+    )
+    .await
+    .unwrap();
+    team.stop_all();
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        team.command("", json!({"action":"wait"})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wait_cannot_observe_new_job_before_its_worker_is_registered() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let team = team(
+        project(),
+        &format!("http://{}/v1", listener.local_addr().unwrap()),
+        "spawn-wait-owner",
+    );
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let first = std::sync::atomic::AtomicBool::new(true);
+    *team.0.event.lock().unwrap() = Some(Arc::new(move |job| {
+        if job.id == "spawn-wait-child" && first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            entered_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+        }
+    }));
+    let spawning_team = team.clone();
+    let spawning = tokio::spawn(async move {
+        spawning_team
+            .command(
+                "spawn-wait-child",
+                json!({"agent":"plan","prompt":"normal dispatch"}),
+            )
+            .await
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let waiting_team = team.clone();
+    let mut waiting = tokio::spawn(async move {
+        waiting_team
+            .command("", json!({"action":"wait","id":"spawn-wait-child"}))
+            .await
+    });
+    let blocked = tokio::time::timeout(Duration::from_millis(100), &mut waiting)
+        .await
+        .is_err();
+    release_tx.send(()).unwrap();
+    spawning.await.unwrap().unwrap();
+    assert!(
+        blocked,
+        "a valid dispatch cannot look like a failed, ownerless launch"
+    );
+    let (mut stream, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    request(&mut stream).await;
+    respond(&mut stream, json!({"content":"normal dispatch finished"})).await;
+    tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(team.resolve("spawn-wait-child").unwrap().state, "done");
+}
+
+#[test]
+fn concurrent_registration_creates_one_state_owner() {
+    let original = answered_question_team("registry-owner");
+    TEAMS
+        .get()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .remove(&key(&original.0.root, &original.0.owner));
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let first_team = original.clone();
+    let first = std::thread::spawn(move || {
+        get_or_register(&first_team.0.root, &first_team.0.owner, || {
+            entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(first_team.clone())
+        })
+        .unwrap()
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let creations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let second_creations = creations.clone();
+    let second_team = original.clone();
+    let second = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        let result = get_or_register(&second_team.0.root, &second_team.0.owner, || {
+            second_creations.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(second_team.clone())
+        })
+        .unwrap();
+        done_tx.send(()).unwrap();
+        result
+    });
+    started_rx.recv().unwrap();
+    let blocked = done_rx.recv_timeout(Duration::from_millis(100)).is_err();
+    release_tx.send(()).unwrap();
+    let first = first.join().unwrap();
+    let second = second.join().unwrap();
+    assert!(
+        blocked,
+        "a second attach must wait for the first registration"
+    );
+    assert_eq!(creations.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(Arc::ptr_eq(&first.0, &second.0));
+    let reattached = team(
+        original.0.root.clone(),
+        "http://127.0.0.1:9/v1",
+        &original.0.owner,
+    );
+    assert!(Arc::ptr_eq(&first.0, &reattached.0));
+}
+
+#[tokio::test]
+async fn stop_cancels_worker_even_when_pending_question_record_is_corrupt() {
+    let team = answered_question_team("stop-corrupt-question-owner");
+    let (job, token) = fixture_worker(&team);
+    let questions = team.0.root.join(".kanzei/runtime/questions");
+    std::fs::create_dir_all(&questions).unwrap();
+    std::fs::write(questions.join("99.json"), "corrupt question record").unwrap();
+    let error = team.stop(&job.id).unwrap_err();
+    assert!(error.to_string().contains("问题记录损坏"));
+    assert!(
+        token.is_cancelled(),
+        "question cleanup failure must not keep the worker alive"
+    );
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopping");
+    assert!(matches!(
+        team.begin_ask(&job, &token, background_question(100), None, None)
+            .await,
+        kanzei_core::AskResponse::Cancelled
+    ));
+    assert!(team.finish_worker(
+        &job.id,
+        &token,
+        &Err(anyhow::anyhow!("cancelled")),
+        true,
+        &[]
+    ));
+    team.command("", json!({"action":"wait"})).await.unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
+}
+
+#[tokio::test]
+async fn cancelled_cleanup_does_not_relaunch_queued_followup_after_stop_save_failure() {
+    let team = answered_question_team("stop-queued-save-failure-owner");
+    let (job, token) = fixture_worker(&team);
+    // A worker has saved done but has not released its token. A legitimate UI
+    // continuation is accepted in this exact window and writes queued.
+    team.0
+        .store
+        .update(&job.id, |j| j.state = "done".into())
+        .unwrap();
+    team.ui_command(json!({"action":"resume","id":job.id,"prompt":"accepted continuation"}))
+        .await
+        .unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "queued");
+    let db = rusqlite::Connection::open(kanzei_core::project_state_path(&team.0.root)).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_cancel_state BEFORE UPDATE ON agent_team_jobs WHEN json_extract(NEW.job, '$.state') IN ('stopping','stopped') BEGIN SELECT RAISE(ABORT, 'injected cancel state failure'); END;").unwrap();
+    assert!(team
+        .stop(&job.id)
+        .unwrap_err()
+        .to_string()
+        .contains("injected cancel state failure"));
+    assert!(token.is_cancelled());
+    assert!(team.finish_worker(&job.id, &token, &Ok(()), true, &[]));
+    assert_eq!(team.resolve(&job.id).unwrap().state, "queued");
+    assert!(
+        team.0.active.lock().unwrap().is_empty(),
+        "failed stop persistence must not replay a cancelled worker's queue"
+    );
+    db.execute_batch("DROP TRIGGER reject_cancel_state;")
+        .unwrap();
+    team.stop(&job.id).unwrap();
+    team.command("", json!({"action":"wait"})).await.unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
+}
+
+#[tokio::test]
+async fn stop_all_cancels_known_worker_even_when_job_store_cannot_be_read() {
+    let team = answered_question_team("stop-unreadable-store-owner");
+    let (job, token) = fixture_worker(&team);
+    let db = rusqlite::Connection::open(kanzei_core::project_state_path(&team.0.root)).unwrap();
+    db.execute_batch("ALTER TABLE agent_team_jobs RENAME TO hidden_jobs;")
+        .unwrap();
+    team.stop_all();
+    assert!(
+        token.is_cancelled(),
+        "a known worker's cancellation cannot depend on reading its SQL row"
+    );
+    assert!(team.finish_worker(
+        &job.id,
+        &token,
+        &Err(anyhow::anyhow!("cancelled")),
+        true,
+        &[]
+    ));
+    assert!(team.0.active.lock().unwrap().is_empty());
+    assert!(team.command("", json!({"action":"wait"})).await.is_err());
+    db.execute_batch("ALTER TABLE hidden_jobs RENAME TO agent_team_jobs;")
+        .unwrap();
+    team.stop(&job.id).unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stop_all_cancels_real_worker_when_state_write_fails_and_does_not_relaunch() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let team = team(
+        project(),
+        &format!("http://{}/v1", listener.local_addr().unwrap()),
+        "stop-write-failure-owner",
+    );
+    team.command(
+        "stop-failure-child",
+        json!({"agent":"plan","prompt":"first assignment"}),
+    )
+    .await
+    .unwrap();
+    let (mut stream, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    request(&mut stream).await;
+    team.ui_command(
+        json!({"action":"resume","id":"stop-failure-child","prompt":"queued before stop"}),
+    )
+    .await
+    .unwrap();
+    let job = team.resolve("stop-failure-child").unwrap();
+    let token = team.0.active.lock().unwrap().get(&job.id).unwrap().clone();
+    let db = rusqlite::Connection::open(kanzei_core::project_state_path(&team.0.root)).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_stop_state BEFORE UPDATE ON agent_team_jobs BEGIN SELECT RAISE(ABORT, 'injected stop state failure'); END;").unwrap();
+    team.stop_all();
+    assert!(
+        token.is_cancelled(),
+        "stop must cancel the real worker even if its SQL write fails"
+    );
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !team.0.active.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("cancelled worker must exit despite persistent state save failure");
+    assert_eq!(team.resolve(&job.id).unwrap().state, "running");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), listener.accept())
+            .await
+            .is_err(),
+        "stop cannot replay the queue after cleanup save failure"
+    );
+    assert!(team
+        .command("", json!({"action":"wait","id":job.id}))
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("没有运行中的执行者"));
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let router_calls = calls.clone();
+    let router: TeamAsk = Arc::new(move |_, _| {
+        router_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async { kanzei_core::AskResponse::Answer("unexpected".into()) })
+    });
+    assert!(matches!(
+        team.begin_ask(&job, &token, background_question(52), Some(&router), None)
+            .await,
+        kanzei_core::AskResponse::Cancelled
+    ));
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(team
+        .worker_update(&job.id, &token, Some(job.attempt), |j| j.state =
+            "running".into())
+        .is_err());
+    db.execute_batch("DROP TRIGGER reject_stop_state;").unwrap();
+    team.stop(&job.id).unwrap();
+    team.ui_command(
+        json!({"action":"resume","id":job.id,"prompt":"explicit dispatch after fault removed"}),
+    )
+    .await
+    .unwrap();
+    team.stop_all();
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        team.command("", json!({"action":"wait"})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
+}
+
+#[test]
+fn inspection_rechecks_registry_after_an_absent_snapshot_and_recovers_only_orphans() {
+    let original = answered_question_team("inspection-owner");
+    TEAMS
+        .get()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .remove(&key(&original.0.root, &original.0.owner));
+    assert!(find(&original.0.root, &original.0.owner).is_none());
+    // Attach wins after the UI's absent snapshot but before recovery begins.
+    let live = team(
+        original.0.root.clone(),
+        "http://127.0.0.1:9/v1",
+        &original.0.owner,
+    );
+    let (job, token) = fixture_worker(&live);
+    let inspected = store_for_inspection(&live.0.root, &live.0.owner).unwrap();
+    assert_eq!(inspected.get(&job.id).unwrap().state, "running");
+    assert!(Arc::ptr_eq(
+        live.0.active.lock().unwrap().get(&job.id).unwrap(),
+        &token
+    ));
+    // A process restart really has no owner; recovery preserves transcript and
+    // never creates a worker or automatically replays its writes.
+    live.0
+        .store
+        .checkpoint(&job.id, &[Message::user_text("retained history")])
+        .unwrap();
+    TEAMS
+        .get()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .remove(&key(&live.0.root, &live.0.owner));
+    let orphan = store_for_inspection(&live.0.root, &live.0.owner).unwrap();
+    assert_eq!(orphan.get(&job.id).unwrap().state, "interrupted");
+    assert_eq!(orphan.history(&job.id).unwrap().len(), 1);
+    assert!(find(&live.0.root, &live.0.owner).is_none());
+    let revision = orphan.get(&job.id).unwrap().revision;
+    assert_eq!(
+        store_for_inspection(&live.0.root, &live.0.owner)
+            .unwrap()
+            .get(&job.id)
+            .unwrap()
+            .revision,
+        revision
+    );
+}
+
+#[tokio::test]
+async fn stop_after_success_before_worker_cleanup_finishes_stopped() {
+    let team = answered_question_team("successful-stop-owner");
+    let (job, token) = fixture_worker(&team);
+    team.0
+        .store
+        .update(&job.id, |job| job.state = "done".into())
+        .unwrap();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let finishing_team = team.clone();
+    let finishing_id = job.id.clone();
+    let finishing = std::thread::spawn(move || {
+        let result = Ok(());
+        ready_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        assert!(!finishing_team.finish_worker(&finishing_id, &token, &result, false, &[]));
+        assert!(finishing_team.finish_worker(&finishing_id, &token, &result, true, &[]));
+    });
+    ready_rx.recv().unwrap();
+    team.stop(&job.id).unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopping");
+    release_tx.send(()).unwrap();
+    finishing.join().unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
+    assert!(team.0.active.lock().unwrap().is_empty());
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        team.command("", json!({"action":"wait"})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cleanup_hands_queued_resume_to_one_new_worker_and_old_cleanup_cannot_remove_it() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let fixture = answered_question_team("cleanup-resume-owner");
+    // Reattach updates the fixture's model route while preserving its state owner.
+    let team = team(
+        fixture.0.root.clone(),
+        &format!("http://{}/v1", listener.local_addr().unwrap()),
+        &fixture.0.owner,
+    );
+    let (job, old) = fixture_worker(&team);
+    team.0
+        .store
+        .update(&job.id, |job| job.state = "done".into())
+        .unwrap();
+    team.queue_message(
+        &job.id,
+        "main",
+        "explicit follow-up",
+        Some("explicit-follow-up".into()),
+    )
+    .unwrap();
+    assert!(Arc::ptr_eq(
+        team.0.active.lock().unwrap().get(&job.id).unwrap(),
+        &old
+    ));
+    assert!(team.finish_worker(&job.id, &old, &Ok(()), false, &[]));
+    let current = team.0.active.lock().unwrap().get(&job.id).unwrap().clone();
+    assert!(!Arc::ptr_eq(&current, &old));
+    assert!(team.finish_worker(
+        &job.id,
+        &old,
+        &Err(anyhow::anyhow!("late old error")),
+        true,
+        &[]
+    ));
+    assert!(Arc::ptr_eq(
+        team.0.active.lock().unwrap().get(&job.id).unwrap(),
+        &current
+    ));
+    let (mut stream, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(request(&mut stream)
+        .await
+        .to_string()
+        .contains("explicit follow-up"));
+    respond(&mut stream, json!({"content":"follow-up completed"})).await;
+    team.command("", json!({"action":"wait"})).await.unwrap();
+    assert_eq!(team.resolve(&job.id).unwrap().attempt, 2);
+    assert_eq!(team.resolve(&job.id).unwrap().state, "done");
+}
+
+#[tokio::test]
+async fn ask_registration_and_stop_share_lifecycle_and_late_asks_do_not_persist() {
+    let team = answered_question_team("ask-stop-owner");
+    let (job, token) = fixture_worker(&team);
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let root = team.0.root.clone();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let called = calls.clone();
+    let router: TeamAsk = Arc::new(move |job, _| {
+        called.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        entered_tx.send(()).unwrap();
+        release_rx.lock().unwrap().recv().unwrap();
+        kanzei_harness::pending_question::save(
+            &root,
+            &json!({
+                "payload":{"id":17,"sessionId":job.owner,"agentId":job.id},
+                "callback_id":"callback-17","state":"pending"
+            }),
+        )
+        .unwrap();
+        Box::pin(std::future::pending())
+    });
+    let asking_team = team.clone();
+    let asking_job = job.clone();
+    let asking_token = token.clone();
+    let asking_router = router.clone();
+    let asking = std::thread::spawn(move || {
+        asking_team.begin_ask(
+            &asking_job,
+            &asking_token,
+            background_question(17),
+            Some(&asking_router),
+            None,
+        )
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+    let stopping_team = team.clone();
+    let stopping_id = job.id.clone();
+    let stopping = std::thread::spawn(move || {
+        stopping_team.stop(&stopping_id).unwrap();
+        stop_tx.send(()).unwrap();
+    });
+    let blocked = stop_rx.recv_timeout(Duration::from_millis(100)).is_err();
+    release_tx.send(()).unwrap();
+    let waiting_reply = asking.join().unwrap();
+    stopping.join().unwrap();
+    assert!(
+        blocked,
+        "stop must wait until synchronous question registration ends"
+    );
+    // The reply can remain pending while stop completes: no lock spans its wait.
+    drop(waiting_reply);
+    assert_eq!(
+        kanzei_harness::pending_question::get(&team.0.root, 17).unwrap()["state"],
+        "cancelled"
+    );
+    assert!(matches!(
+        team.begin_ask(&job, &token, background_question(18), Some(&router), None)
+            .await,
+        kanzei_core::AskResponse::Cancelled
+    ));
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(team
+        .worker_update(&job.id, &token, Some(job.attempt), |j| j.state =
+            "running".into())
+        .is_err());
+    assert_eq!(team.resolve(&job.id).unwrap().state, "stopping");
+    assert!(team.finish_worker(&job.id, &token, &Ok(()), true, &[]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn timed_out_worker_hands_off_new_explicit_resume_without_replaying_original_messages() {
+    let root = project();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let team = team(
+        root,
+        &format!("http://{}/v1", listener.local_addr().unwrap()),
+        "timeout-resume-owner",
+    );
+    team.0.runtime.lock().unwrap().timeout_secs = 2;
+    team.command(
+        "timed-out-child",
+        json!({"agent":"plan","prompt":"first request"}),
+    )
+    .await
+    .unwrap();
+    let (mut first, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    request(&mut first).await;
+    // A successful UI continuation is queued while the first real model request
+    // is held open; it must survive the worker's subsequent timeout Err.
+    team.ui_command(json!({"action":"resume","id":"timed-out-child","prompt":"explicit follow-up after timeout"})).await.unwrap();
+    let (mut second, _) = tokio::time::timeout(Duration::from_secs(6), listener.accept())
+        .await
+        .unwrap()
+        .expect("accepted continuation must launch after timeout cleanup");
+    let continued = request(&mut second).await.to_string();
+    assert!(continued.contains("explicit follow-up after timeout"));
+    assert!(
+        continued.contains("first request"),
+        "the checkpointed original assignment must survive timeout"
+    );
+    respond(&mut second, json!({"content":"continued successfully"})).await;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        team.command("", json!({"action":"wait"})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(team.resolve("timed-out-child").unwrap().state, "done");
+    assert_eq!(team.resolve("timed-out-child").unwrap().attempt, 2);
+    // Stop-in-progress is explicitly rejected; once stop is complete, the same
+    // public UI resume is a valid new dispatch and keeps its new worker.
+    team.stop("timed-out-child").unwrap();
+    assert_eq!(team.resolve("timed-out-child").unwrap().state, "stopped");
+    team.ui_command(
+        json!({"action":"resume","id":"timed-out-child","prompt":"explicit follow-up after stop"}),
+    )
+    .await
+    .unwrap();
+    let (mut third, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(request(&mut third)
+        .await
+        .to_string()
+        .contains("explicit follow-up after stop"));
+    respond(&mut third, json!({"content":"resumed after stop"})).await;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        team.command("", json!({"action":"wait"})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(team.resolve("timed-out-child").unwrap().state, "done");
+    assert_eq!(team.resolve("timed-out-child").unwrap().attempt, 3);
+
+    let orphan = answered_question_team("original-failure-owner");
+    let (job, token) = fixture_worker(&orphan);
+    orphan
+        .0
+        .store
+        .update(&job.id, |job| {
+            job.state = "queued".into();
+            job.messages.push(AgentMessage {
+                id: "original-queued".into(),
+                from: "main".into(),
+                text: "initial work".into(),
+                state: "queued".into(),
+                at: now(),
+            });
+        })
+        .unwrap();
+    assert!(orphan.finish_worker(
+        &job.id,
+        &token,
+        &Err(anyhow::anyhow!("preparation failed")),
+        false,
+        &["original-queued".into()]
+    ));
+    assert_eq!(orphan.resolve(&job.id).unwrap().state, "failed");
+    assert!(
+        orphan.0.active.lock().unwrap().is_empty(),
+        "original pending input must not trigger an automatic failure loop"
+    );
+}
+
+#[tokio::test]
+async fn ask_rejects_retired_token_and_old_attempt_but_admits_current_attempt() {
+    let team = answered_question_team("ask-identity-owner");
+    let (job, old) = fixture_worker(&team);
+    let current = Arc::new(CancellationToken::new());
+    team.0
+        .active
+        .lock()
+        .unwrap()
+        .insert(job.id.clone(), current.clone());
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let called = calls.clone();
+    let router: TeamAsk = Arc::new(move |_, _| {
+        called.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async { kanzei_core::AskResponse::Answer("current answer".into()) })
+    });
+    assert!(matches!(
+        team.begin_ask(&job, &old, background_question(20), Some(&router), None)
+            .await,
+        kanzei_core::AskResponse::Cancelled
+    ));
+    let next = team
+        .0
+        .store
+        .update(&job.id, |job| job.attempt += 1)
+        .unwrap();
+    assert!(matches!(
+        team.begin_ask(&job, &current, background_question(21), Some(&router), None)
+            .await,
+        kanzei_core::AskResponse::Cancelled
+    ));
+    assert!(
+        matches!(team.begin_ask(&next, &current, background_question(22), Some(&router), None).await, kanzei_core::AskResponse::Answer(answer) if answer == "current answer")
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(team.finish_worker(&job.id, &current, &Ok(()), false, &[]));
+}
+
+#[tokio::test]
+async fn adoption_serializes_done_check_apply_and_commit_against_resume() {
+    let team = answered_question_team("adopt-resume-owner");
+    let (tree, base) = workspace::prepare(&team.0.root, &fresh_id()).unwrap();
+    std::fs::write(tree.join("adopted.txt"), "candidate bytes").unwrap();
+    let (head, _) = workspace::result(&tree, &base, "adopted").unwrap();
+    team.0
+        .store
+        .update("question-child", |job| {
+            job.base = Some(base);
+            job.head = Some(head);
+        })
+        .unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let adopting_team = team.clone();
+    let adopting = std::thread::spawn(move || {
+        adopting_team.adopt_with("question-child", |root, base, head| {
+            entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            workspace::adopt(root, base, head)
+        })
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (message_tx, message_rx) = std::sync::mpsc::channel();
+    let messaging_team = team.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let messaging = std::thread::spawn(move || {
+        let _runtime = runtime.enter();
+        let result = messaging_team.queue_message("question-child", "main", "new attempt", None);
+        message_tx.send(result.is_ok()).unwrap();
+        result
+    });
+    let blocked = message_rx.recv_timeout(Duration::from_millis(100)).is_err();
+    release_tx.send(()).unwrap();
+    assert_eq!(adopting.join().unwrap().unwrap().outcome, "adopted");
+    let message = messaging.join().unwrap();
+    assert!(
+        blocked,
+        "resume must wait for adoption's check/apply/commit"
+    );
+    assert!(message.is_err());
+    assert_eq!(team.resolve("question-child").unwrap().state, "done");
+    assert!(team.0.active.lock().unwrap().is_empty());
+    assert_eq!(
+        std::fs::read_to_string(team.0.root.join("adopted.txt")).unwrap(),
+        "candidate bytes"
+    );
+}
+
 fn answered_question_team(owner: &str) -> AgentTeam {
     let root = project();
     let team = team(root.clone(), "http://127.0.0.1:9/v1", owner);
