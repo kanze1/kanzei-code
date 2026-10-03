@@ -43,6 +43,96 @@ fn roundtrip_and_window_filter_preserve_binary_content() {
 }
 
 #[test]
+fn line_break_metadata_roundtrips_without_poisoning_journal() {
+    let root = temp_root("line-break-metadata");
+    for (index, path) in [
+        "src/line\nbreak.rs",
+        "src/carriage.rs\r",
+        "src/crlf\r\nbreak.rs",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut current = entry(index as u128 + 1, path, "正文".as_bytes());
+        current.run_id = Some("run\nidentity".into());
+        current.process_id = Some("process\ridentity".into());
+        record(&root, &current).unwrap();
+        assert_eq!(last_entry(&root, path).unwrap().unwrap(), current);
+    }
+    // A legal metadata value must not break later ordinary writes or reads.
+    let ordinary = entry(4, "src/ordinary.rs", b"next");
+    let file = record(&root, &ordinary).unwrap();
+    assert!(std::fs::read_to_string(file)
+        .unwrap()
+        .starts_with("4\nsrc/ordinary.rs\n"));
+    assert_eq!(
+        last_entry(&root, "src/ordinary.rs").unwrap().unwrap(),
+        ordinary
+    );
+    assert_eq!(entries_after(&root, 0).unwrap().len(), 4);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn line_break_identity_uses_versioned_metadata_even_with_an_ordinary_path() {
+    let root = temp_root("line-break-identity");
+    for (run_id, process_id) in [(Some("run\nidentity"), None), (None, Some("process\r"))] {
+        let mut current = entry(1, "src/ordinary.rs", b"body");
+        current.run_id = run_id.map(str::to_owned);
+        current.process_id = process_id.map(str::to_owned);
+        let file = record(&root, &current).unwrap();
+        assert!(std::fs::read_to_string(file).unwrap().starts_with("v3:1\n"));
+        assert_eq!(last_entry(&root, &current.path).unwrap().unwrap(), current);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn invalid_versioned_metadata_stops_reads_and_writes_without_changing_records() {
+    let root = temp_root("invalid-versioned-metadata");
+    std::fs::create_dir_all(log_root(&root)).unwrap();
+    let file = log_root(&root).join("100-invalid-metadata.log");
+    for (version, path, run_id, process_id) in [
+        ("v4:100", "61", "", ""),
+        ("v3:100", "6", "", ""),
+        ("v3:100", "zz", "", ""),
+        ("v3:100", "ff", "", ""),
+        ("v3:100", "61", "ff", ""),
+        ("v3:100", "61", "", "ff"),
+    ] {
+        let text = format!(
+            "{version}\n{path}\n{}\ndata:6f6c64\n{run_id}\n{process_id}\n",
+            crate::content_hash(b"old")
+        );
+        std::fs::write(&file, &text).unwrap();
+        assert_eq!(
+            entries_after(&root, 0).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            record(&root, &entry(101, "src/next.rs", b"new"))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+        assert_eq!(
+            std::fs::read_dir(log_root(&root))
+                .unwrap()
+                .filter(|entry| entry
+                    .as_ref()
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_some_and(|ext| ext == "log"))
+                .count(),
+            1
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn same_millisecond_paths_and_same_path_writes_never_overwrite() {
     let root = temp_root("identity");
     let mut files = HashSet::new();

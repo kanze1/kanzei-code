@@ -1,0 +1,126 @@
+{
+  "batch": "A0",
+  "date": "2026-10-03",
+  "baseline": "f5a72fe0b41dd49fc99d12ae88822e4862fab826",
+  "branch": "kanzei/audit-a0",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code",
+  "review_complete_for_assigned_files": true,
+  "repository_review_complete": false,
+  "platform": "Windows x86_64-pc-windows-msvc",
+  "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+  "cargo_target_dir": "C:/Users/kanzei/Documents/kanzei code/target",
+  "cargo_execution": "serialized, parent granted slot, released after base clippy",
+  "full_file_reviews": [
+    {
+      "path": "crates/kanzei-base/src/atomic_file/lock.rs",
+      "judgment": "PASS",
+      "sha256_raw": "a4867d1450351a61e08b50bf4217523f27890a5478c5263fc01e6cb4794b9bf2",
+      "sha256_lf": "5a7605849b99139d42df1de6673d346478ed0c86c7a84b5aa7a05e4acbd7e433"
+    },
+    {
+      "path": "crates/kanzei-base/src/atomic_file/tests.rs",
+      "judgment": "PASS",
+      "sha256_raw": "934e6321b9c1a7e0d2ffbcdfc46c14cf6ac242eecc63671d24c7bdbd23943bf2",
+      "sha256_lf": "1bd60dd6e39c6d9a396038f5b95c48bc87b8c694a17067712dd45c22614ac84e"
+    },
+    {
+      "path": "crates/kanzei-base/src/atomic_file/lock_tests.rs",
+      "judgment": "PASS",
+      "sha256_raw": "12eb5e34186b506575c9f14fd58033f6cec1b370d36f1cd64cd8f2cd39e36ff3",
+      "sha256_lf": "a92c3ebdd838f459aded075ae3f0c38b6b67fe7a724d72c4afd4b55eb76e1a56"
+    },
+    {
+      "path": "crates/kanzei-base/src/write_log/codec.rs",
+      "judgment": "P2",
+      "sha256_raw": "08233e52c19a48028128256527f6a493df2b0829ec30de59cef872c058009e42",
+      "sha256_lf": "08233e52c19a48028128256527f6a493df2b0829ec30de59cef872c058009e42"
+    },
+    {
+      "path": "crates/kanzei-base/src/write_log/tests.rs",
+      "judgment": "P2",
+      "sha256_raw": "e21540aa1beb948a5a47aac54ca1178a622dcebc3c30edee6acf410a5211971e",
+      "sha256_lf": "e21540aa1beb948a5a47aac54ca1178a622dcebc3c30edee6acf410a5211971e"
+    }
+  ],
+  "issues": [
+    {
+      "id": "A0-01",
+      "priority": "P2",
+      "root_cause": "Unescaped CR/LF metadata changes six-line journal framing or path identity",
+      "trigger": "A legal Unix source path containing CR/LF reaches tools/write.rs record_worktree_write_log and base write_log::record",
+      "fix": "Conditionally encode path/run_id/process_id as UTF-8 hex with explicit v3 timestamp prefix",
+      "public_api_changed": false,
+      "persistent_encoding_changed": true,
+      "caller_coordination_completed_before_change": true
+    }
+  ],
+  "checks": [
+    {
+      "name": "before_regression",
+      "command": "cargo test -p kanzei-base line_break_metadata_roundtrips_without_poisoning_journal -- --nocapture",
+      "exit_code": 101,
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a0/metadata-before.log",
+      "log_sha256": "80b126637da58038dab3e9c86b0a19cf53cc65f6e1fc860f1d3aabed6cbf9a07"
+    },
+    {
+      "name": "base_tests",
+      "command": "cargo test -p kanzei-base -- --test-threads=1",
+      "exit_code": 0,
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a0/base-tests.log",
+      "log_sha256": "a20ee076f51d13f4634a3ebb01a35421ca54b7ed8992502cbf13bb5c4523c9aa"
+    },
+    {
+      "name": "base_check",
+      "command": "cargo check -p kanzei-base --all-targets",
+      "exit_code": 0,
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a0/base-check.log",
+      "log_sha256": "083a40f9d076a67f9285136e22ee8d8fc5c265a8e461a9a8e44a64daf7466fbc"
+    },
+    {
+      "name": "base_clippy",
+      "command": "cargo clippy -p kanzei-base --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a0/base-clippy.log",
+      "log_sha256": "055711d4677d380cc17815fcead035c50d9831b21652875abf99f16f4c95f408"
+    }
+  ],
+  "rust_tests": {
+    "passed": 38,
+    "failed": 0,
+    "ignored": 0,
+    "doc_tests": 0,
+    "new_regression_tests": 3
+  },
+  "format": {
+    "command": "rustfmt --edition 2021 --check (five assigned files)",
+    "exit_code": 0
+  },
+  "diff_check": {
+    "command": "git diff --check",
+    "exit_code": 0
+  },
+  "invariants": [
+    "shared/exclusive process lock matrix",
+    "last guard closes OS lock",
+    "crashed process releases lock",
+    "CAS check and replace serialized",
+    "failure preserves original or guarded external edit",
+    "log metadata round-trips exactly",
+    "ordinary six-line logs unchanged",
+    "legacy logs untouched",
+    "malformed metadata blocks reads/writes without new records",
+    "latest state and recoverable checkpoint survive retention"
+  ],
+  "compatibility": {
+    "ordinary_records": "unchanged",
+    "legacy_records": "readable and not rewritten",
+    "versioned_records": "only for CR/LF metadata; old binaries cannot read v3"
+  },
+  "not_verified": [
+    "Linux/macOS runtime",
+    "Unix filename creation through real write-tool E2E",
+    "merged whole-workspace verification; delegated to parent"
+  ],
+  "user_runtime_data_touched": false,
+  "published": false
+}
