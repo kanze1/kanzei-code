@@ -149,7 +149,7 @@ export async function openProjectRow(path) {
 export async function openProjectSpace(path, view = "chat", options = {}) {
   if (!path) { navigate_view("workspace"); return false; }
   if (view === "chat" && active_space === "dev" && !workspace_switch_pending && !openingProject
-    && !options.main && currentProject === path && activeSessionId && document.body.dataset.view === "chat") {
+    && !options.main && !options.reload && currentProject === path && activeSessionId && document.body.dataset.view === "chat") {
     setBrowsingProject(path); reconcileWorkbenchView("chat"); return true;
   }
   const generation = ++projectNavigationGeneration;

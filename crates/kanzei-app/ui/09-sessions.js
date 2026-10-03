@@ -219,17 +219,7 @@ export function renderLinesWorktrees() {
 }
 export async function createWorktreeLine(event) {
   if (!currentProject || worktreeLineCreateInFlight) return;
-  // UI2-0926 #13:没有有提交的独立仓库就开不了工作树线——先说原因,不要一路跑到 git worktree add 才报 git 的原话。
-  let facts = projectFactsFor === currentProject ? projectFacts : await refreshProjectFacts();
-  // 缓存里写着「拦着」时别全信缓存:agent 可能已经在终端里 init / 提交过了——重新探一次再判(UX-129)。
-  if (worktreeBlockedReason(facts)) facts = (await refreshProjectFacts()) ?? facts;
-  const blocked = worktreeBlockedReason(facts);
-  if (blocked) {
-    // 原因 + 能直接做的下一步(初始化并首次提交 / 首次提交)一起给;页内常驻的阻断条在并行线路页(UX-130)。
-    const fix = gitFixActions(facts)[0];
-    toast(blocked, { kind: "warn", ...(fix ? { action: { label: fix.label, onClick: () => void fix.run() } } : {}) });
-    return;
-  }
+  const forProject = currentProject;
   // B26:线路页按钮与输入区「更多」里的同名项是同一个入口;条目绑定是可选的——只有从线路页发起时才读那里的选择器,
   // 不选就是不绑定(原来线路页必须选条目才能点、「更多」里又选不了条目,是两套互斥的流程)。
   const fromLinesView = (event?.currentTarget?.id || event?.target?.id) === "lines-add";
@@ -250,8 +240,9 @@ export async function createWorktreeLine(event) {
     if (workItemSelect) workItemSelect.disabled = workItemSelect.options.length <= 1;
     if (linesAddLabel) linesAddLabel.textContent = t("新建独立任务");
   };
-  // D-418:确认弹窗异步化——in-flight + 禁用/aria-busy/创建中反馈提前到 confirm
-  // 前,弹窗期间防重入防误操作(await 期间重复点击不会二次 process_create);
+  // facts 与确认都在同一次准入内;项目身份在第一个 await 前认领。
+  // D-418:in-flight + 禁用/aria-busy/创建中反馈提前到异步读取
+  // 前,期间防重入防误操作(await 期间重复点击不会二次 process_create);
   // 取消/失败统一走 restore。
   worktreeLineCreateInFlight = true;
   for (const button of addButtons) {
@@ -260,18 +251,27 @@ export async function createWorktreeLine(event) {
   }
   if (workItemSelect) workItemSelect.disabled = true;
   if (linesAddLabel) linesAddLabel.textContent = t("创建中…");
-  // target/ 与冷编译是 Rust 工程的代价,只在识别到 rust 栈时才这么说。
-  const cost = facts?.stacks?.includes("rust")
-    ? t("每个独立任务有自己的 target/ 目录,磁盘占用随任务数成倍增加;首次冷编译需数分钟")
-    : t("每个独立任务是一份完整的工作树检出,磁盘占用随任务数增加");
-  if (!(await confirmDialog({ title: t("新建独立任务"), message: `${t("新建独立任务会创建一个独立工作树")}:${cost}。${binding}\n${t("继续创建吗")}` }))) {
-    restore();
-    return;
-  }
-  // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
-  const forProject = currentProject;
-  const name = `line-${Date.now()}-${worktreeLineCreateSequence += 1}`;
   try {
+    // UI2-0926 #13:先查原项目的仓库事实,不把迟到响应用于另一个项目。
+    let facts = projectFactsFor === forProject ? projectFacts : await refreshProjectFacts(forProject);
+    if (currentProject !== forProject) return;
+    if (worktreeBlockedReason(facts)) facts = (await refreshProjectFacts(forProject)) ?? facts;
+    if (currentProject !== forProject) return;
+    const blocked = worktreeBlockedReason(facts);
+    if (blocked) {
+      const fix = gitFixActions(facts)[0];
+      toast(blocked, { kind: "warn", ...(fix ? { action: { label: fix.label, onClick: () => {
+        if (currentProject === forProject) void fix.run();
+      } } } : {}) });
+      return;
+    }
+    // target/ 与冷编译是 Rust 工程的代价,只在识别到 rust 栈时才这么说。
+    const cost = facts?.stacks?.includes("rust")
+      ? t("每个独立任务有自己的 target/ 目录,磁盘占用随任务数成倍增加;首次冷编译需数分钟")
+      : t("每个独立任务是一份完整的工作树检出,磁盘占用随任务数增加");
+    if (!(await confirmDialog({ title: t("新建独立任务"), message: `${t("新建独立任务会创建一个独立工作树")}:${cost}。${binding}\n${t("继续创建吗")}` }))) return;
+    if (currentProject !== forProject) return;
+    const name = `line-${Date.now()}-${worktreeLineCreateSequence += 1}`;
     // 建线必须原子完成「建 worktree + 注册进程绑定」；只调用 worktree_create 会留下
     // 一棵没有会话身份的孤树，看得见却不能并行跑任务。
     const item = await invoke("process_create", {
@@ -283,7 +283,9 @@ export async function createWorktreeLine(event) {
     });
     if (currentProject !== forProject) return;
     await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
+    if (currentProject !== forProject) return;
     await switchProcess(item.id);
+    if (currentProject !== forProject) return;
     // 新开的独立任务已是当前对话:从线路页等非对话页发起时跳回对话,别只在后台切了线(UX-052 / D15)。
     ensureChatView();
     // 提示里写任务的显示名(用户命名 ‖ 首条消息 ‖「独立任务 N」),不露自动生成的分支标识 line-<时间戳>-N。
@@ -322,7 +324,6 @@ export async function closeParallelProcess(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
   if (!item || item.id.startsWith("d|")) return;
   const forProject = currentProject;
-  const wasActive = processId === activeProcessId;
   const runningNow = processRunning(item);
   // 关闭只注销身份(processes → retired_processes),这条线的对话一条不删,在搜索与历史中只读查看。
   // 要连对话一起删,用右键「删除对话…」(真删);弹窗必须把这两件事分清。确认框只点名,不露内部 id(UX-035)。
@@ -332,11 +333,13 @@ export async function closeParallelProcess(processId) {
     : t("关闭只会注销这个独立任务的登记。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。")}\n${t("关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。")}`;
   if (!(await confirmDialog({ title: t("关闭独立任务"), message: `「${name}」\n${warning}`, okText: t("关闭独立任务"), danger: true }))) return;
   cancelAutoContinueTimer(item.session_id);
-  if (runningNow) transitionSession(item.session_id, "stopping");
+  const closingPhase = processRunning(item) ? sessionState(item.session_id).phase : null;
+  if (closingPhase) transitionSession(item.session_id, "stopping");
   try {
     const result = await invoke("process_close", { processId });
     if (currentProject !== forProject) return;
-    if (wasActive) {
+    const closingActive = activeProcessId === processId;
+    if (closingActive) {
       setActiveProcessId(null);
       setActiveSessionId(null);
     }
@@ -344,12 +347,12 @@ export async function closeParallelProcess(processId) {
     if (currentProject !== forProject) return;
     // 关掉的线路只是注销了身份,对话记录还在:在搜索与历史中查看。
     dropClosedSessions(forProject);
-    if (wasActive && activeProcessId) await switchProcess(activeProcessId, true);
+    if (closingActive && activeProcessId) await switchProcess(activeProcessId, true);
     refreshGit();
     // 后端回执只说处置结果(「已关闭」「已关闭,并回收…」),不带内部 id(UX-127):前面补上对话名。
     toast(`「${name}」${result ? String(result) : t("已关闭")}`);
   } catch (error) {
-    transitionSession(item.session_id, item.running ? "running" : "idle");
+    if (closingPhase && sessionState(item.session_id).phase === "stopping") transitionSession(item.session_id, closingPhase);
     toastError(`${t("关闭独立任务失败")}:${error}`);
   }
 }
@@ -582,6 +585,7 @@ export function renderProcesses(items) {
   }
   const active = processItems.find((item) => item.id === activeProcessId);
   setActiveSessionId(active?.session_id ?? null);
+  if (activeSessionId !== previousSessionId) resetPendingInputs();
   const activeProcessChanged = previousProcessId !== activeProcessId;
   if (activeProcessChanged && activeProcessId) {
     // 首次加载、切项目重建或活动线被回收后选 fallback 时，必须恢复目标线的
@@ -665,14 +669,17 @@ export async function refreshProcesses() {
 
 export async function refreshPendingAsks() {
   if (!currentProject || !activeSessionId) return;
+  const forProject = currentProject;
+  const forProcess = activeProcessId;
+  const forSession = activeSessionId;
   try {
     const pending = await invoke("pending_asks_get", {
-      projectDir: currentProject,
-      processId: activeProcessId,
+      projectDir: forProject,
+      processId: forProcess,
     });
-    const queue = askQueueFor(activeSessionId);
+    const queue = askQueueFor(forSession);
     const known = new Set(queue.map((item) => item.id));
-    if (askActive?.sessionId === activeSessionId) known.add(askActive.id);
+    if (askActive?.sessionId === forSession) known.add(askActive.id);
     for (const payload of pending || []) {
       if (!known.has(payload.id)) {
         queue.push(payload);
@@ -681,6 +688,7 @@ export async function refreshPendingAsks() {
     }
     pumpAsk();
   } catch (err) {
+    if (askSyncedSession === forSession) askSyncedSession = null;
     log(`${t("待处理权限询问恢复失败")}:${err}`, "warn");
   }
 }
@@ -708,6 +716,7 @@ export async function switchProcess(processId, forceReload = false) {
   hideAsk(true);
   setActiveProcessId(processId);
   setActiveSessionId(target.session_id);
+  resetPendingInputs();
   adopt_process_workspace(target);
   applyAutoUiState(activeProcessId);
   applyProfileValue(target.profile);
@@ -846,6 +855,7 @@ export function syncDocumentsProjectSelect(prefs) {
 // 隔离问题往往一次影响多个项目(它们共用同一个祖先)。只在当前项目上提示会让
 // 用户切一个发现一个,修到一半以为修完了。这里一次报全,只报一次。
 export let isolationReported = false;
+let isolationCheckGeneration = 0;
 export async function reportIsolationAcrossProjects() {
   if (isolationReported) return;
   isolationReported = true;
@@ -869,13 +879,16 @@ export async function reportIsolationAcrossProjects() {
 
 export async function checkProjectIsolation() {
   const box = $("project-shared-warn");
+  const generation = ++isolationCheckGeneration;
   if (!box || !currentProject) return;
+  const project = currentProject;
   let info;
   try {
-    info = await invoke("project_root_info", { projectDir: currentProject });
+    info = await invoke("project_root_info", { projectDir: project });
   } catch {
     return;
   }
+  if (generation !== isolationCheckGeneration || currentProject !== project) return;
   // 无损修复过就只留一行日志,不打扰——用户看到的内容没有任何变化。
   if (info.autoRepaired) log(`${t("已为本项目建立独立空间")}:${info.selected}`);
   box.classList.toggle("hidden", !info.shared);
@@ -895,12 +908,16 @@ export async function checkProjectIsolation() {
   act.textContent = t("在此建立独立空间");
   act.title = t("只在本目录创建 .kanzei,不搬动上级目录的既有条目");
   act.addEventListener("click", async () => {
+    if (currentProject !== project) return;
     try {
-      await invoke("project_detach", { projectDir: currentProject });
+      await invoke("project_detach", { projectDir: project });
+      if (currentProject !== project) return;
       toast(t("已建立独立空间"));
       // 分离改变了项目根:文档、会话、记忆都要按新根重取,否则界面还停在旧根的数据上。
       await refreshDocs();
+      if (currentProject !== project) return;
       await loadConversation();
+      if (currentProject !== project) return;
       isolationReported = false; // 允许再体检一次,看还有没有别的项目共用
       checkProjectIsolation();
     } catch (err) {
@@ -913,6 +930,18 @@ export async function checkProjectIsolation() {
 export function activate_execution_root(root) {
   const previousProject = currentProject;
   setCurrentProject(root);
+  if (previousProject !== currentProject) {
+    // 项目事实和可操作列表都是旧项目的投影,等待新结果期间不能沿用。
+    projectFacts = null;
+    projectFactsFor = null;
+    projectFactsGeneration += 1;
+    isolationCheckGeneration += 1;
+    $("project-shared-warn")?.classList.add("hidden");
+    renderProjectFactsBanner(null, root);
+    syncWorktreeEntry(null);
+    renderWorktrees([]);
+    resetPendingInputs();
+  }
   syncWorkPriorityControl();
   // R-115:按项目记的偏好(模型/思考强度/筛选)要跟着项目切换回填,
   // 也覆盖了启动这一次——currentProject 在这里才第一次确定。
@@ -956,13 +985,7 @@ export function shortProjectPath(path) {
 }
 
 export async function switchProject(path, options = {}) {
-  try {
-    await enterProject(await invoke("projects_select", { path }), options);
-    return true;
-  } catch (error) {
-    toastError(`${t("切换项目失败")}:${error}`);
-    return false;
-  }
+  return openProjectSpace(path, options.view ?? "chat", { ...options, reload: true });
 }
 
 // 项目总览页开着时,改名/移除后卡片要跟着换;不开着就不白跑一次 workspace_snapshot。
@@ -1571,6 +1594,10 @@ defer(() => {
 
 // ---------- 队列输入 ----------
 export function renderPendingInputs(items) {
+  const forProject = currentProject;
+  const forProcess = activeProcessId;
+  const forSession = activeSessionId;
+  const isCurrent = () => currentProject === forProject && activeProcessId === forProcess && activeSessionId === forSession;
   const list = $("queue-list");
   const count = $("queue-count");
   // 排队条挂在 composer(用户定调:排队输入放到排队按钮那里),空队列整条隐藏。
@@ -1599,20 +1626,22 @@ export function renderPendingInputs(items) {
     cancel.textContent = t("撤销");
     cancel.title = t("撤销这条排队输入");
     cancel.addEventListener("click", async () => {
+      if (!isCurrent()) { void refreshPendingInputs(); return; }
       cancel.disabled = true;
       try {
         const changed = await invoke("cancel_input", {
-          projectDir: currentProject,
+          projectDir: forProject,
           inputId: item.input_id,
-          processId: activeProcessId,
+          processId: forProcess,
         });
         if (changed) {
           toast(t("已撤销排队输入"));
-          await refreshPendingInputs();
         }
+        if (isCurrent()) await refreshPendingInputs();
       } catch (err) {
-        cancel.disabled = false;
         toastError(`${t("撤销失败")}:${err}`);
+      } finally {
+        cancel.disabled = false;
       }
     });
     entry.append(prompt, delivery, cancel);
@@ -1620,18 +1649,29 @@ export function renderPendingInputs(items) {
   }
 }
 
+let pendingInputsGeneration = 0;
+function resetPendingInputs() {
+  pendingInputsGeneration += 1;
+  renderPendingInputs([]);
+}
 export async function refreshPendingInputs() {
+  const generation = ++pendingInputsGeneration;
+  const forProject = currentProject;
+  const forProcess = activeProcessId;
+  const forSession = activeSessionId;
+  const isCurrent = () => generation === pendingInputsGeneration && currentProject === forProject && activeProcessId === forProcess && activeSessionId === forSession;
   if (!currentProject) {
     renderPendingInputs([]);
     return;
   }
   try {
-    renderPendingInputs(await invoke("list_pending_inputs", {
-      projectDir: currentProject,
-      processId: activeProcessId,
-    }));
+    const items = await invoke("list_pending_inputs", {
+      projectDir: forProject,
+      processId: forProcess,
+    });
+    if (isCurrent()) renderPendingInputs(items);
   } catch (err) {
-    log(`${t("队列刷新失败")}:${err}`, "warn");
+    if (isCurrent()) log(`${t("队列刷新失败")}:${err}`, "warn");
   }
 }
 

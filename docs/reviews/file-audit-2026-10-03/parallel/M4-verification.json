@@ -1,0 +1,210 @@
+{
+  "package": "M4",
+  "status": "ui_verified_pending_native_integration",
+  "repository_review_complete": false,
+  "baseline": "aff48f96",
+  "integrated_C4": "33664fd0",
+  "full_files": [
+    "crates/kanzei-app/ui/09-sessions.js"
+  ],
+  "read_fully_pending_dependency_fix": [
+    "crates/kanzei-app/src/main.rs"
+  ],
+  "slice_files": [
+    "crates/kanzei-app/ui/12-workbench.js"
+  ],
+  "regression_support_files": [
+    "scripts/ui-session-identity-smoke.mjs"
+  ],
+  "issues": [
+    {
+      "id": "M4-01",
+      "priority": "P1"
+    },
+    {
+      "id": "M4-02",
+      "priority": "P1"
+    },
+    {
+      "id": "M4-03",
+      "priority": "P1"
+    },
+    {
+      "id": "M4-04",
+      "priority": "P1"
+    },
+    {
+      "id": "M4-05",
+      "priority": "P1"
+    },
+    {
+      "id": "M4-06",
+      "priority": "P1"
+    },
+    {
+      "id": "M4-07",
+      "priority": "P1"
+    },
+    {
+      "id": "M4-08",
+      "priority": "P2"
+    },
+    {
+      "id": "M4-09",
+      "priority": "P2"
+    }
+  ],
+  "source_evidence": {
+    "crates/kanzei-app/ui/09-sessions.js": {
+      "sha256": "7fb5c98648fe1ff4b308f7112ed10c36df5ff48b7366282f86a5fd7b07c1eaa4",
+      "sha256_lf": "8f0d4329051b81d8a3f62100df41cd8518bfe2352e5be7491cbe663da9dd6191",
+      "bytes": 87212,
+      "lines": 1678
+    },
+    "crates/kanzei-app/ui/12-workbench.js": {
+      "sha256": "5966705fa0d10a819ff9eb55f8bf0d0423da0af6a26e626a3036299b9eb1e6f2",
+      "sha256_lf": "f6e749313e90d0a4a714ee51d4f891c2207b433d3733763b08476f097de4167e",
+      "bytes": 21315,
+      "lines": 342
+    },
+    "crates/kanzei-app/src/main.rs": {
+      "sha256": "ab04959440168395b2d36936ba886724c97db440f19fb1e433131410928a19d1",
+      "sha256_lf": "9ea0056c16f55bced30d9182c7b3d0ab58b1552cba802091d5826c4585a93af0",
+      "bytes": 19712,
+      "lines": 458
+    },
+    "scripts/ui-session-identity-smoke.mjs": {
+      "sha256": "bf5ca8ee2f650c77762aafc3d9a6ceccaccc947a81b2dfbf010b2c24d0c0b07b",
+      "sha256_lf": "bf5ca8ee2f650c77762aafc3d9a6ceccaccc947a81b2dfbf010b2c24d0c0b07b",
+      "bytes": 19912,
+      "lines": 270
+    }
+  },
+  "checks": [
+    {
+      "command": "node --experimental-vm-modules scripts/ui-session-identity-smoke.mjs",
+      "exit_code": 0,
+      "log": "output/parallel-M4/targeted-final.log",
+      "evidence": {
+        "sha256": "d096b24c40df74899d33e2b779e7d0c377414195e217a26c312a9efbcce2d96d",
+        "sha256_lf": "a22f18fae1b8f38d13edf0c2fc692be41fda7f969cb3bbf024865e87c033449e",
+        "bytes": 4496
+      }
+    },
+    {
+      "command": "node --experimental-vm-modules scripts/ui-session-identity-smoke.mjs --before",
+      "exit_code": 1,
+      "log": "output/parallel-M4/before-final.log",
+      "evidence": {
+        "sha256": "98975f2ddca7cb45954068341269f3bcef2fa351385f28d3db1f65bccc32f355",
+        "sha256_lf": "c2a11aba825d18f23838b88fa9d2ff349441483f786805f53dc4bc64f6fee643",
+        "bytes": 14195
+      }
+    },
+    {
+      "command": "node --experimental-vm-modules scripts/ui-runtime-smoke.mjs",
+      "exit_code": 0,
+      "log": "output/parallel-M4/ui-runtime.log",
+      "evidence": {
+        "sha256": "18c2e02803a7b5db013bb90b3a5c34008ab36300b52dbb70b3418472ec5cbadd",
+        "sha256_lf": "11a10f55532b87f2ec9709bdef256b5bfc4de1704790027f36c0ea3e1181a54a",
+        "bytes": 2406
+      }
+    },
+    {
+      "command": "node node_modules/eslint/bin/eslint.js crates/kanzei-app/ui/09-sessions.js crates/kanzei-app/ui/12-workbench.js",
+      "exit_code": 0,
+      "log": "output/parallel-M4/eslint.log",
+      "evidence": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sha256_lf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      }
+    },
+    {
+      "command": "node scripts/ipc-event-smoke.mjs",
+      "exit_code": 0,
+      "log": "output/parallel-M4/ipc-event.log",
+      "evidence": {
+        "sha256": "491c4a93773a280caf7a7c91a9ed022562d214966821f77f52ad1f6e88d5f839",
+        "sha256_lf": "6eb1fa37ea383b8ad6483268777e3a8363474f1bb214e29e45c690955c447377",
+        "bytes": 749
+      }
+    },
+    {
+      "command": "node scripts/ui-i18n-smoke.mjs",
+      "exit_code": 0,
+      "log": "output/parallel-M4/i18n.log",
+      "evidence": {
+        "sha256": "54fd7e9af48f838587bc8d286e2928158a9a8ab0481d6303d2e4c523ffceade3",
+        "sha256_lf": "6cb9e17784c049a1818776f96a67a7381e1b81f803e9cfac65ff9f203212fa56",
+        "bytes": 101
+      }
+    },
+    {
+      "command": "node --experimental-vm-modules scripts/ui-state-ownership-smoke.mjs",
+      "exit_code": 0,
+      "log": "output/parallel-M4/A4-targeted.log",
+      "evidence": {
+        "sha256": "89e5df7e192eb8f32343f6afd22070f0c8361301710c24ded3041cd1cc901517",
+        "sha256_lf": "ef8d5b47737aa0c74a313f3210af8aca03e381699ec8e64a20c9cbc42e3c5dcf",
+        "bytes": 3539
+      }
+    },
+    {
+      "command": "node --experimental-vm-modules scripts/ui-permission-identity-smoke.mjs",
+      "exit_code": 0,
+      "log": "output/parallel-M4/A3-targeted.log",
+      "evidence": {
+        "sha256": "8c2e75b883c85ff8c656b2cfcf742fb34a2a0e5141a5535e871a1c2678128094",
+        "sha256_lf": "fee09b393faddbad1e5fe30fa0c3d738d735186f5f631d0b0a940a654aeaddf0",
+        "bytes": 2558
+      }
+    }
+  ],
+  "targeted": {
+    "tests": 22,
+    "pass": 22,
+    "fail": 0,
+    "skipped": 0
+  },
+  "exact_original_source_control": {
+    "tests": 22,
+    "pass": 7,
+    "fail": 15,
+    "skipped": 0,
+    "modules": [
+      "09-sessions.js",
+      "12-workbench.js"
+    ],
+    "git_source": "aff48f96",
+    "assertion_failures_only": true
+  },
+  "full_ui": {
+    "exit_code": 0,
+    "ui_modules": 90,
+    "mock_invocations": 4006,
+    "main_views": 10,
+    "runtime_errors": 0,
+    "real_browser_suites_in_same_command": true
+  },
+  "execution_faults": [
+    {
+      "action": "first full UI regression",
+      "exit_code": 1,
+      "log": "output/parallel-M4/ui-runtime-initial-failure.log",
+      "reason": "M4 delegation skipped legacy same-project refresh",
+      "resolved": "09 reload:true; 12 cache shortcut requires !options.reload",
+      "counted_as_baseline_bug_proof": false
+    }
+  ],
+  "boundaries": {
+    "global_coverage_updated": false,
+    "main_scheduler_fix": "A5 pending",
+    "cargo_executed": false,
+    "native_tauri_window": false,
+    "physical_phone_LAN": false,
+    "push": false,
+    "release": false
+  }
+}
