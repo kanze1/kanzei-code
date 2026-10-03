@@ -159,9 +159,13 @@ pub(crate) fn conversation_get(
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
-    store
-        .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|e| e.to_string())?;
+    if store
+        .get_session(&session_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Ok(Vec::new());
+    }
     // R-242 批6/7:事件投影真源。sequence=None(最新历史)且 gate 开启时,从
     // 事件日志投影最新 segment surface。sequence=Some 既可能是 legacy
     // conversation.updated 快照序号,也可能是 conversation_list 投影模式返回的
@@ -290,9 +294,13 @@ pub(crate) fn conversation_trace_get(
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
-    store
-        .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|e| e.to_string())?;
+    if store
+        .get_session(&session_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Ok(Vec::new());
+    }
     let events = store
         .list_events_by_type(&session_id, 0, "run.trace")
         .map_err(|e| e.to_string())?;
@@ -322,9 +330,13 @@ pub(crate) fn conversation_list(
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
-    store
-        .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|e| e.to_string())?;
+    if store
+        .get_session(&session_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Ok(Vec::new());
+    }
     // R-242 批7:段边界统一来自 conversation.reset(清空/新会话标记),legacy 与
     // 投影共用;gate 开启时按段投影 typed facts,关闭时按段内最新 legacy 快照。
     let boundaries = segment_boundaries(&store, &session_id)?;

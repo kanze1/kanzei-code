@@ -133,7 +133,7 @@ export const I18N_EN = {
   "(当前打开的对话)": "(currently open)",
   "删除后无法恢复。": "This cannot be undone.",
   "这段对话本来就是空的": "This conversation is already empty",
-  "关闭后，这个独立任务的对话会进入侧栏「已关闭」分组，仍可只读查看；要连对话一起删除，请用「删除对话…」。": "After closing, this independent task's conversation moves to the sidebar \"Closed\" group, where you can still read it; to delete it as well, use \"Delete conversation…\".",
+  "关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。": "After closing, you can still read this conversation in search or history; to delete it as well, use \"Delete conversation…\".",
   "目标项目的主对话暂不可用": "The target project's main conversation is not available yet",
   "在此项目新建讨论": "New discussion in this project",
   "重命名": "Rename",

@@ -584,12 +584,12 @@ export function writeJson(key, value) {
 // 旧值兼容(读时先本地后后端,写时双写)。uiPrefsSave 失败静默——偏好丢失可接受,
 // 不该打断当前操作。
 export let uiPrefsCache = null;
-export async function uiPrefsLoad() {
-  if (!uiPrefsCache) {
+export async function uiPrefsLoad(refresh = false) {
+  if (refresh || !uiPrefsCache) {
     try {
       uiPrefsCache = (await invoke("ui_prefs_get")) || {};
     } catch {
-      uiPrefsCache = {};
+      return uiPrefsCache || {};
     }
   }
   return uiPrefsCache;

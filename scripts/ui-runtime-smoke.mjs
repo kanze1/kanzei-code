@@ -10894,7 +10894,7 @@ const docsB = {
   }
 }
 // (原「UI2-0926 侧栏密度」块:焦点区未绑定条目的线一行 / 工作树最多列 6 棵 + 查看全部 / 计数,随侧栏「各线当前在做」与「隔离工作树」分区一起删除,UX-069。)
-// ---------- UX-035 已关闭的对话:折叠分组,只读查看 ----------
+// ---------- 已关闭的对话:侧栏隐藏,历史中只读查看 ----------
 // 关闭独立任务只注销身份、记录还在;原先对话在界面里永久消失。清单来自只读命令 process_closed_list,点开走既有的只读文字稿查看器。
 {
   const treeNs = esmModuleCache.get("12-session-tree.js")?.namespace;
@@ -10910,13 +10910,16 @@ const docsB = {
     assert(treeNs.closedSessionsOf(PROJECT).length === 1, "process_closed_list 的清单应进缓存");
     treeNs.setClosedOpen(PROJECT, false);
     treeNs.invalidateSessionTree();
-    const closedToggle = () => document.querySelectorAll("#workbench-project-list .workbench-closed-toggle")[0];
-    assert(/已关闭|Closed/.test(closedToggle()?.textContent ?? "") && closedToggle().textContent.includes("(1)"), `侧栏应有折叠的「已关闭 (1)」分组头,实为 ${closedToggle()?.textContent}`);
-    assert(closedToggle().getAttribute("aria-expanded") === "false" && document.querySelectorAll("#workbench-project-list .workbench-session.is-closed").length === 0, "已关闭分组默认收起,不铺开行");
+    assert(document.querySelectorAll("#workbench-project-list .workbench-closed-toggle").length === 0, "侧栏不应显示已关闭分组");
+    assert(document.querySelectorAll("#workbench-project-list .workbench-session.is-closed").length === 0, "侧栏不应显示已关闭对话");
     treeNs.setClosedOpen(PROJECT, true);
     treeNs.invalidateSessionTree();
-    const closedRows = document.querySelectorAll("#workbench-project-list .workbench-session.is-closed");
-    assert(closedRows.length === 1 && closedRows[0].textContent.includes("已关闭的冒烟线路"), "展开后应列出已关闭的对话");
+    assert(document.querySelectorAll("#workbench-project-list .workbench-session.is-closed").length === 0, "旧版保存的展开偏好也不能把已关闭对话带回侧栏");
+    treeNs.closeSessionHistory();
+    treeNs.openSessionHistory(byId.get("workbench-chat-history"), PROJECT);
+    await flush();
+    const closedRows = document.querySelectorAll("#session-history .workbench-session.is-closed");
+    assert(closedRows.length === 1 && closedRows[0].textContent.includes("已关闭的冒烟线路"), "历史中仍可管理已关闭的对话");
     assert(closedRows[0].dataset.ctx === "closed" && closedRows[0].dataset.processId === "p9|smoke-closed", "已关闭行应带 data-ctx=closed 与进程 id(右键菜单 / 点击委托靠它)");
     // 点开 = 只读文字稿(既有查看器,不进当前对话 pane)。
     payloads.conversation_get = () => [{ role: "user", parts: [{ type: "text", text: "关闭前说的话" }] }];
@@ -10928,6 +10931,7 @@ const docsB = {
     assert(listText("messages") === paneBefore, "查看已关闭对话不该动当前对话 pane");
     esmModuleCache.get("00-surface.js")?.namespace?.closeSurface?.(byId.get("viewer-overlay"));
   } finally {
+    treeNs.closeSessionHistory();
     payloads.process_closed_list = savedClosed;
     payloads.conversation_get = savedConversationGet;
     treeNs.setClosedOpen(PROJECT, savedClosedOpen);
@@ -11164,8 +11168,8 @@ const docsB = {
   await flush();
   assert(calls("process_close").length === closesBeforeK, "场景 K 前置失败:取消关闭仍发出了 process_close");
   assert(
-    closeMessage.includes(sandbox.t("关闭后，这个独立任务的对话会进入侧栏「已关闭」分组，仍可只读查看；要连对话一起删除，请用「删除对话…」。")),
-    `场景 K:关闭独立任务弹窗没说明对话会进入「已关闭」分组、仍可只读查看,以及要删除请用「删除对话…」(${closeMessage})`,
+    closeMessage.includes(sandbox.t("关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。")),
+    `场景 K:关闭独立任务弹窗没说明对话仍可在搜索与历史中查看,以及要删除请用「删除对话…」(${closeMessage})`,
   );
 
   // 收尾:还原桩与定时器,丢掉本段建的 pane,回到项目 A 的干净状态。

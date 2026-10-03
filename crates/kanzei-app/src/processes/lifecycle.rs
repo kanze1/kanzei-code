@@ -243,6 +243,24 @@ pub(crate) async fn purge_process(
         return Err("主对话不能删除;想重新开始请用「清空对话」".into());
     }
     let root = normalized_project_root(Path::new(project_dir));
+    // 删除是幂等操作：旧窗口/菜单持有的退役身份可以再次确认删除，不能因此复活记录。
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    let session_id = process_session_id(&root, Some(process_id));
+    let already_deleted = store
+        .list_retired_process_ids(&root.display().to_string())
+        .map_err(|e| e.to_string())?
+        .iter()
+        .any(|id| id == process_id)
+        && store
+            .get_session(&session_id)
+            .map_err(|e| e.to_string())?
+            .is_none();
+    drop(store);
+    if already_deleted {
+        forget_prefs(process_id)?;
+        return Ok("对话已删除".into());
+    }
     let process = owned_conversation(state, &root, process_id)?;
     let session_id = process_session_id(&root, Some(process_id));
     let running = state
@@ -1171,10 +1189,35 @@ mod tests {
             .collect();
         assert_eq!(ids, [default_process_id(&root), bystander.id.clone()]);
 
-        let error = purge_process(&state, &project, &target.id, &forget)
-            .await
-            .unwrap_err();
-        assert!(error.contains("不存在"), "{error}");
+        assert_eq!(
+            purge_process(&state, &project, &target.id, &forget)
+                .await
+                .unwrap(),
+            "对话已删除"
+        );
+        assert!(crate::conversation::conversation_get(
+            project.clone(),
+            None,
+            Some(target.id.clone())
+        )
+        .unwrap()
+        .is_empty());
+        assert!(
+            crate::conversation::conversation_list(project.clone(), Some(target.id.clone()))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(crate::conversation::conversation_trace_get(
+            project.clone(),
+            None,
+            Some(target.id.clone())
+        )
+        .unwrap()
+        .is_empty());
+        assert!(
+            store.get_session(&session_id).unwrap().is_none(),
+            "读取不能复活已删除对话"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

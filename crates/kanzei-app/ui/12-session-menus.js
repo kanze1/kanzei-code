@@ -224,7 +224,7 @@ export async function closeSession(project, id) {
     : t("关闭只会注销这个独立任务的登记。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。");
   if (!await confirmDialog({
     title: t("关闭独立任务"),
-    message: `「${row.name}」\n${warning}\n${t("关闭后，这个独立任务的对话会进入侧栏「已关闭」分组，仍可只读查看；要连对话一起删除，请用「删除对话…」。")}`,
+    message: `「${row.name}」\n${warning}\n${t("关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。")}`,
     okText: t("关闭独立任务"),
     danger: true,
   })) return;
@@ -346,6 +346,18 @@ function afterDialog(key, work) {
   void Promise.resolve(work).finally(() => requestAnimationFrame(() => focusRowByKey(key)));
 }
 
+// 常用动作保持一屏；复制、排序、交付与外部工具放到二级菜单。
+function compactContextMenu(point, host, items, options, primaryLabels) {
+  const primary = items.filter(item => item && primaryLabels.includes(item.label));
+  const details = items.filter(item => item === "separator" || (item && !primaryLabels.includes(item.label)));
+  return showMenu(point, host, [
+    ...primary.filter(item => !item.danger),
+    { label: `${t("更多操作")}…`, onSelect: () => showMenu(point, host, details, options) },
+    "separator",
+    ...primary.filter(item => item.danger),
+  ], options);
+}
+
 export async function openSessionContextMenu(wrap, point, host) {
   const project = wrap.dataset.project;
   const id = wrap.dataset.processId;
@@ -392,7 +404,10 @@ export async function openSessionContextMenu(wrap, point, host) {
       onSelect: () => afterDialog(wrap.dataset.key, clearMainConversation(project, id)),
     },
   ];
-  return showMenu(point, host, items, { label: live.name, focusKey: wrap.dataset.key });
+  return compactContextMenu(point, host, items, { label: live.name, focusKey: wrap.dataset.key }, [
+    `${t("重命名")}…`, t("置顶"), t("取消置顶"),
+    `${t("关闭独立任务")}…`, `${t("删除对话")}…`, `${t("清空对话")}…`,
+  ]);
 }
 function chooseHandoffProject(point, host, source) {
   const others = (lastProjectPrefs.projects ?? []).filter((path) => !sameProject(path, source.project));
@@ -441,7 +456,10 @@ export async function openProjectContextMenu(row, point, host) {
       onSelect: () => afterDialog(`project\u001f${path}`, removeProject(path).then(() => { dropRemoteSessions(path); invalidateSessionTree(); })),
     },
   ];
-  return showMenu(point, host, items, { label: name, focusKey: `project\u001f${path}` });
+  return compactContextMenu(point, host, items, { label: name, focusKey: `project\u001f${path}` }, [
+    t("新建讨论"), `${t("重命名项目")}…`, t("置顶"), t("取消置顶"),
+    t("在资源管理器中打开"), `${t("移除项目")}…`,
+  ]);
 }
 
 // ---------- 事件委托 ----------

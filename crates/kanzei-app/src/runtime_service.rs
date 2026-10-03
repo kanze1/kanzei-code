@@ -14,6 +14,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+mod compatibility;
 
 const LIMIT: usize = 32 * 1024 * 1024;
 const PROTOCOL: u32 = 1;
@@ -191,7 +192,7 @@ impl Client {
         let path = directory().join("endpoint.json");
         if let Ok(data) = std::fs::read(&path) {
             if let Ok(endpoint) = serde_json::from_slice::<Endpoint>(&data) {
-                if request(&endpoint, json!({"action":"ping"})).await.is_ok() {
+                if compatibility::accept(&endpoint).await? {
                     *cached = Some(endpoint.clone());
                     return Ok(endpoint);
                 }
@@ -224,7 +225,7 @@ impl Client {
             tokio::time::sleep(Duration::from_millis(200)).await;
             if let Ok(data) = std::fs::read(&path) {
                 if let Ok(endpoint) = serde_json::from_slice::<Endpoint>(&data) {
-                    if request(&endpoint, json!({"action":"ping"})).await.is_ok() {
+                    if compatibility::accept(&endpoint).await? {
                         *cached = Some(endpoint.clone());
                         return Ok(endpoint);
                     }
@@ -427,7 +428,8 @@ pub(crate) fn install_service(
                     let input = tokio::time::timeout(Duration::from_secs(10), frame_read(&mut stream)).await.map_err(|_| "后台请求超时")??;
                     if input["token"].as_str() != Some(endpoint.token.as_str()) { return Err("后台认证失败".into()); }
                     match input["action"].as_str().unwrap_or("") {
-                        "ping" => Ok(json!({"pid":endpoint.pid,"protocol":PROTOCOL,"cursor":journal.lock_or_recover().seq})),
+                        "ping" => Ok(json!({"pid":endpoint.pid,"protocol":PROTOCOL,"build":env!("KANZEI_RUNTIME_BUILD"),"cursor":journal.lock_or_recover().seq})),
+                        "retire_if_idle" => compatibility::retire_if_idle(&app),
                         "process_roots" => {
                             let state=app.state::<crate::AppState>();
                             let processes=state.processes.lock_or_recover();
@@ -452,12 +454,14 @@ pub(crate) fn install_service(
                             Ok(json!({"stopped":true}))
                         }
                         "invoke" => {
+                            let _admission = compatibility::admit()?;
                             let command = input["command"].as_str().ok_or("缺少命令")?;
                             if local_command(command) { return Err("此命令需要桌面界面".into()); }
+                            let url = compatibility::invoke_url(&webview).await?;
                             let (sender, receiver) = tokio::sync::oneshot::channel();
                             webview.clone().on_message(tauri::webview::InvokeRequest {
                                 cmd:command.into(),callback:tauri::ipc::CallbackFn(0),error:tauri::ipc::CallbackFn(1),
-                                url:webview.url().map_err(|e| e.to_string())?,body:tauri::ipc::InvokeBody::Json(input["args"].clone()),
+                                url,body:tauri::ipc::InvokeBody::Json(input["args"].clone()),
                                 headers:Default::default(),invoke_key:app.invoke_key().into(),
                             }, Box::new(move |_,_,response,_,_| {
                                 let result = match response {

@@ -324,12 +324,12 @@ export async function closeParallelProcess(processId) {
   const forProject = currentProject;
   const wasActive = processId === activeProcessId;
   const runningNow = processRunning(item);
-  // 关闭只注销身份(processes → retired_processes),这条线的对话一条不删,进侧栏「已关闭」分组只读查看。
+  // 关闭只注销身份(processes → retired_processes),这条线的对话一条不删,在搜索与历史中只读查看。
   // 要连对话一起删,用右键「删除对话…」(真删);弹窗必须把这两件事分清。确认框只点名,不露内部 id(UX-035)。
   const name = processName(item);
   const warning = `${runningNow
     ? t("独立任务仍在运行，关闭会先停止它，等它收尾。")
-    : t("关闭只会注销这个独立任务的登记。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。")}\n${t("关闭后，这个独立任务的对话会进入侧栏「已关闭」分组，仍可只读查看；要连对话一起删除，请用「删除对话…」。")}`;
+    : t("关闭只会注销这个独立任务的登记。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。")}\n${t("关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。")}`;
   if (!(await confirmDialog({ title: t("关闭独立任务"), message: `「${name}」\n${warning}`, okText: t("关闭独立任务"), danger: true }))) return;
   cancelAutoContinueTimer(item.session_id);
   if (runningNow) transitionSession(item.session_id, "stopping");
@@ -342,7 +342,7 @@ export async function closeParallelProcess(processId) {
     }
     await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
     if (currentProject !== forProject) return;
-    // 关掉的线路只是注销了身份,对话记录还在:进侧栏「已关闭」分组(UX-035)。
+    // 关掉的线路只是注销了身份,对话记录还在:在搜索与历史中查看。
     dropClosedSessions(forProject);
     if (wasActive && activeProcessId) await switchProcess(activeProcessId, true);
     refreshGit();

@@ -116,7 +116,7 @@ pub(crate) fn clean_user_title(raw: &str) -> Result<Option<String>, String> {
 pub(crate) struct SessionNaming {
     /// 用户命名(`sessions.title`)。
     pub(crate) custom: Option<String>,
-    /// 自动标题;已有用户命名、主对话、还没发过消息时都是 None。
+    /// 自动标题;已有用户命名或还没发过消息时为 None。
     pub(crate) auto: Option<String>,
     /// `sessions.updated_at`(每次追加事件刷新);会话行还没建出来为 None。
     pub(crate) updated_at: Option<i64>,
@@ -146,18 +146,18 @@ pub(crate) fn open_naming_store(root: &Path) -> Option<SessionStore> {
     SessionStore::open_read_only(&path).ok()
 }
 
-/// 读一条会话的命名事实。主对话不用首条消息当名字(它是「主对话」,不是某个历史话题)。
+/// 所有对话都优先展示用户实际发出的内容，执行角色不再覆盖话题名称。
 pub(crate) fn load_naming(
     store: &SessionStore,
     session_id: &str,
-    kind: ProcessKind,
+    _kind: ProcessKind,
 ) -> SessionNaming {
     let session = store.get_session(session_id).ok().flatten();
     let custom = session
         .as_ref()
         .and_then(|session| session.title.clone())
         .filter(|title| !title.trim().is_empty());
-    let auto = if custom.is_none() && kind != ProcessKind::Main {
+    let auto = if custom.is_none() {
         store
             .first_input_prompt(session_id)
             .ok()
@@ -306,7 +306,7 @@ mod tests {
                 .unwrap();
         }
         let main = load_naming(&store, "ses_main", ProcessKind::Main);
-        assert_eq!(main.title(), None, "主对话叫「主对话」,不拿首条消息当名字");
+        assert_eq!(main.title(), Some("帮我梳理一下需求"));
         assert!(main.updated_at.is_some());
         let discussion = load_naming(&store, "ses_disc", ProcessKind::Discussion);
         assert_eq!(discussion.auto.as_deref(), Some("帮我梳理一下需求"));

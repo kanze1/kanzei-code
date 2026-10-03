@@ -221,7 +221,6 @@ let evaluateQueued = false;
 let boundsQueued = false;
 let reloadTimer = null;
 let splitApi = null;
-let userToggled = false;
 /// 地址栏正在被用户编辑(input 置位;Enter / Esc / blur 清零)。不能看 document.activeElement:焦点点进原生子 webview 时
 /// 主文档的 activeElement 不变,地址栏会一直拒收 kz:preview-state 带来的真实地址。
 let addressEditing = false;
@@ -520,8 +519,8 @@ function setOpen(open, { persist = true } = {}) {
   if (state.open === open) return;
   state.open = open;
   if (persist) {
-    userToggled = true;
-    setLayoutPref("preview", "open", open);
+    // 开合只属于本次窗口，启动时不恢复旧的打开状态。
+    setLayoutPref("preview", "open", null);
   }
   if (open) {
     measureNarrow();
@@ -1179,10 +1178,7 @@ function adoptPrefs() {
     state.consoleOpen = consoleOpen;
     $("preview-console")?.classList.toggle("hidden", !consoleOpen);
   }
-  // 启动时按上次的开合恢复(只恢复面板与起始页,不自动加载上次的页面:开发服务可能已经不在了)。本机 localStorage
-  // 重启即丢(D-404),真值是稍后到达的后端 ui_layout:用户本次启动还没动过开关之前,每次偏好到达都按它对齐。
-  const wantOpen = layoutPref("preview", "open") === true;
-  if (!userToggled && wantOpen !== state.open) setOpen(wantOpen, { persist: false });
+  // 只恢复设备、控制台与最近地址；旧版保存的 open=true 不得自动展开浏览器。
   renderRecent();
   syncChrome();
 }

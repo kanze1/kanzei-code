@@ -370,6 +370,7 @@ try {
     await page.evaluate(async () => (await import("/12-session-menus.js")).loadOpenTools({ force: true }));
     await page.click(mainRow, { button: "right" });
     await page.waitForSelector(".k-menu:popover-open");
+    await page.locator(".k-menu:popover-open .k-menu-item", { hasText: "更多操作" }).click();
     await page.locator(".k-menu:popover-open .k-menu-item", { hasText: /添加打开方式/ }).click();
     await page.waitForFunction(() => document.body.dataset.view === "settings");
     await sleep(700);

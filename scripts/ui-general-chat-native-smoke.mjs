@@ -164,6 +164,8 @@ try {
   await until(async () => (await page.locator("#messages").innerText()).includes("GENERAL_REPLY") && !(await invoke("process_list", { projectDir: root })).some(p => p.running), "General reply");
   const submitted = requests.find(r => JSON.stringify(r.messages).includes("GENERAL_INPUT"));
   check(Boolean(submitted), "UI sends a real model request without selecting a project");
+  check((await invoke("process_list", { projectDir: root })).find(p => p.id === original.id).title === text, "Sidebar title uses the actual first user message");
+  check((await page.locator("#messages .msg.user").allTextContents()).some(content => content.includes(text)), "User bubble retains the actual submitted text");
   check(JSON.stringify(submitted.messages).includes("GENERAL_ATTACHMENT"), "Uploaded text attachment reaches the model");
   const catalog = submitted.tools.map(tool => tool.function.name);
   check(["read", "write", "edit", "bash", "task", "tool_search", "memory_search"].every(name => catalog.includes(name)), "Model catalog retains files, shell, memory and agents");

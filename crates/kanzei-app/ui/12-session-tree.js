@@ -122,7 +122,9 @@ export function remoteSessionState(project) { return remote.get(project) ?? null
 export function sessionItemsOf(project) {
   const items = sameProject(project, currentProject) ? processItems
     : remote.get(project)?.items ?? snapshotLines(project);
-  return items.filter((item) => item.profile !== "research" && item.kind !== "research");
+  return items.filter((item) => item.profile !== "research" && item.kind !== "research"
+    && !item.deleted && !item.archived && !item.closed
+    && !["closed", "archived", "deleted"].includes(item.lifecycle || item.status));
 }
 export function mainSessionOf(project, items = sessionItemsOf(project)) {
   return main_workspace_process(items, project) ?? null;
@@ -262,18 +264,10 @@ export function buildSessionRow(row, { history = false } = {}) {
       wrap._time = time;
     }
   }
-  wrap.append(button, rowMenuButton(row.name));
+  button.setAttribute("aria-haspopup", "menu");
+  wrap.append(button);
   syncRowActivity(wrap);
   return wrap;
-}
-function rowMenuButton(name) {
-  const button = el("button", "workbench-row-menu", "⋯");
-  button.type = "button";
-  button.dataset.act = "row-menu";
-  button.title = t("更多操作");
-  button.setAttribute("aria-label", `${t("更多操作")} · ${name}`);
-  button.setAttribute("aria-haspopup", "menu");
-  return button;
 }
 export function syncRowActivity(wrap) {
   const row = wrap._row;
@@ -324,7 +318,8 @@ export function wrapProjectRow(path, linkButton) {
   const icon = el("span", "workbench-project-caret-icon");
   icon.setAttribute("aria-hidden", "true");
   caret.append(icon);
-  row.append(caret, linkButton, rowMenuButton(projectDisplayName(path)));
+  linkButton.setAttribute("aria-haspopup", "menu");
+  row.append(caret, linkButton);
   const list = el("div", "workbench-session-list");
   list.setAttribute("role", "group");
   list.hidden = true;
@@ -389,7 +384,6 @@ export function renderSidebarSessions() {
     }
     const local = sameProject(path, currentProject);
     if (!local) void loadRemoteSessions(path);
-    void loadClosedSessions(path);
     const rows = orderRows(path);
     const active = local ? activeProcessId : null;
     // 前 N 条之外,当前打开的、正在跑的、等你回复 / 等你批准的对话也必须在树里看得见:关键状态不能被折进「更多」。
@@ -399,7 +393,6 @@ export function renderSidebarSessions() {
     const status = !rows.length ? (local ? "" : state?.error ? "error" : state?.items ? "empty" : "loading") : "";
     const signature = JSON.stringify([
       visible.map((row) => [row.id, row.name, row.kind, row.pinned, row.custom]), hidden, status, t("独立任务"),
-      closedSignature(path), t("已关闭"),
     ]);
     if (signatures.get(path) === signature) {
       // 行没变:不重建,但把行上挂的数据换成这一轮的新值(运行态/分支等来自最新的进程列表),再对一遍运行态点。
@@ -413,7 +406,6 @@ export function renderSidebarSessions() {
     if (status === "loading") children.push(noteRow(t("加载中…")));
     else if (status === "error") children.push(noteRow(t("对话列表读取失败")));
     else if (status === "empty") children.push(noteRow(t("暂无对话")));
-    children.push(...closedGroup(path));
     list.replaceChildren(...children);
     restoreFocus(list, focusKey);
   }
@@ -427,11 +419,10 @@ function renderGeneralSessions() {
   if (!list) return;
   if (!project) { list.replaceChildren(); return; }
   void loadRemoteSessions(project);
-  void loadClosedSessions(project);
   const rows = orderRows(project);
   const visible = rows.filter((row, index) => index < SESSION_VISIBLE || row.id === activeProcessId || rowNeedsEye(row));
   const state = remote.get(project);
-  const signature = JSON.stringify([visible.map(row => [row.id, row.name, row.pinned]), rows.length, closedSignature(project), state?.error, t("对话")]);
+  const signature = JSON.stringify([visible.map(row => [row.id, row.name, row.pinned]), rows.length, state?.error, t("对话")]);
   const key = `general:${project}`;
   if (signatures.get(key) === signature) { refreshRowData(list, visible); return; }
   signatures.set(key, signature);
@@ -439,7 +430,6 @@ function renderGeneralSessions() {
   const children = visible.map(row => buildSessionRow(row));
   if (rows.length > visible.length) children.push(moreButton(project, rows.length - visible.length));
   if (!rows.length && state?.error) children.push(noteRow(t("对话列表读取失败")));
-  children.push(...closedGroup(project));
   list.replaceChildren(...children);
   restoreFocus(list, focus);
 }
@@ -492,7 +482,7 @@ export function dropRemoteSessions(project) {
 }
 
 // ---------- 已关闭的对话(UX-035) ----------
-// 关闭独立任务只注销身份、对话记录一条不删(process_close),可原先界面从此再也看不到它。「已关闭」折叠分组把它们列出来,
+// 关闭独立任务只注销身份、对话记录一条不删(process_close),可在搜索与历史中查看；主侧栏不再显示它们。
 // 只读查看(用既有的文字稿查看器,不进当前对话 pane)。清单来自只读命令 process_closed_list;展开态存 ui_layout.closed_open。
 const closedCache = new Map(); // 项目路径 → { items, at, loading }
 const CLOSED_TTL_MS = 60000;
@@ -681,7 +671,8 @@ function buildSegmentRow({ owner, item }) {
   const created = Number(item.created_at);
   const when = created > 0 ? relativeTime(created) : String(item.updated_at ?? "");
   button.title = [segmentTitle(item.title), `${t("历史")} · ${owner.name}`, when].filter(Boolean).join("\n");
-  wrap.append(button, rowMenuButton(segmentTitle(item.title)));
+  button.setAttribute("aria-haspopup", "menu");
+  wrap.append(button);
   return wrap;
 }
 function paintHistory() {

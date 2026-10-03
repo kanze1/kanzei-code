@@ -7,6 +7,12 @@
 #       -SkipInstall = 只生成安装包,不在当前机器自动安装。
 param([switch]$Publish, [switch]$SkipInstall, [int]$Ack = -1, [string]$VerificationPath)
 $ErrorActionPreference = "Stop"
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+    throw "当前只支持 Windows 构建与发布"
+}
+$script:buildTimings = [ordered]@{}
+$script:stageLabel = $null
+$script:stageClock = [Diagnostics.Stopwatch]::StartNew()
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = "http://127.0.0.1:12000" }
@@ -17,6 +23,13 @@ $script:stepTotal = if ($Publish) { 10 } else { 8 }
 if ($SkipInstall) { $script:stepTotal-- }
 $script:stepIndex = 0
 function Step([string]$label) {
+    if ($script:stageLabel) {
+        $seconds = [math]::Round($script:stageClock.Elapsed.TotalSeconds, 1)
+        $script:buildTimings[$script:stageLabel] = $seconds
+        Write-Host "    耗时 ${seconds}s" -ForegroundColor DarkGray
+    }
+    $script:stageLabel = $label
+    $script:stageClock.Restart()
     $script:stepIndex += 1
     Write-Host "[$script:stepIndex/$script:stepTotal] $label" -ForegroundColor Cyan
 }
@@ -26,7 +39,9 @@ $hash = (git -C $root rev-parse --short HEAD).Trim()
 # 短 hash 会被 422 Validation Failed 挡回来(实测 build-84f843e)。
 $full_hash = (git -C $root rev-parse HEAD).Trim()
 $date = Get-Date -Format "yyyy-MM-dd"
-$build_at = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+# 同一个提交重复打包使用同一个编译标识，避免仅时间变化导致整条依赖链失效。
+$commitTime = [long](git -C $root show -s --format=%ct HEAD)
+$build_at = [DateTimeOffset]::FromUnixTimeSeconds($commitTime).UtcDateTime.ToString("yyyyMMddHHmmss")
 $env:KANZEI_BUILD_INFO = "$hash $build_at"
 
 function Get-BuildTags([string]$source) {
@@ -153,28 +168,33 @@ Write-Host "==> 验证证据核对通过($($evidence.verified_at_utc), full veri
 # kz CLI 随安装包一起发(D-175)。桌面端与 CLI 共用同一个 .kanzei/state.db,
 # 而 schema 迁移是单向的:只发 kzapp 的话,一次 schema 变更就会让机器上的旧 kz
 # 直接打不开库。两个二进制必须同版本出厂,由 kzapp 启动时同步到 ~\.cargo\bin。
-Step "cargo build --release -p kanzei(sidecar kz)"
-cargo build --release -p kanzei --manifest-path "$root\Cargo.toml"
-if ($LASTEXITCODE -ne 0) { throw "kz build failed" }
+# 同一 Cargo 图同时构建 CLI 和桌面端，共享依赖只编译一次；之后仅生成 NSIS。
 $triple = (rustc -vV | Select-String '^host:').Line.Split(' ')[1].Trim()
+if ($triple -ne "x86_64-pc-windows-msvc") { throw "当前只发布 Windows x64: $triple" }
+Step "Windows CLI + 桌面端编译"
+Push-Location "$root\crates\kanzei-app"
+$tauri_log = Join-Path $env:TEMP "kanzei-tauri-build-$hash.log"
+try {
+    cargo tauri build --no-bundle -- -p kanzei -p kanzei-app --timings *> $tauri_log
+    $tauri_exit_code = $LASTEXITCODE
+} finally { Pop-Location }
+Get-Content $tauri_log | ForEach-Object { Write-Host $_ }
+if ($tauri_exit_code -ne 0) { throw "Windows build failed" }
 $sidecar_dir = "$root\crates\kanzei-app\binaries"
 New-Item -ItemType Directory -Force $sidecar_dir | Out-Null
 Copy-Item "$root\target\release\kz.exe" "$sidecar_dir\kz-$triple.exe" -Force
 
-# externalBin 只在打包时注入,不写进 tauri.conf.json:tauri-build 在 **build script**
-# 阶段就校验 sidecar 存在,写死进配置会让每一次普通 cargo build / cargo test 都失败。
+# 外部 CLI 只参与安装包组装，普通开发/测试不依赖预先打好的 sidecar。
 $bundle_config = Join-Path $env:TEMP "kanzei-bundle-config.json"
 Set-Content $bundle_config '{"bundle":{"externalBin":["binaries/kz"]}}' -Encoding UTF8
-
-Step "cargo tauri build($hash)—— 最长的一步,输出会持续滚动"
+Step "Windows NSIS 安装包组装"
 Push-Location "$root\crates\kanzei-app"
-$tauri_log = Join-Path $env:TEMP "kanzei-tauri-build-$hash.log"
 try {
-    cargo tauri build --config $bundle_config *> $tauri_log
+    cargo tauri bundle --config $bundle_config --bundles nsis *> $tauri_log
     $tauri_exit_code = $LASTEXITCODE
 } finally { Pop-Location }
 Get-Content $tauri_log | ForEach-Object { Write-Host $_ }
-if ($tauri_exit_code -ne 0) { throw "tauri build failed" }
+if ($tauri_exit_code -ne 0) { throw "Windows bundle failed" }
 
 Step "收集安装包产物"
 $setup = Get-ChildItem "$root\target\release\bundle\nsis\*-setup.exe" | Sort-Object LastWriteTime | Select-Object -Last 1
@@ -249,3 +269,8 @@ if ($Publish) {
         Write-Warning "远端 release 已发布,但本地标签 $tag 仍未指向构建提交 $full_hash (当前=$localTarget)"
     }
 }
+
+if ($script:stageLabel) {
+    $script:buildTimings[$script:stageLabel] = [math]::Round($script:stageClock.Elapsed.TotalSeconds, 1)
+}
+$script:buildTimings | ConvertTo-Json | Set-Content (Join-Path $root "dist\build-timings.json") -Encoding UTF8

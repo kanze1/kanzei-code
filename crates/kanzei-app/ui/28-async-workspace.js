@@ -1,10 +1,14 @@
-import { $, confirmDialog, defer, invoke, on, promptBox } from "./01-core.js";
+import { $, confirmDialog, defer, invoke, on, promptBox, uiPrefsLoad } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { openPopover, openMenu, closeSurface } from "./00-surface.js";
 import { installFrame } from "./00-frame.js";
 import { activeProcessId, activeSessionId, currentProject, attachments, toastError } from "./03-shell.js";
-import { refreshProcesses, projectDisplayName } from "./09-sessions.js";
+import { refreshProcesses, projectDisplayName, renderProjects, lastProjectPrefs } from "./09-sessions.js";
 import { loadConversation } from "./15-views-misc.js";
+import { active_space, restore_workspace_preferences, restore_active_workspace, sync_workspace_visibility } from "./03-workspaces.js";
+import { workbenchNavigationGuard, openProjectSpace } from "./12-workbench.js";
+import { refreshWorkspace } from "./12-docs-pages.js";
+import { openGeneralChat } from "./03-general-scope.js";
 
 const node = (tag, cls, text = "") => { const el = document.createElement(tag); el.className = cls; el.textContent = text; return el; };
 // 静态文案:建面板时按当前语言写入,同时挂 data-i18n-key——切语言时 applyDataI18nKeys 会按 key 重算(UX-155:原先这里全是裸中文)。
@@ -12,6 +16,34 @@ const label = (tag, cls, key) => { const el = node(tag, cls, t(key)); el.dataset
 let panel, scope, tab = "question", body, input, status, send, requestBusy = false, visible = false, refreshSerial = 0;
 let refreshTimer;
 const drafts = new Map();
+let runtimeSync = null;
+function synchronizeRuntime() {
+  if (runtimeSync) return runtimeSync;
+  runtimeSync = (async () => {
+    const recoverStartup = !currentProject && !lastProjectPrefs.projects?.length;
+    const isCurrent = workbenchNavigationGuard();
+    const prefs = await invoke("projects_get");
+    if (!isCurrent()) return;
+    renderProjects(prefs, { activate: false });
+    // An older, busy owner can reject the initial project/prefs requests. Once
+    // it retires, restore the actual workspace instead of leaving an empty UI.
+    if (recoverStartup && document.body.dataset.appReady === "true") {
+      const settings = await uiPrefsLoad(true);
+      await restore_workspace_preferences();
+      if (!isCurrent()) return;
+      sync_workspace_visibility();
+      await refreshWorkspace();
+      await restore_active_workspace({ isCurrent });
+      if (!isCurrent() || active_space !== "dev") return;
+      if (settings.ui_layout?.prefs?.conversation_mode === "general" || !prefs.projects?.length) await openGeneralChat();
+      else if (prefs.current) await openProjectSpace(prefs.current);
+    } else {
+      await refreshProcesses();
+      if (isCurrent() && document.body.dataset.appReady === "true") await loadConversation(null, null, true);
+    }
+  })().finally(() => { runtimeSync = null; });
+  return runtimeSync;
+}
 function args() { return { projectDir: scope.project, processId: scope.process }; }
 function scopeKey() { return `${scope.project}|${scope.process || ""}`; }
 function sameScope(value) { return value.sessionId === scope?.session; }
@@ -111,7 +143,7 @@ defer(() => {
   const badge = $("runtime-indicator");
   on("kz:runtime-resync", event => {
     if (event.payload.connected) {
-      void refreshProcesses().then(() => { if (document.body.dataset.appReady === "true") void loadConversation(null, null, true); });
+      void synchronizeRuntime().catch(toastError);
       void refresh();
     }
     if (badge) { badge.dataset.connected = String(!!event.payload.connected); badge.title = event.payload.connected ? t("后台已连接；关闭界面后任务继续") : t("正在重连后台"); }

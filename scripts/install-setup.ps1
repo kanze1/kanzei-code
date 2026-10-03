@@ -33,7 +33,7 @@ if (Test-Path $exe) {
 
 # ③ 执行静默安装。退出码在这里只是快速失败信号,不是成功判据——D-266 已实测 0 也会没装上。
 Write-Host "==> 静默安装 $Setup" -ForegroundColor Cyan
-$proc = Start-Process -FilePath $Setup -ArgumentList "/S" -Wait -PassThru
+$proc = Start-Process -FilePath $Setup -ArgumentList "/S" -WindowStyle Hidden -Wait -PassThru
 if ($proc.ExitCode -ne 0) {
     throw "安装器退出码 $($proc.ExitCode)(非 0)"
 }
