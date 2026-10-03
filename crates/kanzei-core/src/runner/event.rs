@@ -191,6 +191,9 @@ pub enum RunEvent {
     /// 没有持久化消费者（例如子代理 transcript）时保持原上下文，不写父会话。
     WorkContextPrepared {
         report: WorkContextReport,
+        /// Exact runner history before archiving. A durable writer must verify this
+        /// source still owns the current surface before accepting the replacement.
+        source: Vec<Message>,
         surface: Vec<Message>,
         accepted: Arc<AtomicBool>,
     },

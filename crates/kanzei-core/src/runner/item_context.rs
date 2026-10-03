@@ -241,7 +241,8 @@ impl ItemContext {
             return;
         }
 
-        let mut surface = messages.clone();
+        let source = messages.clone();
+        let mut surface = source.clone();
         let start = Instant::now();
         let mut archived_results = 0;
         for observation in candidates {
@@ -287,6 +288,7 @@ impl ItemContext {
                 before_tokens,
                 after_tokens,
             },
+            source,
             surface: surface.clone(),
             accepted: Arc::clone(&accepted),
         });

@@ -1292,27 +1292,48 @@ impl TypedSessionWriter {
         }
     }
 
-    /// 条目切换的候选 surface。先保存原始事实，再原子提交模型投影；失败不得确认替换。
+    /// 条目切换的候选 surface。来源必须仍匹配耐久投影；失败不得确认替换。
     pub fn commit_work_context_surface(
         &mut self,
         report: &crate::runner::WorkContextReport,
+        source: &[Message],
         surface: &[Message],
     ) -> bool {
         if self.terminal || !self.open_calls.is_empty() || !self.errors.is_empty() {
             return false;
         }
-        let result = (|| -> Result<(), StoreError> {
+        let result = (|| -> Result<bool, SessionFactError> {
             let store = SessionStore::open(&self.state_path)?;
-            store.append_compaction_transaction(
+            // Capture before every projection read; any writer during those reads
+            // must invalidate CAS even when the source comparison already passed.
+            let sequence = store.latest_event_sequence(&self.session_id)?;
+            let floor = store.conversation_floor(&self.session_id)?.unwrap_or(0);
+            let facts: Vec<_> = store
+                .list_session_facts(&self.session_id)?
+                .into_iter()
+                .filter(|(event, _)| event.sequence > floor)
+                .collect();
+            let current =
+                match store.latest_completed_compaction_surface(&self.session_id, floor)? {
+                    Some((sequence, surface)) => {
+                        project_session_facts_with_surface(&facts, Some(sequence), Some(surface))
+                    }
+                    None => project_session_facts(&facts),
+                };
+            if current.surface_messages.as_slice() != source {
+                return Ok(false);
+            }
+            store.append_run_compaction_transaction_checked(
                 &self.session_id,
                 &format!("{}:work-context:{}", self.turn_id, self.logical_step),
                 &serde_json::json!({ "reason": "work_item_switch", "report": report }),
-                &serde_json::to_value(surface)?,
+                &serde_json::to_value(surface).map_err(StoreError::from)?,
+                sequence,
             )?;
-            Ok(())
+            Ok(true)
         })();
         match result {
-            Ok(()) => true,
+            Ok(saved) => saved,
             Err(error) => {
                 tracing::warn!(%error, "条目上下文投影保存失败，保留原上下文继续运行");
                 false

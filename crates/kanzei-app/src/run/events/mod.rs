@@ -868,8 +868,8 @@ pub(crate) fn build_event_handler(
                     }),
                 )
             }
-            RunEvent::WorkContextPrepared { report, surface, accepted } => {
-                let saved = typed.writer.lock().unwrap().commit_work_context_surface(&report, &surface);
+            RunEvent::WorkContextPrepared { report, source, surface, accepted } => {
+                let saved = typed.writer.lock().unwrap().commit_work_context_surface(&report, &source, &surface);
                 accepted.store(saved, std::sync::atomic::Ordering::Release);
                 trace.record(json!({
                     "kind": "context.work_item", "report": report, "saved": saved, "at": now_ms(),

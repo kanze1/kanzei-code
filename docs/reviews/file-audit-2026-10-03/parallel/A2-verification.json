@@ -1,0 +1,193 @@
+{
+  "batch": "A2",
+  "date": "2026-10-03",
+  "baseline": "b1babcad219eeb9fb8b203cfeb325a48e0cb4c47",
+  "baseline_sequence": [
+    "a8c778f3",
+    "5b2686e0",
+    "b9f3ae24 cherry-picked as b1babcad"
+  ],
+  "branch": "kanzei/audit-a2",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code",
+  "review_complete_for_assigned_files": true,
+  "repository_review_complete": false,
+  "platform": "Windows x86_64-pc-windows-msvc",
+  "cargo_target_dir": "C:/Users/kanzei/Documents/kanzei code/target",
+  "cargo_execution": "Parent-granted serialized slot after B2; final checks completed; slot returned to root before documentation and commit",
+  "full_file_review_count": 4,
+  "full_file_reviews": [
+    {
+      "path": "crates/kanzei-core/src/runner/item_context.rs",
+      "judgment": "P1",
+      "sha256_raw": "8d4fee469253e71bab92e8c68d2bf00b4aaa874af099fed97c956e9d4a14513f",
+      "sha256_lf": "577b1b7500a948102e31f616f462c8f3bbfcdb2c56cefcfb920b853551d9cbb1"
+    },
+    {
+      "path": "crates/kanzei-core/src/runner/item_context/tests.rs",
+      "judgment": "PASS",
+      "sha256_raw": "615964a04c2c2e093807fa5abb8c4c77cb859c42ac1bb487d774d0becfb8b568",
+      "sha256_lf": "615964a04c2c2e093807fa5abb8c4c77cb859c42ac1bb487d774d0becfb8b568"
+    },
+    {
+      "path": "crates/kanzei-core/src/runner/event.rs",
+      "judgment": "P1",
+      "sha256_raw": "bc76e889835a1f2b95e914e1533754446d4b8ce16f61176d5e7f2fb7b62be86f",
+      "sha256_lf": "537cee0e6e1bc7008228f65104c4a7ee461dd550c46e1337ee7b55f7051f6cfb"
+    },
+    {
+      "path": "crates/kanzei/src/cli/run/events.rs",
+      "judgment": "P1",
+      "sha256_raw": "e3fe7b6b673b6ed0b00d1163e3b68a99154e5076a1e3af6e63fc503b8058a91a",
+      "sha256_lf": "3ad0a535e3e171ac7abc48d2318262a57bea8cb3b07343e2920a3df6f6cad0e5"
+    }
+  ],
+  "slice_reviews": [
+    {
+      "path": "crates/kanzei-core/src/store/typed.rs",
+      "judgment": "P1",
+      "sha256_raw": "d44c875688b618c17c63e7392335867c312cedc0cbab2cce24041f2dcfe8a64e",
+      "sha256_lf": "d44c875688b618c17c63e7392335867c312cedc0cbab2cce24041f2dcfe8a64e",
+      "scope": "commit_work_context_surface only; C2 full review reopened for candidate source/version contract"
+    },
+    {
+      "path": "crates/kanzei-app/src/run/events/mod.rs",
+      "judgment": "P1",
+      "sha256_raw": "0905083006bfb84187ace9938351eb2aeb0581e5a24e3c28733de7b8aedc8f0f",
+      "sha256_lf": "ee7d52065b1aaa54bf7cc16ea8294bdce92b90635fb2a9e8a12c8b929a39d2e6",
+      "scope": "WorkContextPrepared arm only"
+    },
+    {
+      "path": "crates/kanzei-app/src/typed_events.rs",
+      "judgment": "PASS",
+      "sha256_raw": "191cd3a6c371bb9358ee9291af44bcf7ca223323d1d6fb4f98a0526f70e2fad8",
+      "sha256_lf": "670b322d688e9ac68b0264b10fd21afe71d1dc6107ef61055bd441918178b16b",
+      "scope": "Core writer re-export caller slice; unchanged"
+    }
+  ],
+  "issues": [
+    {
+      "id": "A2-01",
+      "priority": "P1",
+      "reachable_trigger": "ItemContext clones runner history and archives candidate blobs; an independent typed UserMessageCommitted arrives before the old candidate is published; unchecked completed surface hides that earlier durable fact",
+      "fix": "Carry exact pre-archive source; capture event sequence before every durable projection read; compare actual durable source; publish using existing run sequence CAS; reject safely without failing the run",
+      "persistent_format_changed": false,
+      "schema_changed": false,
+      "new_dependency": false,
+      "public_api_changed": true
+    }
+  ],
+  "public_contract": {
+    "runtime_event": "RunEvent::WorkContextPrepared adds source: Vec<Message>",
+    "writer_api": "TypedSessionWriter::commit_work_context_surface(report, source: &[Message], surface: &[Message]) -> bool",
+    "producer": [
+      "crates/kanzei-core/src/runner/item_context.rs::ItemContext::prepare"
+    ],
+    "production_callers": [
+      "crates/kanzei-app/src/run/events/mod.rs WorkContextPrepared arm",
+      "crates/kanzei/src/cli/run/events.rs::make_event_handler WorkContextPrepared arm"
+    ],
+    "run_cas": "append_run_compaction_transaction_checked permits owned running/promoted input; manual checked idle/no-pending contract unchanged",
+    "persistent_source_field_added": false,
+    "coordination": "root received the event/writer caller contract; C2 exact commit merged before writer slice edits"
+  },
+  "checks": [
+    {
+      "command": "cargo test -p kanzei-core prepared_boundary_rejects_later_mobile_fact_without_losing_history_or_failing_run -- --nocapture",
+      "log": "output/audit-a2/source-before.log",
+      "exit_code": 101,
+      "log_sha256": "63d7e88e03ed149213f77930406d20ebdd5e883c71c6e56c4236d19af3b595cd",
+      "mode": "Old unchecked writer behavior with only an unused source argument added for new caller compilation",
+      "expected_failure": true,
+      "assertion": "a completed replacement must not hide the later durable mobile input",
+      "compiled_successfully": true,
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "restore": "Final typed.rs restored in finally and mtime refreshed before positive compilation"
+    },
+    {
+      "command": "cargo test -p kanzei-core",
+      "log": "output/audit-a2/core-after.log",
+      "exit_code": 0,
+      "log_sha256": "19f53b74b005dc91340dd7dbcefcafc9f4464b59b16d1ab99cb490c7231d383a",
+      "passed": 402,
+      "failed": 0,
+      "ignored": 0,
+      "doctests": 0
+    },
+    {
+      "command": "cargo test -p kanzei work_context_handler_forwards_original_source_and_rejects_later_mobile_fact -- --nocapture",
+      "log": "output/audit-a2/cli-after.log",
+      "exit_code": 0,
+      "log_sha256": "1102a44f882c69da77ed3d0132888945b95671d78dc2ac6ddb178ca650fc6b00",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test -p kanzei-app typed_events::tests -- --nocapture",
+      "log": "output/audit-a2/app-typed-after.log",
+      "exit_code": 0,
+      "log_sha256": "8920199d903e68a504fa7684ef708a5cb7cbb13506d9957536b60c0b761f8203",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo check -p kanzei-core -p kanzei -p kanzei-app --all-targets",
+      "log": "output/audit-a2/check-after.log",
+      "exit_code": 0,
+      "log_sha256": "eba5dfd0dddf38d44eae6289eae5be07fb76de61f041db0ce10e3f3e1706b166"
+    },
+    {
+      "command": "cargo clippy -p kanzei-core -p kanzei -p kanzei-app --all-targets -- -D warnings",
+      "log": "output/audit-a2/clippy-after.log",
+      "exit_code": 0,
+      "log_sha256": "4337e0d315e0a5f4a56fd58d9df3fedeacfd3e651cd6073d11cae17b46d2f283"
+    },
+    {
+      "command": "rustfmt --edition 2021 --check --config skip_children=true <six modified source files>",
+      "log": "output/audit-a2/format-after.log",
+      "exit_code": 0,
+      "log_sha256": "14bcd0440180402946630471fadf5db9ff8712f5555a00973f10ebdeff0d3232"
+    },
+    {
+      "command": "git diff --check",
+      "log": "output/audit-a2/diff-check-after.log",
+      "exit_code": 0,
+      "log_sha256": "351c6cee84ad5fe7c4b5b76a42e147b14ecbd6f2b40a2fed3c9146248cf397a9"
+    }
+  ],
+  "invariants_verified": [
+    "Actual prepare/archive retains exact original source and only adopts a durable accepted candidate",
+    "Matching durable source accepts the normal real archive candidate and recovery keeps full transcript plus later facts",
+    "Later independent typed mobile input survives projection; stale candidate is rejected; runner source remains unchanged",
+    "Source mismatch does not add writer errors and subsequent assistant commit/turn completion still succeeds",
+    "CLI actual consumer forwards source and confirms only accepted durable replacement",
+    "Existing two-connection run CAS rejects an intervening later event without rejecting owned active input"
+  ],
+  "diagnostic_attempts_not_counted_as_bug_proof": [
+    {
+      "command": "Initial negative fixture compile attempt",
+      "log": "output/audit-a2/source-before-compile.log",
+      "exit_code": 101,
+      "log_sha256": "29ad69c4fb7c33f9bbd9180c64f7a5f6f09018991dacb12889c38544a8af0950",
+      "reason": "Send event callback captured a shared non-Sync SessionStore reference; fixed by opening an independent connection inside the callback"
+    },
+    {
+      "command": "Initial CLI fixture compile attempt",
+      "log": "output/audit-a2/cli-after-compile.log",
+      "exit_code": 101,
+      "log_sha256": "d7242c9d091ead2c31437127f65bb3f916774a2f8b003d70925e8dc22f2453f0",
+      "reason": "Fixture used the crate-root WorkContextReport path; corrected to public runner::WorkContextReport"
+    }
+  ],
+  "limitations": [
+    "No Linux run",
+    "No real Tauri window E2E",
+    "No full workspace run in this child tree; parent runs after integration"
+  ],
+  "cleanup": "Only known generated desktop/windows schema changes restored to this baseline; ignored proof logs remain local",
+  "report": "docs/reviews/file-audit-2026-10-03/parallel/A2.md",
+  "committed": "Exact local A2 commit is delivered separately; no push or release"
+}

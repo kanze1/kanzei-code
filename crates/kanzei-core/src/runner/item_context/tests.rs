@@ -301,12 +301,17 @@ fn persisted_boundary_restores_surface_but_keeps_full_transcript_and_later_facts
     ItemContext::default().prepare(&mut messages, &project.ctx(), &mut |event| {
         if let RunEvent::WorkContextPrepared {
             report,
+            source,
             surface,
             accepted,
         } = event
         {
+            assert_eq!(
+                source, original,
+                "the candidate must carry its pre-archive source"
+            );
             accepted.store(
-                writer.commit_work_context_surface(&report, &surface),
+                writer.commit_work_context_surface(&report, &source, &surface),
                 Ordering::Release,
             );
         }
@@ -334,4 +339,109 @@ fn persisted_boundary_restores_surface_but_keeps_full_transcript_and_later_facts
     );
     let mut restored = restored.surface_messages;
     assert!(accepted(&mut restored, &project.ctx()).is_empty());
+}
+
+#[test]
+fn prepared_boundary_rejects_later_mobile_fact_without_losing_history_or_failing_run() {
+    let project = Project::new();
+    let state_path = crate::project_state_path(&project.0);
+    let store = SessionStore::open(&state_path).unwrap();
+    store
+        .create_session("session", &project.0.display().to_string(), None)
+        .unwrap();
+    let mut messages = history();
+    append_claim(&mut messages, "claim-b", "R-002", json!({}));
+    let original = messages.clone();
+    store
+        .append_event(
+            "session",
+            "conversation.updated",
+            &json!({ "messages": original }),
+        )
+        .unwrap();
+    crate::prepare_typed_session(&store, "session").unwrap();
+    let mut writer = TypedSessionWriter::new(&state_path, "session", "run-b");
+    writer.turn_started(1, 0);
+    let mobile = Message::user_text("手机在整理期间补充：保留这个新要求");
+    let mut prepared = false;
+    ItemContext::default().prepare(&mut messages, &project.ctx(), &mut |event| {
+        if let RunEvent::WorkContextPrepared {
+            report,
+            source,
+            surface,
+            accepted,
+        } = event
+        {
+            prepared = true;
+            let store = SessionStore::open(&state_path).unwrap();
+            assert_eq!(source, original);
+            assert_ne!(
+                surface, source,
+                "the real producer must have archived results"
+            );
+            assert!(
+                store
+                    .artifact_cleanup_plan(&project.0)
+                    .unwrap()
+                    .unreferenced_artifact_files
+                    > 0
+            );
+            // The source was cloned and its real blobs written. An independent
+            // writer now commits the same typed user fact used by mobile input.
+            let mut phone = TypedSessionWriter::new(&state_path, "session", "mobile");
+            phone.user_message("mobile-input", mobile.clone());
+            assert!(phone.errors().is_empty(), "{:?}", phone.errors());
+            let saved = writer.commit_work_context_surface(&report, &source, &surface);
+            accepted.store(saved, Ordering::Release);
+            let facts = store.list_session_facts("session").unwrap();
+            let durable = match store
+                .latest_completed_compaction_surface("session", 0)
+                .unwrap()
+            {
+                Some((sequence, committed)) => {
+                    project_session_facts_with_surface(&facts, Some(sequence), Some(committed))
+                }
+                None => project_session_facts(&facts),
+            };
+            assert!(
+                durable.surface_messages.contains(&mobile),
+                "a completed replacement must not hide the later durable mobile input"
+            );
+            assert!(
+                !saved,
+                "the old source must not cover the new durable user fact"
+            );
+        }
+    });
+    assert!(
+        prepared,
+        "the real work-item switch must produce a candidate"
+    );
+    assert_eq!(
+        messages, original,
+        "a rejected candidate keeps runner history"
+    );
+    assert!(
+        writer.errors().is_empty(),
+        "rejection must not fail the running writer"
+    );
+    assert!(store
+        .latest_completed_compaction_surface("session", 0)
+        .unwrap()
+        .is_none());
+    let mut expected = original;
+    expected.push(mobile.clone());
+    let facts = store.list_session_facts("session").unwrap();
+    assert_eq!(project_session_facts(&facts).surface_messages, expected);
+    let answer = Message::assistant(vec![Part::Text {
+        text: "继续正常执行，并保留手机补充".into(),
+    }]);
+    writer.assistant_committed(1, answer.clone());
+    writer.finish(crate::SessionTurnTerminal::Completed);
+    assert!(writer.errors().is_empty(), "{:?}", writer.errors());
+    expected.push(answer);
+    assert_eq!(
+        project_session_facts(&store.list_session_facts("session").unwrap()).surface_messages,
+        expected
+    );
 }

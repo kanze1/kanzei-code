@@ -121,13 +121,14 @@ pub(crate) fn make_event_handler(
         }
         kanzei_core::RunEvent::WorkContextPrepared {
             report,
+            source,
             surface,
             accepted,
         } => {
             let saved = typed_writer
                 .lock()
                 .unwrap()
-                .commit_work_context_surface(&report, &surface);
+                .commit_work_context_surface(&report, &source, &surface);
             accepted.store(saved, std::sync::atomic::Ordering::Release);
             if saved {
                 let _ = writeln!(
@@ -164,5 +165,105 @@ pub(crate) fn make_event_handler(
             }
         }
         kanzei_core::RunEvent::StepEnd { .. } => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanzei_core::{
+        prepare_typed_session, project_session_facts, project_session_facts_with_surface,
+        SessionStore, TypedSessionWriter,
+    };
+    use kanzei_llm::{Message, Part};
+    use serde_json::json;
+
+    #[test]
+    fn work_context_handler_forwards_original_source_and_rejects_later_mobile_fact() {
+        for mobile_arrives in [false, true] {
+            let root = std::env::temp_dir().join(format!(
+                "kz-cli-work-source-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let path = kanzei_core::project_state_path(&root);
+            let store = SessionStore::open(&path).unwrap();
+            store
+                .create_session("ses", root.to_str().unwrap(), None)
+                .unwrap();
+            let source = vec![
+                Message::user_text("保留用户要求"),
+                Message::assistant(vec![Part::ToolCall {
+                    id: "read".into(),
+                    name: "read".into(),
+                    input: json!({"path":"a.rs"}),
+                }]),
+                Message::tool_results(vec![Part::ToolResult {
+                    call_id: "read".into(),
+                    content: "旧读取正文".into(),
+                    is_error: false,
+                }]),
+            ];
+            store
+                .append_event("ses", "conversation.updated", &json!({"messages":source}))
+                .unwrap();
+            prepare_typed_session(&store, "ses").unwrap();
+            store.set_status("ses", "running").unwrap();
+            let mut writer = TypedSessionWriter::new(&path, "ses", "run");
+            writer.turn_started(1, 0);
+            let writer = Arc::new(Mutex::new(writer));
+            let mut handler = make_event_handler(writer.clone());
+            let mut surface = source.clone();
+            if let Part::ToolResult { content, .. } = &mut surface[2].parts[0] {
+                *content = "旧观察已收起".into();
+            }
+            let mobile = Message::user_text("手机新输入必须保留");
+            if mobile_arrives {
+                let mut phone = TypedSessionWriter::new(&path, "ses", "mobile");
+                phone.user_message("mobile-input", mobile.clone());
+                assert!(phone.errors().is_empty(), "{:?}", phone.errors());
+            }
+            let accepted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            handler(kanzei_core::RunEvent::WorkContextPrepared {
+                report: kanzei_core::runner::WorkContextReport {
+                    from_item: "R-001".into(),
+                    to_item: "R-002".into(),
+                    related: false,
+                    archived_results: 1,
+                    before_tokens: 8_000,
+                    after_tokens: 3_000,
+                },
+                source: source.clone(),
+                surface: surface.clone(),
+                accepted: accepted.clone(),
+            });
+            assert_eq!(
+                accepted.load(std::sync::atomic::Ordering::Acquire),
+                !mobile_arrives
+            );
+            assert!(writer.lock().unwrap().errors().is_empty());
+            let facts = store.list_session_facts("ses").unwrap();
+            let committed = store.latest_completed_compaction_surface("ses", 0).unwrap();
+            if mobile_arrives {
+                assert!(committed.is_none());
+                let mut expected = source;
+                expected.push(mobile);
+                assert_eq!(project_session_facts(&facts).surface_messages, expected);
+            } else {
+                let (sequence, committed) = committed.unwrap();
+                assert_eq!(
+                    project_session_facts_with_surface(&facts, Some(sequence), Some(committed))
+                        .surface_messages,
+                    surface
+                );
+            }
+            drop(handler);
+            drop(writer);
+            drop(store);
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 }
