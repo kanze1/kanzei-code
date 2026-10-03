@@ -30,7 +30,27 @@
     "crates/kanzei-app/src/commands/run/input_mode.rs",
     "crates/kanzei-app/src/files_edit.rs",
     "crates/kanzei-app/src/files_draft.rs",
-    "crates/kanzei-app/ui/17-files-editor.js"
+    "crates/kanzei-app/ui/17-files-editor.js",
+    "crates/kanzei-base/src/atomic_file/lock.rs",
+    "crates/kanzei-base/src/atomic_file/tests.rs",
+    "crates/kanzei-base/src/atomic_file/lock_tests.rs",
+    "crates/kanzei-base/src/write_log/codec.rs",
+    "crates/kanzei-base/src/write_log/tests.rs",
+    "crates/kanzei-harness/src/orchestration.rs",
+    "crates/kanzei-harness/src/managed_fence.rs",
+    "crates/kanzei-harness/src/async_mailbox.rs",
+    "crates/kanzei-harness/src/pending_question.rs",
+    "crates/kanzei-core/src/store/mod.rs",
+    "crates/kanzei-core/src/store/session.rs",
+    "crates/kanzei-core/src/store/session/artifact_refs.rs",
+    "crates/kanzei-core/src/store/schema.rs",
+    "crates/kanzei-core/src/store/events.rs",
+    "crates/kanzei-core/src/store/path_migration.rs",
+    "crates/kanzei-app/src/runtime_service.rs",
+    "crates/kanzei-app/src/runtime_events.rs",
+    "crates/kanzei-app/src/runtime_service/compatibility.rs",
+    "crates/kanzei-app/src/runtime_continuation.rs",
+    "crates/kanzei-app/ui/24-schedules.js"
   ],
   "contract_slice_reviews": [
     "crates/kanzei-tools/src/managed.rs",
@@ -43,15 +63,20 @@
     "crates/kanzei-app/src/run/assembly.rs",
     "crates/kanzei-app/src/verification_monitor.rs",
     "crates/kanzei/src/cli/run.rs",
-    "crates/kanzei-core/src/store/events.rs",
     "crates/kanzei-core/src/store/task.rs",
-    "crates/kanzei-core/src/store/session.rs",
     "crates/kanzei-core/src/store/decisions.rs",
     "crates/kanzei-app/src/run/coordinator.rs",
     "crates/kanzei-app/src/async_mailbox.rs",
     "crates/kanzei-app/src/files_view.rs",
     "crates/kanzei-app/ui/17-files.js",
-    "scripts/ui-runtime-smoke.mjs"
+    "scripts/ui-runtime-smoke.mjs",
+    "crates/kanzei-core/src/runner/tool_exec.rs",
+    "crates/kanzei-core/src/runner/drive/serial_tools.rs",
+    "crates/kanzei-tools/src/memory_consolidation.rs",
+    "crates/kanzei-tools/src/schedules/executor.rs",
+    "crates/kanzei-app/src/conversation.rs",
+    "crates/kanzei-app/src/conversation_tests.rs",
+    "crates/kanzei-app/src/deliveries.rs"
   ],
   "not_reviewed": [
     "crates/kanzei-app/build.rs",
@@ -69,11 +94,8 @@
     "crates/kanzei-app/src/commands/run/handoff/tests.rs",
     "crates/kanzei-app/src/commands/run/tool_process.rs",
     "crates/kanzei-app/src/commands/summarize.rs",
-    "crates/kanzei-app/src/conversation.rs",
     "crates/kanzei-app/src/conversation_actions.rs",
-    "crates/kanzei-app/src/conversation_tests.rs",
     "crates/kanzei-app/src/decisions.rs",
-    "crates/kanzei-app/src/deliveries.rs",
     "crates/kanzei-app/src/desktop_bridge.rs",
     "crates/kanzei-app/src/docs.rs",
     "crates/kanzei-app/src/docs/research_snapshot.rs",
@@ -129,10 +151,6 @@
     "crates/kanzei-app/src/run/mod.rs",
     "crates/kanzei-app/src/run/persistence.rs",
     "crates/kanzei-app/src/run/work_start.rs",
-    "crates/kanzei-app/src/runtime_continuation.rs",
-    "crates/kanzei-app/src/runtime_events.rs",
-    "crates/kanzei-app/src/runtime_service.rs",
-    "crates/kanzei-app/src/runtime_service/compatibility.rs",
     "crates/kanzei-app/src/schedules.rs",
     "crates/kanzei-app/src/screenshot.rs",
     "crates/kanzei-app/src/settings.rs",
@@ -227,7 +245,6 @@
     "crates/kanzei-app/ui/24-memory-graph-model.js",
     "crates/kanzei-app/ui/24-memory-graph.js",
     "crates/kanzei-app/ui/24-preview.js",
-    "crates/kanzei-app/ui/24-schedules.js",
     "crates/kanzei-app/ui/25-softwire-composer.js",
     "crates/kanzei-app/ui/25-softwire-model.js",
     "crates/kanzei-app/ui/25-softwire-run.js",
@@ -240,11 +257,6 @@
     "crates/kanzei-app/ui/29-general-chat.js",
     "crates/kanzei-app/ui/assets/voice-capture-worklet.js",
     "crates/kanzei-app/ui/gallery.js",
-    "crates/kanzei-base/src/atomic_file/lock.rs",
-    "crates/kanzei-base/src/atomic_file/lock_tests.rs",
-    "crates/kanzei-base/src/atomic_file/tests.rs",
-    "crates/kanzei-base/src/write_log/codec.rs",
-    "crates/kanzei-base/src/write_log/tests.rs",
     "crates/kanzei-core/src/assemble.rs",
     "crates/kanzei-core/src/experience_events.rs",
     "crates/kanzei-core/src/lib.rs",
@@ -265,7 +277,6 @@
     "crates/kanzei-core/src/runner/drive/parallel_tools.rs",
     "crates/kanzei-core/src/runner/drive/permissions.rs",
     "crates/kanzei-core/src/runner/drive/question.rs",
-    "crates/kanzei-core/src/runner/drive/serial_tools.rs",
     "crates/kanzei-core/src/runner/drive/task_results.rs",
     "crates/kanzei-core/src/runner/drive/tool_catalog.rs",
     "crates/kanzei-core/src/runner/event.rs",
@@ -279,7 +290,6 @@
     "crates/kanzei-core/src/runner/schema_check.rs",
     "crates/kanzei-core/src/runner/subagent.rs",
     "crates/kanzei-core/src/runner/subagent/spec.rs",
-    "crates/kanzei-core/src/runner/tool_exec.rs",
     "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
     "crates/kanzei-core/src/runner/tool_images.rs",
     "crates/kanzei-core/src/store/deliveries.rs",
@@ -288,14 +298,10 @@
     "crates/kanzei-core/src/store/file_checkpoints.rs",
     "crates/kanzei-core/src/store/memory_observations.rs",
     "crates/kanzei-core/src/store/mobile_devices.rs",
-    "crates/kanzei-core/src/store/mod.rs",
     "crates/kanzei-core/src/store/notifications.rs",
-    "crates/kanzei-core/src/store/path_migration.rs",
     "crates/kanzei-core/src/store/processes.rs",
     "crates/kanzei-core/src/store/research_runs.rs",
     "crates/kanzei-core/src/store/rewind.rs",
-    "crates/kanzei-core/src/store/schema.rs",
-    "crates/kanzei-core/src/store/session/artifact_refs.rs",
     "crates/kanzei-core/src/store/telemetry.rs",
     "crates/kanzei-core/src/store/testutil.rs",
     "crates/kanzei-core/src/store/typed.rs",
@@ -303,7 +309,6 @@
     "crates/kanzei-core/src/store/work.rs",
     "crates/kanzei-core/src/store/workspace.rs",
     "crates/kanzei-harness/src/areas.rs",
-    "crates/kanzei-harness/src/async_mailbox.rs",
     "crates/kanzei-harness/src/auto_run.rs",
     "crates/kanzei-harness/src/config.rs",
     "crates/kanzei-harness/src/config/cadence.rs",
@@ -319,10 +324,7 @@
     "crates/kanzei-harness/src/harness.rs",
     "crates/kanzei-harness/src/home.rs",
     "crates/kanzei-harness/src/lib.rs",
-    "crates/kanzei-harness/src/managed_fence.rs",
     "crates/kanzei-harness/src/markdown.rs",
-    "crates/kanzei-harness/src/orchestration.rs",
-    "crates/kanzei-harness/src/pending_question.rs",
     "crates/kanzei-harness/src/permission.rs",
     "crates/kanzei-harness/src/permission_persist.rs",
     "crates/kanzei-harness/src/project_root.rs",
@@ -396,7 +398,6 @@
     "crates/kanzei-tools/src/latex_tool/paper.rs",
     "crates/kanzei-tools/src/lib.rs",
     "crates/kanzei-tools/src/local_validation.rs",
-    "crates/kanzei-tools/src/memory_consolidation.rs",
     "crates/kanzei-tools/src/palette.rs",
     "crates/kanzei-tools/src/plot_tool.rs",
     "crates/kanzei-tools/src/plot_tool/adapters.rs",
@@ -441,7 +442,6 @@
     "crates/kanzei-tools/src/research_workflow/tool.rs",
     "crates/kanzei-tools/src/research_write.rs",
     "crates/kanzei-tools/src/run.rs",
-    "crates/kanzei-tools/src/schedules/executor.rs",
     "crates/kanzei-tools/src/schedules/hosts.rs",
     "crates/kanzei-tools/src/schedules/mod.rs",
     "crates/kanzei-tools/src/schedules/when.rs",
@@ -677,6 +677,174 @@
         "scripts/ui-runtime-smoke.mjs"
       ],
       "next": "scheduler/stop -> async callbacks -> API/UI state projection"
+    },
+    {
+      "report": "parallel/A0.md",
+      "baseline": "f5a72fe0b41dd49fc99d12ae88822e4862fab826",
+      "integrated_commit": "2b42d928",
+      "full_files": {
+        "crates/kanzei-base/src/atomic_file/lock.rs": {
+          "judgment": "PASS",
+          "sha256": "a4867d1450351a61e08b50bf4217523f27890a5478c5263fc01e6cb4794b9bf2",
+          "sha256_lf": "5a7605849b99139d42df1de6673d346478ed0c86c7a84b5aa7a05e4acbd7e433"
+        },
+        "crates/kanzei-base/src/atomic_file/tests.rs": {
+          "judgment": "PASS",
+          "sha256": "934e6321b9c1a7e0d2ffbcdfc46c14cf6ac242eecc63671d24c7bdbd23943bf2",
+          "sha256_lf": "1bd60dd6e39c6d9a396038f5b95c48bc87b8c694a17067712dd45c22614ac84e"
+        },
+        "crates/kanzei-base/src/atomic_file/lock_tests.rs": {
+          "judgment": "PASS",
+          "sha256": "12eb5e34186b506575c9f14fd58033f6cec1b370d36f1cd64cd8f2cd39e36ff3",
+          "sha256_lf": "a92c3ebdd838f459aded075ae3f0c38b6b67fe7a724d72c4afd4b55eb76e1a56"
+        },
+        "crates/kanzei-base/src/write_log/codec.rs": {
+          "judgment": "P2",
+          "sha256": "271269f5b037adae95822de2cdd1817ae6e57cad672d2f14f8189fc34b2ee610",
+          "sha256_lf": "08233e52c19a48028128256527f6a493df2b0829ec30de59cef872c058009e42"
+        },
+        "crates/kanzei-base/src/write_log/tests.rs": {
+          "judgment": "P2",
+          "sha256": "09ec8ea20501c9fc6b7ff5df2fd4b39949181a95202b9a1332c7d9cb48b429fd",
+          "sha256_lf": "e21540aa1beb948a5a47aac54ca1178a622dcebc3c30edee6acf410a5211971e"
+        }
+      },
+      "contract_slice_files": [],
+      "next": "A1/C1/B1: artifact publication, retired identities/cursors, callback/stop admission"
+    },
+    {
+      "report": "parallel/B0.md",
+      "baseline": "f5a72fe0",
+      "integrated_commit": "f93788bf",
+      "full_files": {
+        "crates/kanzei-harness/src/orchestration.rs": {
+          "judgment": "PASS",
+          "sha256": "b57be25806a504138eeb21e3f0a1cfee334ca015ecf59617a704333df3225e05",
+          "sha256_lf": "b57be25806a504138eeb21e3f0a1cfee334ca015ecf59617a704333df3225e05",
+          "child_sha256": "17eee33aa8cb3104c3259cd0a7e6a4e20861e49dcea8ce66bc09c6278a955ff1",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/managed_fence.rs": {
+          "judgment": "P1",
+          "sha256": "17b76c2e41751202179270c19ac0fb30c9c0a9ba0eab93b908cbdd1d87fd3a34",
+          "sha256_lf": "d29dc9736763b7e827b58d7e290439d3ff7ab16a9dba9457dadc0659f6b036c0",
+          "child_sha256": "d29dc9736763b7e827b58d7e290439d3ff7ab16a9dba9457dadc0659f6b036c0",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/async_mailbox.rs": {
+          "judgment": "PASS",
+          "sha256": "c032a8d7bafd5d66087ff018df6aaa77a616c6e7e165b0ff5debb4cb3e04d464",
+          "sha256_lf": "c032a8d7bafd5d66087ff018df6aaa77a616c6e7e165b0ff5debb4cb3e04d464",
+          "child_sha256": "80131d8d3b6c242c99c92a2e83b093f3eeb05639e17b29b8a0bdc134144d0c66",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-harness/src/pending_question.rs": {
+          "judgment": "PASS",
+          "sha256": "229449f7e9e7e61bb3281d1222a15c71bcd07fa30501265e31a3aa1ea09e4ea0",
+          "sha256_lf": "229449f7e9e7e61bb3281d1222a15c71bcd07fa30501265e31a3aa1ea09e4ea0",
+          "child_sha256": "7170dd34d9f6c29c660408815e282244eea0e5727f6d7650d6f4241e7aeb8c02",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-core/src/runner/tool_exec.rs",
+        "crates/kanzei-core/src/runner/drive/serial_tools.rs",
+        "crates/kanzei-tools/src/memory_consolidation.rs",
+        "crates/kanzei-tools/src/schedules/executor.rs",
+        "crates/kanzei-tools/src/background.rs",
+        "crates/kanzei-tools/src/background/lifecycle.rs"
+      ],
+      "next": "A1/C1/B1: artifact publication, retired identities/cursors, callback/stop admission"
+    },
+    {
+      "report": "parallel/C0.md",
+      "baseline": "f5a72fe0",
+      "integrated_commit": "30fa309d",
+      "full_files": {
+        "crates/kanzei-core/src/store/mod.rs": {
+          "judgment": "PASS",
+          "sha256": "71342b43f6cf95f31211db6a84598b626b62acc8c90a79c89410ec99d098a2c3",
+          "sha256_lf": "17635d35053c446bf0f7587c238d1a793a9b5711513ee9fb81a766b5501ca779",
+          "child_sha256": "71342b43f6cf95f31211db6a84598b626b62acc8c90a79c89410ec99d098a2c3",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-core/src/store/session.rs": {
+          "judgment": "P1",
+          "sha256": "403ad5f7c34701879c409dbfc1c3822a5042d6e06583f6bc1afbb1bf113b191d",
+          "sha256_lf": "d8b24fb1eab149809a46a54881f5c58b5a4f9f12668944ff593b88324688d54c",
+          "child_sha256": "d8b24fb1eab149809a46a54881f5c58b5a4f9f12668944ff593b88324688d54c",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-core/src/store/session/artifact_refs.rs": {
+          "judgment": "PASS",
+          "sha256": "d36879e8f0d00a7625aed048bc11e41b6d9323f3a6f9900371b509cbae9bceed",
+          "sha256_lf": "d36879e8f0d00a7625aed048bc11e41b6d9323f3a6f9900371b509cbae9bceed",
+          "child_sha256": "78c6eb214ed3cb1f3e58fa643418d04125ef15da5bb35ce3cb648dd4b48838bf",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-core/src/store/schema.rs": {
+          "judgment": "P1",
+          "sha256": "fabedd9ab31397640cc780a4d5de94fbf699f6fb41ec70e9aa83c2b9b6f6e17a",
+          "sha256_lf": "50df06aa0cf217f1f1932314c77b60a7626b49a7c86af73ad356ab24178e5189",
+          "child_sha256": "50df06aa0cf217f1f1932314c77b60a7626b49a7c86af73ad356ab24178e5189",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-core/src/store/events.rs": {
+          "judgment": "P1",
+          "sha256": "b85063520ba679cf11e16315c4e79103d490cb1552a71fc73c15059c9024ff7a",
+          "sha256_lf": "7027586fbba4ed415e0aec17dcc7fe30952655cd13235a19498aa12740afedc5",
+          "child_sha256": "7027586fbba4ed415e0aec17dcc7fe30952655cd13235a19498aa12740afedc5",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        },
+        "crates/kanzei-core/src/store/path_migration.rs": {
+          "judgment": "PASS",
+          "sha256": "0eff78b4925ead7b849f6769e779f504d4bab4a16ba421879af518b0ed93f59c",
+          "sha256_lf": "621e42740f5a85c9c8ddfd6d57ed95526074a781be8169c324739cebb5003363",
+          "child_sha256": "0eff78b4925ead7b849f6769e779f504d4bab4a16ba421879af518b0ed93f59c",
+          "integration_content_check": "equal_after_CRLF_normalization"
+        }
+      },
+      "contract_slice_files": [],
+      "next": "A1/C1/B1: artifact publication, retired identities/cursors, callback/stop admission"
+    },
+    {
+      "report": "parallel/M0.md",
+      "baseline": "f5a72fe0",
+      "integrated_commit": "fbb85333",
+      "full_files": {
+        "crates/kanzei-app/src/runtime_service.rs": {
+          "judgment": "P1",
+          "sha256": "1a643acea6b16c68c76e31e969a198d890de8b36a5d24d26f36cc925dc0d3725",
+          "sha256_lf": "1a643acea6b16c68c76e31e969a198d890de8b36a5d24d26f36cc925dc0d3725"
+        },
+        "crates/kanzei-app/src/runtime_events.rs": {
+          "judgment": "P1",
+          "sha256": "2ad86d1ea3e3d9c750732f46ce2d065ada658646bb73e80b77c738ae8f63e067",
+          "sha256_lf": "2ad86d1ea3e3d9c750732f46ce2d065ada658646bb73e80b77c738ae8f63e067"
+        },
+        "crates/kanzei-app/src/runtime_service/compatibility.rs": {
+          "judgment": "PASS",
+          "sha256": "222ba781a9624565efe60c6f1c928cd11c41bb7c71ea86c5e046f69e4b2758c8",
+          "sha256_lf": "222ba781a9624565efe60c6f1c928cd11c41bb7c71ea86c5e046f69e4b2758c8"
+        },
+        "crates/kanzei-app/src/runtime_continuation.rs": {
+          "judgment": "PASS",
+          "sha256": "6eb121e58fc55dafdc0355f86386618c7ad362e082aedb8d40b37b5bba5c8de0",
+          "sha256_lf": "6eb121e58fc55dafdc0355f86386618c7ad362e082aedb8d40b37b5bba5c8de0"
+        },
+        "crates/kanzei-app/ui/24-schedules.js": {
+          "judgment": "P1",
+          "sha256": "c39b4c3704d7d7ab1b948711a398574259934091b2a1477fa21a067fae7d851b",
+          "sha256_lf": "c39b4c3704d7d7ab1b948711a398574259934091b2a1477fa21a067fae7d851b"
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/src/conversation.rs",
+        "crates/kanzei-app/src/conversation_tests.rs",
+        "crates/kanzei-app/src/deliveries.rs"
+      ],
+      "next": "A1/C1/B1: artifact publication, retired identities/cursors, callback/stop admission"
     }
-  ]
+  ],
+  "parallel_integration_report": "parallel-round-1.md"
 }

@@ -3,7 +3,7 @@
   "inventory_baseline": "7287f1ca93511985b5538cccdd7eea4b2fd3f507",
   "inventory_total": 511,
   "full_reviews_at_start": 30,
-  "pending_full_reviews": 481,
+  "pending_full_reviews": 461,
   "note": "Planning queue only. No new review certification. Split each group into exact file-owned packages; respect dependency gates in parallel-plan.md. Anthropic-specific work is deferred when identified, including mixed files only for that slice.",
   "counts_by_group": {
     "entry-service": 138,
@@ -468,9 +468,10 @@
       "file": "crates/kanzei-app/src/conversation.rs",
       "lines_at_inventory": 837,
       "group": "entry-service",
-      "prior_review": "none",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/M0.md"
     },
     {
       "file": "crates/kanzei-app/src/conversation_actions.rs",
@@ -484,9 +485,10 @@
       "file": "crates/kanzei-app/src/conversation_tests.rs",
       "lines_at_inventory": 1384,
       "group": "entry-service",
-      "prior_review": "none",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/M0.md"
     },
     {
       "file": "crates/kanzei-app/src/decisions.rs",
@@ -500,9 +502,10 @@
       "file": "crates/kanzei-app/src/deliveries.rs",
       "lines_at_inventory": 552,
       "group": "entry-service",
-      "prior_review": "none",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/M0.md"
     },
     {
       "file": "crates/kanzei-app/src/desktop_bridge.rs",
@@ -973,32 +976,44 @@
       "lines_at_inventory": 79,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
+      "status": "reviewed_full",
+      "initial_package": null,
+      "completed_package": "M0",
+      "report": "parallel/M0.md",
+      "integrated_commit": "fbb85333"
     },
     {
       "file": "crates/kanzei-app/src/runtime_events.rs",
       "lines_at_inventory": 36,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
+      "status": "reviewed_full",
+      "initial_package": null,
+      "completed_package": "M0",
+      "report": "parallel/M0.md",
+      "integrated_commit": "fbb85333"
     },
     {
       "file": "crates/kanzei-app/src/runtime_service/compatibility.rs",
       "lines_at_inventory": 186,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
+      "status": "reviewed_full",
+      "initial_package": null,
+      "completed_package": "M0",
+      "report": "parallel/M0.md",
+      "integrated_commit": "fbb85333"
     },
     {
       "file": "crates/kanzei-app/src/runtime_service.rs",
       "lines_at_inventory": 531,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
+      "status": "reviewed_full",
+      "initial_package": null,
+      "completed_package": "M0",
+      "report": "parallel/M0.md",
+      "integrated_commit": "fbb85333"
     },
     {
       "file": "crates/kanzei-app/src/schedules.rs",
@@ -1773,8 +1788,11 @@
       "lines_at_inventory": 103,
       "group": "ui",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": null
+      "status": "reviewed_full",
+      "initial_package": null,
+      "completed_package": "M0",
+      "report": "parallel/M0.md",
+      "integrated_commit": "fbb85333"
     },
     {
       "file": "crates/kanzei-app/ui/25-softwire-composer.js",
@@ -1877,40 +1895,55 @@
       "lines_at_inventory": 223,
       "group": "base",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "A0"
+      "status": "reviewed_full",
+      "initial_package": "A0",
+      "completed_package": "A0",
+      "report": "parallel/A0.md",
+      "integrated_commit": "2b42d928"
     },
     {
       "file": "crates/kanzei-base/src/atomic_file/lock_tests.rs",
       "lines_at_inventory": 262,
       "group": "base",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "A0"
+      "status": "reviewed_full",
+      "initial_package": "A0",
+      "completed_package": "A0",
+      "report": "parallel/A0.md",
+      "integrated_commit": "2b42d928"
     },
     {
       "file": "crates/kanzei-base/src/atomic_file/tests.rs",
       "lines_at_inventory": 179,
       "group": "base",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "A0"
+      "status": "reviewed_full",
+      "initial_package": "A0",
+      "completed_package": "A0",
+      "report": "parallel/A0.md",
+      "integrated_commit": "2b42d928"
     },
     {
       "file": "crates/kanzei-base/src/write_log/codec.rs",
       "lines_at_inventory": 78,
       "group": "base",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "A0"
+      "status": "reviewed_full",
+      "initial_package": "A0",
+      "completed_package": "A0",
+      "report": "parallel/A0.md",
+      "integrated_commit": "2b42d928"
     },
     {
       "file": "crates/kanzei-base/src/write_log/tests.rs",
       "lines_at_inventory": 235,
       "group": "base",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "A0"
+      "status": "reviewed_full",
+      "initial_package": "A0",
+      "completed_package": "A0",
+      "report": "parallel/A0.md",
+      "integrated_commit": "2b42d928"
     },
     {
       "file": "crates/kanzei-core/src/assemble.rs",
@@ -2076,9 +2109,10 @@
       "file": "crates/kanzei-core/src/runner/drive/serial_tools.rs",
       "lines_at_inventory": 239,
       "group": "core-runtime",
-      "prior_review": "none",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/B0.md"
     },
     {
       "file": "crates/kanzei-core/src/runner/drive/task_results.rs",
@@ -2196,9 +2230,10 @@
       "file": "crates/kanzei-core/src/runner/tool_exec.rs",
       "lines_at_inventory": 1739,
       "group": "core-runtime",
-      "prior_review": "none",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/B0.md"
     },
     {
       "file": "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
@@ -2253,8 +2288,11 @@
       "lines_at_inventory": 1377,
       "group": "core-store",
       "prior_review": "slice",
-      "status": "pending",
-      "initial_package": "C0"
+      "status": "reviewed_full",
+      "initial_package": "C0",
+      "completed_package": "C0",
+      "report": "parallel/C0.md",
+      "integrated_commit": "30fa309d"
     },
     {
       "file": "crates/kanzei-core/src/store/file_checkpoints.rs",
@@ -2285,8 +2323,11 @@
       "lines_at_inventory": 424,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "C0"
+      "status": "reviewed_full",
+      "initial_package": "C0",
+      "completed_package": "C0",
+      "report": "parallel/C0.md",
+      "integrated_commit": "30fa309d"
     },
     {
       "file": "crates/kanzei-core/src/store/notifications.rs",
@@ -2301,8 +2342,11 @@
       "lines_at_inventory": 459,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "C0"
+      "status": "reviewed_full",
+      "initial_package": "C0",
+      "completed_package": "C0",
+      "report": "parallel/C0.md",
+      "integrated_commit": "30fa309d"
     },
     {
       "file": "crates/kanzei-core/src/store/processes.rs",
@@ -2333,24 +2377,33 @@
       "lines_at_inventory": 1299,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "C0"
+      "status": "reviewed_full",
+      "initial_package": "C0",
+      "completed_package": "C0",
+      "report": "parallel/C0.md",
+      "integrated_commit": "30fa309d"
     },
     {
       "file": "crates/kanzei-core/src/store/session/artifact_refs.rs",
       "lines_at_inventory": 79,
       "group": "core-store",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "C0"
+      "status": "reviewed_full",
+      "initial_package": "C0",
+      "completed_package": "C0",
+      "report": "parallel/C0.md",
+      "integrated_commit": "30fa309d"
     },
     {
       "file": "crates/kanzei-core/src/store/session.rs",
       "lines_at_inventory": 1743,
       "group": "core-store",
       "prior_review": "slice",
-      "status": "pending",
-      "initial_package": "C0"
+      "status": "reviewed_full",
+      "initial_package": "C0",
+      "completed_package": "C0",
+      "report": "parallel/C0.md",
+      "integrated_commit": "30fa309d"
     },
     {
       "file": "crates/kanzei-core/src/store/task.rs",
@@ -2421,8 +2474,11 @@
       "lines_at_inventory": 70,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "B0"
+      "status": "reviewed_full",
+      "initial_package": "B0",
+      "completed_package": "B0",
+      "report": "parallel/B0.md",
+      "integrated_commit": "f93788bf"
     },
     {
       "file": "crates/kanzei-harness/src/auto_run.rs",
@@ -2549,8 +2605,11 @@
       "lines_at_inventory": 311,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "B0"
+      "status": "reviewed_full",
+      "initial_package": "B0",
+      "completed_package": "B0",
+      "report": "parallel/B0.md",
+      "integrated_commit": "f93788bf"
     },
     {
       "file": "crates/kanzei-harness/src/markdown.rs",
@@ -2565,16 +2624,22 @@
       "lines_at_inventory": 987,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "B0"
+      "status": "reviewed_full",
+      "initial_package": "B0",
+      "completed_package": "B0",
+      "report": "parallel/B0.md",
+      "integrated_commit": "f93788bf"
     },
     {
       "file": "crates/kanzei-harness/src/pending_question.rs",
       "lines_at_inventory": 206,
       "group": "harness",
       "prior_review": "none",
-      "status": "pending",
-      "initial_package": "B0"
+      "status": "reviewed_full",
+      "initial_package": "B0",
+      "completed_package": "B0",
+      "report": "parallel/B0.md",
+      "integrated_commit": "f93788bf"
     },
     {
       "file": "crates/kanzei-harness/src/permission.rs",
@@ -2940,9 +3005,10 @@
       "file": "crates/kanzei-tools/src/background/lifecycle.rs",
       "lines_at_inventory": 273,
       "group": "tools",
-      "prior_review": "slice",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/B0.md"
     },
     {
       "file": "crates/kanzei-tools/src/background/monitor.rs",
@@ -2972,9 +3038,10 @@
       "file": "crates/kanzei-tools/src/background.rs",
       "lines_at_inventory": 1671,
       "group": "tools",
-      "prior_review": "slice",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/B0.md"
     },
     {
       "file": "crates/kanzei-tools/src/base.rs",
@@ -3204,9 +3271,10 @@
       "file": "crates/kanzei-tools/src/memory_consolidation.rs",
       "lines_at_inventory": 669,
       "group": "tools",
-      "prior_review": "none",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/B0.md"
     },
     {
       "file": "crates/kanzei-tools/src/palette.rs",
@@ -3564,9 +3632,10 @@
       "file": "crates/kanzei-tools/src/schedules/executor.rs",
       "lines_at_inventory": 740,
       "group": "tools",
-      "prior_review": "none",
+      "prior_review": "contract_slice",
       "status": "pending",
-      "initial_package": null
+      "initial_package": null,
+      "slice_report": "parallel/B0.md"
     },
     {
       "file": "crates/kanzei-tools/src/schedules/hosts.rs",
@@ -3888,5 +3957,13 @@
       "status": "pending",
       "initial_package": null
     }
-  ]
+  ],
+  "current_full_reviews": 50,
+  "last_integrated_commit": "fbb85333",
+  "execution_model": "Sol",
+  "active_packages": {
+    "A1": "artifact publication/compaction persistence",
+    "B1": "callbacks/stop lifecycle",
+    "C1": "retired processes/monotonic delivery cursor"
+  }
 }
