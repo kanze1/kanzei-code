@@ -1,0 +1,21 @@
+{
+  "findings": 39,
+  "severity_counts": {
+    "audited_files": 269,
+    "pending_audit": 0,
+    "confirmed_findings": 39,
+    "fixed_verified": 39,
+    "remaining_confirmed": 0,
+    "P0": 2,
+    "P1": 24,
+    "P2": 13
+  },
+  "owned_files_verified": 66,
+  "source_commits": [
+    "2b310401b96862b8733c7cf54b6ac455d48a333b",
+    "16addb99da234e6bf62aa874e2cf8f68e308df2f",
+    "813a53050ad5c4caf370c2a004fcbd7f11ebb65a",
+    "d3a33de6d4ffbc39f7be7fba64bc99e0570ee6c2"
+  ],
+  "all_referenced_logs_exist": true
+}

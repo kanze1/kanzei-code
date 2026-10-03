@@ -1,0 +1,319 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "mode": "fixed_verified_committed",
+  "findings": [
+    {
+      "id": "AF-T03",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/cross_tree.rs",
+      "change": "新增文件也读取限额内正文，与该物理树写入日志核对；合法新增不再误报越界。",
+      "regression": "并行双线_b线窗口内自写有写日志_被吸收不误报",
+      "status": "fixed_regressions_passed",
+      "trigger": "A 线 bash 执行期间，B 线通过正常 write 新建源码，B 写日志包含正确路径及终态内容。",
+      "impact": "新建文件一律被设为 Fingerprint，日志匹配逻辑对该状态直接 false；A 的正常命令误报跨树失败，且小文件被误称超过 4 MiB。"
+    },
+    {
+      "id": "AF-T04",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-tools/src/cross_tree.rs",
+      "change": "隔离目录创建和写入逐项核对结果，只报告实际保存成功的副本与数量，失败明确点名且不回滚现状。",
+      "regression": "quarantine_failure_is_reported_without_claiming_a_saved_copy",
+      "status": "fixed_regressions_passed",
+      "trigger": "跨树变化需留证，但 .kanzei/quarantine 被普通文件占用、无法创建目录（其他写入故障同路径）。",
+      "impact": "create_dir_all 和 write 的错误全部丢弃，报告仍称已隔离且可取回；用户按照报告寻找恢复副本时实际不存在。"
+    },
+    {
+      "id": "AF-T05",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-tools/src/local_validation.rs",
+      "change": "write/edit 把真实 cwd 传给写后校验，Cargo edition、命令 cwd 和源码相对路径使用同一代码根。",
+      "regression": "worktree_write_validates_against_its_own_manifest",
+      "status": "fixed_regressions_passed",
+      "trigger": "write/edit 在独立 worktree 中写入 member/src/lib.rs，Cargo.toml 位于 member/，ctx.project_root 指向主树。",
+      "impact": "nearest_manifest 第一层因不在主树内即停止，误用 Rust 2015；合法 async fn 被错误报告语法失败，UI/模型收到错误修复建议。写入本身保留。"
+    },
+    {
+      "id": "AF-T06",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/palette.rs",
+      "change": "按 ASE 1.0 的12字节头、0x0001色块、UTF-16BE色名与平铺分组解析，限制读取在当前块内；替换原错误二进制fixture。",
+      "regression": "ase_unicode_names_flat_groups_and_block_bounds; ase导入解析与非法诊断",
+      "status": "fixed_regressions_passed",
+      "trigger": "plot 工具 palette 导入普通 Adobe Swatch Exchange .ase 文件（例如两个标准 RGB 色块）。",
+      "impact": "错误头部偏移、块类型、名称位置及编码使标准 ASE 无法导入；既有 sample.ase 同样采用错误自造布局，掩盖协议不兼容。"
+    },
+    {
+      "id": "AF-T07",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-tools/src/grep.rs",
+      "change": "count 搜索器与普通搜索共用 multiline 语义。",
+      "regression": "multiline_count_matches_normal_search",
+      "status": "fixed_regressions_passed",
+      "trigger": "grep 同时设置 multiline=true、count=true，模式 alpha.*beta 跨越两行。",
+      "impact": "count 的 Searcher 未启用 multiline，返回 no matches；同输入的普通检索命中，统计结果与检索结果矛盾。"
+    },
+    {
+      "id": "AF-T08",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/symbols.rs",
+      "change": "crate、module、define 都以 cwd 的实时源码建立地图，保留另一任务 needs_correction 分类修改。",
+      "regression": "map_and_definitions_use_current_worktree",
+      "status": "fixed_regressions_passed",
+      "trigger": "独立 worktree 的 agent 查询 symbols {crate:\"demo\"} 或 module 地图，主树和当前树源码不同。",
+      "impact": "crate_dirs 从 ctx.project_root 建立，带 crate 查询直接扫主树；只带 module 时当前树文件无法匹配主树目录，可能得到空地图。返回的依赖/API 地图不代表当前工作树。"
+    },
+    {
+      "id": "AF-T09",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/browser_tool.rs",
+      "change": "无头浏览器按项目会话和子代理owner隔离页面、控制台与权限URL；子代理独立owner不改变会话/写租约身份，桌面子代理走无头；helper闲置清理与退出统一关闭所有owner。 同一持久子代理跨run续跑保留稳定browser owner。",
+      "regression": "parent_and_parallel_children_have_distinct_browser_owners; scripts/browser-session-smoke.mjs",
+      "status": "fixed_regressions_passed",
+      "trigger": "桌面 A/B 两个会话或工作线均走无头 fallback；A open 后 B open，A 随后省略 target 调 click/type/eval。",
+      "impact": "全局 helper/page 无会话或工作树 owner，A 的后续操作落到 B 页面；共享 CURRENT_URLS 还把错误页面作为权限资源。"
+    },
+    {
+      "id": "AF-T10",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/webfetch.rs",
+      "change": "超限PDF明确失败且不保存/缓存残缺正文；只有读到限额之外字节才标记截断，恰好3MiB允许完整保存。",
+      "regression": "pdf_limit_rejects_partial_download_but_accepts_exact_boundary",
+      "status": "fixed_regressions_passed",
+      "trigger": "webfetch 下载大于 3 MiB 的 PDF。",
+      "impact": "读取达到上限后保存截断 PDF；PDF 分支不携带 truncated 信息，仍返回成功并让用户用 read pages 打开，缓存/来源标记也将其视为已抓取。"
+    },
+    {
+      "id": "AF-R09",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/preview/agent.rs",
+      "change": "面板等待动作锁后复核原generation、owner epoch、process与页面URL；A→B→A同URL也拒绝旧动作。",
+      "regression": "queued_action_rejects_rebinding_and_recreated_pane_even_at_same_url",
+      "status": "fixed_regressions_passed",
+      "trigger": "A 的 browser 动作已选中面板，等待另一个父/子代理动作释放 agent 锁；用户切换到 B，可见性命令将面板绑定 B。",
+      "impact": "A 后续获得锁仍操作当前 B 面板。服务桥只比 URL，同页切会话无法拦截。"
+    }
+  ],
+  "files": [
+    {
+      "file": "crates/kanzei-tools/src/cross_tree.rs",
+      "source_sha256_lf": "4dcc39be90ce92b5676c5043ce64f4ba0fa04090542d14a77b822dfa62298123",
+      "findings": [
+        "AF-T03",
+        "AF-T04"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/local_validation.rs",
+      "source_sha256_lf": "3d70ee83edd8ec3a530526865731ac651d08e48e296b213cdc50980d536624b2",
+      "findings": [
+        "AF-T05"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/write.rs",
+      "source_sha256_lf": "5dfe34573b2546ee5c58f77787eb0043af94bcf821aa78ffc873102009ccac3b",
+      "findings": [
+        "AF-T05"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/edit.rs",
+      "source_sha256_lf": "ec265a5537009af0467998b895259f0d83209858e042980ce4c498cf6dee5d0e",
+      "findings": [
+        "AF-T05"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/palette.rs",
+      "source_sha256_lf": "6d2648053d718c799b11c335aa98373eed924d88a51eb51ef2b70fbed3ef639d",
+      "findings": [
+        "AF-T06"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/assets/palettes/fixtures/sample.ase",
+      "source_sha256_lf": "c469d608e5a0ee4f8cb5e87514328911c4df8c393a2fce0faef436e7e07ca2e7",
+      "findings": [
+        "AF-T06"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/grep.rs",
+      "source_sha256_lf": "caa0cdc2b739c670eaee18c5da7a98c6c9c8822346b8332414df24c13940cf39",
+      "findings": [
+        "AF-T07"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/symbols.rs",
+      "source_sha256_lf": "e9514476ecd12896a54d978a9dd77dc10062ba82ad5339882a4139b3bb460672",
+      "findings": [
+        "AF-T08"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/webfetch.rs",
+      "source_sha256_lf": "1be1d07632c8d7f86effb3865f7cf44829ab89e7127ed625f0bec533426de99f",
+      "findings": [
+        "AF-T10"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/browser_tool.rs",
+      "source_sha256_lf": "25036fcdcb2f3afdbe6b65b110b7db28082d63a0f52519759f99e20f615fd801",
+      "findings": [
+        "AF-T09"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
+      "source_sha256_lf": "6ce5e7a8fe56d530839d5bfb9256cd67de7fa7f3ab5e1e91a24dca1be258b027",
+      "findings": [
+        "AF-T09"
+      ]
+    },
+    {
+      "file": "scripts/browser-helper.mjs",
+      "source_sha256_lf": "30d4c91b3f25b2fff04c9f7d5fa2d9d9ef1cd348b8f8cbc8f429fb8a5c906b6c",
+      "findings": [
+        "AF-T09"
+      ]
+    },
+    {
+      "file": "scripts/browser-session-smoke.mjs",
+      "source_sha256_lf": "4347885af8410d757b1e68669939d1d5f581020b90acdf0c34b2656752b587b0",
+      "findings": [
+        "AF-T09"
+      ]
+    },
+    {
+      "file": "crates/kanzei-harness/src/tool.rs",
+      "source_sha256_lf": "41d6e966ebcedd38005a112f0cf61735edcc7697b3a446fad6502714d537b3a4",
+      "findings": [
+        "AF-T09"
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent.rs",
+      "source_sha256_lf": "67041aa41b8f4e942a93adf0ce37bf23b361e0f64ce59b831ffb87572b6294c7",
+      "findings": [
+        "AF-T09"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/harness_ext.rs",
+      "source_sha256_lf": "3471277e2d3aec1651b00abe388a299984a1f2a1647d08f13565a5cde352013d",
+      "findings": [
+        "AF-T09"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/desktop_bridge.rs",
+      "source_sha256_lf": "07eaf3929f675875c2ebb994208fdf0ab57eebb64c89c74ed7987c9eb4dfa342",
+      "findings": [
+        "AF-T09"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/mod.rs",
+      "source_sha256_lf": "55ec621b11c81fe5f4553b47c0940cf75b80848cc859a3f1ef651dc143e4cbd1",
+      "findings": [
+        "AF-R09"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/agent.rs",
+      "source_sha256_lf": "01a837f275cba8d5ae6a438fe65072cfe3454bcc5bb7ce8dcca390266752b629",
+      "findings": [
+        "AF-R09"
+      ]
+    },
+    {
+      "file": "docs/design/preview_pane.md",
+      "findings": [
+        "AF-T09",
+        "AF-R09"
+      ],
+      "source_sha256_lf": "92eef0915bcc821242ac00d5bec2778b0ecd1219f0732f19f36fa2bc2cc915e0"
+    }
+  ],
+  "validation": [
+    {
+      "command": "node --check scripts/browser-helper.mjs",
+      "result": "PASS"
+    },
+    {
+      "command": "node scripts/browser-session-smoke.mjs",
+      "result": "PASS actual Edge parent/A/B/A/parent; unopened/missing owner/shutdown"
+    },
+    {
+      "command": "cargo test -p kanzei-tools --lib",
+      "result": "821 passed / 0 failed / 3 ignored; owned adjacent groups 155 passed",
+      "evidence": "output/audit-first/automation/fix-tools-tests-final.log"
+    },
+    {
+      "command": "cargo test -p kanzei-app --bin kzapp",
+      "result": "624 passed / 0 failed before final pre-navigation guard",
+      "evidence": "output/audit-first/conversation/fix-app-tests.log"
+    },
+    {
+      "command": "cargo test -p kanzei-app --bin kzapp preview::agent::ownership_tests",
+      "result": "1 passed / 0 failed after final guard; recompiles latest harness/tools/app",
+      "evidence": "output/audit-first/automation/fix-preview-owner-tests.log"
+    },
+    {
+      "command": "git diff --check (owned paths)",
+      "result": "PASS"
+    }
+  ],
+  "parallel_changes": "Shared checkout already dirty; preserves unrelated changes and symbols needs_correction. No commit, release, tracker edits or 问题.MD access.",
+  "severity_counts": {
+    "P0": 0,
+    "P1": 6,
+    "P2": 3
+  },
+  "product_files": [
+    "crates/kanzei-tools/src/cross_tree.rs",
+    "crates/kanzei-tools/src/local_validation.rs",
+    "crates/kanzei-tools/src/write.rs",
+    "crates/kanzei-tools/src/edit.rs",
+    "crates/kanzei-tools/src/palette.rs",
+    "crates/kanzei-tools/assets/palettes/fixtures/sample.ase",
+    "crates/kanzei-tools/src/grep.rs",
+    "crates/kanzei-tools/src/symbols.rs",
+    "crates/kanzei-tools/src/webfetch.rs",
+    "crates/kanzei-tools/src/browser_tool.rs",
+    "crates/kanzei-tools/src/browser_tool/headless.rs",
+    "scripts/browser-helper.mjs",
+    "scripts/browser-session-smoke.mjs",
+    "crates/kanzei-harness/src/tool.rs",
+    "crates/kanzei-core/src/runner/subagent.rs",
+    "crates/kanzei-app/src/harness_ext.rs",
+    "crates/kanzei-app/src/desktop_bridge.rs",
+    "crates/kanzei-app/src/preview/mod.rs",
+    "crates/kanzei-app/src/preview/agent.rs"
+  ],
+  "remaining_risks": [
+    "Visible native WebView switching was verified with deterministic owner state tests, not a fresh native UI replay."
+  ],
+  "freeze_filesystem_timestamp": "2026-10-04T02:53:58",
+  "committed": true,
+  "commits": [
+    {
+      "group": "execution",
+      "commit": "2b310401b96862b8733c7cf54b6ac455d48a333b"
+    },
+    {
+      "group": "automation",
+      "commit": "16addb99da234e6bf62aa874e2cf8f68e308df2f"
+    },
+    {
+      "group": "tools",
+      "commit": "813a53050ad5c4caf370c2a004fcbd7f11ebb65a"
+    },
+    {
+      "group": "ui",
+      "commit": "d3a33de6d4ffbc39f7be7fba64bc99e0570ee6c2"
+    }
+  ]
+}

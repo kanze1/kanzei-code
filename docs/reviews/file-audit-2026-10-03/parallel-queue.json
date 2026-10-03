@@ -12,8 +12,8 @@
     "production_edits_during_audit": false,
     "fix_phase": "After remaining-scope audit and root-cause consolidation, fix bottom-up in validated batches; no monolithic rewrite.",
     "progress_policy": "Track audited files separately from fixed and verified findings. Preserve existing C7 evidence and unfinished worktrees.",
-    "status": "audit_complete_fixes_not_started",
-    "report": "audit-first/summary.md"
+    "status": "fixes_complete",
+    "report": "audit-first/fixes-summary.md"
   },
   "priority_order": [
     "workbench",
@@ -1377,7 +1377,8 @@
         "AF-T11"
       ],
       "owner": "git.rs / git/tool.rs → plan/finalize → runner 调度",
-      "test": "5000 路径双管道无挂起；A 操作 B 时与 B writer 互斥；取消释放子进程与租约"
+      "test": "5000 路径双管道无挂起；A 操作 B 时与 B writer 互斥；取消释放子进程与租约",
+      "status": "fixed_verified"
     },
     {
       "id": "F2",
@@ -1389,7 +1390,8 @@
         "AUTO-006"
       ],
       "owner": "background persistent/registration → processes/lifecycle",
-      "test": "并发注册/退出不丢记录；损坏或写失败不伪成功；单条日志定时落盘；落库失败内存不先提交"
+      "test": "并发注册/退出不丢记录；损坏或写失败不伪成功；单条日志定时落盘；落库失败内存不先提交",
+      "status": "fixed_verified"
     },
     {
       "id": "F3",
@@ -1403,7 +1405,8 @@
         "AUTO-007"
       ],
       "owner": "session execution owner / coordinator → history actions / team inbox / push",
-      "test": "复用 C7 三个负例并转回归；CLI 与桌面并发历史操作互斥；停止后无旧执行；只确认实际交付的消息"
+      "test": "复用 C7 三个负例并转回归；CLI 与桌面并发历史操作互斥；停止后无旧执行；只确认实际交付的消息",
+      "status": "fixed_verified"
     },
     {
       "id": "F4",
@@ -1417,7 +1420,8 @@
         "AF-T08"
       ],
       "owner": "runner batch → cross_tree → local_validation / symbols",
-      "test": "外部编辑不能被无关 read 认领；合法新增文件收据可匹配；留证失败明确返回；工作树 edition/API 图均来自当前树"
+      "test": "外部编辑不能被无关 read 认领；合法新增文件收据可匹配；留证失败明确返回；工作树 edition/API 图均来自当前树",
+      "status": "fixed_verified"
     },
     {
       "id": "F5",
@@ -1430,7 +1434,8 @@
         "AF-R07"
       ],
       "owner": "headless helper / preview pane → chat error / async workspace / composer",
-      "test": "A→B→A 浏览操作、重试、截图各归原会话；面板锁等待换线重新验 owner；旧行不使用新 scope"
+      "test": "A→B→A 浏览操作、重试、截图各归原会话；面板锁等待换线重新验 owner；旧行不使用新 scope",
+      "status": "fixed_verified"
     },
     {
       "id": "F6",
@@ -1441,7 +1446,8 @@
         "AUTO-005"
       ],
       "owner": "quarantine CLI → schedules definition / hosts",
-      "test": "互斥参数两种顺序都拒绝；仅修改 frontmatter enabled；check 与 check-long cron 各自保留"
+      "test": "互斥参数两种顺序都拒绝；仅修改 frontmatter enabled；check 与 check-long cron 各自保留",
+      "status": "fixed_verified"
     },
     {
       "id": "F7",
@@ -1455,7 +1461,8 @@
         "CONV-AF-09"
       ],
       "owner": "schema / conventions / ASE / grep / webfetch / replay",
-      "test": "外层 JSON 数组完整；路径字面量原样；标准 ASE；multiline count 一致；大 PDF 不以截断文件报成功；增量事件回放"
+      "test": "外层 JSON 数组完整；路径字面量原样；标准 ASE；multiline count 一致；大 PDF 不以截断文件报成功；增量事件回放",
+      "status": "fixed_verified"
     },
     {
       "id": "F8",
@@ -1470,7 +1477,15 @@
         "AUTO-011"
       ],
       "owner": "gate → harvest UI；telemetry / architecture identity → UI；route options / collaboration",
-      "test": "重跑 gate 撤销旧绿色；新版行号；成功正文不产生失败诊断；索引统一身份与可见性；窗口随路由；并行活动按 call id 配对"
+      "test": "重跑 gate 撤销旧绿色；新版行号；成功正文不产生失败诊断；索引统一身份与可见性；窗口随路由；并行活动按 call id 配对",
+      "status": "fixed_verified"
     }
-  ]
+  ],
+  "fix_phase": {
+    "status": "complete",
+    "confirmed": 39,
+    "fixed_verified": 39,
+    "pending": 0,
+    "report": "audit-first/fixes-summary.md"
+  }
 }

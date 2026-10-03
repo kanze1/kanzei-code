@@ -1,0 +1,309 @@
+{
+  "audit_baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "scope": "10 authorized findings; AUTO-008/009 excluded; audit history unchanged",
+  "committed": true,
+  "findings": [
+    {
+      "id": "AUTO-001",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/background/persistent.rs",
+      "files": [
+        "crates/kanzei-tools/src/background/persistent.rs",
+        "crates/kanzei-tools/src/background/registration.rs"
+      ],
+      "change": "项目 registry 的读取、变更、原子替换由同一系统排他锁覆盖，读方共享锁。",
+      "regression_tests": [
+        "registry_transaction_serializes_read_modify_write"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "tools --lib: 821 passed; 0 failed; regression present and passed"
+      ],
+      "problem": "仍在运行的 B 从持久登记消失，应用重启后无法发现/接管；相反顺序也可复活已结束的登记。",
+      "trigger": "同项目已有 A，启动 B 与 A 自然退出并发：两个路径分别读取旧 [A]，启动写 [A,B]，退出随后写 []。",
+      "responsibility": "持有后台服务登记状态，串行执行注册表读改写。"
+    },
+    {
+      "id": "AUTO-002",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/background/persistent.rs",
+      "files": [
+        "crates/kanzei-tools/src/background/persistent.rs",
+        "crates/kanzei-tools/src/background/registration.rs"
+      ],
+      "change": "只有 NotFound 是空登记；损坏/IO/写入失败返回 Result；后台注册失败完成进程终止，停止/发现/接管 caller 传播失败。",
+      "regression_tests": [
+        "registry_corruption_and_io_errors_do_not_become_empty_success",
+        "persistent_registration_failure_stops_the_spawned_child_and_preserves_evidence"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "tools --lib: 821 passed; 0 failed; regression present and passed"
+      ],
+      "problem": "旧登记可被空表覆盖；服务启动/清理返回成功但持久登记未更新，重启恢复与运行态分叉。",
+      "trigger": "registry.json 非法 JSON/UTF-8 或读取失败时仍启动新的 persistent 服务；或 registry 替换因占用/路径错误失败。",
+      "responsibility": "定义后台服务持久登记和恢复操作的失败合同。"
+    },
+    {
+      "id": "AUTO-003",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-tools/src/background/registration.rs",
+      "files": [
+        "crates/kanzei-tools/src/background/registration.rs"
+      ],
+      "change": "读流 select 增加 2 秒独立刷新定时器，小日志在服务空闲期间也写盘。",
+      "regression_tests": [
+        "persistent_idle_output_flushes_before_process_exit"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "tools --lib: 821 passed; 0 failed; regression present and passed"
+      ],
+      "problem": "输出仅留内存；强杀应用后缺失该段日志，重启接管回看不完整。当前运行中的内存读取仍可见。",
+      "trigger": "服务输出一次 READY（小于64KiB），随后一直运行且没有新输出。",
+      "responsibility": "收集后台 stdout/stderr，定期持久化日志。"
+    },
+    {
+      "id": "AUTO-004",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/schedules/mod.rs",
+      "files": [
+        "crates/kanzei-tools/src/schedules/mod.rs"
+      ],
+      "change": "仅更新 parser 接受的定义头 enabled；跳过步骤 block scalar，缺失字段在头部补入，保留正文。",
+      "regression_tests": [
+        "toggle_only_updates_the_parsed_frontmatter_enabled_field"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "tools --lib: 821 passed; 0 failed; regression present and passed"
+      ],
+      "problem": "前者 toggle 产生重复字段，合法操作被拒绝；后者启用只改正文，真实 enabled 仍 false。执行器自动禁用也可能写坏合法定义。",
+      "trigger": "合法定义使用缩进 enabled 字段，或省略头部 enabled 且正文包含行首 enabled: 示例。",
+      "responsibility": "将开关状态写回定时任务定义头。"
+    },
+    {
+      "id": "AUTO-005",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/schedules/hosts.rs",
+      "files": [
+        "crates/kanzei-tools/src/schedules/hosts.rs"
+      ],
+      "change": "远端 crontab 过滤匹配完整行尾 marker，禁止 check 误伤 check-long；实际 shell 回归使用私有 crontab 函数夹具。",
+      "regression_tests": [
+        "cron_update_preserves_tasks_whose_names_share_a_prefix"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "tools --lib: 821 passed; 0 failed; regression present and passed"
+      ],
+      "problem": "check-long 的 cron 行也被删除，定义仍启用但不再被唤醒。",
+      "trigger": "同项目在同一服务器登记 check 与 check-long，再保存、禁用或删除 check。",
+      "responsibility": "登记和移除服务器 crontab 的单个任务。"
+    },
+    {
+      "id": "AUTO-006",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/processes/lifecycle.rs",
+      "files": [
+        "crates/kanzei-app/src/processes/lifecycle.rs"
+      ],
+      "change": "持有设置锁，在分离 Arc 的候选设置上应用更新；成功落库后才发布到原 handle，失败保持内存原值。",
+      "regression_tests": [
+        "settings_write_failure_preserves_runtime_and_success_publishes"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "app --bin kzapp 624 passed; targeted regression present and passed"
+      ],
+      "problem": "RPC 报失败，但后续运行读到已经改变的模型/子代理/tracker 开关；重启又恢复旧值。",
+      "trigger": "process_update 改模型/权限开关后，state.db 打开或 upsert 失败（例如数据库被占用或磁盘写入错误）。",
+      "responsibility": "更新并持久化对话进程设置。"
+    },
+    {
+      "id": "AUTO-007",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/team/tools.rs",
+      "files": [
+        "crates/kanzei-tools/src/team/tools.rs"
+      ],
+      "change": "保留最近 12 条历史并加入全部 queued 消息；只将当前上下文快照中存在的 ID 确认为 received，晚到消息保持 queued。",
+      "regression_tests": [
+        "inbox_delivers_all_queued_and_does_not_acknowledge_later_arrivals"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "tools --lib: 821 passed; 0 failed; regression present and passed"
+      ],
+      "problem": "未出现在模型上下文里的消息也变 received，轮末被标 processed，后续 worker 不会再以 queued 消费，用户方向可丢失。",
+      "trigger": "子任务运行中、下一次模型请求前积累13条补充消息；或 store.get 后、update 前又收到新消息。",
+      "responsibility": "为子任务生成团队收件上下文并确认消息交付。"
+    },
+    {
+      "id": "AUTO-010",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-app/src/phase_pipeline.rs",
+      "files": [
+        "crates/kanzei-app/src/phase_pipeline.rs"
+      ],
+      "change": "ScoutRoute 携带 provider context_limit，同时替换 runtime fast/primary 限制；None 清除旧限制，review 不被覆盖。",
+      "regression_tests": [
+        "scout_route_replaces_context_limits_without_changing_review_runtime"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "app --bin kzapp 624 passed; targeted regression present and passed"
+      ],
+      "problem": "勘察按旧窗口做上下文预算，可提前压缩/拒绝，或向较小窗口模型发送过大的请求。未指定 scout 时不受影响。",
+      "trigger": "配置 models.scout 指向 context_limit 与 fast/primary 不同的 provider。",
+      "responsibility": "按勘察/复核角色装配子代理模型运行时。"
+    },
+    {
+      "id": "AUTO-011",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-app/src/collaboration.rs",
+      "files": [
+        "crates/kanzei-app/src/collaboration.rs"
+      ],
+      "change": "反向遍历以 tool call id 配对完成事件，某个并行工具结束后仍显示其他活动工具。",
+      "regression_tests": [
+        "parallel_tool_completion_keeps_the_other_tool_visible"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "app --bin kzapp 624 passed; targeted regression present and passed"
+      ],
+      "problem": "协作快照/模型协作上下文显示 current_tool=None，其他线路看不到仍在进行的工具。仅影响当前活动信息。",
+      "trigger": "A start、B start、B completed，而 A 仍运行（允许并行的只读工具批次）。",
+      "responsibility": "从执行事件推导当前仍活动的工具。"
+    },
+    {
+      "id": "AF-T01",
+      "severity": "P1",
+      "root_owner": "crates/kanzei/src/cli/quarantine.rs",
+      "files": [
+        "crates/kanzei/src/cli/quarantine.rs",
+        "crates/kanzei-tools/src/quarantine.rs"
+      ],
+      "change": "dry-run/apply 两种出现顺序均拒绝，避免后置 apply 悄悄覆盖演练语义。",
+      "regression_tests": [
+        "apply与dry_run互斥且apply允许解析"
+      ],
+      "status": "fixed_verified",
+      "validation": [
+        "CLI quarantine 2 passed"
+      ],
+      "problem": "互斥参数仅单向检查，dry-run 命令实际进入 apply 并删除隔离恢复材料。",
+      "trigger": "执行 kz quarantine --dry-run --apply --type bg；参数顺序与 --apply --dry-run 相反。",
+      "responsibility": "解析清理命令的演练与实际应用参数。"
+    }
+  ],
+  "validation": {
+    "static": "caller searches and settings lock ordering checked; owned files rustfmt completed",
+    "cargo": "All 10 owned fixes verified; final workspace check passed.",
+    "app": {
+      "command": "cargo test -p kanzei-app --bin kzapp",
+      "result": "624 passed; 0 failed; 0 ignored",
+      "log": "output/audit-first/conversation/fix-app-tests.log",
+      "executor": "audit_first_conversation"
+    },
+    "cli": {
+      "command": "cargo test -p kanzei --bin kz cli::quarantine::tests",
+      "result": "2 passed; 0 failed",
+      "log": "output/audit-first/automation/fix-cli-tests.log"
+    },
+    "core": {
+      "command": "cargo test -p kanzei-core --lib",
+      "result": "424 passed; 0 failed",
+      "log": "output/audit-first/automation/fix-core-tests.log"
+    },
+    "workspace": {
+      "command": "cargo check --workspace",
+      "result": "PASS",
+      "log": "output/audit-first/automation/fix-workspace-check.log"
+    },
+    "preview": {
+      "command": "cargo test -p kanzei-app --bin kzapp preview::agent::ownership_tests",
+      "result": "1 passed; 0 failed",
+      "log": "output/audit-first/automation/fix-preview-owner-tests.log"
+    },
+    "tools_initial": {
+      "command": "cargo test -p kanzei-tools --lib",
+      "result": "817 passed; 4 failed; 3 ignored; corrected 2 previous discovery assertions, shell PATH fixture, and foreign field-count assertion; final rerun queued",
+      "log": "output/audit-first/automation/fix-tools-tests.log"
+    },
+    "tools_final": {
+      "command": "cargo test -p kanzei-tools --lib",
+      "result": "821 passed; 0 failed; 3 existing ignored",
+      "log": "output/audit-first/automation/fix-tools-tests-final.log"
+    },
+    "workspace_final": {
+      "command": "cargo check --workspace",
+      "result": "PASS",
+      "log": "output/audit-first/automation/fix-workspace-check-final.log"
+    },
+    "format": {
+      "command": "rustfmt --check --edition 2021 --config skip_children=true <14 owned Rust files>",
+      "result": "PASS",
+      "log": "output/audit-first/automation/fix-format-check.log"
+    }
+  },
+  "lock_contract": "settings update model→profile→reasoning→manual_models; process_info/persist/register acquire model first. general_chat profile→research_topic never takes model/reasoning. Single-value clone readers release before later acquisitions. write_atomic does not acquire FileLock; registry transaction holds the owner lock.",
+  "compatibility": "Persistent registry JSON fields/layout unchanged; Rust background APIs return Result and async registration awaits cleanup; callers migrated. UI IPC settings schema unchanged.",
+  "changed_files": [
+    "crates/kanzei-tools/src/background.rs",
+    "crates/kanzei-tools/src/background/persistent.rs",
+    "crates/kanzei-tools/src/background/registration.rs",
+    "crates/kanzei-tools/src/background/lifecycle.rs",
+    "crates/kanzei-tools/src/bash.rs",
+    "crates/kanzei-tools/src/process.rs",
+    "crates/kanzei-tools/src/schedules/mod.rs",
+    "crates/kanzei-tools/src/schedules/hosts.rs",
+    "crates/kanzei-tools/src/team/tools.rs",
+    "crates/kanzei-tools/src/team/tests.rs",
+    "crates/kanzei-app/src/processes/lifecycle.rs",
+    "crates/kanzei-app/src/collaboration.rs",
+    "crates/kanzei-app/src/phase_pipeline.rs",
+    "crates/kanzei/src/cli/quarantine.rs"
+  ],
+  "foreign_workspace_change": "tracker/fields.rs count assertion 27→29 only, matching foreign task added 外部验收/关闭原因; excluded from our commit.",
+  "source_sha256_lf": {
+    "crates/kanzei-tools/src/background.rs": "a3e00a7ed4325b5ad2b23a60d0b51d6472e3b89336fba57bf7a47e5383593e69",
+    "crates/kanzei-tools/src/background/persistent.rs": "c118a0ee44fd1900c959ffe1ccef1e2ebdabca3f82f589f9d1cef0227799eee6",
+    "crates/kanzei-tools/src/background/registration.rs": "2fa6da9c86e374e40db4029bc628a9605b1daad663a207b1f8e2ae50d7892780",
+    "crates/kanzei-tools/src/background/lifecycle.rs": "cde87eb087c4bf26602f723a3227ae49c404301600a7e34219a23eb46da37fe2",
+    "crates/kanzei-tools/src/bash.rs": "0d6d0025f8601073d6123a1d3fefbf2f9475f5592ea4cee56c0d79f382facacb",
+    "crates/kanzei-tools/src/process.rs": "b98712eee34ffbe99949d8ed6f3d9a7efb6b52c948473a2bbee33f8e3eb8ec20",
+    "crates/kanzei-tools/src/schedules/mod.rs": "5c9a1e4d6f02c44139f6556b0a7b6cb29d5bcecad2fb27825a6c06bc6821088d",
+    "crates/kanzei-tools/src/schedules/hosts.rs": "2adff1148af6c8c97b578950334a20eb872ec5125d2925f77dab803304df6db5",
+    "crates/kanzei-tools/src/team/tools.rs": "0b9e7091e884c2b077393fe3aeca3347f7e1d2d4350538e79c235b3c0701d317",
+    "crates/kanzei-tools/src/team/tests.rs": "60971776e7b078a923aae16c7a9cf0c6545d1b7d64af960796d03be7e46de815",
+    "crates/kanzei-app/src/processes/lifecycle.rs": "2d2d55efc3519deedbd4b5894596d2e888aebf4f72a179dbec3ce6cdaa4f0136",
+    "crates/kanzei-app/src/collaboration.rs": "56f15a6c432c9d9e9bae6542a6da13d26bc1bc758fc86ed95443b078eb779242",
+    "crates/kanzei-app/src/phase_pipeline.rs": "11f40f99c21f42b7a8c6315e25e336faa6521804120f39d766a6acbe24431342",
+    "crates/kanzei/src/cli/quarantine.rs": "6fbf77061c6c5133d67e68d4023d6087687626eceb4a3f2f2b17414be624ccc7"
+  },
+  "unresolved": [],
+  "verification_limits": [
+    "Windows 本地实际测试；cron 使用 Git Bash 中隔离的 crontab 函数夹具，未连接真实远端服务器。",
+    "未执行真实 LLM 或桌面交互 E2E；此次对应状态合同由纯逻辑/SQLite/真实进程回归验证。"
+  ],
+  "commits": [
+    {
+      "group": "execution",
+      "commit": "2b310401b96862b8733c7cf54b6ac455d48a333b"
+    },
+    {
+      "group": "automation",
+      "commit": "16addb99da234e6bf62aa874e2cf8f68e308df2f"
+    },
+    {
+      "group": "tools",
+      "commit": "813a53050ad5c4caf370c2a004fcbd7f11ebb65a"
+    },
+    {
+      "group": "ui",
+      "commit": "d3a33de6d4ffbc39f7be7fba64bc99e0570ee6c2"
+    }
+  ]
+}

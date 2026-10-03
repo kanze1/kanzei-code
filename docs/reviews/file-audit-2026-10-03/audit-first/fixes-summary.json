@@ -1,0 +1,827 @@
+{
+  "observed_at": "2026-10-03T19:07:21.127388+00:00",
+  "phase": "fixes_complete",
+  "audit_baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "integration_base": "86db2ccc",
+  "branch": "dev",
+  "released": false,
+  "counts": {
+    "audited_files": 269,
+    "pending_audit": 0,
+    "confirmed_findings": 39,
+    "fixed_verified": 39,
+    "remaining_confirmed": 0,
+    "P0": 2,
+    "P1": 24,
+    "P2": 13
+  },
+  "fixes": [
+    {
+      "id": "AF-T02",
+      "severity": "P0",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-T11",
+      "severity": "P0",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R01",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R02",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R03",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R04",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R05",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R06",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R07",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R08",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R10",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "AF-R11",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-root.md"
+    },
+    {
+      "id": "CONV-AF-01",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-conversation.md"
+    },
+    {
+      "id": "CONV-AF-02",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-conversation.md"
+    },
+    {
+      "id": "CONV-AF-03",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-conversation.md"
+    },
+    {
+      "id": "CONV-AF-04",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-conversation.md"
+    },
+    {
+      "id": "CONV-AF-05",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-conversation.md"
+    },
+    {
+      "id": "CONV-AF-07",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-conversation.md"
+    },
+    {
+      "id": "CONV-AF-08",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-conversation.md"
+    },
+    {
+      "id": "CONV-AF-09",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-conversation.md"
+    },
+    {
+      "id": "AUTO-001",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AUTO-002",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AUTO-003",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AUTO-004",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AUTO-005",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AUTO-006",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AUTO-007",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AUTO-010",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AUTO-011",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AF-T01",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-automation.md"
+    },
+    {
+      "id": "AF-T03",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    },
+    {
+      "id": "AF-T04",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    },
+    {
+      "id": "AF-T05",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    },
+    {
+      "id": "AF-T06",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    },
+    {
+      "id": "AF-T07",
+      "severity": "P2",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    },
+    {
+      "id": "AF-T08",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    },
+    {
+      "id": "AF-T09",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    },
+    {
+      "id": "AF-T10",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    },
+    {
+      "id": "AF-R09",
+      "severity": "P1",
+      "status": "fixed_verified",
+      "report": "fixes-tools.md"
+    }
+  ],
+  "batches": [
+    {
+      "id": "F1",
+      "name": "Git 进程与目标树写互斥",
+      "ids": [
+        "AF-T02",
+        "AF-T11"
+      ],
+      "owner": "git.rs / git/tool.rs → plan/finalize → runner 调度",
+      "test": "5000 路径双管道无挂起；A 操作 B 时与 B writer 互斥；取消释放子进程与租约",
+      "status": "fixed_verified"
+    },
+    {
+      "id": "F2",
+      "name": "持久状态与失败原子性",
+      "ids": [
+        "AUTO-001",
+        "AUTO-002",
+        "AUTO-003",
+        "AUTO-006"
+      ],
+      "owner": "background persistent/registration → processes/lifecycle",
+      "test": "并发注册/退出不丢记录；损坏或写失败不伪成功；单条日志定时落盘；落库失败内存不先提交",
+      "status": "fixed_verified"
+    },
+    {
+      "id": "F3",
+      "name": "会话执行、插话与停止",
+      "ids": [
+        "CONV-AF-01",
+        "CONV-AF-02",
+        "CONV-AF-03",
+        "CONV-AF-04",
+        "CONV-AF-07",
+        "AUTO-007"
+      ],
+      "owner": "session execution owner / coordinator → history actions / team inbox / push",
+      "test": "复用 C7 三个负例并转回归；CLI 与桌面并发历史操作互斥；停止后无旧执行；只确认实际交付的消息",
+      "status": "fixed_verified"
+    },
+    {
+      "id": "F4",
+      "name": "代码版本归属与工作树身份",
+      "ids": [
+        "CONV-AF-05",
+        "CONV-AF-08",
+        "AF-T03",
+        "AF-T04",
+        "AF-T05",
+        "AF-T08"
+      ],
+      "owner": "runner batch → cross_tree → local_validation / symbols",
+      "test": "外部编辑不能被无关 read 认领；合法新增文件收据可匹配；留证失败明确返回；工作树 edition/API 图均来自当前树",
+      "status": "fixed_verified"
+    },
+    {
+      "id": "F5",
+      "name": "浏览器与界面会话归属",
+      "ids": [
+        "AF-T09",
+        "AF-R09",
+        "AF-R01",
+        "AF-R02",
+        "AF-R07"
+      ],
+      "owner": "headless helper / preview pane → chat error / async workspace / composer",
+      "test": "A→B→A 浏览操作、重试、截图各归原会话；面板锁等待换线重新验 owner；旧行不使用新 scope",
+      "status": "fixed_verified"
+    },
+    {
+      "id": "F6",
+      "name": "清理与定时任务精确操作",
+      "ids": [
+        "AF-T01",
+        "AUTO-004",
+        "AUTO-005"
+      ],
+      "owner": "quarantine CLI → schedules definition / hosts",
+      "test": "互斥参数两种顺序都拒绝；仅修改 frontmatter enabled；check 与 check-long cron 各自保留",
+      "status": "fixed_verified"
+    },
+    {
+      "id": "F7",
+      "name": "解析与文件结果完整性",
+      "ids": [
+        "AF-R05",
+        "AF-R10",
+        "AF-T06",
+        "AF-T07",
+        "AF-T10",
+        "CONV-AF-09"
+      ],
+      "owner": "schema / conventions / ASE / grep / webfetch / replay",
+      "test": "外层 JSON 数组完整；路径字面量原样；标准 ASE；multiline count 一致；大 PDF 不以截断文件报成功；增量事件回放",
+      "status": "fixed_verified"
+    },
+    {
+      "id": "F8",
+      "name": "检查结果与状态展示一致性",
+      "ids": [
+        "AF-R04",
+        "AF-R03",
+        "AF-R06",
+        "AF-R08",
+        "AF-R11",
+        "AUTO-010",
+        "AUTO-011"
+      ],
+      "owner": "gate → harvest UI；telemetry / architecture identity → UI；route options / collaboration",
+      "test": "重跑 gate 撤销旧绿色；新版行号；成功正文不产生失败诊断；索引统一身份与可见性；窗口随路由；并行活动按 call id 配对",
+      "status": "fixed_verified"
+    }
+  ],
+  "validation": [
+    {
+      "scope": "shared current source",
+      "command": "cargo test -p kanzei-tools --lib",
+      "result": "821 passed / 0 failed / 3 ignored",
+      "log": "output/audit-first/automation/fix-tools-tests-final.log"
+    },
+    {
+      "scope": "final architecture increment",
+      "command": "cargo test -p kanzei-tools architecture::tests:: --lib",
+      "result": "11 passed / 0 failed",
+      "log": "output/audit-first/root/fix-architecture-final.log"
+    },
+    {
+      "scope": "shared current source",
+      "command": "cargo test -p kanzei-core --lib",
+      "result": "424 passed / 0 failed",
+      "log": "output/audit-first/automation/fix-core-tests.log"
+    },
+    {
+      "scope": "shared source before final preview guard",
+      "command": "cargo test -p kanzei-app --bin kzapp",
+      "result": "624 passed / 0 failed",
+      "log": "output/audit-first/conversation/fix-app-tests.log"
+    },
+    {
+      "scope": "final preview guard increment",
+      "result": "1 passed / 0 failed",
+      "log": "output/audit-first/automation/fix-preview-owner-tests.log"
+    },
+    {
+      "scope": "CLI quarantine",
+      "result": "2 passed / 0 failed",
+      "log": "output/audit-first/automation/fix-cli-tests.log"
+    },
+    {
+      "scope": "shared current source",
+      "command": "cargo check --workspace",
+      "result": "PASS",
+      "log": "output/audit-first/automation/fix-workspace-check-final.log"
+    },
+    {
+      "scope": "only owned fixes over 86db2ccc; unrelated work excluded",
+      "command": "cargo check --workspace",
+      "result": "PASS",
+      "log": "output/audit-first/root/isolated-check.log"
+    },
+    {
+      "scope": "current UI product functions",
+      "command": "node scripts/ui-audit-first-regressions.mjs",
+      "result": "6 cases passed",
+      "log": "output/audit-first/root/fix-ui-results.json"
+    },
+    {
+      "scope": "real Edge",
+      "command": "node scripts/browser-session-smoke.mjs",
+      "result": "PASS; parent/A/B/A/parent and shutdown/reentry"
+    },
+    {
+      "scope": "current Git functions",
+      "result": "both 5000-path fingerprint modes passed",
+      "log": "output/audit-first/root/git-fix/git-hash-evidence.json"
+    },
+    {
+      "scope": "only owned committed source",
+      "command": "node --experimental-vm-modules scripts/ui-runtime-smoke.mjs",
+      "result": "PASS; 90 modules / 3608 invoke / 10 views / 0 runtime errors; includes 6 new regressions",
+      "log": "output/audit-first/root/isolated-ui-runtime.log"
+    },
+    {
+      "scope": "shared source UI lint and layout gate",
+      "command": "node scripts/ui-lint-smoke.mjs",
+      "result": "PASS",
+      "log": "output/audit-first/root/fix-ui-lint-final.log"
+    },
+    {
+      "scope": "UI i18n",
+      "command": "node scripts/ui-i18n-smoke.mjs",
+      "result": "PASS; 2957 keys / 651 HTML / 56 dynamic contracts",
+      "log": "output/audit-first/root/ui-i18n.log"
+    },
+    {
+      "scope": "IPC contract",
+      "command": "node scripts/ipc-event-smoke.mjs",
+      "result": "PASS",
+      "log": "output/audit-first/root/ipc-event.log"
+    },
+    {
+      "scope": "committed source identity",
+      "result": "66 owned paths exactly match verified isolated snapshot; foreign edits excluded"
+    }
+  ],
+  "owned_files": [
+    {
+      "file": "crates/kanzei-core/src/store/inbox.rs",
+      "sha256_lf": "3c5dd314960558c722f522b84e9efcfc770f863093544308570c45abb63c7866"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/typed.rs",
+      "sha256_lf": "95f462a1bed7086396c3bc9098f05b58e728e418dc19468e4740ae90f3be64bf"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/events.rs",
+      "sha256_lf": "41118eb0bba78e9e29424e36d1aba24bdc741bdb4370269dcb5e2424bdf32654"
+    },
+    {
+      "file": "crates/kanzei-core/src/replay.rs",
+      "sha256_lf": "ebf5d7582f9e9f1f0f051e351f0d800afb825ba9744f2828d215e722e665abdf"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/batch.rs",
+      "sha256_lf": "c4eef3ab347639f97ae77898cd7513ae85af1d7056dccd9d4cedf3d25cea5855"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/redundancy.rs",
+      "sha256_lf": "6a0fcb65d5d20b6ed1094eb50bef22c79f9649d2a5381f67d0634ad77a1441c1"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive.rs",
+      "sha256_lf": "7bd17235428f8115d359c48207253aa40ada37587814aa0b27eb455ee6dc48a6"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation.rs",
+      "sha256_lf": "2173577341910adfa0d2356c32e45392b3659dec489572e0bbf48072779ee17b"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_actions.rs",
+      "sha256_lf": "ad00cefcd846306c49be59df4c3464a430158e775b510c03bdb88d5daf258196"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/coordinator.rs",
+      "sha256_lf": "b7b00a965fe8be8857170da14504ad31737b7fcb2d3c86117073e9e1d702b9df"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/mod.rs",
+      "sha256_lf": "88ebf23bfb96c83a1039117724d77bb9c6276b2fedda3666fceb07f5a00d74f5"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/coordinator/steering_tests.rs",
+      "sha256_lf": "a5aeefe5df6c8669157cc9680d183716c41e79ac4767300e1a1d137a6a14809c"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_tests.rs",
+      "sha256_lf": "f40cadc031d8188d65ab52e74c180d94fbc4d5f53f75ec84d9a59a5cccbbb1e6"
+    },
+    {
+      "file": "crates/kanzei/src/cli/eval.rs",
+      "sha256_lf": "d99eeab8ba36a9cae7651a2ca3e4cdbbdc1e7712882c6a163c7ba6cda096b471"
+    },
+    {
+      "file": "crates/kanzei-tools/src/lib.rs",
+      "sha256_lf": "04f72c652bc1335d1387ce6e6776c425fe030380e8c5834d1a7ee9b65477464e"
+    },
+    {
+      "file": "crates/kanzei-harness/src/orchestration.rs",
+      "sha256_lf": "78048d9d2fc6389870913c731009af5f6908d6f019bea264641956ea80c11d9d"
+    },
+    {
+      "file": "crates/kanzei-harness/src/tool.rs",
+      "sha256_lf": "57e82b843ba762ba449b054702641106d938ae2512a7a34bf5809cc67ed922e2"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git.rs",
+      "sha256_lf": "1ee3f5a00d4b904a355499c3d546b9a8175de1f6e470d8f075da2999c769aa8f"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/tool.rs",
+      "sha256_lf": "0b18b07007974f761f907c4f633d9655c05304eccf2e20395d1336e54ffafa1b"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/assembly.rs",
+      "sha256_lf": "7fde6af8eb75b02c80728d03ba555ae0c6e148323aff460fdfa534fd7897f5b0"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run.rs",
+      "sha256_lf": "0c6c6b112bd2751c348e024d0497cd535dd0a552860b11eec58b8f90933baf6c"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background.rs",
+      "sha256_lf": "a3e00a7ed4325b5ad2b23a60d0b51d6472e3b89336fba57bf7a47e5383593e69"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/persistent.rs",
+      "sha256_lf": "c118a0ee44fd1900c959ffe1ccef1e2ebdabca3f82f589f9d1cef0227799eee6"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/registration.rs",
+      "sha256_lf": "2fa6da9c86e374e40db4029bc628a9605b1daad663a207b1f8e2ae50d7892780"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/lifecycle.rs",
+      "sha256_lf": "cde87eb087c4bf26602f723a3227ae49c404301600a7e34219a23eb46da37fe2"
+    },
+    {
+      "file": "crates/kanzei-tools/src/bash.rs",
+      "sha256_lf": "0d6d0025f8601073d6123a1d3fefbf2f9475f5592ea4cee56c0d79f382facacb"
+    },
+    {
+      "file": "crates/kanzei-tools/src/process.rs",
+      "sha256_lf": "b98712eee34ffbe99949d8ed6f3d9a7efb6b52c948473a2bbee33f8e3eb8ec20"
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/mod.rs",
+      "sha256_lf": "5c9a1e4d6f02c44139f6556b0a7b6cb29d5bcecad2fb27825a6c06bc6821088d"
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/hosts.rs",
+      "sha256_lf": "2adff1148af6c8c97b578950334a20eb872ec5125d2925f77dab803304df6db5"
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/tools.rs",
+      "sha256_lf": "0b9e7091e884c2b077393fe3aeca3347f7e1d2d4350538e79c235b3c0701d317"
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/tests.rs",
+      "sha256_lf": "60971776e7b078a923aae16c7a9cf0c6545d1b7d64af960796d03be7e46de815"
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/lifecycle.rs",
+      "sha256_lf": "2d2d55efc3519deedbd4b5894596d2e888aebf4f72a179dbec3ce6cdaa4f0136"
+    },
+    {
+      "file": "crates/kanzei-app/src/collaboration.rs",
+      "sha256_lf": "56f15a6c432c9d9e9bae6542a6da13d26bc1bc758fc86ed95443b078eb779242"
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline.rs",
+      "sha256_lf": "11f40f99c21f42b7a8c6315e25e336faa6521804120f39d766a6acbe24431342"
+    },
+    {
+      "file": "crates/kanzei/src/cli/quarantine.rs",
+      "sha256_lf": "6fbf77061c6c5133d67e68d4023d6087687626eceb4a3f2f2b17414be624ccc7"
+    },
+    {
+      "file": "crates/kanzei-tools/src/cross_tree.rs",
+      "sha256_lf": "4dcc39be90ce92b5676c5043ce64f4ba0fa04090542d14a77b822dfa62298123"
+    },
+    {
+      "file": "crates/kanzei-tools/src/local_validation.rs",
+      "sha256_lf": "3d70ee83edd8ec3a530526865731ac651d08e48e296b213cdc50980d536624b2"
+    },
+    {
+      "file": "crates/kanzei-tools/src/write.rs",
+      "sha256_lf": "5dfe34573b2546ee5c58f77787eb0043af94bcf821aa78ffc873102009ccac3b"
+    },
+    {
+      "file": "crates/kanzei-tools/src/edit.rs",
+      "sha256_lf": "ec265a5537009af0467998b895259f0d83209858e042980ce4c498cf6dee5d0e"
+    },
+    {
+      "file": "crates/kanzei-tools/src/palette.rs",
+      "sha256_lf": "6d2648053d718c799b11c335aa98373eed924d88a51eb51ef2b70fbed3ef639d"
+    },
+    {
+      "file": "crates/kanzei-tools/assets/palettes/fixtures/sample.ase",
+      "sha256_lf": "c469d608e5a0ee4f8cb5e87514328911c4df8c393a2fce0faef436e7e07ca2e7"
+    },
+    {
+      "file": "crates/kanzei-tools/src/grep.rs",
+      "sha256_lf": "caa0cdc2b739c670eaee18c5da7a98c6c9c8822346b8332414df24c13940cf39"
+    },
+    {
+      "file": "crates/kanzei-tools/src/symbols.rs",
+      "sha256_lf": "28285d0eb9f68fcda4bb3cf20dc73de56026140e6771d601be05120838271db5"
+    },
+    {
+      "file": "crates/kanzei-tools/src/webfetch.rs",
+      "sha256_lf": "1be1d07632c8d7f86effb3865f7cf44829ab89e7127ed625f0bec533426de99f"
+    },
+    {
+      "file": "crates/kanzei-tools/src/browser_tool.rs",
+      "sha256_lf": "25036fcdcb2f3afdbe6b65b110b7db28082d63a0f52519759f99e20f615fd801"
+    },
+    {
+      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
+      "sha256_lf": "6ce5e7a8fe56d530839d5bfb9256cd67de7fa7f3ab5e1e91a24dca1be258b027"
+    },
+    {
+      "file": "scripts/browser-helper.mjs",
+      "sha256_lf": "30d4c91b3f25b2fff04c9f7d5fa2d9d9ef1cd348b8f8cbc8f429fb8a5c906b6c"
+    },
+    {
+      "file": "scripts/browser-session-smoke.mjs",
+      "sha256_lf": "4347885af8410d757b1e68669939d1d5f581020b90acdf0c34b2656752b587b0"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent.rs",
+      "sha256_lf": "67041aa41b8f4e942a93adf0ce37bf23b361e0f64ce59b831ffb87572b6294c7"
+    },
+    {
+      "file": "crates/kanzei-app/src/harness_ext.rs",
+      "sha256_lf": "3471277e2d3aec1651b00abe388a299984a1f2a1647d08f13565a5cde352013d"
+    },
+    {
+      "file": "crates/kanzei-app/src/desktop_bridge.rs",
+      "sha256_lf": "07eaf3929f675875c2ebb994208fdf0ab57eebb64c89c74ed7987c9eb4dfa342"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/mod.rs",
+      "sha256_lf": "55ec621b11c81fe5f4553b47c0940cf75b80848cc859a3f1ef651dc143e4cbd1"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/agent.rs",
+      "sha256_lf": "01a837f275cba8d5ae6a438fe65072cfe3454bcc5bb7ce8dcca390266752b629"
+    },
+    {
+      "file": "docs/design/preview_pane.md",
+      "sha256_lf": "92eef0915bcc821242ac00d5bec2778b0ecd1219f0732f19f36fa2bc2cc915e0"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/schema_check.rs",
+      "sha256_lf": "0849e938c0f6caf140b66c227bf659a2295402c39b5f2fe5f707f78047fbc30b"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
+      "sha256_lf": "c88d107ebee72d572627b338ec06a0bb20fc5f6602e46d00f4220272675f6a5f"
+    },
+    {
+      "file": "crates/kanzei-tools/src/conventions.rs",
+      "sha256_lf": "c56758a40177a3671ac41cafa833f28a0d362b83c4b565c6a89caa17bc1e4a4c"
+    },
+    {
+      "file": "crates/kanzei-tools/src/architecture.rs",
+      "sha256_lf": "92370d967be22c4d3324ee1b6708878859d60b5d827dfaab0f938f9e900c770a"
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-chat-render.js",
+      "sha256_lf": "e4645063d01b7014128255ab1fdc38376a7fcf3d915d604361224bd338013f91"
+    },
+    {
+      "file": "crates/kanzei-app/ui/28-async-workspace.js",
+      "sha256_lf": "fe1ba05d23795ce816c6e95c702679df3fcd8ff7700312ee0a1895db31fdb122"
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-activity.js",
+      "sha256_lf": "d0675f54aba116a3257dc61369297eb9c889323648e3ceb227e819dab9a6faa4"
+    },
+    {
+      "file": "crates/kanzei-app/ui/20-lines.js",
+      "sha256_lf": "70a0fca470e5cf6422967eeed662c90ce919aa66722ffb4353bafb5b03532c3b"
+    },
+    {
+      "file": "crates/kanzei-app/ui/24-preview.js",
+      "sha256_lf": "a4e59374fbe967a09e7da6cef47a9c522480e4d361c5994f0a4e5d205ea0f34d"
+    },
+    {
+      "file": "crates/kanzei-app/ui/19-arch.js",
+      "sha256_lf": "70648493d36fbfbe075eeab8233ea8353dcd822b4ac120e6eb20c8199a9159ed"
+    },
+    {
+      "file": "scripts/ui-audit-first-regressions.mjs",
+      "sha256_lf": "6ad73cc8e2f47aeec9e6fed8c4c37a8fa3aad7e1598343a2f80dce59547cdd77"
+    },
+    {
+      "file": "scripts/ui-runtime-smoke.mjs",
+      "sha256_lf": "ee99a10dea0377ab9e17d2e475958cab8585cf62166146e3dcf7dd6a288da7bb"
+    }
+  ],
+  "remaining_risks": [
+    "Windows进程树清理已验证；Linux现有kill_tree未实现子树终止，本轮未运行Linux。",
+    "可见原生WebView的切线操作未额外实机重放，owner/generation切换由确定性状态测试覆盖。",
+    "Git目标树租约复用现有进程内coordinator，跨进程工作树写入不在其保证范围。",
+    "共享checkout另一个用户任务仍在编辑；其需求管理与布局改动单独保留，未计入本轮修复。"
+  ],
+  "commits": [
+    {
+      "group": "execution",
+      "commit": "2b310401b96862b8733c7cf54b6ac455d48a333b",
+      "files": [
+        "crates/kanzei-core/src/store/inbox.rs",
+        "crates/kanzei-core/src/store/typed.rs",
+        "crates/kanzei-core/src/store/events.rs",
+        "crates/kanzei-core/src/replay.rs",
+        "crates/kanzei-core/src/runner/drive/batch.rs",
+        "crates/kanzei-core/src/runner/redundancy.rs",
+        "crates/kanzei-core/src/runner/drive.rs",
+        "crates/kanzei-app/src/conversation.rs",
+        "crates/kanzei-app/src/conversation_actions.rs",
+        "crates/kanzei-app/src/run/coordinator.rs",
+        "crates/kanzei-app/src/run/mod.rs",
+        "crates/kanzei-app/src/run/coordinator/steering_tests.rs",
+        "crates/kanzei-app/src/conversation_tests.rs",
+        "crates/kanzei/src/cli/eval.rs",
+        "crates/kanzei-tools/src/lib.rs",
+        "crates/kanzei-harness/src/orchestration.rs",
+        "crates/kanzei-harness/src/tool.rs",
+        "crates/kanzei-tools/src/git.rs",
+        "crates/kanzei-tools/src/git/tool.rs",
+        "crates/kanzei-app/src/run/assembly.rs",
+        "crates/kanzei/src/cli/run.rs"
+      ]
+    },
+    {
+      "group": "automation",
+      "commit": "16addb99da234e6bf62aa874e2cf8f68e308df2f",
+      "files": [
+        "crates/kanzei-tools/src/background.rs",
+        "crates/kanzei-tools/src/background/persistent.rs",
+        "crates/kanzei-tools/src/background/registration.rs",
+        "crates/kanzei-tools/src/background/lifecycle.rs",
+        "crates/kanzei-tools/src/bash.rs",
+        "crates/kanzei-tools/src/process.rs",
+        "crates/kanzei-tools/src/schedules/mod.rs",
+        "crates/kanzei-tools/src/schedules/hosts.rs",
+        "crates/kanzei-tools/src/team/tools.rs",
+        "crates/kanzei-tools/src/team/tests.rs",
+        "crates/kanzei-app/src/processes/lifecycle.rs",
+        "crates/kanzei-app/src/collaboration.rs",
+        "crates/kanzei-app/src/phase_pipeline.rs",
+        "crates/kanzei/src/cli/quarantine.rs"
+      ]
+    },
+    {
+      "group": "tools",
+      "commit": "813a53050ad5c4caf370c2a004fcbd7f11ebb65a",
+      "files": [
+        "crates/kanzei-tools/src/cross_tree.rs",
+        "crates/kanzei-tools/src/local_validation.rs",
+        "crates/kanzei-tools/src/write.rs",
+        "crates/kanzei-tools/src/edit.rs",
+        "crates/kanzei-tools/src/palette.rs",
+        "crates/kanzei-tools/assets/palettes/fixtures/sample.ase",
+        "crates/kanzei-tools/src/grep.rs",
+        "crates/kanzei-tools/src/symbols.rs",
+        "crates/kanzei-tools/src/webfetch.rs",
+        "crates/kanzei-tools/src/browser_tool.rs",
+        "crates/kanzei-tools/src/browser_tool/headless.rs",
+        "scripts/browser-helper.mjs",
+        "scripts/browser-session-smoke.mjs",
+        "crates/kanzei-core/src/runner/subagent.rs",
+        "crates/kanzei-app/src/harness_ext.rs",
+        "crates/kanzei-app/src/desktop_bridge.rs",
+        "crates/kanzei-app/src/preview/mod.rs",
+        "crates/kanzei-app/src/preview/agent.rs",
+        "docs/design/preview_pane.md",
+        "crates/kanzei-core/src/runner/schema_check.rs",
+        "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
+        "crates/kanzei-tools/src/conventions.rs",
+        "crates/kanzei-tools/src/architecture.rs"
+      ]
+    },
+    {
+      "group": "ui",
+      "commit": "d3a33de6d4ffbc39f7be7fba64bc99e0570ee6c2",
+      "files": [
+        "crates/kanzei-app/ui/05-chat-render.js",
+        "crates/kanzei-app/ui/28-async-workspace.js",
+        "crates/kanzei-app/ui/06-activity.js",
+        "crates/kanzei-app/ui/20-lines.js",
+        "crates/kanzei-app/ui/24-preview.js",
+        "crates/kanzei-app/ui/19-arch.js",
+        "scripts/ui-audit-first-regressions.mjs",
+        "scripts/ui-runtime-smoke.mjs"
+      ]
+    }
+  ],
+  "integration_notes": [
+    "共享checkout完整UI运行时先后被另任务正在调整的overview/spaces断言阻断；没有改弱这些断言。本轮独立提交快照完整UI运行时通过。",
+    "各组报告LF哈希记录当时共享源码；本汇总owned_files哈希精确对应本轮提交，已逐个git show核对。"
+  ]
+}

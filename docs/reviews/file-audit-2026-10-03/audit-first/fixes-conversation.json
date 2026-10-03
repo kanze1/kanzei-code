@@ -1,0 +1,262 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "scope": "CONV-AF-01/02/03/04/05/07/08/09",
+  "committed": true,
+  "fixes": [
+    {
+      "id": "CONV-AF-01",
+      "severity": "P1",
+      "title": "插话原子交付",
+      "change": "新增 typed writer 的 take_pending_steers；同一 Immediate 事务完成整批提升、事实追加、完成回执，提交后才更新内存 invariant 和返回消息。",
+      "files": [
+        "crates/kanzei-core/src/store/inbox.rs",
+        "crates/kanzei-core/src/store/typed.rs",
+        "crates/kanzei-app/src/run/coordinator.rs",
+        "crates/kanzei-app/src/run/coordinator/steering_tests.rs"
+      ],
+      "validation": "C7 第二条事实拒绝、input completion 拒绝：整批零交付、零事实前缀、输入保持 pending。",
+      "status": "fixed",
+      "evidence_log": "output/audit-first/conversation/fix-app-tests.log",
+      "proof": "output/audit-first/conversation/fix-c7-proof-summary.json"
+    },
+    {
+      "id": "CONV-AF-02",
+      "severity": "P1",
+      "title": "当前交付结果与历史诊断分离",
+      "change": "协调器只使用本次 take_pending_steers 的 Result；旧 errors 保留供诊断，不再用它拒绝后续成功交付。",
+      "files": [
+        "crates/kanzei-core/src/store/typed.rs",
+        "crates/kanzei-app/src/run/coordinator.rs",
+        "crates/kanzei-app/src/run/coordinator/steering_tests.rs"
+      ],
+      "validation": "C7 已恢复 draft 拒绝：历史错误仍保留，三条插话正常到达真实 mock provider。",
+      "status": "fixed",
+      "evidence_log": "output/audit-first/conversation/fix-app-tests.log",
+      "proof": "output/audit-first/conversation/fix-c7-proof-summary.json"
+    },
+    {
+      "id": "CONV-AF-03",
+      "severity": "P1",
+      "title": "停止隔离到本轮令牌",
+      "change": "inbox 捕获本轮 halt token；生命周期锁内先检查本轮取消。core 建流边界取消优先，覆盖步首检查之后发生的停止及建流等待。",
+      "files": [
+        "crates/kanzei-core/src/runner/drive.rs",
+        "crates/kanzei-app/src/run/coordinator.rs",
+        "crates/kanzei-app/src/run/coordinator/steering_tests.rs"
+      ],
+      "validation": "C7 StopBeforeTake：旧 slot 清空也不吃新输入；仅1次 provider 请求，新 steer-after-stop 保持 pending。",
+      "status": "fixed",
+      "evidence_log": "output/audit-first/conversation/fix-app-tests.log",
+      "proof": "output/audit-first/conversation/fix-c7-proof-summary.json"
+    },
+    {
+      "id": "CONV-AF-04",
+      "severity": "P1",
+      "title": "历史修改复用执行 owner",
+      "change": "clear、delete、rewind/fork/preview 在状态库+session 上获取已有 session_execution owner，并持有到操作结束。",
+      "files": [
+        "crates/kanzei-app/src/conversation.rs",
+        "crates/kanzei-app/src/conversation_actions.rs",
+        "crates/kanzei-app/src/conversation_tests.rs"
+      ],
+      "validation": "真实 App clear/delete 命令在 runtime 空闲但 owner 已占用时拒绝且零 reset；释放 owner 后 clear 正常。",
+      "status": "fixed",
+      "evidence_log": "output/audit-first/conversation/fix-app-tests.log"
+    },
+    {
+      "id": "CONV-AF-05",
+      "severity": "P1",
+      "title": "批次归属不吸收无关修改",
+      "change": "专用写入路径解析收为单一 helper；observe 只允许本次成功专用写入更新所属内容，其他变化永久失去 owned 标记。",
+      "files": [
+        "crates/kanzei-core/src/runner/drive/batch.rs"
+      ],
+      "validation": "外部修改→无关 read→closing stage/finalize 均拒绝；失败写入造成变化也不能声明归属。",
+      "status": "fixed",
+      "evidence_log": "output/audit-first/conversation/fix-core-tests.log"
+    },
+    {
+      "id": "CONV-AF-07",
+      "severity": "P1",
+      "title": "自动 push 有界且可取消",
+      "change": "60秒上限、禁交互认证、本轮取消、kill_on_drop；独立清理任务持有 child，外层 watchdog abort 也触发进程树清理。复用现有 kill_tree。",
+      "files": [
+        "crates/kanzei-app/src/run/mod.rs",
+        "crates/kanzei-tools/src/lib.rs"
+      ],
+      "validation": "真实 Windows 父/子进程分别验证取消、8秒测试超时、caller abort 后均死亡；本地 remote push 成功回归。",
+      "status": "fixed",
+      "evidence_log": "output/audit-first/conversation/fix-app-tests.log"
+    },
+    {
+      "id": "CONV-AF-08",
+      "severity": "P2",
+      "title": "删除错误的免测建议",
+      "change": "不再将 Git 输出当源码指纹，不再声称全量测试可省；Git 重复提醒只报告输出相同。",
+      "files": [
+        "crates/kanzei-core/src/runner/redundancy.rs"
+      ],
+      "validation": "git status→test→edit→相同 status→test，不出现免测提示。",
+      "status": "fixed",
+      "evidence_log": "output/audit-first/conversation/fix-core-tests.log"
+    },
+    {
+      "id": "CONV-AF-09",
+      "severity": "P2",
+      "title": "按运行恢复增量回放",
+      "change": "新增 replay 查询按 run_id 聚合全部 chunk，limit 按轮数；legacy 无 run_id 独立保留。parser 跳过不相关残缺事件、按 started 顺序配对、去重补写。",
+      "files": [
+        "crates/kanzei-core/src/store/events.rs",
+        "crates/kanzei-core/src/replay.rs",
+        "crates/kanzei/src/cli/eval.rs"
+      ],
+      "validation": "分离 started/completed、补写重复、混入其他 run、limit=1/0、反序 completion、无 kind metadata 回归。",
+      "status": "fixed",
+      "evidence_log": "output/audit-first/conversation/fix-core-tests.log"
+    }
+  ],
+  "files": [
+    {
+      "file": "crates/kanzei-core/src/store/inbox.rs",
+      "responsibility": "输入准入及状态转换",
+      "finding": "CONV-AF-01",
+      "change": "提升原语可参与调用者事务，原 public promote API 保持。",
+      "source_sha256_lf": "3c5dd314960558c722f522b84e9efcfc770f863093544308570c45abb63c7866"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/typed.rs",
+      "responsibility": "typed 事实与内存 invariant 的写入 owner",
+      "finding": "CONV-AF-01",
+      "change": "新增原子插话交付 API；诊断与当前 Result 分离。",
+      "source_sha256_lf": "95f462a1bed7086396c3bc9098f05b58e728e418dc19468e4740ae90f3be64bf"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/events.rs",
+      "responsibility": "事件查询与日志边界",
+      "finding": "CONV-AF-09",
+      "change": "新增分组回放查询；原 raw trace 查询未改。",
+      "source_sha256_lf": "41118eb0bba78e9e29424e36d1aba24bdc741bdb4370269dcb5e2424bdf32654"
+    },
+    {
+      "file": "crates/kanzei-core/src/replay.rs",
+      "responsibility": "将轨迹转成无副作用回放步骤",
+      "finding": "CONV-AF-09",
+      "change": "按 started 顺序恢复并容忍无关缺字段事件，去重补写。",
+      "source_sha256_lf": "ebf5d7582f9e9f1f0f051e351f0d800afb825ba9744f2828d215e722e665abdf"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/batch.rs",
+      "responsibility": "实现批次的文件归属与交付窗口",
+      "finding": "CONV-AF-05",
+      "change": "跟踪本次成功写入集合，其他内容变化撤销归属。",
+      "source_sha256_lf": "c4eef3ab347639f97ae77898cd7513ae85af1d7056dccd9d4cedf3d25cea5855"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/redundancy.rs",
+      "responsibility": "工具结果重复行为提示",
+      "finding": "CONV-AF-08",
+      "change": "删除无法成立的测试可省提示。",
+      "source_sha256_lf": "6a0fcb65d5d20b6ed1094eb50bef22c79f9649d2a5381f67d0634ad77a1441c1"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive.rs",
+      "responsibility": "runner 步进及 provider 请求边界",
+      "finding": "CONV-AF-03",
+      "change": "建流与重试等待响应取消，已取消时 provider future 不先被轮询。",
+      "source_sha256_lf": "7bd17235428f8115d359c48207253aa40ada37587814aa0b27eb455ee6dc48a6"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation.rs",
+      "responsibility": "清空与删除对话历史的桌面入口",
+      "finding": "CONV-AF-04",
+      "change": "新增跨进程 session owner 护栏。",
+      "source_sha256_lf": "2173577341910adfa0d2356c32e45392b3659dec489572e0bbf48072779ee17b"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_actions.rs",
+      "responsibility": "回溯、代码恢复与分叉入口",
+      "finding": "CONV-AF-04",
+      "change": "同一会话 owner 覆盖预览、计划验证与修改全程。",
+      "source_sha256_lf": "ad00cefcd846306c49be59df4c3464a430158e775b510c03bdb88d5daf258196"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/coordinator.rs",
+      "responsibility": "运行装配、插话投递与收尾协调",
+      "finding": "CONV-AF-01",
+      "change": "复用原子交付 API 和本轮令牌，不扫描历史 errors 判断当前结果。",
+      "source_sha256_lf": "b7b00a965fe8be8857170da14504ad31737b7fcb2d3c86117073e9e1d702b9df"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/mod.rs",
+      "responsibility": "运行公用入口与自动 push",
+      "finding": "CONV-AF-07",
+      "change": "有界 push 生命周期与真实 Windows 子树回归。",
+      "source_sha256_lf": "88ebf23bfb96c83a1039117724d77bb9c6276b2fedda3666fceb07f5a00d74f5"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/coordinator/steering_tests.rs",
+      "responsibility": "C7 真实 runner/provider/SQLite 故障注入回归",
+      "finding": "CONV-AF-01",
+      "change": "迁入已有五个 C7 正向合同断言，仅适配新 inbox helper。",
+      "source_sha256_lf": "a5aeefe5df6c8669157cc9680d183716c41e79ac4767300e1a1d137a6a14809c"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_tests.rs",
+      "responsibility": "历史入口回归",
+      "finding": "CONV-AF-04",
+      "change": "补 runtime 空闲但跨进程 owner 占用的拒绝与释放测试。",
+      "source_sha256_lf": "f40cadc031d8188d65ab52e74c180d94fbc4d5f53f75ec84d9a59a5cccbbb1e6"
+    },
+    {
+      "file": "crates/kanzei/src/cli/eval.rs",
+      "responsibility": "历史工具轨迹评估入口",
+      "finding": "CONV-AF-09",
+      "change": "消费按轮聚合后的 trace。",
+      "source_sha256_lf": "d99eeab8ba36a9cae7651a2ca3e4cdbbdc1e7712882c6a163c7ba6cda096b471"
+    },
+    {
+      "file": "crates/kanzei-tools/src/lib.rs",
+      "responsibility": "工具 crate 公共导出",
+      "finding": "CONV-AF-07",
+      "change": "仅再导出既有 kill_tree，未复制进程终止原语。",
+      "source_sha256_lf": "04f72c652bc1335d1387ce6e6776c425fe030380e8c5834d1a7ee9b65477464e"
+    }
+  ],
+  "validation": {
+    "core": "424 passed; 0 failed; 0 ignored (final shared source, automation rerun)",
+    "app": "624 passed; 0 failed; 0 ignored; includes C7 five cases and three Windows process-tree lifetime tests",
+    "logs": [
+      "output/audit-first/conversation/fix-core-tests.log",
+      "output/audit-first/conversation/fix-app-tests.log",
+      "output/audit-first/conversation/fix-c7-proof.log",
+      "output/audit-first/conversation/fix-c7-proof-summary.json",
+      "output/audit-first/automation/fix-core-tests.log",
+      "output/audit-first/automation/fix-cli-tests.log",
+      "output/audit-first/conversation/fix-format.log"
+    ],
+    "c7": "5 passed; 0 failed; direct current test binary rerun with --nocapture",
+    "cli": "CLI test target compiled; quarantine 2 passed (automation); eval caller included in compilation",
+    "format": "rustfmt --check on own changed Rust files and git diff --check passed"
+  },
+  "remaining": [
+    "Windows 真实进程树已验证；Linux 现有 kill_tree 尚未实现子树终止，本轮未验证 Linux。"
+  ],
+  "commits": [
+    {
+      "group": "execution",
+      "commit": "2b310401b96862b8733c7cf54b6ac455d48a333b"
+    },
+    {
+      "group": "automation",
+      "commit": "16addb99da234e6bf62aa874e2cf8f68e308df2f"
+    },
+    {
+      "group": "tools",
+      "commit": "813a53050ad5c4caf370c2a004fcbd7f11ebb65a"
+    },
+    {
+      "group": "ui",
+      "commit": "d3a33de6d4ffbc39f7be7fba64bc99e0570ee6c2"
+    }
+  ]
+}

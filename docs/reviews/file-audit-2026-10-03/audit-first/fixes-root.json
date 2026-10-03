@@ -1,0 +1,329 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "scope": "12 root-owned confirmed findings",
+  "committed": true,
+  "findings": [
+    {
+      "id": "AF-T02",
+      "severity": "P0",
+      "title": "crates/kanzei-tools/src/git.rs",
+      "trigger": "stage/commit_plan/finalize/test_record 对约 5000 个源文件计算 endorsement fingerprint。",
+      "impact": "父进程写满 git stdin，git 写满 stdout；父进程等写完才 wait_with_output 排空 stdout，形成永久相互等待，命令无法完成。",
+      "change": "同一 Git 子进程并行供 stdin 与排空 stdout/stderr，等待写线程并收割子进程，错误向上传递。",
+      "validation": "5000源码路径两条公开指纹路径均结束且一致；缺失文件返回错误。",
+      "files": [
+        "crates/kanzei-tools/src/git.rs"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-T11",
+      "severity": "P0",
+      "title": "crates/kanzei-tools/src/git/tool.rs",
+      "trigger": "A 线调用 git merge_ff，into 分支当前被另一个活跃工作树 B checkout；B 仍在运行内部 write/edit 或 Git 工具。",
+      "impact": "工具声明的排他范围是 A 的 ctx.cwd，但 merge_ff 实际改 B 的 HEAD、index 和文件；A/B 两个内部 run 可同时写 B，绕过一树一写者语义。",
+      "change": "在源树固定 source OID；跨树 merge 获取实际目标树 writer 租约，忙时撤销 waiter 返回错误；持租约重查分支并完成 merge。",
+      "validation": "目标忙时无变化、无遗留 waiter；释放后从源 HEAD 正确合并；分叉失败释放目标租约。",
+      "files": [
+        "crates/kanzei-harness/src/orchestration.rs",
+        "crates/kanzei-harness/src/tool.rs",
+        "crates/kanzei-tools/src/git.rs",
+        "crates/kanzei-tools/src/git/tool.rs",
+        "crates/kanzei-app/src/run/assembly.rs",
+        "crates/kanzei/src/cli/run.rs"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R01",
+      "severity": "P1",
+      "title": "错误卡重试读取当前全局 lastRequest",
+      "trigger": "A 对话失败后，在 B 发送另一条请求，再回 A 点原错误卡重试。",
+      "impact": "把 B 的提示和附件发进 A，重试不再对应失败请求。",
+      "change": "错误卡捕获原请求、附件与会话，重试使用该快照并验证当前会话。",
+      "validation": "A请求失败后全局lastRequest切到B，重试仍发A；当前B拒绝旧卡执行。",
+      "files": [
+        "crates/kanzei-app/ui/05-chat-render.js"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R02",
+      "severity": "P2",
+      "title": "异步工作台旧行使用新 scope",
+      "trigger": "从 A 打开到 B，B 列表尚未返回时点击仍显示的 A 终端操作。",
+      "impact": "请求携带 B 项目/会话和 A 终端 ID，合法操作被后端归属校验拒绝；未证明误停别的进程。",
+      "change": "换scope立即清旧内容；行操作闭包捕获原scope；迟到结果仅更新仍匹配的界面。",
+      "validation": "旧A日志行在切B后仍提交A，不会改B数据。",
+      "files": [
+        "crates/kanzei-app/ui/28-async-workspace.js"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R03",
+      "severity": "P2",
+      "title": "分栏 diff 右侧上下文行号取旧版本",
+      "trigger": "插入/删除后，同一上下文行 old_line=10、new_line=12，切换为分栏显示。",
+      "impact": "右列仍显示 10，用户按错误行号定位新代码。",
+      "change": "分栏diff按左右pane分别选old_line/new_line。",
+      "validation": "上下文行旧2/新5时，右栏显示5。",
+      "files": [
+        "crates/kanzei-app/ui/06-activity.js"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R04",
+      "severity": "P1",
+      "title": "重新检查失败沿用旧的合并通过状态",
+      "trigger": "工作树检查先成功，再点击重新检查；第二次调用失败/抛异常后点击合并。",
+      "impact": "仍走旧绿色状态，无失败检查确认就调用 worktree_merge；检查运行中也未撤销旧结果。",
+      "change": "重跑检查先清旧通过状态；运行时禁用合并，合并处理器也拒绝执行；失败不保留绿色结论。",
+      "validation": "旧成功后开始重跑：按钮禁用，直接调用也无法绕过；检查失败后不能合并。",
+      "files": [
+        "crates/kanzei-app/ui/20-lines.js"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R05",
+      "severity": "P1",
+      "title": "JSON 提取优先内层对象而非外层数组",
+      "trigger": "子代理输出 Results: [{\"ok\":true},{\"ok\":false}]，期望 schema 为 array。",
+      "impact": "提取为首个 object，合法数组被打回；object schema 还可能错误接受丢失其余数据的子对象。",
+      "change": "按正文顺序扫描顶层JSON对象或数组，跳过非JSON平衡前缀；不把外层数组缩成内部对象。",
+      "validation": "对象数组、嵌套数组、字符串内括号、[note]前缀回归；core全量。",
+      "files": [
+        "crates/kanzei-core/src/runner/schema_check.rs"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R06",
+      "severity": "P2",
+      "title": "成功工具正文含 required 仍留下错误的缺参数诊断",
+      "trigger": "read 成功读取普通英文或 schema 内容，其中出现 required。",
+      "impact": "诊断 events 仍写入 missing_parameter，产生错误诊断记录。另一任务本轮已修改计数：success 不再增加 failure_count，原关闭失败率污染影响已缓解，不能继续算作当前影响。",
+      "change": "保留空搜索诊断；其他文本诊断只分析错误结果，成功文件正文不被解释为失败。",
+      "validation": "成功正文含required/path not found/permission denied无误报；真实错误与空搜索仍被识别。",
+      "files": [
+        "crates/kanzei-core/src/runner/tool_failure_telemetry.rs"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R07",
+      "severity": "P1",
+      "title": "异步截图进入后来切换的对话附件",
+      "trigger": "A 点击截图放进输入框，截图返回前切换到 B。",
+      "impact": "A 截图追加到 B 的附件数组；与普通 FileReader 已有的 target 身份守卫不一致。",
+      "change": "截图捕获时记录附件容器身份，完成时身份变化则丢弃迟到截图及错误提示。",
+      "validation": "A截图等待中切到B不会给B加附件；当前会话截图仍成功。",
+      "files": [
+        "crates/kanzei-app/ui/24-preview.js"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R08",
+      "severity": "P2",
+      "title": "合法架构索引链接被隐藏",
+      "trigger": "索引使用普通 [example.md](../../../docs/design/example.md)，不把标签包在反引号中。",
+      "impact": "解析器标记已入索引，却不加入分组，未入册兜底也排除，文档从树里消失。",
+      "change": "索引统计与渲染复用相同链接正则；支持反引号标签和无标题平铺索引。",
+      "validation": "平铺索引及带反引号链接均显示。",
+      "files": [
+        "crates/kanzei-app/ui/19-arch.js"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R10",
+      "severity": "P1",
+      "title": "已解码 JSON 字符串被再次解码转义",
+      "trigger": "规范 patch 替换内容含 Windows 路径 C:\\new\\rules 或字面量 \\n。",
+      "impact": "路径中的 \\n、\\r 被改成换行，实际保存内容错误；旧文本也可能无法匹配而拒绝合法 patch。",
+      "change": "移除serde解码后的第二次转义处理，保留用户JSON字符串里的字面反斜线。",
+      "validation": "通过真实tool/CAS修改Windows路径与反斜线n，实际存储内容完全匹配。",
+      "files": [
+        "crates/kanzei-tools/src/conventions.rs"
+      ],
+      "status": "fixed_verified"
+    },
+    {
+      "id": "AF-R11",
+      "severity": "P2",
+      "title": "同一索引目标的点段别名逃过重复检查",
+      "trigger": "同一 example.md 分别以 ../../../docs/design/example.md 和 ../../../docs/design/./example.md 入索引。",
+      "impact": "校验显示零问题，允许同一实体重复入册；compliant 却归一为一份，内部身份口径不一致。",
+      "change": "重复索引、合规保留与目录归属使用同一project_rel身份；命名检查保留原始大小写。",
+      "validation": "重复别名拒绝；docs/./design等价更新真实CAS成功；原有BadName命名拒绝保留。11项架构测试通过。",
+      "files": [
+        "crates/kanzei-tools/src/architecture.rs"
+      ],
+      "status": "fixed_verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "crates/kanzei-tools/src/git.rs",
+      "findings": [
+        "AF-T02",
+        "AF-T11"
+      ],
+      "source_sha256_lf": "1ee3f5a00d4b904a355499c3d546b9a8175de1f6e470d8f075da2999c769aa8f"
+    },
+    {
+      "file": "crates/kanzei-harness/src/orchestration.rs",
+      "findings": [
+        "AF-T11"
+      ],
+      "source_sha256_lf": "78048d9d2fc6389870913c731009af5f6908d6f019bea264641956ea80c11d9d"
+    },
+    {
+      "file": "crates/kanzei-harness/src/tool.rs",
+      "findings": [
+        "AF-T11"
+      ],
+      "source_sha256_lf": "41d6e966ebcedd38005a112f0cf61735edcc7697b3a446fad6502714d537b3a4"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/tool.rs",
+      "findings": [
+        "AF-T11"
+      ],
+      "source_sha256_lf": "0b18b07007974f761f907c4f633d9655c05304eccf2e20395d1336e54ffafa1b"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/assembly.rs",
+      "findings": [
+        "AF-T11"
+      ],
+      "source_sha256_lf": "7fde6af8eb75b02c80728d03ba555ae0c6e148323aff460fdfa534fd7897f5b0"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run.rs",
+      "findings": [
+        "AF-T11"
+      ],
+      "source_sha256_lf": "0c6c6b112bd2751c348e024d0497cd535dd0a552860b11eec58b8f90933baf6c"
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-chat-render.js",
+      "findings": [
+        "AF-R01"
+      ],
+      "source_sha256_lf": "c2a7aebde930137f7b203779b7593d4ef29195708c39f2f40852719bac3e7274"
+    },
+    {
+      "file": "crates/kanzei-app/ui/28-async-workspace.js",
+      "findings": [
+        "AF-R02"
+      ],
+      "source_sha256_lf": "fe1ba05d23795ce816c6e95c702679df3fcd8ff7700312ee0a1895db31fdb122"
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-activity.js",
+      "findings": [
+        "AF-R03"
+      ],
+      "source_sha256_lf": "5b83aa12cd263475acb5d7e9d41f89888506e1119071340e504136670117425b"
+    },
+    {
+      "file": "crates/kanzei-app/ui/20-lines.js",
+      "findings": [
+        "AF-R04"
+      ],
+      "source_sha256_lf": "70a0fca470e5cf6422967eeed662c90ce919aa66722ffb4353bafb5b03532c3b"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/schema_check.rs",
+      "findings": [
+        "AF-R05"
+      ],
+      "source_sha256_lf": "0849e938c0f6caf140b66c227bf659a2295402c39b5f2fe5f707f78047fbc30b"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
+      "findings": [
+        "AF-R06"
+      ],
+      "source_sha256_lf": "f9be7069234ce4d9b20559a8d5445abf9b3718caf167d602c9896297bd8f94f9"
+    },
+    {
+      "file": "crates/kanzei-app/ui/24-preview.js",
+      "findings": [
+        "AF-R07"
+      ],
+      "source_sha256_lf": "a4e59374fbe967a09e7da6cef47a9c522480e4d361c5994f0a4e5d205ea0f34d"
+    },
+    {
+      "file": "crates/kanzei-app/ui/19-arch.js",
+      "findings": [
+        "AF-R08"
+      ],
+      "source_sha256_lf": "70648493d36fbfbe075eeab8233ea8353dcd822b4ac120e6eb20c8199a9159ed"
+    },
+    {
+      "file": "crates/kanzei-tools/src/conventions.rs",
+      "findings": [
+        "AF-R10"
+      ],
+      "source_sha256_lf": "c56758a40177a3671ac41cafa833f28a0d362b83c4b565c6a89caa17bc1e4a4c"
+    },
+    {
+      "file": "crates/kanzei-tools/src/architecture.rs",
+      "findings": [
+        "AF-R11"
+      ],
+      "source_sha256_lf": "92370d967be22c4d3324ee1b6708878859d60b5d827dfaab0f938f9e900c770a"
+    }
+  ],
+  "product_files": [
+    "crates/kanzei-tools/src/git.rs",
+    "crates/kanzei-harness/src/orchestration.rs",
+    "crates/kanzei-harness/src/tool.rs",
+    "crates/kanzei-tools/src/git/tool.rs",
+    "crates/kanzei-app/src/run/assembly.rs",
+    "crates/kanzei/src/cli/run.rs",
+    "crates/kanzei-app/ui/05-chat-render.js",
+    "crates/kanzei-app/ui/28-async-workspace.js",
+    "crates/kanzei-app/ui/06-activity.js",
+    "crates/kanzei-app/ui/20-lines.js",
+    "crates/kanzei-core/src/runner/schema_check.rs",
+    "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
+    "crates/kanzei-app/ui/24-preview.js",
+    "crates/kanzei-app/ui/19-arch.js",
+    "crates/kanzei-tools/src/conventions.rs",
+    "crates/kanzei-tools/src/architecture.rs"
+  ],
+  "validation": {
+    "core": "424 passed / 0 failed",
+    "tools": "821 passed / 0 failed / 3 ignored; final architecture increment 11 passed",
+    "ui": "6 targeted cases passed; isolated committed-source full runtime gate passed; shared UI lint/i18n/IPC passed",
+    "git_probe": "5000 paths in both current-source fingerprint paths completed within bounded timeout"
+  },
+  "boundaries": [
+    "目标树互斥复用应用既有进程内 coordinator；没有新增跨进程工作树互斥机制。",
+    "共享文件里另任务的 workflow outcome 和 tracker 改动保留但不归本修复提交。"
+  ],
+  "commits": [
+    {
+      "group": "execution",
+      "commit": "2b310401b96862b8733c7cf54b6ac455d48a333b"
+    },
+    {
+      "group": "automation",
+      "commit": "16addb99da234e6bf62aa874e2cf8f68e308df2f"
+    },
+    {
+      "group": "tools",
+      "commit": "813a53050ad5c4caf370c2a004fcbd7f11ebb65a"
+    },
+    {
+      "group": "ui",
+      "commit": "d3a33de6d4ffbc39f7be7fba64bc99e0570ee6c2"
+    }
+  ]
+}

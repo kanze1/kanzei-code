@@ -94,11 +94,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "7f93ae4007bf5b8b7aa40c2d07db476ed07839c0bbece9449b8f53cf53e422da"
+        "source_sha256_lf": "7f93ae4007bf5b8b7aa40c2d07db476ed07839c0bbece9449b8f53cf53e422da",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -137,11 +138,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "75dbce21c9d425651c2429d0691a6520efc4e9723bf460de5b6f61322f2f3d32"
+        "source_sha256_lf": "75dbce21c9d425651c2429d0691a6520efc4e9723bf460de5b6f61322f2f3d32",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -152,13 +154,14 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AUTO-011"
         ],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "bde5f3af5d26d1db4bc9bcacc94b877c77f20e02be72059b4781c349d8db0689"
+        "source_sha256_lf": "bde5f3af5d26d1db4bc9bcacc94b877c77f20e02be72059b4781c349d8db0689",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -169,11 +172,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "e0f3876c819b7568afa4232f2442f152b23ace1518812fed1b8dc4cd97491450"
+        "source_sha256_lf": "e0f3876c819b7568afa4232f2442f152b23ace1518812fed1b8dc4cd97491450",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -184,11 +188,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "5a10a1c7f1fc0cef8227728d3735cebf5bb967e31da57d0c592a147151a4a4e8"
+        "source_sha256_lf": "5a10a1c7f1fc0cef8227728d3735cebf5bb967e31da57d0c592a147151a4a4e8",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -199,11 +204,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "80545b9ae20c53f866ff8ab57d61322812807bd94707da4793ac4a61c9a85794"
+        "source_sha256_lf": "80545b9ae20c53f866ff8ab57d61322812807bd94707da4793ac4a61c9a85794",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -214,11 +220,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "6338cfae953ff748d3965fd3fc93fa04833834bad0574a1112df207296a6d8d4"
+        "source_sha256_lf": "6338cfae953ff748d3965fd3fc93fa04833834bad0574a1112df207296a6d8d4",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -236,11 +243,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "d03ab5f256fe509e190e3076c9aac2c3ef5cc2fd7ec292edf20ec62b34a07873"
+        "source_sha256_lf": "d03ab5f256fe509e190e3076c9aac2c3ef5cc2fd7ec292edf20ec62b34a07873",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -251,11 +259,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "2e87ac841580f256c391546aee42cd28eb6a51bf4ab2ccb4635abb8de61800d6"
+        "source_sha256_lf": "2e87ac841580f256c391546aee42cd28eb6a51bf4ab2ccb4635abb8de61800d6",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -266,13 +275,14 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "CONV-AF-04"
         ],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "66f47285c421fdf476894402330a5d41580fbcdb31fe1ef3ec5589d28834321b"
+        "source_sha256_lf": "66f47285c421fdf476894402330a5d41580fbcdb31fe1ef3ec5589d28834321b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -283,11 +293,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "71d50d2c37626c2b1f5a25dfb26accc62ad67d268bd30aefd6797f4a51eae392"
+        "source_sha256_lf": "71d50d2c37626c2b1f5a25dfb26accc62ad67d268bd30aefd6797f4a51eae392",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -298,13 +309,14 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "CONV-AF-04"
         ],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "d30b356e9e9166cb31a06ac8599050cc58297b756cf3953c998424bf9dfab54a"
+        "source_sha256_lf": "d30b356e9e9166cb31a06ac8599050cc58297b756cf3953c998424bf9dfab54a",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -315,11 +327,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "188bc20240e30710db6929536477abf2b86bbfece99fb4e2ac129fd3edf2b25c"
+        "source_sha256_lf": "188bc20240e30710db6929536477abf2b86bbfece99fb4e2ac129fd3edf2b25c",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -358,11 +371,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "703a968ea429988b67149138a664b8db3e2891da3f2a4055e769550f8552457c"
+        "source_sha256_lf": "703a968ea429988b67149138a664b8db3e2891da3f2a4055e769550f8552457c",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -373,11 +387,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "a318d750005e803bc107b210608f7c1d6e4df8411120d73642e122861a6f39c7"
+        "source_sha256_lf": "a318d750005e803bc107b210608f7c1d6e4df8411120d73642e122861a6f39c7",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -388,11 +403,12 @@
       "reason": "前端DOM/console/style实际验证工具；业务快速记录部分只复核接口",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "0352865e7a75ae99e8c478b7afa6de1eac58b2dbec298a5754d962b5f7bf41ba"
+        "source_sha256_lf": "0352865e7a75ae99e8c478b7afa6de1eac58b2dbec298a5754d962b5f7bf41ba",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -417,11 +433,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "785a767bf1e905b21227c18821cf707e007438e78765d3974ec72a5dcbe95e0f"
+        "source_sha256_lf": "785a767bf1e905b21227c18821cf707e007438e78765d3974ec72a5dcbe95e0f",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -432,11 +449,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "9341b8b5d02ac1b702663a4273cc00bb4923fe34d899a7856d68553c4d6b29e5"
+        "source_sha256_lf": "9341b8b5d02ac1b702663a4273cc00bb4923fe34d899a7856d68553c4d6b29e5",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -447,11 +465,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "36b47ab32857800f4003b184a7bad26de138cbe76bcaed57647954564b7e3df5"
+        "source_sha256_lf": "36b47ab32857800f4003b184a7bad26de138cbe76bcaed57647954564b7e3df5",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -462,13 +481,14 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AUTO-010"
         ],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "7832cba93dcd22bb7df234ecdf3a55d9b9f91f07dab0887d7cde337e0fd57242"
+        "source_sha256_lf": "7832cba93dcd22bb7df234ecdf3a55d9b9f91f07dab0887d7cde337e0fd57242",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -479,11 +499,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "01a36feb749012aa0d2868ebb8d943ac6fee8cced653dd2ddd265896fd52e87d"
+        "source_sha256_lf": "01a36feb749012aa0d2868ebb8d943ac6fee8cced653dd2ddd265896fd52e87d",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -501,13 +522,14 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-R09"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "666a37fd770f546bc908efa6300d5be7ab08f0c78427db71c8d755613460902a"
+        "source_sha256_lf": "666a37fd770f546bc908efa6300d5be7ab08f0c78427db71c8d755613460902a",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -518,11 +540,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "1d0054be22ca78d684038265a8bc8a00cd516c4a72b7e6d3f4c6e722aae0a9f4"
+        "source_sha256_lf": "1d0054be22ca78d684038265a8bc8a00cd516c4a72b7e6d3f4c6e722aae0a9f4",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -533,11 +556,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "610b9b99af293df1edc693235f4c2fa7ad6c9eebd6ae6dfaf7b74c98f2381e40"
+        "source_sha256_lf": "610b9b99af293df1edc693235f4c2fa7ad6c9eebd6ae6dfaf7b74c98f2381e40",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -548,11 +572,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "115f2363d613ac5fad768583ccec89ebee8eaf658654a0cfab48f98457b7a970"
+        "source_sha256_lf": "115f2363d613ac5fad768583ccec89ebee8eaf658654a0cfab48f98457b7a970",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -563,11 +588,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "7d73a4a631b809c0659a7a5f01cecef81cdae73ece05a8e1d8f20aae02d10a29"
+        "source_sha256_lf": "7d73a4a631b809c0659a7a5f01cecef81cdae73ece05a8e1d8f20aae02d10a29",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -578,11 +604,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "2bb77049e3b51adb440034fb657554df741509b05ea2d406c4f4dbfc657d5432"
+        "source_sha256_lf": "2bb77049e3b51adb440034fb657554df741509b05ea2d406c4f4dbfc657d5432",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -593,11 +620,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "9b6f8e1639317ed549f9cbaedf1e0ad617115a0f9c6ff6aa10d8ed23dc2a64af"
+        "source_sha256_lf": "9b6f8e1639317ed549f9cbaedf1e0ad617115a0f9c6ff6aa10d8ed23dc2a64af",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -608,11 +636,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "3889b970920e3f1b8c72a214d61d494ebc971d17c10bfe41c64601358d795fc4"
+        "source_sha256_lf": "3889b970920e3f1b8c72a214d61d494ebc971d17c10bfe41c64601358d795fc4",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -623,11 +652,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "bd1876fc6bb15105dd09fa9401829da3c26615dd064b7d9621e6d69a6c0fb8df"
+        "source_sha256_lf": "bd1876fc6bb15105dd09fa9401829da3c26615dd064b7d9621e6d69a6c0fb8df",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -638,11 +668,12 @@
       "reason": "远端新增对话身份生命周期回归；并入进程生命周期审查包，未增加全文完成数",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "cf3cf5c8f5fef9134187e862f033be36279fb42bbb68b77c1f70446dcf70ddeb"
+        "source_sha256_lf": "cf3cf5c8f5fef9134187e862f033be36279fb42bbb68b77c1f70446dcf70ddeb",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -653,11 +684,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "707300c408033e170e85ad99f690e8a0855470c056fc0a15dbeb4dba50cad3e2"
+        "source_sha256_lf": "707300c408033e170e85ad99f690e8a0855470c056fc0a15dbeb4dba50cad3e2",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -668,13 +700,14 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AUTO-006"
         ],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "4302c2beb15dea46f7f35760f7e362701c53a1dc9672073e57e63d507997134d"
+        "source_sha256_lf": "4302c2beb15dea46f7f35760f7e362701c53a1dc9672073e57e63d507997134d",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -685,11 +718,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "e4ce9bcff73845f1086109039d67ff035046caf44e115d9ae01e11a3399a694b"
+        "source_sha256_lf": "e4ce9bcff73845f1086109039d67ff035046caf44e115d9ae01e11a3399a694b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -700,11 +734,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "8cd9b98701fc518412bd4b1d9e9c4334962530734289470d07b699ee3badcd9b"
+        "source_sha256_lf": "8cd9b98701fc518412bd4b1d9e9c4334962530734289470d07b699ee3badcd9b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -715,11 +750,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "da5d12b72413241e241bb74cbc574112dc13757ec92fab950dc841b1e3992155"
+        "source_sha256_lf": "da5d12b72413241e241bb74cbc574112dc13757ec92fab950dc841b1e3992155",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -730,11 +766,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "bb3c7986db8032b0eefeda1489438fcb4afe104ddf4af1576ab5485bebaef481"
+        "source_sha256_lf": "bb3c7986db8032b0eefeda1489438fcb4afe104ddf4af1576ab5485bebaef481",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -745,11 +782,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "beca30b106c95fe765138e6cdfeee6a9e192666de43148dad9be01b96004b29b"
+        "source_sha256_lf": "beca30b106c95fe765138e6cdfeee6a9e192666de43148dad9be01b96004b29b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -774,11 +812,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "41a0f2751a6e9691800bd23a34dc97f9d9cf8881f18b08db204af65f0faf918b"
+        "source_sha256_lf": "41a0f2751a6e9691800bd23a34dc97f9d9cf8881f18b08db204af65f0faf918b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -789,11 +828,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "ebbc20aa5cc6a3c24bebed60aabc218f646409fbc77e407c2eb99cec1a50bccd"
+        "source_sha256_lf": "ebbc20aa5cc6a3c24bebed60aabc218f646409fbc77e407c2eb99cec1a50bccd",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -804,7 +844,7 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "CONV-AF-01",
@@ -812,7 +852,8 @@
           "CONV-AF-03"
         ],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "b707e0ed8ad45c07b269c5e51f8a8aa9639445156f6ade2b2bd26ddef1a3c993"
+        "source_sha256_lf": "b707e0ed8ad45c07b269c5e51f8a8aa9639445156f6ade2b2bd26ddef1a3c993",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -823,11 +864,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "4446fcd1bcf614fb66366669b8a5e224316c505723fce79ae63b4edad6b8d937"
+        "source_sha256_lf": "4446fcd1bcf614fb66366669b8a5e224316c505723fce79ae63b4edad6b8d937",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -838,11 +880,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "ecd9c4116ff3ba7f9f334fbf47b0c3cc30e20b89424f61b8b9742d30b1b33534"
+        "source_sha256_lf": "ecd9c4116ff3ba7f9f334fbf47b0c3cc30e20b89424f61b8b9742d30b1b33534",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -860,13 +903,14 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "CONV-AF-07"
         ],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "366e82f818240ff0f77020ea5f31c26e370864846faee5c181f1df1f3c1e6000"
+        "source_sha256_lf": "366e82f818240ff0f77020ea5f31c26e370864846faee5c181f1df1f3c1e6000",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -912,11 +956,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "ad9a3dce06f1e517295626632945ceb65afe3c676c3513f4b72c864b21b8a697"
+        "source_sha256_lf": "ad9a3dce06f1e517295626632945ceb65afe3c676c3513f4b72c864b21b8a697",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -927,11 +972,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "0894b80da74e6e4986e7b947bd6726db5a1fe39e177b9a199221579015c5e76e"
+        "source_sha256_lf": "0894b80da74e6e4986e7b947bd6726db5a1fe39e177b9a199221579015c5e76e",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -956,11 +1002,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "36630aba447d7a099626326c01cc8edbc1a8f63e752e0c5c7ba9e6a8b17ccf96"
+        "source_sha256_lf": "36630aba447d7a099626326c01cc8edbc1a8f63e752e0c5c7ba9e6a8b17ccf96",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -971,11 +1018,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "3e343931059d07a4c5d665c453f18a9382f27668b35c263441c0612556ad21e7"
+        "source_sha256_lf": "3e343931059d07a4c5d665c453f18a9382f27668b35c263441c0612556ad21e7",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -986,11 +1034,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "40bb5000227e13aaae0b1ecbe5670095fdf86c74a69b85b24834c2e77963be92"
+        "source_sha256_lf": "40bb5000227e13aaae0b1ecbe5670095fdf86c74a69b85b24834c2e77963be92",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1001,11 +1050,12 @@
       "reason": "线路、团队、子代理、后台和定时任务编排",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "d7a44db685036749a2e4809b6589d5ae25570d072076f611cf978600406d0d98"
+        "source_sha256_lf": "d7a44db685036749a2e4809b6589d5ae25570d072076f611cf978600406d0d98",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1023,11 +1073,12 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "6b660d5910d77c28b5c6dbc345b5813c04010fc440db5069b731881bcc015771"
+        "source_sha256_lf": "6b660d5910d77c28b5c6dbc345b5813c04010fc440db5069b731881bcc015771",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1038,11 +1089,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "2a6c5c2df08207c56e044eba88c8fc4fa8c8901540b68f33e4ef2862112afe52"
+        "source_sha256_lf": "2a6c5c2df08207c56e044eba88c8fc4fa8c8901540b68f33e4ef2862112afe52",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1053,11 +1105,12 @@
       "reason": "工作台摘要、目标路由、交互数据和偏好",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "055e1a37e281c768f7a3f328d1bb91e93a840e13c5177d2d113fd2f81ad2ae2e"
+        "source_sha256_lf": "055e1a37e281c768f7a3f328d1bb91e93a840e13c5177d2d113fd2f81ad2ae2e",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1068,11 +1121,12 @@
       "reason": "工作台摘要、目标路由、交互数据和偏好",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "53a3bf6262abb426882de63404cb312bfae8f1b3c1d42037dc23d96cb6800eae"
+        "source_sha256_lf": "53a3bf6262abb426882de63404cb312bfae8f1b3c1d42037dc23d96cb6800eae",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1083,11 +1137,12 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "16d0adce58e27e65a1e02faa74801d19b4300490a2c4a89ce435c4b06f8a2dfe"
+        "source_sha256_lf": "16d0adce58e27e65a1e02faa74801d19b4300490a2c4a89ce435c4b06f8a2dfe",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1266,13 +1321,14 @@
       "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-R01"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "946f1f3f4ea932fce66d4bcd18b31d9f1b7a536ca6353068d397d9f87ec90e55"
+        "source_sha256_lf": "946f1f3f4ea932fce66d4bcd18b31d9f1b7a536ca6353068d397d9f87ec90e55",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1297,11 +1353,12 @@
       "reason": "子任务、团队、定时与异步任务专属页面",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "9d35f2df4ff68f2cded521dba8f4e543f7c789576ecc8619e4864a1bfeb20188"
+        "source_sha256_lf": "9d35f2df4ff68f2cded521dba8f4e543f7c789576ecc8619e4864a1bfeb20188",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1326,13 +1383,14 @@
       "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-R03"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "992fdc71757d311769130a93824fc24165821cde62c185d8d92fc2ad8b29145c"
+        "source_sha256_lf": "992fdc71757d311769130a93824fc24165821cde62c185d8d92fc2ad8b29145c",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1343,11 +1401,12 @@
       "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "d8e393f76d53062a7bd85c77d15fc0052a62e60bd1b7bd229179b7bf9bce3556"
+        "source_sha256_lf": "d8e393f76d53062a7bd85c77d15fc0052a62e60bd1b7bd229179b7bf9bce3556",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1407,11 +1466,12 @@
       "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "e0b0f00ac1a686b6bffffe83b9700bbb6c88021260b4fee0fa78ce09b5197d36"
+        "source_sha256_lf": "e0b0f00ac1a686b6bffffe83b9700bbb6c88021260b4fee0fa78ce09b5197d36",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1443,11 +1503,12 @@
       "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "90e958cb2d6d398ea4990cf4b16ad65956cfc62852bfb2f64033c794afb18073"
+        "source_sha256_lf": "90e958cb2d6d398ea4990cf4b16ad65956cfc62852bfb2f64033c794afb18073",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1500,11 +1561,12 @@
       "reason": "代码规范、文件编辑和预览专属页面",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "f6d39f13f3b6fffaf7f922a2c3749b9c13d3d9a09ebd79dd22eaf8f4fa098935"
+        "source_sha256_lf": "f6d39f13f3b6fffaf7f922a2c3749b9c13d3d9a09ebd79dd22eaf8f4fa098935",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1536,11 +1598,12 @@
       "reason": "代码规范、文件编辑和预览专属页面",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "d0aa9cf549fb5379d1c8f0c6646a502ef7e5b0089b3f1bd530083e9b9916c7eb"
+        "source_sha256_lf": "d0aa9cf549fb5379d1c8f0c6646a502ef7e5b0089b3f1bd530083e9b9916c7eb",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1551,13 +1614,14 @@
       "reason": "代码规范、文件编辑和预览专属页面",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-R08"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "9cdbc304c89dbaeab7418fd59a0c4301f80ebcdb036dba83c04d7877c4be041a"
+        "source_sha256_lf": "9cdbc304c89dbaeab7418fd59a0c4301f80ebcdb036dba83c04d7877c4be041a",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1568,13 +1632,14 @@
       "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-R04"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "bcb256056e5f246a4f4a9b11c634ec63314362dafe7657c1f44ba9e9f7ae5092"
+        "source_sha256_lf": "bcb256056e5f246a4f4a9b11c634ec63314362dafe7657c1f44ba9e9f7ae5092",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1585,11 +1650,12 @@
       "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "0b2d2537b807ace76c0259980380d76d0799c4bd8a85abfc00dd64388e237359"
+        "source_sha256_lf": "0b2d2537b807ace76c0259980380d76d0799c4bd8a85abfc00dd64388e237359",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1614,13 +1680,14 @@
       "reason": "代码规范、文件编辑和预览专属页面",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-R07"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "4477c95cb463764f77202f344c9740e011204bba676d16e2bdc59407f261a59a"
+        "source_sha256_lf": "4477c95cb463764f77202f344c9740e011204bba676d16e2bdc59407f261a59a",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1708,11 +1775,12 @@
       "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "fce02fbabd1f24ddd2152f36e010835d7fd550ede16d380b32fc180eca176fb2"
+        "source_sha256_lf": "fce02fbabd1f24ddd2152f36e010835d7fd550ede16d380b32fc180eca176fb2",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1723,11 +1791,12 @@
       "reason": "子任务、团队、定时与异步任务专属页面",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "6eb2c85879016ff7caba3f5dbb28ae705b685d416e785df04727c6377f6b318a"
+        "source_sha256_lf": "6eb2c85879016ff7caba3f5dbb28ae705b685d416e785df04727c6377f6b318a",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1738,13 +1807,14 @@
       "reason": "工作台只读异步摘要与导航，不是后台执行器",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-R02"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "e79693e616fc4bd6d051f44c5e85ba2dcf2a502c89c12decc92480a614c81325"
+        "source_sha256_lf": "e79693e616fc4bd6d051f44c5e85ba2dcf2a502c89c12decc92480a614c81325",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1769,11 +1839,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "b89a11de9fe645b85cf96a0e689c1d9eeab87ea0aa4611a6eb080afb680360a5"
+        "source_sha256_lf": "b89a11de9fe645b85cf96a0e689c1d9eeab87ea0aa4611a6eb080afb680360a5",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1791,11 +1862,12 @@
       "reason": "并行、阶段屏障、子代理/任务状态及通知",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "cfd34945bae797057246aa4587b97881bb79763030b486c9fc077e6e6aada590"
+        "source_sha256_lf": "cfd34945bae797057246aa4587b97881bb79763030b486c9fc077e6e6aada590",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1806,11 +1878,12 @@
       "reason": "并行、阶段屏障、子代理/任务状态及通知",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "2621887ebb53aef1d70dfd4d99f90c362af69fe7589187cef1869cd41d4e0d99"
+        "source_sha256_lf": "2621887ebb53aef1d70dfd4d99f90c362af69fe7589187cef1869cd41d4e0d99",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1821,11 +1894,12 @@
       "reason": "并行、阶段屏障、子代理/任务状态及通知",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "ee10cd879a9cbb03e42c1f4264bb758b0c4f7a0ed150f7034e049c504f44a6cf"
+        "source_sha256_lf": "ee10cd879a9cbb03e42c1f4264bb758b0c4f7a0ed150f7034e049c504f44a6cf",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1836,13 +1910,14 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "CONV-AF-09"
         ],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "b496b8e9fb9e513bf09e70796b3f877fc854ba57e57db9c01fc81723afb6d8cf"
+        "source_sha256_lf": "b496b8e9fb9e513bf09e70796b3f877fc854ba57e57db9c01fc81723afb6d8cf",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1853,11 +1928,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "140422f2f8af64af56e2f033d0cfad8b4b07d1baa9f5b5d3f847ade1fcb6690c"
+        "source_sha256_lf": "140422f2f8af64af56e2f033d0cfad8b4b07d1baa9f5b5d3f847ade1fcb6690c",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1868,11 +1944,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "42fd938d32e84613f73a6b0fcfd9a65f6f962f994f79a10495ad8b3d7025b8f7"
+        "source_sha256_lf": "42fd938d32e84613f73a6b0fcfd9a65f6f962f994f79a10495ad8b3d7025b8f7",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1883,11 +1960,12 @@
       "reason": "并行、阶段屏障、子代理/任务状态及通知",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "b383cf82e7759968a6f05d70afdb61daf0e0159b4767b952ba4b4e8c288487e2"
+        "source_sha256_lf": "b383cf82e7759968a6f05d70afdb61daf0e0159b4767b952ba4b4e8c288487e2",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1905,11 +1983,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "f048ccb0f4ddca95fcf89b1cd1113c22e6c342e0abdfb5e9930d5f88f29ffd47"
+        "source_sha256_lf": "f048ccb0f4ddca95fcf89b1cd1113c22e6c342e0abdfb5e9930d5f88f29ffd47",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1920,13 +1999,14 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "CONV-AF-05"
         ],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "3444fd99d37e126591f300346229d2b7d86dbb9843e7dceb42e1375412380bbd"
+        "source_sha256_lf": "3444fd99d37e126591f300346229d2b7d86dbb9843e7dceb42e1375412380bbd",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1937,11 +2017,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "f6db342492924545dcf64562e2c8c0512d5615b0a805423e152ebef98f97d4fc"
+        "source_sha256_lf": "f6db342492924545dcf64562e2c8c0512d5615b0a805423e152ebef98f97d4fc",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1952,11 +2033,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "c701d82208f285ac6bd51e31fe0d8e5078a4dae8052cc0cf219dc2046a902d20"
+        "source_sha256_lf": "c701d82208f285ac6bd51e31fe0d8e5078a4dae8052cc0cf219dc2046a902d20",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1974,11 +2056,12 @@
       "reason": "工具分发、结果、参数及并发执行合同",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "a9f913546372f8e68ac08022bd6729749e6058b2d698e36a02f24f970039e159"
+        "source_sha256_lf": "a9f913546372f8e68ac08022bd6729749e6058b2d698e36a02f24f970039e159",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -1989,11 +2072,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "555f0a7a835aeb1b64bb61fd3f141047e779c1f0bf336eafa6b957203faefd26"
+        "source_sha256_lf": "555f0a7a835aeb1b64bb61fd3f141047e779c1f0bf336eafa6b957203faefd26",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2004,11 +2088,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "dae3f5aace67755a3f853fc81b574e4a624f25692b763dd930ed16f1dca6835d"
+        "source_sha256_lf": "dae3f5aace67755a3f853fc81b574e4a624f25692b763dd930ed16f1dca6835d",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2026,11 +2111,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "12e2d55d856ae2c43a876a318e8e5c5ba2c3af47c93f16ad64e59e33a3d694b1"
+        "source_sha256_lf": "12e2d55d856ae2c43a876a318e8e5c5ba2c3af47c93f16ad64e59e33a3d694b1",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2069,11 +2155,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "006f18d1f76c229040a5c74eaffb55d5b722685071a5d994ddfdf507812bcff1"
+        "source_sha256_lf": "006f18d1f76c229040a5c74eaffb55d5b722685071a5d994ddfdf507812bcff1",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2084,11 +2171,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "dec6babc9a1f4bf9af25eead88b718cb7460bec0e5893906e78d85d7e54bef1b"
+        "source_sha256_lf": "dec6babc9a1f4bf9af25eead88b718cb7460bec0e5893906e78d85d7e54bef1b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2099,11 +2187,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "f27b0cdec44fb07c548a9c7210c092b498a0d0d6a711878d7139c4d640c1bf4b"
+        "source_sha256_lf": "f27b0cdec44fb07c548a9c7210c092b498a0d0d6a711878d7139c4d640c1bf4b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2114,13 +2203,14 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "CONV-AF-08"
         ],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "48ca1e7e414bc988fca89cfdb320c308b3f63e57de73fc7cd57293c82db46943"
+        "source_sha256_lf": "48ca1e7e414bc988fca89cfdb320c308b3f63e57de73fc7cd57293c82db46943",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2131,13 +2221,14 @@
       "reason": "工具分发、结果、参数及并发执行合同",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-R05"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "0d9314b7bc10b3f668eff866a59c956ed748b6cd8d3d66d4ed556f61a6eab3cf"
+        "source_sha256_lf": "0d9314b7bc10b3f668eff866a59c956ed748b6cd8d3d66d4ed556f61a6eab3cf",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2148,11 +2239,12 @@
       "reason": "并行、阶段屏障、子代理/任务状态及通知",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "b27fd8d141c6cea42a393b6dbeb25f09f41def7968aec4f2869b498175cf6137"
+        "source_sha256_lf": "b27fd8d141c6cea42a393b6dbeb25f09f41def7968aec4f2869b498175cf6137",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2163,11 +2255,12 @@
       "reason": "并行、阶段屏障、子代理/任务状态及通知",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "e699110a6bb559b5febc38b7055867748ee984a4a1de156aabbea9db64cd1f6c"
+        "source_sha256_lf": "e699110a6bb559b5febc38b7055867748ee984a4a1de156aabbea9db64cd1f6c",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2178,11 +2271,12 @@
       "reason": "工具分发、结果、参数及并发执行合同",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "32b402357b705c573c06c7ff6ed24aca43254107a1359216e4a3fc962cd8b678"
+        "source_sha256_lf": "32b402357b705c573c06c7ff6ed24aca43254107a1359216e4a3fc962cd8b678",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2193,13 +2287,14 @@
       "reason": "工具分发、结果、参数及并发执行合同",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-R06"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "24df41751fc45ce648b04e5f8473c458e9236b15a134a7f0d1393dafd2a0f3ad"
+        "source_sha256_lf": "24df41751fc45ce648b04e5f8473c458e9236b15a134a7f0d1393dafd2a0f3ad",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2210,11 +2305,12 @@
       "reason": "工具分发、结果、参数及并发执行合同",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "944070b1aad0d38a600ca2e147e1c494f42c4ae7588ceb5cf794a3e81e2ecffa"
+        "source_sha256_lf": "944070b1aad0d38a600ca2e147e1c494f42c4ae7588ceb5cf794a3e81e2ecffa",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2240,11 +2336,12 @@
       "source_lf_sha256": "36b59b6b2f4c232ac48c6951a649e9dc3f43258638325febd6d5281889021ace",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "36b59b6b2f4c232ac48c6951a649e9dc3f43258638325febd6d5281889021ace"
+        "source_sha256_lf": "36b59b6b2f4c232ac48c6951a649e9dc3f43258638325febd6d5281889021ace",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2255,11 +2352,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "75313709a2420b6f2290c49ce89ed14c0d17bda6ef551b3d15b342fba709bd4e"
+        "source_sha256_lf": "75313709a2420b6f2290c49ce89ed14c0d17bda6ef551b3d15b342fba709bd4e",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2305,11 +2403,12 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "c5b85591bfd68e17117ba73a3c34b93b553fcde8d527ef5293e9bfbdda7e54a0"
+        "source_sha256_lf": "c5b85591bfd68e17117ba73a3c34b93b553fcde8d527ef5293e9bfbdda7e54a0",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2335,11 +2434,12 @@
       "source_lf_sha256": "bf2192ec5b583b179937b9d23ecf0588d48237f49bea74e652717854637c7d8a",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "bf2192ec5b583b179937b9d23ecf0588d48237f49bea74e652717854637c7d8a"
+        "source_sha256_lf": "bf2192ec5b583b179937b9d23ecf0588d48237f49bea74e652717854637c7d8a",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2378,11 +2478,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "8636af5f2deb32d484022ae8d2a482e4f4a63bd0ba7d0e521a6ca1b6687c73a5"
+        "source_sha256_lf": "8636af5f2deb32d484022ae8d2a482e4f4a63bd0ba7d0e521a6ca1b6687c73a5",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2393,11 +2494,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "5a0767819a4fbf1b7801c0edbf4958d3ca8ab86d447282331a08edc743049172"
+        "source_sha256_lf": "5a0767819a4fbf1b7801c0edbf4958d3ca8ab86d447282331a08edc743049172",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2408,11 +2510,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "4a82f20b061833bb37d5a9da379dc3821676a4620f9d1937bf2e24f89e04b628"
+        "source_sha256_lf": "4a82f20b061833bb37d5a9da379dc3821676a4620f9d1937bf2e24f89e04b628",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2423,13 +2526,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-R11"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "005d24f4ce3efe25a5807ca7a1acaf3297780e5ccbe98a0a40027e30e93c5a16"
+        "source_sha256_lf": "005d24f4ce3efe25a5807ca7a1acaf3297780e5ccbe98a0a40027e30e93c5a16",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2440,11 +2544,12 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "ffba5daf14b85e66959e02e6622d6e30566cadf46f71dc874f72855174fe219f"
+        "source_sha256_lf": "ffba5daf14b85e66959e02e6622d6e30566cadf46f71dc874f72855174fe219f",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2462,11 +2567,12 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "21e2224bcf2ed1156f3c7e9d02ca5afcf3f8766b82676b9e26237ca43f02879f"
+        "source_sha256_lf": "21e2224bcf2ed1156f3c7e9d02ca5afcf3f8766b82676b9e26237ca43f02879f",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2477,14 +2583,15 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AUTO-001",
           "AUTO-002"
         ],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "81087b5ed6928cc5998b8c00d342278162dad4a335ddf9fb2a80dcafb13c6fec"
+        "source_sha256_lf": "81087b5ed6928cc5998b8c00d342278162dad4a335ddf9fb2a80dcafb13c6fec",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2495,7 +2602,7 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AUTO-001",
@@ -2503,7 +2610,8 @@
           "AUTO-003"
         ],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "1b87b656904df58ace3bd4a97b10b99bb2be1f8a469429374745e6cf65cc794c"
+        "source_sha256_lf": "1b87b656904df58ace3bd4a97b10b99bb2be1f8a469429374745e6cf65cc794c",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2514,11 +2622,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "d056b3fffc58dc40c41525cd8a5fe79fa13ff1bed6c5554f704d35cbf7fed15c"
+        "source_sha256_lf": "d056b3fffc58dc40c41525cd8a5fe79fa13ff1bed6c5554f704d35cbf7fed15c",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2529,13 +2638,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T03"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "72fcfeb6505f3fb9c5f9868d012819e07233d1e05b6d5aa139abd6a18cd115f5"
+        "source_sha256_lf": "72fcfeb6505f3fb9c5f9868d012819e07233d1e05b6d5aa139abd6a18cd115f5",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2546,13 +2656,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T09"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "126d48f4dabc4f0a03003787d91ad4d32d85e5e62037180e7f569063966eb2d5"
+        "source_sha256_lf": "126d48f4dabc4f0a03003787d91ad4d32d85e5e62037180e7f569063966eb2d5",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2563,13 +2674,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T09"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "34d7bdf73c8ab641158e146a5db280f2aab562796b053dcaac066c0207fec6bd"
+        "source_sha256_lf": "34d7bdf73c8ab641158e146a5db280f2aab562796b053dcaac066c0207fec6bd",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2580,13 +2692,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-R10"
         ],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "4608a18ba193e3f39b9c8f3252c5cafe567c2f90b3f0aa016886ca6e3e89e1bf"
+        "source_sha256_lf": "4608a18ba193e3f39b9c8f3252c5cafe567c2f90b3f0aa016886ca6e3e89e1bf",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2597,11 +2710,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/root.md",
-        "source_sha256_lf": "7c8781e9b7d370ea1d268993beffcd84ce19007fc1474df6884b07b99825567f"
+        "source_sha256_lf": "7c8781e9b7d370ea1d268993beffcd84ce19007fc1474df6884b07b99825567f",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2612,14 +2726,15 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T03",
           "AF-T04"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "9497270fa834d99e76dbe2821d2d6c7e664a5a3046b045177bccc56f72a527d6"
+        "source_sha256_lf": "9497270fa834d99e76dbe2821d2d6c7e664a5a3046b045177bccc56f72a527d6",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2630,11 +2745,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "e5e5ab200bf1582fe122c9727ae5ecafc1d9368320f25ba6f0a1d71f88344c5f"
+        "source_sha256_lf": "e5e5ab200bf1582fe122c9727ae5ecafc1d9368320f25ba6f0a1d71f88344c5f",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2645,13 +2761,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-T05"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "08fa30ebf795c1562ea3e2f5fad40991c482e4d434a4301b2ac1667a444e6e3d"
+        "source_sha256_lf": "08fa30ebf795c1562ea3e2f5fad40991c482e4d434a4301b2ac1667a444e6e3d",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2662,11 +2779,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "b16060f478fd544fef90b8c2886912d83cf0acd5bdda6071790976ad4951d3f3"
+        "source_sha256_lf": "b16060f478fd544fef90b8c2886912d83cf0acd5bdda6071790976ad4951d3f3",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2677,11 +2795,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "c44d937017547fe642213a625c037fb68ea41ba88af470cf639a3d76b52c63e6"
+        "source_sha256_lf": "c44d937017547fe642213a625c037fb68ea41ba88af470cf639a3d76b52c63e6",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2692,14 +2811,15 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P0",
         "findings": [
           "AF-T02",
           "AF-T11"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "d7fd7004dcecbe2235f80ec6be55e2d6234c832c65d9e7e33b584c4c478ab0a1"
+        "source_sha256_lf": "d7fd7004dcecbe2235f80ec6be55e2d6234c832c65d9e7e33b584c4c478ab0a1",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2710,11 +2830,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "1ac88384ef970a32dfcd09fda88b7e11972eb483b44010fd0fed707b81849fc8"
+        "source_sha256_lf": "1ac88384ef970a32dfcd09fda88b7e11972eb483b44010fd0fed707b81849fc8",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2725,13 +2846,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P0",
         "findings": [
           "AF-T02"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "2a842efeeff3978dc92081adcc23e29ff0cf6f10c4fc5efafd8f52221f9910f5"
+        "source_sha256_lf": "2a842efeeff3978dc92081adcc23e29ff0cf6f10c4fc5efafd8f52221f9910f5",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2742,11 +2864,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "30c1f534cf5d000f0ebe5f5485585ef731e6fd5510dc6634c7cafa4bcbd1e505"
+        "source_sha256_lf": "30c1f534cf5d000f0ebe5f5485585ef731e6fd5510dc6634c7cafa4bcbd1e505",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2757,13 +2880,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P0",
         "findings": [
           "AF-T02"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "116e8c99394e117cc796bd108c3c9f30013732af9fe453a55eb43282c9c06b64"
+        "source_sha256_lf": "116e8c99394e117cc796bd108c3c9f30013732af9fe453a55eb43282c9c06b64",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2774,13 +2898,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P0",
         "findings": [
           "AF-T11"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "8995fbde578b4b95d033e87ccd8dfabf95f6d848ca28d1ceb05635d803e30e9f"
+        "source_sha256_lf": "8995fbde578b4b95d033e87ccd8dfabf95f6d848ca28d1ceb05635d803e30e9f",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2791,11 +2916,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "8005d7c3c88f22b192ae4d48ad1ac3a4fff30e791555791f86bf8ce6fe73e7f0"
+        "source_sha256_lf": "8005d7c3c88f22b192ae4d48ad1ac3a4fff30e791555791f86bf8ce6fe73e7f0",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2806,11 +2932,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "6e0f2418976a5c4ff8f91360c7717d973eb307fb79151b0622d4ff01683bda89"
+        "source_sha256_lf": "6e0f2418976a5c4ff8f91360c7717d973eb307fb79151b0622d4ff01683bda89",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2821,13 +2948,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-T07"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "365065a9fe7cff2c1cc8ed984f0b7dc43a3fa67ee669b5708f7334e30386b547"
+        "source_sha256_lf": "365065a9fe7cff2c1cc8ed984f0b7dc43a3fa67ee669b5708f7334e30386b547",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2838,11 +2966,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "2afb2b47c9a570e268b27a9b683237ad3ff58fda28507fa3e1dbe17a8fbd27ee"
+        "source_sha256_lf": "2afb2b47c9a570e268b27a9b683237ad3ff58fda28507fa3e1dbe17a8fbd27ee",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2853,13 +2982,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-T05"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "3e95b9b2a6921e0f4db3668c241d62fe18a6315224cc247bd286f712b775d16b"
+        "source_sha256_lf": "3e95b9b2a6921e0f4db3668c241d62fe18a6315224cc247bd286f712b775d16b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2870,11 +3000,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "20cb4ce277ebcb07533d6450b09d852027bcfee2918002a955b0857bfb099c21"
+        "source_sha256_lf": "20cb4ce277ebcb07533d6450b09d852027bcfee2918002a955b0857bfb099c21",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2885,13 +3016,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T06"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "faa9ec860ae57357cb1caa868feb49e05ba8789f08a32a3e27032dd5e3863a84"
+        "source_sha256_lf": "faa9ec860ae57357cb1caa868feb49e05ba8789f08a32a3e27032dd5e3863a84",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2902,11 +3034,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "2abbab7bf044f952a2b780389d681c9e54dff1373a6e58b91513249b54f1e1b7"
+        "source_sha256_lf": "2abbab7bf044f952a2b780389d681c9e54dff1373a6e58b91513249b54f1e1b7",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2924,11 +3057,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "b6ee30ac241170f30329d1694182c89832cdeb522ec5c6c8a1074ae049f09d78"
+        "source_sha256_lf": "b6ee30ac241170f30329d1694182c89832cdeb522ec5c6c8a1074ae049f09d78",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2939,11 +3073,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "e81691bdf80fb9dc17325ec3bbb969e945fc26f41bc5f5991fd2845fe0d87292"
+        "source_sha256_lf": "e81691bdf80fb9dc17325ec3bbb969e945fc26f41bc5f5991fd2845fe0d87292",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2954,11 +3089,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "e9c2d45ff047e2f4e1b5f11869d316031709113c1a3a771974b4dbcfb73c6fa3"
+        "source_sha256_lf": "e9c2d45ff047e2f4e1b5f11869d316031709113c1a3a771974b4dbcfb73c6fa3",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2969,13 +3105,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T01"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "64f2aa55e79b0b3a9111ed66cc855d1e49094dad2e7f91d1479842195167c248"
+        "source_sha256_lf": "64f2aa55e79b0b3a9111ed66cc855d1e49094dad2e7f91d1479842195167c248",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -2986,11 +3123,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "7d654abe62b9429fbe595bf8f6e471e98d47081a9a48670e0bdfab1ce03bb127"
+        "source_sha256_lf": "7d654abe62b9429fbe595bf8f6e471e98d47081a9a48670e0bdfab1ce03bb127",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3001,11 +3139,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "1f5e3a84bbe007d412f32169f7681cc4428683562982079ed94a552c38499313"
+        "source_sha256_lf": "1f5e3a84bbe007d412f32169f7681cc4428683562982079ed94a552c38499313",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3016,11 +3155,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "0c5c678c623de8d2860c6f60c623574f1a06c0c7dd505d041043cece28a21ed9"
+        "source_sha256_lf": "0c5c678c623de8d2860c6f60c623574f1a06c0c7dd505d041043cece28a21ed9",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3031,11 +3171,12 @@
       "reason": "通用/开发运行装配和工具集选择；不展开已排除业务内部",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "59b66d350e8ccd664ffdbc4c7950b434020ac71674de6e6637274ed7ecca2972"
+        "source_sha256_lf": "59b66d350e8ccd664ffdbc4c7950b434020ac71674de6e6637274ed7ecca2972",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3046,11 +3187,12 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "5129cf44b6a2e70e7283a80bb3f8bbc124f3e622bc7b5ff22bd7b10fd85cc8d2"
+        "source_sha256_lf": "5129cf44b6a2e70e7283a80bb3f8bbc124f3e622bc7b5ff22bd7b10fd85cc8d2",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3061,13 +3203,14 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AUTO-005"
         ],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "b65de8e3e63334681a6ef4a3b813d3685b899888ea928ebe8cc64afde60c92c0"
+        "source_sha256_lf": "b65de8e3e63334681a6ef4a3b813d3685b899888ea928ebe8cc64afde60c92c0",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3078,13 +3221,14 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AUTO-004"
         ],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "1c0141b5c2d1748bda7d9335267982449be0bab4615cd594e767db02509398e6"
+        "source_sha256_lf": "1c0141b5c2d1748bda7d9335267982449be0bab4615cd594e767db02509398e6",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3095,11 +3239,12 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "bde2814828b11d55d1be84f4b960359d29c64c9105030b9527290ef6bb3a79bb"
+        "source_sha256_lf": "bde2814828b11d55d1be84f4b960359d29c64c9105030b9527290ef6bb3a79bb",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3110,11 +3255,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "055f34fb8517a0ee6d4f3b571c50054d021f592007825ea9655f09dbe1c71637"
+        "source_sha256_lf": "055f34fb8517a0ee6d4f3b571c50054d021f592007825ea9655f09dbe1c71637",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3125,11 +3271,12 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "fb449807144900c81bd5ae616b575e20ba2b0585168767680b7d6b573b7bd6ac"
+        "source_sha256_lf": "fb449807144900c81bd5ae616b575e20ba2b0585168767680b7d6b573b7bd6ac",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3140,13 +3287,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T08"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "8de53002acaa7c0e3de35e389596a1d3e658c09816ed03070c2640d6586f6578"
+        "source_sha256_lf": "8de53002acaa7c0e3de35e389596a1d3e658c09816ed03070c2640d6586f6578",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3178,13 +3326,14 @@
       "reason": "后台、子代理团队与定时任务生命周期",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AUTO-007"
         ],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "7ebe895b07a70b8f58d2c32c10e5f72dce5b8788c902347907cf7c28ab21ab8b"
+        "source_sha256_lf": "7ebe895b07a70b8f58d2c32c10e5f72dce5b8788c902347907cf7c28ab21ab8b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3195,11 +3344,12 @@
       "reason": "子代理工作树的创建、差异与采用；团队模块仅复核caller",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "dc1aadfd0f50c9a26890e11e8f68ff1764cfa57a2f8bf92e45057d4a52848528"
+        "source_sha256_lf": "dc1aadfd0f50c9a26890e11e8f68ff1764cfa57a2f8bf92e45057d4a52848528",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3210,11 +3360,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "6736dba09a6927c9c58c95243f75ebba0efd7b30a48dabf64e79d319ad219e74"
+        "source_sha256_lf": "6736dba09a6927c9c58c95243f75ebba0efd7b30a48dabf64e79d319ad219e74",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3225,11 +3376,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "490ffa1821ef7a1d604cb905ceed49e23a2144717c227bf02bddc25d4ddbfbb3"
+        "source_sha256_lf": "490ffa1821ef7a1d604cb905ceed49e23a2144717c227bf02bddc25d4ddbfbb3",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3240,11 +3392,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "9aeaea740d815f465978c8a04a9ff75e5fd3b3514f45eb3e3b663eeeb466fc41"
+        "source_sha256_lf": "9aeaea740d815f465978c8a04a9ff75e5fd3b3514f45eb3e3b663eeeb466fc41",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3255,11 +3408,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "80901f79d76852d7d5dbccd9804f0d6412a73f504956cf3435f4faa348497304"
+        "source_sha256_lf": "80901f79d76852d7d5dbccd9804f0d6412a73f504956cf3435f4faa348497304",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3270,11 +3424,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "1ebe6b35b5a27e6acb9365ed8b23bbffbe0a7276eddce5657bff9addffa7b9bf"
+        "source_sha256_lf": "1ebe6b35b5a27e6acb9365ed8b23bbffbe0a7276eddce5657bff9addffa7b9bf",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3285,11 +3440,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "26bd46bac2e19260af6cfd41f252b4e8332ea9739eba42d70fbdceb673234373"
+        "source_sha256_lf": "26bd46bac2e19260af6cfd41f252b4e8332ea9739eba42d70fbdceb673234373",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3300,13 +3456,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T10"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "7fd0b166810d4e1ecd0d696f7f75cb066fc48e33efdd6ab27c66e08c4d183d7d"
+        "source_sha256_lf": "7fd0b166810d4e1ecd0d696f7f75cb066fc48e33efdd6ab27c66e08c4d183d7d",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3317,11 +3474,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "e9f15fdfec6b151523bfd2697c9aaed382a81ed5c41613839d8fc6f80cf973f8"
+        "source_sha256_lf": "e9f15fdfec6b151523bfd2697c9aaed382a81ed5c41613839d8fc6f80cf973f8",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3332,11 +3490,12 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "9e65cf0aa6aa0efa2c4064304b47be845e367f0361cd960f7f754e34356e1e0b"
+        "source_sha256_lf": "9e65cf0aa6aa0efa2c4064304b47be845e367f0361cd960f7f754e34356e1e0b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3347,13 +3506,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P2",
         "findings": [
           "AF-T05"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "b6256dae3bb1f1e8a86accbf24a9a53883b0c3d1ad9ef98e90f564a800c8e68e"
+        "source_sha256_lf": "b6256dae3bb1f1e8a86accbf24a9a53883b0c3d1ad9ef98e90f564a800c8e68e",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3364,11 +3524,12 @@
       "reason": "产物、隔离恢复与工作树CLI入口",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "82fb63bf697855444ab94d2493e8e76646aaf1392fc3b63ec8ab8f0207354361"
+        "source_sha256_lf": "82fb63bf697855444ab94d2493e8e76646aaf1392fc3b63ec8ab8f0207354361",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3386,13 +3547,14 @@
       "reason": "产物、隔离恢复与工作树CLI入口",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "P1",
         "findings": [
           "AF-T01"
         ],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "55934e938e6ad780f2dec4473cdf1781206c01cce2dea381bfa4955f65a3e651"
+        "source_sha256_lf": "55934e938e6ad780f2dec4473cdf1781206c01cce2dea381bfa4955f65a3e651",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3403,11 +3565,12 @@
       "reason": "对话运行、取消、压缩和结果收尾CLI",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "5cc90fae17612bafc0455e843f93b361f10914e54c03cbc0d23ee003f762004b"
+        "source_sha256_lf": "5cc90fae17612bafc0455e843f93b361f10914e54c03cbc0d23ee003f762004b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3425,11 +3588,12 @@
       "reason": "对话运行、取消、压缩和结果收尾CLI",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "1862c668ac0b719cb225eeb8596722c416ff8b5b879294e570978e3c97bec23f"
+        "source_sha256_lf": "1862c668ac0b719cb225eeb8596722c416ff8b5b879294e570978e3c97bec23f",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3440,11 +3604,12 @@
       "reason": "对话运行、取消、压缩和结果收尾CLI",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "309d013b3aefb1155b1417327dc5230088bf29413d3a0c2d614c960548727f9b"
+        "source_sha256_lf": "309d013b3aefb1155b1417327dc5230088bf29413d3a0c2d614c960548727f9b",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3455,11 +3620,12 @@
       "reason": "定时任务CLI入口",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "531999fd8abbcf70ce8cf0d71b3f58639b1fbc877813e186c0186132c54768c8"
+        "source_sha256_lf": "531999fd8abbcf70ce8cf0d71b3f58639b1fbc877813e186c0186132c54768c8",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3470,11 +3636,12 @@
       "reason": "产物、隔离恢复与工作树CLI入口",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "156b928b023f1f76de4319d3ac9ec7bfd421cb7d868011dba6811d6b1856b145"
+        "source_sha256_lf": "156b928b023f1f76de4319d3ac9ec7bfd421cb7d868011dba6811d6b1856b145",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3485,11 +3652,12 @@
       "reason": "对话、停止、恢复及上下文的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "e05477757072cbbc905ae1e3d5a65ba78131fe23035e85b2a62b6928ae271865"
+        "source_sha256_lf": "e05477757072cbbc905ae1e3d5a65ba78131fe23035e85b2a62b6928ae271865",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3500,11 +3668,12 @@
       "reason": "工具执行和工作树的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "416972e989a49ff68932ba38e778920b5f869f75b2b81359496e30ab000740af"
+        "source_sha256_lf": "416972e989a49ff68932ba38e778920b5f869f75b2b81359496e30ab000740af",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3515,11 +3684,12 @@
       "reason": "并行/子代理执行的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "f10f81b834184a9637cbf62df727ce05cf7b4d777925402116877d16a08d6952"
+        "source_sha256_lf": "f10f81b834184a9637cbf62df727ce05cf7b4d777925402116877d16a08d6952",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3530,11 +3700,12 @@
       "reason": "工具执行和工作树的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "3553ccfa5758f63d75f61218711f7ae8fab4852429e71e7ae5a7088e9ae0f671"
+        "source_sha256_lf": "3553ccfa5758f63d75f61218711f7ae8fab4852429e71e7ae5a7088e9ae0f671",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3545,11 +3716,12 @@
       "reason": "对话、停止、恢复及上下文的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "4b900031d2ea5ce8347d0776a5525fa4814e8acc408e6544587e747cae8a96e3"
+        "source_sha256_lf": "4b900031d2ea5ce8347d0776a5525fa4814e8acc408e6544587e747cae8a96e3",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3560,11 +3732,12 @@
       "reason": "对话、停止、恢复及上下文的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "0c7e373a543caa61047025bfd7a281f91e4739ef8ed46ea9115429020f16d4aa"
+        "source_sha256_lf": "0c7e373a543caa61047025bfd7a281f91e4739ef8ed46ea9115429020f16d4aa",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3575,11 +3748,12 @@
       "reason": "对话、停止、恢复及上下文的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "4ad72e3f505a7f3d6bfb56eef7d23b7bfe168ea233efa43c17ca53a10f05fd57"
+        "source_sha256_lf": "4ad72e3f505a7f3d6bfb56eef7d23b7bfe168ea233efa43c17ca53a10f05fd57",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3597,11 +3771,12 @@
       "reason": "对话、停止、恢复及上下文的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "77b77abba9bf69ac549b7d43eddd37ef38850a51adb0b2d9dc808e48c90a922e"
+        "source_sha256_lf": "77b77abba9bf69ac549b7d43eddd37ef38850a51adb0b2d9dc808e48c90a922e",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3612,11 +3787,12 @@
       "reason": "并行/子代理执行的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "8874203683b37c3db02938957ce0b2f1caef88b541ab4892dd32793187afb0a1"
+        "source_sha256_lf": "8874203683b37c3db02938957ce0b2f1caef88b541ab4892dd32793187afb0a1",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3627,11 +3803,12 @@
       "reason": "检查运行时注入不污染会话持久历史，不审记忆筛选/检索业务",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/conversation.md",
-        "source_sha256_lf": "fad5ec94730d4d10ca65a54fadd4652d55eaf3c2566a1c273bed48907751acd6"
+        "source_sha256_lf": "fad5ec94730d4d10ca65a54fadd4652d55eaf3c2566a1c273bed48907751acd6",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3642,11 +3819,12 @@
       "reason": "并行/子代理执行的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "be9dd1cf3e5106bbaa8f9209d042d3db827a2bf07a583e6dc62e24c33f0dfcbb"
+        "source_sha256_lf": "be9dd1cf3e5106bbaa8f9209d042d3db827a2bf07a583e6dc62e24c33f0dfcbb",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3664,11 +3842,12 @@
       "reason": "并行/子代理执行的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/automation.md",
-        "source_sha256_lf": "b39c9b3534f916cdba6e905db87c173669af326da7b80b60cd2976c7e91bd151"
+        "source_sha256_lf": "b39c9b3534f916cdba6e905db87c173669af326da7b80b60cd2976c7e91bd151",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3679,11 +3858,12 @@
       "reason": "工具执行和工作树的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "c8a7b1ca1371d3058e5c1a6096d14cdbfa368986a230fb8c6b7b461d60be0472"
+        "source_sha256_lf": "c8a7b1ca1371d3058e5c1a6096d14cdbfa368986a230fb8c6b7b461d60be0472",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     },
     {
@@ -3694,11 +3874,12 @@
       "reason": "工具执行和工作树的直接集成回归",
       "audit_review": {
         "phase": "audit-first",
-        "status": "review_complete_fixes_pending",
+        "status": "review_complete_fixes_verified",
         "judgment": "PASS",
         "findings": [],
         "report": "audit-first/tools.md",
-        "source_sha256_lf": "82c7b0573d4bc268e8d35d15cc9c84d46da7b78209336072b31efcf5a305ea58"
+        "source_sha256_lf": "82c7b0573d4bc268e8d35d15cc9c84d46da7b78209336072b31efcf5a305ea58",
+        "fix_report": "audit-first/fixes-summary.md"
       }
     }
   ],
@@ -5509,5 +5690,12 @@
     "confirmed_unfixed": 39,
     "fixed_this_phase": 0,
     "source_snapshot": "2026-10-03T18:22:00.015Z"
+  },
+  "fix_phase": {
+    "status": "complete",
+    "confirmed": 39,
+    "fixed_verified": 39,
+    "pending": 0,
+    "report": "audit-first/fixes-summary.md"
   }
 }
