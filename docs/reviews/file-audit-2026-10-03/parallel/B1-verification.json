@@ -1,0 +1,164 @@
+{
+  "task": "B1",
+  "baseline": "fbb85333",
+  "branch": "kanzei/audit-b1",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code",
+  "status": "verified",
+  "environment": "Windows",
+  "repository_review_complete": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-app/src/async_mailbox.rs",
+      "judgment": "P1",
+      "sha256": "9daf804340d0f46a20c71a92118b47ffd45a835c51a4c3cdff3a5bb857d9af70"
+    },
+    {
+      "path": "crates/kanzei-app/src/durable_questions.rs",
+      "judgment": "P1",
+      "sha256": "e5cb53743bf4ddfe692cd05a670bb1a2bc5ac49a6dad20822fadad800221c0a1"
+    },
+    {
+      "path": "crates/kanzei-app/src/terminal_monitor.rs",
+      "judgment": "PASS",
+      "sha256": "dfcc347e10f45409ae57084d394c7dbae426988ff8f5373ebb45a3ad1ed442e1"
+    },
+    {
+      "path": "crates/kanzei-app/src/agent_team.rs",
+      "judgment": "P1",
+      "sha256": "6ca38944c60bf41ab8e6237524375f95eaf081f2aa55c76161bd4ccd20f8967f"
+    }
+  ],
+  "contract_slices": [
+    {
+      "path": "crates/kanzei-tools/src/team/mod.rs",
+      "scope": "callback/stop or subscription contract slice",
+      "sha256": "7d975fde906f80b938fdb4f312e080a5ed5f99420ab6584a66838a395fd9310b",
+      "judgment": "P1"
+    },
+    {
+      "path": "crates/kanzei-tools/src/team/tests.rs",
+      "scope": "callback/stop or subscription contract slice",
+      "sha256": "d8adcc7917a26a574d54a9702288e13407b9145284e16820ec7bc801b29b13a6",
+      "judgment": "PASS"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/monitor.rs",
+      "scope": "callback/stop or subscription contract slice",
+      "sha256": "f052827ecb6467971f7cb346809fa08a06a4a7379889ceed3c42eb7ef017c142",
+      "judgment": "P1"
+    }
+  ],
+  "fixed_root_causes": {
+    "P0": 0,
+    "P1": 4,
+    "P2": 0
+  },
+  "new_regression_tests": 8,
+  "checks": [
+    {
+      "command": "cargo check -p kanzei-app -p kanzei-tools --quiet",
+      "exit_code": 0,
+      "log": "output/parallel-b1/check-final.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "cargo test -p kanzei-app -- --quiet",
+      "exit_code": 0,
+      "log": "output/parallel-b1/app-test-final.log",
+      "passed": 538,
+      "failed": 0,
+      "ignored": 0,
+      "actual_recompile_in_log": true,
+      "log_sha256": "9be54a2bdc7b6758bd3e0e5d9f84e2e90b88234077a2d8ce7b1bc6cc6016cefb"
+    },
+    {
+      "command": "cargo test -p kanzei-tools --lib team::tests:: -- --quiet",
+      "exit_code": 0,
+      "log": "output/parallel-b1/team-test-final.log",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "actual_recompile_in_log": true,
+      "log_sha256": "909d19fb71e58a1ff34b84ad03bd903da7ad10e2452a5b11942efa2d3ad43000"
+    },
+    {
+      "command": "cargo test -p kanzei-tools --lib background:: -- --quiet",
+      "exit_code": 0,
+      "log": "output/parallel-b1/background-test-final.log",
+      "passed": 31,
+      "failed": 0,
+      "ignored": 1,
+      "log_sha256": "2c9702caef7cc345aa6e65217dfb35230dfad7c3e7a8ee3a119b6dec1ed1f2fa"
+    },
+    {
+      "command": "cargo clippy -p kanzei-app -p kanzei-tools --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/parallel-b1/clippy-final.log",
+      "log_sha256": "a68e8cdc5347857be12e5dffc2ec34538bc5b5b8ed18631f74d4676dde1015c3"
+    },
+    {
+      "command": "rustfmt --edition 2021 --check (six changed Rust files)",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "remaining_verified_paths": [
+    "AgentTeam registry duplicate initialization and find(None) interrupted recovery race queued for B2",
+    "late ask save/asks.insert after stop queued for owner/generation guard work"
+  ],
+  "persistent_format_change": false,
+  "new_dependencies": false,
+  "desktop_e2e_verified": false,
+  "negative_checks": [
+    {
+      "tag": "answered-snapshot",
+      "command": "cargo test -p kanzei-app answered_snapshot_after_stop_cannot_create_a_new_mailbox --quiet",
+      "exit_code": 101,
+      "expected_assertion_failure": true,
+      "log": "output/parallel-b1/negative-answered-snapshot.log",
+      "mutation": "equivalent former wrong behavior",
+      "log_sha256": "1eae7f0031ec77fca6be2085ed4f0a0e9021066322ccc9d0bf5c4797746fdca0"
+    },
+    {
+      "tag": "child-assembly-generation",
+      "command": "cargo test -p kanzei-app child_reply_bound_before_async_assembly --quiet",
+      "exit_code": 101,
+      "expected_assertion_failure": true,
+      "log": "output/parallel-b1/negative-child-assembly-generation.log",
+      "mutation": "equivalent former wrong behavior",
+      "log_sha256": "a0db2fb1fc0818aff8c4464bdad3e041804c70ffcf478d2f966a6af719b0653c"
+    },
+    {
+      "tag": "child-ui-routing",
+      "command": "cargo test -p kanzei-tools --lib durable_question_callbacks_do_not_revive --quiet",
+      "exit_code": 101,
+      "expected_assertion_failure": true,
+      "log": "output/parallel-b1/negative-child-ui-routing.log",
+      "mutation": "equivalent former wrong behavior",
+      "log_sha256": "3056f4d80fe06938ef9801521e9fe15fcf8dddf0876b074e4e2706665cecb9ef"
+    },
+    {
+      "tag": "stop-active-snapshot",
+      "command": "cargo test -p kanzei-tools --lib stop_all_serializes_with_a_question_callback --quiet",
+      "exit_code": 101,
+      "expected_assertion_failure": true,
+      "log": "output/parallel-b1/negative-stop-active-snapshot.log",
+      "mutation": "equivalent former wrong behavior",
+      "log_sha256": "758c79e7d4dd6230773dee47267c3afa53d0bb19c975522691b57bd5c5a5e4a4"
+    },
+    {
+      "tag": "closed-subscription",
+      "command": "cargo test -p kanzei-tools --lib immediately_rewatching_after_actor_stop --quiet",
+      "exit_code": 101,
+      "expected_assertion_failure": true,
+      "log": "output/parallel-b1/negative-closed-subscription.log",
+      "mutation": "equivalent former wrong behavior",
+      "log_sha256": "90e577ce4a792c6b85fd632b3f16aa67b9191ab71b2ebace42b6641b0b5af9e2"
+    }
+  ],
+  "negative_sources_restored_before_final_checks": true,
+  "source_mtime_refreshed_after_mutations": true
+}

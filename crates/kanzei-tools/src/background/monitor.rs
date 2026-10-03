@@ -15,6 +15,7 @@ struct Monitor {
     pattern: Option<String>,
     interval: u64,
     active: AtomicBool,
+    mailbox: AsyncMailbox,
 }
 static MONITORS: LazyLock<Mutex<HashMap<String, Arc<Monitor>>>> = LazyLock::new(Mutex::default);
 static SEQ: AtomicU64 = AtomicU64::new(1);
@@ -27,7 +28,12 @@ pub fn subscriptions(root: &std::path::Path, owner: &str) -> Vec<Value> {
         .lock()
         .unwrap()
         .values()
-        .filter(|m| m.root == root && m.owner == owner && m.active.load(Ordering::SeqCst))
+        .filter(|m| {
+            m.root == root
+                && m.owner == owner
+                && m.active.load(Ordering::SeqCst)
+                && !m.mailbox.is_closed()
+        })
         .map(|m| json!({"id":m.process,"pattern":m.pattern,"interval_secs":m.interval}))
         .collect()
 }
@@ -67,14 +73,18 @@ pub fn subscribe(
         pattern: pattern.map(str::to_owned),
         interval,
         active: AtomicBool::new(true),
+        mailbox: mailbox.clone(),
     });
     let key = key(root, owner, id);
     let serial = SEQ.fetch_add(1, Ordering::SeqCst);
     {
         let mut all = MONITORS.lock().unwrap();
-        all.retain(|_, m| m.active.load(Ordering::SeqCst));
+        all.retain(|_, m| m.active.load(Ordering::SeqCst) && !m.mailbox.is_closed());
         if let Some(old) = all.get(&key) {
-            if old.pattern == monitor.pattern && old.interval == interval {
+            if !old.mailbox.is_closed()
+                && old.pattern == monitor.pattern
+                && old.interval == interval
+            {
                 return Ok(json!({"id":id,"subscribed":true,"existing":true}));
             }
         }
@@ -140,4 +150,92 @@ pub fn subscribe(
         }
     });
     Ok(json!({"id":id,"subscribed":true,"interval_secs":interval,"pattern":pattern}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn immediately_rewatching_after_actor_stop_replaces_the_closed_subscription() {
+        let root = std::env::temp_dir().join(format!("kz-monitor-rewatch-{}", next_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let id = next_id();
+        let process = Arc::new(BackgroundProcess {
+            stdin: tokio::sync::Mutex::new(None),
+            id: id.clone(),
+            command: "test monitor".into(),
+            project_root: root.display().to_string(),
+            workdir: root.display().to_string(),
+            owner: BackgroundOwner {
+                run_id: "test".into(),
+                process_id: "actor".into(),
+                write_key: "test".into(),
+            },
+            persistent: false,
+            log_path: None,
+            full_output: Arc::new(Mutex::new(Vec::new())),
+            started_at_ms: now_ms(),
+            pid: None,
+            output: Arc::new(Mutex::new(Vec::new())),
+            output_total: Arc::new(AtomicU64::new(0)),
+            truncated: Arc::new(AtomicBool::new(false)),
+            exit: Arc::new(Mutex::new(None)),
+            baseline: Arc::new(Mutex::new(ManagedSnapshot::capture(&root))),
+            breaches: Arc::new(Mutex::new(Vec::new())),
+        });
+        registry().lock().unwrap().insert(id.clone(), process);
+        let old_mailbox = AsyncMailbox::new(|_| Ok(()));
+        subscribe(
+            &root,
+            "actor",
+            &id,
+            old_mailbox.clone(),
+            Some("ready"),
+            None,
+        )
+        .unwrap();
+        let subscription_key = key(&root, "actor", &id);
+        let old = MONITORS.lock().unwrap()[&subscription_key].clone();
+        old_mailbox.close();
+        // The current-thread executor has not polled the old task: active is still
+        // true, reproducing the real stop -> immediate user watch ordering.
+        assert!(old.active.load(Ordering::SeqCst));
+        assert!(subscriptions(&root, "actor").is_empty());
+        let current_mailbox = AsyncMailbox::new(|_| Ok(()));
+        let result = subscribe(
+            &root,
+            "actor",
+            &id,
+            current_mailbox.clone(),
+            Some("ready"),
+            None,
+        )
+        .unwrap();
+        assert_ne!(result["existing"], true);
+        let current = MONITORS.lock().unwrap()[&subscription_key].clone();
+        assert!(!Arc::ptr_eq(&old, &current));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while Arc::strong_count(&old) > 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            Arc::ptr_eq(&MONITORS.lock().unwrap()[&subscription_key], &current),
+            "old worker cleanup must preserve the replacement"
+        );
+        assert_eq!(subscriptions(&root, "actor").len(), 1);
+        current_mailbox.close();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while MONITORS.lock().unwrap().contains_key(&subscription_key) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        registry().lock().unwrap().remove(&id);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

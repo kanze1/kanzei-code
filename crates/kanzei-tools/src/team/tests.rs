@@ -6,6 +6,130 @@ use tokio::{
     net::TcpListener,
 };
 
+fn answered_question_team(owner: &str) -> AgentTeam {
+    let root = project();
+    let team = team(root.clone(), "http://127.0.0.1:9/v1", owner);
+    let job: AgentJob = serde_json::from_value(json!({
+        "id":"question-child","owner":owner,"project_dir":root,"process_id":null,
+        "name":"question-child","role":"plan","model":"fast","model_tier":"fast",
+        "prompt":"original","schema":null,"state":"done","outcome":"candidate",
+        "latest":"done","result":"result","worktree":null,"base":null,"head":null,
+        "files":[],"depends_on":[],"created_at":1,"updated_at":1,"attempt":1,"revision":1,
+        "reported":1,"messages":[],"trace":[],"trace_seq":0,"notify_on_completion":false
+    }))
+    .unwrap();
+    team.0.store.insert(&job, &[]).unwrap();
+    kanzei_harness::pending_question::save(
+        &root,
+        &json!({
+            "payload":{"id":1,"sessionId":owner,"agentId":"question-child"},
+            "callback_id":"question-callback","state":"pending"
+        }),
+    )
+    .unwrap();
+    kanzei_harness::pending_question::answer(&root, 1, "yes", "reply").unwrap();
+    team
+}
+
+fn question_notice() -> AsyncNotice {
+    AsyncNotice {
+        id: "question-callback".into(),
+        text: "answer yes".into(),
+    }
+}
+
+#[tokio::test]
+async fn durable_question_callbacks_do_not_revive_stopped_children_but_explicit_resume_does() {
+    let team = answered_question_team("question-stop-owner");
+    assert_eq!(team.resolve("question-child").unwrap().state, "done");
+    // This is the snapshot the former app precheck trusted before async assembly.
+    let snapshot = kanzei_harness::pending_question::get(&team.0.root, 1).unwrap();
+    team.stop("question-child").unwrap();
+    assert_eq!(snapshot["state"], "answered");
+    assert!(team
+        .question_reply("question-child", 1, question_notice())
+        .is_err());
+    assert!(team.0.active.lock().unwrap().is_empty());
+    assert_eq!(team.resolve("question-child").unwrap().state, "stopped");
+    team.ui_command(json!({"action":"resume","id":"question-child","prompt":"explicit new work"}))
+        .await
+        .unwrap();
+    assert!(team.0.active.lock().unwrap().contains_key("question-child"));
+    team.stop_all();
+    team.command("", json!({"action":"wait"})).await.unwrap();
+    assert!(team
+        .question_reply("question-child", 1, question_notice())
+        .is_err());
+}
+
+#[tokio::test]
+async fn current_question_reply_keeps_callback_identity_and_retries_admit_one_message() {
+    let team = answered_question_team("question-current-owner");
+    team.question_reply("question-child", 1, question_notice())
+        .unwrap();
+    team.question_reply("question-child", 1, question_notice())
+        .unwrap();
+    let job = team.resolve("question-child").unwrap();
+    assert_eq!(job.messages.len(), 1);
+    assert_eq!(job.messages[0].id, "question-callback");
+    assert_eq!(job.messages[0].from, "callback");
+    team.stop_all();
+    team.command("", json!({"action":"wait"})).await.unwrap();
+}
+
+#[tokio::test]
+async fn stop_all_serializes_with_a_question_callback_between_admission_and_launch() {
+    use std::sync::mpsc;
+    let team = answered_question_team("question-race-owner");
+    let (entered, entering) = mpsc::channel();
+    let (resume, resuming) = mpsc::channel();
+    let resuming = Mutex::new(resuming);
+    let once = std::sync::atomic::AtomicBool::new(false);
+    *team.0.event.lock().unwrap() = Some(Arc::new(move |job| {
+        if job.state == "queued"
+            && job.messages.iter().any(|m| m.from == "callback")
+            && !once.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            entered.send(()).unwrap();
+            resuming.lock().unwrap().recv().unwrap();
+        }
+    }));
+    let callback_team = team.clone();
+    let executor = tokio::runtime::Handle::current();
+    let callback = std::thread::spawn(move || {
+        let _executor = executor.enter();
+        callback_team
+            .question_reply("question-child", 1, question_notice())
+            .unwrap();
+    });
+    entering.recv().unwrap();
+    kanzei_harness::pending_question::cancel_owner(&team.0.root, &team.0.owner, None).unwrap();
+    let stopping_team = team.clone();
+    let (stopping, started) = mpsc::channel();
+    let (stopped, finished) = mpsc::channel();
+    let stop = std::thread::spawn(move || {
+        stopping.send(()).unwrap();
+        stopping_team.stop_all();
+        stopped.send(()).unwrap();
+    });
+    started.recv().unwrap();
+    // The callback owns lifecycle at a known event hook, before launch_locked.
+    let completion = finished.recv_timeout(Duration::from_millis(100));
+    resume.send(()).unwrap();
+    callback.join().unwrap();
+    stop.join().unwrap();
+    assert!(
+        matches!(completion, Err(mpsc::RecvTimeoutError::Timeout)),
+        "stop must wait for callback admission before selecting active workers"
+    );
+    assert!(team.0.active.lock().unwrap()["question-child"].is_cancelled());
+    team.command("", json!({"action":"wait"})).await.unwrap();
+    assert_eq!(team.resolve("question-child").unwrap().state, "stopped");
+    assert!(team
+        .question_reply("question-child", 1, question_notice())
+        .is_err());
+}
+
 #[tokio::test]
 async fn model_status_queries_are_small_and_history_is_explicitly_paged() {
     let team = team(project(), "http://127.0.0.1:9/v1", "summary-owner");

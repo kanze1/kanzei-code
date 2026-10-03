@@ -248,6 +248,9 @@ impl AgentTeam {
 
     pub fn stop(&self, id: &str) -> Result<()> {
         let _lifecycle = self.0.lifecycle.lock().unwrap();
+        self.stop_locked(id)
+    }
+    fn stop_locked(&self, id: &str) -> Result<()> {
         let job = self.resolve(id)?;
         kanzei_harness::pending_question::cancel_owner(
             &self.0.ctx.project_root,
@@ -279,12 +282,13 @@ impl AgentTeam {
         Ok(())
     }
     pub fn stop_all(&self) {
+        let _lifecycle = self.0.lifecycle.lock().unwrap();
         for mailbox in self.0.child_mailboxes.lock().unwrap().values() {
             mailbox.close();
         }
         let ids: Vec<_> = self.0.active.lock().unwrap().keys().cloned().collect();
         for id in ids {
-            let _ = self.stop(&id);
+            let _ = self.stop_locked(&id);
         }
     }
     fn close_child_mailbox(&self, id: &str) {
@@ -594,6 +598,28 @@ impl AgentTeam {
     pub async fn message(&self, id: &str, from: &str, text: &str) -> Result<Value> {
         self.queue_message(id, from, text, None)
     }
+    /// Durable replies are callbacks, never an explicit main-actor restart.
+    /// Re-read under the worker admission lock so stop cannot slip between this
+    /// validation and registering a new worker.
+    pub fn question_reply(&self, id: &str, question_id: u64, notice: AsyncNotice) -> Result<Value> {
+        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let record = kanzei_harness::pending_question::get(&self.0.root, question_id)
+            .map_err(anyhow::Error::msg)?;
+        if record["payload"]["sessionId"] != self.0.owner
+            || record["payload"]["agentId"] != id
+            || record["callback_id"] != notice.id
+        {
+            bail!("问题所属子任务不匹配");
+        }
+        match record["state"].as_str() {
+            Some("delivered") => {
+                return Ok(json!({"id":id,"message_id":notice.id,"state":"delivered"}))
+            }
+            Some("answered") => {}
+            _ => bail!("问题已取消或尚未回答，旧回复不能重新启动子任务"),
+        }
+        self.queue_message_locked(id, "callback", &notice.text, Some(notice.id))
+    }
     fn queue_message(
         &self,
         id: &str,
@@ -602,6 +628,15 @@ impl AgentTeam {
         message_id: Option<String>,
     ) -> Result<Value> {
         let _lifecycle = self.0.lifecycle.lock().unwrap();
+        self.queue_message_locked(id, from, text, message_id)
+    }
+    fn queue_message_locked(
+        &self,
+        id: &str,
+        from: &str,
+        text: &str,
+        message_id: Option<String>,
+    ) -> Result<Value> {
         let text = text.trim();
         if text.is_empty() {
             bail!("消息不能为空");

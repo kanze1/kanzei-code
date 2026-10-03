@@ -2,7 +2,10 @@
 use crate::{normalized_project_root, process_session_id, runtime_for, AppState};
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use serde_json::{json, Value};
-use std::{path::Path, sync::Arc};
+use std::{
+    path::Path,
+    sync::{atomic::Ordering, Arc},
+};
 use tauri::{Emitter, State, Window};
 
 #[tauri::command]
@@ -24,8 +27,49 @@ pub(crate) async fn execute(
     process_id: Option<&str>,
     input: Value,
 ) -> anyhow::Result<Value> {
+    execute_impl(window, state, project_dir, process_id, input, None).await
+}
+
+pub(crate) struct QuestionReply {
+    pub(crate) owner: String,
+    pub(crate) child: String,
+    pub(crate) question_id: u64,
+    pub(crate) generation: u64,
+    pub(crate) mailbox: kanzei_harness::AsyncMailbox,
+    pub(crate) notice: kanzei_harness::AsyncNotice,
+}
+
+pub(crate) async fn reply_to_question(
+    window: &Window,
+    state: &AppState,
+    project_dir: &str,
+    process_id: Option<&str>,
+    reply: QuestionReply,
+) -> anyhow::Result<Value> {
+    execute_impl(
+        window,
+        state,
+        project_dir,
+        process_id,
+        json!({"action":"message"}),
+        Some(reply),
+    )
+    .await
+}
+
+async fn execute_impl(
+    window: &Window,
+    state: &AppState,
+    project_dir: &str,
+    process_id: Option<&str>,
+    input: Value,
+    reply: Option<QuestionReply>,
+) -> anyhow::Result<Value> {
     let root = normalized_project_root(Path::new(project_dir));
     let owner = process_session_id(&root, process_id);
+    if reply.as_ref().is_some_and(|reply| reply.owner != owner) {
+        anyhow::bail!("问题所属对话不匹配");
+    }
     let action = input["action"].as_str().unwrap_or("list");
     let mut team = kanzei_tools::team::find(&root, &owner);
     if team.is_none() && matches!(action, "list" | "get") {
@@ -158,12 +202,18 @@ pub(crate) async fn execute(
         None
     };
     let team = team.unwrap();
-    team.set_mailbox(crate::async_mailbox::for_session(
-        window,
-        &root,
-        &owner,
-        Some(process.id.clone()),
-    ));
+    let session = runtime_for(state, &owner);
+    if let Some(reply) = &reply {
+        check_reply_generation(&session, reply.generation)?;
+        team.set_mailbox(reply.mailbox.clone());
+    } else {
+        team.set_mailbox(crate::async_mailbox::for_session(
+            window,
+            &root,
+            &owner,
+            Some(process.id.clone()),
+        ));
+    }
     team.set_ask_router(crate::run::events::build_team_ask_router(
         runtime_for(state, &owner).asks.clone(),
         state.ask_seq.clone(),
@@ -171,5 +221,43 @@ pub(crate) async fn execute(
         root,
         owner,
     ));
-    team.ui_command(input).await
+    if let Some(reply) = reply {
+        team.question_reply(&reply.child, reply.question_id, reply.notice)
+    } else {
+        team.ui_command(input).await
+    }
+}
+
+fn check_reply_generation(runtime: &crate::SessionRuntime, generation: u64) -> anyhow::Result<()> {
+    if runtime.async_generation.load(Ordering::SeqCst) != generation {
+        anyhow::bail!("原任务已停止，旧回复不能重新启动它");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn child_reply_bound_before_async_assembly_is_rejected_if_stopped_during_it() {
+        let runtime = Arc::new(crate::SessionRuntime::default());
+        let generation = runtime.async_generation.load(Ordering::SeqCst);
+        let (entered, entering) = tokio::sync::oneshot::channel();
+        let (resume, resuming) = tokio::sync::oneshot::channel();
+        let assembling = runtime.clone();
+        let reply = tokio::spawn(async move {
+            entered.send(()).unwrap();
+            resuming.await.unwrap();
+            check_reply_generation(&assembling, generation)
+        });
+        entering.await.unwrap();
+        {
+            let _lifecycle = runtime.lifecycle.lock().unwrap();
+            runtime.retire_async();
+        }
+        resume.send(()).unwrap();
+        assert!(reply.await.unwrap().is_err());
+        check_reply_generation(&runtime, runtime.async_generation.load(Ordering::SeqCst)).unwrap();
+    }
 }

@@ -1,7 +1,8 @@
-use crate::{AppState, MutexPoisonExt, PendingAsk};
+use crate::{AppState, MutexPoisonExt, PendingAsk, SessionRuntime};
 use kanzei_harness::pending_question as store;
+use kanzei_harness::AsyncMailbox;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::{path::Path, sync::atomic::Ordering};
 use tauri::{Manager, Window};
 
 pub(crate) fn persist(window: &Window, id: u64, pending: &PendingAsk) -> Result<(), String> {
@@ -73,15 +74,27 @@ pub(crate) async fn deliver(
 ) -> Result<Value, String> {
     let owner = value["payload"]["sessionId"]
         .as_str()
-        .ok_or("问题缺少原对话")?;
-    let callback = value["callback_id"].as_str().ok_or("问题缺少回调标识")?;
+        .ok_or("问题缺少原对话")?
+        .to_owned();
+    let callback = value["callback_id"]
+        .as_str()
+        .ok_or("问题缺少回调标识")?
+        .to_owned();
     let id = value["payload"]["id"].as_u64().ok_or("问题缺少标识")?;
+    let runtime = crate::runtime_for(state, &owner);
+    let prepared = prepare_reply(root, id, &owner, &callback, &runtime, |record| {
+        crate::async_mailbox::for_session_locked(
+            window,
+            root,
+            &owner,
+            record["process_id"].as_str().map(str::to_owned),
+            &runtime,
+        )
+    })?;
+    let value = prepared.record;
     let receipt = json!({"id":id,"sessionId":owner,"projectDir":root,"requestId":value["request_id"],"status":"delivered"});
     if value["state"] == "delivered" {
         return Ok(receipt);
-    }
-    if value["state"] != "answered" {
-        return Err("问题还没有回答".into());
     }
     let process = value["process_id"].as_str();
     crate::processes::registry::restore_processes_from_store_once(state, root)?;
@@ -91,16 +104,6 @@ pub(crate) async fn deliver(
     }) {
         return Err("原对话已关闭，回复已保存".into());
     }
-    let runtime = crate::runtime_for(state, owner);
-    if runtime
-        .run_generation
-        .load(std::sync::atomic::Ordering::SeqCst)
-        == 0
-    {
-        if let Ok(options) = serde_json::from_value(value["options"].clone()) {
-            *runtime.callback_options.lock_or_recover() = options;
-        }
-    }
     let reply = value["reply"].as_str().ok_or("回复记录损坏")?;
     let question = value["payload"]["question"].as_str().unwrap_or("");
     let text = if value["user_cancelled"] == true {
@@ -109,32 +112,75 @@ pub(crate) async fn deliver(
         format!("用户回答异步问题 {callback}\n原问题：{question}\n回答：{reply}")
     };
     if let Some(child) = value["payload"]["agentId"].as_str() {
-        let store =
-            kanzei_tools::team::store::TeamStore::open(root, owner).map_err(|e| e.to_string())?;
-        if matches!(
-            store.get(child).map_err(|e| e.to_string())?.state.as_str(),
-            "stopped" | "stopping"
-        ) {
-            return Err("子任务已停止，旧问题不能重新启动它；请明确续做或重新派发".into());
-        }
-        crate::agent_team::execute(
+        crate::agent_team::reply_to_question(
             window,
             state,
             &root.display().to_string(),
             process,
-            json!({"action":"message","id":child,"prompt":text,"message_id":callback}),
+            crate::agent_team::QuestionReply {
+                owner,
+                child: child.into(),
+                question_id: id,
+                generation: prepared.generation,
+                mailbox: prepared.mailbox.unwrap(),
+                notice: kanzei_harness::AsyncNotice {
+                    id: callback.clone(),
+                    text,
+                },
+            },
         )
         .await
         .map_err(|e| e.to_string())?;
     } else {
-        crate::async_mailbox::for_session(window, root, owner, process.map(str::to_owned))
+        prepared
+            .mailbox
+            .unwrap()
             .publish(kanzei_harness::AsyncNotice {
-                id: callback.into(),
+                id: callback.clone(),
                 text,
             })?;
     }
-    store::settle(root, callback, "delivered")?;
+    store::settle(root, &callback, "delivered")?;
     Ok(receipt)
+}
+
+struct PreparedReply {
+    record: Value,
+    generation: u64,
+    mailbox: Option<AsyncMailbox>,
+}
+
+fn prepare_reply(
+    root: &Path,
+    id: u64,
+    owner: &str,
+    callback: &str,
+    runtime: &SessionRuntime,
+    mailbox: impl FnOnce(&Value) -> AsyncMailbox,
+) -> Result<PreparedReply, String> {
+    // Never trust an answered snapshot held across stop/recovery. Bind the mailbox
+    // while holding the same actor lock used by stop, then publish after release.
+    let _lifecycle = runtime.lifecycle.lock_or_recover();
+    let record = store::get(root, id)?;
+    if record["payload"]["sessionId"] != owner || record["callback_id"] != callback {
+        return Err("问题归属不匹配".into());
+    }
+    match record["state"].as_str() {
+        Some("delivered") => {}
+        Some("answered") => {}
+        Some("cancelled") => return Err("问题已取消，旧回复不能重新启动任务".into()),
+        _ => return Err("问题还没有回答".into()),
+    }
+    if record["state"] == "answered" && runtime.run_generation.load(Ordering::SeqCst) == 0 {
+        if let Ok(options) = serde_json::from_value(record["options"].clone()) {
+            *runtime.callback_options.lock_or_recover() = options;
+        }
+    }
+    Ok(PreparedReply {
+        generation: runtime.async_generation.load(Ordering::SeqCst),
+        mailbox: (record["state"] == "answered").then(|| mailbox(&record)),
+        record,
+    })
 }
 pub(crate) fn roots() -> Vec<std::path::PathBuf> {
     crate::prefs::load_prefs()
@@ -163,4 +209,100 @@ pub(crate) fn recover_outbox(window: Window) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{atomic::AtomicBool, Arc};
+
+    fn project() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-durable-reply-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        store::save(&root, &json!({"payload":{"id":1,"sessionId":"owner","question":"choose"},"callback_id":"callback","state":"pending"})).unwrap();
+        root
+    }
+
+    #[test]
+    fn answered_snapshot_after_stop_cannot_create_a_new_mailbox() {
+        let root = project();
+        let snapshot = store::answer(&root, 1, "yes", "reply").unwrap();
+        let runtime = SessionRuntime::default();
+        store::cancel_owner(&root, "owner", None).unwrap();
+        {
+            let _lifecycle = runtime.lifecycle.lock_or_recover();
+            runtime.retire_async();
+        }
+        let created = AtomicBool::new(false);
+        let result = prepare_reply(
+            &root,
+            snapshot["payload"]["id"].as_u64().unwrap(),
+            "owner",
+            "callback",
+            &runtime,
+            |_| {
+                created.store(true, Ordering::SeqCst);
+                AsyncMailbox::new(|_| Ok(()))
+            },
+        );
+        assert!(result.is_err());
+        assert!(!created.load(Ordering::SeqCst));
+        assert!(runtime.async_mailbox.lock_or_recover().is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reply_bound_before_stop_keeps_the_retired_mailbox_and_delivered_retry_is_a_receipt() {
+        let root = project();
+        store::answer(&root, 1, "yes", "reply").unwrap();
+        let runtime = SessionRuntime::default();
+        let published = Arc::new(AtomicBool::new(false));
+        let delivered = published.clone();
+        let prepared = prepare_reply(&root, 1, "owner", "callback", &runtime, |_| {
+            let mailbox = AsyncMailbox::new(move |_| {
+                delivered.store(true, Ordering::SeqCst);
+                Ok(())
+            });
+            *runtime.async_mailbox.lock_or_recover() = Some(mailbox.clone());
+            mailbox
+        })
+        .unwrap();
+        store::cancel_owner(&root, "owner", None).unwrap();
+        {
+            let _lifecycle = runtime.lifecycle.lock_or_recover();
+            runtime.retire_async();
+        }
+        assert!(prepared
+            .mailbox
+            .unwrap()
+            .publish(kanzei_harness::AsyncNotice {
+                id: "callback".into(),
+                text: "yes".into()
+            })
+            .is_err());
+        assert!(!published.load(Ordering::SeqCst));
+        std::fs::remove_dir_all(&root).unwrap();
+
+        let root = project();
+        store::answer(&root, 1, "yes", "reply").unwrap();
+        let legal = prepare_reply(&root, 1, "owner", "callback", &runtime, |_| {
+            AsyncMailbox::new(|_| Ok(()))
+        })
+        .unwrap();
+        assert_eq!(legal.record["reply"], "yes");
+        store::settle(&root, "callback", "delivered").unwrap();
+        let retry = prepare_reply(&root, 1, "owner", "callback", &runtime, |_| {
+            panic!("receipt must not create a mailbox")
+        })
+        .unwrap();
+        assert!(retry.mailbox.is_none());
+        assert_eq!(retry.record["state"], "delivered");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
