@@ -1,0 +1,613 @@
+{
+  "task": "A5",
+  "baseline": "aff48f96b3c310fd83196e143541515c9a18643f",
+  "branch": "kanzei/audit-a5-schedules",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code",
+  "status": "verified_leaf_delivery",
+  "environment": {
+    "os": "Windows",
+    "node": "v22.14.0",
+    "cargo_target_dir": "C:/Users/kanzei/Documents/kanzei code/target",
+    "cargo_serial_slot_released": true
+  },
+  "repository_review_complete": false,
+  "cargo_executed": true,
+  "native_tauri_executed": false,
+  "actual_cli_executor_executed": true,
+  "push_or_release": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-app/src/schedules.rs",
+      "judgment": "P1",
+      "scope": "new full file review",
+      "sha256": "bfa7b3e9069151356513fe13886d520f05deb9d9b02dd1879cfe855592a4957c",
+      "sha256_utf8_lf": "bfa7b3e9069151356513fe13886d520f05deb9d9b02dd1879cfe855592a4957c",
+      "lines": 417
+    },
+    {
+      "path": "crates/kanzei-app/ui/24-schedules.js",
+      "judgment": "P1",
+      "scope": "reopened full file review; M0 already counted",
+      "sha256": "0853834b1a942224f7c36f2b85737223e69678554e2101a22bf63447df352040",
+      "sha256_utf8_lf": "88c33efb59103ac69450586a5cd1a6e6e22643a9981d92b7a4e6a737244c610b",
+      "lines": 117
+    }
+  ],
+  "contract_slices": [
+    {
+      "path": "crates/kanzei-tools/src/schedules/mod.rs",
+      "judgment": "P1",
+      "scope": "loader/read-parse-hash only",
+      "sha256": "1c0141b5c2d1748bda7d9335267982449be0bab4615cd594e767db02509398e6",
+      "sha256_utf8_lf": "1c0141b5c2d1748bda7d9335267982449be0bab4615cd594e767db02509398e6",
+      "lines": 793
+    },
+    {
+      "path": "crates/kanzei-tools/src/schedules/executor.rs",
+      "judgment": "P1",
+      "scope": "run_steps completed terminal only",
+      "sha256": "03fae62c21e69537fa714d3dc9874b220fa9fc0aeb55781fca9539b7c5ce4bd1",
+      "sha256_utf8_lf": "03fae62c21e69537fa714d3dc9874b220fa9fc0aeb55781fca9539b7c5ce4bd1",
+      "lines": 762
+    }
+  ],
+  "regression_files": [
+    {
+      "path": "scripts/ui-schedule-ownership-smoke.mjs",
+      "judgment": "PASS",
+      "scope": "8 actual UI module asynchronous ownership cases",
+      "sha256": "99a113f4cbe5ec9864c9a19128e29047b3dab174791e4c611733d1e443c870d1",
+      "sha256_utf8_lf": "99a113f4cbe5ec9864c9a19128e29047b3dab174791e4c611733d1e443c870d1",
+      "lines": 139
+    },
+    {
+      "path": "scripts/schedule-terminal-smoke.py",
+      "judgment": "PASS",
+      "scope": "actual CLI/public executor provider and SQLite fault fixture, accepted and rejected terminal",
+      "sha256": "209f96fb9e733ed839b3ca70f7c594ea2b9515f116339230a9675b06a7c5b272",
+      "sha256_utf8_lf": "209f96fb9e733ed839b3ca70f7c594ea2b9515f116339230a9675b06a7c5b272",
+      "lines": 189
+    }
+  ],
+  "coverage_delta": {
+    "new_full_count": 1,
+    "reopened_full_count": 1,
+    "new_full_files": [
+      "crates/kanzei-app/src/schedules.rs"
+    ],
+    "reopened_full_files": [
+      "crates/kanzei-app/ui/24-schedules.js"
+    ],
+    "slices_do_not_count_full": true
+  },
+  "roots": [
+    {
+      "severity": "P1",
+      "id": "A5-projects",
+      "condition": "showSchedules from null or an existing project reads UI prefs that have no registered project list"
+    },
+    {
+      "severity": "P1",
+      "id": "A5-ui-owner",
+      "condition": "late same-project history/save, or after fixing project source late cross-project list/run and opening receipts"
+    },
+    {
+      "severity": "P1",
+      "id": "A5-timer-owner",
+      "condition": "desktop and hidden service both start scheduler; desktop can win durable claim and own cancellable task"
+    },
+    {
+      "severity": "P1",
+      "id": "A5-read-revision",
+      "condition": "external definition B between parsed A/revision read, or old editor Some(hash) accepted after another caller deletes the definition"
+    },
+    {
+      "severity": "P1",
+      "id": "A5-terminal",
+      "condition": "only typed Completed SQLite insert rejected after actual provider/assistant succeeded; known save failure must commit Failed rather than Stopped(stopped_by_user)"
+    }
+  ],
+  "public_api_callers": {
+    "load": [
+      "app schedules::scheduler",
+      "app schedule_action(list) before refactor",
+      "CLI schedule_cli(list)"
+    ],
+    "load_with_revisions": [
+      "app list_tasks"
+    ],
+    "execute": [
+      "app schedules::spawn",
+      "CLI schedule_cli(run)"
+    ],
+    "run_steps": [
+      "tools schedules::execute"
+    ],
+    "scheduler": [
+      "app main setup"
+    ],
+    "showSchedules": [
+      "UI03-shell workbench-schedules click"
+    ]
+  },
+  "unchanged_contracts": [
+    "load signature and ordering/diagnostics",
+    "content_hash algorithm",
+    "definition filesystem and serialization",
+    "schedule_action IPC fields",
+    "Outcome serialization and database schema",
+    "TypedSessionWriter API",
+    "host registration and claim protocol"
+  ],
+  "validation": [
+    {
+      "name": "actual_ui24_modules",
+      "exit_code": 0,
+      "passed": 8,
+      "failed": 0,
+      "log": "output/audit-a5-schedules/ui-after.log"
+    },
+    {
+      "name": "exact_baseline_ui_negative",
+      "exit_code": 1,
+      "passed": 1,
+      "failed": 3,
+      "skipped": 4,
+      "failure_kind": "ERR_ASSERTION data mismatches only",
+      "log": "output/audit-a5-schedules/ui-before.log"
+    },
+    {
+      "name": "projects_source_only_stage_negative",
+      "exit_code": 1,
+      "passed": 2,
+      "failed": 6,
+      "skipped": 0,
+      "failure_kind": "ERR_ASSERTION data mismatches only",
+      "log": "output/audit-a5-schedules/ui-before-ownership.log"
+    },
+    {
+      "name": "schedule_notification",
+      "exit_code": 0,
+      "passed": 3,
+      "failed": 0,
+      "log": "output/audit-a5-schedules/notification.log"
+    },
+    {
+      "name": "scoped_eslint_ui_and_regression",
+      "exit_code": 0,
+      "log": "output/audit-a5-schedules/eslint.log"
+    },
+    {
+      "name": "ui_i18n",
+      "exit_code": 0,
+      "resource_keys": 2926,
+      "html_items": 651,
+      "dynamic_contracts": 56,
+      "log": "output/audit-a5-schedules/i18n.log"
+    },
+    {
+      "name": "browser_harness_actions",
+      "exit_code": 0,
+      "themes": [
+        "dark",
+        "light"
+      ],
+      "log": "output/audit-a5-schedules/browser-harness.log"
+    },
+    {
+      "name": "syntax",
+      "exit_code": 0,
+      "files": [
+        "crates/kanzei-app/ui/24-schedules.js",
+        "scripts/ui-schedule-ownership-smoke.mjs",
+        "scripts/schedule-terminal-smoke.py"
+      ]
+    },
+    {
+      "name": "standalone_scoped_rustfmt",
+      "exit_code": 0,
+      "children_skipped": true
+    },
+    {
+      "name": "git_diff_check",
+      "exit_code": 0
+    },
+    {
+      "name": "app_schedules_old_logic_negative",
+      "exit_code": 101,
+      "passed": 2,
+      "failed": 3,
+      "failure_kind": "actual Rust assertion/data mismatches; not compilation failure",
+      "log": "output/audit-a5-schedules/app-before.log"
+    },
+    {
+      "name": "app_schedules_after",
+      "exit_code": 0,
+      "passed": 5,
+      "failed": 0,
+      "log": "output/audit-a5-schedules/app-after.log"
+    },
+    {
+      "name": "tools_schedules_after",
+      "exit_code": 0,
+      "passed": 10,
+      "failed": 0,
+      "log": "output/audit-a5-schedules/tools-after.log"
+    },
+    {
+      "name": "actual_cli_void_terminal_negative",
+      "exit_code": 1,
+      "failed": 1,
+      "failure_kind": "actual outcome.ok assertion: exit0/oktrue/completed0/stopped1/failed0/successful writeback",
+      "log": "output/audit-a5-schedules/terminal-final-before.log",
+      "evidence": "output/audit-a5-schedules/terminal-final-before.json"
+    },
+    {
+      "name": "actual_cli_stopped_fact_negative",
+      "exit_code": 1,
+      "failed": 1,
+      "failure_kind": "actual failed_facts assertion: outcome already false, failed0/stopped1",
+      "log": "output/audit-a5-schedules/terminal-stopped-before.log",
+      "evidence": "output/audit-a5-schedules/terminal-stopped-before.json"
+    },
+    {
+      "name": "actual_cli_accepted_and_rejected_terminal_after",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "log": "output/audit-a5-schedules/terminal-after.log",
+      "evidence": "output/audit-a5-schedules/terminal-after.json"
+    },
+    {
+      "name": "related_three_packages_all_targets_check",
+      "exit_code": 0,
+      "packages": [
+        "kanzei-tools",
+        "kanzei-app",
+        "kanzei"
+      ],
+      "log": "output/audit-a5-schedules/check.log"
+    },
+    {
+      "name": "related_three_packages_all_targets_clippy_D_warnings",
+      "exit_code": 0,
+      "log": "output/audit-a5-schedules/clippy.log"
+    },
+    {
+      "name": "related_three_packages_cargo_fmt_check",
+      "exit_code": 0,
+      "log": "output/audit-a5-schedules/fmt.log"
+    }
+  ],
+  "negative_scope_note": "No B option exists in exact original UI. Cross-project/opening cases use only projects_get source repair before replaying original ownership logic. Closed late list baseline is PASS.",
+  "pending": [],
+  "limitations": [
+    "no native Tauri multi-window close fixture",
+    "no actual Windows/SSH host registration"
+  ],
+  "artifacts": [
+    "docs/reviews/file-audit-2026-10-03/parallel/A5.md",
+    "docs/reviews/file-audit-2026-10-03/parallel/A5-map.md"
+  ],
+  "fixture_failures_not_product_negatives": [
+    {
+      "log": "output/audit-a5-schedules/terminal-fixture-attempt1.log",
+      "exit_code": 1,
+      "reason": "provider accept timed out; malformed fixture markdown field timeout_secs"
+    },
+    {
+      "log": "output/audit-a5-schedules/terminal-fixture-attempt2.log",
+      "exit_code": 1,
+      "reason": "child error proves unknown markdown field timeout_secs; changed to actual timeout: 30s contract"
+    }
+  ],
+  "actual_terminal_results": [
+    {
+      "scenario": "accept",
+      "exit_code": 0,
+      "outcome_ok": true,
+      "outcome_error": null,
+      "session_status": "completed",
+      "completed_facts": 1,
+      "assistant_facts": 1,
+      "stopped_facts": 0,
+      "failed_facts": 0,
+      "failed_payloads": [],
+      "run_receipts": [
+        {
+          "ok": true,
+          "error": null
+        }
+      ],
+      "file_text": "done",
+      "writeback": [
+        {
+          "channel": "notify",
+          "detail": "已保存通知",
+          "ok": true
+        },
+        {
+          "channel": "file:result.txt",
+          "detail": "\\\\?\\C:\\Users\\kanzei\\AppData\\Local\\Temp\\kz-schedule-terminal-w9y118jl\\project\\result.txt",
+          "ok": true
+        }
+      ],
+      "stderr": "2026-10-03T08:16:54.341420Z  WARN kanzei_core::runner::drive::context_budget: provider 无已知 context_limit,按保守默认 32k 做轮内预算; 撞墙前的主动压缩只降级不终止(第三次 overflow 仍会被动终止)\n"
+    },
+    {
+      "scenario": "reject",
+      "exit_code": 1,
+      "outcome_ok": false,
+      "outcome_error": "定时任务完成状态保存失败：sqlite error: injected schedule terminal rejection",
+      "session_status": "failed",
+      "completed_facts": 0,
+      "assistant_facts": 1,
+      "stopped_facts": 0,
+      "failed_facts": 1,
+      "failed_payloads": [
+        {
+          "fact": {
+            "error": "定时任务完成状态保存失败：sqlite error: injected schedule terminal rejection",
+            "kind": "turn_failed"
+          },
+          "format_version": 1,
+          "step_id": null,
+          "turn_id": "sched-terminal-1791015414440406700"
+        }
+      ],
+      "run_receipts": [
+        {
+          "ok": false,
+          "error": "定时任务完成状态保存失败：sqlite error: injected schedule terminal rejection"
+        }
+      ],
+      "file_text": "original committed output",
+      "writeback": [
+        {
+          "channel": "notify",
+          "detail": "已保存通知",
+          "ok": true
+        },
+        {
+          "channel": "file:result.txt",
+          "detail": "运行未成功，保留已有文件和记录",
+          "ok": false
+        }
+      ],
+      "stderr": "2026-10-03T08:16:54.479797Z  WARN kanzei_core::runner::drive::context_budget: provider 无已知 context_limit,按保守默认 32k 做轮内预算; 撞墙前的主动压缩只降级不终止(第三次 overflow 仍会被动终止)\nError: 任务运行失败：定时任务完成状态保存失败：sqlite error: injected schedule terminal rejection\n"
+    }
+  ],
+  "actual_terminal_void_negative": [
+    {
+      "scenario": "reject",
+      "exit_code": 0,
+      "outcome_ok": true,
+      "outcome_error": null,
+      "session_status": "completed",
+      "completed_facts": 0,
+      "assistant_facts": 1,
+      "stopped_facts": 1,
+      "failed_facts": 0,
+      "failed_payloads": [],
+      "run_receipts": [
+        {
+          "ok": true,
+          "error": null
+        }
+      ],
+      "file_text": "done",
+      "writeback": [
+        {
+          "channel": "notify",
+          "detail": "已保存通知",
+          "ok": true
+        },
+        {
+          "channel": "file:result.txt",
+          "detail": "\\\\?\\C:\\Users\\kanzei\\AppData\\Local\\Temp\\kz-schedule-terminal-nfe5akcl\\project\\result.txt",
+          "ok": true
+        }
+      ],
+      "stderr": "2026-10-03T08:16:31.794439Z  WARN kanzei_core::runner::drive::context_budget: provider 无已知 context_limit,按保守默认 32k 做轮内预算; 撞墙前的主动压缩只降级不终止(第三次 overflow 仍会被动终止)\n"
+    }
+  ],
+  "actual_terminal_stopped_negative": [
+    {
+      "scenario": "reject",
+      "exit_code": 1,
+      "outcome_ok": false,
+      "outcome_error": "定时任务完成状态保存失败：sqlite error: injected schedule terminal rejection",
+      "session_status": "failed",
+      "completed_facts": 0,
+      "assistant_facts": 1,
+      "stopped_facts": 1,
+      "failed_facts": 0,
+      "failed_payloads": [],
+      "run_receipts": [
+        {
+          "ok": false,
+          "error": "定时任务完成状态保存失败：sqlite error: injected schedule terminal rejection"
+        }
+      ],
+      "file_text": "original committed output",
+      "writeback": [
+        {
+          "channel": "notify",
+          "detail": "已保存通知",
+          "ok": true
+        },
+        {
+          "channel": "file:result.txt",
+          "detail": "运行未成功，保留已有文件和记录",
+          "ok": false
+        }
+      ],
+      "stderr": "2026-10-03T08:15:59.718228Z  WARN kanzei_core::runner::drive::context_budget: provider 无已知 context_limit,按保守默认 32k 做轮内预算; 撞墙前的主动压缩只降级不终止(第三次 overflow 仍会被动终止)\nError: 任务运行失败：定时任务完成状态保存失败：sqlite error: injected schedule terminal rejection\n"
+    }
+  ],
+  "negative_source_restoration": {
+    "app": {
+      "path": "crates/kanzei-app/src/schedules.rs",
+      "fixed_sha256": "bfa7b3e9069151356513fe13886d520f05deb9d9b02dd1879cfe855592a4957c",
+      "negative_sha256": "b3ccb424565a085836272787e1a19a307e8eacd3ce3a0bc6124cf995b13e05d7",
+      "restored": true,
+      "restored_sha256": "bfa7b3e9069151356513fe13886d520f05deb9d9b02dd1879cfe855592a4957c",
+      "restored_mtime_ns": 1791015035147632600
+    },
+    "executor": {
+      "path": "crates/kanzei-tools/src/schedules/executor.rs",
+      "fixed_sha256": "03fae62c21e69537fa714d3dc9874b220fa9fc0aeb55781fca9539b7c5ce4bd1",
+      "negative_sha256": "ad1b92009438d92b0d14e92558d686e1a56245beaa5db631ecef8d9bec97f8b8",
+      "restored": true,
+      "restored_sha256": "03fae62c21e69537fa714d3dc9874b220fa9fc0aeb55781fca9539b7c5ce4bd1",
+      "restored_mtime_ns": 1791015393802562700
+    }
+  },
+  "restored_sources_recompiled": {
+    "app": "output/audit-a5-schedules/app-after.log",
+    "executor_and_cli": "output/audit-a5-schedules/cli-build-after.log"
+  },
+  "log_artifact_hashes": [
+    {
+      "path": "output/audit-a5-schedules/after.log",
+      "sha256": "820c6549f5e8c69d2f00694c7b1ab353bd93cfd011c9a63df43aa0ad49d2c528"
+    },
+    {
+      "path": "output/audit-a5-schedules/app-after.log",
+      "sha256": "29093f83921526aaa98449b61bd247e8810767c08825a95283d8e1a546702760"
+    },
+    {
+      "path": "output/audit-a5-schedules/app-before.log",
+      "sha256": "d75fe35c44fff8edd7be0702a7a228c9bf04adeb1f1d38699d000f04971f1c5d"
+    },
+    {
+      "path": "output/audit-a5-schedules/before-ownership.log",
+      "sha256": "6cbd3196785e30458e971781ec54891f291c78a7dc47a3ba841daffa48e4cfca"
+    },
+    {
+      "path": "output/audit-a5-schedules/before.log",
+      "sha256": "64a10c7152646de5d87d7b0c60189d82b1e3a782b01b0905ba29288a9068ff84"
+    },
+    {
+      "path": "output/audit-a5-schedules/browser-harness.log",
+      "sha256": "4c634597ba6346854bc11d925c992b87a16868542d41184301621a1c41cb98b4"
+    },
+    {
+      "path": "output/audit-a5-schedules/check.log",
+      "sha256": "2ac5c933ed5ebe0854d5f9083b9ff194ea7fdc857c9411f3caf86bcd67fe5aee"
+    },
+    {
+      "path": "output/audit-a5-schedules/cli-build-after.log",
+      "sha256": "b46b4a010d75f17ef147578f082a27494d22988f15af523c8fcc7f5a75b234b9"
+    },
+    {
+      "path": "output/audit-a5-schedules/cli-build-before.log",
+      "sha256": "258c64d87cb288ad63e6bb5e1faac30c76c4182c61fa27befe7824ff8f653dc0"
+    },
+    {
+      "path": "output/audit-a5-schedules/cli-build-final-before.log",
+      "sha256": "bf01a58e99c40e7d4a19a8fd762380f4afd660e525ed4b0f96b3b21ee62c4912"
+    },
+    {
+      "path": "output/audit-a5-schedules/clippy.log",
+      "sha256": "4d201344b42c1739f60749c7e84220c3c2d001e0e159cd6a42033c2776738dd5"
+    },
+    {
+      "path": "output/audit-a5-schedules/eslint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "output/audit-a5-schedules/fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "output/audit-a5-schedules/i18n.log",
+      "sha256": "54fd7e9af48f838587bc8d286e2928158a9a8ab0481d6303d2e4c523ffceade3"
+    },
+    {
+      "path": "output/audit-a5-schedules/notification.log",
+      "sha256": "832859148197ae0594c75ba478df3b6626e31e98af648cc4858af04ab97a1fae"
+    },
+    {
+      "path": "output/audit-a5-schedules/rust-control-hashes.json",
+      "sha256": "760659d3ed4b291a2fd166dabdffc10335e3fad97031885385a33fda8f074c34"
+    },
+    {
+      "path": "output/audit-a5-schedules/rust-restoration-initial.json",
+      "sha256": "a73f89c45f8b8a6bc0a6151dff8b2d024788f8473def461dad8a63987f9825b9"
+    },
+    {
+      "path": "output/audit-a5-schedules/rust-restoration.json",
+      "sha256": "9f842cfeaeb08c25647632b5e54cd9af7d08a7a65eab7c72c542ae1783bdf0b6"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-after.json",
+      "sha256": "a184ff017f32e3515d52dba9afa25459ea22a2b333bb031e61698b8327ee36d0"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-after.log",
+      "sha256": "93647534f684073ec33286a5a31d7bd565b5893df5291fb75bd8196ffb18a905"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-before.json",
+      "sha256": "d486a3263f7797865d56318ac1e87aa43b5c179e843f48191b0265b89bb307ef"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-before.log",
+      "sha256": "58dcc7992dca2f205d8c3e7ddde816a3df9ff700e2b3916211373069e6a40a5c"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-final-before.json",
+      "sha256": "634f6a2d05b3ba3ccb5f15009ef70dd23b4e84b616234eac0153d80ee324d015"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-final-before.log",
+      "sha256": "983f3e3ee04771c1baabdafbbf01321e627797298ca8766e81c4cc00911ca99c"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-fixture-attempt1.log",
+      "sha256": "26955f6c4b3d08c51a1ccaad6e6d530be4ad17aba42e06b74a6e798f0e256c52"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-fixture-attempt2.log",
+      "sha256": "8a6e638ed03a9aad3cd07adf2bed8ec54167f7fa60cfddffbf19f8b103becc04"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-initial-after.json",
+      "sha256": "489445d6c576f00f8e3dfb8852e0ffac61ebdcd293f0b11910ad6d30e6a6ea19"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-initial-after.log",
+      "sha256": "105feba154a5a0ed9582e25314c0d0c1039df87868814f77ffbf6ca577e96371"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-stopped-before.json",
+      "sha256": "545f2a3248a273151b081d1a40ec553dd136ba2af10cb67c5510bc9eb9f1fbab"
+    },
+    {
+      "path": "output/audit-a5-schedules/terminal-stopped-before.log",
+      "sha256": "d37b3791b20bd4505d40ef5fc54d3d751e79fefa00956f7283c2a3254a0ff6dc"
+    },
+    {
+      "path": "output/audit-a5-schedules/tools-after.log",
+      "sha256": "50c511c017760c0329db5c3ac0da1d03145878377f3c3f7cd5810ac155692db9"
+    },
+    {
+      "path": "output/audit-a5-schedules/ui-after.log",
+      "sha256": "60c7ea117a6223cc408461d9c2b89d396a4473b2842ed6fb254200e6a4fcbced"
+    },
+    {
+      "path": "output/audit-a5-schedules/ui-before-ownership.log",
+      "sha256": "665ad7eec330a36ef2655fcee21b0974fa027b40713fafd4048c58df7d928ac3"
+    },
+    {
+      "path": "output/audit-a5-schedules/ui-before.log",
+      "sha256": "70db1a3978f7ad4ffd0ab2b72e9f4005d2956856dc0dd467e63486ac82047ac8"
+    }
+  ],
+  "leaf_delivery": {
+    "file_count": 9,
+    "commit_resolution": "Git commit containing this report; no push or release",
+    "whole_workspace_validation_owner": "root integration"
+  }
+}

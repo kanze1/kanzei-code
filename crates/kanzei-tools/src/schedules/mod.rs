@@ -338,6 +338,17 @@ pub fn set_enabled(text: &str, enabled: bool) -> String {
     out
 }
 pub fn load(root: &Path) -> (Vec<ScheduleDef>, Vec<Diagnostic>) {
+    let (definitions, diagnostics) = load_with_revisions(root);
+    (
+        definitions
+            .into_iter()
+            .map(|(definition, _)| definition)
+            .collect(),
+        diagnostics,
+    )
+}
+/// Pair the parsed definition with the fingerprint of the same bytes.
+pub fn load_with_revisions(root: &Path) -> (Vec<(ScheduleDef, String)>, Vec<Diagnostic>) {
     let mut definitions = vec![];
     let mut diagnostics = vec![];
     let Ok(entries) = std::fs::read_dir(root.join(".kanzei/schedules")) else {
@@ -357,13 +368,14 @@ pub fn load(root: &Path) -> (Vec<ScheduleDef>, Vec<Diagnostic>) {
                 line: 1,
                 message: error.to_string(),
             })
-            .and_then(|text| parse(&text, &stem))
-        {
+            .and_then(|text| {
+                parse(&text, &stem).map(|def| (def, kanzei_base::content_hash(text.as_bytes())))
+            }) {
             Ok(def) => definitions.push(def),
             Err(error) => diagnostics.push(error),
         }
     }
-    definitions.sort_by(|a, b| a.name.cmp(&b.name));
+    definitions.sort_by(|a, b| a.0.name.cmp(&b.0.name));
     (definitions, diagnostics)
 }
 pub fn history_id(root: &Path) -> String {

@@ -1,5 +1,5 @@
 import { openDialog, closeSurface } from "./00-surface.js";
-import { invoke, on, uiPrefsLoad } from "./01-core.js";
+import { invoke, on } from "./01-core.js";
 import { currentProject, toast, toastError } from "./03-shell.js";
 import { t } from "./02-i18n.js";
 import { isGeneralChat } from "./03-general-scope.js";
@@ -18,19 +18,27 @@ function select(options, value) {
   for (const [key, label] of options) { const option = element("option", t(label)); option.value = key; node.appendChild(option); }
   node.value = value; return node;
 }
+let schedulesGeneration = 0;
 export async function showSchedules() {
-  const prefs = await uiPrefsLoad(); const projects = prefs?.projects || [];
+  const opening = ++schedulesGeneration;
+  const initialProject = currentProject;
+  const prefs = await invoke("projects_get"); const projects = prefs?.projects || [];
+  if (opening !== schedulesGeneration) return;
   const dialog = document.getElementById("schedules-overlay"); dialog.replaceChildren(); dialog.setAttribute("aria-label", t("定时任务"));
   const header = element("div", "", "schedule-header"), title = element("h2", t("定时任务"));
-  const project = select([...new Set([currentProject, ...projects].filter(Boolean))].map(path => [path, isGeneralChat(path) ? t("无项目对话") : path]), currentProject || projects[0]);
+  const project = select([...new Set([initialProject, ...projects].filter(Boolean))].map(path => [path, isGeneralChat(path) ? t("无项目对话") : path]), initialProject || projects[0]);
   project.setAttribute("aria-label", t("项目"));
   header.append(title, project, control("关闭", () => closeSurface(dialog)));
   const content = element("div", "", "schedule-content"); dialog.append(header, content);
-  const call = (action, args = {}) => invoke("schedule_action", { projectDir: project.value, action, ...args });
+  let viewGeneration = 0;
+  const isCurrent = (view, target) => opening === schedulesGeneration && view === viewGeneration && project.value === target;
+  const call = (action, args = {}, target = project.value) => invoke("schedule_action", { projectDir: target, action, ...args });
   const reload = async () => {
+    const view = ++viewGeneration, target = project.value;
     content.replaceChildren();
     if (!project.value) { content.appendChild(element("p", t("请先添加项目"))); return; }
-    const payload = await call("list");
+    const payload = await call("list", {}, target);
+    if (!isCurrent(view, target)) return;
     const toolbar = element("div", "", "schedule-header"); toolbar.append(control("新建定时任务", () => edit(null)), control("刷新", reload)); content.appendChild(toolbar);
     for (const diagnostic of payload?.diagnostics || []) content.appendChild(element("p", `${diagnostic.file}:${diagnostic.line} ${diagnostic.message}`, "schedule-error"));
     const tasks = payload?.tasks || [];
@@ -42,17 +50,22 @@ export async function showSchedules() {
       const detail = element("p", `${def.enabled ? t("已启用") : t("已停用")} · ${def.when} · ${def.host} · ${t("下次运行")} ${new Date(item.next_ms).toLocaleString()}`);
       const result = element("p", last ? `${last.ok ? "✓" : "✗"} ${last.summary} · ${Math.round(last.duration_ms / 1000)}s` : t("尚未运行"));
       const actions = element("div", "", "schedule-actions");
-      actions.append(control(def.enabled ? "停用" : "启用", async () => { await call("toggle", { name: def.name, expectedHash: item.revision, enabled: !def.enabled }); await reload(); }), control("立即运行", async () => { await call("run", { name: def.name }); toast(t("任务已排队，结果见运行历史")); }), control("编辑", () => edit(item)), control("运行历史", async () => history(def.name)), control("删除", async () => { await call("delete", { name: def.name, expectedHash: item.revision }); await reload(); }));
+      actions.append(control(def.enabled ? "停用" : "启用", async () => { await call("toggle", { name: def.name, expectedHash: item.revision, enabled: !def.enabled }, target); if (isCurrent(view, target)) await reload(); }), control("立即运行", async () => { await call("run", { name: def.name }, target); toast(t("任务已排队，结果见运行历史")); }), control("编辑", () => { if (isCurrent(view, target)) edit(item); }), control("运行历史", async () => { if (isCurrent(view, target)) await history(def.name, target); }), control("删除", async () => { await call("delete", { name: def.name, expectedHash: item.revision }, target); if (isCurrent(view, target)) await reload(); }));
       row.append(heading, detail, result, actions); content.appendChild(row);
     }
   };
-  const history = async name => {
-    const events = await call("history", { name }); content.replaceChildren(control("返回", reload), element("h3", name));
+  const history = async (name, target) => {
+    const view = ++viewGeneration;
+    content.replaceChildren(control("返回", reload), element("h3", name));
+    const events = await call("history", { name }, target);
+    if (!isCurrent(view, target)) return;
+    content.replaceChildren(control("返回", reload), element("h3", name));
     for (const event of events || []) {
       const row = element("details"); row.appendChild(element("summary", `${event.type} · ${event.data.summary || event.data.reason || event.data.run_id || ""}`));
       row.appendChild(element("pre", JSON.stringify(event.data, null, 2)));
       if (event.type === "schedule.run_finished" && event.data.run_id) row.appendChild(control("查看完整对话", async () => {
-        const response = await invoke("conversation_get", { projectDir: project.value, processId: event.data.run_id, sequence: null });
+        const response = await invoke("conversation_get", { projectDir: target, processId: event.data.run_id, sequence: null });
+        if (!isCurrent(view, target)) return;
         const messages = Array.isArray(response) ? response : response?.messages || [];
         const transcript = element("div", "", "schedule-transcript");
         for (const message of messages) { transcript.appendChild(element("h4", message.role)); for (const part of message.parts || []) transcript.appendChild(element("pre", part.text || part.content || JSON.stringify(part))); }
@@ -62,6 +75,7 @@ export async function showSchedules() {
     }
   };
   const edit = item => {
+    const view = ++viewGeneration, target = project.value;
     const def = item?.definition || { name: "", enabled: true, when: "每天 09:00", host: "app", catch_up: "once", agent: isGeneralChat(project.value) ? "general" : "readonly", model: "primary", timeout_secs: 1800, max_steps: 32, steps: [{ prompt: "" }], writeback: ["notify"], body: "" };
     content.replaceChildren(control("返回", reload), element("h3", t(item ? "编辑定时任务" : "新建定时任务")));
     const form = element("form", "", "schedule-editor");
@@ -90,14 +104,14 @@ export async function showSchedules() {
     const file = input(def.writeback.find(channel => channel.startsWith("file:"))?.slice(5) || ""); channels.appendChild(field("回写文件（相对项目，可留空）", file)); form.appendChild(channels);
     const save = element("button", t("保存")); save.type = "submit"; form.appendChild(save);
     form.addEventListener("submit", event => {
-      event.preventDefault(); save.disabled = true;
+      event.preventDefault(); if (!isCurrent(view, target)) return; save.disabled = true;
       const when = kind.value === "minutes" ? `每 ${interval.value} 分钟` : kind.value === "hours" ? `每 ${interval.value} 小时` : kind.value === "weekly" ? `每周${day.value} ${at.value}` : `${kind.value === "weekdays" ? "工作日" : "每天"} ${at.value}`;
       const definition = { ...def, name: name.value, enabled: enabled.checked, when, host: host.value === "server" ? `server:${environment.value}` : host.value, agent: agent.value, model: model.value, catch_up: catchup.value, timeout_secs: Number(timeout.value) * 60, max_steps: Number(stepsLimit.value), steps: [...steps.children].map(row => ({ [row.querySelector("select").value]: row.querySelector("textarea").value })), writeback: [...checked].filter(([, checkbox]) => checkbox.checked).map(([key]) => key).concat(file.value.trim() ? [`file:${file.value.trim()}`] : []) };
-      void call("save", { name: definition.name, definition, expectedHash: item?.revision || null }).then(reload).catch(error => { toastError(String(error)); save.disabled = false; });
+      void call("save", { name: definition.name, definition, expectedHash: item?.revision || null }, target).then(() => { if (isCurrent(view, target)) return reload(); }).catch(error => { toastError(String(error)); if (isCurrent(view, target)) save.disabled = false; });
     });
     content.appendChild(form);
   };
   project.addEventListener("change", () => { void reload().catch(error => toastError(String(error))); });
-  openDialog(dialog, { onClose: () => dialog.replaceChildren() }); await reload();
+  openDialog(dialog, { onClose: () => { schedulesGeneration += 1; dialog.replaceChildren(); } }); await reload();
 }
 on("kz:schedule-run", ({ payload }) => { if (payload.notify) toast(payload.error || `${payload.name}: ${payload.result?.summary || t("已完成")}`); });

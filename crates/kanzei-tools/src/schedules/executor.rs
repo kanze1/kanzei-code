@@ -532,10 +532,15 @@ async fn run_steps(
             }
         }
     }
-    writer
-        .lock()
-        .unwrap()
-        .finish(SessionTurnTerminal::Completed);
+    {
+        let mut terminal = writer.lock().unwrap();
+        terminal.finish(SessionTurnTerminal::Completed);
+        if !terminal.is_terminal() {
+            let error = format!("定时任务完成状态保存失败：{}", terminal.errors().join("；"));
+            terminal.finish(SessionTurnTerminal::Failed(error.clone()));
+            return Err(error);
+        }
+    }
     Ok(previous)
 }
 #[allow(clippy::too_many_arguments)]
