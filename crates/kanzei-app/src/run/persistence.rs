@@ -131,7 +131,7 @@ impl std::fmt::Display for RoundOutcomeNotCommitted {
     }
 }
 
-fn uncommitted_outcome(error: anyhow::Error) -> anyhow::Error {
+pub(super) fn uncommitted_outcome(error: anyhow::Error) -> anyhow::Error {
     let message = error.to_string();
     error.context(RoundOutcomeNotCommitted(message))
 }
@@ -234,7 +234,7 @@ pub(crate) fn persist_round_outcome(
     )
 }
 
-fn commit_outcome(
+pub(super) fn commit_outcome(
     writer: &Arc<Mutex<typed_events::TypedEventWriter>>,
     input_id: &str,
     terminal: typed_events::TerminalFact,

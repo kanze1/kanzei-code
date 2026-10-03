@@ -761,6 +761,7 @@ pub(crate) fn schedule_run(
                         auto_allow,
                     },
                     RuntimeHandles {
+                        lifecycle: lifecycle.clone(),
                         asks: asks.clone(),
                         ask_seq: ask_seq.clone(),
                         collaboration_probe: collaboration_probe.clone(),

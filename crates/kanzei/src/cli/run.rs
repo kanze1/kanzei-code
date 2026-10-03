@@ -58,6 +58,45 @@ fn cli_projection_gate_enabled(path: &str) -> bool {
     }
 }
 
+fn commit_cli_user(
+    writer: &Mutex<kanzei_core::TypedSessionWriter>,
+    input_id: &str,
+    message: kanzei_llm::Message,
+) -> anyhow::Result<()> {
+    let mut writer = writer.lock().unwrap();
+    if writer.user_message(input_id, message) {
+        return Ok(());
+    }
+    let reason = format!(
+        "CLI 用户输入未持久化: {}",
+        writer
+            .errors()
+            .last()
+            .map(String::as_str)
+            .unwrap_or("用户事实提交被拒绝")
+    );
+    let committed = writer.finish_with_input_outcome(
+        input_id,
+        kanzei_core::SessionTurnTerminal::Failed(reason.clone()),
+        &serde_json::json!({"stage":"admission", "error":reason}),
+    );
+    anyhow::bail!(
+        "{reason}{}",
+        if committed {
+            String::new()
+        } else {
+            format!(
+                "；失败收尾未提交: {}",
+                writer
+                    .errors()
+                    .last()
+                    .map(String::as_str)
+                    .unwrap_or("失败结果提交被拒绝")
+            )
+        }
+    );
+}
+
 fn recover_cli_legacy_segment(
     store: &kanzei_core::SessionStore,
     session_id: &str,
@@ -309,10 +348,11 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let typed_writer = Arc::new(Mutex::new(execution_owner.writer(&run_id)));
     // prior 必须在当前轮 user fact 写入前恢复；否则 projection 会把本轮输入再喂给 runner。
     let prior = recover_cli_prior(&store, &session_id)?;
-    typed_writer
-        .lock()
-        .unwrap()
-        .user_message(&promoted.input_id, kanzei_llm::Message::user_text(&prompt));
+    commit_cli_user(
+        &typed_writer,
+        &promoted.input_id,
+        kanzei_llm::Message::user_text(&prompt),
+    )?;
     let run_started = std::time::Instant::now();
     // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
     // 先于 episode 落库,只能靠时间窗归因到本轮)。

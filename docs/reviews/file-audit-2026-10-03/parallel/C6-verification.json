@@ -1,0 +1,875 @@
+{
+  "package": "C6",
+  "started_baseline": "28265223acae1788bd550d6621bef636765e9f87",
+  "validated_baseline": "28265223acae1788bd550d6621bef636765e9f87",
+  "branch": "kanzei/audit-c6-startup-outcomes",
+  "status": "verified",
+  "full_review_files": [
+    "crates/kanzei-app/src/run/assembly.rs"
+  ],
+  "necessary_slices": [
+    "crates/kanzei-app/src/commands/run.rs",
+    "crates/kanzei-app/src/run/persistence.rs",
+    "crates/kanzei-core/src/store/typed.rs",
+    "crates/kanzei-tools/src/schedules/executor.rs",
+    "crates/kanzei/src/cli/run.rs"
+  ],
+  "new_regression_fixtures": [
+    "scripts/startup-admission-smoke.py"
+  ],
+  "source_file_count": 6,
+  "fixture_file_count": 1,
+  "report_file_count": 3,
+  "full_coverage_added": 1,
+  "slice_coverage_added": 0,
+  "new_source_inventory_added": 0,
+  "bugs": {
+    "P0": 0,
+    "P1": 3,
+    "P2": 0
+  },
+  "independent_root_causes": [
+    "startup_input_identity_and_atomic_failure_outcome",
+    "durable_initial_user_admission_ack",
+    "schedule_subsequent_prompt_is_steering"
+  ],
+  "new_tests": {
+    "rust": 8,
+    "app_startup": 7,
+    "core_user_ack": 1,
+    "native_scenarios": 7
+  },
+  "related_full_tests": {
+    "core": {
+      "passed": 417,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 0
+    },
+    "app": {
+      "passed": 589,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 0
+    },
+    "tools": {
+      "passed": 784,
+      "failed": 0,
+      "ignored": 3,
+      "measured": 0,
+      "filtered_out": 0
+    },
+    "cli": {
+      "passed": 100,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 0
+    }
+  },
+  "related_full_tests_total": {
+    "passed": 1890,
+    "failed": 0,
+    "ignored": 3
+  },
+  "app_full_then_equivalent_lint_cleanup": "589 full passed; only redundant borrow/Option closure adjusted afterwards; final startup7/check/Clippy all passed",
+  "checks": [
+    {
+      "name": "initial-core-user-ack",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-core",
+        "user_admission_ack_reports_sql_rejection_and_allows_exact_retry",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 21.27,
+      "log": "output/C6/initial-core-user-ack.log",
+      "log_sha256": "29a26052c2eb949fabb5011dbc1a35b21252cdceb0e7d36c31969c9570470629",
+      "observed_at": "2026-10-03T18:27:11.354898"
+    },
+    {
+      "name": "initial-app-startup",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-app",
+        "startup_",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "expected_exit": 0,
+      "seconds": 27.27,
+      "log": "output/C6/initial-app-startup.log",
+      "log_sha256": "dbaa303d7c885b339ba15bbb855d0a5dcdf6ccb0e605689761a3f95264ca1ef2",
+      "observed_at": "2026-10-03T18:27:38.624811"
+    },
+    {
+      "name": "fixture-fixed-core-user-ack",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-core",
+        "user_admission_ack_reports_sql_rejection_and_allows_exact_retry",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 11.46,
+      "log": "output/C6/fixture-fixed-core-user-ack.log",
+      "log_sha256": "936a98a2053730614836f049dbab4809bd5ccc34f5d858b44b1b438ffd383769",
+      "observed_at": "2026-10-03T18:28:12.594673"
+    },
+    {
+      "name": "fixture-fixed-app-startup",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-app",
+        "startup_",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 42.66,
+      "log": "output/C6/fixture-fixed-app-startup.log",
+      "log_sha256": "cbee20fbccf151b8da56b492f5fe84a06c5090603bf433d1c100a4517dc3b339",
+      "observed_at": "2026-10-03T18:28:55.260668"
+    },
+    {
+      "name": "old-startup-rust",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-app",
+        "startup_",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "expected_exit": 101,
+      "seconds": 42.65,
+      "log": "output/C6/old-startup-rust.log",
+      "log_sha256": "eb2ac78ef63dd9d05f329769874ecb776528f78c2a4d39100ac9c535a9394dc3",
+      "observed_at": "2026-10-03T18:30:17.023342"
+    },
+    {
+      "name": "old-admission-rust",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-app",
+        "startup_user_rejection_never_reaches_real_provider",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "expected_exit": 101,
+      "seconds": 36.56,
+      "log": "output/C6/old-admission-rust.log",
+      "log_sha256": "620f401b3d57b3c707f3a41b94b1cd867e0c0847bfe6cb6fc4936e9d277b31db",
+      "observed_at": "2026-10-03T18:31:02.749384"
+    },
+    {
+      "name": "old-admission-build",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kanzei",
+        "--bin",
+        "kz"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 28.76,
+      "log": "output/C6/old-admission-build.log",
+      "log_sha256": "a3558f8bf5965ef4062ed307826d639e6063ad7e7edaf6e5a65631d44ce68470",
+      "observed_at": "2026-10-03T18:31:31.656376"
+    },
+    {
+      "name": "old-admission-cli-accept",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\old-admission-cli-accept.json",
+        "--scenario",
+        "cli-accept"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 1.22,
+      "log": "output/C6/old-admission-cli-accept.log",
+      "log_sha256": "9d0516111fb65507e591dc1ea17af0a969f9f282b914674cfe7f416dcc0821f3",
+      "observed_at": "2026-10-03T18:31:33.071263"
+    },
+    {
+      "name": "old-admission-cli-reject",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\old-admission-cli-reject.json",
+        "--scenario",
+        "cli-reject"
+      ],
+      "exit_code": 1,
+      "expected_exit": 1,
+      "seconds": 0.82,
+      "log": "output/C6/old-admission-cli-reject.log",
+      "log_sha256": "066c77a7e0bdfa485284d2778281f883677a6072cddd69a65e44aedd19dcbe46",
+      "observed_at": "2026-10-03T18:31:34.084236"
+    },
+    {
+      "name": "old-admission-cli-double-reject",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\old-admission-cli-double-reject.json",
+        "--scenario",
+        "cli-double-reject"
+      ],
+      "exit_code": 1,
+      "expected_exit": 1,
+      "seconds": 0.82,
+      "log": "output/C6/old-admission-cli-double-reject.log",
+      "log_sha256": "34302a8a50b27a933cd5661282ac241bdc3c45ffc5d5340862b2f8dde33650cb",
+      "observed_at": "2026-10-03T18:32:22.214874"
+    },
+    {
+      "name": "old-admission-schedule-reject",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\old-admission-schedule-reject.json",
+        "--scenario",
+        "schedule-reject"
+      ],
+      "exit_code": 1,
+      "expected_exit": 1,
+      "seconds": 0.82,
+      "log": "output/C6/old-admission-schedule-reject.log",
+      "log_sha256": "c984708cdda6c4f3e9528330a7c2bc641dca0d3ef0e09899381d0d464e7fa62f",
+      "observed_at": "2026-10-03T18:32:23.233511"
+    },
+    {
+      "name": "old-admission-schedule-double-reject",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\old-admission-schedule-double-reject.json",
+        "--scenario",
+        "schedule-double-reject"
+      ],
+      "exit_code": 1,
+      "expected_exit": 1,
+      "seconds": 0.82,
+      "log": "output/C6/old-admission-schedule-double-reject.log",
+      "log_sha256": "1523e4566d8ec24e8702ae4b1a12d17d7612706a7ca163298802c1838f8e51a5",
+      "observed_at": "2026-10-03T18:32:24.242639"
+    },
+    {
+      "name": "old-admission-schedule-two-prompt",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\old-admission-schedule-two-prompt.json",
+        "--scenario",
+        "schedule-two-prompt"
+      ],
+      "exit_code": 1,
+      "expected_exit": 1,
+      "seconds": 0.87,
+      "log": "output/C6/old-admission-schedule-two-prompt.log",
+      "log_sha256": "2aac6bef3bf782fffd53bf3cdae501ed015ec170a29290f3d5473ce035b74765",
+      "observed_at": "2026-10-03T18:32:25.306111"
+    },
+    {
+      "name": "old-admission-schedule-steering-reject",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\old-admission-schedule-steering-reject.json",
+        "--scenario",
+        "schedule-steering-reject"
+      ],
+      "exit_code": 1,
+      "expected_exit": 1,
+      "seconds": 0.85,
+      "log": "output/C6/old-admission-schedule-steering-reject.log",
+      "log_sha256": "44ee2e461628f24b7e71376b9bcd20405e52fc5a803566be04883337a01aecfc",
+      "observed_at": "2026-10-03T18:32:26.350234"
+    },
+    {
+      "name": "old-guard-build",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kanzei",
+        "--bin",
+        "kz"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 21.44,
+      "log": "output/C6/old-guard-build.log",
+      "log_sha256": "37966cad56dd256d77beb218249c208924ede1e11aaac40278b27c794b9b8adf",
+      "observed_at": "2026-10-03T18:33:08.689037"
+    },
+    {
+      "name": "old-guard-schedule-double-reject",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\old-guard-schedule-double-reject.json",
+        "--scenario",
+        "schedule-double-reject"
+      ],
+      "exit_code": 1,
+      "expected_exit": 1,
+      "seconds": 1.09,
+      "log": "output/C6/old-guard-schedule-double-reject.log",
+      "log_sha256": "115f82b89647a327eafe31b51c7781b8d2f002e7bd3b6ad8378c6d6774f14d18",
+      "observed_at": "2026-10-03T18:33:09.976696"
+    },
+    {
+      "name": "old-admission-request-assert-rust",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-app",
+        "startup_user_rejection_never_reaches_real_provider",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "expected_exit": 101,
+      "seconds": 36.38,
+      "log": "output/C6/old-admission-request-assert-rust.log",
+      "log_sha256": "cff2e0c4c4eae212e566a777f342000111c60571a3ba39d81bd3ca0894f7e5a7",
+      "observed_at": "2026-10-03T18:34:19.326278"
+    },
+    {
+      "name": "final-build",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kanzei",
+        "--bin",
+        "kz"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 21.5,
+      "log": "output/C6/final-build.log",
+      "log_sha256": "a44246a2fd5552ac8ec682447c72f56045531fe44a58744314249360b7bb5f62",
+      "observed_at": "2026-10-03T18:35:04.021443"
+    },
+    {
+      "name": "final-native",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\final-native.json",
+        "--scenario",
+        "all"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 5.13,
+      "log": "output/C6/final-native.log",
+      "log_sha256": "aa641f8e088182d5f614b43c59b7ba071942c4b79d9dd36de494a73d8a57919c",
+      "observed_at": "2026-10-03T18:35:09.354094"
+    },
+    {
+      "name": "final-kanzei-core-test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-core",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 13.29,
+      "log": "output/C6/final-kanzei-core-test.log",
+      "log_sha256": "fd9af942a9d99ae1fd986d3d4d15c7fba83f0f173c8feb2ea8d2dc42e594c61e",
+      "observed_at": "2026-10-03T18:35:35.761336"
+    },
+    {
+      "name": "final-kanzei-app-test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-app",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 55.94,
+      "log": "output/C6/final-kanzei-app-test.log",
+      "log_sha256": "a1acb351623ae3fd9014f13f80cc47dfc4afc47885e0d96d2760895dc6229c72",
+      "observed_at": "2026-10-03T18:36:31.701328"
+    },
+    {
+      "name": "final-kanzei-tools-test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-tools",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 101,
+      "expected_exit": 0,
+      "seconds": 81.16,
+      "log": "output/C6/final-kanzei-tools-test.log",
+      "log_sha256": "93528633187addee90c6f04a77afc55a5c1daf0301c2d602d84328c5a42a0b2d",
+      "observed_at": "2026-10-03T18:37:52.858726"
+    },
+    {
+      "name": "final-kanzei-tools-retry-test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-tools",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 45.97,
+      "log": "output/C6/final-kanzei-tools-retry-test.log",
+      "log_sha256": "c96288b00de339744680ee7f1ae6e4fb52412eeb55581431ec939fde37eaae5b",
+      "observed_at": "2026-10-03T18:38:59.537400"
+    },
+    {
+      "name": "final-kanzei-test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 33.51,
+      "log": "output/C6/final-kanzei-test.log",
+      "log_sha256": "a20a8e58ed147c63fb3e68f1d872bf4ae8f18408142e8c4b9e98f07269dd34d8",
+      "observed_at": "2026-10-03T18:39:33.050188"
+    },
+    {
+      "name": "final-related-check",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "kanzei-core",
+        "-p",
+        "kanzei-app",
+        "-p",
+        "kanzei-tools",
+        "-p",
+        "kanzei",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 18.56,
+      "log": "output/C6/final-related-check.log",
+      "log_sha256": "3dc1a9346af089abca416cc083ee983a9c563a7e9482403617cbdc13dc590635",
+      "observed_at": "2026-10-03T18:39:51.609330"
+    },
+    {
+      "name": "final-related-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "kanzei-core",
+        "-p",
+        "kanzei-app",
+        "-p",
+        "kanzei-tools",
+        "-p",
+        "kanzei",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "expected_exit": 0,
+      "seconds": 20.72,
+      "log": "output/C6/final-related-clippy.log",
+      "log_sha256": "8ae035376f1e7b764d6d935082f4e3b66bce036ed0f7bbbb9f2190300fba71a4",
+      "observed_at": "2026-10-03T18:40:12.335052"
+    },
+    {
+      "name": "final-assembly-rustfmt",
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2021",
+        "crates/kanzei-app/src/run/assembly.rs"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 0.12,
+      "log": "output/C6/final-assembly-rustfmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "observed_at": "2026-10-03T18:40:39.789397"
+    },
+    {
+      "name": "final-stable-app-startup",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-app",
+        "run::assembly::startup_tests::",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 19.53,
+      "log": "output/C6/final-stable-app-startup.log",
+      "log_sha256": "7e10a953d85562cf5970209c5150e427e4625af7ead02e434121e6d3c96e3ff7",
+      "observed_at": "2026-10-03T18:40:59.322683"
+    },
+    {
+      "name": "final-stable-related-check",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "kanzei-core",
+        "-p",
+        "kanzei-app",
+        "-p",
+        "kanzei-tools",
+        "-p",
+        "kanzei",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 8.8,
+      "log": "output/C6/final-stable-related-check.log",
+      "log_sha256": "8622a24614d71a14fb707b4671037490f163ca2308c437b5d8dd611875d0d681",
+      "observed_at": "2026-10-03T18:41:08.124082"
+    },
+    {
+      "name": "final-stable-related-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "kanzei-core",
+        "-p",
+        "kanzei-app",
+        "-p",
+        "kanzei-tools",
+        "-p",
+        "kanzei",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 9.69,
+      "log": "output/C6/final-stable-related-clippy.log",
+      "log_sha256": "7eaa39762efeebecf39d75a5c778d6b8fdc1f2e42ef7c8728c9f5935845c3df5",
+      "observed_at": "2026-10-03T18:41:17.819947"
+    },
+    {
+      "name": "final-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 1.91,
+      "log": "output/C6/final-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "observed_at": "2026-10-03T18:41:19.733638"
+    },
+    {
+      "name": "final-diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 0.07,
+      "log": "output/C6/final-diff.log",
+      "log_sha256": "43bdba0806efad5c407a657afc5121b51117e8dcbd9997ced073bf51cfee8438",
+      "observed_at": "2026-10-03T18:41:19.800232"
+    },
+    {
+      "name": "final-stable-build",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kanzei",
+        "--bin",
+        "kz"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 22.25,
+      "log": "output/C6/final-stable-build.log",
+      "log_sha256": "f87461222c74b599270dec2ab998d00b2c5dbe010764567037e96eb736e5acc5",
+      "observed_at": "2026-10-03T18:41:42.195364"
+    },
+    {
+      "name": "final-stable-native",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "scripts/startup-admission-smoke.py",
+        "--binary",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\target\\debug\\kz.exe",
+        "--output",
+        "C:\\Users\\kanzei\\.codex\\worktrees\\audit-c0\\kanzei code\\output\\C6\\final-stable-native.json",
+        "--scenario",
+        "all"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 5.04,
+      "log": "output/C6/final-stable-native.log",
+      "log_sha256": "2b25733aef96962dc6e92e565a45170db5541774c6dec734a8856932d0e98bee",
+      "observed_at": "2026-10-03T18:41:47.437307"
+    }
+  ],
+  "final_required_checks": [
+    "final-kanzei-core-test",
+    "final-kanzei-app-test",
+    "final-kanzei-tools-retry-test",
+    "final-kanzei-test",
+    "final-stable-app-startup",
+    "final-stable-related-check",
+    "final-stable-related-clippy",
+    "final-fmt",
+    "final-diff",
+    "final-stable-build",
+    "final-stable-native"
+  ],
+  "negative_controls": {
+    "startup_rust": "actual assertions:6 failed/3 passed,101; normal completion passed",
+    "admission_rust": "initial old control incorrectly returned Ok; strengthened HTTP assertion reproduces1!=0,101",
+    "admission_native": "6 actual assertion failures,1; normal CLI control0",
+    "drop_native": "0POST but Stopped1 under old armed guard; actual assertion failure1",
+    "restoration": "finally byte-for-byte SHA verified; original and strengthened fixture restoration records retained",
+    "no_negative_compile_failure_counted": true
+  },
+  "preserved_unexpected_attempts": [
+    {
+      "name": "initial-app-startup",
+      "exit_code": 101,
+      "reason": "fixture Arc nesting and Result error assertion Debug bound, fixed only in fixture"
+    },
+    {
+      "name": "final-kanzei-tools-test",
+      "exit_code": 101,
+      "reason": "2 browser tests lacked existing main-root playwright modules/cache; environment corrected,full784/3ignore passed"
+    },
+    {
+      "name": "old-native-wrapper",
+      "exit_code": 1,
+      "reason": "CP936 native log read as UTF8; actual JSON/assertion retained, correct decoder and child encoding used for remaining scenarios"
+    },
+    {
+      "name": "final-related-clippy",
+      "exit_code": 101,
+      "reason": "2 extraction-only redundant expressions; 2-line fix, final startup/check/Clippy/fmt/diff/native verified"
+    }
+  ],
+  "native_source_manifest": "output/C6/final-stable-binary-manifest.json",
+  "native_manifest_sha256": "260e01fc67eefbb29fae73703931aedfca1a627ed71c39b06a511ccdb64e2f66",
+  "binary_sha256": "697d9e8074dcf14075bd344ce66293b0757989c0bdf8e1e7d469ae21ec50eaad",
+  "six_source_sha256_lf": {
+    "crates/kanzei-app/src/commands/run.rs": "5e036d624807b6f4f6f9cb2fd019b5803889749105f4fa726febd151b83e5803",
+    "crates/kanzei-app/src/run/assembly.rs": "262910ef20a767cb599e03d01ab900f90b12e05be6b273c27223c4e15b0a2335",
+    "crates/kanzei-app/src/run/persistence.rs": "5fbd13c56222b5e3b83551c82439dc9f742ae95047f5518c81c192dea7194254",
+    "crates/kanzei-core/src/store/typed.rs": "4e76e754c70207f7ea71a1932a6bd3d8364a93509c03ce223a9de4127c671e2c",
+    "crates/kanzei-tools/src/schedules/executor.rs": "5129cf44b6a2e70e7283a80bb3f8bbc124f3e622bc7b5ff22bd7b10fd85cc8d2",
+    "crates/kanzei/src/cli/run.rs": "5cc90fae17612bafc0455e843f93b361f10914e54c03cbc0d23ee003f762004b"
+  },
+  "source_provenance": "dirty six source files+fixture+Cargo inputs recorded before build; build0 then binary SHA; snapshot and binary verified unchanged before/after native",
+  "native_positive_scenarios": [
+    {
+      "scenario": "cli-accept",
+      "exit_code": 0,
+      "tested_posts": 1,
+      "bootstrap_posts": 1,
+      "session_status": "idle",
+      "input_statuses": [
+        "completed",
+        "completed"
+      ],
+      "user": 1,
+      "steering": 0,
+      "completed": 1,
+      "failed": 0,
+      "stopped": 0
+    },
+    {
+      "scenario": "cli-reject",
+      "exit_code": 1,
+      "tested_posts": 0,
+      "bootstrap_posts": 1,
+      "session_status": "failed",
+      "input_statuses": [
+        "completed",
+        "failed"
+      ],
+      "user": 0,
+      "steering": 0,
+      "completed": 0,
+      "failed": 1,
+      "stopped": 0
+    },
+    {
+      "scenario": "cli-double-reject",
+      "exit_code": 1,
+      "tested_posts": 0,
+      "bootstrap_posts": 1,
+      "session_status": "idle",
+      "input_statuses": [
+        "completed",
+        "running"
+      ],
+      "user": 0,
+      "steering": 0,
+      "completed": 0,
+      "failed": 0,
+      "stopped": 0
+    },
+    {
+      "scenario": "schedule-reject",
+      "exit_code": 1,
+      "tested_posts": 0,
+      "bootstrap_posts": 1,
+      "session_status": "failed",
+      "input_statuses": [],
+      "user": 0,
+      "steering": 0,
+      "completed": 0,
+      "failed": 1,
+      "stopped": 0
+    },
+    {
+      "scenario": "schedule-double-reject",
+      "exit_code": 1,
+      "tested_posts": 0,
+      "bootstrap_posts": 1,
+      "session_status": "failed",
+      "input_statuses": [],
+      "user": 0,
+      "steering": 0,
+      "completed": 0,
+      "failed": 0,
+      "stopped": 0
+    },
+    {
+      "scenario": "schedule-two-prompt",
+      "exit_code": 0,
+      "tested_posts": 2,
+      "bootstrap_posts": 1,
+      "session_status": "completed",
+      "input_statuses": [],
+      "user": 1,
+      "steering": 1,
+      "completed": 1,
+      "failed": 0,
+      "stopped": 0
+    },
+    {
+      "scenario": "schedule-steering-reject",
+      "exit_code": 1,
+      "tested_posts": 1,
+      "bootstrap_posts": 1,
+      "session_status": "failed",
+      "input_statuses": [],
+      "user": 1,
+      "steering": 0,
+      "completed": 0,
+      "failed": 1,
+      "stopped": 0
+    }
+  ],
+  "actual_positive_http_posts": 11,
+  "raw_evidence_index": "output/C6/raw-evidence-index.json",
+  "persistent_schema_changed": false,
+  "real_state_or_credentials_accessed": false,
+  "push_or_release": false,
+  "desktop_gui_e2e": false,
+  "linux_executed": false,
+  "unverified_separate_probes": [
+    "FIFO attachment ownership",
+    "existing steering consume ACK"
+  ],
+  "c7_m7_maps_staged": false
+}

@@ -1042,7 +1042,9 @@ impl TypedSessionWriter {
         }
     }
 
-    pub fn user_message(&mut self, input_id: &str, message: Message) {
+    /// Return the durable admission receipt; recorded errors are diagnostics,
+    /// and a rejected initial user fact must not admit provider execution.
+    pub fn user_message(&mut self, input_id: &str, message: Message) -> bool {
         self.append(vec![SessionFactEnvelope::new(
             &self.turn_id,
             None,
@@ -1050,7 +1052,7 @@ impl TypedSessionWriter {
                 input_id: input_id.into(),
                 message,
             },
-        )]);
+        )])
     }
 
     pub fn steering_message(&mut self, input_id: &str, message: Message) -> bool {
@@ -1488,6 +1490,63 @@ mod tests {
         writer.push_text("unfinished");
         writer.flush_draft();
         (root, store, writer)
+    }
+
+    #[test]
+    fn user_admission_ack_reports_sql_rejection_and_allows_exact_retry() {
+        let (root, store, previous) = outcome_fixture();
+        drop(previous);
+        let mut writer = TypedSessionWriter::new(&root.join("state.db"), "ses", "admission");
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_admission BEFORE INSERT ON session_events
+             WHEN NEW.event_type='session.user_message_committed'
+             BEGIN SELECT RAISE(ABORT,'injected user rejection'); END;",
+            )
+            .unwrap();
+        assert!(!writer.user_message("input", Message::user_text("rejected")));
+        assert!(writer
+            .errors()
+            .last()
+            .unwrap()
+            .contains("injected user rejection"));
+        assert!(store
+            .list_session_facts("ses")
+            .unwrap()
+            .iter()
+            .all(|(_, fact)| fact.turn_id != "admission"));
+        store
+            .connection
+            .execute_batch("DROP TRIGGER reject_admission")
+            .unwrap();
+        assert!(writer.user_message("input", Message::user_text("accepted")));
+        // A prior recorded error is not an admission receipt. The successful
+        // exact retry updates the authoritative invariant only after commit.
+        assert!(!writer.errors().is_empty());
+        let facts = store.list_session_facts("ses").unwrap();
+        assert_eq!(
+            facts
+                .iter()
+                .filter(|(_, fact)| fact.turn_id == "admission")
+                .count(),
+            1
+        );
+        writer.finish(SessionTurnTerminal::Failed("done".into()));
+        assert!(writer.is_terminal());
+        assert!(!writer.user_message("input", Message::user_text("late callback")));
+        assert_eq!(
+            store
+                .list_session_facts("ses")
+                .unwrap()
+                .iter()
+                .filter(|(_, fact)| fact.turn_id == "admission")
+                .count(),
+            2
+        );
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

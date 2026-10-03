@@ -115,6 +115,7 @@ pub(crate) fn is_parallel_process_id(process_id: &str) -> bool {
 /// 停止令牌槽、项目协调器……),Arc 克隆即持有,装配与轮末收尾共用同一批句柄。
 /// 生命周期:会话级——跨轮存活,不随本轮结束而销毁。
 pub(crate) struct RuntimeHandles {
+    pub(crate) lifecycle: Arc<Mutex<()>>,
     pub(crate) asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     pub(crate) ask_seq: Arc<AtomicU64>,
     pub(crate) collaboration_probe: crate::collaboration::CollaborationProbe,
@@ -220,7 +221,7 @@ pub(crate) async fn assemble_run(
     // 取根必须在**加载配置之前**:R-177 内容⑧,配置是主根资产,worktree 里的
     // `.kanzei/kanzei.toml` 是被 git checkout 出来的分支副本,读它等于让线的行为
     // 取决于分支停在哪一代。
-    let project_root = request.main_root;
+    let project_root = request.main_root.clone();
     stage("配置", format!("加载 {}", project_root.display()));
     let (config, config_warnings) = KanzeiConfig::load_with_warnings_at_root(&project_root)?;
     let config = Arc::new(config);
@@ -315,7 +316,7 @@ pub(crate) async fn assemble_run(
             kanzei_core::AskPolicy::Interactive
         },
         // D-342:主对话 run 全部接停止令牌(协作式停止的接收端)。
-        Some(halt_token),
+        Some(halt_token.clone()),
     );
     runner_config.digest_model =
         Some(kanzei_tools::run::build_digest_model(&config, &proxy, &resolved, &route).await);
@@ -344,6 +345,76 @@ pub(crate) async fn assemble_run(
     // 写自然互斥;读工具 shared_worktree 之间无冲突),阶段再加一层是重复且过严。
     // 现在留 RunnerConfig 的默认值(Default),要收紧就显式设策略。
 
+    let task_context = control_state
+        .as_ref()
+        .and_then(|state| state.as_ref().ok())
+        .and_then(crate::phase_pipeline::render_task_context);
+    let session_id = request.session_id.clone();
+    let mut deps = RuntimeDeps {
+        project_root,
+        research_topic: mode.research_topic.clone(),
+        config,
+        profile,
+        rctx,
+        snapshot,
+        agent,
+        work_priority,
+        resolved,
+        proxy,
+        route,
+        client,
+        runner_config,
+        ask_source,
+    };
+    let (session, round) = prepare_session(
+        stage,
+        request,
+        &mode,
+        handles,
+        &halt_token,
+        &mut deps,
+        ctx,
+        task_context,
+    )
+    .await?;
+    let _ = window.emit(
+        "kz:meta",
+        with_session_id(
+            run_meta_payload(
+                deps.profile,
+                &deps.agent.name,
+                &deps.resolved,
+                &deps.runner_config,
+            ),
+            &session_id,
+        ),
+    );
+
+    Ok(RunAssembly {
+        deps,
+        session,
+        round,
+    })
+}
+
+/// Own the actual claimed input through every fallible startup operation.
+/// This concrete preparation path is shared by the Window wrapper and real DB tests.
+#[allow(clippy::too_many_arguments)]
+async fn prepare_session(
+    stage: &(dyn Fn(&str, String) + Sync),
+    request: RoundRequest,
+    mode: &RunMode,
+    handles: &RuntimeHandles,
+    halt_token: &kanzei_core::CancellationToken,
+    deps: &mut RuntimeDeps,
+    ctx: ToolCtx,
+    task_context: Option<String>,
+) -> anyhow::Result<(SessionContext, RoundContext)> {
+    let config = Arc::clone(&deps.config);
+    let profile = deps.profile;
+    let proxy = &deps.proxy;
+    let agent = &mut deps.agent;
+    let general = crate::general_chat::is_general_root(&ctx.project_root);
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let mut store = kanzei_core::SessionStore::open(&state_path)?;
     store.create_session(
@@ -379,83 +450,257 @@ pub(crate) async fn assemble_run(
             .promote_next_input(&request.session_id)?
             .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?
     };
-    let work_item_id = store.input_work_item(&request.session_id, &promoted.input_id)?;
-    anyhow::ensure!(
-        work_item_id.is_none()
-            || (profile == kanzei_harness::ProfileKind::Dev && !mode.block_tracker_writes),
-        "当前对话不能领取需求，请返回可写的开发主对话开始"
-    );
-    let requested_task_context = work_item_id
-        .as_deref()
-        .map(|id| super::work_start::requested_task_context(&ctx.project_root, id))
-        .transpose()?;
-    let prompt = promoted.prompt;
-    let initial_parts = prompt_attachment_parts(request.attachments.unwrap_or_default())?;
-    let mut typed_user_parts = initial_parts.clone();
-    if !prompt.is_empty() {
-        typed_user_parts.insert(
-            0,
-            kanzei_llm::Part::Text {
-                text: prompt.clone(),
+    let promoted_input_id = promoted.input_id.clone();
+    let mut startup_writer = None;
+    let prepared = async {
+        let work_item_id = store.input_work_item(&request.session_id, &promoted.input_id)?;
+        anyhow::ensure!(
+            work_item_id.is_none()
+                || (profile == kanzei_harness::ProfileKind::Dev && !mode.block_tracker_writes),
+            "当前对话不能领取需求，请返回可写的开发主对话开始"
+        );
+        let requested_task_context = work_item_id
+            .as_deref()
+            .map(|id| super::work_start::requested_task_context(&ctx.project_root, id))
+            .transpose()?;
+        let prompt = promoted.prompt;
+        let initial_parts = prompt_attachment_parts(request.attachments.unwrap_or_default())?;
+        let mut typed_user_parts = initial_parts.clone();
+        if !prompt.is_empty() {
+            typed_user_parts.insert(
+                0,
+                kanzei_llm::Part::Text {
+                    text: prompt.clone(),
+                },
+            );
+        }
+        // promoted → running,并记住本轮身份与墙钟(D-173)。少了 running/completed 这段
+        // 生命周期,跑完的输入永远停在 promoted,以后任何一次停止都会把它追认成 cancelled。
+        let promoted_input_id = promoted.input_id.clone();
+        anyhow::ensure!(
+            store.start_input(&promoted_input_id)?,
+            "桌面输入已变化，未开始重复执行"
+        );
+        let completion_goal = handles
+            .auto_runs
+            .lock_or_recover()
+            .get(&request.session_id)
+            .and_then(|controller| controller.goal.clone());
+        // 完成声明契约只给开发档(UX-008):只读讨论与研究档没有 work 工具、轮末也不消费
+        // handoff,注入只会让模型把范围/目标/证据当散文讲给用户。判据见 context_prompt_for。
+        if let Some(contract) = kanzei_harness::handoff::context_prompt_for(
+            profile,
+            &promoted_input_id,
+            completion_goal.as_deref(),
+        ) {
+            agent.system.push_str(&contract);
+        }
+        // Capture once before scouts or any write/claim by this run. Later working
+        // tree observations are not evidence of what existed at this boundary.
+        let (run_id, baseline_context) = super::baseline::prepare(
+            if general { &ctx.project_root } else { &ctx.cwd },
+            &mut store,
+            &request.session_id,
+            &mut agent.system,
+        )
+        .await?;
+        // R-241 shadow 双写：先从最新 legacy snapshot 幂等 seed，并闭合上次强杀留下的
+        // open draft/tool；再提交本轮 user fact。恢复必须持有同数据库/session 执行权。
+        request
+            .execution_owner
+            .prepare(&store, &request.session_id, Some(&promoted_input_id))?;
+        let typed_writer = Arc::new(Mutex::new(request.execution_owner.writer(&run_id)));
+        startup_writer = Some(Arc::clone(&typed_writer));
+        // Snapshot history before admitting this turn's user fact. Reading it later
+        // would feed the current input to the model twice, including async callbacks.
+        let persisted = if crate::projection_gate::read_path_uses_projection("runner_prior") {
+            crate::conversation::project_latest_segment(&store, &request.session_id)
+                .map_err(anyhow::Error::msg)?
+        } else {
+            crate::conversation::recover_messages(&store, &request.session_id)?
+        };
+        let prior = crate::conversation::conversation_prior(
+            &handles.conversation,
+            &request.session_id,
+            persisted,
+        );
+        let user_committed = typed_writer.lock_or_recover().user_message(
+            &promoted_input_id,
+            kanzei_llm::Message {
+                role: kanzei_llm::Role::User,
+                parts: typed_user_parts,
             },
         );
+        anyhow::ensure!(
+            user_committed,
+            "用户输入未持久化: {}",
+            typed_writer
+                .lock_or_recover()
+                .errors()
+                .last()
+                .map(String::as_str)
+                .unwrap_or("用户事实提交被拒绝")
+        );
+        let run_started = std::time::Instant::now();
+        // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
+        // 先于 episode 落库,只能靠时间窗归因到本轮,与 CLI 同一口径)。
+        let run_epoch_ms = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or_default();
+        store.set_status(&request.session_id, "running")?;
+        super::append_run_notification(
+            &store,
+            &request.session_id,
+            "running",
+            "任务已开始",
+            false,
+        )?;
+        store.append_event(
+            &request.session_id,
+            "session.status_changed",
+            &json!({ "status": "running" }),
+        )?;
+        // R-171 批3:主对话 writer run 获取项目级写租约并持有到本轮结束。
+        // 权限询问发生在租约获取之前(设计不变量 6)——此处无询问,直接申请;
+        // RAII:任何结束路径(正常/错误/取消/abort)都会 drop 释放,绝不永久占用。
+        // 注意:acquire_writer_lease 在项目已有 writer 时会排队等待,这是「串行写」
+        // 的强制点——第二个 ProcessHandle 必须等当前 writer 释放后才能拿到租约。
+        // R-173 批5:writer 事件经 OrchestrationEvent 的**单一出口**落 session_events。
+        // 这里原本是三处手写字符串 + 手拼 payload,与枚举没有类型联系——改名或加字段时
+        // 编译器不会提醒,两边必然漂移。现在类型名与 payload 都由事件自己给出。
+        let orchestration_trace = Arc::new(crate::orchestration_trace::SessionEventObserver::open(
+            &state_path,
+            &request.session_id,
+        )?);
+        // 阶段流水线仅兼容显式启用的高级配置。子代理总开关只允许模型按需委派,
+        // 执行批次与自主推进不再隐式插入固定勘察/复核。
+        // 判据不成立 → 不构造编排对象,与引入前逐字节相同。闸门与构造都在
+        // phase_pipeline::start_if_enabled 里,那里可以脱离 Tauri Window 直接测
+        // (见 phase_pipeline_tests.rs 的两条闸门测试)。
+        //
+        // 自主推进只管「轮末要不要自动发下一条」,不决定要派哪些子代理。
+        let pipeline = crate::phase_pipeline::start_if_enabled(
+            mode.uses_phase_pipeline(),
+            &config,
+            proxy,
+            Arc::clone(&handles.coordinator) as Arc<dyn ProjectExecutionCoordinator>,
+            Arc::clone(&orchestration_trace)
+                as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
+            ctx.project_root.clone(),
+            // R-182 内容①:流水线路径的写租约同样按代码树仲裁。
+            ctx.cwd.clone(),
+            &run_id,
+            &request.process_id,
+            stage,
+        )
+        .await
+        // 把本轮冻结的裁决快照灌给勘察/复核角色。角色表的 brief 是写死的通用描述
+        // (「本次任务会写到哪里」),没有「本次任务」的指代物它就只能回答本仓库的
+        // 写入面——D-368 那轮 write_surface_scout 返回 store/processes.rs 即此。
+        .map(|pipeline| {
+            pipeline
+                .with_required_delegation(!mode.phase_pipeline_enabled)
+                .with_baseline_context(baseline_context.clone())
+                .with_task_context(requested_task_context.or(task_context))
+        });
+        // 写租约的取得时机是两条路的**唯一实质差异**,判定抽在 phase_pipeline 里
+        // 以便直接测(见 `acquire_plain_lease_if_needed` 的文档与它的定向测试)。
+        // 不带独立 worktree 的并行线与主线共用同一棵代码树,必须先等写入槽。
+        // 这一段等待发生在真正发出模型请求之前,不能把它投影成“等待模型响应”。
+        if pipeline.is_none() && profile != kanzei_harness::ProfileKind::Readonly {
+            stage(
+                "排队",
+                "等待当前代码树写入槽；同一工作树上的对话将按顺序执行…".into(),
+            );
+        }
+        let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
+            pipeline.is_some() || profile == kanzei_harness::ProfileKind::Readonly,
+            handles.coordinator.as_ref(),
+            orchestration_trace.as_ref(),
+            &ctx.project_root,
+            // R-182 内容①:仲裁范围 = 本轮代码树。线绑了 worktree 就在自己那棵树上
+            // 仲裁写权,两条线互不排队——这是「同一项目 N 条线能同时跑」的落点。
+            &ctx.cwd,
+            &run_id,
+            &request.process_id,
+            &request.session_id,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
+        // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径由
+        // WriterLeaseTrace::drop 补写 Released,acquired/released 始终成对(D-303)。
+        // 流水线路径的租约由编排对象持有。
+        let _write_lease = plain_lease.map(|lease| {
+            WriterLeaseTrace::new(
+                lease,
+                Arc::clone(&orchestration_trace),
+                ctx.project_root.clone(),
+                run_id.clone(),
+                request.process_id.to_string(),
+            )
+        });
+        // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
+        // task 禁用(设计不变量 3/5)。
+        //
+        // R-141 拆开这两把键,服务的是 R-050 D1「运行时重定向主根」:worktree 线
+        // 上线后,同一项目的 N 棵树以 cwd=worktree、project_root=主根 运行,于是——
+        //
+        // ① `project_write_key` = **规范化主根**,N 棵树必须**相同**。
+        //    主根 `.kanzei` 的 tracker/记忆是所有线唯一的共享写点,键一旦随树分裂,
+        //    跨进程单写仲裁就被绕过(两条线同时重写同一个 docstore = lost update)。
+        //    这里取 normalized_project_root:它比 project_root 多一次 canonicalize,
+        //    保证不同路径写法落进同一个仲裁桶,且与 run_prompt 算给会话 id/进程归属
+        //    的那个身份键逐字节相同。它只 canonicalize 显式选中的主根,不向祖先
+        //    发现项目;线路径不做根发现这条不变式仍然成立。
+        // ② `worktree_key` = **代码树**,N 棵树必须**不同**。
+        //    它是工具内并发锁键,bash/git/edit 真实作用于 ctx.cwd;若拿主根当键,
+        //    互不相干的两棵树会因为主根相同而彼此串锁、白白串行。
+        //
+        // 一句话:写主根的串行,写代码的并行。改任何一行前先确认这条不变式还成立。
+        let project_write_key = crate::normalized_project_root(&ctx.project_root)
+            .display()
+            .to_string();
+        let worktree_key = ctx.cwd.display().to_string();
+        let mut ctx = ctx;
+        ctx = ctx.with_identity(
+            worktree_key,
+            project_write_key,
+            run_id.clone(),
+            request.process_id.to_string(),
+        );
+        Ok::<_, anyhow::Error>((
+            prior,
+            prompt,
+            initial_parts,
+            RoundContext {
+                run_id,
+                work_item_id,
+                run_started,
+                run_epoch_ms,
+                orchestration_trace,
+                pipeline,
+                _write_lease,
+                ctx,
+            },
+        ))
     }
-    // promoted → running,并记住本轮身份与墙钟(D-173)。少了 running/completed 这段
-    // 生命周期,跑完的输入永远停在 promoted,以后任何一次停止都会把它追认成 cancelled。
-    let promoted_input_id = promoted.input_id.clone();
-    anyhow::ensure!(
-        store.start_input(&promoted_input_id)?,
-        "桌面输入已变化，未开始重复执行"
-    );
-    let completion_goal = handles
-        .auto_runs
-        .lock_or_recover()
-        .get(&request.session_id)
-        .and_then(|controller| controller.goal.clone());
-    // 完成声明契约只给开发档(UX-008):只读讨论与研究档没有 work 工具、轮末也不消费
-    // handoff,注入只会让模型把范围/目标/证据当散文讲给用户。判据见 context_prompt_for。
-    if let Some(contract) = kanzei_harness::handoff::context_prompt_for(
-        profile,
-        &promoted_input_id,
-        completion_goal.as_deref(),
-    ) {
-        agent.system.push_str(&contract);
-    }
-    // Capture once before scouts or any write/claim by this run. Later working
-    // tree observations are not evidence of what existed at this boundary.
-    let (run_id, baseline_context) = super::baseline::prepare(
-        if general { &ctx.project_root } else { &ctx.cwd },
-        &mut store,
-        &request.session_id,
-        &mut agent.system,
-    )
-    .await?;
-    // R-241 shadow 双写：先从最新 legacy snapshot 幂等 seed，并闭合上次强杀留下的
-    // open draft/tool；再提交本轮 user fact。恢复必须持有同数据库/session 执行权。
-    request
-        .execution_owner
-        .prepare(&store, &request.session_id, Some(&promoted_input_id))?;
-    let typed_writer = Arc::new(Mutex::new(request.execution_owner.writer(&run_id)));
-    // Snapshot history before admitting this turn's user fact. Reading it later
-    // would feed the current input to the model twice, including async callbacks.
-    let persisted = if crate::projection_gate::read_path_uses_projection("runner_prior") {
-        crate::conversation::project_latest_segment(&store, &request.session_id)
-            .map_err(anyhow::Error::msg)?
-    } else {
-        crate::conversation::recover_messages(&store, &request.session_id)?
+    .await;
+    let (prior, prompt, initial_parts, round) = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            return Err(finish_startup_failure(
+                &store,
+                &request.session_id,
+                &promoted_input_id,
+                startup_writer.as_ref(),
+                &handles.lifecycle,
+                halt_token,
+                error,
+            ))
+        }
     };
-    let prior = crate::conversation::conversation_prior(
-        &handles.conversation,
-        &request.session_id,
-        persisted,
-    );
-    typed_writer.lock().unwrap().user_message(
-        &promoted_input_id,
-        kanzei_llm::Message {
-            role: kanzei_llm::Role::User,
-            parts: typed_user_parts,
-        },
-    );
+    let typed_writer = startup_writer.expect("successful startup initialized its writer");
     // 单独的弱引用定时 flush：provider 静默时仍满足 750ms 持久化上界；run 正常
     // 终态后观察到 terminal 退出，run 被强制 abort 后所有强引用释放，Weak 失效退出。
     let typed_flush_writer = Arc::downgrade(&typed_writer);
@@ -473,158 +718,8 @@ pub(crate) async fn assemble_run(
             }
         }
     });
-    let run_started = std::time::Instant::now();
-    // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
-    // 先于 episode 落库,只能靠时间窗归因到本轮,与 CLI 同一口径)。
-    let run_epoch_ms = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default();
-    store.set_status(&request.session_id, "running")?;
-    super::append_run_notification(&store, &request.session_id, "running", "任务已开始", false)?;
-    store.append_event(
-        &request.session_id,
-        "session.status_changed",
-        &json!({ "status": "running" }),
-    )?;
-    // R-171 批3:主对话 writer run 获取项目级写租约并持有到本轮结束。
-    // 权限询问发生在租约获取之前(设计不变量 6)——此处无询问,直接申请;
-    // RAII:任何结束路径(正常/错误/取消/abort)都会 drop 释放,绝不永久占用。
-    // 注意:acquire_writer_lease 在项目已有 writer 时会排队等待,这是「串行写」
-    // 的强制点——第二个 ProcessHandle 必须等当前 writer 释放后才能拿到租约。
-    // R-173 批5:writer 事件经 OrchestrationEvent 的**单一出口**落 session_events。
-    // 这里原本是三处手写字符串 + 手拼 payload,与枚举没有类型联系——改名或加字段时
-    // 编译器不会提醒,两边必然漂移。现在类型名与 payload 都由事件自己给出。
-    let orchestration_trace = Arc::new(crate::orchestration_trace::SessionEventObserver::open(
-        &state_path,
-        &request.session_id,
-    )?);
-    // 阶段流水线仅兼容显式启用的高级配置。子代理总开关只允许模型按需委派,
-    // 执行批次与自主推进不再隐式插入固定勘察/复核。
-    // 判据不成立 → 不构造编排对象,与引入前逐字节相同。闸门与构造都在
-    // phase_pipeline::start_if_enabled 里,那里可以脱离 Tauri Window 直接测
-    // (见 phase_pipeline_tests.rs 的两条闸门测试)。
-    //
-    // 自主推进只管「轮末要不要自动发下一条」,不决定要派哪些子代理。
-    let pipeline = crate::phase_pipeline::start_if_enabled(
-        mode.uses_phase_pipeline(),
-        &config,
-        &proxy,
-        Arc::clone(&handles.coordinator) as Arc<dyn ProjectExecutionCoordinator>,
-        Arc::clone(&orchestration_trace) as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
-        ctx.project_root.clone(),
-        // R-182 内容①:流水线路径的写租约同样按代码树仲裁。
-        ctx.cwd.clone(),
-        &run_id,
-        &request.process_id,
-        stage,
-    )
-    .await
-    // 把本轮冻结的裁决快照灌给勘察/复核角色。角色表的 brief 是写死的通用描述
-    // (「本次任务会写到哪里」),没有「本次任务」的指代物它就只能回答本仓库的
-    // 写入面——D-368 那轮 write_surface_scout 返回 store/processes.rs 即此。
-    .map(|pipeline| {
-        pipeline
-            .with_required_delegation(!mode.phase_pipeline_enabled)
-            .with_baseline_context(baseline_context.clone())
-            .with_task_context(requested_task_context.or_else(|| {
-                control_state
-                    .as_ref()
-                    .and_then(|state| state.as_ref().ok())
-                    .and_then(crate::phase_pipeline::render_task_context)
-            }))
-    });
-    // 写租约的取得时机是两条路的**唯一实质差异**,判定抽在 phase_pipeline 里
-    // 以便直接测(见 `acquire_plain_lease_if_needed` 的文档与它的定向测试)。
-    // 不带独立 worktree 的并行线与主线共用同一棵代码树,必须先等写入槽。
-    // 这一段等待发生在真正发出模型请求之前,不能把它投影成“等待模型响应”。
-    if pipeline.is_none() && profile != kanzei_harness::ProfileKind::Readonly {
-        stage(
-            "排队",
-            "等待当前代码树写入槽；同一工作树上的对话将按顺序执行…".into(),
-        );
-    }
-    let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
-        pipeline.is_some() || profile == kanzei_harness::ProfileKind::Readonly,
-        handles.coordinator.as_ref(),
-        orchestration_trace.as_ref(),
-        &ctx.project_root,
-        // R-182 内容①:仲裁范围 = 本轮代码树。线绑了 worktree 就在自己那棵树上
-        // 仲裁写权,两条线互不排队——这是「同一项目 N 条线能同时跑」的落点。
-        &ctx.cwd,
-        &run_id,
-        &request.process_id,
-        &request.session_id,
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
-    // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径由
-    // WriterLeaseTrace::drop 补写 Released,acquired/released 始终成对(D-303)。
-    // 流水线路径的租约由编排对象持有。
-    let _write_lease = plain_lease.map(|lease| {
-        WriterLeaseTrace::new(
-            lease,
-            Arc::clone(&orchestration_trace),
-            ctx.project_root.clone(),
-            run_id.clone(),
-            request.process_id.to_string(),
-        )
-    });
-    // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
-    // task 禁用(设计不变量 3/5)。
-    //
-    // R-141 拆开这两把键,服务的是 R-050 D1「运行时重定向主根」:worktree 线
-    // 上线后,同一项目的 N 棵树以 cwd=worktree、project_root=主根 运行,于是——
-    //
-    // ① `project_write_key` = **规范化主根**,N 棵树必须**相同**。
-    //    主根 `.kanzei` 的 tracker/记忆是所有线唯一的共享写点,键一旦随树分裂,
-    //    跨进程单写仲裁就被绕过(两条线同时重写同一个 docstore = lost update)。
-    //    这里取 normalized_project_root:它比 project_root 多一次 canonicalize,
-    //    保证不同路径写法落进同一个仲裁桶,且与 run_prompt 算给会话 id/进程归属
-    //    的那个身份键逐字节相同。它只 canonicalize 显式选中的主根,不向祖先
-    //    发现项目;线路径不做根发现这条不变式仍然成立。
-    // ② `worktree_key` = **代码树**,N 棵树必须**不同**。
-    //    它是工具内并发锁键,bash/git/edit 真实作用于 ctx.cwd;若拿主根当键,
-    //    互不相干的两棵树会因为主根相同而彼此串锁、白白串行。
-    //
-    // 一句话:写主根的串行,写代码的并行。改任何一行前先确认这条不变式还成立。
-    let project_write_key = crate::normalized_project_root(&ctx.project_root)
-        .display()
-        .to_string();
-    let worktree_key = ctx.cwd.display().to_string();
-    let mut ctx = ctx;
-    ctx = ctx.with_identity(
-        worktree_key,
-        project_write_key,
-        run_id.clone(),
-        request.process_id.to_string(),
-    );
-    let _ = window.emit(
-        "kz:meta",
-        with_session_id(
-            run_meta_payload(profile, &agent.name, &resolved, &runner_config),
-            &request.session_id,
-        ),
-    );
-
-    Ok(RunAssembly {
-        deps: RuntimeDeps {
-            project_root,
-            research_topic: mode.research_topic,
-            config,
-            profile,
-            rctx,
-            snapshot,
-            agent,
-            work_priority,
-            resolved,
-            proxy,
-            route,
-            client,
-            runner_config,
-            ask_source,
-        },
-        session: SessionContext {
+    Ok((
+        SessionContext {
             prior,
             state_path,
             store,
@@ -634,17 +729,70 @@ pub(crate) async fn assemble_run(
             typed_writer,
             typed_flush_task,
         },
-        round: RoundContext {
-            run_id,
-            work_item_id,
-            run_started,
-            run_epoch_ms,
-            orchestration_trace,
-            pipeline,
-            _write_lease,
-            ctx,
-        },
-    })
+        round,
+    ))
+}
+
+fn finish_startup_failure(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    input_id: &str,
+    writer: Option<&Arc<Mutex<typed_events::TypedEventWriter>>>,
+    lifecycle: &Mutex<()>,
+    halt_token: &kanzei_core::CancellationToken,
+    error: anyhow::Error,
+) -> anyhow::Error {
+    let stopped;
+    let outcome = {
+        let _lifecycle = lifecycle.lock_or_recover();
+        stopped = halt_token.is_cancelled();
+        if let Some(writer) = writer {
+            super::persistence::commit_outcome(
+                writer,
+                input_id,
+                if stopped {
+                    typed_events::TerminalFact::Stopped
+                } else {
+                    typed_events::TerminalFact::Failed(error.to_string())
+                },
+                &json!({"stage":"assembly", "halted_by_user":stopped, "error":error.to_string()}),
+            )
+        } else {
+            // No current typed turn exists yet. Never close a historical turn or
+            // invent successful baseline provenance just to finalize this input.
+            (|| -> anyhow::Result<()> {
+                if stopped && store.input_status(input_id)?.as_deref() == Some("cancelled") {
+                    return Ok(());
+                }
+                anyhow::ensure!(
+                    store.finish_input(input_id, false)?,
+                    "启动输入状态已变化，未提交失败结果"
+                );
+                Ok(())
+            })()
+        }
+    };
+    if let Err(outcome_error) = outcome {
+        return super::persistence::uncommitted_outcome(
+            error.context(format!("启动收尾未提交: {outcome_error}")),
+        );
+    }
+    let status = if stopped { "stopped" } else { "failed" };
+    let summary = if stopped {
+        "任务已停止".to_string()
+    } else {
+        error.to_string()
+    };
+    if let Err(notification_error) =
+        super::append_run_notification(store, session_id, status, &summary, false)
+    {
+        tracing::warn!(%notification_error, "启动结果通知写入失败");
+    }
+    if stopped {
+        super::persistence::stopped_outcome(error)
+    } else {
+        error
+    }
 }
 
 pub(crate) struct WriterLeaseTrace {
@@ -825,6 +973,698 @@ pub(crate) fn report_config_warnings(
     }
     for warning in config.bash_permission_warnings() {
         super::emit_stage(window, session_id, "权限", warning);
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    struct Fixture {
+        root: PathBuf,
+        path: PathBuf,
+        store: kanzei_core::SessionStore,
+        runtime: Arc<crate::SessionRuntime>,
+        handles: RuntimeHandles,
+        deps: RuntimeDeps,
+        mode: RunMode,
+        owner: Option<Arc<kanzei_core::store::session_execution::SessionExecutionGuard>>,
+        halt: kanzei_core::CancellationToken,
+        requests: Arc<AtomicUsize>,
+        server: tokio::task::JoinHandle<()>,
+    }
+
+    impl Fixture {
+        async fn new(profile: kanzei_harness::ProfileKind) -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "kz-c6-startup-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let path = kanzei_core::project_state_path(&root);
+            let store = kanzei_core::SessionStore::open(&path).unwrap();
+            store
+                .create_session("ses", root.to_str().unwrap(), None)
+                .unwrap();
+            let owner =
+                Arc::new(kanzei_core::store::session_execution::try_acquire(&path, "ses").unwrap());
+            let runtime = Arc::new(crate::SessionRuntime::default());
+            let halt = kanzei_core::CancellationToken::new();
+            *runtime.halt.lock_or_recover() = Some(halt.clone());
+            runtime.running.store(true, Ordering::SeqCst);
+            let handles = RuntimeHandles {
+                lifecycle: runtime.lifecycle.clone(),
+                asks: runtime.asks.clone(),
+                ask_seq: Arc::new(AtomicU64::new(1)),
+                collaboration_probe: crate::collaboration::CollaborationProbe::new(
+                    Arc::new(Mutex::new(HashMap::new())),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    root.clone(),
+                    "fixture".into(),
+                ),
+                current_stage: runtime.stage.clone(),
+                conversation: runtime.conversation.clone(),
+                live_run: runtime.live.clone(),
+                task_cancellations: runtime.task_cancellations.clone(),
+                auto_runs: Arc::new(Mutex::new(HashMap::new())),
+                coordinator: Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
+                halt_slot: runtime.halt.clone(),
+                run_generation: runtime.run_generation.clone(),
+            };
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let requests = Arc::new(AtomicUsize::new(0));
+            let observed = requests.clone();
+            let server = tokio::spawn(async move {
+                loop {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut bytes = Vec::new();
+                    let mut buffer = [0; 4096];
+                    let header_end = loop {
+                        let n = socket.read(&mut buffer).await.unwrap();
+                        assert!(n > 0);
+                        bytes.extend_from_slice(&buffer[..n]);
+                        if let Some(p) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break p + 4;
+                        }
+                    };
+                    let length = String::from_utf8_lossy(&bytes[..header_end])
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    while bytes.len() < header_end + length {
+                        let n = socket.read(&mut buffer).await.unwrap();
+                        assert!(n > 0);
+                        bytes.extend_from_slice(&buffer[..n]);
+                    }
+                    let payload: serde_json::Value =
+                        serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap();
+                    assert_eq!(payload["model"], "mock");
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    let body = format!(
+                        "data: {}\n\ndata: [DONE]\n\n",
+                        json!({"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]})
+                    );
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+                    socket.write_all(body.as_bytes()).await.unwrap();
+                }
+            });
+            // No config loader or credential resolver is used by this fixture.
+            let mut config = KanzeiConfig::default();
+            config.fill_defaults();
+            let resolved = config.resolve_model("primary").unwrap();
+            let config = Arc::new(config);
+            let rctx = ResolveCtx {
+                profile,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: config.clone(),
+            };
+            let snapshot = kanzei_harness::Harness::default().resolve(&rctx).unwrap();
+            let agent = serde_json::from_value(json!({
+                "name":"fixture", "profile":"dev", "mode":"primary", "steps":1, "system":"test"
+            }))
+            .unwrap();
+            let runner_config = kanzei_core::RunnerConfig {
+                hosted_tools: vec![],
+                digest_model: None,
+                intensity: kanzei_harness::HarnessIntensity::Autonomous,
+                model: "mock".into(),
+                max_tokens: 128,
+                reasoning: kanzei_llm::ReasoningEffort::Off,
+                service_tier: None,
+                context_limit: None,
+                limits: Default::default(),
+                recall: None,
+                execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+                ask_policy: kanzei_core::AskPolicy::NonInteractive,
+                halt: Some(halt.clone()),
+            };
+            let deps = RuntimeDeps {
+                project_root: root.clone(),
+                research_topic: None,
+                config,
+                profile,
+                rctx,
+                snapshot,
+                agent,
+                work_priority: "defect-first",
+                resolved,
+                proxy: kanzei_llm::ProxyConfig::Disabled,
+                route: kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), None),
+                client: kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap(),
+                runner_config,
+                ask_source: "primary",
+            };
+            let mode = RunMode {
+                execution_batch: false,
+                phase_pipeline_enabled: false,
+                subagents_enabled: false,
+                block_tracker_writes: false,
+                profile: Some(format!("{profile:?}").to_lowercase()),
+                research_topic: None,
+                agent_name: None,
+                model_override: None,
+                work_priority: None,
+                reasoning_override: None,
+                autonomous: false,
+                auto_allow: false,
+            };
+            Self {
+                root,
+                path,
+                store,
+                runtime,
+                handles,
+                deps,
+                mode,
+                owner: Some(owner),
+                halt,
+                requests,
+                server,
+            }
+        }
+
+        fn request(&self, promoted_input: Option<kanzei_core::AdmittedInput>) -> RoundRequest {
+            RoundRequest {
+                prompt: "new prompt".into(),
+                attachments: None,
+                project_dir: self.root.display().to_string(),
+                main_root: self.root.clone(),
+                session_id: "ses".into(),
+                execution_owner: self.owner.as_ref().unwrap().clone(),
+                delivery: kanzei_core::Delivery::Queue,
+                promoted_input,
+                process_id: "fixture".into(),
+                work_item_id: None,
+            }
+        }
+
+        fn inject(&self, sql: &str) {
+            let connection = rusqlite::Connection::open(&self.path).unwrap();
+            connection.execute_batch(sql).unwrap();
+        }
+
+        async fn prepare(
+            &mut self,
+            request: RoundRequest,
+        ) -> anyhow::Result<(SessionContext, RoundContext)> {
+            let ctx =
+                ToolCtx::new(self.root.clone(), self.root.clone()).with_session_id("ses".into());
+            prepare_session(
+                &|_, _| {},
+                request,
+                &self.mode,
+                &self.handles,
+                &self.halt,
+                &mut self.deps,
+                ctx,
+                None,
+            )
+            .await
+        }
+
+        async fn execute_if_prepared(
+            &self,
+            prepared: anyhow::Result<(SessionContext, RoundContext)>,
+        ) -> anyhow::Result<kanzei_core::RunSummary> {
+            // This is deliberately executed even when a negative production
+            // control wrongly admits an input whose user fact was rejected.
+            let (session, round) = prepared?;
+            let writer = session.typed_writer.clone();
+            let mut sink = move |event| {
+                let mut writer = writer.lock_or_recover();
+                match event {
+                    kanzei_core::RunEvent::TurnStart {
+                        step, max_steps, ..
+                    } => writer.turn_started(step, max_steps),
+                    kanzei_core::RunEvent::Text(text) => writer.push_text(&text),
+                    kanzei_core::RunEvent::AssistantMessageCommitted {
+                        step,
+                        message,
+                        commit,
+                    } => {
+                        if !writer.assistant_committed(step, message) {
+                            commit.reject(
+                                writer
+                                    .errors()
+                                    .last()
+                                    .cloned()
+                                    .unwrap_or_else(|| "assistant rejected".into()),
+                            );
+                        }
+                    }
+                    kanzei_core::RunEvent::ToolResultsCommitted {
+                        step,
+                        message,
+                        commit,
+                    } => {
+                        if !writer.tool_results_committed(step, message) {
+                            commit.reject(
+                                writer
+                                    .errors()
+                                    .last()
+                                    .cloned()
+                                    .unwrap_or_else(|| "tools rejected".into()),
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            };
+            let mut ask = |_| -> kanzei_core::AskFuture {
+                Box::pin(async {
+                    kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny)
+                })
+            };
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                kanzei_core::run_once_with_parts(
+                    &self.deps.client,
+                    &self.deps.route,
+                    &self.deps.snapshot,
+                    &self.deps.agent,
+                    &self.deps.runner_config,
+                    &round.ctx,
+                    &session.prompt,
+                    None,
+                    None,
+                    &session.prior,
+                    Some(&session.initial_parts),
+                    None,
+                    None,
+                    &mut sink,
+                    &mut ask,
+                ),
+            )
+            .await
+            .unwrap();
+            session.typed_flush_task.abort();
+            let summary = result?;
+            super::super::persistence::commit_outcome(
+                &session.typed_writer,
+                &session.promoted_input_id,
+                typed_events::TerminalFact::Completed,
+                &json!({"text":summary.text}),
+            )
+            .unwrap();
+            super::super::append_run_notification(
+                &session.store,
+                "ses",
+                "succeeded",
+                "任务完成",
+                false,
+            )
+            .unwrap();
+            Ok(summary)
+        }
+
+        fn input_id(&self) -> String {
+            self.store
+                .latest_event("ses", "prompt.promoted")
+                .unwrap()
+                .unwrap()
+                .payload["input_id"]
+                .as_str()
+                .unwrap()
+                .into()
+        }
+
+        fn count(&self, kind: &str) -> usize {
+            self.store
+                .list_events_by_type("ses", 0, kind)
+                .unwrap()
+                .len()
+        }
+
+        fn notification_statuses(&self) -> Vec<String> {
+            self.store
+                .replay_notifications("ses", 0, 100)
+                .unwrap()
+                .into_iter()
+                .map(|n| n.status)
+                .collect()
+        }
+
+        fn assert_failed(&self, error: &anyhow::Error) {
+            assert!(
+                !super::super::persistence::is_uncommitted_outcome(error),
+                "{error:?}"
+            );
+            assert_eq!(
+                self.requests.load(Ordering::SeqCst),
+                0,
+                "startup rejection reached the real provider"
+            );
+            assert_eq!(
+                self.store
+                    .input_status(&self.input_id())
+                    .unwrap()
+                    .as_deref(),
+                Some("failed")
+            );
+            assert_eq!(
+                self.store.get_session("ses").unwrap().unwrap().status,
+                "failed"
+            );
+            assert_eq!(self.count("session.turn_failed"), 1);
+            assert_eq!(self.count("run.failed"), 1);
+            assert_eq!(self.count("session.turn_completed"), 0);
+            assert_eq!(
+                self.notification_statuses().last().map(String::as_str),
+                Some("failed")
+            );
+        }
+
+        async fn assert_owner_released(&mut self) {
+            drop(self.owner.take());
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    match kanzei_core::store::session_execution::try_acquire(&self.path, "ses") {
+                        Ok(owner) => break drop(owner),
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            // An aborted weak-flush task may still be dropping
+                            // its final temporary strong reference.
+                            tokio::task::yield_now().await;
+                        }
+                        Err(error) => panic!("owner release failed: {error}"),
+                    }
+                }
+            })
+            .await
+            .unwrap();
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.server.abort();
+            self.runtime.running.store(false, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_internal_input_failure_closes_all_durable_state() {
+        for rejected in ["notification", "status_event"] {
+            let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+            fixture.inject(if rejected == "notification" {
+                "CREATE TRIGGER reject_start BEFORE INSERT ON agent_notifications WHEN json_extract(NEW.payload_json,'$.status')='running' BEGIN SELECT RAISE(ABORT,'injected running notification'); END;"
+            } else {
+                "CREATE TRIGGER reject_start BEFORE INSERT ON session_events WHEN NEW.event_type='session.status_changed' AND json_extract(NEW.payload_json,'$.status')='running' BEGIN SELECT RAISE(ABORT,'injected running status event'); END;"
+            });
+            let request = fixture.request(None);
+            let prepared = fixture.prepare(request).await;
+            let error = fixture.execute_if_prepared(prepared).await.err().unwrap();
+            assert!(error.to_string().contains("injected running"));
+            fixture.assert_failed(&error);
+            fixture.assert_owner_released().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_saved_input_failure_retains_next_pending_input() {
+        let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+        fixture
+            .store
+            .admit_input("ses", "saved", "saved prompt", kanzei_core::Delivery::Queue)
+            .unwrap();
+        let promoted = fixture.store.promote_next_input("ses").unwrap().unwrap();
+        fixture
+            .store
+            .admit_input("ses", "next", "next prompt", kanzei_core::Delivery::Queue)
+            .unwrap();
+        fixture.inject("CREATE TRIGGER reject_start BEFORE INSERT ON agent_notifications WHEN json_extract(NEW.payload_json,'$.status')='running' BEGIN SELECT RAISE(ABORT,'injected running notification'); END;");
+        let request = fixture.request(Some(promoted));
+        let prepared = fixture.prepare(request).await;
+        let error = fixture.execute_if_prepared(prepared).await.err().unwrap();
+        // Invoke the same direct caller fallback; it must not overwrite the
+        // result transaction or touch the next pending input.
+        assert!(!crate::commands::run::finish_failed_promoted_input(
+            &fixture.store,
+            "saved",
+            &error
+        )
+        .unwrap());
+        fixture.assert_failed(&error);
+        assert_eq!(fixture.input_id(), "saved");
+        assert_eq!(
+            fixture.store.input_status("next").unwrap().as_deref(),
+            Some("pending")
+        );
+        fixture.assert_owner_released().await;
+    }
+
+    #[tokio::test]
+    async fn startup_user_rejection_never_reaches_real_provider() {
+        let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+        fixture.inject("CREATE TRIGGER reject_user BEFORE INSERT ON session_events WHEN NEW.event_type='session.user_message_committed' BEGIN SELECT RAISE(ABORT,'injected user admission'); END;");
+        let request = fixture.request(None);
+        let prepared = fixture.prepare(request).await;
+        let result = fixture.execute_if_prepared(prepared).await;
+        assert_eq!(
+            fixture.requests.load(Ordering::SeqCst),
+            0,
+            "rejected user admission must not reach the real provider"
+        );
+        let error = result.err().expect("rejected admission must fail startup");
+        assert!(error.to_string().contains("injected user admission"));
+        fixture.assert_failed(&error);
+        assert_eq!(fixture.count("session.user_message_committed"), 0);
+        fixture.assert_owner_released().await;
+    }
+
+    #[tokio::test]
+    async fn startup_failed_outcome_rejection_rolls_back_and_protects_fallback() {
+        for rejection in ["terminal", "input", "status", "event"] {
+            let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+            fixture.inject("CREATE TRIGGER reject_start BEFORE INSERT ON agent_notifications WHEN json_extract(NEW.payload_json,'$.status')='running' BEGIN SELECT RAISE(ABORT,'injected startup'); END;");
+            fixture.inject(match rejection {
+                "terminal" => "CREATE TRIGGER reject_outcome BEFORE INSERT ON session_events WHEN NEW.event_type='session.turn_failed' BEGIN SELECT RAISE(ABORT,'injected failed terminal'); END;",
+                "input" => "CREATE TRIGGER reject_outcome BEFORE UPDATE OF status ON session_inputs WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'injected failed input'); END;",
+                "status" => "CREATE TRIGGER reject_outcome BEFORE UPDATE OF status ON sessions WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'injected failed status'); END;",
+                _ => "CREATE TRIGGER reject_outcome BEFORE INSERT ON session_events WHEN NEW.event_type='run.failed' BEGIN SELECT RAISE(ABORT,'injected failed event'); END;",
+            });
+            let request = fixture.request(None);
+            let prepared = fixture.prepare(request).await;
+            let error = fixture.execute_if_prepared(prepared).await.err().unwrap();
+            assert!(
+                super::super::persistence::is_uncommitted_outcome(&error),
+                "{error:?}"
+            );
+            let input_id = fixture.input_id();
+            assert!(!crate::commands::run::finish_failed_promoted_input(
+                &fixture.store,
+                &input_id,
+                &error
+            )
+            .unwrap());
+            assert_eq!(
+                fixture.store.input_status(&input_id).unwrap().as_deref(),
+                Some("running")
+            );
+            assert_eq!(
+                fixture.store.get_session("ses").unwrap().unwrap().status,
+                "running"
+            );
+            assert_eq!(fixture.count("session.turn_failed"), 0);
+            assert_eq!(fixture.count("run.failed"), 0);
+            assert_eq!(fixture.count("session.turn_stopped"), 0);
+            assert!(fixture.notification_statuses().is_empty());
+            assert_eq!(fixture.requests.load(Ordering::SeqCst), 0);
+            fixture.assert_owner_released().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_pre_writer_failures_only_finalize_current_input() {
+        for baseline in [false, true] {
+            let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+            fixture
+                .store
+                .admit_input(
+                    "ses",
+                    "old",
+                    "old unfinished turn",
+                    kanzei_core::Delivery::Queue,
+                )
+                .unwrap();
+            fixture.store.promote_next_input("ses").unwrap().unwrap();
+            assert!(fixture.store.start_input("old").unwrap());
+            fixture.store.set_status("ses", "running").unwrap();
+            let mut historical = fixture.owner.as_ref().unwrap().writer("historical");
+            assert!(historical
+                .user_message("old", kanzei_llm::Message::user_text("old unfinished turn")));
+            historical.turn_started(1, 1);
+            drop(historical);
+            let mut request = fixture.request(None);
+            if baseline {
+                fixture.inject("CREATE TRIGGER reject_baseline BEFORE INSERT ON session_events WHEN NEW.event_type='run.baseline' BEGIN SELECT RAISE(ABORT,'injected baseline'); END;");
+            } else {
+                request.attachments = Some(vec![PromptAttachment {
+                    file_name: "empty.png".into(),
+                    media_type: "image/png".into(),
+                    data: String::new(),
+                }]);
+            }
+            let prepared = fixture.prepare(request).await;
+            let error = fixture.execute_if_prepared(prepared).await.err().unwrap();
+            assert!(error.to_string().contains(if baseline {
+                "injected baseline"
+            } else {
+                "附件数据为空"
+            }));
+            assert_eq!(fixture.requests.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                fixture
+                    .store
+                    .input_status(&fixture.input_id())
+                    .unwrap()
+                    .as_deref(),
+                Some("failed")
+            );
+            assert_eq!(
+                fixture.store.get_session("ses").unwrap().unwrap().status,
+                "running",
+                "a pre-writer failure must not reset a historical run's state"
+            );
+            assert_eq!(
+                fixture.store.input_status("old").unwrap().as_deref(),
+                Some("running")
+            );
+            assert_eq!(
+                fixture.count("run.failed"),
+                0,
+                "there is no current run identity to finalize"
+            );
+            assert_eq!(
+                fixture.count("run.baseline"),
+                0,
+                "failed capture must not invent baseline provenance"
+            );
+            assert_eq!(
+                fixture.count("session.turn_failed"),
+                0,
+                "startup does not own the historical turn"
+            );
+            assert_eq!(fixture.count("session.turn_stopped"), 0);
+            assert_eq!(fixture.store.list_session_facts("ses").unwrap().len(), 2);
+            assert_eq!(fixture.notification_statuses(), vec!["failed"]);
+            fixture.assert_owner_released().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_stop_during_actual_lease_wait_commits_stopped() {
+        use kanzei_harness::orchestration::WriterLeaseRequest;
+        let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Dev).await;
+        let coordinator = fixture.handles.coordinator.clone();
+        let blocker = coordinator
+            .acquire_writer_lease(WriterLeaseRequest {
+                write_scope: fixture.root.clone(),
+                run_id: "blocker".into(),
+                process_id: "blocker".into(),
+                reason: "barrier".into(),
+            })
+            .await
+            .unwrap();
+        let runtime = fixture.runtime.clone();
+        let root = fixture.root.clone();
+        let path = fixture.path.clone();
+        let stopper = async {
+            let waiting = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    if let Some(run_id) = coordinator.snapshot(&root).waiting_writers.first() {
+                        break run_id.clone();
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .unwrap();
+            let store = kanzei_core::SessionStore::open(&path).unwrap();
+            crate::stop_runtime_and_finalize(&runtime, &store, &path, "ses").unwrap();
+            runtime.running.store(false, Ordering::SeqCst);
+            coordinator.cancel_waiter(&waiting);
+        };
+        let request = fixture.request(None);
+        let (prepared, ()) = tokio::join!(fixture.prepare(request), stopper);
+        let error = fixture.execute_if_prepared(prepared).await.err().unwrap();
+        assert!(
+            super::super::persistence::is_stopped_outcome(&error),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("无法获取写租约"));
+        assert!(fixture.halt.is_cancelled());
+        assert_eq!(fixture.requests.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            fixture
+                .store
+                .input_status(&fixture.input_id())
+                .unwrap()
+                .as_deref(),
+            Some("cancelled")
+        );
+        assert_eq!(
+            fixture.store.get_session("ses").unwrap().unwrap().status,
+            "idle"
+        );
+        assert_eq!(fixture.count("session.turn_stopped"), 1);
+        assert_eq!(fixture.count("session.turn_failed"), 0);
+        assert_eq!(fixture.count("run.completed"), 1);
+        assert_eq!(
+            fixture
+                .store
+                .latest_event("ses", "run.completed")
+                .unwrap()
+                .unwrap()
+                .payload["halted_by_user"],
+            true
+        );
+        assert_eq!(fixture.notification_statuses(), vec!["running", "stopped"]);
+        assert!(coordinator.snapshot(&root).waiting_writers.is_empty());
+        drop(blocker);
+        fixture.assert_owner_released().await;
+    }
+
+    #[tokio::test]
+    async fn startup_normal_provider_completes_and_releases_owner() {
+        let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+        let request = fixture.request(None);
+        let prepared = fixture.prepare(request).await;
+        let summary = fixture.execute_if_prepared(prepared).await.unwrap();
+        assert_eq!(summary.text, "done");
+        assert_eq!(fixture.requests.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            fixture
+                .store
+                .input_status(&fixture.input_id())
+                .unwrap()
+                .as_deref(),
+            Some("completed")
+        );
+        assert_eq!(
+            fixture.store.get_session("ses").unwrap().unwrap().status,
+            "idle"
+        );
+        assert_eq!(fixture.count("session.user_message_committed"), 1);
+        assert_eq!(fixture.count("session.assistant_message_committed"), 1);
+        assert_eq!(fixture.count("session.turn_completed"), 1);
+        assert_eq!(
+            fixture.notification_statuses(),
+            vec!["running", "succeeded"]
+        );
+        fixture.assert_owner_released().await;
     }
 }
 
