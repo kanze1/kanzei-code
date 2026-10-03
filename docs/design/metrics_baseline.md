@@ -15,7 +15,7 @@ metrics_format_version: v1
 | 4 | crates/kanzei-core/src/runner/drive.rs | 1967 | 1320 | 647 | 8 | 427 | 4 |
 | 5 | crates/kanzei-tools/src/research_runner.rs | 1916 | 1299 | 617 | 32 | 625 | 2 |
 | 6 | crates/kanzei-tools/src/work.rs | 2862 | 1274 | 1588 | 24 | 2084 | 1 |
-| 7 | crates/kanzei-core/src/store/session.rs | 1847 | 1176 | 671 | 41 | 107 | 0 |
+| 7 | crates/kanzei-core/src/store/session.rs | 1899 | 1195 | 704 | 42 | 107 | 0 |
 | 8 | crates/kanzei-app/src/commands/run.rs | 1488 | 1162 | 326 | 23 | 51 | 0 |
 | 9 | crates/kanzei-tools/src/git.rs | 2990 | 1154 | 1836 | 27 | 129 | 0 |
 | 10 | crates/kanzei-app/src/run/events/mod.rs | 1648 | 1114 | 534 | 36 | 300 | 1 |

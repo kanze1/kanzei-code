@@ -84,6 +84,25 @@ try {
   const prefs = await invoke("projects_add", { path: project });
   const projectHistory = await closedChat(prefs.current, "项目里的验收记录");
   await page.evaluate(async prefs => { const sessions = await import("./09-sessions.js"); await sessions.enterProject(prefs); }, prefs);
+  const projectGroup = page.locator(`#workbench-project-list > .workbench-project[data-path=${JSON.stringify(prefs.current)}]`);
+  const projectLink = projectGroup.locator(".workbench-project-link");
+  check(await page.locator("#workbench-project-list .workbench-project-caret, #workbench-project-list [data-act='toggle']").count() === 0, "Native project rows have no separate expansion marker");
+  await page.evaluate(async project => { const tree = await import("./12-session-tree.js"); tree.setSidebarOpen(project, false); tree.invalidateSessionTree(); }, prefs.current);
+  await projectLink.click();
+  await projectGroup.locator("[data-ctx='session']").first().waitFor();
+  await projectLink.click();
+  check(await projectLink.getAttribute("aria-expanded") === "true" && await projectGroup.locator(".workbench-session-list").isVisible(), "Native project name opens and keeps the conversation list expanded");
+  const liveRows = page.locator("#workbench-project-list [data-ctx='session'], #workbench-general-list [data-ctx='session']");
+  check(await liveRows.locator(".workbench-session-dot, .workbench-session-activity, .workbench-session-tag").count() === 0 && await page.locator("#workbench-general-list [data-ctx='session']").count() > 0, "Native project and projectless rows share the same presentation without dots or type badges");
+  const projectMain = (await invoke("process_list", { projectDir: prefs.current })).find(item => item.kind === "main");
+  const generalMain = (await invoke("process_list", { projectDir: root })).find(item => item.kind === "main");
+  await invoke("process_rename", { projectDir: prefs.current, processId: projectMain.id, title: "原生项目标题核验" });
+  await invoke("process_rename", { projectDir: root, processId: generalMain.id, title: "原生无项目标题核验" });
+  await page.evaluate(async root => {
+    const sessions = await import("./09-sessions.js"), tree = await import("./12-session-tree.js");
+    await sessions.refreshProcesses(); await tree.loadRemoteSessions(root, { force: true }); tree.invalidateSessionTree();
+  }, root);
+  check(await projectGroup.locator(`[data-process-id=${JSON.stringify(projectMain.id)}] .workbench-session-name`).innerText() === "原生项目标题核验" && await page.locator(`#workbench-general-list [data-process-id=${JSON.stringify(generalMain.id)}] .workbench-session-name`).innerText() === "原生无项目标题核验", "Native project and projectless main conversations show their stored SQLite titles");
   await page.locator("#workbench-chat-history").click();
   const search = page.getByRole("searchbox", { name: "搜索对话", exact: true });
   await search.fill("重启后的历史");

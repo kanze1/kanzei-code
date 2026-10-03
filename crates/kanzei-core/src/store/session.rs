@@ -126,21 +126,40 @@ impl SessionStore {
         Ok(())
     }
 
-    /// 会话里第一条有内容的用户输入(零 token 自动标题的来源,取前缀由调用方做)。
+    /// 当前对话段里第一条有内容的用户输入(自动标题来源,取前缀由调用方做)。
     ///
     /// 已被取消的输入不算(用户没真正发出去);「历史对话」删除会把已结束输入的原文就地清空,
     /// 清空了的跳过,于是标题永远不会泄漏已被删除的内容。
     pub fn first_input_prompt(&self, session_id: &str) -> Result<Option<String>, StoreError> {
-        self.connection
-            .query_row(
-                "SELECT prompt FROM session_inputs
-                     WHERE session_id = ?1 AND status <> 'cancelled' AND prompt <> ''
-                     ORDER BY created_at, rowid LIMIT 1",
-                params![session_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(Into::into)
+        Ok(self
+            .first_input_prompt_with_sequence(session_id)?
+            .map(|(_, prompt)| prompt))
+    }
+
+    /// 同时提供 admission 的事件顺序，供标题与手机/存量用户消息比较实际先后。
+    pub fn first_input_prompt_with_sequence(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(i64, String)>, StoreError> {
+        let floor = self.conversation_floor(session_id)?.unwrap_or(0);
+        let mut statement = self.connection.prepare(
+            "SELECT admission.sequence, input.prompt FROM session_events AS admission
+                 JOIN session_inputs AS input ON input.input_id = json_extract(admission.payload_json, '$.input_id')
+                 WHERE admission.session_id = ?1 AND admission.event_type = 'prompt.admitted'
+                   AND admission.sequence > ?2 AND input.session_id = ?1
+                   AND input.status <> 'cancelled' AND input.prompt <> ''
+                 ORDER BY admission.sequence",
+        )?;
+        let rows = statement.query_map(params![session_id, floor], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for prompt in rows {
+            let prompt = prompt?;
+            if !prompt.1.trim().is_empty() {
+                return Ok(Some(prompt));
+            }
+        }
+        Ok(None)
     }
 
     /// 更新会话生命周期状态，并同步更新时间。
@@ -1672,6 +1691,9 @@ mod tests {
         store
             .admit_input("ses_test", "in-b", "", Delivery::Queue)
             .unwrap();
+        store
+            .admit_input("ses_test", "in-space", " \n\t\u{3000}", Delivery::Queue)
+            .unwrap();
         assert_eq!(store.first_input_prompt("ses_test").unwrap(), None);
         store
             .admit_input("ses_test", "in-c", "真正的首条", Delivery::Queue)
@@ -1682,6 +1704,36 @@ mod tests {
         assert_eq!(
             store.first_input_prompt("ses_test").unwrap().as_deref(),
             Some("真正的首条")
+        );
+    }
+
+    #[test]
+    fn 首条输入标题只取清空或删除当前段之后的输入() {
+        let store = store();
+        store
+            .admit_input("ses_test", "old", "旧话题", Delivery::Queue)
+            .unwrap();
+        store
+            .append_event("ses_test", "conversation.reset", &serde_json::json!({}))
+            .unwrap();
+        assert_eq!(store.first_input_prompt("ses_test").unwrap(), None);
+        store
+            .admit_input("ses_test", "new", "新话题", Delivery::Queue)
+            .unwrap();
+        assert_eq!(
+            store.first_input_prompt("ses_test").unwrap().as_deref(),
+            Some("新话题")
+        );
+        store
+            .delete_conversation_segment("ses_test", 0, i64::MAX)
+            .unwrap();
+        assert_eq!(store.first_input_prompt("ses_test").unwrap(), None);
+        store
+            .admit_input("ses_test", "after-delete", "删除后新话题", Delivery::Queue)
+            .unwrap();
+        assert_eq!(
+            store.first_input_prompt("ses_test").unwrap().as_deref(),
+            Some("删除后新话题")
         );
     }
 

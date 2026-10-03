@@ -90,7 +90,7 @@ async function harness() {
     ["./07-events.js", { askQueues: queues, askActive: null, askQueueFor: id => { if (!queues.has(id)) queues.set(id, []); return queues.get(id); }, pumpAsk: () => {} }],
     ["./08-auto.js", { awaitingUserSessions: new Set() }],
     ["./05-subagents.js", { SA_ACTIVE: new Set(), subagentRunsFor: () => [] }],
-    ["./12-session-tree.js", { processName: item => item.label ?? item.id, orderedProjects: () => [] }],
+    ["./12-session-tree.js", { processName: item => item.label ?? item.id, orderedProjects: () => [], setSidebarOpen: () => {} }],
     ["./08-models.js", { modelCatalogProject: A }],
   ]);
   const imported = new Map();

@@ -349,6 +349,25 @@ impl SessionStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// 按类型和段地板读第一条事件；标题查询不必把整段用户事件装入内存。
+    pub fn first_event_by_type_after(
+        &self,
+        session_id: &str,
+        after_sequence: i64,
+        event_type: &str,
+    ) -> Result<Option<StoredEvent>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+             FROM session_events WHERE session_id = ?1 AND event_type = ?2 AND sequence > ?3
+             ORDER BY sequence LIMIT 1",
+                params![session_id, event_type, after_sequence],
+                event_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// 按类型取最小 sequence 的单个事件(D-297 验收②:按序号恢复改单行查询)。
     pub fn event_by_sequence_and_type(
         &self,

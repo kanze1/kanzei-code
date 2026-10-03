@@ -72,29 +72,20 @@ export function forgetSessionPrefs(project, id) {
 export function kindWord(kind) {
   return kind === "conversation" ? t("对话") : kind === "main" ? t("主对话") : kind === "discussion" ? t("讨论") : t("独立任务");
 }
-const LEGACY_LABEL = /^(默认|p\d*|d)$/;
+const LEGACY_LABEL = /^(默认|p\d*|d|主对话|讨论|独立任务|对话|新对话|未命名对话)(?:\s+\d+)?$/;
 export function sessionKindOf(item, main) {
   if (item.profile === "research" || item.kind === "research") return "research";
   if (main) return item.id === main.id ? "main" : item.profile === "readonly" || item.kind === "discussion" ? "discussion" : "task";
   if (String(item.id).startsWith("d|") || item.kind === "main") return "main";
   return item.profile === "readonly" || item.kind === "discussion" ? "discussion" : "task";
 }
-/// 展示名:后端的标题(用户命名或首条消息前 48 字)‖ 后端 label(已是类型+序号)‖ 本地补的「讨论 3」。
-export function sessionDisplayName(item, kind) {
+/// 对话统一使用持久化标题;旧类型名和编号不再充当标题。
+export function sessionDisplayName(item) {
   const title = String(item.title ?? "").trim();
   if (title) return title;
   const label = String(item.label ?? "").trim();
-  if (isGeneralChat(item.origin_project || item.project_dir)) {
-    const ordinal = Number(item.ordinal) || 0;
-    return ordinal ? `${t("对话")} ${ordinal}` : t("新对话");
-  }
-  // 后端生成的默认名(「主对话」「讨论 3」「独立任务 5」)是中文:英文界面照词表翻译;用户自己起的名字原样。
-  const generated = /^(主对话|讨论|独立任务)(?: (\d+))?$/.exec(label);
-  if (generated) return `${generated[1] === "主对话" ? t("主对话") : generated[1] === "讨论" ? t("讨论") : t("独立任务")}${generated[2] ? ` ${generated[2]}` : ""}`;
-  if (label && !LEGACY_LABEL.test(label)) return label;
-  if (kind === "main") return t("主对话");
-  const ordinal = Number(item.ordinal) || Number(/^p(\d+)\|/.exec(String(item.id))?.[1]) || 0;
-  return `${kindWord(kind)}${ordinal ? ` ${ordinal}` : ""}`;
+  if (label && (item.title_custom || !LEGACY_LABEL.test(label))) return label;
+  return t("新对话");
 }
 export function sessionTime(item) {
   const value = item.updated_at ?? item.updatedAt;
@@ -162,9 +153,7 @@ export function orderRows(project, rows = buildRows(project)) {
     const ib = manual.has(b.id) ? manual.get(b.id) : -1;
     return ia - ib || b.ordinal - a.ordinal || b.updatedAt - a.updatedAt || String(a.id).localeCompare(String(b.id));
   };
-  const main = rows.filter((row) => row.kind === "main");
-  const rest = rows.filter((row) => row.kind !== "main");
-  return [...main, ...rest.filter((row) => row.pinned).sort(compare), ...rest.filter((row) => !row.pinned).sort(compare)];
+  return [...rows.filter((row) => row.pinned).sort(compare), ...rows.filter((row) => !row.pinned).sort(compare)];
 }
 /// 项目显示顺序:置顶的在前,其余照 projects 数组顺序(projects_reorder 写的就是这个数组)。
 export function orderedProjects(prefs) {
@@ -198,7 +187,6 @@ function rowNeedsEye(row) {
 function rowTitle(row, activity, approval = false) {
   const lines = [row.name];
   if (row.lifecycle === "closed") lines.push(t("已关闭的对话,只读查看"));
-  else if (row.scope !== "general" && !row.name.startsWith(kindWord(row.kind))) lines.push(kindWord(row.kind));
   if (row.branch) lines.push(row.branch);
   const when = relativeTime(row.updatedAt);
   if (when) lines.push(when);
@@ -221,7 +209,7 @@ export function buildSessionRow(row, { history = false } = {}) {
   const closed = row.lifecycle === "closed";
   const wrap = el("div", `workbench-session${history ? " in-history" : ""}${closed ? " is-closed" : ""}`);
   wrap.dataset.ctx = closed ? "closed" : "session";
-  // 主对话固定在最前,不参与拖动排序。
+  // 所有活动对话共用置顶和排序规则。
   if (row.capabilities.reorder) wrap.dataset.drag = "session";
   wrap.dataset.project = row.project;
   wrap.dataset.processId = row.id;
@@ -234,21 +222,12 @@ export function buildSessionRow(row, { history = false } = {}) {
   if (closed) wrap._closed = row.item;
   const button = el("button", "workbench-session-link");
   button.type = "button";
-  const dot = el("span", "workbench-session-activity");
-  dot.setAttribute("aria-hidden", "true");
   const name = el("span", "workbench-session-name", row.name);
-  button.append(dot, name);
+  button.append(name);
   if (row.pinned) {
     const pin = el("span", "workbench-session-pin");
     pin.setAttribute("aria-hidden", "true");
     button.append(pin);
-  }
-  // 类型词只在名字没带它时补一个(「讨论 3」「主对话」本身就是类型)。
-  const word = kindWord(row.kind);
-  if (!closed && row.scope !== "general" && row.kind === "discussion" && !row.name.startsWith(word)) {
-    const tag = el("span", "workbench-session-tag", word);
-    tag.setAttribute("aria-hidden", "true");
-    button.append(tag);
   }
   // 等你批准的小圆点(琥珀=需要注意):别的对话在等权限批准时这里亮一枚,不必逐个点开去看(UX-146)。
   const approval = el("span", "workbench-session-approval");
@@ -289,7 +268,7 @@ export function syncRowActivity(wrap) {
     const when = relativeTime(row.updatedAt);
     if (when && wrap._time.textContent !== when) wrap._time.textContent = when;
   }
-  const description = `${row.scope === "general" ? t("对话") : kindWord(row.kind)}${activity.state !== "idle" ? ` · ${localizedStage(activity.label)}` : ""}${approval ? ` · ${t("等你批准")}` : ""}`;
+  const description = `${t("对话")}${activity.state !== "idle" ? ` · ${localizedStage(activity.label)}` : ""}${approval ? ` · ${t("等你批准")}` : ""}`;
   if (button.getAttribute("aria-description") !== description) button.setAttribute("aria-description", description);
 }
 
@@ -303,7 +282,7 @@ export function setSessionDragging(value) {
 const signatures = new Map(); // 项目路径 → 上次画的签名
 let historySignature = "";
 
-/// 项目行套上「分组」外壳:[展开箭头][项目链接按钮] + 会话列表。链接按钮由 12-workbench 建(保留它的点击语义)。
+/// 项目名称本身负责打开项目与展开会话列表。
 export function wrapProjectRow(path, linkButton) {
   const group = el("div", "workbench-project");
   group.dataset.path = path;
@@ -312,20 +291,13 @@ export function wrapProjectRow(path, linkButton) {
   row.dataset.ctx = "project";
   row.dataset.drag = "project";
   row.dataset.path = path;
-  const caret = el("button", "workbench-project-caret");
-  caret.type = "button";
-  caret.dataset.act = "toggle";
-  const icon = el("span", "workbench-project-caret-icon");
-  icon.setAttribute("aria-hidden", "true");
-  caret.append(icon);
   linkButton.setAttribute("aria-haspopup", "menu");
-  row.append(caret, linkButton);
+  row.append(linkButton);
   const list = el("div", "workbench-session-list");
   list.setAttribute("role", "group");
   list.hidden = true;
   group.append(row, list);
   group._row = row;
-  group._caret = caret;
   group._list = list;
   group._link = linkButton;
   return group;
@@ -372,9 +344,7 @@ export function renderSidebarSessions() {
     group.dataset.open = String(open);
     group.dataset.pinned = String(projectPinned(path));
     group._row.dataset.pinned = String(projectPinned(path));
-    group._caret.setAttribute("aria-expanded", String(open));
-    group._caret.setAttribute("aria-label", `${open ? t("收起") : t("展开")} ${name}`);
-    group._caret.title = open ? t("收起") : t("展开");
+    group._link.setAttribute("aria-expanded", String(open));
     list.hidden = !open;
     list.setAttribute("aria-label", `${name} · ${t("对话")}`);
     if (!open) {
@@ -661,13 +631,11 @@ function buildSegmentRow({ owner, item }) {
   wrap.dataset.key = `${owner.project}\u001f${owner.id}\u001f${item.sequence}`;
   const button = el("button", "workbench-session-link");
   button.type = "button";
-  const dot = el("span", "workbench-session-activity");
-  dot.setAttribute("aria-hidden", "true");
   const count = Number.isFinite(item.message_count) ? ` (${item.message_count} ${t("条")})` : "";
   const name = el("span", "workbench-session-name", `${segmentTitle(item.title)}${count}`);
   const tag = el("span", "workbench-session-tag", owner.name);
   tag.setAttribute("aria-hidden", "true");
-  button.append(dot, name, tag);
+  button.append(name, tag);
   const created = Number(item.created_at);
   const when = created > 0 ? relativeTime(created) : String(item.updated_at ?? "");
   button.title = [segmentTitle(item.title), `${t("历史")} · ${owner.name}`, when].filter(Boolean).join("\n");

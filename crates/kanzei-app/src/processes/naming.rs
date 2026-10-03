@@ -158,12 +158,16 @@ pub(crate) fn load_naming(
         .and_then(|session| session.title.clone())
         .filter(|title| !title.trim().is_empty());
     let auto = if custom.is_none() {
-        store
-            .first_input_prompt(session_id)
+        let input = store
+            .first_input_prompt_with_sequence(session_id)
             .ok()
             .flatten()
-            .as_deref()
-            .and_then(auto_title)
+            .and_then(|(sequence, prompt)| auto_title(&prompt).map(|title| (sequence, title)));
+        input
+            .into_iter()
+            .chain(history_auto_title(store, session_id))
+            .min_by_key(|(sequence, _)| *sequence)
+            .map(|(_, title)| title)
     } else {
         None
     };
@@ -172,6 +176,62 @@ pub(crate) fn load_naming(
         auto,
         updated_at: session.map(|session| session.updated_at),
     }
+}
+
+/// 旧桌面快照和手机消息没有 inbox 行，仍需从已有用户消息回填话题。
+/// 只读当前段的相关事件，避免 reset/删除当前段后重新显示旧标题。
+fn history_auto_title(store: &SessionStore, session_id: &str) -> Option<(i64, String)> {
+    let floor = store
+        .conversation_floor(session_id)
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+    [
+        "conversation.updated",
+        "session.user_message_committed",
+        "session.steering_message_committed",
+    ]
+    .into_iter()
+    .filter_map(|event_type| {
+        let mut after = floor;
+        while let Some(event) = store
+            .first_event_by_type_after(session_id, after, event_type)
+            .ok()
+            .flatten()
+        {
+            let title = if event_type == "conversation.updated" {
+                serde_json::from_value::<Vec<kanzei_llm::Message>>(
+                    event.payload["messages"].clone(),
+                )
+                .ok()
+                .and_then(|messages| messages_auto_title(&messages))
+            } else {
+                serde_json::from_value::<kanzei_llm::Message>(
+                    event.payload["fact"]["message"].clone(),
+                )
+                .ok()
+                .and_then(|message| messages_auto_title(&[message]))
+            };
+            if let Some(title) = title {
+                return Some((event.sequence, title));
+            }
+            after = event.sequence;
+        }
+        None
+    })
+    .min_by_key(|(sequence, _)| *sequence)
+}
+
+fn messages_auto_title(messages: &[kanzei_llm::Message]) -> Option<String> {
+    messages
+        .iter()
+        .filter(|message| message.role == kanzei_llm::Role::User)
+        .find_map(|message| {
+            message.parts.iter().find_map(|part| match part {
+                kanzei_llm::Part::Text { text } => auto_title(text),
+                _ => None,
+            })
+        })
 }
 
 #[cfg(test)]
@@ -291,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn 命名读取_主对话不用首条消息_讨论用首条消息_改名优先() {
+    fn 命名读取_所有对话用首条消息_改名优先() {
         let store = SessionStore::open_in_memory().unwrap();
         store.create_session("ses_main", "C:/p", None).unwrap();
         store.create_session("ses_disc", "C:/p", None).unwrap();
@@ -320,6 +380,87 @@ mod tests {
         assert_eq!(
             load_naming(&store, "ses_none", ProcessKind::Task),
             SessionNaming::default()
+        );
+    }
+
+    #[test]
+    fn 存量快照与手机事实也回填标题_清空后不复用旧话题() {
+        use kanzei_llm::Message;
+        let store = SessionStore::open_in_memory().unwrap();
+        store.create_session("ses_legacy", "C:/p", None).unwrap();
+        store
+            .create_session("ses_mobile", "C:/general", None)
+            .unwrap();
+        store
+            .append_event(
+                "ses_legacy",
+                "conversation.updated",
+                &serde_json::json!({
+                    "messages": [Message::user_text("\n  存量对话的话题\n还有一些细节")]
+                }),
+            )
+            .unwrap();
+        store
+            .append_mobile_message(
+                "ses_mobile",
+                "phone",
+                Message::user_text("手机发来的实际问题"),
+                &serde_json::json!({}),
+            )
+            .unwrap();
+        assert_eq!(
+            load_naming(&store, "ses_legacy", ProcessKind::Main).title(),
+            Some("存量对话的话题")
+        );
+        assert_eq!(
+            load_naming(&store, "ses_mobile", ProcessKind::Discussion).title(),
+            Some("手机发来的实际问题")
+        );
+        for (session, title) in [
+            ("ses_legacy", "存量对话的话题"),
+            ("ses_mobile", "手机发来的实际问题"),
+        ] {
+            store
+                .admit_input(
+                    session,
+                    &format!("desktop-{session}"),
+                    "桌面继续补充",
+                    kanzei_core::Delivery::Queue,
+                )
+                .unwrap();
+            assert_eq!(
+                load_naming(&store, session, ProcessKind::Main).title(),
+                Some(title),
+                "后续 inbox 输入不能覆盖更早的实际用户消息"
+            );
+        }
+        for session in ["ses_legacy", "ses_mobile"] {
+            store
+                .append_event(session, "conversation.reset", &serde_json::json!({}))
+                .unwrap();
+            assert_eq!(
+                load_naming(&store, session, ProcessKind::Main).title(),
+                None
+            );
+            store
+                .admit_input(
+                    session,
+                    &format!("new-{session}"),
+                    "清空后的新话题",
+                    kanzei_core::Delivery::Queue,
+                )
+                .unwrap();
+            assert_eq!(
+                load_naming(&store, session, ProcessKind::Main).title(),
+                Some("清空后的新话题")
+            );
+        }
+        store
+            .set_session_title("ses_mobile", "C:/general", Some("我起的名字"))
+            .unwrap();
+        assert_eq!(
+            load_naming(&store, "ses_mobile", ProcessKind::Main).title(),
+            Some("我起的名字")
         );
     }
 

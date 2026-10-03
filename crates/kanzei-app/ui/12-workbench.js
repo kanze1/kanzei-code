@@ -11,7 +11,7 @@ import { setWorkspaceConsoleState } from "./12-decision-console.js";
 import { openConventions } from "./15-conventions.js";
 import { executionActivity, activityLabels, sameProject } from "./25-softwire-model.js";
 import { awaitingUserSessions } from "./08-auto.js";
-import { lineName, openSessionHistory, orderedProjects, projectApprovalCount, renderSidebarSessions, syncSessionActivity, wrapProjectRow } from "./12-session-tree.js";
+import { lineName, openSessionHistory, orderedProjects, projectApprovalCount, renderSidebarSessions, setSidebarOpen, syncSessionActivity, wrapProjectRow } from "./12-session-tree.js";
 
 // Browsing a project does not select an execution root or create a session.
 export let browsingProject = null;
@@ -138,6 +138,9 @@ export function renderProjectActivity() {
 /// 主对话,也不整项目重载——已在它的对话页就原地不动;在它的需求 / 概览 / 文件页,或从所有项目、设置这类全局页
 /// 过来,就带回它正在用的那条会话。只有进入别的项目才落到它的主对话。
 export async function openProjectRow(path) {
+  if (!path) return false;
+  setSidebarOpen(path, true);
+  renderSidebarSessions();
   const same = active_space === "dev" && !workspace_switch_pending && !openingProject && currentProject === path && activeSessionId;
   if (!same) return openProjectSpace(path, "chat", { main: true });
   setBrowsingProject(path);

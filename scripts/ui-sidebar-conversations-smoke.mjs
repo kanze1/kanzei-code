@@ -33,8 +33,11 @@ try {
       title_custom: true, closed_at: Date.now() - i * 1000, updated_at: Date.now() - i * 1000,
     }));
     const owner = f.state.processes.find(item => item.kind === "main");
+    Object.assign(owner, { title: "侧栏标题显示修复", title_custom: false, label: "主对话" });
+    f.state.processes.push({ ...owner, id: `p4|${project}`, session_id: "ses_project_legacy", title: null, label: "讨论 4", kind: "discussion", profile: "readonly", ordinal: 4 });
     f.state.processes.push({ ...owner, id: `d|${general}`, session_id: "ses_general_main", project_dir: general, origin_project: general, title: "日常对话", running: false });
     f.state.processes.push({ ...owner, id: `p1|${general}`, session_id: "ses_general_one", project_dir: general, origin_project: general, kind: "discussion", profile: "readonly", title: "周末的阅读计划", ordinal: 1, running: false });
+    f.state.processes.push({ ...owner, id: `p2|${general}`, session_id: "ses_general_legacy", project_dir: general, origin_project: general, title: null, label: "对话 4", kind: "discussion", profile: "readonly", ordinal: 2 });
     const scope = await import("/03-general-scope.js");
     scope.setGeneralChatRoot(general);
     window.__sidebarTest = { f, project, general, target: f.state.closed[0].id, failDelete: false };
@@ -42,15 +45,60 @@ try {
       if (window.__sidebarTest.failDelete) throw "记录暂时被占用，请重试";
       return f.commands.process_purge(args);
     });
+    await (await import("/09-sessions.js")).refreshProcesses();
     const tree = await import("/12-session-tree.js");
-    tree.setSidebarOpen(project, true);
+    tree.setSidebarOpen(project, false);
     tree.setClosedOpen(project, true);
     await tree.loadClosedSessions(project, { force: true });
     await tree.loadRemoteSessions(general, { force: true });
     tree.invalidateSessionTree();
-    return { project, general, target: f.state.closed[0].id, owner: owner.id };
+    return { project, general, target: f.state.closed[0].id, owner: owner.id, generalOwner: `d|${general}` };
   });
   await settle();
+  const projectGroup = page.locator(`#workbench-project-list > .workbench-project[data-path=${JSON.stringify(fixture.project)}]`);
+  const projectLink = projectGroup.locator(".workbench-project-link");
+  const projectRows = () => projectGroup.locator("[data-ctx='session']");
+  const generalRows = () => page.locator("#workbench-general-list [data-ctx='session']");
+  const rowIds = locator => locator.evaluateAll(rows => rows.map(row => row.dataset.processId));
+  const projectOwner = () => projectGroup.locator(`[data-ctx='session'][data-process-id=${JSON.stringify(fixture.owner)}]`);
+  const generalOwner = () => page.locator(`#workbench-general-list [data-ctx='session'][data-process-id=${JSON.stringify(fixture.generalOwner)}]`);
+  check(await page.locator("#workbench-project-list .workbench-project-caret, #workbench-project-list [data-act='toggle']").count() === 0, "Project rows have no separate expansion marker");
+  check(await projectLink.getAttribute("aria-expanded") === "false" && await projectRows().count() === 0, "A collapsed project has no conversation rows");
+  await projectLink.click(); await settle();
+  check(await projectLink.getAttribute("aria-expanded") === "true" && await projectGroup.locator(".workbench-session-list").isVisible() && await projectRows().count() === 4, "Clicking the project name opens its conversation list");
+  await projectLink.click(); await settle();
+  check(await projectLink.getAttribute("aria-expanded") === "true", "Clicking an open project keeps its conversations expanded");
+  const sidebarRows = page.locator("#workbench-project-list [data-ctx='session'], #workbench-general-list [data-ctx='session']");
+  check(await sidebarRows.locator(".workbench-session-dot, .workbench-session-activity, .workbench-session-tag").count() === 0, "Project and projectless conversation rows have no leading dot or type badge");
+  check(await projectOwner().locator(".workbench-session-name").innerText() === "侧栏标题显示修复" && await generalOwner().locator(".workbench-session-name").innerText() === "日常对话", "Stored automatic titles are shown for project and projectless main conversations");
+  check(await projectRows().filter({ hasText: /^新对话$/ }).count() === 1 && await generalRows().filter({ hasText: /^新对话$/ }).count() === 1, "Legacy numbered titles use the same new conversation fallback in both scopes");
+  await page.evaluate(async () => {
+    const { f, project, general } = window.__sidebarTest;
+    Object.assign(f.state.processes.find(item => item.id === `p4|${project}`), { title: "主对话", title_custom: false });
+    Object.assign(f.state.processes.find(item => item.id === `p2|${general}`), { title: "对话 4", title_custom: false });
+    const sessions = await import("/09-sessions.js"), tree = await import("/12-session-tree.js");
+    await sessions.refreshProcesses();
+    await tree.loadRemoteSessions(general, { force: true });
+    tree.invalidateSessionTree();
+  }); await settle();
+  check(await projectRows().locator(`.workbench-session-name`).allTextContents().then(names => names.includes("主对话")) && await generalRows().locator(".workbench-session-name").allTextContents().then(names => names.includes("对话 4")), "Real automatic titles matching legacy type labels remain visible in both scopes");
+  check((await rowIds(projectRows())).at(-1) === fixture.owner && (await rowIds(generalRows())).at(-1) === fixture.generalOwner, "Main conversations follow the same ordering as other conversations");
+  for (const [label, ownerRow, rows, ownerId] of [
+    ["Project", projectOwner, projectRows, fixture.owner],
+    ["Projectless", generalOwner, generalRows, fixture.generalOwner],
+  ]) {
+    await ownerRow().click({ button: "right" });
+    await page.getByRole("menuitem", { name: "置顶", exact: true }).click(); await settle();
+    check((await rowIds(rows()))[0] === ownerId && await ownerRow().getAttribute("data-pinned") === "true", `${label} main conversation can be pinned like any conversation`);
+    await ownerRow().click({ button: "right" });
+    await page.getByRole("menuitem", { name: "取消置顶", exact: true }).click(); await settle();
+    const beforeMove = await rowIds(rows());
+    await ownerRow().click({ button: "right" });
+    await page.getByRole("menuitem", { name: /更多操作/ }).click();
+    check(await page.getByRole("menuitem", { name: /^上移/ }).isEnabled(), `${label} main conversation offers enabled manual ordering`);
+    await page.getByRole("menuitem", { name: /^上移/ }).click(); await settle();
+    check((await rowIds(rows())).indexOf(ownerId) === beforeMove.indexOf(ownerId) - 1, `${label} main conversation moves within the unified conversation order`);
+  }
   check(await page.locator("#workbench-project-list [data-ctx='closed'], #workbench-general-list [data-ctx='closed'], #workbench-project-list .workbench-closed-toggle").count() === 0, "Closed and archived chats stay out of the sidebar");
   check(await page.locator(".workbench-row-menu").count() === 0, "Sidebar has no ellipsis buttons");
   const active = page.locator("#workbench-project-list [data-ctx='session']").first();

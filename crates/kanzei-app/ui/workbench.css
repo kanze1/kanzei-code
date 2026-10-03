@@ -47,17 +47,12 @@ body[data-space="dev"] #sidebar > .sidebar-section, body[data-space="dev"] #work
 @keyframes workbench-spin { to { transform: rotate(360deg); } }
 @keyframes workbench-breathe { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .workbench-project-activity { animation: none !important; transition: none !important; } }
-/* ---------- 侧栏会话树(12-session-tree.js):项目行 = [展开箭头][项目链接],展开后下挂它的对话 ---------- */
+/* ---------- 侧栏会话树:点击项目名称展开,对话使用统一文字行 ---------- */
 .workbench-project { margin: 2px 0; }
 .workbench-project-row { display: flex; align-items: center; border-radius: var(--r-md); }
 .workbench-project-row:hover { background: var(--surface-hover); }
 .workbench-project-row:has(.workbench-project-link.active) { background: var(--surface-selected); }
-.workbench-project-row .workbench-project-link { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; padding: 9px 12px 9px 2px; background: transparent; }
-.workbench-project-caret { flex: 0 0 26px; width: 26px; height: 34px; margin: 0; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-.workbench-project-caret:hover { color: var(--fg-strong); }
-.workbench-project-caret:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.workbench-project-caret-icon { width: 10px; height: 10px; background: currentColor; rotate: -90deg; transition: rotate .15s; -webkit-mask: var(--icon-chevron) center / 10px 10px no-repeat; mask: var(--icon-chevron) center / 10px 10px no-repeat; }
-.workbench-project[data-open="true"] .workbench-project-caret-icon { rotate: 0deg; }
+.workbench-project-row .workbench-project-link { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; padding: 9px 12px; background: transparent; }
 .workbench-session-list { margin: 0 0 6px 13px; padding-left: 8px; border-left: 1px solid var(--border-soft); }
 .workbench-session-list[hidden] { display: none; }
 .workbench-session { display: flex; align-items: center; min-width: 0; border-radius: var(--r-sm); }
@@ -72,28 +67,21 @@ body[data-space="dev"] #sidebar > .sidebar-section, body[data-space="dev"] #work
 .workbench-session-tag, .workbench-session-time { flex: 0 0 auto; color: var(--dim); font-size: 10.5px; }
 /* 悬停 + 选中叠在弹层(--surface-overlay)上是全应用第二亮的底,--dim 只剩 4.06(暗色):标签与时间随行提到正文色(UX-125)。 */
 .workbench-session-link:is(:hover, [aria-current="true"]) :is(.workbench-session-tag, .workbench-session-time) { color: var(--fg); }
-.workbench-session-more { display: block; width: 100%; margin: 1px 0; padding: 4px 8px 4px 26px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer; }
+.workbench-session-more { display: block; width: 100%; margin: 1px 0; padding: 4px 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer; }
 .workbench-session-more:hover { background: var(--surface-hover); color: var(--fg); }
 .workbench-session-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.workbench-session-note { padding: 4px 8px 6px 26px; color: var(--dim); font-size: 11.5px; }
+.workbench-session-note { padding: 4px 8px 6px; color: var(--dim); font-size: 11.5px; }
 /* 已关闭的对话(UX-035):折叠分组,点开是只读文字稿。名字压成灰字,不占运行态点的位置(没有运行态)。 */
 .workbench-closed-toggle { display: flex; align-items: center; gap: 6px; width: 100%; margin: 4px 0 1px; padding: 4px 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer; }
 .workbench-closed-toggle:hover { background: var(--surface-hover); color: var(--fg); }
 .workbench-closed-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .workbench-closed-caret { flex: 0 0 10px; width: 10px; height: 10px; background: currentColor; rotate: -90deg; transition: rotate .15s; -webkit-mask: var(--icon-chevron) center / 10px 10px no-repeat; mask: var(--icon-chevron) center / 10px 10px no-repeat; }
 .workbench-closed-toggle[aria-expanded="true"] .workbench-closed-caret { rotate: 0deg; }
-.workbench-session.is-closed .workbench-session-activity { visibility: hidden; }
 .workbench-session.is-closed .workbench-session-name { color: var(--dim); }
 @media (prefers-reduced-motion: reduce) { .workbench-closed-caret { transition: none !important; } }
-/* 运行态点:橙=进行中(呼吸/转圈)、琥珀=等你回复、红=失败,其余中性空心。当前打开的行靠底色,不占橙色。 */
-.workbench-session-activity { flex: 0 0 10px; width: 10px; height: 10px; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--dim) 65%, transparent); border-radius: 50%; }
-.workbench-session-link[data-activity="running"] .workbench-session-activity { background: var(--accent); border-color: var(--accent); animation: workbench-breathe 2.4s ease-in-out infinite; }
-.workbench-session-link[data-activity="starting"] .workbench-session-activity { border-color: color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: workbench-spin .8s linear infinite; }
-.workbench-session-link[data-activity="attention"] .workbench-session-activity { background: color-mix(in srgb, var(--warn) 35%, transparent); border-color: var(--warn); }
-.workbench-session-link:is([data-activity="waiting"], [data-activity="stopping"]) .workbench-session-activity { border-style: dashed; border-color: var(--dim); }
-.workbench-session-link[data-activity="failed"] .workbench-session-activity { border-color: var(--err); border-radius: 2px; }
-.workbench-session-link:is([data-activity="stopped"], [data-activity="unknown"]) .workbench-session-activity { background: color-mix(in srgb, var(--dim) 55%, transparent); border-color: transparent; }
-.workbench-session.is-segment .workbench-session-activity { visibility: hidden; }
+/* 运行状态保留在行数据与读屏描述里,文字颜色提示需要处理的对话。 */
+.workbench-session-link[data-activity="attention"] .workbench-session-name { color: var(--warn); }
+.workbench-session-link[data-activity="failed"] .workbench-session-name { color: var(--err); }
 /* 等你批准(UX-146):别的项目 / 别的对话有权限请求在排队。琥珀 = 需要注意(色义规范),与运行态点互不顶替——运行中也要看得见。 */
 .workbench-project-approval, .workbench-session-approval { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 28%, transparent); }
 .workbench-project-approval[hidden], .workbench-session-approval[hidden] { display: none; }
@@ -111,7 +99,6 @@ body[data-space="dev"] #sidebar > .sidebar-section, body[data-space="dev"] #work
 .drop-after { box-shadow: 0 2px 0 0 var(--focus-ring); }
 html[data-kz-row-drag] * { user-select: none; cursor: grabbing; }
 .kz-ctx-anchor { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .workbench-session-activity, .workbench-project-caret-icon { animation: none !important; transition: none !important; } }
 #project-space-nav { display: flex; align-items: center; gap: 20px; padding: 12px 28px 0; border-bottom: 1px solid var(--border-soft); flex: 0 0 auto; }
 #project-space-name { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 25%; }
 .project-space-tabs { display: flex; gap: 16px; margin: 0 auto 0 0; }

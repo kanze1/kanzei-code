@@ -7006,7 +7006,7 @@ assert(byId.get("ask-overlay").classList.contains("hidden"), "R-086 前置:主�
 // 场景:主对话(sess-smoke)活动;后台会话(sess-bg)初始 running=true(桩里故意给旧值,
 // 模拟"事件已收敛但轮询采样发生在事件之前"的竞态)。
 const activeLine = activeSessionLink();
-assert(/主对话|Main conversation/.test(activeLine?.textContent ?? ""), `冒烟前置:主对话应为活动线路(实际:${activeLine?.textContent})`);
+assert(activeLine?.closest(".workbench-session")?.dataset.processId === "d|smoke", `冒烟前置:活动线路应归属 d|smoke(实际:${activeLine?.closest(".workbench-session")?.dataset.processId})`);
 // 侧栏会话树按 process_list 全量投影,三条并行线就必须有三条可切换的会话行。
 const twoProcesses = structuredClone(payloads.process_list);
 sandbox.renderProcesses([
@@ -7114,7 +7114,7 @@ assert(byId.get("ask-overlay").classList.contains("hidden"), "答复后权限弹
 await sandbox.switchProcess("d|smoke");
 await flush();
 const backLine = activeSessionLink();
-assert(/主对话|Main conversation/.test(backLine?.textContent ?? ""), "切回主对话后活动会话行未更新");
+assert(backLine?.closest(".workbench-session")?.dataset.processId === "d|smoke", "切回主对话后活动会话行未更新");
 assert(byId.get("ask-overlay").classList.contains("hidden"), "切回主对话后残留后台 ask 弹窗");
 // R-206 验收③:长工具运行中点停止 → stopping 过渡态,晚到进度事件不得把
 // 停止按钮翻回运行中(无状态闪跳)。直接经 transitionSession 置 stopping
@@ -7168,7 +7168,7 @@ sandbox.renderProcesses([
   { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: true },
 ]);
 await flush();
-assert(/主对话|Main conversation/.test(activeSessionLink()?.textContent ?? ""), "重建用例收尾后活动线路未回到主对话");
+assert(activeSessionLink()?.closest(".workbench-session")?.dataset.processId === "d|smoke", "重建用例收尾后活动线路未回到主对话");
 
 // ---------- R-169 鞭挞执行层:判定已引擎化,前端只执行 autoAction ----------
 // 判定(空转画像/连数/全部阻塞/NUDGE 时机/停止原因)全部在 harness auto_run
@@ -7552,7 +7552,7 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   assert(sandbox.sessionState("sess-bg-a").phase === "auto_pending", "后台甲 done 未进入等待下一轮");
   assert(sandbox.sessionState("sess-bg-a").auto_rounds === 1, "后台甲轮次未写入所属 session state");
   assert(sandbox.sessionState("sess-bg-b").phase === "auto_pending", "后台乙 done 未进入等待下一轮");
-  assert(sandbox.activeSessionId === undefined || /主对话|Main conversation/.test(activeSessionLink()?.textContent ?? ""), "后台 done 串改活动线路");
+  assert(activeSessionLink()?.closest(".workbench-session")?.dataset.processId === "d|smoke", "后台 done 串改活动线路");
   await flush();
   const backgroundRuns = invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && ["p|bg-a", "p|bg-b"].includes(args?.processId));
   assert(backgroundRuns.some(({ args }) => args.processId === "p|bg-a"), "后台甲 done 没有续跑所属线路");
@@ -13414,15 +13414,15 @@ const docsB = {
   assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle" && dot.dataset.state === "idle", "#7 回到空闲后活动行/状态点未复位");
   await flush();
 
-  // ⑥ 侧栏会话行(开发空间):运行态点逐事件投影原地更新(同一节点),运行态只改 data-activity,状态进 aria-description。
+  // ⑥ 侧栏会话行(开发空间):运行态逐事件投影原地更新(同一节点),状态进 data-activity 与 aria-description。
   //    原先断言的是开发档里不可见的 #parallel-task-status 行的 .kz-glyph,已不再渲染(UX-069)。
   vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
   sandbox.renderProcesses(structuredClone(shellNs.processItems));
   const bgLink = () => sessionLinkOf("p|bg");
   const g1 = bgLink();
   assert(g1?.dataset.activity === "running", `#7 运行中线路的会话行应为 running:${g1?.dataset.activity}`);
-  assert(g1.querySelector(".workbench-session-activity")?.getAttribute("aria-hidden") === "true", "#7 会话行的运行态点应对读屏隐藏(状态进 aria-description)");
-  assert(/ · /.test(g1.getAttribute("aria-description") ?? ""), `#7 运行中会话行的读屏描述应带「类型 · 状态」:${g1.getAttribute("aria-description")}`);
+  assert(!g1.querySelector(".workbench-session-activity") && !g1.querySelector(".workbench-session-tag"), "#7 会话行不应显示运行态圆点和类型标记");
+  assert(/^(对话|Chat) · /.test(g1.getAttribute("aria-description") ?? ""), `#7 运行中会话行的读屏描述应带统一对话名称与状态:${g1.getAttribute("aria-description")}`);
   sandbox.refreshParallelTaskProjection("sess-bg");
   sandbox.refreshParallelTaskProjection("sess-bg");
   assert(bgLink() === g1, "#7 逐事件投影重建了会话行节点(呼吸动画与焦点每个事件都被打断)");

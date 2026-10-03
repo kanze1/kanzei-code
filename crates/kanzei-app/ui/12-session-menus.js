@@ -133,13 +133,13 @@ export function toggleSessionPin(project, id) {
 export function moveSession(project, id, delta) {
   const rows = orderRows(project);
   const row = rows.find((candidate) => candidate.id === id);
-  if (!row || row.kind === "main") return false;
-  const group = rows.filter((candidate) => candidate.kind !== "main" && candidate.pinned === row.pinned);
+  if (!row || !row.capabilities.reorder) return false;
+  const group = rows.filter((candidate) => candidate.capabilities.reorder && candidate.pinned === row.pinned);
   const from = group.findIndex((candidate) => candidate.id === id);
   const to = from + delta;
   if (from < 0 || to < 0 || to >= group.length) return false;
   [group[from], group[to]] = [group[to], group[from]];
-  const rest = rows.filter((candidate) => candidate.kind !== "main");
+  const rest = rows.filter((candidate) => candidate.capabilities.reorder);
   const pinned = row.pinned ? group : rest.filter((candidate) => candidate.pinned);
   const others = row.pinned ? rest.filter((candidate) => !candidate.pinned) : group;
   setSessionOrder(project, [...pinned, ...others].map((candidate) => candidate.id));
@@ -148,7 +148,7 @@ export function moveSession(project, id, delta) {
 }
 /// 拖动落下:visibleIds 是这一组里**可见行**的新顺序(列表只列前 N 条,其余保持相对位置)。
 function reorderSessions(project, pinned, visibleIds) {
-  const rows = orderRows(project).filter((row) => row.kind !== "main");
+  const rows = orderRows(project).filter((row) => row.capabilities.reorder);
   const group = rows.filter((row) => row.pinned === pinned).map((row) => row.id);
   const shown = new Set(visibleIds);
   const slots = group.map((id, index) => (shown.has(id) ? index : -1)).filter((index) => index >= 0);
@@ -372,7 +372,7 @@ export async function openSessionContextMenu(wrap, point, host) {
   const discussion = live.kind === "discussion";
   const running = rowRunning(live);
   const here = sameProject(project, currentProject) && id === activeProcessId && document.body.dataset.view === "chat";
-  const group = orderRows(project).filter((candidate) => candidate.kind !== "main" && candidate.pinned === live.pinned);
+  const group = orderRows(project).filter((candidate) => candidate.capabilities.reorder && candidate.pinned === live.pinned);
   const index = group.findIndex((candidate) => candidate.id === id);
   const runningWhy = running ? t("运行中,先停止再删除") : "";
   const items = [
@@ -380,9 +380,9 @@ export async function openSessionContextMenu(wrap, point, host) {
     { label: t(general ? "新对话" : "在此项目新建讨论"), onSelect: () => void newDiscussionIn(project) },
     "separator",
     { label: `${t("重命名")}…`, kbd: "F2", onSelect: () => afterDialog(wrap.dataset.key, renameSession(project, id)) },
-    !main && { label: live.pinned ? t("取消置顶") : t("置顶"), onSelect: () => toggleSessionPin(project, id) },
-    !main && { label: t("上移"), kbd: "Alt+↑", disabled: index <= 0, onSelect: () => moveSession(project, id, -1) },
-    !main && { label: t("下移"), kbd: "Alt+↓", disabled: index < 0 || index >= group.length - 1, onSelect: () => moveSession(project, id, 1) },
+    live.capabilities.reorder && { label: live.pinned ? t("取消置顶") : t("置顶"), onSelect: () => toggleSessionPin(project, id) },
+    live.capabilities.reorder && { label: t("上移"), kbd: "Alt+↑", disabled: index <= 0, onSelect: () => moveSession(project, id, -1) },
+    live.capabilities.reorder && { label: t("下移"), kbd: "Alt+↓", disabled: index < 0 || index >= group.length - 1, onSelect: () => moveSession(project, id, 1) },
     "separator",
     !general && { label: t("在资源管理器中打开"), onSelect: () => void revealPath(project, id) },
     ...(general ? [] : toolItems(tools, (tool) => void openWithTool(tool, project, id))),
@@ -507,7 +507,7 @@ function rowOfFocus() {
   return entryOf(document.activeElement);
 }
 function activeLink(event) {
-  return closest(event.target, ".workbench-project-link, .workbench-session-link, .workbench-session-more, .workbench-closed-toggle, .workbench-project-caret");
+  return closest(event.target, ".workbench-project-link, .workbench-session-link, .workbench-session-more, .workbench-closed-toggle");
 }
 function visibleLinks(root) {
   return [...root.querySelectorAll(".workbench-project-link, .workbench-session-link, .workbench-session-more, .workbench-closed-toggle")]
@@ -524,16 +524,6 @@ export function installSessionInteractions(root, { host = null } = {}) {
       event.stopPropagation();
       const entry = entryOf(menu);
       if (entry) void openEntryMenu(entry, rowPoint(menu), closest(entry, "[popover]") ?? host);
-      return;
-    }
-    const caret = closest(event.target, ".workbench-project-caret");
-    if (caret) {
-      const path = closest(caret, ".workbench-project")?.dataset.path;
-      if (!path) return;
-      const open = !sidebarOpen(path);
-      setSidebarOpen(path, open);
-      invalidateSessionTree();
-      if (open && !sameProject(path, currentProject)) void loadRemoteSessions(path, { force: true });
       return;
     }
     const more = closest(event.target, ".workbench-session-more");
@@ -581,6 +571,17 @@ export function installSessionInteractions(root, { host = null } = {}) {
       return;
     }
     if (!entry || !root.contains(entry) || closest(event.target, "input, textarea, select")) return;
+    if (entry.dataset.ctx === "project" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      const path = entry.dataset.path;
+      const open = event.key === "ArrowRight";
+      if (open !== sidebarOpen(path)) {
+        setSidebarOpen(path, open);
+        invalidateSessionTree();
+        if (open && !sameProject(path, currentProject)) void loadRemoteSessions(path);
+      }
+      return;
+    }
     if (event.key === "F2") {
       event.preventDefault();
       if (entry.dataset.ctx === "session" || entry.dataset.ctx === "closed") void renameSession(entry.dataset.project, entry.dataset.processId);
@@ -701,7 +702,7 @@ function installRowDrag(root) {
   root.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     const row = closest(event.target, "[data-drag]");
-    if (!row || closest(event.target, ".workbench-project-caret, .workbench-session-more, [data-act]")) return;
+    if (!row || closest(event.target, ".workbench-session-more, [data-act]")) return;
     if (pending || drag) finish(false);
     pending = { row, id: event.pointerId, x: event.clientX, y: event.clientY };
     document.addEventListener("pointermove", onMove, true);

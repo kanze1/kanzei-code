@@ -17,12 +17,12 @@ export function conversationRecord(project, item, { closed = false, general = fa
     kind: closed ? "conversation" : kind,
     name,
     custom: Boolean(item.title_custom),
-    pinned: !main && pinned,
+    pinned,
     ordinal,
     updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0,
     worktree: closed ? "" : item.worktree_path || "",
     branch: closed ? "" : item.branch || "",
-    capabilities: { rename: true, delete: !main || closed, send: !closed, reorder: !main && !closed },
+    capabilities: { rename: true, delete: !main || closed, send: !closed, reorder: !closed },
   };
 }
 
