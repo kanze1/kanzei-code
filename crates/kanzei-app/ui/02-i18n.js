@@ -318,6 +318,7 @@ export const I18N_EN = {
   "已有建议稿，请先在规范页审阅、保存或放弃。": "A proposal is pending. Review, save, or discard it in Conventions first.",
   "建议生成后规范已修改。请对照当前规则合并；保存会保留本次打开后的并发修改保护。": "The rules changed after this proposal. Merge with the current rules before saving. Concurrent edits remain protected.",
   "项目规范已保存": "Project conventions saved",
+  "这份建议稿来自旧版本，请对照当前规范检查后保存。": "This proposal was created by an older version. Compare it with the current rules before saving.",
   "正在编辑建议稿。请保留你要沿用的现有规则；保存后才生效。": "Editing a proposal. Keep the existing rules you want to retain. Changes take effect after saving.",
   "当前生效规则。保存后 Agent 在下一步读取。": "Active rules. The Agent reads saved changes on its next step.",
   "尚未生成规则。可手动填写，或让 Agent 根据项目生成。": "No conventions yet. Write them yourself or ask the Agent to draft them from the project.",

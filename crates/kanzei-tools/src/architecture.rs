@@ -13,7 +13,6 @@
 //! 3. 只认这一个文件:路径由引擎给定,输入里没有 path 参数可以指到别处。
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
@@ -23,6 +22,7 @@ use crate::arch_diagram::{
     crates_mermaid, render_issue, scan_diagrams, workspace_crates, DIAGRAM_DIR, MAX_EDGES,
     MAX_NODES, SEMANTIC_CLASSES,
 };
+use crate::normalized_text_hash;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -126,7 +126,7 @@ impl Tool for ArchitectureTool {
                 let issues = validate(&root, &current).issues;
                 ToolOutput::ok(format!(
                     "path: {ARCHITECTURE_REL}\nhash: {}\n{}\n---\n{current}",
-                    content_hash(&current),
+                    normalized_text_hash(&current),
                     render_issues(&issues),
                 ))
             }
@@ -135,7 +135,7 @@ impl Tool for ArchitectureTool {
                 let issues = validate(&root, &current).issues;
                 let report = format!(
                     "path: {ARCHITECTURE_REL}\nhash: {}\n{}",
-                    content_hash(&current),
+                    normalized_text_hash(&current),
                     render_issues(&issues),
                 );
                 if issues.is_empty() {
@@ -152,7 +152,7 @@ impl Tool for ArchitectureTool {
                 ToolOutput::ok(format!(
                     "Draft only — NOT written. Review it, fix the categories/descriptions, then \
                      submit with `update` (expected_hash: {}).\n---\n{}",
-                    content_hash(&current),
+                    normalized_text_hash(&current),
                     regenerate_draft(&root, &current),
                 ))
             }
@@ -167,7 +167,7 @@ impl Tool for ArchitectureTool {
                     ));
                 }
                 let current = read_index(&path);
-                let current_hash = content_hash(&current);
+                let current_hash = normalized_text_hash(&current);
                 let Some(expected) = input.expected_hash else {
                     return ToolOutput::error(format!(
                         "`expected_hash` is required for update — call `get` first and pass the \
@@ -212,9 +212,12 @@ impl Tool for ArchitectureTool {
                         reasons.join("\n"),
                     ));
                 }
-                if let Err(e) =
-                    crate::atomic_file::write_atomic_cas(&path, &content, &expected, content_hash)
-                {
+                if let Err(e) = crate::atomic_file::write_atomic_cas(
+                    &path,
+                    &content,
+                    &expected,
+                    normalized_text_hash,
+                ) {
                     return ToolOutput::error(e);
                 }
                 // D-398:architecture 专用写者写盘后记写日志(围栏收口归因凭据,此前零接入)。
@@ -236,7 +239,7 @@ impl Tool for ArchitectureTool {
                     "updated {ARCHITECTURE_REL} ({} lines, {diff_lines:+} vs before)\nhash: {}\n\
                      {validation}",
                     content.lines().count(),
-                    content_hash(&content),
+                    normalized_text_hash(&content),
                 ))
                 .with_display(serde_json::json!({
                     "kind": "diff",
@@ -316,17 +319,6 @@ fn diagrams_report(root: &Path) -> ToolOutput {
 
 fn read_index(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()
-}
-
-/// 内容指纹(CAS 用)。规范化行尾后再哈希:换行风格不同不该算作并发改动。
-/// pub(crate):conventions 工具复用同一套 CAS 原语(D-235),仓里不养第二份。
-/// 写盘本体是 kanzei_base::atomic_file::write_atomic_cas(D-261 并轨,R-208 迁出),
-/// 这里只留指纹。
-pub(crate) fn content_hash(content: &str) -> String {
-    let normalized = content.replace("\r\n", "\n");
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    normalized.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
 }
 
 const EMPTY_INDEX_MSG: &str = "index is empty — an empty architecture index is never correct";
@@ -698,6 +690,8 @@ mod tests {
             .find_map(|l| l.strip_prefix("hash: "))
             .unwrap()
             .to_string();
+        let original = std::fs::read_to_string(root.join(ARCHITECTURE_REL)).unwrap();
+        assert_eq!(hash, crate::content_hash(original.as_bytes()));
 
         // 缺 expected_hash:拒绝。
         let out = ArchitectureTool
@@ -721,6 +715,8 @@ mod tests {
         );
 
         // 正确 hash + 合法内容:写入成功。
+        // 外部编辑器只转换换行时,先前 get 的文本指纹仍有效。
+        write_index(&root, &original.replace('\n', "\r\n"));
         let next =
             "# 架构\n\n- [`harness_m1.md`](../../../docs/design/harness_m1.md):基线(改过)。\n";
         let out = ArchitectureTool
@@ -747,7 +743,7 @@ mod tests {
                         - [`memory_system.md`](../../../docs/design/memory_system.md):b\n";
         write_index(&root, original);
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let hash = content_hash(original);
+        let hash = normalized_text_hash(original);
 
         // 新漏索引 + 死链 + 重复 + 非 snake_case,都是本次新引入的,一次全部指出来。
         std::fs::write(root.join(DESIGN_DIR).join("BadName.md"), "# z").unwrap();
@@ -887,7 +883,7 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        let hash = content_hash(moved);
+        let hash = normalized_text_hash(moved);
 
         // 新增一条非 snake_case 链接:拒写,只点名新增的那条。
         let added_bad = format!(
@@ -951,7 +947,7 @@ mod tests {
                         - [`gone.md`](../../../docs/design/gone.md):目标已删。\n";
         write_index(&root, original);
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let hash = content_hash(original);
+        let hash = normalized_text_hash(original);
 
         // 删掉合规条目 overview.md:拒写。
         let without_overview =

@@ -3,12 +3,18 @@
 pub mod arch_diagram;
 pub mod architecture;
 pub mod memory_consolidation;
-/// 原子写原语下沉到 kanzei-llm(依赖图最底层,D-261):llm 的 auth/store 与
-/// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
+/// 原子写、文件锁和字节指纹由 kanzei-base 提供,各工具共用同一套实现。
 pub use kanzei_base::atomic_file;
 pub use kanzei_base::content_hash;
 pub use kanzei_base::path_form;
 pub use kanzei_base::write_log;
+
+/// 架构索引与项目规范按文本内容比较版本,忽略 CRLF/LF 差异。
+/// 换行规则留在工具层;指纹算法和格式仍由 kanzei-base 唯一实现。
+pub(crate) fn normalized_text_hash(content: &str) -> String {
+    content_hash(content.replace("\r\n", "\n").as_bytes())
+}
+
 /// R-203:memory/、docstore、embed、replay_eval 拆入 kanzei-memory crate,经再导出
 /// 保持 `kanzei_tools::{memory,docstore,embed,replay_eval}` 全部调用点零改动。
 pub use kanzei_memory::docstore;

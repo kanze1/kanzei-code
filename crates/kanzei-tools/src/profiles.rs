@@ -313,7 +313,7 @@ mod tests {
             .refreshable_system_baseline_with_report()
             .0
             .contains("user-rule-v1"));
-        let first_hash = crate::architecture::content_hash("user-rule-v1");
+        let first_hash = crate::normalized_text_hash("user-rule-v1");
         assert!(!tool.execute(json!({"action":"propose", "content":"unaccepted-draft", "expected_hash":first_hash}), &tools_ctx).await.is_error);
         assert!(!snapshot.system_baseline().contains("unaccepted-draft"));
         crate::conventions::drafts::save_user(&root, "user-rule-v2", &first_hash, None).unwrap();
