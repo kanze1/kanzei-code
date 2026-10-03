@@ -26,3 +26,7 @@
 - `scripts/ui-runtime-upgrade-native-smoke.mjs <old exe> <new exe>`：旧版缺少 general_chat 命令的现场；有任务时不退出旧后台，完成后切到新后台，原历史保留，主对话标题正确。
 
 原生回归使用独立临时数据目录和本地模型；不调用用户真实模型服务。发布门禁结果绑定最终提交，详见 dist/verification.json；原生结果在 output/playwright/ 各验收目录。
+
+## 安装环境补验
+
+实际安装版的补验暴露了 WebView2 目录共用：当前 Tauri 的 `WebviewAttributes::from(WindowConfig)` 没有复制 `data_directory`，隐藏后台因而仍使用窗口的默认目录。改为直接调用 WebviewWindowBuilder.data_directory，分别保存窗口与后台数据。原生侧栏及无项目回归移除临时的 UI 目录覆盖，并确认后台实际创建独立的 EBWebView 目录。此前安装检查失败的 19489ca2 发布已撤回，修正版单独发布。

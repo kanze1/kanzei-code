@@ -120,7 +120,7 @@ async function start() {
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   app = spawn(exe, [], { cwd: run, windowsHide: true, stdio: "ignore", env: { ...process.env,
     KANZEI_HOME: home, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"),
-    APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(port),
+    APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: undefined, KANZEI_E2E_CDP: String(port),
     GIT_AUTHOR_NAME: "General Harness Test", GIT_AUTHOR_EMAIL: "general-test@example.invalid", GIT_COMMITTER_NAME: "General Harness Test", GIT_COMMITTER_EMAIL: "general-test@example.invalid",
   } });
   await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 }); return true; } catch { return false; } }, "WebView2 startup");

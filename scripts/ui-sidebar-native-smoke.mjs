@@ -27,7 +27,7 @@ async function start() {
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   app = spawn(exe, [], { cwd: run, windowsHide: true, stdio: "ignore", env: { ...process.env,
     KANZEI_HOME: home, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"),
-    APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(port),
+    APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: undefined, KANZEI_E2E_CDP: String(port),
   } });
   await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 }); return true; } catch { return false; } }, "WebView2 startup");
   page = browser.contexts()[0].pages()[0]; page.setDefaultTimeout(15000);
@@ -58,6 +58,9 @@ async function closedChat(root, title) {
 }
 try {
   await start();
+  const runtimeDirs = await readdir(path.join(home, "runtime"));
+  const profiles = await Promise.all(runtimeDirs.map(dir => readdir(path.join(home, "runtime", dir, "webview")).catch(() => [])));
+  check(profiles.some(entries => entries.includes("EBWebView")), "Background WebView uses a separate profile without a test-only UI override");
   const root = await invoke("general_chat_open");
   check(await invoke("general_chat_location") === root, "Existing projectless storage is discoverable without navigation");
   const target = await closedChat(root, "旧对话可管理");

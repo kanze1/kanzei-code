@@ -187,10 +187,15 @@ fn main() {
                 window_config.visible = false;
                 window_config.skip_taskbar = true;
                 window_config.url = tauri::WebviewUrl::App("runtime.html".into());
-                window_config.data_directory = Some(runtime_service::directory().join("webview"));
             }
             let mut builder =
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?;
+            if service {
+                // WebviewAttributes::from(WindowConfig) does not copy data_directory
+                // in the current Tauri runtime. Set it on the builder directly so
+                // the hidden owner never shares the desktop's WebView2 profile.
+                builder = builder.data_directory(runtime_service::directory().join("webview"));
+            }
             if let Ok(port) = std::env::var("KANZEI_E2E_CDP") {
                 if !port.trim().is_empty() {
                     // D-289:Chromium M111+ 的 CDP 要求显式 origin 白名单,否则
