@@ -33,7 +33,7 @@ C7已确认的3个P1仍未修复：插话批次原子交付、历史错误误作
 
 发布前将对最终合并提交执行 scripts/verify.ps1 -Full；要求dist/verification.json的commit等于最终HEAD、all_pass为true、无跳过项。之后Windows CLI+app一起构建、NSIS打包；发布明确SHA，重新下载校验大小/SHA256并检查HTTP Range。
 
-准备阶段已通过合并后的导航、工作台资源、阶段状态和17项general owner回归。最终全量结果与安装器回执保存到output/release-WB6及dist/release-receipt.json；未产出回执前不视为发布完成。
+准备阶段已通过合并后的导航、工作台资源、阶段状态和17项general owner回归。首轮Full的14项通过，仅ui_a11y旧正则要求initialFocus后立即结束参数，误拒WB3新增onClose的正确调用；已允许附加生命周期选项，同时新增真实Edge焦点断言，仍要求关闭按钮初始聚焦。定向a11y与16项历史/焦点回归通过，随后对补修提交重跑完整Full，未复用旧提交证据。最终全量结果与安装器回执保存到output/release-WB6及dist/release-receipt.json；未产出回执前不视为发布完成。
 
 用户当前kzapp仍在运行，发布过程不关闭其窗口；安装器保留供应用内更新或退出后安装。原生安装后用户环境不作为本次测试场。
 

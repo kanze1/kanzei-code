@@ -74,7 +74,8 @@ assert.match(js, /initialFocus: "#ask-overlay"/, "权限卡默认焦点应是卡
 assert.match(html, /id="ask-overlay"[^>]*tabindex="-1"/, "权限卡容器需要 tabindex=-1 才能接住默认焦点");
 // UX-122:破坏性确认框默认焦点在「取消」。
 assert.match(js, /initialFocus: options\.danger \? "#confirm-cancel" : "#confirm-ok"/, "危险确认框默认焦点应是取消");
-assert.match(js, /openDialog\(\$\("viewer-overlay"\), \{ initialFocus: "#viewer-close" \}\)/);
+// Keep the focus contract while allowing lifecycle options such as onClose.
+assert.match(js, /openDialog\(\$\("viewer-overlay"\), \{ initialFocus: "#viewer-close"(?=\s*[,}])/);
 assert.match(js, /if \(event\.key !== "Enter" && event\.key !== " "\) return/);
 for (const selector of ["activity-item", "rail-sidebar-toggle", "auto-continue", "auto-allow"]) {
   assert.ok(html.includes(`id="${selector}"`) || html.includes(`class="${selector}`), `缺少核心控件 ${selector}`);

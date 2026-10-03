@@ -157,6 +157,7 @@ try {
       { project: state.project, title: "WB3 newer viewer" });
   });
   check((await page.locator("#viewer-title").innerText()).includes("WB3 newer viewer"), "The newer readonly history opens while the older history is in flight");
+  check(await page.evaluate(() => document.activeElement?.id === "viewer-close"), "Viewer lifecycle callbacks preserve initial focus on the close button");
   await page.evaluate(async () => {
     const state = window.__history, first = state.lines[0].id;
     delete state.gates[first];
