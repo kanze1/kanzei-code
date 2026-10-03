@@ -198,9 +198,33 @@ impl Ruleset {
         (rule.effect, Some(rule))
     }
 
-    /// 某 action 是否被整体 deny(resource "*")——materialize 时直接摘掉该工具。
+    /// Only remove an action when all resources are known to be denied.
+    /// A resource Allow/Ask exception keeps the tool visible; evaluate still
+    /// decides each actual invocation, including all hard denies.
     pub fn action_fully_denied(&self, action: &str) -> bool {
-        matches!(self.evaluate(action, "*"), Effect::Deny)
+        if self
+            .hard_denies
+            .iter()
+            .any(|rule| wildcard_match(&rule.action, action) && rule.resource == "*")
+        {
+            return true;
+        }
+        for rule in self
+            .rules
+            .iter()
+            .rev()
+            .filter(|rule| wildcard_match(&rule.action, action))
+        {
+            if rule.effect != Effect::Deny {
+                // Conservatively retain possible exceptions rather than trying
+                // to enumerate every resource or prove pattern containment.
+                return false;
+            }
+            if rule.resource == "*" {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn rules(&self) -> &[Rule] {
@@ -1132,6 +1156,171 @@ mod tests {
         }]);
         assert!(rs.action_fully_denied("task"));
         assert!(!rs.action_fully_denied("bash"));
+    }
+
+    struct PermissionTool;
+    #[async_trait::async_trait]
+    impl crate::Tool for PermissionTool {
+        fn name(&self) -> &'static str {
+            "write"
+        }
+        fn description(&self) -> String {
+            "write a permitted path".into()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"}}})
+        }
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _ctx: &crate::ToolCtx,
+        ) -> crate::ToolOutput {
+            crate::ToolOutput::ok("unused")
+        }
+    }
+    struct PermissionTools {
+        deferred: bool,
+        hard_deny: bool,
+    }
+    impl crate::Component for PermissionTools {
+        fn contribute(
+            &self,
+            draft: &mut crate::HarnessDraft,
+            _ctx: &crate::ResolveCtx,
+        ) -> anyhow::Result<()> {
+            draft
+                .tools
+                .insert("write", std::sync::Arc::new(PermissionTool));
+            draft.tools.insert(
+                crate::TOOL_SEARCH,
+                std::sync::Arc::new(crate::ToolSearchTool),
+            );
+            if self.deferred {
+                draft.deferred_tools.insert("write".into());
+            }
+            if self.hard_deny {
+                draft
+                    .permissions
+                    .push_hard_deny(crate::rule("write", "*", Effect::Deny));
+            }
+            Ok(())
+        }
+    }
+    fn configured_permission_snapshot(
+        config: &str,
+        deferred: bool,
+        hard_deny: bool,
+    ) -> std::sync::Arc<crate::HarnessSnapshot> {
+        let root = std::path::PathBuf::from("C:/d3-permission-fixture");
+        let ctx = crate::ResolveCtx {
+            profile: crate::ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: std::sync::Arc::new(toml::from_str::<crate::KanzeiConfig>(config).unwrap()),
+        };
+        let mut harness = crate::Harness::default();
+        harness
+            .add(PermissionTools {
+                deferred,
+                hard_deny,
+            })
+            .add(crate::ConfigComponent);
+        harness.resolve(&ctx).unwrap()
+    }
+
+    #[test]
+    fn configured_resource_exceptions_keep_tools_visible_and_runtime_policy_exact() {
+        for (text, effect) in [("allow", Effect::Allow), ("ask", Effect::Ask)] {
+            let config = format!(
+                r#"[[permissions.rules]]
+action = "write"
+resource = "*"
+effect = "deny"
+[[permissions.rules]]
+action = "w*"
+resource = "README.md"
+effect = "{text}"
+[[permissions.rules]]
+action = "write"
+resource = "private/*"
+effect = "deny"
+"#
+            );
+            for deferred in [false, true] {
+                let snapshot = configured_permission_snapshot(&config, deferred, false);
+                assert_eq!(snapshot.evaluate("write", "README.md"), effect);
+                assert_eq!(snapshot.evaluate("write", "other.md"), Effect::Deny);
+                assert_eq!(
+                    snapshot.evaluate("write", "private/secret.md"),
+                    Effect::Deny
+                );
+                assert!(
+                    snapshot
+                        .materialize_tools()
+                        .iter()
+                        .any(|tool| tool.name() == "write"),
+                    "an explicit resource exception must remain model-visible"
+                );
+                let permission = snapshot
+                    .permission_snapshot()
+                    .into_iter()
+                    .find(|p| p.action == "write")
+                    .unwrap();
+                assert_eq!(
+                    permission.effect,
+                    Effect::Deny,
+                    "the literal * decision is still denied"
+                );
+                assert!(!permission.fully_denied);
+                if deferred {
+                    assert!(snapshot.is_deferred("write"));
+                    assert!(!snapshot
+                        .resident_tools()
+                        .iter()
+                        .any(|tool| tool.name() == "write"));
+                    assert!(snapshot.deferred_catalog().unwrap().contains("write"));
+                } else {
+                    assert!(snapshot
+                        .resident_tools()
+                        .iter()
+                        .any(|tool| tool.name() == "write"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn whole_action_denials_keep_normal_last_match_and_hard_priority() {
+        let exception = r#"[[permissions.rules]]
+action = "write"
+resource = "*"
+effect = "deny"
+[[permissions.rules]]
+action = "write"
+resource = "README.md"
+effect = "allow"
+"#;
+        let final_deny = format!("{exception}\n[[permissions.rules]]\naction = \"w*\"\nresource = \"*\"\neffect = \"deny\"\n");
+        for (config, hard_deny) in [(final_deny.as_str(), false), (exception, true)] {
+            for deferred in [false, true] {
+                let snapshot = configured_permission_snapshot(config, deferred, hard_deny);
+                assert_eq!(snapshot.evaluate("write", "README.md"), Effect::Deny);
+                assert!(!snapshot
+                    .materialize_tools()
+                    .iter()
+                    .any(|tool| tool.name() == "write"));
+                assert!(!snapshot.is_deferred("write"));
+                assert!(snapshot.deferred_catalog().is_none());
+                assert!(
+                    snapshot
+                        .permission_snapshot()
+                        .iter()
+                        .find(|p| p.action == "write")
+                        .unwrap()
+                        .fully_denied
+                );
+            }
+        }
     }
 
     // ══ R-183:评估带命中规则原文(验收④轨迹)══

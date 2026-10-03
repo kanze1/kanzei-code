@@ -1,0 +1,372 @@
+{
+  "module": "D3",
+  "baseline": "f4314972380a7f7e447ef04306427ee20acf51f1",
+  "branch": "kanzei/audit-d3-permission-context",
+  "phase": "verified_ready_for_exact_leaf",
+  "recorded_at_utc": "2026-10-03T08:48:56.955440+00:00",
+  "files": [
+    {
+      "path": "crates/kanzei-harness/src/lib.rs",
+      "judgment": "PASS",
+      "review": "full_file_including_internal_tests",
+      "baseline_full_reviewed": false,
+      "lines_baseline": 61,
+      "lines_current": 61,
+      "sha256": "a7086c1d1d2770b349f4a42ad593c8b84c71ba0a7ceae4102639948da72f7059",
+      "sha256_lf": "eed7b7ac671f5392ef4c8a2c94df31f97ea4cb9ea373d11b30d4292dd6742ed7",
+      "baseline_sha256_lf": "eed7b7ac671f5392ef4c8a2c94df31f97ea4cb9ea373d11b30d4292dd6742ed7",
+      "changed_lf": false
+    },
+    {
+      "path": "crates/kanzei-harness/src/context.rs",
+      "judgment": "PASS",
+      "review": "full_file_including_internal_tests",
+      "baseline_full_reviewed": false,
+      "lines_baseline": 62,
+      "lines_current": 62,
+      "sha256": "90f18a2c544529b3f5b0c1205a50f211e0e7888c70cbc9717d208664f6c767c7",
+      "sha256_lf": "fc09240e8a4a09277af3043b9badc4dfcc5975f59bc1fd688e4ac0a19effe407",
+      "baseline_sha256_lf": "fc09240e8a4a09277af3043b9badc4dfcc5975f59bc1fd688e4ac0a19effe407",
+      "changed_lf": false
+    },
+    {
+      "path": "crates/kanzei-harness/src/read_ledger.rs",
+      "judgment": "PASS",
+      "review": "full_file_including_internal_tests",
+      "baseline_full_reviewed": false,
+      "lines_baseline": 45,
+      "lines_current": 45,
+      "sha256": "617fcdd66619889bd7ac915638b0c129ea49eb1d3ebfb1b75638b0820975b986",
+      "sha256_lf": "61b14a9cd0fe81b0f1c6fa16e8e11d912b683290ca189b4113e00e3347bb7a62",
+      "baseline_sha256_lf": "61b14a9cd0fe81b0f1c6fa16e8e11d912b683290ca189b4113e00e3347bb7a62",
+      "changed_lf": false
+    },
+    {
+      "path": "crates/kanzei-harness/src/tool.rs",
+      "judgment": "PASS",
+      "review": "full_file_including_internal_tests",
+      "baseline_full_reviewed": false,
+      "lines_baseline": 549,
+      "lines_current": 549,
+      "sha256": "0039cdfd20cc0a015d41e4dd09f8dbdbf1f083efc918c32679f199fd33f73b05",
+      "sha256_lf": "0ab1b0f7f4e11b07989154da353e5583c0ce267ba14f72141639fa2bf6802204",
+      "baseline_sha256_lf": "0ab1b0f7f4e11b07989154da353e5583c0ce267ba14f72141639fa2bf6802204",
+      "changed_lf": false
+    },
+    {
+      "path": "crates/kanzei-harness/src/permission.rs",
+      "judgment": "P1",
+      "review": "full_file_including_internal_tests",
+      "baseline_full_reviewed": false,
+      "lines_baseline": 1191,
+      "lines_current": 1380,
+      "sha256": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e",
+      "sha256_lf": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e",
+      "baseline_sha256_lf": "98dbbb422a7bf9670b61b3fe36a5150acbcdfcc78f7d2ea10bfd6dd8020e2deb",
+      "changed_lf": true
+    }
+  ],
+  "full_file_review_count_this_package": 5,
+  "caller_slices_added_to_full_count": 0,
+  "public_coverage_modified": false,
+  "production_changed": [
+    "crates/kanzei-harness/src/permission.rs"
+  ],
+  "p1_root_causes": 1,
+  "verified_fixed_root_causes": 1,
+  "public_signature_changed": false,
+  "runtime_resource_evaluation_changed": false,
+  "dependencies_added": false,
+  "persistent_format_changed": false,
+  "root_coordination": "permission action_fully_denied minimum behavior approved; direct callers in harness.rs slices only",
+  "real_config_or_credentials_read_or_written": false,
+  "cargo": {
+    "authorized": true,
+    "executed": true,
+    "exclusive_slot": "root explicitly assigned after C5 release",
+    "target_dir": "C:/Users/kanzei/Documents/kanzei code/target",
+    "isolated_runtime_profile": "output/parallel-D3/profile",
+    "isolated_CARGO_HOME": "output/parallel-D1/profile/.cargo",
+    "isolated_RUSTUP_HOME": "output/parallel-D1/profile/.rustup",
+    "user_config_or_credentials_accessed": false,
+    "full_harness": {
+      "passed": 213,
+      "failed": 0,
+      "ignored": 0,
+      "doc_tests": 0,
+      "new_test_increment": 2
+    },
+    "checks": {
+      "harness_core_tools_all_targets_check": 0,
+      "harness_core_tools_all_targets_clippy_Dwarnings": 0,
+      "harness_core_tools_fmt_check": 0,
+      "git_diff_check": 0
+    },
+    "not_in_package": [
+      "full workspace tests",
+      "native tests",
+      "UI tests",
+      "M6 tests"
+    ]
+  },
+  "regressions": [
+    {
+      "test": "permission::tests::configured_resource_exceptions_keep_tools_visible_and_runtime_policy_exact",
+      "prepared": true,
+      "executed": true,
+      "covers": [
+        "Allow/Ask resource exceptions",
+        "materialized/resident/deferred visibility",
+        "literal * snapshot effect still Deny",
+        "other/private resources remain Deny"
+      ],
+      "passed": true
+    },
+    {
+      "test": "permission::tests::whole_action_denials_keep_normal_last_match_and_hard_priority",
+      "prepared": true,
+      "executed": true,
+      "covers": [
+        "hard deny whole *",
+        "last ordinary global Deny",
+        "resident/deferred removal"
+      ],
+      "passed": true
+    }
+  ],
+  "negative": {
+    "path": "output/parallel-D3/negative.py",
+    "kind": "equivalent_old_method_not_complete_old_source",
+    "syntax_checked": true,
+    "executed": true,
+    "restoration_executed": true,
+    "expectation": "real visibility assertion fails, retained safety control result recorded, compilation failure does not count",
+    "result": {
+      "actual_assertion_failure": true,
+      "exit_code": 101,
+      "equivalent_old_method": true,
+      "complete_old_source": false,
+      "safety_control_passed": 1,
+      "restored_exact_bytes": true,
+      "before_sha256": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e",
+      "after_sha256": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e"
+    },
+    "raw_report": "output/parallel-D3/negative-permission.json"
+  },
+  "ignored_evidence": [
+    {
+      "path": "output/parallel-D3/check-final.log",
+      "bytes": 9761,
+      "sha256": "caa3f564a7dd93617c3b679a84477d7213e4add7ece9c6a7c935c9a3e8ab2cb2",
+      "sha256_lf": "f66357873b6799f92f4f1c96380d3a80c8e564edea031fbbadced2ef22725bc3"
+    },
+    {
+      "path": "output/parallel-D3/clippy-final.log",
+      "bytes": 732,
+      "sha256": "7bb20765ef3a6c684fd662f333193270c44ab63aac8d5dcb6764feedb23136e8",
+      "sha256_lf": "91cbe90854d95516a09d69598a3b500bb687f7b2c20de11c8f02d1574756c2ee"
+    },
+    {
+      "path": "output/parallel-D3/context-callers.txt",
+      "bytes": 2866,
+      "sha256": "5027c67be8b6f893b0e2446c8abe49e897a8d1f96881f115a8f335d861dbf468",
+      "sha256_lf": "7e2f13189d60f44465d15365c7e748b27737c8c88e5dece5b2debc025ed5a578"
+    },
+    {
+      "path": "output/parallel-D3/diff-final.log",
+      "bytes": 1223,
+      "sha256": "ae7b877a14e0fed0549f96d0e3730629412bed77a3dd3a3b3587ad6fb23890eb",
+      "sha256_lf": "032359a4d098bdadfd693069f70f7ee1a103066329ec5b744022441df2026a5f"
+    },
+    {
+      "path": "output/parallel-D3/execution-summary.json",
+      "bytes": 1359,
+      "sha256": "a48f5f4e899f84c37beac524a94995c89eec9536bd1919a4f9379ab20522e724",
+      "sha256_lf": "2f9f72189d019edb7a974658d84835a91acef343ded94c6f0aeff14cc5c8a346"
+    },
+    {
+      "path": "output/parallel-D3/harness-full.log",
+      "bytes": 17285,
+      "sha256": "34be5553ed5cbbb2631aede4412945ae0d7a938397be3429245c44277565e138",
+      "sha256_lf": "f2d5a7bb5c8b3c155c2a2beb4effa70355eb60d2440fab89f87937a248e62d48"
+    },
+    {
+      "path": "output/parallel-D3/mtime-before.json",
+      "bytes": 81,
+      "sha256": "692142beaae0566b2ed17fcb63bd0bec0943a424a607d0c886236a142e168fda",
+      "sha256_lf": "e6c45b2278d3b40470f64d6fc74785fbfcdad09d00ab873f55fceeb424fdc5fc"
+    },
+    {
+      "path": "output/parallel-D3/mtime-restored.json",
+      "bytes": 81,
+      "sha256": "e9aa40076b0f26fc5ed335f1db8721ab6cf83b4ab491ed8e232604feec98096a",
+      "sha256_lf": "3c8618c04be4505ad7244a02250fd30e0e52017715a0c44db7f23619b3cd28ba"
+    },
+    {
+      "path": "output/parallel-D3/negative-control.log",
+      "bytes": 416,
+      "sha256": "b48e099b9db9b5425179cd6fe66b7e644fada6a4b90f383cdaa37a6928d136b5",
+      "sha256_lf": "c0966b00a66b456d554e92e0eabec75a8b47e3a7299c5fa787a7969f669d84bd"
+    },
+    {
+      "path": "output/parallel-D3/negative-permission.json",
+      "bytes": 1703,
+      "sha256": "9cfc20b1f220241dca74bb564cdb4ef5e03a00e508557f68054ccb874fe583d4",
+      "sha256_lf": "cec0ac1b5a5df1e6a8b660f6e2edd12f51c22122eef80370c8d3d8340b1a3101"
+    },
+    {
+      "path": "output/parallel-D3/negative-permission.log",
+      "bytes": 1049,
+      "sha256": "83e91b0ce00241007848d71e13c4edcab1a20bd8e05fe28f282cc73ed754a419",
+      "sha256_lf": "2119d2128357c294751ec1737084a8b8b6c85e13997b16909ac29a3019040443"
+    },
+    {
+      "path": "output/parallel-D3/negative-run.log",
+      "bytes": 1703,
+      "sha256": "9cfc20b1f220241dca74bb564cdb4ef5e03a00e508557f68054ccb874fe583d4",
+      "sha256_lf": "cec0ac1b5a5df1e6a8b660f6e2edd12f51c22122eef80370c8d3d8340b1a3101"
+    },
+    {
+      "path": "output/parallel-D3/negative.py",
+      "bytes": 5324,
+      "sha256": "5efcff7580e0eb24e71c4b8d8f9e1628125e6d4cbcf8a1a1f4c8302e78b594a7",
+      "sha256_lf": "5efcff7580e0eb24e71c4b8d8f9e1628125e6d4cbcf8a1a1f4c8302e78b594a7"
+    },
+    {
+      "path": "output/parallel-D3/permission-callers.txt",
+      "bytes": 14527,
+      "sha256": "db6567165903226df418b0e9f22902702762d7afef13af2d9fa9951b4447e9e1",
+      "sha256_lf": "e96a4657f5b8ba6d2b92ce59d552caf172ec6d508536efe0683f479b1b22b84b"
+    },
+    {
+      "path": "output/parallel-D3/permission-public-callers.txt",
+      "bytes": 19811,
+      "sha256": "de6e8bd6a8e9016eb1514cb9f0c382414d9a4b99a3ec5c9aabc861a724664706",
+      "sha256_lf": "d33ced17a10a66c7e1b38b535d9c3918df042e3bfc286caf6feaff62f896dd82"
+    },
+    {
+      "path": "output/parallel-D3/positive-denials.log",
+      "bytes": 416,
+      "sha256": "63fade2e62d9e6006a49f1e3cb26efc2ef5005e0bd1e1d5aa0a62ba415767b55",
+      "sha256_lf": "95518c98643a47d5d8cd448a6e08877eba7397ce36ab04a5dcf7f5d1f5135a0c"
+    },
+    {
+      "path": "output/parallel-D3/positive-exceptions.log",
+      "bytes": 2574,
+      "sha256": "4f495227430af6d028f1adc9f4c58d864086428d196039d39a60ee3059267145",
+      "sha256_lf": "938affafbe869b7327df00b8c09337f543fa32b603e4d32f22735caade14ec92"
+    },
+    {
+      "path": "output/parallel-D3/preparation-static.json",
+      "bytes": 571,
+      "sha256": "b2841631e1ff045ea68dc6a82167291988d7477200be461fd103713b58813634",
+      "sha256_lf": "df289fa2d40b6ae48120a063817510fe5bd29ad708b9f319d09fa2a675ba1af4"
+    },
+    {
+      "path": "output/parallel-D3/read-ledger-callers.txt",
+      "bytes": 2964,
+      "sha256": "a78b80ac754d94a026d7d5a86eedbd543661deb3692f8fe03985f56180eaa4a3",
+      "sha256_lf": "41f6a92527773c625a977cc0991f2b0e13aade5337b7823b8ea92258f5deb083"
+    },
+    {
+      "path": "output/parallel-D3/run-cargo.ps1",
+      "bytes": 1096,
+      "sha256": "b8c4424d94ebad3f34f8dbd7dbebf974e87914fefd3afee12f7ac98b56388217",
+      "sha256_lf": "b8c4424d94ebad3f34f8dbd7dbebf974e87914fefd3afee12f7ac98b56388217"
+    },
+    {
+      "path": "output/parallel-D3/tool-context-callers.txt",
+      "bytes": 39020,
+      "sha256": "58fba400e65f0c2d1dc7b8c89a09fe92dc20e0dc55e0edf52b484126cb725dfc",
+      "sha256_lf": "4ca80cfbe13f31084bd74a0dbf8f738a83ef2142443f9e6bc7103f3e8bcc36bf"
+    },
+    {
+      "path": "output/parallel-D3/tool-output-callers.txt",
+      "bytes": 110082,
+      "sha256": "343b4fea2920810f00045dda28320ca7bb037313c65249a6715d9718063bd682",
+      "sha256_lf": "bb935ed7b8b212f631f78c7fa770aaa86f3b39bd8a2eedd101a048c80119c855"
+    },
+    {
+      "path": "output/parallel-D3/tool-output-public-callers.txt",
+      "bytes": 4650,
+      "sha256": "9e0f2cd34ae9e0c19f9a977a37a07620b7b146eff75ea42add221f5892f22154",
+      "sha256_lf": "7147ed4f4da2f73511b478267d02b4b078a810be6a1141adbc85f7d8a7ab7baf"
+    }
+  ],
+  "memory": "historical ToolOutcome classification hint rechecked against current source/callers",
+  "preparation_static_checks": {
+    "kind": "static_preparation_only",
+    "negative_python_ast": "passed",
+    "negative_executed": false,
+    "rust_typecheck_executed": false,
+    "actual_regression_executed": false,
+    "rustfmt_check": {
+      "exit_code": 0,
+      "target": "crates/kanzei-harness/src/permission.rs",
+      "scope": "standalone_tool_no_shared_target"
+    },
+    "git_diff_check": {
+      "exit_code": 0
+    },
+    "source_sha256": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e",
+    "source_sha256_lf": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e"
+  },
+  "execution": {
+    "baseline": "f4314972380a7f7e447ef04306427ee20acf51f1",
+    "source_sha256": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e",
+    "harness": {
+      "passed": 213,
+      "failed": 0,
+      "ignored": 0,
+      "doc_tests": 0,
+      "new_test_increment": 2
+    },
+    "positive_regressions": {
+      "passed": 2,
+      "failed": 0
+    },
+    "negative": {
+      "actual_assertion_failure": true,
+      "exit_code": 101,
+      "equivalent_old_method": true,
+      "complete_old_source": false,
+      "safety_control_passed": 1,
+      "restored_exact_bytes": true,
+      "before_sha256": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e",
+      "after_sha256": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e"
+    },
+    "checks": {
+      "harness_core_tools_all_targets_check": 0,
+      "harness_core_tools_all_targets_clippy_Dwarnings": 0,
+      "harness_core_tools_fmt_check": 0,
+      "git_diff_check": 0
+    },
+    "mtime_refresh": [
+      {
+        "RustFilesRefreshed": 422,
+        "TimeUtc": "2026-10-03T08:45:44.5501996Z"
+      },
+      {
+        "RustFilesRefreshed": 422,
+        "TimeUtc": "2026-10-03T08:46:26.0998680Z"
+      }
+    ],
+    "not_executed": [
+      "full workspace tests",
+      "native tests",
+      "UI tests",
+      "M6 tests"
+    ],
+    "production_changed": [
+      "crates/kanzei-harness/src/permission.rs"
+    ]
+  },
+  "ignored_evidence_file_count": 23,
+  "ignored_evidence_bytes": 239294,
+  "separate_next_package_readonly_map": {
+    "path": "output/parallel-D3/M6-read-map.md",
+    "bytes": 11894,
+    "sha256": "8e7cf3d7f0e406666cd77b23110cd3759e5d999173dc01b2d85427adfad5a702",
+    "not_D3_execution_or_coverage": true
+  }
+}
