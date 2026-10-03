@@ -158,8 +158,9 @@ async function checkPwa(report, serve) {
     });
 
   try {
-    const openReq = { id: 1, method: "open", params: { url, channel: "msedge", viewport: { width: 375, height: 667 } } };
-    const domReq = { id: 2, method: "dom", params: { selector: "body" } };
+    const owner = "ui-connectivity-pwa";
+    const openReq = { id: 1, method: "open", params: { owner, url, channel: "msedge", viewport: { width: 375, height: 667 } } };
+    const domReq = { id: 2, method: "dom", params: { owner, selector: "body" } };
     const shutdownReq = { id: 3, method: "shutdown", params: {} };
     const raw = await rpc([openReq, domReq, shutdownReq]);    const lines = raw.trim().split("\n").filter(Boolean);
     const responses = lines.map((l) => JSON.parse(l));

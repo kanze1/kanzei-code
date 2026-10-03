@@ -25,4 +25,6 @@
 
 正式发布必须对最终提交运行 `scripts/verify.ps1 -Full`，再由 `package.ps1 -Publish` 校验同一提交的全绿证据。最终运行日志、验证JSON、Release资产SHA256/尺寸/HTTP Range、安装状态留在 `output/joint-release-2026-10-04/` 和 `dist/release-receipt.json`；只有这些实测回执确认后才报告发布成功。以上定向验证不替代正式门禁。
 
+首轮Full发现PWA巡检未跟进浏览器helper的owner必填合同（P1，真实调用报错）。核对helper全部脚本调用方后，在`scripts/ui-connectivity.mjs`为open/dom传入同一巡检owner；独立helper进程内身份固定，shutdown仍释放全部自有会话。桌面/PWA连通性和parent/A/B浏览器隔离定向复测均通过。该提交纳入发布，正式Full重新绑定最终提交运行，不沿用失败首轮证据。
+
 用户当前桌面窗口保持运行。云端发布、下载校验和本机安装状态分别记录；运行中的旧窗口不算已经切换到新版本。
