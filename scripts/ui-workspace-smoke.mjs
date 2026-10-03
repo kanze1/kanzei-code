@@ -455,7 +455,9 @@ try {
             return { status: st?.textContent, title: row.querySelector(".title")?.getBoundingClientRect().left,
               stWidth: st?.getBoundingClientRect().width, truncated: st ? st.scrollWidth > st.clientWidth : null };
           }));
-          assert.ok(rows.some((row) => /In progress|doing/.test(row.status)) && rows.some((row) => /To do|todo/.test(row.status)), `需求页夹具应同时有在做与待做:${JSON.stringify(rows)}`);
+          const expected_statuses = language === "en" ? ["In progress", "To do"] : ["进行中", "待开始"];
+          assert.ok(expected_statuses.every((status) => rows.some((row) => row.status === status)),
+            `${language} 需求页夹具应同时显示进行中与待开始:${JSON.stringify(rows)}`);
           assert.ok(rows.every((row) => Math.abs(row.title - rows[0].title) < 0.5),
             `${language} ${width}px 需求页各行标题左缘必须全等(状态列被状态词撑宽了):${JSON.stringify(rows)}`);
           assert.ok(rows.every((row) => row.truncated === false), `${language} ${width}px 状态词被截断(状态列宽不够):${JSON.stringify(rows)}`);

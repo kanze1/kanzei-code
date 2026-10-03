@@ -1,0 +1,50 @@
+{
+  "package": "UI-workspace-check",
+  "baseline": "28265223acae1788bd550d6621bef636765e9f87",
+  "status": "verified_validation_support_only",
+  "source": "scripts/ui-workspace-smoke.mjs",
+  "review_scope": "necessary language assertion slice; not a full production file review",
+  "source_sha256": "e5a3364b1630a0c3b45f699a670b0cfc048c2e1ff8f26a427cdcadd550b00d2a",
+  "source_sha256_lf": "421b9613856e5a3cff5ccc37b0105547f82eae9b8873f6ccfb4e9529dd268c60",
+  "before_sha256_lf": "75b859474e96f6ee89a7405d2869516d43369ab05221cef120f3e5c9c5e5d710",
+  "product_root_causes": [],
+  "coverage_increment": 0,
+  "evidence": [
+    {
+      "path": "output/parallel-M5/workspace-browser-root.log",
+      "exit_code": 0,
+      "scope": "actual Edge full workspace browser smoke",
+      "sha256": "f3cf7c311f37430df44144691b53eb81aeecdaa6fcec7824d7bc545d9caab59a",
+      "bytes": 230
+    },
+    {
+      "path": "output/parallel-M5/workspace-browser-syntax.log",
+      "exit_code": 0,
+      "scope": "node --check",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "output/audit-a6-ui-surfaces/browser-workspaces.log",
+      "exit_code": 1,
+      "scope": "unchanged A6 new-source false negative",
+      "sha256": "cbe95100570cf754001992cbd365703264c2cfef5a95a965e13457e60bf76969",
+      "bytes": 910
+    },
+    {
+      "path": "output/audit-a6-ui-surfaces/browser-baseline-workspaces.log",
+      "exit_code": 1,
+      "scope": "unchanged A6 old-source same false negative",
+      "sha256": "bb969d4a184c9e3d3285dc64f7d3d6a6ad8a8a0d846a2d2764567293567092ec",
+      "bytes": 1104
+    }
+  ],
+  "invariants": [
+    "Both languages must contain exact canonical doing/todo display words",
+    "Existing row alignment, truncation, keyboard, independent-topic, ownership and viewport checks retained"
+  ],
+  "limits": [
+    "HTTP IPC fixture in real Edge; not actual Tauri multiwindow execution",
+    "Previous A6 failure logs retained without modification"
+  ]
+}
