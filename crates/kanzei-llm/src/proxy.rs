@@ -55,10 +55,7 @@ fn build_http_client_with_redirect(
         }
         // env 优先;GUI 双击启动没有环境变量时,退回 Windows 系统代理(注册表)。
         ProxyConfig::Env => builder.proxy(reqwest::Proxy::custom(|url: &url::Url| {
-            if is_loopback(url.host_str().unwrap_or("")) {
-                return None;
-            }
-            proxy_for_url(url, &|key| std::env::var(key).ok()).or_else(system_proxy)
+            proxy_with_fallback(url, &|key| std::env::var(key).ok(), system_proxy)
         })),
     };
     builder.build().map_err(LlmError::Transport)
@@ -124,6 +121,21 @@ pub fn proxy_for_url(url: &url::Url, env: &dyn Fn(&str) -> Option<String>) -> Op
     } else {
         Some(format!("{scheme}://{proxy}"))
     }
+}
+
+// NO_PROXY means direct access, not "no environment proxy configured".
+// Apply bypasses before the Windows registry fallback as well.
+fn proxy_with_fallback(
+    url: &url::Url,
+    env: &dyn Fn(&str) -> Option<String>,
+    fallback: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    let hostname = url.host_str()?;
+    let port = url.port().or(default_port(url.scheme()))?;
+    if !should_proxy(hostname, port, env) {
+        return None;
+    }
+    proxy_for_url(url, env).or_else(fallback)
 }
 
 fn lookup(env: &dyn Fn(&str) -> Option<String>, key: &str) -> Option<String> {
@@ -209,6 +221,31 @@ mod tests {
         assert_eq!(
             proxy_for_url(&url, &env_of(&env)),
             Some("https://127.0.0.1:12000".into())
+        );
+    }
+
+    #[test]
+    fn no_proxy_is_not_overridden_by_system_proxy() {
+        let url = url::Url::parse("https://internal.example.com/x").unwrap();
+        for bypass in ["*", ".example.com", "internal.example.com:443"] {
+            assert_eq!(
+                proxy_with_fallback(&url, &env_of(&[("no_proxy", bypass)]), || {
+                    panic!("bypassed target must not consult system proxy")
+                }),
+                None
+            );
+        }
+        assert_eq!(
+            proxy_with_fallback(&url, &env_of(&[]), || Some("http://system:8080".into())),
+            Some("http://system:8080".into())
+        );
+        assert_eq!(
+            proxy_with_fallback(
+                &url,
+                &env_of(&[("https_proxy", "http://env:8080")]),
+                || panic!("env wins")
+            ),
+            Some("http://env:8080".into())
         );
     }
 

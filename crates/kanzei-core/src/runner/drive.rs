@@ -746,6 +746,16 @@ async fn stream_request_step(
                     kind,
                     raw,
                 } => {
+                    // Opaque thinking is replay state, not a provider tool invocation.
+                    if kind == "redacted_thinking" {
+                        parts.push(Part::Hosted {
+                            channel,
+                            protocol,
+                            kind,
+                            raw,
+                        });
+                        continue;
+                    }
                     let (id, name) = if kind == "server_tool_use" {
                         hosted_calls
                             .get(&index)

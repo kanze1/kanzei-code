@@ -4,7 +4,7 @@
 //! function_call_output/reasoning);reasoning 以 encrypted_content 形式在多轮工具
 //! 循环中必须原样回放(否则 codex 系模型直接退智),映射到 Part::Reasoning.signature。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 
@@ -162,7 +162,7 @@ struct PendingCall {
 pub struct ResponsesState {
     started: bool,
     text_open: BTreeMap<u64, bool>,
-    reasoning_open: bool,
+    reasoning_open: BTreeSet<u64>,
     calls: BTreeMap<u64, PendingCall>,
     hosted_searches: BTreeMap<u64, bool>,
     saw_tool_call: bool,
@@ -254,7 +254,7 @@ impl ProtocolState for ResponsesState {
                         self.calls.insert(index, call);
                     }
                     "reasoning" => {
-                        self.reasoning_open = true;
+                        self.reasoning_open.insert(index);
                         out.push(LlmEvent::ReasoningStart {
                             index: index as usize,
                         });
@@ -290,8 +290,7 @@ impl ProtocolState for ResponsesState {
             }
             "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
                 let index = data["output_index"].as_u64().unwrap_or(0);
-                if !self.reasoning_open {
-                    self.reasoning_open = true;
+                if self.reasoning_open.insert(index) {
                     out.push(LlmEvent::ReasoningStart {
                         index: index as usize,
                     });
@@ -340,7 +339,7 @@ impl ProtocolState for ResponsesState {
                         );
                     }
                     "reasoning" => {
-                        self.reasoning_open = false;
+                        self.reasoning_open.remove(&index);
                         out.push(LlmEvent::ReasoningEnd {
                             index: index as usize,
                             signature: item["encrypted_content"].as_str().map(str::to_string),
@@ -406,9 +405,33 @@ impl ProtocolState for ResponsesState {
                 //
                 // 参数残缺(截断轮)不物化:宁可少一条,也不把 input=null 的半截调用喂给
                 // runner——那会变成一次必然失败的工具执行,比丢掉更难查。
-                let pending: Vec<PendingCall> =
-                    std::mem::take(&mut self.calls).into_values().collect();
-                for call in pending {
+                // The same missing-item.done dialect can leave text/reasoning
+                // open. Close them in output order before publishing tool calls.
+                let pending: BTreeSet<u64> = self
+                    .calls
+                    .keys()
+                    .chain(self.text_open.keys())
+                    .chain(self.reasoning_open.iter())
+                    .copied()
+                    .collect();
+                for index in pending {
+                    if self.text_open.remove(&index).unwrap_or(false) {
+                        out.push(LlmEvent::TextEnd {
+                            index: index as usize,
+                        });
+                    }
+                    if self.reasoning_open.remove(&index) {
+                        out.push(LlmEvent::ReasoningEnd {
+                            index: index as usize,
+                            signature: data["response"]["output"][index as usize]
+                                ["encrypted_content"]
+                                .as_str()
+                                .map(str::to_string),
+                        });
+                    }
+                    let Some(call) = self.calls.remove(&index) else {
+                        continue;
+                    };
                     let raw = if call.arguments.is_empty() {
                         "{}"
                     } else {
@@ -542,17 +565,20 @@ mod tests {
         );
         assert_eq!(
             ev,
-            vec![LlmEvent::StepFinish {
-                reason: FinishReason::ToolUse,
-                usage: Usage {
-                    input: 60,
-                    output: 9,
-                    reasoning: 3,
-                    cache_read: 40,
-                    cache_write: 0,
-                    web_search_requests: 0,
-                },
-            }]
+            vec![
+                LlmEvent::TextEnd { index: 0 },
+                LlmEvent::StepFinish {
+                    reason: FinishReason::ToolUse,
+                    usage: Usage {
+                        input: 60,
+                        output: 9,
+                        reasoning: 3,
+                        cache_read: 40,
+                        cache_write: 0,
+                        web_search_requests: 0,
+                    },
+                }
+            ]
         );
     }
 
@@ -606,6 +632,29 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn missing_item_done_closes_reasoning_before_pending_tools() {
+        let mut state = ResponsesState::default();
+        feed(
+            &mut state,
+            r#"{"type":"response.reasoning_text.delta","output_index":0,"delta":"reasoning"}"#,
+        );
+        feed(
+            &mut state,
+            r#"{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"}}"#,
+        );
+        let events = feed(
+            &mut state,
+            r#"{"type":"response.completed","response":{"output":[{"type":"reasoning","encrypted_content":"opaque"}]}}"#,
+        );
+        assert!(matches!(events.as_slice(), [
+            LlmEvent::ReasoningEnd {index:0, signature:Some(signature)},
+            LlmEvent::ToolCall {id, ..},
+            LlmEvent::StepFinish {..}
+        ] if signature == "opaque" && id == "c1"));
+        assert!(feed(&mut state, r#"{"type":"response.completed","response":{}}"#).is_empty());
     }
 
     /// 截断轮:参数只拼到一半就 response.incomplete。半截 JSON 物化出来是 input=null 的

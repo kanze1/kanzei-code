@@ -1,0 +1,19 @@
+{
+  "baseline": "6613f7fe",
+  "workspace_tests": {
+    "passed": 2229,
+    "failed": 0,
+    "ignored": 5
+  },
+  "commands": [
+    "cargo test --workspace --no-fail-fast --quiet",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo fmt --all -- --check",
+    "git diff --check"
+  ],
+  "logs": [
+    "output/protocol-auth-workspace-20261003.log",
+    "output/protocol-auth-clippy-20261003.log"
+  ],
+  "live_provider_calls": false
+}

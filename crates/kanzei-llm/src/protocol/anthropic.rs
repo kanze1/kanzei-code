@@ -270,6 +270,9 @@ enum Block {
     Thinking {
         signature: Option<String>,
     },
+    RedactedThinking {
+        raw: Value,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -336,11 +339,16 @@ impl ProtocolState for AnthropicState {
                         );
                         out.push(LlmEvent::TextStart { index });
                     }
-                    "thinking" | "redacted_thinking" => {
+                    "thinking" => {
                         self.ignored_blocks.remove(&index);
                         self.blocks
                             .insert(index, Block::Thinking { signature: None });
                         out.push(LlmEvent::ReasoningStart { index });
+                    }
+                    "redacted_thinking" => {
+                        self.ignored_blocks.remove(&index);
+                        self.blocks
+                            .insert(index, Block::RedactedThinking { raw: block.clone() });
                     }
                     "tool_use" => {
                         self.ignored_blocks.remove(&index);
@@ -465,6 +473,15 @@ impl ProtocolState for AnthropicState {
                     }
                     Some(Block::Thinking { signature }) => {
                         out.push(LlmEvent::ReasoningEnd { index, signature })
+                    }
+                    Some(Block::RedactedThinking { raw }) => {
+                        out.push(LlmEvent::HostedItem {
+                            index,
+                            channel: self.provider_channel.clone(),
+                            protocol: "anthropic".into(),
+                            kind: "redacted_thinking".into(),
+                            raw,
+                        });
                     }
                     Some(Block::ToolUse {
                         id,
@@ -612,6 +629,56 @@ mod tests {
                 data: data.into(),
             })
             .unwrap()
+    }
+
+    #[test]
+    fn redacted_thinking_roundtrips_before_tool_call_without_exposing_ciphertext() {
+        let channel = "anthropic:api_key:test";
+        let raw = json!({"type":"redacted_thinking", "data":"opaque-ciphertext"});
+        let mut state = AnthropicState::with_provider_channel(channel);
+        let start = feed(
+            &mut state,
+            "content_block_start",
+            &json!({
+                "type":"content_block_start", "index":0, "content_block":raw
+            })
+            .to_string(),
+        );
+        assert!(start.is_empty());
+        let events = feed(
+            &mut state,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":0}"#,
+        );
+        let [LlmEvent::HostedItem {
+            channel: stored_channel,
+            protocol,
+            kind,
+            raw: stored,
+            ..
+        }] = events.as_slice()
+        else {
+            panic!("opaque block lost: {events:?}");
+        };
+        assert_eq!(stored, &raw);
+        let message = Message::assistant(vec![
+            Part::Hosted {
+                channel: stored_channel.clone(),
+                protocol: protocol.clone(),
+                kind: kind.clone(),
+                raw: stored.clone(),
+            },
+            Part::ToolCall {
+                id: "t1".into(),
+                name: "read".into(),
+                input: json!({"path":"a.txt"}),
+            },
+        ]);
+        let replay = message_to_value(&message, channel);
+        assert_eq!(replay["content"][0], raw);
+        assert_eq!(replay["content"][1]["type"], "tool_use");
+        let other = message_to_value(&message, "anthropic:other");
+        assert_eq!(other["content"].as_array().unwrap().len(), 1);
     }
 
     #[test]

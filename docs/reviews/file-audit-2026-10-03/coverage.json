@@ -15,7 +15,16 @@
     "crates/kanzei-llm/src/request.rs",
     "crates/kanzei-llm/src/protocol/openai.rs",
     "crates/kanzei/tests/integration/incomplete_stream.rs",
-    "crates/kanzei/tests/integration/main.rs"
+    "crates/kanzei/tests/integration/main.rs",
+    "crates/kanzei-llm/src/protocol/anthropic.rs",
+    "crates/kanzei-llm/src/protocol/openai_responses.rs",
+    "crates/kanzei-llm/src/protocol/deepseek_responses.rs",
+    "crates/kanzei-llm/src/proxy.rs",
+    "crates/kanzei-llm/src/auth/store.rs",
+    "crates/kanzei-llm/src/auth/codex.rs",
+    "crates/kanzei-llm/src/auth/mod.rs",
+    "crates/kanzei-llm/src/client.rs",
+    "crates/kanzei-core/src/history.rs"
   ],
   "contract_slice_reviews": [
     "crates/kanzei-tools/src/managed.rs",
@@ -24,7 +33,6 @@
     "crates/kanzei-tools/src/test_record.rs",
     "crates/kanzei-tools/src/background.rs",
     "crates/kanzei-tools/src/background/lifecycle.rs",
-    "crates/kanzei-llm/src/client.rs",
     "crates/kanzei-core/src/runner/drive.rs"
   ],
   "not_reviewed": [
@@ -232,7 +240,6 @@
     "crates/kanzei-base/src/write_log/tests.rs",
     "crates/kanzei-core/src/assemble.rs",
     "crates/kanzei-core/src/experience_events.rs",
-    "crates/kanzei-core/src/history.rs",
     "crates/kanzei-core/src/lib.rs",
     "crates/kanzei-core/src/notification.rs",
     "crates/kanzei-core/src/orchestration.rs",
@@ -323,13 +330,6 @@
     "crates/kanzei-harness/src/tool.rs",
     "crates/kanzei-harness/src/tool_pipeline.rs",
     "crates/kanzei-harness/src/tool_search.rs",
-    "crates/kanzei-llm/src/auth/codex.rs",
-    "crates/kanzei-llm/src/auth/mod.rs",
-    "crates/kanzei-llm/src/auth/store.rs",
-    "crates/kanzei-llm/src/protocol/anthropic.rs",
-    "crates/kanzei-llm/src/protocol/deepseek_responses.rs",
-    "crates/kanzei-llm/src/protocol/openai_responses.rs",
-    "crates/kanzei-llm/src/proxy.rs",
     "crates/kanzei-llm/tests/native_search_probe.rs",
     "crates/kanzei-memory/src/docstore.rs",
     "crates/kanzei-memory/src/docstore/archive.rs",
@@ -581,6 +581,56 @@
         "crates/kanzei-core/src/runner/drive.rs"
       ],
       "next": "Responses/Anthropic states -> proxy/auth -> client lifecycle -> core persistence"
+    },
+    {
+      "report": "protocol-auth.md",
+      "baseline": "6613f7fe",
+      "full_files": {
+        "crates/kanzei-llm/src/protocol/anthropic.rs": {
+          "judgment": "P1",
+          "sha256": "9b8ce0ba86e038c6df5c6a795f01d68d2ac0dbfb8e71bf025310c609b428d593"
+        },
+        "crates/kanzei-llm/src/protocol/openai_responses.rs": {
+          "judgment": "P1",
+          "sha256": "9c5d660cb63cbe0543dc35f19edd7645aec6df1e64f74102228c22341f0b2f74"
+        },
+        "crates/kanzei-llm/src/protocol/deepseek_responses.rs": {
+          "judgment": "PASS",
+          "sha256": "5f47cd1a1b69d57dd1c4936a1193ee4792e261360ff094be81eb0999b66c2bb5"
+        },
+        "crates/kanzei-llm/src/proxy.rs": {
+          "judgment": "P1",
+          "sha256": "c04570ef9a469eacebb404bfa7fc95bd5b1974ba3679f63af37edad55fae7ab1"
+        },
+        "crates/kanzei-llm/src/auth/store.rs": {
+          "judgment": "P1",
+          "sha256": "c9a02b4632aad8013d313f0fd3fd1c6e359e0e1eff4b5502503a36a7cacdc38e"
+        },
+        "crates/kanzei-llm/src/auth/codex.rs": {
+          "judgment": "P1",
+          "sha256": "33ec495f727a55bffff333f983c58672583f73e725cffef11b88b6f463f32b48"
+        },
+        "crates/kanzei-llm/src/auth/mod.rs": {
+          "judgment": "PASS",
+          "sha256": "d4c3244c17e2f4a34aff1d99233011ce00d1ae3c2266e372481c9d77cbfde986"
+        },
+        "crates/kanzei-llm/src/client.rs": {
+          "judgment": "PASS",
+          "sha256": "eb2d39d5eb1a70ff3f908f5a7e69fcf374ca77daa90ed6841fdb1c73527156b7"
+        },
+        "crates/kanzei-core/src/history.rs": {
+          "judgment": "PASS",
+          "sha256": "efd7306c1a5bbece254053739828bfc7a8e89eb0a5f7b2dd4004a39541d380e6"
+        },
+        "crates/kanzei/tests/integration/incomplete_stream.rs": {
+          "judgment": "PASS",
+          "sha256": "a70bd577efdd1d23ef0eb8d48b3c3e58263d74cb724d4f36f992ebdca20cbded"
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-core/src/runner/drive.rs"
+      ],
+      "next": "core store/input and frontend file-edit service chains"
     }
   ]
 }

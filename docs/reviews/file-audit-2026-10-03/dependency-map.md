@@ -78,3 +78,9 @@ flowchart TD
 | core / API / UI | runner/drive.rs 已跟踪整步消费→工具分发边界，其余为合并与既有测试验证 | 全面逐文件审查待继续 |
 
 下一步：Responses / Anthropic 状态机 → proxy/auth → client 生命周期 → core 流事件持久化。每轮以 coverage.json 和对应报告明确全文审查、调用链切片和未审范围，不用索引或测试数量代替审查覆盖。
+
+## 第四批推进
+
+- llm：剩余协议、proxy/auth/client 全文已审；修复结果见 [protocol-auth.md](protocol-auth.md)。
+- core：history.rs 全文 PASS；drive.rs 仍按事件消费切片记录。
+- 下一条链：core 存储/输入状态 → app 运行服务；同时从已稳定 CAS → 文件编辑服务 → 前端编辑器逐层检查。未审支线仍保留在 coverage.json。

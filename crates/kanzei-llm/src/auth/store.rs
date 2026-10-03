@@ -1,15 +1,15 @@
 //! Codex CLI 登录凭证的安全写回(D-061)。
 //!
-//! ~/.codex/auth.json 同时被官方 CLI 读写,而对方不参与任何锁协议——加跨进程锁只能
-//! 拦住 kanzei 自己的多进程,拦不住真正的并发方,还多一份卡死风险。因此这里用两条
-//! 不依赖对方配合的手段:
+//! 内部读改写由 FileLock 串行化；codex.rs 的外层锁覆盖读取、网络刷新与提交。
+//! 官方 CLI 不参与锁协议，因此仍需原子替换和写前版本检查。
+//! 外部程序在最终检查与 rename 之间写入的竞争不在内部锁保证内。
 //!
 //! 1. **原子替换**:写临时文件再 rename 覆盖。truncate-then-write 中途崩溃会留下
 //!    半截 JSON,下次解析直接报"请重新登录";rename 是原子的,读者要么看到旧的完整
 //!    内容,要么看到新的完整内容。
 //! 2. **写前重读**:刷新要走一次网络往返,这期间对方可能已经刷过并写盘了。OAuth 会
 //!    轮换 refresh_token,把自己这份旧的写回去等于让双方的 refresh_token 都失效。
-//!    所以落盘前重读一次,磁盘上更新就采纳对方的结果,不覆盖。
+//!    所以落盘前重读一次，与刷新前的快照不同就采纳磁盘结果，不覆盖。
 
 use std::path::Path;
 
@@ -25,6 +25,8 @@ pub fn commit(
     next: &Value,
     disk_is_fresher: impl Fn(&Value, &Value) -> bool,
 ) -> Result<Value, LlmError> {
+    let _lock = atomic_file::lock_exclusive(path)
+        .map_err(|e| LlmError::Config(format!("lock {}: {e}", path.display())))?;
     if let Some(disk) = read_json(path) {
         if disk_is_fresher(&disk, next) {
             tracing::info!(
