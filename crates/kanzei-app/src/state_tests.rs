@@ -750,8 +750,8 @@ fn 项目身份根不带_verbatim_前缀且两种入参同一进程id() {
     );
     let verbatim = std::fs::canonicalize(&dir).unwrap();
     assert_eq!(
-        crate::state::default_process_id(&crate::normalized_project_root(&verbatim)),
-        crate::state::default_process_id(&bare)
+        crate::state::legacy_process_id(&crate::normalized_project_root(&verbatim)),
+        crate::state::legacy_process_id(&bare)
     );
     std::fs::remove_dir_all(&dir).ok();
 }

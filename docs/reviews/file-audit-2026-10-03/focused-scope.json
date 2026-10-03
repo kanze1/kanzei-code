@@ -19,22 +19,22 @@
   "counting_boundary": "沿用原514个自有Rust/JS/MJS源文件和测试文件口径。HTML/CSS/验证脚本等按真实调用或修改关联检查，当前未计入主审分母。",
   "completion_policy": "原coverage仅作为历史全文/切片记录。待审包含历史切片；混合文件只审选定合同则仍记切片，不得增加全仓全文覆盖。已确认的新bug如C7仍需修复，历史全文记录不表示没有剩余bug。",
   "summary": {
-    "primary_total": 268,
+    "primary_total": 269,
     "primary_historical_full_reviews": 63,
     "primary_reusable_full_reviews": 61,
     "primary_changed_full_files_to_recheck": 2,
-    "primary_pending_review": 180,
+    "primary_pending_review": 181,
     "primary_pending_prior_slice": 31,
-    "primary_pending_unreviewed": 147,
+    "primary_pending_unreviewed": 148,
     "dependency_reference_total": 110,
     "dependency_prior_full_reviews": 65,
     "dependency_without_full_review": 45,
     "excluded_total": 136,
     "excluded_prior_full_reviews": 8,
     "excluded_without_full_review": 128,
-    "repository_total": 514,
+    "repository_total": 515,
     "repository_historical_full_reviews": 136,
-    "repository_historical_without_full_review": 378,
+    "repository_historical_without_full_review": 379,
     "primary_completed_this_round": 27,
     "primary_current_completed_reviews": 88
   },
@@ -69,191 +69,16 @@
       "pending_without_prior_review": 72
     },
     "automation": {
-      "files": 48,
+      "files": 49,
       "historical_full_reviews": 11,
       "reusable_full_reviews": 11,
       "changed_full_files_to_recheck": 0,
-      "pending_review": 37,
+      "pending_review": 38,
       "pending_with_prior_slice": 8,
-      "pending_without_prior_review": 29
+      "pending_without_prior_review": 30
     }
   },
   "primary_files": [
-    {
-      "file": "crates/kanzei/src/cli/artifacts.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "产物、隔离恢复与工作树CLI入口"
-    },
-    {
-      "file": "crates/kanzei/src/cli/compact.rs",
-      "owner": "conversation",
-      "coverage": "full",
-      "recheck_required": false,
-      "reason": "对话运行、取消、压缩和结果收尾CLI"
-    },
-    {
-      "file": "crates/kanzei/src/cli/quarantine.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "产物、隔离恢复与工作树CLI入口"
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/events.rs",
-      "owner": "conversation",
-      "coverage": "full",
-      "recheck_required": false,
-      "reason": "对话运行、取消、压缩和结果收尾CLI"
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/finalize.rs",
-      "owner": "conversation",
-      "coverage": "slice",
-      "recheck_required": false,
-      "reason": "对话运行、取消、压缩和结果收尾CLI"
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/permissions.rs",
-      "owner": "conversation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "对话运行、取消、压缩和结果收尾CLI"
-    },
-    {
-      "file": "crates/kanzei/src/cli/run.rs",
-      "owner": "conversation",
-      "coverage": "slice",
-      "recheck_required": false,
-      "reason": "对话运行、取消、压缩和结果收尾CLI"
-    },
-    {
-      "file": "crates/kanzei/src/cli/schedule.rs",
-      "owner": "automation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "定时任务CLI入口"
-    },
-    {
-      "file": "crates/kanzei/src/cli/worktree.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "产物、隔离恢复与工作树CLI入口"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
-      "owner": "conversation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "对话、停止、恢复及上下文的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "工具执行和工作树的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
-      "owner": "automation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "并行/子代理执行的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "工具执行和工作树的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
-      "owner": "conversation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "对话、停止、恢复及上下文的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
-      "owner": "conversation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "对话、停止、恢复及上下文的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
-      "owner": "conversation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "对话、停止、恢复及上下文的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/incomplete_stream.rs",
-      "owner": "conversation",
-      "coverage": "full",
-      "recheck_required": false,
-      "reason": "对话、停止、恢复及上下文的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
-      "owner": "conversation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "对话、停止、恢复及上下文的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
-      "owner": "automation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "并行/子代理执行的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
-      "owner": "conversation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "检查运行时注入不污染会话持久历史，不审记忆筛选/检索业务"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
-      "owner": "automation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "并行/子代理执行的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/session_execution_owner.rs",
-      "owner": "conversation",
-      "coverage": "full",
-      "recheck_required": false,
-      "reason": "对话、停止、恢复及上下文的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
-      "owner": "automation",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "并行/子代理执行的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "工具执行和工作树的直接集成回归"
-    },
-    {
-      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "工具执行和工作树的直接集成回归"
-    },
     {
       "file": "crates/kanzei-app/src/agent_directory.rs",
       "owner": "automation",
@@ -311,14 +136,21 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务"
     },
     {
-      "file": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
+      "file": "crates/kanzei-app/src/commands/run.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/handoff.rs",
       "owner": "conversation",
       "coverage": "unreviewed",
       "recheck_required": false,
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
     },
     {
-      "file": "crates/kanzei-app/src/commands/run/handoff.rs",
+      "file": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
       "owner": "conversation",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -339,23 +171,9 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务"
     },
     {
-      "file": "crates/kanzei-app/src/commands/run.rs",
-      "owner": "conversation",
-      "coverage": "slice",
-      "recheck_required": false,
-      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
-    },
-    {
       "file": "crates/kanzei-app/src/commands/summarize.rs",
       "owner": "conversation",
       "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
-    },
-    {
-      "file": "crates/kanzei-app/src/conversation.rs",
-      "owner": "conversation",
-      "coverage": "slice",
       "recheck_required": false,
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
     },
@@ -368,6 +186,13 @@
     },
     {
       "file": "crates/kanzei-app/src/conversation_tests.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation.rs",
       "owner": "conversation",
       "coverage": "slice",
       "recheck_required": false,
@@ -458,7 +283,7 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
     },
     {
-      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
+      "file": "crates/kanzei-app/src/phase_pipeline_tests.rs",
       "owner": "automation",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -472,7 +297,7 @@
       "reason": "线路、团队、子代理、后台和定时任务编排"
     },
     {
-      "file": "crates/kanzei-app/src/phase_pipeline_tests.rs",
+      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
       "owner": "automation",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -549,6 +374,13 @@
       "reason": "线路、团队、子代理、后台和定时任务编排"
     },
     {
+      "file": "crates/kanzei-app/src/processes/conversation_tests.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "远端新增对话身份生命周期回归；并入进程生命周期审查包，未增加全文完成数"
+    },
+    {
       "file": "crates/kanzei-app/src/processes/gate.rs",
       "owner": "tools",
       "coverage": "unreviewed",
@@ -605,16 +437,16 @@
       "reason": "工作台摘要、目标路由、交互数据和偏好"
     },
     {
-      "file": "crates/kanzei-app/src/run/assembly/components.rs",
+      "file": "crates/kanzei-app/src/run/assembly.rs",
       "owner": "conversation",
-      "coverage": "unreviewed",
+      "coverage": "full",
       "recheck_required": false,
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
     },
     {
-      "file": "crates/kanzei-app/src/run/assembly.rs",
+      "file": "crates/kanzei-app/src/run/assembly/components.rs",
       "owner": "conversation",
-      "coverage": "full",
+      "coverage": "unreviewed",
       "recheck_required": false,
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
     },
@@ -724,13 +556,6 @@
       }
     },
     {
-      "file": "crates/kanzei-app/src/state.rs",
-      "owner": "conversation",
-      "coverage": "slice",
-      "recheck_required": false,
-      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
-    },
-    {
       "file": "crates/kanzei-app/src/state_tests.rs",
       "owner": "conversation",
       "coverage": "slice",
@@ -738,14 +563,21 @@
       "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
     },
     {
-      "file": "crates/kanzei-app/src/subagents.rs",
+      "file": "crates/kanzei-app/src/state.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/subagents_capture_tests.rs",
       "owner": "automation",
       "coverage": "unreviewed",
       "recheck_required": false,
       "reason": "线路、团队、子代理、后台和定时任务编排"
     },
     {
-      "file": "crates/kanzei-app/src/subagents_capture_tests.rs",
+      "file": "crates/kanzei-app/src/subagents.rs",
       "owner": "automation",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -773,14 +605,14 @@
       "reason": "文件/工作树、预览、实际代码交付与验证服务"
     },
     {
-      "file": "crates/kanzei-app/src/workspace/tests.rs",
+      "file": "crates/kanzei-app/src/workspace.rs",
       "owner": "workbench",
       "coverage": "unreviewed",
       "recheck_required": false,
       "reason": "工作台摘要、目标路由、交互数据和偏好"
     },
     {
-      "file": "crates/kanzei-app/src/workspace.rs",
+      "file": "crates/kanzei-app/src/workspace/tests.rs",
       "owner": "workbench",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -1396,6 +1228,13 @@
       "reason": "并行、阶段屏障、子代理/任务状态及通知"
     },
     {
+      "file": "crates/kanzei-core/src/runner/drive.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
       "file": "crates/kanzei-core/src/runner/drive/assembly.rs",
       "owner": "conversation",
       "coverage": "slice",
@@ -1473,13 +1312,6 @@
       "reason": "工具分发、结果、参数及并发执行合同"
     },
     {
-      "file": "crates/kanzei-core/src/runner/drive.rs",
-      "owner": "conversation",
-      "coverage": "full",
-      "recheck_required": false,
-      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
-    },
-    {
       "file": "crates/kanzei-core/src/runner/event.rs",
       "owner": "conversation",
       "coverage": "full",
@@ -1487,14 +1319,14 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期"
     },
     {
-      "file": "crates/kanzei-core/src/runner/item_context/tests.rs",
+      "file": "crates/kanzei-core/src/runner/item_context.rs",
       "owner": "conversation",
       "coverage": "full",
       "recheck_required": false,
       "reason": "对话运行、历史/回放、持久化及上下文生命周期"
     },
     {
-      "file": "crates/kanzei-core/src/runner/item_context.rs",
+      "file": "crates/kanzei-core/src/runner/item_context/tests.rs",
       "owner": "conversation",
       "coverage": "full",
       "recheck_required": false,
@@ -1536,14 +1368,14 @@
       "reason": "工具分发、结果、参数及并发执行合同"
     },
     {
-      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
+      "file": "crates/kanzei-core/src/runner/subagent.rs",
       "owner": "automation",
       "coverage": "unreviewed",
       "recheck_required": false,
       "reason": "并行、阶段屏障、子代理/任务状态及通知"
     },
     {
-      "file": "crates/kanzei-core/src/runner/subagent.rs",
+      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
       "owner": "automation",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -1649,7 +1481,7 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期"
     },
     {
-      "file": "crates/kanzei-core/src/store/session/artifact_refs.rs",
+      "file": "crates/kanzei-core/src/store/session_execution.rs",
       "owner": "conversation",
       "coverage": "full",
       "recheck_required": false,
@@ -1664,14 +1496,7 @@
       "source_lf_sha256": "bf2192ec5b583b179937b9d23ecf0588d48237f49bea74e652717854637c7d8a"
     },
     {
-      "file": "crates/kanzei-core/src/store/session_execution.rs",
-      "owner": "conversation",
-      "coverage": "full",
-      "recheck_required": false,
-      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
-    },
-    {
-      "file": "crates/kanzei-core/src/store/typed/projection.rs",
+      "file": "crates/kanzei-core/src/store/session/artifact_refs.rs",
       "owner": "conversation",
       "coverage": "full",
       "recheck_required": false,
@@ -1685,18 +1510,18 @@
       "reason": "对话运行、历史/回放、持久化及上下文生命周期"
     },
     {
+      "file": "crates/kanzei-core/src/store/typed/projection.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
       "file": "crates/kanzei-core/src/store/workspace.rs",
       "owner": "workbench",
       "coverage": "full",
       "recheck_required": false,
       "reason": "工作台摘要、缓存和投影的持久化合同"
-    },
-    {
-      "file": "crates/kanzei-tools/src/arch_diagram.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
     },
     {
       "file": "crates/kanzei-tools/src/arch_diagram_lint.rs",
@@ -1713,11 +1538,25 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
     },
     {
+      "file": "crates/kanzei-tools/src/arch_diagram.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
       "file": "crates/kanzei-tools/src/architecture.rs",
       "owner": "tools",
       "coverage": "slice",
       "recheck_required": false,
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
     },
     {
       "file": "crates/kanzei-tools/src/background/lifecycle.rs",
@@ -1748,13 +1587,6 @@
       "reason": "后台、子代理团队与定时任务生命周期"
     },
     {
-      "file": "crates/kanzei-tools/src/background.rs",
-      "owner": "automation",
-      "coverage": "slice",
-      "recheck_required": false,
-      "reason": "后台、子代理团队与定时任务生命周期"
-    },
-    {
       "file": "crates/kanzei-tools/src/base.rs",
       "owner": "tools",
       "coverage": "slice",
@@ -1769,13 +1601,6 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
     },
     {
-      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
-    },
-    {
       "file": "crates/kanzei-tools/src/browser_tool.rs",
       "owner": "tools",
       "coverage": "unreviewed",
@@ -1783,7 +1608,7 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
     },
     {
-      "file": "crates/kanzei-tools/src/conventions/drafts.rs",
+      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
       "owner": "tools",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -1793,6 +1618,13 @@
       "file": "crates/kanzei-tools/src/conventions.rs",
       "owner": "tools",
       "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/conventions/drafts.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
       "recheck_required": false,
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
     },
@@ -1826,6 +1658,13 @@
     },
     {
       "file": "crates/kanzei-tools/src/frontend.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git.rs",
       "owner": "tools",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -1868,13 +1707,6 @@
     },
     {
       "file": "crates/kanzei-tools/src/git/worktree.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
-    },
-    {
-      "file": "crates/kanzei-tools/src/git.rs",
       "owner": "tools",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -1937,6 +1769,13 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
     },
     {
+      "file": "crates/kanzei-tools/src/project_state.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
       "file": "crates/kanzei-tools/src/project_state/git_init.rs",
       "owner": "tools",
       "coverage": "unreviewed",
@@ -1945,13 +1784,6 @@
     },
     {
       "file": "crates/kanzei-tools/src/project_state/toolchains.rs",
-      "owner": "tools",
-      "coverage": "unreviewed",
-      "recheck_required": false,
-      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
-    },
-    {
-      "file": "crates/kanzei-tools/src/project_state.rs",
       "owner": "tools",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -1972,14 +1804,14 @@
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
     },
     {
-      "file": "crates/kanzei-tools/src/read.rs",
+      "file": "crates/kanzei-tools/src/read_receipt_tests.rs",
       "owner": "tools",
       "coverage": "unreviewed",
       "recheck_required": false,
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
     },
     {
-      "file": "crates/kanzei-tools/src/read_receipt_tests.rs",
+      "file": "crates/kanzei-tools/src/read.rs",
       "owner": "tools",
       "coverage": "unreviewed",
       "recheck_required": false,
@@ -2145,6 +1977,181 @@
       "coverage": "unreviewed",
       "recheck_required": false,
       "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei/src/cli/artifacts.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "产物、隔离恢复与工作树CLI入口"
+    },
+    {
+      "file": "crates/kanzei/src/cli/compact.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/quarantine.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "产物、隔离恢复与工作树CLI入口"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/events.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/finalize.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/permissions.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/schedule.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "定时任务CLI入口"
+    },
+    {
+      "file": "crates/kanzei/src/cli/worktree.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "产物、隔离恢复与工作树CLI入口"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具执行和工作树的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行/子代理执行的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具执行和工作树的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/incomplete_stream.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行/子代理执行的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "检查运行时注入不污染会话持久历史，不审记忆筛选/检索业务"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行/子代理执行的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/session_execution_owner.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行/子代理执行的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具执行和工作树的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具执行和工作树的直接集成回归"
     }
   ],
   "dependency_reference_files": [
@@ -3873,6 +3880,13 @@
       "reason": "Work业务任务管理与自举推进"
     }
   ],
-  "current_coverage_sha256": "a5415bd5f507f3e74880e139014ff2fb3a5d49af99ca1d8392e099157bb744c5",
-  "current_report": "WB6-delivery-activity.md"
+  "current_coverage_sha256": "651df7df56125017dfd4e802c4c170da54e0888c98aa4a821edeaf79183a59df",
+  "current_report": "WB6-delivery-activity.md",
+  "current_inventory_sha256": "a8e05694dd04c59f11824df55bf09196bb07e76ccda6af09af45bab8f9543619",
+  "release_integration": {
+    "report": "../../reports/2026-10-04-workbench-release.md",
+    "wb_commit": "9875810c",
+    "remote_commit": "c6654fae7003b8007063acfb6f95f668674ecec4",
+    "note": "Merged remote peer-conversation contracts and retained WB ownership fixes; historical per-batch hashes remain unchanged."
+  }
 }

@@ -3,7 +3,7 @@ import { isGeneralChat } from "./03-general-scope.js";
 import { localizedDocStatus, localizedStage, t } from "./02-i18n.js";
 import { openPopover, closeSurface } from "./00-surface.js";
 import { currentProject, activeProcessId, activeSessionId, processItems, sessionStates, pendingQuestionSessions, attachments, toast, toastError } from "./03-shell.js";
-import { active_space, main_workspace_process } from "./03-workspaces.js";
+import { active_space, selected_workspace_process } from "./03-workspaces.js";
 import { switchProcess } from "./09-sessions.js";
 import { openProjectSpace, openWorkbenchItem, workbenchProject } from "./12-workbench.js";
 import { kindWord, processName } from "./12-session-tree.js";
@@ -62,10 +62,10 @@ export async function refreshConversationWork(project = currentProject) {
   return state.request;
 }
 
-async function returnToMain(project = currentProject) {
+async function returnToSelectedConversation(project = currentProject) {
   if (!await openProjectSpace(project, "chat")) return null;
-  const main = main_workspace_process();
-  if (!main) { toastError(t("主对话暂不可用，请刷新后重试")); return null; }
+  const main = selected_workspace_process();
+  if (!main) { toastError(t("对话暂不可用，请刷新后重试")); return null; }
   await switchProcess(main.id);
   return currentProject === project && activeProcessId === main.id ? main : null;
 }
@@ -73,12 +73,12 @@ async function returnToMain(project = currentProject) {
 export async function continueRequirement(entry) {
   const project = currentProject;
   const owner = facts(project).snapshot?.lines?.find(line => line.current_item_id === entry.id);
-  const main = main_workspace_process();
+  const main = selected_workspace_process();
   // Existing independent work retains its owner; opening a card never steals it.
   if (owner && owner.id !== main?.id) {
     await switchProcess(owner.id); toast(t("已打开负责此需求的独立任务")); return;
   }
-  const target = await returnToMain(project);
+  const target = await returnToSelectedConversation(project);
   if (!target) return;
   const { prompt, ...options } = requirementStart(entry);
   await sendText(prompt, options);
@@ -146,27 +146,22 @@ function relabel() {
   switcher.setAttribute("aria-label", t("对话与概览"));
   for (const b of switcher.querySelectorAll("[data-work-surface]")) b.textContent = b.dataset.workSurface === "chat" ? t("对话") : t("概览");
   const req = switcher.querySelector(".project-work-toggle"); if (req) req.textContent = "☷ " + t("需求");
-  $("project-return-main").textContent = t("回主对话");
-  $("project-handoff").textContent = t("交给主对话") + " ↗";
+  $("project-return-main").textContent = t("返回对话");
+  $("project-handoff").textContent = t("交给其它对话") + " ↗";
   const cancel = $("project-start-actions")?.lastElementChild; if (cancel) cancel.textContent = t("先讨论");
 }
 function paint() {
   if (!rail) return;
   if (switcher) relabel();
   const discussion = item()?.profile === "readonly";
-  document.body.dataset.conversationKind = active_space === "dev" && discussion ? "discussion" : "main";
-  const main = main_workspace_process();
-  // 页头只写「当前是哪段对话」:类型 + 名字(主对话就是「主对话」;名字已带类型词就不重复)。不露 pN/内部 id。
+  document.body.dataset.conversationKind = discussion ? "discussion" : "conversation";
   const current = item();
-  const currentKind = !current ? "main" : activeProcessId === main?.id ? "main" : discussion ? "discussion" : "task";
-  const currentName = current ? processName(current) : "";
-  $("project-conversation-kind").textContent = !current ? "" : currentKind === "main" && currentName === t("主对话") ? currentName
-    : currentName.startsWith(kindWord(currentKind)) ? currentName : `${kindWord(currentKind)} · ${currentName}`;
+  $("project-conversation-kind").textContent = current ? processName(current) : "";
   const view = document.body.dataset.view;
   switcher.hidden = active_space !== "dev" || !["chat", "project"].includes(view);
   for (const b of switcher.querySelectorAll("[data-work-surface]")) b.setAttribute("aria-pressed", String(b.dataset.workSurface === view));
-  $("project-return-main").hidden = !discussion;
-  $("project-handoff").hidden = !discussion;
+  $("project-return-main").hidden = true;
+  $("project-handoff").hidden = processItems.filter(p => p.id !== activeProcessId && p.profile !== "research").length === 0;
   const state = facts();
   const activity = executionActivity(item(), sessionStates.get(activeSessionId), { waiting: awaitingUserSessions.has(activeSessionId) || pendingQuestionSessions.has(activeSessionId) });
   const signal = $("project-overview-signal"); signal.dataset.state = activity.state;
@@ -215,18 +210,23 @@ function paint() {
   if (state.error) rail.append(button(t("读取失败 · 重试"), () => void refreshConversationWork(), "ghost"));
 }
 
-/// 交给主对话的表单(右栏)。默认:当前讨论 → 本项目的主对话;传 target = { project, main, name } 则交给「其它项目」
-/// 的主对话(右键菜单「交给其它项目的主对话…」,替代跨项目拖动)。提示词里写对话名、不带内部会话 id(UX-038)。
+/// 交给其它对话的表单(右栏)。默认:当前对话 → 本项目的对话;传 target = { project, items, name } 则交给「其它项目」
+/// 的对话(右键菜单「交给其它项目的对话…」,替代跨项目拖动)。提示词里写对话名、不带内部会话 id(UX-038)。
 export function openHandoffForm({ target = null } = {}) {
   const project = currentProject, source = item();
-  const main = target ? target.main : main_workspace_process();
+  const candidates = (target ? target.items : processItems).filter(p => p.id !== source?.id && p.profile !== "research");
+  const initial = candidates[0];
   const toProject = target ? target.project : project;
-  if (!source || !main || (!target && source.profile !== "readonly")) return;
-  const sourceKind = source.profile === "readonly" ? "discussion" : "task";
+  if (!source || !initial) return;
+  const recipient = node("select"); recipient.setAttribute("aria-label", t("选择对话"));
+  for (const candidate of candidates) {
+    const option = node("option", processName(candidate)); option.value = candidate.id; recipient.append(option);
+  }
+  const sourceKind = "conversation";
   const sourceName = processName(source);
   const form = node("form", null, "project-handoff-form");
-  const input = node("textarea"); input.required = true; input.placeholder = target ? fillTemplate(t("写下要交给「{name}」主对话的结论或下一步…"), { name: target.name }) : t("写下要交给主对话的结论或下一步…");
-  input.setAttribute("aria-label", t("交给主对话的结论"));
+  const input = node("textarea"); input.required = true; input.placeholder = target ? fillTemplate(t("写下要交给「{name}」对话的结论或下一步…"), { name: target.name }) : t("写下要交给其它对话的结论或下一步…");
+  input.setAttribute("aria-label", t("交给其它对话的结论"));
   const selected = String(window.getSelection() || "").trim();
   input.value = selected || $("prompt").value;
   const requirement = node("select"); requirement.setAttribute("aria-label", t("关联需求"));
@@ -236,8 +236,8 @@ export function openHandoffForm({ target = null } = {}) {
     const option = node("option", `${entry.id} · ${entry.title}`); option.value = entry.id; requirement.append(option);
   }
   const error = node("p", "", "project-form-error"); error.setAttribute("role", "status");
-  const submit = button(target ? t("发送") : t("发送给主对话"), () => {}, "primary"); submit.type = "submit";
-  form.append(node("h3", target ? fillTemplate(t("交给「{name}」的主对话"), { name: target.name }) : t("交给主对话")), node("p", t("将附上当前对话上下文；你也可以补充结论或下一步。"), "dim"),
+  const submit = button(target ? t("发送") : t("发送给对话"), () => {}, "primary"); submit.type = "submit";
+  form.append(recipient, node("h3", target ? fillTemplate(t("交给「{name}」的对话"), { name: target.name }) : t("交给其它对话")), node("p", t("将附上当前对话上下文；你也可以补充结论或下一步。"), "dim"),
     ...(target ? [] : [requirement]), input, error, submit,
     button(t("取消"), () => { handoffScope = null; detailId = null; rendered = ""; paint(); closeRail(); }, "ghost"));
   rail.replaceChildren(form); openRail($("project-handoff")); input.focus();
@@ -248,17 +248,19 @@ export function openHandoffForm({ target = null } = {}) {
     event.preventDefault(); if (submit.disabled || !input.value.trim()) return;
     submit.disabled = true;
     const text = input.value.trim();
+    const main = candidates.find(p => p.id === recipient.value);
+    if (!main) { submit.disabled = false; return; }
     try {
       await invoke("run_prompt", { projectDir: toProject, processId: main.id, ...lineAgent(main), model: main.model || null, delivery: "queue",
         handoffSource: { projectDir: project, processId: source.id },
-        prompt: `来自${kindWord(sourceKind)}「${sourceName}」${requirement.value ? `，关联 ${requirement.value}` : ""}。用户明确交给主对话的结论：\n\n${text}`, executionBatch: true, autonomous: false });
+        prompt: `来自${kindWord(sourceKind)}「${sourceName}」${requirement.value ? `，关联 ${requirement.value}` : ""}。用户明确交给其它对话的结论：\n\n${text}`, executionBatch: true, autonomous: false });
       if (currentProject === project && activeProcessId === source.id) {
         if ($("prompt").value.trim() === text) $("prompt").value = "";
         handoffScope = null; rail.classList.remove("is-open"); rendered = "";
-        if (!target) await returnToMain(project);
+        if (!target) await switchProcess(main.id);
         paint();
       }
-      toast(target ? fillTemplate(t("已送给「{name}」的主对话，运行中会按队列处理"), { name: target.name }) : t("已送给主对话，运行中会按队列处理"));
+      toast(target ? fillTemplate(t("已送给「{name}」的对话，运行中会按队列处理"), { name: target.name }) : t("已送给对话，运行中会按队列处理"));
     } catch (e) { error.textContent = String(e); submit.disabled = false; }
   });
 }
@@ -269,7 +271,6 @@ defer(() => {
   switcher = node("nav", null, "project-work-switch"); switcher.id = "project-work-switch"; switcher.setAttribute("aria-label", t("对话与概览"));
   for (const [view, label] of [["chat", t("对话")], ["project", t("概览")]]) {
     const b = button(label, async () => {
-      if (view === "project" && item()?.profile === "readonly" && !await returnToMain()) return;
       document.dispatchEvent(new CustomEvent("kz:work-surface-switch", { detail: { view } }));
       await openProjectSpace(workbenchProject(), view);
     });
@@ -278,8 +279,8 @@ defer(() => {
   const signal = button("", () => void openProjectSpace(workbenchProject(), "project"), "project-overview-signal"); signal.id = "project-overview-signal";
   const req = button("☷ " + t("需求"), () => { if (rail.classList.contains("is-open")) closeRail(); else openRail(req); }, "project-work-toggle");
   req.setAttribute("aria-controls", rail.id); req.setAttribute("aria-expanded", "false");
-  const main = button(t("回主对话"), () => void returnToMain(), "ghost"); main.id = "project-return-main";
-  const forward = button(t("交给主对话") + " ↗", () => openHandoffForm(), "ghost"); forward.id = "project-handoff";
+  const main = button(t("返回对话"), () => void returnToSelectedConversation(), "ghost"); main.id = "project-return-main";
+  const forward = button(t("交给其它对话") + " ↗", () => openHandoffForm(), "ghost"); forward.id = "project-handoff";
   switcher.append(signal, node("span", null, "sw-spacer"), main, forward, req); $("composer").prepend(switcher);
   onboarding = node("section", null, "project-onboarding"); onboarding.id = "project-onboarding";
   const copy = node("p"); copy.id = "project-onboarding-copy";

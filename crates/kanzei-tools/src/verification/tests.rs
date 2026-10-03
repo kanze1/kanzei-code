@@ -61,9 +61,18 @@ fn frozen_check() -> &'static str {
 
 #[tokio::test]
 async fn frozen_verification_releases_wip_but_not_dependencies() {
-    let (root, ctx) = fixture();
+    let (root, mut ctx) = fixture();
+    ctx.session_id = Some("peer-recipient".into());
     let req = request();
     let job = prepare(&ctx, frozen_check(), 10_000, &req).unwrap();
+    assert_eq!(job.session_id.as_deref(), Some("peer-recipient"));
+    assert_eq!(read_job(&root, &job.id).unwrap().session_id, job.session_id);
+    let mut legacy = serde_json::to_value(&job).unwrap();
+    legacy.as_object_mut().unwrap().remove("session_id");
+    assert!(serde_json::from_value::<VerificationJob>(legacy)
+        .unwrap()
+        .session_id
+        .is_none());
     assert!(!job.snapshot.join("ignored.txt").exists());
     assert!(!job.snapshot.join(".kanzei").exists());
     assert_eq!(

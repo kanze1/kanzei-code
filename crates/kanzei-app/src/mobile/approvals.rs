@@ -577,7 +577,7 @@ mod tests {
             .unwrap()
             .contains("very-long-filter"));
         assert_eq!(ask["project"], project_display_name(&root));
-        assert_eq!(ask["session_label"], "独立任务 3");
+        assert_eq!(ask["session_label"], "对话 3");
         std::fs::remove_dir_all(root).ok();
     }
 

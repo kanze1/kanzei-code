@@ -372,7 +372,7 @@ async function prepareRunLine(destination) {
   if (!await openProjectSpace(destination.project, "project", { activate: true })) return null;
   if (current !== state || !visible()) return null;
   const candidates = processItems.filter(p => p.profile !== "research");
-  const line = destination.id ? candidates.find(p => p.id === destination.id) : candidates.find(p => String(p.id).startsWith("d|")) || candidates[0]
+  const line = destination.id ? candidates.find(p => p.id === destination.id) : candidates[0]
     || await create_workspace_process(null, () => current === state && visible());
   if (!line || destination.session_id && line.session_id !== destination.session_id) throw new Error(t("对话已变化，请刷新后重试。"));
   if (line.id !== activeProcessId) await switchProcess(line.id);
@@ -589,7 +589,7 @@ function adoptRecipient(state, previous, next) {
 async function dispatchPrompt(destination, capture, resolved) {
   const lines = await invoke("process_list", { projectDir: destination.project });
   const candidates = lines.filter(p => p.profile !== "research");
-  let line = destination.processId ? candidates.find(p => p.id === destination.processId) : candidates.find(p => String(p.id).startsWith("d|")) || candidates[0];
+  let line = destination.processId ? candidates.find(p => p.id === destination.processId) : candidates[0];
   if (destination.processId && (!line || destination.sessionId && line.session_id !== destination.sessionId))
     throw new Error(t("原对话已变化，请重新选择对话。草稿已保留。"));
   if (!line) line = await invoke("process_create", { projectDir: destination.project, profile: "dev", phasePipeline: false });

@@ -3,15 +3,15 @@ import { isGeneralChat, syncGeneralChatView } from "./03-general-scope.js";
 import { $, defer, invoke } from "./01-core.js";
 import { localizedDocStatus, localizedStage, t } from "./02-i18n.js";
 import { currentProject, activeSessionId, processItems, sessionStates, navigate_view, syncBackBars, toast, toastError } from "./03-shell.js";
-import { active_space, switch_workspace, workspace_switch_pending, main_workspace_process } from "./03-workspaces.js";
-import { enterProject, lastProjectPrefs, projectDisplayName, switchProcess } from "./09-sessions.js";
+import { active_space, switch_workspace, workspace_switch_pending } from "./03-workspaces.js";
+import { enterProject, lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
 import { jumpToEntry } from "./11-docs-list.js";
 import { lastWorkspaceSnapshot, refreshWorkspace } from "./12-docs-pages.js";
 import { setWorkspaceConsoleState } from "./12-decision-console.js";
 import { openConventions } from "./15-conventions.js";
 import { executionActivity, activityLabels, sameProject } from "./25-softwire-model.js";
 import { awaitingUserSessions } from "./08-auto.js";
-import { lineName, openSessionHistory, orderedProjects, projectApprovalCount, renderSidebarSessions, setSidebarOpen, syncSessionActivity, wrapProjectRow } from "./12-session-tree.js";
+import { lineName, openSessionHistory, orderedProjects, projectApprovalCount, renderSidebarSessions, setSidebarOpen, sidebarOpen, syncSessionActivity, wrapProjectRow } from "./12-session-tree.js";
 
 // Browsing a project does not select an execution root or create a session.
 export let browsingProject = null;
@@ -136,13 +136,15 @@ export function renderProjectActivity() {
 
 /// 点侧栏的项目行(UX-022 / D16、D17)。点的就是当前项目时**保留当前会话**:正开着的讨论 / 独立任务不再被一律踢回
 /// 主对话,也不整项目重载——已在它的对话页就原地不动;在它的需求 / 概览 / 文件页,或从所有项目、设置这类全局页
-/// 过来,就带回它正在用的那条会话。只有进入别的项目才落到它的主对话。
+/// 过来,就带回它正在用的那条会话。进入别的项目时恢复它上次选中的对话。
 export async function openProjectRow(path) {
   if (!path) return false;
-  setSidebarOpen(path, true);
+  const open = !sidebarOpen(path);
+  setSidebarOpen(path, open);
   renderSidebarSessions();
+  if (!open) return true;
   const same = active_space === "dev" && !workspace_switch_pending && !openingProject && currentProject === path && activeSessionId;
-  if (!same) return openProjectSpace(path, "chat", { main: true });
+  if (!same) return openProjectSpace(path, "chat");
   setBrowsingProject(path);
   if (document.body.dataset.view === "chat") reconcileWorkbenchView("chat");
   else navigate_view("chat");
@@ -152,7 +154,7 @@ export async function openProjectRow(path) {
 export async function openProjectSpace(path, view = "chat", options = {}) {
   if (!path) { navigate_view("workspace"); return false; }
   if (view === "chat" && active_space === "dev" && !workspace_switch_pending && !openingProject
-    && !options.main && !options.reload && currentProject === path && activeSessionId && document.body.dataset.view === "chat") {
+    && !options.reload && currentProject === path && activeSessionId && document.body.dataset.view === "chat") {
     setBrowsingProject(path); reconcileWorkbenchView("chat"); return true;
   }
   const generation = ++projectNavigationGeneration;
@@ -172,9 +174,6 @@ export async function openProjectSpace(path, view = "chat", options = {}) {
     const prefs = await invoke("projects_select", { path });
     if (generation !== projectNavigationGeneration) return false;
     await enterProject(prefs, { view, activate: options.activate, isCurrent: () => generation === projectNavigationGeneration });
-    if (options.main && generation === projectNavigationGeneration) {
-      const main = main_workspace_process(); if (main) await switchProcess(main.id);
-    }
     return generation === projectNavigationGeneration;
   } catch (error) { toastError(`${t("切换项目失败")}: ${error}`); return false; }
   finally { if (generation === projectNavigationGeneration) { openingProject = null; renderProjectActivity(); } }

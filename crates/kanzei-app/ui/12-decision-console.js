@@ -266,8 +266,7 @@ function createDecision(project, d) {
 // 以 d| 开头,就说「主对话」;其余一律不显示,绝不露内部 id。
 function decisionOrigin(project, d) {
   const line = (project.lines ?? []).find((item) => (d.process_id && item.id === d.process_id) || (d.session_id && item.session_id === d.session_id));
-  const primary = String(d.process_id ?? "").startsWith("d|");
-  const name = primary || line?.label === "默认" ? t("主对话") : line?.label;
+  const name = line?.title || (line?.label === "默认" ? t("对话") : line?.label);
   return [project.name, name, d.work_unit_id].filter(Boolean).join(" · ");
 }
 

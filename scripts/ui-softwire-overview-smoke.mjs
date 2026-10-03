@@ -19,9 +19,14 @@ page.on("pageerror", error => errors.push(error.message));
 const settle = () => page.evaluate(() => window.__kzPreview.settle());
 const count = cmd => page.evaluate(cmd => window.__kzPreview.calls.filter(c => c.cmd === cmd).length, cmd);
 const last = cmd => page.evaluate(cmd => window.__kzPreview.calls.filter(c => c.cmd === cmd).at(-1)?.args, cmd);
+const openProjectChat = async link => {
+  if (await link.getAttribute("aria-expanded") !== "true") await link.click();
+  else await link.locator("../..").locator(".workbench-session-link").first().click();
+  await settle();
+};
 const overview = async () => {
   if (!await page.locator('.workbench-project-link.active').isVisible()) await page.locator("#rail-sidebar-toggle").click();
-  await page.locator('.workbench-project-link.active').click(); await settle();
+  await openProjectChat(page.locator('.workbench-project-link.active'));
   await page.locator('[data-work-surface="project"]').click(); await settle();
 };
 try {
@@ -155,12 +160,12 @@ try {
   await page.locator("#sw-run-toggle").click();
   await page.waitForFunction(() => Boolean(window.__overviewTest.releaseSelection));
   if (!await page.locator(".workbench-project-link").first().isVisible()) await page.locator("#rail-sidebar-toggle").click();
-  await page.locator(`.workbench-project-link[data-path="${foreign}"]`).click();
+  await openProjectChat(page.locator(`.workbench-project-link[data-path="${foreign}"]`));
   await page.evaluate(() => window.__overviewTest.releaseSelection()); await settle();
   check(await page.evaluate(async path => document.body.dataset.view === "chat" && (await import("/12-workbench.js")).workbenchProject() === path, foreign), "Late execution preparation cannot pull the user back to a previous project");
   check(await count("run_prompt") === runsBeforeSwitch, "Leaving during start preparation does not launch the old or newly viewed project");
   await page.evaluate(() => window.__kzPreview.setCommand("projects_select", args => window.__overviewTest.f.commands.projects_select(args)));
-  await page.locator(`.workbench-project-link[data-path="${identity.project}"]`).click(); await settle();
+  await openProjectChat(page.locator(`.workbench-project-link[data-path="${identity.project}"]`));
   await overview();
   await page.locator('[data-work-surface="project"]').click(); await settle();
   await page.screenshot({path:path.join(output,"desktop-light.png")});

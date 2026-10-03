@@ -247,6 +247,7 @@
     "crates/kanzei-app/src/preview/pane.rs",
     "crates/kanzei-app/src/preview/pure_tests.rs",
     "crates/kanzei-app/src/process_tests.rs",
+    "crates/kanzei-app/src/processes/conversation_tests.rs",
     "crates/kanzei-app/src/processes/gate.rs",
     "crates/kanzei-app/src/processes/mod.rs",
     "crates/kanzei-app/src/processes/naming.rs",
@@ -2388,9 +2389,9 @@
     "scripts/ui-i18n-smoke.mjs",
     "scripts/ui-runtime-smoke.mjs"
   ],
-  "current_inventory_total": 514,
+  "current_inventory_total": 515,
   "current_full_review_count": 163,
-  "current_pending_full_review_count": 351,
+  "current_pending_full_review_count": 352,
   "regression_support_files": [
     "scripts/prefs-failure-native-smoke.mjs",
     "scripts/schedule-terminal-smoke.py",
@@ -2430,5 +2431,11 @@
   "outside_inventory_full_file_reviews": [
     "scripts/parallel-lines-regression.mjs"
   ],
-  "updated_at": "2026-10-04"
+  "updated_at": "2026-10-04",
+  "release_integration": {
+    "report": "../../reports/2026-10-04-workbench-release.md",
+    "wb_commit": "9875810c",
+    "remote_commit": "c6654fae7003b8007063acfb6f95f668674ecec4",
+    "note": "Merged remote peer-conversation contracts and retained WB ownership fixes; historical per-batch hashes remain unchanged."
+  }
 }

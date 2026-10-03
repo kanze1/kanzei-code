@@ -606,17 +606,14 @@ export function markRuntimeFocusStale(sessionId = activeSessionId) {
   const focus = sessionId ? runtimeFocusBySession.get(sessionId) : null;
   if (focus) focus.stale = true;
 }
-export function processIsPrimary(process) {
-  return !process
-    || process.authority === "primary"
-    || process.id?.startsWith("d|")
-    || (!process.authority && !process.worktree_path);
+export function processUsesProjectTree(process) {
+  return !process?.worktree_path;
 }
 export function focusEntriesForProcess(snapshot, process) {
   const entries = [...(snapshot?.requirements ?? []), ...(snapshot?.defects ?? [])];
   if (!process) return entries;
   const branch = String(process.branch ?? "").trim();
-  if (processIsPrimary(process)) {
+  if (processUsesProjectTree(process)) {
     return entries.filter((entry) => !String(entry.claimed_by ?? "").trim());
   }
   return branch
@@ -656,7 +653,7 @@ export function computeAgentFocus(snapshot, sessionId = activeSessionId, process
       const hit = list.find((entry) => entry.status === status && !entry?.blocked);
       if (hit) {
         focus.active = hit.id;
-        focus.activeSource = process && !processIsPrimary(process) ? "claim" : "order";
+        focus.activeSource = process && !processUsesProjectTree(process) ? "claim" : "order";
         break;
       }
     }
@@ -699,7 +696,7 @@ export function backlogTally(entries, kind) {
 // 线路身份的叫法与判据全仓只此一处(研究空间的会话列表 09-sessions.js 用它给行首标身份)。
 export function lineAuthorityLabel(process) {
   if (process?.profile === "research") return t("研究对话");
-  return processIsPrimary(process) ? t("主对话") : t("独立任务");
+  return t("对话");
 }
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
 export function renderDocsSnapshot(snapshot) {

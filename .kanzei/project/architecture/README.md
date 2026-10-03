@@ -11,6 +11,8 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: 525c85df] [`conversation_peers.md`](../../../docs/design/conversation_peers.md)：对话统一数据模型、旧身份兼容迁移、相同生命周期与后台结果归属。
+
 - [identity: live_design; last_verified_commit: fe4178d3] [`sidebar_conversations.md`](../../../docs/design/sidebar_conversations.md)：统一项目与无项目对话入口、历史搜索、重命名及永久删除；运行进程和持久会话分别建模。
 
 - [identity: live_design; last_verified_commit: 92bff03e] [`general_chat.md`](../../../docs/design/general_chat.md)：无项目对话的独立存储、通用 Harness、关闭项目流程、恢复和项目关联；2026-10-03 后续修正尚未提交，主目录验证另留证。

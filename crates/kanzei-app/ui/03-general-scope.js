@@ -28,7 +28,7 @@ export function syncGeneralChatView(view = document.body.dataset.view, translate
   if (general && name) name.textContent = translate("无项目对话");
   const label = document.getElementById("new-chat")?.querySelector("span");
   if (label) {
-    const key = document.body.dataset.space === "research" ? "新建课题对话" : general || !conversationRoot || document.body.dataset.appScope === "global" ? "新对话" : "新讨论";
+    const key = document.body.dataset.space === "research" ? "新建课题对话" : "新对话";
     label.dataset.i18nKey = key; label.textContent = translate(key);
   }
 }

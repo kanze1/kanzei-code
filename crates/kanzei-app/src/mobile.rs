@@ -202,12 +202,6 @@ struct BridgeSession {
 /// 单项目下 PWA 一次最多列出的会话数(轻交互遥控器,下拉不是历史库)。
 const BRIDGE_SESSION_LIMIT: usize = 40;
 
-/// 用户给会话起的名字(`sessions.title`);空白视为没起。
-fn session_title(session: Option<&kanzei_core::Session>) -> Option<String> {
-    let title = session?.title.as_deref()?.trim();
-    (!title.is_empty()).then(|| title.to_string())
-}
-
 /// 项目在界面上的名字:目录名(根目录之类没有目录名时用完整路径)。
 fn project_display_name(root: &Path) -> String {
     root.file_name()
@@ -224,45 +218,32 @@ fn bridge_sessions(
     store: &kanzei_core::SessionStore,
     project_root: &Path,
 ) -> Result<Vec<BridgeSession>, String> {
-    let main_id = process_session_id(project_root, None);
-    let main = store.get_session(&main_id).map_err(|e| e.to_string())?;
-    let mut sessions = vec![BridgeSession {
-        label: session_title(main.as_ref()).unwrap_or_else(|| "主对话".into()),
-        updated_at: main.map(|session| session.updated_at).unwrap_or(0),
-        session_id: main_id,
-        kind: "main",
-    }];
+    crate::processes::registry::restore_legacy_conversation(store, project_root)?;
     let registered = store
         .list_processes(&project_root.display().to_string())
         .map_err(|e| e.to_string())?;
+    let mut sessions = Vec::new();
     for process in registered {
-        // 默认进程就是上面的主对话。
-        if process.process_id.starts_with("d|") {
-            continue;
-        }
         let session_id = process_session_id(project_root, Some(&process.process_id));
-        let session = store.get_session(&session_id).map_err(|e| e.to_string())?;
-        let (kind, word) = if process.profile.as_deref() == Some("readonly") {
-            ("discussion", "讨论")
-        } else {
-            ("task", "独立任务")
-        };
-        let number = process
-            .process_id
-            .split('|')
-            .next()
-            .unwrap_or_default()
-            .trim_start_matches('p');
+        let kind =
+            crate::processes::naming::process_kind(&process.process_id, process.profile.as_deref());
+        let naming = crate::processes::naming::load_naming(store, &session_id, kind);
         sessions.push(BridgeSession {
-            label: session_title(session.as_ref()).unwrap_or_else(|| format!("{word} {number}")),
-            updated_at: session
-                .map(|session| session.updated_at)
-                .unwrap_or(process.updated_at),
+            label: naming.display(
+                kind,
+                crate::processes::naming::process_ordinal(&process.process_id),
+            ),
+            updated_at: naming.updated_at.unwrap_or(process.updated_at),
             session_id,
-            kind,
+            kind: kind.as_str(),
         });
     }
-    sessions[1..].sort_by_key(|session| std::cmp::Reverse(session.updated_at));
+    sessions.sort_by_key(|session| {
+        (
+            std::cmp::Reverse(session.updated_at),
+            session.session_id.clone(),
+        )
+    });
     Ok(sessions)
 }
 
@@ -2102,24 +2083,25 @@ mod tests {
             .unwrap();
 
         let sessions = bridge_sessions(&store, &root).unwrap();
-        assert_eq!(sessions[0].kind, "main");
-        assert_eq!(sessions[0].label, "主对话");
-        assert_eq!(sessions[0].session_id, process_session_id(&root, None));
+        assert!(sessions.iter().all(|s| s.kind != "main"));
+        assert!(sessions
+            .iter()
+            .all(|s| s.session_id != process_session_id(&root, None)));
         let labels: Vec<&str> = sessions.iter().map(|s| s.label.as_str()).collect();
         assert!(labels.contains(&"讨论 3"), "{labels:?}");
-        assert!(labels.contains(&"独立任务 10"), "{labels:?}");
+        assert!(labels.contains(&"对话 10"), "{labels:?}");
         assert!(
             labels.contains(&"修登录页"),
             "用户命名优先并去空白: {labels:?}"
         );
-        assert_eq!(sessions.len(), 4, "主对话 + 3 条线路: {labels:?}");
+        assert_eq!(sessions.len(), 3, "只列真实登记的三段对话: {labels:?}");
         assert!(
             labels.iter().all(|label| !label.contains("ses_")),
             "标签不得露出会话哈希: {labels:?}"
         );
         let kinds: Vec<&str> = sessions.iter().map(|s| s.kind).collect();
         assert!(
-            kinds.contains(&"discussion") && kinds.contains(&"task"),
+            kinds.contains(&"discussion") && kinds.contains(&"conversation"),
             "{kinds:?}"
         );
 
@@ -2134,7 +2116,7 @@ mod tests {
             &Arc::new(Mutex::new(table)),
         )
         .unwrap();
-        assert_eq!(json["default"], process_session_id(&root, None));
+        assert_eq!(json["default"], sessions[0].session_id);
         let running: Vec<&serde_json::Value> = json["sessions"]
             .as_array()
             .unwrap()
@@ -2245,7 +2227,14 @@ mod tests {
     fn 真实桥接_会话清单_发消息校验_解除配对() {
         let dir = temp_project("e2e");
         let state_path = kanzei_core::project_state_path(&dir);
-        let _ = kanzei_core::SessionStore::open(&state_path).unwrap();
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store
+            .create_session(
+                &process_session_id(&dir, None),
+                &dir.display().to_string(),
+                None,
+            )
+            .unwrap();
         let bridge = start_bridge(dir.clone());
         let (_, body) = bridge_request(bridge.addr, &pair_request("test-pair-001"));
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -2262,7 +2251,7 @@ mod tests {
         let sessions: serde_json::Value = serde_json::from_str(&body).unwrap();
         let main_id = process_session_id(&dir, None);
         assert_eq!(sessions["default"], main_id);
-        assert_eq!(sessions["sessions"][0]["label"], "主对话");
+        assert_eq!(sessions["sessions"][0]["label"], "对话");
 
         let (head, body) = bridge_request(
             bridge.addr,

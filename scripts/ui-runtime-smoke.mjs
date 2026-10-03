@@ -2188,10 +2188,10 @@ const payloads = {
   test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [{ key: "命令", value: "cargo test" }], refs: ["R-001", "D-001"] }], archived: [] },
   test_runs_init_refs: { backfilled: 0 },
   process_list: [
-    { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, branch: "main", model: "deepseek:deepseek-chat", authority: "primary", stage: "复核" },
+    { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, branch: "main", model: "deepseek:deepseek-chat", stage: "复核" },
     // R-086 多会话并发:后台会话初始为运行中,桩里的旧 running=true 正是
     // "事件已收敛但轮询采样仍在事件之前"的竞态值,converged 必须挡住它。
-    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: false, authority: "parallel", stage: "实现" },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: false, stage: "实现" },
   ],
   collaboration_snapshot: [
     {
@@ -7011,7 +7011,7 @@ assert(activeLine?.closest(".workbench-session")?.dataset.processId === "d|smoke
 const twoProcesses = structuredClone(payloads.process_list);
 sandbox.renderProcesses([
   ...twoProcesses,
-  { id: "p|third", label: "第三线路", session_id: "sess-third", running: false, branch: "kanzei/thread-third", authority: "parallel", stage: "测试" },
+  { id: "p|third", label: "第三线路", session_id: "sess-third", running: false, branch: "kanzei/thread-third", stage: "测试" },
 ]);
 assert(document.querySelectorAll("#workbench-project-list .workbench-session").length === 3, "三线并行时侧栏只渲染了一个/两条会话行");
 const thirdLineStatus = sessionLinkText(sessionLinkOf("p|third"));
@@ -9373,9 +9373,9 @@ const docsB = {
     !openCalls.some((entry) => entry.cmd === "worktree_merge"),
     "查看冲突预警不应偷偷触发合并",
   );
-  assert(document.querySelectorAll("#lines-list .line-close").length === 1, "非默认线路应有关闭入口，默认主线路不得显示关闭");
+  assert(document.querySelectorAll("#lines-list .line-close").length === 2, "所有对话都应有相同的关闭入口");
   const closeCallsBefore = invokeArgs.length;
-  document.querySelector("#lines-list .line-close")?.click();
+  document.querySelectorAll("#lines-list .line-close").at(-1)?.click();
   await flush();
   assert(
     invokeArgs.slice(closeCallsBefore).some((entry) => entry.cmd === "process_close" && entry.args?.processId === "p|bg"),
@@ -10344,7 +10344,7 @@ const docsB = {
   for (const h of [...pendingTimers]) pendingTimers.delete(h);
   const savedR267ProcessList = payloads.process_list;
   payloads.process_list = [
-    { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: true, branch: "main", authority: "primary", stage: "实现" },
+    { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: true, branch: "main", stage: "实现" },
     { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", authority: "parallel" },
   ];
   await gotoProject(PROJECT, savedDocsPayload);
@@ -10967,7 +10967,7 @@ const docsB = {
 
 
 // ===== 分区:会话生命周期 =====
-// New discussions have their own read-only identity; main history is never cleared.
+// New conversations are peers with independent identities and histories.
 // Real layout, forwarding and registration coverage: ui-project-conversations-smoke.mjs.
 {
   vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
@@ -10988,7 +10988,7 @@ const docsB = {
     main.running = running;
     vm.runInContext(`transitionSession("sess-smoke", "${running ? "running" : "idle"}")`, sandbox);
     byId.get("new-chat").click(); await flush();
-    assert(created.at(-1)?.profile === "readonly", "新讨论必须使用后端只读档位");
+    assert(created.at(-1)?.profile === "dev", "新对话默认应使用普通开发档位");
     assert(vm.runInContext("activeProcessId", sandbox) === created.at(-1)?.id, "一次点击必须切到新讨论");
     assert(invokeArgs.filter(c => c.cmd === "conversation_clear").length === clears, "新讨论不得清空主对话");
     assert(byId.get("new-chat").getAttribute("aria-busy") !== "true", "创建后必须解除忙碌态");
@@ -12786,8 +12786,8 @@ const docsB = {
   const savedPriority = prioritySelect.value;
   const savedView = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
   const g5Lines = [
-    { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, branch: "main", authority: "primary", stage: "复核" },
-    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: false, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", authority: "parallel", stage: "实现" },
+    { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, branch: "main", stage: "复核" },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: false, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", stage: "实现" },
   ];
   const showView = async (name) => {
     document.querySelectorAll(".activity-item").find((node) => node.dataset.view === name)?.click();
@@ -13274,8 +13274,8 @@ const docsB = {
   const savedProcessList = structuredClone(payloads.process_list);
   const savedCtx = { limit: shellNs.ctxLimit, tokens: shellNs.ctxTokens, pending: shellNs.ctxPending };
   const motionLines = [
-    { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, branch: "main", authority: "primary", stage: "复核" },
-    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: false, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", authority: "parallel", stage: "实现" },
+    { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, branch: "main", stage: "复核" },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: false, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", stage: "实现" },
   ];
   vm.runInContext('autoContinueTimers.clear()', sandbox);
   vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
@@ -15492,7 +15492,7 @@ const docsB = {
     const lastRun = () => invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === line.id)?.args;
     await composeNs.sendAutoToSession("继续", "sess-pair-auto");
     let request = lastRun();
-    assert(request?.agent === "dev-pair" && request?.profile === "dev", `结伴线的鞭挞续跑轮应按 dev-pair 发,实为 ${request?.agent}`);
+    assert(request?.agent === "dev" && request?.profile === "dev", `未设置模式的对话续跑应使用 dev,实为 ${request?.agent}`);
     assert(request?.projectDir === plain && !String(request?.projectDir).includes("\\\\?\\"), `续跑轮的 projectDir 应是去掉 \\\\?\\ 前缀的项目根,实为 ${request?.projectDir}`);
     assert(request?.workPriority === "requirement-first", `续跑轮读不到用户选的取活顺序(键不一致),实为 ${request?.workPriority}`);
     sandbox.releaseAutoContinue("sess-pair-auto");

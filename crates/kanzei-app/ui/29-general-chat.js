@@ -26,7 +26,7 @@ export async function openGeneralChat({ newChat = false } = {}) {
     activate_execution_root(root);
     await refreshProcesses();
     if (!valid() || !isGeneralChat()) return false;
-    if (newChat && !await create_workspace_process(null, valid, { discussion: true })) return false;
+    if ((newChat || !activeProcessId) && !await create_workspace_process(null, valid)) return false;
     if (!valid() || !isGeneralChat()) return false;
     if (!activeProcessId) throw new Error(t("对话列表加载失败，请重试"));
     await loadConversation();

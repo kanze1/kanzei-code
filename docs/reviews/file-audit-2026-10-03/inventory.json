@@ -86,842 +86,6 @@
   ],
   "files": [
     {
-      "file": "crates/kanzei/src/cli/artifacts.rs",
-      "lines": 336,
-      "modules": [],
-      "imports": [
-        "std::path::PathBuf",
-        "super::{explicit_main_root, main_project_root, PROJECT_ROOT_FLAG}",
-        "super::{parse_args, ArtifactArgs}",
-        "std::path::PathBuf"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "artifacts_cli",
-          "line": 57
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/compact.rs",
-      "lines": 80,
-      "modules": [],
-      "imports": [
-        "super::run::recover_cli_prior",
-        "serde_json::json"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "compact_cli",
-          "line": 3
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/config.rs",
-      "lines": 13,
-      "modules": [],
-      "imports": [],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "config_cli",
-          "line": 5
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/eval.rs",
-      "lines": 118,
-      "modules": [],
-      "imports": [
-        "std::sync::Arc",
-        "kanzei_harness::config::KanzeiConfig",
-        "kanzei_llm::{LlmClient, ProxyConfig}",
-        "super::{explicit_main_root, main_project_root, PROJECT_ROOT_FLAG}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "replay_eval_cli",
-          "line": 21
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/lock.rs",
-      "lines": 94,
-      "modules": [],
-      "imports": [
-        "std::path::Path",
-        "super::{explicit_main_root, main_project_root}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "lock_cli",
-          "line": 13
-        },
-        {
-          "kind": "fn",
-          "name": "lock_status_report",
-          "line": 34
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/memory.rs",
-      "lines": 136,
-      "modules": [],
-      "imports": [
-        "kanzei_harness::config::KanzeiConfig",
-        "kanzei_harness::{ResolveCtx, ToolCtx}",
-        "kanzei_llm::{LlmClient, ProxyConfig}",
-        "std::collections::BTreeSet",
-        "kanzei_tools::memory::{MemoryEntry, MemoryStore}",
-        "super::normalized_theme"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "consolidate_memory_inbox",
-          "line": 19
-        },
-        {
-          "kind": "fn",
-          "name": "persist_always_allow",
-          "line": 37
-        },
-        {
-          "kind": "fn",
-          "name": "memory_cli",
-          "line": 73
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/metrics.rs",
-      "lines": 726,
-      "modules": [
-        "external_tests"
-      ],
-      "imports": [
-        "std::path::Path",
-        "super::{explicit_main_root, main_project_root}",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "FileMetric",
-          "line": 26
-        },
-        {
-          "kind": "fn",
-          "name": "metric_file",
-          "line": 42
-        },
-        {
-          "kind": "fn",
-          "name": "metric_source",
-          "line": 64
-        },
-        {
-          "kind": "const",
-          "name": "METRICS_FORMAT_VERSION",
-          "line": 402
-        },
-        {
-          "kind": "fn",
-          "name": "metrics_cli",
-          "line": 434
-        },
-        {
-          "kind": "fn",
-          "name": "sorted_metrics",
-          "line": 493
-        },
-        {
-          "kind": "fn",
-          "name": "still_prod",
-          "line": 572
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/mod.rs",
-      "lines": 1101,
-      "modules": [
-        "artifacts",
-        "compact",
-        "config",
-        "eval",
-        "lock",
-        "memory",
-        "metrics",
-        "quarantine",
-        "run",
-        "schedule",
-        "shadow",
-        "tracker",
-        "work",
-        "worktree"
-      ],
-      "imports": [
-        "std::path::Path",
-        "std::io::IsTerminal",
-        "super::lock::lock_status_report",
-        "super::memory::persist_always_allow",
-        "super::tracker::parse_tracker_flags",
-        "super::{\n        cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,\n        main_project_root, non_interactive_decision, parse_allowlist, parse_run_args,\n        resolve_run_prompt, usage_text, RunArgs, PROJECT_ROOT_ENV,\n    }",
-        "kanzei_core::AskReply",
-        "std::path::{Path, PathBuf}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "main_entry",
-          "line": 30
-        },
-        {
-          "kind": "fn",
-          "name": "cli_exit_code",
-          "line": 74
-        },
-        {
-          "kind": "fn",
-          "name": "usage_text",
-          "line": 82
-        },
-        {
-          "kind": "fn",
-          "name": "usage",
-          "line": 122
-        },
-        {
-          "kind": "struct",
-          "name": "RunArgs",
-          "line": 132
-        },
-        {
-          "kind": "const",
-          "name": "PROJECT_ROOT_FLAG",
-          "line": 147
-        },
-        {
-          "kind": "const",
-          "name": "PROJECT_ROOT_ENV",
-          "line": 149
-        },
-        {
-          "kind": "const",
-          "name": "ALLOW_FLAG",
-          "line": 150
-        },
-        {
-          "kind": "const",
-          "name": "PROMPT_FILE_FLAG",
-          "line": 151
-        },
-        {
-          "kind": "fn",
-          "name": "parse_run_args",
-          "line": 152
-        },
-        {
-          "kind": "fn",
-          "name": "resolve_run_prompt",
-          "line": 214
-        },
-        {
-          "kind": "fn",
-          "name": "interactive_stdin",
-          "line": 238
-        },
-        {
-          "kind": "fn",
-          "name": "parse_allowlist",
-          "line": 245
-        },
-        {
-          "kind": "fn",
-          "name": "non_interactive_decision",
-          "line": 268
-        },
-        {
-          "kind": "fn",
-          "name": "explicit_main_root",
-          "line": 297
-        },
-        {
-          "kind": "fn",
-          "name": "explicit_main_root_from",
-          "line": 300
-        },
-        {
-          "kind": "fn",
-          "name": "reject_home_as_project_root",
-          "line": 321
-        },
-        {
-          "kind": "fn",
-          "name": "main_project_root",
-          "line": 344
-        },
-        {
-          "kind": "fn",
-          "name": "cli_identity_keys",
-          "line": 366
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/quarantine.rs",
-      "lines": 121,
-      "modules": [],
-      "imports": [
-        "std::path::PathBuf",
-        "super::{explicit_main_root, main_project_root, PROJECT_ROOT_FLAG}",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "quarantine_cli",
-          "line": 59
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/events.rs",
-      "lines": 341,
-      "modules": [],
-      "imports": [
-        "std::io::{stdout, Write as _}",
-        "std::sync::{Arc, Mutex}",
-        "super::*",
-        "kanzei_core::{\n        prepare_typed_session, project_session_facts, project_session_facts_with_surface,\n        SessionStore, TypedSessionWriter,\n    }",
-        "kanzei_llm::{Message, Part}",
-        "serde_json::json"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "make_event_handler",
-          "line": 3
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/finalize.rs",
-      "lines": 579,
-      "modules": [],
-      "imports": [
-        "std::path::Path",
-        "std::sync::{Arc, Mutex}",
-        "std::time::Instant",
-        "kanzei_harness::config::KanzeiConfig",
-        "kanzei_harness::{ResolveCtx, ToolCtx}",
-        "kanzei_llm::{LlmClient, Message, ProxyConfig}",
-        "super::super::memory::consolidate_memory_inbox",
-        "super::persist_cli_compaction_surface_if_changed",
-        "kanzei_core::{RunSummary, SessionStore}",
-        "kanzei_llm::{Message, Part}",
-        "serde_json::json"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "FinalizeState",
-          "line": 10
-        },
-        {
-          "kind": "fn",
-          "name": "finish_typed_checked",
-          "line": 69
-        },
-        {
-          "kind": "fn",
-          "name": "finish_run",
-          "line": 87
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/permissions.rs",
-      "lines": 94,
-      "modules": [],
-      "imports": [
-        "std::path::PathBuf",
-        "super::super::memory::persist_always_allow"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "make_ask",
-          "line": 4
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/run.rs",
-      "lines": 532,
-      "modules": [
-        "events",
-        "finalize",
-        "permissions"
-      ],
-      "imports": [
-        "std::sync::{Arc, Mutex}",
-        "std::time::{SystemTime, UNIX_EPOCH}",
-        "kanzei_harness::config::KanzeiConfig",
-        "kanzei_harness::defs::ProfileKind",
-        "kanzei_harness::{ResolveCtx, ToolCtx}",
-        "kanzei_llm::{LlmClient, ProxyConfig}",
-        "kanzei_tools::ReadonlyProfile",
-        "super::{\n    cli_identity_keys, explicit_main_root, main_project_root, parse_run_args, resolve_run_prompt,\n    usage, RunArgs,\n}",
-        "super::{begin_new_segment, recover_cli_prior, resolve_cli_input}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "recover_cli_prior",
-          "line": 140
-        },
-        {
-          "kind": "fn",
-          "name": "run_cli",
-          "line": 174
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/schedule.rs",
-      "lines": 136,
-      "modules": [],
-      "imports": [],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "schedule_cli",
-          "line": 1
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/shadow.rs",
-      "lines": 80,
-      "modules": [],
-      "imports": [
-        "std::path::PathBuf",
-        "super::{explicit_main_root, main_project_root}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "shadow_cli",
-          "line": 11
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/tracker.rs",
-      "lines": 236,
-      "modules": [],
-      "imports": [
-        "kanzei_harness::{Tool, ToolCtx}",
-        "super::{explicit_main_root, main_project_root}",
-        "kanzei_tools::docstore::{DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES}",
-        "kanzei_tools::tracker::TrackerTool"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "parse_tracker_flags",
-          "line": 25
-        },
-        {
-          "kind": "fn",
-          "name": "tracker_cli",
-          "line": 95
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/work.rs",
-      "lines": 145,
-      "modules": [],
-      "imports": [
-        "kanzei_harness::{Tool, ToolCtx}",
-        "super::{explicit_main_root, main_project_root}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "work_cli",
-          "line": 9
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/cli/worktree.rs",
-      "lines": 77,
-      "modules": [],
-      "imports": [
-        "super::{explicit_main_root, main_project_root, usage}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "worktree_cli",
-          "line": 13
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/src/main.rs",
-      "lines": 21,
-      "modules": [
-        "cli"
-      ],
-      "imports": [],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
-      "lines": 279,
-      "modules": [],
-      "imports": [
-        "kanzei_harness::{\n    AgentDef, AgentMode, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,\n}",
-        "serde_json::json",
-        "std::sync::Arc",
-        "tokio::net::TcpListener",
-        "std::os::windows::process::CommandExt"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
-      "lines": 530,
-      "modules": [],
-      "imports": [
-        "std::process::Stdio",
-        "std::time::{SystemTime, UNIX_EPOCH}",
-        "kanzei_harness::KanzeiConfig",
-        "serde_json::json",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener",
-        "tokio::process::Command",
-        "crate::common"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
-      "lines": 908,
-      "modules": [],
-      "imports": [
-        "std::sync::{Arc, Mutex}",
-        "kanzei_harness::orchestration::{\n    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,\n}",
-        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
-        "serde_json::json",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
-      "lines": 101,
-      "modules": [],
-      "imports": [
-        "std::sync::Arc",
-        "kanzei_harness::permission::{\n    is_structured_bash_resource, normalize_resource_for_action, BASH_ACTION,\n}",
-        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, Tool, ToolCtx}",
-        "kanzei_tools::{BaseComponent, DevProfile}"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/common/mod.rs",
-      "lines": 57,
-      "modules": [],
-      "imports": [
-        "std::path::PathBuf"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "TestHome",
-          "line": 12
-        },
-        {
-          "kind": "fn",
-          "name": "new",
-          "line": 18
-        },
-        {
-          "kind": "fn",
-          "name": "envs",
-          "line": 33
-        },
-        {
-          "kind": "fn",
-          "name": "apply",
-          "line": 46
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
-      "lines": 301,
-      "modules": [],
-      "imports": [
-        "std::process::Stdio",
-        "std::time::{SystemTime, UNIX_EPOCH}",
-        "serde_json::{json, Value}",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::{TcpListener, TcpStream}",
-        "tokio::process::Command",
-        "crate::common"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "success_response",
-          "line": 68
-        },
-        {
-          "kind": "fn",
-          "name": "run_cli_with_prior",
-          "line": 87
-        },
-        {
-          "kind": "fn",
-          "name": "run_cli_with_setup",
-          "line": 96
-        },
-        {
-          "kind": "fn",
-          "name": "persisted_messages",
-          "line": 160
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
-      "lines": 333,
-      "modules": [],
-      "imports": [
-        "std::sync::{Arc, Mutex}",
-        "kanzei_harness::orchestration::ExecutionPolicy",
-        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
-        "serde_json::json",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
-      "lines": 60,
-      "modules": [],
-      "imports": [
-        "kanzei_core::{Delivery, SessionStore}"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/d364_concurrent_doc_add.rs",
-      "lines": 234,
-      "modules": [],
-      "imports": [
-        "std::path::{Path, PathBuf}",
-        "std::process::{Command, Stdio}",
-        "std::time::{Duration, SystemTime, UNIX_EPOCH}",
-        "kanzei_harness::Tool"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/d368_concurrent_memory_write.rs",
-      "lines": 197,
-      "modules": [],
-      "imports": [
-        "std::path::{Path, PathBuf}",
-        "std::time::{Duration, SystemTime, UNIX_EPOCH}",
-        "kanzei_harness::Tool"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/global_home_guard.rs",
-      "lines": 52,
-      "modules": [],
-      "imports": [
-        "std::path::PathBuf"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/incomplete_stream.rs",
-      "lines": 248,
-      "modules": [],
-      "imports": [
-        "kanzei_harness::{\n    AgentDef, AgentMode, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,\n}",
-        "serde_json::json",
-        "std::sync::Arc",
-        "tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt}"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
-      "lines": 131,
-      "modules": [],
-      "imports": [
-        "super::context_overflow_recovery::{\n    persisted_messages, run_cli_with_prior, run_cli_with_setup, success_response,\n}",
-        "kanzei_llm::{Message, Part}",
-        "serde_json::json",
-        "std::io::Write",
-        "kanzei_tools::docstore::{DocStore, Entry, DEFECTS}"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/main.rs",
-      "lines": 35,
-      "modules": [
-        "agent_step_budget",
-        "common",
-        "always_allow_bash",
-        "background_subagent_dispatch",
-        "bash_action_literal",
-        "context_overflow_recovery",
-        "tool_search_deferred_loading",
-        "cooperative_halt",
-        "ctrl_c_finalize",
-        "d364_concurrent_doc_add",
-        "d368_concurrent_memory_write",
-        "global_home_guard",
-        "incomplete_stream",
-        "item_context_boundary",
-        "max_tasks_parallel_dispatch",
-        "memory_hints_not_persisted",
-        "parallel_scouting_under_serial_writer",
-        "session_execution_owner",
-        "task_cancel_parallel",
-        "worktree_main_root"
-      ],
-      "imports": [],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
-      "lines": 349,
-      "modules": [],
-      "imports": [
-        "std::sync::{Arc, Mutex}",
-        "kanzei_harness::orchestration::{\n    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,\n}",
-        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
-        "serde_json::json",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
-      "lines": 362,
-      "modules": [],
-      "imports": [
-        "std::sync::Arc",
-        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
-        "serde_json::json",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "serve_response",
-          "line": 27
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
-      "lines": 372,
-      "modules": [],
-      "imports": [
-        "std::sync::{Arc, Mutex}",
-        "kanzei_harness::orchestration::{\n    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,\n}",
-        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
-        "serde_json::json",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/session_execution_owner.rs",
-      "lines": 393,
-      "modules": [],
-      "imports": [
-        "std::path::Path",
-        "std::process::{Output, Stdio}",
-        "std::time::Duration",
-        "kanzei_core::{Delivery, SessionFact, SessionStore}",
-        "serde_json::{json, Value}",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::{TcpListener, TcpStream}",
-        "tokio::process::{Child, Command}",
-        "super::common::TestHome"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
-      "lines": 398,
-      "modules": [],
-      "imports": [
-        "std::sync::{Arc, Mutex}",
-        "kanzei_harness::orchestration::{\n    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,\n}",
-        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
-        "serde_json::json",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
-      "lines": 277,
-      "modules": [],
-      "imports": [
-        "std::process::Stdio",
-        "std::time::{SystemTime, UNIX_EPOCH}",
-        "serde_json::{json, Value}",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::{TcpListener, TcpStream}",
-        "tokio::process::Command"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
-      "lines": 327,
-      "modules": [],
-      "imports": [
-        "std::path::{Path, PathBuf}",
-        "std::process::{Command, Stdio}",
-        "std::time::{SystemTime, UNIX_EPOCH}"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-app/build.rs",
       "lines": 31,
       "modules": [],
@@ -1395,83 +559,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
-      "lines": 339,
-      "modules": [],
-      "imports": [
-        "super::*",
-        "kanzei_core::{Delivery, SessionStore}",
-        "serde_json::json",
-        "std::path::PathBuf",
-        "std::sync::{Arc, Mutex}",
-        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant}"
-      ],
-      "public_api": []
-    },
-    {
-      "file": "crates/kanzei-app/src/commands/run/handoff.rs",
-      "lines": 103,
-      "modules": [
-        "tests"
-      ],
-      "imports": [
-        "std::sync::atomic::Ordering",
-        "kanzei_llm::{Message, Part, Role}",
-        "serde::Deserialize",
-        "crate::{normalized_project_root, process_session_id, runtime_for, AppState, MutexPoisonExt}"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "HandoffSource",
-          "line": 13
-        },
-        {
-          "kind": "fn",
-          "name": "attach_snapshot",
-          "line": 17
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-app/src/commands/run/input_mode.rs",
-      "lines": 218,
-      "modules": [],
-      "imports": [
-        "std::path::Path",
-        "anyhow::{ensure, Context}",
-        "kanzei_core::{AdmittedInput, SessionStore}",
-        "super::*",
-        "kanzei_core::Delivery",
-        "std::path::PathBuf"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "InputExecution",
-          "line": 10
-        },
-        {
-          "kind": "fn",
-          "name": "resolve",
-          "line": 15
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-app/src/commands/run/tool_process.rs",
-      "lines": 9,
-      "modules": [],
-      "imports": [],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "run_tool_process_stop",
-          "line": 3
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-app/src/commands/run.rs",
       "lines": 1488,
       "modules": [
@@ -1601,6 +688,83 @@
       ]
     },
     {
+      "file": "crates/kanzei-app/src/commands/run/handoff.rs",
+      "lines": 103,
+      "modules": [
+        "tests"
+      ],
+      "imports": [
+        "std::sync::atomic::Ordering",
+        "kanzei_llm::{Message, Part, Role}",
+        "serde::Deserialize",
+        "crate::{normalized_project_root, process_session_id, runtime_for, AppState, MutexPoisonExt}"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "HandoffSource",
+          "line": 13
+        },
+        {
+          "kind": "fn",
+          "name": "attach_snapshot",
+          "line": 17
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
+      "lines": 339,
+      "modules": [],
+      "imports": [
+        "super::*",
+        "kanzei_core::{Delivery, SessionStore}",
+        "serde_json::json",
+        "std::path::PathBuf",
+        "std::sync::{Arc, Mutex}",
+        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant}"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/input_mode.rs",
+      "lines": 218,
+      "modules": [],
+      "imports": [
+        "std::path::Path",
+        "anyhow::{ensure, Context}",
+        "kanzei_core::{AdmittedInput, SessionStore}",
+        "super::*",
+        "kanzei_core::Delivery",
+        "std::path::PathBuf"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "InputExecution",
+          "line": 10
+        },
+        {
+          "kind": "fn",
+          "name": "resolve",
+          "line": 15
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/tool_process.rs",
+      "lines": 9,
+      "modules": [],
+      "imports": [],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "run_tool_process_stop",
+          "line": 3
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-app/src/commands/summarize.rs",
       "lines": 67,
       "modules": [],
@@ -1623,6 +787,59 @@
           "line": 52
         }
       ]
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_actions.rs",
+      "lines": 170,
+      "modules": [],
+      "imports": [
+        "crate::{normalized_project_root, process_session_id, runtime_for, AppState}",
+        "serde_json::{json, Value}",
+        "std::{\n    path::Path,\n    sync::{atomic::Ordering, Arc},\n}",
+        "tauri::State"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "conversation_action",
+          "line": 19
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_tests.rs",
+      "lines": 1423,
+      "modules": [],
+      "imports": [
+        "super::{prompt_attachment_parts, with_session_id, PromptAttachment}",
+        "crate::conversation::{\n    clear_conversation, conversation_prior, recover_messages_at, recover_messages_raw,\n    reset_auto_run_state,\n}",
+        "crate::AppState",
+        "std::collections::HashMap",
+        "std::sync::{Arc, Mutex}",
+        "std::sync::atomic::Ordering",
+        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
+        "kanzei_llm::{Message, Part}",
+        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
+        "kanzei_llm::{Message, Part}",
+        "kanzei_llm::{Message, Part}",
+        "kanzei_llm::Message",
+        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
+        "kanzei_llm::{Message, Part}",
+        "kanzei_core::SessionStore",
+        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
+        "kanzei_llm::{Message, Part}",
+        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
+        "kanzei_llm::{Message, Part}",
+        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
+        "kanzei_llm::{Message, Part}",
+        "kanzei_core::{SessionFact, SessionFactEnvelope}",
+        "kanzei_llm::{Message, Part}",
+        "kanzei_llm::Message",
+        "kanzei_llm::Message",
+        "kanzei_llm::Message",
+        "std::sync::atomic::Ordering"
+      ],
+      "public_api": []
     },
     {
       "file": "crates/kanzei-app/src/conversation.rs",
@@ -1718,59 +935,6 @@
           "line": 744
         }
       ]
-    },
-    {
-      "file": "crates/kanzei-app/src/conversation_actions.rs",
-      "lines": 170,
-      "modules": [],
-      "imports": [
-        "crate::{normalized_project_root, process_session_id, runtime_for, AppState}",
-        "serde_json::{json, Value}",
-        "std::{\n    path::Path,\n    sync::{atomic::Ordering, Arc},\n}",
-        "tauri::State"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "conversation_action",
-          "line": 19
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-app/src/conversation_tests.rs",
-      "lines": 1423,
-      "modules": [],
-      "imports": [
-        "super::{prompt_attachment_parts, with_session_id, PromptAttachment}",
-        "crate::conversation::{\n    clear_conversation, conversation_prior, recover_messages_at, recover_messages_raw,\n    reset_auto_run_state,\n}",
-        "crate::AppState",
-        "std::collections::HashMap",
-        "std::sync::{Arc, Mutex}",
-        "std::sync::atomic::Ordering",
-        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
-        "kanzei_llm::{Message, Part}",
-        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
-        "kanzei_llm::{Message, Part}",
-        "kanzei_llm::{Message, Part}",
-        "kanzei_llm::Message",
-        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
-        "kanzei_llm::{Message, Part}",
-        "kanzei_core::SessionStore",
-        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
-        "kanzei_llm::{Message, Part}",
-        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
-        "kanzei_llm::{Message, Part}",
-        "kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore}",
-        "kanzei_llm::{Message, Part}",
-        "kanzei_core::{SessionFact, SessionFactEnvelope}",
-        "kanzei_llm::{Message, Part}",
-        "kanzei_llm::Message",
-        "kanzei_llm::Message",
-        "kanzei_llm::Message",
-        "std::sync::atomic::Ordering"
-      ],
-      "public_api": []
     },
     {
       "file": "crates/kanzei-app/src/decisions.rs",
@@ -1884,26 +1048,6 @@
           "kind": "fn",
           "name": "install",
           "line": 134
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-app/src/docs/research_snapshot.rs",
-      "lines": 218,
-      "modules": [],
-      "imports": [
-        "std::path::Path",
-        "kanzei_tools::docstore::{DocStore, FINDINGS, SOURCES}",
-        "serde_json::json",
-        "std::io::{Read, Seek, SeekFrom}",
-        "super::{next_statuses, read_tail_lossy}",
-        "kanzei_tools::docstore::{DocStore, FINDINGS, SOURCES}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "research_topics",
-          "line": 94
         }
       ]
     },
@@ -2038,6 +1182,26 @@
           "kind": "fn",
           "name": "build_workspace_graph",
           "line": 898
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/docs/research_snapshot.rs",
+      "lines": 218,
+      "modules": [],
+      "imports": [
+        "std::path::Path",
+        "kanzei_tools::docstore::{DocStore, FINDINGS, SOURCES}",
+        "serde_json::json",
+        "std::io::{Read, Seek, SeekFrom}",
+        "super::{next_statuses, read_tail_lossy}",
+        "kanzei_tools::docstore::{DocStore, FINDINGS, SOURCES}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "research_topics",
+          "line": 94
         }
       ]
     },
@@ -2578,6 +1742,56 @@
       ]
     },
     {
+      "file": "crates/kanzei-app/src/memory_chat.rs",
+      "lines": 725,
+      "modules": [],
+      "imports": [
+        "std::{\n    collections::HashMap,\n    path::{Path, PathBuf},\n    sync::{Arc, Mutex},\n}",
+        "async_trait::async_trait",
+        "kanzei_core::{run_once_with_parts, AskFuture, CancellationToken, RunEvent, RunnerConfig}",
+        "kanzei_harness::{\n    rule, Component, Effect, Harness, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx, Tool,\n    ToolCtx, ToolOutput,\n}",
+        "kanzei_llm::{LlmClient, Message, ProxyConfig}",
+        "kanzei_tools::{\n    atomic_file::{lock_exclusive, write_atomic_cas},\n    content_hash,\n    memory::{manager_agent, render_entry, MemoryManagerComponent, MemoryStore},\n}",
+        "serde::{Deserialize, Serialize}",
+        "serde_json::{json, Value}",
+        "tauri::{ipc::Channel, State}",
+        "super::*",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "MemoryChatState",
+          "line": 25
+        },
+        {
+          "kind": "struct",
+          "name": "MemoryTarget",
+          "line": 30
+        },
+        {
+          "kind": "fn",
+          "name": "memory_chat_history",
+          "line": 208
+        },
+        {
+          "kind": "fn",
+          "name": "memory_chat_reset",
+          "line": 228
+        },
+        {
+          "kind": "fn",
+          "name": "memory_chat_stop",
+          "line": 260
+        },
+        {
+          "kind": "fn",
+          "name": "memory_chat_send",
+          "line": 280
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-app/src/memory.rs",
       "lines": 969,
       "modules": [],
@@ -2693,52 +1907,103 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/memory_chat.rs",
-      "lines": 725,
+      "file": "crates/kanzei-app/src/mobile_notify.rs",
+      "lines": 161,
       "modules": [],
       "imports": [
-        "std::{\n    collections::HashMap,\n    path::{Path, PathBuf},\n    sync::{Arc, Mutex},\n}",
-        "async_trait::async_trait",
-        "kanzei_core::{run_once_with_parts, AskFuture, CancellationToken, RunEvent, RunnerConfig}",
-        "kanzei_harness::{\n    rule, Component, Effect, Harness, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx, Tool,\n    ToolCtx, ToolOutput,\n}",
-        "kanzei_llm::{LlmClient, Message, ProxyConfig}",
-        "kanzei_tools::{\n    atomic_file::{lock_exclusive, write_atomic_cas},\n    content_hash,\n    memory::{manager_agent, render_entry, MemoryManagerComponent, MemoryStore},\n}",
-        "serde::{Deserialize, Serialize}",
-        "serde_json::{json, Value}",
-        "tauri::{ipc::Channel, State}",
-        "super::*",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}"
+        "crate::state::hidden_command",
+        "std::sync::atomic::{AtomicBool, Ordering}",
+        "std::process::Command",
+        "super::*"
       ],
       "public_api": [
         {
+          "kind": "fn",
+          "name": "set_enabled",
+          "line": 14
+        },
+        {
+          "kind": "fn",
+          "name": "check_dependency",
+          "line": 17
+        },
+        {
           "kind": "struct",
-          "name": "MemoryChatState",
-          "line": 25
-        },
-        {
-          "kind": "struct",
-          "name": "MemoryTarget",
-          "line": 30
+          "name": "PushBridgeStatus",
+          "line": 41
         },
         {
           "kind": "fn",
-          "name": "memory_chat_history",
-          "line": 208
+          "name": "mobile_push_status",
+          "line": 57
         },
         {
           "kind": "fn",
-          "name": "memory_chat_reset",
-          "line": 228
+          "name": "notify_mobile",
+          "line": 67
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/mobile.rs",
+      "lines": 2300,
+      "modules": [
+        "approvals",
+        "pwa",
+        "sse"
+      ],
+      "imports": [
+        "std::collections::HashMap",
+        "std::io::{Read, Write}",
+        "std::net::{TcpListener, TcpStream}",
+        "std::path::{Path, PathBuf}",
+        "std::sync::atomic::{AtomicBool, Ordering}",
+        "std::sync::{Arc, Mutex}",
+        "std::time::{SystemTime, UNIX_EPOCH}",
+        "serde_json::json",
+        "tauri::State",
+        "crate::state::{MobileDeviceInfo, MobileService, MobileServiceInfo, SessionRuntime}",
+        "crate::{normalized_project_root, process_session_id, AppState, MutexPoisonExt}",
+        "approvals::{approval_answer, approval_pending_list}",
+        "pwa::{resolve_pwa_root, serve_pwa}",
+        "sse::handle_sse",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "mobile_service_start",
+          "line": 703
         },
         {
           "kind": "fn",
-          "name": "memory_chat_stop",
-          "line": 260
+          "name": "mobile_device_revoke",
+          "line": 836
         },
         {
           "kind": "fn",
-          "name": "memory_chat_send",
-          "line": 280
+          "name": "mobile_pair_code_regenerate",
+          "line": 854
+        },
+        {
+          "kind": "fn",
+          "name": "mobile_device_list",
+          "line": 864
+        },
+        {
+          "kind": "fn",
+          "name": "mobile_service_stop",
+          "line": 895
+        },
+        {
+          "kind": "fn",
+          "name": "temp_project",
+          "line": 1989
+        },
+        {
+          "kind": "fn",
+          "name": "register_line",
+          "line": 2004
         }
       ]
     },
@@ -2817,107 +2082,6 @@
           "kind": "fn",
           "name": "handle_sse",
           "line": 38
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-app/src/mobile.rs",
-      "lines": 2300,
-      "modules": [
-        "approvals",
-        "pwa",
-        "sse"
-      ],
-      "imports": [
-        "std::collections::HashMap",
-        "std::io::{Read, Write}",
-        "std::net::{TcpListener, TcpStream}",
-        "std::path::{Path, PathBuf}",
-        "std::sync::atomic::{AtomicBool, Ordering}",
-        "std::sync::{Arc, Mutex}",
-        "std::time::{SystemTime, UNIX_EPOCH}",
-        "serde_json::json",
-        "tauri::State",
-        "crate::state::{MobileDeviceInfo, MobileService, MobileServiceInfo, SessionRuntime}",
-        "crate::{normalized_project_root, process_session_id, AppState, MutexPoisonExt}",
-        "approvals::{approval_answer, approval_pending_list}",
-        "pwa::{resolve_pwa_root, serve_pwa}",
-        "sse::handle_sse",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "mobile_service_start",
-          "line": 703
-        },
-        {
-          "kind": "fn",
-          "name": "mobile_device_revoke",
-          "line": 836
-        },
-        {
-          "kind": "fn",
-          "name": "mobile_pair_code_regenerate",
-          "line": 854
-        },
-        {
-          "kind": "fn",
-          "name": "mobile_device_list",
-          "line": 864
-        },
-        {
-          "kind": "fn",
-          "name": "mobile_service_stop",
-          "line": 895
-        },
-        {
-          "kind": "fn",
-          "name": "temp_project",
-          "line": 1989
-        },
-        {
-          "kind": "fn",
-          "name": "register_line",
-          "line": 2004
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-app/src/mobile_notify.rs",
-      "lines": 161,
-      "modules": [],
-      "imports": [
-        "crate::state::hidden_command",
-        "std::sync::atomic::{AtomicBool, Ordering}",
-        "std::process::Command",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "set_enabled",
-          "line": 14
-        },
-        {
-          "kind": "fn",
-          "name": "check_dependency",
-          "line": 17
-        },
-        {
-          "kind": "struct",
-          "name": "PushBridgeStatus",
-          "line": 41
-        },
-        {
-          "kind": "fn",
-          "name": "mobile_push_status",
-          "line": 57
-        },
-        {
-          "kind": "fn",
-          "name": "notify_mobile",
-          "line": 67
         }
       ]
     },
@@ -3124,44 +2288,20 @@
       "public_api": []
     },
     {
-      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
-      "lines": 178,
+      "file": "crates/kanzei-app/src/phase_pipeline_tests.rs",
+      "lines": 1565,
       "modules": [],
       "imports": [
-        "super::{RoleReport, NO_ISSUES}"
+        "std::sync::{Arc, Mutex}",
+        "kanzei_harness::orchestration::{PhaseObserver, ProjectExecutionCoordinator}",
+        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
+        "kanzei_llm::{Message, Part}",
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener",
+        "crate::phase_pipeline::PhasePipeline"
       ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "render_task_context",
-          "line": 9
-        },
-        {
-          "kind": "fn",
-          "name": "scout_prompt",
-          "line": 77
-        },
-        {
-          "kind": "fn",
-          "name": "review_prompt",
-          "line": 94
-        },
-        {
-          "kind": "fn",
-          "name": "render_brief",
-          "line": 119
-        },
-        {
-          "kind": "fn",
-          "name": "findings",
-          "line": 143
-        },
-        {
-          "kind": "fn",
-          "name": "fixup_prompt",
-          "line": 171
-        }
-      ]
+      "public_api": []
     },
     {
       "file": "crates/kanzei-app/src/phase_pipeline.rs",
@@ -3280,20 +2420,44 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/phase_pipeline_tests.rs",
-      "lines": 1565,
+      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
+      "lines": 178,
       "modules": [],
       "imports": [
-        "std::sync::{Arc, Mutex}",
-        "kanzei_harness::orchestration::{PhaseObserver, ProjectExecutionCoordinator}",
-        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
-        "kanzei_llm::{Message, Part}",
-        "serde_json::json",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener",
-        "crate::phase_pipeline::PhasePipeline"
+        "super::{RoleReport, NO_ISSUES}"
       ],
-      "public_api": []
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "render_task_context",
+          "line": 9
+        },
+        {
+          "kind": "fn",
+          "name": "scout_prompt",
+          "line": 77
+        },
+        {
+          "kind": "fn",
+          "name": "review_prompt",
+          "line": 94
+        },
+        {
+          "kind": "fn",
+          "name": "render_brief",
+          "line": 119
+        },
+        {
+          "kind": "fn",
+          "name": "findings",
+          "line": 143
+        },
+        {
+          "kind": "fn",
+          "name": "fixup_prompt",
+          "line": 171
+        }
+      ]
     },
     {
       "file": "crates/kanzei-app/src/prefs.rs",
@@ -4313,6 +3477,16 @@
       "public_api": []
     },
     {
+      "file": "crates/kanzei-app/src/processes/conversation_tests.rs",
+      "lines": 128,
+      "modules": [],
+      "imports": [
+        "super::{lifecycle::*, registry::*}",
+        "crate::{process_session_id, AppState}"
+      ],
+      "public_api": []
+    },
+    {
       "file": "crates/kanzei-app/src/processes/gate.rs",
       "lines": 141,
       "modules": [],
@@ -4909,16 +4083,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/research_auto/tests.rs",
-      "lines": 93,
-      "modules": [],
-      "imports": [
-        "super::*",
-        "kanzei_harness::auto_run::{BacklogStatus, RoundFailure}"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-app/src/research_auto.rs",
       "lines": 134,
       "modules": [
@@ -4958,6 +4122,16 @@
           "line": 79
         }
       ]
+    },
+    {
+      "file": "crates/kanzei-app/src/research_auto/tests.rs",
+      "lines": 93,
+      "modules": [],
+      "imports": [
+        "super::*",
+        "kanzei_harness::auto_run::{BacklogStatus, RoundFailure}"
+      ],
+      "public_api": []
     },
     {
       "file": "crates/kanzei-app/src/research_latex.rs",
@@ -5005,15 +4179,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/research_library/tests.rs",
-      "lines": 211,
-      "modules": [],
-      "imports": [
-        "super::*"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-app/src/research_library.rs",
       "lines": 311,
       "modules": [
@@ -5046,6 +4211,15 @@
           "line": 303
         }
       ]
+    },
+    {
+      "file": "crates/kanzei-app/src/research_library/tests.rs",
+      "lines": 211,
+      "modules": [],
+      "imports": [
+        "super::*"
+      ],
+      "public_api": []
     },
     {
       "file": "crates/kanzei-app/src/research_topics.rs",
@@ -5086,26 +4260,6 @@
           "kind": "fn",
           "name": "validate_run_topic",
           "line": 110
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-app/src/run/assembly/components.rs",
-      "lines": 96,
-      "modules": [],
-      "imports": [
-        "kanzei_harness::{Component, Effect, HarnessDraft, ResolveCtx, Rule}"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "DiscussionBoundary",
-          "line": 7
-        },
-        {
-          "kind": "struct",
-          "name": "TrackerWritePolicyComponent",
-          "line": 73
         }
       ]
     },
@@ -5252,6 +4406,26 @@
           "kind": "fn",
           "name": "report_config_warnings",
           "line": 964
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/run/assembly/components.rs",
+      "lines": 96,
+      "modules": [],
+      "imports": [
+        "kanzei_harness::{Component, Effect, HarnessDraft, ResolveCtx, Rule}"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "DiscussionBoundary",
+          "line": 7
+        },
+        {
+          "kind": "struct",
+          "name": "TrackerWritePolicyComponent",
+          "line": 73
         }
       ]
     },
@@ -5711,47 +4885,6 @@
       "public_api": []
     },
     {
-      "file": "crates/kanzei-app/src/runtime_service/compatibility.rs",
-      "lines": 186,
-      "modules": [],
-      "imports": [
-        "super::{request, Endpoint}",
-        "crate::MutexPoisonExt",
-        "serde_json::{json, Value}",
-        "std::sync::atomic::{AtomicBool, AtomicUsize, Ordering}",
-        "std::time::Duration",
-        "tauri::Manager",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "invoke_url",
-          "line": 12
-        },
-        {
-          "kind": "struct",
-          "name": "Admission",
-          "line": 25
-        },
-        {
-          "kind": "fn",
-          "name": "admit",
-          "line": 32
-        },
-        {
-          "kind": "fn",
-          "name": "accept",
-          "line": 78
-        },
-        {
-          "kind": "fn",
-          "name": "retire_if_idle",
-          "line": 133
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-app/src/runtime_service.rs",
       "lines": 551,
       "modules": [
@@ -5847,6 +4980,47 @@
           "kind": "fn",
           "name": "install_service",
           "line": 375
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/runtime_service/compatibility.rs",
+      "lines": 186,
+      "modules": [],
+      "imports": [
+        "super::{request, Endpoint}",
+        "crate::MutexPoisonExt",
+        "serde_json::{json, Value}",
+        "std::sync::atomic::{AtomicBool, AtomicUsize, Ordering}",
+        "std::time::Duration",
+        "tauri::Manager",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "invoke_url",
+          "line": 12
+        },
+        {
+          "kind": "struct",
+          "name": "Admission",
+          "line": 25
+        },
+        {
+          "kind": "fn",
+          "name": "admit",
+          "line": 32
+        },
+        {
+          "kind": "fn",
+          "name": "accept",
+          "line": 78
+        },
+        {
+          "kind": "fn",
+          "name": "retire_if_idle",
+          "line": 133
         }
       ]
     },
@@ -6127,6 +5301,23 @@
       ]
     },
     {
+      "file": "crates/kanzei-app/src/state_tests.rs",
+      "lines": 757,
+      "modules": [],
+      "imports": [
+        "super::{\n    export_project_data, normalized_project_root, ExportOptions, ProviderPayload, SettingsPayload,\n}",
+        "crate::docs::{docs_archive_entries, docs_snapshot}",
+        "crate::settings::settings_save_at_path",
+        "crate::subagents::{defect_review, defect_review_report, defect_review_snapshot}",
+        "crate::projects::{ensure_project_isolated, project_detach}",
+        "std::path::{Path, PathBuf}",
+        "std::sync::Arc",
+        "std::os::windows::fs::OpenOptionsExt",
+        "std::sync::atomic::{AtomicBool, Ordering}"
+      ],
+      "public_api": []
+    },
+    {
       "file": "crates/kanzei-app/src/state.rs",
       "lines": 1047,
       "modules": [],
@@ -6362,19 +5553,18 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/state_tests.rs",
-      "lines": 757,
+      "file": "crates/kanzei-app/src/subagents_capture_tests.rs",
+      "lines": 220,
       "modules": [],
       "imports": [
-        "super::{\n    export_project_data, normalized_project_root, ExportOptions, ProviderPayload, SettingsPayload,\n}",
-        "crate::docs::{docs_archive_entries, docs_snapshot}",
-        "crate::settings::settings_save_at_path",
-        "crate::subagents::{defect_review, defect_review_report, defect_review_snapshot}",
-        "crate::projects::{ensure_project_isolated, project_detach}",
-        "std::path::{Path, PathBuf}",
+        "super::quick_req_with_coordinator",
+        "kanzei_core::orchestration::MemoryCoordinator",
+        "kanzei_tools::docstore::{DocStore, REQUIREMENTS}",
+        "serde_json::json",
+        "std::path::PathBuf",
         "std::sync::Arc",
-        "std::os::windows::fs::OpenOptionsExt",
-        "std::sync::atomic::{AtomicBool, Ordering}"
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
       ],
       "public_api": []
     },
@@ -6443,22 +5633,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/subagents_capture_tests.rs",
-      "lines": 220,
-      "modules": [],
-      "imports": [
-        "super::quick_req_with_coordinator",
-        "kanzei_core::orchestration::MemoryCoordinator",
-        "kanzei_tools::docstore::{DocStore, REQUIREMENTS}",
-        "serde_json::json",
-        "std::path::PathBuf",
-        "std::sync::Arc",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-app/src/terminal_monitor.rs",
       "lines": 52,
       "modules": [],
@@ -6486,6 +5660,20 @@
         "kanzei_llm::{Message, Part}",
         "serde_json::json",
         "std::path::PathBuf"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei-app/src/update_tests_update.rs",
+      "lines": 366,
+      "modules": [],
+      "imports": [
+        "super::fast_model::{ollama_service_up, pull_progress_text}",
+        "super::docs::build_workspace_graph",
+        "super::docs::architecture_snapshot",
+        "kanzei_tools::worktree::parse_merge_tree_conflicts",
+        "super::fast_model::fast_ensure_decision",
+        "super::ReleaseVerdict"
       ],
       "public_api": []
     },
@@ -6625,20 +5813,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/update_tests_update.rs",
-      "lines": 366,
-      "modules": [],
-      "imports": [
-        "super::fast_model::{ollama_service_up, pull_progress_text}",
-        "super::docs::build_workspace_graph",
-        "super::docs::architecture_snapshot",
-        "kanzei_tools::worktree::parse_merge_tree_conflicts",
-        "super::fast_model::fast_ensure_decision",
-        "super::ReleaseVerdict"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-app/src/verification_monitor.rs",
       "lines": 364,
       "modules": [],
@@ -6656,6 +5830,28 @@
           "kind": "fn",
           "name": "start",
           "line": 119
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/voice_service.rs",
+      "lines": 239,
+      "modules": [],
+      "imports": [
+        "crate::voice::{service_health, VoiceSettings}",
+        "serde::Deserialize",
+        "serde_json::Value",
+        "std::{fs::OpenOptions, path::Path, process::Stdio, time::Duration}",
+        "tokio::{process::Command, sync::Mutex, time::Instant}",
+        "super::*",
+        "serde_json::json",
+        "tokio::{\n        io::{AsyncReadExt, AsyncWriteExt},\n        net::TcpListener,\n    }"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "ensure_started",
+          "line": 39
         }
       ]
     },
@@ -6732,38 +5928,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-app/src/voice_service.rs",
-      "lines": 239,
-      "modules": [],
-      "imports": [
-        "crate::voice::{service_health, VoiceSettings}",
-        "serde::Deserialize",
-        "serde_json::Value",
-        "std::{fs::OpenOptions, path::Path, process::Stdio, time::Duration}",
-        "tokio::{process::Command, sync::Mutex, time::Instant}",
-        "super::*",
-        "serde_json::json",
-        "tokio::{\n        io::{AsyncReadExt, AsyncWriteExt},\n        net::TcpListener,\n    }"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "ensure_started",
-          "line": 39
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-app/src/workspace/tests.rs",
-      "lines": 500,
-      "modules": [],
-      "imports": [
-        "super::*",
-        "std::sync::atomic::Ordering"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-app/src/workspace.rs",
       "lines": 474,
       "modules": [
@@ -6811,6 +5975,16 @@
           "line": 443
         }
       ]
+    },
+    {
+      "file": "crates/kanzei-app/src/workspace/tests.rs",
+      "lines": 500,
+      "modules": [],
+      "imports": [
+        "super::*",
+        "std::sync::atomic::Ordering"
+      ],
+      "public_api": []
     },
     {
       "file": "crates/kanzei-app/src/worktree_tests.rs",
@@ -7468,6 +6642,55 @@
       "public_api": []
     },
     {
+      "file": "crates/kanzei-base/src/atomic_file.rs",
+      "lines": 117,
+      "modules": [
+        "lock",
+        "tests"
+      ],
+      "imports": [
+        "std::io::{self, Write}",
+        "std::path::{Path, PathBuf}",
+        "std::sync::atomic::{AtomicU64, Ordering}",
+        "lock::{\n    lock_exclusive, lock_path_for, lock_shared, try_lock_exclusive, try_lock_shared, FileLock,\n    DEFAULT_LOCK_BUDGET,\n}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "write_atomic_bytes",
+          "line": 18
+        },
+        {
+          "kind": "fn",
+          "name": "write_atomic_bytes_guarded",
+          "line": 24
+        },
+        {
+          "kind": "fn",
+          "name": "write_atomic",
+          "line": 65
+        },
+        {
+          "kind": "fn",
+          "name": "write_atomic_cas",
+          "line": 74
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-base/src/atomic_file/lock_tests.rs",
+      "lines": 262,
+      "modules": [],
+      "imports": [
+        "super::*",
+        "crate::atomic_file::tests::temp_root",
+        "std::io::{BufRead, Write}",
+        "std::process::{Child, Command, Stdio}",
+        "std::os::windows::process::CommandExt"
+      ],
+      "public_api": []
+    },
+    {
       "file": "crates/kanzei-base/src/atomic_file/lock.rs",
       "lines": 223,
       "modules": [
@@ -7521,19 +6744,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-base/src/atomic_file/lock_tests.rs",
-      "lines": 262,
-      "modules": [],
-      "imports": [
-        "super::*",
-        "crate::atomic_file::tests::temp_root",
-        "std::io::{BufRead, Write}",
-        "std::process::{Child, Command, Stdio}",
-        "std::os::windows::process::CommandExt"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-base/src/atomic_file/tests.rs",
       "lines": 179,
       "modules": [],
@@ -7546,42 +6756,6 @@
           "kind": "fn",
           "name": "temp_root",
           "line": 2
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-base/src/atomic_file.rs",
-      "lines": 117,
-      "modules": [
-        "lock",
-        "tests"
-      ],
-      "imports": [
-        "std::io::{self, Write}",
-        "std::path::{Path, PathBuf}",
-        "std::sync::atomic::{AtomicU64, Ordering}",
-        "lock::{\n    lock_exclusive, lock_path_for, lock_shared, try_lock_exclusive, try_lock_shared, FileLock,\n    DEFAULT_LOCK_BUDGET,\n}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "write_atomic_bytes",
-          "line": 18
-        },
-        {
-          "kind": "fn",
-          "name": "write_atomic_bytes_guarded",
-          "line": 24
-        },
-        {
-          "kind": "fn",
-          "name": "write_atomic",
-          "line": 65
-        },
-        {
-          "kind": "fn",
-          "name": "write_atomic_cas",
-          "line": 74
         }
       ]
     },
@@ -7648,38 +6822,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-base/src/write_log/codec.rs",
-      "lines": 114,
-      "modules": [],
-      "imports": [
-        "super::{invalid, LoggedContent, WriteLogEntry}",
-        "std::io",
-        "std::fmt::Write"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "encode",
-          "line": 6
-        },
-        {
-          "kind": "fn",
-          "name": "decode",
-          "line": 33
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-base/src/write_log/tests.rs",
-      "lines": 325,
-      "modules": [],
-      "imports": [
-        "super::*",
-        "std::os::windows::process::CommandExt"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-base/src/write_log.rs",
       "lines": 168,
       "modules": [
@@ -7723,6 +6865,38 @@
           "line": 156
         }
       ]
+    },
+    {
+      "file": "crates/kanzei-base/src/write_log/codec.rs",
+      "lines": 114,
+      "modules": [],
+      "imports": [
+        "super::{invalid, LoggedContent, WriteLogEntry}",
+        "std::io",
+        "std::fmt::Write"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "encode",
+          "line": 6
+        },
+        {
+          "kind": "fn",
+          "name": "decode",
+          "line": 33
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-base/src/write_log/tests.rs",
+      "lines": 325,
+      "modules": [],
+      "imports": [
+        "super::*",
+        "std::os::windows::process::CommandExt"
+      ],
+      "public_api": []
     },
     {
       "file": "crates/kanzei-core/src/assemble.rs",
@@ -8148,6 +7322,53 @@
       ]
     },
     {
+      "file": "crates/kanzei-core/src/research_runner.rs",
+      "lines": 291,
+      "modules": [],
+      "imports": [
+        "serde::{Deserialize, Serialize}",
+        "serde_json::{Map, Value}",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "const",
+          "name": "CALLBACK_PREFIX",
+          "line": 8
+        },
+        {
+          "kind": "const",
+          "name": "MAX_CALLBACK_LINE_BYTES",
+          "line": 10
+        },
+        {
+          "kind": "struct",
+          "name": "CallbackStats",
+          "line": 13
+        },
+        {
+          "kind": "struct",
+          "name": "ResearchCallbackEvent",
+          "line": 20
+        },
+        {
+          "kind": "struct",
+          "name": "ParsedCallbackLine",
+          "line": 27
+        },
+        {
+          "kind": "fn",
+          "name": "apply_stats",
+          "line": 85
+        },
+        {
+          "kind": "fn",
+          "name": "parse_callback_line",
+          "line": 97
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-core/src/research.rs",
       "lines": 1089,
       "modules": [],
@@ -8236,53 +7457,6 @@
           "kind": "fn",
           "name": "ensure_result_artifact_skeleton",
           "line": 407
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-core/src/research_runner.rs",
-      "lines": 291,
-      "modules": [],
-      "imports": [
-        "serde::{Deserialize, Serialize}",
-        "serde_json::{Map, Value}",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "const",
-          "name": "CALLBACK_PREFIX",
-          "line": 8
-        },
-        {
-          "kind": "const",
-          "name": "MAX_CALLBACK_LINE_BYTES",
-          "line": 10
-        },
-        {
-          "kind": "struct",
-          "name": "CallbackStats",
-          "line": 13
-        },
-        {
-          "kind": "struct",
-          "name": "ResearchCallbackEvent",
-          "line": 20
-        },
-        {
-          "kind": "struct",
-          "name": "ParsedCallbackLine",
-          "line": 27
-        },
-        {
-          "kind": "fn",
-          "name": "apply_stats",
-          "line": 85
-        },
-        {
-          "kind": "fn",
-          "name": "parse_callback_line",
-          "line": 97
         }
       ]
     },
@@ -8548,6 +7722,60 @@
           "kind": "fn",
           "name": "subagent_model_tier",
           "line": 28
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive.rs",
+      "lines": 1967,
+      "modules": [
+        "question",
+        "tool_catalog",
+        "history",
+        "task_results",
+        "permissions",
+        "serial_tools",
+        "parallel_tools",
+        "assembly",
+        "context_budget",
+        "halt",
+        "batch"
+      ],
+      "imports": [
+        "super::*",
+        "tool_catalog::append_deferred_process_hint",
+        "tool_catalog::{auto_load_deferred_tool, run_tool_search, tool_spec}",
+        "history::{\n    commit_step_messages, commit_tool_results, record_round_message, StepMessageOutcome,\n}",
+        "task_results::{tool_result_part, tool_result_part_with_images}",
+        "serial_tools::{execute_serial_tool_calls, SerialToolRequest}",
+        "parallel_tools::{\n    can_parallel_tool_calls, execute_parallel_tool_calls, ParallelPreflight, ParallelToolRequest,\n}",
+        "assembly::{assemble_run_once, RunOnceAssembly}",
+        "context_budget::enforce_context_budget",
+        "halt::{append_halted_tool_results, halt_signalled}",
+        "super::*",
+        "serde_json::json",
+        "super::*",
+        "kanzei_harness::{\n        rule, Component, Effect, Harness, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx,\n    }",
+        "serde_json::{json, Value}",
+        "std::sync::atomic::{AtomicUsize, Ordering}",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "run_once",
+          "line": 43
+        },
+        {
+          "kind": "fn",
+          "name": "run_once_with_parts",
+          "line": 83
+        },
+        {
+          "kind": "fn",
+          "name": "reached_step_ceiling",
+          "line": 1246
         }
       ]
     },
@@ -8861,60 +8089,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-core/src/runner/drive.rs",
-      "lines": 1967,
-      "modules": [
-        "question",
-        "tool_catalog",
-        "history",
-        "task_results",
-        "permissions",
-        "serial_tools",
-        "parallel_tools",
-        "assembly",
-        "context_budget",
-        "halt",
-        "batch"
-      ],
-      "imports": [
-        "super::*",
-        "tool_catalog::append_deferred_process_hint",
-        "tool_catalog::{auto_load_deferred_tool, run_tool_search, tool_spec}",
-        "history::{\n    commit_step_messages, commit_tool_results, record_round_message, StepMessageOutcome,\n}",
-        "task_results::{tool_result_part, tool_result_part_with_images}",
-        "serial_tools::{execute_serial_tool_calls, SerialToolRequest}",
-        "parallel_tools::{\n    can_parallel_tool_calls, execute_parallel_tool_calls, ParallelPreflight, ParallelToolRequest,\n}",
-        "assembly::{assemble_run_once, RunOnceAssembly}",
-        "context_budget::enforce_context_budget",
-        "halt::{append_halted_tool_results, halt_signalled}",
-        "super::*",
-        "serde_json::json",
-        "super::*",
-        "kanzei_harness::{\n        rule, Component, Effect, Harness, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx,\n    }",
-        "serde_json::{json, Value}",
-        "std::sync::atomic::{AtomicUsize, Ordering}",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
-        "tokio::net::TcpListener"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "run_once",
-          "line": 43
-        },
-        {
-          "kind": "fn",
-          "name": "run_once_with_parts",
-          "line": 83
-        },
-        {
-          "kind": "fn",
-          "name": "reached_step_ceiling",
-          "line": 1246
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-core/src/runner/event.rs",
       "lines": 553,
       "modules": [],
@@ -9028,17 +8202,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-core/src/runner/item_context/tests.rs",
-      "lines": 447,
-      "modules": [],
-      "imports": [
-        "super::*",
-        "crate::runner::testutil::{call, result}",
-        "crate::{\n    project_session_facts, project_session_facts_with_surface, SessionStore, TypedSessionWriter,\n}"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-core/src/runner/item_context.rs",
       "lines": 302,
       "modules": [
@@ -9065,6 +8228,17 @@
           "line": 198
         }
       ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/item_context/tests.rs",
+      "lines": 447,
+      "modules": [],
+      "imports": [
+        "super::*",
+        "crate::runner::testutil::{call, result}",
+        "crate::{\n    project_session_facts, project_session_facts_with_surface, SessionStore, TypedSessionWriter,\n}"
+      ],
+      "public_api": []
     },
     {
       "file": "crates/kanzei-core/src/runner/line_runtime.rs",
@@ -9471,26 +8645,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
-      "lines": 69,
-      "modules": [],
-      "imports": [
-        "kanzei_llm::ToolSpec"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "task_spec_for",
-          "line": 11
-        },
-        {
-          "kind": "fn",
-          "name": "task_spec",
-          "line": 22
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-core/src/runner/subagent.rs",
       "lines": 1383,
       "modules": [
@@ -9649,6 +8803,26 @@
           "kind": "fn",
           "name": "run_read_agent",
           "line": 968
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
+      "lines": 69,
+      "modules": [],
+      "imports": [
+        "kanzei_llm::ToolSpec"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "task_spec_for",
+          "line": 11
+        },
+        {
+          "kind": "fn",
+          "name": "task_spec",
+          "line": 22
         }
       ]
     },
@@ -10954,24 +10128,47 @@
       ]
     },
     {
-      "file": "crates/kanzei-core/src/store/session/artifact_refs.rs",
-      "lines": 79,
+      "file": "crates/kanzei-core/src/store/session_execution.rs",
+      "lines": 392,
       "modules": [],
       "imports": [
-        "std::collections::BTreeMap",
-        "std::path::Path",
-        "std::path::Component"
+        "std::io",
+        "std::path::{Path, PathBuf}",
+        "std::sync::{mpsc, Arc}",
+        "std::thread::JoinHandle",
+        "std::time::Duration",
+        "kanzei_base::atomic_file::{self, FileLock}",
+        "sha2::{Digest, Sha256}",
+        "super::{SessionFactError, SessionStore, StoreError, TypedSessionWriter}",
+        "super::*",
+        "crate::{Delivery, SessionFact, SessionTurnTerminal}",
+        "kanzei_llm::Message"
       ],
       "public_api": [
         {
-          "kind": "fn",
-          "name": "collect_artifact_references",
-          "line": 5
+          "kind": "struct",
+          "name": "SessionExecutionGuard",
+          "line": 49
         },
         {
           "kind": "fn",
-          "name": "normalize_artifact_relative_path",
-          "line": 56
+          "name": "try_acquire",
+          "line": 59
+        },
+        {
+          "kind": "fn",
+          "name": "prepare",
+          "line": 98
+        },
+        {
+          "kind": "fn",
+          "name": "writer",
+          "line": 121
+        },
+        {
+          "kind": "fn",
+          "name": "lock_recovery",
+          "line": 141
         }
       ]
     },
@@ -11123,47 +10320,24 @@
       ]
     },
     {
-      "file": "crates/kanzei-core/src/store/session_execution.rs",
-      "lines": 392,
+      "file": "crates/kanzei-core/src/store/session/artifact_refs.rs",
+      "lines": 79,
       "modules": [],
       "imports": [
-        "std::io",
-        "std::path::{Path, PathBuf}",
-        "std::sync::{mpsc, Arc}",
-        "std::thread::JoinHandle",
-        "std::time::Duration",
-        "kanzei_base::atomic_file::{self, FileLock}",
-        "sha2::{Digest, Sha256}",
-        "super::{SessionFactError, SessionStore, StoreError, TypedSessionWriter}",
-        "super::*",
-        "crate::{Delivery, SessionFact, SessionTurnTerminal}",
-        "kanzei_llm::Message"
+        "std::collections::BTreeMap",
+        "std::path::Path",
+        "std::path::Component"
       ],
       "public_api": [
         {
-          "kind": "struct",
-          "name": "SessionExecutionGuard",
-          "line": 49
+          "kind": "fn",
+          "name": "collect_artifact_references",
+          "line": 5
         },
         {
           "kind": "fn",
-          "name": "try_acquire",
-          "line": 59
-        },
-        {
-          "kind": "fn",
-          "name": "prepare",
-          "line": 98
-        },
-        {
-          "kind": "fn",
-          "name": "writer",
-          "line": 121
-        },
-        {
-          "kind": "fn",
-          "name": "lock_recovery",
-          "line": 141
+          "name": "normalize_artifact_relative_path",
+          "line": 56
         }
       ]
     },
@@ -11395,80 +10569,6 @@
           "kind": "fn",
           "name": "store",
           "line": 5
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-core/src/store/typed/projection.rs",
-      "lines": 465,
-      "modules": [],
-      "imports": [
-        "std::collections::HashMap",
-        "kanzei_llm::{Message, Part}",
-        "serde::{Deserialize, Serialize}",
-        "super::super::events::session_event_id",
-        "super::{\n    stable_json_hash, SessionFact, SessionFactEnvelope, StoredEvent, SESSION_EVENT_FORMAT_VERSION,\n}"
-      ],
-      "public_api": [
-        {
-          "kind": "enum",
-          "name": "SessionTurnTerminal",
-          "line": 10
-        },
-        {
-          "kind": "fn",
-          "name": "reason",
-          "line": 18
-        },
-        {
-          "kind": "fn",
-          "name": "into_fact",
-          "line": 25
-        },
-        {
-          "kind": "struct",
-          "name": "InterruptedAssistant",
-          "line": 36
-        },
-        {
-          "kind": "struct",
-          "name": "SessionProjection",
-          "line": 47
-        },
-        {
-          "kind": "fn",
-          "name": "project_session_facts",
-          "line": 64
-        },
-        {
-          "kind": "fn",
-          "name": "project_session_facts_with_surface",
-          "line": 70
-        },
-        {
-          "kind": "struct",
-          "name": "ShadowComparison",
-          "line": 309
-        },
-        {
-          "kind": "fn",
-          "name": "compare_shadow",
-          "line": 328
-        },
-        {
-          "kind": "fn",
-          "name": "compare_shadow_for_turn",
-          "line": 334
-        },
-        {
-          "kind": "struct",
-          "name": "ShadowVerdictStats",
-          "line": 432
-        },
-        {
-          "kind": "fn",
-          "name": "summarize_shadow_reports",
-          "line": 439
         }
       ]
     },
@@ -11773,6 +10873,80 @@
           "kind": "fn",
           "name": "record_error",
           "line": 1455
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/store/typed/projection.rs",
+      "lines": 465,
+      "modules": [],
+      "imports": [
+        "std::collections::HashMap",
+        "kanzei_llm::{Message, Part}",
+        "serde::{Deserialize, Serialize}",
+        "super::super::events::session_event_id",
+        "super::{\n    stable_json_hash, SessionFact, SessionFactEnvelope, StoredEvent, SESSION_EVENT_FORMAT_VERSION,\n}"
+      ],
+      "public_api": [
+        {
+          "kind": "enum",
+          "name": "SessionTurnTerminal",
+          "line": 10
+        },
+        {
+          "kind": "fn",
+          "name": "reason",
+          "line": 18
+        },
+        {
+          "kind": "fn",
+          "name": "into_fact",
+          "line": 25
+        },
+        {
+          "kind": "struct",
+          "name": "InterruptedAssistant",
+          "line": 36
+        },
+        {
+          "kind": "struct",
+          "name": "SessionProjection",
+          "line": 47
+        },
+        {
+          "kind": "fn",
+          "name": "project_session_facts",
+          "line": 64
+        },
+        {
+          "kind": "fn",
+          "name": "project_session_facts_with_surface",
+          "line": 70
+        },
+        {
+          "kind": "struct",
+          "name": "ShadowComparison",
+          "line": 309
+        },
+        {
+          "kind": "fn",
+          "name": "compare_shadow",
+          "line": 328
+        },
+        {
+          "kind": "fn",
+          "name": "compare_shadow_for_turn",
+          "line": 334
+        },
+        {
+          "kind": "struct",
+          "name": "ShadowVerdictStats",
+          "line": 432
+        },
+        {
+          "kind": "fn",
+          "name": "summarize_shadow_reports",
+          "line": 439
         }
       ]
     },
@@ -12228,6 +11402,111 @@
       ]
     },
     {
+      "file": "crates/kanzei-harness/src/config.rs",
+      "lines": 2661,
+      "modules": [
+        "cadence",
+        "embeddings",
+        "web",
+        "limits",
+        "models",
+        "permissions"
+      ],
+      "imports": [
+        "cadence::{Cadence, CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence}",
+        "embeddings::EmbeddingsSection",
+        "web::WebSection",
+        "limits::Limits",
+        "models::{\n    builtin_context_limit, builtin_provider_names, ModelRoles, ProviderConfig, ResolvedModel,\n}",
+        "crate::permission::{Rule, BASH_ACTION}",
+        "permissions::{NonInteractive, PermissionsSection, ProfileSection}",
+        "std::collections::BTreeMap",
+        "std::path::Path",
+        "serde::{Deserialize, Serialize}",
+        "super::*",
+        "crate::permission_persist::{append_allow_rule, generalize_resource}",
+        "crate::project_root::{\n    discover_project_config, discover_project_root, is_home_root, resolve_project_root,\n}",
+        "super::*",
+        "crate::project_root::*",
+        "std::path::PathBuf",
+        "std::sync::mpsc",
+        "std::time::Duration",
+        "crate::config::NonInteractive"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "KanzeiConfig",
+          "line": 38
+        },
+        {
+          "kind": "fn",
+          "name": "load",
+          "line": 163
+        },
+        {
+          "kind": "fn",
+          "name": "load_with_warnings",
+          "line": 176
+        },
+        {
+          "kind": "fn",
+          "name": "load_at_root",
+          "line": 187
+        },
+        {
+          "kind": "fn",
+          "name": "load_with_warnings_at_root",
+          "line": 196
+        },
+        {
+          "kind": "fn",
+          "name": "fill_defaults",
+          "line": 224
+        },
+        {
+          "kind": "fn",
+          "name": "service_tier_for",
+          "line": 265
+        },
+        {
+          "kind": "fn",
+          "name": "resolve_model",
+          "line": 270
+        },
+        {
+          "kind": "fn",
+          "name": "default_profile",
+          "line": 323
+        },
+        {
+          "kind": "fn",
+          "name": "hosted_tools_for",
+          "line": 335
+        },
+        {
+          "kind": "fn",
+          "name": "update_config_document",
+          "line": 404
+        },
+        {
+          "kind": "const",
+          "name": "TOP_LEVEL_KEYS",
+          "line": 435
+        },
+        {
+          "kind": "fn",
+          "name": "config_reference",
+          "line": 521
+        },
+        {
+          "kind": "fn",
+          "name": "resolve_model_chain",
+          "line": 770
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-harness/src/config/cadence.rs",
       "lines": 123,
       "modules": [],
@@ -12568,111 +11847,6 @@
           "kind": "fn",
           "name": "native_search_disabled_for",
           "line": 41
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-harness/src/config.rs",
-      "lines": 2661,
-      "modules": [
-        "cadence",
-        "embeddings",
-        "web",
-        "limits",
-        "models",
-        "permissions"
-      ],
-      "imports": [
-        "cadence::{Cadence, CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence}",
-        "embeddings::EmbeddingsSection",
-        "web::WebSection",
-        "limits::Limits",
-        "models::{\n    builtin_context_limit, builtin_provider_names, ModelRoles, ProviderConfig, ResolvedModel,\n}",
-        "crate::permission::{Rule, BASH_ACTION}",
-        "permissions::{NonInteractive, PermissionsSection, ProfileSection}",
-        "std::collections::BTreeMap",
-        "std::path::Path",
-        "serde::{Deserialize, Serialize}",
-        "super::*",
-        "crate::permission_persist::{append_allow_rule, generalize_resource}",
-        "crate::project_root::{\n    discover_project_config, discover_project_root, is_home_root, resolve_project_root,\n}",
-        "super::*",
-        "crate::project_root::*",
-        "std::path::PathBuf",
-        "std::sync::mpsc",
-        "std::time::Duration",
-        "crate::config::NonInteractive"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "KanzeiConfig",
-          "line": 38
-        },
-        {
-          "kind": "fn",
-          "name": "load",
-          "line": 163
-        },
-        {
-          "kind": "fn",
-          "name": "load_with_warnings",
-          "line": 176
-        },
-        {
-          "kind": "fn",
-          "name": "load_at_root",
-          "line": 187
-        },
-        {
-          "kind": "fn",
-          "name": "load_with_warnings_at_root",
-          "line": 196
-        },
-        {
-          "kind": "fn",
-          "name": "fill_defaults",
-          "line": 224
-        },
-        {
-          "kind": "fn",
-          "name": "service_tier_for",
-          "line": 265
-        },
-        {
-          "kind": "fn",
-          "name": "resolve_model",
-          "line": 270
-        },
-        {
-          "kind": "fn",
-          "name": "default_profile",
-          "line": 323
-        },
-        {
-          "kind": "fn",
-          "name": "hosted_tools_for",
-          "line": 335
-        },
-        {
-          "kind": "fn",
-          "name": "update_config_document",
-          "line": 404
-        },
-        {
-          "kind": "const",
-          "name": "TOP_LEVEL_KEYS",
-          "line": 435
-        },
-        {
-          "kind": "fn",
-          "name": "config_reference",
-          "line": 521
-        },
-        {
-          "kind": "fn",
-          "name": "resolve_model_chain",
-          "line": 770
         }
       ]
     },
@@ -13401,6 +12575,38 @@
       ]
     },
     {
+      "file": "crates/kanzei-harness/src/permission_persist.rs",
+      "lines": 95,
+      "modules": [],
+      "imports": [
+        "std::path::{Path, PathBuf}",
+        "crate::config::update_config_document",
+        "crate::permission::Rule"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "is_wildcard_resource",
+          "line": 13
+        },
+        {
+          "kind": "fn",
+          "name": "rule_digest",
+          "line": 19
+        },
+        {
+          "kind": "fn",
+          "name": "append_allow_rule",
+          "line": 48
+        },
+        {
+          "kind": "fn",
+          "name": "generalize_resource",
+          "line": 92
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-harness/src/permission.rs",
       "lines": 1380,
       "modules": [],
@@ -13533,38 +12739,6 @@
           "kind": "fn",
           "name": "wildcard_match",
           "line": 456
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-harness/src/permission_persist.rs",
-      "lines": 95,
-      "modules": [],
-      "imports": [
-        "std::path::{Path, PathBuf}",
-        "crate::config::update_config_document",
-        "crate::permission::Rule"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "is_wildcard_resource",
-          "line": 13
-        },
-        {
-          "kind": "fn",
-          "name": "rule_digest",
-          "line": 19
-        },
-        {
-          "kind": "fn",
-          "name": "append_allow_rule",
-          "line": 48
-        },
-        {
-          "kind": "fn",
-          "name": "generalize_resource",
-          "line": 92
         }
       ]
     },
@@ -13820,6 +12994,114 @@
       ]
     },
     {
+      "file": "crates/kanzei-harness/src/tool_pipeline.rs",
+      "lines": 439,
+      "modules": [],
+      "imports": [
+        "std::sync::Arc",
+        "crate::tool::{ToolCtx, ToolOutput}",
+        "serde_json::Value",
+        "futures::FutureExt",
+        "super::*",
+        "serde_json::json",
+        "std::sync::atomic::{AtomicU32, Ordering}",
+        "std::sync::Arc",
+        "std::sync::atomic::{AtomicU32, Ordering}"
+      ],
+      "public_api": [
+        {
+          "kind": "enum",
+          "name": "ToolPhase",
+          "line": 19
+        },
+        {
+          "kind": "trait",
+          "name": "ToolGuard",
+          "line": 37
+        },
+        {
+          "kind": "trait",
+          "name": "ToolResultPolicy",
+          "line": 45
+        },
+        {
+          "kind": "trait",
+          "name": "ToolObserver",
+          "line": 51
+        },
+        {
+          "kind": "fn",
+          "name": "wrap_execute",
+          "line": 67
+        },
+        {
+          "kind": "struct",
+          "name": "TimedOut",
+          "line": 101
+        },
+        {
+          "kind": "fn",
+          "name": "with_timeout",
+          "line": 109
+        },
+        {
+          "kind": "fn",
+          "name": "run_tool_pipeline",
+          "line": 127
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-harness/src/tool_search.rs",
+      "lines": 377,
+      "modules": [],
+      "imports": [
+        "std::collections::{HashSet, VecDeque}",
+        "std::sync::Arc",
+        "async_trait::async_trait",
+        "serde_json::{json, Value}",
+        "crate::{Tool, ToolConcurrency, ToolCtx, ToolOutput}",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "const",
+          "name": "TOOL_SEARCH",
+          "line": 10
+        },
+        {
+          "kind": "struct",
+          "name": "SearchResult",
+          "line": 16
+        },
+        {
+          "kind": "struct",
+          "name": "ToolSearchTool",
+          "line": 22
+        },
+        {
+          "kind": "fn",
+          "name": "one_line",
+          "line": 70
+        },
+        {
+          "kind": "fn",
+          "name": "search",
+          "line": 89
+        },
+        {
+          "kind": "fn",
+          "name": "render_catalog",
+          "line": 174
+        },
+        {
+          "kind": "fn",
+          "name": "render_result",
+          "line": 193
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-harness/src/tool.rs",
       "lines": 549,
       "modules": [],
@@ -13980,114 +13262,6 @@
           "kind": "fn",
           "name": "repair_hint",
           "line": 363
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-harness/src/tool_pipeline.rs",
-      "lines": 439,
-      "modules": [],
-      "imports": [
-        "std::sync::Arc",
-        "crate::tool::{ToolCtx, ToolOutput}",
-        "serde_json::Value",
-        "futures::FutureExt",
-        "super::*",
-        "serde_json::json",
-        "std::sync::atomic::{AtomicU32, Ordering}",
-        "std::sync::Arc",
-        "std::sync::atomic::{AtomicU32, Ordering}"
-      ],
-      "public_api": [
-        {
-          "kind": "enum",
-          "name": "ToolPhase",
-          "line": 19
-        },
-        {
-          "kind": "trait",
-          "name": "ToolGuard",
-          "line": 37
-        },
-        {
-          "kind": "trait",
-          "name": "ToolResultPolicy",
-          "line": 45
-        },
-        {
-          "kind": "trait",
-          "name": "ToolObserver",
-          "line": 51
-        },
-        {
-          "kind": "fn",
-          "name": "wrap_execute",
-          "line": 67
-        },
-        {
-          "kind": "struct",
-          "name": "TimedOut",
-          "line": 101
-        },
-        {
-          "kind": "fn",
-          "name": "with_timeout",
-          "line": 109
-        },
-        {
-          "kind": "fn",
-          "name": "run_tool_pipeline",
-          "line": 127
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-harness/src/tool_search.rs",
-      "lines": 377,
-      "modules": [],
-      "imports": [
-        "std::collections::{HashSet, VecDeque}",
-        "std::sync::Arc",
-        "async_trait::async_trait",
-        "serde_json::{json, Value}",
-        "crate::{Tool, ToolConcurrency, ToolCtx, ToolOutput}",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "const",
-          "name": "TOOL_SEARCH",
-          "line": 10
-        },
-        {
-          "kind": "struct",
-          "name": "SearchResult",
-          "line": 16
-        },
-        {
-          "kind": "struct",
-          "name": "ToolSearchTool",
-          "line": 22
-        },
-        {
-          "kind": "fn",
-          "name": "one_line",
-          "line": 70
-        },
-        {
-          "kind": "fn",
-          "name": "search",
-          "line": 89
-        },
-        {
-          "kind": "fn",
-          "name": "render_catalog",
-          "line": 174
-        },
-        {
-          "kind": "fn",
-          "name": "render_result",
-          "line": 193
         }
       ]
     },
@@ -14459,34 +13633,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-llm/src/protocol/openai.rs",
-      "lines": 847,
-      "modules": [],
-      "imports": [
-        "std::collections::BTreeMap",
-        "serde_json::{json, Value}",
-        "crate::error::LlmError",
-        "crate::event::{FinishReason, LlmEvent, Usage}",
-        "crate::request::{\n    openai_reasoning_effort, supports_openai_reasoning_effort, LlmRequest, Part, Role,\n}",
-        "crate::sse::SseEvent",
-        "super::ProtocolState",
-        "super::*",
-        "crate::request::{Message, ReasoningEffort}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "build_body",
-          "line": 18
-        },
-        {
-          "kind": "struct",
-          "name": "OpenAiState",
-          "line": 154
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-llm/src/protocol/openai_responses.rs",
       "lines": 888,
       "modules": [],
@@ -14521,6 +13667,34 @@
           "kind": "fn",
           "name": "with_route_identity",
           "line": 176
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-llm/src/protocol/openai.rs",
+      "lines": 847,
+      "modules": [],
+      "imports": [
+        "std::collections::BTreeMap",
+        "serde_json::{json, Value}",
+        "crate::error::LlmError",
+        "crate::event::{FinishReason, LlmEvent, Usage}",
+        "crate::request::{\n    openai_reasoning_effort, supports_openai_reasoning_effort, LlmRequest, Part, Role,\n}",
+        "crate::sse::SseEvent",
+        "super::ProtocolState",
+        "super::*",
+        "crate::request::{Message, ReasoningEffort}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "build_body",
+          "line": 18
+        },
+        {
+          "kind": "struct",
+          "name": "OpenAiState",
+          "line": 154
         }
       ]
     },
@@ -14688,6 +13862,31 @@
         "kanzei_llm::request::{LlmRequest, Message, ReasoningEffort}",
         "kanzei_llm::sse::SseParser",
         "serde_json::{json, Value}"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei-memory/src/docstore.rs",
+      "lines": 1464,
+      "modules": [
+        "archive",
+        "model",
+        "parse",
+        "render",
+        "repository",
+        "validation"
+      ],
+      "imports": [
+        "std::path::PathBuf",
+        "std::sync::{Arc, Mutex}",
+        "model::*",
+        "parse::*",
+        "render::*",
+        "repository::*",
+        "super::*",
+        "std::sync::atomic::{AtomicBool, Ordering}",
+        "std::sync::atomic::{AtomicBool, Ordering}",
+        "std::os::windows::fs::OpenOptionsExt"
       ],
       "public_api": []
     },
@@ -15063,31 +14262,6 @@
           "line": 319
         }
       ]
-    },
-    {
-      "file": "crates/kanzei-memory/src/docstore.rs",
-      "lines": 1464,
-      "modules": [
-        "archive",
-        "model",
-        "parse",
-        "render",
-        "repository",
-        "validation"
-      ],
-      "imports": [
-        "std::path::PathBuf",
-        "std::sync::{Arc, Mutex}",
-        "model::*",
-        "parse::*",
-        "render::*",
-        "repository::*",
-        "super::*",
-        "std::sync::atomic::{AtomicBool, Ordering}",
-        "std::sync::atomic::{AtomicBool, Ordering}",
-        "std::os::windows::fs::OpenOptionsExt"
-      ],
-      "public_api": []
     },
     {
       "file": "crates/kanzei-memory/src/embed.rs",
@@ -16026,61 +15200,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-memory/src/memory/store/archive.rs",
-      "lines": 245,
-      "modules": [],
-      "imports": [
-        "std::path::PathBuf",
-        "super::super::admission::MemoryAdmission",
-        "super::super::{parse_entry, render_entry, today, MemoryEntry}",
-        "super::MemoryStore",
-        "super::super::AddOutcome",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "load_archived",
-          "line": 14
-        },
-        {
-          "kind": "fn",
-          "name": "set_area",
-          "line": 38
-        },
-        {
-          "kind": "fn",
-          "name": "has_archived_id",
-          "line": 41
-        },
-        {
-          "kind": "fn",
-          "name": "load_archived_ids",
-          "line": 47
-        },
-        {
-          "kind": "fn",
-          "name": "archived_count",
-          "line": 65
-        },
-        {
-          "kind": "fn",
-          "name": "archive_dead",
-          "line": 78
-        },
-        {
-          "kind": "fn",
-          "name": "restore_archived",
-          "line": 108
-        },
-        {
-          "kind": "fn",
-          "name": "set_area_field",
-          "line": 149
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-memory/src/memory/store.rs",
       "lines": 3744,
       "modules": [
@@ -16235,6 +15354,61 @@
           "kind": "fn",
           "name": "open_db",
           "line": 1026
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/store/archive.rs",
+      "lines": 245,
+      "modules": [],
+      "imports": [
+        "std::path::PathBuf",
+        "super::super::admission::MemoryAdmission",
+        "super::super::{parse_entry, render_entry, today, MemoryEntry}",
+        "super::MemoryStore",
+        "super::super::AddOutcome",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "load_archived",
+          "line": 14
+        },
+        {
+          "kind": "fn",
+          "name": "set_area",
+          "line": 38
+        },
+        {
+          "kind": "fn",
+          "name": "has_archived_id",
+          "line": 41
+        },
+        {
+          "kind": "fn",
+          "name": "load_archived_ids",
+          "line": 47
+        },
+        {
+          "kind": "fn",
+          "name": "archived_count",
+          "line": 65
+        },
+        {
+          "kind": "fn",
+          "name": "archive_dead",
+          "line": 78
+        },
+        {
+          "kind": "fn",
+          "name": "restore_archived",
+          "line": 108
+        },
+        {
+          "kind": "fn",
+          "name": "set_area_field",
+          "line": 149
         }
       ]
     },
@@ -16454,6 +15628,69 @@
       "public_api": []
     },
     {
+      "file": "crates/kanzei-tools/src/arch_diagram_lint.rs",
+      "lines": 776,
+      "modules": [],
+      "imports": [
+        "std::collections::{BTreeMap, BTreeSet}",
+        "std::path::Path",
+        "serde::Serialize",
+        "super::{DIAGRAM_DIR, MAX_EDGES, MAX_NODES, RESERVED_IDS, SEMANTIC_CLASSES}"
+      ],
+      "public_api": [
+        {
+          "kind": "enum",
+          "name": "Severity",
+          "line": 14
+        },
+        {
+          "kind": "struct",
+          "name": "LintIssue",
+          "line": 20
+        },
+        {
+          "kind": "struct",
+          "name": "DiagramDoc",
+          "line": 32
+        },
+        {
+          "kind": "fn",
+          "name": "errors",
+          "line": 47
+        },
+        {
+          "kind": "fn",
+          "name": "scan_diagrams",
+          "line": 88
+        },
+        {
+          "kind": "fn",
+          "name": "parse_diagram_doc",
+          "line": 110
+        },
+        {
+          "kind": "fn",
+          "name": "lint_mermaid",
+          "line": 433
+        },
+        {
+          "kind": "fn",
+          "name": "render_issue",
+          "line": 767
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/arch_diagram_tests.rs",
+      "lines": 581,
+      "modules": [],
+      "imports": [
+        "super::*",
+        "std::path::PathBuf"
+      ],
+      "public_api": []
+    },
+    {
       "file": "crates/kanzei-tools/src/arch_diagram.rs",
       "lines": 528,
       "modules": [
@@ -16540,69 +15777,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/arch_diagram_lint.rs",
-      "lines": 776,
-      "modules": [],
-      "imports": [
-        "std::collections::{BTreeMap, BTreeSet}",
-        "std::path::Path",
-        "serde::Serialize",
-        "super::{DIAGRAM_DIR, MAX_EDGES, MAX_NODES, RESERVED_IDS, SEMANTIC_CLASSES}"
-      ],
-      "public_api": [
-        {
-          "kind": "enum",
-          "name": "Severity",
-          "line": 14
-        },
-        {
-          "kind": "struct",
-          "name": "LintIssue",
-          "line": 20
-        },
-        {
-          "kind": "struct",
-          "name": "DiagramDoc",
-          "line": 32
-        },
-        {
-          "kind": "fn",
-          "name": "errors",
-          "line": 47
-        },
-        {
-          "kind": "fn",
-          "name": "scan_diagrams",
-          "line": 88
-        },
-        {
-          "kind": "fn",
-          "name": "parse_diagram_doc",
-          "line": 110
-        },
-        {
-          "kind": "fn",
-          "name": "lint_mermaid",
-          "line": 433
-        },
-        {
-          "kind": "fn",
-          "name": "render_issue",
-          "line": 767
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/arch_diagram_tests.rs",
-      "lines": 581,
-      "modules": [],
-      "imports": [
-        "super::*",
-        "std::path::PathBuf"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-tools/src/architecture.rs",
       "lines": 1171,
       "modules": [],
@@ -16629,6 +15803,138 @@
           "kind": "struct",
           "name": "ArchitectureTool",
           "line": 47
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/background.rs",
+      "lines": 2402,
+      "modules": [
+        "lifecycle",
+        "monitor",
+        "persistent",
+        "registration"
+      ],
+      "imports": [
+        "std::path::PathBuf",
+        "std::sync::atomic::{AtomicBool, Ordering}",
+        "std::sync::{Arc, Mutex}",
+        "crate::managed::ManagedSnapshot",
+        "futures::FutureExt",
+        "serde::{Deserialize, Serialize}",
+        "lifecycle::{get, kill_process, kill_project, list, stop, stop_result}",
+        "lifecycle::reconcile",
+        "lifecycle::{\n    install_window_observer_once, next_id, now_ms, project_hash, registry, spawn_guard,\n}",
+        "persistent::{\n    adopt_persistent, discover_persistent, kill_registered, kill_registered_result,\n    mark_registry_failed, PersistentEntry,\n}",
+        "persistent::{load_registry, remove_registry_entry, save_registry}",
+        "registration::append_bounded",
+        "registration::register",
+        "tokio::io::AsyncWriteExt",
+        "super::*",
+        "std::path::Path",
+        "std::sync::OnceLock",
+        "kanzei_harness::{Tool, ToolCtx}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "stop_for_project",
+          "line": 26
+        },
+        {
+          "kind": "fn",
+          "name": "prune_finished_process_for_test",
+          "line": 66
+        },
+        {
+          "kind": "struct",
+          "name": "BackgroundOwner",
+          "line": 168
+        },
+        {
+          "kind": "struct",
+          "name": "BreachRecord",
+          "line": 177
+        },
+        {
+          "kind": "struct",
+          "name": "BackgroundProcess",
+          "line": 186
+        },
+        {
+          "kind": "fn",
+          "name": "send_input",
+          "line": 218
+        },
+        {
+          "kind": "fn",
+          "name": "is_running",
+          "line": 245
+        },
+        {
+          "kind": "fn",
+          "name": "mark_terminated",
+          "line": 251
+        },
+        {
+          "kind": "fn",
+          "name": "baseline",
+          "line": 260
+        },
+        {
+          "kind": "fn",
+          "name": "record_breach",
+          "line": 263
+        },
+        {
+          "kind": "fn",
+          "name": "breaches",
+          "line": 267
+        },
+        {
+          "kind": "fn",
+          "name": "exit_code",
+          "line": 271
+        },
+        {
+          "kind": "fn",
+          "name": "output",
+          "line": 277
+        },
+        {
+          "kind": "fn",
+          "name": "full_log",
+          "line": 284
+        },
+        {
+          "kind": "fn",
+          "name": "output_since",
+          "line": 290
+        },
+        {
+          "kind": "fn",
+          "name": "truncated",
+          "line": 307
+        },
+        {
+          "kind": "fn",
+          "name": "pid",
+          "line": 311
+        },
+        {
+          "kind": "fn",
+          "name": "serial",
+          "line": 364
+        },
+        {
+          "kind": "struct",
+          "name": "FenceGuard",
+          "line": 377
+        },
+        {
+          "kind": "fn",
+          "name": "fence_guard",
+          "line": 389
         }
       ]
     },
@@ -16908,138 +16214,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/background.rs",
-      "lines": 2402,
-      "modules": [
-        "lifecycle",
-        "monitor",
-        "persistent",
-        "registration"
-      ],
-      "imports": [
-        "std::path::PathBuf",
-        "std::sync::atomic::{AtomicBool, Ordering}",
-        "std::sync::{Arc, Mutex}",
-        "crate::managed::ManagedSnapshot",
-        "futures::FutureExt",
-        "serde::{Deserialize, Serialize}",
-        "lifecycle::{get, kill_process, kill_project, list, stop, stop_result}",
-        "lifecycle::reconcile",
-        "lifecycle::{\n    install_window_observer_once, next_id, now_ms, project_hash, registry, spawn_guard,\n}",
-        "persistent::{\n    adopt_persistent, discover_persistent, kill_registered, kill_registered_result,\n    mark_registry_failed, PersistentEntry,\n}",
-        "persistent::{load_registry, remove_registry_entry, save_registry}",
-        "registration::append_bounded",
-        "registration::register",
-        "tokio::io::AsyncWriteExt",
-        "super::*",
-        "std::path::Path",
-        "std::sync::OnceLock",
-        "kanzei_harness::{Tool, ToolCtx}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "stop_for_project",
-          "line": 26
-        },
-        {
-          "kind": "fn",
-          "name": "prune_finished_process_for_test",
-          "line": 66
-        },
-        {
-          "kind": "struct",
-          "name": "BackgroundOwner",
-          "line": 168
-        },
-        {
-          "kind": "struct",
-          "name": "BreachRecord",
-          "line": 177
-        },
-        {
-          "kind": "struct",
-          "name": "BackgroundProcess",
-          "line": 186
-        },
-        {
-          "kind": "fn",
-          "name": "send_input",
-          "line": 218
-        },
-        {
-          "kind": "fn",
-          "name": "is_running",
-          "line": 245
-        },
-        {
-          "kind": "fn",
-          "name": "mark_terminated",
-          "line": 251
-        },
-        {
-          "kind": "fn",
-          "name": "baseline",
-          "line": 260
-        },
-        {
-          "kind": "fn",
-          "name": "record_breach",
-          "line": 263
-        },
-        {
-          "kind": "fn",
-          "name": "breaches",
-          "line": 267
-        },
-        {
-          "kind": "fn",
-          "name": "exit_code",
-          "line": 271
-        },
-        {
-          "kind": "fn",
-          "name": "output",
-          "line": 277
-        },
-        {
-          "kind": "fn",
-          "name": "full_log",
-          "line": 284
-        },
-        {
-          "kind": "fn",
-          "name": "output_since",
-          "line": 290
-        },
-        {
-          "kind": "fn",
-          "name": "truncated",
-          "line": 307
-        },
-        {
-          "kind": "fn",
-          "name": "pid",
-          "line": 311
-        },
-        {
-          "kind": "fn",
-          "name": "serial",
-          "line": 364
-        },
-        {
-          "kind": "struct",
-          "name": "FenceGuard",
-          "line": 377
-        },
-        {
-          "kind": "fn",
-          "name": "fence_guard",
-          "line": 389
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-tools/src/base.rs",
       "lines": 263,
       "modules": [],
@@ -17092,49 +16266,6 @@
           "kind": "struct",
           "name": "BashTool",
           "line": 167
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
-      "lines": 867,
-      "modules": [],
-      "imports": [
-        "std::io::{BufRead, BufReader, Write}",
-        "std::path::{Path, PathBuf}",
-        "std::process::{Child, ChildStdin, Stdio}",
-        "std::sync::atomic::{AtomicBool, AtomicU64, Ordering}",
-        "std::sync::Mutex",
-        "std::time::{Duration, Instant}",
-        "kanzei_harness::ToolOutput",
-        "super::{\n    browser_error, out_click, out_console, out_dom, out_eval, out_open, out_press, out_screenshot,\n    out_scroll, out_type, out_wait, parse_viewport, resolve_nav_target, screenshot_scope,\n    scroll_scope, set_current_url, validate, viewport_label, wait_scope, Backend, BrowserAction,\n    BrowserInput, ConsoleItem, HEADLESS_PANE_HINT, MAX_WAIT_MS,\n}",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "execute_headless",
-          "line": 43
-        },
-        {
-          "kind": "struct",
-          "name": "HelperProcess",
-          "line": 233
-        },
-        {
-          "kind": "fn",
-          "name": "rpc",
-          "line": 249
-        },
-        {
-          "kind": "fn",
-          "name": "start_idle_reaper",
-          "line": 329
-        },
-        {
-          "kind": "fn",
-          "name": "shutdown_helper",
-          "line": 349
         }
       ]
     },
@@ -17362,6 +16493,49 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
+      "lines": 867,
+      "modules": [],
+      "imports": [
+        "std::io::{BufRead, BufReader, Write}",
+        "std::path::{Path, PathBuf}",
+        "std::process::{Child, ChildStdin, Stdio}",
+        "std::sync::atomic::{AtomicBool, AtomicU64, Ordering}",
+        "std::sync::Mutex",
+        "std::time::{Duration, Instant}",
+        "kanzei_harness::ToolOutput",
+        "super::{\n    browser_error, out_click, out_console, out_dom, out_eval, out_open, out_press, out_screenshot,\n    out_scroll, out_type, out_wait, parse_viewport, resolve_nav_target, screenshot_scope,\n    scroll_scope, set_current_url, validate, viewport_label, wait_scope, Backend, BrowserAction,\n    BrowserInput, ConsoleItem, HEADLESS_PANE_HINT, MAX_WAIT_MS,\n}",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "execute_headless",
+          "line": 43
+        },
+        {
+          "kind": "struct",
+          "name": "HelperProcess",
+          "line": 233
+        },
+        {
+          "kind": "fn",
+          "name": "rpc",
+          "line": 249
+        },
+        {
+          "kind": "fn",
+          "name": "start_idle_reaper",
+          "line": 329
+        },
+        {
+          "kind": "fn",
+          "name": "shutdown_helper",
+          "line": 349
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-tools/src/close_telemetry.rs",
       "lines": 416,
       "modules": [],
@@ -17417,6 +16591,36 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/conventions.rs",
+      "lines": 631,
+      "modules": [
+        "drafts"
+      ],
+      "imports": [
+        "std::path::Path",
+        "async_trait::async_trait",
+        "kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput}",
+        "schemars::JsonSchema",
+        "serde::Deserialize",
+        "crate::normalized_text_hash",
+        "super::*",
+        "std::path::PathBuf",
+        "std::sync::atomic::{AtomicUsize, Ordering}"
+      ],
+      "public_api": [
+        {
+          "kind": "const",
+          "name": "CONVENTIONS_REL",
+          "line": 16
+        },
+        {
+          "kind": "struct",
+          "name": "ConventionsTool",
+          "line": 36
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-tools/src/conventions/drafts.rs",
       "lines": 279,
       "modules": [],
@@ -17458,36 +16662,6 @@
           "kind": "fn",
           "name": "discard",
           "line": 131
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/conventions.rs",
-      "lines": 631,
-      "modules": [
-        "drafts"
-      ],
-      "imports": [
-        "std::path::Path",
-        "async_trait::async_trait",
-        "kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput}",
-        "schemars::JsonSchema",
-        "serde::Deserialize",
-        "crate::normalized_text_hash",
-        "super::*",
-        "std::path::PathBuf",
-        "std::sync::atomic::{AtomicUsize, Ordering}"
-      ],
-      "public_api": [
-        {
-          "kind": "const",
-          "name": "CONVENTIONS_REL",
-          "line": 16
-        },
-        {
-          "kind": "struct",
-          "name": "ConventionsTool",
-          "line": 36
         }
       ]
     },
@@ -17744,6 +16918,97 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/git_batches.rs",
+      "lines": 380,
+      "modules": [],
+      "imports": [
+        "std::collections::BTreeSet",
+        "std::path::Path",
+        "std::process::Command",
+        "super::{completed_batches, completed_batches_from_subjects, head_sha}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "completed_batches",
+          "line": 15
+        },
+        {
+          "kind": "fn",
+          "name": "completed_batches_for_entries",
+          "line": 21
+        },
+        {
+          "kind": "fn",
+          "name": "completed_batches_from_subjects",
+          "line": 124
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/git.rs",
+      "lines": 2990,
+      "modules": [
+        "commands",
+        "finalize",
+        "plan",
+        "tool",
+        "worktree",
+        "index"
+      ],
+      "imports": [
+        "std::path::Path",
+        "kanzei_harness::{ToolCtx, ToolOutput}",
+        "commands::append_diagnostics",
+        "tool::GitTool",
+        "worktree::{parse_worktree_list, WorktreeEntry}",
+        "index::{\n    load_stage_request, new_stage_token, remove_stage_request, stage_manifest_path,\n    staged_paths_with_diagnostics, staged_state, union_paths, write_stage_request, StageRequest,\n}",
+        "index::{parse_staged_paths, staged_hash, staged_paths}",
+        "std::io::Write",
+        "std::io::Write",
+        "super::*",
+        "crate::test_record::TEST_RUNS_REL",
+        "kanzei_harness::Tool"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "staged_source_fingerprint",
+          "line": 47
+        },
+        {
+          "kind": "fn",
+          "name": "source_endorsement_fingerprint",
+          "line": 103
+        },
+        {
+          "kind": "fn",
+          "name": "source_endorsement_fingerprint_for_paths",
+          "line": 190
+        },
+        {
+          "kind": "fn",
+          "name": "fingerprint_endorses",
+          "line": 262
+        },
+        {
+          "kind": "fn",
+          "name": "is_source_path",
+          "line": 488
+        },
+        {
+          "kind": "fn",
+          "name": "is_tracker_path",
+          "line": 498
+        },
+        {
+          "kind": "fn",
+          "name": "source_crates",
+          "line": 880
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-tools/src/git/commands.rs",
       "lines": 99,
       "modules": [],
@@ -17980,97 +17245,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/git.rs",
-      "lines": 2990,
-      "modules": [
-        "commands",
-        "finalize",
-        "plan",
-        "tool",
-        "worktree",
-        "index"
-      ],
-      "imports": [
-        "std::path::Path",
-        "kanzei_harness::{ToolCtx, ToolOutput}",
-        "commands::append_diagnostics",
-        "tool::GitTool",
-        "worktree::{parse_worktree_list, WorktreeEntry}",
-        "index::{\n    load_stage_request, new_stage_token, remove_stage_request, stage_manifest_path,\n    staged_paths_with_diagnostics, staged_state, union_paths, write_stage_request, StageRequest,\n}",
-        "index::{parse_staged_paths, staged_hash, staged_paths}",
-        "std::io::Write",
-        "std::io::Write",
-        "super::*",
-        "crate::test_record::TEST_RUNS_REL",
-        "kanzei_harness::Tool"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "staged_source_fingerprint",
-          "line": 47
-        },
-        {
-          "kind": "fn",
-          "name": "source_endorsement_fingerprint",
-          "line": 103
-        },
-        {
-          "kind": "fn",
-          "name": "source_endorsement_fingerprint_for_paths",
-          "line": 190
-        },
-        {
-          "kind": "fn",
-          "name": "fingerprint_endorses",
-          "line": 262
-        },
-        {
-          "kind": "fn",
-          "name": "is_source_path",
-          "line": 488
-        },
-        {
-          "kind": "fn",
-          "name": "is_tracker_path",
-          "line": 498
-        },
-        {
-          "kind": "fn",
-          "name": "source_crates",
-          "line": 880
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/git_batches.rs",
-      "lines": 380,
-      "modules": [],
-      "imports": [
-        "std::collections::BTreeSet",
-        "std::path::Path",
-        "std::process::Command",
-        "super::{completed_batches, completed_batches_from_subjects, head_sha}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "completed_batches",
-          "line": 15
-        },
-        {
-          "kind": "fn",
-          "name": "completed_batches_for_entries",
-          "line": 21
-        },
-        {
-          "kind": "fn",
-          "name": "completed_batches_from_subjects",
-          "line": 124
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-tools/src/glob.rs",
       "lines": 153,
       "modules": [],
@@ -18171,21 +17345,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/latex_tool/paper.rs",
-      "lines": 59,
-      "modules": [],
-      "imports": [
-        "std::path::Path"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "compile_paper",
-          "line": 3
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-tools/src/latex_tool.rs",
       "lines": 794,
       "modules": [
@@ -18235,6 +17394,21 @@
           "kind": "fn",
           "name": "pdf_to_png",
           "line": 339
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/latex_tool/paper.rs",
+      "lines": 59,
+      "modules": [],
+      "imports": [
+        "std::path::Path"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "compile_paper",
+          "line": 3
         }
       ]
     },
@@ -18707,33 +17881,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/plot_tool/adapters.rs",
-      "lines": 161,
-      "modules": [],
-      "imports": [
-        "super::{base64_engine_encode, run_in_dir, summarize, which_in_path}",
-        "kanzei_harness::ToolOutput",
-        "std::path::Path"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "render_pgfplots",
-          "line": 9
-        },
-        {
-          "kind": "fn",
-          "name": "pgfplots_tex_template",
-          "line": 48
-        },
-        {
-          "kind": "fn",
-          "name": "render_matplotlib",
-          "line": 67
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-tools/src/plot_tool.rs",
       "lines": 979,
       "modules": [
@@ -18757,6 +17904,33 @@
           "kind": "struct",
           "name": "PlotTool",
           "line": 20
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/plot_tool/adapters.rs",
+      "lines": 161,
+      "modules": [],
+      "imports": [
+        "super::{base64_engine_encode, run_in_dir, summarize, which_in_path}",
+        "kanzei_harness::ToolOutput",
+        "std::path::Path"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "render_pgfplots",
+          "line": 9
+        },
+        {
+          "kind": "fn",
+          "name": "pgfplots_tex_template",
+          "line": 48
+        },
+        {
+          "kind": "fn",
+          "name": "render_matplotlib",
+          "line": 67
         }
       ]
     },
@@ -18842,75 +18016,6 @@
           "line": 365
         }
       ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/prior_art/lifecycle.rs",
-      "lines": 181,
-      "modules": [],
-      "imports": [
-        "std::collections::BTreeMap",
-        "std::path::Path",
-        "serde::Serialize",
-        "crate::docstore::Entry",
-        "super::{expected_prior_art_path, metadata, validate_artifact}"
-      ],
-      "public_api": [
-        {
-          "kind": "const",
-          "name": "ARTIFACT_FIELD",
-          "line": 11
-        },
-        {
-          "kind": "const",
-          "name": "WAIVER_FIELD",
-          "line": 13
-        },
-        {
-          "kind": "enum",
-          "name": "PriorArtStatus",
-          "line": 17
-        },
-        {
-          "kind": "struct",
-          "name": "EntryPriorArtStatus",
-          "line": 25
-        },
-        {
-          "kind": "fn",
-          "name": "entry_status",
-          "line": 50
-        },
-        {
-          "kind": "fn",
-          "name": "check_start",
-          "line": 117
-        },
-        {
-          "kind": "fn",
-          "name": "check_input_fields",
-          "line": 135
-        },
-        {
-          "kind": "fn",
-          "name": "update_audit",
-          "line": 147
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/prior_art/lifecycle_tests.rs",
-      "lines": 353,
-      "modules": [],
-      "imports": [
-        "std::path::PathBuf",
-        "kanzei_harness::{Tool, ToolCtx}",
-        "serde_json::json",
-        "super::{entry_status, EntryPriorArtStatus, PriorArtStatus}",
-        "crate::docstore::{DocStore, Entry, DEFECTS, REQUIREMENTS}",
-        "crate::tracker::TrackerTool",
-        "crate::work::WorkTool"
-      ],
-      "public_api": []
     },
     {
       "file": "crates/kanzei-tools/src/prior_art.rs",
@@ -19000,6 +18105,75 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/prior_art/lifecycle_tests.rs",
+      "lines": 353,
+      "modules": [],
+      "imports": [
+        "std::path::PathBuf",
+        "kanzei_harness::{Tool, ToolCtx}",
+        "serde_json::json",
+        "super::{entry_status, EntryPriorArtStatus, PriorArtStatus}",
+        "crate::docstore::{DocStore, Entry, DEFECTS, REQUIREMENTS}",
+        "crate::tracker::TrackerTool",
+        "crate::work::WorkTool"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei-tools/src/prior_art/lifecycle.rs",
+      "lines": 181,
+      "modules": [],
+      "imports": [
+        "std::collections::BTreeMap",
+        "std::path::Path",
+        "serde::Serialize",
+        "crate::docstore::Entry",
+        "super::{expected_prior_art_path, metadata, validate_artifact}"
+      ],
+      "public_api": [
+        {
+          "kind": "const",
+          "name": "ARTIFACT_FIELD",
+          "line": 11
+        },
+        {
+          "kind": "const",
+          "name": "WAIVER_FIELD",
+          "line": 13
+        },
+        {
+          "kind": "enum",
+          "name": "PriorArtStatus",
+          "line": 17
+        },
+        {
+          "kind": "struct",
+          "name": "EntryPriorArtStatus",
+          "line": 25
+        },
+        {
+          "kind": "fn",
+          "name": "entry_status",
+          "line": 50
+        },
+        {
+          "kind": "fn",
+          "name": "check_start",
+          "line": 117
+        },
+        {
+          "kind": "fn",
+          "name": "check_input_fields",
+          "line": 135
+        },
+        {
+          "kind": "fn",
+          "name": "update_audit",
+          "line": 147
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-tools/src/process.rs",
       "lines": 646,
       "modules": [],
@@ -19017,6 +18191,61 @@
           "kind": "struct",
           "name": "ProcessTool",
           "line": 42
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/profiles.rs",
+      "lines": 1610,
+      "modules": [
+        "dev",
+        "general",
+        "policy",
+        "readonly",
+        "research"
+      ],
+      "imports": [
+        "std::sync::Arc",
+        "kanzei_harness::{\n    refreshing_source, rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft,\n    ProfileKind, ProfileScope, ResolveCtx,\n}",
+        "crate::docstore::{DocStore, DECISIONS, DEFECTS, IDEAS, REQUIREMENTS}",
+        "crate::tracker::TrackerTool",
+        "crate::work::WorkTool",
+        "dev::{DevProfile, DEV_DEFERRED_TOOLS}",
+        "general::GeneralChatProfile",
+        "readonly::ReadonlyProfile",
+        "crate::memory::MEMORY_CONTEXT_BUDGET",
+        "super::{DevProfile, ResearchProfile}",
+        "kanzei_harness::{\n        rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,\n    }",
+        "serde_json::json",
+        "std::path::PathBuf",
+        "std::sync::Arc",
+        "kanzei_harness::config::FullTestCadence",
+        "kanzei_harness::Tool",
+        "super::{prompt_tool_mentions, prompt_tool_search_selects}",
+        "kanzei_harness::{ConfigComponent, KanzeiConfig, ProfileKind, ResolveCtx}",
+        "std::path::PathBuf",
+        "std::sync::Arc"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "frontend_inspection_guidance",
+          "line": 29
+        },
+        {
+          "kind": "fn",
+          "name": "prompt_tool_mentions",
+          "line": 47
+        },
+        {
+          "kind": "fn",
+          "name": "prompt_tool_search_selects",
+          "line": 69
+        },
+        {
+          "kind": "struct",
+          "name": "ResearchProfile",
+          "line": 97
         }
       ]
     },
@@ -19116,133 +18345,6 @@
           "kind": "fn",
           "name": "index_of",
           "line": 341
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/profiles.rs",
-      "lines": 1610,
-      "modules": [
-        "dev",
-        "general",
-        "policy",
-        "readonly",
-        "research"
-      ],
-      "imports": [
-        "std::sync::Arc",
-        "kanzei_harness::{\n    refreshing_source, rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft,\n    ProfileKind, ProfileScope, ResolveCtx,\n}",
-        "crate::docstore::{DocStore, DECISIONS, DEFECTS, IDEAS, REQUIREMENTS}",
-        "crate::tracker::TrackerTool",
-        "crate::work::WorkTool",
-        "dev::{DevProfile, DEV_DEFERRED_TOOLS}",
-        "general::GeneralChatProfile",
-        "readonly::ReadonlyProfile",
-        "crate::memory::MEMORY_CONTEXT_BUDGET",
-        "super::{DevProfile, ResearchProfile}",
-        "kanzei_harness::{\n        rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,\n    }",
-        "serde_json::json",
-        "std::path::PathBuf",
-        "std::sync::Arc",
-        "kanzei_harness::config::FullTestCadence",
-        "kanzei_harness::Tool",
-        "super::{prompt_tool_mentions, prompt_tool_search_selects}",
-        "kanzei_harness::{ConfigComponent, KanzeiConfig, ProfileKind, ResolveCtx}",
-        "std::path::PathBuf",
-        "std::sync::Arc"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "frontend_inspection_guidance",
-          "line": 29
-        },
-        {
-          "kind": "fn",
-          "name": "prompt_tool_mentions",
-          "line": 47
-        },
-        {
-          "kind": "fn",
-          "name": "prompt_tool_search_selects",
-          "line": 69
-        },
-        {
-          "kind": "struct",
-          "name": "ResearchProfile",
-          "line": 97
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/project_state/git_init.rs",
-      "lines": 333,
-      "modules": [],
-      "imports": [
-        "std::path::Path",
-        "serde::Serialize",
-        "super::{git_state, invalidate, GitState}",
-        "super::*",
-        "crate::project_state::tests::temp_root"
-      ],
-      "public_api": [
-        {
-          "kind": "const",
-          "name": "KANZEI_GITIGNORE",
-          "line": 11
-        },
-        {
-          "kind": "fn",
-          "name": "ensure_kanzei_gitignore",
-          "line": 32
-        },
-        {
-          "kind": "struct",
-          "name": "GitInitOutcome",
-          "line": 44
-        },
-        {
-          "kind": "const",
-          "name": "FIRST_COMMIT_MESSAGE",
-          "line": 61
-        },
-        {
-          "kind": "const",
-          "name": "FIRST_COMMIT_FILE_LIMIT",
-          "line": 64
-        },
-        {
-          "kind": "fn",
-          "name": "git_init",
-          "line": 94
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/project_state/toolchains.rs",
-      "lines": 195,
-      "modules": [],
-      "imports": [
-        "std::ffi::OsStr",
-        "std::path::{Path, PathBuf}",
-        "super::{Discovery, Toolchain}",
-        "super::*"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "Locations",
-          "line": 8
-        },
-        {
-          "kind": "fn",
-          "name": "from_environment",
-          "line": 14
-        },
-        {
-          "kind": "fn",
-          "name": "discover",
-          "line": 82
         }
       ]
     },
@@ -19363,6 +18465,78 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/project_state/git_init.rs",
+      "lines": 333,
+      "modules": [],
+      "imports": [
+        "std::path::Path",
+        "serde::Serialize",
+        "super::{git_state, invalidate, GitState}",
+        "super::*",
+        "crate::project_state::tests::temp_root"
+      ],
+      "public_api": [
+        {
+          "kind": "const",
+          "name": "KANZEI_GITIGNORE",
+          "line": 11
+        },
+        {
+          "kind": "fn",
+          "name": "ensure_kanzei_gitignore",
+          "line": 32
+        },
+        {
+          "kind": "struct",
+          "name": "GitInitOutcome",
+          "line": 44
+        },
+        {
+          "kind": "const",
+          "name": "FIRST_COMMIT_MESSAGE",
+          "line": 61
+        },
+        {
+          "kind": "const",
+          "name": "FIRST_COMMIT_FILE_LIMIT",
+          "line": 64
+        },
+        {
+          "kind": "fn",
+          "name": "git_init",
+          "line": 94
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/project_state/toolchains.rs",
+      "lines": 195,
+      "modules": [],
+      "imports": [
+        "std::ffi::OsStr",
+        "std::path::{Path, PathBuf}",
+        "super::{Discovery, Toolchain}",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "Locations",
+          "line": 8
+        },
+        {
+          "kind": "fn",
+          "name": "from_environment",
+          "line": 14
+        },
+        {
+          "kind": "fn",
+          "name": "discover",
+          "line": 82
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-tools/src/quarantine.rs",
       "lines": 301,
       "modules": [],
@@ -19421,6 +18595,16 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/read_receipt_tests.rs",
+      "lines": 150,
+      "modules": [],
+      "imports": [
+        "kanzei_harness::{ReadLedger, Tool, ToolCtx}",
+        "serde_json::json"
+      ],
+      "public_api": []
+    },
+    {
       "file": "crates/kanzei-tools/src/read.rs",
       "lines": 1278,
       "modules": [],
@@ -19450,16 +18634,6 @@
           "line": 291
         }
       ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/read_receipt_tests.rs",
-      "lines": 150,
-      "modules": [],
-      "imports": [
-        "kanzei_harness::{ReadLedger, Tool, ToolCtx}",
-        "serde_json::json"
-      ],
-      "public_api": []
     },
     {
       "file": "crates/kanzei-tools/src/refgraph/memory_graph.rs",
@@ -19676,18 +18850,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/research_control/tests.rs",
-      "lines": 212,
-      "modules": [],
-      "imports": [
-        "super::*",
-        "crate::{\n    research_loop::ResearchLoopTool, research_plan::ResearchPlanTool,\n    research_write::ResearchWriteTool,\n}",
-        "kanzei_harness::{Tool, ToolCtx}",
-        "serde_json::json"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-tools/src/research_control.rs",
       "lines": 57,
       "modules": [
@@ -19719,6 +18881,18 @@
           "line": 45
         }
       ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_control/tests.rs",
+      "lines": 212,
+      "modules": [],
+      "imports": [
+        "super::*",
+        "crate::{\n    research_loop::ResearchLoopTool, research_plan::ResearchPlanTool,\n    research_write::ResearchWriteTool,\n}",
+        "kanzei_harness::{Tool, ToolCtx}",
+        "serde_json::json"
+      ],
+      "public_api": []
     },
     {
       "file": "crates/kanzei-tools/src/research_environment.rs",
@@ -19958,6 +19132,110 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/research_workflow.rs",
+      "lines": 737,
+      "modules": [
+        "compute",
+        "lifecycle",
+        "paper",
+        "rounds",
+        "tool",
+        "full_tests",
+        "tests"
+      ],
+      "imports": [
+        "std::path::{Component, Path, PathBuf}",
+        "serde::{Deserialize, Serialize}",
+        "serde_json::{json, Value}",
+        "crate::research_plan::{\n    load_plan, save_plan, PlanBudget, PlanNode, PlanNodeStatus, PlanStatus, ResearchPlan,\n}",
+        "lifecycle::{ExperimentSpec, FullPlan, FullResult}",
+        "rounds::FullRound",
+        "tool::{ResearchWorkflowContext, ResearchWorkflowTool}"
+      ],
+      "public_api": [
+        {
+          "kind": "enum",
+          "name": "Stage",
+          "line": 22
+        },
+        {
+          "kind": "fn",
+          "name": "label",
+          "line": 40
+        },
+        {
+          "kind": "struct",
+          "name": "Direction",
+          "line": 61
+        },
+        {
+          "kind": "struct",
+          "name": "Mvp",
+          "line": 73
+        },
+        {
+          "kind": "struct",
+          "name": "Workflow",
+          "line": 89
+        },
+        {
+          "kind": "fn",
+          "name": "runnable",
+          "line": 124
+        },
+        {
+          "kind": "fn",
+          "name": "guidance",
+          "line": 129
+        },
+        {
+          "kind": "fn",
+          "name": "topic_dir",
+          "line": 178
+        },
+        {
+          "kind": "fn",
+          "name": "load",
+          "line": 198
+        },
+        {
+          "kind": "fn",
+          "name": "start",
+          "line": 223
+        },
+        {
+          "kind": "fn",
+          "name": "user_action",
+          "line": 315
+        },
+        {
+          "kind": "fn",
+          "name": "set_run_budget",
+          "line": 364
+        },
+        {
+          "kind": "fn",
+          "name": "advance",
+          "line": 451
+        },
+        {
+          "kind": "fn",
+          "name": "check_run",
+          "line": 640
+        },
+        {
+          "kind": "fn",
+          "name": "validate_run_id",
+          "line": 681
+        },
+        {
+          "kind": "fn",
+          "name": "record_run_start",
+          "line": 705
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-tools/src/research_workflow/compute.rs",
       "lines": 256,
       "modules": [],
@@ -20181,110 +19459,6 @@
           "kind": "struct",
           "name": "ResearchWorkflowContext",
           "line": 111
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/research_workflow.rs",
-      "lines": 737,
-      "modules": [
-        "compute",
-        "lifecycle",
-        "paper",
-        "rounds",
-        "tool",
-        "full_tests",
-        "tests"
-      ],
-      "imports": [
-        "std::path::{Component, Path, PathBuf}",
-        "serde::{Deserialize, Serialize}",
-        "serde_json::{json, Value}",
-        "crate::research_plan::{\n    load_plan, save_plan, PlanBudget, PlanNode, PlanNodeStatus, PlanStatus, ResearchPlan,\n}",
-        "lifecycle::{ExperimentSpec, FullPlan, FullResult}",
-        "rounds::FullRound",
-        "tool::{ResearchWorkflowContext, ResearchWorkflowTool}"
-      ],
-      "public_api": [
-        {
-          "kind": "enum",
-          "name": "Stage",
-          "line": 22
-        },
-        {
-          "kind": "fn",
-          "name": "label",
-          "line": 40
-        },
-        {
-          "kind": "struct",
-          "name": "Direction",
-          "line": 61
-        },
-        {
-          "kind": "struct",
-          "name": "Mvp",
-          "line": 73
-        },
-        {
-          "kind": "struct",
-          "name": "Workflow",
-          "line": 89
-        },
-        {
-          "kind": "fn",
-          "name": "runnable",
-          "line": 124
-        },
-        {
-          "kind": "fn",
-          "name": "guidance",
-          "line": 129
-        },
-        {
-          "kind": "fn",
-          "name": "topic_dir",
-          "line": 178
-        },
-        {
-          "kind": "fn",
-          "name": "load",
-          "line": 198
-        },
-        {
-          "kind": "fn",
-          "name": "start",
-          "line": 223
-        },
-        {
-          "kind": "fn",
-          "name": "user_action",
-          "line": 315
-        },
-        {
-          "kind": "fn",
-          "name": "set_run_budget",
-          "line": 364
-        },
-        {
-          "kind": "fn",
-          "name": "advance",
-          "line": 451
-        },
-        {
-          "kind": "fn",
-          "name": "check_run",
-          "line": 640
-        },
-        {
-          "kind": "fn",
-          "name": "validate_run_id",
-          "line": 681
-        },
-        {
-          "kind": "fn",
-          "name": "record_run_start",
-          "line": 705
         }
       ]
     },
@@ -21013,6 +20187,96 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/test_record.rs",
+      "lines": 2284,
+      "modules": [
+        "coverage",
+        "execution"
+      ],
+      "imports": [
+        "std::path::Path",
+        "async_trait::async_trait",
+        "kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput}",
+        "schemars::JsonSchema",
+        "serde::Deserialize",
+        "serde_json::json",
+        "coverage::check_frontend_smoke_claim",
+        "coverage::{\n    coverage_from_command, frontend_smoke_passed, last_passed, last_passed_at,\n    last_passed_for_fingerprint, project_has_verify_script, records_for_entry,\n    unclosed_running_for, verification_evidence_gap, verification_passed_for, TestCoverage,\n}",
+        "super::*",
+        "serde_json::json",
+        "TestCoverage as C",
+        "std::sync::atomic::{AtomicBool, Ordering}",
+        "std::sync::Arc"
+      ],
+      "public_api": [
+        {
+          "kind": "const",
+          "name": "TEST_RUNS_REL",
+          "line": 34
+        },
+        {
+          "kind": "const",
+          "name": "TEST_RUNS_ARCHIVE_REL",
+          "line": 36
+        },
+        {
+          "kind": "const",
+          "name": "TEST_RUNS_GOVERNANCE_PATHS",
+          "line": 39
+        },
+        {
+          "kind": "const",
+          "name": "STALE_RUNNING_SECS",
+          "line": 105
+        },
+        {
+          "kind": "struct",
+          "name": "TestRecordTool",
+          "line": 178
+        },
+        {
+          "kind": "fn",
+          "name": "parse_test_blocks",
+          "line": 260
+        },
+        {
+          "kind": "fn",
+          "name": "test_runs_snapshot",
+          "line": 414
+        },
+        {
+          "kind": "fn",
+          "name": "record_test_run",
+          "line": 449
+        },
+        {
+          "kind": "fn",
+          "name": "record_test_run_with_duration",
+          "line": 465
+        },
+        {
+          "kind": "fn",
+          "name": "append_test_run",
+          "line": 584
+        },
+        {
+          "kind": "fn",
+          "name": "append_test_run_with_duration",
+          "line": 598
+        },
+        {
+          "kind": "fn",
+          "name": "initialize_refs",
+          "line": 657
+        },
+        {
+          "kind": "fn",
+          "name": "repair_reused_archived_id",
+          "line": 726
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-tools/src/test_record/coverage.rs",
       "lines": 988,
       "modules": [],
@@ -21138,92 +20402,108 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/test_record.rs",
-      "lines": 2284,
+      "file": "crates/kanzei-tools/src/tracker.rs",
+      "lines": 5578,
       "modules": [
-        "coverage",
-        "execution"
+        "scheduling",
+        "scheduling_tests",
+        "actions",
+        "fields",
+        "validation"
       ],
       "imports": [
-        "std::path::Path",
+        "std::collections::BTreeMap",
         "async_trait::async_trait",
-        "kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput}",
+        "kanzei_harness::{Tool, ToolCtx, ToolOutput}",
         "schemars::JsonSchema",
         "serde::Deserialize",
+        "crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS}",
+        "scheduling::{\n    append_progress, backlog_status, coupling_signals, dependency_states_from_documents,\n    dependents_map, dependents_map_with_states, dispatch_verdict, schedule_for_display,\n    schedule_for_display_with_states, workable_titles, DependencyStates, ScheduledEntry,\n}",
+        "super::TrackerTool",
+        "crate::docstore::{DocStore, Entry, DEFECTS, IDEAS, REQUIREMENTS}",
+        "kanzei_harness::{Tool, ToolCtx}",
         "serde_json::json",
-        "coverage::check_frontend_smoke_claim",
-        "coverage::{\n    coverage_from_command, frontend_smoke_passed, last_passed, last_passed_at,\n    last_passed_for_fingerprint, project_has_verify_script, records_for_entry,\n    unclosed_running_for, verification_evidence_gap, verification_passed_for, TestCoverage,\n}",
-        "super::*",
-        "serde_json::json",
-        "TestCoverage as C",
-        "std::sync::atomic::{AtomicBool, Ordering}",
-        "std::sync::Arc"
+        "std::process::Command",
+        "crate::docstore::DEFECTS"
       ],
       "public_api": [
         {
-          "kind": "const",
-          "name": "TEST_RUNS_REL",
+          "kind": "struct",
+          "name": "TrackerTool",
           "line": 34
         },
         {
-          "kind": "const",
-          "name": "TEST_RUNS_ARCHIVE_REL",
-          "line": 36
-        },
-        {
-          "kind": "const",
-          "name": "TEST_RUNS_GOVERNANCE_PATHS",
-          "line": 39
-        },
-        {
-          "kind": "const",
-          "name": "STALE_RUNNING_SECS",
-          "line": 105
-        },
-        {
           "kind": "struct",
-          "name": "TestRecordTool",
-          "line": 178
+          "name": "ResearchTrackerTool",
+          "line": 571
         },
         {
           "kind": "fn",
-          "name": "parse_test_blocks",
-          "line": 260
+          "name": "new",
+          "line": 576
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/actions.rs",
+      "lines": 865,
+      "modules": [
+        "maintenance",
+        "normalize",
+        "action_helpers"
+      ],
+      "imports": [
+        "crate::docstore::{DocStore, Entry}",
+        "kanzei_harness::{ToolCtx, ToolOutput}",
+        "super::scheduling::{deadlock_banner, dependency_states, schedule_entries, structured_entry}",
+        "super::{TrackerInput, TrackerTool}",
+        "action_helpers::{\n    archived_or_unknown, check_close_acceptance_reconciliation,\n    check_close_classification_evidence, check_close_complexity_evidence,\n    check_close_source_ancestry, close_verify_trigger, field_diff_summary, render_line, unknown_id,\n    user_visible_fields,\n}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "list",
+          "line": 22
         },
         {
           "kind": "fn",
-          "name": "test_runs_snapshot",
-          "line": 414
+          "name": "audit_acceptance_scope",
+          "line": 65
         },
         {
           "kind": "fn",
-          "name": "record_test_run",
-          "line": 449
+          "name": "get",
+          "line": 114
         },
         {
           "kind": "fn",
-          "name": "record_test_run_with_duration",
-          "line": 465
+          "name": "raw_lines",
+          "line": 140
         },
         {
           "kind": "fn",
-          "name": "append_test_run",
-          "line": 584
+          "name": "repair_reused_id",
+          "line": 177
         },
         {
           "kind": "fn",
-          "name": "append_test_run_with_duration",
-          "line": 598
+          "name": "repair_missing_id",
+          "line": 198
         },
         {
           "kind": "fn",
-          "name": "initialize_refs",
-          "line": 657
+          "name": "add",
+          "line": 275
         },
         {
           "kind": "fn",
-          "name": "repair_reused_archived_id",
-          "line": 726
+          "name": "update_close",
+          "line": 367
+        },
+        {
+          "kind": "fn",
+          "name": "reorder",
+          "line": 810
         }
       ]
     },
@@ -21352,69 +20632,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/tracker/actions.rs",
-      "lines": 865,
-      "modules": [
-        "maintenance",
-        "normalize",
-        "action_helpers"
-      ],
-      "imports": [
-        "crate::docstore::{DocStore, Entry}",
-        "kanzei_harness::{ToolCtx, ToolOutput}",
-        "super::scheduling::{deadlock_banner, dependency_states, schedule_entries, structured_entry}",
-        "super::{TrackerInput, TrackerTool}",
-        "action_helpers::{\n    archived_or_unknown, check_close_acceptance_reconciliation,\n    check_close_classification_evidence, check_close_complexity_evidence,\n    check_close_source_ancestry, close_verify_trigger, field_diff_summary, render_line, unknown_id,\n    user_visible_fields,\n}"
-      ],
-      "public_api": [
-        {
-          "kind": "fn",
-          "name": "list",
-          "line": 22
-        },
-        {
-          "kind": "fn",
-          "name": "audit_acceptance_scope",
-          "line": 65
-        },
-        {
-          "kind": "fn",
-          "name": "get",
-          "line": 114
-        },
-        {
-          "kind": "fn",
-          "name": "raw_lines",
-          "line": 140
-        },
-        {
-          "kind": "fn",
-          "name": "repair_reused_id",
-          "line": 177
-        },
-        {
-          "kind": "fn",
-          "name": "repair_missing_id",
-          "line": 198
-        },
-        {
-          "kind": "fn",
-          "name": "add",
-          "line": 275
-        },
-        {
-          "kind": "fn",
-          "name": "update_close",
-          "line": 367
-        },
-        {
-          "kind": "fn",
-          "name": "reorder",
-          "line": 810
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-tools/src/tracker/fields.rs",
       "lines": 260,
       "modules": [],
@@ -21464,6 +20681,22 @@
           "line": 197
         }
       ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/scheduling_tests.rs",
+      "lines": 253,
+      "modules": [],
+      "imports": [
+        "super::scheduling::{backlog_status, coupling_signals, dependents_map, dispatch_verdict}",
+        "crate::docstore::{DocStore, Entry, REQUIREMENTS}",
+        "kanzei_harness::ToolCtx",
+        "kanzei_harness::auto_run::BacklogStatus",
+        "std::path::Path",
+        "std::time::{SystemTime, UNIX_EPOCH}",
+        "kanzei_harness::auto_run::BacklogStatus",
+        "std::time::{SystemTime, UNIX_EPOCH}"
+      ],
+      "public_api": []
     },
     {
       "file": "crates/kanzei-tools/src/tracker/scheduling.rs",
@@ -21615,22 +20848,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/tracker/scheduling_tests.rs",
-      "lines": 253,
-      "modules": [],
-      "imports": [
-        "super::scheduling::{backlog_status, coupling_signals, dependents_map, dispatch_verdict}",
-        "crate::docstore::{DocStore, Entry, REQUIREMENTS}",
-        "kanzei_harness::ToolCtx",
-        "kanzei_harness::auto_run::BacklogStatus",
-        "std::path::Path",
-        "std::time::{SystemTime, UNIX_EPOCH}",
-        "kanzei_harness::auto_run::BacklogStatus",
-        "std::time::{SystemTime, UNIX_EPOCH}"
-      ],
-      "public_api": []
-    },
-    {
       "file": "crates/kanzei-tools/src/tracker/validation.rs",
       "lines": 281,
       "modules": [],
@@ -21669,49 +20886,6 @@
           "kind": "fn",
           "name": "check_qualifier_consistency",
           "line": 250
-        }
-      ]
-    },
-    {
-      "file": "crates/kanzei-tools/src/tracker.rs",
-      "lines": 5578,
-      "modules": [
-        "scheduling",
-        "scheduling_tests",
-        "actions",
-        "fields",
-        "validation"
-      ],
-      "imports": [
-        "std::collections::BTreeMap",
-        "async_trait::async_trait",
-        "kanzei_harness::{Tool, ToolCtx, ToolOutput}",
-        "schemars::JsonSchema",
-        "serde::Deserialize",
-        "crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS}",
-        "scheduling::{\n    append_progress, backlog_status, coupling_signals, dependency_states_from_documents,\n    dependents_map, dependents_map_with_states, dispatch_verdict, schedule_for_display,\n    schedule_for_display_with_states, workable_titles, DependencyStates, ScheduledEntry,\n}",
-        "super::TrackerTool",
-        "crate::docstore::{DocStore, Entry, DEFECTS, IDEAS, REQUIREMENTS}",
-        "kanzei_harness::{Tool, ToolCtx}",
-        "serde_json::json",
-        "std::process::Command",
-        "crate::docstore::DEFECTS"
-      ],
-      "public_api": [
-        {
-          "kind": "struct",
-          "name": "TrackerTool",
-          "line": 34
-        },
-        {
-          "kind": "struct",
-          "name": "ResearchTrackerTool",
-          "line": 571
-        },
-        {
-          "kind": "fn",
-          "name": "new",
-          "line": 576
         }
       ]
     },
@@ -21994,6 +21168,136 @@
       ]
     },
     {
+      "file": "crates/kanzei-tools/src/work.rs",
+      "lines": 2862,
+      "modules": [
+        "context",
+        "log",
+        "output",
+        "reconcile",
+        "resume",
+        "tool"
+      ],
+      "imports": [
+        "std::collections::{BTreeMap, BTreeSet}",
+        "std::process::Command",
+        "std::time::{SystemTime, UNIX_EPOCH}",
+        "kanzei_core::{SessionStore, WorkProjection, WorkUnitStatus}",
+        "kanzei_harness::auto_run::WorkPriority",
+        "serde::Serialize",
+        "serde_json::json",
+        "crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS}",
+        "crate::tracker::{\n    dependency_states_from_documents, schedule_for_display_with_states, DependencyStates,\n    ScheduledEntry,\n}",
+        "context::{resolved_control_prompt, resolved_control_prompt_of, WorkControlContext}",
+        "reconcile::{reconcile_active, ReconcileClass, ReconcileItem, ReconciliationReport}",
+        "resume::collect_resume_worktree",
+        "resume::ResumeWorktree",
+        "tool::WorkTool",
+        "super::*",
+        "crate::docstore::Entry",
+        "crate::tracker::DependencyStates",
+        "kanzei_harness::{Tool, ToolCtx}",
+        "serde_json::json"
+      ],
+      "public_api": [
+        {
+          "kind": "enum",
+          "name": "WorkDecision",
+          "line": 23
+        },
+        {
+          "kind": "struct",
+          "name": "ProgressProvenance",
+          "line": 32
+        },
+        {
+          "kind": "struct",
+          "name": "WorkItem",
+          "line": 41
+        },
+        {
+          "kind": "struct",
+          "name": "WorkOutcomeContext",
+          "line": 78
+        },
+        {
+          "kind": "struct",
+          "name": "WorkUnitContext",
+          "line": 85
+        },
+        {
+          "kind": "struct",
+          "name": "WorkField",
+          "line": 91
+        },
+        {
+          "kind": "struct",
+          "name": "WorkReference",
+          "line": 97
+        },
+        {
+          "kind": "struct",
+          "name": "IntegrityError",
+          "line": 110
+        },
+        {
+          "kind": "struct",
+          "name": "WorkItemSummary",
+          "line": 119
+        },
+        {
+          "kind": "struct",
+          "name": "ResolvedControlState",
+          "line": 140
+        },
+        {
+          "kind": "struct",
+          "name": "RepoObservation",
+          "line": 199
+        },
+        {
+          "kind": "fn",
+          "name": "uses_work_units",
+          "line": 219
+        },
+        {
+          "kind": "fn",
+          "name": "active_claims_by_line",
+          "line": 255
+        },
+        {
+          "kind": "fn",
+          "name": "release_line_claims",
+          "line": 284
+        },
+        {
+          "kind": "fn",
+          "name": "line_identity",
+          "line": 350
+        },
+        {
+          "kind": "fn",
+          "name": "repo_observation",
+          "line": 377
+        },
+        {
+          "kind": "fn",
+          "name": "progress_anchor_fields",
+          "line": 454
+        },
+        {
+          "kind": "fn",
+          "name": "resolve_work_decision",
+          "line": 756
+        },
+        {
+          "kind": "fn",
+          "name": "resolve_work_selection",
+          "line": 766
+        }
+      ]
+    },
+    {
       "file": "crates/kanzei-tools/src/work/context.rs",
       "lines": 175,
       "modules": [],
@@ -22198,136 +21502,6 @@
       ]
     },
     {
-      "file": "crates/kanzei-tools/src/work.rs",
-      "lines": 2862,
-      "modules": [
-        "context",
-        "log",
-        "output",
-        "reconcile",
-        "resume",
-        "tool"
-      ],
-      "imports": [
-        "std::collections::{BTreeMap, BTreeSet}",
-        "std::process::Command",
-        "std::time::{SystemTime, UNIX_EPOCH}",
-        "kanzei_core::{SessionStore, WorkProjection, WorkUnitStatus}",
-        "kanzei_harness::auto_run::WorkPriority",
-        "serde::Serialize",
-        "serde_json::json",
-        "crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS}",
-        "crate::tracker::{\n    dependency_states_from_documents, schedule_for_display_with_states, DependencyStates,\n    ScheduledEntry,\n}",
-        "context::{resolved_control_prompt, resolved_control_prompt_of, WorkControlContext}",
-        "reconcile::{reconcile_active, ReconcileClass, ReconcileItem, ReconciliationReport}",
-        "resume::collect_resume_worktree",
-        "resume::ResumeWorktree",
-        "tool::WorkTool",
-        "super::*",
-        "crate::docstore::Entry",
-        "crate::tracker::DependencyStates",
-        "kanzei_harness::{Tool, ToolCtx}",
-        "serde_json::json"
-      ],
-      "public_api": [
-        {
-          "kind": "enum",
-          "name": "WorkDecision",
-          "line": 23
-        },
-        {
-          "kind": "struct",
-          "name": "ProgressProvenance",
-          "line": 32
-        },
-        {
-          "kind": "struct",
-          "name": "WorkItem",
-          "line": 41
-        },
-        {
-          "kind": "struct",
-          "name": "WorkOutcomeContext",
-          "line": 78
-        },
-        {
-          "kind": "struct",
-          "name": "WorkUnitContext",
-          "line": 85
-        },
-        {
-          "kind": "struct",
-          "name": "WorkField",
-          "line": 91
-        },
-        {
-          "kind": "struct",
-          "name": "WorkReference",
-          "line": 97
-        },
-        {
-          "kind": "struct",
-          "name": "IntegrityError",
-          "line": 110
-        },
-        {
-          "kind": "struct",
-          "name": "WorkItemSummary",
-          "line": 119
-        },
-        {
-          "kind": "struct",
-          "name": "ResolvedControlState",
-          "line": 140
-        },
-        {
-          "kind": "struct",
-          "name": "RepoObservation",
-          "line": 199
-        },
-        {
-          "kind": "fn",
-          "name": "uses_work_units",
-          "line": 219
-        },
-        {
-          "kind": "fn",
-          "name": "active_claims_by_line",
-          "line": 255
-        },
-        {
-          "kind": "fn",
-          "name": "release_line_claims",
-          "line": 284
-        },
-        {
-          "kind": "fn",
-          "name": "line_identity",
-          "line": 350
-        },
-        {
-          "kind": "fn",
-          "name": "repo_observation",
-          "line": 377
-        },
-        {
-          "kind": "fn",
-          "name": "progress_anchor_fields",
-          "line": 454
-        },
-        {
-          "kind": "fn",
-          "name": "resolve_work_decision",
-          "line": 756
-        },
-        {
-          "kind": "fn",
-          "name": "resolve_work_selection",
-          "line": 766
-        }
-      ]
-    },
-    {
       "file": "crates/kanzei-tools/src/worktree.rs",
       "lines": 785,
       "modules": [],
@@ -22503,6 +21677,849 @@
           "line": 359
         }
       ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/artifacts.rs",
+      "lines": 336,
+      "modules": [],
+      "imports": [
+        "std::path::PathBuf",
+        "super::{explicit_main_root, main_project_root, PROJECT_ROOT_FLAG}",
+        "super::{parse_args, ArtifactArgs}",
+        "std::path::PathBuf"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "artifacts_cli",
+          "line": 57
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/compact.rs",
+      "lines": 80,
+      "modules": [],
+      "imports": [
+        "super::run::recover_cli_prior",
+        "serde_json::json"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "compact_cli",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/config.rs",
+      "lines": 13,
+      "modules": [],
+      "imports": [],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "config_cli",
+          "line": 5
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/eval.rs",
+      "lines": 118,
+      "modules": [],
+      "imports": [
+        "std::sync::Arc",
+        "kanzei_harness::config::KanzeiConfig",
+        "kanzei_llm::{LlmClient, ProxyConfig}",
+        "super::{explicit_main_root, main_project_root, PROJECT_ROOT_FLAG}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "replay_eval_cli",
+          "line": 21
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/lock.rs",
+      "lines": 94,
+      "modules": [],
+      "imports": [
+        "std::path::Path",
+        "super::{explicit_main_root, main_project_root}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "lock_cli",
+          "line": 13
+        },
+        {
+          "kind": "fn",
+          "name": "lock_status_report",
+          "line": 34
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/memory.rs",
+      "lines": 136,
+      "modules": [],
+      "imports": [
+        "kanzei_harness::config::KanzeiConfig",
+        "kanzei_harness::{ResolveCtx, ToolCtx}",
+        "kanzei_llm::{LlmClient, ProxyConfig}",
+        "std::collections::BTreeSet",
+        "kanzei_tools::memory::{MemoryEntry, MemoryStore}",
+        "super::normalized_theme"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "consolidate_memory_inbox",
+          "line": 19
+        },
+        {
+          "kind": "fn",
+          "name": "persist_always_allow",
+          "line": 37
+        },
+        {
+          "kind": "fn",
+          "name": "memory_cli",
+          "line": 73
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/metrics.rs",
+      "lines": 726,
+      "modules": [
+        "external_tests"
+      ],
+      "imports": [
+        "std::path::Path",
+        "super::{explicit_main_root, main_project_root}",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "FileMetric",
+          "line": 26
+        },
+        {
+          "kind": "fn",
+          "name": "metric_file",
+          "line": 42
+        },
+        {
+          "kind": "fn",
+          "name": "metric_source",
+          "line": 64
+        },
+        {
+          "kind": "const",
+          "name": "METRICS_FORMAT_VERSION",
+          "line": 402
+        },
+        {
+          "kind": "fn",
+          "name": "metrics_cli",
+          "line": 434
+        },
+        {
+          "kind": "fn",
+          "name": "sorted_metrics",
+          "line": 493
+        },
+        {
+          "kind": "fn",
+          "name": "still_prod",
+          "line": 572
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/mod.rs",
+      "lines": 1101,
+      "modules": [
+        "artifacts",
+        "compact",
+        "config",
+        "eval",
+        "lock",
+        "memory",
+        "metrics",
+        "quarantine",
+        "run",
+        "schedule",
+        "shadow",
+        "tracker",
+        "work",
+        "worktree"
+      ],
+      "imports": [
+        "std::path::Path",
+        "std::io::IsTerminal",
+        "super::lock::lock_status_report",
+        "super::memory::persist_always_allow",
+        "super::tracker::parse_tracker_flags",
+        "super::{\n        cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,\n        main_project_root, non_interactive_decision, parse_allowlist, parse_run_args,\n        resolve_run_prompt, usage_text, RunArgs, PROJECT_ROOT_ENV,\n    }",
+        "kanzei_core::AskReply",
+        "std::path::{Path, PathBuf}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "main_entry",
+          "line": 30
+        },
+        {
+          "kind": "fn",
+          "name": "cli_exit_code",
+          "line": 74
+        },
+        {
+          "kind": "fn",
+          "name": "usage_text",
+          "line": 82
+        },
+        {
+          "kind": "fn",
+          "name": "usage",
+          "line": 122
+        },
+        {
+          "kind": "struct",
+          "name": "RunArgs",
+          "line": 132
+        },
+        {
+          "kind": "const",
+          "name": "PROJECT_ROOT_FLAG",
+          "line": 147
+        },
+        {
+          "kind": "const",
+          "name": "PROJECT_ROOT_ENV",
+          "line": 149
+        },
+        {
+          "kind": "const",
+          "name": "ALLOW_FLAG",
+          "line": 150
+        },
+        {
+          "kind": "const",
+          "name": "PROMPT_FILE_FLAG",
+          "line": 151
+        },
+        {
+          "kind": "fn",
+          "name": "parse_run_args",
+          "line": 152
+        },
+        {
+          "kind": "fn",
+          "name": "resolve_run_prompt",
+          "line": 214
+        },
+        {
+          "kind": "fn",
+          "name": "interactive_stdin",
+          "line": 238
+        },
+        {
+          "kind": "fn",
+          "name": "parse_allowlist",
+          "line": 245
+        },
+        {
+          "kind": "fn",
+          "name": "non_interactive_decision",
+          "line": 268
+        },
+        {
+          "kind": "fn",
+          "name": "explicit_main_root",
+          "line": 297
+        },
+        {
+          "kind": "fn",
+          "name": "explicit_main_root_from",
+          "line": 300
+        },
+        {
+          "kind": "fn",
+          "name": "reject_home_as_project_root",
+          "line": 321
+        },
+        {
+          "kind": "fn",
+          "name": "main_project_root",
+          "line": 344
+        },
+        {
+          "kind": "fn",
+          "name": "cli_identity_keys",
+          "line": 366
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/quarantine.rs",
+      "lines": 121,
+      "modules": [],
+      "imports": [
+        "std::path::PathBuf",
+        "super::{explicit_main_root, main_project_root, PROJECT_ROOT_FLAG}",
+        "super::*"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "quarantine_cli",
+          "line": 59
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/run.rs",
+      "lines": 532,
+      "modules": [
+        "events",
+        "finalize",
+        "permissions"
+      ],
+      "imports": [
+        "std::sync::{Arc, Mutex}",
+        "std::time::{SystemTime, UNIX_EPOCH}",
+        "kanzei_harness::config::KanzeiConfig",
+        "kanzei_harness::defs::ProfileKind",
+        "kanzei_harness::{ResolveCtx, ToolCtx}",
+        "kanzei_llm::{LlmClient, ProxyConfig}",
+        "kanzei_tools::ReadonlyProfile",
+        "super::{\n    cli_identity_keys, explicit_main_root, main_project_root, parse_run_args, resolve_run_prompt,\n    usage, RunArgs,\n}",
+        "super::{begin_new_segment, recover_cli_prior, resolve_cli_input}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "recover_cli_prior",
+          "line": 140
+        },
+        {
+          "kind": "fn",
+          "name": "run_cli",
+          "line": 174
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/events.rs",
+      "lines": 341,
+      "modules": [],
+      "imports": [
+        "std::io::{stdout, Write as _}",
+        "std::sync::{Arc, Mutex}",
+        "super::*",
+        "kanzei_core::{\n        prepare_typed_session, project_session_facts, project_session_facts_with_surface,\n        SessionStore, TypedSessionWriter,\n    }",
+        "kanzei_llm::{Message, Part}",
+        "serde_json::json"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "make_event_handler",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/finalize.rs",
+      "lines": 579,
+      "modules": [],
+      "imports": [
+        "std::path::Path",
+        "std::sync::{Arc, Mutex}",
+        "std::time::Instant",
+        "kanzei_harness::config::KanzeiConfig",
+        "kanzei_harness::{ResolveCtx, ToolCtx}",
+        "kanzei_llm::{LlmClient, Message, ProxyConfig}",
+        "super::super::memory::consolidate_memory_inbox",
+        "super::persist_cli_compaction_surface_if_changed",
+        "kanzei_core::{RunSummary, SessionStore}",
+        "kanzei_llm::{Message, Part}",
+        "serde_json::json"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "FinalizeState",
+          "line": 10
+        },
+        {
+          "kind": "fn",
+          "name": "finish_typed_checked",
+          "line": 69
+        },
+        {
+          "kind": "fn",
+          "name": "finish_run",
+          "line": 87
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/permissions.rs",
+      "lines": 94,
+      "modules": [],
+      "imports": [
+        "std::path::PathBuf",
+        "super::super::memory::persist_always_allow"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "make_ask",
+          "line": 4
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/schedule.rs",
+      "lines": 136,
+      "modules": [],
+      "imports": [],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "schedule_cli",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/shadow.rs",
+      "lines": 80,
+      "modules": [],
+      "imports": [
+        "std::path::PathBuf",
+        "super::{explicit_main_root, main_project_root}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "shadow_cli",
+          "line": 11
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/tracker.rs",
+      "lines": 236,
+      "modules": [],
+      "imports": [
+        "kanzei_harness::{Tool, ToolCtx}",
+        "super::{explicit_main_root, main_project_root}",
+        "kanzei_tools::docstore::{DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES}",
+        "kanzei_tools::tracker::TrackerTool"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "parse_tracker_flags",
+          "line": 25
+        },
+        {
+          "kind": "fn",
+          "name": "tracker_cli",
+          "line": 95
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/work.rs",
+      "lines": 145,
+      "modules": [],
+      "imports": [
+        "kanzei_harness::{Tool, ToolCtx}",
+        "super::{explicit_main_root, main_project_root}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "work_cli",
+          "line": 9
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/cli/worktree.rs",
+      "lines": 77,
+      "modules": [],
+      "imports": [
+        "super::{explicit_main_root, main_project_root, usage}"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "worktree_cli",
+          "line": 13
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/src/main.rs",
+      "lines": 21,
+      "modules": [
+        "cli"
+      ],
+      "imports": [],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
+      "lines": 279,
+      "modules": [],
+      "imports": [
+        "kanzei_harness::{\n    AgentDef, AgentMode, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,\n}",
+        "serde_json::json",
+        "std::sync::Arc",
+        "tokio::net::TcpListener",
+        "std::os::windows::process::CommandExt"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
+      "lines": 530,
+      "modules": [],
+      "imports": [
+        "std::process::Stdio",
+        "std::time::{SystemTime, UNIX_EPOCH}",
+        "kanzei_harness::KanzeiConfig",
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener",
+        "tokio::process::Command",
+        "crate::common"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
+      "lines": 908,
+      "modules": [],
+      "imports": [
+        "std::sync::{Arc, Mutex}",
+        "kanzei_harness::orchestration::{\n    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,\n}",
+        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
+      "lines": 101,
+      "modules": [],
+      "imports": [
+        "std::sync::Arc",
+        "kanzei_harness::permission::{\n    is_structured_bash_resource, normalize_resource_for_action, BASH_ACTION,\n}",
+        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, Tool, ToolCtx}",
+        "kanzei_tools::{BaseComponent, DevProfile}"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/common/mod.rs",
+      "lines": 57,
+      "modules": [],
+      "imports": [
+        "std::path::PathBuf"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "TestHome",
+          "line": 12
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 18
+        },
+        {
+          "kind": "fn",
+          "name": "envs",
+          "line": 33
+        },
+        {
+          "kind": "fn",
+          "name": "apply",
+          "line": 46
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
+      "lines": 301,
+      "modules": [],
+      "imports": [
+        "std::process::Stdio",
+        "std::time::{SystemTime, UNIX_EPOCH}",
+        "serde_json::{json, Value}",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::{TcpListener, TcpStream}",
+        "tokio::process::Command",
+        "crate::common"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "success_response",
+          "line": 68
+        },
+        {
+          "kind": "fn",
+          "name": "run_cli_with_prior",
+          "line": 87
+        },
+        {
+          "kind": "fn",
+          "name": "run_cli_with_setup",
+          "line": 96
+        },
+        {
+          "kind": "fn",
+          "name": "persisted_messages",
+          "line": 160
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
+      "lines": 333,
+      "modules": [],
+      "imports": [
+        "std::sync::{Arc, Mutex}",
+        "kanzei_harness::orchestration::ExecutionPolicy",
+        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
+      "lines": 60,
+      "modules": [],
+      "imports": [
+        "kanzei_core::{Delivery, SessionStore}"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/d364_concurrent_doc_add.rs",
+      "lines": 234,
+      "modules": [],
+      "imports": [
+        "std::path::{Path, PathBuf}",
+        "std::process::{Command, Stdio}",
+        "std::time::{Duration, SystemTime, UNIX_EPOCH}",
+        "kanzei_harness::Tool"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/d368_concurrent_memory_write.rs",
+      "lines": 197,
+      "modules": [],
+      "imports": [
+        "std::path::{Path, PathBuf}",
+        "std::time::{Duration, SystemTime, UNIX_EPOCH}",
+        "kanzei_harness::Tool"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/global_home_guard.rs",
+      "lines": 52,
+      "modules": [],
+      "imports": [
+        "std::path::PathBuf"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/incomplete_stream.rs",
+      "lines": 248,
+      "modules": [],
+      "imports": [
+        "kanzei_harness::{\n    AgentDef, AgentMode, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,\n}",
+        "serde_json::json",
+        "std::sync::Arc",
+        "tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt}"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
+      "lines": 131,
+      "modules": [],
+      "imports": [
+        "super::context_overflow_recovery::{\n    persisted_messages, run_cli_with_prior, run_cli_with_setup, success_response,\n}",
+        "kanzei_llm::{Message, Part}",
+        "serde_json::json",
+        "std::io::Write",
+        "kanzei_tools::docstore::{DocStore, Entry, DEFECTS}"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/main.rs",
+      "lines": 35,
+      "modules": [
+        "agent_step_budget",
+        "common",
+        "always_allow_bash",
+        "background_subagent_dispatch",
+        "bash_action_literal",
+        "context_overflow_recovery",
+        "tool_search_deferred_loading",
+        "cooperative_halt",
+        "ctrl_c_finalize",
+        "d364_concurrent_doc_add",
+        "d368_concurrent_memory_write",
+        "global_home_guard",
+        "incomplete_stream",
+        "item_context_boundary",
+        "max_tasks_parallel_dispatch",
+        "memory_hints_not_persisted",
+        "parallel_scouting_under_serial_writer",
+        "session_execution_owner",
+        "task_cancel_parallel",
+        "worktree_main_root"
+      ],
+      "imports": [],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
+      "lines": 349,
+      "modules": [],
+      "imports": [
+        "std::sync::{Arc, Mutex}",
+        "kanzei_harness::orchestration::{\n    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,\n}",
+        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
+      "lines": 362,
+      "modules": [],
+      "imports": [
+        "std::sync::Arc",
+        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
+      ],
+      "public_api": [
+        {
+          "kind": "fn",
+          "name": "serve_response",
+          "line": 27
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
+      "lines": 372,
+      "modules": [],
+      "imports": [
+        "std::sync::{Arc, Mutex}",
+        "kanzei_harness::orchestration::{\n    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,\n}",
+        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/session_execution_owner.rs",
+      "lines": 393,
+      "modules": [],
+      "imports": [
+        "std::path::Path",
+        "std::process::{Output, Stdio}",
+        "std::time::Duration",
+        "kanzei_core::{Delivery, SessionFact, SessionStore}",
+        "serde_json::{json, Value}",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::{TcpListener, TcpStream}",
+        "tokio::process::{Child, Command}",
+        "super::common::TestHome"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
+      "lines": 398,
+      "modules": [],
+      "imports": [
+        "std::sync::{Arc, Mutex}",
+        "kanzei_harness::orchestration::{\n    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,\n}",
+        "kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx}",
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::TcpListener"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
+      "lines": 277,
+      "modules": [],
+      "imports": [
+        "std::process::Stdio",
+        "std::time::{SystemTime, UNIX_EPOCH}",
+        "serde_json::{json, Value}",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::{TcpListener, TcpStream}",
+        "tokio::process::Command"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
+      "lines": 327,
+      "modules": [],
+      "imports": [
+        "std::path::{Path, PathBuf}",
+        "std::process::{Command, Stdio}",
+        "std::time::{SystemTime, UNIX_EPOCH}"
+      ],
+      "public_api": []
+    }
+  ],
+  "additions": [
+    {
+      "file": "crates/kanzei-app/src/processes/conversation_tests.rs",
+      "source_commit": "c6654fae7003b8007063acfb6f95f668674ecec4",
+      "note": "New remote test file; inventory only, not completed audit."
     }
   ]
 }

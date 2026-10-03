@@ -60,7 +60,7 @@ async function harness() {
     if (command === 'general_chat_link') { const linked = line(PROJECT, `linked-${++created}`); lines.get(PROJECT).push(linked); return linked; }
     if (command === 'projects_select') return { current: args.path, projects: [PROJECT], names: {} };
     if (command === 'process_list') return lines.get(args.projectDir) ?? [];
-    if (command === 'process_create') { const item = line(args.projectDir, `created-${++created}`); lines.get(args.projectDir).push(item); return item; }
+    if (command === 'process_create') { const item = { ...line(args.projectDir, `created-${++created}`), profile: args.profile ?? 'dev' }; lines.get(args.projectDir).push(item); return item; }
     if (['conversation_list', 'conversation_get', 'conversation_trace_get'].includes(command)) return [];
     if (command === 'project_facts') return { git: { state: 'repo', has_commits: true }, stacks: [] };
     if (command === 'project_root_info') return { selected: args.projectDir, resolved: args.projectDir, shared: false };
@@ -145,8 +145,47 @@ await check('actual startNewConversation create receipt cannot undo newer settin
   const item = { ...h.lines.get(PROJECT)[0], id: 'created-late', session_id: 'session:created-late' }; h.lines.get(PROJECT).push(item); request.accept(item); await creating;
   assert.equal(h.document.body.dataset.view, 'settings'); assert.equal(h.shellValues.activeProcessId, 'project-main'); return { view: h.document.body.dataset.view, selected: h.shellValues.activeProcessId };
 });
-await check('normal actual project discussion creation still selects and displays the new readonly conversation', 'PASS', async () => {
-  const h = await harness(); h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project'; await h.history.startNewConversation(); assert.equal(h.shellValues.activeProcessId, 'created-1'); assert.equal(h.document.body.dataset.view, 'chat'); const create = h.calls.find(call => call.command === 'process_create'); assert.equal(create.args.profile, 'readonly'); return { selected: h.shellValues.activeProcessId, profile: create.args.profile };
+await check('normal project new-chat selects an independent conversation using the model default', 'PASS', async () => {
+  const h = await harness(); h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project'; await h.history.startNewConversation(); assert.equal(h.shellValues.activeProcessId, 'created-1'); assert.equal(h.document.body.dataset.view, 'chat'); const create = h.calls.find(call => call.command === 'process_create'); assert.equal(create.args.profile, before ? 'readonly' : 'dev'); return { selected: h.shellValues.activeProcessId, profile: create.args.profile };
+});
+await check('explicit readonly creation retains its profile and disables subagents', 'PASS', async () => {
+  const h = await harness(); h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project';
+  const item = await h.workspace.create_workspace_process(null, () => true, { discussion: true });
+  const create = h.calls.find(call => call.command === 'process_create');
+  assert.equal(create.args.profile, 'readonly'); assert.equal(create.args.subagentsEnabled, false);
+  assert.equal(item.profile, 'readonly'); assert.equal(h.shellValues.activeProcessId, item.id);
+  return { selected: item.id, profile: item.profile };
+});
+await check('first general opening with an empty list creates one ordinary conversation', 'FAIL: baseline required a pre-existing conversation', async () => {
+  const h = await harness(); h.lines.set(GENERAL, []); h.select(PROJECT, 'project-main');
+  assert.equal(await h.general.openGeneralChat(), true);
+  const creates = h.calls.filter(call => call.command === 'process_create');
+  assert.equal(creates.length, 1); assert.equal(creates[0].args.profile, 'dev');
+  assert.equal(h.shellValues.currentProject, GENERAL); assert.equal(h.shellValues.activeProcessId, 'created-1');
+  assert.equal(h.document.body.dataset.view, 'chat'); assert.equal(h.get('workbench-general-chat').hasAttribute('aria-busy'), false);
+  return { selected: h.shellValues.activeProcessId, creates: creates.length };
+});
+await check('first general creation cannot reopen chat after a newer navigation', 'FAIL: baseline did not create from empty lists', async () => {
+  const h = await harness(), request = pause(); h.lines.set(GENERAL, []); h.select(PROJECT, 'project-main');
+  h.handlers.set('process_create', () => request.promise);
+  const opening = h.general.openGeneralChat(); await flush();
+  assert.equal(h.calls.filter(call => call.command === 'process_create').length, 1);
+  h.navigate('settings');
+  const item = { ...h.lines.get(PROJECT)[0], origin_project: GENERAL, project_dir: GENERAL, id: 'created-late', session_id: 'session:created-late' };
+  h.lines.get(GENERAL).push(item); request.accept(item);
+  assert.equal(await opening, false); assert.equal(h.document.body.dataset.view, 'settings');
+  assert.equal(h.shellValues.activeProcessId, null); assert.equal(h.get('workbench-general-chat').hasAttribute('aria-busy'), false);
+  return { selected: h.shellValues.activeProcessId, view: h.document.body.dataset.view };
+});
+await check('failed first general creation exposes its error and can be retried', 'FAIL: baseline did not create from empty lists', async () => {
+  const h = await harness(); h.lines.set(GENERAL, []); h.select(PROJECT, 'project-main');
+  h.handlers.set('process_create', () => { throw new Error('first conversation could not be created'); });
+  assert.equal(await h.general.openGeneralChat(), false);
+  assert.equal(h.notices.some(value => value.includes('first conversation could not be created')), true);
+  assert.equal(h.shellValues.activeProcessId, null); assert.equal(h.get('workbench-general-chat').hasAttribute('aria-busy'), false);
+  h.handlers.delete('process_create'); assert.equal(await h.general.openGeneralChat(), true);
+  assert.equal(h.shellValues.activeProcessId, 'created-1');
+  return { selected: h.shellValues.activeProcessId, failedThenRetried: true };
 });
 await check('own create switch waiting for history cannot replace a later selection after returning', 'PASS', async () => {
   const h = await harness(), history = pause(); h.paneReady(false); h.handlers.set('conversation_get', args => args.processId === 'created-1' ? history.promise : []);

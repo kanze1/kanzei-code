@@ -48,8 +48,8 @@
     "remaining": 378,
     "note": "全仓历史口径，不是收敛后计划的待办数量；范围变更不计新增完成。"
   },
-  "scope_file_count": 268,
-  "scope_file_count_note": "268 primary files: 61 reusable prior reviews + 27 WB1-WB6 completed = 88 completed; 180 pending. Historical reference counts remain separate.",
+  "scope_file_count": 269,
+  "scope_file_count_note": "269 primary files after remote conversation test addition: 61 reusable + 27 WB completed = 88 completed; 181 pending. Release integration is not extra full-file audit.",
   "next_package": {
     "id": "WB7",
     "block": "workbench",
@@ -95,7 +95,7 @@
   },
   "dependency_policy": "跨范围依赖可读；若四块中的可达缺陷根因在共享下层，只处理修复所需的最小依赖链，不借此开展排除功能的全面审查。",
   "scope_prior_full_review_count": 63,
-  "scope_pending_review_count": 180,
+  "scope_pending_review_count": 181,
   "scope_manifest": "focused-scope.json",
   "scope_counts_by_block": {
     "workbench": {
@@ -128,13 +128,13 @@
       "pending_without_prior_review": 72
     },
     "automation": {
-      "files": 48,
+      "files": 49,
       "historical_full_reviews": 11,
       "reusable_full_reviews": 11,
       "changed_full_files_to_recheck": 0,
-      "pending_review": 37,
+      "pending_review": 38,
       "pending_with_prior_slice": 8,
-      "pending_without_prior_review": 29
+      "pending_without_prior_review": 30
     }
   },
   "dependency_reference": {
@@ -145,69 +145,27 @@
   },
   "pending_files": [
     {
-      "file": "crates/kanzei-app/src/workspace.rs",
-      "block": "workbench",
+      "file": "crates/kanzei-app/src/agent_directory.rs",
+      "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-app/src/workspace/tests.rs",
-      "block": "workbench",
+      "file": "crates/kanzei-app/src/auto_run.rs",
+      "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-app/ui/05-chat-render.js",
-      "block": "workbench",
+      "file": "crates/kanzei-app/src/collaboration.rs",
+      "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-app/ui/06-activity.js",
-      "block": "workbench",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/06-agent-panel.js",
-      "block": "workbench",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/08-compose.js",
-      "block": "workbench",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/12-decision-console.js",
-      "block": "workbench",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/20-lines.js",
-      "block": "workbench",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/21-palette.js",
-      "block": "workbench",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/26-project-conversations.js",
-      "block": "workbench",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/28-async-workspace.js",
-      "block": "workbench",
-      "prior_review": "unreviewed",
+      "file": "crates/kanzei-app/src/commands/os_open.rs",
+      "block": "tools",
+      "prior_review": "slice",
       "recheck_required": false
     },
     {
@@ -229,15 +187,15 @@
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-app/src/commands/summarize.rs",
-      "block": "conversation",
+      "file": "crates/kanzei-app/src/commands/run/tool_process.rs",
+      "block": "tools",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-app/src/conversation.rs",
+      "file": "crates/kanzei-app/src/commands/summarize.rs",
       "block": "conversation",
-      "prior_review": "slice",
+      "prior_review": "unreviewed",
       "recheck_required": false
     },
     {
@@ -253,267 +211,9 @@
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-app/src/general_chat.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/permission_tests.rs",
+      "file": "crates/kanzei-app/src/conversation.rs",
       "block": "conversation",
       "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/projection_gate.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/run/assembly/components.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/run/baseline.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/run/coordinator.rs",
-      "block": "conversation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/run/events/mod.rs",
-      "block": "conversation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/run/execution.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/run/mod.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/side_question.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/state.rs",
-      "block": "conversation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/state_tests.rs",
-      "block": "conversation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/typed_events.rs",
-      "block": "conversation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/assemble.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/replay.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/compaction.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/context.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/drive/assembly.rs",
-      "block": "conversation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/drive/batch.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/drive/context_budget.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/drive/halt.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/drive/permissions.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/drive/question.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/drive/task_results.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/line_runtime.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/metrics.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/mod.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/redundancy.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/store/events.rs",
-      "block": "conversation",
-      "prior_review": "full",
-      "recheck_required": true
-    },
-    {
-      "file": "crates/kanzei-core/src/store/file_checkpoints.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/store/rewind.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/store/session.rs",
-      "block": "conversation",
-      "prior_review": "full",
-      "recheck_required": true
-    },
-    {
-      "file": "crates/kanzei-tools/src/run.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/src/cli/run.rs",
-      "block": "conversation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/finalize.rs",
-      "block": "conversation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/src/cli/run/permissions.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
-      "block": "conversation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/commands/os_open.rs",
-      "block": "tools",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/commands/run/tool_process.rs",
-      "block": "tools",
-      "prior_review": "unreviewed",
       "recheck_required": false
     },
     {
@@ -529,8 +229,44 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-app/src/general_chat.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-app/src/harness_ext.rs",
       "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/orchestration_trace.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/permission_tests.rs",
+      "block": "conversation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline_tests.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
+      "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -583,8 +319,44 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-app/src/process_tests.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/conversation_tests.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-app/src/processes/gate.rs",
       "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/lifecycle.rs",
+      "block": "automation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/mod.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/naming.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/registry.rs",
+      "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -595,9 +367,87 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-app/src/projection_gate.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/run/assembly/components.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/run/baseline.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/run/coordinator.rs",
+      "block": "conversation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/run/events/mod.rs",
+      "block": "conversation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/run/execution.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/run/mod.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-app/src/screenshot.rs",
       "block": "tools",
       "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/side_question.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/state_tests.rs",
+      "block": "conversation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/state.rs",
+      "block": "conversation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/subagents_capture_tests.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/subagents.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/typed_events.rs",
+      "block": "conversation",
+      "prior_review": "slice",
       "recheck_required": false
     },
     {
@@ -607,8 +457,56 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-app/src/workspace.rs",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/src/workspace/tests.rs",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-app/src/worktree_tests.rs",
       "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-chat-render.js",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-subagents.js",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-activity.js",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-agent-panel.js",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/08-compose.js",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-decision-console.js",
+      "block": "workbench",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -631,8 +529,110 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-app/ui/20-lines.js",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/21-palette.js",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-app/ui/24-preview.js",
       "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/26-project-conversations.js",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/27-agent-team.js",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-app/ui/28-async-workspace.js",
+      "block": "workbench",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/assemble.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/notification.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/orchestration.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/phase.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/replay.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/compaction.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/context.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/delegation.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/assembly.rs",
+      "block": "conversation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/batch.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/context_budget.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/halt.rs",
+      "block": "conversation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -643,8 +643,62 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-core/src/runner/drive/permissions.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/question.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/task_results.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/line_runtime.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/metrics.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/mod.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/redundancy.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-core/src/runner/schema_check.rs",
       "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
+      "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -667,10 +721,28 @@
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-tools/src/arch_diagram.rs",
-      "block": "tools",
+      "file": "crates/kanzei-core/src/store/events.rs",
+      "block": "conversation",
+      "prior_review": "full",
+      "recheck_required": true
+    },
+    {
+      "file": "crates/kanzei-core/src/store/file_checkpoints.rs",
+      "block": "conversation",
       "prior_review": "unreviewed",
       "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/store/rewind.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-core/src/store/session.rs",
+      "block": "conversation",
+      "prior_review": "full",
+      "recheck_required": true
     },
     {
       "file": "crates/kanzei-tools/src/arch_diagram_lint.rs",
@@ -685,8 +757,38 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-tools/src/arch_diagram.rs",
+      "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-tools/src/architecture.rs",
       "block": "tools",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/background.rs",
+      "block": "automation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/monitor.rs",
+      "block": "automation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/persistent.rs",
+      "block": "automation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/registration.rs",
+      "block": "automation",
       "prior_review": "slice",
       "recheck_required": false
     },
@@ -871,14 +973,44 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-tools/src/read_receipt_tests.rs",
+      "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-tools/src/read.rs",
       "block": "tools",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-tools/src/read_receipt_tests.rs",
-      "block": "tools",
+      "file": "crates/kanzei-tools/src/run.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/executor.rs",
+      "block": "automation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/hosts.rs",
+      "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/mod.rs",
+      "block": "automation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/when.rs",
+      "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -889,8 +1021,20 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei-tools/src/subagent.rs",
+      "block": "automation",
+      "prior_review": "slice",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei-tools/src/symbols.rs",
       "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/tools.rs",
+      "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -973,224 +1117,20 @@
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei/src/cli/worktree.rs",
-      "block": "tools",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
-      "block": "tools",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
-      "block": "tools",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
-      "block": "tools",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
-      "block": "tools",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/agent_directory.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/auto_run.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/collaboration.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/orchestration_trace.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/phase_pipeline.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/phase_pipeline_tests.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/process_tests.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/processes/lifecycle.rs",
-      "block": "automation",
+      "file": "crates/kanzei/src/cli/run.rs",
+      "block": "conversation",
       "prior_review": "slice",
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-app/src/processes/mod.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/processes/naming.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/processes/registry.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/subagents.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/src/subagents_capture_tests.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/05-subagents.js",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-app/ui/27-agent-team.js",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/notification.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/orchestration.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/phase.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/delegation.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/subagent.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/background.rs",
-      "block": "automation",
+      "file": "crates/kanzei/src/cli/run/finalize.rs",
+      "block": "conversation",
       "prior_review": "slice",
       "recheck_required": false
     },
     {
-      "file": "crates/kanzei-tools/src/background/monitor.rs",
-      "block": "automation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/background/persistent.rs",
-      "block": "automation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/background/registration.rs",
-      "block": "automation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/schedules/executor.rs",
-      "block": "automation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/schedules/hosts.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/schedules/mod.rs",
-      "block": "automation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/schedules/when.rs",
-      "block": "automation",
-      "prior_review": "unreviewed",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/subagent.rs",
-      "block": "automation",
-      "prior_review": "slice",
-      "recheck_required": false
-    },
-    {
-      "file": "crates/kanzei-tools/src/team/tools.rs",
-      "block": "automation",
+      "file": "crates/kanzei/src/cli/run/permissions.rs",
+      "block": "conversation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -1201,14 +1141,68 @@
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei/src/cli/worktree.rs",
+      "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
+      "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
       "block": "automation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
     {
+      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
+      "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
+      "block": "conversation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
       "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
       "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
+      "block": "conversation",
       "prior_review": "unreviewed",
       "recheck_required": false
     },
@@ -1221,6 +1215,18 @@
     {
       "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
       "block": "automation",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
+      "block": "tools",
+      "prior_review": "unreviewed",
+      "recheck_required": false
+    },
+    {
+      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
+      "block": "tools",
       "prior_review": "unreviewed",
       "recheck_required": false
     }
@@ -1335,5 +1341,11 @@
     }
   ],
   "scope_completed_current_review_count": 88,
-  "scope_new_full_reviews": 27
+  "scope_new_full_reviews": 27,
+  "release_integration": {
+    "report": "../../reports/2026-10-04-workbench-release.md",
+    "wb_commit": "9875810c",
+    "remote_commit": "c6654fae7003b8007063acfb6f95f668674ecec4",
+    "note": "Merged remote peer-conversation contracts and retained WB ownership fixes; historical per-batch hashes remain unchanged."
+  }
 }

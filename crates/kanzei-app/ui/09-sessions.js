@@ -150,7 +150,7 @@ export async function handleWorktreeAction(item, action) {
       await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
       if (currentProject !== forProject) return;
       if (discardingActiveLine && !processItems.some((process) => process.id === activeProcessId)) {
-        const fallback = processItems.find((process) => process.id.startsWith("d|")) || processItems[0];
+        const fallback = preferred_workspace_process(processItems);
         if (fallback) await switchProcess(fallback.id);
       }
     } else {
@@ -322,7 +322,7 @@ export function processRunning(item) {
 }
 export async function closeParallelProcess(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
-  if (!item || item.id.startsWith("d|")) return;
+  if (!item) return;
   const forProject = currentProject;
   const runningNow = processRunning(item);
   // 关闭只注销身份(processes → retired_processes),这条线的对话一条不删,在搜索与历史中只读查看。
@@ -459,7 +459,7 @@ export function renderParallelTaskStatus(items) {
     row.title = view.title;
     row.addEventListener("click", () => void switchProcess(item.id));
     line.appendChild(row);
-    if (!item.id.startsWith("d|")) {
+    {
       // 关闭是低频的危险动作:图标按钮,悬停/聚焦这一条线路时才出现(CSS),读屏名称带线路名。
       const close = document.createElement("button");
       close.type = "button";
@@ -1570,6 +1570,12 @@ export async function enterProject(prefs, options = {}) {
     if (!isCurrent()) return;
   }
   if (targetView === "chat") {
+    if (!processItems.length) {
+      await invoke("process_create", { projectDir: target, profile: "dev" });
+      if (!isCurrent()) return;
+      await refreshProcesses();
+      if (!isCurrent()) return;
+    }
     await loadConversation();
     if (!isCurrent()) return;
     if (previous !== target && options.notice) addMessage("notice", options.notice);

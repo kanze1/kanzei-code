@@ -307,7 +307,6 @@ export function lineOverlapsFor(lines) {
 export function lineName(line, item = processItems.find((process) => process.id === line.process_id)) {
   const title = String(item?.title ?? "").trim();
   if (title) return title;
-  if (String(line.process_id ?? "").startsWith("d|")) return t("主对话");
   return line.label;
 }
 
@@ -664,7 +663,7 @@ export function renderLines(lines) {
       });
       actions.appendChild(harvest);
     }
-    if (!line.process_id.startsWith("d|")) {
+    {
       const close = document.createElement("button");
       close.type = "button";
       close.className = "ghost mini danger line-close";

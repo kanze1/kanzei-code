@@ -5,7 +5,7 @@
 //    不在条目上的地方保留原生菜单。Shift+F10 / 菜单键同效(键盘触发的 contextmenu 以行矩形为锚点)。
 //  - F2 重命名,Alt+↑/↓ 上移/下移,方向键在行间移动焦点。
 //  - 拖动排序用 pointer 事件(不依赖 HTML5 拖放),只在同一个列表、同一个置顶分组内移动;
-//    不做跨项目拖会话(改成右键「交给其它项目的主对话…」)。
+//    不做跨项目拖会话(改成右键「交给其它项目的对话…」)。
 import { openMenu } from "./00-surface.js";
 import { isGeneralChat } from "./03-general-scope.js";
 import { $, confirmDialog, defer, discardSessionPane, inputDialog, invoke } from "./01-core.js";
@@ -19,7 +19,7 @@ import {
 } from "./09-sessions.js";
 import {
   activateRow, buildRows, closedOpen, dropClosedSessions, dropRemoteSessions, forgetSessionPrefs, invalidateSessionTree, kindWord,
-  loadRemoteSessions, closeSessionHistory, historyElement, historyProjectPath, mainSessionOf, newDiscussionIn, newTaskIn, openSession,
+  loadRemoteSessions, closeSessionHistory, historyElement, historyProjectPath, sessionItemsOf, newDiscussionIn, newTaskIn, openSession,
   openSessionHistory, orderedProjects, orderRows, projectPinned, projectRunningCount, setClosedOpen, setProjectPinned,
   setSessionDragging, setSessionOrder, setSessionPinned, setSidebarOpen, sidebarOpen,
 } from "./12-session-tree.js";
@@ -194,7 +194,7 @@ export async function deleteSession(project, id) {
   const kept = typeof outcome === "string" && outcome.includes("仍保留") ? outcome : "";
   toast(kept || `${t("已删除")}:${row.name}`, { kind: kept ? "warn" : "ok" });
 }
-/// 清空主对话:主对话不能注销,只删它的全部对话段(留下一个空的主对话)。
+/// 清空主对话:主对话不能注销,只删它的全部对话段(留下一个空的对话)。
 export async function clearMainConversation(project, id) {
   const row = liveRow(project, id);
   if (!row) return;
@@ -217,7 +217,7 @@ export async function clearMainConversation(project, id) {
 }
 export async function closeSession(project, id) {
   const row = liveRow(project, id);
-  if (!row || row.kind !== "task") return;
+  if (!row || !row.worktree) return;
   if (sameProject(project, currentProject)) { await closeParallelProcess(id); return; }
   const warning = rowRunning(row)
     ? t("独立任务仍在运行，关闭会先停止它，等它收尾。")
@@ -236,10 +236,10 @@ export async function closeSession(project, id) {
 }
 async function handoffToProject(source, targetProject) {
   await loadRemoteSessions(targetProject);
-  const main = mainSessionOf(targetProject);
-  if (!main) { toast(t("目标项目的主对话暂不可用"), { kind: "warn" }); return; }
+  const items = sessionItemsOf(targetProject).filter(p => p.profile !== "research");
+  if (!items.length) { toast(t("目标项目的对话暂不可用"), { kind: "warn" }); return; }
   if (!await openSession(source.project, source.id)) return;
-  openHandoffForm({ target: { project: targetProject, main, name: projectDisplayName(targetProject) } });
+  openHandoffForm({ target: { project: targetProject, items, name: projectDisplayName(targetProject) } });
 }
 
 // ---------- 项目动作 ----------
@@ -367,9 +367,7 @@ export async function openSessionContextMenu(wrap, point, host) {
   const tools = general ? [] : await toolsForMenu();
   const live = liveRow(project, id);
   if (!live) return null;
-  const main = live.kind === "main";
-  const task = !general && live.kind === "task";
-  const discussion = live.kind === "discussion";
+  const task = !general && Boolean(live.worktree);
   const running = rowRunning(live);
   const here = sameProject(project, currentProject) && id === activeProcessId && document.body.dataset.view === "chat";
   const group = orderRows(project).filter((candidate) => candidate.capabilities.reorder && candidate.pinned === live.pinned);
@@ -377,7 +375,7 @@ export async function openSessionContextMenu(wrap, point, host) {
   const runningWhy = running ? t("运行中,先停止再删除") : "";
   const items = [
     { label: t("打开"), disabled: here, onSelect: () => void openSession(project, id) },
-    { label: t(general ? "新对话" : "在此项目新建讨论"), onSelect: () => void newDiscussionIn(project) },
+    { label: t("新对话"), onSelect: () => void newDiscussionIn(project) },
     "separator",
     { label: `${t("重命名")}…`, kbd: "F2", onSelect: () => afterDialog(wrap.dataset.key, renameSession(project, id)) },
     live.capabilities.reorder && { label: live.pinned ? t("取消置顶") : t("置顶"), onSelect: () => toggleSessionPin(project, id) },
@@ -392,13 +390,13 @@ export async function openSessionContextMenu(wrap, point, host) {
     live.worktree && { label: t("复制工作树路径"), onSelect: () => void copyText(live.worktree, t("工作树路径")) },
     live.branch && { label: t("复制分支名"), desc: live.branch, onSelect: () => void copyText(live.branch, live.branch) },
     "separator",
-    !general && discussion && { label: `${t("交给主对话")}…`, onSelect: async () => { if (await openSession(project, id)) openHandoffForm({}); } },
-    !general && !main && { label: `${t("交给其它项目的主对话")}…`, onSelect: () => chooseHandoffProject(point, host, live) },
+    !general && { label: `${t("交给其它对话")}…`, onSelect: async () => { if (await openSession(project, id)) openHandoffForm({}); } },
+    !general && { label: `${t("交给其它项目的对话")}…`, onSelect: () => chooseHandoffProject(point, host, live) },
     task && { label: t("查看独立任务详情"), onSelect: () => void openProjectSpace(project, "lines") },
     "separator",
     task && { label: `${t("关闭独立任务")}…`, danger: true, onSelect: () => afterDialog(wrap.dataset.key, closeSession(project, id)) },
-    !main && { label: `${t("删除对话")}…`, danger: true, disabled: running, desc: runningWhy || undefined, onSelect: () => afterDialog(wrap.dataset.key, deleteSession(project, id)) },
-    main && {
+    { label: `${t("删除对话")}…`, danger: true, disabled: running, desc: runningWhy || undefined, onSelect: () => afterDialog(wrap.dataset.key, deleteSession(project, id)) },
+    {
       label: `${t("清空对话")}…`, danger: true, disabled: running,
       desc: running ? t("运行中,先停止再清空对话") : undefined,
       onSelect: () => afterDialog(wrap.dataset.key, clearMainConversation(project, id)),
@@ -413,7 +411,7 @@ function chooseHandoffProject(point, host, source) {
   const others = (lastProjectPrefs.projects ?? []).filter((path) => !sameProject(path, source.project));
   if (!others.length) { toast(t("没有其它项目可交付")); return; }
   showMenu(point, host, [
-    { heading: t("交给哪个项目的主对话") },
+    { heading: t("交给哪个项目的对话") },
     ...others.map((path) => ({
       label: projectDisplayName(path), desc: shortProjectPath(path), onSelect: () => void handoffToProject(source, path),
     })),
@@ -431,8 +429,8 @@ export async function openProjectContextMenu(row, point, host) {
   const running = projectRunningCount(path);
   const name = projectDisplayName(path);
   const items = [
-    { label: t("打开"), onSelect: () => void openProjectSpace(path, "chat", { main: true }) },
-    { label: t("新建讨论"), onSelect: () => void newDiscussionIn(path) },
+    { label: t("打开"), onSelect: () => void openProjectSpace(path, "chat") },
+    { label: t("新对话"), onSelect: () => void newDiscussionIn(path) },
     { label: t("新建独立任务"), onSelect: () => void newTaskIn(path) },
     "separator",
     { label: `${t("重命名项目")}…`, kbd: "F2", desc: t("只改显示名,不改磁盘文件夹"), onSelect: () => afterDialog(`project\u001f${path}`, renameProject(path)) },
@@ -457,7 +455,7 @@ export async function openProjectContextMenu(row, point, host) {
     },
   ];
   return compactContextMenu(point, host, items, { label: name, focusKey: `project\u001f${path}` }, [
-    t("新建讨论"), `${t("重命名项目")}…`, t("置顶"), t("取消置顶"),
+    t("新对话"), `${t("重命名项目")}…`, t("置顶"), t("取消置顶"),
     t("在资源管理器中打开"), `${t("移除项目")}…`,
   ]);
 }

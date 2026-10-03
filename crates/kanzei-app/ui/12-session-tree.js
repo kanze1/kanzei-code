@@ -18,7 +18,7 @@ import { layoutPref, onLayoutChange, setLayoutPref } from "./03-layout.js";
 import {
   activeProcessId, activeSessionId, currentProject, ensureChatView, expandSidebar, processItems, sessionStates, toast,
 } from "./03-shell.js";
-import { active_space, main_workspace_process } from "./03-workspaces.js";
+import { active_space } from "./03-workspaces.js";
 import { askActive, askQueues } from "./07-events.js";
 import { awaitingUserSessions } from "./08-auto.js";
 import { createWorktreeLine, lastProjectPrefs, processRunning, projectDisplayName, switchProcess } from "./09-sessions.js";
@@ -70,14 +70,12 @@ export function forgetSessionPrefs(project, id) {
 
 // ---------- 行模型 ----------
 export function kindWord(kind) {
-  return kind === "conversation" ? t("对话") : kind === "main" ? t("主对话") : kind === "discussion" ? t("讨论") : t("独立任务");
+  return kind === "conversation" ? t("对话") : kind === "discussion" ? t("讨论") : t("独立任务");
 }
 const LEGACY_LABEL = /^(默认|p\d*|d|主对话|讨论|独立任务|对话|新对话|未命名对话)(?:\s+\d+)?$/;
-export function sessionKindOf(item, main) {
-  if (item.profile === "research" || item.kind === "research") return "research";
-  if (main) return item.id === main.id ? "main" : item.profile === "readonly" || item.kind === "discussion" ? "discussion" : "task";
-  if (String(item.id).startsWith("d|") || item.kind === "main") return "main";
-  return item.profile === "readonly" || item.kind === "discussion" ? "discussion" : "task";
+export function sessionKindOf(item) {
+  if (item.profile === "research") return "research";
+  return item.profile === "readonly" ? "discussion" : "conversation";
 }
 /// 对话统一使用持久化标题;旧类型名和编号不再充当标题。
 export function sessionDisplayName(item) {
@@ -117,12 +115,9 @@ export function sessionItemsOf(project) {
     && !item.deleted && !item.archived && !item.closed
     && !["closed", "archived", "deleted"].includes(item.lifecycle || item.status));
 }
-export function mainSessionOf(project, items = sessionItemsOf(project)) {
-  return main_workspace_process(items, project) ?? null;
-}
 /// 一条会话的展示名(旧代码里直接读 item.label 的地方改用它:label 在旧后端里是 pN/「默认」)。
-export function processName(item, project = currentProject) {
-  return sessionDisplayName(item, sessionKindOf(item, mainSessionOf(project)));
+export function processName(item) {
+  return sessionDisplayName(item);
 }
 /// 工作空间快照里一条线(只有线级字段,没有主对话判定)的展示名。
 export function lineName(line) {
@@ -130,9 +125,8 @@ export function lineName(line) {
 }
 export function buildRows(project, { includeClosed = false } = {}) {
   const items = sessionItemsOf(project);
-  const main = mainSessionOf(project, items);
   const rows = items.map((item) => {
-    const kind = sessionKindOf(item, main);
+    const kind = sessionKindOf(item);
     return conversationRecord(project, item, {
       kind, general: isGeneralChat(project), name: sessionDisplayName(item, kind), pinned: sessionPinned(item.id),
     });
@@ -144,7 +138,7 @@ export function buildRows(project, { includeClosed = false } = {}) {
 function closedRow(project, item) {
   return conversationRecord(project, item, { closed: true, general: isGeneralChat(project), name: closedName(item) });
 }
-/// 显示顺序:主对话固定第一;其后置顶组、其余组。组内:手动排过的按手动序,没排过的(含新建的)排在最前,
+/// 显示顺序:置顶组、其余组。组内:手动排过的按手动序,没排过的(含新建的)排在最前,
 /// 再按编号新→旧(稳定:轮询刷新的 updated_at 不会让行跳来跳去)。
 export function orderRows(project, rows = buildRows(project)) {
   const manual = new Map(sessionOrderPref(project).map((id, index) => [id, index]));
@@ -522,7 +516,7 @@ function closedGroup(project, { history = false } = {}) {
 const closedSignature = (project) => [closedOpen(project), closedCache.get(project)?.error, closedSessionsOf(project).map((item) => [item.id, item.title, item.ordinal])];
 
 // ---------- 动作:打开会话 / 新建 ----------
-/// 打开某项目的某段对话:别的项目先进入它(落主对话),再切到目标会话;不在对话页就回到对话页。
+/// 打开某项目的某段对话:别的项目先进入它,再切到目标会话;不在对话页就回到对话页。
 export async function openSession(project, processId) {
   if (!project || !processId) return false;
   if (!sameProject(project, currentProject) || active_space !== "dev") {
@@ -575,9 +569,9 @@ export function historyElement() {
   const discussion = el("button", "ghost mini");
   discussion.type = "button";
   discussion.dataset.act = "new-discussion";
-  discussion.title = t("新讨论(只读,结论可交给主对话执行)");
-  discussion.dataset.i18nTitle = "新讨论(只读,结论可交给主对话执行)";
-  const discussionLabel = el("span", "", t("新讨论"));
+  discussion.title = t("新对话");
+  discussion.dataset.i18nTitle = "新对话";
+  const discussionLabel = el("span", "", t("新对话"));
   discussionLabel.dataset.i18nKey = "新讨论";
   discussion.append("＋ ", discussionLabel);
   const task = el("button", "ghost mini");
@@ -762,6 +756,6 @@ defer(() => {
   document.addEventListener("kz:general-history-ready", () => invalidateSessionTree());
   onLayoutChange(() => { signatures.clear(); renderSidebarSessions(); });
   document.addEventListener("kz:view-changed", () => closeSessionHistory());
-  // 切语言:行里的「主对话」「独立任务」「已关闭」等是渲染点写的 t(),按内容签名去重的重绘不会自己发现语言变了。
+  // 切语言:行里的「对话」「已关闭」等是渲染点写的 t(),按内容签名去重的重绘不会自己发现语言变了。
   document.addEventListener("kz:language", () => { signatures.clear(); renderSidebarSessions(); });
 });

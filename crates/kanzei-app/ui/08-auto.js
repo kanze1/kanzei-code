@@ -103,7 +103,7 @@ export function lineAgent(item) {
   const globalChoice = localStorage.getItem("kz-profile");
   const mode = remembered && remembered !== "research"
     ? remembered
-    : String(item.id ?? "").startsWith("d|") && ["dev-pair", "dev-auto"].includes(globalChoice) ? globalChoice : "dev-pair";
+    : ["dev-pair", "dev-auto"].includes(globalChoice) ? globalChoice : "dev-pair";
   return { profile: "dev", agent: mode === "dev-auto" ? "dev" : "dev-pair" };
 }
 

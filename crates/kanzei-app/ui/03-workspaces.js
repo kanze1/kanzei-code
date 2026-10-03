@@ -133,20 +133,17 @@ export function preferred_workspace_process(items, space = project_workspace().s
   const saved = project_workspace()[space];
   const candidates = items.filter((item) => process_space(item) === space
     && (space !== "research" || (item.research_topic || "") === saved.topic));
-  if (space === "dev" && !isGeneralChat()) return main_workspace_process(candidates);
   return candidates.find((item) => item.id === saved.process_id)
-    ?? (space === "research" ? candidates.find((item) => item.research_topic === saved.topic) : candidates.find((item) => item.id.startsWith("d|")))
+    ?? (space === "research" ? candidates.find((item) => item.research_topic === saved.topic) : null)
     ?? candidates[0];
 }
 
-// Discussions never replace the project's execution owner. Preserve a migrated
-// user's chosen execution line; independent tasks remain explicitly selectable.
-export function main_workspace_process(items = processItems, project = currentProject) {
+// Navigation remembers the selected conversation; it does not designate an owner.
+export function selected_workspace_process(items = processItems, project = currentProject) {
   const saved = project_workspace(project).dev;
-  const candidates = items.filter(item => !["research", "readonly"].includes(item.profile));
-  return candidates.find(item => item.id === saved.main_process_id)
-    ?? candidates.find(item => item.id === saved.process_id)
-    ?? candidates.find(item => item.id.startsWith("d|")) ?? candidates[0];
+  const candidates = items.filter(item => item.profile !== "research");
+  return candidates.find(item => item.id === (project === currentProject ? activeProcessId : saved.process_id))
+    ?? candidates.find(item => item.id === saved.process_id) ?? candidates[0];
 }
 
 export function workspace_processes(items) {
@@ -172,9 +169,6 @@ export function adopt_process_workspace(item) {
   active_space = process_space(item);
   const saved = project_workspace();
   const scope = { ...saved[active_space], process_id: item.id };
-  if (active_space === "dev" && !scope.main_process_id) {
-    scope.main_process_id = main_workspace_process(processItems)?.id;
-  }
   if (active_space === "research") {
     scope.topic = item.research_topic || "";
     if (!scope.topic) scope.category = "unbound";

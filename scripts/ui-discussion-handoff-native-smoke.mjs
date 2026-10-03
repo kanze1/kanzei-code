@@ -49,7 +49,7 @@ const model = http.createServer(async (req, res) => {
       : system.includes("You own one delegated task") || prompt.includes("你是只读勘察代理") || prompt.includes("你是只读复核代理") ? "unexpected-child"
         : prompt.includes("用户回答异步问题") ? "answer"
           : prompt.includes("NATIVE_BACKGROUND_START") ? "background-main"
-            : prompt.includes("用户明确交给主对话的结论") && prompt.includes(handoffText) ? "handoff-main"
+            : prompt.includes("用户明确交给其它对话的结论") && prompt.includes(handoffText) ? "handoff-main"
               : prompt.includes("NATIVE_DISCUSSION_QUESTION") ? "discussion-question"
                 : prompt.includes("NATIVE_SCOPE_SYNC") ? "discussion-sync"
                   : prompt.includes("NATIVE_SCOPE_LIBRARY") ? "discussion-library" : "other";
@@ -126,6 +126,7 @@ try {
   check((await invoke("projects_get")).projects.length === 0, "Native handoff uses only the disposable app profile");
   await invoke("projects_init", { path: project, name: "番剧讨论交接与提问验收" });
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
+  await page.evaluate(async () => { const prefs = await window.__TAURI__.core.invoke("projects_get"); await (await import("./09-sessions.js")).enterProject(prefs); });
   owner = (await invoke("process_list", { projectDir: project })).find(line => !["readonly", "research"].includes(line.profile));
   assert(owner, "Main executor exists");
   await invoke("process_update", { processId: owner.id, subagentsEnabled: false, phasePipeline: false });
@@ -133,9 +134,12 @@ try {
   await listenEvents();
   await page.locator("#prompt").fill(mainDraft);
   await page.locator("#new-chat").click();
-  await until(async () => { discussion = (await invoke("process_list", { projectDir: project })).find(line => line.profile === "readonly"); return discussion && (await selected()).processId === discussion.id; }, "UI-created discussion");
+  await until(async () => { discussion = (await invoke("process_list", { projectDir: project })).find(line => line.id !== owner.id); return discussion && (await selected()).processId === discussion.id; }, "UI-created discussion");
   await invoke("auto_state_update", { sessionId: discussion.session_id, enabled: false });
-  check(discussion.session_id !== owner.session_id && discussion.profile === "readonly", "New discussion has independent read-only identity");
+  check(discussion.session_id !== owner.session_id && discussion.profile === "dev", "New conversation has an ordinary development identity");
+  // This scenario exercises an explicitly read-only discussion, not a secondary rank.
+  await invoke("process_update", { processId: discussion.id, profile: "readonly" });
+  await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, discussion.id);
   check(await page.locator("#prompt").inputValue() === "", "Creating a discussion preserves the main draft and starts a separate composer");
   for (const [scope, kind] of [[libraryScope, "discussion-library"], [syncScope, "discussion-sync"]]) {
     await page.locator("#prompt").fill(scope); await page.locator("#send").click();
@@ -174,10 +178,10 @@ try {
   await page.screenshot({ path: path.join(output, "discussion-returned-draft.png") });
   await page.locator("#prompt").fill(handoffText);
   await page.locator("#project-handoff").click();
-  const form = page.locator(".project-handoff-form"), conclusion = form.getByRole("textbox", { name: "交给主对话的结论", exact: true });
+  const form = page.locator(".project-handoff-form"), conclusion = form.getByRole("textbox", { name: "交给其它对话的结论", exact: true });
   check(await conclusion.inputValue() === handoffText, "Native handoff form contains only the user's short instruction");
   await page.screenshot({ path: path.join(output, "discussion-handoff.png") });
-  await form.getByRole("button", { name: "发送给主对话", exact: true }).click();
+  await form.getByRole("button", { name: "发送给对话", exact: true }).click();
   await until(() => requests.some(request => request.kind === "handoff-main"), "Actual main model handoff request");
   const handed = requests.find(request => request.kind === "handoff-main");
   const handedPrompt = messageText(handed.messages.findLast(message => message.role === "user"));

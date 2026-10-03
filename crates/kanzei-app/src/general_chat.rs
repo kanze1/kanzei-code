@@ -32,7 +32,6 @@ pub(crate) fn open(state: &crate::AppState) -> Result<String, String> {
     let root = storage_root()?;
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let root = crate::normalized_project_root(&root);
-    crate::ensure_default_process(state, &root);
     crate::processes::registry::restore_processes_from_store_once(state, &root)?;
     let handles: Vec<_> = state
         .processes
@@ -134,10 +133,10 @@ pub(crate) async fn link_to_project(
         state,
         &target.display().to_string(),
         model,
-        Some("readonly".into()),
+        Some("dev".into()),
         reasoning,
         Some(false),
-        Some(false),
+        Some(process.subagents_enabled.load(Ordering::SeqCst)),
         Some(false),
         None,
         None,
@@ -240,7 +239,7 @@ mod tests {
             let state = crate::AppState::default();
             let root = PathBuf::from(open(&state).unwrap());
             assert!(is_general_root(&root));
-            let p = crate::ensure_default_process(&state, &root);
+            let p = crate::processes::registry::ensure_conversation(&state, &root).unwrap();
             assert_eq!(p.profile.lock().unwrap().as_deref(), Some("dev"));
             assert!(p.subagents_enabled.load(Ordering::SeqCst));
             p.subagents_enabled.store(false, Ordering::SeqCst);

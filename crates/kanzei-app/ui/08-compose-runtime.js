@@ -1382,10 +1382,9 @@ export function applyProfileValue(backendProfile) {
   // 尚未就绪的那一瞬,就是整条降级链的起点。不知道就别动控件。
   if (!activeProcessId) return;
   const remembered = processProfileUi.get(activeProcessId);
-  // 主线兼容旧的全局偏好；并行线没有本线设置时必须从安全默认 dev-pair 起步，
-  // 不能因为主线曾选过 dev-auto 就让新线静默开启鞭挞。
+  // 各对话先恢复自己的模式；没有记录时使用同一全局偏好和默认值。
   const globalChoice = localStorage.getItem(PROFILE_STORAGE_KEY);
-  const fallback = activeProcessId?.startsWith("d|") && ["dev-pair", "dev-auto"].includes(globalChoice)
+  const fallback = ["dev-pair", "dev-auto"].includes(globalChoice)
     ? globalChoice
     : "dev-pair";
   if (backendProfile !== "research") $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;

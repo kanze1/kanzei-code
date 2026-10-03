@@ -22,10 +22,10 @@
 | 工作台与交互控制台 | 51 | 40 | 11 |
 | 对话执行与恢复 | 79 | 30 | 49 |
 | 工具与代码操作 | 90 | 7 | 83 |
-| 多任务与自动运行 | 48 | 11 | 37 |
-| 合计 | 268 | 88 | 180 |
+| 多任务与自动运行 | 49 | 11 | 38 |
+| 合计 | 269 | 88 | 181 |
 
-WB1 新增全文审查 6 文件，修复 3 个 P1、1 个 P2，相关检查 267 项通过；另复核既有 03-workspaces 草稿 owner，不重复增加文件数。详见 [WB1 逐文件报告](WB1-workbench-state.md)。WB2 再完成 5 文件，修复 2 个 P1、1 个 P2，新增回归 36 项通过，见 [WB2](WB2-session-navigation.md)。WB3 完成 4 文件，修复 5 个 P1、1 个 P2，新增回归 37 项通过，见 [WB3](WB3-conversation-ownership.md)。WB4 完成 4 文件，修复 3 个 P1、3 个 P2，新增回归 49 项与完整 UI gate 通过，见 [WB4](WB4-resource-parsing.md)。WB5 完成 4 文件，修复 3 个 P1、5 个 P2，81 项新增回归、完整 UI gate 与图真引擎检查通过，见 [WB5](WB5-rendering-ownership.md)。WB6 完成 4 文件及 2 个协同切片，修复 2 个 P1、4 个 P2；新增 58 项回归通过，Rust app 检查/直接 caller 与完整 UI gate 通过，见 [WB6](WB6-delivery-activity.md)。下一包 WB7：workspace.rs、workspace/tests.rs、26-project-conversations、28-async-workspace，先稳定概览身份和快照，再检查前端异步接管。未发新版，C7 等未修复问题保持原状态。
+WB1 新增全文审查 6 文件，修复 3 个 P1、1 个 P2，相关检查 267 项通过；另复核既有 03-workspaces 草稿 owner，不重复增加文件数。详见 [WB1 逐文件报告](WB1-workbench-state.md)。WB2 再完成 5 文件，修复 2 个 P1、1 个 P2，新增回归 36 项通过，见 [WB2](WB2-session-navigation.md)。WB3 完成 4 文件，修复 5 个 P1、1 个 P2，新增回归 37 项通过，见 [WB3](WB3-conversation-ownership.md)。WB4 完成 4 文件，修复 3 个 P1、3 个 P2，新增回归 49 项与完整 UI gate 通过，见 [WB4](WB4-resource-parsing.md)。WB5 完成 4 文件，修复 3 个 P1、5 个 P2，81 项新增回归、完整 UI gate 与图真引擎检查通过，见 [WB5](WB5-rendering-ownership.md)。WB6 完成 4 文件及 2 个协同切片，修复 2 个 P1、4 个 P2；新增 58 项回归通过，Rust app 检查/直接 caller 与完整 UI gate 通过，见 [WB6](WB6-delivery-activity.md)。下一包 WB7：workspace.rs、workspace/tests.rs、26-project-conversations、28-async-workspace，先稳定概览身份和快照，再检查前端异步接管。正在整合远端 c6654fae 准备发布；新增 conversation_tests.rs 计入待审，未增加完成数。C7 等未修复问题保持原状态。
 
 ## 收敛时起点（历史快照）
 

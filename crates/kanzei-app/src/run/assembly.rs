@@ -90,24 +90,15 @@ impl RunMode {
             && self.phase_pipeline_enabled
     }
 
-    /// 本轮是否跑在并行线(独立任务)上:权限询问走 NonInteractive,不冒泡到用户弹窗(D-272)。
-    ///
-    /// 只读讨论(readonly)不算:它是用户正在对话的会话,线 id 虽然也是 `p{n}|…`,权限询问必须能弹给用户。
-    pub(crate) fn runs_on_parallel_line(&self, process_id: &str) -> bool {
-        is_parallel_process_id(process_id) && self.profile.as_deref() != Some("readonly")
+    pub(crate) fn ask_policy(&self) -> kanzei_core::AskPolicy {
+        if !self.autonomous {
+            kanzei_core::AskPolicy::Interactive
+        } else if self.auto_allow {
+            kanzei_core::AskPolicy::AutoAllow
+        } else {
+            kanzei_core::AskPolicy::NonInteractive
+        }
     }
-}
-
-/// 并行线的进程身份:`p<数字>|<项目>`;默认线是 `d|…`(UX-147)。旧版曾写成 `p|…`,同样认作并行线。
-///
-/// 此前判定写死 `starts_with("p|")`,而线 id 自 R-178 起是 `p{n}|…`——条件永不命中,并行线实际一直是
-/// Interactive:问到权限就挂起等人,D-272「并行线/自举线不得把询问串到用户弹窗」的隔离整个失效。
-pub(crate) fn is_parallel_process_id(process_id: &str) -> bool {
-    let Some((head, _project)) = process_id.split_once('|') else {
-        return false;
-    };
-    head.strip_prefix('p')
-        .is_some_and(|digits| digits.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// R-253 批7b:调用契约三分组之三——**运行时句柄**(`RuntimeHandles`)。
@@ -306,15 +297,7 @@ pub(crate) async fn assemble_run(
         // D-281:自动轮默认 NonInteractive(避免后台 ASK 挂起弹窗);用户勾选
         // 自动放行后传 AutoAllow——权限询问直接放行并落 PermissionResolved
         // 事件,不再静默 declined(开关因此对鞭挞/自主推进轮生效)。
-        if mode.autonomous || mode.runs_on_parallel_line(&request.process_id) {
-            if mode.auto_allow {
-                kanzei_core::AskPolicy::AutoAllow
-            } else {
-                kanzei_core::AskPolicy::NonInteractive
-            }
-        } else {
-            kanzei_core::AskPolicy::Interactive
-        },
+        mode.ask_policy(),
         // D-342:主对话 run 全部接停止令牌(协作式停止的接收端)。
         Some(halt_token.clone()),
     );
@@ -332,8 +315,6 @@ pub(crate) async fn assemble_run(
     };
     let ask_source = if mode.autonomous {
         "autonomous"
-    } else if mode.runs_on_parallel_line(&request.process_id) {
-        "parallel"
     } else {
         "primary"
     };
@@ -1673,29 +1654,8 @@ mod tests {
     use super::{append_dev_guidance, build_run_harness};
     use kanzei_harness::ProfileKind;
 
-    /// UX-147:并行线 id 是 `p{n}|…`,判定必须认得数字编号;默认线 `d|…`、无分隔符与带字母的都不是。
     #[test]
-    fn 并行线判定认得数字编号而不是写死_p_竖线() {
-        use super::is_parallel_process_id;
-        for id in ["p1|C:/proj", "p26|C:/proj", "p10|C:\\a|b", "p|C:/proj"] {
-            assert!(is_parallel_process_id(id), "{id} 应判为并行线");
-        }
-        for id in [
-            "d|C:/proj",
-            "px|C:/proj",
-            "p1x|C:/proj",
-            "p1",
-            "",
-            "|p1",
-            "main",
-        ] {
-            assert!(!is_parallel_process_id(id), "{id} 不应判为并行线");
-        }
-    }
-
-    /// UX-147:并行线上的普通/自主轮走 NonInteractive;只读讨论(用户在对话)与默认线不受影响。
-    #[test]
-    fn 并行线讨论不算无人值守() {
+    fn 所有用户对话使用同一交互策略() {
         let mut mode = super::RunMode {
             execution_batch: false,
             phase_pipeline_enabled: false,
@@ -1710,13 +1670,20 @@ mod tests {
             autonomous: false,
             auto_allow: false,
         };
-        assert!(mode.runs_on_parallel_line("p3|C:/proj"));
-        assert!(!mode.runs_on_parallel_line("d|C:/proj"));
-        mode.profile = Some("readonly".into());
-        assert!(
-            !mode.runs_on_parallel_line("p3|C:/proj"),
-            "只读讨论是用户正在对话的会话,权限询问要能弹出来"
-        );
+        assert!(matches!(
+            mode.ask_policy(),
+            kanzei_core::AskPolicy::Interactive
+        ));
+        mode.autonomous = true;
+        assert!(matches!(
+            mode.ask_policy(),
+            kanzei_core::AskPolicy::NonInteractive
+        ));
+        mode.auto_allow = true;
+        assert!(matches!(
+            mode.ask_policy(),
+            kanzei_core::AskPolicy::AutoAllow
+        ));
     }
 
     #[test]

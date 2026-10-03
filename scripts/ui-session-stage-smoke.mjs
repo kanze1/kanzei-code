@@ -160,7 +160,8 @@ await check('core new turn discards prior unresolved tools before the new serial
 await check('conversation records match active/closed capability and numeric millisecond contracts', 'PASS', () => {
   const item = { id: 'p2|C:/project', session_id: 'canonical-session', updated_at: 1791000000123, worktree_path: 'C:/tree', branch: 'feature', title_custom: true };
   const active = model.conversationRecord('C:/project', item, { kind: 'main', name: 'Main' }); const closed = model.conversationRecord('C:/project', item, { closed: true, name: 'Retained' });
-  assert.equal(active.identity, item.session_id); assert.equal(active.execution, item); assert.equal(active.updatedAt, item.updated_at); assert.equal(active.ordinal, 2); assert.equal(active.capabilities.delete, false);
+  // The historical fixture retained a main-line exception; current peers are all deletable.
+  assert.equal(active.identity, item.session_id); assert.equal(active.execution, item); assert.equal(active.updatedAt, item.updated_at); assert.equal(active.ordinal, 2); assert.equal(active.capabilities.delete, !before);
   assert.equal(closed.execution, null); assert.equal(closed.capabilities.send, false); assert.equal(closed.capabilities.delete, true); assert.equal(closed.worktree, ''); assert.equal(closed.branch, ''); return { timestamp: active.updatedAt, closed: closed.capabilities };
 });
 await check('active-first dedup keeps actual session identity and distinct retained history', 'PASS', () => {

@@ -215,7 +215,11 @@ try {
   };
   const openChat = async () => {
     if (!["chat", "project"].includes(await page.locator("body").getAttribute("data-view"))) {
-      await sidebar(); await page.locator(".workbench-project-link.active").click(); await settle();
+      await sidebar();
+      const project = page.locator(".workbench-project-link.active");
+      if (await project.getAttribute("aria-expanded") !== "true") await project.click();
+      else await project.locator("../..").locator(".workbench-session-link").first().click();
+      await settle();
     }
     if (await page.locator("body").getAttribute("data-view") !== "chat") {
       await page.locator('[data-work-surface="chat"]').click();
@@ -394,6 +398,7 @@ try {
     try {
       await page.locator('[data-work-surface="chat"]').click();
       await seen(gate);
+      await page.evaluate(async path => { const tree = await import("./12-session-tree.js"); tree.setSidebarOpen(path, false); tree.invalidateSessionTree(); }, projectB);
       await page.locator(`.workbench-project-link[data-path="${projectB}"]`).click();
       gate.release();
       await settle();
@@ -424,6 +429,7 @@ try {
     try {
       await firstCard.locator(".workbench-item").click();
       await seen(gate);
+      await page.evaluate(async path => { const tree = await import("./12-session-tree.js"); tree.setSidebarOpen(path, false); tree.invalidateSessionTree(); }, projectA);
       await page.locator(`.workbench-project-link[data-path="${projectA}"]`).click();
       gate.release();
       await settle();
@@ -508,6 +514,7 @@ try {
     try {
       await page.locator('[data-workspace="research"]').click();
       await seen(gate);
+      await page.evaluate(async path => { const tree = await import("./12-session-tree.js"); tree.setSidebarOpen(path, false); tree.invalidateSessionTree(); }, projectB);
       await page.locator(`.workbench-project-link[data-path="${projectB}"]`).click();
       await page.evaluate(async () => { const w = await import("./12-workbench.js"); void w.openProjectSpace(w.workbenchProject(), "chat"); });
       gate.release();

@@ -226,13 +226,13 @@ fn item_summary(
     let mut owners = Vec::new();
     for line in lines {
         let branch = line["branch"].as_str();
-        let is_default = line["id"].as_str().is_some_and(|id| id.starts_with("d|"));
+        let shared_tree = line["worktree_path"].is_null();
         let receipt_matches = line["current_item_id"] == entry.id;
         let unit_claim = claims.iter().any(|(id, owner)| {
             id == &entry.id
                 && match owner.as_deref() {
                     Some(owner) => branch == Some(owner),
-                    None => is_default,
+                    None => shared_tree && receipt_matches,
                 }
         });
         let explicit_owner = claimed_by.is_some() && claimed_by == branch;
@@ -241,7 +241,7 @@ fn item_summary(
         } else if claimed_by.is_some() {
             explicit_owner
         } else {
-            is_default
+            shared_tree
         };
         // A later reassignment may invalidate a successful receipt in this very turn.
         let exact_claim = receipt_matches && current_owner;

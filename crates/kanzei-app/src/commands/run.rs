@@ -19,9 +19,9 @@ use serde_json::json;
 use tauri::{Emitter, State, Window};
 
 use crate::{
-    ensure_default_process, normalized_project_root, pending_ask_payload, process_session_id,
-    runtime_for, stop_runtime_and_finalize, take_pending_ask, with_session_id, AppState,
-    PromptAttachment, SessionRuntime,
+    normalized_project_root, pending_ask_payload, process_session_id, runtime_for,
+    stop_runtime_and_finalize, take_pending_ask, with_session_id, AppState, PromptAttachment,
+    SessionRuntime,
 };
 
 use crate::run::assembly::{RoundRequest, RunMode, RuntimeHandles};
@@ -196,6 +196,9 @@ pub(crate) fn stop_run(
         .as_ref()
         .map(PathBuf::from)
         .map(|cwd| normalized_project_root(&cwd));
+    if target_project.is_some() && process_id.as_deref().is_none_or(str::is_empty) {
+        return Err("请选择一段对话".into());
+    }
     let target_session = target_project
         .as_ref()
         .map(|root| process_session_id(root, process_id.as_deref()));
@@ -265,7 +268,7 @@ pub(crate) fn stop_run(
     if let Some(root) = target_project {
         let window = window.clone();
         let session = target_session.clone().unwrap_or_default();
-        let target_process = process_id.unwrap_or_else(|| crate::state::default_process_id(&root));
+        let target_process = process_id.expect("project-scoped stop requires a conversation");
         tauri::async_runtime::spawn(async move {
             let killed =
                 kanzei_tools::kill_background_processes_for_process(&root, &target_process).await;
@@ -476,31 +479,15 @@ pub(crate) fn schedule_run(
     // canonical helper 已去掉普通路径的 verbatim 前缀,身份键与托管文档/配置不能
     // 因为缺少 `.kanzei` 各自落进不同根,也不能继承父项目。
     let main_root = project_root.clone();
-    let process = if let Some(process_id) = process_id.as_deref() {
-        let process = state
-            .processes
-            .lock()
-            .unwrap()
-            .get(process_id)
-            .cloned()
-            .ok_or_else(|| "对话不存在或已被关闭".to_string())?;
-        // R-177 内容②:归属按 `origin_project` 判定。`project_dir` 已被 F4 定死为
-        // 恒主根,两值今天恒等;改的是**意图**——归属问的是「这条线是从哪个项目开出来
-        // 的」,不是「它此刻在哪棵树上跑」。将来若 project_dir 再指向别处,这里不会
-        // 跟着把线自己拒掉。
-        if process.origin_project.0 != project_root {
-            return Err("对话不属于当前项目".into());
-        }
-        process
-    } else {
-        ensure_default_process(state, &project_root)
-    };
+    let process = crate::processes::registry::resolve_conversation(
+        state,
+        &project_root,
+        process_id.as_deref(),
+    )?;
     if let Some(worktree) = process.worktree_path.as_ref() {
         if !worktree.0.is_dir() {
             crate::processes::unregister_parallel_process(state, &project_root, &process.id)?;
-            return Err(
-                "这个独立任务的工作树已不存在，已移除这条失效的独立任务；请切回主对话后重试".into(),
-            );
+            return Err("这个对话的工作树已不存在，已移除失效登记；请选择其它对话后重试".into());
         }
     }
     let worktree_opt = process

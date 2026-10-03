@@ -185,7 +185,7 @@ async function openApp(browser, origin, { width, height, dpr, theme, state, lang
     // The empty scene may restore a readonly discussion. The mode-chip contract
     // belongs to the main executor, so select that real recipient explicitly.
     await page.evaluate(async () => {
-      const main = (await import("/03-workspaces.js")).main_workspace_process();
+      const main = (await import("/03-workspaces.js")).selected_workspace_process();
       if (!main) throw new Error("输入区几何:未取得主对话");
       await (await import("/09-sessions.js")).switchProcess(main.id);
     });

@@ -65,6 +65,7 @@ try {
   check(await invoke("general_chat_location") === root, "Existing projectless storage is discoverable without navigation");
   const target = await closedChat(root, "旧对话可管理");
   const neighbor = await closedChat(root, "保留这段对话");
+  const generalPeer = await invoke("process_create", { projectDir: root, profile: "dev" });
   check((await invoke("process_closed_list", { projectDir: root })).length === 2, "Both closed conversations are retained in SQLite");
   await close(); await start();
   await page.evaluate(async root => {
@@ -91,11 +92,19 @@ try {
   await projectLink.click();
   await projectGroup.locator("[data-ctx='session']").first().waitFor();
   await projectLink.click();
-  check(await projectLink.getAttribute("aria-expanded") === "true" && await projectGroup.locator(".workbench-session-list").isVisible(), "Native project name opens and keeps the conversation list expanded");
+  check(await projectLink.getAttribute("aria-expanded") === "false" && await projectGroup.locator("[data-ctx='session']").count() === 0, "Native project name toggles back to collapsed");
+  await page.evaluate(async () => { await (await import("./09-sessions.js")).refreshProcesses(); });
+  check(await projectLink.getAttribute("aria-expanded") === "false", "Native polling preserves collapsed state");
+  await projectLink.click();
+  await projectGroup.locator("[data-ctx='session']").first().waitFor();
   const liveRows = page.locator("#workbench-project-list [data-ctx='session'], #workbench-general-list [data-ctx='session']");
   check(await liveRows.locator(".workbench-session-dot, .workbench-session-activity, .workbench-session-tag").count() === 0 && await page.locator("#workbench-general-list [data-ctx='session']").count() > 0, "Native project and projectless rows share the same presentation without dots or type badges");
-  const projectMain = (await invoke("process_list", { projectDir: prefs.current })).find(item => item.kind === "main");
-  const generalMain = (await invoke("process_list", { projectDir: root })).find(item => item.kind === "main");
+  const projectMain = (await invoke("process_list", { projectDir: prefs.current }))[0];
+  const generalMain = (await invoke("process_list", { projectDir: root })).find(item => item.id === generalPeer.id);
+  const linkedPeer = await invoke("general_chat_link", { processId: generalMain.id, projectDir: prefs.current });
+  check(linkedPeer.kind === "conversation" && linkedPeer.profile === "dev", "Linking projectless history creates an ordinary project conversation");
+  await invoke("process_purge", { projectDir: prefs.current, processId: linkedPeer.id });
+  check(projectMain.kind === "conversation" && generalMain.kind === "conversation" && !("authority" in projectMain) && !("authority" in generalMain), "Native project and projectless conversations have one peer model without authority ranks");
   await invoke("process_rename", { projectDir: prefs.current, processId: projectMain.id, title: "原生项目标题核验" });
   await invoke("process_rename", { projectDir: root, processId: generalMain.id, title: "原生无项目标题核验" });
   await page.evaluate(async root => {
@@ -134,6 +143,21 @@ try {
   let refused = false;
   try { await invoke("process_rename", { projectDir: root, processId: target.id, title: "不能复活" }); } catch { refused = true; }
   check(refused, "Stale rename cannot recreate a deleted conversation");
+  for (const [projectDir, first] of [[prefs.current, projectMain], [root, generalMain]]) {
+    const peer = await invoke("process_create", { projectDir, profile: "dev" });
+    await invoke("process_close", { processId: first.id });
+    check((await invoke("process_closed_list", { projectDir })).some(p => p.id === first.id), "First conversation closes through the same backend lifecycle");
+    await invoke("process_purge", { projectDir, processId: first.id });
+    await invoke("list_pending_inputs", { projectDir, processId: first.id });
+    let clearRefused = false;
+    try { await invoke("conversation_clear", { projectDir, processId: first.id }); } catch { clearRefused = true; }
+    check(clearRefused, "Late clear cannot recreate the deleted first conversation");
+    check((await invoke("process_list", { projectDir })).some(p => p.id === peer.id), "Deleting the first conversation preserves its peer");
+  }
+  await close(); await start();
+  for (const [projectDir, first] of [[prefs.current, projectMain], [root, generalMain]]) {
+    check(!(await invoke("process_list", { projectDir })).some(p => p.id === first.id) && !(await invoke("process_closed_list", { projectDir })).some(p => p.id === first.id), "Restart preserves first-conversation deletion in both scopes");
+  }
   check(errors.length === 0, `No native UI errors: ${errors.join("; ")}`);
   await page.screenshot({ path: path.join(output, "sidebar-native.png") });
   await writeFile(path.join(output, "acceptance.json"), JSON.stringify({ checks, errors, executable: exe, boundary: "Actual WebView2/Rust/SQLite with disposable home; no model calls" }, null, 2));
