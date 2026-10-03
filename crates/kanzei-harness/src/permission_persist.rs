@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::config::KanzeiConfig;
+use crate::config::update_config_document;
 use crate::permission::Rule;
 
 /// `*` 通配资源判定:全仓统一按 trim 后比较,避免两处判定不一致(D-139)。
@@ -51,42 +51,37 @@ pub fn append_allow_rule(
     resource: &str,
 ) -> anyhow::Result<PathBuf> {
     let path = project_root.join(".kanzei").join("kanzei.toml");
-    let text = if path.is_file() {
-        std::fs::read_to_string(&path)?
-    } else {
-        String::new()
-    };
-    // 语义预检:类型错误在这里明确报出,而不是把规则追进一个坏文件。
-    toml::from_str::<KanzeiConfig>(&text)
-        .map_err(|e| anyhow::anyhow!("invalid {}: {e}", path.display()))?;
-    let mut doc: toml_edit::DocumentMut = text
-        .parse()
-        .map_err(|e| anyhow::anyhow!("invalid {}: {e}", path.display()))?;
-    let permissions = doc.entry("permissions").or_insert(toml_edit::table());
-    let Some(permissions) = permissions.as_table_mut() else {
-        anyhow::bail!("{}: `permissions` 不是表,无法追加规则", path.display());
-    };
-    permissions.set_implicit(true);
-    let rules = permissions
-        .entry("rules")
-        .or_insert(toml_edit::Item::ArrayOfTables(
-            toml_edit::ArrayOfTables::new(),
-        ));
-    let Some(rules) = rules.as_array_of_tables_mut() else {
-        anyhow::bail!(
-            "{}: `permissions.rules` 不是数组表,无法追加规则",
-            path.display()
-        );
-    };
-    let mut rule = toml_edit::Table::new();
-    rule.insert("action", toml_edit::value(action));
-    rule.insert("resource", toml_edit::value(resource));
-    rule.insert("effect", toml_edit::value("allow"));
-    rules.push(rule);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, doc.to_string())?;
+    update_config_document(&path, |doc| {
+        let permissions = doc.entry("permissions").or_insert(toml_edit::table());
+        let inline_permissions = permissions.is_inline_table();
+        if let Some(table) = permissions.as_table_mut() {
+            table.set_implicit(true);
+        }
+        let Some(permissions) = permissions.as_table_like_mut() else {
+            anyhow::bail!("{}: `permissions` 不是表,无法追加规则", path.display());
+        };
+        let empty_rules = if inline_permissions {
+            toml_edit::value(toml_edit::Array::new())
+        } else {
+            toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new())
+        };
+        let rules = permissions.entry("rules").or_insert(empty_rules);
+        let mut rule = toml_edit::Table::new();
+        rule.insert("action", toml_edit::value(action));
+        rule.insert("resource", toml_edit::value(resource));
+        rule.insert("effect", toml_edit::value("allow"));
+        if let Some(rules) = rules.as_array_of_tables_mut() {
+            rules.push(rule);
+        } else if let Some(rules) = rules.as_array_mut() {
+            rules.push(rule.into_inline_table());
+        } else {
+            anyhow::bail!(
+                "{}: `permissions.rules` 不是规则数组,无法追加规则",
+                path.display()
+            );
+        }
+        Ok(())
+    })?;
     Ok(path)
 }
 

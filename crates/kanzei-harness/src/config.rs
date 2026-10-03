@@ -196,9 +196,16 @@ impl KanzeiConfig {
     pub fn load_with_warnings_at_root(
         project_root: &Path,
     ) -> anyhow::Result<(KanzeiConfig, Vec<String>)> {
+        Self::load_with_warnings_from_paths(project_root, crate::home::kanzei_home().as_deref())
+    }
+
+    fn load_with_warnings_from_paths(
+        project_root: &Path,
+        home: Option<&Path>,
+    ) -> anyhow::Result<(KanzeiConfig, Vec<String>)> {
         let mut config = KanzeiConfig::default();
         let mut warnings = Vec::new();
-        if let Some(home) = crate::home::kanzei_home() {
+        if let Some(home) = home {
             merge_file(&mut config, &home.join("kanzei.toml"), &mut warnings)?;
         }
         merge_file(
@@ -388,6 +395,37 @@ fn merge_file(
 /// R-205:权限规则持久化(append_allow_rule/generalize_resource/rule_digest/通配判定)
 /// 已拆至 `crate::permission_persist`,re-export 保持调用点零变更。
 pub use crate::permission_persist::{append_allow_rule, generalize_resource};
+
+/// 同路径配置文档的同步读改写事务，保留未知字段与原文格式。
+///
+/// FileLock 覆盖读取、校验、编辑和原子提交；闭包不得跨 await 或执行耗时外部调用。
+/// 只有 NotFound 按空配置处理，其他读取/校验/编辑/提交错误均返回给调用方。
+/// 所有协作配置写者必须使用同一路径的锁；外部编辑器不受此锁协议约束。
+pub fn update_config_document(
+    path: &Path,
+    edit: impl FnOnce(&mut toml_edit::DocumentMut) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let _lock = kanzei_base::atomic_file::lock_exclusive(path)?;
+    let before = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(error.into()),
+    };
+    let text = std::str::from_utf8(&before)?;
+    toml::from_str::<KanzeiConfig>(text)
+        .map_err(|error| anyhow::anyhow!("invalid {}: {error}", path.display()))?;
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|error| anyhow::anyhow!("invalid {}: {error}", path.display()))?;
+    edit(&mut doc)?;
+    let after = doc.to_string();
+    toml::from_str::<KanzeiConfig>(&after)
+        .map_err(|error| anyhow::anyhow!("invalid edited {}: {error}", path.display()))?;
+    if after.as_bytes() != before {
+        kanzei_base::atomic_file::write_atomic(path, &after)?;
+    }
+    Ok(())
+}
 
 /// kanzei.toml 各节已知键名单(R-220 单源)。
 ///
@@ -2299,6 +2337,169 @@ prune_min_gain_tokens = 12
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn explicit_verify_every_n_survives_real_loader_layers() {
+        let global = temp_config_dir();
+        let project = temp_config_dir();
+        let global_path = global.join("kanzei.toml");
+        let project_path = project.join(".kanzei/kanzei.toml");
+        std::fs::create_dir_all(project_path.parent().unwrap()).unwrap();
+        std::fs::write(&global_path, "[cadence]\nverify_every_n = 7\n").unwrap();
+        let load = || {
+            KanzeiConfig::load_with_warnings_from_paths(&project, Some(&global))
+                .unwrap()
+                .0
+                .cadence
+                .verify_every_n
+        };
+        assert_eq!(load(), 7, "global explicit period must reach the runtime");
+        std::fs::write(&project_path, "[cadence]\nfull_test = \"every_commit\"\n").unwrap();
+        assert_eq!(load(), 7, "absent project period must retain global value");
+        std::fs::write(&project_path, "[cadence]\nverify_every_n = 2\n").unwrap();
+        assert_eq!(load(), 2, "project explicit period must override global");
+        std::fs::write(&project_path, "[cadence]\nverify_every_n = 0\n").unwrap();
+        assert_eq!(load(), 0, "explicit zero must disable verification");
+        std::fs::remove_dir_all(global).unwrap();
+        std::fs::remove_dir_all(project).unwrap();
+    }
+
+    #[test]
+    fn config_document_transaction_serializes_append() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let root = temp_config_dir();
+        let path = root.join(".kanzei/kanzei.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "# original\nfuture_key = \"keep\"\n").unwrap();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let other_root = root.clone();
+        let other_path = path.clone();
+        let mut worker = None;
+        let mut waited_for_transaction = false;
+        let mut observed_shared_lock = false;
+        update_config_document(&path, |doc| {
+            worker = Some(std::thread::spawn(move || {
+                let excluded =
+                    kanzei_base::atomic_file::try_lock_exclusive(&other_path, Duration::ZERO)
+                        .unwrap()
+                        .is_none();
+                ready_tx.send(excluded).unwrap();
+                let result = append_allow_rule(&other_root, "write", "notes.md");
+                done_tx.send(()).unwrap();
+                result
+            }));
+            observed_shared_lock = ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            waited_for_transaction = matches!(
+                done_rx.recv_timeout(Duration::from_millis(200)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            );
+            doc["language"] = toml_edit::value("en");
+            Ok(())
+        })
+        .unwrap();
+        let appended = worker.unwrap().join().unwrap();
+        assert!(
+            appended.is_ok(),
+            "append after transaction failed: {appended:?}"
+        );
+        let text = std::fs::read_to_string(&path).unwrap();
+        let config: KanzeiConfig = toml::from_str(&text).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(
+            observed_shared_lock,
+            "append did not observe the common configuration transaction lock"
+        );
+        assert!(
+            waited_for_transaction,
+            "append committed while another configuration transaction held the same path"
+        );
+        assert_eq!(config.language.as_deref(), Some("en"));
+        assert_eq!(config.permissions.rules.len(), 1);
+        assert_eq!(config.permissions.rules[0].resource, "notes.md");
+        assert!(text.contains("# original"));
+        assert!(text.contains("future_key = \"keep\""));
+    }
+
+    #[test]
+    fn append_accepts_inline_and_table_rule_arrays() {
+        for initial in [
+            "# keep\nfuture_key = 9\n[permissions]\nrules = [{ action = \"read\", resource = \"old.md\", effect = \"allow\" }]\n",
+            "# keep\nfuture_key = 9\n[[permissions.rules]]\naction = \"read\"\nresource = \"old.md\"\neffect = \"allow\"\n",
+            "# keep\nfuture_key = 9\npermissions = { rules = [{ action = \"read\", resource = \"old.md\", effect = \"allow\" }] }\n",
+        ] {
+            let root = temp_config_dir();
+            let path = root.join(".kanzei/kanzei.toml");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, initial).unwrap();
+            let resource = r#"{"command":"cargo test --lib","workdir":"C:/project"}"#;
+            let result = append_allow_rule(&root, "bash", resource);
+            assert!(result.is_ok(), "valid rule array was rejected: {result:?}");
+            let text = std::fs::read_to_string(&path).unwrap();
+            let config: KanzeiConfig = toml::from_str(&text).unwrap();
+            assert_eq!(config.permissions.rules.len(), 2);
+            assert_eq!(config.permissions.rules[0].resource, "old.md");
+            assert_eq!(config.permissions.rules[1].resource, resource);
+            assert_eq!(config.permissions.rules[1].action, "bash");
+            assert_eq!(
+                config.permissions.rules[1].effect,
+                crate::permission::Effect::Allow
+            );
+            assert!(text.contains("# keep"));
+            assert!(text.contains("future_key = 9"));
+            std::fs::remove_dir_all(root).unwrap();
+        }
+        let root = temp_config_dir();
+        let path = root.join(".kanzei/kanzei.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for invalid in [
+            "[permissions]\nrules = false\n",
+            "[permissions]\nrules = [false]\n",
+            "permissions = false\n",
+        ] {
+            std::fs::write(&path, invalid).unwrap();
+            assert!(append_allow_rule(&root, "write", "notes.md").is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), invalid.as_bytes());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn config_document_failures_preserve_original_bytes() {
+        let root = temp_config_dir();
+        let path = root.join("kanzei.toml");
+        let original: &[u8] = b"# keep\r\nfuture_key = 9\r\nlanguage = \"en\"\r\n";
+        std::fs::write(&path, original).unwrap();
+        let rejected_edit = update_config_document(&path, |doc| {
+            doc["language"] = toml_edit::value("zh");
+            anyhow::bail!("cancel edit")
+        });
+        assert!(rejected_edit.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        let invalid_result = update_config_document(&path, |doc| {
+            doc["language"] = toml_edit::value(42);
+            Ok(())
+        });
+        assert!(invalid_result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        let invalid_before: &[u8] = b"[permissions]\nrules = false\n";
+        std::fs::write(&path, invalid_before).unwrap();
+        let mut edit_called = false;
+        assert!(update_config_document(&path, |_| {
+            edit_called = true;
+            Ok(())
+        })
+        .is_err());
+        assert!(!edit_called);
+        assert_eq!(std::fs::read(&path).unwrap(), invalid_before);
+        let read_error = root.join("directory.toml");
+        std::fs::create_dir(&read_error).unwrap();
+        assert!(update_config_document(&read_error, |_| Ok(())).is_err());
+        assert!(read_error.is_dir());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn load_two_layer(global: &std::path::Path, project: &std::path::Path) -> KanzeiConfig {

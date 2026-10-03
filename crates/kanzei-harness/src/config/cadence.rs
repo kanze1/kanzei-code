@@ -107,6 +107,9 @@ pub(crate) fn overlay_cadence(
     if written.contains("push") {
         base.push = layer.push;
     }
+    if written.contains("verify_every_n") {
+        base.verify_every_n = layer.verify_every_n;
+    }
 }
 
 /// kanzei.toml [cadence] 节已知键名单(R-220 单源)。

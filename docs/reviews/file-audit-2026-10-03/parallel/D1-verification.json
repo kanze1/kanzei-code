@@ -1,0 +1,457 @@
+{
+  "baseline": "95b7b99d88ecb5f95d7ccb1489875a8b67385c5b",
+  "branch": "kanzei/audit-d1",
+  "scope": [
+    {
+      "path": "crates/kanzei-harness/src/config.rs",
+      "baseline": {
+        "sha256": "e4b632d94d78ba80f39de0eb0f34cf8b132161b5f4f5360f93a803587dfb44e3",
+        "sha256_lf": "e4b632d94d78ba80f39de0eb0f34cf8b132161b5f4f5360f93a803587dfb44e3"
+      },
+      "current": {
+        "sha256": "ceb19822865b35f89131aab320fd99148d1d0984dc7cef697476a96ced0e6ce8",
+        "sha256_lf": "ceb19822865b35f89131aab320fd99148d1d0984dc7cef697476a96ced0e6ce8"
+      },
+      "lines": 2661,
+      "full_source_and_tests_read": true,
+      "prior_full_review_overlap": false,
+      "code_changed": true,
+      "decision": "P1_lower_implementation_pending_execution"
+    },
+    {
+      "path": "crates/kanzei-harness/src/permission_persist.rs",
+      "baseline": {
+        "sha256": "013f5874616777cc153aa8a761eb424b11e9fa3aa322d0f16985a846fa9cad1f",
+        "sha256_lf": "013f5874616777cc153aa8a761eb424b11e9fa3aa322d0f16985a846fa9cad1f"
+      },
+      "current": {
+        "sha256": "f65c738847359c28254d61df0aad485c20faa480d8da113ecd039d573b0017dc",
+        "sha256_lf": "c655748278cf54a24d0a380802bc65087d3cd3af874c67605bf4affcebed6b7e"
+      },
+      "lines": 95,
+      "full_source_and_tests_read": true,
+      "prior_full_review_overlap": false,
+      "code_changed": true,
+      "decision": "P1_lower_implementation_pending_execution"
+    },
+    {
+      "path": "crates/kanzei-harness/src/config/cadence.rs",
+      "baseline": {
+        "sha256": "5c6aecb9975a84e07eefa9f8d62fbd29a21f93ce4bdca8cbc242888d1757d7ba",
+        "sha256_lf": "5c6aecb9975a84e07eefa9f8d62fbd29a21f93ce4bdca8cbc242888d1757d7ba"
+      },
+      "current": {
+        "sha256": "32df34229ba21dfae92105fc3bc716f545e2926a891b7e464ff64db21633761d",
+        "sha256_lf": "e7ed5a8b8946bfe205f68ff1eca3bb3e4d92ecd8417f8a948dda6ba5fbcfee8f"
+      },
+      "lines": 123,
+      "full_source_and_tests_read": true,
+      "prior_full_review_overlap": false,
+      "code_changed": true,
+      "decision": "P1_lower_implementation_pending_execution"
+    },
+    {
+      "path": "crates/kanzei-harness/src/config/embeddings.rs",
+      "baseline": {
+        "sha256": "1f1af1d144af0fff5aa2d57295d52cbbdbf994ac5c09a1811206483ac7a88a1a",
+        "sha256_lf": "1f1af1d144af0fff5aa2d57295d52cbbdbf994ac5c09a1811206483ac7a88a1a"
+      },
+      "current": {
+        "sha256": "dff2cc70cd0f9dff29ac4b90695d2816ee67d8ebe1d4b6e62e02c66f42f9e75b",
+        "sha256_lf": "1f1af1d144af0fff5aa2d57295d52cbbdbf994ac5c09a1811206483ac7a88a1a"
+      },
+      "lines": 27,
+      "full_source_and_tests_read": true,
+      "prior_full_review_overlap": false,
+      "code_changed": false,
+      "decision": "static_PASS_unchanged"
+    },
+    {
+      "path": "crates/kanzei-harness/src/config/web.rs",
+      "baseline": {
+        "sha256": "3a62439f2929d41477ecab7a0bed73b76395012e85b1c9b79be3b5028d6aefca",
+        "sha256_lf": "3a62439f2929d41477ecab7a0bed73b76395012e85b1c9b79be3b5028d6aefca"
+      },
+      "current": {
+        "sha256": "89c99ed32c6a03d6e16e87b721b1d72857329b186ad14596b99ae7f3453b57b4",
+        "sha256_lf": "3a62439f2929d41477ecab7a0bed73b76395012e85b1c9b79be3b5028d6aefca"
+      },
+      "lines": 50,
+      "full_source_and_tests_read": true,
+      "prior_full_review_overlap": false,
+      "code_changed": false,
+      "decision": "static_PASS_unchanged"
+    },
+    {
+      "path": "crates/kanzei-harness/src/config/limits.rs",
+      "baseline": {
+        "sha256": "19b731028a0ec7d2284618d2c37cab225830441757ed71f957c559aae4b1e3a4",
+        "sha256_lf": "19b731028a0ec7d2284618d2c37cab225830441757ed71f957c559aae4b1e3a4"
+      },
+      "current": {
+        "sha256": "285966dbb0524d578c7f5ce0fa4a7133974795c0d7bdec68dddc7fe749d3b0c7",
+        "sha256_lf": "19b731028a0ec7d2284618d2c37cab225830441757ed71f957c559aae4b1e3a4"
+      },
+      "lines": 135,
+      "full_source_and_tests_read": true,
+      "prior_full_review_overlap": false,
+      "code_changed": false,
+      "decision": "static_PASS_unchanged"
+    },
+    {
+      "path": "crates/kanzei-harness/src/config/models.rs",
+      "baseline": {
+        "sha256": "9a279443a31bf4826f8e3da3f491aa2dfc7ab94742c88c52548e4add6310c6f1",
+        "sha256_lf": "9a279443a31bf4826f8e3da3f491aa2dfc7ab94742c88c52548e4add6310c6f1"
+      },
+      "current": {
+        "sha256": "eb98b7c6fd3fc0020dbab793c242e83aa503c100591f58ed6c89e9b3415b27ea",
+        "sha256_lf": "9a279443a31bf4826f8e3da3f491aa2dfc7ab94742c88c52548e4add6310c6f1"
+      },
+      "lines": 150,
+      "full_source_and_tests_read": true,
+      "prior_full_review_overlap": false,
+      "code_changed": false,
+      "decision": "static_PASS_unchanged"
+    },
+    {
+      "path": "crates/kanzei-harness/src/config/permissions.rs",
+      "baseline": {
+        "sha256": "d9ec0f79a665eb2f011b711fb1d5216a7de10c4025d27e78c854eb4ada5bb600",
+        "sha256_lf": "d9ec0f79a665eb2f011b711fb1d5216a7de10c4025d27e78c854eb4ada5bb600"
+      },
+      "current": {
+        "sha256": "22283472b7df0facfa26b377e751dc0a7c55015b9c9df8920ba8d8132490d40c",
+        "sha256_lf": "d9ec0f79a665eb2f011b711fb1d5216a7de10c4025d27e78c854eb4ada5bb600"
+      },
+      "lines": 251,
+      "full_source_and_tests_read": true,
+      "prior_full_review_overlap": false,
+      "code_changed": false,
+      "decision": "static_PASS_unchanged"
+    }
+  ],
+  "public_api": "config::update_config_document(path: &Path, edit: impl FnOnce(&mut toml_edit::DocumentMut) -> anyhow::Result<()>) -> anyhow::Result<()>",
+  "P1_root_causes_in_lower_package": 3,
+  "shared_writer_chain_complete": false,
+  "app_adaptation_pending_root_M3": true,
+  "coverage_updated": false,
+  "stage_or_commit": "exact six-file commit authorized; artifact snapshot is included in that commit",
+  "rust_execution": "passed",
+  "executed_tests": [
+    "config::tests::config_document_transaction_serializes_append",
+    "config::tests::append_accepts_inline_and_table_rule_arrays",
+    "config::tests::explicit_verify_every_n_survives_real_loader_layers",
+    "config::tests::config_document_failures_preserve_original_bytes"
+  ],
+  "pending_tests": [],
+  "negative_controls": {
+    "script": "output/parallel-D1/negative.py",
+    "syntax": "AST_pass",
+    "executed": true,
+    "kind": "equivalent_old_logic_not_complete_old_source",
+    "result": {
+      "kind": "equivalent_old_logic_not_full_old_source",
+      "cases": [
+        {
+          "name": "shared_transaction",
+          "test": "config::tests::config_document_transaction_serializes_append",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "kanzei-harness",
+            "--lib",
+            "--target-dir",
+            "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+            "config::tests::config_document_transaction_serializes_append",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "failed_by_assertion_not_compilation": true
+        },
+        {
+          "name": "explicit_verify_overlay",
+          "test": "config::tests::explicit_verify_every_n_survives_real_loader_layers",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "kanzei-harness",
+            "--lib",
+            "--target-dir",
+            "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+            "config::tests::explicit_verify_every_n_survives_real_loader_layers",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "failed_by_assertion_not_compilation": true
+        },
+        {
+          "name": "inline_rules",
+          "test": "config::tests::append_accepts_inline_and_table_rule_arrays",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "kanzei-harness",
+            "--lib",
+            "--target-dir",
+            "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+            "config::tests::append_accepts_inline_and_table_rule_arrays",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "failed_by_assertion_not_compilation": true
+        }
+      ],
+      "original_sha256": {
+        "crates/kanzei-harness/src/config.rs": "ceb19822865b35f89131aab320fd99148d1d0984dc7cef697476a96ced0e6ce8",
+        "crates/kanzei-harness/src/config/cadence.rs": "32df34229ba21dfae92105fc3bc716f545e2926a891b7e464ff64db21633761d",
+        "crates/kanzei-harness/src/permission_persist.rs": "f65c738847359c28254d61df0aad485c20faa480d8da113ecd039d573b0017dc"
+      },
+      "restored_sha256": {
+        "crates/kanzei-harness/src/config.rs": "ceb19822865b35f89131aab320fd99148d1d0984dc7cef697476a96ced0e6ce8",
+        "crates/kanzei-harness/src/config/cadence.rs": "32df34229ba21dfae92105fc3bc716f545e2926a891b7e464ff64db21633761d",
+        "crates/kanzei-harness/src/permission_persist.rs": "f65c738847359c28254d61df0aad485c20faa480d8da113ecd039d573b0017dc"
+      },
+      "all_original_bytes_restored": true
+    }
+  },
+  "static_checks": [
+    "git diff --check passed",
+    "standalone rustfmt --check edition 2021 skip_children passed for 3 edited files",
+    "all 8 scope files full read",
+    "all public symbols searched in crates"
+  ],
+  "caller_lexical_match_count": 2504,
+  "caller_evidence": "output/parallel-D1/evidence.json",
+  "caller_slices_are_not_full_reviews": true,
+  "real_user_config_or_credentials_read": false,
+  "execution": {
+    "isolation": {
+      "CARGO_TARGET_DIR": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+      "KANZEI_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.kanzei",
+      "USERPROFILE": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile",
+      "HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile",
+      "APPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\AppData\\Roaming",
+      "LOCALAPPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\AppData\\Local",
+      "CARGO_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.cargo",
+      "RUSTUP_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup",
+      "RUSTUP_TOOLCHAIN": "stable-x86_64-pc-windows-msvc"
+    },
+    "cache_junctions_only": [
+      ".cargo/registry",
+      ".rustup/toolchains"
+    ],
+    "commands": [
+      {
+        "name": "directed-1",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-harness",
+          "--lib",
+          "config::tests::config_document_transaction_serializes_append",
+          "--",
+          "--exact",
+          "--nocapture"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 3.296,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\directed-1.log",
+        "test_summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 206 filtered out; finished in 0.21s"
+        ]
+      },
+      {
+        "name": "directed-2",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-harness",
+          "--lib",
+          "config::tests::append_accepts_inline_and_table_rule_arrays",
+          "--",
+          "--exact",
+          "--nocapture"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.407,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\directed-2.log",
+        "test_summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 206 filtered out; finished in 0.02s"
+        ]
+      },
+      {
+        "name": "directed-3",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-harness",
+          "--lib",
+          "config::tests::explicit_verify_every_n_survives_real_loader_layers",
+          "--",
+          "--exact",
+          "--nocapture"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.39,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\directed-3.log",
+        "test_summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 206 filtered out; finished in 0.01s"
+        ]
+      },
+      {
+        "name": "directed-4",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-harness",
+          "--lib",
+          "config::tests::config_document_failures_preserve_original_bytes",
+          "--",
+          "--exact",
+          "--nocapture"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.375,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\directed-4.log",
+        "test_summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 206 filtered out; finished in 0.01s"
+        ]
+      },
+      {
+        "name": "harness-before-negative",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-harness"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 3.5,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\harness-before-negative.log",
+        "test_summaries": [
+          "test result: ok. 207 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s",
+          "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+        ]
+      },
+      {
+        "name": "negative-controls",
+        "command": [
+          "python",
+          "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\negative.py",
+          "--target-dir",
+          "C:\\Users\\kanzei\\Documents\\kanzei code\\target"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 7.641,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\negative-controls.log",
+        "test_summaries": []
+      },
+      {
+        "name": "harness-after-negative",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-harness"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 3.485,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\harness-after-negative.log",
+        "test_summaries": [
+          "test result: ok. 207 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s",
+          "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+        ]
+      },
+      {
+        "name": "check-all-targets",
+        "command": [
+          "cargo",
+          "check",
+          "--workspace",
+          "--all-targets"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 57.328,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\check-all-targets.log",
+        "test_summaries": []
+      },
+      {
+        "name": "clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 25.203,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\clippy.log",
+        "test_summaries": []
+      },
+      {
+        "name": "fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 1.906,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\fmt.log",
+        "test_summaries": []
+      },
+      {
+        "name": "diff",
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.063,
+        "log": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\diff.log",
+        "test_summaries": []
+      }
+    ],
+    "real_user_config_or_credentials_read": false,
+    "refreshes": [
+      {
+        "phase": "before-positive",
+        "Rust_files": 420,
+        "timestamp_ns": 1791009182366686900
+      },
+      {
+        "phase": "after-negative-restoration",
+        "Rust_files": 420,
+        "timestamp_ns": 1791009198078676700
+      }
+    ],
+    "complete": true
+  },
+  "initial_failed_validation": {
+    "kind": "test_probe_contract_error_corrected",
+    "reason": "try_lock_exclusive occupied returns Ok(None), not Err; probe corrected to unwrap().is_none()",
+    "log": "output/parallel-D1/initial-lock-probe-failure.log",
+    "subsequent_full_validation_passed": true
+  },
+  "submission": "snapshot before exact 6-file commit authorized by root; source byte hashes above"
+}
