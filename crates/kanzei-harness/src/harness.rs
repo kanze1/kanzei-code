@@ -290,6 +290,11 @@ impl HarnessSnapshot {
                     .map(|n| format!(" ({n})"))
                     .unwrap_or_default();
                 match managed.required_tool.as_deref() {
+                    Some(tool) if self.draft.permissions.action_fully_denied(tool) => format!(
+                        "This resource is policy-managed{note}, but its dedicated `{tool}` tool \
+                         is disabled by the current ruleset and is not callable. No permitted \
+                         dedicated write channel is available. Do not route around this gate."
+                    ),
                     Some(tool) if self.is_deferred(tool) => format!(
                         "This resource is policy-managed{note}. The ONLY legal write channel is the deferred \
                          `{tool}` tool. Load it first with the resident `tool_search` query \
@@ -471,6 +476,80 @@ mod tests {
         let hint = snapshot.denial_hint("edit", "C:/project/.kanzei/project/item.md");
         assert!(hint.contains("tool_search"), "{hint}");
         assert!(hint.contains("select:deferred"), "{hint}");
+    }
+
+    #[test]
+    fn denial_hint_matches_actual_dedicated_channel_visibility() {
+        struct ManagedTools(bool);
+        impl Component for ManagedTools {
+            fn contribute(
+                &self,
+                draft: &mut HarnessDraft,
+                _ctx: &ResolveCtx,
+            ) -> anyhow::Result<()> {
+                draft
+                    .tools
+                    .insert("managed_write", test_tool("managed_write"));
+                draft.permissions.push_managed_hard_deny(
+                    rule("write", "*.kanzei/project/*", Effect::Deny),
+                    Some("managed_write"),
+                    Some("managed test resource"),
+                );
+                if self.0 {
+                    draft
+                        .tools
+                        .insert(crate::TOOL_SEARCH, test_tool("tool_search"));
+                    draft.deferred_tools.insert("managed_write".into());
+                }
+                Ok(())
+            }
+        }
+
+        for deferred in [false, true] {
+            for exception in [None, Some(Effect::Allow), Some(Effect::Ask)] {
+                let mut config = KanzeiConfig::default();
+                config
+                    .permissions
+                    .rules
+                    .push(rule("managed_write", "*", Effect::Deny));
+                if let Some(effect) = exception {
+                    config
+                        .permissions
+                        .rules
+                        .push(rule("managed_write", "write:allowed", effect));
+                }
+                let ctx = ResolveCtx {
+                    config: Arc::new(config),
+                    ..resolve_ctx()
+                };
+                let mut harness = Harness::default();
+                harness.add(ManagedTools(deferred)).add(ConfigComponent);
+                let snapshot = harness.resolve(&ctx).unwrap();
+                let visible = snapshot
+                    .materialize_tools()
+                    .iter()
+                    .any(|tool| tool.name() == "managed_write");
+                let hint = snapshot.denial_hint("write", "C:/project/.kanzei/project/item.md");
+                assert_eq!(visible, exception.is_some());
+                assert_eq!(
+                    hint.contains("disabled by the current ruleset"),
+                    !visible,
+                    "{hint}"
+                );
+                if !visible {
+                    assert!(!hint.contains("use it instead"), "{hint}");
+                    assert!(!hint.contains("select:managed_write"), "{hint}");
+                    assert_eq!(
+                        snapshot.evaluate("managed_write", "write:allowed"),
+                        Effect::Deny
+                    );
+                } else if deferred {
+                    assert!(hint.contains("select:managed_write"), "{hint}");
+                } else {
+                    assert!(hint.contains("use it instead"), "{hint}");
+                }
+            }
+        }
     }
 
     #[test]

@@ -1,0 +1,179 @@
+{
+  "package": "D5",
+  "map_baseline": "4aeed9c764d07412ccbcfb1d24e52018ce2ebb02",
+  "validated_root_baseline": "5cdfe5a3787697c19a27d50562de103fd3b101bd",
+  "recorded_at": "2026-10-03T17:29:19.223860",
+  "status": "verified_targeted_pending_root_integration",
+  "full_files": [
+    {
+      "path": "crates/kanzei-harness/src/harness.rs",
+      "judgment": "P2",
+      "scope": "full file including internal tests",
+      "sha256": "609e7c5fd8baad677a39a9ac63e910e675501562b9ef6a018135582ca6e90919",
+      "sha256_lf": "609e7c5fd8baad677a39a9ac63e910e675501562b9ef6a018135582ca6e90919",
+      "lines": 706
+    },
+    {
+      "path": "crates/kanzei-harness/src/tool_search.rs",
+      "judgment": "PASS",
+      "scope": "full file including internal tests",
+      "sha256": "fb1ab9876ef4d76cd0ba9d00a522177738f2b03c43fecd115c3493d52e2c27fc",
+      "sha256_lf": "fb1ab9876ef4d76cd0ba9d00a522177738f2b03c43fecd115c3493d52e2c27fc",
+      "lines": 377
+    },
+    {
+      "path": "crates/kanzei-core/src/runner/drive/tool_catalog.rs",
+      "judgment": "PASS",
+      "scope": "full file including internal tests",
+      "sha256": "8270ff2f9aca3ea09940c8ef2dc04500e224ea8d5c63b492cf35e472d6c8dcb2",
+      "sha256_lf": "8270ff2f9aca3ea09940c8ef2dc04500e224ea8d5c63b492cf35e472d6c8dcb2",
+      "lines": 220
+    }
+  ],
+  "necessary_slices": [
+    "crates/kanzei-core/src/runner/drive/serial_tools.rs",
+    "crates/kanzei-core/src/runner/drive/parallel_tools.rs",
+    "crates/kanzei-core/src/runner/drive/assembly.rs",
+    "crates/kanzei-core/src/runner/drive.rs",
+    "crates/kanzei-tools/src/profiles/dev.rs",
+    "crates/kanzei-tools/src/profiles/base.rs",
+    "crates/kanzei-tools/src/profiles/subagent.rs",
+    "crates/kanzei-tools/src/schedules/executor.rs",
+    "crates/kanzei/src/cli/run.rs",
+    "crates/kanzei-app/src/run/assembly.rs",
+    "crates/kanzei-app/src/model_config.rs",
+    "crates/kanzei-app/src/permission_tests.rs"
+  ],
+  "root_causes": [
+    {
+      "id": "D5-01",
+      "priority": "P2",
+      "cause": "denial remedy routes to a dedicated tool actually disabled by the ruleset"
+    }
+  ],
+  "checks": [
+    {
+      "name": "D5-denial-positive",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-harness",
+        "denial_hint",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 11.87,
+      "log": "output\\parallel-M5\\D5-denial-positive.log",
+      "log_sha256": "7cd107c9778bf604c0a3f3a9a51e38b9ccff134e640cf77c5a12ffd6d1f542ac"
+    },
+    {
+      "name": "D5-denial-old-control",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-harness",
+        "denial_hint",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "expected_exit": 101,
+      "seconds": 2.82,
+      "log": "output\\parallel-M5\\D5-denial-old-control.log",
+      "log_sha256": "f9623826be43e146c3bde6e8c85accfa6bb559308d5ae1bba26673771a4010ff"
+    },
+    {
+      "name": "D5-restored-denial",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-harness",
+        "denial_hint",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 2.51,
+      "log": "output\\parallel-M5\\D5-restored-denial.log",
+      "log_sha256": "326f54ef11460bcfb08056d122d9cce15bc9324cbe050cb64fc398d71c2a4625"
+    },
+    {
+      "name": "D5-related-check",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "kanzei-harness",
+        "-p",
+        "kanzei-core",
+        "-p",
+        "kanzei-tools",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 18.38,
+      "log": "output\\parallel-M5\\D5-related-check.log",
+      "log_sha256": "b278d90776c93a9bfaedf78aa8b4ff76cfbf671bc177d1b695d6efae7e21a4e4"
+    },
+    {
+      "name": "D5-related-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 1.93,
+      "log": "output\\parallel-M5\\D5-related-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "D5-related-diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 0.3,
+      "log": "output\\parallel-M5\\D5-related-diff.log",
+      "log_sha256": "be72311cae8c662f6ca5312d4c0a85183cee04f618a2727ecbb02a22df95ebb2"
+    }
+  ],
+  "regression": {
+    "positive_tests": 2,
+    "configuration_matrix": 6,
+    "old_production_assert_failed": 1,
+    "old_normal_control_passed": 1,
+    "negative_exit": 101,
+    "not_a_compile_failure": true,
+    "restoration": {
+      "path": "crates/kanzei-harness/src/harness.rs",
+      "sha256": "609e7c5fd8baad677a39a9ac63e910e675501562b9ef6a018135582ca6e90919",
+      "sha256_lf": "609e7c5fd8baad677a39a9ac63e910e675501562b9ef6a018135582ca6e90919",
+      "exact_original_production_branch_removed": true,
+      "restored": true
+    }
+  },
+  "public_API_changed": false,
+  "persistent_format_changed": false,
+  "permission_semantics_changed": false,
+  "new_dependencies": false,
+  "repository_review_complete": false,
+  "boundaries": [
+    "Root combined workspace/native/UI checks pending",
+    "Only these three files full-reviewed; direct callers are necessary slices",
+    "Managed hard deny remains effective; this fixes an incorrect remedy message"
+  ]
+}
