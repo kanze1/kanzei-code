@@ -1,0 +1,361 @@
+{
+  "coverage_delta": {
+    "reopened_slice_count": 1,
+    "reopened_full_count": 0,
+    "new_full_count": 5
+  },
+  "regression_support": [
+    {
+      "sha256_utf8_lf": "4fc2f59dd4a29dc7327ba6a700930f7b7584f39d76d6fd26256edbc939ce7d84",
+      "sha256": "4fc2f59dd4a29dc7327ba6a700930f7b7584f39d76d6fd26256edbc939ce7d84",
+      "judgment": "PASS",
+      "scope": "regression or necessary native fixture contract slice",
+      "lines": 205,
+      "path": "scripts/ui-surface-owner-smoke.mjs"
+    },
+    {
+      "sha256_utf8_lf": "730184cd5d6e03dc0826fc56743e42d45184d6db9fd265640f4821e35a1c2323",
+      "sha256": "730184cd5d6e03dc0826fc56743e42d45184d6db9fd265640f4821e35a1c2323",
+      "judgment": "PASS",
+      "scope": "regression or necessary native fixture contract slice",
+      "lines": 24,
+      "path": "scripts/ui-preview/workspace-prefs-fixture.mjs"
+    },
+    {
+      "sha256_utf8_lf": "827c0ea87e050d782e63f562dc6bc102d1c497668758ca2b8c80fbc1573b3365",
+      "sha256": "e83d2c44995992106b0d000105d27fcaa2fd4e627a683544f814411a1c57cf9e",
+      "judgment": "PASS",
+      "scope": "regression or necessary native fixture contract slice",
+      "lines": 1453,
+      "path": "scripts/ui-preview/fixtures.mjs"
+    },
+    {
+      "sha256_utf8_lf": "a5e120a6823881e811fb3d973587d9b2748e7c0bac6865efa1dfbc10096a7a14",
+      "sha256": "cafe8cd8cfb459efa084bea8d4389f701e7ee7bc035ea27bb759ecdbf23153ba",
+      "judgment": "PASS",
+      "scope": "regression or necessary native fixture contract slice",
+      "lines": 155,
+      "path": "scripts/ui-preview/server.mjs"
+    },
+    {
+      "sha256_utf8_lf": "75b859474e96f6ee89a7405d2869516d43369ab05221cef120f3e5c9c5e5d710",
+      "sha256": "da07160374ff705f18c883c588fb823d719543003d8c7917cae84cb776fed923",
+      "judgment": "PASS",
+      "scope": "regression or necessary native fixture contract slice",
+      "lines": 541,
+      "path": "scripts/ui-workspace-smoke.mjs"
+    },
+    {
+      "sha256_utf8_lf": "dae50039457572cc4d8940acaacd6b1b353d4b017dfb919e17ec73ba493cc194",
+      "sha256": "8ee6021f1e403b9b86b5097efc1556131e36ec2c376bfa2fb357adcccfcaf3da",
+      "judgment": "PASS",
+      "scope": "regression or necessary native fixture contract slice",
+      "lines": 553,
+      "path": "scripts/ui-workbench-browser-smoke.mjs"
+    }
+  ],
+  "full_files": [
+    {
+      "sha256_utf8_lf": "e5c9630c57dc0586c9cbeed1fc4fd23cbc1a39be1a9bce6ecf2a1ee320a5ac74",
+      "sha256": "e5c9630c57dc0586c9cbeed1fc4fd23cbc1a39be1a9bce6ecf2a1ee320a5ac74",
+      "judgment": "P1",
+      "scope": "new full review",
+      "lines": 925,
+      "path": "crates/kanzei-app/src/prefs.rs"
+    },
+    {
+      "sha256_utf8_lf": "8cc6cc7705034b628310d00724d321c37bfe744b5dc46c0224fea91bf1656078",
+      "sha256": "866df68ed6299eda3a9a1b73b2b730bcada63992152b097de27675cf0b63824c",
+      "judgment": "PASS",
+      "scope": "new full review",
+      "lines": 929,
+      "path": "crates/kanzei-app/ui/00-surface.js"
+    },
+    {
+      "sha256_utf8_lf": "a3f489c96b4410ef4fba82c04e7461d5570e824c6c092ce7637943889ffc09e0",
+      "sha256": "77ebb8bc8d0b5e1e9ed03da7301cfff28f4098ff2711c942f32153e930c52417",
+      "judgment": "PASS",
+      "scope": "new full review",
+      "lines": 536,
+      "path": "crates/kanzei-app/ui/00-frame.js"
+    },
+    {
+      "sha256_utf8_lf": "0663d542f32690a171da4b8f400b8c66135360ad105cc7419d76bad2f9e357a0",
+      "sha256": "887126012df23dfd4aced798fb901a22f8ea53503b9e85816d7740553bc9d84f",
+      "judgment": "P1",
+      "scope": "new full review",
+      "lines": 195,
+      "path": "crates/kanzei-app/ui/03-layout.js"
+    },
+    {
+      "sha256_utf8_lf": "7524c8a073c85738cd983c9dfa7860d48f0c0757e24c2e605235a316d675c945",
+      "sha256": "50d87f156f1944fa1d362014e05b0e979cfbdef666c16eae94751b79fb0f984b",
+      "judgment": "P1",
+      "scope": "new full review",
+      "lines": 299,
+      "path": "crates/kanzei-app/ui/03-workspaces.js"
+    }
+  ],
+  "execution_faults": [
+    {
+      "product_negative": false,
+      "logs": [
+        "before-initial.log",
+        "before-windows.log"
+      ],
+      "reason": "node --test custom --before was not forwarded; exact direct-node controls rerun"
+    },
+    {
+      "product_negative": false,
+      "logs": [
+        "browser-surface-gallery.log",
+        "browser-baseline-gallery.log"
+      ],
+      "reason": "new fixture module omitted from preview static allowlist; corrected and full browser rerun passed"
+    },
+    {
+      "product_negative": false,
+      "logs": [
+        "a5-notifications.log"
+      ],
+      "reason": "wrong test filename; corrected existing path"
+    },
+    {
+      "product_negative": false,
+      "logs": [
+        "a5-notifications-correct.log"
+      ],
+      "reason": "missing --experimental-vm-modules; corrected run 3 PASS"
+    },
+    {
+      "product_negative": false,
+      "logs": [
+        "browser-workspaces.log",
+        "browser-baseline-workspaces.log"
+      ],
+      "reason": "existing Chinese status assertion only recognizes English; exact old production same failure"
+    },
+    {
+      "logs": [
+        "fmt-initial.log"
+      ],
+      "product_negative": false,
+      "exit": 1,
+      "reason": "new prefs helper/tests formatting only; rustfmt limited to prefs.rs; final workspace fmt exit0"
+    },
+    {
+      "logs": [
+        "next-priority-owner-probe.log"
+      ],
+      "product_negative": false,
+      "reason": "out-of-scope next-package probe initially had synthetic import TDZ; subsequent data probes separate from A6"
+    }
+  ],
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code",
+  "artifacts": "output/audit-a6-ui-surfaces",
+  "repository_review_complete": false,
+  "boundaries": {
+    "vm": "complete 5 JS owners; unrelated imports synthetic, native protocol independent fixture",
+    "before": "complete committed 7f JS and equivalent old whole-map native setter; not actual Tauri",
+    "rust": "real isolated KANZEI_HOME ui_prefs_set/get/raw file reload: final 18 related tests PASS; exact original production assignment fails both new data assertions with exit101",
+    "full_ui": "root integration owns full suite; workspace suite remains known independent language assertion failure",
+    "browser": "actual headless Edge and HTTP mock IPC; no actual desktop or production project I/O"
+  },
+  "task": "A6",
+  "status": "verified_leaf_ready_for_root_integration",
+  "source_restoration": "browser-baseline-restoration.json",
+  "rust_checks_pending": [],
+  "bugs": [
+    {
+      "negative_cases": [
+        1,
+        2
+      ],
+      "root": "layout initial hydration after flush resets new geometry",
+      "files": [
+        "03-layout.js"
+      ],
+      "grade": "P1"
+    },
+    {
+      "negative_cases": [
+        4
+      ],
+      "root": "workspace late restore resets newer navigation",
+      "files": [
+        "03-workspaces.js"
+      ],
+      "grade": "P1"
+    },
+    {
+      "negative_cases": [
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "root": "stale full workspace maps overwrite independent window changes",
+      "files": [
+        "prefs.rs",
+        "01-core.js",
+        "03-workspaces.js"
+      ],
+      "grade": "P1"
+    }
+  ],
+  "baseline": "7fbe6a9f692b3d5cb6940987a707a02532a16c1b",
+  "cargo_executed": true,
+  "branch": "kanzei/audit-a6-ui-surfaces",
+  "checks": [
+    {
+      "exit": 0,
+      "pass": 12,
+      "fail": 0,
+      "log": "after-owner.log",
+      "command": "node --experimental-vm-modules scripts/ui-surface-owner-smoke.mjs"
+    },
+    {
+      "fail": 8,
+      "exit": 1,
+      "log": "before-exact-owner.log",
+      "command": "node --experimental-vm-modules scripts/ui-surface-owner-smoke.mjs --before",
+      "failure_kind": "ERR_ASSERTION data",
+      "pass": 4
+    },
+    {
+      "exit": 0,
+      "pass": 15,
+      "fail": 0,
+      "log": "a4-caller.log",
+      "command": "node --experimental-vm-modules scripts/ui-state-ownership-smoke.mjs"
+    },
+    {
+      "exit": 0,
+      "pass": 8,
+      "fail": 0,
+      "log": "a5-caller.log",
+      "command": "node --experimental-vm-modules scripts/ui-schedule-ownership-smoke.mjs"
+    },
+    {
+      "exit": 0,
+      "pass": 3,
+      "fail": 0,
+      "log": "a5-notifications-final.log",
+      "command": "node --experimental-vm-modules --test scripts/tests/schedule-notification.test.mjs"
+    },
+    {
+      "exit": 0,
+      "log": "browser-workbench.log",
+      "command": "node --loader ./output/audit-a4-state/runtime-loader.mjs scripts/ui-workbench-browser-smoke.mjs"
+    },
+    {
+      "frame_geometries": true,
+      "exit": 0,
+      "composer_groups": 26,
+      "log": "browser-surface-gallery-dependency-fixed.log",
+      "command": "node --loader ./output/audit-a4-state/runtime-loader.mjs scripts/ui-surface-gallery-smoke.mjs"
+    },
+    {
+      "exit": 0,
+      "log": "a11y-frame.log",
+      "command": "node scripts/ui-a11y-smoke.mjs"
+    },
+    {
+      "exit": 0,
+      "log": "eslint-final.log",
+      "command": "ESLint 5 owner JS and support scripts"
+    },
+    {
+      "exit": 0,
+      "command": "cargo test -p kanzei-app workspace_state_tests -- --test-threads=1",
+      "fail": 0,
+      "pass": 2,
+      "log": "rust-prefs-positive.log"
+    },
+    {
+      "pass": 0,
+      "log": "rust-prefs-old-control.log",
+      "exit": 101,
+      "fail": 2,
+      "command": "cargo test -p kanzei-app workspace_state_tests -- --test-threads=1",
+      "failure_kind": "compiled original setter whole assignment; actual data assertions"
+    },
+    {
+      "exit": 0,
+      "command": "cargo test -p kanzei-app prefs:: -- --test-threads=1",
+      "fail": 0,
+      "pass": 18,
+      "log": "rust-prefs-restored-related.log"
+    },
+    {
+      "pass": 0,
+      "log": "rust-prefs-old-control-final.log",
+      "exit": 101,
+      "fail": 2,
+      "command": "cargo test -p kanzei-app workspace_state_tests -- --test-threads=1",
+      "failure_kind": "compiled original setter whole assignment; final test-only cleanup retained; actual data assertions"
+    },
+    {
+      "exit": 0,
+      "command": "cargo test -p kanzei-app prefs:: -- --test-threads=1",
+      "fail": 0,
+      "pass": 18,
+      "log": "rust-prefs-final-related.log"
+    },
+    {
+      "exit": 0,
+      "command": "cargo check -p kanzei-app --all-targets",
+      "log": "rust-app-check.log"
+    },
+    {
+      "exit": 0,
+      "command": "cargo clippy -p kanzei-app --all-targets -- -D warnings",
+      "log": "rust-app-clippy.log"
+    },
+    {
+      "exit": 0,
+      "command": "cargo fmt --all --check",
+      "log": "fmt-final.log"
+    },
+    {
+      "exit": 0,
+      "command": "git diff --check",
+      "log": "diff-final.log"
+    }
+  ],
+  "push_or_release": false,
+  "contract_slices": [
+    {
+      "sha256_utf8_lf": "405be3fa6e714978d75fadef0593768117f78725a1cb70b0dff71b062f2c54ca",
+      "sha256": "22e4a4bef32bf2e6d8729c5be497c7412be80cb2ec13a9b56e35563fad640632",
+      "judgment": "P1",
+      "scope": "workspace prefs only; A4 already full",
+      "lines": 978,
+      "path": "crates/kanzei-app/ui/01-core.js"
+    }
+  ],
+  "native_tauri_executed": false,
+  "cargo_slot_released": true,
+  "shared_target": "C:/Users/kanzei/Documents/kanzei code/target",
+  "reviewed_source_mtime_refresh": "all non-vendor/binaries Rust files refreshed before initial tests; original-byte control restoration explicitly refreshed prefs mtime",
+  "completed_utc": "2026-10-03T09:08:17.6284363Z",
+  "rust_source_restorations": [
+    "rust-source-restoration.json",
+    "rust-final-source-restoration.json"
+  ],
+  "unchanged_failure_contract": "load_prefs read/parse failure defaults and subsequent writer behavior deliberately not changed or validated in A6; root plans isolated UTF8/JSON corruption setter package",
+  "handoff_not_counted_in_a6": [
+    "08-compose-runtime work priority project attribution and process auto-state multi-window data probes; no additional production edit authorization"
+  ],
+  "workspace_suite_boundary": {
+    "exit": 1,
+    "logs": [
+      "browser-workspaces.log",
+      "browser-baseline-workspaces.log"
+    ],
+    "line": 458,
+    "old_exit": 1,
+    "failure": "pre-existing Chinese status fixture asserted English text; not A6 repair proof"
+  }
+}

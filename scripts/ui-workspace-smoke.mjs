@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { chromium } from "playwright-core";
+import { mergeWorkspacePrefs } from "./ui-preview/workspace-prefs-fixture.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ui_root = path.join(root, "crates/kanzei-app/ui");
@@ -96,7 +97,7 @@ const server = http.createServer(async (request, response) => {
       } else if (cmd === "process_list") {
         value = payloads.process_list.filter((item) => (item.origin_project || item.project_dir || project) === args.projectDir);
       } else if (cmd === "ui_prefs_set") {
-        if (args.workspace_state) workspace_state = args.workspace_state;
+        if (args.workspace_state) workspace_state = mergeWorkspacePrefs(workspace_state, args.workspace_state);
       } else if (cmd === "ui_prefs_get") {
         value = { ...payloads.ui_prefs_get, workspace_state };
       } else if (cmd === "docs_snapshot" && delayed_snapshot) {

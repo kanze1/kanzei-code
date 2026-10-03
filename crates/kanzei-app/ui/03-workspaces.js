@@ -1,4 +1,4 @@
-import { $, defer, invoke, readJson, uiPrefsLoad, uiPrefsSave, writeJson } from "./01-core.js";
+import { $, defer, invoke, mergeWorkspaceState, readJson, uiPrefsLoad, uiPrefsSave, writeJson } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toastError } from "./03-shell.js";
 import { activate_execution_root, refreshProcesses, renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
@@ -15,6 +15,7 @@ export let workspace_switch_pending = false;
 let workspace_transition = null;
 export let workspace_preferences = readJson("kz-workspaces", {});
 let workspace_save = Promise.resolve();
+let workspace_restore = null;
 const dev_views = new Set(["project", "documents", "lines", "arch", "metrics"]);
 const composer_drafts = new Map();
 let composer_scope = "";
@@ -50,18 +51,34 @@ export function project_workspace(project = currentProject) {
 }
 
 export function save_workspace(patch, project = currentProject) {
-  if (project && patch.dev) workspace_preferences[project] = { ...workspace_preferences[project], dev: patch.dev };
-  workspace_preferences[library_preferences_key] = {
-    ...workspace_preferences[library_preferences_key],
-    ...(patch.space ? { space: patch.space } : {}),
-    ...(patch.research ? { research: patch.research } : {}),
-  };
-  if (patch.research?.topic_id) {
-    const library = workspace_preferences[library_preferences_key];
-    library.topic_states = { ...library.topic_states, [patch.research.topic_id]: patch.research };
+  // Caller 常带本窗旧分区快照；仅变化字段属于此次写入，避免跨窗回灌陈值。
+  const changed_fields = (previous, fields) => Object.fromEntries(Object.entries(fields)
+    .filter(([key, value]) => !Object.hasOwn(previous ?? {}, key) || previous[key] !== value));
+  const delta = {};
+  if (project && patch.dev) {
+    const dev = changed_fields(workspace_preferences[project]?.dev, patch.dev);
+    if (Object.keys(dev).length) delta[project] = { dev };
   }
+  const previous = workspace_preferences[library_preferences_key] ?? {};
+  const library = {};
+  if (patch.space && patch.space !== previous.space) library.space = patch.space;
+  if (patch.research) {
+    const research = changed_fields(previous.research, patch.research);
+    if (Object.keys(research).length) library.research = research;
+  }
+  if (patch.research?.topic_id) {
+    const topic = patch.research.topic_id;
+    const fields = changed_fields(previous.topic_states?.[topic], patch.research);
+    if (Object.keys(fields).length) library.topic_states = { [topic]: fields };
+  }
+  if (Object.keys(library).length) delta[library_preferences_key] = library;
+  if (!Object.keys(delta).length) return;
+  // 在排队前冻结每次操作；较晚的导航不能改写已经排队的字段。
+  const snapshot = JSON.parse(JSON.stringify(delta));
+  workspace_preferences = mergeWorkspaceState(workspace_preferences, snapshot);
+  if (workspace_restore) workspace_restore.edits = mergeWorkspaceState(workspace_restore.edits, snapshot);
   writeJson("kz-workspaces", workspace_preferences);
-  workspace_save = workspace_save.catch(() => {}).then(() => uiPrefsSave({ workspace_state: { ...workspace_preferences } }));
+  workspace_save = workspace_save.catch(() => {}).then(() => uiPrefsSave({ workspace_state: snapshot }));
 }
 
 export function save_research_workspace(patch) {
@@ -74,10 +91,15 @@ export function save_research_workspace(patch) {
 }
 
 export async function restore_workspace_preferences() {
+  const restoring = { edits: {} };
+  workspace_restore = restoring;
   const saved = await uiPrefsLoad();
+  if (workspace_restore !== restoring) return;
   if (saved.workspace_state && typeof saved.workspace_state === "object") {
     workspace_preferences = { ...workspace_preferences, ...saved.workspace_state };
   }
+  workspace_preferences = mergeWorkspaceState(workspace_preferences, restoring.edits);
+  workspace_restore = null;
   startup_space = workspace_preferences[library_preferences_key]?.space;
 }
 

@@ -16,6 +16,7 @@ import { MEMORY_GRAPH_FIXTURE, memoryArchivedFor, memoryEntriesFor, memoryEntryF
 // ── 分区:架构图 ──
 import { archSnapshot } from "./arch-fixture.mjs";
 import { decisionConsoleFixture } from "./decision-console-fixture.mjs";
+import { mergeWorkspacePrefs } from "./workspace-prefs-fixture.mjs";
 
 export const PROJECT = "C:/Users/kanzei/Documents/kanzei code";
 export const PROJECT_B = "C:/Users/kanzei/Documents/持续学习";
@@ -921,6 +922,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     ui_prefs_get: () => state.uiPrefs,
     ui_prefs_set: (args) => {
       const next = { ...state.uiPrefs, ...args };
+      if (args?.workspace_state) next.workspace_state = mergeWorkspacePrefs(state.uiPrefs.workspace_state, args.workspace_state);
       // 与后端 merge_ui_layout 同口径:ui_layout 按「分区 → 键」两级合并,值为 null 即删除。
       if (args?.ui_layout && typeof args.ui_layout === "object") {
         const layout = structuredClone(state.uiPrefs.ui_layout ?? {});

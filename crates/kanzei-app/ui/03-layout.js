@@ -15,6 +15,8 @@ const FLUSH_MS = 400;
 const listeners = new Set();
 let layout = readCache();
 let pending = null;
+// 初始化的旧读数可能晚于一次 flush；初次 adopt 前的编辑不能随 pending 清掉。
+let hydrationEdits = {};
 let flushTimer = null;
 
 function isObject(value) {
@@ -56,6 +58,10 @@ export function setLayoutPref(section, key, value) {
   pending ??= {};
   if (!isObject(pending[section])) pending[section] = {};
   pending[section][key] = next;
+  if (hydrationEdits) {
+    hydrationEdits[section] ??= {};
+    hydrationEdits[section][key] = next;
+  }
   clearTimeout(flushTimer);
   flushTimer = setTimeout(flushLayout, FLUSH_MS);
 }
@@ -73,19 +79,22 @@ export function onLayoutChange(fn) {
   return () => listeners.delete(fn);
 }
 
-/// 后端值到达:以后端为准,启动后、到达前用户刚改过而还没写出去的键保留本地值。
+/// 后端值到达:首次加载保留等待期间的编辑(包括已 flush 的键)，之后保留 pending。
 export function adoptLayout(remote) {
   const next = {};
   if (isObject(remote)) {
     for (const [section, bucket] of Object.entries(remote)) next[section] = isObject(bucket) ? { ...bucket } : bucket;
   }
-  for (const [section, bucket] of Object.entries(pending ?? {})) {
+  const edits = { ...hydrationEdits };
+  for (const [section, bucket] of Object.entries(pending ?? {})) edits[section] = { ...edits[section], ...bucket };
+  for (const [section, bucket] of Object.entries(edits)) {
     if (!isObject(next[section])) next[section] = {};
     for (const [key, value] of Object.entries(bucket)) {
       if (value === null) delete next[section][key];
       else next[section][key] = value;
     }
   }
+  hydrationEdits = null;
   layout = next;
   writeCache();
   refreshFrames();

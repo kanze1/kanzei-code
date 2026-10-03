@@ -593,11 +593,34 @@ function queueUiPrefs(operation) {
 function prefsObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+// 工作区只写触及的项目/分区/课题字段；null 是选中任务的显式清空值。
+// 与 prefs.rs 的 workspace_state 合并边界一致，不用于 ui_layout 的 null 删除。
+export function mergeWorkspaceState(state, patch) {
+  const merged = { ...(prefsObject(state) ? state : {}) };
+  for (const [project, update] of Object.entries(patch)) {
+    if (!prefsObject(update)) { merged[project] = update; continue; }
+    const next = { ...(prefsObject(merged[project]) ? merged[project] : {}) };
+    for (const [section, value] of Object.entries(update)) {
+      if (["dev", "research"].includes(section) && prefsObject(value)) {
+        next[section] = { ...(prefsObject(next[section]) ? next[section] : {}), ...value };
+      } else if (section === "topic_states" && prefsObject(value)) {
+        const topics = { ...(prefsObject(next.topic_states) ? next.topic_states : {}) };
+        for (const [topic, fields] of Object.entries(value)) {
+          topics[topic] = prefsObject(fields) ? { ...(prefsObject(topics[topic]) ? topics[topic] : {}), ...fields } : fields;
+        }
+        next.topic_states = topics;
+      } else next[section] = value;
+    }
+    merged[project] = next;
+  }
+  return merged;
+}
 function mergeUiPrefsPatch(prefs, patch) {
   const merged = { ...prefs };
-  for (const key of ["theme", "backdrop", "work_priority", "auto_max", "continue_prompt", "process_auto_state", "workspace_state"]) {
+  for (const key of ["theme", "backdrop", "work_priority", "auto_max", "continue_prompt", "process_auto_state"]) {
     if (patch[key] !== undefined && patch[key] !== null) merged[key] = patch[key];
   }
+  if (prefsObject(patch.workspace_state)) merged.workspace_state = mergeWorkspaceState(prefs.workspace_state, patch.workspace_state);
   if (patch.memory_view === "list" || patch.memory_view === "graph") merged.memory_view = patch.memory_view;
   // prefs.rs 按分区/键合并;几何等键值整体替换,两个层次的 null 都表示删除。
   if (prefsObject(patch.ui_layout) && new TextEncoder().encode(JSON.stringify(patch.ui_layout)).length <= 64 * 1024) {

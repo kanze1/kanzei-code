@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { chromium } from "playwright-core";
 import { MEMORY_GRAPH_FIXTURE } from "./ui-preview/memory-graph-fixture.mjs";
+import { mergeWorkspacePrefs } from "./ui-preview/workspace-prefs-fixture.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const uiRoot = path.join(root, "crates/kanzei-app/ui");
@@ -80,7 +81,11 @@ payloads.workspace_snapshot = ({ projectDir } = {}) => ({
   })),
 });
 payloads.ui_prefs_get = () => uiPreferences;
-payloads.ui_prefs_set = (patch) => { uiPreferences = { ...uiPreferences, ...patch }; return null; };
+payloads.ui_prefs_set = (patch) => {
+  const workspace = patch.workspace_state ? mergeWorkspacePrefs(uiPreferences.workspace_state, patch.workspace_state) : uiPreferences.workspace_state;
+  uiPreferences = { ...uiPreferences, ...patch, workspace_state: workspace };
+  return null;
+};
 payloads.memory_graph = MEMORY_GRAPH_FIXTURE;
 payloads.research_library_list = () => ({
   entries: docs.research_topics.map((entry) => ({ ...entry, id: entry.topic || "legacy", storage_root: projectA, linked_projects: [projectA], available: true, kind: entry.kind || (entry.legacy ? "legacy" : "research") })),

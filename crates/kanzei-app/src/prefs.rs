@@ -377,6 +377,51 @@ pub fn ui_prefs_get() -> serde_json::Value {
     })
 }
 
+/// 导航写端只发送触及字段；同一 write_guard 内合并，保留其它窗口的项目/课题。
+/// workspace 的 null 是存储值(例如 process_id 清空)，与 ui_layout 的删除语义不同。
+fn merge_workspace_state(state: &mut HashMap<String, Value>, patch: HashMap<String, Value>) {
+    fn merge_fields(current: &mut Value, patch: Value) {
+        if let Value::Object(fields) = patch {
+            if !current.is_object() {
+                *current = json!({});
+            }
+            current.as_object_mut().unwrap().extend(fields);
+        } else {
+            *current = patch;
+        }
+    }
+    for (project, update) in patch {
+        let current = state.entry(project).or_insert_with(|| json!({}));
+        let Value::Object(update) = update else {
+            *current = update;
+            continue;
+        };
+        if !current.is_object() {
+            *current = json!({});
+        }
+        let bucket = current.as_object_mut().unwrap();
+        for (section, value) in update {
+            let target = bucket.entry(section.clone()).or_insert(Value::Null);
+            if section == "dev" || section == "research" {
+                merge_fields(target, value);
+            } else if section == "topic_states" && value.is_object() {
+                if !target.is_object() {
+                    *target = json!({});
+                }
+                let topics = target.as_object_mut().unwrap();
+                for (topic, fields) in value.as_object().unwrap() {
+                    merge_fields(
+                        topics.entry(topic.clone()).or_insert(Value::Null),
+                        fields.clone(),
+                    );
+                }
+            } else {
+                *target = value;
+            }
+        }
+    }
+}
+
 // UI 偏好通道的请求与持久化对象都使用 snake_case。
 // 每个参数对应 ui_prefs 通道里一个独立字段(IPC 形状即参数名),收成结构体会改动前端调用约定。
 #[allow(clippy::too_many_arguments)]
@@ -404,11 +449,142 @@ pub fn ui_prefs_set(
         process_auto_state,
     );
     if let Some(workspace_state) = workspace_state {
-        prefs.workspace_state = workspace_state;
+        merge_workspace_state(&mut prefs.workspace_state, workspace_state);
     }
     apply_ui_layout(&mut prefs, ui_layout);
     apply_memory_view(&mut prefs, memory_view);
     save_prefs(&prefs)
+}
+
+#[cfg(test)]
+mod workspace_state_tests {
+    use super::*;
+
+    fn with_home(tag: &str, run: impl FnOnce()) {
+        let home = std::env::temp_dir().join(format!(
+            "kz-workspace-prefs-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::settings::with_kanzei_home(&home, run)
+        }));
+        std::fs::remove_dir_all(home).unwrap();
+        result.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    }
+
+    fn save_workspace(patch: Value) {
+        ui_prefs_set(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(serde_json::from_value(patch).unwrap()),
+            None,
+            None,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn independent_windows_preserve_projects_through_real_prefs_set_and_reload() {
+        with_home("projects", || {
+            ui_prefs_set(
+                Some("dark".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(json!({"splits": {"sidebar": 320}})),
+                None,
+            )
+            .unwrap();
+            save_workspace(json!({
+                "project-A": {"dev": {"view": "chat", "process_id": "d|A"}},
+                "project-B": {"dev": {"view": "chat", "process_id": "d|B"}}
+            }));
+            // Two windows read the same snapshot, then send only their own changes.
+            let a = ui_prefs_get();
+            let b = ui_prefs_get();
+            assert_eq!(a["workspace_state"], b["workspace_state"]);
+            save_workspace(json!({"project-A": {"dev": {"view": "lines"}}}));
+            save_workspace(json!({"project-B": {"dev": {"view": "arch"}}}));
+            let restored = ui_prefs_get();
+            assert_eq!(
+                restored["workspace_state"]["project-A"]["dev"]["view"],
+                "lines"
+            );
+            assert_eq!(
+                restored["workspace_state"]["project-B"]["dev"]["view"],
+                "arch"
+            );
+            assert_eq!(
+                restored["workspace_state"]["project-A"]["dev"]["process_id"],
+                "d|A"
+            );
+            assert_eq!(
+                restored["workspace_state"]["project-B"]["dev"]["process_id"],
+                "d|B"
+            );
+            assert_eq!(restored["theme"], "dark");
+            assert_eq!(restored["ui_layout"]["splits"]["sidebar"], 320);
+            let raw: Value =
+                serde_json::from_str(&std::fs::read_to_string(prefs_path()).unwrap()).unwrap();
+            assert_eq!(raw["workspace_state"], restored["workspace_state"]);
+        });
+    }
+
+    #[test]
+    fn independent_windows_preserve_topics_fields_and_null_through_real_prefs_set() {
+        with_home("topics", || {
+            save_workspace(json!({"@research-library": {
+                "space": "dev", "research": {"category": "research", "process_id": "p|old"},
+                "topic_states": {"origin": {"page": "overview"}}
+            }}));
+            let a = ui_prefs_get();
+            let b = ui_prefs_get();
+            assert_eq!(a["workspace_state"], b["workspace_state"]);
+            save_workspace(json!({"@research-library": {
+                "research": {"topic_id": "alpha", "page": "writing", "process_id": null},
+                "topic_states": {"alpha": {"page": "writing", "process_id": null}}
+            }}));
+            save_workspace(json!({"@research-library": {
+                "research": {"topic_id": "beta", "page": "reading", "process_id": null},
+                "topic_states": {"beta": {"page": "reading", "process_id": null}}
+            }}));
+            save_workspace(
+                json!({"@research-library": {"topic_states": {"alpha": {"view": "chat"}}}}),
+            );
+            let restored = ui_prefs_get();
+            let library = &restored["workspace_state"]["@research-library"];
+            assert_eq!(library["topic_states"]["origin"]["page"], "overview");
+            assert_eq!(library["topic_states"]["alpha"]["page"], "writing");
+            assert_eq!(library["topic_states"]["alpha"]["view"], "chat");
+            assert_eq!(library["topic_states"]["beta"]["page"], "reading");
+            assert_eq!(library["research"]["category"], "research");
+            assert_eq!(library["research"]["process_id"], Value::Null);
+            assert_eq!(library["topic_states"]["alpha"]["process_id"], Value::Null);
+            assert!(library["research"]
+                .as_object()
+                .unwrap()
+                .contains_key("process_id"));
+            assert!(library["topic_states"]["alpha"]
+                .as_object()
+                .unwrap()
+                .contains_key("process_id"));
+            assert_eq!(library["space"], "dev");
+            let raw: Value =
+                serde_json::from_str(&std::fs::read_to_string(prefs_path()).unwrap()).unwrap();
+            assert_eq!(raw["workspace_state"], restored["workspace_state"]);
+        });
+    }
 }
 
 #[cfg(test)]
