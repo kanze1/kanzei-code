@@ -205,6 +205,13 @@ pub(super) fn check_close_classification_evidence(entry: &Entry) -> Option<Strin
 /// R-315 B3:大复杂度条款可以开放,但不能用单个 file:line 或测试号冒充
 /// 全库覆盖。关闭证据必须出现覆盖清单/覆盖范围,或带数字的计数表达。
 pub(super) fn check_close_complexity_evidence(entry: &Entry) -> Option<String> {
+    if entry
+        .fields
+        .iter()
+        .any(|(key, value)| key == "需求格式" && value == "2")
+    {
+        return None;
+    }
     let complexity = entry
         .fields
         .iter()
@@ -254,6 +261,13 @@ pub(super) fn check_close_complexity_evidence(entry: &Entry) -> Option<String> {
 /// 证据本身的真伪由波次审计(docs/design/bootstrap_quality_audit.md)负责——
 /// 语法门禁不判语义,本仓一贯口径。无编号条款的验收、无验收字段的条目不受影响。
 pub(super) fn check_close_acceptance_reconciliation(entry: &Entry) -> Option<String> {
+    if entry
+        .fields
+        .iter()
+        .any(|(key, value)| key == "需求格式" && value == "2")
+    {
+        return None;
+    }
     fn is_circled(c: char) -> bool {
         ('\u{2460}'..='\u{2473}').contains(&c) // ①..⑳
     }

@@ -5,6 +5,8 @@ export function requirementResearchStatus(entry) {
   return ({ pending: "待调研", invalid: "调研待补齐", complete: "调研已完成", waived: "已记录跳过理由" })[entry?.prior_art?.status] || "";
 }
 export function requirementStart(entry) {
+  if (entry.status === "draft") return { executionBatch: false, workItemId: null,
+    prompt: `补充需求草稿 ${entry.id}：${entry.title}。先读现有来源和开放问题，只补齐有依据的正文与验收，不开始实现；补齐后通过 req update 转 todo。` };
   if (!needsRequirementResearch(entry)) return { prompt: `继续推进 ${entry.id}：${entry.title}`, executionBatch: true, workItemId: entry.id };
   const path = entry.prior_art.path;
   return { executionBatch: false, workItemId: null, prompt: [

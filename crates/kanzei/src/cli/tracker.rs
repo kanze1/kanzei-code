@@ -74,6 +74,28 @@ pub(crate) fn parse_tracker_flags(args: &[String], input: &mut serde_json::Value
                     input["prior_art_waiver"] = serde_json::json!(v);
                 }
             }
+            "--requirement-file" | "--evidence-file" => {
+                let key = if word == "--requirement-file" {
+                    "requirement"
+                } else {
+                    "evidence"
+                };
+                match rest
+                    .next()
+                    .ok_or_else(|| format!("{word} 需要 JSON 文件路径"))
+                    .and_then(|path| {
+                        std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
+                    })
+                    .and_then(|text| {
+                        serde_json::from_str::<serde_json::Value>(
+                            text.trim_start_matches('\u{feff}'),
+                        )
+                        .map_err(|e| e.to_string())
+                    }) {
+                    Ok(value) => input[key] = value,
+                    Err(error) => input["_input_error"] = serde_json::json!(error),
+                }
+            }
             "--field" | "-f" => {
                 if let Some(v) = rest.next() {
                     if let Some((key, value)) = v.split_once('=') {
@@ -225,6 +247,9 @@ pub(crate) async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     //  不认 `--project-root` 开关。)
     let cwd = std::env::current_dir()?;
     let project_root = main_project_root(explicit_main_root(None).as_deref(), &cwd)?;
+    if let Some(error) = input.as_object_mut().and_then(|m| m.remove("_input_error")) {
+        anyhow::bail!("{}", error.as_str().unwrap_or("需求 JSON 无效"));
+    }
     let ctx = ToolCtx::new(cwd, project_root);
     let output = tool.execute(input, &ctx).await;
     if output.is_error {
@@ -233,4 +258,29 @@ pub(crate) async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     }
     println!("{}", output.content);
     Ok(())
+}
+
+#[cfg(test)]
+mod contract_tests {
+    #[test]
+    fn typed_requirement_file_and_invalid_file_are_not_silently_ignored() {
+        let path =
+            std::env::temp_dir().join(format!("kz-requirement-input-{}.json", std::process::id()));
+        std::fs::write(&path, "\u{feff}{\"statement\":\"系统应导出评分\"}").unwrap();
+        let mut input = serde_json::json!({"action":"add"});
+        let args = vec![
+            "导出".into(),
+            "--requirement-file".into(),
+            path.display().to_string(),
+        ];
+        assert_eq!(super::parse_tracker_flags(&args, &mut input), vec!["导出"]);
+        assert_eq!(input["requirement"]["statement"], "系统应导出评分");
+        std::fs::remove_file(&path).unwrap();
+        let mut invalid = serde_json::json!({"action":"add"});
+        super::parse_tracker_flags(&args, &mut invalid);
+        assert!(invalid.get("_input_error").is_some());
+        let mut missing = serde_json::json!({"action":"add"});
+        super::parse_tracker_flags(&["--evidence-file".into()], &mut missing);
+        assert!(missing.get("_input_error").is_some());
+    }
 }

@@ -45,7 +45,15 @@ pub(crate) fn list(
     let scheduled = schedule_entries(entries, &dependency_states);
     let items: Vec<serde_json::Value> = scheduled
         .iter()
-        .map(|(entry, reasons)| structured_entry(entry, reasons, false))
+        .map(|(entry, reasons)| {
+            let mut value = structured_entry(entry, reasons, false);
+            if tool.kind.prefix == "R" {
+                value.as_object_mut().unwrap().remove("field_registry");
+                value.as_object_mut().unwrap().remove("fields");
+                value.as_object_mut().unwrap().remove("unknown_field_count");
+            }
+            value
+        })
         .collect();
     // 饥饿保护:一条可执行都没有是队列的异常状态,不是"没活干"。不加这条横幅时
     // agent 只看到满屏 [blocked:...] 就会判定无可推进项并停住,而阻塞理由多半是
@@ -109,6 +117,19 @@ pub(crate) fn audit_acceptance_scope(
 fn agent_entry(entry: &Entry, archived: bool) -> serde_json::Value {
     let mut value = structured_entry(entry, &[], archived);
     value.as_object_mut().unwrap().remove("field_registry");
+    if entry.id.starts_with("R-") {
+        value["requirement"] = kanzei_memory::docstore::requirement::requirement_view(entry);
+        let typed = value["requirement"].get("spec").is_some();
+        // The field dictionary belongs to schema documentation, not every model read.
+        value["fields"] = serde_json::json!(entry
+            .fields
+            .iter()
+            .filter(|(name, _)| !typed
+                || (!kanzei_memory::docstore::requirement::SPEC_FIELDS.contains(&name.as_str())
+                    && name != "验收证据"))
+            .map(|(name, value)| serde_json::json!({"name": name, "value": value}))
+            .collect::<Vec<_>>());
+    }
     value
 }
 
@@ -312,9 +333,6 @@ pub(crate) fn add(
     if let Err(e) = tool.check_refs(ctx, &input.refs, true, input.topic.as_deref()) {
         return ToolOutput::error(e);
     }
-    if let Some(discovery_err) = tool.check_requirement_discovery_on_add(&input.fields) {
-        return ToolOutput::needs_correction("TRACKER_INPUT_INVALID", discovery_err);
-    }
     if let Err(error) = super::TrackerTool::check_qualifier_consistency(input.fields.iter()) {
         return ToolOutput::error(error);
     }
@@ -327,6 +345,12 @@ pub(crate) fn add(
         Err(error) => return ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error),
     };
     let mut fields: Vec<(String, String)> = input.fields.clone().into_iter().collect();
+    if input.requirement.is_some() {
+        fields.retain(|(key, value)| {
+            !kanzei_memory::docstore::requirement::SPEC_FIELDS.contains(&key.as_str())
+                || !value.is_empty()
+        });
+    }
     if let Some(field) = prior_art_field {
         fields.push(field);
     }
@@ -348,10 +372,16 @@ pub(crate) fn add(
     let severity = input
         .severity
         .or_else(|| tool.kind.severities.map(|s| s[s.len() / 2].to_string()));
+    let initial_status = if input.requirement.is_some() {
+        input.status.as_deref().unwrap_or("draft")
+    } else {
+        tool.kind.statuses[0]
+    }
+    .to_string();
     entries.push(Entry {
         id: id.clone(),
         title: title.trim().to_string(),
-        status: tool.kind.statuses[0].to_string(),
+        status: initial_status.clone(),
         severity: if tool.kind.severities.is_some() {
             severity
         } else {
@@ -362,7 +392,7 @@ pub(crate) fn add(
     if let Err(e) = store.save(entries) {
         return ToolOutput::error(format!("cannot write {}: {e}", store.path.display()));
     }
-    ToolOutput::ok(format!("added {id} [{}] {title}", tool.kind.statuses[0]))
+    ToolOutput::ok(format!("added {id} [{initial_status}] {title}"))
 }
 
 pub(crate) fn update_close(
@@ -664,6 +694,10 @@ pub(crate) fn update_close(
             }
             // 2026-08-16 审计门禁:验收条款对账——带圈条款号必须在进展中逐条覆盖
             // 并带证据锚,沉默降级即拒(详见函数注释;真伪由波次审计另查)。
+            if let Err(error) = super::requirement_contract::check_close(&merged, &ctx.project_root)
+            {
+                return ToolOutput::needs_correction("TRACKER_CLOSE_BLOCKED", error);
+            }
             if let Some(reconcile_err) = check_close_acceptance_reconciliation(&merged) {
                 return ToolOutput::needs_correction(
                     "TRACKER_CLOSE_BLOCKED",
@@ -813,6 +847,12 @@ pub(crate) fn update_close(
     }
     // 标题状态是唯一真源。存量条目的镜像字段必须跟随迁移，避免本次
     // 成功写入后，下一次正常更新却因旧「状态」字段冲突被完整性门禁挡住。
+    if input.requirement.is_some() {
+        entry.fields.retain(|(key, value)| {
+            !kanzei_memory::docstore::requirement::SPEC_FIELDS.contains(&key.as_str())
+                || !value.is_empty()
+        });
+    }
     entry.sync_status_fields();
     // 每次落「进展」都同时保存仓库锚点。后续取活会机械比较 HEAD /
     // worktree 指纹，把历史叙事标为 current/stale/future/unanchored，

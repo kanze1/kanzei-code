@@ -871,7 +871,7 @@ fn resolve_work_state(
         let outcome = &scheduled_outcome.entry;
         if !uses_work_units(outcome)
             || REQUIREMENTS.terminal.contains(&outcome.status.as_str())
-            || outcome.status == "awaiting_external"
+            || matches!(outcome.status.as_str(), "awaiting_external" | "draft")
         {
             continue;
         }
@@ -967,6 +967,9 @@ fn resolve_work_state(
         (&DEFECTS, &scheduled_defects, "fixing"),
     ] {
         for scheduled_item in scheduled {
+            if scheduled_item.entry.status == "draft" {
+                continue;
+            }
             if scheduled_item.entry.status == "awaiting_external" {
                 pending_external.push(WorkItemSummary::from(&item(
                     kind,
@@ -1085,6 +1088,7 @@ fn resolve_work_state(
                     // WIP 归持有线,都轮不到 Start。
                     let invalid = !status.is_empty() && !kind.statuses.contains(&status);
                     if invalid
+                        || status == "draft"
                         || status == "awaiting_external"
                         || status == wip_status
                         || (kind.prefix == "R"

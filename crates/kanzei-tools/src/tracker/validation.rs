@@ -1,9 +1,7 @@
 //! Tracker 需求登记与生命周期校验(R-313/R-315)。
 //!
-//! 该模块只承载验收开放度、Discovery Record、语义确认和限定词一致性校验；
+//! 该模块只承载旧格式验收开放度、草稿完整性、语义确认和限定词一致性校验；
 //! action 路由通过 `TrackerTool` 复用这些门禁，保持校验顺序与错误文案不变。
-
-use std::collections::BTreeMap;
 
 use crate::docstore::Entry;
 
@@ -37,6 +35,9 @@ impl TrackerTool {
         I: Iterator<Item = (&'a String, &'a String)> + Clone,
     {
         if self.kind.prefix != "R" {
+            return Ok(());
+        }
+        if Self::field_value(fields.clone(), &["需求格式"]) == Some("2") {
             return Ok(());
         }
         let Some(acceptance) = Self::field_value(fields.clone(), &["验收", "acceptance"]) else {
@@ -91,42 +92,22 @@ impl TrackerTool {
         }
     }
 
-    /// R-313:中/大需求的轻量 Discovery Record。它是登记前的结构化发现记录，
-    /// 不是审批流；小需求保持既有路径。JSON 放在单行字段里，避免 Markdown 解析产生游离行。
-    fn check_discovery_record(&self, fields: &BTreeMap<String, String>) -> Option<String> {
-        if self.kind.prefix != "R" {
-            return None;
-        }
-        Self::check_discovery_record_fields(fields.iter()).err()
-    }
-
-    /// R-313:进入 doing/claim 前的生命周期门禁。待确认核心语义必须留下 question
-    /// 调用证据或用户明确豁免；普通已确认歧义不要求额外字段。
+    /// Draft capture is allowed; execution requires a complete specification.
     pub(crate) fn check_requirement_start(entry: &Entry) -> Result<(), String> {
-        Self::check_discovery_record_fields(entry.fields.iter().map(|(key, value)| (key, value)))?;
+        if entry.status == "draft" {
+            return Err(
+                "需求仍是草稿；补齐正文、验收和来源后用 req update <id> todo 纳入执行".into(),
+            );
+        }
+        if let Some(spec) =
+            kanzei_memory::docstore::requirement::RequirementSpec::from_entry(entry)?
+        {
+            if !spec.gaps().is_empty() {
+                return Err(format!("需求尚有未决内容: {}", spec.gaps().join("；")));
+            }
+        }
         Self::check_semantic_confirmation(entry.fields.iter().map(|(key, value)| (key, value)))?;
         Self::check_qualifier_consistency(entry.fields.iter().map(|(key, value)| (key, value)))
-    }
-
-    pub(super) fn check_requirement_discovery_on_add(
-        &self,
-        fields: &BTreeMap<String, String>,
-    ) -> Option<String> {
-        self.check_discovery_record(fields)
-    }
-
-    /// R-313 的 Discovery Record 结构。字段名采用产品语义而不是 Rust 类型名，
-    /// 便于 req get、审计和后续迁移保持可读。
-    fn discovery_value<'a>(
-        object: &'a serde_json::Map<String, serde_json::Value>,
-        name: &str,
-    ) -> Option<&'a str> {
-        object
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case(name))
-            .and_then(|(_, value)| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
     }
 
     fn field_value<'a, I>(fields: I, names: &[&str]) -> Option<&'a str>
@@ -137,13 +118,6 @@ impl TrackerTool {
             .filter(|(key, _)| names.iter().any(|name| key.eq_ignore_ascii_case(name)))
             .map(|(_, value)| value.trim())
             .find(|value| !value.is_empty())
-    }
-
-    fn has_user_quote(source: &str) -> bool {
-        (source.contains('「') && source.contains('」'))
-            || (source.contains('“') && source.contains('”'))
-            || (source.matches('"').count() >= 2)
-            || (source.contains('‘') && source.contains('’'))
     }
 
     fn quoted_user_text(source: &str) -> String {
@@ -163,49 +137,6 @@ impl TrackerTool {
             let _ = ascii.next();
         }
         quoted
-    }
-
-    fn check_discovery_record_fields<'a, I>(fields: I) -> Result<(), String>
-    where
-        I: Iterator<Item = (&'a String, &'a String)> + Clone,
-    {
-        let complexity = Self::field_value(fields.clone(), &["复杂度", "complexity"]);
-        if !matches!(complexity, Some("中") | Some("大")) {
-            return Ok(());
-        }
-        let raw = Self::field_value(fields.clone(), &["发现记录", "discovery_record"])
-            .ok_or_else(|| {
-                "中/大需求登记必须提供 `发现记录`：单行 JSON，包含 Intent、Explicit、Assumptions、Ambiguities、领域对象、最小成功闭环、延后决策；小需求不受此门禁影响。"
-                    .to_string()
-            })?;
-        let value: serde_json::Value = serde_json::from_str(raw)
-            .map_err(|error| format!("`发现记录` 必须是单行 JSON 对象，解析失败: {error}"))?;
-        let object = value
-            .as_object()
-            .ok_or_else(|| "`发现记录` 必须是 JSON 对象，不能用散文替代结构化字段".to_string())?;
-        for name in [
-            "Intent",
-            "Explicit",
-            "Assumptions",
-            "Ambiguities",
-            "领域对象",
-            "最小成功闭环",
-            "延后决策",
-        ] {
-            if Self::discovery_value(object, name).is_none() {
-                return Err(format!("`发现记录` 缺少非空字段 `{name}`"));
-            }
-        }
-        let source = Self::field_value(fields.clone(), &["来源", "source"]).ok_or_else(|| {
-            "中/大需求的 `来源` 必须包含用户原话引用，不能只写“用户消息”".to_string()
-        })?;
-        if !Self::has_user_quote(source) {
-            return Err(
-                "中/大需求的 `来源` 必须包含用户原话引用（如 `用户原话「收藏」`），不能只写“用户消息”"
-                    .into(),
-            );
-        }
-        Ok(())
     }
 
     fn check_semantic_confirmation<'a, I>(fields: I) -> Result<(), String>

@@ -123,7 +123,7 @@ pub fn workable_titles(project_root: &std::path::Path, limit: usize) -> Vec<Stri
                 return out;
             }
             if kind.terminal.contains(&item.entry.status.as_str())
-                || item.entry.status == "awaiting_external"
+                || matches!(item.entry.status.as_str(), "awaiting_external" | "draft")
             {
                 continue;
             }
@@ -164,7 +164,7 @@ pub fn backlog_status(project_root: &std::path::Path) -> BacklogStatus {
         };
         for item in scheduled {
             if kind.terminal.contains(&item.entry.status.as_str())
-                || item.entry.status == "awaiting_external"
+                || matches!(item.entry.status.as_str(), "awaiting_external" | "draft")
             {
                 continue;
             }
@@ -247,12 +247,15 @@ pub fn dependency_states_from_documents(
     let mut states = DependencyStates::default();
     for (kind, (active, archived)) in [(&REQUIREMENTS, requirements), (&DEFECTS, defects)] {
         for entry in active.iter().chain(archived.iter()) {
-            let deps: Vec<String> = entry
+            let mut deps: Vec<String> = entry
                 .fields
                 .iter()
                 .filter(|(key, _)| is_dependency_key(key))
                 .flat_map(|(_, value)| tracker_ids(value))
                 .collect();
+            deps.extend(kanzei_memory::docstore::requirement::requirement_dependencies(entry));
+            deps.sort();
+            deps.dedup();
             states.terminal.insert(
                 entry.id.clone(),
                 // 此表判断开发依赖是否可继续，不代表外部验收已通过或条目已归档。
@@ -406,13 +409,22 @@ pub(crate) fn unblocks_count(states: &DependencyStates, id: &str) -> usize {
 /// 单条目的阻塞理由:「阻塞」字段 + 未完成「依赖」+ 阶段门槛 + 循环依赖。
 /// pub(crate):work.rs 的 R-185 测试断言「前置」不阻塞、依赖照常阻塞。
 pub(crate) fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
-    if entry.status == "awaiting_external" {
+    if matches!(entry.status.as_str(), "awaiting_external" | "draft") {
         return Vec::new();
     }
     let mut reasons = Vec::new();
     // 环上的条目永远等不到依赖完成。只报"未完成依赖"会让 agent 一轮轮空等一个
     // 不可能到来的前置,所以直接点出环并要求断边(D-163)。
     let cycle = states.cycle_from(&entry.id);
+    if cycle.is_none() {
+        for id in kanzei_memory::docstore::requirement::requirement_dependencies(entry) {
+            match states.get(&id) {
+                Some(true) => {}
+                Some(false) => reasons.push(format!("未完成依赖: {id}")),
+                None => reasons.push(format!("依赖不存在: {id}")),
+            }
+        }
+    }
     for (key, value) in &entry.fields {
         // R-307 批1:字段值带结构化「解除条件:」且已达成 → 不再计入阻塞。
         // 停车/阻塞是自由文本单向门,写下后没人自动恢复(D-486 收口后停车链全线

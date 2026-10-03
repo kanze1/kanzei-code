@@ -409,6 +409,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                     "block_reasons": block_reasons, "claimed_by": claimed_by, "fields": e.fields,
                     "execution_model": execution_model,
                     "prior_art": prior_art,
+                    "requirement": (kind.prefix == "R").then(|| kanzei_tools::docstore::requirement::requirement_view(&e)),
                     "work_units": work_units_by_requirement.get(&e.id).cloned().unwrap_or_default(),
                     "dependencies": dependents_deps.get(&e.id).cloned().unwrap_or_default(),
                     "dependents": dependents.get(&e.id).cloned().unwrap_or_default(),
@@ -497,6 +498,7 @@ pub fn docs_archive_entries(
                     json!({
                         "id": entry.id, "title": entry.title, "status": entry.status,
                         "severity": entry.severity, "fields": entry.fields, "closed": true,
+                        "requirement": (doc_kind.prefix == "R").then(|| kanzei_tools::docstore::requirement::requirement_view(&entry)),
                     })
                 })
                 .collect()
@@ -515,6 +517,8 @@ pub async fn docs_update(
     title: Option<String>,
     priority: Option<String>,
     fields: Option<serde_json::Value>,
+    requirement: Option<serde_json::Value>,
+    evidence: Option<serde_json::Value>,
     order: Option<Vec<String>>,
     topic: Option<String>,
     reason: Option<String>,
@@ -569,6 +573,12 @@ pub async fn docs_update(
     }
     if let Some(fields) = fields.filter(|f| f.is_object()) {
         input["fields"] = fields;
+    }
+    if let Some(spec) = requirement {
+        input["requirement"] = spec;
+    }
+    if let Some(items) = evidence {
+        input["evidence"] = items;
     }
     if let Some(topic) = topic.filter(|topic| !topic.trim().is_empty()) {
         input["topic"] = json!(topic);

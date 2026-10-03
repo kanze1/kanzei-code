@@ -78,6 +78,18 @@ async fn respond(listener: &TcpListener, mode: u8) {
             "text/event-stream",
             format!("data: {response}\n\ndata: [DONE]\n\n"),
         )
+    } else if mode == 5 {
+        let calls: Vec<_> = ["保存评分", "导出评分"].iter().enumerate().map(|(index,title)| {
+            json!({"index":index,"id":format!("capture-{index}"),"type":"function","function":{
+                "name":"req","arguments":json!({"action":"add","title":title,"requirement":{
+                    "statement":format!("用户请求时，系统应{title}。"),"acceptance":[{"text":format!("请求后可以观察到{title}结果")}]}}).to_string()}})
+        }).collect();
+        let response = json!({"choices":[{"index":0,"delta":{"tool_calls":calls},"finish_reason":"tool_calls"}]});
+        (
+            "200 OK",
+            "text/event-stream",
+            format!("data: {response}\n\ndata: [DONE]\n\n"),
+        )
     } else if mode == 3 {
         let response =
             json!({"choices":[{"index":0,"delta":{"content":"未能登记"},"finish_reason":"stop"}]});
@@ -149,7 +161,7 @@ async fn persisted_capture_survives_later_model_failure_and_avoids_duplicate_fal
 }
 
 #[tokio::test]
-async fn rejected_capture_reports_actual_discovery_gate_instead_of_only_empty_result() {
+async fn incomplete_capture_saves_one_draft_and_repeated_add_is_idempotent() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let root = project(listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -165,17 +177,11 @@ async fn rejected_capture_reports_actual_discovery_gate_instead_of_only_empty_re
     )
     .await;
     server.await.unwrap();
-    let error = result.unwrap_err();
-    assert!(error.contains("登记工具拒绝"), "{error}");
-    assert_eq!(error.matches("条目校验失败:").count(), 1, "{error}");
-    assert!(
-        error.contains("来源") || error.contains("发现记录"),
-        "{error}"
-    );
-    assert!(DocStore::open(&root, &REQUIREMENTS)
-        .load()
-        .unwrap()
-        .is_empty());
+    let receipt = result.unwrap();
+    assert!(receipt.starts_with("R-001 "), "{receipt}");
+    let entries = DocStore::open(&root, &REQUIREMENTS).load().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].status, "draft");
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -199,11 +205,15 @@ async fn core_capture_is_saved_and_visible_before_research_or_model_fallback() {
     assert!(receipt.starts_with("R-001 "), "{receipt}");
     let entries = DocStore::open(&root, &REQUIREMENTS).load().unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].status, "todo");
-    assert!(entries[0]
-        .fields
-        .iter()
-        .any(|(key, value)| key == "原始描述" && value == "保存个人评分"));
+    assert_eq!(entries[0].status, "draft");
+    let spec = kanzei_tools::docstore::requirement::RequirementSpec::from_entry(&entries[0])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join(&spec.source.reference)).unwrap(),
+        "保存个人评分"
+    );
+    assert!(!entries[0].fields.iter().any(|(key, _)| key == "原始描述"));
     assert!(!entries[0]
         .fields
         .iter()
@@ -216,5 +226,45 @@ async fn core_capture_is_saved_and_visible_before_research_or_model_fallback() {
     assert!(std::fs::read_to_string(root.join(relative))
         .unwrap()
         .contains("status: pending"));
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[tokio::test]
+async fn compound_capture_returns_all_ids_with_one_shared_verbatim_source() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let root = project(listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        respond(&listener, 5).await;
+        respond(&listener, 3).await;
+    });
+    let receipt = quick_req_with_coordinator(
+        Arc::new(MemoryCoordinator::new()),
+        root.display().to_string(),
+        "保存评分，并可导出评分".into(),
+        None,
+    )
+    .await
+    .unwrap();
+    server.await.unwrap();
+    assert!(
+        receipt.contains("R-001 ") && receipt.contains("R-002 "),
+        "{receipt}"
+    );
+    let entries = DocStore::open(&root, &REQUIREMENTS).load().unwrap();
+    assert_eq!(entries.len(), 2);
+    let specs: Vec<_> = entries
+        .iter()
+        .map(|e| {
+            kanzei_tools::docstore::requirement::RequirementSpec::from_entry(e)
+                .unwrap()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(specs[0].source, specs[1].source);
+    assert_eq!(
+        std::fs::read_to_string(root.join(&specs[0].source.reference)).unwrap(),
+        "保存评分，并可导出评分"
+    );
+    assert!(entries.iter().all(|e| e.status == "todo"));
     std::fs::remove_dir_all(root).ok();
 }

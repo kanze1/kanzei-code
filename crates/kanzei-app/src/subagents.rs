@@ -16,7 +16,17 @@ const QUICK_CAPTURE_TAGS: &str = "核心|后端|前端|模型|发布|流程";
 
 const QUICK_REQ_DEFECT_SYSTEM: &str = "You capture ONE defect from the user's natural-language description. Call the `defect` tool exactly once with action \"add\": a concise title (<=40 chars, Chinese preferred, keep qualifier words like 用户/桌面端/CLI from the original), severity high|medium|low, fields = {\"标签\": pick ONE tag from [核心|后端|前端|模型|发布|流程] best matching the subject, \"复现\": concrete reproduction steps ONLY if the description actually contains them — NEVER invent or pad one; when not reproducible from the text, write \"待澄清: \" followed by the specific questions the user must answer, \"原始描述\": the user's original text verbatim}. Then reply with only the new id.";
 
-const QUICK_REQ_REQUIREMENT_SYSTEM: &str = "You capture ONE requirement from the user's natural-language description. Call the `req` tool exactly once with action \"add\" and these top-level arguments: title (<=40 chars, Chinese preferred), priority (suggested P0-P3), tag (标签: pick ONE tag from [核心|后端|前端|模型|发布|流程] best matching the subject), complexity (复杂度: 小|中|大). Do not nest priority, tag or complexity inside fields. Use fields = {\"验收\": one draft acceptance line, \"原始描述\": the user's original text verbatim}. Omit 归属 unless the user explicitly supplies it; the selected project is the capture destination. Do not invent scope or approval; mark unspecified requirements as 待澄清. For 复杂度 中 or 大, fields also REQUIRES 来源 quoting the user verbatim with 用户原话「...」 and 发现记录 as a ONE-LINE JSON string containing every key Intent, Explicit, Assumptions, Ambiguities, 领域对象, 最小成功闭环, 延后决策 with non-empty values. Derive these from the original text; write 待澄清 for unknowns instead of fabricating facts. Then reply with only the new id.";
+const QUICK_REQ_REQUIREMENT_SYSTEM: &str = r#"将用户意图整理为简洁、可追踪、可验收的中文需求。
+先用 req list(reason=deduplicate_registration) 检查已有条目，必要时 get。
+复合诉求拆成多个可独立验收的行为，每条调用 req add；不要强制把一次输入塞进一条。
+使用 title 和 requirement 对象：statement、acceptance[{text}]，可选 kind(functional/non_functional)、questions、links。
+正文说明条件、系统行为和可观测结果；验收写触发和观察结果，可覆盖同一行为的正常、失败和边界场景。
+原话由系统保存并共享来源，不重复填原始描述/来源/发现记录。ID、验收项编号由工具分配。
+不编造功能、阈值、技术方案或批准。信息不足写具体 questions，保留草稿；复杂度、标签和优先级不确定就省略，不能因输入少而写复杂度小。
+若标签已明确，pick ONE tag from [核心|后端|前端|模型|发布|流程]；未知时省略。
+实现步骤、批次计划、进展和完成证据不属于需求正文。不要新增自由字段。
+保留用户明确的否定约束；需要复用的工程参数说明单位及出处，未给值就记录待定问题。
+返回工具实际保存或复用的全部 ID；部分失败如实说明，不声称全部完成。"#;
 
 #[tauri::command]
 pub(crate) async fn quick_req(
@@ -66,7 +76,15 @@ pub(crate) async fn quick_req_with_coordinator(
         config: config.clone(),
     };
     let mut harness = Harness::default();
-    harness.add(crate::harness_ext::QuickCaptureComponent { capture });
+    let source_reference = if capture == "req" {
+        crate::requirement_capture::save_source(&project_root, &description)?
+    } else {
+        String::new()
+    };
+    harness.add(crate::harness_ext::QuickCaptureComponent {
+        capture,
+        source_reference,
+    });
     let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
     let system = if capture == "defect" {
         QUICK_REQ_DEFECT_SYSTEM
@@ -78,7 +96,7 @@ pub(crate) async fn quick_req_with_coordinator(
         profile: kanzei_harness::ProfileScope::Dev,
         model: "fast".into(),
         mode: kanzei_harness::AgentMode::Subagent,
-        steps: 4,
+        steps: 12,
         system: system.into(),
     };
     let proxy = match config.proxy.as_deref() {
@@ -137,7 +155,24 @@ pub(crate) async fn quick_req_with_coordinator(
             halt: None,
         };
         let mut tool_errors = Vec::new();
+        let mut reused_ids = Vec::new();
         let mut on_event = |event: RunEvent| {
+            if let RunEvent::ToolEnd {
+                name,
+                ok: true,
+                content,
+                ..
+            } = &event
+            {
+                if name == capture {
+                    if let Some(id) = content
+                        .strip_prefix("existing ")
+                        .and_then(|s| s.split_whitespace().next())
+                    {
+                        reused_ids.push(id.to_string());
+                    }
+                }
+            }
             if let RunEvent::ToolEnd {
                 name,
                 ok: false,
@@ -196,8 +231,24 @@ pub(crate) async fn quick_req_with_coordinator(
         let after = store
             .load()
             .map_err(|e| format!("读取登记结果失败，请先查看需求列表: {e}"))?;
-        if let Some(new_entry) = after.iter().find(|e| !before.contains(&e.id)) {
-            return Ok(format!("{} {}", new_entry.id, new_entry.title));
+        let saved: Vec<_> = after
+            .iter()
+            .filter(|e| !before.contains(&e.id) || reused_ids.contains(&e.id))
+            .collect();
+        if !saved.is_empty() {
+            if let Err(error) = &result {
+                tool_errors.push(format!("模型在登记途中中断: {error}"));
+            }
+            let receipt = saved
+                .iter()
+                .map(|entry| format!("{} {}", entry.id, entry.title))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Ok(if tool_errors.is_empty() {
+                receipt
+            } else {
+                format!("{receipt}\n部分登记失败: {}", tool_errors.join("；"))
+            });
         }
         // A rejected business precondition does not become valid by changing
         // models. Keep the user's draft and return one actionable diagnostic.
@@ -215,15 +266,12 @@ pub(crate) async fn quick_req_with_coordinator(
 
 /// R-252 验收③/⑤:想法拆解子代理的系统提示——读原想法全文、拆成需求/缺陷,
 /// 保留原话限定词、不编造验收与复现;只产出条目,不自己动想法状态(主进程收口)。
-const IDEA_SPLIT_SYSTEM: &str = "You split ONE raw idea into concrete requirements and defects. \
-Call `idea get <id>` first to read the idea's full original text. Then create 1+ entries with \
-`req add` and/or `defect add`: each title <=40 chars (Chinese preferred, keep qualifier words \
-like 用户/桌面端/CLI from the original), fields = {\"标签\": ONE tag from [核心|后端|前端|模型|发布|流程], \
-\"原始描述\": the idea's original text verbatim, \"验收\" for req (one draft line) / \"复现\" for \
-defect (concrete steps ONLY if the original actually contains them — never invent or pad one; \
-otherwise write 待澄清), \"priority\": suggested P0-P3, \"复杂度\": 小|中|大 for req}. \
-D-681: a req whose 复杂度 is 中 or 大 additionally REQUIRES two fields, or `req add` is \nrejected outright by the R-313 gate and the split silently produces defects only: \n\"来源\" must quote the user's own words from the idea text using CJK corner brackets \n(e.g. 用户原话「...」), and \"发现记录\" must be a ONE-LINE JSON object carrying every one of \nIntent, Explicit, Assumptions, Ambiguities, 领域对象, 最小成功闭环, 延后决策 with non-empty \nvalues. You already read the idea's full original text via `idea get`, so derive them from it; \nwrite 待澄清 for what the text genuinely does not say rather than inventing content. \nIf the idea is too thin to fill these honestly, register it as 复杂度 小 instead of padding. \nDo NOT update the idea's own status — the main process does that after verifying the new ids. \
-Then reply with only the new ids.";
+const IDEA_SPLIT_SYSTEM: &str = r#"Read idea get <id> first. Split the original into independently verifiable requirements and defects.
+For req add use title and requirement{statement,acceptance:[{text}],source:{reference:<idea id>},questions:[],links:[]}.
+Preserve original qualifiers, do not invent requirements, thresholds or approvals. Unknown inputs stay concrete questions and draft; never lower complexity to bypass completeness. Priority, tag and complexity are optional estimates.
+For defect add preserve the original text verbatim in 原始描述, keep qualifier words like 用户/桌面端/CLI, provide severity, priority and 标签, and 复现 only when actually described; never invent or pad one; otherwise record specific 待澄清 questions.
+Do not pad with Discovery Record, implementation plans or progress. One requirement ID per behavior, multiple acceptance scenarios are allowed.
+Do NOT update the idea's own status; the main process verifies the actual created IDs. Then reply with all new IDs."#;
 
 /// R-252 验收⑤:人点「拆解」按钮后派出的子代理命令。照 quick_req 模式:
 /// 写租约 + 组件挂 req/defect/idea + before/after 差集取真实新增 ID。

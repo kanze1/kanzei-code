@@ -12,6 +12,26 @@ import { refreshConversationList } from "./15-views-misc.js";
 import { persistLanguagePreference, renderProviders } from "./16-settings.js";
 
 export const I18N_EN = {
+  "补充草稿": "Complete draft",
+  "功能需求": "Functional requirement",
+  "非功能需求": "Non-functional requirement",
+  "待补充需求正文": "Requirement statement needed",
+  "待补充验收标准": "Acceptance criteria needed",
+  "已有证据": "Evidence linked",
+  "要求已变更，待复核": "Requirement changed; revalidation needed",
+  "待验证": "Not yet verified",
+  "来源与说明": "Source and notes",
+  "关联与设计": "Links and design",
+  "上级目标": "Parent goal",
+  "验收标准": "Acceptance criteria",
+  "旧版本证据": "Evidence for an older revision",
+  "待解决事项": "Open questions",
+  "原话": "Original text",
+  "执行记录": "Execution history",
+  "补充资料": "Additional information",
+  "需求正文": "Requirement statement",
+  "开放问题": "Open questions",
+
   "待外部验收": "Awaiting external acceptance",
   "写明真实 SSH 或设备上还需验收的事项": "Describe the checks still needed on real SSH hosts or devices",
   "请填写待验收事项": "Enter the outstanding acceptance checks",

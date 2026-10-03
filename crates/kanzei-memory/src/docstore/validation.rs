@@ -268,6 +268,16 @@ impl DocStore {
         if self.kind.terminal.contains(&to) {
             return Ok(());
         }
+        if self.kind.prefix == "R" && (from == "draft" || to == "draft") {
+            return if matches!((from, to), ("draft", "todo" | "draft") | ("todo", "draft")) {
+                Ok(())
+            } else {
+                Err(
+                    "草稿补齐正文、验收和来源后先转 todo；进行中或已关闭的需求不能直接转草稿"
+                        .into(),
+                )
+            };
+        }
         // 外部验收发现问题时，回到同一条目的开发状态，保留原验收与现场记录。
         if from == "awaiting_external"
             && matches!(self.kind.prefix, "R" | "D")

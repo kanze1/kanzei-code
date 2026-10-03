@@ -24,6 +24,7 @@ mod maintenance_tests;
 // R-204:每个 action 独立函数(actions.rs),execute 只剩路由。
 mod actions;
 mod fields;
+mod requirement_contract;
 mod validation;
 
 #[cfg(test)]
@@ -130,6 +131,12 @@ struct TrackerInput {
     /// 自由字段,如 {"验收": "...", "复现": "..."}
     #[serde(default)]
     fields: BTreeMap<String, String>,
+    /// Fixed requirement contract. Unknown inputs stay draft; replace this object on spec edits.
+    #[serde(default)]
+    requirement: Option<kanzei_memory::docstore::requirement::RequirementSpec>,
+    /// Evidence is separate from acceptance. Copy the current revision from req get.
+    #[serde(default)]
+    evidence: Option<Vec<kanzei_memory::docstore::requirement::AcceptanceEvidence>>,
     /// 引用的条目 ID(finding 必须引用 source)
     #[serde(default)]
     refs: Vec<String>,
@@ -215,7 +222,7 @@ impl Tool for TrackerTool {
             d.push_str(" On add, pass the controlled `tag` as a top-level field.");
         }
         if self.kind.priorities.is_some() && self.kind.severities.is_none() {
-            d.push_str(" Requirement add also requires top-level `complexity` (小|中|大).");
+            d.push_str(" Requirement priority/tag/complexity are optional estimates, never a proxy for input completeness.");
         }
         if self.kind.prefix == "R" {
             d.push_str(" A core requirement with empty refs triggers R-248: pass top-level `prior_art` pointing to a validated `.kanzei/research/<topic>/prior-art.md`, or `prior_art_waiver` with the user's explicit reason. These fields are independent from refs. The `prior_art` field is not a tool call; the separate deferred research tool loads with `tool_search select:prior_art`.");
@@ -224,7 +231,7 @@ impl Tool for TrackerTool {
             d.push_str(" For a user-requested backlog audit/cleanup, list with reason=backlog_maintenance. Ordinary execution uses work next. close(status=dropped/wontfix, reason=...) retires obsolete/cancelled/duplicate work without claiming completion; done/fixed still requires delivery evidence. update(status=awaiting_external) records implementation/local verification in 进展 and outstanding SSH/device checks in 外部验收; it does not block development or claim external acceptance passed. Return to doing/fixing if external checks find a problem.");
         }
         if self.kind.prefix == "R" {
-            d.push_str(" R-313: medium/large requirement add requires `fields.发现记录` as a one-line JSON object with Intent/Explicit/Assumptions/Ambiguities/领域对象/最小成功闭环/延后决策, and `来源` must contain a quoted user utterance. Before doing/design freeze, unresolved core semantics require `question` evidence in `确认记录` or an auditable user waiver; qualifier terms absent from the quote must be confirmed, marked assumption, or removed.");
+            d.push_str(" For new requirements use `requirement`: statement, acceptance[{id,text}], source{reference,quote}, optional kind/questions/links. One independently verifiable behavior per entry; split compound intent, share the source. Omit new acceptance IDs for allocation; preserve IDs on edits. Missing statement/acceptance/source or unresolved questions saves draft, excluded from execution. Fill the draft then update status=todo. Do not invent thresholds, scope, approvals or estimates. Put implementation/history in linked documents or execution records. Discovery Record is no longer required. For close(done), supply separate evidence[{criterion_id,revision,reference}] for the current req get revision; old evidence does not pass revised requirements.");
         }
         d.push_str(" 更新时，目标编号必须作为顶层 `id` 字段传入，不能放在 `fields` 内。");
         d
@@ -304,26 +311,41 @@ impl Tool for TrackerTool {
             }
         }
         if self.kind.prefix != "R" {
+            if let Some(definitions) = schema
+                .get_mut("definitions")
+                .and_then(|v| v.as_object_mut())
+            {
+                for key in [
+                    "RequirementSpec",
+                    "RequirementKind",
+                    "RequirementSource",
+                    "AcceptanceCriterion",
+                    "RequirementLink",
+                    "RequirementRelation",
+                    "AcceptanceEvidence",
+                ] {
+                    definitions.remove(key);
+                }
+            }
             if let Some(properties) = schema
                 .pointer_mut("/properties")
                 .and_then(|value| value.as_object_mut())
             {
                 properties.remove("prior_art");
                 properties.remove("prior_art_waiver");
+                properties.remove("requirement");
+                properties.remove("evidence");
             }
         }
         let mut required = vec!["title"];
-        if self.kind.priorities.is_some() {
+        if self.kind.priorities.is_some() && self.kind.prefix != "R" {
             required.push("priority");
         }
         if self.kind.severities.is_some() {
             required.push("severity");
         }
-        if self.kind.tags.is_some() {
+        if self.kind.tags.is_some() && self.kind.prefix != "R" {
             required.push("tag");
-        }
-        if self.kind.priorities.is_some() && self.kind.severities.is_none() {
-            required.push("complexity");
         }
         if self.requires_refs.is_some() {
             required.push("refs");
@@ -510,6 +532,15 @@ impl Tool for TrackerTool {
             }
         }
 
+        if self.kind.prefix == "R" && matches!(input.action.as_str(), "add" | "update" | "close") {
+            let previous = input
+                .id
+                .as_ref()
+                .and_then(|id| entries.iter().find(|entry| &entry.id == id));
+            if let Err(error) = requirement_contract::prepare(&mut input, previous) {
+                return ToolOutput::needs_correction("TRACKER_INPUT_INVALID", error);
+            }
+        }
         let output = match input.action.as_str() {
             "list" => actions::list(self, input, ctx, &store, &mut entries),
             "audit_acceptance_scope" => {
@@ -611,19 +642,13 @@ impl Tool for ResearchTrackerTool {
             "Research 回流桥接，只允许 `get(id)` 读取既有 {}，或 `add(title, fields)` 登记一条待 dev 确认的草稿；禁止 list/update/close/archive。",
             self.inner.noun
         );
-        if self.inner.kind.priorities.is_some() {
-            description.push_str(" add 必须提供 priority；");
+        if self.inner.kind.prefix == "R" {
+            description.push_str(" 使用 requirement={statement,acceptance:[{text}],source:{reference,quote},questions}；缺正文、验收、来源或有开放问题时存为 draft，完整时为 todo。priority/tag/complexity 可省略。");
+        } else {
+            description
+                .push_str(" defect add 必须提供 severity、priority、受控 tag，初始状态 open。");
         }
-        if self.inner.kind.severities.is_some() {
-            description.push_str(" add 必须提供 severity；");
-        }
-        if self.inner.kind.tags.is_some() {
-            description.push_str(" add 必须提供受控 tag；");
-        }
-        if self.inner.kind.priorities.is_some() && self.inner.kind.severities.is_none() {
-            description.push_str(" requirement add 必须提供 complexity；");
-        }
-        description.push_str("草稿首状态由 tracker 固定为 todo/open，不得代替 dev 修改既有条目。");
+        description.push_str("不得代替 dev 修改既有条目。");
         description
     }
 
@@ -922,6 +947,9 @@ impl TrackerTool {
     /// severity + 优先级 + 标签。idea/source/finding(severities/priorities/tags 均 None)
     /// 不受影响。
     fn check_add_required(&self, input: &TrackerInput) -> Option<String> {
+        if self.kind.prefix == "R" {
+            return None;
+        }
         // 只有带 priorities 的追踪文档(req/defect)有登记硬约束;
         // idea/source/finding/memory/decision(priorities None)不受影响。
         self.kind.priorities?;
@@ -1535,7 +1563,7 @@ mod tests {
             .into_iter()
             .find(|entry| entry.title == "研究回流草稿")
             .expect("research add 应落一条需求草稿");
-        assert_eq!(entry.status, "todo");
+        assert_eq!(entry.status, "draft");
         assert!(entry
             .fields
             .iter()
@@ -4292,9 +4320,9 @@ mod tests {
             json!(["核心", "后端", "前端", "模型", "发布", "流程"])
         );
         let req_required = schema["allOf"][0]["then"]["required"].as_array().unwrap();
-        for field in ["title", "priority", "tag", "complexity"] {
-            assert!(req_required.iter().any(|value| value == field));
-        }
+        assert_eq!(req_required, &vec![json!("title")]);
+        assert!(schema["properties"].get("requirement").is_some());
+        assert!(schema["properties"].get("evidence").is_some());
     }
 
     #[tokio::test]
@@ -4789,7 +4817,7 @@ mod tests {
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
-        // req:缺 复杂度/优先级/标签 → 拒绝,错误提示补什么。
+        // req:信息不足直接落 draft，不要求模型补写估计值。
         let req_tool = TrackerTool {
             tool_name: "req",
             noun: "requirement",
@@ -4799,24 +4827,18 @@ mod tests {
         let out = req_tool
             .execute(json!({"action": "add", "title": "裸登记"}), &ctx)
             .await;
-        assert!(out.is_error, "裸 req add 必须被拒");
-        assert!(
-            out.content.contains("复杂度")
-                && out.content.contains("priority")
-                && out.content.contains("标签"),
-            "报错应提示缺哪些字段: {}",
-            out.content
-        );
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("[draft]"), "{}", out.content);
 
-        // req:只带 复杂度 仍缺 priority/标签 → 拒绝。
+        // req:仅有估计信息仍是 draft。
         let out = req_tool
             .execute(
                 json!({"action": "add", "title": "半裸", "fields": {"复杂度": "中"}}),
                 &ctx,
             )
             .await;
-        assert!(out.is_error, "{}", out.content);
-        assert!(out.content.contains("priority"), "{}", out.content);
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("[draft]"), "{}", out.content);
 
         // req:字段补全 → 放行。
         let out = req_tool
@@ -5255,6 +5277,7 @@ mod tests {
             "tag": "核心",
             "fields": {
                 "来源": "用户原话「新的核心方向」",
+                "内容": "系统应保存用户选择的条目。",
                 "发现记录": "{\"Intent\":\"新的核心方向\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"核心能力\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"
             }
         });
@@ -5357,8 +5380,8 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert!(missing.is_error, "缺发现记录必须拒绝: {}", missing.content);
-        assert!(missing.content.contains("发现记录"), "{}", missing.content);
+        assert!(!missing.is_error, "{}", missing.content);
+        assert!(missing.content.contains("[draft]"), "{}", missing.content);
 
         let no_quote = tool
             .execute(
@@ -5376,16 +5399,8 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert!(
-            no_quote.is_error,
-            "来源无用户原话必须拒绝: {}",
-            no_quote.content
-        );
-        assert!(
-            no_quote.content.contains("用户原话"),
-            "{}",
-            no_quote.content
-        );
+        assert!(!no_quote.is_error, "{}", no_quote.content);
+        assert!(no_quote.content.contains("[draft]"), "{}", no_quote.content);
 
         let mismatch = tool
             .execute(
@@ -5478,7 +5493,8 @@ mod tests {
             "复杂度": "中",
             "标签": "后端",
             "来源": "用户原话「收藏」",
-            "发现记录": discovery_record(),
+            "内容": "系统应保存用户选择的条目。",
+                "发现记录": discovery_record(),
             "待确认": "核心语义未决：收藏是浏览器书签还是站内收藏"
         });
         let added = tool
@@ -5531,7 +5547,8 @@ mod tests {
                         "复杂度": "中",
                         "标签": "后端",
                         "来源": "用户原话「收藏」",
-                        "发现记录": discovery_record(),
+                        "内容": "系统应保存用户选择的条目。",
+                "发现记录": discovery_record(),
                         "待确认": "核心语义未决：收藏是否适配特定网站"
                     }
                 }),

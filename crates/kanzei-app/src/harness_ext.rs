@@ -475,6 +475,7 @@ impl kanzei_harness::Component for FrontendToolsComponent {
 
 pub(crate) struct QuickCaptureComponent {
     pub(crate) capture: &'static str,
+    pub(crate) source_reference: String,
 }
 impl kanzei_harness::Component for QuickCaptureComponent {
     fn contribute(
@@ -498,7 +499,17 @@ impl kanzei_harness::Component for QuickCaptureComponent {
             }
         };
         let name = tool.tool_name;
-        draft.tools.insert(name, Arc::new(tool));
+        if self.capture == "req" {
+            draft.tools.insert(
+                name,
+                Arc::new(crate::requirement_capture::CaptureRequirementTool {
+                    inner: tool,
+                    source_reference: self.source_reference.clone(),
+                }),
+            );
+        } else {
+            draft.tools.insert(name, Arc::new(tool));
+        }
         draft.permissions.push(kanzei_harness::rule(
             name,
             "*",

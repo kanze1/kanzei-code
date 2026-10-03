@@ -56,7 +56,15 @@ pub const REQUIREMENTS: DocKind = DocKind {
     rel_path: ".kanzei/project/requirements.md",
     heading: "Requirements",
     prefix: "R",
-    statuses: &["todo", "doing", "awaiting_external", "done", "dropped"],
+    // Keep todo/doing at their established indices; draft transitions are explicit.
+    statuses: &[
+        "todo",
+        "doing",
+        "awaiting_external",
+        "done",
+        "dropped",
+        "draft",
+    ],
     terminal: &["done", "dropped"],
     severities: None,
     priorities: Some(&["P0", "P1", "P2", "P3"]),

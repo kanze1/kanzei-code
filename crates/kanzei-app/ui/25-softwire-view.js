@@ -309,6 +309,7 @@ function updateGraph(root, state, actions) {
 
 const workFocusFilters = new WeakMap();
 function workGroup(item) {
+  if (item.status === "draft") return "draft";
   if (item.status === "awaiting_external") return "external";
   // 仅消费引擎已确认的阻塞；已解除但仍留有历史停车字段的条目不再被前端拦住。
   if (item.blocked) {
@@ -386,7 +387,7 @@ export function renderWorkFocus(parent, state, actions) {
     const visible = items.filter(item => (filters.kind === "all" || (item.id.startsWith("D-") ? "defect" : "req") === filters.kind)
       && (filters.priority === "all" || item.priority === filters.priority)
       && (filters.tag === "all" || entryTags(item).includes(filters.tag)));
-    for (const [group, label] of [["active", t("进行中")], ["pending", t("待开始")], ["external", t("待外部验收")], ["blocked", t("已阻塞")], ["parked", t("已停车")]]) {
+    for (const [group, label] of [["active", t("进行中")], ["draft", t("草稿")], ["pending", t("待开始")], ["external", t("待外部验收")], ["blocked", t("已阻塞")], ["parked", t("已停车")]]) {
       const entries = visible.filter(item => workGroup(item) === group);
       if (!entries.length) continue;
       const section = node("details", null, "sw-work-group"); section.dataset.workGroup = group;

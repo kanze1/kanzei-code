@@ -1,3 +1,4 @@
+import { renderRequirementDocument } from "./26-requirement-contract.js";
 import { $, defer, invoke } from "./01-core.js";
 import { isGeneralChat } from "./03-general-scope.js";
 import { localizedDocStatus, localizedStage, t } from "./02-i18n.js";
@@ -98,12 +99,20 @@ async function registerRequirement(start, retry = null) {
     // creating another requirement from the same original description.
     if (state.capture?.text !== text) {
       const receipt = await invoke("quick_req", { projectDir: project, description: text, kind: "req" });
-      const id = String(receipt).match(/^R-\d+/)?.[0];
+      const ids = [...String(receipt).matchAll(/^R-\d+/gm)].map(match => match[0]);
+      const id = ids[0];
       if (!id) throw new Error(t("未取得需求编号，已保留原文，请查看需求列表"));
-      state.capture = { text, id };
+      const partial = String(receipt).includes("部分登记失败:");
+      state.capture = { text, id, ids, partial, receipt: String(receipt) };
     }
     state.failedRegistration = null;
     await refreshConversationWork(project);
+    if (state.capture.partial) {
+      state.registrationError = state.capture.receipt;
+      state.failedRegistration = { text, start: false };
+      state.capture = null;
+      return;
+    }
     const entry = state.docs?.requirements?.find(entry => entry.id === state.capture.id);
     if (!entry || state.error) {
       state.error = state.error || fillTemplate(t("已登记 {id}，但未读到条目；请重试读取，原文已保留"), { id: state.capture.id });
@@ -111,9 +120,10 @@ async function registerRequirement(start, retry = null) {
     }
     if (currentProject !== project || activeProcessId !== processId) { toast(`${entry.id} ${t("已登记")}`); return; }
     if (input.value.trim() === text) input.value = "";
+    const capturedIds = state.capture.ids || [entry.id];
     state.capture = null;
-    toast(`${entry.id} ${t("已登记")}`);
-    if (start) await continueRequirement(entry);
+    toast(`${capturedIds.join("、")} ${t("已登记")}`);
+    if (start && capturedIds.length === 1) await continueRequirement(entry);
   } catch (error) { state.registrationError = String(error); state.failedRegistration = { text, start }; }
   finally { state.busy = false; if (currentProject === project) { rendered = ""; paint(); } }
 }
@@ -125,7 +135,8 @@ function renderDetail(state, entry) {
   rail.replaceChildren();
   rail.append(button("← " + t("需求"), () => { detailId = null; rendered = ""; paint(); }, "ghost"));
   rail.append(node("small", `${entry.id} · ${localizedDocStatus(entry.status)}`), node("h3", entry.title));
-  for (const [key, value] of entry.fields || []) {
+  if (entry.id.startsWith("R-")) rail.append(renderRequirementDocument(entry));
+  for (const [key, value] of entry.id.startsWith("R-") ? [] : entry.fields || []) {
     if (!["验收", "外部验收", "阻塞", "原始描述", "范围"].includes(key) || !value) continue;
     rail.append(node("h4", t(key)), node("p", value, "project-work-fact"));
   }
@@ -136,7 +147,7 @@ function renderDetail(state, entry) {
     if (entry.prior_art.issue) rail.append(node("p", entry.prior_art.issue, "project-work-fact"));
     if (entry.prior_art.path) actions.append(button(t("查看调研文件"), () => void openRequirementResearch(currentProject, entry).catch(error => toastError(String(error))), "ghost"));
   }
-  if (!entry.closed && entry.status !== "awaiting_external") actions.prepend(button(t(needsRequirementResearch(entry) ? requirementResearchAction(entry) : "继续此需求"), () => void continueRequirement(entry), "primary"));
+  if (!entry.closed && entry.status !== "awaiting_external") actions.prepend(button(t(entry.status === "draft" ? "补充草稿" : needsRequirementResearch(entry) ? requirementResearchAction(entry) : "继续此需求"), () => void continueRequirement(entry), "primary"));
   if (!entry.closed) {
     const project = currentProject, kind = entry.id.startsWith("D-") ? "defect" : "req";
     if (entry.status === "awaiting_external") actions.prepend(button(t("退回开发"), async () => {

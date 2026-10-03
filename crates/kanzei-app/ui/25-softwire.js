@@ -357,7 +357,8 @@ function renderCapture(host, state) {
     event.preventDefault(); if (draft.busy || !draft.text.trim()) return;
     draft.busy = true; draft.error = ""; paint(true);
     try {
-      await invoke("quick_req", { projectDir: state.project, description: draft.text, kind: draft.kind });
+      const receipt = await invoke("quick_req", { projectDir: state.project, description: draft.text, kind: draft.kind });
+      if (String(receipt).includes("部分登记失败:")) { await refreshCurrent(true); throw new Error(String(receipt)); }
       if (state.capture === draft) state.capture = null;
       toast(t("已记录")); await refreshCurrent(true);
     } catch (error) { draft.error = String(error); }

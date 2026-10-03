@@ -13,6 +13,7 @@
 //   未登记的状态原样返回(不吞信息)。
 export const STATUS_WORDS_ZH = Object.freeze({
   // 需求 / 缺陷 / 想法台账
+  draft: "草稿",
   todo: "待开始",
   doing: "进行中",
   done: "已完成",
@@ -45,6 +46,7 @@ export const STATUS_WORDS_ZH = Object.freeze({
 });
 
 export const STATUS_WORDS_EN = Object.freeze({
+  draft: "Draft",
   todo: "To do",
   doing: "In progress",
   done: "Done",

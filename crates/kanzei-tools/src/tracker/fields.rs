@@ -29,6 +29,36 @@ pub(crate) struct FieldDefinition {
 /// §3.6 的稳定词表。aliases 保持原样登记，不做全局 schema 强校验。
 pub(crate) const FIELD_REGISTRY: &[FieldDefinition] = &[
     FieldDefinition {
+        key: "需求格式",
+        category: FieldCategory::Engine,
+        has_consumer: true,
+    },
+    FieldDefinition {
+        key: "需求类型",
+        category: FieldCategory::Narrative,
+        has_consumer: true,
+    },
+    FieldDefinition {
+        key: "开放问题",
+        category: FieldCategory::Narrative,
+        has_consumer: true,
+    },
+    FieldDefinition {
+        key: "需求关联",
+        category: FieldCategory::Scheduling,
+        has_consumer: true,
+    },
+    FieldDefinition {
+        key: "验收证据",
+        category: FieldCategory::Narrative,
+        has_consumer: true,
+    },
+    FieldDefinition {
+        key: "迁移原文",
+        category: FieldCategory::Narrative,
+        has_consumer: true,
+    },
+    FieldDefinition {
         key: "外部验收",
         category: FieldCategory::Narrative,
         has_consumer: true,
@@ -228,8 +258,16 @@ mod tests {
 
     #[test]
     fn field_registry_lists_categories_and_consumers() {
-        assert_eq!(FIELD_REGISTRY.len(), 29);
-        for key in ["外部验收", "关闭原因"] {
+        assert_eq!(
+            FIELD_REGISTRY
+                .iter()
+                .map(|field| field.key)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            FIELD_REGISTRY.len()
+        );
+        for key in ["外部验收", "关闭原因", "验收证据", "需求类型", "开放问题"]
+        {
             let field = definition(key).expect("维护处置字段应登记");
             assert_eq!(field.category, FieldCategory::Narrative);
             assert!(field.has_consumer);

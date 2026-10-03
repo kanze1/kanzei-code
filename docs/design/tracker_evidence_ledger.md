@@ -17,6 +17,25 @@
 
 下文保留历史设计推导；当前入口以 `tracker/actions`、`work`、`docstore::Entry` 与相关回归为准。整合记录见 [需求清单收口报告](../reports/2026-10-04-backlog-closeout.md)。
 
+## 0.1 需求登记与契约格式（2026-10-04）
+
+新登记入口使用 `requirement` 对象表达正文、验收项和来源。一次输入可以登记多条独立可验收的需求，原文由应用逐字保存到 `.kanzei/project/requirement-sources/`，各条引用同一份来源。提示词不再要求中大型需求补写 Discovery Record，也不因输入短而推断复杂度小。
+
+- 最小可执行契约：`statement`、非空 `acceptance[{id,text}]`、`source{reference,quote}`；验收 ID 由引擎分配，修改时保持稳定。
+- `kind`、`questions`、`links[{relation,target}]` 按需提供。功能/非功能分类是内容类型；`parent/depends_on/design/related` 区分不同关系，只有 `depends_on` 影响取活。
+- 缺正文、验收、来源，或存在开放问题时，新契约进入 `draft`。草稿不进入自动取活；补齐后显式转 `todo`。旧字段客户端仍兼容，只有标题的旧调用也存为草稿。
+- `priority/tag/complexity` 是可选管理信息，不作为新需求登记的必填项。已有合法值仍接受校验。
+- 需求在 Markdown 台账中仍只有一份真源；`需求格式: 2` 识别结构化正文。空可选字段不落盘。运行进展、批次等保留在原执行通道，登记不生成这些内容。
+- `list` 只返回摘要，不重复返回全文和字段词典；`get` 返回契约、版本和补充字段，规范正文只出现一次。
+- `evidence[{criterion_id,revision,reference}]` 独立于规范文本。正文或验收修改后旧版本证据显示待复核，不能直接支持完成。`T-` 引用须存在于关联该需求的 passed 记录；文件引用须存在。引用存在不能机械证明测试覆盖语义，仍需逐项评审。
+- UI 先呈现正文、验收和待解决问题；来源、设计引用、执行记录按需展开。历史条目的边界与回滚约束继续直接显示。
+
+CLI 可以使用 `kz req add <标题> --requirement-file <JSON文件>`；更新使用 `kz req update <ID> --requirement-file <JSON文件>`，证据通过 `--evidence-file <JSON文件>` 提交。文件解析失败不会退化为裸登记。
+
+旧条目不自动批量改写。显式转换时保留被覆盖字段的原文及所有未知字段，审阅者须核对边界条件后再精简。R-245 的 artifact 保留、引用一致性、空间整理、数据库维护是不同义务，不应由格式迁移自动替用户删减或决定拆分后的完成状态。
+
+实现与验证说明见 [需求登记改造记录](../reports/2026-10-04-requirement-contract.md)。
+
 ## 1. 根因
 
 **tracker 里不存在「这条条目 ↔ 哪坨改动 ↔ 哪条证据」这个第一类对象。** 一切摊成条目上的

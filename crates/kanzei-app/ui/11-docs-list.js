@@ -1,3 +1,4 @@
+import { renderRequirementDocument, requirementEditRows, requirementFromEditor } from "./26-requirement-contract.js";
 import { openMenu } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { $, confirmDialog, inputDialog, invoke, promptBox } from "./01-core.js";
@@ -746,7 +747,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
   // ③ 字段只读视图。svTrackerFields 变异守卫按下面挂载 renderTrackerFields 的那一行定位。
   const read = document.createElement("div");
   read.className = "doc-fields-read";
-  read.appendChild(renderTrackerFields(entry.fields ?? []));
+  read.appendChild(kind === "req" ? renderRequirementDocument(entry) : renderTrackerFields(entry.fields ?? []));
   foldOlderSegments(read, prior);
   detail.appendChild(read);
 
@@ -792,7 +793,14 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
     const complexityHint = kind === "defect" ? t("设置缺陷复杂度") : t("设置需求复杂度");
     const fieldInputs = [];
     let complexityField = false;
+    const specRows = kind === "req" ? requirementEditRows(entry) : null;
+    if (specRows) for (const [label, key, value] of specRows) {
+      const input = document.createElement("textarea"); input.rows = 4;
+      fieldInputs.push([key, addRow(t(label), key, value, t(label), input)]);
+    }
     for (const [key, value] of entry.fields ?? []) {
+      if (["observed_head", "observed_worktree_hash", "recorded_at", "取活依据"].includes(key)) continue;
+      if (specRows && !["优先级", "标签", "复杂度", "外部验收", "阻塞", "停车"].includes(key)) continue;
       const text = String(value ?? "");
       // 复杂度是受控词表:值在词表里就给下拉(原来单独一行、即改即存,与表单两套保存口径)。
       if (key === "复杂度" && ["", ...COMPLEXITY_LEVELS].includes(text.trim())) {
@@ -828,6 +836,8 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
       if (entryProject !== currentProject) return;
       const fields = Object.fromEntries(fieldInputs.map(([key, input]) => [key, input.value]));
       if (extraComplexity && extraComplexity.value !== currentComplexity) fields["复杂度"] = extraComplexity.value;
+      const requirement = specRows ? requirementFromEditor(entry, fields) : undefined;
+      if (specRows) for (const key of Object.keys(fields)) if (key.startsWith(":")) delete fields[key];
       try {
         await invoke("docs_update", {
           projectDir: entryProject,
@@ -836,6 +846,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
           id: entry.id,
           title: titleInput.value,
           fields,
+          ...(requirement ? { requirement } : {}),
         });
         toast(t("已保存"));
         // 先退出编辑态再刷新:重绘按「编辑中」恢复,不先退出的话表单又弹回来。
@@ -1443,7 +1454,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
           if (detail.children.length) return;
           const read = document.createElement("div");
           read.className = "doc-fields-read";
-          read.appendChild(renderTrackerFields(entry.fields ?? []));
+          read.appendChild(kind === "req" ? renderRequirementDocument(entry) : renderTrackerFields(entry.fields ?? []));
           foldOlderSegments(read, null);
           detail.appendChild(read);
         };

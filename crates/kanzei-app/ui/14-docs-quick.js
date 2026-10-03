@@ -89,6 +89,10 @@ function quickForm(kind, carriedText) {
         toast(`${t("记录中")}${t(noun)}…(${t("独立子代理后台进行")})`);
         message = await invoke("quick_req", { projectDir: project, description: text, kind });
       }
+      if (String(message).includes("部分登记失败:")) {
+        if (project === currentProject) refreshDocs();
+        throw new Error(String(message));
+      }
       form.remove();
       toast(`${t("已记录")}:${message}`);
       if (project === currentProject) refreshDocs();

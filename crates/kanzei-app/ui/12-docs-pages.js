@@ -244,7 +244,7 @@ export const documentFilters = {
 // 选项的 value 是引擎的状态枚举(筛选/批量改状态按它比对、回传),**显示词**一律经 localizedDocStatus
 // (04-status-words.js 那张表)——选项的第二项只是枚举原文,不是给人看的。
 export const documentStatusOptions = {
-  req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["awaiting_external", "awaiting_external"], ["done", "done"], ["dropped", "dropped"]],
+  req: [["all", "全部状态"], ["draft", "draft"], ["todo", "todo"], ["doing", "doing"], ["awaiting_external", "awaiting_external"], ["done", "done"], ["dropped", "dropped"]],
   defect: [["all", "全部状态"], ["open", "open"], ["fixing", "fixing"], ["awaiting_external", "awaiting_external"], ["fixed", "fixed"], ["wontfix", "wontfix"]],
 };
 export function documentStatusOptionLabel(value, label) {
@@ -688,7 +688,7 @@ export function backlogTally(entries, kind) {
     // 这里单独计数而不是静默丢弃——丢了会让总数对不上列表长度,又是一次「数字对不上」。
     if (status && !legal.includes(status)) { tally.invalid += 1; continue; }
     tally.active += 1;
-    if (status === "awaiting_external") continue;
+    if (["awaiting_external", "draft"].includes(status)) continue;
     if (entryBlocked(entry)) tally.blocked += 1;
     else tally.workable += 1;
   }

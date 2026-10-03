@@ -1861,7 +1861,7 @@ const docEntry = (id, title, status, extra = {}) => ({
   id, title, status, priority: "P1", closed: false, fields: [], nextStatuses: ["done"],
   severity: null, complexity: null, batches: { done: 0, total: 1 },
   blocked: false, block_reasons: [], claimed_by: null, dependencies: [], dependents: [],
-  execution_model: null, work_units: [], prior_art: null,
+  execution_model: null, work_units: [], prior_art: null, requirement: id.startsWith("R-") ? { format: 1 } : null,
   ...extra,
 });
 const smokeWorkUnit = {

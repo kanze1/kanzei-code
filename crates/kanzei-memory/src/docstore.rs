@@ -22,6 +22,7 @@ mod archive;
 mod model;
 pub use model::*;
 mod parse;
+pub mod requirement;
 pub use parse::*;
 mod render;
 pub use render::*;

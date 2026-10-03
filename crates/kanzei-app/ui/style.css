@@ -4312,3 +4312,16 @@ input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: default;
 .hosted-citations ol { margin: 0; padding-left: 22px; }
 .hosted-citations a { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
 .hosted-citations a:hover { color: var(--fg-strong); }
+
+/* Requirements: one reading column, with separate supporting records. */
+.requirement-document { min-width: 0; overflow-wrap: anywhere; line-height: 1.65; }
+.requirement-statement { margin: 16px 0 22px; color: var(--fg-strong); }
+.requirement-document h4 { margin: 18px 0 8px; font-size: var(--fs-13); }
+.requirement-acceptance { margin: 0 0 20px; padding-left: 24px; }
+.requirement-acceptance li { padding: 6px 0; }
+.requirement-acceptance code { margin-right: 10px; font-size: var(--fs-12); color: var(--dim); }
+.requirement-evidence-state { display: block; color: var(--dim); }
+.requirement-supplement { border-top: 1px solid var(--border); padding: 12px 0; }
+.requirement-supplement > summary { cursor: pointer; color: var(--dim); }
+.requirement-supplement > .tf { margin-top: 12px; }
+.requirement-error { color: var(--danger); }

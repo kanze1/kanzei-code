@@ -53,6 +53,7 @@ mod preview;
 mod processes;
 mod projection_gate;
 mod projects;
+mod requirement_capture;
 mod research_auto;
 mod research_latex;
 mod research_library;
