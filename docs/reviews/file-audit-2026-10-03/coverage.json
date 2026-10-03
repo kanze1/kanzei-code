@@ -132,6 +132,7 @@
     "crates/kanzei-tools/src/team/store.rs",
     "crates/kanzei-tools/src/team/tests.rs",
     "crates/kanzei/src/cli/compact.rs",
+    "crates/kanzei/src/cli/metrics.rs",
     "crates/kanzei/src/cli/run/events.rs",
     "crates/kanzei/tests/integration/incomplete_stream.rs",
     "crates/kanzei/tests/integration/main.rs",
@@ -491,7 +492,6 @@
     "crates/kanzei/src/cli/eval.rs",
     "crates/kanzei/src/cli/lock.rs",
     "crates/kanzei/src/cli/memory.rs",
-    "crates/kanzei/src/cli/metrics.rs",
     "crates/kanzei/src/cli/mod.rs",
     "crates/kanzei/src/cli/quarantine.rs",
     "crates/kanzei/src/cli/run/permissions.rs",
@@ -2063,6 +2063,21 @@
       },
       "full_review_reopened_slices": {},
       "note": "Reopened full files retain their prior count; necessary slices do not add full coverage."
+    },
+    {
+      "report": "parallel/Release-checks.md",
+      "integrated_commit": "8ed22221a5f6838b0863d3105957cf930455ad1f",
+      "root_combined_report": "parallel-round-6.md",
+      "full_files": {
+        "crates/kanzei/src/cli/metrics.rs": {
+          "judgment": "P1",
+          "sha256": "67d1330bb9ba218888249ed6ed99d16f68e4dba573ee4356ccb47a9602621c42",
+          "sha256_lf": "67d1330bb9ba218888249ed6ed99d16f68e4dba573ee4356ccb47a9602621c42",
+          "lines": 726,
+          "integration_content_check": "related_cli_tests_check_clippy_and_public_cli_control_passed; final release Full required"
+        }
+      },
+      "note": "Only metrics.rs adds full coverage; static verification script and measured baseline do not add business files."
     }
   ],
   "parallel_integration_report": "parallel-round-6.md",
@@ -2071,8 +2086,8 @@
     "scripts/ui-runtime-smoke.mjs"
   ],
   "current_inventory_total": 514,
-  "current_full_review_count": 135,
-  "current_pending_full_review_count": 379,
+  "current_full_review_count": 136,
+  "current_pending_full_review_count": 378,
   "regression_support_files": [
     "scripts/prefs-failure-native-smoke.mjs",
     "scripts/schedule-terminal-smoke.py",
@@ -2088,5 +2103,8 @@
     "scripts/ui-surface-owner-smoke.mjs",
     "scripts/ui-workbench-browser-smoke.mjs",
     "scripts/ui-workspace-smoke.mjs"
+  ],
+  "outside_inventory_full_file_reviews": [
+    "scripts/parallel-lines-regression.mjs"
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "baseline": "5d01fb3fc0bdb3d60b3d10143244508a1b87cb22",
+  "baseline": "8ed22221a5f6838b0863d3105957cf930455ad1f",
   "method": "Lexical source inventory, including cfg/test branches. Not a resolved call graph. Review judgments live only in report.md.",
   "packages": [
     {
@@ -203,7 +203,7 @@
     },
     {
       "file": "crates/kanzei/src/cli/metrics.rs",
-      "lines": 666,
+      "lines": 726,
       "modules": [
         "external_tests"
       ],

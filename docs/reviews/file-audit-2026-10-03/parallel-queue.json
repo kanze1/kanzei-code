@@ -1,9 +1,9 @@
 {
   "code_baseline": "0d0875ab",
-  "inventory_baseline": "5d01fb3fc0bdb3d60b3d10143244508a1b87cb22",
+  "inventory_baseline": "8ed22221a5f6838b0863d3105957cf930455ad1f",
   "inventory_total": 514,
   "full_reviews_at_start": 30,
-  "pending_full_reviews": 379,
+  "pending_full_reviews": 378,
   "note": "Planning queue only. No new review certification. Split each group into exact file-owned packages; respect dependency gates in parallel-plan.md. Anthropic-specific work is deferred when identified, including mixed files only for that slice.",
   "counts_by_group": {
     "entry-service": 138,
@@ -4378,9 +4378,9 @@
       "lines_at_inventory": 666,
       "group": "entry-service",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 666
+      "current_lines": 726
     },
     {
       "file": "crates/kanzei/src/cli/mod.rs",
@@ -4676,8 +4676,8 @@
       "current_lines": 327
     }
   ],
-  "current_full_reviews": 135,
-  "last_integrated_commit": "5d01fb3fc0bdb3d60b3d10143244508a1b87cb22",
+  "current_full_reviews": 136,
+  "last_integrated_commit": "8ed22221a5f6838b0863d3105957cf930455ad1f",
   "execution_model": "Sol",
   "active_packages": {
     "C4": {
@@ -4793,10 +4793,16 @@
     "A9": {
       "status": "readonly_map_not_tested_deferred_from_release",
       "counted_in_full_reviews": false
+    },
+    "Release-checks": {
+      "status": "integrated_related_verified_final_full_gate_pending",
+      "report": "parallel/Release-checks.md",
+      "commit": "8ed22221a5f6838b0863d3105957cf930455ad1f",
+      "counted_in_full_reviews": true
     }
   },
   "remaining_counts_by_group": {
-    "entry-service": 116,
+    "entry-service": 115,
     "ui": 78,
     "core-runtime": 31,
     "core-store": 11,
