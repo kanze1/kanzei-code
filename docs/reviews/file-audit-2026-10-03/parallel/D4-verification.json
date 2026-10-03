@@ -1,0 +1,57 @@
+{
+  "package": "D4",
+  "baseline": "cb6cdc5267ac931b6a4b3b1f82111b995576cb01",
+  "status": "full_read_unchanged_pending_root_integration",
+  "full_files": [
+    {
+      "path": "crates/kanzei-harness/src/conventions.rs",
+      "judgment": "PASS",
+      "scope": "full file including tests",
+      "sha256": "fcdeab798dadcc0fb7cdf6a9dc0eb96893c49db1139d41a48f8e6fcf6725dc44",
+      "sha256_lf": "fcdeab798dadcc0fb7cdf6a9dc0eb96893c49db1139d41a48f8e6fcf6725dc44",
+      "lines": 12,
+      "unchanged_since_verified_D3_baseline": true
+    },
+    {
+      "path": "crates/kanzei-harness/src/handoff.rs",
+      "judgment": "PASS",
+      "scope": "full file including tests",
+      "sha256": "fb5410e5115a19c38d7356b440ca274626ca3c353c74d3366aecceda6e98c22c",
+      "sha256_lf": "cb579d2da5bdf33141f477ecaee6b87eb2406c54c7dce9bb0f4fedd7ab2b8ca9",
+      "lines": 162,
+      "unchanged_since_verified_D3_baseline": true
+    },
+    {
+      "path": "crates/kanzei-harness/src/repair.rs",
+      "judgment": "PASS",
+      "scope": "full file including tests",
+      "sha256": "300e652b02bbab8e8d2ea507a72b43caef150350d6e8da8440c1dba72e94b63a",
+      "sha256_lf": "300e652b02bbab8e8d2ea507a72b43caef150350d6e8da8440c1dba72e94b63a",
+      "lines": 209,
+      "unchanged_since_verified_D3_baseline": true
+    }
+  ],
+  "necessary_slices": [
+    "crates/kanzei-tools/src/profiles/dev.rs",
+    "crates/kanzei-tools/src/work/tool.rs",
+    "crates/kanzei-app/src/run/events/mod.rs",
+    "crates/kanzei-app/src/run/coordinator.rs",
+    "crates/kanzei-app/src/run/assembly.rs",
+    "crates/kanzei-harness/src/auto_run.rs",
+    "crates/kanzei-core/src/runner/drive.rs"
+  ],
+  "source_modified": false,
+  "new_tests": false,
+  "root_causes": [],
+  "full_coverage_added_after_root_checks": 3,
+  "verification": [
+    "Full files and all callers read",
+    "Exact LF equality against already verified D3 baseline"
+  ],
+  "boundaries": [
+    "Root combined workspace verification pending",
+    "Only these three files are full reviews; callers are slices",
+    "No new primitive or schema"
+  ],
+  "repository_review_complete": false
+}
