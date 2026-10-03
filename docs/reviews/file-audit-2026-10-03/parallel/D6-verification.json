@@ -1,0 +1,77 @@
+{
+  "package": "D6",
+  "baseline": "5cdfe5a3787697c19a27d50562de103fd3b101bd",
+  "branch": "kanzei/audit-d6-harness-rest",
+  "full_review_files": 3,
+  "files": {
+    "crates/kanzei-harness/src/areas.rs": {
+      "review": "full",
+      "judgment": "PASS",
+      "sha256": "17ecc2e9826235befbc5aab65e2fd77eaa83454559074dd632791127b44bd10a",
+      "sha256_lf": "deed3769d62452caa9ed19f0c8ee51f0c5abdb0b2abe036ce7aefe091fb73789",
+      "lines": 925,
+      "builtin_tests_read": 5,
+      "source_modified": false
+    },
+    "crates/kanzei-harness/src/auto_run.rs": {
+      "review": "full",
+      "judgment": "PASS",
+      "sha256": "fe919618a5a83bb84328b71feb803b3ef59cb59c976cc33e1082345ee4708b9e",
+      "sha256_lf": "df970870be88913f29e26cbf5d55b78860bb72fed89caa2a21652726ef125d7a",
+      "lines": 1766,
+      "builtin_tests_read": 42,
+      "source_modified": false
+    },
+    "crates/kanzei-harness/src/tool_pipeline.rs": {
+      "review": "full",
+      "judgment": "PASS",
+      "sha256": "a5ee5b83bad24b308a8afbb6f920d93f6a4d9dfa8898d2d8c941f791f967ff26",
+      "sha256_lf": "5c801b7d4524581fd03d41fc1f8280602eef4a8d7502e4ad7bf5ac375b1a5626",
+      "lines": 439,
+      "builtin_tests_read": 9,
+      "source_modified": false
+    }
+  },
+  "production_changes": [],
+  "fixed_root_causes": {
+    "P0": 0,
+    "P1": 0,
+    "P2": 0
+  },
+  "manual_judgment": "none",
+  "caller_review": "necessary slices only; not full coverage",
+  "verification": {
+    "cargo_run_by_this_package": false,
+    "standalone_areas": {
+      "source": "actual areas.rs",
+      "compile_exit": 0,
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "evidence": "output/parallel-D6/areas-standalone.json"
+    },
+    "auto_run_builtin_tests": {
+      "read": 42,
+      "executed_by_this_package": false
+    },
+    "pipeline_builtin_tests": {
+      "read": 9,
+      "executed_by_this_package": false
+    },
+    "root_integrated_checks": "harness214 verified and all3 LF matched; full workspace/native/UI certificate pending",
+    "root_harness": {
+      "source": "root direct message reported actual completed run; root raw log remains owned by root",
+      "passed": 214,
+      "failed": 0,
+      "d6_source_lf_match": true,
+      "root_full_workspace": "not complete: unrelated tools fixture cleanup diagnosis ongoing"
+    },
+    "three_source_exact_original_bytes_verified": true
+  },
+  "negative_controls": "not applicable: PASS and unchanged production",
+  "evidence_directory": "output/parallel-D6",
+  "public_coverage_modified": false,
+  "evidence_index": "output/parallel-D6/evidence-index.json",
+  "selected_evidence_files_including_index": 14,
+  "selected_evidence_bytes_including_index": 140280
+}
