@@ -2,7 +2,7 @@
 //! Delivery::as_str 已提 pub(super)(在 mod.rs)。
 //! 已在事务内不得再调自开 tx 的方法(见 mod.rs unchecked_transaction 注)。
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, Transaction};
 
 use super::events::append_event_tx;
 use super::{now_ms, AdmittedInput, Delivery, SessionStore, StoreError};
@@ -18,7 +18,7 @@ impl SessionStore {
         item_id: &str,
     ) -> Result<AdmittedInput, StoreError> {
         let tx = self.connection.unchecked_transaction()?;
-        let input = self.admit_input(session_id, input_id, prompt, Delivery::Queue)?;
+        let input = admit_input_tx(&tx, session_id, input_id, prompt, Delivery::Queue, None)?;
         append_event_tx(
             &tx,
             session_id,
@@ -62,7 +62,7 @@ impl SessionStore {
         delivery: Delivery,
     ) -> Result<AdmittedInput, StoreError> {
         let tx = self.connection.unchecked_transaction()?;
-        let input = self.admit_input(session_id, input_id, prompt, delivery)?;
+        let input = admit_input_tx(&tx, session_id, input_id, prompt, delivery, None)?;
         append_event_tx(
             &tx,
             session_id,
@@ -91,21 +91,22 @@ impl SessionStore {
         prompt: &str,
         delivery: Delivery,
     ) -> Result<AdmittedInput, StoreError> {
-        let now = now_ms();
-        self.connection.execute(
-            "INSERT INTO session_inputs(input_id, session_id, prompt, delivery, status, created_at)
-                 VALUES (?1, ?2, ?3, ?4, 'pending', ?5)
-                 ON CONFLICT(input_id) DO NOTHING",
-            params![input_id, session_id, prompt, delivery.as_str(), now],
-        )?;
-        self.connection
-            .query_row(
-                "SELECT input_id, session_id, prompt, delivery, created_at
-                     FROM session_inputs WHERE input_id = ?1",
-                params![input_id],
-                input_from_row,
-            )
-            .map_err(Into::into)
+        self.admit_input_with_source(session_id, input_id, prompt, delivery, None)
+    }
+
+    /// Admission metadata commits with the input, including background wake sources.
+    pub fn admit_input_with_source(
+        &self,
+        session_id: &str,
+        input_id: &str,
+        prompt: &str,
+        delivery: Delivery,
+        source: Option<&str>,
+    ) -> Result<AdmittedInput, StoreError> {
+        let tx = self.connection.unchecked_transaction()?;
+        let input = admit_input_tx(&tx, session_id, input_id, prompt, delivery, source)?;
+        tx.commit()?;
+        Ok(input)
     }
 
     pub fn has_pending(&self, session_id: &str, delivery: Delivery) -> Result<bool, StoreError> {
@@ -274,10 +275,44 @@ impl SessionStore {
                      WHERE input_id = ?2 AND status = 'pending'",
                 params![now_ms(), input.input_id],
             )?;
+            append_event_tx(
+                &tx,
+                session_id,
+                "prompt.promoted",
+                &serde_json::json!({"input_id": input.input_id, "delivery": input.delivery.as_str()}),
+            )?;
         }
         tx.commit()?;
         Ok(inputs)
     }
+}
+
+// The input row and its lifecycle receipt have one transaction owner. Batch/work
+// admission passes its existing transaction so execution intent commits with both.
+fn admit_input_tx(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    input_id: &str,
+    prompt: &str,
+    delivery: Delivery,
+    source: Option<&str>,
+) -> Result<AdmittedInput, StoreError> {
+    let inserted = tx.execute(
+        "INSERT INTO session_inputs(input_id, session_id, prompt, delivery, status, created_at)
+         VALUES (?1, ?2, ?3, ?4, 'pending', ?5) ON CONFLICT(input_id) DO NOTHING",
+        params![input_id, session_id, prompt, delivery.as_str(), now_ms()],
+    )?;
+    if inserted > 0 {
+        let mut payload = serde_json::json!({"input_id":input_id, "delivery":delivery.as_str()});
+        if let Some(source) = source {
+            payload["source"] = serde_json::json!(source);
+        }
+        append_event_tx(tx, session_id, "prompt.admitted", &payload)?;
+    }
+    tx.query_row(
+        "SELECT input_id, session_id, prompt, delivery, created_at FROM session_inputs WHERE input_id = ?1",
+        params![input_id], input_from_row,
+    ).map_err(Into::into)
 }
 
 /// 输入行解析。
@@ -301,6 +336,74 @@ fn input_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AdmittedInput> {
 mod tests {
     use crate::store::testutil::store;
     use crate::store::*;
+
+    #[test]
+    fn admission_failure_leaves_no_queued_input_or_execution_intent() {
+        let store = store();
+        store.connection.execute_batch("CREATE TRIGGER reject_admission BEFORE INSERT ON session_events
+            WHEN NEW.event_type = 'prompt.admitted' BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+        assert!(store
+            .admit_input("ses_test", "plain", "text", Delivery::Queue)
+            .is_err());
+        assert!(store
+            .admit_batch_input("ses_test", "batch", "text", Delivery::Queue)
+            .is_err());
+        assert!(store
+            .admit_work_input("ses_test", "work", "text", "R-001")
+            .is_err());
+        assert!(store.list_pending_inputs("ses_test").unwrap().is_empty());
+        assert!(store.list_events("ses_test", 0).unwrap().is_empty());
+        store
+            .connection
+            .execute_batch("DROP TRIGGER reject_admission")
+            .unwrap();
+        store
+            .admit_input("ses_test", "plain", "text", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "plain", "retry", Delivery::Steer)
+            .unwrap();
+        assert_eq!(store.list_pending_inputs("ses_test").unwrap().len(), 1);
+        let receipts = store
+            .list_events_by_type("ses_test", 0, "prompt.admitted")
+            .unwrap();
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].payload["delivery"], "queue");
+    }
+
+    #[test]
+    fn promotion_and_receipt_commit_or_rollback_together() {
+        let store = store();
+        for id in ["first", "second"] {
+            store
+                .admit_input("ses_test", id, id, Delivery::Steer)
+                .unwrap();
+        }
+        store.connection.execute_batch("CREATE TRIGGER reject_receipt BEFORE INSERT ON session_events
+            WHEN NEW.event_type = 'prompt.promoted' AND json_extract(NEW.payload_json, '$.input_id') = 'second'
+            BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END;").unwrap();
+        assert!(store.promote_steers("ses_test").is_err());
+        assert_eq!(store.list_pending_inputs("ses_test").unwrap().len(), 2);
+        assert!(store
+            .list_events_by_type("ses_test", 0, "prompt.promoted")
+            .unwrap()
+            .is_empty());
+        store
+            .connection
+            .execute_batch("DROP TRIGGER reject_receipt")
+            .unwrap();
+        assert_eq!(store.promote_steers("ses_test").unwrap().len(), 2);
+        assert!(store.promote_steers("ses_test").unwrap().is_empty());
+        let receipts = store
+            .list_events_by_type("ses_test", 0, "prompt.promoted")
+            .unwrap();
+        assert_eq!(receipts.len(), 2);
+        assert_eq!(receipts[0].payload["input_id"], "first");
+        assert_eq!(receipts[1].payload["input_id"], "second");
+        for id in ["first", "second"] {
+            assert_eq!(store.input_status(id).unwrap().as_deref(), Some("promoted"));
+        }
+    }
 
     #[test]
     fn queued_execution_intent_survives_promotion_without_contaminating_chat() {

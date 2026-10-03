@@ -1,0 +1,20 @@
+{
+  "baseline": "7287f1ca",
+  "workspace_tests": {
+    "passed": 2231,
+    "failed": 0,
+    "ignored": 5
+  },
+  "commands": [
+    "cargo test --workspace --no-fail-fast --quiet",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "node --experimental-vm-modules scripts/ui-runtime-smoke.mjs"
+  ],
+  "logs": [
+    "output/state-ui-workspace-final-20261003.log",
+    "output/state-ui-clippy-final-20261003.log",
+    "output/state-ui-runtime-final-20261003.log"
+  ],
+  "ui": "90 modules, 4014 invokes, 0 runtime errors; browser suites passed",
+  "manual_installed_desktop_test": false
+}

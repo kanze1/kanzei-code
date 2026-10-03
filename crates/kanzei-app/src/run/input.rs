@@ -9,8 +9,6 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::json;
-
 /// 交付模式解析:字符串 → Delivery(原 run.rs parse_delivery)。
 pub(crate) fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> {
     match value.unwrap_or("queue") {
@@ -43,7 +41,6 @@ pub(crate) fn admit_input(
     } else {
         store.admit_input(session_id, &input_id, prompt, delivery)?
     };
-    store.append_event(session_id, "prompt.admitted", &json!({ "input_id": input_id, "delivery": if matches!(delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }))?;
     Ok(input)
 }
 
@@ -72,11 +69,7 @@ pub(crate) fn promote_next_input(
 ) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
     let project_root = crate::normalized_project_root(Path::new(project_dir));
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
-    let Some(input) = store.promote_next_input(session_id)? else {
-        return Ok(None);
-    };
-    store.append_event(session_id, "prompt.promoted", &json!({ "input_id": input.input_id, "delivery": if matches!(input.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }))?;
-    Ok(Some(input))
+    Ok(store.promote_next_input(session_id)?)
 }
 
 pub(crate) enum SavedInputResume {

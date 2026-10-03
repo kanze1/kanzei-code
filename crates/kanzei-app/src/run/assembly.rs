@@ -350,7 +350,6 @@ pub(crate) async fn assemble_run(
         &ctx.project_root.display().to_string(),
         None,
     )?;
-    let is_new_input = request.promoted_input.is_none();
     let promoted = if let Some(input) = request.promoted_input {
         input
     } else {
@@ -375,22 +374,10 @@ pub(crate) async fn assemble_run(
                 request.delivery,
             )?;
         }
-        store.append_event(
-            &request.session_id,
-            "prompt.admitted",
-            &json!({ "input_id": input_id, "delivery": if matches!(request.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
-        )?;
         store
             .promote_next_input(&request.session_id)?
             .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?
     };
-    if is_new_input {
-        store.append_event(
-            &request.session_id,
-            "prompt.promoted",
-            &json!({ "input_id": promoted.input_id, "delivery": if matches!(promoted.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
-        )?;
-    }
     let work_item_id = store.input_work_item(&request.session_id, &promoted.input_id)?;
     anyhow::ensure!(
         work_item_id.is_none()

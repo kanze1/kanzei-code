@@ -860,7 +860,8 @@ mod tests {
         assert_eq!(metrics.legacy.classification, "legacy_unassigned");
         assert_eq!(metrics.legacy.episode_count, 1);
         assert_eq!(metrics.legacy.input_count, 1);
-        assert_eq!(metrics.legacy.session_event_count, 1);
+        // The two inputs also have atomic prompt.admitted lifecycle receipts.
+        assert_eq!(metrics.legacy.session_event_count, 3);
         assert_eq!(metrics.completed_tasks.len(), 1);
         assert_eq!(metrics.trend.closed_task_count, 1);
         assert_eq!(metrics.audit.task_count, 1);
@@ -871,9 +872,9 @@ mod tests {
         assert_eq!(metrics.audit.total_input_count, 2);
         assert_eq!(metrics.audit.assigned_input_count, 1);
         assert_eq!(metrics.audit.legacy_input_count, 1);
-        assert_eq!(metrics.audit.total_session_event_count, 4);
+        assert_eq!(metrics.audit.total_session_event_count, 6);
         assert_eq!(metrics.audit.task_event_count, 3);
-        assert_eq!(metrics.audit.legacy_session_event_count, 1);
+        assert_eq!(metrics.audit.legacy_session_event_count, 3);
         assert_ne!(
             metrics.completed_tasks[0].rounds[0].episode_id,
             legacy_episode_id

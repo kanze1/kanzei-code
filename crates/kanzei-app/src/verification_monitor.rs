@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde_json::json;
 use tauri::Manager;
 
 use crate::{AppState, ProcessInfo};
@@ -104,18 +103,17 @@ fn admit_wake_input(
         "Kanzei 系统通知（非用户指令）：后台验证任务 {job_id} 对工作单元 {unit_id} 已结束，结果为 {status}。请读取当前工作单元状态和验证日志，再按现有项目规则继续；不得把失败或过期结果当成通过，也不得超出已有授权。"
     );
     let input = store
-        .admit_input(session_id, &input_id, &prompt, kanzei_core::Delivery::Queue)
+        .admit_input_with_source(
+            session_id,
+            &input_id,
+            &prompt,
+            kanzei_core::Delivery::Queue,
+            Some("verification_monitor"),
+        )
         .map_err(|error| error.to_string())?;
     if input.session_id != session_id || input.prompt != prompt {
         return Err("verification wake input identity collision".into());
     }
-    store
-        .append_event(
-            session_id,
-            "prompt.admitted",
-            &json!({ "input_id": input_id, "delivery": "queue", "source": "verification_monitor" }),
-        )
-        .map_err(|error| error.to_string())?;
     Ok(true)
 }
 

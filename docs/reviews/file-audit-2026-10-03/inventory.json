@@ -1,5 +1,5 @@
 {
-  "baseline": "4671709a4ad0cf7a53a8295c4ca1466b04c18d5b",
+  "baseline": "7287f1ca93511985b5538cccdd7eea4b2fd3f507",
   "method": "Lexical source inventory, including cfg/test branches. Not a resolved call graph. Review judgments live only in report.md.",
   "packages": [
     {
@@ -454,7 +454,7 @@
     },
     {
       "file": "crates/kanzei/src/cli/run.rs",
-      "lines": 485,
+      "lines": 475,
       "modules": [
         "events",
         "finalize",
@@ -754,7 +754,7 @@
     },
     {
       "file": "crates/kanzei/tests/integration/incomplete_stream.rs",
-      "lines": 125,
+      "lines": 248,
       "modules": [],
       "imports": [
         "kanzei_harness::{\n    AgentDef, AgentMode, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,\n}",
@@ -5009,7 +5009,7 @@
     },
     {
       "file": "crates/kanzei-app/src/run/assembly.rs",
-      "lines": 1053,
+      "lines": 1040,
       "modules": [
         "components"
       ],
@@ -5090,62 +5090,62 @@
         {
           "kind": "struct",
           "name": "WriterLeaseTrace",
-          "line": 662
+          "line": 649
         },
         {
           "kind": "fn",
           "name": "new",
-          "line": 673
+          "line": 660
         },
         {
           "kind": "fn",
           "name": "mark_released",
-          "line": 691
+          "line": 678
         },
         {
           "kind": "fn",
           "name": "new_llm_client",
-          "line": 714
+          "line": 701
         },
         {
           "kind": "fn",
           "name": "auth_stage_detail",
-          "line": 720
+          "line": 707
         },
         {
           "kind": "fn",
           "name": "resolve_proxy",
-          "line": 733
+          "line": 720
         },
         {
           "kind": "fn",
           "name": "append_dev_guidance",
-          "line": 743
+          "line": 730
         },
         {
           "kind": "fn",
           "name": "run_meta_payload",
-          "line": 765
+          "line": 752
         },
         {
           "kind": "fn",
           "name": "build_run_harness",
-          "line": 780
+          "line": 767
         },
         {
           "kind": "fn",
           "name": "resolve_profile",
-          "line": 811
+          "line": 798
         },
         {
           "kind": "fn",
           "name": "normalize_work_priority",
-          "line": 822
+          "line": 809
         },
         {
           "kind": "fn",
           "name": "report_config_warnings",
-          "line": 829
+          "line": 816
         }
       ]
     },
@@ -5353,49 +5353,48 @@
     },
     {
       "file": "crates/kanzei-app/src/run/input.rs",
-      "lines": 150,
+      "lines": 143,
       "modules": [],
       "imports": [
         "std::path::Path",
         "std::time::{SystemTime, UNIX_EPOCH}",
-        "serde_json::json",
         "super::code_root_for"
       ],
       "public_api": [
         {
           "kind": "fn",
           "name": "parse_delivery",
-          "line": 15
+          "line": 13
         },
         {
           "kind": "fn",
           "name": "admit_input",
-          "line": 24
+          "line": 22
         },
         {
           "kind": "fn",
           "name": "has_pending_queue_prompt",
-          "line": 52
+          "line": 49
         },
         {
           "kind": "fn",
           "name": "promote_next_input",
-          "line": 69
+          "line": 66
         },
         {
           "kind": "enum",
           "name": "SavedInputResume",
-          "line": 81
+          "line": 74
         },
         {
           "kind": "fn",
           "name": "resume_saved_input",
-          "line": 90
+          "line": 83
         },
         {
           "kind": "fn",
           "name": "code_root_for",
-          "line": 126
+          "line": 119
         }
       ]
     },
@@ -6518,13 +6517,12 @@
     },
     {
       "file": "crates/kanzei-app/src/verification_monitor.rs",
-      "lines": 366,
+      "lines": 364,
       "modules": [],
       "imports": [
         "std::collections::HashMap",
         "std::path::{Path, PathBuf}",
         "std::time::{Duration, Instant, SystemTime, UNIX_EPOCH}",
-        "serde_json::json",
         "tauri::Manager",
         "crate::{AppState, ProcessInfo}",
         "super::*",
@@ -6534,7 +6532,7 @@
         {
           "kind": "fn",
           "name": "start",
-          "line": 121
+          "line": 119
         }
       ]
     },
@@ -7061,7 +7059,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/17-files-editor.js",
-      "lines": 976,
+      "lines": 997,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -8740,7 +8738,7 @@
     },
     {
       "file": "crates/kanzei-core/src/runner/drive.rs",
-      "lines": 1593,
+      "lines": 1603,
       "modules": [
         "question",
         "tool_catalog",
@@ -8782,7 +8780,7 @@
         {
           "kind": "fn",
           "name": "reached_step_ceiling",
-          "line": 1204
+          "line": 1214
         }
       ]
     },
@@ -9920,7 +9918,7 @@
     },
     {
       "file": "crates/kanzei-core/src/store/events.rs",
-      "lines": 1385,
+      "lines": 1377,
       "modules": [],
       "imports": [
         "std::collections::{BTreeMap, HashSet}",
@@ -10128,10 +10126,10 @@
     },
     {
       "file": "crates/kanzei-core/src/store/inbox.rs",
-      "lines": 633,
+      "lines": 736,
       "modules": [],
       "imports": [
-        "rusqlite::{params, OptionalExtension}",
+        "rusqlite::{params, OptionalExtension, Transaction}",
         "super::events::append_event_tx",
         "super::{now_ms, AdmittedInput, Delivery, SessionStore, StoreError}",
         "crate::store::testutil::store",
@@ -10165,63 +10163,68 @@
         },
         {
           "kind": "fn",
+          "name": "admit_input_with_source",
+          "line": 98
+        },
+        {
+          "kind": "fn",
           "name": "has_pending",
-          "line": 110
+          "line": 111
         },
         {
           "kind": "fn",
           "name": "list_pending_inputs",
-          "line": 122
+          "line": 123
         },
         {
           "kind": "fn",
           "name": "cancel_input",
-          "line": 132
+          "line": 133
         },
         {
           "kind": "fn",
           "name": "finalize_interrupt",
-          "line": 145
+          "line": 146
         },
         {
           "kind": "fn",
           "name": "cancel_unfinished_inputs",
-          "line": 172
+          "line": 173
         },
         {
           "kind": "fn",
           "name": "start_input",
-          "line": 182
+          "line": 183
         },
         {
           "kind": "fn",
           "name": "finish_input",
-          "line": 192
+          "line": 193
         },
         {
           "kind": "fn",
           "name": "input_status",
-          "line": 202
+          "line": 203
         },
         {
           "kind": "fn",
           "name": "cancel_pending_inputs",
-          "line": 212
+          "line": 213
         },
         {
           "kind": "fn",
           "name": "promote_steers",
-          "line": 220
+          "line": 221
         },
         {
           "kind": "fn",
           "name": "promote_next_queue",
-          "line": 224
+          "line": 225
         },
         {
           "kind": "fn",
           "name": "promote_next_input",
-          "line": 243
+          "line": 244
         }
       ]
     },
@@ -10899,7 +10902,7 @@
     },
     {
       "file": "crates/kanzei-core/src/store/task.rs",
-      "lines": 975,
+      "lines": 976,
       "modules": [],
       "imports": [
         "std::collections::{BTreeMap, BTreeSet}",
@@ -13783,19 +13786,20 @@
     },
     {
       "file": "crates/kanzei-llm/src/auth/codex.rs",
-      "lines": 203,
+      "lines": 335,
       "modules": [],
       "imports": [
         "serde_json::{json, Value}",
         "crate::error::LlmError",
         "crate::proxy::{build_http_client, ProxyConfig}",
-        "super::*"
+        "super::*",
+        "tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt}"
       ],
       "public_api": [
         {
           "kind": "fn",
           "name": "codex_headers",
-          "line": 41
+          "line": 55
         }
       ]
     },
@@ -13811,7 +13815,7 @@
     },
     {
       "file": "crates/kanzei-llm/src/auth/store.rs",
-      "lines": 127,
+      "lines": 129,
       "modules": [],
       "imports": [
         "std::path::Path",
@@ -13830,7 +13834,7 @@
         {
           "kind": "fn",
           "name": "newer_by_rfc3339",
-          "line": 50
+          "line": 52
         }
       ]
     },
@@ -14039,7 +14043,7 @@
     },
     {
       "file": "crates/kanzei-llm/src/protocol/anthropic.rs",
-      "lines": 1109,
+      "lines": 1176,
       "modules": [],
       "imports": [
         "std::collections::{HashMap, HashSet}",
@@ -14067,12 +14071,12 @@
         {
           "kind": "struct",
           "name": "AnthropicState",
-          "line": 288
+          "line": 291
         },
         {
           "kind": "fn",
           "name": "with_provider_channel",
-          "line": 297
+          "line": 300
         }
       ]
     },
@@ -14177,10 +14181,10 @@
     },
     {
       "file": "crates/kanzei-llm/src/protocol/openai_responses.rs",
-      "lines": 839,
+      "lines": 888,
       "modules": [],
       "imports": [
-        "std::collections::BTreeMap",
+        "std::collections::{BTreeMap, BTreeSet}",
         "serde_json::{json, Value}",
         "crate::error::LlmError",
         "crate::event::{FinishReason, LlmEvent, Usage}",
@@ -14215,7 +14219,7 @@
     },
     {
       "file": "crates/kanzei-llm/src/proxy.rs",
-      "lines": 259,
+      "lines": 296,
       "modules": [],
       "imports": [
         "crate::error::LlmError",
@@ -14242,7 +14246,7 @@
         {
           "kind": "fn",
           "name": "proxy_for_url",
-          "line": 110
+          "line": 107
         }
       ]
     },

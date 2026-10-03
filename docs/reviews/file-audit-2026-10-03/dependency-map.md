@@ -77,10 +77,19 @@ flowchart TD
 | memory / tools | 原树底层 caller 已适配；managed、三类专用写者及后台守卫关键路径已修 | 不等同于整个模块全文审完 |
 | core / API / UI | runner/drive.rs 已跟踪整步消费→工具分发边界，其余为合并与既有测试验证 | 全面逐文件审查待继续 |
 
-下一步：Responses / Anthropic 状态机 → proxy/auth → client 生命周期 → core 流事件持久化。每轮以 coverage.json 和对应报告明确全文审查、调用链切片和未审范围，不用索引或测试数量代替审查覆盖。
+第三批结束时的下一步为协议、proxy/auth/client；这些主链已在第四批推进。当前进度以下方最新批次为准。每轮以 coverage.json 和对应报告明确全文审查、调用链切片和未审范围，不用索引或测试数量代替审查覆盖。
 
 ## 第四批推进
 
 - llm：剩余协议、proxy/auth/client 全文已审；修复结果见 [protocol-auth.md](protocol-auth.md)。
 - core：history.rs 全文 PASS；drive.rs 仍按事件消费切片记录。
 - 下一条链：core 存储/输入状态 → app 运行服务；同时从已稳定 CAS → 文件编辑服务 → 前端编辑器逐层检查。未审支线仍保留在 coverage.json。
+
+## 第五批推进与当前进度
+
+- 两条链：SessionStore 输入事务 → 桌面/CLI 准入与提升；CAS → files_edit/files_draft → 文件编辑器。
+- 新增 6 个全文审查文件，累计 30 个；索引共 511 个文件，481 个尚未完成全文审查（包含已检查切片的文件）。
+- 修复输入与事件非原子提交、保存/异步打开丢失新输入、重载失败提前删除草稿。详见 [state-ui.md](state-ui.md)。
+- 全工作区 2231 passed / 0 failed / 5 ignored；Clippy、格式和完整 UI 运行时/浏览器回归通过。
+- 七层均尚未全量结项；当前完成的是跨层主链，不能将主链完成等同于整层完成。
+- 下一条链：输入存储 → 调度与停止 → 异步回调 → API/UI 状态投影。A 家专属范围按用户要求暂不处理。

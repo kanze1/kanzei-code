@@ -24,7 +24,13 @@
     "crates/kanzei-llm/src/auth/codex.rs",
     "crates/kanzei-llm/src/auth/mod.rs",
     "crates/kanzei-llm/src/client.rs",
-    "crates/kanzei-core/src/history.rs"
+    "crates/kanzei-core/src/history.rs",
+    "crates/kanzei-core/src/store/inbox.rs",
+    "crates/kanzei-app/src/run/input.rs",
+    "crates/kanzei-app/src/commands/run/input_mode.rs",
+    "crates/kanzei-app/src/files_edit.rs",
+    "crates/kanzei-app/src/files_draft.rs",
+    "crates/kanzei-app/ui/17-files-editor.js"
   ],
   "contract_slice_reviews": [
     "crates/kanzei-tools/src/managed.rs",
@@ -33,14 +39,25 @@
     "crates/kanzei-tools/src/test_record.rs",
     "crates/kanzei-tools/src/background.rs",
     "crates/kanzei-tools/src/background/lifecycle.rs",
-    "crates/kanzei-core/src/runner/drive.rs"
+    "crates/kanzei-core/src/runner/drive.rs",
+    "crates/kanzei-app/src/run/assembly.rs",
+    "crates/kanzei-app/src/verification_monitor.rs",
+    "crates/kanzei/src/cli/run.rs",
+    "crates/kanzei-core/src/store/events.rs",
+    "crates/kanzei-core/src/store/task.rs",
+    "crates/kanzei-core/src/store/session.rs",
+    "crates/kanzei-core/src/store/decisions.rs",
+    "crates/kanzei-app/src/run/coordinator.rs",
+    "crates/kanzei-app/src/async_mailbox.rs",
+    "crates/kanzei-app/src/files_view.rs",
+    "crates/kanzei-app/ui/17-files.js",
+    "scripts/ui-runtime-smoke.mjs"
   ],
   "not_reviewed": [
     "crates/kanzei-app/build.rs",
     "crates/kanzei-app/mobile-pwa/app.js",
     "crates/kanzei-app/src/agent_directory.rs",
     "crates/kanzei-app/src/agent_team.rs",
-    "crates/kanzei-app/src/async_mailbox.rs",
     "crates/kanzei-app/src/attachments.rs",
     "crates/kanzei-app/src/auto_run.rs",
     "crates/kanzei-app/src/collaboration.rs",
@@ -50,7 +67,6 @@
     "crates/kanzei-app/src/commands/run.rs",
     "crates/kanzei-app/src/commands/run/handoff.rs",
     "crates/kanzei-app/src/commands/run/handoff/tests.rs",
-    "crates/kanzei-app/src/commands/run/input_mode.rs",
     "crates/kanzei-app/src/commands/run/tool_process.rs",
     "crates/kanzei-app/src/commands/summarize.rs",
     "crates/kanzei-app/src/conversation.rs",
@@ -64,9 +80,6 @@
     "crates/kanzei-app/src/durable_questions.rs",
     "crates/kanzei-app/src/experience_events.rs",
     "crates/kanzei-app/src/fast_model.rs",
-    "crates/kanzei-app/src/files_draft.rs",
-    "crates/kanzei-app/src/files_edit.rs",
-    "crates/kanzei-app/src/files_view.rs",
     "crates/kanzei-app/src/general_chat.rs",
     "crates/kanzei-app/src/harness_ext.rs",
     "crates/kanzei-app/src/ipc_contract.rs",
@@ -109,13 +122,10 @@
     "crates/kanzei-app/src/research_library.rs",
     "crates/kanzei-app/src/research_library/tests.rs",
     "crates/kanzei-app/src/research_topics.rs",
-    "crates/kanzei-app/src/run/assembly.rs",
     "crates/kanzei-app/src/run/assembly/components.rs",
     "crates/kanzei-app/src/run/baseline.rs",
-    "crates/kanzei-app/src/run/coordinator.rs",
     "crates/kanzei-app/src/run/events/mod.rs",
     "crates/kanzei-app/src/run/execution.rs",
-    "crates/kanzei-app/src/run/input.rs",
     "crates/kanzei-app/src/run/mod.rs",
     "crates/kanzei-app/src/run/persistence.rs",
     "crates/kanzei-app/src/run/work_start.rs",
@@ -136,7 +146,6 @@
     "crates/kanzei-app/src/typed_events.rs",
     "crates/kanzei-app/src/update.rs",
     "crates/kanzei-app/src/update_tests_update.rs",
-    "crates/kanzei-app/src/verification_monitor.rs",
     "crates/kanzei-app/src/voice.rs",
     "crates/kanzei-app/src/voice_service.rs",
     "crates/kanzei-app/src/workspace.rs",
@@ -192,8 +201,6 @@
     "crates/kanzei-app/ui/15-views-misc.js",
     "crates/kanzei-app/ui/16-mobile.js",
     "crates/kanzei-app/ui/16-settings.js",
-    "crates/kanzei-app/ui/17-files-editor.js",
-    "crates/kanzei-app/ui/17-files.js",
     "crates/kanzei-app/ui/18-optional-ui.js",
     "crates/kanzei-app/ui/18-startup.js",
     "crates/kanzei-app/ui/19-arch.js",
@@ -275,13 +282,10 @@
     "crates/kanzei-core/src/runner/tool_exec.rs",
     "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
     "crates/kanzei-core/src/runner/tool_images.rs",
-    "crates/kanzei-core/src/store/decisions.rs",
     "crates/kanzei-core/src/store/deliveries.rs",
     "crates/kanzei-core/src/store/episodes.rs",
     "crates/kanzei-core/src/store/eval.rs",
-    "crates/kanzei-core/src/store/events.rs",
     "crates/kanzei-core/src/store/file_checkpoints.rs",
-    "crates/kanzei-core/src/store/inbox.rs",
     "crates/kanzei-core/src/store/memory_observations.rs",
     "crates/kanzei-core/src/store/mobile_devices.rs",
     "crates/kanzei-core/src/store/mod.rs",
@@ -291,9 +295,7 @@
     "crates/kanzei-core/src/store/research_runs.rs",
     "crates/kanzei-core/src/store/rewind.rs",
     "crates/kanzei-core/src/store/schema.rs",
-    "crates/kanzei-core/src/store/session.rs",
     "crates/kanzei-core/src/store/session/artifact_refs.rs",
-    "crates/kanzei-core/src/store/task.rs",
     "crates/kanzei-core/src/store/telemetry.rs",
     "crates/kanzei-core/src/store/testutil.rs",
     "crates/kanzei-core/src/store/typed.rs",
@@ -488,7 +490,6 @@
     "crates/kanzei/src/cli/metrics.rs",
     "crates/kanzei/src/cli/mod.rs",
     "crates/kanzei/src/cli/quarantine.rs",
-    "crates/kanzei/src/cli/run.rs",
     "crates/kanzei/src/cli/run/events.rs",
     "crates/kanzei/src/cli/run/finalize.rs",
     "crates/kanzei/src/cli/run/permissions.rs",
@@ -631,6 +632,51 @@
         "crates/kanzei-core/src/runner/drive.rs"
       ],
       "next": "core store/input and frontend file-edit service chains"
+    },
+    {
+      "report": "state-ui.md",
+      "baseline": "7287f1ca",
+      "full_files": {
+        "crates/kanzei-core/src/store/inbox.rs": {
+          "judgment": "P1",
+          "sha256": "d0cc34e230e717146b9fc81ad90cc7e1e2ceda9f70cb2a41bd194118b036895c"
+        },
+        "crates/kanzei-app/src/run/input.rs": {
+          "judgment": "P1",
+          "sha256": "7fec3572c4749c82bccf144edad2c21a0d2fff105a1fc10cfff8baed2609874b"
+        },
+        "crates/kanzei-app/src/commands/run/input_mode.rs": {
+          "judgment": "PASS",
+          "sha256": "5c31a2175cab04c429d4c77b45c1fb1afbead9ad75f807c8e98e58aac12442e7"
+        },
+        "crates/kanzei-app/src/files_edit.rs": {
+          "judgment": "PASS",
+          "sha256": "c2ebd0b56831b26a178c4217eb3e1a1f5b1af7f5101f9703150ffd10c1c63d55"
+        },
+        "crates/kanzei-app/src/files_draft.rs": {
+          "judgment": "PASS",
+          "sha256": "72aecb2d1699cb37db97c60d0f6f6b815e5b4500689f0be683d1ee0f907600fc"
+        },
+        "crates/kanzei-app/ui/17-files-editor.js": {
+          "judgment": "P1",
+          "sha256": "3f165ed5bd21590a188769a4f3fc7447907bb22cc78930479dfce5736a0b177f"
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/src/run/assembly.rs",
+        "crates/kanzei-app/src/verification_monitor.rs",
+        "crates/kanzei/src/cli/run.rs",
+        "crates/kanzei-core/src/store/events.rs",
+        "crates/kanzei-core/src/store/task.rs",
+        "crates/kanzei-core/src/store/session.rs",
+        "crates/kanzei-core/src/store/decisions.rs",
+        "crates/kanzei-app/src/run/coordinator.rs",
+        "crates/kanzei-app/src/async_mailbox.rs",
+        "crates/kanzei-app/src/files_view.rs",
+        "crates/kanzei-app/ui/17-files.js",
+        "scripts/ui-runtime-smoke.mjs"
+      ],
+      "next": "scheduler/stop -> async callbacks -> API/UI state projection"
     }
   ]
 }

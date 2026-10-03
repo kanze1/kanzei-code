@@ -381,19 +381,31 @@ function docFromPreview(root, path, preview) {
 // 读盘并装进编辑器。keep = 同一文件重载(外部改动/用磁盘版本/放弃修改):复用 model,保留撤销,只改变化的区间
 // (光标与选区随编辑平移)。preview = 调用方刚读到的磁盘版本(轮询已经读过一次,不再读第二次);
 // ifClean = 只在编辑器仍干净时替换(轮询的静默重载):等待途中用户开始打字了,就改进冲突态,不盖掉。
-async function loadDoc(root, path, { line = 0, keep = false, note = "", preview: given = null, ifClean = false } = {}) {
+async function loadDoc(root, path, { line = 0, keep = false, note = "", preview: given = null, ifClean = false, restoreDraft = true } = {}) {
   const generation = ++openGeneration;
   const isCurrent = () => generation === openGeneration && root === filesRoot();
+  const leavingDoc = filesDoc;
+  const leavingModel = filesEditor?.getModel?.();
+  const leavingVersion = leavingModel?.getAlternativeVersionId();
+  const canApply = () => {
+    if (!isCurrent()) return false;
+    if (!keep && leavingDoc === filesDoc && leavingModel && isFilesDirty()
+      && leavingVersion !== leavingModel.getAlternativeVersionId()) {
+      hooks.onActiveChange(leavingDoc.path);
+      return false;
+    }
+    return true;
+  };
   closeCompare();
   if (!keep) hooks.onActiveChange(path);
   syncNote = "";
   let preview = given;
   try {
     if (!preview) preview = await invoke("file_preview", { projectDir: root, path });
-    if (!isCurrent()) return false;
+    if (!canApply()) return false;
     if (!preview || typeof preview !== "object") throw new Error(t("后端没有返回文件内容"));
   } catch (error) {
-    if (!isCurrent()) return false;
+    if (!canApply()) return false;
     // 重载时读盘失败(多半是刚被删了):编辑器里还有未保存的修改就绝不释放,改成「已删除」冲突让用户选。
     if (keep && isFilesDirty()) {
       filesDoc.conflict = { hash: null, exists: false };
@@ -411,7 +423,7 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
   }
   const doc = docFromPreview(root, path, preview);
   const key = draftKey(root, path);
-  const draft = drafts.get(key) ?? null;
+  const draft = restoreDraft ? drafts.get(key) ?? null : null;
   // 有草稿、但磁盘上的文件在这期间变得不能保存了(只读属性/非 UTF-8/超限/二进制):草稿照样恢复进编辑器
   // (能看、能复制),按「保存被拒」处理而不是只读——否则草稿既恢复不出来,也永远不会被清掉。
   if (draft && doc.readonly) {
@@ -435,11 +447,11 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
   try {
     monaco = await loadMonaco();
   } catch (error) {
-    if (!isCurrent()) return false;
+    if (!canApply()) return false;
     showPlaceholder(labelled("打开文件失败", error));
     return false;
   }
-  if (!isCurrent()) return false;
+  if (!canApply()) return false;
   // 轮询的静默重载:脏检查与替换之间隔着 await,这期间用户开始打字了——不替换,改进冲突态(编辑器内容不动)。
   if (ifClean && isFilesDirty()) {
     filesDoc.conflict = { hash: doc.hash, exists: true };
@@ -512,7 +524,13 @@ export async function confirmLeaveDirty(where = "switch") {
       safeText: t("不保存"),
     });
     if (choice === false) return false; // 取消:留在原文件,树高亮不动
-    if (choice === true && !blocked && !(await saveFilesDoc())) return false; // 保存没成功(冲突/出错)就不走
+    if (filesDoc !== doc) return false;
+    if (choice === true && !blocked) {
+      if (!(await saveFilesDoc())) return false;
+      // A successful write confirms only the submitted snapshot. Typing during
+      // the IPC is still dirty and must not be discarded by switching/closing.
+      if (filesDoc !== doc || isFilesDirty()) return false;
+    }
     if (root !== filesRoot()) return false;
     if (choice !== true || blocked) void clearDiskDraft(doc.root, doc.path); // 选了「不保存」:草稿不再留着
   }
@@ -605,19 +623,22 @@ export async function saveFilesDoc({ overwrite = false } = {}) {
 export async function reloadFromDisk({ note = "" } = {}) {
   const doc = filesDoc;
   if (!doc) return false;
+  const loaded = await loadDoc(doc.root, doc.path, { keep: true, note, restoreDraft: false });
+  if (!loaded) return false;
   drafts.delete(draftKey(doc.root, doc.path));
-  void clearDiskDraft(doc.root, doc.path);
-  return loadDoc(doc.root, doc.path, { keep: true, note });
+  await clearDiskDraft(doc.root, doc.path);
+  return true;
 }
 export async function discardFilesChanges() {
   if (!filesDoc || !isFilesDirty()) return false;
+  const doc = filesDoc;
   const ok = await confirmDialog({
     title: t("放弃修改"),
     message: `${t("放弃对这个文件的未保存修改,恢复成磁盘上的版本?")} ${filesDoc.path}`,
     okText: t("放弃修改"),
     danger: true,
   });
-  if (ok !== true || !filesDoc) return false;
+  if (ok !== true || filesDoc !== doc) return false;
   return reloadFromDisk();
 }
 // 文件已在磁盘上被删、用户选「放弃修改」:关掉这个文件。

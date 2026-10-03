@@ -1082,15 +1082,7 @@ mod tests {
                 [],
             )
             .unwrap();
-        for input_id in ["in-done", "in-pending"] {
-            store
-                .append_event(
-                    "ses_test",
-                    "prompt.admitted",
-                    &json!({"input_id": input_id, "delivery": "queue"}),
-                )
-                .unwrap();
-        }
+        // Admission now writes its receipt in the input transaction.
         let skeleton = [
             "session.status_changed",
             "orchestration.writer.acquired",

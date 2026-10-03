@@ -16162,10 +16162,15 @@ const docsB = {
       putDisk("src/lib.rs", "agent v3\n");
       await saveCommand()();
       await flush();
+      await editorNs.persistDraftNow();
+      await flush();
+      const clearsBeforeFailedReload = invokeArgs.filter((call) => call.cmd === "file_draft_clear").length;
       disk.delete("src/lib.rs");
       byId.get("files-use-disk").click();
       await flush();
       assert(model() && !model().disposed && model().getValue() === "keep me\nunsaved", "重载读盘失败时不得释放带未保存修改的 model");
+      assert(invokeArgs.filter((call) => call.cmd === "file_draft_clear").length === clearsBeforeFailedReload,
+        "重载读盘失败必须保留持久化草稿，不能只保住内存 model");
       assert(doc()?.conflict?.exists === false && byId.get("files-overwrite")?.textContent === i18nNs.t("重新创建"), "文件已删时横幅应改成「重新创建」");
       byId.get("files-overwrite").click();
       await flush();
@@ -16194,6 +16199,49 @@ const docsB = {
       await open("src/lib.rs");
       assert(doc()?.path === "src/lib.rs" && disk.get("src/main.rs").text === "fn main() {}\n", "选「不保存」应丢弃修改后切换");
       sandbox.confirmDialog = priorConfirm;
+    }
+
+    // 保存确认等待 IPC 时继续输入：不得切文件或关闭，保留新输入和脏状态。
+    {
+      editorNs.resetFilesDoc();
+      putDisk("src/lib.rs", "race\n");
+      await open("src/lib.rs");
+      model().type("first");
+      const kept = model();
+      let releaseWrite;
+      invokeGates.set("file_write", new Promise((resolveGate) => { releaseWrite = resolveGate; }));
+      sandbox.confirmDialog = () => Promise.resolve(true);
+      const leaving = open("src/main.rs");
+      await flush();
+      assert(doc().saving, "前置：切文件确认正在等待保存");
+      kept.type("second");
+      releaseWrite();
+      assert(await leaving === false, "保存期间的新输入仍未落盘，不得离开当前文件");
+      assert(model() === kept && !kept.disposed && editorNs.isFilesDirty() && kept.getValue() === "race\nfirstsecond",
+        "切文件必须保住保存快照之后的新输入");
+      invokeGates.delete("file_write");
+      sandbox.confirmDialog = priorConfirm;
+      await editorNs.saveFilesDoc();
+    }
+
+    // 新文件内容等待 IPC 时，旧编辑器中新输入不能被迟到结果释放。
+    {
+      editorNs.resetFilesDoc();
+      putDisk("src/lib.rs", "loading\n");
+      await open("src/lib.rs");
+      const kept = model();
+      let releasePreview;
+      invokeGates.set("file_preview", new Promise((resolveGate) => { releasePreview = resolveGate; }));
+      const opening = open("src/main.rs");
+      await flush();
+      kept.type("new typing");
+      releasePreview();
+      assert(await opening === false, "等待新文件时输入的新修改必须取消本次切换");
+      invokeGates.delete("file_preview");
+      assert(model() === kept && !kept.disposed && doc()?.path === "src/lib.rs" && editorNs.isFilesDirty(),
+        "迟到的文件预览不得释放旧文件的新修改");
+      assert(filesNs.filesActivePath === "src/lib.rs", "取消迟到切换后树高亮回到保留的文件");
+      await editorNs.saveFilesDoc();
     }
 
     // S4 只读:托管文档 readOnly、只读原因条、隐藏保存键、Ctrl+S 不写盘;跳转按钮指向对应页面。

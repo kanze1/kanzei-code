@@ -270,19 +270,9 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         &prompt,
         kanzei_core::Delivery::Queue,
     )?;
-    store.append_event(
-        &session_id,
-        "prompt.admitted",
-        &serde_json::json!({ "input_id": input_id, "delivery": "queue" }),
-    )?;
     let promoted = store
         .promote_next_queue(&session_id)?
         .ok_or_else(|| anyhow::anyhow!("无法提升已提交的 CLI 输入"))?;
-    store.append_event(
-        &session_id,
-        "prompt.promoted",
-        &serde_json::json!({ "input_id": promoted.input_id, "delivery": "queue" }),
-    )?;
     // promoted → running:输入的生命周期必须有"开始执行"这一步,否则跑完的输入
     // 永远停在 promoted,以后任何一次停止都会把它追认为 cancelled(D-173)。
     store.start_input(&promoted.input_id)?;
