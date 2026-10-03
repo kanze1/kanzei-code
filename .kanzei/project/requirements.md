@@ -97,7 +97,7 @@
 - recorded_at: 1787168115069
 - 停车: 排队:原排队对象 R-242/R-296 已 done、D-504 已恢复为 WIP;排在 R-249 之后恢复 B4 桌面 E2(UIA 基座 scripts/ui-desktop-uia.ps1 可冷启动自拉起 kzapp);恢复人:agent;解除条件:R-249
 
-## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [doing]
+## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [awaiting_external]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
 - 依赖: R-242
 - 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash、git、test_record、web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供存储与整理入口，按类别、会话、日期、大小预览占用，支持清理无引用 artifact；经风险确认后，用可恢复失败的删除计划物理删除已选会话的事件、投影和引用 artifact；并支持 SQLite checkpoint、VACUUM 与迁移备份管理。默认不自动过期。
@@ -110,12 +110,13 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
-- 进展: B8 已提交 eab92725：`crates/kanzei-core/src/runner/tool_exec.rs` 增加 2 GiB 全目录配额计量、共享独占锁保护 spill/telemetry 写入、超限时 Inline 截断且不创建 artifact；保留现有 1 MiB spill 阈值。配额专项 19 项通过(T-1786922727007)，crate 全量 292 项通过(T-1786922727010)，workspace fmt 通过(T-1786922727011)。B9 仅剩验收⑦真实桌面删除弹窗 E2；当前 kzapp 是既有用户会话，D-746 禁止接管，需用户确认窗口空闲并允许执行；届时验证弹窗内容、两种删除选项与取消零写入。
-- observed_head: eab92725608f19a803cf39f2cc74dfa25acf39f9
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1790338268439
-- 停车: 排队:B8 配额的性能与截断问题见 D-760(已在发版分支修复,待核验);⑦真实桌面删除弹窗 E2 按 A-002 转入 R-101 延期清单后即可关闭(自举循环运行在安装位 kzapp 中,无法自测该弹窗);解除条件:D-748
+- 进展: B8 已提交 eab92725：`crates/kanzei-core/src/runner/tool_exec.rs` 增加 2 GiB 全目录配额计量、共享独占锁保护 spill/telemetry 写入、超限时 Inline 截断且不创建 artifact；保留现有 1 MiB spill 阈值。配额专项 19 项通过(T-1786922727007)，crate 全量 292 项通过(T-1786922727010)，workspace fmt 通过(T-1786922727011)。B9 仅剩验收⑦真实桌面删除弹窗 E2；当前 kzapp 是既有用户会话，D-746 禁止接管，需用户确认窗口空闲并允许执行；届时验证弹窗内容、两种删除选项与取消零写入。 2026-10-04 清单复核：D-760 已 fixed 并归档，B8 验收证据在上；原停车记录“待 D-760 核验、待 R-101 之后执行 B9”的排队条件改为真实安装位 kzapp 上的 UI 验收，不要求新增实现。按用户口径转为 awaiting_external，不占开发名额；保留“需窗口主人确认空闲，禁止接管现有会话”的安全边界。
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:92c7228bb0086680
+- recorded_at: 1791060815571
+- 停车: 
 - 对账: 2026-09-25 用户拍板验收⑩磁盘配额:上限 2 GiB,超限时降级为 Inline 截断并注明(原话「2 GiB,超了退回截断。先这样」)。配额统计 .kanzei/artifacts/tool-results 总占用,与 R-376(外置阈值降到 32 KiB)同口径;停车前提已达成,剩余⑦真实桌面 E2 由 agent 在 kzapp 空闲时自行执行。 2026-09-26 审计:B8 配额实现的性能与截断问题登记为 D-760 并已修复(发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5));超限截断保留头 8 KiB+尾 4 KiB、原文不可回取;锁超时/计量失败同样降级为截断而不判失败——这是对用户「超了退回截断」裁决的延伸,不是用户原话。
+- 外部验收: 真实安装位 kzapp 中打开会话删除弹窗，核对事件/轨迹/草稿/artifact 清单及“仅删除”与“删除并安全整理”差异；取消操作必须零写入。需要窗口主人确认可执行的空闲窗口；不得接管现有用户会话。
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
@@ -154,7 +155,7 @@
 - recorded_at: 1786933041284
 - 停车: 排队:前置 R-221 已 done;排在 R-340 之后恢复批2 transcript Tauri 读取通道;恢复人:agent;解除条件:R-340
 
-## R-288 Android 真机 E3 验收:移动端 PWA 通知与双向消息真实链路 [todo]
+## R-288 Android 真机 E3 验收:移动端 PWA 通知与双向消息真实链路 [awaiting_external]
 - refs: R-059 R-270 R-271 D-389
 - 内容: 在同一 LAN 下使用 Android 真机打开 PWA，完成 bearer 配对，验证主/次代理通知展示、SSE 更新与消息发送；只补真实设备证据，不重做桥接或 PWA。
 - 复杂度: 小
@@ -164,7 +165,12 @@
 - 阻塞: 
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
-- 停车: 原停车前提 R-333 已 done;本条验收全部需要同一 LAN 下的 Android 真机(打开 PWA、bearer 配对、收通知、发消息),agent 无设备可用;需用户提供真机并预留一次配对窗口;解除人:用户;解除条件:用户
+- 停车: 
+- 外部验收: 用户提供同一 LAN 下的 Android 真机与一次配对窗口后：打开 PWA 并完成 bearer 鉴权；收到真实成功/失败通知；手机发出的消息在服务端形成可追溯事件；保存截图、端口/设备与 session 证据。
+- 进展: 2026-10-04 清单复核：服务端与 PWA 实现由 R-270/R-271 完成，本条内容明确限定为真实 Android 设备的端到端验收，不补做桥接或 PWA。原停车条件是 agent 无设备、需用户提供同一 LAN 下的 Android 真机并预留配对窗口；现在将这项唯一剩余工作列为待外部验收，不占开发名额。
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:92c7228bb0086680
+- recorded_at: 1791060837635
 
 ## R-299 IPC 与事件契约机械比对扩面 [doing]
 - refs: R-284
@@ -248,7 +254,7 @@
 - recorded_at: 1787306265598
 - 停车: 排队:排在 R-281 之后恢复 B4(重放 f62097cf rollout 后不少于 10 条真实长程 episode 对比基线 T-1786922726710);恢复人:agent;解除条件:R-281
 
-## R-322 门禁强度分档与模型停机权 [doing]
+## R-322 门禁强度分档与模型停机权 [awaiting_external]
 - 原始描述: 外部评估七点反馈中的 #1 Harness Tax、#4 模式区分不够明显、#7 双控制器问题。用户定调：控制权交给模型；结伴接近 Claude Code 的高自治，自主推进保留重门禁；决策点要呈现给用户
 - 复杂度: 大
 - 标签: 核心
@@ -256,11 +262,12 @@
 - 先行调研: .kanzei/research/r322-prior-art/prior-art.md
 - 优先级: P1
 - 批次: 3/4
-- 进展: B1(4f0f46a0)+B2(7523e6a4)+B3(a032aa49) 已落地并发版:build-32513251(2026-08-21),full verify 全绿,证据 dist/verification.json 绑定 32513251,main 已 ff 到 32513251 并推送。B3 按用户定调把结伴档 loop 的停止规则改成目标条件驱动(参照 Claude Code /goal):条件由用户写、达成与否由模型判(work handoff)、引擎只负责达成前不散场且不发明工作;挂目标后 backlog 与 NoAction 都不再停机,兜底=GOAL_IDLE_ROUND_LIMIT+D-583 零产出熔断。剩余 B4=真机端到端验收(目标条件 loop 需跑一次真实会话看回显与自动清除)
-- observed_head: 32513251d54e6dd311f08c44fac6df2adfa8454b
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787283272605
-- 停车: 排队:原停车前提 D-568 改排缺陷队列;排在 R-101 之后恢复 B4 真机端到端验收(目标条件 loop 跑一次真实会话看回显与自动清除);恢复人:agent;解除条件:R-101
+- 进展: B1(4f0f46a0)+B2(7523e6a4)+B3(a032aa49) 已落地并发版:build-32513251(2026-08-21),full verify 全绿,证据 dist/verification.json 绑定 32513251,main 已 ff 到 32513251 并推送。B3 按用户定调把结伴档 loop 的停止规则改成目标条件驱动(参照 Claude Code /goal):条件由用户写、达成与否由模型判(work handoff)、引擎只负责达成前不散场且不发明工作;挂目标后 backlog 与 NoAction 都不再停机,兜底=GOAL_IDLE_ROUND_LIMIT+D-583 零产出熔断。剩余 B4=真机端到端验收(目标条件 loop 需跑一次真实会话看回显与自动清除)。 2026-10-04 清单复核：原停车记录为排在 R-101 后恢复 B4；当前代码与发布验证已完成，剩余只有真实设备/安装版会话观察，故转为 awaiting_external 并清除队列停车，不占开发名额。
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:92c7228bb0086680
+- recorded_at: 1791060855127
+- 停车: 
+- 外部验收: 在用户提供的真实安装版/运行设备会话中启动一次目标条件驱动的结伴 loop，核对模型声明达成前不散场、目标完成回显及自动清除；保存可复核的会话/设备证据。代码及既有完整验证见 build-32513251，现场验收尚未通过。
 
 ## R-323 工具编排抽象层：模型声明执行计划 [doing]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排
@@ -460,10 +467,10 @@
 - 验收: ①.kanzei/agents/*.md 中 mode: subagent 的 agent 出现在 task 枚举,人格缺省模型生效;②background:true 只后台化该次调用,完成通知进入主对话(运行中排队、空闲开新一轮),可单条停止;③isolation:"worktree" 时主树零改动,子代理内 git 写动作与 .kanzei 托管写入被硬拒,合并经 merge_task 与常规 commit 门禁;④resume 可续已结束的任务且跨重启可用,未知或运行中的 id 返回稳定 code;⑤子代理仍不能嵌套,CLI 与 readonly 档的 schema 不出现 background/isolation
 - refs: R-175 R-176 R-281 R-327 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P1
-- 进展: 2026-09-28 自举审计确认：普通 task 已可并行只读勘察，当时并非可写委派；p20 同轮两个 task 实际并行，但 collaboration_status 未纳入 task 注册表、21 次为空。计划衔接统一活动快照，在派发/整合/暂存边界检查冲突，可写任务按 worktree 隔离。历史前置 D-772/D-774/D-773 与阅读器验证见 docs/reports/2026-09-28-bootstrap-stall-and-subagents.md；当时仅核查设计、批次 0/3。 2026-10-02：当前 task 团队已有持久 ID、消息、等待/停止、继续/重启、独立可写工作树、diff/adopt；本次修复 Markdown persona/步数丢失，协作快照纳入 children，并按子任务身份隔离读取收据。使用统一 task 命令接口，原规格的 merge_task 参数方案未作为第二套接口实现；重启中断不自动重放。局部测试通过，完整发布门禁通过。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 2026-10-04 清单收口 checkpoint：已根据报告和当前源码尝试完成原验收①-⑤对账，但 tracker 拒绝关单：存量 observed_head=21c36e9d3a332ebb10a1e0d841887713d9911571 不在当前 HEAD 祖先链；状态未关闭、未归档，本轮未更改源码。工作树已有与本批无关的基线脏文件，未暂存/提交。下一步在当前 dev HEAD 对 task 名册/后台通知/worktree 隔离/续聊/schema 逐条重核并补当前提交的定向验证，再更新这条记录并重试关闭；不得把旧 release 报告直接当作当前 HEAD 验收。
+- 进展: 2026-09-28 自举审计确认：普通 task 已可并行只读勘察，当时并非可写委派；p20 同轮两个 task 实际并行，但 collaboration_status 未纳入 task 注册表、21 次为空。计划衔接统一活动快照，在派发/整合/暂存边界检查冲突，可写任务按 worktree 隔离。历史前置 D-772/D-774/D-773 与阅读器验证见 docs/reports/2026-09-28-bootstrap-stall-and-subagents.md；当时仅核查设计、批次 0/3。 2026-10-02：当前 task 团队已有持久 ID、消息、等待/停止、继续/重启、独立可写工作树、diff/adopt；本次修复 Markdown persona/步数丢失，协作快照纳入 children，并按子任务身份隔离读取收据。使用统一 task 命令接口，原规格的 merge_task 参数方案未作为第二套接口实现；重启中断不自动重放。局部测试通过，完整发布门禁通过。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 2026-10-04 清单收口 checkpoint：已根据报告和当前源码尝试完成原验收①-⑤对账，但 tracker 拒绝关单：存量 observed_head=21c36e9d3a332ebb10a1e0d841887713d9911571 不在当前 HEAD 祖先链；状态未关闭、未归档，本轮未更改源码。工作树已有与本批无关的基线脏文件，未暂存/提交。下一步在当前 dev HEAD 对 task 名册/后台通知/worktree 隔离/续聊/schema 逐条重核并补当前提交的定向验证，再更新这条记录并重试关闭；不得把旧 release 报告直接当作当前 HEAD 验收。 2026-10-04 当前 HEAD 定向复核（commit 501af237）：首次误用 `cargo test -p kanzei --test background_subagent_dispatch`，失败原因为该包仅有 `integration` target（T-1786922727144）；改用 `cargo test -p kanzei --test integration background_subagent_dispatch` 后 5 passed（T-1786922727145）；`cargo test -p kanzei-tools --lib team::tests` 37 passed/2 ignored（T-1786922727146）。当前代码证据：自定义 agent roster/model fallback 与后台、续聊、worktree/adopt 在 `crates/kanzei-tools/src/team/mod.rs:678-803,1280-1310,1566-1600`，主要生命周期/持久化/通知/隔离回归在 `crates/kanzei-tools/src/team/tests.rs`。但原验收⑤仍未通过：`crates/kanzei-app/src/run/coordinator.rs:300-321` 将 `AgentTeam` host 注入 subagent runtime，而 `team/mod.rs:1586-1594` 暴露包含 spawn/background 的 `task` schema；本轮未能证明子代理不能嵌套以及 readonly/CLI schema 不出现该参数。因此 R-369 继续 todo，不归档；不改源码。下一步需单独核实/修复嵌套委派与非 Dev/CLI schema，再补针对测试并重试关单。
 - observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
 - observed_worktree_hash: fnv1a64:92c7228bb0086680
-- recorded_at: 1791060530224
+- recorded_at: 1791061187859
 
 ## R-370 定时任务:一个概念一个面板,触发器到固定流程到可选回写,触发位置可选 app/system/server [awaiting_external]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.10;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §6。B1 定义格式(.kanzei/schedules/*.md,人话频率)、应用内调度器、独立会话执行;B2 回写通道(notify、memory_inbox、file、idea);B3 任务面板与表单;B4 错过补跑、历史、连续失败自动停用;B5 host=system(kz schedule run 与 Windows 任务计划程序);B6 host=server(登记服务器上的 cron、SSH 拉回、本地补做回写)。
