@@ -1,6 +1,10 @@
 # 通用系统并行审查与修复计划
 
-## 起点与目标
+## 当前执行状态（第五轮整合）
+
+全文审查 **132/514**，余 **382**；base、harness完成，其余五层继续。16包已合入，17项当前Windows统一验证通过。四工作树复用，三个Sol子代理，Cargo单运行者；下一队列B5 → A7 → C7，M7先真实探针。只本地提交/sync main-dev，不push/发版。完整结果见[第五轮整合记录](parallel-round-5.md)、[证书](parallel-round-5-verification.json)、[公共队列](parallel-queue.json)。下方起点与第一轮分工保留为历史，当前进度以本段/coverage为准。
+
+## 初始起点与目标（历史）
 
 代码基线：`0d0875ab`。main/dev 均已同步此提交；当前只有一个工作树。验证基线：Rust 2231 passed / 0 failed / 5 ignored，Clippy、格式、UI 运行时与浏览器回归通过。
 

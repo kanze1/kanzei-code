@@ -125,3 +125,10 @@ flowchart TD
 - owner 收口：配置文件路径锁 → 文档读改写/最终模型校验 → 原子提交；规则原项目与完整 tuple → 删除 IPC/权限事件 → UI 操作；typed 持久接受结果 → 同步 receipt → drive 后续工具/模型请求。
 - 下一条链：C4 跨进程 session 执行 owner → CLI/desktop 恢复和输入收尾；D2 复用该 primitive → team worker 的恢复/准入/释放；A4 UI 偏好与 pane 状态 owner → M4 会话调用方和入口服务。
 - B3 已用同 executable、不同受支持 profile 的真实双进程证实 team 错误恢复及第二模型请求准入，见 [原生观察](parallel/B3-native.md)。这条 P1 正由 D2 修复，未计入本轮已修复结果。新包尚未合入，不计入 95 文件。
+
+## Sol 并行第五轮与最新进度
+
+- 本轮16个审查包与补充验证已整合，Windows全工作区 **2427 passed / 0 failed / 7 ignored**，17项统一检查通过；新增app/CLI实际构建、双profile owner、11项偏好/导出、7项启动和完整UI/浏览器均有本次源证据。见[第五轮整合记录](parallel-round-5.md)。
+- 全文累计 **132/514**，本轮新增 **37**，剩余 **382**。base与harness两层全文完成；五层仍有未审支线，A家专属仍暂缓。必要切片与未验证准备不计全文。
+- 底层owner/ACK/原子结果 → DocStore/prefs原文真源与导出目录owner → 后台真实收尾 → 会话/workspace UI原身份，完整合同见本轮记录和逐包map。
+- 后续A7/B5/C7/M7已准备，实际验证队列root统一 → B5 → A7 → C7；四工作树持续复用，一个Cargo runner，无push/release。

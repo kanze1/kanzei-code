@@ -1,15 +1,14 @@
 {
   "package": "M4",
-  "status": "ui_verified_pending_native_integration",
+  "status": "root_combined_verified_leaf_history_retained",
   "repository_review_complete": false,
   "baseline": "aff48f96",
   "integrated_C4": "33664fd0",
   "full_files": [
-    "crates/kanzei-app/ui/09-sessions.js"
-  ],
-  "read_fully_pending_dependency_fix": [
+    "crates/kanzei-app/ui/09-sessions.js",
     "crates/kanzei-app/src/main.rs"
   ],
+  "read_fully_pending_dependency_fix": [],
   "slice_files": [
     "crates/kanzei-app/ui/12-workbench.js"
   ],
@@ -206,5 +205,20 @@
     "physical_phone_LAN": false,
     "push": false,
     "release": false
+  },
+  "leaf_status_original": "ui_verified_pending_native_integration",
+  "boundaries_scope": "original leaf; current combined evidence is root_closure",
+  "root_closure": {
+    "report": "parallel-round-5.md",
+    "certificate": "parallel-round-5-verification.json",
+    "source_commit": "0e0b24f86ea3960314dbf884a5ce6a21dd8ba27c",
+    "root_checks": 17,
+    "A5_scheduler_fix_integrated": true,
+    "main_source_unchanged_from_full_read": true,
+    "source_sha256_lf": {
+      "crates/kanzei-app/ui/09-sessions.js": "8f0d4329051b81d8a3f62100df41cd8518bfe2352e5be7491cbe663da9dd6191",
+      "crates/kanzei-app/src/main.rs": "9ea0056c16f55bced30d9182c7b3d0ab58b1552cba802091d5826c4585a93af0",
+      "crates/kanzei-app/ui/12-workbench.js": "f6e749313e90d0a4a714ee51d4f891c2207b433d3733763b08476f097de4167e"
+    }
   }
 }

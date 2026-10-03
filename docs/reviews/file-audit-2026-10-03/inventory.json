@@ -1,5 +1,5 @@
 {
-  "baseline": "b298329218d32ec8b4ab405a0a89fc423bbf367c",
+  "baseline": "0e0b24f86ea3960314dbf884a5ce6a21dd8ba27c",
   "method": "Lexical source inventory, including cfg/test branches. Not a resolved call graph. Review judgments live only in report.md.",
   "packages": [
     {
@@ -416,7 +416,7 @@
     },
     {
       "file": "crates/kanzei/src/cli/run/finalize.rs",
-      "lines": 508,
+      "lines": 579,
       "modules": [],
       "imports": [
         "std::path::Path",
@@ -439,8 +439,13 @@
         },
         {
           "kind": "fn",
-          "name": "finish_run",
+          "name": "finish_typed_checked",
           "line": 69
+        },
+        {
+          "kind": "fn",
+          "name": "finish_run",
+          "line": 87
         }
       ]
     },
@@ -462,7 +467,7 @@
     },
     {
       "file": "crates/kanzei/src/cli/run.rs",
-      "lines": 475,
+      "lines": 532,
       "modules": [
         "events",
         "finalize",
@@ -483,12 +488,12 @@
         {
           "kind": "fn",
           "name": "recover_cli_prior",
-          "line": 101
+          "line": 140
         },
         {
           "kind": "fn",
           "name": "run_cli",
-          "line": 135
+          "line": 174
         }
       ]
     },
@@ -787,7 +792,7 @@
     },
     {
       "file": "crates/kanzei/tests/integration/main.rs",
-      "lines": 34,
+      "lines": 35,
       "modules": [
         "agent_step_budget",
         "common",
@@ -806,6 +811,7 @@
         "max_tasks_parallel_dispatch",
         "memory_hints_not_persisted",
         "parallel_scouting_under_serial_writer",
+        "session_execution_owner",
         "task_cancel_parallel",
         "worktree_main_root"
       ],
@@ -856,6 +862,23 @@
         "serde_json::json",
         "tokio::io::{AsyncReadExt, AsyncWriteExt}",
         "tokio::net::TcpListener"
+      ],
+      "public_api": []
+    },
+    {
+      "file": "crates/kanzei/tests/integration/session_execution_owner.rs",
+      "lines": 393,
+      "modules": [],
+      "imports": [
+        "std::path::Path",
+        "std::process::{Output, Stdio}",
+        "std::time::Duration",
+        "kanzei_core::{Delivery, SessionFact, SessionStore}",
+        "serde_json::{json, Value}",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "tokio::net::{TcpListener, TcpStream}",
+        "tokio::process::{Child, Command}",
+        "super::common::TestHome"
       ],
       "public_api": []
     },
@@ -1259,7 +1282,7 @@
     },
     {
       "file": "crates/kanzei-app/src/commands/os_open.rs",
-      "lines": 979,
+      "lines": 1023,
       "modules": [],
       "imports": [
         "std::collections::HashSet",
@@ -1267,10 +1290,12 @@
         "std::path::{Path, PathBuf}",
         "std::process::{Command, Stdio}",
         "serde_json::{json, Value}",
-        "crate::prefs::{load_prefs, save_prefs, write_guard, OpenToolConfig}",
+        "crate::prefs::{load_prefs, load_prefs_for_write, save_prefs, write_guard, OpenToolConfig}",
         "crate::state::{default_process_id, AppState}",
         "crate::{normalized_project_root, MutexPoisonExt}",
         "std::os::windows::process::CommandExt",
+        "super::*",
+        "crate::prefs::failure_tests::{\n        assert_rejected_unchanged, damaged_inputs, fixture, with_home,\n    }",
         "super::*",
         "std::sync::atomic::AtomicBool",
         "std::sync::Arc",
@@ -1448,7 +1473,7 @@
     },
     {
       "file": "crates/kanzei-app/src/commands/run.rs",
-      "lines": 1423,
+      "lines": 1488,
       "modules": [
         "tool_process",
         "handoff",
@@ -1475,93 +1500,103 @@
       "public_api": [
         {
           "kind": "fn",
+          "name": "finish_failed_promoted_input",
+          "line": 38
+        },
+        {
+          "kind": "fn",
+          "name": "run_error_idle_reason",
+          "line": 50
+        },
+        {
+          "kind": "fn",
           "name": "pending_asks_get",
-          "line": 42
+          "line": 65
         },
         {
           "kind": "fn",
           "name": "persist_always_allow",
-          "line": 62
+          "line": 85
         },
         {
           "kind": "fn",
           "name": "permission_rule_add",
-          "line": 78
+          "line": 101
         },
         {
           "kind": "fn",
           "name": "answer_ask",
-          "line": 91
+          "line": 114
         },
         {
           "kind": "fn",
           "name": "stop_run",
-          "line": 166
+          "line": 189
         },
         {
           "kind": "fn",
           "name": "stop_task",
-          "line": 267
+          "line": 290
         },
         {
           "kind": "fn",
           "name": "run_prompt",
-          "line": 301
+          "line": 324
         },
         {
           "kind": "struct",
           "name": "RunOptions",
-          "line": 394
+          "line": 417
         },
         {
           "kind": "enum",
           "name": "Submission",
-          "line": 406
-        },
-        {
-          "kind": "fn",
-          "name": "schedule_run",
           "line": 429
         },
         {
           "kind": "fn",
+          "name": "schedule_run",
+          "line": 452
+        },
+        {
+          "kind": "fn",
           "name": "run_metrics",
-          "line": 829
+          "line": 876
         },
         {
           "kind": "fn",
           "name": "run_metrics_by_task",
-          "line": 879
+          "line": 926
         },
         {
           "kind": "fn",
           "name": "extract_ticket_id",
-          "line": 894
+          "line": 941
         },
         {
           "kind": "fn",
           "name": "ticket_complexity",
-          "line": 919
+          "line": 966
         },
         {
           "kind": "fn",
           "name": "aggregate_run_metrics",
-          "line": 945
+          "line": 992
         },
         {
           "kind": "fn",
           "name": "run_metrics_by_category",
-          "line": 1004
+          "line": 1051
         },
         {
           "kind": "fn",
           "name": "resolve_delivered_path",
-          "line": 1375
+          "line": 1440
         },
         {
           "kind": "fn",
           "name": "open_delivered_path",
-          "line": 1398
+          "line": 1463
         }
       ]
     },
@@ -3262,13 +3297,16 @@
     },
     {
       "file": "crates/kanzei-app/src/prefs.rs",
-      "lines": 748,
+      "lines": 1093,
       "modules": [],
       "imports": [
         "serde::{Deserialize, Serialize}",
         "serde_json::{json, Value}",
         "std::collections::HashMap",
         "std::path::PathBuf",
+        "super::*",
+        "std::path::Path",
+        "super::*",
         "super::*",
         "super::*"
       ],
@@ -3290,53 +3328,78 @@
         },
         {
           "kind": "fn",
+          "name": "load_prefs_for_write",
+          "line": 75
+        },
+        {
+          "kind": "fn",
           "name": "simplify_pref_keys",
-          "line": 84
+          "line": 95
         },
         {
           "kind": "fn",
           "name": "same_project_path",
-          "line": 115
+          "line": 126
         },
         {
           "kind": "fn",
           "name": "purge_process_prefs",
-          "line": 195
+          "line": 206
         },
         {
           "kind": "fn",
           "name": "purge_project_prefs",
-          "line": 211
+          "line": 222
         },
         {
           "kind": "fn",
           "name": "write_guard",
-          "line": 238
+          "line": 249
         },
         {
           "kind": "fn",
           "name": "save_prefs",
-          "line": 241
+          "line": 252
         },
         {
           "kind": "fn",
           "name": "merge_ui_layout",
-          "line": 290
+          "line": 301
         },
         {
           "kind": "const",
           "name": "BACKDROP_MAX_BYTES",
-          "line": 341
+          "line": 352
         },
         {
           "kind": "fn",
           "name": "ui_prefs_get",
-          "line": 365
+          "line": 376
         },
         {
           "kind": "fn",
           "name": "ui_prefs_set",
-          "line": 384
+          "line": 440
+        },
+        {
+          "kind": "fn",
+          "name": "with_home",
+          "line": 474
+        },
+        {
+          "kind": "fn",
+          "name": "fixture",
+          "line": 491
+        },
+        {
+          "kind": "fn",
+          "name": "damaged_inputs",
+          "line": 506
+        },
+        {
+          "kind": "fn",
+          "name": "assert_rejected_unchanged",
+          "line": 521
         }
       ]
     },
@@ -4291,7 +4354,7 @@
     },
     {
       "file": "crates/kanzei-app/src/processes/lifecycle.rs",
-      "lines": 1435,
+      "lines": 1484,
       "modules": [],
       "imports": [
         "std::path::{Path, PathBuf}",
@@ -4305,6 +4368,8 @@
         "super::naming::{\n    clean_user_title, load_naming, open_naming_store, order_key, process_ordinal, ProcessKind,\n}",
         "super::registry::{\n    bound_error, bound_thread_for_worktree, mark_project_restored, persist_process,\n    register_process, restore_processes_from_store_once, ThreadSettings,\n}",
         "super::workspace::reclaim_worktree_on_close",
+        "super::*",
+        "crate::prefs::failure_tests::{\n        assert_rejected_unchanged, damaged_inputs, fixture, with_home,\n    }",
         "super::*",
         "std::sync::atomic::AtomicBool",
         "std::sync::{Arc, Mutex}"
@@ -4695,11 +4760,11 @@
     },
     {
       "file": "crates/kanzei-app/src/projects.rs",
-      "lines": 1022,
+      "lines": 1269,
       "modules": [],
       "imports": [
         "crate::normalized_project_root",
-        "crate::prefs::{load_prefs, save_prefs, AppPrefs}",
+        "crate::prefs::{load_prefs, load_prefs_for_write, save_prefs, AppPrefs}",
         "serde::Deserialize",
         "serde_json::json",
         "std::path::{Path, PathBuf}",
@@ -4707,7 +4772,13 @@
         "crate::processes::naming::order_key",
         "std::sync::atomic::Ordering",
         "super::*",
+        "crate::prefs::failure_tests::{\n        assert_rejected_unchanged, damaged_inputs, fixture, with_home,\n    }",
+        "super::*",
         "std::time::{SystemTime, UNIX_EPOCH}",
+        "super::*",
+        "crate::prefs::failure_tests::with_home",
+        "std::collections::HashSet",
+        "std::sync::{Arc, Barrier}",
         "super::*",
         "std::collections::HashMap",
         "std::sync::atomic::Ordering"
@@ -4791,47 +4862,47 @@
         {
           "kind": "struct",
           "name": "ExportOptions",
-          "line": 459
+          "line": 460
         },
         {
           "kind": "fn",
           "name": "export_project_data",
-          "line": 522
+          "line": 548
         },
         {
           "kind": "fn",
           "name": "running_conversation_names",
-          "line": 582
+          "line": 607
         },
         {
           "kind": "fn",
           "name": "projects_remove",
-          "line": 618
+          "line": 643
         },
         {
           "kind": "fn",
           "name": "reorder_projects",
-          "line": 644
+          "line": 669
         },
         {
           "kind": "fn",
           "name": "projects_reorder",
-          "line": 665
+          "line": 690
         },
         {
           "kind": "fn",
           "name": "projects_select",
-          "line": 676
+          "line": 701
         },
         {
           "kind": "fn",
           "name": "base_name_for_snapshot",
-          "line": 686
+          "line": 711
         },
         {
           "kind": "fn",
           "name": "workspace_snapshot",
-          "line": 823
+          "line": 925
         }
       ]
     },
@@ -5038,7 +5109,7 @@
     },
     {
       "file": "crates/kanzei-app/src/run/assembly.rs",
-      "lines": 1040,
+      "lines": 1880,
       "modules": [
         "components"
       ],
@@ -5056,6 +5127,10 @@
         "crate::{\n    prompt_attachment_parts, typed_events, with_session_id, LiveRun, PendingAsk, PromptAttachment,\n}",
         "components::{DiscussionBoundary, TrackerWritePolicyComponent}",
         "kanzei_harness::orchestration::PhaseObserver",
+        "super::*",
+        "std::sync::atomic::{AtomicUsize, Ordering}",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "kanzei_harness::orchestration::WriterLeaseRequest",
         "super::{append_dev_guidance, build_run_harness}",
         "kanzei_harness::ProfileKind",
         "super::is_parallel_process_id"
@@ -5069,112 +5144,112 @@
         {
           "kind": "struct",
           "name": "RunMode",
-          "line": 58
+          "line": 59
         },
         {
           "kind": "fn",
           "name": "uses_phase_pipeline",
-          "line": 86
+          "line": 87
         },
         {
           "kind": "fn",
           "name": "runs_on_parallel_line",
-          "line": 95
+          "line": 96
         },
         {
           "kind": "fn",
           "name": "is_parallel_process_id",
-          "line": 104
+          "line": 105
         },
         {
           "kind": "struct",
           "name": "RuntimeHandles",
-          "line": 116
+          "line": 117
         },
         {
           "kind": "struct",
           "name": "RuntimeDeps",
-          "line": 144
+          "line": 146
         },
         {
           "kind": "struct",
           "name": "SessionContext",
-          "line": 160
+          "line": 162
         },
         {
           "kind": "struct",
           "name": "RoundContext",
-          "line": 171
+          "line": 173
         },
         {
           "kind": "struct",
           "name": "RunAssembly",
-          "line": 184
+          "line": 186
         },
         {
           "kind": "fn",
           "name": "assemble_run",
-          "line": 198
+          "line": 200
         },
         {
           "kind": "struct",
           "name": "WriterLeaseTrace",
-          "line": 649
+          "line": 797
         },
         {
           "kind": "fn",
           "name": "new",
-          "line": 660
+          "line": 808
         },
         {
           "kind": "fn",
           "name": "mark_released",
-          "line": 678
+          "line": 826
         },
         {
           "kind": "fn",
           "name": "new_llm_client",
-          "line": 701
+          "line": 849
         },
         {
           "kind": "fn",
           "name": "auth_stage_detail",
-          "line": 707
+          "line": 855
         },
         {
           "kind": "fn",
           "name": "resolve_proxy",
-          "line": 720
+          "line": 868
         },
         {
           "kind": "fn",
           "name": "append_dev_guidance",
-          "line": 730
+          "line": 878
         },
         {
           "kind": "fn",
           "name": "run_meta_payload",
-          "line": 752
+          "line": 900
         },
         {
           "kind": "fn",
           "name": "build_run_harness",
-          "line": 767
+          "line": 915
         },
         {
           "kind": "fn",
           "name": "resolve_profile",
-          "line": 798
+          "line": 946
         },
         {
           "kind": "fn",
           "name": "normalize_work_priority",
-          "line": 809
+          "line": 957
         },
         {
           "kind": "fn",
           "name": "report_config_warnings",
-          "line": 816
+          "line": 964
         }
       ]
     },
@@ -5231,7 +5306,7 @@
     },
     {
       "file": "crates/kanzei-app/src/run/coordinator.rs",
-      "lines": 744,
+      "lines": 763,
       "modules": [],
       "imports": [
         "std::collections::HashMap",
@@ -5251,8 +5326,13 @@
       "public_api": [
         {
           "kind": "fn",
+          "name": "should_retry_failed_outcome",
+          "line": 33
+        },
+        {
+          "kind": "fn",
           "name": "run_task",
-          "line": 38
+          "line": 45
         }
       ]
     },
@@ -5495,7 +5575,7 @@
     },
     {
       "file": "crates/kanzei-app/src/run/persistence.rs",
-      "lines": 1169,
+      "lines": 2131,
       "modules": [],
       "imports": [
         "std::collections::HashMap",
@@ -5506,7 +5586,9 @@
         "super::assembly::{RuntimeDeps, RuntimeHandles, WriterLeaseTrace}",
         "super::{append_run_notification, compaction_input_tokens, report_persistence_failure}",
         "super::*",
-        "serde_json::json"
+        "serde_json::json",
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "kanzei_core::RunEvent"
       ],
       "public_api": [
         {
@@ -5531,13 +5613,43 @@
         },
         {
           "kind": "fn",
+          "name": "uncommitted_outcome",
+          "line": 133
+        },
+        {
+          "kind": "fn",
+          "name": "is_uncommitted_outcome",
+          "line": 138
+        },
+        {
+          "kind": "fn",
+          "name": "stopped_outcome",
+          "line": 151
+        },
+        {
+          "kind": "fn",
+          "name": "is_stopped_outcome",
+          "line": 156
+        },
+        {
+          "kind": "struct",
+          "name": "PersistedRoundOutcome",
+          "line": 160
+        },
+        {
+          "kind": "fn",
           "name": "persist_round_outcome",
-          "line": 121
+          "line": 168
+        },
+        {
+          "kind": "fn",
+          "name": "commit_outcome",
+          "line": 236
         },
         {
           "kind": "fn",
           "name": "finalize_round",
-          "line": 452
+          "line": 570
         }
       ]
     },
@@ -5738,7 +5850,7 @@
     },
     {
       "file": "crates/kanzei-app/src/schedules.rs",
-      "lines": 316,
+      "lines": 417,
       "modules": [],
       "imports": [
         "kanzei_tools::schedules::{self as shared, ScheduleDef}",
@@ -5751,12 +5863,12 @@
         {
           "kind": "fn",
           "name": "scheduler",
-          "line": 55
+          "line": 69
         },
         {
           "kind": "fn",
           "name": "schedule_action",
-          "line": 127
+          "line": 143
         }
       ]
     },
@@ -6364,7 +6476,7 @@
     },
     {
       "file": "crates/kanzei-app/src/typed_events.rs",
-      "lines": 114,
+      "lines": 113,
       "modules": [],
       "imports": [
         "super::*",
@@ -6739,7 +6851,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/01-core.js",
-      "lines": 901,
+      "lines": 977,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -6760,7 +6872,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/03-layout.js",
-      "lines": 185,
+      "lines": 194,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -6781,14 +6893,14 @@
     },
     {
       "file": "crates/kanzei-app/ui/03-shell.js",
-      "lines": 1257,
+      "lines": 1266,
       "modules": [],
       "imports": [],
       "public_api": []
     },
     {
       "file": "crates/kanzei-app/ui/03-workspaces.js",
-      "lines": 276,
+      "lines": 298,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -6942,7 +7054,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/09-sessions.js",
-      "lines": 1638,
+      "lines": 1678,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -7264,7 +7376,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/24-schedules.js",
-      "lines": 103,
+      "lines": 117,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -10212,10 +10324,10 @@
     },
     {
       "file": "crates/kanzei-core/src/store/inbox.rs",
-      "lines": 838,
+      "lines": 874,
       "modules": [],
       "imports": [
-        "rusqlite::{params, OptionalExtension, Transaction}",
+        "rusqlite::{params, Connection, OptionalExtension, Transaction}",
         "super::events::append_event_tx",
         "super::{now_ms, AdmittedInput, Delivery, SessionStore, StoreError}",
         "crate::store::testutil::store",
@@ -10295,27 +10407,37 @@
         {
           "kind": "fn",
           "name": "input_status",
-          "line": 249
+          "line": 244
         },
         {
           "kind": "fn",
           "name": "cancel_pending_inputs",
-          "line": 259
+          "line": 254
         },
         {
           "kind": "fn",
           "name": "promote_steers",
-          "line": 267
+          "line": 262
         },
         {
           "kind": "fn",
           "name": "promote_next_queue",
-          "line": 271
+          "line": 266
         },
         {
           "kind": "fn",
           "name": "promote_next_input",
-          "line": 290
+          "line": 285
+        },
+        {
+          "kind": "fn",
+          "name": "fail_orphaned_execution_inputs_tx",
+          "line": 332
+        },
+        {
+          "kind": "fn",
+          "name": "finish_input_in",
+          "line": 404
         }
       ]
     },
@@ -10409,7 +10531,7 @@
     },
     {
       "file": "crates/kanzei-core/src/store/mod.rs",
-      "lines": 425,
+      "lines": 426,
       "modules": [
         "artifact_liveness",
         "decisions",
@@ -10418,6 +10540,7 @@
         "eval",
         "events",
         "rewind",
+        "session_execution",
         "file_checkpoints",
         "inbox",
         "memory_observations",
@@ -10561,7 +10684,7 @@
         {
           "kind": "struct",
           "name": "SessionStore",
-          "line": 408
+          "line": 409
         }
       ]
     },
@@ -10852,7 +10975,7 @@
     },
     {
       "file": "crates/kanzei-core/src/store/session.rs",
-      "lines": 1838,
+      "lines": 1847,
       "modules": [
         "artifact_refs"
       ],
@@ -10913,82 +11036,132 @@
         {
           "kind": "fn",
           "name": "maintain_housekeeping",
-          "line": 174
+          "line": 167
         },
         {
           "kind": "fn",
           "name": "backup_before_upgrade",
-          "line": 274
+          "line": 267
         },
         {
           "kind": "fn",
           "name": "backup_path",
-          "line": 296
+          "line": 289
         },
         {
           "kind": "fn",
           "name": "recover_legacy_input_status",
-          "line": 314
+          "line": 307
         },
         {
           "kind": "fn",
           "name": "legacy_inputs_recovered",
-          "line": 378
+          "line": 371
         },
         {
           "kind": "fn",
           "name": "open_read_only",
-          "line": 394
+          "line": 387
         },
         {
           "kind": "fn",
           "name": "storage_cleanup_plan",
-          "line": 407
+          "line": 400
         },
         {
           "kind": "fn",
           "name": "cleanup_storage",
-          "line": 441
+          "line": 434
         },
         {
           "kind": "fn",
           "name": "storage_report",
-          "line": 522
+          "line": 515
         },
         {
           "kind": "fn",
           "name": "artifact_cleanup_plan",
-          "line": 577
+          "line": 570
         },
         {
           "kind": "fn",
           "name": "session_deletion_plan",
-          "line": 626
+          "line": 619
         },
         {
           "kind": "fn",
           "name": "delete_session",
-          "line": 751
+          "line": 744
         },
         {
           "kind": "fn",
           "name": "purge_session",
-          "line": 761
+          "line": 754
         },
         {
           "kind": "fn",
           "name": "project_state_path",
-          "line": 1136
+          "line": 1129
         },
         {
           "kind": "fn",
           "name": "project_session_id",
-          "line": 1140
+          "line": 1133
         },
         {
           "kind": "fn",
           "name": "session_identity",
+          "line": 1154
+        },
+        {
+          "kind": "fn",
+          "name": "set_status_in",
           "line": 1161
+        }
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/store/session_execution.rs",
+      "lines": 392,
+      "modules": [],
+      "imports": [
+        "std::io",
+        "std::path::{Path, PathBuf}",
+        "std::sync::{mpsc, Arc}",
+        "std::thread::JoinHandle",
+        "std::time::Duration",
+        "kanzei_base::atomic_file::{self, FileLock}",
+        "sha2::{Digest, Sha256}",
+        "super::{SessionFactError, SessionStore, StoreError, TypedSessionWriter}",
+        "super::*",
+        "crate::{Delivery, SessionFact, SessionTurnTerminal}",
+        "kanzei_llm::Message"
+      ],
+      "public_api": [
+        {
+          "kind": "struct",
+          "name": "SessionExecutionGuard",
+          "line": 49
+        },
+        {
+          "kind": "fn",
+          "name": "try_acquire",
+          "line": 59
+        },
+        {
+          "kind": "fn",
+          "name": "prepare",
+          "line": 98
+        },
+        {
+          "kind": "fn",
+          "name": "writer",
+          "line": 121
+        },
+        {
+          "kind": "fn",
+          "name": "lock_recovery",
+          "line": 141
         }
       ]
     },
@@ -11299,7 +11472,7 @@
     },
     {
       "file": "crates/kanzei-core/src/store/typed.rs",
-      "lines": 3237,
+      "lines": 3596,
       "modules": [
         "projection"
       ],
@@ -11308,7 +11481,7 @@
         "std::path::{Path, PathBuf}",
         "std::time::{Duration, Instant}",
         "kanzei_llm::{Message, Part, Role}",
-        "rusqlite::{params, OptionalExtension, Transaction}",
+        "rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior}",
         "serde::{Deserialize, Serialize}",
         "sha2::{Digest, Sha256}",
         "super::events::{append_event_tx, event_from_row}",
@@ -11491,98 +11664,113 @@
         },
         {
           "kind": "fn",
+          "name": "recover_interrupted_session_facts_owned",
+          "line": 850
+        },
+        {
+          "kind": "fn",
           "name": "recover_subagent_transcript",
-          "line": 889
+          "line": 898
         },
         {
           "kind": "struct",
           "name": "RecoveryReport",
-          "line": 913
+          "line": 922
         },
         {
           "kind": "fn",
           "name": "prepare_typed_session",
-          "line": 924
+          "line": 933
         },
         {
           "kind": "struct",
           "name": "TypedSessionWriter",
-          "line": 976
+          "line": 986
         },
         {
           "kind": "fn",
           "name": "new",
-          "line": 990
+          "line": 1001
+        },
+        {
+          "kind": "fn",
+          "name": "with_execution_owner",
+          "line": 1016
         },
         {
           "kind": "fn",
           "name": "user_message",
-          "line": 1024
+          "line": 1047
         },
         {
           "kind": "fn",
           "name": "steering_message",
-          "line": 1035
+          "line": 1057
         },
         {
           "kind": "fn",
           "name": "turn_started",
-          "line": 1049
+          "line": 1071
         },
         {
           "kind": "fn",
           "name": "push_text",
-          "line": 1063
+          "line": 1085
         },
         {
           "kind": "fn",
           "name": "flush_due",
-          "line": 1099
+          "line": 1121
         },
         {
           "kind": "fn",
           "name": "is_terminal",
-          "line": 1107
+          "line": 1129
         },
         {
           "kind": "fn",
           "name": "stream_restarted",
-          "line": 1111
+          "line": 1133
         },
         {
           "kind": "fn",
           "name": "assistant_committed",
-          "line": 1137
+          "line": 1159
         },
         {
           "kind": "fn",
           "name": "tool_results_committed",
-          "line": 1183
+          "line": 1205
         },
         {
           "kind": "fn",
           "name": "finish",
-          "line": 1225
+          "line": 1247
+        },
+        {
+          "kind": "fn",
+          "name": "finish_with_input_outcome",
+          "line": 1261
         },
         {
           "kind": "fn",
           "name": "write_shadow_report",
-          "line": 1266
+          "line": 1368
         },
         {
           "kind": "fn",
           "name": "commit_work_context_surface",
-          "line": 1302
+          "line": 1404
         },
         {
           "kind": "fn",
           "name": "errors",
-          "line": 1349
+          "line": 1451
         },
         {
           "kind": "fn",
           "name": "record_error",
-          "line": 1353
+          "line": 1455
         }
       ]
     },
@@ -12637,7 +12825,7 @@
     },
     {
       "file": "crates/kanzei-harness/src/harness.rs",
-      "lines": 627,
+      "lines": 706,
       "modules": [],
       "imports": [
         "std::collections::BTreeSet",
@@ -12786,17 +12974,17 @@
         {
           "kind": "struct",
           "name": "ConfigComponent",
-          "line": 322
+          "line": 327
         },
         {
           "kind": "fn",
           "name": "rule",
-          "line": 334
+          "line": 339
         },
         {
           "kind": "struct",
           "name": "PermissionSnapshot",
-          "line": 344
+          "line": 349
         }
       ]
     },
@@ -13212,7 +13400,7 @@
     },
     {
       "file": "crates/kanzei-harness/src/permission.rs",
-      "lines": 1191,
+      "lines": 1380,
       "modules": [],
       "imports": [
         "serde::{Deserialize, Serialize}",
@@ -13302,47 +13490,47 @@
         {
           "kind": "fn",
           "name": "action_fully_denied",
-          "line": 202
+          "line": 204
         },
         {
           "kind": "fn",
           "name": "rules",
-          "line": 205
+          "line": 229
         },
         {
           "kind": "fn",
           "name": "normalize_resource",
-          "line": 214
+          "line": 238
         },
         {
           "kind": "fn",
           "name": "normalize_resource_for_action",
-          "line": 294
+          "line": 318
         },
         {
           "kind": "fn",
           "name": "is_structured_bash_resource",
-          "line": 304
+          "line": 328
         },
         {
           "kind": "fn",
           "name": "resource_match_for_action",
-          "line": 311
+          "line": 335
         },
         {
           "kind": "fn",
           "name": "resource_match",
-          "line": 329
+          "line": 353
         },
         {
           "kind": "fn",
           "name": "bash_prefix_match",
-          "line": 356
+          "line": 380
         },
         {
           "kind": "fn",
           "name": "wildcard_match",
-          "line": 432
+          "line": 456
         }
       ]
     },
@@ -14503,7 +14691,7 @@
     },
     {
       "file": "crates/kanzei-memory/src/docstore/archive.rs",
-      "lines": 592,
+      "lines": 595,
       "modules": [],
       "imports": [
         "std::collections::HashMap",
@@ -14523,55 +14711,57 @@
         {
           "kind": "fn",
           "name": "repair_reused_archived_id",
-          "line": 76
+          "line": 79
         },
         {
           "kind": "fn",
           "name": "archive_terminal",
-          "line": 159
+          "line": 162
         },
         {
           "kind": "fn",
           "name": "correct_archived_terminal",
-          "line": 234
+          "line": 237
         },
         {
           "kind": "fn",
           "name": "dedupe_archived_fields",
-          "line": 324
+          "line": 327
         },
         {
           "kind": "fn",
           "name": "reconcile_archived_status_fields",
-          "line": 373
+          "line": 376
         },
         {
           "kind": "const",
           "name": "ZERO_CONSUMER_FIELDS",
-          "line": 444
+          "line": 447
         },
         {
           "kind": "const",
           "name": "ENGINE_DERIVED_FIELDS",
-          "line": 454
+          "line": 457
         },
         {
           "kind": "fn",
           "name": "drop_archived_engine_fields",
-          "line": 459
+          "line": 462
         },
         {
           "kind": "fn",
           "name": "fill_archived_placeholder",
-          "line": 499
+          "line": 502
         }
       ]
     },
     {
       "file": "crates/kanzei-memory/src/docstore/model.rs",
-      "lines": 335,
+      "lines": 371,
       "modules": [],
-      "imports": [],
+      "imports": [
+        "super::*"
+      ],
       "public_api": [
         {
           "kind": "const",
@@ -14581,96 +14771,99 @@
         {
           "kind": "struct",
           "name": "DocKind",
-          "line": 30
+          "line": 31
         },
         {
           "kind": "const",
           "name": "REQUIREMENTS",
-          "line": 52
+          "line": 53
         },
         {
           "kind": "const",
           "name": "DEFECTS",
-          "line": 65
+          "line": 66
         },
         {
           "kind": "const",
           "name": "SOURCES",
-          "line": 78
+          "line": 79
         },
         {
           "kind": "const",
           "name": "FINDINGS",
-          "line": 91
+          "line": 92
         },
         {
           "kind": "const",
           "name": "MEMORY",
-          "line": 108
+          "line": 109
         },
         {
           "kind": "const",
           "name": "DECISIONS",
-          "line": 124
+          "line": 125
         },
         {
           "kind": "const",
           "name": "IDEAS",
-          "line": 143
+          "line": 144
         },
         {
           "kind": "struct",
           "name": "Entry",
-          "line": 157
+          "line": 158
         },
         {
           "kind": "struct",
           "name": "RawLine",
-          "line": 169
+          "line": 170
         },
         {
           "kind": "const",
           "name": "MAX_BATCHES",
-          "line": 176
+          "line": 177
         },
         {
           "kind": "fn",
           "name": "batch_progress",
-          "line": 186
+          "line": 187
         },
         {
           "kind": "fn",
           "name": "declared_batch_progress",
-          "line": 200
+          "line": 201
         },
         {
           "kind": "fn",
           "name": "batch_progress_with_derived_done",
-          "line": 210
+          "line": 211
         },
         {
           "kind": "fn",
           "name": "split_batch_value",
-          "line": 227
+          "line": 228
         },
         {
           "kind": "fn",
           "name": "check_declared_batches",
-          "line": 289
+          "line": 290
         },
         {
           "kind": "fn",
           "name": "refs",
-          "line": 326
+          "line": 327
         }
       ]
     },
     {
       "file": "crates/kanzei-memory/src/docstore/parse.rs",
-      "lines": 227,
+      "lines": 302,
       "modules": [],
       "imports": [
-        "super::model::{DocKind, Entry, ALL_STATUS_TOKENS}"
+        "super::model::{DocKind, Entry, ALL_STATUS_TOKENS}",
+        "super::super::model::{DECISIONS, DEFECTS, FINDINGS, IDEAS, MEMORY, REQUIREMENTS, SOURCES}",
+        "super::super::render::render",
+        "super::*"
       ],
       "public_api": [
         {
@@ -14726,7 +14919,7 @@
         {
           "kind": "fn",
           "name": "push_field",
-          "line": 219
+          "line": 221
         }
       ]
     },
@@ -14753,7 +14946,7 @@
     },
     {
       "file": "crates/kanzei-memory/src/docstore/repository.rs",
-      "lines": 173,
+      "lines": 174,
       "modules": [],
       "imports": [
         "std::path::{Path, PathBuf}",
@@ -14811,13 +15004,13 @@
         {
           "kind": "fn",
           "name": "archive_file",
-          "line": 167
+          "line": 168
         }
       ]
     },
     {
       "file": "crates/kanzei-memory/src/docstore/validation.rs",
-      "lines": 386,
+      "lines": 404,
       "modules": [],
       "imports": [
         "std::path::PathBuf",
@@ -14840,38 +15033,38 @@
         {
           "kind": "fn",
           "name": "void_id",
-          "line": 49
+          "line": 63
         },
         {
           "kind": "fn",
           "name": "restore_entry",
-          "line": 99
+          "line": 117
         },
         {
           "kind": "fn",
           "name": "integrity_issues",
-          "line": 145
+          "line": 163
         },
         {
           "kind": "fn",
           "name": "transition_allowed",
-          "line": 242
+          "line": 260
         },
         {
           "kind": "fn",
           "name": "raw_lines",
-          "line": 271
+          "line": 289
         },
         {
           "kind": "fn",
           "name": "delete_raw_line",
-          "line": 301
+          "line": 319
         }
       ]
     },
     {
       "file": "crates/kanzei-memory/src/docstore.rs",
-      "lines": 1309,
+      "lines": 1464,
       "modules": [
         "archive",
         "model",
@@ -16439,7 +16632,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/background/lifecycle.rs",
-      "lines": 330,
+      "lines": 493,
       "modules": [],
       "imports": [
         "std::collections::HashMap",
@@ -16482,49 +16675,104 @@
         },
         {
           "kind": "fn",
+          "name": "set_final_guard_hook",
+          "line": 185
+        },
+        {
+          "kind": "fn",
           "name": "reconcile",
-          "line": 163
+          "line": 191
+        },
+        {
+          "kind": "fn",
+          "name": "reconcile_restore",
+          "line": 215
+        },
+        {
+          "kind": "fn",
+          "name": "finish_restore",
+          "line": 227
+        },
+        {
+          "kind": "fn",
+          "name": "record_cleanup_error",
+          "line": 295
+        },
+        {
+          "kind": "fn",
+          "name": "child_processes",
+          "line": 303
+        },
+        {
+          "kind": "fn",
+          "name": "kill_child_processes",
+          "line": 322
+        },
+        {
+          "kind": "fn",
+          "name": "wait_child_cleanup",
+          "line": 325
+        },
+        {
+          "kind": "fn",
+          "name": "retry_child_cleanup",
+          "line": 355
+        },
+        {
+          "kind": "fn",
+          "name": "has_child_cleanup_records",
+          "line": 374
         },
         {
           "kind": "fn",
           "name": "now_ms",
-          "line": 237
+          "line": 380
         },
         {
           "kind": "fn",
           "name": "project_hash",
-          "line": 244
+          "line": 387
         },
         {
           "kind": "fn",
           "name": "get",
-          "line": 250
+          "line": 393
         },
         {
           "kind": "fn",
           "name": "list",
-          "line": 254
+          "line": 397
+        },
+        {
+          "kind": "fn",
+          "name": "stop_owned",
+          "line": 413
+        },
+        {
+          "kind": "fn",
+          "name": "stop_result",
+          "line": 443
         },
         {
           "kind": "fn",
           "name": "stop",
-          "line": 267
+          "line": 450
         },
         {
           "kind": "fn",
           "name": "kill_project",
-          "line": 290
+          "line": 463
         },
         {
           "kind": "fn",
           "name": "kill_process",
-          "line": 309
+          "line": 467
         }
       ]
     },
     {
       "file": "crates/kanzei-tools/src/background/monitor.rs",
-      "lines": 241,
+      "lines": 243,
       "modules": [],
       "imports": [
         "super::*",
@@ -16553,7 +16801,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/background/persistent.rs",
-      "lines": 217,
+      "lines": 252,
       "modules": [],
       "imports": [
         "std::path::{Path, PathBuf}",
@@ -16602,25 +16850,32 @@
         {
           "kind": "fn",
           "name": "adopt_persistent",
-          "line": 96
+          "line": 115
+        },
+        {
+          "kind": "fn",
+          "name": "kill_registered_result",
+          "line": 230
         },
         {
           "kind": "fn",
           "name": "kill_registered",
-          "line": 198
+          "line": 243
         }
       ]
     },
     {
       "file": "crates/kanzei-tools/src/background/registration.rs",
-      "lines": 283,
+      "lines": 406,
       "modules": [],
       "imports": [
         "super::*",
         "std::path::Path",
         "std::sync::atomic::{AtomicBool, Ordering}",
         "std::sync::{Arc, Mutex}",
-        "tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}"
+        "tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}",
+        "super::*",
+        "std::os::windows::fs::OpenOptionsExt"
       ],
       "public_api": [
         {
@@ -16640,14 +16895,19 @@
         },
         {
           "kind": "fn",
+          "name": "prune_finished",
+          "line": 92
+        },
+        {
+          "kind": "fn",
           "name": "register_with_mailbox",
-          "line": 83
+          "line": 113
         }
       ]
     },
     {
       "file": "crates/kanzei-tools/src/background.rs",
-      "lines": 1868,
+      "lines": 2387,
       "modules": [
         "lifecycle",
         "monitor",
@@ -16659,10 +16919,12 @@
         "std::sync::atomic::{AtomicBool, Ordering}",
         "std::sync::{Arc, Mutex}",
         "crate::managed::ManagedSnapshot",
+        "futures::FutureExt",
         "serde::{Deserialize, Serialize}",
-        "lifecycle::{get, kill_process, kill_project, list, stop}",
-        "lifecycle::{\n    install_window_observer_once, next_id, now_ms, project_hash, reconcile, registry, spawn_guard,\n}",
-        "persistent::{\n    adopt_persistent, discover_persistent, kill_registered, mark_registry_failed, PersistentEntry,\n}",
+        "lifecycle::{get, kill_process, kill_project, list, stop, stop_result}",
+        "lifecycle::reconcile",
+        "lifecycle::{\n    install_window_observer_once, next_id, now_ms, project_hash, registry, spawn_guard,\n}",
+        "persistent::{\n    adopt_persistent, discover_persistent, kill_registered, kill_registered_result,\n    mark_registry_failed, PersistentEntry,\n}",
         "persistent::{load_registry, remove_registry_entry, save_registry}",
         "registration::append_bounded",
         "registration::register",
@@ -16676,82 +16938,97 @@
         {
           "kind": "fn",
           "name": "stop_for_project",
-          "line": 25
+          "line": 26
         },
         {
           "kind": "struct",
           "name": "BackgroundOwner",
-          "line": 67
+          "line": 153
         },
         {
           "kind": "struct",
           "name": "BreachRecord",
-          "line": 76
+          "line": 162
         },
         {
           "kind": "struct",
           "name": "BackgroundProcess",
-          "line": 85
+          "line": 171
         },
         {
           "kind": "fn",
           "name": "send_input",
-          "line": 115
+          "line": 203
         },
         {
           "kind": "fn",
           "name": "is_running",
-          "line": 142
+          "line": 230
         },
         {
           "kind": "fn",
           "name": "mark_terminated",
-          "line": 148
+          "line": 236
         },
         {
           "kind": "fn",
           "name": "baseline",
-          "line": 157
+          "line": 245
         },
         {
           "kind": "fn",
           "name": "record_breach",
-          "line": 160
+          "line": 248
         },
         {
           "kind": "fn",
           "name": "breaches",
-          "line": 164
+          "line": 252
         },
         {
           "kind": "fn",
           "name": "exit_code",
-          "line": 168
+          "line": 256
         },
         {
           "kind": "fn",
           "name": "output",
-          "line": 174
+          "line": 262
         },
         {
           "kind": "fn",
           "name": "full_log",
-          "line": 181
+          "line": 269
         },
         {
           "kind": "fn",
           "name": "output_since",
-          "line": 187
+          "line": 275
         },
         {
           "kind": "fn",
           "name": "truncated",
-          "line": 204
+          "line": 292
         },
         {
           "kind": "fn",
           "name": "pid",
-          "line": 208
+          "line": 296
+        },
+        {
+          "kind": "fn",
+          "name": "serial",
+          "line": 349
+        },
+        {
+          "kind": "struct",
+          "name": "FenceGuard",
+          "line": 362
+        },
+        {
+          "kind": "fn",
+          "name": "fence_guard",
+          "line": 374
         }
       ]
     },
@@ -18717,7 +18994,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/process.rs",
-      "lines": 565,
+      "lines": 564,
       "modules": [],
       "imports": [
         "async_trait::async_trait",
@@ -20092,7 +20369,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/schedules/executor.rs",
-      "lines": 757,
+      "lines": 784,
       "modules": [],
       "imports": [
         "super::*",
@@ -20107,17 +20384,17 @@
         {
           "kind": "struct",
           "name": "Outcome",
-          "line": 34
+          "line": 35
         },
         {
           "kind": "fn",
           "name": "execute",
-          "line": 67
+          "line": 68
         },
         {
           "kind": "fn",
           "name": "writeback",
-          "line": 661
+          "line": 688
         }
       ]
     },
@@ -20166,7 +20443,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/schedules/mod.rs",
-      "lines": 781,
+      "lines": 793,
       "modules": [
         "executor",
         "hosts",
@@ -20242,28 +20519,33 @@
         },
         {
           "kind": "fn",
+          "name": "load_with_revisions",
+          "line": 351
+        },
+        {
+          "kind": "fn",
           "name": "history_id",
-          "line": 369
+          "line": 381
         },
         {
           "kind": "fn",
           "name": "history",
-          "line": 372
-        },
-        {
-          "kind": "fn",
-          "name": "record",
           "line": 384
         },
         {
           "kind": "fn",
+          "name": "record",
+          "line": 396
+        },
+        {
+          "kind": "fn",
           "name": "claim",
-          "line": 406
+          "line": 418
         },
         {
           "kind": "fn",
           "name": "due",
-          "line": 476
+          "line": 488
         }
       ]
     },
@@ -20449,7 +20731,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/team/mod.rs",
-      "lines": 1346,
+      "lines": 1612,
       "modules": [
         "store",
         "tests",
@@ -20458,6 +20740,8 @@
       ],
       "imports": [
         "anyhow::{bail, Context, Result}",
+        "futures::FutureExt",
+        "kanzei_core::store::session_execution::{try_acquire, SessionExecutionGuard}",
         "kanzei_core::{CancellationToken, DelegationFuture, DelegationHost, RunEvent, SubagentRuntime}",
         "kanzei_harness::{\n    AsyncMailbox, AsyncNotice, ConfigComponent, Harness, MarkdownComponent, ResolveCtx, ToolCtx,\n    ToolOutput,\n}",
         "kanzei_llm::{LlmClient, Message, ToolSpec}",
@@ -20471,98 +20755,98 @@
         {
           "kind": "type",
           "name": "TeamEvent",
-          "line": 25
+          "line": 27
         },
         {
           "kind": "type",
           "name": "TeamAsk",
-          "line": 27
+          "line": 29
         },
         {
           "kind": "struct",
           "name": "AgentTeam",
-          "line": 31
+          "line": 33
         },
         {
           "kind": "fn",
           "name": "find",
-          "line": 57
-        },
-        {
-          "kind": "fn",
-          "name": "store_for_inspection",
           "line": 97
         },
         {
           "kind": "fn",
+          "name": "store_for_inspection",
+          "line": 172
+        },
+        {
+          "kind": "fn",
           "name": "now",
-          "line": 106
+          "line": 181
         },
         {
           "kind": "fn",
           "name": "attach",
-          "line": 143
-        },
-        {
-          "kind": "fn",
-          "name": "list",
-          "line": 193
-        },
-        {
-          "kind": "fn",
-          "name": "set_ask_router",
-          "line": 196
-        },
-        {
-          "kind": "fn",
-          "name": "set_mailbox",
-          "line": 199
-        },
-        {
-          "kind": "fn",
-          "name": "set_parent",
           "line": 218
         },
         {
           "kind": "fn",
+          "name": "list",
+          "line": 273
+        },
+        {
+          "kind": "fn",
+          "name": "set_ask_router",
+          "line": 276
+        },
+        {
+          "kind": "fn",
+          "name": "set_mailbox",
+          "line": 279
+        },
+        {
+          "kind": "fn",
+          "name": "set_parent",
+          "line": 298
+        },
+        {
+          "kind": "fn",
           "name": "stop",
-          "line": 278
+          "line": 392
         },
         {
           "kind": "fn",
           "name": "stop_all",
-          "line": 325
+          "line": 442
         },
         {
           "kind": "fn",
           "name": "has_updates",
-          "line": 342
+          "line": 459
         },
         {
           "kind": "fn",
           "name": "command",
-          "line": 367
+          "line": 484
         },
         {
           "kind": "fn",
           "name": "ui_command",
-          "line": 531
+          "line": 668
         },
         {
           "kind": "fn",
           "name": "message",
-          "line": 666
+          "line": 804
         },
         {
           "kind": "fn",
           "name": "question_reply",
-          "line": 672
+          "line": 810
         }
       ]
     },
     {
       "file": "crates/kanzei-tools/src/team/store.rs",
-      "lines": 147,
+      "lines": 153,
       "modules": [],
       "imports": [
         "anyhow::{Context, Result}",
@@ -20594,50 +20878,61 @@
         },
         {
           "kind": "fn",
-          "name": "open",
+          "name": "state_path",
           "line": 69
         },
         {
           "kind": "fn",
-          "name": "list",
-          "line": 86
+          "name": "owner",
+          "line": 72
         },
         {
           "kind": "fn",
-          "name": "get",
+          "name": "open",
+          "line": 75
+        },
+        {
+          "kind": "fn",
+          "name": "list",
           "line": 92
         },
         {
           "kind": "fn",
+          "name": "get",
+          "line": 98
+        },
+        {
+          "kind": "fn",
           "name": "insert",
-          "line": 103
+          "line": 109
         },
         {
           "kind": "fn",
           "name": "update",
-          "line": 115
+          "line": 121
         },
         {
           "kind": "fn",
           "name": "history",
-          "line": 132
+          "line": 138
         },
         {
           "kind": "fn",
           "name": "checkpoint",
-          "line": 140
+          "line": 146
         }
       ]
     },
     {
       "file": "crates/kanzei-tools/src/team/tests.rs",
-      "lines": 1886,
+      "lines": 2698,
       "modules": [],
       "imports": [
         "super::*",
         "kanzei_harness::{KanzeiConfig, ProfileKind}",
         "kanzei_llm::{ProxyConfig, Route}",
         "tokio::{\n    io::{AsyncReadExt, AsyncWriteExt},\n    net::TcpListener,\n}",
+        "std::io::Write",
         "std::sync::mpsc"
       ],
       "public_api": []
@@ -20991,7 +21286,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/tracker/actions/maintenance.rs",
-      "lines": 242,
+      "lines": 212,
       "modules": [],
       "imports": [
         "crate::docstore::{DocStore, Entry}",
@@ -21013,22 +21308,22 @@
         {
           "kind": "fn",
           "name": "raw_delete",
-          "line": 87
+          "line": 57
         },
         {
           "kind": "fn",
           "name": "reopen",
-          "line": 116
+          "line": 86
         },
         {
           "kind": "fn",
           "name": "fix_terminal",
-          "line": 169
+          "line": 139
         },
         {
           "kind": "fn",
           "name": "archive_fill",
-          "line": 214
+          "line": 184
         }
       ]
     },
@@ -21051,7 +21346,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/tracker/actions.rs",
-      "lines": 862,
+      "lines": 865,
       "modules": [
         "maintenance",
         "normalize",
@@ -21103,12 +21398,12 @@
         {
           "kind": "fn",
           "name": "update_close",
-          "line": 364
+          "line": 367
         },
         {
           "kind": "fn",
           "name": "reorder",
-          "line": 807
+          "line": 810
         }
       ]
     },
@@ -21165,7 +21460,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/tracker/scheduling.rs",
-      "lines": 1119,
+      "lines": 1121,
       "modules": [],
       "imports": [
         "std::collections::{BTreeMap, BTreeSet}",
@@ -21188,127 +21483,127 @@
         {
           "kind": "fn",
           "name": "schedule_for_display",
-          "line": 79
+          "line": 81
         },
         {
           "kind": "fn",
           "name": "schedule_for_display_with_states",
-          "line": 89
+          "line": 91
         },
         {
           "kind": "fn",
           "name": "workable_titles",
-          "line": 109
+          "line": 111
         },
         {
           "kind": "fn",
           "name": "backlog_status",
-          "line": 145
+          "line": 147
         },
         {
           "kind": "struct",
           "name": "DependencyStates",
-          "line": 187
+          "line": 189
         },
         {
           "kind": "fn",
           "name": "dependency_states_from_documents",
-          "line": 236
+          "line": 238
         },
         {
           "kind": "fn",
           "name": "dependency_states",
-          "line": 261
+          "line": 263
         },
         {
           "kind": "fn",
           "name": "dependents_map",
-          "line": 297
+          "line": 299
         },
         {
           "kind": "fn",
           "name": "dependents_map_with_states",
-          "line": 307
+          "line": 309
         },
         {
           "kind": "fn",
           "name": "schedule_entries",
-          "line": 327
+          "line": 329
         },
         {
           "kind": "fn",
           "name": "unblocks_count",
-          "line": 388
+          "line": 390
         },
         {
           "kind": "fn",
           "name": "block_reasons",
-          "line": 400
+          "line": 402
         },
         {
           "kind": "fn",
           "name": "deadlock_banner",
-          "line": 446
+          "line": 448
         },
         {
           "kind": "fn",
           "name": "structured_entry",
-          "line": 457
+          "line": 459
         },
         {
           "kind": "fn",
           "name": "is_park_key",
-          "line": 509
+          "line": 511
         },
         {
           "kind": "fn",
           "name": "park_reason",
-          "line": 517
+          "line": 519
         },
         {
           "kind": "struct",
           "name": "ReleaseCondition",
-          "line": 531
+          "line": 533
         },
         {
           "kind": "fn",
           "name": "parse_release_condition",
-          "line": 541
+          "line": 543
         },
         {
           "kind": "fn",
           "name": "release_notes",
-          "line": 606
+          "line": 608
         },
         {
           "kind": "fn",
           "name": "stale_blocker_evidence",
-          "line": 636
+          "line": 638
         },
         {
           "kind": "fn",
           "name": "is_prerequisite_key",
-          "line": 682
+          "line": 684
         },
         {
           "kind": "fn",
           "name": "validate_write_fields",
-          "line": 694
+          "line": 696
         },
         {
           "kind": "fn",
           "name": "tracker_ids",
-          "line": 732
+          "line": 734
         },
         {
           "kind": "fn",
           "name": "coupling_signals",
-          "line": 765
+          "line": 767
         },
         {
           "kind": "fn",
           "name": "dispatch_verdict",
-          "line": 796
+          "line": 798
         }
       ]
     },
@@ -21372,7 +21667,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/tracker.rs",
-      "lines": 5109,
+      "lines": 5578,
       "modules": [
         "scheduling",
         "scheduling_tests",
@@ -21404,12 +21699,12 @@
         {
           "kind": "struct",
           "name": "ResearchTrackerTool",
-          "line": 605
+          "line": 571
         },
         {
           "kind": "fn",
           "name": "new",
-          "line": 610
+          "line": 576
         }
       ]
     },

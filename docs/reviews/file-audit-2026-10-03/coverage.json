@@ -9,18 +9,31 @@
     "crates/kanzei-app/src/files_draft.rs",
     "crates/kanzei-app/src/files_edit.rs",
     "crates/kanzei-app/src/ipc_contract.rs",
+    "crates/kanzei-app/src/main.rs",
     "crates/kanzei-app/src/manual_compact.rs",
     "crates/kanzei-app/src/mobile.rs",
     "crates/kanzei-app/src/mobile/sse.rs",
     "crates/kanzei-app/src/model_config.rs",
+    "crates/kanzei-app/src/prefs.rs",
+    "crates/kanzei-app/src/projects.rs",
+    "crates/kanzei-app/src/run/assembly.rs",
     "crates/kanzei-app/src/run/input.rs",
+    "crates/kanzei-app/src/run/persistence.rs",
     "crates/kanzei-app/src/runtime_continuation.rs",
     "crates/kanzei-app/src/runtime_events.rs",
     "crates/kanzei-app/src/runtime_service.rs",
     "crates/kanzei-app/src/runtime_service/compatibility.rs",
+    "crates/kanzei-app/src/schedules.rs",
     "crates/kanzei-app/src/settings.rs",
     "crates/kanzei-app/src/terminal_monitor.rs",
+    "crates/kanzei-app/ui/00-frame.js",
+    "crates/kanzei-app/ui/00-surface.js",
+    "crates/kanzei-app/ui/01-core.js",
+    "crates/kanzei-app/ui/03-layout.js",
+    "crates/kanzei-app/ui/03-shell.js",
+    "crates/kanzei-app/ui/03-workspaces.js",
     "crates/kanzei-app/ui/07-events.js",
+    "crates/kanzei-app/ui/09-sessions.js",
     "crates/kanzei-app/ui/16-settings.js",
     "crates/kanzei-app/ui/17-files-editor.js",
     "crates/kanzei-app/ui/24-schedules.js",
@@ -37,6 +50,7 @@
     "crates/kanzei-core/src/runner/drive.rs",
     "crates/kanzei-core/src/runner/drive/history.rs",
     "crates/kanzei-core/src/runner/drive/serial_tools.rs",
+    "crates/kanzei-core/src/runner/drive/tool_catalog.rs",
     "crates/kanzei-core/src/runner/event.rs",
     "crates/kanzei-core/src/runner/item_context.rs",
     "crates/kanzei-core/src/runner/item_context/tests.rs",
@@ -52,10 +66,13 @@
     "crates/kanzei-core/src/store/schema.rs",
     "crates/kanzei-core/src/store/session.rs",
     "crates/kanzei-core/src/store/session/artifact_refs.rs",
+    "crates/kanzei-core/src/store/session_execution.rs",
     "crates/kanzei-core/src/store/typed.rs",
     "crates/kanzei-core/src/store/typed/projection.rs",
     "crates/kanzei-core/src/store/workspace.rs",
+    "crates/kanzei-harness/src/areas.rs",
     "crates/kanzei-harness/src/async_mailbox.rs",
+    "crates/kanzei-harness/src/auto_run.rs",
     "crates/kanzei-harness/src/config.rs",
     "crates/kanzei-harness/src/config/cadence.rs",
     "crates/kanzei-harness/src/config/embeddings.rs",
@@ -63,17 +80,28 @@
     "crates/kanzei-harness/src/config/models.rs",
     "crates/kanzei-harness/src/config/permissions.rs",
     "crates/kanzei-harness/src/config/web.rs",
+    "crates/kanzei-harness/src/context.rs",
+    "crates/kanzei-harness/src/conventions.rs",
     "crates/kanzei-harness/src/defs.rs",
+    "crates/kanzei-harness/src/handoff.rs",
+    "crates/kanzei-harness/src/harness.rs",
     "crates/kanzei-harness/src/home.rs",
+    "crates/kanzei-harness/src/lib.rs",
     "crates/kanzei-harness/src/managed_fence.rs",
     "crates/kanzei-harness/src/markdown.rs",
     "crates/kanzei-harness/src/orchestration.rs",
     "crates/kanzei-harness/src/pending_question.rs",
+    "crates/kanzei-harness/src/permission.rs",
     "crates/kanzei-harness/src/permission_persist.rs",
     "crates/kanzei-harness/src/progress.rs",
     "crates/kanzei-harness/src/project_root.rs",
+    "crates/kanzei-harness/src/read_ledger.rs",
     "crates/kanzei-harness/src/refs.rs",
     "crates/kanzei-harness/src/registry.rs",
+    "crates/kanzei-harness/src/repair.rs",
+    "crates/kanzei-harness/src/tool.rs",
+    "crates/kanzei-harness/src/tool_pipeline.rs",
+    "crates/kanzei-harness/src/tool_search.rs",
     "crates/kanzei-llm/src/auth/codex.rs",
     "crates/kanzei-llm/src/auth/mod.rs",
     "crates/kanzei-llm/src/auth/store.rs",
@@ -89,41 +117,66 @@
     "crates/kanzei-llm/src/proxy.rs",
     "crates/kanzei-llm/src/request.rs",
     "crates/kanzei-llm/src/sse.rs",
+    "crates/kanzei-memory/src/docstore/archive.rs",
+    "crates/kanzei-memory/src/docstore/model.rs",
+    "crates/kanzei-memory/src/docstore/parse.rs",
+    "crates/kanzei-memory/src/docstore/render.rs",
+    "crates/kanzei-memory/src/docstore/repository.rs",
+    "crates/kanzei-memory/src/docstore/validation.rs",
+    "crates/kanzei-memory/src/lib.rs",
+    "crates/kanzei-tools/src/background/lifecycle.rs",
     "crates/kanzei-tools/src/team/mod.rs",
     "crates/kanzei-tools/src/team/store.rs",
     "crates/kanzei-tools/src/team/tests.rs",
     "crates/kanzei/src/cli/compact.rs",
     "crates/kanzei/src/cli/run/events.rs",
     "crates/kanzei/tests/integration/incomplete_stream.rs",
-    "crates/kanzei/tests/integration/main.rs"
+    "crates/kanzei/tests/integration/main.rs",
+    "crates/kanzei/tests/integration/session_execution_owner.rs"
   ],
   "contract_slice_reviews": [
+    "crates/kanzei-app/src/commands/os_open.rs",
+    "crates/kanzei-app/src/commands/run.rs",
     "crates/kanzei-app/src/conversation.rs",
     "crates/kanzei-app/src/conversation_tests.rs",
     "crates/kanzei-app/src/deliveries.rs",
     "crates/kanzei-app/src/files_view.rs",
+    "crates/kanzei-app/src/permission_tests.rs",
     "crates/kanzei-app/src/processes/lifecycle.rs",
-    "crates/kanzei-app/src/run/assembly.rs",
     "crates/kanzei-app/src/run/coordinator.rs",
     "crates/kanzei-app/src/run/events/mod.rs",
-    "crates/kanzei-app/src/run/persistence.rs",
     "crates/kanzei-app/src/state.rs",
     "crates/kanzei-app/src/state_tests.rs",
     "crates/kanzei-app/src/typed_events.rs",
     "crates/kanzei-app/src/verification_monitor.rs",
+    "crates/kanzei-app/ui/12-workbench.js",
     "crates/kanzei-app/ui/17-files.js",
+    "crates/kanzei-core/src/runner/drive/assembly.rs",
+    "crates/kanzei-core/src/runner/drive/parallel_tools.rs",
     "crates/kanzei-core/src/runner/tool_exec.rs",
     "crates/kanzei-core/src/store/decisions.rs",
     "crates/kanzei-core/src/store/task.rs",
+    "crates/kanzei-memory/src/docstore.rs",
     "crates/kanzei-tools/src/architecture.rs",
     "crates/kanzei-tools/src/background.rs",
-    "crates/kanzei-tools/src/background/lifecycle.rs",
     "crates/kanzei-tools/src/background/monitor.rs",
+    "crates/kanzei-tools/src/background/persistent.rs",
+    "crates/kanzei-tools/src/background/registration.rs",
+    "crates/kanzei-tools/src/base.rs",
     "crates/kanzei-tools/src/conventions.rs",
     "crates/kanzei-tools/src/managed.rs",
     "crates/kanzei-tools/src/memory_consolidation.rs",
+    "crates/kanzei-tools/src/process.rs",
+    "crates/kanzei-tools/src/profiles/dev.rs",
     "crates/kanzei-tools/src/schedules/executor.rs",
+    "crates/kanzei-tools/src/schedules/mod.rs",
+    "crates/kanzei-tools/src/subagent.rs",
     "crates/kanzei-tools/src/test_record.rs",
+    "crates/kanzei-tools/src/tracker.rs",
+    "crates/kanzei-tools/src/tracker/actions.rs",
+    "crates/kanzei-tools/src/tracker/actions/maintenance.rs",
+    "crates/kanzei-tools/src/tracker/scheduling.rs",
+    "crates/kanzei-tools/src/work/tool.rs",
     "crates/kanzei/src/cli/run.rs",
     "crates/kanzei/src/cli/run/finalize.rs"
   ],
@@ -136,8 +189,6 @@
     "crates/kanzei-app/src/collaboration.rs",
     "crates/kanzei-app/src/commands/mod.rs",
     "crates/kanzei-app/src/commands/models.rs",
-    "crates/kanzei-app/src/commands/os_open.rs",
-    "crates/kanzei-app/src/commands/run.rs",
     "crates/kanzei-app/src/commands/run/handoff.rs",
     "crates/kanzei-app/src/commands/run/handoff/tests.rs",
     "crates/kanzei-app/src/commands/run/tool_process.rs",
@@ -150,18 +201,15 @@
     "crates/kanzei-app/src/fast_model.rs",
     "crates/kanzei-app/src/general_chat.rs",
     "crates/kanzei-app/src/harness_ext.rs",
-    "crates/kanzei-app/src/main.rs",
     "crates/kanzei-app/src/memory.rs",
     "crates/kanzei-app/src/memory_chat.rs",
     "crates/kanzei-app/src/mobile/approvals.rs",
     "crates/kanzei-app/src/mobile/pwa.rs",
     "crates/kanzei-app/src/mobile_notify.rs",
     "crates/kanzei-app/src/orchestration_trace.rs",
-    "crates/kanzei-app/src/permission_tests.rs",
     "crates/kanzei-app/src/phase_pipeline.rs",
     "crates/kanzei-app/src/phase_pipeline/prompts.rs",
     "crates/kanzei-app/src/phase_pipeline_tests.rs",
-    "crates/kanzei-app/src/prefs.rs",
     "crates/kanzei-app/src/preview/agent.rs",
     "crates/kanzei-app/src/preview/cdp.rs",
     "crates/kanzei-app/src/preview/commands.rs",
@@ -177,7 +225,6 @@
     "crates/kanzei-app/src/processes/registry.rs",
     "crates/kanzei-app/src/processes/workspace.rs",
     "crates/kanzei-app/src/projection_gate.rs",
-    "crates/kanzei-app/src/projects.rs",
     "crates/kanzei-app/src/research_auto.rs",
     "crates/kanzei-app/src/research_auto/tests.rs",
     "crates/kanzei-app/src/research_latex.rs",
@@ -189,7 +236,6 @@
     "crates/kanzei-app/src/run/execution.rs",
     "crates/kanzei-app/src/run/mod.rs",
     "crates/kanzei-app/src/run/work_start.rs",
-    "crates/kanzei-app/src/schedules.rs",
     "crates/kanzei-app/src/screenshot.rs",
     "crates/kanzei-app/src/side_question.rs",
     "crates/kanzei-app/src/softwire.rs",
@@ -203,16 +249,10 @@
     "crates/kanzei-app/src/workspace/tests.rs",
     "crates/kanzei-app/src/worktree_tests.rs",
     "crates/kanzei-app/ui/00-brand.js",
-    "crates/kanzei-app/ui/00-frame.js",
-    "crates/kanzei-app/ui/00-surface.js",
-    "crates/kanzei-app/ui/01-core.js",
     "crates/kanzei-app/ui/02-i18n.js",
     "crates/kanzei-app/ui/03-general-scope.js",
-    "crates/kanzei-app/ui/03-layout.js",
     "crates/kanzei-app/ui/03-research-library.js",
     "crates/kanzei-app/ui/03-session-stage.js",
-    "crates/kanzei-app/ui/03-shell.js",
-    "crates/kanzei-app/ui/03-workspaces.js",
     "crates/kanzei-app/ui/04-diagram.js",
     "crates/kanzei-app/ui/04-markdown.js",
     "crates/kanzei-app/ui/04-resource-types.js",
@@ -233,7 +273,6 @@
     "crates/kanzei-app/ui/08-model-picker.js",
     "crates/kanzei-app/ui/08-models.js",
     "crates/kanzei-app/ui/08-project-models.js",
-    "crates/kanzei-app/ui/09-sessions.js",
     "crates/kanzei-app/ui/10-docs-core.js",
     "crates/kanzei-app/ui/11-docs-list.js",
     "crates/kanzei-app/ui/12-conversation-model.js",
@@ -242,7 +281,6 @@
     "crates/kanzei-app/ui/12-docs-tests.js",
     "crates/kanzei-app/ui/12-session-menus.js",
     "crates/kanzei-app/ui/12-session-tree.js",
-    "crates/kanzei-app/ui/12-workbench.js",
     "crates/kanzei-app/ui/13-memory-chat.js",
     "crates/kanzei-app/ui/13-memory.js",
     "crates/kanzei-app/ui/14-docs-actions.js",
@@ -300,15 +338,12 @@
     "crates/kanzei-core/src/runner/compaction.rs",
     "crates/kanzei-core/src/runner/context.rs",
     "crates/kanzei-core/src/runner/delegation.rs",
-    "crates/kanzei-core/src/runner/drive/assembly.rs",
     "crates/kanzei-core/src/runner/drive/batch.rs",
     "crates/kanzei-core/src/runner/drive/context_budget.rs",
     "crates/kanzei-core/src/runner/drive/halt.rs",
-    "crates/kanzei-core/src/runner/drive/parallel_tools.rs",
     "crates/kanzei-core/src/runner/drive/permissions.rs",
     "crates/kanzei-core/src/runner/drive/question.rs",
     "crates/kanzei-core/src/runner/drive/task_results.rs",
-    "crates/kanzei-core/src/runner/drive/tool_catalog.rs",
     "crates/kanzei-core/src/runner/line_runtime.rs",
     "crates/kanzei-core/src/runner/metrics.rs",
     "crates/kanzei-core/src/runner/mod.rs",
@@ -328,29 +363,8 @@
     "crates/kanzei-core/src/store/telemetry.rs",
     "crates/kanzei-core/src/store/testutil.rs",
     "crates/kanzei-core/src/store/work.rs",
-    "crates/kanzei-harness/src/areas.rs",
-    "crates/kanzei-harness/src/auto_run.rs",
-    "crates/kanzei-harness/src/context.rs",
-    "crates/kanzei-harness/src/conventions.rs",
-    "crates/kanzei-harness/src/handoff.rs",
-    "crates/kanzei-harness/src/harness.rs",
-    "crates/kanzei-harness/src/lib.rs",
-    "crates/kanzei-harness/src/permission.rs",
-    "crates/kanzei-harness/src/read_ledger.rs",
-    "crates/kanzei-harness/src/repair.rs",
-    "crates/kanzei-harness/src/tool.rs",
-    "crates/kanzei-harness/src/tool_pipeline.rs",
-    "crates/kanzei-harness/src/tool_search.rs",
     "crates/kanzei-llm/tests/native_search_probe.rs",
-    "crates/kanzei-memory/src/docstore.rs",
-    "crates/kanzei-memory/src/docstore/archive.rs",
-    "crates/kanzei-memory/src/docstore/model.rs",
-    "crates/kanzei-memory/src/docstore/parse.rs",
-    "crates/kanzei-memory/src/docstore/render.rs",
-    "crates/kanzei-memory/src/docstore/repository.rs",
-    "crates/kanzei-memory/src/docstore/validation.rs",
     "crates/kanzei-memory/src/embed.rs",
-    "crates/kanzei-memory/src/lib.rs",
     "crates/kanzei-memory/src/memory/admission.rs",
     "crates/kanzei-memory/src/memory/inbox.rs",
     "crates/kanzei-memory/src/memory/index.rs",
@@ -376,9 +390,6 @@
     "crates/kanzei-tools/src/arch_diagram.rs",
     "crates/kanzei-tools/src/arch_diagram_lint.rs",
     "crates/kanzei-tools/src/arch_diagram_tests.rs",
-    "crates/kanzei-tools/src/background/persistent.rs",
-    "crates/kanzei-tools/src/background/registration.rs",
-    "crates/kanzei-tools/src/base.rs",
     "crates/kanzei-tools/src/bash.rs",
     "crates/kanzei-tools/src/browser_tool.rs",
     "crates/kanzei-tools/src/browser_tool/headless.rs",
@@ -411,9 +422,7 @@
     "crates/kanzei-tools/src/prior_art.rs",
     "crates/kanzei-tools/src/prior_art/lifecycle.rs",
     "crates/kanzei-tools/src/prior_art/lifecycle_tests.rs",
-    "crates/kanzei-tools/src/process.rs",
     "crates/kanzei-tools/src/profiles.rs",
-    "crates/kanzei-tools/src/profiles/dev.rs",
     "crates/kanzei-tools/src/profiles/general.rs",
     "crates/kanzei-tools/src/profiles/policy.rs",
     "crates/kanzei-tools/src/profiles/readonly.rs",
@@ -449,22 +458,16 @@
     "crates/kanzei-tools/src/research_write.rs",
     "crates/kanzei-tools/src/run.rs",
     "crates/kanzei-tools/src/schedules/hosts.rs",
-    "crates/kanzei-tools/src/schedules/mod.rs",
     "crates/kanzei-tools/src/schedules/when.rs",
     "crates/kanzei-tools/src/shell.rs",
-    "crates/kanzei-tools/src/subagent.rs",
     "crates/kanzei-tools/src/symbols.rs",
     "crates/kanzei-tools/src/team/tools.rs",
     "crates/kanzei-tools/src/team/workspace.rs",
     "crates/kanzei-tools/src/test_record/coverage.rs",
     "crates/kanzei-tools/src/test_record/execution.rs",
-    "crates/kanzei-tools/src/tracker.rs",
-    "crates/kanzei-tools/src/tracker/actions.rs",
     "crates/kanzei-tools/src/tracker/actions/action_helpers.rs",
-    "crates/kanzei-tools/src/tracker/actions/maintenance.rs",
     "crates/kanzei-tools/src/tracker/actions/normalize.rs",
     "crates/kanzei-tools/src/tracker/fields.rs",
-    "crates/kanzei-tools/src/tracker/scheduling.rs",
     "crates/kanzei-tools/src/tracker/scheduling_tests.rs",
     "crates/kanzei-tools/src/tracker/validation.rs",
     "crates/kanzei-tools/src/verification/mod.rs",
@@ -481,7 +484,6 @@
     "crates/kanzei-tools/src/work/output.rs",
     "crates/kanzei-tools/src/work/reconcile.rs",
     "crates/kanzei-tools/src/work/resume.rs",
-    "crates/kanzei-tools/src/work/tool.rs",
     "crates/kanzei-tools/src/worktree.rs",
     "crates/kanzei-tools/src/write.rs",
     "crates/kanzei/src/cli/artifacts.rs",
@@ -1579,17 +1581,458 @@
       },
       "full_review_reopened_slices": {},
       "next": "C4 active session owner; D2 cross-process team owner; A4 UI state/preferences"
+    },
+    {
+      "report": "parallel/A4.md",
+      "integrated_commit": "aff48f96b3c310fd83196e143541515c9a18643f",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-app/ui/03-shell.js": {
+          "judgment": "P1",
+          "sha256": "2bea9ce5a3b657dcfb5d97da24cedf87ff4fce140342e368df210a177fe3a231",
+          "sha256_lf": "4e97e03a03c55b578fc0f7ae204a501f1800acaccb192b46b7fa8bcb4f0ca7f3",
+          "lines": 1266,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-app/ui/01-core.js": {
+          "judgment": "P1",
+          "sha256": "22e4a4bef32bf2e6d8729c5be497c7412be80cb2ec13a9b56e35563fad640632",
+          "sha256_lf": "405be3fa6e714978d75fadef0593768117f78725a1cb70b0dff71b062f2c54ca",
+          "lines": 977,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/C4.md",
+      "integrated_commit": "33664fd0db8b9326119a8a7472827956edfd95a9",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-core/src/store/session_execution.rs": {
+          "judgment": "P1",
+          "sha256": "cecaa4525eeeb268ecd1ce0a8ddb1f81de8bb78ed48f1ce9731d34988a7a772e",
+          "sha256_lf": "7db35c302212ffc6c2afc20a958380f61aa54f23ff9b8386313ad6d936dd2cda",
+          "lines": 392,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei/tests/integration/session_execution_owner.rs": {
+          "judgment": "PASS",
+          "sha256": "3b62a2784d6798cf1434cf3cdc772523e10df5de73173a1240e6d31aba1ae11d",
+          "sha256_lf": "1ab4c77d3ab90a3e3f722907a69adcd6592099158f8ce358aa88168835266a46",
+          "lines": 393,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/D2.md",
+      "integrated_commit": "ce93f3f086f90f2e6fb45effc46c43adf86dd32e",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {},
+      "full_review_reopened_slices": {
+        "crates/kanzei-tools/src/team/mod.rs": {
+          "scope": "necessary reopened lifecycle slices; prior B2 full review already counted",
+          "sha256_lf": "e057ae776d0560d2d908ebaf72855306af72348053f31da6191beff83e31ca74"
+        },
+        "crates/kanzei-tools/src/team/store.rs": {
+          "scope": "necessary reopened lifecycle slices; prior B2 full review already counted",
+          "sha256_lf": "dbbb486e7e019473dc34ee0cf65e2813810bf47e17ee34130533ca2d0ce613fb"
+        },
+        "crates/kanzei-tools/src/team/tests.rs": {
+          "scope": "necessary reopened lifecycle slices; prior B2 full review already counted",
+          "sha256_lf": "2a0ea4079f45784a324a7cc08b86bee0fca617249e94bbc1b3311d69811af63b"
+        }
+      },
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/M4.md",
+      "integrated_commit": "2df4f75daed9a8212413c163d93ae657fdf0db11",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-app/ui/09-sessions.js": {
+          "judgment": "P1",
+          "sha256": "7fb5c98648fe1ff4b308f7112ed10c36df5ff48b7366282f86a5fd7b07c1eaa4",
+          "sha256_lf": "8f0d4329051b81d8a3f62100df41cd8518bfe2352e5be7491cbe663da9dd6191",
+          "lines": 1678,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-app/src/main.rs": {
+          "judgment": "P1",
+          "sha256": "ab04959440168395b2d36936ba886724c97db440f19fb1e433131410928a19d1",
+          "sha256_lf": "9ea0056c16f55bced30d9182c7b3d0ab58b1552cba802091d5826c4585a93af0",
+          "lines": 458,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/A5.md",
+      "integrated_commit": "7fbe6a9f692b3d5cb6940987a707a02532a16c1b",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-app/src/schedules.rs": {
+          "judgment": "P1",
+          "sha256": "331a92c8fe73e8a054ba9c1c38b07f00c60daffb98dc9d3df55e951434e4a64d",
+          "sha256_lf": "bfa7b3e9069151356513fe13886d520f05deb9d9b02dd1879cfe855592a4957c",
+          "lines": 417,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-app/ui/24-schedules.js": {
+          "judgment": "P1",
+          "sha256": "0853834b1a942224f7c36f2b85737223e69678554e2101a22bf63447df352040",
+          "sha256_lf": "88c33efb59103ac69450586a5cd1a6e6e22643a9981d92b7a4e6a737244c610b",
+          "lines": 117,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/C5.md",
+      "integrated_commit": "adba19c107d16639e0cfc751bcaf95f8ccdc7c93",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-app/src/run/persistence.rs": {
+          "judgment": "P1",
+          "sha256": "77a2952311ad053f91ecc45dfee08e5da02c75ced55aa7ef5272f51c6f1eda13",
+          "sha256_lf": "5fbd13c56222b5e3b83551c82439dc9f742ae95047f5518c81c192dea7194254",
+          "lines": 2131,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/D3.md",
+      "integrated_commit": "811887f90f699b9c850d45ef729a9fde9a12bb9a",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-harness/src/lib.rs": {
+          "judgment": "PASS",
+          "sha256": "a7086c1d1d2770b349f4a42ad593c8b84c71ba0a7ceae4102639948da72f7059",
+          "sha256_lf": "eed7b7ac671f5392ef4c8a2c94df31f97ea4cb9ea373d11b30d4292dd6742ed7",
+          "lines": 61,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/context.rs": {
+          "judgment": "PASS",
+          "sha256": "fc09240e8a4a09277af3043b9badc4dfcc5975f59bc1fd688e4ac0a19effe407",
+          "sha256_lf": "fc09240e8a4a09277af3043b9badc4dfcc5975f59bc1fd688e4ac0a19effe407",
+          "lines": 62,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/read_ledger.rs": {
+          "judgment": "PASS",
+          "sha256": "61b14a9cd0fe81b0f1c6fa16e8e11d912b683290ca189b4113e00e3347bb7a62",
+          "sha256_lf": "61b14a9cd0fe81b0f1c6fa16e8e11d912b683290ca189b4113e00e3347bb7a62",
+          "lines": 45,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/tool.rs": {
+          "judgment": "PASS",
+          "sha256": "0039cdfd20cc0a015d41e4dd09f8dbdbf1f083efc918c32679f199fd33f73b05",
+          "sha256_lf": "0ab1b0f7f4e11b07989154da353e5583c0ce267ba14f72141639fa2bf6802204",
+          "lines": 549,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/permission.rs": {
+          "judgment": "P1",
+          "sha256": "22838210c9ae6bfaa892a4f06f0de524f85f0b85846dd2e4639fcb4c38f09982",
+          "sha256_lf": "20b1d50da9ad6a5ce8ea0104e679a0d81d105751e6eb04e849d5354a815d470e",
+          "lines": 1380,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/M5.md",
+      "integrated_commit": "cb6cdc5267ac931b6a4b3b1f82111b995576cb01",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-memory/src/lib.rs": {
+          "judgment": "PASS",
+          "sha256": "9fe123aff428a6b8f512549a6e69648bfd90c1f75176de157675e142ddc67f78",
+          "sha256_lf": "9fe123aff428a6b8f512549a6e69648bfd90c1f75176de157675e142ddc67f78",
+          "lines": 38,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-memory/src/docstore/model.rs": {
+          "judgment": "P1",
+          "sha256": "be5fd8c9b1388ccfd2e19b375960b9f825fe7c04d5b785557c82a30639be0047",
+          "sha256_lf": "be5fd8c9b1388ccfd2e19b375960b9f825fe7c04d5b785557c82a30639be0047",
+          "lines": 371,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-memory/src/docstore/parse.rs": {
+          "judgment": "P1",
+          "sha256": "0b399b8984d6d02604a2eef09ebb16b0a7efacf470ce884dc301985a2f412ba2",
+          "sha256_lf": "0b399b8984d6d02604a2eef09ebb16b0a7efacf470ce884dc301985a2f412ba2",
+          "lines": 302,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-memory/src/docstore/render.rs": {
+          "judgment": "PASS",
+          "sha256": "0a160687e5450de6384c71fc0b429f4c05d1478a60d210c21bdad417b74a80d4",
+          "sha256_lf": "1a2e7166002b9a1e959ee133685b4c5e28eeeaf6849f87cc404fc9952d05b958",
+          "lines": 137,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/D4.md",
+      "integrated_commit": "4aeed9c764d07412ccbcfb1d24e52018ce2ebb02",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-harness/src/conventions.rs": {
+          "judgment": "PASS",
+          "sha256": "fcdeab798dadcc0fb7cdf6a9dc0eb96893c49db1139d41a48f8e6fcf6725dc44",
+          "sha256_lf": "fcdeab798dadcc0fb7cdf6a9dc0eb96893c49db1139d41a48f8e6fcf6725dc44",
+          "lines": 12,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/handoff.rs": {
+          "judgment": "PASS",
+          "sha256": "fb5410e5115a19c38d7356b440ca274626ca3c353c74d3366aecceda6e98c22c",
+          "sha256_lf": "cb579d2da5bdf33141f477ecaee6b87eb2406c54c7dce9bb0f4fedd7ab2b8ca9",
+          "lines": 162,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/repair.rs": {
+          "judgment": "PASS",
+          "sha256": "300e652b02bbab8e8d2ea507a72b43caef150350d6e8da8440c1dba72e94b63a",
+          "sha256_lf": "300e652b02bbab8e8d2ea507a72b43caef150350d6e8da8440c1dba72e94b63a",
+          "lines": 209,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/A6.md",
+      "integrated_commit": "89d7ec981ebe7467fcdbe5507700f22d5c3d7654",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-app/src/prefs.rs": {
+          "judgment": "P1",
+          "sha256": "29469a3015d70e62d98c4a14f990786fd494f4bdba99933c6dc0b18ba524441f",
+          "sha256_lf": "b6715d530e7c9828a631e557dbbabedbaaacbb136917114129fe7d56fb97d764",
+          "lines": 1093,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-app/ui/00-surface.js": {
+          "judgment": "PASS",
+          "sha256": "8cc6cc7705034b628310d00724d321c37bfe744b5dc46c0224fea91bf1656078",
+          "sha256_lf": "8cc6cc7705034b628310d00724d321c37bfe744b5dc46c0224fea91bf1656078",
+          "lines": 928,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-app/ui/00-frame.js": {
+          "judgment": "PASS",
+          "sha256": "a3f489c96b4410ef4fba82c04e7461d5570e824c6c092ce7637943889ffc09e0",
+          "sha256_lf": "a3f489c96b4410ef4fba82c04e7461d5570e824c6c092ce7637943889ffc09e0",
+          "lines": 535,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-app/ui/03-layout.js": {
+          "judgment": "P1",
+          "sha256": "887126012df23dfd4aced798fb901a22f8ea53503b9e85816d7740553bc9d84f",
+          "sha256_lf": "0663d542f32690a171da4b8f400b8c66135360ad105cc7419d76bad2f9e357a0",
+          "lines": 194,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-app/ui/03-workspaces.js": {
+          "judgment": "P1",
+          "sha256": "50d87f156f1944fa1d362014e05b0e979cfbdef666c16eae94751b79fb0f984b",
+          "sha256_lf": "7524c8a073c85738cd983c9dfa7860d48f0c0757e24c2e605235a316d675c945",
+          "lines": 298,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/M6.md",
+      "integrated_commit": "5cdfe5a3787697c19a27d50562de103fd3b101bd",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-memory/src/docstore/repository.rs": {
+          "judgment": "P0",
+          "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+          "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e",
+          "lines": 174,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-memory/src/docstore/archive.rs": {
+          "judgment": "P2",
+          "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+          "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65",
+          "lines": 595,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-memory/src/docstore/validation.rs": {
+          "judgment": "P0",
+          "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+          "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37",
+          "lines": 404,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/D5.md",
+      "integrated_commit": "57f01544ac846781eef54fb18174fefafc171d15",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-harness/src/harness.rs": {
+          "judgment": "P2",
+          "sha256": "609e7c5fd8baad677a39a9ac63e910e675501562b9ef6a018135582ca6e90919",
+          "sha256_lf": "609e7c5fd8baad677a39a9ac63e910e675501562b9ef6a018135582ca6e90919",
+          "lines": 706,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/tool_search.rs": {
+          "judgment": "PASS",
+          "sha256": "fb1ab9876ef4d76cd0ba9d00a522177738f2b03c43fecd115c3493d52e2c27fc",
+          "sha256_lf": "fb1ab9876ef4d76cd0ba9d00a522177738f2b03c43fecd115c3493d52e2c27fc",
+          "lines": 377,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-core/src/runner/drive/tool_catalog.rs": {
+          "judgment": "PASS",
+          "sha256": "8270ff2f9aca3ea09940c8ef2dc04500e224ea8d5c63b492cf35e472d6c8dcb2",
+          "sha256_lf": "8270ff2f9aca3ea09940c8ef2dc04500e224ea8d5c63b492cf35e472d6c8dcb2",
+          "lines": 220,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/D6.md",
+      "integrated_commit": "29e2e3d4e9c9881e73d941d94b14c5fce5c13331",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-harness/src/areas.rs": {
+          "judgment": "PASS",
+          "sha256": "17ecc2e9826235befbc5aab65e2fd77eaa83454559074dd632791127b44bd10a",
+          "sha256_lf": "deed3769d62452caa9ed19f0c8ee51f0c5abdb0b2abe036ce7aefe091fb73789",
+          "lines": 925,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/auto_run.rs": {
+          "judgment": "PASS",
+          "sha256": "df970870be88913f29e26cbf5d55b78860bb72fed89caa2a21652726ef125d7a",
+          "sha256_lf": "df970870be88913f29e26cbf5d55b78860bb72fed89caa2a21652726ef125d7a",
+          "lines": 1766,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-harness/src/tool_pipeline.rs": {
+          "judgment": "PASS",
+          "sha256": "5c801b7d4524581fd03d41fc1f8280602eef4a8d7502e4ad7bf5ac375b1a5626",
+          "sha256_lf": "5c801b7d4524581fd03d41fc1f8280602eef4a8d7502e4ad7bf5ac375b1a5626",
+          "lines": 439,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/B4.md",
+      "integrated_commit": "3f8244d9baf0534032a0729ba0763696d3434921",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-tools/src/background/lifecycle.rs": {
+          "judgment": "P0",
+          "sha256": "beb432ee91486ab59fc3272326adf4f34211c9ffcc0f9d224f5f2e5a0a156515",
+          "sha256_lf": "1a06fc67d9fbbf93442a471348bff02cea3dc3a7e3f875590e5ae4378e4e58cc",
+          "lines": 493,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/A8.md",
+      "integrated_commit": "84a3892bc80483a61cc6335e7a8ca654ca2b3c18",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-app/src/projects.rs": {
+          "judgment": "P0",
+          "sha256": "ec559c889e1fbe36bad8b61b13316272046bd25b0a8860ecf77ed5866a4cf6f8",
+          "sha256_lf": "ac5e823f4c7bef57c1d09807f47831fc2fc7895bd940de96fe4f812caef7d713",
+          "lines": 1269,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        },
+        "crates/kanzei-app/src/prefs.rs": {
+          "judgment": "P0",
+          "sha256": "29469a3015d70e62d98c4a14f990786fd494f4bdba99933c6dc0b18ba524441f",
+          "sha256_lf": "b6715d530e7c9828a631e557dbbabedbaaacbb136917114129fe7d56fb97d764",
+          "lines": 1093,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
+    },
+    {
+      "report": "parallel/C6.md",
+      "integrated_commit": "0e0b24f86ea3960314dbf884a5ce6a21dd8ba27c",
+      "root_combined_report": "parallel-round-5.md",
+      "full_files": {
+        "crates/kanzei-app/src/run/assembly.rs": {
+          "judgment": "P1",
+          "sha256": "a673f9fa4b152c3a27003b8a70ef4f9b32aac8d1c22bdd00a8efad2233d86c61",
+          "sha256_lf": "262910ef20a767cb599e03d01ab900f90b12e05be6b273c27223c4e15b0a2335",
+          "lines": 1880,
+          "integration_content_check": "final_root_source_reviewed_and_combined_checks_passed"
+        }
+      },
+      "full_review_reopened_slices": {},
+      "note": "Reopened files keep prior count; final source may include later explicitly reviewed slices."
     }
   ],
-  "parallel_integration_report": "parallel-round-4.md",
+  "parallel_integration_report": "parallel-round-5.md",
   "outside_inventory_contract_slice_reviews": [
     "scripts/ui-i18n-smoke.mjs",
     "scripts/ui-runtime-smoke.mjs"
   ],
-  "current_inventory_total": 512,
-  "current_full_review_count": 95,
-  "current_pending_full_review_count": 417,
+  "current_inventory_total": 514,
+  "current_full_review_count": 132,
+  "current_pending_full_review_count": 382,
   "regression_support_files": [
-    "scripts/ui-permission-identity-smoke.mjs"
+    "scripts/prefs-failure-native-smoke.mjs",
+    "scripts/schedule-terminal-smoke.py",
+    "scripts/startup-admission-smoke.py",
+    "scripts/ui-permission-identity-smoke.mjs",
+    "scripts/ui-preview/fixtures.mjs",
+    "scripts/ui-preview/server.mjs",
+    "scripts/ui-preview/workspace-prefs-fixture.mjs",
+    "scripts/ui-schedule-ownership-smoke.mjs",
+    "scripts/ui-session-identity-smoke.mjs",
+    "scripts/ui-state-ownership-smoke.mjs",
+    "scripts/ui-surface-owner-smoke.mjs",
+    "scripts/ui-workbench-browser-smoke.mjs",
+    "scripts/ui-workspace-smoke.mjs"
   ]
 }
