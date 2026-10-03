@@ -244,7 +244,7 @@ pub(crate) fn discover_project_root_with_roots(
     let mut dir = Some(cwd);
     while let Some(d) = dir {
         let kanzei_marker = d.join(".kanzei").is_dir();
-        let git_marker = d.join(".git").is_dir();
+        let git_marker = d.join(".git").exists();
         let lexically_home = home_key.as_ref().is_some_and(|h| *h == dir_key(d));
         let lexically_temp = temp_key.as_ref().is_some_and(|t| *t == dir_key(d));
         // D-270 缺口①:发现式取根对别名形态的 HOME 也要拦得住——`.kanzei` 标记层
@@ -273,6 +273,34 @@ pub(crate) fn discover_project_root_with_roots(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn gitfile_root_wins_over_ancestor_marker_from_child() {
+        let base = std::env::temp_dir().join(format!(
+            "kanzei-gitfile-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let worktree = base.join("worktree");
+        let child = worktree.join("src/nested");
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::write(worktree.join(".git"), "gitdir: ../repo/.git/worktrees/w\n").unwrap();
+        for cwd in [&worktree, &child] {
+            assert_eq!(
+                discover_project_root_with_roots(cwd, None, None),
+                Some(worktree.clone())
+            );
+        }
+        std::fs::create_dir_all(base.join(".kanzei")).unwrap();
+        assert_eq!(
+            discover_project_root_with_roots(&child, None, None),
+            Some(worktree)
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
 
     /// D-194:真实 HOME 必须被 `is_home_root` 认出来——CLI 靠它在开跑前拦下
     /// "项目级产物落进全局配置根"。

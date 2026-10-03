@@ -123,19 +123,37 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
         let fm = parse_frontmatter(&text);
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("agent");
         let name = fm.get("name").unwrap_or(stem).to_string();
-        let agent = AgentDef {
-            name: name.clone(),
-            profile: fm.get("profile").and_then(serde_plain).unwrap_or_default(),
-            model: fm.get("model").unwrap_or("primary").to_string(),
-            mode: fm.get("mode").and_then(serde_plain).unwrap_or_default(),
-            steps: fm
-                .get("steps")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_default(),
-            system: fm.body,
+        let agent = match agent_from_frontmatter(name.clone(), fm) {
+            Ok(agent) => agent,
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "invalid agent; skipped");
+                continue;
+            }
         };
         draft.agents.insert(name, agent);
     }
+}
+
+fn optional_agent_field<T: Default>(
+    fm: &Frontmatter,
+    key: &str,
+    parse: impl FnOnce(&str) -> Option<T>,
+) -> Result<T, String> {
+    match fm.get(key) {
+        Some(value) => parse(value).ok_or_else(|| format!("invalid {key} `{value}`")),
+        None => Ok(T::default()),
+    }
+}
+
+fn agent_from_frontmatter(name: String, fm: Frontmatter) -> Result<AgentDef, String> {
+    Ok(AgentDef {
+        name,
+        profile: optional_agent_field(&fm, "profile", serde_plain)?,
+        model: fm.get("model").unwrap_or("primary").to_string(),
+        mode: optional_agent_field(&fm, "mode", serde_plain)?,
+        steps: optional_agent_field(&fm, "steps", |value| value.parse().ok())?,
+        system: fm.body,
+    })
 }
 
 fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
@@ -219,6 +237,62 @@ mod tests {
         assert_eq!(draft.agents.get("custom").unwrap().steps, 0);
 
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_agent_fields_do_not_insert_or_override_valid_agents() {
+        let dir = std::env::temp_dir().join(format!(
+            "kanzei-markdown-invalid-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut draft = crate::harness::HarnessDraft::default();
+        let original = agent_from_frontmatter(
+            "existing".into(),
+            parse_frontmatter("---\nprofile: dev\nmode: subagent\nsteps: 7\n---\noriginal"),
+        )
+        .unwrap();
+        draft.agents.insert("existing", original);
+        for (key, value) in [
+            ("profile", "deev"),
+            ("mode", "subagnt"),
+            ("steps", "twenty"),
+        ] {
+            for name in ["existing", key] {
+                std::fs::write(
+                    dir.join(format!("{key}-{name}.md")),
+                    format!("---\nname: {name}\n{key}: {value}\n---\nbad"),
+                )
+                .unwrap();
+            }
+        }
+        scan_agents(&dir, &mut draft);
+        assert_eq!(draft.agents.len(), 1);
+        let kept = draft.agents.get("existing").unwrap();
+        assert_eq!(kept.profile, crate::defs::ProfileScope::Dev);
+        assert_eq!(kept.mode, crate::defs::AgentMode::Subagent);
+        assert_eq!(kept.steps, 7);
+        assert_eq!(kept.system, "original");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn valid_agent_fields_keep_defaults_and_explicit_zero() {
+        for text in [
+            "---\n---\nbody",
+            "---\nprofile: all\nmode: primary\nsteps: 0\n---\nbody",
+        ] {
+            let agent = agent_from_frontmatter("valid".into(), parse_frontmatter(text)).unwrap();
+            assert_eq!(agent.profile, crate::defs::ProfileScope::All);
+            assert_eq!(agent.mode, crate::defs::AgentMode::Primary);
+            assert_eq!(agent.model, "primary");
+            assert_eq!(agent.steps, 0);
+            assert_eq!(agent.system, "body");
+        }
     }
 
     /// Windows 上文件多为 CRLF;正文不得被分隔符残留污染,更不得整体丢失(D-052)。

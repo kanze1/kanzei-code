@@ -25,16 +25,11 @@ pub fn kanzei_home() -> Option<PathBuf> {
 
 /// The projectless store is an application-owned scope, never a discovered project.
 pub fn is_general_conversation_root(root: &Path) -> bool {
-    fn key(path: &Path) -> String {
-        let text = path.to_string_lossy().replace('\\', "/");
-        let text = text.trim_start_matches("//?/").trim_end_matches('/');
-        if cfg!(windows) {
-            text.to_lowercase()
-        } else {
-            text.to_owned()
-        }
-    }
-    kanzei_home().is_some_and(|home| key(root) == key(&home.join("conversations/general")))
+    kanzei_home().is_some_and(|home| is_general_conversation_root_at(root, &home))
+}
+
+fn is_general_conversation_root_at(root: &Path, home: &Path) -> bool {
+    crate::project_root::is_same_dir(root, &home.join("conversations/general"))
 }
 
 /// Files belong to a conversation; shared history and memory stay in the store root.
@@ -45,7 +40,30 @@ pub fn general_conversation_workspace(root: &Path, session: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::kanzei_home;
+    use super::{is_general_conversation_root_at, kanzei_home};
+
+    #[test]
+    fn canonical_general_root_keeps_identity_with_dot_home() {
+        let base = std::env::temp_dir().join(format!(
+            "kanzei-general-home-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(base.join("padding")).unwrap();
+        let home = base.join("padding").join("..").join("data");
+        let general = home.join("conversations/general");
+        std::fs::create_dir_all(&general).unwrap();
+        let canonical = std::fs::canonicalize(&general).unwrap();
+        assert!(is_general_conversation_root_at(&canonical, &home));
+        assert!(!is_general_conversation_root_at(
+            &canonical.join("artifacts"),
+            &home
+        ));
+        std::fs::remove_dir_all(base).unwrap();
+    }
 
     /// 两个 home 行为合并成顺序测试:`kanzei_home_honors_env_var` 用进程级全局
     /// KANZEI_HOME,与 `kanzei_home_defaults_to_home_dot_kanzei` 并行跑会互踩
