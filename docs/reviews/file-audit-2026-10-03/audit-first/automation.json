@@ -1,0 +1,556 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "group": "automation",
+  "assigned_fulltext_count": 38,
+  "reviewed_files": [
+    {
+      "file": "crates/kanzei-app/src/agent_directory.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "7f93ae4007bf5b8b7aa40c2d07db476ed07839c0bbece9449b8f53cf53e422da",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/auto_run.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "75dbce21c9d425651c2429d0691a6520efc4e9723bf460de5b6f61322f2f3d32",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/collaboration.rs",
+      "judgment": "P2",
+      "findings": [
+        "AUTO-011"
+      ],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "bde5f3af5d26d1db4bc9bcacc94b877c77f20e02be72059b4781c349d8db0689",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/orchestration_trace.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "785a767bf1e905b21227c18821cf707e007438e78765d3974ec72a5dcbe95e0f",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "36b47ab32857800f4003b184a7bad26de138cbe76bcaed57647954564b7e3df5",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline.rs",
+      "judgment": "P2",
+      "findings": [
+        "AUTO-010"
+      ],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "7832cba93dcd22bb7df234ecdf3a55d9b9f91f07dab0887d7cde337e0fd57242",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "01a36feb749012aa0d2868ebb8d943ac6fee8cced653dd2ddd265896fd52e87d",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/process_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "bd1876fc6bb15105dd09fa9401829da3c26615dd064b7d9621e6d69a6c0fb8df",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/conversation_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "cf3cf5c8f5fef9134187e862f033be36279fb42bbb68b77c1f70446dcf70ddeb",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/lifecycle.rs",
+      "judgment": "P1",
+      "findings": [
+        "AUTO-006"
+      ],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "4302c2beb15dea46f7f35760f7e362701c53a1dc9672073e57e63d507997134d",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/mod.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "e4ce9bcff73845f1086109039d67ff035046caf44e115d9ae01e11a3399a694b",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/naming.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "8cd9b98701fc518412bd4b1d9e9c4334962530734289470d07b699ee3badcd9b",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/registry.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "da5d12b72413241e241bb74cbc574112dc13757ec92fab950dc841b1e3992155",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/subagents_capture_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "40bb5000227e13aaae0b1ecbe5670095fdf86c74a69b85b24834c2e77963be92",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/src/subagents.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [
+        "AUTO-008",
+        "AUTO-009"
+      ],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "d7a44db685036749a2e4809b6589d5ae25570d072076f611cf978600406d0d98",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-subagents.js",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "9d35f2df4ff68f2cded521dba8f4e543f7c789576ecc8619e4864a1bfeb20188",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-app/ui/27-agent-team.js",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "6eb2c85879016ff7caba3f5dbb28ae705b685d416e785df04727c6377f6b318a",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-core/src/notification.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "cfd34945bae797057246aa4587b97881bb79763030b486c9fc077e6e6aada590",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-core/src/orchestration.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "2621887ebb53aef1d70dfd4d99f90c362af69fe7589187cef1869cd41d4e0d99",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-core/src/phase.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "ee10cd879a9cbb03e42c1f4264bb758b0c4f7a0ed150f7034e049c504f44a6cf",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/delegation.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "b383cf82e7759968a6f05d70afdb61daf0e0159b4767b952ba4b4e8c288487e2",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "b27fd8d141c6cea42a393b6dbeb25f09f41def7968aec4f2869b498175cf6137",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "e699110a6bb559b5febc38b7055867748ee984a4a1de156aabbea9db64cd1f6c",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/background.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "ffba5daf14b85e66959e02e6622d6e30566cadf46f71dc874f72855174fe219f",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/monitor.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "21e2224bcf2ed1156f3c7e9d02ca5afcf3f8766b82676b9e26237ca43f02879f",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/persistent.rs",
+      "judgment": "P1",
+      "findings": [
+        "AUTO-001",
+        "AUTO-002"
+      ],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "81087b5ed6928cc5998b8c00d342278162dad4a335ddf9fb2a80dcafb13c6fec",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/registration.rs",
+      "judgment": "P1",
+      "findings": [
+        "AUTO-001",
+        "AUTO-002",
+        "AUTO-003"
+      ],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "1b87b656904df58ace3bd4a97b10b99bb2be1f8a469429374745e6cf65cc794c",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/executor.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "5129cf44b6a2e70e7283a80bb3f8bbc124f3e622bc7b5ff22bd7b10fd85cc8d2",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/hosts.rs",
+      "judgment": "P1",
+      "findings": [
+        "AUTO-005"
+      ],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "b65de8e3e63334681a6ef4a3b813d3685b899888ea928ebe8cc64afde60c92c0",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/mod.rs",
+      "judgment": "P1",
+      "findings": [
+        "AUTO-004"
+      ],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "1c0141b5c2d1748bda7d9335267982449be0bab4615cd594e767db02509398e6",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/when.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "bde2814828b11d55d1be84f4b960359d29c64c9105030b9527290ef6bb3a79bb",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/subagent.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "fb449807144900c81bd5ae616b575e20ba2b0585168767680b7d6b573b7bd6ac",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/tools.rs",
+      "judgment": "P1",
+      "findings": [
+        "AUTO-007"
+      ],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "7ebe895b07a70b8f58d2c32c10e5f72dce5b8788c902347907cf7c28ab21ab8b",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei/src/cli/schedule.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "531999fd8abbcf70ce8cf0d71b3f58639b1fbc877813e186c0186132c54768c8",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "f10f81b834184a9637cbf62df727ce05cf7b4d777925402116877d16a08d6952",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "8874203683b37c3db02938957ce0b2f1caef88b541ab4892dd32793187afb0a1",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "be9dd1cf3e5106bbaa8f9209d042d3db827a2bf07a583e6dc62e24c33f0dfcbb",
+      "fulltext_read": true
+    },
+    {
+      "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "b39c9b3534f916cdba6e905db87c173669af326da7b80b60cd2976c7e91bd151",
+      "fulltext_read": true
+    }
+  ],
+  "findings": [
+    {
+      "id": "AUTO-001",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/background/persistent.rs",
+      "files": [
+        "crates/kanzei-tools/src/background/persistent.rs",
+        "crates/kanzei-tools/src/background/registration.rs"
+      ],
+      "lines": "38-60; registration.rs:144-158,269-287",
+      "title": "后台持久登记读改写丢更新",
+      "trigger": "同项目已有 A，启动 B 与 A 自然退出并发：两个路径分别读取旧 [A]，启动写 [A,B]，退出随后写 []。",
+      "impact": "仍在运行的 B 从持久登记消失，应用重启后无法发现/接管；相反顺序也可复活已结束的登记。",
+      "evidence": "load_registry/save_registry/remove_registry_entry 没有覆盖读改写的锁；register 的持久登记先于内存 registry 锁。base/atomic_file.rs:3 明确原子替换不负责 caller 读改写串行化。自然退出 waiter 独立于新启动路径，时序可达。",
+      "validation": "全文及 bash/register/exit/stop/discover caller 检查；明确给出可达交错，未运行整进程竞争测试。",
+      "status": "confirmed_unfixed"
+    },
+    {
+      "id": "AUTO-002",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/background/persistent.rs",
+      "files": [
+        "crates/kanzei-tools/src/background/persistent.rs",
+        "crates/kanzei-tools/src/background/registration.rs"
+      ],
+      "lines": "38-50; registration.rs:144-158",
+      "title": "后台登记读写失败被当成功",
+      "trigger": "registry.json 非法 JSON/UTF-8 或读取失败时仍启动新的 persistent 服务；或 registry 替换因占用/路径错误失败。",
+      "impact": "旧登记可被空表覆盖；服务启动/清理返回成功但持久登记未更新，重启恢复与运行态分叉。",
+      "evidence": "load_registry 对所有 I/O 错误返回空、JSON 错误 unwrap_or_default；save_registry 丢弃 write_atomic Result。register、mark_registry_failed、kill_registered_result 均不能传播该失败。",
+      "validation": "全文＋所有 registry 读写 caller 与 R-180 恢复合同检查；尚未做真实 IO 故障注入。",
+      "status": "confirmed_unfixed"
+    },
+    {
+      "id": "AUTO-003",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-tools/src/background/registration.rs",
+      "files": [
+        "crates/kanzei-tools/src/background/registration.rs"
+      ],
+      "lines": "174-215",
+      "title": "小输出长驻服务日志没有按两秒落盘",
+      "trigger": "服务输出一次 READY（小于64KiB），随后一直运行且没有新输出。",
+      "impact": "输出仅留内存；强杀应用后缺失该段日志，重启接管回看不完整。当前运行中的内存读取仍可见。",
+      "evidence": "elapsed>=2s 仅在 read 返回字节后检查，下一次 read 一直 pending 就永不触发；EOF 才最终 flush。",
+      "validation": "隔离编译实际 reader/append 函数体，tokio duplex 输入 READY；确认内存已接收，2.2 秒日志不存在；EOF 后完整字节落盘为正对照。output/audit-first/automation/probe-results.json。",
+      "status": "confirmed_unfixed"
+    },
+    {
+      "id": "AUTO-004",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/schedules/mod.rs",
+      "files": [
+        "crates/kanzei-tools/src/schedules/mod.rs"
+      ],
+      "lines": "143-205,326-338",
+      "title": "启停编辑不遵守自身定义解析规则",
+      "trigger": "合法定义使用缩进 enabled 字段，或省略头部 enabled 且正文包含行首 enabled: 示例。",
+      "impact": "前者 toggle 产生重复字段，合法操作被拒绝；后者启用只改正文，真实 enabled 仍 false。执行器自动禁用也可能写坏合法定义。",
+      "evidence": "parse 对字段 trim 且拒绝重复字段；set_enabled 在全文中只匹配行首 enabled:，未限 front matter/未处理合法缩进。app/schedules.rs:198-207、executor.rs:248 消费此函数。",
+      "validation": "隔离编译当前 parse/scalar/valid_name/set_enabled/When::parse 实际函数：普通启停正对照通过，两种反例均复现；仅固定 local UTC offset，省略无关序列化 derive。",
+      "status": "confirmed_unfixed"
+    },
+    {
+      "id": "AUTO-005",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/schedules/hosts.rs",
+      "files": [
+        "crates/kanzei-tools/src/schedules/hosts.rs"
+      ],
+      "lines": "4-11,161,206",
+      "title": "服务端 cron 更新误删名称有前缀关系的任务",
+      "trigger": "同项目在同一服务器登记 check 与 check-long，再保存、禁用或删除 check。",
+      "impact": "check-long 的 cron 行也被删除，定义仍启用但不再被唤醒。",
+      "evidence": "task_name 为 Kanzei-<root hash>-<name>；grep -F -v marker 是子串过滤，check marker 必然匹配 check-long 行。两个名称都通过 valid_name。",
+      "validation": "本地 Git grep 对真实格式两行输入运行同样 -F -v 参数，结果两行全被过滤；未连接 SSH 或操作任何 crontab。app/schedules host 与 CLI register caller 已核对。",
+      "status": "confirmed_unfixed"
+    },
+    {
+      "id": "AUTO-006",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/processes/lifecycle.rs",
+      "files": [
+        "crates/kanzei-app/src/processes/lifecycle.rs"
+      ],
+      "lines": "716-748",
+      "title": "对话设置落库失败后内存仍采用新设置",
+      "trigger": "process_update 改模型/权限开关后，state.db 打开或 upsert 失败（例如数据库被占用或磁盘写入错误）。",
+      "impact": "RPC 报失败，但后续运行读到已经改变的模型/子代理/tracker 开关；重启又恢复旧值。",
+      "evidence": "process_update 先修改共享 Arc<Mutex>/AtomicBool，再 persist_process(...)?；错误分支没有回滚。registry.rs 的 persist_process/open/upsert 是实际 fallible 调用。",
+      "validation": "完整审阅生命周期及 registry 落库/恢复、运行时设置读取合同；仅确认失败顺序，不宣称并发 RPC lost update 或已执行数据库注入。",
+      "status": "confirmed_unfixed"
+    },
+    {
+      "id": "AUTO-007",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/team/tools.rs",
+      "files": [
+        "crates/kanzei-tools/src/team/tools.rs"
+      ],
+      "lines": "50-55",
+      "title": "子任务收件箱确认了未送入模型的消息",
+      "trigger": "子任务运行中、下一次模型请求前积累13条补充消息；或 store.get 后、update 前又收到新消息。",
+      "impact": "未出现在模型上下文里的消息也变 received，轮末被标 processed，后续 worker 不会再以 queued 消费，用户方向可丢失。",
+      "evidence": "注入只取快照最后12条，但 update 遍历当前全部 queued；team/mod.rs:877-899 消息不限12条、:1316-1324 仅处理 queued、:1543-1546 将全部 received 标 processed。初次启动的 queued prompt 不兜底运行中后来到达的消息。",
+      "validation": "逐段审阅 inbox 注入与 queue_message/worker loop/terminal caller，确认运行中送消息入口可达；未运行模型/真实 IPC 队列探针。",
+      "status": "confirmed_unfixed"
+    },
+    {
+      "id": "AUTO-010",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-app/src/phase_pipeline.rs",
+      "files": [
+        "crates/kanzei-app/src/phase_pipeline.rs"
+      ],
+      "lines": "199-225,626-657",
+      "title": "指定勘察模型后沿用另一个模型的上下文上限",
+      "trigger": "配置 models.scout 指向 context_limit 与 fast/primary 不同的 provider。",
+      "impact": "勘察按旧窗口做上下文预算，可提前压缩/拒绝，或向较小窗口模型发送过大的请求。未指定 scout 时不受影响。",
+      "evidence": "ScoutRoute 只保存 route/model/service_tier；runtime_as 克隆模板后替换两档 route，不替换 options.fast_context_limit/primary_context_limit；core runner/subagent.rs:579-583 正是读取这两项。",
+      "validation": "完整审阅路由与 runner options caller；尚未执行不同窗口的 provider mock。",
+      "status": "confirmed_unfixed"
+    },
+    {
+      "id": "AUTO-011",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-app/src/collaboration.rs",
+      "files": [
+        "crates/kanzei-app/src/collaboration.rs"
+      ],
+      "lines": "290-300",
+      "title": "并发工具尚在执行却报告没有当前工具",
+      "trigger": "A start、B start、B completed，而 A 仍运行（允许并行的只读工具批次）。",
+      "impact": "协作快照/模型协作上下文显示 current_tool=None，其他线路看不到仍在进行的工具。仅影响当前活动信息。",
+      "evidence": "current_tool 只找最后一条 started/completed；最后是 completed 就无条件 None，未按 call id 配对还未结束的调用。",
+      "validation": "全文审阅快照构造与工具并发语义；精确三事件序列即可推导，未运行 UI E2E。",
+      "status": "confirmed_unfixed"
+    }
+  ],
+  "out_of_scope_observations": [
+    {
+      "id": "AUTO-008",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/subagents.rs",
+      "files": [
+        "crates/kanzei-app/src/subagents.rs"
+      ],
+      "lines": "101-106,194-210,307-317,378-415",
+      "title": "捕获与拆解把别的写入当成本次结果",
+      "trigger": "quick_req/idea_split 等模型返回期间，UI docs_update(add) 或其他工作树 tracker 在同一个主根新增条目；本次模型失败或新增别的条目。",
+      "impact": "quick_req 可返回别人的 ID 并跳过自己的 fallback；idea_split 可把无关新增项写进 idea.refs，产生错误依赖。",
+      "evidence": "用全量 before/after ID 差集推断本次收据；docs.rs:509-581 直接 TrackerTool.execute，不取 MemoryCoordinator writer；worktree_tests.rs:933-999 证明分支工具写同一 project_root。文件级锁只串行单次修改，不能证明条目属于本次 LLM。",
+      "validation": "完整阅读 subagents 捕获/拆解及现有测试，检查 docs_update 与主根 tracker caller；所有权交错已静态证明，未运行双入口端到端探针。",
+      "status": "out_of_scope_observation",
+      "scope": "仅影响 quick_req/idea_split 的业务条目捕获与想法拆解；未发现通用 task/AgentTeam/PhasePipeline 普通任务路径消费这些收据或前置状态。focused-scope.json 将 docs/tracker 业务列为仅接口参考或排除范围；subagents.rs 全文纳入不恢复该业务专项。仅保留审阅观察，不进入本轮修复计划或计数，无需新增产品决策。"
+    },
+    {
+      "id": "AUTO-009",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/subagents.rs",
+      "files": [
+        "crates/kanzei-app/src/subagents.rs"
+      ],
+      "lines": "255-278,402-420",
+      "title": "想法拆解排队后使用旧的 inbox 前置状态",
+      "trigger": "拆解调用在 writer 租约排队时，另一次拆解完成，或 docs_update 把想法转 dropped；之后该调用获取租约继续执行。",
+      "impact": "本应拒绝的终态想法仍调用模型、新增需求/缺陷；最终转 split 即使被 tracker 状态门禁拒绝，也已经留下不该创建的条目。",
+      "evidence": "inbox 检查在 .acquire_writer_lease().await 之前；获得租约后未重读，后续产生条目才调用 update 转 split。",
+      "validation": "完整阅读状态检查、租约等待、最终 refs 更新和 docs_update 状态入口；以实际异步等待边界证明 TOCTOU，未执行并发拆解探针。",
+      "status": "out_of_scope_observation",
+      "scope": "仅影响 quick_req/idea_split 的业务条目捕获与想法拆解；未发现通用 task/AgentTeam/PhasePipeline 普通任务路径消费这些收据或前置状态。focused-scope.json 将 docs/tracker 业务列为仅接口参考或排除范围；subagents.rs 全文纳入不恢复该业务专项。仅保留审阅观察，不进入本轮修复计划或计数，无需新增产品决策。"
+    }
+  ],
+  "scope_note": "仅影响 quick_req/idea_split 的业务条目捕获与想法拆解；未发现通用 task/AgentTeam/PhasePipeline 普通任务路径消费这些收据或前置状态。focused-scope.json 将 docs/tracker 业务列为仅接口参考或排除范围；subagents.rs 全文纳入不恢复该业务专项。仅保留审阅观察，不进入本轮修复计划或计数，无需新增产品决策。",
+  "summary": {
+    "in_scope_findings": 9,
+    "P1": 6,
+    "P2": 3,
+    "out_of_scope_observations": 2
+  },
+  "verification": {
+    "cargo": "not_run",
+    "product_changes": false,
+    "probes": "output/audit-first/automation/probe-results.json"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "reviewed_files": [
+    {
+      "file": "crates/kanzei-core/src/runner/tool_exec.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "32b402357b705c573c06c7ff6ed24aca43254107a1359216e4a3fc962cd8b678",
+      "reviewed_ranges": [
+        [
+          726,
+          1740
+        ]
+      ],
+      "coverage": "delegated_partial_text"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_images.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "944070b1aad0d38a600ca2e147e1c494f42c4ae7588ceb5cf794a3e81e2ecffa",
+      "reviewed_ranges": [
+        [
+          311,
+          561
+        ]
+      ],
+      "coverage": "delegated_partial_text"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/pure_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "3889b970920e3f1b8c72a214d61d494ebc971d17c10bfe41c64601358d795fc4",
+      "reviewed_ranges": [
+        [
+          1,
+          874
+        ]
+      ],
+      "coverage": "full_text"
+    }
+  ],
+  "findings": [],
+  "note": "First two file production portions reviewed by root; this supplement reviews exact delegated test ranges only."
+}

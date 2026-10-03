@@ -4,6 +4,17 @@
   "scope_authority": "用户指定仅工作台与交互控制台、对话执行与恢复、工具与代码操作、多任务与自动运行，按此顺序。",
   "code_baseline": "746b69a824f38b4d5fc5502c4ec9ff78bc06e956",
   "scope_mode": "explicit_allowlist",
+  "execution_policy": {
+    "mode": "audit_all_remaining_then_fix",
+    "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+    "pending_audit_files": 0,
+    "audit_grouping": "Group adjacent state owners and callers across the four allowed blocks; verify shared contracts and deduplicate root causes before production edits.",
+    "production_edits_during_audit": false,
+    "fix_phase": "After remaining-scope audit and root-cause consolidation, fix bottom-up in validated batches; no monolithic rewrite.",
+    "progress_policy": "Track audited files separately from fixed and verified findings. Preserve existing C7 evidence and unfinished worktrees.",
+    "status": "audit_complete_fixes_not_started",
+    "report": "audit-first/summary.md"
+  },
   "priority_order": [
     "workbench",
     "conversation",
@@ -49,19 +60,15 @@
     "note": "全仓历史口径，不是收敛后计划的待办数量；范围变更不计新增完成。"
   },
   "scope_file_count": 269,
-  "scope_file_count_note": "269 primary files after remote conversation test addition: 61 reusable + 27 WB completed = 88 completed; 181 pending. Release integration is not extra full-file audit.",
+  "scope_file_count_note": "269 files reviewed at recorded baseline: 88 prior + 181 audit-first; 0 pending audit. Confirmed fixes tracked separately; live parallel edits require integration review.",
   "next_package": {
-    "id": "WB7",
-    "block": "workbench",
-    "status": "planned_not_reviewed",
-    "files": [
-      "crates/kanzei-app/src/workspace.rs",
-      "crates/kanzei-app/src/workspace/tests.rs",
-      "crates/kanzei-app/ui/26-project-conversations.js",
-      "crates/kanzei-app/ui/28-async-workspace.js"
-    ],
-    "focus": "Workspace summary identity and snapshot -> project conversations and async workspace UI ownership.",
-    "caller_policy": "Read all callers before contract changes; completed lower owners remain authoritative."
+    "id": "F1",
+    "status": "planned_not_started",
+    "report": "audit-first/summary.md",
+    "findings": [
+      "AF-T02",
+      "AF-T11"
+    ]
   },
   "retained_packages": {
     "C7": {
@@ -1347,5 +1354,123 @@
     "wb_commit": "9875810c",
     "remote_commit": "c6654fae7003b8007063acfb6f95f668674ecec4",
     "note": "Merged remote peer-conversation contracts and retained WB ownership fixes; historical per-batch hashes remain unchanged."
-  }
+  },
+  "historical_next_package": {
+    "id": "WB7",
+    "block": "workbench",
+    "status": "planned_readonly_audit_not_reviewed",
+    "files": [
+      "crates/kanzei-app/src/workspace.rs",
+      "crates/kanzei-app/src/workspace/tests.rs",
+      "crates/kanzei-app/ui/26-project-conversations.js",
+      "crates/kanzei-app/ui/28-async-workspace.js"
+    ],
+    "focus": "Workspace summary identity and snapshot -> project conversations and async workspace UI ownership.",
+    "caller_policy": "Read all callers before contract changes; completed lower owners remain authoritative."
+  },
+  "fix_batches": [
+    {
+      "id": "F1",
+      "name": "Git 进程与目标树写互斥",
+      "ids": [
+        "AF-T02",
+        "AF-T11"
+      ],
+      "owner": "git.rs / git/tool.rs → plan/finalize → runner 调度",
+      "test": "5000 路径双管道无挂起；A 操作 B 时与 B writer 互斥；取消释放子进程与租约"
+    },
+    {
+      "id": "F2",
+      "name": "持久状态与失败原子性",
+      "ids": [
+        "AUTO-001",
+        "AUTO-002",
+        "AUTO-003",
+        "AUTO-006"
+      ],
+      "owner": "background persistent/registration → processes/lifecycle",
+      "test": "并发注册/退出不丢记录；损坏或写失败不伪成功；单条日志定时落盘；落库失败内存不先提交"
+    },
+    {
+      "id": "F3",
+      "name": "会话执行、插话与停止",
+      "ids": [
+        "CONV-AF-01",
+        "CONV-AF-02",
+        "CONV-AF-03",
+        "CONV-AF-04",
+        "CONV-AF-07",
+        "AUTO-007"
+      ],
+      "owner": "session execution owner / coordinator → history actions / team inbox / push",
+      "test": "复用 C7 三个负例并转回归；CLI 与桌面并发历史操作互斥；停止后无旧执行；只确认实际交付的消息"
+    },
+    {
+      "id": "F4",
+      "name": "代码版本归属与工作树身份",
+      "ids": [
+        "CONV-AF-05",
+        "CONV-AF-08",
+        "AF-T03",
+        "AF-T04",
+        "AF-T05",
+        "AF-T08"
+      ],
+      "owner": "runner batch → cross_tree → local_validation / symbols",
+      "test": "外部编辑不能被无关 read 认领；合法新增文件收据可匹配；留证失败明确返回；工作树 edition/API 图均来自当前树"
+    },
+    {
+      "id": "F5",
+      "name": "浏览器与界面会话归属",
+      "ids": [
+        "AF-T09",
+        "AF-R09",
+        "AF-R01",
+        "AF-R02",
+        "AF-R07"
+      ],
+      "owner": "headless helper / preview pane → chat error / async workspace / composer",
+      "test": "A→B→A 浏览操作、重试、截图各归原会话；面板锁等待换线重新验 owner；旧行不使用新 scope"
+    },
+    {
+      "id": "F6",
+      "name": "清理与定时任务精确操作",
+      "ids": [
+        "AF-T01",
+        "AUTO-004",
+        "AUTO-005"
+      ],
+      "owner": "quarantine CLI → schedules definition / hosts",
+      "test": "互斥参数两种顺序都拒绝；仅修改 frontmatter enabled；check 与 check-long cron 各自保留"
+    },
+    {
+      "id": "F7",
+      "name": "解析与文件结果完整性",
+      "ids": [
+        "AF-R05",
+        "AF-R10",
+        "AF-T06",
+        "AF-T07",
+        "AF-T10",
+        "CONV-AF-09"
+      ],
+      "owner": "schema / conventions / ASE / grep / webfetch / replay",
+      "test": "外层 JSON 数组完整；路径字面量原样；标准 ASE；multiline count 一致；大 PDF 不以截断文件报成功；增量事件回放"
+    },
+    {
+      "id": "F8",
+      "name": "检查结果与状态展示一致性",
+      "ids": [
+        "AF-R04",
+        "AF-R03",
+        "AF-R06",
+        "AF-R08",
+        "AF-R11",
+        "AUTO-010",
+        "AUTO-011"
+      ],
+      "owner": "gate → harvest UI；telemetry / architecture identity → UI；route options / collaboration",
+      "test": "重跑 gate 撤销旧绿色；新版行号；成功正文不产生失败诊断；索引统一身份与可见性；窗口随路由；并行活动按 call id 配对"
+    }
+  ]
 }

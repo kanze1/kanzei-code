@@ -1,0 +1,64 @@
+{
+  "checked_at": "2026-10-03T18:23:47.369Z",
+  "coverage": "181 unique files, all six sections, all LF hashes match",
+  "reports": [
+    {
+      "report": "root",
+      "files": 44,
+      "sections": {
+        "职责": 44,
+        "判断": 44,
+        "确切问题": 44,
+        "修改": 44,
+        "影响范围": 44,
+        "验证": 44
+      },
+      "source_hashes": "all_match"
+    },
+    {
+      "report": "conversation",
+      "files": 49,
+      "sections": {
+        "职责": 49,
+        "判断": 49,
+        "确切问题": 49,
+        "修改": 49,
+        "影响范围": 49,
+        "验证": 49
+      },
+      "source_hashes": "all_match"
+    },
+    {
+      "report": "automation",
+      "files": 38,
+      "sections": {
+        "职责": 38,
+        "判断": 38,
+        "确切问题": 38,
+        "修改": 38,
+        "影响范围": 38,
+        "验证": 38
+      },
+      "source_hashes": "all_match"
+    },
+    {
+      "report": "tools",
+      "files": 50,
+      "sections": {
+        "职责": 50,
+        "判断": 50,
+        "确切问题": 50,
+        "修改": 50,
+        "影响范围": 50,
+        "验证": 50
+      },
+      "source_hashes": "all_match"
+    }
+  ],
+  "findings": {
+    "P0": 2,
+    "P1": 24,
+    "P2": 13
+  },
+  "no_product_changes_by_audit": true
+}

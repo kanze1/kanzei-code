@@ -1,0 +1,647 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "mode": "audit_only_no_production_edits",
+  "reviewed_files": [
+    {
+      "file": "crates/kanzei-app/src/commands/run.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "5a10a1c7f1fc0cef8227728d3735cebf5bb967e31da57d0c592a147151a4a4e8",
+      "coverage": "full_text",
+      "lines": 1475
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/handoff.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "80545b9ae20c53f866ff8ab57d61322812807bd94707da4793ac4a61c9a85794",
+      "coverage": "full_text",
+      "lines": 103
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "6338cfae953ff748d3965fd3fc93fa04833834bad0574a1112df207296a6d8d4",
+      "coverage": "full_text",
+      "lines": 339
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/summarize.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "2e87ac841580f256c391546aee42cd28eb6a51bf4ab2ccb4635abb8de61800d6",
+      "coverage": "full_text",
+      "lines": 67
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_actions.rs",
+      "judgment": "P1",
+      "findings": [
+        "CONV-AF-04"
+      ],
+      "source_sha256_lf": "66f47285c421fdf476894402330a5d41580fbcdb31fe1ef3ec5589d28834321b",
+      "coverage": "full_text",
+      "lines": 170
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "71d50d2c37626c2b1f5a25dfb26accc62ad67d268bd30aefd6797f4a51eae392",
+      "coverage": "full_text",
+      "lines": 1423
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation.rs",
+      "judgment": "P1",
+      "findings": [
+        "CONV-AF-04"
+      ],
+      "source_sha256_lf": "d30b356e9e9166cb31a06ac8599050cc58297b756cf3953c998424bf9dfab54a",
+      "coverage": "full_text",
+      "lines": 851
+    },
+    {
+      "file": "crates/kanzei-app/src/general_chat.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "a318d750005e803bc107b210608f7c1d6e4df8411120d73642e122861a6f39c7",
+      "coverage": "full_text",
+      "lines": 375
+    },
+    {
+      "file": "crates/kanzei-app/src/permission_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "9341b8b5d02ac1b702663a4273cc00bb4923fe34d899a7856d68553c4d6b29e5",
+      "coverage": "full_text",
+      "lines": 194
+    },
+    {
+      "file": "crates/kanzei-app/src/projection_gate.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "beca30b106c95fe765138e6cdfeee6a9e192666de43148dad9be01b96004b29b",
+      "coverage": "full_text",
+      "lines": 84
+    },
+    {
+      "file": "crates/kanzei-app/src/run/assembly/components.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "41a0f2751a6e9691800bd23a34dc97f9d9cf8881f18b08db204af65f0faf918b",
+      "coverage": "full_text",
+      "lines": 96
+    },
+    {
+      "file": "crates/kanzei-app/src/run/baseline.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "ebbc20aa5cc6a3c24bebed60aabc218f646409fbc77e407c2eb99cec1a50bccd",
+      "coverage": "full_text",
+      "lines": 434
+    },
+    {
+      "file": "crates/kanzei-app/src/run/coordinator.rs",
+      "judgment": "P1",
+      "findings": [
+        "CONV-AF-01",
+        "CONV-AF-02",
+        "CONV-AF-03"
+      ],
+      "source_sha256_lf": "b707e0ed8ad45c07b269c5e51f8a8aa9639445156f6ade2b2bd26ddef1a3c993",
+      "coverage": "full_text",
+      "lines": 763
+    },
+    {
+      "file": "crates/kanzei-app/src/run/events/mod.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "4446fcd1bcf614fb66366669b8a5e224316c505723fce79ae63b4edad6b8d937",
+      "coverage": "full_text",
+      "lines": 1648
+    },
+    {
+      "file": "crates/kanzei-app/src/run/execution.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "ecd9c4116ff3ba7f9f334fbf47b0c3cc30e20b89424f61b8b9742d30b1b33534",
+      "coverage": "full_text",
+      "lines": 374
+    },
+    {
+      "file": "crates/kanzei-app/src/run/mod.rs",
+      "judgment": "P1",
+      "findings": [
+        "CONV-AF-07"
+      ],
+      "source_sha256_lf": "366e82f818240ff0f77020ea5f31c26e370864846faee5c181f1df1f3c1e6000",
+      "coverage": "full_text",
+      "lines": 700
+    },
+    {
+      "file": "crates/kanzei-app/src/side_question.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "0894b80da74e6e4986e7b947bd6726db5a1fe39e177b9a199221579015c5e76e",
+      "coverage": "full_text",
+      "lines": 510
+    },
+    {
+      "file": "crates/kanzei-app/src/state_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "36630aba447d7a099626326c01cc8edbc1a8f63e752e0c5c7ba9e6a8b17ccf96",
+      "coverage": "full_text",
+      "lines": 757
+    },
+    {
+      "file": "crates/kanzei-app/src/state.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "3e343931059d07a4c5d665c453f18a9382f27668b35c263441c0612556ad21e7",
+      "coverage": "full_text",
+      "lines": 1043
+    },
+    {
+      "file": "crates/kanzei-app/src/typed_events.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "6b660d5910d77c28b5c6dbc345b5813c04010fc440db5069b731881bcc015771",
+      "coverage": "full_text",
+      "lines": 113
+    },
+    {
+      "file": "crates/kanzei-core/src/assemble.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "b89a11de9fe645b85cf96a0e689c1d9eeab87ea0aa4611a6eb080afb680360a5",
+      "coverage": "full_text",
+      "lines": 99
+    },
+    {
+      "file": "crates/kanzei-core/src/replay.rs",
+      "judgment": "P2",
+      "findings": [
+        "CONV-AF-09"
+      ],
+      "source_sha256_lf": "b496b8e9fb9e513bf09e70796b3f877fc854ba57e57db9c01fc81723afb6d8cf",
+      "coverage": "full_text",
+      "lines": 861
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/compaction.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "140422f2f8af64af56e2f033d0cfad8b4b07d1baa9f5b5d3f847ade1fcb6690c",
+      "coverage": "full_text",
+      "lines": 1321
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/context.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "42fd938d32e84613f73a6b0fcfd9a65f6f962f994f79a10495ad8b3d7025b8f7",
+      "coverage": "full_text",
+      "lines": 812
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/assembly.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "f048ccb0f4ddca95fcf89b1cd1113c22e6c342e0abdfb5e9930d5f88f29ffd47",
+      "coverage": "full_text",
+      "lines": 248
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/batch.rs",
+      "judgment": "P1",
+      "findings": [
+        "CONV-AF-05"
+      ],
+      "source_sha256_lf": "3444fd99d37e126591f300346229d2b7d86dbb9843e7dceb42e1375412380bbd",
+      "coverage": "full_text",
+      "lines": 570
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/context_budget.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "f6db342492924545dcf64562e2c8c0512d5615b0a805423e152ebef98f97d4fc",
+      "coverage": "full_text",
+      "lines": 135
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/halt.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "c701d82208f285ac6bd51e31fe0d8e5078a4dae8052cc0cf219dc2046a902d20",
+      "coverage": "full_text",
+      "lines": 28
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/permissions.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "555f0a7a835aeb1b64bb61fd3f141047e779c1f0bf336eafa6b957203faefd26",
+      "coverage": "full_text",
+      "lines": 129
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/question.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "dae3f5aace67755a3f853fc81b574e4a624f25692b763dd930ed16f1dca6835d",
+      "coverage": "full_text",
+      "lines": 311
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/task_results.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "12e2d55d856ae2c43a876a318e8e5c5ba2c3af47c93f16ad64e59e33a3d694b1",
+      "coverage": "full_text",
+      "lines": 35
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/line_runtime.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "006f18d1f76c229040a5c74eaffb55d5b722685071a5d994ddfdf507812bcff1",
+      "coverage": "full_text",
+      "lines": 356
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/metrics.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "dec6babc9a1f4bf9af25eead88b718cb7460bec0e5893906e78d85d7e54bef1b",
+      "coverage": "full_text",
+      "lines": 897
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/mod.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "f27b0cdec44fb07c548a9c7210c092b498a0d0d6a711878d7139c4d640c1bf4b",
+      "coverage": "full_text",
+      "lines": 460
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/redundancy.rs",
+      "judgment": "P2",
+      "findings": [
+        "CONV-AF-08"
+      ],
+      "source_sha256_lf": "48ca1e7e414bc988fca89cfdb320c308b3f63e57de73fc7cd57293c82db46943",
+      "coverage": "full_text",
+      "lines": 419
+    },
+    {
+      "file": "crates/kanzei-core/src/store/events.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "36b59b6b2f4c232ac48c6951a649e9dc3f43258638325febd6d5281889021ace",
+      "coverage": "full_text",
+      "lines": 1602
+    },
+    {
+      "file": "crates/kanzei-core/src/store/file_checkpoints.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "75313709a2420b6f2290c49ce89ed14c0d17bda6ef551b3d15b342fba709bd4e",
+      "coverage": "full_text",
+      "lines": 677
+    },
+    {
+      "file": "crates/kanzei-core/src/store/rewind.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "c5b85591bfd68e17117ba73a3c34b93b553fcde8d527ef5293e9bfbdda7e54a0",
+      "coverage": "full_text",
+      "lines": 571
+    },
+    {
+      "file": "crates/kanzei-core/src/store/session.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "bf2192ec5b583b179937b9d23ecf0588d48237f49bea74e652717854637c7d8a",
+      "coverage": "full_text",
+      "lines": 1899
+    },
+    {
+      "file": "crates/kanzei-tools/src/run.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "59b66d350e8ccd664ffdbc4c7950b434020ac71674de6e6637274ed7ecca2972",
+      "coverage": "full_text",
+      "lines": 235
+    },
+    {
+      "file": "crates/kanzei/src/cli/run.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "5cc90fae17612bafc0455e843f93b361f10914e54c03cbc0d23ee003f762004b",
+      "coverage": "full_text",
+      "lines": 532
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/finalize.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "1862c668ac0b719cb225eeb8596722c416ff8b5b879294e570978e3c97bec23f",
+      "coverage": "full_text",
+      "lines": 579
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/permissions.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "309d013b3aefb1155b1417327dc5230088bf29413d3a0c2d614c960548727f9b",
+      "coverage": "full_text",
+      "lines": 94
+    },
+    {
+      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "e05477757072cbbc905ae1e3d5a65ba78131fe23035e85b2a62b6928ae271865",
+      "coverage": "full_text",
+      "lines": 279
+    },
+    {
+      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "4b900031d2ea5ce8347d0776a5525fa4814e8acc408e6544587e747cae8a96e3",
+      "coverage": "full_text",
+      "lines": 301
+    },
+    {
+      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "0c7e373a543caa61047025bfd7a281f91e4739ef8ed46ea9115429020f16d4aa",
+      "coverage": "full_text",
+      "lines": 333
+    },
+    {
+      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "4ad72e3f505a7f3d6bfb56eef7d23b7bfe168ea233efa43c17ca53a10f05fd57",
+      "coverage": "full_text",
+      "lines": 60
+    },
+    {
+      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "77b77abba9bf69ac549b7d43eddd37ef38850a51adb0b2d9dc808e48c90a922e",
+      "coverage": "full_text",
+      "lines": 131
+    },
+    {
+      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "fad5ec94730d4d10ca65a54fadd4652d55eaf3c2566a1c273bed48907751acd6",
+      "coverage": "full_text",
+      "lines": 362
+    }
+  ],
+  "findings": [
+    {
+      "id": "CONV-AF-01",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/run/coordinator.rs",
+      "files": [
+        "crates/kanzei-app/src/run/coordinator.rs"
+      ],
+      "lines": {
+        "crates/kanzei-app/src/run/coordinator.rs": "118-144"
+      },
+      "title": "插话批次在多个事务中部分完成，却整体返回失败",
+      "trigger": "A/B/C 同批插话，第二条 typed append 或 input finish 被 SQLite 拒绝。",
+      "impact": "较早输入已 completed、事实已提交，但 Result::Err 丢掉整批 notices；剩余 promoted 输入在恢复中变 failed，provider 没收到对应输入。",
+      "evidence": [
+        "C:/Users/kanzei/.codex/worktrees/audit-c0/kanzei code/docs/reviews/file-audit-2026-10-03/parallel/C7-verification.json",
+        "C:/Users/kanzei/.codex/worktrees/audit-c0/kanzei code/output/C7/old-probes-valid-proof.json",
+        "store/inbox.rs promote_steers 与 finish_input；store/typed.rs steering_message"
+      ],
+      "validation": [
+        "复用 C7 真实 SQLite trigger + HTTP runner 负例 SecondSteer/InputFinish；本轮核对当前闭包仍逐条提交，未重跑 Cargo。"
+      ],
+      "status": "confirmed_open_audit_only"
+    },
+    {
+      "id": "CONV-AF-02",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/run/coordinator.rs",
+      "files": [
+        "crates/kanzei-app/src/run/coordinator.rs"
+      ],
+      "lines": {
+        "crates/kanzei-app/src/run/coordinator.rs": "124-134"
+      },
+      "title": "历史 writer errors 被误用为当前插话 ACK",
+      "trigger": "旧 draft SQL 写失败后已成功重试；writer.errors 保留诊断；随后合法插话提交成功。",
+      "impact": "成功插话被判失败，整轮终止，合法插话不能正常喂给 provider。",
+      "evidence": [
+        "C:/Users/kanzei/.codex/worktrees/audit-c0/kanzei code/docs/reviews/file-audit-2026-10-03/parallel/C7-verification.json",
+        "C:/Users/kanzei/.codex/worktrees/audit-c0/kanzei code/output/C7/old-probes-valid-proof.json",
+        "typed steering_message 返回 bool，coordinator 忽略 bool 并检查历史 errors"
+      ],
+      "validation": [
+        "C7 RecoveredDraft 真实负例；当前源码仍以 !writer.errors().is_empty() 判此次失败。"
+      ],
+      "status": "confirmed_open_audit_only"
+    },
+    {
+      "id": "CONV-AF-03",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/run/coordinator.rs",
+      "files": [
+        "crates/kanzei-app/src/run/coordinator.rs"
+      ],
+      "lines": {
+        "crates/kanzei-app/src/run/coordinator.rs": "104-116",
+        "crates/kanzei-app/src/state.rs": "783-788"
+      },
+      "title": "停止后旧 runner 通过空 halt 槽误收新插话",
+      "trigger": "旧 runner 到 inbox 安全点前 Stop 先取得 lifecycle 并 take/cancel 旧令牌；用户随后加入插话；旧 runner 再进入 inbox。",
+      "impact": "共享 halt 槽为 None 被当作未停止，旧 run 消费新消息、标 completed 并发下一条 provider 请求。",
+      "evidence": [
+        "C:/Users/kanzei/.codex/worktrees/audit-c0/kanzei code/docs/reviews/file-audit-2026-10-03/parallel/C7-verification.json",
+        "C:/Users/kanzei/.codex/worktrees/audit-c0/kanzei code/output/C7/old-probes-valid-proof.json",
+        "stop_runtime_and_finalize take 共享槽；inbox 未捕获自己这轮 token"
+      ],
+      "validation": [
+        "C7 Stop 负例证明 own token cancelled + slot empty + 第二 POST；本轮核对当前调度/停止合同。"
+      ],
+      "status": "confirmed_open_audit_only"
+    },
+    {
+      "id": "CONV-AF-04",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/conversation.rs",
+      "files": [
+        "crates/kanzei-app/src/conversation.rs",
+        "crates/kanzei-app/src/conversation_actions.rs"
+      ],
+      "lines": {
+        "crates/kanzei-app/src/conversation.rs": "31-63,546-560",
+        "crates/kanzei-app/src/conversation_actions.rs": "35-45,68-80,145-165"
+      },
+      "title": "历史变更绕过跨进程 session 执行 owner",
+      "trigger": "CLI 或另一桌面进程正持有相同数据库/session 的执行 owner；本桌面 runtime.running 为 false，执行 clear/delete/rewind。",
+      "impact": "允许在活跃 writer 脚下切段或删除 typed facts；旧轮继续写入会跨段或因历史被删而拒绝，已提交输入可从历史消失。",
+      "evidence": [
+        "crates/kanzei-core/src/store/session_execution.rs try_acquire",
+        "crates/kanzei/src/cli/run.rs:294-303",
+        "output/audit-first/conversation/core-probe.log"
+      ],
+      "validation": [
+        "独立 rustc 探针使用现有 core rlib/真实 SQLite：第二 owner 被拒，reset/delete 仍成功，活跃 facts 2→0。相关 owner/events/replay 最后源码提交 746b69a8 21:11:38，rlib 21:12:07；当前源码逐段一致性复核。",
+        "未启动两个真实桌面进程；IPC 本地 guard 到公共存储写入口已静态追通。"
+      ],
+      "status": "confirmed_open_audit_only"
+    },
+    {
+      "id": "CONV-AF-05",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-core/src/runner/drive/batch.rs",
+      "files": [
+        "crates/kanzei-core/src/runner/drive/batch.rs"
+      ],
+      "lines": {
+        "crates/kanzei-core/src/runner/drive/batch.rs": "156-168,245-260"
+      },
+      "title": "无关工具观察把外部修改重新归属为本批",
+      "trigger": "本批已写 own.rs；用户编辑器修改 own.rs；随后工具只 read other.rs；observe 仍刷新 own.rs.after。",
+      "impact": "owned 保持 true，新 after 吸收外部内容；closing stage/finalize 闸从拒绝变允许，混合改动可被当成本批提交。",
+      "evidence": [
+        "output/audit-first/conversation/batch-probe.log",
+        "crates/kanzei-core/src/runner/drive.rs:437-480",
+        "tools 审计交叉确认 git stage/commit 的 hash 守卫不能替代 batch ownership"
+      ],
+      "validation": [
+        "从当前 batch.rs 原样提取全部生产实现，用有效 owned 前置状态和真实文件重现：拒绝 true→false，owned=true。只增加探针函数，未改生产控制流。"
+      ],
+      "status": "confirmed_open_audit_only"
+    },
+    {
+      "id": "CONV-AF-07",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-app/src/run/mod.rs",
+      "files": [
+        "crates/kanzei-app/src/run/mod.rs"
+      ],
+      "lines": {
+        "crates/kanzei-app/src/run/mod.rs": "72-91",
+        "crates/kanzei-app/src/run/coordinator.rs": "715-726"
+      },
+      "title": "自动 push 没有等待上限，也不参与本轮取消",
+      "trigger": "成功 commit 后自动 push 遇到不结束的认证、远端传输或 pre-push hook。",
+      "impact": "finalize_round 尚未执行，运行与写租约被长期占住；Stop 的 30秒 watchdog 只 abort Future，Command 未 kill_on_drop，子 git 可以在界面已停止后继续完成远端写入。",
+      "evidence": [
+        "crates/kanzei-app/src/run/coordinator.rs:715-738",
+        "crates/kanzei-app/src/state.rs:785-838",
+        "maybe_push_after_commit 注释要求网络/远端故障不阻断"
+      ],
+      "validation": [
+        "静态追踪 Command.output().await 无 timeout/取消/kill_on_drop，到 finalize_round 与 watchdog；未访问真实远端，未做原生子进程树取消实测。"
+      ],
+      "status": "confirmed_open_audit_only"
+    },
+    {
+      "id": "CONV-AF-08",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-core/src/runner/redundancy.rs",
+      "files": [
+        "crates/kanzei-core/src/runner/redundancy.rs"
+      ],
+      "lines": {
+        "crates/kanzei-core/src/runner/redundancy.rs": "63-105"
+      },
+      "title": "测试冗余提醒使用写入前的陈旧 Git 指纹",
+      "trigger": "git status → 全量测试成功 → edit/write → 再次全量测试；中间不再刷新 Git 查询。",
+      "impact": "把必要回归测试说成工作树无变化、这次可省；错误文本进入模型上下文，并污染 redundant_test 指标。",
+      "evidence": [
+        "output/audit-first/conversation/redundancy-probe.log",
+        "crates/kanzei-core/src/runner/drive.rs:1286"
+      ],
+      "validation": [
+        "当前 redundancy.rs 生产代码原样提取并执行，四步结果直接出现错误提醒；工具仍真实执行，所以定 P2。"
+      ],
+      "status": "confirmed_open_audit_only"
+    },
+    {
+      "id": "CONV-AF-09",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-core/src/replay.rs",
+      "files": [
+        "crates/kanzei-core/src/replay.rs"
+      ],
+      "lines": {
+        "crates/kanzei-core/src/replay.rs": "58-101",
+        "crates/kanzei/src/cli/eval.rs": "69-86",
+        "crates/kanzei-app/src/state.rs": "349-355"
+      },
+      "title": "回放解析要求整包配对，但运行侧已逐事件落库",
+      "trigger": "当前桌面正常成功持久化 tool.started 和 tool.completed，形成两个 partial run.trace 行。",
+      "impact": "replay-eval 对每行独立解析，pending 不跨行，所有步骤都为 0；真实失败轨迹被判无可回放案例。整包兜底中 TaskProgress 缺 kind 还会使整包 None；并行完成顺序也偏离声明的调用顺序。",
+      "evidence": [
+        "output/audit-first/conversation/core-probe.log",
+        "store/events.rs:581-597 按原始行返回，不按run聚合",
+        "run/events/mod.rs task_progress_payloads"
+      ],
+      "validation": [
+        "真实 core parser 分别解析当前写入形状，start/end 均 steps=0；静态追到唯一产品 caller CLI replay_eval。后两细节为同一输入契约修复范围，不重复计根因。"
+      ],
+      "status": "confirmed_open_audit_only"
+    }
+  ],
+  "unconfirmed_candidates": [
+    {
+      "id": "CONV-AF-06",
+      "severity": "P1",
+      "root_owner": "crates/kanzei/src/cli/run/permissions.rs",
+      "files": [
+        "crates/kanzei/src/cli/run/permissions.rs",
+        "crates/kanzei/src/cli/run.rs"
+      ],
+      "lines": {
+        "crates/kanzei/src/cli/run/permissions.rs": "11-49,67-92",
+        "crates/kanzei/src/cli/run.rs": "422-456"
+      },
+      "title": "CLI 同步 stdin 阻塞同任务的 Ctrl+C 分支",
+      "trigger": "交互 CLI 在权限或 question 提示处等待输入，用户按 Ctrl+C。",
+      "impact": "make_ask 在返回 Future 前同步 read_line；调用所在 select 无法再次轮询 ctrl_c，因此无法及时持久收尾/释放执行 owner，直到 stdin 返回。",
+      "evidence": [
+        "output/audit-first/conversation/stdin-probe.json",
+        "drive/permissions.rs:100-104；drive/question.rs:40"
+      ],
+      "validation": [
+        "原样提取 permissions.rs；同一个 Tokio select 的 50ms 取消计时在 stdin 等待 400ms 后仍未获得轮询，输入 n 后才返回（394ms）。",
+        "未做 Windows 原生控制台信号投递；探针证明同任务阻塞因果，ctrl_c_finalize.rs 仅验证收尾数据库入口。"
+      ],
+      "status": "candidate_not_counted_native_signal_unverified"
+    }
+  ],
+  "coverage_count": 49,
+  "source_baseline_verified": true,
+  "validation_boundary": "No Cargo/test suite/native desktop run this audit; isolated rustc probes, exact production-source extraction, current source/caller review, reused C7 evidence.",
+  "dependency_map": [
+    "base locks/path/hash → store session/events/checkpoint/rewind",
+    "llm/harness → core assemble/context/compaction/metrics → drive permission/question/batch",
+    "core runner/store typed/inbox → app runtime/coordinator/events → commands/UI and CLI"
+  ],
+  "probe_logs": [
+    "output/audit-first/conversation/core-probe.log",
+    "output/audit-first/conversation/batch-probe.log",
+    "output/audit-first/conversation/redundancy-probe.log",
+    "output/audit-first/conversation/stdin-probe.json"
+  ]
+}

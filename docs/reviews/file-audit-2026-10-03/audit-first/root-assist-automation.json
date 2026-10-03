@@ -1,0 +1,20 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "reviewed_files": [
+    {
+      "file": "crates/kanzei-app/src/worktree_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "out_of_scope_observations": [],
+      "judgment_scope": "本轮四块通用系统合同；范围外业务观察单列",
+      "source_sha256_lf": "16d0adce58e27e65a1e02faa74801d19b4300490a2c4a89ce435c4b06f8a2dfe",
+      "fulltext_read": true
+    }
+  ],
+  "findings": [],
+  "verification": {
+    "fulltext_lines": 2464,
+    "cargo": "not_run",
+    "product_changes": false
+  }
+}

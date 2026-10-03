@@ -1,0 +1,709 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "mode": "audit_only_no_production_edits",
+  "reviewed_files": [
+    {
+      "file": "crates/kanzei-app/src/commands/os_open.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "解析对话目录，安全构造外部程序启动参数和打开方式配置。",
+      "source_sha256_lf": "e0f3876c819b7568afa4232f2442f152b23ace1518812fed1b8dc4cd97491450",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/tool_process.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "停止指定项目的单个后台工具进程。",
+      "source_sha256_lf": "d03ab5f256fe509e190e3076c9aac2c3ef5cc2fd7ec292edf20ec62b34a07873",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/deliveries.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "持久化文件交付收据并按真实文件版本投影交付列表。",
+      "source_sha256_lf": "188bc20240e30710db6929536477abf2b86bbfece99fb4e2ac129fd3edf2b25c",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/files_view.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "文件快照、预览和用途标注的应用层接口。",
+      "source_sha256_lf": "703a968ea429988b67149138a664b8db3e2891da3f2a4055e769550f8552457c",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/harness_ext.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "装配 UI 自查、文件交付和桌面 browser 工具。",
+      "source_sha256_lf": "0352865e7a75ae99e8c478b7afa6de1eac58b2dbec298a5754d962b5f7bf41ba",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/agent.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-R09"
+      ],
+      "responsibility": "串行执行模型发起的可见面板浏览器动作。",
+      "source_sha256_lf": "666a37fd770f546bc908efa6300d5be7ab08f0c78427db71c8d755613460902a",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/cdp.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "主线程 WebView2 CDP 往返、事件订阅和导航闸。",
+      "source_sha256_lf": "1d0054be22ca78d684038265a8bc8a00cd516c4a72b7e6d3f4c6e722aae0a9f4",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/commands.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "前端预览 IPC 到面板 owner 的适配层。",
+      "source_sha256_lf": "610b9b99af293df1edc693235f4c2fa7ad6c9eebd6ae6dfaf7b74c98f2381e40",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/console.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "CDP 事件解析与有界、序号单调的控制台缓冲。",
+      "source_sha256_lf": "115f2363d613ac5fad768583ccec89ebee8eaf658654a0cfab48f98457b7a970",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/host.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "原生主窗口和子 webview 的焦点、移动通知。",
+      "source_sha256_lf": "7d73a4a631b809c0659a7a5f01cecef81cdae73ece05a8e1d8f20aae02d10a29",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/mod.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "预览状态、路由、地址规则与导航状态机。",
+      "source_sha256_lf": "2bb77049e3b51adb440034fb657554df741509b05ea2d406c4f4dbfc657d5432",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/pane.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "原生面板创建、关闭、显示、设备、截图和批注生命周期。",
+      "source_sha256_lf": "9b6f8e1639317ed549f9cbaedf1e0ad617115a0f9c6ff6aa10d8ed23dc2a64af",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/pure_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "预览路由、导航、布局和安全边界的纯逻辑测试。",
+      "source_sha256_lf": "3889b970920e3f1b8c72a214d61d494ebc971d17c10bfe41c64601358d795fc4",
+      "coverage": "full",
+      "reviewers": [
+        "audit_first_conversation"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/gate.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "在工作树执行项目可用的收尾检查。",
+      "source_sha256_lf": "707300c408033e170e85ad99f690e8a0855470c056fc0a15dbeb4dba50cad3e2",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/workspace.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "工作树收割、合并和合并后会话处理。",
+      "source_sha256_lf": "bb3c7986db8032b0eefeda1489438fcb4afe104ddf4af1576ab5485bebaef481",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/screenshot.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "原生窗口像素抓取、空图判定与 PNG 编码。",
+      "source_sha256_lf": "ad9a3dce06f1e517295626632945ceb65afe3c676c3513f4b72c864b21b8a697",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/verification_monitor.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "将后台验证终态幂等投递到原会话的持久队列。",
+      "source_sha256_lf": "2a6c5c2df08207c56e044eba88c8fc4fa8c8901540b68f33e4ef2862112afe52",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/workspace.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "汇总项目、会话、工作树和后台任务的只读工作区快照。",
+      "source_sha256_lf": "055e1a37e281c768f7a3f328d1bb91e93a840e13c5177d2d113fd2f81ad2ae2e",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/workspace/tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "工作区快照身份、占用和缺失状态的回归测试。",
+      "source_sha256_lf": "53a3bf6262abb426882de63404cb312bfae8f1b3c1d42037dc23d96cb6800eae",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/src/worktree_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "工作树转换、合并、写租约和会话恢复集成回归。",
+      "source_sha256_lf": "16d0adce58e27e65a1e02faa74801d19b4300490a2c4a89ce435c4b06f8a2dfe",
+      "coverage": "full",
+      "reviewers": [
+        "audit_first_automation"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-chat-render.js",
+      "judgment": "P1",
+      "findings": [
+        "AF-R01"
+      ],
+      "responsibility": "按会话挂载聊天正文、错误卡和工具块。",
+      "source_sha256_lf": "946f1f3f4ea932fce66d4bcd18b31d9f1b7a536ca6353068d397d9f87ec90e55",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-activity.js",
+      "judgment": "P2",
+      "findings": [
+        "AF-R03"
+      ],
+      "responsibility": "活动详情、文件/diff 结果和运行审计投影。",
+      "source_sha256_lf": "992fdc71757d311769130a93824fc24165821cde62c185d8d92fc2ad8b29145c",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-agent-panel.js",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "后台任务面板的状态展示与交互。",
+      "source_sha256_lf": "d8e393f76d53062a7bd85c77d15fc0052a62e60bd1b7bd229179b7bf9bce3556",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/08-compose.js",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "组合输入模块入口和重导出。",
+      "source_sha256_lf": "e0b0f00ac1a686b6bffffe83b9700bbb6c88021260b4fee0fa78ce09b5197d36",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-decision-console.js",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "工作单元判定、纠正和后续动作界面。",
+      "source_sha256_lf": "90e958cb2d6d398ea4990cf4b16ad65956cfc62852bfb2f64033c794afb18073",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/15-conventions.js",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "用户审阅、保存和丢弃规范建议稿。",
+      "source_sha256_lf": "f6d39f13f3b6fffaf7f922a2c3749b9c13d3d9a09ebd79dd22eaf8f4fa098935",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/17-files.js",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "文件树、工作树切换、过滤与用途标注交互。",
+      "source_sha256_lf": "d0aa9cf549fb5379d1c8f0c6646a502ef7e5b0089b3f1bd530083e9b9916c7eb",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/19-arch.js",
+      "judgment": "P2",
+      "findings": [
+        "AF-R08"
+      ],
+      "responsibility": "架构依赖图和设计文档索引展示。",
+      "source_sha256_lf": "9cdbc304c89dbaeab7418fd59a0c4301f80ebcdb036dba83c04d7877c4be041a",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/20-lines.js",
+      "judgment": "P1",
+      "findings": [
+        "AF-R04"
+      ],
+      "responsibility": "独立任务、工作树审阅、检查和合并控制。",
+      "source_sha256_lf": "bcb256056e5f246a4f4a9b11c634ec63314362dafe7657c1f44ba9e9f7ae5092",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/21-palette.js",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "命令与文件检索面板。",
+      "source_sha256_lf": "0b2d2537b807ace76c0259980380d76d0799c4bd8a85abfc00dd64388e237359",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/24-preview.js",
+      "judgment": "P1",
+      "findings": [
+        "AF-R07"
+      ],
+      "responsibility": "网页预览界面、可见性、截图附件和工具结果入口。",
+      "source_sha256_lf": "4477c95cb463764f77202f344c9740e011204bba676d16e2bdc59407f261a59a",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/26-project-conversations.js",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "项目会话清单与新会话入口。",
+      "source_sha256_lf": "fce02fbabd1f24ddd2152f36e010835d7fd550ede16d380b32fc180eca176fb2",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-app/ui/28-async-workspace.js",
+      "judgment": "P2",
+      "findings": [
+        "AF-R02"
+      ],
+      "responsibility": "后台日志、订阅、提问与回复工作台。",
+      "source_sha256_lf": "e79693e616fc4bd6d051f44c5e85ba2dcf2a502c89c12decc92480a614c81325",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/parallel_tools.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "工具冲突波次调度与结果顺序恢复。",
+      "source_sha256_lf": "a9f913546372f8e68ac08022bd6729749e6058b2d698e36a02f24f970039e159",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/schema_check.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-R05"
+      ],
+      "responsibility": "子代理结构化结果提取和有限 schema 校验。",
+      "source_sha256_lf": "0d9314b7bc10b3f668eff866a59c956ed748b6cd8d3d66d4ed556f61a6eab3cf",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_exec.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "工具准备、权限、执行、输出归档和批次通知。",
+      "source_sha256_lf": "32b402357b705c573c06c7ff6ed24aca43254107a1359216e4a3fc962cd8b678",
+      "coverage": "full",
+      "reviewers": [
+        "root",
+        "audit_first_conversation"
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
+      "judgment": "P2",
+      "findings": [
+        "AF-R06"
+      ],
+      "responsibility": "按运行和调用身份记录工具导航失手遥测。",
+      "source_sha256_lf": "24df41751fc45ce648b04e5f8473c458e9236b15a134a7f0d1393dafd2a0f3ad",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_images.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "工具图像落盘、复用与配额清理。",
+      "source_sha256_lf": "944070b1aad0d38a600ca2e147e1c494f42c4ae7588ceb5cf794a3e81e2ecffa",
+      "coverage": "full",
+      "reviewers": [
+        "root",
+        "audit_first_conversation"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/arch_diagram.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "从 Cargo 清单生成依赖图和图形源码。",
+      "source_sha256_lf": "4a82f20b061833bb37d5a9da379dc3821676a4620f9d1937bf2e24f89e04b628",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/arch_diagram_lint.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "扫描手写架构图并按既有约定检查语法和链接。",
+      "source_sha256_lf": "8636af5f2deb32d484022ae8d2a482e4f4a63bd0ba7d0e521a6ca1b6687c73a5",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/arch_diagram_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "架构图生成、传递约简、lint 和实际仓库不变量测试。",
+      "source_sha256_lf": "5a0767819a4fbf1b7801c0edbf4958d3ca8ab86d447282331a08edc743049172",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/architecture.rs",
+      "judgment": "P2",
+      "findings": [
+        "AF-R11"
+      ],
+      "responsibility": "带 CAS 和增量验证的架构索引专用写通道。",
+      "source_sha256_lf": "005d24f4ce3efe25a5807ca7a1acaf3297780e5ccbe98a0a40027e30e93c5a16",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/conventions.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-R10"
+      ],
+      "responsibility": "规范读取、创建、建议稿和局部替换工具。",
+      "source_sha256_lf": "4608a18ba193e3f39b9c8f3252c5cafe567c2f90b3f0aa016886ca6e3e89e1bf",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    },
+    {
+      "file": "crates/kanzei-tools/src/conventions/drafts.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "responsibility": "规范文件、待审稿和用户 CAS 保存的单一写语义。",
+      "source_sha256_lf": "7c8781e9b7d370ea1d268993beffcd84ce19007fc1474df6884b07b99825567f",
+      "coverage": "full",
+      "reviewers": [
+        "root"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "AF-R01",
+      "severity": "P1",
+      "title": "错误卡重试读取当前全局 lastRequest",
+      "root_owner": "crates/kanzei-app/ui/05-chat-render.js",
+      "files": [
+        "crates/kanzei-app/ui/05-chat-render.js"
+      ],
+      "lines": "197-206",
+      "trigger": "A 对话失败后，在 B 发送另一条请求，再回 A 点原错误卡重试。",
+      "impact": "把 B 的提示和附件发进 A，重试不再对应失败请求。",
+      "evidence": "output/audit-first/root/probe.json#AF-R01",
+      "contract": "01-core.js 按 session 清旧错误；08-compose-runtime.js 仅发送时更新 lastRequest，切回 A 不恢复它。",
+      "repair": "每张错误卡绑定原请求与会话；验证 A→B→A 重试。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R02",
+      "severity": "P2",
+      "title": "异步工作台旧行使用新 scope",
+      "root_owner": "crates/kanzei-app/ui/28-async-workspace.js",
+      "files": [
+        "crates/kanzei-app/ui/28-async-workspace.js"
+      ],
+      "lines": "75-82,99-114",
+      "trigger": "从 A 打开到 B，B 列表尚未返回时点击仍显示的 A 终端操作。",
+      "impact": "请求携带 B 项目/会话和 A 终端 ID，合法操作被后端归属校验拒绝；未证明误停别的进程。",
+      "evidence": "output/audit-first/root/probe.json#AF-R02",
+      "contract": "open 先换 scope，refresh 完成前未清旧行；renderLogs/问题回复闭包调用实时 args()。terminal_monitor 有项目守卫。",
+      "repair": "绑定行 owner 或换 scope 时撤掉旧操作，迟到错误也核对 owner。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R03",
+      "severity": "P2",
+      "title": "分栏 diff 右侧上下文行号取旧版本",
+      "root_owner": "crates/kanzei-app/ui/06-activity.js",
+      "files": [
+        "crates/kanzei-app/ui/06-activity.js"
+      ],
+      "lines": "566-577",
+      "trigger": "插入/删除后，同一上下文行 old_line=10、new_line=12，切换为分栏显示。",
+      "impact": "右列仍显示 10，用户按错误行号定位新代码。",
+      "evidence": "output/audit-first/root/probe.json#AF-R03",
+      "contract": "统一视图分别消费 old_line/new_line，分栏两列共用 old_line ?? new_line。",
+      "repair": "每列使用对应版本行号；验证前方插入、删除后的上下文。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R04",
+      "severity": "P1",
+      "title": "重新检查失败沿用旧的合并通过状态",
+      "root_owner": "crates/kanzei-app/ui/20-lines.js",
+      "files": [
+        "crates/kanzei-app/ui/20-lines.js"
+      ],
+      "lines": "830-918",
+      "trigger": "工作树检查先成功，再点击重新检查；第二次调用失败/抛异常后点击合并。",
+      "impact": "仍走旧绿色状态，无失败检查确认就调用 worktree_merge；检查运行中也未撤销旧结果。",
+      "evidence": "output/audit-first/root/probe.json#AF-R04",
+      "contract": "processes/gate.rs 返回步骤结果；processes/workspace.rs 的 merge 检查工作树空闲与写租约，不保存/复核 gate 结果。",
+      "repair": "启动新检查立即使旧结果失效，失败保持失败状态，结束后才能重新判定合并。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R05",
+      "severity": "P1",
+      "title": "JSON 提取优先内层对象而非外层数组",
+      "root_owner": "crates/kanzei-core/src/runner/schema_check.rs",
+      "files": [
+        "crates/kanzei-core/src/runner/schema_check.rs"
+      ],
+      "lines": "137-185",
+      "trigger": "子代理输出 Results: [{\"ok\":true},{\"ok\":false}]，期望 schema 为 array。",
+      "impact": "提取为首个 object，合法数组被打回；object schema 还可能错误接受丢失其余数据的子对象。",
+      "evidence": "output/audit-first/root/schema-probe.json",
+      "contract": "runner/subagent.rs:915-918 实际用 extract_json 结果校验并决定重试。文档承诺第一个完整顶层结构。",
+      "repair": "按最早顶层起始括号解析完整值，测试数组对象嵌套及散文/围栏。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R06",
+      "severity": "P2",
+      "title": "成功工具正文含 required 仍留下错误的缺参数诊断",
+      "root_owner": "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
+      "files": [
+        "crates/kanzei-core/src/runner/tool_failure_telemetry.rs"
+      ],
+      "lines": "89-125",
+      "trigger": "read 成功读取普通英文或 schema 内容，其中出现 required。",
+      "impact": "诊断 events 仍写入 missing_parameter，产生错误诊断记录。另一任务本轮已修改计数：success 不再增加 failure_count，原关闭失败率污染影响已缓解，不能继续算作当前影响。",
+      "evidence": "output/audit-first/root/telemetry-probe.txt",
+      "contract": "tool_exec 对成功结果也记录；record_outcome 仍无条件保存非空 class，但并行改动已按 failed outcome 计算 failure_count。",
+      "repair": "优先结构化结果码，文本兜底限定失败结果；保留 grep/glob 空命中的现有专门语义。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R07",
+      "severity": "P1",
+      "title": "异步截图进入后来切换的对话附件",
+      "root_owner": "crates/kanzei-app/ui/24-preview.js",
+      "files": [
+        "crates/kanzei-app/ui/24-preview.js"
+      ],
+      "lines": "996-1004",
+      "trigger": "A 点击截图放进输入框，截图返回前切换到 B。",
+      "impact": "A 截图追加到 B 的附件数组；与普通 FileReader 已有的 target 身份守卫不一致。",
+      "evidence": "output/audit-first/root/probe.json#AF-R07",
+      "contract": "08-compose-runtime.js:361 的 addPngAttachment 写实时 attachments；普通 addFiles 在 onload 检查 target !== attachments。",
+      "repair": "截图和批注携带发起会话/附件 owner，迟到结果不得进入新会话。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R08",
+      "severity": "P2",
+      "title": "合法架构索引链接被隐藏",
+      "root_owner": "crates/kanzei-app/ui/19-arch.js",
+      "files": [
+        "crates/kanzei-app/ui/19-arch.js"
+      ],
+      "lines": "119-139,149-152",
+      "trigger": "索引使用普通 [example.md](../../../docs/design/example.md)，不把标签包在反引号中。",
+      "impact": "解析器标记已入索引，却不加入分组，未入册兜底也排除，文档从树里消失。",
+      "evidence": "output/audit-first/root/probe.json#AF-R08",
+      "contract": "architecture.rs 按链接目标校验，不要求标签反引号或特定章节；其测试也接受平铺索引。",
+      "repair": "统一条目解析，分组外条目仍展示；验证普通标签、反引号、无分组。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R09",
+      "severity": "P1",
+      "title": "等到面板动作锁后未重查绑定会话",
+      "root_owner": "crates/kanzei-app/src/preview/agent.rs",
+      "files": [
+        "crates/kanzei-app/src/preview/agent.rs"
+      ],
+      "lines": "26-42",
+      "trigger": "A 的 browser 动作已选中面板，等待另一个父/子代理动作释放 agent 锁；用户切换到 B，可见性命令将面板绑定 B。",
+      "impact": "A 后续获得锁仍操作当前 B 面板。服务桥只比 URL，同页切会话无法拦截。",
+      "evidence": "静态交错证据：harness_ext.rs:395、desktop_bridge.rs:194、preview/agent.rs:34-42、preview/pane.rs:set_visible、24-preview.js:previewLineSync",
+      "contract": "route_waiting 在锁外；set_visible 不取 agent 锁；execute_checked 锁内只检查 visible/expected_url，没有 process owner。设计 preview_pane.md §5 要求当前绑定本线。",
+      "repair": "动作锁内复核 pane generation、process owner 和页面身份；与无头浏览器 owner 一起修。",
+      "status": "confirmed_unfixed",
+      "validation": "static_interleaving_callers"
+    },
+    {
+      "id": "AF-R10",
+      "severity": "P1",
+      "title": "已解码 JSON 字符串被再次解码转义",
+      "root_owner": "crates/kanzei-tools/src/conventions.rs",
+      "files": [
+        "crates/kanzei-tools/src/conventions.rs"
+      ],
+      "lines": "175-179,294-304",
+      "trigger": "规范 patch 替换内容含 Windows 路径 C:\\new\\rules 或字面量 \\n。",
+      "impact": "路径中的 \\n、\\r 被改成换行，实际保存内容错误；旧文本也可能无法匹配而拒绝合法 patch。",
+      "evidence": "output/audit-first/root/contracts-probe.txt",
+      "contract": "serde_json 已解码输入；decode_escaped_newlines 无条件 replace，再直接传给 CAS 写入。旧注释为迁就模型双重转义而加兼容。",
+      "repair": "先按真实字面文本处理；确需兼容时只能明确、无歧义地回退，不改变新文本含义。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    },
+    {
+      "id": "AF-R11",
+      "severity": "P2",
+      "title": "同一索引目标的点段别名逃过重复检查",
+      "root_owner": "crates/kanzei-tools/src/architecture.rs",
+      "files": [
+        "crates/kanzei-tools/src/architecture.rs"
+      ],
+      "lines": "528-566",
+      "trigger": "同一 example.md 分别以 ../../../docs/design/example.md 和 ../../../docs/design/./example.md 入索引。",
+      "impact": "校验显示零问题，允许同一实体重复入册；compliant 却归一为一份，内部身份口径不一致。",
+      "evidence": "output/audit-first/root/contracts-probe.txt",
+      "contract": "seen 用原始 bare；dropped_entries/compliant 用 project_rel 规范身份。探针实际验证 2 链接/0问题/1规范条目。",
+      "repair": "重复检查和版本比较共用规范化目标身份，保留原链接用于展示。",
+      "status": "confirmed_unfixed",
+      "validation": "isolated_current_source_probe"
+    }
+  ],
+  "validation": "6 Node DOM/IPC 源码探针、3 Rust 源码/真实依赖探针；无产品修改，未重跑 Cargo/全量门禁。",
+  "discarded": [
+    "decision console 拒绝同 WorkUnit 二次纠正是既有新建 WorkUnit 设计，非 bug。",
+    "编排 task 复审复用角色 ID 在 07-events 分流到 subagentStart，已有新建卡片语义，不报通用 tool map 碰撞。",
+    "未把理论散列碰撞或平台假设列为问题。"
+  ]
+}

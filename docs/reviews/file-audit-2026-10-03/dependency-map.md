@@ -4,9 +4,13 @@
 
 初始基线：19489ca2；2026-10-03 整合 abb596f0 与 fd36faa3 后更新底层 API。日期：2026-10-03。文件、模块声明、公开 API、import 候选见 inventory.json；生成器为 scripts/file-audit-inventory.py。词法索引不能替代宏、动态派发和调用方的人工核实。
 
-## 当前四块进度：WB1–WB6
+## 当前四块进度：审计完成
 
-累计新增全文审查 27 文件，33 个真实问题已修复（P1 × 18、P2 × 15）；四块主审已完成/可复用 88/269，剩余 181 个文件（远端新增生命周期测试文件计入待审）。详见 [WB1](WB1-workbench-state.md)、[WB2](WB2-session-navigation.md)、[WB3](WB3-conversation-ownership.md)、[WB4](WB4-resource-parsing.md)、[WB5](WB5-rendering-ownership.md) 和 [WB6](WB6-delivery-activity.md)。本包按附件解析 → 交付缓存 → 卡片，以及侧栏策略/体验事件队列 → 活动表现整合。下一包 WB7：workspace 概览快照与身份 → 项目会话列表/异步工作台。
+2026-10-04：剩余 181 文件已审完，连同此前 88 个记录，四块主审覆盖 269/269；本轮确认 39 根因（P0 2、P1 24、P2 13），修复 0。按状态 owner/caller 归为 F1–F8，先 Git 进程与目标树互斥，再持久状态、执行恢复和上层交互。详见 [审计报告与修复矩阵](audit-first/summary.md)。另一任务的未提交改动已做重叠核对，最终整合另行验证。
+
+## WB1–WB6 历史进度
+
+累计新增全文审查 27 文件，33 个真实问题已修复（P1 × 18、P2 × 15）；四块主审已完成/可复用 88/269，剩余 181 个文件（远端新增生命周期测试文件计入待审）。详见 [WB1](WB1-workbench-state.md)、[WB2](WB2-session-navigation.md)、[WB3](WB3-conversation-ownership.md)、[WB4](WB4-resource-parsing.md)、[WB5](WB5-rendering-ownership.md) 和 [WB6](WB6-delivery-activity.md)。本包按附件解析 → 交付缓存 → 卡片，以及侧栏策略/体验事件队列 → 活动表现整合。当时拟定的 WB7（workspace 概览快照与身份 → 项目会话列表/异步工作台）现已纳入本次全文审计，不再单独排队。
 
 - 交付归属：后端回执/当前 metadata → 项目缓存 → 当前选中 row → 卡片；旧子代理 display 不覆盖最新事实。附件日期/时长保持不同语义。
 - 交互归属：共享侧栏持有 pointer/focus，运行/失败/收起计时仍按会话；同会话前序 delta 在 fact/终态前投递，其他会话保留帧队列；starting 清理旧表现而不修改运行真源。详见 WB6。

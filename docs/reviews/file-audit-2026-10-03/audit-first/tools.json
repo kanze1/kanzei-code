@@ -1,0 +1,622 @@
+{
+  "baseline": "55eaca24750ac431ebe7f577c2f4b7b8cbded6f5",
+  "mode": "audit_only_no_production_edits",
+  "reviewed_files": [
+    {
+      "file": "crates/kanzei-tools/src/base.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "d056b3fffc58dc40c41525cd8a5fe79fa13ff1bed6c5554f704d35cbf7fed15c"
+    },
+    {
+      "file": "crates/kanzei-tools/src/bash.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T03"
+      ],
+      "source_sha256_lf": "72fcfeb6505f3fb9c5f9868d012819e07233d1e05b6d5aa139abd6a18cd115f5"
+    },
+    {
+      "file": "crates/kanzei-tools/src/browser_tool.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T09"
+      ],
+      "source_sha256_lf": "126d48f4dabc4f0a03003787d91ad4d32d85e5e62037180e7f569063966eb2d5"
+    },
+    {
+      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T09"
+      ],
+      "source_sha256_lf": "34d7bdf73c8ab641158e146a5db280f2aab562796b053dcaac066c0207fec6bd"
+    },
+    {
+      "file": "crates/kanzei-tools/src/cross_tree.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T03",
+        "AF-T04"
+      ],
+      "source_sha256_lf": "9497270fa834d99e76dbe2821d2d6c7e664a5a3046b045177bccc56f72a527d6"
+    },
+    {
+      "file": "crates/kanzei-tools/src/dev_urls.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "e5e5ab200bf1582fe122c9727ae5ecafc1d9368320f25ba6f0a1d71f88344c5f"
+    },
+    {
+      "file": "crates/kanzei-tools/src/edit.rs",
+      "judgment": "P2",
+      "findings": [
+        "AF-T05"
+      ],
+      "source_sha256_lf": "08fa30ebf795c1562ea3e2f5fad40991c482e4d434a4301b2ac1667a444e6e3d"
+    },
+    {
+      "file": "crates/kanzei-tools/src/files.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "b16060f478fd544fef90b8c2886912d83cf0acd5bdda6071790976ad4951d3f3"
+    },
+    {
+      "file": "crates/kanzei-tools/src/frontend.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "c44d937017547fe642213a625c037fb68ea41ba88af470cf639a3d76b52c63e6"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git.rs",
+      "judgment": "P0",
+      "findings": [
+        "AF-T02",
+        "AF-T11"
+      ],
+      "source_sha256_lf": "d7fd7004dcecbe2235f80ec6be55e2d6234c832c65d9e7e33b584c4c478ab0a1"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/commands.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "1ac88384ef970a32dfcd09fda88b7e11972eb483b44010fd0fed707b81849fc8"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/finalize.rs",
+      "judgment": "P0",
+      "findings": [
+        "AF-T02"
+      ],
+      "source_sha256_lf": "2a842efeeff3978dc92081adcc23e29ff0cf6f10c4fc5efafd8f52221f9910f5"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/index.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "30c1f534cf5d000f0ebe5f5485585ef731e6fd5510dc6634c7cafa4bcbd1e505"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/plan.rs",
+      "judgment": "P0",
+      "findings": [
+        "AF-T02"
+      ],
+      "source_sha256_lf": "116e8c99394e117cc796bd108c3c9f30013732af9fe453a55eb43282c9c06b64"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/tool.rs",
+      "judgment": "P0",
+      "findings": [
+        "AF-T11"
+      ],
+      "source_sha256_lf": "8995fbde578b4b95d033e87ccd8dfabf95f6d848ca28d1ceb05635d803e30e9f"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/worktree.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "8005d7c3c88f22b192ae4d48ad1ac3a4fff30e791555791f86bf8ce6fe73e7f0"
+    },
+    {
+      "file": "crates/kanzei-tools/src/glob.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "6e0f2418976a5c4ff8f91360c7717d973eb307fb79151b0622d4ff01683bda89"
+    },
+    {
+      "file": "crates/kanzei-tools/src/grep.rs",
+      "judgment": "P2",
+      "findings": [
+        "AF-T07"
+      ],
+      "source_sha256_lf": "365065a9fe7cff2c1cc8ed984f0b7dc43a3fa67ee669b5708f7334e30386b547"
+    },
+    {
+      "file": "crates/kanzei-tools/src/lib.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "2afb2b47c9a570e268b27a9b683237ad3ff58fda28507fa3e1dbe17a8fbd27ee"
+    },
+    {
+      "file": "crates/kanzei-tools/src/local_validation.rs",
+      "judgment": "P2",
+      "findings": [
+        "AF-T05"
+      ],
+      "source_sha256_lf": "3e95b9b2a6921e0f4db3668c241d62fe18a6315224cc247bd286f712b775d16b"
+    },
+    {
+      "file": "crates/kanzei-tools/src/managed.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "20cb4ce277ebcb07533d6450b09d852027bcfee2918002a955b0857bfb099c21"
+    },
+    {
+      "file": "crates/kanzei-tools/src/palette.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T06"
+      ],
+      "source_sha256_lf": "faa9ec860ae57357cb1caa868feb49e05ba8789f08a32a3e27032dd5e3863a84"
+    },
+    {
+      "file": "crates/kanzei-tools/src/preview_server.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "2abbab7bf044f952a2b780389d681c9e54dff1373a6e58b91513249b54f1e1b7"
+    },
+    {
+      "file": "crates/kanzei-tools/src/project_state.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "b6ee30ac241170f30329d1694182c89832cdeb522ec5c6c8a1074ae049f09d78"
+    },
+    {
+      "file": "crates/kanzei-tools/src/project_state/git_init.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "e81691bdf80fb9dc17325ec3bbb969e945fc26f41bc5f5991fd2845fe0d87292"
+    },
+    {
+      "file": "crates/kanzei-tools/src/project_state/toolchains.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "e9c2d45ff047e2f4e1b5f11869d316031709113c1a3a771974b4dbcfb73c6fa3"
+    },
+    {
+      "file": "crates/kanzei-tools/src/quarantine.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T01"
+      ],
+      "source_sha256_lf": "64f2aa55e79b0b3a9111ed66cc855d1e49094dad2e7f91d1479842195167c248"
+    },
+    {
+      "file": "crates/kanzei-tools/src/question.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "7d654abe62b9429fbe595bf8f6e471e98d47081a9a48670e0bdfab1ce03bb127"
+    },
+    {
+      "file": "crates/kanzei-tools/src/read_receipt_tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "1f5e3a84bbe007d412f32169f7681cc4428683562982079ed94a552c38499313"
+    },
+    {
+      "file": "crates/kanzei-tools/src/read.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "0c5c678c623de8d2860c6f60c623574f1a06c0c7dd505d041043cece28a21ed9"
+    },
+    {
+      "file": "crates/kanzei-tools/src/shell.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "055f34fb8517a0ee6d4f3b571c50054d021f592007825ea9655f09dbe1c71637"
+    },
+    {
+      "file": "crates/kanzei-tools/src/symbols.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T08"
+      ],
+      "source_sha256_lf": "8de53002acaa7c0e3de35e389596a1d3e658c09816ed03070c2640d6586f6578"
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/workspace.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "dc1aadfd0f50c9a26890e11e8f68ff1764cfa57a2f8bf92e45057d4a52848528"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/mod.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "6736dba09a6927c9c58c95243f75ebba0efd7b30a48dabf64e79d319ad219e74"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/process.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "490ffa1821ef7a1d604cb905ceed49e23a2144717c227bf02bddc25d4ddbfbb3"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/snapshot.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "9aeaea740d815f465978c8a04a9ff75e5fd3b3514f45eb3e3b663eeeb466fc41"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/tests.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "80901f79d76852d7d5dbccd9804f0d6412a73f504956cf3435f4faa348497304"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/worker.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "1ebe6b35b5a27e6acb9365ed8b23bbffbe0a7276eddce5657bff9addffa7b9bf"
+    },
+    {
+      "file": "crates/kanzei-tools/src/web_refs.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "26bd46bac2e19260af6cfd41f252b4e8332ea9739eba42d70fbdceb673234373"
+    },
+    {
+      "file": "crates/kanzei-tools/src/webfetch.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T10"
+      ],
+      "source_sha256_lf": "7fd0b166810d4e1ecd0d696f7f75cb066fc48e33efdd6ab27c66e08c4d183d7d"
+    },
+    {
+      "file": "crates/kanzei-tools/src/websearch.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "e9f15fdfec6b151523bfd2697c9aaed382a81ed5c41613839d8fc6f80cf973f8"
+    },
+    {
+      "file": "crates/kanzei-tools/src/worktree.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "9e65cf0aa6aa0efa2c4064304b47be845e367f0361cd960f7f754e34356e1e0b"
+    },
+    {
+      "file": "crates/kanzei-tools/src/write.rs",
+      "judgment": "P2",
+      "findings": [
+        "AF-T05"
+      ],
+      "source_sha256_lf": "b6256dae3bb1f1e8a86accbf24a9a53883b0c3d1ad9ef98e90f564a800c8e68e"
+    },
+    {
+      "file": "crates/kanzei/src/cli/artifacts.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "82fb63bf697855444ab94d2493e8e76646aaf1392fc3b63ec8ab8f0207354361"
+    },
+    {
+      "file": "crates/kanzei/src/cli/quarantine.rs",
+      "judgment": "P1",
+      "findings": [
+        "AF-T01"
+      ],
+      "source_sha256_lf": "55934e938e6ad780f2dec4473cdf1781206c01cce2dea381bfa4955f65a3e651"
+    },
+    {
+      "file": "crates/kanzei/src/cli/worktree.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "156b928b023f1f76de4319d3ac9ec7bfd421cb7d868011dba6811d6b1856b145"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "416972e989a49ff68932ba38e778920b5f869f75b2b81359496e30ab000740af"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "3553ccfa5758f63d75f61218711f7ae8fab4852429e71e7ae5a7088e9ae0f671"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "c8a7b1ca1371d3058e5c1a6096d14cdbfa368986a230fb8c6b7b461d60be0472"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
+      "judgment": "PASS",
+      "findings": [],
+      "source_sha256_lf": "82c7b0573d4bc268e8d35d15cc9c84d46da7b78209336072b31efcf5a305ea58"
+    }
+  ],
+  "findings": [
+    {
+      "id": "AF-T01",
+      "severity": "P1",
+      "root_owner": "crates/kanzei/src/cli/quarantine.rs",
+      "files": [
+        "crates/kanzei/src/cli/quarantine.rs",
+        "crates/kanzei-tools/src/quarantine.rs"
+      ],
+      "lines": {
+        "start": 21,
+        "end": 28
+      },
+      "trigger": "执行 kz quarantine --dry-run --apply --type bg；参数顺序与 --apply --dry-run 相反。",
+      "impact": "互斥参数仅单向检查，dry-run 命令实际进入 apply 并删除隔离恢复材料。",
+      "evidence": "真实 target/release/kz.exe 在隔离 bg-100 目录输出 mode: apply、removed_dirs: 1、freed_bytes: 10；随后目录不存在。清理审计日志保留在 output/audit-first/tools/quarantine-probe/.kanzei/quarantine/cleanup-log.jsonl。",
+      "validation": "当前 parse_args 原函数逐字提取并 rustc 编译：dry-run/apply 返回 apply=true，反序返回 Err，证据 contract-evidence.json/quarantine_parser_probe。现有 release CLI 只作删除症状补证，未建立其二进制提交来源；仅操作 output 下自建 fixture。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T02",
+      "severity": "P0",
+      "root_owner": "crates/kanzei-tools/src/git.rs",
+      "files": [
+        "crates/kanzei-tools/src/git.rs",
+        "crates/kanzei-tools/src/git/plan.rs",
+        "crates/kanzei-tools/src/git/finalize.rs"
+      ],
+      "lines": {
+        "ranges": [
+          [
+            145,
+            168
+          ],
+          [
+            203,
+            226
+          ]
+        ]
+      },
+      "trigger": "stage/commit_plan/finalize/test_record 对约 5000 个源文件计算 endorsement fingerprint。",
+      "impact": "父进程写满 git stdin，git 写满 stdout；父进程等写完才 wait_with_output 排空 stdout，形成永久相互等待，命令无法完成。",
+      "evidence": "output/audit-first/tools/git-hash-evidence.json：原函数 all 与 paths 两种路径都超过 5 秒看门狗；相同 5000 路径以并行排空管道的控制组返回全部 5000 个 hash。探针逐字提取两个生产函数，rustc 编译，不跑 Cargo。",
+      "validation": "std-only 原函数隔离进程 + 同规模并行读控制组；看门狗只清理探针进程树。plan.rs:104、finalize.rs:125、test_record/execution.rs:52 都同步直接调用；函数内没有超时，外层 async 取消不能抢占阻塞的 std::io::Write，符合用户永久 deadlock 的 P0 口径。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T03",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/cross_tree.rs",
+      "files": [
+        "crates/kanzei-tools/src/cross_tree.rs",
+        "crates/kanzei-tools/src/bash.rs"
+      ],
+      "lines": {
+        "ranges": [
+          [
+            524,
+            542
+          ],
+          [
+            588,
+            604
+          ]
+        ]
+      },
+      "trigger": "A 线 bash 执行期间，B 线通过正常 write 新建源码，B 写日志包含正确路径及终态内容。",
+      "impact": "新建文件一律被设为 Fingerprint，日志匹配逻辑对该状态直接 false；A 的正常命令误报跨树失败，且小文件被误称超过 4 MiB。",
+      "evidence": "contract-evidence.json/cross_tree_probe：已有文件合法修改 modified_control=None；增加带合法凭据的 new.txt 后 legal_create=Some([cross-tree] DETECTED)。",
+      "validation": "逐字复制 cross_tree.rs 生产模块；仅 worktree 枚举与日志读取边界桩化，真实文件快照与归因逻辑执行；匹配旧文件控制组通过。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T04",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-tools/src/cross_tree.rs",
+      "files": [
+        "crates/kanzei-tools/src/cross_tree.rs"
+      ],
+      "lines": {
+        "start": 652,
+        "end": 660
+      },
+      "trigger": "跨树变化需留证，但 .kanzei/quarantine 被普通文件占用、无法创建目录（其他写入故障同路径）。",
+      "impact": "create_dir_all 和 write 的错误全部丢弃，报告仍称已隔离且可取回；用户按照报告寻找恢复副本时实际不存在。",
+      "evidence": "contract-evidence.json/cross_tree_probe failed_quarantine：fixture 有改变后的 existing.txt，隔离目录被普通文件阻塞，仍输出 evidence quarantined / 隔离留证于；没有实际副本。",
+      "validation": "原生产模块确定性失败路径探针；保留源文件并验证隔离目录障碍。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T05",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-tools/src/local_validation.rs",
+      "files": [
+        "crates/kanzei-tools/src/local_validation.rs",
+        "crates/kanzei-tools/src/write.rs",
+        "crates/kanzei-tools/src/edit.rs"
+      ],
+      "lines": {
+        "start": 439,
+        "end": 456
+      },
+      "trigger": "write/edit 在独立 worktree 中写入 member/src/lib.rs，Cargo.toml 位于 member/，ctx.project_root 指向主树。",
+      "impact": "nearest_manifest 第一层因不在主树内即停止，误用 Rust 2015；合法 async fn 被错误报告语法失败，UI/模型收到错误修复建议。写入本身保留。",
+      "evidence": "contract-evidence.json：main_root=None，code_root=Some(member/Cargo.toml)；同一合法源码 rustfmt --edition 2015 退出 1/E0670，2021 退出 0。write.rs:334、edit.rs:568/807 传入 project_root。",
+      "validation": "原 nearest_manifest 提取 + 实际 rustfmt 正反对照；不变式是工作树源码的 edition 来自该工作树。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T06",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/palette.rs",
+      "files": [
+        "crates/kanzei-tools/src/palette.rs",
+        "crates/kanzei-tools/src/plot_tool.rs"
+      ],
+      "lines": {
+        "ranges": [
+          [
+            653,
+            681
+          ],
+          [
+            740,
+            761
+          ]
+        ]
+      },
+      "trigger": "plot 工具 palette 导入普通 Adobe Swatch Exchange .ase 文件（例如两个标准 RGB 色块）。",
+      "impact": "错误头部偏移、块类型、名称位置及编码使标准 ASE 无法导入；既有 sample.ase 同样采用错误自造布局，掩盖协议不兼容。",
+      "evidence": "contract-evidence.json/ase_probe：标准 12-byte header + 0x0001 色块 + UTF-16BE name 解析 0 色失败；仓库 fixture 成功。独立实现格式说明 https://github.com/behreajj/AsepriteSwatchExchange；生产 caller plot_tool.rs:244。",
+      "validation": "逐字提取 read_u16_be 至 parse_ase；标准双 RGB fixture 与仓库 fixture 对照。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T07",
+      "severity": "P2",
+      "root_owner": "crates/kanzei-tools/src/grep.rs",
+      "files": [
+        "crates/kanzei-tools/src/grep.rs"
+      ],
+      "lines": {
+        "ranges": [
+          [
+            262,
+            276
+          ],
+          [
+            309,
+            320
+          ]
+        ]
+      },
+      "trigger": "grep 同时设置 multiline=true、count=true，模式 alpha.*beta 跨越两行。",
+      "impact": "count 的 Searcher 未启用 multiline，返回 no matches；同输入的普通检索命中，统计结果与检索结果矛盾。",
+      "evidence": "contract-evidence.json/grep_multiline_probe：count=false => file.txt:1: alpha\\nbeta；count=true => (no matches for alpha.*beta)。",
+      "validation": "原 run_grep/run_count/ContextSink 函数提取，链接已有 grep/ignore/globset rlib，rustc 独立编译执行；未共享 Cargo。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T08",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/symbols.rs",
+      "files": [
+        "crates/kanzei-tools/src/symbols.rs"
+      ],
+      "lines": {
+        "start": 107,
+        "end": 139
+      },
+      "trigger": "独立 worktree 的 agent 查询 symbols {crate:\"demo\"} 或 module 地图，主树和当前树源码不同。",
+      "impact": "crate_dirs 从 ctx.project_root 建立，带 crate 查询直接扫主树；只带 module 时当前树文件无法匹配主树目录，可能得到空地图。返回的依赖/API 地图不代表当前工作树。",
+      "evidence": "contract-evidence.json/symbols_root_probe：相同成员名 main=>main_only、worktree=>branch_only；execute:107 固定选择 main 的映射，:121 按该目录收集源码。",
+      "validation": "原 crate_ident_to_dir 提取 + 主树/分支差异 fixture；完整追踪 execute→collect_rs_files→render_repo_map。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T09",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/browser_tool/headless.rs",
+      "files": [
+        "crates/kanzei-tools/src/browser_tool/headless.rs",
+        "crates/kanzei-tools/src/browser_tool.rs"
+      ],
+      "lines": {
+        "ranges": [
+          [
+            65,
+            69
+          ],
+          [
+            299,
+            311
+          ],
+          [
+            366,
+            369
+          ],
+          [
+            456,
+            460
+          ]
+        ]
+      },
+      "trigger": "桌面 A/B 两个会话或工作线均走无头 fallback；A open 后 B open，A 随后省略 target 调 click/type/eval。",
+      "impact": "全局 helper/page 无会话或工作树 owner，A 的后续操作落到 B 页面；共享 CURRENT_URLS 还把错误页面作为权限资源。",
+      "evidence": "browser-evidence.json：真实 Node helper+Edge 执行 A open line-A、B open line-B、A targetless eval，返回 line-B。Rust execute_headless 不把 ctx owner 传给 with_helper/run_action；父审计确认桌面路由无额外 owner 隔离。",
+      "validation": "真实 helper 独立子进程/新 Edge 会话；shutdown 并关闭 stdin 收尾。与 root AF-R09 面板 owner 检查归为同一修复批次。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T10",
+      "severity": "P1",
+      "root_owner": "crates/kanzei-tools/src/webfetch.rs",
+      "files": [
+        "crates/kanzei-tools/src/webfetch.rs"
+      ],
+      "lines": {
+        "ranges": [
+          [
+            224,
+            230
+          ],
+          [
+            440,
+            452
+          ],
+          [
+            539,
+            545
+          ]
+        ]
+      },
+      "trigger": "webfetch 下载大于 3 MiB 的 PDF。",
+      "impact": "读取达到上限后保存截断 PDF；PDF 分支不携带 truncated 信息，仍返回成功并让用户用 read pages 打开，缓存/来源标记也将其视为已抓取。",
+      "evidence": "pdf-evidence.json：真实 CLI/mock provider/local HTTP，返回 PDF saved to 成功，保存文件恰好 3145728 字节且无 EOF。原 valid-large.pdf 经 fitz 打开为 1 页，完整响应尾部 xref/EOF 均在截断点后。",
+      "validation": "当前 fetch_web_response 逐字提取并链接已有 reqwest/tokio rlib：status=200 bytes=3145728 truncated=true eof=false；当前 save/PDF-success 分支逐行核对。release CLI 提供用户结果症状补证，未建立该二进制提交来源。隔离 HOME/USERPROFILE/KANZEI_HOME，本地有效单页 PDF，无真实模型/外部请求。",
+      "status": "confirmed_unfixed_audit_only"
+    },
+    {
+      "id": "AF-T11",
+      "severity": "P0",
+      "root_owner": "crates/kanzei-tools/src/git/tool.rs",
+      "files": [
+        "crates/kanzei-tools/src/git/tool.rs",
+        "crates/kanzei-tools/src/git.rs"
+      ],
+      "lines": {
+        "ranges": [
+          [
+            89,
+            96
+          ]
+        ]
+      },
+      "trigger": "A 线调用 git merge_ff，into 分支当前被另一个活跃工作树 B checkout；B 仍在运行内部 write/edit 或 Git 工具。",
+      "impact": "工具声明的排他范围是 A 的 ctx.cwd，但 merge_ff 实际改 B 的 HEAD、index 和文件；A/B 两个内部 run 可同时写 B，绕过一树一写者语义。",
+      "evidence": "git.rs:1091+ 找目标分支的 checkout tree，:1125 在该 dir 执行 merge --ff-only；git/tool.rs:95 固定 write_worktree(ctx)。root 已核实 app/run/assembly.rs:596+ 整轮 lease 仅 ctx.cwd，core ToolConcurrency 只给同批排序，无额外目标锁。",
+      "validation": "跨层真实调用/持锁时序静态证明；B 的 write/edit 文件锁未被 Git subprocess 遵守，Git index.lock 也不能替代整个工作树互斥。按用户 mutual exclusion 被破坏口径列 P0；未在用户工作树制造并发 Git 写入。",
+      "status": "confirmed_unfixed_audit_only"
+    }
+  ],
+  "parallel_deltas": [
+    {
+      "file": "crates/kanzei-tools/src/read.rs",
+      "change": "并行用户任务将 READ_PATH_NOT_FOUND 从 failed 改为 needs_correction，并补 outcome 断言；已额外阅读该 diff。"
+    },
+    {
+      "file": "crates/kanzei-tools/src/symbols.rs",
+      "change": "并行用户任务将 SYMBOLS_PATH_NOT_FOUND 从 failed 改为 needs_correction；已额外阅读该 diff，与 AF-T08 根路径问题无关。"
+    }
+  ],
+  "delegated_files": [
+    "crates/kanzei-tools/src/arch_diagram.rs",
+    "crates/kanzei-tools/src/arch_diagram_lint.rs",
+    "crates/kanzei-tools/src/arch_diagram_tests.rs",
+    "crates/kanzei-tools/src/architecture.rs",
+    "crates/kanzei-tools/src/conventions.rs",
+    "crates/kanzei-tools/src/conventions/drafts.rs"
+  ]
+}
