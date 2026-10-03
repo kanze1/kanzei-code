@@ -355,6 +355,8 @@ impl ToolOutput {
 /// 工具契约:描述保持一句话级别(系统提示词预算红线),规则靠代码强制。
 /// 执行失败返回 is_error 输出回喂模型(修复回路),不向用户抛异常。
 #[async_trait]
+// async_trait generates must_use on the already-must-use boxed Future.
+#[allow(clippy::double_must_use)]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     /// 描述可动态生成(如 bash 按实际选中的 shell 生成语法提示)。

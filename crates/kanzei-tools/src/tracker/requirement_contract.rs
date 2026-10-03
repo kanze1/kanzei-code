@@ -241,7 +241,7 @@ mod tests {
         let evidence = json!([{"criterion_id":"AC-1","revision":spec.revision(),"reference":"verification.txt"}]);
         e.fields.push(("验收证据".into(), evidence.to_string()));
         assert!(check_close(&e, &root).unwrap_err().contains("不存在"));
-        std::fs::write(&root.join("verification.txt"), "实际测试步骤和结果").unwrap();
+        std::fs::write(root.join("verification.txt"), "实际测试步骤和结果").unwrap();
         check_close(&e, &root).unwrap();
         spec.statement.push_str("并显示下载完成状态。");
         for (k, v) in spec.fields() {

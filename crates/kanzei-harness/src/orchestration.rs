@@ -385,6 +385,8 @@ impl OrchestrationEvent {
 /// 项目级执行协调器接口。首个实现由桌面端 AppState 按规范化主根共享;
 /// CLI 使用单运行实现;未来多 OS 进程再换文件锁/持久 lease 实现。
 #[async_trait::async_trait]
+// async_trait generates must_use on the already-must-use boxed Future.
+#[allow(clippy::double_must_use)]
 pub trait ProjectExecutionCoordinator: Send + Sync {
     /// 申请只读槽(勘察/复核阶段并行子代理用)。
     async fn acquire_read_slot(&self, request: ReadSlotRequest) -> Result<ReadPermit, String>;
