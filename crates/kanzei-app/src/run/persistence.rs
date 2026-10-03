@@ -161,6 +161,18 @@ pub(crate) fn persist_round_outcome(
                     } else {
                         typed_events::TerminalFact::Completed
                     });
+                // Keep the active input/status until a runner-created archive pointer
+                // has its durable replacement surface. L0 need not produce an LLM trace.
+                if let Err(error) = persist_runner_surface_if_changed(
+                    store,
+                    &ctx.project_root,
+                    session_id,
+                    run_id,
+                    prior,
+                    summary,
+                ) {
+                    report_persistence_failure(window, session_id, "写入运行上下文事务", error);
+                }
                 if let Err(error) = store.set_status(session_id, "idle") {
                     report_persistence_failure(window, session_id, "写入 idle 状态", error);
                 }
@@ -334,6 +346,102 @@ pub(crate) fn persist_round_outcome(
     final_store
 }
 
+struct RoundCompaction {
+    transaction_id: String,
+    summary: serde_json::Value,
+    source_surface: Vec<kanzei_llm::Message>,
+}
+
+impl RoundCompaction {
+    fn persist(
+        &self,
+        store: &kanzei_core::SessionStore,
+        session_id: &str,
+        messages: &[kanzei_llm::Message],
+        conversation: &Mutex<HashMap<String, Vec<kanzei_llm::Message>>>,
+    ) -> Result<(), kanzei_core::StoreError> {
+        let mut cache = conversation.lock_or_recover();
+        let sequence = store.latest_event_sequence(session_id)?;
+        let current = crate::conversation::project_latest_segment(store, session_id)
+            .map_err(kanzei_core::StoreError::InvalidInput)?;
+        if current != self.source_surface {
+            return Err(kanzei_core::StoreError::InvalidInput(
+                "压缩来源已变化，保留已提交上下文".into(),
+            ));
+        }
+        store.append_run_compaction_transaction_checked(
+            session_id,
+            &self.transaction_id,
+            &self.summary,
+            &serde_json::to_value(messages)?,
+            sequence,
+        )?;
+        cache.insert(session_id.to_string(), messages.to_vec());
+        Ok(())
+    }
+}
+
+fn prune_round_surface(
+    project_root: &std::path::Path,
+    messages: &mut [kanzei_llm::Message],
+    limits: &kanzei_harness::config::Limits,
+    run_id: &str,
+    before: u64,
+) -> Option<(usize, RoundCompaction)> {
+    let source_surface = messages.to_vec();
+    let cleared = kanzei_core::prune_conversation_with_archive(
+        messages,
+        limits.prune_protect_tokens(),
+        limits.prune_min_gain_tokens(),
+        project_root,
+    );
+    (cleared > 0).then(|| {
+        (
+            cleared,
+            RoundCompaction {
+                transaction_id: format!("{run_id}:prune"),
+                summary: json!({
+                    "source": "round_prune",
+                    "cleared": cleared,
+                    "before": before,
+                    "after": kanzei_core::estimate_conversation_tokens(messages),
+                }),
+                source_surface,
+            },
+        )
+    })
+}
+
+fn persist_runner_surface_if_changed(
+    store: &kanzei_core::SessionStore,
+    project_root: &std::path::Path,
+    session_id: &str,
+    run_id: &str,
+    prior: &[kanzei_llm::Message],
+    summary: &kanzei_core::RunSummary,
+) -> Result<(), kanzei_core::StoreError> {
+    let mut source = kanzei_core::filter_message_history(prior);
+    source.extend(summary.round_messages.iter().cloned());
+    if source == summary.messages {
+        return Ok(());
+    }
+    let _publication = kanzei_core::store::artifact_liveness::lock_publication(project_root)?;
+    let sequence = store.latest_event_sequence(session_id)?;
+    let current = crate::conversation::project_latest_segment(store, session_id)
+        .map_err(kanzei_core::StoreError::InvalidInput)?;
+    if current == summary.messages || current != source {
+        return Ok(());
+    }
+    store.append_run_compaction_transaction_checked(
+        session_id,
+        &format!("{run_id}:runner-compaction"),
+        &json!({"source":"round_run", "overflow_traces": summary.overflow_traces}),
+        &serde_json::to_value(&summary.messages)?,
+        sequence,
+    )?;
+    Ok(())
+}
+
 /// R-202 批2:run_task 轮末收尾段后半——typed surface 事务/typed shadow 报告
 /// → kz:done → 写租约 Released → 停止令牌回收。legacy snapshot 在投影真源切换后
 /// 只读保留，不再由正常收尾新增 conversation.updated。
@@ -373,13 +481,21 @@ pub(crate) async fn finalize_round(
     let resolved = &deps.resolved;
     let client = &deps.client;
     let halt_slot = &handles.halt_slot;
-    conversation
-        .lock_or_recover()
-        .insert(session_id.to_string(), summary.messages.clone());
+    if let Some(store) = final_store.as_ref() {
+        let refreshed = {
+            let mut cache = conversation.lock_or_recover();
+            crate::conversation::project_latest_segment(store, session_id).map(|messages| {
+                cache.insert(session_id.to_string(), messages);
+            })
+        };
+        if let Err(error) = refreshed {
+            report_persistence_failure(window, session_id, "读取已提交上下文", error);
+        }
+    }
 
-    let mut compaction_transaction_id: Option<String> = None;
-    let mut compaction_summary: Option<serde_json::Value> = None;
-    let mut compaction_previous_surface: Option<Vec<kanzei_llm::Message>> = None;
+    let mut compaction: Option<RoundCompaction> = None;
+    let mut compacted_messages = None;
+    let mut _publication = None;
 
     // R-236 B1:轮末压缩走 core 同一份 compact_with_digest——保任务定义、保近期
     // 工作区逐字、只压中段、纪要过质量闸,失败回落原文节选。R-021 那套「整段历史
@@ -387,7 +503,11 @@ pub(crate) async fn finalize_round(
     // 不知道自己做过什么),也是用户实测「打断插任务模型失忆」的主因之一。
     // 触发线与轮内同一把尺(compaction_budget:limit − max(output, buffer));
     // 估算同一口径(附件按固定成本,不按 base64 字节——消灭带附件必误触发)。
-    if let Some(limit) = resolved.provider.context_limit {
+    if let Some(limit) = resolved
+        .provider
+        .context_limit
+        .filter(|_| final_store.is_some())
+    {
         let budget = kanzei_core::compaction_budget(
             limit,
             config.limits.max_tokens(),
@@ -401,13 +521,20 @@ pub(crate) async fn finalize_round(
         let mut estimate = compaction_input_tokens(summary.last_input_tokens, &conv);
         // R-236 B4:轮末同样 L0 先行——机械清旧工具结果,清完够线就不动 LLM 纪要。
         if estimate > budget && conv.len() > 1 {
-            let cleared = kanzei_core::prune_conversation_with_archive(
-                &mut conv,
-                config.limits.prune_protect_tokens(),
-                config.limits.prune_min_gain_tokens(),
-                &ctx.project_root,
+            // persist_round_outcome has already marked the session idle. Protect
+            // archive creation until the replacement surface is durably committed.
+            _publication = Some(
+                kanzei_core::store::artifact_liveness::acquire_publication(&ctx.project_root)
+                    .await?,
             );
-            if cleared > 0 {
+            if let Some((cleared, pending)) = prune_round_surface(
+                &ctx.project_root,
+                &mut conv,
+                &config.limits,
+                run_id,
+                estimate,
+            ) {
+                compaction = Some(pending);
                 let after_prune = kanzei_core::estimate_conversation_tokens(&conv);
                 stage(
                     "压缩",
@@ -418,9 +545,6 @@ pub(crate) async fn finalize_round(
                     ),
                 );
                 estimate = after_prune;
-                conversation
-                    .lock_or_recover()
-                    .insert(session_id.to_string(), conv.clone());
             }
         }
         if estimate > budget && conv.len() > 1 {
@@ -438,6 +562,10 @@ pub(crate) async fn finalize_round(
                 kanzei_tools::run::build_digest_model(config, &deps.proxy, resolved, &deps.route)
                     .await;
             digest_model.archive_root = Some(ctx.project_root.clone());
+            let source_surface = compaction
+                .as_ref()
+                .map(|pending| pending.source_surface.clone())
+                .unwrap_or_else(|| conv.clone());
             let dropped = kanzei_core::compact_conversation_with_model(
                 client,
                 Some(&digest_model),
@@ -448,13 +576,6 @@ pub(crate) async fn finalize_round(
             )
             .await;
             if dropped > 0 {
-                compaction_previous_surface = Some(
-                    conversation
-                        .lock_or_recover()
-                        .get(session_id)
-                        .cloned()
-                        .unwrap_or_default(),
-                );
                 let after = kanzei_core::estimate_conversation_tokens(&conv);
                 // 纪要预览:替换消息的正文(UI 压缩条目用)。
                 let digest_preview = conv
@@ -467,16 +588,16 @@ pub(crate) async fn finalize_round(
                         _ => None,
                     })
                     .unwrap_or_default();
-                compaction_transaction_id = Some(format!("{run_id}:compaction"));
-                compaction_summary = Some(json!({
+                compaction = Some(RoundCompaction {
+                    transaction_id: format!("{run_id}:compaction"),
+                    summary: json!({
                     "digest": digest_preview,
                     "dropped": dropped,
                     "before": estimate,
                     "after": after,
-                }));
-                conversation
-                    .lock_or_recover()
-                    .insert(session_id.to_string(), conv);
+                    }),
+                    source_surface,
+                });
                 // 被压段的轨迹摘要随轮末落 live trace,复盘可查(与轮内 overflow 同源语义)。
                 for trace in compact_traces {
                     let mut live = live.lock_or_recover();
@@ -504,37 +625,29 @@ pub(crate) async fn finalize_round(
                 stage("压缩", "中段为空压不动,保留原历史".into());
             }
         }
+        if compaction.is_some() {
+            compacted_messages = Some(conv);
+        }
     }
 
-    let messages = conversation
-        .lock_or_recover()
-        .get(session_id)
-        .cloned()
-        .unwrap_or_default();
+    let mut messages = compacted_messages.unwrap_or_else(|| {
+        conversation
+            .lock_or_recover()
+            .get(session_id)
+            .cloned()
+            .unwrap_or_default()
+    });
     if let Some(store) = final_store.as_ref() {
         // 轨迹已在运行中按事件增量写入；这里仅补写实时写入失败的尾部，避免
         // 轮末再把整轮复制一遍造成回放重复。
         flush_live_trace(store, session_id, live);
-        if let Some(transaction_id) = compaction_transaction_id.as_deref() {
-            let summary = compaction_summary.take().unwrap_or_else(|| json!({}));
-            let append_result = serde_json::to_value(&messages)
-                .map_err(kanzei_core::StoreError::from)
-                .and_then(|surface| {
-                    store
-                        .append_compaction_transaction(
-                            session_id,
-                            transaction_id,
-                            &summary,
-                            &surface,
-                        )
-                        .map(|_| ())
-                });
-            if let Err(error) = append_result {
-                if let Some(previous) = compaction_previous_surface.take() {
-                    conversation
-                        .lock_or_recover()
-                        .insert(session_id.to_string(), previous);
-                }
+        if let Some(pending) = compaction.take() {
+            if let Err(error) = pending.persist(store, session_id, &messages, conversation) {
+                messages = conversation
+                    .lock_or_recover()
+                    .get(session_id)
+                    .cloned()
+                    .unwrap_or_default();
                 report_persistence_failure(window, session_id, "写入压缩事务", error);
             }
         }
@@ -593,6 +706,426 @@ pub(crate) async fn finalize_round(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn round_prune_only_surface_commits_before_idle_gc_and_recovers_exactly() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-round-prune-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let state_path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses-prune", root.to_str().unwrap(), None)
+            .unwrap();
+        let mut messages = vec![
+            kanzei_llm::Message::user_text("任务定义"),
+            kanzei_llm::Message::assistant(vec![kanzei_llm::Part::ToolCall {
+                id: "old".into(),
+                name: "read".into(),
+                input: json!({"path":"old.rs"}),
+            }]),
+            kanzei_llm::Message::tool_results(vec![kanzei_llm::Part::ToolResult {
+                call_id: "old".into(),
+                content: "x".repeat(8000),
+                is_error: false,
+            }]),
+            kanzei_llm::Message::user_text("第二轮"),
+            kanzei_llm::Message::user_text("当前轮"),
+        ];
+        let original = messages.clone();
+        store
+            .append_event(
+                "ses-prune",
+                "conversation.updated",
+                &json!({"messages":messages}),
+            )
+            .unwrap();
+        let limits = kanzei_harness::config::Limits {
+            prune_protect_tokens: Some(0),
+            prune_min_gain_tokens: Some(1),
+            ..Default::default()
+        };
+        let before = kanzei_core::estimate_conversation_tokens(&messages);
+        let publication = kanzei_core::store::artifact_liveness::acquire_publication(&root)
+            .await
+            .unwrap();
+        let (cleared, pending) =
+            prune_round_surface(&root, &mut messages, &limits, "run-prune", before).unwrap();
+        assert_eq!(cleared, 1);
+        let conversation = Mutex::new(HashMap::from([("ses-prune".to_string(), original.clone())]));
+        assert_eq!(
+            conversation.lock().unwrap()["ses-prune"],
+            original,
+            "pruning stays local until commit"
+        );
+        assert!(
+            before > 1000 && kanzei_core::estimate_conversation_tokens(&messages) < 1000,
+            "L0 alone must bring the surface under budget, without any LLM"
+        );
+        assert!(store.cleanup_storage(&root).is_err());
+        let read_only = kanzei_core::SessionStore::open_read_only(&state_path).unwrap();
+        assert!(
+            pending
+                .persist(&read_only, "ses-prune", &messages, &conversation)
+                .is_err(),
+            "a real SQLite write failure must not publish the local surface"
+        );
+        assert_eq!(conversation.lock().unwrap()["ses-prune"], original);
+        assert_eq!(
+            crate::conversation::project_latest_segment(&store, "ses-prune").unwrap(),
+            original
+        );
+        assert!(store
+            .latest_completed_compaction_surface("ses-prune", 0)
+            .unwrap()
+            .is_none());
+        drop(read_only);
+        pending
+            .persist(&store, "ses-prune", &messages, &conversation)
+            .unwrap();
+        assert_eq!(conversation.lock().unwrap()["ses-prune"], messages);
+        drop(publication);
+        let cleaned = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                match store.cleanup_storage(&root) {
+                    Ok(cleaned) => break cleaned,
+                    Err(kanzei_core::StoreError::Io(error))
+                        if error.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
+                        tokio::task::yield_now().await;
+                    }
+                    Err(error) => panic!("unexpected GC failure after commit: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("publication worker must release after commit");
+        assert!(cleaned.deleted_artifacts.is_empty());
+        assert_eq!(
+            store
+                .artifact_cleanup_plan(&root)
+                .unwrap()
+                .referenced_artifact_files,
+            1
+        );
+        let (_, recovered) = store
+            .latest_completed_compaction_surface("ses-prune", 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(recovered, messages);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn in_loop_prune_surface_is_committed_before_last_active_input_finishes() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-inloop-prune-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let state_path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses-inloop", root.to_str().unwrap(), None)
+            .unwrap();
+        let mut messages = vec![
+            kanzei_llm::Message::user_text("任务定义"),
+            kanzei_llm::Message::assistant(vec![kanzei_llm::Part::ToolCall {
+                id: "old".into(),
+                name: "read".into(),
+                input: json!({"path":"old.rs"}),
+            }]),
+            kanzei_llm::Message::tool_results(vec![kanzei_llm::Part::ToolResult {
+                call_id: "old".into(),
+                content: "x".repeat(8000),
+                is_error: false,
+            }]),
+            kanzei_llm::Message::user_text("第二轮"),
+            kanzei_llm::Message::user_text("当前轮"),
+        ];
+        store
+            .append_event(
+                "ses-inloop",
+                "conversation.updated",
+                &json!({"messages":messages}),
+            )
+            .unwrap();
+        store.seed_latest_legacy_snapshot("ses-inloop").unwrap();
+        store
+            .admit_input(
+                "ses-inloop",
+                "input-inloop",
+                "当前轮",
+                kanzei_core::Delivery::Queue,
+            )
+            .unwrap();
+        assert!(store.promote_next_input("ses-inloop").unwrap().is_some());
+        store.set_status("ses-inloop", "idle").unwrap();
+        let original = messages.clone();
+        assert_eq!(
+            kanzei_core::prune_conversation_with_archive(&mut messages, 0, 1, &root),
+            1
+        );
+        assert!(
+            store.cleanup_storage(&root).is_err(),
+            "promoted input still protects the in-loop archive"
+        );
+        assert!(
+            kanzei_core::estimate_conversation_tokens(&messages) < 1000,
+            "no end-of-round compression will run"
+        );
+        let summary = kanzei_core::RunSummary {
+            text: String::new(),
+            usage: Default::default(),
+            last_input_tokens: None,
+            steps: 1,
+            halted_by_user: false,
+            step_limit_reached: false,
+            messages: messages.clone(),
+            context_report: Vec::new(),
+            overflow_traces: Vec::new(),
+            round_messages: original[3..].to_vec(),
+        };
+        persist_runner_surface_if_changed(
+            &store,
+            &root,
+            "ses-inloop",
+            "run-inloop",
+            &original[..3],
+            &summary,
+        )
+        .unwrap();
+        store.finish_input("input-inloop", true).unwrap();
+        assert!(store
+            .cleanup_storage(&root)
+            .unwrap()
+            .deleted_artifacts
+            .is_empty());
+        assert_eq!(
+            store
+                .artifact_cleanup_plan(&root)
+                .unwrap()
+                .referenced_artifact_files,
+            1
+        );
+        assert_eq!(
+            crate::conversation::project_latest_segment(&store, "ses-inloop").unwrap(),
+            messages
+        );
+        let count = store.list_events("ses-inloop", 0).unwrap().len();
+        persist_runner_surface_if_changed(
+            &store,
+            &root,
+            "ses-inloop",
+            "run-next",
+            &original[..3],
+            &summary,
+        )
+        .unwrap();
+        assert_eq!(
+            store.list_events("ses-inloop", 0).unwrap().len(),
+            count,
+            "unchanged surface has no duplicate transaction"
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn round_prune_without_gain_keeps_surface_and_has_no_pending_transaction() {
+        let mut messages = vec![kanzei_llm::Message::user_text("本轮没有旧工具结果")];
+        let original = messages.clone();
+        assert!(prune_round_surface(
+            std::path::Path::new("unused"),
+            &mut messages,
+            &kanzei_harness::config::Limits::default(),
+            "run-normal",
+            1
+        )
+        .is_none());
+        assert_eq!(messages, original);
+    }
+
+    #[test]
+    fn late_mobile_fact_is_not_replaced_by_ordinary_or_stale_compacted_summary() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-late-fact-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        let user = kanzei_llm::Message::user_text("本轮请求");
+        let answer = kanzei_llm::Message::assistant(vec![kanzei_llm::Part::Text {
+            text: "本轮完成".into(),
+        }]);
+        let mut writer = kanzei_core::TypedSessionWriter::new(&path, "ses", "run");
+        writer.user_message("input", user.clone());
+        writer.turn_started(1, 1);
+        writer.assistant_committed(1, answer.clone());
+        writer.finish(kanzei_core::SessionTurnTerminal::Completed);
+        assert!(writer.errors().is_empty(), "{:?}", writer.errors());
+        let source = vec![user, answer];
+        let mobile = kanzei_llm::Message::user_text("后到的手机输入");
+        let mut invariant = kanzei_core::SessionInvariant::default();
+        for (_, fact) in store.list_session_facts("ses").unwrap() {
+            invariant.apply(&fact).unwrap();
+        }
+        store
+            .append_session_facts_checked(
+                "ses",
+                &mut invariant,
+                &[kanzei_core::SessionFactEnvelope::new(
+                    "mobile",
+                    None,
+                    kanzei_core::SessionFact::UserMessageCommitted {
+                        input_id: "mobile-input".into(),
+                        message: mobile.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        let current = crate::conversation::project_latest_segment(&store, "ses").unwrap();
+        let cache = Mutex::new(HashMap::from([("ses".to_string(), current.clone())]));
+        let count = store.list_events("ses", 0).unwrap().len();
+        let mut summary = kanzei_core::RunSummary {
+            text: String::new(),
+            usage: Default::default(),
+            last_input_tokens: None,
+            steps: 1,
+            halted_by_user: false,
+            step_limit_reached: false,
+            messages: source.clone(),
+            context_report: Vec::new(),
+            overflow_traces: Vec::new(),
+            round_messages: source.clone(),
+        };
+        persist_runner_surface_if_changed(&store, &root, "ses", "run", &[], &summary).unwrap();
+        summary.messages = vec![kanzei_llm::Message::user_text("旧 source 的压缩结果")];
+        persist_runner_surface_if_changed(&store, &root, "ses", "run-stale", &[], &summary)
+            .unwrap();
+        let pending = RoundCompaction {
+            transaction_id: "end-stale".into(),
+            summary: json!({}),
+            source_surface: source,
+        };
+        assert!(pending
+            .persist(&store, "ses", &summary.messages, &cache)
+            .is_err());
+        assert_eq!(cache.lock().unwrap()["ses"], current);
+        assert_eq!(store.list_events("ses", 0).unwrap().len(), count);
+        assert_eq!(
+            crate::conversation::project_latest_segment(&store, "ses")
+                .unwrap()
+                .last(),
+            Some(&mobile)
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pipeline_aggregate_does_not_duplicate_first_user_or_publish_unmatched_source() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-pipeline-source-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        let prior = vec![kanzei_llm::Message::user_text("旧任务定义")];
+        store
+            .append_event("ses", "conversation.updated", &json!({"messages":prior}))
+            .unwrap();
+        store.seed_latest_legacy_snapshot("ses").unwrap();
+        let user = kanzei_llm::Message::user_text("当前用户请求");
+        let answer = kanzei_llm::Message::assistant(vec![kanzei_llm::Part::Text {
+            text: "实施完成".into(),
+        }]);
+        let fixup_user = kanzei_llm::Message::user_text("内部修正请求");
+        let fixed = kanzei_llm::Message::assistant(vec![kanzei_llm::Part::Text {
+            text: "修正完成".into(),
+        }]);
+        let mut writer = kanzei_core::TypedSessionWriter::new(&path, "ses", "run");
+        writer.user_message("input", user.clone());
+        writer.turn_started(1, 2);
+        writer.assistant_committed(1, answer.clone());
+        // Actual pipeline fixup emits assistant events but does not add a typed
+        // initial-user fact for its internal prompt. It cannot certify a changed source.
+        writer.turn_started(2, 2);
+        writer.assistant_committed(2, fixed.clone());
+        writer.finish(kanzei_core::SessionTurnTerminal::Completed);
+        assert!(writer.errors().is_empty(), "{:?}", writer.errors());
+        let mut receipt = vec![user.clone(), answer];
+        receipt.extend([fixup_user, fixed]); // execution.rs merges the two receipts.
+        let mut messages = prior.clone();
+        messages.extend(receipt.iter().cloned());
+        assert_eq!(
+            messages.iter().filter(|message| **message == user).count(),
+            1
+        );
+        let committed = crate::conversation::project_latest_segment(&store, "ses").unwrap();
+        let cache = Mutex::new(HashMap::from([("ses".to_string(), committed.clone())]));
+        let count = store.list_events("ses", 0).unwrap().len();
+        let mut summary = kanzei_core::RunSummary {
+            text: String::new(),
+            usage: Default::default(),
+            last_input_tokens: None,
+            steps: 2,
+            halted_by_user: false,
+            step_limit_reached: false,
+            messages,
+            context_report: Vec::new(),
+            overflow_traces: Vec::new(),
+            round_messages: receipt,
+        };
+        persist_runner_surface_if_changed(&store, &root, "ses", "run", &prior, &summary).unwrap();
+        let source_surface = summary.messages.clone();
+        summary.messages = vec![kanzei_llm::Message::user_text("来源未匹配的压缩候选")];
+        persist_runner_surface_if_changed(&store, &root, "ses", "run-changed", &prior, &summary)
+            .unwrap();
+        let pending = RoundCompaction {
+            transaction_id: "pipeline".into(),
+            summary: json!({}),
+            source_surface,
+        };
+        assert!(pending
+            .persist(&store, "ses", &summary.messages, &cache)
+            .is_err());
+        assert_eq!(store.list_events("ses", 0).unwrap().len(), count);
+        assert_eq!(cache.lock().unwrap()["ses"], committed);
+        assert_eq!(
+            crate::conversation::project_latest_segment(&store, "ses").unwrap(),
+            committed
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn transaction_budget_result_records_actual_actions_and_outcome() {

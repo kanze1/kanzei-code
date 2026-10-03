@@ -442,6 +442,7 @@ impl SessionStore {
         &self,
         project_root: &Path,
     ) -> Result<super::StorageCleanupResult, StoreError> {
+        let _liveness = super::artifact_liveness::lock_cleanup(project_root)?;
         let plan = self.storage_cleanup_plan(project_root)?;
         if !plan.eligible {
             return Err(StoreError::InvalidInput(
@@ -771,6 +772,7 @@ impl SessionStore {
         project_root: &Path,
         ignore_missing_artifacts: bool,
     ) -> Result<super::SessionDeletionResult, StoreError> {
+        let _liveness = super::artifact_liveness::lock_cleanup(project_root)?;
         let plan =
             self.session_deletion_plan_with(session_id, project_root, ignore_missing_artifacts)?;
         if !plan.eligible {
@@ -882,6 +884,7 @@ impl SessionStore {
         candidates: &[super::ArtifactFileReport],
         mut remove: impl FnMut(&Path) -> std::io::Result<()>,
     ) -> Result<ArtifactCleanupOutcome, StoreError> {
+        let _liveness = super::artifact_liveness::lock_cleanup(project_root)?;
         let tx = self.connection.unchecked_transaction()?;
         if let Some(reason) = runtime_block_reason(&tx)? {
             return Err(StoreError::InvalidInput(reason));

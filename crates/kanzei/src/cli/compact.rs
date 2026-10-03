@@ -46,6 +46,7 @@ pub(crate) async fn compact_cli(args: &[String]) -> anyhow::Result<()> {
     let mut model = kanzei_tools::run::build_digest_model(&config, &proxy, &resolved, &route).await;
     model.archive_root = Some(root.clone());
     model.focus = focus;
+    let _publication = kanzei_core::store::artifact_liveness::acquire_publication(&root).await?;
     let dropped = kanzei_core::compact_conversation_with_model(
         &client,
         Some(&model),

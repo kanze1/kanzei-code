@@ -112,6 +112,56 @@ impl SessionStore {
         surface: &Value,
         expected_sequence: Option<i64>,
     ) -> Result<Vec<StoredEvent>, StoreError> {
+        self.append_compaction_transaction_with_source(
+            session_id,
+            transaction_id,
+            summary,
+            surface,
+            expected_sequence,
+            true,
+        )
+    }
+
+    /// Run finalization still owns its promoted input. Check its exact source version
+    /// without imposing the manual mutation's idle/no-pending-input requirement.
+    pub fn append_run_compaction_transaction_checked(
+        &self,
+        session_id: &str,
+        transaction_id: &str,
+        summary: &Value,
+        surface: &Value,
+        expected_sequence: i64,
+    ) -> Result<Vec<StoredEvent>, StoreError> {
+        self.append_compaction_transaction_with_source(
+            session_id,
+            transaction_id,
+            summary,
+            surface,
+            Some(expected_sequence),
+            false,
+        )
+    }
+
+    /// Capture before projecting the source, so any writer during that read makes CAS fail.
+    pub fn latest_event_sequence(&self, session_id: &str) -> Result<i64, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT COALESCE(MAX(sequence),0) FROM session_events WHERE session_id=?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    fn append_compaction_transaction_with_source(
+        &self,
+        session_id: &str,
+        transaction_id: &str,
+        summary: &Value,
+        surface: &Value,
+        expected_sequence: Option<i64>,
+        require_idle: bool,
+    ) -> Result<Vec<StoredEvent>, StoreError> {
         if transaction_id.trim().is_empty() {
             return Err(StoreError::InvalidInput(
                 "compaction transaction_id 不能为空".into(),
@@ -130,10 +180,11 @@ impl SessionStore {
                 |row| row.get(0),
             )?;
             if current != expected
-                || self
-                    .get_session(session_id)?
-                    .is_some_and(|s| s.status == "running")
-                || !self.list_pending_inputs(session_id)?.is_empty()
+                || (require_idle
+                    && (self
+                        .get_session(session_id)?
+                        .is_some_and(|s| s.status == "running")
+                        || !self.list_pending_inputs(session_id)?.is_empty()))
             {
                 return Err(StoreError::InvalidInput(
                     "压缩期间对话已变化或开始运行，保留当前上下文，请稍后重试".into(),
@@ -857,6 +908,109 @@ mod tests {
             store.list_events("ses_test", 0).unwrap().len(),
             before.len() + 4
         );
+    }
+
+    #[test]
+    fn run_compaction_cas_allows_its_active_input_but_rejects_later_mobile_fact() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-run-compaction-cas-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.db");
+        let store = SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses_test", root.to_str().unwrap(), None)
+            .unwrap();
+        store
+            .admit_input("ses_test", "active", "run", crate::Delivery::Queue)
+            .unwrap();
+        assert!(store.promote_next_input("ses_test").unwrap().is_some());
+        store.set_status("ses_test", "running").unwrap();
+        let surface = serde_json::json!([Message::user_text("压缩后的已读内容")]);
+        let sequence = store.latest_event_sequence("ses_test").unwrap();
+        assert!(
+            store
+                .append_compaction_transaction_checked(
+                    "ses_test",
+                    "manual",
+                    &serde_json::json!({}),
+                    &surface,
+                    Some(sequence)
+                )
+                .is_err(),
+            "manual mutation must still reject running/promoted state"
+        );
+        store
+            .append_run_compaction_transaction_checked(
+                "ses_test",
+                "run",
+                &serde_json::json!({}),
+                &surface,
+                sequence,
+            )
+            .unwrap();
+        let read_sequence = store.latest_event_sequence("ses_test").unwrap();
+        let mobile = Message::user_text("后到的手机输入不能被旧 summary 丢掉");
+        let mut invariant = crate::SessionInvariant::default();
+        let writer = SessionStore::open(&path).unwrap();
+        writer
+            .append_session_facts_checked(
+                "ses_test",
+                &mut invariant,
+                &[crate::SessionFactEnvelope::new(
+                    "mobile",
+                    None,
+                    crate::SessionFact::UserMessageCommitted {
+                        input_id: "mobile-input".into(),
+                        message: mobile.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        // The other connection wrote after sequence capture but before projection.
+        // Even a projection that already sees the new fact cannot use the old CAS.
+        let (committed_sequence, committed_surface) = store
+            .latest_completed_compaction_surface("ses_test", 0)
+            .unwrap()
+            .unwrap();
+        let read_projection = crate::project_session_facts_with_surface(
+            &store.list_session_facts("ses_test").unwrap(),
+            Some(committed_sequence),
+            Some(committed_surface),
+        );
+        assert_eq!(read_projection.surface_messages.last(), Some(&mobile));
+        let events_before = store.list_events("ses_test", 0).unwrap();
+        assert!(store
+            .append_run_compaction_transaction_checked(
+                "ses_test",
+                "stale",
+                &serde_json::json!({}),
+                &surface,
+                read_sequence
+            )
+            .is_err());
+        assert_eq!(
+            store.list_events("ses_test", 0).unwrap().len(),
+            events_before.len()
+        );
+        let (sequence, committed) = store
+            .latest_completed_compaction_surface("ses_test", 0)
+            .unwrap()
+            .unwrap();
+        let projected = crate::project_session_facts_with_surface(
+            &store.list_session_facts("ses_test").unwrap(),
+            Some(sequence),
+            Some(committed),
+        );
+        assert_eq!(projected.surface_messages.last(), Some(&mobile));
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

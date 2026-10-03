@@ -31,17 +31,16 @@ fn persist_cli_compaction_surface_if_changed(
     store: &kanzei_core::SessionStore,
     session_id: &str,
     run_id: &str,
+    prior: &[Message],
     summary: &kanzei_core::RunSummary,
 ) -> anyhow::Result<()> {
-    if summary.overflow_traces.is_empty() {
+    let mut source = kanzei_core::filter_message_history(prior);
+    source.extend(summary.round_messages.iter().cloned());
+    if source == summary.messages {
         return Ok(());
     }
-    let boundary = store
-        .list_events_by_type(session_id, 0, "conversation.reset")?
-        .into_iter()
-        .map(|event| event.sequence)
-        .next_back()
-        .unwrap_or(0);
+    let sequence = store.latest_event_sequence(session_id)?;
+    let boundary = store.conversation_floor(session_id)?.unwrap_or(0);
     let facts = store.list_latest_segment_facts(session_id)?;
     let current_surface = match store.latest_completed_compaction_surface(session_id, boundary)? {
         Some((sequence, surface)) => {
@@ -50,7 +49,7 @@ fn persist_cli_compaction_surface_if_changed(
         }
         None => kanzei_core::project_session_facts(&facts).surface_messages,
     };
-    if current_surface == summary.messages {
+    if current_surface == summary.messages || current_surface != source {
         return Ok(());
     }
     let surface = serde_json::to_value(&summary.messages)?;
@@ -58,11 +57,12 @@ fn persist_cli_compaction_surface_if_changed(
         "source": "cli_run",
         "overflow_traces": summary.overflow_traces,
     });
-    store.append_compaction_transaction(
+    store.append_run_compaction_transaction_checked(
         session_id,
         &format!("{run_id}:compaction"),
         &compaction_summary,
         &surface,
+        sequence,
     )?;
     Ok(())
 }
@@ -94,6 +94,7 @@ pub(crate) async fn finish_run(
                 &store,
                 state.session_id,
                 state.run_id,
+                state.prior,
                 summary,
             )?;
             state
@@ -277,4 +278,231 @@ pub(crate) async fn finish_run(
         std::process::exit(exit_code);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::persist_cli_compaction_surface_if_changed;
+    use kanzei_core::{RunSummary, SessionStore};
+    use kanzei_llm::{Message, Part};
+    use serde_json::json;
+
+    fn summary(messages: Vec<Message>) -> RunSummary {
+        let round_messages = messages.clone();
+        RunSummary {
+            text: String::new(),
+            usage: Default::default(),
+            last_input_tokens: None,
+            steps: 1,
+            halted_by_user: false,
+            step_limit_reached: false,
+            messages,
+            context_report: Vec::new(),
+            overflow_traces: Vec::new(),
+            round_messages,
+        }
+    }
+
+    #[test]
+    fn cli_prune_only_surface_is_recovered_and_keeps_archive_during_idle_gc() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-cli-prune-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = kanzei_core::project_state_path(&root);
+        let store = SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses-prune", root.to_str().unwrap(), None)
+            .unwrap();
+        let mut messages = vec![
+            Message::user_text("任务定义"),
+            Message::assistant(vec![Part::ToolCall {
+                id: "old".into(),
+                name: "read".into(),
+                input: json!({"path":"old.rs"}),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "old".into(),
+                content: "x".repeat(8000),
+                is_error: false,
+            }]),
+            Message::user_text("第二轮"),
+            Message::user_text("当前轮"),
+        ];
+        store
+            .append_event(
+                "ses-prune",
+                "conversation.updated",
+                &json!({"messages":messages}),
+            )
+            .unwrap();
+        store.seed_latest_legacy_snapshot("ses-prune").unwrap();
+        let original = messages.clone();
+        assert_eq!(
+            kanzei_core::prune_conversation_with_archive(&mut messages, 0, 1, &root),
+            1
+        );
+        let mut summary = summary(messages.clone());
+        summary.round_messages = original[3..].to_vec();
+        assert!(
+            summary.overflow_traces.is_empty(),
+            "mechanical pruning must not fabricate an LLM trace"
+        );
+        persist_cli_compaction_surface_if_changed(
+            &store,
+            "ses-prune",
+            "run-prune",
+            &original[..3],
+            &summary,
+        )
+        .unwrap();
+        let recovered = super::super::recover_cli_prior(&store, "ses-prune").unwrap();
+        assert_eq!(
+            recovered, messages,
+            "prune-only replacement must survive recovery"
+        );
+        let plan = store.artifact_cleanup_plan(&root).unwrap();
+        assert_eq!(plan.referenced_artifact_files, 1);
+        let cleaned = store.cleanup_storage(&root).unwrap();
+        assert!(cleaned.deleted_artifacts.is_empty());
+        assert_eq!(
+            store
+                .artifact_cleanup_plan(&root)
+                .unwrap()
+                .referenced_artifact_files,
+            1
+        );
+        let event_count = store.list_events("ses-prune", 0).unwrap().len();
+        persist_cli_compaction_surface_if_changed(
+            &store,
+            "ses-prune",
+            "run-again",
+            &original[..3],
+            &summary,
+        )
+        .unwrap();
+        assert_eq!(
+            store.list_events("ses-prune", 0).unwrap().len(),
+            event_count,
+            "same surface must not produce another transaction"
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cli_ordinary_typed_round_does_not_write_duplicate_surface() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-cli-unpruned-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = kanzei_core::project_state_path(&root);
+        let store = SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses-normal", root.to_str().unwrap(), None)
+            .unwrap();
+        let user = Message::user_text("查看文件");
+        let call = Message::assistant(vec![Part::ToolCall {
+            id: "read".into(),
+            name: "read".into(),
+            input: json!({"path":"a.rs"}),
+        }]);
+        let result = Message::tool_results(vec![Part::ToolResult {
+            call_id: "read".into(),
+            content: "unchanged".into(),
+            is_error: false,
+        }]);
+        let answer = Message::assistant(vec![Part::Text {
+            text: "已查看文件".into(),
+        }]);
+        let mut writer = kanzei_core::TypedSessionWriter::new(&path, "ses-normal", "run-normal");
+        writer.user_message("input", user.clone());
+        writer.turn_started(1, 2);
+        writer.assistant_committed(1, call.clone());
+        writer.tool_results_committed(1, result.clone());
+        writer.turn_started(2, 2);
+        writer.assistant_committed(2, answer.clone());
+        writer.finish(kanzei_core::SessionTurnTerminal::Completed);
+        assert!(writer.errors().is_empty(), "{:?}", writer.errors());
+        let summary = summary(vec![user, call, result, answer]);
+        let event_count = store.list_events("ses-normal", 0).unwrap().len();
+        persist_cli_compaction_surface_if_changed(
+            &store,
+            "ses-normal",
+            "run-normal",
+            &[],
+            &summary,
+        )
+        .unwrap();
+        assert_eq!(
+            store.list_events("ses-normal", 0).unwrap().len(),
+            event_count
+        );
+        assert!(store
+            .latest_completed_compaction_surface("ses-normal", 0)
+            .unwrap()
+            .is_none());
+        let mobile = Message::user_text("后到的手机消息");
+        let mut invariant = kanzei_core::SessionInvariant::default();
+        for (_, fact) in store.list_session_facts("ses-normal").unwrap() {
+            invariant.apply(&fact).unwrap();
+        }
+        store
+            .append_session_facts_checked(
+                "ses-normal",
+                &mut invariant,
+                &[kanzei_core::SessionFactEnvelope::new(
+                    "mobile",
+                    None,
+                    kanzei_core::SessionFact::UserMessageCommitted {
+                        input_id: "mobile-input".into(),
+                        message: mobile.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        let with_mobile = store.list_events("ses-normal", 0).unwrap().len();
+        persist_cli_compaction_surface_if_changed(
+            &store,
+            "ses-normal",
+            "run-normal",
+            &[],
+            &summary,
+        )
+        .unwrap();
+        let mut stale_compacted = summary;
+        stale_compacted.messages = vec![Message::user_text("旧 source 的压缩结果")];
+        persist_cli_compaction_surface_if_changed(
+            &store,
+            "ses-normal",
+            "run-stale",
+            &[],
+            &stale_compacted,
+        )
+        .unwrap();
+        assert_eq!(
+            store.list_events("ses-normal", 0).unwrap().len(),
+            with_mobile,
+            "a later fact cannot be mistaken for an owned context replacement"
+        );
+        let facts = store.list_session_facts("ses-normal").unwrap();
+        assert_eq!(
+            kanzei_core::project_session_facts(&facts)
+                .surface_messages
+                .last(),
+            Some(&mobile)
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

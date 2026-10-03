@@ -42,7 +42,8 @@ pub(super) fn commit_tool_results(
 pub(super) fn record_round_message(round_messages: &mut Vec<Message>, event: &RunEvent) {
     match event {
         RunEvent::AssistantMessageCommitted { message, .. }
-        | RunEvent::ToolResultsCommitted { message, .. } => round_messages.push(message.clone()),
+        | RunEvent::ToolResultsCommitted { message, .. }
+        | RunEvent::InputMessageCommitted { message, .. } => round_messages.push(message.clone()),
         _ => {}
     }
 }
@@ -103,4 +104,61 @@ pub(super) fn commit_step_messages(
         };
     }
     StepMessageOutcome::Proceed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn steering_receipt_matches_actual_typed_projection_in_message_order() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-steering-receipt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.db");
+        let store = crate::SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        let first = Message::user_text("初始用户请求");
+        let steering = Message::user_text("实际消费的插话");
+        let answer = Message::assistant(vec![Part::Text {
+            text: "按照插话完成".into(),
+        }]);
+        let mut writer = crate::TypedSessionWriter::new(&path, "ses", "run");
+        writer.user_message("input", first.clone());
+        let mut receipt = vec![first.clone()];
+        // App InputInbox persists the steer before the runner publishes this event;
+        // CLI persists the same event in its sink. Both have one durable message.
+        writer.steering_message("steer", steering.clone());
+        record_round_message(
+            &mut receipt,
+            &RunEvent::InputMessageCommitted {
+                input_id: "steer".into(),
+                message: steering.clone(),
+            },
+        );
+        writer.turn_started(1, 1);
+        writer.assistant_committed(1, answer.clone());
+        record_round_message(
+            &mut receipt,
+            &RunEvent::AssistantMessageCommitted {
+                step: 1,
+                message: answer.clone(),
+            },
+        );
+        writer.finish(crate::SessionTurnTerminal::Completed);
+        assert!(writer.errors().is_empty(), "{:?}", writer.errors());
+        let projected = crate::project_session_facts(&store.list_session_facts("ses").unwrap());
+        assert_eq!(receipt, vec![first, steering, answer]);
+        assert_eq!(receipt, projected.surface_messages);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

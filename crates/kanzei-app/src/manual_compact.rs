@@ -82,6 +82,9 @@ pub(crate) async fn conversation_compact(
     let mut model = kanzei_tools::run::build_digest_model(&config, &proxy, &resolved, &route).await;
     model.archive_root = Some(root.clone());
     model.focus = focus.filter(|value| !value.trim().is_empty());
+    let _publication = kanzei_core::store::artifact_liveness::acquire_publication(&root)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut traces = Vec::new();
     let dropped = kanzei_core::compact_conversation_with_model(
         &client,
@@ -96,15 +99,13 @@ pub(crate) async fn conversation_compact(
         return Ok(json!({"changed":false,"message":"当前没有完整、可压缩的历史区间"}));
     }
     let after = kanzei_core::estimate_conversation_tokens(&messages);
+    // A concurrent cache append must not land between the checked commit and publish.
+    let mut conversation = runtime.conversation.lock().unwrap();
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     store.append_compaction_transaction_checked(&session_id, &format!("manual:{}", crate::run::now_ms()),
         &json!({"manual":true,"focus":model.focus,"before":before,"after":after,"dropped":dropped}),
         &json!(messages),Some(source_sequence)).map_err(|e| e.to_string())?;
-    runtime
-        .conversation
-        .lock()
-        .unwrap()
-        .insert(session_id, messages);
+    conversation.insert(session_id, messages);
     Ok(
         json!({"changed":true,"before":before,"after":after,"message":format!("已压缩：{before} → {after} token") }),
     )

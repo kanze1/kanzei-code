@@ -1,0 +1,237 @@
+{
+  "batch": "A1",
+  "date": "2026-10-03",
+  "baseline": "fbb8533388cf6dff8de22e7270638aeb6e247484",
+  "baseline_sequence": [
+    "2b42d928",
+    "30fa309d",
+    "fbb85333"
+  ],
+  "branch": "kanzei/audit-a1",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code",
+  "review_complete_for_assigned_files": true,
+  "repository_review_complete": false,
+  "platform": "Windows x86_64-pc-windows-msvc",
+  "cargo_target_dir": "C:/Users/kanzei/Documents/kanzei code/target",
+  "cargo_execution": "serialized parent-granted slot; final checks completed and slot released to parent",
+  "full_file_reviews": [
+    {
+      "sha256_lf": "d307adc32955c83cd840201685ee30cf63556b7f28a473acf6b153a6c70c995b",
+      "sha256_raw": "0812ab68a7e74c87827687e8dace67a8a1482597ef7893eb86503b1ae053fbcb",
+      "judgment": "P1",
+      "path": "crates/kanzei-app/src/manual_compact.rs"
+    },
+    {
+      "sha256_lf": "ba43b547bfc0e39ccf9cbe3d4f7331b9c7b5f8ab7d1ca4b3d105cde217322679",
+      "sha256_raw": "0814dbc0e8df6a9f3e99a942f0576acc83804df0a188492521997b73a735a037",
+      "judgment": "P1",
+      "path": "crates/kanzei/src/cli/compact.rs"
+    },
+    {
+      "sha256_lf": "2cc47467da7687c5f5ba7e87260a7cded2462844dd7a84dedff788097df85d7f",
+      "sha256_raw": "2cc47467da7687c5f5ba7e87260a7cded2462844dd7a84dedff788097df85d7f",
+      "judgment": "PASS",
+      "path": "crates/kanzei-core/src/store/artifact_liveness.rs"
+    }
+  ],
+  "full_file_review_count": 3,
+  "slice_reviews": [
+    {
+      "sha256_lf": "c5aae4a9d378e7acf5e7ab5d7170ac8db450e07f424932693963ebca60115020",
+      "sha256_raw": "f8052fadecf7d36343e57569a1c84c5379e8c03976ad29c7f08e1c32a1beefa9",
+      "judgment": "PASS",
+      "scope": "module registration; C0 full review reopened",
+      "path": "crates/kanzei-core/src/store/mod.rs"
+    },
+    {
+      "sha256_lf": "b27cd8ebcf6f50dd2e709b7eeb8ab465174a984defd1b84d2514634df816202c",
+      "sha256_raw": "0cf5f609599fe5d91bddc7b925cefa70a1f9a1b050b84e034ef26666c8c59fd1",
+      "judgment": "P1",
+      "scope": "cleanup_storage/delete_session_with/cleanup_artifact_candidates; C0 full review reopened",
+      "path": "crates/kanzei-core/src/store/session.rs"
+    },
+    {
+      "sha256_lf": "23b527a287ecf6c6c52faba67d747784d4dd757ec18b09ee3769a78ade53716f",
+      "sha256_raw": "23b527a287ecf6c6c52faba67d747784d4dd757ec18b09ee3769a78ade53716f",
+      "judgment": "P1",
+      "scope": "compaction source CAS APIs and tests; C0 full review reopened",
+      "path": "crates/kanzei-core/src/store/events.rs"
+    },
+    {
+      "sha256_lf": "038698ddb7df7b7360f997e65d0a364d92d0df88cd3d3eac7315560c67d9bf59",
+      "sha256_raw": "038698ddb7df7b7360f997e65d0a364d92d0df88cd3d3eac7315560c67d9bf59",
+      "judgment": "PASS",
+      "scope": "record_round_message steering receipt and actual typed projection test only",
+      "path": "crates/kanzei-core/src/runner/drive/history.rs"
+    },
+    {
+      "sha256_lf": "08469b88635ba61e96bdbf1c3f320526b564cd432b82d319fd016a85cc66b796",
+      "sha256_raw": "08469b88635ba61e96bdbf1c3f320526b564cd432b82d319fd016a85cc66b796",
+      "judgment": "P1",
+      "scope": "runner surface commit; end-round prune/LLM source and cache publication; relevant tests only",
+      "path": "crates/kanzei-app/src/run/persistence.rs"
+    },
+    {
+      "sha256_lf": "1f0e21235b15b6f2ba6e7eb399b437faaf473b1b8defa8b75766285c090da973",
+      "sha256_raw": "1f0e21235b15b6f2ba6e7eb399b437faaf473b1b8defa8b75766285c090da973",
+      "judgment": "P1",
+      "scope": "persist_cli_compaction_surface_if_changed/its finish_run caller/relevant tests only",
+      "path": "crates/kanzei/src/cli/run/finalize.rs"
+    }
+  ],
+  "issues": [
+    {
+      "fix": "Shared publication lifetime and same-key exclusive cleanup before SQLite transaction",
+      "persistent_format_changed": false,
+      "public_api_changed": true,
+      "priority": "P1",
+      "root_cause": "Archive blob created before awaited compaction has no committed reference; GC and session deletion can remove it while idle",
+      "id": "A1-01"
+    },
+    {
+      "fix": "Persist real source-owned replacements before last active input ends; keep end-round candidate local until successful commit",
+      "persistent_format_changed": false,
+      "public_api_changed": false,
+      "priority": "P1",
+      "root_cause": "Prune-only and in-loop replacement surfaces are not durable or are published to cache before durable commit",
+      "id": "A1-02"
+    },
+    {
+      "fix": "Original source receipt match, sequence-before-projection CAS, cache mutex spanning source read through commit and cache publish",
+      "persistent_format_changed": false,
+      "public_api_changed": true,
+      "priority": "P1",
+      "root_cause": "Unchecked end-round surface and commit-to-cache window can overwrite later independent typed input",
+      "id": "A1-03"
+    }
+  ],
+  "checks": [
+    {
+      "name": "gc_before_regression",
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/gc-before.log",
+      "classification": "real assertion failure after temporarily restoring C0 GC without liveness locks",
+      "command": "cargo test -p kanzei-core gated_llm_compaction_archive_survives_gc_until_reference_commit -- --nocapture",
+      "exit_code": 101,
+      "log_sha256": "d0d50c26219ac5ce4d4b7fccdbd155a1cb98738e79b34bbe82da39c4fe7d8ac7"
+    },
+    {
+      "name": "prune_before_regression",
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/prune-before.log",
+      "classification": "real recovered surface assertion failure with original overflow-trace gate",
+      "command": "cargo test -p kanzei cli_prune_only_surface_is_recovered_and_keeps_archive_during_idle_gc -- --nocapture",
+      "exit_code": 101,
+      "log_sha256": "8a69a5a9950d6baf83383018e2e549ac2ee3182b349b68dfbc6efe67f64cc99c"
+    },
+    {
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/core-tests-final.log",
+      "exit_code": 0,
+      "name": "core_tests_final",
+      "failed": 0,
+      "log_sha256": "66afcce9419455ee2c616785f60854bc3429d2d71ed5ea97ae1c4263748c6d5b",
+      "passed": 386,
+      "ignored": 0,
+      "command": "cargo test -p kanzei-core"
+    },
+    {
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/source-cas-final.log",
+      "exit_code": 0,
+      "name": "source_cas_final",
+      "failed": 0,
+      "log_sha256": "0bac99d3fe49b0b34e0406a3df00b7e01eaf67d8311656921e6820cafd13e7aa",
+      "passed": 1,
+      "ignored": 0,
+      "note": "After adding explicit projection between second connection write and CAS",
+      "command": "cargo test -p kanzei-core run_compaction_cas_allows_its_active_input_but_rejects_later_mobile_fact"
+    },
+    {
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/app-tests-final.log",
+      "exit_code": 0,
+      "name": "app_tests_final",
+      "failed": 0,
+      "log_sha256": "9c538f767ce8780b5e3c79eeac3208a8e956c133934be89e7e91802fb3551758",
+      "passed": 6,
+      "ignored": 0,
+      "command": "cargo test -p kanzei-app run::persistence::tests"
+    },
+    {
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/cli-tests-final.log",
+      "exit_code": 0,
+      "name": "cli_tests_final",
+      "failed": 0,
+      "log_sha256": "924886cad9dae707df38ba4af0f336d08de458387da7dc71138a21734294267a",
+      "passed": 2,
+      "ignored": 0,
+      "command": "cargo test -p kanzei cli::run::finalize::tests"
+    },
+    {
+      "exit_code": 0,
+      "name": "check_final",
+      "log_sha256": "d14528b25995d4d15eeaeb2fd8a700ac93a4c554cedea5d892d05a98aea35c7a",
+      "command": "cargo check -p kanzei-core -p kanzei-app -p kanzei --all-targets",
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/check-final.log"
+    },
+    {
+      "exit_code": 0,
+      "name": "clippy_final",
+      "log_sha256": "dc87596ecee27a7c2c56451f6de71907dc0ed0e68d6251e3c5741fd305de3195",
+      "command": "cargo clippy -p kanzei-core -p kanzei-app -p kanzei --all-targets -- -D warnings",
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/clippy-final.log"
+    },
+    {
+      "exit_code": 0,
+      "name": "format_final",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "command": "rustfmt --edition 2021 --check --config skip_children=true (nine assigned source files)",
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/format-final.log"
+    },
+    {
+      "exit_code": 0,
+      "name": "diff_check_final",
+      "log_sha256": "9725b4dab233fa0a277505b7ab94f7f4881cabaf6f120e191600a8daa6fd106a",
+      "command": "git diff --check",
+      "log": "C:/Users/kanzei/.codex/worktrees/audit-a0/kanzei code/output/audit-a1/diff-check-final.log"
+    }
+  ],
+  "new_regression_test_count": 12,
+  "api_contracts": {
+    "receipt": "Filtered prior plus actual round messages including consumed steering, initial user once",
+    "manual_checked": "Retains idle/no pending input and source sequence checks",
+    "cleanup": "Same liveness key, nonblocking exclusive acquisition before SQLite writer; busy rejects without deletion",
+    "run_checked": "Requires exact source sequence CAS; permits caller-owned promoted input",
+    "publication": "Blocking worker owns non-Send FileLock; async Send release guard closes channel on cancellation/Drop"
+  },
+  "invariants_verified": [
+    "GC/session deletion reject during unpublished archive lifetime",
+    "Cancelled acquisition and aborted owner release worker lock",
+    "Committed archive survives idle GC; rejected candidate is collected",
+    "Pure L0 is recovered exactly without an LLM trace",
+    "Readonly SQLite commit failure preserves original durable/cache version",
+    "In-loop L0 commits before promoted input ends",
+    "Ordinary typed round produces no compaction transaction",
+    "Later actual mobile UserMessageCommitted survives stale source attempts",
+    "Manual mutation still rejects running/promoted state; run CAS permits it",
+    "Writer between sequence capture and projection causes CAS rejection",
+    "Steering receipt order equals actual durable typed projection",
+    "Cache publication uses one mutex without await"
+  ],
+  "limits": [
+    "No Linux rerun",
+    "No real Tauri-window or external-provider E2E",
+    "No full app or workspace test; parent performs integration verification",
+    "Pipeline source mismatch preserves durable original; that compression candidate is not published",
+    "Mobile cache-to-DB write ordering remains parent M2 scope",
+    "Old binary GC does not observe this new liveness lock; no release or mixed-version guarantee"
+  ],
+  "validation_repaired": {
+    "classification": "New test module placement violated existing Clippy lint; moved tests to end and final Clippy passed",
+    "exit_code": 101,
+    "log": "output/audit-a1/clippy-test-placement-failure.log"
+  },
+  "generated_files_restored": [
+    "crates/kanzei-app/gen/schemas/desktop-schema.json",
+    "crates/kanzei-app/gen/schemas/windows-schema.json"
+  ],
+  "report_sha256_lf": "54b0028a9dabd7acc5aef38c6c818e7a227fbb1924177bd7a685e73056589290",
+  "push_performed": false,
+  "release_performed": false
+}

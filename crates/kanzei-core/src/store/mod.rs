@@ -347,6 +347,7 @@ pub struct ResearchRunEvent {
     pub created_at: i64,
 }
 
+pub mod artifact_liveness;
 pub mod decisions;
 mod deliveries;
 mod episodes;
