@@ -14,6 +14,7 @@ pub const ALL_STATUS_TOKENS: &[&str] = &[
     "fixed",
     "wontfix", // defects
     "active",
+    "stale", // memory
     "archived",
     "paused",
     "achieved", // sources
@@ -331,5 +332,40 @@ impl Entry {
             .filter(|s| !s.is_empty())
             .map(str::to_string)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_marker_vocabulary_covers_every_current_document_status() {
+        for kind in [
+            REQUIREMENTS,
+            DEFECTS,
+            SOURCES,
+            FINDINGS,
+            MEMORY,
+            DECISIONS,
+            IDEAS,
+        ] {
+            for status in kind.statuses {
+                assert!(
+                    ALL_STATUS_TOKENS.contains(status),
+                    "{} status {} must not bypass shared title validation",
+                    kind.prefix,
+                    status
+                );
+            }
+        }
+        assert_eq!(
+            super::super::parse::title_status_marker("旧结论 [STALE]"),
+            Some("stale")
+        );
+        assert_eq!(
+            super::super::parse::strip_status_markers("旧结论 [stale]"),
+            "旧结论"
+        );
     }
 }

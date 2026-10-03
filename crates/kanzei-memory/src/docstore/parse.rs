@@ -144,7 +144,7 @@ fn parse_heading(kind: &DocKind, rest: &str) -> Entry {
     // "桌面端(类 VSCode 布局)")必须原样保留(狗粮暴露的 bug,见 D-002)。
     for _ in 0..2 {
         let t = title.trim_end();
-        if t.ends_with(')') {
+        if severity.is_none() && t.ends_with(')') {
             if let (Some(pos), Some(valid)) = (t.rfind('('), kind.severities) {
                 let candidate = t[pos + 1..t.len() - 1].trim();
                 if valid.contains(&candidate) {
@@ -159,7 +159,9 @@ fn parse_heading(kind: &DocKind, rest: &str) -> Entry {
         // 标记,原样保留(D-070 与 D-002 同族)。形态符合时**合法/非法都剥离**:非法
         // candidate(如 requirement 上的 `[open]`)保留在 status 字段里,由调度层
         // fail-closed(INVALID + integrity 报错),不再静默变空字符串被当成可执行。
-        if t.ends_with(']') {
+        // 最外层已经认领的状态不能被标题末尾的括号文本覆盖。
+        // 另一轮只用于兼容 status/severity 的两种顺序。
+        if status.is_empty() && t.ends_with(']') {
             if let Some(pos) = t.rfind('[') {
                 let candidate = t[pos + 1..t.len() - 1].trim();
                 let preceded_by_space = pos > 0
@@ -224,4 +226,77 @@ pub(crate) fn push_field(out: &mut String, key: &str, value: &str) {
         .collect::<Vec<_>>()
         .join(" ");
     out.push_str(&format!("- {key}: {single_line}\n"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::model::{DECISIONS, DEFECTS, FINDINGS, IDEAS, MEMORY, REQUIREMENTS, SOURCES};
+    use super::super::render::render;
+    use super::*;
+
+    #[test]
+    fn bracketed_title_roundtrips_without_replacing_document_status() {
+        for kind in [
+            REQUIREMENTS,
+            DEFECTS,
+            SOURCES,
+            FINDINGS,
+            MEMORY,
+            DECISIONS,
+            IDEAS,
+        ] {
+            let entry = Entry {
+                id: format!("{}-001", kind.prefix),
+                title: "实现协议 [RFC]".into(),
+                status: kind.statuses[0].into(),
+                severity: kind.severities.map(|values| values[0].into()),
+                fields: vec![("说明".into(), "按原文实现".into())],
+            };
+            let text = render(&kind, std::slice::from_ref(&entry));
+            assert_eq!(parse(&kind, &text), vec![entry]);
+        }
+    }
+
+    #[test]
+    fn malformed_outer_status_cannot_be_hidden_by_a_valid_title_marker() {
+        let entries = parse(&REQUIREMENTS, "## R-001 旧标题 [todo] [fixed]\n");
+        assert_eq!(entries[0].status, "fixed");
+        assert!(!REQUIREMENTS.statuses.contains(&entries[0].status.as_str()));
+        assert_eq!(entries[0].title, "旧标题 [todo]");
+        assert_eq!(title_status_marker(&entries[0].title), Some("todo"));
+    }
+
+    #[test]
+    fn historical_title_marker_stays_available_to_integrity_and_normalization() {
+        let entries = parse(&REQUIREMENTS, "## R-001 旧结论 [stale] [doing]\n");
+        assert_eq!(entries[0].status, "doing");
+        assert_eq!(entries[0].title, "旧结论 [stale]");
+        assert_eq!(
+            clean_tracker_title(&REQUIREMENTS, &entries[0].title),
+            "旧结论"
+        );
+    }
+
+    #[test]
+    fn severity_before_or_after_status_keeps_existing_contract() {
+        let standard = parse(&DEFECTS, "## D-001 保留 vec[index] [open] (high)\n");
+        let reversed = parse(&DEFECTS, "## D-001 保留 vec[index] (high) [open]\n");
+        assert_eq!(standard, reversed);
+        assert_eq!(standard[0].title, "保留 vec[index]");
+        assert_eq!(standard[0].status, "open");
+        assert_eq!(standard[0].severity.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn parentheses_title_without_status_does_not_replace_outer_severity() {
+        let entry = Entry {
+            id: "D-001".into(),
+            title: "新标题 (high)".into(),
+            status: String::new(),
+            severity: Some("low".into()),
+            fields: vec![],
+        };
+        let text = render(&DEFECTS, std::slice::from_ref(&entry));
+        assert_eq!(parse(&DEFECTS, &text), vec![entry]);
+    }
 }

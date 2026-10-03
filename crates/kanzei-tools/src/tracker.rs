@@ -2421,15 +2421,17 @@ mod tests {
             requires_refs: None,
         };
         // add:dropped 是 requirements/findings 的状态,不是缺陷状态 → 标题不得携带。
-        let out = tool
-            .execute(
-                json!({"action": "add", "title": "某缺陷 [dropped]", "priority": "P2", "severity": "medium",
-                       "fields": {"复杂度": "小", "标签": "后端"}}),
-                &ctx,
-            )
-            .await;
-        assert!(out.is_error, "add 应拒绝标题状态标记: {}", out.content);
-        assert!(out.content.contains("status marker"), "{}", out.content);
+        for title in ["某缺陷 [dropped]", "某缺陷 [stale]"] {
+            let out = tool
+                .execute(
+                    json!({"action": "add", "title": title, "priority": "P2", "severity": "medium",
+                           "fields": {"复杂度": "小", "标签": "后端"}}),
+                    &ctx,
+                )
+                .await;
+            assert!(out.is_error, "add 应拒绝标题状态标记: {}", out.content);
+            assert!(out.content.contains("status marker"), "{}", out.content);
+        }
         // update:改标题携带 [done] → 拒绝。
         let mut e = entry("D-001");
         e.status = "open".into();
@@ -2466,6 +2468,77 @@ mod tests {
             .await;
         assert!(!out.is_error, "合法标题应放行: {}", out.content);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn bracketed_title_keeps_status_through_real_tracker_add_and_load() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-bracket-title-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "idea",
+            noun: "idea",
+            kind: &crate::docstore::IDEAS,
+            requires_refs: None,
+        };
+        let out = tool
+            .execute(json!({"action": "add", "title": "支持协议 [RFC]"}), &ctx)
+            .await;
+        assert!(!out.is_error, "合法标题应被工具接受: {}", out.content);
+        let store = DocStore::open(&dir, &crate::docstore::IDEAS);
+        let entries = store.load().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].title, "支持协议 [RFC]");
+        assert_eq!(entries[0].status, "inbox");
+        assert!(store.integrity_issues(&entries).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn parentheses_title_keeps_severity_when_updating_a_statusless_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-parens-title-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        let store = DocStore::open(&dir, &DEFECTS);
+        store
+            .save(&[Entry {
+                id: "D-001".into(),
+                title: "旧标题".into(),
+                status: String::new(),
+                severity: Some("low".into()),
+                fields: vec![],
+            }])
+            .unwrap();
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "D-001", "title": "新标题 (high)"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "合法标题更新应成功: {}", out.content);
+        let entries = store.load().unwrap();
+        assert_eq!(entries[0].title, "新标题 (high)");
+        assert_eq!(entries[0].status, "");
+        assert_eq!(entries[0].severity.as_deref(), Some("low"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// D-331 验收②:reopen/update 命中归档 ID 时不再报 unknown id,而是明确 archived

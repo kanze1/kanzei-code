@@ -1,0 +1,369 @@
+{
+  "package": "M5",
+  "status": "verified_targeted_pending_root_integration",
+  "recorded_at": "2026-10-03T16:57:55.939496",
+  "baseline": "2df4f75d",
+  "full_files": [
+    {
+      "path": "crates/kanzei-memory/src/lib.rs",
+      "judgment": "PASS",
+      "scope": "full",
+      "sha256": "9fe123aff428a6b8f512549a6e69648bfd90c1f75176de157675e142ddc67f78",
+      "sha256_lf": "9fe123aff428a6b8f512549a6e69648bfd90c1f75176de157675e142ddc67f78",
+      "lines": 38
+    },
+    {
+      "path": "crates/kanzei-memory/src/docstore/model.rs",
+      "judgment": "P1",
+      "scope": "full",
+      "sha256": "be5fd8c9b1388ccfd2e19b375960b9f825fe7c04d5b785557c82a30639be0047",
+      "sha256_lf": "be5fd8c9b1388ccfd2e19b375960b9f825fe7c04d5b785557c82a30639be0047",
+      "lines": 371
+    },
+    {
+      "path": "crates/kanzei-memory/src/docstore/parse.rs",
+      "judgment": "P1",
+      "scope": "full",
+      "sha256": "0b399b8984d6d02604a2eef09ebb16b0a7efacf470ce884dc301985a2f412ba2",
+      "sha256_lf": "0b399b8984d6d02604a2eef09ebb16b0a7efacf470ce884dc301985a2f412ba2",
+      "lines": 302
+    },
+    {
+      "path": "crates/kanzei-memory/src/docstore/render.rs",
+      "judgment": "PASS",
+      "scope": "full",
+      "sha256": "0a160687e5450de6384c71fc0b429f4c05d1478a60d210c21bdad417b74a80d4",
+      "sha256_lf": "1a2e7166002b9a1e959ee133685b4c5e28eeeaf6849f87cc404fc9952d05b958",
+      "lines": 137
+    }
+  ],
+  "slice_files": [
+    {
+      "path": "crates/kanzei-tools/src/tracker.rs",
+      "judgment": "PASS",
+      "scope": "necessary tests only; production unchanged",
+      "sha256": "47fbb6751463004e8ee72fe92a9ef970f82364cd49ea496ba8c02050ac309f9e",
+      "sha256_lf": "47fbb6751463004e8ee72fe92a9ef970f82364cd49ea496ba8c02050ac309f9e",
+      "lines": 5182
+    }
+  ],
+  "root_causes": [
+    {
+      "priority": "P1",
+      "id": "M5-01",
+      "root": "MEMORY stale missing from shared title marker vocabulary"
+    },
+    {
+      "priority": "P1",
+      "id": "M5-02",
+      "root": "parser consumes status and severity more than once per header"
+    }
+  ],
+  "checks": [
+    {
+      "name": "memory-tests",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-memory",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 51.37,
+      "log": "output\\parallel-M5\\memory-tests.log",
+      "log_sha256": "0d74c3ecf5eca513fec78768aae2b336dc8cf9e3883248aa14b9748e05c680bd",
+      "totals": {
+        "passed": 184,
+        "failed": 0,
+        "ignored": 1
+      }
+    },
+    {
+      "name": "title_status_marker_rejected_on_all_write_actions",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-tools",
+        "tracker::tests::title_status_marker_rejected_on_all_write_actions",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 47.5,
+      "log": "output\\parallel-M5\\title_status_marker_rejected_on_all_write_actions.log",
+      "log_sha256": "2e4e22b2547f2eebf66e502c5aa0718df0ad477ffd2664ef1b2fdb6e2b097ec3",
+      "totals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "name": "bracketed_title_keeps_status_through_real_tracker_add_and_load",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-tools",
+        "tracker::tests::bracketed_title_keeps_status_through_real_tracker_add_and_load",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 0.55,
+      "log": "output\\parallel-M5\\bracketed_title_keeps_status_through_real_tracker_add_and_load.log",
+      "log_sha256": "6a30c320bf3b41d97c6b4d2ef61aafdf8256b87859301304f6a9dc8fa84dfb82",
+      "totals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "name": "parentheses_title_keeps_severity_when_updating_a_statusless_entry",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-tools",
+        "tracker::tests::parentheses_title_keeps_severity_when_updating_a_statusless_entry",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 0.54,
+      "log": "output\\parallel-M5\\parentheses_title_keeps_severity_when_updating_a_statusless_entry.log",
+      "log_sha256": "c2bc8d5baafdb73319f339118978e90523a4a4a064d69ed5ad0f6fd214ca6c33",
+      "totals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "name": "old-vocabulary",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-tools",
+        "tracker::tests::title_status_marker_rejected_on_all_write_actions",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "expected_exit": 101,
+      "seconds": 10.89,
+      "log": "output\\parallel-M5\\old-vocabulary.log",
+      "log_sha256": "154bd72398891e0f09dbdcd91549429611e819694478c4783cd6df6d5e8c8139",
+      "totals": {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    },
+    {
+      "name": "old-status-parser",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-tools",
+        "tracker::tests::bracketed_title_keeps_status_through_real_tracker_add_and_load",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "expected_exit": 101,
+      "seconds": 11.15,
+      "log": "output\\parallel-M5\\old-status-parser.log",
+      "log_sha256": "f12e618aa0ad3c4df44b38e6273290dd9196ab3458cd314d63074b48e5b0c5d3",
+      "totals": {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    },
+    {
+      "name": "old-severity-parser",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-tools",
+        "tracker::tests::parentheses_title_keeps_severity_when_updating_a_statusless_entry",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "expected_exit": 101,
+      "seconds": 10.5,
+      "log": "output\\parallel-M5\\old-severity-parser.log",
+      "log_sha256": "a7fce5a559884dd1fb8a51de13335efa355ed5c1eaa191ae7c5492f77d1920e8",
+      "totals": {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    },
+    {
+      "name": "related-check",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "kanzei-memory",
+        "-p",
+        "kanzei-tools",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 24.78,
+      "log": "output\\parallel-M5\\related-check.log",
+      "log_sha256": "35abdfef4206e01b329e416e4927a1ee1a530262c12fc52a2b5f6600f2f2336e"
+    },
+    {
+      "name": "related-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 1.93,
+      "log": "output\\parallel-M5\\related-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "related-diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "expected_exit": 0,
+      "seconds": 0.3,
+      "log": "output\\parallel-M5\\related-diff.log",
+      "log_sha256": "422487a27fd5e9ceaf058027a9f03e5d8c7d0fa013a3845fe9debcc524da6e18"
+    }
+  ],
+  "standalone": {
+    "correct": {
+      "passed": 6,
+      "failed": 0
+    },
+    "exact_original_production": {
+      "compile_exit_code": 0,
+      "passed": 1,
+      "failed": 5,
+      "failure_kind": "actual Rust assertions"
+    }
+  },
+  "restoration": {
+    "crates/kanzei-memory/src/docstore/model.rs": "be5fd8c9b1388ccfd2e19b375960b9f825fe7c04d5b785557c82a30639be0047",
+    "crates/kanzei-memory/src/docstore/parse.rs": "0b399b8984d6d02604a2eef09ebb16b0a7efacf470ce884dc301985a2f412ba2"
+  },
+  "evidence_files": [
+    {
+      "path": "output/parallel-M5/bracketed_title_keeps_status_through_real_tracker_add_and_load.log",
+      "sha256": "6a30c320bf3b41d97c6b4d2ef61aafdf8256b87859301304f6a9dc8fa84dfb82",
+      "bytes": 366
+    },
+    {
+      "path": "output/parallel-M5/memory-tests.log",
+      "sha256": "0d74c3ecf5eca513fec78768aae2b336dc8cf9e3883248aa14b9748e05c680bd",
+      "bytes": 5024
+    },
+    {
+      "path": "output/parallel-M5/old-severity-parser.log",
+      "sha256": "a7fce5a559884dd1fb8a51de13335efa355ed5c1eaa191ae7c5492f77d1920e8",
+      "bytes": 1412
+    },
+    {
+      "path": "output/parallel-M5/old-status-parser.log",
+      "sha256": "f12e618aa0ad3c4df44b38e6273290dd9196ab3458cd314d63074b48e5b0c5d3",
+      "bytes": 1409
+    },
+    {
+      "path": "output/parallel-M5/old-vocabulary.log",
+      "sha256": "154bd72398891e0f09dbdcd91549429611e819694478c4783cd6df6d5e8c8139",
+      "bytes": 1356
+    },
+    {
+      "path": "output/parallel-M5/parentheses_title_keeps_severity_when_updating_a_statusless_entry.log",
+      "sha256": "c2bc8d5baafdb73319f339118978e90523a4a4a064d69ed5ad0f6fd214ca6c33",
+      "bytes": 369
+    },
+    {
+      "path": "output/parallel-M5/primitive-before-compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "output/parallel-M5/primitive-before-source.log",
+      "sha256": "651a8b2415f20af61006cd59caaba691331654c7e1e59154ed2cdb4d3ab2a68b",
+      "bytes": 410
+    },
+    {
+      "path": "output/parallel-M5/primitive-before-tests.log",
+      "sha256": "4dc65d14f7d2fbfd090ceac7a3039492f780bae4cd8be5bbd082b0600d9b4687",
+      "bytes": 2898
+    },
+    {
+      "path": "output/parallel-M5/primitive-compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "output/parallel-M5/primitive-tests.log",
+      "sha256": "16caf66888cfed7c04405f1259d645c57da2ff4421f20f18876c5517f1e2ab9c",
+      "bytes": 658
+    },
+    {
+      "path": "output/parallel-M5/related-check.log",
+      "sha256": "35abdfef4206e01b329e416e4927a1ee1a530262c12fc52a2b5f6600f2f2336e",
+      "bytes": 8634
+    },
+    {
+      "path": "output/parallel-M5/related-diff.log",
+      "sha256": "422487a27fd5e9ceaf058027a9f03e5d8c7d0fa013a3845fe9debcc524da6e18",
+      "bytes": 29327
+    },
+    {
+      "path": "output/parallel-M5/related-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "output/parallel-M5/title_status_marker_rejected_on_all_write_actions.log",
+      "sha256": "2e4e22b2547f2eebf66e502c5aa0718df0ad477ffd2664ef1b2fdb6e2b097ec3",
+      "bytes": 4677
+    }
+  ],
+  "public_API_changed": false,
+  "persistent_format_changed": false,
+  "new_dependencies": false,
+  "boundaries": [
+    "Root full workspace/native/UI integration pending",
+    "Archive and void-ledger read failures belong to next storage package; not certified by M5"
+  ],
+  "repository_review_complete": false
+}
