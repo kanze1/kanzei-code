@@ -37,6 +37,10 @@ try {
     return {a:a.path,b:b.path,session:a.lines[0].session_id,process:a.lines[0].id,other:a.lines[1].id};
   });
   const projectButton = p => page.locator(`.workbench-project-link[data-path="${p}"]`);
+  const openProjectChat = async p => {
+    if (await projectButton(p).getAttribute("aria-expanded") === "true") await projectButton(p).click();
+    await projectButton(p).click(); await settle();
+  };
   await page.evaluate(() => {
     window.__kzPreview.setCommand("projects_select", args => window.__flow.gated ? window.__flow.f.commands.projects_select(args) : new Promise(resolve => {
       window.__flow.gated = true;
@@ -51,7 +55,7 @@ try {
   await page.evaluate(() => window.__flow.release()); await settle();
   check(await page.locator("body").getAttribute("data-view") === "workspace" && await projectButton(id.b).getAttribute("aria-busy") === "false", "Late loading cannot pull navigation back or leave a stuck spinner");
   await page.evaluate(() => window.__kzPreview.setCommand("projects_select", args => window.__flow.f.commands.projects_select(args)));
-  await projectButton(id.a).click(); await settle();
+  await openProjectChat(id.a);
   check(await page.locator("body").getAttribute("data-view") === "chat", "Clicking a project enters its main conversation");
   await page.locator('[data-work-surface="project"]').click(); await settle();
   await page.locator('#sw-refresh').click(); await settle();
@@ -128,7 +132,7 @@ try {
   await page.getByRole("button", {name:"完整对话 ↗",exact:true}).click(); await settle();
   check(await page.evaluate(async expected => (await import("/03-shell.js")).activeProcessId === expected, id.other), "Full conversation opens the selected graph line, not the previously active chat");
   if (await page.locator("#sidebar").evaluate(el => el.classList.contains("collapsed"))) await page.locator("#rail-sidebar-toggle").click();
-  await projectButton(id.b).click(); await settle();
+  await openProjectChat(id.b);
   await page.locator('[data-work-surface="project"]').click(); await settle();
   await page.locator('#sw-refresh').click(); await settle();
   check((await page.locator(".sw-recent").innerText()).includes("另一个项目") && !(await page.locator(".sw-recent").innerText()).includes("第四条"), "Recent replies never leak between projects");
