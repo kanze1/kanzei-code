@@ -21,9 +21,11 @@ pub const SEGMENT_DELETED: &str = "conversation.segment_deleted";
 /// 元数据骨架显式保留,不在此列:conversation.reset(段界)、conversation.segment_deleted
 /// (审计)、session.*、orchestration.*、prompt.*、experience.fact、task.*、
 /// permission.resolved、run.transaction_budget_*、worktree.orphaned。
-pub(crate) const SEGMENT_CONTENT_TYPES: [&str; 11] = [
+pub(crate) const SEGMENT_CONTENT_TYPES: [&str; 13] = [
     "file.delivered",
     "conversation.updated",
+    "conversation.rewind",
+    "conversation.code_reverted",
     "run.trace",
     super::typed::SUBAGENT_TRANSCRIPT,
     "compaction_started",
@@ -1229,6 +1231,52 @@ mod tests {
             Some(reset.sequence),
             "只删旧段时地板仍是最后一个 reset"
         );
+    }
+
+    #[test]
+    fn deleting_segment_removes_rewind_surface_and_its_artifact_references() {
+        let store = store();
+        let surface = serde_json::json!([kanzei_llm::Message::user_text(
+            "deleted content: read .kanzei/artifacts/tool-results/private.txt",
+        )]);
+        store
+            .append_event(
+                "ses_test",
+                "conversation.rewind",
+                &serde_json::json!({
+                    "surface": surface, "result": {"prompt": "deleted input"},
+                }),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_test",
+                "conversation.code_reverted",
+                &serde_json::json!({
+                    "prompt": "deleted input", "restored": ["file.txt"],
+                }),
+            )
+            .unwrap();
+        let deletion = store
+            .delete_conversation_segment("ses_test", 0, i64::MAX)
+            .unwrap();
+        assert_eq!(deletion.events, 2);
+        assert!(store
+            .list_events_by_type("ses_test", 0, "conversation.rewind")
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .list_events_by_type("ses_test", 0, "conversation.code_reverted")
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .latest_completed_compaction_surface("ses_test", 0)
+            .unwrap()
+            .is_none());
+        assert!(store
+            .latest_event("ses_test", SEGMENT_DELETED)
+            .unwrap()
+            .is_some());
     }
 
     #[test]

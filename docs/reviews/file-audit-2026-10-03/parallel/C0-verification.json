@@ -1,0 +1,99 @@
+{
+  "package": "C0",
+  "baseline": "f5a72fe0",
+  "branch": "kanzei/audit-c0",
+  "host": "Windows",
+  "review_scope": "six full files; callers are slices",
+  "public_api_changes": false,
+  "schema_changes": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-core/src/store/mod.rs",
+      "judgment": "PASS",
+      "sha256": "71342b43f6cf95f31211db6a84598b626b62acc8c90a79c89410ec99d098a2c3"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/session.rs",
+      "judgment": "P1",
+      "sha256": "d8b24fb1eab149809a46a54881f5c58b5a4f9f12668944ff593b88324688d54c"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/session/artifact_refs.rs",
+      "judgment": "PASS",
+      "sha256": "78c6eb214ed3cb1f3e58fa643418d04125ef15da5bb35ce3cb648dd4b48838bf"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/schema.rs",
+      "judgment": "P1",
+      "sha256": "50df06aa0cf217f1f1932314c77b60a7626b49a7c86af73ad356ab24178e5189"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/events.rs",
+      "judgment": "P1",
+      "sha256": "7027586fbba4ed415e0aec17dcc7fe30952655cd13235a19498aa12740afedc5"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/path_migration.rs",
+      "judgment": "PASS",
+      "sha256": "0eff78b4925ead7b849f6769e779f504d4bab4a16ba421879af518b0ed93f59c"
+    }
+  ],
+  "checks": [
+    {
+      "command": "cargo test -p kanzei-core store::schema::tests -- --nocapture",
+      "exit_code": 0,
+      "passed": 14,
+      "failed": 0,
+      "log": "output/C0-schema-tests-20261003.log"
+    },
+    {
+      "command": "cargo test -p kanzei-core --quiet",
+      "exit_code": 0,
+      "passed": 381,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C0-core-tests-20261003.log"
+    },
+    {
+      "command": "cargo clippy -p kanzei-core --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/C0-core-clippy-20261003.log"
+    },
+    {
+      "command": "rustfmt --edition 2021 --config skip_children=true --check <three modified source files>",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "regressions": [
+    "modern_upgrade_preserves_promoted_inputs_without_inventing_completion",
+    "failed_upgrade_rolls_back_legacy_recovery_and_can_retry",
+    "deleting_segment_removes_rewind_surface_and_its_artifact_references",
+    "cleanup_rechecks_stale_plan_and_serializes_admission_through_deletion"
+  ],
+  "remaining_work": [
+    {
+      "owner": "root/A1",
+      "issue": "manual compaction archives files before awaiting LLM while SQLite status remains idle; later compaction commit can reference a GC-deleted blob",
+      "paths": [
+        "crates/kanzei-app/src/manual_compact.rs",
+        "crates/kanzei/src/cli/compact.rs",
+        "crates/kanzei-core/src/runner/compaction.rs",
+        "crates/kanzei-core/src/store/session.rs"
+      ]
+    },
+    {
+      "owner": "root",
+      "issue": "conversation list uses rewind event sequence but deletion range ignores non-typed rewind IDs",
+      "path": "crates/kanzei-app/src/conversation.rs"
+    }
+  ],
+  "unverified_boundaries": [
+    "concurrent schema backup creation and housekeeping/explicit backup removal",
+    "Linux not run in this package",
+    "integrated app/workspace regression delegated to root"
+  ]
+}

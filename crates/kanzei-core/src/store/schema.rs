@@ -38,11 +38,6 @@ impl SessionStore {
             // 就再也打不开这个库(上面那条 UnsupportedSchema),而桌面端与 CLI 是
             // 两个独立安装通道、可能一新一旧,回退也就无路可走。备份是那条退路。
             self.backup_before_upgrade(version)?;
-            // v7:从备份里把被抹掉的输入状态位捞回来。ATTACH 不能在事务里执行,
-            // 所以放在主迁移事务之前单独做。
-            if version < 7 {
-                self.recover_legacy_input_status()?;
-            }
         }
         let tx = self.connection.unchecked_transaction()?;
         tx.execute_batch(
@@ -424,6 +419,11 @@ impl SessionStore {
                          ON session_inputs(session_id, delivery, status, created_at);",
                 )?;
         }
+        // v7 的状态恢复也是迁移写入，必须与 schema 和后续数据迁移一起回滚。
+        // 先重建旧 CHECK，再恢复，v4 表才允许 completed。
+        if current.is_some_and(|version| version < 7) {
+            self.recover_legacy_input_status()?;
+        }
         // v6 回填(D-180):v5 之前没有 running/completed,跑完的输入永远停在
         // promoted。这些存量不回填的话,用户下一次按停止仍会被 finalize_interrupt
         // 一并改写成 cancelled——新记录不再被污染,存量却还在被反复追认。
@@ -431,11 +431,15 @@ impl SessionStore {
         // completed 是**迁移推断值**,不是观测值:v5 之前根本没有记录结局的地方,
         // 只能按"被提升了就说明当时确实执行过"来判定。保护窗内(可能正被另一个
         // 进程执行)的一律不动,宁可漏回填也不误判在飞的输入。
-        let backfilled = tx.execute(
-            "UPDATE session_inputs SET status = 'completed'
-                 WHERE status = 'promoted' AND (promoted_at IS NULL OR promoted_at < ?1)",
-            params![now_ms() - LEGACY_PROMOTED_GRACE_MS],
-        )?;
+        let backfilled = if current.is_some_and(|version| version < 6) {
+            tx.execute(
+                "UPDATE session_inputs SET status = 'completed'
+                     WHERE status = 'promoted' AND (promoted_at IS NULL OR promoted_at < ?1)",
+                params![now_ms() - LEGACY_PROMOTED_GRACE_MS],
+            )?
+        } else {
+            0
+        };
         if backfilled > 0 {
             tracing::info!(
                 backfilled,
@@ -1055,6 +1059,44 @@ mod tests {
         }
     }
 
+    #[test]
+    fn modern_upgrade_preserves_promoted_inputs_without_inventing_completion() {
+        let store = SessionStore::open_in_memory().unwrap();
+        store.create_session("modern", "C:/project", None).unwrap();
+        store
+            .admit_input("modern", "not-finished", "queued", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("modern").unwrap().unwrap();
+        store
+            .connection
+            .execute(
+                "UPDATE session_inputs SET promoted_at = ?1 WHERE input_id = 'not-finished'",
+                params![now_ms() - LEGACY_PROMOTED_GRACE_MS - 60_000],
+            )
+            .unwrap();
+        store
+            .connection
+            .execute(
+                "UPDATE schema_meta SET value = '24' WHERE key = 'schema_version'",
+                [],
+            )
+            .unwrap();
+        store.migrate().unwrap();
+        assert_eq!(
+            store.input_status("not-finished").unwrap().as_deref(),
+            Some("promoted")
+        );
+        assert!(
+            store.start_input("not-finished").unwrap(),
+            "a real runner must still own the terminal transition"
+        );
+        assert!(store.finish_input("not-finished", false).unwrap());
+        assert_eq!(
+            store.input_status("not-finished").unwrap().as_deref(),
+            Some("failed")
+        );
+    }
+
     /// D-180 续:v6 的回填晚了一步,存量 promoted 已被 v5 期间的停止抹成
     /// cancelled。v7 从迁移前备份里把状态位捞回来,且只捞备份里确实是 promoted 的。
     #[test]
@@ -1159,6 +1201,77 @@ mod tests {
         assert_eq!(store.legacy_inputs_recovered(), Some(0));
         drop(store);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn failed_upgrade_rolls_back_legacy_recovery_and_can_retry() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-c0-migration-rollback-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        let backup = dir.join("state.db.v4.bak");
+        let legacy = SessionStore::open_in_memory().unwrap();
+        legacy.create_session("legacy", "C:/project", None).unwrap();
+        legacy
+            .admit_input("legacy", "ran", "original", Delivery::Queue)
+            .unwrap();
+        legacy.promote_next_queue("legacy").unwrap();
+        legacy
+            .connection
+            .execute("VACUUM INTO ?1", params![backup.to_string_lossy()])
+            .unwrap();
+        {
+            let live = SessionStore::open(&path).unwrap();
+            live.create_session("legacy", "C:/project", None).unwrap();
+            live.admit_input("legacy", "ran", "original", Delivery::Queue)
+                .unwrap();
+            live.connection
+                .execute_batch(
+                    r"UPDATE session_inputs SET status = 'cancelled';
+                  INSERT INTO processes(process_id, origin_project, project_dir, updated_at)
+                    VALUES ('p1|\\?\C:\project', '\\?\C:\project', '\\?\C:\project', 1);
+                  CREATE TRIGGER reject_path_migration BEFORE UPDATE ON processes
+                    BEGIN SELECT RAISE(ABORT, 'injected migration failure'); END;
+                  UPDATE schema_meta SET value = '6' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        assert!(SessionStore::open(&path).is_err());
+        let unchanged = SessionStore::open_read_only(&path).unwrap();
+        assert_eq!(
+            unchanged.input_status("ran").unwrap().as_deref(),
+            Some("cancelled")
+        );
+        assert_eq!(unchanged.legacy_inputs_recovered(), None);
+        let version: String = unchanged
+            .connection
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, "6");
+        assert!(unchanged.backup_path(6).unwrap().is_file());
+        drop(unchanged);
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("DROP TRIGGER reject_path_migration;")
+            .unwrap();
+        let upgraded = SessionStore::open(&path).unwrap();
+        assert_eq!(
+            upgraded.input_status("ran").unwrap().as_deref(),
+            Some("completed")
+        );
+        assert_eq!(upgraded.legacy_inputs_recovered(), Some(1));
+        drop(upgraded);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

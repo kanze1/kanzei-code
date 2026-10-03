@@ -338,26 +338,29 @@ impl SessionStore {
         let mut recovered = 0usize;
         for backup in backups {
             // 备份可能来自更旧的 schema、也可能损坏;单个失败不该阻断迁移。
-            let attached = self
-                .connection
-                .execute_batch(&format!(
-                    "ATTACH DATABASE '{}' AS legacy",
-                    backup.to_string_lossy().replace('\'', "''")
-                ))
-                .is_ok();
-            if !attached {
+            let Ok(legacy) =
+                Connection::open_with_flags(&backup, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            else {
                 continue;
+            };
+            let Ok(mut statement) =
+                legacy.prepare("SELECT input_id FROM session_inputs WHERE status = 'promoted'")
+            else {
+                continue;
+            };
+            let Ok(rows) = statement.query_map([], |row| row.get::<_, String>(0)) else {
+                continue;
+            };
+            let Ok(input_ids) = rows.collect::<Result<Vec<_>, _>>() else {
+                continue;
+            };
+            for input_id in input_ids {
+                recovered += self.connection.execute(
+                    "UPDATE session_inputs SET status = 'completed'
+                         WHERE status = 'cancelled' AND input_id = ?1",
+                    params![input_id],
+                )?;
             }
-            let updated = self.connection.execute(
-                "UPDATE session_inputs SET status = 'completed'
-                     WHERE status = 'cancelled'
-                       AND input_id IN (
-                           SELECT input_id FROM legacy.session_inputs WHERE status = 'promoted'
-                       )",
-                [],
-            );
-            recovered += updated.unwrap_or(0);
-            let _ = self.connection.execute_batch("DETACH DATABASE legacy");
         }
         if recovered > 0 {
             tracing::info!(recovered, "v7 迁移:从备份恢复了被抹掉的输入状态位");
@@ -452,26 +455,12 @@ impl SessionStore {
         let before = plan.report.clone();
         let checkpointed = checkpoint_wal(&self.connection)?;
         self.connection.execute("VACUUM", [])?;
-        let mut deleted_artifacts = Vec::new();
-        let mut deleted_artifact_bytes = 0u64;
-        let mut artifact_cleanup_errors = Vec::new();
-        for artifact in &plan.unreferenced {
-            let Some(path) = safe_artifact_path(project_root, &artifact.relative_path) else {
-                artifact_cleanup_errors.push(format!("拒绝路径逃逸: {}", artifact.relative_path));
-                continue;
-            };
-            let bytes = file_size(&path);
-            match std::fs::remove_file(path) {
-                Ok(()) => {
-                    deleted_artifacts.push(artifact.relative_path.clone());
-                    deleted_artifact_bytes = deleted_artifact_bytes.saturating_add(bytes);
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    artifact_cleanup_errors.push(format!("{}: {error}", artifact.relative_path))
-                }
-            }
-        }
+        // VACUUM 不能置于事务内。之后必须重新持有写事务验证引用与静止性，
+        // 直到文件删除结束，防止新准入/引用在旧计划检查后提交。
+        let artifact_cleanup =
+            self.cleanup_artifact_candidates(project_root, &plan.unreferenced, |path| {
+                std::fs::remove_file(path)
+            })?;
         let keep_version = plan
             .migration_backups
             .iter()
@@ -506,7 +495,8 @@ impl SessionStore {
             }
         }
         let after = self.storage_report(project_root)?;
-        let actual_freed_bytes = deleted_artifact_bytes
+        let actual_freed_bytes = artifact_cleanup
+            .bytes
             .saturating_add(deleted_backup_bytes)
             .saturating_add(
                 database_total_bytes(&before).saturating_sub(database_total_bytes(&after)),
@@ -516,9 +506,9 @@ impl SessionStore {
             after,
             checkpointed,
             vacuumed: true,
-            deleted_artifacts,
+            deleted_artifacts: artifact_cleanup.deleted,
             deleted_backups,
-            artifact_cleanup_errors,
+            artifact_cleanup_errors: artifact_cleanup.errors,
             backup_cleanup_errors,
             actual_freed_bytes,
         })
@@ -853,25 +843,25 @@ impl SessionStore {
         }
         tx.commit()?;
 
-        let remaining_references = collect_event_references(&self.connection, None)?;
-        let mut deleted_artifacts = Vec::new();
-        let mut artifact_cleanup_errors = Vec::new();
-        for artifact in plan.deletable_artifacts {
-            if artifact_reference_key_count(&remaining_references, &artifact) > 0 {
-                continue;
-            }
-            let Some(path) = safe_artifact_path(project_root, &artifact.relative_path) else {
-                artifact_cleanup_errors.push(format!("拒绝路径逃逸: {}", artifact.relative_path));
-                continue;
-            };
-            match std::fs::remove_file(&path) {
-                Ok(()) => deleted_artifacts.push(artifact.relative_path),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    artifact_cleanup_errors.push(format!("{}: {error}", artifact.relative_path))
-                }
-            }
-        }
+        let candidates: Vec<_> = plan
+            .deletable_artifacts
+            .into_iter()
+            .map(|artifact| super::ArtifactFileReport {
+                artifact_id: artifact.artifact_id,
+                relative_path: artifact.relative_path,
+                bytes: artifact.bytes,
+                reference_count: 0,
+            })
+            .collect();
+        // 数据已提交删除；清理被新运行阻止或失败时保留文件并返回可重试信息。
+        let artifact_cleanup = self
+            .cleanup_artifact_candidates(project_root, &candidates, |path| {
+                std::fs::remove_file(path)
+            })
+            .unwrap_or_else(|error| ArtifactCleanupOutcome {
+                errors: vec![error.to_string()],
+                ..Default::default()
+            });
         Ok(super::SessionDeletionResult {
             session_id: session_id.to_string(),
             deleted_events,
@@ -881,10 +871,55 @@ impl SessionStore {
             deleted_memory_sources,
             deleted_memory_recoveries,
             deleted_notifications,
-            deleted_artifacts,
-            artifact_cleanup_errors,
+            deleted_artifacts: artifact_cleanup.deleted,
+            artifact_cleanup_errors: artifact_cleanup.errors,
         })
     }
+
+    fn cleanup_artifact_candidates(
+        &self,
+        project_root: &Path,
+        candidates: &[super::ArtifactFileReport],
+        mut remove: impl FnMut(&Path) -> std::io::Result<()>,
+    ) -> Result<ArtifactCleanupOutcome, StoreError> {
+        let tx = self.connection.unchecked_transaction()?;
+        if let Some(reason) = runtime_block_reason(&tx)? {
+            return Err(StoreError::InvalidInput(reason));
+        }
+        let references = collect_event_references(&tx, None)?;
+        let mut outcome = ArtifactCleanupOutcome::default();
+        for artifact in candidates {
+            if artifact_reference_count(&references, artifact) > 0 {
+                continue;
+            }
+            let Some(path) = safe_artifact_path(project_root, &artifact.relative_path) else {
+                outcome
+                    .errors
+                    .push(format!("拒绝路径逃逸: {}", artifact.relative_path));
+                continue;
+            };
+            let bytes = file_size(&path);
+            match remove(&path) {
+                Ok(()) => {
+                    outcome.deleted.push(artifact.relative_path.clone());
+                    outcome.bytes = outcome.bytes.saturating_add(bytes);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => outcome
+                    .errors
+                    .push(format!("{}: {error}", artifact.relative_path)),
+            }
+        }
+        tx.commit()?;
+        Ok(outcome)
+    }
+}
+
+#[derive(Default)]
+struct ArtifactCleanupOutcome {
+    deleted: Vec<String>,
+    errors: Vec<String>,
+    bytes: u64,
 }
 
 fn count_for_session(
@@ -937,22 +972,6 @@ fn artifact_reference_count(
 
 fn artifact_reference_key_matches(key: &str, artifact_id: &str, relative_path: &str) -> bool {
     key == format!("id:{artifact_id}") || key == format!("path:{relative_path}")
-}
-
-fn artifact_reference_key_count(
-    references: &BTreeMap<String, u64>,
-    artifact: &super::SessionArtifactReport,
-) -> u64 {
-    references
-        .get(&format!("id:{}", artifact.artifact_id))
-        .copied()
-        .unwrap_or_default()
-        .saturating_add(
-            references
-                .get(&format!("path:{}", artifact.relative_path))
-                .copied()
-                .unwrap_or_default(),
-        )
 }
 
 fn safe_artifact_path(project_root: &Path, relative_path: &str) -> Option<PathBuf> {
@@ -1517,6 +1536,79 @@ mod tests {
         assert!(store.cleanup_storage(&root).is_err());
         assert!(artifact_path.exists());
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn cleanup_rechecks_stale_plan_and_serializes_admission_through_deletion() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-c0-cleanup-race-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let state_path = project_state_path(&root);
+        let store = SessionStore::open_for_explicit_cleanup(&state_path).unwrap();
+        store
+            .create_session("cleanup-race", "C:/project", None)
+            .unwrap();
+        let artifacts = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(&artifacts).unwrap();
+        std::fs::write(artifacts.join("referenced-later.txt"), b"keep").unwrap();
+        std::fs::write(artifacts.join("orphan.txt"), b"orphan").unwrap();
+        let plan = store.storage_cleanup_plan(&root).unwrap();
+        assert_eq!(plan.unreferenced.len(), 2);
+        let peer = SessionStore::open_for_explicit_cleanup(&state_path).unwrap();
+        peer.connection
+            .busy_timeout(std::time::Duration::ZERO)
+            .unwrap();
+        peer.append_event(
+            "cleanup-race",
+            "tool.completed",
+            &serde_json::json!({
+                "artifact": {"artifact_id": "referenced-later"},
+            }),
+        )
+        .unwrap();
+        std::fs::write(
+            artifacts.join("created-later.txt"),
+            b"outside original plan",
+        )
+        .unwrap();
+        let mut removal_count = 0;
+        let result = store
+            .cleanup_artifact_candidates(&root, &plan.unreferenced, |path| {
+                removal_count += 1;
+                let error = peer
+                    .admit_input("cleanup-race", "new-input", "new run", Delivery::Queue)
+                    .unwrap_err();
+                assert!(
+                    matches!(error, StoreError::Sqlite(rusqlite::Error::SqliteFailure(code, _))
+                if code.code == rusqlite::ErrorCode::DatabaseBusy)
+                );
+                std::fs::remove_file(path)
+            })
+            .unwrap();
+        assert_eq!(removal_count, 1);
+        assert_eq!(
+            result.deleted,
+            [".kanzei/artifacts/tool-results/orphan.txt"]
+        );
+        assert!(artifacts.join("referenced-later.txt").exists());
+        assert!(artifacts.join("created-later.txt").exists());
+        assert!(peer.input_status("new-input").unwrap().is_none());
+        peer.admit_input("cleanup-race", "new-input", "new run", Delivery::Queue)
+            .unwrap();
+        assert!(store
+            .cleanup_artifact_candidates(&root, &plan.unreferenced, |_| {
+                panic!("active input must block all deletion")
+            })
+            .is_err());
+        assert!(artifacts.join("referenced-later.txt").exists());
+        drop(peer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
