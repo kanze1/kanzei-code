@@ -518,6 +518,7 @@ pub(crate) struct ProcessInfo {
 }
 pub(crate) struct MobileService {
     pub(crate) active: Arc<AtomicBool>,
+    pub(crate) listener_thread: Option<std::thread::JoinHandle<()>>,
     /// R-270 批1:已配对设备表(device_id → device_token)。撤销 = 从表移除,
     /// 移除后该 token 立即 401,其它设备不受影响(替换原单一共享 token)。
     pub(crate) devices: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,

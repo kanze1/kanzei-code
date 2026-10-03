@@ -1,0 +1,369 @@
+{
+  "package": "M2",
+  "status": "verified",
+  "baseline": "10591a49b08a77c13f605a14642e85ffa4190110",
+  "platform": "Windows",
+  "repository_review_complete": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-app/src/mobile.rs",
+      "judgment": "P0/P1",
+      "sha256": "656616b4271c409ddaab679330f5a8bbc20984815b183bf17235152671c756af",
+      "sha256_lf": "656616b4271c409ddaab679330f5a8bbc20984815b183bf17235152671c756af"
+    }
+  ],
+  "contract_slices": [
+    {
+      "path": "crates/kanzei-core/src/store/inbox.rs",
+      "judgment": "P1",
+      "sha256": "33951e33761993b9d90f7793f0f1298a3d48f1d3464bc96996e624561e2bf13b",
+      "sha256_lf": "aea0e770ce673abcfba5c7d89938d956c28b0368d9f4a24681869df5eaa24a52",
+      "scope": "mobile receipt/user fact/canonical cache transaction only; full review already recorded"
+    },
+    {
+      "path": "crates/kanzei-app/src/state.rs",
+      "judgment": "P1",
+      "sha256": "4c0fe80a8fa4370c142bdc892d2b96a88bd9f5a9fec43804383c1fdffd0155f2",
+      "sha256_lf": "4c0fe80a8fa4370c142bdc892d2b96a88bd9f5a9fec43804383c1fdffd0155f2",
+      "scope": "MobileService listener JoinHandle owner and all constructors only"
+    }
+  ],
+  "fixed_root_causes": {
+    "P0": 1,
+    "P1": 4,
+    "P2": 0
+  },
+  "new_regression_tests": 9,
+  "regression_distribution": {
+    "mobile": 8,
+    "inbox": 1
+  },
+  "checks": [
+    {
+      "name": "harness-test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-harness",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "seconds": 6.3,
+      "log": "output\\parallel-M2\\harness-test.log",
+      "log_sha256": "a78332665c927f6bcabeea010492a366739183e0b7127536d58466dcd257aa6e"
+    },
+    {
+      "name": "core-inbox-test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-core",
+        "store::inbox::tests",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "seconds": 14.65,
+      "log": "output\\parallel-M2\\core-inbox-test.log",
+      "log_sha256": "55accd792df028294ab9a5da7fbb62a5052c56604f69b5f1ca28548f4333d088"
+    },
+    {
+      "name": "mobile-test",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kanzei-app",
+        "mobile::tests",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "seconds": 45.0,
+      "log": "output\\parallel-M2\\mobile-test.log",
+      "log_sha256": "5cb95b6843eda829d9f55669faa931e1a2b61d3b78bd855506d40a1712c8a98f"
+    },
+    {
+      "name": "M2-negatives",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\output\\parallel-M2\\negative.py"
+      ],
+      "exit_code": 0,
+      "seconds": 77.44,
+      "log": "output\\parallel-M2\\M2-negatives.log",
+      "log_sha256": "447aba1f7eaeb3e1bc14ab4a2b2e344d907b08b2999a4ce6e4b139e9ae1f4a37"
+    },
+    {
+      "name": "D0-negatives",
+      "command": [
+        "C:\\ProgramData\\miniconda3\\python.exe",
+        "C:\\Users\\kanzei\\Documents\\kanzei code\\output\\parallel-D0\\negative.py"
+      ],
+      "exit_code": 0,
+      "seconds": 6.78,
+      "log": "output\\parallel-M2\\D0-negatives.log",
+      "log_sha256": "9cf46cba02d8d1fafb4154d5efeac7b4dbab528ea84c59921d7db6eec74861a9"
+    },
+    {
+      "name": "workspace-check",
+      "command": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 20.82,
+      "log": "output\\parallel-M2\\workspace-check.log",
+      "log_sha256": "c784f67906e98a82636e2007aa63b21e8396db47626206eeabd9a9a57c1f8787"
+    },
+    {
+      "name": "workspace-test",
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "seconds": 189.21,
+      "log": "output\\parallel-M2\\workspace-test.log",
+      "log_sha256": "076566fbca9c8afd54fc088533c9ce53a7fbcf9b913feabc1e01ec691bfd5632"
+    },
+    {
+      "name": "workspace-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 23.71,
+      "log": "output\\parallel-M2\\workspace-clippy.log",
+      "log_sha256": "9f24166c74f8652034e9212323a8cccc96ca98fcc459c8e45af5068909516a66"
+    },
+    {
+      "name": "workspace-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 1.93,
+      "log": "output\\parallel-M2\\workspace-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "diff-check",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.06,
+      "log": "output\\parallel-M2\\diff-check.log",
+      "log_sha256": "7d8b316fdec936d07f2469af152ae2a1f999ac5be0cb5ca049309bb097737311"
+    },
+    {
+      "name": "ipc-event",
+      "command": [
+        "node",
+        "scripts/ipc-event-smoke.mjs"
+      ],
+      "exit_code": 0,
+      "seconds": 0.12,
+      "log": "output\\parallel-M2\\ipc-event.log",
+      "log_sha256": "6eb1fa37ea383b8ad6483268777e3a8363474f1bb214e29e45c690955c447377"
+    },
+    {
+      "name": "ui-runtime-final",
+      "command": [
+        "node",
+        "--experimental-vm-modules",
+        "scripts/ui-runtime-smoke.mjs"
+      ],
+      "exit_code": 0,
+      "seconds": 250.65,
+      "log": "output\\parallel-M2\\ui-runtime-final.log",
+      "log_sha256": "4639dfa0e61f5b09ee599888315479a313a3975085023d12a1e0c50f52638069"
+    }
+  ],
+  "workspace_totals": {
+    "passed": 2315,
+    "failed": 0,
+    "ignored": 5,
+    "suites": 16
+  },
+  "targeted_totals": {
+    "harness": 207,
+    "inbox": 14,
+    "mobile": 30
+  },
+  "negative_controls": {
+    "equivalent_old_behavior_controls": [
+      {
+        "name": "negative-pair-ignored-storage",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "pairing_write_failure_keeps_code_and_cache_for_retry",
+          "--",
+          "--nocapture"
+        ],
+        "exit_code": 101,
+        "real_assertion_failure": true
+      },
+      {
+        "name": "negative-revoke-ignored-storage",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "unpair_failure_preserves_credentials_until_durable_retry",
+          "--",
+          "--nocapture"
+        ],
+        "exit_code": 101,
+        "real_assertion_failure": true
+      },
+      {
+        "name": "negative-cache-before-commit",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "mobile_message_invalid_history_keeps_receipt_and_cache_unchanged_then_retries",
+          "--",
+          "--nocapture"
+        ],
+        "exit_code": 101,
+        "real_assertion_failure": true
+      },
+      {
+        "name": "negative-receipt-before-fact",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-core",
+          "mobile_receipt_and_visible_fact_commit_or_rollback_together",
+          "--",
+          "--nocapture"
+        ],
+        "exit_code": 101,
+        "real_assertion_failure": true
+      },
+      {
+        "name": "negative-request-after-stop",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "stopped_bridge_does_not_commit_an_already_connected_request",
+          "--",
+          "--nocapture"
+        ],
+        "exit_code": 101,
+        "real_assertion_failure": true
+      },
+      {
+        "name": "negative-start-check-publish-gap",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "concurrent_service_start_has_one_owner_and_start_failure_is_retryable",
+          "--",
+          "--nocapture"
+        ],
+        "exit_code": 101,
+        "real_assertion_failure": true
+      },
+      {
+        "name": "negative-detached-listener-after-stop",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "kanzei-app",
+          "stop_releases_listener_before_an_immediate_restart_on_the_same_port",
+          "--",
+          "--nocapture"
+        ],
+        "exit_code": 101,
+        "real_assertion_failure": true
+      }
+    ],
+    "restored_exact_bytes": true
+  },
+  "isolation": {
+    "CARGO_TARGET_DIR": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+    "KANZEI_HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\.kanzei",
+    "USERPROFILE": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+    "HOME": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile",
+    "LOCALAPPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Local",
+    "APPDATA": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code\\output\\parallel-b2\\profile\\AppData\\Roaming",
+    "KANZEI_PLAYWRIGHT_ROOT": "C:\\Users\\kanzei\\Documents\\kanzei code",
+    "CARGO_HOME": "C:\\Users\\kanzei\\.cargo",
+    "RUSTUP_HOME": "C:\\Users\\kanzei\\.rustup",
+    "PLAYWRIGHT_BROWSERS_PATH": "C:\\Users\\kanzei\\AppData\\Local\\ms-playwright"
+  },
+  "new_public_API": "SessionStore::append_mobile_message(session_id,turn_id,message,payload) -> Result<Vec<Message>, SessionFactError>",
+  "production_caller": "app/mobile.rs consume_mobile_message",
+  "invariants_verified": [
+    "pair code consumed once only after credential commit; persistence failure preserves retry state",
+    "revocation failure leaves cache and durable credentials unchanged; successful retry removes both",
+    "mobile receipt and visible user fact roll back together; failed input publishes neither success nor cache",
+    "legacy history, independent phone facts and reset segment remain consistent with canonical projection",
+    "one listener owner per AppState; failed start leaves slot available; stop waits for listener port release",
+    "request admitted only while active; body arriving after stop cannot commit",
+    "external IPC parameters and normal HTTP success shape stay unchanged"
+  ],
+  "schema_changed": false,
+  "serialized_format_changed": false,
+  "new_dependencies": false,
+  "locks": "service slot -> pair -> devices; HTTP devices -> optional conversation cache -> SQLite; join outside pair/devices but within service slot",
+  "limits": [
+    "No Linux rerun",
+    "No physical phone LAN validation",
+    "No real Tauri window E2E",
+    "Supported portable/profile runtime shared-project ownership is pending native B3 evidence"
+  ],
+  "push_performed": false,
+  "release_performed": false,
+  "verified_at": "2026-10-03T14:36:01.018285",
+  "resolved_validation_failures": [
+    {
+      "name": "ui-runtime",
+      "command": [
+        "node",
+        "--experimental-vm-modules",
+        "scripts/ui-runtime-smoke.mjs"
+      ],
+      "exit_code": 1,
+      "seconds": 114.02,
+      "log": "output\\parallel-M2\\ui-runtime.log",
+      "log_sha256": "3e8baf3a459027db62a53537d96b1d5b272e276abc7aec324282bd7be207dd10",
+      "classification": "Isolated application profile has no Playwright ffmpeg video binary; existing system tool cache selected with PLAYWRIGHT_BROWSERS_PATH; full UI/browser rerun passed without product changes."
+    }
+  ]
+}

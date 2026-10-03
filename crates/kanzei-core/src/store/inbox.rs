@@ -8,6 +8,52 @@ use super::events::append_event_tx;
 use super::{now_ms, AdmittedInput, Delivery, SessionStore, StoreError};
 
 impl SessionStore {
+    /// Commit the mobile receipt and its visible user fact as one input, then
+    /// return the same transaction's current surface for cache publication.
+    /// This does not admit a runnable inbox item or fabricate a completed turn.
+    pub fn append_mobile_message(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        message: kanzei_llm::Message,
+        payload: &serde_json::Value,
+    ) -> Result<Vec<kanzei_llm::Message>, super::SessionFactError> {
+        // Seeding serializes its source/floor check independently. A failed
+        // input leaves neither half a receipt nor half a user fact. A committed
+        // seed still preserves the preexisting history.
+        self.seed_latest_legacy_snapshot(session_id)?;
+        let tx = self
+            .connection
+            .unchecked_transaction()
+            .map_err(StoreError::from)?;
+        append_event_tx(&tx, session_id, "mobile.message", payload)?;
+        let fact = super::SessionFactEnvelope::new(
+            turn_id,
+            None,
+            super::SessionFact::UserMessageCommitted {
+                input_id: format!("{turn_id}-input"),
+                message,
+            },
+        );
+        self.append_session_facts_tx(
+            &tx,
+            session_id,
+            &mut super::SessionInvariant::default(),
+            &[fact],
+        )?;
+        let floor = self.conversation_floor(session_id)?.unwrap_or(0);
+        let facts = self.list_latest_segment_facts(session_id)?;
+        let surface = self.latest_completed_compaction_surface(session_id, floor)?;
+        let projection = match surface {
+            Some((sequence, messages)) => {
+                super::project_session_facts_with_surface(&facts, Some(sequence), Some(messages))
+            }
+            None => super::project_session_facts(&facts),
+        };
+        tx.commit().map_err(StoreError::from)?;
+        Ok(projection.surface_messages)
+    }
+
     /// The user's selected work item belongs to this durable input, never to a
     /// whole scheduler loop or a later unrelated chat message.
     pub fn admit_work_input(
@@ -336,6 +382,62 @@ fn input_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AdmittedInput> {
 mod tests {
     use crate::store::testutil::store;
     use crate::store::*;
+
+    #[test]
+    fn mobile_receipt_and_visible_fact_commit_or_rollback_together() {
+        let store = store();
+        let payload = serde_json::json!({"thread_id":"ses_test","text":"phone"});
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_phone BEFORE INSERT ON session_events
+            WHEN NEW.event_type = 'session.user_message_committed'
+            BEGIN SELECT RAISE(ABORT, 'injected second-write failure'); END;",
+            )
+            .unwrap();
+        assert!(store
+            .append_mobile_message(
+                "ses_test",
+                "mobile-1",
+                kanzei_llm::Message::user_text("phone"),
+                &payload
+            )
+            .is_err());
+        assert!(store
+            .list_events_by_type("ses_test", 0, "mobile.message")
+            .unwrap()
+            .is_empty());
+        assert!(store.list_session_facts("ses_test").unwrap().is_empty());
+        assert!(store.list_pending_inputs("ses_test").unwrap().is_empty());
+        store
+            .connection
+            .execute_batch("DROP TRIGGER reject_phone")
+            .unwrap();
+        let messages = store
+            .append_mobile_message(
+                "ses_test",
+                "mobile-1",
+                kanzei_llm::Message::user_text("phone"),
+                &payload,
+            )
+            .unwrap();
+        assert_eq!(messages, vec![kanzei_llm::Message::user_text("phone")]);
+        assert_eq!(
+            store
+                .list_events_by_type("ses_test", 0, "mobile.message")
+                .unwrap()
+                .len(),
+            1
+        );
+        let facts = store.list_session_facts("ses_test").unwrap();
+        assert_eq!(facts.len(), 1);
+        assert!(matches!(
+            facts[0].1.fact,
+            SessionFact::UserMessageCommitted { .. }
+        ));
+        assert_eq!(project_session_facts(&facts).surface_messages, messages);
+        assert!(store.list_pending_inputs("ses_test").unwrap().is_empty());
+    }
 
     #[test]
     fn admission_failure_leaves_no_queued_input_or_execution_intent() {

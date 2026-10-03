@@ -339,23 +339,23 @@ fn handle_mobile_connection(
             .get("pair_code")
             .and_then(|value| value.as_str())
             .unwrap_or_default();
-        let expected = pair_code.lock_or_recover().clone().unwrap_or_default();
-        if submitted.is_empty() || submitted != expected {
+        let mut pair_slot = pair_code.lock_or_recover();
+        if submitted.is_empty() || pair_slot.as_deref() != Some(submitted) {
+            drop(pair_slot);
             let _ = stream.write_all(&mobile_json_response(
                 "401 Unauthorized",
                 &json!({"error": "invalid_pair_code"}),
             ));
             return;
         }
-        // 配对成功:清空一次性配对码,生成设备 token(D-386:写 SQLite 持久化)。
-        *pair_code.lock_or_recover() = None;
+        let mut device_table = devices.lock_or_recover();
+        if !active.load(Ordering::SeqCst) {
+            return;
+        }
+        // The code and cache are published only after the credential commits.
         let (device_id, device_token) = generate_device_credentials();
-        devices
-            .lock_or_recover()
-            .insert(device_id.clone(), device_token.clone());
-        // D-386:设备表落 SQLite——重启后已配对设备仍在,撤销跨重启有效。
-        if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
-            let _ = store.upsert_mobile_device(
+        let persisted = kanzei_core::SessionStore::open(&state_path).and_then(|store| {
+            store.upsert_mobile_device(
                 &device_id,
                 &device_token,
                 "已配对设备",
@@ -363,8 +363,21 @@ fn handle_mobile_connection(
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_millis(),
-            );
+            )
+        });
+        if let Err(error) = persisted {
+            drop(device_table);
+            drop(pair_slot);
+            let _ = stream.write_all(&mobile_json_response(
+                "500 Internal Server Error",
+                &json!({"error": error.to_string()}),
+            ));
+            return;
         }
+        device_table.insert(device_id.clone(), device_token.clone());
+        *pair_slot = None;
+        drop(device_table);
+        drop(pair_slot);
         let _ = stream.write_all(&mobile_json_response(
             "200 OK",
             &json!({"device_id": device_id, "token": device_token}),
@@ -385,7 +398,9 @@ fn handle_mobile_connection(
     }
 
     // 其它端点:设备 token 认证。
-    let Some(device_id) = mobile_authorized(&request_head, &devices.lock_or_recover()) else {
+    let mut device_table = devices.lock_or_recover();
+    let Some(device_id) = mobile_authorized(&request_head, &device_table) else {
+        drop(device_table);
         let _ = stream.write_all(&mobile_json_response(
             "401 Unauthorized",
             &json!({"error": "device_revoked_or_unauthorized"}),
@@ -402,6 +417,7 @@ fn handle_mobile_connection(
         )
         && mobile_query(path, "device_id").is_some_and(|requested| requested != device_id)
     {
+        drop(device_table);
         let _ = stream.write_all(&mobile_json_response(
             "403 Forbidden",
             &json!({"error": "device_identity_mismatch"}),
@@ -409,9 +425,14 @@ fn handle_mobile_connection(
         return;
     }
 
+    if !active.load(Ordering::SeqCst) {
+        return;
+    }
+
     // R-270 批2:SSE 长连接实时推送。认证通过后、进普通 JSON 分发前拦截——
     // 长连接由独立线程持有(批1 多线程 accept),不阻塞其它请求。
     if method == "GET" && path.split('?').next() == Some("/v1/events") {
+        drop(device_table);
         // D-388:传 active(停服检查)与 devices(撤销检查)——长连接不无视停服/撤销。
         handle_sse(
             &mut stream,
@@ -429,21 +450,20 @@ fn handle_mobile_connection(
     match (method, path.split('?').next().unwrap_or_default()) {
         ("GET", "/v1/approval/pending") => {
             let pending = approval_pending_list(&runtimes);
+            drop(device_table);
             let _ = stream.write_all(&mobile_json_response("200 OK", &pending));
             return;
         }
         // UX-137:解除配对要通知服务端——此前只清手机本地凭据,桌面设备表里那台仍有效。
         ("POST", "/v1/unpair") => {
-            let removed = take_requesting_device(&request_head, &devices);
-            if let Some(device_id) = &removed {
-                if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
-                    let _ = store.remove_mobile_device(device_id);
+            let response = match remove_device(&state_path, &device_id, &mut device_table) {
+                Ok(removed) => mobile_json_response("200 OK", &json!({"unpaired": removed})),
+                Err(error) => {
+                    mobile_json_response("500 Internal Server Error", &json!({"error": error}))
                 }
-            }
-            let _ = stream.write_all(&mobile_json_response(
-                "200 OK",
-                &json!({"unpaired": removed.is_some()}),
-            ));
+            };
+            drop(device_table);
+            let _ = stream.write_all(&response);
             return;
         }
         ("POST", "/v1/approval/answer") => {
@@ -451,6 +471,7 @@ fn handle_mobile_connection(
             let reply = match approval_answer(&runtimes, &payload) {
                 Ok(rendered) => rendered,
                 Err(error) => {
+                    drop(device_table);
                     let _ = stream.write_all(&mobile_json_response(
                         "400 Bad Request",
                         &json!({"error": error}),
@@ -458,6 +479,7 @@ fn handle_mobile_connection(
                     return;
                 }
             };
+            drop(device_table);
             let _ = stream.write_all(&mobile_json_response("200 OK", &reply));
             return;
         }
@@ -471,6 +493,7 @@ fn handle_mobile_connection(
         ),
         ("GET", "/v1/notifications") => {
             let Some(thread_id) = mobile_query(path, "thread_id") else {
+                drop(device_table);
                 let _ = stream.write_all(&mobile_json_response(
                     "400 Bad Request",
                     &json!({"error": "thread_id_required"}),
@@ -514,18 +537,25 @@ fn handle_mobile_connection(
         }
         _ => mobile_json_response("404 Not Found", &json!({"error": "not_found"})),
     };
+    drop(device_table);
     let _ = stream.write_all(&response);
 }
 
-/// 把发起请求的那台设备从设备表摘掉,返回它的 device_id(token 对不上任何设备则 None)。
-fn take_requesting_device(
-    request: &str,
-    devices: &Arc<Mutex<HashMap<String, String>>>,
-) -> Option<String> {
-    let mut table = devices.lock_or_recover();
-    let device_id = mobile_authorized(request, &table)?;
-    table.remove(&device_id);
-    Some(device_id)
+/// The caller holds the device cache lock through durable revocation.
+fn remove_device(
+    state_path: &Path,
+    device_id: &str,
+    devices: &mut HashMap<String, String>,
+) -> Result<bool, String> {
+    if !devices.contains_key(device_id) {
+        return Ok(false);
+    }
+    let store = kanzei_core::SessionStore::open(state_path).map_err(|error| error.to_string())?;
+    store
+        .remove_mobile_device(device_id)
+        .map_err(|error| error.to_string())?;
+    devices.remove(device_id);
+    Ok(true)
 }
 
 /// `POST /v1/messages`:校验会话存在 → 落库 → 注入对话。返回完整 HTTP 响应。
@@ -566,17 +596,11 @@ fn handle_mobile_message(
             store
                 .create_session(thread_id, &project_root.display().to_string(), None)
                 .map_err(|error| error.to_string())?;
-            store
-                .append_event(thread_id, "mobile.message", payload)
-                .map_err(|error| error.to_string())?;
+            consume_mobile_message(runtimes, thread_id, text, &store, payload)?;
             Ok(Some(target))
         });
     match stored {
         Ok(Some(target)) => {
-            // D-387:消费方——把手机发的消息注入对应线程的对话历史(内存
-            // conversation + 事件),桌面端打开该会话即可见。此前只 append_event
-            // 零消费,手机消息落库即死信(R-059「双向通信」核销失效)。
-            consume_mobile_message(runtimes, thread_id, text, state_path);
             let running = runtimes
                 .lock_or_recover()
                 .get(thread_id)
@@ -599,73 +623,36 @@ fn handle_mobile_message(
     }
 }
 
-/// D-387/R-242:手机消息消费方——把 POST /v1/messages 的消息注入对应线程的
-/// typed user fact，让桌面端事件投影可见(此前只 append_event 零消费,消息落库即死信)。
-///
-/// ①注入内存 conversation(对应 runtime,若在跑):后续轮次可直接复用;
-/// ②追加 `session.user_message_committed` 持久化(会话未在跑也能被投影读到);
-/// ③MOBILE_MESSAGE_EMIT 通知 UI 刷新(kz:mobile-message 事件)。
+/// Publish the cache and UI only after the receipt and user fact commit.
 fn consume_mobile_message(
     runtimes: &Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
     thread_id: &str,
     text: &str,
-    state_path: &Path,
-) {
-    let message = kanzei_llm::Message::user_text(text);
-    // ①注入内存 conversation(会话在跑时),并保留现有运行态的消息缓存。
-    let runtimes = runtimes.lock_or_recover();
-    if let Some(runtime) = runtimes.get(thread_id) {
-        runtime
-            .conversation
-            .lock_or_recover()
-            .entry(thread_id.to_string())
-            .or_default()
-            .push(message.clone());
+    store: &kanzei_core::SessionStore,
+    payload: &serde_json::Value,
+) -> Result<(), String> {
+    let runtime = runtimes.lock_or_recover().get(thread_id).cloned();
+    // Use the same cache -> SQLite order as compaction publication. Never keep
+    // the whole runtime registry locked while waiting for a database writer.
+    let mut cache = runtime
+        .as_ref()
+        .map(|runtime| runtime.conversation.lock_or_recover());
+    let messages = store
+        .append_mobile_message(
+            thread_id,
+            &random_token("mobile"),
+            kanzei_llm::Message::user_text(text),
+            payload,
+        )
+        .map_err(|error| error.to_string())?;
+    if let Some(cache) = cache.as_mut() {
+        cache.insert(thread_id.to_string(), messages);
     }
-    drop(runtimes);
-
-    // ②typed user fact 是事件投影真源;不再新增 conversation.updated。每条手机消息
-    // 使用独立 turn_id,不伪造 assistant/terminal,后续真实运行可继续从该 prior 开始。
-    if let Ok(store) = kanzei_core::SessionStore::open(state_path) {
-        let mut invariant = kanzei_core::SessionInvariant::default();
-        let existing = match store.list_session_facts(thread_id) {
-            Ok(facts) => facts,
-            Err(error) => {
-                tracing::warn!("mobile typed fact read failed: {error}");
-                Vec::new()
-            }
-        };
-        let valid_history = existing
-            .iter()
-            .try_for_each(|(_, fact)| invariant.apply(fact))
-            .is_ok();
-        if valid_history {
-            let turn_id = format!(
-                "mobile-{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|duration| duration.as_nanos())
-                    .unwrap_or_default()
-            );
-            let input_id = format!("{turn_id}-input");
-            let fact = kanzei_core::SessionFactEnvelope::new(
-                &turn_id,
-                None,
-                kanzei_core::SessionFact::UserMessageCommitted { input_id, message },
-            );
-            if let Err(error) =
-                store.append_session_facts_checked(thread_id, &mut invariant, &[fact])
-            {
-                tracing::warn!("mobile typed fact write failed: {error}");
-            }
-        } else {
-            tracing::warn!("mobile typed fact skipped: existing session facts are invalid");
-        }
-    }
-    // ③UI 通知(桌面端可见,即使会话未在跑也刷新列表)。
+    drop(cache);
     if let Some(emit) = crate::state::MOBILE_MESSAGE_EMIT.get() {
         emit(thread_id.to_string(), text.to_string());
     }
+    Ok(())
 }
 
 /// 桥接的固定默认端口:手机上收藏/添加到主屏的地址在桌面重启后仍然有效(此前每次随机端口)。
@@ -721,15 +708,31 @@ pub fn mobile_service_start(
     lan: Option<bool>,
     notifications: Option<bool>,
 ) -> Result<MobileServiceInfo, String> {
-    if state.mobile_service.lock_or_recover().is_some() {
+    start_service(
+        &state,
+        normalized_project_root(Path::new(&project_dir)),
+        resolve_pwa_root(&app),
+        port,
+        lan.unwrap_or(false),
+        notifications.unwrap_or(false),
+    )
+}
+
+fn start_service(
+    state: &AppState,
+    root: PathBuf,
+    pwa_root: PathBuf,
+    port: Option<u16>,
+    lan: bool,
+    notifications: bool,
+) -> Result<MobileServiceInfo, String> {
+    let mut service_slot = state.mobile_service.lock_or_recover();
+    if service_slot.is_some() {
         return Err("移动端桥接服务已经启动".into());
     }
-    let notifications = notifications.unwrap_or(false);
     if notifications {
         crate::mobile_notify::check_dependency()?;
     }
-    let root = normalized_project_root(Path::new(&project_dir));
-    let lan = lan.unwrap_or(false);
     let bind_addr: &str = if lan { "0.0.0.0" } else { "127.0.0.1" };
     let listener = match port {
         Some(port) => TcpListener::bind((bind_addr, port)),
@@ -742,8 +745,6 @@ pub fn mobile_service_start(
     let local_addr = listener.local_addr().map_err(|e| e.to_string())?;
     let address = local_addr.to_string();
     let url = bridge_url(lan, local_addr.port());
-    // D-390:PWA 资源根——发布版 resource 优先,开发回退源码目录。
-    let pwa_root = resolve_pwa_root(&app);
     // D-386:配对码换随机源(不再 pid+纳秒可预测)。
     let pair_code = random_token("kz-pair");
     let active = Arc::new(AtomicBool::new(true));
@@ -753,13 +754,14 @@ pub fn mobile_service_start(
     // SQLite 是持久真源;重启后已配对设备仍在)。
     {
         let state_path = kanzei_core::project_state_path(&root);
-        if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
-            if let Ok(devices_snapshot) = store.list_mobile_devices() {
-                let mut map = devices.lock_or_recover();
-                for (device_id, device_token, _name, _paired_at) in devices_snapshot {
-                    map.insert(device_id, device_token);
-                }
-            }
+        let store = kanzei_core::SessionStore::open(&state_path)
+            .map_err(|error| format!("读取配对设备失败: {error}"))?;
+        let devices_snapshot = store
+            .list_mobile_devices()
+            .map_err(|error| format!("读取配对设备失败: {error}"))?;
+        let mut map = devices.lock_or_recover();
+        for (device_id, device_token, _name, _paired_at) in devices_snapshot {
+            map.insert(device_id, device_token);
         }
     }
 
@@ -769,7 +771,7 @@ pub fn mobile_service_start(
     let thread_devices = devices.clone();
     let thread_pair = pair_slot.clone();
     let thread_runtimes = state.runtimes.clone();
-    std::thread::spawn(move || {
+    let listener_thread = std::thread::spawn(move || {
         while thread_active.load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((stream, _)) => {
@@ -801,6 +803,7 @@ pub fn mobile_service_start(
     });
     let service_ref = MobileService {
         active: active.clone(),
+        listener_thread: Some(listener_thread),
         devices: devices.clone(),
         pair_code: pair_slot.clone(),
         lan,
@@ -822,7 +825,7 @@ pub fn mobile_service_start(
             })
             .collect(),
     };
-    *state.mobile_service.lock_or_recover() = Some(service_ref);
+    *service_slot = Some(service_ref);
     crate::mobile_notify::set_enabled(notifications);
     Ok(info)
 }
@@ -833,13 +836,12 @@ pub fn mobile_service_start(
 pub fn mobile_device_revoke(state: State<'_, AppState>, device_id: String) -> Result<(), String> {
     let guard = state.mobile_service.lock_or_recover();
     let service = guard.as_ref().ok_or("移动端桥接服务未启动")?;
-    let removed = service.devices.lock_or_recover().remove(&device_id);
-    if removed.is_some() {
-        // 同步删 SQLite(持久真源);内存表已删,失败只记日志不阻塞。
-        let state_path = kanzei_core::project_state_path(&service.project_root);
-        if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
-            let _ = store.remove_mobile_device(&device_id);
-        }
+    let state_path = kanzei_core::project_state_path(&service.project_root);
+    if remove_device(
+        &state_path,
+        &device_id,
+        &mut service.devices.lock_or_recover(),
+    )? {
         Ok(())
     } else {
         Err(format!("设备不存在: {device_id}"))
@@ -891,9 +893,24 @@ pub fn mobile_device_list(state: State<'_, AppState>) -> Result<Vec<MobileDevice
 
 #[tauri::command]
 pub fn mobile_service_stop(state: State<'_, AppState>) -> Result<(), String> {
-    crate::mobile_notify::set_enabled(false);
-    if let Some(service) = state.mobile_service.lock_or_recover().take() {
-        service.active.store(false, Ordering::SeqCst);
+    stop_service(&state)
+}
+
+fn stop_service(state: &AppState) -> Result<(), String> {
+    let mut service_slot = state.mobile_service.lock_or_recover();
+    if let Some(mut service) = service_slot.take() {
+        // Match pairing's pair -> devices order and wait for admitted writes.
+        {
+            let _pair = service.pair_code.lock_or_recover();
+            let _devices = service.devices.lock_or_recover();
+            service.active.store(false, Ordering::SeqCst);
+        }
+        crate::mobile_notify::set_enabled(false);
+        if let Some(thread) = service.listener_thread.take() {
+            thread
+                .join()
+                .map_err(|_| "移动端桥接监听线程异常退出".to_string())?;
+        }
         Ok(())
     } else {
         Err("移动端桥接服务当前未启动".into())
@@ -903,6 +920,453 @@ pub fn mobile_service_stop(state: State<'_, AppState>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Make the persisted file temporarily unavailable without changing its
+    // contents. Every connection is closed before moving this test-owned file.
+    fn block_database(path: &Path) -> PathBuf {
+        let saved = path.with_extension("saved");
+        std::fs::rename(path, &saved).unwrap();
+        std::fs::create_dir(path).unwrap();
+        saved
+    }
+
+    fn restore_database(path: &Path, saved: &Path) {
+        std::fs::remove_dir(path).unwrap();
+        std::fs::rename(saved, path).unwrap();
+    }
+
+    #[test]
+    fn pairing_write_failure_keeps_code_and_cache_for_retry() {
+        let root = temp_project("pair-failure");
+        let path = kanzei_core::project_state_path(&root);
+        drop(kanzei_core::SessionStore::open(&path).unwrap());
+        let saved = block_database(&path);
+        let devices = Arc::new(Mutex::new(HashMap::new()));
+        let code = Arc::new(Mutex::new(Some("pair-failure-code".into())));
+        let runtimes = Arc::new(Mutex::new(HashMap::new()));
+        let active = Arc::new(AtomicBool::new(true));
+        let request = pair_request("pair-failure-code");
+        let (response, worker) = run_mobile_request(
+            root.clone(),
+            &request,
+            devices.clone(),
+            code.clone(),
+            runtimes.clone(),
+            active.clone(),
+        );
+        worker.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 500"), "{response}");
+        assert!(devices.lock_or_recover().is_empty());
+        assert_eq!(code.lock_or_recover().as_deref(), Some("pair-failure-code"));
+        restore_database(&path, &saved);
+        let (response, worker) = run_mobile_request(
+            root.clone(),
+            &request,
+            devices.clone(),
+            code.clone(),
+            runtimes,
+            active,
+        );
+        worker.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(code.lock_or_recover().is_none());
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        assert_eq!(store.list_mobile_devices().unwrap().len(), 1);
+        assert_eq!(devices.lock_or_recover().len(), 1);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_pairing_consumes_one_code_once() {
+        let root = temp_project("pair-concurrent");
+        let path = kanzei_core::project_state_path(&root);
+        drop(kanzei_core::SessionStore::open(&path).unwrap());
+        let devices = Arc::new(Mutex::new(HashMap::new()));
+        let code = Arc::new(Mutex::new(Some("single-use-code".into())));
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let (root, devices, code, barrier) =
+                    (root.clone(), devices.clone(), code.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let (response, worker) = run_mobile_request(
+                        root,
+                        &pair_request("single-use-code"),
+                        devices,
+                        code,
+                        Arc::new(Mutex::new(HashMap::new())),
+                        Arc::new(AtomicBool::new(true)),
+                    );
+                    worker.join().unwrap();
+                    response
+                })
+            })
+            .collect();
+        let responses: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        assert_eq!(
+            responses
+                .iter()
+                .filter(|r| r.starts_with("HTTP/1.1 200"))
+                .count(),
+            1,
+            "{responses:?}"
+        );
+        assert_eq!(
+            responses
+                .iter()
+                .filter(|r| r.starts_with("HTTP/1.1 401"))
+                .count(),
+            7,
+            "{responses:?}"
+        );
+        assert!(code.lock_or_recover().is_none());
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        assert_eq!(store.list_mobile_devices().unwrap().len(), 1);
+        assert_eq!(devices.lock_or_recover().len(), 1);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unpair_failure_preserves_credentials_until_durable_retry() {
+        let root = temp_project("unpair-failure");
+        let path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .upsert_mobile_device("dev-open", "tok-open", "device", 1)
+            .unwrap();
+        drop(store);
+        let saved = block_database(&path);
+        let (devices, code, runtimes, active) = mobile_connection_test_inputs();
+        let request = "POST /v1/unpair HTTP/1.1\r\nAuthorization: Bearer tok-open\r\n\r\n";
+        let (response, worker) = run_mobile_request(
+            root.clone(),
+            request,
+            devices.clone(),
+            code.clone(),
+            runtimes.clone(),
+            active.clone(),
+        );
+        worker.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 500"), "{response}");
+        assert_eq!(
+            devices
+                .lock_or_recover()
+                .get("dev-open")
+                .map(String::as_str),
+            Some("tok-open")
+        );
+        restore_database(&path, &saved);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        assert_eq!(store.list_mobile_devices().unwrap().len(), 1);
+        drop(store);
+        let (response, worker) = run_mobile_request(
+            root.clone(),
+            request,
+            devices.clone(),
+            code,
+            runtimes,
+            active,
+        );
+        worker.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(response.contains("\"unpaired\":true"));
+        assert!(devices.lock_or_recover().is_empty());
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        assert!(store.list_mobile_devices().unwrap().is_empty());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn mobile_message_invalid_history_keeps_receipt_and_cache_unchanged_then_retries() {
+        let root = temp_project("message-failure");
+        let path = kanzei_core::project_state_path(&root);
+        let thread = process_session_id(&root, None);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .create_session(&thread, &root.display().to_string(), None)
+            .unwrap();
+        drop(store);
+        let runtime = Arc::new(SessionRuntime::default());
+        let original = vec![kanzei_llm::Message::user_text("cached original")];
+        runtime
+            .conversation
+            .lock_or_recover()
+            .insert(thread.clone(), original.clone());
+        let runtimes = Arc::new(Mutex::new(HashMap::from([(
+            thread.clone(),
+            runtime.clone(),
+        )])));
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .append_event(
+                &thread,
+                "conversation.updated",
+                &json!({"messages":"invalid snapshot"}),
+            )
+            .unwrap();
+        drop(store);
+        let payload = json!({"thread_id":thread,"text":"durable phone input"});
+        let response =
+            String::from_utf8(handle_mobile_message(&payload, &root, &path, &runtimes)).unwrap();
+        assert!(response.starts_with("HTTP/1.1 500"), "{response}");
+        assert_eq!(runtime.conversation.lock_or_recover()[&thread], original);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        assert!(store
+            .list_events_by_type(&thread, 0, "mobile.message")
+            .unwrap()
+            .is_empty());
+        assert!(store.list_session_facts(&thread).unwrap().is_empty());
+        drop(store);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .append_event(
+                &thread,
+                "conversation.updated",
+                &json!({"messages":original}),
+            )
+            .unwrap();
+        drop(store);
+        let response =
+            String::from_utf8(handle_mobile_message(&payload, &root, &path, &runtimes)).unwrap();
+        assert!(response.starts_with("HTTP/1.1 202"), "{response}");
+        assert!(response.contains("\"triggers_run\":false"));
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        assert_eq!(
+            store
+                .list_events_by_type(&thread, 0, "mobile.message")
+                .unwrap()
+                .len(),
+            1
+        );
+        let recovered = crate::conversation::project_latest_segment(&store, &thread).unwrap();
+        assert_eq!(
+            recovered,
+            vec![
+                kanzei_llm::Message::user_text("cached original"),
+                kanzei_llm::Message::user_text("durable phone input")
+            ]
+        );
+        assert_eq!(runtime.conversation.lock_or_recover()[&thread], recovered);
+        assert!(store.list_pending_inputs(&thread).unwrap().is_empty());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn mobile_message_keeps_legacy_history_and_ignores_unrelated_terminal_dirt() {
+        let root = temp_project("message-history");
+        let path = kanzei_core::project_state_path(&root);
+        let thread = process_session_id(&root, None);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .create_session(&thread, &root.display().to_string(), None)
+            .unwrap();
+        let old = kanzei_llm::Message::user_text("legacy history");
+        store
+            .append_event(&thread, "conversation.updated", &json!({"messages":[old]}))
+            .unwrap();
+        for fact in [
+            kanzei_core::SessionFact::TurnFailed {
+                error: "historical failure".into(),
+            },
+            kanzei_core::SessionFact::ToolResultCommitted {
+                call_id: "orphan".into(),
+                content: "old dirt".into(),
+                is_error: true,
+            },
+        ] {
+            let fact = kanzei_core::SessionFactEnvelope::new("dirty", None, fact);
+            store
+                .append_event(
+                    &thread,
+                    fact.event_type(),
+                    &serde_json::to_value(fact).unwrap(),
+                )
+                .unwrap();
+        }
+        let runtimes = Arc::new(Mutex::new(HashMap::new()));
+        let payload = json!({"thread_id":thread,"text":"fresh phone input"});
+        let response =
+            String::from_utf8(handle_mobile_message(&payload, &root, &path, &runtimes)).unwrap();
+        assert!(response.starts_with("HTTP/1.1 202"), "{response}");
+        let recovered = crate::conversation::project_latest_segment(&store, &thread).unwrap();
+        assert_eq!(recovered.first(), Some(&old));
+        assert_eq!(
+            recovered.last(),
+            Some(&kanzei_llm::Message::user_text("fresh phone input"))
+        );
+        kanzei_core::prepare_typed_session(&store, &thread).unwrap();
+        assert_eq!(
+            crate::conversation::project_latest_segment(&store, &thread).unwrap(),
+            recovered
+        );
+        store
+            .append_event(&thread, "conversation.reset", &json!({"cleared":true}))
+            .unwrap();
+        let response = String::from_utf8(handle_mobile_message(
+            &json!({"thread_id":thread,"text":"new segment"}),
+            &root,
+            &path,
+            &runtimes,
+        ))
+        .unwrap();
+        assert!(response.starts_with("HTTP/1.1 202"), "{response}");
+        assert_eq!(
+            crate::conversation::project_latest_segment(&store, &thread).unwrap(),
+            vec![kanzei_llm::Message::user_text("new segment")]
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stopped_bridge_does_not_commit_an_already_connected_request() {
+        let root = temp_project("late-message");
+        let path = kanzei_core::project_state_path(&root);
+        let thread = process_session_id(&root, None);
+        drop(kanzei_core::SessionStore::open(&path).unwrap());
+        let state = AppState::default();
+        let (devices, pair_code, runtimes, active) = mobile_connection_test_inputs();
+        *state.mobile_service.lock_or_recover() = Some(MobileService {
+            active: active.clone(),
+            listener_thread: None,
+            devices: devices.clone(),
+            pair_code: pair_code.clone(),
+            lan: false,
+            project_root: root.clone(),
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let worker = std::thread::spawn({
+            let root = root.clone();
+            move || {
+                handle_mobile_connection(
+                    server,
+                    root,
+                    PathBuf::new(),
+                    devices,
+                    pair_code,
+                    runtimes,
+                    active,
+                )
+            }
+        });
+        let body = json!({"thread_id":thread,"text":"after stop"}).to_string();
+        client.write_all(format!("POST /v1/messages HTTP/1.1\r\nAuthorization: Bearer tok-open\r\nContent-Length: {}\r\n\r\n",body.len()).as_bytes()).unwrap();
+        stop_service(&state).unwrap();
+        client.write_all(body.as_bytes()).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        worker.join().unwrap();
+        assert!(!response.contains("202 Accepted"), "{response}");
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        assert!(store
+            .list_events_by_type(&thread, 0, "mobile.message")
+            .unwrap()
+            .is_empty());
+        assert!(store.list_session_facts(&thread).unwrap().is_empty());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stop_releases_listener_before_an_immediate_restart_on_the_same_port() {
+        let root = temp_project("restart-same-port");
+        let state = AppState::default();
+        let started =
+            start_service(&state, root.clone(), PathBuf::new(), Some(0), false, false).unwrap();
+        let address: std::net::SocketAddr = started.address.parse().unwrap();
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .write_all(b"GET /v1/health HTTP/1.1\r\n\r\n")
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        stop_service(&state).unwrap();
+        let restarted = start_service(
+            &state,
+            root.clone(),
+            PathBuf::new(),
+            Some(address.port()),
+            false,
+            false,
+        );
+        assert!(restarted.is_ok(), "{restarted:?}");
+        stop_service(&state).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_service_start_has_one_owner_and_start_failure_is_retryable() {
+        let root = temp_project("start-concurrent");
+        let state = Arc::new(AppState::default());
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let (root, state, barrier) = (root.clone(), state.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    start_service(
+                        &state,
+                        root.clone(),
+                        root.join("mobile-pwa"),
+                        Some(0),
+                        false,
+                        false,
+                    )
+                })
+            })
+            .collect();
+        let results: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|r| r.as_ref().is_err_and(|e| e.contains("已经启动")))
+                .count(),
+            7
+        );
+        stop_service(&state).unwrap();
+        let broken_root = temp_project("start-broken");
+        std::fs::write(
+            kanzei_core::project_state_path(&broken_root),
+            b"invalid database",
+        )
+        .unwrap();
+        assert!(start_service(
+            &state,
+            broken_root.clone(),
+            PathBuf::new(),
+            Some(0),
+            false,
+            false
+        )
+        .is_err());
+        assert!(state.mobile_service.lock_or_recover().is_none());
+        let fresh =
+            start_service(&state, root.clone(), PathBuf::new(), Some(0), false, false).unwrap();
+        assert!(!fresh.address.is_empty());
+        stop_service(&state).unwrap();
+        std::fs::remove_dir_all(broken_root).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn devices_with(token: &str) -> HashMap<String, String> {
         let mut map = HashMap::new();
@@ -1329,7 +1793,16 @@ mod tests {
         // 消费:注入消息(空 runtimes=会话未在跑,仍应持久化事件)。
         let runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        consume_mobile_message(&runtimes, "thread-x", "你好, 桌面!", &dir.join("state.db"));
+        let consumer_store = kanzei_core::SessionStore::open(&dir.join("state.db")).unwrap();
+        consume_mobile_message(
+            &runtimes,
+            "thread-x",
+            "你好, 桌面!",
+            &consumer_store,
+            &json!({"thread_id": "thread-x", "text": "你好, 桌面!"}),
+        )
+        .unwrap();
+        drop(consumer_store);
 
         // typed user fact 是 conversation_get 的投影数据源,不得再产生新 legacy snapshot。
         let store = kanzei_core::SessionStore::open(&dir.join("state.db")).unwrap();
@@ -1728,26 +2201,29 @@ mod tests {
     /// UX-137:解除配对只摘发起请求的那台设备;token 对不上返回 None。
     #[test]
     fn 解除配对_只摘发起请求的那台设备() {
+        let root = temp_project("unpair-persistence");
+        let state_path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store
+            .upsert_mobile_device("dev-a", "tok-a", "A", 1)
+            .unwrap();
+        store
+            .upsert_mobile_device("dev-b", "tok-b", "B", 2)
+            .unwrap();
         let mut table = HashMap::new();
         table.insert("dev-a".to_string(), "tok-a".to_string());
         table.insert("dev-b".to_string(), "tok-b".to_string());
-        let devices = Arc::new(Mutex::new(table));
         let request = "POST /v1/unpair HTTP/1.1\r\nAuthorization: Bearer tok-a\r\n\r\n";
-        assert_eq!(
-            take_requesting_device(request, &devices).as_deref(),
-            Some("dev-a")
-        );
-        let left: Vec<String> = devices.lock_or_recover().keys().cloned().collect();
+        let device_id = mobile_authorized(request, &table).unwrap();
+        assert!(remove_device(&state_path, &device_id, &mut table).unwrap());
+        let left: Vec<String> = table.keys().cloned().collect();
         assert_eq!(left, vec!["dev-b".to_string()]);
-        assert_eq!(
-            take_requesting_device(request, &devices),
-            None,
-            "同一台不能摘两次"
-        );
-        assert_eq!(
-            take_requesting_device("POST / HTTP/1.1\r\n\r\n", &devices),
-            None
-        );
+        assert!(!remove_device(&state_path, &device_id, &mut table).unwrap());
+        assert!(mobile_authorized(request, &table).is_none());
+        assert!(mobile_authorized("POST / HTTP/1.1\r\n\r\n", &table).is_none());
+        assert_eq!(store.list_mobile_devices().unwrap()[0].0, "dev-b");
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// UX-135:URL 是手机能输入的 http 地址;回环模式固定 127.0.0.1。
