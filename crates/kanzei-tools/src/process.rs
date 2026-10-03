@@ -226,7 +226,7 @@ impl Tool for ProcessTool {
                     return ToolOutput::needs_correction(
                         "PROCESS_STOP_BAD_ID",
                         format!(
-                            "invalid process id `{id}`; expected the bg<number> id returned by bash background=true. Use action=list to see live ids"
+                            "invalid process id `{id}`; expected bg<milliseconds>-<sequence> or legacy bg<number>, as returned by bash background=true. Use action=list to see live ids"
                         ),
                     );
                 }
@@ -322,8 +322,13 @@ impl Tool for ProcessTool {
 }
 
 fn managed_process_id(id: &str) -> bool {
-    id.strip_prefix("bg").is_some_and(|digits| {
-        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    let numeric = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    id.strip_prefix("bg").is_some_and(|suffix| {
+        if let Some((milliseconds, sequence)) = suffix.split_once('-') {
+            numeric(milliseconds) && numeric(sequence)
+        } else {
+            numeric(suffix)
+        }
     })
 }
 
@@ -540,6 +545,72 @@ mod wait_tests {
     }
 
     #[tokio::test]
+    async fn stopping_a_real_registered_then_pruned_current_id_is_idempotent() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-b5-expired-id-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let started = crate::bash::BashTool
+            .execute(
+                json!({"command": "echo B5_READY", "background": true}),
+                &ctx,
+            )
+            .await;
+        assert!(!started.is_error, "{}", started.content);
+        let id = started.display.as_ref().unwrap()["processId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            crate::background::get(&id).is_some(),
+            "the allocator must register the actual ID"
+        );
+        let exited = super::ProcessTool
+            .execute(
+                json!({"action": "wait", "id": id, "timeout_secs": 10}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !exited.is_error && exited.content.contains("[wait exited]"),
+            "{}",
+            exited.content
+        );
+        crate::background::stop_result(&id).await.unwrap();
+        assert!(
+            crate::background::prune_finished_process_for_test(&id),
+            "only an actually joined/cleaned record may be pruned"
+        );
+        assert!(crate::background::get(&id).is_none());
+        let stopped = super::ProcessTool
+            .execute(json!({"action": "stop", "id": id}), &ctx)
+            .await;
+        eprintln!(
+            "real_pruned_id={id}; stop_is_error={}; stop_code={:?}; output={}",
+            stopped.is_error, stopped.code, stopped.content
+        );
+        // Close our fixture before an old-format assertion fails; no own child
+        // or registered baseline remains on the negative branch.
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(
+            !stopped.is_error,
+            "a real returned ID remains valid after cleanup: {}",
+            stopped.content
+        );
+        assert_eq!(stopped.code, None);
+        assert!(
+            stopped.content.contains("no longer active")
+                && stopped.content.contains("nothing to stop")
+        );
+    }
+
+    #[tokio::test]
     async fn stop已回收bg句柄幂等_非法id仍拒绝() {
         assert!(managed_process_id("bg1"));
         assert!(managed_process_id("bg999999999"));
@@ -554,11 +625,22 @@ mod wait_tests {
         assert!(stopped.content.contains("no longer active"));
         assert!(stopped.content.contains("nothing to stop"));
 
-        let invalid = tool
-            .execute(json!({"action": "stop", "id": "process-1"}), &ctx())
-            .await;
-        assert!(invalid.is_error);
-        assert_eq!(invalid.code, Some("PROCESS_STOP_BAD_ID"));
-        assert!(invalid.content.contains("bg<number>"));
+        for id in [
+            "process-1",
+            "bg",
+            "bg1-",
+            "bg-1",
+            "bg1-2-3",
+            "bg1-a",
+            "bg1-+2",
+            "BG1-2",
+        ] {
+            let invalid = tool
+                .execute(json!({"action": "stop", "id": id}), &ctx())
+                .await;
+            assert!(invalid.is_error, "{id} must remain invalid");
+            assert_eq!(invalid.code, Some("PROCESS_STOP_BAD_ID"));
+            assert!(invalid.content.contains("bg<number>"));
+        }
     }
 }

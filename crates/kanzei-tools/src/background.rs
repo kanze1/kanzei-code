@@ -62,6 +62,21 @@ pub(super) use registration::read_log_tail;
 use registration::register;
 pub(crate) use registration::register_with_mailbox;
 
+#[cfg(test)]
+pub(crate) fn prune_finished_process_for_test(id: &str) -> bool {
+    let mut registered = registry().lock().unwrap();
+    let Some(process) = registered.get(id).cloned() else {
+        return false;
+    };
+    let mut history = std::collections::HashMap::from([(id.to_string(), process)]);
+    registration::prune_finished(&mut history, 0);
+    if !history.is_empty() {
+        return false;
+    }
+    registered.remove(id);
+    true
+}
+
 type GuardJoin = futures::future::Shared<futures::future::BoxFuture<'static, Result<(), String>>>;
 enum GuardTask {
     NotRequired,
