@@ -1,4 +1,4 @@
-/* global window */
+/* global window, document */
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { startPreviewServer } from './ui-preview/server.mjs';
@@ -22,21 +22,42 @@ try {
   await dialog.getByRole('button',{name:'编辑',exact:true}).click();await dialog.getByLabel('运行主机',{exact:true}).selectOption('server');await dialog.getByLabel('服务器标识',{exact:true}).fill('ENV-001');
   await dialog.getByLabel('频率',{exact:true}).selectOption('weekly');await dialog.getByLabel('星期',{exact:true}).selectOption('一');
   await page.screenshot({path:`output/playwright/harness-schedule-${theme}.png`});await page.keyboard.press('Escape');assert.equal(await dialog.isVisible(),false);
-  await page.evaluate(async()=>{
+  const actionFixture=await page.evaluate(async()=>{
    const fixture=await window.__kzPreview.fixtures();
    const {switchProcess}=await import('/09-sessions.js');await switchProcess(fixture.ids.idleProcess,true);
    const forked=await window.__TAURI__.core.invoke('process_create',{projectDir:fixture.ids?.project || 'C:/Users/kanzei/Documents/kanzei code',profile:'dev'});
-   window.__kzPreview.setCommand('conversation_action',args=>args.action==='preview'?{sourceHash:'preview-version',keptMessages:3,files:[{path:'src/example.rs',restorable:true,pre_exists:true,external_change:false}],unhandled:['Shell / Git effects require separate handling'],worktree:true}:args.action==='fork'?{forked:true,processId:forked.id,prompt:args.text}:{prompt:args.text,skipped:[]});
+   let holdForkRefresh=false,releaseForkRefresh;
+   const forkRefresh=new Promise(resolve=>{releaseForkRefresh=resolve;});
+   window.__harnessForkRefreshBlocked=false;
+   window.__harnessReleaseForkRefresh=()=>{holdForkRefresh=false;releaseForkRefresh();};
+   window.__kzPreview.setCommand('process_list',async args=>{
+    if(holdForkRefresh){window.__harnessForkRefreshBlocked=true;await forkRefresh;}
+    return fixture.commands.process_list(args);
+   });
+   window.__kzPreview.setCommand('conversation_action',args=>{
+    if(args.action==='fork'){holdForkRefresh=true;return{forked:true,processId:forked.id,prompt:args.text};}
+    return args.action==='preview'?{sourceHash:'preview-version',keptMessages:3,files:[{path:'src/example.rs',restorable:true,pre_exists:true,external_change:false}],unhandled:['Shell / Git effects require separate handling'],worktree:true}:{prompt:args.text,skipped:[]};
+   });
    window.__kzPreview.setCommand('conversation_compact',{changed:true,before:12000,after:6000,message:'已压缩：12000 → 6000 token'});
    const {addMessage}=await import('/05-chat-render.js');addMessage('user','Harness rewind UI probe');
+   const shell=await import('/03-shell.js');
+   return{sourceProcess:shell.activeProcessId,processId:forked.id,sessionId:forked.session_id,prompt:'Harness rewind UI probe'};
   });
   const rewind=page.locator('.msg.user').last();await rewind.getByRole('button',{name:'回退或分叉',exact:true}).click();
   const rewindDialog=page.locator('#conversation-action-overlay');await rewindDialog.getByRole('button',{name:'只回退代码',exact:true}).click();
   await page.waitForFunction(()=>window.__kzPreview.calls.some(c=>c.cmd==='conversation_action'&&c.args.action==='code'));
   const codeCall=await page.evaluate(()=>window.__kzPreview.calls.filter(c=>c.cmd==='conversation_action'&&c.args.action==='code').at(-1));assert.equal(codeCall.args.expectedHash,'preview-version');assert.equal(codeCall.args.force,false);
   await rewind.getByRole('button',{name:'回退或分叉',exact:true}).click();await rewindDialog.getByRole('button',{name:'从这里分叉',exact:true}).click();await page.waitForFunction(()=>window.__kzPreview.calls.some(c=>c.cmd==='conversation_action'&&c.args.action==='fork'));
+  await page.waitForFunction(()=>window.__harnessForkRefreshBlocked);
+  assert.equal(await page.evaluate(async()=>{const shell=await import('/03-shell.js');return shell.activeProcessId;}),actionFixture.sourceProcess,'fork IPC receipt must not be mistaken for completed navigation');
+  await page.evaluate(()=>window.__harnessReleaseForkRefresh());
+  // Await both recipient selection and the draft restored after switchProcess finishes.
+  await page.waitForFunction(async({processId,sessionId,prompt})=>{
+   const shell=await import('/03-shell.js'),box=document.getElementById('prompt');
+   return shell.activeProcessId===processId&&shell.activeSessionId===sessionId&&box.value===prompt&&document.activeElement===box;
+  },actionFixture);
   await page.locator('#prompt').fill('/compact 保留下一步计划');await page.locator('#prompt').press('Enter');await page.waitForFunction(()=>window.__kzPreview.calls.some(c=>c.cmd==='conversation_compact'));
-  const compactCall=await page.evaluate(()=>window.__kzPreview.calls.filter(c=>c.cmd==='conversation_compact').at(-1));assert.equal(compactCall.args.focus,'保留下一步计划');
+  const compactCall=await page.evaluate(()=>window.__kzPreview.calls.filter(c=>c.cmd==='conversation_compact').at(-1));assert.equal(compactCall.args.focus,'保留下一步计划');assert.equal(compactCall.args.processId,actionFixture.processId,'manual compaction must target the newly selected fork');
   await page.evaluate(async () => {
    window.__kzPreview.setCommand('run_tool_process_stop', true);
    const {bgAdd}=await import('/06-activity.js');
