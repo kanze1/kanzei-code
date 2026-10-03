@@ -95,7 +95,7 @@ const required = [
   ["function renderWorkspace(snapshot)", "工作区动态入口"],
   ["function localizedDocStatus(status)", "文档状态翻译入口"],
   ["function renderDocList(", "文档动态入口"],
-  ["function renderPermissionRules(data)", "权限设置动态入口"],
+  ["function renderPermissionRules(data, projectDir = currentProject)", "权限设置动态入口"],
   ["测试中\": \"Testing", "设置测试状态翻译键"],
   ["连通性检查完成\": \"Connectivity check complete", "设置测试结果翻译键"],
   ["function renderProviders()", "Provider 动态入口"],

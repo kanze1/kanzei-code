@@ -196,20 +196,33 @@ export function renderProviders() {
   });
 }
 
-export async function deletePermissionRule(rule) {
+function permissionRulesProjectCurrent(projectDir) {
+  return !!projectDir && projectDir === currentProject && !isGeneralChat(projectDir);
+}
+
+export async function deletePermissionRule(rule, projectDir) {
+  if (!permissionRulesProjectCurrent(projectDir)) return;
   try {
-    await invoke("permission_rule_delete", { projectDir: currentProject, index: rule.index });
+    await invoke("permission_rule_delete", {
+      projectDir,
+      index: rule.index,
+      expectedRule: { action: rule.action, resource: rule.resource, effect: rule.effect },
+    });
+    if (!permissionRulesProjectCurrent(projectDir)) return;
     toast(t("已删除权限规则"));
     await loadPermissionRules();
   } catch (err) {
-    toastError(`${t("删除失败")}: ${err}`, { retry: () => deletePermissionRule(rule) });
+    if (!permissionRulesProjectCurrent(projectDir)) return;
+    toastError(`${t("删除失败")}: ${err}`, { retry: () => deletePermissionRule(rule, projectDir) });
   }
 }
 
 // 最近一次渲染的权限规则:切语言时据此重画(行内的 title/aria-label 是渲染点写的 t())。
 let lastPermissionRules = null;
-export function renderPermissionRules(data) {
-  lastPermissionRules = data;
+let permissionRulesLoadToken = 0;
+export function renderPermissionRules(data, projectDir = currentProject) {
+  if (projectDir !== currentProject) return;
+  lastPermissionRules = { data, projectDir };
   const tbody = $("permission-rules-table").querySelector("tbody");
   tbody.replaceChildren();
   const rules = data?.rules ?? [];
@@ -229,8 +242,10 @@ export function renderPermissionRules(data) {
     remove.setAttribute("aria-label", `${t("删除权限规则")} ${ruleText}`);
     remove.textContent = "×";
     remove.addEventListener("click", async () => {
+      if (!permissionRulesProjectCurrent(projectDir)) return;
       if (!(await confirmDialog({ title: t("删除权限规则"), message: `${ruleText}？`, okText: t("删除"), danger: true }))) return;
-      await deletePermissionRule(rule);
+      if (!permissionRulesProjectCurrent(projectDir)) return;
+      await deletePermissionRule(rule, projectDir);
     });
     controls.appendChild(remove);
     row.append(action, resource, controls);
@@ -239,15 +254,24 @@ export function renderPermissionRules(data) {
 }
 
 export async function loadPermissionRules() {
-  if (!currentProject || isGeneralChat()) {
-    renderPermissionRules({ rules: [] });
+  const token = ++permissionRulesLoadToken;
+  const projectDir = currentProject;
+  const isCurrent = () => token === permissionRulesLoadToken && projectDir === currentProject;
+  if (lastPermissionRules?.projectDir !== projectDir) renderPermissionRules({ rules: [] }, projectDir);
+  if (!permissionRulesProjectCurrent(projectDir)) {
+    renderPermissionRules({ rules: [] }, projectDir);
     return;
   }
   try {
-    renderPermissionRules(await invoke("permission_rules_get", { projectDir: currentProject }));
+    const data = await invoke("permission_rules_get", { projectDir });
+    if (!isCurrent()) return;
+    renderPermissionRules(data, projectDir);
   } catch (err) {
-    renderPermissionRules({ rules: [] });
-    toastError(`${t("读取权限规则失败")}: ${err}`, { retry: loadPermissionRules });
+    if (!isCurrent()) return;
+    renderPermissionRules({ rules: [] }, projectDir);
+    toastError(`${t("读取权限规则失败")}: ${err}`, { retry: () => {
+      if (permissionRulesProjectCurrent(projectDir)) return loadPermissionRules();
+    } });
   }
 }
 // D-157:设置页是一张表单,填了不点保存不生效。此前没有任何提示,于是界面显示
@@ -1261,7 +1285,7 @@ defer(() => {
     }
     // 三个模型下拉里的「(未设 · …)」「＋ 手填模型…」是 JS 写的 option:按当前值重建一遍,值不动。
     if (Array.isArray(knownModelIds) && $("set-primary")?.options.length) applyModelOptions(null, knownModelIds);
-    if (lastPermissionRules) renderPermissionRules(lastPermissionRules);
+    if (lastPermissionRules) renderPermissionRules(lastPermissionRules.data, lastPermissionRules.projectDir);
     refreshDefaultPlaceholders();
     void refreshFastStatus();
   });

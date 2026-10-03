@@ -6974,7 +6974,7 @@ assert(listText("ask-title") === "Permission request", "权限标题二次切英
 {
   const blockedResource = JSON.stringify({ command: "cargo test --workspace", workdir: "C:/smoke" });
   toolStart({ payload: { sessionId: "sess-blocked", id: "blocked-1", name: "bash", summary: "cargo test --workspace", input: { command: "cargo test --workspace" } } });
-  handlers.get("kz:permission-resolved")({ payload: { sessionId: "sess-blocked", tool_call_id: "blocked-1", action: "bash", resource: blockedResource, decision: "declined", source: "noninteractive" } });
+  handlers.get("kz:permission-resolved")({ payload: { sessionId: "sess-blocked", projectDir: sandbox.currentProject, tool_call_id: "blocked-1", action: "bash", resource: blockedResource, decision: "declined", source: "noninteractive" } });
   toolEnd({ payload: { sessionId: "sess-blocked", id: "blocked-1", name: "bash", ok: false, preview: "permission requires user approval: bash on `cargo test --workspace`; autonomous/parallel run skipped it", content: "permission requires user approval: bash on `cargo test --workspace`; autonomous/parallel run skipped it", outcome: "failed" } });
   await flush();
   const allowButtons = document.querySelectorAll(".blocked-allow");
@@ -12662,7 +12662,7 @@ const docsB = {
         assert(listText("ask-remember") === "bash · 同上", `「记住为」与资源相同时应写「同上」:"${listText("ask-remember")}"`);
         assert(!listText("ask-queue-preview").includes('{"command"') && listText("ask-queue-preview").includes("bash · cargo fmt --all"), `队列预览仍贴原始 JSON:"${listText("ask-queue-preview")}"`);
         eventsNs.hideAsk();
-        settingsNs.renderPermissionRules({ path: "C:/smoke/project/.kanzei/kanzei.toml", rules: [{ index: 0, action: "bash", resource: resourceA }] });
+        settingsNs.renderPermissionRules({ path: "C:/smoke/project/.kanzei/kanzei.toml", rules: [{ index: 0, action: "bash", resource: resourceA, effect: "allow" }] });
         const rulesBody = byId.get("permission-rules-table")?.querySelector("tbody");
         assert(rulesBody?.querySelector(".sv-cmd")?.textContent === "cargo test --workspace" && !rulesBody.textContent.includes('{"command"'), "设置页权限规则表仍显示原始 JSON 资源");
         assert(rulesBody?.querySelector(".icon-btn")?.getAttribute("aria-label") === "删除权限规则 bash · cargo test --workspace", "删除规则按钮的无障碍名称仍带原始 JSON");

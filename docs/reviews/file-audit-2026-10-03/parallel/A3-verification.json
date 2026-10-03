@@ -1,0 +1,217 @@
+{
+  "task": "A3",
+  "baseline": "441e0c2983b8e8aeaf287bfc330d3df76d5b01b2",
+  "branch": "kanzei/audit-a3-ui",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code",
+  "status": "ui_verified_pending_native_integration",
+  "environment": {
+    "os": "Windows",
+    "node": "v22.14.0"
+  },
+  "repository_review_complete": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-app/ui/07-events.js",
+      "judgment": "P1",
+      "scope": "full file review",
+      "sha256": "2278024e533993b65480be1b4668818490a39ab440efc383c9673f75b7f02eef",
+      "sha256_utf8_lf": "d0a9a1590a8982ecfd5a198bef0ecb73899f4485cec236078d09dcd604847de3",
+      "lines": 1449
+    },
+    {
+      "path": "crates/kanzei-app/ui/16-settings.js",
+      "judgment": "P1",
+      "scope": "full file review",
+      "sha256": "abef88c31733de4d461b53ed6914d6fe913b419e837cbc15753e45d964e45e41",
+      "sha256_utf8_lf": "27618720f5dc3743bb9bace4d70269ffb9a8794ad108bde34b47ef91880b3f3d",
+      "lines": 1522
+    }
+  ],
+  "contract_slices": [
+    {
+      "path": "scripts/ui-runtime-smoke.mjs",
+      "judgment": "PASS",
+      "scope": "two permission payload fixtures only",
+      "sha256": "e23f0db71d28bb1d2d1a0709cba8c8ab6c382ff7d3166bd16fef549ce336351c",
+      "sha256_utf8_lf": "0a1b6b0229f33b4763b7263494f138eae763f334d393179846504055670d0cfd",
+      "lines": 17799
+    },
+    {
+      "path": "scripts/ui-i18n-smoke.mjs",
+      "judgment": "PASS",
+      "scope": "permission renderer signature marker only",
+      "sha256": "527435acbbd51a458f0aecbebe403d1a9de96a4a84c4d1fc3d2bc250ccfddd00",
+      "sha256_utf8_lf": "1a20acfbdd182253bab5e31ed02751b1e5829a87f29f3d0e38651af69c37331f",
+      "lines": 143
+    }
+  ],
+  "regression_files": [
+    {
+      "path": "scripts/ui-permission-identity-smoke.mjs",
+      "judgment": "PASS",
+      "scope": "new behavioral fixtures; not counted as production full-file coverage",
+      "sha256": "d456bfbbac3b3fd8fa5a1c16474005e7e28229669b44a5f2226f1dd2025f0dda",
+      "sha256_utf8_lf": "d456bfbbac3b3fd8fa5a1c16474005e7e28229669b44a5f2226f1dd2025f0dda",
+      "lines": 271
+    }
+  ],
+  "fixed_root_causes": {
+    "P0": 0,
+    "P1": 1,
+    "P2": 0
+  },
+  "root_cause_id": "D1-C4",
+  "root_cause_scope": "UI portion of shared project/rule identity root; M3 backend and coordinator are owned by root",
+  "public_contracts": [
+    {
+      "command": "permission_rule_delete",
+      "arguments": {
+        "projectDir": "captured source project",
+        "index": "queried/rendered position",
+        "expectedRule": "required {action,resource,effect}"
+      },
+      "callers": [
+        "ui/07-events.js::toastRemembered undo",
+        "ui/16-settings.js::deletePermissionRule"
+      ],
+      "native_owner": "root M3/settings + lower configuration transaction"
+    },
+    {
+      "event": "kz:permission-resolved",
+      "field": "projectDir",
+      "source": "coordinator RuntimeDeps.project_root (assembly request.main_root)",
+      "consumers": [
+        "ui/07-events.js::noteBlockedToolCall -> mountBlockedAllow"
+      ],
+      "native_owner": "root coordinator slice",
+      "legacy_behavior": "source-less remember button disabled with explicit reason"
+    }
+  ],
+  "source_checks": [
+    {
+      "path": "crates/kanzei-app/ui/07-events.js",
+      "baseline_sha256_utf8_lf": "dc08d05014579991812ea75b2df1c024dd284c4494925427965fc93512237a36"
+    },
+    {
+      "path": "crates/kanzei-app/ui/16-settings.js",
+      "baseline_sha256_utf8_lf": "c38955ce16f1feda0eacaa093f7302c7e26b6de85847e6177c3c28814c384bdf"
+    }
+  ],
+  "tests": [
+    "late A response cannot replace B rules",
+    "older request same project cannot replace newer result",
+    "late A error cannot clear B or offer retry",
+    "switch during confirmation cannot delete B",
+    "normal delete carries original project and full identity",
+    "A deletion retry cannot become B deletion",
+    "A read retry cannot read B",
+    "language redraw preserves row project",
+    "remember undo retains original project and full identity",
+    "undo after shifted index preserves replacement",
+    "late old-pane events remember in source project",
+    "missing source disables remember and sends no add"
+  ],
+  "checks": [
+    {
+      "command": "node --experimental-vm-modules scripts/ui-permission-identity-smoke.mjs",
+      "log": "output/audit-a3-ui/permission-after.log",
+      "exit_code": 0,
+      "log_sha256": "84ea641ca56b154e6bb360eb7ea7e58ac1cf45ffdac67d441786d6e88135912a",
+      "passed": 12,
+      "failed": 0
+    },
+    {
+      "command": "node scripts/ui-i18n-smoke.mjs",
+      "log": "output/audit-a3-ui/i18n-after.log",
+      "exit_code": 0,
+      "log_sha256": "54fd7e9af48f838587bc8d286e2928158a9a8ab0481d6303d2e4c523ffceade3",
+      "resource_keys": 2926,
+      "html_contracts": 651,
+      "dynamic_contracts": 56
+    },
+    {
+      "command": "ESLint.lintFiles: 5 changed JS files, main installed ESLint and config",
+      "log": "output/audit-a3-ui/eslint-after.log",
+      "exit_code": 0,
+      "log_sha256": "ba8b5c90cef0154c91100b44cb0ae3a997e322029b1c36210c660cc1482dafcf",
+      "files": 5,
+      "errors": 0,
+      "warnings": 0
+    },
+    {
+      "command": "node --check: 5 changed JS files; git diff --check",
+      "log": "output/audit-a3-ui/syntax-diff-after.log",
+      "exit_code": 0,
+      "log_sha256": "4ed42589ca5fc97dfa521f1af76cf1a5d2332a9e72f63fa9cb11b47ef783923b",
+      "files": 5
+    }
+  ],
+  "negative_controls": [
+    {
+      "command": "node --experimental-vm-modules scripts/ui-permission-identity-smoke.mjs --before",
+      "log": "output/audit-a3-ui/permission-before.log",
+      "exit_code": 1,
+      "log_sha256": "5bb3fb942bb2f8eef59d473f809940986901af6333b21c8e716309e1297f0d5f",
+      "baseline": "441e0c2983b8e8aeaf287bfc330d3df76d5b01b2",
+      "passed": 0,
+      "failed": 12,
+      "failures": "ERR_ASSERTION, not parse/import/fixture errors",
+      "data_or_state_failures": 10,
+      "additional_contract_payload_assertions": 2,
+      "production_sources_mutated": false
+    }
+  ],
+  "fixture_adaptations": [
+    {
+      "file": "scripts/ui-runtime-smoke.mjs",
+      "event": "permission-resolved",
+      "case": "noninteractive declined blocked-1",
+      "change": "projectDir: sandbox.currentProject"
+    },
+    {
+      "file": "scripts/ui-runtime-smoke.mjs",
+      "event": "permission-resolved",
+      "case": "user declined blocked-2 and user deny audit ask-991",
+      "change": "none; no remember chain"
+    },
+    {
+      "file": "scripts/ui-case-reliability-smoke.mjs",
+      "event": "permission-resolved",
+      "case": "read allow activity stage",
+      "change": "none; no remember chain"
+    },
+    {
+      "file": "scripts/ui-runtime-smoke.mjs",
+      "case": "renderPermissionRules resource fixture",
+      "change": "effect: allow, already present in real rules-get response"
+    }
+  ],
+  "xhigh_ui_read_evidence": {
+    "judgment": "PASS",
+    "html": "set-reasoning already contains xhigh option",
+    "hydrate": "16-settings sets s.reasoning || off",
+    "save": "settings payload sends selector value unchanged",
+    "backend_readback": "root verified clean settings.rs already accepts xhigh; original behavior PASS, no new issue/fix"
+  },
+  "integration_remaining": [
+    "root M3 expected-rule deletion transaction",
+    "root coordinator real projectDir source field",
+    "unified IPC/full UI/Rust validation after native integration"
+  ],
+  "boundaries": {
+    "cargo_run": false,
+    "full_runtime_smoke_run": false,
+    "real_browser_run": false,
+    "real_database_or_credentials_read": false,
+    "staged": true,
+    "committed": true,
+    "pushed": false,
+    "released": false
+  },
+  "notes": [
+    "Node VM modules experimental warning is expected.",
+    "Fixture executes complete actual 07/16 module source and their subscriber/click functions; dependencies and DOM are controlled.",
+    "Native emit and real 01-core routing are read-verified, not executed in this fixture.",
+    "No new persistent fields/schema/framework/dependency or global render context changes."
+  ]
+}

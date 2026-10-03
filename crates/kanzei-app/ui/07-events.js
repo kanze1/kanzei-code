@@ -536,7 +536,11 @@ defer(() => {
 // .kanzei/kanzei.toml,之后遇到同样的操作就不会再被拦。
 const blockedToolCalls = new Map();
 function noteBlockedToolCall(payload) {
-  blockedToolCalls.set(payload.tool_call_id, { action: payload.action, resource: payload.resource });
+  blockedToolCalls.set(payload.tool_call_id, {
+    action: payload.action,
+    resource: payload.resource,
+    projectDir: typeof payload.projectDir === "string" && payload.projectDir.trim() ? payload.projectDir : null,
+  });
   if (blockedToolCalls.size > 200) blockedToolCalls.delete(blockedToolCalls.keys().next().value);
 }
 export function mountBlockedAllow(toolCallId) {
@@ -546,12 +550,19 @@ export function mountBlockedAllow(toolCallId) {
   const wrap = chatToolBlocks.get(toolCallId)?.wrap;
   if (!wrap || wrap.querySelector(".blocked-allow")) return null;
   const summary = permissionResourceText(info.action, info.resource);
-  const projectDir = currentProject;
+  const projectDir = info.projectDir;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "ghost mini blocked-allow";
   button.textContent = t("允许并记住");
   button.title = t("把这一条原样写入项目 .kanzei/kanzei.toml(只对完全相同的这一条生效),之后遇到同样的操作就不会再被拦");
+  if (!projectDir) {
+    button.disabled = true;
+    button.textContent = languageIsEnglish() ? "Cannot remember: source project missing" : "无法记住：缺少来源项目";
+    button.title = button.textContent;
+    wrap.appendChild(button);
+    return button;
+  }
   button.addEventListener("click", async () => {
     button.disabled = true;
     try {
@@ -1170,12 +1181,16 @@ function toastRemembered(action, resource, summary, projectDir) {
       onClick: async () => {
         try {
           const data = await invoke("permission_rules_get", { projectDir });
-          const rule = [...(data?.rules ?? [])].reverse().find((item) => item.action === action && item.resource === resource);
+          const rule = [...(data?.rules ?? [])].reverse().find((item) => item.action === action && item.resource === resource && item.effect === "allow");
           if (!rule) {
             toast(t("这条规则已经不在了"));
             return;
           }
-          await invoke("permission_rule_delete", { projectDir, index: rule.index });
+          await invoke("permission_rule_delete", {
+            projectDir,
+            index: rule.index,
+            expectedRule: { action: rule.action, resource: rule.resource, effect: rule.effect },
+          });
           toast(t("已撤销,之后遇到同样的请求会再次询问"), { kind: "ok" });
         } catch (error) {
           reportPersistentError(`${t("撤销失败")}:${error}`);
