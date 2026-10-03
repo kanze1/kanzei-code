@@ -1,0 +1,21 @@
+{
+  "baseline": "e44b709a",
+  "llm_tests": {
+    "passed": 60,
+    "failed": 0,
+    "live_ignored": 3
+  },
+  "cli_integration": {
+    "passed": 39,
+    "failed": 0
+  },
+  "workspace_all_targets_clippy": true,
+  "fmt": true,
+  "diff_check": true,
+  "new_production_public_api": false,
+  "full_repository_review_complete": false,
+  "source_sha256": {
+    "crates/kanzei-llm/src/sse.rs": "f19c2e9b9eef7232f4213f56a5e7a7532326d1fec1b90eb3ff879de0fa329522",
+    "crates/kanzei-llm/src/client.rs": "c6e329beeae730544fec71d315d91990cac2237b3d722f42f13b0a8c2b1ca839"
+  }
+}

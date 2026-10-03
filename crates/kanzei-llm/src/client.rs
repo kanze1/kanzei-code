@@ -423,4 +423,59 @@ mod tests {
         assert_eq!(retries.lock().unwrap().len(), 1);
         assert_eq!(text, "ok");
     }
+    #[tokio::test]
+    async fn http_stream_preserves_text_with_bom_and_all_sse_line_endings() {
+        for ending in ["\n", "\r\n", "\r"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let body = format!(
+                "\u{feff}data: {{\"choices\":[{{\"delta\":{{\"content\":\"中文\"}},\"finish_reason\":null}}]}}{ending}{ending}data: [DONE]{ending}{ending}"
+            );
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = vec![0u8; 4096];
+                assert!(socket.read(&mut request).await.unwrap() > 0);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            });
+            let client = LlmClient::new(&ProxyConfig::Disabled).unwrap();
+            let route = Route::openai_at(&format!("http://{address}/v1"), None);
+            let request = LlmRequest {
+                model: "mock".into(),
+                system: vec![],
+                messages: vec![Message::user_text("hello")],
+                tools: vec![],
+                hosted_tools: vec![],
+                max_tokens: 32,
+                temperature: None,
+                reasoning: ReasoningEffort::Off,
+                service_tier: None,
+            };
+            let (text, finishes) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                let mut stream = client
+                    .stream_with_retry_notice_with_limits(&route, &request, 0, 0, |_, _| {})
+                    .await
+                    .unwrap();
+                let mut text = String::new();
+                let mut finishes = 0;
+                while let Some(event) = stream.next().await {
+                    match event.unwrap() {
+                        crate::event::LlmEvent::TextDelta { text: delta, .. } => {
+                            text.push_str(&delta)
+                        }
+                        crate::event::LlmEvent::StepFinish { .. } => finishes += 1,
+                        _ => {}
+                    }
+                }
+                (text, finishes)
+            })
+            .await
+            .unwrap();
+            server.await.unwrap();
+            assert_eq!(text, "中文", "line ending {ending:?}");
+            assert_eq!(finishes, 1, "terminal event must remain unique");
+        }
+    }
 }

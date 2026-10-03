@@ -48,7 +48,7 @@ flowchart TD
 ## 底层修改的调用链
 
 - `atomic_file`：经 memory/tools 再导出，覆盖 docstore、记忆、配置、凭据、会话工件、文件编辑。锁语义修改须保持共享/独占、同线程重入、限时等待和非 Send 契约。
-- `write_log::record`：memory/store、memory/inbox、tools/lib 的 record_write_log、tools/write、app/files_edit。读者为 managed/cross_tree；`last_content` 的生产调用集中在 managed 的回滚。
+- `write_log::record`：memory/store、memory/inbox、tools/lib 的 record_write_log、tools/write、app/files_edit。读者为 managed/cross_tree；恢复改用同一次窗口查询与 `latest_by_path`，已删除 `last_content`。
 - CAS：tools/architecture、conventions、conventions/drafts、team/tools；app/files_edit、memory_chat。须逐一核实外层文件锁与 hash 口径。
 - path_form：路径展示/打开与比较键分开；不能为了统一比较键而改变可打开路径。
 
@@ -64,3 +64,16 @@ flowchart TD
 ## 覆盖口径
 
 逐文件结论见 report.md。仅进入索引、搜索命中或编译通过的文件不算完成审查，不自动标 PASS。
+
+## 按地图推进的文件级记录（2026-10-03 更新）
+
+| 层 | 已完成内容 | 本轮 / 后续范围 |
+| --- | --- | --- |
+| base | 首批四文件审查；锁/CAS/路径/日志三态重构已整合验证 | 见整合报告；拆分文件不能仅因编译通过自动记为全文 PASS |
+| harness | registry.rs、progress.rs 已完成首批全文审查 | 其他文件尚未全面审查 |
+| llm 基础 | event.rs PASS；error.rs PASS；sse.rs P1 已修；protocol/mod.rs PASS；lib.rs PASS | 本轮五文件全文；[逐文件记录](llm-framing.md) |
+| llm caller | client.rs 的分帧消费与真实 HTTP 回归已检查 | 仅调用链切片，完整生命周期待审 |
+| memory / tools | 原树底层 caller 已适配；managed、三类专用写者及后台守卫关键路径已修 | 不等同于整个模块全文审完 |
+| core / API / UI | 合并与编译、既有测试验证 | 全面逐文件审查待继续 |
+
+下一步：request → 具体协议状态机 → proxy/auth → client 生命周期 → core 流事件持久化。每轮以 coverage.json 和对应报告明确全文审查、调用链切片和未审范围，不用索引或测试数量代替审查覆盖。

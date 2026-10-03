@@ -1,5 +1,5 @@
 {
-  "baseline": "abb596f0eb59ab32d13c32f0952aa6771a9b3e21",
+  "baseline": "e44b709a46af325ca2aed5fedb9a10008c24b369",
   "method": "Lexical source inventory, including cfg/test branches. Not a resolved call graph. Review judgments live only in report.md.",
   "packages": [
     {
@@ -7401,7 +7401,7 @@
     },
     {
       "file": "crates/kanzei-base/src/atomic_file/tests.rs",
-      "lines": 178,
+      "lines": 179,
       "modules": [],
       "imports": [
         "super::*",
@@ -13823,7 +13823,7 @@
     },
     {
       "file": "crates/kanzei-llm/src/client.rs",
-      "lines": 426,
+      "lines": 481,
       "modules": [],
       "imports": [
         "futures::{Stream, StreamExt}",
@@ -14326,7 +14326,7 @@
     },
     {
       "file": "crates/kanzei-llm/src/sse.rs",
-      "lines": 83,
+      "lines": 143,
       "modules": [],
       "imports": [
         "super::*"
@@ -14345,7 +14345,7 @@
         {
           "kind": "fn",
           "name": "feed",
-          "line": 18
+          "line": 20
         }
       ]
     },
@@ -16501,7 +16501,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/background.rs",
-      "lines": 1668,
+      "lines": 1671,
       "modules": [
         "lifecycle",
         "monitor",
