@@ -71,10 +71,10 @@ try {
       const surface = rect(document.querySelector("#sw-surface")), composer = rect(document.querySelector("#composer"));
       const nodes = [...document.querySelectorAll(".sw-node, .sw-resources button")];
       const rows = document.querySelector("#softwire-workspace .sw-work-rows");
-      return { visible:nodes.every(el => { const b=rect(el); return b.top>=surface.top && b.bottom<=surface.bottom+1 && b.bottom<=composer.top && b.left>=surface.left && b.right<=surface.right+1; }), scroll:rows.scrollHeight>rows.clientHeight, outer:document.querySelector("#sw-surface").scrollHeight<=document.querySelector("#sw-surface").clientHeight+1, border:getComputedStyle(document.querySelector("#softwire-workspace .sw-work-entry")).borderLeftStyle };
+      return { visible:nodes.every(el => { const b=rect(el); return b.top>=surface.top && b.bottom<=surface.bottom+1 && b.bottom<=composer.top && b.left>=surface.left && b.right<=surface.right+1; }), scroll:rows.scrollHeight>rows.clientHeight, outer:document.querySelector("#sw-surface").scrollHeight<=document.querySelector("#sw-surface").clientHeight+1, border:getComputedStyle(document.querySelector("#softwire-workspace .sw-work-entry")).borderBottomStyle };
     });
     check(geometry.visible && geometry.outer, `${theme} ${size.width}x${size.height}: every module and resource stays above the composer without outer scrolling`);
-    check(geometry.scroll && geometry.border === "dashed", `${theme} ${size.width}: only the long queue scrolls, with the requested work-card style`);
+    check(geometry.scroll && geometry.border === "solid", `${theme} ${size.width}: the grouped queue scrolls independently and entries retain visible separators ${JSON.stringify(geometry)}`);
     await page.screenshot({path:path.join(output,`dense-${theme}-${size.width}x${size.height}.png`)});
   }
   await page.locator("#softwire-workspace .sw-work-rows").evaluate(el => el.scrollTop = el.scrollHeight);

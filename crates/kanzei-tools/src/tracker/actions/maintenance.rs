@@ -118,6 +118,7 @@ pub(crate) fn reopen(
     }
     let back_to = tool.kind.statuses[0].to_string();
     entries[pos].status = back_to.clone();
+    entries[pos].sync_status_fields();
     // 退回理由必须留在条目里,不能只出现在工具输出——否则下轮上下文
     // 一滚动就没人知道这条为什么被退回来(D-241 验收②「处置依据逐条写进进展」)。
     // 追加新的一行进展,而不是拼进已有字段值:docstore 按行解析,

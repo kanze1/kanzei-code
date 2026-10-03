@@ -2,6 +2,7 @@ import { moduleNames, laneNames, receiptLabel, latestSentence, plainText, visibl
 import { languageIsEnglish, localizedDocStatus, t } from "./02-i18n.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import { needsRequirementResearch, requirementResearchStatus } from "./26-requirement-research.js";
+import { DOC_TAG_ORDER, entryTags } from "./10-docs-core.js";
 
 // 概览整页的文案:长句走 t()(词条在 02-i18n.js),短词/同字不同义的词用 en(中文, English)直接给出两种说法,
 // 免得和别处的同字词条(「文件」=file、「交付」=delivered)撞译。
@@ -271,10 +272,10 @@ function updateGraph(root, state, actions) {
   const focus = root.querySelector(".sw-focus-slot");
   const queueKey = JSON.stringify([state.project.current_items, state.project.lines, state.backlog, state.line?.id]);
   if (focus._key !== queueKey) {
-    const scroll = focus.querySelector(".sw-work-rows")?.scrollTop || 0, open = focus.querySelector("details")?.open;
+    const scroll = focus.querySelector(".sw-work-rows")?.scrollTop || 0, open = focus.querySelector(".sw-idle-lines")?.open;
     focus.replaceChildren(); renderWorkFocus(focus, state, actions); focus._key = queueKey;
     focus.querySelector(".sw-work-rows").scrollTop = scroll;
-    if (focus.querySelector("details")) focus.querySelector("details").open = Boolean(open);
+    if (focus.querySelector(".sw-idle-lines")) focus.querySelector(".sw-idle-lines").open = Boolean(open);
   }
   const recent = root.querySelector(".sw-recent");
   // 只剩内部交接块的回复(过滤后为空)不进预览,免得出现空行。
@@ -306,6 +307,17 @@ function updateGraph(root, state, actions) {
   const error = root.querySelector(":scope > .sw-error"); error.hidden = !state.error; error.textContent = state.error || "";
 }
 
+const workFocusFilters = new WeakMap();
+function workGroup(item) {
+  if (item.status === "awaiting_external") return "external";
+  // 仅消费引擎已确认的阻塞；已解除但仍留有历史停车字段的条目不再被前端拦住。
+  if (item.blocked) {
+    const parked = (item.block_reasons || []).some(reason => String(reason).startsWith("停车:"));
+    return parked ? "parked" : "blocked";
+  }
+  return ["doing", "fixing"].includes(item.status) ? "active" : "pending";
+}
+
 export function renderWorkFocus(parent, state, actions) {
   const section = node("section", null, "sw-work-focus");
   section.setAttribute("aria-label", t("当前需求"));
@@ -315,10 +327,26 @@ export function renderWorkFocus(parent, state, actions) {
   heading.append(button(t("需求"), () => actions.list("req")), node("span", null, "sw-spacer"),
     button(t("＋ 记需求"), () => actions.capture("req"), "sw-capture"), button(t("＋ 记缺陷"), () => actions.capture("defect"), "sw-capture"), all);
   section.append(heading);
-  const items = state.project.current_items || [], lines = state.project.lines || [], represented = new Set();
+  const items = (state.project.current_items || []).filter(item => !item.closed), lines = state.project.lines || [];
+  const scope = state.project.path || "";
+  let filters = workFocusFilters.get(parent);
+  if (!filters || filters.scope !== scope) {
+    filters = { scope, kind: "all", priority: "all", tag: "all", collapsed: new Set() };
+    workFocusFilters.set(parent, filters);
+  }
   const rows = node("div", null, "sw-work-rows");
-  const render = (line, item) => {
-    if (item) represented.add(item.id);
+  const controls = node("div", null, "sw-work-filters");
+  const kinds = [["all", t("全部类型")], ["req", t("需求")], ["defect", t("缺陷")]];
+  const priorities = [["all", t("全部优先级")], ...["P0", "P1", "P2", "P3"].map(value => [value, value])];
+  const tags = [["all", t("全部标签")], ...DOC_TAG_ORDER.map(tag => [tag, t(tag)])];
+  for (const [key, label, options] of [["kind", t("按类型筛选"), kinds], ["priority", t("按优先级筛选"), priorities], ["tag", t("按标签筛选"), tags]]) {
+    const select = node("select"); select.dataset.workFilter = key; select.setAttribute("aria-label", label);
+    for (const [value, text] of options) { const option = node("option", text); option.value = value; select.append(option); }
+    select.value = filters[key];
+    select.addEventListener("change", () => { filters[key] = select.value; renderRows(); }); controls.append(select);
+  }
+  section.append(controls);
+  const render = (container, line, item) => {
     const row = node("div", null, "sw-work-row"); row.dataset.selected = String(Boolean(line && line.id === state.line?.id));
     if (line) {
       const identity = button(lineLabel(line.label), () => actions.line(line), "sw-line-select");
@@ -328,6 +356,7 @@ export function renderWorkFocus(parent, state, actions) {
     if (!item) row.append(node("span", line?.running ? t("运行中，尚未关联需求") : t("未绑定条目"), "sw-work-unclaimed"));
     else {
       const entry = button("", () => actions.item(item), "sw-work-entry"); entry.title = item.title;
+      entry.dataset.workId = item.id; entry.dataset.status = item.status;
       entry.dataset.blocked = String(Boolean(item.blocked));
       const meta = node("span", null, "sw-work-meta");
       const status = node("span", localizedDocStatus(item.status), "sw-work-state");
@@ -336,6 +365,7 @@ export function renderWorkFocus(parent, state, actions) {
       if (item.blocked) meta.append(node("span", t("阻塞"), "sw-work-blocked"));
       meta.append(node("span", item.priority || "", "sw-work-priority"));
       entry.append(meta, node("strong", item.title));
+      entry.append(node("span", [t(item.id.startsWith("D-") ? "缺陷" : "需求"), ...entryTags(item).map(tag => t(tag))].join(" · "), "sw-work-type"));
       if (item.batches?.total) {
         const progress = node("span", null, "sw-work-progress"), blocks = node("span", null, "sw-batch-blocks");
         const { done, total } = item.batches;
@@ -349,14 +379,42 @@ export function renderWorkFocus(parent, state, actions) {
       }
       row.append(entry);
     }
-    rows.append(row);
+    container.append(row);
   };
-  for (const line of lines) {
-    const item = items.find(item => item.id === line.current_item_id || item.owner_lines?.some(owner => owner.id === line.id));
-    if (item || line.running) render(line, item);
+  function renderRows() {
+    rows.replaceChildren();
+    const visible = items.filter(item => (filters.kind === "all" || (item.id.startsWith("D-") ? "defect" : "req") === filters.kind)
+      && (filters.priority === "all" || item.priority === filters.priority)
+      && (filters.tag === "all" || entryTags(item).includes(filters.tag)));
+    for (const [group, label] of [["active", t("进行中")], ["pending", t("待开始")], ["external", t("待外部验收")], ["blocked", t("已阻塞")], ["parked", t("已停车")]]) {
+      const entries = visible.filter(item => workGroup(item) === group);
+      if (!entries.length) continue;
+      const section = node("details", null, "sw-work-group"); section.dataset.workGroup = group;
+      // 阻塞与停车默认收起，展开选择在自动刷新后仍保留。
+      section.open = filters.collapsed.has(group) ? false : !["external", "blocked", "parked"].includes(group) || filters.collapsed.has(group + ":open");
+      const summary = node("summary"); summary.append(node("span", label), node("span", entries.length, "sw-work-count")); section.append(summary);
+      section.addEventListener("toggle", () => {
+        if (!section.isConnected) return;
+        filters.collapsed.delete(group); filters.collapsed.delete(group + ":open");
+        filters.collapsed.add(section.open ? group + ":open" : group);
+      });
+      for (const item of entries) {
+        const owner = lines.find(line => item.id === line.current_item_id || item.owner_lines?.some(owner => owner.id === line.id));
+        render(section, owner, item);
+      }
+      rows.append(section);
+    }
+    const unbound = lines.filter(line => line.running && !items.some(item => item.id === line.current_item_id || item.owner_lines?.some(owner => owner.id === line.id)));
+    if (filters.kind === "all" && filters.priority === "all" && filters.tag === "all") for (const line of unbound) render(rows, line, null);
+    if (!rows.children.length) {
+      rows.append(node("p", items.length ? t("暂无匹配条目") : t("暂无活动需求"), "sw-work-unclaimed"));
+      if (items.length) rows.append(button(t("清除筛选"), () => {
+        for (const select of controls.querySelectorAll("select")) { filters[select.dataset.workFilter] = "all"; select.value = "all"; }
+        renderRows();
+      }, "ghost"));
+    }
   }
-  for (const item of items) if (!represented.has(item.id)) render(null, item);
-  if (!rows.children.length) rows.append(node("p", t("暂无活动需求"), "sw-work-unclaimed"));
+  renderRows();
   section.append(rows);
   const idle = lines.filter(line => !items.some(item => item.id === line.current_item_id || item.owner_lines?.some(owner => owner.id === line.id)));
   if (idle.length) {

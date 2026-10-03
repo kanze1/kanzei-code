@@ -17,6 +17,9 @@ pub mod scheduling;
 #[cfg(test)]
 mod scheduling_tests;
 
+#[cfg(test)]
+mod maintenance_tests;
+
 // R-311:close action 在状态迁移前写入收尾链遥测。
 // R-204:每个 action 独立函数(actions.rs),execute 只剩路由。
 mod actions;
@@ -142,7 +145,9 @@ struct TrackerInput {
     /// B2:source/finding 所属课题目录(kebab-case)。
     #[serde(default)]
     topic: Option<String>,
-    /// void_id 必填:这个编号为什么不该有条目、依据是什么
+    /// list 使用 backlog_maintenance 核对、清理全队列，deduplicate_registration 登记前查重。
+    /// close/update 到 dropped/wontfix 必填：过期、取消、重复或不修复的具体原因。
+    /// void_id/reopen/fix_terminal 也使用此字段记录原因。
     #[serde(default)]
     reason: Option<String>,
     /// raw_delete 必填:raw_lines 输出里的 [n] 序号(要删除的第 n 条游离行)
@@ -214,6 +219,9 @@ impl Tool for TrackerTool {
         }
         if self.kind.prefix == "R" {
             d.push_str(" A core requirement with empty refs triggers R-248: pass top-level `prior_art` pointing to a validated `.kanzei/research/<topic>/prior-art.md`, or `prior_art_waiver` with the user's explicit reason. These fields are independent from refs. The `prior_art` field is not a tool call; the separate deferred research tool loads with `tool_search select:prior_art`.");
+        }
+        if matches!(self.kind.prefix, "R" | "D") {
+            d.push_str(" For a user-requested backlog audit/cleanup, list with reason=backlog_maintenance. Ordinary execution uses work next. close(status=dropped/wontfix, reason=...) retires obsolete/cancelled/duplicate work without claiming completion; done/fixed still requires delivery evidence. update(status=awaiting_external) records implementation/local verification in 进展 and outstanding SSH/device checks in 外部验收; it does not block development or claim external acceptance passed. Return to doing/fixing if external checks find a problem.");
         }
         if self.kind.prefix == "R" {
             d.push_str(" R-313: medium/large requirement add requires `fields.发现记录` as a one-line JSON object with Intent/Explicit/Assumptions/Ambiguities/领域对象/最小成功闭环/延后决策, and `来源` must contain a quoted user utterance. Before doing/design freeze, unresolved core semantics require `question` evidence in `确认记录` or an auditable user waiver; qualifier terms absent from the quote must be confirmed, marked assumption, or removed.");
@@ -394,12 +402,14 @@ impl Tool for TrackerTool {
             && matches!(self.kind.prefix, "R" | "D")
             && !matches!(
                 input.reason.as_deref(),
-                Some("deduplicate_registration" | "human_cli")
+                Some("deduplicate_registration" | "backlog_maintenance" | "human_cli")
             )
         {
-            return ToolOutput::error(
+            return ToolOutput::needs_correction(
+                "TRACKER_LIST_PURPOSE_REQUIRED",
                 "完整 requirement/defect 队列不是执行期上下文。取活请调用 `work next`；\
-                 只有登记前查重可用 reason=deduplicate_registration 显式读取。",
+                 用户要求核对或清理队列时用 reason=backlog_maintenance；\
+                 登记前查重用 reason=deduplicate_registration。",
             );
         }
         let store = if matches!(self.kind.prefix, "S" | "F") {
@@ -4238,7 +4248,7 @@ mod tests {
         }
         assert_eq!(
             schema["properties"]["status"]["enum"],
-            json!(["open", "fixing", "fixed", "wontfix"])
+            json!(["open", "fixing", "awaiting_external", "fixed", "wontfix"])
         );
         let actions = schema["properties"]["action"]["enum"].as_array().unwrap();
         for expected in ["list", "add", "void_id", "repair_missing_id"] {

@@ -73,7 +73,8 @@ pub(super) async fn execute_serial_tool_calls(
             return Ok(super::ToolRunOutcome::Stopped);
         }
         if let Some(reason) = batch.reject(&name, &input, ctx) {
-            let output = kanzei_harness::ToolOutput::error(reason);
+            let output = kanzei_harness::ToolOutput::blocked_by_workflow("BATCH_CLOSING", reason);
+            crate::runner::tool_failure_telemetry::record_tool_failure(ctx, &id, &name, &output);
             on_event(RunEvent::ToolStart {
                 id: id.clone(),
                 name: name.clone(),

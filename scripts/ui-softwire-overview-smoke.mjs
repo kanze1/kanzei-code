@@ -59,7 +59,10 @@ try {
   const processesBefore = await count("process_list");
   await page.evaluate(async project => (await import("/12-workbench.js")).openProjectSpace(project, "project"), identity.project); await settle();
   check(await count("run_prompt") === 0 && await count("process_list") === processesBefore, "Browsing the overview never activates or starts a session");
-  check(await page.locator("#softwire-workspace .sw-work-entry").first().innerText().then(s => s.includes("R-379") && s.includes("2/5")), "Requirement, priority and batch progress live in the overview");
+  const workGroup = page.locator("#softwire-workspace [data-work-group]").filter({ has: page.locator('[data-work-id="R-379"]') });
+  if (!await workGroup.evaluate(node => node.open)) await workGroup.locator(":scope > summary").click();
+  const workText = await page.locator('#softwire-workspace [data-work-id="R-379"]').innerText();
+  check(workText.includes("R-379") && workText.includes("2/5"), `Requirement, priority and batch progress live in the overview: ${JSON.stringify(workText)}`);
   check(await page.locator("#softwire-workspace .sw-backlog tr").count() === 3, "Requirements and defects each show actionable and blocked counts");
   // E1:运行画像并成概览第 7 行「运行用量」,数据来自 run_metrics(夹具里是 14 轮造数据)。
   const usage = page.locator('[data-module="usage"]');

@@ -978,6 +978,7 @@ export function toolResultSummary(name, ctx = {}) {
     }, "summary", { rest: fullRest });
   }
   if (state === "noop") return finish({ groups: [t("无需修改")], key: "noop" }, "summary", { rest: fullRest });
+  if (state === "blocked_by_workflow") return finish({ groups: [t("流程暂缓"), t("先完成当前批次的验证与收尾")], key: "workflow-blocked" }, "summary", { rest: cleanPaths(text, roots) });
   if (state !== "success") {
     const gate = toolGateFailure(s);
     if (gate) return finish(gate, "summary", { rest: fullRest });

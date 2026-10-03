@@ -554,9 +554,11 @@ mod ownership_tests {
     use super::*;
     #[test]
     fn queued_action_rejects_rebinding_and_recreated_pane_even_at_same_url() {
-        let mut original = super::super::PaneMeta::default();
-        original.alive = true;
-        original.url = "https://example.org".into();
+        let mut original = super::super::PaneMeta {
+            alive: true,
+            url: "https://example.org".into(),
+            ..Default::default()
+        };
         original.set_visibility(true, Some("a".into()), 0);
         assert!(same_owner(&original, 1, &original, 1, Some("a")));
         let mut current = original.clone();

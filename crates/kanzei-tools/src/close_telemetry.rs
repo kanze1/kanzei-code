@@ -55,6 +55,10 @@ pub struct RollingCloseMetrics {
     pub format_version: String,
     pub telemetry_records: usize,
     pub closed_entries: usize,
+    #[serde(default)]
+    pub retired_entries: usize,
+    #[serde(default)]
+    pub retirement_records: usize,
     pub instrumented_entries: usize,
     pub complete_chain_records: usize,
     pub chain_completeness_rate: f64,
@@ -265,23 +269,34 @@ fn gate_rejections(root: &Path) -> u64 {
         .flat_map(|value| value["events"].as_array().cloned().unwrap_or_default())
         .filter(|event| {
             matches!(event["tool_name"].as_str(), Some("req") | Some("defect"))
-                && event["outcome"].as_str() == Some("failed")
+                && (event["outcome"].as_str() == Some("failed")
+                    || event["code"].as_str() == Some("TRACKER_CLOSE_BLOCKED"))
         })
         .count() as u64
 }
 
-fn tracker_closed_entry_ids(root: &Path) -> BTreeSet<String> {
+fn tracker_closed_entry_ids(root: &Path, retired: bool) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
+    let states: &[&str] = if retired {
+        &["dropped", "wontfix"]
+    } else {
+        &["done", "fixed"]
+    };
     for kind in [&crate::docstore::REQUIREMENTS, &crate::docstore::DEFECTS] {
         let store = crate::docstore::DocStore::open(root, kind);
         if let Ok(entries) = store.load_archive() {
-            ids.extend(entries.into_iter().map(|entry| entry.id));
+            ids.extend(
+                entries
+                    .into_iter()
+                    .filter(|entry| states.contains(&entry.status.as_str()))
+                    .map(|entry| entry.id),
+            );
         }
         if let Ok(entries) = store.load() {
             ids.extend(
                 entries
                     .into_iter()
-                    .filter(|entry| kind.terminal.contains(&entry.status.as_str()))
+                    .filter(|entry| states.contains(&entry.status.as_str()))
                     .map(|entry| entry.id),
             );
         }
@@ -291,8 +306,23 @@ fn tracker_closed_entry_ids(root: &Path) -> BTreeSet<String> {
 
 pub fn rolling_metrics(root: &Path) -> RollingCloseMetrics {
     let records = read_records(root);
+    let mut retired_ids = tracker_closed_entry_ids(root, true);
+    let retirement_records = records
+        .iter()
+        .filter(|record| matches!(record.status.as_str(), "dropped" | "wontfix"))
+        .count();
+    retired_ids.extend(
+        records
+            .iter()
+            .filter(|record| matches!(record.status.as_str(), "dropped" | "wontfix"))
+            .map(|record| record.entry_id.clone()),
+    );
+    let records: Vec<_> = records
+        .into_iter()
+        .filter(|record| !matches!(record.status.as_str(), "dropped" | "wontfix"))
+        .collect();
     let (navigation_calls, navigation_failures) = navigation_stats(root);
-    let tracker_ids = tracker_closed_entry_ids(root);
+    let tracker_ids = tracker_closed_entry_ids(root, false);
     let mut ids = tracker_ids.clone();
     let mut instrumented_ids = BTreeSet::new();
     let mut by_entry: BTreeMap<String, EntryCloseMetric> = BTreeMap::new();
@@ -321,6 +351,8 @@ pub fn rolling_metrics(root: &Path) -> RollingCloseMetrics {
         format_version: format!("v{SCHEMA_VERSION}"),
         telemetry_records: records.len(),
         closed_entries: ids.len(),
+        retired_entries: retired_ids.len(),
+        retirement_records,
         instrumented_entries: instrumented_ids.len(),
         complete_chain_records,
         chain_completeness_rate: if records.is_empty() {

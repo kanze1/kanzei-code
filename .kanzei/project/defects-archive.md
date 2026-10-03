@@ -8826,10 +8826,117 @@
 - 复现: 2026-09-28 p20 run_1790541672907755700出现两次compaction refused: tool call/result pair crosses the compaction boundary，331步内无成功context.compacted事件。
 - 影响: 同一条目长运行在两次可恢复切点失败后积累上下文；新条目边界清理无法覆盖同一条目内的长期执行。
 - 标签: 核心
-- 根因: compaction.rs按token预算选切点，检测到tool call/result跨界便返回0，不移动到邻近合法边界；context_budget.rs将其计入futile，达到MAX_FUTILE_COMPACTIONS=2后当前run不再主动尝试压缩。
 - 验收: 压缩在预算内寻找完整tool call/result合法边界；包含并行调用、分离结果和重放消息的历史不产生孤儿结果；无效切点不消耗摘要无收益预算；确实无合法切点时保留原历史并提供可恢复原因，不损坏会话；超长同条目运行可继续主动压缩。
 - 优先级: P1
 - 进展: 2026-10-02 验收完成：预算切点向前/向后寻找完整工具配对边界，保留完整前缀；18 项回归覆盖并行调用、分离结果、重放 call_id、无切点时保留历史和连续延期后的恢复。Deferred 不调用摘要、不扣无收益预算，后续仍可主动压缩。 发布 build-c5bf3e32（完整提交 c5bf3e327c527a72e539f9cb80229c5e0957aebf），当前 HEAD 的 full verify 15 项全绿；工作区测试 2137 通过、0 失败、2 项既有 ignore。下载包 SHA256/大小一致，HTTP Range 206。证据：docs/reports/2026-10-02-bootstrap-fixes.md、dist/verification.json、dist/release-receipt.json。验收为隔离发布版；主目录既有模型接口未同步的编译阻塞记入 R-381，未混入发布。
 - observed_head: 21c36e9d3a332ebb10a1e0d841887713d9911571
 - observed_worktree_hash: fnv1a64:6fc96fd6e55c7710
 - recorded_at: 1790898366516
+
+## D-748 commands 注册表只进提示词、从不展开参数,按「接线或删」原则删除 [fixed] (low)
+- 复杂度: 小
+- 复现: crates/kanzei-harness/src/markdown.rs:30-41 与 152-173 扫描 commands/*.md 并把「可用命令」清单拼进 core/commands_skills;全仓除测试 markdown.rs:322 外没有任何消费方,UI 与 CLI 也没有 /命令 入口,$ARGUMENTS 从不展开
+- 影响: 提示词里列出实际不可用的能力(D-173 失效模式);direction_taste.md v0 已判定「接线或删,不许半吊」,用户 2026-09-25 明确不要 skills/commands 接线
+- 来源: 2026-09-25 CC/Codex 对照筛选(§5.12);实施地图见 docs/design/cc_codex_alignment_impl_maps.md §14
+- 标签: 核心
+- 验收: ①commands 目录不再被扫描,也不出现在 system baseline;②skills 清单照旧注入;③CommandDef、HarnessDraft.commands、HarnessSnapshot::commands() 从代码中移除且编译通过;④账单 key 改为 core/skills;⑤harness_m1.md、架构索引与代码注释同步为五类注册表
+- refs: D-184 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P3
+- 进展: 验收核对（代码提交 1eccdaac，HEAD 现已包含）：①commands 不再扫描：MarkdownComponent 仅扫 agents/skills，scan_commands 已删除；markdown.rs 测试创建 commands/release.md 并断言 system baseline 不含命令；②skills 仍注入：markdown.rs 写入 core/skills，测试检查 build 技能及 SKILL.md 提示；③CommandDef、HarnessDraft.commands、HarnessSnapshot::commands() 与 re-export 已删除，cargo test -p kanzei-harness 171 项通过；④账单 key 已改为 core/skills；⑤harness_m1.md 与 harness.rs/lib.rs/registry.rs 注释同步五类注册，markdown.rs 注释移除 template 承诺，但架构索引行未能更新。提交仅含 defs.rs、harness.rs、lib.rs、markdown.rs、registry.rs、docs/design/harness_m1.md；未含 R-245 或 .kanzei。证据：T-1786922727024 workspace fmt、T-1786922727025 harness 171/171、T-1786922727026 harness Clippy 通过。architecture.get 仍报告五个既有非 snake_case 文档名，architecture.update 专用通道因此拒绝；不扩大到重命名无关文档，故验收⑤保留缺口、D-748 不关闭。 2026-10-04 收口核验：①markdown.rs 不扫描 commands 且 commands_are_ignored_while_skills_render_into_system_baseline 回归覆盖；②skills 照旧注入且 empty_skills_render_nothing 存在；③CommandDef/HarnessDraft.commands/HarnessSnapshot::commands 接口已移除，历史 T-1786922727025 harness 171/171；④正文 key 为 core/skills；⑤docs/design/harness_m1.md、.kanzei/project/architecture/README.md:55 与 harness/registry 注释现均为五类注册表。旧进展⑤缺口已由 ae1370ff 完成，无需重命名无关设计文档。 逐条证据锚：①commands不扫描且不注入 crates/kanzei-harness/src/markdown.rs:347 T-1786922727025；②skills仍注入 crates/kanzei-harness/src/markdown.rs:347 T-1786922727025；③旧commands结构及接口移除并编译 T-1786922727025；④core/skills key crates/kanzei-harness/src/markdown.rs:28；⑤文档与注释均五类 docs/design/harness_m1.md:11 .kanzei/project/architecture/README.md:55 crates/kanzei-harness/src/registry.rs:1。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056939721
+- 阻塞: 
+- 停车: 
+
+## D-755 架构索引的既有五个非 snake_case 文档名使专用更新通道拒绝所有修改 [fixed] (medium)
+- 复现: architecture.get 在 HEAD eab92725 返回 5 个 validation issue：oc-playback.md、oc-production.md、oc-idle-direction.md、oc-h3-deployment.md、oc-voice-direction.md 均被判为非 snake_case；architecture.update 因索引整体校验失败而拒绝写入，因此无法更新 D-748 要求同步的 harness_m1.md 索引描述。
+- 影响: architecture 索引当前不能通过专用工具更新，任何修正单行索引元数据的需求都会被五个既有命名问题阻断。
+- 来源: self-found：执行 D-748 前置核验 architecture.get 时发现；HEAD eab92725。
+- 标签: 流程
+- refs: D-748
+- 优先级: P2
+- 进展: 核验：architecture.get 当前返回 5 项命名校验错误，索引行 17、19-22 对应 docs/design/oc-playback.md、oc-production.md、oc-idle-direction.md、oc-h3-deployment.md、oc-voice-direction.md。专用校验要求文件名本身为 snake_case，且磁盘上的设计文档必须全部入索引，因此仅改索引不能解除。D-748 的现有阻塞已明确要求用户决定是否批准五份设计文档重命名并修复全仓引用，或允许 D-748 验收⑤降级；本条是该阻塞的直接原因，未改任何文档。等待用户明确选择后再继续。 2026-10-04 收口核验：原条目没有独立验收字段，按原复现/影响核对，不补造历史验收。architecture.rs update 比较更新前后问题，只拒新增问题；原五份非 snake_case 文档不再阻止无关合法更新；空索引、漏条目、新无效链接仍拒绝。output/joint-release-2026-10-04/architecture.log 11/11，包含 update_blocks_only_newly_introduced_issues 与等价路径回归。原排队需要命名产品决策的结论已失效。 逐条证据锚：按原复现及影响验证既有问题不阻塞合法修改、新问题仍拒绝 T-1786922727134（11项）；原条目无独立验收条款，未改变原始问题定义。
+- 阻塞: 
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056946276
+- 停车: 
+
+## D-760 R-245 B8 配额:每次工具调用加锁全扫目录、超限只剩 120 字、锁超时判失败 [fixed] (medium)
+- 复杂度: 中
+- 复现: crates/kanzei-core/src/runner/tool_exec.rs:272-289 不超过阈值的结果也先取跨进程独占锁再递归扫描 tool-results(主树 shadow 已 1.4 万文件,冷扫描约 5.5 秒,同步 IO 跑在 tokio 循环里);:341-347 超限只保留 preview() 的首行 120 字;:306-319 锁超时或计量失败走 fail_tool_result_spill,已成功的输出被判 Failed 且原文丢弃;display 被整体覆盖,终端块消失
+- 影响: 几乎每次工具调用增加数十毫秒到秒级阻塞且随调用次数线性恶化;配额满后模型拿不到结果正文;有副作用的命令被误报失败可能被重跑;用户「超了退回截断」的裁决被弱化且进展未披露
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 后端
+- 进展: 审计会话已修复:提交 df6f0324(tool_exec.rs:小结果不取锁不扫描、计量排除 shadow、超限头 8 KiB+尾 4 KiB 截断、锁超时与计量失败降级截断不改工具成败、保留原 display 附 quota_truncated、同 sha 复用先于配额)与 12bb0543(前端按原因区分提示),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5)。待核验后关闭。 2026-10-04 收口核验：①small_tool_result_never_waits_for_quota_lock；②tool_result_quota_is_two_gib_and_excludes_shadow_telemetry；③tool_result_over_quota_is_truncated_without_spill_artifact 验证头8KiB尾4KiB/省略提示；④quota_lock_unavailable_degrades_to_truncation_without_failing_tool 及计量降级路径；⑤over_quota_truncation_keeps_tool_display_and_outcome 保留 display/outcome，ui-runtime-smoke 配额及锁不可用提示夹具；⑥identical_artifact_is_reused_before_quota_and_lock。上述 core 测试见 output/audit-first/automation/fix-core-tests.log 424/424；UI runtime 本轮通过，完整证据见收口报告。 逐条证据锚：①小结果无锁无扫描 crates/kanzei-core/src/runner/tool_exec.rs:263，fix-core-tests.log small_tool_result_never_waits_for_quota_lock；②排除shadow crates/kanzei-core/src/runner/tool_exec.rs:173，同日志tool_result_quota_is_two_gib_and_excludes_shadow_telemetry；③头8KiB尾4KiB省略提示 crates/kanzei-core/src/runner/tool_exec.rs:545，同日志tool_result_over_quota_is_truncated_without_spill_artifact；④失败降级且保持结果 crates/kanzei-core/src/runner/tool_exec.rs:569，同日志quota_lock_unavailable_degrades_to_truncation_without_failing_tool；⑤保留display并附配额且UI提示 scripts/ui-runtime-smoke.mjs:5653，本轮output/backlog-merge-ui/runtime.log exit0；⑥同hash复用先于配额 crates/kanzei-core/src/runner/tool_exec.rs:355，同日志identical_artifact_is_reused_before_quota_and_lock。
+- 验收: ①不超过外置阈值的结果不取锁、不扫描;②外置路径的计量排除 shadow 子目录;③超限时保留头 8 KiB 加尾 4 KiB 并注明省略字节与不可回取;④锁超时与计量失败降级为同样的截断且不改变工具的成败;⑤保留工具原有 display 并附配额信息,前端显示配额提示;⑥复用已存在的同 sha 外置文件不受配额阻挡
+- refs: R-245 docs/design/bootstrap_quality_audit.md
+- 优先级: P1
+- 停车: 
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056952857
+
+## D-761 D-750 回归:依赖视图把依赖环上的条目显示为可做 [fixed] (medium)
+- 复杂度: 小
+- 复现: crates/kanzei-app/ui/12-docs-pages.js:376-381 只识别「未完成依赖:」「依赖不存在:」两种理由;引擎 crates/kanzei-tools/src/tracker/scheduling.rs:420/435-438 对环上条目只给「循环依赖:」理由,于是环成员被放进「可做(依赖已满足)」层
+- 影响: 与 D-750 验收②「与引擎判定一致」相反,重新误导人工排期
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 前端
+- 进展: 审计会话已修复:提交 12bb0543(12-docs-pages.js 含「循环依赖:」理由的条目进被阻塞层,ui-runtime-smoke 增加互依环夹具),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5)。根治(docs_snapshot 投影结构化字段)未做。待核验后关闭。 2026-10-04 收口核验：①12-docs-pages.js 对循环依赖理由判为 blocked；②ui-runtime-smoke.mjs R-910/R-911 互依夹具断言两条均 blocked，本轮 runtime exit 0。原始验收不要求再扩大 docs_snapshot 结构化重构，该潜在重构不保留为本条缺口。 逐条证据锚：①循环依赖条目分入blocked crates/kanzei-app/ui/12-docs-pages.js:485；②互依夹具断言两条blocked scripts/ui-runtime-smoke.mjs:4026，本轮output/backlog-merge-ui/runtime.log exit0。
+- 验收: ①block_reasons 含「循环依赖:」的条目进被阻塞层;②ui-runtime-smoke 增加互相依赖的环夹具并断言两条均为被阻塞
+- refs: D-750 docs/design/bootstrap_quality_audit.md
+- 优先级: P2
+- 停车: 
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056960023
+
+## D-763 引擎注入规范把提交门禁写成 all-targets clippy,导致 D-754/D-758 叙述失实 [fixed] (low)
+- 复杂度: 小
+- 复现: crates/kanzei-harness/assets/default_conventions.md:75 称提交门禁跑 cargo clippy --workspace --all-targets;实际 git.rs:781-811 与 verify.ps1:134-141 都不含测试目标,只有手动触发的 ci.yml 带 --all-targets
+- 影响: 模型按错误门禁描述判断风险,测试代码 lint 只在 CI 红而本地一直绿;D-754 严重度被高估,D-758 时间线叙述与事实矛盾
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 流程
+- 进展: 审计会话已修复:提交 2009581f(default_conventions.md 如实写明提交门禁/verify/CI 的 clippy 口径与 CI 仅手动触发,git.rs 守护测试双向检查,verify.ps1 与 git.rs 注释同步),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5)。待核验后关闭。 2026-10-04 收口核验：①cargo_conventions.md 准确区分 commit/check、verify/light clippy、手动 CI/all-targets；②明确测试代码修改需自跑 all-targets clippy；③gate_checklists_align_across_git_verify_and_ci 已通过（output/audit-first/automation/fix-tools-tests.log 对应测试行；该整份旧日志另有无关失败，不称全量通过）。当前规范经 include_str 注入，verify.ps1/git.rs 注释一致。本条是口径准确，不等同 D-769 扩大执行门禁。 逐条证据锚：①三种clippy执行口径准确 crates/kanzei-harness/assets/cargo_conventions.md:5；②测试修改all-targets责任 crates/kanzei-harness/assets/cargo_conventions.md:7；③守护测试通过 crates/kanzei-tools/src/git.rs:2148，output/audit-first/automation/fix-tools-tests.log gate_checklists_align_across_git_verify_and_ci。
+- 验收: ①规范写明提交门禁、verify、CI 各自的 clippy 口径;②写明改测试代码时需自跑 --all-targets clippy;③守护测试保持通过
+- refs: D-754 D-758 docs/design/bootstrap_quality_audit.md
+- 优先级: P2
+- 停车: 
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056966652
+
+## D-775 需求队列维护被执行期全列表门禁拒绝 [fixed] (medium)
+- 复现: 用户明确要求核对清理需求列表，req list 仍只接受 deduplicate_registration/human_cli，被按普通错误拒绝。
+- 影响: 无法通过工具核对整队列；agent 改用猜测路径并重复失败，用户清理请求未被满足。
+- 标签: 流程
+- 验收: ①显式 backlog_maintenance 理由可读取需求与缺陷全队列；②普通执行取活仍经 work next；③被拒调用返回纠错码并说明维护入口，schema/提示词可发现。
+- 优先级: P1
+- 进展: 2026-10-04 收口核验：①显式 backlog_maintenance 可读 req/defect 全列表；②普通执行保留 work next 门禁；③拒绝返回 NeedsCorrection 与维护入口，tracker schema/dev_system 提示均可发现。maintenance.log 的 backlog_maintenance_lists_both_queues_without_relaxing_execution_guard 通过，整组 6/6。 逐条证据锚：①维护可读双队列 T-1786922727133；②普通取活门禁保留 T-1786922727133；③拒绝纠错码与维护入口提示/schema T-1786922727133。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056973137
+
+## D-776 过期取消与不修复关闭误走完成验收门禁 [fixed] (medium)
+- 复现: tracker/actions.rs 的 is_closing_action 对 dropped/wontfix 与 done/fixed 都跑验收证据、批次、冒烟与 verify，过期未实现条目无法诚实关闭；UI 不支持给关闭原因。
+- 影响: 需求和缺陷只能留下僵尸条目，或伪造完成证据；关闭理由没有独立可审计落点。
+- 标签: 后端
+- 验收: ①dropped/wontfix 以非空 reason 关闭并保留原因及原条目；②跳过完成验收门禁，done/fixed 门禁不变；③update 到取消终态与 close 同口径；④CLI 和桌面均能传原因，重复关闭不重复写入。
+- 优先级: P1
+- 进展: 2026-10-04 收口核验：①非空 reason 取消归档保留原因及原验收；②dropped/wontfix 不走交付证据，done/fixed 仍拒无验收；③close/update 取消语义一致；④CLI --reason 公共参数与 docs_update 桌面传递，重复终态无重复写入，浏览器 sidebar cancellation 断言通过。maintenance.log 6/6 含 retirement_requires_reason_bypasses_delivery_gates_and_preserves_unfinished_work；backlog-maintenance/verification.json 24 项通过。 逐条证据锚：①reason非空及归档保留原条目 T-1786922727133；②取消跳过交付门禁、完成仍需证据 T-1786922727133；③close/update同口径 T-1786922727133；④CLI传reason crates/kanzei/src/cli/tracker.rs:47，桌面传reason crates/kanzei-app/src/docs.rs:576 T-1786922727136，重复关闭无写入 T-1786922727133。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056979620
+
+## D-777 流程阻止与路径纠错混入工具失败统计 [fixed] (medium)
+- 复现: serial_tools 对 BATCH_CLOSING 使用 ToolOutput::error；read/symbols 缺路径使用 failed；tool_failure_telemetry 把纠错、空搜索和用户拒绝都计入 failure_count。
+- 影响: 工具轨迹与失败率无法区分执行故障、需修正输入、流程暂缓和正常空结果。
+- 标签: 后端
+- 验收: ①BATCH_CLOSING 返回独立机器终态并以暂缓显示；②缺路径返回纠错且保留错误码；③失败率只计真正执行失败，导航问题保留诊断；④实时及回放状态一致。
+- 优先级: P1
+- 进展: 2026-10-04 收口代码核验：①serial_tools 的 BATCH_CLOSING 使用 blocked_by_workflow，UI 暂缓；②read/symbols 缺路径为 NeedsCorrection 且保留 code；③telemetry 只有 Failed 计入 failure_count，导航纠错保留诊断；④浏览器 backlog 24 项的 live/history 流程暂缓一致断言通过。当前新增 core 语义等待本轮定向或正式 Full 结果，未将静态代码检查写为动态实测。 最新验证：output/joint-release-2026-10-04/telemetry.log 5/5 通过，corrections_workflow_blocks_and_user_declines_are_diagnostics_not_failures 直接调用真实 Rust outcome 构造器；serial_tools 传递路径已静态复核。上一轮共享 core 424/app 624 已包含 blocked outcome 接线。本次不再保留等待定向验证的暂记。 逐条证据锚：①流程暂缓独立机器结果与UI T-1786922727135 T-1786922727136；②缺路径NeedsCorrection保留code T-1786922727135；③仅真实失败计失败率且导航诊断保留 T-1786922727135；④live/history一致 T-1786922727136。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056986111

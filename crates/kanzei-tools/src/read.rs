@@ -149,7 +149,7 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
             } else if let Some(detail) = e.strip_prefix("READ_RANGE_OUT_OF_BOUNDS: ") {
                 ToolOutput::needs_correction("READ_RANGE_OUT_OF_BOUNDS", detail)
             } else if e.starts_with("path not found: ") {
-                ToolOutput::failed("READ_PATH_NOT_FOUND", e)
+                ToolOutput::needs_correction("READ_PATH_NOT_FOUND", e)
             } else {
                 ToolOutput::error(e)
             }
@@ -721,6 +721,10 @@ mod tests {
             .await;
         assert!(missing.is_error, "{}", missing.content);
         assert_eq!(missing.code, Some("READ_PATH_NOT_FOUND"));
+        assert_eq!(
+            missing.outcome,
+            kanzei_harness::ToolOutcome::NeedsCorrection
+        );
         assert!(
             missing.content.contains("coordinator.rs"),
             "{}",

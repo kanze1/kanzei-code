@@ -517,6 +517,7 @@ pub async fn docs_update(
     fields: Option<serde_json::Value>,
     order: Option<Vec<String>>,
     topic: Option<String>,
+    reason: Option<String>,
 ) -> Result<String, String> {
     use kanzei_harness::Tool as _;
     use kanzei_tools::tracker::TrackerTool;
@@ -571,6 +572,9 @@ pub async fn docs_update(
     }
     if let Some(topic) = topic.filter(|topic| !topic.trim().is_empty()) {
         input["topic"] = json!(topic);
+    }
+    if let Some(reason) = reason.filter(|reason| !reason.trim().is_empty()) {
+        input["reason"] = json!(reason);
     }
     // R-141:Tauri command 入口,发现式取根合法且只做这一次。
     let ctx = kanzei_harness::ToolCtx::discovering(PathBuf::from(&project_dir));

@@ -46,7 +46,7 @@ pub(super) fn reconciliation_output(
 pub(super) fn structured_control_output(state: ResolvedControlState) -> serde_json::Value {
     let counts = json!({
         "queued_wip": state.queued_wip.len(), "blocked": state.blocked_items.len(),
-        "parked": state.parked_items.len(), "foreign_wip": state.foreign_wip.len(),
+        "parked": state.parked_items.len(), "pending_external": state.pending_external.len(), "foreign_wip": state.foreign_wip.len(),
         "reconciliation": state.reconciliation.counts,
     });
     let mut state = super::compact_for_context(state);

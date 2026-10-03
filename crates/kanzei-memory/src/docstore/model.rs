@@ -11,6 +11,7 @@ pub const ALL_STATUS_TOKENS: &[&str] = &[
     "dropped", // requirements / findings
     "open",
     "fixing",
+    "awaiting_external",
     "fixed",
     "wontfix", // defects
     "active",
@@ -55,26 +56,26 @@ pub const REQUIREMENTS: DocKind = DocKind {
     rel_path: ".kanzei/project/requirements.md",
     heading: "Requirements",
     prefix: "R",
-    statuses: &["todo", "doing", "done", "dropped"],
+    statuses: &["todo", "doing", "awaiting_external", "done", "dropped"],
     terminal: &["done", "dropped"],
     severities: None,
     priorities: Some(&["P0", "P1", "P2", "P3"]),
     tags: Some(&["核心", "后端", "前端", "模型", "发布", "流程"]),
     bidirectional: false,
-    reopen_from: &["doing"],
+    reopen_from: &["doing", "awaiting_external"],
 };
 
 pub const DEFECTS: DocKind = DocKind {
     rel_path: ".kanzei/project/defects.md",
     heading: "Defects",
     prefix: "D",
-    statuses: &["open", "fixing", "fixed", "wontfix"],
+    statuses: &["open", "fixing", "awaiting_external", "fixed", "wontfix"],
     terminal: &["fixed", "wontfix"],
     severities: Some(&["high", "medium", "low"]),
     priorities: Some(&["P0", "P1", "P2", "P3"]),
     tags: Some(&["核心", "后端", "前端", "模型", "发布", "流程"]),
     bidirectional: false,
-    reopen_from: &["fixing"],
+    reopen_from: &["fixing", "awaiting_external"],
 };
 
 pub const SOURCES: DocKind = DocKind {
@@ -162,6 +163,18 @@ pub struct Entry {
     pub severity: Option<String>,
     /// 自由字段(bullet),refs 也存这里(key = "refs")。
     pub fields: Vec<(String, String)>,
+}
+
+impl Entry {
+    /// The header owns lifecycle state; keep legacy body mirrors consistent when
+    /// a lifecycle writer changes it. Explicit normalize may remove the mirrors.
+    pub fn sync_status_fields(&mut self) {
+        for (key, value) in &mut self.fields {
+            if key == "状态" || key.eq_ignore_ascii_case("status") {
+                *value = self.status.clone();
+            }
+        }
+    }
 }
 
 /// R-201:游离行的稳定标识——条目内从 1 起的序号 + 原文。

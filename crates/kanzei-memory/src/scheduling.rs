@@ -65,7 +65,9 @@ pub fn workable_titles(project_root: &std::path::Path, limit: usize) -> Vec<Stri
             if out.len() >= limit {
                 return out;
             }
-            if kind.terminal.contains(&item.entry.status.as_str()) {
+            if kind.terminal.contains(&item.entry.status.as_str())
+                || item.entry.status == "awaiting_external"
+            {
                 continue;
             }
             // D-332:非法 lifecycle(未知/畸形状态)不参与取活候选——调度器对
@@ -149,7 +151,9 @@ pub fn dependency_states_from_documents(
                 .collect();
             states.terminal.insert(
                 entry.id.clone(),
-                kind.terminal.contains(&entry.status.as_str()),
+                // 开发依赖可继续；外部验收依旧未通过，条目也未归档。
+                kind.terminal.contains(&entry.status.as_str())
+                    || entry.status == "awaiting_external",
             );
             if !deps.is_empty() {
                 states.deps.insert(entry.id.clone(), deps);
@@ -212,6 +216,9 @@ fn schedule_entries<'a>(
 
 /// 单条目的阻塞理由:「阻塞」字段 + 未完成「依赖」+ 阶段门槛 + 循环依赖。
 pub(crate) fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
+    if entry.status == "awaiting_external" {
+        return Vec::new();
+    }
     let mut reasons = Vec::new();
     // 环上的条目永远等不到依赖完成。只报"未完成依赖"会让 agent 一轮轮空等一个
     // 不可能到来的前置,所以直接点出环并要求断边(D-163)。

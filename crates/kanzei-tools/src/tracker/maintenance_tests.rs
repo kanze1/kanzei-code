@@ -1,0 +1,298 @@
+use super::TrackerTool;
+use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
+use kanzei_harness::{Tool, ToolCtx, ToolOutcome};
+use serde_json::json;
+
+fn fixture(
+    kind: &'static DocKind,
+    action: &str,
+) -> (std::path::PathBuf, ToolCtx, TrackerTool, DocStore) {
+    let root = std::env::temp_dir().join(format!(
+        "kz-backlog-{}-{action}-{}-{}",
+        kind.prefix,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("scripts")).unwrap();
+    std::fs::write(root.join("scripts/verify.ps1"), "# fixture").unwrap();
+    std::fs::write(root.join("scripts/ui-lint-smoke.mjs"), "// fixture").unwrap();
+    let store = DocStore::open(&root, kind);
+    store
+        .save(&[Entry {
+            id: format!("{}-001", kind.prefix),
+            title: "旧工作".into(),
+            status: kind.statuses[1].into(),
+            severity: kind.severities.map(|_| "medium".into()),
+            fields: vec![
+                ("标签".into(), "前端".into()),
+                ("复杂度".into(), "小".into()),
+                ("批次".into(), "0/3".into()),
+                ("验收".into(), "①尚未实现；②无测试证据".into()),
+            ],
+        }])
+        .unwrap();
+    let ctx = ToolCtx::new(root.clone(), root.clone());
+    let tool = TrackerTool {
+        tool_name: if kind.prefix == "R" { "req" } else { "defect" },
+        noun: "entry",
+        kind,
+        requires_refs: None,
+    };
+    (root, ctx, tool, store)
+}
+
+#[tokio::test]
+async fn backlog_maintenance_lists_both_queues_without_relaxing_execution_guard() {
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let (root, ctx, tool, _) = fixture(kind, "list");
+        let rejected = tool.execute(json!({"action":"list"}), &ctx).await;
+        assert_eq!(rejected.outcome, ToolOutcome::NeedsCorrection);
+        assert_eq!(rejected.code, Some("TRACKER_LIST_PURPOSE_REQUIRED"));
+        let output = tool
+            .execute(
+                json!({"action":"list","reason":"backlog_maintenance"}),
+                &ctx,
+            )
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        assert!(output.content.contains(&format!("{}-001", kind.prefix)));
+        assert!(tool.description().contains("backlog_maintenance"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn retirement_requires_reason_bypasses_delivery_gates_and_preserves_unfinished_work() {
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        for action in ["close", "update"] {
+            let (root, ctx, tool, store) = fixture(kind, action);
+            let id = format!("{}-001", kind.prefix);
+            let before = std::fs::read(&store.path).unwrap();
+            let missing = tool
+                .execute(
+                    json!({"action":action,"id":id,"status":kind.terminal[1]}),
+                    &ctx,
+                )
+                .await;
+            assert_eq!(missing.code, Some("TRACKER_CLOSE_REASON_REQUIRED"));
+            assert_eq!(missing.outcome, ToolOutcome::NeedsCorrection);
+            assert_eq!(before, std::fs::read(&store.path).unwrap());
+            let blank = tool
+                .execute(
+                    json!({"action":action,"id":id,"status":kind.terminal[1],"reason":"  "}),
+                    &ctx,
+                )
+                .await;
+            assert!(blank.is_error);
+            let output = tool.execute(json!({"action":action,"id":id,"status":kind.terminal[1],"reason":"已由新方案替代，原验收不再适用"}), &ctx).await;
+            assert!(!output.is_error, "{}", output.content);
+            let move_output = tool.execute(json!({"action":"archive"}), &ctx).await;
+            assert!(!move_output.is_error, "{}", move_output.content);
+            assert!(store.load().unwrap().is_empty());
+            let archived = store.load_archive().unwrap();
+            assert_eq!(archived[0].status, kind.terminal[1]);
+            let metrics = crate::close_telemetry::rolling_metrics(&root);
+            assert_eq!(metrics.retired_entries, 1);
+            assert_eq!(metrics.closed_entries, 0);
+            assert_eq!(metrics.missing_evidence_total, 0);
+            assert!(archived[0]
+                .fields
+                .iter()
+                .any(|(key, value)| key == "关闭原因" && value.contains("新方案")));
+            assert!(archived[0]
+                .fields
+                .iter()
+                .any(|(key, value)| key == "验收" && value.contains("尚未实现")));
+            assert!(archived[0]
+                .fields
+                .iter()
+                .any(|(key, value)| key == "批次" && value == "0/3"));
+            let bytes = std::fs::read(store.archive_file()).unwrap();
+            let replay = tool
+                .execute(
+                    json!({"action":"close","id":id,"status":kind.terminal[1],"reason":"重复关闭"}),
+                    &ctx,
+                )
+                .await;
+            assert_eq!(replay.code, Some("ALREADY_TERMINAL"));
+            assert_eq!(bytes, std::fs::read(store.archive_file()).unwrap());
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn completed_delivery_still_requires_acceptance_evidence() {
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let (root, ctx, tool, store) = fixture(kind, "delivery");
+        let before = std::fs::read(&store.path).unwrap();
+        let output = tool.execute(json!({"action":"close","id":format!("{}-001",kind.prefix),"status":kind.terminal[0],"reason":"想清掉旧条目"}), &ctx).await;
+        assert!(output.is_error, "{}", output.content);
+        assert_eq!(before, std::fs::read(&store.path).unwrap());
+        assert!(store.load_archive().unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn external_acceptance_preserves_unverified_checks_and_does_not_block_development() {
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let (root, ctx, tool, store) = fixture(kind, "external");
+        let id = format!("{}-001", kind.prefix);
+        let mut legacy = store.load().unwrap();
+        legacy[0].fields.extend([
+            ("状态".into(), kind.statuses[1].into()),
+            ("Status".into(), kind.statuses[1].into()),
+        ]);
+        store.save(&legacy).unwrap();
+        let invalid = tool
+            .execute(
+                json!({"action":"update","id":id,"status":"awaiting_external"}),
+                &ctx,
+            )
+            .await;
+        assert_eq!(invalid.code, Some("EXTERNAL_ACCEPTANCE_DETAIL_REQUIRED"));
+        let output = tool.execute(json!({"action":"update","id":id,"status":"awaiting_external",
+            "fields":{"进展":"实现与本地回归完成，证据 src/example.rs:12；SSH 现场未验证", "外部验收":"真实 SSH 完整运行、断线与取消"}}), &ctx).await;
+        assert!(!output.is_error, "{}", output.content);
+        let waiting = store.load().unwrap();
+        assert_eq!(waiting[0].status, "awaiting_external");
+        assert!(waiting[0]
+            .fields
+            .iter()
+            .filter(|(key, _)| key == "状态" || key.eq_ignore_ascii_case("status"))
+            .all(|(_, value)| value == "awaiting_external"));
+        assert!(waiting[0]
+            .fields
+            .iter()
+            .any(|(key, value)| key == "验收" && value.contains("尚未实现")));
+        assert!(
+            store.load_archive().unwrap().is_empty(),
+            "外部验收未通过不能冒充完成或归档"
+        );
+        assert!(super::scheduling::workable_titles(&root, 10).is_empty());
+        assert_eq!(
+            super::scheduling::backlog_status(&root),
+            kanzei_harness::auto_run::BacklogStatus::Empty
+        );
+        let control = crate::work::resolve_work_decision(
+            &root,
+            &root,
+            kanzei_harness::auto_run::WorkPriority::DefectFirst,
+        )
+        .unwrap();
+        assert_eq!(control.decision, crate::work::WorkDecision::Empty);
+        assert!(control.blocked_items.is_empty() && control.executable_wip.is_empty());
+        assert_eq!(control.pending_external.len(), 1);
+        let mut dependent = waiting[0].clone();
+        dependent.id = format!("{}-002", kind.prefix);
+        dependent.status = kind.statuses[0].into();
+        dependent.fields = vec![("依赖".into(), id.clone())];
+        store.save(&[waiting[0].clone(), dependent]).unwrap();
+        let control = crate::work::resolve_work_decision(
+            &root,
+            &root,
+            kanzei_harness::auto_run::WorkPriority::DefectFirst,
+        )
+        .unwrap();
+        assert_eq!(
+            control.selected.as_ref().unwrap().id,
+            format!("{}-002", kind.prefix)
+        );
+        assert!(control.blocked_items.is_empty());
+        let resumed = tool
+            .execute(
+                json!({"action":"update","id":id,"status":kind.statuses[1]}),
+                &ctx,
+            )
+            .await;
+        assert!(!resumed.is_error, "{}", resumed.content);
+        let resumed = store.load().unwrap();
+        assert_eq!(resumed[0].status, kind.statuses[1]);
+        assert!(resumed[0]
+            .fields
+            .iter()
+            .filter(|(key, _)| key == "状态" || key.eq_ignore_ascii_case("status"))
+            .all(|(_, value)| value == kind.statuses[1]));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn reopen_external_acceptance_preserves_reason_and_status_mirrors() {
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let (root, ctx, tool, store) = fixture(kind, "reopen-mirrors");
+        let id = format!("{}-001", kind.prefix);
+        let mut entries = store.load().unwrap();
+        entries[0].status = "awaiting_external".into();
+        entries[0].fields.extend([
+            ("状态".into(), "awaiting_external".into()),
+            ("Status".into(), "awaiting_external".into()),
+            (
+                "进展".into(),
+                "local checks passed; external checks pending".into(),
+            ),
+            ("外部验收".into(), "SSH disconnect check".into()),
+        ]);
+        store.save(&entries).unwrap();
+        let output = tool
+            .execute(
+                json!({"action":"reopen","id":id,"reason":"external check found a defect"}),
+                &ctx,
+            )
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        let entries = store.load().unwrap();
+        assert_eq!(entries[0].status, kind.statuses[0]);
+        assert!(store.integrity_issues(&entries).unwrap().is_empty());
+        assert!(entries[0]
+            .fields
+            .iter()
+            .any(|(k, v)| k == "进展" && v.contains("local checks passed")));
+        assert!(entries[0]
+            .fields
+            .iter()
+            .any(|(k, v)| k == "进展" && v.contains("external check found a defect")));
+        let next = tool.execute(json!({"action":"update","id":id,"fields":{"说明":"ready for another implementation pass"}}), &ctx).await;
+        assert!(!next.is_error, "{}", next.content);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn claim_and_release_keep_legacy_status_mirrors_consistent() {
+    let (root, ctx, _tool, store) = fixture(&DEFECTS, "claim-mirrors");
+    let mut entries = store.load().unwrap();
+    entries[0].status = "open".into();
+    entries[0].fields.extend([
+        ("状态".into(), "open".into()),
+        ("Status".into(), "open".into()),
+    ]);
+    store.save(&entries).unwrap();
+    let output = crate::work::WorkTool
+        .execute(json!({"action":"claim","id":"D-001"}), &ctx)
+        .await;
+    assert!(!output.is_error, "{}", output.content);
+    let mut entries = store.load().unwrap();
+    assert_eq!(entries[0].status, "fixing");
+    assert!(store.integrity_issues(&entries).unwrap().is_empty());
+    entries[0]
+        .fields
+        .push(("取得线".into(), "fixture-line".into()));
+    store.save(&entries).unwrap();
+    assert_eq!(
+        crate::work::release_line_claims(&root, "fixture-line", "external test follow-up").unwrap(),
+        vec!["D-001"]
+    );
+    let entries = store.load().unwrap();
+    assert_eq!(entries[0].status, "open");
+    assert!(store.integrity_issues(&entries).unwrap().is_empty());
+    assert!(entries[0]
+        .fields
+        .iter()
+        .any(|(k, v)| k == "取活释放" && v.contains("external test follow-up")));
+    std::fs::remove_dir_all(root).unwrap();
+}

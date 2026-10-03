@@ -469,6 +469,7 @@ export function buildToolBlock(name, input) {
 export function toolOutcomeView(ok, outcome) {
   const state = outcome || (ok ? "success" : "failed");
   if (state === "noop") return { state, cls: "noop", icon: "↪" };
+  if (state === "blocked_by_workflow") return { state, cls: "warn", icon: "Ⅱ" };
   if (state === "needs_correction" || state === "needs_confirmation") {
     return { state, cls: "warn", icon: "⚠" };
   }

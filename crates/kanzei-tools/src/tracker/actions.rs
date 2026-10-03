@@ -470,9 +470,63 @@ pub(crate) fn update_close(
             .as_deref()
             .is_some_and(|status| tool.kind.terminal.contains(&status));
     let is_closing_action = action == "close" || is_terminal_update;
-    if is_closing_action && !already_terminal {
+    let requested_status = input.status.as_deref().unwrap_or(tool.kind.terminal[0]);
+    if action == "close" && !tool.kind.terminal.contains(&requested_status) {
+        return ToolOutput::needs_correction(
+            "TRACKER_CLOSE_TARGET_INVALID",
+            format!(
+                "close target must be terminal: {}",
+                tool.kind.terminal.join(" | ")
+            ),
+        );
+    }
+    // 取消/不修复是有原因的处置，不是已验证完成的交付。
+    let retiring = is_closing_action
+        && matches!(
+            (tool.kind.prefix, requested_status),
+            ("R", "dropped") | ("D", "wontfix")
+        );
+    if retiring && !already_terminal {
+        let Some(reason) = input
+            .reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|reason| !reason.is_empty())
+        else {
+            return ToolOutput::needs_correction(
+                "TRACKER_CLOSE_REASON_REQUIRED",
+                format!("{id} → {requested_status} 必须提供 reason，写明过期、取消、重复或不修复的原因；原条目和未完成验收保留在归档，不记为已完成。"),
+            );
+        };
+        input.fields.insert("关闭原因".into(), reason.into());
+    }
+    let requires_delivery_evidence = is_closing_action && !already_terminal && !retiring;
+    if action == "update"
+        && input.status.as_deref() == Some("awaiting_external")
+        && before.status != "awaiting_external"
+    {
+        let merged_field = |key: &str| {
+            input.fields.get(key).map(String::as_str).or_else(|| {
+                before
+                    .fields
+                    .iter()
+                    .find(|(name, _)| name == key)
+                    .map(|(_, value)| value.as_str())
+            })
+        };
+        if merged_field("外部验收").is_none_or(|value| value.trim().is_empty())
+            || merged_field("进展").is_none_or(|value| value.trim().is_empty())
+        {
+            return ToolOutput::needs_correction("EXTERNAL_ACCEPTANCE_DETAIL_REQUIRED",
+                format!("{id} 标记待外部验收前，先在进展记录已完成实现与本地验证证据，并填写外部验收字段说明 SSH/设备上还要验证什么。该状态不等于验收通过。"));
+        }
+    }
+    if requires_delivery_evidence {
         if let Some(ancestry_err) = check_close_source_ancestry(&entries[pos], &ctx.cwd) {
-            return ToolOutput::error(format!("{id} {ancestry_err}"));
+            return ToolOutput::needs_correction(
+                "TRACKER_CLOSE_BLOCKED",
+                format!("{id} {ancestry_err}"),
+            );
         }
     }
     // D-664:设计文档新增/修改或显著单文件变更的交付，必须先经过当前 HEAD
@@ -482,22 +536,24 @@ pub(crate) fn update_close(
     // 照旧要求"先跑 verify.ps1",条目就永远关不掉——实测形态是 agent 反复
     // `.\scripts\verify.ps1` → command not found → glob 全仓库 → 确认不存在 →
     // 记一条失败测试 → 条目仍 open,整段对产品零价值。没有该脚本就不设这道门。
-    if is_closing_action
-        && !already_terminal
+    if requires_delivery_evidence
         && crate::test_record::project_has_verify_script(&ctx.project_root)
     {
         if let Some(trigger) = close_verify_trigger(&ctx.project_root, id) {
             if let Some(gap) = crate::test_record::verification_evidence_gap(&ctx.project_root, id)
             {
-                return ToolOutput::error(format!(
-                    "{id} 需要 verify 证据才能关闭({trigger}——这条判据看的是仓库最近一次提交,\
+                return ToolOutput::needs_correction(
+                    "TRACKER_CLOSE_BLOCKED",
+                    format!(
+                        "{id} 需要 verify 证据才能关闭({trigger}——这条判据看的是仓库最近一次提交,\
                      不是 {id} 自己的改动面)。\n缺口:{gap}。\n\
                      verify 失败时先修门禁欠账,不要绕过。"
-                ));
+                    ),
+                );
             }
         }
     }
-    if is_closing_action && !already_terminal {
+    if requires_delivery_evidence {
         let tag = entries[pos]
             .fields
             .iter()
@@ -512,16 +568,19 @@ pub(crate) fn update_close(
             && !available.is_empty()
             && crate::test_record::frontend_smoke_passed(&ctx.project_root).is_none()
         {
-            return ToolOutput::error(format!(
-                "{id} 带「前端」标签,但没有任何前端冒烟 passed 测试记录,不能关闭。\
+            return ToolOutput::needs_correction(
+                "TRACKER_CLOSE_BLOCKED",
+                format!(
+                    "{id} 带「前端」标签,但没有任何前端冒烟 passed 测试记录,不能关闭。\
                  前端标签任务关闭前必须跑过本项目的 ui smoke({})并用 test_record 记 passed;\
                  cargo test --workspace 全绿不等于前端全量。",
-                available
-                    .iter()
-                    .map(|s| format!("node scripts/{s}"))
-                    .collect::<Vec<_>>()
-                    .join(" / ")
-            ));
+                    available
+                        .iter()
+                        .map(|s| format!("node scripts/{s}"))
+                        .collect::<Vec<_>>()
+                        .join(" / ")
+                ),
+            );
         }
     }
     let target_status = if is_closing_action {
@@ -530,6 +589,8 @@ pub(crate) fn update_close(
         // 字段合并照常(重入可补字段),无变更时下方 no-op 判定会零写入返回。
         if already_terminal {
             Some(entries[pos].status.clone())
+        } else if retiring {
+            Some(requested_status.to_string())
         } else {
             // 批次没走完不能关:格子是给人看进度的,关闭时还剩空格,要么是漏了批次,
             // 要么是总数当初估多了——两种都要说清楚,不能默默把空格留在那儿。
@@ -590,15 +651,24 @@ pub(crate) fn update_close(
             // (根因:R-199 关闭证据把完整否决误归为「非续跑否决」且无人核对,
             // 产出 D-320/D-323;无分类断言的关闭不受影响。)
             if let Some(evidence_err) = check_close_classification_evidence(&merged) {
-                return ToolOutput::error(format!("{id} {evidence_err}"));
+                return ToolOutput::needs_correction(
+                    "TRACKER_CLOSE_BLOCKED",
+                    format!("{id} {evidence_err}"),
+                );
             }
             if let Some(complexity_err) = check_close_complexity_evidence(&merged) {
-                return ToolOutput::error(format!("{id} {complexity_err}"));
+                return ToolOutput::needs_correction(
+                    "TRACKER_CLOSE_BLOCKED",
+                    format!("{id} {complexity_err}"),
+                );
             }
             // 2026-08-16 审计门禁:验收条款对账——带圈条款号必须在进展中逐条覆盖
             // 并带证据锚,沉默降级即拒(详见函数注释;真伪由波次审计另查)。
             if let Some(reconcile_err) = check_close_acceptance_reconciliation(&merged) {
-                return ToolOutput::error(format!("{id} {reconcile_err}"));
+                return ToolOutput::needs_correction(
+                    "TRACKER_CLOSE_BLOCKED",
+                    format!("{id} {reconcile_err}"),
+                );
             }
             let derived_done = crate::git_batches::completed_batches(&ctx.project_root, id)
                 .ok()
@@ -608,7 +678,7 @@ pub(crate) fn update_close(
                 derived_done,
             ) {
                 if declared_done != derived_done {
-                    return ToolOutput::error(format!(
+                    return ToolOutput::needs_correction("TRACKER_CLOSE_BLOCKED", format!(
                         "{id} 的手写批次是 {declared_done}/{declared_total},但 Git 提交历史标记数为 {derived_done};请先核对并更新批次字段后再关闭。"
                     ));
                 }
@@ -616,27 +686,33 @@ pub(crate) fn update_close(
             let (done, total) =
                 crate::docstore::batch_progress_with_derived_done(&merged, derived_done);
             if total > 1 && done < total {
-                return ToolOutput::error(format!(
-                    "{id} 批次未走完({done}/{total}),不能关闭。真做完了就把总数改成实际批数\
+                return ToolOutput::needs_correction(
+                    "TRACKER_CLOSE_BLOCKED",
+                    format!(
+                        "{id} 批次未走完({done}/{total}),不能关闭。真做完了就把总数改成实际批数\
                      (`批次: {done}/{done}`——当初估多了是正常的,改它比留着空格诚实);\
                      还有批次没做就先做完再关。"
-                ));
+                    ),
+                );
             }
             // 关闭前必须先收尾该条目名下的测试记录:一条挂着的 running 与"根本没跑"
             // 无法区分,带着它关闭等于把未验证当成已验证入账。
             let unclosed = crate::test_record::unclosed_running_for(&ctx.project_root, id);
             if !unclosed.is_empty() {
-                return ToolOutput::error(format!(
-                    "{id} 名下还有 {} 条 running 测试记录没收尾,不能关闭:\n{}\n\
+                return ToolOutput::needs_correction(
+                    "TRACKER_CLOSE_BLOCKED",
+                    format!(
+                        "{id} 名下还有 {} 条 running 测试记录没收尾,不能关闭:\n{}\n\
                      跑完就用 test_record 带上对应 id 记终态(passed/failed/skipped);\
                      确实不跑了记 skipped 并写明原因。",
-                    unclosed.len(),
-                    unclosed
-                        .iter()
-                        .map(|(rid, title)| format!("  - {rid} {title}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                ));
+                        unclosed.len(),
+                        unclosed
+                            .iter()
+                            .map(|(rid, title)| format!("  - {rid} {title}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
+                );
             }
             let status = input
                 .status
@@ -735,6 +811,9 @@ pub(crate) fn update_close(
             None => entry.fields.push((key, value)),
         }
     }
+    // 标题状态是唯一真源。存量条目的镜像字段必须跟随迁移，避免本次
+    // 成功写入后，下一次正常更新却因旧「状态」字段冲突被完整性门禁挡住。
+    entry.sync_status_fields();
     // 每次落「进展」都同时保存仓库锚点。后续取活会机械比较 HEAD /
     // worktree 指纹，把历史叙事标为 current/stale/future/unanchored，
     // 不再让一段未对齐当前代码的文字冒充事实。

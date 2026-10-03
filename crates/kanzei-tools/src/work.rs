@@ -153,6 +153,9 @@ pub struct ResolvedControlState {
     /// 「主动让出 WIP 槽」当成「过期的自记阻塞」清掉——清完下一轮就撞 wip_violation。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parked_items: Vec<WorkItemSummary>,
+    /// 实现已经交付，等待真实 SSH/设备验收；不参与开发取活和阻塞裁决。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_external: Vec<WorkItemSummary>,
     /// D-332 验收⑥:裁决被冻结的标志。Resume/Start 一旦给出且没有新的控制面事实
     /// (队列变化/阻塞解除/用户指示),Agent 不应重新讨论「做不做/做哪个」——
     /// 评估实测:同一 scope decision 反复反刍几千 token,边际信息增益≈0。
@@ -307,6 +310,7 @@ pub fn release_line_claims(
             }
             if entry.status == kind.statuses[1] {
                 entry.status = kind.statuses[0].to_string();
+                entry.sync_status_fields();
             }
             entry.fields.retain(|(key, _)| key != "取得线");
             let audit = format!(
@@ -751,6 +755,8 @@ fn compact_for_context(mut state: ResolvedControlState) -> ResolvedControlState 
     // 全表、指纹或大段缺口，避免判定条数增长导致上下文膨胀。
     state.reconciliation.items.clear();
     state.reconciliation.counts.clear();
+    // 待外部验收不参与当前执行，只在计数与显式 detail 中可见。
+    state.pending_external.clear();
     state
 }
 
@@ -842,6 +848,7 @@ fn resolve_work_state(
     let mut executable_wip = Vec::new();
     let mut blocked_items = Vec::new();
     let mut parked_items: Vec<WorkItem> = Vec::new();
+    let mut pending_external = Vec::new();
     let mut foreign_wip: Vec<WorkItemSummary> = Vec::new();
     let mut integrity_errors = Vec::new();
     let mut work_unit_candidates = Vec::new();
@@ -862,7 +869,10 @@ fn resolve_work_state(
     // 全由 unit 投影驱动。旧 Requirement 保留原调度语义。
     for scheduled_outcome in &scheduled_requirements {
         let outcome = &scheduled_outcome.entry;
-        if !uses_work_units(outcome) || REQUIREMENTS.terminal.contains(&outcome.status.as_str()) {
+        if !uses_work_units(outcome)
+            || REQUIREMENTS.terminal.contains(&outcome.status.as_str())
+            || outcome.status == "awaiting_external"
+        {
             continue;
         }
         let outcome_units = work_units
@@ -957,6 +967,17 @@ fn resolve_work_state(
         (&DEFECTS, &scheduled_defects, "fixing"),
     ] {
         for scheduled_item in scheduled {
+            if scheduled_item.entry.status == "awaiting_external" {
+                pending_external.push(WorkItemSummary::from(&item(
+                    kind,
+                    &scheduled_item.entry,
+                    Vec::new(),
+                    &states,
+                    &observation,
+                    &reference_index,
+                )));
+                continue;
+            }
             if kind.prefix == "R" && work_unit_requirement_ids.contains(&scheduled_item.entry.id) {
                 continue;
             }
@@ -1064,6 +1085,7 @@ fn resolve_work_state(
                     // WIP 归持有线,都轮不到 Start。
                     let invalid = !status.is_empty() && !kind.statuses.contains(&status);
                     if invalid
+                        || status == "awaiting_external"
                         || status == wip_status
                         || (kind.prefix == "R"
                             && work_unit_requirement_ids.contains(&scheduled_item.entry.id))
@@ -1206,6 +1228,14 @@ fn resolve_work_state(
                     ),
                     None,
                 ),
+                None if !pending_external.is_empty() => (
+                    WorkDecision::Empty,
+                    format!(
+                        "开发队列无可取条目；{} 条待外部验收，不阻塞开发",
+                        pending_external.len()
+                    ),
+                    None,
+                ),
                 None => (
                     WorkDecision::Empty,
                     "需求与缺陷队列均无活动条目".into(),
@@ -1247,6 +1277,7 @@ fn resolve_work_state(
         ]),
         blocked_items: blocked_items.iter().map(WorkItemSummary::from).collect(),
         parked_items: parked_items.iter().map(WorkItemSummary::from).collect(),
+        pending_external,
         decision_locked,
         integrity_errors,
         line: me,
@@ -1308,6 +1339,7 @@ mod tests {
                 block_reasons: vec!["机械对账禁止取活：源码指纹 `deadbeef`".into()],
             }],
             parked_items: Vec::new(),
+            pending_external: Vec::new(),
             decision_locked: false,
             integrity_errors: Vec::new(),
             line: None,

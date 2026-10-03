@@ -346,6 +346,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
                 return Some(ToolOutput::error(error));
             }
             outcome.status = "doing".into();
+            outcome.sync_status_fields();
             if let Err(error) = req_store.save(&requirements) {
                 return Some(ToolOutput::error(format!(
                     "cannot activate outcome: {error}"
@@ -761,6 +762,7 @@ impl Tool for WorkTool {
                 return ToolOutput::error(error);
             }
             entries[position].status = wip_status.into();
+            entries[position].sync_status_fields();
         }
         // 取活依据是**调度器每轮重算的机制产物**,不是条目自身的状态。
         // 原来把它写进条目字段,而 `structured_entry` 会把条目的全部 fields 序列化进

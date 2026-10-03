@@ -268,6 +268,13 @@ impl DocStore {
         if self.kind.terminal.contains(&to) {
             return Ok(());
         }
+        // 外部验收发现问题时，回到同一条目的开发状态，保留原验收与现场记录。
+        if from == "awaiting_external"
+            && matches!(self.kind.prefix, "R" | "D")
+            && to == self.kind.statuses[1]
+        {
+            return Ok(());
+        }
         // 双向类型(目标):非终态之间自由往返(active⇄paused)。
         if self.kind.bidirectional {
             return Ok(());

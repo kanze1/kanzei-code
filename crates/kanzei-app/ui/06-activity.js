@@ -818,6 +818,7 @@ export function traceArgText(name, input, summary) {
 export function activityOutcomeView(ok, outcome) {
   const state = outcome || (ok ? "success" : "failed");
   if (state === "noop") return { state, cls: "noop" };
+  if (state === "blocked_by_workflow") return { state, cls: "warn" };
   if (state === "needs_correction" || state === "needs_confirmation") return { state, cls: "warn" };
   return state === "success" ? { state, cls: "ok" } : { state, cls: "err" };
 }
@@ -879,6 +880,8 @@ export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
       ? `⚠ ${t("需要确认")}`
       : view.state === "needs_correction"
         ? `⚠ ${t("需要修正")}`
+        : view.state === "blocked_by_workflow"
+          ? `Ⅱ ${t("流程暂缓")}`
         : ok
           ? `✓ ${t("成功")}`
           : timedOut

@@ -1,6 +1,6 @@
 import { openMenu } from "./00-surface.js";
 import { defer } from "./01-core.js";
-import { $, confirmDialog, invoke, promptBox } from "./01-core.js";
+import { $, confirmDialog, inputDialog, invoke, promptBox } from "./01-core.js";
 import { localizeDynamic } from "./02-i18n.js";
 import { localizedDocStatus, localizedStatusWord, t } from "./02-i18n.js";
 import { currentProject, log, navigate_view, setSidebarCollapsed, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
@@ -93,6 +93,22 @@ export async function applyBatch() {
   // 循环内不得重读 currentProject——await 之间它可能已被用户切走,重读会把旧项目的
   // 条目 id 写进新项目(2026-08-11 用户拍板:按认领项目做完,不是中止)。
   const batchProjectDir = currentProject;
+  const fields = tag ? { "标签": tag } : {};
+  let reason;
+  if (status === "awaiting_external") {
+    const external = await inputDialog({ title: t("待外部验收"), message: targets.map(([id]) => id).join(" · "),
+      placeholder: t("写明真实 SSH 或设备上还需验收的事项"), okText: t("确认标记") });
+    if (external === null) return;
+    if (!external.trim()) { toastError(t("请填写待验收事项")); return; }
+    fields["外部验收"] = external.trim();
+  }
+  if (status === "dropped" || status === "wontfix") {
+    reason = await inputDialog({ title: t("关闭原因"), message: targets.map(([id]) => id).join(" · "),
+      placeholder: t("写明过期、取消、重复或不修复的原因"), okText: t("确认归档") });
+    if (reason === null) return;
+    reason = reason.trim();
+    if (!reason) { toastError(t("请填写关闭原因")); return; }
+  }
   let ok = 0;
   const failures = [];
   for (const [id, kind] of targets) {
@@ -103,7 +119,8 @@ export async function applyBatch() {
         action: "update",
         id,
         ...(status ? { status } : {}),
-        ...(tag ? { fields: { "标签": tag } } : {}),
+        ...(reason ? { reason } : {}),
+        ...(Object.keys(fields).length ? { fields } : {}),
       });
       ok += 1;
     } catch (error) {
@@ -448,7 +465,25 @@ const COMPLEXITY_LEVELS = ["小", "中", "大"];
 const ARCHIVE_FILES = Object.freeze({ req: "requirements-archive.md", defect: "defects-archive.md", idea: "ideas-archive.md" });
 export async function transitionEntryStatus(entry, kind, next, { project = currentProject } = {}) {
   const terminal = (DOC_TERMINAL_STATUSES[kind] ?? []).includes(next);
-  if (terminal) {
+  const retiring = next === "dropped" || next === "wontfix";
+  let reason;
+  if (next === "awaiting_external") {
+    reason = await inputDialog({ title: t("待外部验收"), message: `${entry.id} · ${entry.title}`,
+      placeholder: t("写明真实 SSH 或设备上还需验收的事项"), okText: t("确认标记") });
+    if (reason === null) return false;
+    reason = reason.trim();
+    if (!reason) { toastError(t("请填写待验收事项")); return false; }
+  } else if (retiring) {
+    reason = await inputDialog({
+      title: t("关闭原因"),
+      message: `${entry.id} · ${entry.title}\n${t("条目和未完成验收会保留在归档，不记为已完成。")}`,
+      placeholder: t("写明过期、取消、重复或不修复的原因"),
+      okText: t("确认归档"),
+    });
+    if (reason === null) return false;
+    reason = reason.trim();
+    if (!reason) { toastError(t("请填写关闭原因")); return false; }
+  } else if (terminal) {
     const word = localizedDocStatus(next);
     const ok = await confirmDialog({
       title: t("标记为「{status}」").replace("{status}", word),
@@ -465,7 +500,8 @@ export async function transitionEntryStatus(entry, kind, next, { project = curre
   // 确认框开着的时候用户可能已经切走项目:写回落在认领时的项目,但只在没切走时才继续。
   if (project !== currentProject) return false;
   try {
-    const msg = await invoke("docs_update", { projectDir: project, kind, action: "update", id: entry.id, status: next });
+    const msg = await invoke("docs_update", { projectDir: project, kind, action: terminal ? "close" : "update", id: entry.id, status: next,
+      ...(next === "awaiting_external" ? { fields: { "外部验收": reason } } : reason ? { reason } : {}) });
     log(msg);
     toast(`${entry.id} → ${localizedDocStatus(next)}${terminal ? ` · ${t("已归档")}` : ""}`);
     refreshDocs();
@@ -1094,7 +1130,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     // 阻塞状态由后端调度器计算,前端只负责展示,保证列表顺序与 agent 取活一致。
     const blockedReasons = Array.isArray(entry.block_reasons) ? entry.block_reasons : [];
     const blocked = entryBlocked(entry);
-    const externalBlocked = (entry.fields ?? []).some(([key, value]) =>
+    const externalBlocked = entry.status !== "awaiting_external" && (entry.fields ?? []).some(([key, value]) =>
       ["阻塞", "blocked", "blocking"].includes(String(key).toLowerCase())
       && /外部|external|blocked/i.test(String(value))
     );

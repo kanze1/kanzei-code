@@ -4247,11 +4247,10 @@
 - refs: R-343 R-276
 - 优先级: P2
 - 批次: 1/2
-- 进展: B1/B2 全部落地并通过 `T-1786922726893`、`T-1786922726894`。验收逐项对账：①同一批文件两次投影一致且可重建：`crates/kanzei-app/ui/19-research.js:486-518` 按 exploration id 稳定排序、固定网格坐标、固定边/diagnostics 排序；`1031-1032`、`1058-1059` 每次从 `researchSnapshot` 重建；smoke 对 JSON 投影重复结果做等值断言。②悬挂引用/成环/缺 id 诊断：上游 `crates/kanzei-app/src/docs.rs:100-101` 返回 Markdown loader diagnostics，前端 `19-research.js:596-603` 按 path/line/message 显示，不静默丢弃；smoke 覆盖悬挂关系，成环/缺 id 沿同一 diagnostics 通道呈现。③真实下钻：`ui/index.html:536-551` 提供路线图与详情消费者；`19-research.js:650-722` 展示假设、Markdown 结果表、结论、后续；`615-623` 结果按 result_id 定位并高亮真实 run；`895-920` 从 run 事实提供终端日志、指标事件曲线和 terminal/metrics/artifacts 文件预览入口；`T-1786922726894` 覆盖结果→run→file_preview 与空结果/空 topic。④无第二份图数据：`19-research.js:486-518` 仅读取 `researchSnapshot.research_topics[].explorations`，没有图数据写入或持久化文件；图 DOM 只读投影。既有能力说明：R-343/R-344/R-345/R-347 已提供解析、run 事实、事件终端/指标能力；本次交付为路线图投影、探索详情关联与产物入口。
+- 进展: B1/B2 全部落地并通过 `T-1786922726893`、`T-1786922726894`。验收逐项对账：①同一批文件两次投影一致且可重建：`crates/kanzei-app/ui/19-research.js:486-518` 按 exploration id 稳定排序、固定网格坐标、固定边/diagnostics 排序；`1031-1032`、`1058-1059` 每次从 `researchSnapshot` 重建；smoke 对 JSON 投影重复结果做等值断言。②悬挂引用/成环/缺 id 诊断：上游 `crates/kanzei-app/src/docs.rs:100-101` 返回 Markdown loader diagnostics，前端 `19-research.js:596-603` 按 path/line/message 显示，不静默丢弃；smoke 覆盖悬挂关系，成环/缺 id 沿同一 diagnostics 通道呈现。③真实下钻：`ui/index.html:536-551` 提供路线图与详情消费者；`19-research.js:650-722` 展示假设、Markdown 结果表、结论、后续；`615-623` 结果按 result_id 定位并高亮真实 run；`895-920` 从 run 事实提供终端日志、指标事件曲线和 terminal/metrics/artifacts 文件预览入口；`T-1786922726894` 覆盖结果→run→file_preview 与空结果/空 topic。④无第二份图数据：`19-research.js:486-518` 仅读取 `researchSnapshot.research_topics[].explorations`，没有图数据写入或持久化文件；图 DOM 只读投影。既有能力说明：R-343/R-344/R-345/R-347 已提供解析、run 事实、事件终端/指标能力；本次交付为路线图投影、探索详情关联与产物入口。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: 3d612fd9d620822a0b097aee916cadfacb7dfc35
 - observed_worktree_hash: fnv1a64:d3336eefaabb5ae8
 - recorded_at: 1788304785845
-- 状态: done
 
 ## R-348 内置 LaTeX 模板与 PDF 预览:模板落项目、编译日志、PDF 历史版本、实验图表引用 [done]
 - 内容: 按设计 §8 落地研究文档模板与 PDF 闭环:内置四套基础 LaTeX 模板(基础报告/基础论文/实验记录/带图表论文),新建论文或报告时选模板并复制进 topic 的 latex/;复用既有 LaTeX 专用通道编译,保留编译日志与错误定位;PDF 在应用内直接预览并保留历史版本;实验图表以路径引用插入论文;一次编译记为可追溯产物(.tex → 编译运行 → 编译日志 → PDF → 当时环境快照)。
@@ -4471,3 +4470,60 @@
 - observed_worktree_hash: fnv1a64:1fdd6a1e4b2d7c83
 - recorded_at: 1790473899455
 - 确认记录: Agent decisions（待用户批量复核；不是用户回答或授权）：dec-1ec3ded4ec2dc3c9a72365f28661cb5cf981431ad87ebc6f9ce108a58d58e580：纠正保存后唤醒原线队列，忙时不重复入队；dec-c7808697d13c93dcb603948bf1f928ab5e921428e1222e75dea88dba1cf1cc86：只持久化 deliver/file display，复用 trace 查询，worktree 打开需核对原线项目归属；dec-35e20951b8ba4c7bc793322e3c36ee07cb2b14c1743ef574b1f3d401708de664：App 监视器只对运行期间观测到的有效终态写入 job_id 稳定系统通知输入，忙时沿用原队列，跳过取消/替代结果，避免历史任务批量重放。
+
+## R-366 回退:每条用户消息一个检查点,可选对话+代码/只回退对话/只回退代码 [done]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.9;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §3。B1 检查点存储(编辑前像按内容寻址存 .kanzei/artifacts/checkpoints,索引 file_checkpoints 表);B2 conversation.rewind 事件与历史重建(桌面、CLI、shadow 同口径);B3 代码还原、外部改动默认跳过、覆盖前留证、预览不会还原的内容;B4 桌面 UI(悬停回退按钮、三选项、预览确认、回填输入框、历史列表可查看已回退段)。
+- 发现记录: {"Intent":"像 CC 一样可回退到任一用户消息","Explicit":"默认对话+代码,可选只对话或只代码,外部改动默认跳过","Assumptions":"只还原编辑工具改过的文件,与 CC 行为契约一致","Ambiguities":"无阻塞项","领域对象":"文件检查点、前像 blob、隐藏区间、回退点","最小成功闭环":"一轮 edit 后回退,文件与对话同时回到该消息之前","延后决策":"检查点 blob 清理策略;冲突文件 diff 展示"}
+- 复杂度: 大
+- 批次: 4/4
+- 来源: 用户 2026-09-25 原话「回退我很常用很重要」,回退范围选「对话+代码」
+- 标签: 核心
+- 边界: 不做模型回退工具与 CLI 回退命令;不还原 bash、git、追踪文档、记忆与附件;检查点 blob 的清理随 R-245 配额机制处理
+- 验收: ①edit/write/insert 首次触碰文件时保存前像,新建文件记为原本不存在,无 run_id 的调用无副作用;②回退对话后桌面、下一轮 prior 与 kz run 都看不到被回退段,历史列表可只读打开回退前原貌;③回退代码恢复前像并删除检查点后新建的文件,外部改动过的文件默认跳过并列出,确认后才覆盖且覆盖前留证;④预览列出将恢复与删除的文件,以及不会还原的 bash、提交、追踪文档与记忆写入;⑤运行中或有排队输入时拒绝回退;⑥不新增模型工具
+- refs: R-242 R-245 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P1
+- 进展: B1–B4 已完成并在 build-2173dd60 发布；批次4/4。验收逐条：① edit.rs:329、write.rs:133、edit.rs:695 接线首次前像；file_checkpoints.rs:139/235 保存前像与后像、无 run_id 路径在写工具中跳过；T-1786922727053、file_checkpoints.rs:342/394 覆盖重复触碰与新文件哨兵。② conversation_actions.rs:79-89 生成目标投影，conversation.rs:173-254 读取回退后与历史段；conversation_tests.rs:804-849 覆盖 rewind 历史列表边界，T-1786922727056 与发布提交 2173dd60 验证桌面/CLI 交付。③ 回退应用以检查点后像识别外部变化，默认跳过、强制覆盖前留证；conversation_actions.rs:148-169 接线，docs/reports/2026-10-02-harness-repair.md 记录前像/新文件/外改恢复及测试。④ conversation_actions.rs:82-89 返回文件与未处理副作用预览，ui/05-conversation-actions.js:41-56 展示恢复/删除/外改与不还原项；T-1786922727131 当前工作树 UI 冒烟通过。⑤ conversation_actions.rs:38-43 拒绝运行/压缩中，:71-78 检查排队输入；T-1786922727056 release verify。⑥ 唯一入口为 app Tauri command conversation_action (conversation_actions.rs:17-31)，没有新增模型 Tool；工具注册差异由发布提交 2173dd60 验证。检查点配额清理由 R-378 承接；当前六项 UI smoke T-1786922727131 通过，不绑定发布 commit。
+- observed_head: 55eaca24750ac431ebe7f577c2f4b7b8cbded6f5
+- observed_worktree_hash: fnv1a64:c446b90c50bf3901
+- recorded_at: 1791049749734
+- 确认记录: 2026-09-26 波次审计更正:用户未对单个批次作答;09-25 23:17 B1 冻结方案发出后只收到自动续跑提示「继续推进,规则按系统提示执行。」,不构成授权,也不存在「仅授权 B1」的限定(见 D-764)。R-366 整体方案经用户 2026-09-25「直接登记就行」批准,B2-B4 按 docs/design/cc_codex_alignment_impl_maps.md §3 实施,无需逐批授权;09-26 00:38 的 question(seq 12791)作废。
+- 停车: 
+
+## R-367 先读后写:edit/write/insert 对未读或读后被改的文件返回纠错码 [done]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.6;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §4。B1 ReadLedger 与 ToolCtx 接线(含与 content_hash 格式一致的流式 hash);B2 read 记账与三个写工具的门禁;B3 桌面与 CLI 生产接线,子代理使用独立账本。
+- 发现记录: {"Intent":"防止按过期内容改文件","Explicit":"复刻 CC 的先读后写契约","Assumptions":"hash 一致加锚点精确匹配足以判定新鲜","Ambiguities":"无阻塞项","领域对象":"读取账本、内容 hash","最小成功闭环":"未读先改被拦,读后放行,外部改动后再改被拦","延后决策":"账本跨重启持久化"}
+- 复杂度: 中
+- 批次: 3/3
+- 来源: 用户 2026-09-25 对 A 档回答「同意」;并行线、codex 共用主工作树与自举并发下,读与写之间文件被改是真实风险
+- 标签: 后端
+- 边界: 不改 bash;账本不持久化;不改模糊回退;不新增工具
+- 验收: ①带账本时对已存在文件未 read 就写返回 READ_BEFORE_WRITE 且文件不变;②部分读取也算读过;③读后被外部改动时 edit/insert 返回 FILE_CHANGED_SINCE_READ 并附目标附近实际内容,write 必须重新 read;④新建文件不受限,写后账本刷新,连续 edit 无需重读;⑤子代理读取不计入主代理账本,新对话清空账本;⑥无账本的 ctx 行为与现状逐字节一致
+- refs: D-395 R-268 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P1
+- 进展: 2026-10-02：实现会话及子代理独立读取账本，read 前后 hash、部分读取整文件收据、write/edit/insert 前及改名前校验；未读与过期内容返回稳定纠错码。另修复文件锁超时重入死锁。局部测试通过，完整发布门禁通过；外部程序与最终 rename 仍有系统级竞态。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 历史检查点：检查点记录：本轮尝试重跑 cargo test -p kanzei-core / cargo test -p kanzei-app conversation / cargo test -p kanzei-tools read_receipt_tests 时被执行器 BATCH_CLOSING 拦截，命令未执行；不是测试失败，亦不能当作本轮通过。已有可复核通过证据仍是 T-1786922727053、T-1786922727056 与提交 2173dd60；UI 冒烟 T-1786922727131 不覆盖本条后端验收。下一步在可执行验证窗口重跑 cargo test -p kanzei-tools read_receipt_tests，再按结果关闭或保留缺口。 2026-10-04 收口核验：①未读已有文件返回 READ_BEFORE_WRITE 且字节不变；②partial read 可授权后续编辑；③外部改动触发 FILE_CHANGED_SINCE_READ，edit/insert 返回目标附近实际文本，write 拒绝直至重新读取；④新文件可写且写后刷新账本、连续编辑通过；⑤subagent.rs 独立 read_ledger、conversation.rs 新对话 clear，桌面 coordinator 和 CLI run 均注入；⑥无账本上下文旧行为保留。直接回归 read_receipt_tests 原样复跑 3/3 通过，见 output/joint-release-2026-10-04/read-receipts-final.log；首次运行功能断言通过但临时目录清理 OS32 失败，保留 read-receipts.log，未降低断言。此前 BATCH_CLOSING 是历史执行阻止，不再代表当前验证状态。 逐条证据锚：①未读已有文件拒绝且文件不变 T-1786922727132；②部分读取放行 T-1786922727132；③外改拒绝并带实际文本 T-1786922727132；④新文件与连续编辑刷新 T-1786922727132；⑤子代理账本隔离 crates/kanzei-core/src/runner/subagent.rs:514、新对话清空 crates/kanzei-app/src/conversation.rs:74，隔离回归 T-1786922727132；⑥无账本原行为回归 T-1786922727132。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056738575
+
+## R-382 需求侧栏按执行状态分组并提供优先级和类型筛选 [done]
+- 复杂度: 小
+- 来源: 2026-10-04 用户截图反馈：右侧需求前端渲染应该分级和分类型。
+- 标签: 前端
+- 验收: ①需求与缺陷可按类型、P0-P3 和受控标签筛选；②进行中、待开始、已阻塞、已停车分组并显示数量；③保留文件开发顺序与条目详情、批次和刷新交互，不因筛选改变调度。
+- refs: R-381
+- 优先级: P1
+- 进展: 2026-10-04 收口核验：①26-project-conversations.js 类型/P0-P3/受控标签组合筛选；②按执行状态分组计数且外验/停车默认折叠；③保持数据顺序与详情入口，刷新保留筛选及展开状态，筛选不写调度。scripts/ui-backlog-maintenance-smoke.mjs 真实浏览器 24 项通过（output/playwright/backlog-maintenance/verification.json），含密集侧栏滚动不移动会话/输入框。 逐条证据锚：①类型优先级标签组合筛选 T-1786922727136；②分组与数量 T-1786922727136；③刷新/详情/顺序保留且筛选不改调度 T-1786922727136。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056926161
+
+## R-383 待外部验收独立于开发阻塞与取活 [done]
+- 复杂度: 小
+- 来源: 2026-10-04 用户要求：真实 SSH 或设备验收不作为阻塞项目，只标记待外部验收。
+- 标签: 流程
+- 验收: ①需求和缺陷可转为待外部验收，保留未验证事项与本地证据，并可退回开发；②待外部验收不占开发名额、不进自动取活或阻塞统计，也不阻塞后续开发依赖；③右侧及完整列表显示待外部验收，保留原始验收和详情。
+- 优先级: P1
+- 进展: 2026-10-04 收口核验：①tracker external 状态必须带进展和外部事项，reopen/update 可返回开发，维护回归保留验收及历史原因；②tools/memory scheduling 将外验排除取活/开发名额/阻塞并放行开发依赖；③侧栏/完整列表保留详情，外验分组及退回开发/批量设置浏览器断言通过。maintenance.log 6/6；backlog-maintenance/verification.json 24 项通过。 逐条证据锚：①保留证据及未验证事项并可返回开发 T-1786922727133 T-1786922727136；②排除开发取活/阻塞与放行后续依赖 T-1786922727133；③侧栏及完整列表保留验收详情 T-1786922727136。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:60bfcc394e5eb461
+- recorded_at: 1791056932848

@@ -1,0 +1,43 @@
+{
+  "snapshot_baseline": "86db2ccc",
+  "review_head": "54b04021",
+  "changed_by_this_agent": [
+    {
+      "file": "crates/kanzei-app/ui/11-docs-list.js",
+      "source_sha256_lf": "78e43c089930250fd73ad848720896a1b481be9d96fa7cce91feab5917432b0c"
+    },
+    {
+      "file": "scripts/ui-backlog-maintenance-smoke.mjs",
+      "source_sha256_lf": "90974f51adb0acd0c984ab1d830d7b6df0acedf1e12b8a490e3a2dea628c42f9"
+    }
+  ],
+  "finding": {
+    "id": "BACKLOG-UI-01",
+    "severity": "P1",
+    "root_owner": "crates/kanzei-app/ui/11-docs-list.js",
+    "trigger": "Batch set awaiting_external for entries with local progress but no external acceptance field",
+    "impact": "The UI exposes a legal transition but cannot provide the required external acceptance detail; backend rejects every entry.",
+    "fix": "Collect external acceptance detail before the batch, merge it with optional tag, preserve original batch project, and cancel without writes."
+  },
+  "checks": {
+    "backlog_browser": 24,
+    "overview_browser": 54,
+    "spaces_browser": 38,
+    "runtime": "exit 0; prior 15-check backlog revision plus audit-first regressions; final 24-check revision separately passed",
+    "eslint": "pass",
+    "diff_check": "pass"
+  },
+  "logs": [
+    "output/backlog-merge-ui/snapshot-comparison.json",
+    "output/backlog-merge-ui/backlog-final.log",
+    "output/backlog-merge-ui/overview.log",
+    "output/backlog-merge-ui/spaces.log",
+    "output/backlog-merge-ui/runtime.log",
+    "output/backlog-merge-ui/lint.log"
+  ],
+  "limitations": [
+    "Browser fixture verifies rendering and IPC input; actual tracker writes are covered by backend owner tests.",
+    "Other worktree no longer exists; comparison used source.patch against 86db2ccc.",
+    "No Cargo, commit or release performed by this agent."
+  ]
+}

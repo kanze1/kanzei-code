@@ -326,13 +326,14 @@
 - refs: R-343 R-221
 - 优先级: P1
 - 批次: 4/4
-- 进展: 批次 4/4 已完成并提交 `00ae196f`：`crates/kanzei-tools/src/research_runner.rs:102-112,157-206` 新增 cancel 独立并发槽、pid 读取与 process tree kill，`209-490` 收尾优先保留 cancelled、heartbeat_timeout→stuck、run_finished/run_failed/run_cancelled 事实；`492-535` 回写探索 Markdown 的实验结果表；`583-645` 继续复用 core callback parser 并更新 callback_stats；`profiles/research.rs:38-41,133-138,162-166` 注册专用 runner、允许 run/cancel/get 且 bash 硬 deny。证据 `T-1786922726860`（tools 518 passed/1 ignored、app 250 passed）与 `T-1786922726861`（runner 5 passed）：①本机结果事实/产物/结果表已验证；SSH 真实服务器链路因缺用户提供的目标/凭据/人工准备目录，验收降级并登记外部阻塞；②坏 JSON/超长行/未知事件沿用 core parser 与 B3 测试，callback_stats 写入 `583-645`；③cancel/进程树 kill `157-206`、heartbeat stuck `343-410` 已验证；④get 从 state.db 回读 `137-155`，真实断线重连恢复由 R-347 承接，当前验收降级；⑤research bash 硬 deny `profiles/research.rs:133-138`，runner 专用权限 `162-166` 已回归；⑥环境快照 `229-303` 已记录，但缺环境准备步骤询问/记录由 R-345 承接，当前验收降级。后续依赖 R-345/R-347 完成后恢复本条收口。
-- observed_head: 00ae196ffdb6aa47a46f67ba7464d637a771b505
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1788271993948
-- 状态: doing
+- 进展: 批次 4/4 已完成并提交 `00ae196f`：`crates/kanzei-tools/src/research_runner.rs:102-112,157-206` 新增 cancel 独立并发槽、pid 读取与 process tree kill，`209-490` 收尾优先保留 cancelled、heartbeat_timeout→stuck、run_finished/run_failed/run_cancelled 事实；`492-535` 回写探索 Markdown 的实验结果表；`583-645` 继续复用 core callback parser 并更新 callback_stats；`profiles/research.rs:38-41,133-138,162-166` 注册专用 runner、允许 run/cancel/get 且 bash 硬 deny。证据 `T-1786922726860`（tools 518 passed/1 ignored、app 250 passed）与 `T-1786922726861`（runner 5 passed）：①本机结果事实/产物/结果表已验证；SSH 真实服务器链路因缺用户提供的目标/凭据/人工准备目录，验收降级并登记外部阻塞；②坏 JSON/超长行/未知事件沿用 core parser 与 B3 测试，callback_stats 写入 `583-645`；③cancel/进程树 kill `157-206`、heartbeat stuck `343-410` 已验证；④get 从 state.db 回读 `137-155`，真实断线重连恢复由 R-347 承接，当前验收降级；⑤research bash 硬 deny `profiles/research.rs:133-138`，runner 专用权限 `162-166` 已回归；⑥环境快照 `229-303` 已记录，但缺环境准备步骤询问/记录由 R-345 承接，当前验收降级。后续依赖 R-345/R-347 完成后恢复本条收口。 2026-10-04 维护核对：保留上述实现与本地证据，按用户新要求转为待外部验收。真实现场尚未通过；本条不占开发名额、不阻塞其他开发。待测事项见外部验收字段。；状态对账: 正文旧字段 `doing` 与权威标题状态 `awaiting_external` 冲突;已移除正文副本。 2026-10-04 收口复核：撤回仅待外部验收的判断，恢复 doing。①③真实 SSH 运行/取消仍须外验；②⑤既有解析容错与 research 权限证据保留；④R-347 已实现持久事实恢复，不再把旧承接记录当当前功能缺口，真实断线仍待外验；⑥当前 research_environment.rs 仅校验 preparation_steps，research_runner.rs 对缺环境返回 INVALID_ENVIRONMENT，没有询问并记录准备步骤的实现。R-345 的环境登记完成不能替代此项；这是未完成开发，不是产品决策。本轮不扩大实现范围，原验收及外部验收事项完整保留。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:49f9249157a3f63a
+- recorded_at: 1791056532278
 - 依赖: R-345 R-347
-- 阻塞: 依赖 R-345/R-347 已 done 归档,依赖侧已解除;剩余验收①SSH 真实服务器端到端需用户提供可连接的 SSH 目标、账号/凭据与人工准备目录(本机跑通部分已验证),或接受①SSH 侧降级后由 agent 收口;解除人:用户;解除条件:用户
+- 阻塞: 
+- 停车: 
+- 外部验收: 真实 SSH 实验完整运行：阶段/指标/进度/产物回传、结果事实及结果表；远端取消与断线恢复。已实现本机和 SSH 通道，现场目标未验收。
 
 ## R-353 改动面账本与交付态推导:让条目、改动、证据成为可机械关联的事实 [doing]
 - 内容: 按 docs/design/tracker_evidence_ledger.md §3.1/§3.2 建立地基:在 .kanzei/artifacts/work-log.jsonl 新增 deliver 事件(条目 id、commit、paths、test_record_ids、时间戳、来源),写入点设在 git finalize 提交通道——该处已在机器写 passed 测试记录,同一时刻引擎已知 WIP 持有者、暂存文件集与提交 sha。据此推导交付态 unstarted/uncommitted/committed/verified,作为纯派生量供门禁与调度消费,不落 Markdown、不新增条目字段。
@@ -436,42 +437,6 @@
 - recorded_at: 1790542908180
 - 设计冻结: 不变量：①保留 websearch/webfetch 工具身份、权限资源和 prior_art 单次扣预算语义；fetch_bytes/html_to_text、Research/arXiv 捕获及 webfetch_preview 既有切分/行为不得被新路径改变；②只有 B1 实测通过的通道才能启用托管搜索，Hosted 必须同时绑定 protocol 与 provider channel，仅同协议同通道原样回放，异通道条目不进请求体；③research 默认关闭原生搜索且以 add_finding 存证门禁约束引用，非交互拒绝策略下不声明托管工具；④不为本条重新启用 Claude OAuth，Claude 只在已有受支持认证且 P3 实测通过时开放。权威数据：请求路由/模型取 ResolvedModel 与 build_route；服务端未知协议形状只取 B1 脱敏实测，不从模拟推断；web ref 来自当前进程搜索结果注册表，正文以 artifacts/web 为真源，research 存证以 webfetch-log/source_text 为证据。目标文件按实施地图 §2：B1 ignored probe + 设计证据；B2a kanzei-llm request/event/protocol；B2b config/RunnerConfig/drive/App event/UI；B3 webfetch/web_refs/proxy/model roles；B4 websearch/research_loop/prompts。最小验证：B1 真实订阅 probe 手动 ignored 且默认测试绝不联网并脱敏；B2a 真实 SSE/Anthropic event 样例解析、同通道回放/异通道丢弃/计费；B2b config 层叠、pause_turn、IPC 双端事件与会话回放；B3/B4 TcpListener 假服务覆盖重定向、缓存、落盘、提取降级、Codex backend fallback、ref 与 research 门禁；每批运行改动 crate 定向测试与 all-target Clippy，桌面前端使用项目 UI smoke，不能以夹具代替 B1 live probe。
 
-## R-366 回退:每条用户消息一个检查点,可选对话+代码/只回退对话/只回退代码 [doing]
-- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.9;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §3。B1 检查点存储(编辑前像按内容寻址存 .kanzei/artifacts/checkpoints,索引 file_checkpoints 表);B2 conversation.rewind 事件与历史重建(桌面、CLI、shadow 同口径);B3 代码还原、外部改动默认跳过、覆盖前留证、预览不会还原的内容;B4 桌面 UI(悬停回退按钮、三选项、预览确认、回填输入框、历史列表可查看已回退段)。
-- 发现记录: {"Intent":"像 CC 一样可回退到任一用户消息","Explicit":"默认对话+代码,可选只对话或只代码,外部改动默认跳过","Assumptions":"只还原编辑工具改过的文件,与 CC 行为契约一致","Ambiguities":"无阻塞项","领域对象":"文件检查点、前像 blob、隐藏区间、回退点","最小成功闭环":"一轮 edit 后回退,文件与对话同时回到该消息之前","延后决策":"检查点 blob 清理策略;冲突文件 diff 展示"}
-- 复杂度: 大
-- 批次: 1/4
-- 来源: 用户 2026-09-25 原话「回退我很常用很重要」,回退范围选「对话+代码」
-- 标签: 核心
-- 边界: 不做模型回退工具与 CLI 回退命令;不还原 bash、git、追踪文档、记忆与附件;检查点 blob 的清理随 R-245 配额机制处理
-- 验收: ①edit/write/insert 首次触碰文件时保存前像,新建文件记为原本不存在,无 run_id 的调用无副作用;②回退对话后桌面、下一轮 prior 与 kz run 都看不到被回退段,历史列表可只读打开回退前原貌;③回退代码恢复前像并删除检查点后新建的文件,外部改动过的文件默认跳过并列出,确认后才覆盖且覆盖前留证;④预览列出将恢复与删除的文件,以及不会还原的 bash、提交、追踪文档与记忆写入;⑤运行中或有排队输入时拒绝回退;⑥不新增模型工具
-- refs: R-242 R-245 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
-- 优先级: P1
-- 进展: B1 已提交于 ef114f4c（atomic_file.rs、store/{mod.rs,schema.rs,file_checkpoints.rs}、tools/{edit.rs,write.rs}）：原子字节写、schema v24/file_checkpoints 表、每 run/path 首次前像、SHA256 blob、new-file 不存在哨兵、后像哈希；Write/Edit/Insert 接线。无 run_id/空 project_root 跳过检查点和 write-log 副作用；带身份日志 path/run/process 保留。D-757 已 fixed。历史证据：T-1786922727053 tools fmt+573 passed/1 ignored+Clippy，T-1786922727054 base 23 passed，T-1786922727055 core 298 passed，T-1786922727056 verify.ps1 绑定 ef114f4c。历史进展曾写 B2 等待批准；确认记录已纠正为整体 B2–B4 已授权。 2026-10-02：B2–B4 已实现：追加回退事实、普通文件前像恢复/新文件删除、外部变化跳过或留证后强制恢复、运行中/排队拒绝、消息 ↶ 入口和分叉。单元测试与深浅色浏览器入口通过；主目录合并及完整发布门禁均通过。Shell/Git/tracker/记忆/附件不还原，检查点配额由 R-378 承接。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。
-- observed_head: 21c36e9d3a332ebb10a1e0d841887713d9911571
-- observed_worktree_hash: fnv1a64:c6bc3540e49b06fc
-- recorded_at: 1790919498733
-- 确认记录: 2026-09-26 波次审计更正:用户未对单个批次作答;09-25 23:17 B1 冻结方案发出后只收到自动续跑提示「继续推进,规则按系统提示执行。」,不构成授权,也不存在「仅授权 B1」的限定(见 D-764)。R-366 整体方案经用户 2026-09-25「直接登记就行」批准,B2-B4 按 docs/design/cc_codex_alignment_impl_maps.md §3 实施,无需逐批授权;09-26 00:38 的 question(seq 12791)作废。
-- 阻塞: 
-- 停车: 
-- 对账: 2026-09-26 审计:B1(ef114f4c,挂在 D-757 标题下)偏离实施地图裁决的部分登记为 D-762 并已修复(提交 2d3eaef9,发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5));实际规则:树根取最近 .git 并以 project_root 封顶、不认 .kanzei。B1 完成判据中的桌面安装版实跑尚未补做,需在装上 build-2009581f 后执行。检查点 blob 的清理归属改由 R-378 承接,不在 R-245 配额内。
-
-## R-367 先读后写:edit/write/insert 对未读或读后被改的文件返回纠错码 [todo]
-- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.6;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §4。B1 ReadLedger 与 ToolCtx 接线(含与 content_hash 格式一致的流式 hash);B2 read 记账与三个写工具的门禁;B3 桌面与 CLI 生产接线,子代理使用独立账本。
-- 发现记录: {"Intent":"防止按过期内容改文件","Explicit":"复刻 CC 的先读后写契约","Assumptions":"hash 一致加锚点精确匹配足以判定新鲜","Ambiguities":"无阻塞项","领域对象":"读取账本、内容 hash","最小成功闭环":"未读先改被拦,读后放行,外部改动后再改被拦","延后决策":"账本跨重启持久化"}
-- 复杂度: 中
-- 批次: 0/3
-- 来源: 用户 2026-09-25 对 A 档回答「同意」;并行线、codex 共用主工作树与自举并发下,读与写之间文件被改是真实风险
-- 标签: 后端
-- 边界: 不改 bash;账本不持久化;不改模糊回退;不新增工具
-- 验收: ①带账本时对已存在文件未 read 就写返回 READ_BEFORE_WRITE 且文件不变;②部分读取也算读过;③读后被外部改动时 edit/insert 返回 FILE_CHANGED_SINCE_READ 并附目标附近实际内容,write 必须重新 read;④新建文件不受限,写后账本刷新,连续 edit 无需重读;⑤子代理读取不计入主代理账本,新对话清空账本;⑥无账本的 ctx 行为与现状逐字节一致
-- refs: D-395 R-268 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
-- 优先级: P1
-- 进展: 2026-10-02：实现会话及子代理独立读取账本，read 前后 hash、部分读取整文件收据、write/edit/insert 前及改名前校验；未读与过期内容返回稳定纠错码。另修复文件锁超时重入死锁。局部测试通过，完整发布门禁通过；外部程序与最终 rename 仍有系统级竞态。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。
-- observed_head: 21c36e9d3a332ebb10a1e0d841887713d9911571
-- observed_worktree_hash: fnv1a64:c6bc3540e49b06fc
-- recorded_at: 1790919499434
-
 ## R-368 文档引用标记、引用历史与引用图:统一抽取、写入校验、git 推导历史、前端侧栏与邻域图 [todo]
 - 内容: 设计见 docs/design/doc_reference_graph.md。B1 refgraph 抽取内核与统一分词(节点模型、强/弱引用、关系类型前缀、区间展开、脏 token 上报、设计文档身份与改名别名);B2 tracker refs 写入校验(只校验本次传入)与 update 删除显式回显、kz refs check/show、req/defect get 附被引用、architecture 工具 refs 动作、引用约定写入 conventions 与设计模板;B3 git 推导引用历史(归档搬运折叠、改号、改名、未提交标记,缓存于 .kanzei/artifacts/refgraph);B4 前端统一跳转(A/M/T 与设计文档路径、Markdown 编号链接)、引用侧栏与历史时间线;B5 邻域关系图与体检面板(与 R-307 B3 共用渲染器)。
 - 发现记录: {"Intent":"让文档之间的引用可标记、可查询、可追溯、可视化管理","Explicit":"引用标记约定、引用历史、前端展示与管理","Assumptions":"Markdown 为唯一真源,引用历史由 git 推导","Ambiguities":"关系类型词表(依据/实现/取代/来源)待用户审阅","领域对象":"文档节点、引用边、关系类型、引用事件、体检问题","最小成功闭环":"打开一份设计文档能看到被哪些条目引用、何时建立,并能跳转","延后决策":"新增违规是否接入 verify;项目根外研究工作区是否纳入"}
@@ -500,7 +465,7 @@
 - observed_worktree_hash: fnv1a64:c6bc3540e49b06fc
 - recorded_at: 1790919500108
 
-## R-370 定时任务:一个概念一个面板,触发器到固定流程到可选回写,触发位置可选 app/system/server [todo]
+## R-370 定时任务:一个概念一个面板,触发器到固定流程到可选回写,触发位置可选 app/system/server [awaiting_external]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.10;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §6。B1 定义格式(.kanzei/schedules/*.md,人话频率)、应用内调度器、独立会话执行;B2 回写通道(notify、memory_inbox、file、idea);B3 任务面板与表单;B4 错过补跑、历史、连续失败自动停用;B5 host=system(kz schedule run 与 Windows 任务计划程序);B6 host=server(登记服务器上的 cron、SSH 拉回、本地补做回写)。
 - 发现记录: {"Intent":"用简单直观的定时任务承接触发器与固定流程","Explicit":"一个面板、人话频率、回写可选、三种触发位置","Assumptions":"server 档指托管到已登记的自有服务器","Ambiguities":"server 档的理解待用户审阅设计文档时确认","领域对象":"定时任务定义、运行记录、回写通道、触发位置","最小成功闭环":"每 5 分钟的任务在应用内到点运行并回写文件与通知","延后决策":"事件触发;全局任务归属;远端完整对话拉回"}
 - 复杂度: 大
@@ -511,10 +476,13 @@
 - 验收: ①§5.10 示例定义能被识别,解析失败带行号显示在面板;②每次运行是独立会话,主对话零污染,需要询问的动作被拒并列出,运行继续到结束;③四种回写可多选且逐项记录成败;④面板用频率选择器,不出现 cron,开发与研究空间都可见;⑤catch_up 行为正确,新建或刚启用的任务不补跑;⑥host=system 在应用关闭时照常运行,host=server 在远端运行并拉回,回写只做一次
 - refs: A-016 A-018 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P1
-- 进展: 2026-10-02：已实现 MD 任务定义、app/system/server 注册、独立执行、同槽去重、过期定义保护、超时/异常清理、实际结果回写、三次失败停用和任务面板。Windows 原生计时触发退出码 0、独立会话及真实文件回写已验；临时任务已取消。真实 SSH 服务端端到端未验收，时区为明确 UTC 偏移。完整发布门禁通过。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。
-- observed_head: 21c36e9d3a332ebb10a1e0d841887713d9911571
-- observed_worktree_hash: fnv1a64:c6bc3540e49b06fc
-- recorded_at: 1790919500786
+- 进展: 2026-10-02：已实现 MD 任务定义、app/system/server 注册、独立执行、同槽去重、过期定义保护、超时/异常清理、实际结果回写、三次失败停用和任务面板。Windows 原生计时触发退出码 0、独立会话及真实文件回写已验；临时任务已取消。真实 SSH 服务端端到端未验收，时区为明确 UTC 偏移。完整发布门禁通过。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 2026-10-04 维护核对：保留上述实现与本地证据，按用户新要求转为待外部验收。真实现场尚未通过；本条不占开发名额、不阻塞其他开发。待测事项见外部验收字段。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:cafc4773a6bc95ae
+- recorded_at: 1791055298954
+- 停车: 
+- 外部验收: host=server 在真实 SSH 服务器上登记与触发、拉回运行结果、回写只执行一次。app/system 已有本地及原生计时证据。
+- 阻塞: 
 
 ## R-371 运行中插话:steer 在工具边界注入当前 run,界面标记已送达 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §7。B1 core 注入点、SteerCommitted 事件与 SteerMessageCommitted typed 事实;B2 桌面 inbox 取件、落库、kz:steer-delivered 事件;B3 界面已送达标记。RunnerConfig 新字段与手动压缩、缓存测量两条共享,最先落地的条目一次性加齐三个字段。

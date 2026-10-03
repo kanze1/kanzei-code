@@ -684,7 +684,9 @@ pub fn parse_ase(bytes: &[u8]) -> Result<(String, Vec<String>), String> {
         let name_end = 2 + units * 2;
         let encoded = block.get(2..name_end).ok_or("ASE color name truncated")?;
         let mut name = encoded
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
             .collect::<Vec<_>>();
         if name.pop() != Some(0) {

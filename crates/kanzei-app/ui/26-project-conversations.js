@@ -9,6 +9,7 @@ import { openProjectSpace, openWorkbenchItem, workbenchProject } from "./12-work
 import { kindWord, processName } from "./12-session-tree.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import { backlogTally } from "./12-docs-pages.js";
+import { transitionEntryStatus } from "./11-docs-list.js";
 import { startNewConversation } from "./15-views-misc.js";
 import { sendText } from "./08-compose-runtime.js";
 import { lineAgent, awaitingUserSessions } from "./08-auto.js";
@@ -125,7 +126,7 @@ function renderDetail(state, entry) {
   rail.append(button("← " + t("需求"), () => { detailId = null; rendered = ""; paint(); }, "ghost"));
   rail.append(node("small", `${entry.id} · ${localizedDocStatus(entry.status)}`), node("h3", entry.title));
   for (const [key, value] of entry.fields || []) {
-    if (!["验收", "阻塞", "原始描述", "范围"].includes(key) || !value) continue;
+    if (!["验收", "外部验收", "阻塞", "原始描述", "范围"].includes(key) || !value) continue;
     rail.append(node("h4", t(key)), node("p", value, "project-work-fact"));
   }
   const actions = node("div", null, "project-work-actions");
@@ -135,7 +136,22 @@ function renderDetail(state, entry) {
     if (entry.prior_art.issue) rail.append(node("p", entry.prior_art.issue, "project-work-fact"));
     if (entry.prior_art.path) actions.append(button(t("查看调研文件"), () => void openRequirementResearch(currentProject, entry).catch(error => toastError(String(error))), "ghost"));
   }
-  if (!entry.closed) actions.prepend(button(t(needsRequirementResearch(entry) ? requirementResearchAction(entry) : "继续此需求"), () => void continueRequirement(entry), "primary"));
+  if (!entry.closed && entry.status !== "awaiting_external") actions.prepend(button(t(needsRequirementResearch(entry) ? requirementResearchAction(entry) : "继续此需求"), () => void continueRequirement(entry), "primary"));
+  if (!entry.closed) {
+    const project = currentProject, kind = entry.id.startsWith("D-") ? "defect" : "req";
+    if (entry.status === "awaiting_external") actions.prepend(button(t("退回开发"), async () => {
+      if (await transitionEntryStatus(entry, kind, kind === "defect" ? "fixing" : "doing", { project })) {
+        if (sameProject(project, currentProject)) { detailId = null; rendered = ""; }
+        await refreshConversationWork(project);
+      }
+    }, "primary"));
+    actions.append(button(t(kind === "defect" ? "不再修复" : "取消需求"), async () => {
+      if (await transitionEntryStatus(entry, kind, kind === "defect" ? "wontfix" : "dropped", { project })) {
+        if (sameProject(project, currentProject)) { detailId = null; rendered = ""; }
+        await refreshConversationWork(project);
+      }
+    }, "ghost"));
+  }
   actions.append(button(t("完整记录") + " ↗", () => void openWorkbenchItem(currentProject, entry), "ghost"));
   rail.append(actions);
 }

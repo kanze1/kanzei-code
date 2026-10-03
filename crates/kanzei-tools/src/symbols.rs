@@ -95,7 +95,7 @@ impl Tool for SymbolsTool {
             .map(|p| ctx.cwd.join(p))
             .unwrap_or_else(|| ctx.cwd.clone());
         if !target.exists() {
-            return ToolOutput::failed(
+            return ToolOutput::needs_correction(
                 "SYMBOLS_PATH_NOT_FOUND",
                 crate::missing_path_hint(
                     &target,

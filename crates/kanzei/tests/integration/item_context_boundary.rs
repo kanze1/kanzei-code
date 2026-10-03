@@ -1,7 +1,5 @@
 //! 真实 CLI/WorkTool/typed 恢复链；只把远端模型替换成确定性 SSE。
-use super::context_overflow_recovery::{
-    persisted_messages, run_cli_with_prior, run_cli_with_setup, success_response,
-};
+use super::context_overflow_recovery::{persisted_messages, run_cli_with_setup, success_response};
 use kanzei_llm::{Message, Part};
 use serde_json::json;
 
@@ -79,11 +77,23 @@ fn verify_result(
 async fn item_context_recovers_claim_at_previous_turn_end_before_first_request() {
     let mut prior = reader_prior();
     append_claim(&mut prior, "claim-new", "D-002");
-    let (project, output, requests) = run_cli_with_prior(
+    let (project, output, requests) = run_cli_with_setup(
         "item-context-restore",
         prior,
         "继续处理下一条",
         vec![success_response("新的阅读器条目完成")],
+        |project| {
+            // 本用例验证条目边界；显式给 mock 足够窗口，避免提示词增减触发预算压缩。
+            use std::io::Write;
+            writeln!(
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(project.join(".kanzei/kanzei.toml"))
+                    .unwrap(),
+                "context_limit = 131072"
+            )
+            .unwrap();
+        },
     )
     .await;
     assert_eq!(requests.len(), 1, "no extra model request for summaries");

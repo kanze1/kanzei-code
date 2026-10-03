@@ -9,7 +9,7 @@ use std::sync::{Mutex, OnceLock};
 use kanzei_harness::{ToolCtx, ToolOutput};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA_VERSION: u8 = 2;
+const SCHEMA_VERSION: u8 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -19,6 +19,7 @@ pub(crate) enum FailureClass {
     MissingParameter,
     EmptySearch,
     PermissionDenied,
+    WorkflowBlocked,
     Other,
 }
 
@@ -44,6 +45,8 @@ struct RunTelemetry {
     failure_rate: f64,
     #[serde(default)]
     call_ids: Vec<String>,
+    #[serde(default)]
+    outcome_counts: std::collections::BTreeMap<String, u64>,
     events: Vec<ToolFailureEvent>,
 }
 
@@ -82,6 +85,9 @@ fn now_ms() -> u128 {
 
 fn classify(tool_name: &str, output: &ToolOutput) -> Option<FailureClass> {
     let code = output.code.unwrap_or_default();
+    if output.outcome == kanzei_harness::ToolOutcome::BlockedByWorkflow {
+        return Some(FailureClass::WorkflowBlocked);
+    }
     if (tool_name == "grep" || tool_name == "glob")
         && (output.content.starts_with("(no matches for ")
             || output.content.starts_with("(no files match "))
@@ -152,18 +158,22 @@ fn record_outcome(
             failure_count: 0,
             failure_rate: 0.0,
             call_ids: Vec::new(),
+            outcome_counts: Default::default(),
             events: Vec::new(),
         },
         Err(_) => return,
     };
     telemetry.schema_version = SCHEMA_VERSION;
     telemetry.calls = telemetry.calls.max(telemetry.call_ids.len() as u64);
-    telemetry.failure_count = telemetry.failure_count.max(telemetry.events.len() as u64);
     if telemetry.call_ids.iter().any(|id| id == tool_call_id) {
         return;
     }
     telemetry.call_ids.push(tool_call_id.to_string());
     telemetry.calls += 1;
+    *telemetry
+        .outcome_counts
+        .entry(outcome.to_string())
+        .or_default() += 1;
     if let Some(class) = class {
         telemetry.events.push(ToolFailureEvent {
             tool_call_id: tool_call_id.to_string(),
@@ -173,8 +183,22 @@ fn record_outcome(
             outcome: outcome.to_string(),
             at_ms: now_ms(),
         });
-        telemetry.failure_count += 1;
     }
+    // 保留路径/参数/空搜索等导航诊断；只有真正执行失败进入失败率。
+    // 重算旧记录，也修正旧版把空搜索和用户拒绝计为 failed 的口径。
+    telemetry.failure_count = telemetry
+        .events
+        .iter()
+        .filter(|event| {
+            event.outcome == "failed"
+                && !matches!(
+                    event.class,
+                    FailureClass::EmptySearch
+                        | FailureClass::PermissionDenied
+                        | FailureClass::WorkflowBlocked
+                )
+        })
+        .count() as u64;
     telemetry.failure_rate = failure_rate(telemetry.failure_count, telemetry.calls);
     let Ok(encoded) = serde_json::to_string_pretty(&telemetry) else {
         return;
@@ -218,7 +242,7 @@ pub(crate) fn record_permission_denied(ctx: &ToolCtx, tool_call_id: &str, tool_n
         tool_name,
         Some(FailureClass::PermissionDenied),
         Some("USER_DECLINED"),
-        "failed",
+        "user_declined",
     );
 }
 
@@ -298,6 +322,48 @@ mod tests {
     }
 
     #[test]
+    fn corrections_workflow_blocks_and_user_declines_are_diagnostics_not_failures() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-outcome-counts-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = ctx(&root);
+        record_tool_failure(
+            &ctx,
+            "missing",
+            "read",
+            &ToolOutput::needs_correction("READ_PATH_NOT_FOUND", "path not found"),
+        );
+        record_tool_failure(
+            &ctx,
+            "gate",
+            "bash",
+            &ToolOutput::blocked_by_workflow("BATCH_CLOSING", "close batch first"),
+        );
+        record_permission_denied(&ctx, "declined", "write");
+        record_tool_failure(
+            &ctx,
+            "crash",
+            "bash",
+            &ToolOutput::error("process launch failed"),
+        );
+        let telemetry: RunTelemetry = serde_json::from_str(
+            &std::fs::read_to_string(telemetry_path(&ctx, "run-navigation-test")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(telemetry.calls, 4);
+        assert_eq!(telemetry.events.len(), 4);
+        assert_eq!(telemetry.failure_count, 1);
+        assert_eq!(telemetry.failure_rate, 0.25);
+        assert_eq!(telemetry.outcome_counts["blocked_by_workflow"], 1);
+        assert_eq!(telemetry.outcome_counts["needs_correction"], 1);
+        assert_eq!(telemetry.outcome_counts["user_declined"], 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn run_telemetry_aggregates_and_deduplicates_by_call_id() {
         let root = std::env::temp_dir().join(format!("kz-r310-{}", now_ms()));
         std::fs::create_dir_all(&root).unwrap();
@@ -317,8 +383,8 @@ mod tests {
         assert_eq!(telemetry.schema_version, SCHEMA_VERSION);
         assert_eq!(telemetry.run_id, "run-navigation-test");
         assert_eq!(telemetry.calls, 3);
-        assert_eq!(telemetry.failure_count, 2);
-        assert!((telemetry.failure_rate - (2.0 / 3.0)).abs() < f64::EPSILON);
+        assert_eq!(telemetry.failure_count, 1);
+        assert!((telemetry.failure_rate - (1.0 / 3.0)).abs() < f64::EPSILON);
         assert_eq!(telemetry.events.len(), 2);
         assert_eq!(telemetry.events[0].class, FailureClass::MissingPath);
         assert_eq!(telemetry.events[1].class, FailureClass::EmptySearch);

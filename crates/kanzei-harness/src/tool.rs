@@ -13,6 +13,7 @@ pub enum ToolOutcome {
     NoOp,
     NeedsCorrection,
     NeedsConfirmation,
+    BlockedByWorkflow,
     Failed,
 }
 
@@ -23,6 +24,7 @@ impl ToolOutcome {
             Self::NoOp => "noop",
             Self::NeedsCorrection => "needs_correction",
             Self::NeedsConfirmation => "needs_confirmation",
+            Self::BlockedByWorkflow => "blocked_by_workflow",
             Self::Failed => "failed",
         }
     }
@@ -30,7 +32,7 @@ impl ToolOutcome {
     pub fn is_expected_rejection(self) -> bool {
         matches!(
             self,
-            Self::NoOp | Self::NeedsCorrection | Self::NeedsConfirmation
+            Self::NoOp | Self::NeedsCorrection | Self::NeedsConfirmation | Self::BlockedByWorkflow
         )
     }
 }
@@ -283,6 +285,10 @@ impl ToolOutput {
 
     pub fn noop(code: &'static str, content: impl Into<String>) -> Self {
         Self::rejected(ToolOutcome::NoOp, code, content)
+    }
+
+    pub fn blocked_by_workflow(code: &'static str, content: impl Into<String>) -> Self {
+        Self::rejected(ToolOutcome::BlockedByWorkflow, code, content)
     }
 
     pub fn needs_correction(code: &'static str, content: impl Into<String>) -> Self {
