@@ -71,9 +71,10 @@ flowchart TD
 | --- | --- | --- |
 | base | 首批四文件审查；锁/CAS/路径/日志三态重构已整合验证 | 见整合报告；拆分文件不能仅因编译通过自动记为全文 PASS |
 | harness | registry.rs、progress.rs 已完成首批全文审查 | 其他文件尚未全面审查 |
-| llm 基础 | event.rs PASS；error.rs PASS；sse.rs P1 已修；protocol/mod.rs PASS；lib.rs PASS | 本轮五文件全文；[逐文件记录](llm-framing.md) |
-| llm caller | client.rs 的分帧消费与真实 HTTP 回归已检查 | 仅调用链切片，完整生命周期待审 |
+| llm 基础 | event.rs PASS；error.rs PASS；sse.rs P1 已修；protocol/mod.rs PASS；lib.rs PASS | 第二批五文件全文；[逐文件记录](llm-framing.md) |
+| llm 请求与 Chat 状态机 | request.rs PASS；protocol/openai.rs P1 已修 | 第三批全文；[逐文件记录](protocol-completion.md) |
+| llm caller | client.rs 的分帧和终态验证已检查；修复无终态 EOF 被误报成功 | 仅调用链切片，完整生命周期待审 |
 | memory / tools | 原树底层 caller 已适配；managed、三类专用写者及后台守卫关键路径已修 | 不等同于整个模块全文审完 |
-| core / API / UI | 合并与编译、既有测试验证 | 全面逐文件审查待继续 |
+| core / API / UI | runner/drive.rs 已跟踪整步消费→工具分发边界，其余为合并与既有测试验证 | 全面逐文件审查待继续 |
 
-下一步：request → 具体协议状态机 → proxy/auth → client 生命周期 → core 流事件持久化。每轮以 coverage.json 和对应报告明确全文审查、调用链切片和未审范围，不用索引或测试数量代替审查覆盖。
+下一步：Responses / Anthropic 状态机 → proxy/auth → client 生命周期 → core 流事件持久化。每轮以 coverage.json 和对应报告明确全文审查、调用链切片和未审范围，不用索引或测试数量代替审查覆盖。

@@ -1,5 +1,5 @@
 {
-  "baseline": "e44b709a46af325ca2aed5fedb9a10008c24b369",
+  "baseline": "4671709a4ad0cf7a53a8295c4ca1466b04c18d5b",
   "method": "Lexical source inventory, including cfg/test branches. Not a resolved call graph. Review judgments live only in report.md.",
   "packages": [
     {
@@ -753,6 +753,18 @@
       "public_api": []
     },
     {
+      "file": "crates/kanzei/tests/integration/incomplete_stream.rs",
+      "lines": 125,
+      "modules": [],
+      "imports": [
+        "kanzei_harness::{\n    AgentDef, AgentMode, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,\n}",
+        "serde_json::json",
+        "std::sync::Arc",
+        "tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt}"
+      ],
+      "public_api": []
+    },
+    {
       "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
       "lines": 131,
       "modules": [],
@@ -767,7 +779,7 @@
     },
     {
       "file": "crates/kanzei/tests/integration/main.rs",
-      "lines": 33,
+      "lines": 34,
       "modules": [
         "agent_step_budget",
         "common",
@@ -781,6 +793,7 @@
         "d364_concurrent_doc_add",
         "d368_concurrent_memory_write",
         "global_home_guard",
+        "incomplete_stream",
         "item_context_boundary",
         "max_tasks_parallel_dispatch",
         "memory_hints_not_persisted",
@@ -13823,7 +13836,7 @@
     },
     {
       "file": "crates/kanzei-llm/src/client.rs",
-      "lines": 481,
+      "lines": 577,
       "modules": [],
       "imports": [
         "futures::{Stream, StreamExt}",
@@ -13839,7 +13852,8 @@
         "crate::request::{LlmRequest, Message, ReasoningEffort}",
         "futures::StreamExt",
         "std::sync::{Arc, Mutex}",
-        "tokio::io::{AsyncReadExt, AsyncWriteExt}"
+        "tokio::io::{AsyncReadExt, AsyncWriteExt}",
+        "crate::protocol::ProtocolKind"
       ],
       "public_api": [
         {
@@ -14135,7 +14149,7 @@
     },
     {
       "file": "crates/kanzei-llm/src/protocol/openai.rs",
-      "lines": 785,
+      "lines": 847,
       "modules": [],
       "imports": [
         "std::collections::BTreeMap",

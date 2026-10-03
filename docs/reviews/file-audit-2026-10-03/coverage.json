@@ -11,7 +11,11 @@
     "crates/kanzei-llm/src/error.rs",
     "crates/kanzei-llm/src/sse.rs",
     "crates/kanzei-llm/src/protocol/mod.rs",
-    "crates/kanzei-llm/src/lib.rs"
+    "crates/kanzei-llm/src/lib.rs",
+    "crates/kanzei-llm/src/request.rs",
+    "crates/kanzei-llm/src/protocol/openai.rs",
+    "crates/kanzei/tests/integration/incomplete_stream.rs",
+    "crates/kanzei/tests/integration/main.rs"
   ],
   "contract_slice_reviews": [
     "crates/kanzei-tools/src/managed.rs",
@@ -20,7 +24,8 @@
     "crates/kanzei-tools/src/test_record.rs",
     "crates/kanzei-tools/src/background.rs",
     "crates/kanzei-tools/src/background/lifecycle.rs",
-    "crates/kanzei-llm/src/client.rs"
+    "crates/kanzei-llm/src/client.rs",
+    "crates/kanzei-core/src/runner/drive.rs"
   ],
   "not_reviewed": [
     "crates/kanzei-app/build.rs",
@@ -238,7 +243,6 @@
     "crates/kanzei-core/src/runner/compaction.rs",
     "crates/kanzei-core/src/runner/context.rs",
     "crates/kanzei-core/src/runner/delegation.rs",
-    "crates/kanzei-core/src/runner/drive.rs",
     "crates/kanzei-core/src/runner/drive/assembly.rs",
     "crates/kanzei-core/src/runner/drive/batch.rs",
     "crates/kanzei-core/src/runner/drive/context_budget.rs",
@@ -324,10 +328,8 @@
     "crates/kanzei-llm/src/auth/store.rs",
     "crates/kanzei-llm/src/protocol/anthropic.rs",
     "crates/kanzei-llm/src/protocol/deepseek_responses.rs",
-    "crates/kanzei-llm/src/protocol/openai.rs",
     "crates/kanzei-llm/src/protocol/openai_responses.rs",
     "crates/kanzei-llm/src/proxy.rs",
-    "crates/kanzei-llm/src/request.rs",
     "crates/kanzei-llm/tests/native_search_probe.rs",
     "crates/kanzei-memory/src/docstore.rs",
     "crates/kanzei-memory/src/docstore/archive.rs",
@@ -508,7 +510,6 @@
     "crates/kanzei/tests/integration/d368_concurrent_memory_write.rs",
     "crates/kanzei/tests/integration/global_home_guard.rs",
     "crates/kanzei/tests/integration/item_context_boundary.rs",
-    "crates/kanzei/tests/integration/main.rs",
     "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
     "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
     "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
@@ -553,6 +554,33 @@
         "crates/kanzei-llm/src/client.rs"
       ],
       "next": "request -> protocol states -> proxy/auth -> client lifecycle -> core stream persistence"
+    },
+    {
+      "report": "protocol-completion.md",
+      "baseline": "4671709a",
+      "full_files": {
+        "crates/kanzei-llm/src/request.rs": {
+          "judgment": "PASS",
+          "sha256": "294e954d091bec08f97f53197d4e10b99a5d85cee76c66d5b7362db47b8c80f6"
+        },
+        "crates/kanzei-llm/src/protocol/openai.rs": {
+          "judgment": "P1",
+          "sha256": "c5381ae859874b0a28e3a6eb9e26d17511c44568a8c4b989e62aa0e0b327b93b"
+        },
+        "crates/kanzei/tests/integration/incomplete_stream.rs": {
+          "judgment": "PASS",
+          "sha256": "a7aeb9eccfa04e860416b33d6ec34938a2b63c63c01dae11a03b45a9c102626d"
+        },
+        "crates/kanzei/tests/integration/main.rs": {
+          "judgment": "PASS",
+          "sha256": "949754a7b5eb772c7f7157c49b58aa1f52b50f551aa00c7b1b241386ef2c27ec"
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-llm/src/client.rs",
+        "crates/kanzei-core/src/runner/drive.rs"
+      ],
+      "next": "Responses/Anthropic states -> proxy/auth -> client lifecycle -> core persistence"
     }
   ]
 }

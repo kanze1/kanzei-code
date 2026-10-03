@@ -308,18 +308,24 @@ impl LlmClient {
         let mut state = protocol::make_state_for_route(route.kind, &hosted_channel);
 
         let stream = async_stream::try_stream! {
+            let mut completed = false;
             while let Some(chunk) = bytes.next().await {
                 let chunk = chunk.map_err(LlmError::Transport)?;
                 for sse in parser.feed(&chunk) {
                     for event in state.step(&sse)? {
+                        completed |= matches!(event, LlmEvent::StepFinish { .. });
                         yield event;
                     }
                 }
             }
-            // D-424:流末收尾。没有 [DONE] 的 provider 靠这一步放出攒着的工具调用
-            // 与 StepFinish;已在流内收过尾的状态机这里返回空。
+            // D-424:有 finish_reason 但没有 [DONE] 的兼容响应在这里收尾。
+            // 协议未确认完成时不能把 HTTP EOF 当作成功，否则 runner 会执行半轮工具。
             for event in state.finish() {
+                completed |= matches!(event, LlmEvent::StepFinish { .. });
                 yield event;
+            }
+            if !completed {
+                Err(LlmError::Protocol("stream ended before a model completion event".into()))?;
             }
         };
         Ok(Box::pin(stream))
@@ -476,6 +482,96 @@ mod tests {
             server.await.unwrap();
             assert_eq!(text, "中文", "line ending {ending:?}");
             assert_eq!(finishes, 1, "terminal event must remain unique");
+        }
+    }
+    #[tokio::test]
+    async fn clean_http_eof_requires_protocol_completion_for_every_route() {
+        use crate::protocol::ProtocolKind;
+        let chat = "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n";
+        let responses = "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"partial\"}\n\n";
+        let anthropic = "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n";
+        for (kind, partial, terminal) in [
+            (
+                ProtocolKind::OpenAiChat,
+                chat,
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            ),
+            (
+                ProtocolKind::OpenAiResponses,
+                responses,
+                "data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+            ),
+            (
+                ProtocolKind::DeepSeekResponses,
+                responses,
+                "data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+            ),
+            (
+                ProtocolKind::AnthropicMessages,
+                anthropic,
+                "data: {\"type\":\"message_stop\"}\n\n",
+            ),
+        ] {
+            // Empty success bodies, truncated responses, and their completed controls.
+            for body in [
+                String::new(),
+                partial.into(),
+                format!("{partial}{terminal}"),
+            ] {
+                let expected_complete = body.ends_with(terminal);
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 4096];
+                    assert!(socket.read(&mut request).await.unwrap() > 0);
+                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                });
+                let client = LlmClient::new(&ProxyConfig::Disabled).unwrap();
+                let mut route = Route::openai_at(&format!("http://{address}"), None);
+                route.kind = kind;
+                let request = LlmRequest {
+                    model: "mock".into(),
+                    system: vec![],
+                    messages: vec![Message::user_text("hello")],
+                    tools: vec![],
+                    hosted_tools: vec![],
+                    max_tokens: 32,
+                    temperature: None,
+                    reasoning: ReasoningEffort::Off,
+                    service_tier: None,
+                };
+                let events: Vec<_> =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                        client
+                            .stream_with_retry_notice_with_limits(&route, &request, 0, 0, |_, _| {})
+                            .await
+                            .unwrap()
+                            .collect()
+                            .await
+                    })
+                    .await
+                    .unwrap();
+                server.await.unwrap();
+                let finishes = events
+                    .iter()
+                    .filter(|event| matches!(event, Ok(crate::event::LlmEvent::StepFinish { .. })))
+                    .count();
+                if expected_complete {
+                    assert!(events.iter().all(Result::is_ok), "{kind:?}: {events:?}");
+                    assert_eq!(finishes, 1);
+                } else {
+                    assert!(
+                        matches!(
+                            events.last(),
+                            Some(Err(crate::error::LlmError::Protocol(_)))
+                        ),
+                        "{kind:?}: {events:?}"
+                    );
+                    assert_eq!(finishes, 0);
+                }
+            }
         }
     }
 }

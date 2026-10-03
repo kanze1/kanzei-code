@@ -25,6 +25,7 @@ mod ctrl_c_finalize;
 mod d364_concurrent_doc_add;
 mod d368_concurrent_memory_write;
 mod global_home_guard;
+mod incomplete_stream;
 mod item_context_boundary;
 mod max_tasks_parallel_dispatch;
 mod memory_hints_not_persisted;

@@ -1,0 +1,21 @@
+{
+  "baseline": "4671709a",
+  "workspace_tests": {
+    "passed": 2224,
+    "failed": 0,
+    "ignored": 5,
+    "log": "output/protocol-review-workspace-20261003.log"
+  },
+  "clippy_all_targets": true,
+  "fmt": true,
+  "diff_check": true,
+  "repository_review_complete": false,
+  "live_provider_verified": false,
+  "release_performed": false,
+  "source_sha256": {
+    "crates/kanzei-llm/src/client.rs": "f1a2aae0ed1d1f662cda6e1519dc842dac6f38b913d24c6931460a97cc7c1454",
+    "crates/kanzei-llm/src/protocol/openai.rs": "c5381ae859874b0a28e3a6eb9e26d17511c44568a8c4b989e62aa0e0b327b93b",
+    "crates/kanzei/tests/integration/incomplete_stream.rs": "a7aeb9eccfa04e860416b33d6ec34938a2b63c63c01dae11a03b45a9c102626d",
+    "crates/kanzei/tests/integration/main.rs": "949754a7b5eb772c7f7157c49b58aa1f52b50f551aa00c7b1b241386ef2c27ec"
+  }
+}

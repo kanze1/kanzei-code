@@ -172,10 +172,17 @@ impl OpenAiState {
     /// id=`call_332b…call_d6d7…`、arguments 是两段 JSON 首尾相接的畸形调用,引擎侧
     /// 报「unknown tool `workread`」,整轮取活直接死掉。
     ///
-    /// 规则:`index` 是权威键,但一个已被别的 id 占住的槽不接受新 id——那种情况另起
-    /// 一槽。`index` 缺席时,带**新** id 的帧开新调用,不带 id 的帧是上一条的续帧。
+    /// 规则:已知 id 回到原槽；新调用按 index 定位，但已被别的 id 占住的槽不接受
+    /// 新 id——那种情况另起一槽。index 缺席时，新 id 开新调用，无 id 续最后一槽。
     /// 合规 provider(id 只在首帧给、index always present)走不到任何一条分支。
     fn slot_for(&self, index: Option<u64>, id: Option<&str>) -> u64 {
+        // A gateway may reuse an index, but a known call ID must keep the slot
+        // allocated to it, including when later frames repeat that ID.
+        if let Some(id) = id {
+            if let Some((&slot, _)) = self.calls.iter().find(|(_, call)| call.id == id) {
+                return slot;
+            }
+        }
         let last = self.calls.keys().next_back().copied();
         let next = last.map_or(0, |k| k + 1);
         let occupied_by_other = |slot: u64| {
@@ -368,10 +375,11 @@ impl ProtocolState for OpenAiState {
         Ok(out)
     }
 
-    /// 流末收尾:[DONE] 没来过就在这里放调用 + StepFinish(幂等,来过就是空)。
+    /// 流末收尾:只有已收到 finish_reason 才能补齐缺少 [DONE] 的响应。
+    /// 单纯 HTTP EOF 不能提交尚未确认完成的工具调用。
     fn finish(&mut self) -> Vec<LlmEvent> {
         let mut out = Vec::new();
-        if self.finished {
+        if self.finished || self.finish.is_none() {
             return out;
         }
         self.finished = true;
@@ -408,6 +416,60 @@ mod tests {
                 data: data.into(),
             })
             .unwrap()
+    }
+
+    #[test]
+    fn repeated_call_ids_keep_their_original_slots() {
+        for index in [Some(0), None] {
+            let mut state = OpenAiState::default();
+            for (id, name, args) in [
+                ("a", Some("read"), "{\"path\":"),
+                ("b", Some("write"), "{\"path\":"),
+                ("a", None, "\"a.txt\"}"),
+                ("b", None, "\"b.txt\"}"),
+            ] {
+                feed(
+                    &mut state,
+                    &json!({"choices":[{"delta":{"tool_calls":[{
+                        "index":index,"id":id,"function":{"name":name,"arguments":args}
+                    }]}}]})
+                    .to_string(),
+                );
+            }
+            let events = feed(&mut state, "[DONE]");
+            let calls: Vec<_> = events
+                .iter()
+                .filter_map(|event| match event {
+                    LlmEvent::ToolCall {
+                        id, name, input, ..
+                    } => Some((id.as_str(), name.as_str(), input.clone())),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                calls,
+                vec![
+                    ("a", "read", json!({"path":"a.txt"})),
+                    ("b", "write", json!({"path":"b.txt"}))
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn eof_without_a_completion_marker_does_not_publish_pending_tools() {
+        let mut state = OpenAiState::default();
+        feed(
+            &mut state,
+            &json!({"choices":[{"delta":{"tool_calls":[{
+                "index":0,"id":"a","function":{"name":"write","arguments":"{}"}
+            }]}}]})
+            .to_string(),
+        );
+        assert!(
+            state.finish().is_empty(),
+            "HTTP EOF is not a model completion signal"
+        );
     }
 
     #[test]
