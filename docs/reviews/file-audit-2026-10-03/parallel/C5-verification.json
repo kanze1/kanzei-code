@@ -1,0 +1,215 @@
+{
+  "package": "C5",
+  "started_baseline": "07c0d3738f97ec85f9eba7e5c39c1c3236908ae4",
+  "branch": "kanzei/audit-c5-terminal",
+  "status": "verified",
+  "full_review_files": [
+    "crates/kanzei-app/src/run/persistence.rs"
+  ],
+  "necessary_slices": [
+    "crates/kanzei-core/src/store/typed.rs",
+    "crates/kanzei-core/src/store/inbox.rs",
+    "crates/kanzei-core/src/store/session.rs",
+    "crates/kanzei-app/src/run/coordinator.rs",
+    "crates/kanzei-app/src/commands/run.rs",
+    "crates/kanzei-app/Cargo.toml",
+    "Cargo.lock"
+  ],
+  "source_dependency_file_count": 8,
+  "report_file_count": 3,
+  "full_coverage_added": 1,
+  "full_pass_files": [],
+  "bugs": {
+    "P0": 0,
+    "P1": 2,
+    "P2": 0
+  },
+  "new_tests": {
+    "core": 3,
+    "app_persistence": 12,
+    "app_commands": 1
+  },
+  "verification": {
+    "core_targeted": {
+      "passed": 3,
+      "failed": 0,
+      "exit_code": 0,
+      "log": "core-targeted.log"
+    },
+    "persistence_targeted": {
+      "passed": 15,
+      "failed": 0,
+      "exit_code": 0,
+      "log": "app-persistence-targeted-final.log",
+      "phase": "before_stop_followup; final full app covers all 18 persistence tests"
+    },
+    "commands_targeted": {
+      "passed": 1,
+      "failed": 0,
+      "exit_code": 0,
+      "log": "app-commands-targeted.log"
+    },
+    "core_full_after_restore": {
+      "passed": 416,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log": "core-full-final.log"
+    },
+    "app_full_after_restore": {
+      "passed": 568,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log": "app-full-final.log"
+    },
+    "check": {
+      "command": "cargo check -p kanzei-core -p kanzei-app --all-targets",
+      "exit_code": 0,
+      "log": "check-final.log"
+    },
+    "clippy": {
+      "command": "cargo clippy -p kanzei-core -p kanzei-app --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "clippy-final.log"
+    },
+    "fmt": {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "fmt-final.log"
+    },
+    "diff": {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "log": "diff-final.log"
+    },
+    "stop_targeted": {
+      "passed": 3,
+      "failed": 0,
+      "exit_code": 0,
+      "log": "app-stop-targeted-final.log"
+    }
+  },
+  "negative_controls": [
+    {
+      "name": "equivalent_old_desktop_outcome_boundary",
+      "literal_old_source": false,
+      "build_succeeded": true,
+      "expected_exit_code": 101,
+      "actual_exit_code": 101,
+      "failed_fault_tests": 5,
+      "passed_controls": 2,
+      "log": "negative-old-outcome.log"
+    },
+    {
+      "name": "equivalent_old_compaction_publish_order",
+      "build_succeeded": true,
+      "expected_exit_code": 101,
+      "actual_exit_code": 101,
+      "failed_fault_tests": 1,
+      "passed_controls": 0,
+      "log": "negative-old-compaction.log"
+    },
+    {
+      "name": "equivalent_previous_stop_lifecycle_boundary",
+      "build_succeeded": true,
+      "expected_exit_code": 101,
+      "actual_exit_code": 101,
+      "failed_fault_tests": 2,
+      "passed_controls": 1,
+      "log": "negative-old-stop-boundary-final.log"
+    },
+    {
+      "name": "equivalent_previous_stop_error_ui_classification",
+      "build_succeeded": true,
+      "expected_exit_code": 101,
+      "actual_exit_code": 101,
+      "failed_fault_tests": 1,
+      "passed_controls": 0,
+      "log": "negative-old-stop-ui.log"
+    }
+  ],
+  "fixture_initial_failure": {
+    "log": "app-persistence-targeted.log",
+    "passed": 13,
+    "failed": 2,
+    "cause": "parallel_temp_directory_timestamp_collision_on_windows",
+    "fixed": "test_only_atomic_sequence",
+    "production_bug_count": 0
+  },
+  "restoration": [
+    {
+      "path": "crates/kanzei-core/src/store/typed.rs",
+      "sha256": "414ae676c4180de80da691920ee7df1a3fb04242d65eb21cfafb515ce8907b31",
+      "byte_equal": true,
+      "mtime_ns": 1791016795323763900
+    },
+    {
+      "path": "crates/kanzei-app/src/run/persistence.rs",
+      "sha256": "c47db999e896ef47123177b7c64f543f410bc979fc956bea73a244866a5ccc3f",
+      "byte_equal": true,
+      "mtime_ns": 1791016795324763800
+    },
+    {
+      "path": "crates/kanzei-app/src/commands/run.rs",
+      "sha256": "f5486dc98e58be0f00c773dcb03dc43020d89afa60d80272ff61ae70bfcff906",
+      "byte_equal": true,
+      "mtime_ns": 1791016795325662600
+    }
+  ],
+  "source_sha256": [
+    {
+      "path": "crates/kanzei-core/src/store/typed.rs",
+      "sha256": "414ae676c4180de80da691920ee7df1a3fb04242d65eb21cfafb515ce8907b31"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/inbox.rs",
+      "sha256": "e17803fb5660e3f930c691d0e6428079ade50faf54ecde964038f40570affa1c"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/session.rs",
+      "sha256": "4c986a0f963905602ab74b531cfb9d8a1cec02b2da4a889ff81810a819db195b"
+    },
+    {
+      "path": "crates/kanzei-app/src/run/persistence.rs",
+      "sha256": "c47db999e896ef47123177b7c64f543f410bc979fc956bea73a244866a5ccc3f"
+    },
+    {
+      "path": "crates/kanzei-app/src/run/coordinator.rs",
+      "sha256": "90e4e2472123eb92779a06212cdea98d6ab6d3b5cf2e1e4f6ea889fc8d0f0da9"
+    },
+    {
+      "path": "crates/kanzei-app/src/commands/run.rs",
+      "sha256": "f5486dc98e58be0f00c773dcb03dc43020d89afa60d80272ff61ae70bfcff906"
+    },
+    {
+      "path": "crates/kanzei-app/Cargo.toml",
+      "sha256": "de9e08dba4d0bb0e99683ca6bf81701281c459994ac349a43831832981d9122f"
+    },
+    {
+      "path": "Cargo.lock",
+      "sha256": "9b4454ee1b576ec8e6081669253279066f7fa2948dafd2d0876c619a7c6d6a0f"
+    }
+  ],
+  "logs": "output/C5",
+  "native_ui_e2e": false,
+  "cross_module_contract": "new TypedSessionWriter.finish_with_input_outcome; sole production caller app persistence; crate-private PersistedRoundOutcome.stop receipt and preserved error context drive commands stopped classification; old finish/public signatures/schema preserved",
+  "next_real_open_issue": "C6 owned assembly startup failure leaves session running and typed open while ordinary fallback only marks input failed",
+  "no_push_release": true,
+  "no_global_coverage_edit": true,
+  "earlier_restoration_logs": [
+    "negative-restoration-round1-before.json",
+    "negative-restoration-round1-after.json",
+    "negative-restoration-stop-ok-before.json",
+    "negative-restoration-stop-ok-after.json",
+    "negative-restoration-stop-error-before.json",
+    "negative-restoration-stop-error-after.json"
+  ],
+  "stop_invariants": [
+    "lifecycle serializes token recheck and critical transactions/retry only; weak effects outside lock",
+    "Stop first after actual 200/503 return commits typed Stopped and keeps cancelled input",
+    "Completed first is not replaced by subsequent Stop",
+    "original LlmError type/classification preserved; actual retry gate refuses cancelled token",
+    "commands reports stopped, skips terminal error and input fallback only after real committed stop receipt"
+  ]
+}

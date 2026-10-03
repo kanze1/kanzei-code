@@ -31,6 +31,13 @@ use super::persistence::{
 };
 use super::{emit_stage, maybe_push_after_commit};
 
+pub(super) fn should_retry_failed_outcome(
+    controller: &crate::auto_run::AutoRunController,
+    halt_token: &kanzei_core::CancellationToken,
+) -> bool {
+    !halt_token.is_cancelled() && crate::auto_run::should_retry_failed_round(controller)
+}
+
 /// R-202 批2:run_task(原 run.rs 的 Round Coordinator)。装配 → 事件循环 → 轮末收尾。
 /// R-253 批7b:调用参数按生命周期三分——`RoundRequest`(本轮输入)/`RunMode`(运行档位)/
 /// `RuntimeHandles`(会话级句柄),共 4 参,消 too_many。三组均见 assembly.rs 的
@@ -72,12 +79,10 @@ pub(crate) async fn run_task(
         deps,
         session,
         mut round,
-    } = assemble_run(window, &stage, request, mode, &handles, halt_token).await?;
-    round.ctx.read_ledger = Some(
-        crate::runtime_for(&window.app_handle().state::<crate::AppState>(), &session_id)
-            .read_ledger
-            .clone(),
-    );
+    } = assemble_run(window, &stage, request, mode, &handles, halt_token.clone()).await?;
+    let execution_runtime =
+        crate::runtime_for(&window.app_handle().state::<crate::AppState>(), &session_id);
+    round.ctx.read_ledger = Some(execution_runtime.read_ledger.clone());
     round.ctx.async_mailbox = Some(mailbox);
     let phase_pipeline_enabled =
         round.pipeline.is_some() || deps.profile == kanzei_harness::ProfileKind::Readonly;
@@ -97,8 +102,7 @@ pub(crate) async fn run_task(
     let inbox_path = state_path.clone();
     let inbox_owner = session_id.clone();
     let inbox_writer = typed_writer.clone();
-    let inbox_runtime =
-        crate::runtime_for(&window.app_handle().state::<crate::AppState>(), &session_id);
+    let inbox_runtime = execution_runtime.clone();
     round.ctx.input_inbox = Some(kanzei_harness::InputInbox::new(move || {
         let _lifecycle = inbox_runtime.lifecycle.lock_or_recover();
         if inbox_runtime
@@ -334,7 +338,7 @@ pub(crate) async fn run_task(
         subagent_rt: &subagent_rt,
         prior: &prior,
     };
-    let run_result =
+    let mut run_result =
         run_execution_loop(&deps, &mut round, &execution_input, &mut on_event, &mut ask).await;
     // R-253 批7b:调用返回后 round 可整体取回——执行循环只借用了 round.ctx 与
     // round.pipeline(不相交字段),其余轮末字段在此移出供收尾段使用。
@@ -346,11 +350,13 @@ pub(crate) async fn run_task(
     let ctx_cwd = ctx.cwd.clone();
     let _write_lease = round._write_lease;
     // R-202 批2:轮末收尾段前半(终态落库:typed 终态/会话状态/episode/轮末采集)收敛。
-    let final_store = persist_round_outcome(
+    let persistence_result = persist_round_outcome(
         &state_path,
         window,
         &session_id,
-        &run_result,
+        &mut run_result,
+        &execution_runtime,
+        &halt_token,
         &typed_writer,
         &prior,
         &ctx,
@@ -362,9 +368,22 @@ pub(crate) async fn run_task(
         run_epoch_ms,
         &live,
     );
+    let (final_store, run_result) = match persistence_result {
+        Ok(outcome) => (
+            Some(outcome.store),
+            if outcome.stopped {
+                run_result.map_err(super::persistence::stopped_outcome)
+            } else {
+                run_result
+            },
+        ),
+        Err(error) => (None, Err(error)),
+    };
     let summary = match run_result {
         Ok(summary) => summary,
         Err(error) => {
+            typed_flush_task.abort();
+            handles.halt_slot.lock_or_recover().take();
             // D-403:失败轮不再在轮末判定之前提前返回。鞭挞已武装(ctrl.enabled)
             // 时,把失败按瞬态/致命分类送进同一个 auto_run 状态机:瞬态退避重试
             // (连续 MAX_FAILED_ROUNDS 轮才停),致命立即停;停摆经通知桥发手机。
@@ -382,7 +401,7 @@ pub(crate) async fn run_task(
             let auto_payload = {
                 let mut controllers = handles.auto_runs.lock_or_recover();
                 let ctrl = controllers.entry(session_id.clone()).or_default();
-                if !crate::auto_run::should_retry_failed_round(ctrl) {
+                if !should_retry_failed_outcome(ctrl, &halt_token) {
                     None
                 } else {
                     let signature = if deps.profile == kanzei_harness::ProfileKind::Research {

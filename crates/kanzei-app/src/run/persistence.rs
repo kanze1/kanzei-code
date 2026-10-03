@@ -114,15 +114,64 @@ fn record_transaction_budget_result(
     );
 }
 
-/// 轮末落库:状态/事件/episode/通知(原 run.rs persist_round_outcome)。
-/// 注:不能收 SessionContext/RoundContext 整体——run_task 内部分字段被 move 给
-/// 子函数后 struct 不可整体借用,故仍传展开字段(保留 allow)。
+/// Optional reporting and memory work runs only after the durable outcome.
+struct OutcomeEffects<'a> {
+    report: &'a dyn Fn(&str, String),
+    mobile: &'a dyn Fn(&str, &str),
+    harvest: &'a dyn Fn(&[kanzei_llm::Message]),
+    after_success: &'a dyn Fn(Option<i64>),
+}
+
+#[derive(Debug)]
+struct RoundOutcomeNotCommitted(String);
+
+impl std::fmt::Display for RoundOutcomeNotCommitted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+fn uncommitted_outcome(error: anyhow::Error) -> anyhow::Error {
+    let message = error.to_string();
+    error.context(RoundOutcomeNotCommitted(message))
+}
+
+pub(crate) fn is_uncommitted_outcome(error: &anyhow::Error) -> bool {
+    error.is::<RoundOutcomeNotCommitted>()
+}
+
+#[derive(Debug)]
+struct RoundOutcomeStopped(String);
+
+impl std::fmt::Display for RoundOutcomeStopped {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+pub(crate) fn stopped_outcome(error: anyhow::Error) -> anyhow::Error {
+    let message = error.to_string();
+    error.context(RoundOutcomeStopped(message))
+}
+
+pub(crate) fn is_stopped_outcome(error: &anyhow::Error) -> bool {
+    error.is::<RoundOutcomeStopped>()
+}
+
+pub(crate) struct PersistedRoundOutcome {
+    pub(crate) store: kanzei_core::SessionStore,
+    pub(crate) stopped: bool,
+}
+
+/// 轮末落库:核心状态先原子提交，通知和记忆后处理随后执行。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn persist_round_outcome(
     state_path: &std::path::Path,
     window: &tauri::Window,
     session_id: &str,
-    run_result: &Result<kanzei_core::RunSummary, anyhow::Error>,
+    run_result: &mut Result<kanzei_core::RunSummary, anyhow::Error>,
+    runtime: &crate::SessionRuntime,
+    halt_token: &kanzei_core::CancellationToken,
     typed_writer: &Arc<Mutex<typed_events::TypedEventWriter>>,
     prior: &[kanzei_llm::Message],
     ctx: &kanzei_harness::ToolCtx,
@@ -133,217 +182,254 @@ pub(crate) fn persist_round_outcome(
     run_started: &std::time::Instant,
     run_epoch_ms: i64,
     live: &Arc<Mutex<LiveRun>>,
-) -> Option<kanzei_core::SessionStore> {
-    let final_store = match kanzei_core::SessionStore::open(state_path) {
-        Ok(store) => Some(store),
-        Err(error) => {
-            report_persistence_failure(window, session_id, "打开对话数据库", error);
-            None
+) -> anyhow::Result<PersistedRoundOutcome> {
+    let report = |operation: &str, error: String| {
+        report_persistence_failure(window, session_id, operation, error);
+    };
+    let mobile = |title: &str, body: &str| {
+        if let Ok(message) = crate::mobile_notify::notify_mobile(title, body) {
+            tracing::debug!("{message}");
         }
     };
-    if let Some(store) = final_store.as_ref() {
-        record_transaction_budget_result(
-            store,
-            session_id,
-            run_id,
-            if run_result.is_ok() {
-                "completed"
-            } else {
-                "failed"
-            },
+    let harvest = |messages: &[kanzei_llm::Message]| {
+        kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, prompt, messages);
+    };
+    let after_success = |episode_id: Option<i64>| {
+        let project_dir = ctx.project_root.display().to_string();
+        tauri::async_runtime::spawn(async move {
+            match memory::consolidate_memory_inbox(project_dir, episode_id).await {
+                Ok(report) if report.has_failures() => tracing::warn!("{}", report.summary()),
+                Ok(report) => tracing::debug!("{}", report.summary()),
+                Err(error) => tracing::warn!("memory inbox consolidation failed: {error}"),
+            }
+        });
+        let _ = kanzei_tools::memory::reconcile_candidates(
+            &ctx.project_root,
+            episode_id,
+            kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
         );
-        match run_result {
-            Ok(summary) => {
-                typed_writer
-                    .lock_or_recover()
-                    .finish(if summary.halted_by_user {
+    };
+    persist_round_outcome_with_effects(
+        state_path,
+        session_id,
+        run_result,
+        runtime,
+        halt_token,
+        typed_writer,
+        prior,
+        ctx,
+        prompt,
+        resolved,
+        run_id,
+        promoted_input_id,
+        run_started,
+        run_epoch_ms,
+        live,
+        &OutcomeEffects {
+            report: &report,
+            mobile: &mobile,
+            harvest: &harvest,
+            after_success: &after_success,
+        },
+    )
+}
+
+fn commit_outcome(
+    writer: &Arc<Mutex<typed_events::TypedEventWriter>>,
+    input_id: &str,
+    terminal: typed_events::TerminalFact,
+    payload: &serde_json::Value,
+) -> anyhow::Result<()> {
+    let mut writer = writer.lock_or_recover();
+    if writer.finish_with_input_outcome(input_id, terminal, payload) {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "提交运行结果失败: {}",
+            writer
+                .errors()
+                .last()
+                .map(String::as_str)
+                .unwrap_or("typed outcome rejected")
+        ))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn persist_round_outcome_with_effects(
+    state_path: &std::path::Path,
+    session_id: &str,
+    run_result: &mut Result<kanzei_core::RunSummary, anyhow::Error>,
+    runtime: &crate::SessionRuntime,
+    halt_token: &kanzei_core::CancellationToken,
+    typed_writer: &Arc<Mutex<typed_events::TypedEventWriter>>,
+    prior: &[kanzei_llm::Message],
+    ctx: &kanzei_harness::ToolCtx,
+    prompt: &str,
+    resolved: &kanzei_harness::config::ResolvedModel,
+    run_id: &str,
+    promoted_input_id: &str,
+    run_started: &std::time::Instant,
+    run_epoch_ms: i64,
+    live: &Arc<Mutex<LiveRun>>,
+    effects: &OutcomeEffects<'_>,
+) -> anyhow::Result<PersistedRoundOutcome> {
+    let store = kanzei_core::SessionStore::open(state_path).map_err(|error| {
+        (effects.report)("打开对话数据库", error.to_string());
+        uncommitted_outcome(anyhow::Error::from(error))
+    })?;
+    // Stop and final commit use the same lifecycle ordering. The runner may have
+    // returned before a winning stop cancelled this input; recheck its own token.
+    // This guard never covers notifications or other optional external effects.
+    let lifecycle = runtime.lifecycle.lock_or_recover();
+    let stopped_by_user = halt_token.is_cancelled();
+    if let Ok(summary) = run_result.as_mut() {
+        summary.halted_by_user |= stopped_by_user;
+    }
+    let outcome = match &*run_result {
+        Ok(summary) => {
+            // Publish archive pointers while the input still protects their liveness.
+            persist_runner_surface_if_changed(
+                &store,
+                &ctx.project_root,
+                session_id,
+                run_id,
+                prior,
+                summary,
+            )
+            .map_err(anyhow::Error::from)
+            .and_then(|()| {
+                commit_outcome(
+                    typed_writer,
+                    promoted_input_id,
+                    if summary.halted_by_user {
                         typed_events::TerminalFact::Stopped
                     } else {
                         typed_events::TerminalFact::Completed
-                    });
-                // Keep the active input/status until a runner-created archive pointer
-                // has its durable replacement surface. L0 need not produce an LLM trace.
-                if let Err(error) = persist_runner_surface_if_changed(
-                    store,
-                    &ctx.project_root,
-                    session_id,
-                    run_id,
-                    prior,
-                    summary,
-                ) {
-                    report_persistence_failure(window, session_id, "写入运行上下文事务", error);
-                }
-                if let Err(error) = store.set_status(session_id, "idle") {
-                    report_persistence_failure(window, session_id, "写入 idle 状态", error);
-                }
-                if let Err(error) = store.append_event(
-                    session_id,
-                    "session.status_changed",
-                    &json!({ "status": "idle" }),
-                ) {
-                    report_persistence_failure(window, session_id, "写入完成状态事件", error);
-                }
-                if let Err(error) = store.append_event(
-                    session_id,
-                    "run.completed",
+                    },
                     &json!({
                         "steps": summary.steps,
                         "halted_by_user": summary.halted_by_user,
                         "input": summary.usage.input,
                         "output": summary.usage.output,
-                        // 上下文账单(R-106):各注入源字符数,UI 与度量共用。
                         "context": summary.context_report,
                     }),
-                ) {
-                    report_persistence_failure(window, session_id, "写入完成事件", error);
-                }
-                // D-655:runner 已维护不受轮中压缩影响的本轮消息真源。
-                let this_run = &summary.round_messages;
-                // 轮末采集(D-229/D-214):CLI 与桌面端共用 harvest_end_of_run——失败提炼
-                // → 条目收口判定 → SOP 候选(项目 inbox,落库目标 global)→ 根因 fact
-                // 候选(项目 inbox)。候选箱语义不变:SOP 只产候选等用户一键采纳,agent 不自决入库。
-                kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, prompt, this_run);
-                // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
-                // R-213:当轮 episode_id 代填给轮末 memory manager(同 CLI 路径)。
-                let mut current_episode_id: Option<i64> = None;
-                if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
-                    session_id,
-                    prompt_head: prompt,
-                    outcome: if summary.halted_by_user {
-                        "halted"
-                    } else {
-                        "completed"
-                    },
-                    steps: summary.steps,
-                    input_tokens: summary.usage.input,
-                    output_tokens: summary.usage.output,
-                    tools_json: &serde_json::to_string(&kanzei_core::summarize_tools(this_run))
-                        .unwrap_or_default(),
-                    context_json: &serde_json::to_string(&summary.context_report)
-                        .unwrap_or_default(),
-                    // R-099 调用画像:与冗余治理共用同一份口径,别处不再各算各的。
-                    metrics_json: &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
-                        .unwrap_or_default(),
-                    // D-173:轮次归属与墙钟。缺了它们,复盘只能从"当前配置"反推模型,
-                    // 而配置随时会变——最基本的事实都无法证伪。
-                    provider: &resolved.provider_name,
-                    model: &resolved.model,
-                    run_id,
-                    input_id: promoted_input_id,
-                    duration_ms: run_started.elapsed().as_millis() as u64,
-                    // R-106:上下文溢出压缩丢弃的轨迹段沉淀为 episode 的一部分,
-                    // 让溢出路径不再无声丢弃轨迹,复盘时可通过 episodes.overflow_json 查回。
-                    overflow_json: &serde_json::to_string(&summary.overflow_traces)
-                        .unwrap_or_default(),
-                }) {
-                    // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
-                    let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
-                    if let Err(error) = store.record_episode_recoveries(episode_id, this_run) {
-                        tracing::warn!(%error, episode_id, "记忆恢复证据写入失败，候选保持未验证");
-                    }
-                    current_episode_id = Some(episode_id);
-                }
-                let _ = store.finish_input(promoted_input_id, true);
-                // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
-                // flush_live_run 不该再补一条信息量更少的(D-179)。
-                live.lock_or_recover().flushed = true;
-                if let Err(error) =
-                    append_run_notification(store, session_id, "succeeded", "任务完成", false)
-                {
-                    report_persistence_failure(window, session_id, "写入完成通知", error);
-                }
-                // R-270 批4:完成事件经现成 LAN 推送桥发手机系统通知(尽力而为,
-                // 无桥时只记诊断不阻塞)。
-                if let Ok(message) =
-                    crate::mobile_notify::notify_mobile("kanzei 任务完成", "运行已成功结束")
-                {
-                    tracing::debug!("{message}");
-                }
-                // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
-                // 传**主根**:记忆是主根一份的资产,而 project_dir 线上线后是 worktree,
-                // 传它会让 memory 内部的发现式取根拐进分支副本(R-177 内容⑧同一条判据)。
-                let project_dir = ctx.project_root.display().to_string();
-                tauri::async_runtime::spawn(async move {
-                    match memory::consolidate_memory_inbox(project_dir, current_episode_id).await {
-                        Ok(report) if report.has_failures() => {
-                            tracing::warn!("{}", report.summary());
-                        }
-                        Ok(report) => tracing::debug!("{}", report.summary()),
-                        Err(error) => tracing::warn!("memory inbox consolidation failed: {error}"),
-                    }
-                });
-                // D-341/R-195/R-295:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
-                // 自动 promote,超期未处置或超过健康水位的低价值 candidate 自动 deprecated 归档,
-                // 其余保持 candidate。
-                // 与 inbox 消化解耦(没有草稿也要跑)且机械判定不走 LLM;失败不阻塞收尾。
-                let _ = kanzei_tools::memory::reconcile_candidates(
-                    &ctx.project_root,
-                    current_episode_id,
-                    kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
-                );
-            }
-            Err(error) => {
-                typed_writer
-                    .lock_or_recover()
-                    .finish(typed_events::TerminalFact::Failed(error.to_string()));
-                typed_writer.lock_or_recover().write_shadow_report(prior);
-                if let Err(persistence_error) = store.set_status(session_id, "failed") {
-                    report_persistence_failure(
-                        window,
-                        session_id,
-                        "写入失败状态",
-                        persistence_error,
-                    );
-                }
-                if let Err(persistence_error) = store.append_event(
-                    session_id,
-                    "session.status_changed",
-                    &json!({ "status": "failed" }),
-                ) {
-                    report_persistence_failure(
-                        window,
-                        session_id,
-                        "写入失败状态事件",
-                        persistence_error,
-                    );
-                }
-                if let Err(persistence_error) = store.append_event(
-                    session_id,
-                    "run.failed",
-                    &json!({ "error": error.to_string() }),
-                ) {
-                    report_persistence_failure(
-                        window,
-                        session_id,
-                        "写入失败事件",
-                        persistence_error,
-                    );
-                }
-                // 失败轮次原先在 `let summary = run_result?;` 处提前返回,轨迹与
-                // episode 一并丢失——和被停止的轮次是同一个洞(D-179)。
-                flush_live_run(store, session_id, live, "failed");
-                let _ = store.finish_input(promoted_input_id, false);
-                if let Err(persistence_error) =
-                    append_run_notification(store, session_id, "failed", error.to_string(), false)
-                {
-                    report_persistence_failure(
-                        window,
-                        session_id,
-                        "写入失败通知",
-                        persistence_error,
-                    );
-                }
-                // R-270 批4:失败事件经 LAN 推送桥发手机系统通知(尽力而为)。
-                if let Ok(message) = crate::mobile_notify::notify_mobile(
-                    "kanzei 任务失败",
-                    &format!("运行失败: {error}"),
-                ) {
-                    tracing::debug!("{message}");
-                }
-            }
+                )
+            })
         }
+        Err(error) if stopped_by_user => commit_outcome(
+            typed_writer,
+            promoted_input_id,
+            typed_events::TerminalFact::Stopped,
+            &json!({ "halted_by_user": true, "error": error.to_string() }),
+        ),
+        Err(error) => Err(anyhow::anyhow!("{error}")),
+    };
+    if let Err(error) = outcome {
+        // The rejected Completed transaction rolled back all critical state.
+        // A Failed retry uses the same atomic boundary, never a partial fallback.
+        let failure_result = commit_outcome(
+            typed_writer,
+            promoted_input_id,
+            typed_events::TerminalFact::Failed(error.to_string()),
+            &json!({ "error": error.to_string() }),
+        );
+        drop(lifecycle);
+        if run_result.is_ok() {
+            (effects.report)("提交运行结果", error.to_string());
+        }
+        if let Err(failure_error) = failure_result {
+            (effects.report)("提交失败结果", failure_error.to_string());
+            return Err(uncommitted_outcome(
+                error.context(format!("失败结果也未提交: {failure_error}")),
+            ));
+        }
+        record_transaction_budget_result(&store, session_id, run_id, "failed");
+        typed_writer.lock_or_recover().write_shadow_report(prior);
+        flush_live_run(&store, session_id, live, "failed");
+        if let Err(notification_error) =
+            append_run_notification(&store, session_id, "failed", error.to_string(), false)
+        {
+            (effects.report)("写入失败通知", notification_error.to_string());
+        }
+        (effects.mobile)("kanzei 任务失败", &format!("运行失败: {error}"));
+        // Preserve the original provider error and its typed classification in
+        // coordinator; this success only acknowledges the durable Failed outcome.
+        if run_result.is_err() {
+            return Ok(PersistedRoundOutcome {
+                store,
+                stopped: false,
+            });
+        }
+        return Err(error);
     }
-    final_store
+    drop(lifecycle);
+    // The provider error remains available to coordinator's caller, but a stop
+    // that won before durable finalization owns this terminal. Do not publish a
+    // successful provider result or mark its cancelled input failed.
+    if run_result.is_err() {
+        typed_writer.lock_or_recover().write_shadow_report(prior);
+        flush_live_run(&store, session_id, live, "halted");
+        return Ok(PersistedRoundOutcome {
+            store,
+            stopped: true,
+        });
+    }
+    let summary = run_result
+        .as_ref()
+        .expect("successful durable outcome has a summary");
+    record_transaction_budget_result(&store, session_id, run_id, "completed");
+    let this_run = &summary.round_messages;
+    (effects.harvest)(this_run);
+    // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
+    // R-213:当轮 episode_id 代填给轮末 memory manager(同 CLI 路径)。
+    let mut current_episode_id: Option<i64> = None;
+    if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
+        session_id,
+        prompt_head: prompt,
+        outcome: if summary.halted_by_user {
+            "halted"
+        } else {
+            "completed"
+        },
+        steps: summary.steps,
+        input_tokens: summary.usage.input,
+        output_tokens: summary.usage.output,
+        tools_json: &serde_json::to_string(&kanzei_core::summarize_tools(this_run))
+            .unwrap_or_default(),
+        context_json: &serde_json::to_string(&summary.context_report).unwrap_or_default(),
+        // R-099 调用画像:与冗余治理共用同一份口径,别处不再各算各的。
+        metrics_json: &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
+            .unwrap_or_default(),
+        // D-173:轮次归属与墙钟。缺了它们,复盘只能从"当前配置"反推模型,
+        // 而配置随时会变——最基本的事实都无法证伪。
+        provider: &resolved.provider_name,
+        model: &resolved.model,
+        run_id,
+        input_id: promoted_input_id,
+        duration_ms: run_started.elapsed().as_millis() as u64,
+        // R-106:上下文溢出压缩丢弃的轨迹段沉淀为 episode 的一部分,
+        // 让溢出路径不再无声丢弃轨迹,复盘时可通过 episodes.overflow_json 查回。
+        overflow_json: &serde_json::to_string(&summary.overflow_traces).unwrap_or_default(),
+    }) {
+        // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
+        let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
+        if let Err(error) = store.record_episode_recoveries(episode_id, this_run) {
+            tracing::warn!(%error, episode_id, "记忆恢复证据写入失败，候选保持未验证");
+        }
+        current_episode_id = Some(episode_id);
+    }
+    live.lock_or_recover().flushed = true;
+    if let Err(error) = append_run_notification(&store, session_id, "succeeded", "任务完成", false)
+    {
+        (effects.report)("写入完成通知", error.to_string());
+    }
+    (effects.mobile)("kanzei 任务完成", "运行已成功结束");
+    (effects.after_success)(current_episode_id);
+    Ok(PersistedRoundOutcome {
+        store,
+        stopped: summary.halted_by_user,
+    })
 }
 
 struct RoundCompaction {
@@ -353,6 +439,28 @@ struct RoundCompaction {
 }
 
 impl RoundCompaction {
+    fn persist_and_publish(
+        &self,
+        store: &kanzei_core::SessionStore,
+        session_id: &str,
+        messages: &[kanzei_llm::Message],
+        conversation: &Mutex<HashMap<String, Vec<kanzei_llm::Message>>>,
+        publish: &dyn Fn(&serde_json::Value),
+    ) -> Result<(), kanzei_core::StoreError> {
+        self.persist(store, session_id, messages, conversation)?;
+        if let Some(digest) = self.summary["digest"].as_str() {
+            publish(&json!({
+                "summary": digest,
+                "dropped": self.summary["dropped"],
+                "before": self.summary["before"],
+                "after": self.summary["after"],
+            }));
+        } else if self.summary["source"] == "round_prune" {
+            publish(&self.summary);
+        }
+        Ok(())
+    }
+
     fn persist(
         &self,
         store: &kanzei_core::SessionStore,
@@ -539,7 +647,7 @@ pub(crate) async fn finalize_round(
                 stage(
                     "压缩",
                     format!(
-                        "已机械清理 {cleared} 条旧工具结果({}k → {}k token)",
+                        "机械清理候选:拟清理 {cleared} 条旧工具结果({}k → {}k token)",
                         estimate / 1000,
                         after_prune / 1000
                     ),
@@ -607,16 +715,9 @@ pub(crate) async fn finalize_round(
                 stage(
                     "压缩",
                     format!(
-                        "压缩完成:{}k → {}k token,压掉 {dropped} 条中段消息",
+                        "压缩候选已生成:{}k → {}k token,拟压掉 {dropped} 条中段消息",
                         estimate / 1000,
                         after / 1000
-                    ),
-                );
-                let _ = window.emit(
-                    "kz:compacted",
-                    with_session_id(
-                        json!({ "summary": digest_preview, "dropped": dropped, "before": estimate, "after": after }),
-                        session_id,
                     ),
                 );
             } else {
@@ -642,7 +743,33 @@ pub(crate) async fn finalize_round(
         // 轮末再把整轮复制一遍造成回放重复。
         flush_live_trace(store, session_id, live);
         if let Some(pending) = compaction.take() {
-            if let Err(error) = pending.persist(store, session_id, &messages, conversation) {
+            let publish = |payload: &serde_json::Value| {
+                let before = payload["before"].as_u64().unwrap_or_default() / 1000;
+                let after = payload["after"].as_u64().unwrap_or_default() / 1000;
+                if payload["source"] == "round_prune" {
+                    stage(
+                        "压缩",
+                        format!(
+                            "已机械清理 {} 条旧工具结果({before}k → {after}k token)",
+                            payload["cleared"].as_u64().unwrap_or_default()
+                        ),
+                    );
+                    return;
+                }
+                stage(
+                    "压缩",
+                    format!(
+                        "压缩完成:{}k → {}k token,压掉 {} 条中段消息",
+                        before,
+                        after,
+                        payload["dropped"].as_u64().unwrap_or_default(),
+                    ),
+                );
+                let _ = window.emit("kz:compacted", with_session_id(payload.clone(), session_id));
+            };
+            if let Err(error) =
+                pending.persist_and_publish(store, session_id, &messages, conversation, &publish)
+            {
                 messages = conversation
                     .lock_or_recover()
                     .get(session_id)
@@ -706,6 +833,732 @@ pub(crate) async fn finalize_round(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    async fn runner_outcome_fixture(
+        provider_failed: bool,
+        halt: Option<kanzei_core::CancellationToken>,
+    ) -> (
+        std::path::PathBuf,
+        kanzei_core::SessionStore,
+        Arc<Mutex<typed_events::TypedEventWriter>>,
+        Result<kanzei_core::RunSummary, anyhow::Error>,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "kz-c5-outcome-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let path = root.join("state.db");
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        store
+            .admit_input("ses", "input", "prompt", kanzei_core::Delivery::Queue)
+            .unwrap();
+        store.promote_next_input("ses").unwrap().unwrap();
+        assert!(store.start_input("input").unwrap());
+        store.set_status("ses", "running").unwrap();
+        let writer = Arc::new(Mutex::new(typed_events::TypedEventWriter::new(
+            &path, "ses", "run",
+        )));
+        writer
+            .lock_or_recover()
+            .user_message("input", kanzei_llm::Message::user_text("prompt"));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            // The real client performs two pre-stream retries for 503 responses.
+            for _ in 0..if provider_failed { 3 } else { 1 } {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                let header_end = loop {
+                    let n = socket.read(&mut buffer).await.unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                    if let Some(p) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break p + 4;
+                    }
+                };
+                let length = String::from_utf8_lossy(&request[..header_end])
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                while request.len() < header_end + length {
+                    let n = socket.read(&mut buffer).await.unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                }
+                let (status, content_type, body) = if provider_failed {
+                    (
+                        "503 Service Unavailable",
+                        "application/json",
+                        json!({"error":{"message":"temporary outage"}}).to_string(),
+                    )
+                } else {
+                    (
+                        "200 OK",
+                        "text/event-stream",
+                        format!(
+                            "data: {}\n\ndata: [DONE]\n\n",
+                            json!({"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1}})
+                        ),
+                    )
+                };
+                socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nRetry-After: 0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+                socket.write_all(body.as_bytes()).await.unwrap();
+            }
+        });
+        let ctx = kanzei_harness::ToolCtx::new(root.clone(), root.clone());
+        let snapshot = kanzei_harness::Harness::default()
+            .resolve(&kanzei_harness::ResolveCtx {
+                profile: kanzei_harness::ProfileKind::Dev,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: Arc::new(kanzei_harness::KanzeiConfig::default()),
+            })
+            .unwrap();
+        let agent = serde_json::from_value(
+            json!({"name":"fixture","profile":"dev","mode":"primary","steps":1,"system":"test"}),
+        )
+        .unwrap();
+        let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+        let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), None);
+        let config = kanzei_core::RunnerConfig {
+            hosted_tools: vec![],
+            digest_model: None,
+            intensity: kanzei_harness::HarnessIntensity::Autonomous,
+            model: "mock".into(),
+            max_tokens: 128,
+            reasoning: kanzei_llm::ReasoningEffort::Off,
+            service_tier: None,
+            context_limit: None,
+            limits: Default::default(),
+            recall: None,
+            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+            ask_policy: kanzei_core::AskPolicy::NonInteractive,
+            halt,
+        };
+        let sink_writer = writer.clone();
+        let mut sink = move |event| {
+            use kanzei_core::RunEvent;
+            let mut writer = sink_writer.lock_or_recover();
+            match event {
+                RunEvent::TurnStart {
+                    step, max_steps, ..
+                } => writer.turn_started(step, max_steps),
+                RunEvent::Text(text) => writer.push_text(&text),
+                RunEvent::AssistantMessageCommitted {
+                    step,
+                    message,
+                    commit,
+                } => {
+                    if !writer.assistant_committed(step, message) {
+                        commit.reject(
+                            writer
+                                .errors()
+                                .last()
+                                .cloned()
+                                .unwrap_or_else(|| "assistant rejected".into()),
+                        );
+                    }
+                }
+                RunEvent::ToolResultsCommitted {
+                    step,
+                    message,
+                    commit,
+                } => {
+                    if !writer.tool_results_committed(step, message) {
+                        commit.reject(
+                            writer
+                                .errors()
+                                .last()
+                                .cloned()
+                                .unwrap_or_else(|| "tool results rejected".into()),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        };
+        let mut ask = |_| -> kanzei_core::AskFuture {
+            Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
+        };
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            kanzei_core::run_once(
+                &client,
+                &route,
+                &snapshot,
+                &agent,
+                &config,
+                &ctx,
+                "prompt",
+                None,
+                &[],
+                None,
+                None,
+                &mut sink,
+                &mut ask,
+            ),
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+        if provider_failed {
+            let error = result
+                .as_ref()
+                .err()
+                .expect("the real provider returned 503");
+            assert!(error.chain().any(|cause| matches!(
+                cause.downcast_ref::<kanzei_llm::LlmError>(),
+                Some(kanzei_llm::LlmError::Http { status: 503, .. })
+            )));
+        } else {
+            assert_eq!(result.as_ref().unwrap().text, "done");
+        }
+        assert!(!writer.lock_or_recover().is_terminal());
+        assert_eq!(
+            store
+                .list_events_by_type("ses", 0, "session.assistant_message_committed")
+                .unwrap()
+                .len(),
+            usize::from(!provider_failed)
+        );
+        (root, store, writer, result)
+    }
+
+    async fn completed_outcome_fixture() -> (
+        std::path::PathBuf,
+        kanzei_core::SessionStore,
+        Arc<Mutex<typed_events::TypedEventWriter>>,
+        kanzei_core::RunSummary,
+    ) {
+        let (root, store, writer, result) = runner_outcome_fixture(false, None).await;
+        (root, store, writer, result.unwrap())
+    }
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum OutcomeStop {
+        None,
+        Cooperative,
+        AfterProvider,
+        AfterCommit,
+    }
+
+    async fn check_durable_outcome(
+        rejected: Option<&str>,
+        stop: OutcomeStop,
+        both_terminals: bool,
+    ) {
+        let halt_token = kanzei_core::CancellationToken::new();
+        let (root, store, writer, result) =
+            runner_outcome_fixture(false, Some(halt_token.clone())).await;
+        let mut summary = result.unwrap();
+        let path = root.join("state.db");
+        let sql = rusqlite::Connection::open(&path).unwrap();
+        let runtime = Arc::new(crate::SessionRuntime::default());
+        *runtime.halt.lock_or_recover() = Some(halt_token.clone());
+        runtime
+            .running
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let stopped = matches!(stop, OutcomeStop::Cooperative | OutcomeStop::AfterProvider);
+        if stop == OutcomeStop::Cooperative {
+            store.finalize_interrupt("ses").unwrap();
+            summary.halted_by_user = true;
+        }
+        if stop == OutcomeStop::AfterProvider {
+            assert!(
+                !summary.halted_by_user,
+                "runner has already returned success"
+            );
+            crate::stop_runtime_and_finalize(&runtime, &store, &path, "ses").unwrap();
+            assert!(halt_token.is_cancelled());
+            runtime
+                .running
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        if let Some(rejected) = rejected {
+            let trigger = match rejected {
+                "terminal" => "CREATE TRIGGER reject_success BEFORE INSERT ON session_events WHEN NEW.event_type='session.turn_completed' BEGIN SELECT RAISE(ABORT, 'reject terminal'); END",
+                "input" => "CREATE TRIGGER reject_success BEFORE UPDATE OF status ON session_inputs WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT, 'reject input'); END",
+                "status" => "CREATE TRIGGER reject_success BEFORE UPDATE OF status ON sessions WHEN NEW.status='idle' BEGIN SELECT RAISE(ABORT, 'reject status'); END",
+                _ => "CREATE TRIGGER reject_success BEFORE INSERT ON session_events WHEN NEW.event_type='run.completed' BEGIN SELECT RAISE(ABORT, 'reject result'); END",
+            };
+            sql.execute_batch(trigger).unwrap();
+        }
+        if both_terminals {
+            sql.execute_batch("CREATE TRIGGER reject_failed BEFORE INSERT ON session_events WHEN NEW.event_type='session.turn_failed' BEGIN SELECT RAISE(ABORT, 'reject failed'); END").unwrap();
+        }
+        let reports = Mutex::new(Vec::new());
+        let mobile_messages = Mutex::new(Vec::new());
+        let post_success = Mutex::new(Vec::new());
+        let harvests = Mutex::new(Vec::new());
+        let report = |op: &str, error: String| {
+            assert!(
+                runtime.lifecycle.try_lock().is_ok(),
+                "report holds lifecycle"
+            );
+            reports.lock_or_recover().push((op.to_owned(), error));
+        };
+        let mobile = |title: &str, _: &str| {
+            assert!(
+                runtime.lifecycle.try_lock().is_ok(),
+                "notify holds lifecycle"
+            );
+            // External publication must observe the already committed outcome.
+            let expected = if title.ends_with("完成") {
+                "run.completed"
+            } else {
+                "run.failed"
+            };
+            assert_eq!(
+                store.list_events_by_type("ses", 0, expected).unwrap().len(),
+                1
+            );
+            mobile_messages.lock_or_recover().push(title.to_owned());
+        };
+        let harvest = |messages: &[kanzei_llm::Message]| {
+            assert!(
+                runtime.lifecycle.try_lock().is_ok(),
+                "harvest holds lifecycle"
+            );
+            harvests.lock_or_recover().push(messages.to_vec());
+        };
+        let after_success = |episode_id| {
+            assert!(
+                runtime.lifecycle.try_lock().is_ok(),
+                "memory holds lifecycle"
+            );
+            post_success.lock_or_recover().push(episode_id);
+        };
+        let live = Arc::new(Mutex::new(LiveRun::default()));
+        live.lock_or_recover()
+            .begin("run", "input", "prompt", "mock", "mock");
+        let resolved = kanzei_harness::config::ResolvedModel {
+            provider_name: "mock".into(),
+            model: "mock".into(),
+            provider: kanzei_harness::config::ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "http://127.0.0.1:1/v1".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: None,
+            },
+        };
+        let before = store.latest_event_sequence("ses").unwrap();
+        let mut run_result = Ok(summary);
+        let result = persist_round_outcome_with_effects(
+            &path,
+            "ses",
+            &mut run_result,
+            &runtime,
+            &halt_token,
+            &writer,
+            &[],
+            &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
+            "prompt",
+            &resolved,
+            "run",
+            "input",
+            &std::time::Instant::now(),
+            0,
+            &live,
+            &OutcomeEffects {
+                report: &report,
+                mobile: &mobile,
+                harvest: &harvest,
+                after_success: &after_success,
+            },
+        );
+        if stop == OutcomeStop::AfterProvider {
+            assert_eq!(
+                store
+                    .list_events_by_type("ses", 0, "session.turn_stopped")
+                    .unwrap()
+                    .len(),
+                1,
+                "the winning stop must commit a durable typed terminal, errors: {:?}",
+                writer.lock_or_recover().errors()
+            );
+        }
+        assert_eq!(run_result.as_ref().unwrap().halted_by_user, stopped);
+        if stop == OutcomeStop::AfterCommit {
+            assert!(result.is_ok());
+            crate::stop_runtime_and_finalize(&runtime, &store, &path, "ses").unwrap();
+            runtime
+                .running
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            assert!(store
+                .list_events_by_type("ses", 0, "session.turn_stopped")
+                .unwrap()
+                .is_empty());
+            assert!(store
+                .list_events_by_type("ses", 0, "session.turn_failed")
+                .unwrap()
+                .is_empty());
+        }
+        let notifications = store.replay_notifications("ses", 0, 20).unwrap();
+        let episodes = store.list_episodes("ses", 20).unwrap();
+        if rejected.is_some() {
+            let error = match result {
+                Ok(_) => panic!("rejected persistence must not authorize successful finalize"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("reject"), "{error:#}");
+            assert!(store
+                .list_events_by_type("ses", 0, "session.turn_completed")
+                .unwrap()
+                .is_empty());
+            assert!(store
+                .list_events_by_type("ses", 0, "run.completed")
+                .unwrap()
+                .is_empty());
+            assert!(!episodes.iter().any(|x| x.2 == "completed"));
+            assert!(!notifications.iter().any(|x| x.status == "succeeded"));
+            assert!(post_success.lock_or_recover().is_empty());
+            assert!(harvests.lock_or_recover().is_empty());
+            if both_terminals {
+                assert!(is_uncommitted_outcome(&error));
+                assert!(!crate::commands::run::finish_failed_promoted_input(
+                    &store, "input", &error
+                )
+                .unwrap());
+                assert!(!writer.lock_or_recover().is_terminal());
+                assert_eq!(store.latest_event_sequence("ses").unwrap(), before);
+                assert_eq!(
+                    store.input_status("input").unwrap().as_deref(),
+                    Some("running")
+                );
+                assert_eq!(store.get_session("ses").unwrap().unwrap().status, "running");
+                assert!(notifications.is_empty());
+                assert!(episodes.is_empty());
+                assert!(mobile_messages.lock_or_recover().is_empty());
+            } else {
+                assert!(writer.lock_or_recover().is_terminal());
+                assert_eq!(
+                    store.input_status("input").unwrap().as_deref(),
+                    Some("failed")
+                );
+                assert_eq!(store.get_session("ses").unwrap().unwrap().status, "failed");
+                assert_eq!(
+                    store
+                        .list_events_by_type("ses", 0, "session.turn_failed")
+                        .unwrap()
+                        .len(),
+                    1
+                );
+                assert_eq!(
+                    store
+                        .list_events_by_type("ses", 0, "run.failed")
+                        .unwrap()
+                        .len(),
+                    1
+                );
+                assert_eq!(
+                    notifications
+                        .iter()
+                        .map(|x| x.status.as_str())
+                        .collect::<Vec<_>>(),
+                    ["failed"]
+                );
+                assert_eq!(
+                    episodes.iter().map(|x| x.2.as_str()).collect::<Vec<_>>(),
+                    ["failed"]
+                );
+                assert_eq!(*mobile_messages.lock_or_recover(), ["kanzei 任务失败"]);
+            }
+        } else {
+            assert!(result.is_ok());
+            drop(result);
+            assert!(writer.lock_or_recover().is_terminal());
+            assert_eq!(
+                store.input_status("input").unwrap().as_deref(),
+                Some(if stopped { "cancelled" } else { "completed" })
+            );
+            assert_eq!(store.get_session("ses").unwrap().unwrap().status, "idle");
+            assert_eq!(
+                store
+                    .list_events_by_type(
+                        "ses",
+                        0,
+                        if stopped {
+                            "session.turn_stopped"
+                        } else {
+                            "session.turn_completed"
+                        }
+                    )
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert_eq!(
+                store
+                    .list_events_by_type("ses", 0, "run.completed")
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert_eq!(
+                notifications
+                    .iter()
+                    .map(|x| x.status.as_str())
+                    .collect::<Vec<_>>(),
+                ["succeeded"]
+            );
+            assert_eq!(
+                episodes.iter().map(|x| x.2.as_str()).collect::<Vec<_>>(),
+                [if stopped { "halted" } else { "completed" }]
+            );
+            assert_eq!(post_success.lock_or_recover().len(), 1);
+            assert_eq!(harvests.lock_or_recover().len(), 1);
+            assert_eq!(*mobile_messages.lock_or_recover(), ["kanzei 任务完成"]);
+            assert!(reports.lock_or_recover().is_empty());
+        }
+        drop(writer);
+        drop(sql);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    async fn check_provider_error_outcome(stopped: bool) {
+        let halt_token = kanzei_core::CancellationToken::new();
+        let (root, store, writer, mut original) = if stopped {
+            runner_outcome_fixture(true, Some(halt_token.clone())).await
+        } else {
+            let (root, store, writer, _) = completed_outcome_fixture().await;
+            let error = Err(anyhow::Error::from(kanzei_llm::LlmError::Http {
+                status: 503,
+                body: "temporary outage".into(),
+            })
+            .context("primary provider"));
+            (root, store, writer, error)
+        };
+        assert!(crate::auto_run::is_transient_run_error(match &original {
+            Err(error) => error,
+            Ok(_) => unreachable!("fixture starts with a provider failure"),
+        }));
+        let resolved = kanzei_harness::config::ResolvedModel {
+            provider_name: "mock".into(),
+            model: "mock".into(),
+            provider: kanzei_harness::config::ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "http://127.0.0.1:1/v1".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: None,
+            },
+        };
+        let report = |_: &str, _: String| {};
+        let mobile = |_: &str, _: &str| {
+            assert!(
+                !stopped,
+                "a stopped provider error must not publish success/failure"
+            );
+        };
+        let harvest =
+            |_: &[kanzei_llm::Message]| panic!("failed round must not harvest success memory");
+        let after_success = |_| panic!("failed round must not schedule success work");
+        let live = Arc::new(Mutex::new(LiveRun::default()));
+        live.lock_or_recover()
+            .begin("run", "input", "prompt", "mock", "mock");
+        let runtime = Arc::new(crate::SessionRuntime::default());
+        *runtime.halt.lock_or_recover() = Some(halt_token.clone());
+        if stopped {
+            runtime
+                .running
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            crate::stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), "ses")
+                .unwrap();
+            runtime
+                .running
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            assert!(halt_token.is_cancelled());
+        }
+        let controller = crate::auto_run::AutoRunController {
+            enabled: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            super::super::coordinator::should_retry_failed_outcome(&controller, &halt_token),
+            !stopped
+        );
+        let durable = persist_round_outcome_with_effects(
+            &root.join("state.db"),
+            "ses",
+            &mut original,
+            &runtime,
+            &halt_token,
+            &writer,
+            &[],
+            &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
+            "prompt",
+            &resolved,
+            "run",
+            "input",
+            &std::time::Instant::now(),
+            0,
+            &live,
+            &OutcomeEffects {
+                report: &report,
+                mobile: &mobile,
+                harvest: &harvest,
+                after_success: &after_success,
+            },
+        );
+        assert!(
+            durable.is_ok(),
+            "the durable Failed/Stopped result is a committed outcome, errors: {:?}",
+            writer.lock_or_recover().errors()
+        );
+        let committed_stop = durable.as_ref().unwrap().stopped;
+        assert_eq!(committed_stop, stopped);
+        drop(durable);
+        assert!(crate::auto_run::is_transient_run_error(match &original {
+            Err(error) => error,
+            Ok(_) => unreachable!("fixture starts with a provider failure"),
+        }));
+        let caller_error = match original {
+            Err(error) if committed_stop => stopped_outcome(error),
+            Err(error) => error,
+            Ok(_) => unreachable!("the original provider error is retained"),
+        };
+        assert!(crate::auto_run::is_transient_run_error(&caller_error));
+        let idle_reason = crate::commands::run::run_error_idle_reason(&caller_error);
+        assert_eq!(idle_reason, if stopped { "stopped" } else { "failed" });
+        assert_eq!(
+            idle_reason == "failed",
+            !stopped,
+            "direct caller emits terminal error only for a failed disposition"
+        );
+        assert!(!crate::commands::run::finish_failed_promoted_input(
+            &store,
+            "input",
+            &caller_error
+        )
+        .unwrap());
+        assert_eq!(
+            store.input_status("input").unwrap().as_deref(),
+            Some(if stopped { "cancelled" } else { "failed" })
+        );
+        assert_eq!(
+            store.get_session("ses").unwrap().unwrap().status,
+            if stopped { "idle" } else { "failed" }
+        );
+        assert_eq!(
+            store
+                .list_events_by_type(
+                    "ses",
+                    0,
+                    if stopped {
+                        "session.turn_stopped"
+                    } else {
+                        "session.turn_failed"
+                    }
+                )
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .list_events_by_type("ses", 0, "run.completed")
+                .unwrap()
+                .len(),
+            usize::from(stopped)
+        );
+        if stopped {
+            assert!(store
+                .list_events_by_type("ses", 0, "session.turn_failed")
+                .unwrap()
+                .is_empty());
+            assert!(store
+                .list_events_by_type("ses", 0, "session.turn_completed")
+                .unwrap()
+                .is_empty());
+            assert!(store.replay_notifications("ses", 0, 20).unwrap().is_empty());
+            assert_eq!(
+                store
+                    .list_episodes("ses", 20)
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.2.as_str())
+                    .collect::<Vec<_>>(),
+                ["halted"]
+            );
+            assert_eq!(
+                store
+                    .latest_event("ses", "run.completed")
+                    .unwrap()
+                    .unwrap()
+                    .payload["halted_by_user"],
+                true
+            );
+        }
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn durable_failed_outcome_preserves_original_provider_error_classification() {
+        check_provider_error_outcome(false).await;
+    }
+
+    #[tokio::test]
+    async fn durable_outcome_stop_after_real_provider_error_preserves_error_and_stopped_terminal() {
+        check_provider_error_outcome(true).await;
+    }
+
+    #[tokio::test]
+    async fn durable_outcome_rejects_completed_after_real_provider_success() {
+        check_durable_outcome(Some("terminal"), OutcomeStop::None, false).await;
+    }
+    #[tokio::test]
+    async fn durable_outcome_rejects_input_completion_after_real_provider_success() {
+        check_durable_outcome(Some("input"), OutcomeStop::None, false).await;
+    }
+    #[tokio::test]
+    async fn durable_outcome_rejects_idle_status_after_real_provider_success() {
+        check_durable_outcome(Some("status"), OutcomeStop::None, false).await;
+    }
+    #[tokio::test]
+    async fn durable_outcome_rejects_result_event_after_real_provider_success() {
+        check_durable_outcome(Some("event"), OutcomeStop::None, false).await;
+    }
+    #[tokio::test]
+    async fn durable_outcome_does_not_fake_failure_when_both_terminals_rejected() {
+        check_durable_outcome(Some("terminal"), OutcomeStop::None, true).await;
+    }
+    #[tokio::test]
+    async fn durable_outcome_commits_before_success_publication() {
+        check_durable_outcome(None, OutcomeStop::None, false).await;
+    }
+    #[tokio::test]
+    async fn durable_outcome_accepts_cooperative_stop_with_cancelled_input() {
+        check_durable_outcome(None, OutcomeStop::Cooperative, false).await;
+    }
+    #[tokio::test]
+    async fn durable_outcome_stop_wins_after_provider_returns() {
+        check_durable_outcome(None, OutcomeStop::AfterProvider, false).await;
+    }
+    #[tokio::test]
+    async fn durable_outcome_stop_after_commit_preserves_completed_input_and_terminal() {
+        check_durable_outcome(None, OutcomeStop::AfterCommit, false).await;
+    }
 
     #[tokio::test]
     async fn round_prune_only_surface_commits_before_idle_gc_and_recovers_exactly() {
@@ -955,6 +1808,87 @@ mod tests {
         )
         .is_none());
         assert_eq!(messages, original);
+    }
+
+    #[test]
+    fn compaction_publishes_only_after_real_source_cas_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-c5-compaction-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join("state.db");
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        let mut writer = kanzei_core::TypedSessionWriter::new(&path, "ses", "run");
+        writer.user_message("input", kanzei_llm::Message::user_text("old source"));
+        writer.turn_started(1, 1);
+        writer.assistant_committed(
+            1,
+            kanzei_llm::Message::assistant(vec![kanzei_llm::Part::Text {
+                text: "answer".into(),
+            }]),
+        );
+        writer.finish(kanzei_core::SessionTurnTerminal::Completed);
+        let source = crate::conversation::project_latest_segment(&store, "ses").unwrap();
+        let pending = RoundCompaction {
+            transaction_id: "round-compact".into(),
+            summary: json!({"digest":"summary","dropped":2,"before":3000,"after":1000}),
+            source_surface: source.clone(),
+        };
+        let mobile = kanzei_llm::Message::user_text("late phone");
+        store
+            .append_mobile_message(
+                "ses",
+                "phone",
+                mobile.clone(),
+                &json!({"text":"late phone"}),
+            )
+            .unwrap();
+        let current = crate::conversation::project_latest_segment(&store, "ses").unwrap();
+        assert_eq!(current.last(), Some(&mobile));
+        let cache = Mutex::new(HashMap::from([("ses".to_owned(), current.clone())]));
+        let publication = Mutex::new(Vec::new());
+        let surface = vec![kanzei_llm::Message::user_text("summary surface")];
+        let publish = |payload: &serde_json::Value| {
+            assert_eq!(
+                crate::conversation::project_latest_segment(&store, "ses").unwrap(),
+                surface
+            );
+            assert_eq!(cache.lock_or_recover()["ses"], surface);
+            publication.lock_or_recover().push(payload.clone());
+        };
+        assert!(pending
+            .persist_and_publish(&store, "ses", &surface, &cache, &publish)
+            .is_err());
+        assert!(publication.lock_or_recover().is_empty());
+        assert_eq!(cache.lock_or_recover()["ses"], current);
+        let pending = RoundCompaction {
+            source_surface: current,
+            ..pending
+        };
+        let sql = rusqlite::Connection::open(&path).unwrap();
+        sql.execute_batch("CREATE TRIGGER reject_surface BEFORE INSERT ON session_events WHEN NEW.event_type='surface_replaced' BEGIN SELECT RAISE(ABORT, 'reject surface'); END").unwrap();
+        assert!(pending
+            .persist_and_publish(&store, "ses", &surface, &cache, &publish)
+            .is_err());
+        assert!(publication.lock_or_recover().is_empty());
+        sql.execute_batch("DROP TRIGGER reject_surface").unwrap();
+        pending
+            .persist_and_publish(&store, "ses", &surface, &cache, &publish)
+            .unwrap();
+        assert_eq!(
+            *publication.lock_or_recover(),
+            [json!({"summary":"summary","dropped":2,"before":3000,"after":1000})]
+        );
+        drop(sql);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

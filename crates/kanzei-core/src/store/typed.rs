@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use kanzei_llm::{Message, Part, Role};
-use rusqlite::{params, OptionalExtension, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -1248,6 +1248,84 @@ impl TypedSessionWriter {
             return;
         }
         self.flush_draft();
+        let facts = self.terminal_facts(terminal);
+        if self.append(facts) {
+            self.mark_terminal();
+        }
+    }
+
+    /// Commit the desktop round's terminal, input, lifecycle and result together.
+    /// A rejected transaction leaves this writer open for a Failed retry.
+    pub fn finish_with_input_outcome(
+        &mut self,
+        input_id: &str,
+        terminal: SessionTurnTerminal,
+        run_payload: &serde_json::Value,
+    ) -> bool {
+        if self.terminal {
+            self.errors.push("round outcome already finalized".into());
+            return false;
+        }
+        let stopped = matches!(&terminal, SessionTurnTerminal::Stopped);
+        let ok = !matches!(&terminal, SessionTurnTerminal::Failed(_));
+        self.flush_draft();
+        let facts = self.terminal_facts(terminal);
+        let mut next_invariant = self.invariant.clone();
+        let result = (|| -> Result<(), SessionFactError> {
+            let store = SessionStore::open(&self.state_path)?;
+            let tx = Transaction::new_unchecked(&store.connection, TransactionBehavior::Immediate)
+                .map_err(StoreError::from)?;
+            store.append_session_facts_tx(&tx, &self.session_id, &mut next_invariant, &facts)?;
+            let input_status: Option<String> = tx
+                .query_row(
+                    "SELECT status FROM session_inputs WHERE input_id = ?1 AND session_id = ?2",
+                    params![input_id, self.session_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(StoreError::from)?;
+            // D-342 stops cancel the input before the cooperative runner returns.
+            // Preserve that cancellation; other terminal inputs cannot be reassigned.
+            if !(stopped && input_status.as_deref() == Some("cancelled"))
+                && (!matches!(input_status.as_deref(), Some("promoted" | "running"))
+                    || !super::inbox::finish_input_in(&tx, input_id, ok)?)
+            {
+                return Err(SessionFactError::Invariant(format!(
+                    "input {input_id} is not active in session {}",
+                    self.session_id,
+                )));
+            }
+            let status = if ok { "idle" } else { "failed" };
+            super::session::set_status_in(&tx, &self.session_id, status)?;
+            append_event_tx(
+                &tx,
+                &self.session_id,
+                "session.status_changed",
+                &serde_json::json!({ "status": status }),
+            )?;
+            append_event_tx(
+                &tx,
+                &self.session_id,
+                if ok { "run.completed" } else { "run.failed" },
+                run_payload,
+            )?;
+            tx.commit().map_err(StoreError::from)?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.invariant = next_invariant;
+                self.mark_terminal();
+                true
+            }
+            Err(error) => {
+                self.errors.push(error.to_string());
+                false
+            }
+        }
+    }
+
+    fn terminal_facts(&self, terminal: SessionTurnTerminal) -> Vec<SessionFactEnvelope> {
         let mut facts = Vec::new();
         if self.draft.has_persistable_text() && !self.draft.finalized {
             facts.push(SessionFactEnvelope::new(
@@ -1277,11 +1355,13 @@ impl TypedSessionWriter {
             None,
             terminal.into_fact(),
         ));
-        if self.append(facts) {
-            self.draft.finalized = true;
-            self.open_calls.clear();
-            self.terminal = true;
-        }
+        facts
+    }
+
+    fn mark_terminal(&mut self) {
+        self.draft.finalized = true;
+        self.open_calls.clear();
+        self.terminal = true;
     }
 
     pub fn write_shadow_report(&mut self, legacy: &[Message]) {
@@ -1381,6 +1461,206 @@ mod tests {
     use super::*;
     use crate::store::testutil::store;
     use serde_json::json;
+
+    fn outcome_fixture() -> (PathBuf, SessionStore, TypedSessionWriter) {
+        static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "kz-outcome-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let path = root.join("state.db");
+        let store = SessionStore::open(&path).unwrap();
+        store.create_session("ses", "test", None).unwrap();
+        store
+            .admit_input("ses", "input", "prompt", super::super::Delivery::Queue)
+            .unwrap();
+        store.promote_next_input("ses").unwrap().unwrap();
+        assert!(store.start_input("input").unwrap());
+        store.set_status("ses", "running").unwrap();
+        let mut writer = TypedSessionWriter::new(&path, "ses", "turn");
+        writer.user_message("input", Message::user_text("prompt"));
+        writer.turn_started(1, 0);
+        writer.push_text("unfinished");
+        writer.flush_draft();
+        (root, store, writer)
+    }
+
+    #[test]
+    fn input_outcome_rejections_roll_back_terminal_input_status_and_memory() {
+        for rejected in [
+            "terminal",
+            "input",
+            "status",
+            "status_event",
+            "result_event",
+        ] {
+            let (root, store, mut writer) = outcome_fixture();
+            let trigger = match rejected {
+                "terminal" => "CREATE TRIGGER reject_outcome BEFORE INSERT ON session_events WHEN NEW.event_type='session.turn_completed' BEGIN SELECT RAISE(ABORT, 'reject terminal'); END",
+                "input" => "CREATE TRIGGER reject_outcome BEFORE UPDATE OF status ON session_inputs WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT, 'reject input'); END",
+                "status" => "CREATE TRIGGER reject_outcome BEFORE UPDATE OF status ON sessions WHEN NEW.status='idle' BEGIN SELECT RAISE(ABORT, 'reject status'); END",
+                "status_event" => "CREATE TRIGGER reject_outcome BEFORE INSERT ON session_events WHEN NEW.event_type='session.status_changed' AND json_extract(NEW.payload_json, '$.status')='idle' BEGIN SELECT RAISE(ABORT, 'reject status event'); END",
+                _ => "CREATE TRIGGER reject_outcome BEFORE INSERT ON session_events WHEN NEW.event_type='run.completed' BEGIN SELECT RAISE(ABORT, 'reject result event'); END",
+            };
+            store.connection.execute_batch(trigger).unwrap();
+            let before = store.latest_event_sequence("ses").unwrap();
+            assert!(
+                !writer.finish_with_input_outcome(
+                    "input",
+                    SessionTurnTerminal::Completed,
+                    &json!({"steps":1})
+                ),
+                "{rejected}"
+            );
+            assert!(!writer.is_terminal(), "{rejected}");
+            assert!(!writer.invariant.turns["turn"].terminal, "{rejected}");
+            assert!(!writer.draft.finalized, "{rejected}");
+            assert_eq!(
+                store.latest_event_sequence("ses").unwrap(),
+                before,
+                "{rejected}"
+            );
+            assert_eq!(
+                store.input_status("input").unwrap().as_deref(),
+                Some("running"),
+                "{rejected}"
+            );
+            assert_eq!(
+                store.get_session("ses").unwrap().unwrap().status,
+                "running",
+                "{rejected}"
+            );
+            assert!(
+                writer.finish_with_input_outcome(
+                    "input",
+                    SessionTurnTerminal::Failed("rejected success".into()),
+                    &json!({"error":"rejected success"})
+                ),
+                "{rejected}: {:?}",
+                writer.errors()
+            );
+            assert!(writer.is_terminal());
+            assert!(writer.invariant.turns["turn"].terminal);
+            assert_eq!(
+                store.input_status("input").unwrap().as_deref(),
+                Some("failed")
+            );
+            assert_eq!(store.get_session("ses").unwrap().unwrap().status, "failed");
+            assert!(store
+                .list_events_by_type("ses", 0, TURN_COMPLETED)
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                store
+                    .list_events_by_type("ses", 0, TURN_FAILED)
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert_eq!(
+                store
+                    .list_events_by_type("ses", 0, "run.failed")
+                    .unwrap()
+                    .len(),
+                1
+            );
+            drop(writer);
+            drop(store);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn input_outcome_preserves_cancelled_stopped_and_rejects_completed_cancelled() {
+        let (root, store, mut writer) = outcome_fixture();
+        store.finalize_interrupt("ses").unwrap();
+        let before = store.latest_event_sequence("ses").unwrap();
+        assert!(!writer.finish_with_input_outcome(
+            "input",
+            SessionTurnTerminal::Completed,
+            &json!({})
+        ));
+        assert!(!writer.is_terminal());
+        assert_eq!(store.latest_event_sequence("ses").unwrap(), before);
+        assert!(writer.finish_with_input_outcome(
+            "input",
+            SessionTurnTerminal::Stopped,
+            &json!({"halted_by_user":true})
+        ));
+        assert_eq!(
+            store.input_status("input").unwrap().as_deref(),
+            Some("cancelled")
+        );
+        assert_eq!(store.get_session("ses").unwrap().unwrap().status, "idle");
+        assert_eq!(
+            store
+                .list_events_by_type("ses", 0, TURN_STOPPED)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .list_events_by_type("ses", 0, "run.completed")
+                .unwrap()
+                .len(),
+            1
+        );
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn input_outcome_rejects_other_session_missing_input_and_preexisting_terminal() {
+        let (root, store, mut writer) = outcome_fixture();
+        store.create_session("other", "test", None).unwrap();
+        store
+            .admit_input("other", "foreign", "other", super::super::Delivery::Queue)
+            .unwrap();
+        store.promote_next_input("other").unwrap().unwrap();
+        let before = store.latest_event_sequence("ses").unwrap();
+        for input in ["foreign", "missing"] {
+            assert!(!writer.finish_with_input_outcome(
+                input,
+                SessionTurnTerminal::Completed,
+                &json!({})
+            ));
+            assert!(!writer.is_terminal());
+            assert_eq!(store.latest_event_sequence("ses").unwrap(), before);
+            assert_eq!(
+                store.input_status("input").unwrap().as_deref(),
+                Some("running")
+            );
+            assert_eq!(
+                store.input_status("foreign").unwrap().as_deref(),
+                Some("promoted")
+            );
+        }
+        writer.finish(SessionTurnTerminal::Completed);
+        assert!(writer.is_terminal());
+        assert!(!writer.finish_with_input_outcome(
+            "input",
+            SessionTurnTerminal::Completed,
+            &json!({})
+        ));
+        assert_eq!(
+            store.input_status("input").unwrap().as_deref(),
+            Some("running")
+        );
+        assert!(store
+            .list_events_by_type("ses", 0, "run.completed")
+            .unwrap()
+            .is_empty());
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     thread_local! {
         static WRITER_WAIT: std::cell::RefCell<Option<(

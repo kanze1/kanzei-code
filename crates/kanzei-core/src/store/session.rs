@@ -148,14 +148,7 @@ impl SessionStore {
     /// 状态值由 runner 约定为 `idle`、`running`、`failed`；存储层不限制
     /// 未来新增的状态，以便迁移时保持向后兼容。
     pub fn set_status(&self, session_id: &str, status: &str) -> Result<(), StoreError> {
-        let changed = self.connection.execute(
-            "UPDATE sessions SET status = ?1, updated_at = ?2 WHERE session_id = ?3",
-            params![status, now_ms(), session_id],
-        )?;
-        if changed == 0 {
-            return Err(rusqlite::Error::QueryReturnedNoRows.into());
-        }
-        Ok(())
+        set_status_in(&self.connection, session_id, status)
     }
 
     /// D-298:state.db 空闲时机条件整理。
@@ -1162,6 +1155,22 @@ pub(crate) fn session_identity(project_root: &Path) -> String {
     let raw = project_root.to_string_lossy();
     let stripped = kanzei_base::path_form::strip_verbatim(&raw);
     stripped.trim_end_matches(['\\', '/']).to_lowercase()
+}
+
+/// The lifecycle owner primitive also works on an existing transaction.
+pub(super) fn set_status_in(
+    connection: &Connection,
+    session_id: &str,
+    status: &str,
+) -> Result<(), StoreError> {
+    let changed = connection.execute(
+        "UPDATE sessions SET status = ?1, updated_at = ?2 WHERE session_id = ?3",
+        params![status, now_ms(), session_id],
+    )?;
+    if changed == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows.into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

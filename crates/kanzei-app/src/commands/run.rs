@@ -33,6 +33,29 @@ use crate::run::input::{
 mod handoff;
 mod input_mode;
 
+/// Assembly failures have no round finalizer. A rejected durable outcome must
+/// retain its transaction's input state rather than receive a separate write.
+pub(crate) fn finish_failed_promoted_input(
+    store: &kanzei_core::SessionStore,
+    input_id: &str,
+    error: &anyhow::Error,
+) -> Result<bool, kanzei_core::StoreError> {
+    if crate::run::persistence::is_uncommitted_outcome(error)
+        || crate::run::persistence::is_stopped_outcome(error)
+    {
+        return Ok(false);
+    }
+    store.finish_input(input_id, false)
+}
+
+pub(crate) fn run_error_idle_reason(error: &anyhow::Error) -> &'static str {
+    if crate::run::persistence::is_stopped_outcome(error) {
+        "stopped"
+    } else {
+        "failed"
+    }
+}
+
 /// R-171 批5:写租约轨迹 guard——持有租约到 run_task 返回。
 /// 正常路径在 run_task 尾部显式写 Released;异常/abort/停止路径走到这里时,
 /// Drop 补写 Released 事件,保证 queued→acquired→released 在 session_events
@@ -755,35 +778,42 @@ pub(crate) fn schedule_run(
             }
             .await;
             if let Err(e) = &result {
-                let message = e.to_string();
-                let lower = message.to_lowercase();
-                let hint = if ["timed out", "timeout", "connect", "dns", "connection"]
-                    .iter()
-                    .any(|k| lower.contains(k))
-                {
-                    "\n提示:疑似网络不通。若需代理,在设置页把代理设为「指定地址」(如 http://127.0.0.1:12000)后重试;本地模型(ollama)不受代理影响。"
-                } else {
-                    ""
-                };
-                let _ = window.emit(
-                    "kz:error",
-                    with_session_id(
-                        json!({ "message": format!("{message}{hint}"), "terminal": true }),
-                        &session_id,
-                    ),
-                );
+                if run_error_idle_reason(e) == "failed" {
+                    let message = e.to_string();
+                    let lower = message.to_lowercase();
+                    let hint = if ["timed out", "timeout", "connect", "dns", "connection"]
+                        .iter()
+                        .any(|k| lower.contains(k))
+                    {
+                        "\n提示:疑似网络不通。若需代理,在设置页把代理设为「指定地址」(如 http://127.0.0.1:12000)后重试;本地模型(ollama)不受代理影响。"
+                    } else {
+                        ""
+                    };
+                    let _ = window.emit(
+                        "kz:error",
+                        with_session_id(
+                            json!({ "message": format!("{message}{hint}"), "terminal": true }),
+                            &session_id,
+                        ),
+                    );
+                }
             }
-            if result.is_err() {
+            if let Err(error) = &result {
                 let _lifecycle = lifecycle.lock().unwrap();
                 // Assembly can fail before the normal round finalizer sees the promoted reply.
                 if let Some(id) = promoted_id {
                     if let Ok(store) = kanzei_core::SessionStore::open(
                         &kanzei_core::project_state_path(&main_root),
                     ) {
-                        let _ = store.finish_input(&id, false);
+                        let _ = finish_failed_promoted_input(&store, &id, error);
                     }
                 }
-                finish_scheduler(&window, &runtime_for_task, &session_id, "failed");
+                finish_scheduler(
+                    &window,
+                    &runtime_for_task,
+                    &session_id,
+                    run_error_idle_reason(error),
+                );
                 break;
             }
             next_input = {
@@ -1052,6 +1082,24 @@ mod tests {
     use kanzei_core::store::TaskOutcome;
     use kanzei_core::{EpisodeRecord, SessionStore};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn assembly_failure_still_finishes_its_promoted_input() {
+        let (root, session) = fixture("assembly-failure");
+        let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        store
+            .admit_input(&session, "input", "prompt", kanzei_core::Delivery::Queue)
+            .unwrap();
+        store.promote_next_input(&session).unwrap().unwrap();
+        let error = anyhow::anyhow!("assembly rejected model configuration");
+        assert!(super::finish_failed_promoted_input(&store, "input", &error).unwrap());
+        assert_eq!(
+            store.input_status("input").unwrap().as_deref(),
+            Some("failed")
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn fixture(tag: &str) -> (PathBuf, String) {
         let root = std::env::temp_dir().join(format!(

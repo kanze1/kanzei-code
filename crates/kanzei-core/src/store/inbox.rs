@@ -2,7 +2,7 @@
 //! Delivery::as_str 已提 pub(super)(在 mod.rs)。
 //! 已在事务内不得再调自开 tx 的方法(见 mod.rs unchecked_transaction 注)。
 
-use rusqlite::{params, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use super::events::append_event_tx;
 use super::{now_ms, AdmittedInput, Delivery, SessionStore, StoreError};
@@ -237,12 +237,7 @@ impl SessionStore {
 
     /// running → completed | failed:给输入一个结局,此后任何停止都不再改写它。
     pub fn finish_input(&self, input_id: &str, ok: bool) -> Result<bool, StoreError> {
-        let changed = self.connection.execute(
-            "UPDATE session_inputs SET status = ?1, finished_at = ?2
-                 WHERE input_id = ?3 AND status IN ('promoted', 'running')",
-            params![if ok { "completed" } else { "failed" }, now_ms(), input_id],
-        )?;
-        Ok(changed > 0)
+        finish_input_in(&self.connection, input_id, ok)
     }
 
     /// 输入的当前状态(审计与测试用)。
@@ -403,6 +398,20 @@ fn input_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AdmittedInput> {
         delivery,
         created_at: row.get(4)?,
     })
+}
+
+/// Reuse the input owner SQL inside an existing writer transaction.
+pub(super) fn finish_input_in(
+    connection: &Connection,
+    input_id: &str,
+    ok: bool,
+) -> Result<bool, StoreError> {
+    let changed = connection.execute(
+        "UPDATE session_inputs SET status = ?1, finished_at = ?2
+             WHERE input_id = ?3 AND status IN ('promoted', 'running')",
+        params![if ok { "completed" } else { "failed" }, now_ms(), input_id],
+    )?;
+    Ok(changed > 0)
 }
 
 #[cfg(test)]
