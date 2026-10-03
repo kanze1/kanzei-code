@@ -836,6 +836,10 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
   const gateOutput = document.createElement("div");
   gateOutput.className = "harvest-gate-result";
   gateButton.addEventListener("click", async () => {
+    harvestState.mergeGateRan = false;
+    harvestState.mergeGatePassed = false;
+    harvestState.mergeGateRunning = true;
+    mergeButton.disabled = true;
     gateButton.disabled = true;
     gateButton.textContent = t("运行中…");
     gateOutput.replaceChildren();
@@ -877,6 +881,8 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
       gateButton.disabled = false;
       gateButton.textContent = t("运行检查");
       toastError(`${t("检查执行失败")}:${error}`);
+    } finally {
+      harvestState.mergeGateRunning = false;
     }
   });
   gateBody.append(gateButton, gateOutput);
@@ -897,6 +903,7 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
   mergeButton.disabled = true;
   mergeButton.textContent = t("合并到主线");
   mergeButton.addEventListener("click", async () => {
+    if (harvestState.mergeGateRunning) return;
     // R-222 防线①:合并前置门禁——状态来自 JS 对象，dataset 只用于展示/调试。
     const gateOk = harvestState.mergeGatePassed;
     const gateRan = harvestState.mergeGateRan;

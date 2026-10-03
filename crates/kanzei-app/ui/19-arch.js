@@ -134,8 +134,11 @@ function parseArchIndex(lines) {
     // 链接后面的一句说明(前面的 [identity: …; last_verified_commit: …] 是治理元数据,不进界面)。
     const note = line.slice(line.indexOf(link[0]) + link[0].length).replace(/^\([^)]*\)\s*[:：]?\s*/, "").trim();
     if (note) notes.set(link[1], note);
-    const item = line.match(/\[`([a-z0-9][a-z0-9_-]*\.md)`\]/);
-    if (item && current) current.items.push(item[1]);
+    if (!current) {
+      current = { heading: t("设计文档"), items: [] };
+      groups.push(current);
+    }
+    current.items.push(link[1]);
   }
   return { groups, indexed, notes };
 }

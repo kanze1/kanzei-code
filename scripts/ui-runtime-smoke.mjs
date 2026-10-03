@@ -17820,3 +17820,5 @@ console.log(
 );
 
 await import("./ui-harness-actions-smoke.mjs");
+
+await import("./ui-audit-first-regressions.mjs");

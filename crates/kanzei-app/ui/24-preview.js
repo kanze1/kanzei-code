@@ -18,7 +18,7 @@ import { closeSurface, isModalOpen, onSurfaceChange, openMenu, surfaceElements }
 import { installSplit } from "./00-frame.js";
 import { $, confirmDialog, defer, invoke, on, promptBox } from "./01-core.js";
 import { t } from "./02-i18n.js";
-import { activeProcessId, currentProject, log, navigate_view, toast } from "./03-shell.js";
+import { activeProcessId, attachments, currentProject, log, navigate_view, toast } from "./03-shell.js";
 import { layoutPref, onLayoutChange, setLayoutPref } from "./03-layout.js";
 import { addMarkdownHook } from "./04-markdown.js";
 import { openTasksPanel, reconcileTasksPanel } from "./06-agent-panel.js";
@@ -994,7 +994,9 @@ async function clearSiteData() {
   }
 }
 async function captureToChat() {
+  const target = attachments;
   const shot = await capture();
+  if (target !== attachments) return;
   if (!shot) {
     toast(t("截图失败"), { kind: "warn" });
     return;

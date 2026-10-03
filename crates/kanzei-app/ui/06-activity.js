@@ -565,13 +565,13 @@ export function renderDiff(display, { compact = false } = {}) {
           body.appendChild(row);
           continue;
         }
-        for (const line of [left, right]) {
+        for (const [side, line] of [left, right].entries()) {
           const pane = document.createElement("div");
           pane.className = `diff-pane ${line?.kind || "empty"}`;
           if (line) {
             const no = document.createElement("span");
             no.className = "diff-line-number";
-            no.textContent = line.old_line ?? line.new_line ?? "";
+            no.textContent = (side === 0 ? line.old_line : line.new_line) ?? "";
             const text = document.createElement("code");
             highlightLine(text, line.text || "", display.language || "text");
             pane.append(no, text);

@@ -195,15 +195,18 @@ export function addErrorMessage(message, { retryable = false } = {}) {
   body.append(level, renderErrorDetail(message));
   el.dataset.raw = String(message ?? "");
   if (retryable && lastRequest) {
+    const request = { prompt: lastRequest.prompt, attachments: [...(lastRequest.attachments || [])] };
+    const sessionId = activeSessionId;
     const actions = el.querySelector(".msg-actions");
     const retry = document.createElement("button");
     retry.className = "retry-btn";
     retry.type = "button";
     retry.textContent = t("重试上一次请求");
     retry.addEventListener("click", () => {
+      if (activeSessionId !== sessionId) return;
       retry.disabled = true;
       retry.textContent = t("正在重试…");
-      sendText(lastRequest.prompt, { promptAttachments: lastRequest.attachments });
+      sendText(request.prompt, { promptAttachments: request.attachments });
     });
     actions.appendChild(retry);
   }
