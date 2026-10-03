@@ -333,6 +333,33 @@ impl SessionStore {
     }
 }
 
+// Only the execution owner can prove these claimed inputs have no live worker.
+pub(super) fn fail_orphaned_execution_inputs_tx(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    current_input: Option<&str>,
+) -> Result<usize, StoreError> {
+    if let Some(input_id) = current_input {
+        let claimed: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM session_inputs
+             WHERE session_id = ?1 AND input_id = ?2 AND status IN ('promoted', 'running'))",
+            params![session_id, input_id],
+            |row| row.get(0),
+        )?;
+        if !claimed {
+            return Err(StoreError::InvalidInput(
+                "当前输入未持有本会话的执行声明".into(),
+            ));
+        }
+    }
+    Ok(tx.execute(
+        "UPDATE session_inputs SET status = 'failed', finished_at = ?1
+         WHERE session_id = ?2 AND status IN ('promoted', 'running')
+           AND (?3 IS NULL OR input_id <> ?3)",
+        params![now_ms(), session_id, current_input],
+    )?)
+}
+
 // The input row and its lifecycle receipt have one transaction owner. Batch/work
 // admission passes its existing transaction so execution intent commits with both.
 fn admit_input_tx(

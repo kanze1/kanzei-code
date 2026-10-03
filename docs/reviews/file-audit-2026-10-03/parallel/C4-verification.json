@@ -1,0 +1,231 @@
+{
+  "package": "C4",
+  "status": "verified_ready_for_integration",
+  "verified": true,
+  "implementation_start": "0e5355c6",
+  "validated_baseline": "0e5355c6",
+  "branch": "kanzei/audit-c4-session-owner",
+  "full_files": [
+    "crates/kanzei-core/src/store/session_execution.rs",
+    "crates/kanzei/tests/integration/session_execution_owner.rs"
+  ],
+  "slice_files": [
+    "crates/kanzei-core/src/store/mod.rs",
+    "crates/kanzei-core/src/store/typed.rs",
+    "crates/kanzei-core/src/store/inbox.rs",
+    "crates/kanzei/src/cli/run.rs",
+    "crates/kanzei/src/cli/run/finalize.rs",
+    "crates/kanzei-app/src/commands/run.rs",
+    "crates/kanzei-app/src/run/assembly.rs",
+    "crates/kanzei-app/src/typed_events.rs",
+    "crates/kanzei/tests/integration/main.rs"
+  ],
+  "issues": [
+    {
+      "priority": "P1",
+      "id": "C4-01",
+      "root": "active_session_execution_without_cross_process_owner",
+      "reachable": "held first CLI provider POST; same DB/session second --new resets, recovers first turn to Failed, issues second POST; crashed claims not recovered with typed facts"
+    },
+    {
+      "priority": "P1",
+      "id": "C4-02",
+      "root": "promoted_fifo_identity_uses_new_argv_payload",
+      "reachable": "old pending input A + new CLI argv B; promote A while user/provider/episode carry B; desktop work payload falsely executes without its assembly"
+    },
+    {
+      "priority": "P1",
+      "id": "C4-03",
+      "root": "CLI_failure_and_terminal_completion_contract_not_enforced",
+      "reachable": "provider Err returns before input failed; rejected typed terminal can still produce input completed/session idle/exit success"
+    }
+  ],
+  "owner": {
+    "public_module": "kanzei_core::store::session_execution",
+    "acquire": "try_acquire(&Path, &str) -> io::Result<SessionExecutionGuard>",
+    "prepare": "guard.prepare(&SessionStore, session_id, current_input: Option<&str>) -> Result<(), SessionFactError>",
+    "writer": "guard: Arc<SessionExecutionGuard>.writer(turn_id) -> TypedSessionWriter",
+    "key": "canonical full database path + .session-owners/<sha256(session UTF8)>; FileLock .lock",
+    "lifetime": "dedicated OS lock worker; guard/writer Arc hold through terminal/input/late callback; final Drop closes release then joins",
+    "busy": "WouldBlock immediately; before --new/admission/recovery",
+    "schema_change": false,
+    "serialized_format_change": false,
+    "third_party_dependency_change": false
+  },
+  "cargo": [
+    {
+      "command": "cargo test -p kanzei-core session_execution::tests -- --nocapture",
+      "exit_code": 0,
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C4/core-owner-terminal-final.log"
+    },
+    {
+      "command": "cargo test -p kanzei-core",
+      "exit_code": 0,
+      "passed": 413,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C4/core-terminal-final.log"
+    },
+    {
+      "command": "cargo test -p kanzei --bin kz",
+      "exit_code": 0,
+      "passed": 54,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C4/cli-unit-restored-final.log"
+    },
+    {
+      "command": "cargo test -p kanzei --test integration",
+      "exit_code": 0,
+      "passed": 46,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C4/cli-integration-restored-final.log"
+    },
+    {
+      "command": "cargo test -p kanzei --test integration session_execution_owner -- --nocapture",
+      "exit_code": 0,
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C4/cli-owner-final.log",
+      "note": "5 cases also present in final complete integration run after terminal patch"
+    },
+    {
+      "command": "cargo test -p kanzei-app",
+      "exit_code": 0,
+      "passed": 555,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C4/app-final.log",
+      "note": "after owner/app assembly change; later production change CLI only, added core regression only"
+    },
+    {
+      "command": "cargo check -p kanzei-core -p kanzei -p kanzei-app --all-targets",
+      "exit_code": 0,
+      "log": "output/C4/check-final.log"
+    },
+    {
+      "command": "cargo clippy -p kanzei-core -p kanzei -p kanzei-app --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/C4/clippy-final.log"
+    },
+    {
+      "command": "cargo build -p kanzei --bin kz",
+      "exit_code": 0,
+      "log": "output/C4/cli-terminal-restored-build.log"
+    }
+  ],
+  "checks": [
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "output/C4/fmt-final.log"
+    },
+    {
+      "command": "git -c core.autocrlf=false diff --check",
+      "exit_code": 0,
+      "log": "output/C4/diff-final.log"
+    },
+    {
+      "command": "all public prepare/recovery/promote/start_input/writer/finalize/Drop callers",
+      "status": "inspected",
+      "log": "output/C4/callers-final.txt"
+    }
+  ],
+  "manual_real_process": [
+    {
+      "command": "python output/C4/cli_terminal_fixture.py positive",
+      "exit_code": 0,
+      "child_exit_code": 1,
+      "input_status": "failed",
+      "session_status": "failed",
+      "completed_terminals": 0,
+      "log": "output/C4/cli-terminal-positive.json",
+      "note": "manual test only; no Python requirement added to Rust test suite"
+    }
+  ],
+  "negative_controls": [
+    {
+      "change": "exact 0e5355c6 production bytes for store/mod, typed, inbox, CLI run/finalize; new real CLI fixture retained",
+      "command": "cargo test -p kanzei --test integration session_execution_owner -- --nocapture",
+      "exit_code": 101,
+      "passed": 0,
+      "failed": 5,
+      "log": "output/C4/cli-old-production-negative.log",
+      "live": {
+        "second_post": true,
+        "resets": 1,
+        "live_first_failed": 1,
+        "first_success": false,
+        "second_success": true
+      },
+      "restoration": "output/C4/old-production-restoration.json",
+      "restored_exactly": true
+    },
+    {
+      "change": "equivalent old private helper: finish without checking is_terminal; owner/new callers retained",
+      "command": "python output/C4/terminal_negative.py",
+      "build_exit_code": 0,
+      "fixture_exit_code": 0,
+      "child_exit_code": 0,
+      "input_status": "completed",
+      "session_status": "idle",
+      "completed_terminals": 0,
+      "log": "output/C4/cli-terminal-negative.json",
+      "restoration": "output/C4/terminal-restoration.json",
+      "restored_exactly": true
+    }
+  ],
+  "open_verified_paths": [
+    {
+      "priority": "P1",
+      "file": "crates/kanzei-app/src/run/persistence.rs",
+      "function": "persist_round_outcome",
+      "path": "finish -> idle/run.completed/episode completed/finish_input(true)/succeeded despite rejected session.turn_completed",
+      "handoff": "root separate package",
+      "fixed_in_C4": false
+    },
+    {
+      "priority": "P1",
+      "file": "crates/kanzei-tools/src/schedules/executor.rs",
+      "function": "run_steps -> execute",
+      "path": "finish(Completed) -> Ok(previous) -> outcome.ok -> schedule.run_finished/status completed; Drop retry Stopped does not repair returned success",
+      "handoff": "A5",
+      "fixed_in_C4": false
+    }
+  ],
+  "boundaries": {
+    "global_coverage_modified": false,
+    "real_state_or_credentials_used": false,
+    "push": false,
+    "release": false,
+    "native_kzapp_exe_built": false,
+    "root_M3_results_counted": false,
+    "cargo_slot_released": true,
+    "desktop_cross_process_native_e2e": "not performed in C4; root integration required"
+  },
+  "execution_faults": [
+    {
+      "kind": "test fixture cleanup",
+      "error": "WinError32: Python sqlite context manager did not close connection",
+      "impact": "initial manual attempt not counted; explicitly close fixed, final actual child/state assertion passed"
+    },
+    {
+      "kind": "automatic approval review rejection",
+      "action": "Remove-Item exact isolated fixture directory C:/Users/kanzei/AppData/Local/Temp/kz-c4-terminal-acuc6grt",
+      "reason": "blocked by policy",
+      "executed": false,
+      "retried": false,
+      "impact": "directory retained; code/tests/integration unaffected"
+    },
+    {
+      "kind": "formatter scope",
+      "error": "initial edition2024 recursive format touched existing files",
+      "impact": "format-only changes restored to original bytes; final workspace edition2021 fmt passed; only authorized slices committed"
+    }
+  ]
+}

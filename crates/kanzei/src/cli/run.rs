@@ -255,8 +255,13 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let session_id = kanzei_core::project_session_id(&ctx.project_root);
     ctx.session_id = Some(session_id.clone());
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
+    let execution_owner = Arc::new(kanzei_core::store::session_execution::try_acquire(
+        &state_path,
+        &session_id,
+    )?);
     let store = kanzei_core::SessionStore::open(&state_path)?;
     store.create_session(&session_id, &ctx.project_root.display().to_string(), None)?;
+    execution_owner.prepare(&store, &session_id, None)?;
     if new_session {
         begin_new_segment(&store, &session_id)?;
     }
@@ -273,9 +278,27 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let promoted = store
         .promote_next_queue(&session_id)?
         .ok_or_else(|| anyhow::anyhow!("无法提升已提交的 CLI 输入"))?;
+    if store
+        .input_work_item(&session_id, &promoted.input_id)?
+        .is_some()
+        || store.input_is_execution_batch(&session_id, &promoted.input_id)?
+    {
+        // CLI has no desktop work/pipeline assembly. Fail this claimed input
+        // explicitly; the just-admitted argv input remains pending in FIFO.
+        store.finish_input(&promoted.input_id, false)?;
+        anyhow::bail!("队首输入需要桌面执行上下文，未执行；本次 CLI 输入仍在队列中");
+    }
+    let prompt = promoted.prompt.clone();
+    if promoted.input_id != input_id {
+        // Invocation flags belong to its new input, not an older queued message.
+        runner_config.ask_policy = kanzei_core::AskPolicy::Interactive;
+    }
     // promoted → running:输入的生命周期必须有"开始执行"这一步,否则跑完的输入
     // 永远停在 promoted,以后任何一次停止都会把它追认为 cancelled(D-173)。
-    store.start_input(&promoted.input_id)?;
+    anyhow::ensure!(
+        store.start_input(&promoted.input_id)?,
+        "CLI 输入已变化，未开始重复执行"
+    );
     // 本轮身份与墙钟:episode 落库时要能回答"哪一轮、跑了多久、用的什么模型"。
     let run_id = format!(
         "run_{}",
@@ -283,14 +306,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     );
     ctx.run_id = Some(run_id.clone());
     // R-241：CLI 与桌面端共用同一个 typed writer 和投影契约。
-    let typed_writer = Arc::new(Mutex::new(kanzei_core::TypedSessionWriter::new(
-        &state_path,
-        &session_id,
-        &run_id,
-    )));
-    if let Err(error) = kanzei_core::prepare_typed_session(&store, &session_id) {
-        typed_writer.lock().unwrap().record_error(error);
-    }
+    let typed_writer = Arc::new(Mutex::new(execution_owner.writer(&run_id)));
     // prior 必须在当前轮 user fact 写入前恢复；否则 projection 会把本轮输入再喂给 runner。
     let prior = recover_cli_prior(&store, &session_id)?;
     typed_writer
@@ -385,16 +401,17 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             // 收尾逻辑在 SessionStore::finalize_interrupt 内原子完成并有测试覆盖;
             // 这里只负责把信号接到该入口。
             let store = kanzei_core::SessionStore::open(&state_path)?;
-            typed_writer
-                .lock()
-                .unwrap()
-                .finish(kanzei_core::SessionTurnTerminal::Stopped);
+            let terminal_result = finalize::finish_typed_checked(
+                &typed_writer,
+                kanzei_core::SessionTurnTerminal::Stopped,
+            );
             typed_writer
                 .lock()
                 .unwrap()
                 .write_shadow_report(&prior);
             typed_flush_task.abort();
             store.finalize_interrupt(&session_id)?;
+            terminal_result?;
             eprintln!("\n\x1b[33m(stopped by Ctrl+C)\x1b[0m");
             return Ok(());
         }

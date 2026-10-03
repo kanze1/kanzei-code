@@ -30,5 +30,6 @@ mod item_context_boundary;
 mod max_tasks_parallel_dispatch;
 mod memory_hints_not_persisted;
 mod parallel_scouting_under_serial_writer;
+mod session_execution_owner;
 mod task_cancel_parallel;
 mod worktree_main_root;

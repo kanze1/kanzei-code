@@ -45,6 +45,7 @@ pub(crate) struct RoundRequest {
     // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
     pub(crate) main_root: PathBuf,
     pub(crate) session_id: String,
+    pub(crate) execution_owner: Arc<kanzei_core::store::session_execution::SessionExecutionGuard>,
     pub(crate) delivery: kanzei_core::Delivery,
     pub(crate) promoted_input: Option<kanzei_core::AdmittedInput>,
     pub(crate) process_id: String,
@@ -402,7 +403,10 @@ pub(crate) async fn assemble_run(
     // promoted → running,并记住本轮身份与墙钟(D-173)。少了 running/completed 这段
     // 生命周期,跑完的输入永远停在 promoted,以后任何一次停止都会把它追认成 cancelled。
     let promoted_input_id = promoted.input_id.clone();
-    store.start_input(&promoted_input_id)?;
+    anyhow::ensure!(
+        store.start_input(&promoted_input_id)?,
+        "桌面输入已变化，未开始重复执行"
+    );
     let completion_goal = handles
         .auto_runs
         .lock_or_recover()
@@ -427,15 +431,11 @@ pub(crate) async fn assemble_run(
     )
     .await?;
     // R-241 shadow 双写：先从最新 legacy snapshot 幂等 seed，并闭合上次强杀留下的
-    // open draft/tool；再提交本轮 user fact。失败只留在 writer report，不改变旧主路径。
-    let typed_writer = Arc::new(Mutex::new(typed_events::TypedEventWriter::new(
-        &state_path,
-        &request.session_id,
-        &run_id,
-    )));
-    if let Err(error) = typed_events::prepare_session(&store, &request.session_id) {
-        typed_writer.lock().unwrap().record_error(error);
-    }
+    // open draft/tool；再提交本轮 user fact。恢复必须持有同数据库/session 执行权。
+    request
+        .execution_owner
+        .prepare(&store, &request.session_id, Some(&promoted_input_id))?;
+    let typed_writer = Arc::new(Mutex::new(request.execution_owner.writer(&run_id)));
     // Snapshot history before admitting this turn's user fact. Reading it later
     // would feed the current input to the model twice, including async callbacks.
     let persisted = if crate::projection_gate::read_path_uses_projection("runner_prior") {

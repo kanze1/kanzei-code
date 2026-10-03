@@ -844,6 +844,16 @@ impl SessionStore {
         session_id: &str,
         reason: &str,
     ) -> Result<RecoveryReport, SessionFactError> {
+        let _owner = super::session_execution::lock_recovery(self, session_id)?;
+        self.recover_interrupted_session_facts_owned(session_id, reason, None)
+    }
+
+    pub(super) fn recover_interrupted_session_facts_owned(
+        &self,
+        session_id: &str,
+        reason: &str,
+        current_input: Option<&str>,
+    ) -> Result<RecoveryReport, SessionFactError> {
         let tx = self
             .connection
             .unchecked_transaction()
@@ -867,14 +877,13 @@ impl SessionStore {
             }
         }
         let recovery = invariant.recovery_facts(reason);
-        if recovery.is_empty() {
-            tx.commit().map_err(StoreError::from)?;
-            return Ok(RecoveryReport {
-                closed_events: 0,
-                skipped_post_terminal,
-            });
+        if !recovery.is_empty() {
+            self.append_session_facts_tx(&tx, session_id, &mut invariant, &recovery)?;
         }
-        self.append_session_facts_tx(&tx, session_id, &mut invariant, &recovery)?;
+        // An exclusive owner proves previous executions are gone. Preserve its
+        // current claimed input, fail only orphaned claims, and leave pending
+        // queues/steers available to their existing drain owner.
+        super::inbox::fail_orphaned_execution_inputs_tx(&tx, session_id, current_input)?;
         tx.commit().map_err(StoreError::from)?;
         Ok(RecoveryReport {
             closed_events: recovery.len(),
@@ -925,6 +934,7 @@ pub fn prepare_typed_session(
     store: &SessionStore,
     session_id: &str,
 ) -> Result<(), SessionFactError> {
+    let _owner = super::session_execution::lock_recovery(store, session_id)?;
     store.seed_latest_legacy_snapshot(session_id)?;
     store.recover_interrupted_session_facts(session_id, "process_restarted")?;
     Ok(())
@@ -984,6 +994,7 @@ pub struct TypedSessionWriter {
     open_calls: HashSet<String>,
     errors: Vec<String>,
     terminal: bool,
+    _execution_owner: Option<std::sync::Arc<super::session_execution::SessionExecutionGuard>>,
 }
 
 impl TypedSessionWriter {
@@ -999,7 +1010,16 @@ impl TypedSessionWriter {
             open_calls: HashSet::new(),
             errors: Vec::new(),
             terminal: false,
+            _execution_owner: None,
         }
+    }
+
+    pub(super) fn with_execution_owner(
+        mut self,
+        owner: std::sync::Arc<super::session_execution::SessionExecutionGuard>,
+    ) -> Self {
+        self._execution_owner = Some(owner);
+        self
     }
 
     fn append(&mut self, facts: Vec<SessionFactEnvelope>) -> bool {

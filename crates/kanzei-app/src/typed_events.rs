@@ -1,8 +1,7 @@
 //! R-241：桌面 runner 对 core `TypedSessionWriter` 的薄适配与定向测试。
 
 pub(crate) use kanzei_core::{
-    prepare_typed_session as prepare_session, SessionTurnTerminal as TerminalFact,
-    TypedSessionWriter as TypedEventWriter,
+    SessionTurnTerminal as TerminalFact, TypedSessionWriter as TypedEventWriter,
 };
 
 #[cfg(test)]

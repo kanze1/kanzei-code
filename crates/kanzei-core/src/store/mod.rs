@@ -354,6 +354,7 @@ mod episodes;
 mod eval;
 mod events;
 mod rewind;
+pub mod session_execution;
 pub use rewind::{RewindFile, RewindPlan};
 mod file_checkpoints;
 mod inbox;

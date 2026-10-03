@@ -67,23 +67,43 @@ fn persist_cli_compaction_surface_if_changed(
     Ok(())
 }
 
+pub(super) fn finish_typed_checked(
+    writer: &Mutex<kanzei_core::TypedSessionWriter>,
+    terminal: kanzei_core::SessionTurnTerminal,
+) -> anyhow::Result<()> {
+    let mut writer = writer.lock().unwrap();
+    writer.finish(terminal);
+    anyhow::ensure!(
+        writer.is_terminal(),
+        "CLI 终态未持久化: {}",
+        writer
+            .errors()
+            .last()
+            .map(String::as_str)
+            .unwrap_or("终态提交被拒绝")
+    );
+    Ok(())
+}
+
 pub(crate) async fn finish_run(
     run_result: anyhow::Result<kanzei_core::RunSummary>,
     typed_flush_task: tokio::task::JoinHandle<()>,
     state: FinalizeState<'_>,
 ) -> anyhow::Result<()> {
     let store = kanzei_core::SessionStore::open(state.state_path)?;
+    let terminal = match &run_result {
+        Ok(summary) if summary.halted_by_user => kanzei_core::SessionTurnTerminal::Stopped,
+        Ok(_) => kanzei_core::SessionTurnTerminal::Completed,
+        Err(error) => kanzei_core::SessionTurnTerminal::Failed(error.to_string()),
+    };
+    if let Err(error) = finish_typed_checked(&state.typed_writer, terminal) {
+        typed_flush_task.abort();
+        store.finish_input(state.input_id, false)?;
+        store.set_status(state.session_id, "failed")?;
+        return Err(error);
+    }
     match &run_result {
         Ok(summary) => {
-            state
-                .typed_writer
-                .lock()
-                .unwrap()
-                .finish(if summary.halted_by_user {
-                    kanzei_core::SessionTurnTerminal::Stopped
-                } else {
-                    kanzei_core::SessionTurnTerminal::Completed
-                });
             store.set_status(state.session_id, "idle")?;
             store.append_event(
                 state.session_id,
@@ -108,11 +128,6 @@ pub(crate) async fn finish_run(
                 .typed_writer
                 .lock()
                 .unwrap()
-                .finish(kanzei_core::SessionTurnTerminal::Failed(error.to_string()));
-            state
-                .typed_writer
-                .lock()
-                .unwrap()
                 .write_shadow_report(state.prior);
             store.set_status(state.session_id, "failed")?;
             store.append_event(
@@ -125,6 +140,7 @@ pub(crate) async fn finish_run(
                 "run.failed",
                 &serde_json::json!({ "error": error.to_string() }),
             )?;
+            store.finish_input(state.input_id, false)?;
         }
     }
     typed_flush_task.abort();
@@ -211,7 +227,10 @@ pub(crate) async fn finish_run(
             current_episode_id = Some(episode_id);
         }
         // 给这次输入一个结局:此后任何停止都不再把它追认为 cancelled。
-        let _ = store.finish_input(state.input_id, true);
+        anyhow::ensure!(
+            store.finish_input(state.input_id, true)?,
+            "CLI 输入未完成持久收尾"
+        );
     }
     // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
     // R-213:把当轮 episode_id 代填给 manager,晋升证据才能指向真实轮次。
@@ -286,6 +305,58 @@ mod tests {
     use kanzei_core::{RunSummary, SessionStore};
     use kanzei_llm::{Message, Part};
     use serde_json::json;
+
+    #[test]
+    fn cli_terminal_rejection_is_an_error_instead_of_successful_finalization() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-cli-terminal-reject-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.db");
+        let store = SessionStore::open(&path).unwrap();
+        store.create_session("ses", "project", None).unwrap();
+        let mut writer = kanzei_core::TypedSessionWriter::new(&path, "ses", "turn");
+        writer.user_message("input", Message::user_text("run"));
+        writer.turn_started(1, 2);
+        assert!(writer.assistant_committed(
+            1,
+            Message::assistant(vec![Part::Text {
+                text: "done".into()
+            }])
+        ));
+        // A real durable terminal makes the legacy writer's final commit fail.
+        store
+            .recover_interrupted_session_facts("ses", "other-owner")
+            .unwrap();
+        let writer = std::sync::Mutex::new(writer);
+        let result =
+            super::finish_typed_checked(&writer, kanzei_core::SessionTurnTerminal::Completed);
+        assert!(result.unwrap_err().to_string().contains("CLI 终态未持久化"));
+        assert!(!writer.lock().unwrap().is_terminal());
+        assert_eq!(
+            store
+                .list_session_facts("ses")
+                .unwrap()
+                .iter()
+                .filter(|(_, fact)| {
+                    matches!(
+                        fact.fact,
+                        kanzei_core::SessionFact::TurnFailed { .. }
+                            | kanzei_core::SessionFact::TurnCompleted
+                    )
+                })
+                .count(),
+            1
+        );
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn summary(messages: Vec<Message>) -> RunSummary {
         let round_messages = messages.clone();

@@ -582,6 +582,19 @@ pub(crate) fn schedule_run(
         }
         other => other,
     };
+    // The local lifecycle guard preserves queue/steer behavior; an idle local
+    // runtime must also own this database/session before claiming a saved input.
+    let execution_owner = if runtime.running.load(Ordering::SeqCst) {
+        None
+    } else {
+        Some(Arc::new(
+            kanzei_core::store::session_execution::try_acquire(
+                &kanzei_core::project_state_path(&main_root),
+                &session_id,
+            )
+            .map_err(|error| error.to_string())?,
+        ))
+    };
     let (prompt, delivery, attachments, initial_input) = match submission {
         Submission::Automatic { .. } => {
             unreachable!("automatic submission checked under lifecycle lock")
@@ -635,6 +648,8 @@ pub(crate) fn schedule_run(
             (prompt, delivery, attachments, None)
         }
     };
+    let execution_owner =
+        execution_owner.ok_or_else(|| "当前对话运行状态已变化，未启动第二个执行者".to_string())?;
     if !is_notice {
         *runtime.callback_options.lock().unwrap() = RunOptions {
             execution_batch: false,
@@ -699,6 +714,7 @@ pub(crate) fn schedule_run(
                         project_dir: code_root.clone(),
                         main_root: main_root.clone(),
                         session_id: session_id.clone(),
+                        execution_owner: execution_owner.clone(),
                         delivery,
                         promoted_input: next_input.take(),
                         process_id: process_id_for_run.clone(),
