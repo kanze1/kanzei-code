@@ -661,6 +661,7 @@ pub(crate) async fn execute_prepared_tools(
                     // R-259:执行包装(wrap_execute:progress 注入)收编——串行/并行
                     // 共用同一 wrapper,工具 body 不再各自实现 progress 注入。
                     let output = kanzei_harness::managed_fence::tool_scope(
+                        &ctx.project_root,
                         &name,
                         kanzei_harness::tool_pipeline::wrap_execute(
                             id.clone(),

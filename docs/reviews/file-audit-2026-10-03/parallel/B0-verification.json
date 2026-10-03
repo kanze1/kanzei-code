@@ -1,0 +1,159 @@
+{
+  "task": "B0",
+  "baseline": "f5a72fe0",
+  "branch": "kanzei/audit-b0",
+  "worktree": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-b0\\kanzei code",
+  "environment": "Windows-11-10.0.26200-SP0",
+  "verified_scope": "4 full file reviews and 6 caller/state-owner slices; package checks only",
+  "repository_review_complete": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-harness/src/orchestration.rs",
+      "judgment": "PASS",
+      "sha256": "17eee33aa8cb3104c3259cd0a7e6a4e20861e49dcea8ce66bc09c6278a955ff1"
+    },
+    {
+      "path": "crates/kanzei-harness/src/managed_fence.rs",
+      "judgment": "P1",
+      "sha256": "d29dc9736763b7e827b58d7e290439d3ff7ab16a9dba9457dadc0659f6b036c0"
+    },
+    {
+      "path": "crates/kanzei-harness/src/async_mailbox.rs",
+      "judgment": "PASS",
+      "sha256": "80131d8d3b6c242c99c92a2e83b093f3eeb05639e17b29b8a0bdc134144d0c66"
+    },
+    {
+      "path": "crates/kanzei-harness/src/pending_question.rs",
+      "judgment": "PASS",
+      "sha256": "7170dd34d9f6c29c660408815e282244eea0e5727f6d7650d6f4241e7aeb8c02"
+    }
+  ],
+  "contract_slices": [
+    {
+      "path": "crates/kanzei-core/src/runner/tool_exec.rs",
+      "judgment": "P1",
+      "sha256": "54208a7816d76c47bd48151a5c1e415f0b171d56f65e1e7505fee0dee9993b5b"
+    },
+    {
+      "path": "crates/kanzei-core/src/runner/drive/serial_tools.rs",
+      "judgment": "P1",
+      "sha256": "1093fedc11c8fe3b7e07542e490dac75876d1a89a1b503d5e28d61b0d538625f"
+    },
+    {
+      "path": "crates/kanzei-tools/src/memory_consolidation.rs",
+      "judgment": "P1",
+      "sha256": "f4fc43591462c3eef7b6fbc67f95cf461775d4c3dbe7f6b62e3c15e6e7f994e0"
+    },
+    {
+      "path": "crates/kanzei-tools/src/schedules/executor.rs",
+      "judgment": "P1",
+      "sha256": "ed8a52ce4b286c7fb7a832864c6b4db29c4963c37cfb3c1604fad10282313c94"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background.rs",
+      "judgment": "P1",
+      "sha256": "06cdbf3ed8a5efe70feab3427e286d16e231d495fb736e3506f9e575e534bea0"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/lifecycle.rs",
+      "judgment": "P1",
+      "sha256": "8372fdd91314ff4ed8e211071000a5d468c515ef3ef270c91f39177337b7d3a7"
+    }
+  ],
+  "fixed_root_causes": {
+    "P0": 0,
+    "P1": 3,
+    "P2": 0
+  },
+  "checks": [
+    {
+      "command": "cargo test -p kanzei-harness --quiet",
+      "exit_code": 0,
+      "log": "output/parallel-b0/harness-test.log",
+      "passed": 203,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test -p kanzei-tools --lib background::tests:: --quiet",
+      "exit_code": 0,
+      "log": "output/parallel-b0/background-test-final.log",
+      "passed": 30,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "command": "cargo check -p kanzei-core --quiet",
+      "exit_code": 0,
+      "log": "output/parallel-b0/core-check.log"
+    },
+    {
+      "command": "cargo clippy -p kanzei-harness -p kanzei-core -p kanzei-tools --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/parallel-b0/clippy.log"
+    },
+    {
+      "command": "rustfmt --edition 2021 --check <7 changed Rust files>",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "negative_controls": [
+    {
+      "test": "background::tests::writer_window_in_another_project_neither_exempts_nor_absorbs_a_breach",
+      "command": "cargo test -p kanzei-tools --lib background::tests::writer_window_in_another_project_neither_exempts_nor_absorbs_a_breach --quiet -- --exact",
+      "exit_code": 101,
+      "expected": "assertion failure under equivalent old logic, not a compile failure",
+      "log": "output/parallel-b0/negative-writer_window_in_another_project_neither_exempts_nor_absorbs_a_breach.log"
+    },
+    {
+      "test": "background::tests::same_tool_windows_closed_out_of_order_keep_their_own_opening_snapshot",
+      "command": "cargo test -p kanzei-tools --lib background::tests::same_tool_windows_closed_out_of_order_keep_their_own_opening_snapshot --quiet -- --exact",
+      "exit_code": 101,
+      "expected": "assertion failure under equivalent old logic, not a compile failure",
+      "log": "output/parallel-b0/negative-same_tool_windows_closed_out_of_order_keep_their_own_opening_snapshot.log"
+    },
+    {
+      "test": "background::tests::concurrently_closed_disjoint_windows_preserve_both_baseline_updates",
+      "command": "cargo test -p kanzei-tools --lib background::tests::concurrently_closed_disjoint_windows_preserve_both_baseline_updates --quiet -- --exact",
+      "exit_code": 101,
+      "expected": "assertion failure under equivalent old logic, not a compile failure",
+      "log": "output/parallel-b0/negative-concurrently_closed_disjoint_windows_preserve_both_baseline_updates.log"
+    },
+    {
+      "test": "background::tests::guard_resuming_after_a_legitimate_window_close_reads_the_committed_baseline",
+      "command": "cargo test -p kanzei-tools --lib background::tests::guard_resuming_after_a_legitimate_window_close_reads_the_committed_baseline --quiet -- --exact",
+      "exit_code": 101,
+      "expected": "assertion failure under equivalent old logic, not a compile failure",
+      "log": "output/parallel-b0/negative-guard_resuming_after_a_legitimate_window_close_reads_the_committed_baseline.log"
+    }
+  ],
+  "negative_control_recipe": [
+    "omit project matching in active predicate and observer",
+    "pair closing windows with most recently opened snapshot of the same process",
+    "clone baseline before the test barrier and replace it after separate absorption",
+    "clone guard baseline before the test channel, allow a legitimate window to commit, then resume the guard"
+  ],
+  "negative_control_restoration": "The two temporarily changed files were restored byte-for-byte to SHA-matching backups; mtimes refreshed to rebuild the final fixed executable.",
+  "log_sha256": {
+    "output/parallel-b0/harness-test.log": "40f8f745ea1325fd2421885bef3400833c088e87e34c894ffdf788d3b14e5427",
+    "output/parallel-b0/background-test-final.log": "818a9d924f700b0a29495418478d8a35c08f364906dffb220d5c88f14eb57875",
+    "output/parallel-b0/core-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "output/parallel-b0/clippy.log": "c90fef4434f41b32a23048b204214fd3099d41125efd14f4b682b389b42f83dd",
+    "output/parallel-b0/negative-writer_window_in_another_project_neither_exempts_nor_absorbs_a_breach.log": "937869b7201607c557b0454dca3b960df2626c785587396d874f2b39c59209d3",
+    "output/parallel-b0/negative-same_tool_windows_closed_out_of_order_keep_their_own_opening_snapshot.log": "9fb18214bf882da6e03a43d5f3da0c6247a27f45ae5f6491c95d6ef8458cfa6c",
+    "output/parallel-b0/negative-concurrently_closed_disjoint_windows_preserve_both_baseline_updates.log": "7f98bd505bbaa5786fb9fa90bac63800916221a35d84cbc1e0e9fc0331f68bb8",
+    "output/parallel-b0/negative-guard_resuming_after_a_legitimate_window_close_reads_the_committed_baseline.log": "9768ffc45e505042ae2ff6512f5ca15e2daaaa11d494dc06fe6915e868d33c51"
+  },
+  "new_dependency": false,
+  "persistent_format_changed": false,
+  "actual_model_or_user_state_access": false,
+  "limitations": [
+    "Windows verification only; no Linux execution in this task",
+    "whole-workspace integrated checks remain the root agent responsibility",
+    "D-275 same-project same-window same-prefix residual boundary retained"
+  ]
+}

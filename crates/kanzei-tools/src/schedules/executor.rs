@@ -689,7 +689,7 @@ pub(super) async fn writeback(
                     requires_refs: None,
                 };
                 let ctx = ToolCtx::new(root.into(), root.into());
-                let output=kanzei_harness::managed_fence::tool_scope("idea",tool.execute(json!({"action":"add","title":format!("定时任务 {}: {}",def.name,outcome.summary.chars().take(40).collect::<String>()),"fields":{"原始描述":outcome.text,"来源":format!("schedule:{} run {}",def.name,outcome.run_id)}}),&ctx)).await;
+                let output=kanzei_harness::managed_fence::tool_scope(&ctx.project_root,"idea",tool.execute(json!({"action":"add","title":format!("定时任务 {}: {}",def.name,outcome.summary.chars().take(40).collect::<String>()),"fields":{"原始描述":outcome.text,"来源":format!("schedule:{} run {}",def.name,outcome.run_id)}}),&ctx)).await;
                 if output.is_error {
                     Err(output.content)
                 } else {

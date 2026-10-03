@@ -34,58 +34,105 @@ pub(super) fn next_id() -> String {
 pub(super) fn install_window_observer_once() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        kanzei_harness::managed_fence::set_observer(|phase, spec| {
+        kanzei_harness::managed_fence::set_observer(|phase, window| {
             for process in running_processes() {
                 let root = PathBuf::from(&process.project_root);
-                let key = (process.id.clone(), spec.tool);
+                if !window.applies_to(&root) {
+                    continue;
+                }
+                let key = (process.id.clone(), window.id);
                 match phase {
                     kanzei_harness::managed_fence::WindowPhase::Opened => {
+                        // A new tool must not start writing while a guard is
+                        // restoring this process's protected tree.
+                        let _baseline = process.baseline.lock().unwrap();
                         let snapshot = ManagedSnapshot::capture(&root);
                         window_open_snapshots()
                             .lock()
                             .unwrap()
-                            .entry(key)
-                            .or_default()
-                            .push(snapshot);
+                            .insert(key, snapshot);
                     }
                     kanzei_harness::managed_fence::WindowPhase::Closed => {
-                        let opened = {
-                            let mut snapshots = window_open_snapshots().lock().unwrap();
-                            let popped = snapshots.get_mut(&key).and_then(|stack| stack.pop());
-                            if let Some(stack) = snapshots.get(&key) {
-                                if stack.is_empty() {
-                                    snapshots.remove(&key);
-                                }
-                            }
-                            popped
-                        };
+                        let opened = { window_open_snapshots().lock().unwrap().remove(&key) };
+                        #[cfg(test)]
+                        run_before_absorb_hook(&process.id);
+                        // Read/absorb under the same lock: another completed
+                        // window cannot lose its update to this commit.
+                        let mut baseline = process.baseline.lock().unwrap();
                         let current = ManagedSnapshot::capture(&root);
-                        let mut baseline = process.baseline();
                         let before = opened.as_ref().unwrap_or(&baseline);
                         if let Some(change) = crate::managed::diff(before, &current) {
                             let paths: Vec<&str> = change
                                 .touched()
                                 .into_iter()
                                 .map(|s| s.as_str())
-                                .filter(|p| kanzei_harness::managed_fence::covers(spec, p))
+                                .filter(|p| kanzei_harness::managed_fence::covers(window.spec, p))
                                 .collect();
                             if !paths.is_empty() {
                                 baseline.absorb_paths(&current, &paths);
-                                process.set_baseline(baseline);
                             }
                         }
                     }
                 }
             }
+            if phase == kanzei_harness::managed_fence::WindowPhase::Closed {
+                // A process can end while a tool is running. Its opening snapshot
+                // is no longer needed even though it was skipped above.
+                window_open_snapshots()
+                    .lock()
+                    .unwrap()
+                    .retain(|(_, id), _| *id != window.id);
+            }
         });
     });
 }
 
-type WindowSnapshotMap = Mutex<HashMap<(String, &'static str), Vec<ManagedSnapshot>>>;
+type WindowSnapshotMap = Mutex<HashMap<(String, u64), ManagedSnapshot>>;
 
 fn window_open_snapshots() -> &'static WindowSnapshotMap {
     static SNAPSHOTS: OnceLock<WindowSnapshotMap> = OnceLock::new();
     SNAPSHOTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+type BeforeAbsorbHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+#[cfg(test)]
+fn before_absorb_hook() -> &'static Mutex<Option<BeforeAbsorbHook>> {
+    static HOOK: OnceLock<Mutex<Option<BeforeAbsorbHook>>> = OnceLock::new();
+    HOOK.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(test)]
+pub(super) fn set_before_absorb_hook(hook: Option<BeforeAbsorbHook>) {
+    *before_absorb_hook().lock().unwrap() = hook;
+}
+
+#[cfg(test)]
+fn run_before_absorb_hook(process_id: &str) {
+    let hook = before_absorb_hook().lock().unwrap().clone();
+    if let Some(hook) = hook {
+        hook(process_id);
+    }
+}
+
+#[cfg(test)]
+fn before_reconcile_hook() -> &'static Mutex<Option<BeforeAbsorbHook>> {
+    static HOOK: OnceLock<Mutex<Option<BeforeAbsorbHook>>> = OnceLock::new();
+    HOOK.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(test)]
+pub(super) fn set_before_reconcile_hook(hook: Option<BeforeAbsorbHook>) {
+    *before_reconcile_hook().lock().unwrap() = hook;
+}
+
+#[cfg(test)]
+fn run_before_reconcile_hook(process_id: &str) {
+    let hook = before_reconcile_hook().lock().unwrap().clone();
+    if let Some(hook) = hook {
+        hook(process_id);
+    }
 }
 
 fn running_processes() -> Vec<Arc<BackgroundProcess>> {
@@ -121,20 +168,30 @@ pub(super) async fn reconcile(
     if !crate::managed::managed_scope_exists(&root) {
         return None;
     }
-    let baseline = process.baseline();
-    let current = ManagedSnapshot::capture(&root);
-    let change = crate::managed::diff(&baseline, &current)?;
-    let (_, breach) = change.partition(kanzei_harness::managed_fence::write_in_progress);
-    if breach.is_empty() {
-        return None;
-    }
-    let (quarantine, restored) = match crate::managed::quarantine_and_restore(
-        &root,
-        &baseline,
-        &breach,
-        &[],
-        &format!("bg-{}", process.id),
-    ) {
+    #[cfg(test)]
+    run_before_reconcile_hook(&process.id);
+    let (breach, restore) = {
+        // Closed commits and new Opened snapshots use this same mutex. Keep
+        // the decision and synchronous restore together so a stale baseline
+        // cannot roll back a legitimate write that just finished.
+        let baseline = process.baseline.lock().unwrap();
+        let current = ManagedSnapshot::capture(&root);
+        let change = crate::managed::diff(&baseline, &current)?;
+        let (_, breach) =
+            change.partition(|path| kanzei_harness::managed_fence::write_in_progress(&root, path));
+        if breach.is_empty() {
+            return None;
+        }
+        let restore = crate::managed::quarantine_and_restore(
+            &root,
+            &baseline,
+            &breach,
+            &[],
+            &format!("bg-{}", process.id),
+        );
+        (breach, restore)
+    };
+    let (quarantine, restored) = match restore {
         Ok(result) => result,
         Err(error) => {
             let message = format!("\n[managed-files] 自动回滚失败：{error}\n");

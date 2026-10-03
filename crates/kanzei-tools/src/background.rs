@@ -152,14 +152,10 @@ impl BackgroundProcess {
         }
     }
 
-    /// 当前对账基线的副本(守卫用)。
+    /// 测试观察基线；生产对账和更新在持有该锁时一起完成。
+    #[cfg(test)]
     pub(crate) fn baseline(&self) -> ManagedSnapshot {
         self.baseline.lock().unwrap().clone()
-    }
-
-    /// 推进对账基线:仅由合法写入窗口关闭后的吸收操作调用。
-    pub(crate) fn set_baseline(&self, snapshot: ManagedSnapshot) {
-        *self.baseline.lock().unwrap() = snapshot;
     }
 
     pub(crate) fn record_breach(&self, record: BreachRecord) {
@@ -763,7 +759,7 @@ mod tests {
 
         // —— 窗口内:模拟 `defect` 工具的写入区间。
         const LEGIT: &str = "# Defects\n\n## D-001 专用工具改的 [fixing]\n";
-        kanzei_harness::managed_fence::tool_scope("defect", async {
+        kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
             std::fs::write(&target, LEGIT).unwrap();
         })
         .await;
@@ -839,6 +835,7 @@ mod tests {
         let process = get(&id).unwrap();
         let original = process.baseline();
         let mut window = Box::pin(kanzei_harness::managed_fence::tool_scope(
+            &root,
             "defect",
             std::future::pending::<()>(),
         ));
@@ -858,6 +855,201 @@ mod tests {
             "an unrelated breach must not commit an open writer window"
         );
         assert_eq!(after, ManagedSnapshot::capture(&root));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // Use the real registry/observer/reconcile path without a polling task. The
+    // test chooses the exact window interleaving instead of racing a timer.
+    fn fence_process_without_poller(root: &Path) -> Arc<BackgroundProcess> {
+        install_window_observer_once();
+        let process = Arc::new(BackgroundProcess {
+            stdin: tokio::sync::Mutex::new(None),
+            id: next_id(),
+            command: "fence test fixture".into(),
+            project_root: root.display().to_string(),
+            workdir: root.display().to_string(),
+            owner: test_owner(),
+            persistent: false,
+            log_path: None,
+            full_output: Arc::new(Mutex::new(Vec::new())),
+            started_at_ms: now_ms(),
+            pid: None,
+            output: Arc::new(Mutex::new(Vec::new())),
+            output_total: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            truncated: Arc::new(AtomicBool::new(false)),
+            exit: Arc::new(Mutex::new(None)),
+            baseline: Arc::new(Mutex::new(ManagedSnapshot::capture(root))),
+            breaches: Arc::new(Mutex::new(Vec::new())),
+        });
+        registry()
+            .lock()
+            .unwrap()
+            .insert(process.id.clone(), process.clone());
+        process
+    }
+
+    #[tokio::test]
+    async fn writer_window_in_another_project_neither_exempts_nor_absorbs_a_breach() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("window-project-a");
+        let other = temp_managed_project("window-project-b");
+        let owner = fence_process_without_poller(&root);
+        let foreign = fence_process_without_poller(&other);
+        let target = root.join(".kanzei/project/defects.md");
+        let victim = other.join(".kanzei/project/defects.md");
+        let original = foreign.baseline();
+
+        for close_before_reconcile in [false, true] {
+            let window = kanzei_harness::managed_fence::ToolWindow::open(&root, "defect");
+            std::fs::write(&target, "legitimate project A write").unwrap();
+            std::fs::write(&victim, "foreign project B breach").unwrap();
+            let window = if close_before_reconcile {
+                drop(window);
+                None
+            } else {
+                Some(window)
+            };
+            assert_eq!(foreign.baseline(), original, "A must not absorb B's change");
+            let breach = reconcile(&foreign, false).await;
+            drop(window);
+            assert!(breach.is_some(), "A's open window must not exempt B's path");
+            assert_eq!(std::fs::read_to_string(&victim).unwrap(), ORIGINAL_DEFECTS);
+            assert_eq!(foreign.baseline(), original);
+            assert_eq!(owner.baseline(), ManagedSnapshot::capture(&root));
+            assert_eq!(
+                std::fs::read_to_string(&target).unwrap(),
+                "legitimate project A write"
+            );
+        }
+        registry().lock().unwrap().remove(&owner.id);
+        registry().lock().unwrap().remove(&foreign.id);
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(other).unwrap();
+    }
+
+    #[tokio::test]
+    async fn same_tool_windows_closed_out_of_order_keep_their_own_opening_snapshot() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("window-out-of-order");
+        let process = fence_process_without_poller(&root);
+        let first = kanzei_harness::managed_fence::ToolWindow::open(&root, "defect");
+        std::fs::write(
+            root.join(".kanzei/project/defects.md"),
+            "first legitimate write",
+        )
+        .unwrap();
+        let second = kanzei_harness::managed_fence::ToolWindow::open(&root, "defect");
+
+        // The first window finishes first. A stack keyed by tool would consume
+        // the second snapshot and lose this completed write from the baseline.
+        drop(first);
+        assert_eq!(process.baseline(), ManagedSnapshot::capture(&root));
+        assert!(kanzei_harness::managed_fence::write_in_progress(
+            &root,
+            ".kanzei/project/defects.md"
+        ));
+        std::fs::write(
+            root.join(".kanzei/project/requirements.md"),
+            "second legitimate write",
+        )
+        .unwrap();
+        drop(second);
+        assert_eq!(process.baseline(), ManagedSnapshot::capture(&root));
+        assert!(reconcile(&process, false).await.is_none());
+        registry().lock().unwrap().remove(&process.id);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrently_closed_disjoint_windows_preserve_both_baseline_updates() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("window-concurrent-close");
+        std::fs::create_dir_all(root.join(".kanzei/memory")).unwrap();
+        let process = fence_process_without_poller(&root);
+        let project = kanzei_harness::managed_fence::ToolWindow::open(&root, "defect");
+        let memory = kanzei_harness::managed_fence::ToolWindow::open(&root, "memory_add");
+        std::fs::write(root.join(".kanzei/project/defects.md"), "project update").unwrap();
+        std::fs::write(root.join(".kanzei/memory/test.md"), "memory update").unwrap();
+
+        let ready = Arc::new(std::sync::Barrier::new(2));
+        let expected_process = process.id.clone();
+        lifecycle::set_before_absorb_hook(Some(Arc::new(move |id| {
+            if id == expected_process {
+                ready.wait();
+            }
+        })));
+        struct ResetHook;
+        impl Drop for ResetHook {
+            fn drop(&mut self) {
+                lifecycle::set_before_absorb_hook(None);
+            }
+        }
+        let reset = ResetHook;
+        let first = std::thread::spawn(move || drop(project));
+        let second = std::thread::spawn(move || drop(memory));
+        first.join().unwrap();
+        second.join().unwrap();
+        drop(reset);
+
+        assert_eq!(process.baseline(), ManagedSnapshot::capture(&root));
+        assert!(reconcile(&process, false).await.is_none());
+        registry().lock().unwrap().remove(&process.id);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn guard_resuming_after_a_legitimate_window_close_reads_the_committed_baseline() {
+        let _serial = serial().lock().await;
+        let _fence = fence_guard();
+        let root = temp_managed_project("window-guard-stale");
+        let process = fence_process_without_poller(&root);
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let resume_rx = Mutex::new(resume_rx);
+        let expected_process = process.id.clone();
+        lifecycle::set_before_reconcile_hook(Some(Arc::new(move |id| {
+            if id == expected_process {
+                ready_tx.send(()).unwrap();
+                resume_rx.lock().unwrap().recv().unwrap();
+            }
+        })));
+        struct ResetHook;
+        impl Drop for ResetHook {
+            fn drop(&mut self) {
+                lifecycle::set_before_reconcile_hook(None);
+            }
+        }
+        let reset = ResetHook;
+        let guarded = process.clone();
+        let guard = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(reconcile(&guarded, false))
+        });
+        ready_rx.recv().unwrap();
+        let window = kanzei_harness::managed_fence::ToolWindow::open(&root, "defect");
+        let target = root.join(".kanzei/project/defects.md");
+        std::fs::write(&target, "completed legitimate write").unwrap();
+        drop(window);
+        resume_tx.send(()).unwrap();
+        let breach = guard.join().unwrap();
+        drop(reset);
+
+        assert!(
+            breach.is_none(),
+            "a closed legitimate window must not be rolled back"
+        );
+        assert_eq!(
+            std::fs::read_to_string(target).unwrap(),
+            "completed legitimate write"
+        );
+        assert_eq!(process.baseline(), ManagedSnapshot::capture(&root));
+        registry().lock().unwrap().remove(&process.id);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -885,14 +1077,17 @@ mod tests {
         // 打开窗口并停在 pending(窗口保持开着,工具"还没结束")。
         // 必须用 Box::pin 持有 future 本体:tokio::pin! 只持有 &mut 引用,
         // drop 引用不会 drop future,窗口会一直开到最后,吸收断言必然假失败。
-        let mut window: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> = Box::pin(
-            kanzei_harness::managed_fence::tool_scope("defect", std::future::pending::<()>()),
-        );
+        let mut window: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+            Box::pin(kanzei_harness::managed_fence::tool_scope(
+                &root,
+                "defect",
+                std::future::pending::<()>(),
+            ));
         {
             let _ = tokio::time::timeout(std::time::Duration::from_millis(20), &mut window).await;
         }
         assert!(
-            kanzei_harness::managed_fence::write_in_progress(".kanzei/project/defects.md"),
+            kanzei_harness::managed_fence::write_in_progress(&root, ".kanzei/project/defects.md"),
             "窗口应已打开"
         );
 
@@ -950,7 +1145,7 @@ mod tests {
 
         const LEGIT: &str = "# Defects\n\n## D-001 窗口内合法写入 [fixing]\n";
         // 窗口内:专用工具写 project 下的文件;同一时刻"后台进程"写 memory 下的文件。
-        kanzei_harness::managed_fence::tool_scope("defect", async {
+        kanzei_harness::managed_fence::tool_scope(&root, "defect", async {
             std::fs::write(&target, LEGIT).unwrap();
             std::fs::write(&memory_target, "MEMORY BREACH").unwrap();
         })
@@ -1144,6 +1339,7 @@ mod tests {
                 .as_nanos()
         ));
         let signal_str = signal.display().to_string();
+        let root = signal.parent().unwrap();
         let mut child = std::process::Command::new(&exe)
             .args([
                 "--ignored",
@@ -1164,7 +1360,7 @@ mod tests {
         assert!(signal.exists(), "子进程应在 15s 内打开窗口并写信号文件");
         // 关键断言:另一个进程的窗口在本进程不可见 → 交错时无保护(假绿根源)。
         assert!(
-            !kanzei_harness::managed_fence::write_in_progress(".kanzei/project/defects.md"),
+            !kanzei_harness::managed_fence::write_in_progress(root, ".kanzei/project/defects.md"),
             "跨进程窗口必须互不可见;若可见,修复方向①的锁就不必要了"
         );
         let _ = child.wait();
@@ -1177,9 +1373,10 @@ mod tests {
     #[ignore]
     fn 子进程_打开defect窗口并写信号() {
         let signal = std::env::var("KZ_BGFENCE_SIGNAL").expect("父进程应传信号文件路径");
+        let root = Path::new(&signal).parent().unwrap();
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         rt.block_on(async {
-            let _window = kanzei_harness::managed_fence::tool_scope("defect", async {
+            let _window = kanzei_harness::managed_fence::tool_scope(root, "defect", async {
                 std::fs::write(&signal, "ready").expect("写信号文件");
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             })

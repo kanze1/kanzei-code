@@ -198,6 +198,7 @@ async fn process_explicit_stale_requests(
             continue;
         }
         let output = kanzei_harness::managed_fence::tool_scope(
+            &ctx.project_root,
             "memory_stale",
             crate::memory::MemoryStaleTool.execute(
                 serde_json::json!({
@@ -216,11 +217,12 @@ async fn process_explicit_stale_requests(
     let mut discarded = 0;
     for (_, summary, _) in store.pending_note_list() {
         if batch.text.contains(&summary) {
-            let removed =
-                kanzei_harness::managed_fence::tool_scope("memory_inbox_discard", async {
-                    store.discard_note(&summary)
-                })
-                .await?;
+            let removed = kanzei_harness::managed_fence::tool_scope(
+                &ctx.project_root,
+                "memory_inbox_discard",
+                async { store.discard_note(&summary) },
+            )
+            .await?;
             discarded += usize::from(removed);
         }
     }

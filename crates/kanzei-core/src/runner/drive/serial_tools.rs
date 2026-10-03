@@ -189,6 +189,7 @@ pub(super) async fn execute_serial_tool_calls(
                     // R-259:执行包装(wrap_execute:progress 注入)收编——
                     // 串行/并行共用同一 wrapper;halted 前置拦截也在 wrapper。
                     let exec = kanzei_harness::managed_fence::tool_scope(
+                        &ctx.project_root,
                         &name,
                         kanzei_harness::tool_pipeline::wrap_execute(
                             id.clone(),

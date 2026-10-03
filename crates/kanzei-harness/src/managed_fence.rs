@@ -12,9 +12,11 @@
 //! 报给谁"的点对点接力,task-local 天然合适;而后台守卫跑在**另一个 tokio 任务**
 //! 里,它要观察的是"此刻整个进程有没有专用工具在写",task-local 跨任务看不见。
 //!
-//! 本模块只提供窗口与判定,不碰文件系统。快照/回滚由 kanzei-tools 侧持有
+//! 本模块提供窗口身份与项目归一；文件快照/回滚由 kanzei-tools 侧持有
 //! (harness 不依赖 tools,吸收动作经 `set_observer` 注入的回调回调过去)。
 
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// 一个专用文档工具被允许改动的托管路径前缀(相对项目根,'/' 分隔)。
@@ -98,10 +100,25 @@ pub fn writer_spec(tool: &str) -> Option<&'static ManagedWriterSpec> {
     MANAGED_WRITERS.iter().find(|spec| spec.tool == tool)
 }
 
-/// 当前开着的窗口。写工具在 writer 阶段是串行的,但并行 wave 路径可能同时开多个,
-/// 所以用多重集合而不是单个 Option。
-fn active() -> &'static Mutex<Vec<&'static ManagedWriterSpec>> {
-    static ACTIVE: OnceLock<Mutex<Vec<&'static ManagedWriterSpec>>> = OnceLock::new();
+/// 每次工具调用的窗口身份；同名并发调用也必须配对各自的打开快照。
+#[derive(Debug, Clone)]
+pub struct ManagedWriteWindow {
+    pub id: u64,
+    pub project_root: PathBuf,
+    pub spec: &'static ManagedWriterSpec,
+    project_key: String,
+}
+
+impl ManagedWriteWindow {
+    pub fn applies_to(&self, project_root: &Path) -> bool {
+        let root = kanzei_base::path_form::canonical_or_simplified(project_root);
+        self.project_key == crate::project_root::dir_key(&root)
+    }
+}
+
+/// 当前开着的窗口，按项目和调用身份区分。
+fn active() -> &'static Mutex<Vec<ManagedWriteWindow>> {
+    static ACTIVE: OnceLock<Mutex<Vec<ManagedWriteWindow>>> = OnceLock::new();
     ACTIVE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
@@ -113,7 +130,7 @@ pub enum WindowPhase {
     Closed,
 }
 
-type Observer = Box<dyn Fn(WindowPhase, &'static ManagedWriterSpec) + Send + Sync>;
+type Observer = Box<dyn Fn(WindowPhase, &ManagedWriteWindow) + Send + Sync>;
 
 fn observer() -> &'static OnceLock<Observer> {
     static OBSERVER: OnceLock<Observer> = OnceLock::new();
@@ -126,46 +143,54 @@ fn observer() -> &'static OnceLock<Observer> {
 ///
 /// `Opened` 在窗口登记之后、工具执行之前回调;`Closed` 在窗口注销**之前**回调
 /// (此刻窗口仍对守卫可见,守卫采样会把窗口覆盖的变化当合法分流,不会误伤)。
-pub fn set_observer(f: impl Fn(WindowPhase, &'static ManagedWriterSpec) + Send + Sync + 'static) {
+pub fn set_observer(f: impl Fn(WindowPhase, &ManagedWriteWindow) + Send + Sync + 'static) {
     let _ = observer().set(Box::new(f));
 }
 
 /// 合法写入窗口。Drop 时关闭并触发吸收——RAII 保证正常返回、错误、超时取消
 /// (future 被 drop)任何路径都不会把窗口永久开着。
 pub struct ToolWindow {
-    spec: Option<&'static ManagedWriterSpec>,
+    window: Option<ManagedWriteWindow>,
 }
 
 impl ToolWindow {
     /// 非专用写工具返回一个空窗口(Drop 无副作用),调用方不必分支。
-    pub fn open(tool: &str) -> Self {
-        let spec = writer_spec(tool);
-        if let Some(spec) = spec {
-            active().lock().unwrap().push(spec);
+    pub fn open(project_root: &Path, tool: &str) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let window = writer_spec(tool).map(|spec| {
+            let project_root = kanzei_base::path_form::canonical_or_simplified(project_root);
+            ManagedWriteWindow {
+                id: NEXT.fetch_add(1, Ordering::Relaxed),
+                project_key: crate::project_root::dir_key(&project_root),
+                project_root,
+                spec,
+            }
+        });
+        if let Some(window) = &window {
+            active().lock().unwrap().push(window.clone());
             // 登记之后再通知 Opened:观察者此刻拍到的快照就是"工具还没写"的状态。
             if let Some(observe) = observer().get() {
-                observe(WindowPhase::Opened, spec);
+                observe(WindowPhase::Opened, window);
             }
         }
-        ToolWindow { spec }
+        ToolWindow { window }
     }
 }
 
 impl Drop for ToolWindow {
     fn drop(&mut self) {
-        let Some(spec) = self.spec else {
+        let Some(window) = &self.window else {
             return;
         };
         // 吸收在弹窗**之前**做:此刻窗口仍登记在 active 里,守卫采样会把窗口覆盖的
         // 变化当合法分流(配合守卫"不整树推进"),吸收完成后才弹窗——避免「关窗 →
         // 吸收完成」之间守卫把专用工具的合法写入误判成越界回滚(D-258 时序竞态)。
         if let Some(observe) = observer().get() {
-            observe(WindowPhase::Closed, spec);
+            observe(WindowPhase::Closed, window);
         }
         {
             let mut guard = active().lock().unwrap();
-            // 按身份移除一个实例(同名工具可能并发开多个窗口)。
-            if let Some(at) = guard.iter().position(|other| std::ptr::eq(*other, spec)) {
+            if let Some(at) = guard.iter().position(|other| other.id == window.id) {
                 guard.remove(at);
             }
         }
@@ -173,23 +198,34 @@ impl Drop for ToolWindow {
 }
 
 /// 在合法写入窗口内执行工具 future。非专用写工具零开销通过。
-pub async fn tool_scope<F: std::future::Future>(tool: &str, fut: F) -> F::Output {
-    let _window = ToolWindow::open(tool);
+pub async fn tool_scope<F: std::future::Future>(
+    project_root: &Path,
+    tool: &str,
+    fut: F,
+) -> F::Output {
+    let _window = ToolWindow::open(project_root, tool);
     fut.await
 }
 
 /// 此刻是否有开着的窗口覆盖这条托管相对路径(守卫采样时用)。
-pub fn write_in_progress(relative_path: &str) -> bool {
+pub fn write_in_progress(project_root: &Path, relative_path: &str) -> bool {
+    let root = kanzei_base::path_form::canonical_or_simplified(project_root);
+    let project_key = crate::project_root::dir_key(&root);
     active()
         .lock()
         .unwrap()
         .iter()
-        .any(|spec| covers(spec, relative_path))
+        .any(|window| window.project_key == project_key && covers(window.spec, relative_path))
 }
 
 /// 当前开着的窗口对应的工具名(报告与测试用)。
 pub fn active_tools() -> Vec<&'static str> {
-    active().lock().unwrap().iter().map(|s| s.tool).collect()
+    active()
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|w| w.spec.tool)
+        .collect()
 }
 
 pub fn covers(spec: &ManagedWriterSpec, relative_path: &str) -> bool {
@@ -252,7 +288,7 @@ mod tests {
         {
             let opened = opened.clone();
             let closed = closed.clone();
-            set_observer(move |phase, _spec| match phase {
+            set_observer(move |phase, _window| match phase {
                 WindowPhase::Opened => {
                     opened.fetch_add(1, Ordering::SeqCst);
                 }
@@ -262,15 +298,24 @@ mod tests {
             });
         }
         assert!(active_tools().is_empty(), "起始不该有开着的窗口");
-        tool_scope("defect", async {
+        tool_scope(Path::new("project-a"), "defect", async {
             assert_eq!(active_tools(), vec!["defect"]);
-            assert!(write_in_progress(".kanzei/project/defects.md"));
+            assert!(write_in_progress(
+                Path::new("project-a"),
+                ".kanzei/project/defects.md"
+            ));
             // 窗口只覆盖自己的前缀,别的托管根照旧算越界。
-            assert!(!write_in_progress(".kanzei/memory/M-001.md"));
+            assert!(!write_in_progress(
+                Path::new("project-a"),
+                ".kanzei/memory/M-001.md"
+            ));
         })
         .await;
         assert!(active_tools().is_empty(), "窗口必须随作用域关闭");
-        assert!(!write_in_progress(".kanzei/project/defects.md"));
+        assert!(!write_in_progress(
+            Path::new("project-a"),
+            ".kanzei/project/defects.md"
+        ));
         assert_eq!(
             opened.load(Ordering::SeqCst),
             1,
@@ -283,7 +328,7 @@ mod tests {
         );
 
         // 非专用写工具零开销通过:不开窗口、不触发观察。
-        tool_scope("bash", async {
+        tool_scope(Path::new("project-a"), "bash", async {
             assert!(active_tools().is_empty());
         })
         .await;
@@ -297,7 +342,7 @@ mod tests {
         // 取消/超时路径把 future 整个 drop:RAII 必须把窗口一起收掉,
         // 否则一次取消就能让托管树永久处于"合法写入中"状态。
         {
-            let fut = tool_scope("req", std::future::pending::<()>());
+            let fut = tool_scope(Path::new("project-a"), "req", std::future::pending::<()>());
             tokio::pin!(fut);
             let _ = tokio::time::timeout(std::time::Duration::from_millis(20), &mut fut).await;
             // 先确认窗口真的开过,否则下面的断言会因为"从来没开"而假绿。
@@ -307,5 +352,44 @@ mod tests {
             active_tools().is_empty(),
             "被丢弃的 future 不该留下开着的窗口"
         );
+    }
+
+    #[tokio::test]
+    async fn windows_are_scoped_to_the_project_and_closed_by_call_identity() {
+        let _serial = serial().lock().await;
+        let root = Path::new("project-a");
+        let other = Path::new("project-b");
+        let first = ToolWindow::open(root, "defect");
+        let second = ToolWindow::open(root, "defect");
+        let first_id = first.window.as_ref().unwrap().id;
+        let second_id = second.window.as_ref().unwrap().id;
+        assert_ne!(first_id, second_id);
+        assert!(write_in_progress(root, ".kanzei/project/defects.md"));
+        assert!(!write_in_progress(other, ".kanzei/project/defects.md"));
+        drop(first);
+        let active_ids: Vec<_> = active().lock().unwrap().iter().map(|w| w.id).collect();
+        assert_eq!(active_ids, vec![second_id]);
+        drop(second);
+        assert!(!write_in_progress(root, ".kanzei/project/defects.md"));
+    }
+
+    #[tokio::test]
+    async fn existing_project_aliases_share_the_same_window() {
+        let _serial = serial().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "kz-window-alias-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let alias = root.join(".");
+        let window = ToolWindow::open(&alias, "defect");
+        assert!(window.window.as_ref().unwrap().applies_to(&root));
+        assert!(write_in_progress(&root, ".kanzei/project/defects.md"));
+        drop(window);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
