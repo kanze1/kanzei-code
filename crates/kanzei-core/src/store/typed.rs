@@ -10,11 +10,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use kanzei_llm::{Message, Part, Role};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::events::append_event_tx;
+use super::events::{append_event_tx, event_from_row};
 use super::{SessionStore, StoreError, StoredEvent};
 
 mod projection;
@@ -571,45 +571,92 @@ impl SessionStore {
         Ok(count > 0)
     }
 
-    /// 一批 fact 在内存中完整过 invariant 后，于同一 SQLite 事务连续追加。
+    /// 在同一写事务中核对库内 turn 状态、验证整批 fact 并连续追加。
     pub fn append_session_facts_checked(
         &self,
         session_id: &str,
         invariant: &mut SessionInvariant,
         facts: &[SessionFactEnvelope],
     ) -> Result<Vec<StoredEvent>, SessionFactError> {
+        let tx = self
+            .connection
+            .unchecked_transaction()
+            .map_err(StoreError::from)?;
+        let mut next = invariant.clone();
+        let stored = self.append_session_facts_tx(&tx, session_id, &mut next, facts)?;
+        tx.commit().map_err(StoreError::from)?;
+        *invariant = next;
+        Ok(stored)
+    }
+
+    /// 复用本连接已有的写事务；invariant 必须是提交成功后才采用的局部副本。
+    pub(super) fn append_session_facts_tx(
+        &self,
+        tx: &Transaction<'_>,
+        session_id: &str,
+        invariant: &mut SessionInvariant,
+        facts: &[SessionFactEnvelope],
+    ) -> Result<Vec<StoredEvent>, SessionFactError> {
         // R-242 批5 / D-417:库内 terminal 预检。调用方 invariant 只反映它自己的
         // 内存写入,不知道库内其它 writer/recovery 已写入的 terminal——不加预检
-        // 时「terminal 之后的事实」仍会落库,形成脏序列,让此后每一轮 prepare
-        // 重建 invariant 失败、typed_write_errors 永久非零(实证:真实库 43 条
-        // shadow report 携带同一 already-terminal 错误)。预检命中即整批拒绝。
-        let batch_turns: HashSet<&str> = facts.iter().map(|fact| fact.turn_id.as_str()).collect();
-        for turn_id in batch_turns {
+        // 时「terminal 之后的事实」仍会落库。预检必须在拿到 writer 的事务内:
+        // 事务外读到「尚未 terminal」后等待别的 writer,其提交 terminal 后旧预检
+        // 已经失效。命中即整批拒绝,不推进调用方 invariant。
+        let mut seen = HashSet::new();
+        let mut next = invariant.clone();
+        for turn_id in facts.iter().map(|fact| fact.turn_id.as_str()) {
+            if !seen.insert(turn_id) {
+                continue;
+            }
             if self.turn_has_terminal(session_id, turn_id)? {
                 return Err(SessionFactError::Invariant(format!(
                     "turn {turn_id} already terminal"
                 )));
             }
+            // 独立 writer/recovery 也可能已提交非 terminal 事实。只重建本批涉及
+            // 的 turn,避免用 caller 的旧 draft/call 状态验证当前数据库,也不让
+            // 无关旧 turn 的历史脏条阻断合法新 turn。
+            let mut statement = tx
+                .prepare(
+                    "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+                     FROM session_events
+                     WHERE session_id = ?1 AND json_extract(payload_json, '$.turn_id') = ?2
+                     ORDER BY sequence",
+                )
+                .map_err(StoreError::from)?;
+            let events = statement
+                .query_map(params![session_id, turn_id], event_from_row)
+                .map_err(StoreError::from)?;
+            let mut current = SessionInvariant::default();
+            for event in events {
+                let event = event.map_err(StoreError::from)?;
+                if let Some(fact) = decode_session_fact(&event)? {
+                    current.apply(&fact)?;
+                }
+            }
+            next.turns.remove(turn_id);
+            if let Some(turn) = current.turns.remove(turn_id) {
+                next.turns.insert(turn_id.to_string(), turn);
+                if !next.turn_order.iter().any(|id| id == turn_id) {
+                    next.turn_order.push(turn_id.to_string());
+                }
+            } else {
+                next.turn_order.retain(|id| id != turn_id);
+            }
         }
-        let mut next = invariant.clone();
         for fact in facts {
             next.apply(fact)?;
         }
-        let tx = self
-            .connection
-            .unchecked_transaction()
-            .map_err(StoreError::from)?;
         let mut stored = Vec::with_capacity(facts.len());
         for fact in facts {
             let payload = serde_json::to_value(fact).map_err(StoreError::from)?;
             stored.push(append_event_tx(
-                &tx,
+                tx,
                 session_id,
                 fact.event_type(),
                 &payload,
             )?);
         }
-        tx.commit().map_err(StoreError::from)?;
         *invariant = next;
         Ok(stored)
     }
@@ -709,6 +756,12 @@ impl SessionStore {
         &self,
         session_id: &str,
     ) -> Result<Option<StoredEvent>, SessionFactError> {
+        // source 与 floor 必须来自持有 writer 的同一快照；否则等待 writer 期间
+        // 另一个连接提交 reset 后,旧 source 会被播种到新段。
+        let tx = self
+            .connection
+            .unchecked_transaction()
+            .map_err(StoreError::from)?;
         let Some(source) = self.latest_event(session_id, "conversation.updated")? else {
             return Ok(None);
         };
@@ -755,7 +808,7 @@ impl SessionStore {
             format!("legacy:{}", source.sequence),
             None,
             SessionFact::LegacySeeded {
-                source_event_id: source.event_id,
+                source_event_id: source.event_id.clone(),
                 source_sequence: source.sequence,
                 // hash 仍按真实 messages 算:它是 provenance 的完整性锚点,
                 // 回读源事件后可以据此发现源被改写(事件本应只追加)。
@@ -764,17 +817,14 @@ impl SessionStore {
                 messages: Vec::new(),
             },
         );
-        let tx = self
-            .connection
-            .unchecked_transaction()
-            .map_err(StoreError::from)?;
-        // 跨进程重入时在事务内再核对一次同一 source_sequence。
+        // 跨进程重入时核对完整来源身份；fork 的外源序号不是本会话 source。
         let duplicate: i64 = tx
             .query_row(
                 "SELECT COUNT(*) FROM session_events
                  WHERE session_id = ?1 AND event_type = ?2
-                   AND json_extract(payload_json, '$.fact.source_sequence') = ?3",
-                params![session_id, LEGACY_SEEDED, source.sequence],
+                   AND json_extract(payload_json, '$.fact.source_sequence') = ?3
+                   AND json_extract(payload_json, '$.fact.source_event_id') = ?4",
+                params![session_id, LEGACY_SEEDED, source.sequence, source.event_id],
                 |row| row.get(0),
             )
             .map_err(StoreError::from)?;
@@ -794,6 +844,10 @@ impl SessionStore {
         session_id: &str,
         reason: &str,
     ) -> Result<RecoveryReport, SessionFactError> {
+        let tx = self
+            .connection
+            .unchecked_transaction()
+            .map_err(StoreError::from)?;
         let facts = self.list_session_facts(session_id)?;
         let mut invariant = SessionInvariant::default();
         let mut skipped_post_terminal = 0usize;
@@ -814,12 +868,14 @@ impl SessionStore {
         }
         let recovery = invariant.recovery_facts(reason);
         if recovery.is_empty() {
+            tx.commit().map_err(StoreError::from)?;
             return Ok(RecoveryReport {
                 closed_events: 0,
                 skipped_post_terminal,
             });
         }
-        self.append_session_facts_checked(session_id, &mut invariant, &recovery)?;
+        self.append_session_facts_tx(&tx, session_id, &mut invariant, &recovery)?;
+        tx.commit().map_err(StoreError::from)?;
         Ok(RecoveryReport {
             closed_events: recovery.len(),
             skipped_post_terminal,
@@ -1279,6 +1335,45 @@ mod tests {
     use crate::store::testutil::store;
     use serde_json::json;
 
+    thread_local! {
+        static WRITER_WAIT: std::cell::RefCell<Option<(
+            std::sync::mpsc::Sender<()>,
+            std::sync::mpsc::Receiver<()>,
+        )>> = const { std::cell::RefCell::new(None) };
+    }
+
+    fn pause_at_writer_lock(
+        store: &SessionStore,
+        blocked: std::sync::mpsc::Sender<()>,
+        resume: std::sync::mpsc::Receiver<()>,
+    ) {
+        WRITER_WAIT.with(|wait| *wait.borrow_mut() = Some((blocked, resume)));
+        store
+            .connection
+            .busy_handler(Some(|_| {
+                WRITER_WAIT.with(|wait| {
+                    wait.borrow_mut().take().is_some_and(|(blocked, resume)| {
+                        blocked.send(()).is_ok()
+                            && resume.recv_timeout(Duration::from_secs(10)).is_ok()
+                    })
+                })
+            }))
+            .unwrap();
+    }
+
+    fn temp_state_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-typed-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
     fn envelope(turn: &str, step: Option<u32>, fact: SessionFact) -> SessionFactEnvelope {
         SessionFactEnvelope::new(turn, step, fact)
     }
@@ -1584,6 +1679,303 @@ mod tests {
     }
 
     #[test]
+    fn checked_append_rechecks_terminal_after_waiting_for_writer() {
+        let root = temp_state_root("terminal-race");
+        let state_path = root.join("state.db");
+        let store = SessionStore::open(&state_path).unwrap();
+        store.create_session("ses_test", "C:/proj", None).unwrap();
+        let mut invariant = SessionInvariant::default();
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut invariant,
+                &[envelope(
+                    "turn",
+                    Some(1),
+                    SessionFact::TurnStarted { max_steps: 1 },
+                )],
+            )
+            .unwrap();
+        let before = invariant.recovery_facts("check");
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (start_tx, start_rx) = std::sync::mpsc::channel();
+        let (blocked_tx, blocked_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let writer_path = state_path.clone();
+        let writer = std::thread::spawn(move || {
+            let store = SessionStore::open(&writer_path).unwrap();
+            pause_at_writer_lock(&store, blocked_tx, resume_rx);
+            ready_tx.send(()).unwrap();
+            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            let result = store.append_session_facts_checked(
+                "ses_test",
+                &mut invariant,
+                &[envelope(
+                    "turn",
+                    Some(1),
+                    SessionFact::AssistantDraftAppended {
+                        message_id: "late".into(),
+                        chunk_index: 0,
+                        text: "terminal 后不得持久化".into(),
+                    },
+                )],
+            );
+            (result, invariant.recovery_facts("check"))
+        });
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let tx = store.connection.unchecked_transaction().unwrap();
+        let terminal = envelope("turn", None, SessionFact::TurnCompleted);
+        append_event_tx(
+            &tx,
+            "ses_test",
+            terminal.event_type(),
+            &serde_json::to_value(terminal).unwrap(),
+        )
+        .unwrap();
+        start_tx.send(()).unwrap();
+        blocked_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        tx.commit().unwrap();
+        resume_tx.send(()).unwrap();
+        let (result, after) = writer.join().unwrap();
+        assert!(result.unwrap_err().to_string().contains("already terminal"));
+        assert_eq!(after, before, "拒绝不得推进 caller invariant");
+        assert_eq!(store.list_session_facts("ses_test").unwrap().len(), 2);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_seed_rechecks_floor_after_waiting_for_reset_writer() {
+        let root = temp_state_root("seed-reset-race");
+        let state_path = root.join("state.db");
+        let store = SessionStore::open(&state_path).unwrap();
+        store.create_session("ses_test", "C:/proj", None).unwrap();
+        let legacy = store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &json!({"messages": [Message::user_text("reset 前的历史")]}),
+            )
+            .unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (start_tx, start_rx) = std::sync::mpsc::channel();
+        let (blocked_tx, blocked_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let seed_path = state_path.clone();
+        let seed = std::thread::spawn(move || {
+            let store = SessionStore::open(&seed_path).unwrap();
+            pause_at_writer_lock(&store, blocked_tx, resume_rx);
+            ready_tx.send(()).unwrap();
+            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            store.seed_latest_legacy_snapshot("ses_test")
+        });
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let tx = store.connection.unchecked_transaction().unwrap();
+        let reset = append_event_tx(
+            &tx,
+            "ses_test",
+            "conversation.reset",
+            &json!({"cleared": true, "source": "cli"}),
+        )
+        .unwrap();
+        start_tx.send(()).unwrap();
+        blocked_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        tx.commit().unwrap();
+        resume_tx.send(()).unwrap();
+        assert!(seed.join().unwrap().unwrap().is_none());
+        assert!(store
+            .list_latest_segment_facts("ses_test")
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store.conversation_floor("ses_test").unwrap(),
+            Some(reset.sequence)
+        );
+        assert!(store
+            .list_events_by_type("ses_test", 0, LEGACY_SEEDED)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store
+                .latest_event("ses_test", "conversation.updated")
+                .unwrap()
+                .unwrap()
+                .event_id,
+            legacy.event_id,
+            "reset 与拒绝播种均不得删除原历史"
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recovery_rechecks_finalized_draft_after_waiting_for_writer() {
+        let root = temp_state_root("recovery-race");
+        let state_path = root.join("state.db");
+        let store = SessionStore::open(&state_path).unwrap();
+        store.create_session("ses_test", "C:/proj", None).unwrap();
+        let mut invariant = SessionInvariant::default();
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut invariant,
+                &[
+                    envelope("turn", Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+                    envelope(
+                        "turn",
+                        Some(1),
+                        SessionFact::AssistantDraftAppended {
+                            message_id: "draft".into(),
+                            chunk_index: 0,
+                            text: "完整回答".into(),
+                        },
+                    ),
+                ],
+            )
+            .unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (start_tx, start_rx) = std::sync::mpsc::channel();
+        let (blocked_tx, blocked_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let recovery_path = state_path.clone();
+        let recovery = std::thread::spawn(move || {
+            let store = SessionStore::open(&recovery_path).unwrap();
+            pause_at_writer_lock(&store, blocked_tx, resume_rx);
+            ready_tx.send(()).unwrap();
+            start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            store.recover_interrupted_session_facts("ses_test", "process_restarted")
+        });
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let tx = store.connection.unchecked_transaction().unwrap();
+        let message = assistant("完整回答");
+        let commit = envelope(
+            "turn",
+            Some(1),
+            SessionFact::AssistantMessageCommitted {
+                message_id: "draft".into(),
+                content_hash: stable_message_hash(&message),
+                message,
+            },
+        );
+        append_event_tx(
+            &tx,
+            "ses_test",
+            commit.event_type(),
+            &serde_json::to_value(commit).unwrap(),
+        )
+        .unwrap();
+        start_tx.send(()).unwrap();
+        blocked_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        tx.commit().unwrap();
+        resume_tx.send(()).unwrap();
+        assert_eq!(recovery.join().unwrap().unwrap().closed_events, 1);
+        let facts = store.list_session_facts("ses_test").unwrap();
+        assert_eq!(facts.len(), 4);
+        assert!(!facts
+            .iter()
+            .any(|(_, fact)| matches!(fact.fact, SessionFact::AssistantMessageInterrupted { .. })));
+        let mut replay = SessionInvariant::default();
+        for (_, fact) in &facts {
+            replay.apply(fact).unwrap();
+        }
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn checked_append_refreshes_touched_turn_without_losing_other_turns() {
+        let store = store();
+        let mut first = SessionInvariant::default();
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut first,
+                &[
+                    envelope("other", Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+                    envelope("turn", Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+                ],
+            )
+            .unwrap();
+        let mut second = first.clone();
+        let message = assistant("另一 writer 已提交");
+        let commit = envelope(
+            "turn",
+            Some(1),
+            SessionFact::AssistantMessageCommitted {
+                message_id: "message".into(),
+                content_hash: stable_message_hash(&message),
+                message,
+            },
+        );
+        store
+            .append_session_facts_checked("ses_test", &mut second, std::slice::from_ref(&commit))
+            .unwrap();
+        let before = first.recovery_facts("check");
+        assert!(store
+            .append_session_facts_checked("ses_test", &mut first, &[commit])
+            .unwrap_err()
+            .to_string()
+            .contains("already finalized"));
+        assert_eq!(first.recovery_facts("check"), before);
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut first,
+                &[envelope(
+                    "turn",
+                    Some(2),
+                    SessionFact::TurnStarted { max_steps: 1 },
+                )],
+            )
+            .unwrap();
+        assert_eq!(first.turn_order, ["other", "turn"]);
+        assert!(first.turns.contains_key("other"));
+        assert!(first.turns["turn"].drafts["message"].finalized);
+    }
+
+    #[test]
+    fn checked_append_write_failure_rolls_back_batch_and_caller_state() {
+        let store = store();
+        store
+            .connection
+            .execute_batch(
+                "CREATE TEMP TRIGGER fail_draft BEFORE INSERT ON session_events
+                 WHEN NEW.event_type = 'session.assistant_draft_appended'
+                 BEGIN SELECT RAISE(ABORT, 'injected draft write failure'); END;",
+            )
+            .unwrap();
+        let facts = [
+            envelope("turn", Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+            envelope(
+                "turn",
+                Some(1),
+                SessionFact::AssistantDraftAppended {
+                    message_id: "draft".into(),
+                    chunk_index: 0,
+                    text: "不得留下半批事实".into(),
+                },
+            ),
+        ];
+        let mut invariant = SessionInvariant::default();
+        assert!(store
+            .append_session_facts_checked("ses_test", &mut invariant, &facts)
+            .unwrap_err()
+            .to_string()
+            .contains("injected draft write failure"));
+        assert!(store.list_session_facts("ses_test").unwrap().is_empty());
+        assert!(invariant.recovery_facts("check").is_empty());
+        store
+            .connection
+            .execute_batch("DROP TRIGGER fail_draft;")
+            .unwrap();
+        store
+            .append_session_facts_checked("ses_test", &mut invariant, &facts)
+            .unwrap();
+        assert_eq!(store.list_session_facts("ses_test").unwrap().len(), 2);
+        assert_eq!(invariant.recovery_facts("check").len(), 2);
+    }
+
+    #[test]
     fn recover_tolerates_historical_post_terminal_append() {
         // R-242 批5 / D-417:旧版 append 不查库内既有 terminal,曾产生
         // 「terminal 之后的事实仍落库」的历史脏序列。prepare 重建 invariant
@@ -1627,6 +2019,20 @@ mod tests {
         // 历史脏条(terminal 后追加的 tool result)被跳过计数。
         assert_eq!(report.closed_events, 0);
         assert_eq!(report.skipped_post_terminal, 1);
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut SessionInvariant::default(),
+                &[envelope(
+                    "new-turn",
+                    None,
+                    SessionFact::UserMessageCommitted {
+                        input_id: "new-input".into(),
+                        message: Message::user_text("历史脏 turn 不得阻断合法新输入"),
+                    },
+                )],
+            )
+            .unwrap();
     }
     #[test]
     fn recover_subagent_transcript_reads_latest_event_for_call_id() {
@@ -1872,6 +2278,279 @@ mod tests {
         );
         assert_eq!(first.interrupted_assistants[0].text, "生成到一半");
         assert!(!first.interrupted_assistants[0].materialized);
+    }
+
+    #[test]
+    fn tool_result_group_keeps_transcript_index_after_interrupted_draft() {
+        let root = temp_state_root("projection");
+        let state_path = root.join("state.db");
+        let store = SessionStore::open(&state_path).unwrap();
+        store.create_session("ses_test", "C:/proj", None).unwrap();
+
+        let mut interrupted = TypedSessionWriter::new(&state_path, "ses_test", "old-turn");
+        interrupted.user_message("old-input", Message::user_text("先前问题"));
+        interrupted.turn_started(1, 2);
+        interrupted.push_text("已显示但未完成的草稿");
+        interrupted.finish(SessionTurnTerminal::Failed("connection lost".into()));
+        assert!(interrupted.errors().is_empty());
+
+        let calls = Message::assistant(vec![
+            Part::ToolCall {
+                id: "call-a".into(),
+                name: "read_a".into(),
+                input: json!({}),
+            },
+            Part::ToolCall {
+                id: "call-b".into(),
+                name: "read_b".into(),
+                input: json!({}),
+            },
+        ]);
+        let results = Message::tool_results(vec![
+            Part::ToolResult {
+                call_id: "call-a".into(),
+                content: "result a".into(),
+                is_error: false,
+            },
+            Part::ToolResult {
+                call_id: "call-b".into(),
+                content: "result b".into(),
+                is_error: false,
+            },
+        ]);
+        let mut next = TypedSessionWriter::new(&state_path, "ses_test", "new-turn");
+        next.user_message("new-input", Message::user_text("后续问题"));
+        next.turn_started(1, 2);
+        next.assistant_committed(1, calls.clone());
+        next.tool_results_committed(1, results.clone());
+        next.finish(SessionTurnTerminal::Completed);
+        assert!(next.errors().is_empty());
+
+        let facts = store.list_session_facts("ses_test").unwrap();
+        let mut replay = SessionInvariant::default();
+        for (_, fact) in &facts {
+            replay.apply(fact).unwrap();
+        }
+        let projection = project_session_facts(&facts);
+        assert_eq!(projection.surface_messages.len(), 4);
+        assert_eq!(projection.transcript_messages.len(), 5);
+        assert_eq!(projection.surface_messages[2], calls);
+        assert_eq!(projection.surface_messages[3], results);
+        assert_eq!(projection.transcript_messages[3], calls);
+        assert_eq!(projection.transcript_messages[4], results);
+        assert_eq!(projection.interrupted_assistants.len(), 1);
+        assert!(projection.interrupted_assistants[0].materialized);
+        assert!(matches!(
+            &projection.transcript_messages[1].parts[0],
+            Part::Text { text } if text.contains("已显示但未完成的草稿")
+                && text.contains("生成中断")
+        ));
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delayed_legacy_seed_preserves_phone_fact_after_source() {
+        let store = store();
+        let history = vec![Message::user_text("旧会话历史")];
+        let source = store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &json!({ "messages": history }),
+            )
+            .unwrap();
+        let phone = Message::user_text("手机发来的新输入");
+        let persisted = store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut SessionInvariant::default(),
+                &[envelope(
+                    "mobile:phone-input",
+                    None,
+                    SessionFact::UserMessageCommitted {
+                        input_id: "phone-input".into(),
+                        message: phone.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        assert_eq!((source.sequence, persisted[0].sequence), (1, 2));
+
+        prepare_typed_session(&store, "ses_test").unwrap();
+        let facts = store.list_latest_segment_facts("ses_test").unwrap();
+        assert_eq!(
+            facts
+                .iter()
+                .find(|(_, envelope)| matches!(envelope.fact, SessionFact::LegacySeeded { .. }))
+                .unwrap()
+                .0
+                .sequence,
+            3
+        );
+        let projection = project_session_facts(&facts);
+        let expected = vec![history[0].clone(), phone];
+        assert_eq!(projection.seed_source_sequence, Some(source.sequence));
+        assert_eq!(projection.surface_messages, expected);
+        assert_eq!(projection.transcript_messages, expected);
+        prepare_typed_session(&store, "ses_test").unwrap();
+        assert_eq!(store.list_session_facts("ses_test").unwrap(), facts);
+    }
+
+    #[test]
+    fn newer_legacy_source_covers_prior_facts_but_keeps_later_input() {
+        let store = store();
+        let earlier = Message::user_text("快照已包含的输入");
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut SessionInvariant::default(),
+                &[envelope(
+                    "earlier",
+                    None,
+                    SessionFact::UserMessageCommitted {
+                        input_id: "earlier".into(),
+                        message: earlier.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        let history = vec![earlier, assistant("快照内的回复")];
+        let source = store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &json!({ "messages": history }),
+            )
+            .unwrap();
+        let later = Message::user_text("快照之后独立提交的输入");
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut SessionInvariant::default(),
+                &[envelope(
+                    "later",
+                    None,
+                    SessionFact::UserMessageCommitted {
+                        input_id: "later".into(),
+                        message: later.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        prepare_typed_session(&store, "ses_test").unwrap();
+        let facts = store.list_latest_segment_facts("ses_test").unwrap();
+        let projection = project_session_facts(&facts);
+        let expected = history.into_iter().chain([later]).collect::<Vec<_>>();
+        assert_eq!(projection.seed_source_sequence, Some(source.sequence));
+        assert_eq!(projection.surface_messages, expected);
+        assert_eq!(projection.transcript_messages, expected);
+    }
+
+    #[test]
+    fn external_fork_seed_preserves_target_facts_before_and_after_publication() {
+        let store = store();
+        let before = Message::user_text("fork seed 前的目标会话输入");
+        let after = Message::user_text("fork seed 后的目标会话输入");
+        let mut invariant = SessionInvariant::default();
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut invariant,
+                &[envelope(
+                    "before",
+                    None,
+                    SessionFact::UserMessageCommitted {
+                        input_id: "before".into(),
+                        message: before.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        let history = vec![Message::user_text("fork 原会话内容")];
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut invariant,
+                &[envelope(
+                    "fork",
+                    None,
+                    SessionFact::LegacySeeded {
+                        source_event_id: "fork:other-session:1000".into(),
+                        source_sequence: 1000,
+                        source_hash: stable_json_hash(&history),
+                        messages: history.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut invariant,
+                &[envelope(
+                    "after",
+                    None,
+                    SessionFact::UserMessageCommitted {
+                        input_id: "after".into(),
+                        message: after.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        let projection = project_session_facts(&store.list_session_facts("ses_test").unwrap());
+        let expected = vec![history[0].clone(), before, after];
+        assert_eq!(projection.seed_source_sequence, Some(1000));
+        assert_eq!(projection.surface_messages, expected);
+        assert_eq!(projection.transcript_messages, expected);
+    }
+
+    #[test]
+    fn external_fork_sequence_does_not_block_same_session_legacy_seed() {
+        let store = store();
+        let fork_history = vec![Message::user_text("fork 原会话内容")];
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut SessionInvariant::default(),
+                &[envelope(
+                    "fork",
+                    None,
+                    SessionFact::LegacySeeded {
+                        source_event_id: "fork:other-session:2".into(),
+                        source_sequence: 2,
+                        source_hash: stable_json_hash(&fork_history),
+                        messages: fork_history.clone(),
+                    },
+                )],
+            )
+            .unwrap();
+        let history = vec![fork_history[0].clone(), assistant("目标会话新增的回复")];
+        let source = store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &json!({ "messages": history }),
+            )
+            .unwrap();
+        assert_eq!(source.sequence, 2);
+        prepare_typed_session(&store, "ses_test").unwrap();
+        let facts = store.list_latest_segment_facts("ses_test").unwrap();
+        assert_eq!(facts.len(), 2, "外源序号碰撞不得阻止本会话新快照播种");
+        let SessionFact::LegacySeeded {
+            source_event_id, ..
+        } = &facts[1].1.fact
+        else {
+            panic!("新快照必须有独立 seed");
+        };
+        assert_eq!(source_event_id, &source.event_id);
+        let projection = project_session_facts(&facts);
+        assert_eq!(projection.surface_messages, history);
+        assert_eq!(projection.transcript_messages, history);
+        assert!(store
+            .seed_latest_legacy_snapshot("ses_test")
+            .unwrap()
+            .is_none());
     }
 
     /// D-375 验收①②:seed 落库是**引用**,读出来才补回 messages。

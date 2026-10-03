@@ -1,0 +1,242 @@
+{
+  "package": "C2",
+  "status": "verified",
+  "started_baseline": "a962248c",
+  "readonly_baseline": "336e68ef",
+  "validated_baseline": "5b2686e031e19dd59774e750e5643cd73dd1a368",
+  "branch": "kanzei/audit-c2",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-c0/kanzei code",
+  "host": "Windows",
+  "review_scope": "typed.rs and typed/projection.rs full including tests and failure paths; events.rs authorized identity helper slice only",
+  "public_api_signature_changes": false,
+  "schema_changes": false,
+  "serialized_format_changes": false,
+  "filesystem_layout_changes": false,
+  "third_party_dependency_changes": false,
+  "internal_dependency_changes": [
+    "projection uses events::session_event_id; checked/recovery share store-private append_session_facts_tx"
+  ],
+  "full_files": [
+    {
+      "path": "crates/kanzei-core/src/store/typed.rs",
+      "judgment": "P1",
+      "baseline_lines": 2531,
+      "sha256": "e03b26ce52adec9860d0943498a2684e459b66bbb9356c32283f826d659ba54c"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/typed/projection.rs",
+      "judgment": "P1",
+      "baseline_lines": 444,
+      "sha256": "dd7ea4667c48ba6d6d8e809a9883433f8421cb3525703c807d00964fe3ecca87"
+    }
+  ],
+  "authorized_slices": [
+    {
+      "path": "crates/kanzei-core/src/store/events.rs",
+      "judgment": "PASS",
+      "scope": "extract existing event ID expression and replace append_event_tx call only; full audit already C0",
+      "sha256": "52ed7335c57ea065c9fe1b073314a6b830d8dec7b748b1e23c180bc596531552"
+    }
+  ],
+  "fixed_root_causes": [
+    {
+      "priority": "P1",
+      "root": "checked append reads terminal outside writer transaction and relies on stale caller invariant",
+      "reachable_path": "desktop and CLI share session DB with independent connections; terminal/finalized draft can commit while another writer waits"
+    },
+    {
+      "priority": "P1",
+      "root": "recovery calculates facts from stale draft before acquiring writer",
+      "reachable_path": "assistant finalization commits while recovery waits; old recovery appends duplicate interruption"
+    },
+    {
+      "priority": "P1",
+      "root": "legacy source and floor read outside seed transaction",
+      "reachable_path": "CLI --new resets between source/floor read and seed append; old source is published into new segment"
+    },
+    {
+      "priority": "P1",
+      "root": "surface and transcript share tool-result index despite transcript-only interrupted draft",
+      "reachable_path": "real old interrupted writer then new turn with two declared calls and results; second result enters assistant message"
+    },
+    {
+      "priority": "P1",
+      "root": "seed source boundary conflates publication location and external source sequence/identity",
+      "reachable_path": "raw legacy@1, standalone phone user@2, prepare seed@3 hides user; fork external sequence also falsely matches same-session duplicate or truncates target facts"
+    }
+  ],
+  "contracts": [
+    "Existing SessionStore default Immediate transaction acquires writer before terminal, touched-turn invariant, recovery or seed source/floor reads.",
+    "Caller invariant changes only after successful commit; failed SQL batch leaves DB and caller unchanged.",
+    "Touched-turn authoritative state is merged while unrelated caller turns and order remain intact.",
+    "Recovery uses the same transaction helper without nested transactions; historical terminal dirt is skipped only per existing D-417 contract.",
+    "Latest same-session seed covers facts only through its real source sequence; source event ID must equal the canonical ID from the existing events owner.",
+    "Fork/general source sequences do not truncate target-session facts; seed idempotency matches source ID and sequence.",
+    "Tool result groups keep independent surface and transcript indices.",
+    "append_session_facts_tx is pub(super) and requires a same-connection transaction and a local invariant adopted only after outer commit."
+  ],
+  "checks": [
+    {
+      "command": "cargo test -p kanzei-core --lib store::typed::tests -- --test-threads=1",
+      "exit_code": 0,
+      "passed": 34,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C2/typed-tests-seed-final.log"
+    },
+    {
+      "command": "cargo test -p kanzei-core",
+      "exit_code": 0,
+      "passed": 401,
+      "failed": 0,
+      "ignored": 0,
+      "doctests": 0,
+      "log": "output/C2/core-tests-seed-final.log"
+    },
+    {
+      "command": "cargo check -p kanzei-core --all-targets",
+      "exit_code": 0,
+      "log": "output/C2/core-check-seed-final.log"
+    },
+    {
+      "command": "cargo clippy -p kanzei-core --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/C2/core-clippy-seed-final.log"
+    },
+    {
+      "command": "rustfmt --check --edition 2021 crates/kanzei-core/src/store/events.rs crates/kanzei-core/src/store/typed.rs crates/kanzei-core/src/store/typed/projection.rs",
+      "exit_code": 0,
+      "log": "output/C2/fmt-check-seed-final.log"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "log": "output/C2/diff-check-seed-final.log"
+    }
+  ],
+  "regressions": [
+    "checked_append_rechecks_terminal_after_waiting_for_writer",
+    "legacy_seed_rechecks_floor_after_waiting_for_reset_writer",
+    "recovery_rechecks_finalized_draft_after_waiting_for_writer",
+    "checked_append_refreshes_touched_turn_without_losing_other_turns",
+    "checked_append_write_failure_rolls_back_batch_and_caller_state",
+    "tool_result_group_keeps_transcript_index_after_interrupted_draft",
+    "delayed_legacy_seed_preserves_phone_fact_after_source",
+    "newer_legacy_source_covers_prior_facts_but_keeps_later_input",
+    "external_fork_seed_preserves_target_facts_before_and_after_publication",
+    "external_fork_sequence_does_not_block_same_session_legacy_seed"
+  ],
+  "extended_existing_fixture": "recover_tolerates_historical_post_terminal_append now verifies legitimate new input is not blocked by unrelated dirty historical turn",
+  "negative_proofs": [
+    {
+      "stage": "5b production prefix in typed.rs plus new tests; old 5b projector",
+      "command": "cargo test -p kanzei-core --lib store::typed::tests -- --test-threads=1",
+      "exit_code": 101,
+      "passed": 25,
+      "failed": 5,
+      "ignored": 0,
+      "log": "output/C2/negative-typed-tests.log",
+      "source_snapshot": "output/C2/negative-source-snapshot.json",
+      "failures": [
+        "terminal wait appends draft after terminal",
+        "stale invariant permits duplicate assistant commit",
+        "recovery appends interrupt after finalization",
+        "seed publishes old source after reset",
+        "second tool result enters transcript assistant"
+      ]
+    },
+    {
+      "stage": "old 5b projector only with new correct typed code/test",
+      "command": "cargo test -p kanzei-core --lib delayed_legacy_seed_preserves_phone_fact_after_source -- --test-threads=1",
+      "exit_code": 101,
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "log": "output/C2/negative-seed-projection.log",
+      "evidence": "surface equals [legacy] instead of [legacy, phone]"
+    },
+    {
+      "stage": "restore old source-sequence-only seed duplicate predicate with new correct projector/test",
+      "command": "cargo test -p kanzei-core --lib external_fork_sequence_does_not_block_same_session_legacy_seed -- --test-threads=1",
+      "exit_code": 101,
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "log": "output/C2/negative-seed-identity.log",
+      "evidence": "only 1 seed persists instead of 2; external fork sequence rejects local new source"
+    }
+  ],
+  "source_restoration": {
+    "first_phase_fixed_snapshot": "output/C2/fixed-source-snapshot.json",
+    "first_phase_restored_snapshot": "output/C2/restored-source-snapshot.json",
+    "final_phase_fixed_snapshot": "output/C2/seed-fixed-source-snapshot.json",
+    "final_phase_restored_snapshot": "output/C2/seed-restored-source-snapshot.json",
+    "restored_byte_hashes_match": true,
+    "shared_target": "C:/Users/kanzei/Documents/kanzei code/target",
+    "initial_rust_source_mtime_refresh_count": 420,
+    "final_source_mtime_refresh_count": 3,
+    "final_correct_code_recompiled_and_tested": true
+  },
+  "resolved_validation_attempts": [
+    {
+      "command": "cargo clippy -p kanzei-core --all-targets -- -D warnings",
+      "exit_code": 101,
+      "log": "output/C2/core-clippy-first-attempt.log",
+      "finding": "cloned_ref_to_slice_refs in new regression only",
+      "resolution": "std::slice::from_ref(&commit); reran full core/check/Clippy, then final expanded suite again"
+    },
+    {
+      "command": "cargo test -p kanzei-core --lib delayed_legacy_seed_preserves_phone_fact_after_source -- --test-threads=1",
+      "exit_code": 101,
+      "log": "output/C2/negative-seed-projection-first-attempt.log",
+      "finding": "fixture checked final event sequence, but legitimate prepare recovery appended terminal after seed",
+      "resolution": "locate actual LegacySeeded event, verify seq3, rerun old projector and prove phone message loss; first attempt excluded from bug evidence"
+    }
+  ],
+  "caller_inventory": "docs/reviews/file-audit-2026-10-03/parallel/C2-map.md",
+  "historical_identity_evidence": [
+    "e267fa06 initial store.rs already generated evt_{session}_{sequence}",
+    "2fd36cf2 domain split preserves same generator",
+    "all current production session_events INSERT statements use events::append_event_tx; schema restore preserves existing IDs"
+  ],
+  "open_cross_scope": [
+    {
+      "owner": "A2",
+      "issue": "work-context surface source snapshot and CAS are missing; independently committed phone fact may be hidden"
+    },
+    {
+      "owner": "M2",
+      "issue": "mobile raw message and typed fact are not atomic; UI/cache/202 can precede typed persistence"
+    },
+    {
+      "owner": "subsequent execution/recovery package",
+      "issue": "typed persistence rejection has no RunEvent ack; runner can execute side-effect tools without durable ToolCalled; parallel recovery lacks active owner exclusion"
+    }
+  ],
+  "unverified_boundaries": [
+    "No current real user DB or credentials inspected",
+    "No C2 post-merge workspace, Linux or real UI claim; root performs integration validation",
+    "Core tests do not close open A2/M2/execution caller contracts"
+  ],
+  "temporary_fixture_cleanup": {
+    "status": "not_executed_automatic_approval_rejected",
+    "action": "delete four generated negative-test state.db files and their directories",
+    "attempts": [
+      "recursive removal after path/time checks",
+      "nonrecursive explicit file and empty directory removal after path/content/time checks"
+    ],
+    "rejection_reason": "blocked by policy",
+    "effects": "Both CreateProcess calls rejected before execution; no deletion. No further retries or bypass.",
+    "contents_per_directory": {
+      "only_file": "state.db",
+      "bytes": 258048
+    },
+    "paths": [
+      "C:/Users/kanzei/AppData/Local/Temp/kanzei-typed-projection-59184-1791006074094919500",
+      "C:/Users/kanzei/AppData/Local/Temp/kanzei-typed-recovery-race-59184-1791006074038261800",
+      "C:/Users/kanzei/AppData/Local/Temp/kanzei-typed-seed-reset-race-59184-1791006074012047700",
+      "C:/Users/kanzei/AppData/Local/Temp/kanzei-typed-terminal-race-59184-1791006073906242100"
+    ],
+    "note": "These are generated negative fixtures, not production DBs or system defects; retained directories do not block integration."
+  }
+}

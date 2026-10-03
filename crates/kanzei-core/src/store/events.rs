@@ -625,6 +625,10 @@ pub(crate) fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Stored
     })
 }
 
+pub(super) fn session_event_id(session_id: &str, sequence: i64) -> String {
+    format!("evt_{session_id}_{sequence}")
+}
+
 /// 在同一事务内追加事件并刷新会话 updated_at(S4 提 pub(crate))。
 pub(crate) fn append_event_tx(
     tx: &Transaction<'_>,
@@ -638,7 +642,7 @@ pub(crate) fn append_event_tx(
         |row| row.get(0),
     )?;
     let created_at = now_ms();
-    let event_id = format!("evt_{}_{}", session_id, sequence);
+    let event_id = session_event_id(session_id, sequence);
     tx.execute(
             "INSERT INTO session_events(event_id, session_id, sequence, event_type, payload_json, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

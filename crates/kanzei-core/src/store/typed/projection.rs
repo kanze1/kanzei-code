@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use kanzei_llm::{Message, Part};
 use serde::{Deserialize, Serialize};
 
+use super::super::events::session_event_id;
 use super::{
     stable_json_hash, SessionFact, SessionFactEnvelope, StoredEvent, SESSION_EVENT_FORMAT_VERSION,
 };
@@ -83,10 +84,11 @@ pub fn project_session_facts_with_surface(
         diagnostics: Vec::new(),
     };
     let mut drafts: HashMap<(String, String), ProjectedDraft> = HashMap::new();
-    let mut result_group: Option<(String, u32, usize)> = None;
-    let start = seed_index.unwrap_or(usize::MAX);
+    let mut result_group: Option<(String, u32, usize, usize)> = None;
+    let mut source_cutoff = 0;
     if let Some(index) = seed_index {
         if let SessionFact::LegacySeeded {
+            source_event_id,
             source_sequence,
             messages,
             ..
@@ -95,10 +97,17 @@ pub fn project_session_facts_with_surface(
             projection.seed_source_sequence = Some(*source_sequence);
             projection.surface_messages = messages.clone();
             projection.transcript_messages = messages.clone();
+            // Seed 的发布位置可以晚于独立 writer 的新事实。只覆盖真实源快照
+            // 之前的事实；fork/general 的外部来源序号不属于目标会话。
+            if source_event_id == &session_event_id(&events[index].0.session_id, *source_sequence) {
+                source_cutoff = *source_sequence;
+            }
         }
     }
-    let iter_start = if start == usize::MAX { 0 } else { start + 1 };
-    for (_, envelope) in events.iter().skip(iter_start) {
+    for (_, envelope) in events
+        .iter()
+        .filter(|(event, _)| event.sequence > source_cutoff)
+    {
         let is_tool_result = matches!(
             envelope.fact,
             SessionFact::ToolResultCommitted { .. } | SessionFact::ToolResultInterrupted { .. }
@@ -260,28 +269,40 @@ fn push_interrupted_assistant(
 
 fn push_projected_tool_result(
     projection: &mut SessionProjection,
-    result_group: &mut Option<(String, u32, usize)>,
+    result_group: &mut Option<(String, u32, usize, usize)>,
     envelope: &SessionFactEnvelope,
     part: Part,
 ) {
     let step = envelope.step_id.unwrap_or_default();
     let same_group = result_group
         .as_ref()
-        .is_some_and(|(turn, grouped_step, _)| turn == &envelope.turn_id && *grouped_step == step);
+        .is_some_and(|(turn, grouped_step, _, _)| {
+            turn == &envelope.turn_id && *grouped_step == step
+        });
     if same_group {
-        let index = result_group.as_ref().map(|(_, _, index)| *index).unwrap();
-        projection.surface_messages[index].parts.push(part.clone());
-        projection.transcript_messages[index].parts.push(part);
+        let (_, _, surface_index, transcript_index) = result_group.as_ref().unwrap();
+        projection.surface_messages[*surface_index]
+            .parts
+            .push(part.clone());
+        projection.transcript_messages[*transcript_index]
+            .parts
+            .push(part);
         return;
     }
-    let index = projection.surface_messages.len();
+    let surface_index = projection.surface_messages.len();
+    let transcript_index = projection.transcript_messages.len();
     projection
         .surface_messages
         .push(Message::tool_results(vec![part.clone()]));
     projection
         .transcript_messages
         .push(Message::tool_results(vec![part]));
-    *result_group = Some((envelope.turn_id.clone(), step, index));
+    *result_group = Some((
+        envelope.turn_id.clone(),
+        step,
+        surface_index,
+        transcript_index,
+    ));
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
