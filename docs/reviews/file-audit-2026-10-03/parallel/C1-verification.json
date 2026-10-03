@@ -1,0 +1,115 @@
+{
+  "package": "C1",
+  "status": "verified",
+  "started_baseline": "30fa309d792679575609be6a96c6e4a655a0c8ff",
+  "validated_baseline": "fbb8533388cf6dff8de22e7270638aeb6e247484",
+  "branch": "kanzei/audit-c1",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-c0/kanzei code",
+  "host": "Windows",
+  "review_scope": "four full files including tests and failure paths; callers are slices",
+  "public_api_signature_changes": false,
+  "schema_changes": false,
+  "serialized_format_changes": false,
+  "dependency_changes": false,
+  "full_files": [
+    {
+      "path": "crates/kanzei-core/src/store/processes.rs",
+      "judgment": "P1",
+      "sha256": "ab1704f4a66a302d698f6d23304f09803707fdee473e194629104861a953dad4"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/workspace.rs",
+      "judgment": "PASS",
+      "sha256": "5049cb0ff81a628d364ed5242abecbc9f14680efa6444a620b3d79ad58bcc309"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/notifications.rs",
+      "judgment": "P1",
+      "sha256": "1d8115d64770e66d1d4fb8fa15c0800f838e053b9c0f7eb6c48f789e68202560"
+    },
+    {
+      "path": "crates/kanzei-core/src/store/deliveries.rs",
+      "judgment": "PASS",
+      "sha256": "fe39700b7dee69345a78b6f69556f27e194f4ee0ef8188a0260e522eb01a1cbe"
+    }
+  ],
+  "fixed_root_causes": [
+    "retired process identities can be resurrected by a late snapshot or reused; legacy live/retired overlap remains visible",
+    "list normalizes verbatim identities but exact-ID get/delete reject or fail to retire the returned valid identity",
+    "out-of-order notification delivery commits overwrite a higher durable cursor with an older one"
+  ],
+  "contracts": [
+    "retired_processes is authoritative for all existing process-ID forms",
+    "process ID forms and normalization delegate to path_migration owners without new normalization rules",
+    "retirement checks and writes are atomic SQL statements; delete registers retirement and removes all aliases in the existing Immediate transaction",
+    "existing retired owner and timestamp survive cleanup of legacy active aliases",
+    "delivery cursor is a monotonic maximum for each device/thread key; explicit replay cursor remains request-local"
+  ],
+  "checks": [
+    {
+      "command": "cargo test -p kanzei-core store::processes::tests -- --nocapture",
+      "exit_code": 0,
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C1-processes-tests-20261003.log"
+    },
+    {
+      "command": "cargo test -p kanzei-core store::notifications::tests -- --nocapture",
+      "exit_code": 0,
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C1-notifications-tests-20261003.log"
+    },
+    {
+      "command": "cargo test -p kanzei-core --quiet",
+      "exit_code": 0,
+      "passed": 386,
+      "failed": 0,
+      "ignored": 0,
+      "log": "output/C1-core-tests-20261003.log"
+    },
+    {
+      "command": "cargo clippy -p kanzei-core --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/C1-core-clippy-20261003.log"
+    },
+    {
+      "command": "rustfmt --edition 2021 --config skip_children=true --check crates/kanzei-core/src/store/processes.rs crates/kanzei-core/src/store/notifications.rs",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "regressions": [
+    "retired_process_rejects_late_snapshot_and_identity_reuse",
+    "retired_ledger_hides_live_rows_left_by_old_race_after_reopen",
+    "retirement_guards_share_existing_verbatim_identity_rules",
+    "deleting_returned_id_retires_all_verbatim_aliases",
+    "delivery_cursor_does_not_regress_when_old_batch_commits_last"
+  ],
+  "resolved_validation_attempt": {
+    "baseline": "30fa309d792679575609be6a96c6e4a655a0c8ff",
+    "command": "cargo test -p kanzei-core store::processes::tests -- --nocapture",
+    "exit_code": 101,
+    "diagnostic": "E0061 in serial_tools.rs:191 and tool_exec.rs:663; shared target contains B0 three-argument tool_scope while old worktree source defines two arguments",
+    "resolution": "root-directed fast-forward to fbb85333 and refresh modified source mtimes; processes log confirms harness/core rebuilt and all final checks passed; target was not deleted"
+  },
+  "caller_inventory": "output/C1-callers-20261003.txt",
+  "cross_scope_fix": {
+    "owner": "root",
+    "commit": "fbb8533388cf6dff8de22e7270638aeb6e247484",
+    "path": "crates/kanzei-app/src/deliveries.rs",
+    "issue": "display slash normalization prevents Windows process-origin lookup and routes legacy relative receipts to the main tree",
+    "fix": "native root identity lookup and actual StoredProcess/two-tree same-name regression; included in validated baseline"
+  },
+  "unverified_boundaries": [
+    "A1 artifact lifecycle changes not yet committed and not in validated baseline",
+    "final integrated app/workspace verification delegated to root",
+    "Linux and mobile physical-device validation not run in C1"
+  ],
+  "evidence_preservation": "output/C1-* is ignored; copy logs before archiving this worktree"
+}

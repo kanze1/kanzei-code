@@ -117,6 +117,7 @@ impl SessionStore {
         Ok(cursor)
     }
 
+    /// 记录已投递的最大序号；同设备同线程的旧请求不能把游标倒退。
     pub fn set_delivery_cursor(
         &self,
         device_id: &str,
@@ -124,11 +125,13 @@ impl SessionStore {
         cursor: u64,
     ) -> Result<(), StoreError> {
         self.connection.execute(
-                "INSERT INTO delivery_cursors(device_id, thread_id, cursor, updated_at)
+            "INSERT INTO delivery_cursors(device_id, thread_id, cursor, updated_at)
                  VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(device_id, thread_id) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at",
-                params![device_id, thread_id, cursor as i64, now_ms()],
-            )?;
+                 ON CONFLICT(device_id, thread_id) DO UPDATE SET
+                     cursor = MAX(delivery_cursors.cursor, excluded.cursor),
+                     updated_at = excluded.updated_at",
+            params![device_id, thread_id, cursor as i64, now_ms()],
+        )?;
         Ok(())
     }
 }
@@ -166,6 +169,62 @@ mod tests {
             .replay_notifications("thread_a", 1, 10)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn delivery_cursor_does_not_regress_when_old_batch_commits_last() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-delivery-cursor-order-{}-{}.db",
+            std::process::id(),
+            now_ms()
+        ));
+        {
+            let slow = SessionStore::open(&path).unwrap();
+            let fast = SessionStore::open(&path).unwrap();
+            for index in 1..=4 {
+                slow.append_notification_atomic(
+                    "thread_a",
+                    "succeeded",
+                    &format!("notification {index}"),
+                    false,
+                )
+                .unwrap();
+            }
+            // 两条连接从同一游标取不同批次；较新的批次先完成投递并提交。
+            let old_batch = slow.replay_notifications("thread_a", 0, 1).unwrap();
+            let new_batch = fast.replay_notifications("thread_a", 0, 3).unwrap();
+            fast.set_delivery_cursor("device_a", "thread_a", new_batch.last().unwrap().sequence)
+                .unwrap();
+            slow.set_delivery_cursor("device_a", "thread_a", old_batch.last().unwrap().sequence)
+                .unwrap();
+            slow.set_delivery_cursor("device_a", "thread_a", 0).unwrap();
+            assert_eq!(fast.delivery_cursor("device_a", "thread_a").unwrap(), 3);
+            slow.set_delivery_cursor("device_b", "thread_a", 1).unwrap();
+            slow.set_delivery_cursor("device_a", "thread_b", 2).unwrap();
+            assert_eq!(fast.delivery_cursor("device_b", "thread_a").unwrap(), 1);
+            assert_eq!(fast.delivery_cursor("device_a", "thread_b").unwrap(), 2);
+        }
+        {
+            let reopened = SessionStore::open(&path).unwrap();
+            let cursor = reopened.delivery_cursor("device_a", "thread_a").unwrap();
+            assert_eq!(cursor, 3);
+            let next = reopened
+                .replay_notifications("thread_a", cursor, 10)
+                .unwrap();
+            assert_eq!(next.len(), 1);
+            assert_eq!(next[0].sequence, 4);
+            // 显式请求历史回放仍以请求参数为准，持久游标不会改变它。
+            assert_eq!(
+                reopened
+                    .replay_notifications("thread_a", 0, 10)
+                    .unwrap()
+                    .len(),
+                4
+            );
+        }
+        std::fs::remove_file(&path).unwrap();
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
     }
 
     #[test]

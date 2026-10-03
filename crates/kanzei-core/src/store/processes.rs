@@ -26,15 +26,38 @@ pub struct StoredProcess {
     pub updated_at: i64,
 }
 
+fn process_id_forms(id: &str) -> [String; 3] {
+    match id.split_once('|') {
+        Some((prefix, path)) => {
+            super::path_migration::path_forms(path).map(|path| format!("{prefix}|{path}"))
+        }
+        None => std::array::from_fn(|_| id.to_string()),
+    }
+}
+
+fn normalize_process(mut record: StoredProcess) -> StoredProcess {
+    record.process_id =
+        super::path_migration::simplify_process_id(&record.process_id).unwrap_or(record.process_id);
+    record.origin_project = super::path_migration::simplify_text(&record.origin_project);
+    record.project_dir = super::path_migration::simplify_text(&record.project_dir);
+    record.worktree_path = record
+        .worktree_path
+        .map(|path| super::path_migration::simplify_text(&path));
+    record
+}
+
 impl SessionStore {
-    /// 插入或覆盖一条线/进程注册。`phase_pipeline` 以 bool 投影成 INTEGER。
+    /// 插入或覆盖一条线/进程注册。已退役的身份返回错误，不能由旧快照复活。
+    /// `phase_pipeline` 以 bool 投影成 INTEGER。
     pub fn upsert_process(&self, process: &StoredProcess) -> Result<(), StoreError> {
         let manual_models = serde_json::to_string(&process.manual_models)?;
-        self.connection.execute(
+        let forms = process_id_forms(&process.process_id);
+        let affected = self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
                   model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+             WHERE NOT EXISTS (SELECT 1 FROM retired_processes WHERE process_id IN (?1, ?14, ?15))
              ON CONFLICT(process_id) DO UPDATE SET
                  origin_project = excluded.origin_project,
                  project_dir = excluded.project_dir,
@@ -62,12 +85,20 @@ impl SessionStore {
                 process.tracker_writes_enabled,
                 process.updated_at,
                 process.research_topic,
+                forms[1],
+                forms[2],
             ],
         )?;
+        if affected == 0 {
+            return Err(StoreError::InvalidInput(format!(
+                "线路 {} 已关闭，不能保存或复用退役身份",
+                process.process_id,
+            )));
+        }
         Ok(())
     }
 
-    /// **只插入新行**:`process_id` 已存在时返回 `false`,既有行一个字段都不动。
+    /// **只插入新行**:`process_id` 已存在或已退役时返回 `false`,既有行一个字段都不动。
     ///
     /// 建线专用,与 [`Self::upsert_process`] 的分工是硬的:`upsert_process` 的
     /// `ON CONFLICT DO UPDATE` 会**连 `worktree_path` 一起覆盖**,那对「改一条已知的线」
@@ -79,11 +110,13 @@ impl SessionStore {
     /// 万一还是撞了,宁可让建线失败(调用方会回滚掉刚建的工作树),也不许静默改写既有行。
     pub fn insert_new_process(&self, process: &StoredProcess) -> Result<bool, StoreError> {
         let manual_models = serde_json::to_string(&process.manual_models)?;
+        let forms = process_id_forms(&process.process_id);
         let affected = self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
                   model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+             WHERE NOT EXISTS (SELECT 1 FROM retired_processes WHERE process_id IN (?1, ?14, ?15))
              ON CONFLICT(process_id) DO NOTHING",
             params![
                 process.process_id,
@@ -99,12 +132,15 @@ impl SessionStore {
                 process.tracker_writes_enabled,
                 process.updated_at,
                 process.research_topic,
+                forms[1],
+                forms[2],
             ],
         )?;
         Ok(affected > 0)
     }
 
     /// 列出一个主项目的全部非默认线/进程,按 process_id 排序(稳定顺序)。
+    /// 退役账本优先于旧竞态残留的活动登记。
     ///
     /// UI2-0926 #13 读时兜底:v25 迁移把存量 `\\?\` 形态改成了 simplify 形态,这里仍按
     /// 「带前缀 / 不带前缀」两种写法一起匹配,并把读出的 id 与路径归一成 simplify 形态——
@@ -114,7 +150,10 @@ impl SessionStore {
         let mut stmt = self.connection.prepare(
             "SELECT process_id, origin_project, project_dir, worktree_path,
                     model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic
-             FROM processes WHERE origin_project IN (?1, ?2, ?3) ORDER BY process_id",
+             FROM processes WHERE origin_project IN (?1, ?2, ?3)
+               AND NOT EXISTS (SELECT 1 FROM retired_processes
+                               WHERE retired_processes.process_id = processes.process_id)
+             ORDER BY process_id",
         )?;
         let rows = stmt.query_map(params![forms[0], forms[1], forms[2]], |row| {
             Ok(StoredProcess {
@@ -136,14 +175,7 @@ impl SessionStore {
         })?;
         let mut out: Vec<StoredProcess> = Vec::new();
         for record in rows {
-            let mut record = record?;
-            record.process_id = super::path_migration::simplify_process_id(&record.process_id)
-                .unwrap_or(record.process_id);
-            record.origin_project = super::path_migration::simplify_text(&record.origin_project);
-            record.project_dir = super::path_migration::simplify_text(&record.project_dir);
-            record.worktree_path = record
-                .worktree_path
-                .map(|path| super::path_migration::simplify_text(&path));
+            let record = normalize_process(record?);
             // 两种写法同时在库(迁移之后又被旧形态写入)时,同一 id 只留较新的一条。
             match out
                 .iter_mut()
@@ -154,22 +186,28 @@ impl SessionStore {
                 None => out.push(record),
             }
         }
+        let retired = self.list_retired_process_ids(origin_project)?;
+        out.retain(|record| retired.binary_search(&record.process_id).is_err());
         out.sort_by(|a, b| a.process_id.cmp(&b.process_id));
         Ok(out)
     }
 
     /// 删除一条线/进程注册(进程关闭时)。
     pub fn delete_process(&self, process_id: &str) -> Result<(), StoreError> {
+        let forms = process_id_forms(process_id);
         let tx = self.connection.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO retired_processes(process_id, origin_project, retired_at)
-                 SELECT process_id, origin_project, ?2 FROM processes WHERE process_id = ?1
+                 SELECT ?2, origin_project, ?4 FROM processes
+                 WHERE process_id IN (?1, ?2, ?3)
+                   AND NOT EXISTS (SELECT 1 FROM retired_processes WHERE process_id IN (?1, ?2, ?3))
+                 ORDER BY updated_at DESC, process_id LIMIT 1
                  ON CONFLICT(process_id) DO NOTHING",
-            params![process_id, super::now_ms()],
+            params![forms[0], forms[1], forms[2], super::now_ms()],
         )?;
         tx.execute(
-            "DELETE FROM processes WHERE process_id = ?1",
-            params![process_id],
+            "DELETE FROM processes WHERE process_id IN (?1, ?2, ?3)",
+            params![forms[0], forms[1], forms[2]],
         )?;
         tx.commit()?;
         Ok(())
@@ -221,14 +259,19 @@ impl SessionStore {
         Ok(out)
     }
 
-    /// 查单条(不存在的线返回 None)。
+    /// 查单条(不存在或已退役的线返回 None，旧竞态残留的活动行不能复活身份)。
     pub fn get_process(&self, process_id: &str) -> Result<Option<StoredProcess>, StoreError> {
-        self.connection
+        let forms = process_id_forms(process_id);
+        let record = self
+            .connection
             .query_row(
                 "SELECT process_id, origin_project, project_dir, worktree_path,
                         model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic
-                 FROM processes WHERE process_id = ?1",
-                params![process_id],
+                 FROM processes WHERE process_id IN (?1, ?2, ?3)
+                   AND NOT EXISTS (SELECT 1 FROM retired_processes
+                                   WHERE process_id IN (?1, ?2, ?3))
+                 ORDER BY updated_at DESC, process_id LIMIT 1",
+                params![forms[0], forms[1], forms[2]],
                 |row| {
                     Ok(StoredProcess {
                         process_id: row.get(0)?,
@@ -248,8 +291,8 @@ impl SessionStore {
                     })
                 },
             )
-            .optional()
-            .map_err(Into::into)
+            .optional()?;
+        Ok(record.map(normalize_process))
     }
 }
 
@@ -287,6 +330,201 @@ mod tests {
             store.list_retired_process_ids("C:/project").unwrap(),
             vec![process.process_id]
         );
+    }
+
+    #[test]
+    fn retired_process_rejects_late_snapshot_and_identity_reuse() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-process-retirement-{}-{}.db",
+            std::process::id(),
+            crate::store::now_ms()
+        ));
+        {
+            let updating = SessionStore::open(&path).unwrap();
+            let retiring = SessionStore::open(&path).unwrap();
+            let process = sample();
+            assert!(updating.insert_new_process(&process).unwrap());
+            // 设置更新已拿到快照，另一连接随后注销线路；旧更新最后才落库。
+            let mut stale = updating.get_process(&process.process_id).unwrap().unwrap();
+            stale.model = Some("deepseek:deepseek-chat".into());
+            stale.updated_at += 1;
+            retiring.delete_process(&process.process_id).unwrap();
+            assert!(matches!(
+                updating.upsert_process(&stale),
+                Err(StoreError::InvalidInput(_))
+            ));
+            assert!(!updating.insert_new_process(&stale).unwrap());
+            assert!(retiring.get_process(&process.process_id).unwrap().is_none());
+            assert_eq!(
+                updating.list_retired_process_ids("C:/project").unwrap(),
+                vec![process.process_id]
+            );
+            let mut fresh = sample();
+            fresh.process_id = "p2|C:/project".into();
+            assert!(updating.insert_new_process(&fresh).unwrap());
+            assert_eq!(
+                retiring.get_process(&fresh.process_id).unwrap(),
+                Some(fresh)
+            );
+        }
+        {
+            let reopened = SessionStore::open(&path).unwrap();
+            assert!(reopened.get_process("p1|C:/project").unwrap().is_none());
+            assert_eq!(
+                reopened.list_retired_process_ids("C:/project").unwrap(),
+                vec!["p1|C:/project"]
+            );
+        }
+        std::fs::remove_file(&path).unwrap();
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+
+    #[test]
+    fn retired_ledger_hides_live_rows_left_by_old_race_after_reopen() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-process-retired-overlap-{}-{}.db",
+            std::process::id(),
+            crate::store::now_ms()
+        ));
+        let process = sample();
+        let mut active = sample();
+        active.process_id = "p2|C:/project".into();
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store.insert_new_process(&process).unwrap();
+            store.insert_new_process(&active).unwrap();
+            // 旧版晚到 upsert 可以造成两表重叠；直接构造该持久状态，不绕新门禁。
+            store
+                .connection
+                .execute(
+                    "INSERT INTO retired_processes(process_id, origin_project, retired_at) VALUES (?1, ?2, ?3)",
+                    params![process.process_id, process.origin_project, 123],
+                )
+                .unwrap();
+        }
+        {
+            let store = SessionStore::open(&path).unwrap();
+            assert!(store.get_process(&process.process_id).unwrap().is_none());
+            assert_eq!(store.list_processes("C:/project").unwrap(), vec![active]);
+            assert_eq!(
+                store.list_retired_processes("C:/project").unwrap(),
+                vec![(process.process_id.clone(), 123)]
+            );
+            assert!(matches!(
+                store.upsert_process(&process),
+                Err(StoreError::InvalidInput(_))
+            ));
+            assert!(!store.insert_new_process(&process).unwrap());
+            // 过滤不销毁历史或旧活动行，只让退役账本拥有对外身份判定。
+            let physical_rows: i64 = store
+                .connection
+                .query_row("SELECT COUNT(*) FROM processes", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(physical_rows, 2);
+        }
+        {
+            let read_only = SessionStore::open_read_only(&path).unwrap();
+            assert!(read_only
+                .get_process(&process.process_id)
+                .unwrap()
+                .is_none());
+            assert_eq!(read_only.list_processes("C:/project").unwrap().len(), 1);
+        }
+        std::fs::remove_file(&path).unwrap();
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+
+    #[test]
+    fn retirement_guards_share_existing_verbatim_identity_rules() {
+        let canonical_id = r"p1|C:\project";
+        let verbatim_id = r"p1|\\?\C:\project";
+        for (live_id, retired_id, origin, retired_origin) in [
+            (verbatim_id, canonical_id, r"\\?\C:\project", r"C:\project"),
+            (canonical_id, verbatim_id, r"C:\project", r"\\?\C:\project"),
+        ] {
+            let store = SessionStore::open_in_memory().unwrap();
+            let mut process = sample();
+            process.process_id = live_id.into();
+            process.origin_project = origin.into();
+            process.project_dir = origin.into();
+            store.upsert_process(&process).unwrap();
+            store
+                .connection
+                .execute(
+                    "INSERT INTO retired_processes(process_id, origin_project, retired_at) VALUES (?1, ?2, 123)",
+                    params![retired_id, retired_origin],
+                )
+                .unwrap();
+            assert!(store.list_processes(r"C:\project").unwrap().is_empty());
+            for id in [canonical_id, verbatim_id] {
+                assert!(store.get_process(id).unwrap().is_none());
+                process.process_id = id.into();
+                assert!(matches!(
+                    store.upsert_process(&process),
+                    Err(StoreError::InvalidInput(_))
+                ));
+                assert!(!store.insert_new_process(&process).unwrap());
+            }
+            store.delete_process(canonical_id).unwrap();
+            store.delete_process(verbatim_id).unwrap();
+            let live_count: i64 = store
+                .connection
+                .query_row("SELECT COUNT(*) FROM processes", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(live_count, 0);
+            assert_eq!(
+                store.list_retired_processes(r"C:\project").unwrap(),
+                vec![(canonical_id.to_string(), 123)],
+                "注销不得用新别名覆盖既有退役时间"
+            );
+        }
+    }
+
+    #[test]
+    fn deleting_returned_id_retires_all_verbatim_aliases() {
+        for has_older_canonical in [false, true] {
+            let store = SessionStore::open_in_memory().unwrap();
+            let mut legacy = sample();
+            legacy.process_id = r"p1|\\?\C:\project".into();
+            legacy.origin_project = r"\\?\C:\project".into();
+            legacy.project_dir = legacy.origin_project.clone();
+            legacy.updated_at = 84;
+            store.upsert_process(&legacy).unwrap();
+            let listed = store.list_processes(r"C:\project").unwrap();
+            let normalized = listed[0].clone();
+            assert_eq!(normalized.process_id, r"p1|C:\project");
+            assert_eq!(
+                store.get_process(&normalized.process_id).unwrap(),
+                Some(normalized.clone())
+            );
+            // 同实体也有较旧的 simplify 行时，读取选最新，注销必须删除两个别名。
+            if has_older_canonical {
+                let mut older = normalized.clone();
+                older.updated_at = 42;
+                store.upsert_process(&older).unwrap();
+            }
+            assert_eq!(
+                store.get_process(&normalized.process_id).unwrap(),
+                Some(normalized.clone())
+            );
+            store.delete_process(&normalized.process_id).unwrap();
+            assert!(store.list_processes(r"C:\project").unwrap().is_empty());
+            assert_eq!(
+                store.list_retired_process_ids(r"C:\project").unwrap(),
+                vec![normalized.process_id]
+            );
+            let live_count: i64 = store
+                .connection
+                .query_row("SELECT COUNT(*) FROM processes", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(live_count, 0);
+            assert!(matches!(
+                store.upsert_process(&legacy),
+                Err(StoreError::InvalidInput(_))
+            ));
+        }
     }
 
     #[test]
