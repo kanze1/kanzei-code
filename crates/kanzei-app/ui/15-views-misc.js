@@ -1162,7 +1162,7 @@ export function showFreshConversation() {
   promptBox.focus();
 }
 
-/// 新讨论始终创建只读会话，继承模型与思考强度；主对话保留自己的运行与历史。
+/// 新对话创建普通开发会话，继承模型与思考强度；已有对话保留自己的运行与历史。
 async function startConversationOnNewLine() {
   const from = processItems.find((item) => item.id === activeProcessId);
   const item = await create_workspace_process(null, () => true, {
@@ -1179,7 +1179,7 @@ async function startConversationOnNewLine() {
 }
 
 /// 「新对话」唯一入口:侧栏按钮、命令面板、Ctrl/Cmd+Shift+N 都汇到 #new-chat 的 click。
-/// 开发空间统一新建只读讨论，不再按主对话的忙闲状态改变含义。
+/// 开发空间统一新建普通对话，不按其它对话的忙闲状态改变含义。
 /// 在途期间按钮禁用并标 aria-busy，防止重复创建。
 let newChatInFlight = false;
 export async function startNewConversation() {

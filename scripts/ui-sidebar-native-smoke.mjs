@@ -101,6 +101,9 @@ try {
   check(await liveRows.locator(".workbench-session-dot, .workbench-session-activity, .workbench-session-tag").count() === 0 && await page.locator("#workbench-general-list [data-ctx='session']").count() > 0, "Native project and projectless rows share the same presentation without dots or type badges");
   const projectMain = (await invoke("process_list", { projectDir: prefs.current }))[0];
   const generalMain = (await invoke("process_list", { projectDir: root })).find(item => item.id === generalPeer.id);
+  const linkedPeer = await invoke("general_chat_link", { processId: generalMain.id, projectDir: prefs.current });
+  check(linkedPeer.kind === "conversation" && linkedPeer.profile === "dev", "Linking projectless history creates an ordinary project conversation");
+  await invoke("process_purge", { projectDir: prefs.current, processId: linkedPeer.id });
   check(projectMain.kind === "conversation" && generalMain.kind === "conversation" && !("authority" in projectMain) && !("authority" in generalMain), "Native project and projectless conversations have one peer model without authority ranks");
   await invoke("process_rename", { projectDir: prefs.current, processId: projectMain.id, title: "原生项目标题核验" });
   await invoke("process_rename", { projectDir: root, processId: generalMain.id, title: "原生无项目标题核验" });

@@ -135,7 +135,7 @@ assert(lines.includes("harvest.disabled = lineRunning"), "运行中线路仍可�
 assert(lines.includes('close.textContent = t("关闭独立任务")'), "线路页缺少关闭独立任务入口");
 assert(sessions.includes("async function closeParallelProcess(processId)"), "左侧线路状态缺少统一关闭流程");
 assert(sessions.includes('await invoke("process_close", { processId })'), "关闭独立任务没有调用后端 process_close");
-assert(sessions.includes("if (!item.id.startsWith(\"d|\"))"), "关闭入口没有排除默认主线路");
+assert(!sessions.includes('item.id.startsWith("d|")'), "关闭入口不得再按旧身份区别对话");
 assert(lines.includes('invoke("worktree_harvest_candidates"'), "收活没有读取线路对话中的 tracker 候选");
 assert(lines.includes("请选择本次交付条目"), "多条 tracker 候选缺少人工选择入口");
 // D-305 的性质不变:不得存在绕过收活六格的直接合并入口。侧栏工作树已降级为只读呈现,
