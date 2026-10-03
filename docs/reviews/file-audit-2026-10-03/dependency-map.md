@@ -109,3 +109,11 @@ flowchart TD
 - 七层口径仅 base 全量完成，其余六层仍有未审支线。core store 13/26、runtime 1/39；harness 6/32、llm 15/16、memory 0/28、tools 0/126、CLI/app 19/145、UI 2/91。
 - 状态 owner 收口：session_events 真源 → 原 source/sequence CAS → cache；工件发布共享锁 → GC 非阻塞独占；原 mailbox/generation → stop/callback 准入；退役表 → 进程别名；认证设备 → 通知/SSE 游标与撤销。
 - 下一轮 C2 先稳 typed 事务/投影，B2 修 team worker 生命周期，A2 修 work-context source，主代理 M2 修手机凭据/消息持久化与服务 owner。已确认的多进程 team 恢复及工具副作用无提交 ack 问题保留在后续执行链，不能用本轮验证宣称它们已修。
+
+## Sol 并行第三轮与最新进度
+
+- C2/B2/A2/M2/D0 已整合，Windows 全工作区 **2315 passed / 0 failed / 5 原有 ignored**；check/Clippy/fmt、IPC 与完整 UI/浏览器回归通过。见 [第三轮整合记录](parallel-round-3.md)。
+- 新增 15 个全文审查，累计 **80/512**，剩余 **432**；30 个调用链切片不计全文。七层仅 base 全量完成：harness 11/32、llm 15/16、core store 15/26 + runtime 4/39、memory 0/28、tools 3/126、CLI/app 21/145、UI 2/91。
+- owner 收口：Immediate 事务内权威状态 → seed/projection；真实 source/version → work-context CAS；设备持久提交 → 鉴权 cache；手机原子输入 → canonical cache；team 唯一注册/token/attempt → 生命周期；服务槽 → listener 释放。
+- 纠正第二轮“已确认多进程 team 恢复”表述：普通同 executable/home 窗口已有 service_lock，跨 portable/profile 共享项目尚需原生实测，未计为已确认问题。工具无持久提交 ack 的真实拒绝路径由 C3 修复中。
+- 下一条底层到上层链：D1 共同配置文档事务 → M3 settings/models/规则身份 → A3 权限界面；C3 并行推进 durable ack → drive → 工具。当前未合入的新包不计入 80 文件。A 家专属继续暂缓。
