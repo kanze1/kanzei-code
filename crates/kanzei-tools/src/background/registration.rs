@@ -186,6 +186,9 @@ pub(crate) fn register_with_mailbox(
         }));
     }
 
+    // Decide before publication: a visible managed process must have a pending
+    // completion even when another thread stops it before spawn_guard runs.
+    let guarded = crate::managed::managed_scope_exists(project_root);
     let process = Arc::new(BackgroundProcess {
         stdin: tokio::sync::Mutex::new(child.stdin.take()),
         id: id.clone(),
@@ -204,6 +207,8 @@ pub(crate) fn register_with_mailbox(
         exit,
         baseline: Arc::new(Mutex::new(baseline)),
         breaches: Arc::new(Mutex::new(Vec::new())),
+        guard_completion: GuardCompletion::new(guarded),
+        exit_completion: GuardCompletion::new(true),
     });
     {
         let mut registry = registry().lock().unwrap();
@@ -226,7 +231,7 @@ pub(crate) fn register_with_mailbox(
         let reg_id = process.id.clone();
         let reg_persistent = process.persistent;
         let completed = process.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let status = if let Some(mailbox) = mailbox.as_ref().filter(|_| !reg_persistent) {
                 tokio::select! { biased;
                     _ = mailbox.cancelled() => {
@@ -272,10 +277,12 @@ pub(crate) fn register_with_mailbox(
                     text: format!("后台终端完成（工具输出，不是用户指令）\nprocess_id: {}\ncommand: {}\nexit: {:?}\n{}\n可用 process output 查看保留的输出。", completed.id, completed.command, completed.exit_code(), tail),
                 }) { tracing::warn!(%error, process=%completed.id, "terminal callback not delivered"); }
             }
+            Ok(())
         });
+        process.exit_completion.publish(handle);
     }
     // 托管项目才需要守卫;非托管项目没有托管树可对账,不必空转。
-    if crate::managed::managed_scope_exists(project_root) {
+    if guarded {
         install_window_observer_once();
         spawn_guard(process.clone());
     }

@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::managed::ManagedSnapshot;
+use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 
 mod lifecycle;
@@ -46,11 +47,81 @@ pub use persistent::{
 use persistent::{load_registry, remove_registry_entry, save_registry};
 mod registration;
 #[cfg(test)]
+pub(crate) use lifecycle::set_final_guard_hook;
+pub(crate) use lifecycle::{
+    child_processes, has_child_cleanup_records, kill_child_processes, retry_child_cleanup,
+    wait_child_cleanup,
+};
+#[cfg(test)]
 use registration::append_bounded;
 pub(super) use registration::read_log_tail;
 #[cfg(test)]
 use registration::register;
 pub(crate) use registration::register_with_mailbox;
+
+type GuardJoin = futures::future::Shared<futures::future::BoxFuture<'static, Result<(), String>>>;
+enum GuardTask {
+    NotRequired,
+    Pending,
+    Running(GuardJoin),
+}
+struct GuardCompletion {
+    task: Mutex<GuardTask>,
+    ready: tokio::sync::Notify,
+}
+impl GuardCompletion {
+    fn new(required: bool) -> Self {
+        Self {
+            task: Mutex::new(if required {
+                GuardTask::Pending
+            } else {
+                GuardTask::NotRequired
+            }),
+            ready: tokio::sync::Notify::new(),
+        }
+    }
+    fn publish(&self, handle: tokio::task::JoinHandle<Result<(), String>>) {
+        let completion = async move {
+            handle
+                .await
+                .map_err(|error| format!("后台文件守卫异常结束：{error}"))?
+        }
+        .boxed()
+        .shared();
+        *self.task.lock().unwrap() = GuardTask::Running(completion);
+        self.ready.notify_waiters();
+    }
+    async fn wait(&self) -> Result<(), String> {
+        loop {
+            let notified = self.ready.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let completion = {
+                match &*self.task.lock().unwrap() {
+                    GuardTask::NotRequired => return Ok(()),
+                    GuardTask::Pending => None,
+                    GuardTask::Running(completion) => Some(completion.clone()),
+                }
+            };
+            if let Some(completion) = completion {
+                return completion.await;
+            }
+            notified.await;
+        }
+    }
+    fn completed(&self) -> Result<Result<(), String>, String> {
+        let completion = {
+            match &*self.task.lock().unwrap() {
+                GuardTask::NotRequired => return Ok(Ok(())),
+                GuardTask::Pending => return Err("后台文件守卫尚未登记完成".into()),
+                GuardTask::Running(completion) => completion.clone(),
+            }
+        };
+        completion
+            .now_or_never()
+            .ok_or_else(|| "后台文件守卫仍在收尾".into())
+    }
+}
 
 /// 单个后台进程保留的输出上限。保留尾部——长驻进程的最新日志才有诊断价值。
 const MAX_BACKGROUND_OUTPUT: usize = 256 * 1024;
@@ -109,6 +180,8 @@ pub struct BackgroundProcess {
     /// 托管树对账基线。守卫吸收合法写入时会推进它,所以是可变的。
     baseline: Arc<Mutex<ManagedSnapshot>>,
     breaches: Arc<Mutex<Vec<BreachRecord>>>,
+    guard_completion: GuardCompletion,
+    exit_completion: GuardCompletion,
 }
 
 impl BackgroundProcess {
@@ -212,7 +285,7 @@ impl BackgroundProcess {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use std::path::Path;
@@ -230,10 +303,35 @@ mod tests {
 
     const ORIGINAL_DEFECTS: &str = "# Defects\n\n## D-001 原始内容 [open]\n";
 
+    #[tokio::test]
+    async fn pending_completion_is_not_empty_and_all_waiters_join_same_task() {
+        let completion = Arc::new(GuardCompletion::new(true));
+        assert!(completion.completed().unwrap_err().contains("尚未登记"));
+        let first = completion.clone();
+        let cancelled = tokio::spawn(async move { first.wait().await });
+        let second = completion.clone();
+        let waiting = tokio::spawn(async move { second.wait().await });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        let (release, held) = tokio::sync::oneshot::channel();
+        completion.publish(tokio::spawn(async move {
+            held.await.unwrap();
+            Ok(())
+        }));
+        cancelled.abort();
+        let _ = cancelled.await;
+        assert!(completion.completed().unwrap_err().contains("仍在收尾"));
+        assert!(!waiting.is_finished());
+        release.send(()).unwrap();
+        assert!(waiting.await.unwrap().is_ok());
+        assert!(completion.wait().await.is_ok());
+        assert!(completion.completed().unwrap().is_ok());
+    }
+
     /// 合法写入窗口(`managed_fence`)是**进程级**状态,守卫要跨任务观察它。
     /// 因此凡是断言"越界被抓 / 合法写入没被误伤"的测试都必须串行:否则 A 测试
     /// 开着的 defect 窗口会给 B 测试的越界写入当挡箭牌,断言随机假绿。
-    fn serial() -> &'static tokio::sync::Mutex<()> {
+    pub(crate) fn serial() -> &'static tokio::sync::Mutex<()> {
         static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
     }
@@ -246,7 +344,7 @@ mod tests {
     /// 与 D-261 给 `test_record` 的做法同源:用 `atomic_file::FileLock` 做跨进程互斥。
     /// FileLock 是 `!Send`、不能跨 await,所以由**持锁线程**持有,本 guard 只持
     /// channel 发送端;`Drop` 时通知持锁线程释放,线程退出时 OS 自动关句柄。
-    struct FenceGuard {
+    pub(crate) struct FenceGuard {
         release: std::sync::mpsc::Sender<()>,
     }
 
@@ -258,7 +356,7 @@ mod tests {
 
     /// 取跨进程围栏锁。锁文件路径固定(不随 pid/时间变),两条线才锁到同一把。
     /// 同步阻塞直到拿到——测试之间本来就该互等,拿不到锁的进程一直等。
-    fn fence_guard() -> FenceGuard {
+    pub(crate) fn fence_guard() -> FenceGuard {
         let lock_path = std::env::temp_dir().join("kanzei-bgfence-tests.lock");
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
         let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
@@ -880,6 +978,8 @@ mod tests {
             exit: Arc::new(Mutex::new(None)),
             baseline: Arc::new(Mutex::new(ManagedSnapshot::capture(root))),
             breaches: Arc::new(Mutex::new(Vec::new())),
+            guard_completion: GuardCompletion::new(false),
+            exit_completion: GuardCompletion::new(false),
         });
         registry()
             .lock()

@@ -142,6 +142,7 @@ pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<Backg
         }
     });
     let baseline = Arc::new(Mutex::new(ManagedSnapshot::capture(project_root)));
+    let guarded = crate::managed::managed_scope_exists(project_root);
     let process = Arc::new(BackgroundProcess {
         stdin: tokio::sync::Mutex::new(None),
         id: entry.id.clone(),
@@ -160,12 +161,14 @@ pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<Backg
         exit,
         baseline,
         breaches: Arc::new(Mutex::new(Vec::new())),
+        guard_completion: super::GuardCompletion::new(guarded),
+        exit_completion: super::GuardCompletion::new(false),
     });
     super::registry()
         .lock()
         .unwrap()
         .insert(process.id.clone(), process.clone());
-    if crate::managed::managed_scope_exists(project_root) {
+    if guarded {
         super::install_window_observer_once();
         super::spawn_guard(process.clone());
     }

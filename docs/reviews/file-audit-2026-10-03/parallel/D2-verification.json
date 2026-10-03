@@ -1,0 +1,1033 @@
+{
+  "schema": "D2-verification-v2",
+  "phase": "verified-ready-for-exact-commit-and-Cargo-handoff",
+  "recorded_utc": "2026-10-03T08:08:23.166325+00:00",
+  "baseline": "b298329218d32ec8b4ab405a0a89fc423bbf367c",
+  "branch": "kanzei/audit-d2-team-owner",
+  "dependency": {
+    "verified_C4_leaf": "07c0d3738f97ec85f9eba7e5c39c1c3236908ae4",
+    "local_cherry_pick": "8d0ebb4b",
+    "API": "kanzei_core::store::session_execution::try_acquire(&Path,&str) -> io::Result<SessionExecutionGuard>",
+    "team_key": "canonical complete project DB + team:serde_json((TeamStore.owner,childID)); excludes attempt, separate parent round"
+  },
+  "P1_root_cause_count": 1,
+  "coverage_increment": 0,
+  "public_API_changed": false,
+  "new_dependencies_or_persistent_schema": false,
+  "app_coordinator_modified": false,
+  "source": [
+    {
+      "path": "crates/kanzei-tools/src/team/mod.rs",
+      "bytes": 70091,
+      "sha256": "76061b9cc5b34de469954b6572e3e62c1c25c16f2ab39db990fab412897d8438",
+      "sha256_lf": "e057ae776d0560d2d908ebaf72855306af72348053f31da6191beff83e31ca74",
+      "review": "reopened B2 prior full coverage"
+    },
+    {
+      "path": "crates/kanzei-tools/src/team/store.rs",
+      "bytes": 4991,
+      "sha256": "dbbb486e7e019473dc34ee0cf65e2813810bf47e17ee34130533ca2d0ce613fb",
+      "sha256_lf": "dbbb486e7e019473dc34ee0cf65e2813810bf47e17ee34130533ca2d0ce613fb",
+      "review": "reopened B2 prior full coverage"
+    },
+    {
+      "path": "crates/kanzei-tools/src/team/tests.rs",
+      "bytes": 101608,
+      "sha256": "b0da368dc5eec0bb1f3a9be70bd5a4f37ef66699f1bd377f2658c52730d6ffe4",
+      "sha256_lf": "2a0ea4079f45784a324a7cc08b86bee0fca617249e94bbc1b3311d69811af63b",
+      "review": "reopened B2 prior full coverage"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background.rs",
+      "bytes": 85693,
+      "sha256": "5ebf97f06bad985975517ab3ae02109d2de6b376f29c4619cd9e13723fc22202",
+      "sha256_lf": "5ebf97f06bad985975517ab3ae02109d2de6b376f29c4619cd9e13723fc22202",
+      "review": "necessary lifecycle/construction slices only; no full-file coverage claim"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/lifecycle.rs",
+      "bytes": 15723,
+      "sha256": "d8503a15813e72f3ae1ce6081aa1790f629033bdf86e6e519e1b653b526ba03b",
+      "sha256_lf": "d8503a15813e72f3ae1ce6081aa1790f629033bdf86e6e519e1b653b526ba03b",
+      "review": "necessary lifecycle/construction slices only; no full-file coverage claim"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/registration.rs",
+      "bytes": 11616,
+      "sha256": "2722f907f0fb8cb3c603c510077d682ffdfff7ff7164a8e7c05dcfc240d9ee4f",
+      "sha256_lf": "f250571261a8707a4f0d5e05a6317155900fdab56fa8bd38741ac261a9e68109",
+      "review": "necessary lifecycle/construction slices only; no full-file coverage claim"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/persistent.rs",
+      "bytes": 8750,
+      "sha256": "1842fe562955b6c69307bc68b2f5b1f3f374a56b971a78271104948518f46c8f",
+      "sha256_lf": "b4cb00b466f3e66fc7b8498f5345ad68c92b766a8c8e1295d038f51902257b9c",
+      "review": "necessary lifecycle/construction slices only; no full-file coverage claim"
+    },
+    {
+      "path": "crates/kanzei-tools/src/background/monitor.rs",
+      "bytes": 9254,
+      "sha256": "ae35c459209513ab9164d69f6ff269ace4945d088ec53cf974202a6735fca5e7",
+      "sha256_lf": "21e2224bcf2ed1156f3c7e9d02ca5afcf3f8766b82676b9e26237ca43f02879f",
+      "review": "necessary lifecycle/construction slices only; no full-file coverage claim"
+    }
+  ],
+  "isolated_environment": {
+    "KANZEI_HOME": "output/parallel-D2/profile/.kanzei",
+    "HOME_USERPROFILE": "output/parallel-D2/profile",
+    "AppData": "output/parallel-D2/profile/AppData/{Roaming,Local}",
+    "CARGO_HOME": "output/parallel-D1/profile/.cargo",
+    "RUSTUP_HOME": "output/parallel-D1/profile/.rustup",
+    "KANZEI_PLAYWRIGHT_ROOT": "C:/Users/kanzei/Documents/kanzei code (verified installed module locator)",
+    "real_credentials_config_read_or_copied": false,
+    "Cargo_concurrency": "exclusive D2; all calls serial; entire A Rust mtime refreshed after negative original-byte restore"
+  },
+  "checks": {
+    "team_current": {
+      "executed": true,
+      "exit_code": 0,
+      "passed": 37,
+      "ignored": 2,
+      "log": "output/parallel-D2/team-current-retry.log"
+    },
+    "final_tools_harness_after_negative_restore": {
+      "executed": true,
+      "exit_code": 0,
+      "tools": {
+        "passed": 782,
+        "failed": 0,
+        "ignored": 3,
+        "seconds": 54.36
+      },
+      "harness": {
+        "passed": 211,
+        "failed": 0,
+        "ignored": 0
+      },
+      "log": "output/parallel-D2/tools-harness-final.log"
+    },
+    "workspace_check_all_targets": {
+      "executed": true,
+      "exit_code": 0,
+      "seconds": 49.7,
+      "log": "output/parallel-D2/check-final.log"
+    },
+    "workspace_clippy_all_targets_Dwarnings": {
+      "executed": true,
+      "exit_code": 0,
+      "seconds": 21.91,
+      "log": "output/parallel-D2/clippy-final.log"
+    },
+    "workspace_fmt_check": {
+      "executed": true,
+      "exit_code": 0,
+      "log": "output/parallel-D2/fmt-final.log"
+    },
+    "diff_check": {
+      "executed": true,
+      "exit_code": 0
+    },
+    "negative_controls": {
+      "executed": true,
+      "passed": true,
+      "equivalent_old_logic_not_complete_old_source": true,
+      "cases": [
+        {
+          "case": "old_process_local_recovery",
+          "equivalent_old_logic": true,
+          "complete_old_source": false,
+          "regression": "team::tests::cross_process_inspection_and_resume_preserve_live_child_and_idle_can_transfer",
+          "exit_code": 101,
+          "compile_error": false,
+          "real_assertion_failed": true
+        },
+        {
+          "case": "old_remote_wait_orphan",
+          "equivalent_old_logic": true,
+          "complete_old_source": false,
+          "regression": "team::tests::cross_process_inspection_and_resume_preserve_live_child_and_idle_can_transfer",
+          "exit_code": 101,
+          "compile_error": false,
+          "real_assertion_failed": true
+        },
+        {
+          "case": "old_child_id_only_identity",
+          "equivalent_old_logic": true,
+          "complete_old_source": false,
+          "regression": "team::tests::same_db_different_parents_same_call_id_keep_model_and_cleanup_independent",
+          "exit_code": 101,
+          "compile_error": false,
+          "real_assertion_failed": true
+        },
+        {
+          "case": "old_unscoped_background_cleanup",
+          "equivalent_old_logic": true,
+          "complete_old_source": false,
+          "regression": "team::tests::same_db_different_parents_same_call_id_keep_model_and_cleanup_independent",
+          "exit_code": 101,
+          "compile_error": false,
+          "real_assertion_failed": true
+        },
+        {
+          "case": "old_process_local_admission",
+          "equivalent_old_logic": true,
+          "complete_old_source": false,
+          "regression": "team::tests::cross_process_inspection_and_resume_preserve_live_child_and_idle_can_transfer",
+          "exit_code": 101,
+          "compile_error": false,
+          "real_assertion_failed": true
+        },
+        {
+          "case": "old_pid_only_completion",
+          "equivalent_old_logic": true,
+          "complete_old_source": false,
+          "regression": "team::tests::finishing_callback_panic_reaps_real_process_before_last_owner_release",
+          "exit_code": 101,
+          "compile_error": false,
+          "real_assertion_failed": true
+        },
+        {
+          "case": "old_restore_error_swallowed",
+          "equivalent_old_logic": true,
+          "complete_old_source": false,
+          "regression": "team::tests::failed_final_restore_rejects_admission_until_real_retry_succeeds",
+          "exit_code": 101,
+          "compile_error": false,
+          "real_assertion_failed": true
+        },
+        {
+          "case": "empty_remote_registry_assumed_repaired",
+          "equivalent_old_logic": true,
+          "complete_old_source": false,
+          "regression": "team::tests::failed_final_restore_rejects_admission_until_real_retry_succeeds",
+          "exit_code": 101,
+          "compile_error": false,
+          "real_assertion_failed": true
+        }
+      ],
+      "original_sha256": {
+        "crates\\kanzei-tools\\src\\team\\mod.rs": "76061b9cc5b34de469954b6572e3e62c1c25c16f2ab39db990fab412897d8438",
+        "crates\\kanzei-tools\\src\\background\\lifecycle.rs": "d8503a15813e72f3ae1ce6081aa1790f629033bdf86e6e519e1b653b526ba03b"
+      },
+      "restored_sha256": {
+        "crates\\kanzei-tools\\src\\team\\mod.rs": "76061b9cc5b34de469954b6572e3e62c1c25c16f2ab39db990fab412897d8438",
+        "crates\\kanzei-tools\\src\\background\\lifecycle.rs": "d8503a15813e72f3ae1ce6081aa1790f629033bdf86e6e519e1b653b526ba03b"
+      },
+      "original_bytes_restored": true
+    },
+    "native_positive": {
+      "executed": true,
+      "passed": true,
+      "exit_code": 0,
+      "mode": "default same-executable distinct isolated profiles; no portable",
+      "executions": 2,
+      "first_execution": "execution_fault from script JSON-stringify Windows-path check; actual parsed Assigned checkout exact match, retained",
+      "successful_execution": "output/parallel-D2/run-1791014866773/evidence.json",
+      "binary": {
+        "path": "C:/Users/kanzei/Documents/kanzei code/target/debug/kzapp.exe",
+        "sha256": "31bf051ba8ca722b323014eefe3db288f3b2c4ba23eb6b3a9dd1835897ebcf2e",
+        "bytes": 83159552,
+        "last_write_time": "2026-10-03T16:06:35.8545983+08:00"
+      },
+      "observed": {
+        "remote_list_preserved_state": true,
+        "remote_busy_resume_rejected": true,
+        "request_count_before_stop": 1,
+        "request_count_total": 2,
+        "distinct_service_pids": [
+          41976,
+          41496
+        ],
+        "idle_takeover_attempt": 2
+      },
+      "assertions": [
+        "two supported profiles own distinct native services",
+        "same copied binary, distinct KANZEI_HOME profiles",
+        "A is running while its model response is held",
+        "B resume explicitly rejects the live remote child owner",
+        "B list preserves A's live durable state and revision",
+        "busy resume does not change the durable child record",
+        "only A's first model request is pending before stop",
+        "B read-only wait does not reject while A owner/request is held",
+        "remote wait changes no durable row or provider request",
+        "B wait returns A real stopped terminal after final owner release",
+        "second request carries the explicit B follow-up",
+        "B parsed request routes to the fixture checkout",
+        "post-stop B request is live and A's old request is closed",
+        "idle takeover runs the same durable child at attempt 2"
+      ],
+      "observations": [
+        {
+          "step": "B list while A live",
+          "first_socket_held": true,
+          "before": {
+            "attempt": 1,
+            "base": null,
+            "created_at": 1791014868437,
+            "depends_on": [],
+            "files": [],
+            "head": null,
+            "id": "agent-1791014868437-0",
+            "latest": "第 1/24 轮",
+            "messages": [
+              {
+                "at": 1791014868437,
+                "from": "main",
+                "id": "agent-1791014868437-1",
+                "state": "received",
+                "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+              }
+            ],
+            "model": "primary",
+            "model_tier": "primary",
+            "name": "plan",
+            "notified": 0,
+            "notify_on_completion": true,
+            "outcome": "pending",
+            "owner": "ses_project_c4542a437f5643b2",
+            "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+            "replaces": null,
+            "reported": 0,
+            "result": "",
+            "revision": 0,
+            "role": "plan",
+            "schema": null,
+            "state": "running",
+            "trace": [
+              {
+                "agent": "plan",
+                "at": 1791014868495,
+                "child_id": "1:agent-1791014868437-0",
+                "code": null,
+                "input": null,
+                "model": "primary",
+                "name": "",
+                "ok": null,
+                "outcome": null,
+                "phase": "meta",
+                "preview": null,
+                "run_id": "ses_project_c4542a437f5643b2:agent-1791014868437-0:1",
+                "seq": 1,
+                "summary": "primary",
+                "text": null,
+                "usage": null
+              }
+            ],
+            "trace_seq": 1,
+            "updated_at": 1791014868500,
+            "worktree": null
+          },
+          "seenByB": [
+            {
+              "attempt": 1,
+              "base": null,
+              "created_at": 1791014868437,
+              "depends_on": [],
+              "files": [],
+              "head": null,
+              "id": "agent-1791014868437-0",
+              "latest": "第 1/24 轮",
+              "messages": [
+                {
+                  "at": 1791014868437,
+                  "from": "main",
+                  "id": "agent-1791014868437-1",
+                  "state": "received",
+                  "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+                }
+              ],
+              "model": "primary",
+              "model_tier": "primary",
+              "name": "plan",
+              "notified": 0,
+              "notify_on_completion": true,
+              "outcome": "pending",
+              "owner": "ses_project_c4542a437f5643b2",
+              "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+              "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+              "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+              "replaces": null,
+              "reported": 0,
+              "result": "",
+              "revision": 0,
+              "role": "plan",
+              "schema": null,
+              "state": "running",
+              "trace": [
+                {
+                  "agent": "plan",
+                  "at": 1791014868495,
+                  "child_id": "1:agent-1791014868437-0",
+                  "code": null,
+                  "input": null,
+                  "model": "primary",
+                  "name": "",
+                  "ok": null,
+                  "outcome": null,
+                  "phase": "meta",
+                  "preview": null,
+                  "run_id": "ses_project_c4542a437f5643b2:agent-1791014868437-0:1",
+                  "seq": 1,
+                  "summary": "primary",
+                  "text": null,
+                  "usage": null
+                }
+              ],
+              "trace_seq": 1,
+              "updated_at": 1791014868500,
+              "worktree": null
+            }
+          ],
+          "after": {
+            "attempt": 1,
+            "base": null,
+            "created_at": 1791014868437,
+            "depends_on": [],
+            "files": [],
+            "head": null,
+            "id": "agent-1791014868437-0",
+            "latest": "第 1/24 轮",
+            "messages": [
+              {
+                "at": 1791014868437,
+                "from": "main",
+                "id": "agent-1791014868437-1",
+                "state": "received",
+                "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+              }
+            ],
+            "model": "primary",
+            "model_tier": "primary",
+            "name": "plan",
+            "notified": 0,
+            "notify_on_completion": true,
+            "outcome": "pending",
+            "owner": "ses_project_c4542a437f5643b2",
+            "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+            "replaces": null,
+            "reported": 0,
+            "result": "",
+            "revision": 0,
+            "role": "plan",
+            "schema": null,
+            "state": "running",
+            "trace": [
+              {
+                "agent": "plan",
+                "at": 1791014868495,
+                "child_id": "1:agent-1791014868437-0",
+                "code": null,
+                "input": null,
+                "model": "primary",
+                "name": "",
+                "ok": null,
+                "outcome": null,
+                "phase": "meta",
+                "preview": null,
+                "run_id": "ses_project_c4542a437f5643b2:agent-1791014868437-0:1",
+                "seq": 1,
+                "summary": "primary",
+                "text": null,
+                "usage": null
+              }
+            ],
+            "trace_seq": 1,
+            "updated_at": 1791014868500,
+            "worktree": null
+          }
+        },
+        {
+          "step": "busy B resume rejected",
+          "error": "Error: 子任务 agent-1791014868437-0 正由其他执行者运行，暂不能接管",
+          "after": {
+            "attempt": 1,
+            "base": null,
+            "created_at": 1791014868437,
+            "depends_on": [],
+            "files": [],
+            "head": null,
+            "id": "agent-1791014868437-0",
+            "latest": "第 1/24 轮",
+            "messages": [
+              {
+                "at": 1791014868437,
+                "from": "main",
+                "id": "agent-1791014868437-1",
+                "state": "received",
+                "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+              }
+            ],
+            "model": "primary",
+            "model_tier": "primary",
+            "name": "plan",
+            "notified": 0,
+            "notify_on_completion": true,
+            "outcome": "pending",
+            "owner": "ses_project_c4542a437f5643b2",
+            "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+            "replaces": null,
+            "reported": 0,
+            "result": "",
+            "revision": 0,
+            "role": "plan",
+            "schema": null,
+            "state": "running",
+            "trace": [
+              {
+                "agent": "plan",
+                "at": 1791014868495,
+                "child_id": "1:agent-1791014868437-0",
+                "code": null,
+                "input": null,
+                "model": "primary",
+                "name": "",
+                "ok": null,
+                "outcome": null,
+                "phase": "meta",
+                "preview": null,
+                "run_id": "ses_project_c4542a437f5643b2:agent-1791014868437-0:1",
+                "seq": 1,
+                "summary": "primary",
+                "text": null,
+                "usage": null
+              }
+            ],
+            "trace_seq": 1,
+            "updated_at": 1791014868500,
+            "worktree": null
+          },
+          "first_socket_held": true,
+          "request_count": 1
+        },
+        {
+          "step": "remote native wait",
+          "before": {
+            "attempt": 1,
+            "base": null,
+            "created_at": 1791014868437,
+            "depends_on": [],
+            "files": [],
+            "head": null,
+            "id": "agent-1791014868437-0",
+            "latest": "第 1/24 轮",
+            "messages": [
+              {
+                "at": 1791014868437,
+                "from": "main",
+                "id": "agent-1791014868437-1",
+                "state": "received",
+                "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+              }
+            ],
+            "model": "primary",
+            "model_tier": "primary",
+            "name": "plan",
+            "notified": 0,
+            "notify_on_completion": true,
+            "outcome": "pending",
+            "owner": "ses_project_c4542a437f5643b2",
+            "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+            "replaces": null,
+            "reported": 0,
+            "result": "",
+            "revision": 0,
+            "role": "plan",
+            "schema": null,
+            "state": "running",
+            "trace": [
+              {
+                "agent": "plan",
+                "at": 1791014868495,
+                "child_id": "1:agent-1791014868437-0",
+                "code": null,
+                "input": null,
+                "model": "primary",
+                "name": "",
+                "ok": null,
+                "outcome": null,
+                "phase": "meta",
+                "preview": null,
+                "run_id": "ses_project_c4542a437f5643b2:agent-1791014868437-0:1",
+                "seq": 1,
+                "summary": "primary",
+                "text": null,
+                "usage": null
+              }
+            ],
+            "trace_seq": 1,
+            "updated_at": 1791014868500,
+            "worktree": null
+          },
+          "during": {
+            "attempt": 1,
+            "base": null,
+            "created_at": 1791014868437,
+            "depends_on": [],
+            "files": [],
+            "head": null,
+            "id": "agent-1791014868437-0",
+            "latest": "第 1/24 轮",
+            "messages": [
+              {
+                "at": 1791014868437,
+                "from": "main",
+                "id": "agent-1791014868437-1",
+                "state": "received",
+                "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+              }
+            ],
+            "model": "primary",
+            "model_tier": "primary",
+            "name": "plan",
+            "notified": 0,
+            "notify_on_completion": true,
+            "outcome": "pending",
+            "owner": "ses_project_c4542a437f5643b2",
+            "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+            "replaces": null,
+            "reported": 0,
+            "result": "",
+            "revision": 0,
+            "role": "plan",
+            "schema": null,
+            "state": "running",
+            "trace": [
+              {
+                "agent": "plan",
+                "at": 1791014868495,
+                "child_id": "1:agent-1791014868437-0",
+                "code": null,
+                "input": null,
+                "model": "primary",
+                "name": "",
+                "ok": null,
+                "outcome": null,
+                "phase": "meta",
+                "preview": null,
+                "run_id": "ses_project_c4542a437f5643b2:agent-1791014868437-0:1",
+                "seq": 1,
+                "summary": "primary",
+                "text": null,
+                "usage": null
+              }
+            ],
+            "trace_seq": 1,
+            "updated_at": 1791014868500,
+            "worktree": null
+          },
+          "result": [
+            {
+              "attempt": 1,
+              "created_at": 1791014868437,
+              "depends_on": [],
+              "file_count": 0,
+              "files": [],
+              "id": "agent-1791014868437-0",
+              "latest": "子任务已停止",
+              "model": "primary",
+              "name": "plan",
+              "outcome": "pending",
+              "result": "",
+              "result_chars": 0,
+              "result_truncated": false,
+              "revision": 1,
+              "role": "plan",
+              "state": "stopped",
+              "updated_at": 1791014869102,
+              "worktree": null
+            }
+          ],
+          "request_count": 1
+        },
+        {
+          "step": "B explicit takeover after A stop",
+          "resumed": {
+            "delivery": "下一次模型请求前处理",
+            "id": "agent-1791014868437-0",
+            "message_id": "D2_PROFILE_B_AFTER_STOP",
+            "state": "queued"
+          },
+          "job": {
+            "attempt": 2,
+            "base": null,
+            "created_at": 1791014868437,
+            "depends_on": [],
+            "files": [],
+            "head": null,
+            "id": "agent-1791014868437-0",
+            "latest": "第 1/24 轮",
+            "messages": [
+              {
+                "at": 1791014868437,
+                "from": "main",
+                "id": "agent-1791014868437-1",
+                "state": "received",
+                "text": "B3_PROFILE_A_HELD_ASSIGNMENT"
+              },
+              {
+                "at": 1791014869383,
+                "from": "main",
+                "id": "D2_PROFILE_B_AFTER_STOP",
+                "state": "received",
+                "text": "D2_PROFILE_B_AFTER_STOP"
+              }
+            ],
+            "model": "primary",
+            "model_tier": "primary",
+            "name": "plan",
+            "notified": 0,
+            "notify_on_completion": true,
+            "outcome": "pending",
+            "owner": "ses_project_c4542a437f5643b2",
+            "process_id": "d|C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "project_dir": "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D2\\run-1791014866773\\project",
+            "prompt": "B3_PROFILE_A_HELD_ASSIGNMENT",
+            "replaces": null,
+            "reported": 0,
+            "result": "",
+            "revision": 1,
+            "role": "plan",
+            "schema": null,
+            "state": "running",
+            "trace": [
+              {
+                "agent": "plan",
+                "at": 1791014868495,
+                "child_id": "1:agent-1791014868437-0",
+                "code": null,
+                "input": null,
+                "model": "primary",
+                "name": "",
+                "ok": null,
+                "outcome": null,
+                "phase": "meta",
+                "preview": null,
+                "run_id": "ses_project_c4542a437f5643b2:agent-1791014868437-0:1",
+                "seq": 1,
+                "summary": "primary",
+                "text": null,
+                "usage": null
+              },
+              {
+                "agent": "plan",
+                "at": 1791014869427,
+                "child_id": "2:agent-1791014868437-0",
+                "code": null,
+                "input": null,
+                "model": "primary",
+                "name": "",
+                "ok": null,
+                "outcome": null,
+                "phase": "meta",
+                "preview": null,
+                "run_id": "ses_project_c4542a437f5643b2:agent-1791014868437-0:2",
+                "seq": 2,
+                "summary": "primary",
+                "text": null,
+                "usage": null
+              }
+            ],
+            "trace_seq": 2,
+            "updated_at": 1791014869432,
+            "worktree": null
+          },
+          "first_socket_closed": true,
+          "second_socket_held": true
+        },
+        {
+          "step": "cleanup A remote busy",
+          "error": "Error: 子任务 agent-1791014868437-0 正由其他执行者运行，暂不能接管"
+        }
+      ],
+      "cleanup": [
+        {
+          "label": "A",
+          "own_pid": 41976,
+          "exit_code": 0,
+          "signal": null,
+          "exited": true
+        },
+        {
+          "label": "B",
+          "own_pid": 41496,
+          "exit_code": 0,
+          "signal": null,
+          "exited": true
+        }
+      ],
+      "errors": [],
+      "log": "output/parallel-D2/native-final-retry.log"
+    },
+    "app_build": {
+      "executed": true,
+      "exit_code": 0,
+      "seconds": 63,
+      "log": "output/parallel-D2/build-final.log",
+      "binary": {
+        "path": "C:/Users/kanzei/Documents/kanzei code/target/debug/kzapp.exe",
+        "sha256": "31bf051ba8ca722b323014eefe3db288f3b2c4ba23eb6b3a9dd1835897ebcf2e",
+        "bytes": 83159552,
+        "last_write_time": "2026-10-03T16:06:35.8545983+08:00"
+      }
+    }
+  },
+  "historical_failures_preserved": [
+    {
+      "log": "output/parallel-D2/owner-basic.log",
+      "result": "initial test compile error private register; adapted to real register_with_mailbox; not a negative control/pass"
+    },
+    {
+      "log": "output/parallel-D2/finisher-last-reconcile.log",
+      "result": "first barrier fixture timed out; failed 60.47s; corrected failed runner kill/join ordering; true retry pass preserved"
+    },
+    {
+      "log": "output/parallel-D2/tools-harness-full.log",
+      "result": "harness211pass; tools777pass/4failed/3ignored; two Playwright missing locator and two new isolated MiKTeX init/format/cache failures; environment, not product bugs"
+    },
+    {
+      "log": "output/parallel-D2/tools-full-runtime-retry.log",
+      "result": "tools781pass/0failed/3ignored after correct Playwright locator and self profile cache initialization; pre-final identity change, not final count"
+    },
+    {
+      "log": "output/parallel-D2/team-final-identity-wait.log",
+      "result": "SQL orphan diagnosis context + hand-held fixture owner lifetime failures/hangs; stopped only own verified Cargo62812 -> test55440; not pass"
+    },
+    {
+      "log": "output/parallel-D2/team-current.log",
+      "result": "UTF-8 script edit failed before edits; shell mistakenly continued old run; same failures preserved; stopped only own verified Cargo/test lineage; not pass"
+    },
+    {
+      "log": "output/parallel-D2/native-final.log",
+      "evidence": "output/parallel-D2/run-1791014826166/evidence.json",
+      "result": "owner/DB/socket/request/remote-wait passed; JSON-stringify raw Windows path assertion execution_fault; parsed message Assigned checkout exact matches self fixture; retry same unchanged binary passed"
+    }
+  ],
+  "old_native_control": {
+    "run": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code/output/B3/run-1791010951151/evidence.json",
+    "executions": 1,
+    "result": "actual P1 old default native; retained by root in b4fb85df; not new-source verification"
+  },
+  "limitations": [
+    "No public/full-file coverage increment; team3 prior B2 full coverage reopened, background5 necessary slices only.",
+    "Cleanup-failed after crash/restart and missing original process record/baseline remains explicit Err/zero admission. No guessed repair or automatic recovery claim.",
+    "Persistent services keep original semantics; no new heartbeat/PID/TTL/schema/framework.",
+    "Core typed/inbox atomic terminal work belongs to C5; root integration still requires unified validation."
+  ],
+  "evidence_files": [
+    {
+      "path": "output/parallel-D2/binary-final.json",
+      "bytes": 242,
+      "sha256": "b2be076078bcdacff667af0f2bfd311477ea83dd8c41e02e0503d98d01e45fe5",
+      "sha256_lf": "fee7759d1cc2233d4c1cc60df9c58871c89e40f4006b3c585aab805c4ab23134"
+    },
+    {
+      "path": "output/parallel-D2/build-final.log",
+      "bytes": 7000,
+      "sha256": "edf6c547f194a81b66f9e690b9636dcafe681e079020918b0c8646928fe77157",
+      "sha256_lf": "e2ac127e69816108086e78a2c576d5ce3608ae1fbd3c1156baaf9e7643d0cc4a"
+    },
+    {
+      "path": "output/parallel-D2/check-final.log",
+      "bytes": 14595,
+      "sha256": "b290b10a3823e49d8258f45c783d3844e82a54c3321b814d82521de88d08afd9",
+      "sha256_lf": "86ab9edb54eee732a323d559173ceb4740d5b02379f8fd229c474536f3774b4a"
+    },
+    {
+      "path": "output/parallel-D2/clippy-final.log",
+      "bytes": 936,
+      "sha256": "28e527fc102f90d7a67845a2ca3f7691c51be40984d5b9615ab6e60652db9562",
+      "sha256_lf": "8b702c09e0f7c09d28111b6b554ff71ba3e29aa6d1a0bc3a8e91f1b597d29f0e"
+    },
+    {
+      "path": "output/parallel-D2/empty_remote_registry_assumed_repaired.log",
+      "bytes": 1605,
+      "sha256": "05cb0be286447c0ac2a2c72c8952045665f58ee83a87aa30703c9eabe594f8fc",
+      "sha256_lf": "c98b81cbd829e1862567e0d78621d6d7df06789b0b8ee06279b76c3d5ce8fb9e"
+    },
+    {
+      "path": "output/parallel-D2/final-restore-cross-profile.log",
+      "bytes": 522,
+      "sha256": "a860f3126ed04ade8ea429591bef01f436d9fa4fcf2e519103dcc2486052d3ac",
+      "sha256_lf": "7154f356b80457dbe35fe60e6bd21a5fc2fe167b0cb8d8196116bd5364419d86"
+    },
+    {
+      "path": "output/parallel-D2/final-restore-failure.log",
+      "bytes": 522,
+      "sha256": "cb7019b9f31f2525568e8dd429e97e7f6ba320686839ca9ab271d8f196f83a49",
+      "sha256_lf": "16b2a6bebdfdc4aff3f8da42d11f5059cc4f3c7b03a4b274e46a0897c26d2534"
+    },
+    {
+      "path": "output/parallel-D2/finisher-last-reconcile-retry.log",
+      "bytes": 734,
+      "sha256": "bec377165b8f214638bf5514635ba5830416f3ef269d137dfc4d047012435c6b",
+      "sha256_lf": "116f82515af53a2f240ceca5106b0d6e81ab8dd8be4b30ad57945ab5f7b3d85c"
+    },
+    {
+      "path": "output/parallel-D2/finisher-last-reconcile.log",
+      "bytes": 1133,
+      "sha256": "62242ae76c6d79daa15c2a2bf7a5d4c66ebcc10e705aaf80c8979edeeee81c30",
+      "sha256_lf": "19a5697b5ba375e1d47912a4855b93ac912989dd1e425e08feb0f7231d4abef3"
+    },
+    {
+      "path": "output/parallel-D2/native-child-owner.mjs",
+      "bytes": 15026,
+      "sha256": "a7473c322d646d438e7a545467be985a030f9e817a4949b88a9cbc6df965aec2",
+      "sha256_lf": "f7bb65c3414ba59535d39aed5e1bfcefb3ac2424c768a9c44a963e04d3c09f52"
+    },
+    {
+      "path": "output/parallel-D2/native-final-retry.log",
+      "bytes": 1176,
+      "sha256": "cd8d643fc50d56369184b3da30e0f7595b8faf917e0d59a77027e81ca7f1258f",
+      "sha256_lf": "e905de20c00b86fd259d28616235fab0de2e411346c37fa9be34b9f490dcef3c"
+    },
+    {
+      "path": "output/parallel-D2/native-final.log",
+      "bytes": 775,
+      "sha256": "8ce045b148577f1c42fea08e6f98e11ac729059be5ac054a3023451538232523",
+      "sha256_lf": "eea39293f1f4bdd6a629fb01d64c6e834509cb4b41ce22422146fabc0951da99"
+    },
+    {
+      "path": "output/parallel-D2/negative-results.json",
+      "bytes": 3312,
+      "sha256": "5028e6d53c3cb95e6952ff7a5b8229c07d03203911003479d47d33712afab54e",
+      "sha256_lf": "fb9fbe68b60dc2b72f105dea0f0ac55b52534a400496ced5267764e28b967f11"
+    },
+    {
+      "path": "output/parallel-D2/negative.py",
+      "bytes": 7962,
+      "sha256": "c49971162f1d699cb496acb63aeb7eed9075ed5931baccc20d45091011a2ecb9",
+      "sha256_lf": "5753dad3cae57e9ad678056a60b75664031e052dbef78211285078aca7d76362"
+    },
+    {
+      "path": "output/parallel-D2/old_child_id_only_identity.log",
+      "bytes": 1582,
+      "sha256": "e1b82243f9e688a7a67890792ee09304e9abcbe098a5d24173da8481b80ae989",
+      "sha256_lf": "f1f287e8193a064d735a7398e8983f07d7177583c9b13f73764fe307df4ab0ee"
+    },
+    {
+      "path": "output/parallel-D2/old_pid_only_completion.log",
+      "bytes": 1123,
+      "sha256": "85272060eb7246d1ef0eff5ffec6034ac1341aab6a1cc59b73b89568b726bc10",
+      "sha256_lf": "c1a4af325bb4979eb8e7a15d5f0a6acabae49092483a5a23adefe899b498e4b0"
+    },
+    {
+      "path": "output/parallel-D2/old_process_local_admission.log",
+      "bytes": 1673,
+      "sha256": "d924f5cf1c68d02e9f18b738196f445b325f51e8d11eeb31fbdf18bf419a4973",
+      "sha256_lf": "0a843f4462ce25464107c7e53d47f0f54aa35946febc11a0da9b5072c29bb58d"
+    },
+    {
+      "path": "output/parallel-D2/old_process_local_recovery.log",
+      "bytes": 1576,
+      "sha256": "26926a082aeb15af67515f3e11a927c568c3acd6d806790bce2f7ce10213e32a",
+      "sha256_lf": "3e1f010809f58bf78ba83c8d6681b23e4be8f6e7b287108266737ad60b99a4f5"
+    },
+    {
+      "path": "output/parallel-D2/old_remote_wait_orphan.log",
+      "bytes": 1027,
+      "sha256": "cc42da242759600f55f148af03c6a6f65a3462aad3d3eeb03b0e280cf6efb8c1",
+      "sha256_lf": "5d0db2092e308d7479d40e77f0ff128130e5282b39d10c33bd19ce71c449fd1e"
+    },
+    {
+      "path": "output/parallel-D2/old_restore_error_swallowed.log",
+      "bytes": 1151,
+      "sha256": "10e54f84311feac27bc90b5a4bc73b908c2c12e26a08f336ec0d0cfccbd1a552",
+      "sha256_lf": "62c31cd35985034afe03b615883032e3d4867297d0a5c18cd972672c9f6b66aa"
+    },
+    {
+      "path": "output/parallel-D2/old_unscoped_background_cleanup.log",
+      "bytes": 1476,
+      "sha256": "f4334b07cf2bb52b20f837d4e3fc6bb54d67472885bfb659f9d17ae2f0cd4c91",
+      "sha256_lf": "81cd512899038bf9199f9eb835d414039ccfe8de2e72c49e651b4ca2ccfab302"
+    },
+    {
+      "path": "output/parallel-D2/owner-basic-retry.log",
+      "bytes": 535,
+      "sha256": "13449c4d46984d436b43b65100439b0f2ca918d7b1032ae6e2a6ab105c87dca3",
+      "sha256_lf": "4fc0ecffdbc856871b9467d1d4ea6c4ec2a8ae8bef6813a7cf163d03845222d9"
+    },
+    {
+      "path": "output/parallel-D2/owner-basic.log",
+      "bytes": 10997,
+      "sha256": "51bf65077df0ab70dc15fedd2a229ec762420de7b5dba0184ec3a4cff4933d75",
+      "sha256_lf": "defb3b18dcaf532d87ad4918791c91b367e0a10a941ef5d3239f9a2a28d89a42"
+    },
+    {
+      "path": "output/parallel-D2/run-cargo.ps1",
+      "bytes": 822,
+      "sha256": "ca0a7887c71d922673b238bd89eca9dada29c9d1c4c5b45e1910f582e51b6a0f",
+      "sha256_lf": "ca0a7887c71d922673b238bd89eca9dada29c9d1c4c5b45e1910f582e51b6a0f"
+    },
+    {
+      "path": "output/parallel-D2/team-current-retry.log",
+      "bytes": 4529,
+      "sha256": "adb42a4550c247e7b6efdd70eb9c78fb7f7e576a328e63860042ae2abb063e05",
+      "sha256_lf": "e53f1a58a9b2f5517dc75d294ceeccaddd7d9f793fed3a7ddfc17e966c11b64c"
+    },
+    {
+      "path": "output/parallel-D2/team-current.log",
+      "bytes": 4752,
+      "sha256": "740978941b8b864abe44954417f1dfd3307b454ca9110197569906347c7e3976",
+      "sha256_lf": "4b8dfc8e0dc75087dc6c5c7e33e719fa461c82dff8f3e8c0f4cad371c47caa9c"
+    },
+    {
+      "path": "output/parallel-D2/team-final-identity-wait.log",
+      "bytes": 5249,
+      "sha256": "299b7814ddf34b882f14eb4bfc39319f49aef5db38eea6f93aae8f4f2726306d",
+      "sha256_lf": "e7d5950f762c39eaf56e0f29bcecd957e35136810206328a1071089d84994ac4"
+    },
+    {
+      "path": "output/parallel-D2/team-full.log",
+      "bytes": 4318,
+      "sha256": "dcafda2b3e2c7ed25a879af7468cd185d31884e00343f71b7ed017edb69e64c0",
+      "sha256_lf": "cac9476557d0eeb062ae467926ca0edad2242d23b734b1870d71a797e5a576c2"
+    },
+    {
+      "path": "output/parallel-D2/tools-full-runtime-retry.log",
+      "bytes": 71183,
+      "sha256": "f68468a849900a529734f051e96fc34c28f397159d57d32ef6a47b520a7e92aa",
+      "sha256_lf": "ebb9fb1892ed16eb1c95ec9ccc7c6409873ddeaadaef4c348ce841814849df22"
+    },
+    {
+      "path": "output/parallel-D2/tools-harness-current.log",
+      "bytes": 87924,
+      "sha256": "1aee8c3375b2da1ac84013ffe62d61e6fed80ca40d9e9bdc4d78e8991624bd9a",
+      "sha256_lf": "a9036264402486cd7ed7787f80c8e88846578a7eae56d5aec4d95ca98cfb2b4b"
+    },
+    {
+      "path": "output/parallel-D2/tools-harness-final.log",
+      "bytes": 88583,
+      "sha256": "d530226bca6d7dc95ca250391faf285103cc7fd06c569d8dc10476fc3c1c88ec",
+      "sha256_lf": "37a1c17a3abaf26dc976e51e3eb786034773863bbcea9ea1695fa351b7fc580a"
+    },
+    {
+      "path": "output/parallel-D2/tools-harness-full.log",
+      "bytes": 99811,
+      "sha256": "c2add72e515dd6dbed4c3f8bb7071a8097df37041f4855dcd662591180000c4a",
+      "sha256_lf": "65bc47b927c5c75f903fb760da792e96fd178f2b8ef693c8699501f2e221dbba"
+    },
+    {
+      "path": "output/parallel-D2/run-1791014826166/evidence.json",
+      "bytes": 71057,
+      "sha256": "f63de5b37c524e772953d167419b343c60dc172e7f291a4264553ef31a81c4a6",
+      "sha256_lf": "f63de5b37c524e772953d167419b343c60dc172e7f291a4264553ef31a81c4a6"
+    },
+    {
+      "path": "output/parallel-D2/run-1791014866773/evidence.json",
+      "bytes": 74411,
+      "sha256": "9f8fa7a3e3cce93a54b58d89aaf45a68bcc7033a3bea61a9b49acb9c4ad5c912",
+      "sha256_lf": "9f8fa7a3e3cce93a54b58d89aaf45a68bcc7033a3bea61a9b49acb9c4ad5c912"
+    }
+  ]
+}

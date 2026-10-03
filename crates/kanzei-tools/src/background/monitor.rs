@@ -183,6 +183,8 @@ mod tests {
             exit: Arc::new(Mutex::new(None)),
             baseline: Arc::new(Mutex::new(ManagedSnapshot::capture(&root))),
             breaches: Arc::new(Mutex::new(Vec::new())),
+            guard_completion: GuardCompletion::new(false),
+            exit_completion: GuardCompletion::new(false),
         });
         registry().lock().unwrap().insert(id.clone(), process);
         let old_mailbox = AsyncMailbox::new(|_| Ok(()));

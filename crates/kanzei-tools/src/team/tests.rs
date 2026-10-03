@@ -6,13 +6,16 @@ use tokio::{
     net::TcpListener,
 };
 
-fn fixture_worker(team: &AgentTeam) -> (AgentJob, Arc<CancellationToken>) {
+fn fixture_worker(team: &AgentTeam) -> (AgentJob, Arc<ChildWorker>) {
     let job = team
         .0
         .store
         .update("question-child", |job| job.state = "running".into())
         .unwrap();
-    let token = Arc::new(CancellationToken::new());
+    let token = Arc::new(ChildWorker {
+        cancel: CancellationToken::new(),
+        owner: claim_child(&team.0.store, &job.id).unwrap(),
+    });
     team.0
         .active
         .lock()
@@ -30,6 +33,794 @@ fn background_question(id: u64) -> kanzei_core::AskRequest {
         background: true,
         callback_id: Some(format!("callback-{id}")),
     }
+}
+
+fn owner_fixture_process(
+    team: &AgentTeam,
+    url: &str,
+    action: &str,
+    revision: u64,
+) -> std::process::Command {
+    let profile = team.0.root.join(format!("owner-profile-{action}"));
+    std::fs::create_dir_all(profile.join(".kanzei")).unwrap();
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "--exact",
+            "team::tests::child_owner_process_fixture",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("D2_OWNER_FIXTURE_ROOT", &team.0.root)
+        .env("D2_OWNER_FIXTURE_OWNER", &team.0.owner)
+        .env("D2_OWNER_FIXTURE_URL", url)
+        .env("D2_OWNER_FIXTURE_ACTION", action)
+        .env("D2_OWNER_FIXTURE_REVISION", revision.to_string())
+        .env("KANZEI_HOME", profile.join(".kanzei"))
+        .env("HOME", &profile)
+        .env("USERPROFILE", &profile)
+        .env("APPDATA", profile.join("AppData/Roaming"))
+        .env("LOCALAPPDATA", profile.join("AppData/Local"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    command
+}
+
+// Invoked only as a real second process by the regression below. It does not
+// share TEAMS or active workers with the process that owns the first request.
+#[tokio::test]
+#[ignore = "subprocess fixture; requires D2_OWNER_FIXTURE_ROOT"]
+async fn child_owner_process_fixture() {
+    let root = PathBuf::from(std::env::var_os("D2_OWNER_FIXTURE_ROOT").expect("fixture root"));
+    let owner = std::env::var("D2_OWNER_FIXTURE_OWNER").unwrap();
+    let url = std::env::var("D2_OWNER_FIXTURE_URL").unwrap();
+    let action = std::env::var("D2_OWNER_FIXTURE_ACTION").unwrap();
+    let fixture_id =
+        std::env::var("D2_OWNER_FIXTURE_ID").unwrap_or_else(|_| "cross-process-child".into());
+    let id = fixture_id.as_str();
+    let store = store_for_inspection(&root, &owner).unwrap();
+    let before = store.get(id).unwrap();
+    if action == "cleanup-failed" {
+        assert!(cleanup_failed(&before));
+        assert!(!crate::background::has_child_cleanup_records(
+            &root, &owner, id
+        ));
+        let remote = team(root, &url, &owner);
+        let error = remote
+            .ui_command(
+                json!({"action":"resume","id":id,"prompt":"remote repair cannot guess baseline"}),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("原执行者"), "{error}");
+        assert_eq!(
+            serde_json::to_value(store.get(id).unwrap()).unwrap(),
+            serde_json::to_value(&before).unwrap()
+        );
+    } else if action == "wait" {
+        assert_eq!(before.state, "running");
+        let remote = team(root.clone(), &url, &owner);
+        let waiting = remote.ui_command(json!({"action":"wait","id":id}));
+        tokio::pin!(waiting);
+        tokio::select! {
+            result = &mut waiting => panic!("remote live wait returned early: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(200)) => {},
+        }
+        std::fs::write(
+            root.join("d2-remote-waiting"),
+            "waiting while first owner/request held",
+        )
+        .unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(8), waiting)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result[0]["state"], "done");
+        assert_eq!(store.get(id).unwrap().attempt, 1);
+    } else if action == "busy" {
+        assert_eq!(
+            before.state, "running",
+            "inspection cannot interrupt a live remote worker"
+        );
+        assert_eq!(
+            before.revision,
+            std::env::var("D2_OWNER_FIXTURE_REVISION")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+        );
+        let remote = team(root, &url, &owner);
+        let error = remote
+            .ui_command(json!({"action":"resume","id":id,"prompt":"remote busy follow-up"}))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("其他执行者"), "{error}");
+        let error = remote.stop(id).unwrap_err();
+        assert!(error.to_string().contains("其他执行者"), "{error}");
+        let after = store.get(id).unwrap();
+        assert_eq!(
+            serde_json::to_value(&after).unwrap(),
+            serde_json::to_value(&before).unwrap(),
+            "busy mutation must not edit the durable job"
+        );
+    } else {
+        assert_eq!(action, "resume");
+        assert_eq!(before.state, "done");
+        let remote = team(root, &url, &owner);
+        remote
+            .ui_command(json!({"action":"resume","id":id,"prompt":"explicit idle takeover"}))
+            .await
+            .unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(8),
+            remote.command("", json!({"action":"wait","id":id})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let after = remote.resolve(id).unwrap();
+        assert_eq!(after.state, "done");
+        assert_eq!(after.attempt, 2);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cross_process_inspection_and_resume_preserve_live_child_and_idle_can_transfer() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let team = team(project(), &url, "cross-process-team-owner");
+    team.command(
+        "cross-process-child",
+        json!({"agent":"plan","prompt":"first held assignment"}),
+    )
+    .await
+    .unwrap();
+    let (mut first, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(request(&mut first)
+        .await
+        .to_string()
+        .contains("first held assignment"));
+    let before = team.resolve("cross-process-child").unwrap();
+    assert_eq!(before.state, "running");
+    let released_owner = Arc::downgrade(&team.0.active.lock().unwrap()[&before.id].owner);
+    assert!(team.0.runtime.lock().unwrap().transcript_sink.is_none());
+    assert!(team.0.runtime.lock().unwrap().transcript_provider.is_none());
+    let mut busy = owner_fixture_process(&team, &url, "busy", before.revision);
+    let output = tokio::task::spawn_blocking(move || busy.output().unwrap())
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "second process failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::to_value(team.resolve(&before.id).unwrap()).unwrap(),
+        serde_json::to_value(&before).unwrap()
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), listener.accept())
+            .await
+            .is_err(),
+        "a busy remote resume cannot start a second model request"
+    );
+    let mut remote_wait = owner_fixture_process(&team, &url, "wait", before.revision)
+        .spawn()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !team.0.root.join("d2-remote-waiting").exists() {
+            assert!(
+                remote_wait.try_wait().unwrap().is_none(),
+                "remote wait must not prematurely reject a live owner"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(team.resolve(&before.id).unwrap()).unwrap(),
+        serde_json::to_value(&before).unwrap()
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), listener.accept())
+            .await
+            .is_err(),
+        "read-only remote wait cannot send a provider request"
+    );
+
+    // Ownership is per child, not per team or parent round: a sibling can run
+    // while the first child's real model response is still held.
+    team.command(
+        "independent-child",
+        json!({"agent":"plan","prompt":"independent sibling"}),
+    )
+    .await
+    .unwrap();
+    let (mut sibling, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(request(&mut sibling)
+        .await
+        .to_string()
+        .contains("independent sibling"));
+    respond(&mut sibling, json!({"content":"sibling complete"})).await;
+    respond(&mut first, json!({"content":"first complete"})).await;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        team.command("", json!({"action":"wait"})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let waited = tokio::task::spawn_blocking(move || remote_wait.wait_with_output().unwrap())
+        .await
+        .unwrap();
+    assert!(
+        waited.status.success(),
+        "remote wait failed: {}\n{}",
+        String::from_utf8_lossy(&waited.stdout),
+        String::from_utf8_lossy(&waited.stderr)
+    );
+    // A terminal DB row can be visible just before final cleanup drops its guard.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match try_child_owner(&team.0.store, &before.id) {
+                Ok(owner) => {
+                    drop(owner);
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    tokio::time::sleep(Duration::from_millis(10)).await
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    // The first team remains in TEAMS. Its idle strong Arc does not pin ownership.
+    assert!(
+        released_owner.upgrade().is_none(),
+        "the real worker/provider/sink references must all finish, not only active removal"
+    );
+    assert!(find(&team.0.root, &team.0.owner).is_some());
+    let resumed = owner_fixture_process(&team, &url, "resume", 0)
+        .spawn()
+        .unwrap();
+    let (mut second, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    let continued = request(&mut second).await.to_string();
+    assert!(continued.contains("explicit idle takeover"));
+    assert!(continued.contains("first held assignment"));
+    respond(&mut second, json!({"content":"remote takeover complete"})).await;
+    let output = tokio::task::spawn_blocking(move || resumed.wait_with_output().unwrap())
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "idle takeover failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(team.resolve(&before.id).unwrap().attempt, 2);
+}
+
+async fn owned_process_fixture(
+    team: &AgentTeam,
+    id: &str,
+    attempt: u32,
+) -> Arc<crate::background::BackgroundProcess> {
+    let child = tokio::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "team::tests::owned_background_process_fixture",
+            "--ignored",
+            "--nocapture",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let process = crate::background::register_with_mailbox(
+        child,
+        "D2 owned identity fixture".into(),
+        &team.0.root,
+        &team.0.root,
+        crate::background::BackgroundOwner {
+            run_id: format!("{}:{id}:{attempt}", team.0.owner),
+            process_id: id.into(),
+            write_key: format!("{}:{id}", team.0.owner),
+        },
+        crate::managed::ManagedSnapshot::capture(&team.0.root),
+        false,
+        None,
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !process.output().contains("D2_BACKGROUND_READY") {
+            assert!(process.is_running());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    process
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn same_db_different_parents_same_call_id_keep_model_and_cleanup_independent() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let root = project();
+    let first_team = team(root.clone(), &url, "parent-session-a");
+    let second_team = team(root, &url, "parent-session-b");
+    let id = "call_1";
+    first_team
+        .command(id, json!({"agent":"plan","prompt":"parent A assignment"}))
+        .await
+        .unwrap();
+    let (mut first, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(request(&mut first)
+        .await
+        .to_string()
+        .contains("parent A assignment"));
+    second_team
+        .command(id, json!({"agent":"plan","prompt":"parent B assignment"}))
+        .await
+        .unwrap();
+    let (mut second, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(request(&mut second)
+        .await
+        .to_string()
+        .contains("parent B assignment"));
+    assert_eq!(
+        first_team.0.store.state_path(),
+        second_team.0.store.state_path()
+    );
+    assert_eq!(
+        try_child_owner(&first_team.0.store, id)
+            .err()
+            .unwrap()
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert_eq!(
+        try_child_owner(&second_team.0.store, id)
+            .err()
+            .unwrap()
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    let first_process = owned_process_fixture(&first_team, id, 1).await;
+    let second_process = owned_process_fixture(&second_team, id, 1).await;
+    let before = second_team.resolve(id).unwrap();
+    first_team.stop(id).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        first_team.command("", json!({"action":"wait","id":id})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!crate::shell::process_alive(first_process.pid().unwrap()));
+    assert!(second_process.is_running());
+    assert!(crate::shell::process_alive(second_process.pid().unwrap()));
+    assert_eq!(
+        serde_json::to_value(second_team.resolve(id).unwrap()).unwrap(),
+        serde_json::to_value(&before).unwrap()
+    );
+    assert!(try_child_owner(&first_team.0.store, id).is_ok());
+    assert_eq!(
+        try_child_owner(&second_team.0.store, id)
+            .err()
+            .unwrap()
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    first_team
+        .ui_command(json!({"action":"resume","id":id,"prompt":"parent A explicit second attempt"}))
+        .await
+        .unwrap();
+    let (mut third, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    let routed = request(&mut third).await.to_string();
+    assert!(routed.contains("parent A explicit second attempt"));
+    assert!(!routed.contains("parent B assignment"));
+    assert_eq!(first_team.resolve(id).unwrap().attempt, 2);
+    assert_eq!(second_team.resolve(id).unwrap().attempt, 1);
+    respond(&mut third, json!({"content":"A complete"})).await;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        first_team.command("", json!({"action":"wait","id":id})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(second_process.is_running());
+    assert!(crate::shell::process_alive(second_process.pid().unwrap()));
+    second_team.stop(id).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        second_team.command("", json!({"action":"wait","id":id})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!crate::shell::process_alive(second_process.pid().unwrap()));
+    drop(first);
+    drop(second);
+}
+
+#[tokio::test]
+async fn worker_registration_unwind_releases_child_but_late_callback_keeps_owner() {
+    let team = answered_question_team("worker-unwind-owner");
+    let (job, worker) = fixture_worker(&team);
+    let released_owner = Arc::downgrade(&worker.owner);
+    team.0
+        .store
+        .checkpoint(&job.id, &[Message::user_text("retained history")])
+        .unwrap();
+    let late_callback = team.transcript_sink(&job.id, &worker, job.attempt);
+    let registration = WorkerRegistration {
+        team: team.clone(),
+        id: job.id.clone(),
+        worker: worker.clone(),
+    };
+    drop(worker);
+    let exited = tokio::spawn(async move {
+        let _registration = registration;
+        panic!("controlled worker unwind");
+    })
+    .await;
+    assert!(exited.is_err());
+    assert!(team.0.active.lock().unwrap().is_empty());
+    late_callback(
+        &job.id,
+        json!({"messages":[Message::user_text("stale callback overwrite")]}),
+    );
+    assert!(
+        serde_json::to_string(&team.0.store.history(&job.id).unwrap())
+            .unwrap()
+            .contains("retained history")
+    );
+    let error = try_child_owner(&team.0.store, &job.id)
+        .err()
+        .expect("late callback still owns child");
+    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+    assert!(released_owner.upgrade().is_some());
+    drop(late_callback);
+    assert!(released_owner.upgrade().is_none());
+    let inspected = store_for_inspection(&team.0.root, &team.0.owner).unwrap();
+    // This team still exists locally; explicitly exercise orphan recovery after
+    // the final callback reference releases, without dropping the team registry.
+    recover_interrupted(&inspected).unwrap();
+    assert_eq!(inspected.get(&job.id).unwrap().state, "interrupted");
+    assert!(try_child_owner(&team.0.store, &job.id).is_ok());
+}
+
+#[test]
+fn attached_team_does_not_retain_parent_round_owner_in_transcript_callbacks() {
+    let original = team(project(), "http://127.0.0.1:9/v1", "parent-callback-owner");
+    let parent =
+        Arc::new(try_acquire(original.0.store.state_path(), "parent-round-fixture").unwrap());
+    let released = Arc::downgrade(&parent);
+    let mut runtime = original.0.runtime.lock().unwrap().clone();
+    let sink_owner = parent.clone();
+    runtime.transcript_sink = Some(Arc::new(move |_, _| {
+        let _owner = &sink_owner;
+    }));
+    runtime.transcript_provider = Some(Arc::new(move |_| {
+        let _owner = &parent;
+        Some(vec![])
+    }));
+    let config = original.0.config.lock().unwrap().clone();
+    let attached = AgentTeam::attach(
+        config,
+        original.0.ctx.clone(),
+        runtime,
+        original.0.client.clone(),
+        None,
+    )
+    .unwrap();
+    assert!(Arc::ptr_eq(&attached.0, &original.0));
+    assert!(attached.0.runtime.lock().unwrap().transcript_sink.is_none());
+    assert!(attached
+        .0
+        .runtime
+        .lock()
+        .unwrap()
+        .transcript_provider
+        .is_none());
+    assert!(
+        released.upgrade().is_none(),
+        "a cached team cannot pin its parent's round owner"
+    );
+    assert!(try_acquire(original.0.store.state_path(), "parent-round-fixture").is_ok());
+}
+
+#[test]
+#[ignore = "owned background process fixture"]
+fn owned_background_process_fixture() {
+    use std::io::Write;
+    println!("D2_BACKGROUND_READY");
+    std::io::stdout().flush().unwrap();
+    std::thread::sleep(Duration::from_secs(60));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn finishing_callback_panic_reaps_real_process_before_last_owner_release() {
+    let _serial = crate::background::tests::serial().lock().await;
+    let _fence = crate::background::tests::fence_guard();
+    let team = answered_question_team("finishing-panic-owner");
+    let (job, worker) = fixture_worker(&team);
+    let released_owner = Arc::downgrade(&worker.owner);
+    let baseline = crate::managed::ManagedSnapshot::capture(&team.0.root);
+    let child = tokio::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "team::tests::owned_background_process_fixture",
+            "--ignored",
+            "--nocapture",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let process = crate::background::register_with_mailbox(
+        child,
+        "D2 owned test fixture".into(),
+        &team.0.root,
+        &team.0.root,
+        crate::background::BackgroundOwner {
+            run_id: format!("{}:{}:{}", team.0.owner, job.id, job.attempt),
+            process_id: job.id.clone(),
+            write_key: "finishing-panic".into(),
+        },
+        baseline,
+        false,
+        None,
+    );
+    let pid = process.pid().unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !process.output().contains("D2_BACKGROUND_READY") {
+            assert!(process.is_running());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (reached, final_reconcile) = tokio::sync::oneshot::channel();
+    let reached = Arc::new(Mutex::new(Some(reached)));
+    let (release, barrier) = std::sync::mpsc::channel();
+    let barrier = Mutex::new(barrier);
+    let background_id = process.id.clone();
+    crate::background::set_final_guard_hook(Some(Arc::new(move |id| {
+        if id == background_id {
+            if let Some(reached) = reached.lock().unwrap().take() {
+                let _ = reached.send(());
+                let _ = barrier.lock().unwrap().recv();
+            }
+        }
+    })));
+    struct ResetHook;
+    impl Drop for ResetHook {
+        fn drop(&mut self) {
+            crate::background::set_final_guard_hook(None);
+        }
+    }
+    let _hook = ResetHook;
+    team.0
+        .store
+        .update(&job.id, |j| j.state = "done".into())
+        .unwrap();
+    team.queue_message(
+        &job.id,
+        "main",
+        "explicit continuation before settlement",
+        Some("panic-continuation".into()),
+    )
+    .unwrap();
+    let (seen, observed) = std::sync::mpsc::channel();
+    let root = team.0.root.clone();
+    let id = job.id.clone();
+    *team.0.event.lock().unwrap() = Some(Arc::new(move |job| {
+        if job.state == "queued" {
+            let store = TeamStore::open(&root, &job.owner).unwrap();
+            let busy = try_child_owner(&store, &id).err().unwrap().kind()
+                == std::io::ErrorKind::WouldBlock;
+            seen.send((busy, crate::shell::process_alive(pid))).unwrap();
+            panic!("controlled finishing event panic");
+        }
+    }));
+    // Failed work first reaps and joins the real process/last managed reconcile.
+    // Its accepted continuation then emits queued and panics during settlement.
+    let finishing_team = team.clone();
+    let finishing_id = job.id.clone();
+    let registration = WorkerRegistration {
+        team: team.clone(),
+        id: job.id.clone(),
+        worker: worker.clone(),
+    };
+    drop(worker);
+    let finishing = tokio::spawn(async move {
+        let _registration = registration;
+        let result = Err(anyhow::anyhow!("controlled runner failure"));
+        finishing_team
+            .settle_worker(&finishing_id, &_registration.worker, &result, &[])
+            .await;
+    });
+    tokio::time::timeout(Duration::from_secs(5), final_reconcile)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!crate::shell::process_alive(pid));
+    assert!(
+        !finishing.is_finished(),
+        "the final detached reconcile is not complete"
+    );
+    assert_eq!(
+        try_child_owner(&team.0.store, &job.id)
+            .err()
+            .unwrap()
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    release.send(()).unwrap();
+    finishing.await.unwrap();
+    assert_eq!(
+        observed.recv().unwrap(),
+        (true, false),
+        "the event runs with ownership after the old writing process was reaped"
+    );
+    assert!(!process.is_running());
+    assert!(
+        !crate::shell::process_alive(pid),
+        "cleanup must prove actual owned PID exit"
+    );
+    assert!(released_owner.upgrade().is_none());
+    assert!(try_child_owner(&team.0.store, &job.id).is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_final_restore_rejects_admission_until_real_retry_succeeds() {
+    let _serial = crate::background::tests::serial().lock().await;
+    let _fence = crate::background::tests::fence_guard();
+    let team = answered_question_team("restore-failure-owner");
+    let (job, worker) = fixture_worker(&team);
+    let path = team.0.root.join(".kanzei/project/requirements.md");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "original protected content").unwrap();
+    let baseline = crate::managed::ManagedSnapshot::capture(&team.0.root);
+    let child = tokio::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "team::tests::owned_background_process_fixture",
+            "--ignored",
+            "--nocapture",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let process = crate::background::register_with_mailbox(
+        child,
+        "D2 restore failure fixture".into(),
+        &team.0.root,
+        &team.0.root,
+        crate::background::BackgroundOwner {
+            run_id: format!("{}:{}:{}", team.0.owner, job.id, job.attempt),
+            process_id: job.id.clone(),
+            write_key: "restore-failure".into(),
+        },
+        baseline,
+        false,
+        None,
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !process.output().contains("D2_BACKGROUND_READY") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let quarantine = team.0.root.join(".kanzei/quarantine");
+    std::fs::write(&quarantine, "blocks evidence preservation").unwrap();
+    std::fs::write(&path, "unquarantined candidate must survive failure").unwrap();
+    let registration = WorkerRegistration {
+        team: team.clone(),
+        id: job.id.clone(),
+        worker: worker.clone(),
+    };
+    team.settle_worker(
+        &job.id,
+        &worker,
+        &Err(anyhow::anyhow!("controlled failed work")),
+        &[],
+    )
+    .await;
+    drop(registration);
+    drop(worker);
+    assert!(!process.is_running());
+    assert!(!crate::shell::process_alive(process.pid().unwrap()));
+    let failed = team.resolve(&job.id).unwrap();
+    assert_eq!(failed.state, "failed");
+    assert!(cleanup_failed(&failed), "{}", failed.latest);
+    assert!(process.output().contains("回滚失败"));
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "unquarantined candidate must survive failure"
+    );
+    let error = team
+        .queue_message(
+            &job.id,
+            "main",
+            "explicit retry",
+            Some("failed-restore-retry".into()),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("回滚失败"), "{error}");
+    assert_eq!(
+        serde_json::to_value(team.resolve(&job.id).unwrap()).unwrap(),
+        serde_json::to_value(&failed).unwrap(),
+        "failed admission cannot write a message or state"
+    );
+    assert!(team.0.active.lock().unwrap().is_empty());
+    let mut remote = owner_fixture_process(
+        &team,
+        "http://127.0.0.1:9/v1",
+        "cleanup-failed",
+        failed.revision,
+    );
+    remote.env("D2_OWNER_FIXTURE_ID", &job.id);
+    let output = tokio::task::spawn_blocking(move || remote.output().unwrap())
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::remove_file(&quarantine).unwrap();
+    team.queue_message(
+        &job.id,
+        "main",
+        "explicit retry",
+        Some("failed-restore-retry".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "original protected content"
+    );
+    assert!(quarantine.is_dir());
+    team.stop(&job.id).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        team.command("", json!({"action":"wait"})),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 }
 
 #[tokio::test]
@@ -104,6 +895,7 @@ async fn failed_completion_state_write_releases_owner_and_wait_returns_error() {
     ));
     assert!(team.0.active.lock().unwrap().is_empty());
     assert_eq!(team.resolve(&job.id).unwrap().state, "running");
+    drop(token);
     let error = tokio::time::timeout(
         Duration::from_secs(1),
         team.command("", json!({"action":"wait","id":job.id})),
@@ -270,6 +1062,7 @@ async fn stop_cancels_worker_even_when_pending_question_record_is_corrupt() {
         true,
         &[]
     ));
+    drop(token);
     team.command("", json!({"action":"wait"})).await.unwrap();
     assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
 }
@@ -304,6 +1097,7 @@ async fn cancelled_cleanup_does_not_relaunch_queued_followup_after_stop_save_fai
     );
     db.execute_batch("DROP TRIGGER reject_cancel_state;")
         .unwrap();
+    drop(token);
     team.stop(&job.id).unwrap();
     team.command("", json!({"action":"wait"})).await.unwrap();
     assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
@@ -332,6 +1126,7 @@ async fn stop_all_cancels_known_worker_even_when_job_store_cannot_be_read() {
     assert!(team.command("", json!({"action":"wait"})).await.is_err());
     db.execute_batch("ALTER TABLE hidden_jobs RENAME TO agent_team_jobs;")
         .unwrap();
+    drop(token);
     team.stop(&job.id).unwrap();
     assert_eq!(team.resolve(&job.id).unwrap().state, "stopped");
 }
@@ -383,12 +1178,6 @@ async fn stop_all_cancels_real_worker_when_state_write_fails_and_does_not_relaun
             .is_err(),
         "stop cannot replay the queue after cleanup save failure"
     );
-    assert!(team
-        .command("", json!({"action":"wait","id":job.id}))
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("没有运行中的执行者"));
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let router_calls = calls.clone();
     let router: TeamAsk = Arc::new(move |_, _| {
@@ -405,6 +1194,13 @@ async fn stop_all_cancels_real_worker_when_state_write_fails_and_does_not_relaun
         .worker_update(&job.id, &token, Some(job.attempt), |j| j.state =
             "running".into())
         .is_err());
+    drop(token);
+    assert!(team
+        .command("", json!({"action":"wait","id":job.id}))
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("没有运行中的执行者"));
     db.execute_batch("DROP TRIGGER reject_stop_state;").unwrap();
     team.stop(&job.id).unwrap();
     team.ui_command(
@@ -458,6 +1254,17 @@ fn inspection_rechecks_registry_after_an_absent_snapshot_and_recovers_only_orpha
         .lock()
         .unwrap()
         .remove(&key(&live.0.root, &live.0.owner));
+    // Losing an in-process registry entry is not proof that its OS owner died.
+    assert_eq!(
+        store_for_inspection(&live.0.root, &live.0.owner)
+            .unwrap()
+            .get(&job.id)
+            .unwrap()
+            .state,
+        "running"
+    );
+    live.0.active.lock().unwrap().remove(&job.id);
+    drop(token);
     let orphan = store_for_inspection(&live.0.root, &live.0.owner).unwrap();
     assert_eq!(orphan.get(&job.id).unwrap().state, "interrupted");
     assert_eq!(orphan.history(&job.id).unwrap().len(), 1);
@@ -557,6 +1364,8 @@ async fn cleanup_hands_queued_resume_to_one_new_worker_and_old_cleanup_cannot_re
         .to_string()
         .contains("explicit follow-up"));
     respond(&mut stream, json!({"content":"follow-up completed"})).await;
+    drop(old);
+    drop(current);
     team.command("", json!({"action":"wait"})).await.unwrap();
     assert_eq!(team.resolve(&job.id).unwrap().attempt, 2);
     assert_eq!(team.resolve(&job.id).unwrap().state, "done");
@@ -741,7 +1550,10 @@ async fn timed_out_worker_hands_off_new_explicit_resume_without_replaying_origin
 async fn ask_rejects_retired_token_and_old_attempt_but_admits_current_attempt() {
     let team = answered_question_team("ask-identity-owner");
     let (job, old) = fixture_worker(&team);
-    let current = Arc::new(CancellationToken::new());
+    let current = Arc::new(ChildWorker {
+        cancel: CancellationToken::new(),
+        owner: old.owner.clone(),
+    });
     team.0
         .active
         .lock()

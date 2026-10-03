@@ -7,6 +7,8 @@ mod tools;
 pub(crate) mod workspace;
 
 use anyhow::{bail, Context, Result};
+use futures::FutureExt;
+use kanzei_core::store::session_execution::{try_acquire, SessionExecutionGuard};
 use kanzei_core::{CancellationToken, DelegationFuture, DelegationHost, RunEvent, SubagentRuntime};
 use kanzei_harness::{
     AsyncMailbox, AsyncNotice, ConfigComponent, Harness, MarkdownComponent, ResolveCtx, ToolCtx,
@@ -29,6 +31,14 @@ pub type TeamAsk =
 type ParentAsk = Arc<dyn Fn(kanzei_core::AskRequest) -> kanzei_core::AskFuture + Send + Sync>;
 #[derive(Clone)]
 pub struct AgentTeam(Arc<Inner>);
+// Exact private predicate in the existing failure description; no new schema.
+const CLEANUP_FAILED_PREFIX: &str = "后台清理未完成：";
+fn cleanup_failed(job: &AgentJob) -> bool {
+    job.latest.starts_with(CLEANUP_FAILED_PREFIX)
+}
+fn cleanup_failure(error: &str) -> String {
+    format!("{CLEANUP_FAILED_PREFIX}{error}；明确续做前须成功重试清理")
+}
 struct Inner {
     root: PathBuf,
     ctx: ToolCtx,
@@ -38,7 +48,7 @@ struct Inner {
     runtime: Mutex<SubagentRuntime>,
     client: LlmClient,
     lifecycle: Mutex<()>,
-    active: Mutex<HashMap<String, Arc<CancellationToken>>>,
+    active: Mutex<HashMap<String, Arc<ChildWorker>>>,
     parent: Mutex<Vec<Message>>,
     event: Mutex<Option<TeamEvent>>,
     ask_router: Mutex<Option<TeamAsk>>,
@@ -49,6 +59,36 @@ struct Inner {
     changed: Notify,
     slots: Arc<Semaphore>,
     spawn_lock: tokio::sync::Mutex<()>,
+}
+struct ChildWorker {
+    cancel: CancellationToken,
+    owner: Arc<SessionExecutionGuard>,
+}
+impl std::ops::Deref for ChildWorker {
+    type Target = CancellationToken;
+    fn deref(&self) -> &Self::Target {
+        &self.cancel
+    }
+}
+// The registry retains teams after a turn. Only a live worker retains its child
+// owner, including cancellation cleanup and callbacks that can still checkpoint.
+struct WorkerRegistration {
+    team: AgentTeam,
+    id: String,
+    worker: Arc<ChildWorker>,
+}
+impl Drop for WorkerRegistration {
+    fn drop(&mut self) {
+        let mut active = self.team.0.active.lock().unwrap_or_else(|e| e.into_inner());
+        if active
+            .get(&self.id)
+            .is_some_and(|current| Arc::ptr_eq(current, &self.worker))
+        {
+            active.remove(&self.id);
+            self.worker.cancel();
+            self.team.0.changed.notify_waiters();
+        }
+    }
 }
 static TEAMS: OnceLock<Mutex<HashMap<String, AgentTeam>>> = OnceLock::new();
 fn key(root: &Path, owner: &str) -> String {
@@ -79,21 +119,56 @@ fn get_or_register(
     Ok(team)
 }
 
+fn try_child_owner(store: &TeamStore, id: &str) -> std::io::Result<SessionExecutionGuard> {
+    // Stable across attempts and separate from the parent's round/session owner.
+    let identity = serde_json::to_string(&(store.owner(), id)).map_err(std::io::Error::other)?;
+    try_acquire(store.state_path(), &format!("team:{identity}"))
+}
+fn claim_child(store: &TeamStore, id: &str) -> Result<Arc<SessionExecutionGuard>> {
+    try_child_owner(store, id).map(Arc::new).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::WouldBlock {
+            anyhow::anyhow!("子任务 {id} 正由其他执行者运行，暂不能接管")
+        } else {
+            anyhow::Error::new(error).context(format!("取得子任务 {id} 执行所有权失败"))
+        }
+    })
+}
 fn recover_interrupted(store: &TeamStore) -> Result<()> {
     for job in store.list()? {
         if job.active() {
-            store.update(&job.id, |j| {
-                j.state = "interrupted".into();
-                j.latest = "运行已中断，可继续此任务".into();
-                j.updated_at = now().max(j.updated_at + 1);
-                j.revision += 1;
-            })?;
+            let _owner = match try_child_owner(store, &job.id) {
+                Ok(owner) => owner,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+                Err(error) => return Err(error.into()),
+            };
+            recover_owned_child(store, &job.id, &_owner)?;
         }
     }
     Ok(())
 }
+fn recover_owned_child(
+    store: &TeamStore,
+    id: &str,
+    _owner: &SessionExecutionGuard,
+) -> Result<bool> {
+    // Candidate snapshots are not evidence of a live or orphaned worker.
+    if !store.get(id)?.active() {
+        return Ok(false);
+    }
+    let mut recovered = false;
+    store.update(id, |job| {
+        if job.active() {
+            job.state = "interrupted".into();
+            job.latest = "运行已中断，可继续此任务".into();
+            job.updated_at = now().max(job.updated_at + 1);
+            job.revision += 1;
+            recovered = true;
+        }
+    })?;
+    Ok(recovered)
+}
 
-/// Recover persisted jobs only while no registered runtime owns this team.
+/// Busy children owned by another process are read without recovering them.
 pub fn store_for_inspection(root: &Path, owner: &str) -> Result<TeamStore> {
     let teams = TEAMS.get_or_init(Default::default).lock().unwrap();
     if let Some(team) = teams.get(&key(root, owner)) {
@@ -151,6 +226,11 @@ impl AgentTeam {
         // A team outlives a turn; never retain or drain its parent's turn writer.
         ctx.input_inbox = None;
         runtime.options.host = None;
+        // Each worker installs its own durable child transcript callbacks below.
+        // Keeping the parent's callbacks here would pin its turn/session writer
+        // in the long-lived TEAMS registry after the parent round completes.
+        runtime.transcript_sink = None;
+        runtime.transcript_provider = None;
         let root = ctx.project_root.clone();
         let mailbox = ctx.async_mailbox.clone();
         let team = get_or_register(&root, &owner, || {
@@ -219,7 +299,8 @@ impl AgentTeam {
         *self.0.parent.lock().unwrap() = messages.to_vec();
     }
     fn emit(&self, job: &AgentJob) {
-        if let Some(event) = self.0.event.lock().unwrap().clone() {
+        let event = self.0.event.lock().unwrap().clone();
+        if let Some(event) = event {
             event(job);
         }
         self.0.changed.notify_waiters();
@@ -276,13 +357,46 @@ impl AgentTeam {
         Ok(job)
     }
 
+    fn child_owner_locked(&self, id: &str) -> Result<Arc<SessionExecutionGuard>> {
+        if let Some(worker) = self.0.active.lock().unwrap().get(id) {
+            return Ok(worker.owner.clone());
+        }
+        let owner = claim_child(&self.0.store, id)?;
+        crate::background::retry_child_cleanup(&self.0.root, &self.0.owner, id)
+            .map_err(anyhow::Error::msg)?;
+        Ok(owner)
+    }
+    fn resolve_owned_locked(&self, id: &str) -> Result<(AgentJob, Arc<SessionExecutionGuard>)> {
+        let id = self.resolve(id)?.id;
+        let owner = self.child_owner_locked(&id)?;
+        // Resolving a name/id precedes claiming. Never use that earlier state for
+        // admission after a different process has completed or resumed the child.
+        let mut job = self.0.store.get(&id)?;
+        if cleanup_failed(&job) {
+            if self.0.active.lock().unwrap().contains_key(&id) {
+                bail!("子任务 {id} 的后台清理仍由执行者处理，请稍后重试");
+            }
+            if !crate::background::has_child_cleanup_records(&self.0.root, &self.0.owner, &id) {
+                bail!("子任务 {id} 的原执行者后台清理证据不可用；请先在原执行者成功处理，不能猜测已恢复");
+            }
+            // child_owner_locked has actually joined and restored the retained
+            // records; only that evidence permits clearing the exact marker.
+            job = self.0.store.update(&id, |job| {
+                job.latest = "后台清理重试成功，可明确续做".into();
+                job.updated_at = now().max(job.updated_at + 1);
+                job.revision += 1;
+            })?;
+        }
+        Ok((job, owner))
+    }
+
     pub fn stop(&self, id: &str) -> Result<()> {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         self.stop_locked(id)
     }
     fn stop_locked(&self, id: &str) -> Result<()> {
-        let job = match self.resolve(id) {
-            Ok(job) => job,
+        let (job, _owner) = match self.resolve_owned_locked(id) {
+            Ok(owned) => owned,
             Err(error) => {
                 self.close_child_mailbox(id);
                 if let Some(cancel) = self.0.active.lock().unwrap().get(id) {
@@ -291,6 +405,9 @@ impl AgentTeam {
                 return Err(error);
             }
         };
+        self.stop_owned_locked(&job, &_owner)
+    }
+    fn stop_owned_locked(&self, job: &AgentJob, _owner: &Arc<SessionExecutionGuard>) -> Result<()> {
         let questions_cancelled = kanzei_harness::pending_question::cancel_owner(
             &self.0.ctx.project_root,
             &self.0.owner,
@@ -323,7 +440,7 @@ impl AgentTeam {
         Ok(())
     }
     pub fn stop_all(&self) {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         for mailbox in self.0.child_mailboxes.lock().unwrap().values() {
             mailbox.close();
         }
@@ -406,11 +523,16 @@ impl AgentTeam {
             }
             "spawn" => self.spawn(call_id, &input).await,
             "restart" => {
-                let job = self.resolve(input["id"].as_str().context("需要子任务 id")?)?;
-                if job.active() {
-                    self.stop(&job.id)?;
-                }
-                self.close_child_mailbox(&job.id);
+                let job = {
+                    let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+                    let (job, owner) =
+                        self.resolve_owned_locked(input["id"].as_str().context("需要子任务 id")?)?;
+                    if job.active() {
+                        self.stop_owned_locked(&job, &owner)?;
+                    }
+                    self.close_child_mailbox(&job.id);
+                    job
+                };
                 self.spawn("", &json!({
                     "prompt":input["prompt"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or(&job.prompt),
                     "description":job.name,"agent":job.role,"model":job.model_tier,
@@ -440,17 +562,32 @@ impl AgentTeam {
                 loop {
                     let notify = self.0.changed.notified();
                     let (jobs, workers) = {
-                        let _lifecycle = self.0.lifecycle.lock().unwrap();
+                        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
                         let jobs = self.list()?;
-                        let workers: std::collections::HashSet<_> =
+                        let mut workers: std::collections::HashSet<_> =
                             self.0.active.lock().unwrap().keys().cloned().collect();
-                        if action == "wait" {
-                            if let Some(job) = jobs.iter().find(|j| {
-                                j.active()
-                                    && !workers.contains(&j.id)
-                                    && wanted.as_ref().is_none_or(|w| w.id == j.id)
-                            }) {
-                                bail!("子任务 {} 没有运行中的执行者；状态保存或启动失败，可明确续做或停止", job.id);
+                        for job in jobs
+                            .iter()
+                            .filter(|job| wanted.as_ref().is_none_or(|wanted| wanted.id == job.id))
+                        {
+                            if workers.contains(&job.id) {
+                                continue;
+                            }
+                            match try_child_owner(&self.0.store, &job.id) {
+                                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                    // A remote worker (or its final callback) is
+                                    // still live. Use the existing DB/notify wait.
+                                    workers.insert(job.id.clone());
+                                }
+                                Err(error) => return Err(error.into()),
+                                Ok(owner) => {
+                                    if action == "wait"
+                                        && job.active()
+                                        && recover_owned_child(&self.0.store, &job.id, &owner).map_err(|error| anyhow::anyhow!("子任务 {} 没有运行中的执行者；恢复状态保存失败：{error:#}", job.id))?
+                                    {
+                                        bail!("子任务 {} 没有运行中的执行者；状态保存或启动失败，可明确续做或停止", job.id);
+                                    }
+                                }
                             }
                         }
                         (jobs, workers)
@@ -505,11 +642,11 @@ impl AgentTeam {
         id: &str,
         apply: impl FnOnce(&Path, &str, &str) -> Result<()>,
     ) -> Result<AgentJob> {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         if self.0.config.lock().unwrap().profile != kanzei_harness::ProfileKind::Dev {
             bail!("当前模式不能采纳代码改动");
         }
-        let job = self.resolve(id)?;
+        let (job, _owner) = self.resolve_owned_locked(id)?;
         if job.active() || job.state != "done" {
             bail!("先等待子任务完成，再检查和采纳改动");
         }
@@ -650,10 +787,11 @@ impl AgentTeam {
             }],
         };
         {
-            let _lifecycle = self.0.lifecycle.lock().unwrap();
+            let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+            let owner = self.child_owner_locked(&id)?;
             self.0.store.insert(&job, &history)?;
             self.emit(&job);
-            self.launch_locked(&id)?;
+            self.launch_owned_locked(&id, owner)?;
         }
         drop(creation);
         if input["background"].as_bool() == Some(false) {
@@ -670,7 +808,7 @@ impl AgentTeam {
     /// Re-read under the worker admission lock so stop cannot slip between this
     /// validation and registering a new worker.
     pub fn question_reply(&self, id: &str, question_id: u64, notice: AsyncNotice) -> Result<Value> {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let record = kanzei_harness::pending_question::get(&self.0.root, question_id)
             .map_err(anyhow::Error::msg)?;
         if record["payload"]["sessionId"] != self.0.owner
@@ -695,7 +833,7 @@ impl AgentTeam {
         text: &str,
         message_id: Option<String>,
     ) -> Result<Value> {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         self.queue_message_locked(id, from, text, message_id)
     }
     fn queue_message_locked(
@@ -726,7 +864,7 @@ impl AgentTeam {
                 .map_err(anyhow::Error::msg)?;
             return Ok(json!({"to":"main","message_id":id,"state":"queued"}));
         }
-        let j = self.resolve(id)?;
+        let (j, owner) = self.resolve_owned_locked(id)?;
         if j.state == "stopping" {
             bail!("任务正在停止，请待停止完成后续做");
         }
@@ -756,11 +894,11 @@ impl AgentTeam {
             }
         })?;
         if inserted {
-            self.launch_locked(&j.id)?;
+            self.launch_owned_locked(&j.id, owner)?;
         }
         Ok(reply)
     }
-    fn launch_locked(&self, id: &str) -> Result<()> {
+    fn launch_owned_locked(&self, id: &str, owner: Arc<SessionExecutionGuard>) -> Result<()> {
         let job = self.0.store.get(id)?;
         if matches!(job.state.as_str(), "stopped" | "stopping") {
             return Ok(());
@@ -775,37 +913,145 @@ impl AgentTeam {
         if active.contains_key(id) {
             return Ok(());
         }
-        let cancel = Arc::new(CancellationToken::new());
+        let cancel = Arc::new(ChildWorker {
+            cancel: CancellationToken::new(),
+            owner,
+        });
         active.insert(id.into(), cancel.clone());
         drop(active);
-        if let Err(error) = self.update(id, |j| {
+        let registration = WorkerRegistration {
+            team: self.clone(),
+            id: id.into(),
+            worker: cancel.clone(),
+        };
+        self.update(id, |j| {
             j.state = "queued".into();
-        }) {
-            self.0.active.lock().unwrap().remove(id);
-            self.0.changed.notify_waiters();
-            return Err(error);
-        }
+        })?;
         let team = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            let result = tokio::select! {biased;_=cancel.cancelled()=>Err(anyhow::anyhow!("子任务已停止")),r=team.worker(&id, &cancel)=>r};
-            if !team.finish_worker(&id, &cancel, &result, false, &queued_at_launch) {
-                crate::background::kill_process(&team.0.root, &id).await;
-                team.finish_worker(&id, &cancel, &result, true, &queued_at_launch);
-            }
+            let _registration = registration;
+            let result = std::panic::AssertUnwindSafe(async {
+                tokio::select! {biased;_=cancel.cancelled()=>Err(anyhow::anyhow!("子任务已停止")),r=team.worker(&id, &cancel)=>r}
+            }).catch_unwind().await.unwrap_or_else(|_| {
+                cancel.cancel();
+                Err(anyhow::anyhow!("子任务执行异常，已停止并清理执行者"))
+            });
+            team.settle_worker(&id, &cancel, &result, &queued_at_launch)
+                .await;
         });
         Ok(())
+    }
+
+    async fn reap_worker_processes(&self, id: &str) {
+        let reaped = std::panic::AssertUnwindSafe(crate::background::kill_child_processes(
+            &self.0.root,
+            &self.0.owner,
+            id,
+        ))
+        .catch_unwind()
+        .await;
+        if reaped.is_err()
+            || crate::background::child_processes(&self.0.root, &self.0.owner, id)
+                .iter()
+                .any(|process| !process.persistent && process.is_running())
+        {
+            let _ = self.0.store.update(id, |job| {
+                job.state = "failed".into();
+                job.latest =
+                    cleanup_failure("后台进程未能终止；执行者保持到实际退出，请明确停止后台进程");
+                job.revision += 1;
+            });
+        }
+    }
+
+    async fn settle_worker(
+        &self,
+        id: &str,
+        cancel: &Arc<ChildWorker>,
+        result: &Result<()>,
+        queued_at_launch: &[String],
+    ) {
+        let settled = std::panic::AssertUnwindSafe(async {
+            // Failed attempts cannot leave an unowned writing process behind;
+            // explicit continuation receives the same guard after old cleanup.
+            let failed =
+                result.is_err() || self.0.store.get(id).is_ok_and(|job| job.state == "failed");
+            if cancel.is_cancelled() || failed {
+                self.reap_worker_processes(id).await;
+            }
+            let cleanup = tokio::select! { biased;
+                _ = cancel.cancelled() => {
+                    self.reap_worker_processes(id).await;
+                    crate::background::wait_child_cleanup(&self.0.root, &self.0.owner, id).await
+                },
+                cleanup = crate::background::wait_child_cleanup(&self.0.root, &self.0.owner, id) => cleanup,
+            };
+            match cleanup {
+                Ok(notes) if notes.is_empty() => {
+                    self.finish_worker(id, cancel, result, true, queued_at_launch);
+                }
+                Ok(notes) => {
+                    let error = Err(anyhow::anyhow!(notes.join("；")));
+                    self.finish_worker(id, cancel, &error, true, queued_at_launch);
+                }
+                Err(error) => {
+                    self.0.store.update(id, |job| {
+                        job.state = "failed".into();
+                        job.latest = cleanup_failure(&error);
+                        job.revision += 1;
+                    })?;
+                }
+            }
+            Ok::<(), anyhow::Error>(())
+        })
+        .catch_unwind()
+        .await;
+        if !matches!(settled, Ok(Ok(()))) {
+            let stopped = cancel.is_cancelled();
+            cancel.cancel();
+            self.reap_worker_processes(id).await;
+            let cleanup =
+                crate::background::wait_child_cleanup(&self.0.root, &self.0.owner, id).await;
+            // An event/continuation callback may itself be the panic source. Do
+            // not call it again during emergency finalization, or release before
+            // cleanup. Late transcript callbacks still retain this worker guard.
+            let saved = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+                self.close_child_mailbox(id);
+                let _ = kanzei_harness::pending_question::cancel_owner(
+                    &self.0.root,
+                    &self.0.owner,
+                    Some(id),
+                );
+                self.0.store.update(id, |job| {
+                    job.state = if stopped { "stopped" } else { "failed" }.into();
+                    job.latest = match &cleanup {
+                        Ok(_) => "执行者收尾异常，子进程已清理；可明确续做".into(),
+                        Err(error) => cleanup_failure(&format!("执行者收尾异常：{error}")),
+                    };
+                    job.updated_at = now().max(job.updated_at + 1);
+                    job.revision += 1;
+                })
+            }));
+            if !matches!(saved, Ok(Ok(_))) {
+                tracing::error!(
+                    child = id,
+                    "child cleanup completed but emergency state could not be saved"
+                );
+            }
+        }
     }
 
     fn finish_worker(
         &self,
         id: &str,
-        cancel: &Arc<CancellationToken>,
+        cancel: &Arc<ChildWorker>,
         result: &Result<()>,
         cleaned: bool,
         queued_at_launch: &[String],
     ) -> bool {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         if !self
             .0
             .active
@@ -869,7 +1115,7 @@ impl AgentTeam {
                     && j.messages.iter().any(|m| m.state == "queued")
             })
         {
-            if let Err(error) = self.launch_locked(id) {
+            if let Err(error) = self.launch_owned_locked(id, cancel.owner.clone()) {
                 tracing::error!(%error, child=id, "child continuation could not be launched");
             }
         }
@@ -879,7 +1125,7 @@ impl AgentTeam {
     fn check_worker_locked(
         &self,
         id: &str,
-        cancel: &Arc<CancellationToken>,
+        cancel: &Arc<ChildWorker>,
         attempt: Option<u32>,
     ) -> Result<AgentJob> {
         if cancel.is_cancelled()
@@ -905,24 +1151,51 @@ impl AgentTeam {
     fn worker_update(
         &self,
         id: &str,
-        cancel: &Arc<CancellationToken>,
+        cancel: &Arc<ChildWorker>,
         attempt: Option<u32>,
         f: impl FnOnce(&mut AgentJob),
     ) -> Result<AgentJob> {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         self.check_worker_locked(id, cancel, attempt)?;
         self.update(id, f)
+    }
+
+    fn transcript_sink(
+        &self,
+        id: &str,
+        worker: &Arc<ChildWorker>,
+        attempt: u32,
+    ) -> kanzei_core::BackgroundEventSink {
+        let team = self.clone();
+        let worker = worker.clone();
+        let id = id.to_owned();
+        Arc::new(move |_, payload| {
+            let _lifecycle = team.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+            if team
+                .check_worker_locked(&id, &worker, Some(attempt))
+                .is_err()
+            {
+                return;
+            }
+            if let Ok(messages) =
+                serde_json::from_value::<Vec<Message>>(payload["messages"].clone())
+            {
+                if let Err(error) = team.0.store.checkpoint(&id, &messages) {
+                    tracing::error!(%error, "child checkpoint failed");
+                }
+            }
+        })
     }
 
     fn begin_ask(
         &self,
         job: &AgentJob,
-        cancel: &Arc<CancellationToken>,
+        cancel: &Arc<ChildWorker>,
         request: kanzei_core::AskRequest,
         router: Option<&TeamAsk>,
         parent: Option<&ParentAsk>,
     ) -> kanzei_core::AskFuture {
-        let _lifecycle = self.0.lifecycle.lock().unwrap();
+        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         if !self
             .check_worker_locked(&job.id, cancel, Some(job.attempt))
             .is_ok_and(|current| matches!(current.state.as_str(), "running" | "waiting_user"))
@@ -987,7 +1260,7 @@ impl AgentTeam {
         Ok(())
     }
 
-    async fn worker(&self, id: &str, cancel: &Arc<CancellationToken>) -> Result<()> {
+    async fn worker(&self, id: &str, cancel: &Arc<ChildWorker>) -> Result<()> {
         let initial = self.0.store.get(id)?;
         for dependency in &initial.depends_on {
             loop {
@@ -1171,19 +1444,12 @@ impl AgentTeam {
             }));
             let history_store = self.0.store.clone();
             let history_id = id.to_owned();
-            runtime.transcript_provider =
-                Some(Arc::new(move |_| history_store.history(&history_id).ok()));
-            let history_store = self.0.store.clone();
-            let history_id = id.to_owned();
-            runtime.transcript_sink = Some(Arc::new(move |_, payload| {
-                if let Ok(messages) =
-                    serde_json::from_value::<Vec<Message>>(payload["messages"].clone())
-                {
-                    if let Err(e) = history_store.checkpoint(&history_id, &messages) {
-                        tracing::error!(%e,"child checkpoint failed");
-                    }
-                }
+            let history_owner = cancel.owner.clone();
+            runtime.transcript_provider = Some(Arc::new(move |_| {
+                let _owner = &history_owner;
+                history_store.history(&history_id).ok()
             }));
+            runtime.transcript_sink = Some(self.transcript_sink(id, cancel, running_job.attempt));
             runtime.agent.system.push_str("\nYou own one delegated task. Work only in your assigned checkout. Do not modify the parent checkout, merge, publish, or claim project delivery. Run relevant checks and report actual evidence, failures, files, and remaining work. team_message sends findings to main (to=main) or another task; question with background=true asks the user without suspending independent work and routes the answer back here; agent_memory reads/writes your persistent project memory. A completed turn is a candidate result, not acceptance.");
             if job.role == "verify" {
                 runtime.agent.system.push_str("\nYour primary job is independent verification. Run tests against the specified candidate, report reproducible failures. Do not silently fix the implementation you are verifying.");
@@ -1218,7 +1484,7 @@ impl AgentTeam {
             ctx.process_id = Some(id.into());
             ctx.run_id = Some(format!("{}:{id}:{}", self.0.owner, job.attempt + 1));
             ctx.async_mailbox = Some({
-                let _lifecycle = self.0.lifecycle.lock().unwrap();
+                let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
                 self.check_worker_locked(id, cancel, Some(running_job.attempt))?;
                 self.child_mailbox(id)
             });

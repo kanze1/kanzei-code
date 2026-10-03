@@ -66,6 +66,12 @@ pub struct TeamStore {
 }
 
 impl TeamStore {
+    pub(super) fn state_path(&self) -> &Path {
+        &self.path
+    }
+    pub(super) fn owner(&self) -> &str {
+        &self.owner
+    }
     pub fn open(root: &Path, owner: &str) -> Result<Self> {
         let path = kanzei_core::project_state_path(root);
         if let Some(parent) = path.parent() {

@@ -147,16 +147,43 @@ fn running_processes() -> Vec<Arc<BackgroundProcess>> {
 
 /// 后台守卫:周期性把托管树与基线对账,越界即隔离、回滚并终止进程树。
 pub(super) fn spawn_guard(process: Arc<BackgroundProcess>) {
-    tokio::spawn(async move {
+    let guarded = process.clone();
+    let handle = tokio::spawn(async move {
         loop {
-            let was_running = process.is_running();
-            reconcile(&process, true).await;
+            let was_running = guarded.is_running();
+            #[cfg(test)]
+            if !was_running {
+                let hook = final_guard_hook().lock().unwrap().clone();
+                if let Some(hook) = hook {
+                    hook(&guarded.id);
+                }
+            }
+            if let Err(error) = reconcile_result(&guarded, true).await {
+                if !guarded.is_running() {
+                    return Err(error);
+                }
+                // Preserve the existing guard's retry semantics if termination
+                // itself failed. The writer must not become unguarded.
+                tracing::error!(%error, process=%guarded.id, "background restore/termination incomplete");
+            }
             if !was_running {
                 break;
             }
             tokio::time::sleep(GUARD_TICK).await;
         }
+        Ok(())
     });
+    process.guard_completion.publish(handle);
+}
+
+#[cfg(test)]
+fn final_guard_hook() -> &'static Mutex<Option<BeforeAbsorbHook>> {
+    static HOOK: OnceLock<Mutex<Option<BeforeAbsorbHook>>> = OnceLock::new();
+    HOOK.get_or_init(|| Mutex::new(None))
+}
+#[cfg(test)]
+pub(crate) fn set_final_guard_hook(hook: Option<BeforeAbsorbHook>) {
+    *final_guard_hook().lock().unwrap() = hook;
 }
 
 /// 一次对账。返回 Some = 检测到越界(已隔离并回滚)。
@@ -164,9 +191,31 @@ pub(super) async fn reconcile(
     process: &Arc<BackgroundProcess>,
     kill_on_breach: bool,
 ) -> Option<BreachRecord> {
+    reconcile_result(process, kill_on_breach)
+        .await
+        .ok()
+        .flatten()
+}
+
+async fn reconcile_result(
+    process: &Arc<BackgroundProcess>,
+    kill_on_breach: bool,
+) -> Result<Option<BreachRecord>, String> {
+    let result = reconcile_restore(process);
+    if kill_on_breach && !matches!(result, Ok(None)) {
+        if let Some(pid) = process.pid {
+            if crate::shell::kill_tree(pid).await {
+                process.mark_terminated();
+            }
+        }
+    }
+    result
+}
+
+fn reconcile_restore(process: &Arc<BackgroundProcess>) -> Result<Option<BreachRecord>, String> {
     let root = PathBuf::from(&process.project_root);
     if !crate::managed::managed_scope_exists(&root) {
-        return None;
+        return Ok(None);
     }
     #[cfg(test)]
     run_before_reconcile_hook(&process.id);
@@ -176,11 +225,13 @@ pub(super) async fn reconcile(
         // cannot roll back a legitimate write that just finished.
         let baseline = process.baseline.lock().unwrap();
         let current = ManagedSnapshot::capture(&root);
-        let change = crate::managed::diff(&baseline, &current)?;
+        let Some(change) = crate::managed::diff(&baseline, &current) else {
+            return Ok(None);
+        };
         let (_, breach) =
             change.partition(|path| kanzei_harness::managed_fence::write_in_progress(&root, path));
         if breach.is_empty() {
-            return None;
+            return Ok(None);
         }
         let restore = crate::managed::quarantine_and_restore(
             &root,
@@ -203,16 +254,7 @@ pub(super) async fn reconcile(
             process
                 .output_total
                 .fetch_add(message.len() as u64, std::sync::atomic::Ordering::SeqCst);
-            // A failed evidence copy/restore must not let the violating process
-            // keep writing. Preserve its output and stop it just as on success.
-            if kill_on_breach {
-                if let Some(pid) = process.pid {
-                    if crate::shell::kill_tree(pid).await {
-                        process.mark_terminated();
-                    }
-                }
-            }
-            return None;
+            return Err(format!("后台托管文件回滚失败：{error}"));
         }
     };
     let record = BreachRecord {
@@ -222,17 +264,95 @@ pub(super) async fn reconcile(
         restored,
     };
     process.record_breach(record.clone());
-    if kill_on_breach {
-        if let Some(pid) = process.pid {
-            if crate::shell::kill_tree(pid).await {
-                process.mark_terminated();
-            }
-        }
-    }
     // Only the window-close observer commits legitimate changes. An unrelated
     // breach must neither absorb an open window nor overwrite a newer baseline
     // published while process termination was awaiting completion.
-    Some(record)
+    Ok(Some(record))
+}
+
+fn record_cleanup_error(process: &BackgroundProcess, error: &str) {
+    let message = format!("\n[managed-files] {error}\n");
+    super::registration::append_bounded(&process.output, &process.truncated, message.as_bytes());
+    process
+        .output_total
+        .fetch_add(message.len() as u64, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub(crate) fn child_processes(
+    root: &Path,
+    owner: &str,
+    child: &str,
+) -> Vec<Arc<BackgroundProcess>> {
+    let prefix = format!("{owner}:{child}:");
+    list(root)
+        .into_iter()
+        .filter(|process| {
+            process.owner.process_id == child
+                && process
+                    .owner
+                    .run_id
+                    .strip_prefix(&prefix)
+                    .is_some_and(|attempt| attempt.parse::<u32>().is_ok())
+        })
+        .collect()
+}
+pub(crate) async fn kill_child_processes(root: &Path, owner: &str, child: &str) -> usize {
+    kill_processes(child_processes(root, owner, child)).await
+}
+pub(crate) async fn wait_child_cleanup(
+    root: &Path,
+    owner: &str,
+    child: &str,
+) -> Result<Vec<String>, String> {
+    let mut notes = Vec::new();
+    for process in child_processes(root, owner, child)
+        .into_iter()
+        .filter(|p| !p.persistent)
+    {
+        if let Err(error) = process.exit_completion.wait().await {
+            record_cleanup_error(&process, &error);
+            notes.push(error);
+        }
+        if let Err(error) = process.guard_completion.wait().await {
+            record_cleanup_error(&process, &error);
+            notes.push(error);
+        }
+        if process.is_running() {
+            return Err(format!(
+                "后台进程 {} 仍在运行，不能完成子任务清理",
+                process.id
+            ));
+        }
+        // The join result proves that the old writer ended; a fresh restore
+        // retries failures rather than making a cached JoinError permanent.
+        reconcile_restore(&process)?;
+    }
+    Ok(notes)
+}
+
+pub(crate) fn retry_child_cleanup(root: &Path, owner: &str, child: &str) -> Result<(), String> {
+    for process in child_processes(root, owner, child)
+        .into_iter()
+        .filter(|p| !p.persistent)
+    {
+        if process.is_running() {
+            return Err(format!("后台进程 {} 仍在运行，请先明确停止", process.id));
+        }
+        if let Err(error) = process.exit_completion.completed()? {
+            record_cleanup_error(&process, &error);
+        }
+        if let Err(error) = process.guard_completion.completed()? {
+            record_cleanup_error(&process, &error);
+        }
+        reconcile_restore(&process)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn has_child_cleanup_records(root: &Path, owner: &str, child: &str) -> bool {
+    child_processes(root, owner, child)
+        .iter()
+        .any(|p| !p.persistent)
 }
 
 pub(super) fn now_ms() -> u128 {
@@ -308,11 +428,17 @@ pub async fn kill_project(project_root: &Path) -> usize {
 }
 
 pub async fn kill_process(project_root: &Path, process_id: &str) -> usize {
+    kill_processes(
+        list(project_root)
+            .into_iter()
+            .filter(|process| process.owner.process_id == process_id)
+            .collect(),
+    )
+    .await
+}
+async fn kill_processes(processes: Vec<Arc<BackgroundProcess>>) -> usize {
     let mut killed = 0usize;
-    for process in list(project_root)
-        .into_iter()
-        .filter(|process| process.owner.process_id == process_id)
-    {
+    for process in processes {
         if process.persistent {
             continue;
         }
