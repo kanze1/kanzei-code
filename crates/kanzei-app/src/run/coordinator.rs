@@ -53,6 +53,15 @@ pub(crate) async fn run_task(
         emit_stage(window, &session_id, name, detail);
     };
 
+    // Bind callbacks to this actor before asynchronous assembly. Explicit stop
+    // closes this mailbox; an old assembly must not create its replacement.
+    let mailbox = crate::async_mailbox::for_session(
+        window,
+        &request.main_root,
+        &session_id,
+        Some(process_id.clone()),
+    );
+
     // D-342:换代 + 安装本 run 的停止令牌。换代在前——stop 的兜底硬杀按代数比对,
     // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
     handles.run_generation.fetch_add(1, Ordering::SeqCst);
@@ -69,12 +78,7 @@ pub(crate) async fn run_task(
             .read_ledger
             .clone(),
     );
-    round.ctx.async_mailbox = Some(crate::async_mailbox::for_session(
-        window,
-        &round.ctx.project_root,
-        &session_id,
-        Some(process_id.clone()),
-    ));
+    round.ctx.async_mailbox = Some(mailbox);
     let phase_pipeline_enabled =
         round.pipeline.is_some() || deps.profile == kanzei_harness::ProfileKind::Readonly;
 

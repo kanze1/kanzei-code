@@ -40,6 +40,7 @@ pub(super) fn handle_sse(
     stream: &mut TcpStream,
     state_path: &Path,
     path: &str,
+    device_id: &str,
     active: &AtomicBool,
     devices: &Arc<Mutex<HashMap<String, String>>>,
 ) {
@@ -53,7 +54,6 @@ pub(super) fn handle_sse(
             return;
         }
     };
-    let device_id = mobile_query(path, "device_id").unwrap_or_else(|| "paired-device".into());
     let store = match kanzei_core::SessionStore::open(state_path) {
         Ok(store) => store,
         Err(error) => {
@@ -63,7 +63,7 @@ pub(super) fn handle_sse(
     };
     let initial_cursor = mobile_query(path, "cursor")
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or_else(|| store.delivery_cursor(&device_id, &thread_id).unwrap_or(0));
+        .unwrap_or_else(|| store.delivery_cursor(device_id, &thread_id).unwrap_or(0));
 
     // SSE 响应头:长连接、不缓存、keep-alive。
     let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n\
@@ -83,7 +83,7 @@ pub(super) fn handle_sse(
             return;
         }
         // D-388:撤销检查——设备已从表移除(token 失效)时断开,不再收事件。
-        let device_exists = devices.lock_or_recover().contains_key(&device_id);
+        let device_exists = devices.lock_or_recover().contains_key(device_id);
         if !device_exists {
             return;
         }
@@ -99,7 +99,7 @@ pub(super) fn handle_sse(
                     if let Err(error) =
                         persist_delivery_cursor_and_advance(&mut cursor, event.sequence, || {
                             store
-                                .set_delivery_cursor(&device_id, &thread_id, event.sequence)
+                                .set_delivery_cursor(device_id, &thread_id, event.sequence)
                                 .map_err(|error| error.to_string())
                         })
                     {

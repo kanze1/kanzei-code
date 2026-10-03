@@ -139,10 +139,12 @@ fn bearer_token(request: &str) -> Option<&str> {
 
 /// R-270:设备 token 认证。从请求头取 `Authorization: Bearer <token>`,
 /// 在设备表里找得到即通过(撤销 = 从表移除,移除后立即 401)。
-fn mobile_authorized(request: &str, devices: &HashMap<String, String>) -> bool {
-    bearer_token(request)
-        .map(|token| devices.values().any(|device_token| device_token == token))
-        .unwrap_or(false)
+fn mobile_authorized(request: &str, devices: &HashMap<String, String>) -> Option<String> {
+    let token = bearer_token(request)?;
+    devices
+        .iter()
+        .find(|(_, device_token)| device_token.as_str() == token)
+        .map(|(device_id, _)| device_id.clone())
 }
 
 /// 读完整请求(头 + body,按 Content-Length,已 trim D-063)。
@@ -383,10 +385,26 @@ fn handle_mobile_connection(
     }
 
     // 其它端点:设备 token 认证。
-    if !mobile_authorized(&request_head, &devices.lock_or_recover()) {
+    let Some(device_id) = mobile_authorized(&request_head, &devices.lock_or_recover()) else {
         let _ = stream.write_all(&mobile_json_response(
             "401 Unauthorized",
             &json!({"error": "device_revoked_or_unauthorized"}),
+        ));
+        return;
+    };
+
+    // Notification cursors and revocation belong to the authenticated device.
+    // A query parameter may confirm that identity, but cannot select another one.
+    if method == "GET"
+        && matches!(
+            path.split('?').next(),
+            Some("/v1/events" | "/v1/notifications")
+        )
+        && mobile_query(path, "device_id").is_some_and(|requested| requested != device_id)
+    {
+        let _ = stream.write_all(&mobile_json_response(
+            "403 Forbidden",
+            &json!({"error": "device_identity_mismatch"}),
         ));
         return;
     }
@@ -395,7 +413,14 @@ fn handle_mobile_connection(
     // 长连接由独立线程持有(批1 多线程 accept),不阻塞其它请求。
     if method == "GET" && path.split('?').next() == Some("/v1/events") {
         // D-388:传 active(停服检查)与 devices(撤销检查)——长连接不无视停服/撤销。
-        handle_sse(&mut stream, &state_path, path, &active, &devices);
+        handle_sse(
+            &mut stream,
+            &state_path,
+            path,
+            &device_id,
+            &active,
+            &devices,
+        );
         return;
     }
 
@@ -452,8 +477,6 @@ fn handle_mobile_connection(
                 ));
                 return;
             };
-            let device_id =
-                mobile_query(path, "device_id").unwrap_or_else(|| "paired-device".into());
             let cursor_param =
                 mobile_query(path, "cursor").and_then(|value| value.parse::<u64>().ok());
             match kanzei_core::SessionStore::open(&state_path).and_then(|store| {
@@ -499,12 +522,8 @@ fn take_requesting_device(
     request: &str,
     devices: &Arc<Mutex<HashMap<String, String>>>,
 ) -> Option<String> {
-    let token = bearer_token(request)?;
     let mut table = devices.lock_or_recover();
-    let device_id = table
-        .iter()
-        .find(|(_, device_token)| device_token.as_str() == token)
-        .map(|(device_id, _)| device_id.clone())?;
+    let device_id = mobile_authorized(request, &table)?;
     table.remove(&device_id);
     Some(device_id)
 }
@@ -897,10 +916,13 @@ mod tests {
         let request =
             "GET /v1/notifications?thread_id=t HTTP/1.1\r\nAuthorization: Bearer tok-a\r\n\r\n";
         let mut devices = devices_with("tok-a");
-        assert!(mobile_authorized(request, &devices), "配对设备应通过");
+        assert!(
+            mobile_authorized(request, &devices).is_some(),
+            "配对设备应通过"
+        );
         devices.remove("dev-1"); // 撤销
         assert!(
-            !mobile_authorized(request, &devices),
+            mobile_authorized(request, &devices).is_none(),
             "撤销后 token 必须立即失效"
         );
     }
@@ -915,10 +937,16 @@ mod tests {
             "GET /v1/notifications?thread_id=t HTTP/1.1\r\nAuthorization: Bearer tok-a\r\n\r\n";
         let req_b =
             "GET /v1/notifications?thread_id=t HTTP/1.1\r\nAuthorization: Bearer tok-b\r\n\r\n";
-        assert!(mobile_authorized(req_a, &devices));
+        assert!(mobile_authorized(req_a, &devices).is_some());
         devices.remove("dev-a");
-        assert!(!mobile_authorized(req_a, &devices), "撤销的 dev-a 立即 401");
-        assert!(mobile_authorized(req_b, &devices), "dev-b 不受影响");
+        assert!(
+            mobile_authorized(req_a, &devices).is_none(),
+            "撤销的 dev-a 立即 401"
+        );
+        assert!(
+            mobile_authorized(req_b, &devices).is_some(),
+            "dev-b 不受影响"
+        );
     }
 
     /// D-386:随机源——配对码/设备 token 连续调用不同、带前缀、统计上不可预测
@@ -945,11 +973,11 @@ mod tests {
         let devices = devices_with("device-token");
         let pair_req = "POST /v1/pair HTTP/1.1\r\nContent-Length: 10\r\n\r\n{\"x\":1}";
         assert!(
-            !mobile_authorized(pair_req, &devices),
+            mobile_authorized(pair_req, &devices).is_none(),
             "配对请求不带设备 token,普通认证应拒绝(走配对专用分支)"
         );
         let ok_req = "POST /v1/messages HTTP/1.1\r\nAuthorization: Bearer device-token\r\n\r\n";
-        assert!(mobile_authorized(ok_req, &devices));
+        assert!(mobile_authorized(ok_req, &devices).is_some());
     }
 
     /// R-270 批2:SSE 断线重连 cursor 补发——带 cursor 参数时从该 cursor 起,
@@ -1090,6 +1118,120 @@ mod tests {
             "普通通知请求应只打开一次 state store"
         );
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn notification_endpoints_reject_another_devices_identity() {
+        let (dir, state_path) = mobile_connection_test_project("device-identity");
+        for endpoint in ["notifications", "events"] {
+            let (devices, pair_code, runtimes, active) = mobile_connection_test_inputs();
+            devices
+                .lock_or_recover()
+                .insert("dev-other".into(), "tok-other".into());
+            // Let an incorrectly accepted SSE connection return instead of hanging
+            // the negative control. The authentication response is still observable.
+            active.store(false, Ordering::SeqCst);
+            let request = format!(
+                "GET /v1/{endpoint}?thread_id=thread-open&device_id=dev-other HTTP/1.1\r\nAuthorization: Bearer tok-open\r\n\r\n"
+            );
+            let (response, worker) =
+                run_mobile_request(dir.clone(), &request, devices, pair_code, runtimes, active);
+            worker.join().unwrap();
+            assert!(response.starts_with("HTTP/1.1 403 Forbidden"), "{response}");
+            let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+            assert_eq!(
+                store.delivery_cursor("dev-other", "thread-open").unwrap(),
+                0
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn notifications_without_device_query_use_authenticated_devices_cursor() {
+        let (dir, state_path) = mobile_connection_test_project("device-default");
+        let (devices, pair_code, runtimes, active) = mobile_connection_test_inputs();
+        let (response, worker) = run_mobile_request(
+            dir.clone(),
+            "GET /v1/notifications?thread_id=thread-open HTTP/1.1\r\nAuthorization: Bearer tok-open\r\n\r\n",
+            devices,
+            pair_code,
+            runtimes,
+            active,
+        );
+        worker.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        assert_eq!(store.delivery_cursor("dev-open", "thread-open").unwrap(), 1);
+        assert_eq!(
+            store
+                .delivery_cursor("paired-device", "thread-open")
+                .unwrap(),
+            0
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn sse_without_device_query_tracks_authenticated_device_revocation() {
+        let (dir, state_path) = mobile_connection_test_project("sse-device-default");
+        let (devices, pair_code, runtimes, active) = mobile_connection_test_inputs();
+        devices
+            .lock_or_recover()
+            .insert("dev-other".into(), "tok-other".into());
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let (done, finished) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn({
+            let root = dir.clone();
+            let devices = devices.clone();
+            let active = active.clone();
+            move || {
+                let pwa_root = root.join("mobile-pwa");
+                handle_mobile_connection(
+                    server, root, pwa_root, devices, pair_code, runtimes, active,
+                );
+                let _ = done.send(());
+            }
+        });
+        client.write_all(b"GET /v1/events?thread_id=thread-open HTTP/1.1\r\nAuthorization: Bearer tok-open\r\n\r\n").unwrap();
+        let mut received = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        while !received
+            .windows(b"data: ".len())
+            .any(|bytes| bytes == b"data: ")
+        {
+            match client.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(size) => received.extend_from_slice(&buffer[..size]),
+            }
+        }
+        devices.lock_or_recover().remove("dev-open");
+        let revoked = finished
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .is_ok();
+        active.store(false, Ordering::SeqCst);
+        worker.join().unwrap();
+        let response = String::from_utf8_lossy(&received);
+        assert!(response.contains("data: "), "{response}");
+        assert!(
+            revoked,
+            "SSE must close when its authenticated device is revoked"
+        );
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        assert_eq!(store.delivery_cursor("dev-open", "thread-open").unwrap(), 1);
+        assert_eq!(
+            store.delivery_cursor("dev-other", "thread-open").unwrap(),
+            0
+        );
+        drop(store);
+        drop(client);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// D-502:SSE 首批事件真实经移动端入口发送后,整个轮询连接只打开一次 store。

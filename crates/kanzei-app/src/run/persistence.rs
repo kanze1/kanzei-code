@@ -760,7 +760,7 @@ mod tests {
         assert_eq!(cleared, 1);
         let conversation = Mutex::new(HashMap::from([("ses-prune".to_string(), original.clone())]));
         assert_eq!(
-            conversation.lock().unwrap()["ses-prune"],
+            conversation.lock_or_recover()["ses-prune"],
             original,
             "pruning stays local until commit"
         );
@@ -776,7 +776,7 @@ mod tests {
                 .is_err(),
             "a real SQLite write failure must not publish the local surface"
         );
-        assert_eq!(conversation.lock().unwrap()["ses-prune"], original);
+        assert_eq!(conversation.lock_or_recover()["ses-prune"], original);
         assert_eq!(
             crate::conversation::project_latest_segment(&store, "ses-prune").unwrap(),
             original
@@ -789,7 +789,7 @@ mod tests {
         pending
             .persist(&store, "ses-prune", &messages, &conversation)
             .unwrap();
-        assert_eq!(conversation.lock().unwrap()["ses-prune"], messages);
+        assert_eq!(conversation.lock_or_recover()["ses-prune"], messages);
         drop(publication);
         let cleaned = tokio::time::timeout(std::time::Duration::from_secs(3), async {
             loop {
@@ -1030,7 +1030,7 @@ mod tests {
         assert!(pending
             .persist(&store, "ses", &summary.messages, &cache)
             .is_err());
-        assert_eq!(cache.lock().unwrap()["ses"], current);
+        assert_eq!(cache.lock_or_recover()["ses"], current);
         assert_eq!(store.list_events("ses", 0).unwrap().len(), count);
         assert_eq!(
             crate::conversation::project_latest_segment(&store, "ses")
@@ -1118,7 +1118,7 @@ mod tests {
             .persist(&store, "ses", &summary.messages, &cache)
             .is_err());
         assert_eq!(store.list_events("ses", 0).unwrap().len(), count);
-        assert_eq!(cache.lock().unwrap()["ses"], committed);
+        assert_eq!(cache.lock_or_recover()["ses"], committed);
         assert_eq!(
             crate::conversation::project_latest_segment(&store, "ses").unwrap(),
             committed

@@ -939,10 +939,10 @@ pub(crate) fn unregister_parallel_process(
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(root, Some(process_id));
+    kanzei_harness::pending_question::cancel_owner(root, &session_id, None)?;
     if let Some(team) = kanzei_tools::team::find(root, &session_id) {
         team.stop_all();
     }
-    kanzei_harness::pending_question::cancel_owner(root, &session_id, None)?;
     let branch = state
         .processes
         .lock()

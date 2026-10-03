@@ -1,0 +1,167 @@
+{
+  "package": "M1",
+  "date": "2026-10-03",
+  "baseline": "a8c778f3",
+  "status": "verified",
+  "repository_review_complete": false,
+  "platform": "Windows",
+  "cargo_target_dir": "C:\\Users\\kanzei\\Documents\\kanzei code\\target",
+  "cargo_execution": "root exclusive slot; all Rust sources refreshed before workspace check to invalidate other-worktree stale artifacts",
+  "full_files": [
+    {
+      "path": "crates/kanzei-core/src/store/mobile_devices.rs",
+      "judgment": "PASS",
+      "sha256": "28284d6427f9474373ec9396726c102cf57ceb66d2c231ced2bad15c8eb2aa7a",
+      "sha256_lf": "28284d6427f9474373ec9396726c102cf57ceb66d2c231ced2bad15c8eb2aa7a"
+    },
+    {
+      "path": "crates/kanzei-app/src/desktop_bridge.rs",
+      "judgment": "PASS",
+      "sha256": "49152dc97db1df99fd04b784e9c3a7783a86b911f6f8d27a621d98d68f725cea",
+      "sha256_lf": "49152dc97db1df99fd04b784e9c3a7783a86b911f6f8d27a621d98d68f725cea"
+    },
+    {
+      "path": "crates/kanzei-app/src/ipc_contract.rs",
+      "judgment": "PASS",
+      "sha256": "6a2f039d89b9b945c97bd5c0169512c69520b8a4c25bfa8e0ff960911cbdf210",
+      "sha256_lf": "6009f9944b74acd8de642e35538505770655723cd8afb267491a65372bb3dc36"
+    },
+    {
+      "path": "crates/kanzei-app/src/mobile/sse.rs",
+      "judgment": "P0",
+      "sha256": "303f3506ca5e6e6fc7bcc663db4fed1a245f8c7b108addb1114f6f6a46c22a3a",
+      "sha256_lf": "303f3506ca5e6e6fc7bcc663db4fed1a245f8c7b108addb1114f6f6a46c22a3a"
+    }
+  ],
+  "contract_slices": [
+    {
+      "path": "crates/kanzei-app/src/mobile.rs",
+      "judgment": "P0",
+      "sha256": "1a6893531b004ed46b2df1c2ea0b3cd36339013e4447a82cf436d300756257c7",
+      "sha256_lf": "1a6893531b004ed46b2df1c2ea0b3cd36339013e4447a82cf436d300756257c7",
+      "scope": "token identity to notification/SSE/unpair"
+    },
+    {
+      "path": "crates/kanzei-app/src/run/coordinator.rs",
+      "judgment": "P1",
+      "sha256": "2b6e959f45a7151b3a7671d4dfb174a622c0eed4af8f439b73c62904fffbccf0",
+      "sha256_lf": "2b6e959f45a7151b3a7671d4dfb174a622c0eed4af8f439b73c62904fffbccf0",
+      "scope": "bind actor mailbox before asynchronous assembly; B1 same root cause"
+    },
+    {
+      "path": "crates/kanzei-app/src/processes/lifecycle.rs",
+      "judgment": "P1",
+      "sha256": "eb0b2d7c377c51a9203e978cddf1f6b3dce73e3cf73c5b31e271938bee8c6362",
+      "sha256_lf": "eb0b2d7c377c51a9203e978cddf1f6b3dce73e3cf73c5b31e271938bee8c6362",
+      "scope": "cancel questions before stop_all; B1 same root cause"
+    },
+    {
+      "path": "crates/kanzei-app/src/run/persistence.rs",
+      "judgment": "PASS",
+      "sha256": "196eda76708a47296ea5df51ad14a9440145c14fcc5f86c96b4052426d31b49b",
+      "sha256_lf": "31a4327a94fde389845d4bd32693afba88c8599e99c942218822c80e9a8fc75e",
+      "scope": "five newly added test assertions adjusted to existing D506 lock guard; no production change"
+    }
+  ],
+  "fixed_root_causes": {
+    "P0": 1,
+    "P1": 0,
+    "P2": 0
+  },
+  "caller_adaptations": "coordinator and unregister complete B1 stop contracts, not new root-cause counts",
+  "new_regression_tests": 3,
+  "schema_changes": false,
+  "serialized_format_changes": false,
+  "checks": [
+    {
+      "command": "cargo test -p kanzei-app mobile::tests -- --quiet with original production prefix and new regressions",
+      "exit_code": 101,
+      "log": "output/parallel-M1/mobile-before.log",
+      "log_sha256": "45c99c1c8562aab745db358266b0bc1003246f2926746136a03bb8150b403363",
+      "passed": 19,
+      "failed": 3,
+      "classification": "all three new TCP regressions fail with old production; no compile error; correct source restored byte-for-byte and mtime refreshed"
+    },
+    {
+      "command": "cargo check --workspace --all-targets",
+      "exit_code": 0,
+      "log": "output/parallel-M1/workspace-check.log",
+      "log_sha256": "cb45af9f587d2c114c30ecc667a4c0f3edc843ac5d75294105ae0162257203ae"
+    },
+    {
+      "command": "cargo test --workspace -- --quiet",
+      "exit_code": 0,
+      "log": "output/parallel-M1/workspace-test-final.log",
+      "log_sha256": "5155227a93111fca9c0b1e1fed024b59a92b6707691086bcb587743ba43ac189",
+      "passed": 2275,
+      "failed": 0,
+      "ignored": 5,
+      "note": "16 suites, including existing integration and doctests; five existing ignores"
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "output/parallel-M1/workspace-clippy.log",
+      "log_sha256": "970288cf054fc976fafa824bd5e1347f5eb6014a48d03802d63ed937ef841fc0"
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "output/parallel-M1/workspace-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "log": "output/parallel-M1/diff-check.log",
+      "log_sha256": "2eae5e5830f945248b886919f18b32406e7a54de5a7658add8294595131bedd4"
+    },
+    {
+      "command": "node scripts/ipc-event-smoke.mjs",
+      "exit_code": 0,
+      "log": "output/parallel-M1/ipc-event.log",
+      "log_sha256": "491c4a93773a280caf7a7c91a9ed022562d214966821f77f52ad1f6e88d5f839"
+    },
+    {
+      "command": "node --experimental-vm-modules scripts/ui-runtime-smoke.mjs",
+      "exit_code": 0,
+      "log": "output/parallel-M1/ui-runtime.log",
+      "log_sha256": "e99db4b2e22af3d813ada5228518a03c74f1e6c7555dd3a9889ba7c31292fad9"
+    }
+  ],
+  "invariants_verified": [
+    "query identity cannot impersonate another authenticated device",
+    "omitted device query uses token owner cursor",
+    "SSE survives while credential exists and closes on its revocation",
+    "other devices and cursor keys stay isolated",
+    "pre-await actor binding cannot manufacture a post-stop actor",
+    "workspace compile, 2275 tests, Clippy, format, IPC and full UI/browser regression pass"
+  ],
+  "resolved_validation_failures": [
+    {
+      "exit_code": 101,
+      "log": "output/parallel-M1/workspace-test.log",
+      "log_sha256": "0749c5be95ccbf11d77b15743fec3d1a59939fb7f290a2298668fe33889b19c5",
+      "classification": "545 app tests passed, existing D506 whole-file textual guard rejected five new cfg(test) lock().unwrap assertions; production already used lock_or_recover. Assertions changed to established helper; complete workspace rerun passed."
+    },
+    {
+      "exit_code": 1,
+      "log": "output/parallel-M1/ui-runtime-without-vm-flag.log",
+      "log_sha256": "2efe48844ce2f3aef8b2fb8b0125aec2e6ce1a6e52be1b5e145f27144f26da70",
+      "classification": "Node invocation lacked --experimental-vm-modules; corrected invocation passed. No product source change."
+    }
+  ],
+  "source_restoration_verified": {
+    "mobile.rs": true,
+    "sse.rs": true
+  },
+  "limits": [
+    "No Linux rerun",
+    "No Android LAN device validation; existing R-288",
+    "No real Tauri-window E2E",
+    "M2 mobile pair/revoke/message/server persistence and lifecycle remain open",
+    "B2/C2/A2 active work is not included in this verified root baseline"
+  ],
+  "push_performed": false,
+  "release_performed": false
+}
