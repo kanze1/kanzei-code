@@ -116,14 +116,14 @@
 - 影响: 检查点记录口径是 B3 还原的数据基础,错误行随本次发版开始落库;每次编辑多两次 SQLite 连接并阻塞运行时;回退可能静默还原到中间态
 - 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
 - 标签: 后端
-- 进展: 审计会话已修复:提交 2d3eaef9(树根=最近 .git 以项目根封顶且写法无关比较、rel_path 函数内计算与 path_key 同口径、单次开库并移入 spawn_blocking、写前开库失败时落盘后重开占哨兵、超 10 MiB 不整读、file_checkpoint_ 改名、Io 文案中性、v24 注释、实施地图 §3 同步),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5)。已知边界:落盘后那次开库或后像记录也失败时不留行。待核验后关闭。
+- 进展: 审计会话已修复:提交 2d3eaef9(树根=最近 .git 以项目根封顶且写法无关比较、rel_path 函数内计算与 path_key 同口径、单次开库并移入 spawn_blocking、写前开库失败时落盘后重开占哨兵、超 10 MiB 不整读、file_checkpoint_ 改名、Io 文案中性、v24 注释、实施地图 §3 同步),发版 build-2009581f(release-2026-09-26,已合入本分支 5e576fd5)。已知边界:落盘后那次开库或后像记录也失败时不留行。待核验后关闭。 2026-10-04 当前 HEAD 定向复核：`cargo test -p kanzei-core --lib store::file_checkpoints` 通过，11 passed/0 failed，记录 T-1786922727139。测试覆盖树根封顶、相对/绝对路径归一、超 10 MiB 不整读、失败占哨兵、首次前像与最新后像；当前实现位置 `crates/kanzei-core/src/store/file_checkpoints.rs:85-135,144-180`、`crates/kanzei-tools/src/write.rs:127-129`。本轮未改源码；以当前源码和此测试补齐原验收①-⑤证据。 2026-10-04 收尾 checkpoint：项目起点 `defects-archive.md` 已有未归属的工作树改动，且本轮验证记录也未提交；为避免把基线他方内容带入提交，D-762 仍保持 open、未归档。本轮不提交。下一步需在干净隔离树或明确拆分归属后，单独暂存 D-762 状态/归档与本条验证证据，再按验收关单；不得把当前测试通过等同于已提交归档。
 - 验收: ①tree_root 为代码树根,rel_path 由绝对路径相对树根计算;②每次写入只开一次库且在 spawn_blocking 中完成;③捕获失败留哨兵行,后续触碰不补采前像;④超过 10 MiB 的文件不整读;⑤命名改为 file_checkpoint_ 前缀,Io 文案中性,补 v24 注释
 - refs: R-366 D-757 docs/design/cc_codex_alignment_impl_maps.md docs/design/bootstrap_quality_audit.md
 - 优先级: P2
 - 停车: 
-- observed_head: 5e576fd54775a919193b282faa3dcbac8e4d795d
-- observed_worktree_hash: fnv1a64:2a8a81c465fc342d
-- recorded_at: 1790361939446
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:92c7228bb0086680
+- recorded_at: 1791060628231
 
 ## D-764 自动续跑提示被当成用户授权:R-366 写入不存在的确认记录并挂用户阻塞 [open] (medium)
 - 复杂度: 中
