@@ -1,9 +1,9 @@
 {
   "code_baseline": "0d0875ab",
-  "inventory_baseline": "0e0b24f86ea3960314dbf884a5ce6a21dd8ba27c",
+  "inventory_baseline": "5d01fb3fc0bdb3d60b3d10143244508a1b87cb22",
   "inventory_total": 514,
   "full_reviews_at_start": 30,
-  "pending_full_reviews": 382,
+  "pending_full_reviews": 379,
   "note": "Planning queue only. No new review certification. Split each group into exact file-owned packages; respect dependency gates in parallel-plan.md. Anthropic-specific work is deferred when identified, including mixed files only for that slice.",
   "counts_by_group": {
     "entry-service": 138,
@@ -485,7 +485,7 @@
       "prior_review": "none",
       "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 1093
+      "current_lines": 1227
     },
     {
       "file": "crates/kanzei-app/src/preview/agent.rs",
@@ -1035,7 +1035,7 @@
       "prior_review": "none",
       "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 977
+      "current_lines": 986
     },
     {
       "file": "crates/kanzei-app/ui/02-i18n.js",
@@ -1240,18 +1240,18 @@
       "lines_at_inventory": 381,
       "group": "ui",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 381
+      "current_lines": 393
     },
     {
       "file": "crates/kanzei-app/ui/08-compose-runtime.js",
       "lines_at_inventory": 1457,
       "group": "ui",
       "prior_review": "none",
-      "status": "pending",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 1457
+      "current_lines": 1517
     },
     {
       "file": "crates/kanzei-app/ui/08-compose.js",
@@ -1296,7 +1296,7 @@
       "prior_review": "none",
       "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 1678
+      "current_lines": 1680
     },
     {
       "file": "crates/kanzei-app/ui/10-docs-core.js",
@@ -3252,7 +3252,7 @@
       "status": "contract_slice_only",
       "initial_package": null,
       "slice_report": "parallel/B0.md",
-      "current_lines": 2387
+      "current_lines": 2402
     },
     {
       "file": "crates/kanzei-tools/src/background/lifecycle.rs",
@@ -3621,9 +3621,9 @@
       "lines_at_inventory": 565,
       "group": "tools",
       "prior_review": "none",
-      "status": "contract_slice_only",
+      "status": "full_review_complete",
       "initial_package": null,
-      "current_lines": 564
+      "current_lines": 646
     },
     {
       "file": "crates/kanzei-tools/src/profiles.rs",
@@ -4676,8 +4676,8 @@
       "current_lines": 327
     }
   ],
-  "current_full_reviews": 132,
-  "last_integrated_commit": "0e0b24f86ea3960314dbf884a5ce6a21dd8ba27c",
+  "current_full_reviews": 135,
+  "last_integrated_commit": "5d01fb3fc0bdb3d60b3d10143244508a1b87cb22",
   "execution_model": "Sol",
   "active_packages": {
     "C4": {
@@ -4766,34 +4766,43 @@
       "commit": "0e0b24f86ea3960314dbf884a5ce6a21dd8ba27c"
     },
     "A7": {
-      "status": "source_and_node_probes_prepared_cargo_pending",
-      "scope": "prefs/core UI deltas plus auto/compose-runtime full review; sessions retirement slice",
-      "counted_in_full_reviews": false
+      "status": "integrated_and_root_combined_verified",
+      "report": "parallel/A7.md",
+      "commit": "5d01fb3fc0bdb3d60b3d10143244508a1b87cb22",
+      "counted_in_full_reviews": true
     },
     "B5": {
-      "status": "source_prepared_cargo_pending",
-      "scope": "real managed process IDs and pruned stop path",
-      "counted_in_full_reviews": false
+      "status": "integrated_and_root_combined_verified",
+      "report": "parallel/B5.md",
+      "commit": "e8ea48879cb7ef7d278aa46f2463ebb4b6d4e31d",
+      "counted_in_full_reviews": true
     },
     "C7": {
-      "status": "readonly_map_only_not_tested",
-      "scope": "steering durable admission and FIFO input ownership",
-      "counted_in_full_reviews": false
+      "status": "three_P1_old_behavior_proven_not_fixed_deferred_from_release",
+      "counted_in_full_reviews": false,
+      "scope": "atomic steering delivery, recovered-error acknowledgment, captured Stop owner; 1 normal / 4 old failing probes"
     },
     "M7": {
-      "status": "readonly_probe_drafts_only_not_executed",
-      "scope": "real memory file/index/retrieval contracts",
+      "status": "probe_drafts_preserved_not_executed_deferred_from_release",
+      "counted_in_full_reviews": false
+    },
+    "B6": {
+      "status": "readonly_candidates_not_tested_deferred_from_release",
+      "counted_in_full_reviews": false
+    },
+    "A9": {
+      "status": "readonly_map_not_tested_deferred_from_release",
       "counted_in_full_reviews": false
     }
   },
   "remaining_counts_by_group": {
     "entry-service": 116,
-    "ui": 80,
+    "ui": 78,
     "core-runtime": 31,
     "core-store": 11,
     "llm": 1,
     "memory": 21,
-    "tools": 122
+    "tools": 121
   },
   "counts_by_group_is_historical_initial_queue": true
 }

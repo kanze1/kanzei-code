@@ -1,5 +1,5 @@
 {
-  "baseline": "0e0b24f86ea3960314dbf884a5ce6a21dd8ba27c",
+  "baseline": "5d01fb3fc0bdb3d60b3d10143244508a1b87cb22",
   "method": "Lexical source inventory, including cfg/test branches. Not a resolved call graph. Review judgments live only in report.md.",
   "packages": [
     {
@@ -3297,7 +3297,7 @@
     },
     {
       "file": "crates/kanzei-app/src/prefs.rs",
-      "lines": 1093,
+      "lines": 1227,
       "modules": [],
       "imports": [
         "serde::{Deserialize, Serialize}",
@@ -3306,6 +3306,8 @@
         "std::path::PathBuf",
         "super::*",
         "std::path::Path",
+        "super::*",
+        "crate::prefs::failure_tests::with_home",
         "super::*",
         "super::*",
         "super::*"
@@ -3364,42 +3366,42 @@
         {
           "kind": "fn",
           "name": "merge_ui_layout",
-          "line": 301
+          "line": 321
         },
         {
           "kind": "const",
           "name": "BACKDROP_MAX_BYTES",
-          "line": 352
+          "line": 372
         },
         {
           "kind": "fn",
           "name": "ui_prefs_get",
-          "line": 376
+          "line": 396
         },
         {
           "kind": "fn",
           "name": "ui_prefs_set",
-          "line": 440
+          "line": 460
         },
         {
           "kind": "fn",
           "name": "with_home",
-          "line": 474
+          "line": 494
         },
         {
           "kind": "fn",
           "name": "fixture",
-          "line": 491
+          "line": 511
         },
         {
           "kind": "fn",
           "name": "damaged_inputs",
-          "line": 506
+          "line": 526
         },
         {
           "kind": "fn",
           "name": "assert_rejected_unchanged",
-          "line": 521
+          "line": 541
         }
       ]
     },
@@ -6851,7 +6853,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/01-core.js",
-      "lines": 977,
+      "lines": 986,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -7012,14 +7014,14 @@
     },
     {
       "file": "crates/kanzei-app/ui/08-auto.js",
-      "lines": 381,
+      "lines": 393,
       "modules": [],
       "imports": [],
       "public_api": []
     },
     {
       "file": "crates/kanzei-app/ui/08-compose-runtime.js",
-      "lines": 1457,
+      "lines": 1517,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -7054,7 +7056,7 @@
     },
     {
       "file": "crates/kanzei-app/ui/09-sessions.js",
-      "lines": 1678,
+      "lines": 1680,
       "modules": [],
       "imports": [],
       "public_api": []
@@ -16907,7 +16909,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/background.rs",
-      "lines": 2387,
+      "lines": 2402,
       "modules": [
         "lifecycle",
         "monitor",
@@ -16941,94 +16943,99 @@
           "line": 26
         },
         {
+          "kind": "fn",
+          "name": "prune_finished_process_for_test",
+          "line": 66
+        },
+        {
           "kind": "struct",
           "name": "BackgroundOwner",
-          "line": 153
+          "line": 168
         },
         {
           "kind": "struct",
           "name": "BreachRecord",
-          "line": 162
+          "line": 177
         },
         {
           "kind": "struct",
           "name": "BackgroundProcess",
-          "line": 171
+          "line": 186
         },
         {
           "kind": "fn",
           "name": "send_input",
-          "line": 203
+          "line": 218
         },
         {
           "kind": "fn",
           "name": "is_running",
-          "line": 230
-        },
-        {
-          "kind": "fn",
-          "name": "mark_terminated",
-          "line": 236
-        },
-        {
-          "kind": "fn",
-          "name": "baseline",
           "line": 245
         },
         {
           "kind": "fn",
+          "name": "mark_terminated",
+          "line": 251
+        },
+        {
+          "kind": "fn",
+          "name": "baseline",
+          "line": 260
+        },
+        {
+          "kind": "fn",
           "name": "record_breach",
-          "line": 248
+          "line": 263
         },
         {
           "kind": "fn",
           "name": "breaches",
-          "line": 252
+          "line": 267
         },
         {
           "kind": "fn",
           "name": "exit_code",
-          "line": 256
+          "line": 271
         },
         {
           "kind": "fn",
           "name": "output",
-          "line": 262
+          "line": 277
         },
         {
           "kind": "fn",
           "name": "full_log",
-          "line": 269
+          "line": 284
         },
         {
           "kind": "fn",
           "name": "output_since",
-          "line": 275
+          "line": 290
         },
         {
           "kind": "fn",
           "name": "truncated",
-          "line": 292
+          "line": 307
         },
         {
           "kind": "fn",
           "name": "pid",
-          "line": 296
+          "line": 311
         },
         {
           "kind": "fn",
           "name": "serial",
-          "line": 349
+          "line": 364
         },
         {
           "kind": "struct",
           "name": "FenceGuard",
-          "line": 362
+          "line": 377
         },
         {
           "kind": "fn",
           "name": "fence_guard",
-          "line": 374
+          "line": 389
         }
       ]
     },
@@ -18994,7 +19001,7 @@
     },
     {
       "file": "crates/kanzei-tools/src/process.rs",
-      "lines": 564,
+      "lines": 646,
       "modules": [],
       "imports": [
         "async_trait::async_trait",
