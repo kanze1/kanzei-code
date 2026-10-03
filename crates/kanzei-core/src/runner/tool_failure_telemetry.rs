@@ -82,6 +82,16 @@ fn now_ms() -> u128 {
 
 fn classify(tool_name: &str, output: &ToolOutput) -> Option<FailureClass> {
     let code = output.code.unwrap_or_default();
+    if (tool_name == "grep" || tool_name == "glob")
+        && (output.content.starts_with("(no matches for ")
+            || output.content.starts_with("(no files match "))
+    {
+        return Some(FailureClass::EmptySearch);
+    }
+    // A successful read can contain any diagnostic words as ordinary data.
+    if !output.is_error {
+        return None;
+    }
     if code == "USER_DECLINED"
         || output.content.starts_with("permission denied")
         || output.content.starts_with("permission request declined")
@@ -107,12 +117,6 @@ fn classify(tool_name: &str, output: &ToolOutput) -> Option<FailureClass> {
         || output.content.contains("required")
     {
         return Some(FailureClass::MissingParameter);
-    }
-    if (tool_name == "grep" || tool_name == "glob")
-        && (output.content.starts_with("(no matches for ")
-            || output.content.starts_with("(no files match "))
-    {
-        return Some(FailureClass::EmptySearch);
     }
     output.is_error.then_some(FailureClass::Other)
 }
@@ -221,6 +225,26 @@ pub(crate) fn record_permission_denied(ctx: &ToolCtx, tool_call_id: &str, tool_n
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn successful_file_contents_are_not_failure_diagnostics() {
+        for text in [
+            "required fields",
+            "path not found: example",
+            "permission denied example",
+            "缺少必填参数",
+        ] {
+            assert_eq!(classify("read", &ToolOutput::ok(text)), None);
+        }
+        assert_eq!(
+            classify("grep", &ToolOutput::ok("(no matches for example)")),
+            Some(FailureClass::EmptySearch)
+        );
+        assert_eq!(
+            classify("read", &ToolOutput::error("required parameter")),
+            Some(FailureClass::MissingParameter)
+        );
+    }
 
     fn ctx(root: &std::path::Path) -> ToolCtx {
         ToolCtx::new(root.to_path_buf(), root.to_path_buf()).with_identity(

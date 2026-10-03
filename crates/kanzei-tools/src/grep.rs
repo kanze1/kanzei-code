@@ -270,6 +270,7 @@ fn run_count(
     use grep_searcher::{BinaryDetection, SearcherBuilder};
 
     let mut searcher = SearcherBuilder::new()
+        .multi_line(input.multiline)
         .binary_detection(BinaryDetection::quit(0))
         .build();
 
@@ -402,6 +403,24 @@ mod tests {
         std::fs::write(root.join("src/b.rs"), "// no match here\n").unwrap();
         std::fs::write(root.join("docs/c.md"), "fn doc() {}\n").unwrap();
         root
+    }
+
+    #[test]
+    fn multiline_count_matches_normal_search() {
+        let root = fixture("multiline-count");
+        std::fs::write(root.join("src/a.rs"), "alpha\nbeta\n").unwrap();
+        for count in [false, true] {
+            let input: GrepInput = serde_json::from_value(serde_json::json!({
+                "pattern": "alpha.*beta", "multiline": true, "count": count
+            }))
+            .unwrap();
+            let out = run_grep(&root, &root, input).unwrap();
+            assert!(out.contains("src/a.rs"), "{out}");
+            if count {
+                assert!(out.contains("total 1 matches"), "{out}");
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// count 模式:每文件匹配行数 + 总数,完整扫描不早停。

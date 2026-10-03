@@ -60,13 +60,13 @@ enum ValidationTask {
 /// 在专用写者落盘后执行。`old_content=None` 表示新文件，changed region 覆盖全文。
 pub(crate) async fn validate_after_write(
     path: &Path,
-    project_root: &Path,
+    code_root: &Path,
     old_content: Option<&str>,
     new_content: &str,
 ) -> ValidationReport {
     let changed_region = changed_region(old_content, new_content);
     let debounce_key = path
-        .strip_prefix(project_root)
+        .strip_prefix(code_root)
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/");
@@ -90,10 +90,10 @@ pub(crate) async fn validate_after_write(
         );
     }
 
-    let tasks = plan_tasks(path, project_root, new_content);
+    let tasks = plan_tasks(path, code_root, new_content);
     let mut checks = Vec::with_capacity(tasks.len());
     for task in tasks {
-        checks.push(run_task(task, project_root).await);
+        checks.push(run_task(task, code_root).await);
     }
     report(&debounce_key, changed_region, checks)
 }
@@ -184,7 +184,7 @@ fn report(debounce_key: &str, changed_region: Value, checks: Vec<CheckReport>) -
     }
 }
 
-fn plan_tasks(path: &Path, project_root: &Path, content: &str) -> Vec<ValidationTask> {
+fn plan_tasks(path: &Path, code_root: &Path, content: &str) -> Vec<ValidationTask> {
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
@@ -215,7 +215,7 @@ fn plan_tasks(path: &Path, project_root: &Path, content: &str) -> Vec<Validation
                 args: vec!["--check".into(), path_text.clone()],
                 command: format!("node --check \"{path_text}\""),
             });
-            let relative = relative_path(path, project_root);
+            let relative = relative_path(path, code_root);
             if is_ui_path(&relative) || relative == "scripts/ui-lint-smoke.mjs" {
                 tasks.push(ValidationTask::Deferred {
                     kind: "ui_lint_probe",
@@ -231,7 +231,7 @@ fn plan_tasks(path: &Path, project_root: &Path, content: &str) -> Vec<Validation
         }
         "rs" => {
             let path_text = path.display().to_string();
-            match rust_edition(path, project_root) {
+            match rust_edition(path, code_root) {
                 Ok(edition) => tasks.push(ValidationTask::External {
                     kind: "rust_ast_formatter",
                     program: "rustfmt",
@@ -244,7 +244,7 @@ fn plan_tasks(path: &Path, project_root: &Path, content: &str) -> Vec<Validation
                     result: Err(context),
                 }),
             }
-            if let Some(manifest) = nearest_manifest(path, project_root) {
+            if let Some(manifest) = nearest_manifest(path, code_root) {
                 let manifest_text = manifest.display().to_string();
                 tasks.push(ValidationTask::Deferred {
                     kind: "rust_target_check",
@@ -267,7 +267,7 @@ fn plan_tasks(path: &Path, project_root: &Path, content: &str) -> Vec<Validation
     tasks
 }
 
-async fn run_task(task: ValidationTask, project_root: &Path) -> CheckReport {
+async fn run_task(task: ValidationTask, code_root: &Path) -> CheckReport {
     match task {
         ValidationTask::Internal {
             kind,
@@ -311,7 +311,7 @@ async fn run_task(task: ValidationTask, project_root: &Path) -> CheckReport {
             program,
             args,
             command,
-        } => run_external(kind, program, &args, &command, project_root).await,
+        } => run_external(kind, program, &args, &command, code_root).await,
     }
 }
 
@@ -320,13 +320,10 @@ async fn run_external(
     program: &'static str,
     args: &[String],
     command: &str,
-    project_root: &Path,
+    code_root: &Path,
 ) -> CheckReport {
     let mut child = Command::new(program);
-    child
-        .args(args)
-        .current_dir(project_root)
-        .kill_on_drop(true);
+    child.args(args).current_dir(code_root).kill_on_drop(true);
     crate::hide_console_async(&mut child);
     let output = match tokio::time::timeout(COMMAND_TIMEOUT, child.output()).await {
         Ok(Ok(output)) => output,
@@ -420,8 +417,8 @@ fn is_latest_generation(path: &Path, generation: u64) -> bool {
         == Some(generation)
 }
 
-fn relative_path(path: &Path, project_root: &Path) -> String {
-    path.strip_prefix(project_root)
+fn relative_path(path: &Path, code_root: &Path) -> String {
+    path.strip_prefix(code_root)
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
@@ -436,22 +433,22 @@ fn is_vm_probe_path(relative: &str) -> bool {
     is_ui_path(relative) || relative == "scripts/ui-runtime-smoke.mjs"
 }
 
-fn nearest_manifest(path: &Path, project_root: &Path) -> Option<PathBuf> {
+fn nearest_manifest(path: &Path, code_root: &Path) -> Option<PathBuf> {
     let mut current = path.parent()?;
     loop {
         let candidate = current.join("Cargo.toml");
         if candidate.is_file() {
             return Some(candidate);
         }
-        if current == project_root || !current.starts_with(project_root) {
+        if current == code_root || !current.starts_with(code_root) {
             return None;
         }
         current = current.parent()?;
     }
 }
 
-fn rust_edition(path: &Path, project_root: &Path) -> Result<String, String> {
-    let Some(manifest) = nearest_manifest(path, project_root) else {
+fn rust_edition(path: &Path, code_root: &Path) -> Result<String, String> {
+    let Some(manifest) = nearest_manifest(path, code_root) else {
         // 无 Cargo 清单的独立文件使用 rustfmt 默认 edition，不伪称来自项目。
         return Ok("2015".into());
     };

@@ -653,125 +653,85 @@ fn read_f32_be(b: &[u8], pos: usize) -> Result<f32, String> {
         .ok_or_else(|| format!("ASE 数据截断(偏移 {pos})"))
 }
 
-/// 解析单个 ASE 色块(0xC001,仅 RGB 色彩空间;CMYK/LAB/Gray 跳过计数)。
-fn ase_color_block(
-    bytes: &[u8],
-    data_start: usize,
-    data_end: usize,
-    colors: &mut Vec<String>,
-    skipped: &mut usize,
-    first_name: &mut String,
-) -> Result<(), String> {
-    let model = bytes
-        .get(data_start..data_start + 4)
-        .ok_or_else(|| "ASE 色块 model 截断".to_string())?;
-    if model != b"RGB " {
-        *skipped += 1;
-        return Ok(());
-    }
-    let vals = data_start + 4;
-    let r = read_f32_be(bytes, vals)?;
-    let g = read_f32_be(bytes, vals + 4)?;
-    let b = read_f32_be(bytes, vals + 8)?;
-    // 色名:ctype(2) + namelen(2) + name
-    let name_len_off = vals + 12 + 2;
-    let nlen = read_u16_be(bytes, name_len_off)? as usize;
-    let name = bytes
-        .get(name_len_off + 2..name_len_off + 2 + nlen)
-        .map(|s| String::from_utf8_lossy(s).into_owned())
-        .unwrap_or_default();
-    if data_end < name_len_off + 2 + nlen {
-        return Err("ASE 色块长度越界".to_string());
-    }
-    if first_name.is_empty() {
-        *first_name = name;
-    }
-    colors.push(format!(
-        "#{:02X}{:02X}{:02X}",
-        (r.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (g.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (b.clamp(0.0, 1.0) * 255.0).round() as u8
-    ));
-    Ok(())
-}
-
-/// 递归解析 ASE 块流(顶层按块数;组块 0xC002 数据区递归)。
-fn ase_blocks(
-    bytes: &[u8],
-    start: usize,
-    end: usize,
-    colors: &mut Vec<String>,
-    skipped: &mut usize,
-    first_name: &mut String,
-) -> Result<(), String> {
-    let mut pos = start;
-    while pos + 6 <= end {
-        let btype = read_u16_be(bytes, pos)?;
-        let blen = read_u32_be(bytes, pos + 2)? as usize;
-        let ds = pos + 6;
-        let de = ds + blen;
-        if de > end {
-            return Err(format!("ASE 块长度越界(偏移 {pos},块长 {blen})"));
-        }
-        match btype {
-            0xC001 => ase_color_block(bytes, ds, de, colors, skipped, first_name)?,
-            0xC002 => ase_blocks(bytes, ds, de, colors, skipped, first_name)?,
-            _ => *skipped += 1,
-        }
-        pos = de;
-    }
-    Ok(())
-}
-
-/// 解析 Adobe .ase 二进制(ASEF 魔数 + 版本 + 块流;仅收 RGB 色块)。
-/// 返回 (首个色块名或 ase_import, 色列表)。
+/// Adobe Swatch Exchange 1.0: flat block stream, UTF-16BE names, RGB floats.
 pub fn parse_ase(bytes: &[u8]) -> Result<(String, Vec<String>), String> {
-    if bytes.len() < 4 || &bytes[0..4] != b"ASEF" {
-        return Err(
-            "不是 Adobe .ase:魔数应为 'ASEF'(Adobe Swatch Exchange 二进制格式)".to_string(),
-        );
+    if bytes.get(..4) != Some(b"ASEF") {
+        return Err("not Adobe .ase: expected ASEF magic".into());
     }
-    if bytes.len() < 14 {
-        return Err(format!(
-            "ASEF 头截断:仅 {} 字节(需 ≥14:魔数+版本+块数+至少一个块头)",
-            bytes.len()
-        ));
+    if read_u16_be(bytes, 4)? != 1 || read_u16_be(bytes, 6)? != 0 {
+        return Err("unsupported ASE version (expected 1.0)".into());
     }
-    let num_blocks = read_u32_be(bytes, 6)?;
-    let mut pos = 10usize;
-    let mut colors: Vec<String> = Vec::new();
-    let mut skipped = 0usize;
+    let blocks = read_u32_be(bytes, 8)?;
+    let mut pos = 12;
+    let mut colors = Vec::new();
     let mut first_name = String::new();
-    for _ in 0..num_blocks {
-        if pos + 6 > bytes.len() {
-            return Err("ASE 块头截断".to_string());
+    let mut skipped = 0;
+    for _ in 0..blocks {
+        let kind = read_u16_be(bytes, pos)?;
+        let len = read_u32_be(bytes, pos + 2)? as usize;
+        pos += 6;
+        let end = pos.checked_add(len).ok_or("ASE block length overflow")?;
+        let block = bytes.get(pos..end).ok_or("ASE block truncated")?;
+        pos = end;
+        // Group start/end are siblings of color blocks, not nested byte streams.
+        if kind != 0x0001 {
+            continue;
         }
-        let btype = read_u16_be(bytes, pos)?;
-        let blen = read_u32_be(bytes, pos + 2)? as usize;
-        let ds = pos + 6;
-        let de = ds + blen;
-        if de > bytes.len() {
-            return Err(format!("ASE 块长度越界(偏移 {pos},块长 {blen})"));
+        let units = read_u16_be(block, 0)? as usize;
+        if units == 0 {
+            return Err("ASE color name missing terminator".into());
         }
-        match btype {
-            0xC001 => ase_color_block(bytes, ds, de, &mut colors, &mut skipped, &mut first_name)?,
-            0xC002 => ase_blocks(bytes, ds, de, &mut colors, &mut skipped, &mut first_name)?,
-            _ => skipped += 1,
+        let name_end = 2 + units * 2;
+        let encoded = block.get(2..name_end).ok_or("ASE color name truncated")?;
+        let mut name = encoded
+            .chunks_exact(2)
+            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .collect::<Vec<_>>();
+        if name.pop() != Some(0) {
+            return Err("ASE color name missing terminator".into());
         }
-        pos = de;
+        let name = String::from_utf16(&name).map_err(|error| format!("ASE color name: {error}"))?;
+        let model = block
+            .get(name_end..name_end + 4)
+            .ok_or("ASE color model truncated")?;
+        if model != b"RGB " {
+            skipped += 1;
+            continue;
+        }
+        let start = name_end + 4;
+        let rgb = [
+            read_f32_be(block, start)?,
+            read_f32_be(block, start + 4)?,
+            read_f32_be(block, start + 8)?,
+        ];
+        read_u16_be(block, start + 12)?; // color type belongs to this block
+        if rgb.iter().any(|value| !value.is_finite()) {
+            return Err("ASE RGB component is not finite".into());
+        }
+        if colors.is_empty() {
+            first_name = name;
+        }
+        colors.push(format!(
+            "#{:02X}{:02X}{:02X}",
+            (rgb[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+            (rgb[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+            (rgb[2].clamp(0.0, 1.0) * 255.0).round() as u8
+        ));
     }
     if colors.len() < 2 {
         return Err(format!(
-            "ASE 解析到 {} 个 RGB 色(需 ≥2);跳过非 RGB 色块 {skipped} 个",
+            "ASE requires at least 2 RGB colors; found {}, skipped {skipped} non-RGB colors",
             colors.len()
         ));
     }
-    let name = if first_name.is_empty() {
-        "ase_import".to_string()
-    } else {
-        first_name
-    };
-    Ok((name, colors))
+    Ok((
+        if first_name.is_empty() {
+            "ase_import".into()
+        } else {
+            first_name
+        },
+        colors,
+    ))
 }
 
 /// 组装用户板并注册:导入即评分(批2 validate 在导入路径被调用),
@@ -1172,6 +1132,43 @@ mod tests {
         assert!(err.contains("GIMP Palette"), "首行诊断: {err}");
         let err2 = parse_gpl("GIMP Palette\n255 0\n999 0 0\n").unwrap_err();
         assert!(err2.contains("非法色行"), "非法色行点名: {err2}");
+    }
+
+    #[test]
+    fn ase_unicode_names_flat_groups_and_block_bounds() {
+        fn block(kind: u16, body: &[u8]) -> Vec<u8> {
+            [
+                kind.to_be_bytes().as_slice(),
+                &(body.len() as u32).to_be_bytes(),
+                body,
+            ]
+            .concat()
+        }
+        fn color(name: &str) -> Vec<u8> {
+            let name: Vec<u16> = name.encode_utf16().chain([0]).collect();
+            let mut body = (name.len() as u16).to_be_bytes().to_vec();
+            for unit in name {
+                body.extend(unit.to_be_bytes());
+            }
+            body.extend(b"RGB ");
+            for value in [1.0_f32, 0.0, 0.5] {
+                body.extend(value.to_be_bytes());
+            }
+            body.extend(0_u16.to_be_bytes());
+            block(1, &body)
+        }
+        let mut bytes = b"ASEF\0\x01\0\0\0\0\0\x04".to_vec();
+        bytes.extend(block(0xc001, &[0, 1, 0, 0]));
+        bytes.extend(color("紫色🎨"));
+        bytes.extend(color("second"));
+        bytes.extend(block(0xc002, &[]));
+        let (name, colors) = parse_ase(&bytes).unwrap();
+        assert_eq!(name, "紫色🎨");
+        assert_eq!(colors, ["#FF0080", "#FF0080"]);
+        // A claimed short color block must not consume the next block's bytes.
+        let color_start = 12 + 10;
+        bytes[color_start + 2..color_start + 6].copy_from_slice(&2_u32.to_be_bytes());
+        assert!(parse_ase(&bytes).is_err());
     }
 
     /// 验收④:Adobe .ase 导入——二进制 fixture 解析(2 个 RGB 色块);魔数诊断。

@@ -20,7 +20,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { domWalker } from "./browser-dom-walker.mjs";
 
-// ---- 状态:单 browser / 单 page / 单 context(边界:不做多 tab/多上下文) ----
+function createSession() {
+// One isolated browser/context/page per session owner.
 let browser = null;
 let browserChannel = null;
 let context = null;
@@ -254,6 +255,39 @@ async function handle(method, params) {
   }
 }
 
+  return handle;
+}
+
+const sessions = new Map();
+const SESSION_IDLE_MS = 120000;
+async function handle(method, params) {
+  if (method === "shutdown") {
+    for (const session of sessions.values()) await session.handle("shutdown", {});
+    sessions.clear();
+    return { ok: true };
+  }
+  if (typeof params?.owner !== "string" || !params.owner) {
+    throw new Error("browser session owner is required");
+  }
+  const now = Date.now();
+  for (const [owner, session] of sessions) {
+    if (now - session.lastUsed > SESSION_IDLE_MS) {
+      await session.handle("shutdown", {});
+      sessions.delete(owner);
+    }
+  }
+  let session = sessions.get(params.owner);
+  if (!session) {
+    session = { handle: createSession(), lastUsed: now };
+    sessions.set(params.owner, session);
+  }
+  try {
+    return await session.handle(method, params);
+  } finally {
+    session.lastUsed = Date.now();
+  }
+}
+
 // ---- stdio 循环:逐行读 JSON,响应逐行写。请求**串行**处理(单 browser/page,
 // 并发 RPC 会让后到的截图在 open 完成前执行)——用 promise 链把处理排成队列。
 let queue = Promise.resolve();
@@ -290,7 +324,7 @@ function maybeExit() {
   if (stdinEnded) {
     queue = queue.then(async () => {
       try {
-        if (browser) await browser.close().catch(() => {});
+        await handle("shutdown", {});
       } finally {
         process.exit(0);
       }

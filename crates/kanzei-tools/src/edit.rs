@@ -567,7 +567,7 @@ impl Tool for EditTool {
         }
         let validation = crate::local_validation::validate_after_write(
             &path,
-            &ctx.project_root,
+            &ctx.cwd,
             Some(&content),
             &updated,
         )
@@ -806,7 +806,7 @@ impl Tool for InsertTool {
         }
         let validation = crate::local_validation::validate_after_write(
             &path,
-            &ctx.project_root,
+            &ctx.cwd,
             Some(&original),
             &updated,
         )

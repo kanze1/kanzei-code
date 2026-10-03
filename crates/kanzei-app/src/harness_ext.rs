@@ -354,13 +354,17 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        let current = kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless);
-        kanzei_tools::browser::resources_for(input, None, current.as_deref())
+        kanzei_tools::browser::resources_for(input, None, None)
     }
 
     /// 不带目标的动作按「将要执行它的那个后端」的当前页判权限(刚被遮住、执行时会等它露出来的
     /// 面板按面板算,与 execute 的 route_waiting 同一结论)。
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
+        if ctx.browser_owner.is_some() {
+            let current =
+                kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx);
+            return kanzei_tools::browser::resources_for(input, Some(&ctx.cwd), current.as_deref());
+        }
         if crate::runtime_service::is_service() {
             return crate::desktop_bridge::browser_resources(input, ctx);
         }
@@ -369,7 +373,7 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
                 .map(|meta| meta.url)
                 .filter(|url| !url.is_empty() && url != "about:blank"),
             crate::preview::Backend::Headless => {
-                kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless)
+                kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx)
             }
         };
         kanzei_tools::browser::resources_for(input, Some(&ctx.cwd), current.as_deref())
@@ -384,6 +388,12 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
+        if ctx.browser_owner.is_some() {
+            return match kanzei_tools::browser::parse_browser_input(input) {
+                Ok(input) => kanzei_tools::browser::execute_headless(input, ctx, true).await,
+                Err(output) => *output,
+            };
+        }
         if crate::runtime_service::is_service() {
             return crate::desktop_bridge::browser(input, ctx).await;
         }

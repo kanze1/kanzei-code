@@ -584,19 +584,27 @@ pub(crate) fn enforce_other_trees_with_command(
                 Some(_) => {} // 指纹相同:无变化(零内容读取)。
             }
         }
-        // 执行后新增的文件(执行前没有):越界新建,回滚 = 删除。
+        // New files need the same content evidence as edits, so the other tree's
+        // write receipt can account for a legitimate create during this window.
         for (rel, (len, mtime)) in &after_files {
             if !before_files.contains_key(rel) {
-                tree_changes.insert(
-                    rel.clone(),
-                    (
-                        FileImage::Absent,
-                        Some(FileImage::Fingerprint {
+                let bytes = (*len <= OTHER_TREE_FILE_LIMIT)
+                    .then(|| std::fs::read(root.join(rel)).ok())
+                    .flatten();
+                let after_image = match bytes {
+                    Some(bytes) if bytes.len() as u64 <= OTHER_TREE_FILE_LIMIT => {
+                        FileImage::Content {
+                            bytes,
                             len: *len,
                             mtime_ms: *mtime,
-                        }),
-                    ),
-                );
+                        }
+                    }
+                    _ => FileImage::Fingerprint {
+                        len: *len,
+                        mtime_ms: *mtime,
+                    },
+                };
+                tree_changes.insert(rel.clone(), (FileImage::Absent, Some(after_image)));
             }
         }
         // D-395:吸收合法自写——有写日志解释(路径+指纹+窗口内)的变化是
@@ -626,15 +634,15 @@ pub(crate) fn enforce_other_trees_with_command(
         }
     };
     let mut lines = vec![
-        "[cross-tree] DETECTED (report-only, evidence quarantined; automatic rollback is \
+        "[cross-tree] DETECTED (report-only; automatic rollback is \
          DISABLED pending D-395). Files in another line's worktree changed during this command \
          — those trees are protected (R-186). Verify whether this command crossed into another \
-         line's tree; if it did, restore from the quarantine copy listed below."
+         line's tree; evidence copy results are listed below."
             .to_string(),
         owner_line,
     ];
     let mut unrestored: Vec<String> = Vec::new();
-    let mut quota = std::collections::BTreeMap::new();
+    let mut saved_count = 0;
     for (root, tree_changes) in &changes {
         let root_display = root.display().to_string();
         let quarantine = project_root.join(".kanzei/quarantine").join(format!(
@@ -654,10 +662,20 @@ pub(crate) fn enforce_other_trees_with_command(
             }) = after_image
             {
                 let saved = quarantine.join(rel);
-                if let Some(parent) = saved.parent() {
-                    let _ = std::fs::create_dir_all(parent);
+                let result = saved
+                    .parent()
+                    .map(std::fs::create_dir_all)
+                    .unwrap_or(Ok(()))
+                    .and_then(|()| std::fs::write(&saved, after_content));
+                match result {
+                    Ok(()) => {
+                        saved_count += 1;
+                        lines.push(format!("  evidence saved: {}", saved.display()));
+                    }
+                    Err(error) => lines.push(format!(
+                        "  evidence FAILED for {root_display}/{rel}: {error}; no quarantine copy saved"
+                    )),
                 }
-                let _ = std::fs::write(&saved, after_content);
             }
             // D-407:**自动回滚已停用**(2026-08-16 拍板,当时回滚把主树活动 SQLite 的
             // WAL 写回旧版本,写坏 228 MB state.db)。本机制无法充分区分「A 线越界写
@@ -679,11 +697,6 @@ pub(crate) fn enforce_other_trees_with_command(
             let _ = (&absolute, before_image);
             touched.push(format!("{root_display}/{rel}"));
         }
-        // 每棵树只留一个隔离目录,记录到该树的报告行。
-        quota.insert(root_display.clone(), quarantine.display().to_string());
-    }
-    for (root_display, quarantine) in &quota {
-        lines.push(format!("  · {root_display}: 隔离留证于 {quarantine}"));
     }
     if before.truncated || after_truncated {
         lines.push(format!(
@@ -706,7 +719,7 @@ pub(crate) fn enforce_other_trees_with_command(
         ));
     }
     lines.push(format!(
-        "  touched: {} (检测到 {} 个文件变化;**未自动回滚**,现状保持不变,改后内容已隔离留证)",
+        "  touched: {} (检测到 {} 个文件变化;**未自动回滚**,现状保持不变; evidence copies saved: {saved_count})",
         touched.join(", "),
         touched.len()
     ));
@@ -774,6 +787,25 @@ mod tests {
     /// A 线(主树)的 bash 写 B 线工作树 → 检出、归因、隔离留证。
     /// D-407:自动回滚已停用(见 enforce_other_trees 内注释),现状保持不变——
     /// 断言从「逐字节复原」改为「改后内容原样保留 + 隔离目录里有可取回的副本」。
+    #[test]
+    fn quarantine_failure_is_reported_without_claiming_a_saved_copy() {
+        let root = git_repo("quarantine-failure");
+        let b = add_worktree(&root, "line-b");
+        let before = capture_other_trees(&root, &root).unwrap();
+        std::fs::write(b.join("seed.txt"), "changed content").unwrap();
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        std::fs::write(root.join(".kanzei/quarantine"), "blocks directory creation").unwrap();
+        let report = enforce_other_trees(&root, &root, &before, None, None, 0).unwrap();
+        assert!(report.contains("evidence FAILED"), "{report}");
+        assert!(report.contains("evidence copies saved: 0"), "{report}");
+        assert!(!report.contains("evidence saved:"), "{report}");
+        assert_eq!(
+            std::fs::read_to_string(b.join("seed.txt")).unwrap(),
+            "changed content"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn a线bash写b线树_检出归因并隔离留证_不动现状() {
         let root = git_repo("kz-ct-b1");
@@ -856,6 +888,20 @@ mod tests {
                 path: rel.to_string(),
                 fingerprint: crate::content_hash(new_content),
                 content: kanzei_base::write_log::LoggedContent::Stored(new_content.to_vec()),
+                run_id: Some("run-b".into()),
+                process_id: Some("proc-b".into()),
+            },
+        )
+        .unwrap();
+
+        std::fs::write(b.join("new.txt"), new_content).unwrap();
+        crate::write_log::record(
+            &b,
+            &crate::write_log::WriteLogEntry {
+                at_ms: window_start + 1,
+                path: "new.txt".into(),
+                fingerprint: crate::content_hash(new_content),
+                content: crate::write_log::LoggedContent::Stored(new_content.to_vec()),
                 run_id: Some("run-b".into()),
                 process_id: Some("proc-b".into()),
             },

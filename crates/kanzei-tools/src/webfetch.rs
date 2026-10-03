@@ -418,6 +418,11 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
         .to_ascii_lowercase()
         .contains("application/pdf")
         || response.body.starts_with(b"%PDF-");
+    if is_pdf && response.truncated {
+        return Err(
+            "PDF exceeds the 3 MiB download limit; incomplete PDF was not saved or cached".into(),
+        );
+    }
     let (extension, markdown, links) = if is_pdf {
         ("pdf", String::new(), Vec::new())
     } else {
@@ -539,7 +544,7 @@ async fn fetch_web_response(url: &str, ctx: &ToolCtx) -> Result<WebFetchResponse
                 Ok(Some(chunk)) => {
                     let remaining = MAX_RESPONSE_BYTES.saturating_sub(body.len());
                     body.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
-                    if body.len() >= MAX_RESPONSE_BYTES {
+                    if chunk.len() > remaining {
                         truncated = true;
                         break;
                     }
@@ -928,6 +933,36 @@ mod tests {
             }
         });
         (format!("http://{address}/page"), handle)
+    }
+
+    #[tokio::test]
+    async fn pdf_limit_rejects_partial_download_but_accepts_exact_boundary() {
+        let root = temp_root("pdf-limit");
+        let ctx = ToolCtx::new(root.clone(), root.clone()).with_session_id("pdf-limit".into());
+        for extra in [0, 1] {
+            let mut body = "%PDF-1.4\n".to_string();
+            body.push_str(&" ".repeat(super::MAX_RESPONSE_BYTES + extra - body.len() - 5));
+            body.push_str("%%EOF");
+            let (url, server) = spawn_http_server(vec![http_response(
+                "200 OK",
+                "Content-Type: application/pdf\r\n",
+                &body,
+            )]);
+            let result = super::fetch_cached_page(&ctx, &url).await;
+            server.join().unwrap();
+            if extra == 0 {
+                let super::FetchPage::Page { page, .. } = result.unwrap() else {
+                    panic!("unexpected redirect")
+                };
+                assert_eq!(std::fs::read(&page.artifact_path).unwrap(), body.as_bytes());
+            } else {
+                assert!(
+                    matches!(result, Err(ref error) if error.contains("incomplete PDF was not saved"))
+                );
+                assert!(super::cache_get(&("pdf-limit".into(), url)).is_none());
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

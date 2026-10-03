@@ -509,7 +509,7 @@ async fn run_subagent_inner(
         .await;
     }
     // A child must never drain the parent's steering queue.
-    let mut child_ctx = ctx.clone();
+    let mut child_ctx = ctx.clone().with_browser_child(parent_call_id);
     child_ctx.input_inbox = None;
     child_ctx.read_ledger = ctx
         .read_ledger

@@ -333,7 +333,7 @@ impl Tool for WriteTool {
         let mut message = format!("wrote {} bytes to {}", input.content.len(), path.display());
         let validation = crate::local_validation::validate_after_write(
             &path,
-            &ctx.project_root,
+            &ctx.cwd,
             previous.as_deref(),
             &input.content,
         )
@@ -479,6 +479,43 @@ mod tests {
         assert_eq!(display["lines"][1]["old_line"], 2);
         assert_eq!(display["lines"][2]["kind"], "add");
         assert_eq!(display["lines"][2]["new_line"], 2);
+    }
+
+    #[tokio::test]
+    async fn worktree_write_validates_against_its_own_manifest() {
+        use kanzei_harness::Tool;
+        let root = std::env::temp_dir().join(format!(
+            "write-edition-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let main = root.join("main");
+        let tree = root.join("tree");
+        std::fs::create_dir_all(&main).unwrap();
+        std::fs::create_dir_all(tree.join("src")).unwrap();
+        std::fs::write(
+            main.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nedition = \"2015\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tree.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        let out = WriteTool
+            .execute(
+                serde_json::json!({"path":"src/lib.rs", "content":"pub async fn ready() {}\n"}),
+                &ToolCtx::new(tree, main),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("--edition 2021"), "{}", out.content);
+        assert!(!out.content.contains("E0670"), "{}", out.content);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

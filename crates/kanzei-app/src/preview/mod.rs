@@ -234,6 +234,8 @@ pub(crate) struct PaneMeta {
     pub(crate) can_forward: bool,
     pub(crate) visible: bool,
     pub(crate) bound_process_id: Option<String>,
+    #[serde(skip)]
+    pub(crate) owner_epoch: u64,
     pub(crate) device: DevicePreset,
     pub(crate) scheme: ColorScheme,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -326,6 +328,9 @@ impl PaneMeta {
     /// 并记下隐藏时刻。
     pub(crate) fn set_visibility(&mut self, visible: bool, process_id: Option<String>, now: u64) {
         if visible {
+            if self.bound_process_id != process_id {
+                self.owner_epoch += 1;
+            }
             self.bound_process_id = process_id;
         } else if self.visible {
             self.hidden_at = now;

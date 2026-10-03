@@ -169,10 +169,8 @@ impl Tool for ConventionsTool {
                         "`new_string` (the replacement text) is required for patch",
                     );
                 };
-                // agent→工具参数在协议层常把换行转义成字面 `\n`/`\r\n`/`\r` 文本
-                // (测试代码直接构造 JSON 时则是真换行)。统一解码,两种输入等价。
-                let old_string = decode_escaped_newlines(&old_string);
-                let new_string = decode_escaped_newlines(&new_string);
+                // serde_json has already decoded JSON escapes. Backslashes in
+                // paths and examples are literal text and must remain intact.
                 if old_string.is_empty() {
                     return ToolOutput::error(
                         "`old_string` must not be empty — an empty needle matches every position",
@@ -289,14 +287,6 @@ fn normalize_lf(s: &str) -> String {
     s.replace("\r\n", "\n")
 }
 
-/// 解码协议层把换行转义成的字面序列(`\n` / `\r\n` / `\r` 文本形式),
-/// 还原为真换行,使字面转义与真换行两种参数输入等价。
-fn decode_escaped_newlines(s: &str) -> String {
-    s.replace("\\r\\n", "\n")
-        .replace("\\r", "\n")
-        .replace("\\n", "\n")
-}
-
 /// 把 LF 归一化文本上的字节区间 [lf_start, lf_start + lf_len) 映射回原始文本
 /// (含 `\r\n`)的字节区间。原理:归一化文本 = 原文删去每个 CRLF 的 `\r`;
 /// 原文偏移 = 归一化偏移 + 前缀里被删掉的 `\r` 数。
@@ -353,6 +343,29 @@ mod tests {
     }
 
     const SAMPLE: &str = "## 1.4 验证与提交节奏参数\n\n- 默认值: 全量测试只在关闭前跑。\n\n## 2. 代码修改原则\n\n- 小步可验证。\n";
+
+    #[tokio::test]
+    async fn patch_preserves_literal_backslashes_after_json_decoding() {
+        let root = tmp_dir();
+        let before = r"Use C:\new\rules and literal \n.";
+        let after = r"Use D:\new\results and literal \r\n.";
+        std::fs::write(root.join(CONVENTIONS_REL), before).unwrap();
+        let output = ConventionsTool
+            .execute(
+                serde_json::json!({
+                    "action":"patch", "old_string":before, "new_string":after,
+                    "expected_hash":normalized_text_hash(before),
+                }),
+                &ToolCtx::new(root.clone(), root.clone()),
+            )
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        assert_eq!(
+            std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap(),
+            after
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     /// 在临时项目里写一份 SAMPLE,执行一次工具调用,返回 (输出, 项目根)。
     async fn run(

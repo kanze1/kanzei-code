@@ -104,7 +104,7 @@ impl Tool for SymbolsTool {
                 ),
             );
         }
-        let crate_dirs = crate_ident_to_dir(&ctx.project_root);
+        let crate_dirs = crate_ident_to_dir(&ctx.cwd);
         let files = if let Some(crate_name) = input.crate_name.as_deref() {
             let Some((_, crate_dir)) = crate_dirs.iter().find(|(ident, _)| ident == crate_name)
             else {
@@ -134,7 +134,7 @@ impl Tool for SymbolsTool {
             return ToolOutput::ok(render_repo_map(
                 &files,
                 &crate_dirs,
-                &ctx.project_root,
+                &ctx.cwd,
                 input.module.as_deref(),
                 input.filter.as_deref(),
             ));
@@ -147,7 +147,7 @@ impl Tool for SymbolsTool {
         }
         // R-265:符号反查——全树按名精确命中定义点,并解释跨 crate re-export 链。
         if let Some(define) = &input.define {
-            let report = resolve_define(&files, define, &ctx.project_root);
+            let report = resolve_define(&files, define, &ctx.cwd);
             return ToolOutput::ok(report);
         } // R-234 B2:调用链查询——列出对指定符号的引用点。
         if let Some(callers) = &input.callers {
@@ -1071,6 +1071,50 @@ mod tests {
         assert_eq!(out.code, Some("SYMBOLS_PATH_NOT_FOUND"));
         assert!(out.content.contains("coordinator.rs"), "{}", out.content);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn map_and_definitions_use_current_worktree() {
+        let root = std::env::temp_dir().join(format!(
+            "symbols-tree-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let main = root.join("main");
+        let tree = root.join("tree");
+        for (dir, name) in [(&main, "main_only"), (&tree, "tree_only")] {
+            std::fs::create_dir_all(dir.join("crates/demo/src")).unwrap();
+            std::fs::write(
+                dir.join("Cargo.toml"),
+                "[workspace]\nmembers = [\"crates/demo\"]\n",
+            )
+            .unwrap();
+            std::fs::write(
+                dir.join("crates/demo/Cargo.toml"),
+                "[package]\nname = \"demo\"\n",
+            )
+            .unwrap();
+            std::fs::write(
+                dir.join("crates/demo/src/lib.rs"),
+                format!("pub fn {name}() {{}}\n"),
+            )
+            .unwrap();
+        }
+        let ctx = ToolCtx::new(tree, main);
+        for input in [
+            serde_json::json!({"crate":"demo"}),
+            serde_json::json!({"module":"crate"}),
+            serde_json::json!({"define":"demo::tree_only"}),
+        ] {
+            let out = SymbolsTool.execute(input, &ctx).await;
+            assert!(!out.is_error, "{}", out.content);
+            assert!(out.content.contains("tree_only"), "{}", out.content);
+            assert!(!out.content.contains("main_only"), "{}", out.content);
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

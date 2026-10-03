@@ -152,39 +152,45 @@ pub(crate) fn extract_json(text: &str) -> Option<Value> {
             return Some(value);
         }
     }
-    // 前后有散文:按括号配对切出第一个完整的顶层结构。
-    for (open, close) in [('{', '}'), ('[', ']')] {
-        if let Some(start) = trimmed.find(open) {
-            let mut depth = 0usize;
-            let mut in_string = false;
-            let mut escaped = false;
-            for (offset, ch) in trimmed[start..].char_indices() {
-                if in_string {
-                    match ch {
-                        _ if escaped => escaped = false,
-                        '\\' => escaped = true,
-                        '"' => in_string = false,
-                        _ => {}
-                    }
-                    continue;
-                }
+    // Scan complete top-level spans in textual order. Never prefer an object
+    // nested inside an outer array; skip non-JSON prose such as [note].
+    let mut remaining = trimmed;
+    while let Some(start) = remaining.find(['{', '[']) {
+        let candidate = &remaining[start..];
+        let open = candidate.as_bytes()[0] as char;
+        let close = if open == '{' { '}' } else { ']' };
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut consumed = None;
+        for (offset, ch) in candidate.char_indices() {
+            if in_string {
                 match ch {
-                    '"' => in_string = true,
-                    c if c == open => depth += 1,
-                    c if c == close => {
-                        depth -= 1;
-                        if depth == 0 {
-                            let slice = &trimmed[start..start + offset + ch.len_utf8()];
-                            if let Ok(value) = serde_json::from_str::<Value>(slice) {
-                                return Some(value);
-                            }
-                            break;
-                        }
-                    }
+                    _ if escaped => escaped = false,
+                    '\\' => escaped = true,
+                    '"' => in_string = false,
                     _ => {}
                 }
+                continue;
+            }
+            match ch {
+                '"' => in_string = true,
+                c if c == open => depth += 1,
+                c if c == close => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let end = offset + ch.len_utf8();
+                        if let Ok(value) = serde_json::from_str::<Value>(&candidate[..end]) {
+                            return Some(value);
+                        }
+                        consumed = Some(end);
+                        break;
+                    }
+                }
+                _ => {}
             }
         }
+        remaining = &candidate[consumed?..];
     }
     None
 }
@@ -300,6 +306,22 @@ mod tests {
 
     #[test]
     fn extract_json_supports_top_level_array() {
+        assert_eq!(
+            extract_json("[note] result: [{\"ok\":true}]"),
+            Some(json!([{"ok":true}]))
+        );
         assert_eq!(extract_json("result: [1,2,3]"), Some(json!([1, 2, 3])));
+        assert_eq!(
+            extract_json("result: [{\"ok\":true},{\"ok\":false}] done"),
+            Some(json!([{"ok":true},{"ok":false}]))
+        );
+        assert_eq!(
+            extract_json("result: {\"items\":[{\"ok\":true}]} done"),
+            Some(json!({"items":[{"ok":true}]}))
+        );
+        assert_eq!(
+            extract_json("result: [{\"msg\":\"] }\"}] done"),
+            Some(json!([{"msg":"] }"}]))
+        );
     }
 }

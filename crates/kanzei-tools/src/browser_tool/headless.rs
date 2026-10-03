@@ -62,32 +62,45 @@ pub async fn execute_headless(
     if pane_hint {
         notes.push(HEADLESS_PANE_HINT.to_string());
     }
-    let result = with_helper(|helper| run_action(helper, &input, action, target, &notes));
-    match result {
-        Ok((output, url)) => {
-            if let Some(url) = url {
-                set_current_url(backend, Some(url));
-            }
-            output
+    let result = with_helper(|helper| {
+        let (output, url) = run_action(
+            helper,
+            &super::owner_key(ctx),
+            &input,
+            action,
+            target,
+            &notes,
+        )?;
+        if let Some(url) = url {
+            set_current_url(backend, ctx, Some(url));
         }
+        Ok(output)
+    });
+    match result {
+        Ok(output) => output,
         Err(error) => browser_error(backend, &error),
     }
 }
 
 fn run_action(
     helper: &mut HelperProcess,
+    owner: &str,
     input: &BrowserInput,
     action: BrowserAction,
     target: Option<super::NavTarget>,
     notes: &[String],
 ) -> Result<(ToolOutput, Option<String>), String> {
+    let mut rpc = |method: &str, mut params: serde_json::Value| {
+        params["owner"] = owner.into();
+        helper.rpc(method, params)
+    };
     let backend = Backend::Headless;
     let viewport = parse_viewport(input.viewport.as_deref())
         .map(|(width, height)| serde_json::json!({ "width": width, "height": height }));
     let viewport_text = viewport_label(input.viewport.as_deref());
     let mut opened: Option<(String, String)> = None;
     if let Some(target) = &target {
-        let result = helper.rpc(
+        let result = rpc(
             "open",
             serde_json::json!({ "url": target.url, "channel": input.channel, "viewport": viewport }),
         )?;
@@ -97,7 +110,7 @@ fn run_action(
         ));
     }
     if let Some(scheme) = &input.color_scheme {
-        helper.rpc("emulateMedia", serde_json::json!({ "colorScheme": scheme }))?;
+        rpc("emulateMedia", serde_json::json!({ "colorScheme": scheme }))?;
     }
     let page_url = |value: &serde_json::Value| -> String {
         value["url"]
@@ -109,7 +122,7 @@ fn run_action(
     let selector = input.selector.clone().unwrap_or_default();
     Ok(match action {
         BrowserAction::Open => {
-            let shot = helper.rpc("screenshot", serde_json::json!({ "viewport": viewport }))?;
+            let shot = rpc("screenshot", serde_json::json!({ "viewport": viewport }))?;
             let (title, url) = opened.clone().unwrap_or_default();
             let png = png_field(&shot)?;
             (
@@ -118,7 +131,7 @@ fn run_action(
             )
         }
         BrowserAction::Screenshot => {
-            let shot = helper.rpc(
+            let shot = rpc(
                 "screenshot",
                 serde_json::json!({
                     "viewport": viewport,
@@ -135,13 +148,13 @@ fn run_action(
             )
         }
         BrowserAction::Dom => {
-            let dom = helper.rpc("dom", serde_json::json!({ "selector": selector }))?;
+            let dom = rpc("dom", serde_json::json!({ "selector": selector }))?;
             let url = page_url(&dom);
             let structure = dom["dom"].as_str().unwrap_or("");
             (out_dom(backend, &url, &selector, structure), Some(url))
         }
         BrowserAction::Console => {
-            let console = helper.rpc("console", serde_json::json!({ "all": input.all }))?;
+            let console = rpc("console", serde_json::json!({ "all": input.all }))?;
             let url = page_url(&console);
             let entries: Vec<ConsoleItem> = console["errors"]
                 .as_array()
@@ -150,13 +163,13 @@ fn run_action(
             (out_console(backend, &url, &entries, input.all), Some(url))
         }
         BrowserAction::Click => {
-            let result = helper.rpc("click", serde_json::json!({ "selector": selector }))?;
+            let result = rpc("click", serde_json::json!({ "selector": selector }))?;
             let url = page_url(&result);
             (out_click(backend, &selector, &url), Some(url))
         }
         BrowserAction::Type => {
             let text = input.text.clone().unwrap_or_default();
-            let result = helper.rpc(
+            let result = rpc(
                 "type",
                 serde_json::json!({ "selector": selector, "text": text }),
             )?;
@@ -168,12 +181,12 @@ fn run_action(
         }
         BrowserAction::Press => {
             let key = input.key.clone().unwrap_or_default();
-            let result = helper.rpc("press", serde_json::json!({ "key": key }))?;
+            let result = rpc("press", serde_json::json!({ "key": key }))?;
             let url = page_url(&result);
             (out_press(backend, &key, &url), Some(url))
         }
         BrowserAction::Scroll => {
-            let result = helper.rpc(
+            let result = rpc(
                 "scroll",
                 serde_json::json!({ "selector": input.selector, "dy": input.dy }),
             )?;
@@ -185,7 +198,7 @@ fn run_action(
             )
         }
         BrowserAction::Wait => {
-            let result = helper.rpc(
+            let result = rpc(
                 "wait",
                 serde_json::json!({
                     "selector": input.selector,
@@ -199,7 +212,7 @@ fn run_action(
             (out_wait(backend, &what, elapsed, &url), Some(url))
         }
         BrowserAction::Eval => {
-            let result = helper.rpc(
+            let result = rpc(
                 "eval",
                 serde_json::json!({ "expression": input.expression }),
             )?;
@@ -360,7 +373,7 @@ pub(crate) fn shutdown_helper() {
     }
     *guard = None;
     reg.shutting_down.store(false, Ordering::SeqCst);
-    set_current_url(Backend::Headless, None);
+    super::clear_current_urls(Backend::Headless);
 }
 
 static REGISTRY: std::sync::OnceLock<HelperRegistry> = std::sync::OnceLock::new();
@@ -766,10 +779,13 @@ mod tests {
         let control = with_helper(|helper| {
             helper.rpc(
                 "open",
-                serde_json::json!({ "url": file_url, "channel": "msedge" }),
+                serde_json::json!({ "owner": "integration", "url": file_url, "channel": "msedge" }),
             )?;
             std::thread::sleep(Duration::from_millis(500));
-            helper.rpc("dom", serde_json::json!({ "selector": "#mod" }))
+            helper.rpc(
+                "dom",
+                serde_json::json!({ "owner": "integration", "selector": "#mod" }),
+            )
         });
         shutdown_helper();
         std::fs::remove_dir_all(&dir).ok();

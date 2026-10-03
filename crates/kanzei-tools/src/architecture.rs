@@ -556,25 +556,27 @@ fn validate(root: &Path, content: &str) -> Validation {
             continue;
         }
         let mut ok = true;
-        match seen.get(bare) {
+        let identity = project_rel(bare);
+        match seen.get(&identity) {
             Some(first) => {
                 ok = false;
                 issues.push(Issue {
-                    key: IssueKey::Duplicate(bare.to_string()),
+                    key: IssueKey::Duplicate(identity.clone()),
                     message: format!(
                         "line {line_no}: duplicate index entry for `{bare}` (already at line {first})"
                     ),
                 });
             }
             None => {
-                seen.insert(bare.to_string(), line_no);
+                seen.insert(identity.clone(), line_no);
             }
         }
+        // Identity folds case on Windows; naming validation must retain spelling.
         let file_name = Path::new(bare)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if bare.contains(DESIGN_DIR) {
+        if identity.starts_with(&format!("{DESIGN_DIR}/")) {
             if !is_snake_case_file(&file_name) {
                 ok = false;
                 issues.push(Issue {
@@ -589,7 +591,7 @@ fn validate(root: &Path, content: &str) -> Validation {
         }
         if ok {
             compliant
-                .entry(project_rel(bare))
+                .entry(identity)
                 .or_insert_with(|| bare.to_string());
         }
     }
@@ -673,6 +675,36 @@ mod tests {
 
     fn write_index(root: &Path, body: &str) {
         std::fs::write(root.join(ARCHITECTURE_REL), body).unwrap();
+    }
+
+    #[test]
+    fn duplicate_index_entries_share_normalized_target_identity() {
+        let root = temp_project("duplicate-alias");
+        std::fs::write(root.join(DESIGN_DIR).join("example.md"), "# example").unwrap();
+        let content = "[example.md](../../../docs/design/example.md)\n[example.md](../../../docs/design/./example.md)\n";
+        let result = validate(&root, content);
+        assert!(result.issues.iter().any(|issue| matches!(&issue.key, IssueKey::Duplicate(path) if path == "docs/design/example.md")));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn equivalent_design_directory_alias_is_a_valid_update() {
+        let root = temp_project("design-dir-alias");
+        std::fs::write(root.join(DESIGN_DIR).join("example.md"), "# example").unwrap();
+        let original = "[example](../../../docs/design/example.md)\n";
+        let next = "[example](../../../docs/./design/example.md)\n";
+        write_index(&root, original);
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = ArchitectureTool.execute(
+            json!({"action":"update", "content":next, "expected_hash":normalized_text_hash(original)}),
+            &ctx,
+        ).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(root.join(ARCHITECTURE_REL)).unwrap(),
+            next
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

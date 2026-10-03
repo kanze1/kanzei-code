@@ -29,17 +29,51 @@ pub(crate) async fn execute_checked(
     expected_url: Option<&str>,
 ) -> Option<ToolOutput> {
     use tauri::Manager;
+    if ctx.browser_owner.is_some() {
+        return None;
+    }
     let app = super::app()?;
     let state = app.try_state::<super::PreviewState>()?;
+    let selected = pane::current(app)?;
+    let generation = selected.shared.generation;
+    let snapshot = selected.shared.meta().clone();
+    if super::route_hint(Some(&snapshot), ctx.process_id.as_deref(), super::now_ms())
+        != super::Backend::Pane
+    {
+        return Some(ToolOutput::error("预览会话已变化，请重新检查后再操作"));
+    }
     let _serial = state.agent.lock().await;
     let pane = pane::current(app)?;
     if !pane::wait_visible(&pane, super::VISIBLE_WAIT).await {
         return None;
     }
-    if expected_url.is_some_and(|url| pane.shared.meta().url != url) {
+    if !same_owner(
+        &snapshot,
+        generation,
+        &pane.shared.meta(),
+        pane.shared.generation,
+        ctx.process_id.as_deref(),
+    ) {
+        return Some(ToolOutput::error("预览会话已变化，请重新检查后再操作"));
+    }
+    if pane.shared.meta().url != snapshot.url
+        || expected_url.is_some_and(|url| pane.shared.meta().url != url)
+    {
         return Some(ToolOutput::error("预览页面已变化，请重新检查后再操作"));
     }
     Some(run(app, &pane, input, ctx).await)
+}
+
+fn same_owner(
+    before: &super::PaneMeta,
+    generation: u64,
+    current: &super::PaneMeta,
+    current_generation: u64,
+    process: Option<&str>,
+) -> bool {
+    generation == current_generation
+        && before.owner_epoch == current.owner_epoch
+        && super::route(Some(current), process) == super::Backend::Pane
 }
 
 async fn run(
@@ -48,6 +82,7 @@ async fn run(
     input: &BrowserInput,
     ctx: &ToolCtx,
 ) -> ToolOutput {
+    let owner_snapshot = pane.shared.meta().clone();
     let action = match BrowserAction::parse(&input.action) {
         Ok(action) => action,
         Err(error) => return shared::browser_error(BACKEND, &error),
@@ -71,6 +106,15 @@ async fn run(
             return shared::browser_error(BACKEND, &error);
         }
     }
+    if !same_owner(
+        &owner_snapshot,
+        pane.shared.generation,
+        &pane.shared.meta(),
+        pane.shared.generation,
+        ctx.process_id.as_deref(),
+    ) {
+        return shared::browser_error(BACKEND, "预览会话已变化，请重新检查后再操作");
+    }
     if let Some(target) = &target {
         let load_before = pane
             .shared
@@ -93,6 +137,15 @@ async fn run(
         if let Some(error) = pane.shared.meta().error.clone() {
             return shared::browser_error(BACKEND, &error.text);
         }
+    }
+    if !same_owner(
+        &owner_snapshot,
+        pane.shared.generation,
+        &pane.shared.meta(),
+        pane.shared.generation,
+        ctx.process_id.as_deref(),
+    ) {
+        return shared::browser_error(BACKEND, "预览会话已变化，请重新检查后再操作");
     }
     match act(pane, input, action, &notes).await {
         Ok(output) => output,
@@ -493,5 +546,24 @@ mod tests {
         assert_eq!(key_events("中").unwrap()[0]["text"], "中");
         assert!(key_events("Hyper+X").is_err());
         assert!(key_events("NoSuchKey").is_err());
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+    #[test]
+    fn queued_action_rejects_rebinding_and_recreated_pane_even_at_same_url() {
+        let mut original = super::super::PaneMeta::default();
+        original.alive = true;
+        original.url = "https://example.org".into();
+        original.set_visibility(true, Some("a".into()), 0);
+        assert!(same_owner(&original, 1, &original, 1, Some("a")));
+        let mut current = original.clone();
+        current.set_visibility(true, Some("b".into()), 1);
+        assert!(!same_owner(&original, 1, &current, 1, Some("a")));
+        current.set_visibility(true, Some("a".into()), 2);
+        assert!(!same_owner(&original, 1, &current, 1, Some("a")));
+        assert!(!same_owner(&original, 1, &original, 2, Some("a")));
     }
 }

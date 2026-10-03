@@ -77,7 +77,7 @@ impl kanzei_harness::Tool for BrowserTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        resources_for(input, None, current_url(Backend::Headless).as_deref())
+        resources_for(input, None, None)
     }
 
     fn resources_with_ctx(
@@ -88,7 +88,7 @@ impl kanzei_harness::Tool for BrowserTool {
         resources_for(
             input,
             Some(&ctx.cwd),
-            current_url(Backend::Headless).as_deref(),
+            current_url(Backend::Headless, ctx).as_deref(),
         )
     }
 
@@ -397,20 +397,56 @@ pub fn url_resource(url: &str) -> String {
     }
 }
 
-static CURRENT_URLS: Mutex<[Option<String>; 2]> = Mutex::new([None, None]);
+type CurrentUrls = std::collections::HashMap<(usize, String), String>;
+static CURRENT_URLS: std::sync::LazyLock<Mutex<CurrentUrls>> =
+    std::sync::LazyLock::new(Mutex::default);
 
-/// 记录某后端的当前页 URL(权限判定里不带目标的动作取它)。
-pub fn set_current_url(backend: Backend, url: Option<String>) {
+/// Persistent browser state belongs to a project session, with isolated child owners.
+/// Contexts without a session fall back to their process/run, then worktree.
+pub fn owner_key(ctx: &kanzei_harness::ToolCtx) -> String {
+    let identity = ctx
+        .session_id
+        .as_ref()
+        .filter(|id| !id.is_empty())
+        .map(|id| ("session", id))
+        .or_else(|| ctx.process_id.as_ref().map(|id| ("process", id)))
+        .or_else(|| ctx.run_id.as_ref().map(|id| ("run", id)));
+    serde_json::json!([
+        ctx.project_root,
+        identity,
+        ctx.browser_owner,
+        if identity.is_none() {
+            Some(&ctx.cwd)
+        } else {
+            None
+        }
+    ])
+    .to_string()
+}
+
+pub fn set_current_url(backend: Backend, ctx: &kanzei_harness::ToolCtx, url: Option<String>) {
     if let Ok(mut slots) = CURRENT_URLS.lock() {
-        slots[backend.slot()] = url;
+        let key = (backend.slot(), owner_key(ctx));
+        if let Some(url) = url {
+            slots.insert(key, url);
+        } else {
+            slots.remove(&key);
+        }
     }
 }
 
-pub fn current_url(backend: Backend) -> Option<String> {
+pub fn current_url(backend: Backend, ctx: &kanzei_harness::ToolCtx) -> Option<String> {
     CURRENT_URLS
         .lock()
-        .ok()
-        .and_then(|slots| slots[backend.slot()].clone())
+        .ok()?
+        .get(&(backend.slot(), owner_key(ctx)))
+        .cloned()
+}
+
+fn clear_current_urls(backend: Backend) {
+    if let Ok(mut slots) = CURRENT_URLS.lock() {
+        slots.retain(|(slot, _), _| *slot != backend.slot());
+    }
 }
 
 /// 面板后端用:把 walker 源码包成一条 `Runtime.evaluate` 表达式,返回 JSON 字符串。
@@ -924,19 +960,58 @@ mod tests {
     }
 
     #[test]
-    fn 当前页按后端分别记录() {
-        set_current_url(Backend::Pane, Some("http://localhost:1/p".into()));
-        set_current_url(Backend::Headless, Some("http://localhost:2/h".into()));
+    fn parent_and_parallel_children_have_distinct_browser_owners() {
+        let parent = kanzei_harness::ToolCtx::default().with_session_id("browser-family".into());
+        let a = parent.clone().with_browser_child("child-a");
+        let b = parent.clone().with_browser_child("child-b");
+        assert_eq!(parent.session_id, a.session_id);
+        assert_eq!(parent.process_id, a.process_id);
+        assert_ne!(owner_key(&parent), owner_key(&a));
+        assert_ne!(owner_key(&a), owner_key(&b));
+        let mut next_round = parent.clone();
+        next_round.run_id = Some("next-run".into());
         assert_eq!(
-            current_url(Backend::Pane).as_deref(),
+            owner_key(&a),
+            owner_key(&next_round.with_browser_child("child-a"))
+        );
+        for (ctx, url) in [
+            (&parent, "https://parent"),
+            (&a, "https://a"),
+            (&b, "https://b"),
+        ] {
+            set_current_url(Backend::Headless, ctx, Some(url.into()));
+        }
+        assert_eq!(
+            current_url(Backend::Headless, &parent).as_deref(),
+            Some("https://parent")
+        );
+        assert_eq!(
+            current_url(Backend::Headless, &a).as_deref(),
+            Some("https://a")
+        );
+        assert_eq!(
+            current_url(Backend::Headless, &b).as_deref(),
+            Some("https://b")
+        );
+    }
+
+    #[test]
+    fn 当前页按后端分别记录() {
+        let ctx = kanzei_harness::ToolCtx::default().with_session_id("urls-a".into());
+        let other = kanzei_harness::ToolCtx::default().with_session_id("urls-b".into());
+        set_current_url(Backend::Pane, &ctx, Some("http://localhost:1/p".into()));
+        set_current_url(Backend::Headless, &ctx, Some("http://localhost:2/h".into()));
+        assert_eq!(
+            current_url(Backend::Pane, &ctx).as_deref(),
             Some("http://localhost:1/p")
         );
         assert_eq!(
-            current_url(Backend::Headless).as_deref(),
+            current_url(Backend::Headless, &ctx).as_deref(),
             Some("http://localhost:2/h")
         );
-        set_current_url(Backend::Pane, None);
-        assert_eq!(current_url(Backend::Pane), None);
+        assert_eq!(current_url(Backend::Headless, &other), None);
+        set_current_url(Backend::Pane, &ctx, None);
+        assert_eq!(current_url(Backend::Pane, &ctx), None);
     }
 
     #[test]

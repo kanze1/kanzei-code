@@ -66,10 +66,9 @@ pub(crate) fn browser_resources(input: &Value, ctx: &ToolCtx) -> Vec<String> {
         let meta = read_meta(&endpoint, ctx.process_id.as_deref())?;
         (meta["pane"] == true).then(|| (endpoint, meta["url"].as_str().unwrap_or("").to_owned()))
     });
-    let url = plan
-        .as_ref()
-        .map(|(_, url)| url.clone())
-        .or_else(|| kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless));
+    let url = plan.as_ref().map(|(_, url)| url.clone()).or_else(|| {
+        kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx)
+    });
     let mut plans = PLANS.lock_or_recover();
     if plans.len() > 256 {
         plans.clear();
