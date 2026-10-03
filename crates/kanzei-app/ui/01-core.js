@@ -617,8 +617,17 @@ export function mergeWorkspaceState(state, patch) {
 }
 function mergeUiPrefsPatch(prefs, patch) {
   const merged = { ...prefs };
-  for (const key of ["theme", "backdrop", "work_priority", "auto_max", "continue_prompt", "process_auto_state"]) {
+  for (const key of ["theme", "backdrop", "auto_max", "continue_prompt"]) {
     if (patch[key] !== undefined && patch[key] !== null) merged[key] = patch[key];
+  }
+  if (prefsObject(patch.work_priority)) merged.work_priority = { ...(prefs.work_priority || {}), ...patch.work_priority };
+  if (prefsObject(patch.process_auto_state)) {
+    const states = { ...(prefs.process_auto_state || {}) };
+    for (const [id, fields] of Object.entries(patch.process_auto_state)) {
+      if (fields === null) delete states[id];
+      else states[id] = prefsObject(fields) ? { ...(prefsObject(states[id]) ? states[id] : {}), ...fields } : fields;
+    }
+    merged.process_auto_state = states;
   }
   if (prefsObject(patch.workspace_state)) merged.workspace_state = mergeWorkspaceState(prefs.workspace_state, patch.workspace_state);
   if (patch.memory_view === "list" || patch.memory_view === "graph") merged.memory_view = patch.memory_view;

@@ -1,0 +1,296 @@
+{
+  "package": "A7",
+  "status": "rust_node_browser_verified_root_integration_pending",
+  "observed_utc": "2026-10-03T11:21:48.240727+00:00",
+  "baseline": "84a3892bc80483a61cc6335e7a8ca654ca2b3c18",
+  "branch": "kanzei/audit-a7-run-control-deltas",
+  "worktree": "C:/Users/kanzei/.codex/worktrees/audit-b0/kanzei code",
+  "findings": {
+    "P0": 0,
+    "P1": 3,
+    "P2": 0,
+    "root_causes": [
+      "async original identity and stale hydrate",
+      "stale whole-state publication overwrites real intent",
+      "durable/UI/background work priority payload differs"
+    ]
+  },
+  "coverage": {
+    "new_full": [
+      "crates/kanzei-app/ui/08-auto.js",
+      "crates/kanzei-app/ui/08-compose-runtime.js"
+    ],
+    "reopened": [
+      "crates/kanzei-app/src/prefs.rs",
+      "crates/kanzei-app/ui/01-core.js"
+    ],
+    "slices": [
+      "crates/kanzei-app/ui/09-sessions.js:renderProcesses retirement publisher"
+    ],
+    "shared_coverage_modified": false
+  },
+  "fixed_source": [
+    {
+      "path": "crates/kanzei-app/src/prefs.rs",
+      "snapshot": "crates__kanzei-app__src__prefs.rs",
+      "bytes": 48602,
+      "sha256": "7dc2f3c7f566647503cf209a8cbad340756c3404f9df1e110a6597bf9aa6508d",
+      "lf_sha256": "7dc2f3c7f566647503cf209a8cbad340756c3404f9df1e110a6597bf9aa6508d",
+      "old_sha256": "b6715d530e7c9828a631e557dbbabedbaaacbb136917114129fe7d56fb97d764",
+      "old_snapshot": "old__crates__kanzei-app__src__prefs.rs"
+    },
+    {
+      "path": "crates/kanzei-app/ui/01-core.js",
+      "snapshot": "crates__kanzei-app__ui__01-core.js",
+      "bytes": 54278,
+      "sha256": "f91a09f780a3ab5af8fcf60505d5943013e2f50c615881782be380fd916b79b3",
+      "lf_sha256": "04ea0faa1e2bd6db280712d8c4491e44c3f06062967faea928cd3a1b57684048",
+      "old_sha256": "405be3fa6e714978d75fadef0593768117f78725a1cb70b0dff71b062f2c54ca",
+      "old_snapshot": "old__crates__kanzei-app__ui__01-core.js"
+    },
+    {
+      "path": "crates/kanzei-app/ui/08-auto.js",
+      "snapshot": "crates__kanzei-app__ui__08-auto.js",
+      "bytes": 22342,
+      "sha256": "4a5ed4846940656b3101c084c9758de9f1f09113b541205b191d6c22a5e64690",
+      "lf_sha256": "3d442668263f4c17726b27f0404764941bd657ba5972d9aad85ae51d8ae3444f",
+      "old_sha256": "6fa99495df6effe5f7581d8fac802f736a3d99a511c39aa967ed45f3d20917d2",
+      "old_snapshot": "old__crates__kanzei-app__ui__08-auto.js"
+    },
+    {
+      "path": "crates/kanzei-app/ui/08-compose-runtime.js",
+      "snapshot": "crates__kanzei-app__ui__08-compose-runtime.js",
+      "bytes": 74731,
+      "sha256": "1043f18389b84329e798e990d3036a7acdddd6b971ba09d9ef75672bc55efa66",
+      "lf_sha256": "08b2600c3b29e981a92d14fe83a359a0f97e6270cf934e6454f65453b794ffac",
+      "old_sha256": "72bf2024e1d6122e214954b5288be2cd460acecfacb9c41d4a7c28675d1e156a",
+      "old_snapshot": "old__crates__kanzei-app__ui__08-compose-runtime.js"
+    },
+    {
+      "path": "crates/kanzei-app/ui/09-sessions.js",
+      "snapshot": "crates__kanzei-app__ui__09-sessions.js",
+      "bytes": 87302,
+      "sha256": "9549975c29fe3f9a1c6a95727589ac08dcdc57eb9daaa19cf0582be42acd5807",
+      "lf_sha256": "c26d3163f7be2ce585dc97a364df06dbae6978360383942a888890ce6b5523d2",
+      "old_sha256": "8f0d4329051b81d8a3f62100df41cd8518bfe2352e5be7491cbe663da9dd6191",
+      "old_snapshot": "old__crates__kanzei-app__ui__09-sessions.js"
+    },
+    {
+      "path": "scripts/ui-run-control-deltas-smoke.mjs",
+      "snapshot": "scripts__ui-run-control-deltas-smoke.mjs",
+      "bytes": 35137,
+      "sha256": "c1186654a3d50feb36bbb7b2b8d5b3d73f1b3c3b2c711e7a427dd4b9d84c3c44",
+      "lf_sha256": "c1186654a3d50feb36bbb7b2b8d5b3d73f1b3c3b2c711e7a427dd4b9d84c3c44"
+    }
+  ],
+  "node": [
+    {
+      "log": "node-positive-controls-first.log",
+      "exit": 0,
+      "scope": "29 complete actual ESM owners with controlled native/shell/DOM boundaries",
+      "tests": 29,
+      "pass": 29,
+      "fail": 0
+    },
+    {
+      "log": "node-old-complete-final.log",
+      "exit": 1,
+      "scope": "complete exact committed baseline; 24 actual ERR_ASSERTION, 5 normal controls",
+      "tests": 29,
+      "pass": 5,
+      "fail": 24
+    },
+    {
+      "log": "node-old-key-only-final.log",
+      "exit": 1,
+      "scope": "complete exact baseline with backend per-id replacement control; proves fields must merge",
+      "tests": 29,
+      "pass": 4,
+      "fail": 25
+    },
+    {
+      "log": "caller-a4-state.log",
+      "exit": 0,
+      "scope": "direct A4 owner regressions",
+      "tests": 15,
+      "pass": 15,
+      "fail": 0
+    },
+    {
+      "log": "caller-a6-surface.log",
+      "exit": 0,
+      "scope": "direct A6 owner regressions",
+      "tests": 12,
+      "pass": 12,
+      "fail": 0
+    },
+    {
+      "log": "caller-m4-session.log",
+      "exit": 0,
+      "scope": "direct M4 session identity regressions",
+      "tests": 22,
+      "pass": 22,
+      "fail": 0
+    },
+    {
+      "log": "caller-a5-schedule.log",
+      "exit": 0,
+      "scope": "direct A5 schedule caller regressions",
+      "tests": 8,
+      "pass": 8,
+      "fail": 0
+    }
+  ],
+  "source_ready_checks": [
+    {
+      "command": "rustfmt --edition 2021 crates/kanzei-app/src/prefs.rs",
+      "exit": 0
+    },
+    {
+      "command": "node --check scripts/ui-run-control-deltas-smoke.mjs",
+      "exit": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit": 0
+    }
+  ],
+  "pending_rust": [],
+  "cargo_executed": true,
+  "new_binary_native_executed": false,
+  "full_browser_ui_executed": true,
+  "push_release": false,
+  "rust": [
+    {
+      "command": "cargo test -p kanzei-app prefs::run_control_delta_tests",
+      "log": "rust-positive-target.log",
+      "exit": 0,
+      "tests": 3,
+      "pass": 3,
+      "fail": 0
+    },
+    {
+      "command": "cargo test -p kanzei-app prefs::",
+      "log": "rust-old-prefs.log",
+      "exit": 101,
+      "tests": 26,
+      "pass": 23,
+      "fail": 3,
+      "scope": "exact committed old production apply_ui_prefs; true assertion failures; normal controls retained"
+    },
+    {
+      "command": "cargo test -p kanzei-app prefs::",
+      "log": "rust-positive-prefs-restored.log",
+      "exit": 0,
+      "tests": 26,
+      "pass": 26,
+      "fail": 0,
+      "scope": "restored original bytes then refreshed 422 production Rust files and actually recompiled"
+    },
+    {
+      "command": "cargo test -p kanzei-app",
+      "log": "rust-positive-app.log",
+      "exit": 0,
+      "tests": 600,
+      "pass": 600,
+      "fail": 0,
+      "ignore": 0
+    },
+    {
+      "command": "cargo check -p kanzei-app --all-targets",
+      "log": "rust-app-check.log",
+      "exit": 0
+    },
+    {
+      "command": "cargo clippy -p kanzei-app --all-targets -- -D warnings",
+      "log": "rust-app-clippy.log",
+      "exit": 0
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "log": "rust-workspace-fmt.log",
+      "exit": 0
+    }
+  ],
+  "restoration": {
+    "baseline": "84a3892bc80483a61cc6335e7a8ca654ca2b3c18",
+    "method": "exact old production apply_ui_prefs, all current true setter tests retained",
+    "source_sha_before": "7dc2f3c7f566647503cf209a8cbad340756c3404f9df1e110a6597bf9aa6508d",
+    "source_sha_negative": "9cd5aaf1fb6aa379a50336a0b7b085b9ed0601953921116ca8aa32d09d426292",
+    "cargo_exit": 101,
+    "assertion_negative": true,
+    "source_sha_restored": "7dc2f3c7f566647503cf209a8cbad340756c3404f9df1e110a6597bf9aa6508d",
+    "restored_exact_bytes": true
+  },
+  "runtime_browser": {
+    "command": "node --experimental-vm-modules --experimental-loader ./output/audit-a4-state/runtime-loader.mjs scripts/ui-runtime-smoke.mjs",
+    "log": "caller-runtime-final-first.log",
+    "exit": 0,
+    "modules": 90,
+    "init_invokes": 3608,
+    "runtime_errors": 0,
+    "environment": {
+      "KANZEI_PLAYWRIGHT_ROOT": "C:/Users/kanzei/Documents/kanzei code",
+      "PLAYWRIGHT_BROWSERS_PATH": "C:/Users/kanzei/AppData/Local/ms-playwright"
+    },
+    "new_desktop_binary_native_claim": false
+  },
+  "boundary_failures": [
+    {
+      "log": "caller-runtime-first.log",
+      "exit": 1,
+      "kind": "dependency environment",
+      "reason": "B worktree lacks playwright-core; runtime gate progressed to browser child module import; not a product negative/full pass"
+    },
+    {
+      "log": "node-old-key-only-argv-control.log",
+      "exit": 0,
+      "kind": "verification invocation correction",
+      "reason": "node --test did not forward --before/--key-only to child argv; 1 fixed positive only, not an old negative; exact direct invocation rerun preserved"
+    },
+    {
+      "log": "rust-positive-target-first.log",
+      "exit": 101,
+      "kind": "verification command correction",
+      "reason": "kanzei-app has only kzapp binary, no lib target; corrected actual package command; not a product negative"
+    },
+    {
+      "log": "rust-positive-target-fixture-fault.log",
+      "exit": 101,
+      "kind": "regression fixture correction",
+      "reason": "new helper omitted existing backdrop parameter position; map wrongly deserialized as continue_prompt; corrected only helper call, then actually compiled and 3 passed; not a product negative"
+    }
+  ],
+  "negative_method": {
+    "node_production_mutated": false,
+    "loader": "git show baseline complete production source into independent VM",
+    "rust_production_temporarily_restored_to_exact_old_apply": true,
+    "rust_finally_original_bytes_restored": true,
+    "assertion_failures_only_for_counted_negatives": true,
+    "original_probe_fixture_faults": [
+      "A6 old TDZ mock assembly",
+      "prior A7 missing sessionState mock TypeError"
+    ],
+    "old_profile_native_binary_used": false
+  },
+  "existing_fixture_fingerprints": [
+    {
+      "path": "scripts/ui-runtime-smoke.mjs",
+      "bytes": 1262559,
+      "sha256": "b920546c13bcb2bfe6a21b24ac4be2f62f1925c33018b879b0945f9c2d7c86f8",
+      "lf_sha256": "fc641966a452316f6efd3e73c5ba90c43895c03cd4bafc851737c195f15fc8bd"
+    },
+    {
+      "path": "scripts/ui-preview/fixtures.mjs",
+      "bytes": 101777,
+      "sha256": "e83d2c44995992106b0d000105d27fcaa2fd4e627a683544f814411a1c57cf9e",
+      "lf_sha256": "827c0ea87e050d782e63f562dc6bc102d1c497668758ca2b8c80fbc1573b3365"
+    },
+    {
+      "path": "output/audit-a4-state/runtime-loader.mjs",
+      "bytes": 326,
+      "sha256": "701b06df6de81a5493dae11fa91e5c09b43cab858855878314a661156c485146",
+      "lf_sha256": "701b06df6de81a5493dae11fa91e5c09b43cab858855878314a661156c485146"
+    }
+  ]
+}

@@ -544,6 +544,7 @@ export function renderProcesses(items) {
   const previousProcessId = activeProcessId;
   setProcessItems(items ?? []);
   const liveIds = new Set(processItems.map((item) => item.id));
+  const retiredAutoState = {};
   // 只清当前项目中确认已注销的线路；切项目时旧项目配置继续保留。身份虽已由后端
   // 保证永不复用，这里仍回收 timer/session/profile，避免长期运行积累死缓存。
   for (const removed of previousItems.filter((item) =>
@@ -551,9 +552,10 @@ export function renderProcesses(items) {
     cancelAutoContinueTimer(removed.session_id);
     sessionStates.delete(removed.session_id);
     processAutoState.delete(removed.id);
+    retiredAutoState[removed.id] = null;
     processProfileUi.delete(removed.id);
   }
-  persistProcessAutoState();
+  persistProcessAutoState(retiredAutoState);
   persistProcessProfiles();
   const nextProcessKey = processItems.map((item) => item.id).join("\u0000");
   const previousSessionId = activeSessionId;

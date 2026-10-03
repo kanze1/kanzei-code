@@ -4,7 +4,7 @@ import { defer } from "./01-core.js";
 import { attachmentMime, resourceIcon, resourceLinks, resourceType } from "./04-resource-types.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCtxTokens, setRunTokens } from "./03-shell.js";
-import { $, invoke, isImeComposing, promptBox, readJson, uiPrefsLoad, uiPrefsSave, writeJson } from "./01-core.js";
+import { $, invoke, isImeComposing, promptBox, readJson, uiPrefsCache, uiPrefsLoad, uiPrefsSave, writeJson } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -67,6 +67,7 @@ import {
   renderAutoStatus,
   renderGoalState,
   renderHarnessIntensity,
+  rememberWorkPrioritySelection,
   resetAutoRunState,
   selectedAgent,
   selectedWorkPriority,
@@ -79,7 +80,6 @@ import {
   syncAutoRunState,
   takeAwaitingUser,
   workPriorityKeyFor,
-  workPriorityStorageKey,
 } from "./08-auto.js";
 import { state } from "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
@@ -185,6 +185,7 @@ export async function sendAutoToSession(prompt, sessionId) {
     // (主根身份,后端已给 simplify 形态,这里再防一道旧形态);③ 取活顺序键与写入键同一个函数。
     const mode = lineAgent(item);
     const projectDir = String(item.origin_project || item.project_dir || currentProject).replace(/^\\\\\?\\(?!UNC\\)/, "");
+    const priority = uiPrefsCache?.work_priority?.[projectDir] ?? localStorage.getItem(workPriorityKeyFor(projectDir));
     await invoke("run_prompt", {
       prompt,
       projectDir,
@@ -192,7 +193,7 @@ export async function sendAutoToSession(prompt, sessionId) {
       agent: mode.agent,
       researchTopic: research ? item.research_topic : undefined,
       model: item.model || null,
-      workPriority: localStorage.getItem(workPriorityKeyFor(projectDir)) === "requirement-first" ? "requirement-first" : "defect-first",
+      workPriority: priority === "requirement-first" ? "requirement-first" : "defect-first",
       delivery: "queue",
       attachments: [],
       processId: item.id,
@@ -610,6 +611,7 @@ export function currentFileToken() {
 }
 
 export function hideFileSuggestions() {
+  ++fileSuggestionRequest;
   fileSuggestions = [];
   fileSuggestionIndex = -1;
   fileSuggestionToken = null;
@@ -637,6 +639,10 @@ export function renderFileSuggestions() {
 }
 
 export function chooseFileSuggestion(index = fileSuggestionIndex) {
+  if (fileSuggestionToken?.project !== currentProject) {
+    hideFileSuggestions();
+    return;
+  }
   const path = fileSuggestions[index];
   const token = currentFileToken() || fileSuggestionToken;
   if (!path || !token) return;
@@ -653,15 +659,19 @@ export async function refreshFileSuggestions() {
     hideFileSuggestions();
     return;
   }
-  fileSuggestionToken = token;
+  const project = currentProject;
+  fileSuggestionToken = { ...token, project };
   const request = ++fileSuggestionRequest;
   try {
-    const paths = await invoke("project_files", { projectDir: currentProject, query: token.query });
-    if (request !== fileSuggestionRequest || !currentFileToken()) return;
+    const paths = await invoke("project_files", { projectDir: project, query: token.query });
+    const current = currentFileToken();
+    if (request !== fileSuggestionRequest || project !== currentProject || !current
+      || current.start !== token.start || current.end !== token.end || current.query !== token.query) return;
     fileSuggestions = paths;
     fileSuggestionIndex = paths.length ? 0 : -1;
     renderFileSuggestions();
   } catch (error) {
+    if (request !== fileSuggestionRequest || project !== currentProject) return;
     hideFileSuggestions();
     log(`${t("文件补全失败")}:${error}`, "warn");
   }
@@ -692,12 +702,12 @@ export function stopAutoForManualInput({ supplement = false } = {}) {
     return false;
   }
   $('auto-continue').checked = false;
-  rememberAutoUiState();
+  rememberAutoUiState(activeProcessId, ["enabled"]);
   setAutoRounds(activeSessionId, 0);
   setNoActionRounds(0);
   cancelAutoContinueTimer();
   // R-169:手动输入接管 = 关闭后端自主推进并归零计数。
-  void syncAutoRunState();
+  void syncAutoRunState({ enabled: false });
   resetAutoRunState();
   const message = t("收到手动输入，鞭挞已停止");
   setAutoStopReason(message);
@@ -765,6 +775,7 @@ defer(() => {
   $("continue-btn").addEventListener("click", () => sendText(continuePrompt()));
 });
 
+let sopPickerRequest = 0;
 export async function openSopPicker() {
   if (!currentProject) {
     toast(t("先在左侧「项目」里添加并选择一个目录"));
@@ -777,9 +788,11 @@ export async function openSopPicker() {
     closeSurface(panel);
     return;
   }
+  const project = currentProject;
+  const request = ++sopPickerRequest;
   // UI2-0926 #11:SOP 住在「更多」菜单首项。菜单一关菜单项就不能当锚点,先收起菜单再以「更多」触发器为锚弹出。
   closeSurface($("composer-more-menu"));
-  openPopover($("composer-more"), panel, { placement: "top-end" });
+  const handle = openPopover($("composer-more"), panel, { placement: "top-end" });
   list.replaceChildren();
   const loading = document.createElement("p");
   loading.className = "dim";
@@ -787,8 +800,10 @@ export async function openSopPicker() {
   list.appendChild(loading);
   try {
     const scopes = await Promise.all(["project", "global"].map((scope) =>
-      invoke("memory_entries", { projectDir: currentProject, scope, category: "sop" })
+      invoke("memory_entries", { projectDir: project, scope, category: "sop" })
     ));
+    if (request !== sopPickerRequest || handle.closed) return;
+    if (project !== currentProject) { closeSurface(handle); return; }
     const entries = scopes.flat().filter((entry) => entry.status === "active");
     list.replaceChildren();
     if (!entries.length) {
@@ -809,6 +824,8 @@ export async function openSopPicker() {
       description.textContent = entry.description || entry.body?.slice(0, 120) || "";
       button.append(title, description);
       button.addEventListener("click", () => {
+        if (request !== sopPickerRequest || handle.closed) return;
+        if (project !== currentProject) { closeSurface(handle); return; }
         const content = String(entry.body || "").trim();
         promptBox.value = content;
         closeSurface(panel);
@@ -828,6 +845,8 @@ export async function openSopPicker() {
       list.appendChild(button);
     }
   } catch (error) {
+    if (request !== sopPickerRequest || handle.closed) return;
+    if (project !== currentProject) { closeSurface(handle); return; }
     list.replaceChildren();
     const failed = document.createElement("p");
     failed.className = "dim";
@@ -866,18 +885,22 @@ defer(() => {
 });
 // R-170:LEGACY 升级机制已删除(规则剥离后无「历史默认需升级」契约错位)。
 // 存什么读什么:用户自定义文案原样保留;删空回落极简默认。
+let continuePromptGeneration = 0;
 defer(() => {
   {
+    const generation = continuePromptGeneration;
     const stored = (localStorage.getItem("kz-continue-prompt") || "").trim();
     $("continue-prompt").value = stored || DEFAULT_CONTINUE_PROMPT;
     // D-404:localStorage 可能重启即丢;后端 app.json 权威值覆盖。
     void uiPrefsLoad().then((p) => {
-      if (p.continue_prompt) $("continue-prompt").value = p.continue_prompt;
+      if (generation === continuePromptGeneration && p.continue_prompt) $("continue-prompt").value = p.continue_prompt;
     });
   };
 });
 defer(() => {
+  $("continue-prompt").addEventListener("input", () => { ++continuePromptGeneration; });
   $("continue-prompt").addEventListener("change", () => {
+    ++continuePromptGeneration;
     const value = $("continue-prompt").value.trim();
     localStorage.setItem("kz-continue-prompt", value || DEFAULT_CONTINUE_PROMPT);
     $("continue-prompt").value = value || DEFAULT_CONTINUE_PROMPT;
@@ -957,11 +980,11 @@ defer(() => {
 defer(() => {
   $("auto-pause").addEventListener("click", () => {
     setAutoPaused(!autoPaused);
-    rememberAutoUiState();
+    rememberAutoUiState(activeProcessId, ["paused"]);
     $("auto-pause").classList.toggle("active", autoPaused);
     $("auto-pause").textContent = autoPaused ? t("恢复鞭挞") : t("暂停鞭挞");
     // R-169:暂停状态同步后端状态机。
-    void syncAutoRunState();
+    void syncAutoRunState({ paused: autoPaused });
     if (autoPaused) cancelAutoContinueTimer();
     // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则鞭挞静默死亡。
     // R-199/D-323:档位条件下沉引擎,恢复路径不再持有前端私有否决——非 dev-auto 时
@@ -977,9 +1000,9 @@ defer(() => {
 defer(() => {
   $("auto-stop-round").addEventListener("change", () => {
     setAutoStopAfterRound($("auto-stop-round").checked);
-    rememberAutoUiState();
+    rememberAutoUiState(activeProcessId, ["stopAfterRound"]);
     // R-169:本轮后停同步后端状态机(D-111:不持久化,重启即清)。
-    void syncAutoRunState();
+    void syncAutoRunState({ stopAfterRound: autoStopAfterRound });
     log(autoStopAfterRound ? t("本轮结束后将停止鞭挞") : t("已取消本轮后停"));
   });
 });
@@ -989,7 +1012,7 @@ defer(() => {
 defer(() => {
   $("auto-goal")?.addEventListener("change", () => {
     renderGoalState();
-    void syncAutoRunState();
+    void syncAutoRunState({ goal: currentGoalText() });
     const goal = currentGoalText().trim();
     log(goal ? `${t("目标条件已设置")}:${goal}` : t("目标条件已清除"));
   });
@@ -1010,12 +1033,12 @@ defer(() => {
     // UI2-0926 #13 复核:手动开关鞭挞同样结束「在等你回答」(关了再开是用户重新表态,不再是等回答)。
     if (takeAwaitingUser(activeSessionId) && autoStopReason === t("模型在等你回答")) setAutoStopReason("");
     setAutoRounds(activeSessionId, 0);
-    rememberAutoUiState();
+    rememberAutoUiState(activeProcessId, ["enabled"]);
     // 开/关鞭挞的这一刻就重绘状态槽(轮次、阶段、停机原因),而不是等下一轮结束才变。
     renderAutoStatus();
     if (!$('auto-continue').checked) cancelAutoContinueTimer();
     // R-169:开关同步后端状态机(enabled)。
-    void syncAutoRunState();
+    void syncAutoRunState({ enabled: $("auto-continue").checked });
     log($("auto-continue").checked ? t("鞭挞已开启:每轮结束自动推进队列") : t("鞭挞已关闭"));
     // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
     // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
@@ -1094,7 +1117,7 @@ globalThis.__kzProcessAutoState = processAutoState;
 // 掉回结伴,续跑轮没了 Nudge 与核查轮,还带上结伴提示与权限询问。档位随 process_auto_state 的 mode 字段进
 // app.json,合并时回填 processProfileUi:后端记着 mode → 以它为准;本地有档位 → 补进后端;都没有但鞭挞开着 →
 // 记为自主推进(升级前续跑轮一律按自主档跑,这就是那条线一直以来实际的档位)。
-export function restoreLineModes() {
+export function restoreLineModes(delta = {}) {
   let changed = false;
   for (const [processId, entry] of processAutoState) {
     if (LINE_MODES.includes(entry?.mode)) {
@@ -1105,6 +1128,7 @@ export function restoreLineModes() {
     const mode = LINE_MODES.includes(local) ? local : entry?.enabled === true ? "dev-auto" : null;
     if (!mode) continue;
     processAutoState.set(processId, { ...entry, mode });
+    delta[processId] = { ...(delta[processId] || {}), mode };
     processProfileUi.set(processId, mode);
     changed = true;
   }
@@ -1114,20 +1138,29 @@ export function restoreLineModes() {
 // D-404:localStorage 可能重启即丢;后端 app.json 是权威。合并完成前 persist 只写
 // localStorage(禁止用本地旧值先覆盖后端权威值),合并后双写并刷新当前线控件。
 export let uiPrefsAutoStateMerged = false;
+const pendingAutoStateDelta = {};
 /// 把后端(app.json)的 process_auto_state 合并进本地映射:后端是权威;键归一;同一次合并里回填线档位。
 export function mergeBackendAutoState(savedMap) {
   const saved = normalizeProcessKeyed(
     Object.entries(savedMap || {}).filter(([, v]) => v && typeof v === "object"),
   );
   for (const [k, v] of saved) processAutoState.set(k, v);
+  // Only explicit edits made while the initial read was pending override hydrate.
+  const delta = { ...pendingAutoStateDelta };
+  for (const [id, fields] of Object.entries(delta)) {
+    if (fields === null) processAutoState.delete(id);
+    else processAutoState.set(id, { ...(processAutoState.get(id) || {}), ...fields });
+    delete pendingAutoStateDelta[id];
+  }
   // 档位回填必须在 applyProfileValue / lineAgent 读 processProfileUi 之前(同一次合并里)。
-  restoreLineModes();
+  restoreLineModes(delta);
   uiPrefsAutoStateMerged = true;
   if (activeProcessId && $("auto-continue")) {
     applyAutoUiState(activeProcessId);
     // 启动时的第一次回显可能早于这次合并(用的是回落档位):按刚恢复的线档位再回显一次。
     applyProfileValue(processItems.find((item) => item.id === activeProcessId)?.profile);
-  } else persistProcessAutoState();
+  }
+  persistProcessAutoState(delta);
 }
 defer(() => {
   void uiPrefsLoad().then((p) => mergeBackendAutoState(p.process_auto_state));
@@ -1149,11 +1182,16 @@ export function normalizeAutoState(value, _processId) {
     ...(LINE_MODES.includes(value?.mode) ? { mode: value.mode } : {}),
   };
 }
-export function persistProcessAutoState() {
+export function persistProcessAutoState(delta = {}) {
   writeJson(PROCESS_AUTO_STATE_KEY, Object.fromEntries(processAutoState));
-  // D-404:后端 app.json 双写;权威值合并完成前禁止先写(避免本地旧值覆盖权威)。
-  if (!uiPrefsAutoStateMerged) return;
-  void uiPrefsSave({ process_auto_state: Object.fromEntries(processAutoState) });
+  if (!Object.keys(delta).length) return;
+  if (!uiPrefsAutoStateMerged) {
+    for (const [id, fields] of Object.entries(delta)) {
+      pendingAutoStateDelta[id] = fields === null ? null : { ...(pendingAutoStateDelta[id] || {}), ...fields };
+    }
+    return;
+  }
+  void uiPrefsSave({ process_auto_state: delta });
 }
 // D-290:回显期间(applyProfileValue 把存档值刷回控件)一律不许落盘。控件在这一刻
 // 显示的是**算出来的值**,不是用户意图;把它当意图写回去,一次算错就永久固化——
@@ -1167,19 +1205,27 @@ function lineModeToRemember(processId, previous) {
   if (LINE_MODES.includes(remembered)) return remembered;
   return LINE_MODES.includes(previous?.mode) ? previous.mode : undefined;
 }
-export function rememberAutoUiState(processId = activeProcessId) {
-  if (!processId || applyingProfileEcho) return;
-  const previous = processAutoState.get(processId);
+export function rememberAutoUiState(processId = activeProcessId, fields = ["enabled", "paused", "stopAfterRound", "mode"]) {
+  if (!processId || applyingProfileEcho) return {};
+  const previous = normalizeAutoState(processAutoState.get(processId), processId);
   const mode = lineModeToRemember(processId, previous);
-  processAutoState.set(processId, {
+  const next = {
     enabled: $("auto-continue").checked,
     paused: autoPaused,
     stopAfterRound: autoStopAfterRound,
     // 旧配置只保留在状态投影中,不再发送给引擎作硬门禁。
     maxRounds: Number.isFinite(Number(previous?.maxRounds)) ? previous.maxRounds : autoContinueMax(),
     ...(mode ? { mode } : {}),
-  });
-  persistProcessAutoState();
+  };
+  const patch = {};
+  for (const field of fields) {
+    if (next[field] !== undefined && next[field] !== previous[field]) patch[field] = next[field];
+  }
+  // First enable remembers the visible mode; otherwise legacy restore assumes dev-auto.
+  if (patch.enabled === true && !previous.mode && mode) patch.mode = mode;
+  processAutoState.set(processId, { ...previous, ...patch });
+  persistProcessAutoState(Object.keys(patch).length ? { [processId]: patch } : {});
+  return patch;
 }
 // 引擎停机收口(AllBlocked/BacklogEmpty/ProfileMismatch/本轮后停)必须落在**停机会话
 // 所属的线**上:kz:done 可能来自后台线甚至另一个项目的线,直接改当前可见勾选框
@@ -1190,7 +1236,7 @@ export function applyAutoStopToSession(sessionId, patch) {
     const next = normalizeAutoState(processAutoState.get(item.id), item.id);
     Object.assign(next, patch);
     processAutoState.set(item.id, next);
-    persistProcessAutoState();
+    persistProcessAutoState({ [item.id]: patch });
   }
   if (!sessionId || sessionId === activeSessionId) {
     if (patch.enabled !== undefined) $("auto-continue").checked = patch.enabled;
@@ -1198,7 +1244,7 @@ export function applyAutoStopToSession(sessionId, patch) {
       setAutoStopAfterRound(patch.stopAfterRound);
       $("auto-stop-round").checked = patch.stopAfterRound;
     }
-    void syncAutoRunState();
+    void syncAutoRunState(patch);
   } else {
     // 非当前线:后端状态机也要知道,否则该线下轮 done 仍按旧开关判定。
     void invoke("auto_state_update", {
@@ -1234,25 +1280,45 @@ export function applyAutoUiState(processId) {
 export function lineAutoConfig(processId) {
   return normalizeAutoState(processAutoState.get(processId), processId);
 }
-export async function setLineAutoState(processId, patch) {
+const lineAutoStateQueues = new Map();
+export function setLineAutoState(processId, patch) {
   const item = processItems.find((candidate) => candidate.id === processId);
-  if (!item) return null;
-  const next = { ...lineAutoConfig(processId), ...patch };
+  if (!item) return Promise.resolve(null);
+  const snapshot = { ...patch };
+  const current = lineAutoConfig(processId);
+  const initialMode = snapshot.enabled === true && !current.mode ? lineModeToRemember(processId, current) : undefined;
+  if (snapshot.enabled === false || snapshot.paused === true) cancelAutoContinueTimer(item.session_id);
+  const previous = lineAutoStateQueues.get(processId) || Promise.resolve();
+  const next = previous.catch(() => {}).then(() => applyLineAutoStateUpdate(item, snapshot, initialMode));
+  lineAutoStateQueues.set(processId, next);
+  next.finally(() => {
+    if (lineAutoStateQueues.get(processId) === next) lineAutoStateQueues.delete(processId);
+  }).catch(() => {});
+  return next;
+}
+async function applyLineAutoStateUpdate(item, patch, initialMode) {
+  const processId = item.id;
+  if (!processItems.some((candidate) => candidate.id === processId && candidate.session_id === item.session_id)) return null;
+  const requested = { ...lineAutoConfig(processId), ...patch };
   // R-224 同价:研究线没有自主推进语义,从线路页开也一样拒绝。
-  if (next.enabled && (processProfileUi.get(processId) === "research" || item.profile === "research")) {
+  if (requested.enabled && (processProfileUi.get(processId) === "research" || item.profile === "research")) {
     toast(t("鞭挞不适用于研究模式"));
     return null;
   }
   // A failed update must not appear enabled or schedule a model request. Capture the
   // session before awaiting; changing the visible project cannot retarget this action.
-  if (!next.enabled || next.paused) cancelAutoContinueTimer(item.session_id);
+  if (!requested.enabled || requested.paused) cancelAutoContinueTimer(item.session_id);
   await invoke("auto_state_update", {
-    sessionId: item.session_id, enabled: next.enabled, paused: next.paused,
-    stopAfterRound: next.stopAfterRound,
-    ...(processId === activeProcessId ? { goal: currentGoalText() } : {}),
+    sessionId: item.session_id,
+    ...Object.fromEntries(["enabled", "paused", "stopAfterRound"].filter((field) => Object.hasOwn(patch, field)).map((field) => [field, patch[field]])),
   });
+  if (!processItems.some((candidate) => candidate.id === processId && candidate.session_id === item.session_id)) return null;
+  const delta = { ...patch };
+  const current = lineAutoConfig(processId);
+  if (delta.enabled === true && !current.mode && initialMode) delta.mode = initialMode;
+  const next = { ...current, ...delta };
   processAutoState.set(processId, next);
-  persistProcessAutoState();
+  persistProcessAutoState({ [processId]: delta });
   // R-322 B2:「结伴 + 勾着鞭挞」不再自相矛盾——它就是轻控制 loop 的正常形态,
   // 所以线路页开鞭挞也不再改写该线档位(原 R-224 同价逻辑一并去掉)。
   if (processId === activeProcessId) {
@@ -1262,7 +1328,6 @@ export async function setLineAutoState(processId, patch) {
     $("auto-stop-round").checked = next.stopAfterRound;
     $("auto-pause").classList.toggle("active", autoPaused);
     $("auto-pause").textContent = autoPaused ? t("恢复鞭挞") : t("暂停鞭挞");
-    rememberAutoUiState(processId);
     renderAutoStatus();
   }
   // 关/暂停立刻撤掉在途的那一枪;开且该线空闲就当场抽第一鞭——不然「开了没反应」要等到
@@ -1348,7 +1413,7 @@ defer(() => {
         .catch((error) => reportPersistentError(`${t("对话模式保存失败")}:${error}`));
     }
     syncAutoContinueWithProfile();
-    rememberAutoUiState();
+    rememberAutoUiState(activeProcessId, ["mode"]);
   });
 });
 defer(() => {
@@ -1356,12 +1421,7 @@ defer(() => {
     const value = selectedWorkPriority();
     // 只写这一处。引擎读的就是它(run.rs normalize_work_priority → WorkPriority
     // → resolve_work_decision);不再镜像成 preference 记忆,理由见文件上方说明。
-    localStorage.setItem(workPriorityStorageKey(), value);
-    // D-404:同时写后端 app.json(每项目一份,全量 map)。
-    void uiPrefsLoad().then((p) => {
-      const wp = { ...(p.work_priority || {}), [currentProject || "default"]: value };
-      void uiPrefsSave({ work_priority: wp });
-    });
+    rememberWorkPrioritySelection(value);
     log(localizeDynamic(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先"));
   });
 });
@@ -1375,8 +1435,8 @@ defer(() => {
     if (runControlPending && !running) {
       if (targetSessionId) transitionSession(targetSessionId, "stopped");
       $("auto-continue").checked = false;
-      rememberAutoUiState();
-      void syncAutoRunState();
+      rememberAutoUiState(activeProcessId, ["enabled"]);
+      void syncAutoRunState({ enabled: false });
       clearRunPending();
       setRunning(false, t("已停止"));
       log(t("已停止鞭挞等待"));

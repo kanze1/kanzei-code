@@ -277,7 +277,7 @@ fn apply_ui_prefs(
         prefs.theme = Some(v);
     }
     if let Some(v) = work_priority {
-        prefs.work_priority = v;
+        prefs.work_priority.extend(v);
     }
     if let Some(v) = auto_max {
         prefs.auto_max = Some(v);
@@ -286,7 +286,27 @@ fn apply_ui_prefs(
         prefs.continue_prompt = Some(v);
     }
     if let Some(v) = process_auto_state {
-        prefs.process_auto_state = v;
+        for (id, patch) in v {
+            match patch {
+                Value::Null => {
+                    prefs.process_auto_state.remove(&id);
+                }
+                Value::Object(fields) => {
+                    let current = prefs
+                        .process_auto_state
+                        .entry(id)
+                        .or_insert_with(|| json!({}));
+                    if let Some(object) = current.as_object_mut() {
+                        object.extend(fields);
+                    } else {
+                        *current = Value::Object(fields);
+                    }
+                }
+                value => {
+                    prefs.process_auto_state.insert(id, value);
+                }
+            }
+        }
     }
 }
 
@@ -621,6 +641,120 @@ pub(crate) mod failure_tests {
             let error = save_theme().unwrap_err();
             assert!(error.contains("读取偏好文件"), "{error}");
             assert!(home.join("app.json").is_dir());
+        });
+    }
+}
+
+#[cfg(test)]
+mod run_control_delta_tests {
+    use super::*;
+    use crate::prefs::failure_tests::with_home;
+
+    fn save_controls(priority: Option<Value>, auto: Option<Value>) {
+        ui_prefs_set(
+            None,
+            None,
+            priority.map(|value| serde_json::from_value(value).unwrap()),
+            None,
+            None,
+            auto.map(|value| serde_json::from_value(value).unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn real_setter_preserves_independent_project_priority_deltas() {
+        with_home("a7-priority", |_| {
+            save_controls(
+                Some(json!({"A": "defect-first", "B": "defect-first"})),
+                Some(json!({"p|A": {"enabled": true, "mode": "dev-pair"}})),
+            );
+            let a = ui_prefs_get();
+            let b = ui_prefs_get();
+            assert_eq!(a, b, "two windows start from the same snapshot");
+            save_controls(Some(json!({"A": "requirement-first"})), None);
+            save_controls(Some(json!({"B": "requirement-first"})), None);
+            save_controls(Some(json!({})), Some(json!({})));
+            let restored = ui_prefs_get();
+            assert_eq!(restored["work_priority"]["A"], "requirement-first");
+            assert_eq!(restored["work_priority"]["B"], "requirement-first");
+            assert_eq!(restored["process_auto_state"], a["process_auto_state"]);
+            let raw: Value = serde_json::from_slice(&std::fs::read(prefs_path()).unwrap()).unwrap();
+            assert_eq!(raw["work_priority"], restored["work_priority"]);
+        });
+    }
+
+    #[test]
+    fn real_setter_preserves_process_fields_and_only_explicit_retirement_deletes() {
+        with_home("a7-process", |_| {
+            save_controls(
+                Some(json!({"A": "requirement-first"})),
+                Some(json!({
+                    "p|A": {"enabled": true, "paused": false, "stopAfterRound": false, "maxRounds": 7, "mode": "dev-pair"},
+                    "p|B": {"enabled": false, "maxRounds": 9},
+                    "p|C": {"enabled": true, "mode": "dev-auto"}
+                })),
+            );
+            let a = ui_prefs_get();
+            let b = ui_prefs_get();
+            assert_eq!(a, b);
+            save_controls(None, Some(json!({"p|A": {"paused": true}})));
+            save_controls(
+                None,
+                Some(json!({"p|A": {"enabled": false}, "p|B": {"enabled": true}})),
+            );
+            save_controls(None, Some(json!({"p|B": null})));
+            save_controls(None, Some(json!({})));
+            let restored = ui_prefs_get();
+            assert_eq!(restored["process_auto_state"]["p|A"]["paused"], true);
+            assert_eq!(restored["process_auto_state"]["p|A"]["enabled"], false);
+            assert_eq!(
+                restored["process_auto_state"]["p|A"]["stopAfterRound"],
+                false
+            );
+            assert_eq!(restored["process_auto_state"]["p|A"]["maxRounds"], 7);
+            assert_eq!(restored["process_auto_state"]["p|A"]["mode"], "dev-pair");
+            assert!(!restored["process_auto_state"]
+                .as_object()
+                .unwrap()
+                .contains_key("p|B"));
+            assert_eq!(
+                restored["process_auto_state"]["p|C"],
+                a["process_auto_state"]["p|C"]
+            );
+            assert_eq!(restored["work_priority"], a["work_priority"]);
+            let raw: Value = serde_json::from_slice(&std::fs::read(prefs_path()).unwrap()).unwrap();
+            assert_eq!(raw["process_auto_state"], restored["process_auto_state"]);
+        });
+    }
+
+    #[test]
+    fn real_concurrent_setters_merge_distinct_fields_under_the_existing_write_guard() {
+        with_home("a7-concurrent", |_| {
+            save_controls(
+                None,
+                Some(json!({"p|A": {"enabled": true, "paused": false, "mode": "dev-pair"}})),
+            );
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+            std::thread::scope(|scope| {
+                for patch in [
+                    json!({"p|A": {"paused": true}}),
+                    json!({"p|A": {"enabled": false}}),
+                ] {
+                    let barrier = barrier.clone();
+                    scope.spawn(move || {
+                        barrier.wait();
+                        save_controls(None, Some(patch));
+                    });
+                }
+            });
+            let restored = ui_prefs_get();
+            assert_eq!(restored["process_auto_state"]["p|A"]["enabled"], false);
+            assert_eq!(restored["process_auto_state"]["p|A"]["paused"], true);
+            assert_eq!(restored["process_auto_state"]["p|A"]["mode"], "dev-pair");
         });
     }
 }

@@ -1,6 +1,6 @@
 import { defer } from "./01-core.js";
 import { motionCount } from "./01-core.js";
-import { $, activePane, invoke, messages, uiPrefsLoad } from "./01-core.js";
+import { $, activePane, invoke, messages, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -166,12 +166,22 @@ export function workPriorityStorageKey() {
 export function selectedWorkPriority() {
   return $("work-priority-select").value === "requirement-first" ? "requirement-first" : "defect-first";
 }
+let workPriorityGeneration = 0;
+export function rememberWorkPrioritySelection(value) {
+  const project = currentProject || "default";
+  ++workPriorityGeneration;
+  localStorage.setItem(workPriorityKeyFor(project), value);
+  void uiPrefsSave({ work_priority: { [project]: value } });
+}
 export function syncWorkPriorityControl() {
+  const project = currentProject || "default";
+  const generation = ++workPriorityGeneration;
   const saved = localStorage.getItem(workPriorityStorageKey());
   $("work-priority-select").value = saved === "requirement-first" ? saved : "defect-first";
   // D-404:localStorage 数据文件缺失时重启即丢;后端 app.json 是权威,有值则覆盖。
   void uiPrefsLoad().then((p) => {
-    const v = p.work_priority?.[currentProject || "default"];
+    if (generation !== workPriorityGeneration || project !== (currentProject || "default")) return;
+    const v = p.work_priority?.[project];
     if (v === "requirement-first" || v === "defect-first") $("work-priority-select").value = v;
   });
 }
@@ -328,7 +338,7 @@ export function clearGoalInput() {
   if (!box) return;
   box.value = "";
   renderGoalState();
-  void syncAutoRunState();
+  void syncAutoRunState({ goal: "" });
 }
 export function renderGoalState() {
   const hint = $("auto-goal-state");
@@ -338,14 +348,16 @@ export function renderGoalState() {
     ? t("目标挂着:模型判定达成前不停;连续推不动会自动停")
     : t("留空 = 按有无实质动作决定是否继续");
 }
-export function syncAutoRunState() {
+export function syncAutoRunState(patch) {
   if (!activeSessionId) return;
   return invoke("auto_state_update", {
     sessionId: activeSessionId,
-    enabled: $("auto-continue").checked,
-    paused: autoPaused,
-    stopAfterRound: autoStopAfterRound,
-    goal: currentGoalText(),
+    ...(patch ?? {
+      enabled: $("auto-continue").checked,
+      paused: autoPaused,
+      stopAfterRound: autoStopAfterRound,
+      goal: currentGoalText(),
+    }),
   });
 }
 export function resetAutoRunState() {
