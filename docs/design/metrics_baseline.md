@@ -1,62 +1,62 @@
-# 巨石度量基线快照(R-258 批2)
+# 巨石度量基线快照（2026-10-03 发布审查）
 
-来源:`cargo run -p kanzei -- metrics --top 30`（R-300 B6 后复跑；输出与用户安装位 `kz metrics --top 30` 一致）。
+来源：当前已编译 `target/debug/kz.exe metrics --top 500`，前30名按生产行排序。
 metrics_format_version: v1
-口径:`crates/kanzei/src/cli/metrics.rs`——生产行数 = 总行数 − cfg(test) 块行数
-(cfg(test) 块按大括号配平识别,外挂声明 `#[cfg(test)] mod x;` 不算测试块;
-`_tests.rs` 后缀与 `tests/` 目录的外挂测试文件整文件算测试行);函数度量只统计生产码;
-参数 > 7 沿用 clippy too_many_arguments 默认阈值。
-阈值(conventions §9.2):生产行数 > 1200 巨石;参数 > 7 函数 ≥ 4 处失控;最大函数 > 400 行。
+口径：`crates/kanzei/src/cli/metrics.rs`；生产行数=总行数−cfg(test)块行数，`tests.rs`、`_tests.rs`及`tests/`目录为外挂纯测试文件，函数复杂度只统计生产码。新修复只补遗漏的标准tests.rs归属，不更换版本或词法算法。
+阈值保持原值：单文件最多增加100生产行；Top30中生产行>1200的巨石最多增加1个。参数>7、最大函数>400仍是观察值。本快照是当前数据，不是未审文件的PASS证书。
 
-## Top-30 榜单(按生产行数降序, R-309 B4 口径 v1 复跑)
+## 当前Top30
 
 | # | 文件 | 总行 | 生产 | 测试 | 函数 | 最大fn | >7参 |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 1 | crates/kanzei-memory/src/memory/mod.rs | 2915 | 1460 | 1455 | 52 | 91 | 0 |
-| 2 | crates/kanzei-core/src/runner/drive.rs | 1446 | 1215 | 231 | 12 | 274 | 5 |
-| 3 | crates/kanzei-core/src/store/typed.rs | 2411 | 1202 | 1209 | 39 | 210 | 0 |
-| 4 | crates/kanzei-tools/src/work.rs | 2256 | 1194 | 1062 | 24 | 1522 | 1 |
-| 5 | crates/kanzei-tools/src/git.rs | 2694 | 1180 | 1514 | 31 | 125 | 0 |
-| 6 | crates/kanzei-memory/src/memory/store.rs | 3763 | 1167 | 2596 | 31 | 134 | 3 |
-| 7 | crates/kanzei-tools/src/test_record.rs | 2200 | 940 | 1260 | 26 | 107 | 3 |
-| 8 | crates/kanzei-tools/src/plot_tool.rs | 1096 | 924 | 172 | 28 | 139 | 0 |
-| 9 | crates/kanzei-tools/src/tracker.rs | 4875 | 1202 | 3673 | 36 | 215 | 1 |
-| 10 | crates/kanzei-app/src/settings.rs | 1714 | 917 | 797 | 29 | 106 | 0 |
-| 11 | crates/kanzei-core/src/runner/subagent.rs | 1136 | 909 | 227 | 18 | 413 | 0 |
-| 12 | crates/kanzei-app/src/docs.rs | 914 | 897 | 17 | 22 | 203 | 2 |
-| 13 | crates/kanzei-app/src/mobile.rs | 1497 | 867 | 630 | 20 | 180 | 1 |
-| 14 | crates/kanzei-tools/src/tracker/actions.rs | 1003 | 1003 | 0 | 10 | 373 | 0 |
-| 15 | crates/kanzei-tools/src/palette.rs | 1266 | 864 | 402 | 34 | 85 | 0 |
-| 16 | crates/kanzei-app/src/state.rs | 961 | 832 | 129 | 32 | 74 | 0 |
-| 17 | crates/kanzei-tools/src/tracker/scheduling.rs | 1064 | 827 | 237 | 39 | 43 | 1 |
-| 18 | crates/kanzei-memory/src/memory/index.rs | 1544 | 826 | 718 | 35 | 82 | 0 |
-| 19 | crates/kanzei-core/src/replay.rs | 861 | 798 | 63 | 26 | 57 | 2 |
-| 20 | crates/kanzei-app/src/phase_pipeline.rs | 933 | 796 | 137 | 25 | 82 | 1 |
-| 21 | crates/kanzei-app/src/run/assembly.rs | 879 | 789 | 90 | 15 | 377 | 0 |
-| 22 | crates/kanzei-base/src/atomic_file.rs | 1198 | 757 | 441 | 22 | 102 | 0 |
-| 23 | crates/kanzei-memory/src/memory/manager.rs | 1516 | 746 | 770 | 33 | 99 | 0 |
-| 24 | crates/kanzei-tools/src/symbols.rs | 1620 | 1020 | 600 | 19 | 154 | 0 |
-| 25 | crates/kanzei-llm/src/protocol/openai.rs | 775 | 704 | 71 | 17 | 131 | 0 |
-| 26 | crates/kanzei-tools/src/bash.rs | 1378 | 698 | 680 | 24 | 268 | 0 |
-| 27 | crates/kanzei-harness/src/orchestration.rs | 985 | 695 | 290 | 26 | 113 | 1 |
-| 28 | crates/kanzei-tools/src/cross_tree.rs | 1409 | 693 | 716 | 17 | 217 | 0 |
-| 29 | crates/kanzei-harness/src/permission.rs | 1148 | 675 | 473 | 33 | 59 | 0 |
-| 30 | crates/kanzei-core/src/store/work.rs | 807 | 664 | 143 | 19 | 183 | 0 |
+| 1 | crates/kanzei-tools/src/team/mod.rs | 1612 | 1612 | 0 | 58 | 291 | 0 |
+| 2 | crates/kanzei-memory/src/memory/mod.rs | 3077 | 1550 | 1527 | 56 | 88 | 1 |
+| 3 | crates/kanzei-core/src/store/typed.rs | 3596 | 1461 | 2135 | 47 | 226 | 0 |
+| 4 | crates/kanzei-core/src/runner/drive.rs | 1967 | 1320 | 647 | 8 | 427 | 4 |
+| 5 | crates/kanzei-tools/src/research_runner.rs | 1916 | 1299 | 617 | 32 | 625 | 2 |
+| 6 | crates/kanzei-tools/src/work.rs | 2862 | 1274 | 1588 | 24 | 2084 | 1 |
+| 7 | crates/kanzei-core/src/store/session.rs | 1847 | 1176 | 671 | 41 | 107 | 0 |
+| 8 | crates/kanzei-app/src/commands/run.rs | 1488 | 1162 | 326 | 23 | 51 | 0 |
+| 9 | crates/kanzei-tools/src/git.rs | 2990 | 1154 | 1836 | 27 | 129 | 0 |
+| 10 | crates/kanzei-app/src/run/events/mod.rs | 1648 | 1114 | 534 | 36 | 300 | 1 |
+| 11 | crates/kanzei-memory/src/memory/store.rs | 3744 | 1083 | 2661 | 28 | 134 | 4 |
+| 12 | crates/kanzei-tools/src/tracker.rs | 5578 | 1081 | 4497 | 27 | 200 | 0 |
+| 13 | crates/kanzei-tools/src/symbols.rs | 1688 | 1037 | 651 | 20 | 162 | 0 |
+| 14 | crates/kanzei-app/src/processes/lifecycle.rs | 1484 | 1011 | 473 | 25 | 139 | 2 |
+| 15 | crates/kanzei-core/src/runner/subagent.rs | 1383 | 1000 | 383 | 22 | 458 | 0 |
+| 16 | crates/kanzei-app/src/run/assembly.rs | 1880 | 981 | 899 | 18 | 323 | 2 |
+| 17 | crates/kanzei-core/src/research.rs | 1089 | 969 | 120 | 26 | 169 | 1 |
+| 18 | crates/kanzei-tools/src/test_record.rs | 2284 | 947 | 1337 | 26 | 107 | 3 |
+| 19 | crates/kanzei-app/src/settings.rs | 1931 | 943 | 988 | 29 | 112 | 0 |
+| 20 | crates/kanzei-app/src/preview/pane.rs | 1003 | 936 | 67 | 45 | 60 | 0 |
+| 21 | crates/kanzei-app/src/mobile.rs | 2300 | 920 | 1380 | 28 | 218 | 2 |
+| 22 | crates/kanzei-app/src/state.rs | 1047 | 918 | 129 | 36 | 75 | 0 |
+| 23 | crates/kanzei-tools/src/refgraph/memory_graph.rs | 911 | 911 | 0 | 20 | 603 | 1 |
+| 24 | crates/kanzei-llm/src/protocol/anthropic.rs | 1176 | 910 | 266 | 21 | 267 | 0 |
+| 25 | crates/kanzei-harness/src/permission.rs | 1380 | 907 | 473 | 43 | 149 | 0 |
+| 26 | crates/kanzei-app/src/docs.rs | 1007 | 906 | 101 | 26 | 288 | 2 |
+| 27 | crates/kanzei-tools/src/tracker/scheduling.rs | 1121 | 867 | 254 | 40 | 43 | 1 |
+| 28 | crates/kanzei-tools/src/tracker/actions.rs | 865 | 865 | 0 | 10 | 433 | 0 |
+| 29 | crates/kanzei-tools/src/palette.rs | 1266 | 864 | 402 | 34 | 85 | 0 |
+| 30 | crates/kanzei-tools/src/shell.rs | 848 | 848 | 0 | 35 | 786 | 1 |
 
-## 读数
+## 2026-10-03 有意识更新的原因
 
-- 当前 Top-30 覆盖全仓 256 个 `.rs` 文件;生产行数 > 1200 的巨石 3 个(memory/mod.rs、drive.rs、typed.rs)。
-- R-309 B4 以 metrics format v1 重新采集当前工作树读数，更新 `memory/mod.rs`、`memory/store.rs`、`git.rs`、`test_record.rs`、`memory/manager.rs` 等已发生结构性变化的基线值；回涨闸仍保持单文件最多增加 100 行，不因基线更新放宽阈值。
-- 参数 > 7 函数 ≥ 4 处的文件仍为 1 个:`drive.rs`(5 处)。
-- 最大函数 > 400 行:`runner/subagent.rs`(413)与 `work.rs`(1522,R-317 收编产物,待拆);此前 `drive.rs`、`profiles.rs`、`cli/run.rs` 已降出该阈值。
-- 本次快照覆盖 Rust 度量;前端拆分冒烟证据沿用 T-1786922726432、T-1786922726433。
+首轮Full门禁原始失败与旧基线保存于 `output/release-2026-10-03/verify-880c7135.log` 和 `metrics-baseline-before.md`，旧Git版本可从 `40bb0616:docs/design/metrics_baseline.md`恢复。旧表格巨石实际4个，正文曾写3个；这次不沿用错误正文。
 
-## 回涨闸门
+当前真实CLI还将12个tests.rs全部误算生产（team/tests.rs 2698行、50函数），该P1已修：真实文件收集回归9项通过；旧/新独立CLI对全部422个Rust文件比较，12个测试文件恢复全测试、0生产/0函数，其他生产指标保持不变，巨石错误读数7→6。不是通过放宽阈值隐藏测试文件。
 
-- `scripts/metrics-regression-gate.ps1` 由 `scripts/verify.ps1` 的 `crate_sync` 步骤真实调用。
-- 对基线中仍出现在 Top-30 的文件，生产行允许最多比基线增加 100 行（宽松起步，防止测试/生成口径微调误伤）；超过即失败。
-- Top-30 中生产行超过 1200 的巨石数量允许最多比基线增加 1 个；超过即失败。
-- 本次重跑结果：`cargo run -p kanzei -- metrics --top 30` 产出 30 行、巨石 3 个（2026-08-21 合并后复跑，触发原因是 memory/mod.rs +136 超过 100 行回涨额度——增长来自已交付的 R-284,按有意识重基线路径处理）。
+下列超100行差额按已经审查并验证的交付接受；差额包含旧基线历史偏差，不能全部宣称本轮源码新增：
+- `crates/kanzei-harness/src/permission.rs`：675 → 907（+232）。D3 资源权限例外；最大函数149行，保留同一权限 owner，发布收尾不再拆分正确的判定。
+- `crates/kanzei-app/src/run/assembly.rs`：789 → 981（+192）。C4/C6执行owner、实际input/current writer失败收尾和准入ACK；最大函数323行，保留已经实测的启动状态转换。
+- `crates/kanzei-core/src/runner/drive.rs`：1215 → 1320（+105）。C3持久化ACK先于运行历史/副作用、协议思考回放；本次保留已验证控制流，后续再动427行函数时按职责收敛。
+- `crates/kanzei-core/src/store/typed.rs`：1202 → 1461（+259）。C2及C4/C5/C6同一事务核验与终态/input/stage提交；最大函数226行，事务边界不能在发布收尾随意切开。
+
+对应证据见 [D3](../reviews/file-audit-2026-10-03/parallel/D3.md)、[C2](../reviews/file-audit-2026-10-03/parallel/C2.md)、[C3](../reviews/file-audit-2026-10-03/parallel/C3.md)、[C4](../reviews/file-audit-2026-10-03/parallel/C4.md)、[C5](../reviews/file-audit-2026-10-03/parallel/C5.md)、[C6](../reviews/file-audit-2026-10-03/parallel/C6.md)。生产状态合同优先，本次不为了度量好看重写已正确的模块。
+
+新榜单是完整重测：team/mod.rs 1612生产行由B2/D2审查的worker/attempt owner合同构成；research_runner.rs与work.rs仍显示1299/1274生产行，未据此新增全文PASS。它们及其他旧版既有文件的度量存在不能被新基线遮掉，后续按依赖地图继续审查。原始每行数值、相对上一发布是否改源记录于 `metrics-baseline-provenance.json`；基线没有修改任何这些生产文件。当前六个巨石为team/mod、memory/mod、typed、drive、research_runner、work。
+
+下一次新增量仍按100行/1个门禁判定；当前完整快照保留实际大文件与最大函数读数，后续重开它们必须先核对职责、caller和状态owner。没有新第三方依赖或持久化格式变化。
 
 ## 基线变更记录
 

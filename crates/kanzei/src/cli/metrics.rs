@@ -497,7 +497,7 @@ pub(crate) fn sorted_metrics(
     for entry in walk_rust_files(root)? {
         let rel = entry.strip_prefix(root).unwrap_or(&entry).to_path_buf();
         if let Ok(mut m) = metric_file(&entry) {
-            // 外挂测试文件(`_tests.rs` 后缀或 tests/ 目录):整体是 `#[cfg(test)]
+            // 外挂测试文件(tests.rs、`_tests.rs` 后缀或 tests/ 目录):整体是 `#[cfg(test)]
             // mod x_tests;` 声明的纯测试,无内联 cfg(test) 块,整文件算测试行——
             // 否则 raw 行数会把纯测试文件误诊成生产巨石(R-258 来源 tracker.rs 教训)。
             if is_external_test_file(&rel) {
@@ -514,14 +514,14 @@ pub(crate) fn sorted_metrics(
     Ok(files)
 }
 
-/// 外挂测试文件判定:文件名以 `_tests.rs` 结尾,或路径含 `tests/` 目录
+/// 外挂测试文件判定:文件名为 `tests.rs`、以 `_tests.rs` 结尾,或路径含 `tests/` 目录
 /// (integration/ 测试夹)。
 fn is_external_test_file(rel: &Path) -> bool {
     let name = rel
         .file_name()
         .map(|n| n.to_string_lossy())
         .unwrap_or_default();
-    if name.ends_with("_tests.rs") {
+    if name == "tests.rs" || name.ends_with("_tests.rs") {
         return true;
     }
     rel.components().any(|c| {
@@ -651,6 +651,12 @@ mod tests {
     #[test]
     fn external_test_file_detected_by_name_and_dir() {
         assert!(is_external_test_file(std::path::Path::new(
+            "crates/kanzei-tools/src/team/tests.rs"
+        )));
+        assert!(!is_external_test_file(std::path::Path::new(
+            "crates/kanzei-tools/src/team/contests.rs"
+        )));
+        assert!(is_external_test_file(std::path::Path::new(
             "crates/kanzei-app/src/worktree_tests.rs"
         )));
         assert!(!is_external_test_file(std::path::Path::new(
@@ -662,5 +668,59 @@ mod tests {
         assert!(!is_external_test_file(std::path::Path::new(
             "crates/kanzei-tools/src/tracker.rs"
         )));
+    }
+
+    #[test]
+    fn collected_external_tests_do_not_become_production_giants() {
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "kz-metrics-external-tests-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )));
+        let module = fixture.0.join("crates/example/src/team");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(
+            module.join("mod.rs"),
+            "#[cfg(test)]\nmod tests;\npub fn production() {}\n",
+        )
+        .unwrap();
+        let source = format!(
+            "{}#[test]\nfn regression(a: i32, b: i32, c: i32, d: i32, e: i32, f: i32, g: i32, h: i32) {{\n}}\n",
+            "// test fixture\n".repeat(1201)
+        );
+        std::fs::write(module.join("tests.rs"), &source).unwrap();
+        std::fs::write(
+            module.join("contests.rs"),
+            "pub fn production_control() {}\n",
+        )
+        .unwrap();
+        let metrics = sorted_metrics(&fixture.0).unwrap();
+        assert_eq!(metrics.len(), 3);
+        let find = |name: &str| {
+            metrics
+                .iter()
+                .find(|(path, _)| path.file_name().is_some_and(|file| file == name))
+                .unwrap()
+                .1
+        };
+        let tests = find("tests.rs");
+        assert!(tests.total_lines > 1200);
+        assert_eq!(tests.test_lines, source.lines().count());
+        assert_eq!(tests.prod_lines, 0);
+        assert_eq!(tests.fn_count, 0);
+        assert_eq!(tests.max_fn_lines, 0);
+        assert_eq!(tests.too_many_args_count, 0);
+        assert_eq!(find("mod.rs").fn_count, 1);
+        assert_eq!(find("contests.rs").prod_lines, 1);
+        assert_eq!(find("contests.rs").fn_count, 1);
     }
 }

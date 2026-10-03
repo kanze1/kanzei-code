@@ -1,0 +1,321 @@
+{
+  "status": "related_verified_final_full_gate_required",
+  "product_roots": {
+    "P0": 0,
+    "P1": 1,
+    "P2": 0
+  },
+  "verification_roots": {
+    "P2": 1
+  },
+  "full_file": "crates/kanzei/src/cli/metrics.rs",
+  "full_file_sha256_lf": "67d1330bb9ba218888249ed6ed99d16f68e4dba573ee4356ccb47a9602621c42",
+  "public_cli_proof": {
+    "public_cli_old_wrong_and_new_correct": true,
+    "rust_file_count": 422,
+    "test_files_corrected": [
+      {
+        "path": "crates/kanzei-tools/src/team/tests.rs",
+        "before": [
+          2698,
+          2698,
+          0,
+          50,
+          147,
+          0
+        ],
+        "after": [
+          2698,
+          0,
+          2698,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-tools/src/refgraph/tests.rs",
+        "before": [
+          555,
+          555,
+          0,
+          17,
+          61,
+          0
+        ],
+        "after": [
+          555,
+          0,
+          555,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-app/src/workspace/tests.rs",
+        "before": [
+          500,
+          500,
+          0,
+          20,
+          64,
+          0
+        ],
+        "after": [
+          500,
+          0,
+          500,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-core/src/runner/item_context/tests.rs",
+        "before": [
+          447,
+          447,
+          0,
+          14,
+          103,
+          0
+        ],
+        "after": [
+          447,
+          0,
+          447,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-tools/src/research_workflow/tests.rs",
+        "before": [
+          362,
+          362,
+          0,
+          15,
+          76,
+          0
+        ],
+        "after": [
+          362,
+          0,
+          362,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
+        "before": [
+          339,
+          339,
+          0,
+          12,
+          96,
+          0
+        ],
+        "after": [
+          339,
+          0,
+          339,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-base/src/write_log/tests.rs",
+        "before": [
+          325,
+          325,
+          0,
+          16,
+          43,
+          0
+        ],
+        "after": [
+          325,
+          0,
+          325,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-tools/src/verification/tests.rs",
+        "before": [
+          260,
+          260,
+          0,
+          10,
+          48,
+          0
+        ],
+        "after": [
+          260,
+          0,
+          260,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-tools/src/research_control/tests.rs",
+        "before": [
+          212,
+          212,
+          0,
+          7,
+          79,
+          0
+        ],
+        "after": [
+          212,
+          0,
+          212,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-app/src/research_library/tests.rs",
+        "before": [
+          211,
+          211,
+          0,
+          5,
+          64,
+          0
+        ],
+        "after": [
+          211,
+          0,
+          211,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-base/src/atomic_file/tests.rs",
+        "before": [
+          179,
+          179,
+          0,
+          9,
+          39,
+          0
+        ],
+        "after": [
+          179,
+          0,
+          179,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "path": "crates/kanzei-app/src/research_auto/tests.rs",
+        "before": [
+          93,
+          93,
+          0,
+          4,
+          35,
+          0
+        ],
+        "after": [
+          93,
+          0,
+          93,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "other_production_metrics_unchanged": true,
+    "giants_before": 7,
+    "giants_after": 6,
+    "before_binary_sha256": "1878dfba3bf51c66325f5ab0018059600baf0b08c20b99e008f9749b4b0a4848",
+    "current_binary_sha256": "7ff04b243651cb2e5a2cd7f0aaa725a4b217a80d23687e181774ec4376410fdc"
+  },
+  "metrics_tests": {
+    "passed": 9,
+    "failed": 0,
+    "log": "output/release-2026-10-03/metrics-tests.log",
+    "log_sha256": "38d8b9e7b0a6cfa877c1be19c9da2f1fcb473cb22ba96396fa9177ddee47ae3c"
+  },
+  "related_checks": [
+    {
+      "name": "metrics-build",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kanzei",
+        "--bin",
+        "kz"
+      ],
+      "exit_code": 0,
+      "seconds": 0.51,
+      "sha256": "54d32f1312e9ec321c58af432997bfe3bae5b14322fc06e68fd35a1f2f0e6519"
+    },
+    {
+      "name": "metrics-check",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "kanzei",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 16.76,
+      "sha256": "1d7f73b7566a97bd8a39100b2b9ae3da6edcba70318554e386488f9a4e092c1f"
+    },
+    {
+      "name": "metrics-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "kanzei",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 13.37,
+      "sha256": "823a9dd83ae6b14d8e51907169d1d80bf2800312882b6bf97545a4deec014b30"
+    }
+  ],
+  "formatting": {
+    "initial_check_failed": true,
+    "failure_log": "output/release-2026-10-03/metrics-fmt-first-failure.log",
+    "fixed_exit": 0
+  },
+  "parallel_entry_control": [
+    "current nonasync Promise entry accepted",
+    "async declaration accepted",
+    "missing entry rejected"
+  ],
+  "first_full_gate": {
+    "commit": "880c7135879ee9453a45b58c226c68f4c992ffce",
+    "status": "failed_two_checks_then_stopped_before_expensive_checks",
+    "log": "output/release-2026-10-03/verify-880c7135.log",
+    "log_sha256": "12da3f09479f4c39e3b989082b69aa779d396f20e1d8653c1f4e896957f3f5d0"
+  },
+  "baseline": "current actual top30 consciously refreshed; original100/1 limits unchanged",
+  "no_new_dependencies_or_persistent_format_change": true
+}

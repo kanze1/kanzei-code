@@ -101,7 +101,8 @@ assert(!/model: \$\("model-select"\)\.value \|\| null/.test(compose), "发送又
 assert(allUiSources.includes('invoke("model_effective"'), "顶栏芯片必须以 model_effective 为唯一真源");
 assert(!allUiSources.includes('getItem(prefKey("reasoning"))'), "思考强度不得再以 localStorage 为真源");
 assert(!allUiSources.includes('$("model-select")') && !allUiSources.includes('$("reasoning-select")'), "原生模型/思考下拉已换成芯片,不得再按 id 读它们");
-assert(compose.includes("async function setLineAutoState(processId, patch)"), "缺少按线鞭挞写入口(线路页要能操控任意线)");
+// 入口可直接返回按线路排队的 Promise；async 关键字不是调用合同。
+assert(/(?:^|\n)(?:export\s+)?(?:async\s+)?function setLineAutoState\(processId, patch\)/.test(compose), "缺少按线鞭挞写入口(线路页要能操控任意线)");
 assert(compose.includes("function lineAutoConfig(processId)"), "缺少按线鞭挞读入口");
 assert(lines.includes("buildLineAutoControls(line)"), "线路页每条线缺少鞭挞控件");
 assert(lines.includes("buildLineModelSelect(item)"), "线路页每条线缺少模型选择");
