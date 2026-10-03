@@ -280,7 +280,8 @@ try {
   check(!await page.locator("#project-work-switch").isVisible() && !await page.locator("#profile-select").isVisible(), "Project execution controls are hidden");
   await page.locator("#general-chat-link").click(); await page.getByRole("menuitem", { name: "project", exact: true }).click();
   await until(async () => await page.locator("body").getAttribute("data-general-chat") === "false" && (await page.locator("#messages").innerText()).includes("GENERAL_INPUT"), "Link with history");
-  check((await invoke("process_list", { projectDir: prefs.current })).some(p => p.profile === "readonly"), "Project association creates an independent discussion");
+  const linkedId = await page.evaluate(async () => (await import("./03-shell.js")).activeProcessId);
+  check((await invoke("process_list", { projectDir: prefs.current })).find(p => p.id === linkedId)?.profile === "dev", "Project association creates an ordinary conversation");
   await page.locator("#workbench-general-chat").click();
   await until(async () => await page.locator("body").getAttribute("data-general-chat") === "true", "Original remains accessible");
   await page.waitForFunction(() => !document.getElementById("workbench-general-chat").hasAttribute("aria-busy") && !document.getElementById("general-chat-link").disabled);

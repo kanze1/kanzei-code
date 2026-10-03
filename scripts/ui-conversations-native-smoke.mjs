@@ -129,16 +129,18 @@ try {
   await invoke("run_prompt", { ...prompt, prompt: "BATCH_EXECUTION: 核对 R-001 的原始文件", delivery: "queue", executionBatch: true });
   check(requests.length === captureCalls + 1, "Execution input is queued while the main turn is running");
   await page.locator("#new-chat").click();
-  await page.waitForFunction(() => document.body.dataset.conversationKind === "discussion");
-  const discussion = (await invoke("process_list", { projectDir: project })).find(p => p.profile === "readonly");
+  await page.waitForFunction(async id => (await import("./03-shell.js")).activeProcessId !== id, owner.id);
+  const discussion = (await invoke("process_list", { projectDir: project })).find(p => p.id !== owner.id);
+  check(discussion?.profile === "dev", "New conversation has the same development mode");
+  await invoke("process_update", { processId: discussion.id, profile: "readonly" });
   check(Boolean(discussion) && (await invoke("process_list", { projectDir: project })).find(p => p.id === owner.id).running, "New discussion does not stop or replace the main execution owner");
   // Even a stale/malicious client asking for dev cannot upgrade a readonly process.
   await invoke("run_prompt", { ...prompt, processId: discussion.id, profile: "dev", agent: "dev-pair", prompt: "READONLY_ATTEMPT: 改写 original.txt", executionBatch: true, autonomous: true, autoAllow: true });
   await until(async () => requests.filter(r => r.kind === "discussion").length >= 2 && !(await invoke("process_list", { projectDir: project })).find(p => p.id === discussion.id)?.running, "Readonly discussion while main owns write lease");
   check(await readFile(path.join(project, "original.txt"), "utf8") === "original content", "Readonly ownership blocks writes despite dev, auto and execution overrides");
   check(!requests.some(r => r.kind === "scout"), "Discussion has no hidden execution batch or child task");
-  await page.locator("#project-return-main").click();
-  await page.waitForFunction(id => document.body.dataset.conversationKind === "main" && document.querySelector("#project-conversation-kind")?.textContent === "主对话", owner.id);
+  await page.evaluate(async id => (await import("./09-sessions.js")).switchProcess(id), owner.id);
+  await page.waitForFunction(() => document.body.dataset.conversationKind === "conversation");
   await page.locator("#prompt").fill("继续输入中的草稿"); await page.locator("#prompt").focus();
   mainReply();
   await until(() => scoutReplies.length === 2, "Two concurrent batch scouts");

@@ -27,10 +27,10 @@ try {
   check(header.x+header.width <= preview.x+1, "Preview and conversation header occupy separate columns");
   check(await clickable("#new-chat"), "The sidebar new-discussion entry remains clickable with preview open (the page header no longer duplicates it)");
   await page.locator("#new-chat").click(); await settle();
-  check(await page.locator("body").getAttribute("data-conversation-kind") === "discussion", "Sidebar creates a new discussion through the existing conversation action");
+  check(await page.locator("body").getAttribute("data-conversation-kind") === "conversation", "Sidebar creates a peer conversation through the existing conversation action");
   await page.locator("#workbench-chat-history").click();
   await page.locator(`.project-session-menu [data-conversation-id="${originalSession}"] .workbench-session-link`).click(); await settle();
-  check(await page.locator("body").getAttribute("data-conversation-kind") === "main", "Sidebar history returns to the original main conversation");
+  check(await page.locator("body").getAttribute("data-conversation-kind") === "conversation", "Sidebar history returns to the original peer conversation");
   await page.screenshot({path:`${output}/sidebar-preview-dark.png`});
   await page.locator("#preview-close").click(); await settle();
   await page.locator("#attachment-input").setInputFiles("tests/fixtures/attachments/budget.xlsx");

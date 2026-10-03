@@ -357,7 +357,8 @@ try {
   // ---- 右键菜单:重命名输入限长;无可用打开方式时「添加打开方式…」直达设置分区 ----
   await section("context-menu", { scene: "startup" }, async (app) => {
     const { page } = app;
-    const mainRow = '.workbench-session[data-kind="main"] .workbench-session-link';
+    const activeId = await page.evaluate(async () => (await import("/03-shell.js")).activeProcessId);
+    const mainRow = `.workbench-session[data-process-id=${JSON.stringify(activeId)}] .workbench-session-link`;
     await page.click(mainRow, { button: "right" });
     await page.waitForSelector(".k-menu:popover-open");
     await page.locator(".k-menu:popover-open .k-menu-item", { hasText: "重命名" }).first().click();

@@ -1047,8 +1047,8 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
         research_topic: args?.researchTopic || null, reasoning: null, manual_models: [], phase_pipeline: Boolean(args?.phasePipeline),
         subagents_enabled: true, tracker_writes: false, stage: "空闲", running: false,
         // 没有标题可用时的展示名 = 类型 + 序号(与 processes/naming.rs 同口径),界面不再出现 pN/「默认」。
-        label: `${args?.profile === "readonly" ? "讨论" : "独立任务"} ${n}`,
-        title: null, title_custom: false, kind: args?.profile === "readonly" ? "discussion" : "task", ordinal: n, updated_at: null,
+        label: `${args?.profile === "readonly" ? "讨论" : "对话"} ${n}`,
+        title: null, title_custom: false, kind: args?.profile === "readonly" ? "discussion" : "conversation", ordinal: n, updated_at: null,
       };
       state.processes.push(item);
       state.conversations.set(item.id, []);
