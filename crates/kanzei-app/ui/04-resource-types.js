@@ -27,7 +27,14 @@ const PATHS = {
   file: '<path d="M14 3H5v18h14V8zM14 3v5h5"/>',
 };
 const MIMES = { pdf:"application/pdf", xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xls:"application/vnd.ms-excel", xlsm:"application/vnd.ms-excel.sheet.macroEnabled.12", xlsb:"application/vnd.ms-excel.sheet.binary.macroEnabled.12", ods:"application/vnd.oasis.opendocument.spreadsheet", csv:"text/csv", tsv:"text/tab-separated-values", txt:"text/plain", md:"text/markdown", markdown:"text/markdown", json:"application/json", log:"text/plain", png:"image/png", jpg:"image/jpeg", jpeg:"image/jpeg", gif:"image/gif", webp:"image/webp", svg:"image/svg+xml", bmp:"image/bmp", avif:"image/avif", tif:"image/tiff", tiff:"image/tiff", heic:"image/heic", ico:"image/x-icon" };
-function extension(value) { return String(value || "").split(/[?#]/)[0].replace(/:\d+(?:-\d+)?$/, "").split(/[\\/]/).at(-1)?.split(".").at(-1)?.toLowerCase() || ""; }
+function extension(value) {
+  let path = String(value || "");
+  try {
+    const url = new URL(path);
+    if (["http:", "https:"].includes(url.protocol)) path = decodeURIComponent(url.pathname);
+  } catch { /* Local filenames can contain #; it is not a URL fragment. */ }
+  return path.replace(/:\d+(?:-\d+)?$/, "").split(/[\\/]/).at(-1)?.split(".").at(-1)?.toLowerCase() || "";
+}
 export function attachmentMime(name, mime = "") { return MIMES[extension(name)] || (mime.startsWith("image/") || mime === "application/pdf" ? mime : null); }
 export function resourceType(name, mime = "") {
   let path = String(name || ""), host = "";

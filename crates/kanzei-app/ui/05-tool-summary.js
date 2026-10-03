@@ -29,6 +29,7 @@ import {
   parseJsonish,
   parsePreview,
   parseStorageMarker,
+  parseUnifiedDiff,
   splitAlternation,
   stripAnsi,
   stripToolOutcome,
@@ -465,6 +466,11 @@ function summarizeGit(s) {
   const action = String(s.input.action ?? "");
   const head = firstLine(s.lines).trim();
   let m;
+  // Read-only Git calls can successfully report that this project has no own repository.
+  // Preserve that fact before interpreting status/diff/log output as actual repository data.
+  if (/^not (?:a|an independent) git repository:/.test(head)) {
+    return { groups: [t("本项目不是 Git 仓库")], title: cleanInline(s.text, s.roots), key: "git.unavailable" };
+  }
   if (/^committed verified staged set/.test(head) || action === "commit") {
     const subject = s.lines.map((line) => line.match(/^([0-9a-f]{7,40}) (.+)$/)).find(Boolean);
     const stat = s.text.match(/(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/);
@@ -492,11 +498,11 @@ function summarizeGit(s) {
   }
   if (action === "diff" || /^diff --git /m.test(s.text)) {
     if (/^\(no diff\)/.test(head)) return { groups: [t("无差异")], key: "git.diff" };
-    const files = (s.text.match(/^diff --git /gm) ?? []).length;
-    const additions = s.lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
-    const deletions = s.lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+    const files = parseUnifiedDiff(s.text);
+    const additions = files.reduce((total, file) => total + file.additions, 0);
+    const deletions = files.reduce((total, file) => total + file.deletions, 0);
     return {
-      groups: [[txt(`${filesCount(files)} `), add(additions), txt(" "), del(deletions)]],
+      groups: [[txt(`${filesCount(files.length)} `), add(additions), txt(" "), del(deletions)]],
       key: "git.diff",
     };
   }

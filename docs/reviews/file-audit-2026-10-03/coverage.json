@@ -3,6 +3,7 @@
   "full_file_reviews": [
     "crates/kanzei-app/src/agent_team.rs",
     "crates/kanzei-app/src/async_mailbox.rs",
+    "crates/kanzei-app/src/attachments.rs",
     "crates/kanzei-app/src/commands/run/input_mode.rs",
     "crates/kanzei-app/src/desktop_bridge.rs",
     "crates/kanzei-app/src/durable_questions.rs",
@@ -25,20 +26,46 @@
     "crates/kanzei-app/src/runtime_service/compatibility.rs",
     "crates/kanzei-app/src/schedules.rs",
     "crates/kanzei-app/src/settings.rs",
+    "crates/kanzei-app/src/softwire.rs",
     "crates/kanzei-app/src/terminal_monitor.rs",
     "crates/kanzei-app/ui/00-frame.js",
     "crates/kanzei-app/ui/00-surface.js",
     "crates/kanzei-app/ui/01-core.js",
+    "crates/kanzei-app/ui/02-i18n.js",
+    "crates/kanzei-app/ui/03-general-scope.js",
     "crates/kanzei-app/ui/03-layout.js",
+    "crates/kanzei-app/ui/03-session-stage.js",
     "crates/kanzei-app/ui/03-shell.js",
     "crates/kanzei-app/ui/03-workspaces.js",
+    "crates/kanzei-app/ui/04-diagram.js",
+    "crates/kanzei-app/ui/04-markdown.js",
+    "crates/kanzei-app/ui/04-resource-types.js",
+    "crates/kanzei-app/ui/04-status-words.js",
+    "crates/kanzei-app/ui/04-structured-parse.js",
+    "crates/kanzei-app/ui/04-structured.js",
+    "crates/kanzei-app/ui/05-conversation-actions.js",
+    "crates/kanzei-app/ui/05-tool-summary.js",
+    "crates/kanzei-app/ui/06-deliveries.js",
+    "crates/kanzei-app/ui/06-side-policy.js",
     "crates/kanzei-app/ui/07-events.js",
     "crates/kanzei-app/ui/08-auto.js",
     "crates/kanzei-app/ui/08-compose-runtime.js",
     "crates/kanzei-app/ui/09-sessions.js",
+    "crates/kanzei-app/ui/12-conversation-model.js",
+    "crates/kanzei-app/ui/12-session-menus.js",
+    "crates/kanzei-app/ui/12-session-tree.js",
+    "crates/kanzei-app/ui/12-workbench.js",
+    "crates/kanzei-app/ui/15-views-misc.js",
     "crates/kanzei-app/ui/16-settings.js",
     "crates/kanzei-app/ui/17-files-editor.js",
+    "crates/kanzei-app/ui/22-activity-state.js",
     "crates/kanzei-app/ui/24-schedules.js",
+    "crates/kanzei-app/ui/25-softwire-composer.js",
+    "crates/kanzei-app/ui/25-softwire-model.js",
+    "crates/kanzei-app/ui/25-softwire-run.js",
+    "crates/kanzei-app/ui/25-softwire-view.js",
+    "crates/kanzei-app/ui/25-softwire.js",
+    "crates/kanzei-app/ui/29-general-chat.js",
     "crates/kanzei-base/src/atomic_file.rs",
     "crates/kanzei-base/src/atomic_file/lock.rs",
     "crates/kanzei-base/src/atomic_file/lock_tests.rs",
@@ -153,7 +180,6 @@
     "crates/kanzei-app/src/state_tests.rs",
     "crates/kanzei-app/src/typed_events.rs",
     "crates/kanzei-app/src/verification_monitor.rs",
-    "crates/kanzei-app/ui/12-workbench.js",
     "crates/kanzei-app/ui/17-files.js",
     "crates/kanzei-core/src/runner/drive/assembly.rs",
     "crates/kanzei-core/src/runner/drive/parallel_tools.rs",
@@ -187,7 +213,6 @@
     "crates/kanzei-app/build.rs",
     "crates/kanzei-app/mobile-pwa/app.js",
     "crates/kanzei-app/src/agent_directory.rs",
-    "crates/kanzei-app/src/attachments.rs",
     "crates/kanzei-app/src/auto_run.rs",
     "crates/kanzei-app/src/collaboration.rs",
     "crates/kanzei-app/src/commands/mod.rs",
@@ -241,7 +266,6 @@
     "crates/kanzei-app/src/run/work_start.rs",
     "crates/kanzei-app/src/screenshot.rs",
     "crates/kanzei-app/src/side_question.rs",
-    "crates/kanzei-app/src/softwire.rs",
     "crates/kanzei-app/src/subagents.rs",
     "crates/kanzei-app/src/subagents_capture_tests.rs",
     "crates/kanzei-app/src/update.rs",
@@ -252,42 +276,25 @@
     "crates/kanzei-app/src/workspace/tests.rs",
     "crates/kanzei-app/src/worktree_tests.rs",
     "crates/kanzei-app/ui/00-brand.js",
-    "crates/kanzei-app/ui/02-i18n.js",
-    "crates/kanzei-app/ui/03-general-scope.js",
     "crates/kanzei-app/ui/03-research-library.js",
-    "crates/kanzei-app/ui/03-session-stage.js",
-    "crates/kanzei-app/ui/04-diagram.js",
-    "crates/kanzei-app/ui/04-markdown.js",
-    "crates/kanzei-app/ui/04-resource-types.js",
-    "crates/kanzei-app/ui/04-status-words.js",
-    "crates/kanzei-app/ui/04-structured-parse.js",
-    "crates/kanzei-app/ui/04-structured.js",
     "crates/kanzei-app/ui/05-chat-render.js",
-    "crates/kanzei-app/ui/05-conversation-actions.js",
     "crates/kanzei-app/ui/05-subagents.js",
-    "crates/kanzei-app/ui/05-tool-summary.js",
     "crates/kanzei-app/ui/06-activity.js",
     "crates/kanzei-app/ui/06-agent-panel.js",
-    "crates/kanzei-app/ui/06-deliveries.js",
-    "crates/kanzei-app/ui/06-side-policy.js",
     "crates/kanzei-app/ui/08-compose.js",
     "crates/kanzei-app/ui/08-model-picker.js",
     "crates/kanzei-app/ui/08-models.js",
     "crates/kanzei-app/ui/08-project-models.js",
     "crates/kanzei-app/ui/10-docs-core.js",
     "crates/kanzei-app/ui/11-docs-list.js",
-    "crates/kanzei-app/ui/12-conversation-model.js",
     "crates/kanzei-app/ui/12-decision-console.js",
     "crates/kanzei-app/ui/12-docs-pages.js",
     "crates/kanzei-app/ui/12-docs-tests.js",
-    "crates/kanzei-app/ui/12-session-menus.js",
-    "crates/kanzei-app/ui/12-session-tree.js",
     "crates/kanzei-app/ui/13-memory-chat.js",
     "crates/kanzei-app/ui/13-memory.js",
     "crates/kanzei-app/ui/14-docs-actions.js",
     "crates/kanzei-app/ui/14-docs-quick.js",
     "crates/kanzei-app/ui/15-conventions.js",
-    "crates/kanzei-app/ui/15-views-misc.js",
     "crates/kanzei-app/ui/16-mobile.js",
     "crates/kanzei-app/ui/18-optional-ui.js",
     "crates/kanzei-app/ui/18-startup.js",
@@ -297,7 +304,6 @@
     "crates/kanzei-app/ui/19-research.js",
     "crates/kanzei-app/ui/20-lines.js",
     "crates/kanzei-app/ui/21-palette.js",
-    "crates/kanzei-app/ui/22-activity-state.js",
     "crates/kanzei-app/ui/22-brand-backdrop.js",
     "crates/kanzei-app/ui/22-constellation-core.js",
     "crates/kanzei-app/ui/22-constellation-data.js",
@@ -315,16 +321,10 @@
     "crates/kanzei-app/ui/24-memory-graph-model.js",
     "crates/kanzei-app/ui/24-memory-graph.js",
     "crates/kanzei-app/ui/24-preview.js",
-    "crates/kanzei-app/ui/25-softwire-composer.js",
-    "crates/kanzei-app/ui/25-softwire-model.js",
-    "crates/kanzei-app/ui/25-softwire-run.js",
-    "crates/kanzei-app/ui/25-softwire-view.js",
-    "crates/kanzei-app/ui/25-softwire.js",
     "crates/kanzei-app/ui/26-project-conversations.js",
     "crates/kanzei-app/ui/26-requirement-research.js",
     "crates/kanzei-app/ui/27-agent-team.js",
     "crates/kanzei-app/ui/28-async-workspace.js",
-    "crates/kanzei-app/ui/29-general-chat.js",
     "crates/kanzei-app/ui/assets/voice-capture-worklet.js",
     "crates/kanzei-app/ui/gallery.js",
     "crates/kanzei-core/src/assemble.rs",
@@ -2078,6 +2078,309 @@
         }
       },
       "note": "Only metrics.rs adds full coverage; static verification script and measured baseline do not add business files."
+    },
+    {
+      "report": "WB1-workbench-state.md",
+      "source_baseline": "746b69a824f38b4d5fc5502c4ec9ff78bc06e956",
+      "full_files": {
+        "crates/kanzei-app/src/softwire.rs": {
+          "judgment": "PASS",
+          "sha256": "8170dc6d07510a3b62061556df73d0da297a4b4a9c5cf170058498ce100bd8f4",
+          "sha256_lf": "8170dc6d07510a3b62061556df73d0da297a4b4a9c5cf170058498ce100bd8f4",
+          "lines": 356,
+          "validation": "WB1 related UI regressions 267 passed; Rust file source/contracts reviewed, Rust tests not rerun"
+        },
+        "crates/kanzei-app/ui/25-softwire-model.js": {
+          "judgment": "PASS",
+          "sha256": "c8a9bca737887bfd298f04f4dd8d2ccd2faeac91ebbdbb132679d39445728780",
+          "sha256_lf": "c8a9bca737887bfd298f04f4dd8d2ccd2faeac91ebbdbb132679d39445728780",
+          "lines": 184,
+          "validation": "WB1 related UI regressions 267 passed; Rust file source/contracts reviewed, Rust tests not rerun"
+        },
+        "crates/kanzei-app/ui/25-softwire-view.js": {
+          "judgment": "P1",
+          "sha256": "d2492746bdd5af4cc3318f9787feb9dc9ae88d662d53a40a49b59bc25c0a8786",
+          "sha256_lf": "d2492746bdd5af4cc3318f9787feb9dc9ae88d662d53a40a49b59bc25c0a8786",
+          "lines": 479,
+          "validation": "WB1 related UI regressions 267 passed; Rust file source/contracts reviewed, Rust tests not rerun"
+        },
+        "crates/kanzei-app/ui/25-softwire-run.js": {
+          "judgment": "P2",
+          "sha256": "f23c86728ae79a9459758e1f7c0c02eb955236fc6f37210843cf72b6657a795c",
+          "sha256_lf": "f23c86728ae79a9459758e1f7c0c02eb955236fc6f37210843cf72b6657a795c",
+          "lines": 82,
+          "validation": "WB1 related UI regressions 267 passed; Rust file source/contracts reviewed, Rust tests not rerun"
+        },
+        "crates/kanzei-app/ui/25-softwire-composer.js": {
+          "judgment": "P1",
+          "sha256": "f99864408ef2e949aea4023a83195a20918415447bf33bbbe5754a861fb6359f",
+          "sha256_lf": "f99864408ef2e949aea4023a83195a20918415447bf33bbbe5754a861fb6359f",
+          "lines": 235,
+          "validation": "WB1 related UI regressions 267 passed; Rust file source/contracts reviewed, Rust tests not rerun"
+        },
+        "crates/kanzei-app/ui/25-softwire.js": {
+          "judgment": "PASS",
+          "sha256": "2d8607efa553346c2f508b7065ed602b77538c677733e46daf4fb4f816747a87",
+          "sha256_lf": "2d8607efa553346c2f508b7065ed602b77538c677733e46daf4fb4f816747a87",
+          "lines": 864,
+          "validation": "WB1 related UI regressions 267 passed; Rust file source/contracts reviewed, Rust tests not rerun"
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/ui/03-workspaces.js"
+      ],
+      "fixed_unique_problems": {
+        "P0": 0,
+        "P1": 3,
+        "P2": 1
+      },
+      "verification_checks_passed": 267,
+      "note": "Six new full reviews; existing workspace owner rechecked only for draft acknowledgment. No new release."
+    },
+    {
+      "report": "WB2-session-navigation.md",
+      "source_baseline": "26acb7f0ce2d9643826cc9229f430f84e57c13f0",
+      "full_files": {
+        "crates/kanzei-app/ui/03-session-stage.js": {
+          "judgment": "P2",
+          "sha256": "dd53a83acc757fbfa8b84370da3dde2c286f924af1f07ec14e0ec9e6fcb9658b",
+          "sha256_lf": "dd53a83acc757fbfa8b84370da3dde2c286f924af1f07ec14e0ec9e6fcb9658b",
+          "lines": 46,
+          "validation": "WB2 new regressions 36 passed; old-code negative controls reproduced. See report for integration verification."
+        },
+        "crates/kanzei-app/ui/12-conversation-model.js": {
+          "judgment": "PASS",
+          "sha256": "446083a923226f451f1b079a02b7a722229829b425206f9d267c3c97d149d2c2",
+          "sha256_lf": "9d4ddfee2211d7f098d1ee8341a8585e46bccfde70278988b916f3ce913fc7e0",
+          "lines": 43,
+          "validation": "WB2 new regressions 36 passed; old-code negative controls reproduced. See report for integration verification."
+        },
+        "crates/kanzei-app/ui/12-session-menus.js": {
+          "judgment": "PASS",
+          "sha256": "dd4f7e1f2ec24ad6e9b3a64165be11d3fee3a57a01370ef3418fc1dbc28c520e",
+          "sha256_lf": "6e3c8251560debe39830fc33ad6c048fe3d4e52c8f4dc8aabaa12f5979562e2c",
+          "lines": 719,
+          "validation": "WB2 new regressions 36 passed; old-code negative controls reproduced. See report for integration verification."
+        },
+        "crates/kanzei-app/ui/12-session-tree.js": {
+          "judgment": "P1",
+          "sha256": "71042490e10ab137ac43295d19d65dae05755766df5f68bb99d3dc06457bbd36",
+          "sha256_lf": "ac872b33516fc68dbcbffb344fef16ae6ff5d489566428690d88ca4919390f00",
+          "lines": 767,
+          "validation": "WB2 new regressions 36 passed; old-code negative controls reproduced. See report for integration verification."
+        },
+        "crates/kanzei-app/ui/12-workbench.js": {
+          "judgment": "P1",
+          "sha256": "9a1ae1db61b4bac896f14ec689e4b7a704cf12e626f0ebc46b38af010d79af6d",
+          "sha256_lf": "b11f1de6d3a46db72d1c74bd8ae377be04ad864d144085179ea6ffa33cec5e6b",
+          "lines": 346,
+          "validation": "WB2 new regressions 36 passed; old-code negative controls reproduced. See report for integration verification."
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/ui/01-core.js",
+        "crates/kanzei-app/ui/15-conventions.js"
+      ],
+      "fixed_unique_problems": {
+        "P0": 0,
+        "P1": 2,
+        "P2": 1
+      },
+      "new_regression_checks_passed": 36,
+      "note": "Five new full reviews; core terminal cleanup and conventions owner contracts rechecked without duplicate coverage. No release."
+    },
+    {
+      "report": "WB3-conversation-ownership.md",
+      "source_baseline": "26acb7f0ce2d9643826cc9229f430f84e57c13f0",
+      "full_files": {
+        "crates/kanzei-app/ui/03-general-scope.js": {
+          "judgment": "PASS",
+          "sha256": "9126c4747d5bb0fb0dd0f1701ae2d485bf2cb33c69c0d0202cb7bb1f2847051e",
+          "sha256_lf": "e208f77c7a3fb2f7d05508d49ef98760719b3c88ca1cebff1675acbb05ba0c33",
+          "lines": 34,
+          "validation": "WB3 new regressions 37 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/05-conversation-actions.js": {
+          "judgment": "P1",
+          "sha256": "daaf0862b37f3134b8c6330ce3c20b6887b61f8f5376589329d21339ca33f54f",
+          "sha256_lf": "daaf0862b37f3134b8c6330ce3c20b6887b61f8f5376589329d21339ca33f54f",
+          "lines": 95,
+          "validation": "WB3 new regressions 37 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/15-views-misc.js": {
+          "judgment": "P1",
+          "sha256": "236eebe6da2e7fb2d43721a56b455db2c4617f915e6164426ec43977e3a9a452",
+          "sha256_lf": "46782ca302dabe7519d1d5bc56d01c2a19295e70918770730b88db386fd6cac7",
+          "lines": 1305,
+          "validation": "WB3 new regressions 37 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/29-general-chat.js": {
+          "judgment": "P1",
+          "sha256": "817a68a89ca9b9e6ea59a78ae961ae2d38501dc381278c6e9cf732efe3f1c72c",
+          "sha256_lf": "7722c29ae4b66a8e7d7e4495fa58c27e41a351e4cadaac7e1318609c41616f8c",
+          "lines": 87,
+          "validation": "WB3 new regressions 37 passed; exact old-code negative controls reproduced; integration verification in report."
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/ui/03-workspaces.js",
+        "crates/kanzei-app/ui/09-sessions.js",
+        "crates/kanzei-app/ui/12-workbench.js",
+        "crates/kanzei-app/src/conversation_actions.rs"
+      ],
+      "fixed_unique_problems": {
+        "P0": 0,
+        "P1": 5,
+        "P2": 1
+      },
+      "new_regression_checks_passed": 37,
+      "note": "Four new full reviews; shared creation/selection contracts rechecked without duplicate coverage. No release."
+    },
+    {
+      "report": "WB4-resource-parsing.md",
+      "source_baseline": "26acb7f0ce2d9643826cc9229f430f84e57c13f0",
+      "full_files": {
+        "crates/kanzei-app/ui/04-resource-types.js": {
+          "judgment": "P1",
+          "sha256": "9426c9e25c84195fc1b65266206e7e36bd47ae0ede564e6fafb307cc772d2039",
+          "sha256_lf": "9426c9e25c84195fc1b65266206e7e36bd47ae0ede564e6fafb307cc772d2039",
+          "lines": 75,
+          "validation": "WB4 new regressions 49 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/04-status-words.js": {
+          "judgment": "PASS",
+          "sha256": "98db2b42b5a487a54b21029c21766a9a951c0df74ab90defc7b0eee7b47c7a18",
+          "sha256_lf": "98db2b42b5a487a54b21029c21766a9a951c0df74ab90defc7b0eee7b47c7a18",
+          "lines": 107,
+          "validation": "WB4 new regressions 49 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/04-structured-parse.js": {
+          "judgment": "P1",
+          "sha256": "2d31fe45c67f1f00c6530908b2ff1dddcb303645bb2dd1e3833d8ef49b915f16",
+          "sha256_lf": "68d382e331f3e513ff9e7a5552334a6f4a9181890e8137c2d98a91a58cd4bc0c",
+          "lines": 895,
+          "validation": "WB4 new regressions 49 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/04-markdown.js": {
+          "judgment": "P1",
+          "sha256": "72df17026cc1e88edc46dc3e1fc1af1f4718f9106fa73bc1a26dd8298b51bf96",
+          "sha256_lf": "72df17026cc1e88edc46dc3e1fc1af1f4718f9106fa73bc1a26dd8298b51bf96",
+          "lines": 296,
+          "validation": "WB4 new regressions 49 passed; exact old-code negative controls reproduced; integration verification in report."
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/ui/08-compose-runtime.js",
+        "crates/kanzei-app/ui/20-lines.js",
+        "crates/kanzei-app/ui/05-chat-render.js",
+        "crates/kanzei-app/src/attachments.rs",
+        "crates/kanzei-tools/src/worktree.rs"
+      ],
+      "fixed_unique_problems": {
+        "P0": 0,
+        "P1": 3,
+        "P2": 3
+      },
+      "new_regression_checks_passed": 49,
+      "note": "Four new full reviews; protocol/caller slices do not add coverage. No release."
+    },
+    {
+      "report": "WB5-rendering-ownership.md",
+      "source_baseline": "26acb7f0ce2d9643826cc9229f430f84e57c13f0",
+      "full_files": {
+        "crates/kanzei-app/ui/02-i18n.js": {
+          "judgment": "P1",
+          "sha256": "fe5dc0b966b14f1bd7e1b0719c7c597ada4b9284c2588f5300410586ad4e0c84",
+          "sha256_lf": "0494129d7d09bc9a08670e1c4acb7a863899d56c28cdb94acbda72b22e1555b9",
+          "lines": 2363,
+          "validation": "WB5 new regressions 81 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/04-diagram.js": {
+          "judgment": "P1",
+          "sha256": "429700ca9f87dab3c1158616d628c1abdccbe2024263b39e3b7d1de5888ea1b0",
+          "sha256_lf": "5d870c86fc344cc338822ac54c65cb7664ac6ebbf774d47137ad23d78c9c6321",
+          "lines": 909,
+          "validation": "WB5 new regressions 81 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/05-tool-summary.js": {
+          "judgment": "P1",
+          "sha256": "cdfc4880bd2d95096491298b042f3918f62eaadcd743c902fbe5db0969ece985",
+          "sha256_lf": "422ea0b98ee88463147f8244a5af15256028c9bd236c53e57f32d23badfcdf92",
+          "lines": 1220,
+          "validation": "WB5 new regressions 81 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/04-structured.js": {
+          "judgment": "P2",
+          "sha256": "206423a5dc993c500b2e1330cce3bf69ae28652d0c201d23fb4cf64e981ea400",
+          "sha256_lf": "206423a5dc993c500b2e1330cce3bf69ae28652d0c201d23fb4cf64e981ea400",
+          "lines": 923,
+          "validation": "WB5 new regressions 81 passed; exact old-code negative controls reproduced; integration verification in report."
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/ui/18-startup.js",
+        "crates/kanzei-app/ui/16-settings.js",
+        "crates/kanzei-app/ui/19-arch.js",
+        "crates/kanzei-app/ui/05-chat-render.js",
+        "crates/kanzei-tools/src/git/tool.rs"
+      ],
+      "fixed_unique_problems": {
+        "P0": 0,
+        "P1": 3,
+        "P2": 5
+      },
+      "new_regression_checks_passed": 81,
+      "note": "Four new full reviews; protocol/caller slices do not add coverage. No release."
+    },
+    {
+      "report": "WB6-delivery-activity.md",
+      "source_baseline": "26acb7f0ce2d9643826cc9229f430f84e57c13f0",
+      "full_files": {
+        "crates/kanzei-app/src/attachments.rs": {
+          "judgment": "P1",
+          "sha256": "6777a6aafdde8c0cb496e6eee6cf7c546bc0c54aeb470324956d58047c3e952f",
+          "sha256_lf": "6777a6aafdde8c0cb496e6eee6cf7c546bc0c54aeb470324956d58047c3e952f",
+          "lines": 283,
+          "validation": "WB6 new regressions 58 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/06-deliveries.js": {
+          "judgment": "P1",
+          "sha256": "613ef80b61de25376a8b9c48cad3ffaafdbcc4b06fa64895f13cfd789dee2ccc",
+          "sha256_lf": "613ef80b61de25376a8b9c48cad3ffaafdbcc4b06fa64895f13cfd789dee2ccc",
+          "lines": 100,
+          "validation": "WB6 new regressions 58 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/06-side-policy.js": {
+          "judgment": "P2",
+          "sha256": "c410598316a818eddf39af2c5fa98a370fce974b4f73631e639bb53c52507833",
+          "sha256_lf": "54fbceb92a05865de6404deba50ef4850aa3701875f25998a1f1654a0be2a486",
+          "lines": 143,
+          "validation": "WB6 new regressions 58 passed; exact old-code negative controls reproduced; integration verification in report."
+        },
+        "crates/kanzei-app/ui/22-activity-state.js": {
+          "judgment": "P2",
+          "sha256": "bbaa2b88b543a7fc89361ed654503cb0b4a4338c7b116c2f11a23ae43218e814",
+          "sha256_lf": "44fdc44c90378b494204c19a8ae757e676b75baff62a31fd32120511513a7ac1",
+          "lines": 62,
+          "validation": "WB6 new regressions 58 passed; exact old-code negative controls reproduced; integration verification in report."
+        }
+      },
+      "contract_slice_files": [
+        "crates/kanzei-app/ui/01-core.js",
+        "crates/kanzei-app/ui/05-chat-render.js",
+        "crates/kanzei-app/ui/06-agent-panel.js",
+        "crates/kanzei-app/ui/05-subagents.js",
+        "crates/kanzei-app/src/state.rs",
+        "crates/kanzei-app/src/run/assembly.rs",
+        "crates/kanzei-app/src/deliveries.rs"
+      ],
+      "fixed_unique_problems": {
+        "P0": 0,
+        "P1": 2,
+        "P2": 4
+      },
+      "new_regression_checks_passed": 58,
+      "note": "Four new full reviews; protocol/caller slices do not add coverage. No release."
     }
   ],
   "parallel_integration_report": "parallel-round-6.md",
@@ -2086,8 +2389,8 @@
     "scripts/ui-runtime-smoke.mjs"
   ],
   "current_inventory_total": 514,
-  "current_full_review_count": 136,
-  "current_pending_full_review_count": 378,
+  "current_full_review_count": 163,
+  "current_pending_full_review_count": 351,
   "regression_support_files": [
     "scripts/prefs-failure-native-smoke.mjs",
     "scripts/schedule-terminal-smoke.py",
@@ -2102,9 +2405,30 @@
     "scripts/ui-state-ownership-smoke.mjs",
     "scripts/ui-surface-owner-smoke.mjs",
     "scripts/ui-workbench-browser-smoke.mjs",
-    "scripts/ui-workspace-smoke.mjs"
+    "scripts/ui-workspace-smoke.mjs",
+    "scripts/ui-softwire-ownership-smoke.mjs",
+    "scripts/ui-softwire-draft-browser-smoke.mjs",
+    "scripts/ui-softwire-choice-smoke.mjs",
+    "scripts/ui-session-stage-smoke.mjs",
+    "scripts/ui-session-navigation-owner-smoke.mjs",
+    "scripts/ui-workbench-resource-owner-smoke.mjs",
+    "scripts/ui-general-chat-owner-smoke.mjs",
+    "scripts/ui-conversation-history-owner-smoke.mjs",
+    "scripts/ui-conversation-action-owner-smoke.mjs",
+    "scripts/ui-resource-contract-smoke.mjs",
+    "scripts/ui-structured-contract-smoke.mjs",
+    "scripts/ui-markdown-contract-smoke.mjs",
+    "scripts/ui-i18n-contract-smoke.mjs",
+    "scripts/ui-diagram-owner-smoke.mjs",
+    "scripts/ui-tool-summary-contract-smoke.mjs",
+    "scripts/ui-structured-render-contract-smoke.mjs",
+    "scripts/ui-delivery-contract-smoke.mjs",
+    "scripts/ui-side-policy-contract-smoke.mjs",
+    "scripts/ui-activity-contract-smoke.mjs",
+    "scripts/ui-experience-contract-smoke.mjs"
   ],
   "outside_inventory_full_file_reviews": [
     "scripts/parallel-lines-regression.mjs"
-  ]
+  ],
+  "updated_at": "2026-10-04"
 }

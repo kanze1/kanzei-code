@@ -29,8 +29,7 @@ defer(() => {
         syncLanguagePreferenceFromSettings(stored);
       } else {
         const settings = await invoke("settings_get", { projectDir: null });
-        if (LANGUAGE_PREFERENCES.has(settings.language)) {
-          syncLanguagePreferenceFromSettings(settings.language);
+        if (LANGUAGE_PREFERENCES.has(settings.language) && syncLanguagePreferenceFromSettings(settings.language)) {
           persistLanguagePreference(settings.language);
         }
       }

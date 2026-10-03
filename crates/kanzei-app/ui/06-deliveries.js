@@ -33,9 +33,16 @@ export function loadDeliveredFiles(project, { force = false } = {}) {
 export function registerDelivery(display, sessionId) {
   if (!display?.project_dir || !display.path) return;
   const state = deliveryState(display.project_dir);
-  const row = { ...display, session_id: display.session_id || sessionId, liveRevision: ++state.revision };
+  const session = display.session_id || sessionId;
+  const current = state.rows.find(row => key(row.path) === key(display.path) && row.session_id === session);
+  // Expanding a saved subagent trace can replay its original receipt after a
+  // refresh. The same receipt's current file status belongs to delivered_files.
+  if (current && (display.id && current.id === display.id
+    || Number.isFinite(current.created_at) && Number.isFinite(display.created_at) && current.created_at > display.created_at)) return current;
+  const row = { ...display, session_id: session, liveRevision: ++state.revision };
   state.rows = [row, ...state.rows.filter(old => key(old.path) !== key(row.path) || old.session_id !== row.session_id)];
   changed(state);
+  return row;
 }
 export function matchDeliveredFile(value, rows) {
   const target = key(value);
@@ -77,7 +84,7 @@ export function decorateDeliveredReply(body) {
   let tray = message.querySelector(".message-deliveries");
   if (!selected.size) { tray?.remove(); return; }
   if (!tray) { tray = document.createElement("div"); tray.className = "message-deliveries"; message.append(tray); }
-  const signature = JSON.stringify([...selected.values()].map(row => [row.id, row.path, row.status]));
+  const signature = JSON.stringify([...selected.values()].map(row => [row.id, row.path, row.status, row.name, row.caption, row.bytes, row.current_bytes, row.project_dir]));
   if (tray.dataset.files === signature) return;
   tray.dataset.files = signature;
   tray.replaceChildren(...[...selected.values()].map(row => renderFileCard(row, { projectDir: row.project_dir })));

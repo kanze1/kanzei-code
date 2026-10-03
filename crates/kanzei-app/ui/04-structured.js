@@ -239,7 +239,7 @@ function renderTable(rows, columns) {
     const tr = el("tr");
     for (const column of columns) {
       const td = el("td");
-      if (column in row) td.append(scalarNode(row[column]));
+      if (Object.hasOwn(row, column)) td.append(scalarNode(row[column]));
       tr.append(td);
     }
     tbody.append(tr);
@@ -293,8 +293,15 @@ export function renderJsonTree(value, { openDepth = 1, maxNodes = 1500, maxItems
   const root = el("div", "sv-json");
   root.setAttribute("data-i18n-raw", "");
   const state = { nodes: 0, maxNodes, maxItems, openDepth, capped: false };
+  let limitNote = null;
+  state.showLimit = () => {
+    if (state.capped && !limitNote) {
+      limitNote = label("div", "sv-note", "节点过多,其余内容见原始 JSON");
+      root.append(limitNote);
+    }
+  };
   root.append(jsonNode(value, undefined, 0, state));
-  if (state.capped) root.append(label("div", "sv-note", "节点过多,其余内容见原始 JSON"));
+  state.showLimit();
   if (toolbar) root.append(jsonToolbar(value));
   return root;
 }
@@ -336,18 +343,20 @@ function jsonNode(value, key, depth, state) {
     : `{} ${fillTemplate(t("{n} 个字段"), { n: entries.length })}`;
   summary.append(el("span", "sv-count", count));
   const children = el("div", "sv-children");
-  const appendRange = (from, to) => {
-    for (const [childKey, child] of entries.slice(from, to)) {
+  let shown = 0;
+  const appendRange = (to) => {
+    while (shown < to) {
       if (state.nodes >= state.maxNodes) {
         state.capped = true;
-        return false;
+        break;
       }
+      const [childKey, child] = entries[shown];
       children.append(jsonNode(child, childKey, depth + 1, state));
+      shown += 1;
     }
-    return true;
   };
-  let shown = Math.min(entries.length, state.maxItems);
-  if (appendRange(0, shown) && entries.length > shown) {
+  appendRange(Math.min(entries.length, state.maxItems));
+  if (entries.length > shown) {
     const more = el("button", "ghost mini sv-more", fillTemplate(t("还有 {n} 项"), { n: entries.length - shown }));
     more.type = "button";
     more.addEventListener("click", (event) => {
@@ -355,8 +364,8 @@ function jsonNode(value, key, depth, state) {
       const next = Math.min(entries.length, shown + state.maxItems);
       more.remove();
       state.maxNodes += next - shown;
-      appendRange(shown, next);
-      shown = next;
+      appendRange(next);
+      state.showLimit();
       if (shown < entries.length) {
         more.textContent = fillTemplate(t("还有 {n} 项"), { n: entries.length - shown });
         children.append(more);

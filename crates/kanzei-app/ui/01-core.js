@@ -165,10 +165,15 @@ export function mergeExperienceDeltaPayload(previous, next) {
   }
   return merged;
 }
-export function flushExperienceDeltas() {
-  experienceDeltaFlushScheduled = false;
-  const queued = [...pendingExperienceDeltas.values()];
-  pendingExperienceDeltas.clear();
+export function flushExperienceDeltas(sessionId = null) {
+  // A fact is a barrier for its session; other sessions keep their scheduled frame.
+  if (sessionId === null) experienceDeltaFlushScheduled = false;
+  const queued = [];
+  for (const [key, event] of pendingExperienceDeltas) {
+    if (sessionId !== null && event.session_id !== sessionId) continue;
+    pendingExperienceDeltas.delete(key);
+    queued.push(event);
+  }
   for (const event of queued) {
     if (event.session_id !== activeSessionId || renderingBackground) continue;
     if (typeof neuralFlowEmit === "function") {
@@ -266,6 +271,7 @@ export function handleExperienceEvent(payload) {
   // withSessionRender 会让后台事件进入所属对话 pane，但不允许它驱动当前
   // 会话的 Canvas/音频；动画是表现投影，不是业务状态来源。
   if (event.session_id !== activeSessionId || renderingBackground) return;
+  flushExperienceDeltas(event.session_id);
   if (typeof neuralFlowEmit === "function") {
     neuralFlowEmit(neuralEvent, {
       session_id: event.session_id,
@@ -339,7 +345,10 @@ export function on(event, handler) {
     }
     if (sessionId) {
       const state = sessionState(sessionId);
-      if (!state.converged && state.phase !== "stopping") updateSessionStage(state, event, eventPayload.payload);
+      const stageFinished = ["kz:done", "kz:idle", "kz:stopped"].includes(event)
+        || event === "kz:error" && eventPayload.payload?.terminal !== false;
+      if (stageFinished) flushExperienceDeltas(sessionId);
+      if (stageFinished || !state.converged && state.phase !== "stopping") updateSessionStage(state, event, eventPayload.payload);
     }
     // 事件流是线路状态的实时投影入口。不能等 kz:done/kz:idle 或下一次
     // process_list 轮询，否则工具执行期间线路按钮和 stop 会按轮次滞后。

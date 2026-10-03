@@ -340,14 +340,14 @@ export function renderDiagram(source, { theme = currentDiagramTheme(), layout = 
   const key = cacheKey(source, theme, layout);
   const hit = cacheGet(key);
   if (hit) return Promise.resolve(hit);
-  const job = queue.then(() => renderNow(source, theme, key, layout));
+  const tokens = diagramTokens();
+  const job = queue.then(() => renderNow(source, theme, key, layout, tokens));
   queue = job.catch(() => {});
   return job;
 }
-async function renderNow(source, theme, key, layout) {
+async function renderNow(source, theme, key, layout, tokens) {
   const again = cacheGet(key);
   if (again) return again;
-  const tokens = diagramTokens();
   const prepared = prepareDiagramSource(source, tokens);
   let current;
   try {
@@ -488,7 +488,7 @@ function watchTheme() {
     const theme = currentDiagramTheme();
     for (const view of [...mounted]) {
       if (!isAttached(view.root)) {
-        mounted.delete(view);
+        view.destroy();
         continue;
       }
       if (view.theme !== theme) view.rerender();
@@ -546,6 +546,10 @@ export function fixHint({ path, fileLine, message, lineText }) {
 /// layout:ELK 覆盖项;variant:写到 figure 的 data-variant,样式按它区分(如 "deps-full" 把传递边画淡)。
 /// 返回控制器 { root, theme, rerender(), setSource(src, { layout, variant }), fit(), destroy(), result }。
 export function mountDiagram(container, source, options = {}) {
+  let destroyed = false;
+  let renderGeneration = 0;
+  let resizeObserver = null;
+  let stopPan = () => {};
   const mode = options.mode === "page" ? "page" : "inline";
   const figure = el("figure", "kz-diagram");
   figure.dataset.mode = mode;
@@ -646,6 +650,13 @@ export function mountDiagram(container, source, options = {}) {
     apply();
   };
   function showError(error) {
+    stage.replaceChildren();
+    view.graph = null;
+    view.natural = { w: 0, h: 0 };
+    delete figure.dataset.nodes;
+    delete figure.dataset.edges;
+    delete figure.dataset.pannable;
+    hint.classList.add("hidden");
     figure.dataset.state = "error";
     bar.dataset.state = "error";
     status.classList.add("hidden");
@@ -702,6 +713,8 @@ export function mountDiagram(container, source, options = {}) {
     options.onRendered?.({ result, view });
   }
   function rerender() {
+    if (destroyed) return Promise.resolve(null);
+    const generation = ++renderGeneration;
     view.theme = currentDiagramTheme();
     figure.dataset.state = "loading";
     bar.dataset.state = "loading";
@@ -716,13 +729,17 @@ export function mountDiagram(container, source, options = {}) {
     const layout = view.layout;
     return renderDiagram(wanted, { theme, layout }).then(
       (result) => {
-        if (view.source !== wanted || view.theme !== theme || view.layout !== layout) return result;
+        if (destroyed || generation !== renderGeneration) return result;
+        if (!isAttached(figure)) { destroy(); return result; }
         showResult(result);
         return result;
       },
       (error) => {
         const result = { error: { line: null, message: String(error?.message ?? error) }, clicks: [] };
-        if (view.source === wanted) showResult(result);
+        if (!destroyed && generation === renderGeneration) {
+          if (isAttached(figure)) showResult(result);
+          else destroy();
+        }
         return result;
       },
     );
@@ -737,6 +754,10 @@ export function mountDiagram(container, source, options = {}) {
     return rerender();
   }
   function destroy() {
+    destroyed = true;
+    renderGeneration += 1;
+    resizeObserver?.disconnect();
+    stopPan();
     mounted.delete(view);
     bar.remove();
     figure.remove();
@@ -781,6 +802,7 @@ export function mountDiagram(container, source, options = {}) {
   // 平移:在背景上按住拖(节点上的按下留给点击)。手势挂 document,甩得再快也跟得上;不捕获指针(J4)。
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || !figure.dataset.pannable || event.target?.closest?.("g.node.is-link")) return;
+    stopPan();
     const start = { x: event.clientX, y: event.clientY, vx: view.x, vy: view.y };
     let moved = false;
     const move = (e) => {
@@ -800,7 +822,9 @@ export function mountDiagram(container, source, options = {}) {
       document.removeEventListener("pointermove", move, true);
       document.removeEventListener("pointerup", up, true);
       document.removeEventListener("pointercancel", up, true);
+      stopPan = () => {};
     };
+    stopPan = up;
     document.addEventListener("pointermove", move, true);
     document.addEventListener("pointerup", up, true);
     document.addEventListener("pointercancel", up, true);
@@ -835,15 +859,16 @@ export function mountDiagram(container, source, options = {}) {
   // 画布尺寸变了(窗口缩放、分隔条、侧栏停靠)且用户没手动缩放过:重新适应。
   if (typeof ResizeObserver === "function") {
     let lastWidth = 0;
-    new ResizeObserver(() => {
+    resizeObserver = new ResizeObserver(() => {
       const width = canvas.clientWidth || 0;
       if (!width || Math.abs(width - lastWidth) < 2) return;
       lastWidth = width;
       if (figure.dataset.state === "ready" && !view.userMoved) fit();
-    }).observe(canvas);
+    });
+    resizeObserver.observe(canvas);
   }
   // 流式渲染每帧都会重挂一遍,已摘下的旧视图在这里顺手清掉(主题切换时也会清)。
-  if (mounted.size > 48) for (const old of mounted) if (!isAttached(old.root)) mounted.delete(old);
+  if (mounted.size > 48) for (const old of mounted) if (!isAttached(old.root)) old.destroy();
   mounted.add(view);
   watchTheme();
   rerender();

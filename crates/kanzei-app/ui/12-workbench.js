@@ -267,7 +267,8 @@ export async function openProjectResource(path, view) {
   }
   // 开发规范不是页面而是一张对话框(UX-007):概览需求行旁的入口。先确保这个项目就是当前项目,规范读写都按当前项目走。
   if (view === "conventions") {
-    if (currentProject !== path && !await openProjectSpace(path, "project")) return;
+    if (currentProject !== path && !await openProjectSpace(path, "project", { activate: true })) return;
+    if (currentProject !== path) return;
     return openConventions();
   }
   if (view !== "research") return openProjectSpace(path, view);

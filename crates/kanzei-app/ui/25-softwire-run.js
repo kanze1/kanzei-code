@@ -58,11 +58,14 @@ export function createRunControl({ resolve, changed }) {
   async function perform(action) {
     if (busy || !selected) return;
     const destination = { ...selected };
+    let owner = destination;
     busy = true; failure = ""; sync(selected);
     try {
       const line = await resolve(destination);
-      if (line) await action(line);
-    } catch (error) { failure = String(error); }
+      if (line) { owner = { ...line, project: destination.project }; await action(line); }
+    } catch (error) {
+      if (selected?.project === owner.project && selected?.id === owner.id && selected?.session_id === owner.session_id) failure = String(error);
+    }
     finally { busy = false; if (selected) sync(selected); changed(); }
   }
   function openMode() {

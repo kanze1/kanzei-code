@@ -40,6 +40,11 @@ export function createActivityStateStore({ getSessionId, getRuntime, now = Date.
     if (!id) return "idle";
     const runtime = getRuntime(id);
     const entry = sessions.get(id);
+    // A local start precedes the backend turn event; no detail from the old run survives it.
+    if (runtime?.phase === "starting") {
+      sessions.delete(id);
+      return "thinking";
+    }
     if (["stopping", "stopped"].includes(runtime?.phase)) return "idle";
     if (runtime?.phase === "failed") return "blocked";
     if (entry?.state === "complete" && now() < entry.until) return "complete";

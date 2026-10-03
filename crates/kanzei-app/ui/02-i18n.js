@@ -2300,6 +2300,7 @@ export function applyDataI18nKeys(root, language) {
   }
 }
 export let languageSelect = null;
+let languageChosenByUser = false;
 defer(() => { languageSelect = $("language-select"); });
 export const LANGUAGE_PREFERENCES = new Set(["system", "zh", "en"]);
 export function normalizeLanguagePreference(value) {
@@ -2336,14 +2337,17 @@ export function setLanguagePreference(preference, { persist = true, rerender = t
   }
 }
 export function syncLanguagePreferenceFromSettings(preference) {
-  if (!LANGUAGE_PREFERENCES.has(preference)) return;
+  // 启动读取可以晚于设置页操作；用户刚选的值不能被旧 app.json / toml 覆盖。
+  if (languageChosenByUser || !LANGUAGE_PREFERENCES.has(preference)) return false;
   setLanguagePreference(preference);
+  return true;
 }
 defer(() => {
   languageSelect.value = normalizeLanguagePreference(localStorage.getItem("kz-language"));
 });
 defer(() => {
   languageSelect.addEventListener("change", () => {
+    languageChosenByUser = true;
     setLanguagePreference(languageSelect.value);
     // UX-119:切换即存(app.json),不再等「保存」。
     persistLanguagePreference(languageSelect.value);

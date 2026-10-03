@@ -672,6 +672,16 @@ const DIFF_LANGUAGES = {
   rs: "rust", js: "javascript", mjs: "javascript", ts: "typescript", py: "python", md: "markdown", json: "json",
   css: "css", html: "html", toml: "toml", ps1: "powershell", sh: "bash", yml: "yaml", yaml: "yaml",
 };
+function decodeGitPath(path) {
+  const value = String(path ?? "").trim();
+  if (!value.startsWith('"') || !value.endsWith('"')) return value;
+  const escapes = { a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", '"': '"', "\\": "\\" };
+  return value.slice(1, -1).replace(/\\([0-7]{3}(?:\\[0-7]{3})*|["\\abfnrtv])/g, (match, escaped) => {
+    if (!/^[0-7]/.test(escaped)) return escapes[escaped];
+    const encoded = escaped.split("\\").map(byte => `%${parseInt(byte, 8).toString(16).padStart(2, "0")}`).join("");
+    try { return decodeURIComponent(encoded); } catch { return match; }
+  });
+}
 /// `git diff` 文本 → 按文件的增删计数与行(与 06-activity renderDiff 的 display.lines 同形)。
 /// hunk 内按 `@@ -a,b +c,d @@` 头给出的剩余行数逐行计数:被删掉的 SQL/Lua 注释行
 /// `-- x` 在 diff 里写成 `--- x`,不能当成文件头吞掉;`---`/`+++` 只在 hunk 之外才是文件头。
@@ -683,7 +693,7 @@ export function parseUnifiedDiff(text) {
   let oldLeft = 0;
   let newLeft = 0;
   const begin = (path) => {
-    const clean = String(path ?? "").replace(/^[ab]\//, "").trim();
+    const clean = decodeGitPath(path).replace(/^[ab]\//, "");
     const ext = clean.match(/\.([A-Za-z0-9]+)$/)?.[1]?.toLowerCase() ?? "";
     file = { path: clean, additions: 0, deletions: 0, language: DIFF_LANGUAGES[ext] ?? "text", binary: false, lines: [] };
     files.push(file);
@@ -714,13 +724,13 @@ export function parseUnifiedDiff(text) {
       oldLeft = 0;
       newLeft = 0;
     }
-    const header = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+    const header = line.match(/^diff --git ("(?:\\.|[^"])*"|a\/.*?) ("(?:\\.|[^"])*"|b\/.*)$/);
     if (header) {
       begin(header[2]);
       continue;
     }
     if (line.startsWith("+++ ")) {
-      const target = line.slice(4).trim();
+      const target = decodeGitPath(line.slice(4));
       if (!file) begin(target);
       else if (target !== "/dev/null") file.path = target.replace(/^b\//, "");
       continue;
@@ -794,6 +804,19 @@ function handoffFieldOf(line) {
   const match = line.match(HANDOFF_FIELD_LINE) || line.match(HANDOFF_BOLD_LINE) || line.match(HANDOFF_ROW_LINE);
   return match ? match[1].toLowerCase() : null;
 }
+function maskInlineCode(line) {
+  const runs = [...line.matchAll(/`+/g)];
+  let masked = "", cursor = 0;
+  for (let i = 0; i < runs.length; i += 1) {
+    const closing = runs.findIndex((run, index) => index > i && run[0].length === runs[i][0].length);
+    if (closing < 0) continue;
+    const end = runs[closing].index + runs[closing][0].length;
+    masked += line.slice(cursor, runs[i].index) + " ".repeat(end - runs[i].index);
+    cursor = end;
+    i = closing;
+  }
+  return masked + line.slice(cursor);
+}
 export function stripInternalHandoff(raw) {
   const text = String(raw ?? "");
   if (!HANDOFF_QUICK.test(text)) return text;
@@ -804,10 +827,10 @@ export function stripInternalHandoff(raw) {
   // 标题行单独写标签时,紧随其后的取值行属于同一字段(「### 交接范围」+「work_item」)。
   let awaitingValue = false;
   for (const line of lines) {
-    const fenceMark = line.match(/^\s*(```+|~~~+)/);
+    const fenceMark = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
     if (!inComment && fenceMark) {
-      if (!fence) fence = fenceMark[1][0];
-      else if (fenceMark[1][0] === fence) fence = null;
+      if (!fence) fence = { marker: fenceMark[1][0], length: fenceMark[1].length };
+      else if (fenceMark[1][0] === fence.marker && fenceMark[1].length >= fence.length && !fenceMark[2].trim()) fence = null;
       kept.push({ line, keep: true });
       awaitingValue = false;
       continue;
@@ -829,7 +852,7 @@ export function stripInternalHandoff(raw) {
     } else if (!current.includes("`")) {
       current = current.replace(/<!--[\s\S]*?-->/g, "");
     }
-    const inline = current.match(HANDOFF_INLINE);
+    const inline = maskInlineCode(current).match(HANDOFF_INLINE);
     if (inline) {
       current = current.slice(0, inline.index).replace(/[\s;；,，、*_]+$/, "");
       if (!/[\p{L}\p{N}]/u.test(current)) continue;

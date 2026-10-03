@@ -49,13 +49,13 @@ export function sideDrawerWidth(stored, mainWidth) {
 }
 
 export function createSideModel() {
-  return { pinned: false, lines: new Map() };
+  return { pinned: false, hover: false, lines: new Map() };
 }
 function lineOf(model, sid) {
   const key = sid || "";
   let line = model.lines.get(key);
   if (!line) {
-    line = { userRun: 0, suppressedRun: -1, auto: false, settledAt: 0, hover: false, holds: new Set() };
+    line = { userRun: 0, suppressedRun: -1, auto: false, settledAt: 0, holds: new Set() };
     model.lines.set(key, line);
   }
   return line;
@@ -94,8 +94,8 @@ export function sideEvent(model, event, prefs = { autoOpen: true, autoClose: tru
       else line.holds.clear();
       break;
     case "interact":
-      line.hover = Boolean(event.on);
-      if (!line.hover && line.settledAt) line.settledAt = event.now ?? line.settledAt; // 离开后重新计时
+      model.hover = Boolean(event.on); // 指针/焦点属于共用侧栏,不属于刚切走的线路。
+      if (!model.hover && line.settledAt) line.settledAt = event.now ?? line.settledAt; // 离开后重新计时
       break;
     case "user-open":
       model.pinned = true;
@@ -124,7 +124,7 @@ export function sideDecide(model, env) {
   else if (line.auto && !line.settledAt) line.settledAt = now;
   const holding = line.holds.size > 0;
   let lingerMs = null;
-  if (line.auto && active === 0 && !holding && prefs.autoClose && !line.hover) {
+  if (line.auto && active === 0 && !holding && prefs.autoClose && !model.hover) {
     const left = SIDE_AUTO_CLOSE_MS - (now - line.settledAt);
     if (left <= 0) line.auto = false; // 到点:退出自动态
     else lingerMs = left;

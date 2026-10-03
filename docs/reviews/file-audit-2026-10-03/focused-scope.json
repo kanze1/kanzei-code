@@ -1,0 +1,3878 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-04",
+  "source_baseline": "746b69a824f38b4d5fc5502c4ec9ff78bc06e956",
+  "coverage_reference_baseline": "7e89a396d24e746e49fc2292baa45a10bf7a7f78",
+  "changed_since_coverage_baseline": [
+    "crates/kanzei-app/src/processes/naming.rs",
+    "crates/kanzei-app/ui/12-conversation-model.js",
+    "crates/kanzei-app/ui/12-session-menus.js",
+    "crates/kanzei-app/ui/12-session-tree.js",
+    "crates/kanzei-app/ui/12-workbench.js",
+    "crates/kanzei-app/ui/workbench.css",
+    "crates/kanzei-core/src/store/events.rs",
+    "crates/kanzei-core/src/store/session.rs"
+  ],
+  "source_inventory_sha256": "e6688520bacbaeabe1b853a1f8df6b7ab0e034be91f65ad4bc553560eb6ddd14",
+  "source_coverage_sha256": "c29935e72c45fcace414dd3799f4587bee41e83334f166f501fd614d81eb7b15",
+  "method": "按用户四块功能及源码职责逐文件分配唯一主归属，独立复核混合模块。是审查范围清单，不是类型解析调用图或新增审查结论。",
+  "counting_boundary": "沿用原514个自有Rust/JS/MJS源文件和测试文件口径。HTML/CSS/验证脚本等按真实调用或修改关联检查，当前未计入主审分母。",
+  "completion_policy": "原coverage仅作为历史全文/切片记录。待审包含历史切片；混合文件只审选定合同则仍记切片，不得增加全仓全文覆盖。已确认的新bug如C7仍需修复，历史全文记录不表示没有剩余bug。",
+  "summary": {
+    "primary_total": 268,
+    "primary_historical_full_reviews": 63,
+    "primary_reusable_full_reviews": 61,
+    "primary_changed_full_files_to_recheck": 2,
+    "primary_pending_review": 180,
+    "primary_pending_prior_slice": 31,
+    "primary_pending_unreviewed": 147,
+    "dependency_reference_total": 110,
+    "dependency_prior_full_reviews": 65,
+    "dependency_without_full_review": 45,
+    "excluded_total": 136,
+    "excluded_prior_full_reviews": 8,
+    "excluded_without_full_review": 128,
+    "repository_total": 514,
+    "repository_historical_full_reviews": 136,
+    "repository_historical_without_full_review": 378,
+    "primary_completed_this_round": 27,
+    "primary_current_completed_reviews": 88
+  },
+  "by_block": {
+    "workbench": {
+      "files": 51,
+      "historical_full_reviews": 13,
+      "reusable_full_reviews": 13,
+      "changed_full_files_to_recheck": 0,
+      "pending_review": 11,
+      "pending_with_prior_slice": 0,
+      "pending_without_prior_review": 11,
+      "completed_this_round": 27,
+      "current_completed_reviews": 40
+    },
+    "conversation": {
+      "files": 79,
+      "historical_full_reviews": 32,
+      "reusable_full_reviews": 30,
+      "changed_full_files_to_recheck": 2,
+      "pending_review": 49,
+      "pending_with_prior_slice": 12,
+      "pending_without_prior_review": 35
+    },
+    "tools": {
+      "files": 90,
+      "historical_full_reviews": 7,
+      "reusable_full_reviews": 7,
+      "changed_full_files_to_recheck": 0,
+      "pending_review": 83,
+      "pending_with_prior_slice": 11,
+      "pending_without_prior_review": 72
+    },
+    "automation": {
+      "files": 48,
+      "historical_full_reviews": 11,
+      "reusable_full_reviews": 11,
+      "changed_full_files_to_recheck": 0,
+      "pending_review": 37,
+      "pending_with_prior_slice": 8,
+      "pending_without_prior_review": 29
+    }
+  },
+  "primary_files": [
+    {
+      "file": "crates/kanzei/src/cli/artifacts.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "产物、隔离恢复与工作树CLI入口"
+    },
+    {
+      "file": "crates/kanzei/src/cli/compact.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/quarantine.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "产物、隔离恢复与工作树CLI入口"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/events.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/finalize.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run/permissions.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/run.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话运行、取消、压缩和结果收尾CLI"
+    },
+    {
+      "file": "crates/kanzei/src/cli/schedule.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "定时任务CLI入口"
+    },
+    {
+      "file": "crates/kanzei/src/cli/worktree.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "产物、隔离恢复与工作树CLI入口"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/agent_step_budget.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/always_allow_bash.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具执行和工作树的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/background_subagent_dispatch.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行/子代理执行的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/bash_action_literal.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具执行和工作树的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/context_overflow_recovery.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/cooperative_halt.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/ctrl_c_finalize.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/incomplete_stream.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/item_context_boundary.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/max_tasks_parallel_dispatch.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行/子代理执行的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/memory_hints_not_persisted.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "检查运行时注入不污染会话持久历史，不审记忆筛选/检索业务"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/parallel_scouting_under_serial_writer.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行/子代理执行的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/session_execution_owner.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话、停止、恢复及上下文的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/task_cancel_parallel.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行/子代理执行的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/tool_search_deferred_loading.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具执行和工作树的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/worktree_main_root.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具执行和工作树的直接集成回归"
+    },
+    {
+      "file": "crates/kanzei-app/src/agent_directory.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/agent_team.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/async_mailbox.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/attachments.rs",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台摘要、目标路由、交互数据和偏好",
+      "current_review": {
+        "package": "WB6",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB6-delivery-activity.md",
+        "source_sha256_lf": "6777a6aafdde8c0cb496e6eee6cf7c546bc0c54aeb470324956d58047c3e952f"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/src/auto_run.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/collaboration.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/os_open.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/handoff/tests.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/handoff.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/input_mode.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run/tool_process.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/run.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/summarize.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_actions.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/conversation_tests.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/deliveries.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/desktop_bridge.rs",
+      "owner": "tools",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "可见桌面工具的native桥接合同"
+    },
+    {
+      "file": "crates/kanzei-app/src/durable_questions.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/files_draft.rs",
+      "owner": "tools",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/files_edit.rs",
+      "owner": "tools",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/files_view.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/general_chat.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/harness_ext.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "前端DOM/console/style实际验证工具；业务快速记录部分只复核接口"
+    },
+    {
+      "file": "crates/kanzei-app/src/ipc_contract.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/manual_compact.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/orchestration_trace.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/permission_tests.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline/prompts.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/phase_pipeline_tests.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/prefs.rs",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台摘要、目标路由、交互数据和偏好"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/agent.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/cdp.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/commands.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/console.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/host.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/mod.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/pane.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/preview/pure_tests.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/process_tests.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/gate.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/lifecycle.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/mod.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/naming.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/registry.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/processes/workspace.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/projection_gate.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/projects.rs",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台摘要、目标路由、交互数据和偏好"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/assembly/components.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/assembly.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/baseline.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/coordinator.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/events/mod.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/execution.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/input.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/mod.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/persistence.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/runtime_continuation.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/runtime_events.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/runtime_service.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/schedules.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/screenshot.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/side_question.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/softwire.rs",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台摘要、目标路由、交互数据和偏好",
+      "current_review": {
+        "package": "WB1",
+        "status": "completed",
+        "judgment": "PASS",
+        "report": "WB1-workbench-state.md",
+        "source_sha256_lf": "8170dc6d07510a3b62061556df73d0da297a4b4a9c5cf170058498ce100bd8f4"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/src/state.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/state_tests.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/subagents.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/subagents_capture_tests.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/terminal_monitor.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "线路、团队、子代理、后台和定时任务编排"
+    },
+    {
+      "file": "crates/kanzei-app/src/typed_events.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话服务、输入和持久化、恢复/压缩及IPC事件状态"
+    },
+    {
+      "file": "crates/kanzei-app/src/verification_monitor.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/workspace/tests.rs",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台摘要、目标路由、交互数据和偏好"
+    },
+    {
+      "file": "crates/kanzei-app/src/workspace.rs",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台摘要、目标路由、交互数据和偏好"
+    },
+    {
+      "file": "crates/kanzei-app/src/worktree_tests.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件/工作树、预览、实际代码交付与验证服务"
+    },
+    {
+      "file": "crates/kanzei-app/ui/00-frame.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/00-surface.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/01-core.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/02-i18n.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB5",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB5-rendering-ownership.md",
+        "source_sha256_lf": "0494129d7d09bc9a08670e1c4acb7a863899d56c28cdb94acbda72b22e1555b9"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/03-general-scope.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB3",
+        "status": "completed",
+        "judgment": "PASS",
+        "report": "WB3-conversation-ownership.md",
+        "source_sha256_lf": "e208f77c7a3fb2f7d05508d49ef98760719b3c88ca1cebff1675acbb05ba0c33"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/03-layout.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/03-session-stage.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB2",
+        "status": "completed",
+        "judgment": "P2",
+        "report": "WB2-session-navigation.md",
+        "source_sha256_lf": "dd53a83acc757fbfa8b84370da3dde2c286f924af1f07ec14e0ec9e6fcb9658b"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/03-shell.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/03-workspaces.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/04-diagram.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB5",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB5-rendering-ownership.md",
+        "source_sha256_lf": "5d870c86fc344cc338822ac54c65cb7664ac6ebbf774d47137ad23d78c9c6321"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/04-markdown.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB4",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB4-resource-parsing.md",
+        "source_sha256_lf": "72df17026cc1e88edc46dc3e1fc1af1f4718f9106fa73bc1a26dd8298b51bf96"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/04-resource-types.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB4",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB4-resource-parsing.md",
+        "source_sha256_lf": "9426c9e25c84195fc1b65266206e7e36bd47ae0ede564e6fafb307cc772d2039"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/04-status-words.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB4",
+        "status": "completed",
+        "judgment": "PASS",
+        "report": "WB4-resource-parsing.md",
+        "source_sha256_lf": "98db2b42b5a487a54b21029c21766a9a951c0df74ab90defc7b0eee7b47c7a18"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/04-structured-parse.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB4",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB4-resource-parsing.md",
+        "source_sha256_lf": "68d382e331f3e513ff9e7a5552334a6f4a9181890e8137c2d98a91a58cd4bc0c"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/04-structured.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB5",
+        "status": "completed",
+        "judgment": "P2",
+        "report": "WB5-rendering-ownership.md",
+        "source_sha256_lf": "206423a5dc993c500b2e1330cce3bf69ae28652d0c201d23fb4cf64e981ea400"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-chat-render.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-conversation-actions.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB3",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB3-conversation-ownership.md",
+        "source_sha256_lf": "daaf0862b37f3134b8c6330ce3c20b6887b61f8f5376589329d21339ca33f54f"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-subagents.js",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "子任务、团队、定时与异步任务专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/05-tool-summary.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB5",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB5-rendering-ownership.md",
+        "source_sha256_lf": "422ea0b98ee88463147f8244a5af15256028c9bd236c53e57f32d23badfcdf92"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-activity.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-agent-panel.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-deliveries.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB6",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB6-delivery-activity.md",
+        "source_sha256_lf": "613ef80b61de25376a8b9c48cad3ffaafdbcc4b06fa64895f13cfd789dee2ccc"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/06-side-policy.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB6",
+        "status": "completed",
+        "judgment": "P2",
+        "report": "WB6-delivery-activity.md",
+        "source_sha256_lf": "54fbceb92a05865de6404deba50ef4850aa3701875f25998a1f1654a0be2a486"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/07-events.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/08-auto.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/08-compose-runtime.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/08-compose.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/09-sessions.js",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-conversation-model.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB2",
+        "status": "completed",
+        "judgment": "PASS",
+        "report": "WB2-session-navigation.md",
+        "source_sha256_lf": "9d4ddfee2211d7f098d1ee8341a8585e46bccfde70278988b916f3ce913fc7e0"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-decision-console.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-session-menus.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB2",
+        "status": "completed",
+        "judgment": "PASS",
+        "report": "WB2-session-navigation.md",
+        "source_sha256_lf": "6e3c8251560debe39830fc33ad6c048fe3d4e52c8f4dc8aabaa12f5979562e2c"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-session-tree.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB2",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB2-session-navigation.md",
+        "source_sha256_lf": "ac872b33516fc68dbcbffb344fef16ae6ff5d489566428690d88ca4919390f00"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-workbench.js",
+      "owner": "workbench",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB2",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB2-session-navigation.md",
+        "source_sha256_lf": "b11f1de6d3a46db72d1c74bd8ae377be04ad864d144085179ea6ffa33cec5e6b"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/15-conventions.js",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "代码规范、文件编辑和预览专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/15-views-misc.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB3",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB3-conversation-ownership.md",
+        "source_sha256_lf": "46782ca302dabe7519d1d5bc56d01c2a19295e70918770730b88db386fd6cac7"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/17-files-editor.js",
+      "owner": "tools",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "代码规范、文件编辑和预览专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/17-files.js",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "代码规范、文件编辑和预览专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/19-arch.js",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "代码规范、文件编辑和预览专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/20-lines.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/21-palette.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-activity-state.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB6",
+        "status": "completed",
+        "judgment": "P2",
+        "report": "WB6-delivery-activity.md",
+        "source_sha256_lf": "44fdc44c90378b494204c19a8ae757e676b75baff62a31fd32120511513a7ac1"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/24-preview.js",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "代码规范、文件编辑和预览专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/24-schedules.js",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "子任务、团队、定时与异步任务专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/25-softwire-composer.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB1",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB1-workbench-state.md",
+        "source_sha256_lf": "f99864408ef2e949aea4023a83195a20918415447bf33bbbe5754a861fb6359f"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/25-softwire-model.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB1",
+        "status": "completed",
+        "judgment": "PASS",
+        "report": "WB1-workbench-state.md",
+        "source_sha256_lf": "c8a9bca737887bfd298f04f4dd8d2ccd2faeac91ebbdbb132679d39445728780"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/25-softwire-run.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB1",
+        "status": "completed",
+        "judgment": "P2",
+        "report": "WB1-workbench-state.md",
+        "source_sha256_lf": "f23c86728ae79a9459758e1f7c0c02eb955236fc6f37210843cf72b6657a795c"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/25-softwire-view.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB1",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB1-workbench-state.md",
+        "source_sha256_lf": "d2492746bdd5af4cc3318f9787feb9dc9ae88d662d53a40a49b59bc25c0a8786"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/25-softwire.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB1",
+        "status": "completed",
+        "judgment": "PASS",
+        "report": "WB1-workbench-state.md",
+        "source_sha256_lf": "2d8607efa553346c2f508b7065ed602b77538c677733e46daf4fb4f816747a87"
+      }
+    },
+    {
+      "file": "crates/kanzei-app/ui/26-project-conversations.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期"
+    },
+    {
+      "file": "crates/kanzei-app/ui/27-agent-team.js",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "子任务、团队、定时与异步任务专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/28-async-workspace.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台只读异步摘要与导航，不是后台执行器"
+    },
+    {
+      "file": "crates/kanzei-app/ui/29-general-chat.js",
+      "owner": "workbench",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用工作台、聊天展示/操作、导航、状态投影和界面运行生命周期",
+      "current_review": {
+        "package": "WB3",
+        "status": "completed",
+        "judgment": "P1",
+        "report": "WB3-conversation-ownership.md",
+        "source_sha256_lf": "7722c29ae4b66a8e7d7e4495fa58c27e41a351e4cadaac7e1318609c41616f8c"
+      }
+    },
+    {
+      "file": "crates/kanzei-core/src/assemble.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/history.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/notification.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行、阶段屏障、子代理/任务状态及通知"
+    },
+    {
+      "file": "crates/kanzei-core/src/orchestration.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行、阶段屏障、子代理/任务状态及通知"
+    },
+    {
+      "file": "crates/kanzei-core/src/phase.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行、阶段屏障、子代理/任务状态及通知"
+    },
+    {
+      "file": "crates/kanzei-core/src/replay.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/compaction.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/context.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/delegation.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行、阶段屏障、子代理/任务状态及通知"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/assembly.rs",
+      "owner": "conversation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/batch.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/context_budget.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/halt.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/history.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/parallel_tools.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "工具分发、结果、参数及并发执行合同"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/permissions.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/question.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/serial_tools.rs",
+      "owner": "tools",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工具分发、结果、参数及并发执行合同"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/task_results.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive/tool_catalog.rs",
+      "owner": "tools",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工具分发、结果、参数及并发执行合同"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/drive.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/event.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/item_context/tests.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/item_context.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/line_runtime.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/metrics.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/mod.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/redundancy.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/schema_check.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具分发、结果、参数及并发执行合同"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent/spec.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行、阶段屏障、子代理/任务状态及通知"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/subagent.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "并行、阶段屏障、子代理/任务状态及通知"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_exec.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "工具分发、结果、参数及并发执行合同"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_failure_telemetry.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具分发、结果、参数及并发执行合同"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/tool_images.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工具分发、结果、参数及并发执行合同"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/artifact_liveness.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/deliveries.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/events.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": true,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期",
+      "source_lf_sha256": "36b59b6b2f4c232ac48c6951a649e9dc3f43258638325febd6d5281889021ace"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/file_checkpoints.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/inbox.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/mod.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/notifications.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "并行、阶段屏障、子代理/任务状态及通知"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/path_migration.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/processes.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "并行、阶段屏障、子代理/任务状态及通知"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/rewind.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/schema.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/session/artifact_refs.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/session.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": true,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期",
+      "source_lf_sha256": "bf2192ec5b583b179937b9d23ecf0588d48237f49bea74e652717854637c7d8a"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/session_execution.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/typed/projection.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/typed.rs",
+      "owner": "conversation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "对话运行、历史/回放、持久化及上下文生命周期"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/workspace.rs",
+      "owner": "workbench",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台摘要、缓存和投影的持久化合同"
+    },
+    {
+      "file": "crates/kanzei-tools/src/arch_diagram.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/arch_diagram_lint.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/arch_diagram_tests.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/architecture.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/lifecycle.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/monitor.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/persistent.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background/registration.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/background.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/base.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/bash.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/browser_tool/headless.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/browser_tool.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/conventions/drafts.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/conventions.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/cross_tree.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/dev_urls.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/edit.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/files.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/frontend.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/commands.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/finalize.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/index.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/plan.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/tool.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git/worktree.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/glob.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/grep.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/lib.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/local_validation.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/managed.rs",
+      "owner": "tools",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/palette.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/preview_server.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/process.rs",
+      "owner": "tools",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/project_state/git_init.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/project_state/toolchains.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/project_state.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/quarantine.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/question.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/read.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/read_receipt_tests.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/run.rs",
+      "owner": "conversation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "通用/开发运行装配和工具集选择；不展开已排除业务内部"
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/executor.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/hosts.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/mod.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/schedules/when.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/shell.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/subagent.rs",
+      "owner": "automation",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/symbols.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/mod.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/store.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/tests.rs",
+      "owner": "automation",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/tools.rs",
+      "owner": "automation",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "后台、子代理团队与定时任务生命周期"
+    },
+    {
+      "file": "crates/kanzei-tools/src/team/workspace.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "子代理工作树的创建、差异与采用；团队模块仅复核caller"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/mod.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/process.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/snapshot.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/tests.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/verification/worker.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/web_refs.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/webfetch.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/websearch.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/worktree.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    },
+    {
+      "file": "crates/kanzei-tools/src/write.rs",
+      "owner": "tools",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "文件、命令、Git/工作树、浏览器及代码操作验证工具"
+    }
+  ],
+  "dependency_reference_files": [
+    {
+      "file": "crates/kanzei/src/cli/lock.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "CLI公共入口/锁；复核选定命令接线，不全面审查其他命令"
+    },
+    {
+      "file": "crates/kanzei/src/cli/mod.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "CLI公共入口/锁；复核选定命令接线，不全面审查其他命令"
+    },
+    {
+      "file": "crates/kanzei/src/main.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "CLI公共入口/锁；复核选定命令接线，不全面审查其他命令"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/common/mod.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "集成测试公共装配，按实际选定用例复核"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/global_home_guard.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "测试环境隔离守卫，随四块相关回归复核"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/main.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "集成测试公共装配，按实际选定用例复核"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/mod.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "选定流程的公共注册或业务接口切片，不展开全部启动/配置/任务管理规则"
+    },
+    {
+      "file": "crates/kanzei-app/src/decisions.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "选定流程的公共注册或业务接口切片，不展开全部启动/配置/任务管理规则"
+    },
+    {
+      "file": "crates/kanzei-app/src/docs.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台使用的文档摘要接口，不开展任务管理业务"
+    },
+    {
+      "file": "crates/kanzei-app/src/experience_events.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "共享体验事件再导出，按实际运行事件caller复核"
+    },
+    {
+      "file": "crates/kanzei-app/src/main.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "选定流程的公共注册或业务接口切片，不展开全部启动/配置/任务管理规则"
+    },
+    {
+      "file": "crates/kanzei-app/src/run/work_start.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "选定流程的公共注册或业务接口切片，不展开全部启动/配置/任务管理规则"
+    },
+    {
+      "file": "crates/kanzei-app/src/runtime_service/compatibility.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审版本/运行器握手合同，仅复核对话连接身份"
+    },
+    {
+      "file": "crates/kanzei-app/ui/00-brand.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/10-docs-core.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台消费的文档摘要/列表接口，只复核展示合同，不全文开展任务文档业务"
+    },
+    {
+      "file": "crates/kanzei-app/ui/11-docs-list.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台消费的文档摘要/列表接口，只复核展示合同，不全文开展任务文档业务"
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-docs-pages.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台消费的文档摘要/列表接口，只复核展示合同，不全文开展任务文档业务"
+    },
+    {
+      "file": "crates/kanzei-app/ui/12-docs-tests.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台消费的文档摘要/列表接口，只复核展示合同，不全文开展任务文档业务"
+    },
+    {
+      "file": "crates/kanzei-app/ui/14-docs-actions.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台导航/回复所需接口，不全面审查文档业务动作"
+    },
+    {
+      "file": "crates/kanzei-app/ui/18-startup.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "仅复核工作台初始化/导航接线，不开展配置迁移或启动专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-brand-backdrop.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-constellation-core.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-constellation-data.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-constellation-prefs.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-constellation.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-neural-flow.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-visual-feedback.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/22-visual-runtime.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/gallery.js",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "图形背景及演示依赖，仅复核交互/生命周期，不开展视觉算法专项"
+    },
+    {
+      "file": "crates/kanzei-base/src/atomic_file/lock.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-base/src/atomic_file/lock_tests.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-base/src/atomic_file/tests.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-base/src/atomic_file.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-base/src/lib.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-base/src/path_form.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-base/src/write_log/codec.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-base/src/write_log/tests.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-base/src/write_log.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-core/src/experience_events.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "跨app/memory/research事件合同，只复核通用UI运行事件字段与归属"
+    },
+    {
+      "file": "crates/kanzei-core/src/lib.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "共享注册/测试辅助，随实际调用链复核"
+    },
+    {
+      "file": "crates/kanzei-core/src/runner/recall.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "仅复核对话调用召回的边界，不开展记忆检索专项"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/decisions.rs",
+      "owner": "dependency",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "工作台投影/回复与运行器所需的业务读写接口，不开展其业务专项"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/episodes.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "轮次画像/记忆共用数据，仅复核对话结果写入接口"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/eval.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台投影/回复与运行器所需的业务读写接口，不开展其业务专项"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/task.rs",
+      "owner": "dependency",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "业务任务生命周期与输入归属，仅复核选定运行流程需要的接口"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/testutil.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "共享注册/测试辅助，随实际调用链复核"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/work.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台投影/回复与运行器所需的业务读写接口，不开展其业务专项"
+    },
+    {
+      "file": "crates/kanzei-harness/src/areas.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/async_mailbox.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/auto_run.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/config/cadence.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/config/embeddings.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/config/limits.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/config/models.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/config/permissions.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/config/web.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/config.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/context.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/conventions.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/defs.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/handoff.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/harness.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/home.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/lib.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/managed_fence.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/markdown.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/orchestration.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/pending_question.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/permission.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/permission_persist.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/progress.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/project_root.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/read_ledger.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/refs.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/registry.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/repair.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/tool.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/tool_pipeline.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-harness/src/tool_search.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已完成的共享基础合同，仅在直接 caller 或新问题涉及时复核"
+    },
+    {
+      "file": "crates/kanzei-llm/src/auth/codex.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/auth/mod.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/auth/store.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/client.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/error.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/event.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/lib.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/protocol/deepseek_responses.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/protocol/mod.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/protocol/openai.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/protocol/openai_responses.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/proxy.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/request.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-llm/src/sse.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "已审通用模型协议供对话调用，不重新开启模型专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/docstore/archive.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/docstore/model.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/docstore/parse.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/docstore/render.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/docstore/repository.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/docstore/validation.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/docstore.rs",
+      "owner": "dependency",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/lib.rs",
+      "owner": "dependency",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-memory/src/scheduling.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台文档投影和工具调用所需的共享合同，不开展文档/记忆专项"
+    },
+    {
+      "file": "crates/kanzei-tools/src/git_batches.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "工作台批次进度的Git事实接口，不开展业务任务批次规则"
+    },
+    {
+      "file": "crates/kanzei-tools/src/profiles/dev.rs",
+      "owner": "dependency",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "共享工具/提示词装配，只复核四块实际接线，不展开所有业务profile"
+    },
+    {
+      "file": "crates/kanzei-tools/src/profiles/general.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "共享工具/提示词装配，只复核四块实际接线，不展开所有业务profile"
+    },
+    {
+      "file": "crates/kanzei-tools/src/profiles/policy.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "共享工具/提示词装配，只复核四块实际接线，不展开所有业务profile"
+    },
+    {
+      "file": "crates/kanzei-tools/src/profiles/readonly.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "共享工具/提示词装配，只复核四块实际接线，不展开所有业务profile"
+    },
+    {
+      "file": "crates/kanzei-tools/src/profiles.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "共享工具/提示词装配，只复核四块实际接线，不展开所有业务profile"
+    },
+    {
+      "file": "crates/kanzei-tools/src/work/context.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "运行上下文/工具交付与 Work 的必要接口切片"
+    },
+    {
+      "file": "crates/kanzei-tools/src/work/output.rs",
+      "owner": "dependency",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "运行上下文/工具交付与 Work 的必要接口切片"
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "crates/kanzei/src/cli/config.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "配置、评估度量、记忆或业务任务CLI专项"
+    },
+    {
+      "file": "crates/kanzei/src/cli/eval.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "配置、评估度量、记忆或业务任务CLI专项"
+    },
+    {
+      "file": "crates/kanzei/src/cli/memory.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "配置、评估度量、记忆或业务任务CLI专项"
+    },
+    {
+      "file": "crates/kanzei/src/cli/metrics.rs",
+      "owner": "excluded",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "配置、评估度量、记忆或业务任务CLI专项"
+    },
+    {
+      "file": "crates/kanzei/src/cli/shadow.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "配置、评估度量、记忆或业务任务CLI专项"
+    },
+    {
+      "file": "crates/kanzei/src/cli/tracker.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "配置、评估度量、记忆或业务任务CLI专项"
+    },
+    {
+      "file": "crates/kanzei/src/cli/work.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "配置、评估度量、记忆或业务任务CLI专项"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/d364_concurrent_doc_add.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "已排除文档、记忆、配置专项测试"
+    },
+    {
+      "file": "crates/kanzei/tests/integration/d368_concurrent_memory_write.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "已排除文档、记忆、配置专项测试"
+    },
+    {
+      "file": "crates/kanzei-app/build.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "构建发布专项"
+    },
+    {
+      "file": "crates/kanzei-app/mobile-pwa/app.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/commands/models.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "模型/配置专项"
+    },
+    {
+      "file": "crates/kanzei-app/src/docs/research_snapshot.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/fast_model.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "模型/配置专项"
+    },
+    {
+      "file": "crates/kanzei-app/src/memory.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/memory_chat.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/mobile/approvals.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/mobile/pwa.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/mobile/sse.rs",
+      "owner": "excluded",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/mobile.rs",
+      "owner": "excluded",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/mobile_notify.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/model_config.rs",
+      "owner": "excluded",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "模型/配置专项"
+    },
+    {
+      "file": "crates/kanzei-app/src/research_auto/tests.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/research_auto.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/research_latex.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/research_library/tests.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/research_library.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/research_topics.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/settings.rs",
+      "owner": "excluded",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "模型/配置专项"
+    },
+    {
+      "file": "crates/kanzei-app/src/update.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/update_tests_update.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/voice.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/src/voice_service.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆、手机语音、更新或业务文档专用服务"
+    },
+    {
+      "file": "crates/kanzei-app/ui/03-research-library.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/08-model-picker.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "模型和设置页面专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/08-models.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "模型和设置页面专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/08-project-models.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "模型和设置页面专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/13-memory-chat.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/13-memory.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/14-docs-quick.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "需求/文档业务编辑和研究动作"
+    },
+    {
+      "file": "crates/kanzei-app/ui/16-mobile.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/16-settings.js",
+      "owner": "excluded",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "模型和设置页面专项"
+    },
+    {
+      "file": "crates/kanzei-app/ui/18-optional-ui.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "仅加载记忆、语音、手机等已排除入口"
+    },
+    {
+      "file": "crates/kanzei-app/ui/19-research-auto.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/19-research-navigation.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/19-research.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/23-voice-audio.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/23-voice-controller.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/23-voice-copy.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/23-voice-core.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/23-voice.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/24-graph-view.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/24-memory-graph-model.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/24-memory-graph.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/26-requirement-research.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-app/ui/assets/voice-capture-worklet.js",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆图谱、手机或语音专属页面"
+    },
+    {
+      "file": "crates/kanzei-core/src/research.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆或手机专用状态/召回"
+    },
+    {
+      "file": "crates/kanzei-core/src/research_runner.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆或手机专用状态/召回"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/memory_observations.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆或手机专用状态/召回"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/mobile_devices.rs",
+      "owner": "excluded",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "科研、记忆或手机专用状态/召回"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/research_runs.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆或手机专用状态/召回"
+    },
+    {
+      "file": "crates/kanzei-core/src/store/telemetry.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研、记忆或手机专用状态/召回"
+    },
+    {
+      "file": "crates/kanzei-llm/src/protocol/anthropic.rs",
+      "owner": "excluded",
+      "coverage": "full",
+      "recheck_required": false,
+      "reason": "A家专属/模型协议专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-llm/tests/native_search_probe.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "A家专属/模型协议专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/embed.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/admission.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/inbox.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/index.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/ledger.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/lifecycle.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/manager.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/migration.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/mod.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/preference.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/relevance.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/retrieval/mod.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/retrieval/recall.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/retrieval/search.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/store/archive.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/store.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/telemetry.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/memory/tools.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-memory/src/replay_eval.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "长期记忆与经验专项已移出计划"
+    },
+    {
+      "file": "crates/kanzei-tools/examples/auto_research_cases.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/examples/auto_research_live.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/examples/research_acceptance.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/close_telemetry.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/incident.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/latex_tool/paper.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/latex_tool.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/memory_consolidation.rs",
+      "owner": "excluded",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/plot_tool/adapters.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/plot_tool.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/prior_art/lifecycle.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/prior_art/lifecycle_tests.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/prior_art.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/profiles/research.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/refgraph/memory_graph.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/refgraph/mentions.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/refgraph/mod.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/refgraph/tests.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/refgraph/tool_areas.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_control/tests.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_control.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_environment.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_index.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_loop.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_plan.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_runner.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_verify.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow/compute.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow/full_tests.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow/lifecycle.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow/paper.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow/rounds.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow/tests.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow/tool.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_workflow.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/research_write.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "科研与论文专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/test_record/coverage.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/test_record/execution.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/test_record.rs",
+      "owner": "excluded",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/actions/action_helpers.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/actions/maintenance.rs",
+      "owner": "excluded",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/actions/normalize.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/actions.rs",
+      "owner": "excluded",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/fields.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/scheduling.rs",
+      "owner": "excluded",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/scheduling_tests.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker/validation.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/tracker.rs",
+      "owner": "excluded",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "任务管理/自举、记忆或业务文档图谱专用功能"
+    },
+    {
+      "file": "crates/kanzei-tools/src/work/log.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "Work业务任务管理与自举推进"
+    },
+    {
+      "file": "crates/kanzei-tools/src/work/reconcile.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "Work业务任务管理与自举推进"
+    },
+    {
+      "file": "crates/kanzei-tools/src/work/resume.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "Work业务任务管理与自举推进"
+    },
+    {
+      "file": "crates/kanzei-tools/src/work/tool.rs",
+      "owner": "excluded",
+      "coverage": "slice",
+      "recheck_required": false,
+      "reason": "Work业务任务管理与自举推进"
+    },
+    {
+      "file": "crates/kanzei-tools/src/work.rs",
+      "owner": "excluded",
+      "coverage": "unreviewed",
+      "recheck_required": false,
+      "reason": "Work业务任务管理与自举推进"
+    }
+  ],
+  "current_coverage_sha256": "a5415bd5f507f3e74880e139014ff2fb3a5d49af99ca1d8392e099157bb744c5",
+  "current_report": "WB6-delivery-activity.md"
+}

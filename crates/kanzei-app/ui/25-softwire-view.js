@@ -450,11 +450,13 @@ export function renderInteraction(root, message, actions) {
   }
   const choices = node("div", null, "sw-choices");
   const addChoice = (label, edit = false, note = "") => {
-    const choice = button("", () => actions.choice(t(label), { edit }));
-    choice.setAttribute("aria-label", t(label));
+    // Model options are data: their displayed and submitted identities must
+    // remain the same as message.choices, including after a language switch.
+    const choice = button("", () => actions.choice(label, { edit }));
+    choice.setAttribute("aria-label", label);
     if (note) choice.setAttribute("aria-description", note);
-    choice.dataset.replyChoice = t(label); choice.dataset.replyEdit = String(edit);
-    choice.append(node("span", t(label)));
+    choice.dataset.replyChoice = label; choice.dataset.replyEdit = String(edit);
+    choice.append(node("span", label));
     if (note) choice.append(node("small", note, "sw-choice-note"));
     choices.append(choice);
   };
@@ -465,8 +467,8 @@ export function renderInteraction(root, message, actions) {
       && /请.{0,8}(说明|补充|描述)|please.{0,12}(specify|describe|explain)/i.test(note);
     if (label) addChoice(label, custom, note);
   }
-  if (kind === "decision") { addChoice("本次通过"); addChoice("需要修改", true); }
-  if (message.kind === "delivery") { addChoice("验收通过"); addChoice("需要修改", true); }
+  if (kind === "decision") { addChoice(t("本次通过")); addChoice(t("需要修改"), true); }
+  if (message.kind === "delivery") { addChoice(t("验收通过")); addChoice(t("需要修改"), true); }
   if (message.kind === "delivery") root.append(node("p", t("修改意见发给原执行；通过后才记录验收。"), "sw-evidence-meta"));
   const refresh = button(t("查看最新事项"), actions.refresh, "sw-link sw-interaction-refresh");
   refresh.hidden = true;

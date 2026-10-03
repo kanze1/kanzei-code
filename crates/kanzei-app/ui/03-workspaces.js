@@ -1,7 +1,8 @@
 import { $, defer, invoke, mergeWorkspaceState, readJson, uiPrefsLoad, uiPrefsSave, writeJson } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toastError } from "./03-shell.js";
-import { activate_execution_root, refreshProcesses, renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
+import { activate_execution_root, processSwitchGeneration, refreshProcesses, renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
+import { workbenchNavigationGuard } from "./12-workbench.js";
 import { attachments, setAttachments } from "./03-shell.js";
 import { renderAttachments } from "./08-compose-runtime.js";
 import { sync_research_process_context } from "./19-research.js";
@@ -37,6 +38,21 @@ export function sync_composer_scope() {
   $("prompt").style.height = "auto";
   setAttachments([...(draft?.attachments || [])]);
   renderAttachments();
+}
+
+// A Softwire send may finish after its native editor was restored or cached by
+// navigation. Acknowledge only the submitted snapshot, never a newer draft.
+export function acknowledge_composer_draft(project, processId, sent) {
+  const scope = JSON.stringify([project, processId]);
+  const matches = draft => draft?.text === sent.text
+    && JSON.stringify(draft.attachments || []) === JSON.stringify(sent.attachments);
+  if (matches(composer_drafts.get(scope))) composer_drafts.delete(scope);
+  if (scope === composer_scope && document.body.dataset.softwireComposer !== "true"
+    && matches({ text: $("prompt").value, attachments })) {
+    $("prompt").value = "";
+    $("prompt").style.height = "auto";
+    setAttachments([]); renderAttachments();
+  }
 }
 
 export function project_workspace(project = currentProject) {
@@ -204,7 +220,10 @@ export async function create_workspace_process(topic = null, is_current = () => 
   if (!currentProject) return;
   const project = currentProject;
   const space = active_space;
+  const navigationCurrent = workbenchNavigationGuard();
+  let selection = processSwitchGeneration;
   const same_context = () => project === currentProject && active_space === space && is_current()
+    && navigationCurrent() && selection === processSwitchGeneration
     && (space !== "research" || project_workspace().research.topic === (topic || ""));
   const item = await invoke("process_create", {
     projectDir: project,
@@ -218,7 +237,9 @@ export async function create_workspace_process(topic = null, is_current = () => 
   if (!same_context()) return;
   await refreshProcesses();
   if (!same_context()) return;
-  await switchProcess(item.id, true);
+  const switching = switchProcess(item.id, true);
+  selection = processSwitchGeneration;
+  await switching;
   if (!same_context() || activeProcessId !== item.id) return;
   if (active_space === "research") {
     save_research_workspace({ page: "chat" });

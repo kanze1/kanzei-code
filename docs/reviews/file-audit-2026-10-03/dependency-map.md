@@ -1,6 +1,15 @@
 # 文件级审查依赖地图
 
+> 当前执行范围（2026-10-03）：工作台与交互控制台 → 对话执行与恢复 → 工具与代码操作 → 多任务与自动运行。其他功能已移出计划；本页全仓依赖和历史轮次继续用于定位，历史“下一步”不再派发。以 [当前计划](parallel-plan.md) 和 [执行队列](parallel-queue.json) 为准。
+
 初始基线：19489ca2；2026-10-03 整合 abb596f0 与 fd36faa3 后更新底层 API。日期：2026-10-03。文件、模块声明、公开 API、import 候选见 inventory.json；生成器为 scripts/file-audit-inventory.py。词法索引不能替代宏、动态派发和调用方的人工核实。
+
+## 当前四块进度：WB1–WB6
+
+累计新增全文审查 27 文件，33 个真实问题已修复（P1 × 18、P2 × 15）；四块主审已完成/可复用 88/268，剩余 180 个文件。详见 [WB1](WB1-workbench-state.md)、[WB2](WB2-session-navigation.md)、[WB3](WB3-conversation-ownership.md)、[WB4](WB4-resource-parsing.md)、[WB5](WB5-rendering-ownership.md) 和 [WB6](WB6-delivery-activity.md)。本包按附件解析 → 交付缓存 → 卡片，以及侧栏策略/体验事件队列 → 活动表现整合。下一包 WB7：workspace 概览快照与身份 → 项目会话列表/异步工作台。
+
+- 交付归属：后端回执/当前 metadata → 项目缓存 → 当前选中 row → 卡片；旧子代理 display 不覆盖最新事实。附件日期/时长保持不同语义。
+- 交互归属：共享侧栏持有 pointer/focus，运行/失败/收起计时仍按会话；同会话前序 delta 在 fact/终态前投递，其他会话保留帧队列；starting 清理旧表现而不修改运行真源。详见 WB6。
 
 ## crate 依赖
 

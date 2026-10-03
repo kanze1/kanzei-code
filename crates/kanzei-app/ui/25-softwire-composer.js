@@ -6,6 +6,7 @@ import { renderAttachments } from "./08-compose-runtime.js";
 import { button, node } from "./25-softwire-view.js";
 import { targetKey, safeRestore, sameProject } from "./25-softwire-model.js";
 import { fillTemplate } from "./04-structured-parse.js";
+import { acknowledge_composer_draft } from "./03-workspaces.js";
 
 // Move the existing editor; never clone it or recreate it while events arrive.
 export function createComposer(actions) {
@@ -58,6 +59,7 @@ export function createComposer(actions) {
   }
   function change(next) {
     if (targetKey(next) !== (target ? targetKey(target) : "")) {
+      rememberNativeDraft();
       persist(); target = { ...next };
       input.value = drafts.get(targetKey(target)) || "";
       setAttachments(files.get(targetKey(target)) || []); renderAttachments();
@@ -113,13 +115,16 @@ export function createComposer(actions) {
     change(next);
     if (entering) setFloating(preferredFloating, false);
   }
-  function leave() {
-    if (!active) return;
+  function rememberNativeDraft() {
     // Scope changes may already have changed the global receiver. Return only
     // the draft belonging to the native editor that we borrowed on entry.
-    if (target && !target.interactionId && !target.child && sameProject(target.project, nativeDraft?.project) && target.processId === nativeDraft?.processId) {
+    if (target?.module === "main" && !target.interactionId && !target.child && sameProject(target.project, nativeDraft?.project) && target.processId === nativeDraft?.processId) {
       nativeDraft = { ...nativeDraft, text: input.value, attachments: [...attachments], height: input.style.height };
     }
+  }
+  function leave() {
+    if (!active) return;
+    rememberNativeDraft();
     persist(); setFloating(false, false);
     active = false; target = null;
     document.body.dataset.softwireComposer = "false";
@@ -183,6 +188,13 @@ export function createComposer(actions) {
     capture: () => ({ text: input.value, attachments: [...attachments], target: { ...target } }),
     clear(sent) {
       const key = targetKey(sent.target);
+      if (sent.target.module === "main" && !sent.target.interactionId && !sent.target.child) {
+        if (sameProject(sent.target.project, nativeDraft?.project) && sent.target.processId === nativeDraft?.processId
+          && nativeDraft.text === sent.text && JSON.stringify(nativeDraft.attachments) === JSON.stringify(sent.attachments)) {
+          nativeDraft = { ...nativeDraft, text: "", attachments: [], height: "" };
+        }
+        acknowledge_composer_draft(sent.target.project, sent.target.processId, sent);
+      }
       if (active && targetKey(target) === key) {
         if (input.value === sent.text && JSON.stringify(attachments) === JSON.stringify(sent.attachments)) {
           input.value = ""; setAttachments([]); renderAttachments();

@@ -4,7 +4,7 @@ import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, running, navigate_view, syncNewChatEnabled, toast, toastError } from "./03-shell.js";
 import { isGeneralChat, setGeneralChatRoot, rememberConversationMode, registerGeneralChatController } from "./03-general-scope.js";
 import { switch_workspace, sync_workspace_visibility, create_workspace_process } from "./03-workspaces.js";
-import { activate_execution_root, lastProjectPrefs, projectDisplayName, refreshProcesses, refreshPendingInputs, switchProcess } from "./09-sessions.js";
+import { activate_execution_root, lastProjectPrefs, processSwitchGeneration, projectDisplayName, refreshProcesses, refreshPendingInputs, switchProcess } from "./09-sessions.js";
 import { loadModels } from "./08-models.js";
 import { loadConversation } from "./15-views-misc.js";
 import { cancelProjectNavigation, openProjectSpace, setBrowsingProject, workbenchNavigationGuard, reconcileWorkbenchView } from "./12-workbench.js";
@@ -26,7 +26,7 @@ export async function openGeneralChat({ newChat = false } = {}) {
     activate_execution_root(root);
     await refreshProcesses();
     if (!valid() || !isGeneralChat()) return false;
-    if (newChat) await create_workspace_process(null, valid, { discussion: true });
+    if (newChat && !await create_workspace_process(null, valid, { discussion: true })) return false;
     if (!valid() || !isGeneralChat()) return false;
     if (!activeProcessId) throw new Error(t("对话列表加载失败，请重试"));
     await loadConversation();
@@ -74,8 +74,9 @@ defer(() => {
       try {
         const linked = await invoke("general_chat_link", { processId: recipient, projectDir: path });
         if (!same()) { toast(t("对话已关联到项目，原对话保留")); return; }
+        const selection = processSwitchGeneration;
         if (!await openProjectSpace(path, "chat")) return;
-        if (currentProject !== path) return;
+        if (currentProject !== path || selection !== processSwitchGeneration) return;
         await switchProcess(linked.id, true);
         toast(t("对话已关联到项目，原对话保留"));
       } catch (error) { toastError(String(error)); }

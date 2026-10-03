@@ -546,9 +546,9 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   const delivery = view.state === "success" && (display?.kind === "file" ? display
     : block.name === "deliver" && /^\[delivered\] /.test(body) ? deliveredFileFor(block.sessionId, input?.path) : null);
   if (delivery) {
-    registerDelivery(delivery, block.sessionId);
+    const currentDelivery = registerDelivery(delivery, block.sessionId) || delivery;
     block.wrap.querySelector(".file-card")?.remove();
-    block.wrap.append(renderFileCard(delivery));
+    block.wrap.append(renderFileCard(currentDelivery));
   } else appendDisplayBlock(block.detail, display, { compact: true });
   if (jsonValue && typeof jsonValue === "object") lazyMount(block.detail, () => renderToolResult(block.name, jsonValue));
   // 「在预览中打开」只给成功的结果:等待批准(needs_confirmation)、失败的 browser 块没有可预览的页面。

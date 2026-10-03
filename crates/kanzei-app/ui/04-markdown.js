@@ -13,8 +13,16 @@ export function escapeHtml(s) {
     .replace(/'/g, "&#39;");
 }
 export function splitTableRow(line) {
-  const value = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return value.split("|").map((cell) => cell.trim());
+  const value = line.trim().replace(/^\|/, ""), cells = [];
+  let cell = "";
+  for (let i = 0; i < value.length; i += 1) {
+    if (value[i] === "\\" && value[i + 1] === "|") { cell += "|"; i += 1; }
+    else if (value[i] === "\\" && value[i + 1] === "\\") { cell += "\\\\"; i += 1; }
+    else if (value[i] === "|") { cells.push(cell.trim()); cell = ""; }
+    else cell += value[i];
+  }
+  if (cell || !value.endsWith("|")) cells.push(cell.trim());
+  return cells;
 }
 export function tableAlignment(cell) {
   if (/^:-+:$/.test(cell)) return "center";
@@ -38,6 +46,30 @@ export function safeMarkdownPath(value) {
   if (!/[\\/]/.test(path) && !/\.[A-Za-z0-9]{1,8}$/.test(path)) return null;
   return { path, line: match[2] ? Number(match[2]) : null, endLine: match[3] ? Number(match[3]) : null };
 }
+function replaceMarkdownLinks(text, render) {
+  let output = "", cursor = 0;
+  for (const match of text.matchAll(/\[([^\]]+)\]\(/g)) {
+    if (match.index < cursor) continue;
+    const start = match.index + match[0].length;
+    let end = start;
+    if (text.startsWith("&lt;", start)) {
+      const closing = text.indexOf("&gt;", start + 4);
+      if (closing < 0) continue;
+      end = closing + 4;
+    } else {
+      let depth = 0;
+      for (; end < text.length; end += 1) {
+        if (/\s/.test(text[end])) break;
+        if (text[end] === "(") depth += 1;
+        else if (text[end] === ")") { if (!depth) break; depth -= 1; }
+      }
+    }
+    if (text[end] !== ")" || end === start) continue;
+    output += text.slice(cursor, match.index) + render(match[1], text.slice(start, end));
+    cursor = end + 1;
+  }
+  return output + text.slice(cursor);
+}
 export function renderInlineMarkdown(raw) {
   const placeholders = [];
   const stash = (html) => {
@@ -47,7 +79,7 @@ export function renderInlineMarkdown(raw) {
   };
   let html = escapeHtml(raw);
   html = html.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${code}</code>`));
-  html = html.replace(/\[([^\]]+)\]\((&lt;[^\n]+?&gt;|[^)\s]+)\)/g, (_, label, url) => {
+  html = replaceMarkdownLinks(html, (label, url) => {
     const decodedUrl = url.replace(/^&lt;|&gt;$/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
     const safeUrl = safeMarkdownUrl(decodedUrl);
     if (safeUrl) return stash(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>`);
@@ -71,8 +103,10 @@ export function renderInlineMarkdown(raw) {
       tail = url.slice(cut);
       url = url.slice(0, cut);
     }
-    const trailing = url.match(/[.,:!?)]+$/)?.[0] ?? "";
-    if (trailing) url = url.slice(0, -trailing.length);
+    let trailing = "";
+    while (/[.,:!?]$/.test(url) || (url.endsWith(")") && (url.match(/\)/g)?.length || 0) > (url.match(/\(/g)?.length || 0))) {
+      trailing = url.at(-1) + trailing; url = url.slice(0, -1);
+    }
     const safeUrl = safeMarkdownUrl(url.replace(/&amp;/g, "&"));
     if (!safeUrl || url.length < 10) return hit;
     return `${stash(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${url}</a>`)}${trailing}${tail}`;
@@ -138,19 +172,17 @@ export let renderMarkdown = function renderMarkdown(raw) {
   };
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const fence = line.match(/^\s*```\s*([^\s`]*)\s*$/);
-    if (fence) {
-      if (code) flushCode();
-      else {
-        flushQuote();
-        flushParagraph();
-        flushList();
-        code = { language: fence[1], lines: [] };
-      }
+    const fence = line.match(/^\s*(`{3,}|~{3,})\s*([^\s`]*)\s*$/);
+    if (code) {
+      if (fence && !fence[2] && fence[1][0] === code.marker && fence[1].length >= code.length) flushCode();
+      else code.lines.push(line);
       continue;
     }
-    if (code) {
-      code.lines.push(line);
+    if (fence) {
+      flushQuote();
+      flushParagraph();
+      flushList();
+      code = { language: fence[2], marker: fence[1][0], length: fence[1].length, lines: [] };
       continue;
     }
     // UI-0926 #10:连续的 `> ` 行合成一个引用块(行内语法照常,仍先转义)。

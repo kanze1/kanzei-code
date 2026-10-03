@@ -1,5 +1,6 @@
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { isGeneralChat, openGeneralChat } from "./03-general-scope.js";
+import { workbenchNavigationGuard } from "./12-workbench.js";
 import { segmentTitle, syncHistoryIfOpen } from "./12-session-tree.js";
 import { loadDeliveredFiles } from "./06-deliveries.js";
 import { closeSurface, openDialog, openMenu } from "./00-surface.js";
@@ -91,8 +92,24 @@ import { active_space, create_workspace_process, project_workspace } from "./03-
 
 // ---------- 应用内文档查看器:markdown/代码直接渲染,外部打开是兜底 ----------
 export let viewerKind = null;
+let viewerProject = null;
+let viewerGeneration = 0;
+function viewerRequest() {
+  const generation = ++viewerGeneration, navigationCurrent = workbenchNavigationGuard();
+  const project = currentProject, selection = processSwitchGeneration;
+  return () => generation === viewerGeneration && navigationCurrent()
+    && currentProject === project && processSwitchGeneration === selection;
+}
+function showViewer() {
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close", onClose: () => {
+    viewerGeneration += 1;
+    viewerKind = null; viewerProject = null;
+  } });
+}
 export function openRuntimeMarkdown(title, content) {
+  viewerGeneration += 1;
   viewerKind = null;
+  viewerProject = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "md";
@@ -100,12 +117,16 @@ export function openRuntimeMarkdown(title, content) {
   body.scrollTop = 0;
   $("viewer-external").classList.add("hidden");
   // <dialog> 模态经原语打开:原生惰性化背景、Esc/点外关闭、关闭后焦点归还;已开着则只换内容。
-  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  showViewer();
 }
 export async function openDocViewer(kind) {
+  const isCurrent = viewerRequest();
+  const project = currentProject;
   try {
-    const doc = await invoke("docs_read", { projectDir: currentProject, kind });
+    const doc = await invoke("docs_read", { projectDir: project, kind });
+    if (!isCurrent()) return;
     viewerKind = kind;
+    viewerProject = project;
     $("viewer-external").classList.remove("hidden");
     $("viewer-title").textContent = doc.name;
     const body = $("viewer-body");
@@ -117,14 +138,16 @@ export async function openDocViewer(kind) {
       body.innerHTML = `<pre class="code">${escapeHtml(doc.content)}</pre>`;
     }
     body.scrollTop = 0;
-    openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+    showViewer();
   } catch (err) {
-    toastError(String(err), { retry: () => openDocViewer(kind) });
+    if (isCurrent()) toastError(String(err), { retry: () => { if (isCurrent()) return openDocViewer(kind); } });
   }
 }
 /// 源码查看(图的「查看源码」/错误卡):带文件行号的只读代码,出错行高亮并滚进视口。
 export function openRuntimeSource(title, source, { line = null, startLine = 1 } = {}) {
+  viewerGeneration += 1;
   viewerKind = null;
+  viewerProject = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "kz-source-view";
@@ -150,12 +173,14 @@ export function openRuntimeSource(title, source, { line = null, startLine = 1 } 
   body.append(pre);
   body.scrollTop = 0;
   $("viewer-external").classList.add("hidden");
-  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  showViewer();
   target?.scrollIntoView?.({ block: "center" });
 }
 /// UI2-0926 #8:工具截图 / 交付图片的大图查看(src 是 data URL,由 24-preview.js 经 tool_image / delivered_image 取来)。
 export function openRuntimeImage(title, src) {
+  viewerGeneration += 1;
   viewerKind = null;
+  viewerProject = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "kz-image-view";
@@ -167,17 +192,19 @@ export function openRuntimeImage(title, src) {
   body.append(img);
   body.scrollTop = 0;
   $("viewer-external").classList.add("hidden");
-  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  showViewer();
 }
 /// 聊天/文档里的图「放大」:在查看器里按页面模式重挂一张(适应/缩放/平移)。
 export function openRuntimeDiagram(title, source, { path = null, sourceLine = 1 } = {}) {
+  viewerGeneration += 1;
   viewerKind = null;
+  viewerProject = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "kz-diagram-viewer";
   body.replaceChildren();
   $("viewer-external").classList.add("hidden");
-  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  showViewer();
   mountDiagram(body, source, { mode: "page", title, path, sourceLine });
 }
 defer(() => {
@@ -190,7 +217,10 @@ defer(() => {
 });
 defer(() => {
   $("viewer-external").addEventListener("click", () => {
-    if (viewerKind) invoke("docs_open", { projectDir: currentProject, kind: viewerKind }).catch((e) => toastError(String(e), { retry: () => $("viewer-external").click() }));
+    if (!viewerKind || !viewerProject) return;
+    const args = { projectDir: viewerProject, kind: viewerKind };
+    const open = () => invoke("docs_open", args).catch((error) => toastError(String(error), { retry: open }));
+    void open();
   });
 });
 
@@ -714,7 +744,9 @@ export function renderMessageParts(items) {
   }
 }
 
+let conversationLoadGeneration = 0;
 export async function loadConversation(sequence = null, switchGeneration = null, force = false) {
+  const generation = ++conversationLoadGeneration;
   if (!currentProject) return;
   // 启动时项目列表与历史恢复并行触发,先确保进程列表已选出主会话,再锁定
   // processId。否则首次 conversation_get 可能带着 null,历史会被竞态丢掉。
@@ -722,7 +754,7 @@ export async function loadConversation(sequence = null, switchGeneration = null,
   // 自己的列表刷新 Promise——A 的 process_list 在途时切到 B,等到的就是 B 的列表,
   // B 的 activeProcessId 就绪后 conversation_get 才带着 B 的 projectDir/processId 发出。
   if (!activeProcessId && typeof refreshProcesses === "function") await refreshProcesses();
-  if (!currentProject || !activeProcessId) return;
+  if (generation !== conversationLoadGeneration || !currentProject || !activeProcessId) return;
   // R-267:D-356 的「快照 + 补齐」整套退役。
   //
   // 原来的做法是切走时存一份 innerHTML、切回时塞回去,再挂一句「快照截至上次切走时,
@@ -752,6 +784,7 @@ export async function loadConversation(sequence = null, switchGeneration = null,
   const forSessionId = activeSessionId;
   const forEpoch = conversationEpoch(forSessionId);
   const isCurrent = () =>
+    generation === conversationLoadGeneration &&
     (switchGeneration === null || switchGeneration === processSwitchGeneration) &&
     currentProject === forProject &&
     activeProcessId === forProcessId &&
@@ -777,8 +810,11 @@ export async function loadConversation(sequence = null, switchGeneration = null,
     applyRecoveredToolDurations(traces);
     log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${traces.length} ${t("组工具轨迹")}`);
   } catch (err) {
+    if (!isCurrent()) return;
     addMessage("error", `${t("历史消息恢复失败")}:${err}`);
-    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => loadConversation(sequence) });
+    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => {
+      if (isCurrent()) return loadConversation(sequence, switchGeneration, true);
+    } });
   }
 }
 
@@ -834,13 +870,17 @@ export function historyTranscript(items, limit = 300) {
   return blocks.join("\n\n---\n\n") || t("这段对话没有可显示的文字");
 }
 export async function openConversationForProcess(processId, sequence, { project = currentProject, title = "" } = {}) {
+  const isCurrent = viewerRequest();
   let history;
   try {
     history = await invoke("conversation_get", { projectDir: project, processId, sequence });
   } catch (err) {
-    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => openConversationForProcess(processId, sequence, { project, title }) });
+    if (isCurrent()) toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => {
+      if (isCurrent()) return openConversationForProcess(processId, sequence, { project, title });
+    } });
     return;
   }
+  if (!isCurrent()) return;
   openRuntimeMarkdown(`${title || t("历史对话")} · ${t("只读")}`, historyTranscript(history));
 }
 /// 已关闭(注销)线路的对话:只读查看(UX-035)。会话 id 是进程 id 的纯函数,注销后 conversation_list / conversation_get 照样取得到。
@@ -848,20 +888,26 @@ export async function openConversationForProcess(processId, sequence, { project 
 export async function openClosedConversation(project, entry, title = "") {
   const processId = entry?.id;
   if (!processId) return;
+  const isCurrent = viewerRequest();
   const name = title || entry.title || t("已关闭的对话");
   const blocks = [];
   try {
     const list = await invoke("conversation_list", { projectDir: project, processId });
+    if (!isCurrent()) return;
     const segments = [...(Array.isArray(list) ? list : [])].sort((a, b) => (Number(b.sequence) || 0) - (Number(a.sequence) || 0)).slice(0, 5);
     for (const segment of segments) {
       const history = await invoke("conversation_get", { projectDir: project, processId, sequence: segment.sequence });
+      if (!isCurrent()) return;
       blocks.push(`### ${segmentTitle(segment.title)}\n\n${historyTranscript(history)}`);
     }
     if (!blocks.length) blocks.push(historyTranscript(await invoke("conversation_get", { projectDir: project, processId, sequence: null })));
   } catch (err) {
-    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => openClosedConversation(project, entry, title) });
+    if (isCurrent()) toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => {
+      if (isCurrent()) return openClosedConversation(project, entry, title);
+    } });
     return;
   }
+  if (!isCurrent()) return;
   openRuntimeMarkdown(`${name} · ${t("已关闭")} · ${t("只读")}`, blocks.join("\n\n---\n\n"));
 }
 

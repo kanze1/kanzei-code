@@ -25,7 +25,7 @@ import { createWorktreeLine, lastProjectPrefs, processRunning, projectDisplayNam
 import { generalChatRoot, isGeneralChat, openGeneralChat } from "./03-general-scope.js";
 import { conversationRecord, matchesConversation, uniqueConversations } from "./12-conversation-model.js";
 import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
-import { openProjectSpace, workbenchProject, workbenchQuestionWaiting } from "./12-workbench.js";
+import { openProjectSpace, workbenchNavigationGuard, workbenchProject, workbenchQuestionWaiting } from "./12-workbench.js";
 import { conversationItemsByProcess, openClosedConversation, openConversationForProcess, startNewConversation } from "./15-views-misc.js";
 import { executionActivity, sameProject } from "./25-softwire-model.js";
 
@@ -528,7 +528,12 @@ export async function openSession(project, processId) {
   if (!sameProject(project, currentProject) || active_space !== "dev") {
     if (!await (isGeneralChat(project) ? openGeneralChat() : openProjectSpace(project, "chat"))) return false;
   }
+  const isCurrent = workbenchNavigationGuard(), view = document.body.dataset.view;
   if (processId !== activeProcessId) await switchProcess(processId);
+  // A completed history read is not permission to undo a newer navigation or
+  // report a superseded selection as ready to its handoff callers.
+  if (!isCurrent() || document.body.dataset.view !== view || !sameProject(project, currentProject)
+    || active_space !== "dev" || activeProcessId !== processId) return false;
   ensureChatView(); // 切会话不能只在后台生效:不在对话页就跳回去(UX-052 / D15;已在对话页是空操作)。
   return true;
 }

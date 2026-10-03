@@ -100,6 +100,10 @@ fn column_label(mut column: u32) -> String {
 
 fn cell_text(value: Option<&Data>, formula: Option<&String>) -> String {
     let value = match value {
+        Some(Data::DateTime(date)) if date.is_duration() => date
+            .as_duration()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| date.to_string()),
         Some(Data::DateTime(date)) => date
             .as_datetime()
             .map(|v| v.to_string())
@@ -228,6 +232,37 @@ mod tests {
     fn spreadsheet_corruption_fails_instead_of_sending_binary_text() {
         assert!(document_part(&attachment("bad.xlsx", b"not an excel file")).is_err());
         assert!(document_part(&attachment("program.exe", b"MZ")).is_err());
+    }
+    #[test]
+    fn spreadsheet_durations_keep_their_meaning_in_model_text() {
+        let kanzei_llm::Part::Text { text } = document_part(&attachment(
+            "工时.xlsx",
+            include_bytes!("../../../tests/fixtures/attachments/duration.xlsx"),
+        ))
+        .unwrap() else {
+            panic!("Expected parsed text")
+        };
+        assert!(
+            text.contains("2\tPT129600S\t2026-10-04 12:00:00\n"),
+            "{text}"
+        );
+        assert!(text.contains("3\t-PT21600S\t\n"), "{text}");
+        assert!(text.contains("4\tPT1.5S\t\n"), "{text}");
+        assert!(text.contains("5\tP0D\t\n"), "{text}");
+    }
+    #[test]
+    fn duration_cells_preserve_formula_and_ignore_calendar_epoch() {
+        for is_1904 in [false, true] {
+            let duration = Data::DateTime(calamine::ExcelDateTime::new(
+                1.5,
+                calamine::ExcelDateTimeType::TimeDelta,
+                is_1904,
+            ));
+            assert_eq!(
+                cell_text(Some(&duration), Some(&"SUM(A1:A2)".into())),
+                "PT129600S [=SUM(A1:A2)]"
+            );
+        }
     }
     #[test]
     fn text_bom_and_length_are_explicit() {
