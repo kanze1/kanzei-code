@@ -466,13 +466,21 @@ impl Tool for TrackerTool {
         // 实测 R-104/107/108/110 从活动与归档同时消失后,告警连响 5 个提交无人处理,
         // 最后靠旧副本偶然捞回。改为:发现缺号/重复时**拒绝一切写操作**,读操作照常放行,
         // 迫使当轮先把数据找回来。错误文本直接给出可执行的恢复路径,避免变成死锁。
-        if WRITE_ACTIONS.contains(&input.action.as_str())
-            && !REPAIR_ACTIONS.contains(&input.action.as_str())
-            && input.action != FIX_TERMINAL_ACTION
-            && input.action != "normalize"
-        {
-            let issues = store.integrity_issues(&entries);
-            if !issues.is_empty() {
+        if WRITE_ACTIONS.contains(&input.action.as_str()) {
+            let issues = match store.integrity_issues(&entries) {
+                Ok(issues) => issues,
+                Err(error) => {
+                    return ToolOutput::error(format!(
+                        "REFUSING to write {}: cannot verify tracker integrity: {error}",
+                        self.kind.rel_path,
+                    ))
+                }
+            };
+            if !REPAIR_ACTIONS.contains(&input.action.as_str())
+                && input.action != FIX_TERMINAL_ACTION
+                && input.action != "normalize"
+                && !issues.is_empty()
+            {
                 return ToolOutput::error(format!(
                     "REFUSING to write {}: tracker integrity is broken.\n{}\n\
                      Fix it first (reads still work) with one of the repair actions — all three \
@@ -492,7 +500,7 @@ impl Tool for TrackerTool {
             }
         }
 
-        let mut output = match input.action.as_str() {
+        let output = match input.action.as_str() {
             "list" => actions::list(self, input, ctx, &store, &mut entries),
             "audit_acceptance_scope" => {
                 actions::audit_acceptance_scope(self, input, ctx, &store, &mut entries)
@@ -554,49 +562,7 @@ impl Tool for TrackerTool {
                 REPAIR_ACTIONS.join(" | ")
             )),
         };
-        // D-112 门禁:每次调用后对活动∪归档做缺号/重复检测,数据丢失立刻可见,
-        // 而不是等 requirements 的依赖引用悬空才被发现。
-        if !output.is_error {
-            if let Ok(current) = store.load() {
-                let issues = store.integrity_issues(&current);
-                if !issues.is_empty() {
-                    output.content.push_str(&format!(
-                        "\n⚠ tracker integrity ({}): {}",
-                        self.kind.rel_path,
-                        issues.join("; ")
-                    ));
-                }
-            }
-        }
-        // R-268 批2:写动作成功且确实落盘后,记一条写日志(路径+写后指纹+身份)。
-        // 这是围栏收口对账的归因凭据——bash 窗口内看到这个文档变了,查日志即可
-        // 区分「专用工具的合法写入」与「shell 越界写」,写者从此不必等全局 bash
-        // 静默。先写文档再记日志(「写后」凭据,见 write_log 模块头契约)。
-        if !output.is_error && WRITE_ACTIONS.contains(&action_str.as_str()) {
-            // 活动文件记写日志(D-398 收敛到共享 helper;路径+写后指纹+身份)。
-            if let Ok(relative) = store.path.strip_prefix(&ctx.project_root) {
-                if let Err(error) =
-                    crate::record_write_log(ctx, &relative.display().to_string(), &store.path)
-                {
-                    return ToolOutput::error(error);
-                }
-            }
-            // D-569:fix_terminal/archive_fill/normalize 也可能改写归档文件,必须和
-            // archive 一样记录归档侧凭据,否则 bash 围栏会把合法修复回滚。
-            if ["archive", FIX_TERMINAL_ACTION, "archive_fill", "normalize"]
-                .contains(&action_str.as_str())
-            {
-                let archive_file = store.archive_file();
-                if let Ok(relative) = archive_file.strip_prefix(&ctx.project_root) {
-                    if let Err(error) =
-                        crate::record_write_log(ctx, &relative.display().to_string(), &archive_file)
-                    {
-                        return ToolOutput::error(error);
-                    }
-                }
-            }
-        }
-        output
+        self.finalize_action_result(&store, &action_str, ctx, output)
     }
 }
 
@@ -690,6 +656,120 @@ impl Tool for ResearchTrackerTool {
 }
 
 impl TrackerTool {
+    fn finalize_action_result(
+        &self,
+        store: &DocStore,
+        action: &str,
+        ctx: &ToolCtx,
+        mut output: ToolOutput,
+    ) -> ToolOutput {
+        // D-112 门禁:每次调用后对活动∪归档做缺号/重复检测,数据丢失立刻可见,
+        // 而不是等 requirements 的依赖引用悬空才被发现。
+        let action_succeeded = !output.is_error;
+        if action_succeeded {
+            match store
+                .load()
+                .and_then(|current| store.integrity_issues(&current))
+            {
+                Ok(issues) => {
+                    if !issues.is_empty() {
+                        output.content.push_str(&format!(
+                            "\n⚠ tracker integrity ({}): {}",
+                            self.kind.rel_path,
+                            issues.join("; ")
+                        ));
+                    }
+                }
+                Err(error) => {
+                    let state = if WRITE_ACTIONS.contains(&action) {
+                        "tracker action already wrote its result, but post-write integrity verification failed; do not blindly retry"
+                    } else {
+                        "tracker result was read, but integrity verification failed"
+                    };
+                    output = ToolOutput::error(format!("{state}: {error}"));
+                }
+            }
+        }
+        // Preserve the action's actual successful write even if postcheck failed.
+        if action_succeeded && WRITE_ACTIONS.contains(&action) {
+            if let Err(error) = self.record_action_writes(store, action, ctx) {
+                return ToolOutput::error(error);
+            }
+        }
+        output
+    }
+
+    // R-268/D-569: one shared record of the real post-write fingerprints.
+    // The caller decides whether a write succeeded; verification is a separate fact.
+    fn record_action_writes(
+        &self,
+        store: &DocStore,
+        action: &str,
+        ctx: &ToolCtx,
+    ) -> Result<(), String> {
+        // 活动文件记写日志(D-398 收敛到共享 helper;路径+写后指纹+身份)。
+        if let Ok(relative) = store.path.strip_prefix(&ctx.project_root) {
+            crate::record_write_log(ctx, &relative.display().to_string(), &store.path)?;
+        }
+        // D-569:fix_terminal/archive_fill/normalize 也可能改写归档文件,必须和
+        // archive 一样记录归档侧凭据,否则 bash 围栏会把合法修复回滚。
+        if ["archive", FIX_TERMINAL_ACTION, "archive_fill", "normalize"].contains(&action) {
+            let archive_file = store.archive_file();
+            if let Ok(relative) = archive_file.strip_prefix(&ctx.project_root) {
+                crate::record_write_log(ctx, &relative.display().to_string(), &archive_file)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finalize_archive_move(
+        &self,
+        store: &DocStore,
+        ctx: &ToolCtx,
+        moved: Vec<String>,
+    ) -> ToolOutput {
+        if moved.is_empty() {
+            return ToolOutput::ok("nothing to archive (no terminal entries)");
+        }
+        // Lower archive_terminal has succeeded. Still verify every moved ID,
+        // including the last entry: integrity alone cannot detect its disappearance.
+        let failure = match store.load_archive() {
+            Err(error) => Some(format!("cannot verify archived entries: {error}")),
+            Ok(archived) => {
+                let lost: Vec<&String> = moved
+                    .iter()
+                    .filter(|id| !archived.iter().any(|entry| &&entry.id == id))
+                    .collect();
+                (!lost.is_empty()).then(|| format!(
+                    "archive verification FAILED: {} missing from {} after the move — the entries may be lost, investigate immediately",
+                    lost.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", "),
+                    store.archive_file().display()
+                ))
+            }
+        };
+        if let Some(failure) = failure {
+            // Unified finalizer sees an error below, so record the actual successful
+            // lower write here once before returning that verification failure.
+            if let Err(error) = self.record_action_writes(store, "archive", ctx) {
+                return ToolOutput::error(error);
+            }
+            return ToolOutput::error(format!(
+                "archive already wrote its result, but verification failed; do not blindly retry: {failure}"
+            ));
+        }
+        ToolOutput::ok(format!(
+            "archived {} terminal {}(s): {} → {}\n\
+             IMPORTANT: `{}` and its archive file were BOTH modified — commit them \
+             together in the SAME commit. Committing only one (or reverting the \
+             archive) permanently loses these entries (D-112).",
+            moved.len(),
+            self.noun,
+            moved.join(", "),
+            store.archive_file().display(),
+            self.kind.rel_path,
+        ))
+    }
+
     fn check_severity(&self, severity: &Option<String>) -> Option<String> {
         let (Some(sev), Some(valid)) = (severity.as_deref(), self.kind.severities) else {
             return None;
@@ -1027,6 +1107,319 @@ mod tests {
             "延后决策": "扩展站点范围"
         })
         .to_string()
+    }
+
+    fn m6_tracker_fixture(tag: &str) -> (std::path::PathBuf, DocStore, TrackerTool, ToolCtx) {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-m6-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&[entry("R-001")]).unwrap();
+        std::fs::write(store.archive_file(), "# Requirements Archive\n").unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone(), dir.clone()).with_identity(
+            "m6-tree".into(),
+            "m6-project".into(),
+            "m6-run".into(),
+            "m6-process".into(),
+        );
+        (dir, store, tool, ctx)
+    }
+
+    #[tokio::test]
+    async fn tracker_write_and_repair_gates_refuse_unreadable_identity_sources() {
+        for ledger in [false, true] {
+            let (dir, store, tool, ctx) = m6_tracker_fixture("read-errors");
+            if !ledger {
+                std::fs::write(store.ledger_file(), "# Ledger\n").unwrap();
+            }
+            let source = if ledger {
+                store.ledger_file()
+            } else {
+                store.archive_file()
+            };
+            std::fs::write(&source, b"old identity proof\xff").unwrap();
+            let mut active = std::fs::read_to_string(&store.path).unwrap();
+            active.push_str("\nOriginal user narrative to preserve.\n");
+            std::fs::write(&store.path, active).unwrap();
+            let paths = [
+                store.path.clone(),
+                store.archive_file(),
+                store.ledger_file(),
+            ];
+            let before: Vec<_> = paths
+                .iter()
+                .map(|path| std::fs::read(path).unwrap())
+                .collect();
+            for action in [
+                "raw_delete",
+                "add",
+                "update",
+                "repair_reused_id",
+                "repair_missing_id",
+                "void_id",
+                "fix_terminal",
+                "normalize",
+            ] {
+                let input = if action == "raw_delete" {
+                    json!({"action":action,"id":"R-001","ordinal":1})
+                } else {
+                    json!({"action":action,"id":"R-002","title":"Recovered real item",
+                        "status":"todo","reason":"withdrawn with evidence","apply":true})
+                };
+                let output = tool.execute(input, &ctx).await;
+                assert!(
+                    output.is_error,
+                    "{action} must not ignore unreadable identities: {}",
+                    output.content
+                );
+                assert!(
+                    output.content.contains("cannot verify tracker integrity"),
+                    "{action}: {}",
+                    output.content
+                );
+                assert!(output
+                    .content
+                    .contains(source.file_name().unwrap().to_str().unwrap()));
+                for (path, expected) in paths.iter().zip(&before) {
+                    assert_eq!(
+                        std::fs::read(path).unwrap(),
+                        *expected,
+                        "{action} changed {}",
+                        path.display()
+                    );
+                }
+            }
+            let error =
+                super::scheduling::append_progress(&dir, &REQUIREMENTS, "R-001", "must not write")
+                    .unwrap_err();
+            assert!(error.contains("cannot verify"));
+            assert_eq!(std::fs::read(&store.path).unwrap(), before[0]);
+            assert!(crate::write_log::entries_after(&dir, 0).unwrap().is_empty());
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn post_write_io_failure_keeps_matching_write_receipt_and_does_not_rewrite() {
+        let (dir, store, tool, ctx) = m6_tracker_fixture("post-write-read-error");
+        let _lock = store.lock().unwrap();
+        let old = std::fs::read(&store.path).unwrap();
+        let mut entries = store.load().unwrap();
+        entries[0].title = "Actual successful write before verification failure".into();
+        store.save(&entries).unwrap();
+        let written = std::fs::read(&store.path).unwrap();
+        assert_ne!(old, written);
+        let modified = std::fs::metadata(&store.path).unwrap().modified().unwrap();
+        // Deterministic boundary injection: the production action is complete,
+        // then its identity source fails before the real production finalizer.
+        std::fs::write(store.ledger_file(), b"old proof\xff").unwrap();
+        let output = tool.finalize_action_result(
+            &store,
+            "update",
+            &ctx,
+            kanzei_harness::ToolOutput::ok("updated R-001"),
+        );
+        assert!(output.is_error);
+        assert!(output.content.contains("already wrote its result"));
+        assert!(output
+            .content
+            .contains("post-write integrity verification failed"));
+        assert!(output.content.contains("requirements-ids.md"));
+        assert_eq!(std::fs::read(&store.path).unwrap(), written);
+        assert_eq!(
+            std::fs::metadata(&store.path).unwrap().modified().unwrap(),
+            modified,
+            "the finalizer must not repeat the document write"
+        );
+        let logs = crate::write_log::entries_after(&dir, 0).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].path, REQUIREMENTS.rel_path);
+        assert_eq!(logs[0].fingerprint, crate::content_hash(&written));
+        assert!(logs[0].matches_content(Some(&written)));
+        assert_eq!(logs[0].run_id.as_deref(), Some("m6-run"));
+        drop(_lock);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn post_write_content_issue_stays_warning_with_valid_receipt() {
+        let (dir, store, tool, ctx) = m6_tracker_fixture("post-write-content-warning");
+        let _lock = store.lock().unwrap();
+        store.save(&[entry("R-002")]).unwrap();
+        let written = std::fs::read(&store.path).unwrap();
+        let output = tool.finalize_action_result(
+            &store,
+            "update",
+            &ctx,
+            kanzei_harness::ToolOutput::ok("updated R-002"),
+        );
+        assert!(
+            !output.is_error,
+            "content issues retain the warning contract: {}",
+            output.content
+        );
+        assert!(output.content.contains("tracker integrity"));
+        assert!(output.content.contains("UNACCOUNTED"));
+        let logs = crate::write_log::entries_after(&dir, 0).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].matches_content(Some(&written)));
+        drop(_lock);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn archive_internal_verification_failure_keeps_actual_write_receipts() {
+        for unreadable in [true, false] {
+            let (dir, store, tool, ctx) = m6_tracker_fixture("archive-internal-failure");
+            let _lock = store.lock().unwrap();
+            let mut terminal = entry("R-001");
+            terminal.status = "done".into();
+            store.save(&[terminal]).unwrap();
+            let moved = store.archive_terminal().unwrap();
+            assert_eq!(moved, ["R-001"]);
+            assert!(store.load().unwrap().is_empty());
+            assert_eq!(store.load_archive().unwrap()[0].id, "R-001");
+            // The same private verifier is called by production maintenance::archive
+            // after this real lower write. No public hook or timing race is needed.
+            if unreadable {
+                let mut bytes = std::fs::read(store.archive_file()).unwrap();
+                bytes.push(0xff);
+                std::fs::write(store.archive_file(), bytes).unwrap();
+            } else {
+                std::fs::write(store.archive_file(), "# Requirements Archive\n").unwrap();
+            }
+            let active = std::fs::read(&store.path).unwrap();
+            let archived = std::fs::read(store.archive_file()).unwrap();
+            let active_stamp = std::fs::metadata(&store.path).unwrap().modified().unwrap();
+            let archive_stamp = std::fs::metadata(store.archive_file())
+                .unwrap()
+                .modified()
+                .unwrap();
+            let action_output = tool.finalize_archive_move(&store, &ctx, moved);
+            let output = tool.finalize_action_result(&store, "archive", &ctx, action_output);
+            assert!(output.is_error);
+            assert!(output.content.contains("already wrote its result"));
+            assert!(output.content.contains("do not blindly retry"));
+            assert!(output.content.contains("requirements-archive.md"));
+            if unreadable {
+                assert!(output.content.contains("cannot verify archived entries"));
+            } else {
+                assert!(
+                    output.content.contains("R-001 missing"),
+                    "{}",
+                    output.content
+                );
+            }
+            assert_eq!(std::fs::read(&store.path).unwrap(), active);
+            assert_eq!(std::fs::read(store.archive_file()).unwrap(), archived);
+            assert_eq!(
+                std::fs::metadata(&store.path).unwrap().modified().unwrap(),
+                active_stamp
+            );
+            assert_eq!(
+                std::fs::metadata(store.archive_file())
+                    .unwrap()
+                    .modified()
+                    .unwrap(),
+                archive_stamp
+            );
+            let logs = crate::write_log::entries_after(&dir, 0).unwrap();
+            assert_eq!(
+                logs.len(),
+                2,
+                "actual archive writes need both receipts exactly once"
+            );
+            for (path, bytes) in [
+                (REQUIREMENTS.rel_path, &active),
+                (".kanzei/project/requirements-archive.md", &archived),
+            ] {
+                let matching: Vec<_> = logs.iter().filter(|log| log.path == path).collect();
+                assert_eq!(matching.len(), 1);
+                assert!(matching[0].matches_content(Some(bytes)));
+                assert_eq!(matching[0].fingerprint, crate::content_hash(bytes));
+            }
+            drop(_lock);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn tracker_normal_archive_records_each_successful_path_once() {
+        let (dir, store, tool, ctx) = m6_tracker_fixture("archive-normal-receipts");
+        let mut terminal = entry("R-001");
+        terminal.status = "done".into();
+        store.save(&[terminal]).unwrap();
+        let output = tool.execute(json!({"action":"archive"}), &ctx).await;
+        assert!(!output.is_error, "{}", output.content);
+        assert!(output.content.contains("archived 1 terminal"));
+        assert!(store.load().unwrap().is_empty());
+        assert_eq!(store.load_archive().unwrap()[0].id, "R-001");
+        let logs = crate::write_log::entries_after(&dir, 0).unwrap();
+        assert_eq!(logs.len(), 2);
+        for path in [&store.path, &store.archive_file()] {
+            let relative = path
+                .strip_prefix(&dir)
+                .unwrap()
+                .display()
+                .to_string()
+                .replace('\\', "/");
+            let matching: Vec<_> = logs.iter().filter(|log| log.path == relative).collect();
+            assert_eq!(
+                matching.len(),
+                1,
+                "each normal path is recorded exactly once"
+            );
+            assert!(matching[0].matches_content(Some(&std::fs::read(path).unwrap())));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn tracker_archive_field_cleanup_persists_without_new_terminal() {
+        let (dir, store, tool, ctx) = m6_tracker_fixture("archive-cleanup");
+        std::fs::write(store.archive_file(), "# Requirements Archive\n\n## R-002 history [done]\n- 说明: same\n- 说明: same\n- 验证: first\n- 验证: second\n").unwrap();
+        let output = tool.execute(json!({"action":"archive"}), &ctx).await;
+        assert!(!output.is_error, "{}", output.content);
+        let reopened = DocStore::open(&dir, &REQUIREMENTS);
+        let archived = reopened.load_archive().unwrap();
+        assert_eq!(
+            archived[0]
+                .fields
+                .iter()
+                .filter(|(key, _)| key == "说明")
+                .count(),
+            1
+        );
+        assert_eq!(
+            archived[0]
+                .fields
+                .iter()
+                .filter(|(key, _)| key == "验证")
+                .count(),
+            2
+        );
+        assert_eq!(reopened.load().unwrap()[0].id, "R-001");
+        let written = std::fs::read(reopened.archive_file()).unwrap();
+        assert!(crate::write_log::entries_after(&dir, 0)
+            .unwrap()
+            .iter()
+            .any(|log| log.path == ".kanzei/project/requirements-archive.md"
+                && log.matches_content(Some(&written))));
+        let output = tool.execute(json!({"action":"archive"}), &ctx).await;
+        assert!(!output.is_error);
+        assert_eq!(std::fs::read(reopened.archive_file()).unwrap(), written);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
@@ -2496,7 +2889,7 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].title, "支持协议 [RFC]");
         assert_eq!(entries[0].status, "inbox");
-        assert!(store.integrity_issues(&entries).is_empty());
+        assert!(store.integrity_issues(&entries).unwrap().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3032,7 +3425,7 @@ mod tests {
         )
         .unwrap();
 
-        let issues = store.integrity_issues(&store.load().unwrap());
+        let issues = store.integrity_issues(&store.load().unwrap()).unwrap();
         for id in ids {
             assert!(
                 issues
@@ -3699,7 +4092,7 @@ mod tests {
         );
         let store = DocStore::open(&dir, &IDEAS);
         let entries = store.load().unwrap();
-        assert!(store.integrity_issues(&entries).is_empty());
+        assert!(store.integrity_issues(&entries).unwrap().is_empty());
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -3769,7 +4162,10 @@ mod tests {
         assert_eq!(ids, vec!["R-001", "R-003", "R-004"], "必须插回原位");
 
         // 两个空洞都交代完 → 完整性恢复,普通写放行,且注销过的号不再被复用。
-        assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
+        assert!(store
+            .integrity_issues(&store.load().unwrap())
+            .unwrap()
+            .is_empty());
         let out = tool
             .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"}}), &ctx)
             .await;
@@ -3794,7 +4190,7 @@ mod tests {
         store.save(&[entry("R-001")]).unwrap();
         store.void_id("R-002", "撤销的分配,有据可查").unwrap();
         store.save(&[entry("R-001"), entry("R-002")]).unwrap();
-        let issues = store.integrity_issues(&store.load().unwrap());
+        let issues = store.integrity_issues(&store.load().unwrap()).unwrap();
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(issues[0].contains("voided"), "{issues:?}");
         assert!(issues[0].contains("R-002"), "{issues:?}");
@@ -4577,9 +4973,9 @@ mod tests {
         let ids: std::collections::BTreeSet<&String> = entries.iter().map(|e| &e.id).collect();
         assert_eq!(ids.len(), 并发, "分配出了重复 ID: {ids:?}");
         assert!(
-            store.integrity_issues(&entries).is_empty(),
+            store.integrity_issues(&entries).unwrap().is_empty(),
             "并发写之后完整性必须干净: {:?}",
-            store.integrity_issues(&entries)
+            store.integrity_issues(&entries).unwrap()
         );
         std::fs::remove_dir_all(dir).ok();
     }

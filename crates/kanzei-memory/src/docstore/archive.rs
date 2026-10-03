@@ -66,7 +66,10 @@ impl DocStore {
                 Ok(parsed.entries)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(e) => Err(e),
+            Err(e) => Err(std::io::Error::new(
+                e.kind(),
+                format!("cannot read {}: {e}", path.display()),
+            )),
         }
     }
 
@@ -96,7 +99,7 @@ impl DocStore {
                 format!("{id} 的活动与归档内容相同，疑似未完成归档，拒绝自动改号"),
             ));
         }
-        let issues = self.integrity_issues(&active);
+        let issues = self.integrity_issues(&active)?;
         if issues.len() != 1 || !issues[0].contains(id) || issues[0].contains(',') {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -104,7 +107,7 @@ impl DocStore {
             ));
         }
 
-        let new_id = self.next_id(&active);
+        let new_id = self.next_id(&active)?;
         let archived_entry = &mut archived[archived_pos];
         archived_entry.id = new_id.clone();
         archived_entry.title = archived_entry.title.replace(id, &new_id);
@@ -166,9 +169,9 @@ impl DocStore {
             .partition(|e| self.kind.terminal.contains(&e.status.as_str()));
         let mut archived = self.load_archive()?;
         // D-316 净化:按 id 去重(保留先归档)+ 条目内字段收敛(D-328 口径)。
-        let before_len = archived.len();
+        let before = archived.clone();
         archived = Self::normalize_archive(archived);
-        let cleaned = archived.len() != before_len;
+        let cleaned = archived != before;
         if terminal.is_empty() && !cleaned {
             return Ok(Vec::new());
         }

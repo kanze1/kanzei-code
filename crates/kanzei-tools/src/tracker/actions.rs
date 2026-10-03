@@ -318,7 +318,10 @@ pub(crate) fn add(
     if let Err(error) = super::TrackerTool::check_qualifier_consistency(input.fields.iter()) {
         return ToolOutput::error(error);
     }
-    let id = store.next_id(entries);
+    let id = match store.next_id(entries) {
+        Ok(id) => id,
+        Err(error) => return ToolOutput::error(format!("cannot allocate tracker id: {error}")),
+    };
     let prior_art_field = match tool.check_prior_art(&input, ctx, &id, title) {
         Ok(field) => field,
         Err(error) => return ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error),

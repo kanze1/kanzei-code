@@ -42,43 +42,13 @@ pub(crate) fn void_id(
 pub(crate) fn archive(
     tool: &TrackerTool,
     _input: TrackerInput,
-    _ctx: &ToolCtx,
+    ctx: &ToolCtx,
     store: &DocStore,
     _entries: &mut Vec<Entry>,
 ) -> ToolOutput {
     match store.archive_terminal() {
-        Ok(moved) if moved.is_empty() => ToolOutput::ok("nothing to archive (no terminal entries)"),
-        Ok(moved) => {
-            // 归档后回读校验(D-112):移动的 ID 必须真的落在归档文件里。
-            let archived = store.load_archive().unwrap_or_default();
-            let lost: Vec<&String> = moved
-                .iter()
-                .filter(|id| !archived.iter().any(|e| &&e.id == id))
-                .collect();
-            if !lost.is_empty() {
-                return ToolOutput::error(format!(
-                    "archive verification FAILED: {} missing from {} after the move — \
-                     do NOT commit; the entries may be lost, investigate immediately",
-                    lost.iter()
-                        .map(|s| s.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    store.archive_file().display()
-                ));
-            }
-            ToolOutput::ok(format!(
-                "archived {} terminal {}(s): {} → {}\n\
-                 IMPORTANT: `{}` and its archive file were BOTH modified — commit them \
-                 together in the SAME commit. Committing only one (or reverting the \
-                 archive) permanently loses these entries (D-112).",
-                moved.len(),
-                tool.noun,
-                moved.join(", "),
-                store.archive_file().display(),
-                tool.kind.rel_path,
-            ))
-        }
-        Err(e) => ToolOutput::error(format!("archive failed: {e}")),
+        Ok(moved) => tool.finalize_archive_move(store, ctx, moved),
+        Err(error) => ToolOutput::error(format!("archive failed: {error}")),
     }
 }
 

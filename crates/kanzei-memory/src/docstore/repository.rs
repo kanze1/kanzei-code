@@ -146,8 +146,9 @@ impl DocStore {
     }
 
     /// ID 分配扫活跃 + 归档 + 废弃账本:归档移走或主动废弃过的编号都绝不复用。
-    pub fn next_id(&self, entries: &[Entry]) -> String {
-        let archived = self.load_archive().unwrap_or_default();
+    pub fn next_id(&self, entries: &[Entry]) -> std::io::Result<String> {
+        let archived = self.load_archive()?;
+        let voided = self.voided_ids()?;
         let max = entries
             .iter()
             .chain(archived.iter())
@@ -157,10 +158,10 @@ impl DocStore {
                     .parse::<u32>()
                     .ok()
             })
-            .chain(self.voided_ids().keys().copied())
+            .chain(voided.keys().copied())
             .max()
             .unwrap_or(0);
-        format!("{}-{:03}", self.kind.prefix, max + 1)
+        Ok(format!("{}-{:03}", self.kind.prefix, max + 1))
     }
 
     /// 归档文件:同目录 `<name>-archive.md`(如 requirements-archive.md)。

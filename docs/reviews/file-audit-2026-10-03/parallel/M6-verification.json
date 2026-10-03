@@ -1,0 +1,1217 @@
+{
+  "module": "M6",
+  "baseline": "cb6cdc5267ac931b6a4b3b1f82111b995576cb01",
+  "branch": "kanzei/audit-m6-docstore",
+  "phase": "verified_ready_for_exact_leaf",
+  "recorded_at_utc": "2026-10-03T09:24:54.648020+00:00",
+  "files": [
+    {
+      "path": "crates/kanzei-memory/src/docstore/repository.rs",
+      "judgment": "P0",
+      "review": "full",
+      "lines_baseline": 173,
+      "lines_current": 174,
+      "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+      "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e",
+      "baseline_sha256_lf": "62b6d37e964a0fb91f11751fcd59ffa3bece685e852fcfe608d4f16f469572a8",
+      "changed_lf": true
+    },
+    {
+      "path": "crates/kanzei-memory/src/docstore/archive.rs",
+      "judgment": "P2",
+      "review": "full",
+      "lines_baseline": 592,
+      "lines_current": 595,
+      "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+      "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65",
+      "baseline_sha256_lf": "13d9ed19842889749246b43efff6c71ed276fd693d51bc6107b0eb99c797dbae",
+      "changed_lf": true
+    },
+    {
+      "path": "crates/kanzei-memory/src/docstore/validation.rs",
+      "judgment": "P0",
+      "review": "full",
+      "lines_baseline": 386,
+      "lines_current": 404,
+      "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+      "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37",
+      "baseline_sha256_lf": "e3b7be0fbf1ac7ba3f320ac2a1a9bd35a5c4f0007aa938aee5e2fc412048b03d",
+      "changed_lf": true
+    },
+    {
+      "path": "crates/kanzei-memory/src/docstore.rs",
+      "judgment": null,
+      "review": "necessary",
+      "lines_baseline": 1309,
+      "lines_current": 1464,
+      "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+      "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+      "baseline_sha256_lf": "5c7c297ff9dc6fe81ddde9983747d2d4ee58b94676099f81320800aacb6451ee",
+      "changed_lf": true,
+      "slice": "necessary_test_and_result_caller_slices"
+    },
+    {
+      "path": "crates/kanzei-tools/src/tracker.rs",
+      "judgment": null,
+      "review": "necessary",
+      "lines_baseline": 5182,
+      "lines_current": 5578,
+      "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+      "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+      "baseline_sha256_lf": "47fbb6751463004e8ee72fe92a9ef970f82364cd49ea496ba8c02050ac309f9e",
+      "changed_lf": true,
+      "slice": "necessary_execute_and_postcheck_slices"
+    },
+    {
+      "path": "crates/kanzei-tools/src/tracker/actions.rs",
+      "judgment": null,
+      "review": "necessary",
+      "lines_baseline": 862,
+      "lines_current": 865,
+      "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+      "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208",
+      "baseline_sha256_lf": "cb7d6813aea7981c242d3a9a2fbf6dc28377f2fe63c8fabb0e13b92833fe1204",
+      "changed_lf": true,
+      "slice": "necessary_add_slice"
+    },
+    {
+      "path": "crates/kanzei-tools/src/tracker/scheduling.rs",
+      "judgment": null,
+      "review": "necessary",
+      "lines_baseline": 1119,
+      "lines_current": 1121,
+      "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+      "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd",
+      "baseline_sha256_lf": "f43966e889c5963b265203dd94d2341d46c723cdfd4db1476e93ee5f6149a630",
+      "changed_lf": true,
+      "slice": "necessary_append_progress_slice"
+    },
+    {
+      "path": "crates/kanzei-tools/src/tracker/actions/maintenance.rs",
+      "judgment": null,
+      "review": "necessary",
+      "lines_baseline": 242,
+      "lines_current": 212,
+      "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+      "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+      "baseline_sha256_lf": "c276856186cab03b84dc1c916f8db51ce396d0c00af868a18240492bd162adbf",
+      "changed_lf": true,
+      "slice": "necessary_archive_verification_slice"
+    }
+  ],
+  "full_review_files": [
+    "crates/kanzei-memory/src/docstore/repository.rs",
+    "crates/kanzei-memory/src/docstore/archive.rs",
+    "crates/kanzei-memory/src/docstore/validation.rs"
+  ],
+  "public_coverage_modified": false,
+  "root_causes": {
+    "P0": 1,
+    "P1": 0,
+    "P2": 1
+  },
+  "verification": {
+    "standalone": {
+      "compile_exit": 0,
+      "passed": 39,
+      "failed": 0,
+      "ignored": 0,
+      "new_lower_tests": 5,
+      "source": "actual production leaf paths and exact LF test-module extraction",
+      "date_adapter": "fixed day outside storage layer",
+      "logs": [
+        "standalone-compile-final-preparation.log",
+        "standalone-tests-final-preparation.log"
+      ],
+      "initial_fixture_compile_failure_preserved": "standalone-compile.log"
+    },
+    "new_tracker_tests": {
+      "prepared": 6,
+      "executed": true,
+      "passed": 6,
+      "failed": 0
+    },
+    "negative": {
+      "executed": true,
+      "kind": "equivalent_old_logic_not_complete_old_source",
+      "cases": [
+        {
+          "name": "ledger-read-error-empty",
+          "source": "crates/kanzei-memory/src/docstore/validation.rs",
+          "test": "docstore::tests::unreadable_void_ledger_preserves_original_ssot_bytes",
+          "executed": true,
+          "negative": {
+            "sha256": "5748b8422fea8dfab8d996bed49a0b4eea4f329b60b2a603ea268fba7321653b",
+            "sha256_lf": "dd032e59348b629f15d12b14dbf3b3021daaa055946a2d3cc5803de82edeee49"
+          },
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::unreadable_void_ledger_preserves_original_ssot_bytes",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "assertion_failed": true,
+          "control_test": "docstore::tests::ledger_missing_and_unknown_text_keep_existing_contract",
+          "control_command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::ledger_missing_and_unknown_text_keep_existing_contract",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "control_returncode": 0,
+          "control_passed": true,
+          "restored": {
+            "crates/kanzei-memory/src/docstore.rs": {
+              "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+              "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+            },
+            "crates/kanzei-memory/src/docstore/repository.rs": {
+              "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+              "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+            },
+            "crates/kanzei-memory/src/docstore/archive.rs": {
+              "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+              "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+            },
+            "crates/kanzei-memory/src/docstore/validation.rs": {
+              "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+              "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+            },
+            "crates/kanzei-tools/src/tracker.rs": {
+              "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+              "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+            },
+            "crates/kanzei-tools/src/tracker/actions.rs": {
+              "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+              "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+            },
+            "crates/kanzei-tools/src/tracker/scheduling.rs": {
+              "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+              "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+            },
+            "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+              "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+              "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+            }
+          },
+          "exact_restored": true
+        },
+        {
+          "name": "next-id-defaults",
+          "source": "crates/kanzei-memory/src/docstore/repository.rs",
+          "test": "docstore::tests::identity_read_errors_never_allocate_or_restore",
+          "executed": true,
+          "negative": {
+            "sha256": "33fe4b4987320be9a6df8665850766f4a1cbfbf65514bcd681c6cc913d848dd7",
+            "sha256_lf": "077d2a2d6c7824617ae4106f06caa8acf109ccde52fc85c3e10ec93546a1efb6"
+          },
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::identity_read_errors_never_allocate_or_restore",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "assertion_failed": true,
+          "control_test": "docstore::tests::ledger_missing_and_unknown_text_keep_existing_contract",
+          "control_command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::ledger_missing_and_unknown_text_keep_existing_contract",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "control_returncode": 0,
+          "control_passed": true,
+          "restored": {
+            "crates/kanzei-memory/src/docstore.rs": {
+              "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+              "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+            },
+            "crates/kanzei-memory/src/docstore/repository.rs": {
+              "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+              "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+            },
+            "crates/kanzei-memory/src/docstore/archive.rs": {
+              "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+              "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+            },
+            "crates/kanzei-memory/src/docstore/validation.rs": {
+              "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+              "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+            },
+            "crates/kanzei-tools/src/tracker.rs": {
+              "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+              "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+            },
+            "crates/kanzei-tools/src/tracker/actions.rs": {
+              "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+              "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+            },
+            "crates/kanzei-tools/src/tracker/scheduling.rs": {
+              "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+              "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+            },
+            "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+              "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+              "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+            }
+          },
+          "exact_restored": true
+        },
+        {
+          "name": "integrity-defaults",
+          "source": "crates/kanzei-memory/src/docstore/validation.rs",
+          "test": "tracker::tests::tracker_write_and_repair_gates_refuse_unreadable_identity_sources",
+          "executed": true,
+          "negative": {
+            "sha256": "67b8e5886c11d7f5351ec088fef3281678f9b85aee09b077bedc9a1bddf13543",
+            "sha256_lf": "f836c4d13cb03378801808692411ffd02954ad98bef9f3868f7d81c2180b71d9"
+          },
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::tracker_write_and_repair_gates_refuse_unreadable_identity_sources",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "assertion_failed": true,
+          "control_test": "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+          "control_command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "control_returncode": 0,
+          "control_passed": true,
+          "restored": {
+            "crates/kanzei-memory/src/docstore.rs": {
+              "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+              "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+            },
+            "crates/kanzei-memory/src/docstore/repository.rs": {
+              "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+              "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+            },
+            "crates/kanzei-memory/src/docstore/archive.rs": {
+              "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+              "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+            },
+            "crates/kanzei-memory/src/docstore/validation.rs": {
+              "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+              "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+            },
+            "crates/kanzei-tools/src/tracker.rs": {
+              "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+              "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+            },
+            "crates/kanzei-tools/src/tracker/actions.rs": {
+              "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+              "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+            },
+            "crates/kanzei-tools/src/tracker/scheduling.rs": {
+              "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+              "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+            },
+            "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+              "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+              "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+            }
+          },
+          "exact_restored": true
+        },
+        {
+          "name": "archive-length-only",
+          "source": "crates/kanzei-memory/src/docstore/archive.rs",
+          "test": "docstore::tests::archive_field_cleanup_without_new_terminal_is_persisted",
+          "executed": true,
+          "negative": {
+            "sha256": "ef74bfc97fc12663a232c88988e62385ba8b0fdc2ccf25c9b110f6a8e5c6185f",
+            "sha256_lf": "d8df41481ce348e2e03a3b931ebb38bd2b48e6a8f4616f5144965c48ca3408b0"
+          },
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::archive_field_cleanup_without_new_terminal_is_persisted",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "assertion_failed": true,
+          "control_test": "docstore::tests::ledger_missing_and_unknown_text_keep_existing_contract",
+          "control_command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::ledger_missing_and_unknown_text_keep_existing_contract",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "control_returncode": 0,
+          "control_passed": true,
+          "restored": {
+            "crates/kanzei-memory/src/docstore.rs": {
+              "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+              "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+            },
+            "crates/kanzei-memory/src/docstore/repository.rs": {
+              "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+              "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+            },
+            "crates/kanzei-memory/src/docstore/archive.rs": {
+              "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+              "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+            },
+            "crates/kanzei-memory/src/docstore/validation.rs": {
+              "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+              "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+            },
+            "crates/kanzei-tools/src/tracker.rs": {
+              "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+              "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+            },
+            "crates/kanzei-tools/src/tracker/actions.rs": {
+              "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+              "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+            },
+            "crates/kanzei-tools/src/tracker/scheduling.rs": {
+              "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+              "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+            },
+            "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+              "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+              "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+            }
+          },
+          "exact_restored": true
+        },
+        {
+          "name": "postcheck-ignore-io",
+          "source": "crates/kanzei-tools/src/tracker.rs",
+          "test": "tracker::tests::post_write_io_failure_keeps_matching_write_receipt_and_does_not_rewrite",
+          "executed": true,
+          "negative": {
+            "sha256": "a9be35f3e2898021b7b203286b179f2ac402b3e3bbbd759185be5275015c13be",
+            "sha256_lf": "a9be35f3e2898021b7b203286b179f2ac402b3e3bbbd759185be5275015c13be"
+          },
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::post_write_io_failure_keeps_matching_write_receipt_and_does_not_rewrite",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "assertion_failed": true,
+          "control_test": "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+          "control_command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "control_returncode": 0,
+          "control_passed": true,
+          "restored": {
+            "crates/kanzei-memory/src/docstore.rs": {
+              "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+              "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+            },
+            "crates/kanzei-memory/src/docstore/repository.rs": {
+              "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+              "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+            },
+            "crates/kanzei-memory/src/docstore/archive.rs": {
+              "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+              "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+            },
+            "crates/kanzei-memory/src/docstore/validation.rs": {
+              "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+              "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+            },
+            "crates/kanzei-tools/src/tracker.rs": {
+              "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+              "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+            },
+            "crates/kanzei-tools/src/tracker/actions.rs": {
+              "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+              "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+            },
+            "crates/kanzei-tools/src/tracker/scheduling.rs": {
+              "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+              "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+            },
+            "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+              "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+              "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+            }
+          },
+          "exact_restored": true
+        },
+        {
+          "name": "postcheck-loses-write-receipt",
+          "source": "crates/kanzei-tools/src/tracker.rs",
+          "test": "tracker::tests::post_write_io_failure_keeps_matching_write_receipt_and_does_not_rewrite",
+          "executed": true,
+          "negative": {
+            "sha256": "9420df2e0ab552488d08644bbc553c45ce5a0682486011ab2c7dbed2a9f4b209",
+            "sha256_lf": "9420df2e0ab552488d08644bbc553c45ce5a0682486011ab2c7dbed2a9f4b209"
+          },
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::post_write_io_failure_keeps_matching_write_receipt_and_does_not_rewrite",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "assertion_failed": true,
+          "control_test": "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+          "control_command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "control_returncode": 0,
+          "control_passed": true,
+          "restored": {
+            "crates/kanzei-memory/src/docstore.rs": {
+              "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+              "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+            },
+            "crates/kanzei-memory/src/docstore/repository.rs": {
+              "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+              "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+            },
+            "crates/kanzei-memory/src/docstore/archive.rs": {
+              "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+              "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+            },
+            "crates/kanzei-memory/src/docstore/validation.rs": {
+              "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+              "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+            },
+            "crates/kanzei-tools/src/tracker.rs": {
+              "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+              "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+            },
+            "crates/kanzei-tools/src/tracker/actions.rs": {
+              "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+              "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+            },
+            "crates/kanzei-tools/src/tracker/scheduling.rs": {
+              "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+              "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+            },
+            "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+              "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+              "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+            }
+          },
+          "exact_restored": true
+        },
+        {
+          "name": "archive-error-loses-write-receipt",
+          "source": "crates/kanzei-tools/src/tracker.rs",
+          "test": "tracker::tests::archive_internal_verification_failure_keeps_actual_write_receipts",
+          "executed": true,
+          "negative": {
+            "sha256": "676d8b51f7664f96dccbab1474a251258afd6451b671d0f5f09e787dec080abb",
+            "sha256_lf": "676d8b51f7664f96dccbab1474a251258afd6451b671d0f5f09e787dec080abb"
+          },
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::archive_internal_verification_failure_keeps_actual_write_receipts",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "returncode": 101,
+          "assertion_failed": true,
+          "control_test": "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+          "control_command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "control_returncode": 0,
+          "control_passed": true,
+          "restored": {
+            "crates/kanzei-memory/src/docstore.rs": {
+              "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+              "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+            },
+            "crates/kanzei-memory/src/docstore/repository.rs": {
+              "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+              "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+            },
+            "crates/kanzei-memory/src/docstore/archive.rs": {
+              "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+              "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+            },
+            "crates/kanzei-memory/src/docstore/validation.rs": {
+              "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+              "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+            },
+            "crates/kanzei-tools/src/tracker.rs": {
+              "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+              "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+            },
+            "crates/kanzei-tools/src/tracker/actions.rs": {
+              "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+              "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+            },
+            "crates/kanzei-tools/src/tracker/scheduling.rs": {
+              "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+              "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+            },
+            "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+              "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+              "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+            }
+          },
+          "exact_restored": true
+        }
+      ],
+      "assertion_failed_cases": 7,
+      "legal_controls_passed": 7,
+      "all_expected": true,
+      "exact_all_8_source_bytes_restored": true,
+      "before": {
+        "crates/kanzei-memory/src/docstore.rs": {
+          "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+          "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+        },
+        "crates/kanzei-memory/src/docstore/repository.rs": {
+          "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+          "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+        },
+        "crates/kanzei-memory/src/docstore/archive.rs": {
+          "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+          "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+        },
+        "crates/kanzei-memory/src/docstore/validation.rs": {
+          "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+          "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+        },
+        "crates/kanzei-tools/src/tracker.rs": {
+          "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+          "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+        },
+        "crates/kanzei-tools/src/tracker/actions.rs": {
+          "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+          "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+        },
+        "crates/kanzei-tools/src/tracker/scheduling.rs": {
+          "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+          "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+        },
+        "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+          "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+          "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+        }
+      },
+      "after": {
+        "crates/kanzei-memory/src/docstore.rs": {
+          "sha256": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31",
+          "sha256_lf": "2ae561fbdb182da53efc7c168526737660affaf2754200988aebf659fc058c31"
+        },
+        "crates/kanzei-memory/src/docstore/repository.rs": {
+          "sha256": "7aea99afb824b35750cbf041c46d7098cc7a7d637aefe2f6a16e9546df3b9f46",
+          "sha256_lf": "1ea3783180e4fb2e50c8707f65b8d37e450ea62c9a015715dbb11323a6a8268e"
+        },
+        "crates/kanzei-memory/src/docstore/archive.rs": {
+          "sha256": "c12b0f9d5a93a8af633bd52dd434f566abd3f6a5612182674ceccf76d4e4b437",
+          "sha256_lf": "a3708108d5ef4e761c13edd667d1d3df8e61f0d121bcae42a51378555d123d65"
+        },
+        "crates/kanzei-memory/src/docstore/validation.rs": {
+          "sha256": "da036dee94b6766b54e138ba1d292964364c02c1ad6225be301e953845f9a3f9",
+          "sha256_lf": "db2bda572ca4593e6cb8fd6aad71669c830cec5af5ab70a20d6d8d26b938af37"
+        },
+        "crates/kanzei-tools/src/tracker.rs": {
+          "sha256": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b",
+          "sha256_lf": "80def7af05c7eadc598916631d0075fe7e26f8bb461b9333837860a1295a519b"
+        },
+        "crates/kanzei-tools/src/tracker/actions.rs": {
+          "sha256": "815dd63a2207255e2070c5da356e7ee78c64582aafba5297c0e3d09189ce8e00",
+          "sha256_lf": "5d5e7b6f9033fd0dfafd3ae054c64a0bfe669a1f767e6586e1b89b50e957b208"
+        },
+        "crates/kanzei-tools/src/tracker/scheduling.rs": {
+          "sha256": "d7fc014a37cd534a5d5b1d877b4f11825b5b99b61eb06f1feb9bd58c5f26e369",
+          "sha256_lf": "ecb1a6bfe3e1230f8b03209cf84fbfd82b50a16637c211dbbe83664bcf760fbd"
+        },
+        "crates/kanzei-tools/src/tracker/actions/maintenance.rs": {
+          "sha256": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0",
+          "sha256_lf": "7e683647e790e4b558579a320788bad8e650cacac7b3fa59533bf58d0e60a5c0"
+        }
+      }
+    },
+    "cargo": {
+      "authorized": true,
+      "exclusive_root_grant": true,
+      "executed": true,
+      "final_result": "pass",
+      "target_dir": "C:/Users/kanzei/Documents/kanzei code/target",
+      "mtime_refresh": {
+        "before": 422,
+        "after_negative_restore": 422
+      }
+    },
+    "all_workspace_native_ui": "not run; root unified integration owns these layers",
+    "positive": {
+      "executed": true,
+      "passed": 11,
+      "failed": 0,
+      "cases": [
+        {
+          "package": "kanzei-memory",
+          "test": "docstore::tests::unreadable_void_ledger_preserves_original_ssot_bytes",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::unreadable_void_ledger_preserves_original_ssot_bytes",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-unreadable_void_ledger_preserves_original_ssot_bytes.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-memory",
+          "test": "docstore::tests::ledger_missing_and_unknown_text_keep_existing_contract",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::ledger_missing_and_unknown_text_keep_existing_contract",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-ledger_missing_and_unknown_text_keep_existing_contract.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-memory",
+          "test": "docstore::tests::identity_read_errors_never_allocate_or_restore",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::identity_read_errors_never_allocate_or_restore",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-identity_read_errors_never_allocate_or_restore.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-memory",
+          "test": "docstore::tests::reused_id_repair_refuses_unreadable_identity_ledger",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::reused_id_repair_refuses_unreadable_identity_ledger",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-reused_id_repair_refuses_unreadable_identity_ledger.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-memory",
+          "test": "docstore::tests::archive_field_cleanup_without_new_terminal_is_persisted",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-memory",
+            "--lib",
+            "docstore::tests::archive_field_cleanup_without_new_terminal_is_persisted",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-archive_field_cleanup_without_new_terminal_is_persisted.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-tools",
+          "test": "tracker::tests::tracker_write_and_repair_gates_refuse_unreadable_identity_sources",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::tracker_write_and_repair_gates_refuse_unreadable_identity_sources",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-tracker_write_and_repair_gates_refuse_unreadable_identity_sources.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-tools",
+          "test": "tracker::tests::post_write_io_failure_keeps_matching_write_receipt_and_does_not_rewrite",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::post_write_io_failure_keeps_matching_write_receipt_and_does_not_rewrite",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-post_write_io_failure_keeps_matching_write_receipt_and_does_not_rewrite.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-tools",
+          "test": "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::post_write_content_issue_stays_warning_with_valid_receipt",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-post_write_content_issue_stays_warning_with_valid_receipt.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-tools",
+          "test": "tracker::tests::archive_internal_verification_failure_keeps_actual_write_receipts",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::archive_internal_verification_failure_keeps_actual_write_receipts",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-archive_internal_verification_failure_keeps_actual_write_receipts.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-tools",
+          "test": "tracker::tests::tracker_normal_archive_records_each_successful_path_once",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::tracker_normal_archive_records_each_successful_path_once",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-tracker_normal_archive_records_each_successful_path_once.log",
+          "exit_code": 0,
+          "passed": true
+        },
+        {
+          "package": "kanzei-tools",
+          "test": "tracker::tests::tracker_archive_field_cleanup_persists_without_new_terminal",
+          "command": [
+            "C:\\Users\\kanzei\\.codex\\worktrees\\audit-a0\\kanzei code\\output\\parallel-D1\\profile\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--offline",
+            "--target-dir",
+            "C:/Users/kanzei/Documents/kanzei code/target",
+            "-p",
+            "kanzei-tools",
+            "--lib",
+            "tracker::tests::tracker_archive_field_cleanup_persists_without_new_terminal",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "log": "positive-tracker_archive_field_cleanup_persists_without_new_terminal.log",
+          "exit_code": 0,
+          "passed": true
+        }
+      ]
+    },
+    "packages": {
+      "memory": {
+        "passed": 189,
+        "failed": 0,
+        "ignored": 0,
+        "log": "memory-tools-full-retry.log",
+        "doctest": {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 1,
+          "log": "memory-doctest.log"
+        }
+      },
+      "tools": {
+        "passed": 790,
+        "failed": 0,
+        "ignored": 3,
+        "log": "tools-full-final.log",
+        "doctest": {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      }
+    },
+    "checks": [
+      {
+        "log": "memory-doctest.log",
+        "args": [
+          "test",
+          "--offline",
+          "--target-dir",
+          "C:/Users/kanzei/Documents/kanzei code/target",
+          "-p",
+          "kanzei-memory",
+          "--doc"
+        ],
+        "name": "memory-doctest",
+        "exit_code": 0
+      },
+      {
+        "log": "check-final.log",
+        "args": [
+          "check",
+          "--offline",
+          "--target-dir",
+          "C:/Users/kanzei/Documents/kanzei code/target",
+          "--all-targets",
+          "-p",
+          "kanzei-memory",
+          "-p",
+          "kanzei-tools",
+          "-p",
+          "kanzei-app"
+        ],
+        "name": "check-final",
+        "exit_code": 0
+      },
+      {
+        "log": "clippy-final.log",
+        "args": [
+          "clippy",
+          "--offline",
+          "--target-dir",
+          "C:/Users/kanzei/Documents/kanzei code/target",
+          "--all-targets",
+          "-p",
+          "kanzei-memory",
+          "-p",
+          "kanzei-tools",
+          "-p",
+          "kanzei-app",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "name": "clippy-final",
+        "exit_code": 0
+      },
+      {
+        "log": "fmt-final.log",
+        "args": [
+          "fmt",
+          "-p",
+          "kanzei-memory",
+          "-p",
+          "kanzei-tools",
+          "-p",
+          "kanzei-app",
+          "--",
+          "--check"
+        ],
+        "name": "fmt-final",
+        "exit_code": 0
+      },
+      {
+        "log": "diff-final.log",
+        "name": "git diff --check",
+        "exit_code": 0
+      }
+    ],
+    "diff_after_schema_restore": {
+      "exit_code": 0,
+      "log": "diff-final-restored.log"
+    }
+  },
+  "evidence_directory": "output/parallel-M6",
+  "read_map_origin": "output/parallel-D3/M6-read-map.md",
+  "baseline_reproduction": "root output/parallel-M5/M6-reproduction (pre-existing executed evidence, not rerun)",
+  "scope_counts": {
+    "full": 3,
+    "necessary": 5,
+    "source_files_changed": 8,
+    "new_real_tests": 11,
+    "new_lower_tests": 5,
+    "new_tracker_tests": 6,
+    "public_coverage_changed": false
+  },
+  "root_cause_details": [
+    {
+      "id": "M6-C1",
+      "severity": "P0",
+      "cause": "shared identity SSOT read errors treated as empty, with void ledger data erasure and false clean gate",
+      "fixed": true
+    },
+    {
+      "id": "M6-C2",
+      "severity": "P2",
+      "cause": "archive field cleanup without entry-count change or new terminal is not persisted",
+      "fixed": true
+    }
+  ],
+  "historical_failures_preserved": [
+    {
+      "log": "standalone-compile.log",
+      "kind": "fixture wiring compile failure",
+      "reason": "nested module path lookup, not negative assertion or product failure"
+    },
+    {
+      "log": "negative-preparation-anchor-error.log",
+      "kind": "read-only runner preparation anchor fault",
+      "reason": "receipt helper refactor changed comment anchor; no mutation/Cargo ran"
+    },
+    {
+      "log": "memory-tools-full.log",
+      "kind": "fixture environment failure",
+      "result": "memory188pass/1fail/0ignored; tools not reached",
+      "reason": "isolated TEMP was inside Git worktree; old MemoryStore no-git fixture discovered ancestor repo",
+      "corrected": "tree-outside self-created TEMP; same old test1pass then fullmemory189pass"
+    },
+    {
+      "log": "memory-tools-full-retry.log",
+      "kind": "isolated tool cache initialization failure",
+      "result": "memory189pass/0fail; tools789pass/1fail/3ignored",
+      "reason": "MiKTeX first parallel pdflatex.fmt initialization failed (memory dump file not found), despite parent AppData cache reuse; child engine derives own M6 profile",
+      "engine_log": "miktex-first-full-runtime.log",
+      "corrected": "same old multipage test1pass with initialized self cache then fulltools790pass/0fail/3ignored"
+    }
+  ],
+  "environment": {
+    "KANZEI_HOME": "output/parallel-M6/profile/.kanzei",
+    "HOME_USERPROFILE": "output/parallel-M6/profile",
+    "TEMP_TMP_final": "C:/Users/kanzei/.codex/audit-fixtures/parallel-M6/temp",
+    "parent_AppData_full_tool_runtime": "output/parallel-D2/profile/AppData/{Roaming,Local} self-owned initialized cache only",
+    "latex_child_profile": "output/parallel-M6/profile/AppData self-initialized by production environment",
+    "CARGO_HOME": "output/parallel-D1/profile/.cargo",
+    "RUSTUP_HOME": "output/parallel-D1/profile/.rustup",
+    "KANZEI_PLAYWRIGHT_ROOT": "C:/Users/kanzei/Documents/kanzei code (existing installed Playwright locator)",
+    "real_user_config_or_credentials_read": false
+  },
+  "generated_schema_restore": [
+    {
+      "path": "crates/kanzei-app/gen/schemas/desktop-schema.json",
+      "generated_sha256": "f68a9c570ecff07ac6826145d33b966d6fc02f7d680967f44437268b08a6ba78",
+      "expected_checkout_sha256": "6779e6ad6f77fdf151c329c517d38bccf431204066bd9d3146aa99bf4ec87baa",
+      "expected_sha256_lf": "f68a9c570ecff07ac6826145d33b966d6fc02f7d680967f44437268b08a6ba78",
+      "restored_sha256": "6779e6ad6f77fdf151c329c517d38bccf431204066bd9d3146aa99bf4ec87baa",
+      "exact_initial_checkout_restored": true
+    },
+    {
+      "path": "crates/kanzei-app/gen/schemas/windows-schema.json",
+      "generated_sha256": "f68a9c570ecff07ac6826145d33b966d6fc02f7d680967f44437268b08a6ba78",
+      "expected_checkout_sha256": "6779e6ad6f77fdf151c329c517d38bccf431204066bd9d3146aa99bf4ec87baa",
+      "expected_sha256_lf": "f68a9c570ecff07ac6826145d33b966d6fc02f7d680967f44437268b08a6ba78",
+      "restored_sha256": "6779e6ad6f77fdf151c329c517d38bccf431204066bd9d3146aa99bf4ec87baa",
+      "exact_initial_checkout_restored": true
+    }
+  ],
+  "evidence_snapshot": {
+    "selected_files_including_index": 65,
+    "selected_bytes_including_index": 791900,
+    "index": "output/parallel-M6/evidence-index.json",
+    "index_sha256": "684be3aae31dae439983fe91e959da5d96f6f212f573e8545240593e6365ee87",
+    "binary_profile_fixture_exclusion_explicit": true
+  },
+  "files_review_keys": {
+    "full": [
+      "crates/kanzei-memory/src/docstore/repository.rs",
+      "crates/kanzei-memory/src/docstore/archive.rs",
+      "crates/kanzei-memory/src/docstore/validation.rs"
+    ],
+    "necessary": [
+      "crates/kanzei-memory/src/docstore.rs",
+      "crates/kanzei-tools/src/tracker.rs",
+      "crates/kanzei-tools/src/tracker/actions.rs",
+      "crates/kanzei-tools/src/tracker/actions/maintenance.rs",
+      "crates/kanzei-tools/src/tracker/scheduling.rs"
+    ]
+  }
+}

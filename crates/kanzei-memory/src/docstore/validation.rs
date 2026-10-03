@@ -25,11 +25,25 @@ impl DocStore {
     }
 
     /// 已废弃编号 → 理由。解析宽容:`- D-171: 理由` 形式,认不出的行忽略。
-    pub fn voided_ids(&self) -> std::collections::BTreeMap<u32, String> {
+    pub fn voided_ids(&self) -> std::io::Result<std::collections::BTreeMap<u32, String>> {
+        let text = self.read_void_ledger()?;
+        Ok(self.parse_voided_ids(text.as_deref().unwrap_or_default()))
+    }
+
+    fn read_void_ledger(&self) -> std::io::Result<Option<String>> {
+        let path = self.ledger_file();
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(Some(text)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(std::io::Error::new(
+                error.kind(),
+                format!("cannot read {}: {error}", path.display()),
+            )),
+        }
+    }
+
+    fn parse_voided_ids(&self, text: &str) -> std::collections::BTreeMap<u32, String> {
         let mut out = std::collections::BTreeMap::new();
-        let Ok(text) = std::fs::read_to_string(self.ledger_file()) else {
-            return out;
-        };
         for line in text.lines() {
             let Some(body) = line.trim().strip_prefix("- ") else {
                 continue;
@@ -71,11 +85,15 @@ impl DocStore {
                 "{id} 仍存在于活动或归档文档中,不能作为空洞注销;要终结它请用 close/archive"
             )));
         }
-        if self.voided_ids().contains_key(&number) {
+        let existing = self.read_void_ledger()?;
+        if self
+            .parse_voided_ids(existing.as_deref().unwrap_or_default())
+            .contains_key(&number)
+        {
             return Ok(());
         }
         let path = self.ledger_file();
-        let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        let mut text = existing.unwrap_or_else(|| {
             format!(
                 "# {} ID Ledger\n\n引擎维护:记录被主动废弃的编号及理由。\n\
                  缺号只有登记在此才算已交代;其余缺号 = 账实不符,必须查清。\n",
@@ -113,7 +131,7 @@ impl DocStore {
         {
             return Err(invalid(format!("{} 已存在,不是空洞", entry.id)));
         }
-        if self.voided_ids().contains_key(&number) {
+        if self.voided_ids()?.contains_key(&number) {
             return Err(invalid(format!(
                 "{} 已登记为主动废弃,先从 {} 里删掉那一行再补条目",
                 entry.id,
@@ -142,8 +160,8 @@ impl DocStore {
     /// 曾被分配却没有条目,可能是丢了,也可能是合法撤销——工具无法从文件本身分辨,
     /// 所以只报"未交代",并同时给出两条**结构化**的合法出路(补回 / 注销),
     /// 而不是逼模型伪造一个墓碑条目来消音。
-    pub fn integrity_issues(&self, active: &[Entry]) -> Vec<String> {
-        let archived = self.load_archive().unwrap_or_default();
+    pub fn integrity_issues(&self, active: &[Entry]) -> std::io::Result<Vec<String>> {
+        let archived = self.load_archive()?;
         let parse_num = |id: &str| {
             id.strip_prefix(self.kind.prefix)
                 .and_then(|rest| rest.strip_prefix('-'))
@@ -153,7 +171,7 @@ impl DocStore {
             active.iter().filter_map(|e| parse_num(&e.id)).collect();
         let archive_ids: std::collections::BTreeSet<u32> =
             archived.iter().filter_map(|e| parse_num(&e.id)).collect();
-        let voided = self.voided_ids();
+        let voided = self.voided_ids()?;
         let mut issues = Vec::new();
         // 完整性不仅是 ID 集合:标题状态标记、非法 severity 后缀和与 header
         // 冲突的旧「状态」字段都会改变调度/统计语义,必须在同一门禁中显式暴露。
@@ -216,7 +234,7 @@ impl DocStore {
             .max()
             .copied()
         else {
-            return issues;
+            return Ok(issues);
         };
         let missing: Vec<u32> = (1..=max)
             .filter(|n| {
@@ -235,7 +253,7 @@ impl DocStore {
                 self.kind.rel_path,
             ));
         }
-        issues
+        Ok(issues)
     }
 
     /// 状态流转校验:前进(列表序)或进终态;后退/未知状态拒绝。

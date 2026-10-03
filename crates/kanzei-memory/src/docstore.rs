@@ -543,7 +543,7 @@ mod tests {
         )
         .unwrap();
 
-        let issues = store.integrity_issues(&[]);
+        let issues = store.integrity_issues(&[]).unwrap();
         assert_eq!(issues.len(), 3, "修复前应同时暴露三种污染: {issues:?}");
         store
             .correct_archived_terminal("D-001", "fixed", "D-569 存量完整性修复")
@@ -552,7 +552,7 @@ mod tests {
         assert_eq!(repaired[0].title, "旧缺陷");
         assert_eq!(repaired[0].status, "fixed");
         assert!(!repaired[0].fields.iter().any(|(key, _)| key == "状态"));
-        assert!(store.integrity_issues(&[]).is_empty());
+        assert!(store.integrity_issues(&[]).unwrap().is_empty());
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -591,7 +591,7 @@ mod tests {
                 fields: vec![],
             },
         ];
-        assert_eq!(store.next_id(&entries), "D-010");
+        assert_eq!(store.next_id(&entries).unwrap(), "D-010");
         assert!(store.transition_allowed("open", "fixing").is_ok());
         assert!(store.transition_allowed("open", "wontfix").is_ok());
         assert!(store.transition_allowed("fixing", "open").is_err());
@@ -626,7 +626,7 @@ mod tests {
         let archived = store.load_archive().unwrap();
         assert_eq!(archived.len(), 2);
         // 归档后 ID 分配仍延续全局最大值,不复用 R-003。
-        assert_eq!(store.next_id(&live), "R-004");
+        assert_eq!(store.next_id(&live).unwrap(), "R-004");
         // 幂等:再跑一次不动任何东西。
         assert!(store.archive_terminal().unwrap().is_empty());
         std::fs::remove_dir_all(&dir).ok();
@@ -1004,7 +1004,7 @@ mod tests {
             "# Defects Archive\n\n## D-002 done [fixed]\n\n## D-004 dup [fixed]\n",
         )
         .unwrap();
-        let issues = store.integrity_issues(&store.load().unwrap());
+        let issues = store.integrity_issues(&store.load().unwrap()).unwrap();
         assert_eq!(issues.len(), 2, "{issues:?}");
         assert!(issues[0].contains("D-004"), "{issues:?}");
         assert!(issues[1].contains("D-003"), "{issues:?}");
@@ -1026,7 +1026,10 @@ mod tests {
             "# Defects Archive\n\n## D-002 done [fixed]\n",
         )
         .unwrap();
-        assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
+        assert!(store
+            .integrity_issues(&store.load().unwrap())
+            .unwrap()
+            .is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1192,7 +1195,7 @@ mod tests {
                     let store = DocStore::open(&dir, &REQUIREMENTS);
                     let _lock = store.lock().unwrap();
                     let mut entries = store.load().unwrap();
-                    let id = store.next_id(&entries);
+                    let id = store.next_id(&entries).unwrap();
                     entries.push(造条目(&id, "todo"));
                     store.save(&entries).unwrap();
                     id
@@ -1208,6 +1211,7 @@ mod tests {
         assert!(
             DocStore::open(&dir, &REQUIREMENTS)
                 .integrity_issues(&落盘)
+                .unwrap()
                 .is_empty(),
             "并发写之后完整性必须干净"
         );
@@ -1258,6 +1262,157 @@ mod tests {
     /// R-252 验收①:IDEAS 文档线状态机 inbox→split/dropped 有测试。
     /// 前置语义:录入不过模型原样收下(inbox 是初始态)、拆解后转 split、
     /// 用户放弃转 dropped;split/dropped 是终态(不再回流)。
+    fn m6_store(tag: &str) -> (PathBuf, DocStore) {
+        let dir = 并发夹具(tag);
+        let store = DocStore::open(&dir, &DEFECTS);
+        store.save(&[造条目("D-001", "open")]).unwrap();
+        std::fs::write(store.archive_file(), "# Defects Archive\n").unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn unreadable_void_ledger_preserves_original_ssot_bytes() {
+        let (dir, store) = m6_store("m6-void-ledger");
+        let bytes = b"# Defects ID Ledger\n- D-999: existing proof\n\xff";
+        std::fs::write(store.ledger_file(), bytes).unwrap();
+        let active = std::fs::read(&store.path).unwrap();
+        let archive = std::fs::read(store.archive_file()).unwrap();
+        let result = store.void_id("D-002", "withdrawn with evidence");
+        assert!(
+            result.is_err(),
+            "an unreadable ledger must not be overwritten"
+        );
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("defects-ids.md"));
+        assert_eq!(std::fs::read(store.ledger_file()).unwrap(), bytes);
+        assert_eq!(std::fs::read(&store.path).unwrap(), active);
+        assert_eq!(std::fs::read(store.archive_file()).unwrap(), archive);
+        assert!(store.voided_ids().is_err());
+        assert!(store.next_id(&store.load().unwrap()).is_err());
+        assert!(store.integrity_issues(&store.load().unwrap()).is_err());
+        // Repairing the actual source permits the same explicit operation again.
+        std::fs::write(store.ledger_file(), b"# Ledger\n- D-999: existing proof\n").unwrap();
+        store.void_id("D-002", "withdrawn with evidence").unwrap();
+        assert!(store.voided_ids().unwrap().contains_key(&999));
+        assert!(store.voided_ids().unwrap().contains_key(&2));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn ledger_missing_and_unknown_text_keep_existing_contract() {
+        let (dir, store) = m6_store("m6-ledger-contract");
+        assert!(store.voided_ids().unwrap().is_empty());
+        assert_eq!(store.next_id(&store.load().unwrap()).unwrap(), "D-002");
+        store
+            .void_id("D-003", "withdrawn initial allocation")
+            .unwrap();
+        let mut old = std::fs::read(store.ledger_file()).unwrap();
+        old.extend_from_slice(b"\nUser notes and unknown markdown remain here.\n");
+        std::fs::write(store.ledger_file(), &old).unwrap();
+        store
+            .void_id("D-005", "withdrawn second allocation")
+            .unwrap();
+        let updated = std::fs::read(store.ledger_file()).unwrap();
+        assert!(updated.starts_with(&old));
+        store
+            .void_id("D-005", "duplicate call with a different reason")
+            .unwrap();
+        assert_eq!(std::fs::read(store.ledger_file()).unwrap(), updated);
+        let active = std::fs::read(&store.path).unwrap();
+        assert!(store.restore_entry(造条目("D-003", "open")).is_err());
+        assert_eq!(std::fs::read(&store.path).unwrap(), active);
+        store.restore_entry(造条目("D-002", "open")).unwrap();
+        assert_eq!(store.load().unwrap()[1].id, "D-002");
+        assert_eq!(store.next_id(&store.load().unwrap()).unwrap(), "D-006");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn identity_read_errors_never_allocate_or_restore() {
+        for ledger in [false, true] {
+            for directory in [false, true] {
+                let (dir, store) = m6_store("m6-id-read-error");
+                let path = if ledger {
+                    store.ledger_file()
+                } else {
+                    store.archive_file()
+                };
+                if path.exists() {
+                    std::fs::remove_file(&path).unwrap();
+                }
+                if directory {
+                    std::fs::create_dir(&path).unwrap();
+                } else {
+                    std::fs::write(&path, b"existing identity evidence\xff").unwrap();
+                }
+                let active = std::fs::read(&store.path).unwrap();
+                let entries = store.load().unwrap();
+                let result = store.next_id(&entries);
+                assert!(result.is_err(), "read errors must block id allocation");
+                let error = result.unwrap_err();
+                assert_ne!(error.kind(), std::io::ErrorKind::NotFound);
+                assert!(error
+                    .to_string()
+                    .contains(path.file_name().unwrap().to_str().unwrap()));
+                assert!(store.integrity_issues(&entries).is_err());
+                assert!(store.restore_entry(造条目("D-002", "open")).is_err());
+                assert_eq!(std::fs::read(&store.path).unwrap(), active);
+                if directory {
+                    assert!(path.is_dir());
+                } else {
+                    assert_eq!(
+                        std::fs::read(&path).unwrap(),
+                        b"existing identity evidence\xff"
+                    );
+                }
+                std::fs::remove_dir_all(dir).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn reused_id_repair_refuses_unreadable_identity_ledger() {
+        let (dir, store) = m6_store("m6-reused-id-read-error");
+        let archive = b"# Defects Archive\n\n## D-001 history [fixed]\n- proof: old\n";
+        std::fs::write(store.archive_file(), archive).unwrap();
+        std::fs::write(store.ledger_file(), b"- D-999: existing proof\n\xff").unwrap();
+        let active = std::fs::read(&store.path).unwrap();
+        assert!(store.repair_reused_archived_id("D-001").is_err());
+        assert_eq!(std::fs::read(store.archive_file()).unwrap(), archive);
+        assert_eq!(std::fs::read(&store.path).unwrap(), active);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn archive_field_cleanup_without_new_terminal_is_persisted() {
+        let (dir, store) = m6_store("m6-archive-fields");
+        std::fs::write(store.archive_file(), "# Defects Archive\n\n## D-002 history [fixed]\n- 说明: same\n- 说明: same\n- 验证: first proof\n- 验证: second proof\n- 实测:\n  raw continuation proof\n- 取活依据: stale snapshot\n").unwrap();
+        assert!(store.archive_terminal().unwrap().is_empty());
+        let reopened = DocStore::open(&dir, &DEFECTS);
+        let entries = reopened.load_archive().unwrap();
+        let entry = &entries[0];
+        assert_eq!(
+            entry.fields.iter().filter(|(key, _)| key == "说明").count(),
+            1,
+            "field normalization must persist even when Entry count is unchanged"
+        );
+        assert_eq!(
+            entry.fields.iter().filter(|(key, _)| key == "验证").count(),
+            2
+        );
+        assert!(!entry.fields.iter().any(|(key, _)| key == "取活依据"));
+        let archive = std::fs::read(reopened.archive_file()).unwrap();
+        assert!(String::from_utf8(archive.clone())
+            .unwrap()
+            .contains("  raw continuation proof"));
+        let active = std::fs::read(&reopened.path).unwrap();
+        assert!(reopened.archive_terminal().unwrap().is_empty());
+        assert_eq!(std::fs::read(reopened.archive_file()).unwrap(), archive);
+        assert_eq!(std::fs::read(&reopened.path).unwrap(), active);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn ideas_state_machine_inbox_to_split_or_dropped() {
         let kind: &DocKind = &IDEAS;
@@ -1303,7 +1458,7 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].status, "inbox");
         // ID 前缀与下一个编号正确。
-        assert_eq!(store.next_id(&entries), "I-002");
+        assert_eq!(store.next_id(&entries).unwrap(), "I-002");
         std::fs::remove_dir_all(dir).ok();
     }
 }

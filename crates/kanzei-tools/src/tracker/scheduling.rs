@@ -38,7 +38,9 @@ pub fn append_progress(
     let mut entries = store
         .load()
         .map_err(|e| format!("cannot read {}: {e}", store.path.display()))?;
-    let issues = store.integrity_issues(&entries);
+    let issues = store
+        .integrity_issues(&entries)
+        .map_err(|error| format!("cannot verify {} before writing: {error}", kind.rel_path))?;
     if !issues.is_empty() {
         return Err(format!(
             "REFUSING to write {}: tracker integrity is broken.\n{}",
