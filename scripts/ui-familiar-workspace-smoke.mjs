@@ -42,7 +42,7 @@ try {
   check(await page.locator("#project-chat-work .work-focus-slot").count() === 2, "Chat work list contains only current work and next candidate");
   check(!await page.locator(".project-work-toggle").isVisible(), "Activity panel does not restore the retired requirements drawer toggle");
   check(await page.locator("#subagent-control").isVisible(), "Subagents are directly reachable in the composer");
-  check(!await page.locator("#composer-more").isVisible() && await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible(), "Skills and Goal replace the retired More menu");
+  check(!await page.locator("#composer-more").isVisible() && !await page.locator("#skills-picker").count() && await page.locator("#skills-nav").isVisible() && await page.locator("#goal-picker").isVisible(), "Global Skills lives in the rail while Goal stays in the conversation");
   await page.locator("#prompt").fill("切换页面后保留的草稿");
   await page.locator('[data-work-surface="project"]').click();
   await page.locator(".management-row").first().waitFor();

@@ -311,7 +311,7 @@ try {
   }, async (app) => {
     const { page } = app;
     check(!await page.locator("#composer-more").isVisible() && !await page.locator("#runtime-indicator").isVisible(), "runtime-chip: obsolete runtime operations stay out of the composer");
-    check(await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible(), "runtime-chip: Skills and Goal remain available with a detached runtime");
+    check(await page.locator("#skills-nav").isVisible() && await page.locator("#goal-picker").isVisible(), "runtime-chip: Global Skills and Goal remain available with a detached runtime");
   });
 
   // ---- 存储整理结果:人读的大小(KB/MB),不是「18432 bytes」 ----

@@ -235,10 +235,8 @@ pub(crate) async fn assemble_run(
     }
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(mode.agent_name.as_deref())?.clone();
-    crate::skills::append_bound_instructions(
+    crate::skills::append_explicit_instructions(
         &mut agent.system,
-        &project_root,
-        &request.session_id,
         request
             .promoted_input
             .as_ref()

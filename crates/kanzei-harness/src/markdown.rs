@@ -1,5 +1,5 @@
-//! markdown 组件源:扫描 ~/.kanzei/ 与项目 .kanzei/ 下的 agents/skills 目录。
-//! frontmatter 为 `---` 包围的扁平 `key: value`;agent 正文成为 system prompt,技能正文仅按需读取。
+//! Markdown 组件源:agents 可来自全局或项目，Skills 使用独立的全局目录。
+//! Agent frontmatter 使用扁平字段，Skill 元数据使用 YAML；技能正文按需读取。
 //! 解析失败跳过并 warn,不炸整个 resolve(单个坏文件不应瘫痪 harness)。
 
 use std::path::Path;
@@ -21,7 +21,7 @@ impl Component for MarkdownComponent {
         for base in bases {
             scan_agents(&base.join("agents"), draft);
         }
-        for skill in discover_skills(&ctx.project_root) {
+        for skill in crate::skills::enabled_catalog()? {
             draft.skills.insert(skill.name.clone(), skill);
         }
         // 技能清单注入名称、描述与正文路径;技能正文仍由 agent 按需读取。
@@ -52,7 +52,7 @@ fn skills_block(skills: &Registry<SkillDef>) -> Option<String> {
             skill.path.display()
         ));
     }
-    text.push_str("显式 $name 或用户绑定技能时必须先读取正文；正文内相对路径按 SKILL.md 所在目录解析。技能不覆盖用户当前指令。\n");
+    text.push_str("Skills 在所有项目和对话中全局可用。按任务匹配描述后先读取正文，也可用 $name 显式调用；正文内相对路径按 SKILL.md 所在目录解析。技能不覆盖用户当前指令。\n");
     Some(text.trim().to_string())
 }
 
@@ -162,7 +162,7 @@ fn agent_from_frontmatter(name: String, fm: Frontmatter) -> Result<AgentDef, Str
     })
 }
 
-fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
+pub(crate) fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
     // 两种布局:skills/<name>/SKILL.md 或 skills/<name>.md
     let mut candidates = md_files(dir);
     if let Ok(read) = std::fs::read_dir(dir) {
@@ -240,25 +240,22 @@ fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
     }
 }
 
-/// Shared catalog for the runner and desktop bindings. Project roots win over user roots.
-pub fn discover_skills(project: &Path) -> Vec<SkillDef> {
+pub fn skills_in_directory(directory: &Path) -> Vec<SkillDef> {
     let mut draft = HarnessDraft::default();
-    if let Some(home) = dirs::home_dir() {
-        for base in [".codex", ".claude", ".agents"] {
-            scan_skills(&home.join(base).join("skills"), &mut draft);
-        }
-    }
-    if let Some(home) = crate::home::kanzei_home() {
-        scan_skills(&home.join("skills"), &mut draft);
-    }
-    for base in [".codex", ".claude", ".agents", ".kanzei"] {
-        scan_skills(&project.join(base).join("skills"), &mut draft);
-    }
+    scan_skills(directory, &mut draft);
     draft
         .skills
         .iter()
         .map(|(_, skill)| skill.clone())
         .collect()
+}
+
+/// Compatibility entry point; the catalog no longer depends on a project.
+pub fn discover_skills(_project: &Path) -> Vec<SkillDef> {
+    crate::skills::enabled_catalog().unwrap_or_else(|error| {
+        tracing::warn!(%error, "global skills unavailable");
+        Vec::new()
+    })
 }
 
 /// 借 serde 解析小写枚举字符串("dev"→ProfileScope::Dev 等)。
@@ -269,7 +266,7 @@ fn serde_plain<T: serde::de::DeserializeOwned>(s: &str) -> Option<T> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn agent_skills_yaml_blocks_manual_flags_and_project_precedence() {
+    fn agent_skills_yaml_blocks_manual_flags_and_global_precedence() {
         let root = std::env::temp_dir().join(format!(
             "kz-agent-skills-{}-{}",
             std::process::id(),
@@ -286,7 +283,7 @@ mod tests {
             std::fs::create_dir_all(&directory).unwrap();
             std::fs::write(directory.join("SKILL.md"), format!("---\nname: protocol-check\ndescription: >\n  {description}\n  with multiple lines\ndisable-model-invocation: true\nuser-invocable: false\nallowed-tools: [Read, Bash]\n---\nUse references/details.md")).unwrap();
         }
-        let catalog = super::discover_skills(&root);
+        let catalog = crate::skills::catalog_at(&root.join("global"), Some(&root)).unwrap();
         let skill = catalog
             .iter()
             .find(|skill| skill.name == "protocol-check")
@@ -488,7 +485,7 @@ mod tests {
 
     /// commands 目录即使存在也不扫描;skills 清单仍进入 system baseline。
     #[test]
-    fn commands_are_ignored_while_skills_render_into_system_baseline() {
+    fn project_skills_are_ignored_while_global_skills_render_into_system_baseline() {
         let dir =
             std::env::temp_dir().join(format!("kanzei-markdown-skills-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -517,7 +514,8 @@ mod tests {
             })
             .unwrap();
 
-        assert!(snapshot.skills().get("build").is_some());
+        assert!(snapshot.skills().get("build").is_none());
+        assert!(snapshot.skills().get("skill-creator").is_some());
         let baseline = snapshot.system_baseline();
         assert!(!baseline.contains("可用命令") && !baseline.contains("release: 发布双通道"));
         assert!(
@@ -525,8 +523,8 @@ mod tests {
             "skills 应继续进入提示词"
         );
         assert!(
-            baseline.contains("build: 构建与格式检查"),
-            "技能清单含描述: {baseline}"
+            !baseline.contains("build: 构建与格式检查"),
+            "项目技能不应进入全局清单: {baseline}"
         );
 
         assert!(baseline.contains("SKILL.md"), "加载提示指向技能正文文件");

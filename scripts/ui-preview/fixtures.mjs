@@ -917,6 +917,20 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     return null;
   };
 
+  state.skills = [
+    ["skill-creator", "技能创建", "把工作流程整理为可复用技能"],
+    ["code-review", "代码审查", "审查代码差异和行为回归"],
+    ["debugging", "问题调试", "结合复现和日志定位错误"],
+    ["frontend-design", "网页设计", "创建和改进网页与交互界面"],
+    ["web-research", "资料研究", "核对资料并保留可靠来源"],
+    ["documents", "Word 文档", "创建和编辑排版文档"],
+    ["spreadsheets", "电子表格", "处理数据、公式和工作簿"],
+    ["presentations", "演示文稿", "创建和编辑演示文稿"],
+    ["pdf", "PDF 处理", "读取、生成和处理 PDF"],
+  ].map(([name, displayName, description]) => ({ name, displayName, description, source: "builtin", enabled: true,
+    editable: false, userInvocable: true, manualOnly: false, path: `C:/preview/.kanzei/builtin-skills/${name}/SKILL.md`,
+    instructions: `# ${displayName}\n\n按用户提供的资料完成任务，验证输出并交付文件。`, revision: "fixture:1" }));
+  const skill = name => { const found = state.skills.find(skill => skill.name === name); if (!found) throw `Skill 不存在：${name}`; return found; };
   const commands = {
     // ---- 启动与全局
     app_info: { version: "0.9.26", build: "0.9.26 2009581f 2026-09-26" },
@@ -1168,9 +1182,25 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     // sequence=null 读当前段;点了「新对话」(conversation_clear)的线路当前段为空,旧段仍可按 sequence 打开。
     delivered_files: [],
     delivery_manage: [],
-    skills_list: [],
-    skills_get_binding: [],
-    skills_bind: ({ names }) => names,
+    skills_list: () => state.skills,
+    skills_read: ({ name }) => ({ ...skill(name) }),
+    skills_set_enabled: ({ name, enabled }) => { skill(name).enabled = enabled; return state.skills; },
+    skills_save: ({ draft, expectedHash }) => {
+      const previous = state.skills.find(skill => skill.name === draft.name);
+      if (previous && (!previous.editable || previous.revision !== expectedHash)) throw "Skill 已被修改，请刷新后重试";
+      const saved = { ...draft, displayName: draft.name, source: "personal", editable: true, enabled: previous?.enabled ?? true, revision: `fixture:${Date.now()}` };
+      state.skills = state.skills.filter(skill => skill.name !== draft.name); state.skills.push(saved); return saved;
+    },
+    skills_delete: ({ name }) => { state.skills = state.skills.filter(skill => skill.name !== name); return state.skills; },
+    skills_duplicate: ({ name, newName }) => {
+      const copied = { ...skill(name), name: newName, displayName: newName, source: "personal", editable: true, revision: "fixture:copy" };
+      state.skills.push(copied); return copied;
+    },
+    skills_import: () => {
+      const imported = { name: "imported-skill", displayName: "imported-skill", description: "导入的技能", instructions: "Read references/source.md.", source: "personal", enabled: true, editable: true, userInvocable: true, revision: "fixture:import" };
+      state.skills.push(imported); return imported;
+    },
+    skills_generate: () => ({ name: "weekly-review", description: "按周报模板整理本周工作与下周计划", instructions: "读取用户提供的周报模板，保留原有结构，根据实际资料整理进展，不编造数据。", userInvocable: true }),
     batch_evidence: [],
     save_delivered_file: null,
     conversation_get: ({ processId, sequence }) => (state.cleared.has(processId) && sequence == null) ? []

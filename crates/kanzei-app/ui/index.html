@@ -14,6 +14,9 @@
       <button type="button" id="rail-sidebar-toggle" class="activity-item rail-toggle" title="打开/收起侧栏" data-i18n-title="打开/收起侧栏" aria-label="打开或收起侧栏" data-i18n-aria-label="打开或收起侧栏" aria-expanded="true">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
+      <button type="button" id="skills-nav" class="activity-item" data-view="skills" title="Skills" aria-label="Skills" aria-controls="view-skills">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5.5h6a2 2 0 0 1 2 2v13a3 3 0 0 0-3-2H4V5.5Zm16 0h-6a2 2 0 0 0-2 2v13a3 3 0 0 1 3-2h5V5.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m15 10 1.2 1.2L18.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
       <button type="button" class="activity-item" data-view="chat" title="对话" data-i18n-title="对话" aria-label="切换到对话" data-i18n-aria-label="切换到对话" aria-current="page">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </button>
@@ -234,7 +237,7 @@
                 <span class="kz-chev" aria-hidden="true"></span>
               </button>
             </div>
-            <!-- 子代理准入开关:模型按任务需要委派,执行批次与自主推进不强制固定勘察/复核。 -->
+            <!-- 子代理协作倾向：工作流由模型决定。 -->
             <div id="subagent-control" class="subagent-control">
               <label id="process-subagents-wrap" title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。" data-i18n-title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。">
                 <select id="process-subagents" class="kz-ctl" aria-label="子代理" data-i18n-aria-label="子代理" aria-describedby="process-subagents-value subagent-control-state">
@@ -261,7 +264,6 @@
           </div>
           <div id="file-suggestions" class="k-surface k-popover file-suggestions hidden" popover="manual" data-placement="top-start" role="listbox"></div>
           <div id="goal-menu" class="k-surface k-menu goal-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="Goal"></div>
-          <div id="skills-menu" class="k-surface k-menu skills-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="Skills"></div>
           <div id="composer-queue" class="composer-queue hidden">
             <span class="dim"><span data-i18n-key="排队输入">排队输入</span> <em id="queue-count"></em></span>
             <div id="queue-list" class="queue-list"></div>
@@ -715,6 +717,50 @@
               <div id="research-run-cards" class="research-run-cards"></div>
             </section>
             <div id="research-report" class="md research-report"></div>
+          </div>
+        </div>
+      </div>
+      <div id="view-skills" class="view">
+        <div id="skills-scroll">
+          <header class="skills-page-header">
+            <div><h1>Skills</h1><p class="dim" data-i18n-key="在所有项目和对话中使用，按任务自动调用。">在所有项目和对话中使用，按任务自动调用。</p></div>
+            <div class="skills-page-actions">
+              <button type="button" id="skills-refresh" class="ghost" data-i18n-key="刷新">刷新</button>
+              <button type="button" id="skills-import" class="ghost" data-i18n-key="导入 Skill">导入 Skill</button>
+              <button type="button" id="skills-create" class="ghost" data-i18n-key="创建 Skill">创建 Skill</button>
+              <button type="button" id="skills-generate-open" class="primary" data-i18n-key="AI 生成">AI 生成</button>
+            </div>
+          </header>
+          <div class="skills-library-toolbar">
+            <div id="skills-filters" role="group" aria-label="技能来源" data-i18n-aria-label="技能来源">
+              <button type="button" class="ghost" data-skill-filter="all" aria-pressed="true" data-i18n-key="全部">全部</button>
+              <button type="button" class="ghost" data-skill-filter="builtin" aria-pressed="false" data-i18n-key="内置">内置</button>
+              <button type="button" class="ghost" data-skill-filter="personal" aria-pressed="false" data-i18n-key="自定义">自定义</button>
+              <button type="button" class="ghost" data-skill-filter="external" aria-pressed="false" data-i18n-key="外部">外部</button>
+            </div>
+            <input id="skills-search" type="search" placeholder="搜索技能" data-i18n-placeholder="搜索技能" aria-label="搜索技能" data-i18n-aria-label="搜索技能" />
+          </div>
+          <p id="skills-status" class="dim" role="status" aria-live="polite"></p>
+          <div class="skills-library-layout">
+            <div id="skills-library-list" aria-label="技能列表" data-i18n-aria-label="技能列表"></div>
+            <section id="skills-editor" class="skills-editor" hidden aria-labelledby="skills-editor-title">
+              <header><h2 id="skills-editor-title" data-i18n-key="创建 Skill">创建 Skill</h2><button type="button" id="skills-editor-close" class="ghost" data-i18n-key="关闭">关闭</button></header>
+              <div id="skills-generation" hidden>
+                <label for="skills-generation-prompt" data-i18n-key="描述你希望技能做什么">描述你希望技能做什么</label>
+                <textarea id="skills-generation-prompt" rows="3" maxlength="8000" placeholder="例如：按照我的周报模板整理本周的工作和下周计划" data-i18n-placeholder="例如：按照我的周报模板整理本周的工作和下周计划"></textarea>
+                <button type="button" id="skills-generate" class="ghost" data-i18n-key="生成草稿">生成草稿</button>
+                <small class="dim" data-i18n-key="使用全局主模型生成，检查草稿后保存。">使用全局主模型生成，检查草稿后保存。</small>
+              </div>
+              <form id="skills-editor-form">
+                <label for="skill-name" data-i18n-key="技能名称">技能名称</label><input id="skill-name" required maxlength="64" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="weekly-review" spellcheck="false" autocomplete="off" />
+                <label for="skill-description" data-i18n-key="用途与触发条件">用途与触发条件</label><textarea id="skill-description" rows="3" required maxlength="1024"></textarea>
+                <label for="skill-instructions" data-i18n-key="技能指令">技能指令</label><textarea id="skill-instructions" rows="14" required spellcheck="false"></textarea>
+                <label class="skill-option"><input id="skill-manual-only" type="checkbox" /><span data-i18n-key="仅在手动调用时使用">仅在手动调用时使用</span></label>
+                <p id="skills-editor-source" class="dim"></p>
+                <p id="skills-editor-error" class="skills-error" role="alert" hidden></p>
+                <footer><button type="button" id="skills-copy" class="ghost" data-i18n-key="复制为自定义">复制为自定义</button><button type="button" id="skills-delete" class="ghost danger" data-i18n-key="删除">删除</button><button type="submit" id="skills-save" class="primary" data-i18n-key="保存 Skill">保存 Skill</button></footer>
+              </form>
+            </section>
           </div>
         </div>
       </div>
@@ -1681,6 +1727,7 @@
   <script type="module" src="29-general-chat.js"></script>
   <script type="module" src="30-workspace-ui.js"></script>
   <script type="module" src="31-conversation-controls.js"></script>
+  <script type="module" src="32-skills.js"></script>
   <dialog id="conversation-action-overlay" data-size="rewind" class="k-surface k-dialog conversation-action-dialog" aria-label="回退或分叉" data-i18n-aria-label="回退或分叉"></dialog>
   <dialog id="schedules-overlay" data-size="schedule" class="k-surface k-dialog schedule-dialog" aria-label="定时任务" data-i18n-aria-label="定时任务"></dialog>
 </body>

@@ -45,31 +45,19 @@ try {
     for (const process of f.state.processes) { process.running = false; shell.transitionSession(process.session_id, "idle"); }
     window.__redesign = { f, bind, submitted, failSkill: false, failReply: false, replies: [], questions: [] };
     window.__kzPreview.setCommand("run_prompt", args => { submitted.push(structuredClone(args)); return null; });
-    window.__kzPreview.setCommand("skills_list", [{ name: "release-check", description: "Read SKILL.md and its references", path: "fixture/.agents/skills/release-check/SKILL.md", manualOnly: true, userInvocable: true },
-      { name: "model-only", description: "Not a user command", userInvocable: false }]);
-    window.__kzPreview.setCommand("skills_get_binding", ({ processId }) => bind.get(processId) || []);
-    window.__kzPreview.setCommand("skills_bind", ({ processId, names }) => {
-      if (window.__redesign.failSkill) throw "fixture binding failure";
-      bind.set(processId, [...names]); return names;
-    });
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async text => { window.__redesign.clipboard = text; } } });
     await (await import("/09-sessions.js")).refreshProcesses(); shell.setRunning(false);
     return { project: shell.currentProject, process: shell.activeProcessId, session: shell.activeSessionId, peer: f.state.processes.find(p => p.id !== shell.activeProcessId && p.profile === "dev") };
   });
   check(!await page.locator("#composer-more").isVisible() && !await page.locator("#side-question-open").isVisible(), "Obsolete composer operations are removed from the visible flow");
-  check(await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible() && await page.locator("#process-subagents").isVisible(), "Skills, Goal and subagents are direct controls");
-  await page.locator("#skills-picker").click(); await settle();
-  check(await page.locator("#skills-menu .skills-row").count() === 1, "Manual skills are bindable and model-only skills stay out of the picker");
-  await page.locator("#skills-menu input").check(); await settle();
-  check((await last("skills_bind")).processId === ids.process && await page.locator("#skills-picker").innerText() === "Skills · 1", "Binding writes to the selected conversation and updates its count");
-  await page.evaluate(() => { window.__redesign.failSkill = true; });
-  await page.locator("#skills-menu input").uncheck(); await settle();
-  check(await page.locator("#skills-menu input").isChecked(), "Failed binding keeps the previous selection");
-  await page.evaluate(() => { window.__redesign.failSkill = false; }); await page.keyboard.press("Escape");
+  check(await page.locator("#skills-nav").isVisible() && !await page.locator("#skills-picker").count() && await page.locator("#goal-picker").isVisible() && await page.locator("#process-subagents").isVisible(), "Global Skills stays in the rail while Goal and subagents remain conversation controls");
+  await page.locator("#skills-nav").click(); await settle();
+  check(await page.locator("#view-skills").isVisible() && await page.locator("#skills-create").isVisible(), "Skills has an independent management page");
+  await page.evaluate(async () => (await import("/03-shell.js")).navigate_view("chat")); await settle();
   await page.evaluate(async peer => (await import("/09-sessions.js")).switchProcess(peer), ids.peer.id); await settle();
-  check(await page.locator("#skills-picker").innerText() === "Skills", "A second conversation does not inherit the first conversation's binding");
+  check(await page.locator("#skills-nav").isVisible(), "A second conversation retains the same global Skills entry");
   await page.evaluate(async process => (await import("/09-sessions.js")).switchProcess(process), ids.process); await settle();
-  check(await page.locator("#skills-picker").innerText() === "Skills · 1", "Returning to a conversation restores its binding");
+  check(!await page.locator("#skills-picker").count(), "Returning to a conversation does not restore per-conversation skill bindings");
 
   await page.locator("#profile-select").selectOption("dev-pair"); await idle(); await settle();
   await page.evaluate(async () => {

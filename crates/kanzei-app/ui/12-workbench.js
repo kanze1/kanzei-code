@@ -45,7 +45,7 @@ function action(label, callback, className = "ghost") {
 }
 
 export function reconcileWorkbenchView(view) {
-  const global = ["workspace", "settings", "memory"].includes(view) || (isGeneralChat() && !browsingProject);
+  const global = ["workspace", "settings", "memory", "skills"].includes(view) || (isGeneralChat() && !browsingProject);
   document.body.dataset.appScope = global ? "global" : "project";
   document.body.dataset.projectPreview = String(view === "project");
   const path = workbenchProject();

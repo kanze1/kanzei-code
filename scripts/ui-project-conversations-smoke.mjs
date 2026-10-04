@@ -79,7 +79,7 @@ try {
   check((await last("process_create")).profile === "dev", "New conversation creates an ordinary development recipient");
   check(await count("conversation_clear") === 0, "New discussion never clears the main conversation");
   check(await page.locator("#project-conversation-kind").textContent().then(t => t.trim().length > 0), "Conversation title is visible");
-  check(await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible(), "New conversation offers Skills and Goal controls");
+  check(await page.locator("#skills-nav").isVisible() && !await page.locator("#skills-picker").count() && await page.locator("#goal-picker").isVisible(), "Skills stays global while new conversations offer Goal controls");
   check(!await page.locator("#composer-more").isVisible(), "Retired More operations stay hidden in new conversations");
   check(await page.evaluate(async () => (await import("/03-workspaces.js")).selected_workspace_process().id) !== owner.id, "Selection follows the active peer conversation");
   await page.keyboard.press("Escape");

@@ -37,10 +37,10 @@ try {
     await page.goto(`${server.origin}/?scene=chat&theme=${theme}&lang=${lang}`);
     await page.waitForFunction(() => window.__kzPreview?.ready);
     check(!await page.locator("#composer-more").isVisible(), `${theme}: Retired More controls are hidden`);
-    check(await page.locator("#subagent-control").isVisible() && await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible(), `${theme}: Subagents, Skills and Goal stay reachable`);
-    await page.locator("#skills-picker").click();
-    check(await page.locator("#skills-menu").isVisible(), `${theme}: Skills opens its own compact menu`);
-    check((await page.locator("#skills-menu").boundingBox()).height < 500, `${theme}: The Skills menu has no oversized gaps`);
+    check(await page.locator("#subagent-control").isVisible() && await page.locator("#skills-nav").isVisible() && await page.locator("#goal-picker").isVisible(), `${theme}: Subagents, global Skills and Goal stay reachable`);
+    await page.locator("#skills-nav").click();
+    check(await page.locator("#view-skills").isVisible() && !await page.locator("#skills-menu").count(), `${theme}: Skills opens a separate global library`);
+    check(await page.locator("#skills-generate-open").isVisible(), `${theme}: Skill creation stays outside the conversation`);
     await page.screenshot({ path: `${output}/composer-${theme}.png` });
     await page.keyboard.press("Escape");
     await page.locator('#workspace-sidebar-footer [data-view="settings"]').click();

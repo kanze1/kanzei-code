@@ -43,7 +43,7 @@ defer(() => {
   }
   goalMenu.append(goalActions); $("composer").append(goalMenu);
   const bindings = node("div", "conversation-bindings");
-  for (const [id, label, menu] of [["skills-picker", "Skills", "skills-menu"], ["goal-picker", "Goal", "goal-menu"]]) {
+  for (const [id, label, menu] of [["goal-picker", "Goal", "goal-menu"]]) {
     const button = node("button", "kz-ctl", label); button.id = id; button.type = "button"; button.dataset.kzMenu = menu;
     button.setAttribute("aria-haspopup", "true"); button.setAttribute("aria-expanded", "false"); bindings.append(button);
   }

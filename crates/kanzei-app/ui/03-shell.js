@@ -102,11 +102,11 @@ const BARLESS_VIEWS = new Set(["project"]);
 // 各页真正滚动的那一层:离开时记 scrollTop,返回时在页面数据回来后复原。
 const VIEW_SCROLLERS = {
   workspace: "workspace-scroll", project: "project-overview-content", lines: "lines-scroll", documents: "documents-scroll",
-  memory: "memory-scroll", metrics: "metrics-scroll", arch: "arch-scroll", settings: "settings-scroll",
+  memory: "memory-scroll", metrics: "metrics-scroll", arch: "arch-scroll", settings: "settings-scroll", skills: "skills-scroll",
 };
 const VIEW_LABELS = {
   chat: "对话", workspace: "所有项目", project: "项目概览", lines: "并行线路", documents: "需求", memory: "记忆",
-  files: "文件", arch: "架构", metrics: "运行画像", settings: "设置", research: "研究",
+  files: "文件", arch: "架构", metrics: "运行画像", settings: "设置", research: "研究", skills: "Skills",
 };
 export function viewLabel(view) { return t(VIEW_LABELS[view] || view); }
 function navSnapshot(view) {
@@ -135,7 +135,7 @@ function entryUsable(entry) {
   if (!entry || entry.space !== active_space || !view_allowed(entry.view) || entry.view === document.body.dataset.view) return false;
   // 已被移除的项目回不去了:跳过这一项继续往下找。
   const projects = lastProjectPrefs.projects ?? [];
-  return !entry.project || entry.space !== "dev" || ["workspace", "settings"].includes(entry.view) || !projects.length || projects.some((path) => sameProject(path, entry.project));
+  return !entry.project || entry.space !== "dev" || ["workspace", "settings", "skills"].includes(entry.view) || !projects.length || projects.some((path) => sameProject(path, entry.project));
 }
 // 栈空时的兜底:研究空间回研究页;开发空间回(浏览中的)项目对话;没有项目就无处可回。
 function fallbackEntry() {
@@ -157,7 +157,7 @@ async function goToEntry(entry) {
   navBacking = true;
   navScrollRestore = entry.scroll > 0 ? { view: entry.view, top: entry.scroll, at: Date.now() } : null;
   try {
-    const global = entry.view === "workspace" || entry.view === "settings";
+    const global = ["workspace", "settings", "skills"].includes(entry.view);
     if (active_space === "dev" && !global && entry.project) {
       // 项目与来处不同:走统一的进项目事务(它内部再调 navigate_view,此时 navBacking 仍为真,不会重复入栈)。
       if (entry.view === "project" || !sameProject(entry.project, currentProject)) await openProjectSpace(entry.project, entry.view);
@@ -320,10 +320,10 @@ export function focusMainAfterViewChange(view = document.body.dataset.view) {
 // 只绑带 data-view 的按钮:rail 上还有侧栏开合这类布局开关,它们不是视图。
 export function navigate_view(view, { prepared = false, reload = false } = {}) {
   if (!prepared && view === "chat" && active_space === "dev" && !currentProject && !workbenchProject()) return openGeneralChat();
-  if (!prepared && ["workspace", "settings", "memory"].includes(view)) cancelProjectNavigation();
+  if (!prepared && ["workspace", "settings", "memory", "skills"].includes(view)) cancelProjectNavigation();
   // A project selected in the workbench is only a browsing identity. Activate
   // execution explicitly before a project tool can use currentProject.
-  if (!prepared && !["workspace", "settings", "project", "memory"].includes(view) && active_space === "dev"
+  if (!prepared && !["workspace", "settings", "project", "memory", "skills"].includes(view) && active_space === "dev"
       && workbenchProject() && (currentProject !== workbenchProject() || (view === "chat" && !activeSessionId))) {
     return openProjectSpace(workbenchProject(), view);
   }
@@ -366,7 +366,7 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
       if (generation !== viewLoadGeneration) return;
       const loaders = { settings: loadSettings, workspace: refreshWorkspace, project: () => renderProjectOverview(lastWorkspaceSnapshot), documents: refreshDocs,
         research: refreshResearch, memory: refreshMemory, metrics: refreshMetrics,
-        files: showFilesView, arch: refreshArch, lines: refreshLines };
+        files: showFilesView, arch: refreshArch, lines: refreshLines, skills: () => import("./32-skills.js").then(module => module.refreshSkills()) };
       const loading = loaders[view]?.();
       if (view === "lines") void refreshWorktrees();
       restoreScrollAfter(view, loading);

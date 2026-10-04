@@ -27,7 +27,7 @@
 .workspace-header #project-label, .workspace-header #ctx-branch { display: none; }
 .workspace-header-actions { display: flex; gap: 4px; }
 .workspace-header-actions .activity-item { width: 30px; height: 30px; }
-.familiar-workspace #activitybar .activity-item[data-view]:not([data-view="chat"]),
+.familiar-workspace #activitybar .activity-item[data-view]:not([data-view="chat"]):not([data-view="skills"]),
 .familiar-workspace .workspace-switcher, .familiar-workspace [data-workspace="research"],
 .familiar-workspace #documents-tab-ideas, .familiar-workspace #documents-new-idea,
 .familiar-workspace #workbench-new-goal, .familiar-workspace #workbench-goal-form,
@@ -234,16 +234,9 @@
   html[lang="en"] .familiar-workspace #composer :is(.composer-left, .composer-right) { display: contents; }
   html[lang="en"] .familiar-workspace #composer #model-picker { flex: 1 1 auto; min-width: 80px; }
 }
-.skills-menu, .goal-menu { width: min(380px, calc(100vw - 28px)); padding: 14px; }
+.goal-menu { width: min(380px, calc(100vw - 28px)); padding: 14px; }
 .goal-menu .auto-goal { box-sizing: border-box; width: 100%; margin: 8px 0 12px; }
-.goal-actions, .skills-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.skills-head small { flex: 1; font-size: 11px; }
-.skills-list { margin-top: 10px; max-height: 330px; overflow: auto; }
-.skills-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border-soft); cursor: pointer; }
-.skills-row input { flex: none; margin-top: 4px; accent-color: var(--accent-text); }
-.skills-row span { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
-.skills-row strong { font-size: 12px; font-weight: 550; }
-.skills-row small { font-size: 11px; line-height: 1.5; }
+.goal-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .workbench-session-activity { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; margin-left: auto; line-height: 10px; text-align: center; font-size: 10px; }
 .workbench-session-activity[hidden] { display: none; }
 .workbench-session-link:is([data-activity="running"], [data-activity="starting"]) .workbench-session-activity { background: var(--accent); border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--accent); animation: workbench-breathe 2.4s ease-in-out infinite; }

@@ -27,6 +27,7 @@ pub mod read_ledger;
 pub mod refs;
 pub mod registry;
 pub mod repair;
+pub mod skills;
 pub mod subagent_policy;
 pub mod tool;
 pub use async_mailbox::{AsyncMailbox, AsyncNotice, InputInbox};

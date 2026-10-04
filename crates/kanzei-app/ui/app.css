@@ -11,4 +11,5 @@
 @import url("async-workspace.css") layer(app);
 @import url("resource-types.css") layer(app);
 @import url("familiar-workspace.css") layer(app);
+@import url("skills.css") layer(app);
 @import url("surface.css") layer(surface);
