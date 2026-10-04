@@ -156,6 +156,16 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
         for step in 1..=42 {
             let delta = if step == 42 {
                 json!({"content":"done"})
+            } else if matches!(step, 33 | 34) {
+                let command = if cfg!(windows) {
+                    "& 'git' diff --check; git status --short"
+                } else {
+                    "git diff --check; git status --short"
+                };
+                json!({"tool_calls":[{
+                    "index":0,"id":format!("validate-{step}"),"type":"function",
+                    "function":{"name":"bash","arguments":json!({"command":command}).to_string()}
+                }]})
             } else {
                 json!({"tool_calls":[{
                     "index":0,"id":format!("write-{step}"),"type":"function",
@@ -215,13 +225,19 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
     let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
     let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
     let mut blocked = 0;
+    let mut validations = 0;
     let mut events = |event: kanzei_core::RunEvent| {
         if let kanzei_core::RunEvent::ToolEnd {
-            ok: false, content, ..
+            name, ok, content, ..
         } = event
         {
-            if content.contains("BATCH_CLOSING") {
+            if !ok && content.contains("BATCH_CLOSING") {
                 blocked += 1;
+            }
+            if name == "bash" {
+                assert!(ok, "validation command was refused: {content}");
+                assert!(content.contains("exit code: 0"), "{content}");
+                validations += 1;
             }
         }
     };
@@ -252,7 +268,8 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
     assert_eq!(summary.steps, 42);
     assert!(!summary.halted_by_user);
     assert_eq!(asks, 0);
-    assert_eq!(blocked, 8);
+    assert_eq!(blocked, 6);
+    assert_eq!(validations, 2);
     assert_eq!(
         std::fs::read_to_string(home.root.join("sample.txt")).unwrap(),
         "step 41"

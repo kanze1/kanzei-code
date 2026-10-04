@@ -1,7 +1,7 @@
 //! 长运行的交付窗口。这里只限制本轮实现阶段，不建立第二套完成批数账本。
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use kanzei_harness::ToolCtx;
 use kanzei_llm::Part;
@@ -11,7 +11,6 @@ use sha2::{Digest, Sha256};
 type Call = (String, String, Value, String);
 const IMPLEMENT_STEPS: u32 = 32;
 const CLOSE_STEPS: u32 = 8;
-const IMPLEMENT_TIME: Duration = Duration::from_secs(15 * 60);
 const FILE_LIMIT: u64 = 4 * 1024 * 1024;
 
 fn hide_console(command: &mut std::process::Command) {
@@ -33,7 +32,8 @@ struct Source {
 pub(super) struct Batch {
     enabled: bool,
     start_step: u32,
-    started: Instant,
+    // 仅用于区分检查点目录，不按经过的时间触发收尾。
+    checkpoint_nonce: Instant,
     closing: Option<u32>,
     files: BTreeMap<String, Source>,
     receipts: Vec<Value>,
@@ -89,7 +89,7 @@ impl Batch {
         Self {
             enabled,
             start_step: 1,
-            started: Instant::now(),
+            checkpoint_nonce: Instant::now(),
             closing: None,
             files: BTreeMap::new(),
             receipts: Vec::new(),
@@ -114,7 +114,8 @@ impl Batch {
             if self.reject(name, input, ctx).is_some() {
                 continue;
             }
-            if name == "bash" && !verification_command(input["command"].as_str().unwrap_or("")) {
+            // Shell 的写入归属由实际前后内容判断，不靠命令文字推断只读。
+            if name == "bash" {
                 self.shell_changes = true;
             }
             let Some((key, path)) = write_target(name, input, ctx) else {
@@ -228,10 +229,7 @@ impl Batch {
         if !self.enabled || self.files.is_empty() {
             return None;
         }
-        if self.closing.is_none()
-            && (step.saturating_sub(self.start_step) >= IMPLEMENT_STEPS
-                || self.started.elapsed() >= IMPLEMENT_TIME)
-        {
+        if self.closing.is_none() && step.saturating_sub(self.start_step) >= IMPLEMENT_STEPS {
             self.closing = Some(step);
         }
         let since = self.closing?;
@@ -262,9 +260,9 @@ impl Batch {
         if !self.is_closing() {
             return None;
         }
+        // Shell 继续走通常的权限和工具 guard，收尾不维护另一套技术栈命令名单。
         let blocked = match name {
             "edit" | "insert" | "write" | "task" | "question" => true,
-            "bash" => !verification_command(input["command"].as_str().unwrap_or("")),
             "git" if matches!(input["action"].as_str(), Some("stage" | "finalize")) => {
                 input["files"].as_array().is_none_or(|files| {
                     files.is_empty()
@@ -294,7 +292,7 @@ impl Batch {
         let run = ctx.run_id.as_deref().unwrap_or("anonymous");
         let key = format!(
             "{:x}",
-            Sha256::digest(format!("{run}:{:?}:{step}", self.started).as_bytes())
+            Sha256::digest(format!("{run}:{:?}:{step}", self.checkpoint_nonce).as_bytes())
         );
         let directory = ctx
             .project_root
@@ -345,54 +343,9 @@ impl Batch {
     }
 }
 
-fn verification_command(command: &str) -> bool {
-    let command = command.trim();
-    if command.contains([';', '&', '|', '`', '$', '\n', '\r']) {
-        return false;
-    }
-    if let Some(script) = command
-        .strip_prefix("node scripts/")
-        .or_else(|| command.strip_prefix("node --experimental-vm-modules scripts/"))
-    {
-        return !script.is_empty() && !script.starts_with([' ', '-']);
-    }
-    [
-        "cargo test",
-        "cargo check",
-        "cargo clippy",
-        "rustfmt --check",
-        "rustfmt --edition",
-        "node --check",
-        "git status",
-        "git diff",
-        "git log",
-    ]
-    .iter()
-    .any(|prefix| {
-        command == *prefix
-            || command
-                .strip_prefix(prefix)
-                .is_some_and(|tail| tail.starts_with(' '))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn d773_closing_allows_deferred_ui_checks_and_rejects_shell_expansion() {
-        assert!(verification_command("node scripts/ui-lint-smoke.mjs"));
-        assert!(verification_command(
-            "node --experimental-vm-modules scripts/ui-runtime-smoke.mjs"
-        ));
-        assert!(!verification_command("node scripts/"));
-        assert!(!verification_command("node scripts/ --eval rewrite()"));
-        assert!(!verification_command(
-            "node scripts/check.mjs && python rewrite.py"
-        ));
-        assert!(!verification_command("cargo testfake"));
-    }
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -454,6 +407,76 @@ mod tests {
     }
 
     #[test]
+    fn elapsed_time_does_not_close_a_batch_before_the_step_boundary() {
+        let repo = Repo::new();
+        let mut batch = Batch::new(true);
+        edited(&repo, &mut batch, "own.rs");
+        batch.checkpoint_nonce = Instant::now() - std::time::Duration::from_secs(24 * 60 * 60);
+        assert!(batch.prepare(2, &repo.ctx()).is_none());
+        assert!(batch.prepare(32, &repo.ctx()).is_none());
+        assert!(!batch.is_closing());
+        assert!(batch.prepare(33, &repo.ctx()).is_some());
+        assert!(batch.is_closing());
+    }
+
+    #[test]
+    fn closing_allows_project_shell_commands_without_invalidating_unchanged_files() {
+        let repo = Repo::new();
+        let mut batch = Batch::new(true);
+        edited(&repo, &mut batch, "own.rs");
+        batch.prepare(33, &repo.ctx());
+        batch.validated = true;
+        for command in [
+            "& 'C:\\Program Files\\flutter\\bin\\dart.bat' format lib/main.dart",
+            "& 'C:\\Program Files\\flutter\\bin\\flutter.bat' analyze --no-pub",
+            "flutter test --no-pub test/widget_test.dart",
+            "flutter build apk --debug --no-pub",
+            "cargo fmt --all -- --check",
+            "npm test && npm run build",
+            "python -m pytest -q",
+            ".\\gradlew.bat assembleDebug",
+            "$workspace = (Get-Location).Path; subst Z: $workspace; Set-Location Z:\\; & 'C:\\flutter\\bin\\flutter.bat' analyze --no-pub",
+        ] {
+            let calls = [call("bash", json!({"command":command}))];
+            assert!(batch.reject("bash", &calls[0].2, &repo.ctx()).is_none());
+            batch.before_calls(&calls, &repo.ctx());
+            batch.observe(&calls, &[result(true, "exit code: 0")], &repo.ctx());
+        }
+        assert!(batch.shell_changes);
+        assert!(batch.files["own.rs"].owned);
+        assert!(batch.validated);
+        assert!(batch
+            .reject(
+                "git",
+                &json!({"action":"stage","files":["own.rs"]}),
+                &repo.ctx()
+            )
+            .is_none());
+    }
+
+    #[test]
+    fn closing_shell_changes_invalidate_validation_and_file_ownership() {
+        let repo = Repo::new();
+        let mut batch = Batch::new(true);
+        edited(&repo, &mut batch, "own.rs");
+        batch.prepare(33, &repo.ctx());
+        batch.validated = true;
+        let calls = [call("bash", json!({"command":"cargo fmt"}))];
+        batch.before_calls(&calls, &repo.ctx());
+        std::fs::write(repo.0.join("own.rs"), "fn formatted() {}\n").unwrap();
+        batch.observe(&calls, &[result(true, "exit code: 0")], &repo.ctx());
+        assert!(!batch.validated);
+        assert!(!batch.files["own.rs"].owned);
+        assert!(batch
+            .reject(
+                "git",
+                &json!({"action":"stage","files":["own.rs"]}),
+                &repo.ctx()
+            )
+            .is_some());
+    }
+
+    #[test]
     fn unrelated_observation_cannot_absorb_external_file_changes() {
         let repo = Repo::new();
         let mut batch = Batch::new(true);
@@ -501,9 +524,6 @@ mod tests {
         for name in ["edit", "write", "task", "question"] {
             assert!(batch.reject(name, &json!({}), &repo.ctx()).is_some());
         }
-        assert!(batch
-            .reject("bash", &json!({"command":"python rewrite.py"}), &repo.ctx())
-            .is_some());
         assert!(batch
             .reject(
                 "bash",
