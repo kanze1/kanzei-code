@@ -21,3 +21,7 @@ explore/plan 和自定义角色只读；开发档提供 general/implement/verify
 持久库升级到 v26。迁移前自动保存旧版数据库副本；旧 `subagents_enabled=0` 迁为 off，其他旧记录迁为 auto，旧高级勘察复核标记不恢复固定工作流。`phase_pipeline` 和 `subagents_enabled` 两列在迁移事务中物理删除，策略只保存 `subagent_mode`。旧 `models.scout`、`barrier_timeout_secs`、`cadence.verify_every_n` 不再参与运行，设置保存时移除。
 
 回退需退出新版本并恢复升级前的数据库副本，再使用旧版；旧二进制不能打开 v26 数据库。恢复旧副本也会回退升级后的会话变化，保留当前数据库备份以便再次升级。
+
+2026-10-04 验收回执：实施提交 `0d7d7a13`，`verify.ps1 -Full` 15 项检查全部通过，工作区测试 2,449 项通过、7 项按既有定义忽略，全部目标 Clippy 零警告。覆盖 v26 迁移、档位保存与失败回滚、切会话隔离、Off 门禁、并发排队和调档、等待回答释放额度、真实依赖候选文件与差异整合。后台清理测试保留原进程句柄，避免并发时 PID 复用干扰退出断言。
+
+发布为 [build-0d7d7a13](https://github.com/kanze1/kanzei-code/releases/tag/build-0d7d7a13)，安装器 SHA256 为 `857bfa6c3b3dfd1867177e4579fc8d80b486034c23148c357c06fb6349404cec`。线上 target、资产摘要和本机安装标识均已核对；CLI 同步安装。完整记录保存在 `output/subagent-modes-20261004/verification-0d7d7a13.json`、`verify-release.log`、`package.log`。

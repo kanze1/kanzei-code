@@ -11,7 +11,7 @@
 
 ## live_design
 
-- [identity: live_design; last_verified_commit: ee007e59] [`subagent_modes.md`](../../../docs/design/subagent_modes.md)：三档协作倾向、模型自主编排、可调并发和独立候选工作树。提交号锚定改造前基线，本轮验证与发布以包含此文档的提交回执为准。
+- [identity: live_design; last_verified_commit: 0d7d7a13] [`subagent_modes.md`](../../../docs/design/subagent_modes.md)：三档协作倾向、模型自主编排、可调并发和独立候选工作树。完整验证、测试和发布回执见正文。
 
 - [identity: live_design; last_verified_commit: 6638a30a] [`conversation_modes.md`](../../../docs/design/conversation_modes.md)：结伴与自主模式、Goal、通用 Skills、对话与项目操作。提交号锚定改造前基线；本次实施和全量检查以包含此文档的发布回执为准。
 

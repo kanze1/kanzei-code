@@ -4527,3 +4527,15 @@
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056932848
+
+## R-384 三档子代理协作与模型自主编排 [done]
+- 来源: {"reference":"2026-10-04 用户对话","quote":"认可，把自主权交给模型，然后我们只给出倾向和提示就行，帮我修改吧，提示词等和模式的匹配和子代理的规则都按照你刚才分析的修复吧，注意旧的要拆干净"}
+- 需求格式: 2
+- 验收: [{"id":"AC-1","text":"每个会话提供 Off/Auto/Ultra 三档，默认 Auto，保存、切会话、重启恢复和失败回滚正确；旧关闭迁成 Off、旧开启迁成 Auto，旧字段物理删除。"},{"id":"AC-2","text":"Auto/Ultra 提示词反映按需与积极协作倾向，无强制人数和固定阶段；移除固定勘察、复核修正、周期核查、角色截断与旧参数。"},{"id":"AC-3","text":"Auto 默认并发 2、Ultra 默认 8，跨会话默认 16，三项在设置页可调且后端执行；超额排队、停止与等待用户回答不泄漏额度，Off 禁止新任务而既有任务可结束。"},{"id":"AC-4","text":"写子代理使用独立工作树，主代理审查后整合；依赖验证读取实际候选版本，提示词与角色实际能力一致。"},{"id":"AC-5","text":"后端与前端相关测试、全工作区测试和完整验证通过，提供可核对的变更与迁移说明。"}]
+- 内容: 删除固定勘察复核流水线及隐藏开关，改为关闭、按需、Ultra 三档子代理协作倾向。模型自主决定拆分、依赖和复核；并发额度可配置，写任务通过独立工作树隔离。
+- 需求类型: functional
+- 进展: 0d7d7a13 完成三档协作、可调并发和旧流水线及配置清理；15 项 Full 检查全绿、2449 项测试通过、全目标 Clippy 通过。发布 build-0d7d7a13 并完成安装器自检、线上摘要与本机版本核对。各 AC 实现和验证见 docs/design/subagent_modes.md；完整证据 output/subagent-modes-20261004/verification-0d7d7a13.json。
+- 验收证据: [{"criterion_id":"AC-1","revision":"spec-af909e19b7fa6532","reference":"crates/kanzei-core/src/store/schema.rs"},{"criterion_id":"AC-2","revision":"spec-af909e19b7fa6532","reference":"crates/kanzei-harness/src/subagent_policy.rs"},{"criterion_id":"AC-3","revision":"spec-af909e19b7fa6532","reference":"crates/kanzei-tools/src/team/tests.rs"},{"criterion_id":"AC-4","revision":"spec-af909e19b7fa6532","reference":"crates/kanzei-tools/src/team/tests.rs"},{"criterion_id":"AC-5","revision":"spec-af909e19b7fa6532","reference":"docs/design/subagent_modes.md"}]
+- observed_head: 0d7d7a13b42ba8e32e98f5f6477d6fa439e472ae
+- observed_worktree_hash: fnv1a64:baa21a19e8723408
+- recorded_at: 1791114881324
