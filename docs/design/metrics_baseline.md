@@ -11,6 +11,8 @@ metrics_format_version: v1
 
 R-384 发布前重新度量：旧基线回涨检查通过，巨石保持 6/6，单文件新增生产行不超过原允许量 100。固定阶段流水线已移除，下表更新为三档协作实现的当前快照。
 
+2026-10-05 全局 Skills 发布前再次运行旧基线回涨门禁通过，巨石保持 6/6；阈值不变。当前 Top30 仅运行装配移除两行逐对话技能绑定参数，更新对应行数。原始输出见 `output/release-skills-20261005/metrics.txt`。
+
 ## 当前Top30
 
 | # | 文件 | 总行 | 生产 | 测试 | 函数 | 最大fn | >7参 |
@@ -35,7 +37,7 @@ R-384 发布前重新度量：旧基线回涨检查通过，巨石保持 6/6，�
 | 18 | crates/kanzei-app/src/processes/lifecycle.rs | 1457 | 950 | 507 | 25 | 132 | 2 |
 | 19 | crates/kanzei-tools/src/test_record.rs | 2284 | 947 | 1337 | 26 | 107 | 3 |
 | 20 | crates/kanzei-app/src/preview/pane.rs | 1008 | 941 | 67 | 45 | 60 | 0 |
-| 21 | crates/kanzei-app/src/run/assembly.rs | 1745 | 925 | 820 | 17 | 300 | 2 |
+| 21 | crates/kanzei-app/src/run/assembly.rs | 1743 | 923 | 820 | 17 | 300 | 2 |
 | 22 | crates/kanzei-app/src/docs.rs | 1084 | 921 | 163 | 26 | 288 | 2 |
 | 23 | crates/kanzei-tools/src/refgraph/memory_graph.rs | 911 | 911 | 0 | 20 | 603 | 1 |
 | 24 | crates/kanzei-llm/src/protocol/anthropic.rs | 1176 | 910 | 266 | 21 | 267 | 0 |
