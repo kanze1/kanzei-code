@@ -625,7 +625,6 @@ defer(() => {
       liveIdle("出错");
       notifyRunState("failed", message);
     }
-    $("log-panel").classList.remove("hidden");
     refreshProcesses();
   });
 });

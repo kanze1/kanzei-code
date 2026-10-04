@@ -30,6 +30,7 @@ try {
   await page.waitForFunction(() => performance.getEntriesByType("resource").some(entry => entry.name.endsWith("/16-mobile.js")));
   assert(!requests.has("/23-voice.js"));
   assert(!requests.has("/22-visual-runtime.js"));
+  await page.locator('#settings-toc [data-settings-target="sg-appearance"]').click();
   await page.locator("#set-visuals-enabled").check();
   await page.waitForFunction(async () => (await import("/22-neural-flow.js")).chatBackdrop !== null);
   assert(requests.has("/22-visual-runtime.js"));

@@ -14,6 +14,7 @@ import {
   sessionState,
   sessionStates,
   toast,
+  toastError,
   transitionSession,
   trackRunElapsed,
 } from "./03-shell.js";
@@ -448,8 +449,7 @@ export function on(event, handler) {
     }
     handler(eventPayload);
   }).catch((err) => {
-    log(`${t("事件订阅失败")} ${event}: ${err} — ${t("界面将收不到运行事件,请反馈")}`, "err");
-    $("log-panel").classList.remove("hidden");
+    toastError(`${t("事件订阅失败")} ${event}: ${err} — ${t("界面将收不到运行事件,请反馈")}`);
   });
   }, 0);
 }

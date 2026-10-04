@@ -28,8 +28,20 @@ defer(() => {
   $("workbench-navigation").append(footer);
 
   const more = $("composer-more-menu");
-  for (const id of ["autorun-bar", "subagent-control", "side-question-open", "project-handoff"]) if ($(id)) more.prepend($(id));
-  const runtime = $("runtime-indicator"); if (runtime) more.append(runtime);
+  const menuSection = (label, ids) => {
+    const section = node("div", "composer-menu-section");
+    const heading = node("div", "composer-menu-heading", t(label)); heading.dataset.i18nKey = label;
+    section.append(heading);
+    for (const id of ids) {
+      const control = $(id); if (!control) continue;
+      control.classList.add("composer-menu-action"); section.append(control);
+    }
+    more.append(section);
+  };
+  menuSection("对话操作", ["side-question-open", "terminal-monitor-open", "sop-picker", "worktree-add", "summarize-btn", "copy-context", "chat-search-toggle"]);
+  menuSection("运行控制", ["subagent-control", "autorun-bar", "project-handoff", "runtime-indicator"]);
+  const runtime = $("runtime-indicator");
+  $("auto-continue")?.setAttribute("role", "switch");
   // The terminal has the same session-bound activity surface as subagents.
   $("terminal-monitor-open")?.addEventListener("click", event => {
     event.preventDefault(); event.stopImmediatePropagation(); closeSurface(more); openTasksPanel();

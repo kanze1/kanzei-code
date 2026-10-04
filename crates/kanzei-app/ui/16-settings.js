@@ -1291,32 +1291,87 @@ defer(() => {
   });
 });
 
-// ---------- 分区目录(UX-112) ----------
-// 设置页十几个可折叠分组,一屏看不全。目录按各分组的 summary 现场生成(别处新增分组自动进目录),
-// 点一下展开该组并滚到它;文案挂 data-i18n-key,切语言时由 applyDataI18nKeys 重译。
-export function buildSettingsToc() {
-  const nav = $("settings-toc");
-  if (!nav) return;
-  nav.replaceChildren();
-  for (const group of document.querySelectorAll(".settings-group")) {
-    if (group.parentNode?.id !== "settings-scroll") continue;
-    const summary = group.querySelector("summary");
-    const key = summary?.dataset?.i18nKey || summary?.textContent;
-    if (!key) continue;
-    const link = document.createElement("button");
-    link.type = "button";
-    link.dataset.i18nKey = key;
-    link.textContent = t(key);
-    link.addEventListener("click", () => {
-      group.open = true;
-      group.scrollIntoView?.({ block: "start" });
-      summary.focus?.({ preventScroll: true });
-    });
-    nav.appendChild(link);
+// ---------- 功能分区与固定浏览大纲 ----------
+const SETTINGS_SECTIONS = [
+  { id: "settings-interface", title: "界面与交互", groups: ["sg-general", "sg-sound", "sg-tasks-panel", "sg-appearance", "sg-open-tools"] },
+  { id: "settings-connections", title: "模型与连接", groups: ["settings-models-group", "sg-providers", "sg-network", "sg-mobile"] },
+  { id: "settings-execution", title: "运行与权限", groups: ["sg-cadence", "sg-permissions", "sg-agents", "sg-limits"] },
+  { id: "settings-data", title: "项目与数据", groups: ["sg-project-tools", "sg-export", "sg-storage"] },
+  { id: "settings-about", title: "关于与更新", groups: ["sg-update"] },
+];
+let settingsOutlineTarget = null;
+
+function syncSettingsOutline() {
+  const scroll = $("settings-scroll"), nav = $("settings-toc");
+  if (!scroll || !nav || !$("view-settings")?.classList.contains("active")) return;
+  const links = [...nav.querySelectorAll("[data-settings-target]")];
+  const top = scroll.getBoundingClientRect().top + 80;
+  let active = links[0];
+  for (const link of links) {
+    if ($(link.dataset.settingsTarget)?.getBoundingClientRect().top <= top) active = link;
   }
+  const selected = links.find(link => link.dataset.settingsTarget === settingsOutlineTarget);
+  const selectedBox = selected && $(settingsOutlineTarget)?.getBoundingClientRect();
+  const viewport = scroll.getBoundingClientRect();
+  if (selectedBox && selectedBox.bottom > viewport.top && selectedBox.top < viewport.bottom) active = selected;
+  else settingsOutlineTarget = null;
+  for (const link of links) {
+    if (link === active) link.setAttribute("aria-current", "location");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+function openSettingsGroup(group) {
+  const scroll = $("settings-scroll");
+  if (!scroll || !group?.classList.contains("settings-group")) return;
+  for (let parent = group; parent && parent !== scroll; parent = parent.parentElement) {
+    if (parent.tagName === "DETAILS") parent.open = true;
+  }
+  settingsOutlineTarget = group.id;
+  scroll.scrollTo({ top: scroll.scrollTop + group.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 20 });
+  group.querySelector("summary")?.focus?.({ preventScroll: true });
+  syncSettingsOutline();
+}
+
+export function buildSettingsToc() {
+  const nav = $("settings-toc"), scroll = $("settings-scroll"), view = $("view-settings");
+  if (!nav || !scroll || !view) return;
+  view.prepend(nav);
+  const savebar = scroll.querySelector(".settings-savebar");
+  if (savebar) view.append(savebar);
+  nav.replaceChildren();
+  const title = document.createElement("div"); title.className = "settings-outline-title";
+  title.dataset.i18nKey = "功能大纲"; title.textContent = t("功能大纲"); nav.append(title);
+  for (const definition of SETTINGS_SECTIONS) {
+    let section = $(definition.id);
+    if (!section) {
+      section = document.createElement("section"); section.id = definition.id; section.className = "settings-section";
+      const heading = document.createElement("h2"); heading.id = `${definition.id}-title`;
+      heading.dataset.i18nKey = definition.title; heading.textContent = t(definition.title);
+      section.setAttribute("aria-labelledby", heading.id); section.append(heading); scroll.append(section);
+    }
+    const outline = document.createElement("div"); outline.className = "settings-outline-group";
+    const heading = document.createElement("strong"); heading.dataset.i18nKey = definition.title;
+    heading.textContent = t(definition.title); outline.append(heading);
+    for (const id of definition.groups) {
+      const group = $(id); if (!group) continue;
+      section.append(group);
+      const summary = group.querySelector("summary");
+      const key = summary?.dataset?.i18nKey || summary?.textContent.trim();
+      if (!key) continue;
+      const link = document.createElement("button"); link.type = "button";
+      link.dataset.i18nKey = key; link.textContent = t(key);
+      link.dataset.settingsTarget = id; link.setAttribute("aria-controls", id);
+      link.addEventListener("click", () => openSettingsGroup(group)); outline.append(link);
+    }
+    nav.append(outline);
+  }
+  syncSettingsOutline();
 }
 defer(() => {
   buildSettingsToc();
+  $("settings-scroll")?.addEventListener("scroll", syncSettingsOutline, { passive: true });
+  document.addEventListener("kz:view-changed", syncSettingsOutline);
 });
 // 别处「去设置里的某一组」:先 navigate_view("settings"),再发 kz:open-settings-section { id },
 // 这里等页面显出来后展开该组、滚到它(例:右键菜单「在设置里添加打开方式…」落到「打开方式」,而不是设置页顶部)。
@@ -1325,9 +1380,7 @@ defer(() => {
     const group = $(event.detail?.id);
     if (!group?.classList?.contains("settings-group")) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      group.open = true;
-      group.scrollIntoView?.({ block: "start" });
-      group.querySelector("summary")?.focus?.({ preventScroll: true });
+      openSettingsGroup(group);
     }));
   });
 });

@@ -530,7 +530,23 @@ pub(crate) fn update_close(
         };
         input.fields.insert("关闭原因".into(), reason.into());
     }
-    let requires_delivery_evidence = is_closing_action && !already_terminal && !retiring;
+    let user_completion = input.user_action
+        && is_closing_action
+        && matches!(
+            (tool.kind.prefix, requested_status),
+            ("R", "done") | ("D", "fixed")
+        );
+    if user_completion && !already_terminal {
+        input.fields.insert(
+            "用户验收".into(),
+            format!(
+                "{} 用户手动确认 → {requested_status}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M")
+            ),
+        );
+    }
+    let requires_delivery_evidence =
+        is_closing_action && !already_terminal && !retiring && !user_completion;
     if action == "update"
         && input.status.as_deref() == Some("awaiting_external")
         && before.status != "awaiting_external"
@@ -619,7 +635,7 @@ pub(crate) fn update_close(
         // 字段合并照常(重入可补字段),无变更时下方 no-op 判定会零写入返回。
         if already_terminal {
             Some(entries[pos].status.clone())
-        } else if retiring {
+        } else if retiring || user_completion {
             Some(requested_status.to_string())
         } else {
             // 批次没走完不能关:格子是给人看进度的,关闭时还剩空格,要么是漏了批次,
@@ -889,7 +905,8 @@ pub(crate) fn update_close(
     let line = render_line(&entries[pos]);
     // 先保留成功迁移后的快照；telemetry 必须在 store.save 成功后才写入，避免
     // 写盘失败时产生“未实际关闭却已有收尾记录”的虚假证据。
-    let telemetry_entry = if is_closing_action && !already_terminal {
+    // Manual acceptance is recorded in the entry, not as an agent evidence-chain check.
+    let telemetry_entry = if is_closing_action && !already_terminal && !user_completion {
         Some(entries[pos].clone())
     } else {
         None

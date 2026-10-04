@@ -76,6 +76,8 @@ try {
   check((await page.locator("#messages").innerText()).includes("WB3_CURRENT_HISTORY_FAILURE"), "Current-session failure is still visible");
   const readsBeforeRetry = await page.evaluate(() => window.__kzPreview.calls.filter(call => call.cmd === "conversation_get").length);
   await page.evaluate(() => { const state = window.__history; delete state.failures[state.lines[2].id]; });
+  check(!await page.locator("#log-panel").isVisible(), "A history error keeps the log collapsed until requested");
+  await page.locator("#log-toggle").click();
   await page.locator("#log-retry").click();
   await page.evaluate(() => window.__kzPreview.settle());
   check(await page.evaluate(prior => window.__kzPreview.calls.filter(call => call.cmd === "conversation_get").length > prior, readsBeforeRetry), "Visible retry actually rereads history instead of accepting the cached error pane");

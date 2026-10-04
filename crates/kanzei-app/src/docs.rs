@@ -523,7 +523,6 @@ pub async fn docs_update(
     topic: Option<String>,
     reason: Option<String>,
 ) -> Result<String, String> {
-    use kanzei_harness::Tool as _;
     use kanzei_tools::tracker::TrackerTool;
     let tool = match kind.as_str() {
         "req" => TrackerTool {
@@ -588,11 +587,75 @@ pub async fn docs_update(
     }
     // R-141:Tauri command 入口,发现式取根合法且只做这一次。
     let ctx = kanzei_harness::ToolCtx::discovering(PathBuf::from(&project_dir));
-    let output = tool.execute(input, &ctx).await;
+    let output = tool.execute_user_action(input, &ctx).await;
     if output.is_error {
         Err(output.content)
     } else {
         Ok(output.content)
+    }
+}
+
+#[cfg(test)]
+mod user_acceptance_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn desktop_user_completion_preserves_large_requirement_and_archives_it() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-user-acceptance-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = DocStore::open(&root, &REQUIREMENTS);
+        store
+            .save(&[kanzei_tools::docstore::Entry {
+                id: "R-001".into(),
+                title: "移动端 Markdown".into(),
+                status: "doing".into(),
+                severity: None,
+                fields: vec![
+                    ("复杂度".into(), "大".into()),
+                    ("验收".into(), "①全部内容可检索；②全部附件可打开".into()),
+                    ("批次".into(), "0/3".into()),
+                ],
+            }])
+            .unwrap();
+        let project = root.to_string_lossy().into_owned();
+        let result = docs_update(
+            project.clone(),
+            "req".into(),
+            "close".into(),
+            "R-001".into(),
+            Some("done".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert!(result.is_ok(), "{result:?}");
+        let completed = store.load().unwrap();
+        assert_eq!(completed[0].status, "done");
+        assert!(completed[0]
+            .fields
+            .iter()
+            .any(|(key, value)| key == "用户验收" && value.contains("用户手动确认")));
+        docs_snapshot(project).unwrap();
+        assert!(store.load().unwrap().is_empty());
+        let archived = store.load_archive().unwrap();
+        assert_eq!(archived.len(), 1);
+        assert!(archived[0]
+            .fields
+            .iter()
+            .any(|(key, value)| key == "验收" && value.contains("全部附件")));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

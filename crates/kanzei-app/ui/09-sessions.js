@@ -117,8 +117,7 @@ export async function handleWorktreeAction(item, action) {
         const file_list = item.files.join("\n");
         const diff = item.diff?.trim() || t("未跟踪文件尚未包含在 git diff 中");
         log(`${item.branch}\n${t("文件列表")}:\n${file_list}\n\n${t("实际差异")}:\n${diff}`, "info");
-        $("log-panel").classList.remove("hidden");
-        toast(t("工作树差异已写入运行日志"));
+        toast(t("工作树差异已写入运行日志"), { action: { label: t("查看日志"), onClick: () => { if ($("log-panel").classList.contains("hidden")) $("log-toggle").click(); } } });
       }
       return;
     }
@@ -139,8 +138,7 @@ export async function handleWorktreeAction(item, action) {
     const result = await invoke("worktree_discard", { projectDir: forProject, worktreePath: item.path });
     if (String(result).length > 160) {
       log(String(result), "info");
-      $("log-panel").classList.remove("hidden");
-      toast(t("工作树操作完成，详细结果已写入运行日志"));
+      toast(t("工作树操作完成，详细结果已写入运行日志"), { action: { label: t("查看日志"), onClick: () => { if ($("log-panel").classList.contains("hidden")) $("log-toggle").click(); } } });
     } else {
       toast(result);
     }

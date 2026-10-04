@@ -490,6 +490,7 @@ export async function transitionEntryStatus(entry, kind, next, { project = curre
       title: t("标记为「{status}」").replace("{status}", word),
       message: `${entry.id} · ${entry.title}`,
       list: [
+        t("本次记录为用户手动验收，保留原验收内容和已有证据。"),
         t("条目会移出当前列表,归档为只读记录;之后在列表底部的「已归档」里查看。"),
         t("界面里不能改回。确实要重开,请新建一条,或手动编辑归档文件 {file}。").replace("{file}", ARCHIVE_FILES[kind] ?? ""),
       ],

@@ -101,7 +101,9 @@ assert.match(css, /\.menu-row\b/, "鞭挞设置面板的行式布局丢失");
 assert.match(css, /:focus-visible/);
 assert.equal((js.match(/function reportError\(/g) || []).length, 1, "reportError 只能有一个定义");
 assert.match(js, /function toastError\(text, options = \{\}\) \{\s*reportPersistentError\(text, options\);/);
-assert.match(js, /function reportPersistentError\([\s\S]*?\$\("log-panel"\)\.classList\.remove\("hidden"\)/);
+assert.match(js, /function reportPersistentError\([\s\S]*?label: t\("查看日志"\), onClick: \(\) => setLogPanelOpen\(true\)/);
+assert.match(html, /id="log-toggle"[^>]*aria-controls="log-panel"[^>]*aria-expanded="false"/);
+assert.match(html, /id="log-close"[^>]*aria-label="收起日志"/);
 // UI2-0926 #14:活动/子代理两块浮层合成一个停靠的后台任务侧栏(用户推翻 R-334 的浮层定调)。
 // 侧栏是 complementary 地标(<aside> + aria-labelledby),不是 dialog;rail 上只剩一个开关,带 aria-controls/expanded。
 assert.match(html, /<aside id="tasks-panel"[^>]*aria-labelledby="tasks-panel-title"/, "#tasks-panel 必须是带 aria-labelledby 的 <aside> 地标");

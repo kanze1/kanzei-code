@@ -397,8 +397,10 @@ export function reportPersistentError(text, { retry = null } = {}) {
   log(text, "err");
   errorRetry = retry;
   $("log-retry").classList.toggle("hidden", typeof retry !== "function");
-  $("log-panel").classList.remove("hidden");
-  scrollLogToEnd();
+  $("log-toggle").classList.add("has-error");
+  toast(String(text).split("\n")[0].slice(0, 180), {
+    kind: "err", action: { label: t("查看日志"), onClick: () => setLogPanelOpen(true) },
+  });
 }
 export function toastError(text, options = {}) {
   reportPersistentError(text, options);
@@ -716,11 +718,15 @@ function logErrorDetail(text) {
   }
   return null;
 }
+export function setLogPanelOpen(open) {
+  $("log-panel").classList.toggle("hidden", !open);
+  $("log-toggle").setAttribute("aria-expanded", String(open));
+  if (open) { $("log-toggle").classList.remove("has-error"); scrollLogToEnd(); }
+}
 defer(() => {
-  $("log-toggle").addEventListener("click", () => {
-    $("log-panel").classList.toggle("hidden");
-    scrollLogToEnd();
-  });
+  setLogPanelOpen(false);
+  $("log-toggle").addEventListener("click", () => setLogPanelOpen($("log-panel").classList.contains("hidden")));
+  $("log-close").addEventListener("click", () => setLogPanelOpen(false));
 });
 defer(() => {
   $("log-retry").addEventListener("click", async () => {

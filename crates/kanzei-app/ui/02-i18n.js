@@ -12,6 +12,20 @@ import { refreshConversationList } from "./15-views-misc.js";
 import { persistLanguagePreference, renderProviders } from "./16-settings.js";
 
 export const I18N_EN = {
+  "模型服务": "Model providers",
+  "外观": "Appearance",
+  "用户验收": "User acceptance",
+  "功能大纲": "Settings outline",
+  "界面与交互": "Interface & interaction",
+  "模型与连接": "Models & connections",
+  "运行与权限": "Execution & permissions",
+  "项目与数据": "Projects & data",
+  "关于与更新": "About & updates",
+  "对话操作": "Conversation actions",
+  "运行控制": "Run controls",
+  "查看日志": "View log",
+  "收起日志": "Hide log",
+  "本次记录为用户手动验收，保留原验收内容和已有证据。": "This records your acceptance and preserves the original criteria and existing evidence.",
   "对话已切换，请在目标对话中重新发送": "Conversation changed. Send again in the intended conversation.",
   "管理全局或项目记忆": "Manage global or project memories",
   "页面缩放": "Page zoom",

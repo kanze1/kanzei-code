@@ -956,6 +956,8 @@
           <!-- UX-112 分区目录:16-settings.js 按各 .settings-group 的 summary 生成(点击展开并滚到该组)。 -->
           <nav id="settings-toc" class="settings-toc" aria-label="设置分区" data-i18n-aria-label="设置分区"></nav>
 
+          <details id="sg-general" class="settings-group" open>
+            <summary data-i18n-key="界面语言">界面语言</summary>
           <div class="form-row">
             <label for="language-select" data-i18n-key="界面语言">界面语言</label>
             <select id="language-select">
@@ -965,6 +967,7 @@
             </select>
             <span class="dim settings-inline-hint" data-i18n-key="切换后立即生效并保存">切换后立即生效并保存</span>
           </div>
+          </details>
           <!-- 当前项目的 .kanzei/kanzei.toml 覆盖了本页的哪些全局值(网络代理/默认空间/运行上限)。
                模型的项目级覆盖不在这里报:见模型组里那行中性说明与「项目模型配置」。 -->
           <div id="settings-effective" class="settings-effective hidden" role="status"></div>
@@ -1020,7 +1023,7 @@
             <div id="settings-project-links" class="settings-project-links"></div>
           </details>
           <details class="settings-group" id="sg-providers" open>
-            <summary>Provider</summary>
+            <summary data-i18n-key="模型服务">模型服务</summary>
           <div class="settings-actions" style="margin-top: 0; margin-bottom: 8px;">
             <button id="providers-test" class="ghost"><span data-i18n-key="测试全部连通性">测试全部连通性</span></button>
             <span id="providers-test-result" class="dim" role="status" aria-live="polite"></span>
@@ -1172,6 +1175,8 @@
 
           <!-- UI2-0926 #10 欢迎页背景:即时保存(ui_prefs_set 的 backdrop 字段 → ~/.kanzei/app.json;localStorage 只作缓存,D-404)。
                图案卡片由 22-constellation-prefs.js 渲染成 role=radio 的按钮组(方向键切换,选中中性)。 -->
+          <details id="sg-appearance" class="settings-group">
+            <summary data-i18n-key="外观">外观</summary>
           <div class="form-row"><label for="set-visuals-enabled" data-i18n-key="复杂视觉效果">复杂视觉效果</label><input id="set-visuals-enabled" type="checkbox" /><span class="dim" data-i18n-key="按需加载背景效果。">按需加载背景效果。</span></div>
           <details id="backdrop-settings" class="settings-group">
             <summary data-i18n-key="欢迎页背景">欢迎页背景</summary>
@@ -1182,6 +1187,7 @@
             <p class="dim" data-i18n-key="图片只在本机转换成约 60 颗星的点集后保存，原图不保存。">图片只在本机转换成约 60 颗星的点集后保存，原图不保存。</p>
             <div class="form-row backdrop-range-row"><label for="set-bg-density" data-i18n-key="星点密度">星点密度</label><input id="set-bg-density" type="range" min="0" max="200" step="10" value="100" /><output id="set-bg-density-value" for="set-bg-density">100%</output></div>
             <div class="form-row backdrop-range-row"><label for="set-bg-opacity" data-i18n-key="不透明度">不透明度</label><input id="set-bg-opacity" type="range" min="20" max="150" step="5" value="100" /><output id="set-bg-opacity-value" for="set-bg-opacity">100%</output></div>
+          </details>
           </details>
 
           <details class="settings-group" id="sg-permissions">
@@ -1445,6 +1451,7 @@
             <button id="log-retry" class="icon-btn hidden" title="重试上次失败操作" data-i18n-title="重试上次失败操作" aria-label="重试上次失败操作" data-i18n-aria-label="重试上次失败操作">↻</button>
             <button id="log-copy" class="icon-btn" title="复制日志" data-i18n-title="复制日志" aria-label="复制运行日志" data-i18n-aria-label="复制运行日志">⧉</button>
             <button id="log-clear" class="icon-btn" title="清空" data-i18n-title="清空" aria-label="清空日志" data-i18n-aria-label="清空日志">⌫</button>
+            <button id="log-close" type="button" class="icon-btn" title="收起日志" data-i18n-title="收起日志" aria-label="收起日志" data-i18n-aria-label="收起日志"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
           </span>
         </div>
         <div id="log-lines"></div>
@@ -1465,7 +1472,7 @@
           <button id="status-tokens" type="button" class="context-status" aria-label="查看上下文成分" data-i18n-aria-label="查看上下文成分" aria-expanded="false"></button>
           <div id="context-detail" class="k-surface k-popover context-detail hidden" popover="manual" data-placement="top-end"></div>
           <span id="status-model"></span>
-          <button id="log-toggle" class="statusbar-btn" title="显示/隐藏运行日志" data-i18n-title="显示/隐藏运行日志" data-i18n-key="日志">日志</button>
+          <button id="log-toggle" class="statusbar-btn" aria-controls="log-panel" aria-expanded="false" title="显示/隐藏运行日志" data-i18n-title="显示/隐藏运行日志" data-i18n-key="日志">日志</button>
           <span id="status-version"></span>
         </div>
       </footer>

@@ -29,6 +29,11 @@ pub(crate) struct FieldDefinition {
 /// §3.6 的稳定词表。aliases 保持原样登记，不做全局 schema 强校验。
 pub(crate) const FIELD_REGISTRY: &[FieldDefinition] = &[
     FieldDefinition {
+        key: "用户验收",
+        category: FieldCategory::Engine,
+        has_consumer: true,
+    },
+    FieldDefinition {
         key: "需求格式",
         category: FieldCategory::Engine,
         has_consumer: true,

@@ -102,6 +102,9 @@ fn normalize_batch_field(fields: &mut BTreeMap<String, String>) {
 
 #[derive(Deserialize, JsonSchema)]
 struct TrackerInput {
+    /// Set only by the desktop command, never by model-supplied JSON.
+    #[serde(skip)]
+    user_action: bool,
     /// 动作(取值见 enum)
     action: String,
     /// reorder 用:完整的 ID 新顺序(必须恰好覆盖当前全部条目)
@@ -395,10 +398,28 @@ impl Tool for TrackerTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        self.execute_with_origin(input, ctx, false).await
+    }
+}
+
+impl TrackerTool {
+    /// A user's explicit completion decision does not require agent delivery evidence.
+    /// Locking, document integrity and lifecycle validation still share the tool path.
+    pub async fn execute_user_action(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        self.execute_with_origin(input, ctx, true).await
+    }
+
+    async fn execute_with_origin(
+        &self,
+        input: serde_json::Value,
+        ctx: &ToolCtx,
+        user_action: bool,
+    ) -> ToolOutput {
         let mut input: TrackerInput = match crate::parse_input(self, input) {
             Ok(v) => v,
             Err(out) => return out,
         };
+        input.user_action = user_action;
         // R-268:写日志判定在 match(input.action) 之后还要用 action——先缓存字符串
         // (match 会部分 move input,函数尾再读 input.action 会 borrow-after-move)。
         let action_str = input.action.clone();

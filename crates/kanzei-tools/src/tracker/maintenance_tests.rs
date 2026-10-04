@@ -45,6 +45,92 @@ fn fixture(
 }
 
 #[tokio::test]
+async fn user_completion_preserves_criteria_and_bypasses_only_agent_delivery_evidence() {
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        for action in ["close", "update"] {
+            let (root, ctx, tool, store) = fixture(kind, action);
+            let id = format!("{}-001", kind.prefix);
+            let mut entries = store.load().unwrap();
+            entries[0]
+                .fields
+                .push(("进展".into(), "APK 已交付，用户已完成设备验收".into()));
+            for (key, value) in &mut entries[0].fields {
+                if key == "复杂度" {
+                    *value = "大".into();
+                }
+                if key == "验收" {
+                    *value = "①全部功能在 Android 设备上可用；②全部附件可检索".into();
+                }
+            }
+            store.save(&entries).unwrap();
+            let input = json!({"action":action,"id":id,"status":kind.terminal[0]});
+            let bytes = std::fs::read(&store.path).unwrap();
+            let agent = tool.execute(input.clone(), &ctx).await;
+            assert!(
+                agent.is_error,
+                "agent completion must still require evidence"
+            );
+            assert_eq!(bytes, std::fs::read(&store.path).unwrap());
+            let mut forged = input.clone();
+            forged["user_action"] = json!(true);
+            assert!(tool.execute(forged, &ctx).await.is_error);
+            assert_eq!(bytes, std::fs::read(&store.path).unwrap());
+            let output = tool.execute_user_action(input.clone(), &ctx).await;
+            assert!(!output.is_error, "{}", output.content);
+            let after = store.load().unwrap();
+            assert_eq!(after[0].status, kind.terminal[0]);
+            for (key, value) in &entries[0].fields {
+                assert!(after[0].fields.contains(&(key.clone(), value.clone())));
+            }
+            assert!(after[0]
+                .fields
+                .iter()
+                .any(|(key, value)| key == "用户验收" && value.contains("用户手动确认")));
+            let completed = std::fs::read(&store.path).unwrap();
+            assert!(!tool.execute_user_action(input, &ctx).await.is_error);
+            assert_eq!(completed, std::fs::read(&store.path).unwrap());
+            assert!(crate::close_telemetry::read_records(&root).is_empty());
+            assert_eq!(
+                crate::close_telemetry::rolling_metrics(&root).missing_evidence_total,
+                0
+            );
+            store.archive_terminal().unwrap();
+            assert_eq!(store.load_archive().unwrap()[0].status, kind.terminal[0]);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn user_completion_still_validates_close_targets_and_retirement_reasons() {
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let (root, ctx, tool, store) = fixture(kind, "user-validation");
+        let id = format!("{}-001", kind.prefix);
+        let bytes = std::fs::read(&store.path).unwrap();
+        let invalid = tool
+            .execute_user_action(json!({"action":"close","id":id,"status":"invented"}), &ctx)
+            .await;
+        assert_eq!(invalid.code, Some("TRACKER_CLOSE_TARGET_INVALID"));
+        let missing = tool
+            .execute_user_action(
+                json!({"action":"close","id":id,"status":kind.terminal[1]}),
+                &ctx,
+            )
+            .await;
+        assert_eq!(missing.code, Some("TRACKER_CLOSE_REASON_REQUIRED"));
+        let forged = tool
+            .execute(
+                json!({"action":"update","id":id,"fields":{"用户验收":"pretend"}}),
+                &ctx,
+            )
+            .await;
+        assert_eq!(forged.code, Some("TRACKER_ENGINE_FIELD"));
+        assert_eq!(bytes, std::fs::read(&store.path).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
 async fn backlog_maintenance_lists_both_queues_without_relaxing_execution_guard() {
     for kind in [&REQUIREMENTS, &DEFECTS] {
         let (root, ctx, tool, _) = fixture(kind, "list");

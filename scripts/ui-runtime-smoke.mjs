@@ -997,10 +997,10 @@ if (SMOKE_MUTATE) {
       pattern: /if \(ok !== true\) return;(\r?\n\s*const root = currentProject;\r?\n\s*annotating = true;)/,
       replace: "$1",
     },
-    // 日志面板显示之后再滚到最新一行。删了它,弹出的面板停在最旧一行(S18)。
+    // 用户打开日志之后再滚到最新一行。删了它,面板停在最旧一行(S18)。
     logScrollOnShow: {
-      pattern: /  \$\("log-panel"\)\.classList\.remove\("hidden"\);\r?\n  scrollLogToEnd\(\);/,
-      replace: '  $("log-panel").classList.remove("hidden");',
+      pattern: /if \(open\) \{ \$\("log-toggle"\)\.classList\.remove\("has-error"\); scrollLogToEnd\(\); \}/,
+      replace: 'if (open) { $("log-toggle").classList.remove("has-error"); }',
     },
     // ── 分区:文件编辑(完) ──
 
@@ -5852,8 +5852,8 @@ assert(
     "models_list 失败未经过持久错误反馈出口",
   );
   assert(
-    !byId.get("log-panel").classList.contains("hidden"),
-    "models_list 失败后日志面板未显示",
+    byId.get("log-panel").classList.contains("hidden"),
+    "models_list 失败后不应自动展开日志面板",
   );
   expectedPersistentError = null;
   invokeFailures.delete("models_list");
@@ -16506,7 +16506,7 @@ const docsB = {
     }
 
     // S18 日志面板(UX-011):面板隐藏(display:none)时 log() 里的 scrollTop 赋值落空,弹出来停在最旧一行、新错误在视口外——
-    // 显示出来之后要再滚到最新一行(自动弹出与手动点开关两条路径)。
+    // 错误保留在收起的日志里；用户点开后再滚到最新一行。
     {
       const lines = byId.get("log-lines");
       const panel = byId.get("log-panel");
@@ -16520,7 +16520,7 @@ const docsB = {
         expectedPersistentError = "UX-011 哨兵";
         shellNsLog.toastError("UX-011 哨兵错误");
         expectedPersistentError = null;
-        assert(!panel.classList.contains("hidden") && top === 480, `持久错误弹出日志面板后应滚到最新一行,实得 scrollTop=${top}`);
+        assert(panel.classList.contains("hidden") && top === 0, "持久错误应保持日志收起");
         top = 0;
         panel.classList.add("hidden");
         byId.get("log-toggle").click();
@@ -17602,6 +17602,7 @@ await import("./ui-decision-console-smoke.mjs");
 // the production management, work selection, global memory and floating preview
 // suite. Keep the async owner and question contracts below independently.
 await import("./ui-familiar-workspace-smoke.mjs");
+await import("./ui-feedback-polish-smoke.mjs");
 await import("./ui-softwire-ownership-smoke.mjs");
 await import("./ui-softwire-choice-smoke.mjs");
 await import("./ui-reply-timer-browser-smoke.mjs");
