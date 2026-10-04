@@ -21,9 +21,9 @@ export function createRunControl({ resolve, changed }) {
     element.append(menu); menu.append(continuePanel);
     openPopover(tune, menu, { type: "menu", placement: "top-end" });
   }), "sw-run-tune");
-  tune.setAttribute("aria-label", t("鞭挞设置"));
+  tune.setAttribute("aria-label", t("自动推进设置"));
   const off = button("■", () => void perform(line => setLineAutoState(line.id, { enabled: false, paused: false, stopAfterRound: false })), "sw-run-off");
-  off.setAttribute("aria-label", t("关闭鞭挞")); off.title = t("停止鞭挞；当前轮继续完成");
+  off.setAttribute("aria-label", t("关闭自动推进")); off.title = t("停止自动推进；当前轮继续完成");
   const status = node("span", null, "sw-run-status"); status.setAttribute("role", "status");
   const controls = node("div", null, "sw-run-buttons"); controls.append(mode, toggle, tune, off);
   element.append(controls, status);
@@ -37,20 +37,20 @@ export function createRunControl({ resolve, changed }) {
     if (line?.project !== selected?.project || line?.id !== selected?.id) { close(); failure = ""; }
     selected = line;
     // 静态标签是创建时写的:每次同步重写,切语言后立刻跟上。
-    tune.setAttribute("aria-label", t("鞭挞设置"));
-    off.setAttribute("aria-label", t("关闭鞭挞")); off.title = t("停止鞭挞；当前轮继续完成");
+    tune.setAttribute("aria-label", t("自动推进设置"));
+    off.setAttribute("aria-label", t("关闭自动推进")); off.title = t("停止自动推进；当前轮继续完成");
     const config = lineAutoConfig(line?.id), research = line?.profile === "research";
     const phase = line?.session_id ? sessionState(line.session_id).phase : "idle";
     const running = line?.running || ["starting", "running", "stopping"].includes(phase);
     mode.textContent = research ? t("研究") : !line?.id ? t("沿用设置") + " ▾" : lineAgent(line).agent === "dev" ? t("自主推进") + " ▾" : t("结伴开发") + " ▾";
     const pausing = config.enabled && !config.paused;
-    toggle.textContent = busy ? t("处理中…") : pausing ? "Ⅱ " + t("暂停鞭挞") : config.paused ? "▶ " + t("恢复鞭挞") : "▶ " + t("启动鞭挞");
+    toggle.textContent = busy ? t("处理中…") : pausing ? "Ⅱ " + t("暂停自动推进") : config.paused ? "▶ " + t("恢复自动推进") : "▶ " + t("启动自动推进");
     toggle.dataset.active = String(pausing);
     toggle.title = pausing ? t("当前轮继续完成，暂停后续轮次") : fillTemplate(t("连续推进 {name} 的工作队列"), { name: lineLabel(line?.label || "主对话") });
     for (const control of [mode, toggle, tune, off]) control.disabled = busy || !line?.project || research;
     off.hidden = !config.enabled;
     const waiting = awaitingUserSessions.has(line?.session_id);
-    status.textContent = failure || (research ? t("研究模式不使用鞭挞") : config.paused ? running ? t("已暂停 · 本轮继续") : t("已暂停")
+    status.textContent = failure || (research ? t("研究模式不使用自动推进") : config.paused ? running ? t("已暂停 · 本轮继续") : t("已暂停")
       : waiting ? t("等待你的回复") : config.stopAfterRound ? t("本轮后停")
         : autoContinueTimers.has(line?.session_id) ? t("即将开始下一轮") : config.enabled ? fillTemplate(t("{n} 轮 · {state}"), { n: currentAutoRounds(line?.session_id), state: running ? t("推进中") : t("等待运行状态") }) : "");
     status.dataset.error = String(Boolean(failure));

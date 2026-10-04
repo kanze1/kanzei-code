@@ -45,6 +45,7 @@ export function registerDelivery(display, sessionId) {
   return row;
 }
 export function matchDeliveredFile(value, rows) {
+  rows = rows.filter(row => !row.removed);
   const target = key(value);
   const exact = rows.filter(row => [row.path, key(row.path).replace(key(row.worktree_root) + "/", ""), key(row.path).replace(key(row.project_dir) + "/", "")].some(path => key(path) === target));
   const candidates = exact.length ? exact : rows.filter(row => key(row.name) === target);
@@ -58,8 +59,8 @@ export function decorateDeliveredReply(body) {
   const message = body?.closest?.(".msg.assistant");
   const session = message?.dataset.sessionId;
   if (!session) return;
-  const rows = [...projects.values()].flatMap(state => state.rows).filter(row => row.session_id === session);
-  if (!rows.length) return;
+  const rows = [...projects.values()].flatMap(state => state.rows).filter(row => row.session_id === session && !row.removed);
+  if (!rows.length) { message.querySelector(".message-deliveries")?.remove(); return; }
   const selected = new Map();
   for (const part of body.querySelectorAll("a.md-path, code, .delivery-inline")) {
     if (part.closest("pre") || part.tagName === "CODE" && part.closest("a")) continue;

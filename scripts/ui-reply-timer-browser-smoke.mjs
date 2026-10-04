@@ -51,6 +51,10 @@ try {
   await page.locator('[data-work-surface="chat"]').click(); await settle();
   identity = await page.evaluate(async () => {
     const shell = await import("/03-shell.js");
+    const f = await window.__kzPreview.fixtures(), snapshot = f.commands.workspace_snapshot();
+    for (const project of snapshot.projects) { project.decisions = []; project.work_units = []; }
+    window.__kzPreview.setCommand("workspace_snapshot", snapshot);
+
     const now = performance.now.bind(performance);
     window.__replyClock = { offset: 0, questions: [], hold: false, fail: false };
     Object.defineProperty(performance, "now", { configurable: true, value: () => now() + window.__replyClock.offset });
@@ -96,7 +100,7 @@ try {
   check((await calls()).at(-1).reply === "检查界面" && (await calls()).at(-1).sessionId === identity.session && (await calls()).at(-1).expectedRevision === "v1", "One-click reply preserves exact choice, owner and revision");
   await emit("kz:tool-end", { id: "q-call", name: "question", ok: true }); await advance(3000);
   check(await elapsed() >= 68 && await elapsed() < 75, "Reply resumes accumulated work time without adding thirteen hours");
-  check(await page.locator(".sw-reply-complete").isVisible(), "Successful quick reply shows its receipt");
+  check(!await page.locator(".sw-reply-complete").isVisible(), "Successful quick reply leaves the completed item and advances automatically");
   await page.screenshot({ path: path.join(output, "quick-reply-dark.png") });
   await emit("kz:idle");
   check(await page.locator("#status-elapsed").textContent() === "", "Idle alone clears the timer even if Done is missing");
@@ -115,7 +119,7 @@ try {
   await page.locator("#sw-refresh").click();
   await page.waitForFunction(() => Boolean(window.__replyClock.releaseQuestions));
   await page.locator("#send").click();
-  await page.locator(".sw-reply-complete").waitFor();
+  await page.waitForFunction(() => !window.__replyClock.questions.some(question => question.id === 302));
   await page.evaluate(() => window.__replyClock.releaseQuestions()); await settle();
   check((await calls()).at(-1).reply === "检查运行\n只检查现有环境，不安装依赖。", "The manually sent explanation is delivered verbatim");
   check(await page.locator("#status-mode").textContent() !== "待你回复", "A delayed old question poll cannot undo the reply acknowledgement");

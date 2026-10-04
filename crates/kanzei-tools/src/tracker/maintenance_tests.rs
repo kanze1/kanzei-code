@@ -102,6 +102,24 @@ async fn user_completion_preserves_criteria_and_bypasses_only_agent_delivery_evi
 }
 
 #[tokio::test]
+async fn paired_conversations_do_not_acquire_autonomous_delivery_gates_or_fake_user_acceptance() {
+    let (root, mut ctx, tool, store) = fixture(&REQUIREMENTS, "paired");
+    ctx.project_workflow = false;
+    let before = store.load().unwrap();
+    let output = tool
+        .execute(json!({"action":"close","id":"R-001","status":"done"}), &ctx)
+        .await;
+    assert!(!output.is_error, "{}", output.content);
+    let after = store.load().unwrap();
+    assert_eq!(after[0].status, "done");
+    for field in &before[0].fields {
+        assert!(after[0].fields.contains(field));
+    }
+    assert!(!after[0].fields.iter().any(|(name, _)| name == "用户验收"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn user_completion_still_validates_close_targets_and_retirement_reasons() {
     for kind in [&REQUIREMENTS, &DEFECTS] {
         let (root, ctx, tool, store) = fixture(kind, "user-validation");

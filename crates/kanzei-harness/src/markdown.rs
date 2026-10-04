@@ -20,7 +20,9 @@ impl Component for MarkdownComponent {
 
         for base in bases {
             scan_agents(&base.join("agents"), draft);
-            scan_skills(&base.join("skills"), draft);
+        }
+        for skill in discover_skills(&ctx.project_root) {
+            draft.skills.insert(skill.name.clone(), skill);
         }
         // 技能清单注入名称、描述与正文路径;技能正文仍由 agent 按需读取。
         if let Some(block) = skills_block(&draft.skills) {
@@ -41,12 +43,16 @@ fn skills_block(skills: &Registry<SkillDef>) -> Option<String> {
     }
     let mut text = String::from("可用技能(skills):做相关任务时读取对应文件加载技能正文:\n");
     for (name, skill) in skills.iter() {
+        if skill.disable_model_invocation {
+            continue;
+        }
         text.push_str(&format!(
             "- {name}: {} (正文: {})\n",
             skill.description,
             skill.path.display()
         ));
     }
+    text.push_str("显式 $name 或用户绑定技能时必须先读取正文；正文内相对路径按 SKILL.md 所在目录解析。技能不覆盖用户当前指令。\n");
     Some(text.trim().to_string())
 }
 
@@ -167,11 +173,11 @@ fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
             }
         }
     }
+    candidates.sort();
     for path in candidates {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let fm = parse_frontmatter(&text);
         let stem = if path.file_name().map(|f| f == "SKILL.md").unwrap_or(false) {
             path.parent()
                 .and_then(|p| p.file_name())
@@ -180,20 +186,79 @@ fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
         } else {
             path.file_stem().and_then(|s| s.to_str()).unwrap_or("skill")
         };
-        let name = fm.get("name").unwrap_or(stem).to_string();
-        let Some(description) = fm.get("description").map(str::to_string) else {
+        #[derive(serde::Deserialize)]
+        struct Metadata {
+            name: Option<String>,
+            description: String,
+            #[serde(default, rename = "disable-model-invocation")]
+            disable_model_invocation: bool,
+            #[serde(default = "yes", rename = "user-invocable")]
+            user_invocable: bool,
+        }
+        fn yes() -> bool {
+            true
+        }
+        let normalized = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
+        let metadata = normalized.strip_prefix("---\n").and_then(|body| {
+            let end = body.lines().position(|line| line == "---")?;
+            let yaml = body.lines().take(end).collect::<Vec<_>>().join("\n");
+            serde_yaml_ng::from_str::<Metadata>(&yaml).ok()
+        });
+        let Some(metadata) = metadata else {
             tracing::warn!(path = %path.display(), "skill missing description; skipped");
             continue;
         };
+        let directory_skill = path.file_name().is_some_and(|file| file == "SKILL.md");
+        if directory_skill && metadata.name.is_none() {
+            continue;
+        }
+        let name = metadata.name.unwrap_or_else(|| stem.to_string());
+        if directory_skill && name != stem
+            || name.is_empty()
+            || name.chars().count() > 64
+            || name.starts_with('-')
+            || name.ends_with('-')
+            || name.contains("--")
+            || !name
+                .chars()
+                .all(|c| c == '-' || c.is_alphanumeric() && !c.is_uppercase())
+            || metadata.description.trim().is_empty()
+            || metadata.description.chars().count() > 1024
+        {
+            continue;
+        }
         draft.skills.insert(
             name.clone(),
             SkillDef {
                 name,
-                description,
+                description: metadata.description,
                 path,
+                disable_model_invocation: metadata.disable_model_invocation,
+                user_invocable: metadata.user_invocable,
             },
         );
     }
+}
+
+/// Shared catalog for the runner and desktop bindings. Project roots win over user roots.
+pub fn discover_skills(project: &Path) -> Vec<SkillDef> {
+    let mut draft = HarnessDraft::default();
+    if let Some(home) = dirs::home_dir() {
+        for base in [".codex", ".claude", ".agents"] {
+            scan_skills(&home.join(base).join("skills"), &mut draft);
+        }
+    }
+    if let Some(home) = crate::home::kanzei_home() {
+        scan_skills(&home.join("skills"), &mut draft);
+    }
+    for base in [".codex", ".claude", ".agents", ".kanzei"] {
+        scan_skills(&project.join(base).join("skills"), &mut draft);
+    }
+    draft
+        .skills
+        .iter()
+        .map(|(_, skill)| skill.clone())
+        .collect()
 }
 
 /// 借 serde 解析小写枚举字符串("dev"→ProfileScope::Dev 等)。
@@ -203,6 +268,83 @@ fn serde_plain<T: serde::de::DeserializeOwned>(s: &str) -> Option<T> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn agent_skills_yaml_blocks_manual_flags_and_project_precedence() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-agent-skills-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for (base, description) in [
+            (".codex", "legacy definition"),
+            (".agents", "modern definition"),
+        ] {
+            let directory = root.join(base).join("skills/protocol-check");
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(directory.join("SKILL.md"), format!("---\nname: protocol-check\ndescription: >\n  {description}\n  with multiple lines\ndisable-model-invocation: true\nuser-invocable: false\nallowed-tools: [Read, Bash]\n---\nUse references/details.md")).unwrap();
+        }
+        let catalog = super::discover_skills(&root);
+        let skill = catalog
+            .iter()
+            .find(|skill| skill.name == "protocol-check")
+            .unwrap();
+        assert!(skill
+            .description
+            .contains("modern definition with multiple lines"));
+        assert!(skill.disable_model_invocation);
+        assert!(!skill.user_invocable);
+        assert!(skill.path.starts_with(root.join(".agents")));
+        let mut draft = crate::harness::HarnessDraft::default();
+        let bad = root.join("bad");
+        std::fs::create_dir_all(&bad).unwrap();
+        std::fs::write(
+            bad.join("malformed.md"),
+            "---\nname: wrong\ndescription: [\n---\nignored",
+        )
+        .unwrap();
+        super::scan_skills(&bad, &mut draft);
+        assert!(draft.skills.is_empty());
+        for name in ["分析", &"é".repeat(64)] {
+            let directory = bad.join(name);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: Unicode skill\n---\nBody"),
+            )
+            .unwrap();
+        }
+        for (directory, metadata) in [
+            ("missing-name", "description: No name".to_string()),
+            (
+                "wrong-directory",
+                "name: other\ndescription: Wrong directory".to_string(),
+            ),
+            (
+                "Éclair",
+                "name: Éclair\ndescription: Uppercase name".to_string(),
+            ),
+            (
+                &"é".repeat(65),
+                format!("name: {}\ndescription: Too long", "é".repeat(65)),
+            ),
+        ] {
+            let directory = bad.join(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("SKILL.md"),
+                format!("---\n{metadata}\n---\nBody"),
+            )
+            .unwrap();
+        }
+        super::scan_skills(&bad, &mut draft);
+        assert_eq!(draft.skills.iter().count(), 2);
+        assert!(draft.skills.get("分析").is_some());
+        assert!(draft.skills.get(&"é".repeat(64)).is_some());
+        std::fs::remove_dir_all(root).unwrap();
+    }
     use super::*;
     use std::sync::Arc;
 
@@ -335,6 +477,8 @@ mod tests {
                 name: "build".into(),
                 description: "构建与格式检查".into(),
                 path: std::path::PathBuf::from("skills/build/SKILL.md"),
+                disable_model_invocation: false,
+                user_invocable: true,
             },
         );
         let block = skills_block(&skills).expect("非空注册表应产生技能块");
@@ -358,7 +502,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             dir.join(".kanzei/skills/build/SKILL.md"),
-            "---\ndescription: 构建与格式检查\n---\n构建技能正文",
+            "---\nname: build\ndescription: 构建与格式检查\n---\n构建技能正文",
         )
         .unwrap();
 

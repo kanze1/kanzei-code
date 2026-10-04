@@ -268,7 +268,7 @@ try {
   const forkArgs = { projectDir: root, processId: original.id, text: "FORGED_DEV: 保持聊天权限", occurrenceFromEnd: 0 };
   const preview = await invoke("conversation_action", { ...forkArgs, action: "preview" });
   const forked = await invoke("conversation_action", { ...forkArgs, action: "fork", expectedHash: preview.sourceHash, force: false });
-  check(JSON.stringify(await invoke("conversation_get", { projectDir: root, processId: forked.processId })).includes("GENERAL_INPUT"), "General fork persists its preceding conversation");
+  check(JSON.stringify(await invoke("conversation_display_get", { projectDir: root, processId: forked.processId })).includes("GENERAL_INPUT"), "General fork persists its preceding conversation");
   const prefs = await invoke("projects_add", { path: project });
   await page.evaluate(async prefs => { const { enterProject } = await import("./09-sessions.js"); await enterProject(prefs); }, prefs);
   await page.locator("#prompt").fill("PROJECT_DRAFT");
@@ -289,7 +289,7 @@ try {
   await page.evaluate(async id => { const { switchProcess } = await import("./09-sessions.js"); await switchProcess(id, true); }, original.id);
   const compacted = await invoke("conversation_compact", { projectDir: root, processId: original.id, focus: "保留已生成的文件和当前任务状态" });
   check(compacted.changed === true && compacted.after < compacted.before, "General manual compaction reduces the actual persisted conversation");
-  const compactedHistory = await invoke("conversation_get", { projectDir: root, processId: original.id });
+  const compactedHistory = await invoke("conversation_display_get", { projectDir: root, processId: original.id });
   check(JSON.stringify(compactedHistory).includes("已压缩为"), "General compaction persists its resumable summary surface");
   for (const theme of ["dark", "light"]) { await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme); await page.screenshot({ path: path.join(output, `${theme}.png`) }); }
   check(errors.length === 0, `No native browser errors: ${errors.join("; ")}`);

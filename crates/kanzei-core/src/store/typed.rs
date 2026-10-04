@@ -19,7 +19,7 @@ use super::{SessionStore, StoreError, StoredEvent};
 
 mod projection;
 pub use projection::{
-    compare_shadow, compare_shadow_for_turn, project_session_facts,
+    compare_shadow, compare_shadow_for_turn, project_conversation_facts, project_session_facts,
     project_session_facts_with_surface, summarize_shadow_reports, InterruptedAssistant,
     SessionProjection, SessionTurnTerminal, ShadowComparison, ShadowVerdictStats,
 };
@@ -3309,6 +3309,7 @@ mod tests {
                 seed_source_sequence: None,
                 surface_messages: messages,
                 transcript_messages: Vec::new(),
+                internal_user_indexes: Vec::new(),
                 interrupted_assistants: Vec::new(),
                 diagnostics,
             }
@@ -3388,6 +3389,7 @@ mod tests {
             seed_source_sequence: None,
             surface_messages: vec![assistant("old"), Message::user_text("current")],
             transcript_messages: Vec::new(),
+            internal_user_indexes: Vec::new(),
             interrupted_assistants: Vec::new(),
             diagnostics: vec!["turn turn-old failed: transport".into()],
         };

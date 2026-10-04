@@ -661,6 +661,17 @@ pub(crate) async fn run_task(
                 payload["handoff"] = json!(declaration);
             }
             payload["goalActive"] = json!(goal_active);
+            if matches!(
+                action,
+                kanzei_harness::auto_run::AutoRunAction::Stop(
+                    kanzei_harness::auto_run::AutoStopReason::GoalMet
+                        | kanzei_harness::auto_run::AutoStopReason::GoalUnreachable(_)
+                )
+            ) {
+                if let Err(error) = crate::auto_run::persist_goal(&session_id, None) {
+                    tracing::warn!(%error, "could not clear saved conversation goal");
+                }
+            }
             payload["rounds"] = rounds;
             payload["max"] = max;
             (

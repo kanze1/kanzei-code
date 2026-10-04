@@ -71,7 +71,7 @@
         </div>
         <button type="button" id="workbench-schedules" class="workbench-nav-link" data-i18n-key="定时任务">定时任务</button>
         <button type="button" id="workbench-home" class="workbench-nav-link active" data-space-only="dev" data-i18n-key="所有项目">所有项目</button>
-        <button type="button" id="workbench-attention" class="workbench-nav-link" data-space-only="dev"><span data-i18n-key="待我处理">待我处理</span><span id="workbench-attention-count" class="workbench-nav-count"></span></button>
+        <button type="button" id="workbench-attention" class="workbench-nav-link" data-space-only="dev"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4.5h16v15H4zM4 14h5l1.5 2h3l1.5-2h5"/></svg><span data-i18n-key="待我处理">待我处理</span><span id="workbench-attention-count" class="workbench-nav-count"></span></button>
         <div id="workbench-conversation-scroll" data-space-only="dev">
         <div class="workbench-nav-label">
           <span data-i18n-key="项目">项目</span>
@@ -257,6 +257,8 @@
             <div id="sop-list" class="sop-list"></div>
           </div>
           <div id="file-suggestions" class="k-surface k-popover file-suggestions hidden" popover="manual" data-placement="top-start" role="listbox"></div>
+          <div id="goal-menu" class="k-surface k-menu goal-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="Goal"></div>
+          <div id="skills-menu" class="k-surface k-menu skills-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="Skills"></div>
           <div id="composer-queue" class="composer-queue hidden">
             <span class="dim"><span data-i18n-key="排队输入">排队输入</span> <em id="queue-count"></em></span>
             <div id="queue-list" class="queue-list"></div>
@@ -268,21 +270,21 @@
           </section>
           <!-- UI2-0926 #11 工具行(单行,窄时右段整体换到第二行靠右):控件全是 .kz-ctl(28px 静默胶囊),发送 32 圆键。
                左:附件 · 模式 · 鞭挞组 · 自动放行;右:模型 · 思考 · 更多 · 继续(仅空闲)|排队(仅运行)· 语音 · 停止 · 发送(自动放行在左段、子代理在上方上下文带里)。
-               鞭挞控制台常驻只放**状态**(开关 / 轮次与阶段 = 设置入口 / 停机原因),设置全收进弹出菜单。 -->
+               自动推进控制常驻只放**状态**(开关 / 轮次与阶段 = 设置入口 / 停机原因),设置全收进弹出菜单。 -->
           <div id="composer-bar">
-            <div class="composer-left">
+            <div id="composer-left" class="composer-left">
               <button id="attach" type="button" class="kz-ctl kz-ctl--icon" title="添加图片、PDF、表格或文本" data-i18n-title="添加图片、PDF、表格或文本" aria-label="添加图片、PDF、表格或文本" data-i18n-aria-label="添加图片、PDF、表格或文本"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
               <!-- R-342:模式芯片常驻(对话期间唯一必须一眼可见的档位事实);选择器本体就是真源。 -->
-              <select data-space-only="dev" id="profile-select" class="kz-ctl ctx-mode" title="开发协作方式：结伴开发由用户引导，自主推进按任务队列工作；两者均可开鞭挞" data-i18n-title="开发协作方式：结伴开发由用户引导，自主推进按任务队列工作；两者均可开鞭挞">
+              <select data-space-only="dev" id="profile-select" class="kz-ctl ctx-mode" title="结伴开发按当前对话执行；自主推进自动继续，并执行需求与批次验收" data-i18n-title="结伴开发按当前对话执行；自主推进自动继续，并执行需求与批次验收">
               <option value="dev-pair"><span data-i18n-key="结伴开发">结伴开发</span></option>
               <option value="dev-auto"><span data-i18n-key="自主推进">自主推进</span></option>
             </select>
-              <div data-space-only="dev" id="autorun-bar" class="autorun-bar" role="group" aria-label="鞭挞控制台" data-i18n-aria-label="鞭挞控制台">
+              <div data-space-only="dev" id="autorun-bar" class="autorun-bar" role="group" aria-label="自动推进控制" data-i18n-aria-label="自动推进控制">
                 <label id="auto-continue-wrap" class="kz-ctl" title="每轮跑完自动发「继续推进目标」" data-i18n-title="每轮跑完自动发「继续推进目标」">
                   <input type="checkbox" id="auto-continue" /> <span data-i18n-key="鞭挞">鞭挞</span>
                 </label>
-                <button type="button" id="autorun-more" class="kz-ctl autorun-trigger" data-kz-menu="autorun-menu" title="鞭挞设置" data-i18n-title="鞭挞设置" aria-label="鞭挞设置" data-i18n-aria-label="鞭挞设置"><span id="auto-progress" class="auto-progress"><b id="auto-round-now">0</b><span class="auto-round-unit" data-i18n-key="轮">轮</span></span><span id="auto-phase" class="auto-phase"></span><span class="kz-chev" aria-hidden="true"></span></button>
-                <div id="autorun-menu" class="k-surface k-menu autorun-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="鞭挞设置" data-i18n-aria-label="鞭挞设置">
+                <button type="button" id="autorun-more" class="kz-ctl autorun-trigger" data-kz-menu="autorun-menu" title="自动推进设置" data-i18n-title="自动推进设置" aria-label="自动推进设置" data-i18n-aria-label="自动推进设置"><span id="auto-progress" class="auto-progress"><b id="auto-round-now">0</b><span class="auto-round-unit" data-i18n-key="轮">轮</span></span><span id="auto-phase" class="auto-phase"></span><span class="kz-chev" aria-hidden="true"></span></button>
+                <div id="autorun-menu" class="k-surface k-menu autorun-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="自动推进设置" data-i18n-aria-label="自动推进设置">
                   <div class="menu-section">
                     <span class="menu-section-label" data-i18n-key="任务队列">任务队列</span>
                     <!-- 原「门禁强度」只读行已撤(B40):强度是模式的后果,逐条说明改挂在模式选择器 #profile-select 的悬停提示上
@@ -292,7 +294,7 @@
                         <span class="menu-row-title" data-i18n-key="先做哪类">先做哪类</span>
                         <span class="menu-row-desc" data-i18n-key="需求和缺陷都有可做的条目时,先做哪一类">需求和缺陷都有可做的条目时,先做哪一类</span>
                       </span>
-                      <select id="work-priority-select" title="鞭挞先做哪类" data-i18n-title="鞭挞先做哪类">
+                      <select id="work-priority-select" title="自动推进先做哪类" data-i18n-title="自动推进先做哪类">
                         <option value="defect-first"><span data-i18n-key="缺陷优先">缺陷优先</span></option>
                         <option value="requirement-first"><span data-i18n-key="需求优先">需求优先</span></option>
                       </select>
@@ -306,9 +308,9 @@
                         <span class="menu-row-desc" data-i18n-key="立刻挂起,已排的下一轮不再发出">立刻挂起,已排的下一轮不再发出</span>
                       </span>
                       <kbd class="menu-key">1</kbd>
-                      <button id="auto-pause" class="ghost mini" type="button" aria-pressed="false" title="暂停/恢复自动鞭挞" data-i18n-title="暂停/恢复自动鞭挞"><span data-i18n-key="暂停鞭挞">暂停鞭挞</span></button>
+                      <button id="auto-pause" class="ghost mini" type="button" aria-pressed="false" title="暂停或恢复自动推进" data-i18n-title="暂停或恢复自动推进"><span data-i18n-key="暂停推进">暂停推进</span></button>
                     </div>
-                    <label id="auto-stop-round-wrap" class="menu-row" data-shortcut="2" title="当前轮完成后停止鞭挞" data-i18n-title="当前轮完成后停止鞭挞">
+                    <label id="auto-stop-round-wrap" class="menu-row" data-shortcut="2" title="当前轮完成后停止推进" data-i18n-title="当前轮完成后停止推进">
                       <span class="menu-row-main">
                         <span class="menu-row-title" data-i18n-key="本轮后停">本轮后停</span>
                         <span class="menu-row-desc" data-i18n-key="让当前这一轮跑完,之后不再自动继续">让当前这一轮跑完,之后不再自动继续</span>
@@ -342,7 +344,7 @@
 
                 </div>
                 <span id="auto-status" class="auto-reason hidden" role="status" aria-live="polite"></span>
-                <button id="auto-resume" class="kz-ctl hidden" type="button" title="清零轮次并重新开始鞭挞" data-i18n-title="清零轮次并重新开始鞭挞"><span data-i18n-key="重新鞭挞">重新鞭挞</span></button>
+                <button id="auto-resume" class="kz-ctl hidden" type="button" title="重新开始自动推进" data-i18n-title="重新开始自动推进"><span data-i18n-key="重新推进">重新推进</span></button>
               </div>
               <!-- 任务设置菜单已撤:里面只剩「自动放行」一行(原「勘察复核」开关已删),直接做成这颗开关,与模式/鞭挞同在工具行左段
                    (权限怎么放行和「谁来推进」是同一类决定);「改主项目需求记录」是工作树线的属性,挪到并行线路页对应线路卡上。 -->
@@ -1377,7 +1379,7 @@
           <button type="button" id="agent-back" class="icon-btn hidden" title="返回全部活动" data-i18n-title="返回全部活动" aria-label="返回全部活动" data-i18n-aria-label="返回全部活动">‹</button>
           <span id="tasks-panel-title" class="tp-title" data-i18n-key="活动">活动</span>
           <span id="tasks-count" class="tp-count" data-i18n-raw></span>
-          <span id="diff-summary-toggle" class="diff-summary-label"></span>
+          <button type="button" id="diff-summary-toggle" class="diff-summary-label ghost mini" aria-label="展开或收起文件变更" data-i18n-aria-label="展开或收起文件变更"></button>
           <span class="spacer"></span>
           <button type="button" id="tasks-filter" class="icon-btn" data-kz-menu="tasks-filter-menu" title="筛选与清理" data-i18n-title="筛选与清理" aria-label="筛选与清理" data-i18n-aria-label="筛选与清理">⋯</button>
           <div id="tasks-filter-menu" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-end" role="group" aria-label="筛选与清理" data-i18n-aria-label="筛选与清理">
@@ -1671,6 +1673,7 @@
   <script type="module" src="28-async-workspace.js"></script>
   <script type="module" src="29-general-chat.js"></script>
   <script type="module" src="30-workspace-ui.js"></script>
+  <script type="module" src="31-conversation-controls.js"></script>
   <dialog id="conversation-action-overlay" data-size="rewind" class="k-surface k-dialog conversation-action-dialog" aria-label="回退或分叉" data-i18n-aria-label="回退或分叉"></dialog>
   <dialog id="schedules-overlay" data-size="schedule" class="k-surface k-dialog schedule-dialog" aria-label="定时任务" data-i18n-aria-label="定时任务"></dialog>
 </body>

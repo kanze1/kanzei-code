@@ -11,6 +11,8 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: 6638a30a] [`conversation_modes.md`](../../../docs/design/conversation_modes.md)：结伴与自主模式、Goal、通用 Skills、对话与项目操作。提交号锚定改造前基线；本次实施和全量检查以包含此文档的发布回执为准。
+
 - [identity: live_design; last_verified_commit: 7b2b8096] [`familiar_workspace.md`](../../../docs/design/familiar_workspace.md)：2026-10-04 用户确认的工作区改造。提交号仅锚定改造前基线；本轮实现以包含文档的提交及发布回执为准，证据和原生试用边界见正文。
 
 - [identity: live_design; last_verified_commit: 525c85df] [`conversation_peers.md`](../../../docs/design/conversation_peers.md)：对话统一数据模型、旧身份兼容迁移、相同生命周期与后台结果归属。

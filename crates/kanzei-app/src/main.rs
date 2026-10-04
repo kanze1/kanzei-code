@@ -65,6 +65,7 @@ mod schedules;
 mod screenshot;
 mod settings;
 mod side_question;
+mod skills;
 mod softwire;
 mod state;
 mod subagents;
@@ -319,9 +320,14 @@ fn main() {
             commands::os_open::open_with,
             commands::os_open::open_tools_save,
             deliveries::delivered_files,
+            deliveries::delivery_manage,
+            skills::skills_list,
+            skills::skills_get_binding,
+            skills::skills_bind,
             deliveries::batch_evidence,
             deliveries::save_delivered_file,
             auto_run::auto_state_update,
+            auto_run::auto_state_get,
             auto_run::auto_state_reset,
             settings::settings_get,
             settings::settings_save,
@@ -399,6 +405,7 @@ fn main() {
             docs::docs_read_custom,
             docs::architecture_snapshot,
             conversation::conversation_get,
+            conversation::conversation_display_get,
             conversation::conversation_shadow_get,
             conversation::conversation_trace_get,
             conversation::conversation_list,

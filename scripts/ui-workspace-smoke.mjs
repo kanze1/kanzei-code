@@ -21,7 +21,7 @@ let workspace_state = {};
 let fail_create = false;
 let fail_library = false;
 payloads.project_root_info = { selected: project, resolved: project, shared: false };
-payloads.conversation_get = ({ processId }) => [{ role: "user", parts: [{ type: "text", text: `历史对话 ${processId}` }] }];
+payloads.conversation_display_get = ({ processId }) => [{ role: "user", parts: [{ type: "text", text: `历史对话 ${processId}` }] }];
 payloads.process_list[0].running = true;
 payloads.process_list[0].profile = "dev";
 const source_topics = payloads.docs_snapshot.research_topics;

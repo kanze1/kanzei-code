@@ -1,4 +1,4 @@
-import { $, invoke, defer } from "./01-core.js";
+import { $, invoke, defer, confirmDialog } from "./01-core.js";
 import { openMenu } from "./00-surface.js";
 import { t, localizedDocStatus } from "./02-i18n.js";
 import { currentProject, onInnerBack, toastError } from "./03-shell.js";
@@ -171,16 +171,65 @@ function renderList(state) {
 
 function renderDeliveries(state) {
   const deliveries = deliveryState(state.project);
-  state.body.append(el("h1", t("交付")), el("p", t("当前项目的交付文件"), "dim"), action(t("刷新"), () => void refresh(state)));
+  state.body.append(el("h1", t("交付")), el("p", t("当前项目的交付文件"), "dim"));
+  const tools = el("div", null, "management-tools");
+  const search = el("input"); search.type = "search"; search.placeholder = t("搜索交付文件"); search.setAttribute("aria-label", search.placeholder); search.value = state.deliveryQuery || "";
+  const filter = el("select"); filter.setAttribute("aria-label", t("交付整理"));
+  for (const [key, label] of [["active", "当前交付"], ["archived", "已归档"], ["removed", "已移除记录"], ["all", "全部"]]) { const option = el("option", t(label)); option.value = key; filter.append(option); }
+  filter.value = state.deliveryFilter || "active";
+  const session = el("select"); session.setAttribute("aria-label", t("所属对话")); const all = el("option", t("全部对话")); all.value = ""; session.append(all);
+  for (const id of new Set(deliveries.rows.map(row => row.session_id))) {
+    const label = state.snapshot?.lines?.find(line => line.session_id === id)?.label || id;
+    const option = el("option", label); option.value = id; session.append(option);
+  }
+  session.value = state.deliverySession || "";
+  tools.append(search, filter, session, action(t("刷新"), () => void refresh(state))); state.body.append(tools);
   const list = el("div", null, "management-deliveries");
-  for (const row of deliveries.rows) list.append(renderFileCard(row, { projectDir: state.project }));
-  if (!deliveries.rows.length) list.append(el("p", deliveries.error ? `${t("交付读取失败")}: ${deliveries.error}` : t(deliveries.loaded ? "暂无交付文件" : "正在读取…"), "management-empty"));
+  const fill = () => {
+    list.replaceChildren();
+    const query = search.value.toLocaleLowerCase();
+    const rows = deliveries.rows.filter(row => `${row.name || ""} ${row.path || ""} ${row.caption || ""}`.toLocaleLowerCase().includes(query)
+      && (!session.value || row.session_id === session.value)
+      && (filter.value === "all" || filter.value === "removed" ? filter.value === "all" || row.removed : filter.value === "archived" ? row.archived && !row.removed : !row.archived && !row.removed));
+    for (const row of rows) {
+      const item = el("article", null, "management-delivery"); item.dataset.deliveryId = row.id;
+      item.append(renderFileCard(row, { projectDir: state.project }));
+      const more = action(t("整理"), () => openMenu(more, [
+        { label: t(row.archived || row.removed ? "恢复到当前交付" : "归档"), onSelect: () => void manageDelivery(state, row, row.archived || row.removed ? "restore" : "archive") },
+        !row.removed && { label: t("移除记录"), onSelect: () => void manageDelivery(state, row, "remove") },
+        row.status === "trashed" ? { label: t("恢复文件"), onSelect: () => void manageDelivery(state, row, "restore_file") }
+          : row.status === "available" && { label: t("删除文件"), danger: true, onSelect: () => void manageDelivery(state, row, "trash") },
+      ].filter(Boolean)), "ghost mini");
+      item.append(more); list.append(item);
+    }
+    if (!rows.length) list.append(el("p", deliveries.error ? `${t("交付读取失败")}: ${deliveries.error}` : t(deliveries.loaded ? "没有符合条件的交付文件" : "正在读取…"), "management-empty"));
+  };
+  search.addEventListener("input", () => { state.deliveryQuery = search.value; fill(); });
+  filter.addEventListener("change", () => { state.deliveryFilter = filter.value; fill(); });
+  session.addEventListener("change", () => { state.deliverySession = session.value; fill(); });
+  state.fillList = fill; fill();
   state.body.append(list);
   if (!deliveries.loaded && !deliveries.request) void loadDeliveredFiles(state.project);
 }
 
+async function manageDelivery(state, row, operation) {
+  if (state.deliveryBusy) return;
+  if (operation === "trash" && !await confirmDialog({ title: t("删除文件"), message: row.path,
+    list: [t("文件移到项目的交付回收区，可以在已归档中恢复。")], okText: t("删除文件"), danger: true })) return;
+  state.deliveryBusy = true;
+  try { await invoke("delivery_manage", { projectDir: state.project, id: row.id, action: operation }); await loadDeliveredFiles(state.project, { force: true }); }
+  catch (error) { toastError(String(error)); }
+  finally { state.deliveryBusy = false; if (live(state)) render(state, true); }
+}
+
 function renderMapPage(state) {
-  const head = el("div", null, "management-map-head"); head.append(el("h1", t("项目地图")), action(t("刷新"), () => void refresh(state))); state.body.append(head);
+  const head = el("div", null, "management-map-head"); head.append(el("h1", t("项目地图")), action(t("让模型生成项目地图"), async () => {
+    const { openProjectSpace } = await import("./12-workbench.js");
+    if (!await openProjectSpace(state.project, "chat")) return;
+    const prompt = $("prompt");
+    const text = t("请调查当前项目并生成项目地图：说明主要模块、入口、依赖关系、数据流与运行方式，结合实际代码给出 Mermaid 图和文件链接，并保存为项目文档。已有地图时请更新。先阅读项目内的 AGENTS.md 和相关 Skills。");
+    prompt.value = [prompt.value.trimEnd(), text].filter(Boolean).join("\n\n"); prompt.dispatchEvent(new Event("input", { bubbles: true })); prompt.focus();
+  }), action(t("刷新"), () => void refresh(state))); state.body.append(head);
   const graph = el("section", null, "management-graph"); graph.setAttribute("aria-label", t("项目依赖图")); state.body.append(graph);
   if (state.arch) drawGraph(graph, state); else graph.append(el("p", t("正在读取依赖…"), "dim"));
   const runtime = el("section", null, "management-runtime"); state.body.append(runtime); renderRuntime(runtime, state);
@@ -253,9 +302,36 @@ function renderRuntime(host, state) {
   const summary = runtimeSummary(state.stats.rounds || [], state.memory?.rounds || [], { since: Number(state.period) ? Date.now() - Number(state.period) * 86400000 : 0, session: state.session });
   const duration = summary.meanDuration == null ? "—" : summary.meanDuration < 60000 ? `${(summary.meanDuration / 1000).toFixed(1)} s` : `${(summary.meanDuration / 60000).toFixed(1)} min`;
   const values = [["平均轮次时长", duration, `${summary.durationSamples} ${t("轮已观测")}`], ["工具调用", summary.tools, `${summary.measured} ${t("轮已观测")}`], ["失败调用", summary.failures, t("不含预期拒绝和用户停止")], ["记忆召回", summary.recalls, t("项目记忆条目次数")], ["记忆注入", summary.injected, `${summary.memorySamples} ${t("轮已观测")}`], ["记忆读取", summary.read, `${summary.readSamples} ${t("轮有读取观测")}`]];
+  const elapsed = value => value == null ? "—" : value < 60000 ? `${(value / 1000).toFixed(1)} s` : `${(value / 60000).toFixed(1)} min`;
+  values.unshift(["完成轮次", summary.rounds, t("当前筛选范围")], ["输入 Token", summary.inputTokens, `${summary.tokenSamples} ${t("轮已观测")}`], ["输出 Token", summary.outputTokens, `${summary.tokenSamples} ${t("轮已观测")}`], ["执行步数", summary.steps, t("已记录的执行步数")], ["累计执行时长", elapsed(summary.totalDuration), `${summary.durationSamples} ${t("轮已观测")}`], ["P95 轮次时长", elapsed(summary.p95Duration), `${summary.durationSamples} ${t("轮已观测")}`], ["预期拒绝", summary.rejected, t("工具主动拒绝的调用")]);
   const metrics = el("dl", null, "management-metrics");
   for (const [label, value, note] of values) { const metric = el("div"); metric.append(el("dt", t(label)), el("dd", value ?? "—"), el("small", note, "dim")); metrics.append(metric); }
   host.append(metrics, el("p", `${summary.rounds} ${t("轮符合筛选；从最近最多 200 轮已完成记录和 200 次记忆观测中统计。未记录显示 —。")}`, "dim"));
+  const outcomes = el("div", null, "runtime-outcomes");
+  for (const [name, count] of summary.outcomes) outcomes.append(el("span", `${name} · ${count}`));
+  host.append(outcomes);
+  if (summary.toolNames.length) {
+    const tools = el("details", null, "runtime-tools"); tools.append(el("summary", t("工具使用分布")));
+    const distribution = el("dl", null, "runtime-tool-distribution");
+    const maximum = Math.max(...summary.toolNames.map(([, count]) => count), 1);
+    for (const [name, count] of summary.toolNames) {
+      const row = el("div"), meter = el("meter"); meter.min = 0; meter.max = maximum; meter.value = count; meter.setAttribute("aria-label", name);
+      row.append(el("dt", name), meter, el("dd", count)); distribution.append(row);
+    }
+    tools.append(distribution); host.append(tools);
+  }
+  const details = el("details", null, "runtime-rounds"); details.append(el("summary", t("逐轮运行记录")));
+  const scroll = el("div", null, "runtime-table-scroll"), table = el("table"), headRow = el("tr");
+  for (const label of ["时间", "所属对话", "结果", "时长", "输入 Token", "输出 Token", "工具调用", "执行步数"]) headRow.append(el("th", t(label)));
+  const thead = el("thead"); thead.append(headRow); table.append(thead); const body = el("tbody");
+  for (const row of summary.rows) {
+    const tr = el("tr"); tr.title = row.prompt || "";
+    for (const value of [new Date(row.at).toLocaleString(), sessions.get(row.sessionId) || row.sessionId || "—", row.outcome || "—", elapsed(row.durationMs), row.inputTokens ?? "—", row.outputTokens ?? "—", row.measured ? row.metrics?.total_calls ?? "—" : "—", row.steps ?? "—"]) tr.append(el("td", value));
+    body.append(tr);
+    const context = el("tr", null, "runtime-round-context"); const cell = el("td"); cell.colSpan = 8;
+    const more = el("details"); more.append(el("summary", row.prompt || t("轮次详情")), el("pre", JSON.stringify({ tools: row.tools, metrics: row.metrics, context: row.context }, null, 2))); cell.append(more); context.append(cell); body.append(context);
+  }
+  table.append(body); scroll.append(table); details.append(scroll); host.append(details);
   if (state.stats.error || state.memory?.error) host.append(el("p", `${t("部分数据读取失败")}: ${state.stats.error || state.memory.error}`, "management-error"));
 }
 

@@ -19,6 +19,8 @@ let goalFormGeneration = 0;
 let openingProject = null;
 let scrolledProject = null;
 let questionSessions = new Set();
+let inboxCounts = new Map();
+export function setWorkbenchInboxCounts(counts) { inboxCounts = new Map(counts); renderProjectActivity(); }
 export function setWorkbenchQuestions(rows) { questionSessions = new Set(rows.map(q => q.sessionId)); renderProjectActivity(); }
 export function workbenchQuestionWaiting(sessionId) { return questionSessions.has(sessionId); }
 export function cancelProjectNavigation() { projectNavigationGeneration += 1; openingProject = null; renderProjectActivity(); }
@@ -115,17 +117,17 @@ export function renderProjectActivity() {
     const state = ["running", "starting", "stopping", "attention", "failed", "waiting", "unknown", "stopped"].find(phase => phases.includes(phase))
       || (unavailable ? "unknown" : "idle");
     button.dataset.activity = state;
-    const loading = sameProject(openingProject, path), count = phases.filter(phase => phase === "attention").length;
+    const loading = sameProject(openingProject, path), count = [...inboxCounts].find(([project]) => sameProject(project, path))?.[1] || 0;
     button.dataset.loading = String(loading);
     button.setAttribute("aria-busy", String(loading));
     button.querySelector(".workbench-project-activity").textContent = ({ waiting: "Ⅱ", attention: "?", stopping: "■", stopped: "■", failed: "!", unknown: "—" })[state] || "";
     const badge = button.querySelector(".workbench-project-attention");
-    badge.hidden = !count || state === "attention"; badge.textContent = String(count);
+    badge.hidden = !count; badge.textContent = String(count);
     const approvals = projectApprovalCount(path);
     const dot = button.querySelector(".workbench-project-approval");
     if (dot) dot.hidden = !approvals;
     if (approvals) button.dataset.approval = "true"; else delete button.dataset.approval;
-    const label = t(activityLabels[state]) + (count && state !== "attention" ? ` · ${count} ${t("待你回复")}` : "")
+    const label = t(activityLabels[state]) + (count ? ` · ${count} ${t("待我处理")}` : "")
       + (approvals ? ` · ${approvals} ${t("条对话等你批准")}` : "") + (loading ? ` · ${t("正在打开")}` : "");
     button.title = `${path}\n${label}`;
     button.setAttribute("aria-label", `${projectDisplayName(path)} · ${label}`);

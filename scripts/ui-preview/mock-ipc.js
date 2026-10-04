@@ -64,7 +64,8 @@
       const fixtures = await fixturesPromise;
       // 真机 IPC 是毫秒级异步:给一个宏任务的间隔,别让所有 await 都在微任务里抢跑。
       await new Promise((resolve) => setTimeout(resolve, fixtures.latencyMs ?? 0));
-      const handler = overrides.has(cmd) ? overrides.get(cmd) : fixtures.commands[cmd];
+      const fixtureCmd = cmd === "conversation_display_get" && !overrides.has(cmd) ? "conversation_get" : cmd;
+      const handler = overrides.has(fixtureCmd) ? overrides.get(fixtureCmd) : fixtures.commands[fixtureCmd];
       if (handler === undefined) {
         if (!unknown.has(cmd)) {
           unknown.add(cmd);

@@ -14,6 +14,7 @@ kanzei-base.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml_ng = "0.10"
 schemars.workspace = true
 thiserror.workspace = true
 toml.workspace = true

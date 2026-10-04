@@ -40,7 +40,7 @@ impl SessionStore {
     pub fn delivery_events(&self) -> Result<Vec<StoredEvent>, StoreError> {
         let mut statement = self.connection.prepare(
             "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
-             FROM session_events WHERE event_type = 'file.delivered'
+             FROM session_events WHERE event_type IN ('file.delivered', 'file.delivery_managed')
              UNION ALL
              SELECT r.event_id, r.session_id, r.sequence, 'file.delivered.legacy',
                     json_object('input', json_extract(c.payload_json, '$.fact.input'),

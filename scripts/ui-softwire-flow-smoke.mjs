@@ -26,7 +26,7 @@ try {
     const a = snapshot.projects[0], b = snapshot.projects[1];
     window.__flow = { f, snapshot, a, b };
     window.__kzPreview.setCommand("workspace_snapshot", () => structuredClone(snapshot));
-    window.__kzPreview.setCommand("conversation_get", args => {
+    window.__kzPreview.setCommand("conversation_display_get", args => {
       if (window.__flow.failHistory) throw new Error("历史暂时不可用");
       return args.projectDir === a.path ? [
       {role:"assistant",text:"第一条：已读取需求，正在确认验收范围。"},
@@ -139,15 +139,15 @@ try {
   await page.evaluate(() => {window.__flow.failHistory = true;});
   await page.locator("#sw-refresh").click(); await settle();
   check(await page.locator(".sw-recent-retry").isVisible(), "History failures stay local and offer an explicit retry");
-  const historyCalls = await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="conversation_get").length);
+  const historyCalls = await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="conversation_display_get").length);
   for(let i=0;i<3;i++) await page.locator('[data-work-surface="project"]').click(); await settle();
-  check(await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="conversation_get").length) === historyCalls, "Status paints do not repeatedly fetch failed history");
+  check(await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="conversation_display_get").length) === historyCalls, "Status paints do not repeatedly fetch failed history");
   await page.evaluate(() => {window.__flow.failHistory = false;});
   await page.locator(".sw-recent-retry").click(); await settle();
   check(await page.locator(".sw-recent-retry").count() === 0, "Explicit history retry recovers the reply preview");
   await page.evaluate(() => {
     window.__flow.historyGates = [];
-    window.__kzPreview.setCommand("conversation_get", () => new Promise(resolve => window.__flow.historyGates.push(resolve)));
+    window.__kzPreview.setCommand("conversation_display_get", () => new Promise(resolve => window.__flow.historyGates.push(resolve)));
   });
   await page.locator("#sw-refresh").click();
   await page.waitForFunction(() => window.__flow.historyGates.length === 1);

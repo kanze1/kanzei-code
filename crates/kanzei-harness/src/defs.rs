@@ -131,4 +131,12 @@ pub struct SkillDef {
     /// SKILL.md 路径;名称/描述/路径索引进提示词,正文由模型按此路径用 read 读取
     /// (没有 skill 工具)。
     pub path: std::path::PathBuf,
+    #[serde(default)]
+    pub disable_model_invocation: bool,
+    #[serde(default = "skill_invocable_default")]
+    pub user_invocable: bool,
+}
+
+fn skill_invocable_default() -> bool {
+    true
 }

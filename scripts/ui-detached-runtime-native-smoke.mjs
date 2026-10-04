@@ -107,7 +107,7 @@ try {
   check(await running(), "Side Q&A streams while the main model request is still held");
   check(!requests.find(r => r.kind === "side").tools?.length, "Side Q&A has no executable tools");
   held.get("side")(); await until(async () => (await invoke("side_question_list", { projectDir: project, processId: owner.id }))[0]?.status === "done", "side complete");
-  check(!JSON.stringify(await invoke("conversation_get", { projectDir: project, processId: owner.id })).includes("SIDE_ISOLATED"), "Temporary question never enters the main conversation");
+  check(!JSON.stringify(await invoke("conversation_display_get", { projectDir: project, processId: owner.id })).includes("SIDE_ISOLATED"), "Temporary question never enters the main conversation");
   await page.screenshot({ path: path.join(output, "side-question-dark.png") });
   await page.evaluate(() => document.documentElement.dataset.theme = "light");
   await page.screenshot({ path: path.join(output, "side-question-light.png") });

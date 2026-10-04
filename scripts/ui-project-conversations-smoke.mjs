@@ -79,8 +79,8 @@ try {
   check((await last("process_create")).profile === "dev", "New conversation creates an ordinary development recipient");
   check(await count("conversation_clear") === 0, "New discussion never clears the main conversation");
   check(await page.locator("#project-conversation-kind").textContent().then(t => t.trim().length > 0), "Conversation title is visible");
-  await page.locator("#composer-more").click();
-  check(await page.locator("#auto-continue-wrap").isVisible(), "New conversation offers the same execution controls");
+  check(await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible(), "New conversation offers Skills and Goal controls");
+  check(!await page.locator("#composer-more").isVisible(), "Retired More operations stay hidden in new conversations");
   check(await page.evaluate(async () => (await import("/03-workspaces.js")).selected_workspace_process().id) !== owner.id, "Selection follows the active peer conversation");
   await page.keyboard.press("Escape");
   await page.locator("#prompt").fill("讨论自己的草稿");
@@ -93,8 +93,8 @@ try {
   await page.locator("#prompt").fill("只分析这个方案"); await page.locator("#send").click(); await settle();
   const peerRequest = await last("run_prompt");
   check(peerRequest.profile === "dev" && ["dev", "dev-pair"].includes(peerRequest.agent), `Conversation sends with its selected development mode: ${JSON.stringify(peerRequest)}`);
-  await page.locator("#composer-more").click();
-  await page.locator("#project-handoff").click();
+  // The handoff form is a compatibility API; the retired composer entry is no longer a user surface.
+  await page.evaluate(async () => (await import("/26-project-conversations.js")).openHandoffForm());
   check((await page.locator(".project-handoff-form").innerText()).includes("将附上当前对话上下文"), "Handoff explains that source context accompanies the user's conclusion");
   await page.getByLabel("选择对话", { exact: true }).selectOption(owner.id);
   await page.getByLabel("交给其它对话的结论").fill("按讨论推进，先验收导出功能");

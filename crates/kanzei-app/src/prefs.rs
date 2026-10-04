@@ -31,6 +31,8 @@ pub(crate) struct AppPrefs {
     pub(crate) continue_prompt: Option<String>,
     #[serde(default)]
     pub(crate) process_auto_state: HashMap<String, Value>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) conversation_goals: HashMap<String, String>,
     #[serde(default)]
     pub(crate) workspace_state: HashMap<String, Value>,
     // UI2-0926 #14/#4:界面布局偏好(后台任务侧栏开关、可调框几何、分隔条宽高)。

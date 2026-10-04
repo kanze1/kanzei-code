@@ -25,6 +25,7 @@ import { highlightLine, renderLocalValidation, renderToolArgs, renderToolResult,
 import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
 import { state } from "./08-compose.js";
+import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { decorateFileCard, extractToolImages } from "./24-preview.js";
 
 // ---------- 后台任务侧栏里的终端条目(R-037 → UI2-0926 #14):完整工具活动入列,详情点击展开 ----------
@@ -54,9 +55,20 @@ export function renderDiffSummary() {
   label.innerHTML = files.length
     ? `· ${files.length} ${escapeHtml(t("文件"))} <span class="diff-add">+${additions}</span>/<span class="diff-del">−${deletions}</span>`
     : "";
-  panel.classList.toggle("hidden", files.length === 0);
+  const expanded = files.length > 0 && layoutPref("activity_diff", activeSessionId || "default") === true;
+  panel.classList.toggle("hidden", !expanded);
+  label.setAttribute("aria-expanded", String(expanded));
+  label.setAttribute("aria-controls", "diff-summary");
   panel.replaceChildren(buildDiffTree(files));
 }
+
+export function toggleDiffSummary() {
+  const key = activeSessionId || "default";
+  setLayoutPref("activity_diff", key, layoutPref("activity_diff", key) !== true);
+  renderDiffSummary();
+}
+
+defer(() => $("diff-summary-toggle")?.addEventListener("click", toggleDiffSummary));
 
 // R-133:diff 汇总按路径层级构成目录树,替代原来的一长串平铺路径——
 // 目录可折叠,文件行缩进在所属目录下,+/- 计数与 diff 行同色,视觉清爽不重叠。

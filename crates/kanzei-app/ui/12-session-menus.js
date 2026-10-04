@@ -27,6 +27,7 @@ import { openProjectSpace, renderWorkbenchNavigation } from "./12-workbench.js";
 import { deleteConversationsForProcess, forgetDeletedSession } from "./15-views-misc.js";
 import { openHandoffForm } from "./26-project-conversations.js";
 import { sameProject } from "./25-softwire-model.js";
+import { conversationMarkdown } from "./31-conversation-export.js";
 
 // ---------- 小工具 ----------
 const closest = (target, selector) => target?.closest?.(selector) ?? null;
@@ -386,6 +387,12 @@ export async function openSessionContextMenu(wrap, point, host) {
     ...(general ? [] : toolItems(tools, (tool) => void openWithTool(tool, project, id))),
     "separator",
     { label: t("复制对话名"), onSelect: () => void copyText(live.name, live.name) },
+    { label: t("复制为 Markdown"), onSelect: async () => {
+      try {
+        const messages = await invoke("conversation_display_get", { projectDir: project, processId: id, sequence: null });
+        await copyText(conversationMarkdown({ name: live.name, project, sessionId: live.session_id, messages }), t("复制为 Markdown"));
+      } catch (error) { failure(error); }
+    } },
     { label: t("复制对话 ID"), onSelect: () => void copyText(live.session_id, t("对话 ID")) },
     live.worktree && { label: t("复制工作树路径"), onSelect: () => void copyText(live.worktree, t("工作树路径")) },
     live.branch && { label: t("复制分支名"), desc: live.branch, onSelect: () => void copyText(live.branch, live.branch) },
@@ -396,15 +403,10 @@ export async function openSessionContextMenu(wrap, point, host) {
     "separator",
     task && { label: `${t("关闭独立任务")}…`, danger: true, onSelect: () => afterDialog(wrap.dataset.key, closeSession(project, id)) },
     { label: `${t("删除对话")}…`, danger: true, disabled: running, desc: runningWhy || undefined, onSelect: () => afterDialog(wrap.dataset.key, deleteSession(project, id)) },
-    {
-      label: `${t("清空对话")}…`, danger: true, disabled: running,
-      desc: running ? t("运行中,先停止再清空对话") : undefined,
-      onSelect: () => afterDialog(wrap.dataset.key, clearMainConversation(project, id)),
-    },
   ];
   return compactContextMenu(point, host, items, { label: live.name, focusKey: wrap.dataset.key }, [
     `${t("重命名")}…`, t("置顶"), t("取消置顶"),
-    `${t("关闭独立任务")}…`, `${t("删除对话")}…`, `${t("清空对话")}…`,
+    t("复制为 Markdown"), `${t("关闭独立任务")}…`, `${t("删除对话")}…`,
   ]);
 }
 function chooseHandoffProject(point, host, source) {

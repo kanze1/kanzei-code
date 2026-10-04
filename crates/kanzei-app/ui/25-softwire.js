@@ -5,7 +5,7 @@ import { languageIsEnglish, localizedStage, localizedStatusWord, t } from "./02-
 import { fillTemplate } from "./04-structured-parse.js";
 import { currentProject, activeProcessId, activeSessionId, processItems, sessionStates, transitionSession, navigate_view, toast, toastError,
   replacePendingQuestions, questionWaitRevision, noteQuestionReply, onInnerBack } from "./03-shell.js";
-import { openProjectSpace, openProjectResource, workbenchProject, openWorkbenchItem, setWorkbenchQuestions, setAttentionNavActive } from "./12-workbench.js";
+import { openProjectSpace, openProjectResource, workbenchProject, openWorkbenchItem, setWorkbenchQuestions, setAttentionNavActive, setWorkbenchInboxCounts } from "./12-workbench.js";
 import { lastWorkspaceSnapshot, backlogTally } from "./12-docs-pages.js";
 import { projectDisplayName, switchProcess } from "./09-sessions.js";
 import { subagentRunsFor, onSubagentChange, createSubagentView, renderSubagentTimeline } from "./05-subagents.js";
@@ -45,6 +45,13 @@ const visible = () => document.body.dataset.view === "project" && active_space =
 function allMessages() {
   const merged = new Map([...projectDetails.values()].map(p => [p.path, p]));
   return inboxFromProjects([...merged.values()], questions).filter(m => !replies.get(m.key)?.done);
+}
+function syncInboxCounts() {
+  const messages = allMessages(), counts = new Map();
+  for (const message of messages) counts.set(message.project, (counts.get(message.project) || 0) + 1);
+  $("workbench-attention-count").textContent = messages.length ? String(messages.length) : "";
+  $("workbench-attention-count").hidden = !messages.length;
+  setWorkbenchInboxCounts(counts);
 }
 function developmentState(state) {
   const project = { ...state?.summary, ...state?.detail };
@@ -430,8 +437,7 @@ async function refreshQuestions() {
     if (notificationBaseline && incoming.some(q => !seenQuestions.has(q.sessionId + ":" + q.id))) toast(t("有新的待我处理事项"));
     for (const q of incoming) seenQuestions.add(q.sessionId + ":" + q.id);
     questions = incoming; notificationBaseline = true; setWorkbenchQuestions(incoming);
-    const count = allMessages().length;
-    $("workbench-attention-count").textContent = count ? String(count) : "";
+    syncInboxCounts();
     paint();
     void presentForegroundQuestion();
   }).catch(error => { if (current) current.error = t("待我处理读取失败：") + error; })
@@ -564,7 +570,14 @@ async function sendReply(state, capture) {
       await dispatchPrompt({ project: message.project, processId: message.processId, sessionId: message.sessionId }, capture);
       result.status = "queued";
     }
-    result.done = true; composer.clear(capture); void refreshQuestions();
+    result.done = true; composer.clear(capture); syncInboxCounts();
+    if (current === state && state.interaction?.key === key) {
+      const remaining = allMessages();
+      const next = remaining.find(message => sameProject(message.project, state.interaction.project)) || remaining[0];
+      if (next) openInteraction(next);
+      else { returnFromMessage(); toast(t("待处理事项已全部完成")); }
+    }
+    void refreshQuestions();
   } catch (error) {
     result.status = "failed";
     // question_expired: 是后端的机器前缀(冒烟用它判过期),界面只给人话部分。
@@ -685,7 +698,7 @@ async function loadConversation(state, destination = { ...target(state) }) {
   const request = (state.historyRequests.get(key) || 0) + 1;
   state.historyRequests.set(key, request);
   try {
-    const history = await invoke("conversation_get", { projectDir: destination.project, processId: destination.processId, beforeSequence: null });
+    const history = await invoke("conversation_display_get", { projectDir: destination.project, processId: destination.processId, beforeSequence: null });
     if (state.historyRequests.get(key) !== request) return;
     state.historyErrors.delete(key);
     const rows = messagesFor(state, destination);

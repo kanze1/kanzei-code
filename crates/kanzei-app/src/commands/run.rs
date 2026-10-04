@@ -531,7 +531,8 @@ pub(crate) fn schedule_run(
     } else {
         agent
     };
-    let execution_batch = !general && !discussion && execution_batch;
+    let execution_batch =
+        !general && !discussion && agent.as_deref() != Some("dev-pair") && execution_batch;
     let autonomous = !general && !discussion && autonomous;
     let research_topic = crate::research_topics::validate_run_topic(
         &project_root,

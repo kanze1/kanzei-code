@@ -83,7 +83,7 @@ const app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", e
 } });
 let browser, page, owner, discussion;
 const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
-const conversation = processId => invoke("conversation_get", { projectDir: project, processId });
+const conversation = processId => invoke("conversation_display_get", { projectDir: project, processId });
 const pending = async label => (await invoke("softwire_questions")).find(question => question.question === label);
 const receivedReply = (messages, label) => messages.some(message => ["user", "tool"].includes(message.role) && JSON.stringify(message.content ?? message.parts ?? []).includes(label));
 const messageText = message => typeof message?.content === "string" ? message.content : (message?.content || []).map(part => part.text || "").join("\n");

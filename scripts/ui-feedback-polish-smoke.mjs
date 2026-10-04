@@ -36,14 +36,11 @@ try {
   for (const [theme, lang] of [["light", "zh"], ["dark", "en"]]) {
     await page.goto(`${server.origin}/?scene=chat&theme=${theme}&lang=${lang}`);
     await page.waitForFunction(() => window.__kzPreview?.ready);
-    await page.locator("#composer-more").click();
-    await page.waitForFunction(() => getComputedStyle(document.querySelector("#composer-more-menu")).opacity === "1");
-    check(await page.locator("#composer-more-menu .composer-menu-section").count() === 2, `${theme}: More separates actions and run controls`);
-    await page.screenshot({ path: `${output}/composer-${theme}.png` });
-    const rows = await page.locator("#composer-more-menu button.composer-menu-action").evaluateAll(elements => elements.filter(el => el.getBoundingClientRect().height).map(el => ({ id: el.id, width: el.getBoundingClientRect().width, x: el.getBoundingClientRect().x, border: getComputedStyle(el).borderWidth })));
-    check(rows.length >= 6 && rows.every(row => Math.abs(row.width - rows[0].width) < 1 && Math.abs(row.x - rows[0].x) < 1 && row.border === "0px"), `${theme}: Actions form aligned full-width rows ${JSON.stringify(rows)}`);
-    check(await page.locator("#subagent-control").isVisible() && await page.locator("#autorun-bar").isVisible(), `${theme}: Existing run controls stay reachable`);
-    check((await page.locator("#composer-more-menu").boundingBox()).height < 620, `${theme}: The menu has no oversized gaps`);
+    check(!await page.locator("#composer-more").isVisible(), `${theme}: Retired More controls are hidden`);
+    check(await page.locator("#subagent-control").isVisible() && await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible(), `${theme}: Subagents, Skills and Goal stay reachable`);
+    await page.locator("#skills-picker").click();
+    check(await page.locator("#skills-menu").isVisible(), `${theme}: Skills opens its own compact menu`);
+    check((await page.locator("#skills-menu").boundingBox()).height < 500, `${theme}: The Skills menu has no oversized gaps`);
     await page.screenshot({ path: `${output}/composer-${theme}.png` });
     await page.keyboard.press("Escape");
     await page.locator('#workspace-sidebar-footer [data-view="settings"]').click();

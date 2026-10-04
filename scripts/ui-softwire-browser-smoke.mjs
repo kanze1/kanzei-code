@@ -30,7 +30,7 @@ try {
   check(versions[0] !== versions[1], "A new decision revision has a distinct receipt identity");
   await page.goto(`${server.origin}/?scene=workspace&theme=light&keep=1`);
   await page.waitForFunction(() => window.__kzPreview?.ready);
-  check(await count("conversation_get") > 0 && await count("run_prompt") === 0, "Startup restores conversation without starting execution");
+  check(await count("conversation_display_get") > 0 && await count("run_prompt") === 0, "Startup restores conversation without starting execution");
   await page.locator(".workspace-card-open").first().click();
   await settle(); await page.locator('.workbench-project-link.active').click();
   await page.locator('[data-work-surface="project"]').click(); await page.locator("#softwire-workspace").waitFor(); await settle();

@@ -40,9 +40,9 @@ try {
         if (scenario === 'fork-refresh' && probe.started && !probe.released) await gate();
         return fixture.commands.process_list(args);
       });
-      window.__kzPreview.setCommand('conversation_get', async args => {
+      window.__kzPreview.setCommand('conversation_display_get', async args => {
         if (scenario === 'fork-history' && args.processId === fork.id && !probe.released) await gate();
-        return fixture.commands.conversation_get(args);
+        return fixture.commands.conversation_display_get(args);
       });
       window.__kzPreview.setCommand('conversation_action', async args => {
         if (args.action === 'preview') {

@@ -222,14 +222,15 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         },
         |_harness| {},
     );
-    harness.add(kanzei_tools::work::WorkControlContext(
-        kanzei_harness::auto_run::WorkPriority::DefectFirst,
-    ));
+    let requested_agent = std::env::var("KANZEI_AGENT").ok();
+    if requested_agent.as_deref().is_none_or(|name| name == "dev") {
+        harness.add(kanzei_tools::work::WorkControlContext(
+            kanzei_harness::auto_run::WorkPriority::DefectFirst,
+        ));
+    }
     let snapshot = harness.resolve(&rctx)?;
 
-    let agent = snapshot
-        .select_agent(std::env::var("KANZEI_AGENT").ok().as_deref())?
-        .clone();
+    let agent = snapshot.select_agent(requested_agent.as_deref())?.clone();
 
     // 模型:KANZEI_MODEL 覆盖 agent 定义(快速试模型用)。R-178 P2 五层链 ①②③:
     // CLI 无线/进程概念(② 恒 None),本轮直选 = KANZEI_MODEL → agent 默认;
@@ -273,6 +274,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             ),
             "cli".into(),
         );
+    ctx.project_workflow = agent.name == "dev";
     // R-256:RunnerConfig 构造与桌面共用 kanzei_tools::run::build_runner_config(对照表 #12)。
     ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator(
         std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
@@ -290,6 +292,11 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         },
         None,
     );
+    runner_config.intensity = if ctx.project_workflow {
+        kanzei_harness::HarnessIntensity::Autonomous
+    } else {
+        kanzei_harness::HarnessIntensity::Paired
+    };
     runner_config.digest_model =
         Some(kanzei_tools::run::build_digest_model(&config, &proxy, &resolved, &route).await);
     runner_config.digest_model.as_mut().unwrap().archive_root = Some(project_root.clone());

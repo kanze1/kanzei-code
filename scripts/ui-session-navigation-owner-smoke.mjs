@@ -35,7 +35,7 @@ try {
       session_id: `wb2-navigation-${n}`, title: `WB2 session ${n}`, kind: "discussion", profile: "readonly", running: false }))];
     window.__nav = { project, lines, gates: {}, results: {}, pending: {} };
     window.__kzPreview.setCommand("process_list", () => structuredClone(lines));
-    window.__kzPreview.setCommand("conversation_get", args => {
+    window.__kzPreview.setCommand("conversation_display_get", args => {
       if (window.__nav.gates[args.processId]) return new Promise(resolve => { window.__nav.pending[args.processId] = resolve; });
       return [{ role: "user", parts: [{ type: "text", text: `History ${args.processId}` }] }];
     });

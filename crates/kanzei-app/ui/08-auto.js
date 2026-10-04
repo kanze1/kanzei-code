@@ -19,7 +19,7 @@ import { state } from "./08-compose.js";
 import { refreshProcesses } from "./09-sessions.js";
 
 // ---------- 自动续跑状态与渲染 ----------
-// 鞭挞状态:自动续跑轮次(手动发送归零);旧 maxRounds 仅保留兼容读取。
+// 自动推进状态:自动续跑轮次(手动发送归零);旧 maxRounds 仅保留兼容读取。
 export const DEFAULT_AUTO_CONTINUE_MAX = 10;
 export let autoRounds = 0;
 export let autoPaused = false;
@@ -90,8 +90,8 @@ export function selectedAgent() {
   return { profile: "dev", agent: "dev-pair" };
 }
 
-// UI2-0926 #13:鞭挞续跑轮按**这条线实际的档位**发。原先 sendAutoToSession 把 dev 两档一律写成
-// agent "dev",于是勾了鞭挞的结伴线,续跑轮其实按自主档跑(Nudge、核查轮都开),与界面上「结伴档轻控制
+// UI2-0926 #13:自动推进续跑轮按**这条线实际的档位**发。原先 sendAutoToSession 把 dev 两档一律写成
+// agent "dev",于是勾了自动推进的结伴线,续跑轮其实按自主档跑(Nudge、核查轮都开),与界面上「结伴档轻控制
 // 续跑,引擎不追加推进指令」的承诺相反。活动线读模式芯片(就是用户眼前那个值);后台线读本线记住的档位,
 // 回落规则与 applyProfileValue 相同(主线沿用全局偏好,并行线默认结伴)。
 export function lineAgent(item) {
@@ -108,7 +108,7 @@ export function lineAgent(item) {
 }
 
 // UI2-0926 #13:模型在等你回答(引擎 Stop/AwaitingUser)。按会话记下:这时用户手动发出的消息就是回答,
-// 不按「收到手动输入」关掉鞭挞——回答那一轮结束后引擎照常续跑。
+// 不按「收到手动输入」关掉自动推进——回答那一轮结束后引擎照常续跑。
 export const awaitingUserSessions = new Set();
 export function markAwaitingUser(sessionId) {
   if (sessionId) awaitingUserSessions.add(sessionId);
@@ -135,7 +135,7 @@ export function harnessIntensityOf(agentName) {
 }
 
 // 逐条列出这一档下引擎会不会插手。用户抱怨的是「区别不够明显」,所以不能只写「轻/重」两个字——要把
-// 具体让渡了什么写出来。B40:原先这是鞭挞菜单第一行的只读「门禁强度」+「轻/重」徽标(徽标歧义、「门禁」是黑话),
+// 具体让渡了什么写出来。B40:原先这是自动推进菜单第一行的只读「门禁强度」+「轻/重」徽标(徽标歧义、「门禁」是黑话),
 // 现在整行撤掉,同一段说明改挂在模式选择器 #profile-select 的悬停提示上:选模式的地方就是看代价的地方。
 export function renderHarnessIntensity() {
   // R-342:模式芯片的配色搭同一趟车。它与门禁强度是同一件事的两个面：
@@ -148,11 +148,11 @@ export function renderHarnessIntensity() {
   // 两个字面量调用而不是查表:i18n 冒烟只扫带字符串常量的 t(),查表写法会绕过 key 覆盖率检查。
   const autonomous = harnessIntensityOf(selectedAgent().agent) === "autonomous";
   chip.dataset.i18nTitle = autonomous
-    ? "自主推进:无人监督。引擎会追加推进指令、插入验收核查轮、标注冗余调用,按任务队列持续工作。想自己引导,切到「结伴开发」"
-    : "结伴开发:有人监督。引擎不追加推进指令、不插入验收核查轮、不标冗余调用,模型说完成即停。想让引擎自己推进,切到「自主推进」";
+    ? "自主推进：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。"
+    : "结伴开发：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。";
   chip.setAttribute("title", autonomous
-    ? t("自主推进:无人监督。引擎会追加推进指令、插入验收核查轮、标注冗余调用,按任务队列持续工作。想自己引导,切到「结伴开发」")
-    : t("结伴开发:有人监督。引擎不追加推进指令、不插入验收核查轮、不标冗余调用,模型说完成即停。想让引擎自己推进,切到「自主推进」"));
+    ? t("自主推进：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。")
+    : t("结伴开发：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。"));
 }
 // UI2-0926 #13:取活顺序的存储键只有一种写法。原先自主轮读 `kz-work-priority:${item.origin_project}`
 // (进程记录里的 `\\?\C:\…`),写入键却是 currentProject(`C:\…`),于是自主轮永远读不到用户选的顺序。
@@ -204,7 +204,7 @@ export function syncWorkPriorityControl() {
 // 所以镜像写入去掉,开关只写自己那份枚举。回显由上面 syncWorkPriorityControl
 // 从 localStorage 做——它本来就在做,记忆那份是会覆盖它的第二个回显源。
 
-// 鞭挞状态**槽位化**:轮次(数)/阶段(状态机)/原因(为什么停)各占各的元素。
+// 自动推进状态**槽位化**:轮次(数)/阶段(状态机)/原因(为什么停)各占各的元素。
 // 旧实现把三样揉进一条自由文本塞进 #auto-status,而 renderAutoStatus 的默认参数是
 // autoStopReason——于是任何无参重绘(renderProcesses → renderAutoStatus())都等于
 // 「把 DOM 回写成上一次的停止原因」。实测链路:kz:done 先 setAutoStopReason("本轮完成"),
@@ -212,7 +212,7 @@ export function syncWorkPriorityControl() {
 // 就被抹回「本轮完成」。所以「跑到第几轮」这条最该一眼可见的信息,真跑起来时看不见。
 export let autoHint = "";
 export const AUTO_PHASE_LABEL = {
-  off: "鞭挞已关闭", running: "推进中", pending: "等待下一轮", paused: "已暂停", idle: "待命",
+  off: "自动推进已关闭", running: "推进中", pending: "等待下一轮", paused: "已暂停", idle: "待命",
 };
 export function autoRunPhase() {
   if (!$("auto-continue")?.checked) return "off";
@@ -233,12 +233,12 @@ export function renderAutoRun() {
   // #7:轮次上升时 tick 一次;无参重绘值不变,不会重复触发。
   motionCount($("auto-round-now"), String(autoRounds));
   $("auto-phase").textContent = t(AUTO_PHASE_LABEL[phase]);
-  // UI2-0926 #11:「N 轮 · 阶段 ⌄」就是鞭挞设置的触发器(状态即入口)。未开时它收成纯箭头,读屏名只剩「鞭挞设置」;
+  // UI2-0926 #11:「N 轮 · 阶段 ⌄」就是自动推进设置的触发器(状态即入口)。未开时它收成纯箭头,读屏名只剩「自动推进设置」;
   // 开着时名字带上轮次与阶段(推进中阶段字被 CSS 收起,读屏仍读得到)。名字由这里写,静态 data-i18n-* 摘掉——
   // 否则切语言时 applyDataI18nKeys 会把它冲回静态键。
   // 只在名字变了时写:title 可能正被悬停提示层接管(挪进 data-kz-tip),每次重绘都写回会冒出原生提示。
   const trigger = $("autorun-more");
-  const label = armed ? `${t("鞭挞设置")} · ${t("鞭挞轮次")} ${autoRounds} · ${t(AUTO_PHASE_LABEL[phase])}` : t("鞭挞设置");
+  const label = armed ? `${t("自动推进设置")} · ${t("推进轮次")} ${autoRounds} · ${t(AUTO_PHASE_LABEL[phase])}` : t("自动推进设置");
   if (trigger && trigger.dataset.kzLabel !== label) {
     trigger.dataset.kzLabel = label;
     delete trigger.dataset.i18nTitle;
@@ -254,11 +254,11 @@ export function renderAutoRun() {
   el.textContent = reason ? localizeDynamic(reason) : "";
   el.classList.toggle("hidden", !reason);
   el.classList.toggle("ok", Boolean(reason) && !autoHint && auto_stop_kind === "completed");
-  // 「模型在等你回答」时不给「继续鞭挞」:鞭挞本来就开着,该做的是回答;点它等于绕过问题接着跑(复核 minor)。
+  // 「模型在等你回答」时不给「继续自动推进」:自动推进本来就开着,该做的是回答;点它等于绕过问题接着跑(复核 minor)。
   $("auto-resume").classList.toggle("hidden", !(autoStopReason && !autoHint && ["off", "idle"].includes(phase) && auto_stop_kind !== "waiting"));
   const pause = $("auto-pause");
   if (pause) pause.setAttribute("aria-pressed", String(autoPaused));
-  // 鞭挞没开时,菜单里的「暂停」「本轮后停」没有对象可作用——置灰,不再留着一个点了没效果的按钮(UX-155)。
+  // 自动推进没开时,菜单里的「暂停」「本轮后停」没有对象可作用——置灰,不再留着一个点了没效果的按钮(UX-155)。
   if (pause) pause.disabled = !armed;
   const stopRound = $("auto-stop-round");
   if (stopRound) stopRound.disabled = !armed;
@@ -302,7 +302,7 @@ export function clearStoppingWatchdog(sessionId) {
   stoppingWatchdogs.delete(sessionId);
 }
 
-/// 清掉鞭挞控制台里两条**跨线路/跨项目会串台**的文本槽。切线在 applyAutoUiState
+/// 清掉自动推进控制台里两条**跨线路/跨项目会串台**的文本槽。切线在 applyAutoUiState
 /// 里顺手做了,切项目走 09-sessions.js enterProject 调这里。
 export function clearAutoNotices() {
   autoHint = "";
@@ -328,14 +328,40 @@ export function autoContinueMax() {
 }
 // R-322 B3:目标条件(Claude Code /goal 的形状)。真源是后端 AutoRunController.goal;
 // 输入框只是它的编辑入口,每次同步整串发过去,空串即撤销。
+const goalTexts = new Map();
+const goalLoads = new Map();
+let goalOwner = "";
 export function currentGoalText() {
-  return $("auto-goal")?.value ?? "";
+  const box = $("auto-goal"); if (!box) return "";
+  if (goalOwner !== activeSessionId) {
+    if (goalOwner) goalTexts.set(goalOwner, box.value);
+    goalOwner = activeSessionId; box.value = goalTexts.get(goalOwner) || "";
+  }
+  return box.value;
+}
+export async function restoreGoalState(sessionId) {
+  currentGoalText();
+  if (!sessionId) return;
+  if (goalLoads.has(sessionId)) return goalLoads.get(sessionId);
+  const draft = $("auto-goal").value;
+  const pending = (async () => {
+    try {
+      const value = await invoke("auto_state_get", { sessionId });
+      if (sessionId !== activeSessionId || $("auto-goal").value !== draft) return;
+      const text = value && Object.hasOwn(value, "goal") ? value.goal || "" : goalTexts.get(sessionId) || "";
+      goalTexts.set(sessionId, text); $("auto-goal").value = text; renderGoalState();
+      document.dispatchEvent(new CustomEvent("kz:goal-restored", { detail: { sessionId } }));
+    } catch (error) { log(String(error), "warn"); }
+  })();
+  goalLoads.set(sessionId, pending);
+  try { await pending; } finally { if (goalLoads.get(sessionId) === pending) goalLoads.delete(sessionId); }
 }
 // 目标是**一次性意图**:达成或判定不可达后后端已清除,前端同步清空输入框,
 // 否则下一段无关对话会被上一个目标继续驱动(D-111 同型教训)。
 export function clearGoalInput() {
   const box = $("auto-goal");
   if (!box) return;
+  currentGoalText(); goalTexts.delete(activeSessionId);
   box.value = "";
   renderGoalState();
   void syncAutoRunState({ goal: "" });
@@ -350,6 +376,10 @@ export function renderGoalState() {
 }
 export function syncAutoRunState(patch) {
   if (!activeSessionId) return;
+  const sessionId = activeSessionId;
+  if (goalLoads.has(sessionId)) return goalLoads.get(sessionId).then(() => {
+    if (sessionId === activeSessionId) return syncAutoRunState(patch);
+  });
   return invoke("auto_state_update", {
     sessionId: activeSessionId,
     ...(patch ?? {
@@ -374,19 +404,19 @@ export function releaseAutoContinue(sessionId) {
 }
 // D-291:续跑闸门的**唯一**判据。原来这几个条件散在两处 setTimeout 里,任一不满足
 // 就 `return` ——不发下一轮、不清 auto_pending、不清横幅、不留一个字。界面于是永久
-// 钉在「鞭挞 · 等待下一轮」,而那一轮永远不会来(引擎侧还记着 rounds+1,两边状态从此
+// 钉在「自动推进 · 等待下一轮」,而那一轮永远不会来(引擎侧还记着 rounds+1,两边状态从此
 // 对不上)。闸门必须集中且**开口说话**:不续跑可以,不说为什么不行(D-004 口径)。
 export function autoContinueBlockedReason(sessionId) {
   const item = processItems.find((candidate) => candidate.session_id === sessionId);
   if (!item) return "对话已关闭";
   if (sessionId === activeSessionId) {
-    if (!$("auto-continue").checked) return "鞭挞已关闭";
+    if (!$("auto-continue").checked) return "自动推进已关闭";
     if (autoPaused) return "已暂停";
     if (autoStopAfterRound) return "本轮后停";
     return null;
   }
   const config = normalizeAutoState(processAutoState.get(item.id), item.id);
-  if (!config.enabled) return "鞭挞已关闭";
+  if (!config.enabled) return "自动推进已关闭";
   if (config.paused) return "已暂停";
   if (config.stopAfterRound) return "本轮后停";
   return null;

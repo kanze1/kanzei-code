@@ -52,6 +52,40 @@ pub(crate) struct AutoRunController {
 /// 目标文本上限。超长条件既没法让模型稳定判定,也会每轮重发挤占上下文。
 pub(crate) const MAX_GOAL_CHARS: usize = 500;
 
+#[tauri::command]
+pub fn auto_state_get(state: State<'_, AppState>, session_id: String) -> serde_json::Value {
+    let mut controllers = state.auto_runs.lock().unwrap();
+    let ctrl = controllers
+        .entry(session_id.clone())
+        .or_insert_with(|| AutoRunController {
+            goal: crate::prefs::load_prefs()
+                .conversation_goals
+                .get(&session_id)
+                .cloned(),
+            ..Default::default()
+        });
+    json!({"enabled":ctrl.enabled, "paused":ctrl.state.paused, "goal":ctrl.goal})
+}
+
+pub(crate) fn persist_goal(session_id: &str, goal: Option<&str>) -> Result<(), String> {
+    let _guard = crate::prefs::write_guard()?;
+    let mut prefs = crate::prefs::load_prefs_for_write()?;
+    if prefs.conversation_goals.get(session_id).map(String::as_str) == goal {
+        return Ok(());
+    }
+    match goal {
+        Some(text) => {
+            prefs
+                .conversation_goals
+                .insert(session_id.to_string(), text.to_string());
+        }
+        None => {
+            prefs.conversation_goals.remove(session_id);
+        }
+    }
+    crate::prefs::save_prefs(&prefs)
+}
+
 /// 前端状态同步(开关/暂停/本轮后停;旧 max_rounds 仅兼容读取)。
 #[tauri::command]
 pub fn auto_state_update(
@@ -62,15 +96,17 @@ pub fn auto_state_update(
     stop_after_round: Option<bool>,
     max_rounds: Option<u32>,
     goal: Option<String>,
-) -> serde_json::Value {
+) -> Result<serde_json::Value, String> {
     let mut controllers = state.auto_runs.lock().unwrap();
-    let ctrl = controllers.entry(session_id).or_default();
-    apply_state_update(ctrl, enabled, paused, stop_after_round, max_rounds);
+    let ctrl = controllers.entry(session_id.clone()).or_default();
     // 空串 = 清除目标(前端清空输入框即撤销),非空则截断后挂上。
     if let Some(text) = goal {
-        ctrl.goal = normalize_goal(&text);
+        let goal = normalize_goal(&text);
+        persist_goal(&session_id, goal.as_deref())?;
+        ctrl.goal = goal;
     }
-    json!({ "ok": true, "goal": ctrl.goal })
+    apply_state_update(ctrl, enabled, paused, stop_after_round, max_rounds);
+    Ok(json!({ "ok": true, "goal": ctrl.goal }))
 }
 
 /// 目标文本归一:去空白、空串视为「无目标」、超长截断。
@@ -1045,6 +1081,20 @@ mod tests {
     /// R-322 B3:目标是**一次性意图**——空串即撤销,超长截断,前后空白不算内容。
     /// 归一化必须在后端做:前端有多个入口(输入框 change、切线回显、冷启动),
     /// 各写一份判空迟早漂开。
+    #[test]
+    fn conversation_goals_persist_in_isolated_home_and_clear_without_affecting_peers() {
+        crate::prefs::failure_tests::with_home("conversation-goal", |_| {
+            super::persist_goal("one", Some("complete user goal")).unwrap();
+            super::persist_goal("two", Some("peer goal")).unwrap();
+            let restored = crate::prefs::load_prefs();
+            assert_eq!(restored.conversation_goals["one"], "complete user goal");
+            super::persist_goal("one", None).unwrap();
+            let cleared = crate::prefs::load_prefs();
+            assert!(!cleared.conversation_goals.contains_key("one"));
+            assert_eq!(cleared.conversation_goals["two"], "peer goal");
+        });
+    }
+
     #[test]
     fn 目标文本归一_空串撤销_超长截断() {
         use super::{normalize_goal, MAX_GOAL_CHARS};

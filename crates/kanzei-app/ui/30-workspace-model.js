@@ -27,8 +27,25 @@ export function runtimeSummary(rounds, recalls, { since = 0, session = "" } = {}
   const durations = rows.filter(row => Number.isFinite(row.durationMs) && row.durationMs > 0);
   const sum = key => measured.reduce((total, row) => total + (Number(row.metrics?.[key]) || 0), 0);
   const reads = observations.filter(row => Array.isArray(row.read_ids));
+  const tokens = rows.filter(row => Number.isFinite(row.inputTokens) && Number.isFinite(row.outputTokens));
+  const steps = rows.filter(row => Number.isFinite(row.steps));
+  const durationsSorted = durations.map(row => row.durationMs).sort((a, b) => a - b);
+  const outcomes = new Map();
+  for (const row of rows) outcomes.set(row.outcome || "unknown", (outcomes.get(row.outcome || "unknown") || 0) + 1);
+  const toolNames = new Map();
+  for (const row of measured) for (const [name, value] of Object.entries(row.tools || {})) {
+    const count = typeof value === "number" ? value : Number(value?.calls);
+    if (Number.isFinite(count)) toolNames.set(name, (toolNames.get(name) || 0) + count);
+  }
   return {
     rounds: rows.length, measured: measured.length,
+    rows: [...rows].sort((a, b) => b.at - a.at), outcomes: [...outcomes], toolNames: [...toolNames].sort((a, b) => b[1] - a[1]),
+    inputTokens: tokens.length ? tokens.reduce((sum, row) => sum + row.inputTokens, 0) : null,
+    outputTokens: tokens.length ? tokens.reduce((sum, row) => sum + row.outputTokens, 0) : null,
+    tokenSamples: tokens.length,
+    steps: steps.length ? steps.reduce((sum, row) => sum + row.steps, 0) : null,
+    totalDuration: durations.length ? durations.reduce((sum, row) => sum + row.durationMs, 0) : null,
+    p95Duration: durations.length ? durationsSorted[Math.max(0, Math.ceil(durations.length * .95) - 1)] : null,
     meanDuration: durations.length ? durations.reduce((total, row) => total + row.durationMs, 0) / durations.length : null,
     durationSamples: durations.length,
     tools: measured.length ? sum("total_calls") : null,

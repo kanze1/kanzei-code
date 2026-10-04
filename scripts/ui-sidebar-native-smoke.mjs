@@ -128,7 +128,7 @@ try {
   await until(async () => !(await invoke("process_closed_list", { projectDir: root })).some(item => item.id === target.id), "Deletion persisted");
   check(true, "Deleting old history through the UI reaches Rust and SQLite");
   await invoke("process_purge", { projectDir: root, processId: target.id });
-  check((await invoke("conversation_get", { projectDir: root, processId: target.id })).length === 0, "Stale reads of deleted history are empty");
+  check((await invoke("conversation_display_get", { projectDir: root, processId: target.id })).length === 0, "Stale reads of deleted history are empty");
   await invoke("conversation_list", { projectDir: root, processId: target.id });
   await invoke("conversation_trace_get", { projectDir: root, processId: target.id });
   check(!(await invoke("process_closed_list", { projectDir: root })).some(item => item.id === target.id), "Repeated deletion and stale reads never recreate a chat");

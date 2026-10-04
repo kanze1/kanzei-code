@@ -3,7 +3,7 @@ use kanzei_core::{project_state_path, SessionStore};
 use kanzei_harness::ToolCtx;
 use serde_json::{json, Value};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
@@ -232,6 +232,15 @@ pub(crate) fn delivered_files(project_dir: String) -> Result<Vec<Value>, String>
 }
 fn project_receipts(root: &Path, store: &SessionStore) -> Result<Vec<Value>, String> {
     let events = store.delivery_events().map_err(|e| e.to_string())?;
+    let mut managed = HashMap::new();
+    for event in events
+        .iter()
+        .filter(|e| e.event_type == "file.delivery_managed")
+    {
+        if let Some(id) = event.payload["id"].as_str() {
+            managed.entry(id.to_string()).or_insert(&event.payload);
+        }
+    }
     let processes = store
         .list_processes(&root.display().to_string())
         .map_err(|e| e.to_string())?;
@@ -298,6 +307,11 @@ fn project_receipts(root: &Path, store: &SessionStore) -> Result<Vec<Value>, Str
         ))
     });
     for row in &mut rows {
+        if let Some(saved) = row["id"].as_str().and_then(|id| managed.get(id)) {
+            row["archived"] = saved["archived"].clone();
+            row["removed"] = saved["removed"].clone();
+            row["trashed_path"] = saved["trashed_path"].clone();
+        }
         if row["scope_known"] == false {
             row["status"] = json!("unavailable");
             continue;
@@ -325,8 +339,142 @@ fn project_receipts(root: &Path, store: &SessionStore) -> Result<Vec<Value>, Str
             Err(_) => "unavailable",
         };
         row["status"] = json!(status);
+        if row["trashed_path"].as_str().is_some() {
+            row["status"] = json!("trashed");
+        }
     }
     Ok(rows)
+}
+
+#[tauri::command]
+pub(crate) fn delivery_manage(
+    project_dir: String,
+    id: String,
+    action: String,
+) -> Result<Vec<Value>, String> {
+    let root = Path::new(&project_dir)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let store = SessionStore::open(&project_state_path(&root)).map_err(|e| e.to_string())?;
+    let rows = project_receipts(&root, &store)?;
+    let row = rows
+        .iter()
+        .find(|row| row["id"] == id)
+        .ok_or("交付记录已变化，请刷新")?;
+    let session = row["session_id"].as_str().ok_or("交付记录没有所属对话")?;
+    let mut saved = json!({"id":id, "archived":row["archived"] == true, "removed":row["removed"] == true, "trashed_path":row["trashed_path"]});
+    // File operations use the durable receipt's scope and version, never a UI path.
+    let _owner = if matches!(action.as_str(), "trash" | "restore_file") {
+        Some(
+            kanzei_core::store::session_execution::try_acquire(&project_state_path(&root), session)
+                .map_err(|e| format!("原对话正在运行，请停止后再整理文件：{e}"))?,
+        )
+    } else {
+        None
+    };
+    match action.as_str() {
+        "archive" => saved["archived"] = json!(true),
+        "restore" => {
+            saved["archived"] = json!(false);
+            saved["removed"] = json!(false);
+        }
+        "remove" => saved["removed"] = json!(true),
+        "trash" => {
+            if row["status"] != "available" {
+                return Err("文件已变化或不可用，请刷新后再操作".into());
+            }
+            let scope = row["worktree_root"]
+                .as_str()
+                .ok_or("交付记录缺少工作目录")?;
+            let path = row["path"].as_str().ok_or("交付记录缺少文件路径")?;
+            let target = crate::commands::run::resolve_delivered_path(scope, path)?;
+            let meta = std::fs::metadata(&target).map_err(|e| e.to_string())?;
+            if row["bytes"]
+                .as_u64()
+                .is_some_and(|bytes| bytes != meta.len())
+                || row["modified_ms"]
+                    .as_u64()
+                    .is_some_and(|time| Some(time) != modified_ms(&meta))
+            {
+                return Err("文件版本已变化，未删除文件".into());
+            }
+            let trash = root.join(".kanzei/delivery-trash");
+            std::fs::create_dir_all(&trash).map_err(|e| e.to_string())?;
+            let trash = trash.canonicalize().map_err(|e| e.to_string())?;
+            if !trash.starts_with(&root) {
+                return Err("交付回收区不在项目内".into());
+            }
+            let destination = trash.join(format!(
+                "{}-{}",
+                std::time::SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| e.to_string())?
+                    .as_nanos(),
+                target.file_name().unwrap_or_default().to_string_lossy()
+            ));
+            if destination.exists() {
+                return Err("交付回收区文件名冲突，请重试".into());
+            }
+            std::fs::rename(&target, &destination).map_err(|e| e.to_string())?;
+            saved["trashed_path"] = json!(shown(&destination));
+            saved["archived"] = json!(true);
+        }
+        "restore_file" => {
+            let trashed = row["trashed_path"].as_str().ok_or("文件不在交付回收区")?;
+            let trash_root = root
+                .join(".kanzei/delivery-trash")
+                .canonicalize()
+                .map_err(|e| e.to_string())?;
+            let source = Path::new(trashed)
+                .canonicalize()
+                .map_err(|e| e.to_string())?;
+            if !trash_root.starts_with(&root)
+                || !source.starts_with(&trash_root)
+                || !source.is_file()
+            {
+                return Err("交付回收文件不可用".into());
+            }
+            let original = Path::new(row["path"].as_str().ok_or("原路径不可用")?);
+            let parent = original
+                .parent()
+                .ok_or("原目录不可用")?
+                .canonicalize()
+                .map_err(|e| e.to_string())?;
+            let scope = Path::new(row["worktree_root"].as_str().ok_or("原工作目录不可用")?)
+                .canonicalize()
+                .map_err(|e| e.to_string())?;
+            if !parent.starts_with(&scope) || original.exists() {
+                return Err("原目录已变化或已有同名文件，未覆盖".into());
+            }
+            std::fs::rename(
+                &source,
+                parent.join(original.file_name().ok_or("原文件名不可用")?),
+            )
+            .map_err(|e| e.to_string())?;
+            saved["trashed_path"] = Value::Null;
+            saved["archived"] = json!(false);
+            saved["removed"] = json!(false);
+        }
+        _ => return Err("未知交付整理操作".into()),
+    }
+    if let Err(error) = store.append_event(session, "file.delivery_managed", &saved) {
+        // Roll back a file move if its durable receipt could not be recorded.
+        if action == "trash" {
+            if let (Some(source), Some(original)) =
+                (saved["trashed_path"].as_str(), row["path"].as_str())
+            {
+                let _ = std::fs::rename(source, original);
+            }
+        } else if action == "restore_file" {
+            if let (Some(original), Some(destination)) =
+                (row["path"].as_str(), row["trashed_path"].as_str())
+            {
+                let _ = std::fs::rename(original, destination);
+            }
+        }
+        return Err(error.to_string());
+    }
+    project_receipts(&root, &store)
 }
 
 // Use the saved receipt to authorize a delivery from a sibling worktree. The UI
@@ -382,6 +530,58 @@ pub(crate) async fn save_delivered_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn delivery_management_preserves_receipts_and_recovers_files() {
+        let f = Fixture::new();
+        let file = f.file("organize.md");
+        let receipt = f.receipt(&file);
+        let id = receipt["id"].as_str().unwrap().to_string();
+        let project = shown(&f.0);
+        assert_eq!(
+            delivery_manage(project.clone(), id.clone(), "archive".into()).unwrap()[0]["archived"],
+            true
+        );
+        assert!(file.exists());
+        assert_eq!(
+            delivery_manage(project.clone(), id.clone(), "remove".into()).unwrap()[0]["removed"],
+            true
+        );
+        assert!(file.exists());
+        delivery_manage(project.clone(), id.clone(), "restore".into()).unwrap();
+        let rows = delivery_manage(project.clone(), id.clone(), "trash".into()).unwrap();
+        assert!(!file.exists());
+        assert_eq!(rows[0]["status"], "trashed");
+        let recovered =
+            delivery_manage(project.clone(), id.clone(), "restore_file".into()).unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"original");
+        assert_eq!(recovered[0]["status"], "available");
+        assert!(!recovered[0]["archived"].as_bool().unwrap());
+        std::fs::write(&file, b"newer user content").unwrap();
+        assert!(delivery_manage(project, id, "trash".into()).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), b"newer user content");
+    }
+
+    #[test]
+    fn delivery_management_refuses_foreign_ids_running_owners_and_restore_overwrites() {
+        let f = Fixture::new();
+        let unrelated = Fixture::new();
+        let file = f.file("keep.md");
+        let receipt = f.receipt(&file);
+        let id = receipt["id"].as_str().unwrap().to_string();
+        assert!(delivery_manage(shown(&unrelated.0), id.clone(), "trash".into()).is_err());
+        let guard = kanzei_core::store::session_execution::try_acquire(
+            &project_state_path(&f.0),
+            "delivery-test",
+        )
+        .unwrap();
+        assert!(delivery_manage(shown(&f.0), id.clone(), "trash".into()).is_err());
+        assert!(file.exists());
+        drop(guard);
+        delivery_manage(shown(&f.0), id.clone(), "trash".into()).unwrap();
+        std::fs::write(&file, b"do not overwrite").unwrap();
+        assert!(delivery_manage(shown(&f.0), id, "restore_file".into()).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), b"do not overwrite");
+    }
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {

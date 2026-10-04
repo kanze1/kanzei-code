@@ -218,6 +218,8 @@ export function buildSessionRow(row, { history = false } = {}) {
   button.type = "button";
   const name = el("span", "workbench-session-name", row.name);
   button.append(name);
+  const activity = el("span", "workbench-session-activity");
+  activity.setAttribute("aria-hidden", "true"); activity.hidden = true; button.append(activity);
   if (row.pinned) {
     const pin = el("span", "workbench-session-pin");
     pin.setAttribute("aria-hidden", "true");
@@ -248,6 +250,11 @@ export function syncRowActivity(wrap) {
   if (!row || !button) return;
   const activity = rowActivity(row);
   if (button.dataset.activity !== activity.state) button.dataset.activity = activity.state;
+  const activityDot = button.querySelector(".workbench-session-activity");
+  if (activityDot) {
+    activityDot.hidden = !["running", "starting", "stopping", "attention"].includes(activity.state);
+    activityDot.textContent = activity.state === "attention" ? "?" : activity.state === "stopping" ? "■" : "";
+  }
   const active = row.capabilities.send && sameProject(row.project, currentProject) && row.id === activeProcessId;
   const current = active ? "true" : "false";
   if (button.getAttribute("aria-current") !== current) button.setAttribute("aria-current", current);

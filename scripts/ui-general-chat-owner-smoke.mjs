@@ -61,7 +61,7 @@ async function harness() {
     if (command === 'projects_select') return { current: args.path, projects: [PROJECT], names: {} };
     if (command === 'process_list') return lines.get(args.projectDir) ?? [];
     if (command === 'process_create') { const item = { ...line(args.projectDir, `created-${++created}`), profile: args.profile ?? 'dev' }; lines.get(args.projectDir).push(item); return item; }
-    if (['conversation_list', 'conversation_get', 'conversation_trace_get'].includes(command)) return [];
+    if (['conversation_list', 'conversation_display_get', 'conversation_trace_get'].includes(command)) return [];
     if (command === 'project_facts') return { git: { state: 'repo', has_commits: true }, stacks: [] };
     if (command === 'project_root_info') return { selected: args.projectDir, resolved: args.projectDir, shared: false };
     if (['worktree_list', 'list_pending_inputs', 'pending_asks_get'].includes(command)) return [];
@@ -188,11 +188,11 @@ await check('failed first general creation exposes its error and can be retried'
   return { selected: h.shellValues.activeProcessId, failedThenRetried: true };
 });
 await check('own create switch waiting for history cannot replace a later selection after returning', 'PASS', async () => {
-  const h = await harness(), history = pause(); h.paneReady(false); h.handlers.set('conversation_get', args => args.processId === 'created-1' ? history.promise : []);
+  const h = await harness(), history = pause(); h.paneReady(false); h.handlers.set('conversation_display_get', args => args.processId === 'created-1' ? history.promise : []);
   h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project';
   const creating = h.history.startNewConversation(); await flush();
   assert.equal(h.shellValues.activeProcessId, 'created-1');
-  assert.equal(h.calls.some(call => call.command === 'conversation_get' && call.args.processId === 'created-1'), true);
+  assert.equal(h.calls.some(call => call.command === 'conversation_display_get' && call.args.processId === 'created-1'), true);
   h.paneReady(true); await h.sessions.switchProcess('user-selected'); assert.equal(h.shellValues.activeProcessId, 'user-selected'); h.get('pane').innerHTML = 'later conversation content'; history.accept([]); await creating;
   assert.equal(h.shellValues.activeProcessId, 'user-selected'); assert.equal(h.get('pane').innerHTML, 'later conversation content'); return { selected: h.shellValues.activeProcessId, content: h.get('pane').innerHTML };
 });

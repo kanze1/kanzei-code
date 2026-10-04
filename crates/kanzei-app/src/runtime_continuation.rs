@@ -31,7 +31,7 @@ pub(crate) fn arm(app: &tauri::AppHandle, payload: &Value) {
     let async_generation = runtime.async_generation.load(Ordering::SeqCst);
     let mut options = runtime.callback_options.lock_or_recover().clone();
     options.autonomous = true;
-    options.execution_batch = true;
+    options.execution_batch = options.agent.as_deref() != Some("dev-pair");
     let prompt = action["prompt"]
         .as_str()
         .map(str::to_owned)
@@ -61,6 +61,24 @@ pub(crate) fn arm(app: &tauri::AppHandle, payload: &Value) {
             return;
         };
         let state = app.state::<AppState>();
+        if options
+            .profile
+            .as_deref()
+            .is_none_or(|profile| profile == "dev")
+        {
+            if let Some(mode) = crate::prefs::load_prefs()
+                .process_auto_state
+                .get(&process.id)
+                .and_then(|value| value["mode"].as_str())
+            {
+                options.agent = match mode {
+                    "dev-pair" => Some("dev-pair".into()),
+                    "dev-auto" => Some("dev".into()),
+                    _ => options.agent,
+                };
+                options.execution_batch = options.agent.as_deref() != Some("dev-pair");
+            }
+        }
         if let Err(error) = crate::commands::run::schedule_run(
             window,
             &state,

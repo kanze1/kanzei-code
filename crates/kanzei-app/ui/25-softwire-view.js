@@ -487,15 +487,22 @@ export function renderMessages(root, messages) {
 export function renderInboxList(root, messages, open) {
   root.replaceChildren(node("h2", t("待我处理")));
   if (!messages.length) root.append(node("p", t("没有待我处理的事项"), "sw-empty"));
-  for (const message of messages) {
+  const projects = new Map();
+  for (const message of messages) { const key = message.project.replace(/\\/g, "/").toLowerCase(); if (!projects.has(key)) projects.set(key, []); projects.get(key).push(message); }
+  for (const group of projects.values()) {
+    const section = node("section", null, "sw-inbox-project"); section.dataset.project = group[0].project;
+    const heading = node("h3", null, "sw-inbox-project-head"); heading.append(node("span", group[0].project.split(/[\\/]/).filter(Boolean).at(-1)), node("span", String(group.length), "sw-inbox-count")); section.append(heading); root.append(section);
+  for (const message of group) {
     const kind = interactionKind(message);
     const row = button("", () => open(message), "sw-inbox-row");
     row.dataset.interactionId = message.key;
     const title = node("span");
-    title.append(node("small", [message.project.split(/[\\/]/).filter(Boolean).at(-1), message.source?.agentId ? message.source.source : ""].filter(Boolean).join(" · ")), node("strong", message.body));
+    if (message.source?.agentId) title.append(node("small", message.source.source || message.source.agentId));
+    title.append(node("strong", message.body));
     row.append(node("span", kind === "question" ? "?" : kind === "decision" ? "◇" : "✓", "sw-inbox-icon"), title,
       node("small", t(({ question: "待你回复", decision: "待你复核", delivery: "待你试用" })[kind])));
-    root.append(row);
+    section.append(row);
+  }
   }
 }
 export function renderInteraction(root, message, actions) {

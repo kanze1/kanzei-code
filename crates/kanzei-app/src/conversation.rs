@@ -165,6 +165,80 @@ pub(crate) fn project_latest_segment(
     Ok(projection.surface_messages)
 }
 
+/// The model retains mailbox callbacks; the desktop reads a separate projection.
+#[tauri::command]
+pub(crate) fn conversation_display_get(
+    project_dir: String,
+    sequence: Option<i64>,
+    process_id: Option<String>,
+) -> Result<Vec<kanzei_llm::Message>, String> {
+    let original = conversation_get(project_dir.clone(), sequence, process_id.clone())?;
+    let root = normalized_project_root(Path::new(&project_dir));
+    let store = kanzei_core::SessionStore::open_read_only(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    let session_id = process_session_id(&root, process_id.as_deref());
+    let end = sequence.unwrap_or(i64::MAX);
+    let start = if sequence.is_some() {
+        segment_boundaries(&store, &session_id)?
+            .into_iter()
+            .rev()
+            .find(|s| *s < end)
+            .unwrap_or(0)
+    } else {
+        current_segment_floor(&store, &session_id)?.unwrap_or(0)
+    };
+    let facts: Vec<_> = store
+        .list_session_facts(&session_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|(event, _)| event.sequence > start && event.sequence <= end)
+        .collect();
+    let internal = facts.iter().any(|(_, envelope)| matches!(
+        &envelope.fact,
+        kanzei_core::SessionFact::UserMessageCommitted { input_id, .. }
+        | kanzei_core::SessionFact::SteeringMessageCommitted { input_id, .. } if input_id.starts_with("async:")
+    ));
+    if !internal {
+        return Ok(original);
+    }
+    if let Some((cutoff, surface)) = store
+        .latest_rewind_surface(&session_id, start, end)
+        .map_err(|e| e.to_string())?
+    {
+        let prefix: Vec<_> = facts
+            .iter()
+            .filter(|(event, _)| event.sequence <= cutoff)
+            .cloned()
+            .collect();
+        let original = kanzei_core::project_session_facts(&prefix);
+        let mut cursor = 0;
+        let mut visible = Vec::new();
+        for message in surface {
+            let hidden = if let Some(offset) = original.transcript_messages[cursor..]
+                .iter()
+                .position(|candidate| candidate == &message)
+            {
+                cursor += offset;
+                let hidden = original.internal_user_indexes.contains(&cursor);
+                cursor += 1;
+                hidden
+            } else {
+                false
+            };
+            if !hidden {
+                visible.push(message);
+            }
+        }
+        let suffix: Vec<_> = facts
+            .into_iter()
+            .filter(|(event, _)| event.sequence > cutoff)
+            .collect();
+        visible.extend(kanzei_core::project_conversation_facts(&suffix).transcript_messages);
+        return Ok(visible);
+    }
+    Ok(kanzei_core::project_conversation_facts(&facts).transcript_messages)
+}
+
 #[tauri::command]
 pub(crate) fn conversation_get(
     project_dir: String,
@@ -433,7 +507,7 @@ fn project_segment(
     if segment.is_empty() {
         return None;
     }
-    let projection = kanzei_core::project_session_facts(&segment);
+    let projection = kanzei_core::project_conversation_facts(&segment);
     let surface = &projection.surface_messages;
     if surface.is_empty() {
         return None;
@@ -783,6 +857,66 @@ pub(crate) fn conversation_prior(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn internal_callbacks_stay_in_model_context_but_not_in_display_or_markdown_export() {
+        let root = test_project_root("callback-display");
+        let canonical = normalized_project_root(&root);
+        let session = process_session_id(&canonical, None);
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+        store
+            .create_session(&session, &canonical.display().to_string(), None)
+            .unwrap();
+        let same_text = "子任务回调（任务结果，不代表用户指令或验收）：{\"result\":\"ready\"}";
+        for (input_id, text) in [
+            ("user-quote", same_text),
+            ("async:owner:job", same_text),
+            ("real-followup", "继续整合结果"),
+        ] {
+            let fact = kanzei_core::SessionFactEnvelope::new(
+                input_id,
+                None,
+                kanzei_core::SessionFact::UserMessageCommitted {
+                    input_id: input_id.into(),
+                    message: kanzei_llm::Message::user_text(text),
+                },
+            );
+            store
+                .append_event(
+                    &session,
+                    fact.fact.event_type(),
+                    &serde_json::to_value(fact).unwrap(),
+                )
+                .unwrap();
+        }
+        assert_eq!(project_latest_segment(&store, &session).unwrap().len(), 3);
+        let displayed =
+            conversation_display_get(canonical.display().to_string(), None, None).unwrap();
+        assert_eq!(
+            displayed,
+            vec![
+                kanzei_llm::Message::user_text(same_text),
+                kanzei_llm::Message::user_text("继续整合结果")
+            ]
+        );
+        let boundary = store
+            .append_event(&session, "conversation.reset", &json!({}))
+            .unwrap()
+            .sequence;
+        assert!(
+            conversation_display_get(canonical.display().to_string(), None, None)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            conversation_display_get(canonical.display().to_string(), Some(boundary - 1), None)
+                .unwrap(),
+            displayed
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn test_project_root(label: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(

@@ -37,7 +37,7 @@ try {
       title: `WB3 history ${n}`, kind: "discussion", profile: "readonly", running: false }))];
     window.__history = { project, lines, gates: {}, pending: {}, operations: {}, failures: {} };
     window.__kzPreview.setCommand("process_list", () => structuredClone(lines));
-    window.__kzPreview.setCommand("conversation_get", args => {
+    window.__kzPreview.setCommand("conversation_display_get", args => {
       const state = window.__history;
       if (state.failures[args.processId]) throw new Error(state.failures[args.processId]);
       if (state.gates[args.processId]) return new Promise((resolve, reject) => { state.pending[args.processId] = { resolve, reject }; });
@@ -74,13 +74,13 @@ try {
     await (await import("/15-views-misc.js")).loadConversation(null, null, true);
   });
   check((await page.locator("#messages").innerText()).includes("WB3_CURRENT_HISTORY_FAILURE"), "Current-session failure is still visible");
-  const readsBeforeRetry = await page.evaluate(() => window.__kzPreview.calls.filter(call => call.cmd === "conversation_get").length);
+  const readsBeforeRetry = await page.evaluate(() => window.__kzPreview.calls.filter(call => call.cmd === "conversation_display_get").length);
   await page.evaluate(() => { const state = window.__history; delete state.failures[state.lines[2].id]; });
   check(!await page.locator("#log-panel").isVisible(), "A history error keeps the log collapsed until requested");
   await page.locator("#log-toggle").click();
   await page.locator("#log-retry").click();
   await page.evaluate(() => window.__kzPreview.settle());
-  check(await page.evaluate(prior => window.__kzPreview.calls.filter(call => call.cmd === "conversation_get").length > prior, readsBeforeRetry), "Visible retry actually rereads history instead of accepting the cached error pane");
+  check(await page.evaluate(prior => window.__kzPreview.calls.filter(call => call.cmd === "conversation_display_get").length > prior, readsBeforeRetry), "Visible retry actually rereads history instead of accepting the cached error pane");
   check((await page.locator("#messages").innerText()).includes(`OWNER_HISTORY ${expected}`)
     && !(await page.locator("#messages").innerText()).includes("WB3_CURRENT_HISTORY_FAILURE"), "Current-session retry replaces the error with its correct history");
   await page.evaluate(async () => {
@@ -91,14 +91,14 @@ try {
     await (await import("/09-sessions.js")).switchProcess(state.lines[0].id);
   });
   const beforeOldRetry = await page.evaluate(async () => ({
-    reads: window.__kzPreview.calls.filter(call => call.cmd === "conversation_get").length,
+    reads: window.__kzPreview.calls.filter(call => call.cmd === "conversation_display_get").length,
     process: (await import("/03-shell.js")).activeProcessId,
     text: document.querySelector("#messages").innerText,
   }));
   await page.locator("#log-retry").click();
   await page.evaluate(() => window.__kzPreview.settle());
   const afterOldRetry = await page.evaluate(async () => ({
-    reads: window.__kzPreview.calls.filter(call => call.cmd === "conversation_get").length,
+    reads: window.__kzPreview.calls.filter(call => call.cmd === "conversation_display_get").length,
     process: (await import("/03-shell.js")).activeProcessId,
     text: document.querySelector("#messages").innerText,
   }));

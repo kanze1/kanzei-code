@@ -297,7 +297,7 @@ try {
     check(sent.args.target === null || sent.args.target === undefined, `memory-new: starting a new memory does not target the previously selected one (${JSON.stringify(sent.args.target)})`);
   });
 
-  // ---- ◉ 后台常驻:菜单锚在按钮上方,不落在窗口左上角 ----
+  // ---- 后台常驻由运行时管理,不再占用对话框的更多菜单 ----
   await section("runtime-chip", {
     scene: "composer",
     init: () => {
@@ -310,14 +310,8 @@ try {
     },
   }, async (app) => {
     const { page } = app;
-    await page.click("#composer-more");
-    await page.waitForFunction(() => { const chip = document.querySelector("#runtime-indicator"); return chip && !chip.hidden && chip.getBoundingClientRect().width > 0; });
-    const chip = await app.rect("#runtime-indicator");
-    await page.click("#runtime-indicator");
-    await page.waitForSelector('.k-menu[aria-label="后台常驻"]:popover-open');
-    await sleep(250);
-    const menu = await page.evaluate(() => { const box = document.querySelector('.k-menu[aria-label="后台常驻"]:popover-open').getBoundingClientRect(); return { x: box.x, y: box.y, bottom: box.bottom, right: box.right }; });
-    check(menu.x > 100 && menu.bottom <= chip.y + 8 && chip.y - menu.bottom < 80 && Math.abs(menu.right - chip.right) < 300, `runtime-chip: the menu opens right above the chip, not at the window corner (menu ${Math.round(menu.x)},${Math.round(menu.y)}..${Math.round(menu.right)},${Math.round(menu.bottom)} / chip ${Math.round(chip.x)},${Math.round(chip.y)})`);
+    check(!await page.locator("#composer-more").isVisible() && !await page.locator("#runtime-indicator").isVisible(), "runtime-chip: obsolete runtime operations stay out of the composer");
+    check(await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible(), "runtime-chip: Skills and Goal remain available with a detached runtime");
   });
 
   // ---- 存储整理结果:人读的大小(KB/MB),不是「18432 bytes」 ----

@@ -136,9 +136,9 @@ export function lineFact(label, value, className = "") {
   return row;
 }
 
-// 线路页每条线都有鞭挞与模型控件:原先这两样只有「当前打开的那条线」有(输入框上方那一份),
+// 线路页每条线都有自动推进与模型控件:原先这两样只有「当前打开的那条线」有(输入框上方那一份),
 // 要给 N 条线配不同模型、或让某条后台线开始/停止自主推进,就得切 N 次线——而并行
-// 线路页正是唯一能一屏看全所有线的地方。鞭挞控件本身不持有状态:开关/暂停/本轮后停
+// 线路页正是唯一能一屏看全所有线的地方。自动推进控件本身不持有状态:开关/暂停/本轮后停
 // 一律经 setLineAutoState 落到该线存档 + 它自己的后端 auto_state;模型经
 // queueProcessUpdate 落该线 process(run_prompt 的 model 回落读的就是它)。
 export let linesModelCatalog = null;
@@ -225,18 +225,18 @@ export function buildLineAutoControls(line) {
     void setLineAutoState(line.process_id, { enabled: checkbox.checked });
   });
   const toggleText = document.createElement("span");
-  toggleText.textContent = t("鞭挞");
+  toggleText.textContent = t("自动推进");
   toggle.append(checkbox, toggleText);
 
   const progress = document.createElement("span");
   progress.className = "line-auto-rounds";
   progress.textContent = `${rounds}`;
-  progress.title = t("鞭挞轮次");
+  progress.title = t("自动推进轮次");
 
   const pause = document.createElement("button");
   pause.type = "button";
   pause.className = `ghost mini line-auto-pause${config.paused ? " active" : ""}`;
-  pause.textContent = config.paused ? t("恢复鞭挞") : t("暂停鞭挞");
+  pause.textContent = config.paused ? t("恢复自动推进") : t("暂停自动推进");
   pause.disabled = !config.enabled;
   pause.dataset.focusKey = "pause";
   pause.addEventListener("click", () => {
@@ -352,8 +352,8 @@ export function lineIsStopping(item) {
   return Boolean(item?.session_id) && sessionState(item.session_id)?.phase === "stopping";
 }
 
-// 运行中线路的「停止」。当前线直接点输入区那颗 #stop——状态栏、按钮与鞭挞计时的收口都在它的处理器里;
-// 后台线没有那套 UI,走与 25-softwire 的 stop() 同一条路:先收鞭挞计时与轮次,进「停止中」,再发 stop_run。
+// 运行中线路的「停止」。当前线直接点输入区那颗 #stop——状态栏、按钮与自动推进计时的收口都在它的处理器里;
+// 后台线没有那套 UI,走与 25-softwire 的 stop() 同一条路:先收自动推进计时与轮次,进「停止中」,再发 stop_run。
 export async function stopLine(line) {
   const item = processItems.find((process) => process.id === line.process_id);
   if (!item) return;
@@ -569,7 +569,7 @@ export function renderLines(lines) {
       lineFact(t("步数"), String(line.steps || 0)),
       lineFact(t("令牌"), `${formatLineTokens(line.input_tokens)} ↓ / ${formatLineTokens(line.output_tokens)} ↑`),
     );
-    // 鞭挞与模型是这页的主要用途(一屏横向比对、操控每条线),放在卡面上;折叠区只留分支/工作树这类低频事实(内部编号不外露,只在标题行 tooltip 里)。
+    // 自动推进与模型是这页的主要用途(一屏横向比对、操控每条线),放在卡面上;折叠区只留分支/工作树这类低频事实(内部编号不外露,只在标题行 tooltip 里)。
     const controls = buildLineAutoControls(line);
     const runtimeDetails = document.createElement("details");
     runtimeDetails.className = "line-runtime-details";

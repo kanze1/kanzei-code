@@ -234,9 +234,9 @@ test("real text delta after the cached history switch belongs to B and switching
   const b = h.core.streamStateFor("session-b").assistant;
   // The real 09 switch contract changes process/session before its 15 history await.
   h.shell.setActiveProcessId("process-b"); h.shell.setActiveSessionId("session-b");
-  const historyReads = h.calls.filter(call => call.command === "conversation_get").length;
+  const historyReads = h.calls.filter(call => call.command === "conversation_display_get").length;
   await h.views.loadConversation();
-  assert.equal(h.calls.filter(call => call.command === "conversation_get").length, historyReads, "actual 15 cached-pane shortcut must execute");
+  assert.equal(h.calls.filter(call => call.command === "conversation_display_get").length, historyReads, "actual 15 cached-pane shortcut must execute");
   h.deliver("kz:text", { sessionId: "session-b", text: "B2" });
   assert.equal(a.dataset.raw, "A1", "B's live delta cannot write A's hidden assistant"); assert.equal(b.dataset.raw, "B1B2");
   h.deliver("kz:text", { sessionId: "session-a", text: "A2" });

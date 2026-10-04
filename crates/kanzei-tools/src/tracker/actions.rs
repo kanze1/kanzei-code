@@ -545,8 +545,11 @@ pub(crate) fn update_close(
             ),
         );
     }
-    let requires_delivery_evidence =
-        is_closing_action && !already_terminal && !retiring && !user_completion;
+    let requires_delivery_evidence = ctx.project_workflow
+        && is_closing_action
+        && !already_terminal
+        && !retiring
+        && !user_completion;
     if action == "update"
         && input.status.as_deref() == Some("awaiting_external")
         && before.status != "awaiting_external"
@@ -635,7 +638,7 @@ pub(crate) fn update_close(
         // 字段合并照常(重入可补字段),无变更时下方 no-op 判定会零写入返回。
         if already_terminal {
             Some(entries[pos].status.clone())
-        } else if retiring || user_completion {
+        } else if retiring || user_completion || !ctx.project_workflow {
             Some(requested_status.to_string())
         } else {
             // 批次没走完不能关:格子是给人看进度的,关闭时还剩空格,要么是漏了批次,

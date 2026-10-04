@@ -64,7 +64,7 @@ export async function showSchedules() {
       const row = element("details"); row.appendChild(element("summary", `${event.type} · ${event.data.summary || event.data.reason || event.data.run_id || ""}`));
       row.appendChild(element("pre", JSON.stringify(event.data, null, 2)));
       if (event.type === "schedule.run_finished" && event.data.run_id) row.appendChild(control("查看完整对话", async () => {
-        const response = await invoke("conversation_get", { projectDir: target, processId: event.data.run_id, sequence: null });
+        const response = await invoke("conversation_display_get", { projectDir: target, processId: event.data.run_id, sequence: null });
         if (!isCurrent(view, target)) return;
         const messages = Array.isArray(response) ? response : response?.messages || [];
         const transcript = element("div", "", "schedule-transcript");

@@ -1,10 +1,9 @@
 import { $, defer } from "./01-core.js";
+import { bindMenus } from "./00-surface.js";
 import { t } from "./02-i18n.js";
 import { currentProject, navigate_view, running } from "./03-shell.js";
 import { workbenchProject, openProjectResource, openProjectSpace } from "./12-workbench.js";
 import { projectDisplayName } from "./09-sessions.js";
-import { openTasksPanel } from "./06-agent-panel.js";
-import { closeSurface } from "./00-surface.js";
 
 const node = (tag, cls, text) => { const element = document.createElement(tag); if (cls) element.className = cls; if (text) element.textContent = text; return element; };
 defer(() => {
@@ -27,25 +26,31 @@ defer(() => {
   const theme = $("theme-toggle"); if (theme) footer.append(theme);
   $("workbench-navigation").append(footer);
 
-  const more = $("composer-more-menu");
-  const menuSection = (label, ids) => {
-    const section = node("div", "composer-menu-section");
-    const heading = node("div", "composer-menu-heading", t(label)); heading.dataset.i18nKey = label;
-    section.append(heading);
-    for (const id of ids) {
-      const control = $(id); if (!control) continue;
-      control.classList.add("composer-menu-action"); section.append(control);
-    }
-    more.append(section);
-  };
-  menuSection("对话操作", ["side-question-open", "terminal-monitor-open", "sop-picker", "worktree-add", "summarize-btn", "copy-context", "chat-search-toggle"]);
-  menuSection("运行控制", ["subagent-control", "autorun-bar", "project-handoff", "runtime-indicator"]);
+  // Keep legacy DOM hooks for saved layouts; the composer no longer exposes them.
+  const retired = node("div", "retired-conversation-controls"); retired.hidden = true;
+  $("composer").append(retired);
+  for (const id of ["composer-more", "composer-more-menu", "side-question-open", "terminal-monitor-open", "sop-picker", "worktree-add", "summarize-btn", "copy-context", "chat-search-toggle", "project-handoff", "runtime-indicator", "auto-continue-wrap"]) {
+    const control = $(id); if (control) retired.append(control);
+  }
+  const left = $("composer-left");
+  const subagents = $("subagent-control"); if (subagents) left.append(subagents);
+  const goalMenu = $("goal-menu");
+  const goal = $("auto-goal"), goalLabel = goal?.previousElementSibling;
+  if (goalLabel) goalMenu.append(goalLabel); if (goal) goalMenu.append(goal);
+  const goalActions = node("div", "goal-actions");
+  for (const [id, label] of [["goal-start", "开始目标"], ["goal-clear", "结束目标"]]) {
+    const button = node("button", "ghost mini", t(label)); button.type = "button"; button.id = id; button.dataset.i18nKey = label; goalActions.append(button);
+  }
+  goalMenu.append(goalActions); $("composer").append(goalMenu);
+  const bindings = node("div", "conversation-bindings");
+  for (const [id, label, menu] of [["skills-picker", "Skills", "skills-menu"], ["goal-picker", "Goal", "goal-menu"]]) {
+    const button = node("button", "kz-ctl", label); button.id = id; button.type = "button"; button.dataset.kzMenu = menu;
+    button.setAttribute("aria-haspopup", "true"); button.setAttribute("aria-expanded", "false"); bindings.append(button);
+  }
+  left.append(bindings);
+  bindMenus(left);
   const runtime = $("runtime-indicator");
   $("auto-continue")?.setAttribute("role", "switch");
-  // The terminal has the same session-bound activity surface as subagents.
-  $("terminal-monitor-open")?.addEventListener("click", event => {
-    event.preventDefault(); event.stopImmediatePropagation(); closeSurface(more); openTasksPanel();
-  }, true);
 
   const projectLabel = $("settings-tools-project");
   const links = $("settings-project-links");

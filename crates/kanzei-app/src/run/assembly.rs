@@ -78,6 +78,17 @@ pub(crate) struct RunMode {
 }
 
 impl RunMode {
+    /// Product mode is independent of whether this input was automatically submitted.
+    /// A paired conversation with a goal must never acquire the project queue gates.
+    pub(crate) fn uses_project_workflow(&self) -> bool {
+        self.profile
+            .as_deref()
+            .is_none_or(|profile| profile == "dev")
+            && self
+                .agent_name
+                .as_deref()
+                .is_none_or(|agent| agent == "dev")
+    }
     /// 本轮是否装配阶段流水线(勘察 → 实现 → 复核)。这是流水线的唯一闸门判据:
     ///
     /// - 只读档位(讨论)与关闭子代理总开关:永远不装配;
@@ -230,7 +241,8 @@ pub(crate) async fn assemble_run(
         mode.block_tracker_writes,
         Some(handles.collaboration_probe.clone()),
     );
-    if !crate::general_chat::is_general_root(&project_root) {
+    let project_workflow = !general && mode.uses_project_workflow();
+    if project_workflow {
         harness.add(kanzei_tools::work::WorkControlContext(
             crate::auto_run::work_priority_enum(work_priority),
         ));
@@ -242,14 +254,24 @@ pub(crate) async fn assemble_run(
     }
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(mode.agent_name.as_deref())?.clone();
-    if !general {
+    crate::skills::append_bound_instructions(
+        &mut agent.system,
+        &project_root,
+        &request.session_id,
+        request
+            .promoted_input
+            .as_ref()
+            .map(|input| input.prompt.as_str())
+            .unwrap_or(&request.prompt),
+    )?;
+    if project_workflow {
         append_dev_guidance(&mut agent.system, profile, work_priority, &config);
     }
     if let Some(topic) = mode.research_topic.as_deref() {
         agent.system.push_str(&format!("\n\n当前研究课题: {topic}。本会话的研究工件位于 .kanzei/research/{topic}/。来源、发现、计划、实验和报告均使用该 topic；其他课题仅在用户明确要求比较时读取，不改变当前课题归属。"));
     }
     // 启动快照仅供角色任务上下文；主代理的裁决由 WorkControlContext 每步刷新。
-    let control_state = (!general && profile == kanzei_harness::ProfileKind::Dev).then(|| {
+    let control_state = project_workflow.then(|| {
         kanzei_tools::resolve_work_decision(
             &cwd,
             &project_root,
@@ -285,9 +307,10 @@ pub(crate) async fn assemble_run(
     );
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     let client = new_llm_client(&proxy)?;
-    let ctx = ToolCtx::new(cwd.clone(), project_root.clone())
+    let mut ctx = ToolCtx::new(cwd.clone(), project_root.clone())
         .with_session_id(request.session_id.clone())
         .with_work_priority(crate::auto_run::work_priority_enum(work_priority));
+    ctx.project_workflow = project_workflow;
     // R-256:RunnerConfig 构造与 CLI 共用 kanzei_tools::run::build_runner_config(对照表 #12)。
     let mut runner_config = kanzei_tools::run::build_runner_config(
         &resolved,
@@ -436,6 +459,10 @@ async fn prepare_session(
     let prepared = async {
         let work_item_id = store.input_work_item(&request.session_id, &promoted.input_id)?;
         anyhow::ensure!(
+            work_item_id.is_none() || ctx.project_workflow,
+            "领取需求请切换到自主推进；结伴开发按当前对话执行"
+        );
+        anyhow::ensure!(
             work_item_id.is_none()
                 || (profile == kanzei_harness::ProfileKind::Dev && !mode.block_tracker_writes),
             "当前对话不能领取需求，请返回可写的开发主对话开始"
@@ -469,12 +496,14 @@ async fn prepare_session(
             .and_then(|controller| controller.goal.clone());
         // 完成声明契约只给开发档(UX-008):只读讨论与研究档没有 work 工具、轮末也不消费
         // handoff,注入只会让模型把范围/目标/证据当散文讲给用户。判据见 context_prompt_for。
-        if let Some(contract) = kanzei_harness::handoff::context_prompt_for(
-            profile,
-            &promoted_input_id,
-            completion_goal.as_deref(),
-        ) {
-            agent.system.push_str(&contract);
+        if ctx.project_workflow || completion_goal.is_some() {
+            if let Some(contract) = kanzei_harness::handoff::context_prompt_for(
+                profile,
+                &promoted_input_id,
+                completion_goal.as_deref(),
+            ) {
+                agent.system.push_str(&contract);
+            }
         }
         // Capture once before scouts or any write/claim by this run. Later working
         // tree observations are not evidence of what existed at this boundary.
@@ -1678,6 +1707,13 @@ mod tests {
             kanzei_core::AskPolicy::Interactive
         ));
         mode.autonomous = true;
+        mode.agent_name = Some("dev-pair".into());
+        assert!(
+            !mode.uses_project_workflow(),
+            "a paired goal is independent of the project queue"
+        );
+        mode.agent_name = Some("dev".into());
+        assert!(mode.uses_project_workflow());
         assert!(matches!(
             mode.ask_policy(),
             kanzei_core::AskPolicy::NonInteractive

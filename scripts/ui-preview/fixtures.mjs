@@ -748,6 +748,7 @@ function previewMainFor(projectDir) {
 
 export function createFixtures({ scene = "chat", theme = "dark", params = {} } = {}) {
   const now = Date.now();
+  const autoStates = new Map();
   const running = scene === "chat" || scene === "agents";
   const dialog = params.dialog || "ask";
   const language = params.lang === "en" ? "en" : "zh";
@@ -1149,8 +1150,12 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       return [];
     },
     answer_ask: null,
-    auto_state_update: null,
+    auto_state_update: ({ sessionId, ...patch }) => {
+      const value = { enabled: false, paused: false, goal: null, ...autoStates.get(sessionId), ...patch };
+      autoStates.set(sessionId, value); return { ok: true, goal: value.goal };
+    },
     auto_state_reset: null,
+    auto_state_get: ({ sessionId }) => autoStates.get(sessionId) || { enabled: false, paused: false, goal: null },
     run_prompt: fakeRun,
     stop_run: (args, ctx) => {
       const process = processById(args?.processId) ?? state.processes[0];
@@ -1162,6 +1167,10 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     // ---- 对话
     // sequence=null 读当前段;点了「新对话」(conversation_clear)的线路当前段为空,旧段仍可按 sequence 打开。
     delivered_files: [],
+    delivery_manage: [],
+    skills_list: [],
+    skills_get_binding: [],
+    skills_bind: ({ names }) => names,
     batch_evidence: [],
     save_delivered_file: null,
     conversation_get: ({ processId, sequence }) => (state.cleared.has(processId) && sequence == null) ? []
@@ -1426,6 +1435,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     line.session_id = process?.session_id || "preview-session-" + line.id;
   }
   Object.assign(commands, decisionConsoleFixture(commands.workspace_snapshot));
+  commands.conversation_display_get = commands.conversation_get;
   commands.workspace_overview = () => {
     const snapshot = commands.workspace_snapshot();
     return { current: snapshot.current, observed_at: Date.now(), projects: snapshot.projects.map((p, index) => ({

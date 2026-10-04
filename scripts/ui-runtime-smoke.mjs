@@ -35,12 +35,12 @@ if (SMOKE_MUTATE) {
     },
     // D-355:切换执行根时 activate_execution_root 必须清空 activeProcessId。删了它,切到新项目后
     // 残留旧项目的进程 id,loadConversation 就不会等新项目的 process_list,直接拿旧
-    // 进程 id 发 conversation_get——新项目的对话永远不恢复。缓存行(D-356)在中间。
+    // 进程 id 发 conversation_display_get——新项目的对话永远不恢复。缓存行(D-356)在中间。
     d355ClearActive: {
       pattern: /(if \(previousProject !== currentProject\) \{\r?\n[\s\S]*?)\s*setActiveProcessId\(null\);\r?\n(\s*setActiveSessionId\(null\);)/,
       replace: "$1$2",
     },
-    // D-355:loadConversation 在 conversation_get 落地后的 isCurrent 守卫。删了它,
+    // D-355:loadConversation 在 conversation_display_get 落地后的 isCurrent 守卫。删了它,
     // 迟到的旧目标历史会覆盖已经切走的新目标(切 B 后 B 的对话恢复迟到,B 的历史被
     // 画进已切回 A 的消息区)。
     d355LoadConvGuard: {
@@ -78,7 +78,7 @@ if (SMOKE_MUTATE) {
       replace: "",
     },
     // UI-0926 #2:loadConversation 的会话纪元守卫。删了它,新对话之前发出的
-    // conversation_get 迟到落地,把旧段整页画回刚开的新对话。
+    // conversation_display_get 迟到落地,把旧段整页画回刚开的新对话。
     newChatEpoch: {
       pattern: / &&\r?\n\s*conversationEpoch\(forSessionId\) === forEpoch(?=;)/,
       replace: "",
@@ -1252,7 +1252,7 @@ if (!source.includes("function renderMarkdown(raw)") || !source.includes("render
   fail("对话 Markdown 或 diff 详情渲染入口缺失");
 }
 // 历史消息只进入恢复渲染器，实时事件继续使用 currentAssistant，不应把运行输出写入历史快照。
-if (!source.includes('const history = await invoke("conversation_get"') || !source.includes("renderRecoveredMessages(history)")) {
+if (!source.includes('const history = await invoke("conversation_display_get"') || !source.includes("renderRecoveredMessages(history)")) {
   fail("历史消息未通过只读恢复渲染链路");
 }
 // 历史回放必须保留完整调用与结果:调用与结果按 call_id 配对成一块(buildToolBlock/
@@ -1282,13 +1282,13 @@ const dictionarySource = source.slice(source.indexOf("const I18N_EN = {"), sourc
 const dictionaryKeys = new Set([...dictionarySource.matchAll(/\"((?:\\.|[^\"])*)\"\s*:/g)].map((match) => match[1]));
 const translationCalls = [...source.matchAll(/\bt\(\"((?:\\.|[^\"])*)\"\)/g)].map((match) => match[1]);
 for (const key of new Set(translationCalls)) if (!dictionaryKeys.has(key)) fail(`I18N_EN 缺少 t key: ${key}`);
-if (!source.includes("function stopAutoForManualInput(") || !source.includes('const message = t("收到手动输入，鞭挞已停止")')) {
+if (!source.includes("function stopAutoForManualInput(") || !source.includes('const message = t("收到手动输入，自动推进已停止")')) {
   fail("手动输入未确认停止鞭挞并反馈用户");
 }
 if (!source.includes('e.key === "Enter" && !e.shiftKey')) {
   fail("主输入框未保持 Enter 发送、Shift+Enter 换行契约");
 }
-const autoNoticeIndex = source.indexOf('addMessage("notice", `${t("鞭挞已触发")}');
+const autoNoticeIndex = source.indexOf('addMessage("notice", `${t("自动推进已触发")}');
 if (autoNoticeIndex < 0 || source.includes('addUserMessage(auto ?')) {
   fail("自动续轮仍把内部提示词重复展示为用户消息");
 }
@@ -1553,7 +1553,7 @@ class Element {
   addEventListener(type, fn) { (this._listeners[type] ??= []).push(fn); }
   removeEventListener() {}
   dispatchEvent(event) { event.target ??= this; (this._listeners[event.type] ?? []).forEach((fn) => fn(event)); }
-  click() { this.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {} }); }
+  click() { this.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} }); }
   // 顶层原语(UI-0926 #9 弹层技术栈):<dialog> 的 showModal/show/close 与 Popover API。
   // 假 DOM 没有顶层/样式,只维护 open/_modal/_popoverOpen 状态并派发 close/toggle 事件——
   // 00-surface.js 同时镜像 .hidden,旧断言照读 classList;真实行为由浏览器样例冒烟兜底。
@@ -2156,7 +2156,7 @@ const payloads = {
   },
   // 历史回放里的工具调用/结果:此前只有一条纯文本消息,历史工具块在运行时从未被执行过
   // (只有源码字符串断言),⎿ 摘要与展开详情的双写在这条路径上完全没有护栏。
-  conversation_get: [
+  conversation_display_get: [
     { role: "user", parts: [{ type: "text", text: "冒烟历史消息" }] },
     {
       role: "assistant",
@@ -4699,7 +4699,7 @@ sopShell.setRunning(true);
 byId.get("auto-continue").checked = true;
 sopEntry.click();
 await flush();
-assert(byId.get("auto-continue").checked, "运行中选 SOP 是补充,不应关掉鞭挞(UX-046)");
+assert(!byId.get("auto-continue").checked, "结伴对话不因旧 SOP 入口获得自动循环");
 sopShell.setRunning(false);
 byId.get("sop-picker").click();
 await flush();
@@ -7243,7 +7243,7 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   const autoChecked = byId.get("auto-continue").checked;
   payloads.process_list = savedD323ProcessList;
   assert(
-    pausedText.includes("恢复鞭挞") && pausedVal === true,
+    pausedText.includes("恢复自动推进") && pausedVal === true,
     `D-323 前置:暂停点击未生效,pausedVal=${pausedVal},text=${pausedText}`,
   );
   assert(
@@ -7251,7 +7251,7 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     `D-323 前置:恢复点击未生效,pausedVal=${resumedVal},text=${resumedText}`,
   );
   assert(
-    byId.get("status-text").textContent.includes("鞭挞恢复"),
+    byId.get("status-text").textContent.includes("自动推进恢复"),
     `D-323:恢复路径不得静默不调度(档位判定在引擎),status=${byId.get("status-text")?.textContent},mode=${statusMode},autoChecked=${autoChecked},btn=${resumedText}`,
   );
   assert(
@@ -7264,38 +7264,29 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
 
 // ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------
 
-// ---------- R-322 B2 结伴档轻控制 loop(取代 R-224 的强制切档) ----------
-// 结伴(dev-pair)勾鞭挞 → **留在结伴档**跑轻 loop + notice;research 勾鞭挞 → 拒绝并复位。
-//
-// 原 R-224 断言的是「自动切到 dev-auto」。那条行为的前提是结伴档不能续跑
-// (auto_allowed 要求 agent=="dev"),所以勾鞭挞等于被迫换掉人格。R-322 B2 让
-// 结伴档能以轻控制续跑后,强制切档既无必要也违背用户意图,断言随之反转。
+// ---------- 自动推进绑定自主模式；结伴的续跑入口是 Goal ----------
 {
   const savedProfileR224 = byId.get("profile-select").value;
-  // ① 结伴勾鞭挞:档位保持 dev-pair,notice 说明轻控制语义,鞭挞保持勾选。
+  const savedGoalR224 = byId.get("auto-goal").value;
+  byId.get("auto-goal").value = "";
   byId.get("profile-select").value = "dev-pair";
   byId.get("auto-continue").checked = true;
   kzTest.cancelTimers();
   byId.get("auto-continue").dispatchEvent({ type: "change" });
   await flush();
   assert(
-    byId.get("profile-select").value === "dev-pair",
-    `R-322 B2:结伴勾鞭挞不应改档位,实际=${byId.get("profile-select").value}`,
+    byId.get("profile-select").value === "dev-auto",
+    `开启自动推进应选择自主模式,实际=${byId.get("profile-select").value}`,
   );
   assert(
     byId.get("auto-continue").checked === true,
-    "R-322 B2:结伴勾鞭挞后勾选被复位(应保持勾选)",
-  );
-  assert(
-    [...document.querySelectorAll("#messages [data-active] .msg, #messages [data-active] div")].some((el) =>
-      el.textContent.includes("轻控制续跑") || el.textContent.includes("light-control")
-    ),
-    "R-322 B2:结伴档鞭挞未落轻控制语义 notice",
+    "开启自动推进应保持勾选",
   );
   // Retired research profiles cannot be selected through workspace navigation.
   assert(await vm.runInContext('switch_workspace("research")', sandbox) === false, "研究入口已经移除");
   byId.get("auto-continue").checked = false;
   byId.get("profile-select").value = savedProfileR224;
+  byId.get("auto-goal").value = savedGoalR224;
   kzTest.cancelTimers();
 }
 
@@ -7304,7 +7295,7 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
 // 根本不在视野内。这里锁两件事:①选择器常驻输入区(UI2-0926 #11 起在底部工具行左段,与 Claude 的模式芯片
 // 同位),不许再退回任何弹层;②data-mode 与 value 同步(配色靠它,漂了就等于没换色)。
 {
-  const leftStart = html.indexOf('<div class="composer-left">');
+  const leftStart = html.indexOf('<div id="composer-left" class="composer-left">');
   const leftRow = leftStart >= 0 ? html.slice(leftStart, html.indexOf('<div class="composer-right">', leftStart)) : "";
   const selectAt = html.indexOf('id="profile-select"');
   const inPopover = [...html.matchAll(/<div id="([\w-]+)"[^>]*popover=/g)].some((m) => {
@@ -10002,22 +9993,22 @@ const docsB = {
 // 旧实现:processRefreshInFlight/Queued 是跨项目全局单飞,不携带请求所属项目。项目 A 的
 // process_list 在途时切到 B,B 的 refreshProcesses 命中 A 的 inFlight 后返回 A 的 Promise,
 // loadConversation 误等它,等到的却是「A 的列表完成」而 B 的 activeProcessId 仍是 null,
-// 于是 B 的 conversation_get 永远不发出——切仓库后目标对话不恢复(空白/旧快照),数据其实
+// 于是 B 的 conversation_display_get 永远不发出——切仓库后目标对话不恢复(空白/旧快照),数据其实
 // 还在 SQLite 里。新实现按项目键控:返回的 Promise 恒为「本项目列表刷新完成」。
 {
   const savedProcessList = payloads.process_list;
-  const savedConversationGet = payloads.conversation_get;
+  const savedConversationGet = payloads.conversation_display_get;
   const A_PROC = "d|smoke";
   const B_PROC = "d|proj-b";
   const A_HISTORY = "冒烟历史消息";
   const B_HISTORY = "乙项目的历史消息";
   // 两个项目的进程列表与历史必须不同,才能判「以 B 的 projectDir/processId 调
-  // conversation_get」而不是复用了 A 的结果。
+  // conversation_display_get」而不是复用了 A 的结果。
   payloads.process_list = (args) =>
     args?.projectDir === PROJECT_B
       ? [{ id: B_PROC, label: "乙主对话", session_id: "sess-b", running: false, branch: "main", authority: "primary" }]
       : savedProcessList;
-  payloads.conversation_get = (args) =>
+  payloads.conversation_display_get = (args) =>
     args?.projectDir === PROJECT_B
       ? [{ role: "user", parts: [{ type: "text", text: B_HISTORY }] }]
       : savedConversationGet;
@@ -10040,7 +10031,7 @@ const docsB = {
 
   // ---------- ① 卡住项目 A 的 process_list 后切 B ----------
   // B 必须实际等待 B 自己的 process_list(旧实现会命中 A 的全局单飞直接复用),并以
-  // B 的 projectDir/processId 调 conversation_get;迟到的 A 响应不得覆盖 B。
+  // B 的 projectDir/processId 调 conversation_display_get;迟到的 A 响应不得覆盖 B。
   await gotoProject(PROJECT, docsA);
   let releaseGate;
   invokeGates.set("process_list", new Promise((resolve) => { releaseGate = resolve; }));
@@ -10066,11 +10057,11 @@ const docsB = {
   releaseGate(); // 放行:A 的响应落地(项目已切走,守卫丢弃),B 的响应落地 → activeProcessId 就绪
   await bSwitch;
   await flush();
-  const getCalls = invokeArgs.filter((entry) => entry.cmd === "conversation_get");
+  const getCalls = invokeArgs.filter((entry) => entry.cmd === "conversation_display_get");
   assert(
     getCalls.some((entry) => entry.args?.projectDir === PROJECT_B && entry.args?.processId === B_PROC),
-    `conversation_get 没有以 B 的 projectDir/processId 发出(旧实现:B 的 activeProcessId 从未被填充,` +
-      `conversation_get 永不触发,目标对话不恢复):${JSON.stringify(getCalls)}`,
+    `conversation_display_get 没有以 B 的 projectDir/processId 发出(旧实现:B 的 activeProcessId 从未被填充,` +
+      `conversation_display_get 永不触发,目标对话不恢复):${JSON.stringify(getCalls)}`,
   );
   assert(
     visibleHistory().includes(B_HISTORY),
@@ -10086,15 +10077,15 @@ const docsB = {
     "A 的 process_list 在途响应落地后覆盖了 B 的活动进程(项目守卫缺失)",
   );
 
-  // ---------- ② B 的 conversation_get 迟到落地不得覆盖已切回的目标(验收②) ----------
+  // ---------- ② B 的 conversation_display_get 迟到落地不得覆盖已切回的目标(验收②) ----------
   // 这条同时是 d355LoadConvGuard 变异的判红点:删掉 loadConversation 的 isCurrent 守卫后,
   // B 的历史会被画进已切回 A 的消息区。
   await gotoProject(PROJECT, docsA);
   let releaseConv;
-  invokeGates.set("conversation_get", new Promise((resolve) => { releaseConv = resolve; }));
+  invokeGates.set("conversation_display_get", new Promise((resolve) => { releaseConv = resolve; }));
   payloads.docs_snapshot = docsB;
   payloads.projects_select = projPayload(PROJECT_B);
-  // R-267:pane 常驻之后,目标会话的 pane 若已有内容就**不会**再发 conversation_get
+  // R-267:pane 常驻之后,目标会话的 pane 若已有内容就**不会**再发 conversation_display_get
   // ——那正是本次改造要的效果。但本用例验的是「在途响应的项目守卫」,必须真的发出
   // 一次请求才有东西可迟到,所以先把 pane 全清掉,逼出装载路径。
   vm.runInContext(
@@ -10102,18 +10093,18 @@ const docsB = {
     sandbox,
   );
   const bInvokesStart = invokeArgs.length;
-  const bSwitchLate = sandbox.switchProject(PROJECT_B, { view: "chat" }); // B 的 conversation_get 卡在闸门
+  const bSwitchLate = sandbox.switchProject(PROJECT_B, { view: "chat" }); // B 的 conversation_display_get 卡在闸门
   await settle();
   assert(
-    invokeArgs.slice(bInvokesStart).some(({ cmd, args }) => cmd === "conversation_get" && args?.projectDir === PROJECT_B),
-    `前置失败:B 的 conversation_get 没有在途(${JSON.stringify(invokeArgs.slice(bInvokesStart))})`,
+    invokeArgs.slice(bInvokesStart).some(({ cmd, args }) => cmd === "conversation_display_get" && args?.projectDir === PROJECT_B),
+    `前置失败:B 的 conversation_display_get 没有在途(${JSON.stringify(invokeArgs.slice(bInvokesStart))})`,
   );
-  invokeGates.delete("conversation_get"); // 只卡住 B 那一次:已在 await 的调用握着自己那个 promise
+  invokeGates.delete("conversation_display_get"); // 只卡住 B 那一次:已在 await 的调用握着自己那个 promise
   // 切回 A 前必须把 projects_select 桩改回 A:桩是按命令返回固定值的,不改的话
   // switchProject(PROJECT) 拿到的还是 B 的 prefs,「切回 A」实际切回了 B,
   // bSwitchLate 的 isCurrent 会误判为当前目标,迟到历史照样覆盖(这是测试桩陷阱)。
   payloads.projects_select = projPayload(PROJECT);
-  const aSwitchBack = sandbox.switchProject(PROJECT, { view: "chat" }); // 切回 A,conversation_get 不再卡
+  const aSwitchBack = sandbox.switchProject(PROJECT, { view: "chat" }); // 切回 A,conversation_display_get 不再卡
   await aSwitchBack;
   await flush();
   assert(
@@ -10134,7 +10125,7 @@ const docsB = {
 
   // 收尾:还原桩与项目选择,回到项目 A 的干净状态。
   payloads.process_list = savedProcessList;
-  payloads.conversation_get = savedConversationGet;
+  payloads.conversation_display_get = savedConversationGet;
   delete payloads.projects_select;
   payloads.docs_snapshot = savedDocsPayload;
   await gotoProject(PROJECT, savedDocsPayload);
@@ -10197,13 +10188,13 @@ const docsB = {
     `后台会话的渲染改写了状态栏(${statusBefore} → ${byId.get("status-text").textContent}):全局 UI 只归活动会话`,
   );
 
-  // 切回 A:不重拉 conversation_get(零重建),内容含切走期间到达的那段,且**没有**免责 notice。
-  const convBefore = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
+  // 切回 A:不重拉 conversation_display_get(零重建),内容含切走期间到达的那段,且**没有**免责 notice。
+  const convBefore = invokeArgs.filter((entry) => entry.cmd === "conversation_display_get").length;
   await sandbox.switchProcess("d|smoke");
   await flush();
   assert(
-    invokeArgs.filter((entry) => entry.cmd === "conversation_get").length === convBefore,
-    "切回运行中的线路 A 又拉了 conversation_get:pane 已有内容就不该重建",
+    invokeArgs.filter((entry) => entry.cmd === "conversation_display_get").length === convBefore,
+    "切回运行中的线路 A 又拉了 conversation_display_get:pane 已有内容就不该重建",
   );
   const activeText = vm.runInContext("activePane.textContent", sandbox);
   assert(
@@ -10216,14 +10207,14 @@ const docsB = {
   );
 
   // kz:done 不再原子回灌:pane 已是完整的,回灌只会清掉轮末 notice 并与后续渲染交错。
-  const getBeforeDone = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
+  const getBeforeDone = invokeArgs.filter((entry) => entry.cmd === "conversation_display_get").length;
   await handlers.get("kz:done")({
     payload: { sessionId: "sess-smoke", steps: 1, halted: false, autoAction: { type: "NoContinue" } },
   });
   await flush();
   assert(
-    invokeArgs.filter((entry) => entry.cmd === "conversation_get").length === getBeforeDone,
-    "kz:done 仍在回灌 conversation_get:pane 已完整,回灌是多余的且会吞掉轮末 notice",
+    invokeArgs.filter((entry) => entry.cmd === "conversation_display_get").length === getBeforeDone,
+    "kz:done 仍在回灌 conversation_display_get:pane 已完整,回灌是多余的且会吞掉轮末 notice",
   );
   assert(
     vm.runInContext("activePane.textContent", sandbox).includes(BG_MARK),
@@ -10249,8 +10240,8 @@ const docsB = {
   // 属于拆东墙补西墙。这里钉住「首屏只渲染一窗 + 补齐能拿到更早的」。
   {
     const LONG = 400;
-    const savedConv = payloads.conversation_get;
-    payloads.conversation_get = Array.from({ length: LONG }, (_, i) => ({
+    const savedConv = payloads.conversation_display_get;
+    payloads.conversation_display_get = Array.from({ length: LONG }, (_, i) => ({
       role: i % 2 === 0 ? "user" : "assistant",
       parts: [{ type: "text", text: `窗口化消息${i}` }],
     }));
@@ -10285,7 +10276,7 @@ const docsB = {
     await flush();
     assert(grew === true, "loadEarlierMessages 没有补齐(还有未渲染的历史)");
     assert(rendered() > firstScreen, `补齐后渲染条数没增加(${firstScreen} → ${rendered()})`);
-    payloads.conversation_get = savedConv;
+    payloads.conversation_display_get = savedConv;
   }
 
   await handlers.get("kz:idle")({ payload: { reason: "completed", sessionId: "sess-smoke" } });
@@ -10733,7 +10724,7 @@ const docsB = {
   const treeNs = esmModuleCache.get("12-session-tree.js")?.namespace;
   assert(treeNs, "UX-035 前置:12-session-tree 命名空间未加载");
   const savedClosed = payloads.process_closed_list;
-  const savedConversationGet = payloads.conversation_get;
+  const savedConversationGet = payloads.conversation_display_get;
   const savedClosedOpen = treeNs.closedOpen(PROJECT);
   try {
     payloads.process_closed_list = [{ id: "p9|smoke-closed", session_id: "sess-closed", ordinal: 9, title: "已关闭的冒烟线路", title_custom: false, closed_at: Date.now() - 60000, updated_at: Date.now() - 120000 }];
@@ -10755,18 +10746,18 @@ const docsB = {
     assert(closedRows.length === 1 && closedRows[0].textContent.includes("已关闭的冒烟线路"), "历史中仍可管理已关闭的对话");
     assert(closedRows[0].dataset.ctx === "closed" && closedRows[0].dataset.processId === "p9|smoke-closed", "已关闭行应带 data-ctx=closed 与进程 id(右键菜单 / 点击委托靠它)");
     // 点开 = 只读文字稿(既有查看器,不进当前对话 pane)。
-    payloads.conversation_get = () => [{ role: "user", parts: [{ type: "text", text: "关闭前说的话" }] }];
+    payloads.conversation_display_get = () => [{ role: "user", parts: [{ type: "text", text: "关闭前说的话" }] }];
     const paneBefore = listText("messages");
     await treeNs.activateRow(closedRows[0]);
     await flush();
-    assert(invokeArgs.findLast(({ cmd }) => cmd === "conversation_get")?.args?.processId === "p9|smoke-closed", "查看已关闭对话应按它的进程 id 取只读记录");
+    assert(invokeArgs.findLast(({ cmd }) => cmd === "conversation_display_get")?.args?.processId === "p9|smoke-closed", "查看已关闭对话应按它的进程 id 取只读记录");
     assert(/已关闭|Closed/.test(listText("viewer-title")) && listText("viewer-body").includes("关闭前说的话"), `已关闭对话应在文字稿查看器里只读打开:${listText("viewer-title")} / ${listText("viewer-body")}`);
     assert(listText("messages") === paneBefore, "查看已关闭对话不该动当前对话 pane");
     esmModuleCache.get("00-surface.js")?.namespace?.closeSurface?.(byId.get("viewer-overlay"));
   } finally {
     treeNs.closeSessionHistory();
     payloads.process_closed_list = savedClosed;
-    payloads.conversation_get = savedConversationGet;
+    payloads.conversation_display_get = savedConversationGet;
     treeNs.setClosedOpen(PROJECT, savedClosedOpen);
     treeNs.dropClosedSessions(PROJECT);
     await flush();
@@ -10780,11 +10771,11 @@ const docsB = {
 // Real layout, forwarding and registration coverage: ui-project-conversations-smoke.mjs.
 {
   vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
-  const savedList = payloads.process_list, savedGet = payloads.conversation_get, savedCreate = payloads.process_create;
+  const savedList = payloads.process_list, savedGet = payloads.conversation_display_get, savedCreate = payloads.process_create;
   const created = [];
   const main = { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, profile: "dev" };
   payloads.process_list = () => [main, ...created];
-  payloads.conversation_get = ({processId}) => processId === main.id ? [{role:"assistant", parts:[{type:"text",text:"主对话的历史"}]}] : [];
+  payloads.conversation_display_get = ({processId}) => processId === main.id ? [{role:"assistant", parts:[{type:"text",text:"主对话的历史"}]}] : [];
   payloads.process_create = args => {
     const next = { id:`p-discussion-${created.length}`, label:"讨论", profile:args.profile, session_id:`sess-discussion-${created.length}`, running:false, origin_project:PROJECT };
     created.push(next); return next;
@@ -10804,7 +10795,7 @@ const docsB = {
     assert(vm.runInContext("activePane === messagePanes.get(activeSessionId)", sandbox), "讨论的视图必须属于讨论会话");
   }
   vm.runInContext('transitionSession("sess-smoke", "idle")', sandbox);
-  payloads.process_list = savedList; payloads.conversation_get = savedGet;
+  payloads.process_list = savedList; payloads.conversation_display_get = savedGet;
   if (savedCreate === undefined) delete payloads.process_create; else payloads.process_create = savedCreate;
   await gotoProject(PROJECT, savedDocsPayload); await flush();
 }
@@ -10819,7 +10810,7 @@ const docsB = {
   vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
   const saved = {
     process_list: payloads.process_list,
-    conversation_get: payloads.conversation_get,
+    conversation_display_get: payloads.conversation_display_get,
     conversation_list: payloads.conversation_list,
     conversation_delete: payloads.conversation_delete,
     confirmDialog: sandbox.confirmDialog,
@@ -10837,7 +10828,7 @@ const docsB = {
   payloads.process_list = [MAIN, LINE];
   payloads.conversation_list = () => [];
   // sequence 非空 = 打开某段历史;为空 = 当前段(删掉前就是那段被删的长对话)。
-  payloads.conversation_get = ({ processId, sequence } = {}) => {
+  payloads.conversation_display_get = ({ processId, sequence } = {}) => {
     if (processId !== LINE.id) return [{ role: "user", parts: [{ type: "text", text: "R1主线内容" }] }];
     if (sequence != null) return DELETED;
     return currentDeleted ? [] : DELETED;
@@ -10897,10 +10888,10 @@ const docsB = {
   };
   // 删除前用户点开过一段历史,那次装载还在途:删完它才落地,不得把被删内容画回来。
   let releaseLoad;
-  invokeGates.set("conversation_get", new Promise((resolve) => { releaseLoad = resolve; }));
+  invokeGates.set("conversation_display_get", new Promise((resolve) => { releaseLoad = resolve; }));
   const inflightLoad = sandbox.loadConversation(7);
   await settle();
-  invokeGates.delete("conversation_get");
+  invokeGates.delete("conversation_display_get");
   confirmOptions = null;
   await deleteConversation(LINE.id, [42]);
   releaseLoad();
@@ -10929,7 +10920,7 @@ const docsB = {
 
   // ---- 场景 I:删掉正在看的那段旧历史 → 按当前段重载主区 ----
   currentDeleted = false;
-  payloads.conversation_get = ({ processId, sequence } = {}) => {
+  payloads.conversation_display_get = ({ processId, sequence } = {}) => {
     if (processId !== LINE.id) return [{ role: "user", parts: [{ type: "text", text: "R1主线内容" }] }];
     return sequence != null ? DELETED : CURRENT;
   };
@@ -10937,12 +10928,12 @@ const docsB = {
   await flush();
   assert(paneNow().includes("R1被删对话299"), "场景 I 前置失败:打开的历史段没有装进主区");
   payloads.conversation_delete = () => ({ deleted: 5, redacted_inputs: 0, segments: 1, cleared_current: false });
-  const getsBeforeI = calls("conversation_get").length;
+  const getsBeforeI = calls("conversation_display_get").length;
   await deleteConversation(LINE.id, [7]);
   await flush();
   await touchTop();
   assert(
-    calls("conversation_get").slice(getsBeforeI).some(({ args }) => args?.processId === LINE.id && args?.sequence == null),
+    calls("conversation_display_get").slice(getsBeforeI).some(({ args }) => args?.processId === LINE.id && args?.sequence == null),
     "场景 I:删掉正在看的那段历史后没有按当前段重新装载主区",
   );
   assert(
@@ -11008,7 +10999,7 @@ const docsB = {
   // 收尾:还原桩与定时器,丢掉本段建的 pane,回到项目 A 的干净状态。
   sandbox.confirmDialog = saved.confirmDialog;
   payloads.process_list = saved.process_list;
-  payloads.conversation_get = saved.conversation_get;
+  payloads.conversation_display_get = saved.conversation_display_get;
   payloads.conversation_list = saved.conversation_list;
   payloads.conversation_delete = saved.conversation_delete;
   for (const sessionId of [MAIN.session_id, LINE.session_id]) {
@@ -11125,14 +11116,14 @@ const docsB = {
     for (const key of [...storage.keys()].filter((k) => k.startsWith("kz-reasoning"))) storage.delete(key);
     assert(rchip.textContent.includes("超高") && sourceOf(rchip) === "line", `③ 前置:A 线思考芯片应为超高/临时:"${rchip.textContent}"`);
     let release = null;
-    invokeGates.set("conversation_get", new Promise((resolve) => { release = resolve; }));
+    invokeGates.set("conversation_display_get", new Promise((resolve) => { release = resolve; }));
     const switching = sandbox.switchProcess("p|g2-b");
     await settleOnly();
     assert(!rchip.textContent.includes("超高") && rchip.textContent.includes("高") && sourceOf(rchip) === "project",
       `③ 切到 B 线(对话仍在装载)思考芯片应已是 B 的默认档 高/项目级:"${rchip.textContent}" / ${sourceOf(rchip)}`);
     assert(invokeArgs.findLast(({ cmd }) => cmd === "model_effective")?.args?.processId === "p|g2-b", "③ model_effective 未按目标线查询");
     release?.();
-    invokeGates.delete("conversation_get");
+    invokeGates.delete("conversation_display_get");
     await switching;
     await flush();
     assert(!rchip.textContent.includes("超高") && sourceOf(rchip) === "project", `③ 切线完成后思考芯片被改回了上一条线的值:"${rchip.textContent}"`);
@@ -13230,7 +13221,7 @@ const docsB = {
   const bgLink = () => sessionLinkOf("p|bg");
   const g1 = bgLink();
   assert(g1?.dataset.activity === "running", `#7 运行中线路的会话行应为 running:${g1?.dataset.activity}`);
-  assert(!g1.querySelector(".workbench-session-activity") && !g1.querySelector(".workbench-session-tag"), "#7 会话行不应显示运行态圆点和类型标记");
+  assert(g1.querySelector(".workbench-session-activity") && !g1.querySelector(".workbench-session-tag"), "#7 会话行显示各自运行态圆点");
   assert(/^(对话|Chat) · /.test(g1.getAttribute("aria-description") ?? ""), `#7 运行中会话行的读屏描述应带统一对话名称与状态:${g1.getAttribute("aria-description")}`);
   sandbox.refreshParallelTaskProjection("sess-bg");
   sandbox.refreshParallelTaskProjection("sess-bg");
@@ -13998,7 +13989,7 @@ const docsB = {
       flat = flat.slice(0, open) + flat.slice(close);
     }
     const order = (block, ids) => ids.map((id) => block.indexOf(`id="${id}"`));
-    const left = flat.slice(flat.indexOf('<div class="composer-left">'), flat.indexOf('<div class="composer-right">'));
+    const left = flat.slice(flat.indexOf('<div id="composer-left"'), flat.indexOf('<div class="composer-right">'));
     const right = flat.slice(flat.indexOf('<div class="composer-right">'));
     const leftAt = order(left, ["attach", "profile-select", "autorun-bar"]);
     const rightAt = order(right, ["model-picker-group", "composer-more", "continue-btn", "delivery-select", "voice-toggle", "stop", "send"]);
@@ -14025,10 +14016,10 @@ const docsB = {
     whip.checked = true;
     vm.runInContext("renderAutoRun()", sandbox);
     const armedLabel = byId.get("autorun-more").getAttribute("aria-label") ?? "";
-    assert(armedLabel.startsWith("鞭挞设置 · 鞭挞轮次 ") && /\d/.test(armedLabel) && /· (推进中|等待下一轮|已暂停|待命)$/.test(armedLabel), `鞭挞开着时触发器读屏名应带轮次与阶段,实为「${armedLabel}」`);
+    assert(armedLabel.startsWith("自动推进设置 · 推进轮次 ") && /\d/.test(armedLabel) && /· (推进中|等待下一轮|已暂停|待命)$/.test(armedLabel), `鞭挞开着时触发器读屏名应带轮次与阶段,实为「${armedLabel}」`);
     whip.checked = false;
     vm.runInContext("renderAutoRun()", sandbox);
-    assert(byId.get("autorun-more").getAttribute("aria-label") === "鞭挞设置" && byId.get("autorun-more").title === "鞭挞设置", `鞭挞关着时触发器读屏名应只剩「鞭挞设置」,实为「${byId.get("autorun-more").getAttribute("aria-label")}」`);
+    assert(byId.get("autorun-more").getAttribute("aria-label") === "自动推进设置" && byId.get("autorun-more").title === "自动推进设置", `鞭挞关着时触发器读屏名应只剩「鞭挞设置」,实为「${byId.get("autorun-more").getAttribute("aria-label")}」`);
     whip.checked = priorWhip;
     vm.runInContext("renderAutoRun()", sandbox);
     const views = esmModuleCache.get("15-views-misc.js")?.namespace;
@@ -17603,6 +17594,7 @@ await import("./ui-decision-console-smoke.mjs");
 // suite. Keep the async owner and question contracts below independently.
 await import("./ui-familiar-workspace-smoke.mjs");
 await import("./ui-feedback-polish-smoke.mjs");
+await import("./ui-conversation-redesign-smoke.mjs");
 await import("./ui-softwire-ownership-smoke.mjs");
 await import("./ui-softwire-choice-smoke.mjs");
 await import("./ui-reply-timer-browser-smoke.mjs");

@@ -14,7 +14,7 @@ import { fillTemplate } from "./04-structured-parse.js";
 import { backlogTally } from "./12-docs-pages.js";
 import { transitionEntryStatus } from "./11-docs-list.js";
 import { startNewConversation } from "./15-views-misc.js";
-import { sendText } from "./08-compose-runtime.js";
+import { sendText, processUpdateQueues } from "./08-compose-runtime.js";
 import { lineAgent, awaitingUserSessions } from "./08-auto.js";
 import { renderWorkFocus, node, button } from "./25-softwire-view.js";
 import { executionActivity, sameProject } from "./25-softwire-model.js";
@@ -88,6 +88,14 @@ export async function continueRequirement(entry) {
   }
   const target = await returnToSelectedConversation(project);
   if (!target) return;
+  // Starting a managed requirement explicitly selects the autonomous workflow.
+  if ($("profile-select").value !== "dev-auto") {
+    $("profile-select").value = "dev-auto";
+    $("profile-select").dispatchEvent(new Event("change"));
+    try { await processUpdateQueues.get(target.id); }
+    catch { return; }
+    if (currentProject !== project || activeProcessId !== target.id) return;
+  }
   const { prompt, ...options } = requirementStart(entry);
   await sendText(prompt, options);
   if (needsRequirementResearch(entry)) toast(t("已开始调研；需要你回答的问题会出现在「待我处理」。"));

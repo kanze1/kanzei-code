@@ -41,7 +41,7 @@ pub use runner::{
     TOOL_END_UI_CONTENT_MAX,
 };
 pub use store::{
-    compare_shadow, prepare_typed_session, project_session_facts,
+    compare_shadow, prepare_typed_session, project_conversation_facts, project_session_facts,
     project_session_facts_with_surface, project_session_id, project_state_path, store_open_count,
     summarize_shadow_reports, AdmittedInput, ArtifactCleanupPlan, ArtifactFileReport, Delivery,
     EpisodeRecord, FunnelCounts, MemoryRecallObservation, MemoryUsageCounts, RecallEvent,

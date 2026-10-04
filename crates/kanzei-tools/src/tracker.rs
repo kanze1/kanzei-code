@@ -442,6 +442,7 @@ impl TrackerTool {
             }
         }
         if input.action == "list"
+            && ctx.project_workflow
             && matches!(self.kind.prefix, "R" | "D")
             && !matches!(
                 input.reason.as_deref(),

@@ -42,6 +42,7 @@ import {
   cancelAutoContinueTimer,
   clearAutoNotices,
   renderAutoStatus,
+  restoreGoalState,
   syncAutoRunState,
   syncWorkPriorityControl,
 } from "./08-auto.js";
@@ -585,6 +586,7 @@ export function renderProcesses(items) {
   }
   const active = processItems.find((item) => item.id === activeProcessId);
   setActiveSessionId(active?.session_id ?? null);
+  if (activeSessionId && activeSessionId !== previousSessionId) void restoreGoalState(activeSessionId);
   if (activeSessionId !== previousSessionId) resetPendingInputs();
   const activeProcessChanged = previousProcessId !== activeProcessId;
   if (activeProcessChanged && activeProcessId) {
@@ -716,6 +718,8 @@ export async function switchProcess(processId, forceReload = false) {
   hideAsk(true);
   setActiveProcessId(processId);
   setActiveSessionId(target.session_id);
+  void restoreGoalState(target.session_id);
+  if (activeProcessId !== processId || activeSessionId !== target.session_id) return false;
   resetPendingInputs();
   adopt_process_workspace(target);
   applyAutoUiState(activeProcessId);

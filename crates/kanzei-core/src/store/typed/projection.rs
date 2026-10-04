@@ -49,6 +49,8 @@ pub struct SessionProjection {
     pub seed_source_sequence: Option<i64>,
     pub surface_messages: Vec<Message>,
     pub transcript_messages: Vec<Message>,
+    #[serde(default, skip_serializing)]
+    pub internal_user_indexes: Vec<usize>,
     pub interrupted_assistants: Vec<InterruptedAssistant>,
     pub diagnostics: Vec<String>,
 }
@@ -63,6 +65,24 @@ struct ProjectedDraft {
 /// 不进入模型 surface，也不会伪装成完整 assistant 回答。
 pub fn project_session_facts(events: &[(StoredEvent, SessionFactEnvelope)]) -> SessionProjection {
     project_session_facts_with_surface(events, None, None)
+}
+
+/// Internal mailbox inputs remain in the model context, but are not user messages.
+/// Classify by the admitted input identity, never by text supplied by a user.
+pub fn project_conversation_facts(
+    events: &[(StoredEvent, SessionFactEnvelope)],
+) -> SessionProjection {
+    let mut projection = project_session_facts(events);
+    projection.transcript_messages = projection
+        .transcript_messages
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !projection.internal_user_indexes.contains(index))
+        .map(|(_, message)| message)
+        .collect();
+    projection.surface_messages = projection.transcript_messages.clone();
+    projection.internal_user_indexes.clear();
+    projection
 }
 
 /// 在完整 transcript 投影上追加已提交的 compaction surface。
@@ -80,6 +100,7 @@ pub fn project_session_facts_with_surface(
         seed_source_sequence: None,
         surface_messages: Vec::new(),
         transcript_messages: Vec::new(),
+        internal_user_indexes: Vec::new(),
         interrupted_assistants: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -97,6 +118,25 @@ pub fn project_session_facts_with_surface(
             projection.seed_source_sequence = Some(*source_sequence);
             projection.surface_messages = messages.clone();
             projection.transcript_messages = messages.clone();
+            let previous: Vec<_> = events
+                .iter()
+                .filter(|(event, _)| {
+                    event.sequence <= *source_sequence && event.sequence < events[index].0.sequence
+                })
+                .cloned()
+                .collect();
+            if previous.iter().any(|(_, envelope)| matches!(&envelope.fact, SessionFact::UserMessageCommitted { input_id, .. } | SessionFact::SteeringMessageCommitted { input_id, .. } if input_id.starts_with("async:"))) {
+                let original = project_session_facts(&previous);
+                let mut cursor = 0;
+                for (position, message) in messages.iter().enumerate() {
+                    if let Some(offset) = original.transcript_messages[cursor..].iter().position(|candidate| candidate == message) {
+                        cursor += offset;
+                        if original.internal_user_indexes.contains(&cursor) { projection.internal_user_indexes.push(position); }
+                        cursor += 1;
+                    }
+                }
+            }
+
             // Seed 的发布位置可以晚于独立 writer 的新事实。只覆盖真实源快照
             // 之前的事实；fork/general 的外部来源序号不属于目标会话。
             if source_event_id == &session_event_id(&events[index].0.session_id, *source_sequence) {
@@ -117,8 +157,13 @@ pub fn project_session_facts_with_surface(
         }
         match &envelope.fact {
             SessionFact::LegacySeeded { .. } | SessionFact::TurnStarted { .. } => {}
-            SessionFact::UserMessageCommitted { message, .. }
-            | SessionFact::SteeringMessageCommitted { message, .. } => {
+            SessionFact::UserMessageCommitted { message, input_id }
+            | SessionFact::SteeringMessageCommitted { message, input_id } => {
+                if input_id.starts_with("async:") {
+                    projection
+                        .internal_user_indexes
+                        .push(projection.transcript_messages.len());
+                }
                 projection.surface_messages.push(message.clone());
                 projection.transcript_messages.push(message.clone());
             }

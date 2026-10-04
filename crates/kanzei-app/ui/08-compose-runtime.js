@@ -45,7 +45,6 @@ import {
   DEFAULT_AUTO_CONTINUE_MAX,
   DEFAULT_CONTINUE_PROMPT,
   armStoppingWatchdog,
-  autoContinueAllowed,
   autoContinueBlockedReason,
   autoContinueInFlight,
   autoContinueMax,
@@ -93,11 +92,11 @@ import { autoAllowEnabled } from "./03-layout.js";
 // 可能仍标着运行中——旧代码在这里静默放弃,一轮就此永远不来。正确语义是等它落地,
 // 但要有头:等满 AUTO_CONTINUE_RUNNING_GRACE 次还在跑,就当卡住了,报出来。
 export const AUTO_CONTINUE_RUNNING_GRACE = 15;
-// 用户自己按下的刹车(关鞭挞/暂停/本轮后停)不需要额外提示——界面上那个开关就是
+// 用户自己按下的刹车(关自动推进/暂停/本轮后停)不需要额外提示——界面上那个开关就是
 // 解释。其余原因是**意外停摆**:线路被关掉、上一轮卡住不结束。后台线出这两种时
 // 原实现只 log() 一行,而日志面板默认收起——用户看到的就是「并行跑着跑着没消息了」,
 // 没有任何可见解释(用户 2026-08-16 报告)。这类原因必须浮到界面上。
-export const AUTO_CONTINUE_INTENDED_STOPS = new Set(["鞭挞已关闭", "已暂停", "本轮后停"]);
+export const AUTO_CONTINUE_INTENDED_STOPS = new Set(["自动推进已关闭", "已暂停", "本轮后停"]);
 // 闸门拦下时收口:pending 必须落地,否则横幅与线路徽标一直显示「等待下一轮」。
 export function abortAutoContinue(reason, sessionId = activeSessionId) {
   releaseAutoContinue(sessionId);
@@ -105,11 +104,11 @@ export function abortAutoContinue(reason, sessionId = activeSessionId) {
   const item = sessionId ? processItems.find((candidate) => candidate.session_id === sessionId) : null;
   if (sessionId === activeSessionId) {
     clearRunPending();
-    renderAutoStatus(`${t("鞭挞未续跑")}:${t(reason)}`);
+    renderAutoStatus(`${t("自动推进未续跑")}:${t(reason)}`);
   } else if (!AUTO_CONTINUE_INTENDED_STOPS.has(reason)) {
-    reportPersistentError(`${item?.label ?? t("对话")} ${t("鞭挞未续跑")}:${t(reason)}`);
+    reportPersistentError(`${item?.label ?? t("对话")} ${t("自动推进未续跑")}:${t(reason)}`);
   }
-  log(`${t("鞭挞未续跑")}:${t(reason)}`);
+  log(`${t("自动推进未续跑")}:${t(reason)}`);
   if (sessionId) refreshParallelTaskProjection(sessionId);
 }
 // 续跑定时器:闸门在**触发时刻**复查(2 秒内用户可能暂停/切模式/新一轮已开跑)。
@@ -121,10 +120,10 @@ export function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0,
   if (!sessionId) return;
   if (sessionState(sessionId).runtime_managed) { releaseAutoContinue(sessionId); return; }
   // 在飞 = 这条线的上一枪已经发出但还没收到它的终点事件。此时排下一枪会重复发送,
-  // 所以返回是对的;但**不能静默**——标记漏释放时(后台线曾经就是)整条鞭挞永久停摆,
+  // 所以返回是对的;但**不能静默**——标记漏释放时(后台线曾经就是)整条自动推进永久停摆,
   // 而界面钉在「等待下一轮」,日志里连一行线索都没有。
   if (autoContinueInFlight.has(sessionId)) {
-    log(`${processItems.find((candidate) => candidate.session_id === sessionId)?.label ?? ""} ${t("鞭挞未续跑")}:${t("上一枪仍在飞")}`.trim(), "warn");
+    log(`${processItems.find((candidate) => candidate.session_id === sessionId)?.label ?? ""} ${t("自动推进未续跑")}:${t("上一枪仍在飞")}`.trim(), "warn");
     return;
   }
   // R-199:档位条件下沉引擎——armAutoContinue 不再检查 autoContinueAllowed(),
@@ -155,9 +154,9 @@ export function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0,
       }
       // 宽限耗尽、但**后端权威说没在跑**:那就是本地状态机被某条路径卡在了运行态,
       // 不是上一轮没结束。原实现在这里一律放弃,于是任何一次本地态卡死都升级成
-      // 鞭挞永久停摆——auto_pending 不收敛那个 bug 正是这么烧掉 32 秒的。
+      // 自动推进永久停摆——auto_pending 不收敛那个 bug 正是这么烧掉 32 秒的。
       // 后端是运行态权威(R-086):按它收敛本地态再继续,让这一类错误自愈而不是致命。
-      log(`${t("鞭挞")}:${t("本地运行态与后端不符,按后端空闲继续")}`, "warn");
+      log(`${t("自动推进")}:${t("本地运行态与后端不符,按后端空闲继续")}`, "warn");
       transitionSession(sessionId, "idle");
     }
     transitionSession(sessionId, "starting", { local_start_pending: true });
@@ -177,7 +176,7 @@ export async function sendAutoToSession(prompt, sessionId) {
   const research = item.profile === "research";
   autoContinueInFlight.add(sessionId);
   if (sessionId === activeSessionId) {
-    addMessage("notice", `${t("鞭挞已触发")} · ${sessionState(sessionId).auto_rounds || 0}`);
+    addMessage("notice", `${t("自动推进已触发")} · ${sessionState(sessionId).auto_rounds || 0}`);
     setRunning(true, t("准备中"));
   }
   try {
@@ -185,7 +184,7 @@ export async function sendAutoToSession(prompt, sessionId) {
     // (主根身份,后端已给 simplify 形态,这里再防一道旧形态);③ 取活顺序键与写入键同一个函数。
     const mode = lineAgent(item);
     const projectDir = String(item.origin_project || item.project_dir || currentProject).replace(/^\\\\\?\\(?!UNC\\)/, "");
-    const workItemId = mode.profile === "dev" ? await (await import("./31-work-selection.js")).validateSelectedWork(projectDir, item.id) : null;
+    const workItemId = mode.agent === "dev" ? await (await import("./31-work-selection.js")).validateSelectedWork(projectDir, item.id) : null;
     const priority = uiPrefsCache?.work_priority?.[projectDir] ?? localStorage.getItem(workPriorityKeyFor(projectDir));
     await invoke("run_prompt", {
       prompt,
@@ -213,7 +212,7 @@ export async function sendAutoToSession(prompt, sessionId) {
       reportError(String(error));
       setRunning(false, t("出错"));
     } else {
-      reportPersistentError(`${item.label} ${t("鞭挞续跑失败")}:${error}`);
+      reportPersistentError(`${item.label} ${t("自动推进续跑失败")}:${error}`);
     }
     refreshParallelTaskProjection(sessionId);
   }
@@ -224,7 +223,7 @@ export function handleBackgroundSessionDone(payload) {
   if (!sessionId) return;
   // 在飞标记必须在这里释放。活动线走 07-events 的 kz:done/kz:idle 处理器释放,而后台线
   // 的控制事件在 01-core 路由层就被拦下(kz:done 只转到本函数,kz:idle 直接 return)——
-  // 两条释放路径后台线一条都走不到。于是切走一条正在鞭挞的线之后:那一轮的 kz:done 到达,
+  // 两条释放路径后台线一条都走不到。于是切走一条正在自动推进的线之后:那一轮的 kz:done 到达,
   // 本函数转 auto_pending 再 armAutoContinue,而 armAutoContinue 第一行的在飞守卫直接静默
   // 返回,下一轮永远不排。用户看到的就是「切走的线卡在等待下一轮再也不动」,且一个字都没有。
   releaseAutoContinue(sessionId);
@@ -240,9 +239,9 @@ export function handleBackgroundSessionDone(payload) {
   } else if (action.type === "Stop") {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
-    // UI2-0926 #13:后台线的模型在等你回答——鞭挞保持开着,切过去回复后照常续跑。
+    // UI2-0926 #13:后台线的模型在等你回答——自动推进保持开着,切过去回复后照常续跑。
     if (action.reason === "AwaitingUser") markAwaitingUser(sessionId);
-    // 引擎判定该线不能再续跑(全阻塞/清空/档位不符)时,后台线自己的鞭挞存档
+    // 引擎判定该线不能再续跑(全阻塞/清空/档位不符)时,后台线自己的自动推进存档
     // 也要置关——否则切回该线时勾选框回显"开着",与引擎的实际停机对不上;
     // 本轮后停是一次性意图,同样要在所属线上落地取消,不能等用户切回来。
     if (["AllBlocked", "BacklogEmpty", "ProfileMismatch", "ResearchWaiting", "ResearchCompleted"].includes(action.reason)) {
@@ -258,9 +257,9 @@ export function handleBackgroundSessionDone(payload) {
 // 否则同一件事在两条线上说法不同。
 export function autoFailStopReasonText(reason, message) {
   if (["ResearchWaiting", "ResearchCompleted"].includes(reason)) return message || t("请查看研究课题概览");
-  if (reason === "RateLimited") return t("provider 限流(429)，鞭挞已暂停，请等待后手动恢复");
-  if (reason === "RepeatedFailure") return t("连续多轮运行失败,鞭挞已停止(已发手机通知)");
-  return t("运行失败:致命错误,鞭挞已停止");
+  if (reason === "RateLimited") return t("provider 限流(429)，自动推进已暂停，请等待后手动恢复");
+  if (reason === "RepeatedFailure") return t("连续多轮运行失败,自动推进已停止(已发手机通知)");
+  return t("运行失败:致命错误,自动推进已停止");
 }
 
 // D-403 的失败退避重试对后台线同样必须生效。kz:auto-fail 既不是控制事件、也不在
@@ -282,12 +281,12 @@ export function handleBackgroundAutoFail(payload) {
       auto_rounds: action.rounds ?? sessionState(sessionId).auto_rounds ?? 0,
     });
     armAutoContinue(DEFAULT_CONTINUE_PROMPT, sessionId, 0, delayMs, retryLabel);
-    log(`${label} ${t("鞭挞")}:${retryLabel}`, "warn");
+    log(`${label} ${t("自动推进")}:${retryLabel}`, "warn");
   } else if (action.type === "Stop") {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
     // 后台线停摆没人看着:必须浮到界面上(abortAutoContinue 同一口径),不能只 log 一行。
-    reportPersistentError(`${label} ${t("鞭挞停止")}:${autoFailStopReasonText(action.reason, action.message)}`);
+    reportPersistentError(`${label} ${t("自动推进停止")}:${autoFailStopReasonText(action.reason, action.message)}`);
   }
   refreshParallelTaskProjection(sessionId);
 }
@@ -416,7 +415,7 @@ defer(() => {
 });
 
 // 发送用的模型 = **该线存的模型**,不是下拉的显示值。下拉是回显,而回显曾经会回落到旧全局
-// 键(见 loadModels 的注释);鞭挞续跑读的一直是 item.model。两条路不同源的后果是:同一条线
+// 键(见 loadModels 的注释);自动推进续跑读的一直是 item.model。两条路不同源的后果是:同一条线
 // 手动发一句和自动轮跑在两个不同的模型上,而界面上只有一个下拉,看不出来。用户在芯片菜单里
 // 选模型时 setLineModel 已经先 updateLocalProcessItem,所以这里读到的就是刚选的那个值。
 // UI-0926 #3:不再有任何 DOM 兜底——线路未知时交给后端按本线存档/agent 默认解析。
@@ -431,7 +430,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
   if (running && auto) {
-    toast(t("当前任务还在运行，自动鞭挞将在本轮完成后继续"));
+    toast(t("当前任务还在运行，自动推进将在本轮完成后继续"));
     return;
   }
   if (!currentProject) {
@@ -457,7 +456,8 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     finally { compactingSessions.delete(owner); }
     return;
   }
-  if (!workItemId && selectedAgent().profile === "dev") {
+  if (selectedAgent().agent !== "dev") { executionBatch = false; workItemId = null; }
+  if (!workItemId && selectedAgent().agent === "dev") {
     const project = currentProject, process = activeProcessId;
     try {
       workItemId = await (await import("./31-work-selection.js")).validateSelectedWork(project, process);
@@ -465,9 +465,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
       if (workItemId) executionBatch = true;
     } catch (error) { toastError(String(error)); return; }
   }
+  if (!auto) { syncAutoContinueWithProfile(); await syncAutoRunState(); }
   const delivery = workItemId ? "queue" : $("delivery-select").value;
   if (!auto) void ensureNotificationPermission();
-  // UI2-0926 #14:用户手动发消息 = 新的一次运行(后台任务侧栏解除本次运行的压制、确认上次的失败);鞭挞续轮不算。
+  // UI2-0926 #14:用户手动发消息 = 新的一次运行(后台任务侧栏解除本次运行的压制、确认上次的失败);自动推进续轮不算。
   if (!auto) {
     tasksPanelUserRun(activeSessionId);
     (await import("./24-preview.js")).previewUserRun();
@@ -515,10 +516,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   setOutputChars(0);
   renderTokens();
   const attachmentStatus = promptAttachments.length > 0
-    ? `${auto ? `${t("鞭挞")} ${autoRounds} · ` : ""}${t("正在发送")} ${promptAttachments.length} ${t("个附件")} · ${t("准备中")}`
-    : auto ? `${t("鞭挞")} ${autoRounds} · ${t("准备中")}` : t("准备中");
+    ? `${auto ? `${t("自动推进")} ${autoRounds} · ` : ""}${t("正在发送")} ${promptAttachments.length} ${t("个附件")} · ${t("准备中")}`
+    : auto ? `${t("自动推进")} ${autoRounds} · ${t("准备中")}` : t("准备中");
   if (auto) {
-    addMessage("notice", `${t("鞭挞已触发")} · ${autoRounds}`);
+    addMessage("notice", `${t("自动推进已触发")} · ${autoRounds}`);
   } else {
     addUserMessage(prompt, promptAttachments);
   }
@@ -541,7 +542,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   // R-086/R-206:活动会话状态机已在上面 transitionSession("starting") 统一收敛,
   // 这里不再重复调用——重复写块是 R-197 叠在旧块上的残渣(见 R-206 验收④)。
   startElapsed();
-  log(`${auto ? t("鞭挞") : t("发送")}:${prompt.slice(0, 80)}`);
+  log(`${auto ? t("自动推进") : t("发送")}:${prompt.slice(0, 80)}`);
   try {
     const mode = selectedAgent();
     const request = {
@@ -708,19 +709,19 @@ defer(() => {
     fileSuggestionTimer = setTimeout(refreshFileSuggestions, 80);
   });
 });
-// supplement:这条线此刻正在跑——消息会以「插入/排队」进当前这一轮,是**补充**而不是**接管**,鞭挞照常开着
-// (UX-046:原先任何手动消息都把鞭挞静默关掉,用户只是顺口补一句话就丢了整条自动推进)。
-// 只有线在空闲/等下一轮时发的消息才会另起一轮手动运行,那才是接管:关掉鞭挞,并给一个一键重开。
+// supplement:这条线此刻正在跑——消息会以「插入/排队」进当前这一轮,是**补充**而不是**接管**,自动推进照常开着
+// (UX-046:原先任何手动消息都把自动推进静默关掉,用户只是顺口补一句话就丢了整条自动推进)。
+// 只有线在空闲/等下一轮时发的消息才会另起一轮手动运行,那才是接管:关掉自动推进,并给一个一键重开。
 export function stopAutoForManualInput({ supplement = false } = {}) {
   if (!$('auto-continue').checked) return false;
-  // UI2-0926 #13:模型在等你回答时,手动发的这一条就是回答——鞭挞保持开着,回答那一轮结束后照常续跑。
+  // UI2-0926 #13:模型在等你回答时,手动发的这一条就是回答——自动推进保持开着,回答那一轮结束后照常续跑。
   if (takeAwaitingUser(activeSessionId)) {
     setAutoStopReason("");
-    log(t("已回复模型的提问,鞭挞在这一轮结束后继续"));
+    log(t("已回复模型的提问,自动推进在这一轮结束后继续"));
     return false;
   }
   if (supplement) {
-    log(t("已向运行中的任务补充一条消息,鞭挞保持开启"));
+    log(t("已向运行中的任务补充一条消息,自动推进保持开启"));
     return false;
   }
   $('auto-continue').checked = false;
@@ -731,10 +732,10 @@ export function stopAutoForManualInput({ supplement = false } = {}) {
   // R-169:手动输入接管 = 关闭后端自主推进并归零计数。
   void syncAutoRunState({ enabled: false });
   resetAutoRunState();
-  const message = t("收到手动输入，鞭挞已停止");
+  const message = t("收到手动输入，自动推进已停止");
   setAutoStopReason(message);
   addMessage("notice", message);
-  // 接管是用户自己发起的,但可能只是想插一句——toast 带「重新开启」,不用再翻鞭挞菜单。
+  // 接管是用户自己发起的,但可能只是想插一句——toast 带「重新开启」,不用再翻自动推进菜单。
   toast(message, {
     action: {
       label: t("重新开启"),
@@ -884,14 +885,14 @@ defer(() => {
     const open = panel.classList.toggle("hidden") === false;
     $("continue-toggle").setAttribute("aria-expanded", String(open));
     $("continue-toggle").textContent = t(open ? "收起" : "推进指令");
-    // UI2-0926 #11:开关住在鞭挞菜单里;展开编辑区时先收起菜单,焦点落进输入框下方的编辑区。
+    // UI2-0926 #11:开关住在自动推进菜单里;展开编辑区时先收起菜单,焦点落进输入框下方的编辑区。
     if (open) {
       if (document.body.dataset.view !== "project") closeSurface($("autorun-menu"));
       $("continue-prompt").focus();
     }
   });
 });
-// 鞭挞开关是线路级状态,唯一真源是 kz-process-auto-state(按 processId 分键)。
+// 自动推进开关是线路级状态,唯一真源是 kz-process-auto-state(按 processId 分键)。
 // 旧全局键 kz-auto-continue 让 A 项目的勾选漏进 B 项目的默认线并被固化——
 // 启动回显、停机收口、无记录回落全部不得再碰全局键;存量键就地清除。
 defer(() => {
@@ -936,7 +937,7 @@ defer(() => {
 });
 // 「本轮后停」是一次性意图,不是偏好:绝不持久化。
 // 曾经持久化过——勾一次后 localStorage 永远是 "1",每次启动都重新武装,
-// 表现为"鞭挞跑一轮就停,怎么都停不掉"(D-111)。这里顺手清掉存量键。
+// 表现为"自动推进跑一轮就停,怎么都停不掉"(D-111)。这里顺手清掉存量键。
 defer(() => {
   localStorage.removeItem("kz-auto-stop-round");
 });
@@ -954,7 +955,7 @@ defer(() => {
 // 复用 change 分支既有的档位提示,不在这里再判一次。
 defer(() => {
   $("auto-resume").addEventListener("click", () => {
-    // UI2-0926 #13 复核:恢复鞭挞即结束「在等你回答」——之后手动发的消息是真正的接管,照常关鞭挞。
+    // UI2-0926 #13 复核:恢复自动推进即结束「在等你回答」——之后手动发的消息是真正的接管,照常关自动推进。
     takeAwaitingUser(activeSessionId);
     const toggle = $("auto-continue");
     if (!toggle.checked) {
@@ -965,7 +966,7 @@ defer(() => {
     setAutoRounds(activeSessionId, 0);
     setAutoStopReason("");
     resetAutoRunState();
-    setStatus(`${t("鞭挞恢复")},2 ${t("秒后继续")}…`, false);
+    setStatus(`${t("自动推进恢复")},2 ${t("秒后继续")}…`, false);
     scheduleAutoContinue();
   });
 });
@@ -982,7 +983,7 @@ export function autorunMenuShortcut(event) {
   if (!row) return;
   event.preventDefault();
   const control = row.querySelector('input[type="checkbox"]') || row.querySelector("button");
-  // 鞭挞没开时「暂停」「本轮后停」是置灰的(08-auto.js renderAutoRun):数字键同样不该绕过去。
+  // 自动推进没开时「暂停」「本轮后停」是置灰的(08-auto.js renderAutoRun):数字键同样不该绕过去。
   if (!control || control.disabled) return;
   if (control.tagName.toLowerCase() === "button") control.click();
   else {
@@ -999,19 +1000,19 @@ defer(() => {
     setAutoPaused(!autoPaused);
     rememberAutoUiState(activeProcessId, ["paused"]);
     $("auto-pause").classList.toggle("active", autoPaused);
-    $("auto-pause").textContent = autoPaused ? t("恢复鞭挞") : t("暂停鞭挞");
+    $("auto-pause").textContent = autoPaused ? t("恢复自动推进") : t("暂停自动推进");
     // R-169:暂停状态同步后端状态机。
     void syncAutoRunState({ paused: autoPaused });
     if (autoPaused) cancelAutoContinueTimer();
-    // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则鞭挞静默死亡。
+    // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则自动推进静默死亡。
     // R-199/D-323:档位条件下沉引擎,恢复路径不再持有前端私有否决——非 dev-auto 时
     // 静默不调度会让引擎计数与状态不知情(验收①未兑现)。恢复一律重新调度,
     // 档位不对由引擎下轮 done 判 Stop(ProfileMismatch) 带 reason 可见收口。
     if (!autoPaused && !running && $("auto-continue").checked) {
-      setStatus(`${t("鞭挞恢复")},2 ${t("秒后继续")}…`, false);
+      setStatus(`${t("自动推进恢复")},2 ${t("秒后继续")}…`, false);
       scheduleAutoContinue();
     }
-    log(autoPaused ? t("鞭挞已暂停") : t("鞭挞已恢复"));
+    log(autoPaused ? t("自动推进已暂停") : t("自动推进已恢复"));
   });
 });
 defer(() => {
@@ -1020,7 +1021,7 @@ defer(() => {
     rememberAutoUiState(activeProcessId, ["stopAfterRound"]);
     // R-169:本轮后停同步后端状态机(D-111:不持久化,重启即清)。
     void syncAutoRunState({ stopAfterRound: autoStopAfterRound });
-    log(autoStopAfterRound ? t("本轮结束后将停止鞭挞") : t("已取消本轮后停"));
+    log(autoStopAfterRound ? t("本轮结束后将停止自动推进") : t("已取消本轮后停"));
   });
 });
 // R-322 B3:目标条件。change(失焦/回车)才同步,不逐字符打后端。
@@ -1029,7 +1030,8 @@ defer(() => {
 defer(() => {
   $("auto-goal")?.addEventListener("change", () => {
     renderGoalState();
-    void syncAutoRunState({ goal: currentGoalText() });
+    syncAutoContinueWithProfile();
+    void syncAutoRunState({ goal: currentGoalText(), enabled: $("auto-continue").checked });
     const goal = currentGoalText().trim();
     log(goal ? `${t("目标条件已设置")}:${goal}` : t("目标条件已清除"));
   });
@@ -1037,30 +1039,24 @@ defer(() => {
 // 旧 auto_max 控件已移除。历史配置仍由 normalizeAutoState 读取,但不再被用户编辑或用作停止门禁。
 defer(() => {
   $("auto-continue").addEventListener("change", () => {
-    if ($("auto-continue").checked && selectedAgent().profile === "dev" && $("profile-select").value === "dev-pair") {
-      // R-322 B2 取代 R-224 的强制切档。
-      //
-      // R-224 让结伴勾鞭挞自动切成 dev-auto,理由是「省去先切模式再勾两步」。但它的
-      // 真实前提是**结伴档当时根本不能续跑**(auto_allowed 要求 agent=="dev"),
-      // 所以那不是省两步,是「你要 loop 就得换掉人格」。现在结伴档能以轻控制续跑,
-      // 前提消失:勾鞭挞就在结伴档里跑,人格不动,引擎不 Nudge、不插核查轮、不标冗余,
-      // 模型说完成即停。想要重门禁的用户自己切 dev-auto——那是**显式**选择,不再被替选。
-      addMessage("notice", t("结伴档鞭挞:轻控制续跑,引擎不追加推进指令,模型说完成即停"));
+    if ($("auto-continue").checked && selectedAgent().profile === "dev" && $("profile-select").value === "dev-pair" && !currentGoalText().trim()) {
+      $("profile-select").value = "dev-auto";
+      $("profile-select").dispatchEvent(new Event("change"));
     }
-    // UI2-0926 #13 复核:手动开关鞭挞同样结束「在等你回答」(关了再开是用户重新表态,不再是等回答)。
+    // UI2-0926 #13 复核:手动开关自动推进同样结束「在等你回答」(关了再开是用户重新表态,不再是等回答)。
     if (takeAwaitingUser(activeSessionId) && autoStopReason === t("模型在等你回答")) setAutoStopReason("");
     setAutoRounds(activeSessionId, 0);
     rememberAutoUiState(activeProcessId, ["enabled"]);
-    // 开/关鞭挞的这一刻就重绘状态槽(轮次、阶段、停机原因),而不是等下一轮结束才变。
+    // 开/关自动推进的这一刻就重绘状态槽(轮次、阶段、停机原因),而不是等下一轮结束才变。
     renderAutoStatus();
     if (!$('auto-continue').checked) cancelAutoContinueTimer();
     // R-169:开关同步后端状态机(enabled)。
     void syncAutoRunState({ enabled: $("auto-continue").checked });
-    log($("auto-continue").checked ? t("鞭挞已开启:每轮结束自动推进队列") : t("鞭挞已关闭"));
-    // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
+    log($("auto-continue").checked ? t("自动推进已开启:每轮结束自动推进队列") : t("自动推进已关闭"));
+    // BUG 修复(触发):空闲时勾上自动推进必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
     // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
     if ($("auto-continue").checked && !running && !autoPaused) {
-      setStatus(t("鞭挞启动,2 秒后开始…"), false);
+      setStatus(t("自动推进启动,2 秒后开始…"), false);
       scheduleAutoContinue();
     }
   });
@@ -1088,7 +1084,7 @@ defer(() => {
 defer(() => {
   syncResearchSectionVisibility();
 });
-// 后端只认 dev/research(决定 agent 选择),dev-auto 是前端的鞭挞档位,按进程单独记住,
+// 后端只认 dev/research(决定 agent 选择),dev-auto 是前端的自动推进档位,按进程单独记住,
 // 否则切换进程回显时自主推进会被静默降级成结伴开发。
 // R-115:这份映射必须落盘。早期只放在内存里,重启后它是空的,回退分支就把模式
 // 降级成结伴开发——哪怕 kz-profile 里明明存着自主推进(D-155)。
@@ -1117,22 +1113,22 @@ export function persistProcessProfiles() {
   writeJson(PROCESS_PROFILE_KEY, Object.fromEntries(processProfileUi));
 }
 
-// 鞭挞是线路级控制状态。旧实现只把 enabled 放在全局 localStorage，切到一条
+// 自动推进是线路级控制状态。旧实现只把 enabled 放在全局 localStorage，切到一条
 // 尚未配置的并行线时会把主线的勾选状态直接写进新 session，甚至让旧线路的定时器
 // 在新线路上发送继续指令。没有记录的并行线默认关闭，必须由用户在该线路主动开启。
 export const PROCESS_AUTO_STATE_KEY = "kz-process-auto-state";
 // UI2-0926 #13 复核:本地存的旧键同样归一——不归一的话 `d|\\?\…` 陈值合并进来、经 persist 写回 app.json,
-// 下次启动又把用户升级后的设置(比如关掉的鞭挞)改回去。
+// 下次启动又把用户升级后的设置(比如关掉的自动推进)改回去。
 export const processAutoState = normalizeProcessKeyed(
   Object.entries(readJson(PROCESS_AUTO_STATE_KEY, {})).filter(([, value]) => value && typeof value === "object"),
 );
 // R-264 B3：为 08-compose.js 的 ESM 测试 facade 提供线路级状态访问。
 export const __kzProcessAutoState = processAutoState;
 globalThis.__kzProcessAutoState = processAutoState;
-// UI2-0926 #13 复核:线档位与鞭挞开关一样经后端落盘。鞭挞续跑轮按线档位发(lineAgent),而档位原先只在
+// UI2-0926 #13 复核:线档位与自动推进开关一样经后端落盘。自动推进续跑轮按线档位发(lineAgent),而档位原先只在
 // localStorage(kz-profile / kz-process-profile),本机重启即丢(D-404)——自举线每装一次新版就从自主推进
 // 掉回结伴,续跑轮没了 Nudge 与核查轮,还带上结伴提示与权限询问。档位随 process_auto_state 的 mode 字段进
-// app.json,合并时回填 processProfileUi:后端记着 mode → 以它为准;本地有档位 → 补进后端;都没有但鞭挞开着 →
+// app.json,合并时回填 processProfileUi:后端记着 mode → 以它为准;本地有档位 → 补进后端;都没有但自动推进开着 →
 // 记为自主推进(升级前续跑轮一律按自主档跑,这就是那条线一直以来实际的档位)。
 export function restoreLineModes(delta = {}) {
   let changed = false;
@@ -1186,16 +1182,16 @@ export function normalizeAutoState(value, _processId) {
   const storedMax = Number.parseInt(value?.maxRounds, 10);
   const legacyMax = Number.parseInt(localStorage.getItem("kz-auto-max"), 10);
   return {
-    // 无记录 = 关。旧实现让默认线回落读全局 kz-auto-continue,于是 A 项目开鞭挞、
+    // 无记录 = 关。旧实现让默认线回落读全局 kz-auto-continue,于是 A 项目开自动推进、
     // B 项目首次打开就继承为开,还随 applyAutoUiState 落盘固化成 B 的"用户选择"。
-    // 鞭挞是否开启只能来自用户在**该线路**上的显式勾选。
+    // 自动推进是否开启只能来自用户在**该线路**上的显式勾选。
     enabled: value?.enabled === true,
     paused: value?.paused === true,
     stopAfterRound: value?.stopAfterRound === true,
     maxRounds: Number.isFinite(storedMax)
       ? Math.min(100, Math.max(1, storedMax))
       : Number.isFinite(legacyMax) ? Math.min(100, Math.max(1, legacyMax)) : DEFAULT_AUTO_CONTINUE_MAX,
-    // UI2-0926 #13 复核:线档位随鞭挞存档落盘(见 restoreLineModes);没有记录就不带这个键。
+    // UI2-0926 #13 复核:线档位随自动推进存档落盘(见 restoreLineModes);没有记录就不带这个键。
     ...(LINE_MODES.includes(value?.mode) ? { mode: value.mode } : {}),
   };
 }
@@ -1212,7 +1208,7 @@ export function persistProcessAutoState(delta = {}) {
 }
 // D-290:回显期间(applyProfileValue 把存档值刷回控件)一律不许落盘。控件在这一刻
 // 显示的是**算出来的值**,不是用户意图;把它当意图写回去,一次算错就永久固化——
-// 用户每次开 app 都得重设模式与鞭挞,正是这条路径自我延续的结果。
+// 用户每次开 app 都得重设模式与自动推进,正是这条路径自我延续的结果。
 export let applyingProfileEcho = false;
 // UI2-0926 #13 复核:要记进存档的线档位。当前线读模式芯片(就是用户眼前、刚操作过的那个值),
 // 其余线读本线记住的档位;都没有就沿用存档里原有的。
@@ -1292,7 +1288,7 @@ export function applyAutoUiState(processId) {
   persistProcessAutoState();
 }
 
-// 线路页要能直接操控任意一条线的鞭挞；配置始终从 processAutoState 读取，顶栏 DOM 仅是投影。
+// 线路页要能直接操控任意一条线的自动推进；配置始终从 processAutoState 读取，顶栏 DOM 仅是投影。
 
 export function lineAutoConfig(processId) {
   return normalizeAutoState(processAutoState.get(processId), processId);
@@ -1317,9 +1313,11 @@ async function applyLineAutoStateUpdate(item, patch, initialMode) {
   const processId = item.id;
   if (!processItems.some((candidate) => candidate.id === processId && candidate.session_id === item.session_id)) return null;
   const requested = { ...lineAutoConfig(processId), ...patch };
+  // The line's automatic switch selects autonomous mode; paired loops are started by Goal.
+  if (patch.enabled === true && !lineAutoConfig(processId).enabled) patch = { ...patch, mode: "dev-auto" };
   // R-224 同价:研究线没有自主推进语义,从线路页开也一样拒绝。
   if (requested.enabled && (processProfileUi.get(processId) === "research" || item.profile === "research")) {
-    toast(t("鞭挞不适用于研究模式"));
+    toast(t("自动推进不适用于研究模式"));
     return null;
   }
   // A failed update must not appear enabled or schedule a model request. Capture the
@@ -1332,19 +1330,21 @@ async function applyLineAutoStateUpdate(item, patch, initialMode) {
   if (!processItems.some((candidate) => candidate.id === processId && candidate.session_id === item.session_id)) return null;
   const delta = { ...patch };
   const current = lineAutoConfig(processId);
-  if (delta.enabled === true && !current.mode && initialMode) delta.mode = initialMode;
+  if (delta.enabled === true && !delta.mode && !current.mode && initialMode) delta.mode = initialMode;
   const next = { ...current, ...delta };
   processAutoState.set(processId, next);
   persistProcessAutoState({ [processId]: delta });
-  // R-322 B2:「结伴 + 勾着鞭挞」不再自相矛盾——它就是轻控制 loop 的正常形态,
-  // 所以线路页开鞭挞也不再改写该线档位(原 R-224 同价逻辑一并去掉)。
+  if (delta.mode) {
+    processProfileUi.set(processId, delta.mode); persistProcessProfiles();
+    if (processId === activeProcessId) $("profile-select").value = delta.mode;
+  }
   if (processId === activeProcessId) {
     $("auto-continue").checked = next.enabled;
     setAutoPaused(next.paused);
     setAutoStopAfterRound(next.stopAfterRound);
     $("auto-stop-round").checked = next.stopAfterRound;
     $("auto-pause").classList.toggle("active", autoPaused);
-    $("auto-pause").textContent = autoPaused ? t("恢复鞭挞") : t("暂停鞭挞");
+    $("auto-pause").textContent = autoPaused ? t("恢复自动推进") : t("暂停自动推进");
     renderAutoStatus();
   }
   // 关/暂停立刻撤掉在途的那一枪;开且该线空闲就当场抽第一鞭——不然「开了没反应」要等到
@@ -1383,19 +1383,20 @@ export function updateLocalProcessItem(processId, fields) {
 }
 
 export function syncAutoContinueWithProfile() {
-  // R-199:档位条件由引擎判定(decide→Stop/ProfileMismatch),前端不再持有否决权。
-  // 切换 profile 时**不**主动取消勾选——引擎会在下一轮 done 事件里判 Stop 并带
-  // reason,07-events.js 的 ProfileMismatch 分支负责取消勾选 + 显示原因。这里再
-  // 关一次会让「用户明明勾了、却被静默取消」的旧漂移复发(D-290/R-199)。
-  if (autoContinueAllowed() || !$("auto-continue").checked) return;
-  // 非 dev-auto 且当前勾选:保留勾选,交给引擎下轮判定;仅同步本地存储供
-  // normalizeAutoState 冷启动读回时不被误判。
-  rememberAutoUiState();
+  const enabled = $("profile-select").value === "dev-auto" || Boolean(currentGoalText().trim());
+  if ($("auto-continue").checked === enabled) return;
+  $("auto-continue").checked = enabled;
+  if (!enabled) cancelAutoContinueTimer();
+  if (!applyingProfileEcho) {
+    rememberAutoUiState(activeProcessId, ["enabled", "mode"]);
+    void syncAutoRunState({ enabled });
+  }
+  renderAutoStatus();
 }
 export function applyProfileValue(backendProfile) {
   // D-290:没有进程身份就没有「该显示谁的档位」这个问题。此时既读不到本进程记忆,
   // 回退链又会算出 dev-pair,把控件刷成结伴开发 —— 随后 syncAutoContinueWithProfile
-  // 顺手关掉鞭挞,下一次 switchProcess 再把这个假值写进存档。启动竞态里 activeProcessId
+  // 顺手关掉自动推进,下一次 switchProcess 再把这个假值写进存档。启动竞态里 activeProcessId
   // 尚未就绪的那一瞬,就是整条降级链的起点。不知道就别动控件。
   if (!activeProcessId) return;
   const remembered = processProfileUi.get(activeProcessId);
@@ -1405,7 +1406,7 @@ export function applyProfileValue(backendProfile) {
     ? globalChoice
     : "dev-pair";
   if (backendProfile !== "research") $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
-  // 回显期间关掉的鞭挞只是**跟随显示**,不是用户按下的开关:不落盘、不写全局键。
+  // 回显期间关掉的自动推进只是**跟随显示**,不是用户按下的开关:不落盘、不写全局键。
   applyingProfileEcho = true;
   try {
     syncAutoContinueWithProfile();
@@ -1455,7 +1456,7 @@ defer(() => {
       void syncAutoRunState({ enabled: false });
       clearRunPending();
       setRunning(false, t("已停止"));
-      log(t("已停止鞭挞等待"));
+      log(t("已停止自动推进等待"));
       return;
     }
     if (targetSessionId) transitionSession(targetSessionId, "stopping");

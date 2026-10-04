@@ -60,7 +60,7 @@ payloads.projects_select = ({ path: project }) => {
 };
 payloads.project_root_info = ({ projectDir }) => ({ selected: projectDir, resolved: projectDir, shared: false });
 payloads.process_list = ({ projectDir }) => processes.get(projectDir) ?? [];
-payloads.conversation_get = ({ projectDir, processId }) => {
+payloads.conversation_display_get = ({ projectDir, processId }) => {
   assert(processes.get(projectDir)?.some((item) => item.id === processId), `对话请求串项目: ${projectDir} / ${processId}`);
   return [{ role: "user", parts: [{ type: "text", text: `历史记录 ${projectNames[projectDir]}` }] }];
 };
@@ -148,7 +148,7 @@ const server = http.createServer(async (request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ channel: "msedge", headless: true });
-const heavyCommands = new Set(["process_list", "conversation_get", "conversation_list", "models_list", "model_effective", "docs_snapshot", "research_library_list", "memory_graph"]);
+const heavyCommands = new Set(["process_list", "conversation_display_get", "conversation_list", "models_list", "model_effective", "docs_snapshot", "research_library_list", "memory_graph"]);
 let observationStart = 0;
 const heavySince = (at = observationStart) => calls.slice(at).filter((call) => heavyCommands.has(call.cmd));
 const count = (command) => calls.filter((call) => call.cmd === command).length;
@@ -254,27 +254,27 @@ try {
 
   await openOverview(projectA);
   assert.equal(await page.locator("body").getAttribute("data-app-scope"), "project");
-  assert.deepEqual(heavySince().filter(call => !["docs_snapshot", "conversation_get"].includes(call.cmd)), [], "概览可读取需求统计和最近回复，但不得装配执行会话");
+  assert.deepEqual(heavySince().filter(call => !["docs_snapshot", "conversation_display_get"].includes(call.cmd)), [], "概览可读取需求统计和最近回复，但不得装配执行会话");
   await page.evaluate(() => window.__workbenchTick(3000, 5));
   await settle();
-  assert.deepEqual(heavySince().filter(call => !["docs_snapshot", "conversation_get"].includes(call.cmd)), [], "未进入执行视图的项目不能被轮询装配会话");
+  assert.deepEqual(heavySince().filter(call => !["docs_snapshot", "conversation_display_get"].includes(call.cmd)), [], "未进入执行视图的项目不能被轮询装配会话");
   await page.screenshot({ path: path.join(artifactRoot, "02-project.png"), fullPage: true });
 
   await home();
-  const beforeItemHistory = count("conversation_get");
+  const beforeItemHistory = count("conversation_display_get");
   await secondCard.locator(".workbench-item").click();
   await view("project");
   await page.locator(".management-detail-nav").waitFor();
   await settle();
   assert(calls.some((call) => call.cmd === "docs_snapshot" && call.args.projectDir === projectB), "同编号进度标签应下钻原项目");
-  assert.equal(count("conversation_get"), beforeItemHistory, "进度标签下钻不能顺手读取对话");
+  assert.equal(count("conversation_display_get"), beforeItemHistory, "进度标签下钻不能顺手读取对话");
   await openOverview(projectA);
-  const beforeWorkHistory = count("conversation_get");
+  const beforeWorkHistory = count("conversation_display_get");
   await page.locator('[data-management-tab="req"]').click();
   await view("project");
   await settle();
   assert(calls.some((call) => call.cmd === "docs_snapshot" && call.args.projectDir === projectA), "工作页应按需读取本项目文档");
-  assert.equal(count("conversation_get"), beforeWorkHistory, "查看项目工作不能顺手读取对话");
+  assert.equal(count("conversation_display_get"), beforeWorkHistory, "查看项目工作不能顺手读取对话");
   await openChat();
   await page.getByText(`历史记录 ${projectNames[projectA]}`, { exact: true }).waitFor({ state: "visible" });
   await page.locator("#prompt").fill("阅读器的中文草稿，尚未发送");
@@ -284,9 +284,7 @@ try {
     shell.setAttachments([{ name: "reader.png", media_type: "image/png", data: "cmVhZGVy" }]);
     composer.renderAttachments();
   });
-  await page.locator("#composer-more").click();
-  assert.equal(await page.locator("#process-subagents").isVisible(), true, "子代理开关在对话的更多菜单中");
-  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#process-subagents").isVisible(), true, "子代理开关在对话工具行直接可用");
   await page.locator("#workbench-chat-history").click();
   await page.locator('.project-session-menu .workbench-session[data-process-id="p|reader-review"] .workbench-session-link').click();
   await settle();
@@ -384,7 +382,7 @@ try {
   await check("home-during-conversation-recovery", async () => {
     await openOverview(projectB);
     processes.get(projectB)[0].session_id = "session-second-delayed";
-    const gate = holdNext("conversation_get", (args) => args.projectDir === projectB);
+    const gate = holdNext("conversation_display_get", (args) => args.projectDir === projectB);
     try {
       await page.locator('[data-work-surface="chat"]').click();
       await seen(gate);

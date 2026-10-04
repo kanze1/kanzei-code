@@ -41,10 +41,8 @@ try {
   check(!await page.locator('[data-workspace="research"]').isVisible(), "Research workspace entry is removed");
   check(await page.locator("#project-chat-work .work-focus-slot").count() === 2, "Chat work list contains only current work and next candidate");
   check(!await page.locator(".project-work-toggle").isVisible(), "Activity panel does not restore the retired requirements drawer toggle");
-  check(!await page.locator("#subagent-control").isVisible(), "Advanced subagent control is folded by default");
-  await page.locator("#composer-more").click();
-  check(await page.locator("#subagent-control").isVisible() && await page.locator("#side-question-open").isVisible(), "Advanced controls are still reachable in More");
-  await page.keyboard.press("Escape");
+  check(await page.locator("#subagent-control").isVisible(), "Subagents are directly reachable in the composer");
+  check(!await page.locator("#composer-more").isVisible() && await page.locator("#skills-picker").isVisible() && await page.locator("#goal-picker").isVisible(), "Skills and Goal replace the retired More menu");
   await page.locator("#prompt").fill("切换页面后保留的草稿");
   await page.locator('[data-work-surface="project"]').click();
   await page.locator(".management-row").first().waitFor();
@@ -89,10 +87,11 @@ try {
   check(new Set(nodes).size > 1, "Project dependencies are laid out left to right");
   await page.locator(".management-map-node").first().click();
   check((await page.locator(".management-map-tools").innerText()).includes("直接关系"), "Module selection isolates direct callers and dependencies");
-  check(await page.locator(".management-metrics > div").count() === 6, "Runtime and memory metrics replace the file index");
+  check(await page.locator(".management-metrics > div").count() === 13, "Runtime includes tokens, execution, outcomes and memory observations");
   await page.screenshot({ path: `${output}/map.png` });
   await page.locator('[data-work-surface="chat"]').click();
   check(await page.locator("#prompt").inputValue() === "切换页面后保留的草稿", "Conversation draft survives management navigation");
+  await page.locator("#profile-select").selectOption("dev-auto");
   await page.getByRole("button", { name: "选择工作", exact: true }).click();
   await page.locator("#work-picker input").fill("R-365");
   await page.locator("#work-picker-list").count();

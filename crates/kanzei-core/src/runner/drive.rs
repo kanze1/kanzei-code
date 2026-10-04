@@ -204,6 +204,7 @@ pub fn run_once_with_parts<'a>(
         let mut item_context = super::item_context::ItemContext::default();
         let mut batch = batch::Batch::new(
             ctx.project_workflow
+                && config.intensity == kanzei_harness::HarnessIntensity::Autonomous
                 && max_steps == 0
                 && tools
                     .iter()

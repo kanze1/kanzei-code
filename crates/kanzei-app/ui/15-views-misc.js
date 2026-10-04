@@ -792,7 +792,7 @@ export async function loadConversation(sequence = null, switchGeneration = null,
   try {
     bgClear();
     const deliveryRequest = loadDeliveredFiles(forProject, { force: true });
-    const history = await invoke("conversation_get", {
+    const history = await invoke("conversation_display_get", {
       projectDir: forProject,
       processId: forProcessId,
       sequence,
@@ -873,7 +873,7 @@ export async function openConversationForProcess(processId, sequence, { project 
   const isCurrent = viewerRequest();
   let history;
   try {
-    history = await invoke("conversation_get", { projectDir: project, processId, sequence });
+    history = await invoke("conversation_display_get", { projectDir: project, processId, sequence });
   } catch (err) {
     if (isCurrent()) toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => {
       if (isCurrent()) return openConversationForProcess(processId, sequence, { project, title });
@@ -896,11 +896,11 @@ export async function openClosedConversation(project, entry, title = "") {
     if (!isCurrent()) return;
     const segments = [...(Array.isArray(list) ? list : [])].sort((a, b) => (Number(b.sequence) || 0) - (Number(a.sequence) || 0)).slice(0, 5);
     for (const segment of segments) {
-      const history = await invoke("conversation_get", { projectDir: project, processId, sequence: segment.sequence });
+      const history = await invoke("conversation_display_get", { projectDir: project, processId, sequence: segment.sequence });
       if (!isCurrent()) return;
       blocks.push(`### ${segmentTitle(segment.title)}\n\n${historyTranscript(history)}`);
     }
-    if (!blocks.length) blocks.push(historyTranscript(await invoke("conversation_get", { projectDir: project, processId, sequence: null })));
+    if (!blocks.length) blocks.push(historyTranscript(await invoke("conversation_display_get", { projectDir: project, processId, sequence: null })));
   } catch (err) {
     if (isCurrent()) toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => {
       if (isCurrent()) return openClosedConversation(project, entry, title);
