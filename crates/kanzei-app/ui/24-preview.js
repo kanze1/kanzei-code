@@ -15,7 +15,7 @@
 //   · 对话里的入口:工具截图缩略图、交付卡片的图片缩略图与「预览」、html/svg 代码块「预览」、localhost 链接进面板。
 // 纯函数(normalizeAddress / fitDevice / extractToolImages / previewColumnFor …)导出给冒烟直接测。
 import { closeSurface, isModalOpen, onSurfaceChange, openMenu, surfaceElements } from "./00-surface.js";
-import { installSplit } from "./00-frame.js";
+import { installSplit, installFrame } from "./00-frame.js";
 import { $, confirmDialog, defer, invoke, on, promptBox } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, attachments, currentProject, log, navigate_view, toast } from "./03-shell.js";
@@ -206,7 +206,23 @@ const state = {
   narrow: false, tab: "preview", // 对话视图窄于 800px:预览占满,工具栏出现「对话 | 预览」
   consoleOpen: false, level: "all", preserveLog: false,
   picking: false, staticProject: null,
+  ownerProcess: null,
 };
+const autoDismissed = new Set();
+let navigationQueue = Promise.resolve(), navigationRequest = 0;
+function openNativePage(args, request, project) {
+  const valid = () => request === navigationRequest && activeProcessId === args.processId && currentProject === project && state.open && currentView() === "chat";
+  const opening = navigationQueue.catch(() => {}).then(async () => {
+    if (!valid()) return null;
+    await invoke("preview_open", args);
+    // Keep the hide in this queue, before a newer navigation is allowed to
+    // open. A late A receipt must not close B's newly opened native window.
+    if (!valid()) { await invoke("preview_set_visible", { visible: false, processId: args.processId }); return null; }
+    return true;
+  });
+  navigationQueue = opening;
+  return opening;
+}
 const consoleEntries = [];
 const consoleSeqs = new Set();
 let consoleErrors = 0;
@@ -220,7 +236,7 @@ let unfreezeTimer = null;
 let evaluateQueued = false;
 let boundsQueued = false;
 let reloadTimer = null;
-let splitApi = null;
+const splitApi = null;
 /// 地址栏正在被用户编辑(input 置位;Enter / Esc / blur 清零)。不能看 document.activeElement:焦点点进原生子 webview 时
 /// 主文档的 activeElement 不变,地址栏会一直拒收 kz:preview-state 带来的真实地址。
 let addressEditing = false;
@@ -271,18 +287,21 @@ export function previewState() {
 }
 /// 预览此刻占住的列宽(06-agent-panel 的停靠判据用):面板关着、不在对话视图时为 0。
 export function previewColumnWidth(width) {
+  if (document.body.classList.contains("familiar-workspace")) return 0;
   if (!state.open || currentView() !== "chat") return 0;
   return previewColumnFor(width, splitApi?.value?.() ?? null);
 }
 
 // ---------- 布局 ----------
 function measureNarrow() {
+  if (document.body.classList.contains("familiar-workspace")) { state.narrow = false; return; }
   const width = viewWidth();
   if (width > 0) state.narrow = width < PREVIEW_NARROW;
 }
 function syncSafeRight() {
   const root = document.documentElement?.style;
   if (!root) return;
+  if (document.body.classList.contains("familiar-workspace")) { root.removeProperty("--surface-safe-right"); return; }
   const shown = state.open && currentView() === "chat" && !state.narrow;
   const rect = shown ? $("preview-dock")?.getBoundingClientRect?.() : null;
   const px = rect && rect.width > 0 ? Math.max(0, Math.round((window.innerWidth || 0) - rect.left)) : 0;
@@ -333,7 +352,7 @@ function sendBounds() {
   void invoke("preview_set_bounds", rect).catch((err) => warn("preview_set_bounds", err));
 }
 function sendVisible(visible) {
-  const processId = activeProcessId ?? null;
+  const processId = state.ownerProcess ?? activeProcessId ?? null;
   if (sent.visible === visible && sent.processId === processId) return;
   sent = { visible, processId };
   if (visible) sendBounds();
@@ -539,12 +558,14 @@ function setOpen(open, { persist = true } = {}) {
 }
 /// 打开面板(不导航):rail、Ctrl+Shift+B、命令面板。
 export function openPreviewDock() {
+  state.ownerProcess = activeProcessId ?? null;
   if (currentView() !== "chat") navigate_view("chat");
   if (!state.open) setOpen(true);
   else if (state.narrow && state.tab !== "preview") setTab("preview");
 }
 /// 收起停靠面板(页面保留):rail、Ctrl+Shift+B、命令面板。焦点在面板里时还给 rail 开关(面板 display:none 后焦点会掉到 body)。
 export function closePreviewDock() {
+  if (activeProcessId) autoDismissed.add(activeProcessId);
   const active = document.activeElement;
   const hadFocus = Boolean(active?.closest?.("#preview-dock"));
   setOpen(false);
@@ -553,6 +574,30 @@ export function closePreviewDock() {
   toggle?.focus?.();
   if (document.activeElement !== toggle) promptBox?.focus?.();
 }
+// Called only after the browser tool's permission decision. Prepare an empty
+// native page; the tool itself performs the authorized navigation once.
+export async function prepareAgentPreview(processId) {
+  if (!processId || processId !== activeProcessId || currentView() !== "chat" || document.hidden || isModalOpen() || autoDismissed.has(processId)) return { ready: false };
+  if (state.alive && state.ownerProcess !== processId) return { ready: false };
+  if (state.alive && state.open) return { ready: false };
+  const existing = state.alive, url = existing ? state.url : "about:blank";
+  setOpen(true, { persist: false });
+  const project = currentProject, bounds = hostRect(), request = ++navigationRequest, deadline = Date.now() + 6000;
+  if (!bounds || bounds.w <= 0 || bounds.h <= 0) return { ready: false };
+  try {
+    if (existing) await invoke("preview_set_visible", { visible: true, processId });
+    else if (!await openNativePage({ target: "about:blank", processId, bounds }, request, project)) return { ready: false };
+    if (request !== navigationRequest) return { ready: false };
+    state.alive = true; state.ownerProcess = processId;
+    sent = { visible: null, processId: undefined };
+    if (Date.now() > deadline || activeProcessId !== processId || currentProject !== project || currentView() !== "chat" || autoDismissed.has(processId)) {
+      setOpen(false, { persist: false }); sendVisible(false); return { ready: false };
+    }
+    scheduleEvaluate();
+    return { ready: true, url };
+  } catch { return { ready: false }; }
+}
+export function previewUserRun() { if (activeProcessId) autoDismissed.delete(activeProcessId); }
 // 面板上的 ✕ = 收起(closePreviewDock):页面保留,再点 rail 开关 / Ctrl+Shift+B 回到原来的页面(UX-093:
 // 原先 ✕ 会释放页面,下次打开回到起始页,登录态、滚动位置都丢了)。要释放页面进程(声音、定时器、HMR 轮询都停)
 // 走「更多 → 关闭页面」。
@@ -588,9 +633,13 @@ export async function openPreviewTarget(input, { record = true } = {}) {
   state.error = null;
   const bounds = hostRect() ?? lastBounds ?? { x: 0, y: 0, w: 0, h: 0 };
   const processId = activeProcessId ?? null;
+  const project = currentProject;
+  const request = ++navigationRequest;
+  state.ownerProcess = processId;
   try {
-    await invoke("preview_open", { target: target.target, processId, bounds });
+    if (!await openNativePage({ target: target.target, processId, bounds }, request, project)) return false;
   } catch (err) {
+    if (request !== navigationRequest || activeProcessId !== processId || currentProject !== project) return false;
     state.error = { kind: "open", text: String(err) };
     renderError();
     syncChrome();
@@ -598,13 +647,15 @@ export async function openPreviewTarget(input, { record = true } = {}) {
     return false;
   }
   state.alive = true;
+  state.ownerProcess = processId;
+  if (activeProcessId !== processId || currentProject !== project) { setOpen(false, { persist: false }); sendVisible(false); return false; }
   if (bounds.w > 0) lastBounds = bounds;
   // preview_open 对可见性的处理不做假设(后端现在会顺手 show):下一帧 evaluate 明确上报一次。
   // 冻结中(抽屉/模态/菜单还盖着)evaluate 走「已冻结」分支什么都不发,所以这里当场补一次隐藏,原生面板不会盖到弹层上。
   sent = { visible: null, processId: undefined };
   if (frozen) sendVisible(false);
   if (target.kind === "path") state.staticProject = currentProject;
-  if (state.device !== "fill" || state.scheme !== "auto") sendDevice();
+  if (state.device !== "fill" || state.scheme !== "auto" || (state.pageZoom || 1) !== 1) sendDevice();
   if (record) rememberRecent(target.display);
   renderError();
   syncChrome();
@@ -636,7 +687,7 @@ function navPreview(action) {
   return invoke("preview_nav", { action }).catch((err) => warn(`preview_nav ${action}`, err));
 }
 function sendDevice() {
-  void invoke("preview_device", { preset: state.device, scheme: state.scheme }).catch((err) => warn("preview_device", err));
+  void invoke("preview_device", { preset: state.device, scheme: state.scheme, zoom: state.pageZoom || 1 }).catch((err) => warn("preview_device", err));
 }
 function setDevice(preset) {
   if (!DEVICE_ORDER.includes(preset)) return;
@@ -665,6 +716,7 @@ function onPreviewState(payload) {
   state.canForward = Boolean(p.canForward);
   if (DEVICE_ORDER.includes(p.device)) state.device = p.device;
   if (SCHEMES.includes(p.scheme)) state.scheme = p.scheme;
+  if (Number.isFinite(p.pageZoom)) state.pageZoom = p.pageZoom;
   state.error = p.error && typeof p.error === "object" ? { kind: String(p.error.kind || "other"), text: String(p.error.text || "") } : null;
   if (state.url !== previousUrl) {
     // 本项目的静态页:写文件后自动刷新只认它(开发服务靠自己的 HMR)。
@@ -708,6 +760,7 @@ export function previewNoteToolEnd(payload) {
 }
 /// 09-sessions 切线时调用:可见性上报带的 processId 跟着换(后端据此把代理的 browser 路由到面板)。
 export function previewLineSync() {
+  if (state.ownerProcess && state.ownerProcess !== activeProcessId && state.open) setOpen(false, { persist: false });
   scheduleEvaluate();
   if (!state.alive) renderRecent(); // 项目换了:起始页的「最近打开」按新项目取
 }
@@ -957,6 +1010,10 @@ function openDeviceMenu(anchor) {
   void withFrozen(() => openMenu(anchor, [
     { heading: t("视口") },
     ...DEVICE_ORDER.map((preset) => ({ label: deviceLabel(preset), checked: state.device === preset, onSelect: () => setDevice(preset) })),
+    "separator",
+    { heading: t("页面缩放") },
+    ...[0.5, 0.75, 1, 1.25, 1.5, 2].map(zoom => ({ label: `${Math.round(zoom * 100)}%`, checked: (state.pageZoom || 1) === zoom,
+      onSelect: () => { state.pageZoom = zoom; if (state.alive) sendDevice(); } })),
     "separator",
     { heading: t("配色") },
     ...SCHEMES.map((scheme) => ({ label: schemeLabel(scheme), checked: state.scheme === scheme, onSelect: () => setScheme(scheme) })),
@@ -1261,21 +1318,23 @@ defer(() => {
   void invoke("preview_close").catch(() => {});
   addMarkdownHook((root) => decorateCodeBlocks(root));
   wireToolbar();
-  splitApi = installSplit($("preview-dock"), {
-    id: "preview",
-    side: "left",
-    min: PREVIEW_MIN,
-    max: () => Math.max(PREVIEW_MIN, Math.round(viewWidth() - PREVIEW_CHAT_MIN)),
-    title: t("拖动调整预览宽度 · 双击复位"),
-    titleKey: "拖动调整预览宽度 · 双击复位",
-    ariaLabel: t("调整网页预览宽度"),
-    ariaKey: "调整网页预览宽度",
-    onChange: () => {
-      syncSafeRight();
-      scheduleBounds();
-      reconcileTasksPanel();
-    },
+  const dock = $("preview-dock");
+  const titlebar = document.createElement("div"); titlebar.className = "pv-window-title";
+  const title = document.createElement("strong"); title.textContent = t("网页预览");
+  const maximize = document.createElement("button"); maximize.type = "button"; maximize.id = "preview-maximize";
+  maximize.className = "ghost"; maximize.textContent = "□"; maximize.setAttribute("aria-label", t("最大化网页预览"));
+  maximize.addEventListener("click", () => {
+    const on = dock.classList.toggle("pv-maximized");
+    maximize.setAttribute("aria-label", t(on ? "恢复网页预览窗口" : "最大化网页预览"));
+    maximize.setAttribute("aria-pressed", String(on)); scheduleBounds(); scheduleEvaluate();
   });
+  titlebar.append(title, maximize); dock.prepend(titlebar);
+  const frameBody = document.createElement("div"); frameBody.className = "pv-window-body";
+  frameBody.append(...dock.childNodes); dock.append(frameBody);
+  installFrame(dock, { id: "floating-preview", move: ".pv-window-title", edges: "all", min: "380 260" });
+  // Moving a frame changes position without resizing its host. Observe placement
+  // changes as well as ResizeObserver so native pixels follow every drag frame.
+  new MutationObserver(() => { scheduleBounds(); scheduleEvaluate(); }).observe(dock, { attributes: true, attributeFilter: ["style", "class"] });
   installSplit($("preview-console"), {
     id: "preview-console",
     side: "top",

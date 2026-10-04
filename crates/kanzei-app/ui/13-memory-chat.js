@@ -1,6 +1,6 @@
 import { $, confirmDialog, defer, invoke } from "./01-core.js";
 import { t } from "./02-i18n.js";
-import { currentProject } from "./03-shell.js";
+import { memoryProject as currentProject } from "./03-memory-scope.js";
 import { renderMarkdownInto } from "./04-markdown.js";
 import { toolResultSummary } from "./05-tool-summary.js";
 

@@ -40,6 +40,7 @@ export async function refreshDocs({ extras = document.body.dataset.view !== "doc
     const snapshot = await invoke("docs_snapshot", { projectDir: forProject });
     if (currentProject !== forProject) return;
     renderDocsSnapshot(snapshot);
+    document.dispatchEvent(new CustomEvent("kz:management-snapshot", { detail: { project: forProject, snapshot } }));
     rendered = true;
     if (extras) {
       await refreshConversationList();

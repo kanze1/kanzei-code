@@ -1,0 +1,166 @@
+import assert from 'node:assert/strict';
+import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
+import path from 'node:path';
+import { chromium } from 'playwright-core';
+import { startServer } from './serve.mjs';
+
+// Real browser actions in isolated storage; no tracker or production service writes.
+const out=path.resolve('output/playwright/familiar-workspace');
+await mkdir(out,{recursive:true});
+const server=await startServer(0,{launchEditor:async()=>{}});
+const browser=await chromium.launch({channel:'msedge',headless:true});
+const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+const page=await context.newPage();page.setDefaultTimeout(7000);
+const checks=[],errors=[];let failure,base;
+page.on('pageerror',error=>errors.push(error.message));
+const check=(name,value)=>{assert.ok(value,name);checks.push(name);console.log(`PASS ${name}`);};
+const click=selector=>page.locator(selector).click();
+const snapshot=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('kanzei-familiar-prototype-v1')));
+const conversation=async(id='front')=>(await snapshot()).conversations.find(c=>c.id===id);
+const goChat=id=>click(`#sidebar [data-action="conversation"][data-id="${id}"]`);
+const map=async()=>{await click('#topbar [data-action="manage"]');await click('[data-action="manage-tab"][data-value="map"]');};
+const metric=async id=>(await page.locator(`[data-metric="${id}"] strong`).innerText()).replace(/\s/g,'');
+const reset=async(update=()=>{})=>{
+  const value=structuredClone(base);update(value);const fixture=JSON.stringify(value),key=`fixture-${Date.now()}-${Math.random()}`;
+  await page.addInitScript(({fixture,key})=>{if(window!==top||sessionStorage.getItem(key))return;sessionStorage.setItem(key,'1');localStorage.setItem('kanzei-familiar-prototype-v1',fixture);},{fixture,key});
+  await page.reload();await page.locator('#prompt').waitFor();
+};
+const demo=async()=>{await click('#sidebar [data-action="guide"]');await click('#dialog [data-action="demo-tools"]');};
+const waitCalls=(id,count)=>page.waitForFunction(({id,count})=>JSON.parse(localStorage.getItem('kanzei-familiar-prototype-v1')).conversations.find(c=>c.id===id).activities.length>=count,{id,count});
+const waitDone=(id='front')=>page.waitForFunction(id=>JSON.parse(localStorage.getItem('kanzei-familiar-prototype-v1')).conversations.find(c=>c.id===id).phase==='done',id,{timeout:10000});
+const closePreview=async()=>{if(await page.locator('#preview-window').isVisible())await click('[data-action="preview-close"]');};
+const work=()=>click('#topbar [data-action="work-list"]');
+const pick=slot=>click(`[data-action="pick-work"][data-value="${slot}"]`);
+const choose=(id,slot)=>click(`#dialog [data-action="select-work"][data-id="${id}"][data-value="${slot}"]`);
+const screenshot=async name=>{if(await page.locator('#preview-frame').isVisible())await page.frameLocator('#preview-frame').locator('#bookmark').waitFor();await page.screenshot({path:path.join(out,name),animations:'disabled'});};
+const prompt=page.locator('#prompt');
+try {
+  const js=await readFile(new URL('./app.js',import.meta.url),'utf8'),index=JSON.parse(js.match(/const PROJECT_INDEX = (.*);/)[1]);
+  await Promise.all(index.nodes.map(n=>access(path.resolve(n.manifest))));
+  check('map uses real manifests and contains no embedded file inventory',index.nodes.length===8&&index.edges.length===23&&index.nodes.every(n=>!('files' in n)&&!('entries' in n)));
+  await page.goto(server.origin);await prompt.waitFor();base=await snapshot();
+  await map();
+  const actual=await page.locator('.tree-edge').evaluateAll(nodes=>nodes.map(n=>({from:n.dataset.edgeFrom,to:n.dataset.edgeTo}))),normal=index.edges.filter(e=>e.kinds.some(k=>!k.startsWith('dev-')));
+  const reachable=(edges,from,to)=>{const queue=[from],seen=new Set(queue);while(queue.length){const id=queue.shift();for(const e of edges.filter(e=>e.from===id)){if(e.to===to)return true;if(!seen.has(e.to)){seen.add(e.to);queue.push(e.to);}}}return false;};
+  check('horizontal backbone preserves every module with eight real relationships',await page.locator('[data-map-id]').count()===8&&actual.length===8&&actual.every(e=>normal.some(n=>n.from===e.from&&n.to===e.to)));
+  check('backbone retains reachability of all 22 normal dependencies',normal.length===22&&index.nodes.every(a=>index.nodes.every(b=>reachable(normal,a.id,b.id)===reachable(actual,a.id,b.id))));
+  check('runtime metrics replace file index',await page.locator('#index-search,.index-files').count()===0&&await page.locator('.runtime-section').isVisible());
+  await screenshot('v4-map.png');
+  await page.locator('[data-map-id="kanzei-core"]').focus();await page.keyboard.press('Enter');
+  const focused=await page.locator('.tree-edge').evaluateAll(nodes=>nodes.map(n=>`${n.dataset.edgeFrom}>${n.dataset.edgeTo}`).sort());
+  check('keyboard selection shows the full direct neighborhood',JSON.stringify(focused)===JSON.stringify(normal.filter(e=>e.from==='kanzei-core'||e.to==='kanzei-core').map(e=>`${e.from}>${e.to}`).sort())&&await page.locator('.tree-column-label').count()===3);
+  await screenshot('v4-direct-dependencies.png');await click('[data-action="map-mode"][data-value="structure"]');
+  check('returning to backbone keeps selected module',await page.locator('[data-map-id="kanzei-core"].selected').count()===1&&await page.locator('.tree-edge').count()===8);
+  check('seven-day metrics count completed timing and real failures separately',await metric('duration')==='1分30秒'&&await metric('calls')==='12'&&await metric('failures')==='3'&&await metric('memory')==='1条次'&&(await page.locator('[data-metric="failures"]').innerText()).includes('规则拒绝 1 · 停止 1'));
+  await page.locator('#runtime-range').selectOption('1');
+  check('24-hour filter changes all aggregates together',await metric('duration')==='1分30秒'&&await metric('calls')==='9'&&await metric('failures')==='2'&&await page.locator('.runtime-history-row').count()===2);
+  await page.locator('#runtime-range').selectOption('all');
+  check('all-time includes older completed run',await metric('duration')==='2分40秒'&&await metric('calls')==='13');
+  await page.locator('#runtime-range').selectOption('7');await page.locator('#runtime-conversation').selectOption('front');
+  check('conversation filter isolates calls and memory observations',await metric('duration')==='2分0秒'&&await metric('calls')==='6'&&await metric('failures')==='1'&&await metric('memory')==='1条次');
+  await goChat('reader-chat');await map();
+  check('project switch isolates data and clears incompatible conversation filter',await metric('duration')==='3分0秒'&&await metric('calls')==='2'&&await page.locator('#runtime-conversation').inputValue()==='all');
+  await goChat('front');await map();await click('[data-action="runtime-record"][data-id="sample-search-2"]');
+  check('runtime record opens its owning conversation',(await snapshot()).current.cid==='search');
+  await click('#sidebar [data-action="new-chat"]');const emptyId=(await snapshot()).current.cid;await map();await page.locator('#runtime-conversation').selectOption(emptyId);
+  check('missing duration and memory observations are not presented as zero',await metric('duration')==='未记录'&&await metric('memory')==='未记录'&&await metric('calls')==='0');
+
+  await reset();await work();
+  check('work list shows current and next without a conversation excerpt',await page.locator('.work-list-item').count()===2&&await page.locator('[data-work-slot="current"] .work-list-item[data-id="R-381"]').count()===1&&await page.locator('[data-work-slot="next"] .work-list-item[data-id="D-601"]').count()===1);
+  await screenshot('v4-work-list.png');await pick('current');
+  check('drafts, blocked, review, done and other-project work cannot be selected',await page.locator('#dialog [data-id="R-389"],#dialog [data-id="R-358"],#dialog [data-id="R-372"],#dialog [data-id="R-340"],#dialog [data-id="R-12"]').count()===0);
+  await choose('D-601','current');let s=await snapshot();
+  check('manual current selection preserves previous progress and does not execute',s.tasks.find(t=>t.id==='R-381').status==='pending'&&s.tasks.find(t=>t.id==='R-381').batch===3&&s.tasks.find(t=>t.id==='D-601').status==='doing'&&(await conversation()).work.currentId==='D-601'&&(await conversation()).phase==='idle');
+  await pick('next');await choose('R-381','next');
+  check('manual candidate selection only changes order',(await conversation()).work.nextId==='R-381'&&(await snapshot()).tasks.find(t=>t.id==='R-381').status==='pending');
+  await click('[data-action="all-work"]');await click('[data-action="manage-tab"][data-value="map"]');await goChat('front');await work();await click('[data-action="all-work"]');
+  check('all work goes to the complete requirement list even after viewing map',await page.locator('.work-table').isVisible()&&await page.locator('[data-action="manage-tab"][data-value="requirements"]').getAttribute('aria-current')==='page');
+  await goChat('front');await prompt.fill('执行选定的当前需求');await prompt.press('Enter');await work();await pick('current');await choose('R-381','current');
+  check('running selection defers change and keeps immutable current-run target',(await conversation()).run.taskId==='D-601'&&(await conversation()).work.pendingId==='R-381'&&(await page.locator('[data-work-slot="current"]').innerText()).includes('D-601')&&(await page.locator('.pending-work').innerText()).includes('R-381'));
+  await prompt.fill('下一轮执行');await prompt.press('Enter');
+  await page.waitForFunction(()=>JSON.parse(localStorage.getItem('kanzei-familiar-prototype-v1')).conversations.find(c=>c.id==='front').run.taskId==='R-381',null,{timeout:10000});
+  check('next queued round applies the manual target once',(await conversation()).work.pendingId===null&&(await conversation()).run.taskId==='R-381');await click('#stop');
+  await goChat('search');await prompt.fill('搜索任务运行');await prompt.press('Enter');await goChat('front');await work();await pick('current');
+  check('another active conversation cannot be silently reassigned',await page.locator('#dialog [data-action="select-work"][data-id="R-365"]').isDisabled());await click('#dialog [data-action="close-dialog"]');
+  await reset(s=>{s.conversations.find(c=>c.id==='front').work.pendingId='R-358';});await prompt.fill('保留这一条消息');await prompt.press('Enter');
+  check('invalid pending selection pauses instead of running the wrong work',(await conversation()).phase==='stopped'&&(await conversation()).queue[0].text==='保留这一条消息'&&(await conversation()).work.pendingId==='R-358');
+  await work();await click('[data-action="cancel-work-switch"]');await click('[data-action="resume"]');
+  check('canceling the invalid switch permits explicit queue continuation',(await conversation()).phase==='running'&&(await conversation()).run.taskId==='R-381');await click('#stop');
+
+  await reset();await prompt.fill('主对话草稿保留');await demo();await waitCalls('front',1);
+  check('agent call opens shared activity sidebar',await page.locator('#inspector.activity-inspector').isVisible()&&(await conversation()).dock.kind==='agent');
+  await click('[data-action="activity-tab"][data-value="agent"]');await page.locator('#agent-message-draft').fill('这段补充要求不要丢');
+  await waitCalls('front',3);await page.frameLocator('#preview-frame').locator('#bookmark').waitFor();
+  check('web call opens independent floating window while agent and terminal share two tabs',await page.locator('#preview-window').isVisible()&&await page.locator('#inspector iframe').count()===0&&JSON.stringify(await page.locator('.activity-tab').allTextContents())===JSON.stringify(['子代理','终端']));
+  check('automatic preview preserves agent draft and input focus',(await conversation()).dock.kind==='agent'&&await page.locator('#agent-message-draft').inputValue()==='这段补充要求不要丢'&&await page.locator('#agent-message-draft').evaluate(el=>el===document.activeElement)&&await prompt.inputValue()==='主对话草稿保留');
+  await page.frameLocator('#preview-frame').locator('#bookmark').click();await waitDone();
+  check('preview interaction and iframe survive later run updates',(await page.frameLocator('#preview-frame').locator('#count').innerText()).includes('1 个书签')&&(await conversation()).activities.find(a=>a.kind==='preview').bookmarks===1);
+  // Move the floating window away from the activity controls using its real drag handle.
+  let box=await page.locator('#preview-window').boundingBox();await page.mouse.move(box.x+150,box.y+23);await page.mouse.down();await page.mouse.move(440,140,{steps:6});await page.mouse.up();
+  let moved=await page.locator('#preview-window').boundingBox();check('dragging title moves the independent window',moved.x<box.x-100&&moved.y>box.y);
+  const handle=await page.locator('.preview-resize').boundingBox();await page.mouse.move(handle.x+12,handle.y+12);await page.mouse.down();await page.mouse.move(handle.x+102,handle.y+72,{steps:6});await page.mouse.up();
+  let resized=await page.locator('#preview-window').boundingBox();check('resize handle changes window dimensions',resized.width>moved.width+70&&resized.height>moved.height+40);
+  await page.locator('#preview-zoom').selectOption('125');
+  check('page zoom changes without losing page state',(await conversation()).preview.zoom===125&&(await page.frameLocator('#preview-frame').locator('#count').innerText()).includes('1 个书签')&&await page.locator('#preview-frame').evaluate(el=>getComputedStyle(el).transform.includes('1.25')));
+  const beforeMax=await page.locator('#preview-window').boundingBox();await click('[data-action="preview-maximize"]');
+  check('maximize stays within browser viewport',await page.locator('#preview-window').evaluate(el=>{const r=el.getBoundingClientRect();return r.x>=0&&r.y>=0&&r.width===innerWidth-16&&r.height===innerHeight-16;}));await click('[data-action="preview-maximize"]');
+  const restored=await page.locator('#preview-window').boundingBox();check('restore returns to prior window position and dimensions',Math.abs(restored.x-beforeMax.x)<1&&Math.abs(restored.width-beforeMax.width)<1);
+  await page.locator('.preview-resize').focus();await page.keyboard.press('ArrowLeft');check('resize has a keyboard alternative',(await page.locator('#preview-window').boundingBox()).width<restored.width-10);
+  await click('[data-action="activity-tab"][data-value="terminal"]');
+  check('terminal switch keeps web preview state and window open',await page.locator('.terminal-output').isVisible()&&await page.locator('#preview-window').isVisible()&&(await page.frameLocator('#preview-frame').locator('#count').innerText()).includes('1 个书签'));
+  await screenshot('v4-floating-preview.png');
+  await click('[data-action="close-panel"]');check('closing activity leaves preview open',await page.locator('#inspector').isHidden()&&await page.locator('#preview-window').isVisible());
+  await click('#topbar [data-action="activity-open"]');await closePreview();check('closing preview leaves activity open',await page.locator('#preview-window').isHidden()&&await page.locator('#inspector').isVisible());
+  await click('#topbar [data-action="preview-open"]');await goChat('reader-chat');
+  check('another conversation inherits neither preview nor activity',await page.locator('#preview-window').isHidden()&&await page.locator('#inspector').isHidden());await prompt.fill('阅读器草稿');await goChat('front');
+  check('return restores original preview and composer draft',await page.locator('#preview-window').isVisible()&&await prompt.inputValue()==='主对话草稿保留'&&(await page.frameLocator('#preview-frame').locator('#count').innerText()).includes('1 个书签'));
+  const history=(await snapshot()).runtimeHistory.length;await page.reload();
+  check('reload preserves completed preview, zoom and one runtime record',(await snapshot()).runtimeHistory.length===history&&await page.locator('#preview-zoom').inputValue()==='125'&&(await page.frameLocator('#preview-frame').locator('#count').innerText()).includes('1 个书签'));
+  await closePreview();await map();await page.locator('#runtime-conversation').selectOption('front');
+  check('new demo contributes exactly its three calls and no invented memory observation',await metric('calls')==='9'&&await metric('memory')==='1条次'&&(await snapshot()).runtimeHistory.filter(r=>!r.sample).length===1);
+  await click('.runtime-history-row:first-child');check('local runtime record reopens its activity',await page.locator('#inspector.activity-inspector').isVisible());
+
+  await demo();await waitCalls('front',4);await click('[data-action="close-panel"]');await waitCalls('front',6);await closePreview();await waitDone();
+  check('closed activity and preview remain closed for the rest of the same run',await page.locator('#inspector').isHidden()&&await page.locator('#preview-window').isHidden());
+  await demo();await waitCalls('front',7);await goChat('reader-chat');await waitDone('front');
+  check('background calls never open a window in another conversation',(await snapshot()).current.cid==='reader-chat'&&await page.locator('#preview-window').isHidden()&&await page.locator('#inspector').isHidden()&&await prompt.inputValue()==='阅读器草稿');
+  await goChat('front');await click('#topbar [data-action="preview-open"]');
+  check('past preview records are independently selectable',await page.locator('#preview-instance option').count()===3);
+  const oldId=(await conversation()).activities.find(a=>a.kind==='preview').id;await page.locator('#preview-instance').selectOption(oldId);
+  check('selecting past preview restores its own page state',(await page.frameLocator('#preview-frame').locator('#count').innerText()).includes('1 个书签'));
+  await closePreview();await demo();await waitCalls('front',10);await click('#topbar [data-action="preview-open"]');await page.locator('#preview-instance').selectOption(oldId);await waitCalls('front',11);await click('[data-action="activity-tab"][data-value="terminal"]');await click('[data-action="stop-activity"]');await waitDone();
+  check('new preview calls update history without replacing the selected page',await page.locator('#preview-instance option').count()===4&&await page.locator('#preview-instance').inputValue()===oldId&&(await page.frameLocator('#preview-frame').locator('#count').innerText()).includes('1 个书签'));
+  await closePreview();await map();
+  const last=(await snapshot()).runtimeHistory.filter(r=>!r.sample).at(-1);
+  check('stopped terminal stays stopped and does not become a failure',last.tools.find(t=>t.kind==='terminal').status==='stopped'&&await metric('failures')==='1');
+  await goChat('front');await demo();await waitCalls('front',13);await page.reload();
+  const interrupted=(await snapshot()).runtimeHistory.filter(r=>!r.sample).at(-1);
+  check('reload interrupts a live run without fabricating timing or failure',interrupted.outcome==='interrupted'&&interrupted.durationMs===null&&interrupted.tools[0].status==='stopped'&&(await conversation()).phase==='stopped');
+
+  // Preserve the v3 requirement contract checks alongside the new work selection.
+  await closePreview();await click('#topbar [data-action="manage"]');await click('[data-action="manage-tab"][data-value="requirements"]');await click('[data-action="task"][data-id="R-381"]');
+  check('requirement still uses full page and stable acceptance IDs',await page.locator('.requirement-body').isVisible()&&await page.locator('[data-criterion-id="AC-3"]').isVisible()&&await page.locator('#inspector').isHidden());
+  const original=(await snapshot()).tasks.find(t=>t.id==='R-381').requirement;
+  await click('[data-action="edit-requirement"]');await page.locator('[aria-label="需求正文"]').fill('修改后的系统行为：对话活动应按所属对话保存。');await click('#requirement-form [type="submit"]');
+  let changed=(await snapshot()).tasks.find(t=>t.id==='R-381').requirement;
+  check('requirement edits retain source and AC IDs while invalidating earlier evidence',changed.revision!==original.revision&&JSON.stringify(changed.spec.source)===JSON.stringify(original.spec.source)&&changed.spec.acceptance[0].id==='AC-1'&&await page.locator('.stale-evidence').count()===2);
+  await click('[data-action="edit-requirement"]');await page.locator('[aria-label="需求验收标准"]').fill('AC-1 | 第一项\nAC-1 | 重复编号');await click('#requirement-form [type="submit"]');
+  check('duplicate acceptance IDs block save',await page.locator('#requirement-form').isVisible()&&await page.locator('[aria-label="需求验收标准"]').evaluate(el=>!el.checkValidity()));
+  await page.locator('[aria-label="需求验收标准"]').fill('AC-1 | 第一项\n新增加的一项');await click('#requirement-form [type="submit"]');
+  changed=(await snapshot()).tasks.find(t=>t.id==='R-381').requirement;check('new criterion never reuses a retired ID',changed.spec.acceptance[1].id==='AC-4');
+
+  await goChat('front');await click('#topbar [data-action="preview-open"]');await click('[data-action="preview-reset"]');
+  for(const [width,height] of [[1000,760],[390,844]]){
+    await page.setViewportSize({width,height});
+    check(`floating preview and close controls fit ${width}px`,await page.locator('#preview-window').evaluate(el=>{const r=el.getBoundingClientRect(),b=el.querySelector('[data-action="preview-close"]').getBoundingClientRect();return r.x>=0&&r.y>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1&&b.right<=innerWidth;}));
+    await screenshot(`v4-preview-${width}.png`);await closePreview();await map();await click('[data-action="map-mode"][data-value="structure"]');
+    check(`graph scrolls locally while runtime layout fits ${width}px`,await page.locator('#page').evaluate(el=>el.scrollWidth<=el.clientWidth+1)&&await page.locator('.runtime-metrics').isVisible());
+    await screenshot(`v4-map-${width}.png`);await click('#topbar [data-action="chat"]');await click('#topbar [data-action="preview-open"]');
+  }
+  await page.setViewportSize({width:1440,height:1000});await click('#sidebar [data-action="theme"]');await screenshot('v4-preview-dark.png');await closePreview();await map();await screenshot('v4-map-dark.png');
+  await reset(s=>{s.revision=3;s.theme='dark';const c=s.conversations.find(c=>c.id==='front');c.draft='升级前的草稿';c.activities=[{id:'old-preview',kind:'preview',title:'原预览',bookmarks:2,status:'done',run:'old-run'}];c.dock={open:true,kind:'preview',selected:'old-preview',follow:false};delete c.preview;delete c.work;});
+  check('v3 preview migrates into independent window with draft and theme intact',(await snapshot()).revision===4&&await page.locator('#preview-window').isVisible()&&await page.locator('#inspector').isHidden()&&await prompt.inputValue()==='升级前的草稿'&&await page.locator('html').getAttribute('data-theme')==='dark'&&(await page.frameLocator('#preview-frame').locator('#count').innerText()).includes('2 个书签'));
+  check('no browser runtime errors',errors.length===0);
+}catch(error){failure=error;await screenshot('v4-failure.png').catch(()=>{});console.error(error);}
+finally{await writeFile(path.join(out,'verification-v4.json'),JSON.stringify({time:new Date().toISOString(),passed:checks.length,checks,errors,failure:failure?.message||null,scope:'Prototype dependency map, runtime aggregation, work selection, floating preview and requirement contract. No production writes.'},null,2));await browser.close();await server.close();}
+if(failure)process.exitCode=1;

@@ -148,6 +148,13 @@
     }
     await settle();
     api.ready = true;
+    if (params.get("sample") === "1") {
+      document.title = "界面试用 · 示例数据";
+      const badge = document.createElement("small");
+      badge.textContent = "界面试用 · 示例数据";
+      badge.style.cssText = "font-size:11px;color:var(--dim);padding:8px 12px";
+      document.getElementById("workspace-sidebar-footer")?.append(badge);
+    }
     document.documentElement.dataset.kzPreviewReady = scene;
     markReady(scene);
   }

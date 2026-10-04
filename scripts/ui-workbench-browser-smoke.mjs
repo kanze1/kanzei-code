@@ -248,15 +248,8 @@ try {
   assert.match(await secondCard.locator(".workbench-item").innerText(), /R-001[\s\S]*独立对照项目的独立需求/);
   assert.match(await secondCard.locator(".workbench-batch").innerText(), /1\/3/);
   assert.notEqual(await firstCard.locator(".workbench-item").getAttribute("data-key"), await secondCard.locator(".workbench-item").getAttribute("data-key"), "同 R-001 必须有不同项目键");
-  await page.locator("#workbench-new-goal").click();
-  await page.locator("#workbench-goal-project").selectOption(projectB);
-  await page.locator("#workbench-goal-title").fill("第二项目的新目标，只登记");
-  await page.locator("#workbench-goal-save").click();
-  await settle();
-  const goalCall = calls.find((call) => call.cmd === "docs_update");
-  assert.equal(goalCall?.args.projectDir, projectB, "全局新目标必须写入明确选中的项目");
-  assert.equal(goalCall?.args.kind, "idea");
-  assert.deepEqual(heavySince(), [], "保存新目标不应启动项目执行或装配对话");
+  assert.equal(await page.locator("#workbench-new-goal").isVisible(), false, "想法入口已退出工作台");
+  assert.equal(count("docs_update"), 0, "浏览工作台不能登记已移除的想法");
   await page.screenshot({ path: path.join(artifactRoot, "01-workbench.png"), fullPage: true });
 
   await openOverview(projectA);
@@ -270,14 +263,15 @@ try {
   await home();
   const beforeItemHistory = count("conversation_get");
   await secondCard.locator(".workbench-item").click();
-  await view("documents");
+  await view("project");
+  await page.locator(".management-detail-nav").waitFor();
   await settle();
   assert(calls.some((call) => call.cmd === "docs_snapshot" && call.args.projectDir === projectB), "同编号进度标签应下钻原项目");
   assert.equal(count("conversation_get"), beforeItemHistory, "进度标签下钻不能顺手读取对话");
   await openOverview(projectA);
   const beforeWorkHistory = count("conversation_get");
-  await page.getByRole("button", { name: "需求", exact: true }).click();
-  await view("documents");
+  await page.locator('[data-management-tab="req"]').click();
+  await view("project");
   await settle();
   assert(calls.some((call) => call.cmd === "docs_snapshot" && call.args.projectDir === projectA), "工作页应按需读取本项目文档");
   assert.equal(count("conversation_get"), beforeWorkHistory, "查看项目工作不能顺手读取对话");
@@ -290,7 +284,9 @@ try {
     shell.setAttachments([{ name: "reader.png", media_type: "image/png", data: "cmVhZGVy" }]);
     composer.renderAttachments();
   });
-  assert.equal(await page.locator("#process-subagents").isVisible(), true, "子代理开关仍属于项目执行界面");
+  await page.locator("#composer-more").click();
+  assert.equal(await page.locator("#process-subagents").isVisible(), true, "子代理开关在对话的更多菜单中");
+  await page.keyboard.press("Escape");
   await page.locator("#workbench-chat-history").click();
   await page.locator('.project-session-menu .workbench-session[data-process-id="p|reader-review"] .workbench-session-link').click();
   await settle();
@@ -359,27 +355,6 @@ try {
     await settle();
     assert(count("workspace_overview") > before, "全局摘要失效事件没有 sessionId 也必须触发更新");
   });
-  await check("goal-save-does-not-clear-new-draft", async () => {
-    await home();
-    await page.locator("#workbench-new-goal").click();
-    await page.locator("#workbench-goal-project").selectOption(projectA);
-    await page.locator("#workbench-goal-title").fill("第一条目标，正在保存");
-    const gate = holdNext("docs_update", (args) => args.kind === "idea");
-    try {
-      await page.locator("#workbench-goal-save").click();
-      await seen(gate);
-      await page.locator("#workbench-goal-cancel").click();
-      await page.locator("#workbench-new-goal").click();
-      await page.locator("#workbench-goal-project").selectOption(projectB);
-      await page.locator("#workbench-goal-title").fill("另一个项目尚未保存的目标");
-      gate.release();
-      await settle();
-      assert.equal(await page.locator("#workbench-goal-form").isVisible(), true, "旧保存回执不能关闭重开的表单");
-      assert.equal(await page.locator("#workbench-goal-title").inputValue(), "另一个项目尚未保存的目标");
-      assert.equal(await page.locator("#workbench-goal-project").inputValue(), projectB);
-      await page.locator("#workbench-goal-cancel").click();
-    } finally { gate.release(); }
-  });
   await check("home-during-project-selection", async () => {
     await openOverview(projectA);
     const gate = holdNext("projects_select", (args) => args.path === projectA);
@@ -419,26 +394,22 @@ try {
       assert.equal(await page.locator("body").getAttribute("data-view"), "workspace", "迟到的历史恢复不得把工作台抢回聊天");
     } finally { gate.release(); }
   });
-  await check("same-project-item-cancel", async () => {
+  await check("document-browse-does-not-activate-execution", async () => {
     await openOverview(projectA);
-    await page.getByRole("button", { name: "需求", exact: true }).click();
-    await view("documents");
-    await settle();
+    await openChat();
     await home();
-    const gate = holdNext("projects_select", (args) => args.path === projectA);
-    try {
-      await firstCard.locator(".workbench-item").click();
-      await seen(gate);
-      await page.evaluate(async path => { const tree = await import("./12-session-tree.js"); tree.setSidebarOpen(path, false); tree.invalidateSessionTree(); }, projectA);
-      await page.locator(`.workbench-project-link[data-path="${projectA}"]`).click();
-      gate.release();
-      await settle();
-      assert.equal(await page.locator("body").getAttribute("data-view"), "chat", "已取消的同项目标签跳转不得从对话抢回工作页");
-    } finally { gate.release(); }
+    const requests = calls.length;
+    await secondCard.locator(".workbench-item").click();
+    await view("project");
+    await page.locator(".management-detail-nav").waitFor();
+    await settle();
+    assert.equal(await page.evaluate(async () => (await import("./03-shell.js")).currentProject), projectA, "浏览B需求不改变A执行根");
+    assert.equal(calls.slice(requests).some(call => call.cmd === "projects_select"), false);
+    assert.match(await page.locator(".management-body").innerText(), /独立对照项目的独立需求/);
   });
   await check("same-view-project-work-switch", async () => {
     await openOverview(projectA);
-    await page.getByRole("button", { name: "需求", exact: true }).click();
+    await page.evaluate(async project => (await import("./12-workbench.js")).openProjectSpace(project, "documents"), projectA);
     await view("documents");
     await settle();
     const requests = calls.length;
@@ -449,7 +420,7 @@ try {
   });
   await check("old-work-form-cannot-write-new-project", async () => {
     await openOverview(projectA);
-    await page.getByRole("button", { name: "需求", exact: true }).click();
+    await page.evaluate(async project => (await import("./12-workbench.js")).openProjectSpace(project, "documents"), projectA);
     await view("documents");
     await settle();
     await page.evaluate(async () => (await import("./11-docs-list.js")).jumpToEntry("R-001", { expand: true }));
@@ -481,7 +452,7 @@ try {
   });
   await check("graph-pauses-on-home", async () => {
     await openOverview(projectA);
-    await page.locator('[data-resource="memory"]').click();
+    await page.locator('#workspace-sidebar-footer [data-view="memory"]').click();
     await view("memory");
     await page.locator("#memory-view-graph").click();
     await page.waitForFunction(() => window.__kzMemoryGraph?.ready && window.__kzMemoryGraph.mode === "canvas");
@@ -492,41 +463,11 @@ try {
     await page.waitForTimeout(400);
     assert.equal(await page.evaluate(() => window.__graphFrames), frames, "回工作台之后隐藏图谱必须停止画帧");
   });
-  await check("home-during-research-library", async () => {
-    await openOverview(projectA);
-    const gate = holdNext("research_library_list");
-    try {
-      await page.locator('[data-workspace="research"]').click();
-      await seen(gate);
-      await home();
-      gate.release();
-      await settle();
-      assert.equal(await page.locator("body").getAttribute("data-view"), "workspace", "研究库迟到恢复不能抢回用户已经离开的页面");
-    } finally {
-      gate.release();
-      await page.evaluate(async () => (await import("./03-workspaces.js")).switch_workspace("dev"));
-      await settle();
-    }
-  });
-  await check("project-switch-during-research-library", async () => {
-    await openOverview(projectA);
-    const gate = holdNext("research_library_list");
-    try {
-      await page.locator('[data-workspace="research"]').click();
-      await seen(gate);
-      await page.evaluate(async path => { const tree = await import("./12-session-tree.js"); tree.setSidebarOpen(path, false); tree.invalidateSessionTree(); }, projectB);
-      await page.locator(`.workbench-project-link[data-path="${projectB}"]`).click();
-      await page.evaluate(async () => { const w = await import("./12-workbench.js"); void w.openProjectSpace(w.workbenchProject(), "chat"); });
-      gate.release();
-      await settle();
-      await view("chat");
-      const identity = await page.evaluate(async () => {
-        const shell = await import("./03-shell.js");
-        const workspaces = await import("./03-workspaces.js");
-        return { project: shell.currentProject, process: shell.activeProcessId, space: workspaces.active_space };
-      });
-      assert.deepEqual(identity, { project: projectB, process: "d|second", space: "dev" }, "研究请求收尾不得把B对话放入A或research执行域");
-    } finally { gate.release(); }
+  await check("retired-research-workspace", async () => {
+    const requests = count("research_library_list");
+    await page.evaluate(async () => (await import("./03-workspaces.js")).switch_workspace("research"));
+    assert.equal(await page.locator('[data-workspace="research"]').isVisible(), false);
+    assert.equal(count("research_library_list"), requests, "已移除的研究工作区不能被旧偏好重新加载");
   });
   for (const width of [1000, 390]) {
     await check(`width-${width}`, async () => {

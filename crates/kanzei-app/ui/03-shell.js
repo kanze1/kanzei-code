@@ -320,10 +320,10 @@ export function focusMainAfterViewChange(view = document.body.dataset.view) {
 // 只绑带 data-view 的按钮:rail 上还有侧栏开合这类布局开关,它们不是视图。
 export function navigate_view(view, { prepared = false, reload = false } = {}) {
   if (!prepared && view === "chat" && active_space === "dev" && !currentProject && !workbenchProject()) return openGeneralChat();
-  if (!prepared && ["workspace", "settings"].includes(view)) cancelProjectNavigation();
+  if (!prepared && ["workspace", "settings", "memory"].includes(view)) cancelProjectNavigation();
   // A project selected in the workbench is only a browsing identity. Activate
   // execution explicitly before a project tool can use currentProject.
-  if (!prepared && !["workspace", "settings", "project"].includes(view) && active_space === "dev"
+  if (!prepared && !["workspace", "settings", "project", "memory"].includes(view) && active_space === "dev"
       && workbenchProject() && (currentProject !== workbenchProject() || (view === "chat" && !activeSessionId))) {
     return openProjectSpace(workbenchProject(), view);
   }

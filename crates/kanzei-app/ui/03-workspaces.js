@@ -20,7 +20,7 @@ let workspace_restore = null;
 const dev_views = new Set(["project", "documents", "lines", "arch", "metrics"]);
 const composer_drafts = new Map();
 let composer_scope = "";
-let startup_space;
+
 const library_preferences_key = "@research-library";
 
 export function remember_development_project(project) {
@@ -116,13 +116,12 @@ export async function restore_workspace_preferences() {
   }
   workspace_preferences = mergeWorkspaceState(workspace_preferences, restoring.edits);
   workspace_restore = null;
-  startup_space = workspace_preferences[library_preferences_key]?.space;
+
 }
 
-export async function restore_active_workspace(options = {}) {
-  const space = startup_space ?? workspace_preferences[development_project]?.space;
-  if (space === "research") await switch_workspace("research", options);
-  else sync_workspace_visibility();
+export async function restore_active_workspace() {
+  // Research workspaces are retired; existing material remains on disk.
+  sync_workspace_visibility();
 }
 
 export function process_space(item) {
@@ -154,7 +153,7 @@ export function workspace_processes(items) {
 
 export function view_allowed(view) {
   if (isGeneralChat() && active_space === "dev" && dev_views.has(view)) return false;
-  return view === "research" ? active_space === "research" : !dev_views.has(view) || active_space === "dev";
+  return view === "research" ? false : !dev_views.has(view) || active_space === "dev";
 }
 
 export function remember_workspace_view(view) {
@@ -243,7 +242,7 @@ export async function create_workspace_process(topic = null, is_current = () => 
 }
 
 export async function switch_workspace(space, { isCurrent = () => true } = {}) {
-  if (!["dev", "research"].includes(space) || !isCurrent()) return false;
+  if (space !== "dev" || !isCurrent()) return false;
   // A new project may request dev while a cancelled research load is still
   // awaiting IPC. Wait for that transition to restore its root before entering
   // the new project; returning early would leave its session in research scope.

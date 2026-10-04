@@ -27,7 +27,11 @@ pub(crate) async fn preview_open(
     } else {
         super::roots_for_process(&app, process_id.as_deref())
     };
-    let url = super::resolve_target(&target, &roots)?;
+    let url = if target == "about:blank" {
+        "about:blank".to_owned()
+    } else {
+        super::resolve_target(&target, &roots)?
+    };
     pane::open(&app, &url, process_id, bounds).await
 }
 
@@ -98,6 +102,7 @@ pub(crate) async fn preview_device(
     app: AppHandle,
     preset: Option<String>,
     scheme: Option<String>,
+    zoom: Option<f64>,
 ) -> Result<Value, String> {
     let preset = match preset.as_deref() {
         Some(raw) => Some(
@@ -112,7 +117,10 @@ pub(crate) async fn preview_device(
         ),
         None => None,
     };
-    pane::set_device(&app, preset, scheme).await
+    if zoom.is_some_and(|value| !value.is_finite() || !(0.5..=2.0).contains(&value)) {
+        return Err("页面缩放必须在 50% 到 200% 之间".into());
+    }
+    pane::set_device(&app, preset, scheme, zoom).await
 }
 
 #[tauri::command]

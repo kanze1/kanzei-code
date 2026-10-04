@@ -888,7 +888,19 @@ fn run_metrics_rounds(
     let rounds: Vec<serde_json::Value> = rows
         .into_iter()
         .map(
-            |(session_id, at, prompt, outcome, steps, input, output, tools, context, metrics)| {
+            |(
+                session_id,
+                at,
+                prompt,
+                outcome,
+                steps,
+                input,
+                output,
+                tools,
+                context,
+                metrics,
+                duration_ms,
+            )| {
                 json!({
                     "sessionId": session_id,
                     "at": at,
@@ -901,6 +913,8 @@ fn run_metrics_rounds(
                     "context": parse(&context),
                     "metrics": parse(&metrics),
                     "measured": metrics.trim() != "{}" && !metrics.trim().is_empty(),
+                    // Historical rows predate duration observation and contain zero.
+                    "durationMs": (duration_ms > 0).then_some(duration_ms),
                 })
             },
         )
@@ -1224,6 +1238,7 @@ mod tests {
         assert_eq!(output["rounds"][0]["prompt"], "R-296 command metrics");
         assert_eq!(output["rounds"][0]["outcome"], "completed");
         assert_eq!(output["rounds"][0]["inputTokens"], 17);
+        assert_eq!(output["rounds"][0]["durationMs"], 12);
         assert_eq!(output["rounds"][0]["measured"], true);
         assert_eq!(output["rounds"][0]["sessionId"], session_id);
         std::fs::remove_dir_all(root).ok();

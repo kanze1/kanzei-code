@@ -89,7 +89,7 @@ function geometryInPage({ lang = "zh", extended = false } = {}) {
     if (busy && visibleTags) out.push(`⑦ 运行态项目级来源标签应收起,实际显示 ${visibleTags} 个`);
     if (!busy && visibleTags !== projectTags.length) out.push(`⑦ 空闲态项目级来源标签应显示(${projectTags.length} 个),实际 ${visibleTags} 个`);
   }
-  const project = document.querySelector("#project-label");
+  const project = document.querySelector("#workspace-project-name") || document.querySelector("#project-label");
   const info = { composer: Math.round(C.width), bar: Math.round(bar.height), controls: items.length };
   if (project && project.textContent.length > 40) {
     info.projectTruncated = project.scrollWidth > project.clientWidth;
@@ -219,7 +219,7 @@ export async function runComposerGeometry(browser, origin, { screenshotDirectory
         for (const error of errors) failures.push(`输入区几何 ${tag}:${error}`);
         measured += 1;
         if (combo.longName && state === "running" && theme === "dark") {
-          await page.evaluate(() => { document.querySelector("#project-label").textContent = "一个非常非常长的项目名称用来测试截断效果-Akashic-AgentOS-workspace-二期产品设计与前端开发"; });
+          await page.evaluate(() => { (document.querySelector("#workspace-project-name") || document.querySelector("#project-label")).textContent = "一个非常非常长的项目名称用来测试截断效果-Akashic-AgentOS-workspace-二期产品设计与前端开发"; });
           const long = await measureComposer(page);
           for (const failure of long.failures) failures.push(`输入区几何 ${tag} 超长项目名:${failure}`);
           measured += 1;
@@ -231,7 +231,7 @@ export async function runComposerGeometry(browser, origin, { screenshotDirectory
   // 自检:上述回归都必须被判红。
   const silent = [];
   for (const [id, css] of Object.entries(COMPOSER_MUTATIONS)) {
-    const { context, page } = await openApp(browser, origin, { width: 1600, height: 900, dpr: 1.25, theme: "dark", state: SELF_TEST_STATE[id] ?? "running" });
+    const { context, page } = await openApp(browser, origin, { width: id === "crowdedNoWrap" ? 1000 : 1600, height: 900, dpr: 1.25, theme: "dark", state: SELF_TEST_STATE[id] ?? "running" });
     const result = await measureComposer(page, { mutate: css, extended: id === "crowdedNoWrap" });
     await context.close();
     if (!result.failures.length) silent.push(id);

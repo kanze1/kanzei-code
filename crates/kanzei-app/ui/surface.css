@@ -246,6 +246,8 @@ option:disabled { color: var(--surface-muted); }
 }
 .k-surface[data-kz-frame][data-kz-placed~="w"] { width: var(--kz-frame-w); min-width: 0; max-width: none; }
 .k-surface[data-kz-frame][data-kz-placed~="h"] { height: var(--kz-frame-h); max-height: none; }
+.k-surface#preview-dock.pv-maximized { inset: 10px; width: calc(100vw - 20px); height: calc(100vh - 20px); max-width: none; max-height: none; margin: 0; }
+.k-surface#preview-dock.pv-maximized > .k-frame-edge { display: none; }
 /* 可调尺寸的框:手柄骑在边上(外露 6px),框本体不能裁剪;裁剪与滚动下放到唯一的内层容器
    (#viewer-dialog/#project-models-dialog/#ask-dialog)。排除 [popover]:openMenu 会把菜单挂进 dialog 成为直接子元素。
    display 只改打开态,否则 :is() 的特异性压过 dialog:not([open]){display:none},关着的框会被画出来。 */

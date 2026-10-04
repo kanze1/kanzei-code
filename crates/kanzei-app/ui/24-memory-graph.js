@@ -9,8 +9,9 @@
 // - 画布渲染失败(或环境没有 canvas)就退到文本视图:按 crate → 模块分组的树,给键盘与读屏用。
 import { $, defer, invoke, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
-import { currentProject, toastError } from "./03-shell.js";
-import { jumpToEntry } from "./11-docs-list.js";
+import { toastError } from "./03-shell.js";
+import { memoryProject as currentProject } from "./03-memory-scope.js";
+import { openWorkbenchItem } from "./12-workbench.js";
 import { openDecisionReview } from "./12-decision-console.js";
 import {
   confirmLeaveMemoryDetail,
@@ -584,7 +585,7 @@ export function renderGraphNodeDetail(node) {
   const groups = relationGroups(node);
   const memberMemories = [...groups.values()].flat().filter((r) => r.other.kind === "memory").map((r) => r.other);
   if (node.kind === "requirement" || node.kind === "defect") {
-    actions.append(button(t("打开条目"), () => void jumpToEntry(node.id, { expand: true })));
+    actions.append(button(t("打开条目"), () => void openWorkbenchItem(currentProject, { id: node.id })));
   } else if (node.kind === "decision") {
     if (node.id.startsWith("dec-")) actions.append(button(t("打开决策复核"), () => openDecisionReview(currentProject, node.id)));
     else actions.append(button(t("打开决策文档"), () => void openDocViewer("decision")));

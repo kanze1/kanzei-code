@@ -37,33 +37,37 @@ try {
   const rail = page.locator("#project-chat-work");
   if (await page.locator("#tasks-close").isVisible()) await page.locator("#tasks-close").click();
   await rail.waitFor({ state: "visible" });
-  const groups = await rail.locator("[data-work-group]").evaluateAll(nodes => nodes.map(node => [node.dataset.workGroup, node.querySelector(".sw-work-count").textContent]));
-  check(JSON.stringify(groups) === JSON.stringify([["active", "2"], ["pending", "1"], ["external", "1"], ["blocked", "1"], ["parked", "1"]]), "State groups show accurate counts for both tracker kinds");
-  check(!await rail.locator('[data-work-group="external"]').evaluate(node => node.open), "External acceptance starts collapsed and stays outside development groups");
-  check(!await rail.locator('[data-work-group="parked"]').evaluate(node => node.open), "Parked work starts collapsed");
-  check(await rail.locator('[data-work-id="D-001"] .sw-work-priority').textContent() === "P0" && (await rail.locator('[data-work-id="D-001"] .sw-work-type').textContent()).includes("缺陷 · 后端"), "Entry shows its kind, priority and tag together");
+  check(await rail.locator(".work-focus-slot").count() === 2, "Conversation keeps only current work and next candidate");
+  check(!/R-003|R-004|D-002/.test(await rail.innerText()), "Parked, external acceptance and blocked items are excluded from conversation candidates");
   await page.screenshot({ path: `${output}/rail-light.png` });
-  await rail.locator('[data-work-filter="kind"]').selectOption("defect");
-  check(await rail.locator("[data-work-id]").count() === 2, "Kind filter shows only defects");
-  await rail.locator('[data-work-filter="priority"]').selectOption("P0");
-  check(await rail.locator("[data-work-id]").count() === 1, "Priority combines with kind filter");
-  await page.evaluate(async () => (await import("/26-project-conversations.js")).refreshConversationWork());
-  check(await rail.locator('[data-work-filter="priority"]').inputValue() === "P0", "Filters survive automatic refresh");
-  await rail.locator('[data-work-filter="tag"]').selectOption("前端");
-  check(await rail.getByText("暂无匹配条目", { exact: true }).isVisible(), "Empty filters give an honest empty state");
-  await rail.getByRole("button", { name: "清除筛选", exact: true }).click();
-  check(await rail.locator("[data-work-id]").count() === 6, "Clearing filters restores every active entry");
-  await rail.locator('[data-work-group="parked"] > summary').click();
-  await page.waitForTimeout(80);
-  await page.evaluate(async () => (await import("/26-project-conversations.js")).refreshConversationWork());
-  check(await rail.locator('[data-work-group="parked"]').evaluate(node => node.open), "Group expansion survives refresh");
-  await rail.locator('[data-work-id="R-002"]').click();
-  await rail.getByRole("button", { name: "取消需求", exact: true }).click();
+  await page.locator('[data-work-surface="project"]').click();
+  await page.locator('.management-row[data-work-id="R-002"]').waitFor();
+  check(await page.locator(".management-row").count() === 4, "Management retains every open requirement, including non-executable states");
+  await page.locator('.management-tools select').selectOption("awaiting_external");
+  check(await page.locator(".management-row").count() === 1 && await page.locator('[data-work-id="R-004"]').isVisible(), "External acceptance has a dedicated management filter");
+  await page.locator('.management-tools select').selectOption("open");
+  await page.locator('[data-management-tab="defect"]').click();
+  check(await page.locator(".management-row").count() === 2, "Defects are shown in their own peer page");
+  await page.locator('.management-tools [aria-label="更多"]').click();
+  await page.getByRole("menuitem", { name: "高级筛选与批量管理", exact: true }).click();
+  await page.locator("#documents-filter-toggle").click();
+  await page.locator("#documents-priority-filter").selectOption("P0");
+  check(await page.locator("#documents-defect-list .doc-item").count() === 1, "Advanced priority filter is still functional");
+  await page.evaluate(async () => (await import("/14-docs-actions.js")).refreshDocs());
+  check(await page.locator("#documents-priority-filter").inputValue() === "P0", "Advanced filters survive snapshot refresh");
+  await page.locator("#documents-tag-filter").selectOption("前端");
+  check(await page.locator("#documents-defect-list .doc-item").count() === 0, "Tag and priority combine without inventing matches");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.locator('[data-work-surface="project"]').click();
+  await page.locator('[data-management-tab="req"]').click();
+  await page.locator('.management-row[data-work-id="R-002"]').click();
+  await page.locator(".management-body").getByRole("button", { name: "→ 转 已放弃", exact: true }).click();
   await page.locator("#input-value").fill("已被新方案替代，取消旧需求");
   await page.locator("#input-ok").click();
   await page.waitForFunction(() => window.__kzPreview.calls.some(call => call.cmd === "docs_update" && call.args.reason));
   const update = await page.evaluate(() => window.__kzPreview.calls.filter(call => call.cmd === "docs_update").at(-1).args);
-  check(update.action === "close" && update.status === "dropped" && update.reason.includes("新方案"), "Sidebar cancellation passes an explicit reason through the production IPC");
+  check(update.action === "close" && update.status === "dropped" && update.reason.includes("新方案"), "Full-page cancellation passes an explicit reason through the production IPC");
   await page.evaluate(async () => {
     const { backlogTally } = await import("/12-docs-pages.js");
     window.__externalTally = backlogTally(window.__backlogDocs.requirements.filter(entry => entry.status === "awaiting_external"), "req");
@@ -79,14 +83,18 @@ try {
   // Returning to development must use each tracker's state machine, without starting a run.
   for (const [id, nextStatus] of [["R-004", "doing"], ["D-002", "fixing"]]) {
     await page.evaluate(async id => {
-      if (id.startsWith("D-")) window.__backlogDocs.defects.find(entry => entry.id === id).status = "awaiting_external";
-      await (await import("/26-project-conversations.js")).refreshConversationWork();
+      if (id.startsWith("D-")) {
+        const entry = window.__backlogDocs.defects.find(entry => entry.id === id);
+        entry.status = "awaiting_external"; entry.nextStatuses = ["fixing", "fixed", "wontfix"];
+      }
+      await (await import("/14-docs-actions.js")).refreshDocs();
     }, id);
-    await rail.locator('[data-work-group="external"]').evaluate(node => { node.open = true; });
-    await rail.locator(`[data-work-id="${id}"]`).click();
-    check(await rail.getByRole("button", { name: "退回开发", exact: true }).isVisible() && !await rail.getByRole("button", { name: "继续此需求", exact: true }).count(), `${id} external detail offers an explicit return to development`);
+    await page.locator(`[data-management-tab="${id.startsWith("D-") ? "defect" : "req"}"]`).click();
+    await page.locator(`.management-row[data-work-id="${id}"]`).click();
+    await page.locator(".management-body").getByRole("button", { name: "退回开发", exact: true }).waitFor();
+    check(await page.locator(".management-body").getByRole("button", { name: "退回开发", exact: true }).isVisible() && !await page.locator(".management-body").getByRole("button", { name: "继续此需求", exact: true }).count(), `${id} external detail offers an explicit return to development`);
     const runCount = await page.evaluate(() => window.__kzPreview.calls.filter(call => call.cmd === "run_prompt").length);
-    await rail.getByRole("button", { name: "退回开发", exact: true }).click();
+    await page.locator(".management-body").getByRole("button", { name: "退回开发", exact: true }).click();
     await page.waitForFunction(({ id, nextStatus }) => window.__kzPreview.calls.some(call => call.cmd === "docs_update" && call.args.id === id && call.args.status === nextStatus), { id, nextStatus });
     check(await page.evaluate(() => window.__kzPreview.calls.filter(call => call.cmd === "run_prompt").length) === runCount, `${id} return writes ${nextStatus} without starting a conversation run`);
   }
@@ -124,21 +132,21 @@ try {
   await page.locator("#input-cancel").click();
   await page.evaluate(() => window.__batchExternalTransition);
   check(await page.evaluate(() => window.__batchExternalCalls.length) === 2, "Cancelling batch acceptance commits no state transition");
-  // A dense sidebar must scroll without moving the conversation or its composer.
+  // A long management list remains reachable without disturbing the conversation.
+  const beforeScroll = await page.evaluate(() => ({ chat: document.getElementById("messages").scrollTop, draft: document.getElementById("prompt").value }));
   await page.evaluate(async () => {
     const sample = window.__backlogDocs.requirements[0];
     window.__backlogDocs.requirements = Array.from({ length: 60 }, (_, i) => ({ ...structuredClone(sample), id: `R-${100 + i}`, title: `密集列表 ${i}`, status: "doing" }));
-    await (await import("/26-project-conversations.js")).refreshConversationWork();
-    document.getElementById("project-chat-work").scrollTop = 0;
+    await (await import("/14-docs-actions.js")).refreshDocs();
   });
-  const beforeScroll = await page.evaluate(() => ({ chat: document.getElementById("messages").scrollTop, prompt: document.getElementById("prompt").getBoundingClientRect().top }));
-  await rail.hover();
+  await page.locator('[data-management-tab="req"]').click();
+  await page.locator(".management-list").hover();
   await page.mouse.wheel(0, 1200);
-  await page.waitForFunction(() => document.getElementById("project-chat-work").scrollTop > 0);
-  const afterScroll = await page.evaluate(() => ({ chat: document.getElementById("messages").scrollTop, prompt: document.getElementById("prompt").getBoundingClientRect().top }));
-  check(JSON.stringify(beforeScroll) === JSON.stringify(afterScroll), "Dense sidebar scroll leaves conversation position and composer geometry unchanged");
-  await rail.locator('[data-work-id="R-159"]').scrollIntoViewIfNeeded();
-  check(await rail.locator('[data-work-id="R-159"]').isVisible(), "The final dense-list entry remains reachable");
+  await page.waitForFunction(() => document.getElementById("view-project").scrollTop > 0);
+  const afterScroll = await page.evaluate(() => ({ chat: document.getElementById("messages").scrollTop, draft: document.getElementById("prompt").value }));
+  check(JSON.stringify(beforeScroll) === JSON.stringify(afterScroll), "Management scrolling preserves conversation position and draft");
+  await page.locator('.management-row[data-work-id="R-159"]').scrollIntoViewIfNeeded();
+  check(await page.locator('.management-row[data-work-id="R-159"]').isVisible(), "The final dense-list entry remains reachable");
   await page.screenshot({ path: `${output}/rail-dense.png` });
   const outcomes = await page.evaluate(async () => {
     const chat = await import("/05-chat-render.js"), activity = await import("/06-activity.js"), summary = await import("/05-tool-summary.js");

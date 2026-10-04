@@ -4517,187 +4517,14 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   );
 }
 
-// ---------- R-221 B2 topic 工件:课题分组、报告读取与同名 ID 隔离 ----------
+// ---------- Research workspace retirement ----------
+// Historical files remain readable, but no navigation may reactivate this mode.
 {
-  const profile = byId.get("profile-select");
-  const savedProfile = profile.value;
-  const original_processes = payloads.process_list;
-  payloads.process_list = [...original_processes, { id: "p|research", session_id: "sess-research", profile: "research", research_topic: "alpha-study", label: "Alpha 研究", running: false }];
-  await vm.runInContext('switch_workspace("research")', sandbox);
-  await flush();
-  const researchActivity = document.querySelector('.activity-item[data-view="research"]');
-  assert(researchActivity && !researchActivity.classList.contains("hidden"), "research 档未显示研究入口");
-  researchActivity.click();
-  await flush();
-  const topicSelect = byId.get("research-topic-select");
-  assert(topicSelect && topicSelect.options.length === 2, `研究课题选择器应有两个 topic,实得 ${topicSelect?.options.length ?? 0}`);
-  assert(topicSelect.value === "alpha-study", `默认应选择排序后的 alpha-study,实得 ${topicSelect.value}`);
-  assert(document.querySelector('#research-cards .research-topic-group[data-topic="alpha-study"]'), "alpha topic 分组未渲染");
-  assert(byId.get("research-runs-count").textContent === "2 条", "真实 research run 数量未渲染");
-  vm.runInContext('show_research_page("writing")', sandbox);
-  await flush();
-  const latexTemplate = byId.get("research-latex-template");
-  assert(latexTemplate && latexTemplate.options.length === 4, "LaTeX 模板选择器未加载四套内置模板");
-  latexTemplate.value = "paper_with_figures";
-  byId.get("research-latex-document-name").value = "paper";
-  byId.get("research-latex-title").value = "Alpha 论文";
-  byId.get("research-latex-create").click();
-  await flush();
-  assert(invokeArgs.some((call) => call.cmd === "research_latex_create" && call.args?.templateId === "paper_with_figures"), "模板新建未调用真实 research_latex_create");
-  assert(byId.get("research-latex-status").textContent.includes("latex/"), "模板新建成功状态未返回项目路径");
-  byId.get("research-latex-compile").click();
-  await flush();
-  assert(invokeArgs.some((call) => call.cmd === "research_latex_compile" && call.args?.documentName === "paper"), "PDF 编译未调用真实 research_latex_compile");
-  assert(invokeArgs.some((call) => call.cmd === "research_latex_pdf"), "编译成功后未调用真实 research_latex_pdf 预览");
-  assert(!byId.get("research-latex-pdf").hidden && byId.get("research-latex-pdf").src.includes("application/pdf"), "PDF 预览 iframe 未显示 data URL");
-  byId.get("research-latex-figure-name").value = "result.png";
-  byId.get("research-latex-figure-caption").value = "实验结果";
-  byId.get("research-latex-figure-label").value = "fig:result";
-  byId.get("research-latex-insert-figure").click();
-  await flush();
-  assert(invokeArgs.some((call) => call.cmd === "research_latex_insert_figure" && call.args?.figureName === "result.png"), "实验图表入口未调用真实 research_latex_insert_figure");
-  assert(byId.get("research-latex-status").textContent.includes("../figures/result.png"), "图表引用成功状态未显示稳定相对路径");
-  assert(byId.get("research-latex-history").childNodes.length === 1, "编译历史未渲染可回看的版本");
-  const roadmapGraph = byId.get("research-roadmap-graph");
-  assert(roadmapGraph.querySelectorAll(".research-roadmap-node").length === 3, "探索路线图节点未按 Markdown 真源渲染");
-  assert(roadmapGraph.querySelectorAll(".research-roadmap-edge.edge-depends_on").length === 2, "depends_on 实线未完整投影");
-  assert(roadmapGraph.querySelectorAll(".research-roadmap-edge.edge-supersedes").length === 0, "悬挂 supersedes 不应伪造可见边");
-  assert(!byId.get("research-roadmap-diagnostics").hidden && byId.get("research-roadmap-diagnostics").textContent.includes("悬挂"), "悬挂关系诊断未在界面显式呈现");
-  const firstProjection = vm.runInContext("JSON.stringify(researchRouteProjection())", sandbox);
-  vm.runInContext("renderResearchRoadmap()", sandbox);
-  assert(firstProjection === vm.runInContext("JSON.stringify(researchRouteProjection())", sandbox), "同一批探索文件重复投影结果不一致");
-  roadmapGraph.querySelector('.research-roadmap-node[data-node-id="E-101"]').click();
-  assert(!byId.get("research-exploration-detail").hidden && byId.get("research-exploration-detail-body").textContent.includes("Alpha 基线"), "点击路线图节点未进入探索详情");
-  const detailBody = byId.get("research-exploration-detail-body");
-  assert(detailBody.textContent.includes("基线假设") && detailBody.textContent.includes("支持") && detailBody.textContent.includes("继续扩大样本"), "探索详情未展示假设/结论/后续真实字段");
-  assert(detailBody.querySelectorAll(".research-results-table tr").length === 2, "探索详情结果表未保留 Markdown 结果行");
-  detailBody.querySelector(".research-result-open")?.click();
-  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"]')?.classList.contains("is-selected"), "结果行未定位并高亮对应 run");
-  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-chart polyline'), "run 指标事件未渲染曲线");
-  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-terminal')?.textContent.includes("训练完成"), "run 终端 message 未进入回放");
-  // UI-0926 #10:执行配置 JSON 拆成策略/类型 chip,不再原样拼进 meta 行。
-  assert(!document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-meta')?.textContent.includes('{"kind"') && document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-meta .sv-chip')?.textContent.match(/^(受管|Managed)$/), "研究运行卡仍拼接 execution_json 原文,或策略 chip 没有显示展示词(managed → 受管)");
-  const artifactLink = document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-artifact-link');
-  assert(artifactLink, "run 未展示产物入口");
-  artifactLink.click();
-  await flush();
-  assert(invokeArgs.some((call) => call.cmd === "file_preview" && call.args?.path.includes("figure.png")), "产物入口未调用真实 file_preview");
-
-
-  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-drift.has-drift')?.textContent.includes("环境漂移"), "登记与快照不一致时未显示环境漂移");
-  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-02"] .research-run-drift.no-drift')?.textContent.includes("环境声明一致"), "无漂移 run 未显示一致状态");
-  assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Alpha 一手论文"), "alpha topic 来源未渲染");
-  assert(!byId.get("research-plan-panel").hidden, "alpha topic 未展示研究计划面板");
-  assert(byId.get("research-plan-status").textContent === "待批准", "研究计划初始状态未显示待批准");
-  assert(byId.get("research-plan-tree").querySelectorAll("li").length === 2, "研究计划树节点未渲染完整");
-  const approvePlan = byId.get("research-plan-approve");
-  assert(!approvePlan.hidden, "待审批计划未显示批准按钮");
-  approvePlan.click();
-  await flush();
-  assert(byId.get("research-plan-status").textContent === "已批准", "计划批准后状态未更新");
-  const approveCalls = invokeArgs.filter((call) => call.cmd === "research_plan_approve");
-  assert(approveCalls.at(-1)?.args?.topic === "alpha-study", "计划审批调用未携带 alpha topic");
-  assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("正文级"), "来源卡未展示正文级证据深度");
-  assert(document.querySelector('#research-cards .research-card[data-doc-id="S-103"]')?.textContent.includes("摘要级"), "无 V 等级来源卡未展示摘要级证据深度");
-  const arxivOpen = document.querySelector('#research-cards .research-card[data-doc-id="S-103"] .research-open');
-  assert(arxivOpen, "研究来源卡缺少 arXiv 正文入口");
-  arxivOpen.dispatchEvent({ type: "click", stopPropagation() {} });
-  await flush();
-  const arxivCalls = invokeArgs.filter((call) => call.cmd === "research_arxiv_preview");
-  assert(arxivCalls.at(-1)?.args?.topic === "alpha-study", `arXiv 正文调用未携带 topic:${JSON.stringify(arxivCalls.at(-1)?.args)}`);
-  assert(byId.get("viewer-body")?.textContent.includes("正文级"), "arXiv 返回的正文级标注未进入 viewer");
-  // UX-015 / UX-105:轮询回来的数据没变就不重画来源卡(原每秒整页重建,编辑框与焦点撑不过一秒);行内编辑框开着算「正在编辑」。
-  await vm.runInContext("refreshResearch({ poll: true })", sandbox);
-  await flush();
-  const settledCard = document.querySelector('#research-cards .research-card[data-doc-id="S-101"]');
-  await vm.runInContext("refreshResearch({ poll: true })", sandbox);
-  await flush();
-  assert(settledCard && settledCard === document.querySelector('#research-cards .research-card[data-doc-id="S-101"]'), "轮询回来的数据没变,来源卡仍被重画");
-  assert(vm.runInContext("researchUserEditing()", sandbox) === false, "没有编辑框时不应判为正在编辑");
-  [...settledCard.querySelectorAll("button")].find((button) => button.textContent === "编辑")?.click();
-  assert(settledCard.querySelector(".research-edit") && vm.runInContext("researchUserEditing()", sandbox) === true, "行内编辑框打开后应判为正在编辑");
-  [...settledCard.querySelectorAll("button")].find((button) => button.textContent === "编辑")?.click();
-  assert(byId.get("research-report").textContent.includes("Alpha report"), "alpha topic 未读取对应 report");
-  const longResearchReport = [
-    "# Report head",
-    ...Array.from({ length: 75 }, (_, index) => `Section ${index} [S-101]`),
-    "Report tail [S-101]",
-  ].join("\n\n");
-  vm.runInContext(`renderResearchReport(${JSON.stringify(longResearchReport)})`, sandbox);
-  const reportHost = byId.get("research-report");
-  // UX-102:成果页从头渲染(原默认只渲染末 40 块,打开就落在报告中段);后面的内容按窗口续载。
-  assert(Number(reportHost.dataset.reportWindowStart) === 0 && Number(reportHost.dataset.reportWindowEnd) > 0, "长报告首屏未从头开始窗口化");
-  assert(reportHost.textContent.includes("Report head"), "长报告首屏没有从开头渲染");
-  assert(reportHost.querySelector(".research-report-more"), "长报告缺少继续载入后面内容的入口");
-  assert(!reportHost.textContent.includes("Report tail"), "长报告首屏意外渲染了最末内容");
-  assert(vm.runInContext("loadMoreResearchReport()", sandbox) === true, "长报告未能向后续载窗口");
-  assert(reportHost.textContent.includes("Report tail") && !reportHost.querySelector(".research-report-more"), "长报告续载后未出现末尾内容或仍挂着续载入口");
-  assert(reportHost.textContent.includes("S-101"), "长报告窗口化后引用内容丢失");
-  topicSelect.value = "beta-study";
-  topicSelect.dispatchEvent({ type: "change", currentTarget: topicSelect });
-  await flush();
-  assert(document.querySelector('#research-cards .research-topic-group[data-topic="beta-study"]'), "beta topic 分组未渲染");
-  assert(byId.get("research-roadmap").querySelectorAll(".research-roadmap-node").length === 0, "无探索 topic 不应残留上一个 topic 的节点");
-  assert(byId.get("research-roadmap-graph").querySelector(".research-roadmap-empty"), "无探索 topic 未展示路线图空态");
-
-  assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Beta 代码来源"), "相同 S-101 未切换到 beta topic 数据");
-  assert(!document.querySelector('#research-cards .research-card')?.textContent.includes("Alpha 一手论文"), "切换 topic 后仍混入 alpha 来源");
-  assert(byId.get("research-report").textContent.includes("Beta report"), "beta topic 未读取对应 report");
-  const betaTopicReads = invokeArgs.filter(({ cmd }) => cmd === "docs_read");
-  assert(betaTopicReads.at(-1)?.args?.topic === "beta-study", `beta report 读取未携带 topic:${JSON.stringify(betaTopicReads.at(-1)?.args)}`);
-  topicSelect.value = "alpha-study";
-  topicSelect.dispatchEvent({ type: "change", currentTarget: topicSelect });
-  await flush();
-  const filterType = byId.get("research-filter-type");
-  for (const id of ["research-filter-query", "research-filter-type", "research-filter-level", "research-filter-year", "research-filter-sort"]) {
-    const listeners = byId.get(id)?._listeners;
-    const event = id === "research-filter-query" ? "input" : "change";
-    assert((listeners?.[event] ?? []).length === 1, `${id} 在 topic 切换后重复注册了 ${event} 监听器`);
-  }
-  const filterLevel = byId.get("research-filter-level");
-  const filterSort = byId.get("research-filter-sort");
-  assert(filterType.options.length === 3, `类型筛选应有全部+文献+代码三项,实得 ${filterType.options.length}`);
-  assert(filterLevel.options.length === 2 && filterLevel.options[1].value === "V2", "V 等级筛选未从当前课题来源生成");
-  filterType.value = "代码域";
-  filterType.dispatchEvent({ type: "change", currentTarget: filterType });
-  await flush();
-  assert(document.querySelectorAll('#research-cards .research-card[data-doc-id="S-102"]').length === 1, "类型筛选未保留代码来源");
-  assert(!document.querySelector('#research-cards .research-card[data-doc-id="S-101"]'), "类型筛选未隐藏文献来源");
-  filterType.value = "";
-  filterType.dispatchEvent({ type: "change", currentTarget: filterType });
-  filterLevel.value = "V2";
-  filterLevel.dispatchEvent({ type: "change", currentTarget: filterLevel });
-  await flush();
-  assert(document.querySelectorAll('#research-cards .research-card[data-doc-id="S-101"]').length === 1 && !document.querySelector('#research-cards .research-card[data-doc-id="S-102"]'), "V 等级筛选未生效");
-  filterLevel.value = "";
-  filterLevel.dispatchEvent({ type: "change", currentTarget: filterLevel });
-  filterSort.value = "year";
-  filterSort.dispatchEvent({ type: "change", currentTarget: filterSort });
-  await flush();
-  assert(document.querySelector("#research-cards .research-card")?.dataset.docId === "S-101", "按年份排序未把较新来源置前");
-  const backref = document.querySelector('#research-cards .research-card[data-doc-id="S-101"] .research-card-backrefs .ref-link');
-  assert(backref?.textContent === "F-101", "来源卡缺少反查到 F-101 的链接");
-  backref.click();
-  await flush();
-  assert(byId.get("research-tab-findings").classList.contains("active"), "来源反查没有切换到发现 tab");
-  assert(document.querySelector('#research-cards .research-card[data-doc-id="F-101"]'), "来源反查没有定位到发现卡");
-  byId.get("research-tab-sources").click();
-  await flush();
-  const copyButton = [...document.querySelectorAll('#research-cards .research-card[data-doc-id="S-101"] .research-card-actions button')]
-    .find((button) => button.textContent === "复制 BibTeX");
-  assert(copyButton, "来源卡缺少 BibTeX 复制按钮");
-  copyButton.click();
-  await flush();
-  assert(copiedResearchCitation.includes("@misc{") && copiedResearchCitation.includes("Alpha Researcher"), "BibTeX 复制内容不完整");
-  filterSort.value = "";
-  filterSort.dispatchEvent({ type: "change", currentTarget: filterSort });
-  await flush();
-  await vm.runInContext('switch_workspace("dev")', sandbox);
-  payloads.process_list = original_processes;
-  await sandbox.refreshProcesses();
-  profile.value = savedProfile;
-  profile.dispatchEvent({ type: "change" });
-  await flush();
+  const before = invokeLog.length;
+  const opened = await vm.runInContext('switch_workspace("research")', sandbox);
+  assert(opened === false, "已移除的研究空间不能重新打开");
+  assert(vm.runInContext('active_space', sandbox) === "dev", "研究空间旧偏好不能改变开发空间");
+  assert(!invokeLog.slice(before).includes("research_library_list"), "拒绝研究导航不应加载研究课题");
 }
 
 // ---------- 筛选只能写给确实拥有该字段的队列 ----------
@@ -7465,30 +7292,8 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     ),
     "R-322 B2:结伴档鞭挞未落轻控制语义 notice",
   );
-  // R-363:research 可武装续跑；后端依据课题工作流决定继续或等待。
-  const dev_processes = payloads.process_list;
-  payloads.process_list = [...dev_processes, { id: "p|research-auto-test", session_id: "sess-research-auto", profile: "research", research_topic: "alpha-study", project_dir: PROJECT, label: "研究", running: false }];
-  await vm.runInContext('switch_workspace("research")', sandbox);
-  byId.get("auto-continue").checked = true;
-  byId.get("auto-continue").dispatchEvent({ type: "change" });
-  await flush();
-  assert(
-    byId.get("auto-continue").checked === true,
-    "R-363:research 勾鞭挞不应再被旧门禁复位",
-  );
-  assert(
-    vm.runInContext("selectedAgent().profile", sandbox) === "research",
-    "R-363:research 续跑不应改模式",
-  );
-  await sandbox.sendAutoToSession("按研究地图继续", "sess-research-auto");
-  const research_request = invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === "p|research-auto-test")?.args;
-  assert(research_request?.profile === "research" && research_request.agent === "research", "研究续跑被固定切成 dev");
-  assert(research_request.researchTopic === "alpha-study" && research_request.projectDir === PROJECT, "研究续跑丢失课题或项目");
-  sandbox.releaseAutoContinue("sess-research-auto");
-  // 收尾恢复。
-  await vm.runInContext('switch_workspace("dev")', sandbox);
-  payloads.process_list = dev_processes;
-  await sandbox.refreshProcesses();
+  // Retired research profiles cannot be selected through workspace navigation.
+  assert(await vm.runInContext('switch_workspace("research")', sandbox) === false, "研究入口已经移除");
   byId.get("auto-continue").checked = false;
   byId.get("profile-select").value = savedProfileR224;
   kzTest.cancelTimers();
@@ -8135,6 +7940,10 @@ for (const view of expectedViews) {
   const el = byId.get(`view-${view}`);
   if (el && !el.classList.contains("active") && view !== "chat") continue;
 }
+sandbox.navigate_view("workspace");
+await flush();
+activityItems.find(item => item.dataset.view === "settings")?.click();
+await flush();
 assert(
   byId.get("view-settings")?.classList.contains("active") ||
     activityItems.length === 0,
@@ -14701,7 +14510,7 @@ const docsB = {
   panelNs.tasksPanelUserRun("sess-tp");
   await settleAll();
   assert(!visible(), "集成前置:新线路上侧栏应是关着的");
-  assert(/if \(!auto\) tasksPanelUserRun\(activeSessionId\);/.test(source), "sendText 的非鞭挞分支必须上报「用户发消息 = 新的一次运行」(鞭挞续轮不算)");
+  assert(/if \(!auto\)\s*\{?\s*tasksPanelUserRun\(activeSessionId\);/.test(source), "sendText 的非鞭挞分支必须上报「用户发消息 = 新的一次运行」(鞭挞续轮不算)");
 
   // 自动打开:实时子代理开跑 → 停靠出来;不抢焦点(用户正在输入框打字)。
   document.activeElement = prompt;
@@ -15230,7 +15039,7 @@ const docsB = {
   document.dispatchEvent(new sandbox.CustomEvent("kz:memory-changed", { detail: { project: sandbox.currentProject } }));
   await settle();
   invokeGates.delete("memory_graph");
-  sandbox.currentProject = PROJECT_B;
+  esmModuleCache.get("03-memory-scope.js").namespace.setMemoryProject(PROJECT_B);
   await sandbox.refreshMemory({ force: true });
   await flush();
   release();
@@ -15245,6 +15054,7 @@ const docsB = {
 
   // 复核修复:下面三段用本仓夹具的记忆条目(M-112 在里面),结束时恢复。此刻没有打开的详情(切项目时已收起),
   // ① 里数到的 memory_graph 调用只可能来自图谱模块。
+  esmModuleCache.get("03-memory-scope.js").namespace.setMemoryProject(previousProject);
   sandbox.currentProject = previousProject;
   const savedEntries = payloads.memory_entries;
   const savedSave = payloads.memory_entry_save;
@@ -15688,22 +15498,7 @@ const docsB = {
     await viewsNs.refreshGit();
     await flush();
     assert(chip.classList.contains("hidden"), "自己的仓库(或旧后端不带 repo 字段)时芯片应收起");
-    // 复核:研究空间不显示「无 Git」——独立课题目录本来就不是仓库,点一下「初始化 Git」就把研究工作区建成了仓库。
-    const devProcesses = payloads.process_list;
-    payloads.process_list = [...devProcesses, { id: "p|research-git-chip", session_id: "sess-research-git-chip", profile: "research", research_topic: "alpha-study", project_dir: PROJECT, label: "研究", running: false }];
-    await vm.runInContext('switch_workspace("research")', sandbox);
-    await flush();
-    payloads.git_status = { repo: "none", branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] };
-    await viewsNs.refreshGit();
-    await flush();
-    const researchChipShown = !chip.classList.contains("hidden");
-    await vm.runInContext('switch_workspace("dev")', sandbox);
-    payloads.process_list = devProcesses;
-    await sandbox.refreshProcesses();
-    payloads.git_status = priorStatus;
-    await viewsNs.refreshGit();
-    await flush();
-    assert(!researchChipShown, "研究空间不应显示「无 Git」芯片(独立课题目录不是仓库,也不该被 git init)");
+    assert(await vm.runInContext('switch_workspace("research")', sandbox) === false, "Git 状态不应让已移除的研究空间重新可达");
   }
 
   // ⑦ 复核:线档位经后端落盘。鞭挞续跑轮按线档位发,档位原先只在 localStorage(本机重启即丢,D-404):
@@ -17142,7 +16937,7 @@ const docsB = {
   assert(listText("preview-dev-list").includes("http://localhost:5173/") && listText("preview-dev-list").includes("npm run dev"), `起始页应列出检测到的开发服务与启动命令,实得 ${listText("preview-dev-list")}`);
   assert(!byId.get("preview-empty").classList.contains("hidden"), "页面还没打开时应显示起始页");
   assert(callsSince(from, "preview_set_visible").length === 0, "还没有页面时不该上报可见性(后端还没有面板)");
-  assert(document.documentElement.style.getPropertyValue("--surface-safe-right") === "584px", `面板打开时应把 --surface-safe-right 写成视口右缘到面板左缘的距离(584px),实得 ${document.documentElement.style.getPropertyValue("--surface-safe-right")}`);
+  assert(document.documentElement.style.getPropertyValue("--surface-safe-right") === "", `浮动预览不占用停靠栏的安全边距,实得 ${document.documentElement.style.getPropertyValue("--surface-safe-right")}`);
 
   from = mark();
   const address = byId.get("preview-address");
@@ -17211,9 +17006,10 @@ const docsB = {
   pv.previewLineSync();
   await flush();
   vis = lastCall("preview_set_visible")?.args;
-  assert(vis?.visible === true && vis?.processId === "p-preview-other", `切线后可见性上报应换成新活动线的 processId,实得 ${JSON.stringify(vis)}`);
+  assert(vis?.visible === false && vis?.processId === pid, `切线应隐藏旧网页并保留原归属,实得 ${JSON.stringify(vis)}`);
   shellNs.setActiveProcessId(pid);
   pv.previewLineSync();
+  pv.openPreviewDock();
   await flush();
 
   // ④ 遮挡冻结(变异 previewFreezeOnSurface)。
@@ -17457,14 +17253,15 @@ const docsB = {
     layoutNs.setLayoutPref("splits", "tasks", null);
     panelNs.openTasksPanel();
     await flush();
-    assert(panelNs.tasksPanelState().dock === "drawer", `预览打开时后台任务侧栏的停靠判据应减去预览栏(1232 宽:对话列 1232 − 360 − 419 < 600 → 抽屉),实得 ${panelNs.tasksPanelState().dock}`);
+    assert(panelNs.tasksPanelState().dock === "side", `浮动预览不挤压活动侧栏,实得 ${panelNs.tasksPanelState().dock}`);
     // UX-157:抽屉并排着预览栏时宽度至少取预览栏宽(盖满预览栏,不留半截预览残边);原先固定 400,盖不满 419 的预览栏。
     {
       const cover = pv.previewColumnWidth(windowShim.innerWidth - 48);
       const drawerWidth = parseInt(byId.get("tasks-panel").style.getPropertyValue("--kz-tasks-w"), 10);
-      assert(cover > 400 && drawerWidth === cover, `抽屉并排着预览栏时应盖满预览栏(宽度 = 预览栏宽),预览栏 ${cover}、抽屉 ${drawerWidth}`);
+      assert(cover === 0 && drawerWidth >= 320, `浮动预览应占用零列宽,活动栏保留可读宽度:${cover}/${drawerWidth}`);
     }
     from = mark();
+    byId.get("tasks-panel").dataset.dock = "drawer"; // Force actual overlay geometry to test native occlusion.
     byId.get("tasks-panel").getBoundingClientRect = () => box({ left: 880, top: 0, width: 400, height: 800 });
     document.dispatchEvent(new sandbox.CustomEvent("kz:tasks-layout", { detail: { visible: true, dock: "drawer" } }));
     await flush();
@@ -17504,7 +17301,7 @@ const docsB = {
         panelNs.openTasksPanel();
         await flush();
         const tasks = panelNs.tasksPanelState();
-        assert(tasks.dock === "drawer", `主区 1005、预览开着:停靠后对话视图 645 < 800,预览会进窄屏——后台任务侧栏应判抽屉,实得 ${tasks.dock}`);
+        assert(tasks.dock === "side", `浮动预览不应将活动栏挤成抽屉,实得 ${tasks.dock}`);
         view.getBoundingClientRect = () => box({ left: 48, top: 0, width: 1005 - (tasks.dock === "side" ? tasks.width : 0), height: 800 });
         resize();
         await flush();
@@ -17515,8 +17312,8 @@ const docsB = {
         view.getBoundingClientRect = () => box({ left: 48, top: 0, width: 700, height: 800 });
         resize();
         await flush();
-        assert(pv.previewState().narrow && pv.previewState().tab === "chat" && lastCall("preview_set_visible")?.args?.visible === false,
-          `窗口变窄进入窄屏时应停在「对话」页签(原生面板隐藏),实得 ${JSON.stringify({ narrow: pv.previewState().narrow, tab: pv.previewState().tab })}`);
+        assert(!pv.previewState().narrow && pv.previewState().tab === "preview" && lastCall("preview_set_visible")?.args?.visible === true,
+          `浮动预览在窄屏仍独立显示，不替换对话,实得 ${JSON.stringify({ narrow: pv.previewState().narrow, tab: pv.previewState().tab })}`);
         view.getBoundingClientRect = () => box({ left: 48, top: 0, width: 1005, height: 800 });
         resize();
         await flush();
@@ -17800,14 +17597,13 @@ await import("./ui-side-policy-contract-smoke.mjs");
 await import("./ui-activity-contract-smoke.mjs");
 await import("./ui-experience-contract-smoke.mjs");
 await import("./ui-decision-console-smoke.mjs");
-await import("./ui-softwire-browser-smoke.mjs");
-await import("./ui-softwire-overview-smoke.mjs");
-await import("./ui-softwire-spaces-smoke.mjs");
-await import("./ui-softwire-flow-smoke.mjs");
+// The retired overview's module lanes, reply feed and research space are no
+// longer product surfaces. Their layout/interaction coverage is replaced by
+// the production management, work selection, global memory and floating preview
+// suite. Keep the async owner and question contracts below independently.
+await import("./ui-familiar-workspace-smoke.mjs");
 await import("./ui-softwire-ownership-smoke.mjs");
-await import("./ui-softwire-draft-browser-smoke.mjs");
 await import("./ui-softwire-choice-smoke.mjs");
-await import("./ui-softwire-activity-smoke.mjs");
 await import("./ui-reply-timer-browser-smoke.mjs");
 await import("./ui-project-conversations-smoke.mjs");
 await import("./ui-input-resources-smoke.mjs");

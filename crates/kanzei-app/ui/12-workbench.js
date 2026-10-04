@@ -5,7 +5,6 @@ import { localizedDocStatus, localizedStage, t } from "./02-i18n.js";
 import { currentProject, activeSessionId, processItems, sessionStates, navigate_view, syncBackBars, toast, toastError } from "./03-shell.js";
 import { active_space, switch_workspace, workspace_switch_pending } from "./03-workspaces.js";
 import { enterProject, lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
-import { jumpToEntry } from "./11-docs-list.js";
 import { lastWorkspaceSnapshot, refreshWorkspace } from "./12-docs-pages.js";
 import { setWorkspaceConsoleState } from "./12-decision-console.js";
 import { openConventions } from "./15-conventions.js";
@@ -44,7 +43,7 @@ function action(label, callback, className = "ghost") {
 }
 
 export function reconcileWorkbenchView(view) {
-  const global = view === "workspace" || view === "settings" || (isGeneralChat() && !browsingProject);
+  const global = ["workspace", "settings", "memory"].includes(view) || (isGeneralChat() && !browsingProject);
   document.body.dataset.appScope = global ? "global" : "project";
   document.body.dataset.projectPreview = String(view === "project");
   const path = workbenchProject();
@@ -180,9 +179,7 @@ export async function openProjectSpace(path, view = "chat", options = {}) {
 }
 
 export async function openWorkbenchItem(path, item) {
-  if (!await openProjectSpace(path, "documents")) return;
-  if (currentProject !== path || workbenchProject() !== path) return;
-  await jumpToEntry(item.id, { expand: true });
+  return (await import("./30-management.js")).openManagementItem(path, item);
 }
 
 export function renderCurrentItems(project) {

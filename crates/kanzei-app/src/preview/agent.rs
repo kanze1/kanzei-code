@@ -102,7 +102,7 @@ async fn run(
         .and_then(DevicePreset::from_viewport);
     let scheme = input.color_scheme.as_deref().and_then(ColorScheme::parse);
     if device.is_some() || scheme.is_some() {
-        if let Err(error) = pane::set_device(app, device, scheme).await {
+        if let Err(error) = pane::set_device(app, device, scheme, None).await {
             return shared::browser_error(BACKEND, &error);
         }
     }

@@ -238,6 +238,9 @@ pub(crate) struct PaneMeta {
     pub(crate) owner_epoch: u64,
     pub(crate) device: DevicePreset,
     pub(crate) scheme: ColorScheme,
+    /// User-selected page zoom, independent of fitting the device into the host.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) page_zoom: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) error: Option<PaneError>,
     /// 子 webview 已通过活性回环(B0:add_child 的 Ok 不可信)。

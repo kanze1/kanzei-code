@@ -5,7 +5,7 @@ use rusqlite::{params, OptionalExtension};
 
 pub type EpisodeListRow = (i64, String, String, u32, String);
 /// 项目级画像行:(session_id, created_at, prompt_head, outcome, steps, input_tokens,
-/// output_tokens, tools_json, context_json, metrics_json)。
+/// output_tokens, tools_json, context_json, metrics_json, duration_ms)。
 pub type ProjectEpisodeRow = (
     String,
     i64,
@@ -17,6 +17,7 @@ pub type ProjectEpisodeRow = (
     String,
     String,
     String,
+    u64,
 );
 
 use super::{now_ms, EpisodeRecord, SessionStore, StoreError};
@@ -132,7 +133,7 @@ impl SessionStore {
     ) -> Result<Vec<ProjectEpisodeRow>, StoreError> {
         let mut statement = self.connection.prepare(
             "SELECT session_id, created_at, prompt_head, outcome, steps, input_tokens,
-                        output_tokens, tools_json, context_json, metrics_json
+                        output_tokens, tools_json, context_json, metrics_json, duration_ms
                  FROM episodes
                  WHERE session_id = ?1 OR (session_id >= ?2 AND session_id < ?3)
                  ORDER BY created_at DESC, episode_id DESC LIMIT ?4",
@@ -156,6 +157,7 @@ impl SessionStore {
                     row.get(7)?,
                     row.get(8)?,
                     row.get(9)?,
+                    row.get::<_, i64>(10)?.max(0) as u64,
                 ))
             },
         )?;
@@ -311,6 +313,7 @@ mod tests {
                     tools_json: "{}",
                     context_json: "[]",
                     metrics_json: "{}",
+                    duration_ms: 1250,
                     ..EpisodeRecord::default()
                 })
                 .unwrap();
@@ -332,6 +335,10 @@ mod tests {
         );
         assert_eq!(rows[0].0, "ses_project_ab#p10", "每行带所属会话 id");
         assert_eq!(rows[2].0, "ses_project_ab");
+        assert_eq!(
+            rows[0].10, 1250,
+            "runtime duration is read from the persisted episode"
+        );
 
         let limited = store.recent_project_episodes("ses_project_ab", 2).unwrap();
         assert_eq!(limited.len(), 2, "limit 作用在合并后的结果上");

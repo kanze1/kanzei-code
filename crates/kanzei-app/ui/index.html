@@ -5,9 +5,6 @@
   <title>kanzei</title>
   <meta name="color-scheme" content="dark light" />
   <link rel="stylesheet" href="app.css" />
-  <link rel="stylesheet" href="project-conversations.css" />
-  <link rel="stylesheet" href="async-workspace.css" />
-  <link rel="stylesheet" href="resource-types.css" />
 </head>
 <body data-app-scope="global" data-view="workspace">
   <div id="app">
@@ -391,7 +388,7 @@
              面板本体是原生子 webview,盖在 #preview-host 上、永远画在 HTML 之上:#preview-host 必须是空元素、没有背景;
              冻结帧 / 起始页 / 错误页是它的兄弟节点;面板里的菜单用 openMenu 现造(打开前先冻结),不放常驻浮层(ui-surface-rules P 组);
              面板里的提示走侧向(data-kz-tip-side),不落进占位框。✕ = 关闭(释放页面);rail 开关与 Ctrl+Shift+B = 收起(页面保留)。 -->
-        <section id="preview-dock" class="pv-dock" aria-label="网页预览" data-i18n-aria-label="网页预览" data-kz-tip-side="inline-start">
+        <section id="preview-dock" class="pv-dock k-surface" aria-label="网页预览" data-i18n-aria-label="网页预览" data-kz-tip-side="inline-start">
           <div class="pv-toolbar" role="toolbar" aria-label="网页预览工具栏" data-i18n-aria-label="网页预览工具栏">
             <div class="pv-tabs" role="group" aria-label="对话与预览" data-i18n-aria-label="对话与预览">
               <button type="button" id="preview-tab-chat" class="pv-tab" aria-pressed="false" data-i18n-key="对话">对话</button>
@@ -1017,6 +1014,11 @@
 
           </details>
 
+          <details class="settings-group" id="sg-project-tools">
+            <summary data-i18n-key="项目工具">项目工具</summary>
+            <p id="settings-tools-project" class="dim"></p>
+            <div id="settings-project-links" class="settings-project-links"></div>
+          </details>
           <details class="settings-group" id="sg-providers" open>
             <summary>Provider</summary>
           <div class="settings-actions" style="margin-top: 0; margin-bottom: 8px;">
@@ -1661,6 +1663,7 @@
   <script type="module" src="27-agent-team.js"></script>
   <script type="module" src="28-async-workspace.js"></script>
   <script type="module" src="29-general-chat.js"></script>
+  <script type="module" src="30-workspace-ui.js"></script>
   <dialog id="conversation-action-overlay" data-size="rewind" class="k-surface k-dialog conversation-action-dialog" aria-label="回退或分叉" data-i18n-aria-label="回退或分叉"></dialog>
   <dialog id="schedules-overlay" data-size="schedule" class="k-surface k-dialog schedule-dialog" aria-label="定时任务" data-i18n-aria-label="定时任务"></dialog>
 </body>

@@ -40,6 +40,7 @@ try {
     i18n.setLanguagePreference("en", { persist: true, rerender: true });
     return { project: project.path, session: question.sessionId };
   });
+  await page.locator("#workbench-attention").click(); await settle();
   await page.locator("#sw-refresh").click(); await settle();
   check(await page.evaluate(async () => (await import("/02-i18n.js")).languageIsEnglish()), "Fixture actually runs in English");
   await page.locator('.sw-tabs [data-tab="inbox"]').click(); await settle();

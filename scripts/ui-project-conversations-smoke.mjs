@@ -36,11 +36,11 @@ try {
   });
   const owner = await page.evaluate(async () => (await import("/03-workspaces.js")).selected_workspace_process());
   check(await page.locator("#view-chat").evaluate(el => el.classList.contains("active")), "Project enters a real conversation");
-  check(await page.locator("#project-chat-work .sw-work-entry").count() > 0, "Conversation includes persisted requirement cards");
+  check(await page.locator("#project-chat-work .work-focus-entry").count() > 0, "Conversation includes persisted requirement cards");
   check(!await page.locator("#project-onboarding").isVisible(), "Existing requirements never trigger new-project onboarding");
   check(await count("run_prompt") === 0, "Startup does not start a model run");
   if (await page.locator("#tasks-close").isVisible()) await page.locator("#tasks-close").click();
-  await page.locator("#project-chat-work .sw-work-entry").first().waitFor({ state: "visible" });
+  await page.locator("#project-chat-work .work-focus-entry").first().waitFor({ state: "visible" });
   check(await page.locator("#project-chat-work").isVisible(), "Closing child details restores the visible requirement rail");
   await page.screenshot({ path: `${output}/conversation-dark.png` });
   await page.evaluate(async sid => {
@@ -61,10 +61,11 @@ try {
   await page.evaluate(sid => { window.__kzPreview.emit("kz:tool-end", { sessionId: sid, id: "acceptance-review", name: "task", ok: true, preview: "NO_ISSUES" }); window.__kzPreview.emit("kz:idle", { sessionId: sid }); }, owner.session_id);
   await page.locator("#prompt").fill("主对话草稿保留");
   await page.locator('[data-work-surface="project"]').click(); await settle();
-  check(await page.locator("#softwire-workspace").isVisible(), "Overview switch beside composer opens live workspace");
+  check(await page.locator("#management-page").isVisible(), "Overview switch beside composer opens live workspace");
   check(await page.locator("#prompt").inputValue() === "主对话草稿保留", "Entering overview retains the same draft");
-  await page.locator("#prompt").fill("概览补充的草稿");
+  check(!await page.locator("#prompt").isVisible(), "Management has no second conversation composer");
   await page.locator('[data-work-surface="chat"]').click(); await settle();
+  await page.locator("#prompt").fill("概览补充的草稿");
   check(await page.locator("#prompt").inputValue() === "概览补充的草稿", "Returning to conversation retains overview edits");
   check(await page.locator("#project-chat-work").isVisible(), "Returning from overview keeps requirements visible on wide screens");
   await page.locator("#send").click(); await settle();
@@ -78,8 +79,10 @@ try {
   check((await last("process_create")).profile === "dev", "New conversation creates an ordinary development recipient");
   check(await count("conversation_clear") === 0, "New discussion never clears the main conversation");
   check(await page.locator("#project-conversation-kind").textContent().then(t => t.trim().length > 0), "Conversation title is visible");
+  await page.locator("#composer-more").click();
   check(await page.locator("#auto-continue-wrap").isVisible(), "New conversation offers the same execution controls");
   check(await page.evaluate(async () => (await import("/03-workspaces.js")).selected_workspace_process().id) !== owner.id, "Selection follows the active peer conversation");
+  await page.keyboard.press("Escape");
   await page.locator("#prompt").fill("讨论自己的草稿");
   const discussionId = await page.evaluate(async () => (await import("/03-shell.js")).activeProcessId);
   await page.locator('[data-work-surface="project"]').click(); await settle();
@@ -90,6 +93,7 @@ try {
   await page.locator("#prompt").fill("只分析这个方案"); await page.locator("#send").click(); await settle();
   const peerRequest = await last("run_prompt");
   check(peerRequest.profile === "dev" && ["dev", "dev-pair"].includes(peerRequest.agent), `Conversation sends with its selected development mode: ${JSON.stringify(peerRequest)}`);
+  await page.locator("#composer-more").click();
   await page.locator("#project-handoff").click();
   check((await page.locator(".project-handoff-form").innerText()).includes("将附上当前对话上下文"), "Handoff explains that source context accompanies the user's conclusion");
   await page.getByLabel("选择对话", { exact: true }).selectOption(owner.id);
@@ -108,17 +112,18 @@ try {
   check(await page.locator("#prompt").inputValue() === "概览补充的草稿", "Returning from discussion restores main draft");
   const beforeCard = await count("run_prompt");
   if (!await page.locator("#project-chat-work").isVisible()) await page.locator(".project-work-toggle").click();
-  await page.locator("#project-chat-work .sw-work-entry").first().click();
+  await page.locator("#project-chat-work .work-focus-entry").first().click(); await settle();
   check(await page.getByRole("button", { name: "继续此需求", exact: true }).isVisible(), "Requirement card opens detail with explicit continue action");
   check(await count("run_prompt") === beforeCard, "Inspecting a requirement does not start work");
   await page.getByRole("button", { name: "← 需求", exact: true }).click();
+  await page.locator('[data-work-surface="chat"]').click(); await settle();
   await page.evaluate(async sid => { window.__kzPreview.emit("kz:idle", { sessionId: sid }); }, owner.session_id);
   await page.evaluate(async () => {
     window.__conversationTest.docs = { requirements: [], defects: [], archived: { req: 1, defect: 0 } };
     await (await import("/26-project-conversations.js")).refreshConversationWork();
   });
   check(!await page.locator("#project-onboarding").isVisible(), "Archived completed projects are never treated as newly empty projects");
-  check((await page.locator("#project-chat-work").innerText()).includes("1 条已归档"), "Completed work remains accessible from the requirement rail");
+  check(await page.getByRole("button", { name: "全部工作 ↗", exact: true }).isVisible(), "Completed work stays reachable through All work without adding a third chat slot");
   const beforeArchivedCapture = await count("quick_req");
   await page.locator("#prompt").fill("继续讨论下一步安排"); await page.locator("#send").click(); await settle();
   check(await count("quick_req") === beforeArchivedCapture && (await last("run_prompt")).prompt === "继续讨论下一步安排", "Normal messages after archiving remain conversation messages");
@@ -181,9 +186,11 @@ try {
   const preparation = await last("run_prompt");
   check(preparation.executionBatch === false && preparation.workItemId == null && preparation.prompt.includes("R-1000"), "Pending research starts in the main conversation without a premature claim");
   check(preparation.prompt.includes("原始描述") && preparation.prompt.includes("外部已有实现") && preparation.prompt.includes("仓内既有设计") && preparation.prompt.includes("检索预算") && preparation.prompt.includes("证据验证通过") && preparation.prompt.includes("待我处理") && !/req get|question|background=true|prior_art validate|work claim|doing/.test(preparation.prompt), "Preparation requests real evidence, validation and Needs attention in concise user-facing language");
-  check(await page.locator("#project-chat-work .sw-work-blocked").filter({ hasText: "待调研" }).count() === 1, "Registered pending research remains visible in the requirement rail");
-  await page.evaluate(sid => window.__kzPreview.emit("kz:idle", { sessionId: sid }), owner.session_id);
-  await page.locator("#project-chat-work .sw-work-entry").first().click();
+  await page.evaluate(async () => {
+    const shell = await import("/03-shell.js");
+    window.__kzPreview.emit("kz:idle", { sessionId: shell.activeSessionId });
+    await (await import("/30-management.js")).openManagementItem(shell.currentProject, window.__conversationTest.docs.requirements[0]);
+  }); await settle();
   check(await page.getByRole("button", { name: "开始调研", exact: true }).isVisible(), "Pending requirement detail has an explicit research action");
   await page.getByRole("button", { name: "查看调研文件", exact: true }).click(); await settle();
   check(await page.locator("#view-files").evaluate(el => el.classList.contains("active")) && (await last("file_preview")).path === ".kanzei/research/r1000/prior-art.md", "Research file action opens the real file editor on the selected artifact");
@@ -203,8 +210,11 @@ try {
     window.__conversationTest.docs.requirements[0].prior_art.issue = "仓内对照缺少出处";
     await (await import("/26-project-conversations.js")).refreshConversationWork();
   }, owner.session_id);
-  await page.locator("#project-chat-work .sw-work-entry").first().click();
-  check(await page.getByRole("button", { name: "继续调研", exact: true }).isVisible() && (await page.locator("#project-chat-work").innerText()).includes("仓内对照缺少出处"), "Invalid artifacts retain a follow-up action and their validation issue");
+  await page.evaluate(async () => {
+    const shell = await import("/03-shell.js");
+    await (await import("/30-management.js")).openManagementItem(shell.currentProject, window.__conversationTest.docs.requirements[0]);
+  }); await settle();
+  check(await page.getByRole("button", { name: "继续调研", exact: true }).isVisible() && (await page.locator(".management-body").innerText()).includes("仓内对照缺少出处"), "Invalid artifacts retain a follow-up action and their validation issue");
   await page.getByRole("button", { name: "继续调研", exact: true }).click(); await settle();
   check((await last("run_prompt")).workItemId == null, "Invalid research cannot take the implementation branch");
   for (const status of ["complete", "waived"]) {
@@ -214,7 +224,10 @@ try {
       window.__conversationTest.docs.requirements[0].prior_art.issue = null;
       await (await import("/26-project-conversations.js")).refreshConversationWork();
     }, { sid: owner.session_id, status });
-    await page.locator("#project-chat-work .sw-work-entry").first().click();
+    await page.evaluate(async () => {
+      const shell = await import("/03-shell.js");
+      await (await import("/30-management.js")).openManagementItem(shell.currentProject, window.__conversationTest.docs.requirements[0]);
+    }); await settle();
     await page.getByRole("button", { name: "继续此需求", exact: true }).click(); await settle();
     check((await last("run_prompt")).executionBatch === true && (await last("run_prompt")).workItemId === "R-1000", `${status} artifacts retain the existing explicit implementation binding`);
   }
@@ -223,14 +236,8 @@ try {
     check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `No horizontal page overflow at ${width}px`);
     check(await page.locator('#project-work-switch [data-work-surface="project"]').isVisible(), `Overview remains accessible at ${width}px`);
   }
-  await page.locator(".project-work-toggle").click();
-  check(await page.locator("#project-chat-work").isVisible(), "Narrow conversation opens requirement drawer explicitly");
+  check(await page.locator("#project-chat-work").isVisible(), "Current work and next candidate remain visible on narrow screens");
   await page.screenshot({ path: `${output}/conversation-mobile.png` });
-  await page.keyboard.press("Escape");
-  check(!await page.locator("#project-chat-work").isVisible(), "Escape closes the requirement drawer");
-  await page.setViewportSize({ width: 1600, height: 1000 });
-  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
-  await settle(); await page.screenshot({ path: `${output}/conversation-light.png` });
   check(errors.length === 0, `No browser errors: ${errors.join("; ")}`);
   await writeFile(`${output}/acceptance.json`, JSON.stringify({ passed, errors }, null, 2));
   console.log(`${passed.length} conversation checks passed`);

@@ -85,7 +85,7 @@ import { state } from "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
 import { syncResearchWorkspaceVisibility } from "./19-research.js";
 import { collaborationLines, renderLines } from "./20-lines.js";
-import { sync_workspace_visibility } from "./03-workspaces.js";
+import { sync_workspace_visibility, acknowledge_composer_draft } from "./03-workspaces.js";
 import { autoAllowEnabled } from "./03-layout.js";
 
 // `running` 与上面四条不同:它是**瞬态**,不是用户意图。kz:done 有意不收回运行态
@@ -185,6 +185,7 @@ export async function sendAutoToSession(prompt, sessionId) {
     // (主根身份,后端已给 simplify 形态,这里再防一道旧形态);③ 取活顺序键与写入键同一个函数。
     const mode = lineAgent(item);
     const projectDir = String(item.origin_project || item.project_dir || currentProject).replace(/^\\\\\?\\(?!UNC\\)/, "");
+    const workItemId = mode.profile === "dev" ? await (await import("./31-work-selection.js")).validateSelectedWork(projectDir, item.id) : null;
     const priority = uiPrefsCache?.work_priority?.[projectDir] ?? localStorage.getItem(workPriorityKeyFor(projectDir));
     await invoke("run_prompt", {
       prompt,
@@ -198,8 +199,13 @@ export async function sendAutoToSession(prompt, sessionId) {
       attachments: [],
       processId: item.id,
       autonomous: true,
+      ...(workItemId ? { workItemId, executionBatch: true } : {}),
       autoAllow: autoAllowEnabled(),
     });
+    if (workItemId) {
+      const selection = await import("./31-work-selection.js");
+      if (selection.selectedWork(projectDir, item.id) === workItemId) selection.selectWork(projectDir, item.id, null);
+    }
   } catch (error) {
     releaseAutoContinue(sessionId);
     transitionSession(sessionId, "failed");
@@ -424,7 +430,6 @@ const compactingSessions = new Set();
 export async function sendText(prompt, { auto = false, promptAttachments = [], executionBatch = false, workItemId = null } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
-  const delivery = workItemId ? "queue" : $("delivery-select").value;
   if (running && auto) {
     toast(t("当前任务还在运行，自动鞭挞将在本轮完成后继续"));
     return;
@@ -447,13 +452,26 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
       });
       toast(result.message);
       if (result.changed && owner === activeSessionId) setCtxTokens(result.after);
+      return true;
     } catch (error) { toastError(String(error)); }
     finally { compactingSessions.delete(owner); }
     return;
   }
+  if (!workItemId && selectedAgent().profile === "dev") {
+    const project = currentProject, process = activeProcessId;
+    try {
+      workItemId = await (await import("./31-work-selection.js")).validateSelectedWork(project, process);
+      if (project !== currentProject || process !== activeProcessId) { toast(t("对话已切换，请在目标对话中重新发送")); return; }
+      if (workItemId) executionBatch = true;
+    } catch (error) { toastError(String(error)); return; }
+  }
+  const delivery = workItemId ? "queue" : $("delivery-select").value;
   if (!auto) void ensureNotificationPermission();
   // UI2-0926 #14:用户手动发消息 = 新的一次运行(后台任务侧栏解除本次运行的压制、确认上次的失败);鞭挞续轮不算。
-  if (!auto) tasksPanelUserRun(activeSessionId);
+  if (!auto) {
+    tasksPanelUserRun(activeSessionId);
+    (await import("./24-preview.js")).previewUserRun();
+  }
   if (running) {
     addMessage("user", prompt);
     log(`${t("运行中")}${delivery === "steer" ? t("插入") : t("排队")}:${prompt.slice(0, 80)}`);
@@ -474,7 +492,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
         autoAllow: autoAllowEnabled(),
       });
       toast(localizeDynamic(delivery === "steer" ? "已插入当前对话，将优先执行" : "已加入队列，将按顺序执行"));
-      await refreshPendingInputs();
+      // Admission has succeeded. A later queue refresh failure must not leave
+      // the same draft ready to submit a second time.
+      await refreshPendingInputs().catch(error => reportError(String(error), { retryable: false }));
+      return true;
     } catch (err) {
       reportError(String(err), { retryable: false });
     }
@@ -541,6 +562,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     };
     if (!auto) setLastRequest(request);
     await invoke("run_prompt", request);
+    return true;
   } catch (err) {
     if (requestSessionId) transitionSession(requestSessionId, "failed");
     if (requestSessionId === activeSessionId) {
@@ -728,7 +750,9 @@ export function stopAutoForManualInput({ supplement = false } = {}) {
   return true;
 }
 
+let submittingDraft = false;
 export async function send() {
+  if (submittingDraft) return;
   if (pendingFileBytes > 0) { toast(t("附件正在读取，请稍候再发送")); return; }
   const composeEvent = new CustomEvent("kz:compose-send", { bubbles: true, cancelable: true });
   promptBox.dispatchEvent(composeEvent);
@@ -750,22 +774,15 @@ export async function send() {
     return;
   }
   stopAutoForManualInput({ supplement: running });
-  // 只有附件没有文字时,sendText 的空 prompt 早退会静默吞掉附件(附件在此已被清空)。
-  // 给一句默认描述,让图片/文件真的发得出去。
-  if (!prompt && attachments.length > 0) {
-    sendText(t("看一下这些附件"), { promptAttachments: attachments });
-    promptBox.value = "";
-    setAttachments([]);
-    renderAttachments();
-    return;
-  }
   rememberPrompt(prompt);
   hideFileSuggestions();
-  const promptAttachments = attachments;
-  promptBox.value = "";
-  setAttachments([]);
-  renderAttachments();
-  sendText(prompt, { promptAttachments });
+  const project = currentProject, process = activeProcessId;
+  const submitted = { text: promptBox.value, attachments: [...attachments] };
+  submittingDraft = true;
+  try {
+    const accepted = await sendText(prompt || t("看一下这些附件"), { promptAttachments: submitted.attachments });
+    if (accepted) acknowledge_composer_draft(project, process, submitted);
+  } finally { submittingDraft = false; }
 }
 
 defer(() => {

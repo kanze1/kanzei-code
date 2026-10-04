@@ -2,7 +2,9 @@ import { renderRequirementDocument } from "./26-requirement-contract.js";
 import { $, defer, invoke } from "./01-core.js";
 import { isGeneralChat } from "./03-general-scope.js";
 import { localizedDocStatus, localizedStage, t } from "./02-i18n.js";
-import { openPopover, closeSurface } from "./00-surface.js";
+import { openPopover, openDialog, closeSurface } from "./00-surface.js";
+import { workChoices } from "./30-workspace-model.js";
+import { selectedWork, selectWork } from "./31-work-selection.js";
 import { currentProject, activeProcessId, activeSessionId, processItems, sessionStates, pendingQuestionSessions, attachments, toast, toastError } from "./03-shell.js";
 import { active_space, selected_workspace_process } from "./03-workspaces.js";
 import { switchProcess } from "./09-sessions.js";
@@ -58,6 +60,10 @@ export async function refreshConversationWork(project = currentProject) {
         invoke("docs_snapshot", { projectDir: project }), invoke("workspace_snapshot", { projectDir: project }),
       ]);
       state.docs = docs; state.snapshot = snapshot.projects?.find(p => sameProject(p.path, project)); state.error = "";
+      if (sameProject(project, currentProject)) {
+        const selected = selectedWork(project, activeProcessId);
+        if (selected && state.snapshot?.lines?.some(line => line.id === activeProcessId && line.current_item_id === selected)) selectWork(project, activeProcessId, null);
+      }
     } catch (error) { state.error = String(error); }
     finally { state.request = null; if (sameProject(project, currentProject)) { rendered = ""; paint(); } }
   })();
@@ -170,8 +176,8 @@ function renderDetail(state, entry) {
 // 右栏/页签/按钮是 defer 里建的静态骨架:每次 paint 重写一遍文案,切语言后立刻跟上。
 function relabel() {
   rail.setAttribute("aria-label", t("项目需求"));
-  switcher.setAttribute("aria-label", t("对话与概览"));
-  for (const b of switcher.querySelectorAll("[data-work-surface]")) b.textContent = b.dataset.workSurface === "chat" ? t("对话") : t("概览");
+  switcher.setAttribute("aria-label", t("对话与管理"));
+  for (const b of switcher.querySelectorAll("[data-work-surface]")) b.textContent = b.dataset.workSurface === "chat" ? t("对话") : t("管理");
   const req = switcher.querySelector(".project-work-toggle"); if (req) req.textContent = "☷ " + t("需求");
   $("project-return-main").textContent = t("返回对话");
   $("project-handoff").textContent = t("交给其它对话") + " ↗";
@@ -211,7 +217,7 @@ function paint() {
   $("project-onboarding-retry").hidden = !state.error && !state.registrationError;
   $("project-onboarding-retry").textContent = state.registrationError ? t("重试登记") : t("重试读取");
   $("project-onboarding-retry").disabled = state.busy;
-  const signature = JSON.stringify([currentProject, activeProcessId, state.docs, state.snapshot?.current_items, state.error, state.registrationError, activity, detailId]);
+  const signature = JSON.stringify([currentProject, activeProcessId, state.docs, state.snapshot?.current_items, state.error, state.registrationError, activity, detailId, selectedWork(currentProject, activeProcessId)]);
   if (signature === rendered) return;
   rendered = signature;
   rail.replaceChildren();
@@ -220,21 +226,53 @@ function paint() {
     if (state.error) rail.append(button(t("重试"), () => void refreshConversationWork(), "ghost"));
     return;
   }
-  const entry = entries(state).find(entry => entry.id === detailId);
-  if (entry) { renderDetail(state, entry); return; }
-  const project = state.snapshot || {}, all = entries(state).filter(e => !e.closed);
-  const lines = (project.lines || []).filter(line => !["readonly", "research"].includes(line.profile));
-  renderWorkFocus(rail, { project: { ...project, current_items: all, lines }, line: item(), backlog: {
-    req: backlogTally(state.docs.requirements || [], "req"), defect: backlogTally(state.docs.defects || [], "defect"),
-  } }, {
-    list: kind => void openProjectSpace(currentProject, "documents").then(opened => { if (opened && kind) $("documents-tab-" + kind)?.click(); }), capture: showCapture,
-    line: line => void switchProcess(line.id), item: entry => { detailId = entry.id; rendered = ""; paint(); },
-  });
-  if (!entries(state).length && !["running", "starting", "stopping"].includes(activity.state)) {
-    rail.querySelector(".sw-work-rows").replaceChildren(node("p", archivedCount(state) ? fillTemplate(t("暂无活动需求 · {n} 条已归档"), { n: archivedCount(state) }) : t("还没有需求"), "dim"));
-    if (archivedCount(state)) rail.append(button(t("查看归档记录") + " ↗", () => void openProjectSpace(currentProject, "documents"), "ghost"));
+  const all = entries(state), lines = state.snapshot?.lines || [];
+  const owner = lines.find(line => line.id === activeProcessId);
+  const currentId = owner?.current_item_id || item()?.current_item_id;
+  const selectedId = selectedWork(currentProject, activeProcessId);
+  const choices = workChoices(all, lines, activeProcessId);
+  const currentEntry = all.find(entry => entry.id === currentId);
+  const chosenEntry = all.find(entry => entry.id === selectedId);
+  const nextEntry = chosenEntry?.id !== currentEntry?.id ? chosenEntry : null;
+  const busy = ["running", "starting", "stopping", "waiting"].includes(activity.state);
+  const displayedCurrent = busy ? currentEntry : chosenEntry || currentEntry;
+  const candidate = (busy && nextEntry) || choices.find(entry => entry.selectable && entry.id !== displayedCurrent?.id);
+  for (const [label, entry] of [[t(busy ? "正在进行" : chosenEntry ? "当前选取" : "当前工作"), busy ? currentEntry : chosenEntry || currentEntry],
+    [t(nextEntry && busy ? "已选工作 · 下一轮生效" : "下一个候选"), candidate]]) {
+    const slot = node("section", null, "work-focus-slot"); slot.append(node("small", label));
+    if (entry) slot.append(button(`${entry.id} · ${entry.title}`, () => void openWorkbenchItem(currentProject, entry), "work-focus-entry"));
+    else slot.append(node("span", t("暂无"), "dim"));
+    rail.append(slot);
   }
+  const actions = node("div", null, "work-focus-actions");
+  if (!discussion) actions.append(button(t("选择工作"), () => openWorkPicker(state), "ghost"));
+  actions.append(button(t("全部工作") + " ↗", () => void openProjectSpace(currentProject, "project"), "ghost"));
+  rail.append(actions);
   if (state.error) rail.append(button(t("读取失败 · 重试"), () => void refreshConversationWork(), "ghost"));
+}
+
+function openWorkPicker(state) {
+  const project = currentProject, process = activeProcessId;
+  let dialog = $("work-picker");
+  if (!dialog) { dialog = node("dialog", null, "k-surface k-dialog work-picker"); dialog.id = "work-picker"; dialog.setAttribute("aria-label", t("选择当前工作")); document.body.append(dialog); }
+  dialog.replaceChildren();
+  const head = node("header"); head.append(node("strong", t("选择当前工作")), button("×", () => closeSurface(dialog), "ghost"));
+  const search = node("input"); search.type = "search"; search.placeholder = t("搜索编号或标题"); search.setAttribute("aria-label", search.placeholder);
+  const list = node("div", null, "work-picker-list");
+  const choose = id => { if (project === currentProject && process === activeProcessId) selectWork(project, process, id); closeSurface(dialog); rendered = ""; paint(); };
+  const draw = () => {
+    list.replaceChildren(button(t("自动选择 · 由任务队列决定"), () => choose(null), "ghost"));
+    for (const entry of workChoices(entries(state), state.snapshot?.lines || [], process)) {
+      if (!`${entry.id} ${entry.title}`.toLowerCase().includes(search.value.toLowerCase())) continue;
+      const row = button(`${entry.id} · ${entry.title}`, () => choose(entry.id), "ghost");
+      row.disabled = !entry.selectable;
+      row.append(node("small", entry.owner ? t("由其他对话负责") : entry.blocked ? t("已阻塞") : localizedDocStatus(entry.status)));
+      row.setAttribute("aria-pressed", String(selectedWork(project, process) === entry.id)); list.append(row);
+    }
+  };
+  search.addEventListener("input", draw);
+  dialog.append(head, node("p", t("选择在下一次发送或自动续跑时生效；当前轮次保持不变。"), "dim"), search, list); draw();
+  openDialog(dialog, { initialFocus: search });
 }
 
 /// 交给其它对话的表单(右栏)。默认:当前对话 → 本项目的对话;传 target = { project, items, name } 则交给「其它项目」
@@ -343,6 +381,7 @@ defer(() => {
     requestAnimationFrame(() => { scheduled = false; paint(); });
   });
   document.addEventListener("kz:tasks-layout", () => paint());
+  document.addEventListener("kz:work-selection", () => { rendered = ""; paint(); });
   setInterval(() => { if (active() && !document.hidden && rendered !== "handoff") void refreshConversationWork(); }, 10000);
   paint(); if (active()) void refreshConversationWork();
 });

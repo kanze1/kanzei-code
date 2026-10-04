@@ -154,11 +154,11 @@ try {
       const { page } = app;
       const meta = await page.evaluate(async () => (await window.__kzPreview.fixtures()).events.meta);
       await page.click('#project-work-switch [data-work-surface="project"]');
-      await page.waitForFunction(() => document.body.dataset.view === "project" && document.querySelector("#softwire-workspace .sw-network"));
+      await page.waitForFunction(() => document.body.dataset.view === "project" && document.querySelector(".management-page"));
       await page.evaluate(async () => (await import("/03-shell.js")).toast("位置测试(概览页)"));
       await page.waitForSelector(".k-toast");
-      const toast = await app.rect(".k-toast"), composer = await app.rect("#composer");
-      check(toast.bottom <= composer.y + 1, `overview ${width}: a toast sits above the composer card, not on its tool row (${Math.round(toast.bottom)} <= ${Math.round(composer.y)})`);
+      const toast = await app.rect(".k-toast");
+      check(toast.y >= 0 && toast.bottom <= height && toast.right <= width, `management ${width}: notifications stay fully inside the window without a visible composer`);
       await page.waitForTimeout(3600);
       await app.emit("kz:meta", meta);
       await app.emit("kz:turn", { sessionId: meta.sessionId, step: 1, maxSteps: 0 });
@@ -167,29 +167,24 @@ try {
       await app.emit("kz:ask", permissionAsk(301, meta.sessionId));
       await page.waitForFunction(() => document.querySelector("#ask-overlay")?.matches(":popover-open"));
       await sleep(400);
-      const card = await app.rect("#ask-overlay"), send = await app.rect("#send"), after = await app.rect("#composer");
-      check(card.bottom <= after.y + 8, `overview ${width}: the permission card docks above the composer card (${Math.round(card.bottom)} <= ${Math.round(after.y)})`);
-      check(card.bottom <= send.y || card.x >= send.right || card.right <= send.x, `overview ${width}: the permission card never covers the send / stop buttons`);
-      const tools = await page.evaluate(() => {
-        const node = document.querySelector('.sw-lane [data-module="tools"]');
-        return { state: node?.dataset.state, text: node?.closest(".sw-lane")?.querySelector("small")?.textContent };
-      });
-      check(tools.state === "attention" && /待你回复/.test(tools.text), `overview ${width}: waiting on a permission shows the amber "needs you" state on the tools row (${tools.state} / ${tools.text})`);
+      const card = await app.rect("#ask-overlay");
+      check(card.y >= 0 && card.bottom <= height + 1 && card.x >= 0 && card.right <= width + 1, `management ${width}: the permission card remains fully visible`);
+      check(await page.locator("#ask-overlay button").first().isVisible(), `management ${width}: a permission can be answered without returning to chat`);
+      check(await page.locator(".management-page").isVisible(), `management ${width}: an approval does not replace management with the removed overview`);
     });
   }
 
   // ---- 概览内二级页:Esc 先回概览、再按一次回对话 ----
   await section("overview-back", { scene: "column" }, async (app) => {
     const { page } = app;
-    const where = () => page.evaluate(() => ({ view: document.body.dataset.view, network: Boolean(document.querySelector("#softwire-workspace .sw-network")) }));
+    const where = () => page.evaluate(() => ({ view: document.body.dataset.view, list: Boolean(document.querySelector(".management-list")) }));
     await page.click('#project-work-switch [data-work-surface="project"]');
-    await page.waitForFunction(() => document.querySelector("#softwire-workspace .sw-network"));
-    await page.click('[data-module="work"]');
-    await page.waitForFunction(() => !document.querySelector("#softwire-workspace .sw-network"));
+    await page.locator(".management-row").first().click();
+    await page.locator(".management-detail-nav").waitFor();
     await page.keyboard.press("Escape");
     await sleep(500);
     const first = await where();
-    check(first.view === "project" && first.network, "overview-back: Esc inside a module page returns to the overview first");
+    check(first.view === "project" && first.list, "overview-back: Esc inside a work detail returns to the management list first");
     await page.keyboard.press("Escape");
     await sleep(500);
     check((await where()).view === "chat", "overview-back: the next Esc leaves the overview for the conversation");
@@ -315,11 +310,13 @@ try {
     },
   }, async (app) => {
     const { page } = app;
+    await page.click("#composer-more");
     await page.waitForFunction(() => { const chip = document.querySelector("#runtime-indicator"); return chip && !chip.hidden && chip.getBoundingClientRect().width > 0; });
+    const chip = await app.rect("#runtime-indicator");
     await page.click("#runtime-indicator");
-    await page.waitForSelector(".k-menu:popover-open");
+    await page.waitForSelector('.k-menu[aria-label="后台常驻"]:popover-open');
     await sleep(250);
-    const chip = await app.rect("#runtime-indicator"), menu = await page.evaluate(() => { const box = document.querySelector(".k-menu:popover-open").getBoundingClientRect(); return { x: box.x, y: box.y, bottom: box.bottom, right: box.right }; });
+    const menu = await page.evaluate(() => { const box = document.querySelector('.k-menu[aria-label="后台常驻"]:popover-open').getBoundingClientRect(); return { x: box.x, y: box.y, bottom: box.bottom, right: box.right }; });
     check(menu.x > 100 && menu.bottom <= chip.y + 8 && chip.y - menu.bottom < 80 && Math.abs(menu.right - chip.right) < 300, `runtime-chip: the menu opens right above the chip, not at the window corner (menu ${Math.round(menu.x)},${Math.round(menu.y)}..${Math.round(menu.right)},${Math.round(menu.bottom)} / chip ${Math.round(chip.x)},${Math.round(chip.y)})`);
   });
 
@@ -379,20 +376,17 @@ try {
     check(anchor.open && anchor.visible, `context-menu: "add an open-with tool" lands on the 打开方式 section, not the top of settings (top ${Math.round(anchor.top)})`);
   });
 
-  // ---- 研究空间的命令面板不列做不了的条目 ----
-  await section("palette-research", { scene: "startup" }, async (app) => {
+  // ---- 命令面板同步新导航，不重新暴露已退出的研究和想法入口 ----
+  await section("palette-workspace", { scene: "chat" }, async (app) => {
     const { page } = app;
-    await page.click('.workspace-switcher [data-workspace="research"]');
-    await sleep(1000);
     await page.keyboard.press("Control+p");
     await sleep(250);
-    const listed = {};
-    for (const query of ["新讨论", "记需求", "记缺陷", "总结"]) {
-      await page.fill("#palette-input", query);
-      await sleep(200);
-      listed[query] = await page.evaluate((word) => [...document.querySelectorAll("#palette-list .palette-row")].some((row) => row.innerText.split("\n").map((part) => part.trim()).includes(word)), query);
-    }
-    check(Object.values(listed).every((value) => value === false), `palette-research: the research workspace palette does not offer development-only actions (${JSON.stringify(listed)})`);
+    const entries = await page.evaluate(async () => (await import("/21-palette.js")).collectPaletteEntries().map(entry => entry.label));
+    check(!entries.some(label => /^(研究|研究空间|想法|记想法)$/.test(label)), "palette-workspace: retired research and ideas entries stay out of the command palette");
+    await page.fill("#palette-input", "管理");
+    await page.locator("#palette-list .palette-row").filter({ has: page.getByText("管理", { exact: true }) }).click();
+    await page.waitForFunction(() => document.body.dataset.view === "project");
+    check(await page.locator(".management-tabs").isVisible(), "palette-workspace: management opens the current production page");
   });
 
   // ---- 侧栏「待我处理」:进入后它自己高亮,离开后取消 ----

@@ -495,11 +495,12 @@ async fn apply_emulation(
 
 /// 按 host 与设备重放边界与缩放。
 fn apply_bounds(pane: &Pane) {
-    let (host, device) = {
+    let (host, device, page_zoom) = {
         let meta = pane.shared.meta();
-        (meta.host, meta.device)
+        (meta.host, meta.device, meta.page_zoom.unwrap_or(1.0))
     };
     let (rect, zoom) = fit_device(host, device);
+    let zoom = (zoom * page_zoom).clamp(super::MIN_ZOOM, 2.0);
     let _ = pane.webview.set_bounds(tauri::Rect {
         position: LogicalPosition::new(rect.x, rect.y).into(),
         size: LogicalSize::new(rect.w.max(1.0), rect.h.max(1.0)).into(),
@@ -723,6 +724,7 @@ pub(crate) async fn set_device(
     app: &AppHandle,
     preset: Option<DevicePreset>,
     scheme: Option<ColorScheme>,
+    zoom: Option<f64>,
 ) -> Result<Value, String> {
     let pane = current(app).ok_or("预览面板没有打开")?;
     let (device, scheme) = {
@@ -732,6 +734,9 @@ pub(crate) async fn set_device(
         }
         if let Some(scheme) = scheme {
             meta.scheme = scheme;
+        }
+        if let Some(zoom) = zoom {
+            meta.page_zoom = Some(zoom);
         }
         (meta.device, meta.scheme)
     };

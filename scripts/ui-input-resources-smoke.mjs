@@ -1,4 +1,4 @@
-/* global window, document, DataTransfer, DragEvent */
+/* global window, document, DataTransfer, DragEvent, getComputedStyle */
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
@@ -23,8 +23,8 @@ try {
   await page.keyboard.press("Escape");
   await page.locator("#preview-toggle").click(); await settle();
   check(await page.locator("#view-chat").getAttribute("data-preview") === "open", "Preview is open for the overlap regression");
-  const header=await page.locator("#project-space-nav").boundingBox(), preview=await page.locator("#preview-dock").boundingBox();
-  check(header.x+header.width <= preview.x+1, "Preview and conversation header occupy separate columns");
+  const header=await page.locator("#workspace-header").boundingBox(), preview=await page.locator("#preview-dock").boundingBox();
+  check(header.y+header.height <= preview.y+1 && await page.locator("#preview-dock").evaluate(el => getComputedStyle(el).position === "fixed"), "Floating preview leaves the conversation header and its navigation accessible");
   check(await clickable("#new-chat"), "The sidebar new-discussion entry remains clickable with preview open (the page header no longer duplicates it)");
   await page.locator("#new-chat").click(); await settle();
   check(await page.locator("body").getAttribute("data-conversation-kind") === "conversation", "Sidebar creates a peer conversation through the existing conversation action");
@@ -32,7 +32,7 @@ try {
   await page.locator(`.project-session-menu [data-conversation-id="${originalSession}"] .workbench-session-link`).click(); await settle();
   check(await page.locator("body").getAttribute("data-conversation-kind") === "conversation", "Sidebar history returns to the original peer conversation");
   await page.screenshot({path:`${output}/sidebar-preview-dark.png`});
-  await page.locator("#preview-close").click(); await settle();
+  if (await page.locator("#preview-close").isVisible()) await page.locator("#preview-close").click(); await settle();
   await page.locator("#attachment-input").setInputFiles("tests/fixtures/attachments/budget.xlsx");
   await page.locator('#attachments [data-kind="sheet"]').waitFor();
   check((await page.locator("#attachment-input").getAttribute("accept")).includes(".xls"), "File picker advertises Excel formats");

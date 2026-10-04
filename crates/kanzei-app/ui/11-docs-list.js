@@ -645,6 +645,12 @@ function workUnitCard(unit) {
   return card;
 }
 
+export function renderWorkDocument(entry, kind) {
+  return buildDocDetail(entry, kind, { surface: "documents", blocked: entryBlocked(entry),
+    externalBlocked: entry.status === "awaiting_external", blockedReasons: entry.block_reasons || [],
+    workUnits: entry.work_units || [], cx: entry.complexity || "", expanded: true });
+}
+
 function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blockedReasons, workUnits, cx, expanded, prior }) {
   const entryProject = currentProject;
   const detail = document.createElement("div");
@@ -690,7 +696,8 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "ghost mini";
-    btn.textContent = `→ ${t("转")} ${localizedDocStatus(next)}`;
+    btn.textContent = entry.status === "awaiting_external" && next === (kind === "defect" ? "fixing" : "doing")
+      ? t("退回开发") : `→ ${t("转")} ${localizedDocStatus(next)}`;
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       if (entryProject !== currentProject) return;
@@ -700,6 +707,12 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
   }
   head.appendChild(actions);
   detail.appendChild(head);
+  if (entry.prior_art?.issue) {
+    const issue = document.createElement("p");
+    issue.className = "doc-pending-decision";
+    issue.textContent = entry.prior_art.issue;
+    detail.appendChild(issue);
+  }
 
   // ② 阻塞:调度器推导的理由(依赖/阶段/环)+ 回复入口。「阻塞字段: X」是阻塞字段的原文,
   // 下面的字段视图里已经有(拆好了恢复人/解除条件),这里不再重复一遍(D-165)。

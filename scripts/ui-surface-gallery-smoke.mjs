@@ -598,7 +598,7 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
           .map((el) => el.id);
         return { selects, bare, fixed, selectCount: document.querySelectorAll("select").length, frameIds, multiChild };
       });
-      if (audit.frameIds.join(",") !== "ask,confirm,input,project-models,viewer") fail(`index.html(${theme}):可调框清单应为 ask,confirm,input,project-models,viewer,实为 ${audit.frameIds.join(",")}`);
+      if (audit.frameIds.join(",") !== "ask,confirm,floating-preview,input,project-models,viewer") fail(`index.html(${theme}):可调框清单应为 ask,confirm,floating-preview,input,project-models,viewer,实为 ${audit.frameIds.join(",")}`);
       if (audit.multiChild.length) fail(`index.html(${theme}):可调尺寸的框必须只有一个内层容器(裁剪与滚动下放到它):${audit.multiChild.join(", ")}`);
       if (audit.selects.length) fail(`index.html(${theme}):以下 select 不是 base-select:${audit.selects.join(", ")}`);
       if (audit.bare.length) fail(`index.html(${theme}):以下 dialog/[popover] 缺 .k-surface:${audit.bare.join(", ")}`);

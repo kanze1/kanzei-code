@@ -37,11 +37,14 @@ export function collectPaletteEntries() {
     entries.push({ group, label, detail: detail || "", run });
   };
 
-  for (const button of document.querySelectorAll("#activitybar .activity-item[data-view]")) {
+  for (const button of document.querySelectorAll(".activity-item[data-view]")) {
     if (button.classList.contains("hidden")) continue;
+    if (!["chat", "memory", "settings"].includes(button.dataset.view)) continue;
     const label = localizeDynamic(button.dataset.i18nTitle || button.title || button.dataset.view);
     push(t("视图"), label, "", () => button.click());
   }
+  const management = document.querySelector('[data-work-surface="project"]');
+  if (currentProject && management) push(t("视图"), t("管理"), t("需求、缺陷、交付与项目地图"), () => management.click());
 
   // UI2-0926 #1:侧栏不再有项目列表可点,项目读 projects_get 的偏好缓存;切换走 switchProject——
   // 侧栏项目菜单、项目总览卡片、这里三处都调它,仍然是「一处实现」。
@@ -101,7 +104,6 @@ export function collectPaletteEntries() {
   // 原来点的是被隐藏的侧栏里的 #req-quick/#defect-quick,表单进了 0×0 的容器,点了毫无反应。
   action(t("记需求"), "documents-new-req");
   action(t("记缺陷"), "documents-new-defect");
-  action(t("记想法"), "documents-new-idea");
   // 开发规范(UX-007):入口在需求页「更多」菜单里,面板给一条直达;状态(有建议稿待审阅 / 未创建)写在候选的细字上。
   if (document.body.dataset.space !== "research" && currentProject) {
     const conventions = $("documents-conventions-open");

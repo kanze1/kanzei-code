@@ -401,6 +401,16 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
             Ok(input) => input,
             Err(output) => return *output,
         };
+        // Only an explicit navigation may create a foreground pane. Contextual
+        // actions retain the backend used for their resource check.
+        if input.action == "open"
+            && crate::preview::route_hint_for(ctx.process_id.as_deref())
+                == crate::preview::Backend::Headless
+        {
+            if let Some(process) = ctx.process_id.as_deref() {
+                let _ = crate::ui_probe("preview", process).await;
+            }
+        }
         // 面板只是被菜单 / 弹窗暂时遮住(前端冻结)时先等它露出来,免得一串动作中途换后端。
         if crate::preview::route_waiting(ctx.process_id.as_deref()).await
             == crate::preview::Backend::Pane

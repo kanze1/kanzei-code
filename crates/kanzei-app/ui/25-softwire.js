@@ -1,4 +1,5 @@
 import { $, defer, invoke, listen, on } from "./01-core.js";
+import { mountManagement, hideManagement } from "./30-management.js";
 import { autoAllowEnabled, layoutPref, setLayoutPref } from "./03-layout.js";
 import { languageIsEnglish, localizedStage, localizedStatusWord, t } from "./02-i18n.js";
 import { fillTemplate } from "./04-structured-parse.js";
@@ -114,6 +115,13 @@ function mount(state) {
 }
 function paint(force = false) {
   if (!current || !visible() || !root?.isConnected) return;
+  const management = current.tab === "network" && !current.module && !current.evidence && !current.interaction;
+  root.hidden = management;
+  if (management) {
+    mountManagement(current.project, current.docs, developmentState(current), current.error);
+    return;
+  }
+  hideManagement();
   const state = current, selected = work(state), { item, unit, line } = selected;
   $("sw-title").textContent = projectDisplayName(state.project);
   $("sw-requirement").textContent = item ? item.id + " · " + localizedStatusWord(item.status) : t("项目概览");

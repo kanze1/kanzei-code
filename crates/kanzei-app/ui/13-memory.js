@@ -7,6 +7,10 @@ import { neuralFlowEmit } from "./22-neural-flow.js";
 import { richText } from "./04-structured.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import { switchProcess } from "./09-sessions.js";
+import { lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
+import { generalChatRoot } from "./03-general-scope.js";
+import { memoryProject, setMemoryProject } from "./03-memory-scope.js";
+import { layoutPref, setLayoutPref } from "./03-layout.js";
 
 // ---------- 记忆页(R-107/R-332):管理工作区 + 透明化诊断 ----------
 export let memorySelection = { scope: "project", category: "all" };
@@ -18,6 +22,7 @@ let memoryRenderedProject = null;
 const memoryEntryCache = new Map();
 let diagnosticsProject = null;
 let diagnosticsPending = null;
+let memoryInvalidated = false;
 const memoryManagerFilters = { scope: "project", category: "all", status: "active", sort: "updated" };
 // 列表正显示的搜索词(空 = 普通列表)。搜索结果态下点条目只开详情,不重绘列表、不改筛选。
 let memorySearchQuery = "";
@@ -98,7 +103,7 @@ async function onMemoryFilterChange(select, key) {
   hideMemoryDetail();
   loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category);
   // 记忆图谱(24-memory-graph.js)跟着同一组筛选重算可见子图。
-  document.dispatchEvent(new CustomEvent("kz:memory-filters", { detail: { project: currentProject, filters: memoryFilterSnapshot() } }));
+  document.dispatchEvent(new CustomEvent("kz:memory-filters", { detail: { project: memoryProject, filters: memoryFilterSnapshot() } }));
 }
 
 /** 详情里有未保存的修改时,离开(换条目/关详情/换筛选)前确认;没改动或确认放弃返回 true。 */
@@ -131,7 +136,7 @@ function clearMemorySearch() {
   if (input) input.value = "";
   const clear = $("memory-search-clear");
   if (clear) clear.hidden = true;
-  document.dispatchEvent(new CustomEvent("kz:memory-search-hits", { detail: { project: currentProject, ids: [], query: "" } }));
+  document.dispatchEvent(new CustomEvent("kz:memory-search-hits", { detail: { project: memoryProject, ids: [], query: "" } }));
 }
 
 /** 当前 范围/分类/状态/排序 筛选的快照(记忆图谱与列表共用同一组筛选)。 */
@@ -159,7 +164,7 @@ export function hideMemoryDetail() {
   }
   $("memory-reader-empty")?.classList.remove("hidden");
   $("memory-scroll")?.classList.remove("has-memory-selection");
-  document.dispatchEvent(new CustomEvent("kz:memory-selection-cleared", { detail: { project: currentProject } }));
+  document.dispatchEvent(new CustomEvent("kz:memory-selection-cleared", { detail: { project: memoryProject } }));
 }
 
 /** 记忆图谱点了非记忆节点:放掉当前选中的记忆,详情栏交给图谱画节点详情。 */
@@ -176,8 +181,40 @@ export function setMemoryAreaProvider(provider) {
   memoryAreaProvider = provider;
 }
 
+function setupMemoryProjectPicker() {
+  const known = [...new Set([...(lastProjectPrefs.projects || []), currentProject].filter(Boolean))];
+  if (!memoryProject) {
+    const saved = layoutPref("prefs", "memory_project");
+    setMemoryProject(known.includes(saved) ? saved : currentProject || known[0] || generalChatRoot());
+  }
+  let select = $("memory-project-picker");
+  if (!select) {
+    const bar = document.createElement("div"); bar.className = "memory-project-bar";
+    const label = document.createElement("label"); label.textContent = t("记忆管理"); label.htmlFor = "memory-project-picker";
+    select = document.createElement("select"); select.id = "memory-project-picker"; select.setAttribute("aria-label", t("管理全局或项目记忆"));
+    bar.append(label, select); $("view-memory").prepend(bar);
+    select.addEventListener("change", async () => {
+      const choice = select.value;
+      if (!await confirmLeaveMemoryDetail()) { setupMemoryProjectPicker(); return; }
+      if (choice !== "@global") setMemoryProject(choice);
+      memoryManagerFilters.scope = choice === "@global" ? "global" : "project";
+      setLayoutPref("prefs", "memory_project", memoryProject);
+      syncMemoryManagerFilters();
+      await refreshMemory({ force: true });
+      document.dispatchEvent(new CustomEvent("kz:memory-filters", { detail: { project: memoryProject, filters: memoryFilterSnapshot() } }));
+    });
+  }
+  select.replaceChildren();
+  for (const [value, title] of [["@global", t("全局记忆")], ...known.map(project => [project, projectDisplayName(project)])]) {
+    const option = document.createElement("option"); option.value = value; option.textContent = title; select.append(option);
+  }
+  select.value = memoryManagerFilters.scope === "global" ? "@global" : memoryProject;
+}
+
 export async function refreshMemory({ force = false } = {}) {
-  const project = currentProject;
+  setupMemoryProjectPicker();
+  force ||= memoryInvalidated; memoryInvalidated = false;
+  const project = memoryProject;
   const generation = ++memoryRefreshGeneration;
   if (project !== memoryRenderedProject) {
     memoryRenderedProject = project;
@@ -199,25 +236,25 @@ export async function refreshMemory({ force = false } = {}) {
     renderMemoryPendingState();
   }
   syncMemoryNoProject();
-  if (!currentProject) return;
+  if (!memoryProject) return;
   try {
     setupMemoryManagerFilters();
     if (force) { memoryEntryCache.clear(); memoryArchivedCache.clear(); diagnosticsProject = null; diagnosticsPending = null; }
     await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category, { preserveSelection: true });
-    if (project !== currentProject || generation !== memoryRefreshGeneration) return;
+    if (project !== memoryProject || generation !== memoryRefreshGeneration) return;
     // 待整理笔记数与整理失败提示不挂在「使用记录」页签后面:列表一出来就取,顶栏与页签角标才不必等用户去翻。
     void loadMemoryPending();
     neuralFlowEmit?.("memory_snapshot", { memory_count: memoryListEntries.length });
     if (!$("memory-insights")?.classList.contains("hidden")) void loadMemoryDiagnostics();
   } catch (err) {
-    if (project !== currentProject || generation !== memoryRefreshGeneration) return;
+    if (project !== memoryProject || generation !== memoryRefreshGeneration) return;
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
   }
 }
 
 // 诊断只在用户打开时读取；列表不再等待 6 组磁盘/数据库查询。
 async function loadMemoryDiagnostics() {
-  const project = currentProject;
+  const project = memoryProject;
   if (!project || diagnosticsProject === project) return;
   if (diagnosticsPending?.project === project) return diagnosticsPending.promise;
   const request = { project };
@@ -229,9 +266,9 @@ async function loadMemoryDiagnostics() {
     ];
     const results = await Promise.allSettled(jobs.map(async ([command, args, render]) => {
       const data = await invoke(command, { projectDir: project, ...args });
-      if (project === currentProject && diagnosticsPending === request) render(data);
+      if (project === memoryProject && diagnosticsPending === request) render(data);
     }));
-    if (project !== currentProject || diagnosticsPending !== request) return;
+    if (project !== memoryProject || diagnosticsPending !== request) return;
     const errors = results.filter(result => result.status === "rejected");
     if (errors.length) toastError(`${t("记忆页加载失败")}: ${errors.map(result => result.reason).join("; ")}`, { retry: loadMemoryDiagnostics });
     else diagnosticsProject = project;
@@ -270,7 +307,7 @@ export function showMemoryTab(tab) {
 
 // 没有项目时(研究档里常见):整页换成可行动的空态,不留一排没有选项的下拉框和指向不存在的「项目」的提示。
 function syncMemoryNoProject() {
-  const none = !currentProject;
+  const none = !memoryProject;
   $("memory-scroll")?.classList.toggle("no-project", none);
   $("memory-no-project")?.classList.toggle("hidden", !none);
   if (!none) return;
@@ -286,14 +323,14 @@ let memoryNotice = null;
 let memoryFailureDismissed = "";
 
 async function loadMemoryPending() {
-  const project = currentProject;
+  const project = memoryProject;
   if (!project) return;
   const generation = ++memoryPendingGeneration;
   const [notes, control] = await Promise.allSettled([
     invoke("memory_note_candidates", { projectDir: project }),
     invoke("memory_control_plane", { projectDir: project }),
   ]);
-  if (project !== currentProject || generation !== memoryPendingGeneration) return;
+  if (project !== memoryProject || generation !== memoryPendingGeneration) return;
   memoryPending = {
     project,
     notes: notes.status === "fulfilled" && Array.isArray(notes.value) ? notes.value : [],
@@ -307,7 +344,7 @@ async function loadMemoryPending() {
 
 // 待整理数同时写在页签角标和顶栏「全部整理」上;没有可整理的笔记时按钮置灰,不再让人点一个空转的 LLM 调用。
 function renderMemoryPendingState() {
-  const loaded = memoryPending.project === currentProject;
+  const loaded = memoryPending.project === memoryProject;
   const count = loaded ? memoryPending.notes.length : 0;
   const tabCount = $("memory-pending-count");
   if (tabCount) {
@@ -317,7 +354,7 @@ function renderMemoryPendingState() {
   const buttonCount = $("memory-consolidate-count");
   if (buttonCount) buttonCount.textContent = memoryConsolidating ? ` ${t("整理中…")}` : count ? ` (${count})` : "";
   const button = $("memory-consolidate-btn");
-  if (button) button.disabled = !currentProject || memoryConsolidating || (loaded && !count);
+  if (button) button.disabled = !memoryProject || memoryConsolidating || (loaded && !count);
   syncMemoryNotice();
 }
 
@@ -334,7 +371,7 @@ function dismissMemoryNotice() {
 }
 
 function memoryFailureNotice() {
-  const batch = memoryPending.project === currentProject ? memoryPending.control?.batch : null;
+  const batch = memoryPending.project === memoryProject ? memoryPending.control?.batch : null;
   if (!batch || batch.status !== "failed" || batch.batch_id === memoryFailureDismissed) return null;
   const reason = batch.failure_reason ? `:${batch.failure_reason}` : "";
   return { text: `${t("上次整理没有成功")}${reason}`, label: t("重试整理"), run: () => $("memory-consolidate-btn")?.click(), kind: "err", batchId: batch.batch_id };
@@ -872,13 +909,14 @@ export function probeStyle(selector) {
 }
 
 defer(() => {
-  on("kz:ui-probe", (event) => {
+  on("kz:ui-probe", async (event) => {
     const { id, kind, arg } = event.payload ?? {};
     let result;
     try {
       if (kind === "dom") result = probeDom(arg);
       else if (kind === "console") result = probeConsole();
       else if (kind === "style") result = probeStyle(arg);
+      else if (kind === "preview") result = await (await import("./24-preview.js")).prepareAgentPreview(arg);
       else result = `未知探针类型: ${kind}`;
     } catch (err) {
       // 探针自身出错也要如实回传,不能让后端悬到超时。
@@ -953,7 +991,7 @@ export function renderMemoryCandidates(list) {
     drop.title = t("直接移出待整理,不再进入提炼范围");
     drop.disabled = !key;
     adopt.addEventListener("click", async () => {
-      const project = currentProject;
+      const project = memoryProject;
       adopt.disabled = true;
       drop.disabled = true;
       neuralFlowEmit?.("memory_consolidation_started", { fingerprint: item.fingerprint });
@@ -969,16 +1007,16 @@ export function renderMemoryCandidates(list) {
         drop.disabled = false;
         toastError(`${t("提炼失败")}:${err?.message ?? err}`);
       } finally {
-        if (project === currentProject) void refreshMemory({ force: true });
+        if (project === memoryProject) void refreshMemory({ force: true });
       }
     });
     drop.addEventListener("click", async () => {
-      const project = currentProject;
+      const project = memoryProject;
       try {
         await invoke("memory_note_discard", { projectDir: project, scope, fingerprint: key });
         neuralFlowEmit?.("memory_candidate_discarded", { fingerprint: item.fingerprint });
         toast(t("已丢弃"));
-        if (project === currentProject) void refreshMemory({ force: true });
+        if (project === memoryProject) void refreshMemory({ force: true });
       } catch (err) {
         toastError(`${t("丢弃失败")}:${err}`);
       }
@@ -1054,11 +1092,11 @@ export function renderMemoryValueFlags(data) {
 // 从清单跳详情:按 scope+id 定位条目并复用现有详情渲染。
 export async function openMemoryDetailById(scope, id) {
   if (!(await confirmLeaveMemoryDetail())) return;
-  const project = currentProject;
+  const project = memoryProject;
   const generation = ++memoryListGeneration;
   try {
     const list = await getMemoryEntries(project, scope);
-    if (project !== currentProject || generation !== memoryListGeneration) return;
+    if (project !== memoryProject || generation !== memoryListGeneration) return;
     const entry = (list || []).find((e) => e.id === id);
     if (entry) {
       clearMemorySearch();
@@ -1072,7 +1110,7 @@ export async function openMemoryDetailById(scope, id) {
       showMemoryDetail(scope, entry);
     }
   } catch (err) {
-    if (project !== currentProject || generation !== memoryListGeneration) return;
+    if (project !== memoryProject || generation !== memoryListGeneration) return;
     toastError(`${t("记忆条目加载失败")}:${err}`);
   }
 }
@@ -1080,15 +1118,15 @@ export async function openMemoryDetailById(scope, id) {
 // 搜索结果里点一条:只打开它的详情——结果列表与筛选保持原样(此前整页换成全量列表、筛选被改写,找到的上下文丢了)。
 async function openMemorySearchHit(hit) {
   if (!(await confirmLeaveMemoryDetail())) return;
-  const project = currentProject;
+  const project = memoryProject;
   const scope = hit.scope || "project";
   try {
     const list = await getMemoryEntries(project, scope);
     const entry = (list || []).find((item) => item.id === hit.id) ?? await invoke("memory_entry_get", { projectDir: project, scope, id: hit.id });
-    if (project !== currentProject) return;
+    if (project !== memoryProject) return;
     showMemoryDetail(scope, { ...entry, scope }, { readOnly: Boolean(entry.archived), reveal: !memoryChatTabActive() });
   } catch (err) {
-    if (project !== currentProject) return;
+    if (project !== memoryProject) return;
     toastError(`${t("记忆条目加载失败")}:${err}`);
   }
 }
@@ -1205,13 +1243,13 @@ async function getArchivedEntries(project, scope) {
 
 // 搜索结果态下的后台刷新:结果列表不动,只把已打开的详情换成最新内容(保存/管理对话改了它)。
 async function refreshOpenMemoryDetail() {
-  const project = currentProject;
+  const project = memoryProject;
   const box = $("memory-detail");
   if (!project || !memoryCurrentEntryId || memoryDetailDirty() || box?.dataset.graphNode || box?.dataset.readonly === "true") return;
   const scope = memorySelection.scope;
   try {
     const list = await getMemoryEntries(project, scope);
-    if (project !== currentProject) return;
+    if (project !== memoryProject) return;
     const current = (list || []).find((entry) => entry.id === memoryCurrentEntryId);
     if (current) showMemoryDetail(scope, { ...current, scope }, { reveal: false });
     else {
@@ -1226,7 +1264,7 @@ async function refreshOpenMemoryDetail() {
 export async function loadMemoryList(scope, category, { preserveSelection = false } = {}) {
   // 搜索结果态:后台刷新不许把结果列表换回普通列表(退出搜索靠清除/改筛选)。
   if (memorySearchQuery) return refreshOpenMemoryDetail();
-  const project = currentProject;
+  const project = memoryProject;
   const generation = ++memoryListGeneration;
   try {
     memoryManagerFilters.scope = scope || "project";
@@ -1236,7 +1274,7 @@ export async function loadMemoryList(scope, category, { preserveSelection = fals
     const fetchEntries = archivedView ? getArchivedEntries : getMemoryEntries;
     const scopes = memoryManagerFilters.scope === "all" ? ["project", "global"] : [memoryManagerFilters.scope];
     const results = await Promise.all(scopes.map(async itemScope => (await fetchEntries(project, itemScope)).map(entry => ({ ...entry, scope: itemScope }))));
-    if (project !== currentProject || generation !== memoryListGeneration) return;
+    if (project !== memoryProject || generation !== memoryListGeneration) return;
     memoryListEntries = results.flat().map((entry) => ({ ...entry, scope: entry.scope || memoryManagerFilters.scope }));
     const filtered = memoryListEntries
       .filter((entry) => memoryManagerFilters.category === "all" || entry.category === memoryManagerFilters.category)
@@ -1254,7 +1292,7 @@ export async function loadMemoryList(scope, category, { preserveSelection = fals
       else if (!current) hideMemoryDetail();
     }
   } catch (err) {
-    if (project !== currentProject || generation !== memoryListGeneration) return;
+    if (project !== memoryProject || generation !== memoryListGeneration) return;
     toastError(`${t("记忆条目加载失败")}:${err}`);
   }
 }
@@ -1325,7 +1363,7 @@ export function renderMemoryList(entries, { search = false, keepScroll = false, 
 async function restoreMemoryEntry(project, scope, id, status, title) {
   try {
     await invoke("memory_entry_restore", { projectDir: project, scope, id, status });
-    if (project !== currentProject) return;
+    if (project !== memoryProject) return;
     dismissMemoryNotice();
     toast(`${t("已恢复")}「${title || id}」`);
     memoryCurrentEntryId = null;
@@ -1349,7 +1387,7 @@ function dropMemoryRow(scope, id) {
 export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false } = {}) {
   const box = $("memory-detail");
   if (!box) return;
-  const project = currentProject;
+  const project = memoryProject;
   readOnly = readOnly || Boolean(entry.archived);
   // 同一条重绘(保存/刷新之后)保住阅读区的滚动位置,换条目才回到顶部。
   const reader = $("memory-reader");
@@ -1475,7 +1513,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
         status: null,
       });
       toast(t("记忆已保存"));
-      if (project !== currentProject) return;
+      if (project !== memoryProject) return;
       delete box.dataset.dirty;
       memoryCurrentEntryId = entry.id;
       document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
@@ -1493,7 +1531,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   enableBtn.addEventListener("click", async () => {
     try {
       await setStatus("active");
-      if (project !== currentProject) return;
+      if (project !== memoryProject) return;
       toast(t("已启用"));
       document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
     } catch (err) {
@@ -1510,7 +1548,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
     if (!(await confirmLeaveMemoryDetail())) return;
     try {
       await setStatus("deprecated");
-      if (project !== currentProject) return;
+      if (project !== memoryProject) return;
       memoryCurrentEntryId = null;
       hideMemoryDetail();
       dropMemoryRow(scope, entry.id);
@@ -1532,7 +1570,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
     if (!(await confirmDialog({ title: t("确认删除"), message: `「${displayMemoryTitle(entry.title) || entry.id}」(${entry.id})?${t("此操作不可撤销")}`, okText: t("删除"), danger: true }))) return;
     try {
       await invoke("memory_entry_delete", { projectDir: project, scope, id: entry.id });
-      if (project !== currentProject) return;
+      if (project !== memoryProject) return;
       toast(t("已删除"));
       memoryCurrentEntryId = null;
       hideMemoryDetail();
@@ -1621,7 +1659,7 @@ function renderMemoryAreaRow(project, scope, entry) {
   const saveArea = async (areas) => {
     try {
       await invoke("memory_entry_save", { projectDir: project, scope, id: entry.id, title: null, description: null, body: null, status: null, area: areas });
-      if (project !== currentProject) return;
+      if (project !== memoryProject) return;
       toast(areas.length ? t("区域已保存") : t("区域已清除"));
       document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
     } catch (err) {
@@ -1739,7 +1777,9 @@ defer(() => {
     });
   }
   document.addEventListener("kz:memory-changed", event => {
-    if (event.detail?.project === currentProject) void refreshMemory({ force: true });
+    if (event.detail?.project !== memoryProject) return;
+    if (document.body.dataset.view === "memory") void refreshMemory({ force: true });
+    else memoryInvalidated = true;
   });
   // 切换语言:下拉选项只在首次建一次,文案跟着换;提示条与待整理状态按新语言重写。
   document.addEventListener("kz:language", () => {
@@ -1750,7 +1790,7 @@ defer(() => {
   // 新建记忆:没有表单——到管理对话里说明要记住什么,由记忆管理子代理整理成条目(它会先查重、再写召回钩子)。
   $("memory-new-btn")?.addEventListener("click", () => {
     // 新建不是改选中的那条:先清掉管理对话的目标(上下文芯片),否则发送时 target 仍指向上一条,管理子代理可能去改它。
-    document.dispatchEvent(new CustomEvent("kz:memory-selection-cleared", { detail: { project: currentProject } }));
+    document.dispatchEvent(new CustomEvent("kz:memory-selection-cleared", { detail: { project: memoryProject } }));
     showMemoryTab("chat");
     const chatInput = $("memory-chat-input");
     if (!chatInput) return;
@@ -1768,7 +1808,7 @@ defer(() => {
   let searchTimer = 0;
   const runSearch = async () => {
     clearTimeout(searchTimer);
-    const project = currentProject;
+    const project = memoryProject;
     const query = input.value.trim();
     if (!project) return;
     if (!query) {
@@ -1781,14 +1821,14 @@ defer(() => {
     neuralFlowEmit?.("memory_search_started", { query_length: query.length });
     try {
       const hits = await invoke("memory_search_page", { projectDir: project, query, limit: MEMORY_SEARCH_LIMIT });
-      if (project !== currentProject || generation !== memoryListGeneration) return;
+      if (project !== memoryProject || generation !== memoryListGeneration) return;
       neuralFlowEmit?.("memory_search_completed", { hit_count: hits.length });
       // 搜索只换结果列表,不碰已经打开的详情(里面可能有没保存的修改)。
       memorySearchQuery = query;
       renderMemoryList(hits.map((hit) => ({ ...hit, scope: hit.scope || "project" })), { search: true, truncated: hits.length >= MEMORY_SEARCH_LIMIT });
       document.dispatchEvent(new CustomEvent("kz:memory-search-hits", { detail: { project, ids: hits.map((hit) => hit.id), query } }));
     } catch (err) {
-      if (project !== currentProject || generation !== memoryListGeneration) return;
+      if (project !== memoryProject || generation !== memoryListGeneration) return;
       neuralFlowEmit?.("memory_search_failed");
       toastError(`${t("记忆检索失败")}:${err}`);
     }
@@ -1822,7 +1862,7 @@ defer(() => {
 
 defer(() => {
   const consolidate = async () => {
-    const project = currentProject;
+    const project = memoryProject;
     if (!project || memoryConsolidating) return;
     memoryConsolidating = true;
     renderMemoryPendingState();
@@ -1839,7 +1879,7 @@ defer(() => {
       toastError(`${t("整理失败")}:${err}`, { retry: consolidate });
     } finally {
       memoryConsolidating = false;
-      if (project === currentProject) void refreshMemory({ force: true });
+      if (project === memoryProject) void refreshMemory({ force: true });
       else renderMemoryPendingState();
     }
   };

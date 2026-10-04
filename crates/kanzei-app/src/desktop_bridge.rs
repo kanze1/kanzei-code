@@ -84,6 +84,34 @@ pub(crate) async fn browser(input: Value, ctx: &ToolCtx) -> ToolOutput {
     if let Some((endpoint, url)) = plan {
         return tool_call(&endpoint, "browser", input, ctx, Some(url)).await;
     }
+    // Resource authorization has already completed. Creating about:blank is
+    // allowed only for an explicit open; click/evaluate/relative actions never
+    // migrate from their planned headless page to a different browser.
+    if input["action"] == "open" {
+        let endpoint = DESKTOP.lock_or_recover().clone();
+        if let (Some(endpoint), Some(process)) = (endpoint, ctx.process_id.as_deref()) {
+            if let Ok(Ok(value)) = tokio::time::timeout(
+                Duration::from_secs(9),
+                request(
+                    &endpoint,
+                    json!({"action":"prepare_browser","processId":process}),
+                ),
+            )
+            .await
+            {
+                if value["ready"] == true {
+                    return tool_call(
+                        &endpoint,
+                        "browser",
+                        input,
+                        ctx,
+                        Some(value["url"].as_str().unwrap_or("about:blank").to_owned()),
+                    )
+                    .await;
+                }
+            }
+        }
+    }
     match kanzei_tools::browser::parse_browser_input(input) {
         Ok(input) => kanzei_tools::browser::execute_headless(input, ctx, true).await,
         Err(output) => *output,
@@ -170,6 +198,10 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                             crate::preview::now_ms(),
                         ) == crate::preview::Backend::Pane;
                         return Ok(json!({"pane":pane,"url":meta.map(|m|m.url)}));
+                    }
+                    if value["action"] == "prepare_browser" {
+                        let process = value["processId"].as_str().ok_or("缺少对话")?;
+                        return crate::ui_probe("preview", process).await;
                     }
                     if value["action"] != "tool" {
                         return Err("未知桌面请求".into());
