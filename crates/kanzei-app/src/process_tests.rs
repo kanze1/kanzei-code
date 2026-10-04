@@ -224,14 +224,11 @@ fn process_sessions_are_isolated_but_default_keeps_legacy_id() {
 
 /// 「勘察复核」(阶段流水线总闸)的默认值必须是**关**。
 ///
-/// 2026-08-11 用户定调:「我如果显式打开子代理,应该每个任务强制触发」——默认开就
-/// 不叫显式,而且默认开等于给每一轮无差别加 5 个勘察 + 3 个复核子代理的成本。
-/// 这条同时钉住给前端的回显字段(`ProcessInfo.phase_pipeline`),它是界面勾选框的初值。
 #[test]
-fn 勘察复核开关默认关闭() {
+fn subagent_mode_defaults_to_auto() {
     let state = AppState::default();
     let root = std::env::temp_dir().join(format!(
-        "kz-pipeline-default-{}-{}",
+        "kz-subagent-default-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -240,19 +237,14 @@ fn 勘察复核开关默认关闭() {
     ));
     std::fs::create_dir_all(&root).unwrap();
     let process = ensure_default_process(&state, &root);
-    assert!(
-        !process.phase_pipeline_enabled.load(Ordering::SeqCst),
-        "默认进程的「勘察复核」必须默认关闭(要显式打开才强制走七阶段)"
+    assert_eq!(
+        *process.subagent_mode.lock().unwrap(),
+        kanzei_harness::SubagentMode::Auto
     );
-    assert!(
-        process.subagents_enabled.load(Ordering::SeqCst),
-        "默认进程的「子代理」必须默认开启"
+    assert_eq!(
+        process_info(&state, &process).subagent_mode,
+        kanzei_harness::SubagentMode::Auto
     );
-    assert!(
-        !process_info(&state, &process).phase_pipeline,
-        "回显给前端的默认值也必须是关,否则界面勾选框与真实闸门对不上"
-    );
-    assert!(process_info(&state, &process).subagents_enabled);
     std::fs::remove_dir_all(&root).ok();
 }
 
@@ -324,8 +316,8 @@ fn process_persist_then_restart_restores_line_state() {
         research_topic: Arc::new(std::sync::Mutex::new(None)),
         reasoning: Arc::new(std::sync::Mutex::new(Some("high".into()))),
         manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
-        phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
-        subagents_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+
+        subagent_mode: Arc::new(std::sync::Mutex::new(kanzei_harness::SubagentMode::Auto)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
     };
     persist_process(&canonical, &line).unwrap();
@@ -342,8 +334,8 @@ fn process_persist_then_restart_restores_line_state() {
     );
     assert_eq!(restored.profile.lock().unwrap().as_deref(), Some("dev"));
     assert_eq!(restored.reasoning.lock().unwrap().as_deref(), Some("high"));
-    assert!(restored.phase_pipeline_enabled.load(Ordering::SeqCst));
-    assert!(restored.subagents_enabled.load(Ordering::SeqCst));
+
+    assert!(restored.subagent_mode.lock().unwrap().enabled());
     assert!(restored.tracker_writes_enabled.load(Ordering::SeqCst));
     drop(processes);
 
@@ -403,8 +395,8 @@ fn repeated_process_restore_does_not_overwrite_live_settings() {
         research_topic: Arc::new(std::sync::Mutex::new(None)),
         reasoning: Arc::new(std::sync::Mutex::new(Some("medium".into()))),
         manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
-        phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        subagents_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+
+        subagent_mode: Arc::new(std::sync::Mutex::new(kanzei_harness::SubagentMode::Auto)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     persist_process(&canonical, &stored).unwrap();
@@ -465,8 +457,8 @@ fn process_restore_is_isolated_per_project() {
         research_topic: Arc::new(std::sync::Mutex::new(None)),
         reasoning: Arc::new(std::sync::Mutex::new(None)),
         manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
-        phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        subagents_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+
+        subagent_mode: Arc::new(std::sync::Mutex::new(kanzei_harness::SubagentMode::Auto)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     persist_process(&canonical_a, &line).unwrap();

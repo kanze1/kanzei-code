@@ -222,8 +222,7 @@ impl SessionStore {
                      research_topic TEXT,
                      reasoning TEXT,
                      manual_models TEXT NOT NULL DEFAULT '[]',
-                     phase_pipeline INTEGER NOT NULL DEFAULT 0,
-                     subagents_enabled INTEGER NOT NULL DEFAULT 1,
+                     subagent_mode TEXT NOT NULL DEFAULT 'auto' CHECK(subagent_mode IN ('off', 'auto', 'ultra')),
                      tracker_writes_enabled INTEGER NOT NULL DEFAULT 0,
                      updated_at INTEGER NOT NULL
                  );
@@ -323,7 +322,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS file_checkpoints_path
                      ON file_checkpoints(path_key, updated_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '25')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '26')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -358,6 +357,22 @@ impl SessionStore {
             "ALTER TABLE processes ADD COLUMN subagents_enabled INTEGER NOT NULL DEFAULT 1",
             [],
         );
+        // v26: migrate the old switch, then physically remove both retired controls.
+        let has_mode: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('processes') WHERE name = 'subagent_mode')", [], |row| row.get(0))?;
+        if !has_mode {
+            tx.execute_batch("ALTER TABLE processes ADD COLUMN subagent_mode TEXT NOT NULL DEFAULT 'auto' CHECK(subagent_mode IN ('off', 'auto', 'ultra'));
+                UPDATE processes SET subagent_mode = CASE WHEN subagents_enabled = 0 THEN 'off' ELSE 'auto' END;")?;
+        }
+        for column in ["phase_pipeline", "subagents_enabled"] {
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('processes') WHERE name = ?1)",
+                [column],
+                |row| row.get(0),
+            )?;
+            if exists {
+                tx.execute_batch(&format!("ALTER TABLE processes DROP COLUMN {column}"))?;
+            }
+        }
         // v22:课题绑定为空的旧会话保持未绑定，无推测性回填。
         let _ = tx.execute("ALTER TABLE processes ADD COLUMN research_topic TEXT", []);
         // v23:历史读取状态保持 NULL；先补列，再建依赖新列的索引。
@@ -614,13 +629,12 @@ mod tests {
         "processes.manual_models",
         "processes.model",
         "processes.origin_project",
-        "processes.phase_pipeline",
         "processes.process_id",
         "processes.profile",
         "processes.project_dir",
         "processes.reasoning",
         "processes.research_topic",
-        "processes.subagents_enabled",
+        "processes.subagent_mode",
         "processes.tracker_writes_enabled",
         "processes.updated_at",
         "processes.worktree_path",
@@ -759,7 +773,7 @@ mod tests {
             let store = SessionStore::open(&path).unwrap();
             store
                 .connection
-                .execute_batch("ALTER TABLE processes DROP COLUMN subagents_enabled;")
+                .execute_batch("ALTER TABLE processes DROP COLUMN subagent_mode;")
                 .unwrap();
             store
                 .connection
@@ -771,7 +785,7 @@ mod tests {
         }
         let store = SessionStore::open(&path).unwrap();
         assert!(
-            user_columns(&store.connection).contains(&"processes.subagents_enabled".to_string()),
+            user_columns(&store.connection).contains(&"processes.subagent_mode".to_string()),
             "存量库 open 后仍缺 processes.subagents_enabled——桌面端读进程注册会 no such column"
         );
         drop(store);
@@ -916,12 +930,54 @@ mod tests {
         }
         let store = SessionStore::open(&path).unwrap();
         let process = store.get_process("p1|C:/project").unwrap().unwrap();
-        assert!(process.phase_pipeline);
+        assert_eq!(process.subagent_mode, kanzei_harness::SubagentMode::Auto);
         assert!(
             !process.tracker_writes_enabled,
             "存量线不能在升级后静默获得主根 tracker 写权限"
         );
         drop(store);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn v26_migrates_switch_and_removes_both_legacy_controls() {
+        let dir =
+            std::env::temp_dir().join(format!("kz-v26-modes-{}-{}", std::process::id(), now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store.connection.execute_batch("DROP TABLE processes;
+                CREATE TABLE processes (
+                    process_id TEXT PRIMARY KEY, origin_project TEXT NOT NULL, project_dir TEXT NOT NULL,
+                    worktree_path TEXT, model TEXT, profile TEXT, reasoning TEXT, manual_models TEXT NOT NULL DEFAULT '[]',
+                    phase_pipeline INTEGER NOT NULL DEFAULT 0, subagents_enabled INTEGER NOT NULL DEFAULT 1,
+                    tracker_writes_enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, research_topic TEXT
+                );
+                INSERT INTO processes(process_id,origin_project,project_dir,phase_pipeline,subagents_enabled,updated_at)
+                    VALUES ('off','C:/project','C:/project',1,0,1), ('on','C:/project','C:/project',1,1,2);
+                UPDATE schema_meta SET value = '25' WHERE key = 'schema_version';").unwrap();
+        }
+        let store = SessionStore::open(&path).unwrap();
+        assert_eq!(
+            store.get_process("off").unwrap().unwrap().subagent_mode,
+            kanzei_harness::SubagentMode::Off
+        );
+        assert_eq!(
+            store.get_process("on").unwrap().unwrap().subagent_mode,
+            kanzei_harness::SubagentMode::Auto
+        );
+        let columns = user_columns(&store.connection);
+        assert!(columns.contains(&"processes.subagent_mode".to_string()));
+        assert!(!columns.contains(&"processes.phase_pipeline".to_string()));
+        assert!(!columns.contains(&"processes.subagents_enabled".to_string()));
+        drop(store);
+        let reopened = SessionStore::open(&path).unwrap();
+        assert_eq!(
+            reopened.get_process("off").unwrap().unwrap().subagent_mode,
+            kanzei_harness::SubagentMode::Off
+        );
+        drop(reopened);
         std::fs::remove_dir_all(dir).ok();
     }
 

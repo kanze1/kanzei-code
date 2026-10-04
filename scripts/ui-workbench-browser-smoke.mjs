@@ -20,7 +20,7 @@ const { payloads, project: projectA } = vm.runInNewContext(`${fixture}\n({payloa
 const projectB = "C:/smoke/second-project";
 const projectNames = { [projectA]: "Markdown 阅读器", [projectB]: "独立对照项目" };
 const projects = { current: projectA, projects: [projectA, projectB], names: projectNames };
-const seedProcess = { ...payloads.process_list[0], profile: "dev", subagents_enabled: false, running: false };
+const seedProcess = { ...payloads.process_list[0], profile: "dev", subagent_mode: "off", running: false };
 const processes = new Map([
   [projectA, [
     { ...seedProcess, id: "d|reader", session_id: "session-reader", origin_project: projectA, project_dir: projectA },

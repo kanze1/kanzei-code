@@ -188,7 +188,7 @@ main.rs
 | 域 | 文件 |
 |---|---|
 | 入口契约 | `main.rs`(163 command 注册) `state.rs`(44KB) `ipc_contract.rs` `typed_events.rs` `runtime_events.rs` `runtime_service.rs` `runtime_continuation.rs` |
-| 会话运行 | `conversation.rs` `conversation_actions.rs` `phase_pipeline.rs` `auto_run.rs` `subagents.rs` `collaboration.rs` `general_chat.rs` `side_question.rs` `durable_questions.rs` `manual_compact.rs` |
+| 会话运行 | `conversation.rs` `conversation_actions.rs` `auto_run.rs` `subagents.rs` `collaboration.rs` `general_chat.rs` `side_question.rs` `durable_questions.rs` `manual_compact.rs` |
 | 文件 | `files_view.rs` `files_edit.rs`(50KB) `files_draft.rs` `attachments.rs` |
 | 记忆文档 | `memory.rs` `memory_chat.rs` `docs.rs`(44KB) `research_library.rs` `research_topics.rs` `research_latex.rs` `research_auto.rs` |
 | 配置 | `settings.rs`(68KB) `model_config.rs`(61KB) `prefs.rs` `fast_model.rs` |

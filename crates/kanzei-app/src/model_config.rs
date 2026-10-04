@@ -659,7 +659,7 @@ impl ProjectModelsSet {
 }
 
 /// 在原文上应用一次补丁:只增删 `[models]` 里的这几个键,注释、`[[permissions.rules]]`、
-/// providers、scout 等其它内容原样保留;`[models]` 被删空就整张表移除。
+/// providers、web_extract 等其它内容原样保留，移除旧 scout 配置;`[models]` 被删空就整张表移除。
 /// `probe` 是校验模型值用的合并配置(provider 必须真的配了)。
 pub(crate) fn apply_project_models_patch(
     text: &str,
@@ -716,6 +716,7 @@ pub(crate) fn apply_project_models_patch(
     }
     let mut doc = crate::settings::settings_parse_document(text, path)?;
     let models = crate::settings::settings_table(&mut doc, "models")?;
+    models.remove("scout");
     for (key, value) in writes {
         crate::settings::settings_set_value(models, key.snake(), value);
     }
@@ -790,9 +791,6 @@ fn present_keys(models: &ModelRoles) -> Vec<&'static str> {
     }
     if models.codex_fast_mode.is_some() {
         keys.push("codexFastMode");
-    }
-    if nonblank(&models.scout).is_some() {
-        keys.push("scout");
     }
     keys
 }
@@ -889,7 +887,6 @@ mod tests {
             fast: pick(&layers.project.fast, &layers.global.fast),
             compact: pick(&layers.project.compact, &layers.global.compact),
             reasoning: pick(&layers.project.reasoning, &layers.global.reasoning),
-            scout: pick(&layers.project.scout, &layers.global.scout),
             web_extract: pick(&layers.project.web_extract, &layers.global.web_extract),
             codex_fast_mode: layers
                 .project
@@ -1281,7 +1278,7 @@ mod tests {
 
     const PROJECT_TOML: &str = "# 项目配置:手写注释\n\
         [models]\n\
-        scout = \"local:scout\" # 勘察\n\
+        web_extract = \"local:web_extract\" # 网页提取\n\
         fast = \"local:small\"\n\
         \n\
         [providers.local]\n\
@@ -1309,7 +1306,7 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         for kept in [
             "# 项目配置:手写注释",
-            "scout = \"local:scout\" # 勘察",
+            "web_extract = \"local:web_extract\" # 网页提取",
             "[providers.local]",
             "[[permissions.rules]]",
             "resource = \"git status\"",
@@ -1353,7 +1350,7 @@ mod tests {
         );
         assert!(text.contains("[providers.local]"));
 
-        // 还剩 scout(本弹窗不管的键)→ 表保留。
+        // 还剩 web_extract(本弹窗不管的键)→ 表保留。
         std::fs::write(&path, PROJECT_TOML).unwrap();
         save_project_models_file(
             &path,
@@ -1364,7 +1361,7 @@ mod tests {
         .unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
-            text.contains("[models]") && text.contains("scout = \"local:scout\""),
+            text.contains("[models]") && text.contains("web_extract = \"local:web_extract\""),
             "{text}"
         );
         assert!(!text.contains("fast = "), "{text}");
@@ -1375,7 +1372,7 @@ mod tests {
     fn project_models_save_edits_and_unsets_valid_inline_models() {
         let dir = temp_dir("inline-models");
         let path = dir.join("kanzei.toml");
-        std::fs::write(&path, "# Keep\nmodels = { primary = 'local:llama', scout = 'local:scout' }\n[providers.local]\nprotocol = 'openai'\nbase_url = 'http://x'\n").unwrap();
+        std::fs::write(&path, "# Keep\nmodels = { primary = 'local:llama', web_extract = 'local:web_extract', scout = 'retired' }\n[providers.local]\nprotocol = 'openai'\nbase_url = 'http://x'\n").unwrap();
         save_project_models_file(
             &path,
             &ProjectModelsSet {
@@ -1391,7 +1388,11 @@ mod tests {
         assert!(text.contains("# Keep"));
         assert_eq!(config.models.primary, None);
         assert_eq!(config.models.reasoning.as_deref(), Some("xhigh"));
-        assert_eq!(config.models.scout.as_deref(), Some("local:scout"));
+        assert_eq!(
+            config.models.web_extract.as_deref(),
+            Some("local:web_extract")
+        );
+        assert!(!text.contains("scout"));
         assert_eq!(config.providers["local"].base_url, "http://x");
         std::fs::write(&path, "models = { primary = 'local:llama' }\n").unwrap();
         save_project_models_file(

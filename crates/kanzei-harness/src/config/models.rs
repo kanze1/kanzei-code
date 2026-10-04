@@ -16,17 +16,6 @@ pub struct ModelRoles {
     /// Codex Fast mode:同一模型使用更高消耗的 priority 服务档位。
     #[serde(default)]
     pub codex_fast_mode: Option<bool>,
-    /// R-173:阶段编排派发的只读代理(勘察 + 复核)用哪条路由。
-    ///
-    /// 取值与 primary/fast 同一套解析(角色名或 `provider:model`)。
-    /// `None` = 沿用 `fast`,与引入前逐字节一致。
-    ///
-    /// 单独一个键的理由:勘察/复核是**读密集、上下文短、要看懂代码**的活,
-    /// 它该用哪个模型与「主对话用哪个」「机械检索用哪个」都不是同一个问题。
-    /// 写死 fast 等于假定勘察是廉价活——用户跑 DeepSeek 时这个假设不成立,
-    /// 白白让勘察质量降级。
-    #[serde(default)]
-    pub scout: Option<String>,
     /// R-236 B3:上下文压缩纪要用哪条路由。取值与 primary/fast 同一套解析。
     ///
     /// `None` = 跟随 **primary**(不是 fast——这是对旧实现的刻意纠偏:纪要质量
@@ -112,7 +101,6 @@ pub(crate) const MODELS_KEYS: &[&str] = &[
     "fast",
     "reasoning",
     "codex_fast_mode",
-    "scout",
     "compact",
     "web_extract",
 ];

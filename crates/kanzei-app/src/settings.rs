@@ -8,10 +8,6 @@ use tauri::State;
 
 use crate::AppState;
 
-// 与 phase_pipeline::SCOUT_ROLES 的最大阶段角色数保持一致；设置页用它解释
-// max_tasks_per_turn 造成的角色截断，而不是让 roster_cap 继续静默发生。
-const PHASE_ROSTER_CAPACITY: usize = 5;
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SettingsPayload {
@@ -63,6 +59,12 @@ pub(crate) struct LimitsPayload {
     pub(crate) subagent_max_tokens: Option<u32>,
     #[serde(default)]
     pub(crate) subagent_timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub(crate) subagent_global_concurrency: Option<usize>,
+    #[serde(default)]
+    pub(crate) subagent_ultra_concurrency: Option<usize>,
+    #[serde(default)]
+    pub(crate) subagent_auto_concurrency: Option<usize>,
     #[serde(default)]
     pub(crate) context_budget_ratio: Option<f64>,
     #[serde(default)]
@@ -308,6 +310,7 @@ pub(crate) fn settings_apply_model_fields(
     payload: &SettingsPayload,
 ) -> Result<(), String> {
     let models = settings_table(doc, "models")?;
+    models.remove("scout");
     settings_set_or_remove(
         models,
         "primary",
@@ -343,7 +346,38 @@ pub(crate) fn settings_apply_limits(
     payload: &SettingsPayload,
 ) -> Result<(), String> {
     let limits = settings_table(doc, "limits")?;
+    limits.remove("barrier_timeout_secs");
     let l = &payload.limits;
+    if let Some(value) = l.subagent_global_concurrency {
+        if value == 0 || value > i64::MAX as usize {
+            return Err("子代理并发上限必须是正整数".into());
+        }
+    }
+    settings_set_or_remove_num(
+        limits,
+        "subagent_global_concurrency",
+        l.subagent_global_concurrency.map(|v| v as i64),
+    );
+    if let Some(value) = l.subagent_ultra_concurrency {
+        if value == 0 || value > i64::MAX as usize {
+            return Err("子代理并发上限必须是正整数".into());
+        }
+    }
+    settings_set_or_remove_num(
+        limits,
+        "subagent_ultra_concurrency",
+        l.subagent_ultra_concurrency.map(|v| v as i64),
+    );
+    if let Some(value) = l.subagent_auto_concurrency {
+        if value == 0 || value > i64::MAX as usize {
+            return Err("子代理并发上限必须是正整数".into());
+        }
+    }
+    settings_set_or_remove_num(
+        limits,
+        "subagent_auto_concurrency",
+        l.subagent_auto_concurrency.map(|v| v as i64),
+    );
     settings_set_or_remove_num(limits, "max_tokens", l.max_tokens.map(i64::from));
     settings_set_or_remove_num(
         limits,
@@ -427,6 +461,7 @@ pub(crate) fn settings_apply_cadence(
         ),
     ];
     let table = settings_table(doc, "cadence")?;
+    table.remove("verify_every_n");
     for (key, value) in entries {
         settings_set_or_remove(table, key, value.map(str::to_string));
     }
@@ -618,13 +653,15 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
         "reasoning": config.models.reasoning.unwrap_or_else(|| "off".into()),
         "codexFastMode": config.models.codex_fast_mode.unwrap_or(false), "providers": providers,
-        "phaseRosterCapacity": PHASE_ROSTER_CAPACITY,
         // limits:发原始值(None = 表单留空),同时发一份生效默认值给占位符用——
         // 用户要看得见"留空等于多少",否则只能去翻源码。
         "limits": {
             "maxTokens": config.limits.max_tokens,
             "subagentMaxTokens": config.limits.subagent_max_tokens,
             "subagentTimeoutSecs": config.limits.subagent_timeout_secs,
+            "subagentGlobalConcurrency": config.limits.subagent_global_concurrency,
+            "subagentUltraConcurrency": config.limits.subagent_ultra_concurrency,
+            "subagentAutoConcurrency": config.limits.subagent_auto_concurrency,
             "contextBudgetRatio": config.limits.context_budget_ratio,
             "recentVerbatimRatio": config.limits.recent_verbatim_ratio,
             "maxTasksPerTurn": config.limits.max_tasks_per_turn,
@@ -637,6 +674,9 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
             "maxTokens": kanzei_harness::config::Limits::default().max_tokens(),
             "subagentMaxTokens": kanzei_harness::config::Limits::default().subagent_max_tokens(),
             "subagentTimeoutSecs": kanzei_harness::config::Limits::default().subagent_timeout_secs(),
+            "subagentGlobalConcurrency": kanzei_harness::config::Limits::default().subagent_global_concurrency(),
+            "subagentUltraConcurrency": kanzei_harness::config::Limits::default().subagent_ultra_concurrency(),
+            "subagentAutoConcurrency": kanzei_harness::config::Limits::default().subagent_auto_concurrency(),
             "contextBudgetRatio": kanzei_harness::config::Limits::default().context_budget_ratio(),
             "recentVerbatimRatio": kanzei_harness::config::Limits::default().recent_verbatim_ratio(),
             "maxTasksPerTurn": kanzei_harness::config::Limits::default().max_tasks_per_turn(),
@@ -713,7 +753,6 @@ pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
 # [models]\n\
 #   primary = \"角色名或 provider:model\"        # 主对话模型\n\
 #   fast = \"角色名或 provider:model\"           # 快速子代理/机械检索;留空跟随 primary\n\
-#   scout = \"角色名或 provider:model\"          # 勘察/复核只读代理(默认跟随 fast)\n\
 #   compact = \"角色名或 provider:model\"        # 上下文压缩纪要(默认跟随 primary)\n\
 #   reasoning = \"off\" | \"none\" | \"low\" | \"medium\" | \"high\" | \"xhigh\" | \"max\"\n\
 #   codex_fast_mode = true | false              # 同模型走高消耗 priority 档\n\
@@ -729,8 +768,10 @@ pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
 # [limits]\n\
 #   max_tokens = 4096                           # 单轮输出上限\n\
 #   subagent_max_tokens = 4096\n\
+#   subagent_auto_concurrency = 2\n\
+#   subagent_ultra_concurrency = 8\n\
+#   subagent_global_concurrency = 16\n\
 #   subagent_timeout_secs = 900\n\
-#   barrier_timeout_secs = 3600\n\
 #   context_budget_ratio = 0.7                  # 0.0 ~ 1.0\n\
 #   recent_verbatim_ratio = 0.35                # 0.0 ~ 1.0\n\
 #   max_tasks_per_turn = 8\n\
@@ -751,7 +792,6 @@ pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
 #   targeted_test = \"every_commit\" | \"off\"\n\
 #   commit = \"per_batch\" | \"per_entry\"\n\
 #   push = \"per_entry\" | \"per_commit\" | \"periodic\"\n\
-#   verify_every_n = 3                          # 自主推进每关 N 条插入只读核查;0 = 关闭\n\
 #\n\
 # [profile]\n\
 #   default = \"dev\" | \"research\" | \"readonly\"\n\
@@ -986,7 +1026,7 @@ mod tests {
             completed_early = done_rx
                 .recv_timeout(std::time::Duration::from_millis(200))
                 .is_ok();
-            doc["cadence"]["verify_every_n"] = toml_edit::value(19);
+            doc["cadence"]["full_test_batches"] = toml_edit::value(19);
             Ok(())
         })
         .unwrap();
@@ -995,7 +1035,11 @@ mod tests {
         done_rx.recv().unwrap().unwrap();
         let saved: kanzei_harness::KanzeiConfig =
             toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(saved.cadence.verify_every_n, 19, "{tag} 覆盖了已提交配置");
+        assert_eq!(
+            saved.cadence.full_test_batches,
+            Some(19),
+            "{tag} 覆盖了已提交配置"
+        );
         std::fs::remove_file(path).unwrap();
     }
 
@@ -1054,7 +1098,7 @@ mod tests {
     fn settings_save_edits_valid_inline_sections() {
         let path = 临时配置("inline-settings");
         std::fs::write(&path,
-            "# Keep\nmodels = { reasoning = 'xhigh', scout = 'local:scout' }\nprofile = { default = 'readonly' }\nlimits = { max_tokens = 10, compact_buffer_tokens = 321 }\ncadence = { verify_every_n = 19 }\nproviders = { local = { protocol = 'openai', base_url = 'http://x' } }\n"
+            "# Keep\nmodels = { reasoning = 'xhigh', scout = 'local:scout' }\nprofile = { default = 'readonly' }\nlimits = { max_tokens = 10, compact_buffer_tokens = 321 }\ncadence = { full_test_batches = 19 }\nproviders = { local = { protocol = 'openai', base_url = 'http://x' } }\n"
         ).unwrap();
         let mut payload = 空载荷(vec![ProviderPayload {
             name: "local".into(),
@@ -1073,10 +1117,10 @@ mod tests {
         let saved: kanzei_harness::KanzeiConfig = toml::from_str(&text).unwrap();
         assert!(text.contains("# Keep"));
         assert_eq!(saved.models.reasoning.as_deref(), Some("xhigh"));
-        assert_eq!(saved.models.scout.as_deref(), Some("local:scout"));
+        assert!(!text.contains("scout"));
         assert_eq!(saved.profile.default.as_deref(), Some("readonly"));
         assert_eq!(saved.limits.compact_buffer_tokens, Some(321));
-        assert_eq!(saved.cadence.verify_every_n, 19);
+
         assert_eq!(saved.providers["local"].base_url, "http://new");
         std::fs::remove_file(path).unwrap();
     }
@@ -1158,7 +1202,7 @@ mod tests {
             completed_early = done_rx
                 .recv_timeout(std::time::Duration::from_millis(200))
                 .is_ok();
-            doc["cadence"]["verify_every_n"] = toml_edit::value(19);
+            doc["cadence"]["full_test_batches"] = toml_edit::value(19);
             Ok(())
         })
         .unwrap();
@@ -1167,7 +1211,7 @@ mod tests {
         done_rx.recv().unwrap().unwrap();
         let saved: kanzei_harness::KanzeiConfig =
             toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(saved.cadence.verify_every_n, 19);
+
         assert!(saved.permissions.rules.is_empty());
         std::fs::remove_dir_all(project).unwrap();
     }
@@ -1266,9 +1310,15 @@ mod tests {
             transport_retries: Some(1),
             rate_limit_retries: Some(0),
             stream_restarts: Some(4),
+            subagent_auto_concurrency: Some(1),
+            subagent_ultra_concurrency: Some(6),
+            subagent_global_concurrency: Some(10),
         };
         settings_save_at_path(payload, &path).unwrap();
         let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.limits.subagent_auto_concurrency(), 1);
+        assert_eq!(saved.limits.subagent_ultra_concurrency(), 6);
+        assert_eq!(saved.limits.subagent_global_concurrency(), 10);
         assert_eq!(saved.limits.subagent_max_tokens(), 3_000);
         assert_eq!(saved.limits.subagent_timeout_secs(), 17);
         assert_eq!(saved.limits.context_budget_ratio(), 0.6);
@@ -1749,7 +1799,6 @@ mod tests {
             "#   proxy =",
             "# [cadence]",
             "#   full_test =",
-            "#   verify_every_n =",
         ] {
             assert!(text.contains(needle), "模板缺骨架注释「{needle}」:\n{text}");
         }
@@ -1763,7 +1812,6 @@ mod tests {
             config.models.codex_fast_mode,
             default.models.codex_fast_mode
         );
-        assert_eq!(config.models.scout, default.models.scout);
         assert_eq!(config.models.compact, default.models.compact);
         assert!(
             config.providers.is_empty(),
@@ -1794,10 +1842,6 @@ mod tests {
         assert_eq!(config.cadence.targeted_test, default.cadence.targeted_test);
         assert_eq!(config.cadence.commit, default.cadence.commit);
         assert_eq!(config.cadence.push, default.cadence.push);
-        assert_eq!(
-            config.cadence.verify_every_n,
-            default.cadence.verify_every_n
-        );
         // ③ 模板文本里不能出现任何「键 = 生效值」形态(等号后非注释的显式赋值)。
         // 骨架行全部以 # 开头;若有人把某行写活,这里会抓到非注释的 key = value。
         let live_assignments: Vec<&str> = text

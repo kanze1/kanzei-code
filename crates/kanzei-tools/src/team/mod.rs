@@ -1,5 +1,6 @@
 //! Experimental agent team: durable identities, isolated writers, background work,
 //! dependency scheduling and resumable messages. The model and UI use one command API.
+mod capacity;
 pub mod store;
 #[cfg(test)]
 mod tests;
@@ -7,6 +8,7 @@ mod tools;
 pub(crate) mod workspace;
 
 use anyhow::{bail, Context, Result};
+use capacity::{acquire_pair, Capacity};
 use futures::FutureExt;
 use kanzei_core::store::session_execution::{try_acquire, SessionExecutionGuard};
 use kanzei_core::{CancellationToken, DelegationFuture, DelegationHost, RunEvent, SubagentRuntime};
@@ -23,7 +25,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use store::{AgentJob, AgentMessage, TeamStore};
-use tokio::sync::{Notify, Semaphore};
+use tokio::sync::Notify;
 
 pub type TeamEvent = Arc<dyn Fn(&AgentJob) + Send + Sync>;
 pub type TeamAsk =
@@ -57,7 +59,8 @@ struct Inner {
     child_ledgers: Mutex<HashMap<String, kanzei_harness::ReadLedger>>,
     notification_lock: Mutex<()>,
     changed: Notify,
-    slots: Arc<Semaphore>,
+    slots: Arc<Capacity>,
+    global_slots: Arc<Capacity>,
     spawn_lock: tokio::sync::Mutex<()>,
 }
 struct ChildWorker {
@@ -90,6 +93,7 @@ impl Drop for WorkerRegistration {
         }
     }
 }
+static GLOBAL_SLOTS: OnceLock<Arc<Capacity>> = OnceLock::new();
 static TEAMS: OnceLock<Mutex<HashMap<String, AgentTeam>>> = OnceLock::new();
 fn key(root: &Path, owner: &str) -> String {
     format!("{}|{owner}", crate::worktree::worktree_key(root))
@@ -255,7 +259,12 @@ impl AgentTeam {
                 event: Mutex::new(event.clone()),
                 ask_router: Mutex::new(None),
                 changed: Notify::new(),
-                slots: Arc::new(Semaphore::new(4)),
+                slots: Capacity::new(runtime.options.mode.concurrency(&config.config.limits)),
+                global_slots: GLOBAL_SLOTS
+                    .get_or_init(|| {
+                        Capacity::new(config.config.limits.subagent_global_concurrency())
+                    })
+                    .clone(),
                 spawn_lock: tokio::sync::Mutex::new(()),
             }));
             Ok(team)
@@ -263,12 +272,26 @@ impl AgentTeam {
         if let Some(mailbox) = mailbox {
             team.set_mailbox(mailbox);
         }
+        team.set_policy(runtime.options.mode, &config.config.limits);
         *team.0.runtime.lock().unwrap() = runtime;
         *team.0.config.lock().unwrap() = config;
         if event.is_some() {
             *team.0.event.lock().unwrap() = event;
         }
         Ok(team)
+    }
+    pub fn set_policy(
+        &self,
+        mode: kanzei_harness::SubagentMode,
+        limits: &kanzei_harness::config::Limits,
+    ) {
+        self.0.runtime.lock().unwrap().options.mode = mode;
+        if mode.enabled() {
+            self.0.slots.set_limit(mode.concurrency(limits));
+        }
+        self.0
+            .global_slots
+            .set_limit(limits.subagent_global_concurrency());
     }
     pub fn list(&self) -> Result<Vec<AgentJob>> {
         self.0.store.list()
@@ -483,6 +506,11 @@ impl AgentTeam {
     }
     pub async fn command(&self, call_id: &str, input: Value) -> Result<Value> {
         let action = input["action"].as_str().unwrap_or("spawn");
+        if matches!(action, "spawn" | "restart")
+            && !self.0.runtime.lock().unwrap().options.mode.enabled()
+        {
+            bail!("当前对话已关闭子代理，不能派发新任务");
+        }
         match action {
             "list" => {
                 let mut jobs = self.list()?;
@@ -542,6 +570,9 @@ impl AgentTeam {
             }
             "message" | "resume" => {
                 let j = self.resolve(input["id"].as_str().context("需要子任务 id")?)?;
+                if !j.active() && !self.0.runtime.lock().unwrap().options.mode.enabled() {
+                    bail!("当前对话已关闭子代理，不能重新启动已结束任务");
+                }
                 self.queue_message(
                     &j.id,
                     "main",
@@ -677,6 +708,9 @@ impl AgentTeam {
     }
     async fn spawn(&self, call_id: &str, input: &Value) -> Result<Value> {
         let creation = self.0.spawn_lock.lock().await;
+        if !self.0.runtime.lock().unwrap().options.mode.enabled() {
+            bail!("当前对话已关闭子代理，不能派发新任务");
+        }
         let prompt = input["prompt"].as_str().unwrap_or("").trim();
         if prompt.is_empty() {
             bail!("请说明子任务目标和预期结果");
@@ -703,9 +737,6 @@ impl AgentTeam {
             && matches!(role, "general" | "implement" | "verify")
         {
             bail!("当前模式仅允许 explore / plan 子任务");
-        }
-        if self.list()?.iter().filter(|j| j.active()).count() >= 16 {
-            bail!("已有 16 个未结束子任务，请先收取结果");
         }
         let id = if !call_id.is_empty()
             && call_id.len() < 100
@@ -1284,10 +1315,10 @@ impl AgentTeam {
             }
         }
         let slot = Arc::new(Mutex::new(Some(
-            self.0.slots.clone().acquire_owned().await?,
+            acquire_pair(&self.0.slots, &self.0.global_slots).await,
         )));
         let writing = matches!(initial.role.as_str(), "general" | "implement" | "verify");
-        if writing && initial.worktree.is_none() {
+        if (writing || !initial.depends_on.is_empty()) && initial.worktree.is_none() {
             if !self.0.ctx.project_workflow {
                 workspace::ensure_general_repository(&self.0.ctx.cwd, &self.0.ctx.project_root)?;
             }
@@ -1388,6 +1419,7 @@ impl AgentTeam {
             let ask_id = id.to_owned();
             let ask_slot = slot.clone();
             let ask_slots = self.0.slots.clone();
+            let ask_global_slots = self.0.global_slots.clone();
             runtime.ask_router = Some(Arc::new(move |request| {
                 let immediate = matches!(&request,kanzei_core::AskRequest::Permission{action,..} if action=="subagent-write");
                 let background = matches!(
@@ -1411,6 +1443,7 @@ impl AgentTeam {
                 let id = ask_id.clone();
                 let slot = ask_slot.clone();
                 let slots = ask_slots.clone();
+                let global_slots = ask_global_slots.clone();
                 let cancel = ask_cancel.clone();
                 let attempt = ask_job.attempt;
                 Box::pin(async move {
@@ -1425,10 +1458,7 @@ impl AgentTeam {
                         return kanzei_core::AskResponse::Cancelled;
                     }
                     let result = reply.await;
-                    let permit = match slots.acquire_owned().await {
-                        Ok(permit) => permit,
-                        Err(_) => return kanzei_core::AskResponse::Cancelled,
-                    };
+                    let permit = acquire_pair(&slots, &global_slots).await;
                     if team
                         .worker_update(&id, &cancel, Some(attempt), |j| {
                             j.state = "running".into();
@@ -1582,9 +1612,16 @@ impl DelegationHost for AgentTeam {
         );
         roles.sort();
         roles.dedup();
+        let config = self.0.config.lock().unwrap();
+        if config.profile != kanzei_harness::ProfileKind::Dev {
+            roles.retain(|role| !matches!(role.as_str(), "general" | "implement" | "verify"));
+        }
+        let mode = self.0.runtime.lock().unwrap().options.mode;
+        let capacity = mode.concurrency(&config.config.limits);
+        let global_capacity = config.config.limits.subagent_global_concurrency();
         ToolSpec {
             name: "task".into(),
-            description: "Delegate real work. Registered custom agents preserve their system prompt and step budget and run read-only. spawn supports explore/plan (read-only) and implement/verify/general (isolated writable Git checkout); background defaults true. Use message/resume to continue the SAME task/history, restart to create a NEW task retaining the old record. list/get return bounded status/result summaries; list uses offset/limit and returns jobs/total/next_offset. For explicit detail use get view=result or prompt; view=history, trace, messages returns a page of items with offset/limit (max 20) and next_offset. collect reads completed updates without waiting; wait only for an explicit dependency; diff/adopt integrates reviewed changes. Dependencies use existing task IDs. Never claim a dispatched task is complete. If scouts already cover the topic, specify the independent gap before adding another explore/plan task. Enable context=fork only when the full conversation is needed. Independent tasks may run concurrently.".into(),
+            description: format!("Delegate real work. Preference: {}; concurrency: {} for this conversation, {} across conversations. Extra tasks wait for capacity. Registered custom agents preserve their prompt and step budget and run read-only. explore/plan are read-only; implement/verify/general use isolated writable Git checkouts when available in the role enum. Children cannot delegate recursively. Background defaults true. Use message/resume to continue the SAME task/history, restart to create a NEW task retaining the old record. list/get return bounded status/result summaries; list uses offset/limit and returns jobs/total/next_offset. For explicit detail use get view=result or prompt; view=history, trace, messages returns a page of items with offset/limit (max 20) and next_offset. collect reads completed updates without waiting. Wait when the result is needed; continue independent work meanwhile. Inspect diff before adopt to integrate candidate changes. Dependencies use existing task IDs and inspect their actual candidate files. Never claim a dispatched task is complete. Avoid duplicate assignments. Use context=fork only when the full conversation is needed.", mode.as_str(), capacity, global_capacity),
             input_schema: json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["spawn","list","get","message","resume","restart","stop","wait","collect","diff","adopt"]},
                 "id":{"type":"string"},"prompt":{"type":"string"},"description":{"type":"string"},

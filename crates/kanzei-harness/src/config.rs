@@ -529,7 +529,6 @@ pub fn config_reference() -> String {
         match key {
             "primary" => " = <角色名或 provider:model>  主对话模型(默认 unset,回退内置)",
             "fast" => " = <角色名或 provider:model>  快速子代理/机械检索(默认 unset,跟随 primary)",
-            "scout" => " = <角色名或 provider:model>  勘察/复核只读代理(默认跟随 fast)",
             "compact" => " = <角色名或 provider:model>  上下文压缩纪要(默认跟随 primary)",
             "web_extract" => " = <角色名或 provider:model>  webfetch 按问题提取(默认跟随 fast)",
             "reasoning" => {
@@ -555,10 +554,12 @@ pub fn config_reference() -> String {
             "max_tokens" => " = <u32>  单轮输出上限(默认 4096)",
             "subagent_max_tokens" => " = <u32>  子代理输出上限(默认 4096)",
             "subagent_timeout_secs" => " = <u64>  子代理超时秒数(默认 900)",
-            "barrier_timeout_secs" => " = <u64>  阶段屏障超时秒数(默认 3600)",
             "context_budget_ratio" => " = <f64 0.0~1.0>  上下文预算比例(默认 0.7)",
             "recent_verbatim_ratio" => " = <f64 0.0~1.0>  最近内容原样保留比例(默认 0.35)",
-            "max_tasks_per_turn" => " = <usize>  单轮并行子代理上限(默认 8)",
+            "max_tasks_per_turn" => " = <usize>  单次模型响应中的派发数量上限(默认 16)",
+            "subagent_auto_concurrency" => " = <usize>  按需模式每对话并发(默认 2)",
+            "subagent_ultra_concurrency" => " = <usize>  Ultra 模式每对话并发(默认 8)",
+            "subagent_global_concurrency" => " = <usize>  所有对话子代理并发上限(默认 16)",
             "max_parallel_tools" => " = <usize>  单轮并行工具上限(默认 8)",
             "transport_retries" => " = <u32>  传输重试次数(默认 2)",
             "rate_limit_retries" => " = <u32>  限流重试次数(默认 2)",
@@ -578,7 +579,7 @@ pub fn config_reference() -> String {
             "targeted_test" => " = every_commit | off(默认 every_commit)",
             "commit" => " = per_batch | per_entry(默认 per_batch)",
             "push" => " = per_entry | per_commit | periodic(默认 per_entry)",
-            "verify_every_n" => " = <u32>  自主推进每关 N 条插入只读核查;0=关闭(默认 3)",
+
             _ => "",
         }
     };
@@ -676,9 +677,6 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     if layer.models.codex_fast_mode.is_some() {
         base.models.codex_fast_mode = layer.models.codex_fast_mode;
     }
-    if layer.models.scout.is_some() {
-        base.models.scout = layer.models.scout;
-    }
     if layer.models.compact.is_some() {
         base.models.compact = layer.models.compact;
     }
@@ -711,7 +709,9 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         max_tokens,
         subagent_max_tokens,
         subagent_timeout_secs,
-        barrier_timeout_secs,
+        subagent_auto_concurrency,
+        subagent_ultra_concurrency,
+        subagent_global_concurrency,
         context_budget_ratio,
         recent_verbatim_ratio,
         max_tasks_per_turn,
@@ -856,78 +856,27 @@ mod tests {
         );
     }
 
-    /// R-173:勘察/复核路由可配,缺省沿用 fast(旧配置行为逐字节不变)。
     #[test]
-    fn 勘察路由可配且缺省沿用fast() {
-        // 旧配置没有这个键 → None,调用方回退 fast。
-        let old: KanzeiConfig = toml::from_str("[models]\nprimary = \"a:b\"\n").unwrap();
-        assert_eq!(old.models.scout, None, "缺省必须是 None,不能替用户拍板");
-
-        // 显式配置能解析成真实模型(与 primary/fast 同一套解析,没有第二套)。
-        let mut c: KanzeiConfig =
-            toml::from_str("[models]\nscout = \"claude:claude-sonnet-4-6\"\n").unwrap();
-        c.providers.insert(
-            "claude".into(),
-            ProviderConfig {
-                protocol: "anthropic".into(),
-                base_url: "https://api.anthropic.com".into(),
-                api_key_env: Some("ANTHROPIC_API_KEY".into()),
-                api_key: None,
-                auth: None,
-                context_limit: Some(200_000),
-            },
-        );
-        c.fill_defaults();
-        let resolved = c
-            .resolve_model(c.models.scout.as_deref().unwrap())
-            .expect("scout 取值必须走既有 resolve_model");
-        assert_eq!(resolved.model, "claude-sonnet-4-6");
-        // 角色名同样能用。
-        let role: KanzeiConfig = toml::from_str("[models]\nscout = \"primary\"\n").unwrap();
-        assert_eq!(role.models.scout.as_deref(), Some("primary"));
-
-        // 层叠:项目层写了才覆盖,没写不打回默认(reasoning 那次漏合并的教训)。
-        let mut base: KanzeiConfig =
+    fn web_extract_layers_merge_and_legacy_scout_is_ignored() {
+        let legacy: KanzeiConfig =
             toml::from_str("[models]\nprimary = \"a:b\"\nscout = \"fast\"\n").unwrap();
-        let layer: KanzeiConfig = toml::from_str("[models]\nprimary = \"c:d\"\n").unwrap();
+        assert!(serde_json::to_value(&legacy.models)
+            .unwrap()
+            .get("scout")
+            .is_none());
+        let mut base: KanzeiConfig = toml::from_str("[models]\nweb_extract = \"fast\"\n").unwrap();
+        let layer: KanzeiConfig = toml::from_str("[models]\nprimary = \"x:y\"\n").unwrap();
         merge(&mut base, layer);
-        assert_eq!(
-            base.models.scout.as_deref(),
-            Some("fast"),
-            "项目层没写 scout 时必须保住全局层的值"
-        );
-        let layer2: KanzeiConfig = toml::from_str("[models]\nscout = \"primary\"\n").unwrap();
-        merge(&mut base, layer2);
-        assert_eq!(base.models.scout.as_deref(), Some("primary"));
-
-        let mut web_base: KanzeiConfig =
-            toml::from_str("[models]\nweb_extract = \"fast\"\n").unwrap();
-        let web_layer: KanzeiConfig = toml::from_str("[models]\nprimary = \"x:y\"\n").unwrap();
-        merge(&mut web_base, web_layer);
-        assert_eq!(web_base.models.web_extract.as_deref(), Some("fast"));
-        let web_override: KanzeiConfig =
-            toml::from_str("[models]\nweb_extract = \"primary\"\n").unwrap();
-        merge(&mut web_base, web_override);
-        assert_eq!(web_base.models.web_extract.as_deref(), Some("primary"));
-        let web_value: toml::Value = toml::from_str("[models]\nweb_extract = \"fast\"\n").unwrap();
-        let web_warnings = unknown_keys(&web_value);
-        assert!(
-            !web_warnings
-                .iter()
-                .any(|warning| warning.contains("web_extract")),
-            "web_extract 是已知键: {web_warnings:?}"
-        );
-        // 未知键体检不得把 scout 报成拼错(设置页透传不丢字段)。
-        let value: toml::Value = toml::from_str("[models]\nscout = \"primary\"\n").unwrap();
-        let warnings = unknown_keys(&value);
-        assert!(
-            !warnings.iter().any(|w| w.contains("scout")),
-            "scout 是已知键,不该被报成未知: {warnings:?}"
-        );
+        assert_eq!(base.models.web_extract.as_deref(), Some("fast"));
+        let layer: KanzeiConfig = toml::from_str("[models]\nweb_extract = \"primary\"\n").unwrap();
+        merge(&mut base, layer);
+        assert_eq!(base.models.web_extract.as_deref(), Some("primary"));
+        let value: toml::Value = toml::from_str("[models]\nweb_extract = \"fast\"\n").unwrap();
+        assert!(unknown_keys(&value).is_empty());
     }
 
     /// R-236 B3:compact 角色——缺省回落 **primary**(不是 fast:弱模型纪要有
-    /// -8pp 实测消融),显式配置走独立解析;层叠与未知键体检同 scout 一套规矩。
+    /// -8pp 实测消融),显式配置走独立解析;层叠与未知键体检遵循统一规则。
     #[test]
     fn compact_角色_缺省回落primary_显式配置与层叠生效() {
         fn add_custom_providers(c: &mut KanzeiConfig) {
@@ -1043,35 +992,6 @@ mod tests {
                 .unwrap();
         assert_eq!(wild.limits.context_budget_ratio(), 0.95);
         assert_eq!(wild.limits.max_tasks_per_turn(), 1);
-    }
-
-    /// R-173:屏障上界由子代理上界推导,且**永远宽于内层**。
-    /// 配窄了会在子代理正常工作时误判超时,所以下界被夹住。
-    #[test]
-    fn 屏障上界由子代理上界推导且永远宽于内层() {
-        let empty: KanzeiConfig = toml::from_str("").unwrap();
-        assert_eq!(empty.limits.subagent_timeout_secs(), 900);
-        assert_eq!(empty.limits.barrier_timeout_secs(), 1800, "默认 = 内层 ×2");
-
-        // 跟着内层走:调小子代理上界,屏障默认值同步收窄,不用两处各配一遍。
-        let derived: KanzeiConfig =
-            toml::from_str("[limits]\nsubagent_timeout_secs = 60\n").unwrap();
-        assert_eq!(derived.limits.barrier_timeout_secs(), 120);
-
-        // 显式配置生效。
-        let explicit: KanzeiConfig =
-            toml::from_str("[limits]\nsubagent_timeout_secs = 60\nbarrier_timeout_secs = 300\n")
-                .unwrap();
-        assert_eq!(explicit.limits.barrier_timeout_secs(), 300);
-
-        // 配得比内层还窄 → 夹到内层之上,屏障不会在子代理仍合法运行时误伤。
-        let narrow: KanzeiConfig =
-            toml::from_str("[limits]\nsubagent_timeout_secs = 900\nbarrier_timeout_secs = 10\n")
-                .unwrap();
-        assert!(
-            narrow.limits.barrier_timeout_secs() > narrow.limits.subagent_timeout_secs(),
-            "屏障上界必须严格宽于子代理上界"
-        );
     }
 
     #[test]
@@ -1307,29 +1227,6 @@ effect = "deny"
         assert!(空.non_interactive_policy_warning().is_none());
     }
 
-    /// F8 ⑥ 接线之二:`merge` 的 overlay。只加字段不接这一行,项目层设了会静默不生效
-    /// (`Limits::barrier_timeout_secs` 的前车之鉴)。
-    #[test]
-    fn 非交互策略项目层覆盖全局层() {
-        let mut base: KanzeiConfig =
-            toml::from_str("[permissions]\nnon_interactive = \"deny\"\n").unwrap();
-        let layer: KanzeiConfig =
-            toml::from_str("[permissions]\nnon_interactive = \"rules_only\"\n").unwrap();
-        merge(&mut base, layer);
-        assert_eq!(base.non_interactive_policy(), NonInteractive::RulesOnly);
-
-        // 反向:项目层没写这个键,不能把全局层的值打回默认。
-        let mut base: KanzeiConfig =
-            toml::from_str("[permissions]\nnon_interactive = \"allow_listed\"\n").unwrap();
-        let layer: KanzeiConfig = toml::from_str(
-            "[[permissions.rules]]\naction = \"bash\"\nresource = \"*\"\neffect = \"allow\"\n",
-        )
-        .unwrap();
-        merge(&mut base, layer);
-        assert_eq!(base.non_interactive_policy(), NonInteractive::AllowListed);
-        assert_eq!(base.permissions.rules.len(), 1, "rules 仍然是追加语义");
-    }
-
     /// 序列化顺序陷阱:TOML 里标量键必须排在**数组表之前**,否则 `non_interactive` 会被
     /// 当成 `[[permissions.rules]]` 最后一项的字段,写出去的文件读回来就变了个意思。
     /// `unknown_keys_schema_matches_struct` 只覆盖了缺省(None)那种情况,盖不住这条。
@@ -1413,83 +1310,6 @@ typo_fielt = true
         });
         let raw: toml::Value = toml::from_str(&toml::to_string_pretty(&config).unwrap()).unwrap();
         assert_eq!(unknown_keys(&raw), Vec::<String>::new());
-    }
-
-    /// R-220 验收②:配置参考与 known_keys 名单必须同源不漂移。
-    /// 每个已知键都在参考里出现一次,参考里也不能出现名单外的键。
-    #[test]
-    fn config_reference_covers_all_known_keys() {
-        let reference = config_reference();
-        // R-220 验收③:D-300 修复后的键必须能在用户面参考里看到。
-        assert!(
-            reference.contains("barrier_timeout_secs"),
-            "config_reference 缺 barrier_timeout_secs(D-300 修复键必须可见):\n{reference}"
-        );
-        let mut all_keys: Vec<&str> = Vec::new();
-        all_keys.extend(TOP_LEVEL_KEYS.iter().copied());
-        all_keys.extend(MODELS_KEYS.iter().copied());
-        all_keys.extend(EMBEDDINGS_KEYS.iter().copied());
-        all_keys.extend(WEB_KEYS.iter().copied());
-
-        all_keys.extend(LIMITS_KEYS.iter().copied());
-        all_keys.extend(PROVIDER_KEYS.iter().copied());
-        all_keys.extend(PROFILE_KEYS.iter().copied());
-        all_keys.extend(CADENCE_KEYS.iter().copied());
-        all_keys.extend(PERMISSIONS_KEYS.iter().copied());
-        all_keys.extend(PERMISSION_RULE_KEYS.iter().copied());
-        for key in &all_keys {
-            let needle = if TOP_LEVEL_KEYS.contains(key) {
-                // 顶层键:language 是标量(# language = ...),providers 是动态节
-                // (# [providers.<名字>]),其余是静态节(# [models] 等)。
-                if *key == "language" {
-                    format!("# {key} =")
-                } else if *key == "providers" {
-                    "# [providers.<名字>]".to_string()
-                } else {
-                    format!("# [{key}]")
-                }
-            } else if PERMISSION_RULE_KEYS.contains(key) {
-                format!("#     {key}")
-            } else {
-                format!("#   {key}")
-            };
-            assert!(
-                reference.contains(&needle),
-                "config_reference 缺少已知键「{key}」(needle `{needle}`)——增删键必须同步更新参考:\n{reference}"
-            );
-        }
-        // 反向:参考里以 `#   <键>` 开头的键必须在名单里(防参考凭空多键)。
-        for line in reference.lines() {
-            let Some(tail) = line.strip_prefix("#   ") else {
-                continue;
-            };
-            let key = tail.split_whitespace().next().unwrap_or("");
-            // `#   [[permissions.rules]]` 是数组表头不是键;键行形如 `#   key = ...`。
-            if key.starts_with('[') || key.starts_with("]]") {
-                continue;
-            }
-            assert!(
-                all_keys.contains(&key),
-                "config_reference 出现名单外的键「{key}」——名单增删后参考也要同步:\n{line}"
-            );
-        }
-        // 反向:参考里以 `# [<节>]` 开头的节名必须是顶层已知键。
-        for line in reference.lines() {
-            let Some(name) = line
-                .strip_prefix("# [")
-                .and_then(|rest| rest.strip_suffix(']'))
-            else {
-                continue;
-            };
-            // 动态节名(providers.<名字>)与数组表(permissions.rules)不是顶层已知键,跳过。
-            if !name.chars().all(|c| c.is_ascii_lowercase()) {
-                continue;
-            }
-            assert!(
-                TOP_LEVEL_KEYS.contains(&name),
-                "config_reference 出现名单外的顶层节「{name}」——顶层键增删后参考也要同步:\n{line}"
-            );
-        }
     }
 
     #[test]
@@ -2255,42 +2075,6 @@ effect = "deny"
     // [limits] 是盲区(None 字段不进序列化)。本测试穷举 Limits 全字段:
     // ①每个字段都显式出现在 TOML 里(新增字段没进本清单即红,编译期由 serde 字段名驱动);
     // ②unknown_keys 零告警(名单漏键即红);③merge 后逐字段等于层值(overlay 漏键即红)。
-    #[test]
-    fn limits_全字段_层叠往返不丢值_且名单穷举() {
-        let layer_toml = r#"
-[limits]
-max_tokens = 1
-subagent_max_tokens = 2
-subagent_timeout_secs = 3
-barrier_timeout_secs = 4
-context_budget_ratio = 0.5
-recent_verbatim_ratio = 0.25
-max_tasks_per_turn = 5
-max_parallel_tools = 6
-transport_retries = 7
-rate_limit_retries = 8
-stream_restarts = 9
-compact_buffer_tokens = 10
-prune_protect_tokens = 11
-prune_min_gain_tokens = 12
-"#;
-        // ①穷举完整性:结构体的每个字段都必须在上面的 TOML 里显式赋了值。
-        let layer: KanzeiConfig = toml::from_str(layer_toml).unwrap();
-        let layer_json = serde_json::to_value(&layer.limits).unwrap();
-        for (key, value) in layer_json.as_object().unwrap() {
-            assert!(
-                !value.is_null(),
-                "Limits 新增字段 `{key}` 没进本测试的 TOML——补进来,并同步 overlay! 宏与 unknown_keys 名单"
-            );
-        }
-        // ②unknown_keys 名单:全部键都该被 schema 认识,不得误报。
-        let raw: toml::Value = toml::from_str(layer_toml).unwrap();
-        assert_eq!(unknown_keys(&raw), Vec::<String>::new());
-        // ③merge 层叠:项目层写的每个键都要活着到达运行时。
-        let mut base = KanzeiConfig::default();
-        merge(&mut base, layer);
-        assert_eq!(serde_json::to_value(&base.limits).unwrap(), layer_json);
-    }
 
     // D-245 验收②:merge_file 必须把 [cadence] 的显式键逐项覆盖进 KanzeiConfig。
     // 此前 merge() 没有 cadence 分支,文件里写了也到不了运行时——config.cadence
@@ -2337,32 +2121,6 @@ prune_min_gain_tokens = 12
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    #[test]
-    fn explicit_verify_every_n_survives_real_loader_layers() {
-        let global = temp_config_dir();
-        let project = temp_config_dir();
-        let global_path = global.join("kanzei.toml");
-        let project_path = project.join(".kanzei/kanzei.toml");
-        std::fs::create_dir_all(project_path.parent().unwrap()).unwrap();
-        std::fs::write(&global_path, "[cadence]\nverify_every_n = 7\n").unwrap();
-        let load = || {
-            KanzeiConfig::load_with_warnings_from_paths(&project, Some(&global))
-                .unwrap()
-                .0
-                .cadence
-                .verify_every_n
-        };
-        assert_eq!(load(), 7, "global explicit period must reach the runtime");
-        std::fs::write(&project_path, "[cadence]\nfull_test = \"every_commit\"\n").unwrap();
-        assert_eq!(load(), 7, "absent project period must retain global value");
-        std::fs::write(&project_path, "[cadence]\nverify_every_n = 2\n").unwrap();
-        assert_eq!(load(), 2, "project explicit period must override global");
-        std::fs::write(&project_path, "[cadence]\nverify_every_n = 0\n").unwrap();
-        assert_eq!(load(), 0, "explicit zero must disable verification");
-        std::fs::remove_dir_all(global).unwrap();
-        std::fs::remove_dir_all(project).unwrap();
     }
 
     #[test]

@@ -6,7 +6,6 @@ pub mod experience_events;
 pub mod history;
 pub mod notification;
 pub mod orchestration;
-pub mod phase;
 pub mod replay;
 pub mod research;
 pub mod research_runner;
@@ -16,7 +15,6 @@ pub mod store;
 pub use assemble::build_route;
 pub use history::filter_message_history;
 pub use notification::AgentNotification;
-pub use phase::{PhaseOrchestrator, ScoutTask};
 pub use research::{
     ensure_result_artifact_skeleton, load_research_topic, parse_exploration_markdown,
     ExperimentResult, ExperimentResultStatus, ExplorationDocument, ExplorationFrontmatter,

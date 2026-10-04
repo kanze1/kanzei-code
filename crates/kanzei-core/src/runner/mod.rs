@@ -112,9 +112,6 @@ pub struct RunnerConfig {
     pub halt: Option<CancellationToken>,
 }
 
-/// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。
-pub const MAX_TASKS_PER_TURN: usize = 8;
-
 /// 流中途断开后重放本步请求的上限。工具在流结束后才执行,所以此时重放零副作用;
 /// 但每次重放都要重新生成已产出的 token,必须有界。
 pub const MAX_STREAM_RESTARTS: u32 = 2;

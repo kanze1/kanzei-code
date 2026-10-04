@@ -2000,8 +2000,8 @@ mod tests {
                 research_topic: None,
                 reasoning: None,
                 manual_models: Vec::new(),
-                phase_pipeline: false,
-                subagents_enabled: true,
+
+                subagent_mode: kanzei_harness::SubagentMode::Auto,
                 tracker_writes_enabled: false,
                 updated_at: 1,
             })

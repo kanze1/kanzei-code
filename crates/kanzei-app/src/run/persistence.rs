@@ -44,9 +44,6 @@ pub(crate) struct FinalizeRound<'a> {
     pub(crate) process_id: &'a str,
     pub(crate) _write_lease: &'a Option<WriterLeaseTrace>,
     pub(crate) writer_event: &'a (dyn Fn(kanzei_harness::orchestration::OrchestrationEvent) + Sync),
-    /// 本轮是否流水线路径:决定写租约 Released 事件是否由本函数补发——流水线路径的
-    /// 租约归编排对象管(复核屏障/收尾已各发一次),再发一条会在轨迹里重复释放。
-    pub(crate) phase_pipeline_enabled: bool,
 }
 
 /// R-253 批7b:`finalize_round` 参数分组——**本轮结果层**:摘要/历史长/工具画像/
@@ -588,7 +585,6 @@ pub(crate) async fn finalize_round(
     let process_id = round.process_id;
     let _write_lease = round._write_lease;
     let writer_event = round.writer_event;
-    let phase_pipeline_enabled = round.phase_pipeline_enabled;
     let final_store = session.final_store;
     let typed_flush_task = session.typed_flush_task;
     let history_len = outcome.history_len;
@@ -818,10 +814,8 @@ pub(crate) async fn finalize_round(
     // 失败/取消路径由协调器快照保证租约不泄漏(WriterLease Drop 回调),审计不缺持有者。
     // R-173 批5:同样经 OrchestrationEvent 单一出口,与上面两条 writer 事件同源。
     //
-    // 批6:**仅非流水线路径**发这一条。流水线路径的租约归编排对象管,它在复核屏障
-    // 和收尾时已经各发过一次 released——这里再发一条会在轨迹里凭空多出一次释放,
-    // 回放时看起来像"释放了两次"。
-    if !phase_pipeline_enabled {
+    // 仅持有实际写租约的运行发释放事件。
+    if let Some(trace) = _write_lease {
         writer_event(
             kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
                 project_root: ctx.project_root.clone(),
@@ -830,9 +824,7 @@ pub(crate) async fn finalize_round(
             },
         );
         // 正常路径已落 Released,标记 guard 避免 Drop 重复补写(D-303)。
-        if let Some(trace) = _write_lease {
-            trace.mark_released();
-        }
+        trace.mark_released();
     }
     // D-342:本 run 收尾,收回停止令牌(stop 已 take 过则本来就是 None,幂等)。
     halt_slot.lock_or_recover().take();

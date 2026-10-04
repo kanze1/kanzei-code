@@ -13,7 +13,7 @@
 use std::sync::{Arc, Mutex};
 
 use kanzei_harness::orchestration::{
-    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,
+    CoordinationObserver, ExecutionPolicy, OrchestrationEvent, ProjectExecutionCoordinator,
 };
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use serde_json::json;
@@ -87,7 +87,7 @@ struct Recorder {
 
 type TraceRecord = (String, String, Option<String>, Option<String>);
 
-impl PhaseObserver for Recorder {
+impl CoordinationObserver for Recorder {
     fn observe(&self, event: &OrchestrationEvent) {
         let payload = event.payload();
         self.orchestration.lock().unwrap().push((
@@ -163,7 +163,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
     let recorder = Arc::new(Recorder::default());
     let coordinator = Arc::new(
         kanzei_core::orchestration::MemoryCoordinator::with_observer(
-            recorder.clone() as Arc<dyn PhaseObserver>
+            recorder.clone() as Arc<dyn CoordinationObserver>
         ),
     );
 
@@ -292,7 +292,6 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         &runner_config,
         &ctx,
         "跑一个会挂住的勘察任务",
-        None,
         None,
         &[],
         None,

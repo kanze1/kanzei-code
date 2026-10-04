@@ -371,10 +371,9 @@ pub async fn process_create(
     model: Option<String>,
     profile: Option<String>,
     reasoning: Option<String>,
-    // 「勘察复核」开关(阶段流水线总闸)。缺省 = 关,见 `ProcessHandle` 的字段注释。
-    phase_pipeline: Option<bool>,
-    // 进程级「子代理」开关。缺省 = 开,保持既有 task 能力。
-    subagents_enabled: Option<bool>,
+
+    // 每对话协作倾向；缺省按需。
+    subagent_mode: Option<kanzei_harness::SubagentMode>,
     // 仅分支线有意义:允许该线更新主根中的唯一 tracker 文档。缺省 = 关。
     tracker_writes: Option<bool>,
     // 给定则同时建一棵工作树并绑到这条线上;缺省(Tauri 对未传的 Option 参数解析为
@@ -391,8 +390,7 @@ pub async fn process_create(
         model,
         profile,
         reasoning,
-        phase_pipeline,
-        subagents_enabled,
+        subagent_mode,
         tracker_writes,
         worktree_name,
         work_item_id,
@@ -449,7 +447,7 @@ pub(crate) async fn create_process(
     model: Option<String>,
     profile: Option<String>,
     reasoning: Option<String>,
-    phase_pipeline: Option<bool>,
+
     worktree_name: Option<String>,
 ) -> Result<ProcessInfo, String> {
     create_process_with_tracker(
@@ -458,8 +456,7 @@ pub(crate) async fn create_process(
         model,
         profile,
         reasoning,
-        phase_pipeline,
-        Some(true),
+        Some(kanzei_harness::SubagentMode::Auto),
         None,
         worktree_name,
         None,
@@ -475,8 +472,8 @@ pub(crate) async fn create_process_with_tracker(
     model: Option<String>,
     profile: Option<String>,
     reasoning: Option<String>,
-    phase_pipeline: Option<bool>,
-    subagents_enabled: Option<bool>,
+
+    subagent_mode: Option<kanzei_harness::SubagentMode>,
     tracker_writes: Option<bool>,
     worktree_name: Option<String>,
     work_item_id: Option<String>,
@@ -488,12 +485,6 @@ pub(crate) async fn create_process_with_tracker(
         return Err("无项目对话不能绑定工作树、需求或研究课题".into());
     }
     let profile = if general { Some("dev".into()) } else { profile };
-    let phase_pipeline = if general { Some(false) } else { phase_pipeline };
-    let subagents_enabled = if general {
-        Some(subagents_enabled.unwrap_or(true))
-    } else {
-        subagents_enabled
-    };
     let tracker_writes = if general { Some(false) } else { tracker_writes };
     crate::research_topics::validate_run_topic(
         &root,
@@ -591,8 +582,8 @@ pub(crate) async fn create_process_with_tracker(
             profile,
             research_topic,
             reasoning,
-            phase_pipeline,
-            subagents_enabled,
+
+            subagent_mode,
             tracker_writes,
         },
     );
@@ -666,8 +657,7 @@ pub(crate) async fn create_process_with_work_item(
         None,
         None,
         None,
-        Some(false),
-        Some(true),
+        Some(kanzei_harness::SubagentMode::Auto),
         Some(false),
         Some(worktree_name),
         Some(work_item_id),
@@ -687,10 +677,9 @@ pub fn process_update(
     // 项目级手填模型候选(provider:model 列表)。R-178 批3:前端「＋ 手填模型…」
     // 写这条通道,不再以 localStorage 为真源。
     manual_models: Option<Vec<String>>,
-    // 「勘察复核」开关(阶段流水线总闸),见 `ProcessHandle` 的字段注释。
-    phase_pipeline: Option<bool>,
-    // 进程级「子代理」开关；关闭后 task 不进入工具面。
-    subagents_enabled: Option<bool>,
+
+    // 每对话协作倾向；关闭后 task 不进入工具面。
+    subagent_mode: Option<kanzei_harness::SubagentMode>,
     tracker_writes: Option<bool>,
 ) -> Result<ProcessInfo, String> {
     let process = state
@@ -706,11 +695,7 @@ pub fn process_update(
         return Err("已绑定课题的研究对话不能切换为开发任务".into());
     }
     let general = crate::general_chat::is_general_root(&process.origin_project.0);
-    if general
-        && (profile.as_deref().is_some_and(|p| p != "dev")
-            || phase_pipeline == Some(true)
-            || tracker_writes == Some(true))
-    {
+    if general && (profile.as_deref().is_some_and(|p| p != "dev") || tracker_writes == Some(true)) {
         return Err("无项目对话不启用项目阶段或条目流程".into());
     }
     persist_settings_update(&process, |process| {
@@ -729,15 +714,8 @@ pub fn process_update(
         if let Some(manual_models) = manual_models {
             *process.manual_models.lock().unwrap() = manual_models;
         }
-        if let Some(phase_pipeline) = phase_pipeline {
-            process
-                .phase_pipeline_enabled
-                .store(phase_pipeline, Ordering::SeqCst);
-        }
-        if let Some(subagents_enabled) = subagents_enabled {
-            process
-                .subagents_enabled
-                .store(subagents_enabled, Ordering::SeqCst);
+        if let Some(mode) = subagent_mode {
+            *process.subagent_mode.lock().unwrap() = mode;
         }
         if let Some(tracker_writes) = tracker_writes {
             process
@@ -763,17 +741,13 @@ fn persist_settings_update(
     let mut profile = process.profile.lock().unwrap();
     let mut reasoning = process.reasoning.lock().unwrap();
     let mut manual_models = process.manual_models.lock().unwrap();
+    let mut subagent_mode = process.subagent_mode.lock().unwrap();
     let mut candidate = process.clone();
     candidate.model = Arc::new(Mutex::new(model.clone()));
     candidate.profile = Arc::new(Mutex::new(profile.clone()));
     candidate.reasoning = Arc::new(Mutex::new(reasoning.clone()));
     candidate.manual_models = Arc::new(Mutex::new(manual_models.clone()));
-    candidate.phase_pipeline_enabled = Arc::new(AtomicBool::new(
-        process.phase_pipeline_enabled.load(Ordering::SeqCst),
-    ));
-    candidate.subagents_enabled = Arc::new(AtomicBool::new(
-        process.subagents_enabled.load(Ordering::SeqCst),
-    ));
+    candidate.subagent_mode = Arc::new(Mutex::new(*subagent_mode));
     candidate.tracker_writes_enabled = Arc::new(AtomicBool::new(
         process.tracker_writes_enabled.load(Ordering::SeqCst),
     ));
@@ -783,14 +757,7 @@ fn persist_settings_update(
     *profile = candidate.profile.lock().unwrap().clone();
     *reasoning = candidate.reasoning.lock().unwrap().clone();
     *manual_models = candidate.manual_models.lock().unwrap().clone();
-    process.phase_pipeline_enabled.store(
-        candidate.phase_pipeline_enabled.load(Ordering::SeqCst),
-        Ordering::SeqCst,
-    );
-    process.subagents_enabled.store(
-        candidate.subagents_enabled.load(Ordering::SeqCst),
-        Ordering::SeqCst,
-    );
+    *subagent_mode = *candidate.subagent_mode.lock().unwrap();
     process.tracker_writes_enabled.store(
         candidate.tracker_writes_enabled.load(Ordering::SeqCst),
         Ordering::SeqCst,
@@ -1040,22 +1007,17 @@ mod tests {
         let info = discussion(&state, &root.display().to_string()).await;
         let process = owned_process(&state, &root, &info.id).unwrap();
         let old_model = process.model.lock().unwrap().clone();
-        let old_subagents = process.subagents_enabled.load(Ordering::SeqCst);
+        let old_subagents = *process.subagent_mode.lock().unwrap();
         let db = rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
         db.execute_batch("CREATE TRIGGER reject_settings BEFORE UPDATE ON processes BEGIN SELECT RAISE(FAIL, 'audit settings write failure'); END;").unwrap();
         let change = |candidate: &ProcessHandle| {
             *candidate.model.lock().unwrap() = Some("changed:model".into());
-            candidate
-                .subagents_enabled
-                .store(!old_subagents, Ordering::SeqCst);
+            *candidate.subagent_mode.lock().unwrap() = kanzei_harness::SubagentMode::Ultra;
         };
         let error = persist_settings_update(&process, change).unwrap_err();
         assert!(error.contains("audit settings write failure"), "{error}");
         assert_eq!(*process.model.lock().unwrap(), old_model);
-        assert_eq!(
-            process.subagents_enabled.load(Ordering::SeqCst),
-            old_subagents
-        );
+        assert_eq!(*process.subagent_mode.lock().unwrap(), old_subagents);
         db.execute_batch("DROP TRIGGER reject_settings").unwrap();
         persist_settings_update(&process, change).unwrap();
         assert_eq!(
@@ -1063,14 +1025,14 @@ mod tests {
             Some("changed:model")
         );
         assert_eq!(
-            process.subagents_enabled.load(Ordering::SeqCst),
-            !old_subagents
+            *process.subagent_mode.lock().unwrap(),
+            kanzei_harness::SubagentMode::Ultra
         );
         let store =
             kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
         let stored = store.get_process(&process.id).unwrap().unwrap();
         assert_eq!(stored.model.as_deref(), Some("changed:model"));
-        assert_eq!(stored.subagents_enabled, !old_subagents);
+        assert_eq!(stored.subagent_mode, kanzei_harness::SubagentMode::Ultra);
     }
 
     fn owned_process(state: &AppState, root: &Path, id: &str) -> Result<ProcessHandle, String> {
@@ -1088,17 +1050,9 @@ mod tests {
     }
 
     async fn discussion(state: &AppState, project: &str) -> ProcessInfo {
-        create_process(
-            state,
-            project,
-            None,
-            Some("readonly".into()),
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap()
+        create_process(state, project, None, Some("readonly".into()), None, None)
+            .await
+            .unwrap()
     }
 
     fn info_of(state: &AppState, project: &str, id: &str) -> ProcessInfo {
@@ -1471,8 +1425,8 @@ mod tests {
                 research_topic: Arc::new(Mutex::new(None)),
                 reasoning: Arc::new(Mutex::new(None)),
                 manual_models: Arc::new(Mutex::new(Vec::new())),
-                phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
-                subagents_enabled: Arc::new(AtomicBool::new(true)),
+
+                subagent_mode: Arc::new(std::sync::Mutex::new(kanzei_harness::SubagentMode::Auto)),
                 tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
             },
         );

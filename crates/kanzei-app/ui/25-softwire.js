@@ -614,7 +614,7 @@ async function dispatchPrompt(destination, capture, resolved) {
   let line = destination.processId ? candidates.find(p => p.id === destination.processId) : candidates[0];
   if (destination.processId && (!line || destination.sessionId && line.session_id !== destination.sessionId))
     throw new Error(t("原对话已变化，请重新选择对话。草稿已保留。"));
-  if (!line) line = await invoke("process_create", { projectDir: destination.project, profile: "dev", phasePipeline: false });
+  if (!line) line = await invoke("process_create", { projectDir: destination.project, profile: "dev" });
   if (!line?.id || line.profile === "research") throw new Error(t("开发对话创建失败，草稿已保留。"));
   if (line) {
     const bound = { ...destination, processId: line.id, sessionId: line.session_id };

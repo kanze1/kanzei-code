@@ -7,7 +7,7 @@ pub(crate) fn arm(app: &tauri::AppHandle, payload: &Value) {
     let action = &payload["autoAction"];
     if !matches!(
         action["type"].as_str(),
-        Some("Continue" | "Nudge" | "VerifyRound" | "GoalPending" | "RetryAfterFailure")
+        Some("Continue" | "Nudge" | "GoalPending" | "RetryAfterFailure")
     ) {
         return;
     }

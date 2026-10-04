@@ -87,7 +87,7 @@ try {
   const prefs=await invoke("projects_get");
   check(prefs.projects.length===1&&prefs.names[project.replaceAll("/","\\")]==="后台运行验收","Concurrent project and UI preference saves preserve project identity");
   owner = (await invoke("process_list", { projectDir: project })).find(p => !["readonly", "research"].includes(p.profile));
-  await invoke("process_update", { processId: owner.id, subagentsEnabled: true, phasePipeline: false });
+  await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await invoke("docs_update", { projectDir: project, kind: "req", action: "add", id: "", title: "原生条目绑定验收", status: "todo", priority: "P1", fields: { "复杂度": "小", "标签": "前端", "验收": "工作台选择的 R-001 在真实 IPC 中认领并绑定本轮" } });
   await prompt("MAIN_WORK_ITEM validate this native start/continue binding", { executionBatch: true, workItemId: "R-001" });
   await until(() => held.has("work-main"), "bound work main request");

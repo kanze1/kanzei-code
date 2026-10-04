@@ -14,7 +14,7 @@
 use std::sync::{Arc, Mutex};
 
 use kanzei_harness::orchestration::{
-    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,
+    CoordinationObserver, ExecutionPolicy, OrchestrationEvent, ProjectExecutionCoordinator,
 };
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use serde_json::json;
@@ -81,7 +81,7 @@ struct Recorder {
     end_codes: Mutex<Vec<(String, Option<String>)>>, // UI-0926 #8:(id, code)
 }
 
-impl PhaseObserver for Recorder {
+impl CoordinationObserver for Recorder {
     fn observe(&self, event: &OrchestrationEvent) {
         let payload = event.payload();
         self.orchestration.lock().unwrap().push((
@@ -107,7 +107,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
     // 验收①原文要求的就是 kanzei.toml 里配 [limits] max_tasks_per_turn = N。
     std::fs::write(
         project.join(".kanzei").join("kanzei.toml"),
-        format!("[limits]\nmax_tasks_per_turn = {MAX_TASKS}\n"),
+        format!("[limits]\nmax_tasks_per_turn = {MAX_TASKS}\nsubagent_ultra_concurrency = {MAX_TASKS}\nsubagent_global_concurrency = {MAX_TASKS}\n"),
     )
     .unwrap();
 
@@ -166,7 +166,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
     let recorder = Arc::new(Recorder::default());
     let coordinator = Arc::new(
         kanzei_core::orchestration::MemoryCoordinator::with_observer(
-            recorder.clone() as Arc<dyn PhaseObserver>
+            recorder.clone() as Arc<dyn CoordinationObserver>
         ),
     );
 
@@ -182,7 +182,10 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         system: "test".into(),
     };
     let subagent_rt = kanzei_core::SubagentRuntime {
-        options: Default::default(),
+        options: kanzei_core::SubagentOptions {
+            mode: kanzei_harness::SubagentMode::Ultra,
+            ..Default::default()
+        },
         roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
@@ -260,7 +263,6 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         &runner_config,
         &ctx,
         "勘察这个项目",
-        None,
         None,
         &[],
         None,

@@ -19,34 +19,6 @@ pub(crate) fn validate_requested_item(id: &str) -> Result<(), String> {
     }
 }
 
-pub(crate) fn requested_task_context(root: &std::path::Path, id: &str) -> anyhow::Result<String> {
-    use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
-    validate_requested_item(id).map_err(anyhow::Error::msg)?;
-    let kind = if id.starts_with("R-") {
-        &REQUIREMENTS
-    } else {
-        &DEFECTS
-    };
-    let entry = DocStore::open(root, kind)
-        .load()?
-        .into_iter()
-        .find(|entry| entry.id == id)
-        .ok_or_else(|| anyhow::anyhow!("需求 {id} 不在活动列表，请刷新后重试"))?;
-    let mut context = format!(
-        "用户明确选择 {} [{}] {}",
-        entry.id, entry.status, entry.title
-    );
-    for (key, value) in entry.fields {
-        if matches!(key.as_str(), "进展" | "内容" | "验收" | "复现" | "改动面") {
-            context.push_str(&format!(
-                "\n- {key}: {}",
-                value.chars().take(2000).collect::<String>()
-            ));
-        }
-    }
-    Ok(context.chars().take(8000).collect())
-}
-
 pub(crate) async fn claim_requested_work(
     ctx: &ToolCtx,
     item_id: &str,
@@ -106,8 +78,6 @@ mod tests {
                 "process".into(),
             );
         let mut events = Vec::new();
-        let requested = requested_task_context(&root, "R-002").unwrap();
-        assert!(requested.contains("R-002") && !requested.contains("R-001"));
         claim_requested_work(&ctx, "R-001", &mut |event| events.push(event))
             .await
             .unwrap();

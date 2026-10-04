@@ -189,6 +189,7 @@ pub async fn build_subagent_runtime(
         .collect();
     Ok(Some(SubagentRuntime {
         options: kanzei_core::SubagentOptions {
+            mode: kanzei_harness::SubagentMode::Auto,
             reasoning: resolve_reasoning_override(None, config.models.reasoning.as_deref()),
             primary_context_limit: resolved.provider.context_limit,
             fast_context_limit: config

@@ -462,19 +462,8 @@ pub(crate) struct ProcessHandle {
     /// 当前对话的手填模型候选；各对话独立持久化。
     /// 前端下拉的「手填」候选从 process_info 回读,不再以 localStorage 为真源。
     pub(crate) manual_models: Arc<Mutex<Vec<String>>>,
-    /// 「高级勘察复核」(2026-08-11 用户定调;界面上的开关已于 UX-039 撤掉,字段与后端语义保留,
-    /// 前端不再读写,新建线一律默认关)。
-    ///
-    /// 开 = 本进程**每个任务**(含手动对话与研究档)都强制走完整角色表:
-    /// 勘察 → 汇总屏障 → 实现 → 复核屏障 → 复核 →(有发现时)修正。
-    ///
-    /// 关 = 不装配固定流水线。`subagents_enabled` 开着时,手动对话、执行批次与
-    /// 自主推进都由模型按需派 `task`,不会隐式套上固定勘察/复核。
-    /// 是否装配以 `run/assembly.rs` 的 `RunMode::uses_phase_pipeline` 为唯一判据,
-    /// 子代理总闸是 `subagents_enabled` 而不是本字段。
-    pub(crate) phase_pipeline_enabled: Arc<AtomicBool>,
-    /// 进程级「子代理」开关。默认开启；关闭时 task 工具不注册到本轮工具面。
-    pub(crate) subagents_enabled: Arc<AtomicBool>,
+    /// 每个对话独立保存的协作倾向；运行中修改在下一轮读取。
+    pub(crate) subagent_mode: Arc<Mutex<kanzei_harness::SubagentMode>>,
     /// 分支线是否允许修改主根中的 tracker 文档。默认关闭,读取不受影响。
     pub(crate) tracker_writes_enabled: Arc<AtomicBool>,
 }
@@ -491,10 +480,8 @@ pub(crate) struct ProcessInfo {
     pub(crate) research_topic: Option<String>,
     pub(crate) reasoning: Option<String>,
     pub(crate) manual_models: Vec<String>,
-    /// 见 [`ProcessHandle::phase_pipeline_enabled`]。前端 `process_list` 回显用。
-    pub(crate) phase_pipeline: bool,
-    /// 见 [`ProcessHandle::subagents_enabled`]。前端 `process_list` 回显用。
-    pub(crate) subagents_enabled: bool,
+    /// 见 [`ProcessHandle::subagent_mode`]。前端 `process_list` 回显用。
+    pub(crate) subagent_mode: kanzei_harness::SubagentMode,
     pub(crate) tracker_writes: bool,
     /// 当前会话阶段,用于侧栏逐条投影并行任务状态。
     pub(crate) stage: String,
@@ -661,8 +648,7 @@ pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHa
             manual_models: Arc::new(Mutex::new(Vec::new())),
             // 默认关:用户要的是「显式打开才强制走七阶段」,默认开就不叫显式
             // (2026-08-11 用户定调)。
-            phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
-            subagents_enabled: Arc::new(AtomicBool::new(true)),
+            subagent_mode: Arc::new(std::sync::Mutex::new(kanzei_harness::SubagentMode::Auto)),
             tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
         })
         .clone();
@@ -724,8 +710,8 @@ pub(crate) fn process_info_with(
         research_topic: process.research_topic.lock_or_recover().clone(),
         reasoning: process.reasoning.lock_or_recover().clone(),
         manual_models: process.manual_models.lock_or_recover().clone(),
-        phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
-        subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
+
+        subagent_mode: process.subagent_mode(),
         tracker_writes: process.tracker_writes_enabled.load(Ordering::SeqCst),
         stage,
         running,
@@ -909,6 +895,12 @@ pub(crate) fn pending_ask_payload(id: u64, pending: &PendingAsk) -> serde_json::
         payload["agentId"] = json!(id);
     }
     payload
+}
+
+impl ProcessHandle {
+    pub(crate) fn subagent_mode(&self) -> kanzei_harness::SubagentMode {
+        *self.subagent_mode.lock_or_recover()
+    }
 }
 
 #[cfg(test)]

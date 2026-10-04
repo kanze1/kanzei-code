@@ -12,7 +12,7 @@
 use std::sync::{Arc, Mutex};
 
 use kanzei_harness::orchestration::{
-    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,
+    CoordinationObserver, ExecutionPolicy, OrchestrationEvent, ProjectExecutionCoordinator,
 };
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use serde_json::json;
@@ -73,7 +73,7 @@ struct Recorder {
     orchestration: Mutex<Vec<(String, String)>>,
 }
 
-impl PhaseObserver for Recorder {
+impl CoordinationObserver for Recorder {
     fn observe(&self, event: &OrchestrationEvent) {
         let payload = event.payload();
         self.orchestration.lock().unwrap().push((
@@ -139,7 +139,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
     let recorder = Arc::new(Recorder::default());
     let coordinator = Arc::new(
         kanzei_core::orchestration::MemoryCoordinator::with_observer(
-            recorder.clone() as Arc<dyn PhaseObserver>
+            recorder.clone() as Arc<dyn CoordinationObserver>
         ),
     );
 
@@ -513,7 +513,7 @@ async fn 失败与被停终态_读槽均释放_快照无残留读者() {
     let recorder = Arc::new(Recorder::default());
     let coordinator = Arc::new(
         kanzei_core::orchestration::MemoryCoordinator::with_observer(
-            recorder.clone() as Arc<dyn PhaseObserver>
+            recorder.clone() as Arc<dyn CoordinationObserver>
         ),
     );
     let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();

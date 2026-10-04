@@ -155,7 +155,7 @@ try {
   const root = await invoke("general_chat_open");
   let lines = await invoke("process_list", { projectDir: root });
   const original = lines[0];
-  check(original.profile === "dev" && original.subagents_enabled && !original.phase_pipeline && !original.tracker_writes, "General recipient retains Harness without project phases");
+  check(original.profile === "dev" && original.subagent_mode === "auto" && !("phase_pipeline" in original) && !original.tracker_writes, "General recipient retains Harness with Auto delegation");
   check(await page.locator("#subagent-control").isVisible(), "General chat exposes the subagent switch");
   check((await invoke("projects_get")).projects.length === 0, "Opening chat does not register a fake project");
   const text = "GENERAL_INPUT: 不依赖项目的聊天";
@@ -231,7 +231,7 @@ try {
     scheduledArtifact ||= (await readFile(path.join(root, "artifacts", workspace, "schedule-artifact.txt"), "utf8").catch(() => "")) === "GENERAL_SCHEDULE_ARTIFACT";
   }
   check(scheduledArtifact, "General schedule persists a real file in its run workspace");
-  const rewindChat = await invoke("process_create", { projectDir: root, profile: "dev", phasePipeline: false, subagentsEnabled: false });
+  const rewindChat = await invoke("process_create", { projectDir: root, profile: "dev", subagentMode: "off" });
   const rewindText = "GENERAL_REWIND_FILE: 创建可回退文件";
   await invoke("run_prompt", { projectDir: root, processId: rewindChat.id, prompt: rewindText, model: "stub:test", autoAllow: true });
   await until(async () => !(await invoke("process_list", { projectDir: root })).some(process => process.running), "Rewind file creation");
@@ -257,14 +257,14 @@ try {
   await close(); await start();
   check(await page.locator("body").getAttribute("data-general-chat") === "true", "Restart restores general mode");
   check((await page.locator("#messages").innerText()).includes("GENERAL_INPUT"), "Restart recovers actual SQLite conversation history");
-  await invoke("process_update", { processId: original.id, subagentsEnabled: false });
-  check(!(await invoke("process_list", { projectDir: root })).find(process => process.id === original.id).subagents_enabled, "General subagent preference can be changed");
+  await invoke("process_update", { processId: original.id, subagentMode: "off" });
+  check((await invoke("process_list", { projectDir: root })).find(process => process.id === original.id).subagent_mode === "off", "General subagent preference can be changed");
   await invoke("general_chat_open");
-  check(!(await invoke("process_list", { projectDir: root })).find(process => process.id === original.id).subagents_enabled, "Opening general chat preserves the user's subagent preference");
-  await invoke("process_update", { processId: original.id, subagentsEnabled: true });
+  check((await invoke("process_list", { projectDir: root })).find(process => process.id === original.id).subagent_mode === "off", "Opening general chat preserves the user's subagent preference");
+  await invoke("process_update", { processId: original.id, subagentMode: "auto" });
   let denied = false;
-  try { await invoke("process_update", { processId: original.id, phasePipeline: true }); } catch { denied = true; }
-  check(denied, "General settings reject the project phase pipeline");
+  try { await invoke("process_update", { processId: original.id, subagentMode: "advanced" }); } catch { denied = true; }
+  check(denied, "General settings reject invalid collaboration modes");
   const forkArgs = { projectDir: root, processId: original.id, text: "FORGED_DEV: 保持聊天权限", occurrenceFromEnd: 0 };
   const preview = await invoke("conversation_action", { ...forkArgs, action: "preview" });
   const forked = await invoke("conversation_action", { ...forkArgs, action: "fork", expectedHash: preview.sourceHash, force: false });

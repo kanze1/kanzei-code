@@ -430,28 +430,7 @@ export function renderProjectModelOverrides(s) {
   });
 }
 
-// R-305 B1:兼容显式高级勘察复核(phase_pipeline)的角色上限。
-// 未保存输入也要即时可见,避免用户调小上限后不知道会少派几个只读子代理;
-// 够用时(恒为「不会截断」)不出声——那句话没有信息量(B2)。
 export let settingsEffectiveSnapshot = null;
-export function renderRosterCapNotice(s) {
-  const box = $("set-max-tasks-hint");
-  if (!box) return;
-  const capacity = Number(s?.phaseRosterCapacity ?? 5);
-  const raw = $("set-max-tasks")?.value.trim() ?? "";
-  const fallback = s?.limitDefaults?.maxTasksPerTurn ?? 16;
-  const limit = raw === "" ? Number(fallback) : Number(raw);
-  if (!Number.isFinite(limit) || !Number.isFinite(capacity)) {
-    box.textContent = "";
-    return;
-  }
-  const omitted = Math.max(0, capacity - Math.max(0, Math.floor(limit)));
-  box.textContent = omitted > 0 ? `${t("高级勘察复核配置会少派只读子代理")}: ${omitted}` : "";
-}
-
-defer(() => {
-  $("set-max-tasks")?.addEventListener("input", () => renderRosterCapNotice(settingsEffectiveSnapshot));
-});
 
 export function providerSourceLabel(source) {
   return {
@@ -753,6 +732,9 @@ export const LIMIT_FIELDS = [
   ["set-max-tokens", "maxTokens"],
   ["set-subagent-max-tokens", "subagentMaxTokens"],
   ["set-subagent-timeout", "subagentTimeoutSecs"],
+  ["set-subagent-global-concurrency", "subagentGlobalConcurrency"],
+  ["set-subagent-ultra-concurrency", "subagentUltraConcurrency"],
+  ["set-subagent-auto-concurrency", "subagentAutoConcurrency"],
   ["set-max-tasks", "maxTasksPerTurn"],
   ["set-context-ratio", "contextBudgetRatio"],
   ["set-verbatim-ratio", "recentVerbatimRatio"],
@@ -767,6 +749,9 @@ export const LIMIT_LABELS = {
   maxTokens: "主对话输出上限",
   subagentMaxTokens: "子代理输出上限",
   subagentTimeoutSecs: "子代理时长上限",
+  subagentGlobalConcurrency: "所有对话并发上限",
+  subagentUltraConcurrency: "积极协作并发",
+  subagentAutoConcurrency: "按需模式并发",
   maxTasksPerTurn: "单轮子代理数上限",
   contextBudgetRatio: "压缩触发线",
   recentVerbatimRatio: "压缩保留近期",
@@ -844,7 +829,7 @@ export async function loadSettings({ force = false } = {}) {
   // 只读区永远允许更新:它一行 input 都不碰,刷新它不会吃掉任何输入。
   $("settings-path").textContent = s.path;
   settingsEffectiveSnapshot = s;
-  renderRosterCapNotice(s);
+
   renderEffectiveNotice(s);
   renderProjectModelOverrides(s);
   loadPermissionRules();
@@ -893,7 +878,7 @@ export function hydrateSettingsForm(s) {
     else defaultPlaceholders.set(id, fallback);
     el.placeholder = fallback === undefined ? "" : `${t("默认")} ${fallback}`;
   }
-  renderRosterCapNotice(s);
+
   const proxy = s.proxy;
   if (proxy === "env" || proxy === "off") {
     $("set-proxy-mode").value = proxy;
@@ -1275,7 +1260,7 @@ defer(() => {
     if (loaded) {
       renderEffectiveNotice(loaded);
       renderProjectModelOverrides(loaded);
-      renderRosterCapNotice(loaded);
+
     }
     renderOpenTools(openTools);
     if (agentDirectorySnapshot) {
@@ -1392,7 +1377,7 @@ function clearSettingsFields(ids) {
     const el = $(id);
     if (el) el.value = "";
   }
-  renderRosterCapNotice(settingsEffectiveSnapshot);
+
   syncSettingsDirty();
 }
 defer(() => {

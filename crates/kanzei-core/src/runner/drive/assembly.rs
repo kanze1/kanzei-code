@@ -40,7 +40,7 @@ fn append_subagent_spec(
     subagents_enabled: bool,
     subagent: Option<&SubagentRuntime>,
 ) {
-    if !subagents_enabled {
+    if !subagents_enabled || subagent.is_some_and(|rt| !rt.options.mode.enabled()) {
         return;
     }
     // R-327:schema 的人格枚举取自**运行时实际持有的名册**,不硬编码。
@@ -73,7 +73,6 @@ pub(super) fn assemble_run_once<'a>(
     config: &'a RunnerConfig,
     prompt: &str,
     memory_hints: Option<&str>,
-    scout_brief: Option<&str>,
     prior: &[Message],
     initial_parts: Option<&[Part]>,
     subagent: Option<&SubagentRuntime>,
@@ -112,19 +111,19 @@ pub(super) fn assemble_run_once<'a>(
             context_report.push(("memory/hints".into(), hints.chars().count()));
         }
     }
-    // 勘察简报同 D-185 待遇:稳定 system 段,不进 messages。它原先被拼进 prompt,
-    // 于是随 User message 落进 conversations,下一轮作为 prior 回灌——而流水线每轮
-    // 都会重新勘察,回灌的那份旧简报永远不是最新可用信息,只是让 agent 多花一次
-    // 「这是不是上轮残留」的分辨成本。单独记账,让它的 token 占比可见。
-    if let Some(brief) = scout_brief {
-        if !brief.trim().is_empty() {
-            context_report.push(("scout/brief".into(), brief.chars().count()));
-        }
-    }
     let mut stable_system: Vec<String> = [agent.system.clone(), baseline]
         .into_iter()
         .filter(|s| !s.trim().is_empty())
         .collect();
+    if let Some(runtime) = subagent {
+        let mut guidance = runtime.options.mode.guidance().to_string();
+        if runtime.options.mode.enabled() {
+            guidance.push('\n');
+            guidance.push_str(kanzei_harness::subagent_policy::DELEGATION_GUIDANCE);
+        }
+        context_report.push(("runtime/delegation".into(), guidance.chars().count()));
+        stable_system.push(guidance);
+    }
     if !config.ask_policy.allows_user_prompt() {
         let instructions = super::question::AUTONOMOUS_DECISIONS;
         context_report.push(("runtime/decisions".into(), instructions.chars().count()));
@@ -136,11 +135,6 @@ pub(super) fn assemble_run_once<'a>(
     if let Some(hints) = memory_hints {
         if !hints.trim().is_empty() {
             stable_system.push(hints.to_string());
-        }
-    }
-    if let Some(brief) = scout_brief {
-        if !brief.trim().is_empty() {
-            stable_system.push(brief.to_string());
         }
     }
 

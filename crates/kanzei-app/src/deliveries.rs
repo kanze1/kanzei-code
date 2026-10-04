@@ -760,8 +760,8 @@ mod tests {
                 research_topic: None,
                 reasoning: None,
                 manual_models: vec![],
-                phase_pipeline: false,
-                subagents_enabled: false,
+
+                subagent_mode: kanzei_harness::SubagentMode::Off,
                 tracker_writes_enabled: false,
                 updated_at: 1,
             })

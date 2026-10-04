@@ -27,9 +27,11 @@ pub mod read_ledger;
 pub mod refs;
 pub mod registry;
 pub mod repair;
+pub mod subagent_policy;
 pub mod tool;
 pub use async_mailbox::{AsyncMailbox, AsyncNotice, InputInbox};
 pub use read_ledger::ReadLedger;
+pub use subagent_policy::SubagentMode;
 pub mod tool_pipeline;
 pub mod tool_search;
 
@@ -48,9 +50,8 @@ pub use harness::{
 pub use home::{general_conversation_workspace, is_general_conversation_root, kanzei_home};
 pub use markdown::MarkdownComponent;
 pub use orchestration::{
-    BarrierKind, BarrierOutcome, CoordinatorSnapshot, ExecutionPolicy, OrchestrationEvent, Phase,
-    PhaseError, PhaseObserver, ProjectExecutionCoordinator, ReadPermit, ReadSlotRequest,
-    ScoutOutcome, WriterLease, WriterLeaseRequest,
+    CoordinationObserver, CoordinatorSnapshot, ExecutionPolicy, OrchestrationEvent,
+    ProjectExecutionCoordinator, ReadPermit, ReadSlotRequest, WriterLease, WriterLeaseRequest,
 };
 pub use permission::{Effect, ManagedResource, Rule, Ruleset};
 pub use registry::Registry;

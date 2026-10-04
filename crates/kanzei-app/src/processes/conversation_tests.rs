@@ -32,10 +32,10 @@ async fn all_conversations_share_creation_close_delete_and_restart() {
     let project = root.display().to_string();
     let state = AppState::default();
     assert!(list_processes(&state, &project).unwrap().is_empty());
-    let first = create_process(&state, &project, None, Some("dev".into()), None, None, None)
+    let first = create_process(&state, &project, None, Some("dev".into()), None, None)
         .await
         .unwrap();
-    let second = create_process(&state, &project, None, Some("dev".into()), None, None, None)
+    let second = create_process(&state, &project, None, Some("dev".into()), None, None)
         .await
         .unwrap();
     assert_eq!(first.kind, second.kind);

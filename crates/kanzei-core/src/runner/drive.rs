@@ -68,8 +68,6 @@ pub fn run_once<'a>(
         ctx,
         prompt,
         memory_hints,
-        // run_once 不经勘察流水线(它是无阶段的直跑入口)。
-        None,
         prior,
         None,
         subagent,
@@ -90,13 +88,6 @@ pub fn run_once_with_parts<'a>(
     prompt: &'a str,
     // D-185:同 run_once,只进本轮 system,不进 messages/历史。
     memory_hints: Option<&'a str>,
-    // 勘察阶段简报。与 memory_hints 同待遇——只进本轮 system,不进 messages。
-    // 原先它被拼进 prompt 字符串,于是随 User message 进 messages → 落
-    // conversations → 下轮 prior 回灌:上一轮的勘察结论会出现在下一轮的上下文里,
-    // 而流水线每轮都会重新勘察,那份旧简报**在任何情况下都不是最新可用信息**。
-    // 实测代价:agent 得自己推理「这看起来是上个会话的残留」再决定忽略,分辨成本
-    // 与 token 照付。
-    scout_brief: Option<&'a str>,
     // 之前轮次的完整消息历史(空 = 新对话)。
     prior: &'a [Message],
     initial_parts: Option<&'a [Part]>,
@@ -138,7 +129,6 @@ pub fn run_once_with_parts<'a>(
             config,
             prompt,
             memory_hints,
-            scout_brief,
             prior,
             initial_parts,
             subagent,
@@ -953,7 +943,33 @@ async fn run_subagent_calls(
             .map(|(id, _, input, raw)| (id.clone(), input.clone(), raw.clone()))
             .collect();
         if !task_calls.is_empty() {
+            if !rt.options.mode.enabled() {
+                for (id, input, raw) in &task_calls {
+                    on_event(RunEvent::ToolStart {
+                        id: id.clone(),
+                        name: "task".into(),
+                        summary: summarize_input(input, raw),
+                        input: input.clone(),
+                    });
+                    let output = kanzei_harness::ToolOutput::failed(
+                        "subagent_disabled",
+                        "Subagents are disabled for this conversation",
+                    );
+                    on_event(RunEvent::tool_end(id.clone(), "task".into(), &output));
+                    task_results.insert(id.clone(), output);
+                }
+                return task_results;
+            }
             let max_tasks = config.limits.max_tasks_per_turn();
+            let dispatch_slots = rt.options.host.is_none().then(|| {
+                std::sync::Arc::new(tokio::sync::Semaphore::new(
+                    rt.options
+                        .mode
+                        .concurrency(&config.limits)
+                        .max(1)
+                        .min(config.limits.subagent_global_concurrency()),
+                ))
+            });
             let overflow = if task_calls.len() > max_tasks {
                 task_calls.split_off(max_tasks)
             } else {
@@ -1002,6 +1018,7 @@ async fn run_subagent_calls(
                 // 完成结果走 background_results,不依赖事件流。
                 for (id, input, _) in &task_calls {
                     let tx = tx.clone();
+                    let dispatch_slots = dispatch_slots.clone();
                     // `client`/`rt`/`ctx` 是 &'a 引用;`(&T).clone()` 会解析到
                     // `impl Clone for &T`(返回引用),move 进 'static async 块就
                     // 逃逸。`(*x).clone()` 强制调用值类型的 Clone,产生 owned。
@@ -1031,6 +1048,10 @@ async fn run_subagent_calls(
                                 }),
                             );
                         }
+                        let _permit = match dispatch_slots {
+                            Some(slots) => slots.acquire_owned().await.ok(),
+                            None => None,
+                        };
                         let mut output =
                             run_subagent(&client, &rt, &ctx, &call_id, &input, tx).await;
                         materialize_tool_output(&mut output, &ctx, "task");
@@ -1082,7 +1103,12 @@ async fn run_subagent_calls(
                     .iter()
                     .map(|(id, input, _)| {
                         let tx = tx.clone();
+                        let dispatch_slots = dispatch_slots.clone();
                         async move {
+                            let _permit = match dispatch_slots {
+                                Some(slots) => slots.acquire_owned().await.ok(),
+                                None => None,
+                            };
                             let output = run_subagent(client, rt, ctx, id, input, tx).await;
                             (id.clone(), output)
                         }

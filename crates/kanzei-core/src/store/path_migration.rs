@@ -263,8 +263,8 @@ mod tests {
             research_topic: None,
             reasoning: None,
             manual_models: Vec::new(),
-            phase_pipeline: false,
-            subagents_enabled: true,
+
+            subagent_mode: kanzei_harness::SubagentMode::Auto,
             tracker_writes_enabled: false,
             updated_at: at,
         }
@@ -283,9 +283,9 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO processes (process_id, origin_project, project_dir, worktree_path,
-                        model, manual_models, phase_pipeline, subagents_enabled,
+                        model, manual_models, subagent_mode,
                         tracker_writes_enabled, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, '[]', 0, 1, 0, ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, '[]', 'auto', 0, ?6)",
                 params![
                     p.process_id,
                     p.origin_project,

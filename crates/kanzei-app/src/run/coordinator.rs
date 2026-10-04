@@ -76,10 +76,10 @@ pub(crate) async fn run_task(
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     // session_id/process_id 在 request 整体移入装配后仍需使用,先克隆供全程引用;
-    // phase_pipeline_enabled/autonomous 是运行档位中轮末/执行段仍要消费的残留位。
+    // 协作倾向和自主推进在本轮开始时冻结。
     let session_id = request.session_id.clone();
     let process_id = request.process_id.clone();
-    let subagents_enabled = mode.subagents_enabled;
+    let subagent_mode = mode.subagent_mode;
     let autonomous = mode.autonomous;
     let stage = |name: &str, detail: String| {
         *handles.current_stage.lock_or_recover() = name.to_string();
@@ -110,8 +110,6 @@ pub(crate) async fn run_task(
         crate::runtime_for(&window.app_handle().state::<crate::AppState>(), &session_id);
     round.ctx.read_ledger = Some(execution_runtime.read_ledger.clone());
     round.ctx.async_mailbox = Some(mailbox);
-    let phase_pipeline_enabled =
-        round.pipeline.is_some() || deps.profile == kanzei_harness::ProfileKind::Readonly;
 
     // R-253 批7:RunAssembly 三分后按需取字段——session 的 move 型字段(store/
     // typed_flush_task)取出,其余经引用访问;deps/round 保持整体(不再解构),
@@ -151,7 +149,7 @@ pub(crate) async fn run_task(
     // 解构出的 orchestration_trace 重建——单一出口语义不变(OrchestrationEvent 落
     // session_events),正常路径收尾与 WriterLeaseTrace::drop 兜底都用它。
     let writer_event = |event: kanzei_harness::orchestration::OrchestrationEvent| {
-        use kanzei_harness::orchestration::PhaseObserver;
+        use kanzei_harness::orchestration::CoordinationObserver;
         orchestration_trace.observe(&event);
     };
     // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
@@ -257,7 +255,7 @@ pub(crate) async fn run_task(
                 .flatten()
         }),
     );
-    let mut subagent_rt = if subagents_enabled {
+    let mut subagent_rt = if subagent_mode.enabled() {
         kanzei_tools::run::build_subagent_runtime(
             &deps.rctx,
             &deps.config,
@@ -274,10 +272,14 @@ pub(crate) async fn run_task(
         )
         .await?
     } else {
+        if let Some(team) = kanzei_tools::team::find(&round.ctx.project_root, &session_id) {
+            team.set_policy(subagent_mode, &deps.config.limits);
+        }
         None
     };
 
     if let Some(runtime) = subagent_rt.as_mut() {
+        runtime.options.mode = subagent_mode;
         runtime.options.reasoning = deps.runner_config.reasoning;
         runtime.options.ask_policy = Some(deps.runner_config.ask_policy);
         let child_window = window.clone();
@@ -321,7 +323,7 @@ pub(crate) async fn run_task(
     }
 
     // R-202 批2:事件循环段——附件提示 → 记忆预检索 → 勘察 → 主循环
-    // (run_once_with_parts)→ 复核修正(run_review_and_fixup),收敛为独立函数。
+    // (run_once_with_parts),收敛为独立函数。
     // R-253 批7b:执行输入打包(ExecutionInput)+ 生命周期分组(deps/round)。
     let execution_input = crate::run::execution::ExecutionInput {
         stage: &stage,
@@ -420,7 +422,7 @@ pub(crate) async fn run_task(
                         // R-322 B3:目标挂着时失败轮照样走退避重试(目标不该被一次 503 冲掉)。
                         goal_active: ctrl.goal.is_some(),
                         closed_this_round: 0,
-                        verify_every_n: 0,
+
                         progress_signature: &signature,
                         round_failure: Some(if rate_limited {
                             kanzei_harness::auto_run::RoundFailure::RateLimited
@@ -543,13 +545,6 @@ pub(crate) async fn run_task(
             max: serde_json::Value,
         },
     }
-    // 下一轮核查遵循用户最新保存的总开关,不沿用本轮开始时的快照。
-    let allow_subagent_verification = store
-        .get_process(&process_id)
-        .ok()
-        .flatten()
-        .map(|process| process.subagents_enabled)
-        .unwrap_or(subagents_enabled);
     let handoff = round_handoff.lock_or_recover().clone();
     let has_pending_inputs = store
         .list_pending_inputs(&session_id)
@@ -589,16 +584,8 @@ pub(crate) async fn run_task(
                 goal_active: ctrl.goal.is_some(),
                 // R-144:本轮关闭条目数(req/defect close 成功计数)。D-654:改事件收口
                 // (ToolStart 登记意图 + ToolEnd ok 计数)——原实现扫全历史 messages,
-                // 历史 close 每轮重复计入,verify_every_n 节律被刷穿。
+                // 历史 close 每轮重复计入,关闭计数被污染。
                 closed_this_round: round_closed.load(std::sync::atomic::Ordering::Relaxed),
-                // 核查轮会派 readonly 子代理,总开关关闭时不再安排它。
-                verify_every_n: if allow_subagent_verification {
-                    kanzei_harness::KanzeiConfig::load_at_root(&deps.project_root)
-                        .map(|c| c.cadence.verify_every_n)
-                        .unwrap_or(0)
-                } else {
-                    0
-                },
                 // D-403:本轮正常完成——失败轮走上面的失败分支,不经过这里。
                 round_failure: None,
             };
@@ -747,7 +734,6 @@ pub(crate) async fn run_task(
             process_id: &process_id,
             _write_lease: &_write_lease,
             writer_event: &writer_event,
-            phase_pipeline_enabled,
         },
         FinalizeOutcome {
             summary: &summary,

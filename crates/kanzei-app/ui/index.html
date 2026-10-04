@@ -236,9 +236,12 @@
             </div>
             <!-- 子代理准入开关:模型按任务需要委派,执行批次与自主推进不强制固定勘察/复核。 -->
             <div id="subagent-control" class="subagent-control">
-              <label id="process-subagents-wrap" class="kz-ctl" title="允许模型按任务需要委派子代理。关闭后本对话不再派出子代理。只影响当前对话;运行中修改在下一轮生效,已启动的子代理继续运行。" data-i18n-title="允许模型按任务需要委派子代理。关闭后本对话不再派出子代理。只影响当前对话;运行中修改在下一轮生效,已启动的子代理继续运行。">
-                <input type="checkbox" id="process-subagents" role="switch" aria-label="子代理" data-i18n-aria-label="子代理" aria-describedby="process-subagents-value subagent-control-state" />
-                <span data-i18n-key="子代理">子代理</span>
+              <label id="process-subagents-wrap" title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。" data-i18n-title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。">
+                <select id="process-subagents" class="kz-ctl" aria-label="子代理" data-i18n-aria-label="子代理" aria-describedby="process-subagents-value subagent-control-state">
+                  <option value="off" data-i18n-key="关闭">关闭</option>
+                  <option value="auto" data-i18n-key="按需">按需</option>
+                  <option value="ultra" data-i18n-key="积极协作">积极协作</option>
+                </select>
                 <span id="process-subagents-value" class="subagent-control-value"></span>
               </label>
               <span id="subagent-control-state" class="subagent-control-state" role="status" aria-live="polite" aria-atomic="true"></span>
@@ -1310,10 +1313,14 @@
             <span class="form-pair">
               <label for="set-max-tasks" data-i18n-key="单轮子代理数上限">单轮子代理数上限</label>
               <input id="set-max-tasks" type="number" min="1" step="1" />
-              <span id="set-max-tasks-hint" class="form-hint" role="status" aria-live="polite"></span>
             </span>
           </div>
-          <p class="dim" data-i18n-key="同一轮里最多同时运行的子代理数,默认 16。超出的不排队,那次调用会直接失败,并把原因告诉模型。">同一轮里最多同时运行的子代理数,默认 16。超出的不排队,那次调用会直接失败,并把原因告诉模型。</p>
+          <p class="dim" data-i18n-key="单次模型响应中的派发数量上限，默认 16。运行并发由下面的额度控制，超出并发额度的任务会排队。">单次模型响应中的派发数量上限，默认 16。运行并发由下面的额度控制，超出并发额度的任务会排队。</p>
+          <div class="form-row">
+            <span class="form-pair"><label for="set-subagent-auto-concurrency" data-i18n-key="按需模式并发">按需模式并发</label><input id="set-subagent-auto-concurrency" type="number" min="1" step="1" /></span>
+            <span class="form-pair"><label for="set-subagent-ultra-concurrency" data-i18n-key="积极协作并发">积极协作并发</label><input id="set-subagent-ultra-concurrency" type="number" min="1" step="1" /></span>
+            <span class="form-pair"><label for="set-subagent-global-concurrency" data-i18n-key="所有对话并发上限">所有对话并发上限</label><input id="set-subagent-global-concurrency" type="number" min="1" step="1" /></span>
+          </div>
           <div class="form-row">
             <span class="form-pair">
               <label for="set-context-ratio"><span data-i18n-key="压缩触发线">压缩触发线</span> <span class="dim" data-i18n-key="占窗口比例">占窗口比例</span></label>

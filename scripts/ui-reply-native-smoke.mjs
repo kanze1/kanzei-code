@@ -71,7 +71,7 @@ try {
     await window.__TAURI__.event.listen("kz:error",event=>window.__nativeErrors.push(event.payload));
   });
   await page.evaluate(async ({projectDir,line})=>{
-    await window.__TAURI__.core.invoke("process_update",{processId:line.id,subagentsEnabled:false});
+    await window.__TAURI__.core.invoke("process_update",{processId:line.id,subagentMode:false});
     await window.__TAURI__.core.invoke("auto_state_update",{sessionId:line.session_id,enabled:true});
     await window.__TAURI__.core.invoke("run_prompt",{projectDir,processId:line.id,prompt:"提出验收范围问题并等待回复",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:false});
   },{projectDir:project,line});

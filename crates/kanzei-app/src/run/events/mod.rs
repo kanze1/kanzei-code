@@ -426,7 +426,7 @@ pub(crate) struct MetricsSink {
     round_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
     /// D-654 同因:req/defect close 的成功计数也改事件收口——原
     /// `closed_count_this_round` 扫的是全历史 `summary.messages`,历史 close 每轮
-    /// 重复计入,verify_every_n 节律被刷穿。ToolStart 登记 close 意图,ToolEnd
+    /// 重复计入,关闭计数被污染。ToolStart 登记 close 意图,ToolEnd
     /// ok=true 才计数,语义与原「调用 close 且 ToolResult 非 error」一致。
     pending_closes: Mutex<std::collections::HashSet<String>>,
     round_closed: Arc<std::sync::atomic::AtomicU32>,

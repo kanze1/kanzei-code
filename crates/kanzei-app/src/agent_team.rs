@@ -96,8 +96,11 @@ async fn execute_impl(
         anyhow::bail!("子任务所属项目不匹配");
     }
     let profile = process.profile.lock().unwrap().clone();
-    if profile.as_deref() == Some("readonly") && !matches!(action, "list" | "get") {
-        anyhow::bail!("讨论不能启动或接管执行任务");
+    if !process.subagent_mode().enabled() && matches!(action, "spawn" | "restart") {
+        anyhow::bail!("当前对话已关闭子代理，不能派发新任务");
+    }
+    if profile.as_deref() == Some("readonly") && action == "adopt" {
+        anyhow::bail!("讨论不能整合代码修改");
     }
     let code_root = process
         .worktree_path
@@ -117,6 +120,8 @@ async fn execute_impl(
         let rctx = kanzei_harness::ResolveCtx {
             profile: if profile.as_deref() == Some("research") {
                 kanzei_harness::ProfileKind::Research
+            } else if profile.as_deref() == Some("readonly") {
+                kanzei_harness::ProfileKind::Readonly
             } else {
                 kanzei_harness::ProfileKind::Dev
             },
@@ -139,6 +144,7 @@ async fn execute_impl(
         .await?
         .ok_or_else(|| anyhow::anyhow!("子代理不可用"))?;
         runtime.options.ask_policy = Some(kanzei_core::AskPolicy::Interactive);
+        runtime.options.mode = process.subagent_mode();
         let asks = session.asks.clone();
         let seq = state.ask_seq.clone();
         let ask_window = window.clone();
@@ -193,6 +199,12 @@ async fn execute_impl(
         None
     };
     let team = team.unwrap();
+    if !process.subagent_mode().enabled() && matches!(action, "resume" | "message") {
+        team.set_policy(
+            kanzei_harness::SubagentMode::Off,
+            &kanzei_harness::KanzeiConfig::load_at_root(&process.origin_project.0)?.limits,
+        );
+    }
     let session = runtime_for(state, &owner);
     if let Some(reply) = &reply {
         check_reply_generation(&session, reply.generation)?;

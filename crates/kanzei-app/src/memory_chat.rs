@@ -415,7 +415,6 @@ async fn run_chat(
         &ctx,
         &prompt,
         None,
-        None,
         &history.prior,
         None,
         None,

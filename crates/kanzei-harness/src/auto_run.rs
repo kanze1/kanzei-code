@@ -114,10 +114,6 @@ pub enum AutoRunAction {
     Continue,
     /// 无动作第一次:追加一条具体推进指令(计数已 +1,占一轮)。
     Nudge,
-    /// R-144:已关闭 N 条,插入一轮只读验收核查(计数已 +1,占一轮;核查
-    /// 复用 SubagentBase read/glob/grep,核对验收证据与真实调用方,发现问题
-    /// 生成候选缺陷或退回依据,不进入主 conversation/queue)。
-    VerifyRound,
     /// 停止(保留累计轮次;携带原因供 UI 展示)。
     Stop(AutoStopReason),
     /// 用户拒绝/手动停止本轮:不续跑、不重置计数(等手动输入重新武装)。
@@ -203,24 +199,6 @@ pub fn nudge_prompt(facts: &NudgeFacts) -> String {
     out
 }
 
-/// R-144:验收核查轮指令。自主推进每关闭 N 条后,引擎生成这条核查指令作为下一轮
-/// 输入——主代理用只读 task 子代理(read/glob/grep,SubagentBase)核对最近关闭
-/// 条目的验收证据与真实调用方,发现「宣称完成但无证据/无调用方」即生成候选缺陷
-/// (defect add)或退回依据。核查不进入主 conversation/queue:它是一条独立输入,
-/// 结果以 notice/候选缺陷形式可见,不污染主对话历史。与 nudge_prompt 同哲学:
-/// 模板在引擎,前端不持文案。
-pub fn verify_prompt() -> String {
-    "验收核查轮:自主推进已连续关闭 N 条,现在插入一轮只读验收核查(不进入主对话历史)。\n\
-     用 task 子代理(只读 read/glob/grep)核对最近关闭的若干条目:\n\
-     第一,逐条读其关闭证据(进展/验收字段),核对引用的测试 ID 是否真实存在于 tests 记录,\n\
-     file:line 是否真实存在;\n\
-     第二,核对「声称完成的能力」是否有真实调用方或消费者——死代码、只展示未接入的界面壳不算完成;\n\
-     第三,发现「宣称完成但证据不足/无调用方」的条目:用 defect add 生成候选缺陷(标注严重度与优先级,\n\
-     来源写 self-found 验收核查),或给出退回依据(进展里写明缺口)。\n\
-     核查完成后继续正常推进。"
-        .to_string()
-}
-
 /// 自主推进状态:跨轮计数与用户一次性意图。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AutoRunState {
@@ -234,9 +212,6 @@ pub struct AutoRunState {
     pub stop_after_round: bool,
     /// 连续无实质动作的轮数:第一次追加推进指令,第二次才停。
     no_action_rounds: u32,
-    /// R-144:自上次核查以来累计关闭的条目数。达阈值(verify_every_n)即触发
-    /// 一轮只读验收核查,触发后归零。
-    pub closed_since_verify: u32,
     /// D-403:连续瞬态失败的轮数。成功轮归零;达 MAX_FAILED_ROUNDS 即停。
     failed_rounds: u32,
     /// D-583:连续几轮「真实进展签名」未变。签名由调用方按 (HEAD、代码 worktree
@@ -273,7 +248,7 @@ impl AutoRunState {
             paused: false,
             stop_after_round: false,
             no_action_rounds: 0,
-            closed_since_verify: 0,
+
             failed_rounds: 0,
             zero_output_rounds: 0,
             last_progress_signature: None,
@@ -285,7 +260,6 @@ impl AutoRunState {
     pub fn reset(&mut self) {
         self.rounds = 0;
         self.no_action_rounds = 0;
-        self.closed_since_verify = 0;
         self.failed_rounds = 0;
         self.zero_output_rounds = 0;
         self.last_progress_signature = None;
@@ -374,7 +348,7 @@ impl AutoRunState {
             _ => {}
         }
         // UI2-0926 #13:模型在等用户回答——停机权的另一种形态。放在所有任务判断
-        // (Nudge/ZeroOutput/GoalPending/VerifyRound)之前:问题挂着的时候再推一轮,
+        // (Nudge/ZeroOutput/GoalPending)之前:问题挂着的时候再推一轮,
         // 模型只能要么复述问题、要么替用户拍板,两样都是错的(「MD文件保存」现场:模型在要
         // 仓库路径,引擎先 Continue 再 Nudge)。两档一致;目标挂着也停,但不清除目标。
         if ctx.awaiting_user {
@@ -420,19 +394,6 @@ impl AutoRunState {
         self.no_action_rounds = 0;
         if let Some(stop) = self.note_progress_signature(ctx) {
             return stop;
-        }
-        // R-144:先累加本轮关闭数,达阈值(>0 且 >=N)则插入一轮只读验收核查
-        // (计数 +1 占一轮;核查由调用方执行,归零后再续跑)。
-        // R-322:核查轮同属任务判断,结伴档由用户当场验收,引擎不插队。
-        // 计数照常累加——中途切回自主档时节律不从零重来。
-        self.closed_since_verify += ctx.closed_this_round;
-        if policy.verify_rounds
-            && ctx.verify_every_n > 0
-            && self.closed_since_verify >= ctx.verify_every_n
-        {
-            self.closed_since_verify = 0;
-            self.rounds = self.rounds.saturating_add(1);
-            return AutoRunAction::VerifyRound;
         }
         self.rounds = self.rounds.saturating_add(1);
         AutoRunAction::Continue
@@ -535,19 +496,18 @@ impl HarnessIntensity {
     }
 
     /// 该强度下引擎的介入策略。**新增机制时在这里加字段,不要再长一个布尔开关**
-    /// ——phase_pipeline_enabled 已经是第二个独立开关,再加就是配置面爆炸。
     pub fn policy(self) -> IntensityPolicy {
         match self {
             HarnessIntensity::Paired => IntensityPolicy {
                 engine_nudge: false,
                 redundancy_hints: false,
-                verify_rounds: false,
+
                 backlog_stops_loop: false,
             },
             HarnessIntensity::Autonomous => IntensityPolicy {
                 engine_nudge: true,
                 redundancy_hints: true,
-                verify_rounds: true,
+
                 backlog_stops_loop: true,
             },
         }
@@ -563,9 +523,7 @@ pub struct IntensityPolicy {
     /// 冗余机械提醒(工具结果里就地追加 `[冗余提醒]`)。
     /// 结伴档关闭:用户在场,重复的 git status 他自己看得见。
     pub redundancy_hints: bool,
-    /// 每关闭 N 条插入的只读验收核查轮(R-144)。
-    /// 结伴档关闭:验收由用户当场做。
-    pub verify_rounds: bool,
+
     /// backlog 空/全阻塞时是否停止本 loop。
     ///
     /// **只对自主档成立**:那一档的活**来自 tracker 队列**,队列空就是真的没活了。
@@ -606,8 +564,7 @@ pub struct AutoRunCtx<'a> {
     pub auto_allowed: bool,
     /// R-144:本轮实际关闭的条目数(req/defect close 成功计数)。
     pub closed_this_round: u32,
-    /// R-144:验收核查阈值——每关闭 N 条插入一轮只读核查;0 = 关闭该机制。
-    pub verify_every_n: u32,
+
     /// D-403:本轮运行失败及其性质;None = 本轮正常完成。失败轮由调用方分类后
     /// 送进判定(瞬态=退避重试,致命=立即停),不再在轮末判定之前提前返回。
     pub round_failure: Option<RoundFailure>,
@@ -648,7 +605,7 @@ mod tests {
             tools,
             auto_allowed: true,
             closed_this_round: 0,
-            verify_every_n: 0,
+
             round_failure: None,
             // 空串 = 不追踪(见 decide() 里的哨兵说明),现有测试默认不关心 D-583;
             // 需要模拟「签名不变/改变」的测试自行覆盖为具体值。
@@ -889,65 +846,6 @@ mod tests {
         assert_eq!(state.rounds, 3, "轮次仍应持续计数而不是被旧上限归零");
     }
 
-    /// R-144 B1:每关闭 N 条触发一轮只读核查(VerifyRound),触发后计数归零;
-    /// verify_every_n=0 关闭机制;未达阈值正常续跑。
-    #[test]
-    fn 每关闭n条触发核查轮_阈值0关闭机制() {
-        // 阈值 3:两轮各关 1 + 2 条 → 第 2 轮末触发 VerifyRound。
-        let mut state = AutoRunState::new(10);
-        let ok = AutoRunCtx {
-            steps: 2,
-            tools: &mk_tools(&["req", "edit"]),
-            closed_this_round: 1,
-            verify_every_n: 3,
-            round_failure: None,
-            ..ctx_with_tools(&[])
-        };
-        assert_eq!(state.decide(&ok), AutoRunAction::Continue);
-        assert_eq!(state.closed_since_verify, 1, "未达阈值只累计");
-        let ok2 = AutoRunCtx {
-            steps: 2,
-            tools: &mk_tools(&["req", "edit"]),
-            closed_this_round: 2,
-            verify_every_n: 3,
-            round_failure: None,
-            ..ctx_with_tools(&[])
-        };
-        assert_eq!(
-            state.decide(&ok2),
-            AutoRunAction::VerifyRound,
-            "累计达 3 必须触发核查轮"
-        );
-        assert_eq!(state.closed_since_verify, 0, "触发后计数归零");
-        assert_eq!(state.rounds, 2, "核查轮占一轮计数");
-
-        // 阈值 0 = 关闭机制:关闭再多也直接续跑。
-        let mut off = AutoRunState::new(10);
-        let close_many = AutoRunCtx {
-            steps: 2,
-            tools: &mk_tools(&["req", "edit"]),
-            closed_this_round: 99,
-            verify_every_n: 0,
-            round_failure: None,
-            ..ctx_with_tools(&[])
-        };
-        assert_eq!(off.decide(&close_many), AutoRunAction::Continue);
-        assert_eq!(off.closed_since_verify, 99, "机制关闭时累计无意义但不阻断");
-
-        // 单轮关闭超过阈值:当场触发。
-        let mut burst = AutoRunState::new(10);
-        let burst_ctx = AutoRunCtx {
-            steps: 2,
-            tools: &mk_tools(&["req", "edit"]),
-            closed_this_round: 5,
-            verify_every_n: 3,
-            round_failure: None,
-            ..ctx_with_tools(&[])
-        };
-        assert_eq!(burst.decide(&burst_ctx), AutoRunAction::VerifyRound);
-        assert_eq!(burst.closed_since_verify, 0);
-    }
-
     #[test]
     fn 暂停时停止_恢复后继续() {
         let mut state = AutoRunState::new(10);
@@ -1044,7 +942,7 @@ mod tests {
             tools: &t,
             auto_allowed: true,
             closed_this_round: 0,
-            verify_every_n: 0,
+
             round_failure: None,
             progress_signature: "",
         };
@@ -1465,36 +1363,6 @@ mod tests {
         );
     }
 
-    /// 验收核查轮属任务判断:自主档插队,结伴档由用户当场验收所以不插。
-    /// 计数照常累加——中途切回自主档时节律不从零重来。
-    #[test]
-    fn 验收核查轮_仅自主档插入_计数两档都累加() {
-        let tools = mk_tools(&["edit", "bash"]);
-        let mk = |intensity| AutoRunCtx {
-            intensity,
-            steps: 5,
-            closed_this_round: 3,
-            verify_every_n: 3,
-            ..ctx_with_tools(&tools)
-        };
-
-        let mut auto = AutoRunState::new(10);
-        assert_eq!(
-            auto.decide(&mk(HarnessIntensity::Autonomous)),
-            AutoRunAction::VerifyRound
-        );
-
-        let mut paired = AutoRunState::new(10);
-        assert_eq!(
-            paired.decide(&mk(HarnessIntensity::Paired)),
-            AutoRunAction::Continue
-        );
-        assert_eq!(
-            paired.closed_since_verify, 3,
-            "结伴档不插核查轮,但关闭计数照常累加,切回自主档时节律接得上"
-        );
-    }
-
     /// 用户意图优先于模型声明:用户按了停/暂停,不需要征询模型意见。
     #[test]
     fn 用户意图仍然压过模型声明() {
@@ -1524,9 +1392,9 @@ mod tests {
         assert_eq!(HarnessIntensity::default(), HarnessIntensity::Autonomous);
         // 默认必须是自主档:强度未接线的调用方(CLI/测试桩)保持引入前行为。
         let auto = HarnessIntensity::Autonomous.policy();
-        assert!(auto.engine_nudge && auto.redundancy_hints && auto.verify_rounds);
+        assert!(auto.engine_nudge && auto.redundancy_hints);
         let paired = HarnessIntensity::Paired.policy();
-        assert!(!paired.engine_nudge && !paired.redundancy_hints && !paired.verify_rounds);
+        assert!(!paired.engine_nudge && !paired.redundancy_hints);
     }
 
     /// R-322 B2:backlog 是**自主档**的取活真源,不是结伴档的。

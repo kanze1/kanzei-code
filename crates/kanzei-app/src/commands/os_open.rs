@@ -982,8 +982,8 @@ mod tests {
             research_topic: Arc::new(Mutex::new(None)),
             reasoning: Arc::new(Mutex::new(None)),
             manual_models: Arc::new(Mutex::new(Vec::new())),
-            phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
-            subagents_enabled: Arc::new(AtomicBool::new(true)),
+
+            subagent_mode: Arc::new(std::sync::Mutex::new(kanzei_harness::SubagentMode::Auto)),
             tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
         };
         state

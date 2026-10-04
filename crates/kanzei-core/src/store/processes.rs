@@ -1,5 +1,5 @@
 //! processes 域(R-178 D3):线/进程注册与线级状态持久化。
-//! v11 表,存线/进程注册 + 模型 / profile / reasoning / 勘察复核开关 /
+//! v11 表,存线/进程注册 + 模型 / profile / reasoning / 子代理策略 /
 //! tracker 写入开关。默认进程(d|)同样落库,以恢复线级设置。
 
 use rusqlite::{params, OptionalExtension};
@@ -20,10 +20,23 @@ pub struct StoredProcess {
     /// 项目级手填模型候选(provider:model 列表)。R-178 批3 起由默认进程行承载,
     /// 前端下拉的「手填」候选从后端读,不再以 localStorage 为真源。
     pub manual_models: Vec<String>,
-    pub phase_pipeline: bool,
-    pub subagents_enabled: bool,
+    pub subagent_mode: kanzei_harness::SubagentMode,
     pub tracker_writes_enabled: bool,
     pub updated_at: i64,
+}
+
+fn read_mode(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+) -> rusqlite::Result<kanzei_harness::SubagentMode> {
+    let value: String = row.get(index)?;
+    kanzei_harness::SubagentMode::parse(&value).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Text,
+            format!("invalid subagent mode: {value}").into(),
+        )
+    })
 }
 
 fn process_id_forms(id: &str) -> [String; 3] {
@@ -48,16 +61,16 @@ fn normalize_process(mut record: StoredProcess) -> StoredProcess {
 
 impl SessionStore {
     /// 插入或覆盖一条线/进程注册。已退役的身份返回错误，不能由旧快照复活。
-    /// `phase_pipeline` 以 bool 投影成 INTEGER。
+    /// 三档子代理策略保存为稳定的字符串。
     pub fn upsert_process(&self, process: &StoredProcess) -> Result<(), StoreError> {
         let manual_models = serde_json::to_string(&process.manual_models)?;
         let forms = process_id_forms(&process.process_id);
         let affected = self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
-             WHERE NOT EXISTS (SELECT 1 FROM retired_processes WHERE process_id IN (?1, ?14, ?15))
+                  model, profile, reasoning, manual_models, subagent_mode, tracker_writes_enabled, updated_at, research_topic)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+             WHERE NOT EXISTS (SELECT 1 FROM retired_processes WHERE process_id IN (?1, ?13, ?14))
              ON CONFLICT(process_id) DO UPDATE SET
                  origin_project = excluded.origin_project,
                  project_dir = excluded.project_dir,
@@ -67,8 +80,7 @@ impl SessionStore {
                  research_topic = excluded.research_topic,
                  reasoning = excluded.reasoning,
                  manual_models = excluded.manual_models,
-                 phase_pipeline = excluded.phase_pipeline,
-                 subagents_enabled = excluded.subagents_enabled,
+                 subagent_mode = excluded.subagent_mode,
                  tracker_writes_enabled = excluded.tracker_writes_enabled,
                  updated_at = excluded.updated_at",
             params![
@@ -80,8 +92,7 @@ impl SessionStore {
                 process.profile,
                 process.reasoning,
                 manual_models,
-                process.phase_pipeline,
-                process.subagents_enabled,
+                process.subagent_mode.as_str(),
                 process.tracker_writes_enabled,
                 process.updated_at,
                 process.research_topic,
@@ -114,9 +125,9 @@ impl SessionStore {
         let affected = self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
-             WHERE NOT EXISTS (SELECT 1 FROM retired_processes WHERE process_id IN (?1, ?14, ?15))
+                  model, profile, reasoning, manual_models, subagent_mode, tracker_writes_enabled, updated_at, research_topic)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+             WHERE NOT EXISTS (SELECT 1 FROM retired_processes WHERE process_id IN (?1, ?13, ?14))
              ON CONFLICT(process_id) DO NOTHING",
             params![
                 process.process_id,
@@ -127,8 +138,7 @@ impl SessionStore {
                 process.profile,
                 process.reasoning,
                 manual_models,
-                process.phase_pipeline,
-                process.subagents_enabled,
+                process.subagent_mode.as_str(),
                 process.tracker_writes_enabled,
                 process.updated_at,
                 process.research_topic,
@@ -149,7 +159,7 @@ impl SessionStore {
         let forms = super::path_migration::path_forms(origin_project);
         let mut stmt = self.connection.prepare(
             "SELECT process_id, origin_project, project_dir, worktree_path,
-                    model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic
+                    model, profile, reasoning, manual_models, subagent_mode, tracker_writes_enabled, updated_at, research_topic
              FROM processes WHERE origin_project IN (?1, ?2, ?3)
                AND NOT EXISTS (SELECT 1 FROM retired_processes
                                WHERE retired_processes.process_id = processes.process_id)
@@ -163,14 +173,13 @@ impl SessionStore {
                 worktree_path: row.get(3)?,
                 model: row.get(4)?,
                 profile: row.get(5)?,
-                research_topic: row.get(12)?,
+                research_topic: row.get(11)?,
                 reasoning: row.get(6)?,
                 manual_models: serde_json::from_str(row.get::<_, String>(7)?.as_str())
                     .unwrap_or_default(),
-                phase_pipeline: row.get::<_, i64>(8)? != 0,
-                subagents_enabled: row.get::<_, i64>(9)? != 0,
-                tracker_writes_enabled: row.get::<_, i64>(10)? != 0,
-                updated_at: row.get(11)?,
+                subagent_mode: read_mode(row, 8)?,
+                tracker_writes_enabled: row.get::<_, i64>(9)? != 0,
+                updated_at: row.get(10)?,
             })
         })?;
         let mut out: Vec<StoredProcess> = Vec::new();
@@ -266,7 +275,7 @@ impl SessionStore {
             .connection
             .query_row(
                 "SELECT process_id, origin_project, project_dir, worktree_path,
-                        model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic
+                        model, profile, reasoning, manual_models, subagent_mode, tracker_writes_enabled, updated_at, research_topic
                  FROM processes WHERE process_id IN (?1, ?2, ?3)
                    AND NOT EXISTS (SELECT 1 FROM retired_processes
                                    WHERE process_id IN (?1, ?2, ?3))
@@ -280,14 +289,13 @@ impl SessionStore {
                         worktree_path: row.get(3)?,
                         model: row.get(4)?,
                         profile: row.get(5)?,
-                        research_topic: row.get(12)?,
+                        research_topic: row.get(11)?,
                         reasoning: row.get(6)?,
                         manual_models: serde_json::from_str(row.get::<_, String>(7)?.as_str())
                             .unwrap_or_default(),
-                        phase_pipeline: row.get::<_, i64>(8)? != 0,
-                        subagents_enabled: row.get::<_, i64>(9)? != 0,
-                        tracker_writes_enabled: row.get::<_, i64>(10)? != 0,
-                        updated_at: row.get(11)?,
+                        subagent_mode: read_mode(row, 8)?,
+                        tracker_writes_enabled: row.get::<_, i64>(9)? != 0,
+                        updated_at: row.get(10)?,
                     })
                 },
             )
@@ -312,8 +320,8 @@ mod tests {
             research_topic: None,
             reasoning: Some("high".into()),
             manual_models: vec!["deepseek:deepseek-chat".into()],
-            phase_pipeline: true,
-            subagents_enabled: true,
+
+            subagent_mode: kanzei_harness::SubagentMode::Auto,
             tracker_writes_enabled: true,
             updated_at: 42,
         }
@@ -607,7 +615,7 @@ mod tests {
         store.upsert_process(&sample()).unwrap();
         let mut updated = sample();
         updated.model = Some("anthropic:claude-sonnet-5".into());
-        updated.phase_pipeline = false;
+        updated.subagent_mode = kanzei_harness::SubagentMode::Off;
         updated.tracker_writes_enabled = false;
         store.upsert_process(&updated).unwrap();
         assert_eq!(store.list_processes("C:/project").unwrap(), vec![updated]);
@@ -661,33 +669,30 @@ mod tests {
         store.upsert_process(&sample()).unwrap();
         let loaded = store.get_process("p1|C:/project").unwrap().unwrap();
         assert_eq!(loaded.model.as_deref(), Some("deepseek:deepseek-v4-flash"));
-        assert!(loaded.phase_pipeline);
+        assert_eq!(loaded.subagent_mode, kanzei_harness::SubagentMode::Auto);
         assert!(loaded.tracker_writes_enabled);
     }
 
     #[test]
-    fn process_phase_pipeline_projection_preserves_bool() {
+    fn process_subagent_modes_roundtrip() {
         let store = testutil::store();
-        let mut off = sample();
-        off.phase_pipeline = false;
-        store.upsert_process(&off).unwrap();
-        assert!(
-            !store
-                .get_process("p1|C:/project")
-                .unwrap()
-                .unwrap()
-                .phase_pipeline
-        );
-        let mut on = sample();
-        on.phase_pipeline = true;
-        store.upsert_process(&on).unwrap();
-        assert!(
-            store
-                .get_process("p1|C:/project")
-                .unwrap()
-                .unwrap()
-                .phase_pipeline
-        );
+        for mode in [
+            kanzei_harness::SubagentMode::Off,
+            kanzei_harness::SubagentMode::Auto,
+            kanzei_harness::SubagentMode::Ultra,
+        ] {
+            let mut process = sample();
+            process.subagent_mode = mode;
+            store.upsert_process(&process).unwrap();
+            assert_eq!(
+                store
+                    .get_process(&process.process_id)
+                    .unwrap()
+                    .unwrap()
+                    .subagent_mode,
+                mode
+            );
+        }
     }
 
     #[test]

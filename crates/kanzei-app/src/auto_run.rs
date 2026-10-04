@@ -511,14 +511,6 @@ pub fn serialize_action(
     match action {
         AutoRunAction::Continue => json!({ "type": "Continue" }),
         AutoRunAction::Nudge => json!({ "type": "Nudge", "prompt": nudge_prompt(&nudge()) }),
-        // R-144:核查轮——前端收到后把核查指令作为下一轮输入发回(与 Nudge 同款
-        // 机制),主代理用只读 task 子代理(read/glob/grep)核对最近关闭条目的
-        // 验收证据与真实调用方;发现问题生成候选缺陷或退回依据。核查指令由引擎
-        // 生成(harness verify_prompt),前端不持模板——与 nudge_prompt 同一哲学。
-        AutoRunAction::VerifyRound => json!({
-            "type": "VerifyRound",
-            "prompt": kanzei_harness::auto_run::verify_prompt(),
-        }),
         AutoRunAction::NoContinue => json!({ "type": "NoContinue" }),
         // R-322 B3:目标未达成,复述**用户自己写的**条件再推一轮。
         // 与 Nudge 同款投递机制,但 prompt 由调用方从 controller.goal 填入——
@@ -830,7 +822,7 @@ mod tests {
             tools: &[],
             auto_allowed: true,
             closed_this_round: 0,
-            verify_every_n: 0,
+
             round_failure: Some(kanzei_harness::auto_run::RoundFailure::Transient),
             progress_signature: "",
         };
@@ -1062,20 +1054,6 @@ mod tests {
             "{prompt}"
         );
         std::fs::remove_dir_all(&dir).ok();
-    }
-
-    /// R-144:VerifyRound 序列化必须携带引擎生成的核查指令 prompt(前端据此发回
-    /// 核查轮输入),不能是空壳。
-    #[test]
-    fn verifyround序列化_携带核查指令prompt() {
-        let v = super::serialize_action(
-            kanzei_harness::auto_run::AutoRunAction::VerifyRound,
-            super::NudgeFacts::default,
-        );
-        assert_eq!(v["type"], "VerifyRound");
-        let prompt = v["prompt"].as_str().unwrap_or("");
-        assert!(prompt.contains("验收核查"), "{prompt}");
-        assert!(prompt.contains("只读"), "{prompt}");
     }
 
     /// R-322 B3:目标是**一次性意图**——空串即撤销,超长截断,前后空白不算内容。

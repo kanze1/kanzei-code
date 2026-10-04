@@ -216,7 +216,6 @@ pub(crate) async fn quick_req_with_coordinator(
             &tool_ctx,
             &prompt,
             None,
-            None,
             &[],
             None,
             None,
@@ -416,7 +415,6 @@ pub(crate) async fn idea_split_with_coordinator(
             &tool_ctx,
             &prompt,
             None,
-            None,
             &[],
             None,
             None,
@@ -579,7 +577,7 @@ mod tests {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpListener;
 
-        // 照 phase_pipeline_tests::serve_response:按 Content-Length 读完整请求再响应。
+        // 按 Content-Length 读完整请求再响应。
         // read_to_end 会等 EOF,而客户端在等响应——双向等待死锁(D-363 同类坑)。
         async fn serve_response(listener: &TcpListener, response: serde_json::Value) {
             let (mut socket, _) = listener.accept().await.unwrap();
@@ -848,7 +846,6 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
             &runner_config,
             &tool_ctx,
             &prompt,
-            None,
             None,
             &[],
             None,

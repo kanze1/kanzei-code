@@ -13,7 +13,7 @@
 use std::sync::{Arc, Mutex};
 
 use kanzei_harness::orchestration::{
-    ExecutionPolicy, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,
+    CoordinationObserver, ExecutionPolicy, OrchestrationEvent, ProjectExecutionCoordinator,
 };
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use serde_json::json;
@@ -78,7 +78,7 @@ struct Recorder {
     events: Mutex<Vec<(String, String)>>,
 }
 
-impl PhaseObserver for Recorder {
+impl CoordinationObserver for Recorder {
     fn observe(&self, event: &OrchestrationEvent) {
         let payload = event.payload();
         self.events.lock().unwrap().push((
@@ -173,7 +173,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
     let recorder = Arc::new(Recorder::default());
     let coordinator = Arc::new(
         kanzei_core::orchestration::MemoryCoordinator::with_observer(
-            recorder.clone() as Arc<dyn PhaseObserver>
+            recorder.clone() as Arc<dyn CoordinationObserver>
         ),
     );
 
@@ -261,7 +261,6 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         &runner_config,
         &ctx,
         "勘察这个项目",
-        None,
         None,
         &[],
         None,

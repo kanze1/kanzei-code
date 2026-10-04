@@ -148,11 +148,11 @@ await check('actual startNewConversation create receipt cannot undo newer settin
 await check('normal project new-chat selects an independent conversation using the model default', 'PASS', async () => {
   const h = await harness(); h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project'; await h.history.startNewConversation(); assert.equal(h.shellValues.activeProcessId, 'created-1'); assert.equal(h.document.body.dataset.view, 'chat'); const create = h.calls.find(call => call.command === 'process_create'); assert.equal(create.args.profile, before ? 'readonly' : 'dev'); return { selected: h.shellValues.activeProcessId, profile: create.args.profile };
 });
-await check('explicit readonly creation retains its profile and disables subagents', 'PASS', async () => {
+await check('explicit readonly creation retains its profile and allows Auto delegation', 'PASS', async () => {
   const h = await harness(); h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project';
   const item = await h.workspace.create_workspace_process(null, () => true, { discussion: true });
   const create = h.calls.find(call => call.command === 'process_create');
-  assert.equal(create.args.profile, 'readonly'); assert.equal(create.args.subagentsEnabled, false);
+  assert.equal(create.args.profile, 'readonly'); assert.equal(create.args.subagentMode, 'auto');
   assert.equal(item.profile, 'readonly'); assert.equal(h.shellValues.activeProcessId, item.id);
   return { selected: item.id, profile: item.profile };
 });

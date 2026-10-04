@@ -129,7 +129,7 @@ try {
   await page.evaluate(async () => { const prefs = await window.__TAURI__.core.invoke("projects_get"); await (await import("./09-sessions.js")).enterProject(prefs); });
   owner = (await invoke("process_list", { projectDir: project })).find(line => !["readonly", "research"].includes(line.profile));
   assert(owner, "Main executor exists");
-  await invoke("process_update", { processId: owner.id, subagentsEnabled: false, phasePipeline: false });
+  await invoke("process_update", { processId: owner.id, subagentMode: "off", });
   await invoke("auto_state_update", { sessionId: owner.session_id, enabled: false });
   await listenEvents();
   await page.locator("#prompt").fill(mainDraft);

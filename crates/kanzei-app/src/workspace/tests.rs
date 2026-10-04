@@ -324,9 +324,9 @@ fn startup_recovery_is_idempotent_and_does_not_override_live_settings() {
     let process = crate::ensure_default_process(&state, &root.0);
     crate::processes::registry::persist_process(&root.0, &process).unwrap();
     recover_project(&state, &root.0).unwrap();
-    process.subagents_enabled.store(false, Ordering::SeqCst);
+    *process.subagent_mode.lock().unwrap() = kanzei_harness::SubagentMode::Off;
     recover_project(&state, &root.0).unwrap();
-    assert!(!process.subagents_enabled.load(Ordering::SeqCst));
+    assert!(!(*process.subagent_mode.lock().unwrap()).enabled());
     assert_eq!(state.processes.lock().unwrap().len(), 1);
     assert!(state.runtimes.lock().unwrap().is_empty());
 }
@@ -447,8 +447,8 @@ fn lines_带命名事实并按数字序排() {
         research_topic: None,
         reasoning: None,
         manual_models: Vec::new(),
-        phase_pipeline: false,
-        subagents_enabled: true,
+
+        subagent_mode: kanzei_harness::SubagentMode::Auto,
         tracker_writes_enabled: false,
         updated_at: 1,
     };

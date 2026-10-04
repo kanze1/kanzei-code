@@ -1895,6 +1895,7 @@ const smokeResearchPlan = () => ({
   ],
 });
 const payloads = {
+  skills_list: [],
   softwire_questions: [],
   app_info: { version: "0.0.0-smoke", build: "smoke" },
   // D-404:关键 UI 偏好后端持久化通道。冒烟默认空 = 回退 localStorage 旧值,
@@ -7626,9 +7627,7 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
 }
 
 // ---------- 「子代理」只控制准入,固定勘察/复核不再默认插入 ----------
-// 原先这一节钉的是「闸门 = 进程级 phasePipeline 开关」与「鞭挞开 + 闸门关 → 顶栏提示」。开关与提示都撤了:
-// 模型按任务需要委派,开关与已在运行的子代理状态分别展示。
-// 后端 phase_pipeline 字段本轮保留,前端各处新建线路仍传 phasePipeline:false(下面建线用例继续钉这一点)。
+// 子代理协作独立于自动推进，界面不再包含固定流水线入口。
 {
   assert(!byId.has("process-phase-pipeline") && !byId.has("process-phase-pipeline-wrap"), "「勘察复核」开关应已从界面删除");
   assert(!byId.has("task-options") && !byId.has("task-options-menu") && !byId.has("collaboration-tools"), "任务设置菜单应已撤掉,不留空壳");
@@ -7637,8 +7636,8 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   assert(/id="auto-allow-wrap"[^>]*>\s*<input type="checkbox" id="auto-allow" role="switch"/.test(html), "「自动放行」应是上下文带里的直接开关");
   // 子代理准入提示不得再承诺固定勘察/复核。
   const subagentWrapHtml = html.match(/<label id="process-subagents-wrap"[^>]*>/)?.[0] ?? "";
-  assert(subagentWrapHtml.includes("允许模型按任务需要委派子代理") && subagentWrapHtml.includes("下一轮生效") && !subagentWrapHtml.includes("勘察"), `子代理提示与按需委派不符:${subagentWrapHtml}`);
-  assert(/id="process-subagents" role="switch" aria-label="子代理"/.test(html), "子代理开关的读屏名应为「子代理」");
+  assert(subagentWrapHtml.includes("模型决定如何拆分任务") && subagentWrapHtml.includes("下一轮生效") && !subagentWrapHtml.includes("勘察"), `子代理提示与自主委派不符:${subagentWrapHtml}`);
+  assert(/<select id="process-subagents"[^>]*aria-label="子代理"/.test(html), "子代理选择的读屏名应为「子代理」");
   // 旧的「勘察复核未开」补救文案不得回到鞭挞状态槽。
   byId.get("auto-continue").checked = true;
   await flush();
@@ -7656,13 +7655,13 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   const savedList = payloads.process_list;
   const savedUpdate = payloads.process_update;
   const lines = [
-    { id: "p|sub-switch-a", session_id: "sess-sub-switch-a", label: "开关 A", project_dir: PROJECT, origin_project: PROJECT, subagents_enabled: true, phase_pipeline: true, running: false },
-    { id: "p|sub-switch-b", session_id: "sess-sub-switch-b", label: "开关 B", project_dir: PROJECT, origin_project: PROJECT, subagents_enabled: true, running: false },
+    { id: "p|sub-switch-a", session_id: "sess-sub-switch-a", label: "开关 A", project_dir: PROJECT, origin_project: PROJECT, subagent_mode: "auto", running: false },
+    { id: "p|sub-switch-b", session_id: "sess-sub-switch-b", label: "开关 B", project_dir: PROJECT, origin_project: PROJECT, subagent_mode: "auto", running: false },
   ];
   payloads.process_list = lines;
   payloads.process_update = (args) => {
     const item = lines.find((line) => line.id === args.processId);
-    if (item && Object.hasOwn(args, "subagentsEnabled")) item.subagents_enabled = args.subagentsEnabled;
+    if (item && Object.hasOwn(args, "subagentMode")) item.subagent_mode = args.subagentMode;
     return null;
   };
   const show = (line) => {
@@ -7675,27 +7674,27 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   const status = byId.get("subagent-control-state");
   show(lines[0]);
   await flush();
-  assert(toggle.checked && !toggle.disabled && status.textContent === "未派遣", "线路 A 初始开关与空闲子代理状态不符");
+  assert(toggle.value === "auto" && !toggle.disabled && status.textContent === "未派遣", "线路 A 初始开关与空闲子代理状态不符");
   let release = null;
   invokeGates.set("process_update", new Promise((resolve) => { release = resolve; }));
-  toggle.checked = false;
+  toggle.value = "off";
   toggle.dispatchEvent({ type: "change" });
   await settle();
   sessions.renderProcesses(structuredClone(lines)); // 未落盘的旧轮询不能翻回开关。
-  assert(!toggle.checked && toggle.disabled, "写入等待期间轮询覆盖了关闭意图");
+  assert(toggle.value === "off" && toggle.disabled, "写入等待期间轮询覆盖了关闭意图");
   show(lines[1]);
-  assert(toggle.checked && !toggle.disabled, "A 线在途设置污染了 B 线");
+  assert(toggle.value === "auto" && !toggle.disabled, "A 线在途设置污染了 B 线");
   release();
   invokeGates.delete("process_update");
   await flush();
-  assert(!lines[0].subagents_enabled && lines[1].subagents_enabled && toggle.checked, "迟到成功回执修改了当前 B 线,或未保存 A 线");
+  assert(lines[0].subagent_mode === "off" && lines[1].subagent_mode === "auto" && toggle.value === "auto", "迟到成功回执修改了当前 B 线,或未保存 A 线");
 
   show(lines[0]);
   invokeGates.set("process_update", new Promise((resolve) => { release = resolve; }));
   invokeFailures.set("process_update", "子代理开关写入失败");
   expectedPersistentError = "子代理开关写入失败";
   const errorsBeforeFailure = expectedPersistentHits;
-  toggle.checked = true;
+  toggle.value = "ultra";
   toggle.dispatchEvent({ type: "change" });
   await settle();
   show(lines[1]);
@@ -7705,14 +7704,21 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   invokeFailures.delete("process_update");
   expectedPersistentError = null;
   assert(expectedPersistentHits === errorsBeforeFailure + 1, "保存失败必须明确通知,不能静默吞掉");
-  assert(toggle.checked && !toggle.disabled && !lines[0].subagents_enabled, "A 线失败回滚误翻转了 B 线");
+  assert(toggle.value === "auto" && !toggle.disabled && lines[0].subagent_mode === "off", "A 线失败回滚误翻转了 B 线");
   show(lines[0]);
-  assert(!toggle.checked && !toggle.disabled, "失败后 A 线没有恢复已保存的关闭态");
+  assert(toggle.value === "off" && !toggle.disabled, "失败后 A 线没有恢复已保存的关闭态");
 
+  toggle.value = "ultra";
+  toggle.dispatchEvent({ type: "change" });
+  await flush();
+  assert(lines[0].subagent_mode === "ultra" && toggle.value === "ultra", "Ultra 倾向没有保存和回显");
+  toggle.value = "off";
+  toggle.dispatchEvent({ type: "change" });
+  await flush();
   shell.sessionState(lines[0].session_id).running = true;
   shell.sessionState(lines[0].session_id).converged = false;
   agents.subagentStart({ sessionId: lines[0].session_id, id: "switch-live", input: { description: "开关运行态" } });
-  assert(caption.textContent === "下轮关闭" && status.textContent === "1 运行", "关闭下轮派遣时不能把当前子代理显示成已停止");
+  assert(caption.textContent === "下轮生效" && status.textContent === "1 运行", "关闭下轮派遣时不能把当前子代理显示成已停止");
   agents.subagentStart({ sessionId: lines[1].session_id, id: "switch-background", input: { description: "后台子代理" } });
   assert(status.textContent === "1 运行", "后台线路的子代理计数混进当前线");
   agents.subagentProgress({ sessionId: lines[0].session_id, id: "switch-live", trace: { phase: "cancelled" } });
@@ -7731,177 +7737,7 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   await flush();
 }
 
-// 子代理总开关:在途回执绑定点击时的线路;运行状态独立于下一轮设置。
-{
-  const shell = esmModuleCache.get("03-shell.js").namespace;
-  const sessions = esmModuleCache.get("09-sessions.js").namespace;
-  const agents = esmModuleCache.get("05-subagents.js").namespace;
-  const savedItems = shell.processItems;
-  const savedProcess = shell.activeProcessId;
-  const savedSession = shell.activeSessionId;
-  const savedList = payloads.process_list;
-  const savedUpdate = payloads.process_update;
-  const lines = [
-    { id: "p|sub-switch-a", session_id: "sess-sub-switch-a", label: "开关 A", project_dir: PROJECT, origin_project: PROJECT, subagents_enabled: true, phase_pipeline: true, running: false },
-    { id: "p|sub-switch-b", session_id: "sess-sub-switch-b", label: "开关 B", project_dir: PROJECT, origin_project: PROJECT, subagents_enabled: true, running: false },
-  ];
-  payloads.process_list = lines;
-  payloads.process_update = (args) => {
-    const item = lines.find((line) => line.id === args.processId);
-    if (item && Object.hasOwn(args, "subagentsEnabled")) item.subagents_enabled = args.subagentsEnabled;
-    return null;
-  };
-  const show = (line) => {
-    shell.setActiveProcessId(line.id);
-    shell.setActiveSessionId(line.session_id);
-    sessions.renderProcesses(structuredClone(lines));
-  };
-  const toggle = byId.get("process-subagents");
-  const caption = byId.get("process-subagents-value");
-  const status = byId.get("subagent-control-state");
-  show(lines[0]);
-  await flush();
-  assert(toggle.checked && !toggle.disabled && status.textContent === "未派遣", "线路 A 初始开关与空闲子代理状态不符");
-  let release = null;
-  invokeGates.set("process_update", new Promise((resolve) => { release = resolve; }));
-  toggle.checked = false;
-  toggle.dispatchEvent({ type: "change" });
-  await settle();
-  sessions.renderProcesses(structuredClone(lines)); // 未落盘的旧轮询不能翻回开关。
-  assert(!toggle.checked && toggle.disabled, "写入等待期间轮询覆盖了关闭意图");
-  show(lines[1]);
-  assert(toggle.checked && !toggle.disabled, "A 线在途设置污染了 B 线");
-  release();
-  invokeGates.delete("process_update");
-  await flush();
-  assert(!lines[0].subagents_enabled && lines[1].subagents_enabled && toggle.checked, "迟到成功回执修改了当前 B 线,或未保存 A 线");
 
-  show(lines[0]);
-  invokeGates.set("process_update", new Promise((resolve) => { release = resolve; }));
-  invokeFailures.set("process_update", "子代理开关写入失败");
-  expectedPersistentError = "子代理开关写入失败";
-  const errorsBeforeFailure = expectedPersistentHits;
-  toggle.checked = true;
-  toggle.dispatchEvent({ type: "change" });
-  await settle();
-  show(lines[1]);
-  release();
-  invokeGates.delete("process_update");
-  await flush();
-  invokeFailures.delete("process_update");
-  expectedPersistentError = null;
-  assert(expectedPersistentHits === errorsBeforeFailure + 1, "保存失败必须明确通知,不能静默吞掉");
-  assert(toggle.checked && !toggle.disabled && !lines[0].subagents_enabled, "A 线失败回滚误翻转了 B 线");
-  show(lines[0]);
-  assert(!toggle.checked && !toggle.disabled, "失败后 A 线没有恢复已保存的关闭态");
-
-  shell.sessionState(lines[0].session_id).running = true;
-  shell.sessionState(lines[0].session_id).converged = false;
-  agents.subagentStart({ sessionId: lines[0].session_id, id: "switch-live", input: { description: "开关运行态" } });
-  assert(caption.textContent === "下轮关闭" && status.textContent === "1 运行", "关闭下轮派遣时不能把当前子代理显示成已停止");
-  agents.subagentStart({ sessionId: lines[1].session_id, id: "switch-background", input: { description: "后台子代理" } });
-  assert(status.textContent === "1 运行", "后台线路的子代理计数混进当前线");
-  agents.subagentProgress({ sessionId: lines[0].session_id, id: "switch-live", trace: { phase: "cancelled" } });
-  assert(status.textContent === "1 停止中", "停止中的子代理没有同步到输入区");
-  agents.subagentEnd({ sessionId: lines[0].session_id, id: "switch-live", ok: true, content: "已完成" });
-  assert(status.textContent === "最近: 完成", "子代理结束后输入区仍显示运行中");
-  agents.subagentEnd({ sessionId: lines[1].session_id, id: "switch-background", ok: false, content: "失败" });
-  show(lines[1]);
-  assert(status.textContent === "最近: 失败" && status.dataset.state === "failed", "切换线路未显示该线子代理的失败状态");
-  for (const line of lines) agents.subagentResetSession(line.session_id);
-  payloads.process_list = savedList;
-  payloads.process_update = savedUpdate;
-  shell.setActiveProcessId(savedProcess);
-  shell.setActiveSessionId(savedSession);
-  sessions.renderProcesses(savedItems);
-  await flush();
-}
-
-// 子代理总开关:在途回执绑定点击时的线路;运行状态独立于下一轮设置。
-{
-  const shell = esmModuleCache.get("03-shell.js").namespace;
-  const sessions = esmModuleCache.get("09-sessions.js").namespace;
-  const agents = esmModuleCache.get("05-subagents.js").namespace;
-  const savedItems = shell.processItems;
-  const savedProcess = shell.activeProcessId;
-  const savedSession = shell.activeSessionId;
-  const savedList = payloads.process_list;
-  const savedUpdate = payloads.process_update;
-  const lines = [
-    { id: "p|sub-switch-a", session_id: "sess-sub-switch-a", label: "开关 A", project_dir: PROJECT, origin_project: PROJECT, subagents_enabled: true, phase_pipeline: true, running: false },
-    { id: "p|sub-switch-b", session_id: "sess-sub-switch-b", label: "开关 B", project_dir: PROJECT, origin_project: PROJECT, subagents_enabled: true, running: false },
-  ];
-  payloads.process_list = lines;
-  payloads.process_update = (args) => {
-    const item = lines.find((line) => line.id === args.processId);
-    if (item && Object.hasOwn(args, "subagentsEnabled")) item.subagents_enabled = args.subagentsEnabled;
-    return null;
-  };
-  const show = (line) => {
-    shell.setActiveProcessId(line.id);
-    shell.setActiveSessionId(line.session_id);
-    sessions.renderProcesses(structuredClone(lines));
-  };
-  const toggle = byId.get("process-subagents");
-  const caption = byId.get("process-subagents-value");
-  const status = byId.get("subagent-control-state");
-  show(lines[0]);
-  await flush();
-  assert(toggle.checked && !toggle.disabled && status.textContent === "未派遣", "线路 A 初始开关与空闲子代理状态不符");
-  let release = null;
-  invokeGates.set("process_update", new Promise((resolve) => { release = resolve; }));
-  toggle.checked = false;
-  toggle.dispatchEvent({ type: "change" });
-  await settle();
-  sessions.renderProcesses(structuredClone(lines)); // 未落盘的旧轮询不能翻回开关。
-  assert(!toggle.checked && toggle.disabled, "写入等待期间轮询覆盖了关闭意图");
-  show(lines[1]);
-  assert(toggle.checked && !toggle.disabled, "A 线在途设置污染了 B 线");
-  release();
-  invokeGates.delete("process_update");
-  await flush();
-  assert(!lines[0].subagents_enabled && lines[1].subagents_enabled && toggle.checked, "迟到成功回执修改了当前 B 线,或未保存 A 线");
-
-  show(lines[0]);
-  invokeGates.set("process_update", new Promise((resolve) => { release = resolve; }));
-  invokeFailures.set("process_update", "子代理开关写入失败");
-  expectedPersistentError = "子代理开关写入失败";
-  const errorsBeforeFailure = expectedPersistentHits;
-  toggle.checked = true;
-  toggle.dispatchEvent({ type: "change" });
-  await settle();
-  show(lines[1]);
-  release();
-  invokeGates.delete("process_update");
-  await flush();
-  invokeFailures.delete("process_update");
-  expectedPersistentError = null;
-  assert(expectedPersistentHits === errorsBeforeFailure + 1, "保存失败必须明确通知,不能静默吞掉");
-  assert(toggle.checked && !toggle.disabled && !lines[0].subagents_enabled, "A 线失败回滚误翻转了 B 线");
-  show(lines[0]);
-  assert(!toggle.checked && !toggle.disabled, "失败后 A 线没有恢复已保存的关闭态");
-
-  shell.sessionState(lines[0].session_id).running = true;
-  shell.sessionState(lines[0].session_id).converged = false;
-  agents.subagentStart({ sessionId: lines[0].session_id, id: "switch-live", input: { description: "开关运行态" } });
-  assert(caption.textContent === "下轮关闭" && status.textContent === "1 运行", "关闭下轮派遣时不能把当前子代理显示成已停止");
-  agents.subagentStart({ sessionId: lines[1].session_id, id: "switch-background", input: { description: "后台子代理" } });
-  assert(status.textContent === "1 运行", "后台线路的子代理计数混进当前线");
-  agents.subagentProgress({ sessionId: lines[0].session_id, id: "switch-live", trace: { phase: "cancelled" } });
-  assert(status.textContent === "1 停止中", "停止中的子代理没有同步到输入区");
-  agents.subagentEnd({ sessionId: lines[0].session_id, id: "switch-live", ok: true, content: "已完成" });
-  assert(status.textContent === "最近: 完成", "子代理结束后输入区仍显示运行中");
-  agents.subagentEnd({ sessionId: lines[1].session_id, id: "switch-background", ok: false, content: "失败" });
-  show(lines[1]);
-  assert(status.textContent === "最近: 失败" && status.dataset.state === "failed", "切换线路未显示该线子代理的失败状态");
-  for (const line of lines) agents.subagentResetSession(line.session_id);
-  payloads.process_list = savedList;
-  payloads.process_update = savedUpdate;
-  shell.setActiveProcessId(savedProcess);
-  shell.setActiveSessionId(savedSession);
-  sessions.renderProcesses(savedItems);
-  await flush();
-}
 
 
 // 收尾:恢复冒烟前置环境(语言/档位/开关/计数)。
@@ -9697,7 +9533,6 @@ const docsB = {
   assert(
     processCreateCalls.length === 1 && processCreateCalls[0].args?.projectDir === PROJECT &&
       /^line-\d+-\d+$/.test(processCreateCalls[0].args?.worktreeName ?? "") &&
-      processCreateCalls[0].args?.phasePipeline === false &&
       processCreateCalls[0].args?.trackerWrites === false &&
       processCreateCalls[0].args?.workItemId === "D-001",
     `新建线路没有原子发出唯一命名的 process_create(${JSON.stringify(addCalls)})`,
@@ -13998,7 +13833,9 @@ const docsB = {
     assert(ascending(rightAt), `输入区工具行右段应依次为 模型 · 更多 · 继续 · 排队 · 语音 · 停止 · 发送:${JSON.stringify(rightAt)}`);
     const band = flat.slice(flat.indexOf('id="composer-context"'), flat.indexOf('id="change-bar-files"'));
     const bar = flat.slice(flat.indexOf('id="composer-bar"'));
-    const bare = [...`${band}\n${bar}`.matchAll(/<(button|select|label)\b[^>]*>/g)]
+    const controls = `${band}\n${bar}`;
+    const bare = [...controls.matchAll(/<(button|select|label)\b[^>]*>/g)]
+      .filter((match) => match[1] !== "label" || controls.slice(match.index, controls.indexOf("</label>", match.index)).includes("<input"))
       .map(([tag]) => tag)
       .filter((tag) => !/\bclass="[^"]*\bkz-ctl(?:--round)?\b/.test(tag))
       .map((tag) => tag.match(/id="([\w-]+)"/)?.[1] ?? tag.slice(0, 40));

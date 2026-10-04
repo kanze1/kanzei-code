@@ -232,7 +232,7 @@ export function handleBackgroundSessionDone(payload) {
   state.auto_rounds = action.rounds ?? state.auto_rounds ?? 0;
   // UI2-0926 #13 复核:与活动线 kz:done 同一口径——本轮不是以「在等你回答」收口,等待标记就过期了。
   if (!(action.type === "Stop" && action.reason === "AwaitingUser") && takeAwaitingUser(sessionId)) refreshParallelTaskProjection(sessionId);
-  if (["Continue", "Nudge", "VerifyRound", "GoalPending"].includes(action.type)) {
+  if (["Continue", "Nudge", "GoalPending"].includes(action.type)) {
     transitionSession(sessionId, "auto_pending", { auto_rounds: state.auto_rounds });
     refreshParallelTaskProjection(sessionId);
     armAutoContinue(action.prompt || DEFAULT_CONTINUE_PROMPT, sessionId);

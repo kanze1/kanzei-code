@@ -12,7 +12,7 @@ use super::event::{AskFuture, AskReply, AskRequest, AskResponse, RunEvent, TaskT
 use super::{run_once, AskPolicy, RunnerConfig};
 
 /// R-174:运行中**可单条取消**的子代理注册表。id = 模型 task 调用 id 或编排角色名。
-/// `cancel` 命中后 token 即触发,drive/phase_pipeline 的 select 分支以「被停」终态收尾,
+/// `cancel` 命中后 token 即触发,drive 的 select 分支以「被停」终态收尾,
 /// 读槽由 run_subagent future drop 时 RAII 释放。None(测试/CLI 单运行)不支持中途单条停止。
 #[derive(Default)]
 pub struct TaskCancellations {
@@ -263,7 +263,7 @@ pub struct SubagentRuntime {
     /// 记录时的原内容;回滚按 owner 恢复这些文件,不误伤其它(验收④⑤)。
     /// None(只读子代理/CLI 无 UI)不采集。
     pub change_log: Option<Arc<SubagentChangeLog>>,
-    /// R-174:单条停止注册表(可选)。Some 时 drive/phase_pipeline 在子代理 future
+    /// R-174:单条停止注册表(可选)。Some 时 drive 在子代理 future
     /// 上挂取消 token,`stop_task` 命令按 id 命中即取消;None(测试/CLI 单运行)不挂。
     pub cancellations: Option<Arc<TaskCancellations>>,
     /// R-175:后台模式。false(默认)= 轮内一次性调用:drive.rs 派发后等齐全部
@@ -891,15 +891,7 @@ async fn run_subagent_inner(
         }
         // R-250:没传 schema 时,下面整段都不执行——行为与本条目之前逐字节一致。
         let Some(schema) = schema.as_ref() else {
-            // 「跑完了一个字没说」不是成功。原先这里无条件 ToolOutput::ok,于是
-            // 编排层把空结果记成 ScoutOutcome::Completed——简报上一个绿勾,与真
-            // 查清楚了的 scout 长得一样,勘察完成率成了假指标(实测 D-368 那轮)。
-            // 给一个稳定 code 让编排层能机器识别,而不是去匹配那句散文哨兵。
-            //
-            // 刻意不走「给勘察传 schema 让 R-250 校验重试」那条路:勘察跑在
-            // fast/本地路由那一档,给最弱的模型加强制 JSON 契约是逆向操作;而且
-            // 合法的「确实没发现问题」会因不合规被重试、最终记成 Failed——把
-            // 「没问题」记成失败,方向相反、同样是撒谎。
+            // Empty reports remain incomplete results; callers decide whether to continue.
             break if summary.text.trim().is_empty() {
                 kanzei_harness::ToolOutput::noop(
                     "subagent_empty_answer",

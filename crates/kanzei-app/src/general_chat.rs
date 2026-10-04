@@ -17,12 +17,8 @@ pub(crate) fn enforce(process: &crate::ProcessHandle) {
     let mut profile = process.profile.lock().unwrap();
     if profile.as_deref() != Some("dev") {
         *profile = Some("dev".into());
-        process.subagents_enabled.store(true, Ordering::SeqCst);
     }
     *process.research_topic.lock().unwrap() = None;
-    process
-        .phase_pipeline_enabled
-        .store(false, Ordering::SeqCst);
     process
         .tracker_writes_enabled
         .store(false, Ordering::SeqCst);
@@ -44,7 +40,6 @@ pub(crate) fn open(state: &crate::AppState) -> Result<String, String> {
     for process in handles {
         if process.profile.lock().unwrap().as_deref() != Some("dev")
             || process.research_topic.lock().unwrap().is_some()
-            || process.phase_pipeline_enabled.load(Ordering::SeqCst)
             || process.tracker_writes_enabled.load(Ordering::SeqCst)
         {
             enforce(&process);
@@ -129,14 +124,14 @@ pub(crate) async fn link_to_project(
     );
     let model = process.model.lock().unwrap().clone();
     let reasoning = process.reasoning.lock().unwrap().clone();
+    let subagent_mode = *process.subagent_mode.lock().unwrap();
     let created = crate::processes::lifecycle::create_process_with_tracker(
         state,
         &target.display().to_string(),
         model,
         Some("dev".into()),
         reasoning,
-        Some(false),
-        Some(process.subagents_enabled.load(Ordering::SeqCst)),
+        Some(subagent_mode),
         Some(false),
         None,
         None,
@@ -241,10 +236,10 @@ mod tests {
             assert!(is_general_root(&root));
             let p = crate::processes::registry::ensure_conversation(&state, &root).unwrap();
             assert_eq!(p.profile.lock().unwrap().as_deref(), Some("dev"));
-            assert!(p.subagents_enabled.load(Ordering::SeqCst));
-            p.subagents_enabled.store(false, Ordering::SeqCst);
+            assert!(p.subagent_mode.lock().unwrap().enabled());
+            *p.subagent_mode.lock().unwrap() = kanzei_harness::SubagentMode::Off;
             enforce(&p);
-            assert!(!p.subagents_enabled.load(Ordering::SeqCst));
+            assert!(!(*p.subagent_mode.lock().unwrap()).enabled());
             let workspace = kanzei_harness::general_conversation_workspace(&root, "chat-one");
             assert_ne!(
                 workspace,

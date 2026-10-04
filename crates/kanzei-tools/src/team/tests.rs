@@ -2191,6 +2191,107 @@ fn team(root: PathBuf, url: &str, owner: &str) -> AgentTeam {
     .unwrap()
 }
 
+#[tokio::test]
+async fn off_rejects_new_and_restart_without_stopping_existing_task() {
+    let team = answered_question_team(&fresh_id());
+    let (job, worker) = fixture_worker(&team);
+    team.set_policy(kanzei_harness::SubagentMode::Off, &Default::default());
+    assert!(team
+        .command(
+            "new-off",
+            json!({"action":"spawn","agent":"explore","prompt":"find a file"})
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("关闭"));
+    assert!(team
+        .command("restart-off", json!({"action":"restart","id":job.id}))
+        .await
+        .is_err());
+    assert!(!worker.is_cancelled());
+    assert_eq!(team.list().unwrap().len(), 1);
+    assert!(team
+        .command("", json!({"action":"get","id":job.id}))
+        .await
+        .is_ok());
+    team.command("", json!({"action":"stop","id":job.id}))
+        .await
+        .unwrap();
+    assert!(worker.is_cancelled());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn auto_and_ultra_enforce_configured_capacity_and_queue_extra_jobs() {
+    for (mode, limit) in [
+        (kanzei_harness::SubagentMode::Auto, 1),
+        (kanzei_harness::SubagentMode::Ultra, 3),
+    ] {
+        let root = project();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let team = team(root, &url, &fresh_id());
+        let limits = kanzei_harness::config::Limits {
+            subagent_auto_concurrency: Some(1),
+            subagent_ultra_concurrency: Some(3),
+            ..Default::default()
+        };
+        team.set_policy(mode, &limits);
+        let (sender, mut incoming) = tokio::sync::mpsc::channel(3);
+        let server = tokio::spawn(async move {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                request(&mut stream).await;
+                sender.send(stream).await.unwrap();
+            }
+        });
+        for i in 0..3 {
+            team.command(
+                &format!("capacity-{i}"),
+                json!({"action":"spawn","agent":"explore","prompt":"report one finding"}),
+            )
+            .await
+            .unwrap();
+        }
+        let mut streams = Vec::new();
+        for _ in 0..limit {
+            streams.push(
+                tokio::time::timeout(std::time::Duration::from_secs(10), incoming.recv())
+                    .await
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        if limit < 3 {
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_millis(40), incoming.recv())
+                    .await
+                    .is_err()
+            );
+        }
+        for stream in &mut streams {
+            respond(stream, json!({"content":"evidence"})).await;
+        }
+        for _ in limit..3 {
+            let mut stream =
+                tokio::time::timeout(std::time::Duration::from_secs(10), incoming.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            respond(&mut stream, json!({"content":"evidence"})).await;
+        }
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            team.command("", json!({"action":"wait"})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(team.list().unwrap().iter().all(|job| job.state == "done"));
+        server.await.unwrap();
+    }
+}
+
 #[test]
 fn snapshot_preserves_dirty_parent_index_and_conflicting_adoption_is_atomic() {
     let root = project();
@@ -2538,7 +2639,13 @@ async fn parallel_children_fork_context_and_steering_are_delivered_before_next_r
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn dependent_verifier_reads_actual_candidate_files() {
+async fn dependent_readers_read_actual_candidate_files() {
+    for role in ["verify", "plan"] {
+        dependent_reader_reads_actual_candidate_files(role).await;
+    }
+}
+
+async fn dependent_reader_reads_actual_candidate_files(role: &str) {
     let root = project();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/v1", listener.local_addr().unwrap());
@@ -2566,7 +2673,7 @@ async fn dependent_verifier_reads_actual_candidate_files() {
     .unwrap();
     team.command(
         "verifier",
-        json!({"agent":"verify","prompt":"Read candidate evidence","depends_on":["writer"]}),
+        json!({"agent":role,"prompt":"Read candidate evidence","depends_on":["writer"]}),
     )
     .await
     .unwrap();

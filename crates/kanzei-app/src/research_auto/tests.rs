@@ -24,7 +24,6 @@ fn context<'a>(tools: &'a [String], signature: &'a str) -> AutoRunCtx<'a> {
         awaiting_user: false,
         goal_active: false,
         closed_this_round: 50,
-        verify_every_n: 1,
         round_failure: None,
         progress_signature: signature,
     }

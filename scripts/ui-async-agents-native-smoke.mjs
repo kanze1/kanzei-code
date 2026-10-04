@@ -87,7 +87,7 @@ try {
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
   owner = (await invoke("process_list", { projectDir: project })).find(p => !["readonly", "research"].includes(p.profile));
   assert(owner);
-  await invoke("process_update", { processId: owner.id, subagentsEnabled: true, phasePipeline: false });
+  await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await prompt("MAIN_PARALLEL: dispatch two independent tasks");
   await until(() => held.has("alpha") && held.has("beta"), "Two simultaneous model requests");
   await idle();

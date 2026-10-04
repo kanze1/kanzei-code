@@ -54,17 +54,11 @@ pub(crate) struct RoundRequest {
 
 /// R-253 批7b:调用契约三分组之二——**运行档位**(`RunMode`)。
 /// 决定这一轮怎么跑:子代理准入、tracker 写开关、模型/档位覆盖、自主推进与放行。
-/// 生命周期:本轮级模式配置——装配期消费;轮末仍有残留用途(`phase_pipeline_enabled`
-/// 决定写租约释放路径),故 run_task 先拷贝 bool 再整体移入装配。
+/// 每轮读取的执行模式与协作倾向。
 pub(crate) struct RunMode {
     pub(crate) execution_batch: bool,
-    // 高级「勘察复核」(进程级开关):完整角色表,5 个勘察 + 3 个复核(受 max_tasks_per_turn
-    // 截断)。它不是子代理总闸——总闸是 `subagents_enabled`;何时装配流水线见
-    // `uses_phase_pipeline`。
-    pub(crate) phase_pipeline_enabled: bool,
-    // 进程级「子代理」总开关。关闭时本轮无 task 工具、无勘察复核、无子代理核查轮;
-    // 开启(默认)时模型按需派 task,不因执行批次或自主推进自动插入固定角色。
-    pub(crate) subagents_enabled: bool,
+    // 模型自主选择任务分解；引擎执行档位与并发上限。
+    pub(crate) subagent_mode: kanzei_harness::SubagentMode,
     pub(crate) block_tracker_writes: bool,
     // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
     pub(crate) profile: Option<String>,
@@ -78,6 +72,15 @@ pub(crate) struct RunMode {
 }
 
 impl RunMode {
+    pub(crate) fn ask_policy(&self) -> kanzei_core::AskPolicy {
+        if !self.autonomous {
+            kanzei_core::AskPolicy::Interactive
+        } else if self.auto_allow {
+            kanzei_core::AskPolicy::AutoAllow
+        } else {
+            kanzei_core::AskPolicy::NonInteractive
+        }
+    }
     /// Product mode is independent of whether this input was automatically submitted.
     /// A paired conversation with a goal must never acquire the project queue gates.
     pub(crate) fn uses_project_workflow(&self) -> bool {
@@ -88,27 +91,6 @@ impl RunMode {
                 .agent_name
                 .as_deref()
                 .is_none_or(|agent| agent == "dev")
-    }
-    /// 本轮是否装配阶段流水线(勘察 → 实现 → 复核)。这是流水线的唯一闸门判据:
-    ///
-    /// - 只读档位(讨论)与关闭子代理总开关:永远不装配;
-    /// - 高级「勘察复核」开着:完整角色表,每个任务都走(含手动对话与研究档);
-    /// - 未显式启用高级流水线时,执行批次、自主推进与手动对话都由模型按需调 `task`;
-    /// - 装配后的勘察/复核一律是必需委派:失败或空结果会阻止本轮继续。
-    pub(crate) fn uses_phase_pipeline(&self) -> bool {
-        self.profile.as_deref() != Some("readonly")
-            && self.subagents_enabled
-            && self.phase_pipeline_enabled
-    }
-
-    pub(crate) fn ask_policy(&self) -> kanzei_core::AskPolicy {
-        if !self.autonomous {
-            kanzei_core::AskPolicy::Interactive
-        } else if self.auto_allow {
-            kanzei_core::AskPolicy::AutoAllow
-        } else {
-            kanzei_core::AskPolicy::NonInteractive
-        }
     }
 }
 
@@ -142,7 +124,7 @@ pub(crate) struct RuntimeHandles {
 /// (装配 → 事件循环 → 轮末收尾),不再背负 300+ 行前置准备。
 /// R-253 批7:装配产物按生命周期三分——`RuntimeDeps`(本轮不变的依赖:配置解析的
 /// 产物)、`SessionContext`(会话事务:开库、准入、typed 写入器)、`RoundContext`
-/// (单轮身份与编排:run id/timing/trace/pipeline/写租约/执行身份)。
+/// (单轮身份与编排:run id/timing/trace/写租约/执行身份)。
 /// 严禁做成一个 28 字段的 `RunContext`——那只是把 parameter monolith 换成
 /// context monolith;对每一个参数组都要能说出它属于哪一层生命周期。
 pub(crate) struct RuntimeDeps {
@@ -179,7 +161,6 @@ pub(crate) struct RoundContext {
     pub(crate) run_started: std::time::Instant,
     pub(crate) run_epoch_ms: i64,
     pub(crate) orchestration_trace: Arc<crate::orchestration_trace::SessionEventObserver>,
-    pub(crate) pipeline: Option<crate::phase_pipeline::PhasePipeline>,
     pub(crate) _write_lease: Option<WriterLeaseTrace>,
     pub(crate) ctx: ToolCtx,
 }
@@ -267,17 +248,13 @@ pub(crate) async fn assemble_run(
     if project_workflow {
         append_dev_guidance(&mut agent.system, profile, work_priority, &config);
     }
+    if !mode.subagent_mode.enabled() {
+        agent.system.push('\n');
+        agent.system.push_str(mode.subagent_mode.guidance());
+    }
     if let Some(topic) = mode.research_topic.as_deref() {
         agent.system.push_str(&format!("\n\n当前研究课题: {topic}。本会话的研究工件位于 .kanzei/research/{topic}/。来源、发现、计划、实验和报告均使用该 topic；其他课题仅在用户明确要求比较时读取，不改变当前课题归属。"));
     }
-    // 启动快照仅供角色任务上下文；主代理的裁决由 WorkControlContext 每步刷新。
-    let control_state = project_workflow.then(|| {
-        kanzei_tools::resolve_work_decision(
-            &cwd,
-            &project_root,
-            crate::auto_run::work_priority_enum(work_priority),
-        )
-    });
     stage(
         "装配",
         format!(
@@ -349,10 +326,6 @@ pub(crate) async fn assemble_run(
     // 写自然互斥;读工具 shared_worktree 之间无冲突),阶段再加一层是重复且过严。
     // 现在留 RunnerConfig 的默认值(Default),要收紧就显式设策略。
 
-    let task_context = control_state
-        .as_ref()
-        .and_then(|state| state.as_ref().ok())
-        .and_then(crate::phase_pipeline::render_task_context);
     let session_id = request.session_id.clone();
     let mut deps = RuntimeDeps {
         project_root,
@@ -370,17 +343,8 @@ pub(crate) async fn assemble_run(
         runner_config,
         ask_source,
     };
-    let (session, round) = prepare_session(
-        stage,
-        request,
-        &mode,
-        handles,
-        &halt_token,
-        &mut deps,
-        ctx,
-        task_context,
-    )
-    .await?;
+    let (session, round) =
+        prepare_session(stage, request, &mode, handles, &halt_token, &mut deps, ctx).await?;
     let _ = window.emit(
         "kz:meta",
         with_session_id(
@@ -412,11 +376,8 @@ async fn prepare_session(
     halt_token: &kanzei_core::CancellationToken,
     deps: &mut RuntimeDeps,
     ctx: ToolCtx,
-    task_context: Option<String>,
 ) -> anyhow::Result<(SessionContext, RoundContext)> {
-    let config = Arc::clone(&deps.config);
     let profile = deps.profile;
-    let proxy = &deps.proxy;
     let agent = &mut deps.agent;
     let general = crate::general_chat::is_general_root(&ctx.project_root);
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
@@ -467,10 +428,6 @@ async fn prepare_session(
                 || (profile == kanzei_harness::ProfileKind::Dev && !mode.block_tracker_writes),
             "当前对话不能领取需求，请返回可写的开发主对话开始"
         );
-        let requested_task_context = work_item_id
-            .as_deref()
-            .map(|id| super::work_start::requested_task_context(&ctx.project_root, id))
-            .transpose()?;
         let prompt = promoted.prompt;
         let initial_parts = prompt_attachment_parts(request.attachments.unwrap_or_default())?;
         let mut typed_user_parts = initial_parts.clone();
@@ -505,9 +462,9 @@ async fn prepare_session(
                 agent.system.push_str(&contract);
             }
         }
-        // Capture once before scouts or any write/claim by this run. Later working
+        // Capture once before any write/claim by this run. Later working
         // tree observations are not evidence of what existed at this boundary.
-        let (run_id, baseline_context) = super::baseline::prepare(
+        let (run_id, _baseline_context) = super::baseline::prepare(
             if general { &ctx.project_root } else { &ctx.cwd },
             &mut store,
             &request.session_id,
@@ -583,64 +540,38 @@ async fn prepare_session(
             &state_path,
             &request.session_id,
         )?);
-        // 阶段流水线仅兼容显式启用的高级配置。子代理总开关只允许模型按需委派,
-        // 执行批次与自主推进不再隐式插入固定勘察/复核。
-        // 判据不成立 → 不构造编排对象,与引入前逐字节相同。闸门与构造都在
-        // phase_pipeline::start_if_enabled 里,那里可以脱离 Tauri Window 直接测
-        // (见 phase_pipeline_tests.rs 的两条闸门测试)。
-        //
-        // 自主推进只管「轮末要不要自动发下一条」,不决定要派哪些子代理。
-        let pipeline = crate::phase_pipeline::start_if_enabled(
-            mode.uses_phase_pipeline(),
-            &config,
-            proxy,
-            Arc::clone(&handles.coordinator) as Arc<dyn ProjectExecutionCoordinator>,
-            Arc::clone(&orchestration_trace)
-                as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
-            ctx.project_root.clone(),
-            // R-182 内容①:流水线路径的写租约同样按代码树仲裁。
-            ctx.cwd.clone(),
-            &run_id,
-            &request.process_id,
-            stage,
-        )
-        .await
-        // 把本轮冻结的裁决快照灌给勘察/复核角色。角色表的 brief 是写死的通用描述
-        // (「本次任务会写到哪里」),没有「本次任务」的指代物它就只能回答本仓库的
-        // 写入面——D-368 那轮 write_surface_scout 返回 store/processes.rs 即此。
-        .map(|pipeline| {
-            pipeline
-                .with_required_delegation(!mode.phase_pipeline_enabled)
-                .with_baseline_context(baseline_context.clone())
-                .with_task_context(requested_task_context.or(task_context))
-        });
-        // 写租约的取得时机是两条路的**唯一实质差异**,判定抽在 phase_pipeline 里
-        // 以便直接测(见 `acquire_plain_lease_if_needed` 的文档与它的定向测试)。
-        // 不带独立 worktree 的并行线与主线共用同一棵代码树,必须先等写入槽。
-        // 这一段等待发生在真正发出模型请求之前,不能把它投影成“等待模型响应”。
-        if pipeline.is_none() && profile != kanzei_harness::ProfileKind::Readonly {
-            stage(
-                "排队",
-                "等待当前代码树写入槽；同一工作树上的对话将按顺序执行…".into(),
-            );
-        }
-        let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
-            pipeline.is_some() || profile == kanzei_harness::ProfileKind::Readonly,
-            handles.coordinator.as_ref(),
-            orchestration_trace.as_ref(),
-            &ctx.project_root,
-            // R-182 内容①:仲裁范围 = 本轮代码树。线绑了 worktree 就在自己那棵树上
-            // 仲裁写权,两条线互不排队——这是「同一项目 N 条线能同时跑」的落点。
-            &ctx.cwd,
-            &run_id,
-            &request.process_id,
-            &request.session_id,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
+        let plain_lease = if profile == kanzei_harness::ProfileKind::Readonly {
+            None
+        } else {
+            use kanzei_harness::orchestration::{
+                CoordinationObserver, OrchestrationEvent, WriterLeaseRequest,
+            };
+            stage("排队", "等待当前代码树写入槽…".into());
+            orchestration_trace.observe(&OrchestrationEvent::WriterQueued {
+                project_root: ctx.project_root.clone(),
+                run_id: run_id.clone(),
+                process_id: request.process_id.to_string(),
+                reason: format!("session {} writer run", request.session_id),
+            });
+            let lease = handles
+                .coordinator
+                .acquire_writer_lease(WriterLeaseRequest {
+                    write_scope: ctx.cwd.clone(),
+                    run_id: run_id.clone(),
+                    process_id: request.process_id.to_string(),
+                    reason: format!("session {} writer run", request.session_id),
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
+            orchestration_trace.observe(&OrchestrationEvent::WriterAcquired {
+                project_root: ctx.project_root.clone(),
+                run_id: run_id.clone(),
+                process_id: request.process_id.to_string(),
+            });
+            Some(lease)
+        };
         // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径由
         // WriterLeaseTrace::drop 补写 Released,acquired/released 始终成对(D-303)。
-        // 流水线路径的租约由编排对象持有。
         let _write_lease = plain_lease.map(|lease| {
             WriterLeaseTrace::new(
                 lease,
@@ -651,7 +582,7 @@ async fn prepare_session(
             )
         });
         // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
-        // task 禁用(设计不变量 3/5)。
+        // 主根文档写入与代码树工具并发分别仲裁。
         //
         // R-141 拆开这两把键,服务的是 R-050 D1「运行时重定向主根」:worktree 线
         // 上线后,同一项目的 N 棵树以 cwd=worktree、project_root=主根 运行,于是——
@@ -692,7 +623,7 @@ async fn prepare_session(
                 run_started,
                 run_epoch_ms,
                 orchestration_trace,
-                pipeline,
+
                 _write_lease,
                 ctx,
             },
@@ -849,7 +780,7 @@ impl Drop for WriterLeaseTrace {
         }
         // 异常/abort/停止路径:租约已由 WriterLease Drop 回调释放,这里补写审计事件,
         // 让 acquired/released 在会话事件流里成对。落库失败只记日志,不阻断收尾。
-        use kanzei_harness::orchestration::PhaseObserver;
+        use kanzei_harness::orchestration::CoordinationObserver;
         self.observer.observe(
             &kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
                 project_root: self.project_root.clone(),
@@ -1142,8 +1073,8 @@ mod startup_tests {
             };
             let mode = RunMode {
                 execution_batch: false,
-                phase_pipeline_enabled: false,
-                subagents_enabled: false,
+
+                subagent_mode: kanzei_harness::SubagentMode::Off,
                 block_tracker_writes: false,
                 profile: Some(format!("{profile:?}").to_lowercase()),
                 research_topic: None,
@@ -1203,7 +1134,6 @@ mod startup_tests {
                 &self.halt,
                 &mut self.deps,
                 ctx,
-                None,
             )
             .await
         }
@@ -1271,7 +1201,6 @@ mod startup_tests {
                     &self.deps.runner_config,
                     &round.ctx,
                     &session.prompt,
-                    None,
                     None,
                     &session.prior,
                     Some(&session.initial_parts),
@@ -1690,8 +1619,8 @@ mod tests {
     fn 所有用户对话使用同一交互策略() {
         let mut mode = super::RunMode {
             execution_batch: false,
-            phase_pipeline_enabled: false,
-            subagents_enabled: true,
+
+            subagent_mode: kanzei_harness::SubagentMode::Auto,
             block_tracker_writes: false,
             profile: Some("dev".into()),
             research_topic: None,
@@ -1759,76 +1688,6 @@ mod tests {
             snapshot.evaluate("git", "status"),
             kanzei_harness::Effect::Allow
         );
-    }
-
-    #[test]
-    fn execution_batches_and_autonomous_runs_leave_delegation_to_the_model() {
-        let mut mode = super::RunMode {
-            execution_batch: false,
-            phase_pipeline_enabled: false,
-            subagents_enabled: true,
-            block_tracker_writes: false,
-            profile: Some("dev".into()),
-            research_topic: None,
-            agent_name: None,
-            model_override: None,
-            work_priority: None,
-            reasoning_override: None,
-            autonomous: false,
-            auto_allow: false,
-        };
-        assert!(
-            !mode.uses_phase_pipeline(),
-            "ordinary conversation is not an execution batch"
-        );
-        mode.execution_batch = true;
-        assert!(
-            !mode.uses_phase_pipeline(),
-            "batch execution must not force scout/review"
-        );
-        mode.subagents_enabled = false;
-        assert!(!mode.uses_phase_pipeline());
-        mode.subagents_enabled = true;
-        mode.execution_batch = false;
-        mode.autonomous = true;
-        assert!(
-            !mode.uses_phase_pipeline(),
-            "auto-run must not force scout/review"
-        );
-        mode.profile = Some("readonly".into());
-        assert!(!mode.uses_phase_pipeline());
-        mode.profile = Some("research".into());
-        assert!(!mode.uses_phase_pipeline(), "research has its own workflow");
-    }
-
-    /// UX-077:高级「勘察复核」不分批次与否都装配(含手动对话与研究档),
-    /// 但仍受只读档位与子代理总开关约束;执行批次本身不触发高级流水线。
-    #[test]
-    fn 高级勘察复核不依赖批次但受只读与子代理总闸约束() {
-        let mode = |profile: &str, advanced: bool, subagents: bool| super::RunMode {
-            execution_batch: false,
-            phase_pipeline_enabled: advanced,
-            subagents_enabled: subagents,
-            block_tracker_writes: false,
-            profile: Some(profile.into()),
-            research_topic: None,
-            agent_name: None,
-            model_override: None,
-            work_priority: None,
-            reasoning_override: None,
-            autonomous: false,
-            auto_allow: false,
-        };
-        assert!(mode("dev", true, true).uses_phase_pipeline());
-        assert!(mode("research", true, true).uses_phase_pipeline());
-        assert!(!mode("readonly", true, true).uses_phase_pipeline());
-        assert!(!mode("dev", true, false).uses_phase_pipeline());
-        assert!(!mode("dev", false, true).uses_phase_pipeline());
-        // 总闸关着时,执行批次与自主推进也不再多出子代理。
-        let mut batch = mode("dev", false, false);
-        batch.execution_batch = true;
-        batch.autonomous = true;
-        assert!(!batch.uses_phase_pipeline());
     }
 
     #[test]

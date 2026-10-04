@@ -83,8 +83,8 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
                 research_topic: Arc::new(Mutex::new(None)),
                 reasoning: Arc::new(Mutex::new(None)),
                 manual_models: Arc::new(Mutex::new(Vec::new())),
-                phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
-                subagents_enabled: Arc::new(AtomicBool::new(true)),
+
+                subagent_mode: Arc::new(std::sync::Mutex::new(kanzei_harness::SubagentMode::Auto)),
                 tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
             });
         handle.branch = restored_branch;
@@ -94,12 +94,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
         *handle.research_topic.lock_or_recover() = record.research_topic;
         *handle.reasoning.lock_or_recover() = record.reasoning;
         *handle.manual_models.lock_or_recover() = record.manual_models;
-        handle
-            .phase_pipeline_enabled
-            .store(record.phase_pipeline, Ordering::SeqCst);
-        handle
-            .subagents_enabled
-            .store(record.subagents_enabled, Ordering::SeqCst);
+        *handle.subagent_mode.lock_or_recover() = record.subagent_mode;
         handle
             .tracker_writes_enabled
             .store(record.tracker_writes_enabled, Ordering::SeqCst);
@@ -133,8 +128,8 @@ pub(crate) fn restore_legacy_conversation(
             research_topic: None,
             reasoning: None,
             manual_models: Vec::new(),
-            phase_pipeline: false,
-            subagents_enabled: true,
+
+            subagent_mode: kanzei_harness::SubagentMode::Auto,
             tracker_writes_enabled: false,
             updated_at: crate::run::now_ms(),
         })
@@ -169,8 +164,8 @@ pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<Proce
             profile: Some("dev".into()),
             research_topic: None,
             reasoning: None,
-            phase_pipeline: None,
-            subagents_enabled: None,
+
+            subagent_mode: None,
             tracker_writes: None,
         },
     )?;
@@ -244,8 +239,8 @@ pub(crate) fn persist_process(root: &Path, process: &ProcessHandle) -> Result<()
             research_topic: process.research_topic.lock_or_recover().clone(),
             reasoning: process.reasoning.lock_or_recover().clone(),
             manual_models: process.manual_models.lock_or_recover().clone(),
-            phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
-            subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
+
+            subagent_mode: process.subagent_mode(),
             tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
             updated_at: crate::run::now_ms(),
         })
@@ -323,8 +318,8 @@ pub(crate) struct ThreadSettings {
     pub(crate) profile: Option<String>,
     pub(crate) research_topic: Option<String>,
     pub(crate) reasoning: Option<String>,
-    pub(crate) phase_pipeline: Option<bool>,
-    pub(crate) subagents_enabled: Option<bool>,
+
+    pub(crate) subagent_mode: Option<kanzei_harness::SubagentMode>,
     pub(crate) tracker_writes: Option<bool>,
 }
 
@@ -352,8 +347,8 @@ pub(crate) fn register_process(
         profile,
         research_topic,
         reasoning,
-        phase_pipeline,
-        subagents_enabled,
+
+        subagent_mode,
         tracker_writes,
     } = settings;
     let mut processes = state.processes.lock_or_recover();
@@ -402,8 +397,8 @@ pub(crate) fn register_process(
             reasoning.filter(|value| !value.trim().is_empty()),
         )),
         manual_models: Arc::new(Mutex::new(Vec::new())),
-        phase_pipeline_enabled: Arc::new(AtomicBool::new(phase_pipeline.unwrap_or(false))),
-        subagents_enabled: Arc::new(AtomicBool::new(subagents_enabled.unwrap_or(true))),
+
+        subagent_mode: Arc::new(Mutex::new(subagent_mode.unwrap_or_default())),
         tracker_writes_enabled: Arc::new(AtomicBool::new(tracker_writes.unwrap_or(false))),
     };
 
@@ -422,8 +417,8 @@ pub(crate) fn register_process(
             research_topic: process.research_topic.lock_or_recover().clone(),
             reasoning: process.reasoning.lock_or_recover().clone(),
             manual_models: process.manual_models.lock_or_recover().clone(),
-            phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
-            subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
+
+            subagent_mode: process.subagent_mode(),
             tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
             updated_at: crate::run::now_ms(),
         })

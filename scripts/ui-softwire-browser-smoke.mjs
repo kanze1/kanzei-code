@@ -147,7 +147,7 @@ try {
   await page.getByRole("button",{name:"返回工作",exact:true}).click();
   const discussion = await page.evaluate(async () => {
     const t = window.__swTest, core = await import("/01-core.js"), sessions = await import("/09-sessions.js");
-    const discussion = await core.invoke("process_create", {projectDir:t.a.path,profile:"readonly",phasePipeline:false});
+    const discussion = await core.invoke("process_create", {projectDir:t.a.path,profile:"readonly"});
     t.a.lines.push(discussion);
     await sessions.refreshProcesses(); await sessions.switchProcess(discussion.id);
     return discussion;

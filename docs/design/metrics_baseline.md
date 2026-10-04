@@ -9,40 +9,42 @@ metrics_format_version: v1
 
 需求契约改造发布前再次检查：原基线回涨门禁通过；巨石数量保持 6，新增契约与校验独立成模块。2026-10-04 当前 Top30 如下，原始输出见 `output/requirements-metrics.txt`。
 
+R-384 发布前重新度量：旧基线回涨检查通过，巨石保持 6/6，单文件新增生产行不超过原允许量 100。固定阶段流水线已移除，下表更新为三档协作实现的当前快照。
+
 ## 当前Top30
 
 | # | 文件 | 总行 | 生产 | 测试 | 函数 | 最大fn | >7参 |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 1 | crates/kanzei-tools/src/team/mod.rs | 1612 | 1612 | 0 | 58 | 291 | 0 |
+| 1 | crates/kanzei-tools/src/team/mod.rs | 1649 | 1649 | 0 | 59 | 290 | 0 |
 | 2 | crates/kanzei-memory/src/memory/mod.rs | 3077 | 1550 | 1527 | 56 | 88 | 1 |
-| 3 | crates/kanzei-core/src/store/typed.rs | 3640 | 1505 | 2135 | 48 | 226 | 0 |
-| 4 | crates/kanzei-core/src/runner/drive.rs | 1973 | 1326 | 647 | 8 | 427 | 4 |
+| 3 | crates/kanzei-core/src/store/typed.rs | 3642 | 1505 | 2137 | 48 | 226 | 0 |
+| 4 | crates/kanzei-core/src/runner/drive.rs | 2000 | 1353 | 647 | 8 | 427 | 4 |
 | 5 | crates/kanzei-tools/src/work.rs | 2898 | 1309 | 1589 | 24 | 2114 | 1 |
 | 6 | crates/kanzei-tools/src/research_runner.rs | 1916 | 1299 | 617 | 32 | 625 | 2 |
 | 7 | crates/kanzei-tools/src/git.rs | 3129 | 1197 | 1932 | 28 | 129 | 0 |
 | 8 | crates/kanzei-core/src/store/session.rs | 1899 | 1195 | 704 | 42 | 107 | 0 |
-| 9 | crates/kanzei-app/src/commands/run.rs | 1475 | 1149 | 326 | 23 | 51 | 0 |
-| 10 | crates/kanzei-tools/src/tracker.rs | 5605 | 1119 | 4486 | 27 | 211 | 0 |
+| 9 | crates/kanzei-app/src/commands/run.rs | 1488 | 1161 | 327 | 23 | 51 | 0 |
+| 10 | crates/kanzei-tools/src/tracker.rs | 5627 | 1141 | 4486 | 29 | 213 | 0 |
 | 11 | crates/kanzei-app/src/run/events/mod.rs | 1648 | 1114 | 534 | 36 | 300 | 1 |
 | 12 | crates/kanzei-memory/src/memory/store.rs | 3744 | 1083 | 2661 | 28 | 134 | 4 |
 | 13 | crates/kanzei-tools/src/symbols.rs | 1732 | 1037 | 695 | 20 | 162 | 0 |
-| 14 | crates/kanzei-core/src/runner/subagent.rs | 1383 | 1000 | 383 | 22 | 458 | 0 |
-| 15 | crates/kanzei-tools/src/tracker/actions.rs | 984 | 984 | 0 | 10 | 522 | 0 |
-| 16 | crates/kanzei-app/src/processes/lifecycle.rs | 1503 | 983 | 520 | 25 | 138 | 2 |
+| 14 | crates/kanzei-tools/src/tracker/actions.rs | 1004 | 1004 | 0 | 10 | 542 | 0 |
+| 15 | crates/kanzei-core/src/runner/subagent.rs | 1375 | 992 | 383 | 22 | 450 | 0 |
+| 16 | crates/kanzei-app/src/settings.rs | 1976 | 983 | 993 | 29 | 117 | 0 |
 | 17 | crates/kanzei-core/src/research.rs | 1089 | 969 | 120 | 26 | 169 | 1 |
-| 18 | crates/kanzei-app/src/run/assembly.rs | 1850 | 965 | 885 | 17 | 326 | 2 |
+| 18 | crates/kanzei-app/src/processes/lifecycle.rs | 1457 | 950 | 507 | 25 | 132 | 2 |
 | 19 | crates/kanzei-tools/src/test_record.rs | 2284 | 947 | 1337 | 26 | 107 | 3 |
-| 20 | crates/kanzei-app/src/settings.rs | 1931 | 943 | 988 | 29 | 112 | 0 |
-| 21 | crates/kanzei-app/src/preview/pane.rs | 1003 | 936 | 67 | 45 | 60 | 0 |
-| 22 | crates/kanzei-app/src/docs.rs | 1021 | 920 | 101 | 26 | 288 | 2 |
+| 20 | crates/kanzei-app/src/preview/pane.rs | 1008 | 941 | 67 | 45 | 60 | 0 |
+| 21 | crates/kanzei-app/src/run/assembly.rs | 1745 | 925 | 820 | 17 | 300 | 2 |
+| 22 | crates/kanzei-app/src/docs.rs | 1084 | 921 | 163 | 26 | 288 | 2 |
 | 23 | crates/kanzei-tools/src/refgraph/memory_graph.rs | 911 | 911 | 0 | 20 | 603 | 1 |
 | 24 | crates/kanzei-llm/src/protocol/anthropic.rs | 1176 | 910 | 266 | 21 | 267 | 0 |
 | 25 | crates/kanzei-harness/src/permission.rs | 1380 | 907 | 473 | 43 | 149 | 0 |
 | 26 | crates/kanzei-app/src/mobile.rs | 2289 | 901 | 1388 | 27 | 218 | 2 |
 | 27 | crates/kanzei-tools/src/tracker/scheduling.rs | 1142 | 888 | 254 | 40 | 55 | 1 |
-| 28 | crates/kanzei-app/src/state.rs | 1043 | 887 | 156 | 35 | 75 | 0 |
-| 29 | crates/kanzei-tools/src/shell.rs | 848 | 848 | 0 | 35 | 786 | 1 |
-| 30 | crates/kanzei-app/src/run/persistence.rs | 2131 | 842 | 1289 | 15 | 263 | 2 |
+| 28 | crates/kanzei-app/src/state.rs | 1035 | 880 | 155 | 36 | 75 | 0 |
+| 29 | crates/kanzei-app/src/conversation.rs | 995 | 857 | 138 | 26 | 67 | 0 |
+| 30 | crates/kanzei-tools/src/shell.rs | 848 | 848 | 0 | 35 | 786 | 1 |
 
 ## 2026-10-03 对话模型统一复测
 

@@ -95,14 +95,14 @@ pub(crate) async fn conversation_action(
         let profile = process.profile.lock().unwrap().clone();
         let reasoning = process.reasoning.lock().unwrap().clone();
         let topic = process.research_topic.lock().unwrap().clone();
+        let subagent_mode = *process.subagent_mode.lock().unwrap();
         let new = crate::processes::lifecycle::create_process_with_tracker(
             &state,
             &project_dir,
             model,
             profile,
             reasoning,
-            Some(process.phase_pipeline_enabled.load(Ordering::SeqCst)),
-            Some(process.subagents_enabled.load(Ordering::SeqCst)),
+            Some(subagent_mode),
             Some(process.tracker_writes_enabled.load(Ordering::SeqCst)),
             None,
             None,

@@ -133,7 +133,6 @@ async fn close_process_先停止运行会话再回收已合并干净工作树并
         None,
         None,
         None,
-        Some(false),
         Some(unique("close-line")),
     )
     .await
@@ -240,7 +239,6 @@ async fn 建线后worktree_path是真实路径() {
     let info = create_process(
         &state,
         &root.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -463,7 +461,6 @@ async fn 同一worktree不得绑定第二条线() {
         None,
         None,
         None,
-        None,
         Some(name.clone()),
     )
     .await
@@ -473,7 +470,6 @@ async fn 同一worktree不得绑定第二条线() {
     let error = create_process(
         &state,
         &root.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -526,8 +522,8 @@ async fn 落库失败时worktree被回收_不留半绑定态() {
             research_topic: None,
             reasoning: None,
             manual_models: Vec::new(),
-            phase_pipeline: false,
-            subagents_enabled: true,
+
+            subagent_mode: kanzei_harness::SubagentMode::Auto,
             tracker_writes_enabled: false,
             updated_at: 1,
         })
@@ -540,7 +536,6 @@ async fn 落库失败时worktree被回收_不留半绑定态() {
     let error = create_process(
         &state,
         &root.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -738,7 +733,6 @@ async fn worktree_discard同时注销绑定进程() {
         None,
         None,
         None,
-        None,
         Some(name),
     )
     .await
@@ -782,7 +776,6 @@ async fn 注销线路后新线路不得复用旧session身份() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -790,7 +783,6 @@ async fn 注销线路后新线路不得复用旧session身份() {
     let second = create_process(
         &state,
         &canonical.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -811,7 +803,6 @@ async fn 运行中线路不能合并或放弃工作树() {
     let info = create_process(
         &state,
         &canonical.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -862,7 +853,6 @@ async fn restart_prunes_missing_worktree_process_registration() {
         None,
         None,
         None,
-        None,
         Some(name),
     )
     .await
@@ -909,7 +899,6 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
     let info = create_process(
         &state,
         &canonical.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -1023,7 +1012,6 @@ async fn 删树后线的会话历史仍可回放() {
         None,
         None,
         None,
-        None,
         Some(unique("history")),
     )
     .await
@@ -1080,22 +1068,13 @@ async fn 不带worktree_name时行为与今天一致() {
     let canonical = crate::normalized_project_root(&root);
     let state = AppState::default();
 
-    let first = create_process(
-        &state,
-        &root.display().to_string(),
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let first = create_process(&state, &root.display().to_string(), None, None, None, None)
+        .await
+        .unwrap();
     let second = create_process(
         &state,
         &root.display().to_string(),
         Some("deepseek:deepseek-v4-flash".into()),
-        None,
         None,
         None,
         None,
@@ -1109,10 +1088,6 @@ async fn 不带worktree_name时行为与今天一致() {
     assert_eq!(second.id, format!("p2|{}", canonical.display()));
     assert_eq!(first.project_dir, canonical.display().to_string());
     assert_eq!(second.model.as_deref(), Some("deepseek:deepseek-v4-flash"));
-    assert!(
-        !first.phase_pipeline,
-        "「勘察复核」缺省仍是关(与 process_tests.rs 的默认值测试同一条口径)"
-    );
     assert_eq!(
         worktree_registry(&canonical).matches("worktree ").count(),
         1,
@@ -1318,7 +1293,7 @@ async fn project_dir恒主根_三个构造点逐处成立() {
                 .match_indices("ProcessHandle {")
                 .filter(|(at, _)| {
                     let head = &source[..*at];
-                    !head.ends_with("struct ") && !head.ends_with("-> ")
+                    !head.ends_with("struct ") && !head.ends_with("-> ") && !head.ends_with("impl ")
                 })
                 .count()
         })
@@ -1345,7 +1320,6 @@ async fn project_dir恒主根_三个构造点逐处成立() {
     let info = create_process(
         &state,
         &root.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -1398,7 +1372,6 @@ async fn 线的session_id仍由主根算出() {
     let info = create_process(
         &state,
         &root.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -1478,7 +1451,7 @@ async fn 并发建同名树_赢家的树与分支必须完好无损() {
         let canonical = canonical.clone();
         racers.push(tokio::spawn(async move {
             if index % 2 == 0 {
-                create_process(&state, &project, None, None, None, None, Some(name))
+                create_process(&state, &project, None, None, None, Some(name))
                     .await
                     .map(|info| info.worktree_path.unwrap_or_default())
             } else {
@@ -1713,7 +1686,6 @@ async fn 建线不排源码写租约_只排工作树元数据闸() {
             None,
             None,
             None,
-            None,
             Some(name.clone()),
         ),
     )
@@ -1743,9 +1715,9 @@ async fn 建线不排源码写租约_只排工作树元数据闸() {
         let state = Arc::clone(&state);
         let project = root.display().to_string();
         let name = gated_name.clone();
-        tokio::spawn(async move {
-            create_process(&state, &project, None, None, None, None, Some(name)).await
-        })
+        tokio::spawn(
+            async move { create_process(&state, &project, None, None, None, Some(name)).await },
+        )
     };
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     assert!(!task.is_finished(), "工作树元数据闸被占用时,建线必须排队");
@@ -1795,8 +1767,8 @@ async fn 编号看库_不覆盖库里既有行的worktree_path() {
                 research_topic: None,
                 reasoning: None,
                 manual_models: Vec::new(),
-                phase_pipeline: true,
-                subagents_enabled: true,
+
+                subagent_mode: kanzei_harness::SubagentMode::Auto,
                 tracker_writes_enabled: false,
                 updated_at: 1,
             })
@@ -1808,17 +1780,9 @@ async fn 编号看库_不覆盖库里既有行的worktree_path() {
         state.processes.lock().unwrap().is_empty(),
         "前提:内存进程表是空的"
     );
-    let info = create_process(
-        &state,
-        &root.display().to_string(),
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let info = create_process(&state, &root.display().to_string(), None, None, None, None)
+        .await
+        .unwrap();
     assert_eq!(
         info.id,
         format!("p3|{project}"),
@@ -1834,7 +1798,7 @@ async fn 编号看库_不覆盖库里既有行的worktree_path() {
         Some(old_tree.as_str()),
         "库里旧线的 worktree_path 一个字节都不许被新线改写"
     );
-    assert!(p1.phase_pipeline, "旧线的其它字段同样不许被动");
+
     assert_eq!(p1.model.as_deref(), Some("deepseek:deepseek-v4-flash"));
 
     // Windows 上 state.db 的连接还开着就删不掉目录,夹具会残留。
@@ -1908,7 +1872,7 @@ async fn k2_cross_process_child() {
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
     let state = AppState::default();
-    let line = match create_process(&state, &root, None, None, None, None, Some(name)).await {
+    let line = match create_process(&state, &root, None, None, None, Some(name)).await {
         Ok(info) => format!("OK {}", info.worktree_path.unwrap_or_default()),
         Err(error) => format!("ERR {}", error.replace('\n', " ⏎ ")),
     };
@@ -2060,7 +2024,6 @@ async fn 查重必须查库_重启后同名建线点名占用的线() {
         None,
         None,
         None,
-        None,
         Some(name.clone()),
     )
     .await
@@ -2078,7 +2041,6 @@ async fn 查重必须查库_重启后同名建线点名占用的线() {
     let error = create_process(
         &state,
         &root.display().to_string(),
-        None,
         None,
         None,
         None,
@@ -2231,9 +2193,9 @@ async fn 建树期间进程表锁不被独占() {
         let state = Arc::clone(&state);
         let project = root.display().to_string();
         let name = name.clone();
-        tokio::spawn(async move {
-            create_process(&state, &project, None, None, None, None, Some(name)).await
-        })
+        tokio::spawn(
+            async move { create_process(&state, &project, None, None, None, Some(name)).await },
+        )
     };
 
     // 等 git 真的走进钩子(钩子在里面 sleep 3s),再在这个窗口里反复抢锁。

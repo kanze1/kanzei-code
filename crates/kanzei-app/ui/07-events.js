@@ -771,7 +771,7 @@ defer(() => {
     // NoContinue→不动作(用户拒绝/未开启)。前端不再做任何机械判定
     // (空转画像/全部阻塞/无动作 NUDGE 全部在后端,见 harness auto_run.rs)。
     const action = p.autoAction || { type: "NoContinue" };
-    if (action.handoff && ["Continue", "Nudge", "GoalPending", "VerifyRound"].includes(action.type)) {
+    if (action.handoff && ["Continue", "Nudge", "GoalPending"].includes(action.type)) {
       // UX-037:交付声明里的 handoff_target/criterion 是引擎内部字段(目标常是输入 id),通知里不打印;
       // 只在模型给了一句人话摘要(summary)时跟在后面。
       addMessage("notice", `${t("交付记录已登记，鞭挞继续")}${handoffSummaryTail(action.handoff)}`);
@@ -810,19 +810,6 @@ defer(() => {
       if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("目标推进")} ${autoRounds} · 2 ${t("秒后继续")}…`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // prompt 由后端从 controller.goal 填入;万一为空则回落默认续跑文案,不空发。
-      armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
-    } else if (action.type === "VerifyRound") {
-      // R-144:已关闭 N 条,插入一轮只读验收核查(SubagentBase read/glob/grep)。
-      // 核查不进入主 conversation/queue:核查指令(action.prompt,引擎生成)作为
-      // 下一轮输入发回,主代理用只读 task 子代理核对验收证据与真实调用方,
-      // 发现问题生成候选缺陷或退回依据;前端只显示状态并继续。
-      setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
-      addMessage("notice", t("已关闭 N 条,插入一轮只读验收核查(核对验收结果与真实调用方)"));
-      log(`${t("鞭挞")}:${t("验收核查轮")}`);
-      renderAutoStatus(`${t("验收核查轮")} ${autoRounds}`);
-      if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("验收核查轮")} ${autoRounds} · 2 ${t("秒后继续")}…`);
-      if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
     } else if (action.type === "Stop") {
       if (p.sessionId) transitionSession(p.sessionId, "idle");

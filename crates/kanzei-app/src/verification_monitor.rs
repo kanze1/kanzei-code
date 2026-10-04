@@ -302,7 +302,6 @@ mod tests {
                     Some("dev".into()),
                     None,
                     None,
-                    None,
                 )
                 .await
                 .unwrap(),

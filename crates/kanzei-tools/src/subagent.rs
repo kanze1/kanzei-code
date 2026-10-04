@@ -110,7 +110,7 @@ pub fn explore_agent() -> AgentDef {
 /// 的提示词。这正是分人格的意义——机械检索与架构判断需要的模型能力和
 /// 步数预算差一个量级,共用一套设定必然一头浪费一头不够。
 ///
-/// **不给它写权限**:任何 `task` 子代理都是只读侦察,那条边界见
+/// plan 始终只读；可写角色由桌面团队运行时另行装配，边界见
 /// `SubagentRuntime::roster` 的说明。
 pub fn plan_agent() -> AgentDef {
     AgentDef {

@@ -46,7 +46,6 @@ mod mobile_notify;
 /// UI-0926 #3:模型配置的展示真源(model_effective)与项目级模型覆盖的逐键编辑。
 mod model_config;
 mod orchestration_trace;
-mod phase_pipeline;
 mod prefs;
 /// UI2-0926 #8:网页预览面板(子 webview + 进程内 CDP)与 browser 工具的面板后端。
 mod preview;
@@ -116,9 +115,6 @@ mod process_tests;
 
 #[cfg(test)]
 mod update_tests_update;
-
-#[cfg(test)]
-mod phase_pipeline_tests;
 
 fn main() {
     if let Some(code) =

@@ -157,7 +157,7 @@ export function view_allowed(view) {
 }
 
 export function remember_workspace_view(view) {
-  if (["workspace", "project", "settings"].includes(view) || !currentProject) return;
+  if (["workspace", "project", "settings", "skills"].includes(view) || !currentProject) return;
   const saved = project_workspace();
   save_workspace({ [active_space]: { ...saved[active_space], view } });
 }
@@ -222,8 +222,7 @@ export async function create_workspace_process(topic = null, is_current = () => 
     projectDir: project,
     profile: active_space === "research" ? "research" : isGeneralChat() ? "dev" : overrides.discussion ? "readonly" : "dev",
     researchTopic: active_space === "research" ? topic || undefined : undefined,
-    phasePipeline: false,
-    ...(isGeneralChat() ? { subagentsEnabled: true } : overrides.discussion ? { subagentsEnabled: false } : {}),
+    subagentMode: "auto",
     ...(overrides.model ? { model: overrides.model } : {}),
     ...(overrides.reasoning ? { reasoning: overrides.reasoning } : {}),
   });

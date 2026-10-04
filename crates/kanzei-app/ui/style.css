@@ -867,12 +867,12 @@ html:is([data-kz-activity="running"], [data-kz-activity="stopping"]) #continue-b
    推进中 / 等待下一轮 = 进行中家族(强调色,推进中呼吸)。绿只表示「一件工作成功收尾」,开关打开不是收尾。 */
 #auto-continue-wrap:has(> input:checked)::before { border: 0; background: currentColor; }
 .subagent-control { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
-#process-subagents-wrap { gap: 6px; flex: none; }
+#process-subagents-wrap { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 #auto-allow-wrap { gap: 6px; flex: none; }
-#process-subagents, #auto-allow { appearance: none; width: 22px; height: 13px; margin: 0; border: 1px solid var(--dim); border-radius: 8px; background: transparent; cursor: pointer; position: relative; }
-#process-subagents::after, #auto-allow::after { content: ""; position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
-#process-subagents:checked, #auto-allow:checked { border-color: currentColor; }
-#process-subagents:checked::after, #auto-allow:checked::after { left: 11px; background: currentColor; }
+#auto-allow { appearance: none; width: 22px; height: 13px; margin: 0; border: 1px solid var(--dim); border-radius: 8px; background: transparent; cursor: pointer; position: relative; }
+#auto-allow::after { content: ""; position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+#auto-allow:checked { border-color: currentColor; }
+#auto-allow:checked::after { left: 11px; background: currentColor; }
 #process-subagents:disabled { cursor: wait; opacity: .55; }
 .subagent-control-value, .subagent-control-state { color: var(--dim); font-size: var(--fs-11); }
 /* 开关开着时胶囊是 --surface-selected 底,--dim 在上面只有 3.8(暗色):值文字提到正文色(UX-125)。 */
@@ -931,10 +931,10 @@ html:is([data-kz-activity="running"], [data-kz-activity="stopping"]) #continue-b
 @container composer (min-width: 730px) {
   html:not([lang="en"]) #composer-bar { flex-wrap: nowrap; }
   /* UX-043:单行硬塞时模型名被压到只剩「code…」、「思考 高」被压成 3px 空白(2000×1043 / 1600×900 运行态实测,
-     模型 17/100、思考 3/39 px)。两手:① 控件左右内边距与组内间距收一档(--ctl-px 10→7、--ctl-gap 4→2,
+     模型 17/100、思考 3/39 px)。两手:① 控件左右内边距与组内间距收一档(--ctl-px 10→6、--ctl-gap 4→1,
      单行共省 ~70px);② 思考芯片整体不参与收缩,让模型名独自吃掉剩余的压缩量(实测模型名保住 ~59px:「codex:gp…」),
      完整名字始终在 title / aria-label / 状态栏里。 */
-  html:not([lang="en"]) #composer-bar { --ctl-px: 7px; --ctl-gap: 2px; }
+  html:not([lang="en"]) #composer-bar { --ctl-px: 6px; --ctl-gap: 1px; }
   html:not([lang="en"]) #composer-bar .kz-ctl { gap: 4px; }
   html:not([lang="en"]) #reasoning-picker { flex: none; }
 }
@@ -4325,3 +4325,5 @@ input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: default;
 .requirement-supplement > summary { cursor: pointer; color: var(--dim); }
 .requirement-supplement > .tf { margin-top: 12px; }
 .requirement-error { color: var(--danger); }
+
+#process-subagents { width: auto; min-width: 80px; height: var(--ctl-h); padding: 2px 5px; border-radius: 5px; font-size: var(--fs-11); }

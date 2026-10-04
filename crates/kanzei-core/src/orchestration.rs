@@ -3,7 +3,7 @@
 //! 桌面端 AppState 按规范化主根共享;CLI 用单运行实例。
 
 use kanzei_harness::orchestration::{
-    CoordinatorSnapshot, OrchestrationEvent, PhaseObserver, ProjectExecutionCoordinator,
+    CoordinationObserver, CoordinatorSnapshot, OrchestrationEvent, ProjectExecutionCoordinator,
     ReadPermit, ReadSlotRequest, WriterLease, WriterLeaseRequest,
 };
 use std::collections::{BTreeMap, VecDeque};
@@ -84,7 +84,7 @@ struct MemoryCoordinatorInner {
     projects: Mutex<BTreeMap<String, ProjectState>>,
     /// R-173:事件汇报口。None = 只记内存快照(CLI/测试);桌面端装配后
     /// 写租约的排队/取得/释放全部进 session_events(批5 接线点)。
-    observer: Option<Arc<dyn PhaseObserver>>,
+    observer: Option<Arc<dyn CoordinationObserver>>,
 }
 
 impl Default for MemoryCoordinator {
@@ -112,7 +112,7 @@ impl MemoryCoordinator {
     }
 
     /// R-173:带事件汇报口的协调器。观察者由调用方实现(桌面端写 session_events)。
-    pub fn with_observer(observer: Arc<dyn PhaseObserver>) -> Self {
+    pub fn with_observer(observer: Arc<dyn CoordinationObserver>) -> Self {
         MemoryCoordinator {
             inner: Arc::new(MemoryCoordinatorInner {
                 projects: Mutex::new(BTreeMap::new()),
@@ -715,7 +715,7 @@ mod tests {
         events: std::sync::Mutex<Vec<(String, serde_json::Value)>>,
     }
 
-    impl kanzei_harness::orchestration::PhaseObserver for Recorder {
+    impl kanzei_harness::orchestration::CoordinationObserver for Recorder {
         fn observe(&self, event: &OrchestrationEvent) {
             self.events
                 .lock()
@@ -743,7 +743,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kz-orch-handoff-{}", std::process::id()));
         let recorder = Arc::new(Recorder::default());
         let coord = MemoryCoordinator::with_observer(
-            recorder.clone() as Arc<dyn kanzei_harness::orchestration::PhaseObserver>
+            recorder.clone() as Arc<dyn kanzei_harness::orchestration::CoordinationObserver>
         );
         let lease_a = coord
             .acquire_writer_lease(req("run-a", &dir))
@@ -799,7 +799,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kz-orch-coexist-{}", std::process::id()));
         let recorder = Arc::new(Recorder::default());
         let coord = MemoryCoordinator::with_observer(
-            recorder.clone() as Arc<dyn kanzei_harness::orchestration::PhaseObserver>
+            recorder.clone() as Arc<dyn kanzei_harness::orchestration::CoordinationObserver>
         );
         let _writer = coord
             .acquire_writer_lease(req("run-w", &dir))

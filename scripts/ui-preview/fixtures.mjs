@@ -740,7 +740,7 @@ function previewMainFor(projectDir) {
   const id = `d|${leaf}`;
   return {
     id, origin_project: projectDir, project_dir: projectDir, worktree_path: null, branch: "main", session_id: `preview-session-${id}`,
-    model: null, profile: "dev", research_topic: null, reasoning: null, manual_models: [], phase_pipeline: false, subagents_enabled: true,
+    model: null, profile: "dev", research_topic: null, reasoning: null, manual_models: [], subagent_mode: "auto",
     tracker_writes: false, stage: "空闲", running: false, label: "主对话",
     title: null, title_custom: false, kind: "main", ordinal: null, updated_at: 1789000000000,
   };
@@ -765,7 +765,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       {
         id: IDS.mainProcess, origin_project: PROJECT, project_dir: PROJECT, worktree_path: null, branch: "release/2026-09-26-ui",
         session_id: IDS.mainSession, model: null, profile: "dev", research_topic: null, reasoning: null,
-        manual_models: [], phase_pipeline: false, subagents_enabled: true, tracker_writes: false,
+        manual_models: [], subagent_mode: "auto", tracker_writes: false,
         stage: running ? "实现" : "空闲", running, label: "主对话",
         // 命名事实(UX-009,形状对照 state.rs ProcessInfo):主对话不拿首条消息当名字,没人改名就叫「主对话」。
         title: null, title_custom: false, kind: "main", ordinal: null, updated_at: 1790000000000,
@@ -773,14 +773,14 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       {
         id: IDS.lineProcess, origin_project: PROJECT, project_dir: PROJECT, worktree_path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-r366-b2", branch: "kanzei/thread-r366-b2",
         session_id: IDS.lineSession, model: "codex:gpt-6-sol", profile: "dev", research_topic: null, reasoning: "high",
-        manual_models: [], phase_pipeline: true, subagents_enabled: true, tracker_writes: false,
+        manual_models: [], subagent_mode: "auto", tracker_writes: false,
         stage: "复核", running: true, label: "R-366 B2 回退事件",
         title: "R-366 B2 回退事件", title_custom: true, kind: "task", ordinal: 7, updated_at: 1789999400000,
       },
       {
         id: IDS.idleProcess, origin_project: PROJECT, project_dir: PROJECT, worktree_path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-d759", branch: "kanzei/thread-d759",
         session_id: IDS.idleSession, model: null, profile: "dev", research_topic: null, reasoning: null,
-        manual_models: [], phase_pipeline: false, subagents_enabled: true, tracker_writes: false,
+        manual_models: [], subagent_mode: "auto", tracker_writes: false,
         stage: "空闲", running: false, label: "D-759 手机提问卡片",
         // 自动标题:没人改名时取首条消息第一行的前 48 字,title_custom 为 false。
         title: "D-759 手机提问卡片", title_custom: false, kind: "task", ordinal: 8, updated_at: 1789990000000,
@@ -814,11 +814,13 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
   const processById = (id) => state.processes.find((item) => item.id === id);
   const projectOrder = () => state.projectOrder ?? [PROJECT, PROJECT_C, PROJECT_B];
   const limits = {
+    subagentAutoConcurrency: null, subagentUltraConcurrency: null, subagentGlobalConcurrency: null,
     maxTokens: null, subagentMaxTokens: null, subagentTimeoutSecs: null, contextBudgetRatio: null,
     recentVerbatimRatio: null, maxTasksPerTurn: null, maxParallelTools: null, transportRetries: null,
     rateLimitRetries: null, streamRestarts: null,
   };
   const limitDefaults = {
+    subagentAutoConcurrency: 2, subagentUltraConcurrency: 8, subagentGlobalConcurrency: 16,
     maxTokens: 32000, subagentMaxTokens: 16000, subagentTimeoutSecs: 900, contextBudgetRatio: 0.7,
     recentVerbatimRatio: 0.35, maxTasksPerTurn: 16, maxParallelTools: 8, transportRetries: 2,
     rateLimitRetries: 3, streamRestarts: 2,
@@ -836,7 +838,6 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       profileDefault: state.settings.profileDefault,
       reasoning: state.settings.reasoning,
       codexFastMode: state.settings.codexFastMode,
-      phaseRosterCapacity: 5,
       providers: [
         { name: "codex", protocol: "openai-responses", baseUrl: "https://chatgpt.com/backend-api/codex", apiKeyEnv: null, apiKey: null, keyPresent: null, auth: "codex", legacyClaudeSubscription: false, contextLimit: 400000, builtin: true, source: "builtin" },
         { name: "deepseek", protocol: "deepseek-responses", baseUrl: "https://api.deepseek.com", apiKeyEnv: "DEEPSEEK_API_KEY", apiKey: null, keyPresent: true, auth: null, legacyClaudeSubscription: false, contextLimit: 128000, builtin: false, source: "global" },
@@ -1045,8 +1046,8 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       const item = {
         id: `p|preview-${n}`, origin_project: args?.projectDir || PROJECT, project_dir: args?.projectDir || PROJECT,
         worktree_path: null, branch: null, session_id: `ses_preview_${n}`, model: null, profile: args?.profile || "dev",
-        research_topic: args?.researchTopic || null, reasoning: null, manual_models: [], phase_pipeline: Boolean(args?.phasePipeline),
-        subagents_enabled: true, tracker_writes: false, stage: "空闲", running: false,
+        research_topic: args?.researchTopic || null, reasoning: null, manual_models: [],
+        subagent_mode: "auto", tracker_writes: false, stage: "空闲", running: false,
         // 没有标题可用时的展示名 = 类型 + 序号(与 processes/naming.rs 同口径),界面不再出现 pN/「默认」。
         label: `${args?.profile === "readonly" ? "讨论" : "对话"} ${n}`,
         title: null, title_custom: false, kind: args?.profile === "readonly" ? "discussion" : "conversation", ordinal: n, updated_at: null,
@@ -1089,8 +1090,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
         if (Object.hasOwn(args, "model")) item.model = args.model || null;
         if (Object.hasOwn(args, "reasoning")) item.reasoning = args.reasoning || null;
         if (Object.hasOwn(args, "profile")) item.profile = args.profile;
-        if (Object.hasOwn(args, "phasePipeline")) item.phase_pipeline = args.phasePipeline;
-        if (Object.hasOwn(args, "subagentsEnabled")) item.subagents_enabled = args.subagentsEnabled;
+        if (Object.hasOwn(args, "subagentMode")) item.subagent_mode = args.subagentMode;
         if (Object.hasOwn(args, "trackerWrites")) item.tracker_writes = args.trackerWrites;
       }
       return null;

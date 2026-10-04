@@ -734,10 +734,7 @@ pub(crate) fn schedule_run(
                     RunMode {
                         execution_batch: !discussion && execution.execution_batch,
                         // 排队输入共用这个循环；每轮重读,运行中改开关在下一轮生效。
-                        phase_pipeline_enabled: !execution.callback
-                            && process.phase_pipeline_enabled.load(Ordering::SeqCst),
-                        subagents_enabled: !discussion
-                            && process.subagents_enabled.load(Ordering::SeqCst),
+                        subagent_mode: process.subagent_mode(),
                         block_tracker_writes,
                         profile: profile.clone(),
                         research_topic: research_topic.clone(),

@@ -92,7 +92,7 @@ try {
   await page.locator("#project-chat-work .sw-work-entry").first().waitFor({ state: "visible" });
   check((await page.locator("#project-chat-work").innerText()).includes("R-001"), "Registered requirements are visible beside the native conversation");
   await page.screenshot({ path: path.join(output, "conversation-dark.png") });
-  await invoke("process_update", { processId: owner.id, subagentsEnabled: true, phasePipeline: false });
+  await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await page.evaluate(async () => {
     window.__conversationEvents = [];
     for (const name of ["kz:tool-start", "kz:tool-end", "kz:error", "kz:done"]) await window.__TAURI__.event.listen(name, event => window.__conversationEvents.push({ name, payload: event.payload }));

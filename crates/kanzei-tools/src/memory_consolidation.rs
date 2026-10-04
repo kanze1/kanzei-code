@@ -436,7 +436,6 @@ async fn consolidate_inbox_inner(
                 ctx,
                 &prompt,
                 None,
-                None,
                 &[],
                 None,
                 None,

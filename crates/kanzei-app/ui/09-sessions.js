@@ -276,7 +276,6 @@ export async function createWorktreeLine(event) {
     const item = await invoke("process_create", {
       projectDir: forProject,
       worktreeName: name,
-      phasePipeline: false,
       trackerWrites: false,
       ...(workItemId ? { workItemId } : {}),
     });
@@ -639,10 +638,8 @@ export function renderProcesses(items) {
   renderParallelTaskStatus(processItems);
   // 侧栏会话树与历史弹层随进程列表更新(内容签名不变就不重建,见 12-session-tree.js)。
   renderSidebarSessions();
-  // 「勘察复核」开关已从界面删除(UX-039):后端 phase_pipeline 字段本轮保留,界面不再读写它。
   // 「改主项目需求记录」是工作树线的属性,开关在并行线路页对应线路卡上(20-lines.js)。
   renderSubagentControl();
-  // 鞭挞面板要跟着重算:自主推进开着而流水线关着时那里有一行提示。
   renderAutoStatus();
   if (previousProcessKey !== nextProcessKey && typeof refreshConversationLists === "function") {
     void refreshConversationLists();
@@ -781,12 +778,12 @@ export function renderSubagentControl() {
   const active = processItems.find((item) => item.id === activeProcessId);
   const toggle = $("process-subagents");
   const pending = subagentUpdates.has(activeProcessId);
-  const enabled = subagentUpdates.get(activeProcessId) ?? active?.subagents_enabled ?? true;
-  toggle.checked = Boolean(active) && enabled;
+  const mode = subagentUpdates.get(activeProcessId) ?? active?.subagent_mode ?? "auto";
+  toggle.value = mode;
   toggle.disabled = !active || pending;
   $("process-subagents-wrap").setAttribute("aria-busy", String(pending));
   $("process-subagents-value").textContent = !active ? t("未选对话") : pending ? t("保存中…")
-    : processRunning(active) ? t(enabled ? "下轮开启" : "下轮关闭") : t(enabled ? "启用" : "停用");
+    : processRunning(active) ? t("下轮生效") : t(mode === "off" ? "关闭" : mode === "ultra" ? "积极协作" : "按需");
   const runs = active ? subagentRunsFor(active.session_id) : [];
   const live = runs.filter((run) => SA_ACTIVE.has(run.state));
   const waiting = live.filter((run) => run.state === "waiting").length;
@@ -813,16 +810,16 @@ defer(() => {
   $("process-subagents").addEventListener("change", async (event) => {
     const processId = activeProcessId;
     const project = currentProject;
-    const enabled = event.target.checked;
+    const mode = event.target.value;
     if (!processId || subagentUpdates.has(processId)) return;
-    subagentUpdates.set(processId, enabled);
+    subagentUpdates.set(processId, mode);
     renderSubagentControl();
     try {
-      await queueProcessUpdate(processId, { subagentsEnabled: enabled });
+      await queueProcessUpdate(processId, { subagentMode: mode });
       // 写入前发出的列表可能迟到；先等它收敛,再以成功回执更新这条线。
       await processRefreshInFlight.get(project);
-      updateLocalProcessItem(processId, { subagents_enabled: enabled });
-      if (activeProcessId === processId) log(enabled ? t("子代理已开启:模型可按需委派任务") : t("子代理已关闭:本对话不再派出子代理"));
+      updateLocalProcessItem(processId, { subagent_mode: mode });
+      if (activeProcessId === processId) log(`${t("子代理")}: ${t(mode === "off" ? "关闭" : mode === "ultra" ? "积极协作" : "按需")}`);
     } catch (err) {
       toastError(`${t("更新对话设置失败")}:${err}`);
       // 失败后重读实际状态,兼容后端已更新内存但落盘失败的情况。

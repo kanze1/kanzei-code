@@ -20,9 +20,15 @@ pub struct Limits {
     /// 单个子代理的墙钟上限(秒)
     #[serde(default)]
     pub subagent_timeout_secs: Option<u64>,
-    /// R-173 汇总/复核屏障的墙钟上界(秒)。None = 由 subagent_timeout_secs 推导
+    /// 按需模式下每个对话的子代理并发数。
     #[serde(default)]
-    pub barrier_timeout_secs: Option<u64>,
+    pub subagent_auto_concurrency: Option<usize>,
+    /// Ultra 模式下每个对话的子代理并发数。
+    #[serde(default)]
+    pub subagent_ultra_concurrency: Option<usize>,
+    /// 当前进程所有对话共用的子代理并发上限。
+    #[serde(default)]
+    pub subagent_global_concurrency: Option<usize>,
     /// 轮内主动压缩的触发线:占上下文窗口的比例
     #[serde(default)]
     pub context_budget_ratio: Option<f64>,
@@ -68,18 +74,14 @@ impl Limits {
     pub fn subagent_timeout_secs(&self) -> u64 {
         self.subagent_timeout_secs.unwrap_or(900)
     }
-    /// R-173 屏障上界:默认由 `subagent_timeout_secs` 推导(×2),不另拍一个数。
-    ///
-    /// **外层必须永远宽于内层**——每个勘察子代理已被 `subagent_timeout_secs`
-    /// 的墙钟包住(见 runner drive 的 task 派发),屏障只是"内层失效时"的兜底。
-    /// 把本值配成小于等于子代理上界,会让屏障在子代理**正常工作**时就把它判成
-    /// 超时,凭空制造假失败。所以显式配置也按下界夹紧(与本节 `max_parallel_tools`
-    /// 的 `.max(1)`、`context_budget_ratio` 的 `.clamp()` 同一口径)。
-    pub fn barrier_timeout_secs(&self) -> u64 {
-        let inner = self.subagent_timeout_secs();
-        self.barrier_timeout_secs
-            .unwrap_or(inner.saturating_mul(2))
-            .max(inner.saturating_add(1))
+    pub fn subagent_auto_concurrency(&self) -> usize {
+        self.subagent_auto_concurrency.unwrap_or(2).max(1)
+    }
+    pub fn subagent_ultra_concurrency(&self) -> usize {
+        self.subagent_ultra_concurrency.unwrap_or(8).max(1)
+    }
+    pub fn subagent_global_concurrency(&self) -> usize {
+        self.subagent_global_concurrency.unwrap_or(16).max(1)
     }
     pub fn context_budget_ratio(&self) -> f64 {
         self.context_budget_ratio.unwrap_or(0.7).clamp(0.1, 0.95)
@@ -97,9 +99,6 @@ impl Limits {
         self.prune_min_gain_tokens.unwrap_or(20_000)
     }
     pub fn max_tasks_per_turn(&self) -> usize {
-        // R-174:默认从 8 上调到 16——用户要「远不止 8」(2026-08-10 看过 Claude Code
-        // 的后台面板后定调)。编排勘察角色表共 8 名(5 勘察 + 3 复核),16 容得下完整
-        // 角色表,又给模型自派 task 留出双倍并行余量。
         self.max_tasks_per_turn.unwrap_or(16).max(1)
     }
     pub fn max_parallel_tools(&self) -> usize {
@@ -121,7 +120,9 @@ pub(crate) const LIMITS_KEYS: &[&str] = &[
     "max_tokens",
     "subagent_max_tokens",
     "subagent_timeout_secs",
-    "barrier_timeout_secs",
+    "subagent_auto_concurrency",
+    "subagent_ultra_concurrency",
+    "subagent_global_concurrency",
     "context_budget_ratio",
     "recent_verbatim_ratio",
     "max_tasks_per_turn",

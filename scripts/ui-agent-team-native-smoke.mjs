@@ -88,7 +88,7 @@ try {
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
   owner = (await invoke("process_list", { projectDir: project })).find(p => !["readonly", "research"].includes(p.profile));
   assert(owner);
-  await invoke("process_update", { processId: owner.id, subagentsEnabled: true, phasePipeline: false });
+  await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await invoke("run_prompt", { projectDir: project, processId: owner.id, agent: "dev-pair", profile: "dev", model: "stub:primary-test", autonomous: false, autoAllow: false, prompt: "NATIVE_MAIN: delegate an isolated implementation then inspect and adopt it" });
   await until(() => releaseWriter && mainStep >= 2, "Background dispatch");
   check((await jobs()).find(j => j.id === "native-writer")?.state === "running", "Main task creates a real running writer");

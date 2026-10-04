@@ -52,7 +52,8 @@ use serde_json::Value;
 // v25:UI2-0926 #13——路径形态统一:processes / retired_processes / file_checkpoints /
 //     sessions 里存的 `\\?\` 前缀路径与进程 id 改成 kanzei_base::path_form::simplify 形态
 //     (纯数据迁移,建表批不变;主键冲突保留较新的一行)。
-const SCHEMA_VERSION: i64 = 25;
+// v26: three delegation modes replace the retired phase pipeline and boolean switch.
+const SCHEMA_VERSION: i64 = 26;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;

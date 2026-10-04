@@ -17,6 +17,7 @@ pub trait DelegationHost: Send + Sync {
 
 #[derive(Clone, Default)]
 pub struct SubagentOptions {
+    pub mode: kanzei_harness::SubagentMode,
     pub reasoning: ReasoningEffort,
     pub fast_context_limit: Option<u64>,
     pub primary_context_limit: Option<u64>,

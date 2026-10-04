@@ -118,7 +118,6 @@ pub(crate) fn decide(
     ctx.intensity = kanzei_harness::HarnessIntensity::Paired;
     ctx.goal_active = true;
     ctx.completion = None;
-    ctx.verify_every_n = 0;
     let action = crate::auto_run::decide_auto_run(ctrl, ctx);
     // 研究档是轻控制(Paired),不会 Nudge;事实给空即可。
     let mut payload = crate::auto_run::serialize_action(action, NudgeFacts::default);
