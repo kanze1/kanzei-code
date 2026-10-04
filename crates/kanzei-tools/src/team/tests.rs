@@ -2219,6 +2219,21 @@ async fn off_rejects_new_and_restart_without_stopping_existing_task() {
         .await
         .unwrap();
     assert!(worker.is_cancelled());
+    let team = answered_question_team(&fresh_id());
+    let job = team.resolve("question-child").unwrap();
+    team.set_policy(kanzei_harness::SubagentMode::Off, &Default::default());
+    assert!(team
+        .ui_command(json!({"action":"resume","id":job.id,"prompt":"continue"}))
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("关闭"));
+    team.set_policy(kanzei_harness::SubagentMode::Auto, &Default::default());
+    team.ui_command(json!({"action":"resume","id":job.id,"prompt":"continue"}))
+        .await
+        .unwrap();
+    assert!(team.0.active.lock().unwrap().contains_key(&job.id));
+    team.stop_all();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2268,17 +2283,19 @@ async fn auto_and_ultra_enforce_configured_capacity_and_queue_extra_jobs() {
                     .await
                     .is_err()
             );
+            // A reused team releases the remaining queued work when switched to Ultra.
+            team.set_policy(kanzei_harness::SubagentMode::Ultra, &limits);
+            for _ in limit..3 {
+                streams.push(
+                    tokio::time::timeout(std::time::Duration::from_secs(10), incoming.recv())
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                );
+            }
         }
         for stream in &mut streams {
             respond(stream, json!({"content":"evidence"})).await;
-        }
-        for _ in limit..3 {
-            let mut stream =
-                tokio::time::timeout(std::time::Duration::from_secs(10), incoming.recv())
-                    .await
-                    .unwrap()
-                    .unwrap();
-            respond(&mut stream, json!({"content":"evidence"})).await;
         }
         tokio::time::timeout(
             std::time::Duration::from_secs(10),

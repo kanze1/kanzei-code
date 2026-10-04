@@ -199,12 +199,11 @@ async fn execute_impl(
         None
     };
     let team = team.unwrap();
-    if !process.subagent_mode().enabled() && matches!(action, "resume" | "message") {
-        team.set_policy(
-            kanzei_harness::SubagentMode::Off,
-            &kanzei_harness::KanzeiConfig::load_at_root(&process.origin_project.0)?.limits,
-        );
-    }
+    // Reused teams must follow the current conversation setting in both directions.
+    team.set_policy(
+        process.subagent_mode(),
+        &kanzei_harness::KanzeiConfig::load_at_root(&process.origin_project.0)?.limits,
+    );
     let session = runtime_for(state, &owner);
     if let Some(reply) = &reply {
         check_reply_generation(&session, reply.generation)?;
