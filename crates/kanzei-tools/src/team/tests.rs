@@ -586,6 +586,16 @@ async fn finishing_callback_panic_reaps_real_process_before_last_owner_release()
         .kill_on_drop(true)
         .spawn()
         .unwrap();
+    // Keep the original Windows process object alive until all PID assertions finish.
+    // Otherwise parallel process launches can reuse its PID after Child::wait drops it.
+    #[cfg(windows)]
+    let _process_identity = {
+        // SAFETY: child owns this valid handle while it is borrowed and duplicated.
+        let handle = unsafe {
+            std::os::windows::io::BorrowedHandle::borrow_raw(child.raw_handle().unwrap())
+        };
+        handle.try_clone_to_owned().unwrap()
+    };
     let process = crate::background::register_with_mailbox(
         child,
         "D2 owned test fixture".into(),
