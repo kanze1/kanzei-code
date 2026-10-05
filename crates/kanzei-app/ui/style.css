@@ -1026,6 +1026,11 @@ html[data-backdrop="off"] .neural-flow-chat { display: none; }
 /* 「回到最新」在列底居中(旧版钉在窗口最右,宽屏下离正文很远)。浮在消息上必须用不透明底。 */
 #jump-latest { position: absolute; left: 50%; right: auto; translate: -50% 0; bottom: 12px; z-index: var(--z-raised); background: var(--surface-overlay); border-radius: var(--r-pill); box-shadow: var(--elev-2); }
 #messages .message-body { min-width: 0; }
+.chat-question { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: var(--surface-overlay); }
+.chat-question .sw-question { margin: 12px 0; font-size: var(--fs-16); overflow-wrap: anywhere; }
+.chat-question .sw-evidence-meta { display: none; }
+.chat-question-input { display: block; width: 100%; box-sizing: border-box; margin: 12px 0; padding: 8px 10px; resize: vertical; font: inherit; line-height: 1.5; border: 1px solid var(--border); border-radius: 6px; color: inherit; background: transparent; }
+.chat-question-send { display: block; margin-left: auto; }
 .msg { position: relative; }
 /* 复制:悬停(或键盘聚焦)时出现在块**下方**——助手消息靠左、用户消息靠右;不再漂在段落右上角
    (旧版贴在 92% 宽盒子的右缘,离正文末尾很远,还压住首行最后几个字)。notice 不挂复制。

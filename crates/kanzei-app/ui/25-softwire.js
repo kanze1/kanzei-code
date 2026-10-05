@@ -14,6 +14,8 @@ import { askActive, askQueues } from "./07-events.js";
 import { createComposer } from "./25-softwire-composer.js";
 import { createRunControl } from "./25-softwire-run.js";
 import { active_space, create_workspace_process } from "./03-workspaces.js";
+import { isGeneralChat, openGeneralChat } from "./03-general-scope.js";
+import { syncChatQuestions, openChatQuestion } from "./25-chat-questions.js";
 import { deliveryState, loadDeliveredFiles, onDeliveriesChanged } from "./06-deliveries.js";
 import { renderFileCard } from "./06-activity.js";
 import { compactionInProgress } from "./03-session-stage.js";
@@ -437,6 +439,7 @@ async function refreshQuestions() {
     if (notificationBaseline && incoming.some(q => !seenQuestions.has(q.sessionId + ":" + q.id))) toast(t("有新的待我处理事项"));
     for (const q of incoming) seenQuestions.add(q.sessionId + ":" + q.id);
     questions = incoming; notificationBaseline = true; setWorkbenchQuestions(incoming);
+    syncChatQuestions(incoming);
     syncInboxCounts();
     paint();
     void presentForegroundQuestion();
@@ -472,6 +475,7 @@ async function presentForegroundQuestion() {
   const view = document.body.dataset.view;
   if (!["chat", "project"].includes(view) || visible() && current?.interaction) return;
   const project = visible() ? current?.project : currentProject;
+  if (isGeneralChat(project)) return;
   // 讨论不参加开发概览的需求选择;它的提问仍属于原 native 会话。
   const nativeTarget = view === "chat" || sameProject(project, currentProject)
     && processItems.find(line => line.id === activeProcessId)?.profile === "readonly"
@@ -838,8 +842,27 @@ defer(() => {
   document.addEventListener("kz:work-question", event => {
     event.preventDefault(); void refreshQuestions();
   });
+  document.addEventListener("kz:refresh-work-questions", () => void refreshQuestions());
   document.addEventListener("kz:open-work-inbox", event => {
-    const project = workbenchProject() || lastWorkspaceSnapshot?.projects?.[0]?.path;
+    const nativeMessages = allMessages().filter(message => message.kind === "question" && isGeneralChat(message.project));
+    const native = (isGeneralChat(currentProject) || !allMessages().some(message => !isGeneralChat(message.project)))
+      && (nativeMessages.find(message => message.sessionId === activeSessionId) || nativeMessages[0]);
+    if (native) {
+      event.preventDefault();
+      void (async () => {
+        if (!isGeneralChat(currentProject) && !await openGeneralChat()) return;
+        navigate_view("chat");
+        const line = processItems.find(line => line.session_id === native.sessionId);
+        if (!line) return;
+        if (line.id !== activeProcessId) await switchProcess(line.id);
+        await refreshQuestions();
+        const latest = questions.find(question => question.id === native.id && question.sessionId === native.sessionId && sameProject(question.projectDir, native.project));
+        if (latest) openChatQuestion(latest);
+      })().catch(error => toastError(String(error)));
+      return;
+    }
+    const project = allMessages().find(message => !isGeneralChat(message.project))?.project
+      || (!isGeneralChat(workbenchProject()) && workbenchProject()) || lastWorkspaceSnapshot?.projects?.[0]?.path;
     if (!project) return;
     event.preventDefault();
     void openProjectSpace(project, "project").then(() => { if (current && sameProject(current.project, project)) selectTab("inbox"); });

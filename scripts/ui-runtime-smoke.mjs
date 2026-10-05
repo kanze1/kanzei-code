@@ -17434,6 +17434,7 @@ await import("./ui-feedback-polish-smoke.mjs");
 await import("./ui-conversation-redesign-smoke.mjs");
 await import("./ui-skills-smoke.mjs");
 await import("./ui-softwire-ownership-smoke.mjs");
+await import("./ui-chat-question-smoke.mjs");
 await import("./ui-softwire-choice-smoke.mjs");
 await import("./ui-reply-timer-browser-smoke.mjs");
 await import("./ui-project-conversations-smoke.mjs");
