@@ -37,7 +37,7 @@ async fn 服务探测对未监听端口干脆返回_false_不悬挂() {
 /// 构造临时 workspace(根 Cargo.toml + 三个 crate 及互依赖),断言边集合正确且去重。
 #[test]
 fn workspace图_从真实cargo_toml抽依赖边() {
-    use super::docs::build_workspace_graph;
+    use kanzei_harness::areas::workspace_crate_deps as build_workspace_graph;
     let root = std::env::temp_dir().join(format!(
         "kz-arch-graph-{}-{}",
         std::process::id(),
@@ -85,7 +85,7 @@ fn workspace图_从真实cargo_toml抽依赖边() {
 }
 
 /// UI2-0926 #7:architecture_snapshot 带上手写图(CRLF 索引与图文档下行号仍对)与 crate 图两份源码,
-/// 旧的 graph 兼容字段仍在。
+/// 同时提供项目知识层级；旧 graph 兼容字段已经退役。
 #[test]
 fn architecture_snapshot_带手写图与crate图() {
     use super::docs::architecture_snapshot;
@@ -142,7 +142,8 @@ fn architecture_snapshot_带手写图与crate图() {
     );
     assert_eq!(snap["crates"]["members"].as_array().unwrap().len(), 2);
     assert_eq!(snap["crates"]["hidden_transitive"], 0);
-    assert!(snap["graph"].is_array(), "兼容字段 graph 仍在");
+    assert!(snap.get("graph").is_none(), "旧 graph 兼容字段已退役");
+    assert_eq!(snap["knowledge"]["version"], 1);
     std::fs::remove_dir_all(&root).ok();
 }
 
