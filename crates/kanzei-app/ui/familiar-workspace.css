@@ -158,12 +158,28 @@
 .familiar-workspace[data-space="dev"] #view-chat.active,
 .familiar-workspace[data-space="dev"] #main[data-side="docked"] #view-chat.active,
 .familiar-workspace[data-space="dev"] #view-chat.active[data-preview="open"] { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto auto; grid-template-areas: "head" "work" "chat" "activity" "composer"; }
-.familiar-workspace #project-chat-work:not(.is-open) { display: flex; gap: 20px; padding: 10px 24px; border: none; border-bottom: 1px solid var(--border); background: transparent; overflow: visible; min-height: 0; }
-.familiar-workspace #project-chat-work:not(.is-open) .work-focus-slot { flex: 1; min-width: 0; }
-.work-focus-slot small { display: block; font-size: 10px; color: var(--dim); margin-bottom: 4px; }
-.work-focus-entry { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 0; border: none; background: transparent; text-align: left; font-size: 12px; }
-.work-focus-actions { display: flex; align-items: center; gap: 5px; }
-.work-focus-actions button { font-size: 11px; }
+.familiar-workspace #project-chat-work:not(.is-open) { display: grid; grid-template-columns: minmax(140px, .75fr) minmax(180px, 1.25fr) auto; align-items: center; gap: 24px; padding: 14px 24px; border: none; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 24%, var(--chat-bg)); overflow: visible; min-height: 0; }
+.familiar-workspace #project-chat-work:not(.is-open) .work-focus-slot { min-width: 0; }
+.work-focus-slot[data-position="next"] { padding-left: 24px; border-left: 1px solid var(--border-soft); }
+.work-focus-slot small { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 500; color: var(--dim); margin-bottom: 6px; }
+.work-focus-slot[data-position="current"] small::before { content: ""; width: 6px; height: 6px; border: 1px solid var(--dim); border-radius: 50%; box-sizing: border-box; }
+.work-focus-slot[data-position="current"][data-has-work="true"] small::before { border-color: var(--accent-text); background: var(--accent-text); }
+.work-focus-slot[data-position="next"] small::before { content: "→"; color: var(--dim); }
+.work-focus-entry { display: flex; align-items: baseline; gap: 8px; width: 100%; max-width: 100%; min-width: 0; padding: 1px 0; border: none; background: transparent; color: var(--fg); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.work-focus-id { flex: none; color: var(--accent-text); font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.work-focus-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; transition: color .15s; }
+.work-focus-entry:hover .work-focus-title { color: var(--accent-text); }
+.work-focus-entry:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 4px; border-radius: 3px; }
+.work-focus-empty { display: block; padding: 1px 0; color: var(--dim); font-size: 12px; }
+.work-focus-actions { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.work-focus-actions button { font-size: 11px; min-height: 30px; padding: 5px 10px; border-radius: 6px; transition: background .15s, color .15s; }
+.work-focus-actions .work-focus-choose { border: 1px solid var(--border-soft); background: var(--panel); color: var(--fg); }
+.work-focus-actions .work-focus-choose:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.work-focus-actions .work-focus-all { border-color: transparent; background: transparent; color: var(--dim); padding-inline: 0; }
+.work-focus-actions .work-focus-all:hover { color: var(--fg); background: transparent; }
+@media (prefers-reduced-motion: reduce) {
+  .work-focus-title, .work-focus-actions button { transition: none; }
+}
 .familiar-workspace #main .project-work-toggle { display: none; }
 .work-picker { width: min(600px, 90vw); }
 .work-picker header { display: flex; justify-content: space-between; align-items: center; }
@@ -206,8 +222,9 @@
   .familiar-workspace #view-settings .form-pair { flex-wrap: wrap; max-width: 100%; }
   .workspace-header #composer-context { display: none; }
   .workspace-header .project-work-switch { flex: 1; }
-  .familiar-workspace #project-chat-work:not(.is-open) { gap: 10px; flex-wrap: wrap; padding: 8px 14px; }
-  .work-focus-actions { width: 100%; justify-content: flex-end; }
+  .familiar-workspace #project-chat-work:not(.is-open) { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px 14px; }
+  .work-focus-slot[data-position="next"] { padding-left: 0; border-left: 0; }
+  .work-focus-actions { justify-content: flex-end; }
   .management-tabs { gap: 20px; }
   .management-tools input { width: 100%; }
   .management-row { grid-template-columns: minmax(100px, 1fr) 55px 23px; gap: 8px; }

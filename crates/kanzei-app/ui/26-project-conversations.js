@@ -245,16 +245,23 @@ function paint() {
   const busy = ["running", "starting", "stopping", "waiting"].includes(activity.state);
   const displayedCurrent = busy ? currentEntry : chosenEntry || currentEntry;
   const candidate = (busy && nextEntry) || choices.find(entry => entry.selectable && entry.id !== displayedCurrent?.id);
-  for (const [label, entry] of [[t(busy ? "正在进行" : chosenEntry ? "当前选取" : "当前工作"), busy ? currentEntry : chosenEntry || currentEntry],
-    [t(nextEntry && busy ? "已选工作 · 下一轮生效" : "下一个候选"), candidate]]) {
+  for (const [position, label, entry] of [["current", t(busy ? "正在进行" : chosenEntry ? "当前选取" : "当前工作"), displayedCurrent],
+    ["next", t(nextEntry && busy ? "已选工作 · 下一轮生效" : "下一个候选"), candidate]]) {
     const slot = node("section", null, "work-focus-slot"); slot.append(node("small", label));
-    if (entry) slot.append(button(`${entry.id} · ${entry.title}`, () => void openWorkbenchItem(currentProject, entry), "work-focus-entry"));
-    else slot.append(node("span", t("暂无"), "dim"));
+    slot.dataset.position = position;
+    slot.dataset.hasWork = String(Boolean(entry));
+    if (entry) {
+      const link = button("", () => void openWorkbenchItem(currentProject, entry), "work-focus-entry");
+      link.title = `${entry.id} · ${entry.title}`;
+      link.setAttribute("aria-label", link.title);
+      link.append(node("span", entry.id, "work-focus-id"), node("span", entry.title, "work-focus-title"));
+      slot.append(link);
+    } else slot.append(node("span", t("暂无"), "work-focus-empty"));
     rail.append(slot);
   }
   const actions = node("div", null, "work-focus-actions");
-  if (!discussion) actions.append(button(t("选择工作"), () => openWorkPicker(state), "ghost"));
-  actions.append(button(t("全部工作") + " ↗", () => void openProjectSpace(currentProject, "project"), "ghost"));
+  if (!discussion) actions.append(button(t("选择工作"), () => openWorkPicker(state), "ghost work-focus-choose"));
+  actions.append(button(t("全部工作") + " ↗", () => void openProjectSpace(currentProject, "project"), "ghost work-focus-all"));
   rail.append(actions);
   if (state.error) rail.append(button(t("读取失败 · 重试"), () => void refreshConversationWork(), "ghost"));
 }
