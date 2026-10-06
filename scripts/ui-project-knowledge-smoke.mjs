@@ -77,6 +77,7 @@ try {
   await off.locator("#arch-knowledge .knowledge-switch input").check();
   await off.locator('#arch-knowledge [data-area="kanzei-tools"] > summary').click();
   await off.locator('#arch-knowledge [data-area="kanzei-tools/edit"] > summary').click();
+  await off.locator('#arch-knowledge [data-area="kanzei-tools/edit"] .knowledge-memory').first().waitFor();
   check(await off.locator('#arch-knowledge [data-area="kanzei-tools/edit"] .knowledge-memory').count() === 2, "disable and re-enable preserve original memories");
   await off.evaluate(async () => { const ui = await import("/09-sessions.js"); ui.openNewProjectDialog(); });
   check(!await off.locator("#new-project-knowledge").isChecked(), "new project offers an explicit unchecked initialization option");

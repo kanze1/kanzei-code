@@ -3,6 +3,7 @@ import { t } from "./02-i18n.js";
 
 const KINDS = { responsibility: "职责", contract: "接口约束", constraint: "项目约束", environment: "环境", procedure: "操作流程", pitfall: "踩坑", fact: "事实" };
 const rendered = new Map();
+const pendingProjects = new Set();
 
 document.addEventListener("kz:language", () => {
   for (const [host, state] of rendered) renderProjectKnowledge(host, state.knowledge, state.options);
@@ -22,6 +23,7 @@ export function renderProjectKnowledge(host, knowledge, { area = null, onMemory 
   const toggle = document.createElement("input");
   toggle.type = "checkbox";
   toggle.checked = knowledge.enabled === true;
+  toggle.disabled = pendingProjects.has(knowledge.project_root);
   const caption = document.createElement("span");
   caption.textContent = t("启用层级项目知识");
   label.append(toggle, caption);
@@ -32,7 +34,10 @@ export function renderProjectKnowledge(host, knowledge, { area = null, onMemory 
   host.append(hint);
   toggle.addEventListener("change", async () => {
     const before = knowledge.enabled === true;
-    toggle.disabled = true;
+    pendingProjects.add(knowledge.project_root);
+    for (const [target, state] of rendered) {
+      if (state.knowledge.project_root === knowledge.project_root) target.querySelector(".knowledge-switch input").disabled = true;
+    }
     host.setAttribute("aria-busy", "true");
     try {
       const next = await invoke("project_knowledge_configure", {
@@ -51,7 +56,10 @@ export function renderProjectKnowledge(host, knowledge, { area = null, onMemory 
       const { toastError } = await import("./03-shell.js");
       toastError(`${t("保存失败")}: ${error}`);
     } finally {
-      toggle.disabled = false;
+      pendingProjects.delete(knowledge.project_root);
+      for (const [target, state] of rendered) {
+        if (state.knowledge.project_root === knowledge.project_root) target.querySelector(".knowledge-switch input").disabled = false;
+      }
       host.removeAttribute("aria-busy");
     }
   });

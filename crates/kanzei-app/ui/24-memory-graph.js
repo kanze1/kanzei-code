@@ -212,13 +212,13 @@ async function loadAndRender({ force = false } = {}) {
 
 // ---------- 画布 ----------
 
-// 标签阈值:适配视图的缩放在 1600×960 约 0.9、1280×690 约 0.45(画布只有 420px 高),记忆编号从 0.35、模块从 0.3
-// 起显示,默认画面就能读出是哪几条;叠字由 placeLabels 的屏幕空间抢位剔除(优先级 crate > 模块 > 记忆按度数)。
+// 记忆编号始终参与屏幕空间抢位；画布变小或项目变大时也要能读出是哪条记忆。
+// 模块从 0.3 起显示，标题随放大展开；叠字由 placeLabels 剔除(优先级 crate > 模块 > 记忆按度数)。
 function nodeLabelFor(node, scale, state) {
   if (state.hovered || state.selected || state.hit || state.lit) return labelText(node, Math.max(scale, 3));
   if (node.kind === "crate") return node.label;
   if (node.kind === "module") return scale >= 0.3 ? node.label : "";
-  if (node.kind === "memory") return scale >= 0.35 ? labelText(node, scale) : "";
+  if (node.kind === "memory") return labelText(node, scale);
   return scale >= 1.8 ? labelText(node, scale) : "";
 }
 
