@@ -3367,6 +3367,8 @@ mod tests {
             AddOutcome::Added(e) => e,
             _ => panic!("expected add"),
         };
+        store.set_area(&a.id, &["app/frontend".into()]).unwrap();
+        store.set_area(&b.id, &["engine/ipc".into()]).unwrap();
         let merged = store
             .merge(
                 &a.id,
@@ -3389,6 +3391,11 @@ mod tests {
         );
         // refs 并集进 primary。
         assert_eq!(merged.refs(), vec!["R-001".to_string()]);
+        assert_eq!(
+            merged.areas(),
+            vec!["app/frontend", "engine/ipc"],
+            "合并不得丢掉跨模块关系"
+        );
         // R-165 批3:墓碑语义不变,但条目归档到 archive/。
         assert!(store.load_all().iter().all(|(_, e)| e.id != b.id));
         let dup_path = std::fs::read_dir(store.archive_dir())

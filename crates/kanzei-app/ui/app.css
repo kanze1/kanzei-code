@@ -13,3 +13,5 @@
 @import url("familiar-workspace.css") layer(app);
 @import url("skills.css") layer(app);
 @import url("surface.css") layer(surface);
+
+@import url("project-knowledge.css") layer(app);

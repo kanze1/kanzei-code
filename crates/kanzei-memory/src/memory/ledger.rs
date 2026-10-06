@@ -160,7 +160,27 @@ impl MemoryStore {
                 }
             }
         }
-        let mut merged = self.update(primary, title, description, body, None, None, false)?;
+        let mut union_areas = Vec::new();
+        for (_, entry) in entries
+            .iter()
+            .filter(|(_, entry)| entry.id == primary || duplicates.contains(&entry.id))
+        {
+            for area in entry.areas() {
+                if !union_areas.contains(&area) {
+                    union_areas.push(area);
+                }
+            }
+        }
+        let mut merged = self.update_with_area(
+            primary,
+            title,
+            description,
+            body,
+            None,
+            Some(&union_areas),
+            None,
+            false,
+        )?;
         // D-215 引擎兜底:被并条目的复发指纹与来源引用不许静默蒸发——
         // 指纹丢了复发检测就瞎了,refs 丢了记忆与来源脱钩,这两样不能赌 manager 记得带。
         let mut carried_fps: Vec<String> = Vec::new();

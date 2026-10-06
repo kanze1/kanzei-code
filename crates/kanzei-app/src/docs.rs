@@ -943,8 +943,7 @@ pub fn architecture_snapshot(project_dir: String) -> Result<serde_json::Value, S
         // 生成,直接依赖与全部依赖两份 mermaid 源码)。前端 19-arch.js 用 04-diagram.js 渲染。
         "diagrams": kanzei_tools::arch_diagram::scan_diagrams(&root),
         "crates": crates_snapshot(&root),
-        // 兼容字段(R-188 的旧依赖边二元组):新前端不再读,保留一个版本后删除。
-        "graph": build_workspace_graph(&root),
+        "knowledge": kanzei_tools::project_knowledge::snapshot(&root, &root),
     }))
 }
 
@@ -964,16 +963,6 @@ fn crates_snapshot(root: &Path) -> serde_json::Value {
         },
         "hidden_transitive": ws.hidden_transitive(),
     })
-}
-
-/// R-188 验收①:从 workspace 真实数据源(Cargo.toml members + 各 crate 的内部依赖)
-/// 抽取 crate 依赖边,供前端生成架构图。返回 (crate, 依赖) 二元组列表,边去重排序。
-/// 解析不到任何 crate 时返回空(前端降级文字树)。
-///
-/// 记忆图谱起委托给 `kanzei_harness::areas::AreaRegistry`(区域注册表)——同一份
-/// Cargo.toml 解析,仓里不再养第二份;返回形状不变。
-pub(crate) fn build_workspace_graph(root: &std::path::Path) -> Vec<(String, String)> {
-    kanzei_harness::areas::workspace_crate_deps(root)
 }
 
 #[cfg(test)]

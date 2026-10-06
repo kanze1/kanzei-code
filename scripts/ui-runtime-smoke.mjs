@@ -1912,9 +1912,13 @@ const payloads = {
   fast_model_status: { managed: true, model: "qwen3.5:4b", installed: true, serviceUp: false, modelPresent: false, ready: false },
   fast_model_setup: "fast 子代理已就绪:qwen3.5:4b",
   files_snapshot: {
+    knowledge: { version: 1, enabled: true, project_root: PROJECT, code_root: PROJECT, areas: [{
+      id: "src", label: "src", kind: "crate", parent: null, tree_depth: 0, dependency_depth: 0,
+      dependencies: [], dependents: [], memory_ids: [], purposes: [],
+    }], memories: [], unassigned: [], warnings: [] },
     files: [
-      { path: "src/lib.rs", size: 2048, lines: 120, oversized: false, note: "冒烟样例:库入口" },
-      { path: "docs/note.md", size: 512, chars: 300, oversized: false },
+      { area: "src", path: "src/lib.rs", size: 2048, lines: 120, oversized: false, note: "冒烟样例:库入口" },
+      { area: null, path: "docs/note.md", size: 512, chars: 300, oversized: false },
     ],
     dirs: {
       "": { files: 2, size: 2560, lines: 120 },
@@ -17442,6 +17446,7 @@ await import("./ui-project-conversations-smoke.mjs");
 await import("./ui-input-resources-smoke.mjs");
 await import("./ui-agent-team-smoke.mjs");
 await import("./ui-files-editor-smoke.mjs");
+await import("./ui-project-knowledge-smoke.mjs");
 await import("./ui-qa-defects-smoke.mjs");
 console.log(
   `UI 运行时冒烟通过:${sources.length} 个 ui/*.js 按序执行 + 初始化序列(${invokeLog.length} 次 invoke) + ` +

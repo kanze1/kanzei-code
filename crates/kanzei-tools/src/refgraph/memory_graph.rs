@@ -578,7 +578,12 @@ pub fn build_graph(inputs: &GraphInputs) -> MemoryGraph {
                 .cmp(&(b.1 as usize + demote(&b.0)))
                 .then_with(|| a.0.cmp(&b.0))
         });
-        ranked.truncate(MAX_AREAS_PER_MEMORY);
+        // 自动推断限制噪声；用户/管理器显式给出的跨模块关系必须全部保留。
+        let explicit = ranked
+            .iter()
+            .filter(|(_, provenance, _)| *provenance == Provenance::Field)
+            .count();
+        ranked.truncate(MAX_AREAS_PER_MEMORY.max(explicit));
         let counts = &mut stats.by_provenance;
         match ranked.first().map(|r| r.1) {
             Some(Provenance::Field) => counts.field += 1,
@@ -619,7 +624,17 @@ pub fn build_graph(inputs: &GraphInputs) -> MemoryGraph {
         }
     }
 
-    // ── 区域节点:全部 crate 级 + 被记忆 about 的模块;contains / depends_on ──
+    // 深层模块的祖先也必须输出，否则 contains 边会指向未输出的中间节点。
+    for id in used_areas.clone() {
+        let mut cursor = registry.get(&id).and_then(|area| area.parent.as_deref());
+        while let Some(parent) = cursor {
+            if !used_areas.insert(parent.into()) {
+                break;
+            }
+            cursor = registry.get(parent).and_then(|area| area.parent.as_deref());
+        }
+    }
+    // ── 区域节点:全部 crate 级 + 被记忆 about 的模块及祖先;contains / depends_on ──
     for area in registry.all() {
         let emit = area.kind == AreaKind::Crate || used_areas.contains(&area.id);
         if !emit {

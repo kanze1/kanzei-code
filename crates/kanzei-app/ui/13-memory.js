@@ -11,6 +11,7 @@ import { lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
 import { generalChatRoot } from "./03-general-scope.js";
 import { memoryProject, setMemoryProject } from "./03-memory-scope.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
+import { renderProjectKnowledge } from "./24-project-knowledge.js";
 
 // ---------- 记忆页(R-107/R-332):管理工作区 + 透明化诊断 ----------
 export let memorySelection = { scope: "project", category: "all" };
@@ -234,6 +235,7 @@ export async function refreshMemory({ force = false } = {}) {
     document.dispatchEvent(new CustomEvent("kz:memory-project", { detail: { project } }));
     for (const id of ["memory-recalls", "memory-list", "memory-candidates", "memory-value-flags", "memory-arch"]) $(id)?.replaceChildren();
     renderMemoryPendingState();
+    renderProjectKnowledge($("memory-arch"), null);
   }
   syncMemoryNoProject();
   if (!memoryProject) return;
@@ -242,6 +244,9 @@ export async function refreshMemory({ force = false } = {}) {
     if (force) { memoryEntryCache.clear(); memoryArchivedCache.clear(); diagnosticsProject = null; diagnosticsPending = null; }
     await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category, { preserveSelection: true });
     if (project !== memoryProject || generation !== memoryRefreshGeneration) return;
+    const overview = await invoke("memory_overview", { projectDir: project });
+    if (project !== memoryProject || generation !== memoryRefreshGeneration) return;
+    renderMemoryArch(overview);
     // 待整理笔记数与整理失败提示不挂在「使用记录」页签后面:列表一出来就取,顶栏与页签角标才不必等用户去翻。
     void loadMemoryPending();
     neuralFlowEmit?.("memory_snapshot", { memory_count: memoryListEntries.length });
@@ -260,7 +265,6 @@ async function loadMemoryDiagnostics() {
   const request = { project };
   request.promise = (async () => {
     const jobs = [
-      ["memory_overview", {}, renderMemoryArch],
       ["memory_recalls", { limit: 20 }, renderMemoryRecalls],
       ["memory_value_flags", {}, renderMemoryValueFlags],
     ];
@@ -517,6 +521,7 @@ export const CONTEXT_BILL_LABELS = Object.freeze({
   "dev/design-index": "设计文档索引",
   "dev/ideas": "想法收件箱",
   "dev/memory": "项目记忆",
+  "dev/project-knowledge": "项目知识",
   "dev/verification-policy": "验证策略",
   "memory/hints": "记忆提示",
   "scout/brief": "勘察简报",
@@ -1183,49 +1188,16 @@ export function renderMemoryRecalls(data) {
 }
 
 export function renderMemoryArch(overview) {
-  const arch = $("memory-arch");
-  arch.innerHTML = "";
-  for (const scope of overview.scopes || []) {
-    const card = document.createElement("div");
-    card.className = "memory-scope-card";
-    const head = document.createElement("div");
-    head.className = "memory-scope-head";
-    const label = scope.scope === "global" ? t("全局记忆") : t("项目记忆");
-    const archivedNote = scope.archived ? ` · ${t("已归档")} ${scope.archived}` : "";
-    head.innerHTML = `<strong>${label}</strong> <span class="dim">${scope.total} ${t("条")} · ${t("命中")} ${scope.hitsTotal}${archivedNote} · ${escapeHtml(scope.root)}</span>`;
-    card.appendChild(head);
-    const grid = document.createElement("div");
-    grid.className = "memory-cat-grid";
-    for (const [cat, info] of Object.entries(scope.categories || {})) {
-      const cell = document.createElement("button");
-      cell.type = "button";
-      cell.className = "memory-cat-cell";
-      cell.setAttribute("aria-label", `${label} ${memoryWord(cat)}`);
-      // 候选(待采纳)与失效分开写:此前 `总数 - 启用` 被一律标成 stale,候选条目看起来像坏了。
-      const noteParts = [info.candidate ? `${info.candidate} ${memoryWord("candidate")}` : "", info.stale ? `${info.stale} ${memoryWord("stale")}` : "", info.last || ""].filter(Boolean);
-      cell.innerHTML = `<span class="memory-cat-name">${escapeHtml(memoryWord(cat))}</span><span class="memory-cat-count">${info.active}</span><span class="dim">${escapeHtml(noteParts.join(" · "))}</span>`;
-      cell.addEventListener("click", async () => {
-        if (!(await confirmLeaveMemoryDetail())) return;
-        clearMemorySearch();
-        memoryManagerFilters.scope = scope.scope;
-        memoryManagerFilters.category = cat;
-        memoryManagerFilters.status = "active";
-        memorySelection = { scope: scope.scope, category: cat };
-        memoryCurrentEntryId = null;
-        hideMemoryDetail();
-        loadMemoryList(scope.scope, cat);
-      });
-      grid.appendChild(cell);
-    }
-    card.appendChild(grid);
-    if ((scope.integrity || []).length) {
-      const warn = document.createElement("p");
-      warn.className = "memory-warn";
-      warn.textContent = `⚠ ${scope.integrity.join("; ")}`;
-      card.appendChild(warn);
-    }
-    arch.appendChild(card);
-  }
+  const project = memoryProject;
+  renderProjectKnowledge($("memory-arch"), overview.knowledge, {
+    onMemory: async memory => {
+      if (project !== memoryProject || !(await confirmLeaveMemoryDetail())) return;
+      try {
+        const entry = await invoke("memory_entry_get", { projectDir: project, scope: "project", id: memory.id });
+        if (project === memoryProject) showMemoryDetail("project", entry, { readOnly: Boolean(entry.archived) });
+      } catch (error) { toastError(`${t("打开失败")}: ${error}`); }
+    },
+  });
 }
 
 // 已归档视图的条目缓存(同 getMemoryEntries:15 秒内复用,写操作后 refreshMemory({ force }) 会清掉)。

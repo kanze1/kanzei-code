@@ -43,6 +43,9 @@ struct ArchitectureInput {
     /// update 必填:上一次 get/check 返回的 hash(并发写入保护)
     #[serde(default)]
     expected_hash: Option<String>,
+    /// context: 模块 id、仓库相对文件路径或 Rust 路径；不传只返回项目层概览。
+    #[serde(default)]
+    area: Option<String>,
 }
 
 pub struct ArchitectureTool;
@@ -55,7 +58,11 @@ impl Tool for ArchitectureTool {
 
     fn description(&self) -> String {
         format!(
-            "Read and maintain the architecture index `{ARCHITECTURE_REL}` (the ONLY write \
+            "Explore project knowledge with action=context and optional area (module id or file path): \
+             hierarchy, responsibilities, upstream/downstream dependencies, constraints and pitfalls \
+             from project memory and valid file summaries. Start with context without area, then expand \
+             only the relevant module. Weak links are inferred; candidates are not established constraints. \
+             Read and maintain the architecture index `{ARCHITECTURE_REL}` (the ONLY write \
              channel for it — write/edit are denied there). Actions: get (full text + hash + \
              validation), check (validation only), regenerate (draft index rebuilt from the \
              files actually in {DESIGN_DIR}/, keeping existing descriptions — returned for you \
@@ -94,7 +101,14 @@ impl Tool for ArchitectureTool {
         {
             action.insert(
                 "enum".into(),
-                serde_json::json!(["get", "check", "regenerate", "update", "diagrams"]),
+                serde_json::json!([
+                    "context",
+                    "get",
+                    "check",
+                    "regenerate",
+                    "update",
+                    "diagrams"
+                ]),
             );
         }
         schema
@@ -121,6 +135,12 @@ impl Tool for ArchitectureTool {
         let path = root.join(ARCHITECTURE_REL);
 
         match input.action.as_str() {
+            "context" => match crate::project_knowledge::snapshot(&root, code_root(ctx))
+                .context(input.area.as_deref(), 12000)
+            {
+                Ok(context) => ToolOutput::ok(context),
+                Err(error) => ToolOutput::error(error),
+            },
             "get" => {
                 let current = read_index(&path);
                 let issues = validate(&root, &current).issues;
@@ -255,7 +275,7 @@ impl Tool for ArchitectureTool {
                 }))
             }
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: get | check | regenerate | update | diagrams"
+                "unknown action `{other}`; valid: context | get | check | regenerate | update | diagrams"
             )),
         }
     }

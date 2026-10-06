@@ -29,10 +29,60 @@ const CODE_EXTS: &[&str] = &[
 pub struct AnnotationStore {
     #[serde(default)]
     pub files: BTreeMap<String, Annotation>,
-    /// 目录用途(键=目录相对路径,"" 代表仓库根)。目录内容变化不使其失效——
-    /// 目录职责比单文件稳定,过期由重新标注覆盖。
+    /// 目录摘要与其输入指纹。旧无指纹记录保留但不再作为当前知识展示。
     #[serde(default)]
     pub dirs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub dir_hashes: BTreeMap<String, String>,
+}
+
+/// 目录摘要由直属文件用途生成，因此直属内容和成员改变都使其失效。
+/// 子目录正文不参与；生成过程中的变更通过前后指纹比较丢弃旧结果。
+pub fn directory_fingerprint(root: &Path, rel: &str) -> Option<String> {
+    let dir = if rel.is_empty() {
+        root.to_path_buf()
+    } else {
+        annotation_target(root, rel)?
+    };
+    let mut parts = Vec::new();
+    for entry in std::fs::read_dir(dir).ok()? {
+        let entry = entry.ok()?;
+        let kind = entry.file_type().ok()?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        if kind.is_symlink() {
+            return None;
+        }
+        let stamp = if kind.is_file() {
+            let meta = entry.metadata().ok()?;
+            if meta.len() > MAX_MEASURE_BYTES {
+                format!("{}:{:?}", meta.len(), meta.modified().ok()?)
+            } else {
+                content_hash(&std::fs::read(entry.path()).ok()?)
+            }
+        } else {
+            "directory".into()
+        };
+        parts.push(format!("{name}:{stamp}"));
+    }
+    parts.sort();
+    Some(content_hash(parts.join("\n").as_bytes()))
+}
+
+pub fn valid_directory_notes(root: &Path, store: &AnnotationStore) -> BTreeMap<String, String> {
+    store
+        .dirs
+        .iter()
+        .filter(|(path, _)| {
+            store
+                .dir_hashes
+                .get(*path)
+                .is_some_and(|hash| directory_fingerprint(root, path).as_ref() == Some(hash))
+        })
+        .map(|(path, note)| (path.clone(), note.clone()))
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +95,7 @@ pub fn annotations_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("file-annotations.json")
 }
 
-fn annotation_target(project_root: &Path, rel: &str) -> Option<PathBuf> {
+pub(crate) fn annotation_target(project_root: &Path, rel: &str) -> Option<PathBuf> {
     let path = Path::new(rel);
     if rel.is_empty()
         || path.is_absolute()
@@ -83,6 +133,9 @@ fn prune_missing_annotations(project_root: &Path, store: &mut AnnotationStore) -
         changed |= !keep;
         keep
     });
+    store
+        .dir_hashes
+        .retain(|rel, _| store.dirs.contains_key(rel));
     changed
 }
 
@@ -489,7 +542,8 @@ impl Tool for FilesTool {
             return ToolOutput::ok("(no files)".to_string());
         }
         // 批注是 `.kanzei/file-annotations.json`,主根一份的资产,取 project_root 不变。
-        let annotations = load_annotations(&ctx.project_root);
+        let mut annotations = load_annotations(&ctx.project_root);
+        annotations.dirs = valid_directory_notes(&ctx.cwd, &annotations);
         let prefix = input
             .path
             .as_deref()
@@ -505,7 +559,14 @@ impl Tool for FilesTool {
             }
             None => render_tree(&entries, &annotations, prefix.as_deref()),
         };
-        ToolOutput::ok(text)
+        let knowledge = crate::project_knowledge::snapshot(&ctx.project_root, &ctx.cwd);
+        if !knowledge.enabled {
+            return ToolOutput::ok(text);
+        }
+        let context = knowledge
+            .context(input.path.as_deref(), 9000)
+            .unwrap_or_else(|_| knowledge.overview(1500));
+        ToolOutput::ok(format!("{text}\n{context}"))
     }
 }
 

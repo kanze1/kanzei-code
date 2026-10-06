@@ -62,7 +62,7 @@ impl Tool for MemorySearchTool {
     }
 
     fn description(&self) -> String {
-        "Search long-term memory (facts, habits, SOPs, preferences) across project and global scopes. Params: query; optional scope(all|global|project), category, status, limit. Read the returned file path for the full entry.".into()
+        "Search project knowledge by query (facts, constraints, environment and procedures). Optional scope=project|all, category, status and limit. For hierarchy and module dependencies use architecture action=context, area=module or file path. Read the returned file path for the full entry; scope=global is retired.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -92,7 +92,7 @@ impl Tool for MemorySearchTool {
             Some(other) => {
                 return ToolOutput::error(format!(
                     "invalid status `{other}`; valid: active | stale | any"
-                ))
+                ));
             }
         };
         let limit = input.limit.unwrap_or(5).clamp(1, 10);
@@ -157,6 +157,9 @@ struct NoteInput {
     /// 随草稿写入,manager 消化时带进正式条目。
     #[serde(default)]
     refs: Vec<String>,
+    /// 相关模块或文件路径；归一后随草稿传给管理器，允许跨模块关联。
+    #[serde(default)]
+    area: Vec<String>,
     /// correct action 专用:project|global,既有条目 id,以及单一 title/description/body 字段。
     #[serde(default)]
     scope: Option<String>,
@@ -191,7 +194,7 @@ impl Tool for MemoryNoteTool {
     }
 
     fn description(&self) -> String {
-        "Record a draft note in the memory inbox, or synchronously correct one existing title/description/body field with action=correct. note params: summary; optional detail, category_hint, refs. correct params: scope, id, field, old_value, new_value, expected_hash, basis. correct never adds/deletes entries or changes status/extra fields and writes an audit record with actor, basis, old/new values.".into()
+        "Record project knowledge for a future task: responsibility, contract, constraint, pitfall or procedure. note params: summary; optional detail, category_hint, refs and area=[module ids or file paths]. Include the concrete changed action and evidence, not task narration. Or correct one existing title/description/body field with action=correct, scope, id, field, old_value, new_value, expected_hash, basis.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -215,7 +218,7 @@ impl Tool for MemoryNoteTool {
                 other => {
                     return ToolOutput::error(format!(
                         "invalid correction scope `{other}`; valid: project | global"
-                    ))
+                    ));
                 }
             };
             let id = match required_correction(input.id.as_ref(), "id") {
@@ -268,6 +271,26 @@ impl Tool for MemoryNoteTool {
         if let Err(e) = super::validate_source_refs(ctx, &input.refs) {
             return ToolOutput::error(e);
         }
+        let registry =
+            (!input.area.is_empty()).then(|| kanzei_harness::areas::AreaRegistry::scan(&ctx.cwd));
+        let mut areas = Vec::new();
+        for token in &input.area {
+            let Some(area) = registry
+                .as_ref()
+                .and_then(|registry| registry.resolve_token(token))
+            else {
+                return ToolOutput::error(format!(
+                    "area `{token}` 未解析到当前代码树中的模块或文件。"
+                ));
+            };
+            if !areas.contains(&area) {
+                areas.push(area);
+            }
+        }
+        let mut detail = input.detail.clone().unwrap_or_default();
+        if !areas.is_empty() {
+            detail.push_str(&format!("\n- area: {}", areas.join(" ")));
+        }
         let store = MemoryStore::project(&ctx.project_root);
         // R-165 批2 novelty gate(验收④):投递前机械三档分流——
         // 明显重复直接 NOOP(不占 LLM run 与 inbox),记遥测;新/不确定才进 inbox。
@@ -285,7 +308,7 @@ impl Tool for MemoryNoteTool {
         store.record_novelty(&novelty, "", summary);
         match store.append_note(
             summary,
-            input.detail.as_deref().unwrap_or(""),
+            &detail,
             input.category_hint.as_deref().unwrap_or(""),
             &input.refs,
         ) {
@@ -681,6 +704,38 @@ mod tests {
         assert_eq!((hint.as_str(), summary.as_str()), ("fact", "真引用"));
         assert!(detail.contains("refs: R-070"), "{detail}");
 
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn memory_note_normalizes_module_area_and_rejects_unknown_area() {
+        let (dir, ctx) = ctx();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/ipc.rs"), "pub fn decode_packet() {}\n").unwrap();
+        let bad = MemoryNoteTool
+            .execute(json!({"summary":"bad area", "area":["demo/typo"]}), &ctx)
+            .await;
+        assert!(bad.is_error);
+        assert_eq!(MemoryStore::project(&dir).pending_notes(), 0);
+        let good = MemoryNoteTool
+            .execute(
+                json!({"summary":"decode packet contract", "refs":["src/ipc.rs"],
+            "area":["src/ipc.rs", "demo::ipc"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!good.is_error, "{}", good.content);
+        assert!(MemoryStore::project(&dir)
+            .read_inbox()
+            .contains("- area: demo/ipc"));
+        assert!(!MemoryStore::project(&dir)
+            .read_inbox()
+            .contains("demo/ipc demo/ipc"));
         std::fs::remove_dir_all(dir).ok();
     }
 

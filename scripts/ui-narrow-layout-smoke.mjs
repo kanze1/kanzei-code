@@ -170,35 +170,29 @@ try {
       if (result.errors.length) failures.push(`${label} dock=${result.dock} w=${result.width}: ${result.errors.join("; ")}`);
     }
   }
-  // ── 分区:网页预览前端 ── UI2-0926 #8:网页预览停靠面板打开时(24-preview.js 写 #view-chat[data-preview="open"]),
-  // 对话视图切成两列:面板贴对话视图右边、上下占满,宽 = clamp(360, 48%, 宽 − 420);输入区与正文 pane 仍在左列里同宽同中轴、
-  // 不压面板;后台任务侧栏停靠时面板在侧栏左边;窄屏(对话视图 < 800)「预览」页签占满、「对话」页签收起面板。
-  // 自检:把输入区宽度改回按 #view-chat 的 cqi 算(左列变窄时输入区会伸进面板),判据必须变红。
+  // 当前产品使用独立浮窗：预览不占对话列，尺寸适配视口，任务侧栏保持原布局。
   const previewCases = [
     { width: 1280, height: 840, sidebar: true, panel: false },
     { width: 1333, height: 695, sidebar: true, panel: false },
     { width: 1600, height: 900, sidebar: true, panel: false },
     { width: 1600, height: 1000, sidebar: false, panel: true },
     { width: 2000, height: 1040, sidebar: true, panel: true },
-    { width: 1024, height: 720, sidebar: true, panel: false, narrow: "preview" },
-    { width: 1024, height: 720, sidebar: true, panel: false, narrow: "chat" },
+    { width: 1024, height: 720, sidebar: true, panel: false },
+    { width: 800, height: 600, sidebar: false, panel: false },
   ];
-  const measurePreview = ({ sidebar, panel, narrow }) => {
-    const $ = (selector) => document.querySelector(selector);
-    const rect = (selector) => {
+  const measurePreview = ({ sidebar, panel }) => {
+    const $ = selector => document.querySelector(selector);
+    const rect = selector => {
       const el = $(selector);
       const box = el?.getBoundingClientRect();
-      return box && box.width > 0 && globalThis.getComputedStyle(el).display !== "none" ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height } : null;
+      return box && box.width > 0 && globalThis.getComputedStyle(el).display !== "none"
+        ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height } : null;
     };
-    const overlap = (a, b) => Boolean(a && b && a.left < b.right - 0.5 && a.right > b.left + 0.5 && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5);
     const errors = [];
     const view = $("#view-chat");
     const main = $("#main");
     const tasks = $("#tasks-panel");
     $("#sidebar").classList.toggle("collapsed", !sidebar);
-    view.dataset.preview = "open";
-    if (narrow) view.dataset.previewNarrow = narrow;
-    else delete view.dataset.previewNarrow;
     if (panel) {
       tasks.classList.remove("hidden");
       tasks.dataset.dock = "side";
@@ -206,43 +200,34 @@ try {
       main.dataset.side = "docked";
       main.style.setProperty("--kz-side-col", "400px");
     }
+    const before = { view: rect("#view-chat"), composer: rect("#composer"), tasks: panel ? rect("#tasks-panel") : null };
+    view.dataset.preview = "open";
     const v = rect("#view-chat");
     const dock = rect("#preview-dock");
     const composer = rect("#composer");
     const pane = rect('.msg-pane[data-active="1"]');
     const host = rect("#preview-host");
-    if (!v) errors.push("对话视图不可见");
-    else if (narrow === "chat") {
-      if (dock) errors.push("窄屏「对话」页签时面板应收起");
-      if (!composer || composer.left < v.left - 1 || composer.right > v.right + 1) errors.push(`窄屏「对话」页签输入区应在对话视图里 ${JSON.stringify({ composer, v })}`);
-    } else if (narrow === "preview") {
-      if (!dock || Math.abs(dock.left - v.left) > 1 || Math.abs(dock.right - v.right) > 1) errors.push(`窄屏「预览」页签面板应占满对话视图 ${JSON.stringify({ dock, v })}`);
-      if (composer) errors.push("窄屏「预览」页签输入区应收起");
-    } else {
-      if (!dock || !host) errors.push("面板或占位框不可见");
+    if (!v || !dock || !host) errors.push("对话视图、预览浮窗或占位框不可见");
+    else {
+      if (globalThis.getComputedStyle($("#preview-dock")).position !== "fixed") errors.push("预览浮窗必须独立定位");
+      if (dock.left < 0 || dock.top < 0 || dock.right > globalThis.innerWidth + 1 || dock.bottom > globalThis.innerHeight + 1) errors.push("预览浮窗越出视口");
+      const wantWidth = Math.min(920, globalThis.innerWidth - 70);
+      const wantHeight = Math.min(680, globalThis.innerHeight - 145);
+      if (Math.abs(dock.width - wantWidth) > 1 || Math.abs(dock.height - wantHeight) > 1) errors.push("预览浮窗未适配视口尺寸");
+      if (host.left < dock.left || host.right > dock.right || host.top < dock.top || host.bottom > dock.bottom) errors.push("网页占位框越出浮窗");
+      if (Math.abs(v.width - before.view.width) > 1 || Math.abs(v.left - before.view.left) > 1) errors.push("预览改变了对话列布局");
+      if (!composer || !pane) errors.push("输入区或正文 pane 不可见");
       else {
-        const want = Math.min(Math.max(v.width * 0.48, 360), Math.max(360, v.width - 420));
-        if (Math.abs(dock.width - want) > 1.5) errors.push(`面板宽 ${dock.width.toFixed(1)} ≠ clamp(360, 48%, 宽 − 420) = ${want.toFixed(1)}`);
-        if (Math.abs(dock.right - v.right) > 1 || Math.abs(dock.top - v.top) > 1 || Math.abs(dock.bottom - v.bottom) > 1) errors.push(`面板应贴对话视图右边、上下占满 ${JSON.stringify({ dock, v })}`);
-        if (host.left < dock.left + 3) errors.push(`占位框左侧应给分隔条手柄让出 ≥3px(手柄骑在面板左边 ±3px),实为 ${(host.left - dock.left).toFixed(1)}px`);
-        const col = { left: v.left, right: dock.left };
-        for (const [name, box] of [["输入区", composer], ["正文 pane", pane]]) {
-          if (!box) { errors.push(`${name}不可见`); continue; }
-          if (overlap(box, dock) || box.right > col.right + 0.5) errors.push(`${name}伸进了网页预览面板 ${JSON.stringify({ box, dock })}`);
-          const skew = Math.abs((box.left - col.left) - (col.right - box.right));
-          if (skew > 1.5) errors.push(`${name}没有在左列里居中(左右留白差 ${skew.toFixed(1)}px)`);
-        }
-        if (composer && pane && (Math.abs(composer.left - pane.left) > 1 || Math.abs(composer.right - pane.right) > 1)) {
-          errors.push(`输入区与正文 pane 不同宽同轴 ${JSON.stringify({ composer, pane })}`);
-        }
-        if (panel) {
-          const t = rect("#tasks-panel");
-          if (!t || dock.right > t.left + 1) errors.push(`停靠的后台任务侧栏应在面板右边 ${JSON.stringify({ dock, tasks: t })}`);
-        }
+        if (composer.left < v.left - 1 || composer.right > v.right + 1) errors.push("输入区越出对话列");
+        if (Math.abs(composer.left - before.composer.left) > 1 || Math.abs(composer.width - before.composer.width) > 1) errors.push("预览改变了输入区宽度或中轴");
+        if (Math.abs(composer.left - pane.left) > 1 || Math.abs(composer.right - pane.right) > 1) errors.push("输入区与正文 pane 不同宽同轴");
+      }
+      if (panel) {
+        const t = rect("#tasks-panel");
+        if (!t || Math.abs(t.width - before.tasks.width) > 1 || Math.abs(t.left - before.tasks.left) > 1) errors.push("预览改变了后台任务侧栏布局");
       }
     }
     delete view.dataset.preview;
-    delete view.dataset.previewNarrow;
     tasks.classList.add("hidden");
     main.dataset.side = "closed";
     main.style.setProperty("--kz-side-col", "0px");
@@ -252,14 +237,14 @@ try {
     await page.setViewportSize({ width: item.width, height: item.height });
     const errors = await page.evaluate(measurePreview, item);
     previewChecked += 1;
-    if (errors.length) failures.push(`网页预览 ${item.width}x${item.height} sidebar=${item.sidebar} panel=${item.panel} narrow=${item.narrow ?? "-"}: ${errors.join("; ")}`);
+    if (errors.length) failures.push(`网页预览 ${item.width}x${item.height} sidebar=${item.sidebar} panel=${item.panel}: ${errors.join("; ")}`);
   }
   {
-    const mutation = await page.addStyleTag({ content: "#view-chat[data-preview=\"open\"] > #composer { width: min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)) !important; }" });
+    const mutation = await page.addStyleTag({ content: "#preview-dock { left: -20px !important; }" });
     await page.setViewportSize({ width: 1280, height: 840 });
     const errors = await page.evaluate(measurePreview, { sidebar: true, panel: false });
-    if (!errors.some((error) => error.includes("输入区"))) failures.push("网页预览布局判据自检失败:输入区按整个对话视图的 cqi 取宽(会伸进面板)时没有变红");
-    await mutation.evaluate((node) => node.remove());
+    if (!errors.some(error => error.includes("越出视口"))) failures.push("预览布局判据自检失败:浮窗越界没有变红");
+    await mutation.evaluate(node => node.remove());
   }
   // ── 分区:网页预览前端(完) ──
 } finally {
@@ -268,4 +253,4 @@ try {
 assert.deepEqual(failures, [], `窄窗口布局回归失败:\n${failures.join("\n")}`);
 // 判据自证:宽窗口必须出现停靠,窄窗口必须出现抽屉——两种形态都真的被测到。
 assert.ok(docked >= 4 && drawers >= 4, `停靠/抽屉两种形态没有都覆盖到(停靠 ${docked} 次、抽屉 ${drawers} 次)`);
-console.log(`UI 面板布局冒烟通过：${viewports.length} 个视口 × ${states.length} 个左侧栏/后台任务侧栏/日志状态;停靠 ${docked} 次(不压对话列与日志、到状态栏上沿、状态栏全宽)、抽屉 ${drawers} 次(absolute + 遮罩、主区宽度不变);网页预览 ${previewChecked} 种布局(两列、对话列居中不压面板、与停靠侧栏并存、窄屏页签)+ 1 条判据自检`);
+console.log(`UI 面板布局冒烟通过：${viewports.length} 个视口 × ${states.length} 个左侧栏/后台任务侧栏/日志状态;停靠 ${docked} 次(不压对话列与日志、到状态栏上沿、状态栏全宽)、抽屉 ${drawers} 次(absolute + 遮罩、主区宽度不变);网页预览 ${previewChecked} 种布局(独立浮窗、对话列宽度与中轴保持、与任务侧栏并存、窄屏适配)+ 1 条判据自检`);

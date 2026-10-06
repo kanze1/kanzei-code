@@ -1,6 +1,7 @@
 import { $, confirmDialog, defer, invoke, on } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { currentProject, log, processItems, toast, toastError } from "./03-shell.js";
+import { openKnowledgeMemory, renderProjectKnowledge } from "./24-project-knowledge.js";
 import {
   confirmLeaveDirty, filesDirtyPaths, filesDoc, filesTreeRoot, humanSize, hydrateFilesDrafts, initFilesEditor, openFileDoc,
   setFilesTreeRoot, stashFilesDraft, startFilesWatch, stopFilesWatch,
@@ -28,6 +29,7 @@ let annotateProgress = null;
 initFilesEditor({
   onActiveChange(path) {
     filesActivePath = path;
+    renderFileKnowledge(path);
     // 链接 / 命令打开的文件要在树里「看得见」:展开祖先目录、被筛选挡住就清掉筛选、滚到可见。
     if (path) {
       expandAncestors(path);
@@ -82,12 +84,13 @@ export async function refreshFiles() {
     renderFilesTree();
   }
   try {
-    const snapshot = await invoke("files_snapshot", { projectDir: root });
+    const snapshot = await invoke("files_snapshot", { projectDir: root, knowledgeProjectDir: currentProject });
     if (root !== currentRoot()) return;
     filesSnapshotData = snapshot;
     filesLoad = { state: "ready", error: "" };
     filesLoadedAt = Date.now();
     renderFilesTree();
+    renderFileKnowledge(filesActivePath);
   } catch (err) {
     if (root !== currentRoot()) return;
     const message = `${t("文件树加载失败")}:${err}`;
@@ -473,6 +476,17 @@ export async function openFilePreview(file) {
   return openFileDoc({ ...file, path: where.rel });
 }
 
+function renderFileKnowledge(path) {
+  const snapshot = filesSnapshotData;
+  const project = currentProject;
+  const area = snapshot?.files?.find(item => item.path === path)?.area;
+  const visible = Boolean(path && snapshot?.knowledge);
+  renderProjectKnowledge($("files-knowledge"), visible ? snapshot.knowledge : null, {
+    area, onMemory: memory => void openKnowledgeMemory(project, memory).catch(err => toastError(`${t("打开失败")}: ${err}`)),
+  });
+  $("files-knowledge-wrap")?.classList.toggle("hidden", !visible);
+}
+
 // ---------- 用途说明(UX-094,原「标注」) ----------
 // 一键对全部「新增/已变化」文件各调一次 fast 模型:先确认(写清文件数与成本),生成中同一个按钮变「停止」。
 async function onAnnotateClick() {
@@ -583,6 +597,12 @@ defer(() => {
 });
 // 切语言:工具栏按钮、树选择器的文字是渲染点 t() 写的,跟着重画。
 defer(() => {
+  document.addEventListener("kz:project-knowledge", event => {
+    if (event.detail?.project !== filesSnapshotData?.knowledge?.project_root) return;
+    filesSnapshotData = null;
+    filesLoadedAt = 0;
+    if (viewActive()) void refreshFiles();
+  });
   document.addEventListener("kz:language", () => {
     syncTreeSelect(true);
     renderFilesTree();

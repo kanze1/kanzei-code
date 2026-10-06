@@ -2092,24 +2092,6 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 }
 .memory-toolbar input[type="search"]:focus { outline: 1px solid var(--focus-ring); }
 
-.memory-arch { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-
-.memory-scope-card {
-  flex: 1 1 340px; background: var(--panel); border: 1px solid var(--border);
-  border-radius: var(--r-lg); padding: 10px 12px; min-width: 300px;
-}
-.memory-scope-head { margin-bottom: 8px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.memory-cat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }
-.memory-cat-cell {
-  background: var(--input); border: 1px solid var(--border); border-radius: var(--r-sm);
-  color: var(--fg); padding: 8px; text-align: left; cursor: pointer;
-  display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-12);
-}
-.memory-cat-cell:hover { border-color: var(--border-strong); }
-.memory-cat-cell:focus-visible { outline: 1px solid var(--focus-ring); }
-.memory-cat-count { font-size: var(--fs-18); font-weight: 600; }
-.memory-warn { color: var(--warn); font-size: var(--fs-12); margin: 8px 0 0; }
-
 .memory-manager-toolbar {
   display: flex; gap: 8px; align-items: end; flex-wrap: wrap; margin: 0 0 14px;
   padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-lg);

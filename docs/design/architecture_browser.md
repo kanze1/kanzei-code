@@ -1,5 +1,7 @@
 # 可视化架构浏览与维护记忆设置——技术栈选型评估报告
 
+> 2026-10-06：架构浏览、记忆与文件用途说明共用项目知识层级，现行组织方式见 [project_knowledge.md](project_knowledge.md)。下文技术栈比较继续保留为历史记录。
+
 > 2026-10-02 现状校正：R-122 的浏览入口与既有交付记录保留；下文 classic script/A-008 选型是 2026-08-10 历史方案。当前前端是原生 ESM，架构图采用 Mermaid，现状见 [architecture_diagrams.md](architecture_diagrams.md) 与 [当前实现口径](../current-state.md)。
 
 - 身份：validated_design

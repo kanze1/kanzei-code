@@ -277,6 +277,7 @@ fn main() {
             projects::projects_add,
             projects::projects_init,
             projects::projects_create,
+            projects::project_knowledge_configure,
             projects::project_git_init,
             projects::project_facts,
             projects::projects_rename,

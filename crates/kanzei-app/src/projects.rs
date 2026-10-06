@@ -112,6 +112,7 @@ pub(crate) fn create_project_dir(
     parent: &str,
     name: &str,
     git_init: bool,
+    knowledge_enabled: bool,
 ) -> Result<
     (
         PathBuf,
@@ -134,6 +135,10 @@ pub(crate) fn create_project_dir(
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建项目目录失败: {e}"))?;
     initialize_kanzei_space(&dir)?;
+    if knowledge_enabled {
+        kanzei_tools::project_knowledge::set_enabled(&dir, true)
+            .map_err(|error| format!("启用项目知识失败: {error}"))?;
+    }
     // 已有的空 `.kanzei`(比如上次创建到一半)同样补上忽略规则。
     kanzei_tools::project_state::ensure_kanzei_gitignore(&dir)
         .map_err(|e| format!("写 .kanzei/.gitignore 失败: {e}"))?;
@@ -164,9 +169,12 @@ pub async fn projects_create(
     name: String,
     git_init: bool,
     description: Option<String>,
+    knowledge_enabled: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     blocking(move || {
-        let (dir, git, git_error) = create_project_dir(&parent, &name, git_init)?;
+        let (dir, git, git_error) = create_project_dir(
+            &parent, &name, git_init, knowledge_enabled.unwrap_or(false),
+        )?;
         let prefs = register_project(&dir, Some(name.trim()))?;
         let root = crate::normalized_project_root(&dir);
         Ok(json!({
@@ -177,6 +185,33 @@ pub async fn projects_create(
             "gitError": git_error,
             "description": description.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()),
         }))
+    })
+    .await
+}
+
+/// 开关写主项目资产，结构扫描当前代码树；关闭保留原始记忆和用途说明。
+#[tauri::command]
+pub async fn project_knowledge_configure(
+    project_dir: String,
+    enabled: bool,
+    code_dir: Option<String>,
+) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let root = crate::normalized_project_root(Path::new(&project_dir));
+        if !root.is_dir() || crate::general_chat::is_general_root(&root) {
+            return Err("请选择有效的项目目录".into());
+        }
+        let code_root = code_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.clone());
+        if !code_root.is_dir() {
+            return Err("代码目录不存在".into());
+        }
+        kanzei_tools::project_knowledge::set_enabled(&root, enabled)
+            .map_err(|error| format!("保存项目知识开关失败: {error}"))?;
+        serde_json::to_value(kanzei_tools::project_knowledge::snapshot(&root, &code_root))
+            .map_err(|error| error.to_string())
     })
     .await
 }
@@ -743,7 +778,10 @@ mod prefs_failure_tests {
                         _ => unreachable!(),
                     });
                     if writer == "init" || writer == "add" {
-                        assert!(dir.join(".kanzei/.gitignore").is_file(), "directory initialization precedes registry persistence and is retained on failure");
+                        assert!(
+                            dir.join(".kanzei/.gitignore").is_file(),
+                            "directory initialization precedes registry persistence and is retained on failure"
+                        );
                     }
                 }
             }
@@ -814,7 +852,7 @@ mod prior_art_init_tests {
     fn 新建项目_建目录_忽略规则_git_默认建库() {
         let parent = temp_parent("git");
         let (dir, git, error) =
-            create_project_dir(&parent.display().to_string(), "MD文件保存", true).unwrap();
+            create_project_dir(&parent.display().to_string(), "MD文件保存", true, false).unwrap();
         assert_eq!(dir, parent.join("MD文件保存"));
         assert!(dir.join(".kanzei").is_dir());
         let ignore = std::fs::read_to_string(dir.join(".kanzei/.gitignore")).unwrap();
@@ -837,12 +875,17 @@ mod prior_art_init_tests {
     fn 新建项目_不勾_git_只建目录_非空目标拒绝() {
         let parent = temp_parent("plain");
         let (dir, git, _) =
-            create_project_dir(&parent.display().to_string(), "demo", false).unwrap();
+            create_project_dir(&parent.display().to_string(), "demo", false, false).unwrap();
         assert!(git.is_none());
         assert!(!dir.join(".git").exists());
+        assert!(!kanzei_tools::project_knowledge::enabled(&dir));
+        let (complex, _, _) =
+            create_project_dir(&parent.display().to_string(), "complex", false, true).unwrap();
+        assert!(kanzei_tools::project_knowledge::enabled(&complex));
         std::fs::create_dir_all(parent.join("taken")).unwrap();
         std::fs::write(parent.join("taken").join("x.txt"), "x").unwrap();
-        let err = create_project_dir(&parent.display().to_string(), "taken", false).unwrap_err();
+        let err =
+            create_project_dir(&parent.display().to_string(), "taken", false, false).unwrap_err();
         assert!(err.contains("添加项目文件夹"), "{err}");
         std::fs::remove_dir_all(&parent).ok();
     }
@@ -859,7 +902,8 @@ mod prior_art_init_tests {
             return;
         }
         let parent = temp_parent("git-late");
-        let (dir, _, _) = create_project_dir(&parent.display().to_string(), "late", false).unwrap();
+        let (dir, _, _) =
+            create_project_dir(&parent.display().to_string(), "late", false, false).unwrap();
         let project = dir.display().to_string();
 
         let plain = project_git_init(project.clone(), None).await.unwrap();

@@ -1115,6 +1115,7 @@ function rememberNewProjectDraft() {
   newProjectDraft = newProjectDiscardDraft ? null : {
     name: $("new-project-name").value, parent: $("new-project-parent").value,
     git: $("new-project-git").checked, desc: $("new-project-desc").value,
+    knowledge: $("new-project-knowledge").checked,
   };
   newProjectDiscardDraft = false;
 }
@@ -1126,6 +1127,7 @@ export function openNewProjectDialog() {
   $("new-project-name").value = draft?.name ?? "";
   $("new-project-parent").value = draft?.parent || defaultNewProjectParent();
   $("new-project-git").checked = draft?.git ?? true;
+  $("new-project-knowledge").checked = draft?.knowledge ?? false;
   $("new-project-desc").value = draft?.desc ?? "";
   newProjectDiscardDraft = false;
   showNewProjectError("");
@@ -1167,6 +1169,7 @@ export async function submitNewProject() {
       parent,
       name,
       gitInit: $("new-project-git").checked,
+      knowledgeEnabled: $("new-project-knowledge").checked,
       description: description || null,
     });
     setLayoutPref("new_project", "parent", parent);

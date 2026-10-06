@@ -174,7 +174,11 @@ fn list_dir(dir: &Path) -> Vec<(String, bool)> {
         .flatten()
         .filter_map(|item| {
             let name = item.file_name().to_string_lossy().to_string();
-            let is_dir = item.file_type().ok()?.is_dir();
+            let kind = item.file_type().ok()?;
+            if kind.is_symlink() {
+                return None;
+            }
+            let is_dir = kind.is_dir();
             Some((name, is_dir))
         })
         .collect();
@@ -328,6 +332,14 @@ impl AreaRegistry {
                 continue;
             }
             self.push(&format!("{id}/{stem}"), AreaKind::Module, Some(id));
+            if is_dir {
+                self.scan_modules(
+                    &format!("{id}/{stem}"),
+                    &dir.join("src").join(&name),
+                    true,
+                    0,
+                );
+            }
         }
         for (name, is_dir) in list_dir(dir) {
             if !is_dir || is_hidden(&name) || SKIP_CRATE_DIRS.contains(&name.as_str()) {
@@ -346,6 +358,35 @@ impl AreaRegistry {
                     let stem = script_stem(&file);
                     self.push(&format!("{sub_id}/{stem}"), AreaKind::Module, Some(&sub_id));
                 }
+            }
+        }
+    }
+
+    /// 大项目按实际目录继续分层；跳过产物、vendor、符号链接，并限制深度。
+    fn scan_modules(&mut self, parent: &str, dir: &Path, rust: bool, depth: usize) {
+        if depth >= 12 {
+            return;
+        }
+        for (name, is_dir) in list_dir(dir) {
+            if is_hidden(&name) || SKIP_TOP.contains(&name.as_str()) || name == "tests" {
+                continue;
+            }
+            let stem = if is_dir {
+                name.clone()
+            } else if rust && name.ends_with(".rs") {
+                name.trim_end_matches(".rs").into()
+            } else if !rust && ext_of(&name).is_some_and(|ext| CODE_EXTS.contains(&ext)) {
+                script_stem(&name)
+            } else {
+                continue;
+            };
+            if matches!(stem.as_str(), "mod" | "lib" | "main") || stem.ends_with("_tests") {
+                continue;
+            }
+            let id = format!("{parent}/{stem}");
+            self.push(&id, AreaKind::Module, Some(parent));
+            if is_dir {
+                self.scan_modules(&id, &dir.join(&name), rust, depth + 1);
             }
         }
     }
@@ -388,6 +429,7 @@ impl AreaRegistry {
                     continue;
                 }
                 self.push(&format!("{name}/{sub}"), AreaKind::Module, Some(&name));
+                self.scan_modules(&format!("{name}/{sub}"), &dir.join(&sub), false, 0);
             }
         }
     }
@@ -446,11 +488,20 @@ impl AreaRegistry {
                 depth_of.insert(area.id.clone(), if self.cargo { max_depth } else { 0 });
             }
         }
+        let parents: HashMap<_, _> = self
+            .areas
+            .iter()
+            .map(|area| (area.id.clone(), area.parent.clone()))
+            .collect();
         for area in &mut self.areas {
-            let crate_id = match area.kind {
-                AreaKind::Crate => area.id.clone(),
-                AreaKind::Module => area.parent.clone().unwrap_or_default(),
-            };
+            let mut crate_id = area.id.clone();
+            let mut seen = BTreeSet::new();
+            while !depth_of.contains_key(&crate_id) && seen.insert(crate_id.clone()) {
+                let Some(Some(parent)) = parents.get(&crate_id) else {
+                    break;
+                };
+                crate_id = parent.clone();
+            }
             area.depth = depth_of.get(&crate_id).copied().unwrap_or(0);
             area.band =
                 ((area.depth as f64) * f64::from(BANDS - 1) / f64::from(max_depth)).round() as u32;
@@ -472,14 +523,17 @@ impl AreaRegistry {
 
     /// crate 级祖先(模块 → 其 crate 级父区域;crate 级区域返回自身)。
     pub fn crate_of(&self, id: &str) -> Option<&str> {
-        let area = self.get(id)?;
-        match area.kind {
-            AreaKind::Crate => Some(area.id.as_str()),
-            AreaKind::Module => area.parent.as_deref(),
+        let mut area = self.get(id)?;
+        for _ in 0..16 {
+            if area.kind == AreaKind::Crate {
+                return Some(&area.id);
+            }
+            area = self.get(area.parent.as_deref()?)?;
         }
+        None
     }
 
-    /// 决定注册表内容的目录(非递归):项目根、各成员目录与 src/、crate 级子目录、顶层代码目录。
+    /// 决定注册表内容的目录:包含已扫描的深层模块，新增子模块也会使图缓存失效。
     /// 调用方对它们的列表做 stat 指纹,任何一个增删文件注册表就可能变。
     pub fn watch_dirs(&self, root: &Path) -> Vec<std::path::PathBuf> {
         let mut dirs = vec![root.to_path_buf()];
@@ -489,6 +543,28 @@ impl AreaRegistry {
             dirs.push(dir);
         }
         for area in &self.areas {
+            if area.kind == AreaKind::Module {
+                let member = self
+                    .member_paths
+                    .iter()
+                    .find(|(id, _)| area.id.starts_with(&format!("{id}/")));
+                let path = match member {
+                    Some((id, member)) => {
+                        let rest = area.id.trim_start_matches(&format!("{id}/"));
+                        let source_dir = root.join(member).join("src").join(rest);
+                        if source_dir.is_dir() {
+                            source_dir
+                        } else {
+                            root.join(member).join(rest)
+                        }
+                    }
+                    None => root.join(&area.id),
+                };
+                if path.is_dir() {
+                    dirs.push(path);
+                }
+                continue;
+            }
             if area.kind != AreaKind::Crate || self.member_paths.contains_key(&area.id) {
                 continue;
             }
@@ -548,9 +624,9 @@ impl AreaRegistry {
             let first = parts.next();
             let second = parts.next();
             match (first, second) {
-                (Some("src"), Some(module)) => {
-                    let stem = module.trim_end_matches(".rs");
-                    return self.module_or_crate(&crate_id, stem);
+                (Some("src"), Some(_)) => {
+                    let rest = rest.trim_start_matches("src/").trim_end_matches(".rs");
+                    return self.longest_module(&crate_id, rest);
                 }
                 (Some(sub), Some(file)) => {
                     let sub_id = format!("{crate_id}/{sub}");
@@ -578,8 +654,21 @@ impl AreaRegistry {
         }
         match parts.next() {
             // Cargo 项目的顶层代码目录(scripts)没有模块层。
-            Some(next) if !self.cargo => self.module_or_crate(top, next),
+            Some(_) if !self.cargo => {
+                self.longest_module(top, path[top.len() + 1..].trim_end_matches('/'))
+            }
             _ => Some(top.to_string()),
+        }
+    }
+
+    fn longest_module(&self, crate_id: &str, rest: &str) -> Option<String> {
+        let mut candidate = format!("{crate_id}/{}", rest.trim_end_matches(".rs"));
+        loop {
+            if self.index.contains_key(&candidate) {
+                return Some(candidate);
+            }
+            let (parent, _) = candidate.rsplit_once('/')?;
+            candidate = parent.into();
         }
     }
 
@@ -616,10 +705,7 @@ impl AreaRegistry {
         if token.contains("::") {
             let mut parts = token.split("::");
             let krate = self.aliases.get(parts.next()?)?;
-            return match parts.next() {
-                Some(module) => self.module_or_crate(krate, module),
-                None => Some(krate.clone()),
-            };
+            return self.longest_module(krate, &parts.collect::<Vec<_>>().join("/"));
         }
         if let Some((head, tail)) = token.split_once('/') {
             if let Some(krate) = self.aliases.get(head) {
@@ -725,7 +811,11 @@ mod tests {
     /// 两个 crate(一个带 ui/ 前端目录)+ 顶层 scripts/。
     fn fixture_workspace(tag: &str) -> PathBuf {
         let root = temp_root(tag);
-        write(&root, "Cargo.toml", "[workspace]\nmembers = [\n    \"crates/kanzei-a\", # 注释\n    \"crates/kanzei-b\",\n]\n");
+        write(
+            &root,
+            "Cargo.toml",
+            "[workspace]\nmembers = [\n    \"crates/kanzei-a\", # 注释\n    \"crates/kanzei-b\",\n]\n",
+        );
         write(
             &root,
             "crates/kanzei-a/Cargo.toml",
@@ -735,7 +825,11 @@ mod tests {
         write(&root, "crates/kanzei-a/src/tracker.rs", "");
         write(&root, "crates/kanzei-a/src/tracker_tests.rs", "");
         write(&root, "crates/kanzei-a/src/memory/mod.rs", "");
-        write(&root, "crates/kanzei-b/Cargo.toml", "[package]\nname = \"kanzei-b\"\n[dependencies]\nkanzei-a.workspace = true\nserde = \"1\"\n");
+        write(
+            &root,
+            "crates/kanzei-b/Cargo.toml",
+            "[package]\nname = \"kanzei-b\"\n[dependencies]\nkanzei-a.workspace = true\nserde = \"1\"\n",
+        );
         write(&root, "crates/kanzei-b/src/main.rs", "");
         write(&root, "crates/kanzei-b/src/run.rs", "");
         for file in ["01-core.js", "13-memory.js", "style.css"] {
@@ -834,6 +928,39 @@ mod tests {
     }
 
     #[test]
+    fn nested_modules_resolve_to_specific_areas_and_watch_their_containing_directories() {
+        let root = fixture_workspace("nested");
+        write(&root, "crates/kanzei-a/src/memory/store/cache.rs", "");
+        let registry = AreaRegistry::scan(&root);
+        assert_eq!(
+            registry.resolve_token("crates/kanzei-a/src/memory/store/cache.rs"),
+            Some("kanzei-a/memory/store/cache".into())
+        );
+        assert_eq!(
+            registry.resolve_token("kanzei_a::memory::store::cache"),
+            Some("kanzei-a/memory/store/cache".into())
+        );
+        assert_eq!(
+            registry.crate_of("kanzei-a/memory/store/cache"),
+            Some("kanzei-a")
+        );
+        assert_eq!(
+            registry
+                .get("kanzei-a/memory/store/cache")
+                .unwrap()
+                .parent
+                .as_deref(),
+            Some("kanzei-a/memory/store")
+        );
+        let dirs = registry.watch_dirs(&root);
+        assert!(
+            dirs.contains(&root.join("crates/kanzei-a/src/memory/store")),
+            "创建相邻子模块时必须使缓存失效"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn non_cargo_project_falls_back_to_top_level_dirs() {
         let root = temp_root("plain");
         write(&root, "src/app/main.py", "");
@@ -843,7 +970,11 @@ mod tests {
         write(&root, "node_modules/x/index.js", "");
         let registry = AreaRegistry::scan(&root);
         let ids: Vec<&str> = registry.all().iter().map(|a| a.id.as_str()).collect();
-        assert_eq!(ids, vec!["src", "src/app", "src/util", "web"], "{ids:?}");
+        assert_eq!(
+            ids,
+            vec!["src", "src/app", "src/util", "src/util/io", "web"],
+            "{ids:?}"
+        );
         assert!(registry.crate_deps().is_empty());
         assert_eq!(
             registry.resolve_token("src/app/main.py").as_deref(),

@@ -372,8 +372,25 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
                     kind.heading
                 ));
             }
-        } else if !ctx.project_root.join(id).exists() {
-            bad.push(format!("{id}: no such file under project root"));
+        } else {
+            let root = if id.replace('\\', "/").starts_with(".kanzei/")
+                || ctx.cwd.as_os_str().is_empty()
+            {
+                &ctx.project_root
+            } else {
+                &ctx.cwd
+            };
+            let rel = std::path::Path::new(id);
+            if rel.is_absolute()
+                || rel
+                    .components()
+                    .any(|part| matches!(part, std::path::Component::ParentDir))
+                || !root.join(rel).is_file()
+            {
+                bad.push(format!(
+                    "{id}: no such source file under its project/code root"
+                ));
+            }
         }
     }
     if bad.is_empty() {
@@ -383,7 +400,7 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
     }
 }
 
-/// D-578:manager 产出的 fact 必须能回指到真实 tracker 条目,且正文与来源有
+/// manager 产出的 fact 必须能回指到真实 tracker 或代码/文档来源,且正文与来源有
 /// 至少两个非通用主题 token 的交集。仅验证 ref 存在不足以防止把无关根因写成 active。
 pub fn validate_manager_fact_refs(
     ctx: &ToolCtx,
@@ -391,7 +408,10 @@ pub fn validate_manager_fact_refs(
     text: &str,
 ) -> Result<(), String> {
     if refs.is_empty() {
-        return Err("manager fact requires at least one tracker ref (R-/D-)".into());
+        return Err(
+            "manager fact requires at least one source ref (tracker ID or code/document path)"
+                .into(),
+        );
     }
     validate_source_refs(ctx, refs)?;
     let tracker_refs: Vec<&str> = refs
@@ -400,21 +420,44 @@ pub fn validate_manager_fact_refs(
         .filter(|id| {
             let bytes = id.as_bytes();
             bytes.len() > 2
-                && matches!(bytes[0], b'R' | b'D')
+                && matches!(bytes[0], b'R' | b'D' | b'A')
                 && bytes[1] == b'-'
                 && id[2..].chars().all(|ch| ch.is_ascii_digit())
         })
         .collect();
-    if tracker_refs.is_empty() {
-        return Err("manager fact refs must include an R-/D- tracker entry".into());
-    }
-
     let mut best = 0usize;
     let mut related = false;
+    // 项目职责/接口知识可以直接来自源码和设计文档，无须为它伪造一个缺陷。
+    for path in refs
+        .iter()
+        .filter(|path| path.contains('/') || path.contains('.') || path.contains('\\'))
+    {
+        let root =
+            if path.replace('\\', "/").starts_with(".kanzei/") || ctx.cwd.as_os_str().is_empty() {
+                &ctx.project_root
+            } else {
+                &ctx.cwd
+            };
+        let full_path = root.join(path);
+        if !full_path
+            .metadata()
+            .is_ok_and(|meta| meta.is_file() && meta.len() <= 2 * 1024 * 1024)
+        {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(full_path) else {
+            continue;
+        };
+        let source_text = format!("{path} {}", source.chars().take(65536).collect::<String>());
+        let overlap = admission::topic_overlap(text, &source_text);
+        best = best.max(overlap);
+        related |= overlap >= 2 && manager_exact_topic_overlap(text, &source_text);
+    }
     for id in tracker_refs {
         let kind = match id.as_bytes()[0] {
             b'R' => &REQUIREMENTS,
             b'D' => &DEFECTS,
+            b'A' => &DECISIONS,
             _ => continue,
         };
         let store = DocStore::open(&ctx.project_root, kind);
@@ -486,7 +529,7 @@ fn manager_exact_topic_overlap(a: &str, b: &str) -> bool {
 /// 每轮最多投递的失败草稿条数:防止一轮异常把 inbox 灌爆、manager 被撑死。
 const MAX_FAILURE_NOTES_PER_RUN: usize = 3;
 
-/// dev/memory 常驻注入与开跑预检索共用的字符预算。
+/// 项目概览、常驻约束与任务提示各自使用的字符预算。
 pub const MEMORY_CONTEXT_BUDGET: usize = 3000;
 
 /// 从正文提取复发检测指纹标记(R-149):`[fp:...]` 精确子串,排序去重。
@@ -577,59 +620,6 @@ impl FingerprintIndex {
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
-}
-
-/// 常驻索引的预算走查(D-216):dev/memory 注入与 prompt_hints 必须对同一份口径,
-/// 否则 hints 会重复注入常驻索引里已有的行。返回 (预算内的行, 预算内 id 集, 折叠条数)。/// 与注入侧同规则:continue 跳过放不下的、不 break,超长行不得埋掉后面的短行。
-pub fn resident_index(
-    project_root: &std::path::Path,
-    budget: usize,
-) -> (Vec<String>, std::collections::HashSet<String>, usize) {
-    let mut all: Vec<(MemoryEntry, String)> = Vec::new();
-    // R-194:全局记忆废弃,常驻索引只收项目 store 的 active 条目。
-    for (_, e) in MemoryStore::project(project_root).load_all() {
-        if e.status != "active" || e.category == "preference" {
-            continue;
-        }
-        all.push((
-            e.clone(),
-            format!(
-                "{} [{}/{}] {} — {}",
-                e.id, e.scope, e.category, e.title, e.description
-            ),
-        ));
-    }
-    // D-230:装箱前按价值排序,取代原先 id 升序的先到先得——老条目凭枚举顺序
-    // 霸占预算、新条目(往往正是当前最相关的)被系统性折叠。价值 = updated
-    // 新近优先;同 updated 按 id 数字降序(id 越大创建越晚)。
-    all.sort_by(|a, b| {
-        b.0.updated
-            .cmp(&a.0.updated)
-            .then_with(|| id_number(&b.0.id).cmp(&id_number(&a.0.id)))
-    });
-    let mut lines = Vec::new();
-    let mut ids = std::collections::HashSet::new();
-    let mut remaining = budget;
-    let mut folded = 0usize;
-    for (entry, line) in all {
-        let cost = line.chars().count() + 1;
-        if cost > remaining {
-            folded += 1;
-            continue;
-        }
-        remaining -= cost;
-        ids.insert(entry.id);
-        lines.push(line);
-    }
-    (lines, ids, folded)
-}
-
-/// id 尾部数字("M-042" → 42);解析失败按 0。供价值排序的平手裁决。
-fn id_number(id: &str) -> u64 {
-    id.rsplit(|c: char| !c.is_ascii_digit())
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
 }
 
 /// R-162 事件触发召回策略(tools 侧实现,注入 RunnerConfig.recall)。
@@ -1114,7 +1104,11 @@ pub fn harvest_entry_fact(
          - 请提炼成 fact(scope=project, category=fact):这条目的根因是什么?根因若是可复用知识(环境约束、工具契约、架构决策、平台限制),写成一条精炼 fact;若是本条目的具体 bug 且无外推价值,判 NOOP 不要产出。\n\
          - 判重: 若已有 fact 已描述同一根因,合并或跳过,不要新增。",
         prompt.chars().take(200).collect::<String>(),
-        if flow.is_empty() { "(无)".to_string() } else { flow },
+        if flow.is_empty() {
+            "(无)".to_string()
+        } else {
+            flow
+        },
         failures_text,
     );
     // D-578:根因候选必须携带完成条目的真实 tracker ref,否则 manager 无法机械核验
@@ -1389,7 +1383,7 @@ fn starts_with_ci(path: &std::path::Path, root: &std::path::Path) -> bool {
     p == r || p.starts_with(&format!("{}/", r.trim_end_matches('/')))
 }
 
-/// budget 与常驻注入同源,决定「哪些条目已在 memory-index 里」的判定口径。
+/// 任务提示的独立字符预算；不再依赖平铺常驻索引。
 #[cfg(test)]
 fn prompt_hints_with_budget(
     project_root: &std::path::Path,
@@ -1460,22 +1454,33 @@ fn prompt_hints_scoped(
     });
     hits.truncate(3);
     // hints 不持久化到消息历史，每轮独立组装；跨运行去重会造成下一轮缺失。
-    // D-216:已在常驻索引里的条目只给指向不重复整行(重复的大头是 description);
-    // 被预算折叠掉的条目才值得在这里给全行。
-    let (_, resident_ids, _) = resident_index(project_root, budget);
-    let lines: Vec<String> = hits
-        .iter()
-        .map(|h| {
-            if resident_ids.contains(&h.entry.id) {
-                format!("{} {}(见 memory-index)", h.entry.id, h.entry.title)
-            } else {
-                format!(
-                    "{} [{}/{}] {} — {}",
-                    h.entry.id, h.entry.scope, h.entry.category, h.entry.title, h.entry.description
-                )
-            }
-        })
-        .collect();
+    // 层级概览不再注入平铺事实行，因此每个任务提示都必须自带召回钩子。
+    let mut remaining = budget;
+    let mut folded = 0;
+    let mut lines = Vec::new();
+    for hit in &hits {
+        let line = format!(
+            "{} [{}/{}] {} — {}\n  file: {}",
+            hit.entry.id,
+            hit.entry.scope,
+            hit.entry.category,
+            hit.entry.title,
+            hit.entry.description,
+            hit.path.display()
+        );
+        let cost = line.chars().count() + 1;
+        if cost > remaining {
+            folded += 1;
+            continue;
+        }
+        remaining -= cost;
+        lines.push(line);
+    }
+    if folded > 0 {
+        lines.push(format!(
+            "预算未列出 {folded} 条相关记忆；memory_search 可展开。"
+        ));
+    }
     let block = format!(
         "<memory-hints>\n与本任务可能相关的既有记忆(memory_search 或 read 返回的 file 查看正文):\n{}\n</memory-hints>",
         lines.join("\n")
@@ -2304,7 +2309,7 @@ mod tests {
     }
 
     #[test]
-    fn hints_不重复常驻索引_折叠条目才给全行_preference_不进提示() {
+    fn hints_自带召回钩子与预算折叠_不指向退役索引() {
         let dir = std::env::temp_dir().join(format!(
             "kz-hintdedup-{}-{}",
             std::process::id(),
@@ -2326,88 +2331,22 @@ mod tests {
         add("fact", "发版长条目", &"发版流程细节".repeat(20)); // M-002,索引行显著更长
         add("preference", "发版定调", "发版发布安装更新必读"); // M-003
 
-        // 预算恰好只装得下 M-001 的行:M-002 被折叠。
-        let (lines, ids, folded) = resident_index(&dir, 80);
-        assert_eq!(lines.len(), 1, "{lines:?}");
-        assert!(ids.contains("M-001"), "{ids:?}");
-        assert_eq!(folded, 1);
-
         let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 80, None).unwrap();
-        // 常驻条目只给指向,不再重复 description 整行。
         assert!(
-            block.contains("M-001 发版短条目(见 memory-index)"),
-            "{block}"
+            block.contains("M-001 [project/sop]"),
+            "任务提示必须带召回钩子: {block}"
         );
         assert!(
-            !block.contains("M-001 [project/sop]"),
-            "常驻条目不该给全行: {block}"
+            !block.contains("见 memory-index"),
+            "不能指向已经退役的常驻索引: {block}"
         );
-        // 被折叠的条目在 hints 里给全行(description 在这才有信息量)。
-        assert!(
-            block.contains("M-002 [project/fact] 发版长条目 — "),
-            "{block}"
-        );
+        assert!(block.contains("预算未列出"), "折叠必须可见: {block}");
         // preference 全文常驻,hints 不提、遥测不记。
         assert!(!block.contains("M-003"), "preference 不该进 hints: {block}");
         assert!(
             store.recalls(10).is_empty(),
             "prompt_hints 生产路径不得继续写入 legacy memory_recalls"
         );
-        std::fs::remove_dir_all(dir).ok();
-    }
-
-    /// D-230:resident_index 装箱前按价值排序——新 updated 优先、同 updated 时
-    /// id 大(创建晚)优先,取代 id 升序先到先得(老条目凭枚举顺序霸占预算)。
-    #[test]
-    fn resident_index_价值排序_新近条目优先于老条目() {
-        let dir = std::env::temp_dir().join(format!(
-            "kz-resident-sort-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mem = dir.join(".kanzei").join("memory");
-        std::fs::create_dir_all(&mem).unwrap();
-        // 三条 fact 条目,updated 各不相同(老、中、新),行长短都远低于预算。
-        let write = |id: &str, updated: &str| {
-            std::fs::write(
-                mem.join(format!("{id}-{}.md", id.to_lowercase())),
-                format!(
-                    "---\nid: {id}\nscope: project\ncategory: fact\ntitle: 条目 {id}\n\
-                     description: 描述 {id}\nstatus: active\ncreated: 2026-08-01\n\
-                     updated: {updated}\nsource: user\n---\n\n正文 {id}\n"
-                ),
-            )
-            .unwrap();
-        };
-        write("M-100", "2026-08-01"); // 老
-        write("M-101", "2026-08-03"); // 中
-        write("M-102", "2026-08-05"); // 新
-
-        // 预算只装得下两条(行长约 42c):最新 updated 的两条应入选,最老的折叠。
-        let (lines, ids, folded) = resident_index(&dir, 100);
-        assert_eq!(folded, 1, "{lines:?}");
-        assert!(ids.contains("M-102"), "最新更新的条目必须入选: {ids:?}");
-        assert!(ids.contains("M-101"), "次新更新的条目必须入选: {ids:?}");
-        assert!(!ids.contains("M-100"), "最老的条目应被折叠: {ids:?}");
-        // 行序也按价值:最新的排最前。
-        assert!(lines[0].starts_with("M-102"), "行序应按价值降序: {lines:?}");
-
-        // 同 updated 平手:id 大(创建晚)优先。M-103/M-104 同 updated。
-        write("M-103", "2026-08-06");
-        write("M-104", "2026-08-06");
-        // 预算恰好装两条:M-104 + M-103 入选,次新的 M-102 折叠。
-        let (_, ids2, _) = resident_index(&dir, 110);
-        assert!(ids2.contains("M-104"), "平手时 id 大优先: {ids2:?}");
-        assert!(ids2.contains("M-103"), "平手时次大 id 也应入选: {ids2:?}");
-        assert!(
-            !ids2.contains("M-102"),
-            "预算内应优先保留最新 updated: {ids2:?}"
-        );
-
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2616,8 +2555,8 @@ source: user
         // R-162 B2:Tier0 内存索引——指纹→id 精确查询,增删改各走各的通道。
         let fp = |id: &str, body: &str| {
             parse_entry(&format!(
-            "---\nid: {id}\nscope: project\ncategory: sop\ntitle: t\ndescription: d\nstatus: active\ncreated: 2026-08-10\nupdated: 2026-08-10\nsource: user\n---\n{body}"
-        ))
+                "---\nid: {id}\nscope: project\ncategory: sop\ntitle: t\ndescription: d\nstatus: active\ncreated: 2026-08-10\nupdated: 2026-08-10\nsource: user\n---\n{body}"
+            ))
         };
         let a = fp("M-100", "[fp:edit|old_string not found] 正文");
         let b = fp("M-101", "[fp:edit|old_string not found] 另一条");

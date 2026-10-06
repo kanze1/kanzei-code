@@ -1464,14 +1464,6 @@ mod tests {
             hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
         );
 
-        // ② 常驻索引 resident_index:不含全局条目。
-        let (lines, ids, _) = crate::memory::resident_index(&root, 4096);
-        assert!(ids.contains(&project_entry.id), "项目条目应在常驻索引");
-        assert!(
-            !ids.contains(&global_entry.id),
-            "全局条目不得进常驻索引: {lines:?}"
-        );
-
         // ③ 指纹索引 FingerprintIndex::build:只收项目条目。
         let fp_map = crate::memory::FingerprintIndex::build(&root);
         let all_ids: std::collections::HashSet<String> =

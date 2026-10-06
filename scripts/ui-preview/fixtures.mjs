@@ -15,6 +15,7 @@
 import { MEMORY_GRAPH_FIXTURE, memoryArchivedFor, memoryEntriesFor, memoryEntryFor } from "./memory-graph-fixture.mjs";
 // ── 分区:架构图 ──
 import { archSnapshot } from "./arch-fixture.mjs";
+import { projectKnowledgeFixture } from "./project-knowledge-fixture.mjs";
 import { decisionConsoleFixture } from "./decision-console-fixture.mjs";
 import { mergeWorkspacePrefs } from "./workspace-prefs-fixture.mjs";
 
@@ -1458,6 +1459,29 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     softwire_answer_question: ({ id, requestId, projectDir, sessionId }) => ({ id, requestId, projectDir, sessionId, status: "delivered" }),
     // ── 分区:网页预览前端 ──
     ...previewCommands(params),
+  };
+
+  const enabledKnowledge = projectKnowledgeFixture(PROJECT);
+  let knowledge = params.knowledge === "off"
+    ? { ...enabledKnowledge, enabled: false, areas: [], memories: [], unassigned: [] } : enabledKnowledge;
+  commands.project_knowledge_configure = ({ enabled }) => {
+    knowledge = enabled ? enabledKnowledge : { ...enabledKnowledge, enabled: false, areas: [], memories: [], unassigned: [] };
+    return knowledge;
+  };
+  const fileSnapshot = commands.files_snapshot;
+  commands.files_snapshot = (args) => {
+    const snapshot = fileSnapshot(args);
+    return { ...snapshot, knowledge, files: snapshot.files.map(file => ({ ...file,
+      area: file.path.includes("kanzei-tools") ? (file.path.endsWith("edit.rs") ? "kanzei-tools/edit" : "kanzei-tools/registry") : null,
+    })) };
+  };
+  const memoryOverview = commands.memory_overview;
+  commands.memory_overview = () => ({ ...memoryOverview, knowledge });
+  const architectureSnapshot = commands.architecture_snapshot;
+  commands.architecture_snapshot = () => {
+    const snapshot = architectureSnapshot();
+    const { graph: _retiredGraph, ...current } = snapshot;
+    return { ...current, knowledge };
   };
 
   for (const p of commands.workspace_snapshot.projects) for (const line of p.lines) {

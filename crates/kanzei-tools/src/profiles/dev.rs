@@ -116,7 +116,7 @@ impl Component for DevProfile {
             "architecture",
             Arc::new(crate::architecture::ArchitectureTool),
         );
-        for read_only in ["get", "check", "regenerate", "diagrams"] {
+        for read_only in ["context", "get", "check", "regenerate", "diagrams"] {
             draft
                 .permissions
                 .push(rule("architecture", read_only, Effect::Allow));
@@ -183,7 +183,8 @@ impl Component for DevProfile {
                 ("*.kanzei/project/*", None, "用户手写的项目资产,模型只读"),
             ] {
                 if kanzei_harness::is_general_conversation_root(&ctx.project_root)
-                    && resource.contains(".kanzei/project/") {
+                    && resource.contains(".kanzei/project/")
+                {
                     continue;
                 }
                 draft.permissions.push_managed_hard_deny(
@@ -268,89 +269,43 @@ impl Component for DevProfile {
             }),
         );
 
-        // Memory 索引常驻(R-104):只注入 INDEX 行(id+category+title+description),
-        // 正文按需 memory_search——description 的质量就是触发器的质量。
+        // 常驻项目层概览；模块经验和上下游通过 architecture context 按需展开。
+        draft.context.insert(
+            "dev/project-knowledge",
+            source("dev/project-knowledge", |ctx: &ResolveCtx| {
+                let overview = crate::project_knowledge::snapshot(&ctx.project_root, &ctx.cwd)
+                    .overview(MEMORY_CONTEXT_BUDGET);
+                (!overview.is_empty()).then_some(overview)
+            }),
+        );
+        // 用户已确认的项目约束仍常驻；平铺事实索引已退役。
         draft.context.insert(
             "dev/memory",
             source("dev/memory", |ctx: &ResolveCtx| {
-                // preference = 常驻定调(开发重心、验收口径…),必须全文注入才有约束力;
-                // fact/sop 只给索引行,正文按需检索(否则预算爆掉)。
-                let mut directives: Vec<String> = Vec::new();
-                // R-194:全局记忆废弃,常驻 preference 只收项目 store。
-                for (_, e) in crate::memory::MemoryStore::project(&ctx.project_root).load_all() {
-                    if e.status != "active" || e.category != "preference" {
+                let mut out = String::from("<project-constraints>\n");
+                let mut folded = 0;
+                for (_, entry) in crate::memory::MemoryStore::project(&ctx.project_root).load_all()
+                {
+                    if entry.status != "active" || entry.category != "preference" {
                         continue;
                     }
-                    let body: String = e.body.chars().take(600).collect();
-                    directives.push(format!("{} {}\n{}", e.id, e.title, body.trim()));
-                }
-                // 索引行预算走查与 prompt_hints 共用同一实现(D-216):
-                // 两边口径一致,hints 才知道哪些条目已经在这里、不必重复整行。
-                let (lines, _, folded) =
-                    crate::memory::resident_index(&ctx.project_root, MEMORY_CONTEXT_BUDGET);
-                // 冷启动(D-127):零条目时也必须留声明,否则模型根本不知道记忆系统存在,
-                // 于是永不写入 → 永远零条目 → 注入永远为空,自锁成死环。
-                if lines.is_empty() && folded == 0 && directives.is_empty() {
-                    return Some(
-                        "<memory-index>\n(记忆库为空)\nYou have a long-term memory system: \
-                         `memory_search` to recall, `memory_note` to record what would change \
-                         a future agent's ACTION (root causes, environment constraints, user \
-                         decisions, dead ends). Recording costs one call and saves future runs \
-                         from re-deriving it.\n</memory-index>"
-                            .into(),
-                    );
-                }
-                let mut out = String::from("<memory-index>\n");
-                if !directives.is_empty() {
-                    out.push_str(
-                        "STANDING DIRECTIVES (obey these; they are the user's own words):\n",
-                    );
-                    let mut budget = MEMORY_CONTEXT_BUDGET;
-                    let mut directives_shown = 0usize;
-                    for directive in &directives {
-                        let cost = directive.chars().count() + 1;
-                        // continue 而非 break:放不下的跳过、继续填后面的。break 会让
-                        // 一条超长条目把它之后**全部**更短的条目一起挡在外面。
-                        if cost > budget {
-                            continue;
-                        }
-                        budget -= cost;
-                        directives_shown += 1;
-                        out.push_str(directive);
-                        out.push_str("\n\n");
+                    // 模块约束按区域加载，只有无区域的项目级约束常驻。
+                    if !entry.areas().is_empty() {
+                        continue;
                     }
-                    // D-196:被丢掉的必须报数。预算注释写的是"超预算必须显式说明丢了
-                    // 多少,不做静默截断",而这半边一直没有——改成 continue 之后更要紧:
-                    // 丢的不再是尾巴而是中间挑着丢,丢掉的又是标着"obey these; they are
-                    // the user's own words"的用户原话,模型完全看不出少了东西。
-                    if directives_shown < directives.len() {
-                        out.push_str(&format!(
-                            "(另有 {} 条常驻指令因预算未列出,memory_search category=preference 可取全文)\n\n",
-                            directives.len() - directives_shown
-                        ));
+                    let text = format!("{} {}\n{}\n", entry.id, entry.title, entry.body.trim());
+                    if out.chars().count() + text.chars().count() > MEMORY_CONTEXT_BUDGET {
+                        folded += 1;
+                        continue;
                     }
-                }
-                if !lines.is_empty() || folded > 0 {
-                    out.push_str("KNOWN FACTS (index only — fetch bodies with `memory_search`):\n");
-                }
-                for line in &lines {
-                    out.push_str(line);
-                    out.push('\n');
+                    out.push_str(&text);
                 }
                 if folded > 0 {
-                    out.push_str(&format!("(还有 {folded} 条未列出,memory_search 可检索)\n"));
+                    out.push_str(&format!(
+                        "预算未加载 {folded} 条约束，memory_search category=preference 可取全文。\n"
+                    ));
                 }
-                out.push_str(
-                    "Search a listed fact BEFORE re-deriving it. Record via `memory_note` \
-                     ONLY what would change a future agent's action (root cause, environment \
-                     constraint, user decision, dead end); narration that changes no future \
-                     action is noise — skip it. The memory manager consolidates notes later. \
-                     Next steps belong in req/defect, not memory.\n</memory-index>",
-                );
-                if kanzei_harness::is_general_conversation_root(&ctx.project_root) {
-                    out = out.replace("Next steps belong in req/defect, not memory.",
-                        "Keep transient next steps in the current conversation.");
-                }
+                out.push_str("</project-constraints>");
                 Some(out)
             }),
         );

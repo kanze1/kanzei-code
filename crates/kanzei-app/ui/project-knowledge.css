@@ -1,0 +1,10 @@
+.project-knowledge-wrap { margin: 12px 0; padding: 10px 12px; border-block: 1px solid var(--border); }
+.project-knowledge-wrap > summary { cursor: pointer; font-weight: 600; }
+.project-knowledge-wrap h2 { margin: 0 0 8px; font-size: 16px; }
+.knowledge-area { margin-block: 6px; padding-left: 12px; border-left: 1px solid var(--border); }
+.knowledge-area > summary { cursor: pointer; padding-block: 5px; overflow-wrap: anywhere; }
+.knowledge-area p { margin: 5px 0; font-size: 12px; overflow-wrap: anywhere; }
+.knowledge-memory { display: block; max-width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; margin-block: 4px; }
+.knowledge-switch { display: flex; align-items: center; gap: 8px; padding-block: 8px; cursor: pointer; }
+.knowledge-switch input { flex: 0 0 auto; width: 16px; height: 16px; }
+#files-knowledge-wrap { flex: 0 0 auto; max-height: 35%; overflow: auto; margin: 0; }

@@ -6,6 +6,7 @@ import { mountDiagram, preloadDiagramEngine, SEMANTIC_CLASSES } from "./04-diagr
 import { fillTemplate } from "./04-structured-parse.js";
 import { currentProject, toastError } from "./03-shell.js";
 import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
+import { openKnowledgeMemory, renderProjectKnowledge } from "./24-project-knowledge.js";
 
 // ---------- R-122 架构 / UI2-0926 #7 架构图 ----------
 // 上方大图卡:标签页第一张是 crate 依赖图(后端每次从 Cargo 清单生成,不落盘,可切「直接依赖 / 全部依赖」),
@@ -31,6 +32,7 @@ function clearArch() {
   $("arch-diagram-issues")?.classList.add("hidden");
   $("arch-open-index")?.classList.add("hidden");
   $("arch-layout")?.classList.add("hidden");
+  renderProjectKnowledge($("arch-knowledge"), null);
   const summary = $("arch-summary");
   if (summary) summary.textContent = "";
   archFilter = "";
@@ -107,6 +109,10 @@ const archGroupTitle = (heading) => ({
 const ARCH_DEFAULT_COLLAPSED = new Set(["historical_snapshot", "superseded"]);
 
 export function renderArch(snap) {
+  const project = currentProject;
+  renderProjectKnowledge($("arch-knowledge"), snap.knowledge, {
+    onMemory: memory => void openKnowledgeMemory(project, memory).catch(err => toastError(`${t("打开失败")}: ${err}`)),
+  });
   renderArchDiagrams(snap);
   renderArchTree(snap);
   $("arch-layout")?.classList.remove("hidden");

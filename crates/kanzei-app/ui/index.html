@@ -790,6 +790,10 @@
               <button type="button" id="memory-view-graph" aria-pressed="false" data-i18n-key="图谱">图谱</button>
             </div>
           </div>
+          <details class="project-knowledge-wrap">
+            <summary data-i18n-key="项目知识">项目知识</summary>
+            <div id="memory-arch" aria-label="记忆架构总览" data-i18n-aria-label="记忆架构总览"></div>
+          </details>
           <div class="memory-manager-toolbar" role="search" aria-label="记忆列表筛选" data-i18n-aria-label="记忆列表筛选">
             <label><span data-i18n-key="范围">范围</span><select id="memory-scope-filter" aria-label="记忆范围" data-i18n-aria-label="记忆范围"></select></label>
             <label><span data-i18n-key="分类">分类</span><select id="memory-category-filter" aria-label="记忆分类" data-i18n-aria-label="记忆分类"></select></label>
@@ -880,7 +884,6 @@
               </section>
               <details class="memory-diagnostics">
                 <summary data-i18n-key="整理与诊断">整理与诊断</summary>
-                <div id="memory-arch" class="memory-arch" aria-label="记忆架构总览" data-i18n-aria-label="记忆架构总览"></div>
                 <h3><span data-i18n-key="空闲整理清单">空闲整理清单</span> <span id="memory-flags-count" class="dim"></span>
                 </h3>
                 <p class="dim" data-i18n-key="这里列出高频召回和多次注入后尚未记录正文读取的条目，供逐条复查。未读取也可能已使用摘要，不能据此自动降级。">这里列出高频召回和多次注入后尚未记录正文读取的条目，供逐条复查。未读取也可能已使用摘要，不能据此自动降级。</p>
@@ -929,6 +932,10 @@
             <div id="files-tree" role="tree" aria-label="项目文件树" data-i18n-aria-label="项目文件树"></div>
           </div>
           <div id="files-main">
+            <details id="files-knowledge-wrap" class="project-knowledge-wrap hidden">
+              <summary data-i18n-key="模块职责与经验">模块职责与经验</summary>
+              <div id="files-knowledge"></div>
+            </details>
             <!-- UI2-0926 #6 文件编辑:头部 = 未保存标记 · 路径 · 编码/换行 · 同步提示 · [放弃修改][保存];
                  下面依次是只读原因条、冲突横幅(比较 / 用磁盘版本 / 覆盖磁盘版本)、比较视图的说明条。 -->
             <div id="files-preview-head" class="hidden">
@@ -983,6 +990,10 @@
             <div id="arch-diagram-canvas" role="tabpanel"></div>
             <div id="arch-diagram-foot"></div>
             <div id="arch-diagram-issues" class="hidden" aria-label="图检查提示" data-i18n-aria-label="图检查提示"></div>
+          </section>
+          <section class="project-knowledge-wrap">
+            <h2 data-i18n-key="项目知识">项目知识</h2>
+            <div id="arch-knowledge"></div>
           </section>
           <div id="arch-layout" class="hidden">
             <div id="arch-tree-wrap">
@@ -1641,6 +1652,8 @@
       <div id="new-project-preview" class="np-preview" data-i18n-raw></div>
       <label class="np-check"><input id="new-project-git" type="checkbox" checked /><span data-i18n-key="初始化 Git 仓库">初始化 Git 仓库</span></label>
       <div class="np-hint" data-i18n-key="启用独立任务、提交与改动统计;本机配置了 Git 身份时会顺手做一次首提交">启用独立任务、提交与改动统计;本机配置了 Git 身份时会顺手做一次首提交</div>
+      <label class="np-check"><input id="new-project-knowledge" type="checkbox" /><span data-i18n-key="启用层级项目知识">启用层级项目知识</span></label>
+      <div class="np-hint" data-i18n-key="复杂项目可启用并初始化；轻量项目默认关闭。已有记忆会保留。">复杂项目可启用并初始化；轻量项目默认关闭。已有记忆会保留。</div>
       <label class="np-field" for="new-project-desc"><span data-i18n-key="一句话描述(可选)">一句话描述(可选)</span></label>
       <textarea id="new-project-desc" rows="2" placeholder="例如:手机上用的 Markdown 上下文库" data-i18n-placeholder="例如:手机上用的 Markdown 上下文库"></textarea>
       <div class="np-hint" data-i18n-key="创建后放进输入框当第一条消息的草稿,不会自动发送">创建后放进输入框当第一条消息的草稿,不会自动发送</div>

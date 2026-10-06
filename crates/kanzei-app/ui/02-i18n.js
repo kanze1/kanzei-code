@@ -12,6 +12,19 @@ import { refreshConversationList } from "./15-views-misc.js";
 import { persistLanguagePreference, renderProviders } from "./16-settings.js";
 
 export const I18N_EN = {
+  "启用层级项目知识": "Enable hierarchical project knowledge",
+  "复杂项目可启用并初始化；轻量项目默认关闭。已有记忆会保留。": "Enable and initialize for complex projects. Off by default for lightweight projects. Existing memories are retained.",
+  "已启用：按模块加载职责、依赖与经验；关闭会保留记忆。": "Enabled: load responsibilities, dependencies and experience by module. Turning it off retains memories.",
+  "项目知识": "Project knowledge", "模块职责与经验": "Module responsibilities and experience",
+  "职责": "Responsibility", "接口约束": "Interface contract", "项目约束": "Project constraint",
+  "环境": "Environment", "操作流程": "Procedure", "踩坑": "Pitfall", "事实": "Fact",
+  "条记忆": "memories",
+  "推断关联": "Inferred link", "AI 用途摘要": "AI purpose summary",
+  "尚无该模块的经验记录": "No experience recorded for this module yet",
+  "按项目结构展开职责、约束与经验；推断关联保留依据。": "Explore responsibilities, constraints and experience by project structure; inferred links retain their basis.",
+  "项目级与未归类": "Project level and unassigned",
+  "项目知识将在探索和修改中积累": "Project knowledge accumulates through exploration and changes",
+
   "正在生成…": "Generating…",
   "所有对话并发上限": "Concurrency across conversations",
   "积极协作并发": "Ultra concurrency",

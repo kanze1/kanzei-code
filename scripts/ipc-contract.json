@@ -1,6 +1,5 @@
 {
   "decision_review": {
-    "delivery": "nullable",
     "decision": {
       "call_id": "string",
       "created_at": "number",
@@ -31,6 +30,7 @@
       "status": "string",
       "work_unit_id": "nullable"
     },
+    "delivery": "nullable",
     "preference_error": "nullable"
   },
   "delivered_image": {
@@ -76,11 +76,11 @@
         ],
         "prior_art": "nullable",
         "priority": "string",
+        "requirement": "nullable",
         "severity": "string",
         "status": "string",
         "title": "string",
-        "work_units": "array",
-        "requirement": "nullable"
+        "work_units": "array"
       }
     ],
     "findings": "array",
@@ -109,11 +109,11 @@
         ],
         "prior_art": "nullable",
         "priority": "string",
+        "requirement": "nullable",
         "severity": "nullable",
         "status": "string",
         "title": "string",
-        "work_units": "array",
-        "requirement": "nullable"
+        "work_units": "array"
       }
     ],
     "incident_metrics": {
@@ -208,13 +208,13 @@
         ],
         "prior_art": "nullable",
         "priority": "string",
+        "requirement": {
+          "format": "number"
+        },
         "severity": "nullable",
         "status": "string",
         "title": "string",
-        "work_units": "array",
-        "requirement": {
-          "format": "number"
-        }
+        "work_units": "array"
       }
     ],
     "research_topics": "array",
@@ -277,6 +277,7 @@
     },
     "files": [
       {
+        "area": "string",
         "chars": "nullable",
         "lines": "number",
         "note": "nullable",
@@ -285,6 +286,29 @@
         "size": "number"
       }
     ],
+    "knowledge": {
+      "areas": [
+        {
+          "dependencies": "array",
+          "dependency_depth": "number",
+          "dependents": "array",
+          "id": "string",
+          "kind": "string",
+          "label": "string",
+          "memory_ids": "array",
+          "parent": "nullable",
+          "purposes": "array",
+          "tree_depth": "number"
+        }
+      ],
+      "code_root": "string",
+      "enabled": "bool",
+      "memories": "array",
+      "project_root": "string",
+      "unassigned": "array",
+      "version": "number",
+      "warnings": "array"
+    },
     "reused": "number",
     "unannotated": "number"
   },

@@ -296,8 +296,9 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn files_snapshot_形状与ipc契约一致() {
         let root = fixture_project();
+        kanzei_tools::project_knowledge::set_enabled(&root, true).unwrap();
         let actual = shape(
-            &crate::files_view::files_snapshot(root.display().to_string())
+            &crate::files_view::files_snapshot(root.display().to_string(), None)
                 .await
                 .expect("夹具项目应能取到文件快照"),
         );

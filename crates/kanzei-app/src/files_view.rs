@@ -12,8 +12,8 @@ use tauri::Emitter;
 use kanzei_harness::KanzeiConfig;
 use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_tools::files::{
-    aggregate_dirs, annotations_path, load_annotations, save_annotations, scan_incremental,
-    Annotation, FileEntry,
+    aggregate_dirs, annotations_path, directory_fingerprint, load_annotations, save_annotations,
+    scan_incremental, valid_directory_notes, Annotation, AnnotationStore, FileEntry,
 };
 
 pub(crate) fn resolve_root(project_dir: &str) -> PathBuf {
@@ -30,8 +30,15 @@ static SNAPSHOT_CACHE: std::sync::Mutex<Option<(PathBuf, Vec<FileEntry>)>> =
 /// D-233 批1:async 化——同步 Tauri command 在主线程执行,整树扫描期间
 /// UI 完全冻结;async command 由线程池执行,主线程立即解放。
 #[tauri::command]
-pub async fn files_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
+pub async fn files_snapshot(
+    project_dir: String,
+    knowledge_project_dir: Option<String>,
+) -> Result<serde_json::Value, String> {
     let root = resolve_root(&project_dir);
+    let knowledge_root = knowledge_project_dir
+        .as_deref()
+        .map(resolve_root)
+        .unwrap_or_else(|| root.clone());
     let (entries, reused) = {
         let mut guard = SNAPSHOT_CACHE.lock().unwrap();
         let previous = guard
@@ -44,7 +51,9 @@ pub async fn files_snapshot(project_dir: String) -> Result<serde_json::Value, St
         (entries, reused)
     };
     let dirs = aggregate_dirs(&entries);
-    let annotations = load_annotations(&root);
+    let annotations = load_annotations(&knowledge_root);
+    let registry = kanzei_tools::project_knowledge::enabled(&knowledge_root)
+        .then(|| kanzei_harness::areas::AreaRegistry::scan(&root));
     let files: Vec<serde_json::Value> = entries
         .iter()
         .map(|entry| {
@@ -61,6 +70,7 @@ pub async fn files_snapshot(project_dir: String) -> Result<serde_json::Value, St
                 "chars": entry.chars,
                 "oversized": entry.oversized,
                 "note": note,
+                "area": registry.as_ref().and_then(|registry| registry.resolve_token(&entry.path)),
             })
         })
         .collect();
@@ -82,7 +92,8 @@ pub async fn files_snapshot(project_dir: String) -> Result<serde_json::Value, St
     Ok(json!({
         "files": files,
         "dirs": dirs,
-        "dirNotes": annotations.dirs,
+        "dirNotes": valid_directory_notes(&root, &annotations),
+        "knowledge": kanzei_tools::project_knowledge::snapshot(&knowledge_root, &root),
         "annotated": annotated,
         "annotatable": annotatable.len(),
         "unannotated": annotatable.len() - annotated,
@@ -172,12 +183,15 @@ pub async fn files_annotate(
             Ok(note) => {
                 // 落库前重算内容 hash:标注期间文件被改就丢弃,下次增量再来——
                 // 绑旧指纹立即失效,绑新指纹会把旧内容的标注挂在新内容上。
-                let stamp_now = kanzei_tools::files::content_hash(&bytes_now);
-                if stamp_now == entry.stamp {
+                let stamp_now = std::fs::read(&abs)
+                    .ok()
+                    .map(|bytes| kanzei_tools::files::content_hash(&bytes));
+                let input_stamp = kanzei_tools::files::content_hash(&bytes_now);
+                if stamp_now.as_ref() == Some(&entry.stamp) && input_stamp == entry.stamp {
                     store.files.insert(
                         entry.path.clone(),
                         Annotation {
-                            hash: stamp_now,
+                            hash: input_stamp,
                             note,
                         },
                     );
@@ -206,21 +220,35 @@ pub async fn files_annotate(
         save_annotations(&root, &store).map_err(|e| e.to_string())?;
     }
     // 目录聚合标注:输入 = 目录下(已有标注的)文件名+一句话,输出目录一句话。
-    // 只在本轮有新标注时做——全失败还去标目录纯属浪费。
-    if dirty && !cancelled {
-        let dirs = aggregate_dirs(&entries);
-        for dir in dirs.keys() {
-            let notes: Vec<String> = entries
-                .iter()
-                .filter(|e| {
-                    let parent = e.path.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-                    parent == dir.as_str()
-                })
-                .filter_map(|e| {
-                    let a = store.files.get(&e.path)?;
-                    (a.hash == e.stamp).then(|| format!("{}: {}", e.path, a.note))
-                })
-                .collect();
+    // 目录来源先锁定指纹，再重扫：文件阶段结束后发生的改动也不能套用旧摘要。
+    let signatures: std::collections::BTreeMap<_, _> = aggregate_dirs(&entries)
+        .keys()
+        .filter_map(|dir| directory_fingerprint(&root, dir).map(|hash| (dir.clone(), hash)))
+        .collect();
+    let (directory_entries, _) = scan_incremental(&root, None);
+    let directories = aggregate_dirs(&directory_entries);
+    let stale_dirs = directories.keys().any(|dir| {
+        signatures
+            .get(dir)
+            .is_some_and(|hash| store.dir_hashes.get(dir) != Some(hash))
+    });
+    if (dirty || stale_dirs) && !cancelled {
+        for dir in directories.keys() {
+            if ANNOTATE_CANCEL.load(Ordering::SeqCst) {
+                cancelled = true;
+                break;
+            }
+            let Some(signature) = signatures.get(dir) else {
+                continue;
+            };
+            if directory_fingerprint(&root, dir).as_ref() != Some(signature)
+                || store.dir_hashes.get(dir) == Some(signature)
+            {
+                continue;
+            }
+            let Some(notes) = directory_annotation_inputs(&directory_entries, &store, dir) else {
+                continue;
+            };
             if notes.is_empty() {
                 continue;
             }
@@ -233,7 +261,10 @@ pub async fn files_annotate(
                 )
                 .await
             {
-                store.dirs.insert(dir.clone(), note);
+                if directory_fingerprint(&root, dir).as_ref() == Some(signature) {
+                    store.dirs.insert(dir.clone(), note);
+                    store.dir_hashes.insert(dir.clone(), signature.clone());
+                }
             }
         }
         save_annotations(&root, &store).map_err(|e| e.to_string())?;
@@ -248,8 +279,32 @@ pub async fn files_annotate(
     }))
 }
 
-const ANNOTATE_SYSTEM: &str =
-    "用一句中文(20 字内)说明这个文件的用途——它负责什么,不要复述代码。只输出这一句,不要前缀、引号或解释。";
+/// 所有可标注来源都必须有效；部分旧摘要不能被包装成当前整个目录的职责。
+fn directory_annotation_inputs(
+    entries: &[FileEntry],
+    store: &AnnotationStore,
+    dir: &str,
+) -> Option<Vec<String>> {
+    entries
+        .iter()
+        .filter(|entry| {
+            !entry.oversized
+                && (entry.lines.is_some() || entry.chars.is_some())
+                && entry
+                    .path
+                    .rsplit_once('/')
+                    .map(|(parent, _)| parent)
+                    .unwrap_or("")
+                    == dir
+        })
+        .map(|entry| {
+            let annotation = store.files.get(&entry.path)?;
+            (annotation.hash == entry.stamp).then(|| format!("{}: {}", entry.path, annotation.note))
+        })
+        .collect()
+}
+
+const ANNOTATE_SYSTEM: &str = "用一句中文(20 字内)说明这个文件的用途——它负责什么,不要复述代码。只输出这一句,不要前缀、引号或解释。";
 
 /// 标注后端。qwen3.5 这类思考模型经 openai 兼容层**关不掉思考**:实测 4b 档一句话
 /// 任务思考 1024 token 还没想完,正文永远为空,231 个文件全部失败(D-213)。
@@ -402,6 +457,43 @@ fn clean_note(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 目录聚合拒绝过期或缺失的文件用途来源() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-dir-sources-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let (entries, _) = scan_incremental(&root, None);
+        let mut annotations = AnnotationStore::default();
+        annotations.files.insert(
+            "src/main.rs".into(),
+            Annotation {
+                hash: kanzei_tools::files::content_hash(b"fn main() {}\n"),
+                note: "程序入口".into(),
+            },
+        );
+        assert_eq!(
+            directory_annotation_inputs(&entries, &annotations, "src")
+                .unwrap()
+                .len(),
+            1
+        );
+        std::fs::write(root.join("src/main.rs"), "fn changed() {}\n").unwrap();
+        let (changed, _) = scan_incremental(&root, None);
+        assert!(directory_annotation_inputs(&changed, &annotations, "src").is_none());
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(root.join("src/new.rs"), "fn new() {}\n").unwrap();
+        let (added, _) = scan_incremental(&root, None);
+        assert!(directory_annotation_inputs(&added, &annotations, "src").is_none());
+        std::fs::remove_dir_all(root).ok();
+    }
 
     /// D-213:标注清洗要能从思考模型的输出里捞出正文,捞不出必须报 None
     /// (上游转失败并上浮原因),绝不产出空/垃圾标注。

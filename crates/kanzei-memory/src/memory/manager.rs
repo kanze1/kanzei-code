@@ -27,7 +27,7 @@ fn store_for(ctx: &ToolCtx, scope: &str) -> anyhow::Result<MemoryStore> {
 /// 记忆图谱 `area:`:每项经 AreaRegistry 归一成规范区域 id;任何一个解析不到就整体拒绝,
 /// 报错列出该 token 与最多 5 个最接近的区域 id(报错写全判据)。
 fn resolve_areas(ctx: &ToolCtx, tokens: &[String]) -> Result<Vec<String>, String> {
-    let registry = kanzei_harness::areas::AreaRegistry::scan(&ctx.project_root);
+    let registry = kanzei_harness::areas::AreaRegistry::scan(&ctx.cwd);
     let mut out = Vec::new();
     for token in tokens.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
         match registry.resolve_token(token) {
@@ -247,7 +247,10 @@ impl Tool for MemoryAddTool {
             Ok(AddOutcome::Added(e)) => {
                 if !areas.is_empty() {
                     if let Err(error) = store.set_area(&e.id, &areas) {
-                        return ToolOutput::error(format!("added {} but area write failed: {error}", e.id));
+                        return ToolOutput::error(format!(
+                            "added {} but area write failed: {error}",
+                            e.id
+                        ));
                     }
                 }
                 ToolOutput::ok(format!("added {} [{}] {}", e.id, e.category, e.title))
@@ -1500,9 +1503,7 @@ mod tests {
             "无 refs 的 fact 不得写入: {}",
             no_refs.content
         );
-        assert!(no_refs
-            .content
-            .contains("requires at least one tracker ref"));
+        assert!(no_refs.content.contains("requires at least one source ref"));
 
         let m001 = MemoryAddTool
             .execute(
@@ -1672,6 +1673,43 @@ mod tests {
             "manager 必须显式要求 add→promote，失败保留 note: {system}"
         );
     }
+
+    #[tokio::test]
+    async fn architecture_fact_accepts_related_code_evidence_without_tracker() {
+        let (dir, ctx) = area_project("code-evidence");
+        std::fs::write(
+            dir.join("crates/kanzei-tools/src/edit.rs"),
+            "pub fn decode_packet() -> bool { true }\n",
+        )
+        .unwrap();
+        let output = MemoryAddTool.execute(json!({"scope":"project", "category":"fact",
+            "title":"decode packet boundary", "description":"when changing decode packet",
+            "body":"decode packet validates the packet at the boundary", "refs":["crates/kanzei-tools/src/edit.rs"],
+            "subject":"contract:kanzei-tools/edit:decode_packet", "area":["kanzei-tools/edit"]}), &ctx).await;
+        assert!(!output.is_error, "{}", output.content);
+        let entry = MemoryStore::project(&dir).load_all().pop().unwrap().1;
+        assert_eq!(entry.areas(), vec!["kanzei-tools/edit"]);
+        assert_eq!(entry.status, "candidate", "真实证据晋升要求仍保留");
+        let unrelated = super::super::validate_manager_fact_refs(
+            &ctx,
+            &["crates/kanzei-tools/src/edit.rs".into()],
+            "Zoology platypus feathers biology",
+        );
+        assert!(unrelated.is_err());
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(dir.join(".kanzei/project/decisions.md"),
+            "# Decisions\n\n## A-001 decode packet boundary [confirmed]\n- 决策: decode packet validates input at the boundary\n").unwrap();
+        assert!(
+            super::super::validate_manager_fact_refs(
+                &ctx,
+                &["A-001".into()],
+                "decode packet validates input at the boundary"
+            )
+            .is_ok(),
+            "架构决策也应作为有效来源"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
 }
 
 /// 轮末记忆整理 prompt 的单一构造点(R-213):CLI 与桌面端共用,注入当轮 episode_id。
@@ -1714,7 +1752,17 @@ pub fn manager_agent() -> AgentDef {
                  what to do differently (e.g. \"处理 edit 替换失败/换行符问题时必读:先 \
                  read 重读再改\"). \
                  ALWAYS memory_search before memory_add — the engine rejects exact-title \
-                 duplicates. Scope rules: preference/habit → global, fact/sop → project. \
+                 duplicates. Default scope is project for ALL project responsibilities, constraints, \
+                 preferences, environment facts and procedures. Ordinary global recall is retired; \
+                 never move project knowledge into an unreachable global store. \
+                 Organize knowledge by architecture: pass memory_add/memory_update area with every \
+                 supported module id from a note's `- area:` line, or resolve file refs using \
+                 the current code tree. Preserve cross-module links; do not invent an area when \
+                 evidence is absent. Use subject=responsibility:<area> for a module responsibility \
+                 and subject=contract:<area>:<interface> for an interface boundary; use fact for \
+                 these records, sop for repeatable procedures and preference for project constraints. \
+                 Refine obsolete facts in place or deprecate with a reason; code relocation alone \
+                 does not authorize deleting historical evidence. \
                  EXCEPTION (D-214): SOP candidates whose detail explicitly says \
                  \"scope=global\" (候选 SOP 落库目标) must be ADDed with scope=global — \
                  they are cross-project workflow templates; the detail line overrides \
@@ -1736,9 +1784,9 @@ pub fn manager_agent() -> AgentDef {
                  in the body); only ADD if it is truly a different pitfall. \
                  Notes may carry a `- refs: R-012 D-044` line: pass those IDs verbatim to \
                  memory_add's `refs` parameter (R-070 source contract; invalid IDs are \
-                 rejected by the engine). A `fact` ADD without at least one R-/D- ref, or \
+                 rejected by the engine). A `fact` ADD without an R-/D-/A- ref or a real code/document file ref, or \
                  whose title/description/body has no meaningful topic overlap with the referenced \
-                 tracker entry, is mechanically rejected — do not invent a different source. \
+                 source, is mechanically rejected — do not invent a different source. \
                  When the prompt provides a real episode_id, every successful ADD that returns \
                  a candidate MUST be followed immediately by memory_promote using that exact \
                  episode_id. Do not finish after memory_add: if promote succeeds, then discard \
