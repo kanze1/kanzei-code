@@ -4,7 +4,8 @@
 //   ② 页面里全部 select 的 align-items 计算值为 center(base-select 默认 normal,固定高度时文字贴顶——根因 A);
 //   ③ 输入区里可见控件(.kz-ctl、发送、项目名、分支、停机原因)包围盒两两不交,且都在 #composer 内;
 //   ④ 模式芯片截图找文字墨迹的纵向范围,中心偏离盒中线 ≤1.5 CSS px(用户截图 13 里「自主推进」贴在上半截);
-//   ⑤ 输入区占满列宽(≥760)时工具行是单行(高 ≤32.5);英文界面按设计回退(右段整体换到第二行靠右,不隐藏控件),
+//   ⑤ 带明确功能标签的工具行允许两行(高 ≤72);旧版无标签中文工具行保持单行。
+//      英文界面按设计回退(右段整体换到第二行靠右,不隐藏控件),
 //      改量「至多两行」(高 ≤72);后台常驻 / 停止后重启状态按内容换行,模型与思考文字仍可读;
 //   ⑥ 交付方式「排队」选项:中文显示「排队」、英文显示动词 Queue(「排队」这个 key 已译作状态词 Queued);
 //   ⑦ 项目级来源标签空闲态显示、运行态收起。
@@ -47,7 +48,7 @@ function geometryInPage({ lang = "zh", extended = false } = {}) {
   }
   const bent = [...document.querySelectorAll("select")].filter((s) => getComputedStyle(s).alignItems !== "center").map((s) => `${s.id || s.className || "select"}=${getComputedStyle(s).alignItems}`);
   if (bent.length) out.push(`② ${bent.length} 个 select 的 align-items 不是 center(固定高度时文字贴顶):${bent.slice(0, 6).join(", ")}`);
-  const items = [...composer.querySelectorAll(".kz-ctl, .kz-ctl--round, #project-label, #ctx-branch, #auto-status")]
+  const items = [...composer.querySelectorAll(".kz-ctl, .kz-ctl--round, .composer-control-label, #project-label, #ctx-branch, #auto-status")]
     .filter((el) => shown(el) && !el.closest("[popover]"))
     .map((el) => [name(el), el.getBoundingClientRect()]);
   for (let i = 0; i < items.length; i += 1) {
@@ -74,7 +75,11 @@ function geometryInPage({ lang = "zh", extended = false } = {}) {
     }
   } else if (lang === "en") {
     if (bar.height > 72) out.push(`⑤ 英文界面工具行至多两行(右段整体换行),实际高 ${bar.height.toFixed(1)}px`);
-  } else if (C.width >= 760 && bar.height > 32.5) out.push(`⑤ 输入区占满列宽(${C.width.toFixed(0)}px)时工具行应为单行,实际高 ${bar.height.toFixed(1)}px`);
+  } else if (C.width >= 760) {
+    const labeled = document.querySelector("#profile-mode-wrap .composer-control-label");
+    const maxHeight = labeled ? 72 : 32.5;
+    if (bar.height > maxHeight) out.push(`⑤ 输入区工具行超出${labeled ? "两行" : "单行"},实际高 ${bar.height.toFixed(1)}px`);
+  }
   const queue = document.querySelector('#delivery-select option[value="queue"]')?.textContent?.trim();
   const expectQueue = lang === "en" ? "Queue" : "排队";
   if (queue !== expectQueue) out.push(`⑥ 交付方式「排队」选项应显示「${expectQueue}」,实际「${queue}」`);

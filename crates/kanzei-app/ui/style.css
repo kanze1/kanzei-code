@@ -868,6 +868,8 @@ html:is([data-kz-activity="running"], [data-kz-activity="stopping"]) #continue-b
 #auto-continue-wrap:has(> input:checked)::before { border: 0; background: currentColor; }
 .subagent-control { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
 #process-subagents-wrap { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.composer-mode-control { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.composer-control-label { color: var(--dim); font-size: var(--fs-11); white-space: nowrap; }
 #auto-allow-wrap { gap: 6px; flex: none; }
 #auto-allow { appearance: none; width: 22px; height: 13px; margin: 0; border: 1px solid var(--dim); border-radius: 8px; background: transparent; cursor: pointer; position: relative; }
 #auto-allow::after { content: ""; position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
@@ -1126,7 +1128,7 @@ html[data-backdrop="off"] .neural-flow-chat { display: none; }
 .voice-mode #messages, .voice-mode #jump-latest { display: none; }
 .voice-mode #voice-caption { display: none; }
 /* 语音态的输入区同样走对话列宽(契约 §4.4):旧版这里把 1080 收到 920;列宽统一成 768 之后那条 max-width 永远不生效,删掉。 */
-.voice-mode #composer :is(#composer-context, #change-bar-files, #autorun-bar, #continue-panel, #attach, #profile-select,
+.voice-mode #composer :is(#composer-context, #change-bar-files, #autorun-bar, #continue-panel, #attach, #profile-mode-wrap, #profile-select,
   #model-picker-group, #auto-allow-wrap, #composer-more, #continue-btn, #delivery-select) { display: none; }
 .voice-mode .voice-panel { border-top: 0; }
 .voice-mode #prompt { min-height: 44px; max-height: 66px; padding-top: 10px; padding-bottom: 8px; overflow-y: auto; }

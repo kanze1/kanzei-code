@@ -148,11 +148,11 @@ export function renderHarnessIntensity() {
   // 两个字面量调用而不是查表:i18n 冒烟只扫带字符串常量的 t(),查表写法会绕过 key 覆盖率检查。
   const autonomous = harnessIntensityOf(selectedAgent().agent) === "autonomous";
   chip.dataset.i18nTitle = autonomous
-    ? "自主推进：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。"
-    : "结伴开发：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。";
+    ? "无监管模式已开启：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。"
+    : "无监管模式已关闭：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。";
   chip.setAttribute("title", autonomous
-    ? t("自主推进：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。")
-    : t("结伴开发：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。"));
+    ? t("无监管模式已开启：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。")
+    : t("无监管模式已关闭：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。"));
 }
 // UI2-0926 #13:取活顺序的存储键只有一种写法。原先自主轮读 `kz-work-priority:${item.origin_project}`
 // (进程记录里的 `\\?\C:\…`),写入键却是 currentProject(`C:\…`),于是自主轮永远读不到用户选的顺序。

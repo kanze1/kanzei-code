@@ -151,7 +151,10 @@ export function workspace_processes(items) {
     && (active_space !== "research" || (item.research_topic || "") === topic));
 }
 
-export function view_allowed(view) {
+export function view_allowed(view, project = currentProject) {
+  // Overview/inbox browse an explicitly selected project without changing
+  // the execution root of the general conversation.
+  if (view === "project" && active_space === "dev" && project && !isGeneralChat(project)) return true;
   if (isGeneralChat() && active_space === "dev" && dev_views.has(view)) return false;
   return view === "research" ? false : !dev_views.has(view) || active_space === "dev";
 }

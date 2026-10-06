@@ -67,6 +67,7 @@ import {
   refreshConversationLists,
   refreshGit,
   renderLineConversationHistory,
+  showFreshConversation,
 } from "./15-views-misc.js";
 import { forProject, refreshLines } from "./20-lines.js";
 import { active_space, adopt_process_workspace, create_workspace_process, preferred_workspace_process, project_workspace, workspace_processes } from "./03-workspaces.js";
@@ -606,6 +607,7 @@ export function renderProcesses(items) {
     // 首次选中、切项目(previousProcessId 为空)与切工作空间期间由调用方自己装载。
     if (previousProcessId && !workspace_switch_pending) void loadConversation();
   }
+  if (activeProcessChanged && !activeProcessId) showFreshConversation();
   if (activeSessionId && activeSessionId !== previousSessionId) void syncAutoRunState();
   // R-086:活动会话换人(含首次拿到进程列表——界面重载后就是这条路)时向后端
   // 补拉一次待答队列。后端 asks 表活得比 webview 久,不补拉的话重载前挂起的
@@ -646,12 +648,19 @@ export function renderProcesses(items) {
   }
 }
 
-export async function refreshProcesses() {
+export async function refreshProcesses({ force = false } = {}) {
   if (!currentProject) return null;
   const forProject = currentProject;
   // 同项目在途请求直接复用:合并并发调用,后端不会同时吃两份同项目清单。
   const existing = processRefreshInFlight.get(forProject);
-  if (existing) return existing;
+  if (existing) {
+    if (!force) return existing;
+    // A pre-mutation poll may still contain a deleted conversation. Drain it,
+    // then take a fresh snapshot instead of accepting it as the delete receipt.
+    await existing;
+    if (currentProject !== forProject) return null;
+    return refreshProcesses({ force: true });
+  }
   const promise = (async () => {
     try {
       const items = await invoke("process_list", { projectDir: forProject });

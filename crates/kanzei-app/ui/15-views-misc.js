@@ -989,12 +989,18 @@ export async function deleteConversationsForProcess(processId, sequences, { proj
 }
 
 /// 整条会话被删(process_purge)后收拾前端残留:它的 pane、窗口化缓存、流式装配与待续跑计时器。
-/// 活动会话不在这里处理——列表刷新会把活动线换成主对话并重新装载。
+/// 活动会话先离开旧 pane；列表刷新可能找不到任何剩余对话。
 export function forgetDeletedSession(sessionId) {
   if (!sessionId) return;
   cancelAutoContinueTimer(sessionId);
   bumpConversationEpoch(sessionId);
   paneHistory.delete(sessionId);
+  if (sessionId === activeSessionId) {
+    showPane(null);
+    clearChat();
+    activePane.innerHTML = emptyStateMarkup();
+    bgClear();
+  }
   discardSessionPane(sessionId);
 }
 
@@ -1194,7 +1200,7 @@ export function clearChat(noticeText) {
 /// 那句提示夹在旧内容与新内容之间,正是「旧对话残留在『已开启新对话』上方」的样子。
 export function showFreshConversation() {
   // 顺手把越界可见的 pane 收起来(同一时刻只显示一个)。
-  if (activeSessionId) showPane(activeSessionId);
+  showPane(activeSessionId);
   clearChat();
   activePane.innerHTML = emptyStateMarkup();
   setFollowLatest(true);

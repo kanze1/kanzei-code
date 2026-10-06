@@ -7637,7 +7637,7 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   // 子代理准入提示不得再承诺固定勘察/复核。
   const subagentWrapHtml = html.match(/<label id="process-subagents-wrap"[^>]*>/)?.[0] ?? "";
   assert(subagentWrapHtml.includes("模型决定如何拆分任务") && subagentWrapHtml.includes("下一轮生效") && !subagentWrapHtml.includes("勘察"), `子代理提示与自主委派不符:${subagentWrapHtml}`);
-  assert(/<select id="process-subagents"[^>]*aria-label="子代理"/.test(html), "子代理选择的读屏名应为「子代理」");
+  assert(/<select id="process-subagents"[^>]*aria-label="子代理管理"/.test(html), "子代理选择的读屏名应为「子代理管理」");
   // 旧的「勘察复核未开」补救文案不得回到鞭挞状态槽。
   byId.get("auto-continue").checked = true;
   await flush();
@@ -17435,6 +17435,7 @@ await import("./ui-conversation-redesign-smoke.mjs");
 await import("./ui-skills-smoke.mjs");
 await import("./ui-softwire-ownership-smoke.mjs");
 await import("./ui-chat-question-smoke.mjs");
+await import("./ui-deleted-general-inbox-smoke.mjs");
 await import("./ui-softwire-choice-smoke.mjs");
 await import("./ui-reply-timer-browser-smoke.mjs");
 await import("./ui-project-conversations-smoke.mjs");

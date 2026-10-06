@@ -42,13 +42,13 @@ body[data-space="dev"] #messages > .msg-pane { width: min(var(--chat-col), 100cq
 .project-handoff-form textarea { min-height: 180px; resize: vertical; width: 100%; padding: 10px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; font: inherit; }
 .project-handoff-form select { width: 100%; min-width: 0; }
 .project-form-error { color: var(--accent-text); overflow-wrap: anywhere; }
-body[data-conversation-kind="discussion"] :is(#profile-select, #auto-continue-wrap, #autorun-more, #auto-status, #work-priority-select, #subagent-control, .sw-composer-run) { display: none !important; }
+body[data-conversation-kind="discussion"] :is(#profile-mode-wrap, #profile-select, #auto-continue-wrap, #autorun-more, #auto-status, #work-priority-select, #subagent-control, .sw-composer-run) { display: none !important; }
 body[data-space="research"] :is(.project-chat-work, .project-onboarding) { display: none !important; }
 body[data-general-chat="true"] #view-chat.active {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "head" "chat" "activity" "composer";
 }
-body[data-general-chat="true"] :is(.project-chat-work, .project-onboarding, #project-work-switch, #project-conversation-kind, #profile-select, #auto-continue-wrap, #autorun-more, #auto-status, #work-priority-select, .sw-composer-run) { display: none !important; }
+body[data-general-chat="true"] :is(.project-chat-work, .project-onboarding, #project-work-switch, #project-conversation-kind, #profile-mode-wrap, #profile-select, #auto-continue-wrap, #autorun-more, #auto-status, #work-priority-select, .sw-composer-run) { display: none !important; }
 body:not([data-general-chat="true"]) #general-chat-link,
 body[data-general-chat="true"] #project-warn-slot,
 body[data-general-chat="true"] #session-history [data-act="new-task"] { display: none !important; }

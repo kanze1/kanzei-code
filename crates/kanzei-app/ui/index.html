@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark light" />
   <link rel="stylesheet" href="app.css" />
 </head>
-<body data-app-scope="global" data-view="workspace">
+<body class="familiar-workspace" data-app-scope="global" data-view="workspace" data-space="dev">
   <div id="app">
     <aside id="activitybar">
       <!-- 侧栏开合常驻在 rail 上:窄视口下侧栏是悬浮层会盖住顶栏里的开关,
@@ -240,7 +240,8 @@
             <!-- 子代理协作倾向：工作流由模型决定。 -->
             <div id="subagent-control" class="subagent-control">
               <label id="process-subagents-wrap" title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。" data-i18n-title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。">
-                <select id="process-subagents" class="kz-ctl" aria-label="子代理" data-i18n-aria-label="子代理" aria-describedby="process-subagents-value subagent-control-state">
+                <span class="composer-control-label" data-i18n-key="子代理管理">子代理管理</span>
+                <select id="process-subagents" class="kz-ctl" aria-label="子代理管理" data-i18n-aria-label="子代理管理" aria-describedby="process-subagents-value subagent-control-state">
                   <option value="off" data-i18n-key="关闭">关闭</option>
                   <option value="auto" data-i18n-key="按需">按需</option>
                   <option value="ultra" data-i18n-key="积极协作">积极协作</option>
@@ -280,10 +281,13 @@
             <div id="composer-left" class="composer-left">
               <button id="attach" type="button" class="kz-ctl kz-ctl--icon" title="添加图片、PDF、表格或文本" data-i18n-title="添加图片、PDF、表格或文本" aria-label="添加图片、PDF、表格或文本" data-i18n-aria-label="添加图片、PDF、表格或文本"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
               <!-- R-342:模式芯片常驻(对话期间唯一必须一眼可见的档位事实);选择器本体就是真源。 -->
-              <select data-space-only="dev" id="profile-select" class="kz-ctl ctx-mode" title="结伴开发按当前对话执行；自主推进自动继续，并执行需求与批次验收" data-i18n-title="结伴开发按当前对话执行；自主推进自动继续，并执行需求与批次验收">
-              <option value="dev-pair"><span data-i18n-key="结伴开发">结伴开发</span></option>
-              <option value="dev-auto"><span data-i18n-key="自主推进">自主推进</span></option>
-            </select>
+              <label data-space-only="dev" id="profile-mode-wrap" class="composer-mode-control">
+                <span class="composer-control-label" data-i18n-key="无监管模式">无监管模式</span>
+                <select id="profile-select" class="kz-ctl ctx-mode" aria-label="无监管模式" data-i18n-aria-label="无监管模式">
+                  <option value="dev-pair" data-i18n-key="关闭">关闭</option>
+                  <option value="dev-auto" data-i18n-key="开启">开启</option>
+                </select>
+              </label>
               <div data-space-only="dev" id="autorun-bar" class="autorun-bar" role="group" aria-label="自动推进控制" data-i18n-aria-label="自动推进控制">
                 <label id="auto-continue-wrap" class="kz-ctl" title="每轮跑完自动发「继续推进目标」" data-i18n-title="每轮跑完自动发「继续推进目标」">
                   <input type="checkbox" id="auto-continue" /> <span data-i18n-key="鞭挞">鞭挞</span>

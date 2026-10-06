@@ -132,7 +132,7 @@ function trackNavigation(view) {
   if (navStack.length > NAV_STACK_MAX) navStack.shift();
 }
 function entryUsable(entry) {
-  if (!entry || entry.space !== active_space || !view_allowed(entry.view) || entry.view === document.body.dataset.view) return false;
+  if (!entry || entry.space !== active_space || !view_allowed(entry.view, entry.project) || entry.view === document.body.dataset.view) return false;
   // 已被移除的项目回不去了:跳过这一项继续往下找。
   const projects = lastProjectPrefs.projects ?? [];
   return !entry.project || entry.space !== "dev" || ["workspace", "settings", "skills"].includes(entry.view) || !projects.length || projects.some((path) => sameProject(path, entry.project));
@@ -327,7 +327,7 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
       && workbenchProject() && (currentProject !== workbenchProject() || (view === "chat" && !activeSessionId))) {
     return openProjectSpace(workbenchProject(), view);
   }
-  if (!view_allowed(view)) { notifyViewUnavailable(); return; }
+  if (!view_allowed(view, view === "project" ? workbenchProject() : currentProject)) { notifyViewUnavailable(); return; }
   const item = document.querySelector(`.activity-item[data-view="${view}"]`);
   if ((!item && view !== "project") || !$(`view-${view}`)) return;
   document.body.dataset.view = view;

@@ -42,7 +42,7 @@ export function createRunControl({ resolve, changed }) {
     const config = lineAutoConfig(line?.id), research = line?.profile === "research";
     const phase = line?.session_id ? sessionState(line.session_id).phase : "idle";
     const running = line?.running || ["starting", "running", "stopping"].includes(phase);
-    mode.textContent = research ? t("研究") : !line?.id ? t("沿用设置") + " ▾" : lineAgent(line).agent === "dev" ? t("自主推进") + " ▾" : t("结伴开发") + " ▾";
+    mode.textContent = research ? t("研究") : !line?.id ? t("沿用设置") + " ▾" : t("无监管模式") + " · " + (lineAgent(line).agent === "dev" ? t("开启") : t("关闭")) + " ▾";
     const pausing = config.enabled && !config.paused;
     toggle.textContent = busy ? t("处理中…") : pausing ? "Ⅱ " + t("暂停自动推进") : config.paused ? "▶ " + t("恢复自动推进") : "▶ " + t("启动自动推进");
     toggle.dataset.active = String(pausing);
@@ -69,14 +69,14 @@ export function createRunControl({ resolve, changed }) {
     finally { busy = false; if (selected) sync(selected); changed(); }
   }
   function openMode() {
-    openMenu(mode, [["dev-pair", t("结伴开发")], ["dev-auto", t("自主推进")]].map(([value, label]) => ({
+    openMenu(mode, [["dev-pair", t("关闭")], ["dev-auto", t("开启")]].map(([value, label]) => ({
       label, onSelect: () => void perform(async line => {
         if (line.id !== activeProcessId) return;
         $("profile-select").value = value;
         $("profile-select").dispatchEvent(new Event("change"));
         await processUpdateQueues.get(line.id);
       }),
-    })), { placement: "top-end", label: t("推进方式") });
+    })), { placement: "top-end", label: t("无监管模式") });
   }
   return { element, sync, close };
 }

@@ -25,7 +25,7 @@ export function syncGeneralChatView(view = document.body.dataset.view, translate
   document.body.dataset.generalChat = String(general);
   document.getElementById("workbench-general-chat")?.classList.toggle("active", general && view === "chat");
   const name = document.getElementById("project-space-name");
-  if (general && name) name.textContent = translate("无项目对话");
+  if (general && view === "chat" && name) name.textContent = translate("无项目对话");
   const label = document.getElementById("new-chat")?.querySelector("span");
   if (label) {
     const key = document.body.dataset.space === "research" ? "新建课题对话" : "新对话";

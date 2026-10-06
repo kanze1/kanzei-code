@@ -29,6 +29,7 @@
 .workspace-header-actions .activity-item { width: 30px; height: 30px; }
 .familiar-workspace #activitybar .activity-item[data-view]:not([data-view="chat"]):not([data-view="skills"]),
 .familiar-workspace .workspace-switcher, .familiar-workspace [data-workspace="research"],
+.familiar-workspace #activitybar .rail-global-separator,
 .familiar-workspace #documents-tab-ideas, .familiar-workspace #documents-new-idea,
 .familiar-workspace #workbench-new-goal, .familiar-workspace #workbench-goal-form,
 .familiar-workspace #activity-research { display: none !important; }
@@ -224,9 +225,9 @@
 #goal-picker.has-goal { color: var(--accent-text); background: var(--accent-soft); }
 .conversation-bindings { display: flex; align-items: center; gap: 2px; flex: none; }
 @container composer (min-width: 730px) {
-  html:not([lang="en"]) .familiar-workspace #composer-bar { flex-wrap: nowrap; gap: 4px; }
+  html:not([lang="en"]) .familiar-workspace #composer-bar { flex-wrap: wrap; gap: 4px; }
   html:not([lang="en"]) .familiar-workspace #composer .composer-left { flex: 0 0 auto; flex-wrap: nowrap; gap: 2px; }
-  html:not([lang="en"]) .familiar-workspace #composer .composer-right { flex: 1 1 auto; flex-wrap: nowrap; gap: 2px; }
+  html:not([lang="en"]) .familiar-workspace #composer .composer-right { flex: 0 1 auto; flex-wrap: nowrap; gap: 2px; }
   html:not([lang="en"]) .familiar-workspace #composer #model-picker { flex: 1 1 auto; min-width: 80px; }
 }
 @container composer (min-width: 430px) {

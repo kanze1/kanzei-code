@@ -49,7 +49,7 @@ async function copyText(text, label) {
 }
 /// 列表变了之后让两处视图(侧栏树、历史弹层)和对话页头一起跟上。
 async function refreshAfterChange(project) {
-  if (sameProject(project, currentProject)) await refreshProcesses();
+  if (sameProject(project, currentProject)) await refreshProcesses({ force: true });
   else await loadRemoteSessions(project, { force: true });
   // 关闭 / 删除都可能改变「已关闭」清单(关掉的线路进去,真删的不会进):重读。
   await dropClosedSessions(project);
@@ -189,8 +189,8 @@ export async function deleteSession(project, id) {
     return;
   }
   forgetSessionPrefs(project, id);
-  await refreshAfterChange(project);
   forgetDeletedSession(row.session_id);
+  await refreshAfterChange(project);
   // 工作树因有未合并内容被保留时,后端回执里写了保留在哪:原样给用户(不静默)。
   const kept = typeof outcome === "string" && outcome.includes("仍保留") ? outcome : "";
   toast(kept || `${t("已删除")}:${row.name}`, { kind: kept ? "warn" : "ok" });
