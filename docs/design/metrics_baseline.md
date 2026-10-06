@@ -1,6 +1,6 @@
-# 巨石度量基线快照（2026-10-04 联合发布审查）
+# 巨石度量基线快照（2026-10-06 项目知识联合发布审查）
 
-来源：当前已编译 `target/debug/kz.exe metrics --top 500`，前30名按生产行排序。
+来源：干净发布工作树 `target/debug/kz.exe metrics --top 30`，前30名按生产行排序。
 metrics_format_version: v1
 口径：`crates/kanzei/src/cli/metrics.rs`；生产行数=总行数−cfg(test)块行数，`tests.rs`、`_tests.rs`及`tests/`目录为外挂纯测试文件，函数复杂度只统计生产码。新修复只补遗漏的标准tests.rs归属，不更换版本或词法算法。
 阈值保持原值：单文件最多增加100生产行；Top30中生产行>1200的巨石最多增加1个。参数>7、最大函数>400仍是观察值。本快照是当前数据，不是未审文件的PASS证书。
@@ -13,12 +13,14 @@ R-384 发布前重新度量：旧基线回涨检查通过，巨石保持 6/6，�
 
 2026-10-05 全局 Skills 发布前再次运行旧基线回涨门禁通过，巨石保持 6/6；阈值不变。当前 Top30 仅运行装配移除两行逐对话技能绑定参数，更新对应行数。原始输出见 `output/release-skills-20261005/metrics.txt`。
 
+2026-10-06 项目知识与前端修复联合发布前重新度量：旧基线回涨检查通过，巨石保持 6/6，每文件允许量100不变。层级知识独立成模块；本次源码提交 `2faa419f`。原始输出随正式发布验证保存在 `dist/metrics-before-release.txt`。
+
 ## 当前Top30
 
 | # | 文件 | 总行 | 生产 | 测试 | 函数 | 最大fn | >7参 |
 |---|---|---:|---:|---:|---:|---:|---:|
 | 1 | crates/kanzei-tools/src/team/mod.rs | 1649 | 1649 | 0 | 59 | 290 | 0 |
-| 2 | crates/kanzei-memory/src/memory/mod.rs | 3077 | 1550 | 1527 | 56 | 88 | 1 |
+| 2 | crates/kanzei-memory/src/memory/mod.rs | 3016 | 1555 | 1461 | 54 | 99 | 1 |
 | 3 | crates/kanzei-core/src/store/typed.rs | 3642 | 1505 | 2137 | 48 | 226 | 0 |
 | 4 | crates/kanzei-core/src/runner/drive.rs | 2000 | 1353 | 647 | 8 | 427 | 4 |
 | 5 | crates/kanzei-tools/src/work.rs | 2898 | 1309 | 1589 | 24 | 2114 | 1 |
@@ -28,25 +30,25 @@ R-384 发布前重新度量：旧基线回涨检查通过，巨石保持 6/6，�
 | 9 | crates/kanzei-app/src/commands/run.rs | 1488 | 1161 | 327 | 23 | 51 | 0 |
 | 10 | crates/kanzei-tools/src/tracker.rs | 5627 | 1141 | 4486 | 29 | 213 | 0 |
 | 11 | crates/kanzei-app/src/run/events/mod.rs | 1648 | 1114 | 534 | 36 | 300 | 1 |
-| 12 | crates/kanzei-memory/src/memory/store.rs | 3744 | 1083 | 2661 | 28 | 134 | 4 |
+| 12 | crates/kanzei-memory/src/memory/store.rs | 3751 | 1083 | 2668 | 28 | 134 | 4 |
 | 13 | crates/kanzei-tools/src/symbols.rs | 1732 | 1037 | 695 | 20 | 162 | 0 |
 | 14 | crates/kanzei-tools/src/tracker/actions.rs | 1004 | 1004 | 0 | 10 | 542 | 0 |
 | 15 | crates/kanzei-core/src/runner/subagent.rs | 1375 | 992 | 383 | 22 | 450 | 0 |
-| 16 | crates/kanzei-app/src/settings.rs | 1976 | 983 | 993 | 29 | 117 | 0 |
+| 16 | crates/kanzei-app/src/settings.rs | 1975 | 983 | 992 | 29 | 117 | 0 |
 | 17 | crates/kanzei-core/src/research.rs | 1089 | 969 | 120 | 26 | 169 | 1 |
 | 18 | crates/kanzei-app/src/processes/lifecycle.rs | 1457 | 950 | 507 | 25 | 132 | 2 |
 | 19 | crates/kanzei-tools/src/test_record.rs | 2284 | 947 | 1337 | 26 | 107 | 3 |
 | 20 | crates/kanzei-app/src/preview/pane.rs | 1008 | 941 | 67 | 45 | 60 | 0 |
-| 21 | crates/kanzei-app/src/run/assembly.rs | 1743 | 923 | 820 | 17 | 300 | 2 |
-| 22 | crates/kanzei-app/src/docs.rs | 1084 | 921 | 163 | 26 | 288 | 2 |
-| 23 | crates/kanzei-tools/src/refgraph/memory_graph.rs | 911 | 911 | 0 | 20 | 603 | 1 |
+| 21 | crates/kanzei-tools/src/refgraph/memory_graph.rs | 926 | 926 | 0 | 20 | 618 | 1 |
+| 22 | crates/kanzei-app/src/run/assembly.rs | 1743 | 923 | 820 | 17 | 300 | 2 |
+| 23 | crates/kanzei-app/src/docs.rs | 1073 | 910 | 163 | 25 | 277 | 2 |
 | 24 | crates/kanzei-llm/src/protocol/anthropic.rs | 1176 | 910 | 266 | 21 | 267 | 0 |
 | 25 | crates/kanzei-harness/src/permission.rs | 1380 | 907 | 473 | 43 | 149 | 0 |
 | 26 | crates/kanzei-app/src/mobile.rs | 2289 | 901 | 1388 | 27 | 218 | 2 |
 | 27 | crates/kanzei-tools/src/tracker/scheduling.rs | 1142 | 888 | 254 | 40 | 55 | 1 |
 | 28 | crates/kanzei-app/src/state.rs | 1035 | 880 | 155 | 36 | 75 | 0 |
-| 29 | crates/kanzei-app/src/conversation.rs | 995 | 857 | 138 | 26 | 67 | 0 |
-| 30 | crates/kanzei-tools/src/shell.rs | 848 | 848 | 0 | 35 | 786 | 1 |
+| 29 | crates/kanzei-app/src/projects.rs | 1313 | 868 | 445 | 37 | 56 | 0 |
+| 30 | crates/kanzei-app/src/conversation.rs | 995 | 857 | 138 | 26 | 67 | 0 |
 
 ## 2026-10-03 对话模型统一复测
 
