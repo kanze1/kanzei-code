@@ -358,6 +358,7 @@ export const I18N_EN = {
   "对话正在运行，请结束后再操作": "Wait for the conversation to finish before making changes",
   "对话正在运行，请结束后再压缩": "Wait for the conversation to finish before compacting",
   "当前对话正在压缩，完成后再发送": "Compaction is running; send after it finishes",
+  "当前没有可压缩的对话": "No conversation to compact",
 
   "静息": "Idle",
   "移动端桥接（可选）": "Mobile bridge (optional)",

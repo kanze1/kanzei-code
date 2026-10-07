@@ -523,6 +523,8 @@ pub(crate) fn model_effective(
     process_id: Option<String>,
     profile: Option<String>,
     agent: Option<String>,
+    model: Option<String>,
+    reasoning: Option<String>,
 ) -> Result<Value, String> {
     let root = project_dir
         .as_deref()
@@ -533,12 +535,14 @@ pub(crate) fn model_effective(
         .as_deref()
         .and_then(|id| state.processes.lock_or_recover().get(id).cloned());
     let line = LineState {
+        // An unsent project draft has no stored process. Resolve its selected
+        // overrides through the same configuration path used by a real turn.
         model: process
             .as_ref()
-            .and_then(|process| process.model.lock_or_recover().clone()),
-        reasoning: process
-            .as_ref()
-            .and_then(|process| process.reasoning.lock_or_recover().clone()),
+            .map_or(model, |process| process.model.lock_or_recover().clone()),
+        reasoning: process.as_ref().map_or(reasoning, |process| {
+            process.reasoning.lock_or_recover().clone()
+        }),
         // 与 run_prompt 同口径:绑了 worktree 的线在那棵树上跑(目录已不在时运行会拒绝,这里退回主根)。
         code_root: process
             .as_ref()

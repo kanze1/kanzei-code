@@ -6,7 +6,7 @@ import { openPopover, openDialog, closeSurface } from "./00-surface.js";
 import { workChoices } from "./30-workspace-model.js";
 import { selectedWork, selectWork } from "./31-work-selection.js";
 import { currentProject, activeProcessId, activeSessionId, processItems, sessionStates, pendingQuestionSessions, attachments, toast, toastError } from "./03-shell.js";
-import { active_space, selected_workspace_process } from "./03-workspaces.js";
+import { active_space, selected_workspace_process, ensure_workspace_process } from "./03-workspaces.js";
 import { switchProcess } from "./09-sessions.js";
 import { openProjectSpace, openWorkbenchItem, workbenchProject } from "./12-workbench.js";
 import { kindWord, processName } from "./12-session-tree.js";
@@ -72,7 +72,7 @@ export async function refreshConversationWork(project = currentProject) {
 
 async function returnToSelectedConversation(project = currentProject) {
   if (!await openProjectSpace(project, "chat")) return null;
-  const main = selected_workspace_process();
+  const main = selected_workspace_process() || await ensure_workspace_process();
   if (!main) { toastError(t("对话暂不可用，请刷新后重试")); return null; }
   await switchProcess(main.id);
   return currentProject === project && activeProcessId === main.id ? main : null;

@@ -73,7 +73,8 @@ try {
   await projectLink.click(); await settle();
   check(await projectLink.getAttribute("aria-expanded") === "true", "The same project can be reopened after collapsing");
   const sidebarRows = page.locator("#workbench-project-list [data-ctx='session'], #workbench-general-list [data-ctx='session']");
-  check(await sidebarRows.locator(".workbench-session-dot, .workbench-session-activity, .workbench-session-tag").count() === 0, "Project and projectless conversation rows have no leading dot or type badge");
+  check(await sidebarRows.locator(".workbench-session-dot, .workbench-session-tag").count() === 0
+    && await sidebarRows.locator(".workbench-session-link[data-activity='idle'] .workbench-session-activity").evaluateAll(dots => dots.every(dot => dot.hidden)), "Idle project and projectless rows have no visible activity dot or type badge");
   check(await projectOwner().locator(".workbench-session-name").innerText() === "侧栏标题显示修复" && await generalOwner().locator(".workbench-session-name").innerText() === "日常对话", "Stored automatic titles are shown for project and projectless main conversations");
   check(await projectRows().filter({ hasText: /^新对话$/ }).count() === 1 && await generalRows().filter({ hasText: /^新对话$/ }).count() === 1, "Legacy numbered titles use the same new conversation fallback in both scopes");
   await page.evaluate(async () => {

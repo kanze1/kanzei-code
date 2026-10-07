@@ -84,7 +84,7 @@ import { state } from "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
 import { syncResearchWorkspaceVisibility } from "./19-research.js";
 import { collaborationLines, renderLines } from "./20-lines.js";
-import { sync_workspace_visibility, acknowledge_composer_draft } from "./03-workspaces.js";
+import { sync_workspace_visibility, acknowledge_composer_draft, ensure_workspace_process } from "./03-workspaces.js";
 import { autoAllowEnabled } from "./03-layout.js";
 
 // `running` 与上面四条不同:它是**瞬态**,不是用户意图。kz:done 有意不收回运行态
@@ -441,6 +441,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     return;
   }
   if (!auto && /^\/compact(?:\s|$)/.test(prompt)) {
+    if (!activeProcessId) { toast(t("当前没有可压缩的对话")); return; }
     if (running) { toast(t("对话正在运行，请结束后再压缩")); return; }
     const owner = activeSessionId;
     compactingSessions.add(owner);
@@ -455,6 +456,11 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     } catch (error) { toastError(String(error)); }
     finally { compactingSessions.delete(owner); }
     return;
+  }
+  if (!activeProcessId) {
+    if (auto) return;
+    try { if (!await ensure_workspace_process()) return; }
+    catch (error) { toastError(String(error)); return; }
   }
   if (selectedAgent().agent !== "dev") { executionBatch = false; workItemId = null; }
   if (!workItemId && selectedAgent().agent === "dev") {
@@ -760,27 +766,30 @@ export async function send() {
   if (composeEvent.defaultPrevented) return;
   const prompt = promptBox.value.trim();
   if (!prompt && attachments.length === 0) return;
-  if (!currentProject) {
-    const pendingAttachments = [...attachments];
-    if (!await openGeneralChat()) return;
-    // Opening the first scope restores its draft. Keep the captured input and
-    // only submit after the navigation guard confirmed this recipient.
-    promptBox.value = prompt;
-    setAttachments(pendingAttachments);
-    renderAttachments();
-  }
-  // The queue currently accepts text only. Keep the entire draft until it can be sent.
-  if (running && attachments.length) {
-    toast(t("当前任务运行中，附件和文字已保留；本轮结束后发送，或新建讨论"));
-    return;
-  }
-  stopAutoForManualInput({ supplement: running });
-  rememberPrompt(prompt);
-  hideFileSuggestions();
-  const project = currentProject, process = activeProcessId;
   const submitted = { text: promptBox.value, attachments: [...attachments] };
   submittingDraft = true;
   try {
+    if (!currentProject) {
+      if (!await openGeneralChat()) return;
+      // Opening the first scope restores its draft. Keep the captured input and
+      // only submit after the navigation guard confirmed this recipient.
+      promptBox.value = prompt;
+      setAttachments(submitted.attachments);
+      renderAttachments();
+    }
+    if (!activeProcessId && !/^\/compact(?:\s|$)/.test(prompt)) {
+      try { if (!await ensure_workspace_process()) return; }
+      catch (error) { toastError(String(error)); return; }
+    }
+    // The queue currently accepts text only. Keep the entire draft until it can be sent.
+    if (running && attachments.length) {
+      toast(t("当前任务运行中，附件和文字已保留；本轮结束后发送，或新建讨论"));
+      return;
+    }
+    stopAutoForManualInput({ supplement: running });
+    rememberPrompt(prompt);
+    hideFileSuggestions();
+    const project = currentProject, process = activeProcessId;
     const accepted = await sendText(prompt || t("看一下这些附件"), { promptAttachments: submitted.attachments });
     if (accepted) acknowledge_composer_draft(project, process, submitted);
   } finally { submittingDraft = false; }

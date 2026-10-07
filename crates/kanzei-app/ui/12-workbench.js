@@ -108,7 +108,7 @@ export function renderProjectActivity() {
   for (const button of document.querySelectorAll(".workbench-project-link")) {
     const path = button.dataset.path;
     const project = lastWorkspaceSnapshot?.projects?.find(p => sameProject(p.path, path));
-    const local = sameProject(path, currentProject) && processItems.length;
+    const local = sameProject(path, currentProject);
     const lines = local ? processItems : project?.lines || [];
     const unavailable = !local && (!project || Boolean(project.error) || ["stale", "unavailable"].includes(project.freshness));
     const phases = lines.filter(line => line.profile !== "research").map(line => executionActivity(line, sessionStates.get(line.session_id), {
@@ -120,7 +120,9 @@ export function renderProjectActivity() {
     const loading = sameProject(openingProject, path), count = [...inboxCounts].find(([project]) => sameProject(project, path))?.[1] || 0;
     button.dataset.loading = String(loading);
     button.setAttribute("aria-busy", String(loading));
-    button.querySelector(".workbench-project-activity").textContent = ({ waiting: "Ⅱ", attention: "?", stopping: "■", stopped: "■", failed: "!", unknown: "—" })[state] || "";
+    const indicator = button.querySelector(".workbench-project-activity");
+    indicator.hidden = ["idle", "unknown"].includes(state);
+    indicator.textContent = ({ waiting: "Ⅱ", attention: "?", stopping: "■", stopped: "■", failed: "!" })[state] || "";
     const badge = button.querySelector(".workbench-project-attention");
     badge.hidden = !count; badge.textContent = String(count);
     const approvals = projectApprovalCount(path);
@@ -144,7 +146,7 @@ export async function openProjectRow(path) {
   setSidebarOpen(path, open);
   renderSidebarSessions();
   if (!open) return true;
-  const same = active_space === "dev" && !workspace_switch_pending && !openingProject && currentProject === path && activeSessionId;
+  const same = active_space === "dev" && !workspace_switch_pending && !openingProject && currentProject === path;
   if (!same) return openProjectSpace(path, "chat");
   setBrowsingProject(path);
   if (document.body.dataset.view === "chat") reconcileWorkbenchView("chat");
@@ -155,7 +157,7 @@ export async function openProjectRow(path) {
 export async function openProjectSpace(path, view = "chat", options = {}) {
   if (!path) { navigate_view("workspace"); return false; }
   if (view === "chat" && active_space === "dev" && !workspace_switch_pending && !openingProject
-    && !options.reload && currentProject === path && activeSessionId && document.body.dataset.view === "chat") {
+    && !options.reload && currentProject === path && document.body.dataset.view === "chat") {
     setBrowsingProject(path); reconcileWorkbenchView("chat"); return true;
   }
   const generation = ++projectNavigationGeneration;

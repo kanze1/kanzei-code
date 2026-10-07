@@ -18,6 +18,7 @@ import { selectedAgent } from "./08-auto.js";
 import { queueProcessUpdate, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { refreshProcesses } from "./09-sessions.js";
 import { restoreDocFilters } from "./10-docs-core.js";
+import { workspace_process_draft, update_workspace_process_draft } from "./03-workspaces.js";
 
 // ---------- 模型选择:数据层(UI-0926 #3) ----------
 // 输入框上方芯片、菜单高亮、tooltip、线路页「跟随默认 · X」的**唯一真源**是后端
@@ -65,7 +66,8 @@ export async function refreshEffectiveModel() {
   const { profile, agent } = selectedAgent();
   const stale = () => generation !== effectiveGeneration || currentProject !== forProject || activeProcessId !== forProcess;
   try {
-    const view = await invoke("model_effective", { projectDir: forProject, processId: forProcess, profile, agent });
+    const view = await invoke("model_effective", { projectDir: forProject, processId: forProcess, profile, agent,
+      ...(!forProcess ? workspace_process_draft() : {}) });
     if (stale()) return null;
     effectiveModel = view;
     effectiveError = null;
@@ -126,7 +128,12 @@ function optimistic(patch) {
 // 旧的本线值,芯片会闪回上一个模型(冒烟变异 pickerAwaitsUpdate 守这一行)。
 export async function setLineModel(value) {
   const processId = activeProcessId;
-  if (!processId) return;
+  if (!processId) {
+    if (!currentProject) return;
+    update_workspace_process_draft({ model: value || null });
+    await refreshEffectiveModel();
+    return;
+  }
   updateLocalProcessItem(processId, { model: value || null });
   optimistic({ model: value || "" });
   try {
@@ -139,7 +146,12 @@ export async function setLineModel(value) {
 
 export async function setLineReasoning(value) {
   const processId = activeProcessId;
-  if (!processId) return;
+  if (!processId) {
+    if (!currentProject) return;
+    update_workspace_process_draft({ reasoning: value || null });
+    await refreshEffectiveModel();
+    return;
+  }
   updateLocalProcessItem(processId, { reasoning: value || null });
   optimistic({ reasoning: value || "" });
   try {

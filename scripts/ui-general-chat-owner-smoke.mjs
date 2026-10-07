@@ -156,36 +156,37 @@ await check('explicit readonly creation retains its profile and allows Auto dele
   assert.equal(item.profile, 'readonly'); assert.equal(h.shellValues.activeProcessId, item.id);
   return { selected: item.id, profile: item.profile };
 });
-await check('first general opening with an empty list creates one ordinary conversation', 'FAIL: baseline required a pre-existing conversation', async () => {
+await check('first general opening with an empty list shows an unsent draft without creating a conversation', 'PASS', async () => {
   const h = await harness(); h.lines.set(GENERAL, []); h.select(PROJECT, 'project-main');
   assert.equal(await h.general.openGeneralChat(), true);
   const creates = h.calls.filter(call => call.command === 'process_create');
-  assert.equal(creates.length, 1); assert.equal(creates[0].args.profile, 'dev');
-  assert.equal(h.shellValues.currentProject, GENERAL); assert.equal(h.shellValues.activeProcessId, 'created-1');
+  assert.equal(creates.length, 0);
+  assert.equal(h.shellValues.currentProject, GENERAL); assert.equal(h.shellValues.activeProcessId, null);
   assert.equal(h.document.body.dataset.view, 'chat'); assert.equal(h.get('workbench-general-chat').hasAttribute('aria-busy'), false);
   return { selected: h.shellValues.activeProcessId, creates: creates.length };
 });
-await check('first general creation cannot reopen chat after a newer navigation', 'FAIL: baseline did not create from empty lists', async () => {
+await check('late first general opening cannot reopen chat after a newer navigation', 'PASS', async () => {
   const h = await harness(), request = pause(); h.lines.set(GENERAL, []); h.select(PROJECT, 'project-main');
-  h.handlers.set('process_create', () => request.promise);
+  h.handlers.set('general_chat_open', () => request.promise);
   const opening = h.general.openGeneralChat(); await flush();
-  assert.equal(h.calls.filter(call => call.command === 'process_create').length, 1);
+  assert.equal(h.calls.filter(call => call.command === 'general_chat_open').length, 1);
   h.navigate('settings');
-  const item = { ...h.lines.get(PROJECT)[0], origin_project: GENERAL, project_dir: GENERAL, id: 'created-late', session_id: 'session:created-late' };
-  h.lines.get(GENERAL).push(item); request.accept(item);
+  request.accept(GENERAL);
   assert.equal(await opening, false); assert.equal(h.document.body.dataset.view, 'settings');
-  assert.equal(h.shellValues.activeProcessId, null); assert.equal(h.get('workbench-general-chat').hasAttribute('aria-busy'), false);
+  assert.equal(h.shellValues.activeProcessId, 'project-main'); assert.equal(h.get('workbench-general-chat').hasAttribute('aria-busy'), false);
+  assert.equal(h.calls.some(call => call.command === 'process_create'), false);
   return { selected: h.shellValues.activeProcessId, view: h.document.body.dataset.view };
 });
-await check('failed first general creation exposes its error and can be retried', 'FAIL: baseline did not create from empty lists', async () => {
+await check('browsing an empty general draft never invokes the conversation creation path', 'PASS', async () => {
   const h = await harness(); h.lines.set(GENERAL, []); h.select(PROJECT, 'project-main');
   h.handlers.set('process_create', () => { throw new Error('first conversation could not be created'); });
-  assert.equal(await h.general.openGeneralChat(), false);
-  assert.equal(h.notices.some(value => value.includes('first conversation could not be created')), true);
+  assert.equal(await h.general.openGeneralChat(), true);
+  assert.equal(h.calls.some(call => call.command === 'process_create'), false);
+  assert.equal(h.notices.some(value => value.includes('first conversation could not be created')), false);
   assert.equal(h.shellValues.activeProcessId, null); assert.equal(h.get('workbench-general-chat').hasAttribute('aria-busy'), false);
   h.handlers.delete('process_create'); assert.equal(await h.general.openGeneralChat(), true);
-  assert.equal(h.shellValues.activeProcessId, 'created-1');
-  return { selected: h.shellValues.activeProcessId, failedThenRetried: true };
+  assert.equal(h.shellValues.activeProcessId, null);
+  return { selected: h.shellValues.activeProcessId, creates: 0 };
 });
 await check('own create switch waiting for history cannot replace a later selection after returning', 'PASS', async () => {
   const h = await harness(), history = pause(); h.paneReady(false); h.handlers.set('conversation_display_get', args => args.processId === 'created-1' ? history.promise : []);

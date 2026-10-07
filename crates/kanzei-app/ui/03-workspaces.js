@@ -28,16 +28,33 @@ export function remember_development_project(project) {
 }
 
 export function sync_composer_scope() {
-  const scope = currentProject && activeProcessId ? JSON.stringify([currentProject, activeProcessId]) : "";
+  const scope = currentProject ? JSON.stringify([currentProject, activeProcessId]) : "";
   if (scope === composer_scope) return;
   document.dispatchEvent(new CustomEvent("kz:before-composer-scope"));
-  if (composer_scope) composer_drafts.set(composer_scope, { text: $("prompt").value, attachments: [...attachments] });
+  // A new identity inherits the project draft. Returning to an existing
+  // identity restores its own saved draft instead of the navigation placeholder.
+  const bindingProjectDraft = activeProcessId && !composer_drafts.has(scope)
+    && composer_scope === JSON.stringify([currentProject, null]);
+  if (composer_scope) {
+    const savedScope = bindingProjectDraft ? scope : composer_scope;
+    composer_drafts.set(savedScope, { ...composer_drafts.get(savedScope), text: $("prompt").value, attachments: [...attachments] });
+    if (bindingProjectDraft) composer_drafts.delete(composer_scope);
+  }
   composer_scope = scope;
   const draft = composer_drafts.get(scope);
   $("prompt").value = draft?.text || "";
   $("prompt").style.height = "auto";
   setAttachments([...(draft?.attachments || [])]);
   renderAttachments();
+}
+
+export function workspace_process_draft() {
+  return composer_drafts.get(JSON.stringify([currentProject, null]))?.process || {};
+}
+export function update_workspace_process_draft(fields) {
+  const scope = JSON.stringify([currentProject, null]);
+  const draft = composer_drafts.get(scope);
+  composer_drafts.set(scope, { ...draft, process: { ...draft?.process, ...fields } });
 }
 
 // A Softwire send may finish after its native editor was restored or cached by
@@ -241,6 +258,19 @@ export async function create_workspace_process(topic = null, is_current = () => 
     navigate_view("chat");
   }
   return item;
+}
+
+const pending_workspace_processes = new Map();
+export async function ensure_workspace_process() {
+  if (activeProcessId) return processItems.find(item => item.id === activeProcessId);
+  if (!currentProject) return;
+  const project = currentProject;
+  const existing = pending_workspace_processes.get(project);
+  if (existing) return existing;
+  const creation = create_workspace_process(null, () => true, workspace_process_draft());
+  pending_workspace_processes.set(project, creation);
+  try { return await creation; }
+  finally { if (pending_workspace_processes.get(project) === creation) pending_workspace_processes.delete(project); }
 }
 
 export async function switch_workspace(space, { isCurrent = () => true } = {}) {

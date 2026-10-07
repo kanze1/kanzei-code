@@ -43,7 +43,7 @@ try {
     check(await page.locator("#skills-generate-open").isVisible(), `${theme}: Skill creation stays outside the conversation`);
     await page.screenshot({ path: `${output}/composer-${theme}.png` });
     await page.keyboard.press("Escape");
-    await page.locator('#workspace-sidebar-footer [data-view="settings"]').click();
+    await page.locator('#activitybar [data-view="settings"]').click();
     await page.screenshot({ path: `${output}/settings-home-${theme}.png` });
     check(await page.locator(".settings-section").count() === 5, `${theme}: Settings has five functional sections`);
     check(await page.locator("#settings-toc [data-settings-target]").count() === 17, `${theme}: Every top-level settings group is included in the outline`);

@@ -34,18 +34,18 @@ body[data-space="dev"] #sidebar > .sidebar-section, body[data-space="dev"] #work
 .workbench-project-link { display: flex; align-items: center; gap: 12px; }
 .workbench-project-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .workbench-project-activity { width: 14px; height: 14px; flex: 0 0 14px; border: 2px solid transparent; border-radius: 50%; box-sizing: border-box; color: var(--dim); font-size: 12px; font-weight: 600; line-height: 10px; text-align: center; transition: background .25s, border-color .25s, box-shadow .25s; }
+.workbench-project-activity[hidden] { display: none; }
 /* Navigation keeps aria-busy for assistive technology, but must not create a
    second spinner or impersonate an agent start. */
 .workbench-project-link[aria-busy="true"]::after { content: none; animation: none; }
 .workbench-project-link[data-loading="true"] .workbench-project-name { opacity: .65; }
 .workbench-project-link[data-activity="starting"] .workbench-project-activity { border-color: color-mix(in srgb, var(--accent) 22%, transparent); border-top-color: var(--accent); animation: workbench-spin .8s linear infinite; }
-.workbench-project-link[data-activity="running"] .workbench-project-activity { background: var(--accent); border: 3px solid var(--panel); box-shadow: 0 0 0 1px var(--accent); animation: workbench-breathe 2.4s ease-in-out infinite; }
+.workbench-project-link[data-activity="running"] .workbench-project-activity { background: var(--accent); border: 3px solid var(--panel); box-shadow: 0 0 0 1px var(--accent); }
 .workbench-project-link:is([data-activity="waiting"], [data-activity="stopping"]) .workbench-project-activity { color: var(--accent-text); }
 .workbench-project-link:is([data-activity="attention"], [data-activity="failed"]) .workbench-project-activity { color: var(--accent-text); border: 1px solid currentColor; line-height: 12px; }
 .workbench-project-link[data-activity="failed"] .workbench-project-activity { border-radius: 3px; }
 .workbench-project-attention { background: var(--accent); color: var(--panel); min-width: 14px; padding: 1px 3px; border-radius: 4px; text-align: center; font-size: 10px; }
 @keyframes workbench-spin { to { transform: rotate(360deg); } }
-@keyframes workbench-breathe { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .workbench-project-activity { animation: none !important; transition: none !important; } }
 /* ---------- 侧栏会话树:点击项目名称展开,对话使用统一文字行 ---------- */
 .workbench-project { margin: 2px 0; }

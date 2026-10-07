@@ -1581,13 +1581,8 @@ export async function enterProject(prefs, options = {}) {
     if (!isCurrent()) return;
   }
   if (targetView === "chat") {
-    if (!processItems.length) {
-      await invoke("process_create", { projectDir: target, profile: "dev" });
-      if (!isCurrent()) return;
-      await refreshProcesses();
-      if (!isCurrent()) return;
-    }
-    await loadConversation();
+    if (activeProcessId) await loadConversation();
+    else showFreshConversation();
     if (!isCurrent()) return;
     if (previous !== target && options.notice) addMessage("notice", options.notice);
     await loadModels();

@@ -116,7 +116,7 @@ try {
     await (await import("/09-sessions.js")).refreshProcesses();
   }); await settle();
   const dots = await page.locator('.workbench-session-link[data-activity="running"] .workbench-session-activity').evaluateAll(nodes => nodes.filter(n => n.getBoundingClientRect().width).map(n => getComputedStyle(n).animationName));
-  check(dots.length >= 2 && dots.every(animation => animation === "workbench-breathe"), "Every active conversation has its own running animation");
+  check(dots.length >= 2 && dots.every(animation => animation === "none"), "Every active conversation has its own static running indicator");
   await page.emulateMedia({ reducedMotion: "reduce" });
   check(await page.locator('.workbench-session-link[data-activity="running"] .workbench-session-activity').first().evaluate(node => getComputedStyle(node).animationName) === "none", "Running indicators respect reduced motion");
   await page.emulateMedia({ reducedMotion: "no-preference" });

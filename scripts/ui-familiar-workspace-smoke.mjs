@@ -190,7 +190,7 @@ try {
   await page.locator("#memory-project-picker").selectOption("@global");
   await page.waitForFunction(() => document.querySelector("#memory-scope-filter").value === "global");
   check(await page.locator("body").getAttribute("data-app-scope") === "global", "Memory management is a global page");
-  await page.locator('#workspace-sidebar-footer [data-view="settings"]').click();
+  await page.locator('#activitybar [data-view="settings"]').click();
   await page.locator("#sg-project-tools > summary").click();
   check(await page.getByRole("button", { name: "开发规范", exact: true }).isVisible(), "Project conventions and run history are reachable through settings");
   check((await page.locator("#settings-toc").innerText()).includes("项目工具"), "Settings table of contents includes project tools");

@@ -27,7 +27,7 @@
 .workspace-header #project-label, .workspace-header #ctx-branch { display: none; }
 .workspace-header-actions { display: flex; gap: 4px; }
 .workspace-header-actions .activity-item { width: 30px; height: 30px; }
-.familiar-workspace #activitybar .activity-item[data-view]:not([data-view="chat"]):not([data-view="skills"]),
+.familiar-workspace #activitybar .activity-item[data-view]:not([data-view="chat"]):not([data-view="skills"]):not([data-view="settings"]),
 .familiar-workspace .workspace-switcher, .familiar-workspace [data-workspace="research"],
 .familiar-workspace #activitybar .rail-global-separator,
 .familiar-workspace #documents-tab-ideas, .familiar-workspace #documents-new-idea,
@@ -257,7 +257,8 @@
 .goal-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .workbench-session-activity { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; margin-left: auto; line-height: 10px; text-align: center; font-size: 10px; }
 .workbench-session-activity[hidden] { display: none; }
-.workbench-session-link:is([data-activity="running"], [data-activity="starting"]) .workbench-session-activity { background: var(--accent); border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--accent); animation: workbench-breathe 2.4s ease-in-out infinite; }
+.workbench-session-link[data-activity="running"] .workbench-session-activity { background: var(--accent); border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--accent); }
+.workbench-session-link[data-activity="starting"] .workbench-session-activity { box-sizing: border-box; border: 1.5px solid var(--accent); border-right-color: transparent; animation: workbench-spin .8s linear infinite; }
 .workbench-session-link:is([data-activity="attention"], [data-activity="stopping"]) .workbench-session-activity { color: var(--accent-text); }
 #workbench-attention { display: flex; align-items: center; gap: 10px; }
 #workbench-attention > svg { width: 17px; height: 17px; flex: none; }

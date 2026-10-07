@@ -6,11 +6,15 @@ import { isGeneralChat, setGeneralChatRoot, rememberConversationMode, registerGe
 import { switch_workspace, sync_workspace_visibility, create_workspace_process } from "./03-workspaces.js";
 import { activate_execution_root, lastProjectPrefs, processSwitchGeneration, projectDisplayName, refreshProcesses, refreshPendingInputs, switchProcess } from "./09-sessions.js";
 import { loadModels } from "./08-models.js";
-import { loadConversation } from "./15-views-misc.js";
+import { loadConversation, showFreshConversation } from "./15-views-misc.js";
 import { cancelProjectNavigation, openProjectSpace, setBrowsingProject, workbenchNavigationGuard, reconcileWorkbenchView } from "./12-workbench.js";
 
 registerGeneralChatController(openGeneralChat);
 let openingSequence = 0, linkInFlight = false;
+function syncGeneralLink() {
+  const button = $("general-chat-link");
+  if (button) button.disabled = !activeProcessId || linkInFlight || $("workbench-general-chat")?.hasAttribute("aria-busy");
+}
 export async function openGeneralChat({ newChat = false } = {}) {
   const sequence = ++openingSequence;
   $("workbench-general-chat")?.setAttribute("aria-busy", "true");
@@ -26,10 +30,10 @@ export async function openGeneralChat({ newChat = false } = {}) {
     activate_execution_root(root);
     await refreshProcesses();
     if (!valid() || !isGeneralChat()) return false;
-    if ((newChat || !activeProcessId) && !await create_workspace_process(null, valid)) return false;
+    if (newChat && !await create_workspace_process(null, valid)) return false;
     if (!valid() || !isGeneralChat()) return false;
-    if (!activeProcessId) throw new Error(t("对话列表加载失败，请重试"));
-    await loadConversation();
+    if (activeProcessId) await loadConversation();
+    else showFreshConversation();
     if (!valid() || !isGeneralChat()) return false;
     await loadModels();
     if (!valid() || !isGeneralChat()) return false;
@@ -47,7 +51,7 @@ export async function openGeneralChat({ newChat = false } = {}) {
   } finally {
     if (sequence === openingSequence) {
       $("workbench-general-chat")?.removeAttribute("aria-busy");
-      if ($("general-chat-link")) $("general-chat-link").disabled = linkInFlight;
+      syncGeneralLink();
     }
   }
 }
@@ -62,7 +66,7 @@ defer(() => {
   }).catch(error => toastError(String(error)));
   $("workbench-general-chat")?.addEventListener("click", () => void openGeneralChat());
   $("general-chat-link")?.addEventListener("click", () => {
-    if (!isGeneralChat()) return;
+    if (!isGeneralChat() || !activeProcessId) return;
     if (running) { toast(t("请结束当前回复后再关联项目")); return; }
     const project = currentProject, recipient = activeProcessId, valid = workbenchNavigationGuard();
     const same = () => valid() && currentProject === project && activeProcessId === recipient;
@@ -80,8 +84,8 @@ defer(() => {
         await switchProcess(linked.id, true);
         toast(t("对话已关联到项目，原对话保留"));
       } catch (error) { toastError(String(error)); }
-      finally { linkInFlight = false; button.disabled = $("workbench-general-chat")?.hasAttribute("aria-busy") || false; }
+      finally { linkInFlight = false; syncGeneralLink(); }
     } })), { label: t("关联项目") });
   });
-  document.addEventListener("kz:conversation-selected", () => reconcileWorkbenchView(document.body.dataset.view));
+  document.addEventListener("kz:conversation-selected", () => { syncGeneralLink(); reconcileWorkbenchView(document.body.dataset.view); });
 });

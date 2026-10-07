@@ -735,18 +735,6 @@ function previewCommands(params) {
 }
 // ── 分区:网页预览前端(完) ──
 
-/// 没有登记线路的项目的默认主对话(形状对照 state.rs ProcessInfo;id 与 workspace_snapshot 里同项目的主线一致)。
-function previewMainFor(projectDir) {
-  const leaf = String(projectDir).replaceAll("\\", "/").split("/").filter(Boolean).pop() || "project";
-  const id = `d|${leaf}`;
-  return {
-    id, origin_project: projectDir, project_dir: projectDir, worktree_path: null, branch: "main", session_id: `preview-session-${id}`,
-    model: null, profile: "dev", research_topic: null, reasoning: null, manual_models: [], subagent_mode: "auto",
-    tracker_writes: false, stage: "空闲", running: false, label: "主对话",
-    title: null, title_custom: false, kind: "main", ordinal: null, updated_at: 1789000000000,
-  };
-}
-
 export function createFixtures({ scene = "chat", theme = "dark", params = {} } = {}) {
   const now = Date.now();
   const autoStates = new Map();
@@ -1009,9 +997,10 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     project_root_info: ({ projectDir }) => ({ selected: projectDir || PROJECT, resolved: projectDir || PROJECT, shared: false }),
     fast_model_status: { managed: true, model: "qwen3.5:4b", installed: true, serviceUp: true, modelPresent: true, ready: true },
     // UI-0926 #3:下一轮视图(形状对照 crates/kanzei-app/src/model_config.rs 的 TurnView / FieldView)。
-    model_effective: ({ processId, agent } = {}) => {
+    model_effective: ({ processId, agent, model, reasoning } = {}) => {
       const item = processById(processId);
-      const line = item?.model || null;
+      const line = (item ? item.model : model) || null;
+      const lineReasoning = (item ? item.reasoning : reasoning) || null;
       const resolved = line && !["primary", "fast", "compact"].includes(line) ? line : PROJECT_PRIMARY;
       const codex = resolved.startsWith("codex:");
       const defaultModel = { ref: "primary", resolved: PROJECT_PRIMARY, source: "project", role: "primary", followsPrimary: false, error: null };
@@ -1020,7 +1009,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
         agentError: null,
         model: line ? { ref: line, resolved, source: "line", role: null, followsPrimary: false, error: null } : defaultModel,
         defaultModel,
-        reasoning: item?.reasoning ? { value: item.reasoning, source: "line" } : { value: "high", source: "project" },
+        reasoning: lineReasoning ? { value: lineReasoning, source: "line" } : { value: "high", source: "project" },
         defaultReasoning: { value: "high", source: "project" },
         codexFastMode: { enabled: true, applies: codex, active: codex, source: "project" },
         contextLimit: 400000,
@@ -1051,17 +1040,14 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     cancel_input: false,
     voice_settings_get: { port: 8765, language: "zh" },
     // ---- 线路
-    // 后端 process_list 总会带上该项目的默认主对话(项目首次被列出时现建):夹具里没登记线路的项目补一条(侧栏会话树展开别的项目用)。
-    process_list: ({ projectDir } = {}) => {
-      const own = state.processes.filter((item) => !projectDir || item.origin_project === projectDir);
-      return projectDir && !own.length ? [previewMainFor(projectDir)] : own;
-    },
+    // Listing projects is read-only; an empty project has no conversation yet.
+    process_list: ({ projectDir } = {}) => state.processes.filter((item) => !projectDir || item.origin_project === projectDir),
     process_create: (args) => {
       const n = state.processes.length + 1;
       const item = {
         id: `p|preview-${n}`, origin_project: args?.projectDir || PROJECT, project_dir: args?.projectDir || PROJECT,
-        worktree_path: null, branch: null, session_id: `ses_preview_${n}`, model: null, profile: args?.profile || "dev",
-        research_topic: args?.researchTopic || null, reasoning: null, manual_models: [],
+        worktree_path: null, branch: null, session_id: `ses_preview_${n}`, model: args?.model || null, profile: args?.profile || "dev",
+        research_topic: args?.researchTopic || null, reasoning: args?.reasoning || null, manual_models: [],
         subagent_mode: "auto", tracker_writes: false, stage: "空闲", running: false,
         // 没有标题可用时的展示名 = 类型 + 序号(与 processes/naming.rs 同口径),界面不再出现 pN/「默认」。
         label: `${args?.profile === "readonly" ? "讨论" : "对话"} ${n}`,

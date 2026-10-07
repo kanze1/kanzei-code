@@ -18,12 +18,8 @@ defer(() => {
   header.append(actions);
 
   const footer = node("div", "workspace-sidebar-footer"); footer.id = "workspace-sidebar-footer";
-  for (const [view, label] of [["memory", "记忆管理"], ["settings", "设置"]]) {
-    const button = document.querySelector(`.activity-item[data-view="${view}"]`);
-    if (!button) continue;
-    button.append(node("span", "", t(label))); footer.append(button);
-  }
-  const theme = $("theme-toggle"); if (theme) footer.append(theme);
+  const memory = document.querySelector('.activity-item[data-view="memory"]');
+  if (memory) { memory.append(node("span", "", t("记忆管理"))); footer.append(memory); }
   $("workbench-navigation").append(footer);
 
   // Keep legacy DOM hooks for saved layouts; the composer no longer exposes them.
