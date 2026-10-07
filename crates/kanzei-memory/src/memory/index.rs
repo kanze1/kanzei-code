@@ -278,22 +278,11 @@ impl SqliteMemoryIndex {
         if let Some(fp_key) = &query.fingerprint {
             let hits = self.tier0(fp_key);
             if !hits.is_empty() {
-                // Tier0 命中:用条目快照物化(无 snippet/path——指纹命中是精确定位)。
+                // Tier0 命中也必须保留可读正文路径，不能只返回编号。
                 // 命中计数必须与 Tier1 的 SearchCandidate.hits 同源；否则指纹通道
                 // 的 SearchHit 永远显示 0，控制面无法复算指纹召回画像。
                 let hit_counts = MemoryStore::project(&self.project_root).hits_map();
-                return hits
-                    .into_iter()
-                    .filter_map(|h| {
-                        self.entries.get(&h.id).map(|e| SearchHit {
-                            entry: e.clone(),
-                            path: PathBuf::new(),
-                            snippet: String::new(),
-                            hits: hit_counts.get(&h.id).copied().unwrap_or(0),
-                            score: h.score,
-                        })
-                    })
-                    .collect();
+                return self.materialize_hits(hits, &hit_counts);
             }
         }
         if query.text.trim().is_empty() {
@@ -805,19 +794,33 @@ impl SqliteMemoryIndex {
         // search_hybrid_with_timing 已完成最终结果的 record_hits；重新读取持久化
         // 计数，避免 SearchHit 物化时把 Tier0/Tier1/hybrid 统一显示为 0。
         let hit_counts = MemoryStore::project(&self.project_root).hits_map();
-        let out = hits
+        let out = self.materialize_hits(hits, &hit_counts);
+        (out, timing)
+    }
+
+    /// 从当前真源物化路径和条目；已归档的旧快照不能留下空路径召回钩子。
+    fn materialize_hits(
+        &self,
+        hits: Vec<IndexHit>,
+        counts: &std::collections::BTreeMap<String, u64>,
+    ) -> Vec<SearchHit> {
+        let current: HashMap<_, _> = MemoryStore::project(&self.project_root)
+            .load_all()
             .into_iter()
-            .filter_map(|h| {
-                self.entries.get(&h.id).map(|e| SearchHit {
-                    entry: e.clone(),
-                    path: PathBuf::new(),
+            .filter(|(_, entry)| entry.status == "active")
+            .map(|(path, entry)| (entry.id.clone(), (path, entry)))
+            .collect();
+        hits.into_iter()
+            .filter_map(|hit| {
+                current.get(&hit.id).map(|(path, entry)| SearchHit {
+                    entry: entry.clone(),
+                    path: path.clone(),
                     snippet: String::new(),
-                    hits: hit_counts.get(&h.id).copied().unwrap_or(0),
-                    score: h.score,
+                    hits: counts.get(&hit.id).copied().unwrap_or(0),
+                    score: hit.score,
                 })
             })
-            .collect();
-        (out, timing)
+            .collect()
     }
 }
 
@@ -1023,6 +1026,7 @@ mod tests {
         let first = index.search_entries(&query, None, Some("active"), 5);
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].entry.id, entry.id);
+        assert!(first[0].path.is_file(), "指纹召回须保留可读取来源");
         assert_eq!(first[0].hits, 0, "返回值应反映查询前的观测计数");
         assert_eq!(store.hits_map().get(&entry.id).copied(), Some(1));
 
@@ -1034,7 +1038,13 @@ mod tests {
         // hybrid 物化发生在 record_hits 之后，也必须暴露同一计数。
         let (hybrid, _) = index.search_hybrid_entries(&query, 5);
         assert_eq!(hybrid[0].hits, 3);
+        assert_eq!(hybrid[0].path, first[0].path);
+        assert!(hybrid[0].path.is_file(), "混合召回须保留可读取来源");
         assert_eq!(store.hits_map().get(&entry.id).copied(), Some(3));
+
+        // 索引仍持有旧快照，但源文件已离开有效库时不能生成空路径钩子。
+        std::fs::rename(&hybrid[0].path, root.join("removed-memory.md")).unwrap();
+        assert!(index.search_hybrid_entries(&query, 5).0.is_empty());
     }
 
     #[test]

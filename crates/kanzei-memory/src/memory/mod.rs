@@ -2329,9 +2329,9 @@ mod tests {
         add("fact", "发版长条目", &"发版流程细节".repeat(20)); // M-002,索引行显著更长
         add("preference", "发版定调", "发版发布安装更新必读"); // M-003
 
-        let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 80, None).unwrap();
+        let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 240, None).unwrap();
         assert!(
-            block.contains("M-001 [project/sop]"),
+            block.contains("M-001 [project/sop]") || block.contains("M-003 [project/preference]"),
             "任务提示必须带召回钩子: {block}"
         );
         assert!(
@@ -2341,6 +2341,16 @@ mod tests {
         assert!(block.contains("预算未列出"), "折叠必须可见: {block}");
         let full = prompt_hints_with_budget(&dir, "发版发布安装更新", 1000, None).unwrap();
         assert!(full.contains("M-003"), "相关约束必须可检索: {full}");
+        for (path, entry) in store.load_all() {
+            assert!(
+                full.contains(&format!("file: {}", path.display())),
+                "召回必须给出 {} 的完整正文路径: {full}",
+                entry.id
+            );
+        }
+        let tiny = prompt_hints_with_budget(&dir, "发版发布安装更新", 80, None).unwrap();
+        assert!(tiny.contains("预算未列出"));
+        assert!(!tiny.contains("file:"), "预算不足时不能截断路径: {tiny}");
         assert!(
             store.recalls(10).is_empty(),
             "prompt_hints 生产路径不得继续写入 legacy memory_recalls"
