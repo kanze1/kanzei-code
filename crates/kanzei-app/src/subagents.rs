@@ -96,7 +96,7 @@ pub(crate) async fn quick_req_with_coordinator(
         profile: kanzei_harness::ProfileScope::Dev,
         model: "fast".into(),
         mode: kanzei_harness::AgentMode::Subagent,
-        steps: 12,
+        steps: 0,
         system: system.into(),
     };
     let proxy = match config.proxy.as_deref() {
@@ -337,7 +337,7 @@ pub(crate) async fn idea_split_with_coordinator(
         profile: kanzei_harness::ProfileScope::Dev,
         model: "fast".into(),
         mode: kanzei_harness::AgentMode::Subagent,
-        steps: 8,
+        steps: 0,
         system: IDEA_SPLIT_SYSTEM.into(),
     };
     let proxy = match config.proxy.as_deref() {

@@ -7,8 +7,9 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn primary_continues_past_32_while_subagent_finishes_at_32() {
-    for (mode, expected_steps) in [(AgentMode::Primary, 34u32), (AgentMode::Subagent, 32)] {
+async fn primary_and_subagent_continue_past_32_without_a_step_limit() {
+    for mode in [AgentMode::Primary, AgentMode::Subagent] {
+        let expected_steps = 34u32;
         let home = super::common::TestHome::new("step-budget");
         std::fs::write(home.root.join("sample.txt"), "read-only probe").unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -99,6 +100,7 @@ async fn primary_continues_past_32_while_subagent_finishes_at_32() {
             server.abort();
         }
         assert_eq!(summary.steps, expected_steps, "{mode:?}");
+        assert!(!summary.step_limit_reached, "{mode:?}");
         let requests = server.await.unwrap();
         let has_tools = |step: usize| {
             requests[step - 1]["tools"]
@@ -106,12 +108,8 @@ async fn primary_continues_past_32_while_subagent_finishes_at_32() {
                 .is_some_and(|t| !t.is_empty())
         };
         assert!(has_tools(31));
-        if mode == AgentMode::Primary {
-            assert!(has_tools(32));
-            assert!(has_tools(33));
-        } else {
-            assert!(!has_tools(32));
-        }
+        assert!(has_tools(32));
+        assert!(has_tools(33));
     }
 }
 

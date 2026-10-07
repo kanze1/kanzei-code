@@ -2798,7 +2798,7 @@ async fn empty_child_result_is_a_failure_not_completion() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn custom_persona_is_visible_and_preserves_system_and_budget() {
+async fn custom_persona_is_visible_and_preserves_system_without_a_step_limit() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let team = team(
         project(),

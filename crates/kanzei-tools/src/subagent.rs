@@ -83,18 +83,18 @@ impl Component for WritableSubagentBase {
     }
 }
 
-/// explore 子代理定义:小步数、结果即报告。
+/// explore 子代理定义:快速检索、结果即报告。
 pub fn explore_agent() -> AgentDef {
     AgentDef {
         name: "explore".into(),
         profile: ProfileScope::All,
         model: "fast".into(),
         mode: AgentMode::Subagent,
-        steps: 12,
+        steps: 0,
         system: "You are a read-only exploration subagent with tools read/glob/grep/files/\
                  symbols and git read-only subcommands (status/diff/log). Issue independent \
                  read/glob/grep calls in the SAME step — they run in parallel, cost one round \
-                 trip, and your step budget is small. Complete the \
+                 trip. Subtasks have no step limit. Complete the \
                  given task precisely and reply with ONLY the requested information: file \
                  paths with line numbers, code excerpts, symbol maps, git history facts, or \
                  a short factual summary. No preamble, no suggestions. If nothing is found, \
@@ -106,9 +106,8 @@ pub fn explore_agent() -> AgentDef {
 /// R-327:plan 子代理定义——**只读的架构分析人格**。
 ///
 /// 与 [`explore_agent`] 跑在**同一个只读快照**上,工具集一个不多一个不少;
-/// 差别只有三样:主模型(不是 fast)、更大步数、以及要求「先摸清约束再下结论」
-/// 的提示词。这正是分人格的意义——机械检索与架构判断需要的模型能力和
-/// 步数预算差一个量级,共用一套设定必然一头浪费一头不够。
+/// 差别在主模型(不是 fast)和要求「先摸清约束再下结论」的提示词。
+/// 两者均不设步数上限，按任务需要持续探索。
 ///
 /// plan 始终只读；可写角色由桌面团队运行时另行装配，边界见
 /// `SubagentRuntime::roster` 的说明。
@@ -118,7 +117,7 @@ pub fn plan_agent() -> AgentDef {
         profile: ProfileScope::All,
         model: "primary".into(),
         mode: AgentMode::Subagent,
-        steps: 24,
+        steps: 0,
         system: "You are a read-only architecture analysis subagent with tools                  read/glob/grep/files/symbols and git read-only subcommands. You do NOT write                  files, run bash, or change git state. Before concluding, establish the actual                  constraints: read the relevant code and its callers, check for an existing                  design doc or tracker entry covering it, and name the invariants a change                  would have to preserve. Then answer with a concrete plan: the files to touch,                  the order, what could break, and what evidence would prove it works. Cite                  file:line for every claim about current behaviour. If the request is                  underspecified, say exactly which decision is missing rather than guessing."
             .into(),
     }
@@ -131,7 +130,7 @@ pub fn writer_agent() -> AgentDef {
         profile: ProfileScope::All,
         model: "primary".into(),
         mode: AgentMode::Subagent,
-        steps: 24,
+        steps: 0,
         system: "You are a writable implementation subagent. You may edit/insert/write files and \
                  run bash/git, but every write action must go through the coordinator \
                  lease and permission rules — never bypass them. You are accountable for \

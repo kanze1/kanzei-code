@@ -14,7 +14,7 @@ pub(crate) fn task_spec_for(agent_names: &[String]) -> ToolSpec {
         spec.input_schema["properties"]["agent"] = serde_json::json!({
             "type": "string",
             "enum": agent_names,
-            "description": "Which read-only subagent persona to use.                             `explore` = fast model, mechanical search, small step budget.                             `plan` = main model, larger budget, establishes constraints and                             returns a concrete plan with file:line evidence.                             All personas share the same read-only toolset; only the prompt                             and step budget differ. Defaults to the first one."
+            "description": "Which read-only subagent persona to use. `explore` = fast model, mechanical search. `plan` = main model, establishes constraints and returns a concrete plan with file:line evidence. All personas share the same read-only toolset and have no step limit; the prompt and model differ. Defaults to the first one."
         });
     }
     spec
