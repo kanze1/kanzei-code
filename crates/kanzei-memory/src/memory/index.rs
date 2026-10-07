@@ -219,9 +219,9 @@ impl SqliteMemoryIndex {
             .collect()
     }
 
-    /// Tier1:BM25 候选 + 决策排序(ranking 唯一实现处,D-366)。
+    /// Tier1:BM25 候选 + 查询相关性和状态排序(ranking 唯一实现处,D-366)。
     /// store.search_candidates 只给 bm25 相关度与候选,采纳率/状态加权、排序截断
-    /// 都在这里;R-150 起 hits 不参与排序。R-194:全局记忆废弃,只检索项目 store。
+    /// 都在这里;hits 与采纳观测均不参与排序。R-194:全局记忆废弃,只检索项目 store。
     /// 返回完整 SearchHit(snippet/path/hits 来自存储候选)。
     fn tier1(
         &self,
@@ -244,10 +244,7 @@ impl SqliteMemoryIndex {
             // 与采纳率权重「召回未采纳→沉底」方向冲突;理论 importance ≠ semantic salience。
             // 排序权重只留 bm25 相关度 + 采纳率决策价值,hit_count 降为观测(SearchHit.hits)。
             let mut score = -c.bm25 * weight;
-            // R-149:反复被召回却从不被采纳的条目 = 语义显著但决策无关,温和沉底。
-            // preference 豁免:其正文全文常驻(STANDING DIRECTIVES),模型永远不需要
-            // 再拉正文,采纳率结构性偏低、无意义(实证:M-002 召回 22 采纳 4)。
-            // 注入与读取是观测事实，不能作为采用率给相关性排序加权。
+            // 注入与读取是观测事实，不作为采纳率加权；候选状态单独降权。
             if c.entry.status != "active" {
                 score *= 0.5;
             }

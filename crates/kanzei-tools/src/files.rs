@@ -564,7 +564,7 @@ impl Tool for FilesTool {
             return ToolOutput::ok(text);
         }
         let context = knowledge
-            .context(input.path.as_deref(), 9000)
+            .context(input.path.as_deref(), None, 9000)
             .unwrap_or_else(|_| knowledge.overview(1500));
         ToolOutput::ok(format!("{text}\n{context}"))
     }

@@ -46,6 +46,9 @@ struct ArchitectureInput {
     /// context: 模块 id、仓库相对文件路径或 Rust 路径；不传只返回项目层概览。
     #[serde(default)]
     area: Option<String>,
+    /// context: 当前任务关键词，用于相关职责与契约排序；不扩大区域邻域。
+    #[serde(default)]
+    query: Option<String>,
 }
 
 pub struct ArchitectureTool;
@@ -58,7 +61,7 @@ impl Tool for ArchitectureTool {
 
     fn description(&self) -> String {
         format!(
-            "Explore project knowledge with action=context and optional area (module id or file path): \
+            "Explore project knowledge with action=context, optional area (module id or file path) and query (task keywords): \
              hierarchy, responsibilities, upstream/downstream dependencies, constraints and pitfalls \
              from project memory and valid file summaries. Start with context without area, then expand \
              only the relevant module. Weak links are inferred; candidates are not established constraints. \
@@ -136,7 +139,7 @@ impl Tool for ArchitectureTool {
 
         match input.action.as_str() {
             "context" => match crate::project_knowledge::snapshot(&root, code_root(ctx))
-                .context(input.area.as_deref(), 12000)
+                .context(input.area.as_deref(), input.query.as_deref(), 12000)
             {
                 Ok(context) => ToolOutput::ok(context),
                 Err(error) => ToolOutput::error(error),

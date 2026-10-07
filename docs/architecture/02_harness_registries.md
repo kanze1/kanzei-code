@@ -9,7 +9,8 @@ flowchart LR
     research_profile["research 档组件<br/>profiles/research.rs"]:::entry
     readonly_profile["只读档<br/>profiles/readonly.rs"]:::muted
     config["kanzei.toml<br/>全局 → 项目层叠"]
-    defs["agent / skill 定义<br/>defs.rs"]
+    defs["项目 agent 定义<br/>MarkdownComponent"]
+    global_skills["全局 Skills<br/>内容与启用偏好"]
   end
   subgraph draft_grp["HarnessDraft · 五个注册表"]
     agents["agents<br/>AgentDef"]
@@ -31,7 +32,7 @@ flowchart LR
   readonly_profile -.-> rules
   config --> rules
   defs --> agents
-  defs --> skills
+  global_skills --> skills
   agents --> resolve
   tools_reg --> resolve
   skills --> resolve
@@ -46,7 +47,8 @@ flowchart LR
   click research_profile "crates/kanzei-tools/src/profiles/research.rs" "research 档组件"
   click readonly_profile "crates/kanzei-tools/src/profiles/readonly.rs" "只读档:收紧写权限"
   click config "crates/kanzei-harness/src/config.rs" "kanzei.toml:全局 ~/.kanzei 再叠项目 .kanzei"
-  click defs "crates/kanzei-harness/src/defs.rs" "AgentDef / SkillDef / ProfileKind"
+  click defs "crates/kanzei-harness/src/markdown.rs" "项目 agent 与 Markdown 定义装配"
+  click global_skills "crates/kanzei-harness/src/skills.rs" "global_catalog 与 enabled_catalog；项目切换不复制偏好"
   click agents "crates/kanzei-harness/src/harness.rs" "HarnessDraft 的五个注册表"
   click tools_reg "crates/kanzei-harness/src/tool.rs" "Tool trait"
   click skills "crates/kanzei-harness/src/defs.rs" "SkillDef"

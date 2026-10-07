@@ -21,7 +21,7 @@ fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
 
 /// R-161:读项目 state.db 的五段漏斗计数(与 episodes 同库,CLI/桌面同源写入)。
 /// 库缺失或损坏时返回 None——遥测是诊断口径,不应让 stats 工具报错。
-/// AVAILABLE 段由这里从记忆库文件真源统计(project + global 两级 active 条目数),
+/// AVAILABLE 段由这里从项目记忆文件真源统计 active 条目数,
 /// state.db 不知道文件真源——旧实现数恒空的 memory_sources,首段永远是 0。
 fn project_funnel_counts(ctx: &ToolCtx) -> Option<kanzei_core::FunnelCounts> {
     let state = kanzei_core::project_state_path(&ctx.project_root);
@@ -45,7 +45,7 @@ struct SearchInput {
     /// preference | habit | fact | sop
     #[serde(default)]
     category: Option<String>,
-    /// active(默认) | stale | any
+    /// active(默认) | candidate | shadow | deprecated | invalid | any
     #[serde(default)]
     status: Option<String>,
     /// 默认 5,上限 10
@@ -91,7 +91,7 @@ impl Tool for MemorySearchTool {
             Some(s) if super::STATUSES.contains(&s) => Some(s),
             Some(other) => {
                 return ToolOutput::error(format!(
-                    "invalid status `{other}`; valid: active | stale | any"
+                    "invalid status `{other}`; valid: active | candidate | shadow | deprecated | invalid | any"
                 ));
             }
         };

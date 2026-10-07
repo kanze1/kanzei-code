@@ -7,6 +7,8 @@ use std::path::Path;
 use kanzei_harness::areas::AreaRegistry;
 use serde::{Deserialize, Serialize};
 
+mod context;
+
 use crate::files::{annotation_target, load_annotations, valid_directory_notes, AnnotationStore};
 use crate::memory::{MemoryEntry, MemoryStore};
 use crate::refgraph::memory_graph::{build_graph, collect_inputs_from, GraphInputs};
@@ -373,109 +375,13 @@ impl ProjectKnowledge {
         out
     }
 
-    pub fn context(&self, area: Option<&str>, budget: usize) -> Result<String, String> {
-        if !self.enabled {
-            return Err("此项目未启用层级项目知识；可在项目架构页开启并初始化。".into());
-        }
-        let Some(token) = area else {
-            return Ok(self.overview(budget));
-        };
-        let Some(id) = self.resolve_area(token) else {
-            return Err(format!(
-                "未找到项目区域 `{token}`；使用 architecture action=context 查看可用区域。"
-            ));
-        };
-        let selected = self.neighborhood(&id);
-        let mut out = format!(
-            "<project-context area=\"{id}\">\n代码树: {}\n",
-            self.code_root
-        );
-        let mut folded = 0;
-        for area in self.areas.iter().filter(|area| selected.contains(&area.id)) {
-            let line = format!(
-                "{} · parent={} · 依赖={} · 被依赖={}\n",
-                area.id,
-                area.parent.as_deref().unwrap_or("project"),
-                area.dependencies.join(","),
-                area.dependents.join(",")
-            );
-            if out.chars().count() + line.chars().count() > budget / 3 {
-                folded += 1;
-                continue;
-            }
-            out.push_str(&line);
-        }
-        for purpose in self
-            .areas
-            .iter()
-            .filter(|area| selected.contains(&area.id))
-            .flat_map(|area| &area.purposes)
-        {
-            let line = format!("用途说明 [{}; AI 摘要]: {}\n", purpose.path, purpose.text);
-            if out.chars().count() + line.chars().count() > budget / 2 {
-                folded += 1;
-                continue;
-            }
-            out.push_str(&line);
-        }
-        let mut relevant: Vec<_> = self
-            .memories
-            .iter()
-            .filter(|memory| {
-                memory.status == "active"
-                    && memory.missing_areas.is_empty()
-                    && ((memory.links.is_empty() && Self::boundary_memory(memory))
-                        || memory.links.iter().any(|link| {
-                            self.relevant_link(link, &selected, &id, Self::boundary_memory(memory))
-                        }))
-            })
-            .collect();
-        // 本模块的强关联先加载，然后才加载影响邻域与弱推断。
-        relevant.sort_by_key(|memory| {
-            !memory.links.iter().any(|link| {
-                (link.area == id || link.area.starts_with(&format!("{id}/")))
-                    && link.strength == "strong"
-            })
-        });
-        for memory in relevant {
-            let links = memory
-                .links
-                .iter()
-                .filter(|link| {
-                    self.relevant_link(link, &selected, &id, Self::boundary_memory(memory))
-                })
-                .map(|link| format!("{}:{}:{}", link.area, link.provenance, link.strength))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let Ok(body) =
-                std::fs::read_to_string(Path::new(&self.project_root).join(&memory.path))
-            else {
-                continue;
-            };
-            if crate::content_hash(body.as_bytes()) != memory.revision {
-                folded += 1;
-                continue;
-            }
-            let line = format!(
-                "\n{} [{}] {}\n关联: {links}\n来源: {}; file: {}\n{}\n",
-                memory.id, memory.kind, memory.title, memory.source, memory.path, body
-            );
-            if out.chars().count() + line.chars().count() > budget.saturating_sub(160) {
-                folded += 1;
-                // 至少保留可按需读取的指向，正文不默默截断。
-                let pointer = format!(
-                    "{} {} · 正文未加载: {}\n",
-                    memory.id, memory.title, memory.path
-                );
-                if out.chars().count() + pointer.chars().count() <= budget.saturating_sub(160) {
-                    out.push_str(&pointer);
-                }
-                continue;
-            }
-            out.push_str(&line);
-        }
-        out.push_str(&format!("\n预算未加载: {folded} 项。弱关联为推断，职责和边界以有来源的记录与代码核对。\n</project-context>"));
-        Ok(out)
+    pub fn context(
+        &self,
+        area: Option<&str>,
+        query: Option<&str>,
+        budget: usize,
+    ) -> Result<String, String> {
+        context::render(self, area, query, budget)
     }
 }
 
@@ -557,7 +463,7 @@ mod tests {
         assert!(!off.enabled);
         assert!(off.areas.is_empty() && off.memories.is_empty());
         assert!(off.overview(1000).is_empty());
-        assert!(off.context(None, 1000).is_err());
+        assert!(off.context(None, None, 1000).is_err());
         set_enabled(&fixture.0, true).unwrap();
         let on = snapshot(&fixture.0, &fixture.0);
         assert!(on.enabled && !on.areas.is_empty() && !on.memories.is_empty());
@@ -592,7 +498,7 @@ mod tests {
             "父区域不应展开所有兄弟模块"
         );
         let context = knowledge
-            .context(Some("crates/base/src/network/decode.rs"), 6000)
+            .context(Some("crates/base/src/network/decode.rs"), None, 6000)
             .unwrap();
         assert!(context.contains("decode pitfall"));
         for text in [
@@ -625,7 +531,7 @@ mod tests {
         let knowledge = snapshot(&fixture.0, &fixture.0);
         fixture.memory("M-001", "invalid", "base/network/decode", "retired body");
         let context = knowledge
-            .context(Some("base/network/decode"), 6000)
+            .context(Some("base/network/decode"), None, 6000)
             .unwrap();
         assert!(!context.contains("retired body"));
         assert!(!context.contains("decode pitfall"));
@@ -674,7 +580,7 @@ mod tests {
         }
         let knowledge = snapshot(&fixture.0, &fixture.0);
         let context = knowledge
-            .context(Some("base/network/decode"), 6000)
+            .context(Some("base/network/decode"), None, 6000)
             .unwrap();
         assert!(
             context.contains("neighbor interface must load"),
@@ -725,7 +631,7 @@ mod tests {
             .flat_map(|area| &area.purposes)
             .any(|purpose| purpose.text == "old decoder purpose"));
         assert!(knowledge
-            .context(Some("base/network/decode"), 6000)
+            .context(Some("base/network/decode"), None, 6000)
             .unwrap()
             .contains("decode pitfall"));
     }
@@ -753,6 +659,89 @@ mod tests {
     }
 
     #[test]
+    fn contracts_keep_body_budget_ahead_of_incidents_and_purpose_summaries() {
+        let fixture = Fixture::new();
+        fixture.memory(
+            "M-001",
+            "active",
+            "base/network/decode",
+            &"old incident ".repeat(300),
+        );
+        fixture.memory(
+            "M-020",
+            "active",
+            "base/network/decode",
+            "critical contract: verify all consumers",
+        );
+        let path = ".kanzei/memory/M-020-entry.md";
+        let raw = std::fs::read_to_string(fixture.0.join(path)).unwrap();
+        fixture.write(
+            path,
+            &raw.replace(
+                "source: user\n",
+                "source: user\nsubject: contract:decode\nrefs: crates/base/src/network/decode.rs\n",
+            ),
+        );
+        let code_path = "crates/base/src/network/decode.rs";
+        let mut annotations = AnnotationStore::default();
+        annotations.files.insert(
+            code_path.into(),
+            crate::files::Annotation {
+                hash: crate::files::content_hash(b"pub fn decode() {}\n"),
+                note: "large purpose summary ".repeat(200),
+            },
+        );
+        crate::files::save_annotations(&fixture.0, &annotations).unwrap();
+        let context = snapshot(&fixture.0, &fixture.0)
+            .context(Some(code_path), None, 1800)
+            .unwrap();
+        assert!(
+            context.contains("critical contract: verify all consumers"),
+            "{context}"
+        );
+        assert!(context.contains("refs: crates/base/src/network/decode.rs"));
+        assert!(context.find("critical contract").unwrap() < context.find("M-001 entry").unwrap());
+        assert!(!context.contains("old incident"));
+        assert!(
+            !context.contains("created:"),
+            "重复 frontmatter 不应占用正文预算"
+        );
+        assert!(context.contains("正文未加载"));
+        assert!(context.chars().count() <= 1800);
+        assert!(context.ends_with("</project-context>"));
+    }
+
+    #[test]
+    fn task_query_ranks_related_contracts_without_expanding_the_neighborhood() {
+        let fixture = Fixture::new();
+        for (id, body) in [
+            ("M-020", "alpha_wire interface"),
+            ("M-021", "beta_wire interface"),
+        ] {
+            fixture.memory(id, "active", "base/network/decode", body);
+            let path = format!(".kanzei/memory/{id}-entry.md");
+            let raw = std::fs::read_to_string(fixture.0.join(&path)).unwrap();
+            fixture.write(
+                &path,
+                &raw.replace("source: user\n", "source: user\nsubject: contract:decode\n"),
+            );
+        }
+        fixture.memory("M-004", "active", "other", "beta_wire unrelated area");
+        let knowledge = snapshot(&fixture.0, &fixture.0);
+        let context = knowledge
+            .context(Some("base/network/decode"), Some("beta_wire"), 6000)
+            .unwrap();
+        assert!(
+            context.find("beta_wire interface").unwrap()
+                < context.find("alpha_wire interface").unwrap()
+        );
+        assert!(!context.contains("beta_wire unrelated area"));
+        assert!(knowledge
+            .context(Some("base/network/decode"), None, 0)
+            .is_err());
+    }
+
+    #[test]
     fn oversized_memory_is_folded_with_a_readable_pointer() {
         let fixture = Fixture::new();
         fixture.memory(
@@ -763,7 +752,7 @@ mod tests {
         );
         let knowledge = snapshot(&fixture.0, &fixture.0);
         let context = knowledge
-            .context(Some("base/network/decode"), 1100)
+            .context(Some("base/network/decode"), None, 1100)
             .unwrap();
         assert!(
             context.chars().count() <= 1100,

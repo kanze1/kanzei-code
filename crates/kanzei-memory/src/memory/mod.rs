@@ -12,7 +12,6 @@ mod ledger;
 mod lifecycle;
 mod manager;
 mod migration;
-mod preference;
 mod relevance;
 mod retrieval;
 mod store;
@@ -23,6 +22,7 @@ pub use inbox::{InboxBatch, InboxCheckpoint};
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
 pub use ledger::DeduplicationReport;
 pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent, MemoryStaleTool};
+pub use relevance::lexical_weight as query_relevance;
 pub use store::{
     AddOutcome, CandidateReconcileReport, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit,
 };
@@ -1429,10 +1429,8 @@ fn prompt_hints_scoped(
     let mut memory_index = SqliteMemoryIndex::with_embedder(project_root, embedder);
     let _ = memory_index.ensure_vectors();
     let (found, timing) = memory_index.search_hybrid_entries(&index::IndexQuery::text(&intent), 3);
+    // 模块约束和预算折叠的项目约束未必常驻；按任务检索，不能按类别静默丢弃。
     let mut hits = found;
-    // D-216:preference 正文全文常驻(STANDING DIRECTIVES),hints 再提是零信息,
-    // 还会污染召回遥测(实证:M-002 召回 22 次全是噪声)。
-    hits.retain(|h| h.entry.category != "preference");
     if hits.is_empty() {
         // miss 也落遥测(R-161):开跑预检索零命中是记忆缺口的第一手证据。
         record_memory_search_telemetry(
@@ -2341,8 +2339,8 @@ mod tests {
             "不能指向已经退役的常驻索引: {block}"
         );
         assert!(block.contains("预算未列出"), "折叠必须可见: {block}");
-        // preference 全文常驻,hints 不提、遥测不记。
-        assert!(!block.contains("M-003"), "preference 不该进 hints: {block}");
+        let full = prompt_hints_with_budget(&dir, "发版发布安装更新", 1000, None).unwrap();
+        assert!(full.contains("M-003"), "相关约束必须可检索: {full}");
         assert!(
             store.recalls(10).is_empty(),
             "prompt_hints 生产路径不得继续写入 legacy memory_recalls"

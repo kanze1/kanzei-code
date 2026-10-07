@@ -1740,8 +1740,10 @@ mod tests {
             panic!("expected Added");
         };
         assert_eq!(entry.status, "active");
-        // find_preference 只找 active:user 直写偏好立即可用
-        assert!(store.find_preference("开发重心").is_some());
+        assert!(store
+            .load_all()
+            .iter()
+            .any(|(_, e)| e.id == entry.id && e.status == "active"));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2616,52 +2618,6 @@ mod tests {
             .merge(&c.id, std::slice::from_ref(&d.id), None, None, None, false)
             .unwrap();
         assert_eq!(merged.id, c.id);
-        std::fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn upsert_preference_reuses_one_entry_across_switches() {
-        // 开发重心会被反复切换:必须复用同一条目,否则索引被同类定调撑爆、历史也无从对照。
-        let (dir, store) = temp_store();
-        let first = store
-            .upsert_preference(
-                "开发重心",
-                "开发重心:缺陷优先",
-                "取活时必读",
-                "先扫 defects.md",
-            )
-            .unwrap();
-        assert_eq!(first.category, "preference");
-        let second = store
-            .upsert_preference(
-                "开发重心",
-                "开发重心:需求优先",
-                "取活时必读",
-                "先扫 requirements.md",
-            )
-            .unwrap();
-        assert_eq!(second.id, first.id, "切换必须改同一条,不能新增");
-        assert_eq!(second.body, "先扫 requirements.md");
-        assert_eq!(store.load_all().len(), 1);
-        assert_eq!(
-            store.find_preference("开发重心").map(|e| e.title),
-            Some("开发重心:需求优先".to_string())
-        );
-        // 与其它偏好条目互不干扰
-        store
-            .upsert_preference(
-                "提交署名",
-                "提交署名:不带 Co-Authored-By",
-                "提交时必读",
-                "只署用户本人",
-            )
-            .unwrap();
-        assert_eq!(store.load_all().len(), 2);
-        assert!(store
-            .find_preference("开发重心")
-            .unwrap()
-            .title
-            .contains("需求优先"));
         std::fs::remove_dir_all(dir).ok();
     }
 

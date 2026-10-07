@@ -2,6 +2,8 @@
 
 > 2026-10-02 现状校正：本文的 2026-08-09/10 采纳率排序、read 不记账及历史实证描述保留为当时记录。当前实现区分召回、注入和读取，不将它们当作采纳或在线收益，不再依该采纳率加权；现行合同见 [memory_feedback_reliability.md](memory_feedback_reliability.md)。
 
+> 2026-10-07 加载口径：下文 preference 全文常驻、标题前缀 upsert 是历史方案。当前按项目层级、模块边界和任务预算加载，相关约束也可检索；未使用的 upsert API 已删除。以 [project_knowledge.md](project_knowledge.md) 为准。
+
 - 身份: validated_design
 - 状态: 已验证基线；R-145、R-150 已完成
 - 日期: 2026-08-09

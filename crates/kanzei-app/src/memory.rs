@@ -622,20 +622,7 @@ pub(crate) fn memory_search_page(
     json!(out)
 }
 
-// 「开发重心」的 memory_focus_get / memory_focus_set 已移除。
-//
-// 它们把取活序开关镜像成一条 preference 记忆,而 preference 会以 STANDING
-// DIRECTIVES 的抬头全文常驻注入,与引擎 <resolved-control-state> 里那句
-// "do not re-arbitrate queue priority from tracker prose" 正面对撞——同一个决策
-// 两套机制、两个权威。实测让同一条规则复活三代(M-002 → M-063 → M-070):
-// 每次退役后开关一切,upsert_preference 就再生一条。
-//
-// 取活序现在单源:前端开关 → localStorage → run.rs normalize_work_priority
-// → WorkPriority → resolve_work_decision。详见 ui/08-compose.js 的说明。
-//
-// MemoryStore 的 find_preference/upsert_preference 保留:preference 类别与
-// STANDING DIRECTIVES 注入机制本身没有问题(问题只在拿它承载引擎已经权威裁决的
-// 那个决策),将来写真正的用户偏好仍要用这对原语。
+// 队列优先级由运行控制状态持有，不再镜像成记忆条目。
 
 #[tauri::command(async)]
 pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {

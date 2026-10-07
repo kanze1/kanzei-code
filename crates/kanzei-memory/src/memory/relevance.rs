@@ -40,7 +40,7 @@ pub(super) fn anchors_match(query: &str, entry: &MemoryEntry) -> bool {
     anchors.iter().any(|anchor| contains(&text, anchor))
 }
 
-pub(super) fn lexical_weight(query: &str, entry: &MemoryEntry) -> Option<f64> {
+pub fn lexical_weight(query: &str, entry: &MemoryEntry) -> Option<f64> {
     if !anchors_match(query, entry) {
         return None;
     }
