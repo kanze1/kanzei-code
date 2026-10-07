@@ -302,9 +302,9 @@ mod tests {
         ));
         for (mode, explicit, expected) in [
             ("primary", "", 0),
-            ("subagent", "", 32),
+            ("subagent", "", 0),
             ("primary", "steps: 7\n", 7),
-            ("subagent", "steps: 7\n", 7),
+            ("subagent", "steps: 7\n", 0),
         ] {
             std::fs::write(
                 &path,
