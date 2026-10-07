@@ -144,16 +144,13 @@ struct BashInput {
     /// 工作目录(默认 cwd)
     #[serde(default)]
     workdir: Option<String>,
-    /// 后台运行:立刻返回进程句柄,用 process 工具查输出/停止(长驻服务、watch 用)
+    /// 后台运行：立即返回句柄；会话支持异步邮箱时，完成结果自动回到所属会话。
     #[serde(default)]
     background: bool,
     /// 保留标准输入并立即返回进程 id；随后用 process input 发送文本或关闭输入。
     #[serde(default)]
     interactive: bool,
-    /// R-180:长驻档位(仅 background=true 有意义)。默认 false = 跟随 owner run
-    /// (owner run 收尾即收尾,D-174 安全降级);true = 生命周期显式脱离 owner run,
-    /// 跨 run 存活,由注册表/日志落盘承接(R-180 B2/B3)。只有用户或 agent 明确
-    /// 声明"这是长驻服务"时才置 true——不改变默认档位。
+    /// 长驻服务跨应用恢复。普通后台命令可跨对话轮次存活，明确停止所属会话时清理。
     #[serde(default)]
     persistent: bool,
     /// Foreground test command: automatically records running/result/duration/log in one call.
@@ -192,12 +189,18 @@ impl Tool for BashTool {
              running and the actual exit result, duration and log automatically; no separate \
              test_record calls. test requires foreground execution. Default stdin is closed (EOF). Set interactive=true to start a background command with writable stdin; use process action=input with its id, text and optional close=true (EOF). This is pipe input, without terminal emulation. \
              Set background=true for long-running processes (dev server, watch): it returns a \
-             process id immediately; call `process` directly (the runner auto-loads it if deferred) \
+             process id immediately. Where the session has an async mailbox, final output and exit \
+             status automatically return to the same session, including after its current turn ends; \
+             continue independent work instead of polling. A steering message can move an eligible \
+             foreground command to the background without restarting it. Explicit timeout_ms remains \
+             the execution deadline after that transfer. Foreground test recording stays synchronous. \
+             Call `process` directly (the runner auto-loads it if deferred) \
              or use `tool_search` query `select:process` to load its schema first. \
-             In a managed project a background task is fenced and owned by the current run: it may \
+             In a managed project a background task is fenced and owned by the current session: it may \
              not write under .kanzei/project or .kanzei/memory (such writes are quarantined and \
              rolled back), its workdir must stay inside the project and outside .kanzei/, and it is \
-             finished when the next run starts — so it cannot outlive this turn.",
+             stopped when its owner is explicitly stopped or closed. Set persistent=true only for \
+             services that need cross-application recovery; it is not required to survive a turn.",
             shell.name
         )
     }
@@ -333,16 +336,11 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
 
     // D-174 静态第一道:托管项目里的后台任务不得把工作目录扎进托管树,
     // 也不得跑到项目根之外(跑到外面就无从归因,守卫的对账范围也失去意义)。
-    if input.background && managed_scope_exists(&ctx.project_root) {
+    if (input.background || input.interactive) && managed_scope_exists(&ctx.project_root) {
         if let Some(breach) = background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir) {
             return ToolOutput::error(breach);
         }
     }
-    // D-174 生命周期包含关系:上一个 run 遗留的后台任务在这里收尾。守卫把
-    // "没有专用工具窗口解释的托管变化"一律判给后台进程,这个判据只有在
-    // 「后台任务生命周期 ⊆ owner run」时才成立——跨 run 存活会让本 run 的
-    // 专用工具写入被上一个 run 的守卫误判成越界。
-
     // R-268:围栏不再贯穿命令窗口持共享档挡写者——「窗口内没有写者」的不变式换成
     // 「窗口内的变化可归因」:写者自由写 + 留写日志,围栏收口时按日志吸收合法写、
     // 回滚越界写。写者之间仍由 store.lock()/tree_lock() 的毫秒级排他锁互斥(原子
@@ -405,6 +403,17 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
             "交互输入只在当前应用进程内有效；去掉 persistent 后启动。",
         );
     }
+    // The same workdir boundary applies to explicit background execution and
+    // foreground handoff. Recorded tests retain their single-call exit contract.
+    let mut background_requests = ctx
+        .async_mailbox
+        .as_ref()
+        .filter(|mailbox| !mailbox.is_closed() && input.test.is_none())
+        .filter(|_| {
+            !managed_scope_exists(&ctx.project_root)
+                || background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir).is_none()
+        })
+        .map(|mailbox| mailbox.background_requests());
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(e) => return ToolOutput::error(format!("failed to spawn {}: {e}", shell.name)),
@@ -422,7 +431,7 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
             &workdir,
             background_owner(ctx),
             managed_before,
-            // R-180:长驻档位透传。persistent=true 时 owner run 收尾不再收它。
+            // Persistent services additionally retain restart metadata and logs.
             input.persistent,
             ctx.async_mailbox.clone(),
         )
@@ -431,19 +440,7 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
             Ok(process) => process,
             Err(error) => return ToolOutput::failed("BACKGROUND_REGISTRATION_FAILED", error),
         };
-        let rendered = format!(
-            "background: true\nprocess_id: {}\npid: {}\ncommand: {}",
-            process.id,
-            process.pid().map_or("unknown".into(), |p| p.to_string()),
-            input.command,
-        );
-        return ToolOutput::ok(rendered).with_display(serde_json::json!({
-            "kind": "terminal",
-            "command": input.command,
-            "background": true,
-            "processId": process.id,
-            "output": "(后台运行中,用 process 工具查看输出)",
-        }));
+        return background_result(&process, ctx);
     }
 
     let pid = child.id();
@@ -453,10 +450,11 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
     // 缓冲放在 future 外:超时把整个 future drop 掉时,已经读到的输出必须还在,
     // 否则模型对"卡在哪一步"一无所知,只能盲目加大 timeout 重跑并重复副作用(D-062)。
     let (mut out_buf, mut err_buf) = (Vec::new(), Vec::new());
-    let capture = {
+    let deadline = tokio::time::Instant::now() + timeout;
+    let outcome = {
         let out_buf = &mut out_buf;
         let err_buf = &mut err_buf;
-        async move {
+        let capture = async {
             // 有界读取:两条流各自最多 MAX_CAPTURE_BYTES,超出丢弃(内存红线)。
             let (a, b) = tokio::join!(
                 read_capped(&mut stdout, out_buf),
@@ -464,17 +462,53 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
             );
             let status = child.wait().await;
             (status, a, b)
+        };
+        let background_requested = async {
+            match background_requests.as_mut() {
+                Some(requests) => {
+                    let _ = requests.changed().await;
+                }
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::select! { biased;
+            result = kanzei_harness::tool_pipeline::with_timeout(capture, timeout) => result.map(Some),
+            _ = background_requested => Ok(None),
         }
     };
-
-    // R-259:timeout 骨架收编进 wrapper(with_timeout)——tokio::time::timeout
-    // 只在 tool_pipeline 实现一处;超时后的业务善后(kill_tree/部分输出/围栏)
-    // 是命令执行语义,依赖 body 内局部状态,保留在 Err 分支处理。
-    let outcome = kanzei_harness::tool_pipeline::with_timeout(capture, timeout).await;
     // 命令可能装了工具链、建了文件、git init 了:项目状态事实的缓存作废。
     crate::project_state::invalidate();
     match outcome {
-        Ok((status, out_capped, err_capped)) => {
+        Ok(None) => {
+            // Transfer the existing child, unread pipe handles and captured
+            // prefix together. No rerun, no lost output, one completion callback.
+            child.stdout = Some(stdout);
+            child.stderr = Some(stderr);
+            if !err_buf.is_empty() {
+                out_buf.extend_from_slice(b"\n[stderr]\n");
+                out_buf.extend_from_slice(&err_buf);
+            }
+            match crate::background::register_captured(
+                child,
+                input.command,
+                &ctx.project_root,
+                &workdir,
+                background_owner(ctx),
+                managed_before,
+                false,
+                ctx.async_mailbox.clone(),
+                crate::background::CapturedOutput {
+                    bytes: out_buf,
+                    deadline: Some(deadline),
+                },
+            )
+            .await
+            {
+                Ok(process) => background_result(&process, ctx),
+                Err(error) => ToolOutput::failed("BACKGROUND_REGISTRATION_FAILED", error),
+            }
+        }
+        Ok(Some((status, out_capped, err_capped))) => {
             let mut text = String::from_utf8_lossy(&out_buf).into_owned();
             if out_capped {
                 text.push_str("\n[stdout truncated at 1 MiB]");
@@ -598,6 +632,26 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
             ToolOutput::error(text).with_display(display)
         }
     }
+}
+
+fn background_result(process: &crate::background::BackgroundProcess, ctx: &ToolCtx) -> ToolOutput {
+    let completion = if ctx.async_mailbox.is_some() {
+        "完成结果会自动送回所属会话；可以继续处理其它工作。"
+    } else {
+        "用 process output 查看保留的输出。"
+    };
+    ToolOutput::ok(format!(
+        "background: true\nprocess_id: {}\npid: {}\ncommand: {}\n{completion}",
+        process.id,
+        process
+            .pid()
+            .map_or("unknown".into(), |pid| pid.to_string()),
+        process.command,
+    ))
+    .with_display(serde_json::json!({
+        "kind": "terminal", "command": process.command, "background": true,
+        "processId": process.id, "output": process.output(),
+    }))
 }
 
 /// 命令中出现整文件覆写 cmdlet 时返回其名称(词边界匹配,Get-Content 不误伤)。
@@ -805,6 +859,102 @@ mod tests {
         ));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         dir
+    }
+
+    #[cfg(windows)]
+    async fn foreground_handoff(timeout_ms: u64, finish: bool) {
+        let _guard = crate::background::tests::fence_guard();
+        let root = temp_project("handoff");
+        let (notice_tx, mut notices) = tokio::sync::mpsc::unbounded_channel();
+        let mailbox = kanzei_harness::AsyncMailbox::new(move |notice| {
+            notice_tx.send(notice).map_err(|error| error.to_string())
+        });
+        // This request belongs to an earlier input and must not affect this command.
+        mailbox.request_background();
+        let ctx = ToolCtx {
+            async_mailbox: Some(mailbox.clone()),
+            run_id: Some("handoff-run".into()),
+            process_id: Some("handoff-owner".into()),
+            ..ToolCtx::new(root.clone(), root.clone())
+        };
+        let command = "Write-Output HANDOFF_PREFIX; while (-not (Test-Path release.txt)) { Start-Sleep -Milliseconds 20 }; Write-Output HANDOFF_SUFFIX";
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle =
+            kanzei_harness::progress::ProgressHandle::new("foreground".into(), progress_tx);
+        let executing = tokio::spawn(async move {
+            kanzei_harness::progress::scope(
+                handle,
+                BashTool.execute(json!({"command":command,"timeout_ms":timeout_ms}), &ctx),
+            )
+            .await
+        });
+        let prefix = tokio::time::timeout(std::time::Duration::from_secs(10), progress_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(prefix.1.contains("HANDOFF_PREFIX"));
+        assert!(
+            !executing.is_finished(),
+            "an old steering request must not be replayed"
+        );
+        mailbox.request_background();
+        let output = tokio::time::timeout(std::time::Duration::from_secs(5), executing)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!output.is_error, "{}", output.content);
+        let id = output
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("process_id: "))
+            .unwrap();
+        let process = crate::background::get(id).unwrap();
+        assert_eq!(process.owner.process_id, "handoff-owner");
+        assert!(
+            process.is_running(),
+            "handoff must not terminate or rerun the command"
+        );
+        assert!(process.output().contains("HANDOFF_PREFIX"));
+        if finish {
+            std::fs::write(root.join("release.txt"), "continue").unwrap();
+        }
+        let notice = tokio::time::timeout(std::time::Duration::from_secs(10), notices.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(notice.id, format!("terminal:{id}"));
+        assert!(notice.text.contains("HANDOFF_PREFIX"));
+        assert!(notice.text.contains(if finish {
+            "timed_out: false"
+        } else {
+            "timed_out: true"
+        }));
+        if finish {
+            assert_eq!(process.exit_code(), Some(Some(0)));
+            assert_eq!(process.output().matches("HANDOFF_PREFIX").count(), 1);
+            assert_eq!(process.output().matches("HANDOFF_SUFFIX").count(), 1);
+        } else {
+            assert!(!process.is_running());
+            assert!(!process.output().contains("HANDOFF_SUFFIX"));
+        }
+        assert!(
+            notices.try_recv().is_err(),
+            "one terminal exit produces one callback"
+        );
+        crate::background::stop_result(id).await.unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn foreground_handoff_keeps_process_prefix_and_single_completion() {
+        foreground_handoff(30_000, true).await;
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn foreground_handoff_preserves_the_original_timeout() {
+        foreground_handoff(3_000, false).await;
     }
 
     /// UI2-0926 #13:中文项目路径曾被 GBK 输出 + UTF-8 解码弄成 U+FFFD(「MD文件保存」现场

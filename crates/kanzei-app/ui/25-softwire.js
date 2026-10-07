@@ -629,7 +629,7 @@ async function dispatchPrompt(destination, capture, resolved) {
   try {
     await invoke("run_prompt", { prompt: capture.text, projectDir: destination.project,
       processId: destination.processId || null, ...lineAgent(line), researchTopic: line?.research_topic || undefined,
-      delivery: "queue", model: line?.model || null, attachments: capture.attachments,
+      delivery: capture.delivery, model: line?.model || null, attachments: capture.attachments,
       autonomous: false, autoAllow: autoAllowEnabled() });
     if (starting && sessionStates.get(line.session_id)?.phase === "starting") transitionSession(line.session_id, "running", { local_start_pending: false, stage: "请求" });
   } catch (error) {
@@ -637,9 +637,10 @@ async function dispatchPrompt(destination, capture, resolved) {
     throw error;
   }
 }
-async function sendCurrent() {
+async function sendCurrent(delivery = "queue") {
   if (!current || !composer.active()) return;
   const state = current, capture = composer.capture(), destination = capture.target;
+  capture.delivery = delivery;
   if (destination.readOnly || destination.completed || (!capture.text.trim() && !capture.attachments.length)) return;
   if (destination.interactionId) { await sendReply(state, capture); return; }
   const key = targetKey(destination);
@@ -833,7 +834,7 @@ defer(() => {
   });
   document.addEventListener("kz:compose-send", event => {
     if (!composer.active() || !visible()) return;
-    event.preventDefault(); void sendCurrent();
+    event.preventDefault(); void sendCurrent(event.detail?.delivery || "queue");
   });
   document.addEventListener("kz:compose-stop", event => {
     if (!composer.active() || !visible()) return;

@@ -116,6 +116,16 @@ fn admit_notice(
     store
         .admit_input(owner, &input_id, &notice.text, kanzei_core::Delivery::Steer)
         .map_err(|e| e.to_string())?;
+    if store
+        .input_status(&input_id)
+        .map_err(|error| error.to_string())?
+        .as_deref()
+        == Some("pending")
+    {
+        if let Some(mailbox) = runtime.async_mailbox.lock_or_recover().as_ref() {
+            mailbox.request_background();
+        }
+    }
     Ok(input_id)
 }
 

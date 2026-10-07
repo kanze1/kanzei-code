@@ -1487,6 +1487,7 @@ export const I18N_EN = {
   "选择已沉淀的流程": "Choose a saved procedure",
   "按当前文案继续推进": "Continue with the current prompt",
   "输入交付方式": "Input delivery mode",
+  "排队等待本轮结束；插入在工具完成后处理（Ctrl+Enter 立即插话）": "Queue waits until the turn ends; steer is read after tool results (Ctrl+Enter to steer now)",
   "切换当前项目": "Switch current project",
   "批量操作": "Bulk actions",
   "批量改状态": "Bulk change status",

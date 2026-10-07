@@ -1319,7 +1319,7 @@ impl AgentTeam {
         )));
         let writing = matches!(initial.role.as_str(), "general" | "implement" | "verify");
         if (writing || !initial.depends_on.is_empty()) && initial.worktree.is_none() {
-            if !self.0.ctx.project_workflow {
+            if kanzei_harness::is_general_conversation_root(&self.0.ctx.project_root) {
                 workspace::ensure_general_repository(&self.0.ctx.cwd, &self.0.ctx.project_root)?;
             }
             self.worker_update(id, cancel, None, |j| j.latest = "准备独立工作树".into())?;

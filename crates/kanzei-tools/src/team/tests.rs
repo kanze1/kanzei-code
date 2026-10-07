@@ -2149,6 +2149,11 @@ async fn respond(stream: &mut tokio::net::TcpStream, delta: Value) {
     stream.write_all(response.as_bytes()).await.unwrap();
 }
 fn team(root: PathBuf, url: &str, owner: &str) -> AgentTeam {
+    let ctx = ToolCtx::new(root.clone(), root.clone()).with_session_id(owner.into());
+    team_with_ctx(root, url, ctx)
+}
+
+fn team_with_ctx(root: PathBuf, url: &str, ctx: ToolCtx) -> AgentTeam {
     let config = Arc::new(KanzeiConfig::load(&root).unwrap());
     let rctx = ResolveCtx {
         cwd: root.clone(),
@@ -2193,7 +2198,7 @@ fn team(root: PathBuf, url: &str, owner: &str) -> AgentTeam {
     };
     AgentTeam::attach(
         rctx,
-        ToolCtx::new(root.clone(), root).with_session_id(owner.into()),
+        ctx,
         runtime,
         LlmClient::new(&ProxyConfig::Disabled).unwrap(),
         None,
@@ -2371,6 +2376,15 @@ fn snapshot_preserves_dirty_parent_index_and_conflicting_adoption_is_atomic() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn real_writer_background_isolated_result_then_explicit_adoption() {
+    writer_background_isolated_result_then_explicit_adoption(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn paired_project_writer_background_isolated_result_then_explicit_adoption() {
+    writer_background_isolated_result_then_explicit_adoption(false).await;
+}
+
+async fn writer_background_isolated_result_then_explicit_adoption(project_workflow: bool) {
     let root = project();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/v1", listener.local_addr().unwrap());
@@ -2387,7 +2401,9 @@ async fn real_writer_background_isolated_result_then_explicit_adoption() {
         .await;
         (first, second)
     });
-    let team = team(root.clone(), &url, "writer-owner");
+    let mut ctx = ToolCtx::new(root.clone(), root.clone()).with_session_id("writer-owner".into());
+    ctx.project_workflow = project_workflow;
+    let team = team_with_ctx(root.clone(), &url, ctx);
     let ack = team
         .command(
             "writer",

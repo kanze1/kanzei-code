@@ -63,6 +63,7 @@ pub(super) use registration::read_log_tail;
 #[cfg(test)]
 use registration::register;
 pub(crate) use registration::register_with_mailbox;
+pub(crate) use registration::{register_captured, CapturedOutput};
 
 #[cfg(test)]
 pub(crate) fn prune_finished_process_for_test(id: &str) -> bool {

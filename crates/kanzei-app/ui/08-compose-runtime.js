@@ -426,7 +426,7 @@ export function lineModelFor(processId) {
 
 const compactingSessions = new Set();
 
-export async function sendText(prompt, { auto = false, promptAttachments = [], executionBatch = false, workItemId = null } = {}) {
+export async function sendText(prompt, { auto = false, promptAttachments = [], executionBatch = false, workItemId = null, delivery: requestedDelivery = null } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
   if (running && auto) {
@@ -472,7 +472,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     } catch (error) { toastError(String(error)); return; }
   }
   if (!auto) { syncAutoContinueWithProfile(); await syncAutoRunState(); }
-  const delivery = workItemId ? "queue" : $("delivery-select").value;
+  const delivery = workItemId ? "queue" : requestedDelivery || $("delivery-select").value;
   if (!auto) void ensureNotificationPermission();
   // UI2-0926 #14:用户手动发消息 = 新的一次运行(后台任务侧栏解除本次运行的压制、确认上次的失败);自动推进续轮不算。
   if (!auto) {
@@ -758,10 +758,10 @@ export function stopAutoForManualInput({ supplement = false } = {}) {
 }
 
 let submittingDraft = false;
-export async function send() {
+export async function send({ delivery = null } = {}) {
   if (submittingDraft) return;
   if (pendingFileBytes > 0) { toast(t("附件正在读取，请稍候再发送")); return; }
-  const composeEvent = new CustomEvent("kz:compose-send", { bubbles: true, cancelable: true });
+  const composeEvent = new CustomEvent("kz:compose-send", { bubbles: true, cancelable: true, detail: { delivery } });
   promptBox.dispatchEvent(composeEvent);
   if (composeEvent.defaultPrevented) return;
   const prompt = promptBox.value.trim();
@@ -790,7 +790,7 @@ export async function send() {
     rememberPrompt(prompt);
     hideFileSuggestions();
     const project = currentProject, process = activeProcessId;
-    const accepted = await sendText(prompt || t("看一下这些附件"), { promptAttachments: submitted.attachments });
+    const accepted = await sendText(prompt || t("看一下这些附件"), { promptAttachments: submitted.attachments, delivery });
     if (accepted) acknowledge_composer_draft(project, process, submitted);
   } finally { submittingDraft = false; }
 }
@@ -1507,7 +1507,7 @@ defer(() => {
       if (promptCaretOnEdge(up) && navigatePromptHistory(up ? 1 : -1)) e.preventDefault();
     } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      send();
+      send({ delivery: "steer" });
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();

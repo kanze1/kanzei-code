@@ -653,7 +653,29 @@ pub(crate) fn schedule_run(
                     work_item_id.as_deref(),
                 )
                 .map_err(|e| e.to_string())?;
-                let _ = window.emit("kz:status", with_session_id(json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }), &session_id));
+                if delivery == kanzei_core::Delivery::Steer {
+                    if let Some(mailbox) = runtime.async_mailbox.lock().unwrap().as_ref() {
+                        mailbox.request_background();
+                    }
+                }
+                let (stage, detail) = if delivery == kanzei_core::Delivery::Steer {
+                    (
+                        "插话",
+                        format!(
+                            "输入已保存，将在工具结果完整提交后处理（{}）",
+                            queued.input_id
+                        ),
+                    )
+                } else {
+                    (
+                        "排队",
+                        format!("已排队，前方输入将依次执行（{}）", queued.input_id),
+                    )
+                };
+                let _ = window.emit(
+                    "kz:status",
+                    with_session_id(json!({ "stage": stage, "detail": detail }), &session_id),
+                );
                 return Ok("queued");
             }
             (prompt, delivery, attachments, None)
