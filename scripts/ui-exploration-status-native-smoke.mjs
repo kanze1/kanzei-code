@@ -70,6 +70,7 @@ try {
       sa.subagentHistoryResult(sid, history.id, { ok: true, content: `[tool_outcome=noop code=subagent_step_limit_reached]\n${reason}` });
       check('Historical step ceiling agrees with the live state', history.state, 'limited');
       check('Ordinary task execution errors remain failures', sa.classifySubagentEnd({ ok: false, code: 'EXEC_FAILED', preview: 'boom' }), 'failed');
+      check('Successful answers mentioning old step ceilings remain complete', sa.classifySubagentEnd({ ok: true, outcome: 'success', content: '已修复子任务达到步骤上限的问题' }), 'done');
       check('Explicit error code is not overridden by progress wording', sa.classifySubagentEnd({ ok: false, code: 'EXEC_FAILED', preview: reason }), 'failed');
       i18n.setLanguagePreference('en', { persist: true, rerender: true });
       chat.syncToolGroup(group);

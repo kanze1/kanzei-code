@@ -200,7 +200,7 @@ export function classifySubagentEnd({ ok, outcome, code, preview = "", content =
     default: break;
   }
   const text = `${preview ?? ""}\n${content ?? ""}`;
-  if (!code && /子任务达到(?:步骤|步数)上限/.test(text)) return "limited";
+  if (!code && (!ok || outcome === "noop") && /子任务达到(?:步骤|步数)上限/.test(text)) return "limited";
   if (ok) return outcome === "noop" ? "empty" : "done";
   if (/wall-clock safety limit|timed out|超时/i.test(text)) return "timeout";
   if (/stopped by the user|cancelled: run stopped|被停|已被停止/i.test(text)) return "cancelled";

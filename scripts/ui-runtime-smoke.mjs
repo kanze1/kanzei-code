@@ -13397,6 +13397,7 @@ const docsB = {
   assert(classify({ ok: true, outcome: "noop" }) === "empty" && classify({ ok: false, preview: "boom" }) === "failed", "noop/普通失败的分类不对");
   assert(classify({ ok: true, outcome: "noop", code: "subagent_step_limit_reached" }) === "limited", "步数上限的 noop 不能误判为无回答或完成");
   assert(classify({ ok: false, preview: "子任务达到步骤上限；已保存上下文" }) === "limited", "旧历史里的步数上限应显示明确状态");
+  assert(classify({ ok: true, outcome: "success", content: "已修复子任务达到步骤上限的问题" }) === "done", "成功回答提到旧步数上限不能误判为中断");
   assert(classify({ ok: false, code: "subagent_timeout", preview: "子任务达到步骤上限" }) === "timeout", "明确终态码不能被历史文案覆盖");
   toolStart({ payload: { id: "call_fail", name: "task", summary: "", input: { prompt: "Try something", description: "Try something" }, sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "call_fail", name: "task", ok: false, outcome: "failed", code: "subagent_timeout", preview: "[tool_outcome=failed code=subagent_timeout]\nsubagent hit the 600s wall-clock safety limit", display: null, sessionId: "sess-smoke" } });
