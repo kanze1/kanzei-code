@@ -196,7 +196,8 @@
 | stopping 停止中 | 用户点了 ■,或收到 phase=cancelled 的 trace,尚未收到终态 | ● · stopping | 停止中 | 快呼吸(原语) | 冻结 | 侧栏 |
 | waiting 等待批准(预留) | 带 taskId 的 kz:ask(R-369 B2 之后) | ⏸ · attention | 等待批准 | 慢呼吸(原语,琥珀:属于「需要你」,与主线等首个 token 的 waiting 区分) | 冻结不动 | 去批准、停止 |
 | done 完成 | tool-end ok 且 outcome=success | ✓ · done | 完成 | `motionOnce(glyph, "kz-pop")` 一次 | 收起 | 侧栏、复制 |
-| empty 无回答 | code=subagent_empty_answer 或 outcome=noop | ○ · idle | 无回答 | kz-pop 一次 | 收起 | 侧栏 |
+| empty 无回答 | code=subagent_empty_answer 或未命中特定结果码的 outcome=noop | ○ · idle | 无回答 | kz-pop 一次 | 收起 | 侧栏 |
+| limited 达到步数上限（旧历史） | code=subagent_step_limit_reached；旧历史无 code 时识别保存上下文的上限提示 | Ⅱ · idle + warn 色 | 达到步数上限 | kz-pop 一次 | 收起 + 保留未完成原因 | 侧栏、明确续做 |
 | failed 失败 | 其余 ok=false 的情况 | ✕ · failed | 失败 | kz-pop 一次 | 收起 + 错误行 | 侧栏、复制 |
 | timeout 超时 | code=subagent_timeout(旧数据兜底:preview 含 `wall-clock safety limit`/`超时`) | ⏱ · failed + warn 色 | 超时 | kz-pop 一次 | 收起 + 错误行 | 侧栏 |
 | cancelled 已停止 | code=subagent_cancelled,或 trace phase=cancelled,或被 kz:stopped 收尾(旧数据兜底:`stopped by the user`/`cancelled: run stopped`) | ■ · idle | 已停止 | 无 | 收起 | 侧栏 |
@@ -206,6 +207,8 @@
 | resumed 续聊(修饰态,预留,R-369 B3) | `input.resume` 存在 | 字形不变,加「续聊」签 | — | — | — | 跳到原任务 |
 
 - 判定顺序:**code 优先**,旧文案正则只给没有 code 的历史数据兜底。
+- 子工具的一次失败不改变委派终态。达到步数上限是未完成检查点，不显示“失败”“完成”或“无回答”；批次和侧栏也分别计数，并保留在需要关注区。任务徽标称“任务待查看”，包括失败、未启动、中断和上限。
+- 当前子任务不设步数上限：`effective_agent_steps(_, Subagent)` 返回 0。旧定义里的 `steps: 12/20/32` 不再截断委派；CLI、桌面和持久 worker 共用这条策略。limited 仅保留用于旧历史和兼容旧事件的展示。
 - `subagentSettle` 只把 starting/running/stopping/waiting 改成 cancelled 或 interrupted,background 不受影响。
 - 一次性动效只在实时状态跳变时触发;历史回放不播(`motionOnce` 的调用点不在回放路径上)。
 - 整轮停止:后端对未结束的 task 补发 `kz:tool-end{code:"subagent_cancelled"}`(§12);前端 `kz:stopped` 的 settle 与这条 ToolEnd 谁先到都收成 cancelled,之后到达的事件不得把终态卡改回运行态(与 #7 的 turnPhase 粘滞逻辑一致)。

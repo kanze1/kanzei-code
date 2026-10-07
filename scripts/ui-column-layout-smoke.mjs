@@ -6,11 +6,11 @@
 //   1. column 场景(空闲:历史 + 一轮已结束 + 发一条消息后的回复)在用户三档缩放 1280@1.5、1600@1.25、2000@1 与 1600@1:
 //      以 pane 左右边为基准 L/R,正文首行字、工具组、子代理卡、notice 左缘 = L,子代理卡、用户气泡、输入区右缘 = R,
 //      输入区左缘 = L(容差 1px);pane 宽 = min(768, 对话区宽 − 2×沟);#messages 左右内边距 0;
-//   2. 工具组:折叠的多行组里失败行可见、成功行收起;单行组不显示组头;⎿ 摘要紧跟参数(间距 0~16px);
+//   2. 工具组:折叠的多行组里调用详情统一收起;单行组不显示组头;⎿ 摘要紧跟参数(间距 0~16px);
 //      复制行(强制显形)在块下方、助手靠左/用户靠右,且不压下一块(至少量到一对「消息 → notice」);
 //   3. composer 场景(运行中):活动行字形左缘 = L = 输入区左缘;
 //   4. empty 场景:空态文案与输入区同一条中线(±1px);
-//   5. 自检:注入「222px 右沟」「折叠态藏起失败行」「notice 前距 12px」「复制行回右上角」四种回归,判据必须变红,
+//   5. 自检:注入「222px 右沟」「折叠态强行露出失败行」「notice 前距 12px」「复制行回右上角」四种回归,判据必须变红,
 //      否则报「判据失效」。
 // page.evaluate 回调在浏览器里执行,用到的浏览器全局在这里声明给 ESLint(本文件其余部分是 node 环境)。
 /* global window, document, getComputedStyle, NodeFilter */
@@ -31,8 +31,8 @@ const TOLERANCE = 1;
 const MUTATIONS = {
   // 根因 A 放回去:OC 关着也给 #messages 留 222px 右沟,pane 在不对称内容盒里居中。
   gutter222: "#messages { padding-right: 222px; }",
-  // 折叠态把失败行也藏起来(契约 §4.1「错了不该藏起来」)。
-  hideFailures: ".tool-group:not([data-expanded='1']) > .tool-group-body > .tool-msg.err { display: none; }",
+  // 调用异常不能绕过工具组折叠,变成置顶的失败提示。
+  pinFailures: ".tool-group:not([data-expanded='1']) > .tool-group-body:has(> .tool-msg.err) { display: flex; } .tool-group:not([data-expanded='1']) > .tool-group-body > .tool-msg.err { display: block; }",
   // 复核 major:notice 前距压回 12px,每轮最后一条回复的复制行压在「本轮结束」上。
   noticeGap: ".msg.notice { margin-top: 12px !important; }",
   // 复制行回到块右上角(旧版漂在段落右上、压住首行最后几个字)。
@@ -108,7 +108,7 @@ function measureColumn({ tolerance, checkGroups }) {
     const folded = groups.find((group) => group.dataset.expanded !== "1" && Number(group.dataset.count) > 1 && group.querySelector(".tool-msg.err"));
     if (!folded) out.push("没有「折叠且含失败行」的多行工具组可测(场景数据变了)");
     else {
-      if (!visible(folded.querySelector(".tool-msg.err"))) out.push("折叠的工具组里失败行被藏起来了(应常驻可见)");
+      if (visible(folded.querySelector(".tool-msg.err"))) out.push("折叠的工具组不应单独露出失败行");
       if (visible(folded.querySelector(".tool-msg.ok"))) out.push("折叠的工具组里成功行没有收起");
       if (!visible(folded.querySelector(".tool-group-head"))) out.push("多行工具组没有组头");
     }

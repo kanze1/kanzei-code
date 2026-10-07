@@ -57,8 +57,8 @@ import {
 import { PREVIEW_NARROW, previewColumnWidth } from "./24-preview.js";
 import { mountAgentControls } from "./27-agent-team.js";
 
-// 值得停留的实时失败:失败/超时/中断/未启动。用户自己停的(cancelled)不算。
-const HOLD_STATES = new Set(["failed", "timeout", "interrupted", "rejected"]);
+// 需要查看的实时终态:失败/超时/中断/未启动/旧步数上限。用户自己停的(cancelled)不算。
+const HOLD_STATES = new Set(["failed", "timeout", "interrupted", "rejected", "limited"]);
 const SECTION_HOST = { running: "tasks-running", attention: "tasks-attention", done: "tasks-done" };
 
 const model = createSideModel();
@@ -266,8 +266,8 @@ function syncBadge(badge, active) {
     // 可访问名只在状态变化时重写(读屏不反复播报):「打开或收起活动面板 · 2 运行中」。
     const bits = [t("打开或收起活动面板")];
     if (badge?.tone === "run") bits.push(`${badge.count} ${t("运行中")}`);
-    // 英文按数量选词条(「1 failure to review」/「2 failures to review」)。
-    else if (badge?.tone === "err") bits.push(badge.count === 1 ? t("1 个失败待查看") : `${badge.count} ${t("个失败待查看")}`);
+    // 待处理任务包括达到步数上限、未启动和真实失败,不能统一称作失败。
+    else if (badge?.tone === "err") bits.push(badge.count === 1 ? t("1 个任务待查看") : `${badge.count} ${t("个任务待查看")}`);
     const label = bits.join(" · ");
     if (toggle.getAttribute("aria-label") !== label) toggle.setAttribute("aria-label", label);
   }
@@ -567,7 +567,8 @@ function updateCard(record, now) {
   record.el.dataset.single = String(n === 1);
   const running = runs.filter((run) => SA_ACTIVE.has(run.state)).length;
   const finished = n - running;
-  const failed = runs.filter((run) => HOLD_STATES.has(run.state)).length;
+  const failed = runs.filter((run) => HOLD_STATES.has(run.state) && run.state !== "limited").length;
+  const limited = runs.filter((run) => run.state === "limited").length;
   record.el.dataset.state = record.section ?? batchSection(runs);
   const title = batchTitle(runs);
   if (ui.title.textContent !== title) {
@@ -583,6 +584,7 @@ function updateCard(record, now) {
   const stats = [subagentCountLabel(n)];
   if (tokens > 0) stats.push(`${formatTokenCount(tokens)} ${t("token")}`);
   if (failed) stats.push(`${failed} ${t("失败")}`);
+  if (limited) stats.push(`${limited} ${t("达到步数上限")}`);
   const statsText = stats.join(" · ");
   if (ui.stats.textContent !== statsText) ui.stats.textContent = statsText;
   const preamble = n > 1 ? preambleOf(runs[0]) : "";

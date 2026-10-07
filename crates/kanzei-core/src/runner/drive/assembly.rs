@@ -174,7 +174,7 @@ pub(super) fn assemble_run_once<'a>(
     let last_estimated_tokens: Option<u64> = None;
     // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。
     let final_text = String::new();
-    // 主执行流保留连续工作能力；task 子代理在其运行边界获得默认有限预算。
+    // 子任务不设步数上限；主执行流保留其显式设置。
     let max_steps = kanzei_harness::effective_agent_steps(agent.steps, agent.mode);
     // 本次运行内已放行的 (action, resource):同一资源不重复问(用户反馈:别烦我)。
     let session_approved: std::collections::HashSet<(String, String)> =

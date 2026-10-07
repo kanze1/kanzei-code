@@ -324,7 +324,7 @@ Esc、blur 清零;Enter 读完值交出焦点(与浏览器一致),blur 时按当
 
 - **工具截图**:后端把模型看到的截图落到 `.kanzei/artifacts/tool-images/<sha>.png`,正文末尾追加 `[tool-image] <路径>`。`fillToolBlock` 摘下标记行
   (摘要器与展开区只看去掉标记的正文),在工具行头之后、折叠详情之前画缩略图(经 `tool_image{projectDir, rel}` 取图,进视口才取,点开进查看器看大图)。
-  实时与历史回放同一条路径。折叠的工具组里最后一张截图所在的行常驻可见(与失败行同理)。同一个块被填第二次(停止后补发的 ToolEnd、
+  实时与历史回放同一条路径。折叠的工具组里最后一张截图所在的行常驻可见；普通调用异常仍收在详情中。同一个块被填第二次(停止后补发的 ToolEnd、
   孤儿结果回填)先摘掉旧的缩略图条,不成对重复。后台任务侧栏的条目(06-activity `bgEnd`)同样摘掉标记行再做摘要与失败详情。
 - **browser 摘要**:结果首行 `backend: pane（用户可见）` / `backend: headless`,⎿ 行 = 动作 · 主机(或文件名、代码片段)· 面板/无头;
   认新动作 screenshot / press / scroll / wait / eval,参数摘要覆盖 html / key / expression。旧版无头结果(没有 backend 行)照旧「截图 主机」。

@@ -1476,7 +1476,7 @@ task{resume:<task_id>, prompt} 带着该子代理原 transcript(含人格与 wor
 现有可复用的部件:
 1. 桌面端跑一轮只有一个入口:commands/run.rs 的 run_prompt → run/coordinator.rs 的 run_task。它硬绑 `&tauri::Window`,返回值是 `Result<()>`,最终文本被丢掉了。
 2. 无人值守的权限语义已经在 core 里:`AskPolicy::NonInteractive` 让 Ask 落 PermissionResolved(declined, noninteractive),以工具错误回喂模型,本轮继续跑。这正是规格里的 rules_only。反过来,CLI 的 `non_interactive = deny/rules_only` 走 AskReply::Deny,会变成 UserDeclined,整轮停机。
-3. 步数兜底已经有了:内置 agent 的 steps=0,经 effective_agent_steps 变成 32。
+3. 旧步数兜底曾把内置 agent 的 steps=0 转成 32。2026-10-07 起子任务统一无步数上限，`effective_agent_steps(_, Subagent)` 返回 0。
 4. ZeroOutput 和 RepeatedFailure 只在「鞭挞」控制器 enabled 时生效。
 5. 协作式停止:stop_runtime_and_finalize(halt token,30s 宽限后硬杀)。
 6. 通知有三条路。
@@ -1517,7 +1517,7 @@ task{resume:<task_id>, prompt} 带着该子代理原 transcript(含人格与 wor
 | `crates/kanzei-app/src/auto_run.rs:135-140` | 事实:控制器未 enabled 时 NoContinue;定时会话绝不能 enable |
 | `crates/kanzei-app/src/auto_run.rs:186-212` | 复用手法:ZeroOutput 熔断留痕 JSONL + 推手机 |
 | `crates/kanzei-harness/src/auto_run.rs:221-225` | 复用常量:MAX_FAILED_ROUNDS=3 / ZERO_OUTPUT_ROUND_LIMIT=3 |
-| `crates/kanzei-harness/src/defs.rs:90-96` | 事实:steps=0 → DEFAULT_AGENT_STEPS(32,见 76 行),步数兜底已存在 |
+| `crates/kanzei-harness/src/defs.rs` | 当前事实：子任务不设步数上限；原 DEFAULT_AGENT_STEPS(32) 已删除 |
 | `crates/kanzei-core/src/runner/mod.rs:62-73` | AskPolicy 三态定义 |
 | `crates/kanzei-core/src/runner/drive/permissions.rs:84-99` | 事实:NonInteractive → declined 并继续 = rules_only 语义 |
 | `crates/kanzei-core/src/runner/drive/serial_tools.rs:141-163` | 陷阱:UserDeclined 会让整轮 Stopped;CLI 走 AskReply::Deny 就落到这里 |

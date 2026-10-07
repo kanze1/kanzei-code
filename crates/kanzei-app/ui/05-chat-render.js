@@ -799,12 +799,9 @@ export function playToolOutcomeMotion(id) {
     syncToolGroupOf(block);
     return;
   }
-  // 折叠的工具组里,失败行常驻可见,组头的「N 失败」同时抖一下(看组头的人也知道刚失败了一次)。
-  const group = toolGroupOf(block);
-  const folded = group && group.dataset.expanded !== "1" && group.dataset.count !== "1";
+  // 单次调用的异常只反馈在该行,不把折叠组的汇总变成失败提示。
   if (wrap.classList.contains("err")) {
     motionOnce(block.icon, "kz-shake", 520);
-    if (folded && group._kzGroup?.fail) motionOnce(group._kzGroup.fail, "kz-shake", 520);
   } else if (wrap.classList.contains("ok") || wrap.classList.contains("warn")) motionOnce(block.icon, "kz-pop", 360);
 }
 /// 某个 pane 里仍在「运行中」的工具块。chatToolBlocks 跨会话共用一张表,按块所在 pane 筛;
@@ -993,7 +990,7 @@ export function toolGroupSummary(entries) {
     if (words.length > 3) label += ` · ${fillTemplate(t("等 {n} 次调用"), { n: list.length })}`;
     if (interrupted) label += ` · ${fillTemplate(t("{n} 中断"), { n: interrupted })}`;
   }
-  const failText = fail ? `· ${fillTemplate(t("{n} 失败"), { n: fail })}` : "";
+  const failText = fail ? `· ${fail === 1 ? t("1 次调用异常") : fillTemplate(t("{n} 次调用异常"), { n: fail })}` : "";
   const warnText = warn ? `· ${fillTemplate(t("{n} 待修正"), { n: warn })}` : "";
   const text = [label, failText, warnText].filter(Boolean).join(" ");
   return { label, fail, warn, interrupted, running: running.length, failText, warnText, text };

@@ -13388,13 +13388,16 @@ const docsB = {
 
   // ⑦ 终态分类:code 优先,旧文案兜底;失败类有错误行且剥掉机器头。
   const classify = saNs.classifySubagentEnd;
-  for (const [code, want] of [["subagent_timeout", "timeout"], ["subagent_cancelled", "cancelled"], ["subagent_limit", "rejected"], ["subagent_empty_answer", "empty"]]) {
+  for (const [code, want] of [["subagent_timeout", "timeout"], ["subagent_cancelled", "cancelled"], ["subagent_limit", "rejected"], ["subagent_empty_answer", "empty"], ["subagent_step_limit_reached", "limited"]]) {
     assert(classify({ ok: false, code, preview: "x" }) === want, `code=${code} 应分类为 ${want},实为 ${classify({ ok: false, code, preview: "x" })}`);
   }
   assert(classify({ ok: false, preview: "subagent hit the 600s wall-clock safety limit" }) === "timeout", "旧文案 wall-clock 未兜底成超时");
   assert(classify({ ok: false, preview: "subagent x was stopped by the user" }) === "cancelled", "旧文案 stopped by the user 未兜底成已停止");
   assert(classify({ ok: false, preview: "too many parallel subagent tasks (max 4)" }) === "rejected", "旧文案 too many parallel 未兜底成未启动");
   assert(classify({ ok: true, outcome: "noop" }) === "empty" && classify({ ok: false, preview: "boom" }) === "failed", "noop/普通失败的分类不对");
+  assert(classify({ ok: true, outcome: "noop", code: "subagent_step_limit_reached" }) === "limited", "步数上限的 noop 不能误判为无回答或完成");
+  assert(classify({ ok: false, preview: "子任务达到步骤上限；已保存上下文" }) === "limited", "旧历史里的步数上限应显示明确状态");
+  assert(classify({ ok: false, code: "subagent_timeout", preview: "子任务达到步骤上限" }) === "timeout", "明确终态码不能被历史文案覆盖");
   toolStart({ payload: { id: "call_fail", name: "task", summary: "", input: { prompt: "Try something", description: "Try something" }, sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "call_fail", name: "task", ok: false, outcome: "failed", code: "subagent_timeout", preview: "[tool_outcome=failed code=subagent_timeout]\nsubagent hit the 600s wall-clock safety limit", display: null, sessionId: "sess-smoke" } });
   await flush();
@@ -13601,7 +13604,7 @@ const docsB = {
 
 // ── 分区:对话单列与输入区 ──
 // UI2-0926 #12(docs/design/chat_presentation_contract.md §4.4):连续工具调用合成一行工具组(实时/历史同一入口
-// mountToolBlock、思考并入、正文/子代理断组、失败常驻、运行中组头、上限 30、停止收尾、裁剪按行计权、复制上下文与
+// mountToolBlock、思考并入、正文/子代理断组、调用异常保留在详情、运行中组头、上限 30、停止收尾、裁剪按行计权、复制上下文与
 // 搜索展开、窗口边界合并、切语言重算)、⎿ 摘要里的反引号成行内代码、notice 不挂复制、本轮结束 turn-end 模板。
 // 变异守卫:toolGroupLive / toolGroupHistory / toolGroupReasoning / toolGroupSync / toolSumInlineCode / paneUnits /
 // ctxToolGroup / searchExpandGroup / noticeNoActions / turnEndClass / earlierMerge / earlierHintTop / toolGroupI18n。
@@ -13658,7 +13661,7 @@ const docsB = {
     ? ["group", el.dataset.count, labelOf(el), failOf(el)?.textContent ?? "", [...el.querySelectorAll(".tool-msg")].map((row) => [row.querySelector(".tool-msg-name")?.textContent, row.querySelector(".tool-msg-result")?.textContent])]
     : [kind(el)]);
 
-  // ① 实时:read → 思考(多行,可见)→ glob → bash(失败)合成一组;思考在组内;失败常驻、默认折叠。
+  // ① 实时:read → 思考(多行,可见)→ glob → bash(失败)合成一组;思考和异常在详情内,默认折叠。
   let liveSig = null;
   await withPane(async (pane) => {
     await live(...READ);
@@ -13673,7 +13676,7 @@ const docsB = {
     assert(group?.querySelector(".tool-group-body .reasoning"), "夹在两次调用之间的思考块没有并入工具组");
     const label = labelOf(group);
     assert(["读取 1 个文件", "搜索 1 次", "运行 1 条命令"].every((word) => label.includes(word)), `工具组标签不对:${label}`);
-    assert(failOf(group)?.textContent === "· 1 失败" && !failOf(group).classList.contains("hidden"), `工具组失败数不对:${failOf(group)?.textContent}`);
+    assert(failOf(group)?.textContent === "· 1 次调用异常" && !failOf(group).classList.contains("hidden"), `工具组应明确计调用异常:${failOf(group)?.textContent}`);
     assert(group?.querySelector(".tool-group-head")?.getAttribute("aria-expanded") === "false" && group.dataset.expanded !== "1", "工具组应默认折叠");
     assert(!group.dataset.running, "全部收尾后工具组仍标着运行中");
     group.querySelector(".tool-group-head").click();
@@ -13706,7 +13709,7 @@ const docsB = {
     // ⑤ 切语言:组标签在渲染点重算。
     sandbox.setLanguagePreference("en", { persist: true, rerender: true });
     await flush();
-    assert(labelOf(firstGroup) === "Read 1 file · Searched once · Ran 1 command" && failOf(firstGroup)?.textContent === "· 1 failed", `切到英文后工具组标签未重算:${labelOf(firstGroup)} ${failOf(firstGroup)?.textContent}`);
+    assert(labelOf(firstGroup) === "Read 1 file · Searched once · Ran 1 command" && failOf(firstGroup)?.textContent === "· 1 tool call error", `切到英文后工具组标签未重算:${labelOf(firstGroup)} ${failOf(firstGroup)?.textContent}`);
     sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
     await flush();
   });
@@ -14725,7 +14728,7 @@ const docsB = {
   fakeNow += 60_000;
   panelNs.reconcileTasksPanel();
   const enToggle = byId.get("tasks-toggle").getAttribute("aria-label") ?? "";
-  assert(/ · 1 failure to review$/.test(enToggle), `单个未确认失败的英文读法应为单数「1 failure to review」,实为 "${enToggle}"`);
+  assert(/ · 1 task to review$/.test(enToggle), `单个待处理任务的英文读法应为单数「1 task to review」,实为 "${enToggle}"`);
   sandbox.setLanguagePreference(priorTasksLanguage, { persist: true, rerender: true });
   panelNs.closeTasksPanel();
   await settleAll();

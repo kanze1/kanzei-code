@@ -32,6 +32,7 @@ const SA_GLYPH = {
   background: ["◌", "pending"],
   done: ["✓", "done"],
   empty: ["○", "idle"],
+  limited: ["Ⅱ", "idle"],
   failed: ["✕", "failed"],
   timeout: ["⏱", "failed"],
   cancelled: ["■", "idle"],
@@ -48,6 +49,7 @@ export function subagentStateWord(state) {
     case "background": return t("后台运行");
     case "done": return t("完成");
     case "empty": return t("无回答");
+    case "limited": return t("达到步数上限");
     case "failed": return t("失败");
     case "timeout": return t("超时");
     case "cancelled": return t("已停止");
@@ -194,10 +196,12 @@ export function classifySubagentEnd({ ok, outcome, code, preview = "", content =
     case "subagent_cancelled": return "cancelled";
     case "subagent_limit": return "rejected";
     case "subagent_empty_answer": return "empty";
+    case "subagent_step_limit_reached": return "limited";
     default: break;
   }
-  if (ok) return outcome === "noop" ? "empty" : "done";
   const text = `${preview ?? ""}\n${content ?? ""}`;
+  if (!code && /子任务达到(?:步骤|步数)上限/.test(text)) return "limited";
+  if (ok) return outcome === "noop" ? "empty" : "done";
   if (/wall-clock safety limit|timed out|超时/i.test(text)) return "timeout";
   if (/stopped by the user|cancelled: run stopped|被停|已被停止/i.test(text)) return "cancelled";
   if (/too many parallel subagent tasks/i.test(text)) return "rejected";
@@ -238,7 +242,7 @@ function resultBody(run) {
   return String(result?.preview ?? "");
 }
 function errorLine(run) {
-  if (!SA_FAILED.has(run.state)) return "";
+  if (!SA_FAILED.has(run.state) && run.state !== "limited") return "";
   const raw = run.result?.preview || run.result?.content || "";
   const line = firstLine(stripToolOutcome(raw).body);
   if (line) return clip(cleanInline(line, toolRoots()), 160);
@@ -783,9 +787,10 @@ function syncGroup(group) {
   const running = runs.filter((run) => SA_ACTIVE.has(run.state)).length;
   const done = runs.filter((run) => run.state === "done" || run.state === "empty").length;
   const failed = runs.filter((run) => SA_FAILED.has(run.state)).length;
+  const limited = runs.filter((run) => run.state === "limited").length;
   const stopped = runs.filter((run) => run.state === "cancelled").length;
   group.dataset.running = String(running > 0);
-  const glyphState = running ? "running" : failed ? "failed" : stopped && !done ? "cancelled" : "done";
+  const glyphState = running ? "running" : failed ? "failed" : limited ? "limited" : stopped && !done ? "cancelled" : "done";
   const [char, state] = SA_GLYPH[glyphState];
   const glyph = group._sa.glyph;
   if (glyph.dataset.state !== state) {
@@ -798,6 +803,7 @@ function syncGroup(group) {
   if (running) bits.push(`${running} ${t("运行中")}`);
   if (done) bits.push(`${done} ${t("完成")}`);
   if (failed) bits.push(`${failed} ${t("失败")}`);
+  if (limited) bits.push(`${limited} ${t("达到步数上限")}`);
   if (stopped) bits.push(`${stopped} ${t("已停止")}`);
   const label = `${phase ? `${orchPhaseLabel(phase)} · ` : ""}${bits.join(" · ")}`;
   if (group._sa.label.textContent !== label) group._sa.label.textContent = label;

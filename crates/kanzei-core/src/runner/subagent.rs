@@ -223,7 +223,7 @@ pub struct SubagentRuntime {
     /// 「任何 task 子代理都是只读侦察,绝不写/跑 bash/改 git 状态」——
     /// 那条权限边界是 R-176 立的审计资产(只读白名单构造后与执行前各复核一次),
     /// 把可写人格挂进模型可选名册等于绕开它。名册与快照工具集必须同源:
-    /// 选出来的人格仍跑在同一个只读快照上,人格只换提示词与步数,不换工具。
+    /// 选出来的人格仍跑在同一个只读快照上,人格只换提示词,不换工具或子任务步数策略。
     pub roster: Vec<AgentDef>,
     /// (route, model id):fast = 本地小模型跑机械检索。
     pub fast: (Route, String),
@@ -311,7 +311,7 @@ pub struct SubagentRuntime {
 impl SubagentRuntime {
     /// R-327:按 `task` 的 `agent` 参数选人格。
     ///
-    /// 名字选不中就**回落默认人格**而不是报错:人格是提示词与步数的调优,
+    /// 名字选不中就**回落默认人格**而不是报错:人格只选择提示词与模型档位,
     /// 选错了顶多不够贴切,而为一个拼错的名字把整次委派打回,代价明显更大。
     /// 回落是静默的——调用方若要提示,自己比对返回的 name。
     pub fn resolve_agent(&self, requested: Option<&str>) -> &AgentDef {

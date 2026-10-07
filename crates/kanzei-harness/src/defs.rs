@@ -68,9 +68,6 @@ pub struct AgentDef {
     pub system: String,
 }
 
-/// task 子代理未指定预算时的默认轮数。主代理没有隐式的 32 步截断。
-pub const DEFAULT_AGENT_STEPS: u32 = 32;
-
 fn default_model_ref() -> String {
     "primary".into()
 }
@@ -81,11 +78,11 @@ fn default_steps() -> u32 {
 
 /// 将 agent 定义中的轮数转换为运行器实际使用的步数预算。
 ///
-/// 0 表示跟随运行角色：主代理不设步数上限，task 子代理使用 32 步预算。
-/// 非零值是用户显式配置，两种角色均保留。
+/// 子任务不设步数上限，旧 agent 定义里的有限轮数不再截断委派。
+/// 主代理继续使用其显式配置，0 表示无上限。
 pub fn effective_agent_steps(steps: u32, mode: AgentMode) -> u32 {
-    if steps == 0 && mode == AgentMode::Subagent {
-        DEFAULT_AGENT_STEPS
+    if mode == AgentMode::Subagent {
+        0
     } else {
         steps
     }
@@ -93,28 +90,23 @@ pub fn effective_agent_steps(steps: u32, mode: AgentMode) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_agent_steps, AgentDef, AgentMode, DEFAULT_AGENT_STEPS};
+    use super::{effective_agent_steps, AgentDef, AgentMode};
 
     #[test]
-    fn 仅子代理的零轮数使用有限默认上限() {
+    fn 未配置轮数的主代理和子任务均无步数上限() {
         assert_eq!(effective_agent_steps(0, AgentMode::Primary), 0);
-        assert_eq!(
-            effective_agent_steps(0, AgentMode::Subagent),
-            DEFAULT_AGENT_STEPS
-        );
-        const { assert!(DEFAULT_AGENT_STEPS > 0) };
+        assert_eq!(effective_agent_steps(0, AgentMode::Subagent), 0);
     }
 
     #[test]
-    fn 显式轮数保持原值() {
-        for mode in [AgentMode::Primary, AgentMode::Subagent] {
-            assert_eq!(effective_agent_steps(7, mode), 7);
-        }
+    fn 主代理保留显式轮数_子任务忽略旧有限配置() {
+        assert_eq!(effective_agent_steps(7, AgentMode::Primary), 7);
+        assert_eq!(effective_agent_steps(7, AgentMode::Subagent), 0);
     }
 
     #[test]
     fn 未声明轮数由角色决定预算() {
-        for (mode, expected) in [("primary", 0), ("subagent", DEFAULT_AGENT_STEPS)] {
+        for (mode, expected) in [("primary", 0), ("subagent", 0)] {
             let agent: AgentDef = serde_json::from_value(serde_json::json!({
                 "name": "custom", "mode": mode
             }))

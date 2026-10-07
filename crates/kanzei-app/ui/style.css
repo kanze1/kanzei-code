@@ -2563,7 +2563,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .tool-group-head:hover { color: var(--fg-strong); }
 .tool-group-head:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
 .tool-group-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-group-fail { flex: none; color: var(--err); }
+.tool-group-fail { flex: none; }
 .tool-group-warn { flex: none; color: var(--warn); }
 .tool-group-chev { flex: none; display: inline-flex; width: 10px; height: 10px; transition: rotate var(--motion-fast) var(--ease-out); }
 .tool-group-chev svg { width: 10px; height: 10px; display: block; }
@@ -2576,9 +2576,8 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .tool-group[data-expanded="1"] > .tool-group-body { display: flex; }
 .tool-group[data-count="1"] > .tool-group-head { display: none; }
 .tool-group[data-count="1"] > .tool-group-body { display: flex; margin: 0; padding: 0; border: 0; }
-/* 折叠态:失败行常驻(Claude 的红色 Failed 行),其余行与思考收起。 */
-.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err) { display: flex; }
-.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body > :not(.tool-msg.err) { display: none; }
+/* 调用异常保留在原顺序的详情里,不越过折叠状态单独提到前面。 */
+.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body > * { display: none; }
 .tool-group-body > .msg.reasoning, .tool-group-body > .msg.reasoning .reasoning-head { font-size: var(--fs-12-5); }
 .tool-group-body > * + * { margin-top: 1px; }
 
@@ -3824,10 +3823,10 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .sa-idle, .sa-more { font-family: var(--sans); font-size: var(--fs-11-5); }
 .sa-error { margin: var(--sp-2) 0 0 18px; color: var(--err); font-size: var(--fs-12); line-height: 1.5; overflow-wrap: anywhere; }
 /* 超时/未启动/中断:字形与错误行只覆盖静态颜色为 warn(不加动画)。 */
-.sa-card:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"]) .sa-error,
-.sa-card:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"]) > .sa-row .sa-glyph,
-.sa-panel-row:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"]) .sa-glyph,
-#agent-detail:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"]) .sa-detail-head .sa-glyph { color: var(--warn); }
+.sa-card:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"], [data-sa-state="limited"]) .sa-error,
+.sa-card:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"], [data-sa-state="limited"]) > .sa-row .sa-glyph,
+.sa-panel-row:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"], [data-sa-state="limited"]) .sa-glyph,
+#agent-detail:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"], [data-sa-state="limited"]) .sa-detail-head .sa-glyph { color: var(--warn); }
 /* 内联展开:指令 / 过程 / 结果,限高 420px 内部滚动,出口是「在侧栏查看完整过程」。 */
 .sa-body {
   display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; max-height: 420px; overflow: auto;

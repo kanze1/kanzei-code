@@ -41,10 +41,7 @@ pub use auto_run::{HarnessIntensity, IntensityPolicy};
 pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{refreshing_source, source, ContextSource};
 pub use conventions::{CARGO_CONVENTIONS, DEFAULT_CONVENTIONS};
-pub use defs::{
-    effective_agent_steps, AgentDef, AgentMode, ProfileKind, ProfileScope, SkillDef,
-    DEFAULT_AGENT_STEPS,
-};
+pub use defs::{effective_agent_steps, AgentDef, AgentMode, ProfileKind, ProfileScope, SkillDef};
 pub use harness::{
     rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx,
 };
