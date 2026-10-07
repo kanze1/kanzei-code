@@ -1010,7 +1010,7 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
 // ── 分区:对话单列与输入区 ──
 // UI2-0926 #12(docs/design/chat_presentation_contract.md §4.4):对话区只有一条列宽真源。消息 pane、运行活动行、
 // 输入区三处宽度必须是同一个表达式;#messages 左右对称(不得再给 OC 立绘留右沟,旧版 222px 让整列左移 100px);
-// 工具组折叠态失败行常驻、单行组不显示组头;组头转圈守 #7 动效纪律。判据自带反例自测(每条喂一条必须命中的样本)。
+// 工具组折叠态统一收起调用详情、单行组不显示组头;组头转圈守 #7 动效纪律。判据自带反例自测。
 {
   const COLUMN_EXPR = "min(var(--chat-col), 100cqi - 2 * var(--chat-gutter))";
   const cssText = css.replace(/\r\n/g, "\n");
@@ -1041,9 +1041,10 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     if (!/padding:\s*\d+px 0 \d+px/.test(messages)) out.push("#messages 左右内边距必须为 0(列宽由 pane 自己决定)");
     // 复核:错误卡的「重试」常驻在流内(复制行悬停才显形,重试若跟着藏起来,出错时还得先找按钮)。
     if (!bodiesOf(text, ".msg.error > .msg-actions").some((body) => /position:\s*static/.test(body) && /opacity:\s*1\b/.test(body))) out.push("错误卡的「重试」不再常驻:.msg.error > .msg-actions 须 position: static + opacity: 1");
-    if (!bodiesOf(text, '.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err)').some((body) => /display:\s*flex/.test(body))) {
-      out.push("工具组折叠态失败行不再常驻可见(契约 §4.1「错了不该藏起来」)");
+    if (bodiesOf(text, '.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err)').some((body) => /display:\s*flex/.test(body))) {
+      out.push("调用异常不能强行展开工具组详情");
     }
+    if (!bodiesOf(text, '.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body > *').some((body) => /display:\s*none/.test(body))) out.push("折叠的工具组必须统一收起调用详情");
     if (!bodiesOf(text, '.tool-group[data-count="1"] > .tool-group-head').some((body) => /display:\s*none/.test(body))) out.push("单行工具组仍显示组头(1 次调用就是那一行)");
     const motion = clean.slice(clean.indexOf("#turn-activity {"));
     if (!/\.tool-group\[data-running="1"\] \.tool-group-spin\s*\{[^}]*animation:\s*kz-spin var\(--motion-spin\)/.test(motion)) out.push("工具组运行中转圈缺失、没走 --motion-spin 或不在动效分区");
@@ -1062,7 +1063,8 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     ["pane 宽度", swap(`width: ${COLUMN_EXPR}; margin: 0 auto;\n}`, "width: 100%; max-width: 1080px; margin: 0 auto;\n}")],
     ["活动行宽度", swap(`gap: 8px; width: ${COLUMN_EXPR};`, "gap: 8px; width: calc(100% - 48px); max-width: 1080px;")],
     ["滚动条对称", swap("scrollbar-gutter: stable both-edges;", "")],
-    ["失败常驻", swap('.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err) { display: flex; }', "")],
+    ["失败强行展开", `${cssText}\n.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err) { display: flex; }`],
+    ["统一折叠", swap('.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body > * { display: none; }', "")],
     ["单行组头", swap('.tool-group[data-count="1"] > .tool-group-head { display: none; }', "")],
     ["重试常驻", swap(".msg.error > .msg-actions { position: static; opacity: 1; margin-top: 8px; }", ".msg.error > .msg-actions { margin-top: 8px; }")],
     ["组转圈", swap('.tool-group[data-running="1"] .tool-group-spin { display: inline-block; animation: kz-spin var(--motion-spin) linear infinite; }', '.tool-group[data-running="1"] .tool-group-spin { display: inline-block; }')],
