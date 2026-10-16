@@ -22,6 +22,7 @@ enum Case {
     Stable,
     RefreshFailure,
     LargeSchema,
+    FinalStep,
 }
 
 struct FileSource(ContextRequirement, Case);
@@ -38,7 +39,10 @@ impl Component for FileSource {
             _ => fallible_source("fixture/conventions", self.0, read),
         };
         draft.context.insert("fixture/conventions", source);
-        if matches!(self.1, Case::RefreshFailure | Case::LargeSchema) {
+        if matches!(
+            self.1,
+            Case::RefreshFailure | Case::LargeSchema | Case::FinalStep
+        ) {
             draft.tools.insert("fixture", Arc::new(FixtureTool(self.1)));
             draft.permissions.push(rule("fixture", "*", Effect::Allow));
         }
@@ -57,7 +61,7 @@ impl Tool for FixtureTool {
     }
     fn input_schema(&self) -> serde_json::Value {
         match self.0 {
-            Case::LargeSchema => {
+            Case::LargeSchema | Case::FinalStep => {
                 json!({"type":"object","properties":{"path":{"type":"string","enum":(0..5000).map(|index| format!("modules/component-{index}/architecture/constraints-and-verification.md")).collect::<Vec<_>>()}}})
             }
             _ => json!({"type":"object","properties":{}}),
@@ -125,6 +129,15 @@ async fn mock_provider(case: Case) -> (Route, Arc<AtomicUsize>, tokio::task::Joi
                 assert!(count > 0);
                 request.extend_from_slice(&bytes[..count]);
             }
+            if matches!(case, Case::FinalStep) {
+                let body: serde_json::Value =
+                    serde_json::from_slice(&request[header_end..]).unwrap();
+                assert!(
+                    body.get("tools")
+                        .is_none_or(|tools| tools.as_array().is_some_and(Vec::is_empty)),
+                    "the final convergence request must not send resident schemas: {body}"
+                );
+            }
             let index = server_calls.fetch_add(1, Ordering::SeqCst);
             let response = if matches!(case, Case::RefreshFailure) && index == 0 {
                 json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"change-source","type":"function","function":{"name":"fixture","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":1}})
@@ -148,6 +161,20 @@ async fn run_fixture(
     Vec<RunEvent>,
     usize,
 ) {
+    run_fixture_with_limit(fixture, requirement, prior, case, Some(32_000)).await
+}
+
+async fn run_fixture_with_limit(
+    fixture: &Fixture,
+    requirement: ContextRequirement,
+    prior: &[Message],
+    case: Case,
+    context_limit: Option<u64>,
+) -> (
+    anyhow::Result<kanzei_core::RunSummary>,
+    Vec<RunEvent>,
+    usize,
+) {
     let mut harness = Harness::default();
     harness.add(FileSource(requirement, case));
     let snapshot = harness
@@ -158,7 +185,12 @@ async fn run_fixture(
             config: Arc::new(KanzeiConfig::default()),
         })
         .unwrap();
-    let agent = serde_json::from_value(json!({"name":"fixture","profile":"dev","mode":"primary","steps":3,"system":"Follow every project convention in full."})).unwrap();
+    let steps = if matches!(case, Case::FinalStep) {
+        1
+    } else {
+        3
+    };
+    let agent = serde_json::from_value(json!({"name":"fixture","profile":"dev","mode":"primary","steps":steps,"system":"Follow every project convention in full."})).unwrap();
     let config = RunnerConfig {
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,
@@ -167,7 +199,7 @@ async fn run_fixture(
         reasoning: Default::default(),
         service_tier: None,
         hosted_tools: vec![],
-        context_limit: Some(32_000),
+        context_limit,
         limits: Default::default(),
         recall: None,
         execution_policy: Default::default(),
@@ -201,6 +233,84 @@ async fn run_fixture(
     server.abort();
     let _ = server.await;
     (result, events, calls.load(Ordering::SeqCst))
+}
+
+async fn assert_admitted_above_soft_target(context_limit: Option<u64>, paragraphs: usize) {
+    let fixture = Fixture::new("soft-target");
+    let conventions = "Policy: retain source, boundary, constraint, verification, and recovery.\n"
+        .repeat(paragraphs);
+    std::fs::write(fixture.0.join("conventions.md"), &conventions).unwrap();
+    let prior = vec![
+        Message::user_text("Existing task history must remain intact"),
+        Message::assistant(vec![Part::Text {
+            text: "Previous verified result".into(),
+        }]),
+    ];
+    let (result, events, calls) = run_fixture_with_limit(
+        &fixture,
+        ContextRequirement::Required,
+        &prior,
+        Case::Stable,
+        context_limit,
+    )
+    .await;
+    let summary =
+        result.expect("soft reserve and cold calibration cannot reject a valid or unknown window");
+    assert_eq!(calls, 1);
+    assert_eq!(summary.text, "done");
+    assert_eq!(
+        serde_json::to_value(&summary.messages[..prior.len()]).unwrap(),
+        serde_json::to_value(&prior).unwrap(),
+        "an unattainable soft target must not cause futile history compaction"
+    );
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        RunEvent::ContextCompacted { .. } | RunEvent::ContextPruned { .. }
+    )));
+    assert!(summary
+        .context_report
+        .iter()
+        .any(|(key, chars)| key == "fixture/conventions"
+            && *chars == conventions.trim().chars().count()));
+}
+
+#[tokio::test]
+async fn unknown_window_does_not_turn_fallback_into_a_hard_limit() {
+    // Raw fixed head > 32k: only the provider knows whether its actual window fits.
+    assert_admitted_above_soft_target(None, 5000).await;
+}
+
+#[tokio::test]
+async fn known_window_allows_head_above_soft_buffer_but_within_input_capacity() {
+    // Raw fixed head ~24k: above 21,334 soft target, below 32,000 - 4,096 input capacity.
+    assert_admitted_above_soft_target(Some(32_000), 1350).await;
+}
+
+#[tokio::test]
+async fn cold_start_safety_factor_is_not_a_capacity_measurement() {
+    // Raw fixed head ~15k fits; the cold-start 2x margin alone exceeds input capacity.
+    assert_admitted_above_soft_target(Some(32_000), 850).await;
+}
+
+#[tokio::test]
+async fn final_step_budgets_only_the_schemas_actually_sent_to_the_provider() {
+    let fixture = Fixture::new("final-step");
+    std::fs::write(
+        fixture.0.join("conventions.md"),
+        "complete small conventions",
+    )
+    .unwrap();
+    let (result, events, calls) =
+        run_fixture(&fixture, ContextRequirement::Required, &[], Case::FinalStep).await;
+    assert_eq!(result.unwrap().text, "done");
+    assert_eq!(
+        calls, 1,
+        "unused large schemas must not prevent the final request"
+    );
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        RunEvent::ContextCompacted { .. } | RunEvent::ContextPruned { .. }
+    )));
 }
 
 #[tokio::test]

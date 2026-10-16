@@ -268,6 +268,14 @@ pub fn run_once_with_parts<'a>(
             let budget_checkpoint = is_budget_checkpoint(step);
             let winddown = winddown_until_end;
             let batch_prompt = batch.prepare(step, ctx);
+            // Resolve this step's fixed wire inputs once. Admission, compaction and
+            // provider retries must see the same system sections and tool schemas.
+            if let Some(instruction) =
+                budget_instruction(last_step, winddown, budget_checkpoint, step)
+            {
+                system.push(instruction);
+            }
+            let step_specs: &[ToolSpec] = if last_step { &[] } else { &specs };
 
             // 完整工具组已提交后、下一次请求前整理条目边界；独立于 token 超线。
             item_context.prepare(&mut messages, ctx, &mut on_event);
@@ -280,7 +288,7 @@ pub fn run_once_with_parts<'a>(
                 config,
                 &ctx.project_root,
                 &system,
-                &specs,
+                step_specs,
                 route.kind,
                 &context_report,
                 &mut messages,
@@ -304,12 +312,8 @@ pub fn run_once_with_parts<'a>(
                 route,
                 config,
                 &system,
-                &specs,
+                step_specs,
                 &mut messages,
-                step,
-                last_step,
-                budget_checkpoint,
-                winddown,
                 batch_prompt.as_deref(),
                 halt,
                 &mut on_event,
@@ -605,10 +609,6 @@ async fn stream_request_step(
     system: &[String],
     specs: &[ToolSpec],
     messages: &mut Vec<Message>,
-    step: u32,
-    last_step: bool,
-    budget_checkpoint: bool,
-    winddown: bool,
     batch_prompt: Option<&str>,
     halt: Option<&CancellationToken>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
@@ -627,29 +627,15 @@ async fn stream_request_step(
         if let Some(prompt) = batch_prompt {
             request_messages.push(Message::user_text(prompt));
         }
-        // Budget is an execution capability, not a replacement for the user's
-        // delivery format or the enabled workflow. Internal instructions stay out
-        // of persisted user history and use the protocol's system channel.
-        let mut request_system = system.to_vec();
-        if let Some(instruction) = budget_instruction(last_step, winddown, budget_checkpoint, step)
-        {
-            request_system.push(instruction);
-        }
         // 请求构造前记录本次估算:StepFinish 用真实 input tokens 反推校准因子,
-        // 下一次预算判断就按校准后的口径来。tools 随 last_step 变化,估算必须
-        // 与实际发出的请求同口径,否则校准因子被系统性偏差污染。
-        let req_tools: &[ToolSpec] = if last_step { &[] } else { specs };
-        let last_estimated = estimate_prompt_tokens_for_protocol(
-            &request_system,
-            &request_messages,
-            req_tools,
-            Some(route.kind),
-        );
+        // 固定 system/tools 已由步级装配选好，与预算准入使用同一份输入。
+        let last_estimated =
+            estimate_prompt_tokens_for_protocol(system, &request_messages, specs, Some(route.kind));
         let request = LlmRequest {
             model: config.model.clone(),
-            system: request_system,
+            system: system.to_vec(),
             messages: request_messages,
-            tools: req_tools.to_vec(),
+            tools: specs.to_vec(),
             hosted_tools: vec![],
             max_tokens: config.max_tokens,
             temperature: None,

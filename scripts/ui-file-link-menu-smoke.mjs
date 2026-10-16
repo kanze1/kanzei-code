@@ -46,15 +46,30 @@ async function setup(page, { independent = false, baselineSource = null } = {}) 
   await page.evaluate(async ({ project, reportPath, imagePath, relativePath, worktree, tools, independent }) => {
     const shell = await import("/03-shell.js");
     const panes = await import("/01-chat-panes.js");
+    const { enterProject } = await import("/09-sessions.js");
     const { renderMarkdownInto } = await import("/04-markdown.js");
     const fixture = {
       id: "file-link-fixture", session_id: "file-link-session", origin_project: project,
       project_dir: project, worktree_path: independent ? worktree : null, profile: "dev", running: false,
       title: "文件链接回归", label: "文件链接回归", branch: null,
     };
-    shell.setCurrentProject(project); shell.setProcessItems([fixture]);
-    shell.setActiveProcessId(fixture.id); shell.setActiveSessionId(fixture.session_id);
-    window.__kzPreview.setCommand("process_list", () => [fixture]);
+    const projects = { current: project, projects: [project], names: { [project]: "文件链接测试项目" } };
+    window.__kzPreview.setCommand("projects_get", projects);
+    window.__kzPreview.setCommand("projects_select", ({ path }) => {
+      if (path !== project) throw new Error(`未登记的测试项目: ${path}`);
+      return projects;
+    });
+    window.__kzPreview.setCommand("process_list", ({ projectDir }) => projectDir === project ? [fixture] : []);
+    const workspace = { current: project, observed_at: Date.now(), projects: [{
+      path: project, project_id: project, name: projects.names[project], current: true,
+      status: "idle", running_lines: 0, pending_count: 0, lines: [fixture], current_items: [],
+      work_units: [], decisions: [], work_acceptances: [], verification_jobs: [],
+      freshness: "fresh", error: null,
+    }] };
+    window.__kzPreview.setCommand("workspace_overview", workspace);
+    window.__kzPreview.setCommand("workspace_snapshot", ({ projectDir } = {}) => ({
+      ...workspace, projects: !projectDir || projectDir === project ? workspace.projects : [],
+    }));
     window.__kzPreview.setCommand("open_tools_list", tools);
     window.__kzPreview.setCommand("file_preview", ({ projectDir, path }) => {
       // files_edit::lexical_segments requires a relative path under projectDir.
@@ -66,7 +81,14 @@ async function setup(page, { independent = false, baselineSource = null } = {}) 
       };
     });
     window.__kzPreview.setCommand("file_stat", { exists: true, size: 128, mtimeMs: 1 });
-    shell.navigate_view("chat", { persist: false }); panes.showPane(fixture.session_id);
+    // Activate both browsing and execution owners through the production
+    // transaction. Setting only currentProject leaves the preview's old
+    // browsingProject selected, so navigate_view would switch back and replace
+    // these messages when this script runs outside the preview fixture's path.
+    await enterProject(projects);
+    if (shell.currentProject !== project || shell.activeProcessId !== fixture.id || shell.activeSessionId !== fixture.session_id) {
+      throw new Error("文件链接夹具未进入目标项目与会话");
+    }
     const message = document.createElement("div"); message.className = "msg assistant"; message.dataset.sessionId = fixture.session_id;
     const body = document.createElement("div"); body.className = "message-body md"; body.id = "file-link-fixture";
     renderMarkdownInto(body, [
