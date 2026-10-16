@@ -1,4 +1,5 @@
 // Real production DOM in Edge with isolated IPC. No user project writes.
+/* global window, document, getComputedStyle, innerWidth, navigator */
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
