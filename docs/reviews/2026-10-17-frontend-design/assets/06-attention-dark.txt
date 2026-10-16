@@ -1,0 +1,92 @@
+Window: "kanzei", App: kzapp.exe.
+	0 窗口 kanzei Secondary Actions: Raise
+		1 窗格
+			2 窗格 kanzei
+				3 窗格 (disabled)
+				4 区域 kanzei - Web 内容
+					5 区域
+						6 区域
+							7 区域
+								8 区域
+								9 区域
+									10 区域
+										11 区域
+											12 区域
+												13 区域
+												14 文档 kanzei Value: http://tauri.localhost/ ID: RootWebArea
+													15 补充 ID: activitybar
+														16 按钮 打开或收起侧栏 Description: 打开/收起侧栏 ID: rail-sidebar-toggle
+														17 按钮 Skills Description: Skills ID: skills-nav
+														18 按钮 切换到设置 Description: 设置
+														19 按钮 切换到亮色主题 Description: 切换到亮色主题 ID: theme-toggle
+													20 补充 ID: sidebar
+														21 导航 全局导航 ID: workbench-navigation
+															22 文本 kanzei
+															23 按钮 新对话 Description: 新建对话，保留已有对话 ID: new-chat
+															24 按钮 搜索对话 Description: 搜索所有对话 ID: workbench-chat-history
+															25 按钮 定时任务 ID: workbench-schedules
+															26 按钮 所有项目 ID: workbench-home
+															27 按钮 待我处理 ID: workbench-attention
+															28 文本 项目
+															29 按钮 添加项目 Description: 添加项目 ID: workbench-add-project
+															30 组 ID: workbench-project-list
+																31 按钮 kanzei code · 空闲 Description: C:\Users\kanzei\Documents\kanzei code 空闲
+																32 组 kanzei code · 对话
+																	33 按钮 新对话 Description: 新对话
+																34 按钮 Akashic-AgentOS · 空闲 Description: C:\Users\kanzei\Documents\Akashic-AgentOS 空闲
+																35 按钮 MD文件保存 · 空闲 Description: C:\Users\kanzei\Desktop\MD文件保存 空闲
+																36 按钮 番剧整理 · 空闲 Description: C:\Users\kanzei\Documents\番剧整理\番剧整理 空闲
+															37 文本 对话
+															38 按钮 无项目对话 ID: workbench-general-chat
+															39 组 无项目对话 ID: workbench-general-list
+															40 按钮 切换到记忆 Description: 记忆
+														41 缩略图 调整面板宽度 Description: 拖动调整面板宽度 Value: 220
+													42 主要 ID: main
+														43 章节标题 ID: workspace-header
+															612 文本 kanzei code
+															45 导航 对话与管理 ID: project-work-switch
+																46 切换按钮 对话
+																47 切换按钮 管理
+																48 按钮 空闲 ID: project-overview-signal
+														583 导航 工作面
+															584 切换按钮 待我处理
+																585 文本 待我处理
+															586 按钮 刷新工作状态 ID: sw-refresh
+														587 组 ID: sw-surface
+															608 标题 待我处理
+															609 文本 没有待我处理的事项
+														590 章节页脚 ID: composer
+															591 按钮 拖动对话框；悬浮时可用方向键移动
+															617 文本 kanzei code / 对话 37
+															593 状态
+															594 按钮 无监管模式 · 关闭 ▾
+															595 按钮 ▶ 启动自动推进 Description: 连续推进 对话 37 的工作队列 ID: sw-run-toggle
+															596 按钮 自动推进设置
+															597 按钮 悬浮对话框
+															598 编辑 (settable, string) 补充要求，或安排下一步… Description: 补充要求，或安排下一步… ID: prompt
+															599 按钮 添加附件
+															600 组 模型与思考强度 ID: model-picker-group
+																601 按钮 下一轮将使用 codex:gpt-6-luna,来源 项目级 Description: 下一轮将使用 codex:gpt-6-luna · 来源 项目级 来自本项目的模型配置 Codex Fast mode 已开启 · 项目级 ID: model-picker
+																602 按钮 思考 超高,来源 项目级 Description: 下一轮将使用 思考 超高 · 来源 项目级 来自本项目的模型配置 思考强度(仅推理模型有效;越高越慢越贵) ID: reasoning-picker
+															603 组 自动放行:所有权限询问直接通过;此选择会被记住 Description: 自动放行:所有权限询问直接通过;此选择会被记住 ID: auto-allow-wrap
+																604 切换 (settable, string) 自动放行 ID: auto-allow
+																605 文本 自动放行
+															618 文本 当前工作
+															607 按钮 发给 kanzei code / 对话 37 Description: 发给 kanzei code / 对话 37 · Enter ID: send
+														83 章节页脚 ID: statusbar
+															89 按钮 日志 Description: 显示/隐藏运行日志 ID: log-toggle
+															90 组 Description: v0.1.0 (b97f8a2e 20261016181432) ID: status-version
+																91 文本 v0.1.0
+								92 区域
+						93 区域
+						94 区域
+		95 标题栏 (settable, string) Value: kanzei
+			96 菜单栏 系统 ID: MenuBar
+				97 菜单项 系统
+			98 按钮 最小化
+			99 按钮 最大化
+			100 按钮 关闭
+
+Document text: ```
+￼
+```

@@ -1,0 +1,244 @@
+{
+  "limits": [
+    "native binary and current source are different versions",
+    "no real screen reader validation",
+    "no live model execution or permission workflows",
+    "prototype uses five static snapshot records",
+    "dark defect screenshot includes transient statusbar after theme switch",
+    "pointer capture halo excluded from design findings"
+  ],
+  "source_hashes": [
+    {
+      "path": "crates/kanzei-app/ui/30-management.js",
+      "sha256": "963378C4F42360C8BFB34A87CFCA40B7446E23DC73F9D1B6DA1110E3C63BFA53"
+    },
+    {
+      "path": "crates/kanzei-app/ui/familiar-workspace.css",
+      "sha256": "AB2DF100AD9DAC24CB8E65A08CB1F67BC98DB66876CA92054B5E60D3CCAA1019"
+    },
+    {
+      "path": "crates/kanzei-app/ui/style.css",
+      "sha256": "0EFE80C2420E9E9BB810064D0D61AEA3E5938D22390560247D2079A744332B59"
+    },
+    {
+      "path": "crates/kanzei-app/ui/21-palette.js",
+      "sha256": "FBC18827FCAB4BB154E068DAA5DC6492C6A583F7412C48A49929B76D2DA12FFA"
+    },
+    {
+      "path": "crates/kanzei-app/ui/11-docs-list.js",
+      "sha256": "CC2AE77CEFE18D1B6B54F86ACF13D96EC287C936E638BBBAC909F24B96EB4139"
+    },
+    {
+      "path": "crates/kanzei-app/ui/25-softwire.js",
+      "sha256": "E42D78AADF83C89402B20521846A8C6B65D044B68BCCFF1803340379A69E4B41"
+    },
+    {
+      "path": "crates/kanzei-app/ui/25-softwire-view.js",
+      "sha256": "E886BB675E536BC620B819EF58EE8F03AA1DFACB67B4321ADE74AC11AD31B86B"
+    },
+    {
+      "path": "crates/kanzei-app/ui/12-workbench.js",
+      "sha256": "4CB013EDA90CF1A4B4DDB06ABD167E2CC238174FB11C2E7902D574F6EDCF9721"
+    },
+    {
+      "path": "crates/kanzei-app/ui/skills.css",
+      "sha256": "CFBAD3B5E74091D43AE42EB60A15F792AAD89B3EC80EF23A1B0400D595B418E0"
+    },
+    {
+      "path": "docs/design/brand_refresh.md",
+      "sha256": "4BA2B3007AC85D60A6649B50DC3786FE194CA5EE8F4AF07707FD8592C16540A4"
+    },
+    {
+      "path": "docs/design/ui_color_semantics.md",
+      "sha256": "00412CCFE55122BA4AE12D5C75F6116A192BA04CA329942DC9E10730E2D494B3"
+    }
+  ],
+  "native": {
+    "window": "kanzei",
+    "actions": [
+      "open existing installed window",
+      "management requirements",
+      "R-344 detail",
+      "defects",
+      "dark theme",
+      "global needs attention",
+      "Skills",
+      "Ctrl+P",
+      "Down",
+      "Escape",
+      "restore light theme",
+      "restore existing conversation"
+    ],
+    "sha256": "CC54F96C6E4CAF8619339CB376A8591D0D97AFF9408331F2840BC8F52F609013",
+    "restored": "light theme and existing project conversation",
+    "path": "C:\\Users\\kanzei\\AppData\\Local\\kanzei\\kzapp.exe",
+    "version": "v0.1.0 (b97f8a2e 20261016181432)",
+    "approximate_window_pixels": "1284x872",
+    "capture": "Windows computer-use sky / WebView2"
+  },
+  "standards": [
+    "https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html",
+    "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html",
+    "https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html",
+    "https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html",
+    "https://www.w3.org/WAI/ARIA/apg/patterns/combobox/"
+  ],
+  "verification": {
+    "static_a11y": "node scripts/ui-a11y-smoke.mjs passed",
+    "published": false,
+    "prototype": "qa-results.json",
+    "product_implementation_applied": false,
+    "native_evidence_is_distinct_from_browser_mock": true
+  },
+  "download_hashes": [
+    {
+      "path": "sources/anthropic-frontend-design.SKILL.md",
+      "sha256": "D91970639E9F5C37682AC7AB60094D35F1C7C1F38D731BD56396563AEE10C1D3"
+    },
+    {
+      "path": "sources/vercel-web-design-guidelines.SKILL.md",
+      "sha256": "F4647CA866A3ACCF763777F83E7682954F0187CD6BEA7EEA0399796652414E8F"
+    },
+    {
+      "path": "sources/vercel-web-interface-guidelines.md",
+      "sha256": "D246B026F4F29B5823A9CC857F9EDF3D2507002E055E32040CADEAF3B38E0234"
+    }
+  ],
+  "asset_hashes": [
+    {
+      "path": "assets/01-home-light.png",
+      "sha256": "A1946BC6E745C6093FAACB24A79F809804012FFFA39CEF057A6CAE8D94E5EC2A"
+    },
+    {
+      "path": "assets/01-home-light.txt",
+      "sha256": "9804B1B7ED0AD808024F744CA2D607DB6CBDBD9221F56E86F03CDF1D47797F2C"
+    },
+    {
+      "path": "assets/02-management-light.png",
+      "sha256": "63361A5E48B94D311576DCF84E12DA52F1EF9DBFEC86E6533DBD444451B17388"
+    },
+    {
+      "path": "assets/02-management-light.txt",
+      "sha256": "F88C860F4E3D154FB0C0868CC00D6761A9C78AE72B2D4FF31E93E400E6A727AA"
+    },
+    {
+      "path": "assets/03-requirement-detail.png",
+      "sha256": "EC51E927B137809CB9C2AD8E62ADEAF63C4C80B82BA4A38FEF5EAE5608BEFCE9"
+    },
+    {
+      "path": "assets/03-requirement-detail.txt",
+      "sha256": "8A86EFB36663BD61C7278F5C67ABA49C3BB37E94A0D7C14AE465CD9572721D56"
+    },
+    {
+      "path": "assets/04-defects-light.png",
+      "sha256": "AF8337E247BF405314FE44364613F7D30D9C7AFB6C81DBC9CBE5BC090EEB07CA"
+    },
+    {
+      "path": "assets/04-defects-light.txt",
+      "sha256": "BE3176D2C2FEBC1DD31363EB814556BE826D989F945D31D5181213A7BDA21DFA"
+    },
+    {
+      "path": "assets/05-defects-dark.png",
+      "sha256": "F3EFDBAB70F6B44DC24D765E946237D59F5B3C7CB1351AA961093AF047B8C23C"
+    },
+    {
+      "path": "assets/05-defects-dark.txt",
+      "sha256": "DEE207E804E51262421350811A7F89B4C4754615B48B8FDF23CE4BAE6733253F"
+    },
+    {
+      "path": "assets/06-attention-dark.png",
+      "sha256": "AE7878F9103F894050BC9583E90A914DDD8B848E62AE95E381BE9392DC8ABAB7"
+    },
+    {
+      "path": "assets/06-attention-dark.txt",
+      "sha256": "456FC28117521213E0C1C5586664EACF8595D96C718BB3EAC53E889D1CFB3F85"
+    },
+    {
+      "path": "assets/07-skills-dark.png",
+      "sha256": "15762496E4B4E1DC2AE99136F184E6D525414ABA211D539B676E5C8B4C10CF79"
+    },
+    {
+      "path": "assets/07-skills-dark.txt",
+      "sha256": "66E50308FE530596E4EEEB151657F7C572BD356F20BA311B22A00D010D9DA11E"
+    },
+    {
+      "path": "assets/08-command-palette-dark.png",
+      "sha256": "41B7934D2781DA20BEC79CE32F3039816D35F83152668E56F72B222B63A2E767"
+    },
+    {
+      "path": "assets/08-command-palette-dark.txt",
+      "sha256": "5100B1AE9FD56CA5A745F10493F5E7CF26AB11F1858902B19003675B47437373"
+    },
+    {
+      "path": "assets/09-command-keyboard-dark.png",
+      "sha256": "0CB9E3062469688E06BAB220DC5CFB76F1C1BE3DC3256FB04CCD4E281FCED3C4"
+    },
+    {
+      "path": "assets/09-command-keyboard-dark.txt",
+      "sha256": "5100B1AE9FD56CA5A745F10493F5E7CF26AB11F1858902B19003675B47437373"
+    },
+    {
+      "path": "assets/kanzei.svg",
+      "sha256": "1EAB04907D7D557D26E658DC76F0D780E2C352C73C77160F50EB54C00B0635DE"
+    }
+  ],
+  "source_head": "965fb278c332d8a1f1929d88d7928377e9889e5a",
+  "source_scope": "dirty working tree, hashes collected at audit completion",
+  "date": "2026-10-17",
+  "timezone": "Asia/Shanghai",
+  "skills": [
+    {
+      "role": "primary review rubric, fetched and read, not globally installed",
+      "name": "Vercel web-design-guidelines",
+      "url": "https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines"
+    },
+    {
+      "role": "review rules",
+      "name": "Vercel Web Interface Guidelines",
+      "url": "https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md"
+    },
+    {
+      "role": "reviewed supplementary reference",
+      "name": "Anthropic frontend-design",
+      "url": "https://github.com/anthropics/skills/tree/main/skills/frontend-design"
+    },
+    {
+      "role": "local skill, visual hierarchy and prototype",
+      "name": "frontend-skill"
+    },
+    {
+      "role": "local skill, native interaction",
+      "name": "computer-use"
+    },
+    {
+      "role": "local skill, browser measurement and artifact QA",
+      "name": "playwright"
+    }
+  ],
+  "measurements": {
+    "progress_height_css_px": 8,
+    "dark_error_vs_accent_text": {
+      "background": "#ffad66",
+      "foreground": "#ffad66",
+      "ratio": 1.0
+    },
+    "pending_outline_dark": {
+      "background": "#181818",
+      "foreground": "#464646",
+      "ratio": 1.8812517975776917
+    },
+    "progress_visible_text": "",
+    "progress_aria_example": "批次进度 1/4",
+    "empty_search": {
+      "result": "没有符合条件的条目",
+      "surface": "current-source browser preview with mocked IPC",
+      "visible_clear_buttons": 0,
+      "query": "不存在的审视条目-20261017"
+    },
+    "pending_outline_light": {
+      "background": "#ffffff",
+      "foreground": "#c7c7c7",
+      "ratio": 1.6904814462249433
+    }
+  }
+}

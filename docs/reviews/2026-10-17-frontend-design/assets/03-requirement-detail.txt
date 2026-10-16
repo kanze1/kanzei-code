@@ -1,0 +1,179 @@
+Window: "kanzei", App: kzapp.exe.
+	0 窗口 kanzei Secondary Actions: Raise
+		1 窗格
+			2 窗格 kanzei
+				3 窗格 (disabled)
+				4 区域 kanzei - Web 内容
+					5 区域
+						6 区域
+							7 区域
+								8 区域
+								9 区域
+									10 区域
+										11 区域
+											12 区域
+												13 区域
+												14 文档 kanzei Value: http://tauri.localhost/ ID: RootWebArea
+													15 补充 ID: activitybar
+														16 按钮 打开或收起侧栏 Description: 打开/收起侧栏 ID: rail-sidebar-toggle
+														17 按钮 Skills Description: Skills ID: skills-nav
+														18 按钮 切换到设置 Description: 设置
+														19 按钮 切换主题 Description: 切换主题 ID: theme-toggle
+													20 补充 ID: sidebar
+														21 导航 全局导航 ID: workbench-navigation
+															22 文本 kanzei
+															23 按钮 新对话 Description: 新建对话，保留已有对话 ID: new-chat
+															24 按钮 搜索对话 Description: 搜索所有对话 ID: workbench-chat-history
+															25 按钮 定时任务 ID: workbench-schedules
+															26 按钮 所有项目 ID: workbench-home
+															27 按钮 待我处理 ID: workbench-attention
+															28 文本 项目
+															29 按钮 添加项目 Description: 添加项目 ID: workbench-add-project
+															30 组 ID: workbench-project-list
+																31 按钮 kanzei code · 空闲 Description: C:\Users\kanzei\Documents\kanzei code 空闲
+																32 组 kanzei code · 对话
+																	33 按钮 新对话 Description: 新对话
+																34 按钮 Akashic-AgentOS · 空闲 Description: C:\Users\kanzei\Documents\Akashic-AgentOS 空闲
+																35 按钮 MD文件保存 · 空闲 Description: C:\Users\kanzei\Desktop\MD文件保存 空闲
+																36 按钮 番剧整理 · 空闲 Description: C:\Users\kanzei\Documents\番剧整理\番剧整理 空闲
+															37 文本 对话
+															38 按钮 无项目对话 ID: workbench-general-chat
+															39 组 无项目对话 ID: workbench-general-list
+															40 按钮 切换到记忆 Description: 记忆
+														41 缩略图 调整面板宽度 Description: 拖动调整面板宽度 Value: 220
+													42 主要 ID: main
+														43 章节标题 ID: workspace-header
+															395 文本 kanzei code
+															45 导航 对话与管理 ID: project-work-switch
+																46 切换按钮 对话
+																47 切换按钮 管理
+																48 按钮 空闲 ID: project-overview-signal
+														110 区域 项目管理 ID: management-page
+															111 导航 管理页面
+																112 按钮 需求
+																113 按钮 缺陷
+																114 按钮 交付
+																115 按钮 项目地图
+															116 警报
+															354 按钮 ← 需求
+															355 文本 进行中
+															356 按钮 继续此需求
+															357 文本 R-344
+															358 文本 ·
+															359 文本 Experiment Runner:本机与 SSH 执行、@@kanzei 回调解析与 run 事实落盘
+															360 按钮 → 转 待外部验收
+															361 按钮 → 转 已完成
+															362 按钮 → 转 已放弃
+															363 切换按钮 编辑
+															364 文本 标签
+															365 文本 后端
+															366 文本 优先级
+															367 文本 P1
+															368 文本 内容
+															369 文本 按设计 §3/§5 实现实验运行器:local 起进程与 ssh 复用系统客户端两种执行;逐行解析带 @@kanzei 前缀的单行 JSON(stage/metric/progress/artifact/checkpoint/message/heartbeat/result),其余输出原样保留为终端日志;运行器另记 run_started/run_finished/run_failed/run_cancelled/environment_captured;结果事实进 state.db 并回写探索文件的实验结果表,产物落 explorations/<E-id>/<result-id>/;记录 params_text、code_ref、policy/lease_id/max_duration/cleanup、callback_stats。
+															370 按钮 展开全部
+															371 文本 边界
+															372 文本 运行器是专用工具通道,不给 research 档开 bash(research_mode.md 定调点 6 的硬 deny 不变);不自动同步代码与数据集(远端第一次人工准备,准备步骤记进环境登记项后复用);不做实验队列与并行调度;不做 Slurm/K8s 提交、容器编排、跨机分布式训练编排;不做 W&B/TensorBoard 对接;不把回调写进 Markdown。
+															373 文本 验收
+															374 列表
+																375 列表项目 本机与 SSH 两条路径都能跑完一次真实实验并留下结果事实、产物与回写的结果表行
+																376 列表项目 坏 JSON、超长行、未知事件不终止运行且计入 callback_stats
+																377 列表项目 取消与远端强杀都能收敛到终态,heartbeat 超时判定卡死
+																378 列表项目 断线重连后视图从持久事实恢复,不显示假运行中
+																379 列表项目 research 档 bash 仍为硬 deny,运行器不成为绕过通道
+																380 列表项目 新环境缺准备步骤时运行器询问并记录,不自行同步文件
+															381 详细信息
+																382 开合三角标记 来源与说明
+																	383 文本 来源与说明
+															384 文本 依赖
+															385 按钮 R-345 Description: 跳转到 R-345
+															386 按钮 R-347 Description: 跳转到 R-347
+															387 文本 外部验收
+															388 文本 真实 SSH 实验完整运行：阶段/指标/进度/产物回传、结果事实及结果表；远端取消与断线恢复。已实现本机和 SSH 通道，现场目标未验收。
+															389 详细信息
+																390 开合三角标记 执行记录
+																	391 文本 执行记录
+															392 详细信息
+																393 开合三角标记 关联与设计
+																	394 文本 关联与设计
+														83 章节页脚 ID: statusbar
+															89 按钮 日志 Description: 显示/隐藏运行日志 ID: log-toggle
+															90 组 Description: v0.1.0 (b97f8a2e 20261016181432) ID: status-version
+																91 文本 v0.1.0
+								92 区域
+						93 区域
+						94 区域
+		95 标题栏 (settable, string) Value: kanzei
+			96 菜单栏 系统 ID: MenuBar
+				97 菜单项 系统
+			98 按钮 最小化
+			99 按钮 最大化
+			100 按钮 关闭
+
+Document text: ```
+打开或收起侧栏
+Skills
+切换到设置
+切换主题
+kanzei
+新对话
+搜索对话
+定时任务
+所有项目
+待我处理
+项目
+添加项目
+kanzei code · 空闲
+新对话
+Akashic-AgentOS · 空闲
+MD文件保存 · 空闲
+番剧整理 · 空闲
+对话
+无项目对话
+无项目对话
+记忆管理
+调整面板宽度
+kanzei code
+对话
+管理
+￼
+空闲
+需求
+缺陷
+交付
+项目地图
+￼
+← 需求
+进行中
+继续此需求
+R-344 · Experiment Runner:本机与 SSH 执行、@@kanzei 回调解析与 run 事实落盘
+→ 转 待外部验收
+→ 转 已完成
+→ 转 已放弃
+编辑
+标签
+后端
+优先级
+P1
+内容
+按设计 §3/§5 实现实验运行器:local 起进程与 ssh 复用系统客户端两种执行;逐行解析带 @@kanzei 前缀的单行 JSON(stage/metric/progress/artifact/checkpoint/message/heartbeat/result),其余输出原样保留为终端日志;运行器另记 run_started/run_finished/run_failed/run_cancelled/environment_captured;结果事实进 state.db 并回写探索文件的实验结果表,产物落 explorations/<E-id>/<result-id>/;记录 params_text、code_ref、policy/lease_id/max_duration/cleanup、callback_stats。
+展开全部
+边界
+运行器是专用工具通道,不给 research 档开 bash(research_mode.md 定调点 6 的硬 deny 不变);不自动同步代码与数据集(远端第一次人工准备,准备步骤记进环境登记项后复用);不做实验队列与并行调度;不做 Slurm/K8s 提交、容器编排、跨机分布式训练编排;不做 W&B/TensorBoard 对接;不把回调写进 Markdown。
+验收
+1. 本机与 SSH 两条路径都能跑完一次真实实验并留下结果事实、产物与回写的结果表行
+2. 坏 JSON、超长行、未知事件不终止运行且计入 callback_stats
+3. 取消与远端强杀都能收敛到终态,heartbeat 超时判定卡死
+4. 断线重连后视图从持久事实恢复,不显示假运行中
+5. research 档 bash 仍为硬 deny,运行器不成为绕过通道
+6. 新环境缺准备步骤时运行器询问并记录,不自行同步文件
+来源与说明
+依赖
+R-345R-347
+外部验收
+真实 SSH 实验完整运行：阶段/指标/进度/产物回传、结果事实及结果表；远端取消与断线恢复。已实现本机和 SSH 通道，现场目标未验收。
+执行记录
+关联与设计
+日志
+v0.1.0
+```

@@ -1,0 +1,173 @@
+{
+  "date": "2026-10-17",
+  "timezone": "Asia/Shanghai",
+  "checked_at_utc": "2026-10-16T21:26:49.641Z",
+  "scope": "独立报告与静态交互原型，不是产品原生验收",
+  "passed": 31,
+  "total": 31,
+  "all_pass": true,
+  "checks": [
+    {
+      "name": "报告包含全部 10 项发现",
+      "pass": true
+    },
+    {
+      "name": "优先处理筛选为 5 项",
+      "pass": true
+    },
+    {
+      "name": "建议展开包含验收条件",
+      "pass": true
+    },
+    {
+      "name": "截图可在原生 dialog 放大",
+      "pass": true
+    },
+    {
+      "name": "截图关闭恢复原入口焦点",
+      "pass": true
+    },
+    {
+      "name": "报告深色主题状态正确",
+      "pass": true
+    },
+    {
+      "name": "报告深色状态文字对产品主背景均至少 4.5:1",
+      "pass": true,
+      "evidence": [
+        "6.63:1",
+        "9.66:1",
+        "11.21:1",
+        "9.66:1",
+        "10.42:1"
+      ]
+    },
+    {
+      "name": "报告 800px 无页面横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 800,
+        "scroll": 800
+      }
+    },
+    {
+      "name": "报告 420px 无页面横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 420,
+        "scroll": 420
+      }
+    },
+    {
+      "name": "案例展示 5 条真实快照",
+      "pass": true
+    },
+    {
+      "name": "批次全部完成仍保留整体进行中",
+      "pass": true
+    },
+    {
+      "name": "批次数字可见且不依赖悬停",
+      "pass": true
+    },
+    {
+      "name": "键盘能展开详情并读到真实外部验收",
+      "pass": true
+    },
+    {
+      "name": "键盘焦点轮廓可见",
+      "pass": true,
+      "evidence": {
+        "style": "solid",
+        "width": "2px"
+      }
+    },
+    {
+      "name": "搜索精确命中目标",
+      "pass": true
+    },
+    {
+      "name": "联合筛选出现无结果恢复入口",
+      "pass": true
+    },
+    {
+      "name": "一键清除搜索与状态筛选并恢复焦点",
+      "pass": true
+    },
+    {
+      "name": "调整前展示无可见数字的原布局",
+      "pass": true
+    },
+    {
+      "name": "调整后恢复明确状态与进度数字",
+      "pass": true
+    },
+    {
+      "name": "P0 用轮廓和字重单次强化",
+      "pass": true,
+      "evidence": {
+        "text": "P0",
+        "border": "solid",
+        "weight": "750"
+      }
+    },
+    {
+      "name": "灰度检查实际应用 filter",
+      "pass": true
+    },
+    {
+      "name": "案例 800px 无页面横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 800,
+        "scroll": 800
+      }
+    },
+    {
+      "name": "案例 800px 状态和数字可读",
+      "pass": true
+    },
+    {
+      "name": "案例 420px 无页面横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 420,
+        "scroll": 420
+      }
+    },
+    {
+      "name": "案例 420px 状态和数字可读",
+      "pass": true
+    },
+    {
+      "name": "窄屏隐藏列标题后仍明确标注批次",
+      "pass": true
+    },
+    {
+      "name": "尊重 reduced-motion",
+      "pass": true,
+      "evidence": "0s"
+    },
+    {
+      "name": "报告可直接以本地文件打开",
+      "pass": true
+    },
+    {
+      "name": "案例可直接以本地文件打开",
+      "pass": true
+    },
+    {
+      "name": "无浏览器未捕获异常",
+      "pass": true,
+      "evidence": []
+    },
+    {
+      "name": "所有请求的本地资源均正常",
+      "pass": true,
+      "evidence": []
+    }
+  ],
+  "errors": [],
+  "resources": [],
+  "screenshots": "C:\\Users\\kanzei\\Documents\\kanzei code\\output\\playwright\\frontend-design-20261017"
+}

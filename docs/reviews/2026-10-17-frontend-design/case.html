@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#ffffff">
+  <title>需求列表状态与进度 · kanzei 设计案例</title>
+  <link rel="icon" href="assets/kanzei.svg" type="image/svg+xml"><link rel="stylesheet" href="case.css">
+  <script src="audit-data.js" defer></script><script src="case.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#case-main">跳到需求列表</a>
+  <header class="case-controls">
+    <div><strong>需求列表状态与进度</strong><span class="prototype-label">交互原型 · 待采纳</span></div>
+    <div class="controls-right"><div class="segmented" role="group" aria-label="案例版本"><button id="before" aria-pressed="false">调整前</button><button id="after" aria-pressed="true">调整后</button></div><button id="case-theme" aria-label="切换到深色主题">深色</button><label class="gray-label"><input id="grayscale" type="checkbox">灰度检查</label></div>
+  </header>
+  <div class="case-shell">
+    <aside class="case-sidebar" aria-label="案例上下文"><img src="assets/kanzei.svg" width="30" height="30" alt=""><strong>kanzei</strong><span>项目</span><div class="selected">kanzei code</div><p>保留现有品牌与中性表面。此处只演示管理列表。</p><a href="index.html#case" target="_top">返回审视报告</a></aside>
+    <main id="case-main">
+      <div class="app-top"><strong>kanzei code</strong><span>对话</span><span class="current">管理</span><span class="idle">○ 空闲</span></div>
+      <nav class="app-tabs" aria-label="案例页面"><span aria-current="page">需求</span><span>缺陷</span><span>交付</span><span>项目地图</span></nav>
+      <div class="list-intro"><h1>项目需求</h1><p>项目状态、批次进度和验收信息分开呈现。</p></div>
+      <form class="tools" role="search" onsubmit="return false">
+        <label class="search-label"><span class="sr-only">搜索编号或标题</span><input id="case-search" type="search" name="case-search" placeholder="搜索编号或标题…" autocomplete="off"></label>
+        <label class="filter-label"><span class="sr-only">状态</span><select id="case-filter" name="case-filter" aria-label="状态"><option value="all">全部状态</option><option value="doing">进行中</option><option value="awaiting_external">待外部验收</option><option value="todo">待开始</option></select></label>
+        <button type="button" id="case-reset">清除筛选</button>
+      </form>
+      <div id="case-count" class="count" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div id="list-head" class="list-head" aria-hidden="true"><span>需求</span><span>整体状态</span><span>已完成批次</span><span>优先级</span><span></span></div>
+      <div id="case-list" aria-label="需求列表"></div>
+      <p id="version-note" class="version-note"></p>
+      <div class="case-footnote"><strong>案例范围</strong><p>5 条静态记录摘自本次真实窗口。主题、版本切换、搜索、筛选、展开详情和清除筛选均可操作；不调用项目后端，也不改变需求状态。调整前使用当前列表的布局与 token 重现，并非另一张原生截图。</p><p>R-344 的 4/4 只表示批次完成，整体仍为“进行中”。“外部验收”说明摘自其真实详情。其他条目不补写未知的阻塞原因。</p></div>
+    </main>
+  </div>
+</body></html>

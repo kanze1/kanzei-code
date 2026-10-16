@@ -1,0 +1,141 @@
+Window: "kanzei", App: kzapp.exe.
+	0 窗口 kanzei Secondary Actions: Raise
+		1 窗格
+			2 窗格 kanzei
+				3 窗格 (disabled)
+				4 区域 kanzei - Web 内容
+					5 区域
+						6 区域
+							7 区域
+								8 区域
+								9 区域
+									10 区域
+										11 区域
+											12 区域
+												13 区域
+												14 文档 kanzei Value: http://tauri.localhost/ ID: RootWebArea
+													686 对话框 命令面板 Secondary Actions: Raise ID: palette
+														687 组合框 (settable, string) 命令面板检索 Description: 跳转到视图、项目、对话，或执行动作 ID: palette-input
+														688 列表 (settable, string) 命令面板候选 ID: palette-list
+															723 选项 (selectable) 视图 对话
+															724 选项 (selectable) 视图 所有项目
+															725 选项 (selectable) 视图 并行线路
+															726 选项 (selectable) 视图 需求
+															727 选项 (selectable) 视图 记忆
+															728 选项 (selectable) 视图 文件
+															729 选项 (selectable) 视图 架构
+															730 选项 (selectable) 视图 运行画像
+															731 选项 (selectable) 视图 设置
+															732 选项 (selectable) 视图 Skills
+															733 选项 (selectable) 视图 管理 需求、缺陷、交付与项目地图
+															734 选项 (selectable) 项目 kanzei code C:\Users\kanzei\Documents\kanzei code
+															735 选项 (selectable) 项目 Akashic-AgentOS C:\Users\kanzei\Documents\Akashic-AgentOS
+															736 选项 (selectable) 项目 MD文件保存 C:\Users\kanzei\Desktop\MD文件保存
+															737 选项 (selectable) 项目 番剧整理 C:\Users\kanzei\Documents\番剧整理\番剧整理
+															738 选项 (selectable) 对话 新对话 对话
+															739 选项 (selectable) 动作 返回 Esc / Alt+←
+															740 选项 (selectable) 动作 新讨论
+															741 选项 (selectable) 动作 对话与历史
+															742 选项 (selectable) 动作 切换项目
+															743 选项 (selectable) 动作 添加项目文件夹…
+															744 选项 (selectable) 动作 新建项目…
+															745 选项 (selectable) 动作 总结
+															746 选项 (selectable) 动作 复制上下文
+															747 选项 (selectable) 动作 搜索
+															748 选项 (selectable) 动作 活动
+															749 选项 (selectable) 动作 网页预览
+															750 选项 (selectable) 动作 切换主题
+															751 选项 (selectable) 动作 新建独立任务
+															752 选项 (selectable) 动作 记需求
+															753 选项 (selectable) 动作 记缺陷
+															754 选项 (selectable) 动作 开发规范…
+															755 选项 (selectable) 动作 聚焦输入 Ctrl/Cmd+K
+														722 文本 ↑↓ 选择 · Enter 执行 · Esc 关闭
+								92 区域
+						93 区域
+						94 区域
+		95 标题栏 (settable, string) Value: kanzei
+			96 菜单栏 系统 ID: MenuBar
+				97 菜单项 系统
+			98 按钮 最小化
+			99 按钮 最大化
+			100 按钮 关闭
+
+Document text: ```
+命令面板检索
+视图
+对话
+视图
+所有项目
+视图
+并行线路
+视图
+需求
+视图
+记忆
+视图
+文件
+视图
+架构
+视图
+运行画像
+视图
+设置
+视图
+Skills
+视图
+管理
+需求、缺陷、交付与项目地图
+项目
+kanzei code
+C:\Users\kanzei\Documents\kanzei code
+项目
+Akashic-AgentOS
+C:\Users\kanzei\Documents\Akashic-AgentOS
+项目
+MD文件保存
+C:\Users\kanzei\Desktop\MD文件保存
+项目
+番剧整理
+C:\Users\kanzei\Documents\番剧整理\番剧整理
+对话
+新对话
+对话
+动作
+返回
++←Esc / Alt
+动作
+新讨论
+动作
+对话与历史
+动作
+切换项目
+动作
+添加项目文件夹…
+动作
+新建项目…
+动作
+总结
+动作
+复制上下文
+动作
+搜索
+动作
+活动
+动作
+网页预览
+动作
+切换主题
+动作
+新建独立任务
+动作
+记需求
+动作
+记缺陷
+动作
+开发规范…
+动作
+聚焦输入
+Ctrl/Cmd+K
+↑↓ 选择 · Enter 执行 · Esc 关闭
+```
