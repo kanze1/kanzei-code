@@ -2,12 +2,13 @@
 id: M-014
 scope: project
 category: fact
-title: HTML 静态文案必须登记进资源表,否则断言测试失败
+title: edit 锚点不匹配时重读原文，保留精确空白
 description: 处理 edit 报 old_string not found 时必读:先 read 重读文件排排版再精确构造——match exactly including whitespace;多处匹配勿用 replace_all 盲改，保留 [fp:edit|old_string not found...]指纹
-status: active
+status: deprecated
 created: 2026-08-08
-updated: 2026-08-17
+updated: 2026-10-07
 source: memory-manager
+area: kanzei-tools/edit
 ---
 
 编辑旧字符串不存在时必读：先 read 重读文件排版再精确构造 old_string — match exactly including whitespace;多处匹配勿用 replace_all 盲改。
@@ -22,3 +23,5 @@ source: memory-manager
 
 [fp:edit|old_string not found in — it must match exactly, including whitespace. Closest line in file: `                            let results = rt.background_results.c
 ]
+
+(stale: 2026-10-07 用户授权项目记忆清理；源码复核：重复 M-009 的精确文本匹配与重读规则，保留 M-009 为当前项目记录。)

@@ -6,8 +6,9 @@ title: tracker 状态机只进不退：cannot move backward 时核对状态与�
 description: 处理 req/defect/goal 的 update 报 cannot move backward，或 defect 关闭缺当前 HEAD 的 verify 证据时必读：不要回退到更早状态；核对允许的单向迁移，并让 verification.json 绑定要关闭的这次提交后重跑 verify。
 status: active
 created: 2026-08-07
-updated: 2026-09-02
+updated: 2026-10-07
 source: run(失败信号自动采集) + 人工校正
+area: kanzei-tools/tracker
 ---
 
 tracker 状态机只进不退。处理 req/defect/goal 的 update 报“cannot move backward”时，不要把状态改回列表中的更早状态；先核对当前状态与允许的单向迁移，改用合法后继状态或相应终态操作。关闭 defect 前，verify 证据必须绑定要关闭的这次提交，而不是仅看仓库最近一次提交；若 dist/verification.json 仍绑定旧提交，提交后以当前目标提交重跑 verify，并用 test_record 记录通过证据。

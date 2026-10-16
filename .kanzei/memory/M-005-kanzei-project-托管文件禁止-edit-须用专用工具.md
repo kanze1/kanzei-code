@@ -6,8 +6,9 @@ title: .kanzei/project 托管文件禁止 edit,须用专用工具
 description: 处理 .kanzei/project/defects.md 或其他 policy-managed 文件写入时必读：先不要调用 edit；若出现 tracker integrity broken 或 permission denied by ruleset，立即改用允许的专用写入/grep 通道并先修复报告的完整性门禁，避免重复 edit。
 status: active
 created: 2026-08-07
-updated: 2026-08-24
+updated: 2026-10-07
 source: inbox 2026-08-07
+area: kanzei-tools/managed kanzei-tools/tracker
 ---
 
 适用场景：写入 .kanzei/project/defects.md 或其他 policy-managed 文件，尤其 tracker 报完整性错误时。

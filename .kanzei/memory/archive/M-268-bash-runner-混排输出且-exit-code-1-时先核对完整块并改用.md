@@ -4,10 +4,11 @@ scope: project
 category: fact
 title: bash runner 混排输出且 exit code=1 时先核对完整块并改用 test_record
 description: 处理 bash 测试输出 exit code=1、running/ok 混排或同类复发时必读：先完整检查 stdout/stderr 与测试块；缺少可归因失败证据时停止 bash 重试，改用 test_record，并保留原始错误文本。
-status: active
+status: deprecated
 created: 2026-08-20
-updated: 2026-09-26
+updated: 2026-10-07
 source: user
+area: kanzei-tools/bash kanzei-tools/test_record
 ---
 
 适用场景：bash 执行批量测试时出现 `exit code: 1`，输出与 `running`/`ok` 多行混排或被截断，导致不能直接判断是代码测试失败还是 runner/环境契约问题。
@@ -29,3 +30,5 @@ source: user
 [fp:bash|行动: 处理 runner 批量测试输出含多行、exit code exit code、并行回归通过行或被截断的末尾摘要重试或改代码。]
 [fp:bash|行动: 处理 runner 批量测试输出混杂多行、看到 exit code: 与大量 行时必读：先截取并核对完整 根因行及测试结束标记，再决定修复；不要把首个 ]
 [fp:bash|行动: 处理 runner 输出出现 、running 进度与多行 混排，或同类失败再次复发时必读：即使 exit code 为 ，也先读取完整原始 ok 行直]
+
+(stale: 2026-10-07 用户授权项目记忆清理；源码复核：混排/截断输出不允许用 test_record 成功代替执行成功；有效的完整输出与失败行核对已由 M-258 覆盖。)

@@ -6,8 +6,9 @@ title: TrackerTool req/defect list 阻塞感知稳定后置，不改写 Markdown
 description: 处理 TrackerTool req/defect list 输出、阻塞条目排序或相关回归测试时必读:list 具备阻塞感知稳定后置能力
 status: active
 created: 2026-08-07
-updated: 2026-08-07
+updated: 2026-10-07
 source: inbox note 2026-08-07
+area: kanzei-tools/tracker
 ---
 
 实现位置:crates/kanzei-tools/src/tracker.rs。

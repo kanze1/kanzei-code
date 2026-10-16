@@ -6,8 +6,9 @@ title: Git tests 跨轮复发与前端标签关闭前必须有 UI smoke 证据
 description: 处理 failures: git::tests 跨轮复发或关闭带“前端”标签的需求/缺陷时必读：先核对真实失败行、完整批次字段和前置条件；关闭前必须附 T-测试记录、file:line 或提交号，并至少跑过本项目 UI smoke（ui-runtime-smoke、ui-lint-smoke、parallel-lines-regression 或 ui-a11y/ui-i18n smoke）；证据不足就显式记录降级或用户执行，禁止沉默跳过或把重试成功当根因。
 status: active
 created: 2026-08-17
-updated: 2026-09-06
+updated: 2026-10-07
 source: memory-manager
+area: kanzei-tools/test_record scripts
 ---
 
 处理 failures: git::tests 跨轮复发或关闭需求/缺陷前，先核对前置条件、环境、完整批次字段和真实失败行；关闭前逐条把验收条款写入进展并附 T-测试记录、file:line 或提交号，不能满足就显式记录降级或用户执行，禁止沉默跳过，也不能把重试成功或单个 exit code 当根因。

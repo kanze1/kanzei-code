@@ -4,11 +4,12 @@ scope: project
 category: sop
 title: ESM imported binding setter 缺口按 umbrella 迁移族统一修复
 description: 处理 classic global→ESM 迁移中消费者写入 imported binding、或 runtime 逐步暴露多个同类 setter 缺口时必读：按一个 umbrella defect 管理，先枚举全部跨模块 export let 写入并一次性修复验证，不按每个首个 symbol 重复登记 D 条目。
-status: active
+status: deprecated
 created: 2026-08-24
-updated: 2026-08-24
+updated: 2026-10-07
 source: memory-manager
 refs: R-331
+area: kanzei-app/ui
 ---
 
 适用场景：runtime 迁移从 classic global 到 ESM 后，消费者尝试写入 imported binding，或逐步出现 chatAgentFolds、processItems、activeProcessId、ctxLimit、activePane、dependencyViewOpen、documentsKind、followLatest 等同类 ESM consumer assignment 问题；同时留意 on/defer 事件注册时序问题。
@@ -21,3 +22,5 @@ refs: R-331
 5. 对 D702/D703 等重复条目合并或标记为重复；判断依据：同一 umbrella 根因只保留一个缺陷记录。
 
 边界与例外：若静态分析证明是不同根因或独立生命周期问题，才拆分 defect；仅新增一个 runtime 首个 imported symbol 不得创建新的同类 D 条目。
+
+(stale: 2026-10-07 用户授权项目记忆清理；源码复核：classic global 到 ESM 的历史迁移流程已结束；当前 imported binding/setter 与事件接线契约保留在有当前源码 refs 的 M-289。)

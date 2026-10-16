@@ -6,9 +6,10 @@ title: 所有 git mutation 在 bash 都被拦截,必须走结构化 git 工具
 description: 处理任何 Git 分支/索引变更(merge/restore/rebase/add/commit/reset)在 bash 报 "is blocked in bash: git mutations must use the structured git tool" 时必读:不要换别的 git 子命令重试,改用结构化 git 工具——显式 stage 指定文件、核对 staged_hash/diff,再用该 hash commit;快进合并走 git merge_ff。
 status: active
 created: 2026-08-09
-updated: 2026-08-12
+updated: 2026-10-07
 source: inbox 2026-08-09;2026-08-12 合并 M-046/M-049(restore/rebase 同类复发)
 supersedes: M-046 M-049
+area: kanzei-tools/git kanzei-tools/bash
 ---
 
 环境契约:bash 里执行 Git mutation 一律被拦截,**不限于 `git merge`**——实测已复发的还有 `git restore`、`git rebase`,同一条规则覆盖 add/commit/reset 等所有会改分支或索引的命令。只读查询(`git log`、`git status`、`git diff`)不受此限。

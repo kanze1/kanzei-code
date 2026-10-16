@@ -4,10 +4,11 @@ scope: project
 category: fact
 title: bash 命令超时被 kill 后的正确重试策略
 description: 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
-status: active
+status: deprecated
 created: 2026-08-17
-updated: 2026-08-20
+updated: 2026-10-07
 source: memory-manager
+area: kanzei-tools/bash
 ---
 
 bash timeout: true — command did not finish within 600000 ms and was killed. Retry with a larger timeout_ms if needed. [no output captured before timeout] [fp:bash|timeout: true — command did not finish within ms and was killed. Retry with a la]
@@ -21,3 +22,5 @@ bash timeout: true — command did not finish within 600000 ms and was killed. R
 4. retry 成功后记录验证证据
 
 本例使用 test_record 修复，说明需要增加超时或改用更稳定的执行方式。
+
+(stale: 2026-10-07 用户授权项目记忆清理；源码复核：test_record 成功不证明被 kill 的命令已恢复；旧记录把登记动作当作修复，缺少同目标成功执行依据。)

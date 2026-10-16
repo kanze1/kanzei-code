@@ -6,9 +6,10 @@ title: edit 报 old_string not found + must match exactly:先重读再精确构�
 description: 处理 edit 报 old_string not found、尤其 bash/cargo 修改失败时必读：先 read 重读目标文件并核对实际换行、缩进和空白，再构造与原文逐字符匹配的 old_string；多处匹配时不要盲用 replace_all。
 status: active
 created: 2026-08-07
-updated: 2026-09-25
+updated: 2026-10-07
 source: inbox 2026-08-07;2026-08-13 自 quarantine 原版恢复
 <span class="highlight">[fp: edit|old_string not found in — it must match exactly, including whitespace.]</span>
+area: kanzei-tools/edit
 ---
 
 适用场景：edit 报 old_string not found，或 bash/cargo 修改返回 Diff/exit code 1。

@@ -3,11 +3,16 @@ id: M-271
 scope: project
 category: sop
 title: read 报 path not found 时先核对项目 memory 根路径与目标文件
-description: 处理 read/grep 报 `path not found`、尤其命中本条后同类仍复发时必读：不要依据推测的源码路径重试；先列出实际父目录并核对文件名/模块是否存在，再只读经目录证据确认的路径。最近邻候选不能证明目标文件存在。
+description: 处理 read/grep 报 `path not found`，特别是检查过记忆仍复发时必读：先列出实际父目录并确认目标文件存在；若父目录无可列出文件，停止沿错误文本中的路径或最近邻候选重试，转而查真实目录、生成步骤或路径配置。
 status: active
 created: 2026-08-21
-updated: 2026-09-27
+updated: 2026-10-07
 source: memory-manager
+area: kanzei-tools/read
 ---
 
-read 报 `path not found` 时，将未经验证的旧路径视为阻断条件；先核对实际项目根目录与父目录内容，再通过目录列表或 glob 确认目标文件的精确路径，取得证据前不得重试。工具提供的最近邻文件（如 codex.rs、mod.rs、store.rs）只表明同目录存在这些文件，不证明请求的目标文件存在；据此修正路径或确认目标缺失。\n\n复发指纹：[fp:read|path not found:]\n保留既有复发标记：[fp:bash|行动: 处理 read 报 path not found 或目标文件未找到时必读：先核对项目实际 memory 根路径，列出目标目录并确认精确文件名；若候选列表]\n[fp:bash|行动: 处理 read 报 时必读：把路径未证实视为阻断条件，先核对项目实际 memory]\n[fp:grep|path not found:]
+处理 read/grep 报 `path not found`，先核对真实父目录和目标文件是否存在；最近邻候选不是存在性证据。若父目录为空/不可列出，停止重复读取猜测路径，查真实目录及生成步骤。本条已存在但同类错误仍复发，强化此判据。
+[fp:read|path not found:] 错误示例：path not found: C:\Users\kanzei\Documents\kanzei code\output/harness-release-2026-10-02/verification.json；同目录没有可列出的文件。
+[fp:bash|行动: 处理 read 报 path not found 或目标文件未找到时必读：先核对项目实际 memory 根路径，列出目标目录并确认精确文件名；若候选列表]
+[fp:bash|行动: 处理 read 报 时必读：把路径未证实视为阻断条件，先核对项目实际 memory]
+[fp:grep|path not found:]

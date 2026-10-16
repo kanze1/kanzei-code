@@ -6,8 +6,9 @@ title: 设置页工作资料导出功能(export_project_data)
 description: 需要了解/修改设置页导出记忆、需求、缺陷、项目配置功能(实现位置、目录约束、返回值)时必读
 status: active
 created: 2026-08-07
-updated: 2026-08-13
+updated: 2026-10-07
 source: inbox:2026-08-07
+area: kanzei-app/projects
 ---
 
 设置页提供可选工作资料导出,并显示实际导出路径。

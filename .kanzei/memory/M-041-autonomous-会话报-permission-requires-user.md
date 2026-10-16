@@ -6,10 +6,11 @@ title: autonomous 会话报 permission requires user approval 是档位限制,�
 description: 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
 status: active
 created: 2026-08-11
-updated: 2026-08-13
+updated: 2026-10-07
 source: memory-manager;2026-08-12 库存合并(三次同类复发)
 supersedes: M-042 M-043
 refs: D-239 R-157 R-164 D-259
+area: kanzei-harness/permission
 ---
 
 **判据**:报错是 `permission requires user approval: <tool> on ...`,不是参数错、不是路径错。同一档位下重试多少次都是同一个结果。
