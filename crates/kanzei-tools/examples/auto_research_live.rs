@@ -188,7 +188,6 @@ Read one or two primary sources (the official Python math.fsum documentation is 
                 None,
                 &prior,
                 None,
-                None,
                 &mut on_event,
                 &mut ask,
             ),

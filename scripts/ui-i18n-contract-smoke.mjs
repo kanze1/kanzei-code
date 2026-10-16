@@ -49,7 +49,8 @@ try {
       });` : ''}
     ` }));
     await page.goto(`${server.origin}/?scene=chat`);
-    await page.waitForFunction(() => typeof window.__languageGate?.release === 'function' && typeof window.t === 'function');
+    await page.evaluate(async () => { window.__languageI18n = await import('/02-i18n.js'); });
+    await page.waitForFunction(() => typeof window.__languageGate?.release === 'function' && typeof window.__languageI18n.t === 'function');
     if (race) {
       await page.evaluate(() => {
         const select = document.getElementById('language-select');
@@ -59,11 +60,11 @@ try {
     }
     await page.evaluate(() => window.__languageGate.release());
     await page.waitForFunction(() => window.__kzPreview?.ready);
-    const result = await page.evaluate(() => ({
+    const result = await page.evaluate(async () => ({
       cache: localStorage.getItem('kz-language'), lang: document.documentElement.lang,
       select: document.getElementById('language-select').value,
       writes: window.__kzPreview.calls.filter(call => call.cmd === 'ui_prefs_set' && call.args.ui_layout?.prefs?.language).map(call => call.args.ui_layout.prefs.language),
-      send: window.t('发送'),
+      send: (await import('/02-i18n.js')).t('发送'),
     }));
     const expected = race ? 'en' : 'zh';
     check(`${scenario}: cache retains winning preference`, result.cache, expected);

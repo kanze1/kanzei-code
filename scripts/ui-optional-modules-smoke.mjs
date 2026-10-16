@@ -31,8 +31,9 @@ try {
   assert(!requests.has("/23-voice.js"));
   assert(!requests.has("/22-visual-runtime.js"));
   await page.locator('#settings-toc [data-settings-target="sg-appearance"]').click();
+  await page.evaluate(async () => { globalThis.__optionalNeuralFlow = await import("/22-neural-flow.js"); });
   await page.locator("#set-visuals-enabled").check();
-  await page.waitForFunction(async () => (await import("/22-neural-flow.js")).chatBackdrop !== null);
+  await page.waitForFunction(() => globalThis.__optionalNeuralFlow.chatBackdrop !== null);
   assert(requests.has("/22-visual-runtime.js"));
   await page.locator("#set-visuals-enabled").uncheck();
   assert(await page.evaluate(async () => (await import("/22-neural-flow.js")).chatBackdrop === null));

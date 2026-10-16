@@ -13,7 +13,11 @@
 //     自动打开不抢焦点、不滚动对话(重排前记下首个可见消息,重排后按它恢复;跟随最新时贴底)。
 // 数据只读 05-subagents.js 与 06-activity.js 的模型,不新增 IPC 或事件。
 import { installSplit } from "./00-frame.js";
-import { $, activePane, defer, invoke, messages, motionCount, motionSync, on } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { activePane, messages } from "./01-chat-panes.js";
+import { motionCount, motionSync } from "./00-ui-primitives.js";
+import { on } from "./01-runtime-events.js";
+import { invoke } from "./00-ipc.js";
 import { languageIsEnglish, t } from "./02-i18n.js";
 import { activeSessionId, log, navigate_view, sessionState } from "./03-shell.js";
 import { onLayoutChange, setSidePanelPref, sidePanelPrefs } from "./03-layout.js";

@@ -51,6 +51,9 @@ struct Inner {
     client: LlmClient,
     lifecycle: Mutex<()>,
     active: Mutex<HashMap<String, Arc<ChildWorker>>>,
+    /// Actual worker/callback lifetime, including final lease release after the
+    /// keyed active slot has been removed for continuation admission.
+    worker_owners: Mutex<Vec<std::sync::Weak<ChildWorker>>>,
     parent: Mutex<Vec<Message>>,
     event: Mutex<Option<TeamEvent>>,
     ask_router: Mutex<Option<TeamAsk>>,
@@ -105,6 +108,17 @@ pub fn find(root: &Path, owner: &str) -> Option<AgentTeam> {
         .unwrap()
         .get(&key(root, owner))
         .cloned()
+}
+
+/// Include retiring owners whose conversation has already left AppState.
+pub fn registered_teams() -> Vec<(PathBuf, AgentTeam)> {
+    TEAMS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap()
+        .values()
+        .map(|team| (team.0.root.clone(), team.clone()))
+        .collect()
 }
 fn get_or_register(
     root: &Path,
@@ -255,6 +269,7 @@ impl AgentTeam {
                 client,
                 lifecycle: Mutex::new(()),
                 active: Mutex::new(HashMap::new()),
+                worker_owners: Mutex::new(Vec::new()),
                 parent: Mutex::new(Vec::new()),
                 event: Mutex::new(event.clone()),
                 ask_router: Mutex::new(None),
@@ -461,6 +476,11 @@ impl AgentTeam {
         saved?;
         questions_cancelled?;
         Ok(())
+    }
+    pub fn is_quiescent(&self) -> bool {
+        let mut owners = self.0.worker_owners.lock().unwrap();
+        owners.retain(|owner| owner.strong_count() > 0);
+        owners.is_empty() && self.0.active.lock().unwrap().is_empty()
     }
     pub fn stop_all(&self) {
         let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
@@ -950,6 +970,11 @@ impl AgentTeam {
         });
         active.insert(id.into(), cancel.clone());
         drop(active);
+        {
+            let mut owners = self.0.worker_owners.lock().unwrap();
+            owners.retain(|owner| owner.strong_count() > 0);
+            owners.push(Arc::downgrade(&cancel));
+        }
         let registration = WorkerRegistration {
             team: self.clone(),
             id: id.into(),

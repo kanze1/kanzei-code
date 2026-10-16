@@ -1,4 +1,5 @@
-import { invoke } from "./01-core.js";
+import { readProjectDocuments } from "./01-project-resources.js";
+import { invoke } from "./00-ipc.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { workChoices } from "./30-workspace-model.js";
 
@@ -13,7 +14,7 @@ export function selectWork(project, process, id) {
 export async function validateSelectedWork(project, process) {
   const id = selectedWork(project, process);
   if (!id) return null;
-  const [docs, snapshot] = await Promise.all([invoke("docs_snapshot", { projectDir: project }), invoke("workspace_snapshot", { projectDir: project })]);
+  const [docs, snapshot] = await Promise.all([readProjectDocuments(project, { force: true }), invoke("workspace_snapshot", { projectDir: project })]);
   const normalize = value => String(value || "").replace(/\\/g, "/").toLowerCase();
   const lines = snapshot.projects?.find(row => normalize(row.path) === normalize(project))?.lines || [];
   if (selectedWork(project, process) !== id) throw new Error("工作选择已改变，请重新发送。");

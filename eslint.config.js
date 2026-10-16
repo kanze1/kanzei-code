@@ -119,4 +119,9 @@ export default [
       "no-unused-vars": "off",
     },
   },
+  {
+    // Playwright callbacks execute in the actual browser page, not Node.
+    files: ["scripts/ui-design-audit-repairs-smoke.mjs", "scripts/ui-state-admission-smoke.mjs", "scripts/ui-project-resource-events-smoke.mjs", "scripts/resource-native-browser.mjs"],
+    languageOptions: { globals: { ...globals.browser } },
+  },
 ];

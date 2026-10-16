@@ -18,6 +18,23 @@ pub enum ToolOutcome {
 }
 
 impl ToolOutcome {
+    /// Decode the persisted tool-result header through the same outcome type
+    /// used by execution and UI. Unknown/legacy text keeps its original error
+    /// semantics; consumers must not maintain their own rejection name lists.
+    pub fn from_model_content(content: &str) -> Option<Self> {
+        let header = content.lines().next()?.strip_prefix("[tool_outcome=")?;
+        let name = header.split([' ', ']']).next()?;
+        match name {
+            "success" => Some(Self::Success),
+            "noop" => Some(Self::NoOp),
+            "needs_correction" => Some(Self::NeedsCorrection),
+            "needs_confirmation" => Some(Self::NeedsConfirmation),
+            "blocked_by_workflow" => Some(Self::BlockedByWorkflow),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Success => "success",

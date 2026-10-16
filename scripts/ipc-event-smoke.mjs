@@ -7,7 +7,7 @@
 //   - 前端订阅了但后端从不 emit(frontend-only)→ error:死订阅,
 //     可能是事件被移除/改名,前端在等一个永远不会来的事件。
 // 任一侧独有即红——机械判据,不靠人自觉;后端改事件名立刻被抓。
-// 当前基线(2026-08-18):两侧各 22 个事件,差集为空。
+// 计数来自实际扫描；不手写会过期的接口规模。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,17 +43,17 @@ for (const file of fs.readdirSync(path.join(root, "crates/kanzei-app/ui")).filte
 
 // ── 分区:网页预览后端 ──
 // UI2-0926 #8:网页预览面板的三个事件没有会话归属(面板是全局的,不跟某条线走),必须登记进
-// 01-core.js 的 SESSIONLESS_EVENTS 并经 on() 订阅,否则前端「没有 sessionId 就丢弃」的纪律会
+// 01-runtime-events.js 的 SESSIONLESS_EVENTS 并经 on() 订阅,否则前端「没有 sessionId 就丢弃」的纪律会
 // 把它们静默吞掉。事件名与载荷形状见 docs/design/preview_pane.md §6 与 scripts/ipc-contract.json。
 {
   const PREVIEW_EVENTS = ["kz:preview-state", "kz:preview-console", "kz:preview-pick"];
-  const core = fs.readFileSync(path.join(root, "crates/kanzei-app/ui/01-core.js"), "utf8");
+  const core = fs.readFileSync(path.join(root, "crates/kanzei-app/ui/01-runtime-events.js"), "utf8");
   const sessionless = core.match(/SESSIONLESS_EVENTS\s*=\s*new Set\(\[([\s\S]*?)\]\)/)?.[1] ?? "";
   const gaps = [];
   for (const name of PREVIEW_EVENTS) {
     if (!backendEvents.has(name)) gaps.push(`${name}:后端没有 emit`);
     if (!frontendEvents.has(name)) gaps.push(`${name}:前端没有 on() 订阅`);
-    if (!sessionless.includes(`"${name}"`)) gaps.push(`${name}:未登记进 01-core.js 的 SESSIONLESS_EVENTS`);
+    if (!sessionless.includes(`"${name}"`)) gaps.push(`${name}:未登记进 01-runtime-events.js 的 SESSIONLESS_EVENTS`);
   }
   if (gaps.length) {
     console.error(`网页预览事件接线不全(UI2-0926 #8,${gaps.length} 处):`);
@@ -75,16 +75,11 @@ const MIN_IPC_EVENTS = 10;
   };
   const PREVIEW_FAMILY = /^(?:preview_[a-z_]+|tool_image|delivered_image)$/;
   const srcDir = path.join(root, "crates/kanzei-app/src");
-  const mainRs = fs.readFileSync(path.join(srcDir, "main.rs"), "utf8");
-  const handlerBody = mainRs.match(/generate_handler!\[([\s\S]*?)\]/)?.[1] ?? "";
-  const renamed = new Map();
-  for (const file of walk(srcDir)) {
-    const src = fs.readFileSync(file, "utf8");
-    for (const m of src.matchAll(/#\[tauri::command\(rename\s*=\s*"([^"]+)"\)\]\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)/g)) renamed.set(m[2], m[1]);
-  }
-  const registered = new Set(
-    [...handlerBody.replace(/\/\/[^\n]*/g, "").matchAll(/([A-Za-z_]\w*)\s*(?=,|$)/g)].map((m) => renamed.get(m[1]) ?? m[1]),
-  );
+  const registry = JSON.parse(fs.readFileSync(path.join(srcDir, "command_registry.json"), "utf8"));
+  const contracts = JSON.parse(fs.readFileSync(path.join(root, "scripts/ipc-commands.json"), "utf8"));
+  const registered = new Set(Object.keys(contracts));
+  const registeredPaths = new Set(Object.values(contracts).map(c => c.path));
+  if (registry.length !== registeredPaths.size || registry.some(entry => !registeredPaths.has(entry.path))) throw new Error("IPC registry and generated contract differ; run node scripts/sync-ipc-contract.mjs");
   const invoked = new Map();
   const uiDir = path.join(root, "crates/kanzei-app/ui");
   for (const file of fs.readdirSync(uiDir).filter((f) => f.endsWith(".js"))) {

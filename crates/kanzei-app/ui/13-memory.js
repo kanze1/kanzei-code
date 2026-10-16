@@ -1,6 +1,11 @@
-import { defer } from "./01-core.js";
+import { defer } from "./00-dom.js";
 import { escapeHtml, renderMarkdownInto } from "./04-markdown.js";
-import { $, confirmDialog, invoke, isImeComposing, on, replayExperienceFacts, uiConsoleLog } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { confirmDialog } from "./00-dialogs.js";
+import { isImeComposing } from "./00-ui-primitives.js";
+import { on, replayExperienceFacts } from "./01-runtime-events.js";
+import { uiConsoleLog } from "./00-console.js";
+import { invoke } from "./00-ipc.js";
 import { languageIsEnglish, localizedDocStatus, t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toast, toastError } from "./03-shell.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";

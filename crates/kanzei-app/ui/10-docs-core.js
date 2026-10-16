@@ -1,6 +1,8 @@
-import { defer } from "./01-core.js";
-import { $, readJson, writeJson } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { readJson, writeJson } from "./00-ui-primitives.js";
 import { localizeDynamic } from "./02-i18n.js";
+import { navigate_view } from "./03-shell.js";
 import { state } from "./08-compose.js";
 import { prefKey } from "./08-models.js";
 import { clearJumpReveal } from "./11-docs-list.js";
@@ -70,16 +72,9 @@ export function syncDocFilterControls() {
     if (el && [...el.options].some((o) => o.value === value)) el.value = value;
   }
 }
-// 跨视图跳转:复用导航栏按钮的既有切换逻辑(含 active/aria-current/documents-active
-// 与该视图的数据刷新),不重复实现一套视图激活。
+// 跨视图跳转统一经过路由与加载器，不依赖是否存在一级导航按钮。
 export function openDocumentsView() {
-  const btn = document.querySelector('.activity-item[data-view="documents"]');
-  if (btn) {
-    btn.click();
-    return;
-  }
-  document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
-  $("view-documents")?.classList.add("active");
+  navigate_view("documents");
 }
 // 标签受控词表(conventions §1.35,用户定调):分组顺序即展示顺序。
 export const DOC_TAG_ORDER = ["核心", "后端", "前端", "模型", "发布", "流程"];

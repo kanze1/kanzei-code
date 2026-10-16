@@ -7,9 +7,14 @@
 //!
 //! 所有节点同一形状(可空字段显式为 null):IPC 契约只取数组首元素定形,形状不一会漏字段。
 
+mod inputs;
+
+pub use inputs::{
+    collect_context_inputs, collect_inputs, collect_inputs_from, input_fingerprint,
+    input_fingerprint_from, memory_stores,
+};
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
 
 use kanzei_harness::areas::{AreaKind, AreaRegistry};
 use kanzei_harness::refs::{parse_id, split_refs, RefRel};
@@ -17,7 +22,7 @@ use serde::Serialize;
 
 use super::mentions::{ids_in, line_of, wikilinks};
 use super::tool_areas::{backticked_tools, keyword_areas, title_lead_tool, tool_area};
-use crate::memory::{fp_markers, MemoryEntry, MemoryStore};
+use crate::memory::{fp_markers, MemoryEntry};
 
 /// 每条记忆最多挂几个区域(再多就是噪声,画面上也读不出来)。
 pub const MAX_AREAS_PER_MEMORY: usize = 4;
@@ -58,6 +63,7 @@ pub struct GraphInputs {
     /// docs/design/ 下的文件名(`memory_control_plane.md`)。
     pub design_docs: Vec<String>,
     pub registry: AreaRegistry,
+    pub collection_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -313,7 +319,7 @@ pub fn build_graph(inputs: &GraphInputs) -> MemoryGraph {
         nodes: BTreeMap::new(),
         edges: Vec::new(),
         edge_keys: BTreeSet::new(),
-        warnings: Vec::new(),
+        warnings: inputs.collection_warnings.clone(),
     };
 
     // 同一 id 活动优先(与 doc_reference_graph §1 的 M-009 规则一致)。
@@ -736,191 +742,4 @@ pub fn build_graph(inputs: &GraphInputs) -> MemoryGraph {
         stats,
         warnings: builder.warnings,
     }
-}
-
-fn display_path(root: &Path, path: &Path) -> String {
-    match path.strip_prefix(root) {
-        Ok(relative) => relative.display().to_string().replace('\\', "/"),
-        Err(_) => {
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let archived = path
-                .parent()
-                .and_then(|p| p.file_name())
-                .is_some_and(|n| n == "archive");
-            format!(
-                "~/.kanzei/memory/{}{name}",
-                if archived { "archive/" } else { "" }
-            )
-        }
-    }
-}
-
-/// 项目库 + 全局库(桌面端与 CLI 的默认口径)。
-pub fn memory_stores(root: &Path) -> Vec<MemoryStore> {
-    let mut stores = vec![MemoryStore::project(root)];
-    stores.extend(MemoryStore::global());
-    stores
-}
-
-/// 全部 IO:读两级记忆库(含 archive/)、tracker 三类文档(含归档)、设计文档名、区域注册表。
-pub fn collect_inputs(root: &Path) -> GraphInputs {
-    collect_inputs_from(root, &memory_stores(root))
-}
-
-/// 同 [`collect_inputs`],记忆库由调用方给(契约测试只给项目库,不读本机全局库)。
-pub fn collect_inputs_from(root: &Path, stores: &[MemoryStore]) -> GraphInputs {
-    use crate::docstore::{DocStore, DECISIONS, DEFECTS, REQUIREMENTS};
-    let registry = AreaRegistry::scan(root);
-    let mut memories = Vec::new();
-    for store in stores {
-        let scope = store.scope.label().to_string();
-        let hits = store.hit_profile();
-        for (archived, list) in [(false, store.load_all()), (true, store.load_archived())] {
-            for (path, entry) in list {
-                memories.push(MemoryInput {
-                    hits: hits.get(&entry.id).map(|h| h.0).unwrap_or(0),
-                    raw: std::fs::read_to_string(&path).ok(),
-                    path: display_path(root, &path),
-                    scope: scope.clone(),
-                    archived,
-                    entry,
-                });
-            }
-        }
-    }
-    let mut tracker = Vec::new();
-    for (kind, doc) in [
-        ("requirement", &REQUIREMENTS),
-        ("defect", &DEFECTS),
-        ("decision", &DECISIONS),
-    ] {
-        let store = DocStore::open(root, doc);
-        for (archived, entries) in [
-            (false, store.load().unwrap_or_default()),
-            (true, store.load_archive().unwrap_or_default()),
-        ] {
-            for entry in entries {
-                if tracker.iter().any(|t: &TrackerInput| t.id == entry.id) {
-                    continue;
-                }
-                let text = entry
-                    .fields
-                    .iter()
-                    .map(|(k, v)| format!("{k}: {v}"))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                tracker.push(TrackerInput {
-                    id: entry.id,
-                    kind,
-                    title: entry.title,
-                    status: entry.status,
-                    archived,
-                    text,
-                });
-            }
-        }
-    }
-    let mut design_docs: Vec<String> = std::fs::read_dir(root.join("docs/design"))
-        .map(|dir| {
-            dir.flatten()
-                .filter_map(|item| {
-                    let name = item.file_name().to_string_lossy().to_string();
-                    name.ends_with(".md").then_some(name)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    design_docs.sort();
-    GraphInputs {
-        memories,
-        tracker,
-        design_docs,
-        registry,
-    }
-}
-
-fn stat_into(hasher: &mut std::collections::hash_map::DefaultHasher, path: &Path) {
-    path.hash(hasher);
-    if let Ok(meta) = std::fs::metadata(path) {
-        meta.len().hash(hasher);
-        if let Ok(modified) = meta.modified() {
-            modified.hash(hasher);
-        }
-    } else {
-        0u8.hash(hasher);
-    }
-}
-
-/// 目录里的 Markdown 文件(名 + 长度 + mtime)。只看 .md:index.db / 锁文件 / WAL 是派生物,
-/// 读图谱本身(命中数查询)就可能创建或改动它们,算进来缓存就永远不命中。
-fn md_dir_into(hasher: &mut std::collections::hash_map::DefaultHasher, dir: &Path) {
-    dir.hash(hasher);
-    let Ok(read) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut paths: Vec<PathBuf> = read
-        .flatten()
-        .map(|item| item.path())
-        .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("md"))
-        .collect();
-    paths.sort();
-    for path in paths {
-        stat_into(hasher, &path);
-    }
-}
-
-/// 注册表相关目录:只看条目名(区域只取决于有哪些文件/子目录),Cargo.toml 另算内容戳(依赖边)。
-/// 不看其余文件的 mtime:改代码不该让图谱缓存失效。
-fn names_into(hasher: &mut std::collections::hash_map::DefaultHasher, dir: &Path) {
-    dir.hash(hasher);
-    let Ok(read) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut names: Vec<(String, bool)> = read
-        .flatten()
-        .map(|item| {
-            (
-                item.file_name().to_string_lossy().to_string(),
-                item.file_type().map(|t| t.is_dir()).unwrap_or(false),
-            )
-        })
-        .collect();
-    names.sort();
-    for (name, is_dir) in names {
-        name.hash(hasher);
-        is_dir.hash(hasher);
-        if name.eq_ignore_ascii_case("cargo.toml") {
-            stat_into(hasher, &dir.join(&name));
-        }
-    }
-}
-
-/// 输入指纹:任何一个输入文件增删改(长度或 mtime 变),值就变。桌面端 stat 缓存的键。
-/// 不含 index.db:命中数由调用方每次现取覆盖,不让它拖垮缓存命中率。
-pub fn input_fingerprint(root: &Path) -> u64 {
-    input_fingerprint_from(root, &memory_stores(root))
-}
-
-/// Cache only the stores used to build this projection.
-pub fn input_fingerprint_from(root: &Path, stores: &[MemoryStore]) -> u64 {
-    use crate::docstore::{DocStore, DECISIONS, DEFECTS, REQUIREMENTS};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for store in stores {
-        store.root.hash(&mut hasher);
-        md_dir_into(&mut hasher, &store.root);
-        md_dir_into(&mut hasher, &store.root.join("archive"));
-    }
-    for doc in [&REQUIREMENTS, &DEFECTS, &DECISIONS] {
-        let store = DocStore::open(root, doc);
-        stat_into(&mut hasher, &root.join(doc.rel_path));
-        stat_into(&mut hasher, &store.archive_file());
-    }
-    md_dir_into(&mut hasher, &root.join("docs/design"));
-    for dir in AreaRegistry::scan(root).watch_dirs(root) {
-        names_into(&mut hasher, &dir);
-    }
-    hasher.finish()
 }

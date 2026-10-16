@@ -1,9 +1,16 @@
-import { $, defer, invoke, listen, on } from "./01-core.js";
+import { subscribeRuntimeEvent } from "./00-event-subscriptions.js";
+import { awaitRunConfirmation } from "./03-session-runtime.js";
+import { runtimeEventsReady } from "./00-event-subscriptions.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { on } from "./01-runtime-events.js";
 import { mountManagement, hideManagement } from "./30-management.js";
+import { readProjectDocuments } from "./01-project-resources.js";
+import { subscribeRefresh } from "./00-refresh.js";
 import { autoAllowEnabled, layoutPref, setLayoutPref } from "./03-layout.js";
 import { languageIsEnglish, localizedStage, localizedStatusWord, t } from "./02-i18n.js";
 import { fillTemplate } from "./04-structured-parse.js";
-import { currentProject, activeProcessId, activeSessionId, processItems, sessionStates, transitionSession, navigate_view, toast, toastError,
+import { currentProject, activeProcessId, activeSessionId, processItems, sessionStates, transitionSession, sessionDetails, navigate_view, toast, toastError,
   replacePendingQuestions, questionWaitRevision, noteQuestionReply, onInnerBack } from "./03-shell.js";
 import { openProjectSpace, openProjectResource, workbenchProject, openWorkbenchItem, setWorkbenchQuestions, setAttentionNavActive, setWorkbenchInboxCounts } from "./12-workbench.js";
 import { lastWorkspaceSnapshot, backlogTally } from "./12-docs-pages.js";
@@ -112,7 +119,11 @@ function mount(state) {
   reconcileSelection(state);
   if (!root) root = createWorkspace({ module: selectModule, tab: selectTab, refresh: () => void refreshCurrent(true), interaction: openInteraction });
   if (runner.element.parentElement !== $("sw-run-slot")) $("sw-run-slot").append(runner.element);
-  if (root.parentElement !== $("project-overview-content")) $("project-overview-content").replaceChildren(root);
+  if (root.parentElement !== $("project-overview-content")) {
+    const host = $("project-overview-content");
+    for (const child of [...host.children]) if (!child.classList.contains("management-page")) child.remove();
+    host.prepend(root);
+  }
   current = state;
   void loadDeliveredFiles(state.project);
   void loadBatchEvidence(state);
@@ -127,7 +138,7 @@ function paint(force = false) {
   const management = current.tab === "network" && !current.module && !current.evidence && !current.interaction;
   root.hidden = management;
   if (management) {
-    mountManagement(current.project, current.docs, developmentState(current), current.error);
+    mountManagement(current.project, developmentState(current), current.error);
     return;
   }
   hideManagement();
@@ -412,18 +423,20 @@ async function refreshCurrent(force = false) {
   if (force) { void loadBatchEvidence(state, true); void loadTrace(state, true); }
   state.request = (async () => {
     try {
-      const [data, docs] = await Promise.all([
+      const [workspace, documents] = await Promise.allSettled([
         invoke("workspace_snapshot", { projectDir: state.project }),
-        invoke("docs_snapshot", { projectDir: state.project }).catch(() => null),
+        readProjectDocuments(state.project, { force }),
       ]);
+      if (documents.status === "fulfilled") state.docs = documents.value;
+      state.backlog = documents.status === "fulfilled" ? { req: backlogTally(state.docs.requirements || [], "req"), defect: backlogTally(state.docs.defects || [], "defect") } : { error: true };
+      if (workspace.status === "rejected") throw workspace.reason;
+      const data = workspace.value;
       const detail = data.projects?.find(p => sameProject(p.path, state.project));
       if (!detail) throw new Error(t("项目状态不可用"));
       if (detail.error) throw new Error(detail.error);
-      state.detail = detail; state.docs = docs; projectDetails.set(detail.path, detail); state.error = ""; state.runtimeUnavailable = false;
+      state.detail = detail; projectDetails.set(detail.path, detail); state.error = ""; state.runtimeUnavailable = false;
       reconcileSelection(state);
-      state.backlog = docs ? { req: backlogTally(docs.requirements || [], "req"), defect: backlogTally(docs.defects || [], "defect") } : { error: true };
       if (!state.selection) bindSelection(state, "main");
-      await refreshQuestions();
     } catch (error) { state.error = String(error); state.runtimeUnavailable = true; }
     finally { state.request = null; if (current === state) paint(); }
   })();
@@ -613,6 +626,7 @@ function adoptRecipient(state, previous, next) {
   }
 }
 async function dispatchPrompt(destination, capture, resolved) {
+  if (!await runtimeEventsReady()) throw new Error(t("运行事件订阅失败"));
   const lines = await invoke("process_list", { projectDir: destination.project });
   const candidates = lines.filter(p => p.profile !== "research");
   let line = destination.processId ? candidates.find(p => p.id === destination.processId) : candidates[0];
@@ -625,13 +639,13 @@ async function dispatchPrompt(destination, capture, resolved) {
     resolved?.(destination, bound, line); destination = bound; capture.target = bound;
   }
   const starting = !line.running && !sessionStates.get(line.session_id)?.running;
-  if (starting) transitionSession(line.session_id, "starting", { local_start_pending: true });
+  if (starting) transitionSession(line.session_id, "starting");
   try {
     await invoke("run_prompt", { prompt: capture.text, projectDir: destination.project,
       processId: destination.processId || null, ...lineAgent(line), researchTopic: line?.research_topic || undefined,
       delivery: capture.delivery, model: line?.model || null, attachments: capture.attachments,
       autonomous: false, autoAllow: autoAllowEnabled() });
-    if (starting && sessionStates.get(line.session_id)?.phase === "starting") transitionSession(line.session_id, "running", { local_start_pending: false, stage: "请求" });
+    if (starting) awaitRunConfirmation(line.session_id, { projectDir: destination.project, processId: destination.processId });
   } catch (error) {
     if (starting && sessionStates.get(line.session_id)?.phase === "starting") transitionSession(line.session_id, "failed");
     throw error;
@@ -703,7 +717,7 @@ async function loadConversation(state, destination = { ...target(state) }) {
   const request = (state.historyRequests.get(key) || 0) + 1;
   state.historyRequests.set(key, request);
   try {
-    const history = await invoke("conversation_display_get", { projectDir: destination.project, processId: destination.processId, beforeSequence: null });
+    const history = await invoke("conversation_display_get", { projectDir: destination.project, processId: destination.processId, sequence: null });
     if (state.historyRequests.get(key) !== request) return;
     state.historyErrors.delete(key);
     const rows = messagesFor(state, destination);
@@ -786,7 +800,7 @@ async function stop() {
     transitionSession(destination.sessionId, "stopping");
     await invoke("stop_run", { projectDir: destination.project, processId: destination.processId });
   } catch (error) {
-    if (sessionStates.get(destination.sessionId)?.phase === "stopping") transitionSession(destination.sessionId, previousState.phase, previousState);
+    if (sessionStates.get(destination.sessionId)?.phase === "stopping") transitionSession(destination.sessionId, previousState.phase, sessionDetails(previousState));
     toastError(String(error));
   }
 }
@@ -817,6 +831,7 @@ defer(() => {
   document.addEventListener("kz:view-changed", event => {
     generation += 1;
     if (event.detail.view !== "project") {
+      hideManagement();
       composer.leave(); runner.close();
       if (event.detail.view === "chat") void refreshQuestions();
     }
@@ -869,7 +884,7 @@ defer(() => {
     void openProjectSpace(project, "project").then(() => { if (current && sameProject(current.project, project)) selectTab("inbox"); });
   });
   for (const name of ["kz:tool-start", "kz:tool-end", "kz:text", "kz:reasoning", "kz:compacted", "kz:turn", "kz:done", "kz:status", "kz:idle", "kz:stopped", "kz:error"]) {
-    void listen(name, event => receive(name, event.payload)).catch(error => toastError(String(error)));
+    subscribeRuntimeEvent(name, event => receive(name, event.payload));
   }
   on("kz:question-replied", () => void refreshQuestions());
   on("kz:ask-resolved", () => void refreshQuestions());
@@ -903,7 +918,8 @@ defer(() => {
     if (!document.hidden && visible()) void refreshCurrent();
   });
   window.matchMedia?.("(prefers-reduced-motion: reduce)").addEventListener?.("change", event => { if (event.matches) stopSignals(root); });
-  setInterval(() => { if (!document.hidden) { void refreshQuestions(); if (visible()) void refreshCurrent(); } }, 8000);
+  subscribeRefresh({ interval: 8000, active: () => true, refresh: refreshQuestions, onError: toastError });
+  subscribeRefresh({ interval: 8000, active: visible, refresh: refreshCurrent, onError: toastError });
   setInterval(() => { if (!document.hidden && visible() && current) runner.sync({ ...work(current).line, project: current.project }); }, 1000);
   void refreshQuestions();
 });

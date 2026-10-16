@@ -1,4 +1,4 @@
-import { defer } from "./01-core.js";
+import { defer } from "./00-dom.js";
 import { __kzAutoTestState } from "./08-auto.js";
 
 // R-264 B3：测试钩子是正式 ESM namespace 的唯一出口。

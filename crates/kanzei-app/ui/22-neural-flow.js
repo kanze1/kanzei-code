@@ -1,5 +1,6 @@
 // Minimal feedback is always available. Complex renderers are loaded on demand.
-import { $, defer, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { activeSessionId, toastError } from "./03-shell.js";
 let runtime = null, flight = null, generation = 0, enabled = false;
 export let chatBackdrop = null;

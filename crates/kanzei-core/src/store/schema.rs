@@ -66,6 +66,34 @@ impl SessionStore {
                  -- D-297:event_type 下推过滤的复合索引,list_events_by_type 用。
                  CREATE INDEX IF NOT EXISTS session_events_session_type_sequence
                      ON session_events(session_id, event_type, sequence);
+                 CREATE INDEX IF NOT EXISTS session_events_session_turn_sequence
+                     ON session_events(session_id, json_extract(payload_json, '$.turn_id'), sequence);
+                 CREATE TABLE IF NOT EXISTS conversation_segment_metadata (
+                     session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+                     start_sequence INTEGER NOT NULL,
+                     end_sequence INTEGER NOT NULL,
+                     projection INTEGER NOT NULL,
+                     metadata_json TEXT NOT NULL,
+                     PRIMARY KEY(session_id, start_sequence, end_sequence, projection)
+                 );
+                 CREATE INDEX IF NOT EXISTS conversation_segment_metadata_end
+                     ON conversation_segment_metadata(session_id, end_sequence, start_sequence);
+                 CREATE TRIGGER IF NOT EXISTS conversation_metadata_insert AFTER INSERT ON session_events
+                 BEGIN
+                     DELETE FROM conversation_segment_metadata WHERE session_id=NEW.session_id
+                         AND end_sequence>=NEW.sequence AND start_sequence<NEW.sequence;
+                 END;
+                 CREATE TRIGGER IF NOT EXISTS conversation_metadata_delete AFTER DELETE ON session_events
+                 BEGIN
+                     DELETE FROM conversation_segment_metadata WHERE session_id=OLD.session_id
+                         AND end_sequence>=OLD.sequence AND start_sequence<OLD.sequence;
+                 END;
+                 CREATE TRIGGER IF NOT EXISTS conversation_metadata_update AFTER UPDATE ON session_events
+                 BEGIN
+                     DELETE FROM conversation_segment_metadata WHERE
+                         (session_id=OLD.session_id AND end_sequence>=OLD.sequence AND start_sequence<OLD.sequence)
+                         OR (session_id=NEW.session_id AND end_sequence>=NEW.sequence AND start_sequence<NEW.sequence);
+                 END;
                  -- v5 状态机:pending → promoted → running → completed | failed | cancelled。
                  -- 少了 running/completed/failed 时,跑完的输入会永远停在 promoted,于是
                  -- 用户之后任何一次停止都会把历史上已经成功完成的输入一并改成
@@ -322,7 +350,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS file_checkpoints_path
                      ON file_checkpoints(path_key, updated_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '26')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '28')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -513,6 +541,11 @@ mod tests {
     const SCHEMA_OBJECTS: &[&str] = &[
         "agent_notifications",
         "agent_notifications_thread_sequence",
+        "conversation_metadata_delete",
+        "conversation_metadata_insert",
+        "conversation_metadata_update",
+        "conversation_segment_metadata",
+        "conversation_segment_metadata_end",
         "delivery_cursors",
         "episodes",
         "episodes_session_created",
@@ -538,6 +571,7 @@ mod tests {
         "retired_processes_origin",
         "schema_meta",
         "session_events",
+        "session_events_session_turn_sequence",
         "session_events_session_type_sequence",
         "session_inputs",
         "session_inputs_pending",
@@ -560,6 +594,11 @@ mod tests {
         "agent_notifications.payload_json",
         "agent_notifications.sequence",
         "agent_notifications.thread_id",
+        "conversation_segment_metadata.end_sequence",
+        "conversation_segment_metadata.metadata_json",
+        "conversation_segment_metadata.projection",
+        "conversation_segment_metadata.session_id",
+        "conversation_segment_metadata.start_sequence",
         "delivery_cursors.cursor",
         "delivery_cursors.device_id",
         "delivery_cursors.thread_id",

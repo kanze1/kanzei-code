@@ -36,7 +36,6 @@ pub use recall::{
     RecallHit, RecallOutcome, RecallPolicy, RecallRunOutcome, RecallTrigger, RecallWatch,
 };
 mod delegation;
-mod line_runtime;
 mod subagent;
 pub use delegation::*;
 mod tool_exec;
@@ -44,7 +43,6 @@ mod tool_failure_telemetry;
 /// UI2-0926 #8:工具截图落盘 + content 末尾 `[tool-image]` 标记(对话回显)。
 mod tool_images;
 pub use drive::{run_once, run_once_with_parts};
-pub use line_runtime::*;
 
 pub(crate) use subagent::task_spec;
 pub use subagent::*;

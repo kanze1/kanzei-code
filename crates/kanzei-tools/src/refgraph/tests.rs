@@ -130,6 +130,7 @@ fn area_priority_field_path_tool_via_keyword() {
         tracker: vec![tracker("D-010", "实现: crates/kanzei-tools/src/git.rs")],
         design_docs: vec![],
         registry,
+        collection_warnings: Vec::new(),
     };
     let graph = build_graph(&inputs);
     let m = node(&graph, "M-001");
@@ -193,6 +194,7 @@ fn scripts_demoted_and_via_only_from_structured_refs() {
         tracker: vec![tracker("D-011", "改 crates/kanzei-tools/src/git.rs")],
         design_docs: vec![],
         registry,
+        collection_warnings: Vec::new(),
     };
     let graph = build_graph(&inputs);
     let m = node(&graph, "M-002");
@@ -239,6 +241,7 @@ fn supersedes_dedup_both_directions() {
         tracker: vec![],
         design_docs: vec![],
         registry,
+        collection_warnings: Vec::new(),
     };
     let graph = build_graph(&inputs);
     let sup: Vec<&GraphEdge> = graph
@@ -275,6 +278,7 @@ fn shared_concepts_kept_singletons_dropped() {
         tracker: vec![],
         design_docs: vec![],
         registry,
+        collection_warnings: Vec::new(),
     };
     let graph = build_graph(&inputs);
     let concepts: Vec<(&str, &str)> = graph
@@ -328,6 +332,7 @@ fn active_wins_over_archived_same_id_and_archived_flag_set() {
         tracker: vec![],
         design_docs: vec![],
         registry,
+        collection_warnings: Vec::new(),
     };
     let graph = build_graph(&inputs);
     assert_eq!(node(&graph, "M-030").title, "活动版");
@@ -356,6 +361,7 @@ fn dangling_refs_go_to_warnings_not_edges() {
         tracker: vec![tracker("D-012", "")],
         design_docs: vec!["ok.md".into()],
         registry,
+        collection_warnings: Vec::new(),
     };
     let graph = build_graph(&inputs);
     let out: Vec<(&str, &str)> = edges(&graph, "M-040", "refs")
@@ -383,6 +389,7 @@ fn unused_modules_not_emitted_but_listed_in_areas() {
         tracker: vec![],
         design_docs: vec![],
         registry,
+        collection_warnings: Vec::new(),
     };
     let graph = build_graph(&inputs);
     let ids: Vec<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
@@ -441,6 +448,7 @@ fn node_shape_uniform() {
         tracker: vec![tracker("R-060", "")],
         design_docs: vec!["a.md".into()],
         registry,
+        collection_warnings: Vec::new(),
     };
     let graph = build_graph(&inputs);
     let value = serde_json::to_value(&graph).unwrap();

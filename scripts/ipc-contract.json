@@ -1,4 +1,16 @@
 {
+  "conversation_page": {
+    "hasMore": "bool",
+    "items": [
+      {
+        "created_at": "number",
+        "message_count": "number",
+        "sequence": "number",
+        "title": "string"
+      }
+    ],
+    "nextBeforeSequence": "number"
+  },
   "decision_review": {
     "decision": {
       "call_id": "string",
@@ -352,6 +364,15 @@
     "url": "string",
     "visible": "bool"
   },
+  "list_pending_inputs": [
+    {
+      "created_at": "number",
+      "delivery": "string",
+      "input_id": "string",
+      "prompt": "string",
+      "session_id": "string"
+    }
+  ],
   "memory_graph": {
     "areas": [
       {
@@ -527,6 +548,31 @@
     "updated_at": "nullable",
     "worktree_path": "nullable"
   },
+  "process_list": [
+    {
+      "branch": "nullable",
+      "id": "string",
+      "kind": "string",
+      "label": "string",
+      "manual_models": "array",
+      "model": "nullable",
+      "ordinal": "number",
+      "origin_project": "string",
+      "profile": "string",
+      "project_dir": "string",
+      "reasoning": "nullable",
+      "research_topic": "nullable",
+      "running": "bool",
+      "session_id": "string",
+      "stage": "string",
+      "subagent_mode": "string",
+      "title": "string",
+      "title_custom": "bool",
+      "tracker_writes": "bool",
+      "updated_at": "number",
+      "worktree_path": "nullable"
+    }
+  ],
   "project_root_info": {
     "autoRepaired": "bool",
     "resolved": "string",

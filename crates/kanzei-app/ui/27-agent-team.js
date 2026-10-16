@@ -1,5 +1,9 @@
-import { defer, invoke, on } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { on } from "./01-runtime-events.js";
+import { isImeComposing } from "./00-ui-primitives.js";
 import { t } from "./02-i18n.js";
+import { subscribeRefresh } from "./00-refresh.js";
 import { activeProcessId, activeSessionId, currentProject } from "./03-shell.js";
 import { onSubagentChange, upsertManagedAgent } from "./05-subagents.js";
 
@@ -90,7 +94,7 @@ export function mountAgentControls(host, run) {
     finally { view.busy = false; refreshControls(run); }
   };
   form.addEventListener("submit", event => { event.preventDefault(); void submit(); });
-  input.addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); void submit(); } });
+  input.addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey && !isImeComposing(event)) { event.preventDefault(); void submit(); } });
   refreshControls(run);
 }
 function refreshControls(run) {
@@ -135,5 +139,5 @@ defer(() => {
     if (event.payload.job?.owner === event.payload.sessionId) upsertManagedAgent(event.payload.job);
   });
   for (const name of ["kz:conversation-selected", "kz:view-changed"]) document.addEventListener(name, () => { void refreshAgents().catch(error => console.warn(error)); });
-  setInterval(() => { void refreshAgents().catch(error => console.warn(error)); }, 3000);
+  subscribeRefresh({ interval: 3000, active: () => document.body.dataset.view === "chat", refresh: refreshAgents, onError: error => console.warn(error) });
 });

@@ -1,4 +1,4 @@
-import { $ } from "./01-core.js";
+import { $ } from "./00-dom.js";
 import { t } from "./02-i18n.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import { openMenu, openPopover, closeSurface } from "./00-surface.js";

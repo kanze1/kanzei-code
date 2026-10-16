@@ -1,14 +1,15 @@
 //! Durable callbacks enter the same serialized scheduler as user input.
+use crate::app_events::AppEvents;
 use crate::{
     commands::run::{schedule_run, Submission},
     runtime_for, AppState, MutexPoisonExt, SessionRuntime,
 };
 use kanzei_harness::{AsyncMailbox, AsyncNotice};
 use std::{path::Path, sync::atomic::Ordering};
-use tauri::{Emitter, Manager, Window};
+use tauri::{Emitter, Manager};
 
 pub(crate) fn for_session(
-    window: &Window,
+    window: &AppEvents,
     root: &Path,
     owner: &str,
     process_id: Option<String>,
@@ -22,7 +23,7 @@ pub(crate) fn for_session(
 
 /// Caller holds this runtime's lifecycle; creation and retirement use the same order.
 pub(crate) fn for_session_locked(
-    window: &Window,
+    window: &AppEvents,
     root: &Path,
     owner: &str,
     process_id: Option<String>,
@@ -48,7 +49,7 @@ fn mailbox_locked(
 }
 
 fn build(
-    window: &Window,
+    window: &AppEvents,
     root: &Path,
     owner: &str,
     process_id: Option<String>,

@@ -8,7 +8,10 @@
 //    不做跨项目拖会话(改成右键「交给其它项目的对话…」)。
 import { openMenu } from "./00-surface.js";
 import { isGeneralChat } from "./03-general-scope.js";
-import { $, confirmDialog, defer, discardSessionPane, inputDialog, invoke } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { confirmDialog, inputDialog } from "./00-dialogs.js";
+import { discardSessionPane } from "./01-chat-panes.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { currentProject, activeProcessId, navigate_view, toast } from "./03-shell.js";
 import { fillTemplate } from "./04-structured-parse.js";

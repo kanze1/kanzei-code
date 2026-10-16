@@ -10,32 +10,34 @@ static RETIRING: AtomicBool = AtomicBool::new(false);
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 const BUSY: &str = "旧版后台仍有任务运行，完成或停止任务后将自动升级连接";
 
-pub(super) async fn invoke_url(webview: &tauri::WebviewWindow) -> Result<tauri::Url, String> {
-    // The endpoint can be reachable while the hidden webview is still about:blank.
-    // Wait for navigation before invoking, preserving Tauri's normal ACL checks.
-    for _ in 0..100 {
-        let url = webview.url().map_err(|e| e.to_string())?;
-        if url.scheme() != "about" {
-            return Ok(url);
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    Err("后台界面尚未就绪，请稍后重试".into())
-}
-
-pub(super) struct Admission;
+pub(crate) struct Admission;
 impl Drop for Admission {
     fn drop(&mut self) {
         IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
     }
 }
-pub(super) fn admit() -> Result<Admission, String> {
+pub(crate) fn admit() -> Result<Admission, String> {
     IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
     let guard = Admission;
     if RETIRING.load(Ordering::SeqCst) {
         return Err("后台正在升级，请稍后重试".into());
     }
     Ok(guard)
+}
+
+pub(super) fn begin_shutdown() -> Result<(), String> {
+    RETIRING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .map(|_| ())
+        .map_err(|_| "后台已经在关闭或升级".into())
+}
+
+pub(super) fn cancel_shutdown() {
+    RETIRING.store(false, Ordering::SeqCst);
+}
+
+pub(super) fn in_flight() -> usize {
+    IN_FLIGHT.load(Ordering::SeqCst)
 }
 
 async fn rpc(endpoint: &Endpoint, value: Value) -> Result<Value, String> {
@@ -131,22 +133,18 @@ pub(super) async fn accept(endpoint: &Endpoint) -> Result<bool, String> {
     Err("旧版后台尚未退出，暂未提交新任务".into())
 }
 
-pub(super) fn retire_if_idle(app: &tauri::AppHandle) -> Result<Value, String> {
-    RETIRING.store(true, Ordering::SeqCst);
+pub(super) async fn retire_if_idle(app: &tauri::AppHandle) -> Result<Value, String> {
+    begin_shutdown()?;
     let state = app.state::<crate::AppState>();
     let busy = IN_FLIGHT.load(Ordering::SeqCst) > 0
         || state
             .runtimes
             .lock_or_recover()
             .values()
-            .any(|r| r.running.load(Ordering::SeqCst) || r.compacting.load(Ordering::SeqCst))
-        || state.processes.lock_or_recover().values().any(|process| {
-            let owner = crate::process_session_id(&process.origin_project.0, Some(&process.id));
-            kanzei_tools::team::find(&process.origin_project.0, &owner).is_some_and(|team| {
-                team.list()
-                    .map_or(true, |jobs| jobs.iter().any(|job| job.active()))
-            })
-        })
+            .any(|r| !super::shutdown::owners_quiescent(r))
+        || kanzei_tools::team::registered_teams()
+            .iter()
+            .any(|(_, team)| !team.is_quiescent())
         || roots().iter().any(|root| {
             kanzei_tools::background::list(root)
                 .iter()
@@ -156,12 +154,9 @@ pub(super) fn retire_if_idle(app: &tauri::AppHandle) -> Result<Value, String> {
         RETIRING.store(false, Ordering::SeqCst);
         return Err(BUSY.into());
     }
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        app.exit(0);
-    });
-    Ok(json!({"retiring":true}))
+    let mut receipt = super::shutdown::finish_shutdown(app).await?;
+    receipt["retiring"] = json!(true);
+    Ok(receipt)
 }
 
 #[cfg(test)]

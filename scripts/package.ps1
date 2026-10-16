@@ -129,16 +129,9 @@ if ($Publish) {
 }
 
 Step "发布树干净检查"
-# 源码工作区必须干净:否则构建出来的二进制与 $hash 标签不对应,发布物无从追溯。
-# 判据用 `git diff --name-only HEAD` 而不是 `status --porcelain`:后者会把纯行尾
-# 差异(CRLF/LF)也报成 M,而那类文件内容与 HEAD 完全一致,拦下来纯属误伤。
-# 另单独查未跟踪的源码文件——新加的 .rs 忘了 git add 同样会让产物对不上标签。
-$dirty = @(git -C $root diff --name-only HEAD -- crates scripts ui) | Where-Object { $_ }
-$untracked = @(git -C $root ls-files --others --exclude-standard -- crates scripts ui) | Where-Object { $_ }
-$unclean = @($dirty) + @($untracked)
-if ($unclean.Count -gt 0) {
-    throw "发布树源码未提交($($unclean.Count) 处),构建产物将与标签 $hash 不一致:`n$($unclean -join "`n")"
-}
+# Verification and packaging share the exact build-input policy.
+node "$root\scripts\verify-policy.mjs" assert-clean $root $full_hash
+if ($LASTEXITCODE -ne 0) { throw "Build inputs do not match the release commit" }
 
 # ---- 版本双源一致性(R-298)----
 # workspace 根 Cargo.toml [workspace.package] version 与 tauri.conf.json version 必须一致,
@@ -172,6 +165,8 @@ Write-Host "==> 验证证据核对通过($($evidence.verified_at_utc), full veri
 $triple = (rustc -vV | Select-String '^host:').Line.Split(' ')[1].Trim()
 if ($triple -ne "x86_64-pc-windows-msvc") { throw "当前只发布 Windows x64: $triple" }
 Step "Windows CLI + 桌面端编译"
+node "$root\scripts\verify-policy.mjs" assert-clean $root $full_hash
+if ($LASTEXITCODE -ne 0) { throw "Build inputs changed before packaging" }
 Push-Location "$root\crates\kanzei-app"
 $tauri_log = Join-Path $env:TEMP "kanzei-tauri-build-$hash.log"
 try {
@@ -197,6 +192,8 @@ Get-Content $tauri_log | ForEach-Object { Write-Host $_ }
 if ($tauri_exit_code -ne 0) { throw "Windows bundle failed" }
 
 Step "收集安装包产物"
+node "$root\scripts\verify-policy.mjs" assert-clean $root $full_hash
+if ($LASTEXITCODE -ne 0) { throw "Build inputs changed during packaging" }
 $setup = Get-ChildItem "$root\target\release\bundle\nsis\*-setup.exe" | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $setup) { throw "installer not found under target\release\bundle\nsis" }
 New-Item -ItemType Directory -Force "$root\dist" | Out-Null
@@ -251,6 +248,8 @@ if ($Publish) {
     # 对不上真正构建的提交,更要命的是上面那段 D-183 区间判据从此一直从 main 起算,
     # 每次发版都把同一批 dev 提交重新数一遍,守卫的精度就没了。
     $gh_log = Join-Path $env:TEMP "kanzei-gh-release-$hash.log"
+    node "$root\scripts\verify-policy.mjs" assert-clean $root $full_hash
+    if ($LASTEXITCODE -ne 0) { throw "Build inputs changed before publishing" }
     gh release create $tag $out --repo kanze1/kanzei-code --target $full_hash --title "kanzei $date ($hash)" --notes-file $notesFile *> $gh_log
     $gh_exit_code = $LASTEXITCODE
     Get-Content $gh_log | ForEach-Object { Write-Host $_ }

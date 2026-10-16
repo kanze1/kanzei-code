@@ -293,6 +293,12 @@ pub fn parse_entry(text: &str) -> MemoryEntry {
     entry
 }
 
+/// Version the complete source contract, including status and metadata. IDs are
+/// identity, not a freshness marker for derived lexical or vector rows.
+pub(crate) fn entry_revision(entry: &MemoryEntry) -> String {
+    kanzei_base::content_hash(render_entry(entry).as_bytes())
+}
+
 pub fn render_entry(entry: &MemoryEntry) -> String {
     let mut out = String::from("---\n");
     out.push_str(&format!("id: {}\n", entry.id));
@@ -727,7 +733,14 @@ impl FailureRecallPolicy {
             return Vec::new(); // 超时降级:不阻塞主循环。
         }
         let index = SqliteMemoryIndex::new(&self.project_root);
-        for hit in index.search_lexical(&IndexQuery::text(&query), 3) {
+        let retrieved = match index.search_lexical(&IndexQuery::text(&query), 3) {
+            Ok(hits) => hits,
+            Err(error) => {
+                tracing::error!(error=%error, "failure recall index unavailable");
+                return Vec::new();
+            }
+        };
+        for hit in retrieved {
             if self.entries.contains_key(&hit.id) && !excluded.contains(hit.id.as_str()) {
                 hits.push(kanzei_core::RecallHit {
                     id: hit.id.clone(),
@@ -1427,8 +1440,16 @@ fn prompt_hints_scoped(
     // R-233 ①③:hybrid 检索(dense embedder + RRF)。无 embedder 时 search_hybrid
     // 自动退化 lexical;ensure_vectors 按 id 差集补/删向量,失败不阻塞(降级)。
     let mut memory_index = SqliteMemoryIndex::with_embedder(project_root, embedder);
-    let _ = memory_index.ensure_vectors();
-    let (found, timing) = memory_index.search_hybrid_entries(&index::IndexQuery::text(&intent), 3);
+    let retrieval = memory_index
+        .ensure_vectors()
+        .and_then(|()| memory_index.search_hybrid_entries(&index::IndexQuery::text(&intent), 3));
+    let (found, timing) = match retrieval {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::error!(error=%error, "memory recall unavailable");
+            return Some(format!("[memory retrieval unavailable] {error:#}. Existing project knowledge was not searched; do not interpret this as no matching memory."));
+        }
+    };
     // 模块约束和预算折叠的项目约束未必常驻；按任务检索，不能按类别静默丢弃。
     let mut hits = found;
     if hits.is_empty() {
@@ -1917,6 +1938,9 @@ mod tests {
     struct TopicEmbedder;
     const EVAL_TOPIC_WORDS: &[&str] = &["评估", "harness", "质量", "复盘", "验收", "证据"];
     impl crate::embed::Embedder for TopicEmbedder {
+        fn cache_key(&self) -> String {
+            "TopicEmbedder-v1".into()
+        }
         fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
             Ok(texts
                 .iter()
@@ -2251,7 +2275,9 @@ mod tests {
         };
         // D-366:决策排序在检索门面,经 index 取命中。
         let index = SqliteMemoryIndex::new(&dir);
-        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
+        let hits = index
+            .search_entries(&IndexQuery::text("发版"), None, Some("active"), 5)
+            .unwrap();
         record_memory_search_telemetry(
             &dir,
             "要发版",

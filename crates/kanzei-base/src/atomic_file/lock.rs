@@ -16,6 +16,8 @@ const POLL_INTERVAL: Duration = Duration::from_millis(5);
 pub struct FileLock {
     slot: Arc<Slot>,
     mode: Mode,
+    path: PathBuf,
+    acquired_at: Instant,
     _not_send: std::marker::PhantomData<*const ()>,
 }
 
@@ -122,9 +124,10 @@ pub fn try_lock_shared(target: &Path, budget: Duration) -> io::Result<Option<Fil
 }
 
 fn try_lock(target: &Path, requested: Mode, budget: Duration) -> io::Result<Option<FileLock>> {
-    let deadline = Instant::now() + budget;
+    let started = Instant::now();
+    let deadline = started + budget;
     let (path, file) = open_lock(target)?;
-    let slot = slot_for(path);
+    let slot = slot_for(path.clone());
     let me = std::thread::current().id();
     let mut state = slot.state.lock().unwrap();
     let acquired = loop {
@@ -174,6 +177,7 @@ fn try_lock(target: &Path, requested: Mode, budget: Duration) -> io::Result<Opti
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
+            tracing::debug!(target: "kanzei_file_lock", path=%path.display(), mode=?requested, wait_ms=started.elapsed().as_secs_f64()*1000.0, "file lock wait expired");
             return Ok(None);
         }
         state = slot
@@ -183,9 +187,13 @@ fn try_lock(target: &Path, requested: Mode, budget: Duration) -> io::Result<Opti
             .0;
     };
     drop(state);
+    let acquired_at = Instant::now();
+    tracing::debug!(target: "kanzei_file_lock", path=%path.display(), mode=?acquired, wait_ms=started.elapsed().as_secs_f64()*1000.0, "file lock acquired");
     Ok(Some(FileLock {
         slot,
         mode: acquired,
+        path,
+        acquired_at,
         _not_send: std::marker::PhantomData,
     }))
 }
@@ -215,6 +223,7 @@ impl Drop for FileLock {
         }
         drop(state);
         self.slot.released.notify_all();
+        tracing::debug!(target: "kanzei_file_lock", path=%self.path.display(), mode=?self.mode, released=empty, hold_ms=self.acquired_at.elapsed().as_secs_f64()*1000.0, "file lock guard released");
     }
 }
 

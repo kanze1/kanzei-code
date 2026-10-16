@@ -4,12 +4,14 @@
 //! - 监听可切 LAN(0.0.0.0,默认仍回环 127.0.0.1——回环行为不变);
 //! - 设备配对:桌面端生成一次性配对码,移动端用配对码换每设备独立 token;
 //!   设备列表可单独撤销(移除即该 token 立即 401,其它设备不受影响);
-//! - 每连接独立线程处理(替换原单线程 accept 循环),长请求不阻塞其它连接。
+//! - 连接数、请求体与总读时限受协议约束，停服关闭全部连接并等待 worker 结束。
 //!
 //! 协议契约沿用 docs/design/r059_mobile_agent_communication.md 阶段A字段定义。
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+#[cfg(test)]
+use std::io::Read;
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,44 +25,24 @@ use crate::state::{MobileDeviceInfo, MobileService, MobileServiceInfo, SessionRu
 use crate::{normalized_project_root, process_session_id, AppState, MutexPoisonExt};
 
 mod approvals;
+mod http;
 mod pwa;
 mod sse;
 use approvals::{approval_answer, approval_pending_list};
 use pwa::{resolve_pwa_root, serve_pwa};
 use sse::handle_sse;
 
-/// D-386:随机源——配对码/设备 token 不再用「pid+纳秒」可预测形态,改用
-/// 纳秒 + 进程内递增计数器 + 随机种子混合(无 rand 依赖,std 实现)。
-/// 统计上不可由外部观察值预测出下一个值(每次调用递增计数,纳秒量级时间熵)。
-static TOKEN_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-static TOKEN_SEED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
-
-fn token_seed() -> u64 {
-    *TOKEN_SEED.get_or_init(|| {
-        // 进程地址空间熵 + 启动时间纳秒,作为计数器初始偏移。
-        let addr_entropy = (&TOKEN_SEED as *const _ as usize) as u64;
-        let time_entropy = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
-        addr_entropy.rotate_left(32) ^ time_entropy
-    })
+/// Credentials use 256 bits from the operating system RNG. Failure is explicit;
+/// time, addresses, and counters are not substitutes for random entropy.
+fn random_token(prefix: &str) -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| format!("系统随机源不可用: {error}"))?;
+    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(format!("{prefix}-{hex}"))
 }
 
-/// 生成不可预测的随机串(hex)。计数递增 + 纳秒混合,防外部观察值预测。
-fn random_token(prefix: &str) -> String {
-    let counter = TOKEN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    let mixed = (token_seed() ^ now).wrapping_add(counter.rotate_left(17));
-    format!("{prefix}-{mixed:016x}-{counter:04x}")
-}
-
-/// 生成设备凭据(device_id + device_token),随机源。
-fn generate_device_credentials() -> (String, String) {
-    (random_token("dev"), random_token("kz-device"))
+fn generate_device_credentials() -> Result<(String, String), String> {
+    Ok((random_token("dev")?, random_token("kz-device")?))
 }
 
 fn mobile_json_response(status: &str, body: &serde_json::Value) -> Vec<u8> {
@@ -145,49 +127,6 @@ fn mobile_authorized(request: &str, devices: &HashMap<String, String>) -> Option
         .iter()
         .find(|(_, device_token)| device_token.as_str() == token)
         .map(|(device_id, _)| device_id.clone())
-}
-
-/// 读完整请求(头 + body,按 Content-Length,已 trim D-063)。
-fn read_request(stream: &mut TcpStream) -> Option<(String, Vec<u8>)> {
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
-    let mut buffer = Vec::new();
-    let mut chunk = [0_u8; 8192];
-    let header_end = loop {
-        let Ok(count) = stream.read(&mut chunk) else {
-            return None;
-        };
-        if count == 0 {
-            return None;
-        }
-        buffer.extend_from_slice(&chunk[..count]);
-        if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
-            break position + 4;
-        }
-        if buffer.len() > 65_536 {
-            return None;
-        }
-    };
-    let request_head = String::from_utf8_lossy(&buffer[..header_end]).to_string();
-    let content_length = request_head
-        .lines()
-        .find_map(|line| {
-            line.to_ascii_lowercase()
-                .strip_prefix("content-length:")
-                .map(str::to_owned)
-        })
-        .and_then(|value| value.trim().parse::<usize>().ok())
-        .unwrap_or(0);
-    while buffer.len() < header_end + content_length {
-        let Ok(count) = stream.read(&mut chunk) else {
-            return None;
-        };
-        if count == 0 {
-            return None;
-        }
-        buffer.extend_from_slice(&chunk[..count]);
-    }
-    let body = buffer[header_end..header_end + content_length].to_vec();
-    Some((request_head, body))
 }
 
 /// 桥接对外暴露的一条会话(PWA 会话下拉、审批卡来源名、发消息校验共用)。
@@ -304,17 +243,51 @@ fn handle_mobile_connection(
     runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
     active: Arc<AtomicBool>,
 ) {
-    let Some((request_head, body)) = read_request(&mut stream) else {
-        return;
+    let mut request = match http::read_head(&mut stream) {
+        Ok(request) => request,
+        Err(error) => {
+            error.respond(&mut stream);
+            return;
+        }
     };
-    let request_line = request_head.lines().next().unwrap_or_default();
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or_default();
-    let path = parts.next().unwrap_or_default();
+    let method = request.method.clone();
+    let path = request.path.clone();
+    let method = method.as_str();
+    let path = path.as_str();
+    let route = path.split('?').next().unwrap_or(path);
+    let is_pairing = method == "POST" && route == "/v1/pair";
+    let is_static = method == "GET" && !path.starts_with("/v1/") && path != "/health";
+    // Header authentication precedes body allocation/read. Authorization is
+    // checked again under the device lock at commit, preserving revocation.
+    if !is_pairing
+        && !is_static
+        && mobile_authorized(&request.raw, &devices.lock_or_recover()).is_none()
+    {
+        let _ = stream.write_all(&mobile_json_response(
+            "401 Unauthorized",
+            &json!({"error": "device_revoked_or_unauthorized"}),
+        ));
+        return;
+    }
+    let body_limit = if is_pairing {
+        http::MAX_PAIR_BYTES
+    } else if method == "GET" {
+        0
+    } else {
+        http::MAX_BODY_BYTES
+    };
+    let body = match request.read_body(&mut stream, body_limit) {
+        Ok(body) => body,
+        Err(error) => {
+            error.respond(&mut stream);
+            return;
+        }
+    };
+    let request_head = request.raw;
     let state_path = kanzei_core::project_state_path(&project_root);
 
     // R-270:配对端点不要求设备 token(用一次性配对码)。
-    if method == "POST" && path.starts_with("/v1/pair") {
+    if is_pairing {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
         let submitted = payload
             .get("pair_code")
@@ -334,7 +307,16 @@ fn handle_mobile_connection(
             return;
         }
         // The code and cache are published only after the credential commits.
-        let (device_id, device_token) = generate_device_credentials();
+        let (device_id, device_token) = match generate_device_credentials() {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                let _ = stream.write_all(&mobile_json_response(
+                    "500 Internal Server Error",
+                    &json!({"error": error}),
+                ));
+                return;
+            }
+        };
         let persisted = kanzei_core::SessionStore::open(&state_path).and_then(|store| {
             store.upsert_mobile_device(
                 &device_id,
@@ -621,7 +603,7 @@ fn consume_mobile_message(
     let messages = store
         .append_mobile_message(
             thread_id,
-            &random_token("mobile"),
+            &random_token("mobile")?,
             kanzei_llm::Message::user_text(text),
             payload,
         )
@@ -727,7 +709,7 @@ fn start_service(
     let address = local_addr.to_string();
     let url = bridge_url(lan, local_addr.port());
     // D-386:配对码换随机源(不再 pid+纳秒可预测)。
-    let pair_code = random_token("kz-pair");
+    let pair_code = random_token("kz-pair")?;
     let active = Arc::new(AtomicBool::new(true));
     let devices: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
     let pair_slot: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(Some(pair_code.clone())));
@@ -753,6 +735,7 @@ fn start_service(
     let thread_pair = pair_slot.clone();
     let thread_runtimes = state.runtimes.clone();
     let listener_thread = std::thread::spawn(move || {
+        let mut connections = http::Connections::default();
         while thread_active.load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((stream, _)) => {
@@ -763,7 +746,7 @@ fn start_service(
                     let conn_pwa = thread_pwa.clone();
                     let conn_runtimes = thread_runtimes.clone();
                     let conn_active = thread_active.clone();
-                    std::thread::spawn(move || {
+                    if let Err(error) = connections.admit(stream, move |stream| {
                         handle_mobile_connection(
                             stream,
                             conn_root,
@@ -773,7 +756,9 @@ fn start_service(
                             conn_runtimes,
                             conn_active,
                         )
-                    });
+                    }) {
+                        tracing::error!("mobile connection admission failed: {error}");
+                    }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(std::time::Duration::from_millis(50));
@@ -835,7 +820,7 @@ pub fn mobile_device_revoke(state: State<'_, AppState>, device_id: String) -> Re
 pub fn mobile_pair_code_regenerate(state: State<'_, AppState>) -> Result<String, String> {
     let guard = state.mobile_service.lock_or_recover();
     let service = guard.as_ref().ok_or("移动端桥接服务未启动")?;
-    let new_code = random_token("kz-pair");
+    let new_code = random_token("kz-pair")?;
     *service.pair_code.lock_or_recover() = Some(new_code.clone());
     Ok(new_code)
 }
@@ -877,7 +862,7 @@ pub fn mobile_service_stop(state: State<'_, AppState>) -> Result<(), String> {
     stop_service(&state)
 }
 
-fn stop_service(state: &AppState) -> Result<(), String> {
+pub(crate) fn stop_service(state: &AppState) -> Result<(), String> {
     let mut service_slot = state.mobile_service.lock_or_recover();
     if let Some(mut service) = service_slot.take() {
         // Match pairing's pair -> devices order and wait for admitted writes.
@@ -1394,21 +1379,70 @@ mod tests {
         );
     }
 
-    /// D-386:随机源——配对码/设备 token 连续调用不同、带前缀、统计上不可预测
-    /// (不再 pid+纳秒可预测形态)。
+    /// Checks the credential wire format; entropy is provided by getrandom,
+    /// not inferred from a statistical uniqueness test.
     #[test]
     fn 随机源_连续调用不同且带前缀() {
-        let a = random_token("kz-pair");
-        let b = random_token("kz-pair");
+        let a = random_token("kz-pair").unwrap();
+        let b = random_token("kz-pair").unwrap();
         assert_ne!(a, b, "连续两次配对码必须不同");
         assert!(a.starts_with("kz-pair-"), "配对码带前缀: {a}");
-        let (dev_a, tok_a) = generate_device_credentials();
-        let (dev_b, tok_b) = generate_device_credentials();
+        let (dev_a, tok_a) = generate_device_credentials().unwrap();
+        let (dev_b, tok_b) = generate_device_credentials().unwrap();
         assert_ne!(dev_a, dev_b);
         assert_ne!(tok_a, tok_b);
         assert!(dev_a.starts_with("dev-"));
         assert!(tok_a.starts_with("kz-device-"));
-        assert!(tok_a.len() > 20, "token 应有足够熵: {tok_a}");
+        assert_eq!(tok_a.len(), "kz-device-".len() + 64);
+        assert!(tok_a["kz-device-".len()..]
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn protected_requests_authenticate_and_reject_oversize_before_waiting_for_body() {
+        for (authorization, expected) in [
+            ("", "401 Unauthorized"),
+            (
+                "Authorization: Bearer tok-open\r\n",
+                "413 Payload Too Large",
+            ),
+        ] {
+            let root = temp_project("http-bounds");
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            client
+                .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+                .unwrap();
+            let (server, _) = listener.accept().unwrap();
+            let (devices, pair_code, runtimes, active) = mobile_connection_test_inputs();
+            let project = root.clone();
+            let worker = std::thread::spawn(move || {
+                handle_mobile_connection(
+                    server,
+                    project,
+                    PathBuf::new(),
+                    devices,
+                    pair_code,
+                    runtimes,
+                    active,
+                )
+            });
+            write!(
+                client,
+                "POST /v1/messages HTTP/1.1\r\n{authorization}Content-Length: {}\r\n\r\n",
+                http::MAX_BODY_BYTES + 1
+            )
+            .unwrap();
+            let mut response = String::new();
+            client.read_to_string(&mut response).unwrap();
+            worker.join().unwrap();
+            assert!(
+                response.starts_with(&format!("HTTP/1.1 {expected}")),
+                "{response}"
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     /// 读请求:Content-Length 带空格也能正确解析(D-063 回归)。

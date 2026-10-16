@@ -18,11 +18,13 @@ use super::events::{append_event_tx, event_from_row};
 use super::{SessionStore, StoreError, StoredEvent};
 
 mod projection;
+mod writer_owner;
 pub use projection::{
     compare_shadow, compare_shadow_for_turn, project_conversation_facts, project_session_facts,
     project_session_facts_with_surface, summarize_shadow_reports, InterruptedAssistant,
     SessionProjection, SessionTurnTerminal, ShadowComparison, ShadowVerdictStats,
 };
+pub use writer_owner::TypedSessionWriter;
 
 pub const SESSION_EVENT_FORMAT_VERSION: u32 = 1;
 
@@ -210,6 +212,8 @@ struct TurnInvariant {
 pub struct SessionInvariant {
     turns: HashMap<String, TurnInvariant>,
     turn_order: Vec<String>,
+    /// Durable cursor per turn, bound to session and event identity. Manual apply invalidates it.
+    watermarks: HashMap<String, (String, i64, String)>,
 }
 
 impl SessionInvariant {
@@ -221,6 +225,7 @@ impl SessionInvariant {
             )));
         }
         let mut next = self.clone();
+        next.watermarks.remove(&envelope.turn_id);
         next.apply_inner(envelope)?;
         *self = next;
         Ok(())
@@ -616,18 +621,36 @@ impl SessionStore {
             // 独立 writer/recovery 也可能已提交非 terminal 事实。只重建本批涉及
             // 的 turn,避免用 caller 的旧 draft/call 状态验证当前数据库,也不让
             // 无关旧 turn 的历史脏条阻断合法新 turn。
+            let watermark = next
+                .watermarks
+                .get(turn_id)
+                .filter(|(owner, _, _)| owner == session_id);
+            let floor = match watermark {
+                Some((_, sequence, event_id)) if tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM session_events WHERE session_id=?1 AND sequence=?2 AND event_id=?3)",
+                    params![session_id, sequence, event_id], |row| row.get::<_, bool>(0)
+                ).map_err(StoreError::from)? => *sequence,
+                _ => 0,
+            };
+            let mut current = SessionInvariant::default();
+            if floor > 0 {
+                if let Some(turn) = next.turns.get(turn_id) {
+                    current.turns.insert(turn_id.to_string(), turn.clone());
+                    current.turn_order.push(turn_id.to_string());
+                }
+            }
             let mut statement = tx
-                .prepare(
+                .prepare_cached(
                     "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
                      FROM session_events
                      WHERE session_id = ?1 AND json_extract(payload_json, '$.turn_id') = ?2
+                       AND sequence > ?3
                      ORDER BY sequence",
                 )
                 .map_err(StoreError::from)?;
             let events = statement
-                .query_map(params![session_id, turn_id], event_from_row)
+                .query_map(params![session_id, turn_id, floor], event_from_row)
                 .map_err(StoreError::from)?;
-            let mut current = SessionInvariant::default();
             for event in events {
                 let event = event.map_err(StoreError::from)?;
                 if let Some(fact) = decode_session_fact(&event)? {
@@ -657,6 +680,16 @@ impl SessionStore {
                 &payload,
             )?);
         }
+        for (fact, event) in facts.iter().zip(&stored) {
+            next.watermarks.insert(
+                fact.turn_id.clone(),
+                (
+                    session_id.to_owned(),
+                    event.sequence,
+                    event.event_id.clone(),
+                ),
+            );
+        }
         *invariant = next;
         Ok(stored)
     }
@@ -669,8 +702,40 @@ impl SessionStore {
         &self,
         session_id: &str,
     ) -> Result<Vec<(StoredEvent, SessionFactEnvelope)>, SessionFactError> {
-        let mut facts: Vec<(StoredEvent, SessionFactEnvelope)> = self
-            .list_events(session_id, 0)?
+        self.list_session_facts_in_range(session_id, 0, i64::MAX)
+    }
+
+    /// Read exactly one sequence range and decode only typed facts.
+    pub fn list_session_facts_in_range(
+        &self,
+        session_id: &str,
+        after_sequence: i64,
+        through_sequence: i64,
+    ) -> Result<Vec<(StoredEvent, SessionFactEnvelope)>, SessionFactError> {
+        let kinds = FACT_TYPES
+            .iter()
+            .map(|kind| format!("'{kind}'"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+            FROM session_events WHERE session_id=?1 AND sequence>?2 AND sequence<=?3
+            AND event_type IN ({kinds}) ORDER BY sequence"
+        );
+        let mut statement = self
+            .connection
+            .prepare_cached(&sql)
+            .map_err(StoreError::from)?;
+        let rows = statement
+            .query_map(
+                params![session_id, after_sequence, through_sequence],
+                event_from_row,
+            )
+            .map_err(StoreError::from)?;
+        let events = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)?;
+        let mut facts: Vec<(StoredEvent, SessionFactEnvelope)> = events
             .into_iter()
             .filter_map(|event| match decode_session_fact(&event) {
                 Ok(Some(fact)) => Some(Ok((event, fact))),
@@ -690,19 +755,8 @@ impl SessionStore {
         &self,
         session_id: &str,
     ) -> Result<Vec<(StoredEvent, SessionFactEnvelope)>, SessionFactError> {
-        let facts = self.list_session_facts(session_id)?;
-        let boundary = self
-            .list_events_by_type(session_id, 0, "conversation.reset")?
-            .into_iter()
-            .map(|event| event.sequence)
-            .next_back();
-        Ok(match boundary {
-            Some(sequence) => facts
-                .into_iter()
-                .filter(|(event, _)| event.sequence > sequence)
-                .collect(),
-            None => facts,
-        })
+        let floor = self.conversation_floor(session_id)?.unwrap_or(0);
+        self.list_session_facts_in_range(session_id, floor, i64::MAX)
     }
 
     /// D-375:把只存引用的 LegacySeeded 补回 messages。
@@ -981,10 +1035,10 @@ impl WriterDraft {
     }
 }
 
-/// CLI 与桌面端共用的 typed fact writer。它不持有 SQLite connection，可安全跨
-/// async 事件保存；每次 flush 短开连接，所有事实仍走 core 的 invariant + 事务入口。
-pub struct TypedSessionWriter {
+/// State accessed exclusively on the durable writer's blocking owner thread.
+struct TypedWriterState {
     state_path: PathBuf,
+    store: Option<SessionStore>,
     session_id: String,
     turn_id: String,
     invariant: SessionInvariant,
@@ -997,10 +1051,11 @@ pub struct TypedSessionWriter {
     _execution_owner: Option<std::sync::Arc<super::session_execution::SessionExecutionGuard>>,
 }
 
-impl TypedSessionWriter {
+impl TypedWriterState {
     pub fn new(state_path: &Path, session_id: &str, turn_id: &str) -> Self {
         Self {
             state_path: state_path.to_path_buf(),
+            store: None,
             session_id: session_id.into(),
             turn_id: turn_id.into(),
             invariant: SessionInvariant::default(),
@@ -1014,25 +1069,20 @@ impl TypedSessionWriter {
         }
     }
 
-    pub(super) fn with_execution_owner(
-        mut self,
-        owner: std::sync::Arc<super::session_execution::SessionExecutionGuard>,
-    ) -> Self {
-        self._execution_owner = Some(owner);
-        self
-    }
-
     fn append(&mut self, facts: Vec<SessionFactEnvelope>) -> bool {
         if facts.is_empty() {
             return true;
         }
-        let store = match SessionStore::open(&self.state_path) {
-            Ok(store) => store,
-            Err(error) => {
-                self.errors.push(error.to_string());
-                return false;
+        if self.store.is_none() {
+            match SessionStore::open(&self.state_path) {
+                Ok(store) => self.store = Some(store),
+                Err(error) => {
+                    self.errors.push(error.to_string());
+                    return false;
+                }
             }
-        };
+        }
+        let store = self.store.as_ref().expect("writer connection initialized");
         match store.append_session_facts_checked(&self.session_id, &mut self.invariant, &facts) {
             Ok(_) => true,
             Err(error) => {
@@ -1408,6 +1458,9 @@ impl TypedSessionWriter {
         self.draft.finalized = true;
         self.open_calls.clear();
         self.terminal = true;
+        // Late callbacks cannot append after terminal; release the hot write
+        // connection at the same lifecycle boundary instead of retaining a DB handle.
+        self.store = None;
     }
 
     pub fn write_shadow_report(&mut self, legacy: &[Message]) {
@@ -1532,7 +1585,7 @@ mod tests {
         writer.user_message("input", Message::user_text("prompt"));
         writer.turn_started(1, 0);
         writer.push_text("unfinished");
-        writer.flush_draft();
+        writer.inspect(TypedWriterState::flush_draft);
         (root, store, writer)
     }
 
@@ -1621,8 +1674,11 @@ mod tests {
                 "{rejected}"
             );
             assert!(!writer.is_terminal(), "{rejected}");
-            assert!(!writer.invariant.turns["turn"].terminal, "{rejected}");
-            assert!(!writer.draft.finalized, "{rejected}");
+            assert!(
+                !writer.inspect(|state| state.invariant.turns["turn"].terminal),
+                "{rejected}"
+            );
+            assert!(!writer.inspect(|state| state.draft.finalized), "{rejected}");
             assert_eq!(
                 store.latest_event_sequence("ses").unwrap(),
                 before,
@@ -1648,7 +1704,7 @@ mod tests {
                 writer.errors()
             );
             assert!(writer.is_terminal());
-            assert!(writer.invariant.turns["turn"].terminal);
+            assert!(writer.inspect(|state| state.invariant.turns["turn"].terminal));
             assert_eq!(
                 store.input_status("input").unwrap().as_deref(),
                 Some("failed")
@@ -1897,7 +1953,7 @@ mod tests {
                 .is_empty());
         }
 
-        writer.draft.last_flush = Instant::now() - DRAFT_BATCH_AGE;
+        writer.inspect(|state| state.draft.last_flush = Instant::now() - DRAFT_BATCH_AGE);
         writer.flush_due();
         {
             let store = SessionStore::open(&state_path).unwrap();
@@ -1909,6 +1965,7 @@ mod tests {
                 1
             );
         }
+        drop(writer);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1928,6 +1985,10 @@ mod tests {
         let mut writer = TypedSessionWriter::new(&state_path, "ses", "turn");
         writer.turn_started(1, 1);
         writer.finish(SessionTurnTerminal::Failed("transport error".into()));
+        assert!(
+            writer.inspect(|state| state.store.is_none()),
+            "terminal must release the owned connection"
+        );
         writer.turn_started(2, 1);
         writer.push_text("late delta");
         writer.stream_restarted();
@@ -2361,6 +2422,51 @@ mod tests {
         assert_eq!(first.turn_order, ["other", "turn"]);
         assert!(first.turns.contains_key("other"));
         assert!(first.turns["turn"].drafts["message"].finalized);
+    }
+
+    #[test]
+    fn cached_turn_rebuilds_when_its_watermark_was_deleted() {
+        let store = store();
+        let mut invariant = SessionInvariant::default();
+        let message = assistant("restored");
+        let commit = envelope(
+            "turn",
+            Some(1),
+            SessionFact::AssistantMessageCommitted {
+                message_id: "message".into(),
+                content_hash: stable_message_hash(&message),
+                message,
+            },
+        );
+        let events = store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut invariant,
+                &[
+                    envelope("turn", Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+                    commit.clone(),
+                ],
+            )
+            .unwrap();
+        store
+            .connection
+            .execute(
+                "DELETE FROM session_events WHERE event_id=?1",
+                params![events[1].event_id],
+            )
+            .unwrap();
+        // A rewind removed the cached commit. It must be legal to commit this id again.
+        store
+            .append_session_facts_checked("ses_test", &mut invariant, &[commit])
+            .unwrap();
+        let mut replay = SessionInvariant::default();
+        for (_, fact) in store.list_session_facts("ses_test").unwrap() {
+            replay.apply(&fact).unwrap();
+        }
+        assert_eq!(
+            invariant.recovery_facts("check"),
+            replay.recovery_facts("check")
+        );
     }
 
     #[test]

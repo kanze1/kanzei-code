@@ -1007,7 +1007,7 @@ impl From<&str> for AskSource {
 pub(crate) fn build_team_ask_router(
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     seq: Arc<AtomicU64>,
-    window: &tauri::Window,
+    window: &crate::app_events::AppEvents,
     project: PathBuf,
     owner: String,
 ) -> kanzei_tools::team::TeamAsk {
@@ -1030,7 +1030,7 @@ pub(crate) fn build_team_ask_router(
 struct PendingAskGuard {
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     id: u64,
-    window: tauri::Window,
+    window: crate::app_events::AppEvents,
     owner: String,
 }
 impl Drop for PendingAskGuard {
@@ -1046,7 +1046,7 @@ pub(crate) fn build_ask_handler(
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     ask_seq: Arc<AtomicU64>,
     ask_source: impl Into<AskSource>,
-    window: &tauri::Window,
+    window: &crate::app_events::AppEvents,
     project_root: PathBuf,
     session_id: String,
 ) -> impl FnMut(kanzei_core::AskRequest) -> AskFuture {

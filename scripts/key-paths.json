@@ -1,11 +1,14 @@
 {
   "desktop": [
-    { "name": "chat", "view": "chat", "trigger": "[data-view=\"chat\"]" },
-    { "name": "workspace", "view": "workspace", "trigger": "[data-view=\"workspace\"]" },
-    { "name": "lines", "view": "lines", "trigger": "[data-view=\"lines\"]" },
-    { "name": "documents", "view": "documents", "trigger": "[data-view=\"documents\"]" },
-    { "name": "memory", "view": "memory", "trigger": "[data-view=\"memory\"]" },
-    { "name": "files", "view": "files", "trigger": "[data-view=\"files\"]" },
+    { "name": "chat", "view": "chat", "trigger": "[data-work-surface=\"chat\"]" },
+    { "name": "workspace", "view": "workspace", "trigger": "#workbench-home" },
+    { "name": "lines", "view": "lines", "from": "settings", "expand": "#sg-project-tools", "trigger": "[data-resource=\"lines\"]" },
+    { "name": "documents", "view": "documents", "from": "settings", "expand": "#sg-project-tools", "trigger": "[data-resource=\"tests\"]" },
+    { "name": "memory", "view": "memory", "trigger": ".workspace-sidebar-footer [data-view=\"memory\"]" },
+    { "name": "files", "view": "files", "from": "chat", "key": "Control+p", "fill": { "selector": "#palette-input", "value": "17-files-editor" }, "trigger": "#palette-list .palette-row" },
+    { "name": "architecture", "view": "arch", "from": "chat", "key": "Control+p", "fill": { "selector": "#palette-input", "value": "架构" }, "trigger": "#palette-list .palette-row" },
+    { "name": "project-map", "view": "project", "trigger": "[data-management-tab=\"map\"]", "assert": ".management-graph svg" },
+    { "name": "metrics", "view": "metrics", "from": "settings", "expand": "#sg-project-tools", "trigger": "[data-resource=\"metrics\"]" },
     { "name": "settings", "view": "settings", "trigger": "[data-view=\"settings\"]" }
   ],
   "pwa": [

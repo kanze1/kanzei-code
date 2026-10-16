@@ -1,4 +1,5 @@
-import { $, defer, invoke, listen } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke, listen } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { activeSessionId, activeProcessId, currentProject, sessionStates } from "./03-shell.js";
 import { sendText } from "./08-compose-runtime.js";

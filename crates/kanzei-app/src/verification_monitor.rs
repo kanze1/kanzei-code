@@ -131,7 +131,7 @@ fn admit_wake_input(
     Ok(true)
 }
 
-pub(crate) fn start(app: tauri::AppHandle, window: tauri::Window) {
+pub(crate) fn start(app: tauri::AppHandle, window: crate::app_events::AppEvents) {
     tauri::async_runtime::spawn(async move {
         let monitor_started_at = now_ms();
         let mut observed_statuses = HashMap::<(PathBuf, String), String>::new();

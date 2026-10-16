@@ -1,22 +1,23 @@
 import { closeSurface, isModalOpen, openDialog } from "./00-surface.js";
-import { defer } from "./01-core.js";
-import { $, invoke, isImeComposing, on, promptBox } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { isImeComposing } from "./00-ui-primitives.js";
+import { views } from "./00-views.js";
+import { on } from "./01-runtime-events.js";
+import { promptBox } from "./01-chat-panes.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import { backAvailable, currentProject, expandSidebar, log, navigate_back, navigate_view } from "./03-shell.js";
+import { view_allowed } from "./03-workspaces.js";
 import { state } from "./08-compose.js";
 import { projectMenuEntries, switchProject } from "./09-sessions.js";
 import { openSessionHistoryAnywhere, sessionPaletteEntries } from "./12-session-tree.js";
 import { openFilePreview } from "./17-files.js";
 
 // ---------- 命令面板(Ctrl/Cmd+P) ----------
-// 这个应用有 10 个主视图、N 个项目、N 条并行线,外加一批散在各处的动作按钮。
-// 想切到「运行画像」得先认出 rail 上第 9 个图标;想切到 p14 得先在侧栏滚到它。
-// 命令面板把这三类目标合并成一次键盘检索。
+// 命令面板统一检索已注册视图、项目、对话与动作；低频视图无需常驻一级导航。
 //
-// 关键设计:**候选项不持有自己的行为**,一律 `.click()` 既有控件。视图切换、项目
-// 选择、线路切换、新对话、停止……每一条都已经有唯一实现和自己的守卫(比如运行中
-// 不许开新对话、运行中不许切历史)。面板复制一份行为 = 复制一份要同步的守卫,
-// 迟早漂移;点它本人则永远和界面上的按钮同一个语义。
+// 候选复用正式路由或现有动作处理器；界面布局不再决定能力是否可达。
 export const PALETTE_LIMIT = 40;
 export let paletteEntries = [];
 export let paletteIndex = 0;
@@ -37,11 +38,9 @@ export function collectPaletteEntries() {
     entries.push({ group, label, detail: detail || "", run });
   };
 
-  for (const button of document.querySelectorAll(".activity-item[data-view]")) {
-    if (button.classList.contains("hidden")) continue;
-    if (!["chat", "memory", "settings"].includes(button.dataset.view)) continue;
-    const label = localizeDynamic(button.dataset.i18nTitle || button.title || button.dataset.view);
-    push(t("视图"), label, "", () => button.click());
+  for (const [view, metadata] of Object.entries(views)) {
+    if (view === "project" || !view_allowed(view)) continue;
+    push(t("视图"), localizeDynamic(metadata.label), "", () => navigate_view(view));
   }
   const management = document.querySelector('[data-work-surface="project"]');
   if (currentProject && management) push(t("视图"), t("管理"), t("需求、缺陷、交付与项目地图"), () => management.click());

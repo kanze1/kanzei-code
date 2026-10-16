@@ -418,7 +418,6 @@ async fn run_chat(
         &history.prior,
         None,
         None,
-        None,
         &mut on_event,
         &mut ask,
     )

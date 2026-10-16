@@ -129,7 +129,7 @@ pub async fn files_annotate_cancel() -> Result<(), String> {
 /// 全部文件标完后再给每个目录聚合一句话;被用户停止时跳过目录聚合(那一步还要再调好几次模型)。
 #[tauri::command]
 pub async fn files_annotate(
-    window: tauri::Window,
+    window: crate::app_events::AppEvents,
     project_dir: String,
 ) -> Result<serde_json::Value, String> {
     const HEAD_LINES: usize = 60;

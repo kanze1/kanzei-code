@@ -181,7 +181,7 @@ pub(crate) struct RunAssembly {
 /// Clone 进 harness,coordinator 经 Arc::clone),加 window/stage/halt_token 三个
 /// 装配独有输入,共 6 参,消 too_many。禁止再退化成 20+ 扁平参数。
 pub(crate) async fn assemble_run(
-    window: &tauri::Window,
+    window: &crate::app_events::AppEvents,
     stage: &(dyn Fn(&str, String) + Sync),
     request: RoundRequest,
     mode: RunMode,
@@ -364,7 +364,7 @@ pub(crate) async fn assemble_run(
 }
 
 /// Own the actual claimed input through every fallible startup operation.
-/// This concrete preparation path is shared by the Window wrapper and real DB tests.
+/// This concrete preparation path is shared by the AppEvents wrapper and real DB tests.
 #[allow(clippy::too_many_arguments)]
 async fn prepare_session(
     stage: &(dyn Fn(&str, String) + Sync),
@@ -905,7 +905,7 @@ pub(crate) fn normalize_work_priority(value: Option<&str>) -> &'static str {
 }
 
 pub(crate) fn report_config_warnings(
-    window: &tauri::Window,
+    window: &crate::app_events::AppEvents,
     session_id: &str,
     config: &kanzei_harness::config::KanzeiConfig,
     config_warnings: &[String],
@@ -1202,7 +1202,6 @@ mod startup_tests {
                     None,
                     &session.prior,
                     Some(&session.initial_parts),
-                    None,
                     None,
                     &mut sink,
                     &mut ask,

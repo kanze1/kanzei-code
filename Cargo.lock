@@ -2447,12 +2447,16 @@ dependencies = [
  "calamine",
  "dirs 5.0.1",
  "futures",
+ "getrandom 0.3.4",
+ "heck 0.5.0",
+ "httparse",
  "kanzei-base",
  "kanzei-core",
  "kanzei-harness",
  "kanzei-llm",
  "kanzei-tools",
  "png 0.17.16",
+ "quote",
  "reqwest 0.12.28",
  "rfd",
  "rusqlite",
@@ -2460,6 +2464,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
+ "syn 2.0.119",
  "tauri",
  "tauri-build",
  "tokio",
@@ -2475,6 +2480,9 @@ dependencies = [
 [[package]]
 name = "kanzei-base"
 version = "0.1.0"
+dependencies = [
+ "tracing",
+]
 
 [[package]]
 name = "kanzei-core"
@@ -2595,6 +2603,7 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

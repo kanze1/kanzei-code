@@ -35,14 +35,15 @@ impl MemoryStore {
         category: Option<&str>,
         status: Option<&str>,
     ) -> anyhow::Result<Vec<SearchCandidate>> {
-        // R-308 B3/D-637:默认检索面与 INDEX 单轨一致。candidate 不进入生产
-        // FTS 检索；只有显式指定 status 才允许生命周期/评估代码读取其他状态。
-        let status = status.or(Some("active"));
+        // Defaults are resolved at the caller. None explicitly means all live
+        // statuses (maintenance), not an omitted default. Production callers
+        // pass Some("active"); applying another default here erases `any`.
         let match_expr = fts_query(query);
         if match_expr.is_empty() {
             return Ok(Vec::new());
         }
-        self.ensure_derived_consistent()?;
+        let _tree_lock = self.tree_lock()?;
+        let entries = self.ensure_derived_consistent()?;
         let conn = self.open_db()?;
         let mut sql = String::from(
             "SELECT id, snippet(memory_fts, -1, '[', ']', '…', 12), bm25(memory_fts)
@@ -82,7 +83,6 @@ impl MemoryStore {
                 })?
                 .collect::<Result<_, _>>()?,
         };
-        let entries = self.load_all();
         let mut out: Vec<SearchCandidate> = Vec::new();
         for (id, snippet, bm25) in rows {
             let Some((path, entry)) = entries.iter().find(|(_, e)| e.id == id) else {
@@ -92,11 +92,6 @@ impl MemoryStore {
                 if entry.status != want {
                     continue;
                 }
-            }
-            // R-166:shadow 条目不注入生产检索——默认/其他 status 查询一律跳过,
-            // 只有显式查 shadow 才可见(评估器用)。与 0.5 降权不同,这是硬排除。
-            if entry.status == "shadow" && status != Some("shadow") {
-                continue;
             }
             let hit_count: u64 = conn
                 .query_row(

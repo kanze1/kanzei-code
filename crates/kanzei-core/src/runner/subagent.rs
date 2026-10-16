@@ -16,7 +16,7 @@ use super::{run_once, AskPolicy, RunnerConfig};
 /// 读槽由 run_subagent future drop 时 RAII 释放。None(测试/CLI 单运行)不支持中途单条停止。
 #[derive(Default)]
 pub struct TaskCancellations {
-    inner: Mutex<HashMap<String, CancellationToken>>,
+    inner: Mutex<HashMap<String, (CancellationToken, usize)>>,
 }
 
 /// 取消注册表的 RAII 注册句柄。
@@ -31,11 +31,14 @@ pub struct TaskCancellationGuard {
 
 impl TaskCancellations {
     pub fn register(self: &Arc<Self>, id: &str) -> TaskCancellationGuard {
-        let token = CancellationToken::new();
-        self.inner
-            .lock()
-            .unwrap()
-            .insert(id.to_string(), token.clone());
+        let token = {
+            let mut tasks = self.inner.lock().unwrap();
+            let (token, owners) = tasks
+                .entry(id.to_string())
+                .or_insert_with(|| (CancellationToken::new(), 0));
+            *owners += 1;
+            token.clone()
+        };
         TaskCancellationGuard {
             registry: Arc::clone(self),
             id: id.to_string(),
@@ -44,7 +47,12 @@ impl TaskCancellations {
     }
     /// 取消一个子代理;返回该 id 当时是否在运行(不在 = 已结束/不存在)。
     pub fn cancel(&self, id: &str) -> bool {
-        let token = self.inner.lock().unwrap().remove(id);
+        let token = self
+            .inner
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|(token, _)| token.clone());
         if let Some(token) = token {
             token.cancel();
             true
@@ -52,19 +60,29 @@ impl TaskCancellations {
             false
         }
     }
-    /// 子代理自然结束后清理注册(token 已失效或从未被 cancel);幂等。
-    pub fn unregister(&self, id: &str) {
-        self.inner.lock().unwrap().remove(id);
+    /// Release this future's claim; dispatch and execution can share one identity.
+    fn unregister(&self, id: &str) {
+        let mut tasks = self.inner.lock().unwrap();
+        if let Some((_, owners)) = tasks.get_mut(id) {
+            *owners -= 1;
+            if *owners == 0 {
+                tasks.remove(id);
+            }
+        }
     }
-    /// R-246:取消全部在册子代理,返回被取消的 id 列表(供 LineRuntime dispose 收口)。
+    /// 取消全部在册子代理，返回被取消的 id 列表。
     pub fn cancel_all(&self) -> Vec<String> {
-        let mut guard = self.inner.lock().unwrap();
+        let guard = self.inner.lock().unwrap();
         let ids: Vec<String> = guard.keys().cloned().collect();
-        for token in guard.values() {
+        for (token, _) in guard.values() {
             token.cancel();
         }
-        guard.clear();
         ids
+    }
+
+    /// Cancellation is only a request; registrations remain until their future drops.
+    pub fn is_quiescent(&self) -> bool {
+        self.inner.lock().unwrap().is_empty()
     }
 }
 
@@ -810,8 +828,6 @@ async fn run_subagent_inner(
                 None,
                 &prior,
                 None,
-                // R-246:子代理嵌套 run 不持有 LineRuntime(子代理禁嵌套资源 owner)。
-                None,
                 &mut on_event,
                 &mut ask,
             );
@@ -883,10 +899,14 @@ async fn run_subagent_inner(
 
         // The final text-only wrap-up at the step ceiling is a checkpoint. The
         // transcript above remains available for an explicitly requested resume.
-        if summary.step_limit_reached {
+        if let Some(reason) = summary.incomplete_reason() {
             break kanzei_harness::ToolOutput::noop(
-                "subagent_step_limit_reached",
-                format!("子任务达到步骤上限；已保存上下文，需要明确续做或重新派发。以下是未完成的进展：\n{text}"),
+                if summary.step_limit_reached {
+                    "subagent_step_limit_reached"
+                } else {
+                    "subagent_incomplete"
+                },
+                format!("{reason}；已保存上下文。以下是未完成的进展：\n{text}"),
             );
         }
         // R-250:没传 schema 时,下面整段都不执行——行为与本条目之前逐字节一致。
@@ -1038,6 +1058,40 @@ mod tests {
             assistant_message_text(&message).as_deref(),
             Some("第一段\n第二段")
         );
+    }
+
+    #[test]
+    fn cancellation_request_does_not_claim_future_has_stopped() {
+        let registry = Arc::new(TaskCancellations::default());
+        let first = registry.register("one");
+        let second = registry.register("two");
+        registry.cancel_all();
+        assert!(first.token().is_cancelled());
+        assert!(second.token().is_cancelled());
+        assert!(!registry.is_quiescent());
+        drop(first);
+        assert!(!registry.is_quiescent());
+        drop(second);
+        assert!(registry.is_quiescent());
+    }
+
+    #[test]
+    fn queued_dispatch_and_execution_share_cancellation_until_both_drop() {
+        let registry = Arc::new(TaskCancellations::default());
+        let dispatch = registry.register("queued");
+        registry.cancel_all();
+        let execution = registry.register("queued");
+        assert!(
+            execution.token().is_cancelled(),
+            "late startup must inherit queued cancellation"
+        );
+        drop(execution);
+        assert!(
+            !registry.is_quiescent(),
+            "result callbacks still own dispatch"
+        );
+        drop(dispatch);
+        assert!(registry.is_quiescent());
     }
 
     #[test]

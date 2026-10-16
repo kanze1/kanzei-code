@@ -21,30 +21,22 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </button>
 
-      <button type="button" class="activity-item" data-view="lines" title="并行线路" data-i18n-title="并行线路" aria-label="切换到并行线路" data-i18n-aria-label="切换到并行线路">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 5v14M18 5v14M6 8h5a3 3 0 0 1 3 3v2a3 3 0 0 0 3 3h1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <button type="button" class="activity-item" data-view="documents" title="需求" data-i18n-title="需求" aria-label="切换到需求" data-i18n-aria-label="切换到需求"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20V4a.5.5 0 0 1 .5-.5ZM14 3.5V8h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12.5h6M9 16h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-      <button type="button" class="activity-item hidden" id="activity-research" data-view="research" title="研究" data-i18n-title="研究" aria-label="切换到研究" data-i18n-aria-label="切换到研究"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15 15l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+
+
+
       <button type="button" class="activity-item" data-view="memory" title="记忆" data-i18n-title="记忆" aria-label="切换到记忆" data-i18n-aria-label="切换到记忆"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3.5 3.5 8l8.5 4.5L20.5 8 12 3.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3.5 12.5 12 17l8.5-4.5M3.5 16.8 12 21.3l8.5-4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <button type="button" class="activity-item" data-view="files" title="文件" data-i18n-title="文件" aria-label="切换到文件" data-i18n-aria-label="切换到文件">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      </button>
-      <button type="button" class="activity-item" data-view="arch" title="架构" data-i18n-title="架构" aria-label="切换到架构" data-i18n-aria-label="切换到架构">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm3 3h10M7 12h6M7 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <div class="rail-section-separator" aria-hidden="true"></div>
+
+
+
       <!-- UI2-0926 #14:活动面板(原「后台任务侧栏」;里面收的是子代理委派、终端命令与失败调用,不全是后台)的唯一开关(取代「子代理」「活动」两个开关),所有视图都显示——在别的视图点它
            先回到对话再打开。徽标:有东西在跑显示数量(强调色);没在跑但有未看的失败显示红色。 -->
       <button type="button" id="tasks-toggle" class="activity-item rail-toggle" title="活动" data-i18n-title="活动" aria-label="打开或收起活动面板" aria-controls="tasks-panel" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14.5 4.5v15M16.8 8.6h1.5M16.8 11.6h1.5M16.8 14.6h1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span id="tasks-badge" class="rail-badge hidden" aria-hidden="true"></span></button>
       <!-- UI2-0926 #8:网页预览开关(24-preview.js,Ctrl+Shift+B)。在别的视图点它先回到对话再打开;开着时点它收起(页面保留);
            窄屏停在「对话」页签时点它切回预览。 -->
       <button type="button" id="preview-toggle" class="activity-item rail-toggle" title="网页预览(Ctrl+Shift+B)" data-i18n-title="网页预览(Ctrl+Shift+B)" aria-label="打开或收起网页预览" data-i18n-aria-label="打开或收起网页预览" aria-controls="preview-dock" aria-expanded="false" aria-keyshortcuts="Control+Shift+B"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6ZM3.4 9.6h17.2M3.4 14.4h17.2M12 3.2c2.4 2.6 3.6 5.6 3.6 8.8s-1.2 6.2-3.6 8.8c-2.4-2.6-3.6-5.6-3.6-8.8s1.2-6.2 3.6-8.8Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <button type="button" class="activity-item" data-view="metrics" title="运行画像" data-i18n-title="运行画像" aria-label="切换到运行画像" data-i18n-aria-label="切换到运行画像">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16M7 20V11M12 20V5M17 20v-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      </button>
-      <div class="rail-global-separator" aria-hidden="true"></div>
-      <button type="button" class="activity-item" data-view="workspace" title="所有项目" data-i18n-title="所有项目" aria-label="所有项目" data-i18n-aria-label="所有项目"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5M6.5 9.2V20h11V9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+
+
+
       <div class="rail-utilities">
         <button type="button" class="activity-item" data-view="settings" title="设置" data-i18n-title="设置" aria-label="切换到设置" data-i18n-aria-label="切换到设置">
           <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
@@ -60,10 +52,7 @@
       <nav id="workbench-navigation" aria-label="全局导航" data-i18n-aria-label="全局导航">
         <!-- 品牌块只写「kanzei」:原来的副标题「工作台」与「所有项目」页名重复(命名词表 2026-10-01:全局项目页统一叫「所有项目」)。 -->
         <div class="workbench-brand">kanzei</div>
-        <div class="workspace-switcher" role="group" aria-label="工作空间" data-i18n-aria-label="工作空间">
-          <button type="button" data-workspace="dev" class="active" aria-pressed="true" data-i18n-key="开发">开发</button>
-          <button type="button" data-workspace="research" aria-pressed="false" data-i18n-key="研究">研究</button>
-        </div>
+
         <div id="workbench-conversation-actions">
           <button type="button" id="new-chat" class="new-chat-btn" title="新讨论" data-i18n-title="新讨论">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
@@ -220,7 +209,7 @@
         <!-- #7 运行活动行(Claude 式「思考中… 12s」):只在活动会话运行/等待下一轮/停止中时出现。
              文案复用状态栏存源,由 03-shell.js renderTurnActivity 写入;aria-live 关掉,免得每秒播报。 -->
         <div id="turn-activity" class="turn-activity hidden" role="status" aria-live="off" aria-label="运行状态" data-i18n-aria-label="运行状态" data-phase="idle"><span id="turn-activity-glyph" class="kz-dot" data-state="idle" aria-hidden="true"></span><span id="turn-activity-label" class="turn-activity-label" data-i18n-raw></span><span id="turn-activity-elapsed" class="turn-activity-elapsed" data-i18n-raw></span></div>
-        <footer id="composer">
+        <footer id="composer" inert>
           <input id="attachment-input" type="file" accept="image/*,.pdf,.xlsx,.xls,.xlsm,.xlsb,.ods,.csv,.tsv,.txt,.md,.markdown,.json,.log" multiple hidden />
           <!-- UI2-0926 #11 上下文带(卡片顶部通栏):发一条之前要确认的「去哪个项目、在哪个分支、工作树改了什么」。
                左边项目名与分支,右边本轮改动总量(点开在带下方展开文件清单);无改动时改动按钮整个收起,分支照常显示。 -->
@@ -240,18 +229,7 @@
               </button>
             </div>
             <!-- 子代理协作倾向：工作流由模型决定。 -->
-            <div id="subagent-control" class="subagent-control">
-              <label id="process-subagents-wrap" title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。" data-i18n-title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。">
-                <span class="composer-control-label" data-i18n-key="子代理管理">子代理管理</span>
-                <select id="process-subagents" class="kz-ctl" aria-label="子代理管理" data-i18n-aria-label="子代理管理" aria-describedby="process-subagents-value subagent-control-state">
-                  <option value="off" data-i18n-key="关闭">关闭</option>
-                  <option value="auto" data-i18n-key="按需">按需</option>
-                  <option value="ultra" data-i18n-key="积极协作">积极协作</option>
-                </select>
-                <span id="process-subagents-value" class="subagent-control-value"></span>
-              </label>
-              <span id="subagent-control-state" class="subagent-control-state" role="status" aria-live="polite" aria-atomic="true"></span>
-            </div>
+
           </div>
           <div id="change-bar-files" class="change-bar-files hidden"></div>
           <div id="attachments" class="attachments hidden"></div>
@@ -282,15 +260,64 @@
           <div id="composer-bar">
             <div id="composer-left" class="composer-left">
               <button id="attach" type="button" class="kz-ctl kz-ctl--icon" title="添加图片、PDF、表格或文本" data-i18n-title="添加图片、PDF、表格或文本" aria-label="添加图片、PDF、表格或文本" data-i18n-aria-label="添加图片、PDF、表格或文本"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
-              <!-- R-342:模式芯片常驻(对话期间唯一必须一眼可见的档位事实);选择器本体就是真源。 -->
-              <label data-space-only="dev" id="profile-mode-wrap" class="composer-mode-control">
+<div id="model-picker-group" class="model-picker" role="group" aria-label="模型与思考强度" data-i18n-aria-label="模型与思考强度">
+                <button type="button" id="model-picker" class="kz-ctl picker-btn" aria-haspopup="menu" aria-expanded="false"></button>
+                <button type="button" id="reasoning-picker" class="kz-ctl picker-btn" aria-haspopup="menu" aria-expanded="false"></button>
+              </div>
+
+
+
+              <!-- 任务设置菜单已撤:里面只剩「自动放行」一行(原「勘察复核」开关已删),直接做成这颗开关,与模式/鞭挞同在工具行左段
+                   (权限怎么放行和「谁来推进」是同一类决定);「改主项目需求记录」是工作树线的属性,挪到并行线路页对应线路卡上。 -->
+
+            </div>
+            <div class="composer-right">
+              <!-- UI-0926 #3:模型 / 思考两个芯片显示**下一轮真正会用的**值与来源,数据只来自 model_effective;
+                   菜单由 08-model-picker.js 经 openMenu 现造(弹层唯一写法)。 -->
+
+
+
+              <button type="button" id="composer-more" class="kz-ctl kz-ctl--icon" data-kz-menu="composer-more-menu" title="打开低频操作菜单" data-i18n-title="打开低频操作菜单" aria-label="更多" data-i18n-aria-label="更多"><svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg></button>
+
+
+              <!-- UI2-0926 #11:选项去掉英文尾巴(「排队 queue」→「排队」),运行态工具行在 768 列宽里放得下一行;
+                   交付方式的完整说明在悬停提示里。「排队」这个 key 已译作状态词 Queued,这里要动词 Queue:
+                   key 用「排队 queue」,中文显示走 data-i18n-zh(见 02-i18n.js applyDataI18nKeys)。 -->
+              <select id="delivery-select" class="kz-ctl" title="排队等待本轮结束；插入在工具完成后处理（Ctrl+Enter 立即插话）" data-i18n-title="排队等待本轮结束；插入在工具完成后处理（Ctrl+Enter 立即插话）">
+                <option value="queue" data-i18n-key="排队 queue" data-i18n-zh="排队">排队</option>
+                <option value="steer" data-i18n-key="插入">插入</option>
+              </select>
+              <button id="voice-toggle" class="kz-ctl kz-ctl--icon" type="button" aria-pressed="false" title="语音" data-i18n-title="语音" aria-label="语音" data-i18n-aria-label="语音"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg></button>
+              <button id="stop" type="button" class="kz-ctl hidden"><span data-i18n-key="停止">停止</span></button>
+              <button id="send" class="kz-ctl--round primary" title="发送" data-i18n-title="发送"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sr-only" data-i18n-key="发送">发送</span></button>
+            </div>
+          </div>
+        <div id="composer-more-menu" class="k-surface k-menu composer-menu-panel hidden" popover="manual" data-placement="top-end" role="group" aria-label="更多" data-i18n-aria-label="更多">
+<section class="composer-menu-section"><span class="composer-menu-heading" data-i18n-key="执行选项">执行选项</span>
+<label data-space-only="dev" id="profile-mode-wrap" class="composer-mode-control">
                 <span class="composer-control-label" data-i18n-key="无监管模式">无监管模式</span>
                 <select id="profile-select" class="kz-ctl ctx-mode" aria-label="无监管模式" data-i18n-aria-label="无监管模式">
                   <option value="dev-pair" data-i18n-key="关闭">关闭</option>
                   <option value="dev-auto" data-i18n-key="开启">开启</option>
                 </select>
               </label>
-              <div data-space-only="dev" id="autorun-bar" class="autorun-bar" role="group" aria-label="自动推进控制" data-i18n-aria-label="自动推进控制">
+<label id="auto-allow-wrap" class="kz-ctl" title="自动放行:所有权限询问直接通过;此选择会被记住" data-i18n-title="自动放行:所有权限询问直接通过;此选择会被记住">
+                <input type="checkbox" id="auto-allow" role="switch" />
+                <span data-i18n-key="自动放行">自动放行</span>
+              </label>
+<div id="subagent-control" class="subagent-control">
+              <label id="process-subagents-wrap" title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。" data-i18n-title="关闭、按需或积极协作。模型决定如何拆分任务；运行中修改在下一轮生效，已启动的子代理继续运行。">
+                <span class="composer-control-label" data-i18n-key="子代理管理">子代理管理</span>
+                <select id="process-subagents" class="kz-ctl" aria-label="子代理管理" data-i18n-aria-label="子代理管理" aria-describedby="process-subagents-value subagent-control-state">
+                  <option value="off" data-i18n-key="关闭">关闭</option>
+                  <option value="auto" data-i18n-key="按需">按需</option>
+                  <option value="ultra" data-i18n-key="积极协作">积极协作</option>
+                </select>
+                <span id="process-subagents-value" class="subagent-control-value"></span>
+              </label>
+              <span id="subagent-control-state" class="subagent-control-state" role="status" aria-live="polite" aria-atomic="true"></span>
+            </div>
+<div data-space-only="dev" id="autorun-bar" class="autorun-bar" role="group" aria-label="自动推进控制" data-i18n-aria-label="自动推进控制">
                 <label id="auto-continue-wrap" class="kz-ctl" title="每轮跑完自动发「继续推进目标」" data-i18n-title="每轮跑完自动发「继续推进目标」">
                   <input type="checkbox" id="auto-continue" /> <span data-i18n-key="鞭挞">鞭挞</span>
                 </label>
@@ -357,45 +384,21 @@
                 <span id="auto-status" class="auto-reason hidden" role="status" aria-live="polite"></span>
                 <button id="auto-resume" class="kz-ctl hidden" type="button" title="重新开始自动推进" data-i18n-title="重新开始自动推进"><span data-i18n-key="重新推进">重新推进</span></button>
               </div>
-              <!-- 任务设置菜单已撤:里面只剩「自动放行」一行(原「勘察复核」开关已删),直接做成这颗开关,与模式/鞭挞同在工具行左段
-                   (权限怎么放行和「谁来推进」是同一类决定);「改主项目需求记录」是工作树线的属性,挪到并行线路页对应线路卡上。 -->
-              <label id="auto-allow-wrap" class="kz-ctl" title="自动放行:所有权限询问直接通过;此选择会被记住" data-i18n-title="自动放行:所有权限询问直接通过;此选择会被记住">
-                <input type="checkbox" id="auto-allow" role="switch" />
-                <span data-i18n-key="自动放行">自动放行</span>
-              </label>
-            </div>
-            <div class="composer-right">
-              <!-- UI-0926 #3:模型 / 思考两个芯片显示**下一轮真正会用的**值与来源,数据只来自 model_effective;
-                   菜单由 08-model-picker.js 经 openMenu 现造(弹层唯一写法)。 -->
-              <div id="model-picker-group" class="model-picker" role="group" aria-label="模型与思考强度" data-i18n-aria-label="模型与思考强度">
-                <button type="button" id="model-picker" class="kz-ctl picker-btn" aria-haspopup="menu" aria-expanded="false"></button>
-                <button type="button" id="reasoning-picker" class="kz-ctl picker-btn" aria-haspopup="menu" aria-expanded="false"></button>
-              </div>
-              <button type="button" id="side-question-open" class="kz-ctl" title="向对话旁路提一个问题，主任务继续运行" data-i18n-title="向对话旁路提一个问题，主任务继续运行" data-i18n-key="旁路提问">旁路提问</button>
-              <button type="button" id="runtime-indicator" class="kz-ctl" title="关闭窗口后任务继续运行,重开会接回当前任务" data-i18n-title="关闭窗口后任务继续运行,重开会接回当前任务" hidden>◉ <span data-i18n-key="后台常驻">后台常驻</span></button>
-              <button type="button" id="composer-more" class="kz-ctl kz-ctl--icon" data-kz-menu="composer-more-menu" title="打开低频操作菜单" data-i18n-title="打开低频操作菜单" aria-label="更多" data-i18n-aria-label="更多"><svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg></button>
-            <div id="composer-more-menu" class="k-surface k-menu composer-menu-panel hidden" popover="manual" data-placement="top-end" role="group" aria-label="更多" data-i18n-aria-label="更多">
+</section>
+<section class="composer-menu-section">
+<button type="button" id="side-question-open" class="kz-ctl" title="向对话旁路提一个问题，主任务继续运行" data-i18n-title="向对话旁路提一个问题，主任务继续运行" data-i18n-key="旁路提问">旁路提问</button>
+<button id="continue-btn" type="button" class="kz-ctl" title="按当前文案继续推进" data-i18n-title="按当前文案继续推进"><span data-i18n-key="继续">继续</span></button>
+<button type="button" id="runtime-indicator" class="kz-ctl" title="关闭窗口后任务继续运行,重开会接回当前任务" data-i18n-title="关闭窗口后任务继续运行,重开会接回当前任务" hidden>◉ <span data-i18n-key="后台常驻">后台常驻</span></button>
+
                 <button id="terminal-monitor-open" class="ghost" type="button" data-i18n-key="终端日志">终端日志</button>
                 <button id="sop-picker" class="ghost" type="button" title="选择已沉淀的流程" data-i18n-title="选择已沉淀的流程" data-i18n-key="流程(已沉淀)" data-i18n-zh="流程">流程</button>
                 <button data-space-only="dev" id="worktree-add" class="ghost" title="新建独立任务:在单独的 Git 工作树里与主对话并行工作;要求仓库里至少有一次提交" data-i18n-title="新建独立任务:在单独的 Git 工作树里与主对话并行工作;要求仓库里至少有一次提交"><span data-i18n-key="新建独立任务">新建独立任务</span></button>
                 <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/" data-i18n-title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/"><span data-i18n-key="总结">总结</span></button>
                 <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI" data-i18n-title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI"><span data-i18n-key="复制上下文">复制上下文</span></button>
                 <button id="chat-search-toggle" class="ghost" title="搜索当前对话(Ctrl+F)" data-i18n-title="搜索当前对话(Ctrl+F)"><span data-i18n-key="搜索">搜索</span></button>
-            </div>
-              <button id="continue-btn" type="button" class="kz-ctl" title="按当前文案继续推进" data-i18n-title="按当前文案继续推进"><span data-i18n-key="继续">继续</span></button>
-              <!-- UI2-0926 #11:选项去掉英文尾巴(「排队 queue」→「排队」),运行态工具行在 768 列宽里放得下一行;
-                   交付方式的完整说明在悬停提示里。「排队」这个 key 已译作状态词 Queued,这里要动词 Queue:
-                   key 用「排队 queue」,中文显示走 data-i18n-zh(见 02-i18n.js applyDataI18nKeys)。 -->
-              <select id="delivery-select" class="kz-ctl" title="排队等待本轮结束；插入在工具完成后处理（Ctrl+Enter 立即插话）" data-i18n-title="排队等待本轮结束；插入在工具完成后处理（Ctrl+Enter 立即插话）">
-                <option value="queue" data-i18n-key="排队 queue" data-i18n-zh="排队">排队</option>
-                <option value="steer" data-i18n-key="插入">插入</option>
-              </select>
-              <button id="voice-toggle" class="kz-ctl kz-ctl--icon" type="button" aria-pressed="false" title="语音" data-i18n-title="语音" aria-label="语音" data-i18n-aria-label="语音"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg></button>
-              <button id="stop" type="button" class="kz-ctl hidden"><span data-i18n-key="停止">停止</span></button>
-              <button id="send" class="kz-ctl--round primary" title="发送" data-i18n-title="发送"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sr-only" data-i18n-key="发送">发送</span></button>
-            </div>
-          </div>
-        </footer>
+
+</section></div>
+</footer>
         <!-- UI2-0926 #8 网页预览停靠面板(24-preview.js;docs/design/preview_pane.md §前端):对话视图的最后一个子元素,
              打开时 #view-chat 切成两列网格(左:对话列;右:本面板,左缘分隔条可拖);对话视图窄于 800px 时占满、工具栏出现「对话 | 预览」。
              面板本体是原生子 webview,盖在 #preview-host 上、永远画在 HTML 之上:#preview-host 必须是空元素、没有背景;
@@ -1020,6 +1023,10 @@
             <span data-i18n-key="表单有未保存的改动,已跳过这次刷新(磁盘上的配置可能更新了)">表单有未保存的改动,已跳过这次刷新(磁盘上的配置可能更新了)</span>
             <button type="button" id="settings-discard" class="ghost mini" title="丢弃未保存的改动并重新读取磁盘配置" data-i18n-title="丢弃未保存的改动并重新读取磁盘配置"><span data-i18n-key="丢弃改动并重载">丢弃改动并重载</span></button>
           </div>
+          <div id="settings-load-error" class="settings-stale hidden" role="alert">
+            <span id="settings-load-error-text"></span>
+            <button type="button" id="settings-load-retry" class="ghost mini" data-i18n-key="重试">重试</button>
+          </div>
 
           <!-- UX-112 分区目录:16-settings.js 按各 .settings-group 的 summary 生成(点击展开并滚到该组)。 -->
           <nav id="settings-toc" class="settings-toc" aria-label="设置分区" data-i18n-aria-label="设置分区"></nav>
@@ -1347,6 +1354,7 @@
             <button id="update-check" class="ghost"><span data-i18n-key="检查更新">检查更新</span></button>
             <button id="update-install" class="primary hidden" title="下载完成后会关闭应用并静默安装,装完请手动启动" data-i18n-title="下载完成后会关闭应用并静默安装,装完请手动启动"><span data-i18n-key="下载并安装(会退出应用)">下载并安装(会退出应用)</span></button>
             <span id="update-result" class="dim" role="status" aria-live="polite"></span>
+            <p id="update-receipt" class="dim" role="status" hidden></p>
           </div>
           <div id="about-kanzei" class="about-panel" role="group" aria-labelledby="about-kanzei-title">
             <h3 id="about-kanzei-title" data-i18n-key="关于 kanzei">关于 kanzei</h3>
@@ -1434,7 +1442,7 @@
           <div class="settings-actions settings-savebar">
             <span id="settings-dirty" class="settings-dirty hidden" role="status" data-i18n-key="未保存 — 改动要点「保存」才会写入配置并生效">未保存 — 改动要点「保存」才会写入配置并生效</span>
             <button id="settings-open" class="ghost"><span data-i18n-key="打开配置原文">打开配置原文</span></button>
-            <button id="settings-save" class="primary"><span data-i18n-key="保存">保存</span></button>
+            <button id="settings-save" class="primary" disabled><span data-i18n-key="保存">保存</span></button>
           </div>
         </div>
       </div>
@@ -1692,62 +1700,11 @@
   <div id="toast" class="k-surface k-toast-region hidden" popover="manual"></div>
 
   <!-- 分区脚本:弹层与外观 -->
-  <script type="module" src="00-surface.js"></script>
-  <script type="module" src="00-frame.js"></script>
-  <script type="module" src="01-core.js"></script>
-  <script type="module" src="02-i18n.js"></script>
-  <script type="module" src="03-shell.js"></script>
-  <script type="module" src="03-layout.js"></script>
-  <script type="module" src="03-workspaces.js"></script>
-  <script type="module" src="04-diagram.js"></script>
-  <script type="module" src="04-markdown.js"></script>
   <!-- 分区脚本:工具行与结构化渲染 -->
-  <script type="module" src="04-structured-parse.js"></script>
-  <script type="module" src="04-structured.js"></script>
-  <script type="module" src="05-chat-render.js"></script>
   <!-- 分区脚本:子代理 -->
-  <script type="module" src="05-subagents.js"></script>
-  <script type="module" src="06-side-policy.js"></script>
-  <script type="module" src="06-agent-panel.js"></script>
-  <script type="module" src="06-activity.js"></script>
-  <script type="module" src="07-events.js"></script>
-  <script type="module" src="08-auto.js"></script>
-  <script type="module" src="08-compose-runtime.js"></script>
-  <script type="module" src="08-compose.js"></script>
-  <script type="module" src="08-models.js"></script>
   <!-- 分区脚本:模型选择 -->
-  <script type="module" src="08-project-models.js"></script>
-  <script type="module" src="08-model-picker.js"></script>
-  <script type="module" src="09-sessions.js"></script>
-  <script type="module" src="10-docs-core.js"></script>
-  <script type="module" src="11-docs-list.js"></script>
-  <script type="module" src="12-docs-pages.js"></script>
-  <script type="module" src="13-memory.js"></script>
-  <script type="module" src="14-docs-actions.js"></script>
-  <script type="module" src="15-views-misc.js"></script>
-  <script type="module" src="16-settings.js"></script>
-  <script type="module" src="17-files-editor.js"></script>
-  <script type="module" src="17-files.js"></script>
-  <script type="module" src="19-arch.js"></script>
-  <script type="module" src="20-lines.js"></script>
-  <script type="module" src="19-research.js"></script>
-  <script type="module" src="21-palette.js"></script>
-  <script type="module" src="22-neural-flow.js"></script>
-  <script type="module" src="24-preview.js"></script>
-  <script type="module" src="12-workbench.js"></script>
-  <script type="module" src="12-session-tree.js"></script>
-  <script type="module" src="12-session-menus.js"></script>
-  <script type="module" src="18-optional-ui.js"></script>
-  <script type="module" src="18-startup.js"></script>
-  <script type="module" src="25-softwire.js"></script>
-  <script type="module" src="26-project-conversations.js"></script>
-  <script type="module" src="27-agent-team.js"></script>
-  <script type="module" src="28-async-workspace.js"></script>
-  <script type="module" src="29-general-chat.js"></script>
-  <script type="module" src="30-workspace-ui.js"></script>
-  <script type="module" src="31-conversation-controls.js"></script>
-  <script type="module" src="32-skills.js"></script>
   <dialog id="conversation-action-overlay" data-size="rewind" class="k-surface k-dialog conversation-action-dialog" aria-label="回退或分叉" data-i18n-aria-label="回退或分叉"></dialog>
   <dialog id="schedules-overlay" data-size="schedule" class="k-surface k-dialog schedule-dialog" aria-label="定时任务" data-i18n-aria-label="定时任务"></dialog>
+  <script type="module" src="bootstrap.js"></script>
 </body>
 </html>

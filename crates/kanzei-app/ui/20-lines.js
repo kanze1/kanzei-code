@@ -1,11 +1,14 @@
-import { defer } from "./01-core.js";
-import { motionSync } from "./01-core.js";
-import { $, confirmDialog, invoke } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { motionSync } from "./00-ui-primitives.js";
+import { $ } from "./00-dom.js";
+import { confirmDialog } from "./00-dialogs.js";
+import { invoke } from "./00-ipc.js";
 import { languageIsEnglish, localizedStage, t } from "./02-i18n.js";
 import {
   activeProcessId,
   currentProject,
   ensureChatView,
+  navigate_view,
   log,
   processItems,
   running,
@@ -1242,7 +1245,7 @@ export async function confirmWorktreeMerge(item, forProject) {
     [pair.left, pair.right].some((line) => line.worktree_path === item.path || line.branch === item.branch),
   );
   if (matching.length) {
-    document.querySelector('.activity-item[data-view="lines"]').click();
+    navigate_view("lines");
     const count = matching.reduce((total, pair) => total + pair.files.length, 0);
     return confirmDialog({
       title: t("检测到独立任务之间的文件重叠"),

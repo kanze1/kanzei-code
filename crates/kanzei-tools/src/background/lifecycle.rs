@@ -46,7 +46,7 @@ pub(super) fn install_window_observer_once() {
                         // A new tool must not start writing while a guard is
                         // restoring this process's protected tree.
                         let _baseline = process.baseline.lock().unwrap();
-                        let snapshot = ManagedSnapshot::capture(&root);
+                        let snapshot = _baseline.refresh(&root);
                         window_open_snapshots()
                             .lock()
                             .unwrap()
@@ -59,7 +59,7 @@ pub(super) fn install_window_observer_once() {
                         // Read/absorb under the same lock: another completed
                         // window cannot lose its update to this commit.
                         let mut baseline = process.baseline.lock().unwrap();
-                        let current = ManagedSnapshot::capture(&root);
+                        let current = baseline.refresh(&root);
                         let before = opened.as_ref().unwrap_or(&baseline);
                         if let Some(change) = crate::managed::diff(before, &current) {
                             let paths: Vec<&str> = change
@@ -247,7 +247,8 @@ fn reconcile_restore_locked(
         // Closed commits and new Opened snapshots use this same mutex. Keep
         // the decision and synchronous restore together so a stale baseline
         // cannot roll back a legitimate write that just finished.
-        let current = ManagedSnapshot::capture(&root);
+        let current = baseline.refresh(&root);
+        current.ensure_complete()?;
         let Some(change) = crate::managed::diff(baseline, &current) else {
             return Ok(None);
         };

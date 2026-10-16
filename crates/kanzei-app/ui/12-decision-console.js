@@ -1,5 +1,5 @@
 // 工作台复核视图：消费合并后的摘要/详情，操作始终携带原项目/决策身份。
-import { invoke } from "./01-core.js";
+import { invoke } from "./00-ipc.js";
 import { localizedStatusWord, t } from "./02-i18n.js";
 import { currentProject, navigate_view, toastError } from "./03-shell.js";
 import { lineAgent } from "./08-auto.js";

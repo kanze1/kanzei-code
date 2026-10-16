@@ -7,7 +7,8 @@
 //
 // 几何的读写经 00-frame.js 的可注入存储(setFrameStore):00-frame 零 import,不直接碰 IPC。
 import { bindFrames, installSplit, refreshFrames, setFrameStore } from "./00-frame.js";
-import { $, defer, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { t } from "./02-i18n.js";
 
 const CACHE_KEY = "kz-ui-layout";

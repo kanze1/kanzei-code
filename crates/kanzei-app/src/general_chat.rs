@@ -331,7 +331,7 @@ mod tests {
                 .system
                 .contains("create the actual file"));
             assert!(snapshot.select_agent(Some("dev")).is_ok());
-            assert!(snapshot.skills().get("general-fixture").is_some());
+            assert!(snapshot.skills().get("personal:general-fixture").is_some());
             assert_eq!(
                 snapshot.agents().get("persona-fixture").unwrap().system,
                 "CUSTOM_GENERAL_PERSONA"

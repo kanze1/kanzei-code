@@ -1,10 +1,11 @@
 //! Non-modal question transport. Reading this projection never creates a runtime.
+use crate::app_events::AppEvents;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 
 use serde_json::{json, Value};
-use tauri::{Emitter, State, Window};
+use tauri::{Emitter, State};
 
 use crate::{AppState, MutexPoisonExt, PendingAsk};
 
@@ -136,7 +137,7 @@ fn deliver_question(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn softwire_answer_question(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     project_dir: String,
     session_id: String,

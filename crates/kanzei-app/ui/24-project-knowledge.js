@@ -1,4 +1,4 @@
-import { invoke } from "./01-core.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 
 const KINDS = { responsibility: "职责", contract: "接口约束", constraint: "项目约束", environment: "环境", procedure: "操作流程", pitfall: "踩坑", fact: "事实" };

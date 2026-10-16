@@ -94,7 +94,7 @@ try {
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
   owner = (await invoke("process_list", { projectDir: project })).find(line => !["readonly", "research"].includes(line.profile));
   assert(owner, "Main executor exists");
-  await invoke("process_update", { processId: owner.id, subagentsEnabled: true, phasePipeline: false });
+  await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await invoke("auto_state_update", { sessionId: owner.session_id, enabled: false });
   await page.evaluate(async () => {
     window.__registrationEvents = [];

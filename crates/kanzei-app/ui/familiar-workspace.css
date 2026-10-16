@@ -27,12 +27,8 @@
 .workspace-header #project-label, .workspace-header #ctx-branch { display: none; }
 .workspace-header-actions { display: flex; gap: 4px; }
 .workspace-header-actions .activity-item { width: 30px; height: 30px; }
-.familiar-workspace #activitybar .activity-item[data-view]:not([data-view="chat"]):not([data-view="skills"]):not([data-view="settings"]),
-.familiar-workspace .workspace-switcher, .familiar-workspace [data-workspace="research"],
-.familiar-workspace #activitybar .rail-global-separator,
 .familiar-workspace #documents-tab-ideas, .familiar-workspace #documents-new-idea,
-.familiar-workspace #workbench-new-goal, .familiar-workspace #workbench-goal-form,
-.familiar-workspace #activity-research { display: none !important; }
+.familiar-workspace #workbench-new-goal, .familiar-workspace #workbench-goal-form { display: none !important; }
 .workspace-sidebar-footer { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; padding: 14px 8px 8px; border-top: 1px solid var(--border); margin-top: auto; }
 .workspace-sidebar-footer .activity-item { width: 100%; display: flex; justify-content: flex-start; gap: 12px; padding: 10px 12px; height: auto; border-radius: 7px; font-size: 13px; color: var(--dim); }
 .workspace-sidebar-footer .activity-item.active, .workspace-sidebar-footer .activity-item:hover { background: var(--surface-hover); color: var(--fg); }
@@ -231,7 +227,6 @@
 }
 
 /* Conversation controls share one quiet toolbar; obsolete hooks stay outside it. */
-.retired-conversation-controls, .retired-conversation-controls * { display: none !important; }
 .familiar-workspace #subagent-control { display: flex; align-items: center; border: none; padding: 0; margin: 0; }
 .familiar-workspace #subagent-control-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 5px; }
 .familiar-workspace #subagent-control-state { display: none; }
@@ -283,3 +278,11 @@
 .runtime-round-context summary { max-width: 700px; overflow: hidden; text-overflow: ellipsis; }
 .runtime-round-context pre { max-height: 250px; overflow: auto; white-space: pre-wrap; }
 @media (prefers-reduced-motion: reduce) { .workbench-session-activity { animation: none !important; } }
+
+#composer-more-menu :is(#profile-mode-wrap, #auto-allow-wrap, #process-subagents-wrap) { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 10px; }
+#composer-more-menu .composer-control-label { color: var(--fg); white-space: normal; }
+#composer-more-menu .conversation-bindings { padding: 4px 8px; }
+#composer-more-menu #runtime-indicator { justify-content: flex-start; color: var(--dim); }
+#composer-more-menu #project-handoff { display: block; }
+#composer-more-menu button { text-align: left; }
+#composer-more-menu { max-height: min(640px, 75vh); overflow-y: auto; }

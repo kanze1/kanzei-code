@@ -52,8 +52,9 @@ try {
   assert.equal(await page.evaluate(async()=>{const shell=await import('/03-shell.js');return shell.activeProcessId;}),actionFixture.sourceProcess,'fork IPC receipt must not be mistaken for completed navigation');
   await page.evaluate(()=>window.__harnessReleaseForkRefresh());
   // Await both recipient selection and the draft restored after switchProcess finishes.
-  await page.waitForFunction(async({processId,sessionId,prompt})=>{
-   const shell=await import('/03-shell.js'),box=document.getElementById('prompt');
+  await page.evaluate(async()=>{window.__harnessShell=await import('/03-shell.js');});
+  await page.waitForFunction(({processId,sessionId,prompt})=>{
+   const shell=window.__harnessShell,box=document.getElementById('prompt');
    return shell.activeProcessId===processId&&shell.activeSessionId===sessionId&&box.value===prompt&&document.activeElement===box;
   },actionFixture);
   await page.locator('#prompt').fill('/compact 保留下一步计划');await page.locator('#prompt').press('Enter');await page.waitForFunction(()=>window.__kzPreview.calls.some(c=>c.cmd==='conversation_compact'));

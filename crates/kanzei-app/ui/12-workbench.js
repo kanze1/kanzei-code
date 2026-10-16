@@ -1,7 +1,8 @@
 import { openMenu } from "./00-surface.js";
 import { isGeneralChat, syncGeneralChatView } from "./03-general-scope.js";
-import { $, defer, invoke } from "./01-core.js";
-import { localizedDocStatus, localizedStage, t } from "./02-i18n.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { localizedDocStatus, t } from "./02-i18n.js";
 import { currentProject, activeSessionId, processItems, sessionStates, navigate_view, syncBackBars, toast, toastError } from "./03-shell.js";
 import { active_space, switch_workspace, workspace_switch_pending } from "./03-workspaces.js";
 import { enterProject, lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
@@ -215,43 +216,7 @@ export function renderCurrentItems(project) {
 }
 
 export function renderProjectOverview(snapshot) {
-  const event = new CustomEvent("kz:project-overview", { cancelable: true, detail: { snapshot, project: workbenchProject() } });
-  document.dispatchEvent(event);
-  if (event.defaultPrevented) return;
-  const root = $("project-overview-content");
-  if (!root) return;
-  const path = workbenchProject();
-  const project = snapshot?.projects?.find((p) => p.path === path);
-  const revision = JSON.stringify([path, project?.content_revision, project?.freshness, project?.error, t("概览")]);
-  if (root._revision === revision) return;
-  const executionOpen = root.querySelector(".project-execution")?.open;
-  root._revision = revision;
-  root.replaceChildren();
-  const header = node("header", "project-overview-head");
-  header.append(node("p", "workbench-eyebrow", t("项目概览")), node("h1", "", path ? projectDisplayName(path) : t("未选择项目")), node("p", "dim", path || ""));
-  root.append(header);
-  if (!project) { root.append(node("p", "dim", t("正在读取项目进展…"))); return; }
-  if (project.error) root.append(node("p", "workbench-error", `${t("项目读取失败")}: ${project.error}`));
-  const section = node("section", "project-overview-section");
-  section.append(node("h2", "", t("当前工作")), renderCurrentItems(project));
-  root.append(section);
-  const counts = project.counts ?? {};
-  const attention = node("section", "project-overview-section");
-  attention.append(node("h2", "", t("待我处理")));
-  for (const [tab, label, count] of [["deliveries", "待你试用", counts.ready_to_try], ["decisions", "待复核决策", counts.decisions], ["decisions", "待补充事实", counts.missing_facts]]) {
-    attention.append(action(`${t(label)} · ${count ?? 0}`, () => {
-      setWorkspaceConsoleState({ tab, projectFilter: path });
-      navigate_view("workspace");
-    }, "workbench-attention-link"));
-  }
-  root.append(attention);
-  const execution = node("details", "project-overview-section project-execution");
-  execution.open = Boolean(executionOpen);
-  execution.append(node("summary", "", `${t("执行状态")} · ${project.running_lines ?? 0} ${t("个对话运行中")}`));
-  for (const line of project.lines ?? []) execution.append(node("p", "dim", `${lineName(line)} · ${line.running ? localizedStage(line.stage || "运行中") : t("空闲")}`));
-  execution.append(action(t("管理执行与子代理"), () => void openProjectSpace(path, "lines")));
-  root.append(execution);
-  if (project.recent_progress) root.append(node("p", "workbench-recent dim", `${t("最近进展")}: ${project.recent_progress.label}`));
+  document.dispatchEvent(new CustomEvent("kz:project-overview", { detail: { snapshot, project: workbenchProject() } }));
 }
 
 /// 打开某个项目需求页的「想法」页签(「新目标」写进的就是那里)。

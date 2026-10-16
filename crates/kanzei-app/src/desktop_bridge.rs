@@ -94,7 +94,7 @@ pub(crate) async fn browser(input: Value, ctx: &ToolCtx) -> ToolOutput {
                 Duration::from_secs(9),
                 request(
                     &endpoint,
-                    json!({"action":"prepare_browser","processId":process}),
+                    json!({"action":"ui_probe","kind":"preview","arg":process}),
                 ),
             )
             .await
@@ -123,6 +123,17 @@ pub(crate) async fn screenshot(ctx: &ToolCtx) -> ToolOutput {
         Some(endpoint) => tool_call(&endpoint, "ui_screenshot", json!({}), ctx, None).await,
         None => ToolOutput::error("桌面窗口未连接，无法截图；后台任务仍可继续"),
     }
+}
+pub(crate) async fn probe(kind: &str, arg: &str) -> Result<Value, String> {
+    let endpoint = DESKTOP
+        .lock_or_recover()
+        .clone()
+        .ok_or("桌面窗口未连接，无法读取界面；后台任务仍可继续")?;
+    request(
+        &endpoint,
+        json!({"action":"ui_probe","kind":kind,"arg":arg}),
+    )
+    .await
 }
 async fn tool_call(
     endpoint: &Endpoint,
@@ -199,9 +210,10 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                         ) == crate::preview::Backend::Pane;
                         return Ok(json!({"pane":pane,"url":meta.map(|m|m.url)}));
                     }
-                    if value["action"] == "prepare_browser" {
-                        let process = value["processId"].as_str().ok_or("缺少对话")?;
-                        return crate::ui_probe("preview", process).await;
+                    if value["action"] == "ui_probe" {
+                        let kind = value["kind"].as_str().ok_or("缺少探针类型")?;
+                        let arg = value["arg"].as_str().ok_or("缺少探针参数")?;
+                        return crate::ui_probe(kind, arg).await;
                     }
                     if value["action"] != "tool" {
                         return Err("未知桌面请求".into());

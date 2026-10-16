@@ -1,3 +1,4 @@
+import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
 /* Production UI with isolated IPC; never writes real project data. */
 /* global window, document, getComputedStyle */
 import assert from "node:assert/strict";
@@ -36,8 +37,10 @@ try {
   for (const [theme, lang] of [["light", "zh"], ["dark", "en"]]) {
     await page.goto(`${server.origin}/?scene=chat&theme=${theme}&lang=${lang}`);
     await page.waitForFunction(() => window.__kzPreview?.ready);
-    check(!await page.locator("#composer-more").isVisible(), `${theme}: Retired More controls are hidden`);
+    check(await page.locator("#composer-more").isVisible(), `${theme}: Advanced operations have a visible More entry`);
+  await openComposerOptions(page);
     check(await page.locator("#subagent-control").isVisible() && await page.locator("#skills-nav").isVisible() && await page.locator("#goal-picker").isVisible(), `${theme}: Subagents, global Skills and Goal stay reachable`);
+  await closeComposerOptions(page);
     await page.locator("#skills-nav").click();
     check(await page.locator("#view-skills").isVisible() && !await page.locator("#skills-menu").count(), `${theme}: Skills opens a separate global library`);
     check(await page.locator("#skills-generate-open").isVisible(), `${theme}: Skill creation stays outside the conversation`);

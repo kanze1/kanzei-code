@@ -1,0 +1,870 @@
+[
+  {
+    "path": "terminal_monitor::terminal_monitor",
+    "host": "service"
+  },
+  {
+    "path": "side_question::side_question_send",
+    "host": "service"
+  },
+  {
+    "path": "side_question::side_question_list",
+    "host": "service"
+  },
+  {
+    "path": "side_question::side_question_stop",
+    "host": "service"
+  },
+  {
+    "path": "runtime_service::runtime_status",
+    "host": "desktop"
+  },
+  {
+    "path": "runtime_service::runtime_shutdown",
+    "host": "desktop"
+  },
+  {
+    "path": "voice::voice_settings_get",
+    "host": "desktop"
+  },
+  {
+    "path": "voice::voice_settings_set",
+    "host": "desktop"
+  },
+  {
+    "path": "voice::voice_status",
+    "host": "desktop"
+  },
+  {
+    "path": "voice::voice_start",
+    "host": "desktop"
+  },
+  {
+    "path": "voice::voice_speak",
+    "host": "desktop"
+  },
+  {
+    "path": "voice::voice_transcribe",
+    "host": "desktop"
+  },
+  {
+    "path": "voice::voice_cancel",
+    "host": "desktop"
+  },
+  {
+    "path": "state::ui_probe_result",
+    "host": "desktop"
+  },
+  {
+    "path": "files_view::files_snapshot",
+    "host": "service"
+  },
+  {
+    "path": "files_view::file_preview",
+    "host": "service"
+  },
+  {
+    "path": "files_edit::file_stat",
+    "host": "service"
+  },
+  {
+    "path": "files_edit::file_write",
+    "host": "service"
+  },
+  {
+    "path": "files_draft::file_draft_save",
+    "host": "service"
+  },
+  {
+    "path": "files_draft::file_draft_clear",
+    "host": "service"
+  },
+  {
+    "path": "files_draft::file_drafts_load",
+    "host": "service"
+  },
+  {
+    "path": "composer_drafts::composer_drafts_load",
+    "host": "service"
+  },
+  {
+    "path": "composer_drafts::composer_draft_save",
+    "host": "service"
+  },
+  {
+    "path": "files_view::files_annotate",
+    "host": "service"
+  },
+  {
+    "path": "files_view::files_annotate_cancel",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_get",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_add",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_init",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_create",
+    "host": "service"
+  },
+  {
+    "path": "projects::project_knowledge_configure",
+    "host": "service"
+  },
+  {
+    "path": "projects::project_git_init",
+    "host": "service"
+  },
+  {
+    "path": "projects::project_facts",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_rename",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_pick",
+    "host": "desktop"
+  },
+  {
+    "path": "projects::projects_remove",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_reorder",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_select",
+    "host": "service"
+  },
+  {
+    "path": "projects::workspace_snapshot",
+    "host": "service"
+  },
+  {
+    "path": "workspace::workspace_overview",
+    "host": "service"
+  },
+  {
+    "path": "softwire::softwire_questions",
+    "host": "service"
+  },
+  {
+    "path": "softwire::softwire_answer_question",
+    "host": "service"
+  },
+  {
+    "path": "decisions::decision_review",
+    "host": "service"
+  },
+  {
+    "path": "decisions::work_delivery_accept",
+    "host": "service"
+  },
+  {
+    "path": "decisions::verification_cancel",
+    "host": "service"
+  },
+  {
+    "path": "docs::docs_snapshot",
+    "host": "service"
+  },
+  {
+    "path": "research_topics::research_topic_create",
+    "host": "service"
+  },
+  {
+    "path": "research_library::research_library_list",
+    "host": "service"
+  },
+  {
+    "path": "research_library::research_library_create",
+    "host": "service"
+  },
+  {
+    "path": "research_library::research_library_link_projects",
+    "host": "service"
+  },
+  {
+    "path": "research_auto::research_workflow_get",
+    "host": "service"
+  },
+  {
+    "path": "research_auto::research_workflow_start",
+    "host": "service"
+  },
+  {
+    "path": "research_auto::research_workflow_update",
+    "host": "service"
+  },
+  {
+    "path": "docs::research_plan_get",
+    "host": "service"
+  },
+  {
+    "path": "docs::research_plan_approve",
+    "host": "service"
+  },
+  {
+    "path": "docs::docs_archive_entries",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::run_prompt",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::stop_run",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::tool_process::run_tool_process_stop",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::stop_task",
+    "host": "service"
+  },
+  {
+    "path": "agent_team::agent_team_command",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::answer_ask",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::permission_rule_add",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::pending_asks_get",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::open_delivered_path",
+    "host": "desktop"
+  },
+  {
+    "path": "commands::os_open::reveal_path",
+    "host": "desktop"
+  },
+  {
+    "path": "commands::os_open::open_tools_list",
+    "host": "desktop"
+  },
+  {
+    "path": "commands::os_open::open_with",
+    "host": "desktop"
+  },
+  {
+    "path": "commands::os_open::open_tools_save",
+    "host": "desktop"
+  },
+  {
+    "path": "deliveries::delivered_files",
+    "host": "service"
+  },
+  {
+    "path": "deliveries::delivery_manage",
+    "host": "service"
+  },
+  {
+    "path": "skills::skills_list",
+    "host": "service"
+  },
+  {
+    "path": "skills::skills_read",
+    "host": "service"
+  },
+  {
+    "path": "skills::skills_save",
+    "host": "service"
+  },
+  {
+    "path": "skills::skills_set_enabled",
+    "host": "service"
+  },
+  {
+    "path": "skills::skills_delete",
+    "host": "service"
+  },
+  {
+    "path": "skills::skills_import",
+    "host": "service"
+  },
+  {
+    "path": "skills::skills_duplicate",
+    "host": "service"
+  },
+  {
+    "path": "skills::skills_generate",
+    "host": "service"
+  },
+  {
+    "path": "deliveries::batch_evidence",
+    "host": "service"
+  },
+  {
+    "path": "deliveries::save_delivered_file",
+    "host": "desktop"
+  },
+  {
+    "path": "auto_run::auto_state_update",
+    "host": "service"
+  },
+  {
+    "path": "auto_run::auto_state_get",
+    "host": "service"
+  },
+  {
+    "path": "auto_run::auto_state_reset",
+    "host": "service"
+  },
+  {
+    "path": "settings::settings_get",
+    "host": "service"
+  },
+  {
+    "path": "settings::settings_save",
+    "host": "service"
+  },
+  {
+    "path": "settings::settings_open",
+    "host": "desktop"
+  },
+  {
+    "path": "model_config::model_effective",
+    "host": "service"
+  },
+  {
+    "path": "model_config::project_models_get",
+    "host": "service"
+  },
+  {
+    "path": "model_config::project_models_save",
+    "host": "service"
+  },
+  {
+    "path": "model_config::project_config_open",
+    "host": "desktop"
+  },
+  {
+    "path": "prefs::ui_prefs_get",
+    "host": "service"
+  },
+  {
+    "path": "prefs::ui_prefs_set",
+    "host": "service"
+  },
+  {
+    "path": "projects::export_pick_dir",
+    "host": "desktop"
+  },
+  {
+    "path": "projects::export_project_data",
+    "host": "service"
+  },
+  {
+    "path": "settings::permission_rules_get",
+    "host": "service"
+  },
+  {
+    "path": "settings::permission_rule_delete",
+    "host": "service"
+  },
+  {
+    "path": "settings::provider_test",
+    "host": "service"
+  },
+  {
+    "path": "update::update_check_command",
+    "host": "desktop"
+  },
+  {
+    "path": "update::update_install_command",
+    "host": "desktop"
+  },
+  {
+    "path": "update::update_receipt_command",
+    "host": "desktop"
+  },
+  {
+    "path": "subagents::quick_req",
+    "host": "service"
+  },
+  {
+    "path": "subagents::idea_split",
+    "host": "service"
+  },
+  {
+    "path": "subagents::defect_review",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_overview",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_control_plane",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_entries",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_archived_entries",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_entry_restore",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_entry_get",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_graph",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_recalls",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_value_flags",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_entry_delete",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_note_candidates",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_note_discard",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::run_metrics",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::run_metrics_by_category",
+    "host": "service"
+  },
+  {
+    "path": "commands::run::run_metrics_by_task",
+    "host": "service"
+  },
+  {
+    "path": "projects::project_root_info",
+    "host": "service"
+  },
+  {
+    "path": "projects::project_detach",
+    "host": "service"
+  },
+  {
+    "path": "projects::projects_isolation_report",
+    "host": "service"
+  },
+  {
+    "path": "fast_model::fast_model_status",
+    "host": "service"
+  },
+  {
+    "path": "fast_model::fast_model_setup",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_entry_save",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_search_page",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_context_bill",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_consolidate",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_consolidate_note",
+    "host": "service"
+  },
+  {
+    "path": "memory_chat::memory_chat_history",
+    "host": "desktop"
+  },
+  {
+    "path": "memory_chat::memory_chat_send",
+    "host": "desktop"
+  },
+  {
+    "path": "memory_chat::memory_chat_reset",
+    "host": "desktop"
+  },
+  {
+    "path": "memory_chat::memory_chat_stop",
+    "host": "desktop"
+  },
+  {
+    "path": "run::app_info",
+    "host": "desktop"
+  },
+  {
+    "path": "commands::models::models_list",
+    "host": "service"
+  },
+  {
+    "path": "docs::docs_update",
+    "host": "service"
+  },
+  {
+    "path": "docs::webfetch_preview",
+    "host": "service"
+  },
+  {
+    "path": "research_latex::research_latex_templates",
+    "host": "service"
+  },
+  {
+    "path": "research_latex::research_latex_create",
+    "host": "service"
+  },
+  {
+    "path": "research_latex::research_latex_insert_figure",
+    "host": "service"
+  },
+  {
+    "path": "research_latex::research_latex_compile",
+    "host": "service"
+  },
+  {
+    "path": "research_latex::research_latex_history",
+    "host": "service"
+  },
+  {
+    "path": "research_latex::research_latex_pdf",
+    "host": "service"
+  },
+  {
+    "path": "docs::research_arxiv_preview",
+    "host": "service"
+  },
+  {
+    "path": "docs::docs_open",
+    "host": "desktop"
+  },
+  {
+    "path": "commands::summarize::summarize_chat",
+    "host": "service"
+  },
+  {
+    "path": "docs::git_status",
+    "host": "service"
+  },
+  {
+    "path": "docs::conventions_init",
+    "host": "service"
+  },
+  {
+    "path": "docs::conventions_read",
+    "host": "service"
+  },
+  {
+    "path": "docs::conventions_save",
+    "host": "service"
+  },
+  {
+    "path": "docs::conventions_discard",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_clear",
+    "host": "service"
+  },
+  {
+    "path": "manual_compact::conversation_compact",
+    "host": "service"
+  },
+  {
+    "path": "schedules::schedule_action",
+    "host": "service"
+  },
+  {
+    "path": "conversation_actions::conversation_action",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_delete",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_cleanup",
+    "host": "service"
+  },
+  {
+    "path": "docs::docs_read",
+    "host": "service"
+  },
+  {
+    "path": "docs::docs_read_custom",
+    "host": "service"
+  },
+  {
+    "path": "docs::architecture_snapshot",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_get",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_display_get",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_shadow_get",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_trace_get",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_list",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_page",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::list_pending_inputs",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::cancel_input",
+    "host": "service"
+  },
+  {
+    "path": "projects::project_files",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::process_list",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::process_create",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::process_update",
+    "host": "service"
+  },
+  {
+    "path": "general_chat::general_chat_open",
+    "host": "service"
+  },
+  {
+    "path": "general_chat::general_chat_location",
+    "host": "service"
+  },
+  {
+    "path": "general_chat::general_chat_link",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::process_close",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::process_rename",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::process_purge",
+    "host": "service"
+  },
+  {
+    "path": "processes::lifecycle::process_closed_list",
+    "host": "service"
+  },
+  {
+    "path": "collaboration::collaboration_snapshot",
+    "host": "service"
+  },
+  {
+    "path": "processes::workspace::worktree_create",
+    "host": "service"
+  },
+  {
+    "path": "processes::workspace::worktree_list",
+    "host": "service"
+  },
+  {
+    "path": "processes::workspace::worktree_diff",
+    "host": "service"
+  },
+  {
+    "path": "processes::workspace::worktree_merge",
+    "host": "service"
+  },
+  {
+    "path": "processes::workspace::worktree_merge_preview",
+    "host": "service"
+  },
+  {
+    "path": "processes::workspace::worktree_discard",
+    "host": "service"
+  },
+  {
+    "path": "processes::gate::worktree_gate",
+    "host": "service"
+  },
+  {
+    "path": "processes::gate::worktree_post_merge_gate",
+    "host": "service"
+  },
+  {
+    "path": "processes::workspace::worktree_harvest_candidates",
+    "host": "service"
+  },
+  {
+    "path": "processes::workspace::worktree_harvest_writeback",
+    "host": "service"
+  },
+  {
+    "path": "docs::test_runs_snapshot",
+    "host": "service"
+  },
+  {
+    "path": "docs::test_run_record",
+    "host": "service"
+  },
+  {
+    "path": "docs::test_runs_init_refs",
+    "host": "service"
+  },
+  {
+    "path": "mobile::mobile_service_start",
+    "host": "service"
+  },
+  {
+    "path": "mobile::mobile_service_stop",
+    "host": "service"
+  },
+  {
+    "path": "mobile::mobile_device_revoke",
+    "host": "service"
+  },
+  {
+    "path": "mobile::mobile_device_list",
+    "host": "service"
+  },
+  {
+    "path": "mobile::mobile_pair_code_regenerate",
+    "host": "service"
+  },
+  {
+    "path": "mobile_notify::mobile_push_status",
+    "host": "service"
+  },
+  {
+    "path": "agent_directory::agent_directory_get",
+    "host": "service"
+  },
+  {
+    "path": "agent_directory::agent_directory_open",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_open",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_set_bounds",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_set_visible",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_nav",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_close",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_capture",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_console",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_console_clear",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_device",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_pick",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_snippet",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_dev_urls",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_clear_site_data",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_open_devtools",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::preview_open_external",
+    "host": "desktop"
+  },
+  {
+    "path": "preview::commands::tool_image",
+    "host": "service"
+  },
+  {
+    "path": "preview::commands::delivered_image",
+    "host": "service"
+  }
+]

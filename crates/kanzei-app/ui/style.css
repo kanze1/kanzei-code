@@ -1042,12 +1042,12 @@ html[data-backdrop="off"] .neural-flow-chat { display: none; }
 .msg.user > .msg-actions { left: auto; right: 0; }
 .msg:is(:hover, :focus-within) > .msg-actions, .tool-chip:hover .msg-actions { opacity: 1; }
 .msg.error > .msg-actions { position: static; opacity: 1; margin-top: 8px; }
-.copy-btn {
+.copy-btn, .msg-action {
   width: 24px; height: 24px; padding: 0; display: inline-grid; place-items: center;
   background: transparent; color: var(--dim); border: 0; border-radius: var(--r-sm);
 }
-.copy-btn:hover { background: var(--surface-hover); color: var(--fg-strong); }
-.copy-btn svg { width: 14px; height: 14px; display: block; }
+.copy-btn:hover, .msg-action:hover { background: var(--surface-hover); color: var(--fg-strong); }
+.copy-btn svg, .msg-action svg { width: 14px; height: 14px; display: block; }
 /* 对话搜索浮条(UX-047):对话区右上角,压在消息之上(#messages 是 --z-raised,浮条要更高)。 */
 .chat-search-bar {
   position: absolute; top: 10px; right: 20px; z-index: var(--z-sticky);
@@ -4316,3 +4316,7 @@ input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: default;
 .requirement-error { color: var(--danger); }
 
 #process-subagents { width: auto; min-width: 80px; height: var(--ctl-h); padding: 2px 5px; border-radius: 5px; font-size: var(--fs-11); }
+
+#runtime-connection-state { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--border); color: var(--fg); background: var(--panel); font-size: var(--fs-12); }
+#runtime-connection-state[hidden] { display: none; }
+#runtime-connection-state button { margin-left: auto; }

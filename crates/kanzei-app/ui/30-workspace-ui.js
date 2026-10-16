@@ -1,4 +1,4 @@
-import { $, defer } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
 import { bindMenus } from "./00-surface.js";
 import { t } from "./02-i18n.js";
 import { currentProject, navigate_view, running } from "./03-shell.js";
@@ -22,14 +22,8 @@ defer(() => {
   if (memory) { memory.append(node("span", "", t("记忆管理"))); footer.append(memory); }
   $("workbench-navigation").append(footer);
 
-  // Keep legacy DOM hooks for saved layouts; the composer no longer exposes them.
-  const retired = node("div", "retired-conversation-controls"); retired.hidden = true;
-  $("composer").append(retired);
-  for (const id of ["composer-more", "composer-more-menu", "side-question-open", "terminal-monitor-open", "sop-picker", "worktree-add", "summarize-btn", "copy-context", "chat-search-toggle", "project-handoff", "runtime-indicator", "auto-continue-wrap"]) {
-    const control = $(id); if (control) retired.append(control);
-  }
-  const left = $("composer-left");
-  const subagents = $("subagent-control"); if (subagents) left.append(subagents);
+  const advancedMenu = $("composer-more-menu");
+  const handoff = $("project-handoff"); if (handoff) advancedMenu.append(handoff);
   const goalMenu = $("goal-menu");
   const goal = $("auto-goal"), goalLabel = goal?.previousElementSibling;
   if (goalLabel) goalMenu.append(goalLabel); if (goal) goalMenu.append(goal);
@@ -43,8 +37,8 @@ defer(() => {
     const button = node("button", "kz-ctl", label); button.id = id; button.type = "button"; button.dataset.kzMenu = menu;
     button.setAttribute("aria-haspopup", "true"); button.setAttribute("aria-expanded", "false"); bindings.append(button);
   }
-  left.append(bindings);
-  bindMenus(left);
+  advancedMenu.prepend(bindings);
+  bindMenus(advancedMenu);
   const runtime = $("runtime-indicator");
   $("auto-continue")?.setAttribute("role", "switch");
 

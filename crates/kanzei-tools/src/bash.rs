@@ -11,10 +11,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::io::AsyncReadExt;
 
-use crate::managed::{
-    enforce_managed_files_with_writer_log, managed_scope_exists, ManagedSnapshot,
-    MANAGED_SNAPSHOT_FILE_LIMIT, MANAGED_SNAPSHOT_MAX_FILES,
-};
+use crate::managed::{enforce_managed_files_with_writer_log, managed_scope_exists};
 use crate::shell::{detected_shell, kill_tree};
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
@@ -25,33 +22,6 @@ const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
 /// PowerShell spawn 必然失败(实测 475ms 退出、first.out 为空)。按 30000 留余量,
 /// 超过直接结构化拒绝,不给 spawn 机会。
 const MAX_COMMAND_CHARS: usize = 30_000;
-
-/// R-244 批3:D-113 整文件覆写防线作为单调 Guard。命令串含整文件覆写 cmdlet
-/// (Set-Content/Out-File 等)即拒绝——绕 edit/write 的语法校验与 diff 展示。
-struct FullFileWriteGuard;
-
-impl kanzei_harness::tool_pipeline::ToolGuard for FullFileWriteGuard {
-    fn name(&self) -> &'static str {
-        "full-file-write"
-    }
-    fn check(
-        &self,
-        _tool_name: &str,
-        input: &serde_json::Value,
-        _ctx: &ToolCtx,
-    ) -> Result<(), String> {
-        let command = input["command"].as_str().unwrap_or("");
-        let Some(cmdlet) = full_file_write_cmdlet(command) else {
-            return Ok(());
-        };
-        Err(format!(
-            "`{cmdlet}` is blocked: whole-file rewrites via shell bypass the edit/write \
-             tools' syntax validation and diff display. Use `edit` for targeted changes \
-             (it tolerates line-ending differences and, after two misses, shows you the \
-             file's actual content) or `write` to create/replace a file deliberately."
-        ))
-    }
-}
 
 /// R-244 批3:R-238 ①超长防护作为单调 Guard。命令串超 30000 UTF-16 单元即拒绝,
 /// 不发生真实 spawn;文案给文件中转与 --prompt-file 两条正路。
@@ -80,42 +50,10 @@ impl kanzei_harness::tool_pipeline::ToolGuard for CommandLengthGuard {
     }
 }
 
-/// R-244 批3:git 写操作防线作为单调 Guard。bash 里的 `git add/commit` 等写子命令
-/// 一律拒绝,必须走结构化 git 工具(读子命令 status/diff 等放行)。
-struct GitMutationGuard;
-
-impl kanzei_harness::tool_pipeline::ToolGuard for GitMutationGuard {
-    fn name(&self) -> &'static str {
-        "git-mutation"
-    }
-    fn check(
-        &self,
-        _tool_name: &str,
-        input: &serde_json::Value,
-        _ctx: &ToolCtx,
-    ) -> Result<(), String> {
-        let command = input["command"].as_str().unwrap_or("");
-        let Some(form) = git_mutation_form(command) else {
-            return Ok(());
-        };
-        Err(format!(
-            "`{form}` is blocked in bash: Git mutations must use the structured `git` tool. \
-             Use `git stage` with explicit files, review its staged_hash/diff, then `git commit` \
-             with that hash. Fast-forward merges go through `git merge_ff` (from/into; it finds \
-             the worktree where `into` is checked out). Other branch/index mutations not covered \
-             by that tool require the user to run them directly; do not route them through \
-             another shell spelling."
-        ))
-    }
-}
-
-/// R-244 批3:bash 的三条单调 Guard,按原 execute 的防线顺序排列。
+/// Input-size checking is shell-independent. PowerShell command semantics are
+/// checked by its native parser in the execution process, before execution.
 fn bash_guards() -> Vec<std::sync::Arc<dyn kanzei_harness::tool_pipeline::ToolGuard>> {
-    vec![
-        std::sync::Arc::new(FullFileWriteGuard),
-        std::sync::Arc::new(CommandLengthGuard),
-        std::sync::Arc::new(GitMutationGuard),
-    ]
+    vec![std::sync::Arc::new(CommandLengthGuard)]
 }
 
 /// R-183 内容②(验收③):worktree 里权限判定的 workdir 视图按**主根**。
@@ -162,7 +100,10 @@ struct BashInput {
     verification: Option<crate::verification::VerificationRequest>,
 }
 
-pub struct BashTool;
+#[derive(Default)]
+pub struct BashTool {
+    snapshots: std::sync::Arc<crate::managed::SnapshotCollector>,
+}
 
 #[async_trait]
 impl Tool for BashTool {
@@ -181,7 +122,9 @@ impl Tool for BashTool {
         };
         format!(
             "Run a shell command via {} — {syntax}. Params: command; optional timeout_ms, workdir, \
-             background, test, verification. For a work_units_v1 unit use verification={{unit_id,criteria,environment,resource}} \
+             background, test, verification. PowerShell commands are parsed by its native AST for dedicated-tool routing; \
+             other shells use resource/result guards without PowerShell command-routing checks. \
+             For a work_units_v1 unit use verification={{unit_id,criteria,environment,resource}} \
              to freeze source and submit an independent persistent verification job. criteria must be exact acceptance entries; \
              resource defaults to local-build. The unit releases development WIP while verification runs. \
              Use work verification_jobs to read results and verification_cancel to stop a job. Do not combine verification with test/background/persistent. \
@@ -263,7 +206,7 @@ impl Tool for BashTool {
 }
 
 /// R-244 批3:bash 工具本体(原 execute 去三条防线后),供 pipeline body 调用。
-async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+async fn bash_body(tool: &BashTool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
     let input: BashInput = match crate::parse_input(tool, input.clone()) {
         Ok(v) => v,
         Err(out) => return out,
@@ -306,7 +249,7 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     } else {
         None
     };
-    let mut output = bash_command_body(input, ctx).await;
+    let mut output = bash_command_body(input, ctx, &tool.snapshots).await;
     if let Some(test) = test {
         if let Err(error) = test.finish(&mut output) {
             output.content.push_str(&format!(
@@ -317,7 +260,11 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     output
 }
 
-async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
+async fn bash_command_body(
+    input: BashInput,
+    ctx: &ToolCtx,
+    snapshots: &std::sync::Arc<crate::managed::SnapshotCollector>,
+) -> ToolOutput {
     let timeout = Duration::from_millis(
         input
             .timeout_ms
@@ -351,14 +298,9 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default();
-    let managed_before = ManagedSnapshot::capture(&ctx.project_root);
+    let managed_before = snapshots.capture(&ctx.project_root);
     if !managed_before.is_complete() {
-        return ToolOutput::error(format!(
-            "bash refused before execution: the managed-document snapshot is incomplete \
-                 (more than {MANAGED_SNAPSHOT_MAX_FILES} files or a file over \
-                 {MANAGED_SNAPSHOT_FILE_LIMIT} bytes). A shell command cannot run when its \
-                 protected-path effects cannot be fully rolled back."
-        ));
+        return ToolOutput::error("bash refused before execution: managed documents could not be read or their recovery snapshot could not be stored.");
     }
 
     // R-186 跨树保护:命令窗口内不得改动**其它线的工作树**(串台防护——A 线的命令
@@ -374,6 +316,11 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
     .unwrap_or_default();
 
     let shell = detected_shell();
+    let execution_source = if matches!(shell.name, "pwsh" | "powershell") {
+        include_str!("bash/powershell.ps1")
+    } else {
+        &input.command
+    };
     let mut command = tokio::process::Command::new(&shell.program);
     // UI2-0926 #13:① 命令前加 UTF-8 输出前导(中文路径曾被 GBK→UTF-8 解码成 U+FFFD);
     // ② PATH 每次按注册表新鲜合并(会话中途装好的工具立刻可用);③ 工作目录用 simplify
@@ -383,8 +330,9 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
         .args(&shell.args)
         .arg(crate::shell::command_with_utf8_output(
             shell.name,
-            &input.command,
+            execution_source,
         ))
+        .env("KANZEI_SHELL_SOURCE", &input.command)
         .env("PATH", crate::shell::fresh_path())
         .current_dir(crate::path_form::simplify(&workdir))
         .stdin(if input.interactive {
@@ -567,7 +515,16 @@ async fn bash_command_body(input: BashInput, ctx: &ToolCtx) -> ToolOutput {
                 // 前端 detail 展开区消费;上限 200k 防事件体被单条输出打爆。
                 "full": text.chars().take(200_000).collect::<String>(),
             });
-            let output = if ok && breach.is_none() && cross_tree.is_none() {
+            let syntax_rejection = String::from_utf8_lossy(&err_buf)
+                .lines()
+                .find_map(|line| line.strip_prefix("KANZEI_SHELL_GUARD:"))
+                .and_then(|payload| serde_json::from_str::<serde_json::Value>(payload).ok());
+            let output = if let Some(rejection) = syntax_rejection {
+                ToolOutput::needs_correction(
+                    "SHELL_COMMAND_POLICY",
+                    rejection["message"].as_str().unwrap_or(&rendered),
+                )
+            } else if ok && breach.is_none() && cross_tree.is_none() {
                 ToolOutput::ok(rendered)
             } else {
                 ToolOutput::error(rendered)
@@ -652,74 +609,6 @@ fn background_result(process: &crate::background::BackgroundProcess, ctx: &ToolC
         "kind": "terminal", "command": process.command, "background": true,
         "processId": process.id, "output": process.output(),
     }))
-}
-
-/// 命令中出现整文件覆写 cmdlet 时返回其名称(词边界匹配,Get-Content 不误伤)。
-fn full_file_write_cmdlet(command: &str) -> Option<&'static str> {
-    let lower = command.to_ascii_lowercase();
-    for (needle, name) in [("set-content", "Set-Content"), ("out-file", "Out-File")] {
-        let mut search_from = 0;
-        while let Some(pos) = lower[search_from..].find(needle) {
-            let absolute = search_from + pos;
-            let bounded_left = absolute == 0
-                || !matches!(lower.as_bytes()[absolute - 1], b'a'..=b'z' | b'0'..=b'9' | b'-');
-            let after = absolute + needle.len();
-            let bounded_right = after >= lower.len()
-                || !matches!(lower.as_bytes()[after], b'a'..=b'z' | b'0'..=b'9' | b'-');
-            if bounded_left && bounded_right {
-                return Some(name);
-            }
-            search_from = after;
-        }
-    }
-    None
-}
-
-/// shell 中的 Git 写子命令。读命令仍放行；写命令统一走结构化 `git` 工具。
-fn git_mutation_form(command: &str) -> Option<String> {
-    for segment in command.split([';', '\n', '|', '&']) {
-        let tokens: Vec<&str> = segment.split_whitespace().collect();
-        let Some(git_at) = tokens.iter().position(|t| {
-            let t = t.trim_matches(['"', '\'']);
-            t.eq_ignore_ascii_case("git") || t.to_ascii_lowercase().ends_with("/git")
-        }) else {
-            continue;
-        };
-        let rest = &tokens[git_at + 1..];
-        // 跳过 `-C <dir>` / `-c k=v` 之类的全局开关,找到真正的子命令。
-        let mut index = 0usize;
-        while index < rest.len() && rest[index].starts_with('-') {
-            index += if matches!(rest[index], "-C" | "-c" | "--git-dir" | "--work-tree") {
-                2
-            } else {
-                1
-            };
-        }
-        let Some(subcommand) = rest.get(index).map(|s| s.to_ascii_lowercase()) else {
-            continue;
-        };
-        if matches!(
-            subcommand.as_str(),
-            "add"
-                | "stage"
-                | "commit"
-                | "checkout"
-                | "switch"
-                | "reset"
-                | "restore"
-                | "merge"
-                | "rebase"
-                | "pull"
-                | "cherry-pick"
-                | "revert"
-                | "clean"
-                | "rm"
-                | "mv"
-        ) {
-            return Some(format!("git {subcommand}"));
-        }
-    }
-    None
 }
 
 /// 后台任务的 workdir 结构化围栏(D-174 静态第一道)。
@@ -839,10 +728,7 @@ async fn read_capped(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        full_file_write_cmdlet, git_mutation_form, in_managed_dir, BashTool, CommandLengthGuard,
-        FullFileWriteGuard, GitMutationGuard,
-    };
+    use super::{in_managed_dir, BashTool, CommandLengthGuard};
     use crate::managed::ManagedSnapshot;
     use kanzei_harness::{Tool, ToolCtx};
     use serde_json::json;
@@ -884,7 +770,8 @@ mod tests {
         let executing = tokio::spawn(async move {
             kanzei_harness::progress::scope(
                 handle,
-                BashTool.execute(json!({"command":command,"timeout_ms":timeout_ms}), &ctx),
+                BashTool::default()
+                    .execute(json!({"command":command,"timeout_ms":timeout_ms}), &ctx),
             )
             .await
         });
@@ -976,7 +863,7 @@ mod tests {
             }
             _ => "echo MD文件保存 & cd".to_string(),
         };
-        let out = BashTool
+        let out = BashTool::default()
             .execute(serde_json::json!({ "command": command }), &ctx)
             .await;
         assert!(!out.is_error, "{}", out.content);
@@ -1042,7 +929,7 @@ mod tests {
             _ => format!("printf BYPASSED > '{target}'"),
         };
 
-        let out = BashTool
+        let out = BashTool::default()
             .execute(serde_json::json!({ "command": command }), &ctx)
             .await;
         assert!(out.is_error, "越权写入必须按错误回喂: {}", out.content);
@@ -1068,38 +955,12 @@ mod tests {
             "cmd" => format!("echo ok> \"{plain}\""),
             _ => format!("printf ok > '{plain}'"),
         };
-        let out = BashTool
+        let out = BashTool::default()
             .execute(serde_json::json!({ "command": command }), &ctx)
             .await;
         assert!(!out.is_error, "{}", out.content);
         assert!(root.join("scratch.txt").is_file());
         std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn git_mutations_are_blocked_without_false_positives() {
-        let blocked = [
-            "git add -A",
-            "git add src/main.rs",
-            "git commit -m x",
-            "git status --short; git add .kanzei/project",
-            "git checkout other-branch",
-            "git reset --hard HEAD~1",
-            "git pull --ff-only",
-        ];
-        for command in blocked {
-            assert!(git_mutation_form(command).is_some(), "应拦截: {command}");
-        }
-        let allowed = [
-            "git log --all --oneline",
-            "git diff --stat",
-            "git status --short",
-            "git show HEAD",
-            "cargo add serde",
-        ];
-        for command in allowed {
-            assert!(git_mutation_form(command).is_none(), "不该拦截: {command}");
-        }
     }
 
     #[tokio::test]
@@ -1120,7 +981,7 @@ mod tests {
             "cmd" => format!("echo x> \"{target}\""),
             _ => format!("printf x > '{target}'"),
         };
-        let out = BashTool
+        let out = BashTool::default()
             .execute(serde_json::json!({"command": command}), &ctx)
             .await;
         assert!(out.is_error, "{}", out.content);
@@ -1138,7 +999,7 @@ mod tests {
             ..Default::default()
         };
         // 扎进 .kanzei/ 内:拒绝,且理由点名 .kanzei 而不是笼统的"后台不可用"。
-        let out = BashTool
+        let out = BashTool::default()
             .execute(
                 serde_json::json!({
                     "command": "echo ok",
@@ -1166,7 +1027,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&outside).unwrap();
-        let out = BashTool
+        let out = BashTool::default()
             .execute(
                 serde_json::json!({
                     "command": "echo ok",
@@ -1200,7 +1061,7 @@ mod tests {
             ..Default::default()
         };
         // ① worktree 的子目录:放行(改前会因为「不在主根之下」被拒)。
-        let out = BashTool
+        let out = BashTool::default()
             .execute(
                 serde_json::json!({
                     "command": "echo ok",
@@ -1216,7 +1077,7 @@ mod tests {
             out.content
         );
         // ② worktree 内的 .kanzei 副本:仍拒。
-        let out = BashTool
+        let out = BashTool::default()
             .execute(
                 serde_json::json!({
                     "command": "echo ok",
@@ -1233,7 +1094,7 @@ mod tests {
             out.content
         );
         // ③ 主根(代码树之外):仍拒。
-        let out = BashTool
+        let out = BashTool::default()
             .execute(
                 serde_json::json!({
                     "command": "echo ok",
@@ -1305,7 +1166,7 @@ mod tests {
             process_id: Some("proc-a".into()),
             ..Default::default()
         };
-        let out = BashTool
+        let out = BashTool::default()
             .execute(
                 serde_json::json!({"command":"echo ok","background":true}),
                 &ctx,
@@ -1320,25 +1181,12 @@ mod tests {
         std::fs::remove_dir_all(root).ok();
     }
 
-    #[test]
-    fn whole_file_write_cmdlets_are_detected_with_word_boundaries() {
-        // D-113:拦截整文件覆写,但不误伤 Get-Content 等读取。
-        assert_eq!(
-            full_file_write_cmdlet("Set-Content -Path main.rs -Value $code"),
-            Some("Set-Content")
-        );
-        assert_eq!(
-            full_file_write_cmdlet("$lines | out-file -Encoding utf8 x.txt"),
-            Some("Out-File")
-        );
-        assert_eq!(full_file_write_cmdlet("Get-Content main.rs"), None);
-        assert_eq!(full_file_write_cmdlet("cargo test --workspace"), None);
-        assert_eq!(full_file_write_cmdlet("echo reset-contentious"), None);
-    }
-
     #[tokio::test]
-    async fn set_content_command_is_blocked_before_spawn() {
-        let out = BashTool
+    async fn set_content_command_is_blocked_before_execution() {
+        if !matches!(super::detected_shell().name, "pwsh" | "powershell") {
+            return;
+        }
+        let out = BashTool::default()
             .execute(
                 serde_json::json!({"command": "Set-Content -Path x.rs -Value 'fn main(){}'"}),
                 &ToolCtx {
@@ -1360,7 +1208,7 @@ mod tests {
             _ => "sleep 5",
         };
         let started = std::time::Instant::now();
-        let out = BashTool
+        let out = BashTool::default()
             .execute(
                 serde_json::json!({"command": command, "timeout_ms": 50}),
                 &ToolCtx {
@@ -1409,7 +1257,7 @@ mod tests {
              [System.IO.File]::WriteAllText('{marker_str}', \"$PID,$($c.Id)\"); \
              Start-Sleep -Seconds 300"
         );
-        let out = BashTool
+        let out = BashTool::default()
             .execute(
                 // 超时要给足:命令得先把孙进程起来并写完 pid,不然测试拿不到断言对象。
                 serde_json::json!({"command": command, "timeout_ms": 8000}),
@@ -1455,7 +1303,7 @@ mod tests {
 
     #[test]
     fn description_explains_default_eof_and_interactive_input() {
-        let description = BashTool.description();
+        let description = BashTool::default().description();
         assert!(description.contains("stdin is closed"));
         assert!(description.contains("interactive=true"));
         assert!(description.contains("action=input"));
@@ -1468,7 +1316,7 @@ mod tests {
             "command": "git status > .kanzei/project/requirements.md",
             "workdir": "subdir"
         });
-        let resources = BashTool.resources(&input);
+        let resources = BashTool::default().resources(&input);
         assert_eq!(resources.len(), 1);
         let resource: serde_json::Value = serde_json::from_str(&resources[0]).unwrap();
         assert_eq!(
@@ -1477,7 +1325,7 @@ mod tests {
         );
         assert_eq!(resource["workdir"], "subdir");
         let resource: serde_json::Value = serde_json::from_str(
-            &BashTool.resources_with_ctx(
+            &BashTool::default().resources_with_ctx(
                 &serde_json::json!({"command": "git status", "workdir": "subdir"}),
                 &ToolCtx {
                     cwd: PathBuf::from("C:/project"),
@@ -1492,7 +1340,7 @@ mod tests {
             kanzei_harness::permission::normalize_resource("C:/project/subdir")
         );
         let resource: serde_json::Value = serde_json::from_str(
-            &BashTool.resources_with_ctx(
+            &BashTool::default().resources_with_ctx(
                 &serde_json::json!({"command": "git status"}),
                 &ToolCtx {
                     cwd: PathBuf::from("C:/project"),
@@ -1520,7 +1368,7 @@ mod tests {
             ..Default::default()
         };
         let resource: serde_json::Value = serde_json::from_str(
-            &BashTool.resources_with_ctx(
+            &BashTool::default().resources_with_ctx(
                 &serde_json::json!({"command": "git status", "workdir": "crates/foo"}),
                 &ctx,
             )[0],
@@ -1561,7 +1409,7 @@ mod tests {
                 ..Default::default()
             },
         ] {
-            let resource = BashTool.resources_with_ctx(
+            let resource = BashTool::default().resources_with_ctx(
                 &serde_json::json!({"command": "git status", "workdir": "crates/foo"}),
                 &ctx,
             )[0]
@@ -1582,7 +1430,7 @@ mod tests {
         // Windows 命令行上限 32767(UTF-16 单元);按 30000 留余量拒绝。
         let long_command = "echo x".to_string() + &"a".repeat(32_000);
         let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
-        let output = BashTool
+        let output = BashTool::default()
             .execute(
                 serde_json::json!({ "command": long_command, "timeout_ms": 100 }),
                 &ctx,
@@ -1607,31 +1455,6 @@ mod tests {
     }
 
     #[test]
-    fn 防线guard_整文件覆写拒绝() {
-        use kanzei_harness::tool_pipeline::ToolGuard;
-        let g = FullFileWriteGuard;
-        assert!(g
-            .check(
-                "bash",
-                &json!({"command": "Set-Content a.txt 'x'"}),
-                &guard_ctx()
-            )
-            .is_err());
-        assert!(
-            g.check(
-                "bash",
-                &json!({"command": "Get-Content a.txt"}),
-                &guard_ctx()
-            )
-            .is_ok(),
-            "Get-Content 不误伤"
-        );
-        assert!(g
-            .check("bash", &json!({"command": "echo hi"}), &guard_ctx())
-            .is_ok());
-    }
-
-    #[test]
     fn 防线guard_超长命令拒绝() {
         use kanzei_harness::tool_pipeline::ToolGuard;
         let g = CommandLengthGuard;
@@ -1648,35 +1471,44 @@ mod tests {
             .is_ok());
     }
 
-    #[test]
-    fn 防线guard_git写操作拒绝读操作放行() {
-        use kanzei_harness::tool_pipeline::ToolGuard;
-        let g = GitMutationGuard;
-        assert!(g
-            .check(
-                "bash",
-                &json!({"command": "git add src/main.rs"}),
-                &guard_ctx()
-            )
-            .is_err());
-        assert!(g
-            .check(
-                "bash",
-                &json!({"command": "git commit -m 'x'"}),
-                &guard_ctx()
-            )
-            .is_err());
-        assert!(
-            g.check("bash", &json!({"command": "git status"}), &guard_ctx())
-                .is_ok(),
-            "读子命令放行"
-        );
-        assert!(g
-            .check(
-                "bash",
-                &json!({"command": "git log --oneline"}),
-                &guard_ctx()
-            )
-            .is_ok());
+    #[tokio::test]
+    async fn powershell_ast_distinguishes_data_from_nested_invocations() {
+        if !matches!(super::detected_shell().name, "pwsh" | "powershell") {
+            return;
+        }
+        let root = temp_project("syntax-tree");
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        for command in [
+            "Write-Output 'git add example'",
+            "Write-Output 'Set-Content'",
+            "# git commit\nWrite-Output okay",
+            "Write-Output @'\nSet-Content file text\n'@",
+        ] {
+            let output = BashTool::default()
+                .execute(json!({"command":command}), &ctx)
+                .await;
+            assert!(!output.is_error, "{command}: {}", output.content);
+        }
+        for command in [
+            "Write-Output before; git add x",
+            "& 'git' -C . commit -m test",
+            "Write-Output $(Set-Content escaped.txt x)",
+            "'text' | Out-File escaped.txt",
+        ] {
+            let output = BashTool::default()
+                .execute(json!({"command":command}), &ctx)
+                .await;
+            assert!(
+                output.outcome.is_expected_rejection(),
+                "{command}: {}",
+                output.content
+            );
+            assert!(!root.join("escaped.txt").exists());
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

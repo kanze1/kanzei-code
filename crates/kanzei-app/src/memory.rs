@@ -587,7 +587,7 @@ pub(crate) fn memory_search_page(
     project_dir: String,
     query: String,
     limit: Option<usize>,
-) -> serde_json::Value {
+) -> Result<serde_json::Value, String> {
     let limit = limit.unwrap_or(30).clamp(1, 100);
     let cwd = PathBuf::from(&project_dir);
     let root = crate::normalized_project_root(&cwd);
@@ -595,12 +595,14 @@ pub(crate) fn memory_search_page(
     // 命中即记 RETRIEVED(桌面搜索页只展示、不进 LLM 上下文,故 injected=false)。
     // D-366:检索走统一门面(index 是 ranking 唯一实现处),不再直调 store.search。
     let index = kanzei_tools::memory::SqliteMemoryIndex::new(&root);
-    let all_hits: Vec<kanzei_tools::memory::SearchHit> = index.search_entries(
-        &kanzei_tools::memory::IndexQuery::text(&query),
-        None,
-        None,
-        limit,
-    );
+    let all_hits: Vec<kanzei_tools::memory::SearchHit> = index
+        .search_entries(
+            &kanzei_tools::memory::IndexQuery::text(&query),
+            None,
+            Some("active"),
+            limit,
+        )
+        .map_err(|error| format!("memory index unavailable: {error:#}"))?;
     let out: Vec<serde_json::Value> = all_hits
         .iter()
         .map(|h| {
@@ -619,7 +621,7 @@ pub(crate) fn memory_search_page(
             "user_search",
         );
     }
-    json!(out)
+    Ok(json!(out))
 }
 
 // 队列优先级由运行控制状态持有，不再镜像成记忆条目。

@@ -15,6 +15,17 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 mod compatibility;
+mod shutdown;
+
+// Control frames and event polls are short. Invokes may run bounded I/O such as
+// compaction; a timeout reports an unknown result and never replays a mutation.
+const CONTROL_DEADLINE: Duration = Duration::from_secs(10);
+const INVOKE_DEADLINE: Duration = Duration::from_secs(300);
+const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(crate::state::STOP_GRACE_SECS + 15);
+
+pub(crate) fn admit_work() -> Result<compatibility::Admission, String> {
+    compatibility::admit()
+}
 
 const LIMIT: usize = 32 * 1024 * 1024;
 const PROTOCOL: u32 = 1;
@@ -81,30 +92,9 @@ impl Journal {
     }
 }
 fn local_command(command: &str) -> bool {
-    command.starts_with("plugin:")
-        || command.starts_with("preview_")
-        || command.starts_with("voice_")
-        || command.starts_with("memory_chat_")
-        || command.starts_with("update_")
-        || matches!(
-            command,
-            "runtime_status"
-                | "runtime_shutdown"
-                | "projects_pick"
-                | "export_pick_dir"
-                | "docs_open"
-                | "settings_open"
-                | "project_config_open"
-                | "agent_directory_open"
-                | "open_delivered_path"
-                | "reveal_path"
-                | "open_with"
-                | "open_tools_list"
-                | "open_tools_save"
-                | "save_delivered_file"
-                | "app_info"
-        )
+    crate::native_dispatch::desktop_command(command)
 }
+
 pub(crate) fn route<F>(handler: F) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static
 where
     F: Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static,
@@ -154,7 +144,20 @@ pub(crate) async fn frame_read(stream: &mut TcpStream) -> Result<Value, String> 
         .map_err(|e| e.to_string())?;
     serde_json::from_slice(&data).map_err(|e| e.to_string())
 }
-pub(crate) async fn request(endpoint: &Endpoint, mut value: Value) -> Result<Value, String> {
+pub(crate) async fn request(endpoint: &Endpoint, value: Value) -> Result<Value, String> {
+    let deadline = match value["action"].as_str() {
+        Some("invoke") => INVOKE_DEADLINE + CONTROL_DEADLINE,
+        Some("shutdown") => SHUTDOWN_DEADLINE + CONTROL_DEADLINE,
+        _ => CONTROL_DEADLINE,
+    };
+    request_with_deadline(endpoint, value, deadline).await
+}
+
+async fn request_with_deadline(
+    endpoint: &Endpoint,
+    mut value: Value,
+    deadline: Duration,
+) -> Result<Value, String> {
     let address: std::net::SocketAddr = endpoint.addr.parse().map_err(|_| "后台地址无效")?;
     if !address.ip().is_loopback() || endpoint.protocol != PROTOCOL {
         return Err("后台协议不匹配".into());
@@ -164,8 +167,14 @@ pub(crate) async fn request(endpoint: &Endpoint, mut value: Value) -> Result<Val
         .map_err(|_| "后台连接超时")?
         .map_err(|e| e.to_string())?;
     value["token"] = json!(endpoint.token);
-    frame_write(&mut stream, &value).await?;
-    let reply = frame_read(&mut stream).await?;
+    let reply = tokio::time::timeout(deadline, async {
+        frame_write(&mut stream, &value).await?;
+        frame_read(&mut stream).await
+    })
+    .await
+    .map_err(|_| {
+        "后台响应超时；请求结果尚未确认，请先查询当前状态，勿重复提交写操作".to_string()
+    })??;
     if reply["ok"] == true {
         Ok(reply["value"].clone())
     } else {
@@ -343,7 +352,9 @@ pub(crate) async fn shutdown_for_update() -> Result<(), String> {
     }
     for _ in 0..100 {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        if request(&endpoint, json!({"action":"ping"})).await.is_err() {
+        // A failed ping can mean a busy transport. Reacquiring the service's
+        // lifetime lock proves the execution owner actually released ownership.
+        if service_lock()?.is_some() {
             return Ok(());
         }
     }
@@ -372,10 +383,7 @@ pub(crate) fn service_lock() -> Result<Option<kanzei_tools::atomic_file::FileLoc
     kanzei_tools::atomic_file::try_lock_exclusive(&directory().join("owner"), Duration::ZERO)
         .map_err(|e| e.to_string())
 }
-pub(crate) fn install_service(
-    app: &tauri::AppHandle,
-    webview: &tauri::WebviewWindow,
-) -> Result<(), String> {
+pub(crate) fn install_service(app: &tauri::AppHandle) -> Result<(), String> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let endpoint = Endpoint {
@@ -414,13 +422,11 @@ pub(crate) fn install_service(
     )
     .map_err(|e| e.to_string())?;
     let app = app.clone();
-    let webview = webview.clone();
     tauri::async_runtime::spawn(async move {
         let listener = TcpListener::from_std(listener).expect("nonblocking runtime listener");
         while let Ok((mut stream, _)) = listener.accept().await {
             let endpoint = endpoint.clone();
             let app = app.clone();
-            let webview = webview.clone();
             let journal = journal.clone();
             let notify = notify.clone();
             tauri::async_runtime::spawn(async move {
@@ -429,7 +435,7 @@ pub(crate) fn install_service(
                     if input["token"].as_str() != Some(endpoint.token.as_str()) { return Err("后台认证失败".into()); }
                     match input["action"].as_str().unwrap_or("") {
                         "ping" => Ok(json!({"pid":endpoint.pid,"protocol":PROTOCOL,"build":env!("KANZEI_RUNTIME_BUILD"),"cursor":journal.lock_or_recover().seq})),
-                        "retire_if_idle" => compatibility::retire_if_idle(&app),
+                        "retire_if_idle" => compatibility::retire_if_idle(&app).await,
                         "process_roots" => {
                             let state=app.state::<crate::AppState>();
                             let processes=state.processes.lock_or_recover();
@@ -446,31 +452,22 @@ pub(crate) fn install_service(
                             if after >= current { let _ = tokio::time::timeout(Duration::from_secs(2), notified).await; }
                             Ok(journal.lock_or_recover().since(after))
                         }
-                        "shutdown" => {
-                            let app = app.clone(); tauri::async_runtime::spawn(async move { let processes=app.state::<crate::AppState>().processes.lock_or_recover().values().cloned().collect::<Vec<_>>();
-                                for process in processes { if let Some(window)=app.get_window("main") { let _=crate::commands::run::stop_run(window,app.state::<crate::AppState>(),Some(process.origin_project.0.display().to_string()),Some(process.id.clone())); } }
-                                for root in crate::durable_questions::roots() { for terminal in kanzei_tools::background::list(&root) { let _=kanzei_tools::background::stop(&terminal.id).await; } }
-                                tokio::time::sleep(Duration::from_secs(1)).await; app.exit(0); });
-                            Ok(json!({"stopped":true}))
-                        }
+                        "shutdown" => shutdown::quiesce(&app).await,
                         "invoke" => {
-                            let _admission = compatibility::admit()?;
-                            let command = input["command"].as_str().ok_or("缺少命令")?;
-                            if local_command(command) { return Err("此命令需要桌面界面".into()); }
-                            let url = compatibility::invoke_url(&webview).await?;
-                            let (sender, receiver) = tokio::sync::oneshot::channel();
-                            webview.clone().on_message(tauri::webview::InvokeRequest {
-                                cmd:command.into(),callback:tauri::ipc::CallbackFn(0),error:tauri::ipc::CallbackFn(1),
-                                url,body:tauri::ipc::InvokeBody::Json(input["args"].clone()),
-                                headers:Default::default(),invoke_key:app.invoke_key().into(),
-                            }, Box::new(move |_,_,response,_,_| {
-                                let result = match response {
-                                    tauri::ipc::InvokeResponse::Ok(tauri::ipc::InvokeResponseBody::Json(text)) => serde_json::from_str(&text).map_err(|e| e.to_string()),
-                                    tauri::ipc::InvokeResponse::Ok(_) => Err("后台命令返回了不支持的二进制数据".into()),
-                                    tauri::ipc::InvokeResponse::Err(error) => Err(error.0.as_str().map(str::to_owned).unwrap_or_else(|| error.0.to_string())),
-                                }; let _ = sender.send(result);
-                            }));
-                            receiver.await.map_err(|_| "后台响应通道关闭".to_string())?
+                            let admission = compatibility::admit()?;
+                            let command = input["command"].as_str().ok_or("缺少命令")?.to_owned();
+                            if local_command(&command) { return Err("此命令需要桌面界面".into()); }
+                            let args = input["args"].clone();
+                            let owner = app.clone();
+                            // The task retains admission through its actual completion,
+                            // even when this network caller stops waiting for a reply.
+                            let execution = tauri::async_runtime::spawn(async move {
+                                let _admission = admission;
+                                crate::native_dispatch::dispatch(&command, args, owner).await
+                            });
+                            tokio::time::timeout(INVOKE_DEADLINE, execution).await
+                                .map_err(|_| "后台命令响应超时；执行结果未知，请查询状态后再操作".to_string())?
+                                .map_err(|error| format!("后台命令执行异常: {error}"))?
                         }
                         _ => Err("未知后台请求".into()),
                     }
@@ -479,7 +476,12 @@ pub(crate) fn install_service(
                     Ok(value) => json!({"ok":true,"value":value}),
                     Err(error) => json!({"ok":false,"value":error}),
                 };
-                let _ = frame_write(&mut stream, &reply).await;
+                let exiting = reply["ok"] == true && reply["value"]["stopped"] == true;
+                let _ =
+                    tokio::time::timeout(CONTROL_DEADLINE, frame_write(&mut stream, &reply)).await;
+                if exiting {
+                    app.exit(0);
+                }
             });
         }
     });
@@ -522,6 +524,45 @@ mod tests {
         assert_eq!(journal.since(4099)["events"].as_array().unwrap().len(), 1);
         assert_eq!(journal.since(4100)["events"], json!([]));
     }
+    #[tokio::test]
+    async fn silent_or_partial_response_has_a_deadline_without_replay() {
+        for partial_header in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = Endpoint {
+                addr: listener.local_addr().unwrap().to_string(),
+                token: "test".into(),
+                pid: 0,
+                protocol: PROTOCOL,
+                executable: String::new(),
+            };
+            let (release, hold) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let input = frame_read(&mut stream).await.unwrap();
+                assert_eq!(input["command"], "mutation_fixture");
+                if partial_header {
+                    stream.write_u32(128).await.unwrap();
+                }
+                let _ = hold.await;
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(20), listener.accept())
+                        .await
+                        .is_err(),
+                    "a timed-out mutation must not be replayed"
+                );
+            });
+            let result = request_with_deadline(
+                &endpoint,
+                json!({"action":"invoke","command":"mutation_fixture"}),
+                Duration::from_millis(50),
+            )
+            .await;
+            assert!(result.unwrap_err().contains("结果尚未确认"));
+            release.send(()).unwrap();
+            server.await.unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn protocol_rejects_network_endpoints() {
         let endpoint = Endpoint {

@@ -1,5 +1,5 @@
 // One lazy loader for optional interfaces. Import failure remains retryable.
-import { $, defer } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
 import { toastError, currentProject } from "./03-shell.js";
 const flights = new Map();
 const loaded = new Set();

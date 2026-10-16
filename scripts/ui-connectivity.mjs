@@ -2,14 +2,15 @@
 // R-272 UI 连通性与跳转评估:可达性/孤岛视图/死链自动巡检。
 //
 // 数据源(权威):
-//   - 桌面端: crates/kanzei-app/ui/index.html——侧栏导航 `button.activity-item[data-view=X]`
-//     与目标容器 `#view-X` 配对，并扫描真实模块里 button 回调的字面量 openProjectSpace 入口。
+//   - 桌面端: 00-views.js 注册路由，真实 navigate_view 激活，以及 key-paths.json 的可见入口点击。
+//     --html 负例保留独立 HTML 的按钮/容器结构巡检。
 //   - 移动 PWA: crates/kanzei-app/mobile-pwa/——配对→通知流→发消息→approval 关键路径。
 //
 // 判定:
 //   - 死链 = 有入口按钮(data-view=X)但目标容器(#view-X)不存在/不激活;
-//   - 孤岛 = 有容器(#view-X)但没有静态或动态入口按钮指向它(注册了但无入口可达)。
-//   - 关键路径 = 按配置文件逐条断言「跳转后目标视图标识存在」(桌面端 #view-* active,
+//   - 注册视图必须经正式路由激活且恰好只有一个 active 容器；未注册旧容器不能激活。
+//   - --html 孤岛 = 有容器(#view-X)但没有静态或动态入口按钮指向它。
+//   - 关键路径 = 按配置文件真实点击入口，断言目标视图激活(桌面端 #view-* active,
 //     PWA 按路径配置断言 DOM 存在)。
 //
 // 用法: node scripts/ui-connectivity.mjs [--pwa] [--json] [--serve] [--html <path>]
@@ -25,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import http from "node:http";
 import assert from "node:assert/strict";
 import { parse } from "espree";
-import { loadUiSources } from "./ui-sources.mjs";
+import { checkDesktopRoutes } from "./ui-connectivity-desktop.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -204,12 +205,13 @@ const started = Date.now();
 if (!wantPwa) {
   const htmlPath = customHtml ? path.resolve(repoRoot, customHtml) : UI_HTML;
   const html = fs.readFileSync(htmlPath, "utf8");
-  const scan = scanDesktop(html, customHtml ? [] : loadUiSources().sources);
-  report.desktop = { deadLinks: scan.deadLinks, islands: scan.islands, buttons: scan.buttons.length, containers: scan.containers.length };
-  const keyFailures = checkKeyPaths(scan, report);
+  const scan = customHtml ? scanDesktop(html) : await checkDesktopRoutes(KEY_PATHS.desktop);
+  report.desktop = customHtml ? { deadLinks: scan.deadLinks, islands: scan.islands, buttons: scan.buttons.length, containers: scan.containers.length } : scan;
+  const keyFailures = customHtml ? checkKeyPaths(scan, report) : [];
+  report.keyPathFailures = keyFailures;
   const hasDesktopIssues = scan.deadLinks.length > 0 || scan.islands.length > 0 || keyFailures.length > 0;
   if (!json) {
-    console.log(`[ui-connectivity] 桌面端(${htmlPath}): ${scan.buttons.length} 个导航入口, ${scan.containers.length} 个视图容器`);
+    console.log(`[ui-connectivity] 桌面端(${htmlPath}): ${report.desktop.buttons} 个导航入口, ${report.desktop.containers} 个视图容器; ${scan.activated?.length || 0} 条真实路由与 ${scan.entries?.length || 0} 个用户入口已激活`);
     if (scan.deadLinks.length) console.log(`  ✗ 死链(有入口无目标): ${scan.deadLinks.join(", ")}`);
     if (scan.islands.length) console.log(`  ✗ 孤岛视图(无入口可达): ${scan.islands.join(", ")}`);
     if (keyFailures.length) keyFailures.forEach((f) => console.log(`  ✗ ${f}`));

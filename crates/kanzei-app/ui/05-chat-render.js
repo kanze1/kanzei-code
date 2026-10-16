@@ -1,10 +1,12 @@
-import { defer } from "./01-core.js";
-import { messagePanes, motionOnce } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { messagePanes } from "./01-chat-panes.js";
+import { motionOnce } from "./00-ui-primitives.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { appendDisplayBlock, renderFileCard, compactDiffLines, quotaNoticeHeadline, quotaTruncation } from "./06-activity.js";
 import { deliveredFileFor, registerDelivery } from "./06-deliveries.js";
 import { openTasksPanel } from "./06-agent-panel.js";
-import { $, activePane, promptBox, appendToPane, messages, trimLivePane } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { activePane, promptBox, appendToPane, messages, trimLivePane } from "./01-chat-panes.js";
 import { t } from "./02-i18n.js";
 import { attachments, activeSessionId, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdownInto } from "./04-markdown.js";

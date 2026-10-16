@@ -1,5 +1,7 @@
-import { defer } from "./01-core.js";
-import { $, confirmDialog, inputDialog, invoke } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { confirmDialog, inputDialog } from "./00-dialogs.js";
+import { invoke } from "./00-ipc.js";
 import { LANGUAGE_PREFERENCES, normalizeLanguagePreference, setLanguagePreference, t } from "./02-i18n.js";
 import {
   currentProject,
@@ -296,6 +298,7 @@ export const SETTINGS_FORM_IDS = [
 // "这个开关点了没用"(D-157 那条"界面显示 A、运行用 B"的开关版)。
 export const SETTINGS_TOGGLE_IDS = ["set-codex-fast-mode"];
 export let settingsSnapshot = "";
+let settingsSaveRequest = null;
 export function settingsFingerprint() {
   // provider 表格是动态行,单独序列化;它和标量字段一起构成"这张表单当前的样子"。
   const scalars = SETTINGS_FORM_IDS.map((id) => `${id}=${$(id)?.value ?? ""}`).join("|");
@@ -307,8 +310,13 @@ export function settingsFingerprint() {
 }
 export function syncSettingsDirty() {
   const badge = $("settings-dirty");
-  if (!badge) return;
-  badge.classList.toggle("hidden", settingsFingerprint() === settingsSnapshot);
+  badge?.classList.toggle("hidden", !settingsHydrated || settingsFingerprint() === settingsSnapshot);
+  const save = $("settings-save");
+  if (save) {
+    save.disabled = !settingsHydrated || Boolean(settingsSaveRequest);
+    save.setAttribute("aria-busy", String(Boolean(settingsSaveRequest)));
+  }
+  if ($("settings-discard")) $("settings-discard").disabled = Boolean(settingsSaveRequest);
 }
 export function markSettingsSaved() {
   settingsSnapshot = settingsFingerprint();
@@ -810,22 +818,31 @@ export function hideSettingsStale() {
 }
 defer(() => {
   $("settings-discard")?.addEventListener("click", () => {
+    if (settingsSaveRequest) return;
     settingsHydrated = false;
     void loadSettings({ force: true });
   });
+  $("settings-load-retry")?.addEventListener("click", () => void loadSettings());
+  syncSettingsDirty();
 });
 export async function loadSettings({ force = false } = {}) {
+  void loadUpdateReceipt();
   const token = ++settingsLoadToken;
+  syncSettingsDirty();
   let s;
   try {
     s = await invoke("settings_get", { projectDir: currentProject });
   } catch (err) {
+    if (token !== settingsLoadToken) return;
     // 配置损坏时不能留一张空白表单让用户无从下手(保存会把默认值写回,反而丢配置)。
     $("settings-path").textContent = t("配置读取失败");
+    $("settings-load-error")?.classList.remove("hidden");
+    if ($("settings-load-error-text")) $("settings-load-error-text").textContent = `${t("设置读取失败")}: ${err}`;
     toastError(`${t("设置读取失败")}:${err}`, { retry: loadSettings });
     return;
   }
   if (token !== settingsLoadToken) return;
+  $("settings-load-error")?.classList.add("hidden");
   // 只读区永远允许更新:它一行 input 都不碰,刷新它不会吃掉任何输入。
   $("settings-path").textContent = s.path;
   settingsEffectiveSnapshot = s;
@@ -841,6 +858,7 @@ export async function loadSettings({ force = false } = {}) {
   hideSettingsStale();
   hydrateSettingsForm(s);
   settingsHydrated = true;
+  syncSettingsDirty();
   // 探测不再挡在回填前面(原来是 await,几秒后 resolve 再整表重建)。
   void probeModelsAndMergeOptions(token);
   void loadAgentDirectory();
@@ -1084,12 +1102,14 @@ export function validateProviders() {
 
 defer(() => {
   $("settings-save").addEventListener("click", async () => {
+    if (!settingsHydrated || settingsSaveRequest) return;
     if (!validateProviders()) return;
+    const submitted = settingsFingerprint();
     const mode = $("set-proxy-mode").value;
     const proxy = mode === "custom" ? $("set-proxy-url").value.trim() : mode;
     try {
       // UI-0926 #3:本页只写全局 ~/.kanzei/kanzei.toml(不再带 scope/projectDir)。
-      await invoke("settings_save", {
+      settingsSaveRequest = invoke("settings_save", {
         payload: {
           // 界面语言不在这里:它切换即存(persistLanguagePreference,UX-119),kanzei.toml 里的旧值保存时移除。
           primary: $("set-primary").value,
@@ -1115,14 +1135,21 @@ defer(() => {
           })),
         },
       });
+      syncSettingsDirty();
+      await settingsSaveRequest;
+      // Confirm only the submitted draft. Inputs edited while saving remain dirty,
+      // exactly as the file editor confirms its saved model version.
+      settingsSnapshot = submitted;
+      syncSettingsDirty();
       toast(t("已保存"));
-      // force:刚存完就是干净态,但指纹要等 markSettingsSaved 才更新,不 force 会被
-      // 脏值守卫挡住,用户看到一个莫名其妙的「磁盘上的配置已更新」。
-      loadSettings({ force: true });
+      await loadSettings();
       // 全局默认变了:输入框上方的「下一轮将使用」重新解析(provider 可能也改了,目录一并重拉)。
       document.dispatchEvent(new CustomEvent("kz-model-config-changed", { detail: { scope: "global" } }));
     } catch (err) {
       toastError(`${t("保存失败")}: ${err}`, { retry: () => $("settings-save").click() });
+    } finally {
+      settingsSaveRequest = null;
+      syncSettingsDirty();
     }
   });
 });
@@ -1173,6 +1200,18 @@ defer(() => {
 
 // ---------- 版本与更新(GitHub Releases 为源) ----------
 export let updateUrl = null;
+let updateBuild = null;
+async function loadUpdateReceipt() {
+  const host = $("update-receipt");
+  try {
+    const receipt = await invoke("update_receipt");
+    host.hidden = !receipt;
+    if (!receipt) return;
+    const labels = { prepared: "更新准备中", installing: "更新准备中", awaiting_restart: "等待重启", completed: "更新已完成", failed: "更新失败" };
+    host.textContent = `${t(labels[receipt.phase] || "更新准备中")} · ${receipt.expected_build}${receipt.message ? ` · ${receipt.message}` : ""}`;
+    host.dataset.state = receipt.phase;
+  } catch (error) { host.hidden = false; host.textContent = `${t("读取失败")}: ${error}`; }
+}
 // D-287:「没有可装的东西」有三种成因,以前一律渲染成「已是最新(<latest>)」——
 // 于是「当前版本 a7a122a」下面紧挨着「已是最新(build-c99304f)」,两个 hash 打架,
 // 看着就像更新检查坏了。只有 status=latest 这一态有资格说「已是最新」;本地领先
@@ -1201,12 +1240,14 @@ defer(() => {
     // #7:进行中的按钮统一由 button[aria-busy="true"] 转圈(读屏也能读到「忙」)。
     $("update-check").setAttribute("aria-busy", "true");
     updateUrl = null;
+    updateBuild = null;
     try {
       const r = await invoke("update_check");
       if (r.current) $("update-current").textContent = r.current;
       $("update-result").textContent = updateResultText(r);
       if (r.newer && r.url) {
         updateUrl = r.url;
+        updateBuild = r.expected_build;
         $("update-install").classList.remove("hidden");
       }
     } catch (err) {
@@ -1241,7 +1282,8 @@ defer(() => {
     $("update-install").disabled = true;
     $("update-install").setAttribute("aria-busy", "true");
     try {
-      $("update-result").textContent = await invoke("update_install", { url: updateUrl });
+      $("update-result").textContent = await invoke("update_install", { url: updateUrl, expectedBuild: updateBuild });
+      await loadUpdateReceipt();
     } catch (err) {
       $("update-result").textContent = String(err);
     } finally {

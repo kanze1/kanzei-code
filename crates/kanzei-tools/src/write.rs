@@ -1150,8 +1150,6 @@ mod tests {
             None,
             &[],
             None,
-            // R-246:测试不持有 LineRuntime。
-            None,
             &mut on_event,
             &mut ask,
         )

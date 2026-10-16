@@ -57,9 +57,7 @@ pub(crate) fn arm(app: &tauri::AppHandle, payload: &Value) {
             }
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
-        let Some(window) = app.get_window("main") else {
-            return;
-        };
+        let window = app.clone();
         let state = app.state::<AppState>();
         if options
             .profile

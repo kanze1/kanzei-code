@@ -309,20 +309,27 @@ impl LlmClient {
 
         let stream = async_stream::try_stream! {
             let mut completed = false;
-            while let Some(chunk) = bytes.next().await {
+            'transport: while let Some(chunk) = bytes.next().await {
                 let chunk = chunk.map_err(LlmError::Transport)?;
                 for sse in parser.feed(&chunk) {
                     for event in state.step(&sse)? {
                         completed |= matches!(event, LlmEvent::StepFinish { .. });
                         yield event;
                     }
+                    // A protocol terminal is authoritative. Do not wait for a proxy
+                    // to close the socket or turn a later transport error into replay.
+                    if completed {
+                        break 'transport;
+                    }
                 }
             }
             // D-424:有 finish_reason 但没有 [DONE] 的兼容响应在这里收尾。
             // 协议未确认完成时不能把 HTTP EOF 当作成功，否则 runner 会执行半轮工具。
-            for event in state.finish() {
-                completed |= matches!(event, LlmEvent::StepFinish { .. });
-                yield event;
+            if !completed {
+                for event in state.finish() {
+                    completed |= matches!(event, LlmEvent::StepFinish { .. });
+                    yield event;
+                }
             }
             if !completed {
                 Err(LlmError::Protocol("stream ended before a model completion event".into()))?;
@@ -484,6 +491,46 @@ mod tests {
             assert_eq!(finishes, 1, "terminal event must remain unique");
         }
     }
+    #[tokio::test]
+    async fn protocol_completion_finishes_while_transport_stays_open() {
+        use crate::protocol::ProtocolKind;
+        for (kind, body) in [
+            (ProtocolKind::OpenAiChat, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"),
+            (ProtocolKind::OpenAiResponses, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n"),
+            (ProtocolKind::DeepSeekResponses, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n"),
+            (ProtocolKind::AnthropicMessages, "data: {\"type\":\"message_stop\"}\n\n"),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let (release, hold) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                assert!(socket.read(&mut request).await.unwrap() > 0);
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n").await.unwrap();
+                socket.write_all(format!("{:x}\r\n{body}\r\n", body.len()).as_bytes()).await.unwrap();
+                // No final HTTP chunk and no EOF until the consumer has completed.
+                let _ = hold.await;
+            });
+            let client = LlmClient::new(&ProxyConfig::Disabled).unwrap();
+            let mut route = Route::openai_at(&format!("http://{address}"), None);
+            route.kind = kind;
+            let request = LlmRequest {
+                model:"mock".into(), system:vec![], messages:vec![Message::user_text("hello")],
+                tools:vec![], hosted_tools:vec![], max_tokens:32, temperature:None,
+                reasoning:ReasoningEffort::Off, service_tier:None,
+            };
+            let events: Vec<_> = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                client.stream_with_retry_notice_with_limits(&route,&request,0,0,|_,_|{}).await.unwrap()
+                    .collect().await
+            }).await.expect("protocol completion must not wait for HTTP EOF");
+            assert!(events.iter().all(Result::is_ok));
+            assert_eq!(events.iter().filter(|event| matches!(event, Ok(crate::event::LlmEvent::StepFinish { .. }))).count(), 1);
+            release.send(()).unwrap();
+            server.await.unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn clean_http_eof_requires_protocol_completion_for_every_route() {
         use crate::protocol::ProtocolKind;

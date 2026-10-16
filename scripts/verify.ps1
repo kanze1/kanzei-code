@@ -1,205 +1,106 @@
-﻿# kanzei 验证证据：门禁全绿后产出绑定 commit 的 dist/verification.json(R-152/A-009)
-# 用法: .\scripts\verify.ps1；失败步骤会继续执行并在末尾统一报告，不产出失败证据
-param([switch]$Full)
-
+﻿# Verification and CI execute the same named checks from verification-checks.json.
+param([switch]$Full, [switch]$Ci)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-# Windows 扩展路径可供 node 使用，但 PowerShell Get-ChildItem 对 `\\?\` 通配不稳定；
-# 先剥离 provider-qualified 前缀，再剥离本地扩展前缀，避免通配步骤把非空脚本集合误判为空。
-$providerPrefix = "Microsoft.PowerShell.Core\FileSystem::"
-if ($root.StartsWith($providerPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-    $root = $root.Substring($providerPrefix.Length)
-}
-if ($root.StartsWith("\\?\")) {
-    $root = $root.Substring(4)
-}
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
-
-# 证据只绑定 commit：源码必须干净(口径与 package.ps1 一致，含未跟踪源码)
-$dirty = @(git -C $root diff --name-only HEAD -- crates scripts .github Cargo.toml Cargo.lock) | Where-Object { $_ }
-$untracked = @(git -C $root ls-files --others --exclude-standard -- crates scripts .github) | Where-Object { $_ }
-$unclean = @($dirty) + @($untracked)
-if ($unclean.Count -gt 0) {
-    throw "工作树不干净，证据无法绑定 commit:`n$($unclean -join "`n")"
-}
-$full_hash = (git -C $root rev-parse HEAD).Trim()
-$verifyBase = if ($env:KANZEI_VERIFY_BASE) { $env:KANZEI_VERIFY_BASE } else { "HEAD^" }
-$changedPaths = @(git -C $root diff --name-only "$verifyBase..HEAD" -- .) | Where-Object { $_ }
-$pathFile = Join-Path $env:TEMP "kanzei-verify-paths-$PID.json"
+Push-Location $root
 try {
-    [IO.File]::WriteAllText(
-        $pathFile,
-        (@($changedPaths) | ConvertTo-Json -Compress),
-        [Text.UTF8Encoding]::new($false)
-    )
-    $policyJson = node "$root\scripts\verify-policy.mjs" classify $pathFile
-    if ($LASTEXITCODE -ne 0) { throw "verify path policy failed" }
-    $policy = $policyJson | ConvertFrom-Json
-} finally {
-    Remove-Item $pathFile -Force -ErrorAction SilentlyContinue
-}
-if ($Full -or $env:KANZEI_VERIFY_FULL -eq "1") {
-    $fullPathFile = Join-Path $env:TEMP "kanzei-verify-paths-$PID-full.json"
+    $baselineJson = node scripts/verify-policy.mjs assert-clean $root
+    if ($LASTEXITCODE -ne 0) { throw "Build inputs are not clean" }
+    $baseline = $baselineJson | ConvertFrom-Json
+    # A new run supersedes the previous receipt even when HEAD is unchanged.
+    # Failed or interrupted verification must not leave an older green receipt
+    # available for packaging the same commit.
+    $evidencePath = Join-Path $root "dist/verification.json"
+    if (Test-Path -LiteralPath $evidencePath) { Remove-Item -LiteralPath $evidencePath }
+    $verifyBase = if ($env:KANZEI_VERIFY_BASE) { $env:KANZEI_VERIFY_BASE } else { "HEAD^" }
+    $changedPaths = @(git diff --name-only "$verifyBase..HEAD" -- .)
+    if ($LASTEXITCODE -ne 0) { throw "Cannot determine verification range: $verifyBase..HEAD" }
+    $pathFile = Join-Path $env:TEMP "kanzei-verify-paths-$PID.json"
+    $previousFull = $env:KANZEI_VERIFY_FULL
     try {
-        [IO.File]::WriteAllText($fullPathFile, '["full verify"]', [Text.UTF8Encoding]::new($false))
-        $env:KANZEI_VERIFY_FULL = "1"
-        $policyJson = node "$root\scripts\verify-policy.mjs" classify $fullPathFile
-        if ($LASTEXITCODE -ne 0) { throw "verify full path policy failed" }
+        [IO.File]::WriteAllText($pathFile, (ConvertTo-Json -InputObject @($changedPaths)), [Text.UTF8Encoding]::new($false))
+        if ($Full -or $Ci) { $env:KANZEI_VERIFY_FULL = "1" }
+        $policyJson = node scripts/verify-policy.mjs classify $pathFile
+        if ($LASTEXITCODE -ne 0) { throw "Cannot select verification checks" }
         $policy = $policyJson | ConvertFrom-Json
     } finally {
-        Remove-Item $fullPathFile -Force -ErrorAction SilentlyContinue
+        $env:KANZEI_VERIFY_FULL = $previousFull
+        Remove-Item -LiteralPath $pathFile -Force
     }
-}
-Write-Host "==> verify policy: mode=$($policy.mode), rust=$($policy.run_rust), frontend=$($policy.run_frontend), changed=$($changedPaths.Count)" -ForegroundColor Cyan
-
-$checks = [ordered]@{}
-$failures = @()
-
-# R-210:每步记秒数写进 verification.json 的 checks 值——门禁最慢环节从此可答。
-# 命令文本保持与 git.rs 门禁/ci.yml 逐项一致(守护测试 gate_checklists_align_across_git_verify_and_ci 机械比对完整检查项集合)。
-function Step-With-Timing {
-    param([string]$Key, [string]$Label, [scriptblock]$Body)
-    Write-Host "==> $Label" -ForegroundColor Cyan
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    try {
-        # 不继承上一步外部进程的 LASTEXITCODE；步骤必须用本次执行结果判定。
-        $global:LASTEXITCODE = 0
-        & $Body
-        $exitCode = $LASTEXITCODE
-        if ($exitCode -ne 0) { throw "$Label 失败(exit=$exitCode)" }
-        $sw.Stop()
-        $script:checks[$Key] = "pass $([math]::Round($sw.Elapsed.TotalSeconds, 1))s"
-    } catch {
-        $sw.Stop()
-        $elapsed = [math]::Round($sw.Elapsed.TotalSeconds, 1)
-        $message = "$Label 失败: $($_.Exception.Message)"
-        $script:checks[$Key] = "fail ${elapsed}s $message"
-        $script:failures += $message
-        Write-Host "!! $message" -ForegroundColor Red
+    $checks = [ordered]@{}
+    $runId = "$(Get-Date -Format 'yyyyMMddTHHmmssfff')-$PID"
+    $runDirectory = Join-Path $root "dist/verification-runs/$runId"
+    New-Item -ItemType Directory -Path $runDirectory | Out-Null
+    foreach ($check in $policy.checks) {
+        Write-Host "==> $($check.key)" -ForegroundColor Cyan
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $arguments = @($check.args)
+        if ($Ci -and $check.ci_args) { $arguments = @($check.ci_args) }
+        $logRelative = "dist/verification-runs/$runId/$($check.key).log"
+        $logPath = Join-Path $root $logRelative
+        $writer = [IO.StreamWriter]::new($logPath, $false, [Text.UTF8Encoding]::new($false))
+        $result = [ordered]@{ status = "pass"; exit_code = 0; elapsed_seconds = 0.0; command = @($check.program) + $arguments; log_path = $logRelative; log_sha256 = "" }
+        try {
+            foreach ($dependency in $check.depends_on) {
+                if (-not $checks.Contains($dependency) -or $checks[$dependency].status -ne "pass") {
+                    throw "Dependency did not pass: $dependency"
+                }
+            }
+            $program = Get-Command $check.program -CommandType Application -ErrorAction Stop | Select-Object -First 1
+            $global:LASTEXITCODE = 0
+            # Windows PowerShell wraps native stderr as ErrorRecord. Preserve it
+            # as process output; only the native exit code determines failure.
+            $savedPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = "Continue"
+                & $program.Source @arguments 2>&1 | ForEach-Object {
+                    $line = $_.ToString()
+                    $writer.WriteLine($line)
+                    Write-Host $line
+                }
+            } finally { $ErrorActionPreference = $savedPreference }
+            $result.exit_code = $LASTEXITCODE
+            if ($LASTEXITCODE -ne 0) { throw "Check exited with $LASTEXITCODE" }
+        } catch {
+            $result.status = "fail"
+            if ($result.exit_code -eq 0) { $result.exit_code = 1 }
+            $result.error = $_.Exception.Message
+            $writer.WriteLine($result.error)
+            Write-Host "!! $($check.key): $($result.error)" -ForegroundColor Red
+        } finally {
+            $timer.Stop()
+            $writer.Dispose()
+            $result.elapsed_seconds = [math]::Round($timer.Elapsed.TotalSeconds, 3)
+            $hash = [Security.Cryptography.SHA256]::Create()
+            $logStream = [IO.File]::OpenRead($logPath)
+            try { $result.log_sha256 = [BitConverter]::ToString($hash.ComputeHash($logStream)).Replace("-", "").ToLowerInvariant() }
+            finally { $logStream.Dispose(); $hash.Dispose() }
+            $checks[$check.key] = $result
+        }
     }
-}
-
-# 按 dist/verification.json 最近一次实测耗时排序：廉价检查先跑，cargo test 最后，先暴露低成本失败。
-if ($policy.run_frontend) {
-    Step-With-Timing "parallel_lines_regression" "parallel_lines_regression" {
-        node "$root\scripts\parallel-lines-regression.mjs"
+    $allPassed = @($checks.Values | Where-Object { $_.status -ne "pass" }).Count -eq 0
+    $runReport = [ordered]@{ commit = $baseline.commit; execution_environment = $(if ($Ci) { "ci" } else { "local" }); checks = $checks; all_pass = $allPassed }
+    [IO.File]::WriteAllText((Join-Path $runDirectory "results.json"), ($runReport | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    if (-not $allPassed) { throw "Verification failed; no release evidence was written" }
+    # Detect edits and HEAD movement during the checks before publishing evidence.
+    node scripts/verify-policy.mjs assert-clean $root $baseline.commit
+    if ($LASTEXITCODE -ne 0) { throw "Build inputs changed during verification" }
+    $evidence = [ordered]@{
+        schema_version = 3
+        execution_environment = $runReport.execution_environment
+        commit = $baseline.commit
+        tree = $baseline.tree
+        verified_at_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        mode = $policy.mode
+        full_verify = [bool]$policy.full_verify
+        verify_base = $verifyBase
+        changed_paths = @($changedPaths)
+        skipped_steps = @($policy.skipped_steps)
+        checks = $checks
+        all_pass = $allPassed
     }
-    Step-With-Timing "ui_a11y" "ui_a11y" {
-        node "$root\scripts\ui-a11y-smoke.mjs"
-        # 记忆图谱(docs/design/memory_knowledge_graph.md §11):纯模型 + vendor SHA-256 + 变异自检 + 无头 Edge 真渲染。
-        # 挂在 ui_a11y 步里(检查键集合不变,见 git.rs gate_checklists_align_across_git_verify_and_ci);前一条失败就不跑。
-        if ($LASTEXITCODE -eq 0) { node "$root\scripts\ui-memory-graph-smoke.mjs" --browser }
-    }
-    Step-With-Timing "ui_i18n" "ui_i18n" {
-        node "$root\scripts\ui-i18n-smoke.mjs"
-    }
-    Step-With-Timing "ui_markdown" "ui_markdown" {
-        node "$root\scripts\ui-markdown-smoke.mjs"
-    }
-} else {
-    Write-Host "==> skip frontend smoke: no frontend paths in verify range" -ForegroundColor DarkGray
-}
-Step-With-Timing "metrics_build" "metrics_build (metrics 口径与回涨闸使用同一 kz)" {
-    cargo build -q -p kanzei --manifest-path "$root\Cargo.toml"
-}
-Step-With-Timing "crate_sync" "crate_sync (R-266 README 项目结构表与 workspace 一致)" {
-    node "$root\scripts\check-design-freshness.mjs"
-    if ($LASTEXITCODE -ne 0) { throw "design freshness gate failed (R-318)" }
-    node "$root\scripts\check-readme-crates.mjs"
-    if ($LASTEXITCODE -ne 0) { throw "README 项目结构表与 Cargo.toml members 不同步(R-266)" }
-    & "$root\scripts\metrics-regression-gate.ps1" -Root $root
-    if ($LASTEXITCODE -ne 0) { throw "metrics regression gate failed (R-300)" }
-}
-Step-With-Timing "ps1_bom" "ps1_bom (D-408 含中文的 .ps1 须带 UTF-8 BOM)" {
-    node "$root\scripts\check-ps1-bom.mjs"
-    if ($LASTEXITCODE -ne 0) { throw "含中文的 PowerShell 脚本缺 UTF-8 BOM,在 Windows PowerShell 5.1 下会解析失败(D-408)" }
-}
-if ($policy.run_frontend) {
-    Step-With-Timing "ui_lint" "ui_lint (R-142 no-undef)" {
-        node "$root\scripts\ui-lint-smoke.mjs"
-    }
-} else {
-    Write-Host "==> skip ui_lint: no frontend paths in verify range" -ForegroundColor DarkGray
-}
-Step-With-Timing "ipc_event_contract" "ipc_event_contract (R-299 emit/listen 求差)" {
-    node "$root\scripts\ipc-event-smoke.mjs"
-}
-if ($policy.run_rust) {
-    Step-With-Timing "fmt" "fmt" {
-        cargo fmt --all --manifest-path "$root\Cargo.toml" -- --check
-    }
-} else {
-    Write-Host "==> skip fmt: no Rust paths in verify range" -ForegroundColor DarkGray
-}
-# ui_syntax(node --check)已删(2026-08-20 门禁审计 P0-2):ESLint(ui_lint 步)
-# lint 同一批 ui/*.js + mobile-pwa/*.js + scripts/*.mjs,解析错误即 severity 2,
-# 语法面完全覆盖;独立 node --check 是纯重复(1.6s + 一处三方同步负担)。
-if ($policy.run_rust) {
-    Step-With-Timing "clippy" "clippy(轻量:不含测试目标)" {
-        # 刻意不带 --all-targets：实测碰底层 crate 后 37.9s → 4.9s，省 33 秒。
-        # 编译覆盖不靠它——紧接着的 test 步骤会把全部测试代码编一遍；这里丢掉的只有
-        # **测试代码的 lint**，那份由 ci.yml 的 --all-targets 全量形态兜住——但 ci.yml
-        # 目前只手动触发(workflow_dispatch)，push 不会自动跑；改测试代码须自跑
-        # cargo clippy -p <crate> --all-targets -- -D warnings。
-        # 三处分工(提交门禁 git.rs / 本文件 / ci.yml)由守护测试
-        # gate_checklists_align_across_git_verify_and_ci 显式断言，改任一处都要同步。
-        cargo clippy --workspace --manifest-path "$root\Cargo.toml" -- -D warnings
-    }
-} else {
-    Write-Host "==> skip clippy: no Rust paths in verify range" -ForegroundColor DarkGray
-}
-Step-With-Timing "ui_connectivity" "ui_connectivity" {
-    node "$root\scripts\ui-connectivity.mjs"
-}
-if ($policy.run_frontend) {
-    Step-With-Timing "ui_runtime" "ui_runtime" {
-        node --experimental-vm-modules "$root\scripts\ui-runtime-smoke.mjs"
-        if ($LASTEXITCODE -eq 0) { node "$root\scripts\ui-requirement-contract-smoke.mjs" }
-    }
-} else {
-    Write-Host "==> skip ui_runtime: no frontend paths in verify range" -ForegroundColor DarkGray
-}
-# UI2-0926 #7:架构图门禁(docs/design/architecture_diagrams.md §8)。无头 Edge 真渲染 docs 下全部 mermaid 与
-# crate 图 golden,查解析、点击映射、重叠、溢出、字号、对比度、安全;改前端、docs 下的 markdown、crate 图生成器
-# 或它的 golden 都会触发(verify-policy.mjs 的 isDiagramPath)。
-if ($policy.run_diagram) {
-    Step-With-Timing "ui_diagram" "ui_diagram (架构图:无头 Edge 真渲染 docs 下的 mermaid)" {
-        node "$root\scripts\ui-diagram-smoke.mjs"
-    }
-} else {
-    Write-Host "==> skip ui_diagram: no diagram/frontend paths in verify range" -ForegroundColor DarkGray
-}
-if ($policy.run_rust) {
-    Step-With-Timing "test" "test" {
-        cargo test --workspace --manifest-path "$root\Cargo.toml"
-    }
-} else {
-    Write-Host "==> skip test: no Rust paths in verify range" -ForegroundColor DarkGray
-}
-
-if ($failures.Count -gt 0) {
-    Write-Host "==> 验证失败：$($failures.Count) 个步骤失败" -ForegroundColor Red
-    $failures | ForEach-Object { Write-Host "- $_" -ForegroundColor Red }
-    throw "验证失败：已报告全部失败步骤，未写入 dist\verification.json"
-}
-
-New-Item -ItemType Directory -Force "$root\dist" | Out-Null
-[ordered]@{
-    commit = $full_hash
-    verified_at_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    mode = $policy.mode
-    full_verify = [bool]$policy.full_verify
-    verify_base = $verifyBase
-    changed_paths = @($changedPaths)
-    skipped_steps = @($policy.skipped_steps)
-    checks = $checks
-    all_pass = $true
-} | ConvertTo-Json | ForEach-Object {
-    # 不能用 `Set-Content -Encoding UTF8`:Windows PowerShell 5.1 会写 BOM,pwsh 7 不会。
-    # 带 BOM 的证据让发版门禁的 JSON.parse 直接语法错,且报错看不出根因。
-    [IO.File]::WriteAllText(
-        "$root\dist\verification.json",
-        $_,
-        [Text.UTF8Encoding]::new($false))
-}
-Write-Host "==> 证据已写入 dist\verification.json(commit $full_hash)" -ForegroundColor Green
+    New-Item -ItemType Directory -Force (Join-Path $root "dist") | Out-Null
+    [IO.File]::WriteAllText($evidencePath, ($evidence | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    Write-Host "==> Evidence saved for $($baseline.commit) ($($policy.mode))" -ForegroundColor Green
+} finally { Pop-Location }

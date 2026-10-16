@@ -1,4 +1,5 @@
-import { $, defer, invoke } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
 import { languageIsEnglish, localizedDocStatus, t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toastError } from "./03-shell.js";
 import { active_space, create_workspace_process, project_workspace, save_research_workspace } from "./03-workspaces.js";

@@ -1,6 +1,7 @@
 import { openMenu } from "./00-surface.js";
-import { defer } from "./01-core.js";
-import { $, inputDialog } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { inputDialog } from "./00-dialogs.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, reasoningLabel, toast } from "./03-shell.js";
 import {

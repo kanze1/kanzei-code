@@ -1,17 +1,17 @@
-import { defer } from "./01-core.js";
-import { $ } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
-import { currentProject, syncSidebar } from "./03-shell.js";
-import { renderAgentAudit, syncDynamicUiLanguage } from "./06-activity.js";
-import { reconcileTasksPanel } from "./06-agent-panel.js";
-import { askActive, updateAskQueueStatus } from "./07-events.js";
-import { refreshWorktrees } from "./09-sessions.js";
-import { lastWorkspaceSnapshot, renderWorkspace } from "./12-docs-pages.js";
-import { refreshDocs } from "./14-docs-actions.js";
-import { refreshConversationList } from "./15-views-misc.js";
-import { persistLanguagePreference, renderProviders } from "./16-settings.js";
-
 export const I18N_EN = {
+  "执行选项": "Execution options",
+  "加载更早记录": "Load earlier history",
+  "运行状态未确认": "Run state unconfirmed",
+  "恢复运行事件": "Restore runtime events",
+  "运行事件订阅失败": "Runtime event subscription failed",
+  "草稿恢复或保存失败": "Draft recovery or save failed",
+  "本轮未完成": "Turn incomplete",
+  "更新已完成": "Update completed",
+  "更新失败": "Update failed",
+  "等待重启": "Waiting for restart",
+  "更新准备中": "Preparing update",
   "启用层级项目知识": "Enable hierarchical project knowledge",
   "复杂项目可启用并初始化；轻量项目默认关闭。已有记忆会保留。": "Enable and initialize for complex projects. Off by default for lightweight projects. Existing memories are retained.",
   "已启用：按模块加载职责、依赖与经验；关闭会保留记忆。": "Enabled: load responsibilities, dependencies and experience by module. Turning it off retains memories.",
@@ -2592,20 +2592,6 @@ export function setLanguagePreference(preference, { persist = true, rerender = t
   languageSelect.value = normalized;
   if (rerender) {
     applyLanguage();
-    syncDynamicUiLanguage();
-    reconcileTasksPanel();
-    syncSidebar();
-    renderAgentAudit();
-    if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
-    $("status-tokens").title = t("点击查看上下文成分");
-    if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
-    if (document.body.classList.contains("documents-active")) refreshDocs();
-    if (currentProject) {
-      refreshWorktrees();
-      refreshConversationList();
-    }
-    if (askActive) $("ask-title").textContent = t("权限请求");
-    updateAskQueueStatus();
     // 画布上的文字(记忆图谱的边标签)不在 DOM 里,靠这个事件重画。
     document.dispatchEvent(new CustomEvent("kz:language", { detail: { language: normalized } }));
   }
@@ -2624,14 +2610,9 @@ defer(() => {
     languageChosenByUser = true;
     setLanguagePreference(languageSelect.value);
     // UX-119:切换即存(app.json),不再等「保存」。
-    persistLanguagePreference(languageSelect.value);
+    document.dispatchEvent(new CustomEvent("kz:language-preference", { detail: { language: languageSelect.value } }));
   });
 });
 defer(() => {
   applyLanguage();
-});
-
-// R-264 B10：21-palette.js 尚未迁移其提供方时，通过 globalThis 读取稳定的 i18n API。
-defer(() => {
-  Object.assign(globalThis, { localizeDynamic, t });
 });

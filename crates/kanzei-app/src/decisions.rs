@@ -527,7 +527,7 @@ mod tests {
 
 #[tauri::command(async)]
 pub(crate) fn decision_review(
-    window: tauri::Window,
+    window: crate::app_events::AppEvents,
     state: tauri::State<'_, crate::AppState>,
     project_dir: String,
     decision_id: String,

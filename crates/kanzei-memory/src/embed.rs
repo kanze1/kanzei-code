@@ -19,6 +19,9 @@ use tokio::runtime::Handle;
 
 /// 文本 → 向量。实现方负责 provider 协议与错误分类。
 pub trait Embedder: Send + Sync {
+    /// Identity of the embedding space, excluding credentials. Changing model,
+    /// endpoint, dimensions or preprocessing must change this key.
+    fn cache_key(&self) -> String;
     /// 批量向量化。返回顺序与输入一致;任一文本失败整体报错(调用方决定降级)。
     fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>>;
 }
@@ -101,6 +104,9 @@ impl OpenAiEmbedder {
 }
 
 impl Embedder for OpenAiEmbedder {
+    fn cache_key(&self) -> String {
+        format!("openai-v1:{}:{}", self.base_url, self.model)
+    }
     fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
         // 同步 API 仍保留给现有 index 调用方,但不再在每次调用中创建 runtime。
         // 多线程 Tokio 中用 block_in_place 暂停当前 worker; current-thread Tokio
@@ -187,6 +193,9 @@ impl FakeEmbedder {
 }
 
 impl Embedder for FakeEmbedder {
+    fn cache_key(&self) -> String {
+        format!("fake-v1:{}", self.dim)
+    }
     fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
         Ok(texts
             .iter()

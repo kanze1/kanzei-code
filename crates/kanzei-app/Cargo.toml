@@ -14,6 +14,10 @@ name = "kzapp"
 path = "src/main.rs"
 
 [build-dependencies]
+syn = { version = "2", features = ["full", "visit-mut"] }
+quote = "1"
+heck = "0.5"
+serde_json.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
@@ -44,6 +48,8 @@ schemars.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+getrandom = "0.3"
+httparse = "1"
 
 [target.'cfg(windows)'.dependencies]
 # D-240:安装助手必须按真实进程句柄判断父进程退出，不能从 tasklist 的本地化文本猜测。

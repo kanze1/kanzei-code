@@ -173,7 +173,7 @@ try {
   await page.evaluate(async () => {
     const state = window.__history, id = state.lines[1].id;
     delete state.pending[id]; state.gates[id] = true;
-    window.__kzPreview.setCommand("conversation_list", () => [{ sequence: 1, title: "closed segment" }]);
+    window.__kzPreview.setCommand("conversation_page", () => ({ items: [{ sequence: 1, title: "closed segment" }], hasMore: false, nextBeforeSequence: null }));
     state.closedOld = (await import("/15-views-misc.js")).openClosedConversation(state.project,
       { id, title: "WB3 closed history" });
   });

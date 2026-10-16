@@ -1,13 +1,17 @@
-import { $, defer, invoke, mergeWorkspaceState, readJson, uiPrefsLoad, uiPrefsSave, writeJson } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { mergeWorkspaceState, uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
+import { readJson, writeJson } from "./00-ui-primitives.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toastError } from "./03-shell.js";
 import { activate_execution_root, processSwitchGeneration, refreshProcesses, renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
 import { workbenchNavigationGuard } from "./12-workbench.js";
 import { attachments, setAttachments } from "./03-shell.js";
 import { renderAttachments } from "./08-compose-runtime.js";
-import { sync_research_process_context } from "./19-research.js";
+import { sync_research_process_context } from "./03-research-view.js";
 import { enter_research_library, research_topic_label } from "./03-research-library.js";
 import { isGeneralChat, syncGeneralChatView } from "./03-general-scope.js";
+import { composerDraftKey, composerDraftGet, composerDraftSet, composerDraftDelete, composerDraftStatus, onComposerDraftChange, loadComposerDrafts, flushComposerDrafts } from "./00-composer-drafts.js";
 
 // 导航偏好不承担运行配置；任务的 profile 与课题绑定来自 process_list。
 export let active_space = "dev";
@@ -18,8 +22,8 @@ export let workspace_preferences = readJson("kz-workspaces", {});
 let workspace_save = Promise.resolve();
 let workspace_restore = null;
 const dev_views = new Set(["project", "documents", "lines", "arch", "metrics"]);
-const composer_drafts = new Map();
 let composer_scope = "";
+const nativeDraftKey = (project, processId) => composerDraftKey({ project, processId, module: "main" });
 
 const library_preferences_key = "@research-library";
 
@@ -28,20 +32,20 @@ export function remember_development_project(project) {
 }
 
 export function sync_composer_scope() {
-  const scope = currentProject ? JSON.stringify([currentProject, activeProcessId]) : "";
+  const scope = nativeDraftKey(currentProject, activeProcessId);
   if (scope === composer_scope) return;
   document.dispatchEvent(new CustomEvent("kz:before-composer-scope"));
   // A new identity inherits the project draft. Returning to an existing
   // identity restores its own saved draft instead of the navigation placeholder.
-  const bindingProjectDraft = activeProcessId && !composer_drafts.has(scope)
-    && composer_scope === JSON.stringify([currentProject, null]);
+  const bindingProjectDraft = activeProcessId && !composerDraftGet(scope)
+    && composer_scope === nativeDraftKey(currentProject, null);
   if (composer_scope) {
     const savedScope = bindingProjectDraft ? scope : composer_scope;
-    composer_drafts.set(savedScope, { ...composer_drafts.get(savedScope), text: $("prompt").value, attachments: [...attachments] });
-    if (bindingProjectDraft) composer_drafts.delete(composer_scope);
+    composerDraftSet(savedScope, { ...composerDraftGet(savedScope), text: $("prompt").value, attachments: [...attachments] });
+    if (bindingProjectDraft) composerDraftDelete(composer_scope);
   }
   composer_scope = scope;
-  const draft = composer_drafts.get(scope);
+  const draft = composerDraftGet(scope);
   $("prompt").value = draft?.text || "";
   $("prompt").style.height = "auto";
   setAttachments([...(draft?.attachments || [])]);
@@ -49,28 +53,60 @@ export function sync_composer_scope() {
 }
 
 export function workspace_process_draft() {
-  return composer_drafts.get(JSON.stringify([currentProject, null]))?.process || {};
+  return composerDraftGet(nativeDraftKey(currentProject, null))?.process || {};
 }
 export function update_workspace_process_draft(fields) {
-  const scope = JSON.stringify([currentProject, null]);
-  const draft = composer_drafts.get(scope);
-  composer_drafts.set(scope, { ...draft, process: { ...draft?.process, ...fields } });
+  const scope = nativeDraftKey(currentProject, null);
+  const draft = composerDraftGet(scope);
+  composerDraftSet(scope, { ...draft, process: { ...draft?.process, ...fields } });
 }
 
 // A Softwire send may finish after its native editor was restored or cached by
 // navigation. Acknowledge only the submitted snapshot, never a newer draft.
 export function acknowledge_composer_draft(project, processId, sent) {
-  const scope = JSON.stringify([project, processId]);
+  const scope = nativeDraftKey(project, processId);
   const matches = draft => draft?.text === sent.text
     && JSON.stringify(draft.attachments || []) === JSON.stringify(sent.attachments);
-  if (matches(composer_drafts.get(scope))) composer_drafts.delete(scope);
-  if (scope === composer_scope && document.body.dataset.softwireComposer !== "true"
-    && matches({ text: $("prompt").value, attachments })) {
+  const visibleMatch = scope === composer_scope && document.body.dataset.softwireComposer !== "true"
+    && matches({ text: $("prompt").value, attachments });
+  if (matches(composerDraftGet(scope)) || visibleMatch) composerDraftDelete(scope);
+  if (visibleMatch) {
     $("prompt").value = "";
     $("prompt").style.height = "auto";
     setAttachments([]); renderAttachments();
   }
 }
+
+defer(() => {
+  const capture = () => {
+    if (document.body.dataset.softwireComposer === "true") return;
+    const key = composer_scope || nativeDraftKey(currentProject, activeProcessId);
+    composerDraftSet(key, { ...composerDraftGet(key), text: $("prompt").value, attachments: [...attachments] });
+  };
+  $("prompt").addEventListener("input", capture);
+  document.addEventListener("kz:attachments-changed", capture);
+  window.addEventListener("pagehide", () => { capture(); void flushComposerDrafts(); });
+  const status = document.createElement("div"); status.id = "composer-draft-status"; status.setAttribute("role", "alert"); status.hidden = true;
+  const message = document.createElement("span"), retry = document.createElement("button"); retry.type = "button"; retry.className = "ghost mini";
+  status.append(message, retry); $("composer").after(status);
+  const restore = async () => {
+    await loadComposerDrafts();
+    if (document.body.dataset.softwireComposer !== "true") {
+      const draft = composerDraftGet(composer_scope || nativeDraftKey(currentProject, activeProcessId));
+      if (draft) { $("prompt").value = draft.text || ""; setAttachments(draft.attachments || []); renderAttachments(); }
+    }
+  };
+  retry.addEventListener("click", () => { if (!composerDraftStatus.loaded) void restore(); else void flushComposerDrafts(); });
+  const paint = () => {
+    $("composer").inert = !composerDraftStatus.ready;
+    status.hidden = composerDraftStatus.ready && !composerDraftStatus.error;
+    message.textContent = composerDraftStatus.error ? `${t("草稿恢复或保存失败")}: ${composerDraftStatus.error}` : t("正在读取…");
+    retry.textContent = t("重试"); retry.hidden = !composerDraftStatus.error;
+  };
+  onComposerDraftChange(paint); document.addEventListener("kz:language", paint);
+  paint();
+  void restore();
+});
 
 export function project_workspace(project = currentProject) {
   const saved = workspace_preferences[project || development_project] ?? {};

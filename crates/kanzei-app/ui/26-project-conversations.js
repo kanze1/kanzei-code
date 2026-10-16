@@ -1,5 +1,7 @@
+import { readProjectDocuments, observeProjectDocuments } from "./01-project-resources.js";
 import { renderRequirementDocument } from "./26-requirement-contract.js";
-import { $, defer, invoke } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
 import { isGeneralChat } from "./03-general-scope.js";
 import { localizedDocStatus, localizedStage, t } from "./02-i18n.js";
 import { openPopover, openDialog, closeSurface } from "./00-surface.js";
@@ -50,14 +52,14 @@ function openRail(anchor) {
   } });
 }
 
-export async function refreshConversationWork(project = currentProject) {
+export async function refreshConversationWork(project = currentProject, { force = true } = {}) {
   if (!project || isGeneralChat(project)) return;
   const state = facts(project);
   if (state.request) return state.request;
   state.request = (async () => {
     try {
       const [docs, snapshot] = await Promise.all([
-        invoke("docs_snapshot", { projectDir: project }), invoke("workspace_snapshot", { projectDir: project }),
+        readProjectDocuments(project, { force }), invoke("workspace_snapshot", { projectDir: project }),
       ]);
       state.docs = docs; state.snapshot = snapshot.projects?.find(p => sameProject(p.path, project)); state.error = "";
       if (sameProject(project, currentProject)) {
@@ -385,7 +387,19 @@ defer(() => {
       void registerRequirement(true);
     }
   });
-  const refresh = () => { closeRail(); detailId = null; rendered = ""; paint(); if (active()) void refreshConversationWork(); };
+  let disposeDocuments = null;
+  const observe = () => {
+    disposeDocuments?.(); disposeDocuments = null;
+    if (!active()) return;
+    const project = currentProject;
+    disposeDocuments = observeProjectDocuments(project, resource => {
+      const state = facts(project);
+      if (resource.status === "ready") { state.docs = resource.data; state.error = ""; }
+      else if (resource.status === "error") state.error = resource.error;
+      if (sameProject(project, currentProject)) { rendered = ""; paint(); }
+    }, () => active() && sameProject(project, currentProject));
+  };
+  const refresh = () => { observe(); closeRail(); detailId = null; rendered = ""; paint(); if (active()) void refreshConversationWork(); };
   document.addEventListener("kz:view-changed", refresh);
   document.addEventListener("kz:conversation-selected", refresh);
   // 重命名/删除对话后页头的对话名跟着变(12-session-menus.js 发出)。
@@ -397,6 +411,6 @@ defer(() => {
   });
   document.addEventListener("kz:tasks-layout", () => paint());
   document.addEventListener("kz:work-selection", () => { rendered = ""; paint(); });
-  setInterval(() => { if (active() && !document.hidden && rendered !== "handoff") void refreshConversationWork(); }, 10000);
-  paint(); if (active()) void refreshConversationWork();
+  setInterval(() => { if (active() && !document.hidden && rendered !== "handoff") void refreshConversationWork(currentProject, { force: false }); }, 10000);
+  observe(); paint(); if (active()) void refreshConversationWork();
 });

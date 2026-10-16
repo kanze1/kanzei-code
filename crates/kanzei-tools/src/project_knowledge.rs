@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 mod context;
 
 use crate::files::{annotation_target, load_annotations, valid_directory_notes, AnnotationStore};
-use crate::memory::{MemoryEntry, MemoryStore};
-use crate::refgraph::memory_graph::{build_graph, collect_inputs_from, GraphInputs};
+use crate::memory::MemoryEntry;
+use crate::refgraph::memory_graph::{build_graph, collect_context_inputs, GraphInputs};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct KnowledgeLink {
@@ -60,6 +60,8 @@ pub struct KnowledgeArea {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectKnowledge {
+    #[serde(skip)]
+    registry: AreaRegistry,
     pub version: u32,
     pub enabled: bool,
     pub project_root: String,
@@ -163,6 +165,7 @@ fn purpose_map(
 pub fn snapshot(project_root: &Path, code_root: &Path) -> ProjectKnowledge {
     if !enabled(project_root) {
         return ProjectKnowledge {
+            registry: AreaRegistry::default(),
             version: 1,
             enabled: false,
             project_root: project_root.display().to_string(),
@@ -173,10 +176,22 @@ pub fn snapshot(project_root: &Path, code_root: &Path) -> ProjectKnowledge {
             warnings: Vec::new(),
         };
     }
-    let mut inputs = collect_inputs_from(project_root, &[MemoryStore::project(project_root)]);
-    // `.kanzei` 是主项目资产；结构和用途指纹必须针对实际工作的代码树。
-    inputs.registry = AreaRegistry::scan(code_root);
-    inputs.memories.retain(|memory| !memory.archived);
+    let inputs = match collect_context_inputs(project_root, code_root) {
+        Ok(inputs) => inputs,
+        Err(error) => {
+            return ProjectKnowledge {
+                registry: AreaRegistry::default(),
+                version: 1,
+                enabled: true,
+                project_root: project_root.display().to_string(),
+                code_root: code_root.display().to_string(),
+                areas: Vec::new(),
+                memories: Vec::new(),
+                unassigned: Vec::new(),
+                warnings: vec![format!("项目知识读取失败：{error:#}")],
+            }
+        }
+    };
     let purposes = purpose_map(code_root, &load_annotations(project_root), &inputs.registry);
     project(&inputs, purposes, project_root, code_root)
 }
@@ -256,6 +271,7 @@ fn project(
         })
         .collect();
     ProjectKnowledge {
+        registry: inputs.registry.clone(),
         version: 1,
         enabled: true,
         project_root: project_root.display().to_string(),
@@ -298,7 +314,7 @@ impl ProjectKnowledge {
     }
 
     pub fn resolve_area(&self, token: &str) -> Option<String> {
-        AreaRegistry::scan(Path::new(&self.code_root)).resolve_token(token)
+        self.registry.resolve_token(token)
     }
 
     /// 层级祖先 + 目标子树 + 一跳上下游。依赖不充当父子关系，也不递归加载整仓。
@@ -761,5 +777,50 @@ mod tests {
         );
         assert!(context.contains("正文未加载"));
         assert!(!context.contains("long memory"));
+    }
+    #[test]
+    fn context_collection_is_read_only_and_area_resolution_uses_snapshot() {
+        let fixture = Fixture::new();
+        fixture.write(
+            ".kanzei/memory/archive/M-999-ignored.md",
+            "not part of the live context",
+        );
+        let knowledge = snapshot(&fixture.0, &fixture.0);
+        assert!(
+            !fixture.0.join(".kanzei/memory/index.db").exists(),
+            "context must not open telemetry databases"
+        );
+        let before = knowledge.resolve_area("base/network/decode");
+        assert!(before.is_some());
+        let code = fixture.0.join("crates/base/src/network");
+        std::fs::remove_dir_all(&code).unwrap();
+        assert_eq!(
+            knowledge.resolve_area("base/network/decode"),
+            before,
+            "area resolution must use the captured registry"
+        );
+        assert!(knowledge.memories.iter().all(|m| m.id != "M-999"));
+    }
+
+    #[test]
+    fn context_reads_archives_only_for_unresolved_links_and_reports_source_errors() {
+        let fixture = Fixture::new();
+        fixture.memory("M-088", "active", "base/network/decode", "See R-088.");
+        fixture.write(".kanzei/project/requirements.md", "# Requirements\n\n## R-088 linked contract [todo]\n\n- 实现: crates/base/src/network/decode.rs\n");
+        // Reading this archive would fail; the live reference already resolves it.
+        std::fs::create_dir_all(fixture.0.join(".kanzei/project/requirements-archive.md")).unwrap();
+        let inputs = collect_context_inputs(&fixture.0, &fixture.0).unwrap();
+        assert!(inputs
+            .tracker
+            .iter()
+            .any(|entry| entry.id == "R-088" && !entry.archived));
+        let live = fixture.0.join(".kanzei/project/requirements.md");
+        std::fs::remove_file(&live).unwrap();
+        std::fs::create_dir(&live).unwrap();
+        let knowledge = snapshot(&fixture.0, &fixture.0);
+        assert!(knowledge
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("项目知识读取失败")));
     }
 }

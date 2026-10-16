@@ -1,5 +1,11 @@
-import { $, confirmDialog, defer, invoke, on, promptBox, uiPrefsLoad } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { confirmDialog } from "./00-dialogs.js";
+import { on } from "./01-runtime-events.js";
+import { promptBox } from "./01-chat-panes.js";
+import { uiPrefsLoad } from "./00-ui-preferences.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
+import { subscribeRefresh } from "./00-refresh.js";
 import { openPopover, openMenu, closeSurface } from "./00-surface.js";
 import { installFrame } from "./00-frame.js";
 import { activeProcessId, activeSessionId, currentProject, attachments, toastError } from "./03-shell.js";
@@ -168,6 +174,6 @@ defer(() => {
       },
     ], { placement: "top-end", label: t("后台常驻") });
   });
-  setInterval(() => { if (visible && !document.hidden && tab === "logs") void refresh(); }, 2500);
+  subscribeRefresh({ interval: 2500, active: () => visible && tab === "logs", refresh, onError: toastError });
   void invoke("runtime_status").then(value => { if (value?.mode === "detached" && badge) { badge.hidden = false; badge.dataset.connected = "true"; badge.title = t("后台已连接；关闭界面后任务继续"); } }).catch(() => {});
 });

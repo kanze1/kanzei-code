@@ -2156,131 +2156,44 @@ prunable gitdir file points to non-existent location
         let ci = std::fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).unwrap();
         let verify = std::fs::read_to_string(repo_root.join("scripts/verify.ps1")).unwrap();
 
-        // ① verify.ps1 检查键集合(Step-With-Timing "<key>")必须等于固定清单。
-        fn verify_check_keys(text: &str) -> std::collections::BTreeSet<String> {
-            let mut keys = std::collections::BTreeSet::new();
-            let needle = "Step-With-Timing \"";
-            let mut start = 0;
-            while let Some(pos) = text[start..].find(needle) {
-                let after = start + pos + needle.len();
-                let key_end = text[after..]
-                    .find('"')
-                    .map(|e| after + e)
-                    .unwrap_or(text.len());
-                keys.insert(text[after..key_end].to_string());
-                start = key_end;
-            }
-            keys
-        }
-        let expected: std::collections::BTreeSet<String> = [
-            "fmt",
-            "clippy",
-            "test",
-            "ui_runtime",
-            "ui_lint",
-            "ipc_event_contract",
-            "parallel_lines_regression",
-            "ui_a11y",
-            "ui_i18n",
-            "ui_markdown",
-            "ui_connectivity",
-            "ui_diagram",
-            "metrics_build",
-            "crate_sync",
-            "ps1_bom",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        let actual = verify_check_keys(&verify);
-        assert!(
-            verify.contains("$global:LASTEXITCODE = 0"),
-            "Step-With-Timing 必须清理上一步外部进程的 LASTEXITCODE"
-        );
-        assert_eq!(
-            actual, expected,
-            "verify.ps1 检查键集合必须等于固定清单——新增/删除门禁时 ci.yml 与 git.rs 也要同步"
-        );
-
-        // ② 每个键在 ci.yml 有对应标记(命令文本或 smoke 脚本名)。
-        let markers: [(&str, &str); 15] = [
-            ("metrics_build", "cargo build -q -p kanzei"),
-            ("fmt", "cargo fmt --all -- --check"),
-            ("clippy", "cargo clippy --workspace --all-targets"),
-            ("test", "cargo test --workspace"),
-            ("ui_runtime", "ui-runtime-smoke.mjs"),
-            ("ui_lint", "ui-lint-smoke.mjs"),
-            ("ipc_event_contract", "ipc-event-smoke.mjs"),
-            ("parallel_lines_regression", "parallel-lines-regression.mjs"),
-            ("ui_a11y", "ui-a11y-smoke.mjs"),
-            ("ui_i18n", "ui-i18n-smoke.mjs"),
-            ("ui_markdown", "ui-markdown-smoke.mjs"),
-            ("ui_connectivity", "ui-connectivity.mjs"),
-            ("ui_diagram", "ui-diagram-smoke.mjs"),
-            ("crate_sync", "check-readme-crates.mjs"),
-            ("ps1_bom", "check-ps1-bom.mjs"),
-        ];
-        for (key, marker) in markers {
-            assert!(ci.contains(marker), "ci.yml 缺检查 {key}(标记 {marker})");
-        }
-
-        // ③ 反向:smoke 脚本在两侧同现同隐;npm ci 必须存在(ui-lint 依赖 eslint)。
-        for script in [
-            "ui-runtime-smoke.mjs",
-            "ui-lint-smoke.mjs",
-            "ipc-event-smoke.mjs",
-            "parallel-lines-regression.mjs",
-            "ui-a11y-smoke.mjs",
-            "ui-i18n-smoke.mjs",
-            "ui-markdown-smoke.mjs",
-            "ui-connectivity.mjs",
-            "ui-diagram-smoke.mjs",
-        ] {
-            assert_eq!(
-                ci.contains(script),
-                verify.contains(script),
-                "smoke 脚本 {script} 必须在 verify.ps1 与 ci.yml 两侧同现同隐"
-            );
-        }
-        assert!(
-            ci.contains("npm ci"),
-            "ci.yml 必须 npm ci(ui-lint 依赖 eslint)"
-        );
-
-        // ④ 门禁实现(git.rs 本文件)也含同一命令文本。
+        let registry: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(repo_root.join("scripts/verification-checks.json")).unwrap(),
+        )
+        .unwrap();
+        let checks = registry.as_array().unwrap();
+        let keys: std::collections::BTreeSet<_> =
+            checks.iter().map(|c| c["key"].as_str().unwrap()).collect();
+        assert_eq!(keys.len(), checks.len(), "check keys must be unique");
+        assert!(verify.contains("verify-policy.mjs classify"));
+        assert!(verify.contains("foreach ($check in $policy.checks)"));
+        assert!(verify.contains("$global:LASTEXITCODE = 0"));
+        assert!(ci.contains("verify.ps1 -Full -Ci"));
+        assert!(ci.contains("npm ci"));
         let this = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/git.rs"),
         )
         .unwrap();
-        assert!(
-            this.contains("cargo fmt --all -- --check"),
-            "fmt_gate 命令与 CI 不一致"
+        assert!(this.contains("cargo fmt --all -- --check"));
+        assert!(this.contains("cargo check --workspace --all-targets"));
+        assert!(this.contains("cargo clippy --workspace -- -D warnings"));
+        let clippy = checks
+            .iter()
+            .find(|check| check["key"] == "clippy")
+            .unwrap();
+        assert_eq!(
+            clippy["args"],
+            serde_json::json!(["clippy", "--workspace", "--", "-D", "warnings"])
         );
-
-        // ⑤ clippy 的三处分工是**刻意**的,不是漂移——所以逐处正向断言,而不是
-        //    断言三处相同。省下的是 25.7s(37.9s → 12.2s)编译时间,代价是测试代码
-        //    的 lint 违规会本地绿、只在 CI(手动触发)红。任何一处改动都必须回到这里改。
-        //
-        //    提交门禁(git.rs):check --all-targets 保编译底线 + 轻量 clippy 做 lint
-        assert!(
-            this.contains("cargo check --workspace --all-targets"),
-            "compile_gate 必须保留 --all-targets:它是测试代码的编译底线,\
-             clippy 变轻之后没有别的东西覆盖测试代码能不能编译"
-        );
-        assert!(
-            this.contains("cargo clippy --workspace -- -D warnings"),
-            "clippy_gate 应为不含 --all-targets 的轻量形态"
-        );
-        //    verify.ps1:轻量 clippy(编译覆盖由紧随其后的 test 步骤提供)
-        assert!(
-            verify.contains("cargo clippy --workspace --manifest-path"),
-            "verify.ps1 的 clippy 应为轻量形态(不带 --all-targets)"
-        );
-        //    ci.yml:全量 clippy——测试代码的 lint 覆盖只剩这一处,丢了就真没人管了
-        assert!(
-            ci.contains("cargo clippy --workspace --all-targets -- -D warnings"),
-            "ci.yml 必须保留 --all-targets 全量 clippy:本地两处都已转轻量,\
-             测试代码的 lint 覆盖只由 CI 承担"
+        assert_eq!(
+            clippy["ci_args"],
+            serde_json::json!([
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--",
+                "-D",
+                "warnings"
+            ])
         );
 
         // ⑥ 注入 dev 提示词的 Cargo 工程规范(CARGO_CONVENTIONS §1.4a)必须如实描述上面的分工:

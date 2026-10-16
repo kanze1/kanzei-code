@@ -61,7 +61,8 @@ assert(sessions.includes("function renderParallelTaskStatus(items)"), "左侧线
 assert(sessions.includes("function processRunning(item)"), "线路运行态未统一经过状态真源映射");
 assert(sessions.includes("state.live_running === true"), "实时运行事件不能被旧 process_list 快照覆盖");
 assert(sessions.includes("state.local_start_pending && !item.running"), "发送启动窗口不能被旧空闲快照覆盖");
-assert(compose.includes("local_start_pending: true"), "发送启动意图未进入状态投影(R-206:经 transitionSession detail 传入)");
+assert(compose.includes('transitionSession(requestSessionId, "starting"'), "发送启动意图未进入 starting 状态");
+assert(sourceFor("export const SESSION_PHASES").includes('get local_start_pending() { return this.phase === "starting"; }'), "启动投影必须由 starting phase 派生，不再独立写布尔状态");
 assert(allUiSources.includes("payload?.terminal !== false"), "错误事件缺少终态区分");
 assert(sessions.includes("applyAutoUiState(activeProcessId)"), "重载/切项目后未恢复活动线路鞭挞设置");
 assert(sessions.includes("applyProfileValue(active?.profile)"), "重载/切项目后未恢复活动线路 profile");

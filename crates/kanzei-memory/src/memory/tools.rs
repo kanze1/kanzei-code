@@ -98,12 +98,15 @@ impl Tool for MemorySearchTool {
         let limit = input.limit.unwrap_or(5).clamp(1, 10);
         // D-366:检索走统一门面(index 是 ranking 唯一实现处),不再直调 store.search。
         let index = SqliteMemoryIndex::new(&ctx.project_root);
-        let all_hits: Vec<SearchHit> = index.search_entries(
+        let all_hits: Vec<SearchHit> = match index.search_entries(
             &IndexQuery::text(&input.query),
             input.category.as_deref(),
             status,
             limit,
-        );
+        ) {
+            Ok(hits) => hits,
+            Err(error) => return ToolOutput::error(format!("memory index unavailable: {error:#}")),
+        };
         super::record_memory_search_telemetry(
             &ctx.project_root,
             &input.query,
@@ -594,7 +597,9 @@ mod tests {
         }
         // D-366:决策排序在检索门面,经 index 取命中。
         let index = SqliteMemoryIndex::new(&ctx.project_root);
-        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
+        let hits = index
+            .search_entries(&IndexQuery::text("发版"), None, Some("active"), 5)
+            .unwrap();
         assert!(!hits.is_empty());
         for _ in 0..3 {
             crate::memory::record_memory_search_telemetry(
@@ -955,5 +960,41 @@ mod tests {
         assert!(audit.contains("与 M-014 正文真源逐行比对"));
         assert!(audit.contains("与 M-015 正文真源逐行比对"));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn any_status_includes_live_candidates_and_storage_errors_are_not_misses() {
+        let (dir, ctx) = ctx();
+        let root = crate::memory::project_memory_root(&dir);
+        std::fs::create_dir_all(&root).unwrap();
+        for (id, status) in [
+            ("M-001", "active"),
+            ("M-002", "candidate"),
+            ("M-003", "shadow"),
+        ] {
+            std::fs::write(root.join(format!("{id}-status.md")), format!("---\nid: {id}\nscope: project\ncategory: fact\ntitle: statusfixture\ndescription: statusfixture\nstatus: {status}\n---\nstatusfixture")).unwrap();
+        }
+        let default = MemorySearchTool
+            .execute(json!({"query":"statusfixture"}), &ctx)
+            .await;
+        assert!(!default.is_error, "{}", default.content);
+        assert!(default.content.contains("M-001"));
+        assert!(!default.content.contains("M-002") && !default.content.contains("M-003"));
+        let all = MemorySearchTool
+            .execute(json!({"query":"statusfixture","status":"any"}), &ctx)
+            .await;
+        for id in ["M-001", "M-002", "M-003"] {
+            assert!(all.content.contains(id), "{}", all.content);
+        }
+        std::fs::write(root.join("index.db"), b"broken sqlite file").unwrap();
+        let failure = MemorySearchTool
+            .execute(json!({"query":"statusfixture"}), &ctx)
+            .await;
+        assert!(
+            failure.is_error && failure.content.contains("unavailable"),
+            "{}",
+            failure.content
+        );
+        assert!(!failure.content.contains("no memory matched"));
     }
 }

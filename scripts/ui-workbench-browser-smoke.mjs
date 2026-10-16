@@ -1,3 +1,4 @@
+import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
 // 工作台/项目/对话分层的真实浏览器回归。IPC 仅用隔离夹具，不访问用户项目。
 /* global window, document, CanvasRenderingContext2D, innerWidth, MouseEvent */
 import assert from "node:assert/strict";
@@ -284,7 +285,9 @@ try {
     shell.setAttachments([{ name: "reader.png", media_type: "image/png", data: "cmVhZGVy" }]);
     composer.renderAttachments();
   });
+  await openComposerOptions(page);
   assert.equal(await page.locator("#process-subagents").isVisible(), true, "子代理开关在对话工具行直接可用");
+  await closeComposerOptions(page);
   await page.locator("#workbench-chat-history").click();
   await page.locator('.project-session-menu .workbench-session[data-process-id="p|reader-review"] .workbench-session-link').click();
   await settle();
@@ -432,7 +435,7 @@ try {
       await seen(gate);
       // The transition blocks real interaction. Exercise the old handler too,
       // proving an already queued click still cannot rebind A's entry to B.
-      assert(await originalButton.evaluate((el) => Boolean(el.closest("[inert]"))), "跨项目读取期间旧工作表单必须不可交互");
+      assert(await originalButton.evaluate((el) => !el.isConnected || Boolean(el.closest("[inert]"))), "跨项目读取期间旧工作表单必须不可交互");
       await originalButton.evaluate((el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
       await page.waitForTimeout(100);
       const wrong = calls.slice(before).filter((call) => call.cmd === "docs_update" && call.args.projectDir === projectB && call.args.id === "R-001");

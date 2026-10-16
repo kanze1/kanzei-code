@@ -92,8 +92,7 @@ pub(crate) async fn finish_run(
 ) -> anyhow::Result<()> {
     let store = kanzei_core::SessionStore::open(state.state_path)?;
     let terminal = match &run_result {
-        Ok(summary) if summary.halted_by_user => kanzei_core::SessionTurnTerminal::Stopped,
-        Ok(_) => kanzei_core::SessionTurnTerminal::Completed,
+        Ok(summary) => summary.terminal(),
         Err(error) => kanzei_core::SessionTurnTerminal::Failed(error.to_string()),
     };
     if let Err(error) = finish_typed_checked(&state.typed_writer, terminal) {
@@ -104,11 +103,16 @@ pub(crate) async fn finish_run(
     }
     match &run_result {
         Ok(summary) => {
-            store.set_status(state.session_id, "idle")?;
+            let status = if summary.incomplete_reason().is_some() {
+                "failed"
+            } else {
+                "idle"
+            };
+            store.set_status(state.session_id, status)?;
             store.append_event(
                 state.session_id,
                 "session.status_changed",
-                &serde_json::json!({ "status": "idle" }),
+                &serde_json::json!({ "status": status, "outcome": summary.outcome() }),
             )?;
             persist_cli_compaction_surface_if_changed(
                 &store,
@@ -189,11 +193,7 @@ pub(crate) async fn finish_run(
     // manager 在轮内自报不出真实 id,不代填则 provenance 校验会拦下一切晋升。
     let mut current_episode_id: Option<i64> = None;
     {
-        let outcome = if summary.halted_by_user {
-            "halted"
-        } else {
-            "completed"
-        };
+        let outcome = summary.outcome();
         let tools = kanzei_core::summarize_tools(this_run);
         let store = kanzei_core::SessionStore::open(state.state_path)?;
         if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
@@ -228,7 +228,7 @@ pub(crate) async fn finish_run(
         }
         // 给这次输入一个结局:此后任何停止都不再把它追认为 cancelled。
         anyhow::ensure!(
-            store.finish_input(state.input_id, true)?,
+            store.finish_input(state.input_id, summary.incomplete_reason().is_none())?,
             "CLI 输入未完成持久收尾"
         );
     }
@@ -291,6 +291,9 @@ pub(crate) async fn finish_run(
             eprintln!("\x1b[33m(auto: 需求与缺陷已清空,自主推进无可用目标)\x1b[0m");
         }
         _ => {}
+    }
+    if let Some(reason) = summary.incomplete_reason() {
+        anyhow::bail!("{reason}");
     }
     let exit_code = super::super::cli_exit_code(summary.halted_by_user);
     if exit_code != 0 {
@@ -367,6 +370,7 @@ mod tests {
             steps: 1,
             halted_by_user: false,
             step_limit_reached: false,
+            finish_reason: Some(kanzei_llm::FinishReason::EndTurn),
             messages,
             context_report: Vec::new(),
             overflow_traces: Vec::new(),

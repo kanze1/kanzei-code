@@ -1,4 +1,5 @@
 //! Ephemeral, tool-free Q&A over a bounded snapshot. Never enters the run inbox.
+use crate::app_events::AppEvents;
 use crate::{AppState, MutexPoisonExt};
 use futures::StreamExt;
 use kanzei_llm::{LlmClient, LlmEvent, LlmRequest, Message, Part, ProxyConfig, ReasoningEffort};
@@ -8,7 +9,7 @@ use std::{
     path::Path,
     sync::{Arc, LazyLock, Mutex},
 };
-use tauri::{Emitter, State, Window};
+use tauri::{Emitter, State};
 
 struct Question {
     value: Value,
@@ -189,7 +190,7 @@ fn runtime_facts(
     }
     lines.join("\n")
 }
-fn update(window: &Window, id: &str, text: Option<&str>, status: Option<&str>) {
+fn update(window: &AppEvents, id: &str, text: Option<&str>, status: Option<&str>) {
     let mut all = QUESTIONS.lock_or_recover();
     if let Some(question) = all.get_mut(id) {
         if let Some(text) = text {
@@ -234,7 +235,7 @@ pub(crate) fn side_question_stop(
 }
 #[tauri::command]
 pub(crate) async fn side_question_send(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     project_dir: String,
     process_id: Option<String>,

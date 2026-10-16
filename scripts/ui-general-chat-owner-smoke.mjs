@@ -72,7 +72,12 @@ async function harness() {
   const modules = new Map(names.map(name => [`./${name}`, new vm.SourceTextModule(sources.get(name), { context, identifier: name, importModuleDynamically: importDynamic })]));
   const navigate = (view, options = {}) => { if (!options.prepared && ['workspace', 'settings'].includes(view)) modules.get('./12-workbench.js').namespace.cancelProjectNavigation(); document.body.dataset.view = view; };
   const values = new Map([
-    ['./01-core.js', { $: get, invoke, defer: callback => deferred.push(callback), confirmDialog: async () => true, promptBox: get('prompt'), activePane: get('pane'), messages: get('messages'), showPane: () => paneReady, resetPane: () => get('pane').replaceChildren(), readJson: (_key, fallback) => fallback, uiPrefsLoad: async () => ({}), uiPrefsSave: async () => {}, mergeWorkspaceState: (prior, delta) => ({ ...prior, ...delta }) }],
+    ['./00-dom.js', { $: get, defer: callback => deferred.push(callback) }],
+    ['./00-ipc.js', { invoke }],
+    ['./00-dialogs.js', { confirmDialog: async () => true }],
+    ['./01-chat-panes.js', { promptBox: get('prompt'), activePane: get('pane'), messages: get('messages'), showPane: () => paneReady, resetPane: () => get('pane').replaceChildren() }],
+    ['./00-ui-primitives.js', { readJson: (_key, fallback) => fallback }],
+    ['./00-ui-preferences.js', { uiPrefsLoad: async () => ({}), uiPrefsSave: async () => {}, mergeWorkspaceState: (prior, delta) => ({ ...prior, ...delta }) }],
     ['./03-shell.js', { ...shellValues, setCurrentProject: value => set('currentProject', value), setActiveProcessId: value => set('activeProcessId', value), setActiveSessionId: value => set('activeSessionId', value), setProcessItems: value => set('processItems', value), setAttachments: value => set('attachments', value), sessionState, sessionStates: states, transitionSession: (id, phase, detail) => Object.assign(sessionState(id), { phase, running: phase === 'running', converged: ['idle', 'stopped', 'failed'].includes(phase) }, detail), setRunning: value => set('running', value), toast: value => notices.push(value), toastError: value => notices.push(value), navigate_view: navigate, ensureChatView: () => navigate('chat') }],
     ['./02-i18n.js', { t: text => text, localizeDynamic: text => text, localizedStage: text => text }],
     ['./00-surface.js', { openMenu: (_anchor, items) => menus.push(items) }],

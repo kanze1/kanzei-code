@@ -1,4 +1,4 @@
-import { $ } from "./01-core.js";
+import { $ } from "./00-dom.js";
 import { t } from "./02-i18n.js";
 import { installDragHandle } from "./00-frame.js";
 import { attachments, setAttachments, activeProcessId, currentProject } from "./03-shell.js";
@@ -7,6 +7,7 @@ import { button, node } from "./25-softwire-view.js";
 import { targetKey, safeRestore, sameProject } from "./25-softwire-model.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import { acknowledge_composer_draft } from "./03-workspaces.js";
+import { composerDraftKey, composerDraftGet, composerDraftSet, composerDraftDelete, composerDraftEntries, composerDraftStatus, onComposerDraftChange, flushComposerDrafts } from "./00-composer-drafts.js";
 
 // Move the existing editor; never clone it or recreate it while events arrive.
 export function createComposer(actions) {
@@ -21,13 +22,9 @@ export function createComposer(actions) {
   });
   let raw = ""; try { raw = localStorage.getItem("kz-softwire-drafts"); } catch {}
   const restored = safeRestore(raw);
-  const drafts = new Map(restored.drafts), files = new Map();
   let target = null, active = false, nativeDraft = null, floating = false, drag = null;
-  const nativeEdited = new Set();
-  const nativeScope = () => JSON.stringify([currentProject, activeProcessId]);
-  input.addEventListener("input", () => { if (!active) nativeEdited.add(nativeScope()); });
   let position = restored.position || { x: 0, y: 0 };
-  let timer, storageFailed = false, preferredFloating = Boolean(restored.floating);
+  let storageFailed = false, preferredFloating = Boolean(restored.floating);
   const head = node("div", null, "sw-composer-head");
   const handle = button("⠿", () => {}, "sw-drag");
   handle.setAttribute("aria-label", t("拖动对话框；悬浮时可用方向键移动"));
@@ -53,16 +50,17 @@ export function createComposer(actions) {
   dock.append(controls, completed, unavailable);
 
   function persist() {
-    if (target && active) { drafts.set(targetKey(target), input.value); files.set(targetKey(target), [...attachments]); }
-    try { localStorage.setItem("kz-softwire-drafts", JSON.stringify({ version: 1, drafts: [...drafts].slice(-100), position, floating: preferredFloating })); }
+    if (target && active) composerDraftSet(composerDraftKey(target), { text: input.value, attachments: [...attachments] });
+    try { localStorage.setItem("kz-softwire-drafts", JSON.stringify({ version: 1, drafts: restored.drafts, position, floating: preferredFloating })); }
     catch { storageFailed = true; }
   }
   function change(next) {
     if (targetKey(next) !== (target ? targetKey(target) : "")) {
       rememberNativeDraft();
       persist(); target = { ...next };
-      input.value = drafts.get(targetKey(target)) || "";
-      setAttachments(files.get(targetKey(target)) || []); renderAttachments();
+      const draft = composerDraftGet(composerDraftKey(target));
+      input.value = draft?.text || "";
+      setAttachments(draft?.attachments || []); renderAttachments();
       input.style.height = "";
     } else target = { ...next };
     sync();
@@ -71,7 +69,7 @@ export function createComposer(actions) {
     if (!active || !target) return;
     recipient.textContent = target.label;
     recipient.title = target.label; // 只给名字:项目路径与会话 id 不外露(UX-127)
-    status.textContent = storageFailed ? t("刷新恢复不可用") : t(target.sendStatus || "");
+    status.textContent = storageFailed || composerDraftStatus.error ? t("刷新恢复不可用") : t(target.sendStatus || "");
     queue.textContent = target.interactionId ? t("回复原事项") : target.running ? t("下一轮送达") : t("当前工作");
     // 静态标签是创建时写的:每次同步重写一遍,切语言后下一次同步即跟上。
     handle.setAttribute("aria-label", t("拖动对话框；悬浮时可用方向键移动"));
@@ -100,18 +98,14 @@ export function createComposer(actions) {
     const entering = !active;
     if (!active) {
       nativeDraft = { project: currentProject, processId: activeProcessId, text: input.value, attachments: [...attachments], height: input.style.height };
+      composerDraftSet(composerDraftKey(nativeDraft), { ...composerDraftGet(composerDraftKey(nativeDraft)), text: nativeDraft.text, attachments: nativeDraft.attachments });
       active = true;
       document.body.dataset.softwireComposer = "true";
       dock.classList.add("sw-composer");
       slot.append(dock); controls.append(send);
       target = null;
-      if (next.module === "main" && !next.interactionId && sameProject(next.project, currentProject) && next.processId === activeProcessId) {
-        if (nativeDraft.text || nativeDraft.attachments.length || nativeEdited.has(nativeScope()) || !drafts.has(targetKey(next))) {
-          drafts.set(targetKey(next), nativeDraft.text); files.set(targetKey(next), nativeDraft.attachments);
-        }
-        nativeEdited.delete(nativeScope());
-      }
     } else if (dock.parentElement !== slot) slot.append(dock);
+    const feedback = $("composer-draft-status"); if (feedback) dock.after(feedback);
     change(next);
     if (entering) setFloating(preferredFloating, false);
   }
@@ -130,14 +124,13 @@ export function createComposer(actions) {
     document.body.dataset.softwireComposer = "false";
     dock.classList.remove("sw-composer");
     origin.after(dock); sendOrigin.after(send);
+    const feedback = $("composer-draft-status"); if (feedback) dock.after(feedback);
     for (const { element, anchor } of nativeControls) anchor.after(element);
     input.disabled = false;
-    input.value = nativeDraft?.text || "";
+    const draft = composerDraftGet(composerDraftKey(nativeDraft || {}));
+    input.value = draft?.text || "";
     input.style.height = nativeDraft?.height || "";
-    setAttachments(nativeDraft?.attachments || []); renderAttachments();
-    // Native sends clear the editor programmatically. Once this editor has
-    // received a draft, an empty value is authoritative too (not a cold reload).
-    if (nativeDraft?.project && nativeDraft?.processId) nativeEdited.add(JSON.stringify([nativeDraft.project, nativeDraft.processId]));
+    setAttachments(draft?.attachments || []); renderAttachments();
     send.disabled = false;
   }
   function clamp() {
@@ -180,14 +173,41 @@ export function createComposer(actions) {
     clamp(); persist();
   });
   window.addEventListener("resize", () => { if (window.innerWidth < 760) setFloating(false); else if (floating) clamp(); });
-  input.addEventListener("input", () => { if (active) { clearTimeout(timer); timer = setTimeout(persist, 150); actions.changed?.(); } });
-  window.addEventListener("pagehide", persist);
+  input.addEventListener("input", () => { if (active) { persist(); actions.changed?.(); } });
+  document.addEventListener("kz:attachments-changed", () => { if (active) persist(); });
+  window.addEventListener("pagehide", () => { persist(); void flushComposerDrafts(); });
+  // Migrate legacy text once. Attachments now share the same durable record.
+  const restoreDraft = async () => {
+    if (!composerDraftStatus.loaded) return;
+    for (const [key, text] of restored.drafts) {
+      let identityParts;
+      try { identityParts = JSON.parse(key); }
+      catch { storageFailed = true; sync(); return; }
+      if (!Array.isArray(identityParts) || identityParts.length !== 6 || identityParts.some(part => typeof part !== "string")) { storageFailed = true; sync(); return; }
+      const [project, processId, sessionId, module, objectId, interactionId] = identityParts;
+      const identity = composerDraftKey({ project, processId, sessionId, module, objectId, interactionId });
+      if (!composerDraftGet(identity)) composerDraftSet(identity, { text, attachments: [] });
+    }
+    if (active && target) {
+      const draft = composerDraftGet(composerDraftKey(target));
+      if (draft) { input.value = draft.text || ""; setAttachments(draft.attachments || []); renderAttachments(); }
+    }
+    sync();
+    if (restored.drafts.length) {
+      await flushComposerDrafts();
+      if (!composerDraftStatus.saveError) { restored.drafts = []; persist(); }
+    }
+  };
+  let unsubscribeRestore = onComposerDraftChange(() => {
+    if (composerDraftStatus.loaded) { unsubscribeRestore(); restoreDraft(); }
+  });
+  if (composerDraftStatus.loaded) { unsubscribeRestore(); restoreDraft(); }
   return {
     mount, leave, sync, active: () => active, target: () => target,
     value: () => input.value,
     capture: () => ({ text: input.value, attachments: [...attachments], target: { ...target } }),
     clear(sent) {
-      const key = targetKey(sent.target);
+      const key = composerDraftKey(sent.target);
       if (sent.target.module === "main" && !sent.target.interactionId && !sent.target.child) {
         if (sameProject(sent.target.project, nativeDraft?.project) && sent.target.processId === nativeDraft?.processId
           && nativeDraft.text === sent.text && JSON.stringify(nativeDraft.attachments) === JSON.stringify(sent.attachments)) {
@@ -195,12 +215,12 @@ export function createComposer(actions) {
         }
         acknowledge_composer_draft(sent.target.project, sent.target.processId, sent);
       }
-      if (active && targetKey(target) === key) {
+      const saved = composerDraftGet(key);
+      if (saved?.text === sent.text && JSON.stringify(saved.attachments || []) === JSON.stringify(sent.attachments)) composerDraftDelete(key);
+      if (active && composerDraftKey(target) === key) {
         if (input.value === sent.text && JSON.stringify(attachments) === JSON.stringify(sent.attachments)) {
           input.value = ""; setAttachments([]); renderAttachments();
         }
-      } else if (drafts.get(key) === sent.text && JSON.stringify(files.get(key) || []) === JSON.stringify(sent.attachments)) {
-        drafts.set(key, ""); files.delete(key);
       }
       persist();
     },
@@ -208,24 +228,25 @@ export function createComposer(actions) {
     replace(text) { input.value = text; persist(); },
     rebind(previous, next) {
       persist();
-      const before = JSON.parse(targetKey(previous)), after = JSON.parse(targetKey(next));
+      const before = JSON.parse(composerDraftKey(previous)), after = JSON.parse(composerDraftKey(next));
       let reboundVisible = false;
-      for (const [key, text] of [...drafts]) {
+      for (const [key, draft] of composerDraftEntries()) {
         const identity = JSON.parse(key);
         if (identity[0] !== before[0] || identity[1] !== before[1] || identity[2] !== before[2] || identity[3] === "inbox") continue;
         identity[1] = after[1]; identity[2] = after[2];
         const replacement = JSON.stringify(identity);
-        drafts.set(replacement, text); if (files.has(key)) files.set(replacement, files.get(key));
-        if (active && target && targetKey(target) === replacement) reboundVisible = true;
-        if (replacement !== key) { drafts.delete(key); files.delete(key); }
+        composerDraftSet(replacement, draft);
+        if (active && target && composerDraftKey(target) === replacement) reboundVisible = true;
+        if (replacement !== key) composerDraftDelete(key);
       }
       if (target && target.module !== "inbox" && target.project === previous.project && target.processId === previous.processId && target.sessionId === previous.sessionId)
         target = { ...target, processId: next.processId, sessionId: next.sessionId };
       // Activating an unresolved project can mount its newly created session
       // before this rebind. Restore the migrated draft before persisting again.
       if (reboundVisible) {
-        input.value = drafts.get(targetKey(target)) || "";
-        setAttachments(files.get(targetKey(target)) || []); renderAttachments();
+        const draft = composerDraftGet(composerDraftKey(target));
+        input.value = draft?.text || "";
+        setAttachments(draft?.attachments || []); renderAttachments();
       }
       persist();
     },

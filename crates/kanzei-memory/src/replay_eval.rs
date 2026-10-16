@@ -107,7 +107,10 @@ impl ReplayMemoryProvider {
             query_text.push_str(&trigger.target);
         }
         let query = IndexQuery::both(&trigger.tool, &trigger.kind, &query_text);
-        let (hits, timing) = self.hybrid.search_hybrid_with_timing(&query, 5);
+        let (hits, timing) = match self.hybrid.search_hybrid_with_timing(&query, 5) {
+            Ok(result) => result,
+            Err(error) => return format!("[memory retrieval unavailable] {error:#}"),
+        };
         if hits.is_empty() {
             return String::new();
         }

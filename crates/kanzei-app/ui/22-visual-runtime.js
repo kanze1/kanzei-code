@@ -1,4 +1,4 @@
-import { $ } from "./01-core.js";
+import { $ } from "./00-dom.js";
 import { activeSessionId, sessionStates } from "./03-shell.js";
 import { createConstellationBackdrop } from "./22-constellation.js";
 import { initBackdropSettings, readBackdropPrefs } from "./22-constellation-prefs.js";

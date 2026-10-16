@@ -1,27 +1,21 @@
+import { conversationHistory, readConversationHistory, invalidateConversationHistory, onConversationHistoryChange } from "./00-conversation-history.js";
+export { conversationHistory } from "./00-conversation-history.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { isGeneralChat, openGeneralChat } from "./03-general-scope.js";
 import { workbenchNavigationGuard } from "./12-workbench.js";
 import { segmentTitle, syncHistoryIfOpen } from "./12-session-tree.js";
 import { loadDeliveredFiles } from "./06-deliveries.js";
 import { closeSurface, openDialog, openMenu } from "./00-surface.js";
-import { defer } from "./01-core.js";
+import { defer } from "./00-dom.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
 import { setCtxTokens } from "./03-shell.js";
-import { setActivePane } from "./01-core.js";
+import { setActivePane } from "./01-chat-panes.js";
 import { escapeHtml } from "./04-markdown.js";
-import {
-  $,
-  activePane,
-  appendToPane,
-  confirmDialog,
-  discardSessionPane,
-  invoke,
-  messages,
-  promptBox,
-  resetPane,
-  showPane,
-} from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { activePane, appendToPane, discardSessionPane, messages, promptBox, resetPane, showPane } from "./01-chat-panes.js";
+import { confirmDialog } from "./00-dialogs.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import {
   activeLineBusy,
@@ -800,6 +794,7 @@ export async function loadConversation(sequence = null, switchGeneration = null,
     await deliveryRequest;
     if (!isCurrent()) return;
     renderRecoveredMessages(history);
+    document.dispatchEvent(new CustomEvent("kz:conversation-projected", { detail: { sessionId: forSessionId, sequence } }));
     const traces = await invoke("conversation_trace_get", {
       projectDir: forProject,
       processId: forProcessId,
@@ -825,7 +820,7 @@ export async function loadConversation(sequence = null, switchGeneration = null,
 // 每次新建的——只要有任何一条线在跑,用户永远勾不满三条就被抹掉一次,
 // 「勾选后点删除」这条唯一的删除路径在运行期间根本走不完。
 export const conversationChecked = new Map(); // processId -> Set(JSON.stringify(sequences))
-export const conversationItemsByProcess = new Map();
+export const conversationItemsByProcess = new Map(); // Loaded browsing pages, never a complete identity enumeration.
 export const conversationErrorsByProcess = new Map();
 export let conversationListGeneration = 0;
 
@@ -892,7 +887,7 @@ export async function openClosedConversation(project, entry, title = "") {
   const name = title || entry.title || t("已关闭的对话");
   const blocks = [];
   try {
-    const list = await invoke("conversation_list", { projectDir: project, processId });
+    const { items: list } = await invoke("conversation_page", { projectDir: project, processId, limit: 5 });
     if (!isCurrent()) return;
     const segments = [...(Array.isArray(list) ? list : [])].sort((a, b) => (Number(b.sequence) || 0) - (Number(a.sequence) || 0)).slice(0, 5);
     for (const segment of segments) {
@@ -985,6 +980,7 @@ export async function deleteConversationsForProcess(processId, sequences, { proj
   if (local) await settleDeletedConversationView(processId, target, clearedCurrent);
   toast(`${t("已删除")} ${outcome.segments ?? sequences.length} ${t("段对话")}${clearedCurrent ? ` · ${t("当前对话已删除")}` : ""}`, { kind: "ok" });
   conversationChecked.delete(processId);
+  invalidateConversationHistory(project, processId);
   if (local) await refreshConversationLists();
 }
 
@@ -1020,7 +1016,7 @@ export function renderLineConversationHistory(processId) {
   const signature = JSON.stringify([
     String(conversationErrorsByProcess.get(processId) ?? ""),
     (conversationItemsByProcess.get(processId) ?? []).map((item) => [item.sequence, item.title, item.message_count]),
-    lineHistoryOpen.has(processId), currentProject, t("历史对话"),
+    lineHistoryOpen.has(processId), currentProject, t("历史对话"), conversationHistory(currentProject, processId).hasMore, Boolean(conversationHistory(currentProject, processId).request),
   ]);
   if (el._historySignature === signature) return;
   el._historySignature = signature;
@@ -1097,8 +1093,27 @@ export function renderLineConversationHistory(processId) {
     list.appendChild(row);
   }
   body.append(list);
+  const history = conversationHistory(currentProject, processId);
+  if (history.hasMore) {
+    const more = document.createElement("button"); more.type = "button"; more.className = "ghost mini";
+    more.textContent = t("加载更早记录"); more.disabled = Boolean(history.request);
+    more.addEventListener("click", () => void loadEarlierConversations(processId)); body.append(more);
+  }
   el.appendChild(body);
 }
+
+export async function loadEarlierConversations(processId, project = currentProject) {
+  return readConversationHistory(project, processId, { older: true });
+}
+defer(() => {
+  onConversationHistoryChange(resource => {
+    if (resource.projectDir !== currentProject) return;
+    conversationItemsByProcess.set(resource.processId, resource.items);
+    if (resource.error) conversationErrorsByProcess.set(resource.processId, resource.error);
+    else conversationErrorsByProcess.delete(resource.processId);
+    renderLineConversationHistory(resource.processId); syncHistoryIfOpen();
+  });
+});
 
 export async function refreshConversationLists() {
   if (!currentProject) return;
@@ -1108,7 +1123,7 @@ export async function refreshConversationLists() {
   if (!targets.length) return;
   const results = await Promise.all(targets.map(async (process) => {
     try {
-      return { processId: process.id, items: await invoke("conversation_list", { projectDir: forProject, processId: process.id }) };
+      return { processId: process.id, ...await readConversationHistory(forProject, process.id) };
     } catch (error) {
       return { processId: process.id, error };
     }

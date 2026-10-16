@@ -1,5 +1,7 @@
-import { defer } from "./01-core.js";
-import { $, invoke, readJson, writeJson } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { readJson, writeJson } from "./00-ui-primitives.js";
 import { t } from "./02-i18n.js";
 import {
   activeProcessId,

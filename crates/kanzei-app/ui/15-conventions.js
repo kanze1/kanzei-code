@@ -1,5 +1,6 @@
 import { t } from "./02-i18n.js";
-import { $, defer, invoke } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
 import { closeSurface, openDialog } from "./00-surface.js";
 import { currentProject, ensureChatView, toast, toastError } from "./03-shell.js";
 import { renderMarkdownInto } from "./04-markdown.js";

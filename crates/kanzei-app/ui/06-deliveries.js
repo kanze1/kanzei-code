@@ -1,4 +1,5 @@
-import { invoke, messagePanes } from "./01-core.js";
+import { invoke } from "./00-ipc.js";
+import { messagePanes } from "./01-chat-panes.js";
 import { addMarkdownHook } from "./04-markdown.js";
 import { renderFileCard } from "./06-activity.js";
 import { resourceIcon } from "./04-resource-types.js";

@@ -47,18 +47,24 @@ fn entry_files(root: &Path) -> Vec<String> {
 /// 与本次验证的围栏互斥无关),只走真实写路径:tree_lock → 校验 → write_entry →
 /// refresh_derived——围栏互斥点全部保留。
 fn add_memory(root: &Path, title: &str, description: &str) -> kanzei_tools::memory::AddOutcome {
-    kanzei_tools::memory::MemoryStore::project(root)
-        .add(
-            "fact",
-            title,
-            description,
-            "正文:D-368 围栏并发写验证。",
-            "test",
-            &[],
-            None,
-            true,
-        )
-        .expect("memory_add 必须成功")
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        kanzei_tools::memory::MemoryStore::project(root)
+            .add(
+                "fact",
+                title,
+                description,
+                "正文:D-368 围栏并发写验证。",
+                "test",
+                &[],
+                None,
+                true,
+            )
+            .expect("memory_add 必须成功")
+    })
 }
 
 /// 验收①③:真围栏形态——真实 BashTool 命令窗口(1.5s)内,并发真实
@@ -74,7 +80,7 @@ async fn 真bash围栏窗口内并发memory_add等待后落盘不被误回滚() 
     };
     // 桌面自举轮形态:bash 命令(1.5s)与专用 memory 写者并发,收口再取共享锁对账。
     let bash = tokio::spawn(async move {
-        kanzei_tools::bash::BashTool
+        kanzei_tools::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": "Start-Sleep -Milliseconds 1500" }),
                 &ctx,

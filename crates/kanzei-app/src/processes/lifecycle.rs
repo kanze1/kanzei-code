@@ -1063,6 +1063,47 @@ mod tests {
             .unwrap_or_else(|| panic!("列表里没有 {id}"))
     }
 
+    #[tokio::test]
+    async fn registered_running_process_and_pending_input_形状契约() {
+        let root = temp_project("ipc-runtime");
+        let project = root.display().to_string();
+        let state = AppState::default();
+        let target = discussion(&state, &project).await;
+        let session_id = process_session_id(&root, Some(&target.id));
+        let runtime = crate::runtime_for(&state, &session_id);
+        runtime.running.store(true, Ordering::SeqCst);
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        store.create_session(&session_id, &project, None).unwrap();
+        store
+            .admit_input(
+                &session_id,
+                "ipc-pending-input",
+                "真实待处理输入",
+                kanzei_core::Delivery::Queue,
+            )
+            .unwrap();
+        let processes = list_processes(&state, &project).unwrap();
+        assert_eq!(processes.len(), 1);
+        assert!(processes[0].running);
+        crate::ipc_contract::tests::check_contract(
+            "process_list",
+            crate::ipc_contract::shape(&serde_json::to_value(&processes).unwrap()),
+            "真实注册并处于运行态的 process_list 返回形状变了",
+        );
+        let pending = list_pending_inputs(project, Some(target.id)).unwrap();
+        assert_eq!(pending.len(), 1);
+        crate::ipc_contract::tests::check_contract(
+            "list_pending_inputs",
+            crate::ipc_contract::shape(&serde_json::to_value(&pending).unwrap()),
+            "非空 list_pending_inputs 返回形状变了",
+        );
+        runtime.running.store(false, Ordering::SeqCst);
+        drop(store);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// 界面不再出现 `pN` / 「默认」:展示名 = 用户命名 ‖ 首条消息前 48 字 ‖ 类型 + 序号。
     #[tokio::test]
     async fn 对话命名_改名清除_自动标题_数字序() {
@@ -1224,11 +1265,14 @@ mod tests {
         )
         .unwrap()
         .is_empty());
-        assert!(
-            crate::conversation::conversation_list(project.clone(), Some(target.id.clone()))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(crate::conversation::conversation_list(
+            project.clone(),
+            Some(target.id.clone()),
+            None,
+            None
+        )
+        .unwrap()
+        .is_empty());
         assert!(crate::conversation::conversation_trace_get(
             project.clone(),
             None,

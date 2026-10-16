@@ -1,3 +1,4 @@
+import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
 // Actual WebView2 + Rust question suspension/resumption, with an isolated home
 // and deterministic local model. No installed profile or external model calls.
 /* global window, document */
@@ -58,7 +59,9 @@ try {
   const root = await invoke("general_chat_open");
   const owner = (await invoke("process_list", { projectDir: root }))[0];
   check((await invoke("projects_get")).projects.length === 0, "The native test has no project and uses an isolated user profile");
+  await openComposerOptions(page);
   await page.locator("#auto-allow").check();
+  await closeComposerOptions(page);
   const ask = async marker => {
     await page.locator("#prompt").fill(marker); await page.locator("#send").click();
     await page.locator(".chat-question").waitFor();

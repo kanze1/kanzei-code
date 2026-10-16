@@ -1,3 +1,4 @@
+import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
 // UX 手测整改第二轮验收缺陷的真实浏览器回归(预览夹具 + 无头 Edge)。
 // 每一节对应一条验收缺陷,断言的是「用户看得到的结果」而不是实现细节:
 //   窄窗抽屉点会话/Esc 收起、拖动排序越界或 Esc 取消、对话搜索 Esc 与切换对话重算、概览页 toast 与权限卡不压输入卡、
@@ -310,8 +311,10 @@ try {
     },
   }, async (app) => {
     const { page } = app;
-    check(!await page.locator("#composer-more").isVisible() && !await page.locator("#runtime-indicator").isVisible(), "runtime-chip: obsolete runtime operations stay out of the composer");
+    check(await page.locator("#composer-more").isVisible() && !await page.locator("#runtime-indicator").isVisible(), "runtime-chip: runtime status stays inside the advanced menu");
+  await openComposerOptions(page);
     check(await page.locator("#skills-nav").isVisible() && await page.locator("#goal-picker").isVisible(), "runtime-chip: Global Skills and Goal remain available with a detached runtime");
+  await closeComposerOptions(page);
   });
 
   // ---- 存储整理结果:人读的大小(KB/MB),不是「18432 bytes」 ----

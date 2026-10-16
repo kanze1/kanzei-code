@@ -517,7 +517,6 @@ async fn run_steps(
                     None,
                     &messages,
                     None,
-                    None,
                     &mut handler,
                     &mut ask,
                 );
@@ -529,9 +528,9 @@ async fn run_steps(
                         return Err("超时".into());
                     }
                 };
-                if summary.halted_by_user || summary.step_limit_reached {
-                    writer.lock().unwrap().finish(SessionTurnTerminal::Stopped);
-                    return Err("运行未完成：权限拒绝或达到步数上限".into());
+                if summary.halted_by_user || summary.incomplete_reason().is_some() {
+                    writer.lock().unwrap().finish(summary.terminal());
+                    return Err(summary.incomplete_reason().unwrap_or("运行已停止").into());
                 }
                 previous = summary.text;
                 messages = summary.messages;

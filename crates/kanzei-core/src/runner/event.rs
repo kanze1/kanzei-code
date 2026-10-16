@@ -287,6 +287,8 @@ pub struct RunSummary {
     /// The engine forced a final answer at the configured step ceiling (including
     /// granted extensions). Preserve that answer as partial work, not completion.
     pub step_limit_reached: bool,
+    /// Last protocol-confirmed model stop reason. Cancellation before completion has none.
+    pub finish_reason: Option<FinishReason>,
     /// 本次运行结束时的完整消息历史(含本次),调用方保存后可作为下次 prior 传入,
     /// 实现跨消息连续对话(M2 落盘前的内存态方案)。
     pub messages: Vec<Message>,
@@ -299,6 +301,44 @@ pub struct RunSummary {
     /// D-655:本轮稳定消息真源。与 `messages` 不同,它不受轮中上下文
     /// 压缩/prune/trim 的结构性删短影响,供轮末 episode/metrics/harvest 使用。
     pub round_messages: Vec<Message>,
+}
+
+impl RunSummary {
+    /// A preserved answer can still be partial. Every consumer uses this same boundary.
+    pub fn incomplete_reason(&self) -> Option<&'static str> {
+        if self.halted_by_user {
+            return None;
+        }
+        match self.finish_reason.as_ref() {
+            Some(FinishReason::MaxTokens) => Some("模型输出达到长度上限，本轮内容未完整完成"),
+            Some(FinishReason::Refusal) => Some("模型拒绝继续处理本轮请求"),
+            Some(FinishReason::Other(_)) => Some("模型以未识别的原因结束，本轮未确认完成"),
+            _ if self.step_limit_reached => {
+                Some("本轮达到执行步数上限，已保留当前进展，可继续处理剩余工作")
+            }
+            _ => None,
+        }
+    }
+
+    pub fn outcome(&self) -> &'static str {
+        if self.halted_by_user {
+            "halted"
+        } else if self.incomplete_reason().is_some() {
+            "incomplete"
+        } else {
+            "completed"
+        }
+    }
+
+    pub fn terminal(&self) -> crate::SessionTurnTerminal {
+        if self.halted_by_user {
+            crate::SessionTurnTerminal::Stopped
+        } else if let Some(reason) = self.incomplete_reason() {
+            crate::SessionTurnTerminal::Failed(reason.into())
+        } else {
+            crate::SessionTurnTerminal::Completed
+        }
+    }
 }
 
 // 轨迹的工具调用画像:工具名 → 调用次数(episode 与 R-099 度量共用)。
@@ -549,5 +589,50 @@ mod tool_end_content_tests {
         assert_eq!(content_bytes, content.len());
         assert_eq!(display, Some(json!({"kind": "diff", "additions": 1})));
         assert_eq!(got_artifact, Some(artifact));
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    fn summary(reason: FinishReason) -> RunSummary {
+        RunSummary {
+            text: "partial".into(),
+            usage: Usage::default(),
+            last_input_tokens: None,
+            steps: 1,
+            halted_by_user: false,
+            step_limit_reached: false,
+            finish_reason: Some(reason),
+            messages: vec![],
+            context_report: vec![],
+            overflow_traces: vec![],
+            round_messages: vec![],
+        }
+    }
+    #[test]
+    fn stop_reasons_and_budget_never_claim_success() {
+        for reason in [
+            FinishReason::MaxTokens,
+            FinishReason::Refusal,
+            FinishReason::Other("unknown".into()),
+        ] {
+            let mut result = summary(reason);
+            assert_eq!(result.outcome(), "incomplete");
+            assert!(matches!(
+                result.terminal(),
+                crate::SessionTurnTerminal::Failed(_)
+            ));
+            result.halted_by_user = true;
+            assert_eq!(result.outcome(), "halted");
+            assert!(matches!(
+                result.terminal(),
+                crate::SessionTurnTerminal::Stopped
+            ));
+        }
+        let mut result = summary(FinishReason::EndTurn);
+        assert_eq!(result.outcome(), "completed");
+        result.step_limit_reached = true;
+        assert_eq!(result.outcome(), "incomplete");
     }
 }

@@ -11,3 +11,4 @@ description = "原子写与文件锁"
 group = "基础"
 
 [dependencies]
+tracing.workspace = true

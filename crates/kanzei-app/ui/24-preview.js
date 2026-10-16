@@ -16,7 +16,11 @@
 // 纯函数(normalizeAddress / fitDevice / extractToolImages / previewColumnFor …)导出给冒烟直接测。
 import { closeSurface, isModalOpen, onSurfaceChange, openMenu, surfaceElements } from "./00-surface.js";
 import { installSplit, installFrame } from "./00-frame.js";
-import { $, confirmDialog, defer, invoke, on, promptBox } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { confirmDialog } from "./00-dialogs.js";
+import { on } from "./01-runtime-events.js";
+import { promptBox } from "./01-chat-panes.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, attachments, currentProject, log, navigate_view, toast } from "./03-shell.js";
 import { layoutPref, onLayoutChange, setLayoutPref } from "./03-layout.js";

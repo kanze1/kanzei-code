@@ -1,3 +1,4 @@
+import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
 /* Production frontend, isolated IPC fixtures. Never writes the user's project data. */
 /* global window, document, innerWidth */
 import assert from "node:assert/strict";
@@ -41,8 +42,12 @@ try {
   check(!await page.locator('[data-workspace="research"]').isVisible(), "Research workspace entry is removed");
   check(await page.locator("#project-chat-work .work-focus-slot").count() === 2, "Chat work list contains only current work and next candidate");
   check(!await page.locator(".project-work-toggle").isVisible(), "Activity panel does not restore the retired requirements drawer toggle");
+  await openComposerOptions(page);
   check(await page.locator("#subagent-control").isVisible(), "Subagents are directly reachable in the composer");
-  check(!await page.locator("#composer-more").isVisible() && !await page.locator("#skills-picker").count() && await page.locator("#skills-nav").isVisible() && await page.locator("#goal-picker").isVisible(), "Global Skills lives in the rail while Goal stays in the conversation");
+  await closeComposerOptions(page);
+  await openComposerOptions(page);
+  check(await page.locator("#composer-more").isVisible() && !await page.locator("#skills-picker").count() && await page.locator("#skills-nav").isVisible() && await page.locator("#goal-picker").isVisible(), "Global Skills lives in the rail while Goal stays in the conversation");
+  await closeComposerOptions(page);
   await page.locator("#prompt").fill("切换页面后保留的草稿");
   await page.locator('[data-work-surface="project"]').click();
   await page.locator(".management-row").first().waitFor();
@@ -91,7 +96,9 @@ try {
   await page.screenshot({ path: `${output}/map.png` });
   await page.locator('[data-work-surface="chat"]').click();
   check(await page.locator("#prompt").inputValue() === "切换页面后保留的草稿", "Conversation draft survives management navigation");
+  await openComposerOptions(page);
   await page.locator("#profile-select").selectOption("dev-auto");
+  await closeComposerOptions(page);
   await page.getByRole("button", { name: "选择工作", exact: true }).click();
   await page.locator("#work-picker input").fill("R-365");
   await page.locator("#work-picker-list").count();

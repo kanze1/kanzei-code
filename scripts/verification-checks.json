@@ -1,0 +1,689 @@
+[
+  {
+    "key": "verify_policy",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/verify-policy-smoke.mjs"
+    ]
+  },
+  {
+    "key": "parallel_lines_regression",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/parallel-lines-regression.mjs"
+    ]
+  },
+  {
+    "key": "ui_a11y",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-a11y-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_memory_graph",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-memory-graph-smoke.mjs",
+      "--browser"
+    ]
+  },
+  {
+    "key": "ui_i18n",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-i18n-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_markdown",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-markdown-smoke.mjs"
+    ]
+  },
+  {
+    "key": "design_freshness",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/check-design-freshness.mjs"
+    ]
+  },
+  {
+    "key": "crate_sync",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/check-readme-crates.mjs"
+    ]
+  },
+  {
+    "key": "metrics_build",
+    "inputs": "always",
+    "program": "cargo",
+    "args": [
+      "build",
+      "-q",
+      "-p",
+      "kanzei"
+    ]
+  },
+  {
+    "key": "metrics_regression",
+    "inputs": "always",
+    "depends_on": [
+      "metrics_build"
+    ],
+    "program": "powershell",
+    "args": [
+      "-NoProfile",
+      "-File",
+      "scripts/metrics-regression-gate.ps1",
+      "-Root",
+      "."
+    ]
+  },
+  {
+    "key": "ps1_bom",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/check-ps1-bom.mjs"
+    ]
+  },
+  {
+    "key": "ui_lint",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-lint-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_surfaces",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-surface-gallery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_columns",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-column-layout-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_narrow_layout",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-narrow-layout-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_backdrop",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-constellation-browser-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_project_resource_events",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-project-resource-events-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_optional_modules",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-optional-modules-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ipc_event_contract",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/ipc-event-smoke.mjs"
+    ]
+  },
+  {
+    "key": "fmt",
+    "inputs": "rust",
+    "program": "cargo",
+    "args": [
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ]
+  },
+  {
+    "key": "clippy",
+    "inputs": "rust",
+    "program": "cargo",
+    "args": [
+      "clippy",
+      "--workspace",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "ci_args": [
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ]
+  },
+  {
+    "key": "ipc_signatures",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/sync-ipc-contract.mjs",
+      "--check"
+    ]
+  },
+  {
+    "key": "ipc_arguments",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/ipc-arguments-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_connectivity",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/ui-connectivity.mjs"
+    ]
+  },
+  {
+    "key": "ui_runtime",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-runtime-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_foundation_boundaries",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-foundation-boundaries-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_state_admission",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-state-admission-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_activity_state",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-activity-state-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_constellation",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-constellation-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_voice",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-voice-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_mobile_approval",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-mobile-approval-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_workbench_browser",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-workbench-browser-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_workbench_resource_owner",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-workbench-resource-owner-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_session_navigation_owner",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-session-navigation-owner-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_session_stage",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-session-stage-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_general_chat_owner",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-general-chat-owner-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_conversation_history_owner",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-conversation-history-owner-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_conversation_action_owner",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-conversation-action-owner-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_resource_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-resource-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_structured_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-structured-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_markdown_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-markdown-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_i18n_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-i18n-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_diagram_owner",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-diagram-owner-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_tool_summary_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-tool-summary-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_structured_render_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-structured-render-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_delivery_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-delivery-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_side_policy_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-side-policy-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_activity_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-activity-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_experience_contract",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-experience-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_decision_console",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-decision-console-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_familiar_workspace",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-familiar-workspace-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_feedback_polish",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-feedback-polish-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_conversation_redesign",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-conversation-redesign-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_skills",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-skills-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_softwire_ownership",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-softwire-ownership-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_chat_question",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-chat-question-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_deleted_general_inbox",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-deleted-general-inbox-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_softwire_choice",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-softwire-choice-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_reply_timer_browser",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-reply-timer-browser-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_project_conversations",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-project-conversations-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_input_resources",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-input-resources-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_agent_team",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-agent-team-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_files_editor",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-files-editor-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_project_knowledge",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-project-knowledge-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_qa_defects",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-qa-defects-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_harness_actions",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-harness-actions-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_audit_first_regressions",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-audit-first-regressions.mjs"
+    ]
+  },
+  {
+    "key": "ui_backlog_maintenance",
+    "inputs": "frontend",
+    "suite": "ui_runtime",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-backlog-maintenance-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_state_ownership",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-design-audit-repairs-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_requirements",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-requirement-contract-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_diagram",
+    "inputs": "diagram",
+    "program": "node",
+    "args": [
+      "scripts/ui-diagram-smoke.mjs"
+    ]
+  },
+  {
+    "key": "test",
+    "inputs": "rust",
+    "program": "cargo",
+    "args": [
+      "test",
+      "--workspace"
+    ]
+  }
+]

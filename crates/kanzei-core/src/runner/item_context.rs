@@ -1,7 +1,6 @@
 //! 成功切换工作条目后的无损 observation 收纳。原始事实、用户指令和工具配对不变。
 use std::collections::{HashMap, VecDeque};
 use std::sync::{atomic::Ordering, Arc};
-use std::time::{Duration, Instant};
 
 use kanzei_harness::ToolCtx;
 use kanzei_llm::{Message, Part};
@@ -243,12 +242,11 @@ impl ItemContext {
 
         let source = messages.clone();
         let mut surface = source.clone();
-        let start = Instant::now();
         let mut archived_results = 0;
         for observation in candidates {
-            if start.elapsed() >= Duration::from_millis(250) {
-                break;
-            }
+            // Candidate count already bounds this operation. A wall-clock
+            // cutoff can abandon a valid boundary after its first fsync under
+            // disk contention, making the next request depend on machine load.
             let (mi, pi) = observation.result;
             let Part::ToolResult { content, .. } = &mut surface[mi].parts[pi] else {
                 unreachable!()

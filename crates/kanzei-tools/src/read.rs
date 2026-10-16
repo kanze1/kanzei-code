@@ -562,12 +562,14 @@ mod tests {
         };
         // D-366:决策排序在检索门面(kanzei_tools::memory = kanzei_memory re-export)。
         let index = crate::memory::SqliteMemoryIndex::new(&dir);
-        let hits = index.search_entries(
-            &crate::memory::IndexQuery::text("发版"),
-            None,
-            Some("active"),
-            5,
-        );
+        let hits = index
+            .search_entries(
+                &crate::memory::IndexQuery::text("发版"),
+                None,
+                Some("active"),
+                5,
+            )
+            .unwrap();
         assert!(!hits.is_empty());
         store.record_recall("历史轮次", &hits, 128);
         crate::memory::record_memory_search_telemetry(

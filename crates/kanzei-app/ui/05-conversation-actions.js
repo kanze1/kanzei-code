@@ -1,5 +1,6 @@
 import { openDialog, closeSurface } from "./00-surface.js";
-import { invoke, promptBox } from "./01-core.js";
+import { invoke } from "./00-ipc.js";
+import { promptBox } from "./01-chat-panes.js";
 import { activeProcessId, activeSessionId, currentProject, running, toast, toastError } from "./03-shell.js";
 import { t } from "./02-i18n.js";
 import { processSwitchGeneration, refreshProcesses, switchProcess } from "./09-sessions.js";
@@ -9,7 +10,7 @@ import { loadConversation } from "./15-views-misc.js";
 let actionGeneration = 0;
 export function conversationActionButton(message) {
   const button = document.createElement("button");
-  button.type = "button"; button.className = "copy-btn";
+  button.type = "button"; button.className = "msg-action conversation-action-btn";
   button.textContent = "↶"; button.title = t("回退或分叉"); button.setAttribute("aria-label", t("回退或分叉"));
   button.addEventListener("click", () => { void showConversationActions(message).catch(error => toastError(String(error))); });
   return button;

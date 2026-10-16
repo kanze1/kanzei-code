@@ -8,6 +8,7 @@
 //! 依赖:run_task(Round Coordinator)在 crate::run::coordinator,输入准入在
 //! crate::run::input,共享 helper(now_ms/emit_stage 等)在 crate::run。
 
+use crate::app_events::AppEvents;
 pub(crate) mod tool_process;
 
 use std::collections::HashMap;
@@ -16,7 +17,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use serde_json::json;
-use tauri::{Emitter, State, Window};
+use tauri::{Emitter, State};
 
 use crate::{
     normalized_project_root, pending_ask_payload, process_session_id, runtime_for,
@@ -30,7 +31,7 @@ use crate::run::input::{
     admit_input, code_root_for, has_pending_queue_prompt, parse_delivery, promote_next_input,
 };
 
-mod handoff;
+pub(crate) mod handoff;
 mod input_mode;
 
 /// Assembly failures have no round finalizer. A rejected durable outcome must
@@ -112,7 +113,7 @@ pub(crate) fn permission_rule_add(
 
 #[tauri::command]
 pub(crate) async fn answer_ask(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     id: u64,
     reply: String,
@@ -187,7 +188,7 @@ pub(crate) async fn answer_ask(
 
 #[tauri::command]
 pub(crate) fn stop_run(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     project_dir: Option<String>,
     process_id: Option<String>,
@@ -325,7 +326,7 @@ fn take_pending_for_wake(
 #[allow(clippy::too_many_arguments)] // Tauri command 参数名是前端 IPC 契约，不能合并为不兼容对象。
 #[tauri::command]
 pub(crate) async fn run_prompt(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     prompt: String,
     project_dir: String,
@@ -454,13 +455,14 @@ pub(crate) enum Submission {
 }
 
 pub(crate) fn schedule_run(
-    window: Window,
+    window: AppEvents,
     state: &AppState,
     project_dir: String,
     process_id: Option<String>,
     submission: Submission,
     options: RunOptions,
 ) -> Result<&'static str, String> {
+    let _admission = crate::runtime_service::admit_work()?;
     let is_notice = matches!(&submission, Submission::Notice { .. });
     let RunOptions {
         execution_batch,
@@ -854,21 +856,18 @@ pub(crate) fn schedule_run(
         }
     });
     *runtime.current_run.lock().unwrap() = Some(handle);
-    if !runtime.running.load(Ordering::SeqCst) {
-        runtime.current_run.lock().unwrap().take();
-    }
     Ok("started")
 }
 
 /// Caller holds lifecycle. Publish the old run's terminal state before a reply may wake a new one.
-fn finish_scheduler(window: &Window, runtime: &SessionRuntime, session_id: &str, reason: &str) {
+fn finish_scheduler(window: &AppEvents, runtime: &SessionRuntime, session_id: &str, reason: &str) {
     *runtime.stage.lock().unwrap() = if reason == "failed" {
         "失败"
     } else {
         "空闲"
     }
     .into();
-    runtime.current_run.lock().unwrap().take();
+    // Retain the JoinHandle so a shutdown owner can await the final task drop.
     let _ = window.emit(
         "kz:idle",
         with_session_id(json!({ "reason": reason }), session_id),

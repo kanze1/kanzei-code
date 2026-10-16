@@ -1,5 +1,6 @@
-import { defer } from "./01-core.js";
-import { $, invoke } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { mountDiagram, preloadDiagramEngine, SEMANTIC_CLASSES } from "./04-diagram.js";
