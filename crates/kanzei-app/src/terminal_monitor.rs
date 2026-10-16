@@ -1,10 +1,11 @@
+use crate::app_events::AppEvents;
 use crate::{AppState, MutexPoisonExt};
 use serde_json::{json, Value};
 use std::path::Path;
-use tauri::{State, Window};
+use tauri::State;
 #[tauri::command]
 pub(crate) fn terminal_monitor(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     project_dir: String,
     process_id: Option<String>,

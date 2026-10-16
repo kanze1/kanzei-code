@@ -1048,7 +1048,9 @@ async fn 删树后线的会话历史仍可回放() {
     assert_eq!(
         crate::conversation::conversation_list(
             canonical.display().to_string(),
-            Some(info.id.clone())
+            Some(info.id.clone()),
+            None,
+            None
         )
         .unwrap()
         .len(),

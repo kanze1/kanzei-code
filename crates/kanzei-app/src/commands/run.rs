@@ -8,6 +8,7 @@
 //! 依赖:run_task(Round Coordinator)在 crate::run::coordinator,输入准入在
 //! crate::run::input,共享 helper(now_ms/emit_stage 等)在 crate::run。
 
+use crate::app_events::AppEvents;
 pub(crate) mod tool_process;
 
 use std::collections::HashMap;
@@ -16,7 +17,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use serde_json::json;
-use tauri::{Emitter, State, Window};
+use tauri::{Emitter, State};
 
 use crate::{
     normalized_project_root, pending_ask_payload, process_session_id, runtime_for,
@@ -30,7 +31,7 @@ use crate::run::input::{
     admit_input, code_root_for, has_pending_queue_prompt, parse_delivery, promote_next_input,
 };
 
-mod handoff;
+pub(crate) mod handoff;
 mod input_mode;
 
 /// Assembly failures have no round finalizer. A rejected durable outcome must
@@ -112,7 +113,7 @@ pub(crate) fn permission_rule_add(
 
 #[tauri::command]
 pub(crate) async fn answer_ask(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     id: u64,
     reply: String,
@@ -187,71 +188,23 @@ pub(crate) async fn answer_ask(
 
 #[tauri::command]
 pub(crate) fn stop_run(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
-    project_dir: Option<String>,
+    project_dir: String,
     process_id: Option<String>,
 ) -> Result<(), String> {
-    let target_project = project_dir
-        .as_ref()
-        .map(PathBuf::from)
-        .map(|cwd| normalized_project_root(&cwd));
-    if target_project.is_some() && process_id.as_deref().is_none_or(str::is_empty) {
-        return Err("请选择一段对话".into());
-    }
-    let target_session = target_project
-        .as_ref()
-        .map(|root| process_session_id(root, process_id.as_deref()));
-    if let (Some(root), Some(owner)) = (&target_project, &target_session) {
-        kanzei_harness::pending_question::cancel_owner(root, owner, None)?;
-    }
-    let runtimes: Vec<Arc<SessionRuntime>> = state
-        .runtimes
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|(session_id, _runtime)| {
-            target_session
-                .as_ref()
-                .is_none_or(|target| target == *session_id)
-        })
-        .map(|(_, runtime)| runtime.clone())
-        .collect();
-    if runtimes.is_empty() {
-        let _ = window.emit(
-            "kz:stopped",
-            with_session_id(
-                json!({ "cancelled_queue": 0, "already_idle": true }),
-                target_session.as_deref().unwrap_or(""),
-            ),
-        );
-        return Ok(());
-    }
-    let mut cancelled = None;
-    for runtime in runtimes {
-        let result = target_project.clone().map(|root| {
-            let session_id = target_session
-                .clone()
-                .unwrap_or_else(|| kanzei_core::project_session_id(&root));
-            let state_path = kanzei_core::project_state_path(&root);
-            if let Some(team) = kanzei_tools::team::find(&root, &session_id) {
-                team.stop_all();
-            }
-            kanzei_core::SessionStore::open(&state_path).and_then(|store| {
-                stop_runtime_and_finalize(&runtime, &store, &state_path, &session_id)
-            })
-        });
-        cancelled = result;
-    }
-    match cancelled.transpose() {
+    let (root, process) = stop_target(&project_dir, process_id.as_deref())?;
+    let session = process_session_id(&root, Some(process));
+    match stop_session(&state, &root, &session) {
         Ok(count) => {
-            let _ = window.emit(
-                "kz:stopped",
-                with_session_id(
-                    json!({ "cancelled_queue": count.unwrap_or(0) }),
-                    target_session.as_deref().unwrap_or(""),
-                ),
-            );
+            let payload = match count {
+                Some(count) => json!({ "cancelled_queue": count }),
+                None => json!({ "cancelled_queue": 0, "already_idle": true }),
+            };
+            let _ = window.emit("kz:stopped", with_session_id(payload, &session));
+            if count.is_none() {
+                return Ok(());
+            }
         }
         Err(error) => {
             let message = format!("停止时清理排队输入失败: {error}");
@@ -259,31 +212,57 @@ pub(crate) fn stop_run(
                 "kz:error",
                 with_session_id(
                     json!({ "message": message.clone(), "terminal": false }),
-                    target_session.as_deref().unwrap_or(""),
+                    &session,
                 ),
             );
             return Err(message);
         }
     }
-    if let Some(root) = target_project {
-        let window = window.clone();
-        let session = target_session.clone().unwrap_or_default();
-        let target_process = process_id.expect("project-scoped stop requires a conversation");
-        tauri::async_runtime::spawn(async move {
-            let killed =
-                kanzei_tools::kill_background_processes_for_process(&root, &target_process).await;
-            if killed > 0 {
-                let _ = window.emit(
-                    "kz:status",
-                    with_session_id(
-                        json!({ "stage": "停止", "detail": format!("已回收 {killed} 个后台终端") }),
-                        &session,
-                    ),
-                );
-            }
-        });
-    }
+    let process = process.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let killed = kanzei_tools::kill_background_processes_for_process(&root, &process).await;
+        if killed > 0 {
+            let _ = window.emit(
+                "kz:status",
+                with_session_id(
+                    json!({ "stage": "停止", "detail": format!("已回收 {killed} 个后台终端") }),
+                    &session,
+                ),
+            );
+        }
+    });
     Ok(())
+}
+
+fn stop_target<'a>(
+    project_dir: &str,
+    process_id: Option<&'a str>,
+) -> Result<(PathBuf, &'a str), String> {
+    if project_dir.trim().is_empty() {
+        return Err("请选择一个项目".into());
+    }
+    let process = process_id
+        .filter(|id| !id.trim().is_empty())
+        .ok_or("请选择一段对话")?;
+    Ok((normalized_project_root(Path::new(project_dir)), process))
+}
+
+/// A stop command always addresses one conversation. Service-wide shutdown has
+/// its own owner and must never be inferred from a missing command argument.
+fn stop_session(state: &AppState, root: &Path, session: &str) -> Result<Option<usize>, String> {
+    kanzei_harness::pending_question::cancel_owner(root, session, None)?;
+    let runtime = state.runtimes.lock().unwrap().get(session).cloned();
+    let Some(runtime) = runtime else {
+        return Ok(None);
+    };
+    if let Some(team) = kanzei_tools::team::find(root, session) {
+        team.stop_all();
+    }
+    let state_path = kanzei_core::project_state_path(root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
+    stop_runtime_and_finalize(&runtime, &store, &state_path, session)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 /// R-174:单条停止一个运行中的子代理(模型 task 或编排角色)。
@@ -325,7 +304,7 @@ fn take_pending_for_wake(
 #[allow(clippy::too_many_arguments)] // Tauri command 参数名是前端 IPC 契约，不能合并为不兼容对象。
 #[tauri::command]
 pub(crate) async fn run_prompt(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     prompt: String,
     project_dir: String,
@@ -454,13 +433,14 @@ pub(crate) enum Submission {
 }
 
 pub(crate) fn schedule_run(
-    window: Window,
+    window: AppEvents,
     state: &AppState,
     project_dir: String,
     process_id: Option<String>,
     submission: Submission,
     options: RunOptions,
 ) -> Result<&'static str, String> {
+    let _admission = crate::runtime_service::admit_work()?;
     let is_notice = matches!(&submission, Submission::Notice { .. });
     let RunOptions {
         execution_batch,
@@ -653,7 +633,29 @@ pub(crate) fn schedule_run(
                     work_item_id.as_deref(),
                 )
                 .map_err(|e| e.to_string())?;
-                let _ = window.emit("kz:status", with_session_id(json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }), &session_id));
+                if delivery == kanzei_core::Delivery::Steer {
+                    if let Some(mailbox) = runtime.async_mailbox.lock().unwrap().as_ref() {
+                        mailbox.request_background();
+                    }
+                }
+                let (stage, detail) = if delivery == kanzei_core::Delivery::Steer {
+                    (
+                        "插话",
+                        format!(
+                            "输入已保存，将在工具结果完整提交后处理（{}）",
+                            queued.input_id
+                        ),
+                    )
+                } else {
+                    (
+                        "排队",
+                        format!("已排队，前方输入将依次执行（{}）", queued.input_id),
+                    )
+                };
+                let _ = window.emit(
+                    "kz:status",
+                    with_session_id(json!({ "stage": stage, "detail": detail }), &session_id),
+                );
                 return Ok("queued");
             }
             (prompt, delivery, attachments, None)
@@ -832,21 +834,18 @@ pub(crate) fn schedule_run(
         }
     });
     *runtime.current_run.lock().unwrap() = Some(handle);
-    if !runtime.running.load(Ordering::SeqCst) {
-        runtime.current_run.lock().unwrap().take();
-    }
     Ok("started")
 }
 
 /// Caller holds lifecycle. Publish the old run's terminal state before a reply may wake a new one.
-fn finish_scheduler(window: &Window, runtime: &SessionRuntime, session_id: &str, reason: &str) {
+fn finish_scheduler(window: &AppEvents, runtime: &SessionRuntime, session_id: &str, reason: &str) {
     *runtime.stage.lock().unwrap() = if reason == "failed" {
         "失败"
     } else {
         "空闲"
     }
     .into();
-    runtime.current_run.lock().unwrap().take();
+    // Retain the JoinHandle so a shutdown owner can await the final task drop.
     let _ = window.emit(
         "kz:idle",
         with_session_id(json!({ "reason": reason }), session_id),
@@ -1082,6 +1081,60 @@ mod tests {
     use kanzei_core::store::TaskOutcome;
     use kanzei_core::{EpisodeRecord, SessionStore};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn stop_run_rejects_empty_project_and_missing_conversation() {
+        for project in ["", "  "] {
+            assert!(super::stop_target(project, Some("p1|project")).is_err());
+        }
+        for process in [None, Some(""), Some("  ")] {
+            assert!(super::stop_target("project", process).is_err());
+        }
+    }
+
+    #[test]
+    fn stop_run_cancels_only_the_selected_conversation_queue() {
+        let (root, _) = fixture("stop-selected");
+        let state = crate::AppState::default();
+        let selected_process = format!("p1|{}", root.display());
+        let other_process = format!("p2|{}", root.display());
+        let session = crate::process_session_id(&root, Some(&selected_process));
+        let other = crate::process_session_id(&root, Some(&other_process));
+        assert_ne!(
+            session, other,
+            "fixture must address distinct conversations"
+        );
+        let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        for (owner, input) in [(&session, "selected-input"), (&other, "other-input")] {
+            store
+                .create_session(owner, &root.display().to_string(), None)
+                .unwrap();
+            store
+                .admit_input(owner, input, "pending prompt", kanzei_core::Delivery::Queue)
+                .unwrap();
+            crate::runtime_for(&state, owner);
+        }
+        assert_eq!(store.list_pending_inputs(&session).unwrap().len(), 1);
+        assert_eq!(store.list_pending_inputs(&other).unwrap().len(), 1);
+        assert_eq!(
+            super::stop_session(&state, &root, &session).unwrap(),
+            Some(1)
+        );
+        assert!(store.list_pending_inputs(&session).unwrap().is_empty());
+        assert_eq!(store.list_pending_inputs(&other).unwrap().len(), 1);
+        assert_eq!(
+            super::stop_session(&state, &root, "absent-session").unwrap(),
+            None
+        );
+        assert_eq!(
+            state.runtimes.lock().unwrap().len(),
+            2,
+            "an idle lookup must not create an actor or address every actor"
+        );
+        drop(store);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn assembly_failure_still_finishes_its_promoted_input() {

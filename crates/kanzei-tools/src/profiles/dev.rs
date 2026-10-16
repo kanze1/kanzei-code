@@ -200,23 +200,29 @@ impl Component for DevProfile {
         // 按钮派 idea_split 子代理,引擎不做自动拆解。
         draft.context.insert(
             "dev/ideas",
-            source("dev/ideas", |ctx: &ResolveCtx| {
-                let entries = DocStore::open(&ctx.project_root, &IDEAS).load().ok()?;
-                let inbox: Vec<&crate::docstore::Entry> =
-                    entries.iter().filter(|e| e.status == "inbox").collect();
-                if inbox.is_empty() {
-                    return None;
-                }
-                let mut out = format!(
-                    "<ideas>\n想法收件箱 {} 条待拆解(录入不过模型,原样收下):\n",
-                    inbox.len()
-                );
-                for idea in inbox.iter().take(20) {
-                    out.push_str(&format!("- {} {}\n", idea.id, idea.title));
-                }
-                out.push_str("未拆分的想法是背景，不作为可执行任务。\n</ideas>");
-                Some(out)
-            }),
+            fallible_source(
+                "dev/ideas",
+                ContextRequirement::Optional,
+                |ctx: &ResolveCtx| {
+                    let entries = DocStore::open(&ctx.project_root, &IDEAS)
+                        .load()
+                        .context("读取 ideas 文档")?;
+                    let inbox: Vec<&crate::docstore::Entry> =
+                        entries.iter().filter(|e| e.status == "inbox").collect();
+                    if inbox.is_empty() {
+                        return Ok(None);
+                    }
+                    let mut out = format!(
+                        "<ideas>\n想法收件箱 {} 条待拆解(录入不过模型,原样收下):\n",
+                        inbox.len()
+                    );
+                    for idea in inbox.iter().take(20) {
+                        out.push_str(&format!("- {} {}\n", idea.id, idea.title));
+                    }
+                    out.push_str("未拆分的想法是背景，不作为可执行任务。\n</ideas>");
+                    Ok(Some(out))
+                },
+            ),
         );
 
         // 开发规范(用户手写,agent 只读遵守;write/edit 对 project 目录本就硬 deny)。
@@ -235,109 +241,124 @@ impl Component for DevProfile {
         // 悄悄替用户决定哪几条不算数。
         draft.context.insert(
             "dev/conventions",
-            refreshing_source("dev/conventions", |ctx: &ResolveCtx| {
-                // R-191:通用规则单源进引擎,所有项目默认注入;项目文件只追加项目特有规则。
-                // 通用部分永远在(无项目文件的项目也拿到完整约束),项目文件在其后拼接。
-                let mut text = String::from(kanzei_harness::DEFAULT_CONVENTIONS);
-                if ctx
-                    .project_root
-                    .join("crates/kanzei-app/Cargo.toml")
-                    .is_file()
-                {
-                    text.push_str(
-                        "
+            refreshing_fallible_source(
+                "dev/conventions",
+                ContextRequirement::Required,
+                |ctx: &ResolveCtx| {
+                    // R-191:通用规则单源进引擎,所有项目默认注入;项目文件只追加项目特有规则。
+                    // 通用部分永远在(无项目文件的项目也拿到完整约束),项目文件在其后拼接。
+                    let mut text = String::from(kanzei_harness::DEFAULT_CONVENTIONS);
+                    if ctx
+                        .project_root
+                        .join("crates/kanzei-app/Cargo.toml")
+                        .is_file()
+                    {
+                        text.push_str(
+                            "
 
 ",
-                    );
-                    text.push_str(kanzei_harness::CARGO_CONVENTIONS);
-                }
-                let path = ctx.project_root.join(".kanzei/project/conventions.md");
-                match std::fs::read_to_string(&path) {
-                    Ok(project_rules) => {
-                        text.push_str("\n\n<project-rules exists=\"true\">\n");
-                        text.push_str(project_rules.trim());
-                        text.push_str("\n</project-rules>");
+                        );
+                        text.push_str(kanzei_harness::CARGO_CONVENTIONS);
                     }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        text.push_str("\n<project-rules exists=\"false\" />");
+                    let path = ctx.project_root.join(".kanzei/project/conventions.md");
+                    match read_optional_context_file(&path)? {
+                        Some(project_rules) => {
+                            text.push_str("\n\n<project-rules exists=\"true\">\n");
+                            text.push_str(project_rules.trim());
+                            text.push_str("\n</project-rules>");
+                        }
+                        None => {
+                            text.push_str("\n<project-rules exists=\"false\" />");
+                        }
                     }
-                    Err(error) => text.push_str(&format!(
-                        "\n项目规范读取失败：{error}；先解决读取问题，不重建覆盖。"
-                    )),
-                }
-                Some(format!("<conventions>\n{}\n</conventions>", text.trim()))
-            }),
+                    Ok(Some(format!(
+                        "<conventions>\n{}\n</conventions>",
+                        text.trim()
+                    )))
+                },
+            ),
         );
 
         // 常驻项目层概览；模块经验和上下游通过 architecture context 按需展开。
         draft.context.insert(
             "dev/project-knowledge",
-            source("dev/project-knowledge", |ctx: &ResolveCtx| {
-                let overview = crate::project_knowledge::snapshot(&ctx.project_root, &ctx.cwd)
-                    .overview(MEMORY_CONTEXT_BUDGET);
-                (!overview.is_empty()).then_some(overview)
-            }),
+            fallible_source(
+                "dev/project-knowledge",
+                ContextRequirement::Optional,
+                |ctx: &ResolveCtx| {
+                    let overview =
+                        crate::project_knowledge::snapshot_checked(&ctx.project_root, &ctx.cwd)?
+                            .overview(MEMORY_CONTEXT_BUDGET);
+                    Ok((!overview.is_empty()).then_some(overview))
+                },
+            ),
         );
         // 用户已确认的项目约束仍常驻；平铺事实索引已退役。
         draft.context.insert(
             "dev/memory",
-            source("dev/memory", |ctx: &ResolveCtx| {
-                let mut out = String::from("<project-constraints>\n");
-                let mut folded = 0;
-                for (_, entry) in crate::memory::MemoryStore::project(&ctx.project_root).load_all()
-                {
-                    if entry.status != "active" || entry.category != "preference" {
-                        continue;
+            fallible_source(
+                "dev/memory",
+                ContextRequirement::Optional,
+                |ctx: &ResolveCtx| {
+                    let mut out = String::from("<project-constraints>\n");
+                    let mut folded = 0;
+                    for (_, entry) in crate::memory::MemoryStore::project(&ctx.project_root)
+                        .load_all_checked()
+                        .context("读取项目记忆约束")?
+                    {
+                        if entry.status != "active" || entry.category != "preference" {
+                            continue;
+                        }
+                        // 模块约束按区域加载，只有无区域的项目级约束常驻。
+                        if !entry.areas().is_empty() {
+                            continue;
+                        }
+                        let text = format!("{} {}\n{}\n", entry.id, entry.title, entry.body.trim());
+                        if out.chars().count() + text.chars().count() > MEMORY_CONTEXT_BUDGET {
+                            folded += 1;
+                            continue;
+                        }
+                        out.push_str(&text);
                     }
-                    // 模块约束按区域加载，只有无区域的项目级约束常驻。
-                    if !entry.areas().is_empty() {
-                        continue;
-                    }
-                    let text = format!("{} {}\n{}\n", entry.id, entry.title, entry.body.trim());
-                    if out.chars().count() + text.chars().count() > MEMORY_CONTEXT_BUDGET {
-                        folded += 1;
-                        continue;
-                    }
-                    out.push_str(&text);
-                }
-                if folded > 0 {
-                    out.push_str(&format!(
+                    if folded > 0 {
+                        out.push_str(&format!(
                         "预算未加载 {folded} 条约束，memory_search category=preference 可取全文。\n"
                     ));
-                }
-                out.push_str("</project-constraints>");
-                Some(out)
-            }),
+                    }
+                    out.push_str("</project-constraints>");
+                    Ok(Some(out))
+                },
+            ),
         );
 
         draft.context.insert(
             "dev/decisions",
-            source("dev/decisions", |ctx: &ResolveCtx| {
-                let entries = DocStore::open(&ctx.project_root, &DECISIONS).load().ok()?;
+            fallible_source("dev/decisions", ContextRequirement::Optional, |ctx: &ResolveCtx| {
+                let entries = DocStore::open(&ctx.project_root, &DECISIONS).load().context("读取 decisions 文档")?;
                 let standing: Vec<String> = entries
                     .iter()
                     .filter(|e| e.status == "accepted")
                     .map(|e| format!("{} {}", e.id, e.title))
                     .collect();
                 if standing.is_empty() {
-                    return None;
+                    return Ok(None);
                 }
-                Some(format!(
+                Ok(Some(format!(
                     "<decisions>\n{}\nAccepted decisions are standing constraints — do not \
                      re-litigate them; `decision get <id>` for rationale. Record newly agreed \
                      designs/tradeoffs with `decision add` (status draft until the user accepts). The deferred tool must be loaded with `tool_search select:decision` before calling it.\n</decisions>",
                     standing.join("\n")
-                ))
+                )))
             }),
         );
 
         draft.context.insert(
             "dev/design-index",
-            source("dev/design-index", |ctx: &ResolveCtx| {
+            fallible_source("dev/design-index", ContextRequirement::Optional, |ctx: &ResolveCtx| {
                 let path = ctx
                     .project_root
                     .join(".kanzei/project/architecture/README.md");
-                let text = std::fs::read_to_string(path).ok()?;
+                let Some(text) = read_optional_context_file(&path)? else { return Ok(None); };
                 let lines: Vec<&str> = text
                     .lines()
                     .filter(|line| {
@@ -347,12 +368,12 @@ impl Component for DevProfile {
                     })
                     .collect();
                 if lines.is_empty() {
-                    return None;
+                    return Ok(None);
                 }
-                Some(format!(
+                Ok(Some(format!(
                     "<design-index>\n当前设计只注入身份、核验提交和入口摘要；正文按需读取。\n{}\n</design-index>",
                     lines.join("\n")
-                ))
+                )))
             }),
         );
 

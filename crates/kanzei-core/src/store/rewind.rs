@@ -72,12 +72,8 @@ impl SessionStore {
         end: i64,
     ) -> Result<Vec<Message>, StoreError> {
         let facts = self
-            .list_session_facts(session)
+            .list_session_facts_in_range(session, start, end)
             .map_err(|e| StoreError::InvalidInput(e.to_string()))?;
-        let facts: Vec<_> = facts
-            .into_iter()
-            .filter(|(event, _)| event.sequence > start && event.sequence <= end)
-            .collect();
         let projection = match self.latest_rewind_surface(session, start, end)? {
             Some((sequence, surface)) => {
                 super::project_session_facts_with_surface(&facts, Some(sequence), Some(surface))

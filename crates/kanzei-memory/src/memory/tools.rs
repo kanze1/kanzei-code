@@ -98,12 +98,15 @@ impl Tool for MemorySearchTool {
         let limit = input.limit.unwrap_or(5).clamp(1, 10);
         // D-366:检索走统一门面(index 是 ranking 唯一实现处),不再直调 store.search。
         let index = SqliteMemoryIndex::new(&ctx.project_root);
-        let all_hits: Vec<SearchHit> = index.search_entries(
+        let all_hits: Vec<SearchHit> = match index.search_entries(
             &IndexQuery::text(&input.query),
             input.category.as_deref(),
             status,
             limit,
-        );
+        ) {
+            Ok(hits) => hits,
+            Err(error) => return ToolOutput::error(format!("memory index unavailable: {error:#}")),
+        };
         super::record_memory_search_telemetry(
             &ctx.project_root,
             &input.query,
@@ -296,7 +299,14 @@ impl Tool for MemoryNoteTool {
         // 明显重复直接 NOOP(不占 LLM run 与 inbox),记遥测;新/不确定才进 inbox。
         // R-216:返回 (判定, 候选),Uncertain 也直接进 inbox 交 manager(候选仅 add 硬闸用)。
         let (novelty, _candidates) =
-            store.classify_novelty(summary, input.detail.as_deref().unwrap_or(""), "");
+            match store.classify_novelty(summary, input.detail.as_deref().unwrap_or(""), "") {
+                Ok(verdict) => verdict,
+                Err(error) => {
+                    return ToolOutput::error(format!(
+                        "cannot classify note novelty; note not recorded: {error:#}"
+                    ));
+                }
+            };
         if novelty == super::Novelty::Duplicate {
             store.record_novelty(&novelty, "", summary);
             return ToolOutput::ok(format!(
@@ -594,7 +604,9 @@ mod tests {
         }
         // D-366:决策排序在检索门面,经 index 取命中。
         let index = SqliteMemoryIndex::new(&ctx.project_root);
-        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
+        let hits = index
+            .search_entries(&IndexQuery::text("发版"), None, Some("active"), 5)
+            .unwrap();
         assert!(!hits.is_empty());
         for _ in 0..3 {
             crate::memory::record_memory_search_telemetry(
@@ -705,6 +717,132 @@ mod tests {
         assert!(detail.contains("refs: R-070"), "{detail}");
 
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn memory_note_novelty_failure_does_not_write_a_pending_note() {
+        for broken_source in [false, true] {
+            let (dir, ctx) = ctx();
+            let store = MemoryStore::project(&dir);
+            store
+                .append_note("existing pending note", "keep this draft", "fact", &[])
+                .unwrap();
+            let inbox = std::fs::read(store.root.join("inbox.md")).unwrap();
+            if broken_source {
+                store.open_db().unwrap();
+                std::fs::write(store.root.join("M-900-unreadable.md"), [0xff, 0xfe]).unwrap();
+            } else {
+                std::fs::write(store.root.join("index.db"), b"broken sqlite file").unwrap();
+            }
+
+            let output = MemoryNoteTool
+                .execute(
+                    json!({
+                        "summary": "fresh runtime diagnostic",
+                        "detail": "semantic probe for a new runtime diagnostic",
+                    }),
+                    &ctx,
+                )
+                .await;
+
+            assert!(
+                output.is_error,
+                "novelty lookup failure must be visible: {}",
+                output.content
+            );
+            assert!(output.content.contains("novelty"), "{}", output.content);
+            assert_eq!(std::fs::read(store.root.join("inbox.md")).unwrap(), inbox);
+            assert_eq!(store.pending_notes(), 1);
+            assert!(
+                store.load_all().is_empty(),
+                "failed note must not become an active memory"
+            );
+            if broken_source {
+                let events: i64 = store
+                    .open_db()
+                    .unwrap()
+                    .query_row("SELECT COUNT(*) FROM novelty_events", [], |row| row.get(0))
+                    .unwrap();
+                assert_eq!(
+                    events, 0,
+                    "failed retrieval must not record a novelty verdict"
+                );
+            }
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn memory_note_novelty_outcomes_preserve_pending_and_active_boundaries() {
+        let (dir, ctx) = ctx();
+        let store = MemoryStore::project(&dir);
+        let base = "secure configuring github network proxy connection and verification";
+        let description = "HTTPS_PROXY 与代理地址";
+        let added = store
+            .add(
+                "fact",
+                base,
+                description,
+                "HTTPS_PROXY=http://127.0.0.1:12000",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        assert!(matches!(added, crate::memory::AddOutcome::Added(_)));
+        let before = store.load_all();
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].1.status, "active");
+        let active_bytes = std::fs::read(&before[0].0).unwrap();
+
+        for (summary, detail, pending, verdict) in [
+            (base, description, 0, "duplicate"),
+            (
+                "diff tree rendering optimization",
+                "rendering performance",
+                1,
+                "new",
+            ),
+            (
+                "verification and secure connection of github network proxy configuring",
+                description,
+                2,
+                "uncertain",
+            ),
+        ] {
+            let output = MemoryNoteTool
+                .execute(json!({"summary": summary, "detail": detail}), &ctx)
+                .await;
+            assert!(!output.is_error, "{}", output.content);
+            if verdict == "duplicate" {
+                assert!(output.content.contains("NOOP"), "{}", output.content);
+            } else {
+                assert!(
+                    output.content.contains("pending notes:"),
+                    "{}",
+                    output.content
+                );
+            }
+            assert_eq!(store.pending_notes(), pending);
+            assert_eq!(
+                store.load_all().len(),
+                1,
+                "notes must remain pending, not become entries"
+            );
+            assert_eq!(std::fs::read(&before[0].0).unwrap(), active_bytes);
+            let recorded: String = store
+                .open_db()
+                .unwrap()
+                .query_row(
+                    "SELECT verdict FROM novelty_events ORDER BY id DESC LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(recorded, verdict);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
@@ -955,5 +1093,41 @@ mod tests {
         assert!(audit.contains("与 M-014 正文真源逐行比对"));
         assert!(audit.contains("与 M-015 正文真源逐行比对"));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn any_status_includes_live_candidates_and_storage_errors_are_not_misses() {
+        let (dir, ctx) = ctx();
+        let root = crate::memory::project_memory_root(&dir);
+        std::fs::create_dir_all(&root).unwrap();
+        for (id, status) in [
+            ("M-001", "active"),
+            ("M-002", "candidate"),
+            ("M-003", "shadow"),
+        ] {
+            std::fs::write(root.join(format!("{id}-status.md")), format!("---\nid: {id}\nscope: project\ncategory: fact\ntitle: statusfixture\ndescription: statusfixture\nstatus: {status}\n---\nstatusfixture")).unwrap();
+        }
+        let default = MemorySearchTool
+            .execute(json!({"query":"statusfixture"}), &ctx)
+            .await;
+        assert!(!default.is_error, "{}", default.content);
+        assert!(default.content.contains("M-001"));
+        assert!(!default.content.contains("M-002") && !default.content.contains("M-003"));
+        let all = MemorySearchTool
+            .execute(json!({"query":"statusfixture","status":"any"}), &ctx)
+            .await;
+        for id in ["M-001", "M-002", "M-003"] {
+            assert!(all.content.contains(id), "{}", all.content);
+        }
+        std::fs::write(root.join("index.db"), b"broken sqlite file").unwrap();
+        let failure = MemorySearchTool
+            .execute(json!({"query":"statusfixture"}), &ctx)
+            .await;
+        assert!(
+            failure.is_error && failure.content.contains("unavailable"),
+            "{}",
+            failure.content
+        );
+        assert!(!failure.content.contains("no memory matched"));
     }
 }

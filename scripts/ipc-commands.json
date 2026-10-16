@@ -1,0 +1,3382 @@
+{
+  "agent_directory_get": {
+    "host": "service",
+    "parameters": {
+      "profile": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "agent_directory::agent_directory_get",
+    "returns": "-> Result < AgentDirectoryResponse , String >"
+  },
+  "agent_directory_open": {
+    "host": "desktop",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "agent_directory::agent_directory_open",
+    "returns": "-> Result < () , String >"
+  },
+  "agent_team_command": {
+    "host": "service",
+    "parameters": {
+      "input": {
+        "required": true,
+        "type": "serde_json :: Value"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "agent_team::agent_team_command",
+    "returns": "-> Result < Value , String >"
+  },
+  "answer_ask": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "u64"
+      },
+      "reply": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::answer_ask",
+    "returns": "-> Result < () , String >"
+  },
+  "app_info": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "run::app_info",
+    "returns": "-> serde_json :: Value"
+  },
+  "architecture_snapshot": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::architecture_snapshot",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "auto_state_get": {
+    "host": "service",
+    "parameters": {
+      "sessionId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "auto_run::auto_state_get",
+    "returns": "-> serde_json :: Value"
+  },
+  "auto_state_reset": {
+    "host": "service",
+    "parameters": {
+      "sessionId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "auto_run::auto_state_reset",
+    "returns": "-> serde_json :: Value"
+  },
+  "auto_state_update": {
+    "host": "service",
+    "parameters": {
+      "enabled": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "goal": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "maxRounds": {
+        "required": false,
+        "type": "Option < u32 >"
+      },
+      "paused": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "sessionId": {
+        "required": true,
+        "type": "String"
+      },
+      "stopAfterRound": {
+        "required": false,
+        "type": "Option < bool >"
+      }
+    },
+    "path": "auto_run::auto_state_update",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "batch_evidence": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "deliveries::batch_evidence",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "cancel_input": {
+    "host": "service",
+    "parameters": {
+      "inputId": {
+        "required": true,
+        "type": "String"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::lifecycle::cancel_input",
+    "returns": "-> Result < bool , String >"
+  },
+  "collaboration_snapshot": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "collaboration::collaboration_snapshot",
+    "returns": "-> Result < Vec < CollaborationLine > , String >"
+  },
+  "composer_draft_save": {
+    "host": "service",
+    "parameters": {
+      "draft": {
+        "required": false,
+        "type": "Option < serde_json :: Value >"
+      },
+      "key": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "composer_drafts::composer_draft_save",
+    "returns": "-> Result < () , String >"
+  },
+  "composer_drafts_load": {
+    "host": "service",
+    "parameters": {},
+    "path": "composer_drafts::composer_drafts_load",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "conventions_discard": {
+    "host": "service",
+    "parameters": {
+      "expectedHash": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::conventions_discard",
+    "returns": "-> Result < () , String >"
+  },
+  "conventions_init": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::conventions_init",
+    "returns": "-> Result < String , String >"
+  },
+  "conventions_read": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::conventions_read",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "conventions_save": {
+    "host": "service",
+    "parameters": {
+      "content": {
+        "required": true,
+        "type": "String"
+      },
+      "expectedHash": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "proposalHash": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "docs::conventions_save",
+    "returns": "-> Result < String , String >"
+  },
+  "conversation_action": {
+    "host": "service",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      },
+      "expectedHash": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "force": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "occurrenceFromEnd": {
+        "required": false,
+        "type": "Option < usize >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "text": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "conversation_actions::conversation_action",
+    "returns": "-> Result < Value , String >"
+  },
+  "conversation_cleanup": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "conversation::conversation_cleanup",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "conversation_clear": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "conversation::conversation_clear",
+    "returns": "-> Result < () , String >"
+  },
+  "conversation_compact": {
+    "host": "service",
+    "parameters": {
+      "focus": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "manual_compact::conversation_compact",
+    "returns": "-> Result < Value , String >"
+  },
+  "conversation_delete": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "sequences": {
+        "required": true,
+        "type": "Vec < i64 >"
+      }
+    },
+    "path": "conversation::conversation_delete",
+    "returns": "-> Result < ConversationDeleteOutcome , String >"
+  },
+  "conversation_display_get": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "sequence": {
+        "required": false,
+        "type": "Option < i64 >"
+      }
+    },
+    "path": "conversation::conversation_display_get",
+    "returns": "-> Result < Vec < kanzei_llm :: Message > , String >"
+  },
+  "conversation_get": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "sequence": {
+        "required": false,
+        "type": "Option < i64 >"
+      }
+    },
+    "path": "conversation::conversation_get",
+    "returns": "-> Result < Vec < kanzei_llm :: Message > , String >"
+  },
+  "conversation_list": {
+    "host": "service",
+    "parameters": {
+      "beforeSequence": {
+        "required": false,
+        "type": "Option < i64 >"
+      },
+      "limit": {
+        "required": false,
+        "type": "Option < usize >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "conversation::conversation_list",
+    "returns": "-> Result < Vec < serde_json :: Value > , String >"
+  },
+  "conversation_page": {
+    "host": "service",
+    "parameters": {
+      "beforeSequence": {
+        "required": false,
+        "type": "Option < i64 >"
+      },
+      "limit": {
+        "required": true,
+        "type": "usize"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "conversation::conversation_page",
+    "returns": "-> Result < ConversationPage , String >"
+  },
+  "conversation_shadow_get": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "conversation::conversation_shadow_get",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "conversation_trace_get": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "sequence": {
+        "required": false,
+        "type": "Option < i64 >"
+      }
+    },
+    "path": "conversation::conversation_trace_get",
+    "returns": "-> Result < Vec < serde_json :: Value > , String >"
+  },
+  "decision_review": {
+    "host": "service",
+    "parameters": {
+      "agent": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "decisionId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "review": {
+        "required": true,
+        "type": "kanzei_core :: store :: decisions :: ReviewDecision"
+      }
+    },
+    "path": "decisions::decision_review",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "defect_review": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "subagents::defect_review",
+    "returns": "-> Result < DefectReviewResult , String >"
+  },
+  "delivered_files": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "deliveries::delivered_files",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "delivered_image": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "preview::commands::delivered_image",
+    "returns": "-> Result < Value , String >"
+  },
+  "delivery_manage": {
+    "host": "service",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      },
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "deliveries::delivery_manage",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "docs_archive_entries": {
+    "host": "service",
+    "parameters": {
+      "kind": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::docs_archive_entries",
+    "returns": "-> Result < Vec < serde_json :: Value > , String >"
+  },
+  "docs_open": {
+    "host": "desktop",
+    "parameters": {
+      "kind": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "docs::docs_open",
+    "returns": "-> Result < () , String >"
+  },
+  "docs_read": {
+    "host": "service",
+    "parameters": {
+      "kind": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "docs::docs_read",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "docs_read_custom": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "relPath": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::docs_read_custom",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "docs_snapshot": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::docs_snapshot",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "docs_update": {
+    "host": "service",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      },
+      "evidence": {
+        "required": false,
+        "type": "Option < serde_json :: Value >"
+      },
+      "fields": {
+        "required": false,
+        "type": "Option < serde_json :: Value >"
+      },
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "kind": {
+        "required": true,
+        "type": "String"
+      },
+      "order": {
+        "required": false,
+        "type": "Option < Vec < String > >"
+      },
+      "priority": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "reason": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "requirement": {
+        "required": false,
+        "type": "Option < serde_json :: Value >"
+      },
+      "status": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "title": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "topic": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "docs::docs_update",
+    "returns": "-> Result < String , String >"
+  },
+  "export_pick_dir": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "projects::export_pick_dir",
+    "returns": "-> Result < Option < String > , String >"
+  },
+  "export_project_data": {
+    "host": "service",
+    "parameters": {
+      "options": {
+        "required": true,
+        "type": "crate :: projects :: ExportOptions"
+      }
+    },
+    "path": "projects::export_project_data",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "fast_model_setup": {
+    "host": "service",
+    "parameters": {},
+    "path": "fast_model::fast_model_setup",
+    "returns": "-> Result < String , String >"
+  },
+  "fast_model_status": {
+    "host": "service",
+    "parameters": {},
+    "path": "fast_model::fast_model_status",
+    "returns": "-> serde_json :: Value"
+  },
+  "file_draft_clear": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "files_draft::file_draft_clear",
+    "returns": "-> Result < () , String >"
+  },
+  "file_draft_save": {
+    "host": "service",
+    "parameters": {
+      "bom": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "content": {
+        "required": true,
+        "type": "String"
+      },
+      "eol": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "hash": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "files_draft::file_draft_save",
+    "returns": "-> Result < () , String >"
+  },
+  "file_drafts_load": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "files_draft::file_drafts_load",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "file_preview": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "files_view::file_preview",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "file_stat": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "files_edit::file_stat",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "file_write": {
+    "host": "service",
+    "parameters": {
+      "bom": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "content": {
+        "required": true,
+        "type": "String"
+      },
+      "evidence": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "expectedHash": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "files_edit::file_write",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "files_annotate": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "files_view::files_annotate",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "files_annotate_cancel": {
+    "host": "service",
+    "parameters": {},
+    "path": "files_view::files_annotate_cancel",
+    "returns": "-> Result < () , String >"
+  },
+  "files_snapshot": {
+    "host": "service",
+    "parameters": {
+      "knowledgeProjectDir": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "files_view::files_snapshot",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "general_chat_link": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "general_chat::general_chat_link",
+    "returns": "-> Result < crate :: ProcessInfo , String >"
+  },
+  "general_chat_location": {
+    "host": "service",
+    "parameters": {},
+    "path": "general_chat::general_chat_location",
+    "returns": "-> Result < Option < String > , String >"
+  },
+  "general_chat_open": {
+    "host": "service",
+    "parameters": {},
+    "path": "general_chat::general_chat_open",
+    "returns": "-> Result < String , String >"
+  },
+  "git_status": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "worktreePath": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "docs::git_status",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "idea_split": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "subagents::idea_split",
+    "returns": "-> Result < String , String >"
+  },
+  "list_pending_inputs": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::lifecycle::list_pending_inputs",
+    "returns": "-> Result < Vec < kanzei_core :: AdmittedInput > , String >"
+  },
+  "memory_archived_entries": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_archived_entries",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_chat_history": {
+    "host": "desktop",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory_chat::memory_chat_history",
+    "returns": "-> Result < Value , String >"
+  },
+  "memory_chat_reset": {
+    "host": "desktop",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory_chat::memory_chat_reset",
+    "returns": "-> Result < () , String >"
+  },
+  "memory_chat_send": {
+    "host": "desktop",
+    "parameters": {
+      "message": {
+        "required": true,
+        "type": "String"
+      },
+      "onEvent": {
+        "required": true,
+        "type": "tauri :: ipc :: Channel < serde_json :: Value >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "requestId": {
+        "required": true,
+        "type": "String"
+      },
+      "target": {
+        "required": false,
+        "type": "Option < crate :: memory_chat :: MemoryTarget >"
+      }
+    },
+    "path": "memory_chat::memory_chat_send",
+    "returns": "-> Result < Value , String >"
+  },
+  "memory_chat_stop": {
+    "host": "desktop",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "requestId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory_chat::memory_chat_stop",
+    "returns": "-> Result < () , String >"
+  },
+  "memory_consolidate": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_consolidate",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_consolidate_note": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      },
+      "summary": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_consolidate_note",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_context_bill": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_context_bill",
+    "returns": "-> serde_json :: Value"
+  },
+  "memory_control_plane": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_control_plane",
+    "returns": "-> serde_json :: Value"
+  },
+  "memory_entries": {
+    "host": "service",
+    "parameters": {
+      "category": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_entries",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_entry_delete": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_entry_delete",
+    "returns": "-> Result < () , String >"
+  },
+  "memory_entry_get": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_entry_get",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_entry_restore": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      },
+      "status": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "memory::memory_entry_restore",
+    "returns": "-> Result < () , String >"
+  },
+  "memory_entry_save": {
+    "host": "service",
+    "parameters": {
+      "area": {
+        "required": false,
+        "type": "Option < Vec < String > >"
+      },
+      "body": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "description": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      },
+      "status": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "title": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "memory::memory_entry_save",
+    "returns": "-> Result < () , String >"
+  },
+  "memory_graph": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_graph",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_note_candidates": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_note_candidates",
+    "returns": "-> serde_json :: Value"
+  },
+  "memory_note_discard": {
+    "host": "service",
+    "parameters": {
+      "fingerprint": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_note_discard",
+    "returns": "-> Result < bool , String >"
+  },
+  "memory_overview": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_overview",
+    "returns": "-> serde_json :: Value"
+  },
+  "memory_recalls": {
+    "host": "service",
+    "parameters": {
+      "limit": {
+        "required": false,
+        "type": "Option < usize >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_recalls",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_search_page": {
+    "host": "service",
+    "parameters": {
+      "limit": {
+        "required": false,
+        "type": "Option < usize >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "query": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_search_page",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_value_flags": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_value_flags",
+    "returns": "-> serde_json :: Value"
+  },
+  "mobile_device_list": {
+    "host": "service",
+    "parameters": {},
+    "path": "mobile::mobile_device_list",
+    "returns": "-> Result < Vec < MobileDeviceInfo > , String >"
+  },
+  "mobile_device_revoke": {
+    "host": "service",
+    "parameters": {
+      "deviceId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "mobile::mobile_device_revoke",
+    "returns": "-> Result < () , String >"
+  },
+  "mobile_pair_code_regenerate": {
+    "host": "service",
+    "parameters": {},
+    "path": "mobile::mobile_pair_code_regenerate",
+    "returns": "-> Result < String , String >"
+  },
+  "mobile_push_status": {
+    "host": "service",
+    "parameters": {},
+    "path": "mobile_notify::mobile_push_status",
+    "returns": "-> Result < PushBridgeStatus , String >"
+  },
+  "mobile_service_start": {
+    "host": "service",
+    "parameters": {
+      "lan": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "notifications": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "port": {
+        "required": false,
+        "type": "Option < u16 >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "mobile::mobile_service_start",
+    "returns": "-> Result < MobileServiceInfo , String >"
+  },
+  "mobile_service_stop": {
+    "host": "service",
+    "parameters": {},
+    "path": "mobile::mobile_service_stop",
+    "returns": "-> Result < () , String >"
+  },
+  "model_effective": {
+    "host": "service",
+    "parameters": {
+      "agent": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "model": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "profile": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "reasoning": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "model_config::model_effective",
+    "returns": "-> Result < Value , String >"
+  },
+  "models_list": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "commands::models::models_list",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "open_delivered_path": {
+    "host": "desktop",
+    "parameters": {
+      "mode": {
+        "required": true,
+        "type": "String"
+      },
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::open_delivered_path",
+    "returns": "-> Result < () , String >"
+  },
+  "open_tools_list": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "commands::os_open::open_tools_list",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "open_tools_save": {
+    "host": "desktop",
+    "parameters": {
+      "tools": {
+        "required": true,
+        "type": "Vec < crate :: prefs :: OpenToolConfig >"
+      }
+    },
+    "path": "commands::os_open::open_tools_save",
+    "returns": "-> Result < () , String >"
+  },
+  "open_with": {
+    "host": "desktop",
+    "parameters": {
+      "path": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "toolId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::os_open::open_with",
+    "returns": "-> Result < () , String >"
+  },
+  "pending_asks_get": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::pending_asks_get",
+    "returns": "-> Result < Vec < serde_json :: Value > , String >"
+  },
+  "permission_rule_add": {
+    "host": "service",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "resource": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::permission_rule_add",
+    "returns": "-> Result < () , String >"
+  },
+  "permission_rule_delete": {
+    "host": "service",
+    "parameters": {
+      "expectedRule": {
+        "required": true,
+        "type": "kanzei_harness :: permission :: Rule"
+      },
+      "index": {
+        "required": true,
+        "type": "usize"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "settings::permission_rule_delete",
+    "returns": "-> Result < () , String >"
+  },
+  "permission_rules_get": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "settings::permission_rules_get",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "preview_capture": {
+    "host": "desktop",
+    "parameters": {
+      "clip": {
+        "required": false,
+        "type": "Option < crate :: preview :: Rect >"
+      },
+      "fullPage": {
+        "required": false,
+        "type": "Option < bool >"
+      }
+    },
+    "path": "preview::commands::preview_capture",
+    "returns": "-> Result < Value , String >"
+  },
+  "preview_clear_site_data": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "preview::commands::preview_clear_site_data",
+    "returns": "-> Result < () , String >"
+  },
+  "preview_close": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "preview::commands::preview_close",
+    "returns": "-> Result < () , String >"
+  },
+  "preview_console": {
+    "host": "desktop",
+    "parameters": {
+      "sinceSeq": {
+        "required": false,
+        "type": "Option < u64 >"
+      }
+    },
+    "path": "preview::commands::preview_console",
+    "returns": "-> Result < Value , String >"
+  },
+  "preview_console_clear": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "preview::commands::preview_console_clear",
+    "returns": "-> Result < () , String >"
+  },
+  "preview_dev_urls": {
+    "host": "desktop",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "preview::commands::preview_dev_urls",
+    "returns": "-> Result < Value , String >"
+  },
+  "preview_device": {
+    "host": "desktop",
+    "parameters": {
+      "preset": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "scheme": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "zoom": {
+        "required": false,
+        "type": "Option < f64 >"
+      }
+    },
+    "path": "preview::commands::preview_device",
+    "returns": "-> Result < Value , String >"
+  },
+  "preview_nav": {
+    "host": "desktop",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "preview::commands::preview_nav",
+    "returns": "-> Result < () , String >"
+  },
+  "preview_open": {
+    "host": "desktop",
+    "parameters": {
+      "bounds": {
+        "required": true,
+        "type": "crate :: preview :: Rect"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "target": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "preview::commands::preview_open",
+    "returns": "-> Result < Value , String >"
+  },
+  "preview_open_devtools": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "preview::commands::preview_open_devtools",
+    "returns": "-> Result < () , String >"
+  },
+  "preview_open_external": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "preview::commands::preview_open_external",
+    "returns": "-> Result < () , String >"
+  },
+  "preview_pick": {
+    "host": "desktop",
+    "parameters": {
+      "on": {
+        "required": true,
+        "type": "bool"
+      }
+    },
+    "path": "preview::commands::preview_pick",
+    "returns": "-> Result < () , String >"
+  },
+  "preview_set_bounds": {
+    "host": "desktop",
+    "parameters": {
+      "h": {
+        "required": true,
+        "type": "f64"
+      },
+      "w": {
+        "required": true,
+        "type": "f64"
+      },
+      "x": {
+        "required": true,
+        "type": "f64"
+      },
+      "y": {
+        "required": true,
+        "type": "f64"
+      }
+    },
+    "path": "preview::commands::preview_set_bounds",
+    "returns": "-> Result < () , String >"
+  },
+  "preview_set_visible": {
+    "host": "desktop",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "visible": {
+        "required": true,
+        "type": "bool"
+      }
+    },
+    "path": "preview::commands::preview_set_visible",
+    "returns": "-> Result < Value , String >"
+  },
+  "preview_snippet": {
+    "host": "desktop",
+    "parameters": {
+      "html": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "preview::commands::preview_snippet",
+    "returns": "-> Result < Value , String >"
+  },
+  "process_close": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::lifecycle::process_close",
+    "returns": "-> Result < String , String >"
+  },
+  "process_closed_list": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::lifecycle::process_closed_list",
+    "returns": "-> Result < Vec < serde_json :: Value > , String >"
+  },
+  "process_create": {
+    "host": "service",
+    "parameters": {
+      "model": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "profile": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "reasoning": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "researchTopic": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "subagentMode": {
+        "required": false,
+        "type": "Option < kanzei_harness :: SubagentMode >"
+      },
+      "trackerWrites": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "workItemId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "worktreeName": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "processes::lifecycle::process_create",
+    "returns": "-> Result < ProcessInfo , String >"
+  },
+  "process_list": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::lifecycle::process_list",
+    "returns": "-> Result < Vec < ProcessInfo > , String >"
+  },
+  "process_purge": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::lifecycle::process_purge",
+    "returns": "-> Result < String , String >"
+  },
+  "process_rename": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "title": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::lifecycle::process_rename",
+    "returns": "-> Result < () , String >"
+  },
+  "process_update": {
+    "host": "service",
+    "parameters": {
+      "manualModels": {
+        "required": false,
+        "type": "Option < Vec < String > >"
+      },
+      "model": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "profile": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "reasoning": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "subagentMode": {
+        "required": false,
+        "type": "Option < kanzei_harness :: SubagentMode >"
+      },
+      "trackerWrites": {
+        "required": false,
+        "type": "Option < bool >"
+      }
+    },
+    "path": "processes::lifecycle::process_update",
+    "returns": "-> Result < ProcessInfo , String >"
+  },
+  "project_config_open": {
+    "host": "desktop",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "model_config::project_config_open",
+    "returns": "-> Result < () , String >"
+  },
+  "project_detach": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::project_detach",
+    "returns": "-> Result < () , String >"
+  },
+  "project_facts": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::project_facts",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "project_files": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "query": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::project_files",
+    "returns": "-> Result < Vec < String > , String >"
+  },
+  "project_git_init": {
+    "host": "service",
+    "parameters": {
+      "initialCommit": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::project_git_init",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "project_knowledge_configure": {
+    "host": "service",
+    "parameters": {
+      "codeDir": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "enabled": {
+        "required": true,
+        "type": "bool"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::project_knowledge_configure",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "project_models_get": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "model_config::project_models_get",
+    "returns": "-> Result < Value , String >"
+  },
+  "project_models_save": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "set": {
+        "required": true,
+        "type": "crate :: model_config :: ProjectModelsSet"
+      },
+      "unset": {
+        "required": true,
+        "type": "Vec < String >"
+      }
+    },
+    "path": "model_config::project_models_save",
+    "returns": "-> Result < Value , String >"
+  },
+  "project_root_info": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::project_root_info",
+    "returns": "-> serde_json :: Value"
+  },
+  "projects_add": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::projects_add",
+    "returns": "-> Result < AppPrefs , String >"
+  },
+  "projects_create": {
+    "host": "service",
+    "parameters": {
+      "description": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "gitInit": {
+        "required": true,
+        "type": "bool"
+      },
+      "knowledgeEnabled": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "name": {
+        "required": true,
+        "type": "String"
+      },
+      "parent": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::projects_create",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "projects_get": {
+    "host": "service",
+    "parameters": {},
+    "path": "projects::projects_get",
+    "returns": "-> AppPrefs"
+  },
+  "projects_init": {
+    "host": "service",
+    "parameters": {
+      "name": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "path": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::projects_init",
+    "returns": "-> Result < AppPrefs , String >"
+  },
+  "projects_isolation_report": {
+    "host": "service",
+    "parameters": {},
+    "path": "projects::projects_isolation_report",
+    "returns": "-> serde_json :: Value"
+  },
+  "projects_pick": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "projects::projects_pick",
+    "returns": "-> Result < Option < AppPrefs > , String >"
+  },
+  "projects_remove": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::projects_remove",
+    "returns": "-> Result < AppPrefs , String >"
+  },
+  "projects_rename": {
+    "host": "service",
+    "parameters": {
+      "name": {
+        "required": true,
+        "type": "String"
+      },
+      "path": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::projects_rename",
+    "returns": "-> Result < AppPrefs , String >"
+  },
+  "projects_reorder": {
+    "host": "service",
+    "parameters": {
+      "paths": {
+        "required": true,
+        "type": "Vec < String >"
+      }
+    },
+    "path": "projects::projects_reorder",
+    "returns": "-> Result < () , String >"
+  },
+  "projects_select": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "projects::projects_select",
+    "returns": "-> Result < AppPrefs , String >"
+  },
+  "provider_test": {
+    "host": "service",
+    "parameters": {
+      "apiKey": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "apiKeyEnv": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "auth": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "baseUrl": {
+        "required": true,
+        "type": "String"
+      },
+      "protocol": {
+        "required": true,
+        "type": "String"
+      },
+      "proxy": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "settings::provider_test",
+    "returns": "-> Result < String , String >"
+  },
+  "quick_req": {
+    "host": "service",
+    "parameters": {
+      "description": {
+        "required": true,
+        "type": "String"
+      },
+      "kind": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "subagents::quick_req",
+    "returns": "-> Result < String , String >"
+  },
+  "research_arxiv_preview": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      },
+      "url": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::research_arxiv_preview",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "research_latex_compile": {
+    "host": "service",
+    "parameters": {
+      "documentName": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_latex::research_latex_compile",
+    "returns": "-> Result < Value , String >"
+  },
+  "research_latex_create": {
+    "host": "service",
+    "parameters": {
+      "documentName": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "templateId": {
+        "required": true,
+        "type": "String"
+      },
+      "title": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_latex::research_latex_create",
+    "returns": "-> Result < Value , String >"
+  },
+  "research_latex_history": {
+    "host": "service",
+    "parameters": {
+      "documentName": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_latex::research_latex_history",
+    "returns": "-> Result < Value , String >"
+  },
+  "research_latex_insert_figure": {
+    "host": "service",
+    "parameters": {
+      "caption": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "documentName": {
+        "required": true,
+        "type": "String"
+      },
+      "figureName": {
+        "required": true,
+        "type": "String"
+      },
+      "label": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_latex::research_latex_insert_figure",
+    "returns": "-> Result < Value , String >"
+  },
+  "research_latex_pdf": {
+    "host": "service",
+    "parameters": {
+      "pdfPath": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_latex::research_latex_pdf",
+    "returns": "-> Result < Value , String >"
+  },
+  "research_latex_templates": {
+    "host": "service",
+    "parameters": {},
+    "path": "research_latex::research_latex_templates",
+    "returns": "-> Value"
+  },
+  "research_library_create": {
+    "host": "service",
+    "parameters": {
+      "title": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_library::research_library_create",
+    "returns": "-> Result < ResearchEntry , String >"
+  },
+  "research_library_link_projects": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "projects": {
+        "required": true,
+        "type": "Vec < String >"
+      }
+    },
+    "path": "research_library::research_library_link_projects",
+    "returns": "-> Result < ResearchEntry , String >"
+  },
+  "research_library_list": {
+    "host": "service",
+    "parameters": {},
+    "path": "research_library::research_library_list",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "research_plan_approve": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::research_plan_approve",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "research_plan_get": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::research_plan_get",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "research_topic_create": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "title": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_topics::research_topic_create",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "research_workflow_get": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_auto::research_workflow_get",
+    "returns": "-> Result < Option < Workflow > , String >"
+  },
+  "research_workflow_start": {
+    "host": "service",
+    "parameters": {
+      "budget": {
+        "required": true,
+        "type": "kanzei_tools :: research_plan :: PlanBudget"
+      },
+      "maxMvpRuns": {
+        "required": true,
+        "type": "u32"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_auto::research_workflow_start",
+    "returns": "-> Result < Workflow , String >"
+  },
+  "research_workflow_update": {
+    "host": "service",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      },
+      "direction": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "maxMvpRuns": {
+        "required": false,
+        "type": "Option < u32 >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "revision": {
+        "required": true,
+        "type": "u64"
+      },
+      "topic": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "research_auto::research_workflow_update",
+    "returns": "-> Result < Workflow , String >"
+  },
+  "reveal_path": {
+    "host": "desktop",
+    "parameters": {
+      "path": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::os_open::reveal_path",
+    "returns": "-> Result < () , String >"
+  },
+  "run_metrics": {
+    "host": "service",
+    "parameters": {
+      "limit": {
+        "required": false,
+        "type": "Option < usize >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::run_metrics",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "run_metrics_by_category": {
+    "host": "service",
+    "parameters": {
+      "limit": {
+        "required": false,
+        "type": "Option < usize >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::run_metrics_by_category",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "run_metrics_by_task": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::run_metrics_by_task",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "run_prompt": {
+    "host": "service",
+    "parameters": {
+      "agent": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "attachments": {
+        "required": false,
+        "type": "Option < Vec < crate :: PromptAttachment > >"
+      },
+      "autoAllow": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "autonomous": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "delivery": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "executionBatch": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "handoffSource": {
+        "required": false,
+        "type": "Option < crate :: commands :: run :: handoff :: HandoffSource >"
+      },
+      "model": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "profile": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "prompt": {
+        "required": true,
+        "type": "String"
+      },
+      "researchTopic": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "wakeQueued": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "workItemId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "workPriority": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "commands::run::run_prompt",
+    "returns": "-> Result < () , String >"
+  },
+  "run_tool_process_stop": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::tool_process::run_tool_process_stop",
+    "returns": "-> Result < bool , String >"
+  },
+  "runtime_shutdown": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "runtime_service::runtime_shutdown",
+    "returns": "-> Result < Value , String >"
+  },
+  "runtime_status": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "runtime_service::runtime_status",
+    "returns": "-> Result < Value , String >"
+  },
+  "save_delivered_file": {
+    "host": "desktop",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "deliveries::save_delivered_file",
+    "returns": "-> Result < Option < String > , String >"
+  },
+  "schedule_action": {
+    "host": "service",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      },
+      "definition": {
+        "required": false,
+        "type": "Option < kanzei_tools :: schedules :: ScheduleDef >"
+      },
+      "enabled": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "expectedHash": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "name": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "schedules::schedule_action",
+    "returns": "-> Result < Value , String >"
+  },
+  "settings_get": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "settings::settings_get",
+    "returns": "-> serde_json :: Value"
+  },
+  "settings_open": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "settings::settings_open",
+    "returns": "-> Result < () , String >"
+  },
+  "settings_save": {
+    "host": "service",
+    "parameters": {
+      "payload": {
+        "required": true,
+        "type": "crate :: settings :: SettingsPayload"
+      }
+    },
+    "path": "settings::settings_save",
+    "returns": "-> Result < () , String >"
+  },
+  "side_question_list": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "side_question::side_question_list",
+    "returns": "-> Vec < Value >"
+  },
+  "side_question_send": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "question": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "side_question::side_question_send",
+    "returns": "-> Result < Value , String >"
+  },
+  "side_question_stop": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "side_question::side_question_stop",
+    "returns": "-> Result < () , String >"
+  },
+  "skills_delete": {
+    "host": "service",
+    "parameters": {
+      "expectedHash": {
+        "required": true,
+        "type": "String"
+      },
+      "name": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "skills::skills_delete",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "skills_duplicate": {
+    "host": "service",
+    "parameters": {
+      "name": {
+        "required": true,
+        "type": "String"
+      },
+      "newName": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "skills::skills_duplicate",
+    "returns": "-> Result < Value , String >"
+  },
+  "skills_generate": {
+    "host": "service",
+    "parameters": {
+      "description": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "skills::skills_generate",
+    "returns": "-> Result < SkillDraft , String >"
+  },
+  "skills_import": {
+    "host": "service",
+    "parameters": {
+      "directory": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "skills::skills_import",
+    "returns": "-> Result < Value , String >"
+  },
+  "skills_list": {
+    "host": "service",
+    "parameters": {},
+    "path": "skills::skills_list",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "skills_read": {
+    "host": "service",
+    "parameters": {
+      "name": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "skills::skills_read",
+    "returns": "-> Result < Value , String >"
+  },
+  "skills_save": {
+    "host": "service",
+    "parameters": {
+      "draft": {
+        "required": true,
+        "type": "crate :: skills :: SkillDraft"
+      },
+      "expectedHash": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "skills::skills_save",
+    "returns": "-> Result < Value , String >"
+  },
+  "skills_set_enabled": {
+    "host": "service",
+    "parameters": {
+      "enabled": {
+        "required": true,
+        "type": "bool"
+      },
+      "name": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "skills::skills_set_enabled",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "softwire_answer_question": {
+    "host": "service",
+    "parameters": {
+      "expectedRevision": {
+        "required": true,
+        "type": "String"
+      },
+      "id": {
+        "required": true,
+        "type": "u64"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "reply": {
+        "required": true,
+        "type": "String"
+      },
+      "requestId": {
+        "required": true,
+        "type": "String"
+      },
+      "sessionId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "softwire::softwire_answer_question",
+    "returns": "-> Result < Value , String >"
+  },
+  "softwire_questions": {
+    "host": "service",
+    "parameters": {},
+    "path": "softwire::softwire_questions",
+    "returns": "-> Result < Vec < Value > , String >"
+  },
+  "stop_run": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::stop_run",
+    "returns": "-> Result < () , String >"
+  },
+  "stop_task": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "taskId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::run::stop_task",
+    "returns": "-> Result < bool , String >"
+  },
+  "summarize_chat": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "transcript": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::summarize::summarize_chat",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "terminal_monitor": {
+    "host": "service",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      },
+      "id": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "pattern": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "terminal_monitor::terminal_monitor",
+    "returns": "-> Result < Value , String >"
+  },
+  "test_run_record": {
+    "host": "service",
+    "parameters": {
+      "command": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "refs": {
+        "required": false,
+        "type": "Option < Vec < String > >"
+      },
+      "status": {
+        "required": true,
+        "type": "String"
+      },
+      "summary": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "title": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::test_run_record",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "test_runs_init_refs": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::test_runs_init_refs",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "test_runs_snapshot": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::test_runs_snapshot",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "tool_image": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "rel": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "preview::commands::tool_image",
+    "returns": "-> Result < Value , String >"
+  },
+  "ui_prefs_get": {
+    "host": "service",
+    "parameters": {},
+    "path": "prefs::ui_prefs_get",
+    "returns": "-> serde_json :: Value"
+  },
+  "ui_prefs_set": {
+    "host": "service",
+    "parameters": {
+      "auto_max": {
+        "required": false,
+        "type": "Option < u32 >"
+      },
+      "backdrop": {
+        "required": false,
+        "type": "Option < serde_json :: Value >"
+      },
+      "continue_prompt": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "memory_view": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "process_auto_state": {
+        "required": false,
+        "type": "Option < std :: collections :: HashMap < String , serde_json :: Value > >"
+      },
+      "theme": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "ui_layout": {
+        "required": false,
+        "type": "Option < serde_json :: Value >"
+      },
+      "work_priority": {
+        "required": false,
+        "type": "Option < std :: collections :: HashMap < String , String > >"
+      },
+      "workspace_state": {
+        "required": false,
+        "type": "Option < std :: collections :: HashMap < String , serde_json :: Value > >"
+      }
+    },
+    "path": "prefs::ui_prefs_set",
+    "returns": "-> Result < () , String >"
+  },
+  "ui_probe_result": {
+    "host": "desktop",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "u64"
+      },
+      "result": {
+        "required": true,
+        "type": "serde_json :: Value"
+      }
+    },
+    "path": "state::ui_probe_result",
+    "returns": ""
+  },
+  "update_check": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "update::update_check_command",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "update_install": {
+    "host": "desktop",
+    "parameters": {
+      "expectedBuild": {
+        "required": true,
+        "type": "String"
+      },
+      "url": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "update::update_install_command",
+    "returns": "-> Result < String , String >"
+  },
+  "update_receipt": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "update::update_receipt_command",
+    "returns": "-> Result < Option < UpdateReceipt > , String >"
+  },
+  "verification_cancel": {
+    "host": "service",
+    "parameters": {
+      "jobId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "decisions::verification_cancel",
+    "returns": "-> Result < () , String >"
+  },
+  "voice_cancel": {
+    "host": "desktop",
+    "parameters": {
+      "sessionId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "voice::voice_cancel",
+    "returns": "-> Result < () , String >"
+  },
+  "voice_settings_get": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "voice::voice_settings_get",
+    "returns": "-> Result < VoiceSettings , String >"
+  },
+  "voice_settings_set": {
+    "host": "desktop",
+    "parameters": {
+      "settings": {
+        "required": true,
+        "type": "crate :: voice :: VoiceSettings"
+      }
+    },
+    "path": "voice::voice_settings_set",
+    "returns": "-> Result < () , String >"
+  },
+  "voice_speak": {
+    "host": "desktop",
+    "parameters": {
+      "onChunk": {
+        "required": true,
+        "type": "tauri :: ipc :: Channel < crate :: voice :: VoiceChunk >"
+      },
+      "requestId": {
+        "required": true,
+        "type": "String"
+      },
+      "sessionId": {
+        "required": true,
+        "type": "String"
+      },
+      "text": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "voice::voice_speak",
+    "returns": "-> Result < () , String >"
+  },
+  "voice_start": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "voice::voice_start",
+    "returns": "-> Result < Value , String >"
+  },
+  "voice_status": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "voice::voice_status",
+    "returns": "-> Result < Value , String >"
+  },
+  "voice_transcribe": {
+    "host": "desktop",
+    "parameters": {
+      "requestId": {
+        "required": true,
+        "type": "String"
+      },
+      "sessionId": {
+        "required": true,
+        "type": "String"
+      },
+      "wav": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "voice::voice_transcribe",
+    "returns": "-> Result < Value , String >"
+  },
+  "webfetch_preview": {
+    "host": "service",
+    "parameters": {
+      "url": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::webfetch_preview",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "work_delivery_accept": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "sourceSequence": {
+        "required": true,
+        "type": "i64"
+      },
+      "unitId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "decisions::work_delivery_accept",
+    "returns": "-> Result < kanzei_core :: store :: decisions :: WorkAcceptance , String >"
+  },
+  "workspace_overview": {
+    "host": "service",
+    "parameters": {},
+    "path": "workspace::workspace_overview",
+    "returns": "-> Result < Value , String >"
+  },
+  "workspace_snapshot": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "projects::workspace_snapshot",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "worktree_create": {
+    "host": "service",
+    "parameters": {
+      "name": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::workspace::worktree_create",
+    "returns": "-> Result < WorktreeInfo , String >"
+  },
+  "worktree_diff": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "worktreePath": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::workspace::worktree_diff",
+    "returns": "-> Result < WorktreeInfo , String >"
+  },
+  "worktree_discard": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "worktreePath": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::workspace::worktree_discard",
+    "returns": "-> Result < String , String >"
+  },
+  "worktree_gate": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "worktreePath": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::gate::worktree_gate",
+    "returns": "-> Result < Vec < GateStep > , String >"
+  },
+  "worktree_harvest_candidates": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::workspace::worktree_harvest_candidates",
+    "returns": "-> Result < Vec < String > , String >"
+  },
+  "worktree_harvest_writeback": {
+    "host": "service",
+    "parameters": {
+      "agentCode": {
+        "required": true,
+        "type": "String"
+      },
+      "branch": {
+        "required": true,
+        "type": "String"
+      },
+      "claim": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "worktreePath": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::workspace::worktree_harvest_writeback",
+    "returns": "-> Result < String , String >"
+  },
+  "worktree_list": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::workspace::worktree_list",
+    "returns": "-> Result < Vec < WorktreeInfo > , String >"
+  },
+  "worktree_merge": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "worktreePath": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::workspace::worktree_merge",
+    "returns": "-> Result < String , String >"
+  },
+  "worktree_merge_preview": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "worktreePath": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::workspace::worktree_merge_preview",
+    "returns": "-> Result < Vec < String > , String >"
+  },
+  "worktree_post_merge_gate": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "processes::gate::worktree_post_merge_gate",
+    "returns": "-> Result < Vec < GateStep > , String >"
+  }
+}

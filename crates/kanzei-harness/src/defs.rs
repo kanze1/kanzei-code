@@ -118,11 +118,18 @@ mod tests {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDef {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub source: String,
     pub name: String,
     pub description: String,
     /// SKILL.md 路径;名称/描述/路径索引进提示词,正文由模型按此路径用 read 读取
     /// (没有 skill 工具)。
     pub path: std::path::PathBuf,
+    /// Packaged skills are immutable resources, available without installation.
+    #[serde(skip)]
+    pub embedded_content: Option<String>,
     #[serde(default)]
     pub disable_model_invocation: bool,
     #[serde(default = "skill_invocable_default")]

@@ -1192,7 +1192,7 @@ read:在 read_any 的 spawn_blocking 闭包里,成功且 meta.len() <= LEDGER_MA
 
 ### 风险与陷阱
 
-- ToolCtx 是 Clone:账本必须是 Option<Arc<..>>。若写成普通 HashMap 字段,read 走 tool_pipeline 时用的是 ctx.clone()(read.rs:77),记账会写进副本丢失——看起来对、实际永远 Unread
+- ToolCtx 可跨异步执行和子任务边界克隆：共享读取账本必须使用 Option<Arc<..>>，不能把普通 HashMap 随上下文复制后各自记账。read 已直接调用本体，不再为了空 tool_pipeline 克隆整个上下文。
 - 默认开启(ledger 缺省 Some)会让 edit.rs/write.rs 里几十条现有测试全部红;必须默认 None、只在生产入口挂上。反过来,生产入口漏挂就是静默失效,所以 B3 必须有端到端测试
 - key 必须对 join 后的整路径再 normalize 一次:normalize_resource 对不含分隔符的输入(如 `Cargo.toml`)原样返回不小写,而 `./Cargo.toml` 会被小写,只规范化 input 会得到两个 key
 - edit 写回的是 CRLF 还原后的 updated(edit.rs:542-546 的 shadow 变量),记账要用这份字节,不能用 haystack 或 normalized 版本,否则下次必然 Stale

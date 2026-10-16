@@ -63,6 +63,7 @@ pub(super) use registration::read_log_tail;
 #[cfg(test)]
 use registration::register;
 pub(crate) use registration::register_with_mailbox;
+pub(crate) use registration::{register_captured, CapturedOutput};
 
 #[cfg(test)]
 pub(crate) fn prune_finished_process_for_test(id: &str) -> bool {
@@ -438,7 +439,7 @@ pub(crate) mod tests {
         ctx.async_mailbox = Some(kanzei_harness::AsyncMailbox::new(move |n| {
             tx.send(n).map_err(|e| e.to_string())
         }));
-        let output = crate::bash::BashTool
+        let output = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({"command":"echo CALLBACK_FINAL_OUTPUT","background":true}),
                 &ctx,
@@ -485,7 +486,7 @@ pub(crate) mod tests {
         run_id: &str,
         process_id: &str,
     ) -> String {
-        let out = crate::bash::BashTool
+        let out = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": command, "background": true }),
                 &ctx_for_with_process(root, run_id, process_id),
@@ -610,7 +611,7 @@ pub(crate) mod tests {
         let shell = crate::shell::detected_shell();
         let separator = if shell.name == "cmd" { " & " } else { "; " };
         let command = format!("echo AUDIT_IDLE_READY{separator}{}", linger());
-        let out = crate::bash::BashTool
+        let out = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({"command":command,"background":true,"persistent":true}),
                 &ctx_for(&root, "idle-flush"),
@@ -1430,35 +1431,29 @@ pub(crate) mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// D-258 验收④:托管树镜像上限(单文件 >4 MiB / 目录 >2000 文件)被突破时,
-    /// 后台任务必须**显式拒绝**而不是静默放行——放行等于告诉后台进程"这棵子树
-    /// 随便写,反正没人能回滚你"。
+    /// Large derived files use disk snapshots and do not disable shell work.
     #[tokio::test]
-    async fn 托管树超限时后台任务被显式拒绝而不是静默放行() {
+    async fn 大型托管文件不阻止后台任务() {
         let _serial = serial().lock().await;
         let _fence = fence_guard();
-        let root = temp_managed_project("limit");
-        // 造一个超过单文件镜像上限的托管文件。
+        let root = temp_managed_project("large-snapshot");
         let big = root.join(".kanzei/project/big.md");
         std::fs::write(
             &big,
-            vec![b'x'; crate::managed::MANAGED_SNAPSHOT_FILE_LIMIT as usize + 1],
+            vec![b'x'; crate::managed::MANAGED_SNAPSHOT_MEMORY_LIMIT as usize + 1],
         )
         .unwrap();
-        let out = crate::bash::BashTool
+        let out = crate::bash::BashTool::default()
             .execute(
-                serde_json::json!({"command": "echo hi", "background": true}),
-                &ctx_for(&root, "run-limit"),
+                serde_json::json!({"command":"echo hi","background":true}),
+                &ctx_for(&root, "run-large"),
             )
             .await;
-        assert!(out.is_error, "超限时必须显式拒绝: {}", out.content);
-        assert!(
-            out.content.contains("refused before execution"),
-            "拒绝信息必须点名原因: {}",
-            out.content
-        );
-        assert!(list(&root).is_empty(), "被拒绝的后台任务不得出现在注册表里");
-        std::fs::remove_dir_all(&root).ok();
+        assert!(!out.is_error, "{}", out.content);
+        for process in list(&root) {
+            stop_result(&process.id).await.unwrap();
+        }
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
@@ -1606,7 +1601,7 @@ pub(crate) mod tests {
         let _guard = fence_guard();
         let root = temp_managed_project("persist");
         // 两个进程都登记到 run-A;run-B 收尾时,persistent 必须留下、默认必须被杀。
-        let persist_id = crate::bash::BashTool
+        let persist_id = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": "sleep 5", "background": true, "persistent": true }),
                 &ctx_for(&root, "run-A"),
@@ -1625,7 +1620,7 @@ pub(crate) mod tests {
             .trim()
             .to_string();
 
-        let default_id = crate::bash::BashTool
+        let default_id = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": "sleep 5", "background": true }),
                 &ctx_for(&root, "run-A"),
@@ -1666,7 +1661,7 @@ pub(crate) mod tests {
             get(&default_id).unwrap().is_running(),
             "另一个运行查询不能终止原任务"
         );
-        let command = crate::bash::BashTool
+        let command = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({"command":"echo other-owner"}),
                 &ctx_for(&root, "run-B"),
@@ -1700,7 +1695,7 @@ pub(crate) mod tests {
         let _guard = fence_guard();
         let root = temp_managed_project("logdisk");
         // 输出 ~300KiB(pwsh:3000 行 × 100 字符),超过内存 256KiB 上限。
-        let out = crate::bash::BashTool
+        let out = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({
                     "command": "1..3000 | ForEach-Object { 'x' * 100 }",
@@ -1764,7 +1759,7 @@ pub(crate) mod tests {
     async fn persistent_注册表登记_强杀后重开可发现_可接管可杀掉() {
         let _guard = fence_guard();
         let root = temp_managed_project("registry");
-        let out = crate::bash::BashTool
+        let out = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
                 &ctx_for(&root, "run-A"),
@@ -1873,7 +1868,7 @@ pub(crate) mod tests {
             linger(),
             j = joiner()
         );
-        let out = crate::bash::BashTool
+        let out = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": command, "background": true, "persistent": true }),
                 &ctx_for(&root, "run-pb"),
@@ -1990,7 +1985,7 @@ pub(crate) mod tests {
         let _guard = fence_guard();
         let root = temp_managed_project("reap");
         let default_id = start_background(&root, linger(), "run-reap").await;
-        let persist_real = crate::bash::BashTool
+        let persist_real = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
                 &ctx_for(&root, "run-reap"),
@@ -2034,7 +2029,7 @@ pub(crate) mod tests {
     async fn process_工具_discover_adopt_kill_全链路() {
         let _guard = fence_guard();
         let root = temp_managed_project("proc-registry");
-        let out = crate::bash::BashTool
+        let out = crate::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
                 &ctx_for(&root, "run-proc"),

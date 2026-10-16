@@ -1,11 +1,12 @@
+use crate::app_events::AppEvents;
 use crate::{AppState, MutexPoisonExt, PendingAsk, SessionRuntime};
 use kanzei_harness::pending_question as store;
 use kanzei_harness::AsyncMailbox;
 use serde_json::{json, Value};
 use std::{path::Path, sync::atomic::Ordering};
-use tauri::{Manager, Window};
+use tauri::Manager;
 
-pub(crate) fn persist(window: &Window, id: u64, pending: &PendingAsk) -> Result<(), String> {
+pub(crate) fn persist(window: &AppEvents, id: u64, pending: &PendingAsk) -> Result<(), String> {
     let kanzei_core::AskRequest::Question {
         callback_id: Some(callback),
         background: true,
@@ -67,7 +68,7 @@ pub(crate) fn remember_response(
     store::respond(root, id, reply, request, cancel).map(Some)
 }
 pub(crate) async fn deliver(
-    window: &Window,
+    window: &AppEvents,
     state: &AppState,
     root: &Path,
     value: Value,
@@ -191,7 +192,7 @@ pub(crate) fn find(id: u64) -> Option<(std::path::PathBuf, Value)> {
         .into_iter()
         .find_map(|root| store::get(&root, id).ok().map(|v| (root, v)))
 }
-pub(crate) fn recover_outbox(window: Window) {
+pub(crate) fn recover_outbox(window: AppEvents) {
     tauri::async_runtime::spawn(async move {
         for root in roots() {
             let Ok(records) = store::list(&root) else {

@@ -1,8 +1,10 @@
-import { $, confirmDialog, defer, invoke } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { confirmDialog } from "./00-dialogs.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 
 const node = (tag, cls, text) => { const element = document.createElement(tag); if (cls) element.className = cls; if (text != null) element.textContent = text; return element; };
-const sourceLabels = { builtin: "内置", personal: "自定义", external: "外部" };
+const sourceLabels = { builtin: "内置", personal: "自定义", codex: "Codex", claude: "Claude", agents: "Agents" };
 let entries = [], filter = "all", selected = null, busy = false, loading = 0, editing = 0;
 let original = "";
 const fields = () => ({ name: $("skill-name").value.trim(), description: $("skill-description").value.trim(), instructions: $("skill-instructions").value.trim(), manualOnly: $("skill-manual-only").checked, userInvocable: selected?.userInvocable ?? true });
@@ -36,7 +38,7 @@ function displayEditor(skill = null, generation = false) {
   $("skill-description").value = skill?.description || "";
   $("skill-instructions").value = skill?.instructions || "";
   $("skill-manual-only").checked = !!skill?.manualOnly;
-  $("skills-editor-source").textContent = skill ? `${t(sourceLabels[skill.source] || "外部")} · $${skill.name}` : t("保存后在所有对话中可用");
+  $("skills-editor-source").textContent = skill ? `${t(sourceLabels[skill.source] || "外部")} · $${skill.id}` : t("保存后在所有对话中可用");
   original = signature(); syncEditor(); renderList();
   $("skills-scroll").scrollTop = 0;
   (generation ? $("skills-generation-prompt") : skill ? $("skill-instructions") : $("skill-name")).focus({ preventScroll: true });
@@ -53,17 +55,19 @@ async function openSkill(name) {
 function renderList() {
   const list = $("skills-library-list"); list.replaceChildren();
   const query = $("skills-search").value.trim().toLocaleLowerCase();
-  const matches = entries.filter(skill => (filter === "all" || skill.source === filter)
+  const matches = entries.filter(skill => (filter === "all" || (filter === "external" ? !["builtin", "personal"].includes(skill.source) : skill.source === filter))
     && `${skill.name} ${skill.displayName} ${skill.description}`.toLocaleLowerCase().includes(query));
   for (const skill of matches) {
     const row = node("div", "skill-library-row"); row.dataset.skillName = skill.name;
-    row.classList.toggle("selected", selected?.name === skill.name);
+    row.dataset.skillId = skill.id;
+    row.classList.toggle("selected", selected?.id === skill.id);
     const details = node("button", "skill-library-details"); details.type = "button";
     const headline = node("span", "skill-library-headline");
     headline.append(node("strong", "", t(skill.displayName || skill.name)), node("small", "skill-source", t(sourceLabels[skill.source] || "外部")));
     details.append(headline, node("span", "dim skill-library-description", t(skill.description)));
+    if (entries.filter(entry => entry.name === skill.name).length > 1) details.append(node("small", "dim", `$${skill.id}`));
     if (skill.manualOnly) details.append(node("small", "dim", t("仅手动调用")));
-    details.addEventListener("click", () => void openSkill(skill.name));
+    details.addEventListener("click", () => void openSkill(skill.id));
     const label = node("label", "skill-switch");
     const toggle = node("input"); toggle.type = "checkbox"; toggle.checked = skill.enabled; toggle.disabled = busy;
     toggle.setAttribute("role", "switch"); toggle.setAttribute("aria-label", `${t("启用技能")} ${skill.name}`);
@@ -73,7 +77,7 @@ function renderList() {
       const next = toggle.checked; busy = true; loading += 1; syncEditor();
       for (const input of list.querySelectorAll("input")) input.disabled = true;
       try {
-        entries = await invoke("skills_set_enabled", { name: skill.name, enabled: next });
+        entries = await invoke("skills_set_enabled", { name: skill.id, enabled: next });
         status(t("全局设置已保存"));
         document.dispatchEvent(new CustomEvent("kz:skills-changed"));
       } catch (failure) { toggle.checked = skill.enabled; status(String(failure)); }
@@ -140,7 +144,7 @@ async function deleteSkill() {
   if (!await confirmDialog({ title: t("删除 Skill？"), message: `$${skill.name} · ${t("删除后将从所有对话的技能列表中移除。")}`, okText: t("删除"), danger: true })) return;
   busy = true; loading += 1; syncEditor(); error();
   try {
-    entries = await invoke("skills_delete", { name: skill.name, expectedHash: skill.revision });
+    entries = await invoke("skills_delete", { name: skill.id, expectedHash: skill.revision });
     editing += 1; $("skills-editor").hidden = true; selected = null; status(t("Skill 已删除"));
     document.dispatchEvent(new CustomEvent("kz:skills-changed"));
   } catch (failure) { error(String(failure)); }
@@ -164,7 +168,7 @@ defer(() => {
     while (entries.some(skill => skill.name === name)) name = `${base}-${n++}`;
     busy = true; loading += 1; syncEditor(); error();
     try {
-      const copied = await invoke("skills_duplicate", { name: source.name, newName: name });
+      const copied = await invoke("skills_duplicate", { name: source.id, newName: name });
       displayEditor(copied);
       $("skill-description").value = draft.description; $("skill-instructions").value = draft.instructions; $("skill-manual-only").checked = draft.manualOnly;
       await refreshSkills(); status(t("已复制为自定义 Skill"));

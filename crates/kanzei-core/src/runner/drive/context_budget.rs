@@ -1,6 +1,6 @@
 //! 每步建流前的上下文预算维护。
 //!
-//! 该模块只负责主动 prune、压缩和 trim；调用方继续持有 system/messages 与轮级
+//! 该模块负责固定上下文准入与主动 prune、压缩和 trim；调用方继续持有 system/messages 与轮级
 //! 运行态，保持预算检查在每步请求前执行以及事件顺序不变。
 
 use super::*;
@@ -8,7 +8,7 @@ use kanzei_llm::protocol::ProtocolKind;
 
 /// R-202 批6:轮内上下文预算——每步开跑前的主动 prune / 压缩 / trim。
 ///
-/// 行为与原内联段逐字节对齐(行为零变更):
+/// 固定 system/schema 超过已知输入容量时先拒绝；软压缩线不是硬容量。
 /// - R-219:context_limit 未知时按保守默认 32k 启用主动预算,首次 tracing::warn
 ///   点名一次(可见不阻塞);
 /// - R-236 B1:触发线 headroom 公式;R-236 B4:L0 prune 先行,凑不满最小收益自弃;
@@ -24,6 +24,7 @@ pub(super) async fn enforce_context_budget(
     system: &[String],
     specs: &[ToolSpec],
     protocol: ProtocolKind,
+    context_report: &[(String, usize)],
     messages: &mut Vec<Message>,
     last_input_tokens: Option<u64>,
     last_estimated_tokens: Option<u64>,
@@ -31,7 +32,7 @@ pub(super) async fn enforce_context_budget(
     futile_compactions: &mut u32,
     overflow_traces: &mut Vec<String>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
-) {
+) -> anyhow::Result<()> {
     // 轮内上下文预算(D-176)。压缩检查原先只写在**一轮结束之后**,而长轮与
     // 自动续跑恰恰是最需要它的场景:一轮不结束就一次也轮不到。实测一次 41
     // 分钟的运行里检查点执行了 0 次,用户按停止后更是直接跳过收尾,全程只能
@@ -53,6 +54,27 @@ pub(super) async fn enforce_context_budget(
             config.max_tokens,
             config.limits.compact_buffer_tokens(),
         );
+        ensure_fixed_context_fits(
+            system,
+            specs,
+            protocol,
+            config.context_limit,
+            config.max_tokens,
+            context_report,
+        )?;
+        // The fallback window and cold-start calibration are conservative scheduling
+        // heuristics, not confirmed provider capacity. If the fixed head already
+        // exceeds this soft target, deleting all history cannot attain it. Preserve
+        // history and let the provider decide; its existing overflow recovery still
+        // handles a real rejection. This also applies to a known window when the
+        // head fits actual input capacity but exceeds the early-compaction target.
+        let fixed_budget =
+            budgeted_tokens_for_protocol(system, &[], specs, calibration, Some(protocol));
+        if fixed_budget > budget {
+            tracing::debug!(fixed_budget, compact_target = budget, known_limit = ?config.context_limit,
+                "fixed context exceeds soft compaction target; preserve history for provider admission");
+            return Ok(());
+        }
         let anchored_tokens = |messages: &[Message]| {
             let current_estimated_tokens =
                 estimate_prompt_tokens_for_protocol(system, messages, specs, Some(protocol));
@@ -132,4 +154,39 @@ pub(super) async fn enforce_context_budget(
             }
         }
     }
+    Ok(())
+}
+
+/// The floor excludes all history, so a failure cannot be repaired by summarizing
+/// or deleting messages. Only a known window supplies a capacity. The raw wire
+/// estimate remains approximate; cold-start/EMA safety margins belong exclusively
+/// to soft compaction decisions and must not manufacture a hard rejection.
+fn ensure_fixed_context_fits(
+    system: &[String],
+    specs: &[ToolSpec],
+    protocol: ProtocolKind,
+    known_limit: Option<u64>,
+    max_output_tokens: u32,
+    context_report: &[(String, usize)],
+) -> anyhow::Result<()> {
+    let Some(limit) = known_limit else {
+        return Ok(());
+    };
+    let capacity = limit.saturating_sub(u64::from(max_output_tokens));
+    let fixed = estimate_prompt_tokens_for_protocol(system, &[], specs, Some(protocol));
+    if fixed <= capacity {
+        return Ok(());
+    }
+    let system_tokens = estimate_prompt_tokens_for_protocol(system, &[], &[], Some(protocol));
+    let schema_tokens = estimate_prompt_tokens_for_protocol(&[], &[], specs, Some(protocol));
+    let mut sources: Vec<_> = context_report.iter().collect();
+    sources.sort_by_key(|(_, chars)| std::cmp::Reverse(*chars));
+    let breakdown = sources
+        .iter()
+        .map(|(key, chars)| format!("{key}: {chars} 字符"))
+        .collect::<Vec<_>>()
+        .join("；");
+    anyhow::bail!(
+        "固定上下文本地估算超过已知输入容量：system 与工具 schema 约 {fixed} token（system {system_tokens}，schema {schema_tokens}），可用输入容量 {capacity}（已知模型窗口 {limit} − 本次输出上限 {max_output_tokens}）。这里使用未乘冷启动安全系数的协议估算，不是 provider 计费值。历史尚未压缩，完整必需约定仍保留；压缩历史无法解决此问题。请精简常驻规范/提示词、将非必需工具改为按需加载，或选择更大的上下文窗口并核对 context_limit/max_tokens 配置。来源字符账单：{breakdown}"
+    )
 }

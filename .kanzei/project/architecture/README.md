@@ -11,6 +11,8 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: e5a0d02c] [`async_conversation_terminal_callbacks.md`](../../../docs/design/async_conversation_terminal_callbacks.md)：异步对话、前台终端原进程移交、会话及子代理回调归属、停止边界和原生验收。提交号锚定实施前发布基线，最终发布验证绑定本次提交。
+
 - [identity: live_design; last_verified_commit: ad9cff9a] [`project_knowledge.md`](../../../docs/design/project_knowledge.md)：项目知识数据结构、层级与依赖、按需上下文、旧标注迁移及过时能力清理。提交号锚定改造前基线，实现与验证见本次任务报告。
 
 - [identity: live_design; last_verified_commit: 0f71a2c7] [`global-skills.md`](../../../docs/design/global-skills.md)：独立全局 Skills 管理、启停、创建导入与 AI 草稿生成，内置九项基础工作流程。源码和界面回归锚定此提交；完整门禁与发布结果以正文中的实际回执为准。
@@ -62,7 +64,7 @@
 - [identity: live_design; last_verified_commit: d374cb9f] [`deepseek_harness_upgrade.md`](../../../docs/design/deepseek_harness_upgrade.md)：Typed Session Events、Surface Projection、Tool Pipeline/Spill 与 LineRuntime 的升级草案(R-241～R-246,A-012 待转 accepted)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`design_freshness_audit_20260820.md`](../../../docs/design/design_freshness_audit_20260820.md)：设计文档时效审计与 R-318 治理基线；审计结论和四类身份契约仍约束本轮治理。
 - [identity: live_design; last_verified_commit: d374cb9f] [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线——可替代区复刻优先、创新只投护城河；取活与验收判据。
-- [identity: live_design; last_verified_commit: d374cb9f] [`harness_m1.md`](../../../docs/design/harness_m1.md)：Harness 五注册表(commands 已按 D-748 删除) + 拦截器链 + dev/research 双 profile 架构基线，并接入 R-317 执行层权威。
+- [identity: live_design; last_verified_commit: 3938210f] [`harness_m1.md`](../../../docs/design/harness_m1.md)：Harness 组件与快照、全局 Skills 按需读取、顶层 agent 身份与 core runner 权限/执行边界。提交号锚定本轮修复前的发布基线；修复验证以最终发布回执为准，R-317 仍持有执行事实权威。
 - [identity: live_design; last_verified_commit: d374cb9f] [`memory_control_plane.md`](../../../docs/design/memory_control_plane.md)：Memory 控制平面——证据账本/编译器/召回控制器/反事实评估四模块(R-161~R-167,D-229~D-231)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`memory_system.md`](../../../docs/design/memory_system.md)：文件记忆、可重建索引与生命周期；global 保存/检索差异、dense/RRF、FileLock 和状态库边界已校正。
 - [identity: live_design; last_verified_commit: 1e2347e3] [`model_autonomy_and_harness_intensity.md`](../../../docs/design/model_autonomy_and_harness_intensity.md)：模型自治与门禁强度——结伴/自主两档门禁、模型停机权与编排抽象层(R-322/R-323,D-661/D-662;2026-08-21 外部七点评估的逐点定调)。

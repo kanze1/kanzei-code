@@ -94,6 +94,11 @@ pub(crate) fn ui_screenshot_png() -> Result<Vec<u8>, String> {
 }
 
 pub(crate) async fn ui_probe(kind: &str, arg: &str) -> Result<serde_json::Value, String> {
+    if crate::runtime_service::is_service() {
+        // The visible desktop owns both the probe request and its JS receipt.
+        // A service-side waiter cannot be completed by a desktop-local command.
+        return crate::desktop_bridge::probe(kind, arg).await;
+    }
     let Some(emit) = UI_PROBE_EMIT.get() else {
         return Err("UI 探针不可用:桌面窗口未就绪(CLI 环境下没有可自查的界面)".into());
     };
@@ -809,8 +814,9 @@ pub(crate) fn stop_runtime_and_finalize(
                             );
                         }
                     }
-                    if let Some(handle) = runtime_bg.current_run.lock_or_recover().take() {
+                    if let Some(handle) = runtime_bg.current_run.lock_or_recover().as_ref() {
                         handle.abort();
+                        // Retain the handle: a shutdown owner must await task destruction.
                         tracing::info!(session_id = %session_bg, "stop watchdog aborted run handle");
                     } else {
                         tracing::warn!(session_id = %session_bg, "stop watchdog found no run handle to abort");
@@ -827,7 +833,7 @@ pub(crate) fn stop_runtime_and_finalize(
         // 无活跃 run(或令牌已被上一轮收走):立即终态化,与旧行为一致。
         _ => {
             flush_live_run(store, session_id, &runtime.live, "halted");
-            if let Some(handle) = runtime.current_run.lock_or_recover().take() {
+            if let Some(handle) = runtime.current_run.lock_or_recover().as_ref() {
                 handle.abort();
             }
             runtime.asks.lock_or_recover().clear();
@@ -858,7 +864,7 @@ pub(crate) fn halt_runtime_immediately(
     let _lifecycle = runtime.lifecycle.lock_or_recover();
     flush_live_run(store, session_id, &runtime.live, "halted");
     runtime.retire_async();
-    if let Some(handle) = runtime.current_run.lock_or_recover().take() {
+    if let Some(handle) = runtime.current_run.lock_or_recover().as_ref() {
         handle.abort();
     }
     runtime.asks.lock_or_recover().clear();

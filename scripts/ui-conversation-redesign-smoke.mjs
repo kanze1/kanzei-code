@@ -1,3 +1,4 @@
+import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
 /* Production UI in Edge with isolated IPC; never touches the user's projects or clipboard. */
 /* global window, document, navigator, getComputedStyle */
 import assert from "node:assert/strict";
@@ -49,8 +50,10 @@ try {
     await (await import("/09-sessions.js")).refreshProcesses(); shell.setRunning(false);
     return { project: shell.currentProject, process: shell.activeProcessId, session: shell.activeSessionId, peer: f.state.processes.find(p => p.id !== shell.activeProcessId && p.profile === "dev") };
   });
-  check(!await page.locator("#composer-more").isVisible() && !await page.locator("#side-question-open").isVisible(), "Obsolete composer operations are removed from the visible flow");
+  check(await page.locator("#composer-more").isVisible() && !await page.locator("#side-question-open").isVisible(), "Advanced operations are folded behind a visible More entry");
+  await openComposerOptions(page);
   check(await page.locator("#skills-nav").isVisible() && !await page.locator("#skills-picker").count() && await page.locator("#goal-picker").isVisible() && await page.locator("#process-subagents").isVisible(), "Global Skills stays in the rail while Goal and subagents remain conversation controls");
+  await closeComposerOptions(page);
   await page.locator("#skills-nav").click(); await settle();
   check(await page.locator("#view-skills").isVisible() && await page.locator("#skills-create").isVisible(), "Skills has an independent management page");
   await page.evaluate(async () => (await import("/03-shell.js")).navigate_view("chat")); await settle();
@@ -59,7 +62,9 @@ try {
   await page.evaluate(async process => (await import("/09-sessions.js")).switchProcess(process), ids.process); await settle();
   check(!await page.locator("#skills-picker").count(), "Returning to a conversation does not restore per-conversation skill bindings");
 
+  await openComposerOptions(page);
   await page.locator("#profile-select").selectOption("dev-pair"); await idle(); await settle();
+  await closeComposerOptions(page);
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js"), selection = await import("/31-work-selection.js");
     selection.selectWork(shell.currentProject, shell.activeProcessId, "missing-requirement");
@@ -71,16 +76,25 @@ try {
   check(!await page.locator("#autorun-bar").isVisible(), "An ordinary paired conversation has no automatic loop controls");
   await page.evaluate(async () => { const f = window.__redesign.f; window.__kzPreview.setCommand("docs_snapshot", f.commands.docs_snapshot); });
   await idle();
+  await openComposerOptions(page);
   await page.locator("#profile-select").selectOption("dev-auto"); await settle();
+  await closeComposerOptions(page);
+  await openComposerOptions(page);
   check(await page.locator("#autorun-bar").isVisible() && await page.locator("#auto-continue").isChecked(), "Autonomous mode binds automatic advancement");
+  await closeComposerOptions(page);
+  await openComposerOptions(page);
   await page.locator("#profile-select").selectOption("dev-pair"); await settle();
+  await closeComposerOptions(page);
   check(!await page.locator("#auto-continue").isChecked(), "Switching back to paired mode cancels an ordinary loop");
   await page.evaluate(async process => {
     await (await import("/08-compose-runtime.js")).setLineAutoState(process, { enabled: true });
     (await import("/08-auto.js")).cancelAutoContinueTimer();
   }, ids.process); await settle();
   check(await page.locator("#profile-select").inputValue() === "dev-auto", "Starting automatic work from another control selects autonomous mode even with a saved paired mode");
+  await openComposerOptions(page);
   await page.locator("#profile-select").selectOption("dev-pair"); await settle();
+  await closeComposerOptions(page);
+  await openComposerOptions(page);
   await page.locator("#goal-picker").click(); await page.locator("#auto-goal").fill("Finish this user-defined goal");
   await page.locator("#goal-start").click(); await settle();
   const goalRun = await last("run_prompt");
@@ -96,7 +110,8 @@ try {
   check(await page.locator("#auto-goal").inputValue() === "", "Goal does not leak to a different conversation");
   await page.evaluate(async process => (await import("/09-sessions.js")).switchProcess(process), ids.process); await settle();
   check(await page.locator("#auto-goal").inputValue() === "Finish this user-defined goal", "The original conversation restores its saved Goal");
-  await page.keyboard.press("Escape"); await page.locator("#goal-picker").click(); await page.locator("#goal-clear").click(); await settle(); await page.keyboard.press("Escape"); await idle();
+  await page.keyboard.press("Escape"); await openComposerOptions(page);
+  await page.locator("#goal-picker").click(); await page.locator("#goal-clear").click(); await settle(); await page.keyboard.press("Escape"); await idle();
   check(!await page.locator("#auto-continue").isChecked() && !await page.locator("#autorun-bar").isVisible(), "Ending a paired Goal removes its automatic loop");
 
   await page.evaluate(async () => {

@@ -8,16 +8,15 @@ use serde_json::json;
 use kanzei_harness::KanzeiConfig;
 use kanzei_llm::ProxyConfig;
 
+mod receipt;
+use receipt::{Phase, UpdateReceipt};
+
 pub(crate) fn pending_path(exe: &Path) -> std::path::PathBuf {
     let name = exe
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("kzapp.exe");
     exe.with_file_name(format!("{name}.pending"))
-}
-
-pub(crate) fn installer_path() -> std::path::PathBuf {
-    std::env::temp_dir().join("kanzei-setup.exe")
 }
 
 pub(crate) fn validate_installer(bytes: &[u8]) -> Result<(), String> {
@@ -32,24 +31,6 @@ pub(crate) fn validate_installer(bytes: &[u8]) -> Result<(), String> {
         return Err("下载到的不是 Windows 可执行文件,已放弃安装。检查网络或代理后重试。".into());
     }
     Ok(())
-}
-
-pub(crate) fn clear_stale_installer() -> Vec<String> {
-    let mut notes = Vec::new();
-    let killed = Command::new("taskkill")
-        .args(["/F", "/IM", "kanzei-setup.exe"])
-        .output()
-        .ok()
-        .is_some_and(|out| out.status.success());
-    if killed {
-        notes.push("已清理残留的安装器进程".to_string());
-        std::thread::sleep(std::time::Duration::from_millis(400));
-    }
-    let path = installer_path();
-    if path.exists() && std::fs::remove_file(&path).is_err() {
-        notes.push("旧安装包仍被占用,将直接覆盖".to_string());
-    }
-    notes
 }
 
 pub(crate) fn update_helper_path() -> std::path::PathBuf {
@@ -79,21 +60,6 @@ pub(crate) fn update_log_at(path: &Path, line: &str) {
         let _ = writeln!(file, "[{stamp}] {line}");
     }
     eprintln!("kzapp:update {line}");
-}
-
-pub(crate) fn image_stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
-    let meta = std::fs::metadata(path).ok()?;
-    Some((meta.modified().ok()?, meta.len()))
-}
-
-pub(crate) fn image_replaced(
-    before: Option<(std::time::SystemTime, u64)>,
-    after: Option<(std::time::SystemTime, u64)>,
-) -> bool {
-    match (before, after) {
-        (Some(before), Some(after)) => before != after,
-        _ => false,
-    }
 }
 
 /// 更新检查的判定结果。D-287:两态(有新版 / 已是最新)会把三件完全不同的事
@@ -143,7 +109,7 @@ pub(crate) fn release_verdict(
     if tag.is_empty() {
         return ReleaseVerdict::Unknown;
     }
-    if tag.contains(current_hash) {
+    if tag == format!("build-{current_hash}") {
         return ReleaseVerdict::Latest;
     }
     let (Some((local_stamp, date_only)), Some(release_stamp)) = (
@@ -216,7 +182,12 @@ pub(crate) async fn update_check_command() -> Result<serde_json::Value, String> 
             json!({ "current": current_hash, "status": "none", "message": "还没有发布过安装包(用 scripts/package.ps1 -Publish 发布第一版)" }),
         );
     }
-    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let body: serde_json::Value = resp
+        .error_for_status()
+        .map_err(|e| format!("更新检查失败: {e}"))?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
     let tag = body["tag_name"].as_str().unwrap_or("").to_string();
     let url = body["assets"]
         .as_array()
@@ -234,19 +205,94 @@ pub(crate) async fn update_check_command() -> Result<serde_json::Value, String> 
     let verdict = release_verdict(current, &tag, published_at);
     let newer = verdict == ReleaseVerdict::Update;
     Ok(
-        json!({ "current": current_hash, "latest": tag, "newer": newer, "url": url, "status": verdict.status() }),
+        json!({ "current": current_hash, "latest": tag, "newer": newer, "url": url, "expected_build": tag.strip_prefix("build-"), "status": verdict.status() }),
     )
+}
+
+fn validate_release_target(url: &str, expected: &str) -> Result<(), String> {
+    if !(7..=40).contains(&expected.len()) || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("更新目标缺少有效的构建标识，请重新检查更新".into());
+    }
+    let prefix =
+        format!("https://github.com/kanze1/kanzei-code/releases/download/build-{expected}/");
+    let asset = url
+        .strip_prefix(&prefix)
+        .ok_or("安装包地址与预期构建不一致")?;
+    if asset.is_empty() || asset.contains(['/', '?', '#']) || !asset.ends_with(".exe") {
+        return Err("安装包必须是本仓库指定构建的 release 资源".into());
+    }
+    Ok(())
+}
+
+#[tauri::command(rename = "update_receipt")]
+pub(crate) fn update_receipt_command() -> Result<Option<UpdateReceipt>, String> {
+    let path = receipt::receipt_path()?;
+    let _lock = kanzei_base::atomic_file::lock_exclusive(&path).map_err(|e| e.to_string())?;
+    let Some(mut result) = receipt::read(&path)? else {
+        return Ok(None);
+    };
+    let running = option_env!("KANZEI_BUILD_INFO")
+        .unwrap_or("dev")
+        .split_whitespace()
+        .next()
+        .unwrap_or("dev");
+    if result.reconcile(running, receipt_owner_alive(&result)) {
+        receipt::write(&path, &result)?;
+    }
+    Ok(Some(result))
 }
 
 #[tauri::command(rename = "update_install")]
 pub(crate) async fn update_install_command(
     app: tauri::AppHandle,
     url: String,
+    expected_build: String,
 ) -> Result<String, String> {
-    if !url.starts_with("https://github.com/kanze1/kanzei-code/") {
-        return Err("仅允许本仓库 release 资源".into());
+    validate_release_target(&url, &expected_build)?;
+    let receipt_path = receipt::receipt_path()?;
+    let mut result = UpdateReceipt {
+        expected_build,
+        source_build: option_env!("KANZEI_BUILD_INFO").unwrap_or("dev").to_owned(),
+        started_at_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis(),
+        installed_exe: std::env::current_exe().map_err(|e| e.to_string())?,
+        phase: Phase::Prepared,
+        message: "正在下载并准备安装".into(),
+        owner_pid: std::process::id(),
+        owner_started_at: process_instance(std::process::id()).ok_or("无法核验更新进程身份")?,
+    };
+    {
+        let _lock =
+            kanzei_base::atomic_file::lock_exclusive(&receipt_path).map_err(|e| e.to_string())?;
+        if receipt::read(&receipt_path)?.is_some_and(|previous| {
+            matches!(previous.phase, Phase::Prepared | Phase::Installing)
+                && receipt_owner_alive(&previous)
+        }) {
+            return Err("已有更新任务正在进行".into());
+        }
+        receipt::write(&receipt_path, &result)?;
     }
-    let config = KanzeiConfig::load(Path::new(".")).unwrap_or_default();
+    match prepare_installer(&url, &receipt_path, &result).await {
+        Ok(message) => {
+            app.exit(0);
+            Ok(message)
+        }
+        Err(error) => {
+            result.transition(Phase::Failed, error.clone());
+            receipt::write(&receipt_path, &result)?;
+            Err(error)
+        }
+    }
+}
+
+async fn prepare_installer(
+    url: &str,
+    receipt_path: &Path,
+    result: &UpdateReceipt,
+) -> Result<String, String> {
+    let config = KanzeiConfig::load(Path::new(".")).map_err(|e| e.to_string())?;
     let proxy = match config.proxy.as_deref() {
         Some("off") => ProxyConfig::Disabled,
         Some("env") | None => ProxyConfig::Env,
@@ -254,7 +300,7 @@ pub(crate) async fn update_install_command(
     };
     let client = kanzei_llm::proxy::build_http_client(&proxy).map_err(|e| e.to_string())?;
     let bytes = client
-        .get(&url)
+        .get(url)
         .header("user-agent", "kanzei-app")
         .timeout(std::time::Duration::from_secs(300))
         .send()
@@ -266,47 +312,51 @@ pub(crate) async fn update_install_command(
         .await
         .map_err(|e| e.to_string())?;
     validate_installer(&bytes)?;
-    let notes = clear_stale_installer();
-    let path = installer_path();
-    std::fs::write(&path, &bytes)
-        .map_err(|e| format!("写入安装包失败:{e}(检查 %TEMP% 是否可写或被杀软占用)"))?;
-    let exe = std::env::current_exe().map_err(|e| format!("无法定位自身路径:{e}"))?;
-    let helper = update_helper_path();
-    let _ = std::fs::remove_file(&helper);
-    std::fs::copy(&exe, &helper).map_err(|e| {
-        format!(
-            "准备安装程序失败:{e}。可手动运行 {} 完成安装。",
-            path.display()
-        )
-    })?;
-    update_log(&format!(
-        "交接:helper={} 安装包={}",
-        helper.display(),
-        path.display()
-    ));
+    // Each attempt owns its files; no taskkill by process name or fixed TEMP
+    // artifact can interfere with an unrelated installer.
+    let directory = receipt_path
+        .parent()
+        .ok_or("更新目录不存在")?
+        .join(format!("{}-{}", result.started_at_ms, result.owner_pid));
+    std::fs::create_dir(&directory).map_err(|e| format!("创建更新目录失败: {e}"))?;
+    let installer = directory.join("kanzei-setup.exe");
+    let helper = directory.join("kanzei-update-helper.exe");
+    std::fs::write(&installer, &bytes).map_err(|e| format!("写入安装包失败: {e}"))?;
+    std::fs::copy(&result.installed_exe, &helper).map_err(|e| format!("准备安装助手失败: {e}"))?;
     crate::runtime_service::shutdown_for_update().await?;
-    Command::new(&helper)
+    // Spawn and durable ownership transfer share a lock with helper startup.
+    // A reopened window cannot mistake the exited parent for an abandoned job.
+    let _handoff =
+        kanzei_base::atomic_file::lock_exclusive(receipt_path).map_err(|e| e.to_string())?;
+    let mut child = Command::new(&helper)
         .arg("--kz-install-helper")
-        .arg(&path)
-        .arg(&exe)
+        .arg(&installer)
+        .arg(&result.installed_exe)
         .arg(std::process::id().to_string())
+        .arg(receipt_path)
         .spawn()
         .map_err(|e| {
             crate::runtime_service::cancel_update_shutdown();
-            format!(
-                "启动安装程序失败:{e}。可手动运行 {} 完成安装。",
-                path.display()
-            )
+            format!("启动安装程序失败: {e}")
         })?;
-    let mb = bytes.len() / 1_048_576;
-    let prefix = if notes.is_empty() {
-        String::new()
-    } else {
-        format!("{};", notes.join(";"))
+    let mut handed_off = result.clone();
+    handed_off.owner_pid = child.id();
+    handed_off.message = "安装助手已接收任务，正在等待应用退出".into();
+    let mut persist_handoff = || -> Result<(), String> {
+        handed_off.owner_started_at = process_instance(child.id()).ok_or("无法核验安装助手身份")?;
+        receipt::write(receipt_path, &handed_off)
     };
-    app.exit(0);
+    if let Err(error) = persist_handoff() {
+        let stopped = child.kill().and_then(|()| child.wait().map(|_| ()));
+        crate::runtime_service::cancel_update_shutdown();
+        return Err(format!(
+            "更新交接记录保存失败: {error}; 助手停止结果: {stopped:?}"
+        ));
+    }
     Ok(format!(
-        "{prefix}已下载 {mb} MB,正在退出并静默安装,安装完成后请手动启动应用"
+        "已下载 {} MB，正在退出并安装构建 {}；下次启动将核验安装结果",
+        bytes.len() / 1_048_576,
+        result.expected_build
     ))
 }
 
@@ -319,12 +369,18 @@ pub(crate) fn startup_update() -> bool {
         return true;
     }
     if args.get(1).map(String::as_str) == Some("--kz-install-helper") {
-        if let (Some(installer), Some(exe), Some(parent)) = (
+        if let (Some(installer), Some(exe), Some(parent), Some(receipt_path)) = (
             args.get(2),
             args.get(3),
             args.get(4).and_then(|p| p.parse().ok()),
+            args.get(5),
         ) {
-            run_install_helper(Path::new(installer), Path::new(exe), parent);
+            run_install_helper(
+                Path::new(installer),
+                Path::new(exe),
+                parent,
+                Path::new(receipt_path),
+            );
         }
         return true;
     }
@@ -399,65 +455,96 @@ pub(crate) fn wait_for_parent_exit(parent_pid: u32, timeout: std::time::Duration
     }
     !process_alive(parent_pid)
 }
-fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
-    update_log(&format!(
-        "helper 启动 installer={} exe={} parent={parent_pid}",
-        installer.display(),
-        exe.display()
-    ));
-    let before = image_stamp(exe);
-    let exited = wait_for_parent_exit(parent_pid, std::time::Duration::from_secs(30));
-    update_log(&format!("父进程退出={exited}"));
-    std::thread::sleep(std::time::Duration::from_millis(600));
-    cleanup_orphan_webviews();
-    match Command::new(installer).arg("/S").output() {
-        Ok(out) if out.status.success() => update_log("安装器 exit=0"),
-        Ok(out) => {
-            update_log(&format!(
-                "安装器失败 exit={:?} stdout={} stderr={}",
-                out.status.code(),
-                String::from_utf8_lossy(&out.stdout).trim(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-            return;
+fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32, receipt_path: &Path) {
+    let run = || -> Result<(), String> {
+        let mut result = {
+            let _handoff = kanzei_base::atomic_file::lock_exclusive(receipt_path)
+                .map_err(|e| e.to_string())?;
+            let mut result = receipt::read(receipt_path)?.ok_or("缺少更新交接记录")?;
+            if result.installed_exe != exe
+                || result.owner_pid != std::process::id()
+                || !receipt_owner_alive(&result)
+                || result.phase != Phase::Prepared
+            {
+                return Err("更新交接记录与安装任务不一致".into());
+            }
+            result.transition(Phase::Installing, "正在等待应用退出并安装".into());
+            receipt::write(receipt_path, &result)?;
+            result
+        };
+        let install = || -> Result<(), String> {
+            if !wait_for_parent_exit(parent_pid, std::time::Duration::from_secs(30)) {
+                return Err("应用未能在安装期限内退出，安装已取消".into());
+            }
+            cleanup_orphan_webviews();
+            let out = Command::new(installer)
+                .arg("/S")
+                .output()
+                .map_err(|e| format!("启动安装器失败: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "安装器失败 exit={:?}: {} {}",
+                    out.status.code(),
+                    String::from_utf8_lossy(&out.stdout).trim(),
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            Ok(())
+        };
+        match install() {
+            Ok(()) => result.transition(
+                Phase::AwaitingRestart,
+                format!("安装器已结束。下次启动将核验构建 {}", result.expected_build),
+            ),
+            Err(error) => result.transition(Phase::Failed, error),
         }
-        Err(error) => {
-            update_log(&format!("启动安装器失败: {error}"));
-            return;
+        update_log(&result.message);
+        receipt::write(receipt_path, &result)?;
+        if result.phase == Phase::AwaitingRestart {
+            let _ = std::fs::remove_file(installer);
         }
+        Ok(())
+    };
+    if let Err(error) = run() {
+        update_log(&format!("安装助手失败: {error}"));
     }
-    let after = image_stamp(exe);
-    update_log(&format!("安装前 exe={before:?} 安装后 exe={after:?}"));
-    if !image_replaced(before, after) {
-        update_log("安装器 exit=0 但 exe 未被替换(mtime/大小不变):目标可能被占用,或安装位与运行位不是同一个文件。保留安装包供手动执行。");
-        return;
-    }
-    update_log("安装完成,不自动重新打开应用;用户可手动启动新版");
-    let _ = std::fs::remove_file(installer);
+}
+fn process_alive(pid: u32) -> bool {
+    process_instance(pid).is_some()
+}
+fn receipt_owner_alive(receipt: &UpdateReceipt) -> bool {
+    process_instance(receipt.owner_pid) == Some(receipt.owner_started_at)
 }
 #[cfg(windows)]
-fn process_alive(pid: u32) -> bool {
-    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+fn process_instance(pid: u32) -> Option<u64> {
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, STILL_ACTIVE};
     use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
-    // 进程句柄与 PID 一一对应；退出码 STILL_ACTIVE 才表示该 PID 仍在运行。
-    // 这不依赖 tasklist 的输出语言、列宽或 PID 子串匹配。
+    // A durable owner is a process instance, not a reusable PID. Query the
+    // creation time and liveness through the same handle.
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if handle.is_null() {
-            return false;
+            return None;
         }
         let mut exit_code = 0;
         let queried = GetExitCodeProcess(handle, &mut exit_code);
+        let empty = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let (mut created, mut exited, mut kernel, mut user) = (empty, empty, empty, empty);
+        let timed = GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user);
         let _ = CloseHandle(handle);
-        queried != 0 && exit_code == STILL_ACTIVE as u32
+        (queried != 0 && timed != 0 && exit_code == STILL_ACTIVE as u32)
+            .then_some((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
     }
 }
 #[cfg(not(windows))]
-fn process_alive(_pid: u32) -> bool {
-    false
+fn process_instance(_pid: u32) -> Option<u64> {
+    None
 }
 pub(crate) fn sync_bundled_cli() {
     let Some(cargo_bin) = dirs::home_dir().map(|home| home.join(".cargo").join("bin")) else {
@@ -537,49 +624,36 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 
 #[cfg(test)]
 mod install_verify_tests {
-    use super::image_replaced;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-    /// D-199:"退出码成功"不等于"文件换了"。这条判据是唯一能把
-    /// 静默没装上与真更新分开的东西,它必须对每一种"没换"都判 false。
+    use super::*;
+    #[cfg(windows)]
     #[test]
-    fn 未替换的镜像一律不算更新成功() {
-        let t = UNIX_EPOCH + Duration::from_secs(1_786_212_410);
-        let stamp = Some((t, 22_449_664_u64));
-        assert!(!image_replaced(stamp, stamp), "前后完全相同必须判为未替换");
-        assert!(!image_replaced(None, stamp));
-        assert!(!image_replaced(stamp, None));
-        assert!(!image_replaced(None, None));
+    fn durable_owner_rejects_a_reused_pid() {
+        let pid = std::process::id();
+        let started = process_instance(pid).unwrap();
+        let mut receipt = UpdateReceipt {
+            expected_build: "1234567".into(),
+            source_build: "abcdef0".into(),
+            started_at_ms: 0,
+            installed_exe: "kzapp.exe".into(),
+            phase: Phase::Prepared,
+            message: String::new(),
+            owner_pid: pid,
+            owner_started_at: started,
+        };
+        assert!(receipt_owner_alive(&receipt));
+        receipt.owner_started_at = started.wrapping_add(1);
+        assert!(!receipt_owner_alive(&receipt));
+        receipt.owner_pid = 0;
+        assert!(!receipt_owner_alive(&receipt));
     }
-
     #[test]
-    fn 时间或大小任一变化都算替换成功() {
-        let t = UNIX_EPOCH + Duration::from_secs(1_786_212_410);
-        let stamp = Some((t, 22_449_664_u64));
-        assert!(image_replaced(
-            stamp,
-            Some((t + Duration::from_secs(1), 22_449_664))
-        ));
-        assert!(image_replaced(stamp, Some((t, 22_449_665))));
-    }
-
-    #[test]
-    fn image_stamp_跟得上真实文件改动() {
-        let path = std::env::temp_dir().join(format!(
-            "kz-d199-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::write(&path, b"old").unwrap();
-        let before = super::image_stamp(&path);
-        assert!(before.is_some());
-        std::thread::sleep(Duration::from_millis(20));
-        std::fs::write(&path, b"replaced-with-longer-content").unwrap();
-        let after = super::image_stamp(&path);
-        assert!(image_replaced(before, after), "{before:?} -> {after:?}");
-        std::fs::remove_file(&path).unwrap();
+    fn update_target_is_bound_to_exact_release_asset() {
+        assert!(validate_release_target("https://github.com/kanze1/kanzei-code/releases/download/build-1234567/kanzei-setup.exe", "1234567").is_ok());
+        for url in [
+            "https://github.com/kanze1/kanzei-code/releases/download/build-7654321/kanzei-setup.exe",
+            "https://github.com/kanze1/kanzei-code/other.exe",
+            "https://github.com/kanze1/kanzei-code/releases/download/build-1234567/../other.exe",
+        ] { assert!(validate_release_target(url, "1234567").is_err()); }
+        assert!(validate_release_target("", "dev").is_err());
     }
 }

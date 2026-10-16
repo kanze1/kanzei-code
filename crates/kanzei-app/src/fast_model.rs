@@ -33,7 +33,7 @@ pub async fn fast_model_status() -> serde_json::Value {
 /// 一键就绪(R-136):装 Ollama(winget)→ 起服务 → 拉模型,全程发 kz:fast-setup 进度。
 /// 每步幂等:已满足的直接跳过,失败在哪步就停在哪步并说清下一步怎么办。
 #[tauri::command]
-pub async fn fast_model_setup(window: tauri::Window) -> Result<String, String> {
+pub async fn fast_model_setup(window: crate::app_events::AppEvents) -> Result<String, String> {
     let stage = |text: &str| {
         let _ = window.emit("kz:fast-setup", json!({ "text": text }));
     };

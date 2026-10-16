@@ -5,10 +5,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::KanzeiConfig;
-use crate::context::ContextSource;
+use crate::context::{
+    ContextAssemblyError, ContextBaseline, ContextRequirement, ContextSource, ContextSourceReport,
+    ContextSourceStatus,
+};
 use crate::defs::{AgentDef, ProfileKind, SkillDef};
 use crate::permission::{Effect, Rule, Ruleset};
-use crate::registry::Registry;
+use crate::registry::{RegistrationReport, Registry};
 use crate::tool::Tool;
 
 /// 一次 resolve 的输入环境。
@@ -38,12 +41,13 @@ pub struct HarnessDraft {
 
 #[derive(Default)]
 pub struct Harness {
-    components: Vec<Box<dyn Component>>,
+    components: Vec<(&'static str, Box<dyn Component>)>,
 }
 
 impl Harness {
     pub fn add(&mut self, component: impl Component + 'static) -> &mut Self {
-        self.components.push(Box::new(component));
+        self.components
+            .push((std::any::type_name_of_val(&component), Box::new(component)));
         self
     }
 
@@ -54,7 +58,11 @@ impl Harness {
     /// 模型照做失败后就会转去找旁路。这是装配期的编程错误,直接炸在启动。
     pub fn resolve(&self, ctx: &ResolveCtx) -> anyhow::Result<Arc<HarnessSnapshot>> {
         let mut draft = HarnessDraft::default();
-        for component in &self.components {
+        for (name, component) in &self.components {
+            draft.agents.set_component(name);
+            draft.tools.set_component(name);
+            draft.skills.set_component(name);
+            draft.context.set_component(name);
             component.contribute(&mut draft, ctx)?;
         }
         let missing: Vec<String> = draft
@@ -91,16 +99,26 @@ impl Harness {
         {
             anyhow::bail!("harness 装配错误:tool_search 不能列入延迟工具名单");
         }
-        Ok(Arc::new(HarnessSnapshot {
+        let snapshot = Arc::new(HarnessSnapshot {
             ctx: ctx.clone(),
             draft,
-        }))
+        });
+        tracing::debug!(registrations = ?snapshot.registry_report(), "harness registry resolved");
+        Ok(snapshot)
     }
 }
 
 pub struct HarnessSnapshot {
     ctx: ResolveCtx,
     draft: HarnessDraft,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HarnessRegistryReport {
+    pub agents: Vec<RegistrationReport>,
+    pub tools: Vec<RegistrationReport>,
+    pub skills: Vec<RegistrationReport>,
+    pub context: Vec<RegistrationReport>,
 }
 
 impl HarnessSnapshot {
@@ -124,24 +142,53 @@ impl HarnessSnapshot {
         &self.draft.skills
     }
 
-    /// 选 agent:显式名 → 无则该 profile 的第一个 primary agent。
-    pub fn select_agent(&self, name: Option<&str>) -> anyhow::Result<&AgentDef> {
-        if let Some(name) = name {
-            return self.draft.agents.get(name).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "unknown agent `{name}`; available: {}",
-                    self.draft.agents.names().collect::<Vec<_>>().join(", ")
-                )
-            });
-        }
-        self.draft
+    /// 顶层选择只接受当前 profile 的 Primary;子代理名册由子代理运行时独立管理。
+    pub fn select_primary_agent(&self, name: Option<&str>) -> anyhow::Result<&AgentDef> {
+        let candidates: Vec<_> = self
+            .draft
             .agents
             .iter()
-            .map(|(_, a)| a)
-            .find(|a| {
+            .filter(|(_, a)| {
                 a.profile.includes(self.ctx.profile) && a.mode == crate::defs::AgentMode::Primary
             })
-            .ok_or_else(|| anyhow::anyhow!("no primary agent for profile {:?}", self.ctx.profile))
+            .collect();
+        let candidate_names = candidates
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let available = if candidate_names.is_empty() {
+            "(none)"
+        } else {
+            &candidate_names
+        };
+        if let Some(name) = name {
+            let agent = self.draft.agents.get(name).ok_or_else(|| anyhow::anyhow!(
+                "unknown primary agent `{name}` for profile {:?}; available primary agents: {available}", self.ctx.profile
+            ))?;
+            anyhow::ensure!(
+                agent.profile.includes(self.ctx.profile) && agent.mode == crate::defs::AgentMode::Primary,
+                "agent `{name}` has scope {:?} and mode {:?}; it cannot be a primary agent for profile {:?}; available primary agents: {available}",
+                agent.profile, agent.mode, self.ctx.profile
+            );
+            return Ok(agent);
+        }
+        candidates.first().map(|(_, agent)| *agent).ok_or_else(|| {
+            anyhow::anyhow!(
+                "no primary agent for profile {:?}; available primary agents: {available}",
+                self.ctx.profile
+            )
+        })
+    }
+
+    /// 可观察的装配结果;与运行时注册表同源,不重新扫描配置目录推测胜者。
+    pub fn registry_report(&self) -> HarnessRegistryReport {
+        HarnessRegistryReport {
+            agents: self.draft.agents.report(),
+            tools: self.draft.tools.report(),
+            skills: self.draft.skills.report(),
+            context: self.draft.context.report(),
+        }
     }
 
     /// 工具物化:整体 deny 的 action 直接摘掉(模型根本看不见,硬门禁第一层)。
@@ -200,15 +247,15 @@ impl HarnessSnapshot {
     }
 
     /// 渲染 system baseline:各 Context Source 依注册顺序拼接。
-    pub fn system_baseline(&self) -> String {
-        self.system_baseline_with_report().0
+    pub fn system_baseline(&self) -> Result<String, ContextAssemblyError> {
+        self.system_baseline_with_report().map(|(text, _)| text)
     }
 
     /// baseline + 上下文账单(R-106):每个 source 注入了多少字符,
     /// "本轮上下文里有什么、各占多少"从此是数据而不是猜测。
-    pub fn system_baseline_with_report(&self) -> (String, Vec<(String, usize)>) {
-        let (mut stable, mut report) = self.stable_system_baseline_with_report();
-        let (refreshing, refreshing_report) = self.refreshable_system_baseline_with_report();
+    pub fn system_baseline_with_report(&self) -> ContextBaseline {
+        let (mut stable, mut report) = self.stable_system_baseline_with_report()?;
+        let (refreshing, refreshing_report) = self.refreshable_system_baseline_with_report()?;
         if !refreshing.is_empty() {
             if !stable.is_empty() {
                 stable.push_str("\n\n");
@@ -216,35 +263,58 @@ impl HarnessSnapshot {
             stable.push_str(&refreshing);
         }
         report.extend(refreshing_report);
-        (stable, report)
+        Ok((stable, report))
     }
 
     /// 只渲染一次的稳定上下文。runner 用它保持既有 baseline 快照语义。
-    pub fn stable_system_baseline_with_report(&self) -> (String, Vec<(String, usize)>) {
+    pub fn stable_system_baseline_with_report(&self) -> ContextBaseline {
         self.render_context_sources(false)
     }
 
     /// 每个模型步骤前替换的临时上下文;不进入 messages,因此不会逐轮累积。
-    pub fn refreshable_system_baseline_with_report(&self) -> (String, Vec<(String, usize)>) {
+    pub fn refreshable_system_baseline_with_report(&self) -> ContextBaseline {
         self.render_context_sources(true)
     }
 
-    fn render_context_sources(&self, refreshing: bool) -> (String, Vec<(String, usize)>) {
+    fn render_context_sources(&self, refreshing: bool) -> ContextBaseline {
         let mut sections = Vec::new();
         let mut report = Vec::new();
         for (name, src) in self.draft.context.iter() {
             if src.refresh_each_step() != refreshing {
                 continue;
             }
-            if let Some(text) = src.baseline(&self.ctx) {
-                let text = text.trim();
-                if !text.is_empty() {
-                    report.push((name.to_string(), text.chars().count()));
+            let mut entry = ContextSourceReport {
+                key: name.to_string(),
+                requirement: src.requirement(),
+                refresh_each_step: refreshing,
+                status: ContextSourceStatus::Empty,
+                chars: 0,
+                bytes: 0,
+                error: None,
+            };
+            match src.baseline(&self.ctx) {
+                Ok(Some(text)) if !text.trim().is_empty() => {
+                    let text = text.trim();
+                    entry.status = ContextSourceStatus::Loaded;
+                    entry.chars = text.chars().count();
+                    entry.bytes = text.len();
                     sections.push(text.to_string());
                 }
+                Ok(_) => {}
+                Err(error) => {
+                    entry.status = ContextSourceStatus::Failed;
+                    entry.error = Some(format!("{error:#}"));
+                }
             }
+            report.push(entry);
         }
-        (sections.join("\n\n"), report)
+        if report.iter().any(|entry| {
+            entry.requirement == ContextRequirement::Required
+                && entry.status == ContextSourceStatus::Failed
+        }) {
+            return Err(ContextAssemblyError { sources: report });
+        }
+        Ok((sections.join("\n\n"), report))
     }
 
     /// 权限评估入口(拦截器在 core 侧调用)。
@@ -417,6 +487,88 @@ mod tests {
 
     fn test_tool(name: &'static str) -> Arc<dyn Tool> {
         Arc::new(TestTool(name))
+    }
+
+    #[test]
+    fn explicit_primary_selection_checks_scope_and_role() {
+        let mut draft = HarnessDraft::default();
+        for (name, profile, mode) in [
+            (
+                "dev-only",
+                crate::ProfileScope::Dev,
+                crate::AgentMode::Primary,
+            ),
+            (
+                "research-only",
+                crate::ProfileScope::Research,
+                crate::AgentMode::Primary,
+            ),
+            (
+                "all-primary",
+                crate::ProfileScope::All,
+                crate::AgentMode::Primary,
+            ),
+            (
+                "scout",
+                crate::ProfileScope::All,
+                crate::AgentMode::Subagent,
+            ),
+        ] {
+            draft.agents.insert(
+                name,
+                AgentDef {
+                    name: name.into(),
+                    profile,
+                    mode,
+                    model: "primary".into(),
+                    steps: 0,
+                    system: String::new(),
+                },
+            );
+        }
+        let mut snapshot = HarnessSnapshot {
+            ctx: resolve_ctx(),
+            draft,
+        };
+        for profile in [
+            ProfileKind::Dev,
+            ProfileKind::Research,
+            ProfileKind::Readonly,
+        ] {
+            snapshot.ctx.profile = profile;
+            assert_eq!(
+                snapshot
+                    .select_primary_agent(Some("all-primary"))
+                    .unwrap()
+                    .name,
+                "all-primary"
+            );
+            assert_eq!(
+                snapshot.select_primary_agent(Some("dev-only")).is_ok(),
+                profile == ProfileKind::Dev
+            );
+            assert_eq!(
+                snapshot.select_primary_agent(Some("research-only")).is_ok(),
+                profile == ProfileKind::Research
+            );
+            let error = snapshot
+                .select_primary_agent(Some("scout"))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("primary"), "{error}");
+            assert!(error.contains("all-primary"), "{error}");
+            assert_eq!(
+                snapshot.select_primary_agent(None).unwrap().mode,
+                crate::AgentMode::Primary
+            );
+        }
+        let unknown = snapshot
+            .select_primary_agent(Some("missing"))
+            .unwrap_err()
+            .to_string();
+        assert!(unknown.contains("all-primary"), "{unknown}");
+        assert!(!unknown.contains("dev-only"), "{unknown}");
+        assert!(!unknown.contains("scout"), "{unknown}");
     }
 
     #[test]
@@ -686,20 +838,26 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            snapshot.stable_system_baseline_with_report().0,
+            snapshot.stable_system_baseline_with_report().unwrap().0,
             "stable-value"
         );
         assert_eq!(
-            snapshot.refreshable_system_baseline_with_report().0,
+            snapshot
+                .refreshable_system_baseline_with_report()
+                .unwrap()
+                .0,
             "dynamic-1"
         );
         value.store(2, Ordering::SeqCst);
         assert_eq!(
-            snapshot.refreshable_system_baseline_with_report().0,
+            snapshot
+                .refreshable_system_baseline_with_report()
+                .unwrap()
+                .0,
             "dynamic-2",
             "刷新只能给出新值,不能把 dynamic-1 累加回来"
         );
-        let combined = snapshot.system_baseline();
+        let combined = snapshot.system_baseline().unwrap();
         assert!(combined.contains("stable-value"));
         assert_eq!(combined.matches("dynamic-2").count(), 1);
     }

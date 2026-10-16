@@ -1,4 +1,8 @@
+#[path = "build/ipc.rs"]
+mod ipc;
+
 fn main() {
+    ipc::generate();
     // 同一路径升级 exe 后，后台进程可能还活着。握手标识必须编入二进制，
     // 不能读取已被替换的磁盘文件来推断旧进程版本。
     // Release identifiers, embedded UI and shared-crate changes must also

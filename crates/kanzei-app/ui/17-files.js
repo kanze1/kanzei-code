@@ -1,4 +1,7 @@
-import { $, confirmDialog, defer, invoke, on } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { confirmDialog } from "./00-dialogs.js";
+import { on } from "./01-runtime-events.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { currentProject, log, processItems, toast, toastError } from "./03-shell.js";
 import { openKnowledgeMemory, renderProjectKnowledge } from "./24-project-knowledge.js";

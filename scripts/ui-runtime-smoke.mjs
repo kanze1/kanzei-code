@@ -1458,6 +1458,7 @@ class Element {
   get children() { return this.childNodes.filter((n) => n instanceof Element); }
   get options() { return this.tagName === "SELECT" ? this.children : undefined; }
   get firstChild() { return this.childNodes[0] ?? null; }
+  get lastChild() { return this.childNodes.at(-1) ?? null; }
   get nextSibling() {
     if (!this.parentNode) return null;
     return this.parentNode.childNodes[this.parentNode.childNodes.indexOf(this) + 1] ?? null;
@@ -2316,6 +2317,12 @@ const payloads = {
 
   workspace_snapshot: { projects: [] },
 };
+payloads.conversation_page = async args => {
+  const source = typeof payloads.conversation_list === "function" ? await payloads.conversation_list(args) : payloads.conversation_list;
+  const items = (source || []).filter(item => args.beforeSequence == null || item.sequence < args.beforeSequence).sort((a, b) => a.sequence - b.sequence);
+  const page = items.slice(-args.limit), hasMore = items.length > page.length;
+  return { items: page, hasMore, nextBeforeSequence: hasMore ? page[0].sequence : null };
+};
 payloads.workspace_overview = () => ({
   current: payloads.projects_get.current, observed_at: Date.now(),
   projects: payloads.projects_get.projects.map((path) => ({
@@ -2408,11 +2415,17 @@ async function invoke(cmd, args) {
   // 清单画进乙的面板」,必须让两个项目返回不同的清单,固定值做不到。
   if (cmd in payloads) {
     const stub = payloads[cmd];
-    return structuredClone(typeof stub === "function" ? stub(args) : stub);
+    return structuredClone(typeof stub === "function" ? await stub(args) : stub);
   }
   return null;
 }
-async function listen(event, handler) { handlers.set(event, handler); }
+const eventListeners = new Map();
+async function listen(event, handler) {
+  if (!eventListeners.has(event)) eventListeners.set(event, new Set());
+  const listeners = eventListeners.get(event); listeners.add(handler);
+  handlers.set(event, payload => { for (const listener of listeners) listener(payload); });
+  return () => listeners.delete(handler);
+}
 const handlers = new Map();
 
 const storage = new Map();
@@ -2534,7 +2547,7 @@ const sandbox = {
   FileReader: FileReaderShim,
   MutationObserver: MutationObserverShim,
   ResizeObserver: ResizeObserverShim,
-  setTimeout: (fn, ms) => { const h = { fn }; pendingTimers.add(h); return h; },
+  setTimeout: (fn, ms) => { const h = { fn, ms }; pendingTimers.add(h); return h; },
   clearTimeout: (h) => pendingTimers.delete(h),
   setInterval: (fn) => { const h = { fn, interval: true }; pendingTimers.add(h); return h; },
   clearInterval: (h) => pendingTimers.delete(h),
@@ -2544,16 +2557,19 @@ const sandbox = {
   cancelAnimationFrame: () => {},
 };
 vm.createContext(sandbox);
+// Test expressions may use an export facade; production modules execute in a
+// separate realm which has only browser APIs, exactly as native ESM does.
+const productionSandbox = vm.createContext({ ...sandbox });
 
 const settle = () => new Promise((r) => setImmediate(r));
-async function flush(rounds = 12) {
+async function flush(rounds = 12, elapsedMs = 5000) {
   for (let i = 0; i < rounds; i += 1) {
     await settle();
     const frames = rafQueue.splice(0);
     for (const fn of frames) await fn();
     const timers = [...pendingTimers];
     for (const h of timers) {
-      if (!pendingTimers.has(h) || h.interval) continue;
+      if (!pendingTimers.has(h) || h.interval || h.ms > elapsedMs) continue;
       pendingTimers.delete(h);
       await h.fn();
     }
@@ -2569,7 +2585,7 @@ async function flush(rounds = 12) {
 const DRAIN_TIMEOUT_MS = 300;
 async function drainTimersOnce(label) {
   for (const handle of [...pendingTimers]) {
-    if (!pendingTimers.has(handle) || handle.interval) continue;
+    if (!pendingTimers.has(handle) || handle.interval || handle.ms > 5000) continue;
     pendingTimers.delete(handle);
     const timedOut = Symbol("drain-timeout");
     let timer = null;
@@ -2636,11 +2652,11 @@ const esmModuleCache = new Map();
  * 所有模块先创建(unlinked 状态),link 回调遇到缓存实例直接返回——vm 会处理
  * unlinked 模块的链接顺序,循环依赖 a↔b 因此可行(实测:先创建再 link 成功)。
  */
-function createEsmModule(filename, instrumentedSource, sandbox) {
+function createEsmModule(filename, instrumentedSource) {
   const existing = esmModuleCache.get(filename);
   if (existing) return existing;
   const module = new vm.SourceTextModule(instrumentedSource, {
-    context: sandbox,
+    context: productionSandbox,
     filename,
     importModuleDynamically: async (specifier) => {
       const target = specifier.replace(/^\.\//, "");
@@ -2701,8 +2717,12 @@ async function runUiSources() {
   sources.forEach((src, i) => sourcesByName.set(scriptSrcs[i], src));
   // Legacy feature regressions opt into these interfaces. Default-startup/lazy behavior
   // is separately checked in a real browser by ui-optional-modules-smoke.mjs.
-  const optionalTestEntries = ["13-memory-chat.js", "24-memory-graph.js", "23-voice.js", "16-mobile.js", "22-visual-runtime.js"];
-  const executionSources = [...htmlScriptSrcs, ...optionalTestEntries].map((name) => {
+  const optionalTestEntries = ["01-core.js", "13-memory-chat.js", "24-memory-graph.js", "23-voice.js", "16-mobile.js", "22-visual-runtime.js"];
+  const bootstrap = sourcesByName.get("bootstrap.js") || "";
+  const initialEntries = htmlScriptSrcs.includes("bootstrap.js")
+    ? [...bootstrap.matchAll(/^import(?:\s+[^;]*?from)?\s*["']\.\/([^"']+)["'];/gm)].map(match => match[1]).concat("bootstrap.js")
+    : htmlScriptSrcs;
+  const executionSources = [...new Set([...initialEntries, ...optionalTestEntries])].map((name) => {
     const src = sourcesByName.get(name);
     if (src === undefined) throw new Error(`index.html 执行入口 ${name} 不在 ui/ 源码清单中`);
     return [name, src];
@@ -2751,9 +2771,7 @@ async function runUiSources() {
       const module = esmModuleCache.get(name);
       if (module) await module.evaluate();
     }
-    // 兼容桥:ESM export 挂 context 全局(渐进迁移期对 classic 消费者可见)。
-    // 直接给 sandbox 对象赋值——Node contextify 后该对象属性变化对 vm 可见,
-    // 冒烟断言(sandbox.refreshManual / runInContext)都走同一份。
+    // Export facade is available to assertions only, never to production ESM.
     for (const [name, module] of esmModuleCache) {
       try {
         const ns = module.namespace;
@@ -2764,6 +2782,7 @@ async function runUiSources() {
         // 忽略不可读 namespace。
       }
     }
+    assert(vm.runInContext("typeof globalThis.refreshDocs", productionSandbox) === "undefined", "Production ESM realm must not inherit the test export facade");
     // ESM 的可变导出不是 sandbox 普通属性：测试中的赋值必须经模块 setter，
     // 否则只改了兼容桥副本，消费者仍读取原 live binding，测试会把真实链路误判为失效。
     const bindMutableEsmGlobal = (name, moduleName, setterName) => {
@@ -2864,8 +2883,7 @@ assert(vm.runInContext("activeSessionId", sandbox), "显式进入项目对话未
   assert(sessionId && states, "星座背景:拿不到活动会话或 sessionStates,判据无法定位");
   if (backdrop && sessionId && states) {
     const saved = states.has(sessionId) ? { ...states.get(sessionId) } : null;
-    const live = states.get(sessionId) ?? {};
-    states.set(sessionId, Object.assign(live, { phase: "running", running: true, converged: false }));
+    sandbox.transitionSession(sessionId, "running");
     flowNs.neuralFlowEmit("run_started", { session_id: sessionId, step: 1 });
     assert(backdrop.snapshot().activity === "thinking", `星座背景:run_started 后活动态应为 thinking,实际 ${backdrop.snapshot().activity}`);
     flowNs.neuralFlowEmit("tool_started", { session_id: sessionId, tool_call_id: "bg-smoke-tool", tool_name: "bash" });
@@ -2874,7 +2892,7 @@ assert(vm.runInContext("activeSessionId", sandbox), "显式进入项目对话未
     assert(backdrop.snapshot().activity === "executing", "星座背景:后台会话的事件改写了活动会话的活动态");
     flowNs.neuralFlowEmit("tool_completed", { session_id: sessionId, tool_call_id: "bg-smoke-tool", ok: true });
     flowNs.neuralFlowEmit("run_completed", { session_id: sessionId });
-    if (saved) states.set(sessionId, Object.assign(live, saved, { running: saved.running, phase: saved.phase }));
+    if (saved) sandbox.transitionSession(sessionId, saved.phase, sandbox.sessionDetails(saved));
     else states.delete(sessionId);
   }
   const presetButtons = document.querySelectorAll("#backdrop-presets [data-backdrop-preset]");
@@ -3464,7 +3482,7 @@ assert(!document.querySelector("#parallel-task-status .parallel-task-row"), "开
     render.includes('"wheel", "pointerdown", "touchstart", "keydown"'),
     "05-chat-render 丢失真实手势监听：用户滚上去后新消息会把他拽回底部",
   );
-  const core = sources[scriptSrcs.indexOf("01-core.js")] ?? "";
+  const core = sources[scriptSrcs.indexOf("01-chat-panes.js")] ?? "";
   assert(
     core.includes("const topBefore = visible ? messages.scrollTop : 0;"),
     "trimLivePane 的 scrollTop 取样必须在删除之前：删完再读到的是夹紧后的值，同一个 delta 会扣两遍",
@@ -3535,7 +3553,7 @@ assert(!document.querySelector("#parallel-task-status .parallel-task-row"), "开
   if (priorView === undefined) delete document.body.dataset.view;
   else document.body.dataset.view = priorView;
 }
-const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_list");
+const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_page");
 assert(historyCalls.some(({ args }) => args?.processId === "d|smoke"), "历史查询未带主线 process_id");
 assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查询未带并行线 process_id");
 // R-247:排队顺序不参与；doing/fixing 无显式取得线按 D-354 归默认线，open 队首无标记。
@@ -4668,16 +4686,19 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   // 被测的正是 refreshDocsSoon 那条 catch,它只 console.error —— 开窗放行,出了这段立刻收回。
   expectedConsoleError = "冒烟注入";
   const consoleHitsBefore = expectedConsoleHits;
+  expectedPersistentError = "冒烟注入:refreshDocsSoon";
+  const persistentHitsBefore = expectedPersistentHits;
   invokeFailures.set("docs_snapshot", "冒烟注入:refreshDocsSoon 撞上目录被删/文件被锁/解析失败");
   sandbox.refreshDocsSoon();
   await drainTimersOnce("refreshDocsSoon 失败路径");
   for (let i = 0; i < 12; i += 1) await settle();
   invokeFailures.delete("docs_snapshot");
   assert(
-    expectedConsoleHits > consoleHitsBefore,
+    expectedConsoleHits > consoleHitsBefore || expectedPersistentHits > persistentHitsBefore,
     "前置失败:注入的 docs_snapshot 失败没有走到 refreshDocsSoon 的 catch(这一段根本没测到目标路径)",
   );
   expectedConsoleError = null;
+  expectedPersistentError = null;
   assert(
     vm.runInContext("pendingJumpId", sandbox) === null,
     "refreshDocsSoon 抛错后 pendingJumpId 还挂着:之后任意一次无关刷新都会把它兑现——用户没点跳转,条目自己亮了(悬挂高亮)",
@@ -5096,6 +5117,7 @@ const toolEnd = handlers.get("kz:tool-end");
 const taskProgress = handlers.get("kz:task-progress");
 assert(toolStart && toolEnd, "工具事件未订阅");
 assert(taskProgress, "子代理进度事件未订阅");
+handlers.get("kz:turn")({ payload: { sessionId: "sess-smoke", step: 1 } });
 toolStart({ payload: { id: "T1", name: "bash", summary: "cargo test --workspace", input: { command: "cargo test --workspace", workdir: "." }, sessionId: "sess-smoke" } });
 // D-491:轮次与当前工具状态必须由真实事件更新到实际 DOM，不允许 live-* 静默 no-op。
 for (const id of ["live-turn", "live-action"]) {
@@ -6142,7 +6164,7 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
   const savedUpdateCheck = payloads.update_check;
   const savedUpdateInstall = payloads.update_install;
-  payloads.update_check = { current: "a1", latest: "b2", newer: true, status: "update", url: "https://github.com/kanze1/kanzei-code/releases/download/b2/setup.exe" };
+  payloads.update_check = { current: "a1", latest: "build-b2b2b2b", expected_build: "b2b2b2b", newer: true, status: "update", url: "https://github.com/kanze1/kanzei-code/releases/download/build-b2b2b2b/setup.exe" };
   payloads.update_install = "已下载,正在退出";
   byId.get("update-check").click();
   await flush();
@@ -6152,7 +6174,7 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   const priorConfirm = sandbox.confirmDialog;
   const baseline = settingsNs.runningLineCount();
   // 有运行线 → 先确认;取消则一个字节都不下载。
-  shellNs.sessionStates.set("sess-update-busy", { phase: "running", running: true });
+  shellNs.transitionSession("sess-update-busy", "running");
   assert(settingsNs.runningLineCount() === baseline + 1, "runningLineCount 没数到运行中的线");
   let asked = null;
   sandbox.confirmDialog = (options) => { asked = options; return Promise.resolve(false); };
@@ -6561,9 +6583,7 @@ assert(
 );
 
 // ---------- R-099/R-127 运行画像面板 ----------
-const metricsTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "metrics");
-assert(metricsTab, "活动栏缺少运行画像入口");
-metricsTab.click();
+esmModuleCache.get("03-shell.js").namespace.navigate_view("metrics");
 await flush();
 assert(invokeLog.includes("run_metrics"), "运行画像页未拉取度量");
 const metricRounds = document.querySelectorAll("#metrics-rounds .metrics-round");
@@ -6642,12 +6662,12 @@ assert(probeResults[3].result.includes("未知探针类型"), "未知探针类�
 {
   const mobileHandler = handlers.get("kz:mobile-message");
   assert(mobileHandler, "未订阅 kz:mobile-message");
-  const conversationsBefore = invokeArgs.filter(({ cmd }) => cmd === "conversation_list").length;
+  const conversationsBefore = invokeArgs.filter(({ cmd }) => cmd === "conversation_page").length;
   const processesBefore = invokeArgs.filter(({ cmd }) => cmd === "process_list").length;
   mobileHandler({ payload: { session_id: "sess-smoke", text: "来自手机的冒烟消息" } });
   await flush();
   assert(
-    invokeArgs.filter(({ cmd }) => cmd === "conversation_list").length > conversationsBefore,
+    invokeArgs.filter(({ cmd }) => cmd === "conversation_page").length > conversationsBefore,
     "kz:mobile-message 未触发会话列表刷新",
   );
   assert(
@@ -7315,8 +7335,8 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     return false;
   });
   assert(
-    leftRow.includes('id="profile-select"') && leftRow.includes("ctx-mode") && !inPopover,
-    "R-342:模式选择器必须常驻输入区工具行左段 .composer-left(带 ctx-mode 芯片样式),不得在任何弹层里",
+    !leftRow.includes('id="profile-select"') && inPopover && html.includes('id="composer-more"'),
+    "模式选择保留在可打开的高级菜单，默认输入区不重复展示执行设置",
   );
   const savedProfileR342 = byId.get("profile-select").value;
   for (const mode of ["dev-auto", "dev-pair"]) {
@@ -7719,8 +7739,7 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   toggle.value = "off";
   toggle.dispatchEvent({ type: "change" });
   await flush();
-  shell.sessionState(lines[0].session_id).running = true;
-  shell.sessionState(lines[0].session_id).converged = false;
+  shell.transitionSession(lines[0].session_id, "running");
   agents.subagentStart({ sessionId: lines[0].session_id, id: "switch-live", input: { description: "开关运行态" } });
   assert(caption.textContent === "下轮生效" && status.textContent === "1 运行", "关闭下轮派遣时不能把当前子代理显示成已停止");
   agents.subagentStart({ sessionId: lines[1].session_id, id: "switch-background", input: { description: "后台子代理" } });
@@ -7752,32 +7771,21 @@ languageControl.dispatchEvent({ type: "change" });
 await flush();
 kzTest.reset();
 
-// ---------- 视图切换:真实驱动 activity-item 的监听,抓初始化后才触发的运行时错误 ----------
-// rail 上的侧栏开合不是视图,统计与点击都只认带 data-view 的按钮。
+// ---------- 视图切换:驱动正式路由，覆盖未驻留一级导航的按需入口 ----------
 const activityItems = document.querySelectorAll(".activity-item[data-view]");
-// 覆盖为零必须判失败,不能像以前那样打印「0 个主视图切换」还报通过(D-138)——
-// 与本文件对初始化探针的自守卫同一标准:护栏没生效比没有护栏更危险。
-const expectedViews = new Set([...html.matchAll(/data-view="([\w-]+)"/g)].map((m) => m[1]));
-if (activityItems.length < expectedViews.size) {
-  fail(
-    `主视图切换覆盖不足:harness 造出 ${activityItems.length} 个 .activity-item,` +
-      `index.html 声明 ${expectedViews.size} 个(${[...expectedViews].join(",")})`
-  );
-}
-for (const item of activityItems) { item.click(); await flush(); }
-await flush();
-// 每个视图都必须真的被激活过,否则等于没切。
+const expectedViews = new Set(Object.keys(esmModuleCache.get("00-views.js").namespace.views));
+assert(expectedViews.size > 0, "正式视图注册表为空，路由覆盖失效");
 for (const view of expectedViews) {
-  const el = byId.get(`view-${view}`);
-  if (el && !el.classList.contains("active") && view !== "chat") continue;
+  await esmModuleCache.get("03-shell.js").namespace.navigate_view(view);
+  await flush();
+  assert(byId.get(`view-${view}`)?.classList.contains("active"), `注册视图未激活: ${view}`);
 }
 sandbox.navigate_view("workspace");
 await flush();
 activityItems.find(item => item.dataset.view === "settings")?.click();
 await flush();
 assert(
-  byId.get("view-settings")?.classList.contains("active") ||
-    activityItems.length === 0,
+  byId.get("view-settings")?.classList.contains("active"),
   "视图切换未真正驱动:最后一个视图应处于 active"
 );
 
@@ -8804,15 +8812,18 @@ const docsB = {
   // 被测的正是 refreshDocsSoon 那条 catch,它只 console.error —— 开窗放行,出了这段立刻收回。
   expectedConsoleError = "冒烟注入";
   const consoleHitsBefore = expectedConsoleHits;
+  expectedPersistentError = "冒烟注入:refreshDocsSoon 的在途刷新";
+  const persistentHitsBefore = expectedPersistentHits;
   invokeFailures.set("docs_snapshot", "冒烟注入:refreshDocsSoon 的在途刷新撞上目录被删/文件被锁/解析失败");
   releaseStaleSoon();
   for (let i = 0; i < 12; i += 1) await settle();
   invokeFailures.delete("docs_snapshot");
   assert(
-    expectedConsoleHits > consoleHitsBefore,
+    expectedConsoleHits > consoleHitsBefore || expectedPersistentHits > persistentHitsBefore,
     "前置失败:注入的 docs_snapshot 失败没有走到 refreshDocsSoon 的 catch(这一段根本没测到目标路径)",
   );
   expectedConsoleError = null;
+  expectedPersistentError = null;
   assert(
     vm.runInContext("pendingJumpId", sandbox) === "R-900",
     "旧项目的 refreshDocsSoon 刷新失败作废了新项目刚排的跳转高亮:它那条 catch 里的 clearPendingJump() 没有项目守卫",
@@ -8968,10 +8979,8 @@ const docsB = {
 // ---------- R-184 B 面:真实并列视图与合并前冲突预警 ----------
 {
   await gotoProject(PROJECT, savedDocsPayload);
-  const linesButton = document.querySelector('.activity-item[data-view="lines"]');
-  assert(linesButton, "活动栏缺少并行线路入口");
   const beforeOpen = invokeArgs.length;
-  linesButton?.click();
+  esmModuleCache.get("03-shell.js").namespace.navigate_view("lines");
   await flush();
   const openCalls = invokeArgs.slice(beforeOpen);
   assert(
@@ -9497,7 +9506,7 @@ const docsB = {
   );
   assert(
     mergeCalls.some((entry) => entry.cmd === "collaboration_snapshot") &&
-      document.querySelector('.activity-item[data-view="lines"]')?.classList.contains("active"),
+      document.body.dataset.view === "lines",
     `工作树收活没有进入线路视图并刷新统一验收数据源(${JSON.stringify(mergeCalls)})`,
   );
   // 收活会切到绑定的后台线路；恢复本组进入前的会话，避免影响后续会话隔离用例。
@@ -9741,7 +9750,7 @@ const docsB = {
 // 自绘 SVG 依赖图已由 Mermaid 渲染的架构图卡取代(docs/design/architecture_diagrams.md),
 // 用例在文件末尾「分区:架构图」:桩图引擎下断言标签页、节点点击走 structuredNav、错误卡、流式不渲染。
 {
-  document.querySelector('.activity-item[data-view="arch"]')?.click();
+  esmModuleCache.get("03-shell.js").namespace.navigate_view("arch");
   await flush();
   assert(!byId.get("arch-graph"), "旧的自绘 SVG 容器 #arch-graph 不该复活(架构图只走 04-diagram.js)");
   assert(byId.get("arch-diagram-card") && byId.get("arch-diagram-tabs") && byId.get("arch-diagram-canvas"), "架构页缺少图卡(#arch-diagram-card / tabs / canvas)");
@@ -10441,7 +10450,7 @@ const docsB = {
     // ⑥b 在总览页里移除**当前**项目:换到下一个项目,但人留在总览页(不被带到下一个项目记住的对话页),卡片重拉。
     //    变异守卫 removeProjectStaysOnOverview。
     sandbox.renderProjects(structuredClone(prefsAB));
-    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === "workspace")?.click();
+    esmModuleCache.get("03-shell.js").namespace.navigate_view("workspace");
     await flush();
     assert(byId.get("view-workspace").classList.contains("active") && vm.runInContext("currentProject", sandbox) === PROJECT, "⑥b 前置:应在总览页、当前项目为 PROJECT");
     docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
@@ -10470,7 +10479,7 @@ const docsB = {
     sandbox.confirmDialog = priorConfirm;
     sandbox.renderProjects(structuredClone(payloads.projects_get));
     await flush();
-    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === savedViewName)?.click();
+    esmModuleCache.get("03-shell.js").namespace.navigate_view(savedViewName);
     await flush();
     if (priorLanguage === null) localStorageShim.removeItem("kz-language");
     else localStorageShim.setItem("kz-language", priorLanguage);
@@ -11066,8 +11075,7 @@ const docsB = {
   {
     const metaState = sandbox.sessionState("sess-smoke");
     const savedPhase = metaState.phase;
-    const savedConverged = metaState.converged;
-    metaState.converged = false;
+    sandbox.transitionSession("sess-smoke", "running");
     const status = byId.get("status-model");
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
     // ⚡ 带 U+FE0E(文字字形):彩色 emoji 不受 CSS color 控制,文字字形才随状态栏文字色。
@@ -11080,7 +11088,6 @@ const docsB = {
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "off", codexFastMode: false, contextLimit: 272000, sessionId: "sess-smoke" } });
     assert(status.textContent === "codex:gpt-5.6-luna · 开发", `⑥ 服务商默认档与 Fast mode 关时不应显示:"${status.textContent}"`);
     vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
-    sandbox.sessionState("sess-smoke").converged = savedConverged;
   }
 
   // ⑦ 项目模型配置弹窗:设置页那行说明点进去;逐字段「继承全局 · X」/「项目覆盖」;只发变动的键;Esc 不保存。
@@ -11201,11 +11208,9 @@ const docsB = {
     const savedMeta = shellNs.sessionMetaCache.get("sess-smoke");
     const metaState = sandbox.sessionState("sess-smoke");
     const savedPhase = metaState.phase;
-    const savedConverged = metaState.converged;
-    metaState.converged = false;
+    sandbox.transitionSession("sess-smoke", "running");
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 128000, sessionId: "sess-smoke" } });
     vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
-    sandbox.sessionState("sess-smoke").converged = savedConverged;
     await flush();
     assert(shellNs.ctxLimit === 128000, `⑪ 前置:A 线 kz:meta 后上限应为 128k:${shellNs.ctxLimit}`);
     let release = null;
@@ -12429,7 +12434,7 @@ const docsB = {
     { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: false, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", stage: "实现" },
   ];
   const showView = async (name) => {
-    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === name)?.click();
+    esmModuleCache.get("03-shell.js").namespace.navigate_view(name);
     await flush();
   };
   const itemOf = (listId, id) => document.querySelector(`#${listId} .doc-item[data-doc-id="${id}"]`);
@@ -12617,7 +12622,7 @@ const docsB = {
   const savedDocs = structuredClone(payloads.docs_snapshot);
   const savedView = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
   const showView = async (name) => {
-    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === name)?.click();
+    esmModuleCache.get("03-shell.js").namespace.navigate_view(name);
     await flush();
   };
   const itemOf = (listId, id) => document.querySelector(`#${listId} .doc-item[data-doc-id="${id}"]`);
@@ -12744,9 +12749,9 @@ const docsB = {
     const snapshotsBefore = snapshotCalls();
     sandbox.refreshDocsSoon();
     await flush();
-    assert(snapshotCalls() === snapshotsBefore, "#4 有未保存的条目编辑时 refreshDocsSoon 没让路(agent 刷新会打断输入)");
+    assert(snapshotCalls() > snapshotsBefore && detailOf("R-T01") === detail, "#4 后台资源应更新但必须保留正在编辑的详情节点");
     await sandbox.refreshDocs();
-    assert(detailOf("R-T01") !== detail, "#4 前置:显式 refreshDocs 应重建详情节点");
+    assert(detailOf("R-T01") === detail, "#4 显式 refreshDocs 也必须保留正在编辑的详情节点与IME宿主");
     assert(detailOf("R-T01")?.classList.contains("editing") && !detailOf("R-T01").querySelector(".doc-edit").classList.contains("hidden"),
       "#4 重绘把编辑态弹回了只读视图");
     assert(control("验收")?.value === "①改过的验收" && control("验收")?.dataset.dirty === "1", `#4 重绘冲掉了没保存的输入:${control("验收")?.value}`);
@@ -13199,7 +13204,7 @@ const docsB = {
     assert(sandbox.sessionState("sess-esm-bg").phase === "auto_pending", "ESM 回归:后台线 kz:done 后没进入等待下一轮");
     await settle();
     assert(
-      invokeArgs.slice(conversationListsBefore).some(({ cmd }) => cmd === "conversation_list"),
+      invokeArgs.slice(conversationListsBefore).some(({ cmd }) => cmd === "conversation_page"),
       "ESM 回归:后台线控制事件没有刷新会话列表——refreshConversationLists 没执行",
     );
     // ③ 后台线停止必须取消已排的续跑定时器,否则停下的线过 2 秒又自己跑起来。
@@ -13814,7 +13819,8 @@ const docsB = {
   //    左段 附件 · 模式 · 鞭挞,右段 模型 … 发送;带与工具行里的控件全是 .kz-ctl(发送是 .kz-ctl--round,菜单内部除外);
   //    「N 轮 · 阶段」在鞭挞设置触发器里。假 DOM 是按 id 拍平的桩,结构只能对源码配对标签扫描。
   {
-    const footer = html.slice(html.indexOf('<footer id="composer">'), html.indexOf("</footer>", html.indexOf('<footer id="composer">')));
+    const footerStart = html.search(/<footer\b[^>]*\bid="composer"/);
+    const footer = html.slice(footerStart, html.indexOf("</footer>", footerStart));
     // 去掉弹层(菜单/浮层)内部:它们的控件归 surface.css 的菜单外观,不在工具行几何里。
     let flat = footer;
     for (;;) {
@@ -13834,11 +13840,11 @@ const docsB = {
     const order = (block, ids) => ids.map((id) => block.indexOf(`id="${id}"`));
     const left = flat.slice(flat.indexOf('<div id="composer-left"'), flat.indexOf('<div class="composer-right">'));
     const right = flat.slice(flat.indexOf('<div class="composer-right">'));
-    const leftAt = order(left, ["attach", "profile-select", "autorun-bar"]);
-    const rightAt = order(right, ["model-picker-group", "composer-more", "continue-btn", "delivery-select", "voice-toggle", "stop", "send"]);
+    const leftAt = order(left, ["attach", "model-picker-group"]);
+    const rightAt = order(right, ["composer-more", "delivery-select", "voice-toggle", "stop", "send"]);
     const ascending = (list) => list.every((value, index) => value >= 0 && (index === 0 || value > list[index - 1]));
-    assert(ascending(leftAt), `输入区工具行左段应依次为 附件 · 模式 · 鞭挞组:${JSON.stringify(leftAt)}`);
-    assert(ascending(rightAt), `输入区工具行右段应依次为 模型 · 更多 · 继续 · 排队 · 语音 · 停止 · 发送:${JSON.stringify(rightAt)}`);
+    assert(ascending(leftAt), `输入区工具行左段应依次为 附件 · 模型选项:${JSON.stringify(leftAt)}`);
+    assert(ascending(rightAt), `输入区工具行右段应依次为 更多 · 排队 · 语音 · 停止 · 发送:${JSON.stringify(rightAt)}`);
     const band = flat.slice(flat.indexOf('id="composer-context"'), flat.indexOf('id="change-bar-files"'));
     const bar = flat.slice(flat.indexOf('id="composer-bar"'));
     const controls = `${band}\n${bar}`;
@@ -13848,7 +13854,7 @@ const docsB = {
       .filter((tag) => !/\bclass="[^"]*\bkz-ctl(?:--round)?\b/.test(tag))
       .map((tag) => tag.match(/id="([\w-]+)"/)?.[1] ?? tag.slice(0, 40));
     assert(bare.length === 0, `上下文带/工具行里的控件必须是 .kz-ctl(同一套 28px 盒子):${bare.join(", ")}`);
-    const trigger = flat.slice(flat.indexOf('id="autorun-more"'), flat.indexOf("</button>", flat.indexOf('id="autorun-more"')));
+    const trigger = footer.slice(footer.indexOf('id="autorun-more"'), footer.indexOf("</button>", footer.indexOf('id="autorun-more"')));
     assert(trigger.includes('id="auto-progress"') && trigger.includes('id="auto-phase"') && trigger.includes('id="auto-round-now"'), "鞭挞设置触发器里应含轮次(#auto-progress/#auto-round-now)与阶段(#auto-phase):状态即入口");
     assert(!/id="(?:hint|change-bar-branch)"|class="[^"]*\b(?:composer-actions|composer-secondary|seg-btn|seg-select|ctx-select)\b/.test(footer), "旧输入区结构(#hint、分段组、.ctx-select、改动条里的分支)不应再出现");
     const moreMenu = footer.slice(footer.indexOf('id="composer-more-menu"'));
@@ -16237,14 +16243,17 @@ const docsB = {
       editorNs.resetFilesDoc();
     }
 
-    // S15 关窗 / F5(UX-089):只在文件变脏时才挂 onCloseRequested(前端卡死、没有改动时关窗不经过前端);取消 → preventDefault,
+    // S15 关窗 / F5:编辑器启用前注册一次 onCloseRequested，干净时持续持有；取消 → preventDefault,
     // 保存 → 先保存再放行;beforeunload 只在有未保存修改时拦。
     {
       const closeHandlers = [];
+      let completeRegistration;
+      const registrationGate = new Promise(resolve => { completeRegistration = resolve; });
       const priorWindowApi = windowShim.__TAURI__.window;
       windowShim.__TAURI__.window = {
         getCurrentWindow: () => ({
           onCloseRequested: async (handler) => {
+            await registrationGate;
             closeHandlers.push(handler);
             return () => { const at = closeHandlers.indexOf(handler); if (at >= 0) closeHandlers.splice(at, 1); };
           },
@@ -16252,13 +16261,18 @@ const docsB = {
       };
       try {
         putDisk("src/lib.rs", "c0\n");
-        await open("src/lib.rs");
-        assert(closeHandlers.length === 0, "文件干净时不该挂关窗监听");
+        let opened = false;
+        const opening = open("src/lib.rs").then(value => { opened = true; return value; });
+        await flush();
+        assert(!opened && closeHandlers.length === 0, "文件打开必须等到关闭保护注册完成后才允许编辑");
+        completeRegistration();
+        await opening;
+        assert(closeHandlers.length === 1, "编辑器可用前应完成关窗监听注册");
         model().type("x");
         await flush();
         assert(closeHandlers.length === 1, "文件变脏后应挂 onCloseRequested");
         let prevented = false;
-        sandbox.confirmDialog = (options) => { assert(/关闭前/.test(options.message), `关窗确认的措辞应是「关闭前要保存吗」,实为 ${options.message}`); return Promise.resolve(false); };
+        sandbox.confirmDialog = (options) => { assert(/关闭前/.test(options.message), `关窗确认的措辞应是「关闭前要保存吗」,实为 ${options.message}`); assert(editorNs.filesEditor.options.readOnly, "关闭决定期间 Monaco 必须暂停编辑"); return Promise.resolve(false); };
         await closeHandlers[0]({ preventDefault() { prevented = true; } });
         assert(prevented && editorNs.isFilesDirty(), "关窗确认选取消应拦住关闭(preventDefault)且修改还在");
         sandbox.confirmDialog = () => Promise.resolve(true);
@@ -16266,11 +16280,12 @@ const docsB = {
         await closeHandlers[0]({ preventDefault() { prevented = true; } });
         assert(!prevented && disk.get("src/lib.rs").text === "c0\nx", "关窗确认选保存应先保存再放行");
         await flush();
-        assert(closeHandlers.length === 0, "保存之后文件干净了,关窗监听应摘掉");
+        assert(closeHandlers.length === 1, "保存之后持续持有关窗监听，下一次输入无需再次订阅");
         const unload = () => {
           const event = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };
-          // 别的模块(星座背景、语音)也挂了 beforeunload 清理,假 window 没有 removeEventListener:只触发文件页自己的那一个。
-          for (const fn of windowListeners.get("beforeunload") ?? []) if (String(fn).includes("persistDraftNow")) fn(event);
+          // Exercise the shared leave owner directly. Browser reload coverage
+          // separately verifies registration without matching callback source.
+          esmModuleCache.get("00-leave-guard.js").namespace.guardBeforeUnload(event);
           return event;
         };
         assert(!unload().prevented, "没有未保存修改时 F5 / 关页不该被拦");
@@ -16447,14 +16462,14 @@ const docsB = {
   };
   diagramNs.setDiagramEngine(stubEngine);
   // 假 DOM 没有 getComputedStyle:给一份 --diagram-* 的 hex 值,语义类才会追加(真值由 ui-diagram-smoke 在浏览器里查)。
-  const hadGcs = Object.prototype.hasOwnProperty.call(sandbox, "getComputedStyle");
-  const savedGcs = sandbox.getComputedStyle;
+  const hadGcs = Object.prototype.hasOwnProperty.call(productionSandbox, "getComputedStyle");
+  const savedGcs = productionSandbox.getComputedStyle;
   const DIAGRAM_TOKENS = {
     "--diagram-canvas": "#232323", "--diagram-cluster": "#181818", "--diagram-cluster-border": "#282828",
     "--diagram-node": "#2a2a2a", "--diagram-node-border": "#464646", "--diagram-text": "#ffffff",
     "--diagram-muted": "#9e9e9e", "--diagram-edge": "#9e9e9e", "--diagram-accent": "#d25e28", "--diagram-accent-soft": "#d25e2829",
   };
-  sandbox.getComputedStyle = () => ({ getPropertyValue: (name) => DIAGRAM_TOKENS[name] ?? "" });
+  productionSandbox.getComputedStyle = () => ({ getPropertyValue: (name) => DIAGRAM_TOKENS[name] ?? "" });
   const navCalls = [];
   const savedNav = { ...svNs.structuredNav };
   svNs.setStructuredNav({
@@ -16588,8 +16603,8 @@ const docsB = {
     assert(!bypass.length, `这些文件绕开了 renderMarkdownInto(图不会渲染):${bypass.join(", ")}`);
   } finally {
     svNs.setStructuredNav(savedNav);
-    if (hadGcs) sandbox.getComputedStyle = savedGcs;
-    else delete sandbox.getComputedStyle;
+    if (hadGcs) productionSandbox.getComputedStyle = savedGcs;
+    else delete productionSandbox.getComputedStyle;
   }
 }
 // ── 分区:架构图 结束 ──
@@ -16917,8 +16932,8 @@ const docsB = {
   {
     let releaseCapture = null;
     invokeGates.set("preview_capture", new Promise((resolveGate) => { releaseCapture = resolveGate; }));
-    const savedSetTimeout = sandbox.setTimeout;
-    sandbox.setTimeout = (fn, ms) => { const handle = { fn, ms: Number(ms) || 0 }; pendingTimers.add(handle); return handle; };
+    const savedSetTimeout = productionSandbox.setTimeout;
+    productionSandbox.setTimeout = (fn, ms) => { const handle = { fn, ms: Number(ms) || 0 }; pendingTimers.add(handle); return handle; };
     const advance = async (limit) => {
       for (let round = 0; round < 12; round += 1) {
         await settle();
@@ -16952,7 +16967,7 @@ const docsB = {
     } finally {
       offMenuRect();
       invokeGates.delete("preview_capture");
-      sandbox.setTimeout = savedSetTimeout;
+      productionSandbox.setTimeout = savedSetTimeout;
     }
     await flush();
     assert(lastCall("preview_set_visible")?.args?.visible === true && freeze.classList.contains("hidden"), "菜单关掉后应恢复原生面板");
@@ -17408,55 +17423,8 @@ if (issues.length) {
   for (const issue of issues) console.error(` - ${issue}`);
   process.exit(1);
 }
-// Keep streaming/cancellation regressions in the existing frontend runtime gate.
-await import("./ui-activity-state-smoke.mjs");
-// ── 分区:星座背景 ── 纯函数、构图、正文对比度与静态契约(失败时 import 本身 reject)。
-await import("./ui-constellation-smoke.mjs");
-await import("./ui-voice-smoke.mjs");
-await import("./ui-mobile-approval-smoke.mjs");
-await import("./ui-workbench-browser-smoke.mjs");
-await import("./ui-workbench-resource-owner-smoke.mjs");
-await import("./ui-session-navigation-owner-smoke.mjs");
-await import("./ui-session-stage-smoke.mjs");
-await import("./ui-general-chat-owner-smoke.mjs");
-await import("./ui-conversation-history-owner-smoke.mjs");
-await import("./ui-conversation-action-owner-smoke.mjs");
-await import("./ui-resource-contract-smoke.mjs");
-await import("./ui-structured-contract-smoke.mjs");
-await import("./ui-markdown-contract-smoke.mjs");
-await import("./ui-i18n-contract-smoke.mjs");
-await import("./ui-diagram-owner-smoke.mjs");
-await import("./ui-tool-summary-contract-smoke.mjs");
-await import("./ui-structured-render-contract-smoke.mjs");
-await import("./ui-delivery-contract-smoke.mjs");
-await import("./ui-side-policy-contract-smoke.mjs");
-await import("./ui-activity-contract-smoke.mjs");
-await import("./ui-experience-contract-smoke.mjs");
-await import("./ui-decision-console-smoke.mjs");
-// The retired overview's module lanes, reply feed and research space are no
-// longer product surfaces. Their layout/interaction coverage is replaced by
-// the production management, work selection, global memory and floating preview
-// suite. Keep the async owner and question contracts below independently.
-await import("./ui-familiar-workspace-smoke.mjs");
-await import("./ui-feedback-polish-smoke.mjs");
-await import("./ui-conversation-redesign-smoke.mjs");
-await import("./ui-skills-smoke.mjs");
-await import("./ui-softwire-ownership-smoke.mjs");
-await import("./ui-chat-question-smoke.mjs");
-await import("./ui-deleted-general-inbox-smoke.mjs");
-await import("./ui-softwire-choice-smoke.mjs");
-await import("./ui-reply-timer-browser-smoke.mjs");
-await import("./ui-project-conversations-smoke.mjs");
-await import("./ui-input-resources-smoke.mjs");
-await import("./ui-agent-team-smoke.mjs");
-await import("./ui-files-editor-smoke.mjs");
-await import("./ui-project-knowledge-smoke.mjs");
-await import("./ui-qa-defects-smoke.mjs");
+// Independent suites are registered in verification-checks.json.
 console.log(
   `UI 运行时冒烟通过:${sources.length} 个 ui/*.js 按序执行 + 初始化序列(${invokeLog.length} 次 invoke) + ` +
-  `需求/缺陷/目标/测试/历史列表渲染 + ${document.querySelectorAll(".activity-item[data-view]").length} 个主视图切换,0 运行时错误`
+  `需求/缺陷/目标/测试/历史列表渲染 + ${expectedViews.size} 个注册视图切换,0 运行时错误`
 );
-
-await import("./ui-harness-actions-smoke.mjs");
-await import("./ui-audit-first-regressions.mjs");
-await import("./ui-backlog-maintenance-smoke.mjs");

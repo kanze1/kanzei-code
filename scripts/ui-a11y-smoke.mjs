@@ -433,8 +433,10 @@ assert.match(js, /t\("实际差异"\)/);
 // 笔画粗细还由系统装了什么字体决定。style.css 里那条「整套图标必须是单色描边」的
 // 注释拦住了彩色 emoji,却没拦住「SVG 与字形混用」本身。这是产品第一眼看到的一列。
 {
-  const items = [...html.matchAll(/<button[^>]*class="activity-item[^"]*"[^>]*>([\s\S]*?)<\/button>/g)];
-  assert.ok(items.length >= 10, `活动栏入口只解析到 ${items.length} 个,判据定位失效`);
+  const buttons = [...html.matchAll(/<button\b[^>]*class="[^"]*\bactivity-item\b[^"]*"[^>]*>/g)];
+  const items = [...html.matchAll(/<button\b[^>]*class="[^"]*\bactivity-item\b[^"]*"[^>]*>([\s\S]*?)<\/button>/g)];
+  assert.ok(buttons.length > 0, "活动栏必须包含可访问入口");
+  assert.equal(items.length, buttons.length, "每个实际活动栏按钮必须有完整标签，不能按历史入口数量代替覆盖检查");
   const glyphs = items
     .map((match) => match[0])
     .filter((markup) => !markup.includes("<svg"))

@@ -1,9 +1,117 @@
-//! 串行工具执行的权限门禁。
+//! 工具执行共用的权限决策计划与串行询问门禁。
 //!
 //! 该模块只负责 ruleset、session 与用户 ASK 的决策，并回传 `Gate`；调用方继续
 //! 负责拒绝结果、停止收尾、工具执行、ToolEnd 事件和结果索引配对。
 
 use super::*;
+
+struct ResolvedPermission {
+    resource: String,
+    decision: &'static str,
+    source: &'static str,
+    rule: Option<String>,
+}
+
+pub(super) struct PermissionPlan {
+    action: &'static str,
+    resolved: Vec<ResolvedPermission>,
+    pub(super) pending_ask: Vec<String>,
+    pub(super) denied: Option<String>,
+}
+
+impl PermissionPlan {
+    pub(super) fn resolve_session(
+        &mut self,
+        approved: &std::collections::HashSet<(String, String)>,
+        rules: &[(String, String)],
+    ) {
+        self.pending_ask.retain(|resource| {
+            if let Some(source) = session_approval_source(self.action, resource, approved, rules) {
+                self.resolved.push(ResolvedPermission {
+                    resource: resource.clone(),
+                    decision: "allow",
+                    source,
+                    rule: None,
+                });
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    pub(super) fn emit_resolved(&self, id: &str, on_event: &mut (dyn FnMut(RunEvent) + Send)) {
+        for resolved in &self.resolved {
+            on_event(RunEvent::PermissionResolved {
+                tool_call_id: id.to_owned(),
+                action: self.action.to_owned(),
+                resource: resolved.resource.clone(),
+                decision: resolved.decision,
+                source: resolved.source,
+                rule: resolved.rule.clone(),
+            });
+        }
+    }
+}
+
+fn session_approval_source(
+    action: &str,
+    resource: &str,
+    approved: &std::collections::HashSet<(String, String)>,
+    rules: &[(String, String)],
+) -> Option<&'static str> {
+    if approved.contains(&(action.to_owned(), resource.to_owned())) {
+        Some("session_approved")
+    } else if rules.iter().any(|(known_action, pattern)| {
+        known_action == action
+            && kanzei_harness::permission::resource_match_for_action(action, pattern, resource)
+    }) {
+        Some("session_rule")
+    } else {
+        None
+    }
+}
+
+/// Resolve immutable rules once. Serial execution handles pending user asks;
+/// parallel execution consumes this exact plan only when no ask remains.
+pub(super) fn permission_plan(
+    snapshot: &HarnessSnapshot,
+    tool: &dyn Tool,
+    input: &serde_json::Value,
+    ctx: &ToolCtx,
+) -> PermissionPlan {
+    let action = tool.action();
+    let mut plan = PermissionPlan {
+        action,
+        resolved: Vec::new(),
+        pending_ask: Vec::new(),
+        denied: None,
+    };
+    for resource in tool.resources_with_ctx(input, ctx) {
+        // Paths normalize traversal; bash resources remain literal shell text.
+        // Both dispatch paths must use this same action-aware boundary (D-269).
+        let resource = kanzei_harness::permission::normalize_resource_for_action(action, &resource);
+        let (effect, rule) = snapshot.evaluate_with_rule(action, &resource);
+        match effect {
+            Effect::Ask => plan.pending_ask.push(resource),
+            Effect::Allow | Effect::Deny => {
+                let denied = effect == Effect::Deny;
+                plan.resolved.push(ResolvedPermission {
+                    resource: resource.clone(),
+                    decision: if denied { "deny" } else { "allow" },
+                    source: "ruleset",
+                    rule: rule.map(super::describe_rule),
+                });
+                if denied {
+                    plan.denied = Some(resource);
+                    plan.pending_ask.clear();
+                    break;
+                }
+            }
+        }
+    }
+    plan
+}
 
 pub(super) struct PermissionGateRequest<'a> {
     pub(super) config: &'a RunnerConfig,
@@ -20,44 +128,11 @@ pub(super) struct PermissionGateRequest<'a> {
 
 pub(super) async fn resolve_permission_gate(state: &mut PermissionGateRequest<'_>) -> Gate {
     let action = state.tool.action();
-    let mut gate_result = Gate::Pass;
-    let mut pending_ask: Vec<String> = Vec::new();
-    for resource in state.tool.resources_with_ctx(state.input, state.ctx) {
-        // 路径类资源:统一正斜杠 + 消解 . / ..,权限 pattern 不用关心平台,也不能
-        // 被路径变体绕过:`.kanzei/research/../../src/main.rs` 会被
-        // `*.kanzei/research/*` 判为放行,而落盘时 join 会消解 ..,实际写到项目
-        // 任意位置(D-050)。
-        // bash 资源是 shell 文本,同一套规范化在它身上是提权通道(D-269):
-        // `..` 会把前一段整段弹掉,注入语句藏在被弹掉的那一段里。这里落到
-        // session_rules 的 pattern 也是本函数的产物——bash 走原样,注入段里的
-        // `*` 才能活到 pattern 成形,D-051 的串联降级才不会被绕开。
-        let normalized =
-            kanzei_harness::permission::normalize_resource_for_action(action, &resource);
-        // R-183:ruleset 判定带命中的规则原文(验收④轨迹)。
-        let mut resolved = |decision, source, rule: Option<String>| {
-            (state.on_event)(RunEvent::PermissionResolved {
-                tool_call_id: state.id.to_owned(),
-                action: action.to_string(),
-                resource: normalized.clone(),
-                decision,
-                source,
-                rule,
-            });
-        };
-        match state.snapshot.evaluate_with_rule(action, &normalized) {
-            (Effect::Deny, rule) => {
-                resolved("deny", "ruleset", rule.map(super::describe_rule));
-                gate_result = Gate::Deny(normalized);
-                break;
-            }
-            (Effect::Ask, _) => pending_ask.push(normalized),
-            (Effect::Allow, rule) => {
-                resolved("allow", "ruleset", rule.map(super::describe_rule));
-            }
-        }
-    }
+    let plan = permission_plan(state.snapshot, state.tool, state.input, state.ctx);
+    plan.emit_resolved(state.id, state.on_event);
+    let mut gate_result = plan.denied.map_or(Gate::Pass, Gate::Deny);
     if matches!(gate_result, Gate::Pass) {
-        for resource in pending_ask {
+        for resource in plan.pending_ask {
             let key = (action.to_string(), resource.clone());
             let mut resolved = |decision, source| {
                 (state.on_event)(RunEvent::PermissionResolved {
@@ -70,15 +145,13 @@ pub(super) async fn resolve_permission_gate(state: &mut PermissionGateRequest<'_
                     rule: None,
                 });
             };
-            if state.session_approved.contains(&key) {
-                resolved("allow", "session_approved");
-                continue;
-            }
-            if state.session_rules.iter().any(|(a, pattern)| {
-                a == action
-                    && kanzei_harness::permission::resource_match_for_action(a, pattern, &resource)
-            }) {
-                resolved("allow", "session_rule");
+            if let Some(source) = session_approval_source(
+                action,
+                &resource,
+                state.session_approved,
+                state.session_rules,
+            ) {
+                resolved("allow", source);
                 continue;
             }
             match state.config.ask_policy {

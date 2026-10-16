@@ -160,7 +160,7 @@ async fn 真bash围栏窗口内并发cli登记不被误回滚() {
     };
     // 桌面自举轮形态:bash 命令(1.5s)在跑,围栏持有托管文档写锁。
     let bash = tokio::spawn(async move {
-        kanzei_tools::bash::BashTool
+        kanzei_tools::bash::BashTool::default()
             .execute(
                 serde_json::json!({ "command": "Start-Sleep -Milliseconds 1500" }),
                 &ctx,

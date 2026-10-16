@@ -31,6 +31,7 @@ impl InputInbox {
 pub struct AsyncMailbox {
     deliver: Arc<dyn Fn(AsyncNotice) -> Result<(), String> + Send + Sync>,
     closed: tokio::sync::watch::Sender<bool>,
+    background_requests: tokio::sync::watch::Sender<u64>,
 }
 
 impl fmt::Debug for AsyncMailbox {
@@ -46,9 +47,11 @@ impl AsyncMailbox {
         deliver: impl Fn(AsyncNotice) -> Result<(), String> + Send + Sync + 'static,
     ) -> Self {
         let (closed, _) = tokio::sync::watch::channel(false);
+        let (background_requests, _) = tokio::sync::watch::channel(0);
         Self {
             deliver: Arc::new(deliver),
             closed,
+            background_requests,
         }
     }
     pub fn publish(&self, notice: AsyncNotice) -> Result<(), String> {
@@ -63,8 +66,36 @@ impl AsyncMailbox {
     pub fn close(&self) {
         self.closed.send_replace(true);
     }
+    /// An admitted steering input releases an eligible foreground shell without
+    /// cancelling it. Subscribe before starting the command: old requests must
+    /// never background a command started for a later input.
+    pub fn background_requests(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.background_requests.subscribe()
+    }
+    pub fn request_background(&self) {
+        self.background_requests
+            .send_modify(|sequence| *sequence += 1);
+    }
     pub async fn cancelled(&self) {
         let mut rx = self.closed.subscribe();
         let _ = rx.wait_for(|closed| *closed).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn background_requests_wake_current_commands_without_replaying_old_input() {
+        let mailbox = AsyncMailbox::new(|_| Ok(()));
+        let mut current = mailbox.background_requests();
+        mailbox.request_background();
+        current.changed().await.unwrap();
+        let later = mailbox.background_requests();
+        assert!(!later.has_changed().unwrap());
+        mailbox.request_background();
+        assert!(later.has_changed().unwrap());
+        assert!(current.has_changed().unwrap());
     }
 }

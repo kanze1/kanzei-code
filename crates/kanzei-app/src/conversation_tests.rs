@@ -665,7 +665,8 @@ fn conversation_list_projected_segments_by_reset_boundary() {
 
     std::env::set_var("KANZEI_PROJECTION_GATES", "conversation_list");
     let segments =
-        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+        crate::conversation::conversation_list(canonical.display().to_string(), None, None, None)
+            .unwrap();
     std::env::remove_var("KANZEI_PROJECTION_GATES");
     assert_eq!(segments.len(), 2, "reset 划分两段,旧段可审计");
     let titles: Vec<String> = segments
@@ -673,6 +674,64 @@ fn conversation_list_projected_segments_by_reset_boundary() {
         .filter_map(|s| s["title"].as_str().map(String::from))
         .collect();
     assert_eq!(titles, vec!["第一段问题", "第二段问题"]);
+
+    let newest = crate::conversation::conversation_list(
+        canonical.display().to_string(),
+        None,
+        None,
+        Some(1),
+    )
+    .unwrap();
+    assert_eq!(newest, vec![segments[1].clone()]);
+    let older = crate::conversation::conversation_list(
+        canonical.display().to_string(),
+        None,
+        newest[0]["sequence"].as_i64(),
+        Some(1),
+    )
+    .unwrap();
+    assert_eq!(older, vec![segments[0].clone()]);
+    let exhausted = crate::conversation::conversation_list(
+        canonical.display().to_string(),
+        None,
+        older[0]["sequence"].as_i64(),
+        Some(1),
+    )
+    .unwrap();
+    assert!(
+        exhausted.is_empty(),
+        "exclusive cursor must not repeat the first segment"
+    );
+    let page =
+        crate::conversation::conversation_page(canonical.display().to_string(), None, None, 1)
+            .unwrap();
+    assert_eq!(page.items, newest);
+    assert!(page.has_more);
+    let encoded = serde_json::to_value(&page).unwrap();
+    crate::ipc_contract::tests::check_contract(
+        "conversation_page",
+        crate::ipc_contract::shape(&encoded),
+        "非空且还有下一页的 conversation_page 返回形状变了",
+    );
+    assert_eq!(encoded["hasMore"], true);
+    assert_eq!(encoded["nextBeforeSequence"], newest[0]["sequence"]);
+    let last = crate::conversation::conversation_page(
+        canonical.display().to_string(),
+        None,
+        page.next_before_sequence,
+        1,
+    )
+    .unwrap();
+    assert_eq!(last.items, older);
+    assert!(!last.has_more);
+    assert!(last.next_before_sequence.is_none());
+    let all =
+        crate::conversation::conversation_list(canonical.display().to_string(), None, None, None)
+            .unwrap();
+    assert_eq!(
+        all, segments,
+        "paging cannot replace full identity enumeration"
+    );
 
     // 投影列表返回的是 typed fact 段末序号,打开时必须能回放该段而不是按
     // conversation.updated 精确序号读出空数组。
@@ -829,7 +888,8 @@ fn check_projected_segment_deletion(rewound: bool) {
     drop(store);
 
     let before =
-        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+        crate::conversation::conversation_list(canonical.display().to_string(), None, None, None)
+            .unwrap();
     assert_eq!(before.len(), 2, "reset 划分两段");
     // 新段最后 typed fact 的 sequence(UI 勾选传的就是它)。
     let new_segment_seq = before[1]["sequence"].as_i64().expect("新段应有 sequence");
@@ -854,7 +914,8 @@ fn check_projected_segment_deletion(rewound: bool) {
     );
 
     let after =
-        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+        crate::conversation::conversation_list(canonical.display().to_string(), None, None, None)
+            .unwrap();
     assert_eq!(after.len(), 1, "删除后只剩旧段");
     assert_eq!(after[0]["title"], "第一段问题");
     if let Some(sequence) = rewind_sequence {
@@ -947,7 +1008,8 @@ fn conversation_delete_also_removes_trailing_round_snapshot() {
     drop(store);
 
     let before =
-        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+        crate::conversation::conversation_list(canonical.display().to_string(), None, None, None)
+            .unwrap();
     assert_eq!(before.len(), 1, "只有一段");
     let seq = before[0]["sequence"].as_i64().expect("段应有 sequence");
 
@@ -961,7 +1023,8 @@ fn conversation_delete_also_removes_trailing_round_snapshot() {
 
     // ①一次删除就要干净:不能因为幸存快照回退 legacy 又列出一条。
     let after =
-        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+        crate::conversation::conversation_list(canonical.display().to_string(), None, None, None)
+            .unwrap();
     assert!(
         after.is_empty(),
         "一次删除后不得再列出任何历史对话(幸存的轮末快照会让用户被迫删第二次),实得 {after:?}"
@@ -1166,7 +1229,8 @@ fn 删除当前段清空内存缓存() {
         .or_default()
         .state
         .rounds = 3;
-    let listed = crate::conversation::conversation_list(project_dir.clone(), None).unwrap();
+    let listed =
+        crate::conversation::conversation_list(project_dir.clone(), None, None, None).unwrap();
     assert_eq!(listed.len(), 3, "两次 reset 划出三段");
     let seq = |index: usize| listed[index]["sequence"].as_i64().unwrap();
 
@@ -1205,7 +1269,7 @@ fn 删除当前段清空内存缓存() {
         0,
         "删当前段应与新对话一样复位鞭挞计数"
     );
-    let after = crate::conversation::conversation_list(project_dir, None).unwrap();
+    let after = crate::conversation::conversation_list(project_dir, None, None, None).unwrap();
     assert_eq!(after.len(), 1, "只剩中间那段");
     assert_eq!(after[0]["title"], "第二段问题");
     std::fs::remove_dir_all(root).ok();
@@ -1273,7 +1337,8 @@ fn 删除含压缩与轨迹的当前段后不复活() {
         "前置:删除前当前段有 prior"
     );
     drop(store);
-    let listed = crate::conversation::conversation_list(project_dir.clone(), None).unwrap();
+    let listed =
+        crate::conversation::conversation_list(project_dir.clone(), None, None, None).unwrap();
     assert_eq!(listed.len(), 2);
     let current_seq = listed[1]["sequence"].as_i64().unwrap();
 
@@ -1345,7 +1410,8 @@ fn legacy快照删除一次删净且不重新播种() {
         snapshot(&store, &["B 对话"]);
         snapshot(&store, &["B 对话", "B 回答"]);
     }
-    let listed = crate::conversation::conversation_list(project_dir.clone(), None).unwrap();
+    let listed =
+        crate::conversation::conversation_list(project_dir.clone(), None, None, None).unwrap();
     assert_eq!(listed.len(), 1, "legacy 清单每段只列最新快照");
     assert_eq!(listed[0]["title"], "B 对话");
     assert_eq!(listed[0]["message_count"], 2);
@@ -1360,7 +1426,7 @@ fn legacy快照删除一次删净且不重新播种() {
     assert_eq!(outcome.deleted, 2, "B 对话的两份快照一次删净");
     assert!(outcome.cleared_current);
 
-    let after = crate::conversation::conversation_list(project_dir, None).unwrap();
+    let after = crate::conversation::conversation_list(project_dir, None, None, None).unwrap();
     assert_eq!(after.len(), 1);
     assert_eq!(
         after[0]["title"], "A 对话",
@@ -1410,7 +1476,8 @@ fn 运行中拒绝删除历史对话() {
             .len()
     };
     let before = event_count();
-    let listed = crate::conversation::conversation_list(project_dir.clone(), None).unwrap();
+    let listed =
+        crate::conversation::conversation_list(project_dir.clone(), None, None, None).unwrap();
     let seq = listed[0]["sequence"].as_i64().unwrap();
     let state = AppState::default();
     let running = crate::runtime_for(&state, &session_id).running.clone();

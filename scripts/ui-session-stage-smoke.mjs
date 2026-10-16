@@ -10,7 +10,7 @@ import vm from 'node:vm';
 const root = resolve(import.meta.dirname, '..');
 const baseline = '26acb7f0ce2d9643826cc9229f430f84e57c13f0';
 const before = process.argv.includes('--before');
-const names = ['03-session-stage.js', '12-conversation-model.js', '01-core.js', '03-shell.js'];
+const names = ['03-session-stage.js', '12-conversation-model.js', '01-core.js', '03-shell.js', ...(!before ? ['00-ipc.js', '00-views.js', '00-session-state.js', '00-dom.js', '00-event-subscriptions.js', '00-console.js', '00-ui-primitives.js', '00-dialogs.js', '00-ui-preferences.js', '01-chat-panes.js', '01-runtime-events.js'] : [])];
 const sources = new Map(names.map(name => [name, before
   ? execFileSync('git', ['show', `${baseline}:crates/kanzei-app/ui/${name}`], { cwd: root, encoding: 'utf8' })
   : readFileSync(resolve(root, 'crates/kanzei-app/ui', name), 'utf8').replace(/\r\n/g, '\n')]));
@@ -114,6 +114,7 @@ async function harness() {
   const core = modules.get('./01-core.js').namespace, shell = modules.get('./03-shell.js').namespace;
   shell.setCurrentProject('C:/fixture-project'); shell.setActiveSessionId('A');
   for (const event of ['turn', 'tool-start', 'tool-progress', 'tool-end', 'status', 'permission-resolved', 'done', 'idle', 'stopped', 'error', 'text']) core.on(`kz:${event}`, envelope => handled.push({ event, sessionId: envelope.payload.sessionId }));
+  if (!before) await modules.get('./00-event-subscriptions.js').namespace.runtimeEventsReady();
   while (timers.length) timers.shift()();
   return { core, shell, handled, emit: (event, sessionId, payload = {}) => { const listener = listeners.get(`kz:${event}`); assert.ok(listener, `registered ${event}`); listener({ payload: { ...payload, sessionId } }); }, state: sid => shell.sessionState(sid) };
 }
@@ -155,6 +156,19 @@ await check('core nonterminal error retains active tools; terminal error closes 
 await check('core new turn discards prior unresolved tools before the new serial batch', 'PASS', async () => {
   const h = await harness(); h.emit('turn', 'A', { step: 1 }); h.emit('tool-start', 'A', { id: 'old', name: 'bash' }); h.emit('done', 'A'); h.shell.transitionSession('A', 'auto_pending'); h.emit('turn', 'A', { step: 2 }); h.emit('tool-start', 'A', { id: 'new', name: 'read_file' }); h.emit('tool-end', 'A', { id: 'new', name: 'read_file' });
   assert.equal(h.state('A').stage, '等待模型'); assert.equal(h.state('A').converged, false); assert.equal(toolCount(h.state('A')), 0); return { stage: h.state('A').stage, phase: h.state('A').phase };
+});
+if (!before) await check('incomplete round survives idle and next turn resets its result for every session', 'FAIL', async () => {
+  const h = await harness();
+  for (const sid of ['A', 'B']) {
+    h.emit('turn', sid, { step: 1 }); h.emit('done', sid, { outcome: 'incomplete', incompleteReason: 'token budget' });
+    assert.equal(h.state(sid).phase, 'running', 'done only ends a round');
+    h.emit('idle', sid, { reason: 'completed' });
+    assert.equal(h.state(sid).phase, 'failed'); assert.equal(h.state(sid).roundResult.reason, 'token budget');
+    h.emit('turn', sid, { step: 1 }); assert.equal(h.state(sid).roundResult, null);
+    h.emit('done', sid, { outcome: 'completed' }); h.emit('idle', sid, { reason: 'completed' });
+    assert.equal(h.state(sid).phase, 'idle');
+  }
+  return { foreground: h.state('A').phase, background: h.state('B').phase };
 });
 
 await check('conversation records match active/closed capability and numeric millisecond contracts', 'PASS', () => {

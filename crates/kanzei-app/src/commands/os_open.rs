@@ -3,6 +3,7 @@
 //! `open_tools_save`)。
 //!
 //! 目标目录:带工作树的独立任务 → 其工作树;其余(主对话、讨论)→ 项目根。
+//! 可选文件路径以该目录为根解析;绝对文件只允许当前项目或该会话的工作树。
 //!
 //! Windows 细节(纯逻辑部分都有单测钉住,测试不启动任何外部进程):
 //! - `explorer.exe` 成功时退出码也可能非 0 → 只 spawn、不等待,**只在启动失败时报错**。
@@ -353,25 +354,70 @@ fn spawn(plan: &LaunchPlan) -> Result<(), String> {
         .map_err(|error| format!("启动失败: {error}"))
 }
 
-fn spawn_explorer(path: &str) -> Result<(), String> {
+fn explorer_plan(target: &OpenTarget) -> Result<LaunchPlan, String> {
     #[cfg(windows)]
-    let program = "explorer";
+    let (program, args) = (
+        "explorer",
+        match target {
+            OpenTarget::File(path) => vec!["/select,".into(), external_path(path)],
+            OpenTarget::Directory(path) => vec![external_path(path)],
+        },
+    );
     #[cfg(target_os = "macos")]
-    let program = "open";
+    let (program, args) = (
+        "open",
+        match target {
+            OpenTarget::File(path) => vec!["-R".into(), external_path(path)],
+            OpenTarget::Directory(path) => vec![external_path(path)],
+        },
+    );
     #[cfg(all(not(windows), not(target_os = "macos")))]
-    let program = "xdg-open";
-    // explorer 成功时退出码也可能非 0:只看能不能起来,不等不看退出码。
-    Command::new(program)
-        .arg(path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("无法打开资源管理器: {error}"))
+    let (program, args) = ("xdg-open", vec![external_path(target.directory()?)]);
+    Ok(LaunchPlan::Direct {
+        program: PathBuf::from(program),
+        args,
+        new_console: false,
+    })
 }
 
-// ---------- 目标目录 ----------
+// ---------- 目标目录与文件 ----------
+
+#[derive(Debug, PartialEq, Eq)]
+enum OpenTarget {
+    Directory(PathBuf),
+    File(PathBuf),
+}
+
+impl OpenTarget {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Directory(path) | Self::File(path) => path,
+        }
+    }
+
+    fn directory(&self) -> Result<&Path, String> {
+        match self {
+            Self::Directory(path) => Ok(path),
+            Self::File(path) => path
+                .parent()
+                .ok_or_else(|| format!("文件没有可打开的父目录: {}", path.display())),
+        }
+    }
+}
+
+/// 终端进入目录,编辑器和自配工具收到所选文件本身;绝不运行文件的默认程序。
+fn plan_for_target(
+    tool_id: &str,
+    target: &OpenTarget,
+    custom: &[OpenToolConfig],
+    locator: &Locator,
+) -> Result<LaunchPlan, String> {
+    let path = match tool_id {
+        "wt" | "powershell" | "git-bash" => target.directory()?,
+        _ => target.path(),
+    };
+    plan_for_tool(tool_id, &external_path(path), custom, locator)
+}
 
 /// 并行线开工作树,其余开项目根。
 pub(crate) fn pick_target(root: &Path, worktree: Option<&Path>) -> PathBuf {
@@ -400,6 +446,9 @@ fn process_worktree(
     process_id: &str,
 ) -> Result<Option<PathBuf>, String> {
     if let Some(process) = state.processes.lock_or_recover().get(process_id) {
+        if normalized_project_root(&process.origin_project.0) != root {
+            return Err("这个对话不属于所选项目".into());
+        }
         return Ok(process.worktree_path.as_ref().map(|path| path.0.clone()));
     }
     let state_path = kanzei_core::project_state_path(root);
@@ -408,7 +457,12 @@ fn process_worktree(
         .then(|| kanzei_core::SessionStore::open_read_only(&state_path).ok())
         .flatten();
     match store.and_then(|store| store.get_process(process_id).ok().flatten()) {
-        Some(record) => Ok(record.worktree_path.map(PathBuf::from)),
+        Some(record) => {
+            if normalized_project_root(Path::new(&record.origin_project)) != root {
+                return Err("这个对话不属于所选项目".into());
+            }
+            Ok(record.worktree_path.map(PathBuf::from))
+        }
         None => Err("找不到这个对话(它可能已被删除)".into()),
     }
 }
@@ -428,6 +482,61 @@ pub(crate) fn resolve_target(
         return Err(missing_dir_message(&target, worktree.is_some()));
     }
     Ok(target)
+}
+
+/// 文件页已有的词法与真实路径边界同样约束外部打开。绝对文件先确定所属根,
+/// 再交给同一个 resolver;相对文件只从会话目录解析,不会悄悄回退主项目同名文件。
+fn resolve_file_target(root: &Path, session_root: &Path, path: &str) -> Result<PathBuf, String> {
+    let input = Path::new(path);
+    let resolved = if input.is_absolute() {
+        let absolute = input
+            .canonicalize()
+            .map_err(|error| format!("文件路径不可访问: {path}: {error}"))?;
+        let roots = [root, session_root]
+            .into_iter()
+            .map(|root| {
+                root.canonicalize()
+                    .map_err(|error| format!("文件根目录不可访问: {}: {error}", root.display()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (owner, relative) = roots
+            .iter()
+            .find_map(|root| {
+                absolute
+                    .strip_prefix(root)
+                    .ok()
+                    .map(|relative| (root, relative))
+            })
+            .ok_or_else(|| format!("文件不在当前项目或该会话的工作树内: {path}"))?;
+        crate::files_edit::resolve_in_root(owner, &relative.to_string_lossy())?
+    } else {
+        crate::files_edit::resolve_in_root(session_root, path)?
+    };
+    if !resolved.exists {
+        return Err(format!("文件不存在: {}", resolved.abs.display()));
+    }
+    if !resolved.abs.is_file() {
+        return Err(format!("不是文件: {}", resolved.abs.display()));
+    }
+    Ok(resolved.abs)
+}
+
+fn resolve_open_target(
+    state: &AppState,
+    project_dir: &str,
+    process_id: Option<&str>,
+    path: Option<&str>,
+) -> Result<OpenTarget, String> {
+    let session_root = resolve_target(state, project_dir, process_id)?;
+    match path {
+        Some(path) => resolve_file_target(
+            &normalized_project_root(Path::new(project_dir)),
+            &session_root,
+            path,
+        )
+        .map(OpenTarget::File),
+        None => Ok(OpenTarget::Directory(session_root)),
+    }
 }
 
 // ---------- 自配工具 ----------
@@ -520,15 +629,16 @@ pub(crate) fn tool_entries(custom: &[OpenToolConfig], locator: &Locator) -> Vec<
 
 // ---------- Tauri 命令 ----------
 
-/// 在资源管理器中打开该会话的位置:独立任务 → 其工作树,其余 → 项目根。
+/// 在资源管理器中打开会话目录;传入 path 时定位并选中该文件。
 #[tauri::command(async)]
 pub fn reveal_path(
     state: tauri::State<'_, AppState>,
     project_dir: String,
     process_id: Option<String>,
+    path: Option<String>,
 ) -> Result<(), String> {
-    let target = resolve_target(&state, &project_dir, process_id.as_deref())?;
-    spawn_explorer(&external_path(&target))
+    let target = resolve_open_target(&state, &project_dir, process_id.as_deref(), path.as_deref())?;
+    spawn(&explorer_plan(&target)?)
 }
 
 #[tauri::command(async)]
@@ -536,18 +646,19 @@ pub fn open_tools_list() -> Result<Vec<Value>, String> {
     Ok(tool_entries(&load_prefs().open_tools, &Locator::system()))
 }
 
-/// 用指定工具打开该会话的位置(目标同 [`reveal_path`])。
+/// 用指定工具打开会话目录或文件(目标同 [`reveal_path`])。
 #[tauri::command(async)]
 pub fn open_with(
     state: tauri::State<'_, AppState>,
     tool_id: String,
     project_dir: String,
     process_id: Option<String>,
+    path: Option<String>,
 ) -> Result<(), String> {
-    let target = resolve_target(&state, &project_dir, process_id.as_deref())?;
-    let plan = plan_for_tool(
+    let target = resolve_open_target(&state, &project_dir, process_id.as_deref(), path.as_deref())?;
+    let plan = plan_for_target(
         &tool_id,
-        &external_path(&target),
+        &target,
         &load_prefs().open_tools,
         &Locator::system(),
     )?;
@@ -994,6 +1105,40 @@ mod tests {
             resolve_target(&state, &project, Some(id.as_str())).unwrap(),
             worktree
         );
+        touch(&root.join("report.md"));
+        touch(&worktree.join("report.md"));
+        assert_eq!(
+            resolve_open_target(&state, &project, Some(id.as_str()), None).unwrap(),
+            OpenTarget::Directory(worktree.clone()),
+            "省略文件仍保持会话目录行为"
+        );
+        assert_eq!(
+            resolve_open_target(&state, &project, Some(id.as_str()), Some("report.md")).unwrap(),
+            OpenTarget::File(worktree.join("report.md").canonicalize().unwrap()),
+            "相对文件从当前会话工作树解析"
+        );
+        let project_file = root.join("report.md");
+        assert_eq!(
+            resolve_open_target(
+                &state,
+                &project,
+                Some(id.as_str()),
+                Some(&project_file.display().to_string()),
+            )
+            .unwrap(),
+            OpenTarget::File(project_file.canonicalize().unwrap()),
+            "工作树会话也可明确打开主项目内的绝对文件"
+        );
+        let other_project = temp_dir("different-project");
+        let error = resolve_open_target(
+            &state,
+            &other_project.display().to_string(),
+            Some(id.as_str()),
+            Some("report.md"),
+        )
+        .unwrap_err();
+        assert!(error.contains("不属于所选项目"), "{error}");
+        std::fs::remove_dir_all(&other_project).unwrap();
         // 不带工作树的会话(讨论)开项目根。
         state
             .processes
@@ -1018,5 +1163,143 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
         let error = resolve_target(&state, &project, None).unwrap_err();
         assert!(error.contains("项目目录不存在"), "{error}");
+    }
+
+    #[test]
+    fn file_targets_share_file_boundary_and_require_existing_files() {
+        let base = temp_dir("file-targets");
+        let project = base.join("project");
+        let worktree = base.join("worktree");
+        let relative = "docs/审查 report (v1).md";
+        touch(&project.join(relative));
+        touch(&worktree.join(relative));
+        touch(&base.join("outside.md"));
+        assert_eq!(
+            resolve_file_target(&project, &worktree, relative).unwrap(),
+            worktree.join(relative).canonicalize().unwrap()
+        );
+        for file in [project.join(relative), worktree.join(relative)] {
+            assert_eq!(
+                resolve_file_target(&project, &worktree, &file.display().to_string()).unwrap(),
+                file.canonicalize().unwrap()
+            );
+        }
+        for path in [
+            "",
+            "../project/docs/report.md",
+            "docs/missing.md",
+            "docs",
+            "docs/a\nb.md",
+        ] {
+            assert!(
+                resolve_file_target(&project, &worktree, path).is_err(),
+                "{path:?}"
+            );
+        }
+        assert!(resolve_file_target(
+            &project,
+            &worktree,
+            &base.join("outside.md").display().to_string(),
+        )
+        .unwrap_err()
+        .contains("不在当前项目"));
+        assert!(
+            resolve_file_target(
+                &project,
+                &project,
+                &worktree.join(relative).display().to_string(),
+            )
+            .is_err(),
+            "没有关联的工作树不获得文件访问权"
+        );
+        #[cfg(windows)]
+        for path in ["docs/report.md:stream", "docs/NUL", "docs/trailing. "] {
+            assert!(
+                resolve_file_target(&project, &worktree, path).is_err(),
+                "{path}"
+            );
+        }
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn file_launch_plans_send_file_to_editors_and_parent_to_terminals() {
+        let base = temp_dir("file-plans");
+        let bin = base.join("bin");
+        for exe in ["code.exe", "wt.exe", "powershell.exe", "git.exe", "zed.exe"] {
+            touch(&bin.join(exe));
+        }
+        touch(&base.join("git-bash.exe"));
+        let file = base.join("project/docs/审查 report (v1).md");
+        touch(&file);
+        let target = OpenTarget::File(file.canonicalize().unwrap());
+        let file_arg = external_path(target.path());
+        let directory_arg = external_path(target.directory().unwrap());
+        let found = locator(&[bin.as_path()]);
+        assert_eq!(
+            plan_for_target("vscode", &target, &[], &found).unwrap(),
+            LaunchPlan::Direct {
+                program: bin.join("code.exe"),
+                args: vec![file_arg.clone()],
+                new_console: false,
+            }
+        );
+        let custom = [tool("zed", "Zed", "zed", &["--new", "{path}"])];
+        assert_eq!(
+            plan_for_target("zed", &target, &custom, &found).unwrap(),
+            LaunchPlan::Direct {
+                program: bin.join("zed.exe"),
+                args: vec!["--new".into(), file_arg],
+                new_console: false,
+            }
+        );
+        for id in ["wt", "powershell", "git-bash"] {
+            assert_eq!(
+                plan_for_target(id, &target, &[], &found).unwrap(),
+                plan_for_tool(id, &directory_arg, &[], &found).unwrap(),
+                "{id} 必须进入文件父目录"
+            );
+        }
+        assert_eq!(
+            plan_for_target("vscode", &OpenTarget::Directory(base.clone()), &[], &found).unwrap(),
+            plan_for_tool("vscode", &external_path(&base), &[], &found).unwrap(),
+            "既有目录打开行为不变"
+        );
+        assert!(plan_for_target("missing", &target, &[], &found).is_err());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn reveal_file_plan_selects_file_without_starting_default_application() {
+        let base = temp_dir("reveal-file");
+        let file = base.join("报告 (final).md");
+        touch(&file);
+        let target = OpenTarget::File(file.canonicalize().unwrap());
+        #[cfg(windows)]
+        let (program, args) = (
+            "explorer",
+            vec!["/select,".into(), external_path(target.path())],
+        );
+        #[cfg(target_os = "macos")]
+        let (program, args) = ("open", vec!["-R".into(), external_path(target.path())]);
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let (program, args) = ("xdg-open", vec![external_path(target.directory().unwrap())]);
+        assert_eq!(
+            explorer_plan(&target).unwrap(),
+            LaunchPlan::Direct {
+                program: PathBuf::from(program),
+                args,
+                new_console: false
+            }
+        );
+        assert_eq!(
+            explorer_plan(&OpenTarget::Directory(base.clone())).unwrap(),
+            LaunchPlan::Direct {
+                program: PathBuf::from(program),
+                args: vec![external_path(&base)],
+                new_console: false,
+            }
+        );
+        std::fs::remove_dir_all(base).unwrap();
     }
 }

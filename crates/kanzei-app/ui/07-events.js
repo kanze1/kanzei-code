@@ -1,6 +1,35 @@
 import { closeSurface, hideCard, isModalOpen, onEscapeFallthrough, openPopover, showCard } from "./00-surface.js";
-import { defer } from "./01-core.js";
-import { motionOnce } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { eventSubscriptionState, onEventSubscriptionChange, restoreEventSubscriptions } from "./00-event-subscriptions.js";
+import { motionOnce } from "./00-ui-primitives.js";
+import { sessionState, onSessionStateChange } from "./00-session-state.js";
+import { confirmSessionRuntime } from "./03-session-runtime.js";
+
+defer(() => {
+  const banner = document.createElement("section"); banner.id = "runtime-connection-state"; banner.setAttribute("role", "alert");
+  const message = document.createElement("span"), retry = document.createElement("button"); retry.type = "button"; retry.className = "ghost mini";
+  banner.append(message, retry); $("statusbar").before(banner);
+  const paint = () => {
+    const failures = eventSubscriptionState.failed;
+    const uncertain = processItems.filter(item => sessionState(item.session_id).phase === "unconfirmed");
+    banner.hidden = failures.length === 0 && uncertain.length === 0;
+    message.textContent = failures.length ? `${t("事件订阅失败")}: ${failures.map(item => `${item.event}: ${item.error}`).join("; ")}`
+      : `${t("运行状态未确认")}: ${uncertain.map(item => sessionState(item.session_id).detail).join("; ")}`;
+    retry.textContent = t("恢复运行事件"); retry.disabled = eventSubscriptionState.pending.length > 0;
+  };
+  retry.addEventListener("click", async () => {
+    retry.disabled = true;
+    try {
+      if (!await restoreEventSubscriptions()) return;
+      const project = currentProject;
+      await Promise.all(processItems.map(item => confirmSessionRuntime(item.session_id, item.origin_project || project, item.id)));
+      await refreshProcesses();
+    } finally { paint(); }
+  });
+  onEventSubscriptionChange(paint);
+  onSessionStateChange(sessionId => { refreshParallelTaskProjection(sessionId); paint(); });
+  document.addEventListener("kz:language", paint); paint();
+});
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setTurnPhase, turnPhase } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
@@ -11,7 +40,11 @@ import { showRunMeta } from "./03-shell.js";
 import { effectiveModel, refreshEffectiveModel } from "./08-models.js";
 import { previewNoteToolEnd } from "./24-preview.js";
 import { autoRounds } from "./08-auto.js";
-import { $, activePane, invoke, isImeComposing, messages, on, promptBox, trimLivePane } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { activePane, messages, promptBox, trimLivePane } from "./01-chat-panes.js";
+import { isImeComposing } from "./00-ui-primitives.js";
+import { on } from "./01-runtime-events.js";
+import { invoke } from "./00-ipc.js";
 import { languageIsEnglish, localizeDynamic, localizedStage, t } from "./02-i18n.js";
 import {
   activeSessionId,
@@ -730,10 +763,13 @@ defer(() => {
 defer(() => {
   on("kz:done", async (e) => {
     const p = e.payload;
+    const outcome = p.outcome || (p.halted ? "halted" : "completed");
+    const endState = outcome === "incomplete" ? "failed" : outcome === "halted" ? "stopped" : "completed";
+    const endReason = outcome === "incomplete" ? p.incompleteReason || t("本轮未完成") : outcome === "halted" ? t("按停止/拒绝收尾") : "";
     setCtxPending(false);
     renderTokens();
-    agentAuditFinish(p.sessionId, p.halted ? "stopped" : "completed");
-    neuralFlowEmit?.(p.halted ? "run_stopped" : "run_completed", { session_id: p.sessionId, halted: Boolean(p.halted) });
+    agentAuditFinish(p.sessionId, endState);
+    neuralFlowEmit?.(outcome === "incomplete" ? "run_failed" : outcome === "halted" ? "run_stopped" : "run_completed", { session_id: p.sessionId, outcome, halted: Boolean(p.halted) });
     releaseAutoContinue(p.sessionId);
     // R-267:轮末不再需要「原子回灌」。那套是为了修补「切走期间缺一段」——而缺口
     // 本身已经不存在了:后台会话的渲染事件全程进它自己的 pane,轮末 pane 里就是完整的。
@@ -742,18 +778,18 @@ defer(() => {
     // 「本轮完成」是**阶段**不是**停机原因**,写进原因槽等于每轮都往里灌一句与
     // 「为什么不再继续」无关的话——而原因槽是无参重绘的回落值,灌进去之后轮次
     // 「3/34」下一帧就被它顶掉。正常完成时清空原因槽,阶段交给 renderAutoRun 算。
-    setAutoStopReason(p.halted ? t("按停止/拒绝收尾") : "");
+    setAutoStopReason(endReason);
   
     // UI2-0926 #12:本轮结束 = 列左缘一行小字(turn-end),不画线(契约 §4.2);「steps / 会话 N 条」中英混杂改走模板。
     addMessage(
       "notice turn-end",
-      `${t("本轮结束")} · ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? ` · ${fillTemplate(t("历史 {n} 条"), { n: p.history })}` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
+      `${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")} · ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? ` · ${fillTemplate(t("历史 {n} 条"), { n: p.history })}` : ""}${endReason ? ` · ${endReason}` : ""}`
     );
     const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
     const duration = elapsedSeconds === null ? "" : ` · ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
-    log(`${t("运行完成")}: ${p.steps} ${t("轮")}${duration}`);
+    log(`${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")}: ${p.steps} ${t("轮")}${duration}`);
     stopElapsed();
-    notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按停止/拒绝收尾") : `${t("本轮结束")} ${p.steps} ${t("轮")}`);
+    notifyRunState(endState, endReason || `${t("本轮结束")} ${p.steps} ${t("轮")}`);
     // kz:done 只是本轮结束，不是会话级 idle；排队输入或鞭挞续跑仍可能马上开始。
     // 真正收回 stop 和运行态由 kz:idle/kz:stopped 的会话状态机负责。
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
@@ -761,7 +797,7 @@ defer(() => {
     // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
     refreshConversationList();
     // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
-    liveIdle(`${t("空闲")} · ${t("上轮")} ${p.steps} ${t("轮")} ${t("完成")}`);
+    liveIdle(`${t("空闲")} · ${t("上轮")} ${p.steps} ${t("轮")} · ${endReason || t("本轮结束")}`);
     refreshDocs();
     refreshGit();
     refreshPendingInputs();

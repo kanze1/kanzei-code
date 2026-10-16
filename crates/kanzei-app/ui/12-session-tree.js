@@ -12,7 +12,8 @@
 // 3 秒轮询会反复重绘:列表里的行不绑私有监听(点击/右键/拖动/键盘全部由 12-session-menus.js 事件委托在
 // 列表根上),重绘只在「行内容签名」变了才重建,运行态只改行上的 data-activity。
 import { closeSurface, isSurfaceOpen, openPopover } from "./00-surface.js";
-import { $, defer, invoke } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
 import { localizedStage, t } from "./02-i18n.js";
 import { layoutPref, onLayoutChange, setLayoutPref } from "./03-layout.js";
 import {
@@ -26,7 +27,7 @@ import { generalChatRoot, isGeneralChat, openGeneralChat } from "./03-general-sc
 import { conversationRecord, matchesConversation, uniqueConversations } from "./12-conversation-model.js";
 import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
 import { openProjectSpace, workbenchNavigationGuard, workbenchProject, workbenchQuestionWaiting } from "./12-workbench.js";
-import { conversationItemsByProcess, openClosedConversation, openConversationForProcess, startNewConversation } from "./15-views-misc.js";
+import { conversationHistory, loadEarlierConversations, conversationItemsByProcess, openClosedConversation, openConversationForProcess, startNewConversation } from "./15-views-misc.js";
 import { executionActivity, sameProject } from "./25-softwire-model.js";
 
 /// 侧栏每个项目下最多直接列几条(其余进「更多」);当前打开的对话即使排在后面也会补上。
@@ -668,12 +669,14 @@ function paintHistory() {
     const includeClosed = !project || Boolean(query.trim());
     const rows = orderRows(path, buildRows(path, { includeClosed })).filter(row => matchesConversation(row, query, name));
     const segments = segmentRows(path).filter(entry => matchesConversation({ name: segmentTitle(entry.item.title) }, query, name));
-    return { path, name, rows, segments };
+    const histories = sameProject(path, currentProject) ? processItems.map(owner => ({ owner, resource: conversationHistory(path, owner.id) })) : [];
+    return { path, name, rows, segments, histories };
   });
   const signature = JSON.stringify([
     project, query, groups.map(group => [group.path, group.name,
       group.rows.map(row => [row.identity, row.name, row.lifecycle, row.pinned]),
       group.segments.map(({ owner, item }) => [owner.id, item.sequence, item.title, item.message_count]),
+      group.histories.map(({ owner, resource }) => [owner.id, resource.hasMore, Boolean(resource.request), resource.error]),
       closedSignature(group.path), remote.get(group.path)?.error]), t("独立任务"),
   ]);
   node._project.textContent = project ? (general ? t("无项目对话") : projectDisplayName(project)) : t("所有对话");
@@ -687,6 +690,14 @@ function paintHistory() {
     children.push(...group.rows.map(row => buildSessionRow(row, { history: true })));
     if (group.segments.length) {
       children.push(el("div", "session-history-heading", t("更早的历史对话")), ...group.segments.map(buildSegmentRow));
+    }
+    for (const { owner, resource } of group.histories) {
+      if (!resource.hasMore && !resource.error) continue;
+      const more = el("button", "ghost session-history-more", `${owner.label || owner.id} · ${t(resource.error ? "重试" : "加载更早记录")}`);
+      more.type = "button"; more.disabled = Boolean(resource.request); more.dataset.historyOwner = owner.id;
+      more.addEventListener("click", () => void loadEarlierConversations(owner.id, group.path));
+      if (resource.error) children.push(noteRow(`${t("对话列表读取失败")}: ${resource.error}`));
+      children.push(more);
     }
     if (project && !query.trim()) children.push(...closedGroup(group.path, { history: true }));
     if (remote.get(group.path)?.error || closedCache.get(group.path)?.error) children.push(noteRow(`${group.name} · ${t("对话列表读取失败")}`));

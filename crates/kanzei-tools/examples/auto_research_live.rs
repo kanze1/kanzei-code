@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
         },
     );
     let snapshot = harness.resolve(&rctx)?;
-    let mut agent = snapshot.select_agent(None)?.clone();
+    let mut agent = snapshot.select_primary_agent(None)?.clone();
     agent.steps = 24;
     let mut runner = kanzei_tools::run::build_runner_config(
         &resolved,
@@ -187,7 +187,6 @@ Read one or two primary sources (the official Python math.fsum documentation is 
                 &prompt,
                 None,
                 &prior,
-                None,
                 None,
                 &mut on_event,
                 &mut ask,

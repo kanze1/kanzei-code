@@ -1,8 +1,11 @@
 import { renderRequirementDocument, requirementEditRows, requirementFromEditor } from "./26-requirement-contract.js";
 import { openMenu } from "./00-surface.js";
-import { defer } from "./01-core.js";
-import { $, confirmDialog, inputDialog, invoke, promptBox } from "./01-core.js";
-import { localizeDynamic } from "./02-i18n.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { confirmDialog, inputDialog } from "./00-dialogs.js";
+import { promptBox } from "./01-chat-panes.js";
+import { invoke } from "./00-ipc.js";
+import { localizeDynamic, languageIsEnglish } from "./02-i18n.js";
 import { localizedDocStatus, localizedStatusWord, t } from "./02-i18n.js";
 import { currentProject, log, navigate_view, setSidebarCollapsed, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
 import { renderTrackerFields, richText } from "./04-structured.js";
@@ -37,7 +40,7 @@ import { refreshDocs } from "./14-docs-actions.js";
 import { openDocumentsQuick } from "./14-docs-quick.js";
 import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 import { openFilePreview } from "./17-files.js";
-import { selectedResearchTopic } from "./19-research.js";
+import { project_workspace } from "./03-workspaces.js";
 import { collaborationLines, lineAgentCodes } from "./20-lines.js";
 import { needsRequirementResearch, requirementResearchAction, requirementResearchStatus, openRequirementResearch } from "./26-requirement-research.js";
 
@@ -291,7 +294,7 @@ export function researchOpenLink(key, value, topic = "") {
         const page = isArxiv
           ? await invoke("research_arxiv_preview", {
             projectDir: currentProject,
-            topic: topic || (typeof selectedResearchTopic === "string" ? selectedResearchTopic : ""),
+            topic: topic || project_workspace().research.topic,
             url,
           })
           : await invoke("webfetch_preview", { url });
@@ -309,10 +312,7 @@ export function researchOpenLink(key, value, topic = "") {
     btn.title = t("打开文件并定位");
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
-      // 视图切换没有全局函数,入口是 activitybar 上那颗按钮(03-shell.js 绑在
-      // `.activity-item[data-view]` 上)。点它而不是自己 toggle class:视图切换
-      // 还带着侧栏、高亮、刷新等一串副作用,复刻一遍必然漏。
-      document.querySelector('.activity-item[data-view="files"]')?.click();
+      navigate_view("files");
       // UI2-0926 #6:锚点里的行号一并传过去,打开后定位到该行(原先解析了 line 却只传 path)。
       openFilePreview({ path: path.replace(/\\/g, "/"), line: Number(line) });
     });
@@ -551,11 +551,18 @@ export function ideaSplitButton(entry, project = currentProject) {
 
 export function captureDetailState(el) {
   const states = new Map();
-  const active = document.activeElement ?? null;
   for (const item of [...el.querySelectorAll(".doc-item[data-doc-id]")]) {
     const detail = item.querySelector(".doc-detail");
     if (!detail) continue;
-    const state = {
+    const state = captureWorkDocumentState(detail);
+    if (state.editing || state.unitsOpen || state.olderOpen.size) states.set(item.dataset.docId, state);
+  }
+  return states;
+}
+
+export function captureWorkDocumentState(detail) {
+  const active = document.activeElement ?? null;
+  const state = {
       editing: detail.classList.contains("editing"),
       drafts: new Map(),
       focus: null,
@@ -576,9 +583,7 @@ export function captureDetailState(el) {
         }
       }
     }
-    if (state.editing || state.unitsOpen || state.olderOpen.size) states.set(item.dataset.docId, state);
-  }
-  return states;
+  return state;
 }
 
 /// 时间线只露最新一段(R-282:|| 切段的首段是最新),更早的收进「更早进展 N」折叠区。
@@ -646,10 +651,12 @@ function workUnitCard(unit) {
   return card;
 }
 
-export function renderWorkDocument(entry, kind) {
-  return buildDocDetail(entry, kind, { surface: "documents", blocked: entryBlocked(entry),
+export function renderWorkDocument(entry, kind, prior = null) {
+  const detail = buildDocDetail(entry, kind, { surface: "documents", blocked: entryBlocked(entry),
     externalBlocked: entry.status === "awaiting_external", blockedReasons: entry.block_reasons || [],
-    workUnits: entry.work_units || [], cx: entry.complexity || "", expanded: true });
+    workUnits: entry.work_units || [], cx: entry.complexity || "", expanded: true, prior });
+  detail.dataset.language = languageIsEnglish() ? "en" : "zh";
+  return detail;
 }
 
 function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blockedReasons, workUnits, cx, expanded, prior }) {
@@ -829,6 +836,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
     const extraComplexity = complexityField ? null : addRow(t("复杂度"), "复杂度", currentComplexity, complexityHint, complexitySelect());
     const toggle = document.createElement("button");
     const setEditing = (on, { reset = true } = {}) => {
+      const wasEditing = detail.classList.contains("editing");
       detail.classList.toggle("editing", on);
       editBox.classList.toggle("hidden", !on);
       read.classList.toggle("hidden", on);
@@ -840,6 +848,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
         delete control.dataset.dirty;
       }
       delete editBox.dataset.dirty;
+      if (wasEditing) document.dispatchEvent(new CustomEvent("kz:document-interaction-settled", { detail: { project: entryProject } }));
     };
     const save = document.createElement("button");
     save.type = "button";
@@ -965,6 +974,11 @@ export function filterDocEntries(entries, kind, filters = NEUTRAL_DOC_FILTERS) {
 
 export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
   const listProject = currentProject;
+  // Every snapshot source shares this projection boundary. Keep live editing
+  // and drag nodes attached, preserving focus, selection and native IME state.
+  // A project switch has a different owner and must replace the old list.
+  if (el.dataset.projectDir === listProject && el.querySelector(".doc-item.dragging, .doc-detail.editing")) return;
+  el.dataset.projectDir = listProject;
   const surface = docSurface(el);
   // 筛掉了多少条:用于"被筛空"时说清原因。列表凭空变空是最容易被当成数据丢失的
   // 一类现象,必须给出条数与一键清除,而不是留一片空白(D-169)。
@@ -1346,7 +1360,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         const now = [...el.querySelectorAll(".doc-item[data-doc-id]")]
           .map((n) => n.dataset.docId)
           .join(",");
-        if (now !== el.dataset.orderBefore) commitDocOrder(el, kind);
+        if (now !== el.dataset.orderBefore) void commitDocOrder(el, kind);
+        else document.dispatchEvent(new CustomEvent("kz:document-interaction-settled", { detail: { project: listProject } }));
       });
       item.addEventListener("dragover", (e) => {
         e.preventDefault();

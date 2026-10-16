@@ -1,6 +1,9 @@
-import { defer } from "./01-core.js";
-import { motionCount } from "./01-core.js";
-import { $, activePane, invoke, messages, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { motionCount } from "./00-ui-primitives.js";
+import { $ } from "./00-dom.js";
+import { activePane, messages } from "./01-chat-panes.js";
+import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
+import { invoke } from "./00-ipc.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,

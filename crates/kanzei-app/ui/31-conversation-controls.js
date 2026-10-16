@@ -1,4 +1,4 @@
-import { $, defer } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
 import { closeSurface } from "./00-surface.js";
 import { activeProcessId, activeSessionId, running, toastError } from "./03-shell.js";
 import { currentGoalText, renderGoalState, syncAutoRunState, cancelAutoContinueTimer, setAutoPaused } from "./08-auto.js";

@@ -1,7 +1,9 @@
-import { defer } from "./01-core.js";
+import { defer } from "./00-dom.js";
 import { resourceIcon } from "./04-resource-types.js";
 import { escapeHtml } from "./04-markdown.js";
-import { $, invoke, messages, renderingBackground } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { messages, renderingBackground } from "./01-chat-panes.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,

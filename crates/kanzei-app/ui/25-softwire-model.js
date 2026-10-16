@@ -1,5 +1,7 @@
 // Pure identity and projection helpers, shared by browser checks and the workspace.
 import { stripInternalHandoff } from "./04-structured-parse.js";
+import { pathKey, sameProject } from "./00-project-identity.js";
+export { pathKey, sameProject };
 export const moduleNames = Object.freeze({
   work: "需求与计划", batch: "验证与交付", main: "主对话", memory: "记忆",
   tools: "工具管理", tasks: "子任务", history: "历史与压缩", inbox: "待我处理",
@@ -8,8 +10,6 @@ export const moduleNames = Object.freeze({
 export const laneNames = Object.freeze({ work: "需求", memory: "记忆", history: "历史", tools: "工具", batch: "验证交付", tasks: "子任务", usage: "运行用量" });
 // 行状态 → 基线表现:活动态画橙色起伏波形;等待/停止中虚线;需要你/受阻琥珀;失败红;其余中性灰直线。
 export const laneActiveStates = Object.freeze(["running", "working", "reading", "writing", "starting"]);
-export const pathKey = value => String(value || "").replaceAll("\\", "/").replace(/^\/\/\?\//, "").replace(/\/$/, "").toLowerCase();
-export const sameProject = (a, b) => Boolean(a && b) && pathKey(a) === pathKey(b);
 // Runtime activity is independent of navigation, loop policy and delivery stages.
 export const activityLabels = Object.freeze({ idle: "空闲", starting: "启动中", running: "运行中", stopping: "停止中",
   waiting: "等待下一轮", attention: "待你回复", stopped: "已停止", failed: "运行失败", unknown: "状态未确认" });

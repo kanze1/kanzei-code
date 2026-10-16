@@ -1,4 +1,5 @@
 //! Desktop controls for the same durable tasks exposed to the main agent.
+use crate::app_events::AppEvents;
 use crate::{normalized_project_root, process_session_id, runtime_for, AppState};
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use serde_json::{json, Value};
@@ -6,11 +7,11 @@ use std::{
     path::Path,
     sync::{atomic::Ordering, Arc},
 };
-use tauri::{Emitter, State, Window};
+use tauri::{Emitter, State};
 
 #[tauri::command]
 pub(crate) async fn agent_team_command(
-    window: Window,
+    window: AppEvents,
     state: State<'_, AppState>,
     project_dir: String,
     process_id: Option<String>,
@@ -21,7 +22,7 @@ pub(crate) async fn agent_team_command(
         .map_err(|e| e.to_string())
 }
 pub(crate) async fn execute(
-    window: &Window,
+    window: &AppEvents,
     state: &AppState,
     project_dir: &str,
     process_id: Option<&str>,
@@ -40,7 +41,7 @@ pub(crate) struct QuestionReply {
 }
 
 pub(crate) async fn reply_to_question(
-    window: &Window,
+    window: &AppEvents,
     state: &AppState,
     project_dir: &str,
     process_id: Option<&str>,
@@ -58,7 +59,7 @@ pub(crate) async fn reply_to_question(
 }
 
 async fn execute_impl(
-    window: &Window,
+    window: &AppEvents,
     state: &AppState,
     project_dir: &str,
     process_id: Option<&str>,

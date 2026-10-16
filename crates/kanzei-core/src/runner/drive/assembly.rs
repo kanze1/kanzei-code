@@ -5,6 +5,35 @@
 
 use super::*;
 
+/// Publish the same report on both success and required-source failure.
+pub(super) fn observe_context_sources(
+    baseline: kanzei_harness::ContextBaseline,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) -> anyhow::Result<(String, Vec<kanzei_harness::ContextSourceReport>)> {
+    let sources = match &baseline {
+        Ok((_, sources)) => sources,
+        Err(error) => &error.sources,
+    };
+    on_event(RunEvent::ContextSources {
+        sources: sources.clone(),
+    });
+    Ok(baseline?)
+}
+
+/// Preserve the existing character ledger, replacing refreshing rows rather than
+/// accumulating historical sizes or leaving stale rows after an empty/failed read.
+pub(super) fn update_source_ledger(
+    ledger: &mut Vec<(String, usize)>,
+    sources: &[kanzei_harness::ContextSourceReport],
+) {
+    for source in sources {
+        ledger.retain(|(key, _)| key != &source.key);
+        if source.status == kanzei_harness::ContextSourceStatus::Loaded {
+            ledger.push((source.key.clone(), source.chars));
+        }
+    }
+}
+
 /// R-202 批6:run_once_with_parts 装配段产物。
 ///
 /// 装配(工具/specs/system 分块/消息初始化/各类运行态)一次性完成,调用方解构后
@@ -76,7 +105,8 @@ pub(super) fn assemble_run_once<'a>(
     prior: &[Message],
     initial_parts: Option<&[Part]>,
     subagent: Option<&SubagentRuntime>,
-) -> RunOnceAssembly<'a> {
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) -> anyhow::Result<RunOnceAssembly<'a>> {
     let tools: Vec<Arc<dyn Tool>> = snapshot.materialize_tools();
     let mut specs: Vec<ToolSpec> = snapshot
         .resident_tools()
@@ -86,10 +116,13 @@ pub(super) fn assemble_run_once<'a>(
     append_subagent_spec(&mut specs, subagent.is_some(), subagent);
 
     // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
-    let (baseline, mut context_report) = snapshot.stable_system_baseline_with_report();
+    let (baseline, stable_report) =
+        observe_context_sources(snapshot.stable_system_baseline_with_report(), on_event)?;
     let (refreshable_baseline, refreshable_report) =
-        snapshot.refreshable_system_baseline_with_report();
-    context_report.extend(refreshable_report);
+        observe_context_sources(snapshot.refreshable_system_baseline_with_report(), on_event)?;
+    let mut context_report = Vec::new();
+    update_source_ledger(&mut context_report, &stable_report);
+    update_source_ledger(&mut context_report, &refreshable_report);
     let deferred_catalog = snapshot.deferred_catalog();
     if let Some(catalog) = deferred_catalog.as_ref() {
         context_report.push(("tools/catalog".into(), catalog.chars().count()));
@@ -198,7 +231,7 @@ pub(super) fn assemble_run_once<'a>(
     let recall = RecallWatch::new(config.recall.as_deref());
 
     let step = 0u32;
-    RunOnceAssembly {
+    Ok(RunOnceAssembly {
         tools,
         specs,
         context_report,
@@ -219,7 +252,7 @@ pub(super) fn assemble_run_once<'a>(
         redundancy,
         recall,
         step,
-    }
+    })
 }
 
 #[cfg(test)]

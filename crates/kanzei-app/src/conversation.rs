@@ -131,15 +131,10 @@ pub(crate) fn project_latest_segment(
     store: &kanzei_core::SessionStore,
     session_id: &str,
 ) -> Result<Vec<kanzei_llm::Message>, String> {
-    let facts = store
-        .list_session_facts(session_id)
+    let segment_start = current_segment_floor(store, session_id)?.unwrap_or(0);
+    let filtered = store
+        .list_session_facts_in_range(session_id, segment_start, i64::MAX)
         .map_err(|e| e.to_string())?;
-    let boundary = segment_boundaries(store, session_id)?.pop();
-    let segment_start = boundary.unwrap_or(0);
-    let filtered: Vec<_> = facts
-        .into_iter()
-        .filter(|(event, _)| event.sequence > segment_start)
-        .collect();
     let compacted_surface = store
         .latest_completed_compaction_surface(session_id, segment_start)
         .map_err(|e| e.to_string())?;
@@ -334,13 +329,9 @@ fn project_segment_at_sequence(
             .map_err(|e| e.to_string());
     }
     let facts = store
-        .list_session_facts(session_id)
+        .list_session_facts_in_range(session_id, segment_start, end_sequence)
         .map_err(|e| e.to_string())?;
-    let segment: Vec<_> = facts
-        .into_iter()
-        .filter(|(event, _)| event.sequence > segment_start && event.sequence <= end_sequence)
-        .collect();
-    Ok(kanzei_core::project_session_facts(&segment).surface_messages)
+    Ok(kanzei_core::project_session_facts(&facts).surface_messages)
 }
 
 /// R-241 只读 shadow 入口：返回 typed-events 投影、现有快照比较和中断草稿诊断。
@@ -415,6 +406,55 @@ pub(crate) fn conversation_trace_get(
 pub(crate) fn conversation_list(
     project_dir: String,
     process_id: Option<String>,
+    before_sequence: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<serde_json::Value>, String> {
+    conversation_rows(
+        project_dir,
+        process_id,
+        before_sequence,
+        limit.map(|n| n.clamp(1, 200)),
+    )
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConversationPage {
+    pub(crate) items: Vec<serde_json::Value>,
+    pub(crate) next_before_sequence: Option<i64>,
+    pub(crate) has_more: bool,
+}
+
+#[tauri::command]
+pub(crate) fn conversation_page(
+    project_dir: String,
+    process_id: Option<String>,
+    before_sequence: Option<i64>,
+    limit: usize,
+) -> Result<ConversationPage, String> {
+    let limit = limit.clamp(1, 200);
+    let mut items = conversation_rows(project_dir, process_id, before_sequence, Some(limit + 1))?;
+    let has_more = items.len() > limit;
+    if has_more {
+        items.remove(0); // Rows are chronological; the extra row is the oldest.
+    }
+    let next_before_sequence = if has_more {
+        items.first().and_then(|item| item["sequence"].as_i64())
+    } else {
+        None
+    };
+    Ok(ConversationPage {
+        items,
+        next_before_sequence,
+        has_more,
+    })
+}
+
+fn conversation_rows(
+    project_dir: String,
+    process_id: Option<String>,
+    before_sequence: Option<i64>,
+    limit: Option<usize>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     let session_id = process_session_id(&root, process_id.as_deref());
@@ -430,39 +470,59 @@ pub(crate) fn conversation_list(
     // R-242 批7:段边界统一来自 conversation.reset(清空/新会话标记),legacy 与
     // 投影共用;gate 开启时按段投影 typed facts,关闭时按段内最新 legacy 快照。
     let boundaries = segment_boundaries(&store, &session_id)?;
-    if crate::projection_gate::read_path_uses_projection("conversation_list") {
-        return conversation_list_projected(&store, &session_id, &boundaries);
-    }
-    conversation_list_legacy(&store, &session_id, &boundaries)
-}
-
-/// R-242 批7:投影模式的段列表。每段 = (前一边界, 本边界] 的 typed facts 投影
-/// surface;空段(连续 reset 间无事实)跳过;旧段保留在列表(可审计)。
-fn conversation_list_projected(
-    store: &kanzei_core::SessionStore,
-    session_id: &str,
-    boundaries: &[i64],
-) -> Result<Vec<serde_json::Value>, String> {
-    let facts = store
-        .list_session_facts(session_id)
-        .map_err(|e| e.to_string())?;
-    if facts.is_empty() {
-        // 无 typed facts 的会话(mobile 线程等未被 typed writer 接管)回退
-        // legacy 快照段——与 project_latest_segment 的空回退同一防护语义。
-        return conversation_list_legacy(store, session_id, boundaries);
-    }
-    let mut segments = Vec::new();
-    let mut start = 0i64;
-    for &boundary in boundaries {
-        if let Some(segment) = project_visible_segment(store, session_id, &facts, start, boundary) {
-            segments.push(segment);
+    let limit = limit.unwrap_or(usize::MAX);
+    let before = before_sequence.unwrap_or(i64::MAX);
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    for end in boundaries.iter().copied().chain(std::iter::once(i64::MAX)) {
+        if before_sequence.is_none() || end < before {
+            ranges.push((start, end));
         }
-        start = boundary;
+        start = end;
     }
-    if let Some(segment) = project_visible_segment(store, session_id, &facts, start, i64::MAX) {
-        segments.push(segment);
+    // Walk backwards until a full page of non-empty segments is found. Empty
+    // reset ranges must not hide older records behind an apparently empty page.
+    let mut page = Vec::new();
+    let projection = crate::projection_gate::read_path_uses_projection("conversation_list");
+    for (start, end) in ranges.into_iter().rev() {
+        let cached = store
+            .cached_segment_metadata(&session_id, (start, end), projection)
+            .map_err(|error| error.to_string())?;
+        let segment = match cached {
+            Some(value) => (!value.is_null()).then_some(value),
+            None => {
+                let version = store
+                    .metadata_snapshot_version()
+                    .map_err(|error| error.to_string())?;
+                let facts = store
+                    .list_session_facts_in_range(&session_id, start, end)
+                    .map_err(|error| error.to_string())?;
+                let segment = if !facts.is_empty() && projection {
+                    project_visible_segment(&store, &session_id, &facts, start, end)?
+                } else {
+                    legacy_segment(&store, &session_id, start, end)?
+                };
+                store
+                    .cache_segment_metadata(
+                        &session_id,
+                        (start, end),
+                        projection,
+                        version,
+                        segment.as_ref().unwrap_or(&serde_json::Value::Null),
+                    )
+                    .map_err(|error| error.to_string())?;
+                segment
+            }
+        };
+        if let Some(segment) = segment {
+            page.push(segment);
+            if page.len() == limit {
+                break;
+            }
+        }
     }
-    Ok(segments)
+    page.reverse(); // Existing consumers receive chronological rows within a page.
+    Ok(page)
 }
 
 fn project_visible_segment(
@@ -471,14 +531,17 @@ fn project_visible_segment(
     facts: &[(kanzei_core::StoredEvent, kanzei_core::SessionFactEnvelope)],
     start: i64,
     end: i64,
-) -> Option<serde_json::Value> {
-    let mut metadata = project_segment(facts, start, end)?;
+) -> Result<Option<serde_json::Value>, String> {
+    let Some(mut metadata) = project_segment(facts, start, end) else {
+        return Ok(None);
+    };
     if let Some((sequence, _)) = store
         .latest_rewind_surface(session_id, start, end)
-        .ok()
-        .flatten()
+        .map_err(|error| error.to_string())?
     {
-        let messages = store.visible_transcript(session_id, start, end).ok()?;
+        let messages = store
+            .visible_transcript(session_id, start, end)
+            .map_err(|error| error.to_string())?;
         metadata["message_count"] = json!(messages.len());
         metadata["title"] = json!(messages
             .iter()
@@ -490,7 +553,7 @@ fn project_visible_segment(
             .unwrap_or_else(|| "未命名对话".into()));
         metadata["sequence"] = json!(metadata["sequence"].as_i64().unwrap_or(0).max(sequence));
     }
-    Some(metadata)
+    Ok(Some(metadata))
 }
 
 /// 单段投影元数据:段内 facts 的 surface 消息(标题=首条 user 文本,数量=surface 长)。
@@ -499,15 +562,13 @@ fn project_segment(
     start: i64,
     end: i64,
 ) -> Option<serde_json::Value> {
-    let segment: Vec<_> = facts
-        .iter()
-        .filter(|(event, _)| event.sequence > start && event.sequence <= end)
-        .cloned()
-        .collect();
+    let first = facts.partition_point(|(event, _)| event.sequence <= start);
+    let last = facts.partition_point(|(event, _)| event.sequence <= end);
+    let segment = &facts[first..last];
     if segment.is_empty() {
         return None;
     }
-    let projection = kanzei_core::project_conversation_facts(&segment);
+    let projection = kanzei_core::project_conversation_facts(segment);
     let surface = &projection.surface_messages;
     if surface.is_empty() {
         return None;
@@ -535,54 +596,36 @@ fn project_segment(
     }))
 }
 
-/// legacy 模式的段列表:段边界 = conversation.reset;段内容 = 该段内最新
-/// conversation.updated 快照(旧式轮末全量)。空段跳过。
-fn conversation_list_legacy(
+fn legacy_segment(
     store: &kanzei_core::SessionStore,
-    session_id: &str,
-    boundaries: &[i64],
-) -> Result<Vec<serde_json::Value>, String> {
+    session: &str,
+    start: i64,
+    end: i64,
+) -> Result<Option<serde_json::Value>, String> {
     let snapshots = store
-        .list_events_by_type(session_id, 0, "conversation.updated")
-        .map_err(|e| e.to_string())?;
-    let mut segments = Vec::new();
-    let mut start = 0i64;
-    let ends: Vec<i64> = boundaries
+        .list_events_in_range(session, start, end, Some("conversation.updated"))
+        .map_err(|error| error.to_string())?;
+    let Some(event) = snapshots.into_iter().rev().find(|event| {
+        event.payload["messages"]
+            .as_array()
+            .is_some_and(|messages| !messages.is_empty())
+    }) else {
+        return Ok(None);
+    };
+    let messages = event.payload["messages"]
+        .as_array()
+        .expect("nonempty snapshot");
+    let title = messages
         .iter()
-        .copied()
-        .chain(std::iter::once(i64::MAX))
-        .collect();
-    for &end in &ends {
-        if let Some(event) = snapshots
-            .iter()
-            .filter(|event| event.sequence > start && event.sequence <= end)
-            .rfind(|event| {
-                event.payload["messages"]
-                    .as_array()
-                    .is_some_and(|messages| !messages.is_empty())
-            })
-        {
-            let messages = event.payload["messages"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-            let title = messages
-                .iter()
-                .find(|item| item["role"] == "user")
-                .and_then(|item| item["parts"].as_array())
-                .and_then(|parts| parts.iter().find(|part| part["type"] == "text"))
-                .and_then(|part| part["text"].as_str())
-                .unwrap_or("未命名对话");
-            segments.push(json!({
-                "sequence": event.sequence,
-                "created_at": event.created_at,
-                "title": title.chars().take(48).collect::<String>(),
-                "message_count": messages.len(),
-            }));
-        }
-        start = end;
-    }
-    Ok(segments)
+        .find(|item| item["role"] == "user")
+        .and_then(|item| item["parts"].as_array())
+        .and_then(|parts| parts.iter().find(|part| part["type"] == "text"))
+        .and_then(|part| part["text"].as_str())
+        .unwrap_or("未命名对话");
+    Ok(Some(
+        json!({"sequence":event.sequence,"created_at":event.created_at,
+        "title":title.chars().take(48).collect::<String>(),"message_count":messages.len()}),
+    ))
 }
 
 /// 「历史对话」勾选删除的结果,前端据此提示与处理主区。

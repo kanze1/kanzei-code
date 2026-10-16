@@ -138,7 +138,8 @@ pub enum RunEvent {
         id: String,
         name: String,
         ok: bool,
-        /// 机器可读终态:success|noop|needs_correction|needs_confirmation|failed。
+        /// 机器可读终态由 [`kanzei_harness::ToolOutcome::as_str`] 定义，
+        /// 包含 `blocked_by_workflow`；共享 `ToolOutcome::ALL` 校验事件与持久化词汇。
         outcome: String,
         /// 稳定错误码；文案变化不应影响恢复策略、指标或 UI 分类。
         code: Option<String>,
@@ -195,6 +196,11 @@ pub enum RunEvent {
         attempt: u32,
         max: u32,
         delay_ms: u128,
+    },
+    /// Source reads, including legitimate empty sources and visible failures.
+    /// Required failures are emitted before the run refuses context assembly.
+    ContextSources {
+        sources: Vec<kanzei_harness::ContextSourceReport>,
     },
     /// 轮内主动压缩:到达上下文预算线,就地裁剪历史(D-176)。
     /// 与撞墙后的被动恢复区分开——这条是"没撞墙就先让了路"。
@@ -287,6 +293,8 @@ pub struct RunSummary {
     /// The engine forced a final answer at the configured step ceiling (including
     /// granted extensions). Preserve that answer as partial work, not completion.
     pub step_limit_reached: bool,
+    /// Last protocol-confirmed model stop reason. Cancellation before completion has none.
+    pub finish_reason: Option<FinishReason>,
     /// 本次运行结束时的完整消息历史(含本次),调用方保存后可作为下次 prior 传入,
     /// 实现跨消息连续对话(M2 落盘前的内存态方案)。
     pub messages: Vec<Message>,
@@ -299,6 +307,44 @@ pub struct RunSummary {
     /// D-655:本轮稳定消息真源。与 `messages` 不同,它不受轮中上下文
     /// 压缩/prune/trim 的结构性删短影响,供轮末 episode/metrics/harvest 使用。
     pub round_messages: Vec<Message>,
+}
+
+impl RunSummary {
+    /// A preserved answer can still be partial. Every consumer uses this same boundary.
+    pub fn incomplete_reason(&self) -> Option<&'static str> {
+        if self.halted_by_user {
+            return None;
+        }
+        match self.finish_reason.as_ref() {
+            Some(FinishReason::MaxTokens) => Some("模型输出达到长度上限，本轮内容未完整完成"),
+            Some(FinishReason::Refusal) => Some("模型拒绝继续处理本轮请求"),
+            Some(FinishReason::Other(_)) => Some("模型以未识别的原因结束，本轮未确认完成"),
+            _ if self.step_limit_reached => {
+                Some("本轮达到执行步数上限，已保留当前进展，可继续处理剩余工作")
+            }
+            _ => None,
+        }
+    }
+
+    pub fn outcome(&self) -> &'static str {
+        if self.halted_by_user {
+            "halted"
+        } else if self.incomplete_reason().is_some() {
+            "incomplete"
+        } else {
+            "completed"
+        }
+    }
+
+    pub fn terminal(&self) -> crate::SessionTurnTerminal {
+        if self.halted_by_user {
+            crate::SessionTurnTerminal::Stopped
+        } else if let Some(reason) = self.incomplete_reason() {
+            crate::SessionTurnTerminal::Failed(reason.into())
+        } else {
+            crate::SessionTurnTerminal::Completed
+        }
+    }
 }
 
 // 轨迹的工具调用画像:工具名 → 调用次数(episode 与 R-099 度量共用)。
@@ -493,6 +539,36 @@ mod tool_end_content_tests {
     use kanzei_harness::{ToolArtifact, ToolOutput};
     use serde_json::json;
 
+    #[test]
+    fn tool_end_outcomes_share_the_persisted_header_vocabulary() {
+        use kanzei_harness::ToolOutcome;
+        for outcome in ToolOutcome::ALL {
+            let mut output = ToolOutput::ok("original");
+            output.outcome = outcome;
+            output.is_error = outcome != ToolOutcome::Success;
+            let RunEvent::ToolEnd {
+                outcome: emitted,
+                ok,
+                ..
+            } = RunEvent::tool_end("call".into(), "tool".into(), &output)
+            else {
+                panic!("expected ToolEnd");
+            };
+            assert_eq!(emitted, outcome.as_str());
+            assert_eq!(ok, !output.is_error);
+            assert_eq!(
+                ToolOutcome::from_model_content(&format!("[tool_outcome={emitted}]")),
+                Some(outcome)
+            );
+            if outcome.is_expected_rejection() {
+                assert_eq!(
+                    ToolOutcome::from_model_content(&output.model_content()),
+                    Some(outcome)
+                );
+            }
+        }
+    }
+
     /// 多字节正文按字符边界截断:切在「汉」(3 字节)中间会 panic 或产出乱码。
     #[test]
     fn 超限正文按字符边界截断并保留原字节数() {
@@ -549,5 +625,50 @@ mod tool_end_content_tests {
         assert_eq!(content_bytes, content.len());
         assert_eq!(display, Some(json!({"kind": "diff", "additions": 1})));
         assert_eq!(got_artifact, Some(artifact));
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    fn summary(reason: FinishReason) -> RunSummary {
+        RunSummary {
+            text: "partial".into(),
+            usage: Usage::default(),
+            last_input_tokens: None,
+            steps: 1,
+            halted_by_user: false,
+            step_limit_reached: false,
+            finish_reason: Some(reason),
+            messages: vec![],
+            context_report: vec![],
+            overflow_traces: vec![],
+            round_messages: vec![],
+        }
+    }
+    #[test]
+    fn stop_reasons_and_budget_never_claim_success() {
+        for reason in [
+            FinishReason::MaxTokens,
+            FinishReason::Refusal,
+            FinishReason::Other("unknown".into()),
+        ] {
+            let mut result = summary(reason);
+            assert_eq!(result.outcome(), "incomplete");
+            assert!(matches!(
+                result.terminal(),
+                crate::SessionTurnTerminal::Failed(_)
+            ));
+            result.halted_by_user = true;
+            assert_eq!(result.outcome(), "halted");
+            assert!(matches!(
+                result.terminal(),
+                crate::SessionTurnTerminal::Stopped
+            ));
+        }
+        let mut result = summary(FinishReason::EndTurn);
+        assert_eq!(result.outcome(), "completed");
+        result.step_limit_reached = true;
+        assert_eq!(result.outcome(), "incomplete");
     }
 }

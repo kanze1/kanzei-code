@@ -499,7 +499,7 @@ fn agent_model_for(
             config: std::sync::Arc::new(merged.clone()),
         };
         let snapshot = crate::run::assembly::build_run_harness(false, None).resolve(&ctx)?;
-        let agent = snapshot.select_agent(agent.filter(|a| !a.trim().is_empty()))?;
+        let agent = snapshot.select_primary_agent(agent.filter(|a| !a.trim().is_empty()))?;
         Ok((agent.name.clone(), agent.model.clone()))
     };
     match resolve() {
@@ -1170,7 +1170,7 @@ mod tests {
                 .iter()
                 .map(|line| {
                     let view = turn_view_at(Some(&project), line, None, None).unwrap();
-                    // 运行路径:assemble_run 的 ResolveCtx → select_agent → resolve_model_chain
+                    // 运行路径:assemble_run 的 ResolveCtx → select_primary_agent → resolve_model_chain
                     // → resolve_model → build_runner_config。
                     let ctx = kanzei_harness::ResolveCtx {
                         profile: config.default_profile(),
@@ -1181,7 +1181,7 @@ mod tests {
                     let snapshot = crate::run::assembly::build_run_harness(false, None)
                         .resolve(&ctx)
                         .unwrap();
-                    let agent = snapshot.select_agent(None).unwrap().clone();
+                    let agent = snapshot.select_primary_agent(None).unwrap().clone();
                     let reference = kanzei_harness::config::resolve_model_chain(
                         line.model.as_deref(),
                         None,

@@ -89,7 +89,7 @@ export function renderInlineMarkdown(raw) {
     if (local) {
       const lineAttr = local.line ? ` data-line="${local.line}"` : "";
       const title = `${local.path}${local.line ? `:${local.line}${local.endLine ? `-${local.endLine}` : ""}` : ""}`;
-      return stash(`<a class="md-path" data-path="${escapeHtml(local.path)}"${lineAttr} title="${escapeHtml(title)}">${label}</a>`);
+      return stash(`<a class="md-path" role="link" tabindex="0" data-path="${escapeHtml(local.path)}"${lineAttr} title="${escapeHtml(title)}">${label}</a>`);
     }
     return `${label} (${escapeHtml(decodedUrl)})`;
   });

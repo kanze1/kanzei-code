@@ -1,5 +1,8 @@
 import { isModalOpen } from "./00-surface.js";
-import { $, confirmDialog, defer, inputDialog, invoke } from "./01-core.js";
+import { registerLeaveGuard, leaveGuardStatus, onLeaveGuardChange } from "./00-leave-guard.js";
+import { $, defer } from "./00-dom.js";
+import { confirmDialog, inputDialog } from "./00-dialogs.js";
+import { invoke } from "./00-ipc.js";
 import { languageIsEnglish, t } from "./02-i18n.js";
 import { currentProject, currentTheme, log, toast, toastError } from "./03-shell.js";
 
@@ -343,11 +346,13 @@ function replaceContent(model, text) {
   model.pushStackElement?.();
 }
 function applyReadonly(doc) {
+  const readOnly = Boolean(doc.readonly || !leaveGuardStatus.ready || leaveGuardStatus.closing);
   filesEditor?.updateOptions({
-    readOnly: Boolean(doc.readonly),
+    readOnly,
     readOnlyMessage: { value: doc.readonly ? readonlyText(doc.readonly) : "" },
     unusualLineTerminators: "off",
   });
+  compare?.diff.updateOptions?.({ readOnly });
 }
 function revealLine(line) {
   const model = filesEditor?.getModel?.();
@@ -445,6 +450,7 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
   show($("files-editor"), true);
   let monaco;
   try {
+    await filesLeaveGuard.ready();
     monaco = await loadMonaco();
   } catch (error) {
     if (!canApply()) return false;
@@ -676,7 +682,7 @@ export async function openFilesCompare() {
     automaticLayout: true,
     renderSideBySide: true,
     originalEditable: false,
-    readOnly: false,
+    readOnly: !leaveGuardStatus.ready || leaveGuardStatus.closing,
     // 中缝的「还原」按钮栏:Monaco 自带样式给它画一圈 1px 焦点蓝框(未分层 CSS,压不过),且与横幅上的三个选择重复。
     renderGutterMenu: false,
     minimap: { enabled: false },
@@ -877,46 +883,17 @@ export async function hydrateFilesDrafts(root = filesRoot()) {
 
 // ---------- 关窗 / F5 / 退出时的未保存确认(UX-089) ----------
 // F5 / Ctrl+R(wry 的浏览器加速键默认开着):beforeunload 让 WebView2 弹「离开此页面?」,并趁机再镜像一次草稿。
-// 关窗:Tauri 2 的 tauri://close-requested 只要有 JS 监听就会拦下关闭,由监听方决定;所以只在文件变脏时才挂,
-// 没有未保存修改时关窗完全不经过前端(前端卡死也关得掉)。处理函数返回后包装层自己 destroy,没拦就是放行。
+// 关窗:Tauri 2 等待共享 owner 的异步决定后才 destroy；编辑器启用前完成注册并持续持有。
+// 关闭决定期间各编辑器只读，避免一个 owner 保存时另一个 owner 接收未纳入决定的新输入。
 // 需要 capabilities/default.json 的 core:window:allow-destroy。
-let closeUnlisten = null;
-let closeGuarding = false;
-let closeAsking = false;
-async function onCloseRequested(event) {
-  if (!isFilesDirty()) return; // 已经干净了:不拦
-  if (closeAsking) {
-    event.preventDefault(); // 确认框还开着时又点了关闭:别叠第二个
-    return;
-  }
-  closeAsking = true;
-  try {
-    if (!(await confirmLeaveDirty("close"))) event.preventDefault();
-  } finally {
-    closeAsking = false;
-  }
-}
-async function syncCloseGuard(dirty) {
-  const win = window.__TAURI__?.window?.getCurrentWindow?.();
-  if (typeof win?.onCloseRequested !== "function") return;
-  if (dirty) {
-    if (closeUnlisten || closeGuarding) return;
-    closeGuarding = true;
-    try {
-      closeUnlisten = await win.onCloseRequested(onCloseRequested);
-    } catch (error) {
-      closeUnlisten = null;
-      log(`${t("关窗确认不可用")}:${error}`, "warn");
-    } finally {
-      closeGuarding = false;
-    }
-    if (!isFilesDirty()) void syncCloseGuard(false); // 注册期间已经干净了
-  } else if (closeUnlisten) {
-    const off = closeUnlisten;
-    closeUnlisten = null;
-    try { off(); } catch { /* 已经摘掉 */ }
-  }
-}
+const filesLeaveGuard = registerLeaveGuard({
+  dirty: isFilesDirty,
+  flush: persistDraftNow,
+  leave: () => confirmLeaveDirty("close"),
+  error: error => log(`${t("关窗确认不可用")}:${error}`, "warn"),
+});
+const syncCloseGuard = () => filesLeaveGuard.sync();
+onLeaveGuardChange(() => { if (filesDoc) applyReadonly(filesDoc); });
 
 // ---------- 新建文件 ----------
 export async function createNewFile() {
@@ -983,12 +960,6 @@ defer(() => {
     void saveFilesDoc();
   });
   window.addEventListener("focus", () => void filesWatchTick());
-  window.addEventListener("beforeunload", (event) => {
-    if (!isFilesDirty()) return;
-    void persistDraftNow();
-    event.preventDefault();
-    event.returnValue = "";
-  });
   // 切语言:头部、横幅按钮、只读原因条的文字都是渲染点 t() 写的(没有 data-i18n-key),Monaco 的只读提示也是。
   document.addEventListener("kz:language", () => {
     if (filesDoc) applyReadonly(filesDoc);

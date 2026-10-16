@@ -89,13 +89,13 @@ impl IndexHit {
 /// 记忆索引接口(设计 §5)。实现侧决定三通道的具体行为与降级策略。
 pub trait MemoryIndex: Send + Sync {
     /// lexical 通道:fingerprint(Tier0)优先,miss 走 BM25(Tier1)。
-    fn search_lexical(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit>;
+    fn search_lexical(&self, query: &IndexQuery, limit: usize) -> anyhow::Result<Vec<IndexHit>>;
 
     /// dense 通道:向量检索。无 embedder 时返回空(通道不可用,不报错)。
-    fn search_dense(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit>;
+    fn search_dense(&self, query: &IndexQuery, limit: usize) -> anyhow::Result<Vec<IndexHit>>;
 
     /// hybrid 通道:RRF 融合(设计 §5,k=60)。无 embedder 时退化为 lexical。
-    fn search_hybrid(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit>;
+    fn search_hybrid(&self, query: &IndexQuery, limit: usize) -> anyhow::Result<Vec<IndexHit>>;
 
     /// 写时增量:更新/新增单条目的索引。
     fn upsert(&mut self, entry: &MemoryEntry) -> anyhow::Result<()>;
@@ -168,27 +168,11 @@ impl SqliteMemoryIndex {
                  id TEXT PRIMARY KEY,
                  dim INTEGER NOT NULL,
                  vector BLOB NOT NULL,
-                 updated INTEGER NOT NULL DEFAULT 0);",
+                 updated INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE IF NOT EXISTS memory_vector_revisions(
+                 id TEXT PRIMARY KEY, source_revision TEXT NOT NULL, model_identity TEXT NOT NULL);",
         )?;
         Ok(conn)
-    }
-
-    /// 条目 → 向量。仅当通道启用时对 active 条目生成;失败(provider 报错)
-    /// 记录 tracing 并跳过该条——检索降级不阻塞主流程(设计 §3.2 精神)。
-    fn vectorize(&self, entry: &MemoryEntry) -> Option<Vec<f32>> {
-        let embedder = self.embedder.as_ref()?;
-        let text = format!("{}\n{}\n{}", entry.title, entry.description, entry.body);
-        match embedder.embed(&[&text]) {
-            Ok(mut vecs) => vecs.pop(),
-            Err(e) => {
-                tracing::warn!(
-                    id = %entry.id,
-                    error = %e,
-                    "embedding 生成失败,该条向量跳过(检索降级不阻塞)"
-                );
-                None
-            }
-        }
     }
 
     /// 向量 BLOB 序列化:f32 LE 字节拼接。
@@ -229,11 +213,9 @@ impl SqliteMemoryIndex {
         category: Option<&str>,
         status: Option<&str>,
         limit: usize,
-    ) -> Vec<SearchHit> {
+    ) -> anyhow::Result<Vec<SearchHit>> {
         let store = MemoryStore::project(&self.project_root);
-        let Ok(cands) = store.search_candidates(query, category, status) else {
-            return Vec::new();
-        };
+        let cands = store.search_candidates(query, category, status)?;
         let mut out: Vec<SearchHit> = Vec::new();
         for c in cands {
             let Some(weight) = super::relevance::lexical_weight(query, &c.entry) else {
@@ -262,7 +244,7 @@ impl SqliteMemoryIndex {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         out.truncate(limit);
-        out
+        Ok(out)
     }
 
     /// 内部 lexical 通道(不记 hits):Tier0 指纹优先,miss 走 BM25 候选 + 决策排序。
@@ -274,7 +256,7 @@ impl SqliteMemoryIndex {
         category: Option<&str>,
         status: Option<&str>,
         limit: usize,
-    ) -> Vec<SearchHit> {
+    ) -> anyhow::Result<Vec<SearchHit>> {
         if let Some(fp_key) = &query.fingerprint {
             let hits = self.tier0(fp_key);
             if !hits.is_empty() {
@@ -282,11 +264,11 @@ impl SqliteMemoryIndex {
                 // 命中计数必须与 Tier1 的 SearchCandidate.hits 同源；否则指纹通道
                 // 的 SearchHit 永远显示 0，控制面无法复算指纹召回画像。
                 let hit_counts = MemoryStore::project(&self.project_root).hits_map();
-                return self.materialize_hits(hits, &hit_counts);
+                return Ok(self.materialize_hits(hits, &hit_counts));
             }
         }
         if query.text.trim().is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         self.tier1(&query.text, category, status, limit)
     }
@@ -300,10 +282,24 @@ impl SqliteMemoryIndex {
         category: Option<&str>,
         status: Option<&str>,
         limit: usize,
-    ) -> Vec<SearchHit> {
-        let out = self.lexical_hits(query, category, status, limit);
+    ) -> anyhow::Result<Vec<SearchHit>> {
+        let out = self.lexical_hits(query, category, status, limit)?;
         self.record_hits_for(&out);
-        out
+        Ok(out)
+    }
+
+    /// Failure recall records only results accepted before its deadline in
+    /// recall_events. A timed-out background probe must not increment hit counts.
+    pub(super) fn probe_lexical(
+        &self,
+        query: &IndexQuery,
+        limit: usize,
+    ) -> anyhow::Result<Vec<IndexHit>> {
+        Ok(self
+            .lexical_hits(query, None, Some("active"), limit)?
+            .into_iter()
+            .map(|hit| IndexHit::from_entry(&hit.entry, hit.score))
+            .collect())
     }
 
     /// 检索副作用(观测,R-125):对最终命中的条目 hits+1。纯探测/内部通道不记。
@@ -317,58 +313,47 @@ impl SqliteMemoryIndex {
 
     /// 从向量库读全部 (id, 向量),brute-force 余弦检索(R-164 内容③)。
     /// 无 embedder 时向量表为空 → 空结果(通道不可用)。
-    fn dense_scan(&self, query_vec: &[f32], limit: usize) -> Vec<IndexHit> {
-        let Ok(conn) = self.open_vector_db() else {
-            return Vec::new();
+    fn dense_scan(&self, query_vec: &[f32], limit: usize) -> anyhow::Result<Vec<IndexHit>> {
+        let Some(embedder) = &self.embedder else {
+            return Ok(Vec::new());
         };
-        let mut rows = Vec::new();
-        {
-            let mut stmt = match conn.prepare("SELECT id, vector FROM memory_vectors") {
-                Ok(s) => s,
-                Err(_) => return Vec::new(),
+        let conn = self.open_vector_db()?;
+        let mut stmt = conn.prepare("SELECT v.id, v.vector, r.source_revision FROM memory_vectors v JOIN memory_vector_revisions r ON r.id=v.id WHERE r.model_identity=?1")?;
+        let rows = stmt.query_map([embedder.cache_key()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut scored = Vec::new();
+        for row in rows {
+            let (id, blob, revision) = row?;
+            let Some(entry) = self.entries.get(&id) else {
+                continue;
             };
-            let iter = stmt
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
-                })
-                .ok();
-            if let Some(iter) = iter {
-                for row in iter.flatten() {
-                    rows.push(row);
-                }
-            }
-        }
-        let mut scored: Vec<(f64, String)> = Vec::new();
-        for (id, blob) in rows {
-            // BLOB → f32 数组;长度不符(损坏/跨版本)跳过。余数与 chunks_exact
-            // 同语义丢弃(clippy 1.98 起要求常量块长走 as_chunks)。
-            let (chunks, _remainder) = blob.as_chunks::<4>();
-            let vec = chunks
-                .iter()
-                .map(|c| f32::from_le_bytes(*c))
-                .collect::<Vec<_>>();
-            if vec.len() != query_vec.len() {
+            if super::entry_revision(entry) != revision {
                 continue;
             }
-            let sim = cosine_similarity(query_vec, &vec);
-            scored.push((sim, id));
+            let (chunks, remainder) = blob.as_chunks::<4>();
+            anyhow::ensure!(
+                remainder.is_empty() && chunks.len() == query_vec.len(),
+                "vector index has incompatible dimensions for {id}"
+            );
+            let vector: Vec<_> = chunks.iter().map(|c| f32::from_le_bytes(*c)).collect();
+            scored.push(IndexHit::from_entry(
+                entry,
+                cosine_similarity(query_vec, &vector),
+            ));
         }
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| b.score.total_cmp(&a.score));
         scored.truncate(limit);
-        scored
-            .into_iter()
-            .filter_map(|(score, id)| {
-                self.entries
-                    .get(&id)
-                    .map(|e| IndexHit::from_entry(e, score))
-            })
-            .collect()
+        Ok(scored)
     }
 
-    /// dense 检索入口:query 文本 → embedder 向量 → brute-force 扫描。
-    fn dense(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit> {
+    fn dense(&self, query: &IndexQuery, limit: usize) -> anyhow::Result<Vec<IndexHit>> {
         let Some(embedder) = &self.embedder else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         let text = if query.text.trim().is_empty() {
             query.fingerprint.as_deref().unwrap_or("")
@@ -376,92 +361,47 @@ impl SqliteMemoryIndex {
             &query.text
         };
         if text.trim().is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
-        let Ok(mut vecs) = embedder.embed(&[text]) else {
-            return Vec::new();
-        };
-        let Some(query_vec) = vecs.pop() else {
-            return Vec::new();
-        };
-        self.dense_scan(&query_vec, limit)
+        let mut vectors = embedder.embed(&[text])?;
+        anyhow::ensure!(
+            vectors.len() == 1,
+            "embedding query response must contain one vector"
+        );
+        let vector = vectors.remove(0);
+        anyhow::ensure!(
+            !vector.is_empty() && vector.iter().all(|x| x.is_finite()),
+            "embedding query vector is invalid"
+        );
+        Ok(self
+            .dense_scan(&vector, limit)?
             .into_iter()
             .filter(|hit| {
                 self.entries
                     .get(&hit.id)
                     .is_some_and(|entry| super::relevance::anchors_match(&query.text, entry))
             })
-            .collect()
+            .collect())
     }
 }
 
 impl MemoryIndex for SqliteMemoryIndex {
-    fn search_lexical(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit> {
+    fn search_lexical(&self, query: &IndexQuery, limit: usize) -> anyhow::Result<Vec<IndexHit>> {
         // D-366:统一入口(search_entries 内部完成决策排序并记命中观测)。
-        self.search_entries(query, None, Some("active"), limit)
+        Ok(self
+            .search_entries(query, None, Some("active"), limit)?
             .into_iter()
             .map(|h| IndexHit::from_entry(&h.entry, h.score))
-            .collect()
+            .collect())
     }
 
-    fn search_dense(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit> {
+    fn search_dense(&self, query: &IndexQuery, limit: usize) -> anyhow::Result<Vec<IndexHit>> {
         // 无 embedder → 向量表空,恒空(通道不可用,不报错)。
         self.dense(query, limit)
     }
 
-    fn search_hybrid(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit> {
-        let Some(_) = &self.embedder else {
-            // 无 embedder 时 hybrid 自动退化为 lexical,功能完整(设计 §5 验收①)。
-            return self.search_lexical(query, limit);
-        };
-        // RRF 融合(k=60):BM25 top10 + dense top10 → top5(设计 §5,禁止线性加权)。
-        const RRF_K: f64 = 60.0;
-        const LEXICAL_TOP: usize = 10;
-        const DENSE_TOP: usize = 10;
-        // D-366:hybrid 内部走不记 hits 的 lexical 通道,融合后统一记(避免重复观测)。
-        let lexical = self.lexical_hits(query, None, Some("active"), LEXICAL_TOP);
-        let dense = self.search_dense(query, DENSE_TOP);
-        if dense.is_empty() {
-            // dense 通道配置了但没结果(空表/embedding 失败)→ 退化为 lexical。
-            // 这是公开入口的最终结果:记 hits 并物化为 IndexHit。
-            self.record_hits_for(&lexical);
-            return lexical
-                .into_iter()
-                .map(|h| IndexHit::from_entry(&h.entry, h.score))
-                .collect();
-        }
-        let mut rrf: std::collections::HashMap<String, (f64, IndexHit)> =
-            std::collections::HashMap::new();
-        // rank 从 1 开始;RRF score = Σ 1/(k + rank)。
-        for (rank, hit) in lexical.into_iter().enumerate() {
-            let entry = rrf
-                .entry(hit.entry.id.clone())
-                .or_insert_with(|| (0.0, IndexHit::from_entry(&hit.entry, 0.0)));
-            entry.0 += 1.0 / (RRF_K + (rank as f64 + 1.0));
-        }
-        for (rank, hit) in dense.into_iter().enumerate() {
-            let entry = rrf
-                .entry(hit.id.clone())
-                .or_insert_with(|| (0.0, hit.clone()));
-            entry.0 += 1.0 / (RRF_K + (rank as f64 + 1.0));
-        }
-        let mut fused: Vec<IndexHit> = rrf
-            .into_values()
-            .map(|(s, mut h)| {
-                h.score = s;
-                h
-            })
-            .collect();
-        fused.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        fused.truncate(limit);
-        // 最终命中记 hits(R-125 观测,hybrid 记融合结果而非中间通道)。
-        let store = MemoryStore::project(&self.project_root);
-        store.record_hits(&fused.iter().map(|h| h.id.clone()).collect::<Vec<_>>());
-        fused
+    fn search_hybrid(&self, query: &IndexQuery, limit: usize) -> anyhow::Result<Vec<IndexHit>> {
+        Ok(self.search_hybrid_with_timing(query, limit)?.0)
     }
 
     fn upsert(&mut self, entry: &MemoryEntry) -> anyhow::Result<()> {
@@ -484,33 +424,7 @@ impl MemoryIndex for SqliteMemoryIndex {
         } else {
             self.entries.remove(&entry.id);
         }
-        // 向量增量:active 且有 embedder → 生成并落表;非 active → 删行。
-        let conn = self.open_vector_db()?;
-        if entry.status == "active" {
-            if let Some(vec) = self.vectorize(entry) {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0);
-                conn.execute(
-                    "INSERT INTO memory_vectors(id, dim, vector, updated)
-                     VALUES (?1, ?2, ?3, ?4)
-                     ON CONFLICT(id) DO UPDATE SET dim = ?2, vector = ?3, updated = ?4",
-                    rusqlite::params![
-                        entry.id,
-                        vec.len() as i64,
-                        Self::vector_to_blob(&vec),
-                        now_ms
-                    ],
-                )?;
-            }
-        } else {
-            conn.execute(
-                "DELETE FROM memory_vectors WHERE id = ?1",
-                rusqlite::params![entry.id],
-            )?;
-        }
-        Ok(())
+        self.ensure_vectors()
     }
 
     fn remove(&mut self, id: &str) -> anyhow::Result<()> {
@@ -519,65 +433,12 @@ impl MemoryIndex for SqliteMemoryIndex {
         }
         self.fp.retain(|_, ids| !ids.is_empty());
         self.entries.remove(id);
-        let conn = self.open_vector_db()?;
-        conn.execute(
-            "DELETE FROM memory_vectors WHERE id = ?1",
-            rusqlite::params![id],
-        )?;
-        Ok(())
+        self.ensure_vectors()
     }
 
     fn rebuild(&mut self) -> anyhow::Result<()> {
-        // 重建内存索引与向量表:指纹+条目快照全量重扫,向量一次批量生成(验收④)。
-        let new_self = Self::with_embedder(&self.project_root, self.embedder.clone());
-        *self = new_self;
-        let conn = self.open_vector_db()?;
-        conn.execute("DELETE FROM memory_vectors", [])?;
-        let entries: Vec<MemoryEntry> = self.entries.values().cloned().collect();
-        let mut failed = 0usize;
-        if let Some(embedder) = &self.embedder {
-            let texts: Vec<String> = entries
-                .iter()
-                .map(|entry| format!("{}\n{}\n{}", entry.title, entry.description, entry.body))
-                .collect();
-            let inputs: Vec<&str> = texts.iter().map(String::as_str).collect();
-            match embedder.embed(&inputs) {
-                Ok(vectors) if vectors.len() == entries.len() => {
-                    for (entry, vec) in entries.iter().zip(vectors) {
-                        conn.execute(
-                            "INSERT INTO memory_vectors(id, dim, vector, updated) VALUES (?1, ?2, ?3, ?4)",
-                            rusqlite::params![
-                                entry.id,
-                                vec.len() as i64,
-                                Self::vector_to_blob(&vec),
-                                std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_millis() as i64)
-                                    .unwrap_or(0)
-                            ],
-                        )?;
-                    }
-                }
-                Ok(vectors) => {
-                    failed = entries.len();
-                    tracing::warn!(
-                        expected = entries.len(),
-                        actual = vectors.len(),
-                        "embedding 批量响应数量不匹配"
-                    );
-                }
-                Err(e) => {
-                    failed = entries.len();
-                    tracing::warn!(error = %e, "embedding 批量生成失败,向量索引保持空");
-                }
-            }
-        }
-        tracing::debug!(
-            entries = self.entries.len(),
-            failed,
-            "memory_vectors 全量重建完成"
-        );
-        Ok(())
+        *self = Self::with_embedder(&self.project_root, self.embedder.clone());
+        self.ensure_vectors()
     }
 }
 
@@ -625,14 +486,14 @@ impl SqliteMemoryIndex {
         &self,
         query: &IndexQuery,
         limit: usize,
-    ) -> (Vec<IndexHit>, RetrievalTiming) {
+    ) -> anyhow::Result<(Vec<IndexHit>, RetrievalTiming)> {
         let mut timing = RetrievalTiming::default();
         let Some(embedder) = &self.embedder else {
             // 无 embedder:只走 lexical,embed/vector 段为 0(降级路径可见)。
             let started = std::time::Instant::now();
-            let hits = self.search_lexical(query, limit);
+            let hits = self.search_lexical(query, limit)?;
             timing.lexical_ms = started.elapsed().as_millis() as u64;
-            return (hits, timing);
+            return Ok((hits, timing));
         };
         // 与 search_hybrid 相同的 RRF 融合,但记录各段耗时。
         // D-366:内部走不记 hits 的 lexical 通道,最终结果统一记。
@@ -641,7 +502,7 @@ impl SqliteMemoryIndex {
         const DENSE_TOP: usize = 10;
 
         let started = std::time::Instant::now();
-        let lexical = self.lexical_hits(query, None, Some("active"), LEXICAL_TOP);
+        let lexical = self.lexical_hits(query, None, Some("active"), LEXICAL_TOP)?;
         timing.lexical_ms = started.elapsed().as_millis() as u64;
 
         // query 向量化(embed 段)。
@@ -654,7 +515,14 @@ impl SqliteMemoryIndex {
         let query_vec = if text.trim().is_empty() {
             None
         } else {
-            embedder.embed(&[text]).ok().and_then(|mut v| v.pop())
+            {
+                let mut vectors = embedder.embed(&[text])?;
+                anyhow::ensure!(
+                    vectors.len() == 1,
+                    "embedding query response must contain one vector"
+                );
+                Some(vectors.remove(0))
+            }
         };
         timing.embed_ms = embed_started.elapsed().as_millis() as u64;
 
@@ -662,7 +530,7 @@ impl SqliteMemoryIndex {
         let vec_started = std::time::Instant::now();
         let dense = match &query_vec {
             Some(qv) => self
-                .dense_scan(qv, DENSE_TOP)
+                .dense_scan(qv, DENSE_TOP)?
                 .into_iter()
                 .filter(|hit| {
                     self.entries
@@ -681,7 +549,7 @@ impl SqliteMemoryIndex {
                 .into_iter()
                 .map(|h| IndexHit::from_entry(&h.entry, h.score))
                 .collect();
-            return (out, timing);
+            return Ok((out, timing));
         }
         let mut rrf: std::collections::HashMap<String, (f64, IndexHit)> =
             std::collections::HashMap::new();
@@ -713,72 +581,74 @@ impl SqliteMemoryIndex {
         // 最终命中记 hits(R-125 观测)。
         let store = MemoryStore::project(&self.project_root);
         store.record_hits(&fused.iter().map(|h| h.id.clone()).collect::<Vec<_>>());
-        (fused, timing)
+        Ok((fused, timing))
     }
 
-    /// 向量表与 active 条目集合按 id 差集增量补/删(R-233 生产接线):
-    /// 冷启动/外部写入后 dense 通道缺条目 → 只补缺失、清孤儿,避免每次
-    /// 检索全量重嵌(本地 embedder 也要省,远程 API 更不能每轮全量)。
-    /// 正文更新不触发重算(向量按 id 存,增量语义保留旧向量——与 FTS 的
-    /// refresh 口径一致,更新条目由写路径 upsert 负责)。无 embedder 直接成功。
+    /// Reconcile by content revision and embedding space. Generate first,
+    /// then publish vectors and revisions together; a provider error leaves
+    /// the previous generation intact and is returned to the caller.
     pub fn ensure_vectors(&mut self) -> anyhow::Result<()> {
-        if self.embedder.is_none() {
+        let Some(embedder) = &self.embedder else {
             return Ok(());
-        }
-        let conn = self.open_vector_db()?;
-        let mut vec_ids: std::collections::HashSet<String> = conn
-            .prepare("SELECT id FROM memory_vectors")?
-            .query_map([], |r| r.get(0))?
-            .collect::<Result<_, _>>()?;
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        // 补缺失:entries(active 快照)里有、向量表没有的条目。一次请求提交全部缺失文本。
-        let missing: Vec<MemoryEntry> = self
+        };
+        let model = embedder.cache_key();
+        let mut conn = self.open_vector_db()?;
+        let known: HashMap<String, (String, String)> = {
+            let mut stmt = conn.prepare("SELECT v.id, r.source_revision, r.model_identity FROM memory_vectors v JOIN memory_vector_revisions r ON v.id=r.id")?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let missing: Vec<_> = self
             .entries
-            .iter()
-            .filter(|(id, _)| !vec_ids.contains(*id))
-            .map(|(_, entry)| (*entry).clone())
+            .values()
+            .filter(|entry| {
+                known.get(&entry.id) != Some(&(super::entry_revision(entry), model.clone()))
+            })
             .collect();
-        if !missing.is_empty() {
-            let texts: Vec<String> = missing
+        let texts: Vec<_> = missing
+            .iter()
+            .map(|entry| format!("{}\n{}\n{}", entry.title, entry.description, entry.body))
+            .collect();
+        let vectors = if texts.is_empty() {
+            Vec::new()
+        } else {
+            embedder.embed(&texts.iter().map(String::as_str).collect::<Vec<_>>())?
+        };
+        anyhow::ensure!(
+            vectors.len() == missing.len(),
+            "embedding response count differs: expected {}, got {}",
+            missing.len(),
+            vectors.len()
+        );
+        anyhow::ensure!(
+            vectors
                 .iter()
-                .map(|entry| format!("{}\n{}\n{}", entry.title, entry.description, entry.body))
-                .collect();
-            let inputs: Vec<&str> = texts.iter().map(String::as_str).collect();
-            if let Ok(vectors) = self.embedder.as_ref().unwrap().embed(&inputs) {
-                if vectors.len() == missing.len() {
-                    for (entry, vec) in missing.iter().zip(vectors) {
-                        conn.execute(
-                            "INSERT INTO memory_vectors(id, dim, vector, updated) VALUES (?1, ?2, ?3, ?4)",
-                            rusqlite::params![
-                                entry.id,
-                                vec.len() as i64,
-                                Self::vector_to_blob(&vec),
-                                now_ms
-                            ],
-                        )?;
-                        vec_ids.insert(entry.id.clone());
-                    }
-                } else {
-                    tracing::warn!(
-                        expected = missing.len(),
-                        actual = vectors.len(),
-                        "embedding 补缺响应数量不匹配"
-                    );
-                }
-            }
+                .all(|v| !v.is_empty() && v.iter().all(|x| x.is_finite())),
+            "embedding response contains an empty or non-finite vector"
+        );
+        let store = MemoryStore::project(&self.project_root);
+        let _tree_lock = store.tree_lock()?;
+        let tx = conn.transaction()?;
+        let ids: Vec<String> = {
+            let mut stmt = tx.prepare("SELECT id FROM memory_vectors")?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for id in ids.iter().filter(|id| !self.entries.contains_key(*id)) {
+            tx.execute("DELETE FROM memory_vectors WHERE id=?1", [id])?;
+            tx.execute("DELETE FROM memory_vector_revisions WHERE id=?1", [id])?;
         }
-        // 清孤儿:向量表里有、entries 没有的(条目被删/归档/移出 active)。
-        for id in &vec_ids {
-            if !self.entries.contains_key(id) {
-                conn.execute(
-                    "DELETE FROM memory_vectors WHERE id = ?1",
-                    rusqlite::params![id],
-                )?;
-            }
+        for (entry, vector) in missing.into_iter().zip(vectors) {
+            tx.execute("INSERT INTO memory_vectors(id,dim,vector,updated) VALUES (?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET dim=excluded.dim,vector=excluded.vector,updated=excluded.updated",
+                rusqlite::params![entry.id, vector.len() as i64, Self::vector_to_blob(&vector), super::store::now_ms()])?;
+            tx.execute("INSERT INTO memory_vector_revisions(id,source_revision,model_identity) VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET source_revision=excluded.source_revision,model_identity=excluded.model_identity",
+                rusqlite::params![entry.id, super::entry_revision(entry), model])?;
         }
+        tx.commit()?;
+        store.record_write_log(
+            &self.vector_db_path(),
+            Some(std::fs::read(self.vector_db_path())?),
+        )?;
         Ok(())
     }
 
@@ -789,13 +659,13 @@ impl SqliteMemoryIndex {
         &self,
         query: &IndexQuery,
         limit: usize,
-    ) -> (Vec<SearchHit>, RetrievalTiming) {
-        let (hits, timing) = self.search_hybrid_with_timing(query, limit);
+    ) -> anyhow::Result<(Vec<SearchHit>, RetrievalTiming)> {
+        let (hits, timing) = self.search_hybrid_with_timing(query, limit)?;
         // search_hybrid_with_timing 已完成最终结果的 record_hits；重新读取持久化
         // 计数，避免 SearchHit 物化时把 Tier0/Tier1/hybrid 统一显示为 0。
         let hit_counts = MemoryStore::project(&self.project_root).hits_map();
         let out = self.materialize_hits(hits, &hit_counts);
-        (out, timing)
+        Ok((out, timing))
     }
 
     /// 从当前真源物化路径和条目；已归档的旧快照不能留下空路径召回钩子。
@@ -863,9 +733,10 @@ mod tests {
         );
         dense.rebuild().unwrap();
         let anchor_query = IndexQuery::text("recall_profile recall_events index.db");
-        assert!(dense.search_hybrid(&anchor_query, 5).is_empty());
+        assert!(dense.search_hybrid(&anchor_query, 5).unwrap().is_empty());
         assert!(dense
             .search_hybrid_with_timing(&anchor_query, 5)
+            .unwrap()
             .0
             .is_empty());
         for query in [
@@ -876,6 +747,7 @@ mod tests {
             assert!(
                 index
                     .search_entries(&IndexQuery::text(query), None, Some("active"), 5)
+                    .unwrap()
                     .is_empty(),
                 "{query}"
             );
@@ -888,26 +760,31 @@ mod tests {
             "recall_profile 在 index.db 中复核；outcome_improved 必须具有同目标失败恢复证据。",
         );
         index.upsert(&matching).unwrap();
-        let hits = index.search_entries(
-            &IndexQuery::text(
-                "recall_profile recall_events fetched injected 采纳 memory_recalls index.db",
-            ),
-            None,
-            Some("active"),
-            5,
-        );
+        let hits = index
+            .search_entries(
+                &IndexQuery::text(
+                    "recall_profile recall_events fetched injected 采纳 memory_recalls index.db",
+                ),
+                None,
+                Some("active"),
+                5,
+            )
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].entry.id, matching.id);
-        let hits = index.search_entries(
-            &IndexQuery::text("permission requires user approval"),
-            None,
-            Some("active"),
-            5,
-        );
+        let hits = index
+            .search_entries(
+                &IndexQuery::text("permission requires user approval"),
+                None,
+                Some("active"),
+                5,
+            )
+            .unwrap();
         assert_eq!(hits[0].entry.id, permission.id);
         assert!(
             index
                 .search_entries(&IndexQuery::text("recall_event"), None, Some("active"), 5)
+                .unwrap()
                 .is_empty(),
             "标识符前缀不能误配"
         );
@@ -942,6 +819,9 @@ mod tests {
     }
 
     impl Embedder for CountingEmbedder {
+        fn cache_key(&self) -> String {
+            "counting-v1".into()
+        }
         fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
             self.calls.lock().unwrap().push(texts.len());
             Ok(texts
@@ -980,7 +860,9 @@ mod tests {
 
         let index = SqliteMemoryIndex::new(&root);
         // dense 通道恒空(无 embedder)。
-        let dense = index.search_dense(&IndexQuery::text("edit old_string"), 5);
+        let dense = index
+            .search_dense(&IndexQuery::text("edit old_string"), 5)
+            .unwrap();
         assert!(
             dense.is_empty(),
             "无 embedder 时 dense 必须不可用: {:?}",
@@ -988,14 +870,17 @@ mod tests {
         );
 
         // 指纹精确命中:Tier0 返回 1 条且是目标条目。
-        let fp_hits =
-            index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
+        let fp_hits = index
+            .search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5)
+            .unwrap();
         assert_eq!(fp_hits.len(), 1, "指纹必须精确命中: {:?}", fp_hits);
         assert!(fp_hits[0].action.contains("edit"), "{:?}", fp_hits[0]);
         assert_eq!(fp_hits[0].score, 1.0);
 
         // BM25 文本命中:无指纹条目靠描述/正文召回。
-        let bm25_hits = index.search_lexical(&IndexQuery::text("cargo build 网络错误 重试"), 5);
+        let bm25_hits = index
+            .search_lexical(&IndexQuery::text("cargo build 网络错误 重试"), 5)
+            .unwrap();
         assert!(
             bm25_hits.iter().any(|h| h.action.contains("cargo build")),
             "BM25 必须命中 cargo 条目: {:?}",
@@ -1003,8 +888,9 @@ mod tests {
         );
 
         // hybrid 退化为 lexical:同 query 结果一致(无 embedder 时功能完整)。
-        let hybrid =
-            index.search_hybrid(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
+        let hybrid = index
+            .search_hybrid(&IndexQuery::fingerprint("edit", "old_string not found"), 5)
+            .unwrap();
         assert_eq!(hybrid.len(), 1, "hybrid 退化后与 lexical 一致");
         assert_eq!(hybrid[0].id, fp_hits[0].id);
     }
@@ -1023,7 +909,9 @@ mod tests {
         let query = IndexQuery::fingerprint("edit", "old_string not found");
 
         // 第一次公开 lexical 查询返回查询前计数 0，同时只落一次 hits。
-        let first = index.search_entries(&query, None, Some("active"), 5);
+        let first = index
+            .search_entries(&query, None, Some("active"), 5)
+            .unwrap();
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].entry.id, entry.id);
         assert!(first[0].path.is_file(), "指纹召回须保留可读取来源");
@@ -1031,12 +919,14 @@ mod tests {
         assert_eq!(store.hits_map().get(&entry.id).copied(), Some(1));
 
         // 第二次 Tier0 查询必须读取上一次持久化计数，而不是重新显示 0。
-        let second = index.search_entries(&query, None, Some("active"), 5);
+        let second = index
+            .search_entries(&query, None, Some("active"), 5)
+            .unwrap();
         assert_eq!(second[0].hits, 1);
         assert_eq!(store.hits_map().get(&entry.id).copied(), Some(2));
 
         // hybrid 物化发生在 record_hits 之后，也必须暴露同一计数。
-        let (hybrid, _) = index.search_hybrid_entries(&query, 5);
+        let (hybrid, _) = index.search_hybrid_entries(&query, 5).unwrap();
         assert_eq!(hybrid[0].hits, 3);
         assert_eq!(hybrid[0].path, first[0].path);
         assert!(hybrid[0].path.is_file(), "混合召回须保留可读取来源");
@@ -1044,7 +934,7 @@ mod tests {
 
         // 索引仍持有旧快照，但源文件已离开有效库时不能生成空路径钩子。
         std::fs::rename(&hybrid[0].path, root.join("removed-memory.md")).unwrap();
-        assert!(index.search_hybrid_entries(&query, 5).0.is_empty());
+        assert!(index.search_hybrid_entries(&query, 5).unwrap().0.is_empty());
     }
 
     #[test]
@@ -1059,10 +949,12 @@ mod tests {
         );
         let index = SqliteMemoryIndex::new(&root);
         // 指纹 miss(错误文本不同)→ 回落 BM25 文本。
-        let hits = index.search_lexical(
-            &IndexQuery::both("read", "file not found", "read 文件失败 路径"),
-            5,
-        );
+        let hits = index
+            .search_lexical(
+                &IndexQuery::both("read", "file not found", "read 文件失败 路径"),
+                5,
+            )
+            .unwrap();
         assert!(
             hits.iter().any(|h| h.action.contains("read")),
             "指纹 miss 时文本兜底必须命中: {:?}",
@@ -1078,6 +970,7 @@ mod tests {
         // 空索引:无命中。
         assert!(index
             .search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5)
+            .unwrap()
             .is_empty());
 
         // upsert 一条带指纹条目 → 立即可查。
@@ -1089,20 +982,23 @@ mod tests {
             "[fp:edit|old_string not found]\n先 read。",
         );
         index.upsert(&entry).unwrap();
-        let hits =
-            index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
+        let hits = index
+            .search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5)
+            .unwrap();
         assert_eq!(hits.len(), 1, "upsert 后必须可查: {:?}", hits);
 
         // remove → 不可查。
         index.remove(&entry.id).unwrap();
         assert!(index
             .search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5)
+            .unwrap()
             .is_empty());
 
         // rebuild → 从文件系统全量重建,恢复命中。
         index.rebuild().unwrap();
-        let hits =
-            index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
+        let hits = index
+            .search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5)
+            .unwrap();
         assert_eq!(hits.len(), 1, "rebuild 后必须恢复: {:?}", hits);
     }
 
@@ -1299,7 +1195,7 @@ mod tests {
                 "edit 失败处理\nold_string not found 时先 read\n先 read 重建 old_string 再 edit",
             ),
             5,
-        );
+        ).unwrap();
         assert!(
             hits.iter().any(|h| h.id == e1.id),
             "dense 必须命中语义相同的 e1: {:?}",
@@ -1334,7 +1230,7 @@ mod tests {
         index.rebuild().unwrap();
 
         let query = IndexQuery::text("edit 失败 old_string not found 先 read 再 edit 重试");
-        let hybrid = index.search_hybrid(&query, 5);
+        let hybrid = index.search_hybrid(&query, 5).unwrap();
         assert!(
             hybrid.iter().any(|h| h.id == shared.id),
             "hybrid 必须包含 shared(两通道都命中): {:?}",
@@ -1348,7 +1244,7 @@ mod tests {
         );
 
         // hybrid 与纯 lexical 不同(融合了 dense 贡献)或至少不劣于 lexical。
-        let lexical = index.search_lexical(&query, 5);
+        let lexical = index.search_lexical(&query, 5).unwrap();
         assert!(
             hybrid.len() >= lexical.len().min(1),
             "hybrid 融合不应劣化 lexical: hybrid={:?} lexical={:?}",
@@ -1373,6 +1269,9 @@ mod tests {
         // embedding 耗时(毫秒粒度可测;FakeEmbedder 本身亚毫秒会记成 0)。
         struct SlowEmbedder;
         impl crate::embed::Embedder for SlowEmbedder {
+            fn cache_key(&self) -> String {
+                "SlowEmbedder-v1".into()
+            }
             fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
                 std::thread::sleep(std::time::Duration::from_millis(2));
                 crate::embed::FakeEmbedder::new(8).embed(texts)
@@ -1383,7 +1282,7 @@ mod tests {
             let mut index = SqliteMemoryIndex::with_embedder(&root, Some(embedder));
             index.rebuild().unwrap();
             let query = IndexQuery::text("edit 失败 old_string not found 先 read 再 edit");
-            let (hits, timing) = index.search_hybrid_with_timing(&query, 5);
+            let (hits, timing) = index.search_hybrid_with_timing(&query, 5).unwrap();
             assert!(
                 hits.iter().any(|h| h.id == e1.id),
                 "hybrid 必须命中: {:?}",
@@ -1402,7 +1301,7 @@ mod tests {
         {
             let index = SqliteMemoryIndex::new(&root);
             let query = IndexQuery::text("edit 失败");
-            let (_, timing) = index.search_hybrid_with_timing(&query, 5);
+            let (_, timing) = index.search_hybrid_with_timing(&query, 5).unwrap();
             assert_eq!(timing.embed_ms, 0, "无 embedder 时 embed 段必须为 0");
             assert_eq!(timing.vector_ms, 0, "无 embedder 时 vector 段必须为 0");
             assert_eq!(timing.total(), timing.lexical_ms);
@@ -1414,90 +1313,90 @@ mod tests {
     /// 条目照常可见(证明摘除的是全局分支,不是整个检索)。
     #[test]
     fn 全局记忆废弃_检索常驻召回均不再遍历全局store() {
-        // 临时 HOME,让 MemoryStore::global() 指向可控目录。
-        let home = std::env::temp_dir().join(format!(
-            "kz-home-r194-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&home).unwrap();
-        std::env::set_var("KANZEI_HOME", &home);
+        crate::memory::test_home::run(
+            "memory::index::tests::全局记忆废弃_检索常驻召回均不再遍历全局store",
+            |home| {
+                // 项目 store + 全局 store 各放一条 active 条目。
+                let root = home.join("project");
+                let project = MemoryStore::project(&root);
+                let project_entry = add(
+                    &project,
+                    "sop",
+                    "R-194 项目检索钩子",
+                    "项目条目必须仍可被检索",
+                    "项目 store 的 active 条目正文",
+                );
+                let global = MemoryStore::global().expect("临时 HOME 下应能打开全局 store");
+                let global_entry = match global
+                    .add(
+                        "sop",
+                        "R-194 全局废弃钩子",
+                        "全局条目不得再被检索",
+                        "全局 store 的 active 条目正文",
+                        "user",
+                        &[],
+                        None,
+                        true,
+                    )
+                    .unwrap()
+                {
+                    AddOutcome::Added(e) => e,
+                    other => panic!("expected Added, got {other:?}"),
+                };
+                assert_eq!(
+                    global_entry.status, "active",
+                    "全局条目必须 active 才能测出检索是否遍历"
+                );
 
-        // 项目 store + 全局 store 各放一条 active 条目。
-        let (root, project) = temp_root();
-        let project_entry = add(
-            &project,
-            "sop",
-            "R-194 项目检索钩子",
-            "项目条目必须仍可被检索",
-            "项目 store 的 active 条目正文",
-        );
-        let global = MemoryStore::global().expect("临时 HOME 下应能打开全局 store");
-        let global_entry = match global
-            .add(
-                "sop",
-                "R-194 全局废弃钩子",
-                "全局条目不得再被检索",
-                "全局 store 的 active 条目正文",
-                "user",
-                &[],
-                None,
-                true,
-            )
-            .unwrap()
-        {
-            AddOutcome::Added(e) => e,
-            other => panic!("expected Added, got {other:?}"),
-        };
-        assert_eq!(
-            global_entry.status, "active",
-            "全局条目必须 active 才能测出检索是否遍历"
-        );
+                // ① hybrid 检索(含 lexical Tier1):只应命中项目条目。
+                let index = SqliteMemoryIndex::new(&root);
+                let (hits, _) = index
+                    .search_hybrid_with_timing(&IndexQuery::text("R-194"), 5)
+                    .unwrap();
+                assert!(
+                    hits.iter().any(|h| h.id == project_entry.id),
+                    "项目条目必须仍可检索: {:?}",
+                    hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+                );
+                assert!(
+                    hits.iter().all(|h| h.id != global_entry.id),
+                    "全局条目不得出现在检索结果: {:?}",
+                    hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+                );
 
-        // ① hybrid 检索(含 lexical Tier1):只应命中项目条目。
-        let index = SqliteMemoryIndex::new(&root);
-        let (hits, _) = index.search_hybrid_with_timing(&IndexQuery::text("R-194"), 5);
-        assert!(
-            hits.iter().any(|h| h.id == project_entry.id),
-            "项目条目必须仍可检索: {:?}",
-            hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
-        );
-        assert!(
-            hits.iter().all(|h| h.id != global_entry.id),
-            "全局条目不得出现在检索结果: {:?}",
-            hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
-        );
+                // ③ 指纹索引 FingerprintIndex::build:只收项目条目。
+                let fp_map = crate::memory::FingerprintIndex::build(&root);
+                let all_ids: std::collections::HashSet<String> =
+                    fp_map.values().flatten().cloned().collect();
+                assert!(
+                    !all_ids.contains(&global_entry.id),
+                    "全局条目指纹不得进指纹索引: {all_ids:?}"
+                );
 
-        // ③ 指纹索引 FingerprintIndex::build:只收项目条目。
-        let fp_map = crate::memory::FingerprintIndex::build(&root);
-        let all_ids: std::collections::HashSet<String> =
-            fp_map.values().flatten().cloned().collect();
-        assert!(
-            !all_ids.contains(&global_entry.id),
-            "全局条目指纹不得进指纹索引: {all_ids:?}"
-        );
+                // ④ 失败召回 FailureRecallPolicy::new:快照不含全局条目。
+                let mut policy = crate::memory::FailureRecallPolicy::new(&root);
+                policy.search = Ok(Arc::new(
+                    crate::memory::recall_search::RecallSearch::start().unwrap(),
+                ));
+                let tier1_hits = policy.retrieve(&kanzei_core::RecallTrigger {
+                    tool: "bash".into(),
+                    kind: "test".into(),
+                    sample: "R-194 全局废弃钩子 全局 store 的 active 条目正文".into(),
+                    target: String::new(),
+                    failure_count: 1,
+                    previous_retrieved_ids: Vec::new(),
+                });
+                assert!(
+                    tier1_hits.iter().all(|h| h.id != global_entry.id),
+                    "失败召回不得返回全局条目: {:?}",
+                    tier1_hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+                );
 
-        // ④ 失败召回 FailureRecallPolicy::new:快照不含全局条目。
-        let policy = crate::memory::FailureRecallPolicy::new(&root);
-        let tier1_hits = policy.retrieve(&kanzei_core::RecallTrigger {
-            tool: "bash".into(),
-            kind: "test".into(),
-            sample: "R-194 全局废弃钩子 全局 store 的 active 条目正文".into(),
-            target: String::new(),
-            failure_count: 1,
-            previous_retrieved_ids: Vec::new(),
-        });
-        assert!(
-            tier1_hits.iter().all(|h| h.id != global_entry.id),
-            "失败召回不得返回全局条目: {:?}",
-            tier1_hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+                Arc::try_unwrap(policy.search.unwrap())
+                    .unwrap_or_else(|_| panic!("isolated owner still shared"))
+                    .finish();
+            },
         );
-
-        std::fs::remove_dir_all(&home).ok();
-        std::fs::remove_dir_all(&root).ok();
     }
 
     /// D-366 验收③对照锚点:同一组 query 在检索边界重构前后 top-k 命中集合一致。
@@ -1553,7 +1452,7 @@ mod tests {
             ("完全不存在 的 词", 3, &[]),
         ];
         for (q, k, want_ids) in cases {
-            let hits = index.search_lexical(&IndexQuery::text(q), k);
+            let hits = index.search_lexical(&IndexQuery::text(q), k).unwrap();
             let got: std::collections::HashSet<String> =
                 hits.iter().map(|h| h.id.clone()).collect();
             let want: std::collections::HashSet<String> =
@@ -1597,5 +1496,71 @@ mod tests {
         assert!(store.recall_profile().contains_key("M-001"));
         assert!(store.fresh_recall_profile(86_400_000).is_empty());
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn vector_revisions_include_content_and_embedding_model() {
+        let (root, store) = temp_root();
+        let mut entry = add(
+            &store,
+            "fact",
+            "vector revision",
+            "vector revision",
+            "original vector body",
+        );
+        let embedding = Arc::new(crate::embed::FakeEmbedder::new(4));
+        let mut index = SqliteMemoryIndex::with_embedder(&root, Some(embedding.clone()));
+        index.ensure_vectors().unwrap();
+        let original: Vec<u8> = index
+            .open_vector_db()
+            .unwrap()
+            .query_row(
+                "SELECT vector FROM memory_vectors WHERE id=?1",
+                [&entry.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let path = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == entry.id)
+            .unwrap()
+            .0;
+        entry.body = "updated vector body".into();
+        std::fs::write(path, super::super::render_entry(&entry)).unwrap();
+        let mut updated = SqliteMemoryIndex::with_embedder(&root, Some(embedding));
+        assert!(
+            updated
+                .search_dense(&IndexQuery::text("vector revision"), 5)
+                .unwrap()
+                .is_empty(),
+            "stale vectors must not be consumed before reconciliation"
+        );
+        updated.ensure_vectors().unwrap();
+        let current: Vec<u8> = updated
+            .open_vector_db()
+            .unwrap()
+            .query_row(
+                "SELECT vector FROM memory_vectors WHERE id=?1",
+                [&entry.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_ne!(original, current);
+        let mut changed_model = SqliteMemoryIndex::with_embedder(
+            &root,
+            Some(Arc::new(crate::embed::FakeEmbedder::new(8))),
+        );
+        changed_model.ensure_vectors().unwrap();
+        let dimensions: i64 = changed_model
+            .open_vector_db()
+            .unwrap()
+            .query_row(
+                "SELECT dim FROM memory_vectors WHERE id=?1",
+                [&entry.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(dimensions, 8);
     }
 }

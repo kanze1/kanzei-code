@@ -7,7 +7,9 @@
 // - 点记忆:右侧详情栏显示全文(归档条目只读);点其它节点:详情栏列关系与跳转动作,指纹/主题节点可
 //   「用对话合并」(只预填管理对话,不发送)。
 // - 画布渲染失败(或环境没有 canvas)就退到文本视图:按 crate → 模块分组的树,给键盘与读屏用。
-import { $, defer, invoke, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
 import { toastError } from "./03-shell.js";
 import { memoryProject as currentProject } from "./03-memory-scope.js";

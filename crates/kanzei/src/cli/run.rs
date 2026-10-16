@@ -230,7 +230,9 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     }
     let snapshot = harness.resolve(&rctx)?;
 
-    let agent = snapshot.select_agent(requested_agent.as_deref())?.clone();
+    let agent = snapshot
+        .select_primary_agent(requested_agent.as_deref())?
+        .clone();
 
     // 模型:KANZEI_MODEL 覆盖 agent 定义(快速试模型用)。R-178 P2 五层链 ①②③:
     // CLI 无线/进程概念(② 恒 None),本轮直选 = KANZEI_MODEL → agent 默认;
@@ -441,9 +443,6 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             memory_hints.as_deref(),
             &prior,
             subagent_rt.as_ref(),
-            // R-246:CLI 单运行暂无 LineRuntime(dispose 由调用方负责;CLI 进程
-            // 生命周期即 line 生命周期,进程退出即全部资源收回)。
-            None,
             &mut on_event,
             &mut ask,
         ) => result,

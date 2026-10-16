@@ -1,8 +1,11 @@
 import { closeSurface } from "./00-surface.js";
-import { defer } from "./01-core.js";
-import { $, invoke, on } from "./01-core.js";
+import { readProjectDocuments, projectDocumentsChanged, observeProjectDocuments } from "./01-project-resources.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { on } from "./01-runtime-events.js";
 import { t } from "./02-i18n.js";
-import { currentProject, processItems, running, toast, toastError } from "./03-shell.js";
+import { currentProject, running, toast, toastError } from "./03-shell.js";
 import { applyBgFilters, bgDoneOpen, bgEntries, bgFilters, bgSync, renderBgSections, setBgDoneOpen } from "./06-activity.js";
 import { refreshWorktrees } from "./09-sessions.js";
 import { saveDocFilters } from "./10-docs-core.js";
@@ -32,14 +35,14 @@ import { forProject } from "./20-lines.js";
 // 而落盘走的是**新项目**的键:用户在新项目从没设过筛选,列表却永久少一批,重启也回不来。
 // 挂起的跳转高亮不必在这条路径上作废:切项目必然跟着 selectWorkspaceProject 自己那次
 // refreshDocs,由那次重绘消费(目标不在新项目的列表里就自然作罢),不会留成悬挂高亮。
-export async function refreshDocs({ extras = document.body.dataset.view !== "documents" } = {}) {
+export async function refreshDocs({ extras = document.body.dataset.view !== "documents", force = true } = {}) {
   if (!currentProject) return;
   const forProject = currentProject;
   let rendered = false;
   try {
-    const snapshot = await invoke("docs_snapshot", { projectDir: forProject });
+    const snapshot = await readProjectDocuments(forProject, { force });
     if (currentProject !== forProject) return;
-    renderDocsSnapshot(snapshot);
+    if (latestDocsSnapshot !== snapshot) renderDocsSnapshot(snapshot);
     document.dispatchEvent(new CustomEvent("kz:management-snapshot", { detail: { project: forProject, snapshot } }));
     rendered = true;
     if (extras) {
@@ -66,34 +69,33 @@ export async function refreshDocs({ extras = document.body.dataset.view !== "doc
 }
 
 // agent 在运行中改需求/缺陷/目标时,侧栏必须跟着动:否则状态、计数和状态流转按钮
-// 会一直停在开跑前的样子,要等本轮结束才更新(D-098)。合并 400ms 内的连续变更。
+// 会一直停在开跑前的样子,要等本轮结束才更新(D-098)。可见资源立即取新版本,
+// 非订阅的传统文档投影仍合并 400ms 内的连续变更。
 export let docsLiveTimer = null;
 export function refreshDocsSoon() {
+  const changedProject = currentProject;
+  if (changedProject) void projectDocumentsChanged(changedProject).catch(error => {
+    if (currentProject === changedProject) clearPendingJump();
+    toastError(`${t("项目文档刷新失败")}:${error}`, { retry: refreshDocs });
+  });
   if (document.hidden) return;
   if (["workspace", "project"].includes(document.body.dataset.view)) { refreshWorkspaceSoon(); return; }
-  if (!currentProject) return;
+  if (!currentProject || document.body.dataset.view !== "documents") return;
   clearTimeout(docsLiveTimer);
   docsLiveTimer = setTimeout(async () => {
     docsLiveTimer = null;
     if (document.hidden) return;
     if (["workspace", "project"].includes(document.body.dataset.view)) { refreshWorkspaceSoon(); return; }
-    // 重绘会清空列表容器:用户正在拖拽排序、或单页里有没保存的条目编辑时先让路,
-    // 稍后再刷(编辑态与草稿虽然跨重绘保留,agent 连续改台账时整表重建仍会打断输入法组字)。
-    // 新建表单(14-docs-quick.js)住在列表容器之外的槽位里,不受重绘影响,不用让路。
-    // 只在单页开着时让:人已经离开单页,草稿照样跨重绘保留,侧栏焦点卡不能因此停更。
-    const editingDraft = $("view-documents")?.classList.contains("active")
-      && document.querySelector(".doc-detail.editing .doc-edit[data-dirty]");
-    if (document.querySelector(".doc-item.dragging") || editingDraft) {
-      refreshDocsSoon();
-      return;
-    }
+    if (document.body.dataset.view !== "documents") return;
+    // The list projection owns editing/drag preservation for every snapshot
+    // source; resource freshness never depends on a retrying interaction timer.
     // 同 refreshDocs:await 前后各认一次项目。这条路径由 agent 的文档变更事件驱动,
     // 合并窗口本身就有 400ms,在飞的概率比手动刷新更高。
     const forProject = currentProject;
     try {
-      const snapshot = await invoke("docs_snapshot", { projectDir: forProject });
+      const snapshot = await readProjectDocuments(forProject);
       if (currentProject !== forProject) return;
-      renderDocsSnapshot(snapshot);
+      if (latestDocsSnapshot !== snapshot) renderDocsSnapshot(snapshot);
     } catch (err) {
       // 同 refreshDocs:没重绘成 = 挂起的跳转高亮没人消费,不作废就会在下一次
       // 无关刷新上突然亮起来。同样只作废属于自己那次刷新的(D-250):这条路径由 agent 的
@@ -105,16 +107,20 @@ export function refreshDocsSoon() {
   }, 400);
 }
 
-// 兜底轮询:agent 经 write/bash 直改台账文件时不产生 tracker 工具事件,侧栏要等
-// 整轮结束(kz:done)才刷(D-098 只覆盖了 req/defect 工具路径)。任一线路运行中
-// 每 20 秒补一次快照(仍走 refreshDocsSoon 的合并窗口与让路逻辑);空闲不打扰。
+let documentResourceSubscription = null;
+function observeCurrentDocuments() {
+  documentResourceSubscription?.(); documentResourceSubscription = null;
+  if (!currentProject || document.body.dataset.view !== "documents") return;
+  const project = currentProject;
+  documentResourceSubscription = observeProjectDocuments(project, resource => {
+    if (project !== currentProject || document.body.dataset.view !== "documents") return;
+    if (resource.status === "ready") renderDocsSnapshot(resource.data);
+    else if (resource.status === "error") showDocsLoadError(resource.error, refreshDocs);
+  }, () => project === currentProject && document.body.dataset.view === "documents");
+}
 defer(() => {
-  setInterval(() => {
-    if (document.hidden || ["workspace", "project"].includes(document.body.dataset.view)) return;
-    const anyRunning = typeof processItems !== "undefined"
-      && processItems.some((item) => item.running);
-    if (anyRunning) refreshDocsSoon();
-  }, 20000);
+  document.addEventListener("kz:view-changed", observeCurrentDocuments);
+  document.addEventListener("kz:project-overview", observeCurrentDocuments);
 });
 
 defer(() => {

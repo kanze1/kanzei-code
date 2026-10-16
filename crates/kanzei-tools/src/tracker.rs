@@ -2654,68 +2654,33 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
-    /// R-229 验收①:关闭证据含「剩余/其余 N 处」式分类断言但引证数不足 → 拒绝关闭。
-    /// 验收②:R-199 式未核实分类断言(「剩余 3 处均为 X」无任何 file:line)在门禁层不可复现。
+    /// Narrative repetition cannot multiply structured acceptance obligations.
     #[tokio::test]
-    async fn 分类断言引证不足拒绝关闭_r199式无引证不可复现() {
-        let dir = std::env::temp_dir().join(format!("kz-class-close-{}", std::process::id()));
+    async fn 重复叙述数量不增加关闭证据义务() {
+        let dir = std::env::temp_dir().join(format!("kz-close-count-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         let mut e = entry("R-001");
         e.status = "doing".into();
-        // R-199 式原文:断言剩余 3 处,但没有任何 file:line 引证。
+        e.title = "剩余 2 处归类".into();
         e.fields = vec![(
             "进展".into(),
-            "剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决".into(),
+            "剩余 2 处归类完成：src/first.rs:10 src/second.rs:20".into(),
         )];
-        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
-        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&[e]).unwrap();
         let tool = TrackerTool {
             tool_name: "req",
             noun: "requirement",
             kind: &REQUIREMENTS,
             requires_refs: None,
         };
-
-        // 断言声称 3 处,引证 0 处 → 拒。
-        let out = tool
-            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let output = tool
+            .execute(json!({"action":"close","id":"R-001"}), &ctx)
             .await;
-        assert!(out.is_error, "引证不足必须拒绝: {}", out.content);
-        assert!(out.content.contains("R-229"), "{}", out.content);
-        assert!(out.content.contains("3"), "{}", out.content);
-
-        // 引证数不足(2 < 3)仍拒。
-        let mut e = entry("R-001");
-        e.status = "doing".into();
-        e.fields = vec![(
-            "进展".into(),
-            "剩余 3 处 autoContinueAllowed 为「开关启动门禁」:ui/08-compose.js:155、\
-             ui/07-events.js:88 两处已核,第三处待核"
-                .into(),
-        )];
-        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
-        let out = tool
-            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
-            .await;
-        assert!(out.is_error, "引证 2 < 3 必须拒绝: {}", out.content);
-
-        // 引证数足够(3 == 3)→ 放行。
-        let mut e = entry("R-001");
-        e.status = "doing".into();
-        e.fields = vec![(
-            "进展".into(),
-            "剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决: \
-             ①ui/08-compose.js:155 ②ui/07-events.js:88 ③ui/07-events.js:90"
-                .into(),
-        )];
-        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
-        let out = tool
-            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
-            .await;
-        assert!(!out.is_error, "引证足够应放行: {}", out.content);
-        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
-        assert_eq!(saved[0].status, "done", "R-001 应已关闭");
-        std::fs::remove_dir_all(dir).ok();
+        assert!(!output.is_error, "{}", output.content);
+        assert_eq!(store.load().unwrap()[0].status, "done");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// R-229 验收③:无分类断言的关闭不受影响;「剩余价值」这类无数字用法不算断言。

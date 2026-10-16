@@ -1,7 +1,7 @@
-import { invoke } from "./01-core.js";
+import { invoke } from "./00-ipc.js";
 import { active_space, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { activate_execution_root, refreshProcesses } from "./09-sessions.js";
-import { refreshResearch, reset_research_project } from "./19-research.js";
+import { refreshResearch, reset_research_project } from "./03-research-view.js";
 
 export let research_library = null;
 let library_request = null;

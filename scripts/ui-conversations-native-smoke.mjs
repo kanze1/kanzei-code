@@ -129,8 +129,9 @@ try {
   check(requests.length === captureCalls + 1 && requests.at(-1).kind === "hold", "Ordinary conversation does not force an execution batch");
   await invoke("run_prompt", { ...prompt, prompt: "BATCH_EXECUTION: 核对 R-001 的原始文件", delivery: "queue", executionBatch: true });
   check(requests.length === captureCalls + 1, "Execution input is queued while the main turn is running");
+  await page.evaluate(async () => { window.__nativeConversationShell = await import("./03-shell.js"); });
   await page.locator("#new-chat").click();
-  await page.waitForFunction(async id => (await import("./03-shell.js")).activeProcessId !== id, owner.id);
+  await page.waitForFunction(id => window.__nativeConversationShell.activeProcessId !== id, owner.id);
   const discussion = (await invoke("process_list", { projectDir: project })).find(p => p.id !== owner.id);
   check(discussion?.profile === "dev", "New conversation has the same development mode");
   await invoke("process_update", { processId: discussion.id, profile: "readonly" });

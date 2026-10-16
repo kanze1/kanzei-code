@@ -9,20 +9,20 @@
 //      改量「至多两行」(高 ≤72);后台常驻 / 停止后重启状态按内容换行,模型与思考文字仍可读;
 //   ⑥ 交付方式「排队」选项:中文显示「排队」、英文显示动词 Queue(「排队」这个 key 已译作状态词 Queued);
 //   ⑦ 项目级来源标签空闲态显示、运行态收起。
-// 每次运行都做自检:注入五种回归(select 不居中 / 某控件回到 30px / 模式芯片左移压住邻居 / 项目级标签一律藏起 / 拥挤状态硬塞单行),任一没被判红即报
+// 每次运行都做自检:注入五种回归(select 不居中 / 某控件回到 30px / 模型芯片左移压住邻居 / 项目级标签一律藏起 / 模型文字被挤没),任一没被判红即报
 // 「测量判据失效」。page.evaluate 回调在浏览器里执行,浏览器全局在这里声明给 ESLint。
 /* global window, document, getComputedStyle, createImageBitmap, OffscreenCanvas, fetch */
 
 export const COMPOSER_MUTATIONS = {
   selectAlign: "select { align-items: normal !important; }",
   ctlHeight: "#model-picker { height: 30px !important; }",
-  overlap: "#profile-select { margin-left: -24px !important; }",
+  overlap: "#model-picker { margin-left: -24px !important; }",
   // 复核 minor:项目级来源标签回到「任何宽度都藏」(空闲态量,见 SELF_TEST_STATE)。
   projectTagHidden: '.picker-btn .picker-source[data-source="project"] { display: none !important; }',
-  crowdedNoWrap: '#composer-bar, .composer-left, .composer-right, .autorun-bar { flex-wrap: nowrap !important; } .model-picker { display: inline-flex !important; } #model-picker { min-width: 0 !important; }',
+  modelLabelHidden: '#model-picker .picker-label { width: 0 !important; min-width: 0 !important; max-width: 0 !important; overflow: hidden !important; }',
 };
 // 自检默认在运行态量;个别回归只在空闲态可见。
-const SELF_TEST_STATE = { projectTagHidden: "idle", crowdedNoWrap: "running-detached-stopped" };
+const SELF_TEST_STATE = { projectTagHidden: "idle", modelLabelHidden: "running-detached-stopped" };
 // 测量期间收起 toast:它浮在输入区上方,会盖住模式芯片、污染墨迹截图(只影响测量,不改应用)。
 const QUIET = ".k-toast-region { visibility: hidden !important; }";
 
@@ -145,7 +145,11 @@ export async function measureComposer(page, { mutate = "", lang = "zh", extended
   // ④ 只对中文量:拉丁字母有升部/降部(「Paired development」的 p、g),墨迹纵向范围天然不对称,
   // 实测居中的英文芯片墨迹中心也偏 1.7~2px——那是字形,不是错位。
   if (lang === "en") return result;
+  // 模式选项属于高级菜单；用真实入口打开后测量文字，不能对隐藏控件的零盒子截图。
+  await page.locator("#composer-more").click();
+  await page.locator("#profile-select").waitFor({ state: "visible" });
   const offset = await inkOffset(page);
+  await page.keyboard.press("Escape");
   if (offset === null) result.failures.push("④ 模式芯片截图里找不到文字墨迹");
   else if (Math.abs(offset) > 1.5) result.failures.push(`④ 模式芯片文字偏离中线 ${offset.toFixed(2)}px(应 ≤1.5)`);
   result.info.ink = offset === null ? null : Math.round(offset * 100) / 100;
@@ -236,8 +240,8 @@ export async function runComposerGeometry(browser, origin, { screenshotDirectory
   // 自检:上述回归都必须被判红。
   const silent = [];
   for (const [id, css] of Object.entries(COMPOSER_MUTATIONS)) {
-    const { context, page } = await openApp(browser, origin, { width: id === "crowdedNoWrap" ? 1000 : 1600, height: 900, dpr: 1.25, theme: "dark", state: SELF_TEST_STATE[id] ?? "running" });
-    const result = await measureComposer(page, { mutate: css, extended: id === "crowdedNoWrap" });
+    const { context, page } = await openApp(browser, origin, { width: id === "modelLabelHidden" ? 1000 : 1600, height: 900, dpr: 1.25, theme: "dark", state: SELF_TEST_STATE[id] ?? "running" });
+    const result = await measureComposer(page, { mutate: css, extended: id === "modelLabelHidden" });
     await context.close();
     if (!result.failures.length) silent.push(id);
   }

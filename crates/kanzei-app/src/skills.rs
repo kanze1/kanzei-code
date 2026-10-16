@@ -43,14 +43,8 @@ fn validate(draft: &SkillDraft) -> Result<(), String> {
     Ok(())
 }
 
-fn entry(skill: &SkillDef, home: &Path, disabled: &std::collections::BTreeSet<String>) -> Value {
-    let source = if skill.path.starts_with(home.join("builtin-skills")) {
-        "builtin"
-    } else if skill.path.starts_with(home.join("skills")) {
-        "personal"
-    } else {
-        "external"
-    };
+fn entry(skill: &SkillDef, _home: &Path, disabled: &std::collections::BTreeSet<String>) -> Value {
+    let source = skill.source.as_str();
     let title = if source == "builtin" {
         catalog::BUILTINS
             .iter()
@@ -59,8 +53,8 @@ fn entry(skill: &SkillDef, home: &Path, disabled: &std::collections::BTreeSet<St
     } else {
         None
     };
-    json!({"name":skill.name, "displayName":title.unwrap_or(&skill.name), "description":skill.description,
-        "path":skill.path, "source":source, "editable":source == "personal", "enabled":!disabled.contains(&skill.name),
+    json!({"id":skill.id, "name":skill.name, "displayName":title.unwrap_or(&skill.name), "description":skill.description,
+        "path":skill.path, "source":source, "editable":source == "personal", "enabled":!disabled.contains(&skill.id) && !disabled.contains(&skill.name),
         "manualOnly":skill.disable_model_invocation, "userInvocable":skill.user_invocable})
 }
 
@@ -85,12 +79,12 @@ fn skill_lock(home: &Path, name: &str) -> Result<kanzei_base::atomic_file::FileL
     std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
     kanzei_base::atomic_file::lock_exclusive(&directory.join(name)).map_err(|e| e.to_string())
 }
-fn find_at(home: &Path, name: &str) -> Result<SkillDef, String> {
-    catalog::catalog_at(home, catalog::compatibility_home().as_deref())
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|skill| skill.name == name)
-        .ok_or_else(|| format!("Skill 不存在：{name}"))
+fn find_at(home: &Path, selector: &str) -> Result<SkillDef, String> {
+    let skills = catalog::catalog_at(home, catalog::compatibility_home().as_deref())
+        .map_err(|e| e.to_string())?;
+    catalog::resolve(&skills, selector)
+        .cloned()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -100,7 +94,7 @@ pub(crate) fn skills_list() -> Result<Vec<Value>, String> {
 
 fn read_at(home: &Path, name: &str) -> Result<Value, String> {
     let skill = find_at(home, name)?;
-    let content = std::fs::read_to_string(&skill.path).map_err(|e| e.to_string())?;
+    let content = catalog::read_content(&skill).map_err(|e| e.to_string())?;
     if content.len() > 131_072 {
         return Err("Skill 太大，请把参考资料放入 references".into());
     }
@@ -169,7 +163,11 @@ fn render(draft: &SkillDraft, previous: &str) -> String {
 fn save_at(home: &Path, draft: SkillDraft, expected_hash: Option<&str>) -> Result<Value, String> {
     validate(&draft)?;
     let _lock = skill_lock(home, &draft.name)?;
-    let existing = find_at(home, &draft.name).ok();
+    let id = format!("personal:{}", draft.name);
+    let existing = catalog::catalog_at(home, catalog::compatibility_home().as_deref())
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|skill| skill.id == id);
     let path = if let Some(skill) = &existing {
         if !skill.path.starts_with(home.join("skills")) {
             return Err("该名称已被占用，请换一个名称创建自定义 Skill".into());
@@ -199,7 +197,7 @@ fn save_at(home: &Path, draft: SkillDraft, expected_hash: Option<&str>) -> Resul
         expected_hash.unwrap_or(&kanzei_base::content_hash(b"")),
         |text| kanzei_base::content_hash(text.as_bytes()),
     )?;
-    read_at(home, &draft.name)
+    read_at(home, &id)
 }
 #[tauri::command]
 pub(crate) fn skills_save(
@@ -212,8 +210,8 @@ pub(crate) fn skills_save(
 #[tauri::command]
 pub(crate) fn skills_set_enabled(name: String, enabled: bool) -> Result<Vec<Value>, String> {
     let home = home()?;
-    find_at(&home, &name)?;
-    catalog::set_enabled_at(&home, &name, enabled).map_err(|e| e.to_string())?;
+    let skill = find_at(&home, &name)?;
+    catalog::set_enabled_at(&home, &skill.id, enabled).map_err(|e| e.to_string())?;
     list_at(&home)
 }
 
@@ -222,7 +220,7 @@ fn delete_at(home: &Path, name: &str, expected_hash: &str) -> Result<(), String>
     if !skill.path.starts_with(home.join("skills")) {
         return Err("内置和外部 Skills 可以停用，不能从这里删除".into());
     }
-    let _lock = skill_lock(home, name)?;
+    let _lock = skill_lock(home, &skill.name)?;
     let path = managed_path(home, &skill.path)?;
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     if kanzei_base::content_hash(text.as_bytes()) != expected_hash {
@@ -238,11 +236,12 @@ fn delete_at(home: &Path, name: &str, expected_hash: &str) -> Result<(), String>
     std::fs::rename(
         target,
         trash.join(format!(
-            "{}-{name}",
+            "{}-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            skill.name
         )),
     )
     .map_err(|e| e.to_string())?;
@@ -302,7 +301,10 @@ fn import_at(home: &Path, directory: &Path) -> Result<Value, String> {
     if skill.name != name {
         return Err("技能名称必须与文件夹名称一致".into());
     }
-    if list_at(home)?.iter().any(|skill| skill["name"] == name) {
+    if list_at(home)?
+        .iter()
+        .any(|skill| skill["id"] == format!("personal:{name}"))
+    {
         return Err("同名 Skill 已存在，导入不会覆盖它".into());
     }
     let _lock = skill_lock(home, name)?;
@@ -323,7 +325,7 @@ fn import_at(home: &Path, directory: &Path) -> Result<Value, String> {
         let _ = std::fs::remove_dir_all(&staging);
     }
     result?;
-    read_at(home, name)
+    read_at(home, &format!("personal:{name}"))
 }
 #[tauri::command]
 pub(crate) fn skills_import(directory: String) -> Result<Value, String> {
@@ -342,7 +344,11 @@ fn duplicate_at(home: &Path, name: &str, new_name: &str) -> Result<Value, String
     };
     validate(&draft)?;
     let _lock = skill_lock(home, new_name)?;
-    if find_at(home, new_name).is_ok() {
+    if catalog::catalog_at(home, catalog::compatibility_home().as_deref())
+        .map_err(|e| e.to_string())?
+        .iter()
+        .any(|s| s.id == format!("personal:{new_name}"))
+    {
         return Err("同名 Skill 已存在，请换一个名称".into());
     }
     let path = managed_path(home, &home.join("skills").join(new_name).join("SKILL.md"))?;
@@ -356,12 +362,13 @@ fn duplicate_at(home: &Path, name: &str, new_name: &str) -> Result<Value, String
         std::process::id()
     ));
     std::fs::create_dir(&staging).map_err(|e| e.to_string())?;
-    let previous = std::fs::read_to_string(&source.path).map_err(|e| e.to_string())?;
+    let previous = catalog::read_content(&source).map_err(|e| e.to_string())?;
     let result = (|| {
-        if source
-            .path
-            .file_name()
-            .is_some_and(|name| name == "SKILL.md")
+        if source.embedded_content.is_none()
+            && source
+                .path
+                .file_name()
+                .is_some_and(|name| name == "SKILL.md")
         {
             copy_resources(source.path.parent().unwrap(), &staging, &mut 0, &mut 0)?;
         }
@@ -376,7 +383,7 @@ fn duplicate_at(home: &Path, name: &str, new_name: &str) -> Result<Value, String
         let _ = std::fs::remove_dir_all(&staging);
     }
     result?;
-    read_at(home, new_name)
+    read_at(home, &format!("personal:{new_name}"))
 }
 #[tauri::command]
 pub(crate) fn skills_duplicate(name: String, new_name: String) -> Result<Value, String> {
@@ -454,33 +461,44 @@ pub(crate) fn append_explicit_instructions(
     prompt: &str,
 ) -> anyhow::Result<()> {
     let home = catalog::global_home()?;
-    let disabled = catalog::preferences_at(&home)?.disabled;
-    for skill in catalog::global_catalog()? {
-        let token = format!("${}", skill.name);
-        let invoked = prompt.match_indices(&token).any(|(start, _)| {
-            let previous = prompt[..start].chars().next_back();
-            previous.is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
-                && prompt[start + token.len()..]
-                    .chars()
-                    .next()
-                    .is_none_or(|c| !c.is_alphanumeric() && c != '-' && c != '_')
-        });
-        if !invoked {
+    let prefs = catalog::preferences_at(&home)?;
+    let skills = catalog::global_catalog()?;
+    let mut invoked = std::collections::BTreeSet::new();
+    for (start, _) in prompt.match_indices('$') {
+        if prompt[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
+            continue;
+        }
+        let selector: String = prompt[start + 1..]
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | ':'))
+            .collect();
+        if !skills
+            .iter()
+            .any(|s| s.id == selector || s.name == selector)
+        {
+            continue;
+        }
+        let skill = catalog::resolve(&skills, &selector)?;
+        if !invoked.insert(skill.id.clone()) {
             continue;
         }
         anyhow::ensure!(
-            !disabled.contains(&skill.name),
+            catalog::is_enabled(skill, &prefs),
             "Skill 已停用：{}，请在 Skills 中启用",
-            skill.name
+            skill.id
         );
-        anyhow::ensure!(skill.user_invocable, "Skill 不允许手动调用：{}", skill.name);
-        anyhow::ensure!(
-            std::fs::metadata(&skill.path)?.len() <= 131_072,
-            "Skill 太大：{}",
-            skill.name
-        );
-        system.push_str(&format!("\n用户显式调用了全局 Skill ${}。遵循用户当前指令；相对路径以 {} 的目录为基准，按需读取引用资料。\n{}\n",
-            skill.name, skill.path.display(), std::fs::read_to_string(&skill.path)?));
+        anyhow::ensure!(skill.user_invocable, "Skill 不允许手动调用：{}", skill.id);
+        let content = catalog::read_content(skill)?;
+        system.push_str(&format!(
+            "\n用户显式调用了全局 Skill ${}。遵循用户当前指令；来源 {}，按需读取引用资料。\n{}\n",
+            skill.id,
+            skill.path.display(),
+            content
+        ));
     }
     Ok(())
 }

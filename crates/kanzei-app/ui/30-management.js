@@ -1,9 +1,13 @@
-import { $, invoke, defer, confirmDialog } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { confirmDialog } from "./00-dialogs.js";
 import { openMenu } from "./00-surface.js";
-import { t, localizedDocStatus } from "./02-i18n.js";
+import { t, localizedDocStatus, languageIsEnglish } from "./02-i18n.js";
+import { observeProjectDocuments, readProjectDocuments } from "./01-project-resources.js";
+import { createReadResource } from "./00-resource.js";
 import { currentProject, onInnerBack, toastError } from "./03-shell.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
-import { renderWorkDocument } from "./11-docs-list.js";
+import { captureWorkDocumentState, renderWorkDocument } from "./11-docs-list.js";
 import { renderRequirementDocument } from "./26-requirement-contract.js";
 import { needsRequirementResearch } from "./26-requirement-research.js";
 import { renderTrackerFields } from "./04-structured.js";
@@ -17,14 +21,21 @@ const el = (tag, text, cls) => { const node = document.createElement(tag); if (t
 const action = (label, callback, cls = "ghost") => { const button = el("button", label, cls); button.type = "button"; button.addEventListener("click", callback); return button; };
 const allEntries = state => [...(state.docs?.requirements || []), ...(state.docs?.defects || [])];
 function stateFor(project) {
-  if (!projects.has(project)) projects.set(project, { project, tab: layoutPref("management", project) || "req", query: "", filter: "open", detail: null, details: new Map(), docs: null, snapshot: null, error: "", root: null, signature: "", arch: null, stats: null, mapFocus: null, period: "7", session: "" });
+  if (!projects.has(project)) {
+    const state = { project, tab: layoutPref("management", project) || "req", query: "", filter: "open", detail: null, details: new Map(), archives: new Map(), docs: null, snapshot: null, error: "", root: null, signature: "", arch: null, stats: null, mapFocus: null, period: "7", session: "" };
+    projects.set(project, state);
+  }
   return projects.get(project);
 }
 function live(state) { return mounted === state && state.root?.isConnected && !state.root.hidden; }
 
-export function mountManagement(project, docs, snapshot, error = "") {
+export function mountManagement(project, snapshot, error = "") {
   const state = stateFor(project), host = $("project-overview-content");
+  if (mounted !== state) hideManagement();
   mounted = state;
+  if (!state.disposeDocuments) state.disposeDocuments = observeProjectDocuments(project, documents => {
+    state.docs = documents.data; state.docsStatus = documents.status; state.docsError = documents.error; render(state);
+  }, () => live(state));
   if (!state.root) {
     state.root = el("section", null, "management-page"); state.root.id = "management-page";
     state.root.setAttribute("aria-label", t("项目管理"));
@@ -33,26 +44,30 @@ export function mountManagement(project, docs, snapshot, error = "") {
       const button = action(t(label), () => { state.tab = key; state.detail = null; setLayoutPref("management", project, key); render(state, true); });
       button.dataset.managementTab = key; button.dataset.i18nKey = label; state.nav.append(button);
     }
-    state.body = el("div", null, "management-body"); state.root.append(state.nav, state.body);
+    state.feedback = el("div", null, "management-feedback"); state.feedback.setAttribute("role", "alert");
+    state.body = el("div", null, "management-body"); state.root.append(state.nav, state.feedback, state.body);
   }
   for (const root of host.querySelectorAll(".management-page")) if (root !== state.root) root.remove();
   if (state.root.parentElement !== host) host.append(state.root);
   state.root.hidden = false;
-  if (docs) state.docs = docs;
   state.snapshot = snapshot; state.error = error;
   render(state);
 }
 
-export function hideManagement() { if (mounted?.root) mounted.root.hidden = true; }
+export function hideManagement() {
+  if (!mounted) return;
+  if (mounted.root) mounted.root.hidden = true;
+  mounted.disposeDocuments?.(); mounted.disposeDocuments = null; mounted = null;
+}
 
 async function refresh(state) {
   if (state.loading) return;
   state.loading = true;
   try {
-    state.docs = await invoke("docs_snapshot", { projectDir: state.project }); state.error = "";
+    await readProjectDocuments(state.project, { force: true });
     if (state.tab === "map") { state.arch = null; state.stats = null; }
     if (state.tab === "deliveries") await loadDeliveredFiles(state.project, { force: true });
-  } catch (error) { state.error = String(error); }
+  } catch (error) { toastError(String(error)); }
   finally { state.loading = false; if (live(state)) render(state, true); }
 }
 
@@ -65,7 +80,7 @@ export async function openManagementItem(project, entry, { activate = false } = 
   const state = stateFor(project); state.detail = entry; state.tab = entry.id.startsWith("D-") ? "defect" : "req";
   if (live(state)) render(state, true);
   try {
-    const docs = await invoke("docs_snapshot", { projectDir: project });
+    const docs = await readProjectDocuments(project);
     if (state.detail !== entry) return;
     state.docs = docs;
     if (live(state)) render(state, true);
@@ -74,8 +89,10 @@ export async function openManagementItem(project, entry, { activate = false } = 
 
 function render(state, force = false) {
   if (!live(state)) return;
+  state.feedback.replaceChildren();
+  for (const error of new Set([state.error, state.docsError].filter(Boolean))) state.feedback.append(el("p", `${t("读取失败")}: ${error}`, "management-error"));
   for (const button of state.nav.children) button.setAttribute("aria-current", String(button.dataset.managementTab === state.tab ? "page" : "false"));
-  const signature = JSON.stringify([state.tab, state.detail, state.docs, state.error]);
+  const signature = JSON.stringify([state.tab, state.detail, state.docs, state.docsStatus, state.docsError, state.error, languageIsEnglish()]);
   if (!force && signature === state.signature) return;
   // A background snapshot must never replace an editor containing a user's draft.
   if (state.body.querySelector(".editing") && !force) return;
@@ -83,7 +100,7 @@ function render(state, force = false) {
   if (!force && state.fillList && state.body.querySelector(".management-tools")?.contains(document.activeElement)) {
     state.fillList(); return;
   }
-  state.signature = signature; state.body.replaceChildren();
+  state.signature = signature; state.fillList = null; state.body.replaceChildren();
   if (state.detail) { renderDetail(state); return; }
   if (state.tab === "map") { renderMapPage(state); return; }
   if (state.tab === "deliveries") { renderDeliveries(state); return; }
@@ -102,7 +119,9 @@ function renderDetail(state) {
   }
   if (currentProject === state.project) {
     const cached = state.details.get(entry.id);
-    const detail = cached?.classList.contains("editing") ? cached : renderWorkDocument(entry, state.tab);
+    const prior = cached?.classList.contains("editing") ? captureWorkDocumentState(cached) : null;
+    const detail = prior && cached.dataset.language === (languageIsEnglish() ? "en" : "zh")
+      ? cached : renderWorkDocument(entry, state.tab, prior);
     state.details.set(entry.id, detail); state.body.append(detail);
   }
   else {
@@ -141,7 +160,7 @@ function renderList(state) {
       row.append(identity, progressCells(entry), el("span", entry.priority || "—", "management-priority"));
       list.append(row);
     }
-    if (!rows.length) list.append(el("p", t(state.docs ? "没有符合条件的条目" : "正在读取…"), "management-empty"));
+    if (!rows.length && state.docsStatus !== "error") list.append(el("p", t(state.docs ? "没有符合条件的条目" : "正在读取…"), "management-empty"));
   };
   state.fillList = fill;
   search.addEventListener("input", () => { state.query = search.value; fill(); });
@@ -155,18 +174,24 @@ function renderList(state) {
   more.setAttribute("aria-label", t("更多"));
   tools.append(search, filter, action(t("刷新"), () => void refresh(state)), create, more);
   state.body.append(tools);
-  if (state.error) state.body.append(el("p", `${t("读取失败")}: ${state.error}`, "management-error"));
   state.body.append(list); fill();
   const archived = Number(state.docs?.archived?.[state.tab] || 0);
-  if (archived) state.body.append(action(`${t("已归档")} · ${archived}`, async () => {
-    try {
-      const rows = await invoke("docs_archive_entries", { projectDir: state.project, kind: state.tab });
-      if (!live(state)) return;
+  if (archived) {
+    const kind = state.tab;
+    if (!state.archives.has(kind)) {
+      const resource = createReadResource(() => invoke("docs_archive_entries", { projectDir: state.project, kind }));
+      resource.subscribe(() => { if (live(state) && state.tab === kind && !state.detail) render(state, true); });
+      state.archives.set(kind, resource);
+    }
+    const resource = state.archives.get(kind);
+    const button = action(`${t("已归档")} · ${archived}`, () => { void resource.load().catch(error => toastError(String(error))); });
+    button.disabled = resource.status === "loading"; state.body.append(button);
+    if (resource.data) {
       const archive = el("section", null, "management-archive"); archive.append(el("h2", t("已归档")));
-      for (const entry of rows) archive.append(action(`${entry.id} · ${entry.title}`, () => void openManagementItem(state.project, { ...entry, closed: true }), "management-archive-row"));
-      state.body.querySelector(".management-archive")?.remove(); state.body.append(archive);
-    } catch (error) { toastError(String(error)); }
-  }));
+      for (const entry of resource.data) archive.append(action(`${entry.id} · ${entry.title}`, () => void openManagementItem(state.project, { ...entry, closed: true }), "management-archive-row"));
+      state.body.append(archive);
+    }
+  }
 }
 
 function renderDeliveries(state) {
@@ -242,7 +267,7 @@ function renderMapPage(state) {
       state.arch = arch.status === "fulfilled" ? arch.value : { error: String(arch.reason) };
       state.stats = stats.status === "fulfilled" ? stats.value : { error: String(stats.reason), rounds: [] };
       state.memory = memory.status === "fulfilled" ? memory.value : { error: String(memory.reason), rounds: [] };
-      if (live(state) && state.tab === "map") { graph.replaceChildren(); drawGraph(graph, state); renderRuntime(runtime, state); }
+      if (live(state) && state.tab === "map") render(state, true);
     }).finally(() => { state.mapRequest = null; });
   }
 }
@@ -336,6 +361,22 @@ function renderRuntime(host, state) {
 }
 
 defer(() => {
+  document.addEventListener("kz:document-interaction-settled", event => {
+    if (mounted?.project === event.detail.project) render(mounted);
+  });
+  document.addEventListener("kz:language", () => {
+    if (!mounted || !live(mounted)) return;
+    const state = mounted, focused = document.activeElement;
+    const controls = [...state.body.querySelectorAll("input, select, textarea, button")];
+    const focusIndex = controls.indexOf(focused), selection = focused?.selectionStart == null ? null : [focused.selectionStart, focused.selectionEnd];
+    const scroll = $("view-project").scrollTop;
+    state.root.setAttribute("aria-label", t("项目管理")); state.nav.setAttribute("aria-label", t("管理页面"));
+    render(state, true);
+    const restored = focused?.isConnected ? focused : state.body.querySelectorAll("input, select, textarea, button")[focusIndex];
+    restored?.focus({ preventScroll: true });
+    if (selection && restored?.setSelectionRange && restored.type !== "number") restored.setSelectionRange(...selection);
+    $("view-project").scrollTop = scroll;
+  });
   onInnerBack(() => {
     if (document.body.dataset.view !== "project" || !mounted?.detail || !live(mounted)) return false;
     mounted.detail = null; render(mounted, true); return true;

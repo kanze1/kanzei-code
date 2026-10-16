@@ -91,9 +91,14 @@ pub(crate) async fn scheduler(app: tauri::AppHandle) {
                         if !pulling.lock().unwrap().insert(key.clone()) {
                             continue;
                         }
+                        let Ok(admission) = crate::runtime_service::admit_work() else {
+                            pulling.lock().unwrap().remove(&key);
+                            continue;
+                        };
                         let pending = pulling.clone();
                         let root = root.clone();
                         tokio::spawn(async move {
+                            let _admission = admission;
                             if let Err(error) = shared::hosts::pull(&root, &def).await {
                                 tracing::warn!(%error,"schedule server pull failed");
                             }
@@ -122,7 +127,11 @@ fn chrono_now() -> i64 {
         .unwrap_or_default()
 }
 fn spawn(app: tauri::AppHandle, root: PathBuf, def: ScheduleDef, slot: i64, trigger: String) {
+    let Ok(admission) = crate::runtime_service::admit_work() else {
+        return;
+    };
     tokio::spawn(async move {
+        let _admission = admission;
         let name = def.name.clone();
         let notify = def.writeback.iter().any(|channel| channel == "notify");
         let result = shared::execute(root.clone(), def, slot, trigger).await;

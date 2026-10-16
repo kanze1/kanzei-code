@@ -265,8 +265,6 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         &[],
         None,
         Some(&subagent_rt),
-        // R-246:测试不持有 LineRuntime。
-        None,
         &mut on_event,
         &mut ask,
     )

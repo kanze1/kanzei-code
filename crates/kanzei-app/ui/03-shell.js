@@ -1,8 +1,12 @@
 import { showSchedules } from "./24-schedules.js";
+import { views } from "./00-views.js";
 import { isGeneralChat, openGeneralChat, setConversationRoot } from "./03-general-scope.js";
 import { onEscapeFallthrough, surfaceElements, toast as surfaceToast } from "./00-surface.js";
-import { defer } from "./01-core.js";
-import { $, invoke, renderingBackground, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { renderingBackground } from "./01-chat-panes.js";
+import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
 import { fillTemplate, parseErrorText } from "./04-structured-parse.js";
 import { renderErrorDetail } from "./04-structured.js";
@@ -19,10 +23,10 @@ import { refreshDocs } from "./14-docs-actions.js";
 import { loadSettings } from "./16-settings.js";
 import { filesViewLeft, showFilesView } from "./17-files.js";
 import { refreshArch } from "./19-arch.js";
-import { refreshResearch } from "./19-research.js";
+import { refreshResearch } from "./03-research-view.js";
 import { refreshLines } from "./20-lines.js";
 import { active_space, remember_workspace_view, view_allowed } from "./03-workspaces.js";
-import { open_research_chat } from "./19-research-navigation.js";
+import { open_research_chat } from "./03-research-view.js";
 import { cancelProjectNavigation, openProjectSpace, reconcileWorkbenchView, renderProjectOverview, renderProjectActivity, setBrowsingProject, workbenchProject } from "./12-workbench.js";
 import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
 import { layoutPref, onLayoutChange, prefObject, setLayoutPref, setPrefObject } from "./03-layout.js";
@@ -41,28 +45,8 @@ export function setActiveSessionId(v) {
 export let processItems = [];
 export function setProcessItems(value) { processItems = value; }
 
-// R-086:每个会话独立的运行状态机。控制事件按 sessionId 更新对应状态机,视图只
-// 投影活动会话的状态——后台会话的 idle/stopped 先落这里,切回时从状态机重建,
-// 而不是依赖事件在"恰好活动"时才会被处理。待答队列另有 askQueues,不放这里。
-export const sessionStates = new Map();
-export function sessionState(sessionId) {
-  let state = sessionStates.get(sessionId);
-  if (!state) {
-    state = {
-      phase: "idle",
-      running: false,
-      converged: false,
-      auto_pending: false,
-      live_running: null,
-      local_start_pending: false,
-      terminal_status: "",
-      stage: "空闲",
-      detail: "",
-    };
-    sessionStates.set(sessionId, state);
-  }
-  return state;
-}
+import { sessionState, sessionStates, reduceSession, onSessionStateChange } from "./00-session-state.js";
+export { sessionState, sessionStates, sessionDetails } from "./00-session-state.js";
 
 export let running = false;
 export let runControlPending = false;
@@ -94,26 +78,17 @@ const navStack = [];
 let navCurrent = null;
 let navBacking = false;
 let navScrollRestore = null;
-const ROOT_VIEWS = new Set(["chat", "research"]);
-export function isRootView(view) { return ROOT_VIEWS.has(view); }
+export function isRootView(view) { return Boolean(views[view]?.root); }
 // 页头不注入返回条的非根视图:项目概览的纵向空间是算死的(图与三条回复正好排在输入卡之上,冒烟断言「不出现外层滚动」),
 // 它自己有「对话 · 概览」页签这一对来回出口;栈与 Esc / Alt+← / 鼠标侧键照常对它生效。要给它加返回条,先让概览页让出高度。
-const BARLESS_VIEWS = new Set(["project"]);
+const BARLESS_VIEWS = new Set(Object.keys(views).filter(view => views[view].barless));
 // 各页真正滚动的那一层:离开时记 scrollTop,返回时在页面数据回来后复原。
-const VIEW_SCROLLERS = {
-  workspace: "workspace-scroll", project: "project-overview-content", lines: "lines-scroll", documents: "documents-scroll",
-  memory: "memory-scroll", metrics: "metrics-scroll", arch: "arch-scroll", settings: "settings-scroll", skills: "skills-scroll",
-};
-const VIEW_LABELS = {
-  chat: "对话", workspace: "所有项目", project: "项目概览", lines: "并行线路", documents: "需求", memory: "记忆",
-  files: "文件", arch: "架构", metrics: "运行画像", settings: "设置", research: "研究", skills: "Skills",
-};
-export function viewLabel(view) { return t(VIEW_LABELS[view] || view); }
+export function viewLabel(view) { return t(views[view]?.label || view); }
 function navSnapshot(view) {
   return { view, project: workbenchProject() || currentProject || null, processId: activeProcessId, space: active_space, scroll: 0 };
 }
 function readViewScroll(view) {
-  const el = VIEW_SCROLLERS[view] ? $(VIEW_SCROLLERS[view]) : null;
+  const el = views[view]?.scroller ? $(views[view].scroller) : null;
   return el ? Math.round(el.scrollTop || 0) : 0;
 }
 function trackNavigation(view) {
@@ -208,7 +183,7 @@ function restoreScrollAfter(view, loading) {
   navScrollRestore = null;
   if (!(pending.top > 0) || Date.now() - pending.at > 10000) return;
   const apply = () => requestAnimationFrame(() => {
-    const el = VIEW_SCROLLERS[view] ? $(VIEW_SCROLLERS[view]) : null;
+    const el = views[view]?.scroller ? $(views[view].scroller) : null;
     if (el) el.scrollTop = pending.top;
   });
   Promise.resolve(loading).then(apply, apply);
@@ -319,6 +294,7 @@ export function focusMainAfterViewChange(view = document.body.dataset.view) {
 
 // 只绑带 data-view 的按钮:rail 上还有侧栏开合这类布局开关,它们不是视图。
 export function navigate_view(view, { prepared = false, reload = false } = {}) {
+  if (!Object.hasOwn(views, view)) return;
   if (!prepared && view === "chat" && active_space === "dev" && !currentProject && !workbenchProject()) return openGeneralChat();
   if (!prepared && ["workspace", "settings", "memory", "skills"].includes(view)) cancelProjectNavigation();
   // A project selected in the workbench is only a browsing identity. Activate
@@ -329,7 +305,7 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
   }
   if (!view_allowed(view, view === "project" ? workbenchProject() : currentProject)) { notifyViewUnavailable(); return; }
   const item = document.querySelector(`.activity-item[data-view="${view}"]`);
-  if ((!item && view !== "project") || !$(`view-${view}`)) return;
+  if (!$(`view-${view}`)) return;
   document.body.dataset.view = view;
   reconcileWorkbenchView(view);
   // UI2-0926 #14:后台任务侧栏只在对话视图显示。切视图只触发重算、不改侧栏状态——此前只给面板加
@@ -563,52 +539,15 @@ export function syncSidebar() {
 // 多线路只允许从具名会话状态投影运行控件。保留旧布尔字段供现有视图读取，
 // 但所有新增竞态路径都通过这一入口同时更新 phase 与兼容字段。
 export function transitionSession(sessionId, phase, detail = {}) {
-  if (!sessionId) return null;
-  const state = sessionState(sessionId);
-  // 真终态一到就把停止看门狗撤掉,免得它在 10 秒后对一条已经正常收尾的会话
-  // 再喊一次「未收到确认」。
-  if (phase !== "stopping" && typeof clearStoppingWatchdog === "function") clearStoppingWatchdog(sessionId);
-  state.phase = phase;
-  state.running = ["starting", "running", "stopping"].includes(phase);
-  state.auto_pending = phase === "auto_pending";
-  if (["starting", "running"].includes(phase)) {
-    state.converged = false;
-    state.live_running = phase === "running" ? true : null;
-    state.terminal_status = "";
-  } else if (phase === "stopping") {
-    // R-206:stopping 是用户已发出的控制意图——清掉实时事件权威(live_running),
-    // 否则 09-sessions 轮询校正会把停止中的会话翻回运行中(状态闪跳)。
-    state.live_running = false;
-  } else if (["idle", "stopped", "failed", "auto_pending"].includes(phase)) {
-    // auto_pending 是**轮终态**,不是运行中的中间态:kz:done 已到、本轮事件流已经结束,
-    // 下一轮由 kz:turn(不在 SESSION_PROGRESS_EVENTS 里,专管解除收敛)或 armAutoContinue
-    // 的 "starting" 宣告。它必须和 idle/stopped/failed 一样收敛。
-    //
-    // 漏掉它的代价是鞭挞**确定性饿死**(实测 21:40:57 运行完成 → 21:41:29 报「上一轮尚未
-    // 结束」,正好 32 秒 = 首次 2s + 15×2s 重试耗尽):
-    //   ① 本轮 "running" 置 live_running=true、converged=false;
-    //   ② kz:done(Continue) → "auto_pending",旧相位表三个分支一个都不匹配,
-    //      于是 converged 仍 false、live_running 仍 true;
-    //   ③ kz:idle 到达时 01-core 算 targetPhase = auto_pending ? "auto_pending" : "idle",
-    //      又回到 auto_pending —— 唯一那次能收敛的机会也被自己吃掉;
-    //   ④ ≤3s 后 process_list 轮询走 09-sessions 校正:converged 为 false 不跳过,
-    //      live_running===true 命中第一分支 → transitionSession(sid,"running") 复活;
-    //   ⑤ armAutoContinue 每 2 秒复查 processRunning 恒为 true,16 次后放弃。
-    // 而 09-sessions 末尾那条 `!["auto_pending","stopping",...].includes(phase)` 的例外
-    // 说明作者本来就把 auto_pending 当静止态,只是相位表这边没跟上。
-    state.converged = true;
-    state.live_running = false;
-    state.local_start_pending = false;
-    state.terminal_status = phase === "stopped" ? "已停止" : phase === "failed" ? "出错" : "";
-  }
-  Object.assign(state, detail);
+  return sessionId ? reduceSession(sessionId, phase, detail) : null;
+}
+onSessionStateChange((sessionId, state) => {
+  if (state.phase !== "stopping") clearStoppingWatchdog(sessionId);
   if (!state.running) stopElapsed(sessionId);
   renderProjectActivity();
   document.dispatchEvent(new CustomEvent("kz:session-state-changed", { detail: { sessionId } }));
-  // 「新对话」按钮 title 按活动线忙闲说明点下去会怎样:相位一变就跟上(只在值变时写)。
   if (sessionId === activeSessionId) syncNewChatEnabled();
-  return state;
-}
+});
 export function toggleSidebar() {
   applySidebarState(!sidebarCollapsed, { remember: !sidebarOverlayQuery.matches });
 }

@@ -591,22 +591,7 @@ function moveMenuFocus(menu, event) {
   focusEl(items[next], { quiet: false }); // 用户在用方向键走菜单:这是键盘导航,提示照常
 }
 
-// items:{ label, desc?, kbd?, checked?, disabled?, danger?, onSelect } | "separator" | { heading }
-// 点击一项:先关菜单,再调 onSelect。再次对同一锚点调用 = 收起(切换语义)。
-export function openMenu(anchorEl, items, { placement = "bottom-start", label, onClose } = {}) {
-  const open = stack.find((h) => h.generated && h.anchor === anchorEl && h.type === "menu");
-  if (open) {
-    finish(open);
-    return open;
-  }
-  const menu = document.createElement("div");
-  menuSeed += 1;
-  menu.id = `kz-menu-${menuSeed}`;
-  menu.className = "k-surface k-menu";
-  menu.setAttribute("role", "menu");
-  if (label) menu.setAttribute("aria-label", label);
-  menu.setAttribute("popover", "manual");
-  let handle = null;
+function renderMenuItems(menu, items, select) {
   for (const item of items || []) {
     if (item === "separator") {
       const sep = document.createElement("div");
@@ -652,11 +637,45 @@ export function openMenu(anchorEl, items, { placement = "bottom-start", label, o
     }
     button.addEventListener("click", () => {
       if (item.disabled) return;
-      finish(handle);
-      item.onSelect?.();
+      select(item);
     });
     menu.appendChild(button);
   }
+}
+
+// Async menu data belongs to the existing surface. A late reply cannot reopen it.
+export function updateMenu(handle, items) {
+  if (!handle || handle.closed || handle.type !== "menu") return;
+  const focused = activeElement();
+  const hadFocus = isInside(focused, handle.el);
+  const label = focused?.querySelector?.(".k-menu-item-label")?.textContent;
+  handle.el.replaceChildren();
+  renderMenuItems(handle.el, items, item => { finish(handle); item.onSelect?.(); });
+  if (hadFocus) {
+    const candidates = menuItems(handle.el);
+    focusEl(candidates.find(item => item.querySelector(".k-menu-item-label")?.textContent === label) ?? candidates[0]);
+  }
+  if (handle.anchor) anchorTo(handle.el, handle.anchor);
+  notifySurfaceChange();
+}
+
+// items:{ label, desc?, kbd?, checked?, disabled?, danger?, onSelect } | "separator" | { heading }
+// 点击一项:先关菜单,再调 onSelect。再次对同一锚点调用 = 收起(切换语义)。
+export function openMenu(anchorEl, items, { placement = "bottom-start", label, onClose } = {}) {
+  const open = stack.find((h) => h.generated && h.anchor === anchorEl && h.type === "menu");
+  if (open) {
+    finish(open);
+    return open;
+  }
+  const menu = document.createElement("div");
+  menuSeed += 1;
+  menu.id = `kz-menu-${menuSeed}`;
+  menu.className = "k-surface k-menu";
+  menu.setAttribute("role", "menu");
+  if (label) menu.setAttribute("aria-label", label);
+  menu.setAttribute("popover", "manual");
+  let handle = null;
+  renderMenuItems(menu, items, item => { finish(handle); item.onSelect?.(); });
   menu.addEventListener("keydown", (event) => moveMenuFocus(menu, event));
   // 锚点在开着的 <dialog> 里:菜单挂进这个 dialog(模态之外的节点是惰性的,挂到 body 下就点不动);
   // 显示后它照样进顶层,不受 dialog 的 overflow 裁剪。关 dialog 时它作为嵌套弹层一并关掉。

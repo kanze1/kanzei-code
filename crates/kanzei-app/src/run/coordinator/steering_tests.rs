@@ -380,7 +380,6 @@ async fn run_fixture(point: FailurePoint) -> Value {
                 None,
                 &[],
                 None,
-                None,
                 &mut sink,
                 &mut ask,
             ),

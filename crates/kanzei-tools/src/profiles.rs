@@ -1,17 +1,20 @@
 //! 双模式 Profile 组件:dev(需求/缺陷)与 research(来源/发现)。
 //! 组件按当前 profile 决定贡献什么;权限规则是硬门禁的落点。
 
+use anyhow::Context as _;
 use std::sync::Arc;
 
 use kanzei_harness::{
-    refreshing_source, rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft,
-    ProfileKind, ProfileScope, ResolveCtx,
+    fallible_source, refreshing_fallible_source, rule, source, AgentDef, AgentMode, Component,
+    ContextRequirement, Effect, HarnessDraft, ProfileKind, ProfileScope, ResolveCtx,
 };
 
 use crate::docstore::{DocStore, DECISIONS, DEFECTS, IDEAS, REQUIREMENTS};
 use crate::tracker::TrackerTool;
 use crate::work::WorkTool;
 
+#[cfg(test)]
+mod context_tests;
 mod dev;
 mod general;
 mod policy;
@@ -20,6 +23,15 @@ mod research;
 pub use dev::{DevProfile, DEV_DEFERRED_TOOLS};
 pub use general::GeneralChatProfile;
 pub use readonly::ReadonlyProfile;
+
+/// Missing project documents are valid; unreadable or invalid UTF-8 documents are not empty.
+fn read_optional_context_file(path: &std::path::Path) -> anyhow::Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("读取上下文文件 {}", path.display())),
+    }
+}
 
 /// dev agent 的前端自查段。**不写进 dev 的基础提示词**:这段点名的 5 个工具
 /// (ui_dom / ui_console / ui_style / frontend_locate / frontend_check)只由桌面端的
@@ -107,33 +119,37 @@ impl Component for ResearchProfile {
 
         draft.context.insert(
             "research/docs",
-            refreshing_source("research/docs", |ctx: &ResolveCtx| {
-                let src = research::index_of(ctx, &crate::docstore::SOURCES, "Sources");
-                let fnd = research::index_of(ctx, &crate::docstore::FINDINGS, "Findings");
-                let req = research::index_of(ctx, &REQUIREMENTS, "Requirements");
-                let defect = research::index_of(ctx, &DEFECTS, "Defects");
-                let conventions = std::fs::read_to_string(
-                    ctx.project_root.join(".kanzei/project/conventions.md"),
-                )
-                .ok()
-                .map(|text| text.chars().take(8000).collect::<String>());
+            refreshing_fallible_source("research/docs", ContextRequirement::Optional, |ctx: &ResolveCtx| {
+                let src = research::index_of(ctx, &crate::docstore::SOURCES, "Sources")?;
+                let fnd = research::index_of(ctx, &crate::docstore::FINDINGS, "Findings")?;
+                let req = research::index_of(ctx, &REQUIREMENTS, "Requirements")?;
+                let defect = research::index_of(ctx, &DEFECTS, "Defects")?;
                 let backlog = [req, defect]
                     .into_iter()
                     .flatten()
                     .collect::<Vec<_>>()
                     .join("\n");
-                let conventions = conventions
-                    .map(|text| format!("<conventions>\n{text}\n</conventions>\n"))
-                    .unwrap_or_default();
                 let memory_guidance = "<memory>\nUse the unified `memory_search` tool to retrieve project memory and `memory_note` to submit a durable draft; the historical `.kanzei/research/memory.md` is not a research memory source.\n</memory>\n";
-                Some(format!(
-                    "<research-docs>\n{}{}<backlog>\n{backlog}\n</backlog>\n{}{}Record sources with `source add` BEFORE citing them; every finding must cite refs. Use the backlog only as a read-only index; req/defect get reads existing entries and add creates a [todo] draft for dev review.\n</research-docs>",
+                Ok(Some(format!(
+                    "<research-docs>\n{}{}<backlog>\n{backlog}\n</backlog>\n{}Record sources with `source add` BEFORE citing them; every finding must cite refs. Use the backlog only as a read-only index; req/defect get reads existing entries and add creates a [todo] draft for dev review.\n</research-docs>",
                     src.map(|s| s + "\n").unwrap_or_default(),
                     fnd.map(|s| s + "\n").unwrap_or_default(),
-                    conventions,
                     memory_guidance,
-                ))
+                )))
             }),
+        );
+        draft.context.insert(
+            "research/conventions",
+            refreshing_fallible_source(
+                "research/conventions",
+                ContextRequirement::Required,
+                |ctx| {
+                    Ok(read_optional_context_file(
+                        &ctx.project_root.join(".kanzei/project/conventions.md"),
+                    )?
+                    .map(|text| format!("<conventions>\n{text}\n</conventions>")))
+                },
+            ),
         );
 
         draft.agents.insert(
@@ -187,7 +203,7 @@ mod tests {
         harness
             .resolve(&ctx)
             .unwrap()
-            .select_agent(Some("dev"))
+            .select_primary_agent(Some("dev"))
             .unwrap()
             .system
             .clone()
@@ -248,7 +264,7 @@ mod tests {
                 .add(crate::BaseComponent)
                 .add(DevProfile)
                 .add(ConfigComponent);
-            harness.resolve(&ctx).unwrap().system_baseline()
+            harness.resolve(&ctx).unwrap().system_baseline().unwrap()
         };
         let release = render(FullTestCadence::ReleaseOnly);
         assert_eq!(
@@ -311,13 +327,20 @@ mod tests {
         let snapshot = harness.resolve(&ctx).unwrap();
         assert!(snapshot
             .refreshable_system_baseline_with_report()
+            .unwrap()
             .0
             .contains("user-rule-v1"));
         let first_hash = crate::normalized_text_hash("user-rule-v1");
         assert!(!tool.execute(json!({"action":"propose", "content":"unaccepted-draft", "expected_hash":first_hash}), &tools_ctx).await.is_error);
-        assert!(!snapshot.system_baseline().contains("unaccepted-draft"));
+        assert!(!snapshot
+            .system_baseline()
+            .unwrap()
+            .contains("unaccepted-draft"));
         crate::conventions::drafts::save_user(&root, "user-rule-v2", &first_hash, None).unwrap();
-        let refreshed = snapshot.refreshable_system_baseline_with_report().0;
+        let refreshed = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         assert!(refreshed.contains("user-rule-v2"));
         assert!(!refreshed.contains("user-rule-v1"));
         std::fs::remove_dir_all(root).unwrap();
@@ -500,7 +523,7 @@ mod tests {
             .add(crate::BaseComponent)
             .add(DevProfile)
             .add(ConfigComponent);
-        let baseline = harness.resolve(&ctx).unwrap().system_baseline();
+        let baseline = harness.resolve(&ctx).unwrap().system_baseline().unwrap();
 
         assert!(
             baseline.contains(tail),
@@ -530,7 +553,7 @@ mod tests {
                 .add(crate::BaseComponent)
                 .add(DevProfile)
                 .add(ConfigComponent);
-            harness.resolve(&ctx).unwrap().system_baseline()
+            harness.resolve(&ctx).unwrap().system_baseline().unwrap()
         };
 
         // ① 无项目文件:引擎默认模板必须全量注入(新项目零配置也拿到完整约束)。
@@ -628,7 +651,7 @@ mod tests {
             .add(crate::BaseComponent)
             .add(DevProfile)
             .add(ConfigComponent);
-        let baseline = harness.resolve(&ctx).unwrap().system_baseline();
+        let baseline = harness.resolve(&ctx).unwrap().system_baseline().unwrap();
 
         assert!(
             baseline.contains("live.md"),
@@ -877,7 +900,7 @@ mod tests {
             .add(super::ResearchProfile)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
-        let baseline = snapshot.system_baseline();
+        let baseline = snapshot.system_baseline().unwrap();
         for required in [
             "<backlog>",
             "R-901",
@@ -926,7 +949,10 @@ mod tests {
                 },
             ])
             .unwrap();
-        let refreshed = snapshot.refreshable_system_baseline_with_report().0;
+        let refreshed = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         assert!(
             refreshed.contains("same session next step source"),
             "research/docs 必须逐模型步骤刷新，刚写入的 topic 来源要在下一步可见"
@@ -990,7 +1016,7 @@ mod tests {
             assert!(required.contains(&serde_json::json!("task_id")));
         }
         assert!(snapshot
-            .select_agent(Some("research"))
+            .select_primary_agent(Some("research"))
             .unwrap()
             .system
             .contains("research_plan"));
@@ -1073,7 +1099,7 @@ mod tests {
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
         let research = snapshot
-            .select_agent(Some("research"))
+            .select_primary_agent(Some("research"))
             .unwrap()
             .system
             .clone();
@@ -1170,12 +1196,12 @@ mod tests {
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
 
-        let agent = snapshot.select_agent(Some("readonly")).unwrap();
+        let agent = snapshot.select_primary_agent(Some("readonly")).unwrap();
         assert_eq!(agent.name, "readonly");
         assert!(agent.system.contains("MUST NOT modify"));
         assert!(agent.system.contains("read/glob/grep"));
         // 档位缺省选 agent:readonly 档位下默认选中 readonly(dev/research 不匹配)。
-        let default_agent = snapshot.select_agent(None).unwrap();
+        let default_agent = snapshot.select_primary_agent(None).unwrap();
         assert_eq!(default_agent.name, "readonly");
 
         // 权限快照(批1 交付):只读档位下读/检索类默认放行。
@@ -1318,7 +1344,10 @@ mod tests {
         let mut harness = Harness::default();
         harness.add(ResearchProfile);
         let snapshot = harness.resolve(&ctx).unwrap();
-        let before = snapshot.refreshable_system_baseline_with_report().0;
+        let before = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         assert!(
             before.contains("[r221-chain] S-001 [active] first topic source"),
             "baseline was: {before}"
@@ -1342,7 +1371,10 @@ mod tests {
                 },
             ])
             .unwrap();
-        let after = snapshot.refreshable_system_baseline_with_report().0;
+        let after = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         assert!(after.contains("[r221-chain] S-002 [active] new topic source"));
         std::fs::remove_dir_all(root).ok();
     }
@@ -1368,7 +1400,8 @@ mod tool_surface_budget {
     /// D-662/R-364 双门禁按工具数计,不是 schema 字符数。
     /// CLI resident=19 个注册工具 + core 单独追加的 task; desktop 再加 collaboration_status。
     const DEV_RESIDENT_TOOL_BUDGET: usize = 20;
-    const DEV_DEFERRED_TOOL_BUDGET: usize = 12;
+    // Packaged skill bodies use the deferred resource reader; resident schemas stay unchanged.
+    const DEV_DEFERRED_TOOL_BUDGET: usize = 13;
 
     /// readonly 档:只读分析,面应当明显更小。
     ///

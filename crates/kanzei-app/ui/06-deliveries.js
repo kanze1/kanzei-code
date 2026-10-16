@@ -1,4 +1,5 @@
-import { invoke, messagePanes } from "./01-core.js";
+import { invoke } from "./00-ipc.js";
+import { messagePanes } from "./01-chat-panes.js";
 import { addMarkdownHook } from "./04-markdown.js";
 import { renderFileCard } from "./06-activity.js";
 import { resourceIcon } from "./04-resource-types.js";
@@ -72,6 +73,8 @@ export function decorateDeliveredReply(body) {
     link.type = "button"; link.className = "delivery-inline"; link.textContent = part.textContent;
     link.prepend(resourceIcon(row.path));
     link.dataset.path = row.path; link.title = row.path;
+    link.dataset.projectDir = row.project_dir;
+    if (row.process_id) link.dataset.processId = row.process_id;
     link.addEventListener("click", () => {
       const card = message.querySelectorAll(".file-card");
       const target = [...card].find(card => key(card.dataset.path) === key(row.path));

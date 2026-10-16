@@ -439,7 +439,6 @@ async fn consolidate_inbox_inner(
                 &[],
                 None,
                 None,
-                None,
                 &mut on_event,
                 &mut ask,
             )

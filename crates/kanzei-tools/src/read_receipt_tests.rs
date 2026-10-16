@@ -125,7 +125,7 @@ async fn interactive_command_accepts_input_and_returns_the_actual_output() {
         "run".into(),
         "actor".into(),
     );
-    let output = crate::bash::BashTool.execute(json!({
+    let output = crate::bash::BashTool::default().execute(json!({
         "command":"Write-Output READY; $line = [Console]::In.ReadLine(); Write-Output \"REPLY:$line\"",
         "interactive":true
     }), &ctx).await;

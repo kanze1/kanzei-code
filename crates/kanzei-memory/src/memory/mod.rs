@@ -12,10 +12,13 @@ mod ledger;
 mod lifecycle;
 mod manager;
 mod migration;
+mod recall_search;
 mod relevance;
 mod retrieval;
 mod store;
 mod telemetry;
+#[cfg(test)]
+mod test_home;
 mod tools;
 
 pub use inbox::{InboxBatch, InboxCheckpoint};
@@ -291,6 +294,12 @@ pub fn parse_entry(text: &str) -> MemoryEntry {
     }
     entry.body = body_lines.join("\n").trim_matches('\n').to_string();
     entry
+}
+
+/// Version the complete source contract, including status and metadata. IDs are
+/// identity, not a freshness marker for derived lexical or vector rows.
+pub(crate) fn entry_revision(entry: &MemoryEntry) -> String {
+    kanzei_base::content_hash(render_entry(entry).as_bytes())
 }
 
 pub fn render_entry(entry: &MemoryEntry) -> String {
@@ -640,11 +649,12 @@ pub struct FailureRecallPolicy {
     index: std::collections::HashMap<String, Vec<String>>,
     /// 全部 active 条目(构建时快照,id → entry 供命中后取正文/元数据)。
     entries: std::collections::HashMap<String, MemoryEntry>,
+    search: Result<std::sync::Arc<recall_search::RecallSearch>, String>,
 }
 
 /// Tier1 BM25 单次检索的耗时预算(毫秒):超过视为降级,返回空不阻塞主循环。
 /// 设计 §3.2:p95<10ms;这里留 3 倍余量做硬闸。
-const TIER1_BUDGET_MS: u128 = 30;
+const TIER1_BUDGET: std::time::Duration = std::time::Duration::from_millis(30);
 
 /// 构造当前触发实际使用的查询。重复失败显式加入修复意图词，避免把
 /// 上一次错误文本原样作为新检索；该函数同时供遥测记录，保证账本反映真实 query。
@@ -679,6 +689,7 @@ impl FailureRecallPolicy {
             project_root: project_root.to_path_buf(),
             index,
             entries,
+            search: recall_search::RecallSearch::shared(),
         }
     }
 
@@ -716,18 +727,28 @@ impl FailureRecallPolicy {
         trigger: &kanzei_core::RecallTrigger,
         excluded_ids: &[String],
     ) -> Vec<kanzei_core::RecallHit> {
-        let started = std::time::Instant::now();
+        let deadline = std::time::Instant::now() + TIER1_BUDGET;
         let query = recall_query(trigger);
         let excluded: std::collections::HashSet<&str> =
             excluded_ids.iter().map(String::as_str).collect();
         let mut hits = Vec::new();
-        // R-194:全局记忆废弃,失败召回 Tier1 只检索项目 store。
-        // D-366:检索走统一门面(index.search_lexical 完成决策排序,ranking 只在此处)。
-        if started.elapsed().as_millis() > TIER1_BUDGET_MS {
-            return Vec::new(); // 超时降级:不阻塞主循环。
-        }
-        let index = SqliteMemoryIndex::new(&self.project_root);
-        for hit in index.search_lexical(&IndexQuery::text(&query), 3) {
+        let worker = match &self.search {
+            Ok(worker) => worker,
+            Err(error) => {
+                tracing::error!(error=%error, "failure recall search owner unavailable");
+                return Vec::new();
+            }
+        };
+        // Ranking stays in SqliteMemoryIndex. Blocking source/index maintenance
+        // belongs to the bounded owner, not the runner's synchronous callback.
+        let retrieved = match worker.search(&self.project_root, query, deadline) {
+            Ok(hits) => hits,
+            Err(error) => {
+                tracing::warn!(error=%error, "failure recall search did not complete");
+                return Vec::new();
+            }
+        };
+        for hit in retrieved {
             if self.entries.contains_key(&hit.id) && !excluded.contains(hit.id.as_str()) {
                 hits.push(kanzei_core::RecallHit {
                     id: hit.id.clone(),
@@ -1427,8 +1448,16 @@ fn prompt_hints_scoped(
     // R-233 ①③:hybrid 检索(dense embedder + RRF)。无 embedder 时 search_hybrid
     // 自动退化 lexical;ensure_vectors 按 id 差集补/删向量,失败不阻塞(降级)。
     let mut memory_index = SqliteMemoryIndex::with_embedder(project_root, embedder);
-    let _ = memory_index.ensure_vectors();
-    let (found, timing) = memory_index.search_hybrid_entries(&index::IndexQuery::text(&intent), 3);
+    let retrieval = memory_index
+        .ensure_vectors()
+        .and_then(|()| memory_index.search_hybrid_entries(&index::IndexQuery::text(&intent), 3));
+    let (found, timing) = match retrieval {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::error!(error=%error, "memory recall unavailable");
+            return Some(format!("[memory retrieval unavailable] {error:#}. Existing project knowledge was not searched; do not interpret this as no matching memory."));
+        }
+    };
     // 模块约束和预算折叠的项目约束未必常驻；按任务检索，不能按类别静默丢弃。
     let mut hits = found;
     if hits.is_empty() {
@@ -1621,60 +1650,50 @@ mod tests {
 
     #[test]
     fn global_candidate_review_is_one_shot_and_records_recall() {
-        let home = std::env::temp_dir().join(format!(
-            "kz-home-r308-b4-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let project_root = home.join("project");
-        std::fs::create_dir_all(project_root.join(".kanzei")).unwrap();
-        let previous_home = std::env::var_os("KANZEI_HOME");
-        std::env::set_var("KANZEI_HOME", &home);
-        let global = MemoryStore::global().expect("临时 HOME 下应能打开 global store");
-        for index in 0..74 {
-            let outcome = global
-                .add(
-                    "preference",
-                    &format!("global review fixture {index}"),
-                    "global candidate review hook",
-                    &format!("global candidate review body {index}"),
-                    "memory-manager",
-                    &[],
-                    None,
-                    true,
-                )
-                .unwrap();
-            assert!(matches!(outcome, AddOutcome::Added(entry) if entry.status == "candidate"));
-        }
+        test_home::run(
+            "memory::tests::global_candidate_review_is_one_shot_and_records_recall",
+            |home| {
+                let project_root = home.join("project");
+                std::fs::create_dir_all(project_root.join(".kanzei")).unwrap();
+                let global = MemoryStore::global().expect("临时 HOME 下应能打开 global store");
+                for index in 0..74 {
+                    let outcome = global
+                        .add(
+                            "preference",
+                            &format!("global review fixture {index}"),
+                            "global candidate review hook",
+                            &format!("global candidate review body {index}"),
+                            "memory-manager",
+                            &[],
+                            None,
+                            true,
+                        )
+                        .unwrap();
+                    assert!(
+                        matches!(outcome, AddOutcome::Added(entry) if entry.status == "candidate")
+                    );
+                }
 
-        let first = reconcile_candidates(&project_root, None, 365).unwrap();
-        assert_eq!(first.global_candidate_files_before, 74);
-        assert_eq!(first.global_reviewed, 74);
-        assert_eq!(first.global_recall_rows, 74);
-        assert_eq!(first.global_deprecated, 50);
-        assert_eq!(first.global_candidate_files_after, CANDIDATE_MAX_COUNT);
-        let global_after = MemoryStore::global().unwrap();
-        assert!(
-            global_after
-                .recalls(100)
-                .iter()
-                .any(|round| round.prompt_head == GLOBAL_CANDIDATE_REVIEW_PROMPT),
-            "global review 必须产生 recall telemetry"
+                let first = reconcile_candidates(&project_root, None, 365).unwrap();
+                assert_eq!(first.global_candidate_files_before, 74);
+                assert_eq!(first.global_reviewed, 74);
+                assert_eq!(first.global_recall_rows, 74);
+                assert_eq!(first.global_deprecated, 50);
+                assert_eq!(first.global_candidate_files_after, CANDIDATE_MAX_COUNT);
+                let global_after = MemoryStore::global().unwrap();
+                assert!(
+                    global_after
+                        .recalls(100)
+                        .iter()
+                        .any(|round| round.prompt_head == GLOBAL_CANDIDATE_REVIEW_PROMPT),
+                    "global review 必须产生 recall telemetry"
+                );
+
+                let second = reconcile_candidates(&project_root, None, 365).unwrap();
+                assert_eq!(second.global_reviewed, 0, "同一 marker 不得重复复核");
+                assert!(second.global_review_already_recorded);
+            },
         );
-
-        let second = reconcile_candidates(&project_root, None, 365).unwrap();
-        assert_eq!(second.global_reviewed, 0, "同一 marker 不得重复复核");
-        assert!(second.global_review_already_recorded);
-
-        if let Some(previous_home) = previous_home {
-            std::env::set_var("KANZEI_HOME", previous_home);
-        } else {
-            std::env::remove_var("KANZEI_HOME");
-        }
-        std::fs::remove_dir_all(&home).ok();
     }
 
     #[test]
@@ -1917,6 +1936,9 @@ mod tests {
     struct TopicEmbedder;
     const EVAL_TOPIC_WORDS: &[&str] = &["评估", "harness", "质量", "复盘", "验收", "证据"];
     impl crate::embed::Embedder for TopicEmbedder {
+        fn cache_key(&self) -> String {
+            "TopicEmbedder-v1".into()
+        }
         fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
             Ok(texts
                 .iter()
@@ -2251,7 +2273,9 @@ mod tests {
         };
         // D-366:决策排序在检索门面,经 index 取命中。
         let index = SqliteMemoryIndex::new(&dir);
-        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
+        let hits = index
+            .search_entries(&IndexQuery::text("发版"), None, Some("active"), 5)
+            .unwrap();
         record_memory_search_telemetry(
             &dir,
             "要发版",
@@ -2698,20 +2722,34 @@ source: user
         let eid = crate::memory::seed_episode(&root, "ses");
         seed_entry_recovery(&store, eid, &cid);
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
-        let policy = FailureRecallPolicy::new(&root);
-        // Tier1 通道的功能验证直接走存储候选集(无 30ms 预算干扰)——预算降级是
-        // 运行期保护,不该让测试在共享繁忙环境断言"必然命中"而偶发红(D-293)。
-        // D-366:候选集访问不排序,断言只查命中集合。
-        let rows = store
-            .search_candidates("cargo test 需要 HTTPS_PROXY 代理", None, Some("active"))
+        let mut policy = FailureRecallPolicy::new(&root);
+        policy.search = Ok(std::sync::Arc::new(
+            recall_search::RecallSearch::start().unwrap(),
+        ));
+        // Exercise the real blocking owner and ranking path with a generous
+        // test deadline; the held-lock regression separately proves the 30ms
+        // production budget without relying on machine speed for a positive hit.
+        let before_hits = store.hits_map();
+        let rows = policy
+            .search
+            .as_ref()
+            .unwrap()
+            .search(
+                &root,
+                "cargo test 需要 HTTPS_PROXY 代理".into(),
+                std::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
             .unwrap();
         assert!(
             !rows.is_empty(),
             "Tier1 BM25 必须命中无指纹但描述相关的事实条目"
         );
-        assert!(rows
-            .iter()
-            .any(|row| row.entry.title == "cargo test 环境约束"));
+        assert!(rows.iter().any(|row| row.id == cid));
+        assert_eq!(
+            store.hits_map(),
+            before_hits,
+            "probes must not publish accepted-hit observations"
+        );
 
         let mut reretrieve = trigger("bash", "cargo test 需要 HTTPS_PROXY 代理", "", 2);
         reretrieve.previous_retrieved_ids = vec![cid.clone()];
@@ -2725,20 +2763,42 @@ source: user
             "重查必须改变 query 并保留修复意图: {}",
             recall_query(&reretrieve)
         );
+        std::sync::Arc::try_unwrap(policy.search.unwrap())
+            .unwrap_or_else(|_| panic!("isolated owner still shared"))
+            .finish();
         std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
-    fn 超时降级不阻塞_返回空() {
-        // R-162 验收②:预算超时降级——即使 Tier1 检索超时也不 panic、返回空。
-        // 单测无法真实模拟超时(检索极快),这里验证"超预算路径不 panic"的
-        // 结构性保障:TIER1_BUDGET_MS 在检索循环内检查,超时即提前返回。
+    fn tier1_deadline_returns_while_memory_tree_is_locked() {
+        // Hold the real cross-process lock until the caller returns. An empty
+        // library query alone does not exercise the deadline at all.
         let root = temp_memory_root("timeout");
-        let policy = FailureRecallPolicy::new(&root);
-        // 未命中任何条目的 query:Tier1 检索后返回空,不阻塞。
+        let mut policy = FailureRecallPolicy::new(&root);
+        policy.search = Ok(std::sync::Arc::new(
+            recall_search::RecallSearch::start().unwrap(),
+        ));
+        let store = MemoryStore::project(&root);
+        let lock = store.tree_lock().unwrap();
         let t = trigger("read", "no such file", "nonexistent.rs", 1);
-        let hits = policy.retrieve(&t);
-        assert!(hits.is_empty(), "无命中时返回空: {hits:?}");
+        let (send, receive) = std::sync::mpsc::channel();
+        let caller = std::thread::spawn(move || {
+            send.send(policy.retrieve(&t)).unwrap();
+            // Drain the owner only after reporting the caller's bounded result;
+            // the test then releases the lock before joining and removing files.
+            std::sync::Arc::try_unwrap(policy.search.unwrap())
+                .unwrap_or_else(|_| panic!("isolated owner still shared"))
+                .finish();
+        });
+        let returned = receive.recv_timeout(std::time::Duration::from_millis(250));
+        drop(lock);
+        caller.join().unwrap();
+        assert!(
+            returned
+                .expect("recall waited for the memory lock instead of its deadline")
+                .is_empty(),
+            "timed-out recall must not inject a result"
+        );
         std::fs::remove_dir_all(root).ok();
     }
 

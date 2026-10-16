@@ -560,7 +560,7 @@ mod wait_tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let started = crate::bash::BashTool
+        let started = crate::bash::BashTool::default()
             .execute(
                 json!({"command": "echo B5_READY", "background": true}),
                 &ctx,

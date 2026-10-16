@@ -1,12 +1,16 @@
 import { openProjectSpace, renderCurrentItems, renderProjectOverview, renderProjectActivity } from "./12-workbench.js";
 import { closeSurface, isSurfaceOpen, openMenu } from "./00-surface.js";
-import { defer } from "./01-core.js";
+import { subscribeRefresh } from "./00-refresh.js";
+import { defer } from "./00-dom.js";
 import { localizeDynamic } from "./02-i18n.js";
-import { $, invoke, on } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { on } from "./01-runtime-events.js";
 import { applyLanguage, localizedDocStatus, t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
+  currentProject,
   processItems,
   running,
   toastError,
@@ -172,13 +176,13 @@ export function refreshWorkspaceSoon() {
 
 defer(() => {
   on("kz:workspace-invalidated", refreshWorkspaceSoon);
+  document.addEventListener("kz:document-interaction-settled", event => {
+    if (event.detail.project === currentProject && latestDocsSnapshot && document.body.dataset.view === "documents") renderDocsSnapshot(latestDocsSnapshot);
+  });
   document.addEventListener("kz:workspace-console-changed", () => {
     if ($("view-workspace")?.classList.contains("active")) void refreshWorkspace();
   });
-  setInterval(() => {
-    const visible = $("view-workspace")?.classList.contains("active") || $("view-project")?.classList.contains("active");
-    if (!document.hidden && visible && !workspaceRequests && !workspaceConsoleBusy()) void refreshWorkspace();
-  }, 8000);
+  subscribeRefresh({ interval: 8000, active: () => document.body.dataset.view === "workspace" && !workspaceRequests && !workspaceConsoleBusy(), refresh: refreshWorkspace, onError: toastError });
 });
 // 需求页的四个页签:req 进行中 / defect 缺陷 / tests 测试 / ideas 想法。
 // (「对照」页签已移除:两列无列标题、筛选置灰,真正的交叉引用是依赖视图,见 B12。)

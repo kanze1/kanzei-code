@@ -52,8 +52,9 @@ try {
   assert.equal(await page.evaluate(async()=>{const shell=await import('/03-shell.js');return shell.activeProcessId;}),actionFixture.sourceProcess,'fork IPC receipt must not be mistaken for completed navigation');
   await page.evaluate(()=>window.__harnessReleaseForkRefresh());
   // Await both recipient selection and the draft restored after switchProcess finishes.
-  await page.waitForFunction(async({processId,sessionId,prompt})=>{
-   const shell=await import('/03-shell.js'),box=document.getElementById('prompt');
+  await page.evaluate(async()=>{window.__harnessShell=await import('/03-shell.js');});
+  await page.waitForFunction(({processId,sessionId,prompt})=>{
+   const shell=window.__harnessShell,box=document.getElementById('prompt');
    return shell.activeProcessId===processId&&shell.activeSessionId===sessionId&&box.value===prompt&&document.activeElement===box;
   },actionFixture);
   await page.locator('#prompt').fill('/compact 保留下一步计划');await page.locator('#prompt').press('Enter');await page.waitForFunction(()=>window.__kzPreview.calls.some(c=>c.cmd==='conversation_compact'));
@@ -72,6 +73,30 @@ try {
   const stopCalls=await page.evaluate(()=>window.__kzPreview.calls);
   assert.equal(stopCalls.filter(c=>c.cmd==='run_tool_process_stop').at(-1).args.processId,'bg123');
   assert.equal(stopCalls.filter(c=>c.cmd==='stop_run').length,0,'single terminal stop must not stop the whole run');
-  assert.equal(errors.length,0,errors.join('\n'));console.log(`${theme}: 定时任务、回退预览和代码操作、分叉、手动压缩和单个后台终端停止入口通过`);await page.close();
+  await page.evaluate(async()=>{
+   const global='C:/fixture-home/agents/reviewer.md',project='C:/fixture-project/.kanzei/agents/reviewer.md';
+   const base={profile:'dev',mode:'primary',model:'primary',steps:0,status:'available',error:null};
+   window.__kzPreview.setCommand('agent_directory_get',{profile:'dev',agents:[
+    {...base,name:'reviewer',source:'project',path:project,systemPreview:'Project winner prompt',registration:{name:'reviewer',replaced:[{component:'fixture::Builtin',path:null},{component:'fixture::Markdown',path:global}],winner:{component:'fixture::Markdown',path:project}}},
+    {...base,name:'plain',source:'builtin',path:null,systemPreview:'Builtin prompt',registration:{name:'plain',replaced:[],winner:{component:'fixture::Builtin',path:null}}},
+   ]});
+   (await import('/03-shell.js')).navigate_view('settings');
+  });
+  await page.locator('[data-settings-target="sg-agents"]').click();
+  const overlayAgent=page.locator('.agent-directory-card').filter({has:page.getByRole('heading',{name:/^reviewer /})});
+  await overlayAgent.getByText('Project winner prompt',{exact:true}).waitFor();
+  assert.match(await overlayAgent.innerText(),/来源: 项目/,'the displayed source must be the effective project winner');
+  const overrideOrder=overlayAgent.locator('.agent-directory-field').filter({hasText:'覆盖顺序:'});
+  assert.equal(await overrideOrder.count(),1);
+  assert.equal(await overrideOrder.innerText(),'覆盖顺序: 内建 → C:/fixture-home/agents/reviewer.md → C:/fixture-project/.kanzei/agents/reviewer.md');
+  const plainAgent=page.locator('.agent-directory-card').filter({has:page.getByRole('heading',{name:/^plain /})});
+  assert.equal(await plainAgent.locator('.agent-directory-field').filter({hasText:'覆盖顺序:'}).count(),0,'no replacement means no override row');
+  assert.equal(await overlayAgent.locator('details').getAttribute('open'),null,'component internals are collapsed by default');
+  await overlayAgent.getByText('注册诊断',{exact:true}).click();
+  assert.equal(await overlayAgent.locator('details').getByText('fixture::Builtin',{exact:true}).isVisible(),true);
+  await overlayAgent.getByRole('button',{name:'打开原文',exact:true}).click();
+  const directoryOpen=await page.evaluate(()=>window.__kzPreview.calls.filter(c=>c.cmd==='agent_directory_open').at(-1));
+  assert.equal(directoryOpen.args.path,'C:/fixture-project/.kanzei/agents/reviewer.md','open-source action must use the final winner path');
+  assert.equal(errors.length,0,errors.join('\n'));console.log(`${theme}: 定时任务、回退预览和代码操作、分叉、手动压缩、单个后台终端停止、Agent 胜者/覆盖链与原文入口通过`);await page.close();
  }
 }finally{await browser.close();await server.close();}

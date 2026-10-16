@@ -341,7 +341,7 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
         const flow = await import("/22-neural-flow.js");
         const shell = await import("/03-shell.js");
         const id = shell.activeSessionId;
-        shell.sessionStates.set(id, Object.assign(shell.sessionStates.get(id) ?? {}, { phase: "running", running: true, converged: false }));
+        shell.transitionSession(id, "running");
         const f0 = window.__bg.frames;
         const timer = setInterval(() => flow.neuralFlowEmit("assistant_streaming", { session_id: id, text_length: 4 }), 16);
         await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -353,8 +353,7 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
         const flow = await import("/22-neural-flow.js");
         const shell = await import("/03-shell.js");
         const id = shell.activeSessionId;
-        const state = shell.sessionStates.get(id) ?? {};
-        shell.sessionStates.set(id, Object.assign(state, { phase: "failed", running: false, converged: false }));
+        shell.transitionSession(id, "failed");
         flow.neuralFlowEmit("run_failed", { session_id: id, message: "smoke" });
         await new Promise((resolve) => setTimeout(resolve, 1800)); // 涟漪 900ms、光点走完本程
         const f0 = window.__bg.frames;

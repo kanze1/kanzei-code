@@ -17,9 +17,8 @@ async function waitFor(predicate, timeoutMs = 4000) {
 }
 
 async function openView(ctx, view) {
-  const button = $(`.activity-item[data-view="${view}"]`);
-  if (!button) return false;
-  button.click();
+  const { navigate_view } = await import("/03-shell.js");
+  navigate_view(view);
   await waitFor(() => $(`#view-${view}`)?.classList.contains("active"));
   // navigate_view 在 rAF + setTimeout(0) 之后才调 loader,再等 IPC 静默。
   await ctx.sleep(60);

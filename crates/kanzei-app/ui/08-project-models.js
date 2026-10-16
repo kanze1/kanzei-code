@@ -1,6 +1,8 @@
 import { closeSurface, isSurfaceOpen, openDialog } from "./00-surface.js";
-import { defer } from "./01-core.js";
-import { $, inputDialog, invoke } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { inputDialog } from "./00-dialogs.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { currentProject, reasoningLabel, toast, toastError } from "./03-shell.js";
 import { MANUAL_MODEL_PATTERN, MANUAL_MODEL_SENTINEL, manualModels, modelCatalog, modelCatalogProject } from "./08-models.js";

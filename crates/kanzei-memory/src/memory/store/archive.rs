@@ -86,8 +86,14 @@ impl MemoryStore {
             let archive_dir = self.archive_dir();
             std::fs::create_dir_all(&archive_dir)?;
             let dest = archive_dir.join(format!("{}.md", entry.file_stem()));
-            // 墓碑:保留文件(内容即追溯),目标已存在则跳过(防重复归档覆盖)。
-            if dest.exists() {
+            // 只有字节相同才是重复归档;同名不同内容必须保留双方并报告冲突。
+            if dest.try_exists()? {
+                anyhow::ensure!(
+                    std::fs::read(path)? == std::fs::read(&dest)?,
+                    "归档目标已存在且内容不同: {}；源文件 {} 已保留",
+                    dest.display(),
+                    path.display()
+                );
                 std::fs::remove_file(path)?;
                 self.record_write_log(path, None)?;
             } else {
@@ -136,7 +142,7 @@ impl MemoryStore {
         }
         entry.status = status.into();
         entry.updated = today();
-        // 先写主目录再删归档:中途失败只会留下重复(archive_dead 会按「目标已存在」收拾),不会丢条目。
+        // 先写主目录再删归档:中途失败保留副本,重复条目需核对处理,不会因恢复失败丢条目。
         self.write_entry(&entry, None)?;
         std::fs::remove_file(&path)?;
         self.record_write_log(&path, None)?;
@@ -195,6 +201,31 @@ mod tests {
         store
             .update(&entry.id, None, None, None, Some("active"), None, false)
             .unwrap()
+    }
+
+    #[test]
+    fn archive_collision_preserves_different_bytes_and_deduplicates_equal_bytes() {
+        let (dir, store) = temp_store();
+        let mut entry = add_active(&store, "同名归档", "归档冲突测试", None);
+        let path = store.load_all().pop().unwrap().0;
+        entry.status = "deprecated".into();
+        let source = render_entry(&entry);
+        std::fs::write(&path, &source).unwrap();
+        let archive = store.archive_dir();
+        std::fs::create_dir_all(&archive).unwrap();
+        let destination = archive.join(format!("{}.md", entry.file_stem()));
+        let conflicting = "# 相同文件名,不同内容\n这份已有文件不能被删除或覆盖。\n";
+        std::fs::write(&destination, conflicting).unwrap();
+        let error = store.archive_dead().unwrap_err();
+        assert!(error.to_string().contains("内容不同"), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), conflicting);
+
+        std::fs::write(&destination, &source).unwrap();
+        assert_eq!(store.archive_dead().unwrap(), 0);
+        assert!(!path.exists());
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), source);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

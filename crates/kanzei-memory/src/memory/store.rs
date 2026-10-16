@@ -157,7 +157,15 @@ impl MemoryStore {
             MemoryScope::Project,
             super::project_memory_root(project_root),
         );
-        store.migrate_legacy(project_root);
+        // 保持路径句柄构造的兼容接口;迁移失败必须显式诊断,原始来源仍保留供重入。
+        if let Err(error) = store.migrate_legacy(project_root) {
+            tracing::error!(
+                project_root = %project_root.display(),
+                legacy_path = %project_root.join(".kanzei/project/memory.md").display(),
+                error = %format!("{error:#}"),
+                "旧记忆迁移未完成；源文件已保留，下次打开会重新检查"
+            );
+        }
         MemoryStore {
             scope: store.scope,
             root: store.root,
@@ -244,52 +252,47 @@ impl MemoryStore {
         // 同线程重入,由 FileLock 重入计数放行。
         let _tree_lock = self.tree_lock()?;
         // D-495:写入前先修复已有的派生索引失步,避免 classify_novelty 使用过期 FTS。
-        self.ensure_derived_consistent()?;
+        let entries = self.ensure_derived_consistent()?;
         // R-255 第二刀:准入链(枚举/必填/subject 不变式/交付拒收/指纹/判重)提纯到
         // MemoryAdmission,store 只做「查全部条目 + 依结果分流」。
         MemoryAdmission::validate_basic(category, title, description, body)?;
         let title = title.trim();
         let description = description.trim();
         let subject = subject.map(str::trim).filter(|s| !s.is_empty());
-        let entries = self.load_all();
         if let Some(existing) = MemoryAdmission::find_subject_conflict(&entries, category, subject)
         {
             return Ok(AddOutcome::SubjectConflict(existing.clone()));
         }
         MemoryAdmission::check_delivery_state(title, subject)?;
-        {
-            let text = format!("{description}\n{body}");
+        let text = format!("{description}\n{body}");
+        let incoming_fps = super::fp_markers(&text);
+        if !incoming_fps.is_empty() {
             let inbox = self.read_inbox();
-            let existing_fps = {
-                let mut fps = Vec::new();
-                for (_, e) in self.load_all() {
-                    fps.extend(super::fp_markers(&format!("{}\n{}", e.description, e.body)));
-                }
-                if let Some(global) = MemoryStore::global() {
-                    for (_, e) in global.load_all() {
-                        fps.extend(super::fp_markers(&format!("{}\n{}", e.description, e.body)));
-                    }
-                }
-                fps
-            };
-            MemoryAdmission::check_fingerprint(&text, &inbox, existing_fps.into_iter())?;
-            let incoming_fps = super::fp_markers(&text);
+            // The fingerprint source set is needed only when the incoming
+            // record contains fingerprints. Reuse the checked local generation
+            // and read the global source once for provenance and deduplication.
+            let global_entries = MemoryStore::global()
+                .map(|global| global.index_source_entries())
+                .transpose()?
+                .unwrap_or_default();
+            let existing_fps = entries
+                .iter()
+                .chain(&global_entries)
+                .flat_map(|(_, entry)| {
+                    super::fp_markers(&format!("{}\n{}", entry.description, entry.body))
+                });
+            MemoryAdmission::check_fingerprint(&text, &inbox, existing_fps)?;
             if let Some(existing) =
-                MemoryAdmission::find_fingerprint_conflict(&entries, &incoming_fps)
+                MemoryAdmission::find_fingerprint_conflict(&entries, &incoming_fps).or_else(|| {
+                    MemoryAdmission::find_fingerprint_conflict(&global_entries, &incoming_fps)
+                })
             {
                 return Ok(AddOutcome::Duplicate(existing.clone()));
-            }
-            if let Some(global) = MemoryStore::global() {
-                if let Some(existing) =
-                    MemoryAdmission::find_fingerprint_conflict(&global.load_all(), &incoming_fps)
-                {
-                    return Ok(AddOutcome::Duplicate(existing.clone()));
-                }
             }
         }
         // 语义探测下沉:Uncertain(有 FTS 命中但非精确)即拒并返回候选(force 跳过)。
         if !force {
-            let (novelty, candidates) = self.classify_novelty(title, description, body);
+            let (novelty, candidates) = self.classify_novelty(title, description, body)?;
             if novelty == Novelty::Uncertain {
                 let cand: Vec<MemoryEntry> = candidates.into_iter().collect();
                 if !cand.is_empty() {
@@ -925,7 +928,7 @@ impl MemoryStore {
         // 并与围栏收口共享锁互斥,让 after 快照只看到完整终态。
         let _tree_lock = self.tree_lock()?;
         let _archived = self.archive_dead()?;
-        let entries = self.load_all();
+        let entries = self.index_source_entries()?;
         // INDEX.md:一行一条(仅 active),candidate 折叠为计数(未验证不占索引面)。
         let mut index = format!("# Memory Index ({})\n\n", self.scope.label());
         let mut candidates = 0usize;
@@ -948,80 +951,117 @@ impl MemoryStore {
         crate::atomic_file::write_atomic(&self.index_md(), &index)?;
         self.record_write_log(&self.index_md(), Some(index.into_bytes()))?;
 
-        let conn = self.open_db()?;
-        conn.execute("DELETE FROM memory_fts", [])?;
-        for (_, e) in &entries {
-            // CJK 单字切分入索引,与查询侧 fts_query 对称。
-            conn.execute(
-                "INSERT INTO memory_fts(id, title, description, body, category, status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    e.id,
-                    segment_cjk(&e.title),
-                    segment_cjk(&e.description),
-                    segment_cjk(&e.body),
-                    e.category,
-                    e.status
-                ],
-            )?;
-        }
+        self.sync_fts(&entries)?;
         // R-268:FTS index.db 是围栏可见的托管文件(SQLite 二进制),写后记日志——
         // 指纹 + 内容快照(库通常小;围栏收口按日志吸收,不把它当越界回滚)。
         self.record_write_log(&self.db_path(), Some(std::fs::read(self.db_path())?))?;
         Ok(())
     }
 
-    /// FTS 派生物与文件真源的 id 集合比对(只看目录文件名,不读内容——检索热路径
-    /// 上的守护必须廉价)。任何差集都判失步;查询失败按未失步处理(刚建库的空表
-    /// 走正常路径,不在这里制造额外故障面)。
-    /// D-495:统一的派生索引守护。失步时立即按 Markdown 真源全量重建,
-    /// 供写入和检索共同调用,避免只在检索热路径修复。
-    pub(crate) fn ensure_derived_consistent(&self) -> anyhow::Result<()> {
-        let conn = self.open_db()?;
-        if self.fts_desynced(&conn) {
-            drop(conn);
+    /// Source revisions, not ID presence, determine whether a derived row is
+    /// current. Both normal writes and external Markdown edits use this path.
+    pub(crate) fn ensure_derived_consistent(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+        let _tree_lock = self.tree_lock()?;
+        let entries = self.index_source_entries()?;
+        if self.sync_fts(&entries)? {
             self.refresh_derived()?;
+            // Refresh may archive externally deprecated/invalid entries. The
+            // returned generation must describe the resulting live source.
+            return self.index_source_entries();
         }
-        Ok(())
+        Ok(entries)
     }
 
-    pub(crate) fn fts_desynced(&self, conn: &Connection) -> bool {
-        let mut fts_ids: Vec<String> =
-            match conn.prepare("SELECT id FROM memory_fts").and_then(|mut s| {
-                s.query_map([], |r| r.get::<_, String>(0))
-                    .map(|rows| rows.flatten().collect())
-            }) {
-                Ok(ids) => ids,
-                Err(_) => return false,
-            };
-        let mut file_ids: Vec<String> = Vec::new();
-        let Ok(dir) = std::fs::read_dir(&self.root) else {
-            return false;
+    pub(super) fn index_source_entries(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+        Self::source_entries_in(&self.root)
+    }
+
+    /// Strict source read for context assembly; an inaccessible memory is not an empty memory.
+    pub fn load_all_checked(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+        let mut entries = self.index_source_entries()?;
+        entries.sort_by(|a, b| a.1.id.cmp(&b.1.id));
+        Ok(entries)
+    }
+
+    /// 迁移恢复必须包含归档,并传播读取错误,不能把读失败当成“目标还没有”。
+    pub(super) fn migration_entries(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+        let mut entries = Self::source_entries_in(&self.root)?;
+        entries.extend(Self::source_entries_in(&self.archive_dir())?);
+        Ok(entries)
+    }
+
+    fn source_entries_in(root: &Path) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+        let mut entries = Vec::new();
+        let directory = match std::fs::read_dir(root) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(entries),
+            Err(error) => return Err(error.into()),
         };
-        for item in dir.flatten() {
+        for item in directory {
+            let item = item?;
             let path = item.path();
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
             }
-            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                continue;
-            };
-            if name == "INDEX.md" || name == "inbox.md" {
-                continue;
-            }
-            // 文件名形如 `M-009-slug.md`:id 是前两段(scope 前缀 + 编号)。
-            let mut parts = name.split('-');
-            if let (Some(prefix), Some(number)) = (parts.next(), parts.next()) {
-                if !number.is_empty() {
-                    file_ids.push(format!("{}-{number}", prefix.to_ascii_uppercase()));
-                }
+            let text = std::fs::read_to_string(&path)?;
+            let entry = parse_entry(&text);
+            if !entry.id.is_empty() {
+                entries.push((path, entry));
             }
         }
-        fts_ids.sort();
-        fts_ids.dedup();
-        file_ids.sort();
-        file_ids.dedup();
-        fts_ids != file_ids
+        Ok(entries)
+    }
+
+    fn sync_fts(&self, entries: &[(PathBuf, MemoryEntry)]) -> anyhow::Result<bool> {
+        use std::collections::BTreeMap;
+        let mut conn = self.open_db()?;
+        let tx = conn.transaction()?;
+        let known: BTreeMap<String, String> = {
+            let mut statement = tx.prepare("SELECT id, revision FROM memory_fts_revisions")?;
+            let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let current: BTreeMap<&str, &MemoryEntry> = entries
+            .iter()
+            .map(|(_, entry)| (entry.id.as_str(), entry))
+            .collect();
+        // Legacy indices have no revisions. Delete their unversioned rows in
+        // the same transaction that installs the replacement generation.
+        let mut changed = tx.execute(
+            "DELETE FROM memory_fts WHERE id NOT IN (SELECT id FROM memory_fts_revisions)",
+            [],
+        )? > 0;
+        for id in known.keys().filter(|id| !current.contains_key(id.as_str())) {
+            changed = true;
+            tx.execute("DELETE FROM memory_fts WHERE id = ?1", params![id])?;
+            tx.execute(
+                "DELETE FROM memory_fts_revisions WHERE id = ?1",
+                params![id],
+            )?;
+        }
+        for (id, entry) in current {
+            let revision = super::entry_revision(entry);
+            if known.get(id) == Some(&revision) {
+                // An interrupted old rebuild or external DB repair may have
+                // removed the row while leaving revision metadata behind.
+                let present: bool = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM memory_fts WHERE id = ?1)",
+                    params![id],
+                    |row| row.get(0),
+                )?;
+                if present {
+                    continue;
+                }
+            }
+            changed = true;
+            tx.execute("DELETE FROM memory_fts WHERE id = ?1", params![id])?;
+            tx.execute("INSERT INTO memory_fts(id, title, description, body, category, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, segment_cjk(&entry.title), segment_cjk(&entry.description), segment_cjk(&entry.body), entry.category, entry.status])?;
+            tx.execute("INSERT INTO memory_fts_revisions(id, revision) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision",
+                params![id, revision])?;
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     pub(crate) fn open_db(&self) -> anyhow::Result<Connection> {
@@ -1036,6 +1076,9 @@ impl MemoryStore {
                  id TEXT PRIMARY KEY,
                  hits INTEGER NOT NULL DEFAULT 0,
                  last_hit_at INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE IF NOT EXISTS memory_fts_revisions(
+                 id TEXT PRIMARY KEY,
+                 revision TEXT NOT NULL);
              -- R-125 召回明细。和 hits 一样是派生日志:丢了只丢历史,不丢事实,
              -- 所以放在可重建的 index.db 而不是记忆文件里。
              CREATE TABLE IF NOT EXISTS memory_recalls(
@@ -1484,7 +1527,9 @@ mod tests {
         );
         // D-366:排序决策在检索门面,这里经 index 取决策排序后的 top-k。
         let index = SqliteMemoryIndex::new(&dir);
-        let hits = index.search_entries(&IndexQuery::text("发版 更新"), None, Some("active"), 5);
+        let hits = index
+            .search_entries(&IndexQuery::text("发版 更新"), None, Some("active"), 5)
+            .unwrap();
         assert_eq!(
             hits[0].entry.id,
             "M-002",
@@ -1497,13 +1542,17 @@ mod tests {
             hits[0].snippet
         );
         // 命中计数生效(search_entries 在决策排序后记 record_hits)
-        let again = index.search_entries(&IndexQuery::text("发版"), None, None, 5);
+        let again = index
+            .search_entries(&IndexQuery::text("发版"), None, None, 5)
+            .unwrap();
         assert!(again[0].hits >= 1);
         // 删库重建:真源是文件
         drop(again);
         std::fs::remove_file(store.db_path()).unwrap();
         store.refresh_derived().unwrap();
-        let rebuilt = index.search_entries(&IndexQuery::text("CRLF"), None, None, 5);
+        let rebuilt = index
+            .search_entries(&IndexQuery::text("CRLF"), None, None, 5)
+            .unwrap();
         assert_eq!(rebuilt[0].entry.id, "M-001");
         std::fs::remove_dir_all(dir).ok();
     }
@@ -1556,7 +1605,7 @@ mod tests {
         assert!(index_text.contains("(1 candidate 条待验证晋升)"));
 
         let fts_hits = store
-            .search_candidates("候选 不可 检索 单轨 标记", None, None)
+            .search_candidates("候选 不可 检索 单轨 标记", None, Some("active"))
             .unwrap();
         assert!(
             fts_hits.iter().all(|hit| hit.entry.id != candidate.id),
@@ -1564,8 +1613,14 @@ mod tests {
             fts_hits.iter().map(|hit| &hit.entry.id).collect::<Vec<_>>()
         );
         let index = SqliteMemoryIndex::new(&dir);
-        let production_hits =
-            index.search_entries(&IndexQuery::text("候选 不可 检索 单轨 标记"), None, None, 5);
+        let production_hits = index
+            .search_entries(
+                &IndexQuery::text("候选 不可 检索 单轨 标记"),
+                None,
+                Some("active"),
+                5,
+            )
+            .unwrap();
         assert!(
             production_hits
                 .iter()
@@ -1597,7 +1652,9 @@ mod tests {
             "package.ps1 -Publish",
         );
         let index = SqliteMemoryIndex::new(&dir);
-        let hits = index.search_entries(&IndexQuery::text("发版 更新"), None, Some("active"), 5);
+        let hits = index
+            .search_entries(&IndexQuery::text("发版 更新"), None, Some("active"), 5)
+            .unwrap();
         assert!(!hits.is_empty());
 
         let recall_id = store.record_recall("这轮要发版", &hits, 512);
@@ -1765,10 +1822,14 @@ mod tests {
             )
             .unwrap();
         // 明显重复:规范化标题精确命中 active 记忆。
-        let (dup, _) = store.classify_novelty("GH 网络代理", "push 前必读", "");
+        let (dup, _) = store
+            .classify_novelty("GH 网络代理", "push 前必读", "")
+            .unwrap();
         assert_eq!(dup, Novelty::Duplicate, "规范化标题应命中 active 记忆");
         // 明显新:无重叠词。
-        let (fresh, _) = store.classify_novelty("diff 树渲染优化", "R-133 diff 渲染", "");
+        let (fresh, _) = store
+            .classify_novelty("diff 树渲染优化", "R-133 diff 渲染", "")
+            .unwrap();
         assert_eq!(fresh, Novelty::New, "无关主题应判明显新");
         // 不确定:有语义命中且标题高度重合——先建一条长标题条目,再 classify 一个
         // 共享 ≥8 token 的改写标题(R-216 口径:共享 token ≥8 且比例 ≥0.55)。
@@ -1786,11 +1847,13 @@ mod tests {
             )
             .unwrap();
         // 英文改写(调序+换词,共享全部 8+ token):R-216 验收①「英文改写 M-044 被拦」。
-        let (uncertain, candidates) = store.classify_novelty(
-            "verification and secure connection of github network proxy configuring",
-            "HTTPS_PROXY 与代理地址",
-            "",
-        );
+        let (uncertain, candidates) = store
+            .classify_novelty(
+                "verification and secure connection of github network proxy configuring",
+                "HTTPS_PROXY 与代理地址",
+                "",
+            )
+            .unwrap();
         assert_eq!(
             uncertain,
             Novelty::Uncertain,
@@ -2148,12 +2211,9 @@ mod tests {
         // candidate → shadow。
         let shadowed = store.to_shadow(&candidate.id).unwrap();
         assert_eq!(shadowed.status, "shadow");
-        // 默认检索与 active 过滤都不可见(不注入生产)。
-        let hits_default = store.search_candidates("影子评估", None, None).unwrap();
-        assert!(
-            hits_default.iter().all(|h| h.entry.id != candidate.id),
-            "shadow 不得进默认检索"
-        );
+        // None is the explicit maintenance selector; production passes active.
+        let hits_all = store.search_candidates("影子评估", None, None).unwrap();
+        assert!(hits_all.iter().any(|h| h.entry.id == candidate.id));
         let hits_active = store
             .search_candidates("影子评估", None, Some("active"))
             .unwrap();
@@ -3274,7 +3334,9 @@ mod tests {
         );
         // D-366:排序决策在检索门面,经 index 取决策排序结果。
         let index = SqliteMemoryIndex::new(&dir);
-        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
+        let hits = index
+            .search_entries(&IndexQuery::text("发版"), None, Some("active"), 5)
+            .unwrap();
         assert_eq!(hits.len(), 2);
         let (a, b) = ("M-001".to_string(), "M-002".to_string());
         // 各召回 3 轮:甲从未被拉正文,乙每轮都被拉。recall_id 以毫秒为键,轮间隔 2ms。
@@ -3285,7 +3347,9 @@ mod tests {
         let profile = store.recall_profile();
         assert_eq!(profile.get(&a), Some(&(3, 0)), "{profile:?}");
         assert_eq!(profile.get(&b), Some(&(3, 3)), "{profile:?}");
-        let ranked = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
+        let ranked = index
+            .search_entries(&IndexQuery::text("发版"), None, Some("active"), 5)
+            .unwrap();
         assert_eq!(
             ranked
                 .iter()
@@ -3392,13 +3456,17 @@ mod tests {
         );
         // D-366:排序决策在检索门面,经 index 取决策排序结果。
         let index = SqliteMemoryIndex::new(&dir);
-        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
+        let hits = index
+            .search_entries(&IndexQuery::text("发版"), None, Some("active"), 5)
+            .unwrap();
         assert_eq!(hits.len(), 2);
         for _ in 0..3 {
             record_current_recall(&store, &hits, &[]);
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        let ranked = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
+        let ranked = index
+            .search_entries(&IndexQuery::text("发版"), None, Some("active"), 5)
+            .unwrap();
         assert_eq!(
             ranked
                 .iter()
@@ -3703,5 +3771,49 @@ mod tests {
             )
             .unwrap();
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn same_id_external_edits_refresh_fts_and_failed_publish_rolls_back() {
+        let (_dir, store) = temp_store();
+        let mut entry = add(
+            &store,
+            "fact",
+            "source revision",
+            "source revision",
+            "oldrevisiontoken",
+        );
+        let path = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == entry.id)
+            .unwrap()
+            .0;
+        entry.body = "newrevisiontoken".into();
+        std::fs::write(&path, render_entry(&entry)).unwrap();
+        let hits = store
+            .search_candidates("newrevisiontoken", None, Some("active"))
+            .unwrap();
+        assert!(hits.iter().any(|hit| hit.entry.id == entry.id));
+        assert!(store
+            .search_candidates("oldrevisiontoken", None, Some("active"))
+            .unwrap()
+            .is_empty());
+        let conn = store.open_db().unwrap();
+        conn.execute_batch("CREATE TRIGGER reject_revision BEFORE INSERT ON memory_fts_revisions BEGIN SELECT RAISE(ABORT, 'injected publication failure'); END;").unwrap();
+        entry.body = "failedrevisiontoken".into();
+        std::fs::write(path, render_entry(&entry)).unwrap();
+        assert!(store.ensure_derived_consistent().is_err());
+        let body: String = conn
+            .query_row(
+                "SELECT body FROM memory_fts WHERE id=?1",
+                [&entry.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            body, "newrevisiontoken",
+            "FTS delete and revision publish must roll back as one transaction"
+        );
     }
 }

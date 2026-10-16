@@ -1399,8 +1399,15 @@ mod tests {
                 config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
             })
             .unwrap();
-        assert!(snapshot.stable_system_baseline_with_report().0.is_empty());
-        let before = snapshot.refreshable_system_baseline_with_report().0;
+        assert!(snapshot
+            .stable_system_baseline_with_report()
+            .unwrap()
+            .0
+            .is_empty());
+        let before = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         assert!(before.contains("D-001"));
         assert!(
             before.len() < 14000,
@@ -1416,12 +1423,18 @@ mod tests {
             Some(&["D-001".into()]),
         )
         .unwrap();
-        let with_evidence = snapshot.refreshable_system_baseline_with_report().0;
+        let with_evidence = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         assert!(with_evidence.contains("<current-test-evidence>"));
         assert!(with_evidence.contains("fresh automated evidence"));
         first.status = "fixed".into();
         store.save(&[first, second]).unwrap();
-        let after = snapshot.refreshable_system_baseline_with_report().0;
+        let after = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         let json = after
             .split("<resolved-control-state>\n")
             .nth(1)

@@ -984,7 +984,8 @@ pub(crate) fn workspace_snapshot(
                 .create_session(&session_id, &root.display().to_string(), None)
                 .map_err(|e| e.to_string())?;
             let conversations =
-                crate::conversation::conversation_list(path.clone(), None).unwrap_or_default();
+                crate::conversation::conversation_list(path.clone(), None, None, None)
+                    .unwrap_or_default();
             let recent = crate::conversation::conversation_trace_get(path.clone(), None, None)
                 .unwrap_or_default();
             // 线级现场。process_list 已经做了「恢复注册 + 剪掉死线」,直接复用它的结论,

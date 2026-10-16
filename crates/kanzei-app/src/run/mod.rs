@@ -5,6 +5,7 @@
 //! 输入准入迁至 `run::input`,后续批次按生命周期继续拆(assembly/persistence/
 //! execution/events/coordinator)。本文件最终收敛为 mod 声明与再导出。
 
+use crate::app_events::AppEvents;
 pub(crate) mod assembly;
 pub(crate) mod baseline;
 pub(crate) mod coordinator;
@@ -17,7 +18,7 @@ pub(crate) mod work_start;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
-use tauri::{Emitter, Window};
+use tauri::Emitter;
 
 use crate::with_session_id;
 
@@ -163,7 +164,7 @@ async fn push_output(
     task.await.map_err(std::io::Error::other)?
 }
 
-pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: String) {
+pub(crate) fn emit_stage(window: &AppEvents, session_id: &str, name: &str, detail: String) {
     let _ = window.emit(
         "kz:status",
         with_session_id(json!({ "stage": name, "detail": detail }), session_id),
@@ -171,7 +172,7 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
 }
 
 pub(crate) fn report_persistence_failure(
-    window: &Window,
+    window: &AppEvents,
     session_id: &str,
     operation: &str,
     error: impl std::fmt::Display,
@@ -458,6 +459,7 @@ mod assembly_tests {
             steps: 1,
             halted_by_user: false,
             step_limit_reached: false,
+            finish_reason: Some(kanzei_llm::FinishReason::EndTurn),
             messages: messages.clone(),
             context_report: vec![],
             overflow_traces: vec![],

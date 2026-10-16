@@ -3,7 +3,11 @@
 //! 预检、PreparedToolCall 构建、停止敏感 wave 和取消占位集中在这里；
 //! `drive::execute_tool_calls` 继续负责串行分派与 ToolRunOutcome 收口。
 
+use super::permissions::{permission_plan, PermissionPlan};
 use super::*;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) struct ParallelPreflight<'a> {
     pub(super) ctx: &'a ToolCtx,
@@ -16,7 +20,9 @@ pub(super) struct ParallelPreflight<'a> {
     pub(super) force_serial: bool,
 }
 
-pub(super) fn can_parallel_tool_calls(request: ParallelPreflight<'_>) -> bool {
+pub(super) struct ParallelPlan(Vec<Option<PermissionPlan>>);
+
+pub(super) fn prepare_parallel_tool_calls(request: ParallelPreflight<'_>) -> Option<ParallelPlan> {
     let ParallelPreflight {
         ctx,
         snapshot,
@@ -28,57 +34,29 @@ pub(super) fn can_parallel_tool_calls(request: ParallelPreflight<'_>) -> bool {
         force_serial,
     } = request;
     if force_serial {
-        false
-    } else {
-        let mut ready = true;
-        let mut ordinary_count = 0usize;
-        for (_, name, input, _) in calls {
-            if name == "task" && has_subagent {
-                continue;
-            }
-            if name == kanzei_harness::tool_search::TOOL_SEARCH {
-                ready = false;
-                break;
-            }
-            let Some(tool) = tools.iter().find(|tool| tool.name() == name) else {
-                ready = false;
-                break;
-            };
-            if name == "question" || input.is_null() {
-                ready = false;
-                break;
-            }
-            ordinary_count += 1;
-            let action = tool.action();
-            for resource in tool.resources_with_ctx(input, ctx) {
-                // D-269:bash 的资源是 shell 文本,不能走路径规范化(非单射会把
-                // 一条授权放大成整个原像类)。三个评估站点必须用同一个分流函数。
-                let resource =
-                    kanzei_harness::permission::normalize_resource_for_action(action, &resource);
-                if snapshot.evaluate(action, &resource) != Effect::Ask {
-                    continue;
-                }
-                let key = (action.to_string(), resource.clone());
-                let approved = session_approved.contains(&key)
-                    || session_rules.iter().any(|(known_action, pattern)| {
-                        known_action == action
-                            && kanzei_harness::permission::resource_match_for_action(
-                                known_action,
-                                pattern,
-                                &resource,
-                            )
-                    });
-                if !approved {
-                    ready = false;
-                    break;
-                }
-            }
-            if !ready {
-                break;
-            }
-        }
-        ready && ordinary_count >= 2
+        return None;
     }
+    let mut plans = Vec::with_capacity(calls.len());
+    let mut ordinary_count = 0usize;
+    for (_, name, input, _) in calls {
+        if name == "task" && has_subagent {
+            plans.push(None);
+            continue;
+        }
+        if name == kanzei_harness::tool_search::TOOL_SEARCH || name == "question" || input.is_null()
+        {
+            return None;
+        }
+        let tool = tools.iter().find(|tool| tool.name() == name)?;
+        let mut plan = permission_plan(snapshot, tool.as_ref(), input, ctx);
+        plan.resolve_session(session_approved, session_rules);
+        if !plan.pending_ask.is_empty() {
+            return None;
+        }
+        plans.push(Some(plan));
+        ordinary_count += 1;
+    }
+    (ordinary_count >= 2).then_some(ParallelPlan(plans))
 }
 
 pub(super) struct ParallelToolRequest<'a> {
@@ -87,6 +65,7 @@ pub(super) struct ParallelToolRequest<'a> {
     pub(super) snapshot: &'a HarnessSnapshot,
     pub(super) tools: &'a [Arc<dyn Tool>],
     pub(super) calls: &'a [(String, String, serde_json::Value, String)],
+    pub(super) plan: ParallelPlan,
     pub(super) subagent: Option<&'a SubagentRuntime>,
     pub(super) task_results: &'a mut std::collections::HashMap<String, kanzei_harness::ToolOutput>,
     pub(super) images_supported: bool,
@@ -103,6 +82,7 @@ pub(super) async fn execute_parallel_tool_calls(
         snapshot,
         tools,
         calls,
+        plan,
         subagent,
         task_results,
         images_supported,
@@ -112,7 +92,9 @@ pub(super) async fn execute_parallel_tool_calls(
     let mut pending_images: Vec<Part> = Vec::new();
     let mut slots: Vec<Option<Part>> = std::iter::repeat_with(|| None).take(calls.len()).collect();
     let mut prepared = Vec::new();
-    for (index, (id, name, input, raw_input)) in calls.iter().cloned().enumerate() {
+    for ((index, (id, name, input, raw_input)), permission) in
+        calls.iter().cloned().enumerate().zip(plan.0)
+    {
         if name == "task" && subagent.is_some() {
             let output = task_results.remove(&id).unwrap_or_else(|| {
                 kanzei_harness::ToolOutput::error("internal: task result missing")
@@ -131,27 +113,10 @@ pub(super) async fn execute_parallel_tool_calls(
             summary: summarize_input(&input, &raw_input),
             input: input.clone(),
         });
-        let action = tool.action();
-        let denied = tool
-            .resources_with_ctx(&input, ctx)
-            .into_iter()
-            .map(|resource| {
-                kanzei_harness::permission::normalize_resource_for_action(action, &resource)
-            })
-            .find(|resource| snapshot.evaluate(action, resource) == Effect::Deny);
-        if let Some(resource) = denied {
-            let rule = snapshot
-                .evaluate_with_rule(action, &resource)
-                .1
-                .map(describe_rule);
-            on_event(RunEvent::PermissionResolved {
-                tool_call_id: id.clone(),
-                action: action.to_string(),
-                resource: resource.clone(),
-                decision: "deny",
-                source: "ruleset",
-                rule,
-            });
+        let permission = permission.expect("ordinary tool has a checked permission plan");
+        permission.emit_resolved(&id, on_event);
+        if let Some(resource) = permission.denied {
+            let action = tool.action();
             let output = kanzei_harness::ToolOutput::error(format!(
                 "permission denied by ruleset: {action} on `{resource}`.\n{}",
                 snapshot.denial_hint(action, &resource),

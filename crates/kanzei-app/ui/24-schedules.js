@@ -1,5 +1,6 @@
 import { openDialog, closeSurface } from "./00-surface.js";
-import { invoke, on } from "./01-core.js";
+import { invoke } from "./00-ipc.js";
+import { on } from "./01-runtime-events.js";
 import { currentProject, toast, toastError } from "./03-shell.js";
 import { t } from "./02-i18n.js";
 import { isGeneralChat } from "./03-general-scope.js";

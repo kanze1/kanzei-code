@@ -1,10 +1,17 @@
 import { closeSurface, isModalOpen, isSurfaceOpen, openPopover } from "./00-surface.js";
 import { openGeneralChat } from "./03-general-scope.js";
-import { defer } from "./01-core.js";
+import { createOutbox } from "./00-outbox.js";
+import { awaitRunConfirmation } from "./03-session-runtime.js";
+import { runtimeEventsReady } from "./00-event-subscriptions.js";
+import { defer } from "./00-dom.js";
 import { attachmentMime, resourceIcon, resourceLinks, resourceType } from "./04-resource-types.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCtxTokens, setRunTokens } from "./03-shell.js";
-import { $, invoke, isImeComposing, promptBox, readJson, uiPrefsCache, uiPrefsLoad, uiPrefsSave, writeJson } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { activePane, promptBox } from "./01-chat-panes.js";
+import { isImeComposing, readJson, writeJson } from "./00-ui-primitives.js";
+import { uiPrefsCache, uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
+import { invoke } from "./00-ipc.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -82,7 +89,6 @@ import {
 } from "./08-auto.js";
 import { state } from "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
-import { syncResearchWorkspaceVisibility } from "./19-research.js";
 import { collaborationLines, renderLines } from "./20-lines.js";
 import { sync_workspace_visibility, acknowledge_composer_draft, ensure_workspace_process } from "./03-workspaces.js";
 import { autoAllowEnabled } from "./03-layout.js";
@@ -159,7 +165,7 @@ export function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0,
       log(`${t("自动推进")}:${t("本地运行态与后端不符,按后端空闲继续")}`, "warn");
       transitionSession(sessionId, "idle");
     }
-    transitionSession(sessionId, "starting", { local_start_pending: true });
+    transitionSession(sessionId, "starting");
     if (sessionId === activeSessionId) clearRunPending();
     await sendAutoToSession(prompt, sessionId);
   }, delayMs);
@@ -201,6 +207,7 @@ export async function sendAutoToSession(prompt, sessionId) {
       ...(workItemId ? { workItemId, executionBatch: true } : {}),
       autoAllow: autoAllowEnabled(),
     });
+    awaitRunConfirmation(sessionId, { projectDir, processId: item.id });
     if (workItemId) {
       const selection = await import("./31-work-selection.js");
       if (selection.selectedWork(projectDir, item.id) === workItemId) selection.selectWork(projectDir, item.id, null);
@@ -333,6 +340,7 @@ export function renderAttachments() {
     chip.append(resourceIcon(item.file_name, item.media_type), name, remove);
     box.appendChild(chip);
   });
+  document.dispatchEvent(new CustomEvent("kz:attachments-changed"));
 }
 
 let pendingFileBytes = 0;
@@ -425,10 +433,51 @@ export function lineModelFor(processId) {
 }
 
 const compactingSessions = new Set();
+const outgoing = createOutbox(payload => invoke("run_prompt", payload));
+const outgoingMessages = new WeakMap();
+function outgoingMessage(record, draft) {
+  if (outgoingMessages.has(record)) {
+    const message = outgoingMessages.get(record);
+    if (!message.isConnected) activePane?.append(message);
+    return;
+  }
+  const message = addUserMessage(record.payload.prompt, record.payload.attachments);
+  outgoingMessages.set(record, message);
+  const feedback = document.createElement("div"), status = document.createElement("span"), retry = document.createElement("button");
+  feedback.className = "outgoing-status"; feedback.setAttribute("role", "status");
+  retry.type = "button"; retry.className = "ghost mini"; retry.textContent = t("重试");
+  retry.addEventListener("click", () => void submitOutgoing(record, draft));
+  feedback.append(status, retry); message.append(feedback);
+  outgoing.subscribe(record, current => {
+    message.dataset.deliveryState = current.status;
+    status.textContent = current.status === "accepted" ? t("已接收") : current.status === "pending" ? t("正在发送") : `${t("发送失败")}: ${current.error}`;
+    retry.hidden = current.status !== "failed";
+    const action = message.querySelector(".conversation-action-btn"); if (action) action.disabled = current.status !== "accepted";
+  });
+}
+defer(() => document.addEventListener("kz:conversation-projected", event => {
+  if (event.detail.sessionId !== activeSessionId || event.detail.sequence !== null) return;
+  for (const record of outgoing.pending(activeSessionId)) outgoingMessage(record);
+}));
+async function submitOutgoing(record, draft) {
+  if (record.request) return record.request;
+  if (!await runtimeEventsReady()) { toastError(t("事件订阅失败")); return false; }
+  if (!sessionState(record.sessionId).running) transitionSession(record.sessionId, "starting");
+  const accepted = await outgoing.send(record);
+  if (accepted) {
+    awaitRunConfirmation(record.sessionId, record.payload);
+    if (draft) acknowledge_composer_draft(record.payload.projectDir, record.payload.processId, draft);
+  } else {
+    if (sessionState(record.sessionId).phase === "starting") transitionSession(record.sessionId, "failed");
+    refreshParallelTaskProjection(record.sessionId);
+  }
+  return accepted;
+}
 
-export async function sendText(prompt, { auto = false, promptAttachments = [], executionBatch = false, workItemId = null } = {}) {
+export async function sendText(prompt, { auto = false, promptAttachments = [], executionBatch = false, workItemId = null, delivery: requestedDelivery = null, composerDraft = null } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
+  if (!await runtimeEventsReady()) { toastError(t("事件订阅失败")); return false; }
   if (running && auto) {
     toast(t("当前任务还在运行，自动推进将在本轮完成后继续"));
     return;
@@ -462,6 +511,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     try { if (!await ensure_workspace_process()) return; }
     catch (error) { toastError(String(error)); return; }
   }
+  const recipient = { project: currentProject, process: activeProcessId, session: activeSessionId };
   if (selectedAgent().agent !== "dev") { executionBatch = false; workItemId = null; }
   if (!workItemId && selectedAgent().agent === "dev") {
     const project = currentProject, process = activeProcessId;
@@ -472,19 +522,21 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     } catch (error) { toastError(String(error)); return; }
   }
   if (!auto) { syncAutoContinueWithProfile(); await syncAutoRunState(); }
-  const delivery = workItemId ? "queue" : $("delivery-select").value;
+  const delivery = workItemId ? "queue" : requestedDelivery || $("delivery-select").value;
   if (!auto) void ensureNotificationPermission();
   // UI2-0926 #14:用户手动发消息 = 新的一次运行(后台任务侧栏解除本次运行的压制、确认上次的失败);自动推进续轮不算。
   if (!auto) {
     tasksPanelUserRun(activeSessionId);
     (await import("./24-preview.js")).previewUserRun();
   }
+  if (recipient.project !== currentProject || recipient.process !== activeProcessId || recipient.session !== activeSessionId) {
+    toast(t("对话已切换，请在目标对话中重新发送")); return false;
+  }
   if (running) {
-    addMessage("user", prompt);
     log(`${t("运行中")}${delivery === "steer" ? t("插入") : t("排队")}:${prompt.slice(0, 80)}`);
     try {
       const mode = selectedAgent();
-      await invoke("run_prompt", {
+      const request = {
         executionBatch,
         workItemId,
         prompt,
@@ -497,7 +549,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
         processId: activeProcessId,
         autonomous: auto,
         autoAllow: autoAllowEnabled(),
-      });
+      };
+      const record = outgoing.prepare(activeSessionId, request);
+      outgoingMessage(record, composerDraft);
+      if (!await submitOutgoing(record, composerDraft)) return false;
       toast(localizeDynamic(delivery === "steer" ? "已插入当前对话，将优先执行" : "已加入队列，将按顺序执行"));
       // Admission has succeeded. A later queue refresh failure must not leave
       // the same draft ready to submit a second time.
@@ -526,8 +581,6 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     : auto ? `${t("自动推进")} ${autoRounds} · ${t("准备中")}` : t("准备中");
   if (auto) {
     addMessage("notice", `${t("自动推进已触发")} · ${autoRounds}`);
-  } else {
-    addUserMessage(prompt, promptAttachments);
   }
   const requestSessionId = activeSessionId;
   const requestProcessId = activeProcessId;
@@ -535,12 +588,8 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   if (requestSessionId) {
     // R-206:全部经 transitionSession 折算;补充 detail 一次传入,不再手工直写。
     transitionSession(requestSessionId, "starting", {
-      auto_pending: false,
       // run_prompt 的 IPC 返回前，旧的 process_list 快照可能仍是 false；
       // 在首个实时事件到达前不能让这份旧快照覆盖本次用户明确的启动意图。
-      live_running: null,
-      local_start_pending: true,
-      terminal_status: "",
     });
   }
   clearRunPending();
@@ -568,8 +617,14 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
       autoAllow: autoAllowEnabled(),
     };
     if (!auto) setLastRequest(request);
-    await invoke("run_prompt", request);
-    return true;
+    if (auto) {
+      await invoke("run_prompt", request);
+      awaitRunConfirmation(requestSessionId, request);
+      return true;
+    }
+    const record = outgoing.prepare(requestSessionId, request);
+    outgoingMessage(record, composerDraft);
+    return await submitOutgoing(record, composerDraft);
   } catch (err) {
     if (requestSessionId) transitionSession(requestSessionId, "failed");
     if (requestSessionId === activeSessionId) {
@@ -758,10 +813,10 @@ export function stopAutoForManualInput({ supplement = false } = {}) {
 }
 
 let submittingDraft = false;
-export async function send() {
+export async function send({ delivery = null } = {}) {
   if (submittingDraft) return;
   if (pendingFileBytes > 0) { toast(t("附件正在读取，请稍候再发送")); return; }
-  const composeEvent = new CustomEvent("kz:compose-send", { bubbles: true, cancelable: true });
+  const composeEvent = new CustomEvent("kz:compose-send", { bubbles: true, cancelable: true, detail: { delivery } });
   promptBox.dispatchEvent(composeEvent);
   if (composeEvent.defaultPrevented) return;
   const prompt = promptBox.value.trim();
@@ -790,7 +845,7 @@ export async function send() {
     rememberPrompt(prompt);
     hideFileSuggestions();
     const project = currentProject, process = activeProcessId;
-    const accepted = await sendText(prompt || t("看一下这些附件"), { promptAttachments: submitted.attachments });
+    const accepted = await sendText(prompt || t("看一下这些附件"), { promptAttachments: submitted.attachments, delivery, composerDraft: submitted });
     if (accepted) acknowledge_composer_draft(project, process, submitted);
   } finally { submittingDraft = false; }
 }
@@ -953,7 +1008,6 @@ defer(() => {
 defer(() => {
   $("auto-stop-round").checked = false;
 });
-setAutoStopAfterRound(false);
 // 启动时等 activeSessionId 就绪后同步所有控件；仅同步 enabled 会让已保存的轮数上限
 // 在后端回落为默认 10，造成展示与实际安全上限不一致。
 defer(() => {
@@ -1507,7 +1561,7 @@ defer(() => {
       if (promptCaretOnEdge(up) && navigatePromptHistory(up ? 1 : -1)) e.preventDefault();
     } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      send();
+      send({ delivery: "steer" });
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();

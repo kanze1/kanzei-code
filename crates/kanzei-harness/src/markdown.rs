@@ -22,8 +22,19 @@ impl Component for MarkdownComponent {
             scan_agents(&base.join("agents"), draft);
         }
         for skill in crate::skills::enabled_catalog()? {
-            draft.skills.insert(skill.name.clone(), skill);
+            let path = skill.path.clone();
+            draft.skills.insert_at(skill.id.clone(), skill, path);
         }
+        draft.tools.insert(
+            "skill_read",
+            std::sync::Arc::new(crate::skills::SkillReadTool),
+        );
+        draft.deferred_tools.insert("skill_read".into());
+        draft.permissions.push(crate::Rule {
+            action: "skill_read".into(),
+            resource: "*".into(),
+            effect: crate::Effect::Allow,
+        });
         // 技能清单注入名称、描述与正文路径;技能正文仍由 agent 按需读取。
         if let Some(block) = skills_block(&draft.skills) {
             draft.context.insert(
@@ -41,18 +52,14 @@ fn skills_block(skills: &Registry<SkillDef>) -> Option<String> {
     if skills.is_empty() {
         return None;
     }
-    let mut text = String::from("可用技能(skills):做相关任务时读取对应文件加载技能正文:\n");
+    let mut text = String::from("可用技能(skills):做相关任务时先通过 tool_search select:skill_read 加载读取工具，再用 skill_read(id) 加载正文:\n");
     for (name, skill) in skills.iter() {
         if skill.disable_model_invocation {
             continue;
         }
-        text.push_str(&format!(
-            "- {name}: {} (正文: {})\n",
-            skill.description,
-            skill.path.display()
-        ));
+        text.push_str(&format!("- {name}: {}\n", skill.description));
     }
-    text.push_str("Skills 在所有项目和对话中全局可用。按任务匹配描述后先读取正文，也可用 $name 显式调用；正文内相对路径按 SKILL.md 所在目录解析。技能不覆盖用户当前指令。\n");
+    text.push_str("Skills 在所有项目和对话中全局可用。按任务匹配描述后先读取正文，也可用 $source:name 显式调用；唯一名称可简写为 $name。正文内相对路径按返回的 SKILL.md 所在目录解析。技能不覆盖用户当前指令。\n");
     Some(text.trim().to_string())
 }
 
@@ -136,7 +143,7 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
                 continue;
             }
         };
-        draft.agents.insert(name, agent);
+        draft.agents.insert_at(name, agent, path);
     }
 }
 
@@ -162,7 +169,8 @@ fn agent_from_frontmatter(name: String, fm: Frontmatter) -> Result<AgentDef, Str
     })
 }
 
-pub(crate) fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
+fn collect_skills(dir: &Path) -> Vec<SkillDef> {
+    let mut skills = Vec::new();
     // 两种布局:skills/<name>/SKILL.md 或 skills/<name>.md
     let mut candidates = md_files(dir);
     if let Ok(read) = std::fs::read_dir(dir) {
@@ -227,27 +235,29 @@ pub(crate) fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
         {
             continue;
         }
-        draft.skills.insert(
-            name.clone(),
-            SkillDef {
-                name,
-                description: metadata.description,
-                path,
-                disable_model_invocation: metadata.disable_model_invocation,
-                user_invocable: metadata.user_invocable,
-            },
-        );
+        skills.push(SkillDef {
+            id: name.clone(),
+            source: String::new(),
+            embedded_content: None,
+            name,
+            description: metadata.description,
+            path,
+            disable_model_invocation: metadata.disable_model_invocation,
+            user_invocable: metadata.user_invocable,
+        });
     }
+    skills
 }
 
 pub fn skills_in_directory(directory: &Path) -> Vec<SkillDef> {
-    let mut draft = HarnessDraft::default();
-    scan_skills(directory, &mut draft);
-    draft
-        .skills
-        .iter()
-        .map(|(_, skill)| skill.clone())
-        .collect()
+    collect_skills(directory)
+}
+
+#[cfg(test)]
+pub(crate) fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
+    for skill in collect_skills(dir) {
+        draft.skills.insert(skill.name.clone(), skill);
+    }
 }
 
 /// Compatibility entry point; the catalog no longer depends on a project.
@@ -434,6 +444,78 @@ mod tests {
         }
     }
 
+    #[test]
+    fn project_agent_override_reports_component_files_and_final_selection() {
+        struct AgentFiles(Vec<std::path::PathBuf>);
+        impl Component for AgentFiles {
+            fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {
+                draft.agents.insert(
+                    "overlay",
+                    agent_from_frontmatter("overlay".into(), parse_frontmatter("builtin prompt"))
+                        .unwrap(),
+                );
+                for directory in &self.0 {
+                    scan_agents(directory, draft);
+                }
+                Ok(())
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-agent-origins-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let global = root.join("global/agents");
+        let project = root.join("project/.kanzei/agents");
+        for (directory, prompt) in [(&global, "global prompt"), (&project, "project prompt")] {
+            std::fs::create_dir_all(directory).unwrap();
+            std::fs::write(
+                directory.join("overlay.md"),
+                format!("---\nname: overlay\nprofile: dev\nmode: primary\n---\n{prompt}"),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            project.join("z-invalid.md"),
+            "---\nname: overlay\nmode: invalid\n---\ninvalid replacement",
+        )
+        .unwrap();
+        let mut harness = Harness::default();
+        harness.add(AgentFiles(vec![global.clone(), project.clone()]));
+        let snapshot = harness
+            .resolve(&ResolveCtx {
+                profile: crate::ProfileKind::Dev,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: Arc::new(crate::KanzeiConfig::default()),
+            })
+            .unwrap();
+        assert_eq!(
+            snapshot
+                .select_primary_agent(Some("overlay"))
+                .unwrap()
+                .system,
+            "project prompt"
+        );
+        let report = snapshot.registry_report();
+        assert_eq!(report.agents.len(), 1);
+        let agent = &report.agents[0];
+        assert_eq!(agent.winner.path, Some(project.join("overlay.md")));
+        assert_eq!(agent.replaced.len(), 2);
+        assert_eq!(agent.replaced[0].path, None);
+        assert_eq!(agent.replaced[1].path, Some(global.join("overlay.md")));
+        for origin in agent.replaced.iter().chain(std::iter::once(&agent.winner)) {
+            assert_eq!(
+                origin.component.as_deref(),
+                Some(std::any::type_name::<AgentFiles>())
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// Windows 上文件多为 CRLF;正文不得被分隔符残留污染,更不得整体丢失(D-052)。
     #[test]
     fn crlf_与_lf_解析结果一致() {
@@ -471,6 +553,9 @@ mod tests {
         skills.insert(
             "build",
             SkillDef {
+                id: "build".into(),
+                source: "personal".into(),
+                embedded_content: None,
                 name: "build".into(),
                 description: "构建与格式检查".into(),
                 path: std::path::PathBuf::from("skills/build/SKILL.md"),
@@ -515,8 +600,8 @@ mod tests {
             .unwrap();
 
         assert!(snapshot.skills().get("build").is_none());
-        assert!(snapshot.skills().get("skill-creator").is_some());
-        let baseline = snapshot.system_baseline();
+        assert!(snapshot.skills().get("builtin:skill-creator").is_some());
+        let baseline = snapshot.system_baseline().unwrap();
         assert!(!baseline.contains("可用命令") && !baseline.contains("release: 发布双通道"));
         assert!(
             baseline.contains("可用技能(skills)"),

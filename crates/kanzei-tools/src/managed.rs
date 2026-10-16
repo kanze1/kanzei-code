@@ -8,64 +8,17 @@
 //! 前台(bash 同步命令)与后台(D-174 受管后台任务)共用同一套快照/回滚口径,
 //! 仓库里不存在第二套"不能写入"的语义。
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// 托管目录:write/edit 对它们硬 deny,shell 也不许绕过去改(D-173)。
 /// 桌面文件页(UI2-0926 #6)按同一份清单判只读——单源,不另抄一份。
 pub const MANAGED_ROOTS: &[&str] = &[".kanzei/project", ".kanzei/memory"];
-/// 单文件镜像上限:超过就只记指纹,能检测但无法回滚(会如实说明)。
-pub(crate) const MANAGED_SNAPSHOT_FILE_LIMIT: u64 = 4 * 1024 * 1024;
-/// 镜像文件数上限,防止有人往托管目录塞进一整棵大树把每次 bash 拖垮。
-pub(crate) const MANAGED_SNAPSHOT_MAX_FILES: usize = 2000;
-
-/// 托管目录的镜像。`None` 内容 = 文件超过镜像上限,只能检测不能回滚。
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct ManagedSnapshot {
-    files: BTreeMap<String, Option<Vec<u8>>>,
-    /// 目录规模超限时放弃镜像:此时既不检测也不回滚,并在输出里如实说明。
-    truncated: bool,
-}
-
-impl ManagedSnapshot {
-    pub(crate) fn capture(project_root: &Path) -> Self {
-        let mut snapshot = ManagedSnapshot::default();
-        for root in MANAGED_ROOTS {
-            collect_files(&project_root.join(root), project_root, &mut snapshot);
-            if snapshot.truncated {
-                break;
-            }
-        }
-        snapshot
-    }
-
-    pub(crate) fn is_complete(&self) -> bool {
-        !self.truncated && self.files.values().all(Option::is_some)
-    }
-
-    /// 把 `current` 里 `paths` 指定的这些路径吸收进本基线(其余路径保持原样)。
-    ///
-    /// D-258:吸收粒度从「前缀内全部路径」收窄为「窗口期间实际变化的路径」。
-    /// 整前缀吸收会让后台进程在窗口内偷写的文件(专用工具没碰、窗口前后却有变化)
-    /// 也被固化进基线;按路径吸收只认「打开/关闭两次镜像之间的差异」,后台进程
-    /// 必须和专用工具写同一批文件才能蒙混——写别的文件会在窗口关闭后留痕,
-    /// 被守卫下一轮对账判成越界回滚。
-    ///
-    /// `paths` 里在 `current` 中不存在的路径视为被删除(窗口内被删的托管文件同样
-    /// 要吸收,否则守卫会把"专用工具的归档移动"当成越界删除再给写回去)。
-    pub(crate) fn absorb_paths(&mut self, current: &ManagedSnapshot, paths: &[&str]) {
-        for &path in paths {
-            match current.files.get(path) {
-                Some(content) => {
-                    self.files.insert(path.to_string(), content.clone());
-                }
-                None => {
-                    self.files.remove(path);
-                }
-            }
-        }
-    }
-}
+mod snapshot;
+#[cfg(test)]
+use snapshot::SnapshotData;
+#[cfg(test)]
+pub(crate) use snapshot::MANAGED_SNAPSHOT_MEMORY_LIMIT;
+pub(crate) use snapshot::{ManagedSnapshot, SnapshotCollector};
 
 /// 两次镜像之间的托管变更集。
 #[derive(Debug, Default, Clone)]
@@ -143,8 +96,8 @@ pub(crate) fn quarantine_and_restore(
     tag: &str,
 ) -> std::io::Result<(std::path::PathBuf, usize)> {
     use crate::write_log::LoggedContent;
-    enum Restore<'a> {
-        Content(&'a [u8]),
+    enum Restore {
+        Content(Vec<u8>),
         Delete,
     }
     let latest = crate::write_log::latest_by_path(logs);
@@ -153,21 +106,21 @@ pub(crate) fn quarantine_and_restore(
     for path in change.touched() {
         let restore = match latest.get(path.as_str()) {
             Some(entry) => match &entry.content {
-                LoggedContent::Stored(bytes) => Restore::Content(bytes),
+                LoggedContent::Stored(bytes) => Restore::Content(bytes.clone()),
                 LoggedContent::Deleted => Restore::Delete,
                 LoggedContent::FingerprintOnly => {
                     return Err(std::io::Error::other(format!(
                         "{path} 的最后合法写入未保存正文，无法自动回滚"
-                    )))
+                    )));
                 }
             },
             None => match before.files.get(path) {
-                Some(Some(bytes)) => Restore::Content(bytes),
+                Some(Some(content)) => Restore::Content(content.bytes()?),
                 None => Restore::Delete,
                 Some(None) => {
                     return Err(std::io::Error::other(format!(
                         "{path} 的快照没有正文，无法自动回滚"
-                    )))
+                    )));
                 }
             },
         };
@@ -193,7 +146,7 @@ pub(crate) fn quarantine_and_restore(
     for (path, restore) in plan {
         let absolute = project_root.join(path);
         match restore {
-            Restore::Content(bytes) => crate::atomic_file::write_atomic_bytes(&absolute, bytes)?,
+            Restore::Content(bytes) => crate::atomic_file::write_atomic_bytes(&absolute, &bytes)?,
             Restore::Delete => {
                 if absolute.try_exists()? {
                     std::fs::remove_file(&absolute)?;
@@ -356,38 +309,6 @@ pub(crate) fn managed_scope_exists(project_root: &Path) -> bool {
     project_root.join(".kanzei").is_dir()
 }
 
-fn collect_files(dir: &Path, project_root: &Path, snapshot: &mut ManagedSnapshot) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if snapshot.files.len() >= MANAGED_SNAPSHOT_MAX_FILES {
-            snapshot.truncated = true;
-            return;
-        }
-        let path = entry.path();
-        // 锁文件是持久留存的协调标记，不是文档内容，不进入恢复镜像。
-        if path.extension().and_then(|e| e.to_str()) == Some("lock") {
-            continue;
-        }
-        match entry.file_type() {
-            Ok(kind) if kind.is_dir() => collect_files(&path, project_root, snapshot),
-            Ok(kind) if kind.is_file() => {
-                let Ok(relative) = path.strip_prefix(project_root) else {
-                    continue;
-                };
-                let key = relative.display().to_string().replace('\\', "/");
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(u64::MAX);
-                let content = (size <= MANAGED_SNAPSHOT_FILE_LIMIT)
-                    .then(|| std::fs::read(&path).ok())
-                    .flatten();
-                snapshot.files.insert(key, content);
-            }
-            _ => {}
-        }
-    }
-}
-
 /// 比对执行前后的托管目录镜像。有改动就隔离留证 + 整体回滚,并生成回喂模型的报告。
 ///
 /// R-268 之后前台 bash 改用 [`enforce_managed_files_with_writer_log`](带写日志对账);
@@ -397,11 +318,16 @@ pub(crate) fn enforce_managed_files(
     project_root: &Path,
     before: ManagedSnapshot,
 ) -> Option<String> {
-    let after = ManagedSnapshot::capture(project_root);
+    let after = before.refresh(project_root);
     if after == before {
         return None;
     }
-    let after_incomplete = !after.is_complete();
+    if !after.is_complete() {
+        return Some(format!(
+            "[managed-files] snapshot failed; rollback was not attempted against incomplete data: {}",
+            after.error.as_deref().unwrap_or("content unavailable")
+        ));
+    }
     let change = diff(&before, &after)?;
     let listed = change
         .touched()
@@ -415,15 +341,6 @@ pub(crate) fn enforce_managed_files(
             Err(error) => return Some(format!("[managed-files] 回滚失败：{error}")),
         };
 
-    let incomplete = if after_incomplete {
-        format!(
-            "\nWARNING: the post-command snapshot exceeded its safety bound. Known changes were \
-             rolled back, but the managed tree must be inspected manually before any further shell \
-             command (limit: {MANAGED_SNAPSHOT_MAX_FILES} files / {MANAGED_SNAPSHOT_FILE_LIMIT} bytes per file)."
-        )
-    } else {
-        String::new()
-    };
     Some(format!(
         "[managed-files] BLOCKED AND ROLLED BACK. This command modified files under {} — those \
          paths are policy-managed and the shell is not a write channel for them, no matter which \
@@ -437,7 +354,7 @@ pub(crate) fn enforce_managed_files(
          tracker and index tools, load the needed one with \
          `tool_search select:idea,decision,architecture,conventions`. If no tool covers what \
          you need, that is an unimplemented capability: record it and tell the \
-         user — do not look for another shell route.{incomplete}",
+         user — do not look for another shell route.",
         MANAGED_ROOTS.join(" and "),
         quarantine.display(),
     ))
@@ -473,32 +390,40 @@ pub(crate) fn enforce_managed_files_with_writer_log(
             ));
         }
     };
-    let after = ManagedSnapshot::capture(project_root);
+    let after = before.refresh(project_root);
     if after == before {
         return None;
     }
-    let after_incomplete = !after.is_complete();
+    if !after.is_complete() {
+        return Some(format!(
+            "[managed-files] snapshot failed; rollback was not attempted against incomplete data: {}",
+            after.error.as_deref().unwrap_or("content unavailable")
+        ));
+    }
     let change = diff(&before, &after)?;
     let logs = match crate::write_log::entries_after(project_root, window_start_ms) {
         Ok(logs) => logs,
         Err(error) => {
             return Some(format!(
                 "[managed-files] 写日志读取失败，未执行自动回滚：{error}"
-            ))
+            ));
         }
     };
     let latest = crate::write_log::latest_by_path(&logs);
     // 日志命中判据:窗口内对该路径有过写入,且写后指纹 == 当前快照指纹
     // (终态一致 = 专用工具的最后一次写就是我们看到的形态;此后没有人再动它)。
     let covered = |path: &str| -> bool {
-        let content = match after.files.get(path) {
-            Some(Some(bytes)) => Some(bytes.as_slice()),
-            Some(None) => return false,
-            None => None,
+        let Some(entry) = latest.get(path) else {
+            return false;
         };
-        latest
-            .get(path)
-            .is_some_and(|entry| entry.matches_content(content))
+        match after.files.get(path) {
+            Some(Some(content)) => {
+                !matches!(entry.content, crate::write_log::LoggedContent::Deleted)
+                    && entry.fingerprint == content.fingerprint
+            }
+            Some(None) => false,
+            None => matches!(entry.content, crate::write_log::LoggedContent::Deleted),
+        }
     };
     let (_, breach) = change.partition(covered);
     if breach.is_empty() {
@@ -517,15 +442,6 @@ pub(crate) fn enforce_managed_files_with_writer_log(
             Err(error) => return Some(format!("[managed-files] 回滚失败：{error}")),
         };
 
-    let incomplete = if after_incomplete {
-        format!(
-            "\nWARNING: the post-command snapshot exceeded its safety bound. Known changes were \
-             rolled back, but the managed tree must be inspected manually before any further shell \
-             command (limit: {MANAGED_SNAPSHOT_MAX_FILES} files / {MANAGED_SNAPSHOT_FILE_LIMIT} bytes per file)."
-        )
-    } else {
-        String::new()
-    };
     Some(format!(
         "[managed-files] BLOCKED AND ROLLED BACK. This command modified files under {} — those \
          paths are policy-managed and the shell is not a write channel for them, no matter which \
@@ -533,7 +449,7 @@ pub(crate) fn enforce_managed_files_with_writer_log(
          legitimate; the following had no such explanation and were rolled back:\n\
          touched: {listed}\n\
          restored {restored} file(s) to their pre-command contents; your versions were kept at \
-         {} so nothing is lost.{incomplete}",
+         {} so nothing is lost.",
         MANAGED_ROOTS.join(" and "),
         quarantine.display(),
     ))
@@ -1160,5 +1076,68 @@ mod tests {
             "同路径先合法后越界:回滚到最后一次合法日志内容(合法写不丢)"
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn snapshot_memory_budget_covers_the_whole_directory() {
+        let root = temp_project("snapshot-memory-budget");
+        let directory = root.join(".kanzei/memory");
+        std::fs::create_dir_all(&directory).unwrap();
+        let size = super::MANAGED_SNAPSHOT_MEMORY_LIMIT as usize * 3 / 4;
+        for (name, byte) in [("one.md", b'a'), ("two.md", b'b')] {
+            std::fs::write(directory.join(name), vec![byte; size]).unwrap();
+        }
+        let snapshot = ManagedSnapshot::capture(&root);
+        assert!(snapshot.is_complete());
+        let stored_in_memory: usize = snapshot
+            .files
+            .values()
+            .flatten()
+            .map(|content| match &content.data {
+                super::SnapshotData::Memory(bytes) => bytes.len(),
+                super::SnapshotData::Disk(_) => 0,
+            })
+            .sum();
+        assert!(stored_in_memory <= super::MANAGED_SNAPSHOT_MEMORY_LIMIT as usize);
+        assert!(snapshot
+            .files
+            .values()
+            .flatten()
+            .any(|content| matches!(content.data, super::SnapshotData::Disk(_))));
+        drop(snapshot);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn large_snapshots_are_shared_recoverable_and_not_volume_gated() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-large-snapshot-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/memory")).unwrap();
+        let path = root.join(".kanzei/memory/index.db");
+        let bytes = vec![b'x'; super::MANAGED_SNAPSHOT_MEMORY_LIMIT as usize + 1];
+        std::fs::write(&path, &bytes).unwrap();
+        let before = ManagedSnapshot::capture(&root);
+        assert!(before.is_complete());
+        let after = ManagedSnapshot::capture(&root);
+        let key = ".kanzei/memory/index.db";
+        let first = before.files[key].as_ref().unwrap();
+        assert!(matches!(first.data, super::SnapshotData::Disk(_)));
+        assert!(std::sync::Arc::ptr_eq(
+            first,
+            after.files[key].as_ref().unwrap()
+        ));
+        std::fs::write(&path, b"modified").unwrap();
+        let change = diff(&before, &ManagedSnapshot::capture(&root)).unwrap();
+        quarantine_and_restore(&root, &before, &change, &[], "test").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        drop(after);
+        drop(before);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

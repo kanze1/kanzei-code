@@ -186,7 +186,7 @@ mod tests {
     async fn command_exit_records_pass_or_fail_without_manual_calls() {
         let ctx = fixture();
         for (code, status) in [(0, "passed"), (7, "failed")] {
-            let output = crate::bash::BashTool
+            let output = crate::bash::BashTool::default()
                 .execute(
                     json!({
                         "command": format!("exit {code}"),
@@ -216,7 +216,7 @@ mod tests {
     #[tokio::test]
     async fn rejected_background_test_never_starts_or_records_success() {
         let ctx = fixture();
-        let output = crate::bash::BashTool
+        let output = crate::bash::BashTool::default()
             .execute(
                 json!({
                     "command": "exit 0", "background": true, "test": {"title": "background"}
@@ -252,7 +252,7 @@ mod tests {
             "cmd" => "ping -n 31 127.0.0.1 > NUL",
             _ => "sleep 30",
         };
-        let output = crate::bash::BashTool
+        let output = crate::bash::BashTool::default()
             .execute(
                 json!({
                     "command": command, "timeout_ms": 200, "test": {"title": "timeout"}

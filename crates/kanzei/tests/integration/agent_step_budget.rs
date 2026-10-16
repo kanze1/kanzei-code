@@ -90,7 +90,6 @@ async fn primary_and_subagent_continue_past_32_without_a_step_limit() {
             None,
             &[],
             None,
-            None,
             &mut events,
             &mut ask,
         )
@@ -256,7 +255,6 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
         "write sample",
         None,
         &[],
-        None,
         None,
         &mut events,
         &mut ask,

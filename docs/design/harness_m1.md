@@ -2,13 +2,13 @@
 
 - 身份: live_design
 - 状态: 现行总纲；R-317 执行层已接管 Requirement/Work Unit 的工作权威
-- 最近核验依据: R-317 Outcome/Work Unit/事件投影关闭证据
+- 最近核验依据: 2026-10-17 Harness 补充审计；MarkdownComponent、全局 Skills catalog、core runner 执行边界
 - 关联需求: R-023、R-028、R-317 (done)
 - 执行模型权威: R-317 的 Outcome/Work Unit/事件投影；本文注册表、Profile 和硬门禁仍是实现约束
 
 > 状态:已评审通过(2026-08-06)。Q1=纯 markdown;Q2=硬 deny;Q3=强制引用。本文档随实现演进。
 
-> **文档状态(2026-09-25 修订,D-748):现行架构基线。** 五类注册表（agents/tools/skills/context/permissions；commands 已移除）+ 拦截器链 + dev/research 双 profile 已实现;文中 R-023/R-028 注记对应条目均已 done,实现现状以 `.kanzei/project/architecture/` 索引与代码为准。skill 工具未实现,技能正文走 read。
+> **文档状态(2026-10-17 核验):现行架构基线。** 五类装配集合（agents/tools/skills/context/permissions；commands 已移除）与 dev/research 双 profile 已实现。Skills 来自全局 catalog，正文由 `skill_read` 按需读取；权限、审批、取消和结果事件由 core runner 强制执行。文中 R-023/R-028 注记是历史交付记录，当前实现以代码及 `.kanzei/project/architecture/` 索引为准。
 
 > **2026-08-21 修订(R-322)**:本文「所有规则走代码硬门禁」需加一条限定——**硬门禁的
 > 强度不是常量**。权限 Ruleset、托管围栏与事件真源(约束副作用边界的部分)在所有档位恒定;
@@ -18,7 +18,7 @@
 
 ## 0. 一句话
 
-一切喂给模型的东西都是 **Harness 组件**,汇入五类注册表;每轮对话解析成不可变快照;权限和托管写入边界走**代码硬门禁**；任务判断按 HarnessIntensity 分档，公共执行流水线仍在逐族迁移;其上提供两套**模式(Profile)**:软件开发模式(dev)和研究模式(research)。
+模型可用能力和项目上下文通过 **Harness 组件**装配为轮次快照；core runner 消费快照并执行权限、审批、取消与结果记录。权限和托管写入边界走**代码硬门禁**，任务判断按 HarnessIntensity 分档。可选的工具输入 Guard 不代替 runner 门禁。其上提供两套**模式(Profile)**：软件开发模式(dev)和研究模式(research)。
 
 ## 1. 配置:kanzei.toml
 
@@ -70,20 +70,21 @@ effect = "deny"    # dev 模式项目文档只能走专用工具(见 §4)
 struct HarnessDraft {
     agents:      Registry<AgentDef>,
     tools:       Registry<Arc<dyn Tool>>,
-    skills:      Registry<SkillDef>,        // 名称/描述/SKILL.md 路径索引进提示词,正文由模型按路径 read(无 skill 工具)
-    context:     Registry<ContextSource>,   // baseline/update/removal 三段式渲染
-    permissions: RulesetBuilder,            // 有序规则
+    skills:      Registry<SkillDef>,        // 全局 catalog；正文由 skill_read(id) 按需读取
+    context:     Registry<Arc<dyn ContextSource>>, // stable / refreshable 上下文
+    permissions: Ruleset,                   // 有序规则与托管资源边界
 }
 
-trait Component { fn contribute(&self, draft: &mut HarnessDraft) -> Result<()>; }
+trait Component { fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> Result<()>; }
 ```
 
-- **组件源**:内置 → kanzei.toml → markdown 目录(`.kanzei/{agents,skills}/`)→(M4)MCP。配置本身就是组件,没有第二条 config→runtime 路径。
-- **快照**:轮次边界 `resolve(profile) -> Arc<HarnessSnapshot>`;确定性排序、同名 last-wins;Arc 共享零复制。
-- **拦截器链(硬门禁落点)**:
-  - `before_request`:注入 Context Source、系统提示词预算检查(baseline >2k token 报警);
-  - `before_tool_call`:权限 Ruleset 检查(ask 弹给用户)→ profile 工具过滤 → 输入宽容解析+schema 校验(失败回喂纠错,不崩);
-  - `after_tool_result`:写后校验 warning、输出截断、(dev)文档一致性检查。
+- **组件源**：调用方按顺序加入内置 profile、配置、Markdown 和宿主能力组件。Agent 文件先读 `KANZEI_HOME/agents`（默认 `~/.kanzei/agents`），再读项目 `.kanzei/agents`；项目同名定义覆盖全局定义。Skills 使用下面 §6 的独立全局 catalog，项目目录不参与。
+- **快照**：轮次边界 `resolve(&ResolveCtx) -> Result<Arc<HarnessSnapshot>>`；同名注册保留位置、后写覆盖，Arc 共享不可变快照。`ResolveCtx` 显式携带 profile、代码 cwd、项目根和配置。
+- **执行边界**：
+  - Harness 负责组件装配、agent 选择、工具可见面、上下文来源和 Ruleset。工具 schema 的可见性不等于执行授权。
+  - core runner 组装 stable / refreshable system、估算 system + schema + messages 的预算，并在每次工具调用前执行权限/Ask gate。取消、进度、panic 与 ToolEnd/结果配对也归 runner。
+  - 工具本体负责参数解释和具体副作用；少量工具使用共享输入 Guard。托管写入围栏由相应文件/命令工具执行，不能从“用了工具包装函数”推断已覆盖所有门禁。
+  - CLI 与桌面共用 Harness/core 合同；桌面通过宿主组件增加前端操作能力及 UI 审批交互，CLI 使用自身的输入/审批适配。宿主能力不能由一个 Markdown agent 自动获得。
 
 ## 3. Profile 机制
 
@@ -127,7 +128,7 @@ Profile = 一组组件的成套启用:agents + tools + context sources + 权限�
 - `Requirement`/`Defect` 工具仍用于维护项目结果、来源和兼容性元数据；它们不是当前 Work Unit 的执行历史真源。
 - R-317 的 Outcome 描述用户可验收结果，Work Unit 描述一次可执行 scope，并由 claim、checkpoint、block/unblock、verify、evidence、complete 事件投影形成可恢复历史。
 - Harness 在每轮消费的是有界 Work Unit context 与事件投影；Requirement 正文中的旧 todo/doing/done、轮内 `todowrite` 和历史计划只作为 legacy 展示，不得覆盖 Work Unit 终态。
-- 该执行层与五类注册表、Profile、权限拦截器链正交：R-317 提供执行事实，Harness 继续负责组件解析、上下文装配和硬门禁。
+- 该执行层与组件注册、Profile、权限门禁正交：R-317 提供执行事实，Harness 提供快照与规则，core/app 持有执行和持久化状态。
 
 
 ## 5. 研究模式(research)
@@ -162,12 +163,23 @@ steps: 40
 你是构建 agent,……(正文)
 ```
 
-`.kanzei/skills/<name>/SKILL.md`:frontmatter `{name, description}`,名称、描述与路径索引进提示词,正文由模型按需用 read 读取;不提供 skill 工具(见 `cc_codex_alignment_impl_maps.md` §14 边界)。
+Skills 在所有项目和对话中全局可用，来源为：
+
+- 内置目录（随程序嵌入，不依赖可写项目目录）。
+- `KANZEI_HOME/skills`（默认 `~/.kanzei/skills`）的 personal Skills。
+- 用户目录 `~/.codex/skills`、`~/.claude/skills`、`~/.agents/skills` 的兼容目录。
+
+项目 `.kanzei/skills` 不参与 catalog。外部文件采用 `<name>/SKILL.md` 或 `<name>.md` 布局，YAML 元数据包含名称、描述及调用选项；身份使用 `source:name`，防止不同来源的同名技能被无声混淆。启用状态存于全局 `skills.json`。
+
+`MarkdownComponent` 注册 `skill_read` 并将其标为 deferred。常驻上下文只提供可由模型调用的技能名称与描述；agent 通过 `tool_search` 加载 `skill_read` schema 后，以 `skill_read(id)` 读取正文。若工具加载器不可见，现有物化逻辑直接暴露允许工具的 schema；正文仍使用同一个读取接口。CLI 与桌面执行共用此机制。桌面另有全局 Skills 管理界面及 `$source:name` 显式正文展开；该宿主入口检查启用状态和 `user_invocable`，不是 CLI 自动具有的行为。带 `disable_model_invocation` 的技能不会进入模型自动发现列表，也不能经模型的 `skill_read` 直接加载。
+
 `.kanzei/commands/*.md` 不再由 MarkdownComponent 扫描或注入(D-748);这些文件目前不具备运行效果。
 
-内置 agent:`dev`(dev 模式主力)、`research`(研究模式主力)、`explore`(subagent,默认 model: fast,只读工具)。
+顶层 agent 的可用目录由当前 profile 的快照决定；显式名称和默认选择都必须满足 profile scope 与 `Primary` 身份。`task` 的子代理名册由 `SubagentRuntime` 单独提供，不能把子代理定义当作顶层 agent 使用。
 
-## 7. 实现顺序(M1 内)
+## 7. 历史实施顺序(M1 内)
+
+以下记录最初 M1 的拆分顺序；现行能力与执行边界以 §2、§4.1、§6 为准。
 
 1. 核心类型:五类注册表 + Snapshot + Component trait + resolve
 2. kanzei.toml 解析(toml crate)+ 层叠合并 + providers/models 角色

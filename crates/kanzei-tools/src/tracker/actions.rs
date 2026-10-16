@@ -14,8 +14,7 @@ pub(crate) use normalize::normalize;
 
 mod action_helpers;
 use action_helpers::{
-    archived_or_unknown, check_close_acceptance_reconciliation,
-    check_close_classification_evidence, check_close_complexity_evidence,
+    archived_or_unknown, check_close_acceptance_reconciliation, check_close_complexity_evidence,
     check_close_source_ancestry, close_verify_trigger, field_diff_summary, render_line, unknown_id,
     user_visible_fields,
 };
@@ -695,16 +694,8 @@ pub(crate) fn update_close(
                     ));
                 }
             }
-            // R-229 关闭门禁:出现「剩余/其余 N 处」式分类断言时,关闭文本必须
-            // 逐处带 file:line 引证,引证数不足断言声称的总处数即拒关闭。
-            // (根因:R-199 关闭证据把完整否决误归为「非续跑否决」且无人核对,
-            // 产出 D-320/D-323;无分类断言的关闭不受影响。)
-            if let Some(evidence_err) = check_close_classification_evidence(&merged) {
-                return ToolOutput::needs_correction(
-                    "TRACKER_CLOSE_BLOCKED",
-                    format!("{id} {evidence_err}"),
-                );
-            }
+            // Acceptance obligations belong to the requirement contract below.
+            // Repeated prose in titles/history does not create extra obligations.
             if let Some(complexity_err) = check_close_complexity_evidence(&merged) {
                 return ToolOutput::needs_correction(
                     "TRACKER_CLOSE_BLOCKED",

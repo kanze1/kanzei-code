@@ -160,12 +160,8 @@ pub fn summarize_metrics(messages: &[Message]) -> RunMetrics {
 
 /// ToolOutput 回喂模型时为预期拒绝附加的稳定头。旧轨迹没有该头,自然按旧语义统计。
 pub(crate) fn is_expected_tool_rejection(content: &str) -> bool {
-    let Some(header) = content.lines().next() else {
-        return false;
-    };
-    header.starts_with("[tool_outcome=noop ")
-        || header.starts_with("[tool_outcome=needs_correction ")
-        || header.starts_with("[tool_outcome=needs_confirmation ")
+    kanzei_harness::ToolOutcome::from_model_content(content)
+        .is_some_and(kanzei_harness::ToolOutcome::is_expected_rejection)
 }
 
 pub(crate) fn is_git_query(input: &serde_json::Value) -> bool {
@@ -574,10 +570,16 @@ mod tests {
                 "[tool_outcome=noop code=EDIT_IDENTICAL_INPUT]\n无需修改",
                 true,
             ),
+            call("e3", "edit", "path", "src/lib.rs"),
+            result(
+                "e3",
+                "[tool_outcome=blocked_by_workflow code=BATCH_CLOSING]\n收尾后继续",
+                true,
+            ),
         ];
         let metrics = summarize_metrics(&messages);
-        assert_eq!(metrics.tool_rejections, 2);
-        assert_eq!(metrics.edit_rejections, 2);
+        assert_eq!(metrics.tool_rejections, 3);
+        assert_eq!(metrics.edit_rejections, 3);
         assert_eq!(metrics.failed_calls, 0);
         assert_eq!(metrics.edit_misses, 0);
         assert!(summarize_failures(&messages).is_empty());

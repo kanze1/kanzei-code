@@ -1,4 +1,5 @@
-import { $, invoke } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, activeSessionId, currentProject, navigate_view, processItems, running, toast, toastError } from "./03-shell.js";
 import { cancelAutoContinueTimer, setAutoPaused, setAutoStopAfterRound, syncAutoRunState } from "./08-auto.js";

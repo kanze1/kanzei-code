@@ -6,7 +6,10 @@
 //
 // 数据只在这里:runsBySession(侧栏列表)与 liveIndex(`${sessionId}|${id}` → 最新一次委派)。
 // DOM 只是投影:卡片节点被裁剪/清空后,模型照常推进,侧栏照常可看。
-import { $, activePane, appendToPane, defer, invoke, motionOnce, motionSync, renderingBackground } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { activePane, appendToPane, renderingBackground } from "./01-chat-panes.js";
+import { motionOnce, motionSync } from "./00-ui-primitives.js";
+import { invoke } from "./00-ipc.js";
 import { languageIsEnglish, t } from "./02-i18n.js";
 import { activeProcessId, activeSessionId, currentProject, processItems, toast, toastError } from "./03-shell.js";
 import { renderMarkdownInto } from "./04-markdown.js";

@@ -327,6 +327,22 @@ impl SessionStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn list_events_in_range(
+        &self,
+        session: &str,
+        start: i64,
+        end: i64,
+        kind: Option<&str>,
+    ) -> Result<Vec<StoredEvent>, StoreError> {
+        let mut statement = self.connection.prepare_cached(
+            "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+             FROM session_events WHERE session_id=?1 AND sequence>?2 AND sequence<=?3
+               AND (?4 IS NULL OR event_type=?4) ORDER BY sequence",
+        )?;
+        let rows = statement.query_map(params![session, start, end, kind], event_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     /// 按类型下推过滤的事件列表(D-297 验收①):event_type 进 WHERE 与复合索引
     /// `(session_id, event_type, sequence)`,只解析所需类型的行——conversation_list /
     /// conversation_trace_get / 按序号恢复不再为取一种事件而全表 serde 解析。

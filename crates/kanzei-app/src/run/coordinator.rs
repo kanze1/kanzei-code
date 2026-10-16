@@ -69,7 +69,7 @@ fn steering_inbox(
 /// `RuntimeHandles`(会话级句柄),共 4 参,消 too_many。三组均见 assembly.rs 的
 /// 生命周期说明,禁止再退化成 30+ 扁平参数。
 pub(crate) async fn run_task(
-    window: &tauri::Window,
+    window: &crate::app_events::AppEvents,
     request: RoundRequest,
     mode: RunMode,
     handles: RuntimeHandles,
@@ -553,42 +553,53 @@ pub(crate) async fn run_task(
     let decided = {
         let mut controllers = handles.auto_runs.lock_or_recover();
         let ctrl = controllers.entry(session_id.clone()).or_default();
-        let ctx =
-            kanzei_harness::auto_run::AutoRunCtx {
-                backlog,
-                halted: summary.halted_by_user,
-                steps: summary.steps,
-                tools: &tools_vec,
-                progress_signature: &progress_signature,
-                // R-199 起档位条件下沉引擎;R-322 B2 把判据从 agent 放宽到 profile。
-                //
-                // 原判据 `profile==Dev && agent=="dev"` 让结伴档永远 Stop(ProfileMismatch),
-                // 于是「系统级 loop 之外的简单 loop」根本不存在——用户勾鞭挞会被 R-224
-                // 静默切成 dev-auto(连人格一起换掉),而不是拿到一条轻控制的 loop。
-                // 现在 dev 两档都允许续跑,**区别落在 HarnessIntensity 而不是能不能跑**:
-                // 结伴档不 Nudge、不插核查轮、不标冗余,模型说完成即停。
-                // research 由课题工作流覆盖续跑判据；readonly 仍然拒绝。
-                auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev),
-                // R-322:门禁强度按 agent 取默认值。与 auto_allowed 是**两件事**——
-                // 后者答「能不能自动发下一条」,前者答「引擎对任务判断介入多深」。
-                // 结伴档即使手动一问一答也按 Paired 跑:Nudge/核查轮/冗余提醒都不该
-                // 在用户盯着屏幕的时候插进来。
-                intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
-                // 核对当前输入和目标;排队输入未消费时不能宣布整次委托完成。
-                completion: handoff.as_ref().filter(|_| !has_pending_inputs).and_then(
-                    |declaration| declaration.bound_scope(&promoted_input_id, ctrl.goal.as_deref()),
-                ),
-                awaiting_user,
-                // R-322 B3:挂了目标就换一套停止规则——不由引擎猜还有没有活干,
-                // 而是推到模型声明达成为止(详见 AutoRunCtx::goal_active)。
-                goal_active: ctrl.goal.is_some(),
-                // R-144:本轮关闭条目数(req/defect close 成功计数)。D-654:改事件收口
-                // (ToolStart 登记意图 + ToolEnd ok 计数)——原实现扫全历史 messages,
-                // 历史 close 每轮重复计入,关闭计数被污染。
-                closed_this_round: round_closed.load(std::sync::atomic::Ordering::Relaxed),
-                // D-403:本轮正常完成——失败轮走上面的失败分支,不经过这里。
-                round_failure: None,
-            };
+        let ctx = kanzei_harness::auto_run::AutoRunCtx {
+            backlog,
+            halted: summary.halted_by_user,
+            steps: summary.steps,
+            tools: &tools_vec,
+            progress_signature: &progress_signature,
+            // R-199 起档位条件下沉引擎;R-322 B2 把判据从 agent 放宽到 profile。
+            //
+            // 原判据 `profile==Dev && agent=="dev"` 让结伴档永远 Stop(ProfileMismatch),
+            // 于是「系统级 loop 之外的简单 loop」根本不存在——用户勾鞭挞会被 R-224
+            // 静默切成 dev-auto(连人格一起换掉),而不是拿到一条轻控制的 loop。
+            // 现在 dev 两档都允许续跑,**区别落在 HarnessIntensity 而不是能不能跑**:
+            // 结伴档不 Nudge、不插核查轮、不标冗余,模型说完成即停。
+            // research 由课题工作流覆盖续跑判据；readonly 仍然拒绝。
+            auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev),
+            // R-322:门禁强度按 agent 取默认值。与 auto_allowed 是**两件事**——
+            // 后者答「能不能自动发下一条」,前者答「引擎对任务判断介入多深」。
+            // 结伴档即使手动一问一答也按 Paired 跑:Nudge/核查轮/冗余提醒都不该
+            // 在用户盯着屏幕的时候插进来。
+            intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
+            // 核对当前输入和目标;排队输入未消费时不能宣布整次委托完成。
+            completion: handoff
+                .as_ref()
+                .filter(|_| !has_pending_inputs && summary.incomplete_reason().is_none())
+                .and_then(|declaration| {
+                    declaration.bound_scope(&promoted_input_id, ctrl.goal.as_deref())
+                }),
+            awaiting_user,
+            // R-322 B3:挂了目标就换一套停止规则——不由引擎猜还有没有活干,
+            // 而是推到模型声明达成为止(详见 AutoRunCtx::goal_active)。
+            goal_active: ctrl.goal.is_some(),
+            // R-144:本轮关闭条目数(req/defect close 成功计数)。D-654:改事件收口
+            // (ToolStart 登记意图 + ToolEnd ok 计数)——原实现扫全历史 messages,
+            // 历史 close 每轮重复计入,关闭计数被污染。
+            closed_this_round: round_closed.load(std::sync::atomic::Ordering::Relaxed),
+            // A protocol-confirmed stop may still be a refusal/truncated output.
+            // A budget checkpoint can continue; an unsuccessful model response
+            // must not be treated as a successful autonomous round.
+            round_failure: match summary.finish_reason.as_ref() {
+                Some(
+                    kanzei_llm::FinishReason::MaxTokens
+                    | kanzei_llm::FinishReason::Refusal
+                    | kanzei_llm::FinishReason::Other(_),
+                ) => Some(kanzei_harness::auto_run::RoundFailure::Fatal),
+                _ => None,
+            },
+        };
         if deps.profile == kanzei_harness::ProfileKind::Research {
             Decided::Research(crate::research_auto::decide(
                 ctrl,

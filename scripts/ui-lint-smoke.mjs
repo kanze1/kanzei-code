@@ -1,8 +1,6 @@
 // R-142:前端最低配 ESLint 冒烟：ui/*.js + scripts/*.mjs 经 no-undef 检查零错误。
 // UI-0926 #9:ui/*.js 另加 no-restricted-syntax「弹层唯一写法」8 条(见 eslint.config.js),同样按 error 计;
-// ESLint 通过后接着跑弹层样例浏览器冒烟(scripts/ui-surface-gallery-smoke.mjs,无头 Edge):
-// ui_lint 这一步因此也覆盖弹层的真实外观、下拉列表亮度与 Esc 叠放。verify/CI 的检查键集合不变。
-// 随后跑星座背景浏览器冒烟(scripts/ui-constellation-browser-smoke.mjs,同一无头 Edge 路线)。
+// 浏览器检查由 verification-checks.json 单独登记、计时和报告。
 // 运行时模块之间通过真实 ESM import/export 连接，不再维护跨文件 globals 清单。
 // 与 ui-a11y/ui-i18n/ui-markdown/ui-runtime 冒烟并列,verify.ps1 发布门禁一并执行。
 import { ESLint } from "eslint";
@@ -94,7 +92,7 @@ for (const { src } of uiSources) {
   for (const name of exportedNames(src)) allExported.add(name);
   for (const name of publishedNames(src)) allPublished.add(name);
 }
-if (allExported.size < 200 || !allPublished.has("log") || !allPublished.has("t")) {
+if (allExported.size < 200 || !allPublished.has("log") || !allExported.has("t")) {
   console.error(`ESM 回归守卫取样异常:导出 ${allExported.size} 个、已发布 ${[...allPublished].join(",")}——清单可能静默退化`);
   process.exit(1);
 }
@@ -131,44 +129,3 @@ if (importAssignErrors.length) {
 console.log(`UI ESM 回归守卫通过:${allExported.size} 个导出无 globalThis 死调用(兼容桥 ${allPublished.size} 个),import 绑定无赋值`);
 
 console.log(`UI ESLint 冒烟通过:${results.length} 个文件 no-undef 与弹层唯一写法零错误,模块 import/export 解析正常`);
-
-// ②弹层样例浏览器冒烟(假 DOM 看不到顶层、样式与颜色,这一段在真浏览器里补上)
-const { runSurfaceGallerySmoke } = await import("./ui-surface-gallery-smoke.mjs");
-const gallery = await runSurfaceGallerySmoke();
-if (gallery.failures.length) {
-  console.error(`弹层样例浏览器冒烟失败(${gallery.failures.length} 处):`);
-  for (const failure of gallery.failures) console.error(` - ${failure}`);
-  process.exit(1);
-}
-console.log(`弹层样例浏览器冒烟通过:${gallery.notes.join(";")}`);
-
-// ── 分区:对话单列与输入区 ──
-// ③对话单列浏览器冒烟(UI2-0926 #12):正文/工具组/子代理卡/notice/活动行/输入区左右边在 1280/1600/2000@1 与
-// 1600@1.5 下逐像素重合,工具组折叠态统一收起调用详情,空态与输入区同轴;自带注入回归的自检。不新增 verify 步骤。
-const { runColumnLayoutSmoke } = await import("./ui-column-layout-smoke.mjs");
-const column = await runColumnLayoutSmoke();
-if (column.failures.length) {
-  console.error(`对话单列浏览器冒烟失败(${column.failures.length} 处):`);
-  for (const failure of column.failures) console.error(` - ${failure}`);
-  process.exit(1);
-}
-console.log(`对话单列浏览器冒烟通过:${column.notes.join(";")}`);
-
-// ── 分区:后台任务侧栏与可调框 ── ③ 窗口尺寸 × 左侧栏 × 后台任务侧栏的真实布局冒烟(UI2-0926 #14 起侧栏停靠进
-// #main 网格,停靠/抽屉的判据要在真浏览器里量;接在这里让它进 verify 的 ui_lint 步骤)。
-await import("./ui-narrow-layout-smoke.mjs");
-
-// ── 分区:星座背景 ── ③星座背景浏览器冒烟(UI2-0926 #10,docs/design/ui_chat_backdrop.md §8):帧预算、暂停、
-// 流式事件下不饿死、改尺寸不空白、正文下像素与水印对比度、启动不闪。纯函数与假 DOM 都看不到绘制与调度,这里实测。
-const { runConstellationBrowserSmoke } = await import("./ui-constellation-browser-smoke.mjs");
-const backdrop = await runConstellationBrowserSmoke({ mutate: "" });
-if (backdrop.failures.length) {
-  console.error(`星座背景浏览器冒烟失败(${backdrop.failures.length} 处):`);
-  for (const failure of backdrop.failures) console.error(` - ${failure}`);
-  process.exit(1);
-}
-console.log(`星座背景浏览器冒烟通过:${backdrop.notes.join(";")}`);
-// ── 分区:星座背景 结束 ──
-
-// Optional interfaces must remain absent at default startup and work on first use.
-await import("./ui-optional-modules-smoke.mjs");

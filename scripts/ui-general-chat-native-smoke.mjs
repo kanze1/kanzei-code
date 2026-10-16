@@ -1,3 +1,4 @@
+import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
 // Actual WebView2 + Rust + SQLite, disposable home, local model; no cloud calls.
 /* global window, document */
 import assert from "node:assert/strict";
@@ -128,7 +129,9 @@ async function start() {
   await until(() => page.url() !== "about:blank", "Native document navigation");
   console.log(`Native URL: ${page.url()}`);
   await page.waitForFunction(() => document.body.dataset.appReady === "true", { timeout: 45000 });
+  await openComposerOptions(page);
   await page.locator("#auto-allow").check();
+  await closeComposerOptions(page);
 }
 async function close() {
   if (page) await invoke("runtime_shutdown").catch(() => {});
@@ -156,7 +159,9 @@ try {
   let lines = await invoke("process_list", { projectDir: root });
   const original = lines[0];
   check(original.profile === "dev" && original.subagent_mode === "auto" && !("phase_pipeline" in original) && !original.tracker_writes, "General recipient retains Harness with Auto delegation");
+  await openComposerOptions(page);
   check(await page.locator("#subagent-control").isVisible(), "General chat exposes the subagent switch");
+  await closeComposerOptions(page);
   check((await invoke("projects_get")).projects.length === 0, "Opening chat does not register a fake project");
   const text = "GENERAL_INPUT: 不依赖项目的聊天";
   await page.locator("#attachment-input").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("GENERAL_ATTACHMENT: 独立附件内容") });

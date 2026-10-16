@@ -24,10 +24,11 @@ mod serial_tools;
 use serial_tools::{execute_serial_tool_calls, SerialToolRequest};
 mod parallel_tools;
 use parallel_tools::{
-    can_parallel_tool_calls, execute_parallel_tool_calls, ParallelPreflight, ParallelToolRequest,
+    execute_parallel_tool_calls, prepare_parallel_tool_calls, ParallelPreflight,
+    ParallelToolRequest,
 };
 mod assembly;
-use assembly::{assemble_run_once, RunOnceAssembly};
+use assembly::{assemble_run_once, observe_context_sources, update_source_ledger, RunOnceAssembly};
 mod context_budget;
 use context_budget::enforce_context_budget;
 mod halt;
@@ -54,8 +55,6 @@ pub fn run_once<'a>(
     memory_hints: Option<&'a str>,
     prior: &'a [Message],
     subagent: Option<&'a SubagentRuntime>,
-    // R-246:统一资源 owner(可选),见 run_once_with_parts。
-    line_runtime: Option<&'a LineRuntime>,
     on_event: &'a mut (dyn FnMut(RunEvent) + Send),
     ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
@@ -71,7 +70,6 @@ pub fn run_once<'a>(
         prior,
         None,
         subagent,
-        line_runtime,
         on_event,
         ask,
     )
@@ -93,9 +91,6 @@ pub fn run_once_with_parts<'a>(
     initial_parts: Option<&'a [Part]>,
     // Some = 注册 task 工具,模型可派生并行子代理;子代理自身传 None(禁嵌套)。
     subagent: Option<&'a SubagentRuntime>,
-    // R-246:统一资源 owner(可选)。Some 时后台子代理 spawn 的 JoinHandle 登记
-    // 进 LineRuntime,dispose 时 cancel 后 await 全部退出;None(测试/无)跳过。
-    line_runtime: Option<&'a LineRuntime>,
     on_event: &'a mut (dyn FnMut(RunEvent) + Send),
     ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
@@ -132,7 +127,8 @@ pub fn run_once_with_parts<'a>(
             prior,
             initial_parts,
             subagent,
-        );
+            on_event,
+        )?;
         recall = recall.with_run_id(ctx.run_id.clone());
         // D-655:消息历史会在轮中被压缩/裁剪,不能再用 prior.len() 反推本轮。
         // 事件提交前复制本轮消息,作为不受结构性删短影响的统计真源。
@@ -182,6 +178,7 @@ pub fn run_once_with_parts<'a>(
         // 收尾落盘一旦进入就保持到本轮结束——延长的每一步都要重复这条指令,
         // 只在授予的那一步说一次,模型下一步就忘了自己在收尾。
         let mut winddown_until_end = false;
+        let mut last_finish_reason = None;
         // 已授予的延长步数,**跨步保持**。
         //
         // `budget_extension` 每步新建,而授予判据是一次性的(`extension_used`):
@@ -216,6 +213,7 @@ pub fn run_once_with_parts<'a>(
                     steps: step.saturating_sub(1),
                     halted_by_user: true,
                     step_limit_reached: false,
+                    finish_reason: last_finish_reason.clone(),
                     messages,
                     context_report: context_report.clone(),
                     overflow_traces: overflow_traces.clone(),
@@ -235,7 +233,12 @@ pub fn run_once_with_parts<'a>(
             }
             // R-184:动态源只替换本步 system 段，不累积进 messages。
             if step > 1 {
-                refreshable_baseline = snapshot.refreshable_system_baseline_with_report().0;
+                let (baseline, sources) = observe_context_sources(
+                    snapshot.refreshable_system_baseline_with_report(),
+                    &mut on_event,
+                )?;
+                refreshable_baseline = baseline;
+                update_source_ledger(&mut context_report, &sources);
             }
             let mut system = stable_system.clone();
             if !refreshable_baseline.trim().is_empty() {
@@ -265,6 +268,14 @@ pub fn run_once_with_parts<'a>(
             let budget_checkpoint = is_budget_checkpoint(step);
             let winddown = winddown_until_end;
             let batch_prompt = batch.prepare(step, ctx);
+            // Resolve this step's fixed wire inputs once. Admission, compaction and
+            // provider retries must see the same system sections and tool schemas.
+            if let Some(instruction) =
+                budget_instruction(last_step, winddown, budget_checkpoint, step)
+            {
+                system.push(instruction);
+            }
+            let step_specs: &[ToolSpec] = if last_step { &[] } else { &specs };
 
             // 完整工具组已提交后、下一次请求前整理条目边界；独立于 token 超线。
             item_context.prepare(&mut messages, ctx, &mut on_event);
@@ -277,8 +288,9 @@ pub fn run_once_with_parts<'a>(
                 config,
                 &ctx.project_root,
                 &system,
-                &specs,
+                step_specs,
                 route.kind,
+                &context_report,
                 &mut messages,
                 last_input_tokens,
                 last_estimated_tokens,
@@ -287,7 +299,7 @@ pub fn run_once_with_parts<'a>(
                 &mut overflow_traces,
                 &mut on_event,
             )
-            .await;
+            .await?;
 
             // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
             // 建流前和 HTTP 200 后 SSE 流内都可能报告 context overflow，必须走同一套
@@ -300,12 +312,8 @@ pub fn run_once_with_parts<'a>(
                 route,
                 config,
                 &system,
-                &specs,
+                step_specs,
                 &mut messages,
-                step,
-                last_step,
-                budget_checkpoint,
-                winddown,
                 batch_prompt.as_deref(),
                 halt,
                 &mut on_event,
@@ -332,6 +340,7 @@ pub fn run_once_with_parts<'a>(
                         steps: step,
                         halted_by_user: true,
                         step_limit_reached: false,
+                        finish_reason: last_finish_reason.clone(),
                         messages,
                         context_report: context_report.clone(),
                         overflow_traces: overflow_traces.clone(),
@@ -339,6 +348,8 @@ pub fn run_once_with_parts<'a>(
                     });
                 }
             };
+
+            last_finish_reason = Some(finish.clone());
 
             // R-202 批6:步骤消息提交与纯文本/停止收尾抽离为 commit_step_messages;
             // 提前返回(calls 空 / 停止占位)以 StepMessageOutcome::Return 表达。
@@ -359,7 +370,11 @@ pub fn run_once_with_parts<'a>(
                     if let Some(host) = subagent.and_then(|rt| rt.options.host.as_ref()) {
                         if halted_by_user {
                             host.stop_all();
-                        } else if ctx.async_mailbox.is_none() && host.has_updates() {
+                        } else if !last_step
+                            && matches!(finish, FinishReason::EndTurn | FinishReason::StopSequence)
+                            && ctx.async_mailbox.is_none()
+                            && host.has_updates()
+                        {
                             let collection = kanzei_harness::tool_pipeline::wrap_execute(
                                 String::new(),
                                 None,
@@ -380,7 +395,11 @@ pub fn run_once_with_parts<'a>(
                             }
                         }
                     }
-                    if !halted_by_user && batch.is_closing() {
+                    if !halted_by_user
+                        && !last_step
+                        && matches!(finish, FinishReason::EndTurn | FinishReason::StopSequence)
+                        && batch.is_closing()
+                    {
                         if let Some(checkpoint) = batch.finish_and_resume(step, ctx) {
                             messages.push(Message::user_text(checkpoint));
                             continue;
@@ -398,6 +417,7 @@ pub fn run_once_with_parts<'a>(
                         steps: step,
                         halted_by_user,
                         step_limit_reached: !halted_by_user && last_step,
+                        finish_reason: Some(finish.clone()),
                         messages,
                         context_report: context_report.clone(),
                         overflow_traces: overflow_traces.clone(),
@@ -416,7 +436,6 @@ pub fn run_once_with_parts<'a>(
                     config,
                     &calls,
                     halt,
-                    line_runtime,
                     &mut on_event,
                 )
                 .await;
@@ -461,6 +480,7 @@ pub fn run_once_with_parts<'a>(
                         steps: step,
                         halted_by_user: true,
                         step_limit_reached: false,
+                        finish_reason: last_finish_reason.clone(),
                         messages,
                         context_report: context_report.clone(),
                         overflow_traces: overflow_traces.clone(),
@@ -500,6 +520,7 @@ pub fn run_once_with_parts<'a>(
                         steps: step,
                         halted_by_user,
                         step_limit_reached: !halted_by_user && last_step,
+                        finish_reason: Some(finish.clone()),
                         messages,
                         context_report: context_report.clone(),
                         overflow_traces: overflow_traces.clone(),
@@ -518,6 +539,7 @@ pub fn run_once_with_parts<'a>(
             steps: step,
             halted_by_user: false,
             step_limit_reached: true,
+            finish_reason: last_finish_reason,
             messages,
             context_report,
             overflow_traces: overflow_traces.clone(),
@@ -539,6 +561,36 @@ enum StepOutcome {
     Stopped,
 }
 
+fn budget_instruction(
+    last_step: bool,
+    winddown: bool,
+    checkpoint: bool,
+    step: u32,
+) -> Option<String> {
+    if last_step {
+        Some("Execution budget: this is the final model step of the current run; tools are unavailable. \
+              Preserve the user's requested language, format and level of detail. Report the work \
+              actually completed and identify anything incomplete or unverified. Do not claim new \
+              tool actions. Existing files and conversation history remain available for continuation."
+              .into())
+    } else if winddown {
+        Some(
+            "Execution budget: only the granted closing steps remain. Stop expanding scope and \
+              leave a truthful, resumable checkpoint using the current workflow's existing rules. \
+              Preserve the user's delivery requirements and identify remaining work."
+                .into(),
+        )
+    } else if checkpoint {
+        Some(format!(
+            "Execution budget checkpoint at step {step}: review completed and remaining \
+                      work against the user's request. Continue within the requested scope; if a \
+                      required user decision prevents progress, state that dependency clearly."
+        ))
+    } else {
+        None
+    }
+}
+
 /// R-202 批3:单步请求段——从当前 messages 重建请求、建流、消费 SSE 事件,
 /// 并在 context overflow / transport 中断时按既有规则恢复重放。
 ///
@@ -557,10 +609,6 @@ async fn stream_request_step(
     system: &[String],
     specs: &[ToolSpec],
     messages: &mut Vec<Message>,
-    step: u32,
-    last_step: bool,
-    budget_checkpoint: bool,
-    winddown: bool,
     batch_prompt: Option<&str>,
     halt: Option<&CancellationToken>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
@@ -579,65 +627,15 @@ async fn stream_request_step(
         if let Some(prompt) = batch_prompt {
             request_messages.push(Message::user_text(prompt));
         }
-        // 最后一步收走工具强制收敛;必须同时明确告知(D-027:只收走不告知,
-        // codex 仍试图调用工具,把调用 JSON 当纯文本狂喷并在思考里反复自我纠正)。
-        if last_step {
-            // 这一步没有工具,所以这段文字**改变不了任何持久状态**:自动续跑的判定
-            // (AutoRunCtx)里根本没有文本字段,下一轮也不读它。凡是没写进 tracker /
-            // 提交 / 测试记录的东西,写在这里等于丢掉。
-            //
-            // 所以措辞必须堵住"拿报告当落盘替代品"这条路——实测形态是模型在这里
-            // 写下「D-044/045/046 已修复待关闭」,而条目里一个字没有,下一轮从零重建。
-            // 同时限长:它只是给人看的摘要,不是记录,没必要复述一遍 tracker。
-            request_messages.push(Message::user_text(
-                "(system) Final step of this run: tools are no longer available. Do NOT \
-                 attempt any tool call and do NOT emit JSON — reply in plain text only. \
-                 This text is a DIGEST FOR A HUMAN, not a record: nothing you write here \
-                 is read by the next round, and anything not already in the tracker, a \
-                 commit, or a test record is lost. Do not restate the tracker. At most 5 \
-                 lines, no nested bullets: what changed, what is left, and — if anything \
-                 that matters failed to reach the tracker — say exactly what and why.",
-            ));
-        } else if winddown {
-            // 步数预算已经吃完,本轮改了源码却一次都没提交。再多写一行代码
-            // 都会随进程结束蒸发,下一轮还得靠 git status / diff / 重读把现场拼回来。
-            // 这几步的唯一任务是把半个事务落成可恢复的检查点。
-            request_messages.push(Message::user_text(
-                "(system) Wind-down: the step budget for this run is exhausted and you have \
-                 edited source without committing. Do NOT start or continue any implementation \
-                 work — anything you write now will be lost. Use the remaining steps ONLY to \
-                 make the current state durable and resumable: run the relevant test/build if \
-                 one is cheap and already set up, stage and commit the work in progress with an \
-                 honest message about what is and is not done, and write the real stopping point \
-                 into the tracker entry's progress field (which files changed, what remains, what \
-                 the next concrete step is). If committing is not possible, say precisely why in \
-                 plain text.",
-            ));
-        } else if budget_checkpoint {
-            request_messages.push(Message::user_text(format!(
-                "(system) Budget checkpoint — you are {step} steps into this run. This is not a \
-                 stop signal and not a nudge to hurry: keep going. Before your next tool call, \
-                 state in one or two lines what is DONE, what REMAINS, and whether the remaining \
-                 work still belongs to the task you were given. If it has drifted into unrelated \
-                 work, finish the original task first. If what remains needs a decision only the \
-                 user can make, say so now in plain text instead of exploring further."
-            )));
-        }
         // 请求构造前记录本次估算:StepFinish 用真实 input tokens 反推校准因子,
-        // 下一次预算判断就按校准后的口径来。tools 随 last_step 变化,估算必须
-        // 与实际发出的请求同口径,否则校准因子被系统性偏差污染。
-        let req_tools: &[ToolSpec] = if last_step { &[] } else { specs };
-        let last_estimated = estimate_prompt_tokens_for_protocol(
-            system,
-            &request_messages,
-            req_tools,
-            Some(route.kind),
-        );
+        // 固定 system/tools 已由步级装配选好，与预算准入使用同一份输入。
+        let last_estimated =
+            estimate_prompt_tokens_for_protocol(system, &request_messages, specs, Some(route.kind));
         let request = LlmRequest {
             model: config.model.clone(),
             system: system.to_vec(),
             messages: request_messages,
-            tools: req_tools.to_vec(),
+            tools: specs.to_vec(),
             hosted_tools: vec![],
             max_tokens: config.max_tokens,
             temperature: None,
@@ -833,6 +831,7 @@ async fn stream_request_step(
                     // 让恢复额度在长时间稳定运行后重新充满。
                     *overflow_recoveries = decay_overflow_recoveries(*overflow_recoveries);
                     on_event(RunEvent::StepEnd { usage, reason });
+                    break;
                 }
                 _ => {}
             }
@@ -922,7 +921,7 @@ async fn stream_request_step(
 ///   生命周期事件与终态通知按 R-175 落 session_events / background_results。
 /// - 溢出数量上限(max_tasks_per_turn)的调用以 failed(subagent_limit) 即时回喂。
 /// - 前台模式被整轮停止时,缺席的 task 补取消占位并补发 ToolEnd(subagent_cancelled)。
-#[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202);R-246 增 line_runtime。
+#[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202)。
 async fn run_subagent_calls(
     subagent: Option<&SubagentRuntime>,
     client: &LlmClient,
@@ -930,7 +929,6 @@ async fn run_subagent_calls(
     config: &RunnerConfig,
     calls: &[(String, String, serde_json::Value, String)],
     halt: Option<&CancellationToken>,
-    line_runtime: Option<&LineRuntime>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> std::collections::HashMap<String, kanzei_harness::ToolOutput> {
     // ---- task 子代理:同轮多个 task 并行执行。只读快照无副作用,与任何工具并发都安全 ----
@@ -1030,9 +1028,14 @@ async fn run_subagent_calls(
                     let results = rt.background_results.clone();
                     let events = rt.background_events.clone();
                     let notifications = rt.background_notifications.clone();
-                    // R-246 批3:后台 spawn 的 JoinHandle 交给 LineRuntime 登记,
-                    // dispose 时 cancel 后 await 全部退出(验收②三种终态静止)。
-                    let handle = tokio::spawn(async move {
+                    let dispatch_owner = rt
+                        .cancellations
+                        .as_ref()
+                        .map(|registry| registry.register(&call_id));
+                    // Background lifecycle belongs to SubagentRuntime cancellation and result registries.
+                    tokio::spawn(async move {
+                        // Register before spawn/slot acquisition, retain through final callbacks.
+                        let _dispatch_owner = dispatch_owner;
                         // R-175 B5:派发即记 running 事件——重启后从 session_events
                         // 找「有 running 无后续终态」的 id,即上次未终结的子代理
                         // (验收③:注册表能列出并给确定处置,不留幽灵条目)。
@@ -1083,12 +1086,6 @@ async fn run_subagent_calls(
                             notify(&call_id, if output.is_error { "failed" } else { "done" });
                         }
                     });
-                    // R-246 批3:登记 spawn 句柄——dispose 时 cancel 后 await 全部
-                    // join,保证返回前子代理已静止(三种终态都在 run_subagent
-                    // 返回时释放读槽)。LineRuntime 为 None(测试/CLI 无)时跳过。
-                    if let Some(line_rt) = line_runtime {
-                        line_rt.track_child_agent(handle);
-                    }
                     task_results.insert(
                         id.clone(),
                         kanzei_harness::ToolOutput::ok(format!(
@@ -1217,7 +1214,7 @@ async fn execute_tool_calls(
     let serial_writer = config.execution_policy.is_serial_writer();
     // R-097 批一：权限询问仍按旧路径串行处理(R-086 承接询问路由)；当本批
     // 不需要新 ask 时，普通工具按显式并发契约切成确定性 wave 并发执行。
-    let can_parallel_tools = can_parallel_tool_calls(ParallelPreflight {
+    let parallel_plan = prepare_parallel_tool_calls(ParallelPreflight {
         ctx,
         snapshot,
         tools,
@@ -1229,13 +1226,14 @@ async fn execute_tool_calls(
     });
 
     // 并行 wave 与串行路径共用同一对齐约定；并行细节已迁移到 parallel_tools.rs。
-    let (results, pending_images) = if can_parallel_tools {
+    let (results, pending_images) = if let Some(plan) = parallel_plan {
         execute_parallel_tool_calls(ParallelToolRequest {
             config,
             ctx,
             snapshot,
             tools,
             calls,
+            plan,
             subagent,
             task_results,
             images_supported,
@@ -1352,6 +1350,16 @@ fn finalize_step(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn execution_budget_preserves_delivery_contract_and_stays_workflow_neutral() {
+        let final_step = budget_instruction(true, false, false, 10).unwrap();
+        assert!(final_step.contains("user's requested language, format and level of detail"));
+        assert!(!final_step.contains("tracker"));
+        assert!(!final_step.contains("commit"));
+        assert!(!final_step.contains("5 lines"));
+        assert!(budget_instruction(false, false, false, 1).is_none());
+    }
 
     fn bash_call(id: &str) -> (String, String, serde_json::Value, String) {
         (
@@ -1909,7 +1917,6 @@ mod commit_ack_tests {
                         "run probe",
                         None,
                         &[],
-                        None,
                         None,
                         &mut sink,
                         &mut ask,

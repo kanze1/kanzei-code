@@ -43,25 +43,11 @@ impl Tool for GlobTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        // R-244 批1:glob 作为无副作用工具走统一 pipeline 通道。guards/结果策略/
-        // 观察者现阶段为空(权限判定在 drive 层),body = 原 glob 逻辑;通道验证后
-        // 其余工具分族迁移(批2-4)。
-        let input2 = input.clone();
-        let ctx2 = ctx.clone();
-        kanzei_harness::tool_pipeline::run_tool_pipeline(
-            "glob",
-            input,
-            ctx,
-            &[],
-            async move { glob_body(self, &input2, &ctx2).await },
-            &[],
-            &[],
-        )
-        .await
+        glob_body(self, &input, ctx).await
     }
 }
 
-/// R-244 批1:glob 工具本体(原 execute 主体),供 pipeline body 调用。
+/// glob 工具本体；权限和执行包装由 core runner 负责。
 async fn glob_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
     let input: GlobInput = match crate::parse_input(tool, input.clone()) {
         Ok(v) => v,

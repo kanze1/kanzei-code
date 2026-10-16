@@ -1,15 +1,14 @@
-import { defer } from "./01-core.js";
-import { renderInlineMarkdown, renderMarkdownInto } from "./04-markdown.js";
-import { $, invoke } from "./01-core.js";
-import { t } from "./02-i18n.js";
-import { currentProject, log, toast, toastError } from "./03-shell.js";
-import { jumpToEntry, researchLinkField, researchOpenLink } from "./11-docs-list.js";
+import { readProjectDocuments } from "./01-project-resources.js";
 import { openFilePreview } from "./17-files.js";
+import { defer } from "./00-dom.js";
+import { renderInlineMarkdown, renderMarkdownInto } from "./04-markdown.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { t } from "./02-i18n.js";
+import { currentProject, log, navigate_view, toast, toastError } from "./03-shell.js";
+import { researchLinkField, researchOpenLink } from "./11-docs-list.js";
 // UI-0926 #10:结构化实体导航(见文件末尾的注册)与运行卡的执行配置解析。
 import { parseJsonish } from "./04-structured-parse.js";
-import { setStructuredNav, structuredNav } from "./04-structured.js";
-import { openMemoryDetailById } from "./13-memory.js";
-import { openRuntimeMarkdown } from "./15-views-misc.js";
 import { active_space, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { research_category, research_enum_label, research_status_label, render_research_navigation, render_research_overview, show_research_page, sync_research_page } from "./19-research-navigation.js";
 import { refreshResearchWorkflow, researchWorkflow, resetResearchWorkflow } from "./19-research-auto.js";
@@ -1028,7 +1027,7 @@ function researchArtifactButton(path, kind) {
   button.textContent = `${kind || t("产物")}: ${path}`;
   button.title = t("在文件页中打开");
   button.addEventListener("click", () => {
-    document.querySelector('.activity-item[data-view="files"]')?.click();
+    navigate_view("files");
     openFilePreview({ path: String(path).replace(/\\\\/g, "/") });
   });
   return button;
@@ -1545,7 +1544,7 @@ export async function refreshResearch({ poll = false } = {}) {
   }
   const request = (async () => {
     try {
-      const snapshot = await invoke("docs_snapshot", { projectDir: project });
+      const snapshot = await readProjectDocuments(project, { force: true });
       if (project !== currentProject) return;
       researchSnapshot = { sources: snapshot.sources ?? [], findings: snapshot.findings ?? [], research_topics: snapshot.research_topics ?? [] };
       $("research-load-error")?.classList.add("hidden");
@@ -1671,62 +1670,3 @@ export function syncResearchWorkspaceVisibility() {
 // 04-structured.js 的 chip(条目编号/路径/URL)与 markdown 路径链接只调 structuredNav;
 // 真实跳转在这里注册——本模块本来就依赖文档列表、文件预览与应用内查看器,04 不必在
 // 求值期反向依赖它们。
-export async function openUrlInApp(url, topic = "") {
-  const target = String(url ?? "");
-  if (!target) return;
-  try {
-    const isArxiv = Boolean(topic) && /^https?:\/\/(?:export\.)?arxiv\.org\//i.test(target);
-    const page = isArxiv
-      ? await invoke("research_arxiv_preview", { projectDir: currentProject, topic, url: target })
-      : await invoke("webfetch_preview", { url: target });
-    const depth = page.depth ? `[${page.depth}]\n` : "";
-    openRuntimeMarkdown(page.title || target, `${depth}${page.text || ""}`);
-  } catch (error) {
-    toastError(`${t("打开失败")}:${error}`);
-  }
-}
-/// docs/ 下的 markdown 进应用内查看器;其余文件切到文件打开预览。
-export async function openStructuredPath(path, line = null) {
-  const rel = String(path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
-  if (!rel) return;
-  if (/^docs\/.+\.md$/i.test(rel) && currentProject) {
-    try {
-      const file = await invoke("docs_read_custom", { projectDir: currentProject, relPath: rel });
-      openRuntimeMarkdown(file.name || rel, file.content);
-      return;
-    } catch {
-      /* 读不到(不在 docs 白名单/已删除)就退回文件预览,由预览如实报错。 */
-    }
-  }
-  document.querySelector('.activity-item[data-view="files"]')?.click();
-  void openFilePreview({ path: rel, line });
-}
-export function openStructuredMemory(scope, id) {
-  document.querySelector('.activity-item[data-view="memory"]')?.click();
-  void openMemoryDetailById(scope, id);
-}
-/// R/D/I/S/F/T 走条目跳转;M-(项目)/U-(全局)进记忆详情;A- 没有对应视图,不跳。
-export function openStructuredRef(id) {
-  const ref = String(id ?? "");
-  if (/^[MU]-\d/.test(ref)) {
-    openStructuredMemory(ref.startsWith("U-") ? "global" : "project", ref);
-    return;
-  }
-  if (!ref || /^A-/.test(ref)) return;
-  void jumpToEntry(ref, { expand: true });
-}
-defer(() => {
-  setStructuredNav({
-    openRef: openStructuredRef,
-    openPath: openStructuredPath,
-    openUrl: (url) => openUrlInApp(url),
-    openMemory: openStructuredMemory,
-  });
-  // markdown 路径链接没有 href(不让 WebView 自己导航),点击统一委托到这里。
-  document.addEventListener("click", (event) => {
-    const link = event.target?.closest?.("a.md-path");
-    if (!link) return;
-    event.preventDefault?.();
-    structuredNav.openPath(link.dataset.path, Number(link.dataset.line) || null);
-  });
-});

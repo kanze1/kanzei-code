@@ -10,7 +10,7 @@ import vm from 'node:vm';
 const root = resolve(import.meta.dirname, '..');
 const baseline = '746b69a824f38b4d5fc5502c4ec9ff78bc06e956';
 const before = process.argv.includes('--before');
-const sourceNames = ['25-softwire-composer.js', '25-softwire-run.js', '25-softwire-model.js', '03-workspaces.js'];
+const sourceNames = ['25-softwire-composer.js', '25-softwire-run.js', '25-softwire-model.js', '03-workspaces.js', ...(!before ? ['00-composer-drafts.js', '00-project-identity.js', '00-leave-guard.js', '03-research-view.js', '00-dom.js', '00-ui-preferences.js', '00-ui-primitives.js'] : [])];
 const sources = new Map(sourceNames.map(name => [name, before ? execFileSync('git', ['show', `${baseline}:crates/kanzei-app/ui/${name}`], { cwd: root, encoding: 'utf8' }) : readFileSync(resolve(root, 'crates/kanzei-app/ui', name), 'utf8').replace(/\r\n/g, '\n')]));
 const fingerprints = Object.fromEntries([...sources].map(([name, body]) => [name, createHash('sha256').update(body).digest('hex')]));
 const drain = async () => { await new Promise(done => setImmediate(done)); await new Promise(done => setImmediate(done)); };
@@ -53,13 +53,16 @@ async function harness({ storage = new Map() } = {}) {
   toolbar.append(get('model-picker-group'), get('auto-allow-wrap'), get('autorun-menu'), get('continue-panel'));
   const documentListeners = new Map();
   const document = { body, createElement: tag => new Element(tag), createComment: text => { const node = new Element('comment'); node.textContent = text; return node; }, addEventListener(type, callback) { const callbacks = documentListeners.get(type) ?? []; callbacks.push(callback); documentListeners.set(type, callbacks); }, dispatchEvent(event) { for (const callback of documentListeners.get(event.type) ?? []) callback(event); return true; } };
+  document.getElementById = get;
+  document.readyState = 'loading';
   const node = (tag, text, className = '') => { const result = document.createElement(tag); if (text != null) result.textContent = String(text); if (className) result.className = className; return result; };
   const button = (text, action, className = 'sw-link') => { const result = node('button', text, className); result.type = 'button'; result.addEventListener('click', action); return result; };
   const shellValues = { attachments: [], activeProcessId: 'p-A', currentProject: 'C:/project-A', processItems: [], navigate_view() {}, toastError() {}, sessionState: () => ({ phase: 'idle' }) };
-  const context = vm.createContext({ document, window: { innerWidth: 1200, innerHeight: 900, addEventListener() {} }, console, Event: class { constructor(type) { this.type = type; } }, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } }, localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) }, setTimeout: callback => { const id = timers.size + 1; timers.set(id, callback); return id; }, clearTimeout: id => timers.delete(id) });
+  const context = vm.createContext({ document, structuredClone, window: { innerWidth: 1200, innerHeight: 900, addEventListener() {} }, console, Event: class { constructor(type) { this.type = type; } }, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } }, localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) }, setTimeout: callback => { const id = timers.size + 1; timers.set(id, callback); return id; }, clearTimeout: id => timers.delete(id) });
   const shell = new vm.SyntheticModule([...Object.keys(shellValues), 'setAttachments'], function () { for (const [name, value] of Object.entries(shellValues)) this.setExport(name, value); this.setExport('setAttachments', value => { shellValues.attachments = value; this.setExport('attachments', value); }); }, { context });
   const synthetic = (values) => new vm.SyntheticModule(Object.keys(values), function () { for (const [name, value] of Object.entries(values)) this.setExport(name, value); }, { context });
   const dependencies = new Map([
+    ['./00-ipc.js', synthetic({ invoke: async command => command === 'composer_drafts_load' ? [] : null })],
     ['./01-core.js', synthetic({ $: get, defer() {}, invoke: async () => null, mergeWorkspaceState: (prior, delta) => ({ ...prior, ...delta }), readJson: (_key, fallback) => fallback, uiPrefsLoad: async () => ({}), uiPrefsSave: async () => null, writeJson() {} })], ['./02-i18n.js', synthetic({ t: value => value })], ['./03-shell.js', shell],
     ['./00-frame.js', synthetic({ installDragHandle() {} })],
     ['./04-structured-parse.js', synthetic({ stripInternalHandoff: value => value, fillTemplate: (value, fields) => value.replace(/\{(\w+)\}/g, (_, key) => fields[key]) })],

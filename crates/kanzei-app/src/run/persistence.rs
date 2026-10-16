@@ -59,7 +59,7 @@ pub(crate) struct FinalizeOutcome<'a> {
 /// R-253 批7b:`finalize_round` 参数分组——**UI 汇报层**:事件投影窗口/进度闭包/
 /// live 画像。生命周期:会话级,与运行域之外的 AppState 共享。
 pub(crate) struct RoundReport<'a> {
-    pub(crate) window: &'a tauri::Window,
+    pub(crate) window: &'a crate::app_events::AppEvents,
     pub(crate) stage: &'a (dyn Fn(&str, String) + Sync),
     pub(crate) live: &'a Arc<Mutex<LiveRun>>,
 }
@@ -164,7 +164,7 @@ pub(crate) struct PersistedRoundOutcome {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn persist_round_outcome(
     state_path: &std::path::Path,
-    window: &tauri::Window,
+    window: &crate::app_events::AppEvents,
     session_id: &str,
     run_result: &mut Result<kanzei_core::RunSummary, anyhow::Error>,
     runtime: &crate::SessionRuntime,
@@ -299,14 +299,13 @@ fn persist_round_outcome_with_effects(
                 commit_outcome(
                     typed_writer,
                     promoted_input_id,
-                    if summary.halted_by_user {
-                        typed_events::TerminalFact::Stopped
-                    } else {
-                        typed_events::TerminalFact::Completed
-                    },
+                    summary.terminal(),
                     &json!({
                         "steps": summary.steps,
                         "halted_by_user": summary.halted_by_user,
+                        "outcome": summary.outcome(),
+                        "finish_reason": summary.finish_reason,
+                        "step_limit_reached": summary.step_limit_reached,
                         "input": summary.usage.input,
                         "output": summary.usage.output,
                         "context": summary.context_report,
@@ -375,7 +374,7 @@ fn persist_round_outcome_with_effects(
     let summary = run_result
         .as_ref()
         .expect("successful durable outcome has a summary");
-    record_transaction_budget_result(&store, session_id, run_id, "completed");
+    record_transaction_budget_result(&store, session_id, run_id, summary.outcome());
     let this_run = &summary.round_messages;
     (effects.harvest)(this_run);
     // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
@@ -384,11 +383,7 @@ fn persist_round_outcome_with_effects(
     if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
         session_id,
         prompt_head: prompt,
-        outcome: if summary.halted_by_user {
-            "halted"
-        } else {
-            "completed"
-        },
+        outcome: summary.outcome(),
         steps: summary.steps,
         input_tokens: summary.usage.input,
         output_tokens: summary.usage.output,
@@ -424,6 +419,12 @@ fn persist_round_outcome_with_effects(
             (effects.report)("写入停止通知", error.to_string());
         }
         (effects.mobile)("kanzei 任务已停止", "运行已按停止/拒绝收尾");
+    } else if let Some(reason) = summary.incomplete_reason() {
+        if let Err(error) = append_run_notification(&store, session_id, "incomplete", reason, false)
+        {
+            (effects.report)("写入未完成通知", error.to_string());
+        }
+        (effects.mobile)("kanzei 本轮未完成", reason);
     } else {
         if let Err(error) =
             append_run_notification(&store, session_id, "succeeded", "任务完成", false)
@@ -798,6 +799,9 @@ pub(crate) async fn finalize_round(
             json!({
                 "steps": summary.steps,
                 "halted": summary.halted_by_user,
+                "outcome": summary.outcome(),
+                "finishReason": summary.finish_reason,
+                "incompleteReason": summary.incomplete_reason(),
                 "history": history_len,
                 "elapsedMs": elapsed_ms,
                 "input": summary.usage.input,
@@ -932,7 +936,9 @@ mod tests {
             })
             .unwrap();
         let agent = serde_json::from_value(
-            json!({"name":"fixture","profile":"dev","mode":"primary","steps":1,"system":"test"}),
+            // This fixture verifies successful completion before the budget
+            // ceiling. Reaching a forced final step now correctly means partial.
+            json!({"name":"fixture","profile":"dev","mode":"primary","steps":2,"system":"test"}),
         )
         .unwrap();
         let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
@@ -1010,7 +1016,6 @@ mod tests {
                 None,
                 &[],
                 None,
-                None,
                 &mut sink,
                 &mut ask,
             ),
@@ -1049,6 +1054,86 @@ mod tests {
     ) {
         let (root, store, writer, result) = runner_outcome_fixture(false, None).await;
         (root, store, writer, result.unwrap())
+    }
+
+    #[tokio::test]
+    async fn incomplete_outcome_commits_failure_without_success_publication() {
+        let (root, store, writer, mut summary) = completed_outcome_fixture().await;
+        summary.finish_reason = Some(kanzei_llm::FinishReason::MaxTokens);
+        let runtime = crate::SessionRuntime::default();
+        let mobile = Mutex::new(Vec::new());
+        let resolved = kanzei_harness::config::ResolvedModel {
+            provider_name: "mock".into(),
+            model: "mock".into(),
+            provider: kanzei_harness::config::ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "http://127.0.0.1:1/v1".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: None,
+            },
+        };
+        let mut result = Ok(summary);
+        let persisted = persist_round_outcome_with_effects(
+            &root.join("state.db"),
+            "ses",
+            &mut result,
+            &runtime,
+            &kanzei_core::CancellationToken::new(),
+            &writer,
+            &[],
+            &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
+            "prompt",
+            &resolved,
+            "run",
+            "input",
+            &std::time::Instant::now(),
+            0,
+            &Arc::new(Mutex::new(LiveRun::default())),
+            &OutcomeEffects {
+                report: &|operation, error| panic!("{operation}: {error}"),
+                mobile: &|title, _| {
+                    assert_eq!(
+                        store
+                            .list_events_by_type("ses", 0, "run.failed")
+                            .unwrap()
+                            .len(),
+                        1,
+                        "the incomplete outcome must be durable before publication"
+                    );
+                    mobile.lock_or_recover().push(title.to_string());
+                },
+                harvest: &|_| {},
+                after_success: &|_| panic!("incomplete output cannot publish success"),
+            },
+        )
+        .unwrap();
+        assert!(!persisted.stopped);
+        assert_eq!(
+            store.input_status("input").unwrap().as_deref(),
+            Some("failed")
+        );
+        assert_eq!(store.get_session("ses").unwrap().unwrap().status, "failed");
+        assert!(store
+            .list_events_by_type("ses", 0, "run.completed")
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store
+                .replay_notifications("ses", 0, 20)
+                .unwrap()
+                .iter()
+                .map(|notice| notice.status.as_str())
+                .collect::<Vec<_>>(),
+            ["incomplete"]
+        );
+        assert_eq!(store.list_episodes("ses", 20).unwrap()[0].2, "incomplete");
+        assert_eq!(*mobile.lock_or_recover(), ["kanzei 本轮未完成"]);
+        drop(persisted);
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[derive(Clone, Copy, PartialEq)]
@@ -1765,6 +1850,7 @@ mod tests {
             steps: 1,
             halted_by_user: false,
             step_limit_reached: false,
+            finish_reason: Some(kanzei_llm::FinishReason::EndTurn),
             messages: messages.clone(),
             context_report: Vec::new(),
             overflow_traces: Vec::new(),
@@ -1967,6 +2053,7 @@ mod tests {
             steps: 1,
             halted_by_user: false,
             step_limit_reached: false,
+            finish_reason: Some(kanzei_llm::FinishReason::EndTurn),
             messages: source.clone(),
             context_report: Vec::new(),
             overflow_traces: Vec::new(),
@@ -2053,6 +2140,7 @@ mod tests {
             steps: 2,
             halted_by_user: false,
             step_limit_reached: false,
+            finish_reason: Some(kanzei_llm::FinishReason::EndTurn),
             messages,
             context_report: Vec::new(),
             overflow_traces: Vec::new(),

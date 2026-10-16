@@ -162,6 +162,7 @@ fn defect_review_rejects_empty_model_report() {
         steps: 1,
         halted_by_user: false,
         step_limit_reached: false,
+        finish_reason: Some(kanzei_llm::FinishReason::EndTurn),
         messages: vec![],
         context_report: vec![],
         overflow_traces: vec![],

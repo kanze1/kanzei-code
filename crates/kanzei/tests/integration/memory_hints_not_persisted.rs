@@ -144,8 +144,6 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         Some(HINTS_BLOCK),
         &[],
         None,
-        // R-246:测试不持有 LineRuntime。
-        None,
         &mut on_event,
         &mut ask,
     )

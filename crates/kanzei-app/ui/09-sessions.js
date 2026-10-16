@@ -3,11 +3,14 @@ import { isGeneralChat, rememberConversationMode } from "./03-general-scope.js";
 import { dropClosedSessions, processName, renderSidebarSessions, syncSessionActivity } from "./12-session-tree.js";
 import { prepareDocsProject } from "./12-docs-pages.js";
 import { closeSurface, isSurfaceOpen, openDialog, openMenu } from "./00-surface.js";
-import { defer } from "./01-core.js";
-import { motionSync, promptBox } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { motionSync } from "./00-ui-primitives.js";
+import { promptBox } from "./01-chat-panes.js";
 import { setProcessItems } from "./03-shell.js";
 import { setActiveProcessId, setActiveSessionId } from "./03-shell.js";
-import { $, confirmDialog, inputDialog, invoke } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { confirmDialog, inputDialog } from "./00-dialogs.js";
+import { invoke } from "./00-ipc.js";
 import { localizeDynamic, localizedStage, t } from "./02-i18n.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { fillTemplate } from "./04-structured-parse.js";
@@ -74,7 +77,7 @@ import { active_space, adopt_process_workspace, create_workspace_process, prefer
 
 import { sync_composer_scope } from "./03-workspaces.js";
 import { workspace_switch_pending } from "./03-workspaces.js";
-import { reset_research_project } from "./19-research.js";
+import { reset_research_project } from "./03-research-view.js";
 import { remember_development_project, switch_workspace } from "./03-workspaces.js";
 import { reset_files_scope } from "./17-files.js";
 // UI-0926 #10:测试记录行展开后的结构化字段。
@@ -129,7 +132,7 @@ export async function handleWorktreeAction(item, action) {
         return;
       }
       if (item.bound_process !== activeProcessId) await switchProcess(item.bound_process);
-      document.querySelector('.activity-item[data-view="lines"]')?.click();
+      navigate_view("lines");
       await refreshLines();
       [...document.querySelectorAll("#lines-list .line-lane")]
         .find((lane) => lane.dataset.processId === item.bound_process)
@@ -317,7 +320,7 @@ export function processRunning(item) {
   const state = sessionState(item.session_id);
   // 终态事件已经收敛时,旧轮询里的 running=true 不能把线路重新点亮；
   // 未收敛时则合并事件缓存与后端快照,覆盖事件丢失/乱序的窗口。
-  return state.converged ? state.running : state.running || Boolean(item.running);
+  return state.phase === "unknown" ? Boolean(item.running) : state.running;
 }
 export async function closeParallelProcess(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
@@ -371,7 +374,7 @@ export function parallelTaskView(item) {
   // UX-146:这条线有权限请求在等你批准(排在队里没弹出来,或就是当前卡)。后端此刻仍算它「运行中」,
   // 线路行原先照写运行阶段——一条卡在批准上的线看起来和正常跑着的一样。批准等待优先于运行态显示。
   const askWaiting = (askQueues.get(item.session_id)?.length ?? 0) > 0 || askActive?.sessionId === item.session_id;
-  const label = askWaiting ? t("等你批准")
+  const label = state.phase === "unconfirmed" ? t("运行状态未确认") : askWaiting ? t("等你批准")
     : stoppingNow ? t("停止中…")
     : runningNow ? localizedStage(stage) || t("运行中")
       : pendingNow ? t("鞭挞等待")
@@ -575,7 +578,7 @@ export function renderProcesses(items) {
     } else if (state.live_running === false) {
       if (["starting", "running"].includes(state.phase)) transitionSession(item.session_id, "idle");
     } else if (item.running) {
-      transitionSession(item.session_id, "running", { local_start_pending: false });
+      transitionSession(item.session_id, "running");
     } else if (!["auto_pending", "stopping", "stopped", "failed"].includes(state.phase)) {
       transitionSession(item.session_id, "idle");
     }

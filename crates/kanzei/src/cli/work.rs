@@ -36,7 +36,7 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
             .unwrap_or(120_000);
         let cwd = std::env::current_dir()?;
         let root = main_project_root(explicit_main_root(None).as_deref(), &cwd)?;
-        let output = kanzei_tools::bash::BashTool.execute(serde_json::json!({
+        let output = kanzei_tools::bash::BashTool::default().execute(serde_json::json!({
             "command": command, "timeout_ms": timeout,
             "verification": {"unit_id": unit, "criteria": criteria, "environment": environment, "resource": value("--resource").unwrap_or_else(|| "local-build".into())}
         }), &ToolCtx::new(cwd, root)).await;

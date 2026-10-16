@@ -5,7 +5,8 @@
 // 发布才开始画——关掉背景或换了图案的用户,每次启动不再先闪一下默认星座;超时就先用本地缓存 / 默认值,后端值
 // 晚到再覆盖。用户在后端值回来之前已经动过设置,则以用户为准。「我的图片」只存由图片导出的点集(约 64 颗星、
 // 2KB),原图从不落盘。滑杆拖动中只改内存与画面,松手(change)才落盘一次。
-import { $, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
+import { $ } from "./00-dom.js";
+import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { t } from "./02-i18n.js";
 import { toast } from "./03-shell.js";
 import { BACKDROP_PRESETS, normalizeBackdropPrefs, resolveBackdropModel, serializeBackdropPrefs } from "./22-constellation-core.js";

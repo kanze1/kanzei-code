@@ -70,7 +70,9 @@ impl Component for WritableSubagentBase {
         draft
             .tools
             .insert("write", Arc::new(crate::write::WriteTool));
-        draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
+        draft
+            .tools
+            .insert("bash", Arc::new(crate::bash::BashTool::default()));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
         // 只读三件套沿用全放行(无人应答权限询问);写工具不预设 Allow——
         // 由 harness 权限规则集(用户/项目规则)裁决,deny 即拒绝。

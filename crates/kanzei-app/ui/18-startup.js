@@ -1,7 +1,9 @@
 import { bindMenus, installTooltips } from "./00-surface.js";
 import { navigate_view, currentProject } from "./03-shell.js";
-import { defer } from "./01-core.js";
-import { $, invoke, uiPrefsLoad } from "./01-core.js";
+import { defer } from "./00-dom.js";
+import { $ } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
+import { uiPrefsLoad } from "./00-ui-preferences.js";
 import { LANGUAGE_PREFERENCES, syncLanguagePreferenceFromSettings, t } from "./02-i18n.js";
 import { log, setStatus, toast, toastError } from "./03-shell.js";
 import { renderProjects, lastProjectPrefs } from "./09-sessions.js";

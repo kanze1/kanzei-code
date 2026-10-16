@@ -1,4 +1,5 @@
-import { $, defer, invoke } from "./01-core.js";
+import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
 import { localizedStatusWord, t } from "./02-i18n.js";
 import { currentProject, log } from "./03-shell.js";
 import { renderTestRecordFields } from "./04-structured.js";

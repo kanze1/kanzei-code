@@ -1,4 +1,5 @@
-import { paneFor, invoke } from "./01-core.js";
+import { paneFor } from "./01-chat-panes.js";
+import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { activeSessionId, currentProject, noteQuestionReply } from "./03-shell.js";
 import { view_allowed } from "./03-workspaces.js";
