@@ -11,7 +11,7 @@
 
 ## live_design
 
-- [identity: live_design; last_verified_commit: e5a0d02c] [`async_conversation_terminal_callbacks.md`](../../../docs/design/async_conversation_terminal_callbacks.md)：异步对话、前台终端原进程移交、会话及子代理回调归属、停止边界和原生验收。提交号锚定实施前发布基线，最终发布验证绑定本次提交。
+- [identity: live_design; last_verified_commit: b97f8a2e] [`async_conversation_terminal_callbacks.md`](../../../docs/design/async_conversation_terminal_callbacks.md)：异步邮箱、前台终端移交、会话所有权与完成回调契约。实现已随 build-46e2e63a 及后续 build-b97f8a2e 发布，并于 2026-10-17 合入 dev；正文保留 2026-10-07 原生验收记录，本次整理未重跑原生验收。
 
 - [identity: live_design; last_verified_commit: ad9cff9a] [`project_knowledge.md`](../../../docs/design/project_knowledge.md)：项目知识数据结构、层级与依赖、按需上下文、旧标注迁移及过时能力清理。提交号锚定改造前基线，实现与验证见本次任务报告。
 

@@ -13048,3 +13048,139 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-382 R-383 D-776 D-777
 - 收尾: 1791056911
 - 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c,crates/kanzei-app/src/docs.rs@9175f4ecc1ce,crates/kanzei-app/src/preview/agent.rs@b9ad991424d2,crates/kanzei-core/src/runner/drive/serial_tools.rs@dfd6e29cc165,crates/kanzei-core/src/runner/tool_failure_telemetry.rs@8428575663f1,crates/kanzei-harness/src/tool.rs@2689b5a59de8,crates/kanzei-memory/src/docstore/model.rs@daf26cac399a,crates/kanzei-memory/src/docstore/validation.rs@e2ec1290b61d,crates/kanzei-memory/src/scheduling.rs@1ec388bc4f9e,crates/kanzei-tools/src/close_telemetry.rs@2fd1414c22ad,crates/kanzei-tools/src/palette.rs@2a999215f5df,crates/kanzei-tools/src/profiles/dev_system.md@16ecbb2b40f6,crates/kanzei-tools/src/read.rs@c592b8b7a530,crates/kanzei-tools/src/symbols.rs@69a709ea918a,crates/kanzei-tools/src/tracker.rs@edf00bb6bb3b,crates/kanzei-tools/src/tracker/actions.rs@320609c1c758,crates/kanzei-tools/src/tracker/actions/maintenance.rs@db3bfcdd2e74,crates/kanzei-tools/src/tracker/fields.rs@e5bb9f4abd30,crates/kanzei-tools/src/tracker/maintenance_tests.rs@6452e7af0afb,crates/kanzei-tools/src/tracker/scheduling.rs@9ee9e6527b90,crates/kanzei-tools/src/work.rs@b1af8d099f49,crates/kanzei-tools/src/work/output.rs@46c4089c3ec7,crates/kanzei-tools/src/work/tool.rs@7dc8e0d73ec7,crates/kanzei/tests/integration/item_context_boundary.rs@91eea45fb07a,scripts/ui-backlog-maintenance-smoke.mjs@9b1b3ff0f3e7,scripts/ui-runtime-smoke.mjs@677cce1d9817,scripts/ui-softwire-overview-smoke.mjs@58fdaa4f9f89,scripts/ui-softwire-spaces-smoke.mjs@c12fbc9d654f
+
+## T-1786922727138 D-759 mobile approval + UI runtime smoke [failed]
+- 命令: node scripts/ui-mobile-approval-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+- 时长: 22.1s
+- 摘要: 自动执行结果: failed; exit=Some(1); 日志: .kanzei/artifacts/test-runs/T-1786922727138.json; 仅背书该命令的验证范围
+- 关联: D-759
+- 收尾: 1791059804
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727139 D-762 file checkpoint targeted tests [passed]
+- 命令: cargo test -p kanzei-core --lib store::file_checkpoints
+- 时长: 64.2s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727139.json; 仅背书该命令的验证范围
+- 关联: D-762
+- 收尾: 1791059869
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727140 D-759 mobile approval + canonical UI runtime smoke [failed]
+- 命令: node scripts/ui-mobile-approval-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+- 时长: 180.9s
+- 摘要: 自动执行结果: failed; exit=None; 日志: .kanzei/artifacts/test-runs/T-1786922727140.json; 仅背书该命令的验证范围
+- 关联: D-759
+- 收尾: 1791060076
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727141 D-759 mobile approval + UI lint smoke [failed]
+- 命令: node scripts/ui-mobile-approval-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+- 时长: 181.0s
+- 摘要: 自动执行结果: failed; exit=None; 日志: .kanzei/artifacts/test-runs/T-1786922727141.json; 仅背书该命令的验证范围
+- 关联: D-759
+- 收尾: 1791060298
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727142 D-759 mobile approval polling smoke [passed]
+- 命令: node scripts/ui-mobile-approval-smoke.mjs
+- 时长: 21.0s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727142.json; 仅背书该命令的验证范围
+- 关联: D-759
+- 收尾: 1791060337
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727143 D-759 UI i18n smoke [passed]
+- 命令: node scripts/ui-i18n-smoke.mjs
+- 时长: 1.3s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727143.json; 仅背书该命令的验证范围
+- 关联: D-759
+- 收尾: 1791060339
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727144 R-369 background subagent dispatch integration tests [failed]
+- 命令: cargo test -p kanzei --test background_subagent_dispatch
+- 时长: 5.2s
+- 摘要: 自动执行结果: failed; exit=Some(1); 日志: .kanzei/artifacts/test-runs/T-1786922727144.json; 仅背书该命令的验证范围
+- 关联: R-369
+- 收尾: 1791060896
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727145 R-369 background subagent dispatch filtered integration tests [passed]
+- 命令: cargo test -p kanzei --test integration background_subagent_dispatch
+- 时长: 65.6s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727145.json; 仅背书该命令的验证范围
+- 关联: R-369
+- 收尾: 1791060971
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727146 R-369 durable agent team tests [passed]
+- 命令: cargo test -p kanzei-tools --lib team::tests
+- 时长: 48.6s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727146.json; 仅背书该命令的验证范围
+- 关联: R-369
+- 收尾: 1791061044
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727147 R-372 手动/轮末压缩核心定向测试 [passed]
+- 命令: cargo test -p kanzei-core --lib runner::compaction::tests
+- 时长: 1.7s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727147.json; 仅背书该命令的验证范围
+- 关联: R-372
+- 收尾: 1791061455
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727148 R-372/R-377 桌面端定向测试 [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp
+- 时长: 94.7s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727148.json; 仅背书该命令的验证范围
+- 关联: R-372 R-377
+- 收尾: 1791061555
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727149 R-376 工具结果外置核心定向测试 [passed]
+- 命令: cargo test -p kanzei-core --lib runner::tool_exec::tests
+- 时长: 1.7s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727149.json; 仅背书该命令的验证范围
+- 关联: R-376
+- 收尾: 1791061596
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727150 R-377 会话操作归属 UI smoke [passed]
+- 命令: node scripts/ui-conversation-action-owner-smoke.mjs
+- 时长: 19.7s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727150.json; 仅背书该命令的验证范围
+- 关联: R-377
+- 收尾: 1791061622
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727151 R-376 artifact 引用与清理计划定向测试 [passed]
+- 命令: cargo test -p kanzei-core --lib store::session::tests::artifact_plan_tracks_references_rejects_path_escape_and_is_read_only
+- 时长: 1.6s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727151.json; 仅背书该命令的验证范围
+- 关联: R-376
+- 收尾: 1791061809
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727152 D-759 当前移动端 approval smoke [passed]
+- 命令: node scripts/ui-mobile-approval-smoke.mjs
+- 时长: 20.9s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727152.json; 仅背书该命令的验证范围
+- 关联: D-759
+- 收尾: 1791061933
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727153 D-762 当前 HEAD 文件检查点定向验证 [passed]
+- 命令: cargo test -p kanzei-core --lib store::file_checkpoints
+- 时长: 1.7s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727153.json; 仅背书该命令的验证范围
+- 关联: D-762
+- 收尾: 1791062668
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727154 D-762 写入路径检查点定向测试 [passed]
+- 命令: cargo test -p kanzei-tools --lib write::tests
+- 时长: 24.5s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727154.json; 仅背书该命令的验证范围
+- 关联: D-762
+- 收尾: 1791062863
+- 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c

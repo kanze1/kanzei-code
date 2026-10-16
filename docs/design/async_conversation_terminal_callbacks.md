@@ -78,4 +78,4 @@ Kanzei 的一次性 `kz run` 没有在本次改成常驻交互终端；现有 CL
 - 结对项目的可写子代理回归测试先复现 `Not a general conversation store`，修复存储身份判断后，结对与项目流程两种模式的真实写入、独立工作树和显式采纳均通过。
 - 定向 Rust 测试、三个相关 crate 的 all-targets Clippy、UI lint、完整 `ui-runtime-smoke.mjs` 和 release 构建通过。后台测试中的既有忽略项仍为忽略，没有作为通过证据。
 
-以上为 2026-10-07 的本地实现与验收结果。发布另行执行 `scripts/verify.ps1 -Full`，验证证据必须绑定最终发布提交；完成后以 GitHub Release、安装器哈希和发布验收记录为准。
+以上保留 2026-10-07 的本地实现与验收记录。异步功能随后已随 `build-46e2e63a` 发布；后续可靠性与 Harness 修复已随 `build-b97f8a2e` 发布，并于 2026-10-17 合入 `dev`。本次仓库整理未重跑上述原生验收，历史记录不作为当前提交的全量验证证据。

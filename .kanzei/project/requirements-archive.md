@@ -4528,6 +4528,38 @@
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056932848
 
+## R-377 会话分叉:从某条用户消息分叉出新线,原线不动 [done]
+- 依赖: R-366
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.11;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §13。单批:复用回退条目 B2 的 validate_rewind_target 与 project_visible_surface_before,以 fork: 伪 id 的 LegacySeeded 事实为新线种子历史,回退菜单加「从这里分叉」。
+- 发现记录: {"Intent":"从某条消息另起一条线尝试别的方向","Explicit":"分叉可以要,优先级低于回退","Assumptions":"复用回退条目的可见历史投影","Ambiguities":"无阻塞项","领域对象":"分叉种子、新线","最小成功闭环":"从中间消息分叉后新线能引用分叉前的上下文","延后决策":"分支树视图;CLI 分叉"}
+- 复杂度: 中
+- 批次: 0/1
+- 来源: 用户 2026-09-25 原话「分叉可以要,但是用的情况相对少,因为有良好的上下文管理其实我不怎么用到分叉」
+- 标签: 前端
+- 边界: 只分叉对话历史;不复制 worktree、run.trace、episodes 与子代理 transcript;不做分支树视图与 CLI 入口
+- 验收: ①分叉新建一条线,历史截止到被点中消息之前,原文回填新线输入框,原线事件不变;②分叉不带代码状态,从 worktree 线分叉时明确提示;③新线首轮 prior 即种子历史,conversation_list 中显示为一段;④种子只写一条 LegacySeeded 事实
+- refs: R-242 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P1
+- 进展: 2026-10-02：↶ → 从这里分叉已实现，复制所选消息前缀、保留模型/档位/流水线/子代理/tracker 设置、原提示回填、原线不变；原工作树代码不复制。单元测试与深浅色浏览器入口通过，完整发布门禁通过。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 2026-10-04 当前源码定向核验（commit cc5bab96；本批未改源码）：①分叉新建 process，prefix 与 prompt 保留、原线不变：T-1786922727150 `node scripts/ui-conversation-action-owner-smoke.mjs` 9 passed，场景含 `fork-success`/`fork-history`/`fork-refresh`/`fork-receipt`；后端 `crates/kanzei-app/src/conversation_actions.rs:93-148` 从 rewind plan 的 surface 建新线并回填 prompt，原线只读。②不复制代码状态：同一后端分叉分支在 `conversation_actions.rs:59-67,93-148` 只创建会话/LegacySeeded 历史后立即返回，不执行后续 apply_rewind；真实 worktree 线行为由 `fork-success` smoke 覆盖。③新线首轮 prior 即种子历史并作为一段显示：同一 smoke 的 `fork-history`/`fork-refresh` 与后端 `conversation_actions.rs:112-148` 写入 LegacySeeded、conversation.updated 和 runtime surface。④只写一条 LegacySeeded 事实：后端 `conversation_actions.rs:117-134` 单次 append_session_facts_checked，证据同 T-1786922727150。另 `cargo test -p kanzei-app --bin kzapp` 624 passed/0 failed（T-1786922727148）。前端标签所需 UI smoke 已有；原验收①-④均覆盖，CLI/分支树仍按原边界排除。
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:33b32bf1dddc325c
+- recorded_at: 1791061892942
+
+## R-376 工具结果外置阈值降到 32 KiB:头尾预览与绝对回取路径,read 与 task 结果豁免 [done]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.7;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §12。单批:外置阈值 1 MiB 改为 32 KiB,预览为头 8 KiB 加尾 4 KiB(按字符边界切),模型文本给出可直接 read 的绝对路径;read 与 task 结果豁免;外置时保留 terminal display;删除每次调用写文件的影子遥测。磁盘配额(用户 2026-09-25 拍板:上限 2 GiB,超限降级为 Inline 截断)的实现归 R-245。
+- 复杂度: 小
+- 批次: 0/1
+- 来源: 用户 2026-09-25 对 A 档回答「同意」;CC 约 3 万字符、Codex 约 1 万 tokens 即外置或截断
+- 标签: 后端
+- 边界: 不改 bash 1 MiB 捕获;不改 read 自身分页上限;不做自动过期;配额实现留在 R-245
+- 验收: ①超过 32 KiB 的非 read、非 task 工具结果外置,模型看到头尾预览、原始字节数与绝对回取路径;②不超过 32 KiB 的结果与现状逐字节一致;③多字节内容预览不 panic 且为合法 UTF-8;④活动面板对外置的 bash/git 长输出仍显示终端块;⑤artifact 引用图与清理计划照常识别被引用文件
+- refs: R-245 D-349 D-237 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P1
+- 进展: 2026-10-02：普通工具外置阈值已降至 32 KiB，保留头 8 KiB/尾 4 KiB、原始字节数及绝对回取路径，read/task 豁免；删除全量影子副本，压缩归档文本指针进入引用保护。UTF-8/引用图等局部回归通过，完整发布门禁通过；检查点不属于 tool-results 配额。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 2026-10-04 当前源码定向核验（commit cc5bab96；本批未改源码）：① >32 KiB 非 read/task 外置、可恢复原字节/绝对回取路径：T-1786922727149 `oversized_tool_output_is_externalized_with_recoverable_bytes`，`tool_exec.rs:1348-1388`；外置阈值与引用投影 `tool_exec.rs:149,269-315,450-492`。② 小结果逐字节不变：同一 T 的 `small_tool_result_never_waits_for_quota_lock` 在 `tool_exec.rs:1165-1184` 断言内容相等，早退分支在 `tool_exec.rs:269-273`。③ 多字节预览边界：外置 preview 调用 `bounded_result_preview`（`tool_exec.rs:471,495-512`），通过 `is_char_boundary` 保证 UTF-8 合法；同一 T 的 `tool_result_over_quota_is_truncated_without_spill_artifact`（`tool_exec.rs:998-1070`）直接验证多字节 fallback head/tail 切点。④ bash/git terminal display 保留：T-1786922727149 `oversized_tool_output_is_externalized_with_recoverable_bytes`（`tool_exec.rs:1360-1388`）验证终端块及 artifact retrieval_hint 同在。⑤ artifact 引用和清理识别：T-1786922727151 `artifact_plan_tracks_references_rejects_path_escape_and_is_read_only`，`store/session.rs:1251-1326`，识别 2 个被引用文件、1 个无引用文件且 dry-run 零写入。①-⑤均已有当前源码证据；直接多字节外置回归可作为额外测试覆盖，但不是本条验收之外的功能缺口，现按源码边界与相邻预览回归关闭。
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:2df0edc620cdb6d7
+- recorded_at: 1791062421021
+
 ## R-384 三档子代理协作与模型自主编排 [done]
 - 来源: {"reference":"2026-10-04 用户对话","quote":"认可，把自主权交给模型，然后我们只给出倾向和提示就行，帮我修改吧，提示词等和模式的匹配和子代理的规则都按照你刚才分析的修复吧，注意旧的要拆干净"}
 - 需求格式: 2
@@ -4536,6 +4568,6 @@
 - 需求类型: functional
 - 进展: 0d7d7a13 完成三档协作、可调并发和旧流水线及配置清理；15 项 Full 检查全绿、2449 项测试通过、全目标 Clippy 通过。发布 build-0d7d7a13 并完成安装器自检、线上摘要与本机版本核对。各 AC 实现和验证见 docs/design/subagent_modes.md；完整证据 output/subagent-modes-20261004/verification-0d7d7a13.json。
 - 验收证据: [{"criterion_id":"AC-1","revision":"spec-af909e19b7fa6532","reference":"crates/kanzei-core/src/store/schema.rs"},{"criterion_id":"AC-2","revision":"spec-af909e19b7fa6532","reference":"crates/kanzei-harness/src/subagent_policy.rs"},{"criterion_id":"AC-3","revision":"spec-af909e19b7fa6532","reference":"crates/kanzei-tools/src/team/tests.rs"},{"criterion_id":"AC-4","revision":"spec-af909e19b7fa6532","reference":"crates/kanzei-tools/src/team/tests.rs"},{"criterion_id":"AC-5","revision":"spec-af909e19b7fa6532","reference":"docs/design/subagent_modes.md"}]
-- observed_head: 0d7d7a13b42ba8e32e98f5f6477d6fa439e472ae
-- observed_worktree_hash: fnv1a64:baa21a19e8723408
-- recorded_at: 1791114881324
+- observed_head: ee007e598b7a45448c8a893608a98d045e446a23
+- observed_worktree_hash: fnv1a64:616ef5b83b0d169b
+- recorded_at: 1791115061969

@@ -8846,7 +8846,6 @@
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056939721
-- 阻塞: 
 - 停车: 
 
 ## D-755 架构索引的既有五个非 snake_case 文档名使专用更新通道拒绝所有修改 [fixed] (medium)
@@ -8857,7 +8856,6 @@
 - refs: D-748
 - 优先级: P2
 - 进展: 核验：architecture.get 当前返回 5 项命名校验错误，索引行 17、19-22 对应 docs/design/oc-playback.md、oc-production.md、oc-idle-direction.md、oc-h3-deployment.md、oc-voice-direction.md。专用校验要求文件名本身为 snake_case，且磁盘上的设计文档必须全部入索引，因此仅改索引不能解除。D-748 的现有阻塞已明确要求用户决定是否批准五份设计文档重命名并修复全仓引用，或允许 D-748 验收⑤降级；本条是该阻塞的直接原因，未改任何文档。等待用户明确选择后再继续。 2026-10-04 收口核验：原条目没有独立验收字段，按原复现/影响核对，不补造历史验收。architecture.rs update 比较更新前后问题，只拒新增问题；原五份非 snake_case 文档不再阻止无关合法更新；空索引、漏条目、新无效链接仍拒绝。output/joint-release-2026-10-04/architecture.log 11/11，包含 update_blocks_only_newly_introduced_issues 与等价路径回归。原排队需要命名产品决策的结论已失效。 逐条证据锚：按原复现及影响验证既有问题不阻塞合法修改、新问题仍拒绝 T-1786922727134（11项）；原条目无独立验收条款，未改变原始问题定义。
-- 阻塞: 
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056946276
@@ -8940,3 +8938,33 @@
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056986111
+
+## D-759 手机 question 卡片被 3 秒整表重绘抹掉输入,冒烟桩掉轮询造成假绿 [fixed] (high)
+- 复杂度: 小
+- 复现: crates/kanzei-app/mobile-pwa/app.js:206 每次轮询 container.innerHTML="" 后重建卡片,:243 setInterval(render,3000);:306 重建时输入值重置为 ask.default,多选 Set 丢失;scripts/ui-mobile-approval-smoke.mjs:143-144 以 globalThis.setInterval=()=>0 禁掉轮询后才通过;该冒烟未接入 verify.ps1/CI
+- 影响: 真机上文本作答与多选最多 3 秒就被清空,D-751 验收①③在真实使用中不可用;冒烟属证据替身(假绿),D-751 关闭叙述未披露
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 前端
+- 进展: 审计会话已修复:提交 12bb0543(PWA 按 ask id 对账、慢响应不丢、显式 cancel、冒烟去掉 setInterval 桩并接入 ui-runtime-smoke),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5);verify -Full 在 2009581f 全绿。待核验:按验收①~④逐条复核并补测试记录后关闭。 2026-10-04 当前源码复核（commit cc5bab96，本批未改源码）：① ask-id reconciliation 后文本/多选/焦点跨真实定时轮询保持：T-1786922727152 `node scripts/ui-mobile-approval-smoke.mjs` passed，`scripts/ui-mobile-approval-smoke.mjs:228-305` 明确保留生产轮询并等待至少 3500ms 后检查输入、多选和焦点；②提交中无二次提交：同一 T-1786922727152 smoke 覆盖 no double submit；③冒烟无 setInterval 桩、真实等待超过 3 秒并检查输入仍在，且 `scripts/ui-runtime-smoke.mjs:17780-17784` 导入该 smoke；④显式取消发送 `{cancel:true}`，字面量 `cancel` 仍作为答案：同一 T-1786922727152 smoke 覆盖。对应 PWA 当前实现 `crates/kanzei-app/mobile-pwa/app.js:319-371`。先前完整 `ui-runtime-smoke` 尝试失败/超时记录保留：未加 vm module 标志时 `TypeError: vm.SourceTextModule is not a constructor`；带实验标志的尝试被 180s 超时终止；这些未通过项不冒充通过，但专用 D-759 UI smoke 当前已 1 次实测通过，且 runtime 集成点可读码确认。
+- 验收: ①轮询按 ask id 对账,已存在卡片的输入、多选状态与焦点跨轮询保留;②提交中不产生二次提交;③冒烟去掉 setInterval 桩,等待超过 3 秒后断言输入保留,并接入 ui-runtime-smoke;④取消改为显式 cancel 字段,答案文本 cancel 不再被当成取消
+- refs: D-751 docs/design/bootstrap_quality_audit.md
+- 优先级: P1
+- 停车: 排队:修复已合入,核验关闭排在当前 WIP R-364 之后;解除条件:R-364
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:62affe08fca54f86
+- recorded_at: 1791061978003
+
+## D-762 R-366 B1 偏离实施地图裁决:树根与相对路径口径错误、每次写开两次库、捕获失败记错前像 [fixed] (medium)
+- 复杂度: 中
+- 复现: crates/kanzei-tools/src/write.rs:63 tree_root 取 ctx.cwd(CLI 在子目录运行时为子目录),:65 与 edit.rs:548/792 的 rel_path 照抄 input.path;crates/kanzei-core/src/store/file_checkpoints.rs:56/111 capture 与 postimage 各开一次 SessionStore 且在 async 中同步执行;前像捕获失败后同 run 下一次触碰会把中间态记成前像;命名未用 file_checkpoint_ 前缀;StoreError::Io 文案固定为 file checkpoint
+- 影响: 检查点记录口径是 B3 还原的数据基础,错误行随本次发版开始落库;每次编辑多两次 SQLite 连接并阻塞运行时;回退可能静默还原到中间态
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 后端
+- 进展: 2026-10-04 D-762 原验收逐项对账（当前 HEAD `cc5bab96`）：①树根限定与绝对路径相对代码树根计算，`T-1786922727153`，`file_checkpoints.rs:94-135,570-625`；②稳态只开一次库、写入阶段在 `spawn_blocking`，`T-1786922727154` 测试 `子目录cwd绝对路径写入记代码树根与相对树根路径且只开一次库`，`write.rs:127-141,216-261`；③捕获失败留下哨兵且同 run 后续触碰不补采中间态，`T-1786922727154` 测试 `写前打开库失败时落盘后重开一次占哨兵行且不补采中间态` 与 `前像采集失败后连写两次只留哨兵行不补采中间态`，`write.rs:851-920`、`file_checkpoints.rs:492-567`；④超过 10 MiB 只查 metadata、不整读、不存 blob，`T-1786922727153`，`file_checkpoints.rs:430-467`；⑤命名前缀、Io 文案中性及 v24 注释/迁移，提交 `2d3eaef9`，当前命名见 `file_checkpoints.rs:22-46`。两项当前 HEAD 定向验证分别 11 passed、16 passed；本批未改源码。
+- 验收: ①tree_root 为代码树根,rel_path 由绝对路径相对树根计算;②每次写入只开一次库且在 spawn_blocking 中完成;③捕获失败留哨兵行,后续触碰不补采前像;④超过 10 MiB 的文件不整读;⑤命名改为 file_checkpoint_ 前缀,Io 文案中性,补 v24 注释
+- refs: R-366 D-757 docs/design/cc_codex_alignment_impl_maps.md docs/design/bootstrap_quality_audit.md
+- 优先级: P2
+- 停车:
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:daf232e82c32fb71
+- recorded_at: 1791062881752
