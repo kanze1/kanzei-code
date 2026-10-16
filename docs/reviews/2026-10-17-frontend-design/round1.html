@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f7f7f8">
+  <title>kanzei · 前端设计审视与单案例提案</title>
+  <link rel="icon" href="assets/kanzei.svg" type="image/svg+xml"><link rel="stylesheet" href="report.css">
+  <script src="audit-data.js" defer></script><script src="report.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到报告正文</a>
+  <header class="report-top"><a class="brand" href="#overview"><img src="assets/kanzei.svg" alt="" width="28" height="28"><strong>kanzei</strong><span>设计审视</span></a><div class="top-actions"><span>2026 年 10 月 17 日</span><button id="report-theme" aria-label="切换到深色主题">深色</button><a class="open-case" href="case.html" target="_blank" rel="noopener">打开交互案例 <span aria-hidden="true">↗</span></a></div></header>
+  <div class="report-layout">
+    <aside class="report-nav"><p>本次审视</p><nav aria-label="报告目录"><a href="#overview" aria-current="location">审视结论</a><a href="#findings">逐项建议 <span>10</span></a><a href="#colors">状态与颜色</a><a href="#case">一个修改案例</a><a href="#evidence">真实操作证据</a><a href="#skills">Skills 调研</a><a href="#verification">验证与边界</a></nav><div class="nav-foot"><span class="tiny-dot"></span> 待你决定是否采纳<p>报告与原型独立保存，<br>产品源码未应用本提案。</p></div></aside>
+    <main id="main">
+      <section id="overview" class="overview">
+        <div class="doc-meta">真实桌面操作 / 当前源码核查 / 单案例演示</div>
+        <h1>前端设计审视</h1>
+        <p class="lead">优先让状态与进度更容易读懂，<br>再收敛重复强调和跨页面的上下文。</p>
+        <p class="intro">当前中性表面、橙色品牌和独立工作区已有一致方向。最值得改的是：批次进度没有可见数字，整体状态解释不足，紧急度不够突出，以及“待我处理”的全局范围与项目范围叠加。</p>
+        <div class="scope-line"><span>原生安装版 <strong>b97f8a2e</strong></span><span>当前源码 <strong>965fb278 + 工作树修改</strong></span><span>明 / 暗主题</span></div>
+        <div class="overview-figure"><a href="assets/02-management-light.png" class="image-link" data-image="02-management-light" data-caption="真实安装版 · 需求列表 · 浅色主题"><img src="assets/02-management-light.png" width="1284" height="872" alt="真实需求列表：状态在标题上方，右侧进度由小方格表达" fetchpriority="high"></a><div class="figure-note"><strong>建议从这一处开始</strong><p>保留需求列表的简洁结构，把“整体状态”和“批次完成数”明确分开。</p><a href="#case">查看修改前后与可操作案例</a><small>点击截图可放大查看原始画面。</small></div></div>
+        <div class="assessment"><div><strong>值得保留</strong><p>中性明暗表面、少量品牌色、独立 Skills 管理、原生弹层和按需展开详情。</p></div><div><strong>本次不下结论</strong><p>后台状态是否正确、长时间运行性能、真实读屏播报、未触发的异常和权限流程。</p></div></div>
+      </section>
+      <section id="findings">
+        <div class="section-head"><div><h2>逐项建议</h2><p>每项都保留证据类型、原始观察、建议和验收条件。</p></div><div class="totals"><strong>5</strong> 优先处理 <span>/</span> <strong>4</strong> 随后优化 <span>/</span> <strong>1</strong> 细节调整</div></div>
+        <div class="finding-filters" role="group" aria-label="筛选设计建议"><button data-filter="all" aria-pressed="true">全部 10</button><button data-filter="priority" aria-pressed="false">优先处理</button><button data-filter="视觉" aria-pressed="false">视觉与颜色</button><button data-filter="交互" aria-pressed="false">交互与范围</button><button data-filter="可访问" aria-pressed="false">可访问性</button></div>
+        <p id="finding-count" class="sr-only" role="status" aria-live="polite"></p><div id="findings-list"></div>
+        <p class="section-note">P1 / P2 / P3 是本次设计改进的建议顺序，不等同于已登记的产品缺陷等级。截图中条目的状态和优先级为观察时快照。</p>
+      </section>
+      <section id="colors">
+        <div class="section-head"><div><h2>状态与颜色</h2><p>延续现有橙、墨蓝、青色体系，用图标、文案和轮廓把状态区分清楚。</p></div></div>
+        <div class="color-principle"><strong>颜色负责加强，文字和字形负责说明。</strong><p>深色“失败”和“强调文字”目前同为 #ffad66。保留这一品牌选择时，需要逐组件确保可见的失败字样和独立字形。单纯增加颜色种类，无法解决整体状态、批次进度和下一步动作混在一起的问题。</p></div>
+        <div class="table-scroll"><table class="state-table"><caption>建议的状态表达，色值来自当前品牌约定</caption><thead><tr><th>含义</th><th>建议呈现</th><th>使用边界</th><th>当前主题文字对主背景</th></tr></thead><tbody id="color-rows"></tbody></table></div>
+        <div class="rule-columns"><div><h3>四条统一规则</h3><ol><li>空闲、待开始、归档保持中性；空闲不表示完成。</li><li>进行中只着色状态字形与短文字；不染整行。</li><li>错误显示原因和下一步；等待明确等谁、等什么。</li><li>优先级只出现一次；P0 用字重和轮廓强化。</li></ol></div><div><h3>建议的尺度</h3><p>正文 14px / 1.6；状态、编号与进度至少 12px；主要操作点击区域 32–36px。紧凑工具按钮至少满足 24×24px 或相应间距条件。</p><p>普通文字以 4.5:1 为底线；必要图形与边界以 3:1 检查。对比度通过也不能替代可见的状态说明。</p><p class="source-line">依据：<a href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html" target="_blank" rel="noopener">WCAG 颜色使用</a>、<a href="https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html" target="_blank" rel="noopener">文字对比度</a>、<a href="https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html" target="_blank" rel="noopener">非文字对比度</a>、<a href="https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html" target="_blank" rel="noopener">点击目标</a>。</p></div></div>
+      </section>
+      <section id="case">
+        <div class="section-head"><div><h2>一个修改案例</h2><p>项目管理 → 需求列表：保留业务状态，改善信息表达。</p></div><a class="button-link" href="case.html" target="_blank" rel="noopener">在独立页面操作 ↗</a></div>
+        <div class="case-intro"><p><strong>可以试：</strong>切换调整前 / 后、明暗主题、灰度；搜索 R-344；按状态筛选；展开条目；输入不存在的编号后清除筛选。</p><p><strong>本案例已实现：</strong>批次数字、独立状态列、P0 单次强化、真实外部验收说明、空结果恢复。仅为报告内可运行前端原型，尚未接入产品。</p></div>
+        <iframe id="case-frame" src="case.html" title="需求列表修改前后交互案例" loading="lazy"></iframe>
+        <details class="implementation"><summary>如果采纳，如何进入现有代码</summary><div><p>沿用 <code>30-management.js</code> 的列表数据与 <code>batchCells(entry)</code>，把 <code>progressCells</code> 变为“可见文本 + 辅助图形”；在 <code>management-row</code> 中增加明确状态及优先级语义钩子，样式继续归 <code>familiar-workspace.css</code> 管理。</p><p>批次数量继续由现有 batch state 推导，整体状态继续来自 entry.status；不根据 100% 批次推断需求完成。外部验收只读现有字段。搜索空结果的“清除筛选”复用当前 query/filter 状态。</p><p>需要验证：真实数据含未拆分、superseded、阻塞与未知状态；长标题；明暗主题；800×500 最小桌面尺寸；键盘展开与恢复焦点；不得把本案例的静态数据带进产品。</p></div></details>
+      </section>
+      <section id="evidence">
+        <div class="section-head"><div><h2>真实操作证据</h2><p>Windows 原生窗口，安装版 v0.1.0 / b97f8a2e；画面约 1284×872。</p></div></div>
+        <div class="evidence-grid">
+          <figure><a class="image-link" data-image="01-home-light" data-caption="原生 · 对话首屏 · 浅色" href="assets/01-home-light.png"><img src="assets/01-home-light.png" width="1284" height="872" loading="lazy" alt="真实对话空首屏，含当前工作和候选工作"></a><figcaption><strong>对话首屏</strong><span>工作提示、输入区、模型来源与全局导航。</span></figcaption></figure>
+          <figure><a class="image-link" data-image="03-requirement-detail" data-caption="原生 · R-344 详情" href="assets/03-requirement-detail.png"><img src="assets/03-requirement-detail.png" width="1284" height="872" loading="lazy" alt="R-344 需求详情，显示外部验收说明和多个状态迁移按钮"></a><figcaption><strong>需求详情</strong><span>外部验收解释在详情中可读，列表缺少提示。</span></figcaption></figure>
+          <figure><a class="image-link" data-image="04-defects-light" data-caption="原生 · 缺陷列表 · 浅色" href="assets/04-defects-light.png"><img src="assets/04-defects-light.png" width="1284" height="872" loading="lazy" alt="浅色缺陷列表，标题、状态、批次方格与优先级"></a><figcaption><strong>缺陷列表</strong><span>同样存在弱状态、弱批次数字与弱优先级层次。</span></figcaption></figure>
+          <figure><a class="image-link" data-image="05-defects-dark" data-caption="原生 · 缺陷列表 · 深色（主题切换瞬间，底栏尚在刷新）" href="assets/05-defects-dark.png"><img src="assets/05-defects-dark.png" width="1284" height="872" loading="lazy" alt="深色缺陷列表，未完成方格较淡"></a><figcaption><strong>深色主题</strong><span>对比列表可读性。此图底栏是主题切换时的瞬时画面。</span></figcaption></figure>
+          <figure><a class="image-link" data-image="06-attention-dark" data-caption="原生 · 全局待我处理" href="assets/06-attention-dark.png"><img src="assets/06-attention-dark.png" width="1284" height="872" loading="lazy" alt="待我处理空页仍带有项目管理顶栏和项目对话输入区"></a><figcaption><strong>待我处理</strong><span>全局入口、项目标题和项目对话目标同时出现。</span></figcaption></figure>
+          <figure><a class="image-link" data-image="07-skills-dark" data-caption="原生 · Skills 管理" href="assets/07-skills-dark.png"><img src="assets/07-skills-dark.png" width="1284" height="872" loading="lazy" alt="Skills 管理页包含多行橙色启用开关"></a><figcaption><strong>Skills 管理</strong><span>19 项均启用时，常态开关形成连续强调。</span></figcaption></figure>
+          <figure><a class="image-link" data-image="09-command-keyboard-dark" data-caption="原生 · 命令面板方向键操作" href="assets/09-command-keyboard-dark.png"><img src="assets/09-command-keyboard-dark.png" width="1284" height="872" loading="lazy" alt="命令面板通过方向键将高亮移动到所有项目"></a><figcaption><strong>键盘操作</strong><span>Ctrl+P 打开，方向键切换，Esc 关闭均已实际操作。</span></figcaption></figure>
+        </div>
+        <p class="section-note">原始截图和可访问树文本在 assets/；图中的光晕为捕获时的指针效果，本报告不将其认定为产品装饰或缺陷。运行中的安装版与当前源码版本不同，源码发现均另行标明。</p>
+      </section>
+      <section id="skills">
+        <div class="section-head"><div><h2>Skills 调研与采用方式</h2><p>优先复用已存在的能力，并从作者仓库核对外部规则。没有进行全局安装。</p></div></div>
+        <div class="skill-list">
+          <article><div><h3><a href="https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines" target="_blank" rel="noopener">Vercel · web-design-guidelines</a></h3><span class="adoption">本次审视主规则</span></div><p>专用于检查 UI、可访问性与交互规范，最贴近本次任务。已读取原始 SKILL.md 及其指定的最新 Web Interface Guidelines，按焦点、语义、空态、文本处理、主题与反馈逐项核查。</p><p class="skill-limit">局限：偏代码检查，不能代替实际操作；其中 Web 导航 URL 和英文文案规则需按 Tauri 桌面产品适配。</p><a class="source-line" href="sources/vercel-web-design-guidelines.SKILL.md">查看本次读取的 skill 快照</a></article>
+          <article><div><h3>本地 · frontend-skill</h3><span class="adoption">视觉与案例设计</span></div><p>采用其 Apps 规则：安静的表面、可读密度、少颜色、明确主工作区和次级上下文。报告以列表、分隔线和证据为主体，案例沿用项目品牌。</p><p class="skill-limit">不套用落地页的大幅宣传 hero 或图片要求；工作台应让状态与操作先被看见。</p></article>
+          <article><div><h3>本地 · computer-use / playwright</h3><span class="adoption">真实操作与浏览器测量</span></div><p>computer-use 操作真实 Windows / WebView2 应用，记录截图和可访问树；Playwright 操作仓库现有模拟 IPC 预览，测量当前源码 DOM 与最终案例。原生事实与模拟数据分开记录。</p></article>
+          <article><div><h3><a href="https://github.com/anthropics/skills/tree/main/skills/frontend-design" target="_blank" rel="noopener">Anthropic · frontend-design</a></h3><span class="reference">补充参考</span></div><p>已核对作者原文。其排版、动作命名、失败与空白状态的规则适合补充质量检查。本次不把强调独特风格的创作流程作为改造现有工作台的主方向。</p><a class="source-line" href="sources/anthropic-frontend-design.SKILL.md">查看本次读取的 skill 快照</a></article>
+        </div>
+        <p class="section-note">选择结论：后续常规 UI 审视可优先使用 Vercel 检查规则 + 真实交互 + 本地 frontend-skill；本次已按这一组合执行。<a href="sources/vercel-web-interface-guidelines.md">规则正文快照</a>与 SHA256 见 <a href="evidence.json">证据索引</a>。</p>
+      </section>
+      <section id="verification">
+        <div class="section-head"><div><h2>验证与证据边界</h2><p>通过了什么、没有验证什么，分别说明。</p></div></div>
+        <dl class="verification-list"><dt>真实完成</dt><dd>对话首屏 → 管理需求 → R-344 详情 → 缺陷 → 深色主题 → 待我处理 → Skills → Ctrl+P → 方向键切换 → Esc 关闭；已恢复原先浅色主题和项目对话。</dd><dt>当前源码检查</dt><dd><code>node scripts/ui-a11y-smoke.mjs</code> 通过。当前源码模拟 IPC 预览测得批次图形无可见文本、边框对比度不足；命令面板源码缺少活动项关联。未把预览中未模拟的 IPC 日志当作产品缺陷。</dd><dt>案例验证</dt><dd id="qa-summary">交互、明暗主题、灰度、窄窗口、键盘焦点及本地资源的检查结果见 <a href="qa-results.json">qa-results.json</a>。</dd><dt>未验证</dt><dd>真实读屏器播报、实际运行中/失败/权限待批流程、后台正确性、原生 800×500 窗口操作、全产品无障碍符合性。样例数据只代表观察时快照。</dd><dt>交付状态</dt><dd>独立审视网页与单案例已制作；产品实现未应用这些建议，未发布新版本。本报告没有替代项目需求/缺陷真源。</dd></dl>
+        <p class="final-decision">先在案例中比较改前改后，再决定是否把这一处接入产品。</p>
+      </section>
+      <footer>kanzei 前端设计审视 · 2026-10-17 · 本地报告与独立原型</footer>
+    </main>
+  </div>
+  <dialog id="image-viewer" aria-labelledby="image-title"><div class="image-toolbar"><strong id="image-title"></strong><button id="close-image" aria-label="关闭截图">关闭 <span aria-hidden="true">×</span></button></div><div class="image-scroll"><img id="large-image" alt=""></div></dialog>
+</body></html>

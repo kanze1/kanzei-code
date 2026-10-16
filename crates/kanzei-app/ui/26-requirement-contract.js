@@ -39,6 +39,7 @@ export function renderRequirementDocument(entry) {
       item.append(node("code", criterion.id), richText(criterion.text));
       const evidence = (view.evidence ?? []).find(e => e.criterion_id === criterion.id);
       const current = evidence?.revision === view.revision;
+      item.dataset.evidence = current ? "current" : evidence ? "outdated" : "missing";
       item.append(node("small", t(current ? "已有证据" : evidence ? "要求已变更，待复核" : "待验证"), "requirement-evidence-state"));
       list.append(item);
     }

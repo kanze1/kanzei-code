@@ -1,6 +1,12 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "正在加载编辑器…": "Loading editor…",
+  "对话设置保存失败": "Could not save conversation settings",
+  "系统通知未开启，任务正常执行；完成提示将保留在应用内": "System notifications are off. The task continues normally; completion notices stay in the app.",
+  "点击选项即回复；需要补充时选择“补充说明”。": "Click an option to reply immediately. Choose Add details to elaborate.",
+  "正在刷新…": "Refreshing…",
+  "显示条目": "Matching items",
   "正在读取打开方式…": "Loading available apps…",
   "打开方式读取失败": "Could not load available apps",
   "文件不在当前项目或对话工作目录中": "The file is outside this project or conversation's working directory",

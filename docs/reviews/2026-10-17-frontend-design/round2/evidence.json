@@ -1,0 +1,286 @@
+{
+  "native": {
+    "actions": [
+      "独立验收对话",
+      "只读读取 README.md 第一行并完成回复",
+      "展开真实工具结果",
+      "模型菜单打开与 Esc 取消",
+      "活动面板打开与关闭",
+      "第二次只读请求点击停止",
+      "确认已停止和输入恢复",
+      "真实 question 提问",
+      "点击方案 A 后发送中并禁用",
+      "回复送达后返回对话和询问验收结束"
+    ],
+    "changed_model_or_security_settings": false,
+    "version": "v0.1.0 b97f8a2e",
+    "test_run_left_active": false
+  },
+  "user_direction": "保留现有颜色主题，只用图标青蓝少量点缀；扩大点击及执行状态审视",
+  "artifacts": {
+    "previous_report": "../round1.html",
+    "product_changes_applied": false,
+    "published": false,
+    "cyan_lab": "../cyan-lab.html",
+    "qa": "artifact-qa.json",
+    "report": "../index.html"
+  },
+  "timezone": "Asia/Shanghai",
+  "asset_hashes": [
+    {
+      "sha256": "66191FA733C22FC13ABE88353C2B194EC5BC808CE88AAEAF13ACA58524D8C8B8",
+      "path": "assets/01-new-chat.png"
+    },
+    {
+      "sha256": "2D65B9D30F9387B2F23EC7DFD6A6C23D2EF74C6C4AEE8D94641F275835625829",
+      "path": "assets/01-new-chat.txt"
+    },
+    {
+      "sha256": "6C06E1393264E964729AC8879292E54FDA24D8842B35716C2A342917FB10AC37",
+      "path": "assets/02-draft-before-send.png"
+    },
+    {
+      "sha256": "8739B9AE0CB33855E5AA60020475C6FB5D7EEF741765E382CE4DD3C0385741EF",
+      "path": "assets/02-draft-before-send.txt"
+    },
+    {
+      "sha256": "F6A6D9378ADCEA9108A33C311FA6682973F78A2415C1F7CFD93F258BB4D5000D",
+      "path": "assets/03-send-click.png"
+    },
+    {
+      "sha256": "A6B67B60E3501AF208AB3F056ED7F52310C77F9EFC57D715BC00AE1DB1A13DFC",
+      "path": "assets/03-send-click.txt"
+    },
+    {
+      "sha256": "EC949ED184FE4FF940B37E38D1203E964AA9E45818A040FD16E31F28ED28DF2A",
+      "path": "assets/04-native-running.png"
+    },
+    {
+      "sha256": "6BD035E3DB6D7EAFA1384DC1A8A54AECFAFA0DFA7AD5A07DF9E559365B3CC207",
+      "path": "assets/04-native-running.txt"
+    },
+    {
+      "sha256": "687754D887C53FC0E6C0FF3EC9836F28FABC91F272C9D6F737182CCAB83FC74A",
+      "path": "assets/05-native-tool-expanded.png"
+    },
+    {
+      "sha256": "15B292ED48857BB27F218A4EFF5DD50B27F257E48EE1A0DEF1C1C265DB6A4DDB",
+      "path": "assets/05-native-tool-expanded.txt"
+    },
+    {
+      "sha256": "A1D3FD6DF895D378E57FD25AFF1733696BAC2CCD7E2CA696D8CEF0D1C4748B28",
+      "path": "assets/06-native-model-menu.png"
+    },
+    {
+      "sha256": "2C56CA040554F5016F54F2D434A12FA95D26914920A92C38E6368BB1D67D000B",
+      "path": "assets/06-native-model-menu.txt"
+    },
+    {
+      "sha256": "A5AB4DD9A1BFF284E33239E4F18BA4C268E4374D70E11578878563842BA086AE",
+      "path": "assets/07-native-activity-open.png"
+    },
+    {
+      "sha256": "867997089DB53A1AD221F9BB08E6466624DC5A2DCEAE100E6306B5837241720E",
+      "path": "assets/07-native-activity-open.txt"
+    },
+    {
+      "sha256": "1E806E805D4FE6B157F522E6E5BB66F0B10A59DE36964508C0DE4FFC47C649BC",
+      "path": "assets/08-native-before-stop.png"
+    },
+    {
+      "sha256": "0877251F8B04B0DC43E85FF578ADBF79D42C4808557C9675A285ACAA87ABA6B1",
+      "path": "assets/08-native-before-stop.txt"
+    },
+    {
+      "sha256": "D7802814DB942B75E4E13E86E0B6B81D97A45946F97335571EE5233BD45A9BEA",
+      "path": "assets/09-native-stop-click.png"
+    },
+    {
+      "sha256": "5C2F5DF9C7210F5A215CFFE0F76D66D62B73DC1A36E2C821A86239601B685DA4",
+      "path": "assets/09-native-stop-click.txt"
+    },
+    {
+      "sha256": "B383B38424FADD25A6AA50816D7FF5F41BE0CFA6A0D713321218D3EA9A5190E0",
+      "path": "assets/10-native-stopped.png"
+    },
+    {
+      "sha256": "84E0467CB12F88A1324A71799465E45EC8CA673092160F067BA3796068C2D441",
+      "path": "assets/10-native-stopped.txt"
+    },
+    {
+      "sha256": "42DBC026F9A25436EA0038CD4042B4EB2142C6B4FCF77597AE4D67DD8B12470B",
+      "path": "assets/11-native-question-sent.png"
+    },
+    {
+      "sha256": "988F55F0F8AFF8756953F7EA3B34F27AF1589927E8A71FD3157AB6AFB9E5B223",
+      "path": "assets/11-native-question-sent.txt"
+    },
+    {
+      "sha256": "D66AE6832D6887BC8CB4F5EA9E0CAF449DEE58149E1B7A92327247AC65FAAB7C",
+      "path": "assets/12-native-awaiting-question.png"
+    },
+    {
+      "sha256": "2C2C88DBE949747D7380C4B4918824F61967F2CDCFC591F6BD67D79E85139E88",
+      "path": "assets/12-native-awaiting-question.txt"
+    },
+    {
+      "sha256": "AC5FEC6FA3E6A5A831151EC72803A5AE1843C47704B1A0A5FDF692AD4703436C",
+      "path": "assets/13-native-question-choice.png"
+    },
+    {
+      "sha256": "87AC7CA57F2812759F4ABB19DD431CDA76B1A778B65A63606393ED26FA076295",
+      "path": "assets/13-native-question-choice.txt"
+    },
+    {
+      "sha256": "F8F6848AC4CAF119920494B6CB3D3F290A05F20872399299EC8108FF8FD627B1",
+      "path": "assets/14-native-question-returned.png"
+    },
+    {
+      "sha256": "2251498F2B920C3E03CED8C99253F90B9849F8D31AF94009A29D1B2E5E67719B",
+      "path": "assets/14-native-question-returned.txt"
+    },
+    {
+      "sha256": "7701B286EA16CEF9159E2EA861FD331B61E5A2CE3405B4EDA78C50A2E5E70F6D",
+      "path": "assets/browser-01-send-pending.png"
+    },
+    {
+      "sha256": "6227CF1303A92BEE3870955811C76FFE82BAFA6E0143AEF17A5A8B5ADA70BC41",
+      "path": "assets/browser-02-send-failed.png"
+    },
+    {
+      "sha256": "5D0A54C75CB77F0B6A6A6F4D54955CA861FFBE115CC34EEDEA3C54763F9FADD9",
+      "path": "assets/browser-03-stopping.png"
+    },
+    {
+      "sha256": "C4A06AC4400E61EB980B7AF28FEC6B5CB0E259A00960D4EE3E0B4268A1B4220F",
+      "path": "assets/browser-04-stopped.png"
+    },
+    {
+      "sha256": "D32C62B56ADCA371B54C54738E531094AECB884ED44D92D6A5BB12CE0D59BBBA",
+      "path": "assets/browser-05-stop-rejected.png"
+    },
+    {
+      "sha256": "E81F4DA97FEC6D07D35EE523F206B3507ED9FCCC78BCDE359C51D49977441F69",
+      "path": "assets/browser-06-completed-expanded.png"
+    },
+    {
+      "sha256": "80EA04EFE865898C526F4D9B8BE98E9F96ABFF8A50681328874F9847618D8BC2",
+      "path": "assets/browser-07-queue-steer.png"
+    },
+    {
+      "sha256": "A5294F278863BC0197CA83CEAB3E46256F699E9C8B22C097CD706E1FDAB6F6E6",
+      "path": "assets/browser-08-attachment-blocked.png"
+    },
+    {
+      "sha256": "728E868B1360A970B91D54992730AE5422DC12F6014EA6B32F8A52E51401228D",
+      "path": "assets/browser-09-model-save-failed.png"
+    },
+    {
+      "sha256": "7E0F918C9CC943FA4A6CD156CE75F7F99EE362756231473D372590C07F9E3F50",
+      "path": "assets/browser-10-activity-panel.png"
+    },
+    {
+      "sha256": "590AE67512D15B1CE7D12439823AC35FE0525B36538DA2D92D201C8FD3605B28",
+      "path": "assets/browser-11-file-saved.png"
+    },
+    {
+      "sha256": "F54CD298A6F451111114AD1D36B48A805D6B0F980847B0655C8582F9B6F07501",
+      "path": "assets/browser-12-file-compare.png"
+    },
+    {
+      "sha256": "7AB9ECEBD135FD61EC7CBC0A7FBE4E25AB3ACDCCA40E3EB2E9D0BA16F4E62751",
+      "path": "assets/browser-13-file-loading.png"
+    },
+    {
+      "sha256": "FC6816934BE4B2FC426F2B5AB0F7FC6B87930E534F8E0E91BE035F8A6474898E",
+      "path": "assets/browser-14-question.png"
+    },
+    {
+      "sha256": "6F41831424CD8C7679C9682BA81DC04EEA38E95BE2D5EF42939D05579CC41307",
+      "path": "assets/browser-15-model-rejected-send.png"
+    },
+    {
+      "sha256": "5ADFD5447D0A2D0B65488756ED6B20F9F06A5EEA7CBDE0B71C78AC7A5829A71A",
+      "path": "assets/browser-16-model-rollback-confirmed.png"
+    }
+  ],
+  "start_head": "bcf681354a8fa4ab1c648ed7f9b5a0b52cf91c29",
+  "controlled": {
+    "source": "current product frontend + existing scripts/ui-preview mock IPC",
+    "checks": "interaction-results.json",
+    "counts": {
+      "total": 25,
+      "passed": 24
+    },
+    "editor_cold_load": "interaction-results.json observations cold-editor",
+    "limits": [
+      "普通成功回放存在一次终态采样不稳定，未归因为产品缺陷",
+      "旧 question 夹具不兼容当前流程，已转原生验证"
+    ],
+    "model_rejection": "model-rejection-evidence.json"
+  },
+  "not_covered": [
+    "系统文件选择器取消",
+    "真实断网与重连",
+    "真实语音和中断",
+    "多窗口争用",
+    "读屏器",
+    "长期运行",
+    "批量和多选问题"
+  ],
+  "date": "2026-10-17",
+  "end_head": "5f7f37ff31f99e1db2f0cdf282ddf40f65efb854",
+  "source_hashes": [
+    {
+      "sha256": "C98BBB6E733A0AB582624F2827DB462CC7D348FADF972E1DC23075F7677C770C",
+      "path": "crates/kanzei-app/ui/08-models.js"
+    },
+    {
+      "sha256": "C249E41B6199C6875ECC6A7D1055527631AC20B807585D8C1A3578638209F0E8",
+      "path": "crates/kanzei-app/ui/08-model-picker.js"
+    },
+    {
+      "sha256": "4C67633DA1D28D5362C798A5962567F68138F8213E754A09E38F7258F353B9E2",
+      "path": "crates/kanzei-app/ui/08-compose-runtime.js"
+    },
+    {
+      "sha256": "E5A31358F1FB908B3F9F6F4D9A9381936FB0F7CF6294F47F27AAAEF54CDB6836",
+      "path": "crates/kanzei-app/ui/03-session-runtime.js"
+    },
+    {
+      "sha256": "2B193C5B5A720C114D0EF903FD6755C4259F7C26479065AC688EC78D33929BF4",
+      "path": "crates/kanzei-app/ui/00-session-state.js"
+    },
+    {
+      "sha256": "407ED340BD971AE20C82FE1338B7351B0A5E46C3244DAECDF40D8C6F15C6D932",
+      "path": "crates/kanzei-app/ui/17-files-editor.js"
+    },
+    {
+      "sha256": "C410598316A818EDDF39AF2C5FA98A370FCE974B4F73631E639BB53C52507833",
+      "path": "crates/kanzei-app/ui/06-side-policy.js"
+    },
+    {
+      "sha256": "E42D78AADF83C89402B20521846A8C6B65D044B68BCCFF1803340379A69E4B41",
+      "path": "crates/kanzei-app/ui/25-softwire.js"
+    },
+    {
+      "sha256": "E886BB675E536BC620B819EF58EE8F03AA1DFACB67B4321ADE74AC11AD31B86B",
+      "path": "crates/kanzei-app/ui/25-softwire-view.js"
+    },
+    {
+      "sha256": "DF58A2C2EA325FD31E9BDC71FC3141722F32FD2E9D2C921ADB80B50872C7656E",
+      "path": "scripts/ui-preview/fixtures.mjs"
+    },
+    {
+      "sha256": "5855F6815E66089E4F4A1B8D22907209BA52F112FE1CD71FBDDD91031A12B616",
+      "path": "scripts/ui-preview/scenes.mjs"
+    }
+  ],
+  "scope": "只读审视，独立点缀提案；没有应用产品修改",
+  "skills": [
+    "frontend-skill Apps rules",
+    "computer-use native interactions",
+    "playwright browser measurement",
+    "Vercel Web Interface Guidelines snapshot from round one"
+  ]
+}

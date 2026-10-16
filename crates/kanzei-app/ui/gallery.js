@@ -153,7 +153,7 @@ const DEMOS = {
     kind: "toast",
     target: () => [...$("toast").children].find((node) => node.dataset.kzExpired !== "1") ?? null,
     open: () => {
-      toast(t("已复制"));
+      toast(t("已复制"), { kind: "ok" });
       toast(t("成功"), { kind: "ok" });
       toast(t("运行已停止"), { kind: "warn" });
       toast(t("失败"), { kind: "err" });

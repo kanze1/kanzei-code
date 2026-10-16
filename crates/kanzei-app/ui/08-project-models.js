@@ -277,7 +277,7 @@ async function saveProjectModels() {
   } finally {
     button.disabled = false;
   }
-  toast(t("已保存到本项目"));
+  toast(t("已保存到本项目"), { kind: "ok" });
   closeSurface(state.handle ?? $("project-models-overlay"));
   document.dispatchEvent(new CustomEvent("kz-model-config-changed", { detail: { scope: "project", projectDir: state.projectDir } }));
 }

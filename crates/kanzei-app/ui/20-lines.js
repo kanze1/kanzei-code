@@ -191,15 +191,21 @@ export function buildLineModelSelect(item) {
   select.value = current;
   select.addEventListener("change", async () => {
     const value = select.value;
-    updateLocalProcessItem(item.id, { model: value || null });
+    select.disabled = true;
+    select.setAttribute("aria-busy", "true");
     try {
       await queueProcessUpdate(item.id, { model: value });
+      updateLocalProcessItem(item.id, { model: value || null });
       log(`${item.label} ${t("该对话模型已切换")}:${value || t("跟随默认")}`);
       // 改的若是当前线,输入框上方的芯片要跟着走——两处显示同一条线却不一致最难查。
       // 目录没变,只重问一次「下一轮将使用」。
       if (item.id === activeProcessId) await syncModelSelectToActiveLine();
     } catch (error) {
+      select.value = item.model || "";
       toastError(`${t("模型切换失败")}:${error}`);
+    } finally {
+      select.disabled = false;
+      select.removeAttribute("aria-busy");
     }
   });
   return select;

@@ -1279,7 +1279,7 @@ export async function copyReadable(el) {
   if (!text) return toast(t("没有可复制的内容"));
   try {
     await navigator.clipboard.writeText(text);
-    toast(t("已复制"));
+    toast(t("已复制"), { kind: "ok" });
   } catch (err) {
     toastError(`${t("复制失败")}:${err}`);
   }

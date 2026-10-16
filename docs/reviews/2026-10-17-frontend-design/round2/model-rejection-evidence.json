@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-17",
+  "scope": "当前前端+受控拒绝回执，不连接真实模型",
+  "steps": [
+    "选择 ollama:qwen3.5:4b",
+    "process_update 返回拒绝",
+    "等待按钮恢复 codex:gpt-5.6-luna 且无 pending class",
+    "立即发送",
+    "记录 run_prompt.model"
+  ],
+  "before": {
+    "chip": "codex:gpt-5.6-luna\n项目级\n⚡︎",
+    "title": "下一轮将使用 codex:gpt-5.6-luna · 来源 项目级\n来自本项目的模型配置\nCodex Fast mode 已开启 · 项目级",
+    "localModel": "ollama:qwen3.5:4b"
+  },
+  "sent": "ollama:qwen3.5:4b",
+  "displayAndSendDisagree": true,
+  "source": [
+    "08-models.js:131-164",
+    "08-compose-runtime.js:430-433"
+  ]
+}

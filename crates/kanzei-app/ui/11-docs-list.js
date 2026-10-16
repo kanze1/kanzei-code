@@ -871,7 +871,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
           fields,
           ...(requirement ? { requirement } : {}),
         });
-        toast(t("已保存"));
+        toast(t("已保存"), { kind: "ok" });
         // 先退出编辑态再刷新:重绘按「编辑中」恢复,不先退出的话表单又弹回来。
         setEditing(false, { reset: false });
         refreshDocs();

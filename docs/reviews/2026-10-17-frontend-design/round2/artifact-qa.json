@@ -1,0 +1,170 @@
+{
+  "date": "2026-10-17",
+  "scope": "报告与点缀原型的验证，不代表被审视产品全部检查通过",
+  "passed": 28,
+  "total": 28,
+  "all_pass": true,
+  "checks": [
+    {
+      "name": "补充报告展示 18 条操作路径",
+      "pass": true
+    },
+    {
+      "name": "现有主题被明确保留",
+      "pass": true
+    },
+    {
+      "name": "5 个点缀候选可查阅",
+      "pass": true
+    },
+    {
+      "name": "原生证据截图可放大",
+      "pass": true
+    },
+    {
+      "name": "报告深色主题可切换",
+      "pass": true
+    },
+    {
+      "name": "报告 800px 无整页横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 800,
+        "scroll": 800
+      }
+    },
+    {
+      "name": "报告 420px 无整页横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 420,
+        "scroll": 420
+      }
+    },
+    {
+      "name": "点缀开关确实只改变局部完成图标",
+      "pass": true,
+      "evidence": {
+        "old": "rgb(101, 101, 101)",
+        "changed": "rgb(0, 101, 121)"
+      }
+    },
+    {
+      "name": "主题表面与橙色发送按钮保持原值",
+      "pass": true,
+      "evidence": {
+        "baseline": {
+          "send": "rgb(197, 101, 0)",
+          "bg": "rgb(255, 255, 255)",
+          "accent": "#c56500"
+        },
+        "after": {
+          "send": "rgb(197, 101, 0)",
+          "bg": "rgb(255, 255, 255)",
+          "accent": "#c56500"
+        }
+      }
+    },
+    {
+      "name": "可以单独关闭完成点缀",
+      "pass": true
+    },
+    {
+      "name": "面板点击后展开与 aria 同步",
+      "pass": true
+    },
+    {
+      "name": "面板开启时出现可选青蓝细标记",
+      "pass": true
+    },
+    {
+      "name": "关闭后细标记收回并恢复焦点",
+      "pass": true
+    },
+    {
+      "name": "引用编号能展开来源",
+      "pass": true
+    },
+    {
+      "name": "文件资源入口能展开读取结果",
+      "pass": true
+    },
+    {
+      "name": "保存演示后出现明确已保存回执",
+      "pass": true
+    },
+    {
+      "name": "运行演示保持橙色且不显示完成标记",
+      "pass": true
+    },
+    {
+      "name": "停止演示恢复输入并收回停止按钮",
+      "pass": true
+    },
+    {
+      "name": "收到完成演示回执后才呈现完成标记",
+      "pass": true
+    },
+    {
+      "name": "深色点缀使用图标原青蓝",
+      "pass": true
+    },
+    {
+      "name": "点缀原型 800px 无横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 800,
+        "scroll": 800
+      }
+    },
+    {
+      "name": "点缀原型 420px 无横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 420,
+        "scroll": 420
+      }
+    },
+    {
+      "name": "实现报告展示实际管理页面截图",
+      "pass": true
+    },
+    {
+      "name": "实现报告 1440px 无整页横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 1440,
+        "scroll": 1440
+      }
+    },
+    {
+      "name": "实现报告 800px 无整页横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 800,
+        "scroll": 800
+      }
+    },
+    {
+      "name": "实现报告 420px 无整页横向溢出",
+      "pass": true,
+      "evidence": {
+        "client": 420,
+        "scroll": 420
+      }
+    },
+    {
+      "name": "没有浏览器异常",
+      "pass": true,
+      "evidence": []
+    },
+    {
+      "name": "被请求的本地资源均正常",
+      "pass": true,
+      "evidence": []
+    }
+  ],
+  "errors": [],
+  "resources": [],
+  "screenshots": "C:\\Users\\kanzei\\Documents\\kanzei code\\output\\playwright\\frontend-design-round2-20261017"
+}

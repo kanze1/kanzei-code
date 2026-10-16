@@ -515,6 +515,7 @@ export function renderInteraction(root, message, actions) {
     const detail = node("details", null, "sw-reason"); detail.append(node("summary", t("查看依据")), node("p", message.source.resolution.rationale)); root.append(detail);
   }
   const choices = node("div", null, "sw-choices");
+  if (kind === "question" && message.choices?.length) root.append(node("p", t("点击选项即回复；需要补充时选择“补充说明”。"), "sw-evidence-meta"));
   const addChoice = (label, edit = false, note = "") => {
     // Model options are data: their displayed and submitted identities must
     // remain the same as message.choices, including after a language switch.

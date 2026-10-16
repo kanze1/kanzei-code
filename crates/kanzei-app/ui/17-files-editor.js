@@ -445,9 +445,7 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
     void showImageIfAny(doc, isCurrent);
     return true;
   }
-  show($("files-placeholder"), false);
-  show($("files-image"), false);
-  show($("files-editor"), true);
+  if (!filesEditor) showPlaceholder(t("正在加载编辑器…"));
   let monaco;
   try {
     await filesLeaveGuard.ready();
@@ -464,6 +462,9 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
     renderFilesHead();
     return false;
   }
+  show($("files-placeholder"), false);
+  show($("files-image"), false);
+  show($("files-editor"), true);
   const editor = ensureEditor(monaco);
   const uri = monaco.Uri.file(path);
   const previous = editor.getModel();

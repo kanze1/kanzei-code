@@ -457,7 +457,7 @@ export function bgRenderActions(id, entry) {
   if (bgIsTerminal(entry.name)) {
     add(t("复制"), t("复制完整输出"), async () => {
       await navigator.clipboard.writeText(bgPlainText(entry));
-      toast(t("已复制"));
+      toast(t("已复制"), { kind: "ok" });
     });
     add(t("导出"), t("把完整输出存成文件"), () => {
       const blob = new Blob([bgPlainText(entry)], { type: "text/plain;charset=utf-8" });
@@ -769,7 +769,7 @@ export function renderFileCard(display, { projectDir = display.project_dir || cu
       if (mode !== "save") { void open(mode); return; }
       button.disabled = true;
       void invoke("save_delivered_file", { projectDir, path: display.path }).then(path => {
-        if (path) toast(t("已保存"));
+        if (path) toast(t("已保存"), { kind: "ok" });
       }).catch(error => toast(`${t("保存失败")}:${error}`)).finally(() => { button.disabled = false; });
     });
     actions.appendChild(button);

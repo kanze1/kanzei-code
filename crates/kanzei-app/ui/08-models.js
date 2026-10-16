@@ -17,7 +17,7 @@ import {
   toastError,
 } from "./03-shell.js";
 import { selectedAgent } from "./08-auto.js";
-import { queueProcessUpdate, updateLocalProcessItem } from "./08-compose-runtime.js";
+import { processUpdateQueues, queueProcessUpdate, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { refreshProcesses } from "./09-sessions.js";
 import { restoreDocFilters } from "./10-docs-core.js";
 import { workspace_process_draft, update_workspace_process_draft } from "./03-workspaces.js";
@@ -68,6 +68,11 @@ export async function refreshEffectiveModel() {
   const { profile, agent } = selectedAgent();
   const stale = () => generation !== effectiveGeneration || currentProject !== forProject || activeProcessId !== forProcess;
   try {
+    // Write owners report rejection. Either outcome requires a fresh backend
+    // projection, after the queued settings settle, to clear the pending chip.
+    const queued = processUpdateQueues.get(forProcess);
+    if (queued) await Promise.allSettled([queued]);
+    if (stale()) return null;
     const view = await invoke("model_effective", { projectDir: forProject, processId: forProcess, profile, agent,
       ...(!forProcess ? workspace_process_draft() : {}) });
     if (stale()) return null;
@@ -123,6 +128,7 @@ export async function loadModels() {
 }
 
 function optimistic(patch) {
+  effectiveGeneration += 1;
   announce("kz-effective-model-optimistic", patch);
 }
 
@@ -136,10 +142,10 @@ export async function setLineModel(value) {
     await refreshEffectiveModel();
     return;
   }
-  updateLocalProcessItem(processId, { model: value || null });
   optimistic({ model: value || "" });
   try {
     await queueProcessUpdate(processId, { model: value });
+    updateLocalProcessItem(processId, { model: value || null });
   } catch (error) {
     reportPersistentError(`${t("对话模型保存失败")}:${error}`);
   }
@@ -154,10 +160,10 @@ export async function setLineReasoning(value) {
     await refreshEffectiveModel();
     return;
   }
-  updateLocalProcessItem(processId, { reasoning: value || null });
   optimistic({ reasoning: value || "" });
   try {
     await queueProcessUpdate(processId, { reasoning: value });
+    updateLocalProcessItem(processId, { reasoning: value || null });
   } catch (error) {
     reportPersistentError(`${t("对话思考强度保存失败")}:${error}`);
   }
@@ -182,7 +188,7 @@ export async function promoteLineModelToProject() {
     toastError(`${t("保存失败")}: ${error}`);
     return false;
   }
-  toast(t("已保存到本项目"));
+  toast(t("已保存到本项目"), { kind: "ok" });
   await setLineModel("");
   announce("kz-model-config-changed", { scope: "project", projectDir: currentProject, silent: true });
   return true;
@@ -198,7 +204,7 @@ export async function promoteLineReasoningToProject() {
     toastError(`${t("保存失败")}: ${error}`);
     return false;
   }
-  toast(t("已保存到本项目"));
+  toast(t("已保存到本项目"), { kind: "ok" });
   await setLineReasoning("");
   announce("kz-model-config-changed", { scope: "project", projectDir: currentProject, silent: true });
   return true;

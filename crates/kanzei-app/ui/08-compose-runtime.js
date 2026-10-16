@@ -343,6 +343,17 @@ export function renderAttachments() {
   document.dispatchEvent(new CustomEvent("kz:attachments-changed"));
 }
 
+function renderAttachmentSendHint() {
+  const hint = $("attachment-send-hint");
+  if (!hint) return;
+  const retained = attachments.length > 0 && sessionState(activeSessionId)?.running;
+  hint.classList.toggle("hidden", !retained);
+  hint.textContent = retained ? t("当前任务运行中，附件和文字已保留；本轮结束后发送，或新建讨论") : "";
+}
+defer(() => {
+  for (const event of ["kz:attachments-changed", "kz:session-state-changed", "kz:conversation-selected", "kz:language"]) document.addEventListener(event, renderAttachmentSendHint);
+});
+
 let pendingFileBytes = 0;
 export function addFiles(files) {
   const target = attachments;
@@ -425,7 +436,7 @@ defer(() => {
 // 发送用的模型 = **该线存的模型**,不是下拉的显示值。下拉是回显,而回显曾经会回落到旧全局
 // 键(见 loadModels 的注释);自动推进续跑读的一直是 item.model。两条路不同源的后果是:同一条线
 // 手动发一句和自动轮跑在两个不同的模型上,而界面上只有一个下拉,看不出来。用户在芯片菜单里
-// 选模型时 setLineModel 已经先 updateLocalProcessItem,所以这里读到的就是刚选的那个值。
+// 本地进程项只包含已确认写入的模型；发送在构造请求前等待该线的设置队列。
 // UI-0926 #3:不再有任何 DOM 兜底——线路未知时交给后端按本线存档/agent 默认解析。
 export function lineModelFor(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
@@ -512,6 +523,14 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     catch (error) { toastError(String(error)); return; }
   }
   const recipient = { project: currentProject, process: activeProcessId, session: activeSessionId };
+  const recipientIsCurrent = () => recipient.project === currentProject && recipient.process === activeProcessId && recipient.session === activeSessionId;
+  try {
+    await processUpdateQueues.get(recipient.process);
+  } catch (error) {
+    reportPersistentError(`${t("对话设置保存失败")}:${error}`);
+    return false;
+  }
+  if (!recipientIsCurrent()) { toast(t("对话已切换，请在目标对话中重新发送")); return false; }
   if (selectedAgent().agent !== "dev") { executionBatch = false; workItemId = null; }
   if (!workItemId && selectedAgent().agent === "dev") {
     const project = currentProject, process = activeProcessId;
@@ -529,7 +548,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     tasksPanelUserRun(activeSessionId);
     (await import("./24-preview.js")).previewUserRun();
   }
-  if (recipient.project !== currentProject || recipient.process !== activeProcessId || recipient.session !== activeSessionId) {
+  if (!recipientIsCurrent()) {
     toast(t("对话已切换，请在目标对话中重新发送")); return false;
   }
   if (running) {

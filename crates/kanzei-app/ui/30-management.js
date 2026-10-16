@@ -20,6 +20,7 @@ let mounted = null;
 const el = (tag, text, cls) => { const node = document.createElement(tag); if (text != null) node.textContent = text; if (cls) node.className = cls; return node; };
 const action = (label, callback, cls = "ghost") => { const button = el("button", label, cls); button.type = "button"; button.addEventListener("click", callback); return button; };
 const allEntries = state => [...(state.docs?.requirements || []), ...(state.docs?.defects || [])];
+const numberText = value => typeof value === "number" ? value.toLocaleString(languageIsEnglish() ? "en-US" : "zh-CN") : value;
 function stateFor(project) {
   if (!projects.has(project)) {
     const state = { project, tab: layoutPref("management", project) || "req", query: "", filter: "open", detail: null, details: new Map(), archives: new Map(), docs: null, snapshot: null, error: "", root: null, signature: "", arch: null, stats: null, mapFocus: null, period: "7", session: "" };
@@ -63,12 +64,20 @@ export function hideManagement() {
 async function refresh(state) {
   if (state.loading) return;
   state.loading = true;
+  if (live(state)) render(state, true);
   try {
     await readProjectDocuments(state.project, { force: true });
     if (state.tab === "map") { state.arch = null; state.stats = null; }
     if (state.tab === "deliveries") await loadDeliveredFiles(state.project, { force: true });
   } catch (error) { toastError(String(error)); }
   finally { state.loading = false; if (live(state)) render(state, true); }
+}
+
+function refreshAction(state) {
+  const button = action(t(state.loading ? "正在刷新…" : "刷新"), () => void refresh(state));
+  button.disabled = Boolean(state.loading);
+  button.setAttribute("aria-busy", String(Boolean(state.loading)));
+  return button;
 }
 
 export async function openManagementItem(project, entry, { activate = false } = {}) {
@@ -149,14 +158,18 @@ function renderList(state) {
   }
   filter.value = state.filter;
   const list = el("div", null, "management-list");
+  const count = el("p", null, "management-list-count"); count.setAttribute("role", "status");
   const fill = () => {
     list.replaceChildren();
     const entries = (state.tab === "req" ? state.docs?.requirements : state.docs?.defects) || [];
     const query = state.query.toLocaleLowerCase();
     const rows = entries.filter(entry => `${entry.id} ${entry.title}`.toLocaleLowerCase().includes(query) && (state.filter === "all" || state.filter === "open" ? state.filter === "all" || !entry.closed : state.filter === "blocked" ? entry.blocked : state.filter === "doing" ? ["doing", "fixing"].includes(entry.status) : entry.status === state.filter));
+    count.replaceChildren(document.createTextNode(`${t("显示条目")} · `), el("strong", state.docs ? `${numberText(rows.length)} / ${numberText(entries.length)}` : "—"));
     for (const entry of rows) {
       const row = action("", () => void openManagementItem(state.project, entry), "management-row"); row.dataset.workId = entry.id;
-      const identity = el("div", null, "management-identity"); identity.append(el("small", `${entry.id} · ${localizedDocStatus(entry.status)}`, "dim"), el("strong", entry.title));
+      const identity = el("div", null, "management-identity"), meta = el("small", null, "dim");
+      meta.append(el("span", entry.id, "management-id"), document.createTextNode(` · ${localizedDocStatus(entry.status)}`));
+      identity.append(meta, el("strong", entry.title));
       row.append(identity, progressCells(entry), el("span", entry.priority || "—", "management-priority"));
       list.append(row);
     }
@@ -172,9 +185,9 @@ function renderList(state) {
     if (await openProjectSpace(state.project, "documents")) $(`documents-tab-${kind}`)?.click();
   } }]));
   more.setAttribute("aria-label", t("更多"));
-  tools.append(search, filter, action(t("刷新"), () => void refresh(state)), create, more);
+  tools.append(search, filter, refreshAction(state), create, more);
   state.body.append(tools);
-  state.body.append(list); fill();
+  state.body.append(count, list); fill();
   const archived = Number(state.docs?.archived?.[state.tab] || 0);
   if (archived) {
     const kind = state.tab;
@@ -208,7 +221,7 @@ function renderDeliveries(state) {
     const option = el("option", label); option.value = id; session.append(option);
   }
   session.value = state.deliverySession || "";
-  tools.append(search, filter, session, action(t("刷新"), () => void refresh(state))); state.body.append(tools);
+  tools.append(search, filter, session, refreshAction(state)); state.body.append(tools);
   const list = el("div", null, "management-deliveries");
   const fill = () => {
     list.replaceChildren();
@@ -254,7 +267,7 @@ function renderMapPage(state) {
     const prompt = $("prompt");
     const text = t("请调查当前项目并生成项目地图：说明主要模块、入口、依赖关系、数据流与运行方式，结合实际代码给出 Mermaid 图和文件链接，并保存为项目文档。已有地图时请更新。先阅读项目内的 AGENTS.md 和相关 Skills。");
     prompt.value = [prompt.value.trimEnd(), text].filter(Boolean).join("\n\n"); prompt.dispatchEvent(new Event("input", { bubbles: true })); prompt.focus();
-  }), action(t("刷新"), () => void refresh(state))); state.body.append(head);
+  }), refreshAction(state)); state.body.append(head);
   const graph = el("section", null, "management-graph"); graph.setAttribute("aria-label", t("项目依赖图")); state.body.append(graph);
   if (state.arch) drawGraph(graph, state); else graph.append(el("p", t("正在读取依赖…"), "dim"));
   const runtime = el("section", null, "management-runtime"); state.body.append(runtime); renderRuntime(runtime, state);
@@ -330,7 +343,12 @@ function renderRuntime(host, state) {
   const elapsed = value => value == null ? "—" : value < 60000 ? `${(value / 1000).toFixed(1)} s` : `${(value / 60000).toFixed(1)} min`;
   values.unshift(["完成轮次", summary.rounds, t("当前筛选范围")], ["输入 Token", summary.inputTokens, `${summary.tokenSamples} ${t("轮已观测")}`], ["输出 Token", summary.outputTokens, `${summary.tokenSamples} ${t("轮已观测")}`], ["执行步数", summary.steps, t("已记录的执行步数")], ["累计执行时长", elapsed(summary.totalDuration), `${summary.durationSamples} ${t("轮已观测")}`], ["P95 轮次时长", elapsed(summary.p95Duration), `${summary.durationSamples} ${t("轮已观测")}`], ["预期拒绝", summary.rejected, t("工具主动拒绝的调用")]);
   const metrics = el("dl", null, "management-metrics");
-  for (const [label, value, note] of values) { const metric = el("div"); metric.append(el("dt", t(label)), el("dd", value ?? "—"), el("small", note, "dim")); metrics.append(metric); }
+  for (const [label, value, note] of values) {
+    const metric = el("div");
+    const tone = value == null || value === "—" ? "unknown" : label === "失败调用" ? (value > 0 ? "error" : "neutral") : label === "预期拒绝" ? "neutral" : "value";
+    metric.dataset.tone = tone;
+    metric.append(el("dt", t(label)), el("dd", numberText(value) ?? "—"), el("small", note, "dim")); metrics.append(metric);
+  }
   host.append(metrics, el("p", `${summary.rounds} ${t("轮符合筛选；从最近最多 200 轮已完成记录和 200 次记忆观测中统计。未记录显示 —。")}`, "dim"));
   const outcomes = el("div", null, "runtime-outcomes");
   for (const [name, count] of summary.outcomes) outcomes.append(el("span", `${name} · ${count}`));
@@ -341,7 +359,7 @@ function renderRuntime(host, state) {
     const maximum = Math.max(...summary.toolNames.map(([, count]) => count), 1);
     for (const [name, count] of summary.toolNames) {
       const row = el("div"), meter = el("meter"); meter.min = 0; meter.max = maximum; meter.value = count; meter.setAttribute("aria-label", name);
-      row.append(el("dt", name), meter, el("dd", count)); distribution.append(row);
+      row.append(el("dt", name), meter, el("dd", numberText(count))); distribution.append(row);
     }
     tools.append(distribution); host.append(tools);
   }

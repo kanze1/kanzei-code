@@ -23,7 +23,7 @@ const context=await browser.newContext({viewport:{width:1440,height:1000},reduce
 context.on('page',page=>{page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.status()>=400)resources.push({url:r.url(),status:r.status()});});});
 const page=await context.newPage();
 try {
- await page.goto(base+'/index.html');await page.locator('.finding').last().waitFor();
+ await page.goto(base+'/round1.html');await page.locator('.finding').last().waitFor();
  check('报告包含全部 10 项发现',await page.locator('.finding').count()===10);
  await page.getByRole('button',{name:'优先处理',exact:true}).click();check('优先处理筛选为 5 项',await page.locator('.finding').count()===5);
  await page.getByRole('button',{name:'全部 10',exact:true}).click();await page.locator('#UI-01 summary').click();check('建议展开包含验收条件',await page.locator('#UI-01').getAttribute('open')!==null&&await page.locator('#UI-01 .accept').isVisible());
@@ -32,7 +32,7 @@ try {
  await page.getByRole('button',{name:'切换到深色主题',exact:true}).click();check('报告深色主题状态正确',await page.locator('html').getAttribute('data-theme')==='dark');
  const ratios=await page.locator('#color-rows .ratio').allTextContents();check('报告深色状态文字对产品主背景均至少 4.5:1',ratios.every(x=>parseFloat(x)>=4.5),ratios);
  await page.screenshot({path:path.join(screenshots,'report-dark-1440.png')});
- for(const width of [800,420]) {await page.setViewportSize({width,height:1000});await page.goto(base+'/index.html');const dimensions=await page.evaluate(()=>({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));check(`报告 ${width}px 无页面横向溢出`,dimensions.scroll<=dimensions.client,dimensions);await page.screenshot({path:path.join(screenshots,`report-light-${width}.png`)});}
+ for(const width of [800,420]) {await page.setViewportSize({width,height:1000});await page.goto(base+'/round1.html');const dimensions=await page.evaluate(()=>({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));check(`报告 ${width}px 无页面横向溢出`,dimensions.scroll<=dimensions.client,dimensions);await page.screenshot({path:path.join(screenshots,`report-light-${width}.png`)});}
 
  await page.setViewportSize({width:1440,height:1000});await page.goto(base+'/case.html');
  check('案例展示 5 条真实快照',await page.locator('.work-row').count()===5);
@@ -52,7 +52,7 @@ try {
  await page.getByRole('button',{name:'调整后',exact:true}).click();await page.getByRole('button',{name:'切换到深色主题',exact:true}).click();await page.screenshot({path:path.join(screenshots,'case-after-dark-1440.png'),fullPage:true});
  for(const width of [800,420]) {await page.setViewportSize({width,height:width===800?500:900});await page.goto(base+'/case.html');const d=await page.evaluate(()=>({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));check(`案例 ${width}px 无页面横向溢出`,d.scroll<=d.client,d);check(`案例 ${width}px 状态和数字可读`,await page.locator('.status').first().isVisible()&&await page.locator('.progress-text').first().isVisible());if(width===420)check('窄屏隐藏列标题后仍明确标注批次',await page.locator('.progress-label').first().isVisible());await page.screenshot({path:path.join(screenshots,`case-after-light-${width}.png`),fullPage:true});}
  await page.emulateMedia({reducedMotion:'reduce'});const motion=await page.locator('.work-summary').first().evaluate(e=>getComputedStyle(e).transitionDuration);check('尊重 reduced-motion',motion==='0s',motion);
- await page.goto(pathToFileURL(path.join(root,'index.html')).href);await page.locator('.finding').last().waitFor();check('报告可直接以本地文件打开',await page.locator('.finding').count()===10);
+ await page.goto(pathToFileURL(path.join(root,'round1.html')).href);await page.locator('.finding').last().waitFor();check('报告可直接以本地文件打开',await page.locator('.finding').count()===10);
  await page.goto(pathToFileURL(path.join(root,'case.html')).href);await page.locator('.work-row').last().waitFor();check('案例可直接以本地文件打开',await page.locator('.work-row').count()===5);
  check('无浏览器未捕获异常',errors.length===0,errors);check('所有请求的本地资源均正常',resources.length===0,resources);
 } catch(error){check('验证脚本完整运行',false,error.stack);} finally {

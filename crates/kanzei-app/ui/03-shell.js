@@ -456,7 +456,7 @@ export async function ensureNotificationPermission() {
   }
   if (Notification.permission === "granted") return true;
   if (Notification.permission === "denied") {
-    explainNotificationFallback(t("系统通知权限已拒绝，请在系统设置中允许后重试"));
+    explainNotificationFallback(t("系统通知未开启，任务正常执行；完成提示将保留在应用内"));
     return false;
   }
   try {
@@ -688,7 +688,7 @@ defer(() => {
     }
     try {
       await navigator.clipboard.writeText(text);
-      toast(t("运行日志已复制"));
+      toast(t("运行日志已复制"), { kind: "ok" });
     } catch (error) {
       toastError(`${t("复制运行日志失败")}:${error}`);
     }

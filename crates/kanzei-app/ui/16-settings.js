@@ -1155,7 +1155,7 @@ defer(() => {
       // exactly as the file editor confirms its saved model version.
       settingsSnapshot = submitted;
       syncSettingsDirty();
-      toast(t("已保存"));
+      toast(t("已保存"), { kind: "ok" });
       await loadSettings();
       // 全局默认变了:输入框上方的「下一轮将使用」重新解析(provider 可能也改了,目录一并重拉)。
       document.dispatchEvent(new CustomEvent("kz-model-config-changed", { detail: { scope: "global" } }));

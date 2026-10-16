@@ -24,6 +24,12 @@
     ]
   },
   {
+    "key": "ui_cyan_interactions",
+    "inputs": "frontend",
+    "program": "node",
+    "args": ["scripts/ui-cyan-interactions-smoke.mjs"]
+  },
+  {
     "key": "ui_memory_graph",
     "inputs": "frontend",
     "program": "node",
