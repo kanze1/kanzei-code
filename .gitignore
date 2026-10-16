@@ -14,6 +14,8 @@
 .kanzei/memory/index.db
 .kanzei/memory/index.db-journal
 .kanzei/memory/inbox.md
+# Memory-manager conversation history is local runtime state.
+.kanzei/memory-manager/
 # shell 越权写入托管文档时,改后的版本先隔离留证再回滚(D-173);是证据不是资产。
 .kanzei/quarantine/
 # R-138 docstore 跨进程写锁的句柄文件:零字节、运行时产物,句柄随进程退出由 OS 关闭。
@@ -47,3 +49,6 @@ node_modules/
 # D-324 实验/诊断产物槽位:自举与手工实验的输出落这里,不是仓库资产
 output/
 .playwright-cli/
+
+# Review writer locks are local coordination handles.
+docs/reviews/*.lock
