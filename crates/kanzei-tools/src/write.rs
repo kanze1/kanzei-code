@@ -1108,7 +1108,7 @@ mod tests {
             .add(DevProfile)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&resolve_ctx).unwrap();
-        let agent = snapshot.select_agent(None).unwrap();
+        let agent = snapshot.select_primary_agent(None).unwrap();
         let client = LlmClient::new(&ProxyConfig::Disabled).unwrap();
         let route = Route::openai_at(&format!("http://{address}/v1"), None);
         let runner_config = RunnerConfig {

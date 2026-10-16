@@ -163,8 +163,39 @@ fn purpose_map(
 }
 
 pub fn snapshot(project_root: &Path, code_root: &Path) -> ProjectKnowledge {
-    if !enabled(project_root) {
-        return ProjectKnowledge {
+    match snapshot_checked(project_root, code_root) {
+        Ok(knowledge) => knowledge,
+        Err(error) => ProjectKnowledge {
+            registry: AreaRegistry::default(),
+            version: 1,
+            enabled: true,
+            project_root: project_root.display().to_string(),
+            code_root: code_root.display().to_string(),
+            areas: Vec::new(),
+            memories: Vec::new(),
+            unassigned: Vec::new(),
+            warnings: vec![format!("项目知识读取失败：{error:#}")],
+        },
+    }
+}
+
+/// Context assembly needs an error result; the UI projection above keeps a visible warning.
+pub fn snapshot_checked(project_root: &Path, code_root: &Path) -> anyhow::Result<ProjectKnowledge> {
+    use anyhow::Context as _;
+    let path = project_root.join(".kanzei/project-knowledge.json");
+    let active = match std::fs::read(&path) {
+        Ok(raw) => {
+            serde_json::from_slice::<KnowledgeSettings>(&raw)
+                .with_context(|| format!("读取项目知识设置 {}", path.display()))?
+                .enabled
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(error).with_context(|| format!("读取项目知识设置 {}", path.display()))
+        }
+    };
+    if !active {
+        return Ok(ProjectKnowledge {
             registry: AreaRegistry::default(),
             version: 1,
             enabled: false,
@@ -174,26 +205,11 @@ pub fn snapshot(project_root: &Path, code_root: &Path) -> ProjectKnowledge {
             memories: Vec::new(),
             unassigned: Vec::new(),
             warnings: Vec::new(),
-        };
+        });
     }
-    let inputs = match collect_context_inputs(project_root, code_root) {
-        Ok(inputs) => inputs,
-        Err(error) => {
-            return ProjectKnowledge {
-                registry: AreaRegistry::default(),
-                version: 1,
-                enabled: true,
-                project_root: project_root.display().to_string(),
-                code_root: code_root.display().to_string(),
-                areas: Vec::new(),
-                memories: Vec::new(),
-                unassigned: Vec::new(),
-                warnings: vec![format!("项目知识读取失败：{error:#}")],
-            }
-        }
-    };
+    let inputs = collect_context_inputs(project_root, code_root)?;
     let purposes = purpose_map(code_root, &load_annotations(project_root), &inputs.registry);
-    project(&inputs, purposes, project_root, code_root)
+    Ok(project(&inputs, purposes, project_root, code_root))
 }
 
 fn project(

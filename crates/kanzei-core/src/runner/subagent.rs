@@ -624,6 +624,12 @@ async fn run_subagent_inner(
     let change_owner = parent_call_id.to_string();
     let mut on_event = |event: RunEvent| {
         match &event {
+            RunEvent::ContextSources { sources } => {
+                // Keep source diagnostics on the parent run's normal UI/trace channel.
+                let _ = progress.send(RunEvent::ContextSources {
+                    sources: sources.clone(),
+                });
+            }
             RunEvent::AssistantMessageCommitted { message, .. }
             | RunEvent::ToolResultsCommitted { message, .. } => {
                 checkpoint.push(message.clone());

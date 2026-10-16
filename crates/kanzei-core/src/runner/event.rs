@@ -138,7 +138,8 @@ pub enum RunEvent {
         id: String,
         name: String,
         ok: bool,
-        /// 机器可读终态:success|noop|needs_correction|needs_confirmation|failed。
+        /// 机器可读终态由 [`kanzei_harness::ToolOutcome::as_str`] 定义，
+        /// 包含 `blocked_by_workflow`；共享 `ToolOutcome::ALL` 校验事件与持久化词汇。
         outcome: String,
         /// 稳定错误码；文案变化不应影响恢复策略、指标或 UI 分类。
         code: Option<String>,
@@ -195,6 +196,11 @@ pub enum RunEvent {
         attempt: u32,
         max: u32,
         delay_ms: u128,
+    },
+    /// Source reads, including legitimate empty sources and visible failures.
+    /// Required failures are emitted before the run refuses context assembly.
+    ContextSources {
+        sources: Vec<kanzei_harness::ContextSourceReport>,
     },
     /// 轮内主动压缩:到达上下文预算线,就地裁剪历史(D-176)。
     /// 与撞墙后的被动恢复区分开——这条是"没撞墙就先让了路"。
@@ -532,6 +538,36 @@ mod tool_end_content_tests {
     use super::{ui_tool_content, RunEvent, TOOL_END_UI_CONTENT_MAX};
     use kanzei_harness::{ToolArtifact, ToolOutput};
     use serde_json::json;
+
+    #[test]
+    fn tool_end_outcomes_share_the_persisted_header_vocabulary() {
+        use kanzei_harness::ToolOutcome;
+        for outcome in ToolOutcome::ALL {
+            let mut output = ToolOutput::ok("original");
+            output.outcome = outcome;
+            output.is_error = outcome != ToolOutcome::Success;
+            let RunEvent::ToolEnd {
+                outcome: emitted,
+                ok,
+                ..
+            } = RunEvent::tool_end("call".into(), "tool".into(), &output)
+            else {
+                panic!("expected ToolEnd");
+            };
+            assert_eq!(emitted, outcome.as_str());
+            assert_eq!(ok, !output.is_error);
+            assert_eq!(
+                ToolOutcome::from_model_content(&format!("[tool_outcome={emitted}]")),
+                Some(outcome)
+            );
+            if outcome.is_expected_rejection() {
+                assert_eq!(
+                    ToolOutcome::from_model_content(&output.model_content()),
+                    Some(outcome)
+                );
+            }
+        }
+    }
 
     /// 多字节正文按字符边界截断:切在「汉」(3 字节)中间会 panic 或产出乱码。
     #[test]

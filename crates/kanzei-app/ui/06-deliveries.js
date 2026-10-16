@@ -73,6 +73,8 @@ export function decorateDeliveredReply(body) {
     link.type = "button"; link.className = "delivery-inline"; link.textContent = part.textContent;
     link.prepend(resourceIcon(row.path));
     link.dataset.path = row.path; link.title = row.path;
+    link.dataset.projectDir = row.project_dir;
+    if (row.process_id) link.dataset.processId = row.process_id;
     link.addEventListener("click", () => {
       const card = message.querySelectorAll(".file-card");
       const target = [...card].find(card => key(card.dataset.path) === key(row.path));

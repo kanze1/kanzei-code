@@ -840,6 +840,13 @@ pub(crate) fn build_event_handler(
                 }
                 Ok(())
             }
+            RunEvent::ContextSources { sources } => {
+                trace.record(json!({"kind": "context.sources", "sources": sources, "at": now_ms()}));
+                let failures = sources.iter().filter_map(|source| source.failure_message()).collect::<Vec<_>>();
+                if failures.is_empty() { Ok(()) } else {
+                    ui.emit("kz:status", json!({"stage": "上下文", "detail": failures.join("\n")}))
+                }
+            }
             // 轮内主动压缩:UI 要看得见"什么时候让的路、让掉了多少",
             // 否则历史突然变短只会被当成 bug(D-176)。
             RunEvent::ContextCompacted {
@@ -1309,6 +1316,111 @@ mod tests {
         drop(store);
         drop(sink);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn context_sources_reach_session_status_and_durable_trace() {
+        use kanzei_harness::{ContextRequirement, ContextSourceReport, ContextSourceStatus};
+        let root = std::env::temp_dir().join(format!(
+            "kz-context-sink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.db");
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .create_session("source-session", root.to_str().unwrap(), None)
+            .unwrap();
+        let writer = Arc::new(Mutex::new(kanzei_core::TypedSessionWriter::new(
+            &path,
+            "source-session",
+            "source-run",
+        )));
+        let live = Arc::new(Mutex::new(LiveRun::default()));
+        live.lock()
+            .unwrap()
+            .begin("source-run", "input", "test", "provider", "model");
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let emitted = events.clone();
+        // This is the same session binding used by coordinator's AppEvents closure.
+        let ui = UiEventSink::new(
+            move |name, payload| {
+                emitted.lock().unwrap().push((
+                    name.to_owned(),
+                    crate::with_session_id(payload, "source-session"),
+                ));
+                Ok(())
+            },
+            "source-session".into(),
+            "source-run".into(),
+        );
+        let mut handler = build_event_handler(
+            ui,
+            TypedEventSink::new(writer.clone()),
+            TraceSink::new(
+                live,
+                path.clone(),
+                "source-session".into(),
+                "source-run".into(),
+            ),
+            mk_metrics_sink().0,
+        );
+        for requirement in [ContextRequirement::Optional, ContextRequirement::Required] {
+            handler(RunEvent::ContextSources {
+                sources: vec![ContextSourceReport {
+                    key: "dev/decisions".into(),
+                    requirement,
+                    refresh_each_step: false,
+                    status: ContextSourceStatus::Failed,
+                    chars: 0,
+                    bytes: 0,
+                    error: Some("decisions.md: invalid UTF-8".into()),
+                }],
+            });
+        }
+        let captured = events.lock().unwrap();
+        let statuses = captured
+            .iter()
+            .filter(|(name, _)| name == "kz:status")
+            .map(|(_, payload)| payload)
+            .collect::<Vec<_>>();
+        assert_eq!(statuses.len(), 2);
+        for status in &statuses {
+            assert_eq!(status["sessionId"], "source-session");
+            assert_eq!(status["stage"], "上下文");
+            assert!(status["detail"].as_str().unwrap().contains("dev/decisions"));
+            assert!(status["detail"].as_str().unwrap().contains("invalid UTF-8"));
+        }
+        assert!(statuses[0]["detail"].as_str().unwrap().contains("继续运行"));
+        assert!(statuses[1]["detail"].as_str().unwrap().contains("已停止"));
+        assert_eq!(
+            captured
+                .iter()
+                .filter(|(name, _)| name == "kz:experience")
+                .count(),
+            2
+        );
+        drop(captured);
+        let traces = store
+            .list_events_by_type("source-session", 0, "run.trace")
+            .unwrap();
+        assert_eq!(traces.len(), 2);
+        for trace in traces {
+            assert_eq!(trace.payload["run_id"], "source-run");
+            let event = &trace.payload["events"][0];
+            assert_eq!(event["kind"], "context.sources");
+            assert_eq!(event["sources"][0]["key"], "dev/decisions");
+            assert_eq!(event["sources"][0]["status"], "failed");
+            assert_eq!(event["sources"][0]["error"], "decisions.md: invalid UTF-8");
+        }
+        drop(handler);
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn mk_metrics_sink() -> (

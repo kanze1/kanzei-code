@@ -3,13 +3,13 @@
 //! 运行时 Agent 仍由 Harness 解析；本模块只把同一套全局/项目 Markdown 来源与
 //! 内建注册表投影给设置页，并把配置错误显式呈现，不提供编辑或启停旁路。
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
 use kanzei_harness::defs::{effective_agent_steps, AgentMode, ProfileKind, ProfileScope};
 use kanzei_harness::markdown::parse_frontmatter;
+use kanzei_harness::registry::RegistrationReport;
 use kanzei_harness::{AgentDef, KanzeiConfig, ResolveCtx};
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,6 +25,7 @@ pub(crate) struct AgentDirectoryEntry {
     pub(crate) status: String,
     pub(crate) system_preview: String,
     pub(crate) error: Option<String>,
+    pub(crate) registration: Option<RegistrationReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,12 +33,6 @@ pub(crate) struct AgentDirectoryEntry {
 pub(crate) struct AgentDirectoryResponse {
     pub(crate) profile: String,
     pub(crate) agents: Vec<AgentDirectoryEntry>,
-}
-
-struct FileAgent {
-    name: String,
-    entry: AgentDirectoryEntry,
-    scope: Option<ProfileScope>,
 }
 
 #[tauri::command]
@@ -63,7 +58,7 @@ pub(crate) fn agent_directory_get(
         .parse()
         .map_err(|e: String| format!("Agent 目录档位无效: {e}"))?;
 
-    let mut files = BTreeMap::<String, FileAgent>::new();
+    let mut files = Vec::new();
     if let Some(home) = kanzei_harness::kanzei_home() {
         scan_agent_files(&home.join("agents"), "global", &mut files);
     }
@@ -83,33 +78,46 @@ pub(crate) fn agent_directory_get(
     let snapshot = harness
         .resolve(&ctx)
         .map_err(|e| format!("解析内建 Agent 失败: {e}"))?;
-    for (_, agent) in snapshot.agents().iter() {
-        files
-            .entry(agent.name.clone())
-            .or_insert_with(|| FileAgent {
-                name: agent.name.clone(),
-                scope: Some(ProfileScope::All),
-                entry: builtin_entry(agent, profile_kind),
-            });
-    }
-
-    let agents = files
-        .into_values()
-        .map(|mut file| {
-            if file.entry.status == "available" {
-                if let Some(scope) = file.scope {
-                    if !scope.includes(profile_kind) {
-                        file.entry.status = "hidden".into();
-                    }
-                }
-            }
-            file.entry
-        })
-        .collect();
+    let agents = directory_entries(&snapshot, files, &project_root);
     Ok(AgentDirectoryResponse {
         profile: profile_name,
         agents,
     })
+}
+
+fn directory_entries(
+    snapshot: &kanzei_harness::HarnessSnapshot,
+    files: Vec<AgentDirectoryEntry>,
+    project_root: &Path,
+) -> Vec<AgentDirectoryEntry> {
+    let registrations = snapshot.registry_report().agents;
+    let project_agents = project_root.join(".kanzei/agents");
+    let mut entries: Vec<_> = snapshot
+        .agents()
+        .iter()
+        .map(|(name, agent)| {
+            let mut entry = builtin_entry(agent, snapshot.profile());
+            entry.registration = registrations.iter().find(|item| item.name == name).cloned();
+            if let Some(path) = entry
+                .registration
+                .as_ref()
+                .and_then(|item| item.winner.path.as_ref())
+            {
+                entry.source = if path.starts_with(&project_agents) {
+                    "project"
+                } else {
+                    "global"
+                }
+                .into();
+                entry.path = Some(path.display().to_string());
+            }
+            entry
+        })
+        .collect();
+    // 无效文件未进入运行注册表,单独显示诊断,不能冒充同名实际胜者。
+    entries.extend(files.into_iter().filter(|entry| entry.error.is_some()));
+    entries.sort_by(|left, right| left.name.cmp(&right.name).then(left.path.cmp(&right.path)));
+    entries
 }
 
 #[tauri::command]
@@ -147,7 +155,7 @@ pub(crate) fn agent_directory_open(
     Ok(())
 }
 
-fn scan_agent_files(dir: &Path, source: &str, output: &mut BTreeMap<String, FileAgent>) {
+fn scan_agent_files(dir: &Path, source: &str, output: &mut Vec<AgentDirectoryEntry>) {
     let Ok(read) = std::fs::read_dir(dir) else {
         return;
     };
@@ -161,11 +169,11 @@ fn scan_agent_files(dir: &Path, source: &str, output: &mut BTreeMap<String, File
         let Some(file) = parse_agent_file(&path, source) else {
             continue;
         };
-        output.insert(file.name.clone(), file);
+        output.push(file);
     }
 }
 
-fn parse_agent_file(path: &Path, source: &str) -> Option<FileAgent> {
+fn parse_agent_file(path: &Path, source: &str) -> Option<AgentDirectoryEntry> {
     let text = std::fs::read_to_string(path).ok()?;
     let frontmatter = parse_frontmatter(&text);
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("agent");
@@ -194,25 +202,22 @@ fn parse_agent_file(path: &Path, source: &str) -> Option<FileAgent> {
         errors.push(format!("steps `{steps_raw}` 不是非负整数"));
     }
     let error = (!errors.is_empty()).then(|| errors.join("; "));
-    Some(FileAgent {
-        name: name.clone(),
-        scope,
-        entry: AgentDirectoryEntry {
-            name,
-            source: source.into(),
-            path: Some(path.display().to_string()),
-            profile: scope_label(scope, profile_raw),
-            mode: mode_label(mode, mode_raw),
-            model,
-            steps,
-            status: if error.is_some() {
-                "configurationError".into()
-            } else {
-                "available".into()
-            },
-            system_preview: preview(&frontmatter.body),
-            error,
+    Some(AgentDirectoryEntry {
+        name,
+        source: source.into(),
+        path: Some(path.display().to_string()),
+        profile: scope_label(scope, profile_raw),
+        mode: mode_label(mode, mode_raw),
+        model,
+        steps,
+        status: if error.is_some() {
+            "configurationError".into()
+        } else {
+            "available".into()
         },
+        system_preview: preview(&frontmatter.body),
+        error,
+        registration: None,
     })
 }
 
@@ -232,6 +237,7 @@ fn builtin_entry(agent: &AgentDef, profile: ProfileKind) -> AgentDirectoryEntry 
         },
         system_preview: preview(&agent.system),
         error: None,
+        registration: None,
     }
 }
 
@@ -282,8 +288,8 @@ mod tests {
         )
         .unwrap();
         let entry = parse_agent_file(&path, "project").unwrap();
-        assert_eq!(entry.entry.status, "configurationError");
-        assert!(entry.entry.error.unwrap().contains("profile"));
+        assert_eq!(entry.status, "configurationError");
+        assert!(entry.error.unwrap().contains("profile"));
         let _ = std::fs::remove_file(path);
     }
 
@@ -292,6 +298,79 @@ mod tests {
         let value = preview(&"x".repeat(601));
         assert_eq!(value.chars().count(), 601);
         assert!(value.ends_with('…'));
+    }
+
+    #[test]
+    fn directory_uses_registered_winner_and_keeps_invalid_override_visible() {
+        struct Definitions;
+        impl kanzei_harness::Component for Definitions {
+            fn contribute(
+                &self,
+                draft: &mut kanzei_harness::HarnessDraft,
+                ctx: &ResolveCtx,
+            ) -> anyhow::Result<()> {
+                let definition = |system: &str| AgentDef {
+                    name: "custom".into(),
+                    profile: ProfileScope::Dev,
+                    mode: AgentMode::Primary,
+                    model: "primary".into(),
+                    steps: 0,
+                    system: system.into(),
+                };
+                draft.agents.insert("custom", definition("builtin"));
+                draft.agents.insert_at(
+                    "custom",
+                    definition("global"),
+                    ctx.project_root.join("global/agents/custom.md"),
+                );
+                draft.agents.insert_at(
+                    "custom",
+                    definition("project"),
+                    ctx.project_root.join(".kanzei/agents/custom.md"),
+                );
+                Ok(())
+            }
+        }
+        let root = PathBuf::from("C:/agent-directory-winner-fixture");
+        let mut harness = kanzei_harness::Harness::default();
+        harness.add(Definitions);
+        let snapshot = harness
+            .resolve(&ResolveCtx {
+                profile: ProfileKind::Dev,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: std::sync::Arc::new(KanzeiConfig::default()),
+            })
+            .unwrap();
+        let mut invalid = builtin_entry(
+            snapshot.select_primary_agent(Some("custom")).unwrap(),
+            ProfileKind::Dev,
+        );
+        invalid.status = "configurationError".into();
+        invalid.error = Some("mode `invalid` 无效".into());
+        invalid.path = Some(
+            root.join(".kanzei/agents/z-invalid.md")
+                .display()
+                .to_string(),
+        );
+        invalid.system_preview = "invalid replacement".into();
+        let entries = directory_entries(&snapshot, vec![invalid], &root);
+        assert_eq!(entries.len(), 2);
+        let effective = entries
+            .iter()
+            .find(|entry| entry.status == "available")
+            .unwrap();
+        assert_eq!(effective.source, "project");
+        assert_eq!(effective.system_preview, "project");
+        assert_eq!(
+            effective.path,
+            Some(root.join(".kanzei/agents/custom.md").display().to_string())
+        );
+        assert_eq!(effective.registration.as_ref().unwrap().replaced.len(), 2);
+        assert!(entries
+            .iter()
+            .any(|entry| entry.status == "configurationError"
+                && entry.system_preview == "invalid replacement"));
     }
 
     #[test]
@@ -312,8 +391,8 @@ mod tests {
             )
             .unwrap();
             let file = parse_agent_file(&path, "project").unwrap();
-            assert_eq!(file.entry.steps, expected);
-            assert_eq!(file.entry.status, "available");
+            assert_eq!(file.steps, expected);
+            assert_eq!(file.status, "available");
         }
         std::fs::remove_file(path).unwrap();
     }

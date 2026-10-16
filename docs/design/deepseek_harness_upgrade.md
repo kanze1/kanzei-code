@@ -34,7 +34,7 @@ Kanzei 已经有 SQLite `session_events`、会话快照、运行轨迹、上下�
 - 从相同事件序列生成模型 surface、对话 transcript、活动 trace 和长期记忆 provenance。
 - 在崩溃后恢复已发生事实，并把未完成动作明确闭合为 `interrupted`。
 - 让 Compaction 只替换模型 surface，不改写原始事实。
-- 为 Tool Pipeline 和 LineRuntime 建立固定的阶段与 owner 契约。
+- 明确工具权限、输入 Guard、执行包装各自的职责，并为 LineRuntime 建立 owner 契约。
 - 完整保存需要外置的大工具结果，并提供可见、可控的空间治理。
 
 ### 非目标
@@ -206,27 +206,23 @@ compaction_started
 
 ## Tool Pipeline
 
-固定阶段为：
+2026-10-17 合同修订：本模块提供可选输入 Guard 与运行器共享的执行辅助函数，不再宣称所有工具通过同一套七阶段流水线。原计划中的 `ToolPhase`、`ToolResultPolicy`、`ToolObserver` 没有生产消费者，已移除；结果不会经过可修改 `outcome` / `is_error` 的策略链。
 
 ```text
-parse/materialize
-→ policy allow/deny/ask
-→ monotonic guards
-→ execution wrappers
-→ tool body
-→ result policies
-→ immutable observers
+core permission gate → core wrap_execute → Tool::execute
+                                          ├─ 工具自己解析输入
+                                          └─ 可选 guarded_execute：guards → body
 ```
 
-现有能力按以下方式迁入而非重写：
+- `core/runner/drive/permissions.rs` 负责 Ruleset / hard deny / Ask / 会话审批；串行与并行共享权限决策计划。
+- `wrap_execute` 是 runner 串行与并行共用的 progress scope、执行前取消检查和 panic 分类边界；执行中的取消由 runner 的 select 循环负责。
+- `guarded_execute` 按顺序检查 Guard，遇到 `ControlFlow::Break(ToolOutput)` 原样返回并不执行 body；全部放行时只执行一次 body，原样返回其结果。Guard 本身携带已解析输入所需的事实。
+- bash 的权限资源与执行入口都按 `BashInput` 解码命令和工作目录，`command` / `cmd` / `script` 使用同一语义；入口将解析后的 UTF-16 长度交给 `CommandLengthGuard`。超长命令返回 `NeedsCorrection` 与稳定码 `COMMAND_TOO_LONG`，继续按 error 回喂模型，但不算权限拒绝或运行故障。非法输入保持未知权限资源，执行入口返回 `INVALID_TOOL_INPUT`，不会进入命令本体。
+- git/read/glob/grep 没有自己的 Guard，直接执行既有 body；不保留全空 wrapper 或无用的 input/context 克隆。
+- managed fence、后台进程善后、超时业务处理仍归工具实现；`with_timeout` 仅提供通用计时机制。
+- Recall、去冗余、Spill、ToolEnd、metrics 与遥测继续归 core 的真实调用点，不由本模块提供扩展保证。
 
-- Ruleset 普通规则进入 Policy；
-- `hard_denies`、托管文件、writer ownership 进入 Monotonic Guard；
-- timeout、progress、managed fence、cancellation 进入 Wrapper；
-- recall、去冗余、preview、redaction、Spill 进入 Result Policy；
-- UI、trace、metrics、memory telemetry 进入 Observer。
-
-Observer 不得修改已经形成的工具事实；任何 allow 也不能覆盖 Guard deny。
+回归契约覆盖 Guard 拒绝后不执行 body、body 只执行一次且结果字段不变，以及真实串行/并行 runner 的长度拒绝结果、模型回喂、失败指标、遥测和 Recall 路径。运行成功/失败分类以共享 `ToolOutcome` 为准，provider 的 `is_error` 保留独立语义。
 
 ## Tool Result Spill 与整理入口
 

@@ -2785,6 +2785,7 @@ async fn role_memory_persists_and_stale_writers_cannot_overwrite_it() {
     assert!(current.content.contains("baseline evidence"));
     assert!(snapshot
         .refreshable_system_baseline_with_report()
+        .unwrap()
         .0
         .contains("baseline evidence"));
     let value: Value = serde_json::from_str(&current.content).unwrap();

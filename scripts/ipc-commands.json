@@ -1430,6 +1430,10 @@
   "open_with": {
     "host": "desktop",
     "parameters": {
+      "path": {
+        "required": false,
+        "type": "Option < String >"
+      },
       "processId": {
         "required": false,
         "type": "Option < String >"
@@ -2420,6 +2424,10 @@
   "reveal_path": {
     "host": "desktop",
     "parameters": {
+      "path": {
+        "required": false,
+        "type": "Option < String >"
+      },
       "processId": {
         "required": false,
         "type": "Option < String >"
@@ -2846,8 +2854,8 @@
         "type": "Option < String >"
       },
       "projectDir": {
-        "required": false,
-        "type": "Option < String >"
+        "required": true,
+        "type": "String"
       }
     },
     "path": "commands::run::stop_run",

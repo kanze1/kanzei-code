@@ -60,19 +60,19 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
   const pathLink = markdown.renderMarkdown("[05-chat-render.js:531](crates/kanzei-app/ui/05-chat-render.js:531)");
   assert.equal(
     pathLink,
-    '<p><a class="md-path" data-path="crates/kanzei-app/ui/05-chat-render.js" data-line="531" title="crates/kanzei-app/ui/05-chat-render.js:531">05-chat-render.js:531</a></p>',
+    '<p><a class="md-path" role="link" tabindex="0" data-path="crates/kanzei-app/ui/05-chat-render.js" data-line="531" title="crates/kanzei-app/ui/05-chat-render.js:531">05-chat-render.js:531</a></p>',
     "相对路径链接未渲染成 a.md-path(或带了 href)",
   );
   assert.doesNotMatch(pathLink, /href=/, "路径链接不得带 href(交给 structuredNav,不让 WebView 自己导航)");
   // XSS:危险协议仍不产生 href;带引号的路径目标不产生属性注入;盘符路径可用。
   const xss = markdown.renderMarkdown('[x](javascript:alert(1)) [y](a/b.rs"onmouseover=1) [z](a/b.rs" onmouseover=1) [w](vbscript:x.md)');
   assert.doesNotMatch(xss, /href=|onmouseover="|data-path="a\/b\.rs"|<a class="md-path"/, `路径链接 XSS 回归:${xss}`);
-  assert.match(markdown.renderMarkdown("[f](C:/p/x.rs:3-9)"), /<a class="md-path" data-path="C:\/p\/x\.rs" data-line="3" title="C:\/p\/x\.rs:3-9">f<\/a>/, "盘符路径链接未识别");
+  assert.match(markdown.renderMarkdown("[f](C:/p/x.rs:3-9)"), /<a class="md-path" role="link" tabindex="0" data-path="C:\/p\/x\.rs" data-line="3" title="C:\/p\/x\.rs:3-9">f<\/a>/, "盘符路径链接未识别");
   assert.equal(safeMarkdownPath("#anchor"), null, "锚点链接不是路径");
   assert.equal(safeMarkdownPath("mailto:x@y.z"), null, "mailto 不是路径");
   // 链接文字里的行内码是嵌套占位符(架构索引就是这种写法):不能把 `md-0` 漏到界面上。
   const codeLabel = markdown.renderMarkdown("- [`memory_control_plane.md`](../../../docs/design/memory_control_plane.md):基线。 [`kz`](https://x.com/kz)");
-  assert.match(codeLabel, /<a class="md-path" data-path="\.\.\/\.\.\/\.\.\/docs\/design\/memory_control_plane\.md"[^>]*><code>memory_control_plane\.md<\/code><\/a>/, `链接文字里的行内码未展开:${codeLabel}`);
+  assert.match(codeLabel, /<a class="md-path" role="link" tabindex="0" data-path="\.\.\/\.\.\/\.\.\/docs\/design\/memory_control_plane\.md"[^>]*><code>memory_control_plane\.md<\/code><\/a>/, `链接文字里的行内码未展开:${codeLabel}`);
   assert.match(codeLabel, /<a href="https:\/\/x\.com\/kz"[^>]*><code>kz<\/code><\/a>/, "外链文字里的行内码未展开");
   assert.doesNotMatch(codeLabel, /\u0000|md-\d/, "占位符漏到了渲染结果里");
 }

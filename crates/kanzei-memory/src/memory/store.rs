@@ -157,7 +157,15 @@ impl MemoryStore {
             MemoryScope::Project,
             super::project_memory_root(project_root),
         );
-        store.migrate_legacy(project_root);
+        // 保持路径句柄构造的兼容接口;迁移失败必须显式诊断,原始来源仍保留供重入。
+        if let Err(error) = store.migrate_legacy(project_root) {
+            tracing::error!(
+                project_root = %project_root.display(),
+                legacy_path = %project_root.join(".kanzei/project/memory.md").display(),
+                error = %format!("{error:#}"),
+                "旧记忆迁移未完成；源文件已保留，下次打开会重新检查"
+            );
+        }
         MemoryStore {
             scope: store.scope,
             root: store.root,
@@ -284,7 +292,7 @@ impl MemoryStore {
         }
         // 语义探测下沉:Uncertain(有 FTS 命中但非精确)即拒并返回候选(force 跳过)。
         if !force {
-            let (novelty, candidates) = self.classify_novelty(title, description, body);
+            let (novelty, candidates) = self.classify_novelty(title, description, body)?;
             if novelty == Novelty::Uncertain {
                 let cand: Vec<MemoryEntry> = candidates.into_iter().collect();
                 if !cand.is_empty() {
@@ -964,9 +972,27 @@ impl MemoryStore {
         Ok(entries)
     }
 
-    fn index_source_entries(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+    pub(super) fn index_source_entries(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+        Self::source_entries_in(&self.root)
+    }
+
+    /// Strict source read for context assembly; an inaccessible memory is not an empty memory.
+    pub fn load_all_checked(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+        let mut entries = self.index_source_entries()?;
+        entries.sort_by(|a, b| a.1.id.cmp(&b.1.id));
+        Ok(entries)
+    }
+
+    /// 迁移恢复必须包含归档,并传播读取错误,不能把读失败当成“目标还没有”。
+    pub(super) fn migration_entries(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
+        let mut entries = Self::source_entries_in(&self.root)?;
+        entries.extend(Self::source_entries_in(&self.archive_dir())?);
+        Ok(entries)
+    }
+
+    fn source_entries_in(root: &Path) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
         let mut entries = Vec::new();
-        let directory = match std::fs::read_dir(&self.root) {
+        let directory = match std::fs::read_dir(root) {
             Ok(directory) => directory,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(entries),
             Err(error) => return Err(error.into()),
@@ -1796,10 +1822,14 @@ mod tests {
             )
             .unwrap();
         // 明显重复:规范化标题精确命中 active 记忆。
-        let (dup, _) = store.classify_novelty("GH 网络代理", "push 前必读", "");
+        let (dup, _) = store
+            .classify_novelty("GH 网络代理", "push 前必读", "")
+            .unwrap();
         assert_eq!(dup, Novelty::Duplicate, "规范化标题应命中 active 记忆");
         // 明显新:无重叠词。
-        let (fresh, _) = store.classify_novelty("diff 树渲染优化", "R-133 diff 渲染", "");
+        let (fresh, _) = store
+            .classify_novelty("diff 树渲染优化", "R-133 diff 渲染", "")
+            .unwrap();
         assert_eq!(fresh, Novelty::New, "无关主题应判明显新");
         // 不确定:有语义命中且标题高度重合——先建一条长标题条目,再 classify 一个
         // 共享 ≥8 token 的改写标题(R-216 口径:共享 token ≥8 且比例 ≥0.55)。
@@ -1817,11 +1847,13 @@ mod tests {
             )
             .unwrap();
         // 英文改写(调序+换词,共享全部 8+ token):R-216 验收①「英文改写 M-044 被拦」。
-        let (uncertain, candidates) = store.classify_novelty(
-            "verification and secure connection of github network proxy configuring",
-            "HTTPS_PROXY 与代理地址",
-            "",
-        );
+        let (uncertain, candidates) = store
+            .classify_novelty(
+                "verification and secure connection of github network proxy configuring",
+                "HTTPS_PROXY 与代理地址",
+                "",
+            )
+            .unwrap();
         assert_eq!(
             uncertain,
             Novelty::Uncertain,

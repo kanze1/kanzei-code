@@ -698,7 +698,7 @@ mod tests {
         let snapshot = harness.resolve(&ctx).unwrap();
 
         // 只有当前线在跑:动态源不注入任何占位噪音。
-        assert!(snapshot.system_baseline().is_empty());
+        assert!(snapshot.system_baseline().unwrap().is_empty());
         other_runtime.running.store(true, Ordering::SeqCst);
         std::fs::write(root.join("first.rs"), "first\n").unwrap();
         let all = probe.all_lines();
@@ -718,7 +718,10 @@ mod tests {
             ),
             (3, 1200, 300)
         );
-        let first = snapshot.refreshable_system_baseline_with_report().0;
+        let first = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         assert!(
             first.contains("R-184"),
             "认领条目必须来自 tracker 取得线:{first}"
@@ -726,12 +729,19 @@ mod tests {
         assert!(first.contains("kanzei/thread-r184"), "{first}");
         assert!(first.contains("first.rs"), "{first}");
         assert!(
-            snapshot.stable_system_baseline_with_report().0.is_empty(),
+            snapshot
+                .stable_system_baseline_with_report()
+                .unwrap()
+                .0
+                .is_empty(),
             "协作块不得落进稳定 baseline 后逐轮累积"
         );
 
         std::fs::write(root.join("second.rs"), "second\n").unwrap();
-        let refreshed = snapshot.refreshable_system_baseline_with_report().0;
+        let refreshed = snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0;
         assert!(refreshed.contains("first.rs") && refreshed.contains("second.rs"));
         assert_eq!(
             refreshed.matches("COLLABORATION").count(),

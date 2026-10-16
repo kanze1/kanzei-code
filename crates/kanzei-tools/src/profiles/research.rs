@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -252,24 +253,32 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
     }
 }
 
-fn research_topics(project_root: &Path) -> Vec<String> {
+fn research_topics(project_root: &Path) -> anyhow::Result<Vec<String>> {
     let research_root = project_root.join(".kanzei/research");
-    let mut topics = std::fs::read_dir(research_root)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .filter_map(|entry| {
-            let file_type = entry.file_type().ok()?;
-            if !file_type.is_dir() {
-                return None;
-            }
-            let topic = entry.file_name().into_string().ok()?;
-            DocStore::validate_topic(&topic).ok()?;
-            Some(topic)
-        })
-        .collect::<Vec<_>>();
+    let entries = match std::fs::read_dir(&research_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("读取研究目录 {}", research_root.display()))
+        }
+    };
+    let mut topics = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        // Only validated topic names belong to this index; other directories are assets.
+        if let Some(topic) = entry
+            .file_name()
+            .to_str()
+            .filter(|topic| DocStore::validate_topic(topic).is_ok())
+        {
+            topics.push(topic.to_string());
+        }
+    }
     topics.sort();
-    topics
+    Ok(topics)
 }
 
 /// Source/Finding 已按 topic 分目录写入，研究上下文必须把 topic 真源与迁移前的
@@ -279,29 +288,31 @@ fn research_index_of(
     ctx: &ResolveCtx,
     kind: &'static crate::docstore::DocKind,
     label: &str,
-) -> Option<String> {
+) -> anyhow::Result<Option<String>> {
     const INDEX_LIMIT: usize = 500;
     let mut stores = vec![(
         "legacy-flat".to_string(),
         DocStore::open(&ctx.project_root, kind),
     )];
-    for topic in research_topics(&ctx.project_root) {
-        if let Ok(store) = DocStore::open_topic(&ctx.project_root, kind, &topic) {
-            stores.push((topic, store));
-        }
+    for topic in research_topics(&ctx.project_root)? {
+        let store = DocStore::open_topic(&ctx.project_root, kind, &topic)?;
+        stores.push((topic, store));
     }
 
     let mut open = Vec::new();
     let mut closed = 0usize;
     for (scope, store) in stores {
-        let Ok(entries) = store.load() else {
-            continue;
-        };
+        let entries = store
+            .load()
+            .with_context(|| format!("读取 {label} [{scope}]"))?;
         closed += entries
             .iter()
             .filter(|entry| kind.terminal.contains(&entry.status.as_str()))
             .count();
-        closed += store.load_archive().map_or(0, |archive| archive.len());
+        closed += store
+            .load_archive()
+            .with_context(|| format!("读取 {label} [{scope}] 归档"))?
+            .len();
         open.extend(
             entries
                 .into_iter()
@@ -310,7 +321,7 @@ fn research_index_of(
         );
     }
     if open.is_empty() && closed == 0 {
-        return None;
+        return Ok(None);
     }
 
     let mut lines = open
@@ -330,11 +341,11 @@ fn research_index_of(
             folded.join(", ")
         ));
     }
-    Some(format!(
+    Ok(Some(format!(
         "{label} ({} open, {closed} closed; topic + legacy-flat):\n{}",
         open.len(),
         lines.join("\n")
-    ))
+    )))
 }
 
 /// 文档索引:非终态条目一行一个,预算封顶。
@@ -342,22 +353,26 @@ pub(crate) fn index_of(
     ctx: &ResolveCtx,
     kind: &'static crate::docstore::DocKind,
     label: &str,
-) -> Option<String> {
+) -> anyhow::Result<Option<String>> {
     if matches!(kind.prefix, "S" | "F") {
         return research_index_of(ctx, kind, label);
     }
     const INDEX_LIMIT: usize = 500;
     let store = DocStore::open(&ctx.project_root, kind);
-    let entries = store.load().ok()?;
+    let entries = store.load().with_context(|| format!("读取 {label}"))?;
     if entries.is_empty() {
-        return None;
+        return Ok(None);
     }
     let open: Vec<&crate::docstore::Entry> = entries
         .iter()
         .filter(|e| !kind.terminal.contains(&e.status.as_str()))
         .collect();
     // 已完成的会被移入归档文件,closed 计数要把两处都算上。
-    let closed = entries.len() - open.len() + store.load_archive().map_or(0, |a| a.len());
+    let closed = entries.len() - open.len()
+        + store
+            .load_archive()
+            .with_context(|| format!("读取 {label} 归档"))?
+            .len();
     let mut lines: Vec<String> = open
         .iter()
         .take(INDEX_LIMIT)
@@ -383,11 +398,11 @@ pub(crate) fn index_of(
             kind.rel_path
         ));
     }
-    Some(format!(
+    Ok(Some(format!(
         "{label} ({} open, {closed} closed):\n{}",
         open.len(),
         lines.join("\n")
-    ))
+    )))
 }
 
 #[cfg(test)]
@@ -441,7 +456,9 @@ mod tests {
             .save(&[entry("S-001", "topic source", "active")])
             .unwrap();
 
-        let first = index_of(&ctx(root.clone()), &SOURCES, "Sources").unwrap();
+        let first = index_of(&ctx(root.clone()), &SOURCES, "Sources")
+            .unwrap()
+            .unwrap();
         assert!(first.contains("flat legacy source"));
         assert!(first.contains("[r221-chain] S-001 [active] topic source"));
 
@@ -451,7 +468,9 @@ mod tests {
                 entry("S-002", "new same-session source", "active"),
             ])
             .unwrap();
-        let second = index_of(&ctx(root.clone()), &SOURCES, "Sources").unwrap();
+        let second = index_of(&ctx(root.clone()), &SOURCES, "Sources")
+            .unwrap()
+            .unwrap();
         assert!(second.contains("[r221-chain] S-002 [active] new same-session source"));
         std::fs::remove_dir_all(root).ok();
     }
@@ -463,7 +482,9 @@ mod tests {
         topic
             .save(&[entry("F-001", "topic finding", "draft")])
             .unwrap();
-        let index = index_of(&ctx(root.clone()), &FINDINGS, "Findings").unwrap();
+        let index = index_of(&ctx(root.clone()), &FINDINGS, "Findings")
+            .unwrap()
+            .unwrap();
         assert!(index.contains("[r221-chain] F-001 [draft] topic finding"));
         std::fs::remove_dir_all(root).ok();
     }

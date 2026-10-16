@@ -22,7 +22,8 @@ impl Component for MarkdownComponent {
             scan_agents(&base.join("agents"), draft);
         }
         for skill in crate::skills::enabled_catalog()? {
-            draft.skills.insert(skill.id.clone(), skill);
+            let path = skill.path.clone();
+            draft.skills.insert_at(skill.id.clone(), skill, path);
         }
         draft.tools.insert(
             "skill_read",
@@ -142,7 +143,7 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
                 continue;
             }
         };
-        draft.agents.insert(name, agent);
+        draft.agents.insert_at(name, agent, path);
     }
 }
 
@@ -443,6 +444,78 @@ mod tests {
         }
     }
 
+    #[test]
+    fn project_agent_override_reports_component_files_and_final_selection() {
+        struct AgentFiles(Vec<std::path::PathBuf>);
+        impl Component for AgentFiles {
+            fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {
+                draft.agents.insert(
+                    "overlay",
+                    agent_from_frontmatter("overlay".into(), parse_frontmatter("builtin prompt"))
+                        .unwrap(),
+                );
+                for directory in &self.0 {
+                    scan_agents(directory, draft);
+                }
+                Ok(())
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-agent-origins-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let global = root.join("global/agents");
+        let project = root.join("project/.kanzei/agents");
+        for (directory, prompt) in [(&global, "global prompt"), (&project, "project prompt")] {
+            std::fs::create_dir_all(directory).unwrap();
+            std::fs::write(
+                directory.join("overlay.md"),
+                format!("---\nname: overlay\nprofile: dev\nmode: primary\n---\n{prompt}"),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            project.join("z-invalid.md"),
+            "---\nname: overlay\nmode: invalid\n---\ninvalid replacement",
+        )
+        .unwrap();
+        let mut harness = Harness::default();
+        harness.add(AgentFiles(vec![global.clone(), project.clone()]));
+        let snapshot = harness
+            .resolve(&ResolveCtx {
+                profile: crate::ProfileKind::Dev,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: Arc::new(crate::KanzeiConfig::default()),
+            })
+            .unwrap();
+        assert_eq!(
+            snapshot
+                .select_primary_agent(Some("overlay"))
+                .unwrap()
+                .system,
+            "project prompt"
+        );
+        let report = snapshot.registry_report();
+        assert_eq!(report.agents.len(), 1);
+        let agent = &report.agents[0];
+        assert_eq!(agent.winner.path, Some(project.join("overlay.md")));
+        assert_eq!(agent.replaced.len(), 2);
+        assert_eq!(agent.replaced[0].path, None);
+        assert_eq!(agent.replaced[1].path, Some(global.join("overlay.md")));
+        for origin in agent.replaced.iter().chain(std::iter::once(&agent.winner)) {
+            assert_eq!(
+                origin.component.as_deref(),
+                Some(std::any::type_name::<AgentFiles>())
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// Windows 上文件多为 CRLF;正文不得被分隔符残留污染,更不得整体丢失(D-052)。
     #[test]
     fn crlf_与_lf_解析结果一致() {
@@ -528,7 +601,7 @@ mod tests {
 
         assert!(snapshot.skills().get("build").is_none());
         assert!(snapshot.skills().get("builtin:skill-creator").is_some());
-        let baseline = snapshot.system_baseline();
+        let baseline = snapshot.system_baseline().unwrap();
         assert!(!baseline.contains("可用命令") && !baseline.contains("release: 发布双通道"));
         assert!(
             baseline.contains("可用技能(skills)"),

@@ -234,7 +234,9 @@ pub(crate) async fn assemble_run(
         ));
     }
     let snapshot = harness.resolve(&rctx)?;
-    let mut agent = snapshot.select_agent(mode.agent_name.as_deref())?.clone();
+    let mut agent = snapshot
+        .select_primary_agent(mode.agent_name.as_deref())?
+        .clone();
     crate::skills::append_explicit_instructions(
         &mut agent.system,
         request
@@ -1661,7 +1663,7 @@ mod tests {
             config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
         };
         let snapshot = build_run_harness(false, None).resolve(&ctx).unwrap();
-        let agent = snapshot.select_agent(Some("readonly")).unwrap();
+        let agent = snapshot.select_primary_agent(Some("readonly")).unwrap();
         assert_eq!(agent.name, "readonly");
         assert_eq!(
             snapshot.evaluate("read", "*"),

@@ -100,24 +100,11 @@ impl Tool for GitTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        // R-244 批5:git 工具走统一 pipeline(guards/策略/观察者现阶段空,
-        // 权限判定在 drive 层;body = 原 execute 逻辑)。
-        let input2 = input.clone();
-        let ctx2 = ctx.clone();
-        kanzei_harness::tool_pipeline::run_tool_pipeline(
-            "git",
-            input,
-            ctx,
-            &[],
-            async move { git_body(self, &input2, &ctx2).await },
-            &[],
-            &[],
-        )
-        .await
+        git_body(self, &input, ctx).await
     }
 }
 
-/// R-244 批5:git 工具本体,供 pipeline body 调用。
+/// git 工具本体；权限和执行包装由 core runner 负责。
 async fn git_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
     let mut diagnostics = Vec::new();
     let output = git_body_with_diagnostics(tool, input, ctx, &mut diagnostics).await;

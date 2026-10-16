@@ -24,10 +24,11 @@ mod serial_tools;
 use serial_tools::{execute_serial_tool_calls, SerialToolRequest};
 mod parallel_tools;
 use parallel_tools::{
-    can_parallel_tool_calls, execute_parallel_tool_calls, ParallelPreflight, ParallelToolRequest,
+    execute_parallel_tool_calls, prepare_parallel_tool_calls, ParallelPreflight,
+    ParallelToolRequest,
 };
 mod assembly;
-use assembly::{assemble_run_once, RunOnceAssembly};
+use assembly::{assemble_run_once, observe_context_sources, update_source_ledger, RunOnceAssembly};
 mod context_budget;
 use context_budget::enforce_context_budget;
 mod halt;
@@ -126,7 +127,8 @@ pub fn run_once_with_parts<'a>(
             prior,
             initial_parts,
             subagent,
-        );
+            on_event,
+        )?;
         recall = recall.with_run_id(ctx.run_id.clone());
         // D-655:消息历史会在轮中被压缩/裁剪,不能再用 prior.len() 反推本轮。
         // 事件提交前复制本轮消息,作为不受结构性删短影响的统计真源。
@@ -231,7 +233,12 @@ pub fn run_once_with_parts<'a>(
             }
             // R-184:动态源只替换本步 system 段，不累积进 messages。
             if step > 1 {
-                refreshable_baseline = snapshot.refreshable_system_baseline_with_report().0;
+                let (baseline, sources) = observe_context_sources(
+                    snapshot.refreshable_system_baseline_with_report(),
+                    &mut on_event,
+                )?;
+                refreshable_baseline = baseline;
+                update_source_ledger(&mut context_report, &sources);
             }
             let mut system = stable_system.clone();
             if !refreshable_baseline.trim().is_empty() {
@@ -275,6 +282,7 @@ pub fn run_once_with_parts<'a>(
                 &system,
                 &specs,
                 route.kind,
+                &context_report,
                 &mut messages,
                 last_input_tokens,
                 last_estimated_tokens,
@@ -283,7 +291,7 @@ pub fn run_once_with_parts<'a>(
                 &mut overflow_traces,
                 &mut on_event,
             )
-            .await;
+            .await?;
 
             // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
             // 建流前和 HTTP 200 后 SSE 流内都可能报告 context overflow，必须走同一套
@@ -1220,7 +1228,7 @@ async fn execute_tool_calls(
     let serial_writer = config.execution_policy.is_serial_writer();
     // R-097 批一：权限询问仍按旧路径串行处理(R-086 承接询问路由)；当本批
     // 不需要新 ask 时，普通工具按显式并发契约切成确定性 wave 并发执行。
-    let can_parallel_tools = can_parallel_tool_calls(ParallelPreflight {
+    let parallel_plan = prepare_parallel_tool_calls(ParallelPreflight {
         ctx,
         snapshot,
         tools,
@@ -1232,13 +1240,14 @@ async fn execute_tool_calls(
     });
 
     // 并行 wave 与串行路径共用同一对齐约定；并行细节已迁移到 parallel_tools.rs。
-    let (results, pending_images) = if can_parallel_tools {
+    let (results, pending_images) = if let Some(plan) = parallel_plan {
         execute_parallel_tool_calls(ParallelToolRequest {
             config,
             ctx,
             snapshot,
             tools,
             calls,
+            plan,
             subagent,
             task_results,
             images_supported,

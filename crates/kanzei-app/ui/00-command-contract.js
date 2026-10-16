@@ -371,6 +371,7 @@ export const commandParameters = {
     "tools": true
   },
   "open_with": {
+    "path": false,
     "processId": false,
     "projectDir": true,
     "toolId": true
@@ -627,6 +628,7 @@ export const commandParameters = {
     "topic": true
   },
   "reveal_path": {
+    "path": false,
     "processId": false,
     "projectDir": true
   },
@@ -736,7 +738,7 @@ export const commandParameters = {
   "softwire_questions": {},
   "stop_run": {
     "processId": false,
-    "projectDir": false
+    "projectDir": true
   },
   "stop_task": {
     "processId": false,

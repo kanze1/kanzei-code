@@ -7,6 +7,7 @@
 //  - 拖动排序用 pointer 事件(不依赖 HTML5 拖放),只在同一个列表、同一个置顶分组内移动;
 //    不做跨项目拖会话(改成右键「交给其它项目的对话…」)。
 import { openMenu } from "./00-surface.js";
+import { openToolItems as toolItems } from "./12-open-tools.js";
 import { isGeneralChat } from "./03-general-scope.js";
 import { $, defer } from "./00-dom.js";
 import { confirmDialog, inputDialog } from "./00-dialogs.js";
@@ -80,22 +81,6 @@ async function toolsForMenu() {
     return toolsCache;
   }
   return Promise.race([loadOpenTools(), new Promise((resolve) => setTimeout(() => resolve([]), 700))]);
-}
-function toolItems(tools, run) {
-  const usable = tools.filter((tool) => tool.available !== false);
-  if (!usable.length) {
-    return [{
-      label: `${t("在设置里添加打开方式")}…`,
-      onSelect: () => {
-        navigate_view("settings");
-        document.dispatchEvent(new CustomEvent("kz:open-settings-section", { detail: { id: "sg-open-tools" } }));
-      },
-    }];
-  }
-  return usable.map((tool) => ({
-    label: fillTemplate(t("用 {tool} 打开"), { tool: tool.builtin ? t(tool.label) : tool.label || tool.id }),
-    onSelect: () => run(tool),
-  }));
 }
 async function revealPath(project, processId) {
   try {

@@ -147,6 +147,14 @@
     ]
   },
   {
+    "key": "ui_file_link_menu",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-file-link-menu-smoke.mjs"
+    ]
+  },
+  {
     "key": "ui_optional_modules",
     "inputs": "frontend",
     "program": "node",

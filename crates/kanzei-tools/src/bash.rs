@@ -14,6 +14,9 @@ use tokio::io::AsyncReadExt;
 use crate::managed::{enforce_managed_files_with_writer_log, managed_scope_exists};
 use crate::shell::{detected_shell, kill_tree};
 
+#[cfg(test)]
+mod guard_tests;
+
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
@@ -23,37 +26,30 @@ const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
 /// 超过直接结构化拒绝,不给 spawn 机会。
 const MAX_COMMAND_CHARS: usize = 30_000;
 
-/// R-244 批3:R-238 ①超长防护作为单调 Guard。命令串超 30000 UTF-16 单元即拒绝,
-/// 不发生真实 spawn;文案给文件中转与 --prompt-file 两条正路。
-struct CommandLengthGuard;
+/// 检查已解析命令的 UTF-16 长度；所有参数别名共用这份事实。
+struct CommandLengthGuard(usize);
 
-impl kanzei_harness::tool_pipeline::ToolGuard for CommandLengthGuard {
-    fn name(&self) -> &'static str {
-        "command-length"
-    }
-    fn check(
-        &self,
-        _tool_name: &str,
-        input: &serde_json::Value,
-        _ctx: &ToolCtx,
-    ) -> Result<(), String> {
-        let command = input["command"].as_str().unwrap_or("");
-        let cmd_units = command.encode_utf16().count();
-        if cmd_units <= MAX_COMMAND_CHARS {
-            return Ok(());
-        }
-        Err(format!(
-            "命令过长({cmd_units} UTF-16 字符,上限 {MAX_COMMAND_CHARS}):Windows 无法 spawn \
-             超过 32767 字符的命令行。大文本请用文件中转:先用 `write` 工具落文件、命令里 \
-             引用路径;或以 `kz run --prompt-file <path>` 作为 prompt 交付。"
-        ))
+impl CommandLengthGuard {
+    fn new(command: &str) -> Self {
+        Self(command.encode_utf16().count())
     }
 }
 
-/// Input-size checking is shell-independent. PowerShell command semantics are
-/// checked by its native parser in the execution process, before execution.
-fn bash_guards() -> Vec<std::sync::Arc<dyn kanzei_harness::tool_pipeline::ToolGuard>> {
-    vec![std::sync::Arc::new(CommandLengthGuard)]
+impl kanzei_harness::tool_pipeline::ToolGuard for CommandLengthGuard {
+    fn check(&self) -> std::ops::ControlFlow<ToolOutput> {
+        let cmd_units = self.0;
+        if cmd_units <= MAX_COMMAND_CHARS {
+            return std::ops::ControlFlow::Continue(());
+        }
+        std::ops::ControlFlow::Break(ToolOutput::needs_correction(
+            "COMMAND_TOO_LONG",
+            format!(
+                "命令过长({cmd_units} UTF-16 字符,上限 {MAX_COMMAND_CHARS}):Windows 无法 spawn \
+             超过 32767 字符的命令行。大文本请用文件中转:先用 `write` 工具落文件、命令里 \
+             引用路径;或以 `kz run --prompt-file <path>` 作为 prompt 交付。"
+            ),
+        ))
+    }
 }
 
 /// R-183 内容②(验收③):worktree 里权限判定的 workdir 视图按**主根**。
@@ -98,6 +94,16 @@ struct BashInput {
     /// 冻结当前源码后异步验证 Work Unit；沿用 bash 的权限和命令 guards。
     #[serde(default)]
     verification: Option<crate::verification::VerificationRequest>,
+}
+
+/// Permission resources and execution decode the same input contract, including
+/// command aliases. Invalid input remains an unknown resource and cannot execute:
+/// the command entry returns the normal INVALID_TOOL_INPUT correction.
+fn permission_fields(input: &serde_json::Value) -> (String, Option<String>) {
+    match BashInput::deserialize(input) {
+        Ok(input) => (input.command, input.workdir),
+        Err(_) => ("*".into(), None),
+    }
 }
 
 #[derive(Default)]
@@ -153,9 +159,9 @@ impl Tool for BashTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        let command = input["command"].as_str().unwrap_or("*");
-        let Some(workdir) = input["workdir"].as_str().filter(|dir| !dir.is_empty()) else {
-            return vec![command.to_string()];
+        let (command, workdir) = permission_fields(input);
+        let Some(workdir) = workdir.as_deref().filter(|dir| !dir.is_empty()) else {
+            return vec![command];
         };
         vec![serde_json::json!({
             "command": command,
@@ -165,8 +171,8 @@ impl Tool for BashTool {
     }
 
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        let command = input["command"].as_str().unwrap_or("*");
-        let workdir = input["workdir"].as_str().filter(|dir| !dir.is_empty());
+        let (command, workdir) = permission_fields(input);
+        let workdir = workdir.as_deref().filter(|dir| !dir.is_empty());
         let effective_workdir = ctx.cwd.join(
             workdir
                 .map(kanzei_harness::permission::normalize_resource)
@@ -187,30 +193,21 @@ impl Tool for BashTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        // R-244 批3:bash 走统一 pipeline——三条硬防线(D-113 整文件覆写 / R-238
-        // 超长 / git mutation)是单调 Guard,policy allow 不能覆盖 guard deny;
-        // body 保留 workdir/managed fence/执行/进度等原逻辑。
-        let input2 = input.clone();
-        let ctx2 = ctx.clone();
-        kanzei_harness::tool_pipeline::run_tool_pipeline(
-            "bash",
-            input,
-            ctx,
-            &bash_guards(),
-            async move { bash_body(self, &input2, &ctx2).await },
-            &[],
-            &[],
+        let input: BashInput = match crate::parse_input(self, input) {
+            Ok(input) => input,
+            Err(output) => return output,
+        };
+        let length_guard = CommandLengthGuard::new(&input.command);
+        kanzei_harness::tool_pipeline::guarded_execute(
+            &[&length_guard],
+            bash_body(self, input, ctx),
         )
         .await
     }
 }
 
-/// R-244 批3:bash 工具本体(原 execute 去三条防线后),供 pipeline body 调用。
-async fn bash_body(tool: &BashTool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-    let input: BashInput = match crate::parse_input(tool, input.clone()) {
-        Ok(v) => v,
-        Err(out) => return out,
-    };
+/// 输入校验通过后的命令执行；围栏、进程和测试记录归本体持有。
+async fn bash_body(tool: &BashTool, input: BashInput, ctx: &ToolCtx) -> ToolOutput {
     if let Some(request) = &input.verification {
         if input.test.is_some() || input.background || input.persistent {
             return ToolOutput::error(
@@ -734,7 +731,7 @@ mod tests {
     use serde_json::json;
     use std::path::PathBuf;
 
-    fn temp_project(tag: &str) -> PathBuf {
+    pub(super) fn temp_project(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "kz-bash-{tag}-{}-{}",
             std::process::id(),
@@ -1448,27 +1445,19 @@ mod tests {
         );
     }
 
-    // ══ R-244 批3:bash 三条防线在 pipeline 层(guard)拒绝 ══
-
-    fn guard_ctx() -> ToolCtx {
-        ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."))
-    }
-
     #[test]
     fn 防线guard_超长命令拒绝() {
         use kanzei_harness::tool_pipeline::ToolGuard;
-        let g = CommandLengthGuard;
         let long = "echo x".to_string() + &"a".repeat(32_000);
-        let err = g
-            .check("bash", &json!({"command": long}), &guard_ctx())
-            .unwrap_err();
+        let std::ops::ControlFlow::Break(output) = CommandLengthGuard::new(&long).check() else {
+            panic!("long command must be rejected");
+        };
+        let err = output.content;
         assert!(
             err.contains("文件中转") && err.contains("--prompt-file"),
             "{err}"
         );
-        assert!(g
-            .check("bash", &json!({"command": "git status"}), &guard_ctx())
-            .is_ok());
+        assert!(CommandLengthGuard::new("git status").check().is_continue());
     }
 
     #[tokio::test]

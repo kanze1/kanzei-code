@@ -38,7 +38,9 @@ globalThis.window = { __TAURI__: { core: { invoke: async (...args) => { sent.pus
 const { invoke } = await import("../crates/kanzei-app/ui/00-ipc.js");
 await assert.rejects(invoke("process_list", { project_dir: "fixture" }), /Unknown process_list argument/);
 await assert.rejects(invoke("run_prompt", { projectDir: "fixture" }), /Missing run_prompt argument: prompt/);
+await assert.rejects(invoke("stop_run", { processId: "conversation" }), /Missing stop_run argument: projectDir/);
 assert.equal(sent.length, 0, "Invalid commands must fail before crossing IPC");
 assert.equal(await invoke("process_list", { projectDir: "fixture" }), "accepted");
+assert.equal(await invoke("stop_run", { projectDir: "fixture", processId: "conversation" }), "accepted");
 assert.equal(await invoke("ui_prefs_set", { work_priority: {} }), "accepted", "Explicit snake_case command metadata is preserved");
 console.log(`IPC argument contract PASS: ${calls} call sites, ${Object.keys(contracts).length} registered commands, transport rejection and rename cases`);

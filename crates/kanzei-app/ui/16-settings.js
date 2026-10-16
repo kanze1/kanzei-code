@@ -504,6 +504,20 @@ export function renderAgentDirectory(snapshot) {
     heading.append(" ", status);
     card.append(heading);
     appendAgentField(card, t("来源"), agentSourceLabel(agent.source));
+    if (agent.registration) {
+      const origins = [...agent.registration.replaced, agent.registration.winner];
+      if (agent.registration.replaced.length > 0) {
+        appendAgentField(card, t("覆盖顺序"), origins.map((origin) => origin.path || t("内建")).join(" → "));
+      }
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = t("注册诊断");
+      details.append(summary);
+      for (const origin of origins) {
+        appendAgentField(details, origin.path || t("内建"), origin.component || "—");
+      }
+      card.append(details);
+    }
     appendAgentField(card, t("档位"), agentEnumLabel("profile", agent.profile));
     appendAgentField(card, t("模式"), agentEnumLabel("mode", agent.mode));
     appendAgentField(card, t("模型"), agentEnumLabel("model", agent.model));

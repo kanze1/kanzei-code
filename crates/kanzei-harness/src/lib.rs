@@ -39,7 +39,10 @@ pub mod tool_search;
 /// R-322:门禁强度是一等维度,调用方(桌面端/CLI)按模式取默认值后显式传入。
 pub use auto_run::{HarnessIntensity, IntensityPolicy};
 pub use config::{KanzeiConfig, ResolvedModel};
-pub use context::{refreshing_source, source, ContextSource};
+pub use context::{
+    fallible_source, refreshing_fallible_source, refreshing_source, source, ContextAssemblyError,
+    ContextBaseline, ContextRequirement, ContextSource, ContextSourceReport, ContextSourceStatus,
+};
 pub use conventions::{CARGO_CONVENTIONS, DEFAULT_CONVENTIONS};
 pub use defs::{effective_agent_steps, AgentDef, AgentMode, ProfileKind, ProfileScope, SkillDef};
 pub use harness::{

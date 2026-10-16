@@ -18,21 +18,25 @@ pub enum ToolOutcome {
 }
 
 impl ToolOutcome {
+    /// Shared vocabulary for event projection, persisted headers and contract tests.
+    pub const ALL: [Self; 6] = [
+        Self::Success,
+        Self::NoOp,
+        Self::NeedsCorrection,
+        Self::NeedsConfirmation,
+        Self::BlockedByWorkflow,
+        Self::Failed,
+    ];
+
     /// Decode the persisted tool-result header through the same outcome type
     /// used by execution and UI. Unknown/legacy text keeps its original error
     /// semantics; consumers must not maintain their own rejection name lists.
     pub fn from_model_content(content: &str) -> Option<Self> {
         let header = content.lines().next()?.strip_prefix("[tool_outcome=")?;
         let name = header.split([' ', ']']).next()?;
-        match name {
-            "success" => Some(Self::Success),
-            "noop" => Some(Self::NoOp),
-            "needs_correction" => Some(Self::NeedsCorrection),
-            "needs_confirmation" => Some(Self::NeedsConfirmation),
-            "blocked_by_workflow" => Some(Self::BlockedByWorkflow),
-            "failed" => Some(Self::Failed),
-            _ => None,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|outcome| outcome.as_str() == name)
     }
 
     pub fn as_str(self) -> &'static str {

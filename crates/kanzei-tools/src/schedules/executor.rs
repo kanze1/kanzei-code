@@ -355,7 +355,7 @@ async fn run_steps(
     );
     let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
     let mut agent = snapshot
-        .select_agent(Some(&def.agent))
+        .select_primary_agent(Some(&def.agent))
         .map_err(|e| e.to_string())?
         .clone();
     agent.steps = def.max_steps;

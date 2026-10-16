@@ -326,11 +326,11 @@ mod tests {
             }
             assert!(snapshot.agents().len() > 1);
             assert!(snapshot
-                .select_agent(Some("general"))
+                .select_primary_agent(Some("general"))
                 .unwrap()
                 .system
                 .contains("create the actual file"));
-            assert!(snapshot.select_agent(Some("dev")).is_ok());
+            assert!(snapshot.select_primary_agent(Some("dev")).is_ok());
             assert!(snapshot.skills().get("personal:general-fixture").is_some());
             assert_eq!(
                 snapshot.agents().get("persona-fixture").unwrap().system,

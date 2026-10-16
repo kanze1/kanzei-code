@@ -121,6 +121,13 @@ pub(crate) fn make_event_handler(
             };
             let _ = writeln!(stdout, "  {mark} {preview}");
         }
+        kanzei_core::RunEvent::ContextSources { sources } => {
+            for source in sources {
+                if let Some(message) = source.failure_message() {
+                    let _ = writeln!(stdout, "\x1b[33m{message}\x1b[0m");
+                }
+            }
+        }
         kanzei_core::RunEvent::ContextCompacted {
             before_tokens,
             after_tokens,

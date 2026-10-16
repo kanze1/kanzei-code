@@ -1,6 +1,9 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "正在读取打开方式…": "Loading available apps…",
+  "打开方式读取失败": "Could not load available apps",
+  "文件不在当前项目或对话工作目录中": "The file is outside this project or conversation's working directory",
   "执行选项": "Execution options",
   "加载更早记录": "Load earlier history",
   "运行状态未确认": "Run state unconfirmed",
@@ -1255,6 +1258,8 @@ export const I18N_EN = {
   "当前档位隐藏": "Hidden for current profile",
   "系统提示词预览": "System prompt preview",
   "原文路径": "Source path",
+  "覆盖顺序": "Override order",
+  "注册诊断": "Registration details",
   "打开原文": "Open source",
   "档位": "Profile",
   "模式": "Mode",

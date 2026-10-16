@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use anyhow::Context;
 use rusqlite::params;
 
 use crate::memory::admission::{is_cjk, normalize_title, title_containment, TITLE_DUP_THRESHOLD};
@@ -116,21 +117,27 @@ impl MemoryStore {
     /// 机械判据:标题规范化精确命中既有 active 记忆 = 明显重复;
     /// FTS 无任何命中 = 明显新;有命中但非精确 = 不确定。
     /// R-216 下沉为 add 硬闸,并扩到双 scope 探测(project + global 都查 active)。
-    /// 返回 (判定, 候选)。语义探测 = description+body 的 FTS 命中:有命中即
+    /// 返回 (判定, 候选);源文件或检索失败返回错误,不能据此判为 New。
+    /// 语义探测 = description+body 的 FTS 命中:有命中即
     /// Uncertain(候选返回),无命中 New;精确标题重复 Duplicate。
     pub fn classify_novelty(
         &self,
         title: &str,
         description: &str,
         body: &str,
-    ) -> (Novelty, Vec<MemoryEntry>) {
+    ) -> anyhow::Result<(Novelty, Vec<MemoryEntry>)> {
         let normalized = normalize_title(title);
-        let entries = self.load_all();
+        let entries = self.index_source_entries().with_context(|| {
+            format!(
+                "memory novelty source unavailable ({})",
+                self.root.display()
+            )
+        })?;
         let dup = entries
             .iter()
             .any(|(_, e)| e.status == "active" && normalize_title(&e.title) == normalized);
         if dup {
-            return (Novelty::Duplicate, Vec::new());
+            return Ok((Novelty::Duplicate, Vec::new()));
         }
         // 用描述+正文做 FTS 探测:有明显语义命中即不确定,否则新。
         let probe = format!("{} {}", description, body);
@@ -147,27 +154,33 @@ impl MemoryStore {
         for scope in &scopes {
             // D-366:novelty 探测用存储侧候选集(不排序),取 bm25 序 top3——无召回
             // 历史时 decision_weight=1.0,与旧 search 的决策排序 top3 完全一致。
-            if let Ok(cands) = scope.search_candidates(&probe, None, Some("active")) {
-                for hit in cands.into_iter().take(3) {
-                    // R-216:只有「与新增标题语义高度重合」的候选才算 Uncertain——
-                    // FTS 命中但标题包含度低于去重阈值(0.55)的是相关但不同的新知识,
-                    // 不能拦(否则合法新增被误伤)。英文改写 M-044 类:改写标题与原标题
-                    // 切词后包含度高,仍会被拦(验收①)。
-                    let containment = title_containment(title, &hit.entry.title);
-                    if containment >= TITLE_DUP_THRESHOLD
-                        && !candidates
-                            .iter()
-                            .any(|c: &MemoryEntry| c.id == hit.entry.id)
-                    {
-                        candidates.push(hit.entry);
-                    }
+            let cands = scope
+                .search_candidates(&probe, None, Some("active"))
+                .with_context(|| {
+                    format!(
+                        "memory novelty search unavailable ({})",
+                        scope.root.display()
+                    )
+                })?;
+            for hit in cands.into_iter().take(3) {
+                // R-216:只有「与新增标题语义高度重合」的候选才算 Uncertain——
+                // FTS 命中但标题包含度低于去重阈值(0.55)的是相关但不同的新知识,
+                // 不能拦(否则合法新增被误伤)。英文改写 M-044 类:改写标题与原标题
+                // 切词后包含度高,仍会被拦(验收①)。
+                let containment = title_containment(title, &hit.entry.title);
+                if containment >= TITLE_DUP_THRESHOLD
+                    && !candidates
+                        .iter()
+                        .any(|c: &MemoryEntry| c.id == hit.entry.id)
+                {
+                    candidates.push(hit.entry);
                 }
             }
         }
         if !candidates.is_empty() {
-            (Novelty::Uncertain, candidates)
+            Ok((Novelty::Uncertain, candidates))
         } else {
-            (Novelty::New, Vec::new())
+            Ok((Novelty::New, Vec::new()))
         }
     }
 

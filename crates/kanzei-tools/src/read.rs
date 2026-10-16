@@ -71,24 +71,11 @@ impl Tool for ReadTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        // R-244 批2:read 迁移走统一 pipeline 通道(与 glob 同构;guards/策略/
-        // 观察者现阶段空,权限判定在 drive 层)。
-        let input2 = input.clone();
-        let ctx2 = ctx.clone();
-        kanzei_harness::tool_pipeline::run_tool_pipeline(
-            "read",
-            input,
-            ctx,
-            &[],
-            async move { read_body(self, &input2, &ctx2).await },
-            &[],
-            &[],
-        )
-        .await
+        read_body(self, &input, ctx).await
     }
 }
 
-/// R-244 批2:read 工具本体(原 execute 主体),供 pipeline body 调用。
+/// read 工具本体；权限和执行包装由 core runner 负责。
 async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
     let input: ReadInput = match crate::parse_input(tool, input.clone()) {
         Ok(v) => v,
