@@ -9,7 +9,7 @@
 
 **kanzei 的架构底子比界面表面复杂度看起来更扎实，但产品正在承受“能力增长快于收敛”的代价。** 当前已有清楚的 crate 分层、结构化 IPC 契约、记忆真源/派生索引分离、任务级执行事实与取消机制，也有数量可观的定向回归测试。主要风险不是“完全没有架构”，而是：复杂状态跨层传播、若干失败路径会被呈现为成功或正常无结果、重要控制的发现性不足，以及旧能力/注释承诺/真实统一入口之间仍有不一致。
 
-首轮代码审计发现 **43 项**：P1 7、P2 32、P3 4；分类为确认缺陷 19、设计债 18、待验证风险 5、可靠性风险 1。首轮 38 项之后补入 5 项。现有 round 1/round 2 修复账本对 43 项均记录为 `fixed`；验证索引记录 **72/72 检查通过**，含工作区测试、fmt、clippy 与 UI/IPC 定向检查。**这是脏工作树上的验证，不是干净 HEAD 的发布证据；发布证据标志为 false。** 本文末尾另列出随后一次静态后端审查确认的 8 项当前残余问题，它们尚未被实现修复或运行时验证。
+首轮代码审计发现 **43 项**：P1 7、P2 32、P3 4；分类为确认缺陷 19、设计债 18、待验证风险 5、可靠性风险 1。首轮 38 项之后补入 5 项。现有 round 1/round 2 修复账本对 43 项均记录为 `fixed`；验证索引记录 **72/72 检查通过**，含工作区测试、fmt、clippy 与 UI/IPC 定向检查。**这是脏工作树上的验证，不是干净 HEAD 的发布证据；发布证据标志为 false。** 第 5 节列出随后一次静态后端审查确认的 8 项残余问题；第 11 节是本轮补充的基础 Harness 静态审查，另列 H-1～H-8 共 8 项风险与设计债。它们尚未被实现修复或运行时验证。
 
 从用户目标看，最值得优先投入的不是继续增加页面或开关，而是：
 
@@ -260,6 +260,124 @@
 - 未对 Monaco 冷启动/慢机器做加载体验观察；首屏到达时间、功能发现率、用户任务耗时未做量化研究。
 - 当前工作树与审计 HEAD 不等同，且存在其他未提交工作；报告只作当前工作树分析，不将其归因于提交历史。
 
-## 10. 最终判断
+## 10. 第一轮总体判断
 
 **现在的主要瓶颈不是功能数量不足，而是“能力、状态和执行路径”尚未完全以用户能理解的方式收敛。** 产品已有足以形成现代高效工作台的结构和保护机制；下一阶段应减少状态歧义、提高默认路径发现率、让关键控制可见，并把失败语义、流水线承诺与真实实现对齐。如此才能既保留高级用户需要的能力，又让普通用户无需理解内部架构便能放心使用。
+
+## 11. 补充审计：基础 Harness 与执行边界
+
+### 11.1 总体判断
+
+`kanzei-harness` 的**依赖方向健康，职责面却已明显扩大**。Cargo 直接依赖只有 `kanzei-base` 和通用 async/serde/config 库，不依赖 core、tools、LLM 或桌面端；实际模型循环、provider 协议和权限询问由 core/入口消费 Harness 契约。这是很好的底层边界。与此同时，该 crate 当前 46 个文件、约 13,237 行；`config.rs` 约 2,420 行、`auto_run.rs` 约 1,635 行、`permission.rs` 约 1,381 行、`areas.rs` 约 1,057 行。此处行数含测试及多类责任，不能单凭规模断定质量差，但可以确认它不只是几组工具 trait：还承载配置、权限规则、项目根、区域索引、Skills、编排、后台邮箱、自动推进和托管写围栏等控制平面能力。
+
+公共运行装配以 Base → Dev/Research → middle → Markdown → Config → tail → GeneralChat 为序；桌面与 CLI 在 middle/tail 插入不同能力。`Harness::resolve` 产出每轮不可变快照，按需工具通过 `tool_search` 延迟暴露。相较把运行循环、桌面服务和所有工具塞在一起，这套分层是合理的；当前真正需要收敛的是**契约覆盖与错误语义**，不是推倒重建。
+
+### 11.2 值得保留的基础设计
+
+- **无反向依赖的契约层。** Harness 定义 Tool、ToolCtx、ToolOutput、Ruleset、ContextSource、Component 等，runner 与工具实现依赖它；桌面/CLI 适配器不反向进入 Harness。
+- **代码树、项目根和执行身份显式区分。** `cwd`、`project_root`、worktree/project write key、run/process/session identity 不互相代替，减少 worktree 项目状态串线。
+- **能力发现可渐进加载。** `materialize_tools` 按整体 deny 摘除工具；deferred loader 可见时才隐藏部分 schema，`tool_search` 自身不延迟；loader 被拒时退回全部允许工具，避免模型看不到工具且无法加载。
+- **权限不由模型 schema 代替。** `Ruleset` 有序匹配、默认 Ask、硬 deny 优先；bash 文本与路径资源采用不同匹配语义。Core runner 对调用再次评估权限并处理审批；这道 gate 不依赖 `tool_pipeline` 是否接入。
+- **执行并发默认保守。** Tool 默认 `Exclusive`；只有显式声明 `Shared` / `WorktreeWrite` 的工具才加入键控并发。ToolOutput 分开表达 provider 回喂信号 `is_error`、业务 outcome、稳定 code 及给 UI 的结构化 display/artifact。
+- **上下文刷新不累积进消息历史。** stable 和每步 refreshable source 分别渲染，报告 source 字符数；`InputInbox` 只在完整工具结果批次后取 steering，异步问题也有单独 durable 路径。App 的 mailbox adapter 会在 lifecycle 锁内复核 generation 并持久化输入。
+
+### 11.3 当前问题与维护风险
+
+#### H-1（P2，边界正确性）：显式选择 agent 时不检查 profile scope 或 Primary/Subagent 身份
+
+`HarnessSnapshot::select_agent(None)` 会筛选当前 profile 可用且 `mode=Primary` 的 agent；但 `select_agent(Some(name))` 只按名称取注册表条目，不核验 `agent.profile.includes(snapshot.profile())`，也不核验是否适合作为顶层 Primary。CLI 直接把 `KANZEI_AGENT` 传给这个显式分支（`crates/kanzei/src/cli/run.rs:225-233`），所以当前 API 可以接受与选定 profile 不匹配的 agent。项目权限仍由 `ResolveCtx.profile` 与 Ruleset 决定，**这不是已证实的权限绕过**；但用户选择的 profile、agent 可用范围及 agent 的角色可能彼此矛盾，配置界面也难以保证所有调用者都预先过滤。
+
+**建议：** 拆分 `select_primary_agent` 与明确的子代理选择入口；显式选择时至少校验 profile scope 和 mode，错误信息列出当前 profile 下可选 agent。若某些内部场景确需跨 scope，使用显式 override 及调用点测试，而非由通用选择函数静默接受。
+
+#### H-2（P2，已确认的错误分类问题）：ToolGuard 拒绝被包装成 Failed
+
+生产 `CommandLengthGuard` 在命令超过 30,000 UTF-16 单元时返回 `Err(String)`（`kanzei-tools/src/bash.rs:26-57`）。`run_tool_pipeline` 对任意 guard 拒绝统一生成 `ToolOutput::error(...)`，不带稳定错误码（`kanzei-harness/src/tool_pipeline.rs:139-149`）；这会得到 `outcome=Failed`，而非 `NeedsCorrection` / 其他预期拒绝。遥测因为拒绝正文以“permission denied”开头，会把这条长度限制误分为 `PermissionDenied`；而普通 metrics 与失败召回因缺少预期拒绝 outcome 机器头，仍会计为失败/发起 Recall。因此明确的“命令太长，请改文件中转”的可纠正输入，同时被错误标成权限拒绝和运行故障。现有 bash 用例检查了拒绝与文案，但没有证明 outcome/code、遥测和 Recall 分类正确。
+
+**建议：** Guard 返回结构化决策（放行或携带 `ToolOutcome`、稳定 code、用户文案的拒绝），或让 Guard 构造 ToolOutput；加端到端测试断言超长拒绝得到预期 `NeedsCorrection`（或等价拒绝类型）、不误归类为 `Failed` / `PermissionDenied`，且不增加失败召回，同时仍将拒绝结果回喂模型。对于真实 body panic/执行错误，仍保留 Failed 分类。
+
+#### H-3（P2，可靠性/可诊断性）：ContextSource 不能区分“本来无内容”和“读取失败”
+
+`ContextSource::baseline` 返回 `Option<String>`，组装报告只有成功注入的 source 名称与字符数。多个开发上下文把读取错误用 `.ok()?` 折叠为 `None`，例如 `dev/ideas`、`dev/decisions` 和 design-index（`kanzei-tools/src/profiles/dev.rs:201-219,313-331,334-357`）。此时本轮仍可能正常发给模型，但 context report 不会显示该 source 加载失败。`dev/conventions` 则专门把非 NotFound 错误写进提示上下文，证明不同源需要不同失败处理；当前抽象无法统一表达“可选为空”“可恢复缺失”“必须可用但加载失败”。
+
+**用户影响：** agent 可能在未加载决定、设计索引或项目背景的情况下继续给出看似正常的方案，用户难以判断它是没找到内容还是源文件读取失败。
+
+**建议：** 不要求任何可选文件失败都停止运行；改为让 source 返回 `Result<Option<ContextChunk>, ContextError>`，元数据注明 optional/required 与降级策略。组装账单记录 omitted/error 与原因；required source 失败时明确提示或阻断，optional source 失败则可继续但向用户/轨迹可见。补断言区分“文件不存在”和“权限/IO 错误”。
+
+#### H-4（P2，架构债）：Tool Pipeline 的宣称阶段与生产覆盖并不一致
+
+`tool_pipeline.rs` 的顶部和 `ToolPhase` 列出 parse/materialize → policy → guards → wrap → body → result policy → observer；但 `run_tool_pipeline` 实际只有 guards → body → result policies → observers。参数解析仍在每个工具 body，permission/Ask 在 core runner，执行取消/进度/panic 的 `wrap_execute` 也是 core 独立调用的另一层。当前 `run_tool_pipeline` 生产调用只核实到 bash、git、glob、grep、read 五类；生产代码没有 `ToolResultPolicy` / `ToolObserver` 实现。R-244 文档将它描述为逐族迁移的骨架，这更准确；但 API/阶段名容易被误读为所有工具已走完整统一入口。
+
+**边界澄清：** 当前这不是权限绕过，runner 的权限 gate 仍单独强制；风险是未来开发者误以为 policy、observer 或 result rules 会自动覆盖所有工具。并且 `ToolResultPolicy::apply(&mut ToolOutput)` 可以改动 `is_error`/`outcome`，而 trait 注释仅称“不改变成功/失败语义”，类型本身没有强制不变量。
+
+**建议：** 明确它的真实定位：要么逐族迁移并把解析、Guard、结果后处理、Observer 接入做成可查询覆盖清单；要么把它命名/文档收窄为“可选 Guard/结果观察 wrapper”。在恢复强契约前，不应把尚未接入的 phase 写成统一保障。对结果策略增加不可变语义或执行后不变量校验；把 pipeline guard 拒绝分类纳入共同测试。
+
+#### H-5（P3，调试性）：Registry 的 last-wins 有意，但不记录覆盖来源
+
+注册表同名后写覆盖、保留原序是明确规则；MarkdownComponent 让项目 agent 覆盖同名全局 agent，也是有用的 overlay。但 `Registry::insert` 只保留 name 与 value，不记录哪个 Component/目录注册了它；意外重名时，最终快照不能解释“谁覆盖了谁”。这不是说应禁止用户覆盖默认 agent，而是显式层叠策略缺少可观察结果。
+
+**建议：** 在 debug/report 路径中记录 name、来源 Component、覆盖链与最终胜者；对核心安全工具名、managed resource 替代工具等高风险覆盖给出严格冲突检查，普通 user override 继续按明确优先级工作。
+
+#### H-6（P3，文档漂移）：现行 M1 文档仍写“没有 skill 工具”和项目 Skill 路径
+
+`docs/design/harness_m1.md` 仍写 Skill 正文无专用工具、通过 `read` 读取，以及 `.kanzei/skills` 项目目录约定（§2、§6）。当前 `MarkdownComponent` 注册 deferred `skill_read`；catalog 实际来自内置、全局 personal 和用户目录 `.codex/.claude/.agents/skills`，项目 Skills 不参与（`kanzei-harness/src/markdown.rs:24-35`、`skills.rs:161-213`）。同一文档对“before_tool_call 权限拦截器链”的旧图景也需与当前 core runner 实际执行位置同步。
+
+**建议：** 只改当前合同，不搬运历史方案：记录 global Skills 来源、按需 `skill_read`、CLI/桌面能力差异及 permission gate 在 core 的真实边界；历史状态/迁移留在文档记录中，避免旧说明继续引导新增代码走错入口。
+
+#### H-7（P3，仅注释问题）：ToolEnd outcome 注释漏列 `blocked_by_workflow`
+
+`RunEvent::ToolEnd` 注释只列 success/noop/needs_correction/needs_confirmation/failed，漏了真实使用的 `blocked_by_workflow`（`kanzei-core/src/runner/event.rs:137-145`）。Child audit 已确认 payload 与 UI 消费均支持该 outcome，故这是注释漂移，不是事件丢失。改注释并在 outcome 枚举扩展时用共享测试检查文档列表即可。
+
+#### H-8（P3，效率扩展风险）：上下文预算能裁剪历史，但固定 system head 无法缩小
+
+`ContextSource` 报告按字符计量；core 的真实预算估算会把 system、工具 schema 与 messages 一起计入（`kanzei-core/src/runner/drive/context_budget.rs:56-64`）。超线时优先 prune/压缩的对象是 messages（同文件 `:67-95`）；system baseline、agent prompt 和当前工具 schema 在这条路径中保持不变。当前延迟加载工具 schema、按 source 拆分 stable/refreshable baseline、memory/context 账单都是有效的成本控制；但 conventions 按项目规则完整注入，design index 与决策上下文也可能随项目资料增长。若固定 head 本身逼近预算，继续压缩对话历史不能解决问题，最终只能进入 futile-compaction / provider overflow 恢复路径。
+
+**判定边界：** 本轮没有复现常规项目因 system head 过大而溢出；这是随上下文目录和工具 schema 增长的扩展风险，不是当前普遍性能缺陷。字符账单也不是 token 账单，token 预算要以 runner estimator/provider usage 为准。
+
+**建议：** 按 source 记录估算 token、是否必需、优先级、加载耗时和降级策略；保留当前必须完整注入的项目约定，不要静默截断；对可选设计索引/历史决策提供精简摘要与按需读取，预算不足时明确指出是哪部分固定 head 占满空间。用大规模 fixture 验证“mandatory system + tool schemas”本身超过阈值时能尽早给出可行动提示，而不是空转压缩旧消息；refreshable file sources 可按 mtime/hash 缓存并测量单步组装耗时。
+
+### 11.4 面向用户目标的 Harness 改进顺序
+
+1. **先修错误语义：** Guard 拒绝要带稳定 outcome/code，并打通 UI、失败指标、Recall；不让可修正的输入增加“工具故障”噪音。
+2. **让关键上下文缺失可见：** ContextSource 可选/必需分层、IO 失败有迹可循；上下文完整性比再堆几条 prompt 提示更能提升输出可靠性。
+3. **把选择合同做实：** 校验显式 agent 的 profile/mode，agent 目录显示当前 profile 可用状态；CLI 和桌面共用同一断言。
+4. **Pipeline 先定范围，再加扩展点：** 目前共享 wrapper 与 runner policy 各司其职，先列出真实执行矩阵，再决定是否值得让每种工具迁移。若扩展点没有生产用例，优先删除/标为预留，而不是新增抽象。
+5. **补来源可观察性和设计文档：** Registry override 审计记录；同步 harness_m1 当前合同。
+6. **规模治理以实测驱动：** 现 crate 大但依赖干净；只把已形成独立变化原因/故障边界的模块拆开。不要为了“13k 行”马上拆 Cargo crates，先用变更耦合、编译成本和可独立验证性证明收益。
+
+## 12. 网络调研：成熟 Agent Harness 的共同原则
+
+> 调研时间：2026-10-16。官方文档用于核对各家公开的设计/SDK 合同，不是独立安全评测，也不证明其实现一定优于 kanzei。不同框架的 API 与版本会变；下列内容是可借鉴的原则，不应逐字照抄。
+
+### 12.1 调研结论及与 kanzei 的映射
+
+| 公开资料中的原则 | 对 Harness 的启示 | 当前 kanzei 对照 |
+|---|---|---|
+| Anthropic《Building effective agents》（2024-12-19）建议从最简单可用系统开始；工作流适合预先定义步骤，agent loop 适合需要模型动态决策的任务；增加复杂度应由评测收益证明。工具接口和参数要清楚、可测试。 | 把权限、解析、超时、取消、结果策略的“唯一入口”分层定义；不要因想做统一而预留七个阶段却只有部分实际执行，也不要只为抽象美观拆 crate。用回归/用户任务验证每一层的收益。 | crate 依赖方向清楚；但 tool_pipeline 的阶段名超出真实覆盖。应明确哪些是硬契约、哪些是计划中的扩展。
+| Anthropic《Effective harnesses for long-running agents》把跨会话交接视为核心问题，示例使用进度工件与 Git 历史、每次只推进可验证的小步；文章也承认单体 agent 与多 agent 哪个更优尚不确定。 | Durable 状态、交接和源码/任务事实要有真源；不要让 Harness 的内存邮箱被误当持久队列。按任务/事件合同逐步恢复，完成后留可验证工件。 | Work Unit/session facts 与 app 的 durable mailbox 把持久状态放在 core/app，而 Harness 提供低层契约，边界基本正确；后续要继续保持这一分工。
+| Anthropic《Trustworthy agents in practice》强调模型可能误读意图并受 prompt injection 影响，单一模型训练不是保证；要多层限制工具与环境，提供计划审阅和执行中干预，并明确安全仍非绝对。 | “模型可见工具 schema”不等于“获准执行”；需要 fail-closed 的权限 gate、作用域限制、执行后证据和用户制动入口。 | Ruleset/hard deny 在 runner 执行前强制，并与 UI permission events 分离，符合分层思路。新增 H-2 表明低层 guard 仍需保持结构化终态；Pipeline 本身不是权限授权层。
+| OpenAI Agents SDK 的工具文档把 JSON 参数 schema 与 runtime `is_enabled`、input/output guardrails、`needs_approval` 明确区分；运行异常也区分抛异常导致 run 失败和返回模型可见错误结果。 | schema 负责告诉模型“如何调用”；policy 决定“是否能做”；guard 决定“这个具体输入是否合规”；审批负责暂停等待用户；结果码不能把输入拒绝伪装成运行异常。 | kanzei 有 Tool::input_schema、Ruleset、ToolOutcome 和 runner Ask/approval 分层；但 ToolGuard 只有 `Result<(), String>`，当前造成拒绝被标成 Failed，需要收紧结果类型。
+| OpenAI 的 handoff/session 文档指出转交 agent 时默认历史范围、过滤、授权是敏感边界；session id 本身不等于认证授权，应用必须控制谁能访问会话。 | 传递执行身份与历史时要显式定义所有权、可见范围、来源及授权；不要把 `session_id` 当安全凭证。 | ToolCtx 明确区分 session、process、run 与 project roots，且 app mailbox 在 lifecycle 锁内核验 generation；这是良好基础。仍应保持持久数据访问授权在 app/store 层，而非 Harness 类型暗示已自动保证。
+| OpenAI tracing 文档指出 trace 默认可能包含 LLM 输入/输出、工具参数与结果；可关闭敏感数据采集，但 ZDR 组织无法使用 tracing，页面未声明一般保留期限。LangGraph persistence 文档区分 thread checkpoint 与跨 thread store，并指出内存 saver 在进程重启后不持久；应用需选择持久化实现。 | 运行日志、tool inputs/outputs、checkpoint 与短期 mailbox 要分开评估保留期、敏感数据和恢复保证；必要时做脱敏和访问控制。 | kanzei 的 session store 与 mailbox 已分层。本文未完成对所有持久 trace/tool payload 的隐私保留审计，也不把 harness 侧 mailbox 单独描述为 durable。
+
+### 12.2 可直接采纳的原则
+
+- **以真实完成路径定义“统一”。** 一项安全/观察能力只有在所有该适用的执行路径都会触发、并有漏接检测时，才是系统合同；当前 pipeline 有完整 runner 级 permission gate，但可选 `ToolObserver` 不是全工具遥测合同。
+- **对 agent 和工具权限分层。** 模型选择名称、Schema 合法、agent system prompt 写“只读”，都不能替代运行时 Ruleset/Guard。角色标签应在装配入口校验，不要依赖 prompt 表明身份。
+- **将拒绝和故障在第一处区分。** 用户无需理解 tool pipeline，但系统遥测、Recall、UI、模型重试都依赖稳定 outcome。低层遇到“输入不合规/政策拒绝/流程阻塞/运行异常”应有不同类型。
+- **长任务交接的最小真源。** Kanzei 已有 Work Unit 和 session 事件，不宜再造 Harness 自有的第二套进度文件；Harness 只提供 callback 与执行环境合同，持久恢复由 core/app 明确负责。
+- **安全可见性和数据最小化一起评估。** 记录审批与工具结果有助排障，也可能含命令、路径、文档片段或凭据。应审计数据具体写到哪、访问权限与保留期，而不默认“有 trace 就一定安全”。
+- **官方建议是原则，不是对比胜负。** Anthropic 的文章明确指出 agentic 系统会牺牲延迟/成本，且多 agent 优势没有普遍结论；OpenAI/LangGraph 文档描述各自 SDK 的行为边界。本轮没有找到可独立证明这些产品更可靠/更易用的同口径基准，故不以品牌结论代替本地测量。
+
+### 12.3 来源
+
+1. Anthropic, **Building effective agents**, published 2024-12-19：<https://www.anthropic.com/engineering/building-effective-agents>。重点为简单系统优先、workflow/agent 区分、评测后再增加复杂度、工具接口清晰与沙箱测试。
+2. Anthropic, **Effective harnesses for long-running agents**：<https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents>。重点为 session 间交接、增量工作、进度工件与 Git 恢复；文中也说明单 agent 与 multi-agent 的普遍优劣尚未确定。
+3. Anthropic, **Trustworthy agents in practice**：<https://www.anthropic.com/research/trustworthy-agents>。重点为 prompt injection、工具权限、人工审阅/介入及多层防护的限制。
+4. OpenAI Agents SDK, **Tools**：<https://openai.github.io/openai-agents-python/ref/tool/>；**Handoffs**：<https://openai.github.io/openai-agents-python/handoffs/>；**Sessions**：<https://openai.github.io/openai-agents-python/sessions/>；**Tracing**：<https://openai.github.io/openai-agents-python/tracing/>。重点为 schema 与审批/guardrails 分离、handoff 历史过滤、session 授权责任与 trace 敏感数据边界。
+5. LangChain, **LangGraph persistence**：<https://docs.langchain.com/oss/python/langgraph/persistence>。重点为 thread-scoped checkpoints、跨 thread store、内存 saver 的非持久性及应用侧选择。该文未定义 side effects 的幂等保证，本报告不从中推导幂等结论。
+
+## 13. 更新后的结论
+
+基础 Harness **不需要被推翻，但需要从“大而全控制层”继续收敛为可信、可观察、合同与实现一致的基础设施**。最直接的用户价值来自三件事：让低层拒绝拥有正确终态、关键上下文未加载时明确可见、显式 agent 选择遵守 profile/角色边界。之后再决定是否把 tool_pipeline 扩成强制总线；不能先做更大抽象，再假设所有工具已经得到同一保护。
+
+
