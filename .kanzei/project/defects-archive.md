@@ -8968,3 +8968,68 @@
 - observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
 - observed_worktree_hash: fnv1a64:daf232e82c32fb71
 - recorded_at: 1791062881752
+
+## D-778 前台 bash 取消只回收父 shell，子进程仍继续写入 [fixed] (high)
+- 复杂度: 中
+- 复现: Codex 对照调查 C01：停止后父 shell 已退出，子进程仍存活并写出 CHILD_RAN_AFTER_CANCEL；探针见 output/codex-changelog-audit-20261017/probe.rs。
+- 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
+- 标签: 后端
+- 根因: runner 丢弃工具 future，kill_on_drop 只回收父 shell，跳过进程树击杀和文件围栏收尾。
+- 验收: ①串行和并行取消均等待工具拥有的进程树结束；②取消后子进程不能继续写入；③取消路径完成托管文档与跨树围栏检查并保留已完成结果；④直接丢弃前台工具 future 也触发所属进程树清理。
+- 优先级: P1
+- 进展: ①串行和并行 runner 等待资源清理，crates/kanzei-core/src/runner/drive/execution_tests.rs:189、197 均通过；②子进程结束且没有迟到写入，crates/kanzei-tools/src/bash/lifecycle_tests.rs:83 与原探针复测通过；③同一回归恢复托管文件，已完成结果由 execution_tests.rs:197 保留；④丢弃调用方也完成清理，crates/kanzei-tools/src/bash/lifecycle_tests.rs:88 通过。源码 db04445e；verify.ps1 -Full 74项全绿，workspace 2553通过、7忽略。
+- observed_head: db04445efd6a7831bd20bd745eae2ea682c16a5f
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1792230993128
+
+## D-779 webfetch 同域重定向绕过目标路径的明确拒绝规则 [fixed] (high)
+- 复杂度: 中
+- 复现: Codex 对照调查 C02：起始 /allowed 为 Allow，重定向 /private 为 Deny，仍收到目标请求并返回 DENIED_TARGET_MARKER。
+- 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
+- 标签: 后端
+- 根因: fetch_web_response 仅比较目标 host，工具执行后的跳转没有经过完整资源权限边界。
+- 验收: ①每次跳转目标在发请求前经过完整权限检查；②明确 Deny 目标收到零请求；③未知或需批准的目标交回显式工具调用，不沿用起点授权；④允许的普通抓取与来源记录保持正确。
+- 优先级: P1
+- 进展: ①逐跳用完整资源规则验权，crates/kanzei-tools/src/webfetch.rs:544；②Deny目标零请求，crates/kanzei-tools/src/webfetch.rs:1178 真实回环服务回归及原探针通过；③Ask目标也在请求前拦截并要求显式工具调用，同测试 webfetch.rs:1178 通过；④允许跳转、来源记录与缓存工作正常，crates/kanzei-tools/src/webfetch.rs:1023，并验证策略变更后缓存不能绕过拒绝。源码 db04445e；Full 74项全绿，workspace 2553通过。
+- observed_head: db04445efd6a7831bd20bd745eae2ea682c16a5f
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1792231006305
+
+## D-780 前台命令退出后仍等后代持有的输出管道并误报超时 [fixed] (medium)
+- 复杂度: 中
+- 复现: Codex 对照调查 C03：独立观察确认父 shell 在两秒超时前已退出、子进程仍持管道，BashTool 等到 2000ms 后错误返回 timeout。
+- 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
+- 标签: 后端
+- 根因: bash capture 先 join 两路读流至 EOF，再 child.wait，把命令生命周期和后代输出管道生命周期绑定。
+- 验收: ①父命令退出后及时返回真实退出码；②不因后代持管道误报超时；③父命令已产出输出不丢失且读任务完成回收；④前台转后台保留单次执行、已有输出和原超时期限。
+- 优先级: P2
+- 进展: ①返回父命令真实退出码0，crates/kanzei-tools/src/bash/lifecycle_tests.rs:93；②子进程原本持管道30秒，父命令约1.4秒返回且没有假超时，原探针复测与同回归 lifecycle_tests.rs:93 通过；③128KiB输出、stdout/stderr尾部完整，进程树和读流结束后立即删除目录，lifecycle_tests.rs:93；④转后台保留一次执行、已有输出和原期限，crates/kanzei-tools/src/bash.rs:935、940 均通过。源码 db04445e；Full 74项全绿，workspace 2553通过。
+- observed_head: db04445efd6a7831bd20bd745eae2ea682c16a5f
+- observed_worktree_hash: fnv1a64:b6253f626de30553
+- recorded_at: 1792231058650
+
+## D-781 edit 精确匹配分支向 CRLF 文件写入 LF，造成混合换行 [fixed] (medium)
+- 复杂度: 小
+- 复现: Codex 对照调查 C04：head\\r\\nold\\r\\ntail\\r\\n 中将 old 替换为 old\\nextra，工具成功但出现混合换行。
+- 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
+- 标签: 后端
+- 根因: 写回 CRLF 还原依赖 ending_note 非空，精确匹配分支绕过换行风格处理。
+- 验收: ①精确匹配、换行归一匹配和插入共用一致写回换行策略；②CRLF 文件新增多行后仍为 CRLF；③LF 文件保持 LF；④包含 CRLF 的输入不产生双 CR。
+- 优先级: P2
+- 进展: ①精确匹配、归一匹配与insert共用写回策略，crates/kanzei-tools/src/edit.rs:620；②CRLF原文件加入多行后仍全为CRLF，crates/kanzei-tools/src/edit.rs:1353；③LF原文件保持LF，同测试 edit.rs:1353；④CRLF输入不重复添加CR，同测试 edit.rs:1353。原始精确锚点探针也确认 mixed_line_endings=false。源码 db04445e；Full 74项全绿，workspace 2553通过。
+- observed_head: db04445efd6a7831bd20bd745eae2ea682c16a5f
+- observed_worktree_hash: fnv1a64:b6253f626de30553
+- recorded_at: 1792231026120
+
+## D-782 LLM Retry-After 被截为 30 秒，提前重试仍处于限流的服务 [fixed] (medium)
+- 复杂度: 小
+- 复现: Codex 对照调查 C05：本地 HTTP 429 返回 Retry-After:60，LlmClient 回调安排 30 秒后重试。
+- 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
+- 标签: 后端
+- 根因: client.rs 在等待与最终错误两个出口均使用 seconds.min(30)，把本地退避限制施加给服务端最早重试时间。
+- 验收: ①Retry-After:60 不被缩短；②合法 HTTP-date 与秒数语义一致；③无效或缺失头仍使用有界本地退避；④最终错误保留服务端等待信息，流内限流存在等待信息时也不丢失。
+- 优先级: P2
+- 进展: ①Retry-After:60实际客户端回调安排60秒，crates/kanzei-llm/src/client.rs:371 及原探针复测通过；②秒数和三种HTTP-date正确解析，crates/kanzei-llm/src/error.rs:168；③缺失和无效头仍走有界本地退避，client.rs:371；④最终HTTP错误保留等待值，error.rs:82；四种协议流内等待信息保留，crates/kanzei-llm/src/protocol/mod.rs:111，长退避可立即停止由 execution_tests.rs:205 证实。源码 db04445e；Full 74项全绿，workspace 2553通过。
+- observed_head: db04445efd6a7831bd20bd745eae2ea682c16a5f
+- observed_worktree_hash: fnv1a64:b6253f626de30553
+- recorded_at: 1792231036038
