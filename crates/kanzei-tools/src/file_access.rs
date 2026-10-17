@@ -87,7 +87,10 @@ mod tests {
             std::fs::read_to_string(outside.join("secret.txt")).unwrap(),
             "PRIVATE_CONTENT"
         );
+        #[cfg(windows)]
         std::fs::remove_dir(project.join(".kanzei/research")).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(project.join(".kanzei/research")).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 }

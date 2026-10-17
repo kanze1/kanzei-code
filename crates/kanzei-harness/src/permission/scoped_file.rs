@@ -168,7 +168,10 @@ mod tests {
         link(&root.join("outside"), &junction);
         assert!(ScopedFile::resolve(&code, &project, &junction.join("file")).is_err());
         assert!(ScopedFile::resolve(&code, &project, &junction.join("new")).is_err());
-        std::fs::remove_dir(junction).unwrap();
+        #[cfg(windows)]
+        std::fs::remove_dir(&junction).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(&junction).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -192,7 +195,10 @@ mod tests {
             std::fs::read_to_string(code.join("saved/file")).unwrap(),
             "inside"
         );
+        #[cfg(windows)]
         std::fs::remove_dir(code.join("child")).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(code.join("child")).unwrap();
         drop(access);
         std::fs::remove_dir_all(root).unwrap();
     }

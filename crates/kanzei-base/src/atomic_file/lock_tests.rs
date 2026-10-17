@@ -194,7 +194,9 @@ fn child(mode: &str, path: &Path, hold: bool) -> (Child, bool) {
     std::thread::spawn(move || {
         for line in std::io::BufReader::new(stdout).lines() {
             let line = line.unwrap();
-            if let Some(value) = line.strip_prefix("LOCK_RESULT=") {
+            // The serial Rust harness can prefix this line with `test ...`.
+            // The child's explicit marker frames the result in either mode.
+            if let Some((_, value)) = line.split_once("LOCK_RESULT=") {
                 tx.send(value == "true").unwrap();
                 // Keep draining so the child's test harness can finish normally.
             }

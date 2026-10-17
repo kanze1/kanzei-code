@@ -211,9 +211,15 @@ fn provider_sources(
         .map(|name| (name, "global"))
         .collect::<std::collections::BTreeMap<_, _>>();
     if let Some(root) = project_root {
-        let project_path = root.join(".kanzei").join("kanzei.toml");
-        for name in config_from_file(&project_path).providers.into_keys() {
-            sources.insert(name, "project");
+        if let Ok(approved) = kanzei_harness::project_trust::status(root) {
+            if let Some(config) = approved
+                .approved_config()
+                .and_then(|text| toml::from_str::<kanzei_harness::KanzeiConfig>(text).ok())
+            {
+                for name in config.providers.into_keys() {
+                    sources.insert(name, "project");
+                }
+            }
         }
     }
     sources
@@ -1537,6 +1543,8 @@ mod tests {
         .unwrap();
 
         let value = with_kanzei_home(&home, || {
+            assert!(!provider_sources(Some(&project), &home.join("kanzei.toml"))
+                .contains_key("llama-local"));
             let sources = kanzei_harness::project_trust::status(&project).unwrap();
             kanzei_harness::project_trust::approve(&project, &sources.fingerprint).unwrap();
             settings_get(Some(project.display().to_string()))
