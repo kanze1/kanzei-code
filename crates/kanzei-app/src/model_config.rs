@@ -147,8 +147,17 @@ pub(crate) fn read_model_layers_at(
 
 /// 全局 `kanzei_home()/kanzei.toml` 与 `root/.kanzei/kanzei.toml` 的 `[models]` 原文。
 pub(crate) fn read_model_layers(root: Option<&Path>) -> Result<ModelLayers, String> {
-    let project = root.map(project_config_path);
-    read_model_layers_at(&crate::global_config_path(), project.as_deref())
+    let mut layers = read_model_layers_at(&crate::global_config_path(), None)?;
+    if let Some(root) = root {
+        let sources =
+            kanzei_harness::project_trust::status(root).map_err(|error| error.to_string())?;
+        if let Some(text) = sources.approved_config() {
+            layers.project = toml::from_str::<KanzeiConfig>(text)
+                .map_err(|error| error.to_string())?
+                .models;
+        }
+    }
+    Ok(layers)
 }
 
 /// 与 run_prompt 同一个取根口径:显式选中的项目目录,不继承祖先配置。
@@ -1165,6 +1174,8 @@ mod tests {
             },
         ];
         let checks = crate::settings::with_kanzei_home(&home, || {
+            let sources = kanzei_harness::project_trust::status(&project).unwrap();
+            kanzei_harness::project_trust::approve(&project, &sources.fingerprint).unwrap();
             let config = KanzeiConfig::load_at_root(&project).unwrap();
             lines
                 .iter()

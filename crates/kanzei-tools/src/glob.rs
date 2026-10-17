@@ -38,6 +38,23 @@ impl Tool for GlobTool {
         serde_json::to_value(schemars::schema_for!(GlobInput)).unwrap()
     }
 
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        serde_json::from_value::<GlobInput>(input.clone())
+            .map(|input| vec![input.path.unwrap_or_else(|| ".".into())])
+            .unwrap_or_default()
+    }
+
+    fn permission_resources(
+        &self,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        self.resources(input)
+            .into_iter()
+            .map(kanzei_harness::permission::Resource::File)
+            .collect()
+    }
+
     fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
         ToolConcurrency::shared_worktree(ctx)
     }
@@ -57,6 +74,9 @@ async fn glob_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         Some(p) => ctx.cwd.join(p),
         None => ctx.cwd.clone(),
     };
+    if let Err(output) = crate::file_access::resolve(ctx, &base) {
+        return *output;
+    }
     if !base.is_dir() {
         return ToolOutput::error(format!("directory not found: {}", base.display()));
     }
@@ -67,8 +87,10 @@ async fn glob_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     // 检索结果直接当路径喂给 read。匹配基准仍是 base——pattern 相对 `path` 子树,
     // 改了会静默改变 glob 语义。
     let rel_root = ctx.cwd.clone();
+    let rules = crate::search_walk::SearchScope::capture(ctx);
     let result =
-        tokio::task::spawn_blocking(move || run_glob(&base, &rel_root, &pattern, limit)).await;
+        tokio::task::spawn_blocking(move || run_glob(&base, &rel_root, &pattern, limit, rules))
+            .await;
     match result {
         Ok(Ok(text)) => ToolOutput::ok(text),
         Ok(Err(e)) => ToolOutput::error(e),
@@ -81,6 +103,7 @@ fn run_glob(
     rel_root: &std::path::Path,
     pattern: &str,
     limit: usize,
+    rules: crate::search_walk::SearchScope,
 ) -> Result<String, String> {
     let matcher = globset::GlobBuilder::new(pattern)
         .literal_separator(false)
@@ -92,14 +115,9 @@ fn run_glob(
     let mut scanned = 0usize;
     let mut capped = false;
     // 与 grep 保持一致:不跳过点开头的目录,否则 .kanzei/** 这类模式永远匹配不到(D-071)。
-    for entry in ignore::WalkBuilder::new(base)
-        .hidden(false)
-        .build()
-        .flatten()
-    {
-        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-            continue;
-        }
+    let mut walk = crate::search_walk::SearchWalk::new(base, "glob", rules.clone());
+    for entry in walk.by_ref() {
+        let entry = entry?;
         scanned += 1;
         if scanned > SCAN_CAP {
             capped = true;
@@ -112,16 +130,18 @@ fn run_glob(
             .to_string_lossy()
             .replace('\\', "/");
         if matcher.is_match(&rel) {
-            let mtime = entry
+            let mtime = rules
+                .file("glob", entry.path())?
                 .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                .map_err(|error| format!("cannot inspect search result: {error}"))?
+                .modified()
+                .map_err(|error| format!("cannot read search result modification time: {error}"))?
+                .into_std();
             hits.push((mtime, crate::grep::display_path(entry.path(), rel_root)));
         }
     }
     if hits.is_empty() {
-        return Ok(format!("(no files match `{pattern}`)"));
+        return Ok(walk.finish(format!("(no files match `{pattern}`)")));
     }
     hits.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     let total = hits.len();
@@ -135,5 +155,5 @@ fn run_glob(
     if capped {
         out.push(format!("(scan capped at {SCAN_CAP} files)"));
     }
-    Ok(out.join("\n"))
+    Ok(walk.finish(out.join("\n")))
 }

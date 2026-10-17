@@ -146,6 +146,8 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         first
     });
 
+    let status = kanzei_harness::project_trust::status(&project).unwrap();
+    kanzei_harness::project_trust::approve(&project, &status.fingerprint).unwrap();
     let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
     assert_eq!(
         config.limits.max_tasks_per_turn(),

@@ -23,6 +23,7 @@ pub mod run;
 pub mod schedule;
 pub mod shadow;
 pub mod tracker;
+mod trust;
 pub mod work;
 pub mod worktree;
 
@@ -56,6 +57,7 @@ pub async fn main_entry(args: &[String]) -> anyhow::Result<()> {
         Some("lock") => lock::lock_cli(&args[1..]).await,
         Some("artifacts") => artifacts::artifacts_cli(&args[1..]).await,
         Some("config") => config::config_cli(&args[1..]),
+        Some("trust") => trust::trust_cli(&args[1..]),
         Some("metrics") => metrics::metrics_cli(&args[1..]).await,
         Some("memory") => memory::memory_cli(&args[1..]).await,
         Some("quarantine") => quarantine::quarantine_cli(&args[1..]).await,
@@ -103,6 +105,7 @@ pub(crate) fn usage_text() -> &'static str {
        kz worktree merge <path>              # 安全非快进合并:冲突则保持双方并返回诊断\n\
        kz lock status                       # 外部写入者可见性:主根/git 工作树改动/活跃线(R-181)\n\
        kz config schema                     # kanzei.toml 用户面配置参考:全部已知键+说明+默认值(R-220)\n\
+       kz trust status|approve <fingerprint>|revoke [--project-root <path>] # 审阅并按内容指纹批准项目配置与 Agent\n\
        kz artifacts stats [--json]         # 只读查看 state.db/WAL/freelist/artifact/telemetry 占用(R-245)\n\
        kz artifacts plan --dry-run [--json] # 列出 artifact 引用图与无引用清理候选,不写盘(R-245 B3)\n\
        kz metrics [--top N]                 # 巨石度量 + 条目关闭收尾链滚动遥测(R-258/R-311)\n\
@@ -373,7 +376,6 @@ pub(crate) fn cli_identity_keys(cwd: &Path, project_root: &Path) -> (String, Str
 #[cfg(test)]
 mod tests {
     use super::lock::lock_status_report;
-    use super::memory::persist_always_allow;
     use super::tracker::parse_tracker_flags;
     use super::{
         cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,
@@ -828,9 +830,16 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(root.join(".kanzei")).unwrap();
-        let result = persist_always_allow(&root, "bash", "git status").unwrap();
+        let result = super::memory::persist_always_allow_at(
+            &root,
+            &root.join("user-home"),
+            "bash",
+            "git status",
+        )
+        .unwrap();
         assert_eq!(result, AskReply::AlwaysAllow);
-        assert!(root.join(".kanzei/kanzei.toml").is_file());
+        assert!(root.join("user-home/project-trust.json").is_file());
+        assert!(!root.join(".kanzei/kanzei.toml").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -845,8 +854,15 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(root.join(".kanzei")).unwrap();
-        std::fs::write(root.join(".kanzei/kanzei.toml"), "[invalid\n").unwrap();
-        assert!(persist_always_allow(&root, "bash", "git status").is_err());
+        std::fs::create_dir_all(root.join("user-home")).unwrap();
+        std::fs::write(root.join("user-home/project-trust.json"), "invalid JSON").unwrap();
+        assert!(super::memory::persist_always_allow_at(
+            &root,
+            &root.join("user-home"),
+            "bash",
+            "git status"
+        )
+        .is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 

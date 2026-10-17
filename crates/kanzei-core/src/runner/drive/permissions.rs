@@ -87,11 +87,53 @@ pub(super) fn permission_plan(
         pending_ask: Vec::new(),
         denied: None,
     };
-    for resource in tool.resources_with_ctx(input, ctx) {
-        // Paths normalize traversal; bash resources remain literal shell text.
-        // Both dispatch paths must use this same action-aware boundary (D-269).
-        let resource = kanzei_harness::permission::normalize_resource_for_action(action, &resource);
-        let (effect, rule) = snapshot.evaluate_with_rule(action, &resource);
+    for resource in tool.permission_resources(input, ctx) {
+        use kanzei_harness::permission::{FileResource, Resource};
+        let (resource, effect, rule) = match resource {
+            Resource::Literal(resource) => {
+                let resource =
+                    kanzei_harness::permission::normalize_resource_for_action(action, &resource);
+                let (effect, rule) = snapshot.evaluate_with_rule(action, &resource);
+                (resource, effect, rule)
+            }
+            Resource::File(path) => {
+                if let Err(error) = kanzei_harness::permission::ScopedFile::resolve(
+                    &ctx.cwd,
+                    &ctx.project_root,
+                    std::path::Path::new(&path),
+                ) {
+                    plan.resolved.push(ResolvedPermission {
+                        resource: path.clone(),
+                        decision: "deny",
+                        source: "workspace_boundary",
+                        rule: None,
+                    });
+                    plan.denied = Some(format!("{path} ({error})"));
+                    plan.pending_ask.clear();
+                    break;
+                }
+                let file = match FileResource::resolve(&ctx.cwd, std::path::Path::new(&path)) {
+                    Ok(file) => file,
+                    Err(error) => {
+                        plan.resolved.push(ResolvedPermission {
+                            resource: path.clone(),
+                            decision: "deny",
+                            source: "filesystem_resolution",
+                            rule: None,
+                        });
+                        plan.denied = Some(format!(
+                            "{path} (cannot resolve filesystem resource: {error})"
+                        ));
+                        plan.pending_ask.clear();
+                        break;
+                    }
+                };
+                let (effect, rule) = snapshot
+                    .permissions()
+                    .evaluate_file_with_rule(action, &file);
+                (file.name.clone(), effect, rule)
+            }
+        };
         match effect {
             Effect::Ask => plan.pending_ask.push(resource),
             Effect::Allow | Effect::Deny => {

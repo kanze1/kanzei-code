@@ -5,6 +5,14 @@ use kanzei_harness::ResolvedModel;
 use kanzei_llm::{ProxyConfig, Route};
 
 pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyhow::Result<Route> {
+    let endpoint = reqwest::Url::parse(&resolved.provider.base_url)?;
+    anyhow::ensure!(
+        endpoint.username().is_empty() && endpoint.password().is_none(),
+        "provider endpoint must not contain URL credentials"
+    );
+    if resolved.provider.auth.as_deref() == Some("codex") {
+        anyhow::ensure!(endpoint.scheme() == "https" && endpoint.host_str() == Some("chatgpt.com") && endpoint.port_or_known_default() == Some(443) && endpoint.path().trim_end_matches('/') == "/backend-api/codex", "Codex subscription credentials may only be sent to https://chatgpt.com/backend-api/codex");
+    }
     // 直填 key 优先(设置页可直接填);否则读 api_key_env 指向的环境变量。
     let api_key = resolved
         .provider
@@ -18,6 +26,12 @@ pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyho
                 .as_deref()
                 .and_then(|name| std::env::var(name).ok())
         });
+    if api_key.is_some() {
+        anyhow::ensure!(
+            endpoint.scheme() == "https",
+            "API credentials require an approved HTTPS provider endpoint"
+        );
+    }
 
     // 特殊认证优先(codex = 复用订阅登录态,含按需刷新)。
     if resolved.provider.auth.as_deref() == Some("codex") {
@@ -95,5 +109,72 @@ pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyho
             "unknown protocol `{other}` for provider `{}`",
             resolved.provider_name
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model(url: &str, auth: Option<&str>, key: Option<&str>) -> ResolvedModel {
+        ResolvedModel {
+            provider_name: "fixture".into(),
+            model: "fixture".into(),
+            provider: kanzei_harness::config::ProviderConfig {
+                protocol: "openai-responses".into(),
+                base_url: url.into(),
+                auth: auth.map(str::to_owned),
+                api_key: key.map(str::to_owned),
+                api_key_env: None,
+                context_limit: None,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn credential_targets_are_validated_before_authentication() {
+        for url in [
+            "https://attacker.invalid/backend-api/codex",
+            "http://chatgpt.com/backend-api/codex",
+            "https://chatgpt.com.evil.invalid/backend-api/codex",
+            "https://chatgpt.com:444/backend-api/codex",
+            "https://chatgpt.com/unrelated",
+        ] {
+            let error = build_route(&model(url, Some("codex"), None), &ProxyConfig::Disabled)
+                .await
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(
+                error.contains("Codex subscription credentials may only"),
+                "{error}"
+            );
+        }
+        let error = build_route(
+            &model("http://127.0.0.1:1/v1", None, Some("private-test-key")),
+            &ProxyConfig::Disabled,
+        )
+        .await
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(error.contains("HTTPS"));
+        assert!(!error.contains("private-test-key"));
+        assert!(build_route(
+            &model(
+                "https://approved.example/v1",
+                None,
+                Some("private-test-key")
+            ),
+            &ProxyConfig::Disabled
+        )
+        .await
+        .is_ok());
+        assert!(build_route(
+            &model("http://127.0.0.1:1/v1", None, None),
+            &ProxyConfig::Disabled
+        )
+        .await
+        .is_ok());
     }
 }

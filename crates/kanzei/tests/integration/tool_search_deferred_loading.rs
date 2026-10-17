@@ -143,6 +143,7 @@ async fn run_cli(
     command
         .args(["run", "continue the current task"])
         .current_dir(&project);
+    home_guard.approve_project(&project);
     home_guard.apply(&mut command);
     let output = command
         .env("KANZEI_MODEL", "mock:test-model")

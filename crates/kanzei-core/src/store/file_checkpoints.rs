@@ -11,13 +11,13 @@
 //! - 边界:落盘后那次 open 或后像写入也失败时不留任何行,同 run 后续触碰仍可能把
 //!   中间态采成前像(审计 19(3) 的进程内兜底未做)。
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use rusqlite::params;
 use sha2::{Digest, Sha256};
 
 use super::{now_ms, project_state_path, SessionStore, StoreError};
-use kanzei_base::atomic_file::write_atomic_bytes;
 
 pub const FILE_CHECKPOINT_MAX_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -156,7 +156,12 @@ pub fn capture_file_preimage_in(
     }
 
     // 先看元数据:超上限的大文件不整读进内存(审计 18)。
-    let (pre_exists, pre_blob, pre_bytes) = match std::fs::metadata(target.abs_path) {
+    let access = kanzei_harness::permission::ScopedFile::resolve(
+        target.tree_root,
+        target.project_root,
+        target.abs_path,
+    )?;
+    let (pre_exists, pre_blob, pre_bytes) = match access.metadata() {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => (0_i64, None, 0_i64),
         Err(error) => return Err(StoreError::Io(error)),
         Ok(metadata) if metadata.len() > FILE_CHECKPOINT_MAX_BYTES => (
@@ -165,7 +170,11 @@ pub fn capture_file_preimage_in(
             i64::try_from(metadata.len()).unwrap_or(i64::MAX),
         ),
         Ok(_) => {
-            let bytes = std::fs::read(target.abs_path)?;
+            let mut bytes = Vec::new();
+            access
+                .open()?
+                .take(FILE_CHECKPOINT_MAX_BYTES + 1)
+                .read_to_end(&mut bytes)?;
             let byte_count = i64::try_from(bytes.len()).unwrap_or(i64::MAX);
             if bytes.len() as u64 > FILE_CHECKPOINT_MAX_BYTES {
                 (1_i64, None, byte_count)
@@ -173,7 +182,13 @@ pub fn capture_file_preimage_in(
                 let digest = sha256_hex(&bytes);
                 let blob_path = file_checkpoint_blob_path(target.project_root, &digest);
                 if !blob_path.is_file() {
-                    if let Err(error) = write_atomic_bytes(&blob_path, &bytes) {
+                    if let Err(error) = kanzei_harness::permission::ScopedFile::resolve(
+                        target.tree_root,
+                        target.project_root,
+                        &blob_path,
+                    )
+                    .and_then(|blob| blob.write_atomic(&bytes, || Ok(())))
+                    {
                         // 审计 19:原文读到了却存不下——先占哨兵行再报错,后续触碰不得补采。
                         let _ = insert_preimage_row(
                             store,

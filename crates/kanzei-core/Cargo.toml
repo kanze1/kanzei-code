@@ -13,6 +13,7 @@ group = "运行时"
 kanzei-llm.workspace = true
 kanzei-harness.workspace = true
 kanzei-base.workspace = true
+reqwest.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true

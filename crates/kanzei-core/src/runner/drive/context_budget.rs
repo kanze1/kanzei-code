@@ -31,6 +31,7 @@ pub(super) async fn enforce_context_budget(
     calibration: f64,
     futile_compactions: &mut u32,
     overflow_traces: &mut Vec<String>,
+    halt: Option<&CancellationToken>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> anyhow::Result<()> {
     // 轮内上下文预算(D-176)。压缩检查原先只写在**一轮结束之后**,而长轮与
@@ -107,18 +108,28 @@ pub(super) async fn enforce_context_budget(
         }
         if before > budget && *futile_compactions < MAX_FUTILE_COMPACTIONS && messages.len() > 1 {
             let fallback = subagent.map(DigestModel::from_subagent);
-            let outcome = super::super::compaction::compact_with_model_outcome(
-                client,
-                config.digest_model.as_ref().or(fallback.as_ref()),
-                messages,
-                budget,
-                overflow_traces,
-                config.limits.recent_verbatim_ratio(),
-            )
-            .await;
+            // A cancelled summary is an uncommitted transaction. Keep history
+            // and dropped-message accounting together until the whole attempt
+            // (connection, stream and quality retry) completes.
+            let mut compacted = messages.clone();
+            let mut traces = overflow_traces.clone();
+            let outcome = tokio::select! {
+                biased;
+                _ = halt_signalled(halt) => return Ok(()),
+                outcome = super::super::compaction::compact_with_model_outcome(
+                    client,
+                    config.digest_model.as_ref().or(fallback.as_ref()),
+                    &mut compacted,
+                    budget,
+                    &mut traces,
+                    config.limits.recent_verbatim_ratio(),
+                ) => outcome,
+            };
+            *overflow_traces = traces;
             if let super::super::compaction::CompactionOutcome::Compacted(dropped_messages) =
                 outcome
             {
+                *messages = compacted;
                 // 压了还超线:tail 太大或 head 太大。再砍 tail 到预算内,否则
                 // 下一步预算检查立刻再压——连续两次压缩 = 缓存前缀两次全量
                 // 重算(cache_write 双倍),省下的 token 不够补缓存成本。

@@ -59,11 +59,28 @@ impl Tool for GrepTool {
 
     fn description(&self) -> String {
         "Search file contents by regex (ripgrep engine), early-stops at limit. Params: pattern; optional path, glob, limit, files_only, count (per-file match counts + total, full scan), case_insensitive, context / before_context / after_context (context lines around each match, capped at 20; context lines print with `-` instead of `:` like ripgrep), multiline (pattern may span lines, `.` matches newline). \
-         Independent grep calls in the SAME step run in parallel: batch several patterns together rather than one per step.".into()
+         Narrow path/glob to the relevant source tree; exclude tests/vendor when they are unrelated. A capped result is incomplete: narrow the search before drawing conclusions. Independent grep calls in the SAME step run in parallel.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(GrepInput)).unwrap()
+    }
+
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        serde_json::from_value::<GrepInput>(input.clone())
+            .map(|input| vec![input.path.unwrap_or_else(|| ".".into())])
+            .unwrap_or_default()
+    }
+
+    fn permission_resources(
+        &self,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        self.resources(input)
+            .into_iter()
+            .map(kanzei_harness::permission::Resource::File)
+            .collect()
     }
 
     fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
@@ -85,6 +102,9 @@ async fn grep_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         Some(p) => ctx.cwd.join(p),
         None => ctx.cwd.clone(),
     };
+    if let Err(output) = crate::file_access::resolve(ctx, &base) {
+        return *output;
+    }
     if !base.exists() {
         return ToolOutput::error(format!("path not found: {}", base.display()));
     }
@@ -93,7 +113,10 @@ async fn grep_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     // `crates`。实测自举因此连续两次 read 失败,还花了一大段推理去猜"为什么 glob
     // 有 crates/ 前缀而 grep 没有"。检索工具的输出必须能直接当路径用。
     let rel_root = ctx.cwd.clone();
-    let result = tokio::task::spawn_blocking(move || run_grep(&base, &rel_root, input)).await;
+    let rules = crate::search_walk::SearchScope::capture(ctx);
+    let result =
+        tokio::task::spawn_blocking(move || run_grep_with_rules(&base, &rel_root, input, rules))
+            .await;
     match result {
         Ok(Ok(text)) => ToolOutput::ok(text),
         Ok(Err(e)) => ToolOutput::error(e),
@@ -113,10 +136,25 @@ pub(crate) fn display_path(path: &std::path::Path, rel_root: &std::path::Path) -
         .replace('\\', "/")
 }
 
+#[cfg(test)]
 fn run_grep(
     base: &std::path::Path,
     rel_root: &std::path::Path,
     input: GrepInput,
+) -> Result<String, String> {
+    run_grep_with_rules(
+        base,
+        rel_root,
+        input,
+        crate::search_walk::SearchScope::fixture(rel_root),
+    )
+}
+
+fn run_grep_with_rules(
+    base: &std::path::Path,
+    rel_root: &std::path::Path,
+    input: GrepInput,
+    rules: crate::search_walk::SearchScope,
 ) -> Result<String, String> {
     use grep_searcher::sinks::UTF8;
     use grep_searcher::{BinaryDetection, SearcherBuilder};
@@ -141,7 +179,7 @@ fn run_grep(
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT).max(1);
 
     if input.count {
-        return run_count(base, rel_root, &input, &matcher, &glob_matcher);
+        return run_count(base, rel_root, &input, &matcher, &glob_matcher, rules);
     }
 
     // R-325:上下文行数——before/after 单独给就用它,否则回落 context;两侧都封顶。
@@ -169,17 +207,10 @@ fn run_grep(
     let mut done = false;
     // 默认 hidden(true) 会把 .kanzei/(需求、缺陷、规范全在这)、.github/、.claude/ 整个跳过,
     // 模型据此得出"文件不存在"的假阴性;仍尊重 .gitignore,不会扫进 target/(D-071)。
-    for entry in ignore::WalkBuilder::new(base)
-        .hidden(false)
-        .build()
-        .flatten()
-    {
-        if done {
-            break;
-        }
-        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-            continue;
-        }
+    let mut walk = crate::search_walk::SearchWalk::new(base, "grep", rules.clone());
+    while !done {
+        let Some(entry) = walk.next() else { break };
+        let entry = entry?;
         let rel = entry
             .path()
             .strip_prefix(base)
@@ -205,34 +236,48 @@ fn run_grep(
                 limit,
                 done: &mut done,
             };
-            let _ = searcher.search_path(&matcher, entry.path(), &mut sink);
+            searcher
+                .search_reader(
+                    &matcher,
+                    rules
+                        .file("grep", entry.path())?
+                        .open()
+                        .map_err(|error| format!("cannot search {shown}: {error}"))?,
+                    &mut sink,
+                )
+                .map_err(|error| format!("cannot search {shown}: {error}"))?;
             continue;
         }
         let mut file_hit = false;
-        let _ = searcher.search_path(
-            &matcher,
-            entry.path(),
-            UTF8(|line_no, text| {
-                if lines.len() >= limit {
-                    done = true;
-                    return Ok(false); // 早停:够数就掐断本文件
-                }
-                if input.files_only {
-                    if !file_hit {
-                        lines.push(shown.clone());
-                        file_hit = true;
+        searcher
+            .search_reader(
+                &matcher,
+                rules
+                    .file("grep", entry.path())?
+                    .open()
+                    .map_err(|error| format!("cannot search {shown}: {error}"))?,
+                UTF8(|line_no, text| {
+                    if lines.len() >= limit {
+                        done = true;
+                        return Ok(false); // 早停:够数就掐断本文件
                     }
-                    return Ok(false); // 文件级:首个命中即跳下一个文件
-                }
-                let trimmed: String = text.trim_end().chars().take(MAX_LINE_CHARS).collect();
-                lines.push(format!("{shown}:{line_no}: {trimmed}"));
-                Ok(true)
-            }),
-        );
+                    if input.files_only {
+                        if !file_hit {
+                            lines.push(shown.clone());
+                            file_hit = true;
+                        }
+                        return Ok(false); // 文件级:首个命中即跳下一个文件
+                    }
+                    let trimmed: String = text.trim_end().chars().take(MAX_LINE_CHARS).collect();
+                    lines.push(format!("{shown}:{line_no}: {trimmed}"));
+                    Ok(true)
+                }),
+            )
+            .map_err(|error| format!("cannot search {shown}: {error}"))?;
     }
 
     if lines.is_empty() {
-        return Ok(format!("(no matches for `{}`)", input.pattern));
+        return Ok(walk.finish(format!("(no matches for `{}`)", input.pattern)));
     }
     let mut out = lines.join("\n");
     if done {
@@ -240,7 +285,7 @@ fn run_grep(
             "\n... (stopped at limit {limit}; narrow the pattern or raise limit)"
         ));
     }
-    Ok(out)
+    Ok(walk.finish(out))
 }
 
 /// 统计模式:每个文件的匹配行数 + 总数。完整扫描,不做 head-limit 早停——
@@ -252,6 +297,7 @@ fn run_count(
     input: &GrepInput,
     matcher: &grep_regex::RegexMatcher,
     glob_matcher: &Option<globset::GlobMatcher>,
+    rules: crate::search_walk::SearchScope,
 ) -> Result<String, String> {
     use grep_searcher::sinks::UTF8;
     use grep_searcher::{BinaryDetection, SearcherBuilder};
@@ -262,14 +308,9 @@ fn run_count(
         .build();
 
     let mut file_counts: Vec<(String, u64)> = Vec::new();
-    for entry in ignore::WalkBuilder::new(base)
-        .hidden(false)
-        .build()
-        .flatten()
-    {
-        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-            continue;
-        }
+    let mut walk = crate::search_walk::SearchWalk::new(base, "grep", rules.clone());
+    for entry in walk.by_ref() {
+        let entry = entry?;
         let rel = entry
             .path()
             .strip_prefix(base)
@@ -287,21 +328,33 @@ fn run_count(
             }
         }
         let mut count = 0u64;
-        let _ = searcher.search_path(
-            matcher,
-            entry.path(),
-            UTF8(|_, _| {
-                count += 1;
-                Ok(true)
-            }),
-        );
+        searcher
+            .search_reader(
+                matcher,
+                rules.file("grep", entry.path())?.open().map_err(|error| {
+                    format!(
+                        "cannot search {}: {error}",
+                        display_path(entry.path(), rel_root)
+                    )
+                })?,
+                UTF8(|_, _| {
+                    count += 1;
+                    Ok(true)
+                }),
+            )
+            .map_err(|error| {
+                format!(
+                    "cannot search {}: {error}",
+                    display_path(entry.path(), rel_root)
+                )
+            })?;
         if count > 0 {
             file_counts.push((display_path(entry.path(), rel_root), count));
         }
     }
 
     if file_counts.is_empty() {
-        return Ok(format!("(no matches for `{}`)", input.pattern));
+        return Ok(walk.finish(format!("(no matches for `{}`)", input.pattern)));
     }
     let total: u64 = file_counts.iter().map(|(_, c)| c).sum();
     let mut out = file_counts
@@ -313,7 +366,7 @@ fn run_count(
         "\n(total {total} matches in {} files)",
         file_counts.len()
     ));
-    Ok(out)
+    Ok(walk.finish(out))
 }
 
 /// R-325:带上下文的搜索 sink。
@@ -375,6 +428,50 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn io_errors_are_failures_in_every_search_mode_and_no_match_remains_successful() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = fixture("locked-input");
+        let path = root.join("locked.txt");
+        std::fs::write(&path, "LOCKED_TARGET_MARKER\n").unwrap();
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap_err().raw_os_error(), Some(32));
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        for extra in [
+            serde_json::json!({}),
+            serde_json::json!({"count":true}),
+            serde_json::json!({"context":1}),
+            serde_json::json!({"files_only":true}),
+        ] {
+            let mut input =
+                serde_json::json!({"path":"locked.txt","pattern":"LOCKED_TARGET_MARKER"});
+            input
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let output = GrepTool.execute(input, &ctx).await;
+            assert!(output.is_error, "{}", output.content);
+            assert_eq!(output.outcome, kanzei_harness::ToolOutcome::Failed);
+            assert!(output.content.contains("os error 32"), "{}", output.content);
+            assert!(!output.content.contains("no matches"));
+        }
+        drop(lock);
+        let no_match = GrepTool
+            .execute(
+                serde_json::json!({"path":"locked.txt","pattern":"absent"}),
+                &ctx,
+            )
+            .await;
+        assert!(!no_match.is_error, "{}", no_match.content);
+        assert!(no_match.content.contains("no matches"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn fixture(tag: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "kz-grep-{tag}-{}-{}",
@@ -428,7 +525,15 @@ mod tests {
             multiline: false,
         };
         let matcher = grep_regex::RegexMatcher::new("fn").unwrap();
-        let out = run_count(&root, &root, &input, &matcher, &None).unwrap();
+        let out = run_count(
+            &root,
+            &root,
+            &input,
+            &matcher,
+            &None,
+            crate::search_walk::SearchScope::fixture(&root),
+        )
+        .unwrap();
         assert!(out.contains("src/a.rs: 2"), "{out}");
         assert!(out.contains("docs/c.md: 1"), "{out}");
         assert!(!out.contains("src/b.rs"), "{out}");
@@ -454,7 +559,15 @@ mod tests {
             multiline: false,
         };
         let matcher = grep_regex::RegexMatcher::new("zzz_none_zzz").unwrap();
-        let out = run_count(&root, &root, &input, &matcher, &None).unwrap();
+        let out = run_count(
+            &root,
+            &root,
+            &input,
+            &matcher,
+            &None,
+            crate::search_walk::SearchScope::fixture(&root),
+        )
+        .unwrap();
         assert_eq!(out, "(no matches for `zzz_none_zzz`)");
         std::fs::remove_dir_all(&root).ok();
     }

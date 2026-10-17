@@ -136,6 +136,7 @@ pub(super) async fn run_cli_with_setup(
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
     cmd.args(["run", prompt]).current_dir(&project);
     // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.approve_project(&project);
     home_guard.apply(&mut cmd);
     let output = cmd
         .env("KANZEI_MODEL", "mock:test-model")

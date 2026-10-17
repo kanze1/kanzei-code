@@ -14,6 +14,12 @@ pub struct TestHome {
 }
 
 impl TestHome {
+    pub fn approve_project(&self, root: &std::path::Path) {
+        let home = self.root.join(".kanzei");
+        let status =
+            kanzei_harness::project_trust::ProjectSources::load(root, Some(&home)).unwrap();
+        kanzei_harness::project_trust::approve_at(root, &home, &status.fingerprint).unwrap();
+    }
     /// 建临时 HOME 目录(名字带 tag 便于排障)。
     pub fn new(tag: &str) -> Self {
         let root = std::env::temp_dir().join(format!(

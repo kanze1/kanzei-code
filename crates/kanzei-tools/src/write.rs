@@ -21,6 +21,10 @@ pub struct WriteTool;
 /// A failed receipt never changes the file. The ledger is optional for standalone callers.
 pub(crate) fn check_read_receipt(ctx: &ToolCtx, path: &Path) -> Option<ToolOutput> {
     let ledger = ctx.read_ledger.as_ref()?;
+    let access = match crate::file_access::resolve(ctx, path) {
+        Ok(access) => access,
+        Err(output) => return Some(*output),
+    };
     let expected = ledger.expected(path);
     if !path.exists() {
         return expected.map(|_| {
@@ -42,11 +46,12 @@ pub(crate) fn check_read_receipt(ctx: &ToolCtx, path: &Path) -> Option<ToolOutpu
             ),
         ));
     };
-    match kanzei_base::file_content_hash(path) {
+    match access.open().and_then(kanzei_base::reader_content_hash) {
         Ok(current) if current == expected => None,
         Ok(_) => {
             use std::io::BufRead;
-            let excerpt = std::fs::File::open(path)
+            let excerpt = access
+                .open()
                 .ok()
                 .map(|file| {
                     std::io::BufReader::new(file)
@@ -139,6 +144,8 @@ pub(crate) async fn file_checkpointed_write(
     let path = path.to_path_buf();
     let bytes = bytes.to_vec();
     tokio::task::spawn_blocking(move || {
+        let access =
+            kanzei_harness::permission::ScopedFile::resolve(&ctx.cwd, &ctx.project_root, &path)?;
         let _lock =
             kanzei_base::atomic_file::try_lock_exclusive(&path, std::time::Duration::from_secs(2))?
                 .ok_or_else(|| {
@@ -173,7 +180,7 @@ pub(crate) async fn file_checkpointed_write(
                 &bytes,
                 check,
             )?,
-            None => kanzei_base::atomic_file::write_atomic_bytes_guarded(&path, &bytes, check)?,
+            None => access.write_atomic(&bytes, check)?,
         }
         record_worktree_write_log(&ctx, &path, &bytes).map_err(|error| {
             std::io::Error::other(format!("文件已写入，但写入凭据记录失败：{error}"))
@@ -258,7 +265,8 @@ fn file_checkpointed_write_blocking_with_guard(
         }
     }
 
-    kanzei_base::atomic_file::write_atomic_bytes_guarded(path, bytes, check)?;
+    let access = kanzei_harness::permission::ScopedFile::resolve(cwd, project_root, path)?;
+    access.write_atomic(bytes, check)?;
     // 审计 19(1):写前没打开库时,落盘后再试一次——只为记后像;本 run/path 还没有行
     // 就占哨兵行,挡住同 run 后续触碰把这次写出的中间态补采成前像。稳态不走这里。
     let store = match store {
@@ -302,7 +310,20 @@ impl Tool for WriteTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        vec![input["path"].as_str().unwrap_or("*").to_string()]
+        serde_json::from_value::<WriteInput>(input.clone())
+            .map(|input| vec![input.path])
+            .unwrap_or_default()
+    }
+
+    fn permission_resources(
+        &self,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        self.resources(input)
+            .into_iter()
+            .map(kanzei_harness::permission::Resource::File)
+            .collect()
     }
 
     fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
@@ -314,19 +335,22 @@ impl Tool for WriteTool {
             Ok(v) => v,
             Err(out) => return out,
         };
-        let path = ctx
-            .cwd
-            .join(kanzei_harness::permission::normalize_resource(&input.path));
+        let access = match crate::file_access::resolve(ctx, Path::new(&input.path)) {
+            Ok(access) => access,
+            Err(output) => return *output,
+        };
+        let path = access.path().to_path_buf();
         if let Some(output) = check_read_receipt(ctx, &path) {
             return output;
         }
-        if let Some(parent) = path.parent() {
-            if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                return ToolOutput::error(format!("cannot create {}: {e}", parent.display()));
-            }
+        if let Err(error) = access.create_parent() {
+            return ToolOutput::error(format!(
+                "cannot create parent of {}: {error}",
+                path.display()
+            ));
         }
         // 覆写前抓旧内容,给 UI 出 diff(看得见改了什么,R-015)。
-        let previous = tokio::fs::read_to_string(&path).await.ok();
+        let previous = access.read_to_string().ok();
         if let Err(e) = file_checkpointed_write(ctx, &path, input.content.as_bytes()).await {
             return write_error(&path, e, "WRITE_FAILED");
         }

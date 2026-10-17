@@ -11,6 +11,8 @@ group = "运行时"
 
 [dependencies]
 kanzei-base.workspace = true
+cap-std = "4.0.3"
+sha2.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true

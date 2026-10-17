@@ -691,6 +691,9 @@ mod tests {
         .unwrap();
         std::fs::write(project.join(".kanzei/project/defects.md"), "# Defects\n").unwrap();
 
+        let sources = kanzei_harness::project_trust::status(&project).unwrap();
+        kanzei_harness::project_trust::approve(&project, &sources.fingerprint).unwrap();
+
         let coordinator = std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new());
         let result = super::idea_split_with_coordinator(
             coordinator,
@@ -698,8 +701,11 @@ mod tests {
             "I-001".into(),
         )
         .await;
-        server.await.unwrap();
         assert!(result.is_ok(), "idea_split 应成功: {:?}", result);
+        tokio::time::timeout(std::time::Duration::from_secs(20), server)
+            .await
+            .unwrap()
+            .unwrap();
         let msg = result.unwrap();
         assert!(msg.starts_with("I-001 →"), "返回应含产出编号: {msg}");
         assert!(msg.contains("R-001") && msg.contains("D-001"), "{msg}");

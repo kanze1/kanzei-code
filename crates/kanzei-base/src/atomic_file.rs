@@ -24,6 +24,43 @@ pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> io::Result<()> {
 pub fn write_atomic_bytes_guarded(
     path: &Path,
     bytes: &[u8],
+    check: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
+    write_atomic_bytes_in(&AmbientFileSystem, path, bytes, check)
+}
+
+/// A filesystem capability owns path resolution; atomic replacement must not
+/// reopen its paths with ambient authority after authorization.
+pub trait AtomicFileSystem {
+    fn create_dir_all(&self, path: &Path) -> io::Result<()>;
+    fn create_new(&self, path: &Path) -> io::Result<std::fs::File>;
+    fn remove_file(&self, path: &Path) -> io::Result<()>;
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
+}
+
+struct AmbientFileSystem;
+impl AtomicFileSystem for AmbientFileSystem {
+    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        std::fs::create_dir_all(path)
+    }
+    fn create_new(&self, path: &Path) -> io::Result<std::fs::File> {
+        std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(path)
+    }
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        std::fs::remove_file(path)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        std::fs::rename(from, to)
+    }
+}
+
+pub fn write_atomic_bytes_in(
+    filesystem: &impl AtomicFileSystem,
+    path: &Path,
+    bytes: &[u8],
     mut check: impl FnMut() -> io::Result<()>,
 ) -> io::Result<()> {
     let parent = path
@@ -35,23 +72,20 @@ pub fn write_atomic_bytes_guarded(
                 format!("{} 没有父目录", path.display()),
             )
         })?;
-    std::fs::create_dir_all(parent)?;
+    filesystem.create_dir_all(parent)?;
     let tmp = temp_sibling(path, parent)?;
-    let mut file = std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&tmp)?;
+    let mut file = filesystem.create_new(&tmp)?;
     if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
         drop(file);
-        std::fs::remove_file(&tmp)?;
+        filesystem.remove_file(&tmp)?;
         return Err(error);
     }
     drop(file);
     if let Err(error) = check() {
-        std::fs::remove_file(&tmp)?;
+        filesystem.remove_file(&tmp)?;
         return Err(error);
     }
-    std::fs::rename(&tmp, path).map_err(|error| {
+    filesystem.rename(&tmp, path).map_err(|error| {
         io::Error::new(
             error.kind(),
             format!(

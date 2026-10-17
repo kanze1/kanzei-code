@@ -395,6 +395,18 @@ pub trait Tool: Send + Sync {
     fn resources_with_ctx(&self, input: &Value, _ctx: &ToolCtx) -> Vec<String> {
         self.resources(input)
     }
+    /// Typed authorization resources. Filesystem tools opt into physical path
+    /// identity; commands, URLs and other resources keep their existing contract.
+    fn permission_resources(
+        &self,
+        input: &Value,
+        ctx: &ToolCtx,
+    ) -> Vec<crate::permission::Resource> {
+        self.resources_with_ctx(input, ctx)
+            .into_iter()
+            .map(crate::permission::Resource::Literal)
+            .collect()
+    }
     /// 批内执行冲突声明。权限资源不能兼任锁键；未审计工具默认全局独占。
     fn concurrency(&self, _input: &Value, _ctx: &ToolCtx) -> ToolConcurrency {
         ToolConcurrency::Exclusive

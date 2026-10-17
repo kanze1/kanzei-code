@@ -234,7 +234,8 @@ pub(crate) fn budgeted_tokens_for_protocol(
 }
 
 /// 预算检查的增量口径(D-592):上一请求已有真实 `prompt_tokens` 时,只把当前
-/// 估算相对上一请求估算的新增部分加回;完整 `bytes/4 × calibration` 仅用于冷启动。
+/// 估算相对上一请求的差值(包括历史压缩产生的负增量)加回;
+/// 完整 `bytes/4 × calibration` 仅用于冷启动。
 /// 这样中文、代码和工具 schema 的系统性偏差不会在每一步重新把整段历史压低。
 pub(crate) fn budgeted_tokens_from_last_usage(
     last_input_tokens: Option<u64>,
@@ -244,7 +245,11 @@ pub(crate) fn budgeted_tokens_from_last_usage(
 ) -> u64 {
     match (last_input_tokens, last_estimated_tokens) {
         (Some(actual), Some(previous_estimate)) => {
-            actual.saturating_add(current_estimated_tokens.saturating_sub(previous_estimate))
+            if current_estimated_tokens >= previous_estimate {
+                actual.saturating_add(current_estimated_tokens - previous_estimate)
+            } else {
+                actual.saturating_sub(previous_estimate - current_estimated_tokens)
+            }
         }
         _ => (current_estimated_tokens as f64 * calibration).round() as u64,
     }
@@ -596,13 +601,25 @@ mod tests {
         );
         assert_eq!(
             budgeted_tokens_from_last_usage(Some(10_000), Some(12_000), 8_000, 2.0),
-            10_000,
-            "当前估算因压缩变小不能把真实历史倒扣"
+            6_000,
+            "历史缩短必须同步降低实际用量锚点"
         );
         assert_eq!(
             budgeted_tokens_from_last_usage(None, None, 8_000, 1.5),
             12_000,
             "冷启动仍使用完整估算×校准"
+        );
+        assert_eq!(
+            budgeted_tokens_from_last_usage(Some(290_697), Some(300_000), 101_426, 1.0),
+            92_123
+        );
+        assert_eq!(
+            budgeted_tokens_from_last_usage(Some(8_529), Some(300_000), 1_000, 1.0),
+            0
+        );
+        assert_eq!(
+            budgeted_tokens_from_last_usage(Some(u64::MAX), Some(1), 2, 1.0),
+            u64::MAX
         );
     }
     /// trim_tail:压缩后仍超线时只收 tail 最旧端,任务定义、纪要、当前用户

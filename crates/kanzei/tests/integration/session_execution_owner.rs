@@ -26,6 +26,7 @@ fn project(home: &TestHome, address: std::net::SocketAddr) -> std::path::PathBuf
         ),
     )
     .unwrap();
+    home.approve_project(&root);
     root
 }
 

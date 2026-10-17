@@ -149,6 +149,7 @@ async fn cli_allow_listed_executes_bash_without_tty() {
     cmd.args(["run", "--allow", "bash:*", "执行 bash E2"])
         .current_dir(&project);
     // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.approve_project(&project);
     home_guard.apply(&mut cmd);
     let mut child = cmd
         .env("KANZEI_MODEL", "mock:test-model")
@@ -252,6 +253,7 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
     cmd.args(["run", "拒绝第二个工具"]).current_dir(&project);
     // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.approve_project(&project);
     home_guard.apply(&mut cmd);
     let mut child = cmd
         .env("KANZEI_MODEL", "mock:test-model")
@@ -347,6 +349,7 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     let mut cmd2 = Command::new(env!("CARGO_BIN_EXE_kz"));
     cmd2.args(["run", "拒绝后继续对话"]).current_dir(&project);
     // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.approve_project(&project);
     home_guard.apply(&mut cmd2);
     let output2 = cmd2
         .env("KANZEI_MODEL", "mock:test-model")
@@ -432,6 +435,7 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
     cmd.args(["run", "继续旧会话"]).current_dir(&project);
     // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.approve_project(&project);
     home_guard.apply(&mut cmd);
     let output = cmd
         .env("KANZEI_MODEL", "mock:test-model")
@@ -505,6 +509,7 @@ async fn cli_prompt_file_feeds_big_prompt_without_argv() {
         .arg("--prompt-file")
         .arg(&prompt_path)
         .current_dir(&project);
+    home_guard.approve_project(&project);
     home_guard.apply(&mut cmd);
     let mut child = cmd
         .env("KANZEI_MODEL", "mock:test-model")

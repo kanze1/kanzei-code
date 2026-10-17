@@ -95,63 +95,37 @@ fn pending_ask_payload_carries_question_multiple() {
 }
 
 #[test]
-fn persist_always_allow_success_returns_always_allow_and_path() {
+fn permanent_permissions_live_in_user_registry_and_failed_storage_does_not_grant() {
     let root = std::env::temp_dir().join(format!(
-        "kanzei-app-always-ok-{}-{}",
+        "kz-app-permissions-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos()
     ));
-    std::fs::create_dir_all(root.join(".kanzei")).unwrap();
-    let (reply, path) = persist_always_allow(&root, "bash", "git status").unwrap();
-    assert_eq!(reply, kanzei_core::AskReply::AlwaysAllow);
-    assert_eq!(path, root.join(".kanzei/kanzei.toml"));
+    std::fs::create_dir_all(&root).unwrap();
+    let home = root.join("user-home");
+    crate::settings::with_kanzei_home(&home, || {
+        let (reply, path) = persist_always_allow(&root, "bash", "git status").unwrap();
+        assert_eq!(reply, kanzei_core::AskReply::AlwaysAllow);
+        assert_eq!(path, home.join("project-trust.json"));
+        let dir = root.display().to_string();
+        crate::commands::run::permission_rule_add(dir.clone(), "bash".into(), "git log".into())
+            .unwrap();
+        let rules = crate::settings::permission_rules_get(dir.clone()).unwrap();
+        assert_eq!(rules["rules"][0]["resource"], "git status");
+        assert_eq!(rules["rules"][1]["resource"], "git log");
+        assert!(!root.join(".kanzei/kanzei.toml").exists());
+        assert!(
+            crate::commands::run::permission_rule_add(dir.clone(), " ".into(), "x".into()).is_err()
+        );
+        assert!(crate::commands::run::permission_rule_add(dir, "bash".into(), "".into()).is_err());
+        std::fs::write(path, "invalid JSON").unwrap();
+        assert!(persist_always_allow(&root, "bash", "git diff").is_err());
+    });
     std::fs::remove_dir_all(root).unwrap();
 }
-
-#[test]
-fn persist_always_allow_failure_returns_deny_path() {
-    let root = std::env::temp_dir().join(format!(
-        "kanzei-app-always-fail-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(root.join(".kanzei")).unwrap();
-    std::fs::write(root.join(".kanzei/kanzei.toml"), "[invalid\n").unwrap();
-    assert!(persist_always_allow(&root, "bash", "git status").is_err());
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-/// UX-147:被拦工具行上的「放行并记住」——写进项目配置的就是**完全相同的这一条**;缺操作/资源时拒绝。
-#[test]
-fn permission_rule_add_writes_the_exact_entry_and_rejects_blank_input() {
-    let root = std::env::temp_dir().join(format!(
-        "kanzei-app-rule-add-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(root.join(".kanzei")).unwrap();
-    let dir = root.display().to_string();
-    crate::commands::run::permission_rule_add(dir.clone(), "bash".into(), "git status".into())
-        .unwrap();
-    let text = std::fs::read_to_string(root.join(".kanzei/kanzei.toml")).unwrap();
-    assert!(text.contains("action = \"bash\"") && text.contains("resource = \"git status\""));
-    assert!(text.contains("effect = \"allow\""));
-    assert!(
-        crate::commands::run::permission_rule_add(dir.clone(), " ".into(), "x".into()).is_err()
-    );
-    assert!(crate::commands::run::permission_rule_add(dir, "bash".into(), "".into()).is_err());
-    std::fs::remove_dir_all(root).unwrap();
-}
-
 #[test]
 fn branch_tracker_switch_off_keeps_reads_and_rejects_writes_with_reason() {
     let root = std::env::temp_dir().join(format!(

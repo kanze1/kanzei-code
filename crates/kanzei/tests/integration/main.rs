@@ -12,6 +12,7 @@
 //! 它必须重新拆成独立 target，否则同进程并行会互相污染。
 
 mod agent_step_budget;
+mod claude_audit_regressions;
 mod common;
 
 mod always_allow_bash;

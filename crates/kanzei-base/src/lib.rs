@@ -15,8 +15,10 @@ pub fn content_hash(bytes: &[u8]) -> String {
 
 /// The same fingerprint as `content_hash`, without loading the file into memory.
 pub fn file_content_hash(path: &std::path::Path) -> std::io::Result<String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path)?;
+    reader_content_hash(std::fs::File::open(path)?)
+}
+
+pub fn reader_content_hash(mut file: impl std::io::Read) -> std::io::Result<String> {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     let mut buffer = [0u8; 64 * 1024];
     loop {

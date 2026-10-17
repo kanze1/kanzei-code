@@ -46,6 +46,7 @@ mod cross_tree;
 /// UI2-0926 #8:本地开发服务地址发现(后台进程输出 → 预览面板空态列表)。
 pub mod dev_urls;
 mod edit;
+mod file_access;
 pub mod files;
 pub mod frontend;
 mod git;
@@ -67,6 +68,7 @@ mod process;
 pub mod project_knowledge;
 /// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。
 pub mod project_state;
+mod public_http;
 pub mod quarantine;
 mod question;
 mod read;
@@ -83,6 +85,8 @@ pub mod research_runner;
 pub mod research_verify;
 pub mod research_workflow;
 pub mod research_write;
+mod search_walk;
+mod web_content;
 pub use read::pdf_to_text;
 pub mod run;
 mod shell;

@@ -319,7 +319,20 @@ impl Tool for EditTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        vec![input["path"].as_str().unwrap_or("*").to_string()]
+        serde_json::from_value::<EditInput>(input.clone())
+            .map(|input| vec![input.path])
+            .unwrap_or_default()
+    }
+
+    fn permission_resources(
+        &self,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        self.resources(input)
+            .into_iter()
+            .map(kanzei_harness::permission::Resource::File)
+            .collect()
     }
 
     fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
@@ -343,10 +356,12 @@ impl Tool for EditTool {
                 "old_string must not be empty (use the write tool to create files)",
             );
         }
-        let path = ctx
-            .cwd
-            .join(kanzei_harness::permission::normalize_resource(&input.path));
-        match tokio::fs::metadata(&path).await {
+        let access = match crate::file_access::resolve(ctx, std::path::Path::new(&input.path)) {
+            Ok(access) => access,
+            Err(output) => return *output,
+        };
+        let path = access.path().to_path_buf();
+        match access.metadata() {
             Ok(meta) if meta.len() > MAX_FILE_BYTES => {
                 return ToolOutput::failed(
                     "EDIT_FILE_TOO_LARGE",
@@ -366,7 +381,7 @@ impl Tool for EditTool {
         if let Some(output) = crate::write::check_read_receipt(ctx, &path) {
             return output;
         }
-        let content = match tokio::fs::read_to_string(&path).await {
+        let content = match access.read_to_string() {
             Ok(c) => c,
             Err(e) => {
                 return ToolOutput::failed(
@@ -690,7 +705,20 @@ impl Tool for InsertTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        vec![input["path"].as_str().unwrap_or("*").to_string()]
+        serde_json::from_value::<InsertInput>(input.clone())
+            .map(|input| vec![input.path])
+            .unwrap_or_default()
+    }
+
+    fn permission_resources(
+        &self,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        self.resources(input)
+            .into_iter()
+            .map(kanzei_harness::permission::Resource::File)
+            .collect()
     }
 
     fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
@@ -712,10 +740,12 @@ impl Tool for InsertTool {
             );
         }
 
-        let path = ctx
-            .cwd
-            .join(kanzei_harness::permission::normalize_resource(&input.path));
-        match tokio::fs::metadata(&path).await {
+        let access = match crate::file_access::resolve(ctx, std::path::Path::new(&input.path)) {
+            Ok(access) => access,
+            Err(output) => return *output,
+        };
+        let path = access.path().to_path_buf();
+        match access.metadata() {
             Ok(meta) if meta.len() > MAX_FILE_BYTES => {
                 return ToolOutput::failed(
                     "INSERT_FILE_TOO_LARGE",
@@ -735,7 +765,7 @@ impl Tool for InsertTool {
         if let Some(output) = crate::write::check_read_receipt(ctx, &path) {
             return output;
         }
-        let original = match tokio::fs::read_to_string(&path).await {
+        let original = match access.read_to_string() {
             Ok(content) => content,
             Err(error) => {
                 return ToolOutput::failed(

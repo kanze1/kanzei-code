@@ -202,7 +202,8 @@ pub(super) fn assemble_run_once<'a>(
         parts: user_parts,
     });
     let total_usage = Usage::default();
-    // R-236 B1:轮末优先使用最近一次 provider usage.input；None 仅表示本轮没有有效 usage。
+    // The anchor is complete provider input, including cache reads and writes.
+    // None means this run has not received valid usage yet.
     let last_input_tokens: Option<u64> = None;
     let last_estimated_tokens: Option<u64> = None;
     // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。

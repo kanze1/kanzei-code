@@ -16,11 +16,11 @@ impl Component for MarkdownComponent {
         if let Some(home) = crate::home::kanzei_home() {
             bases.push(home);
         }
-        bases.push(ctx.project_root.join(".kanzei"));
-
         for base in bases {
             scan_agents(&base.join("agents"), draft);
         }
+        let sources = crate::project_trust::status(&ctx.project_root)?;
+        register_project_agents(&ctx.project_root, &sources, draft);
         for skill in crate::skills::enabled_catalog()? {
             let path = skill.path.clone();
             draft.skills.insert_at(skill.id.clone(), skill, path);
@@ -133,18 +133,36 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let fm = parse_frontmatter(&text);
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("agent");
-        let name = fm.get("name").unwrap_or(stem).to_string();
-        let agent = match agent_from_frontmatter(name.clone(), fm) {
-            Ok(agent) => agent,
-            Err(error) => {
-                tracing::warn!(path = %path.display(), %error, "invalid agent; skipped");
-                continue;
-            }
-        };
-        draft.agents.insert_at(name, agent, path);
+        register_agent(path, &text, draft);
     }
+}
+
+fn register_project_agents(
+    root: &Path,
+    sources: &crate::project_trust::ProjectSources,
+    draft: &mut HarnessDraft,
+) {
+    for source in sources
+        .files
+        .iter()
+        .filter(|source| source.approved && source.path.starts_with(".kanzei/agents/"))
+    {
+        register_agent(root.join(&source.path), &source.text, draft);
+    }
+}
+
+fn register_agent(path: std::path::PathBuf, text: &str, draft: &mut HarnessDraft) {
+    let fm = parse_frontmatter(text);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("agent");
+    let name = fm.get("name").unwrap_or(stem).to_string();
+    let agent = match agent_from_frontmatter(name.clone(), fm) {
+        Ok(agent) => agent,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "invalid agent; skipped");
+            return;
+        }
+    };
+    draft.agents.insert_at(name, agent, path);
 }
 
 fn optional_agent_field<T: Default>(
@@ -275,6 +293,43 @@ fn serde_plain<T: serde::de::DeserializeOwned>(s: &str) -> Option<T> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn project_agent_override_requires_approval_of_exact_loaded_content() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-agent-trust-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project = root.join("project");
+        let home = root.join("home");
+        let path = project.join(".kanzei/agents/dev.md");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "---\nname: dev\n---\nproject replacement").unwrap();
+        let mut draft = crate::HarnessDraft::default();
+        super::register_agent(
+            root.join("builtin/dev.md"),
+            "---\nname: dev\n---\nbuiltin prompt",
+            &mut draft,
+        );
+        let sources = crate::project_trust::ProjectSources::load(&project, Some(&home)).unwrap();
+        super::register_project_agents(&project, &sources, &mut draft);
+        assert_eq!(draft.agents.get("dev").unwrap().system, "builtin prompt");
+        crate::project_trust::approve_at(&project, &home, &sources.fingerprint).unwrap();
+        let approved = crate::project_trust::ProjectSources::load(&project, Some(&home)).unwrap();
+        std::fs::write(&path, "---\nname: dev\n---\nchanged after load").unwrap();
+        super::register_project_agents(&project, &approved, &mut draft);
+        assert_eq!(
+            draft.agents.get("dev").unwrap().system,
+            "project replacement",
+            "must use the captured approved bytes"
+        );
+        let changed = crate::project_trust::ProjectSources::load(&project, Some(&home)).unwrap();
+        assert!(!changed.files[0].approved);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn agent_skills_yaml_blocks_manual_flags_and_global_precedence() {
         let root = std::env::temp_dir().join(format!(

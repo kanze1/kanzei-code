@@ -4,6 +4,7 @@ use serde_json::Value;
 /// token 用量。cache_read/cache_write 单独记账(prompt cache 命中透明化)。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
+    /// Uncached input; cache buckets are disjoint across all normalized protocols.
     pub input: u64,
     pub output: u64,
     pub reasoning: u64,
@@ -12,6 +13,54 @@ pub struct Usage {
     /// Provider-side web searches reported or counted from hosted-search events.
     #[serde(default)]
     pub web_search_requests: u64,
+}
+
+impl Usage {
+    /// Context capacity counts every input token, independently of cache billing.
+    pub fn context_input_tokens(self) -> u64 {
+        self.input
+            .saturating_add(self.cache_read)
+            .saturating_add(self.cache_write)
+    }
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::Usage;
+
+    #[test]
+    fn context_input_is_invariant_under_cache_billing_splits() {
+        for (input, cache_read, cache_write) in [
+            (314_705, 0, 0),
+            (8_529, 306_176, 0),
+            (8_529, 0, 306_176),
+            (0, 314_705, 0),
+            (0, 0, 314_705),
+        ] {
+            assert_eq!(
+                Usage {
+                    input,
+                    cache_read,
+                    cache_write,
+                    output: 42,
+                    reasoning: 20,
+                    ..Usage::default()
+                }
+                .context_input_tokens(),
+                314_705
+            );
+        }
+        assert_eq!(
+            Usage {
+                input: u64::MAX,
+                cache_read: 1,
+                cache_write: 1,
+                ..Usage::default()
+            }
+            .context_input_tokens(),
+            u64::MAX
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

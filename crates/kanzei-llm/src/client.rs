@@ -5,7 +5,7 @@ use futures::{Stream, StreamExt};
 use crate::error::{retry_after_seconds, LlmError};
 use crate::event::LlmEvent;
 use crate::protocol::{self, ProtocolKind};
-use crate::proxy::{build_http_client, ProxyConfig};
+use crate::proxy::{build_http_client_without_redirect, ProxyConfig};
 use crate::request::LlmRequest;
 use crate::request::Part;
 use crate::sse::SseParser;
@@ -166,7 +166,7 @@ pub struct LlmClient {
 impl LlmClient {
     pub fn new(proxy: &ProxyConfig) -> Result<Self, LlmError> {
         Ok(LlmClient {
-            http: build_http_client(proxy)?,
+            http: build_http_client_without_redirect(proxy)?,
         })
     }
 

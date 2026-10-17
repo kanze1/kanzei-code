@@ -647,7 +647,9 @@ fn selected_child_docs_permissions_and_memory_keep_parent_material_untouched() {
     assert!(rules["rules"].as_array().unwrap().is_empty());
     assert_eq!(
         PathBuf::from(rules["path"].as_str().unwrap()),
-        normalized_project_root(&permission_child).join(".kanzei/kanzei.toml")
+        kanzei_harness::kanzei_home()
+            .unwrap()
+            .join("project-trust.json")
     );
     assert!(crate::settings::permission_rule_delete(
         permission_child.display().to_string(),

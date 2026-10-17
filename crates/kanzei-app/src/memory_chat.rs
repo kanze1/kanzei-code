@@ -526,11 +526,12 @@ primary = "memorytest:fixture"
 [providers.memorytest]
 protocol = "openai"
 base_url = "http://{address}/v1"
-api_key = "test-only"
 "#
             ),
         )
         .unwrap();
+        let sources = kanzei_harness::project_trust::status(&root).unwrap();
+        kanzei_harness::project_trust::approve(&root, &sources.fingerprint).unwrap();
         let expected = original["expected_hash"].clone();
         let server = tokio::spawn(async move {
             for step in 0..4 {

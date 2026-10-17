@@ -15,6 +15,15 @@ pub enum ProxyConfig {
     Disabled,
 }
 
+/// Resolve the user's proxy policy once for transports that own connection pinning.
+pub fn proxy_for_config(config: &ProxyConfig, url: &url::Url) -> Option<String> {
+    match config {
+        ProxyConfig::Disabled => None,
+        ProxyConfig::Explicit(proxy) => Some(proxy.clone()),
+        ProxyConfig::Env => proxy_with_fallback(url, &|key| std::env::var(key).ok(), system_proxy),
+    }
+}
+
 /// 构建应用了代理策略的 reqwest Client,默认遵循有限次重定向。
 pub fn build_http_client(config: &ProxyConfig) -> Result<reqwest::Client, LlmError> {
     build_http_client_with_redirect(config, reqwest::redirect::Policy::default())

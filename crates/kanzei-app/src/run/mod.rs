@@ -229,6 +229,8 @@ mod worktree_run_tests {
             "[profile]\ndefault = \"research\"\n",
         )
         .unwrap();
+        let sources = kanzei_harness::project_trust::status(&main_root).unwrap();
+        kanzei_harness::project_trust::approve(&main_root, &sources.fingerprint).unwrap();
         let (config, _) =
             kanzei_harness::KanzeiConfig::load_with_warnings_at_root(&main_root).unwrap();
         assert_eq!(

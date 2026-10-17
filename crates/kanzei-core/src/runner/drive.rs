@@ -299,6 +299,7 @@ pub fn run_once_with_parts<'a>(
                 calibration,
                 &mut futile_compactions,
                 &mut overflow_traces,
+                halt,
                 &mut on_event,
             )
             .await?;
@@ -820,9 +821,10 @@ async fn stream_request_step(
                     });
                 }
                 LlmEvent::StepFinish { usage, reason } => {
-                    *calibration = update_calibration(*calibration, last_estimated, usage.input);
-                    if usage.input > 0 {
-                        *last_input_tokens = Some(usage.input);
+                    let context_input = usage.context_input_tokens();
+                    *calibration = update_calibration(*calibration, last_estimated, context_input);
+                    if context_input > 0 {
+                        *last_input_tokens = Some(context_input);
                         *last_estimated_tokens = Some(last_estimated);
                     }
                     *total_usage = add_usage(*total_usage, usage);

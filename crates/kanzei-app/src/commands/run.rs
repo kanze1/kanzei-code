@@ -90,14 +90,14 @@ pub(crate) fn persist_always_allow(
     resource: &str,
 ) -> Result<(kanzei_core::AskReply, PathBuf), String> {
     let pattern = kanzei_harness::config::generalize_resource(action, resource);
-    let path = kanzei_harness::config::append_allow_rule(project_root, action, &pattern)
+    let path = kanzei_harness::project_trust::remember_permission(project_root, action, &pattern)
         .map_err(|error| error.to_string())?;
     Ok((kanzei_core::AskReply::AlwaysAllow, path))
 }
 
 /// 把一条被拦下的操作记成项目放行规则(UX-147):并行线/自主轮遇到要批准的操作会被 NonInteractive 当场拦下,
 /// 对话里的工具行因此挂一个「放行并记住」——这里就是它的落点。与权限卡的「允许并记住」同一条持久化路径、
-/// 同一个口径:只记**完全相同的这一条**(同一操作 + 同一资源),写项目 `.kanzei/kanzei.toml`。
+/// 同一个口径:只记**完全相同的这一条**(同一操作 + 同一资源),写用户目录中的项目授权记录。
 #[tauri::command]
 pub(crate) fn permission_rule_add(
     project_dir: String,

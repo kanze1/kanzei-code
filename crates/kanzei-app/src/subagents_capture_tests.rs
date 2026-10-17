@@ -24,6 +24,8 @@ fn project(address: std::net::SocketAddr) -> PathBuf {
         "# Requirements\n",
     )
     .unwrap();
+    let sources = kanzei_harness::project_trust::status(&root).unwrap();
+    kanzei_harness::project_trust::approve(&root, &sources.fingerprint).unwrap();
     root
 }
 

@@ -54,7 +54,7 @@ impl Tool for ReadTool {
          tail (last N lines). Image files (PNG/JPEG/WebP/GIF) are detected by content and returned \
          as a viewable image; offset/limit/tail do not apply to them. Jupyter notebooks (.ipynb) render as numbered cells with source and captured outputs; use `cells` (for example `1-5` or `3`) for a range, which is a CELL index and not a line number. \
          Multiple read calls in the SAME step run in parallel: when you know several files to \
-         open, emit them together instead of one per step."
+         open, emit them together instead of one per step. Reuse unchanged ranges already read; continue at the first unread line when output is truncated."
             .into()
     }
 
@@ -63,7 +63,20 @@ impl Tool for ReadTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        vec![input["path"].as_str().unwrap_or("*").to_string()]
+        serde_json::from_value::<ReadInput>(input.clone())
+            .map(|input| vec![input.path])
+            .unwrap_or_default()
+    }
+
+    fn permission_resources(
+        &self,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        self.resources(input)
+            .into_iter()
+            .map(kanzei_harness::permission::Resource::File)
+            .collect()
     }
 
     fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
@@ -81,20 +94,41 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         Ok(v) => v,
         Err(out) => return out,
     };
-    let path = ctx
-        .cwd
-        .join(kanzei_harness::permission::normalize_resource(&input.path));
+    let path = ctx.cwd.join(&input.path);
+    let access = match crate::file_access::resolve(ctx, &path) {
+        Ok(access) => access,
+        Err(output) => return *output,
+    };
+    let path = access.path().to_path_buf();
     let path_for_read = path.clone();
     let project_root = ctx.project_root.clone();
     let ledger = ctx.read_ledger.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let before = ledger
-            .as_ref()
-            .and_then(|_| kanzei_base::file_content_hash(&path_for_read).ok());
-        let result = read_any(&path_for_read, &input, &project_root);
+        let before = ledger.as_ref().and_then(|_| {
+            access
+                .open()
+                .and_then(kanzei_base::reader_content_hash)
+                .ok()
+        });
+        let result = access
+            .open()
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    crate::missing_path_hint(&path_for_read, "", &project_root)
+                } else {
+                    format!("cannot open {}: {error}", path_for_read.display())
+                }
+            })
+            .and_then(|file| read_any(file, &path_for_read, &input));
         if result.is_ok() {
             if let (Some(ledger), Some(before)) = (ledger.as_ref(), before) {
-                if kanzei_base::file_content_hash(&path_for_read).ok().as_ref() != Some(&before) {
+                if access
+                    .open()
+                    .and_then(kanzei_base::reader_content_hash)
+                    .ok()
+                    .as_ref()
+                    != Some(&before)
+                {
                     return Err(
                         "READ_FILE_CHANGED_DURING_READ: 文件在读取过程中变化，请重新 read。".into(),
                     );
@@ -178,17 +212,10 @@ fn sniff_image(head: &[u8]) -> Option<&'static str> {
 }
 
 fn read_any(
+    mut file: std::fs::File,
     path: &std::path::Path,
     input: &ReadInput,
-    project_root: &std::path::Path,
 ) -> Result<ReadPayload, String> {
-    let mut file = std::fs::File::open(path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            crate::missing_path_hint(path, "", project_root)
-        } else {
-            format!("cannot open {}: {error}", path.display())
-        }
-    })?;
     let meta = file.metadata().map_err(|e| e.to_string())?;
     if meta.is_dir() {
         return Err(format!("{} is a directory", path.display()));
@@ -197,7 +224,8 @@ fn read_any(
     // R-326:notebook 按**扩展名**分派而不是嗅探内容——.ipynb 就是 JSON,
     // 与普通 .json 在字节上无法区分,只有路径能表达「按 notebook 语义读」。
     if path.extension().is_some_and(|e| e == "ipynb") {
-        let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let mut raw = String::new();
+        file.read_to_string(&mut raw).map_err(|e| e.to_string())?;
         return read_notebook(&raw, input.cells.as_deref()).map(ReadPayload::Text);
     }
 
@@ -224,15 +252,17 @@ fn read_any(
         });
     }
     if head[..n].starts_with(b"%PDF-") {
-        return read_pdf(path, input).map(ReadPayload::Text);
+        file.seek(SeekFrom::Start(0))
+            .map_err(|error| error.to_string())?;
+        return read_pdf(file, input).map(ReadPayload::Text);
     }
 
     file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     read_sync_from(file, meta.len(), path, input).map(ReadPayload::Text)
 }
 
-fn read_pdf(path: &std::path::Path, input: &ReadInput) -> Result<String, String> {
-    let text = pdf_to_text(path)?;
+fn read_pdf(file: std::fs::File, input: &ReadInput) -> Result<String, String> {
+    let text = pdf_to_text_file(file)?;
     // R-326:`pages` 走**页**坐标,与 offset/limit 的行坐标是两套,不互相回退。
     // 给了 pages 就整页整页地给,不再按行截断——按行读一份跨页文本,读者根本
     // 不知道自己停在第几页,这正是加页码的原因。
@@ -276,19 +306,30 @@ fn render_pdf_lines(text: &str, offset: usize, limit: usize) -> Result<String, S
 /// Extract text from a real PDF using the installed `pdftotext` executable.
 /// The path is passed as an argument, never through a shell; missing tooling is explicit.
 pub fn pdf_to_text(path: &std::path::Path) -> Result<String, String> {
+    pdf_to_text_file(std::fs::File::open(path).map_err(|error| error.to_string())?)
+}
+
+fn pdf_to_text_file(mut file: std::fs::File) -> Result<String, String> {
+    let source = file.try_clone().map_err(|error| error.to_string())?;
     let output = std::process::Command::new("pdftotext")
         .arg("-layout")
-        .arg(path)
         .arg("-")
+        .arg("-")
+        .stdin(std::process::Stdio::from(source))
         .output()
         // R-326:pdftotext 没装不再直接失败——回落到进程内的 pdf-extract。
         // 保留 pdftotext 为首选是因为 `-layout` 对表格/多栏排版明显更好;
         // 回落只保证「没装 poppler 也能读」,不追求同等排版质量。
         .map_err(|error| {
-            pdf_extract::extract_text(path).map_err(|fallback| {
+            let fallback = (|| {
+                file.seek(SeekFrom::Start(0))?;
+                let mut bytes = Vec::new();
+                file.read_to_end(&mut bytes)?;
+                pdf_extract::extract_text_from_mem(&bytes).map_err(std::io::Error::other)
+            })();
+            fallback.map_err(|fallback| {
                 format!(
-                    "读取 {} 失败:pdftotext 未就绪({error}),进程内回落也失败({fallback})。                     装上 poppler 的 pdftotext 可获得更好的排版还原。",
-                    path.display()
+                    "读取 PDF 失败:pdftotext 未就绪({error}),进程内回落也失败({fallback})。装上 poppler 的 pdftotext 可获得更好的排版还原。"
                 )
             })
         });
@@ -300,8 +341,7 @@ pub fn pdf_to_text(path: &std::path::Path) -> Result<String, String> {
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(format!(
-            "pdftotext 读取 {} 失败: {}",
-            path.display(),
+            "pdftotext 读取 PDF 失败: {}",
             if detail.is_empty() {
                 "未知错误"
             } else {
@@ -311,7 +351,7 @@ pub fn pdf_to_text(path: &std::path::Path) -> Result<String, String> {
     }
     let text = String::from_utf8_lossy(&output.stdout).into_owned();
     if text.trim().is_empty() {
-        return Err(format!("PDF 没有可抽取文本: {}", path.display()));
+        return Err("PDF 没有可抽取文本".into());
     }
     Ok(text)
 }
@@ -347,9 +387,8 @@ fn read_sync_from(
 /// 截断后为给出「共 N 行」继续数剩余行时,最多再扫这么多字节;超过就不给总数。
 const TOTAL_COUNT_SCAN_CAP: u64 = 32 * 1024 * 1024;
 
-/// 行区间读取。手写 `read_line` 循环(而非 `lines()`)是为了截断 break 之后
-/// reader 还能接着用:数出剩余行数,截断标记才能带上总行数——模型和界面都
-/// 需要知道「读了 2000 行之后还有多少」,而不是只知道「没读完」。
+/// Read a line window without retaining more than the renderable prefix of any
+/// line. Skipped lines are drained with the same bounded UTF-8 validation.
 fn read_line_range<R: BufRead>(
     mut reader: R,
     offset: usize,
@@ -360,10 +399,11 @@ fn read_line_range<R: BufRead>(
     let mut total_bytes = 0usize;
     let mut shown = 0usize;
     let mut line_no = 0usize;
-    let mut buf = String::new();
+    let mut buf = Vec::with_capacity((MAX_LINE_CHARS + 1) * 4);
     loop {
         buf.clear();
-        if reader.read_line(&mut buf).map_err(|e| e.to_string())? == 0 {
+        let retain = line_no + 1 >= offset && shown < limit && total_bytes < MAX_OUTPUT_BYTES;
+        if !read_bounded_line(&mut reader, &mut buf, retain).map_err(|e| e.to_string())? {
             break;
         }
         line_no += 1;
@@ -383,9 +423,18 @@ fn read_line_range<R: BufRead>(
             break;
         }
         // 与 `BufRead::lines` 同口径:只有带 `\n` 时才顺带剥 `\r`。
-        let line = match buf.strip_suffix('\n') {
+        let valid = match std::str::from_utf8(&buf) {
+            Ok(valid) => valid,
+            // The retained byte prefix may end inside a character. The full
+            // line was validated while draining; discard only that partial char.
+            Err(error) if error.error_len().is_none() => {
+                std::str::from_utf8(&buf[..error.valid_up_to()]).map_err(|e| e.to_string())?
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        let line = match valid.strip_suffix('\n') {
             Some(line) => line.strip_suffix('\r').unwrap_or(line),
-            None => buf.as_str(),
+            None => valid,
         };
         let rendered = render_line(line_no, line);
         total_bytes += rendered.len();
@@ -401,6 +450,85 @@ fn read_line_range<R: BufRead>(
         ));
     }
     Ok(out)
+}
+
+fn read_bounded_line<R: BufRead>(
+    reader: &mut R,
+    prefix: &mut Vec<u8>,
+    retain: bool,
+) -> std::io::Result<bool> {
+    let mut seen = false;
+    let mut utf8 = LineUtf8::default();
+    loop {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
+            utf8.finish()?;
+            return Ok(seen);
+        }
+        let end = chunk
+            .iter()
+            .position(|&byte| byte == b'\n')
+            .map(|index| index + 1);
+        let used = end.unwrap_or(chunk.len());
+        utf8.accept(&chunk[..used])?;
+        if retain {
+            let keep = used.min(((MAX_LINE_CHARS + 1) * 4).saturating_sub(prefix.len()));
+            prefix.extend_from_slice(&chunk[..keep]);
+        }
+        reader.consume(used);
+        seen = true;
+        if end.is_some() {
+            utf8.finish()?;
+            return Ok(true);
+        }
+    }
+}
+
+/// At most three incomplete UTF-8 bytes survive a BufRead chunk boundary.
+#[derive(Default)]
+struct LineUtf8 {
+    pending: [u8; 4],
+    len: usize,
+}
+
+impl LineUtf8 {
+    fn accept(&mut self, mut bytes: &[u8]) -> std::io::Result<()> {
+        while self.len > 0 && !bytes.is_empty() {
+            self.pending[self.len] = bytes[0];
+            self.len += 1;
+            bytes = &bytes[1..];
+            match std::str::from_utf8(&self.pending[..self.len]) {
+                Ok(_) => self.len = 0,
+                Err(error) if error.error_len().is_some() => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+                }
+                Err(_) => {}
+            }
+        }
+        match std::str::from_utf8(bytes) {
+            Ok(_) => Ok(()),
+            Err(error) if error.error_len().is_some() => {
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+            }
+            Err(error) => {
+                let trailing = &bytes[error.valid_up_to()..];
+                self.pending[..trailing.len()].copy_from_slice(trailing);
+                self.len = trailing.len();
+                Ok(())
+            }
+        }
+    }
+
+    fn finish(&self) -> std::io::Result<()> {
+        if self.len == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "incomplete UTF-8 character at end of line",
+            ))
+        }
+    }
 }
 
 /// 从 reader 当前位置数到文件尾还剩几行(末行无换行也算一行)。
@@ -429,41 +557,41 @@ fn count_remaining_lines<R: BufRead>(reader: &mut R, cap: u64) -> Option<usize> 
     Some(lines)
 }
 
-/// 反向分块 seek:凑够 n+1 个换行或到文件头即停,内存上界 = 收集的字节数。
+/// Locate the tail window with one fixed reverse-scan buffer, then render it
+/// through the same bounded line reader. A huge last line is never buffered whole
+/// or silently replaced with its final fragment.
 fn read_tail(file: &mut std::fs::File, len: u64, n: usize) -> Result<String, String> {
+    if n == 0 {
+        return Ok(format!("(last 0 lines of {})\n", human_bytes(len)));
+    }
     let mut pos = len;
-    let mut collected: Vec<u8> = Vec::new();
-    while pos > 0 {
-        let newlines = collected.iter().filter(|&&b| b == b'\n').count();
-        if newlines > n || collected.len() >= MAX_OUTPUT_BYTES * 2 {
-            break;
-        }
+    let mut start = 0;
+    let mut newlines = 0usize;
+    let mut chunk = vec![0u8; TAIL_CHUNK as usize];
+    'scan: while pos > 0 {
         let read_size = TAIL_CHUNK.min(pos);
         pos -= read_size;
         file.seek(SeekFrom::Start(pos)).map_err(|e| e.to_string())?;
-        let mut chunk = vec![0u8; read_size as usize];
-        file.read_exact(&mut chunk).map_err(|e| e.to_string())?;
-        chunk.extend_from_slice(&collected);
-        collected = chunk;
+        let bytes = &mut chunk[..read_size as usize];
+        file.read_exact(bytes).map_err(|e| e.to_string())?;
+        for (index, &byte) in bytes.iter().enumerate().rev() {
+            if byte == b'\n' && pos + index as u64 + 1 < len {
+                newlines += 1;
+                if newlines == n {
+                    start = pos + index as u64 + 1;
+                    break 'scan;
+                }
+            }
+        }
     }
-    let text = String::from_utf8_lossy(&collected);
-    let mut lines: Vec<&str> = text.lines().collect();
-    let from_start = pos == 0 && lines.len() <= n;
-    if lines.len() > n {
-        lines = lines.split_off(lines.len() - n);
+    file.seek(SeekFrom::Start(start))
+        .map_err(|e| e.to_string())?;
+    let text = read_line_range(BufReader::new(file), 1, n, TOTAL_COUNT_SCAN_CAP)?;
+    if start > 0 {
+        Ok(format!("(last {n} lines of {})\n{text}", human_bytes(len)))
+    } else {
+        Ok(text)
     }
-    let mut out = String::new();
-    if !from_start {
-        out.push_str(&format!(
-            "(last {} lines of {})\n",
-            lines.len(),
-            human_bytes(len)
-        ));
-    }
-    for (i, line) in lines.iter().enumerate() {
-        out.push_str(&render_line(i + 1, line));
-    }
-    Ok(out)
 }
 
 fn render_line(no: usize, line: &str) -> String {
@@ -505,6 +633,106 @@ mod tests {
     use super::*;
     use kanzei_harness::Tool;
     use serde_json::json;
+
+    #[test]
+    fn long_lines_and_skipped_lines_retain_only_a_bounded_prefix() {
+        let text = format!("{}\r\nshort\n", "界🙂".repeat(500_000));
+        let mut reader = BufReader::with_capacity(7, std::io::Cursor::new(text.as_bytes()));
+        let mut prefix = Vec::with_capacity((MAX_LINE_CHARS + 1) * 4);
+        assert!(read_bounded_line(&mut reader, &mut prefix, true).unwrap());
+        assert!(prefix.len() <= (MAX_LINE_CHARS + 1) * 4);
+        assert!(prefix.capacity() <= (MAX_LINE_CHARS + 1) * 4);
+        assert!(read_line_range(
+            BufReader::with_capacity(7, std::io::Cursor::new(text.as_bytes())),
+            1,
+            1,
+            TOTAL_COUNT_SCAN_CAP
+        )
+        .unwrap()
+        .contains("line truncated"));
+        let skipped = read_line_range(
+            BufReader::with_capacity(7, std::io::Cursor::new(text.as_bytes())),
+            2,
+            1,
+            TOTAL_COUNT_SCAN_CAP,
+        )
+        .unwrap();
+        assert_eq!(skipped, "     2\tshort\n");
+    }
+
+    #[test]
+    fn utf8_and_crlf_survive_every_buffer_boundary() {
+        let text = format!(
+            "{}\r\n{}\nlast\r",
+            "🙂".repeat(MAX_LINE_CHARS),
+            "界".repeat(MAX_LINE_CHARS + 1)
+        );
+        let expected = format!(
+            "{}{}{}",
+            render_line(1, &"🙂".repeat(MAX_LINE_CHARS)),
+            render_line(2, &"界".repeat(MAX_LINE_CHARS + 1)),
+            render_line(3, "last\r")
+        );
+        for capacity in 1..=9 {
+            let out = read_line_range(
+                BufReader::with_capacity(capacity, std::io::Cursor::new(text.as_bytes())),
+                1,
+                4,
+                TOTAL_COUNT_SCAN_CAP,
+            )
+            .unwrap();
+            assert_eq!(out, expected, "buffer capacity {capacity}");
+        }
+        let mut invalid = vec![b'a'; 10_000];
+        invalid.extend_from_slice(&[0xff, b'\n', b'b']);
+        for offset in [1, 2] {
+            assert!(read_line_range(
+                BufReader::with_capacity(7, std::io::Cursor::new(&invalid)),
+                offset,
+                1,
+                TOTAL_COUNT_SCAN_CAP
+            )
+            .is_err());
+        }
+        assert!(read_line_range(
+            std::io::Cursor::new([0xe7, 0x95]),
+            1,
+            1,
+            TOTAL_COUNT_SCAN_CAP
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn tail_keeps_the_start_of_a_long_line_and_correct_line_windows() {
+        let (dir, ctx) = temp_project();
+        for ending in ["", "\n", "\r\n"] {
+            std::fs::write(
+                dir.join("tail.txt"),
+                format!("first\nSTART{}END{ending}", "界".repeat(300_000)),
+            )
+            .unwrap();
+            let output = ReadTool
+                .execute(json!({"path":"tail.txt","tail":1}), &ctx)
+                .await;
+            assert!(!output.is_error, "{}", output.content);
+            assert!(output.content.contains("START"));
+            assert!(output.content.contains("line truncated"));
+            assert!(!output.content.contains("END"));
+            assert!(!output.content.contains('�'));
+            std::fs::write(dir.join("tail.txt"), format!("one\ntwo\nthree{ending}")).unwrap();
+            let output = ReadTool
+                .execute(json!({"path":"tail.txt","tail":2}), &ctx)
+                .await;
+            assert!(!output.is_error);
+            assert!(
+                output.content.ends_with("     1\ttwo\n     2\tthree\n"),
+                "{}",
+                output.content
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     fn temp_project() -> (std::path::PathBuf, ToolCtx) {
         let dir = std::env::temp_dir().join(format!(

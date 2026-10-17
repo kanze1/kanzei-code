@@ -271,6 +271,13 @@ impl Tool for Isolated {
     fn resources_with_ctx(&self, v: &Value, c: &ToolCtx) -> Vec<String> {
         self.tool.resources_with_ctx(v, c)
     }
+    fn permission_resources(
+        &self,
+        v: &Value,
+        c: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        self.tool.permission_resources(v, c)
+    }
     fn concurrency(&self, v: &Value, c: &ToolCtx) -> ToolConcurrency {
         self.tool.concurrency(v, c)
     }

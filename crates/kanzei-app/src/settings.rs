@@ -821,22 +821,14 @@ pub fn settings_open() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     Ok(())
 }
-fn project_permission_config(project_dir: &str) -> PathBuf {
-    crate::normalized_project_root(Path::new(project_dir))
-        .join(".kanzei")
-        .join("kanzei.toml")
-}
-
 #[tauri::command]
 pub fn permission_rules_get(project_dir: String) -> Result<serde_json::Value, String> {
-    let path = project_permission_config(&project_dir);
-    let config: kanzei_harness::KanzeiConfig = match std::fs::read_to_string(&path) {
-        Ok(text) => toml::from_str(&text)
-            .map_err(|error| format!("权限配置格式错误 {}: {error}", path.display()))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
-        Err(error) => return Err(format!("读取权限配置失败 {}: {error}", path.display())),
-    };
-    let rules = config.permissions.rules.iter().enumerate()
+    let root = crate::normalized_project_root(Path::new(&project_dir));
+    let home = kanzei_harness::kanzei_home().ok_or("user configuration home is unavailable")?;
+    let path = home.join("project-trust.json");
+    let remembered = kanzei_harness::project_trust::remembered_permissions(&root, Some(&home))
+        .map_err(|error| error.to_string())?;
+    let rules = remembered.iter().enumerate()
         .filter(|(_, rule)| rule.effect == kanzei_harness::permission::Effect::Allow)
         .map(|(index, rule)| json!({
             "index": index, "action": rule.action, "resource": rule.resource, "effect": rule.effect,
@@ -851,36 +843,9 @@ pub fn permission_rule_delete(
     index: usize,
     expected_rule: kanzei_harness::permission::Rule,
 ) -> Result<(), String> {
-    let path = project_permission_config(&project_dir);
-    kanzei_harness::config::update_config_document(&path, |doc| {
-        let config: kanzei_harness::KanzeiConfig = toml::from_str(&doc.to_string())?;
-        let Some(rule) = config.permissions.rules.get(index) else {
-            anyhow::bail!("权限规则不存在或已被删除");
-        };
-        if rule.effect != kanzei_harness::permission::Effect::Allow {
-            anyhow::bail!("只能删除已记住的放行规则");
-        }
-        if rule.action != expected_rule.action
-            || rule.resource != expected_rule.resource
-            || rule.effect != expected_rule.effect
-        {
-            anyhow::bail!("权限规则已变化，请刷新后重试");
-        }
-        let rules = doc
-            .get_mut("permissions")
-            .and_then(toml_edit::Item::as_table_like_mut)
-            .and_then(|permissions| permissions.get_mut("rules"))
-            .ok_or_else(|| anyhow::anyhow!("权限规则不存在或已被删除"))?;
-        if let Some(rules) = rules.as_array_of_tables_mut() {
-            rules.remove(index);
-        } else if let Some(rules) = rules.as_array_mut() {
-            rules.remove(index);
-        } else {
-            anyhow::bail!("permissions.rules 不是规则数组，拒绝删除");
-        }
-        Ok(())
-    })
-    .map_err(|error| format!("删除权限规则失败 {}: {error}", path.display()))
+    let root = crate::normalized_project_root(Path::new(&project_dir));
+    kanzei_harness::project_trust::forget_permission(&root, index, &expected_rule)
+        .map_err(|error| error.to_string())
 }
 #[tauri::command]
 pub async fn provider_test(
@@ -911,7 +876,12 @@ pub async fn provider_test(
         Some("env") | None => kanzei_llm::ProxyConfig::Env,
         Some(p) => kanzei_llm::ProxyConfig::Explicit(p.to_string()),
     };
-    let client = kanzei_llm::proxy::build_http_client(&proxy).map_err(|e| e.to_string())?;
+    let endpoint = reqwest::Url::parse(&base_url).map_err(|e| e.to_string())?;
+    if key.is_some() && endpoint.scheme() != "https" {
+        return Err("API credentials require HTTPS".into());
+    }
+    let client =
+        kanzei_llm::proxy::build_http_client_without_redirect(&proxy).map_err(|e| e.to_string())?;
     let base = base_url.trim_end_matches('/');
     let request = match protocol.as_str() {
         "anthropic" => {
@@ -997,6 +967,9 @@ pub(crate) fn with_kanzei_home<R>(home: &Path, f: impl FnOnce() -> R) -> R {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use kanzei_harness::KanzeiConfig;
+    use std::time::{SystemTime, UNIX_EPOCH};
     fn allow(resource: &str) -> kanzei_harness::permission::Rule {
         kanzei_harness::permission::Rule {
             action: "bash".into(),
@@ -1145,102 +1118,38 @@ mod tests {
     }
 
     #[test]
-    fn permission_delete_rejects_stale_identity_and_preserves_formats() {
-        let path = 临时配置("permissions-formats");
-        let project = path.with_extension("project");
-        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-        let config_path = project.join(".kanzei/kanzei.toml");
-        for text in [
-            "# Keep\n[permissions]\nnon_interactive = 'deny'\nrules = [{ action = 'bash', resource = 'A', effect = 'allow' }, { action = 'bash', resource = 'B', effect = 'allow' }]\n[extra]\nkeep = 7\n",
-            "# Keep\n[permissions]\nnon_interactive = 'deny'\n[[permissions.rules]]\naction = 'bash'\nresource = 'A'\neffect = 'allow'\n[[permissions.rules]]\naction = 'bash'\nresource = 'B'\neffect = 'allow'\n[extra]\nkeep = 7\n",
-            "# Keep\npermissions = { non_interactive = 'deny', rules = [{ action = 'bash', resource = 'A', effect = 'allow' }, { action = 'bash', resource = 'B', effect = 'allow' }] }\n[extra]\nkeep = 7\n",
-        ] {
-            std::fs::write(&config_path, text).unwrap();
-            permission_rule_delete(project.display().to_string(), 0, allow("A")).unwrap();
-            let after = std::fs::read_to_string(&config_path).unwrap();
-            assert!(after.contains("# Keep") && after.contains("keep = 7"));
-            assert!(permission_rule_delete(project.display().to_string(), 0, allow("A")).is_err());
-            assert_eq!(std::fs::read_to_string(&config_path).unwrap(), after);
-            let rules = permission_rules_get(project.display().to_string()).unwrap();
-            assert_eq!(rules["rules"].as_array().unwrap().len(), 1);
-            assert_eq!(rules["rules"][0]["resource"], "B");
-            let mut deny = allow("B");
-            deny.effect = kanzei_harness::permission::Effect::Deny;
-            assert!(permission_rule_delete(project.display().to_string(), 0, deny).is_err());
-            permission_rule_delete(project.display().to_string(), 0, allow("B")).unwrap();
-            assert!(permission_rules_get(project.display().to_string()).unwrap()["rules"]
-                .as_array().unwrap().is_empty());
-        }
-        std::fs::remove_file(config_path).unwrap();
-        // The base lock owns a sidecar; remove only this test's unique fixture.
-        std::fs::remove_dir_all(project).unwrap();
-    }
-
-    #[test]
-    fn permission_delete_waits_for_config_transaction() {
-        let project = 临时配置("permission-delete-lock").with_extension("project");
-        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-        let path = project.join(".kanzei/kanzei.toml");
-        std::fs::write(
-            &path,
-            "[permissions]\nrules = [{action = 'bash', resource = 'A', effect = 'allow'}]\n",
-        )
-        .unwrap();
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let mut worker = None;
-        let mut completed_early = false;
-        kanzei_harness::config::update_config_document(&path, |doc| {
-            let worker_project = project.display().to_string();
-            worker = Some(std::thread::spawn(move || {
-                started_tx.send(()).unwrap();
-                done_tx
-                    .send(permission_rule_delete(worker_project, 0, allow("A")))
-                    .unwrap();
-            }));
-            started_rx.recv().unwrap();
-            completed_early = done_rx
-                .recv_timeout(std::time::Duration::from_millis(200))
-                .is_ok();
-            doc["cadence"]["full_test_batches"] = toml_edit::value(19);
-            Ok(())
-        })
-        .unwrap();
-        worker.unwrap().join().unwrap();
-        assert!(!completed_early, "权限删除绕过了共同配置锁");
-        done_rx.recv().unwrap().unwrap();
-        let saved: kanzei_harness::KanzeiConfig =
-            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-
-        assert!(saved.permissions.rules.is_empty());
-        std::fs::remove_dir_all(project).unwrap();
-    }
-
-    #[test]
-    fn permission_rules_get_distinguishes_missing_invalid_and_read_failure() {
-        let project = 临时配置("permission-read").with_extension("project");
-        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-        let config_path = project.join(".kanzei/kanzei.toml");
-        assert!(
-            permission_rules_get(project.display().to_string()).unwrap()["rules"]
+    fn remembered_permissions_are_user_owned_and_stale_deletion_is_rejected() {
+        let home = 临时配置("trust-permissions").with_extension("home");
+        let project = home.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        with_kanzei_home(&home, || {
+            kanzei_harness::project_trust::remember_permission(&project, "bash", "A").unwrap();
+            kanzei_harness::project_trust::remember_permission(&project, "bash", "B").unwrap();
+            let dir = project.display().to_string();
+            assert_eq!(
+                permission_rules_get(dir.clone()).unwrap()["rules"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                2
+            );
+            permission_rule_delete(dir.clone(), 0, allow("A")).unwrap();
+            assert!(permission_rule_delete(dir.clone(), 0, allow("A")).is_err());
+            assert_eq!(
+                permission_rules_get(dir.clone()).unwrap()["rules"][0]["resource"],
+                "B"
+            );
+            permission_rule_delete(dir.clone(), 0, allow("B")).unwrap();
+            assert!(permission_rules_get(dir).unwrap()["rules"]
                 .as_array()
                 .unwrap()
-                .is_empty()
-        );
-        std::fs::write(&config_path, "[permissions\n").unwrap();
-        let error = permission_rules_get(project.display().to_string()).unwrap_err();
-        assert!(error.contains("权限配置格式错误") && error.contains("kanzei.toml"));
-        std::fs::remove_file(&config_path).unwrap();
-        std::fs::create_dir(&config_path).unwrap();
-        let error = permission_rules_get(project.display().to_string()).unwrap_err();
-        assert!(error.contains("读取权限配置失败") && error.contains("kanzei.toml"));
-        std::fs::remove_dir_all(project).unwrap();
+                .is_empty());
+            assert!(!project.join(".kanzei/kanzei.toml").exists());
+            std::fs::write(home.join("project-trust.json"), "invalid JSON").unwrap();
+            assert!(permission_rules_get(project.display().to_string()).is_err());
+        });
+        std::fs::remove_dir_all(home).unwrap();
     }
-
-    use super::*;
-    use kanzei_harness::KanzeiConfig;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     #[test]
     fn 运行上限只写填了的键_留空的键从配置里移除() {
         let path = std::env::temp_dir().join(format!(
@@ -1627,7 +1536,11 @@ mod tests {
         )
         .unwrap();
 
-        let value = with_kanzei_home(&home, || settings_get(Some(project.display().to_string())));
+        let value = with_kanzei_home(&home, || {
+            let sources = kanzei_harness::project_trust::status(&project).unwrap();
+            kanzei_harness::project_trust::approve(&project, &sources.fingerprint).unwrap();
+            settings_get(Some(project.display().to_string()))
+        });
         let providers = value["providers"].as_array().unwrap();
         let source = |name: &str| {
             providers

@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
-use kanzei_llm::proxy::{build_http_client, build_http_client_without_redirect};
+
 use kanzei_llm::{LlmClient, LlmEvent, LlmRequest, Message, ProxyConfig, ReasoningEffort};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -72,54 +72,13 @@ pub struct RawFetch {
 
 /// Fetch bounded raw bytes for callers that need a binary fallback (for example arXiv PDF).
 pub async fn fetch_bytes(url: &str, ctx: &ToolCtx, max_bytes: usize) -> Result<RawFetch, String> {
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("url must start with http:// or https://".into());
+    let url = parse_http_url(url)?;
+    match fetch_web_response_with_limit(&url, ctx, max_bytes).await? {
+        WebFetchResponse::Fetched(response) if !response.truncated => Ok(RawFetch { status: response.status, content_type: response.content_type, body: response.body }),
+        WebFetchResponse::Fetched(_) => Err(format!("source exceeds the {max_bytes}-byte download limit; incomplete bytes were not returned")),
+        WebFetchResponse::RedirectBlocked { status, from, to, .. } => Err(format!("HTTP {status} redirect from {from} to {to} requires separate webfetch permission")),
     }
-    let proxy = crate::tool_proxy(ctx);
-    let client = build_http_client(&proxy).map_err(|error| format!("http client: {error}"))?;
-    let response = client
-        .get(url)
-        .header(
-            "user-agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) kanzei/0.1",
-        )
-        .header(
-            "accept",
-            "text/html,application/xhtml+xml,text/plain,application/pdf,*/*",
-        )
-        .timeout(std::time::Duration::from_secs(30))
-        .send()
-        .await
-        .map_err(|error| format!("fetch failed: {error}"))?;
-    let status = response.status().as_u16();
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    let mut body = Vec::new();
-    let mut stream = response;
-    loop {
-        match stream.chunk().await {
-            Ok(Some(chunk)) => {
-                let remaining = max_bytes.saturating_sub(body.len());
-                body.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
-                if body.len() >= max_bytes {
-                    break;
-                }
-            }
-            Ok(None) => break,
-            Err(error) => return Err(format!("read failed: {error}")),
-        }
-    }
-    Ok(RawFetch {
-        status,
-        content_type,
-        body,
-    })
 }
-
 #[async_trait]
 impl Tool for WebFetchTool {
     fn name(&self) -> &'static str {
@@ -127,7 +86,7 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> String {
-        "Fetch a URL or websearch ref, save the full page, and return line-numbered markdown. Optional params: prompt (extract relevant passages), from_line, find, links, max_chars.".into()
+        "Fetch a URL or websearch ref, save the page, and return line-numbered markdown. A truncated preview is incomplete evidence: continue from the returned from_line or use find/prompt for the relevant missing section. Reuse saved pages instead of fetching the same opening again. Optional: prompt, from_line, find, links, max_chars.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -215,6 +174,24 @@ impl Tool for WebFetchTool {
             }
             Err(error) => return ToolOutput::error(error),
         };
+        if let Some(issue) = page.content_issue {
+            return ToolOutput::needs_correction(
+                "WEBFETCH_NO_READABLE_BODY",
+                format!(
+                    "HTTP {} · {}\nSaved fetched page: `{}`\n{issue}",
+                    page.status, page.final_url, page.artifact_path
+                ),
+            );
+        }
+        if page.status >= 400 {
+            return ToolOutput::needs_correction(
+                "WEBFETCH_HTTP_ERROR",
+                format!(
+                    "HTTP {} · {}\nSaved fetched page: `{}`; use a working original source.",
+                    page.status, page.final_url, page.artifact_path
+                ),
+            );
+        }
         if let Err(error) = crate::web_refs::mark_fetched(ctx, &normalized_url, "") {
             return ToolOutput::error(format!(
                 "page fetched and saved, but source provenance could not be persisted: {error}"
@@ -236,7 +213,7 @@ impl Tool for WebFetchTool {
             ));
         }
 
-        let mut body = if let Some(prompt) = input
+        let body = if let Some(prompt) = input
             .prompt
             .as_deref()
             .filter(|value| !value.trim().is_empty())
@@ -251,23 +228,48 @@ impl Tool for WebFetchTool {
         } else {
             page_slice(&page.markdown, input.from_line, input.find.as_deref())
         };
-        if input.links {
-            body.push_str("\n\n## Links\n");
-            if page.links.is_empty() {
-                body.push_str("No HTTP(S) links found.\n");
-            } else {
-                for (index, link) in page.links.iter().enumerate() {
-                    body.push_str(&format!("{}: [{}]({})\n", index + 1, link.text, link.url));
-                }
-            }
-        }
         let cap = input
             .max_chars
             .unwrap_or(DEFAULT_OUTPUT_CHARS)
             .clamp(100, MAX_OUTPUT_CHARS);
-        let mut rendered: String = body.chars().take(cap).collect();
-        if body.chars().count() > cap {
-            rendered.push_str("\n…(截断)");
+        let preview = crate::web_content::preview(&body, cap);
+        let mut rendered = preview.text;
+        if preview.truncated {
+            let total = page.markdown.lines().count();
+            rendered.push_str(&format!(
+                "\n[正文预览截断；本页共 {total} 行，展示至文档行 {}。未展示部分尚未读取。]",
+                preview
+                    .last_line
+                    .map(|line| line.to_string())
+                    .unwrap_or_else(|| "未知".into())
+            ));
+            if let Some(next) = preview.next_line {
+                let continuation = serde_json::json!({"url":normalized_url,"from_line":next,"find":input.find,"max_chars":cap});
+                rendered.push_str(&format!(
+                    "\n继续读取：webfetch {continuation}；或用 find/prompt 定向提取相关段落。"
+                ));
+            } else {
+                rendered.push_str(&format!(
+                    "\n用 read 读取已保存正文 `{}`，或用 find/prompt 定向提取。",
+                    page.artifact_path
+                ));
+            }
+        }
+        if input.links {
+            let mut links = String::from("\n\n## Links\n");
+            if page.links.is_empty() {
+                links.push_str("No HTTP(S) links found.\n");
+            } else {
+                for (index, link) in page.links.iter().enumerate() {
+                    links.push_str(&format!("{}: [{}]({})\n", index + 1, link.text, link.url));
+                }
+            }
+            let remaining = cap.saturating_sub(body.chars().count().min(cap));
+            let link_preview = crate::web_content::preview(&links, remaining);
+            rendered.push_str(&link_preview.text);
+            if link_preview.truncated {
+                rendered.push_str("\n[链接清单截断；此标记不表示正文缺失。]");
+            }
         }
         ToolOutput::ok(format!(
             "HTTP {} · {}\nSaved full page: `{}`{}\n\n{}",
@@ -349,6 +351,7 @@ struct WebPage {
     markdown: String,
     links: Vec<PageLink>,
     is_pdf: bool,
+    content_issue: Option<&'static str>,
 }
 
 #[derive(Clone)]
@@ -451,6 +454,7 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
             "PDF exceeds the 3 MiB download limit; incomplete PDF was not saved or cached".into(),
         );
     }
+    let mut content_issue = None;
     let (extension, markdown, links) = if is_pdf {
         ("pdf", String::new(), Vec::new())
     } else {
@@ -463,6 +467,7 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
             Vec::new()
         };
         let plain_text = if is_html {
+            content_issue = crate::web_content::content_issue(&text);
             html_to_text(&text)
         } else {
             text.into_owned()
@@ -470,6 +475,10 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
         let markdown = line_numbered_markdown(&plain_text);
         ("md", markdown, links)
     };
+    let mut markdown = markdown;
+    if response.truncated && !is_pdf {
+        markdown.push_str("\n[response body truncated at 3 MiB]\n");
+    }
     let artifact_path = save_web_artifact(
         ctx,
         url,
@@ -480,10 +489,6 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
             markdown.as_bytes()
         },
     )?;
-    let mut markdown = markdown;
-    if response.truncated && !is_pdf {
-        markdown.push_str("\n[response body truncated at 3 MiB]\n");
-    }
     let page = WebPage {
         status: response.status,
         final_url: response.final_url,
@@ -491,6 +496,7 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
         markdown,
         links,
         is_pdf,
+        content_issue,
     };
     if let Some(key) = key {
         cache_insert(key, page.clone());
@@ -512,88 +518,49 @@ enum WebFetchResponse {
 }
 
 async fn fetch_web_response(url: &str, ctx: &ToolCtx) -> Result<WebFetchResponse, String> {
-    let proxy = crate::tool_proxy(ctx);
-    let client = build_http_client_without_redirect(&proxy)
-        .map_err(|error| format!("http client: {error}"))?;
-    let initial = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
-    let mut current = initial;
+    fetch_web_response_with_limit(url, ctx, MAX_RESPONSE_BYTES).await
+}
+
+async fn fetch_web_response_with_limit(
+    url: &str,
+    ctx: &ToolCtx,
+    cap: usize,
+) -> Result<WebFetchResponse, String> {
+    let mut current = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
     for redirect_count in 0..=MAX_REDIRECTS {
-        let response = client
-            .get(current.clone())
-            .header(
-                "user-agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) kanzei/0.1",
-            )
-            .header(
-                "accept",
-                "text/html,application/xhtml+xml,text/plain,application/pdf,*/*",
-            )
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await
-            .map_err(|error| format!("fetch failed: {error}"))?;
-        let status = response.status().as_u16();
-        if matches!(status, 301 | 302 | 303 | 307 | 308) {
-            if let Some(location) = response.headers().get(reqwest::header::LOCATION) {
-                let location = location
-                    .to_str()
-                    .map_err(|error| format!("invalid redirect Location: {error}"))?;
+        let response = crate::public_http::fetch(&current, ctx, cap).await?;
+        if matches!(response.status, 301 | 302 | 303 | 307 | 308) {
+            if let Some(location) = &response.location {
                 let target = current
                     .join(location)
                     .map_err(|error| format!("invalid redirect target: {error}"))?;
                 let target_text = parse_http_url(target.as_str())?;
-                let target =
-                    reqwest::Url::parse(&target_text).map_err(|error| error.to_string())?;
                 let effect = redirect_effect(&target_text);
                 if effect != kanzei_harness::Effect::Allow {
                     return Ok(WebFetchResponse::RedirectBlocked {
-                        status,
+                        status: response.status,
                         from: current.to_string(),
-                        to: target.to_string(),
+                        to: target_text,
                         effect,
                     });
                 }
                 if redirect_count == MAX_REDIRECTS {
                     return Err(format!("redirect limit exceeded ({MAX_REDIRECTS})"));
                 }
-                current = target;
+                current = reqwest::Url::parse(&target_text).map_err(|error| error.to_string())?;
                 continue;
             }
         }
-        let content_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-        let mut body = Vec::new();
-        let mut stream = response;
-        let mut truncated = false;
-        loop {
-            match stream.chunk().await {
-                Ok(Some(chunk)) => {
-                    let remaining = MAX_RESPONSE_BYTES.saturating_sub(body.len());
-                    body.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
-                    if chunk.len() > remaining {
-                        truncated = true;
-                        break;
-                    }
-                }
-                Ok(None) => break,
-                Err(error) => return Err(format!("read failed: {error}")),
-            }
-        }
         return Ok(WebFetchResponse::Fetched(WebResponse {
-            status,
-            content_type,
+            status: response.status,
+            content_type: response.content_type,
             final_url: current.to_string(),
-            body,
-            truncated,
+            body: response.body,
+            truncated: response.truncated,
         }));
     }
     Err(format!("redirect limit exceeded ({MAX_REDIRECTS})"))
 }
-
 fn redirect_effect(url: &str) -> kanzei_harness::Effect {
     kanzei_harness::permission::execution_effect("webfetch", &normalize_url_resource(url))
         .unwrap_or(kanzei_harness::Effect::Ask)
@@ -674,7 +641,11 @@ fn page_slice(markdown: &str, from_line: Option<usize>, find: Option<&str>) -> S
     if let Some(needle) = find.map(str::trim).filter(|needle| !needle.is_empty()) {
         let needle = needle.to_lowercase();
         let mut selected = BTreeSet::new();
-        for (index, line) in lines.iter().enumerate() {
+        for (index, line) in lines
+            .iter()
+            .enumerate()
+            .skip(from_line.unwrap_or(1).saturating_sub(1))
+        {
             if line.to_lowercase().contains(&needle) {
                 selected.extend(index.saturating_sub(3)..=(index + 3).min(lines.len() - 1));
             }
@@ -876,10 +847,37 @@ pub fn html_to_text(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_links, line_numbered_markdown, page_slice, parse_http_url, WebFetchTool};
-    use super::{html_to_text, normalize_url_resource, ResearchWebFetchTool};
+    use super::{extract_links, line_numbered_markdown, page_slice, parse_http_url};
+    use super::{html_to_text, normalize_url_resource};
 
     use kanzei_harness::{Tool, ToolCtx};
+
+    struct WebFetchTool;
+    impl std::ops::Deref for WebFetchTool {
+        type Target = super::WebFetchTool;
+        fn deref(&self) -> &Self::Target {
+            &super::WebFetchTool
+        }
+    }
+    impl WebFetchTool {
+        async fn execute(
+            &self,
+            input: serde_json::Value,
+            ctx: &ToolCtx,
+        ) -> kanzei_harness::ToolOutput {
+            crate::public_http::fixture_scope(super::WebFetchTool.execute(input, ctx)).await
+        }
+    }
+    struct ResearchWebFetchTool;
+    impl ResearchWebFetchTool {
+        async fn execute(
+            &self,
+            input: serde_json::Value,
+            ctx: &ToolCtx,
+        ) -> kanzei_harness::ToolOutput {
+            crate::public_http::fixture_scope(super::ResearchWebFetchTool.execute(input, ctx)).await
+        }
+    }
 
     /// R-217:URL 资源规范化——去掉 scheme,域名+路径形态可直接配白名单规则。
     #[test]
@@ -944,11 +942,117 @@ mod tests {
         root
     }
 
+    fn approve_project(root: &std::path::Path) {
+        let status = kanzei_harness::project_trust::status(root).unwrap();
+        kanzei_harness::project_trust::approve(root, &status.fingerprint).unwrap();
+    }
+
     fn http_response(status: &str, headers: &str, body: &str) -> String {
         format!(
             "HTTP/1.1 {status}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         )
+    }
+
+    #[tokio::test]
+    async fn public_fetch_blocks_private_targets_and_redirects_including_raw_downloads() {
+        let root = temp_root("ssrf");
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        for url in [
+            "http://127.0.0.1:1/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.1/",
+            "http://[::1]/",
+            "http://[::ffff:127.0.0.1]/",
+        ] {
+            let output = super::WebFetchTool
+                .execute(serde_json::json!({"url":url}), &ctx)
+                .await;
+            assert!(output.is_error, "{}", output.content);
+            assert!(
+                output.content.contains("WEBFETCH_ADDRESS_BLOCKED"),
+                "{}",
+                output.content
+            );
+            let error = super::fetch_bytes(url, &ctx, 4096).await.err().unwrap();
+            assert!(error.contains("WEBFETCH_ADDRESS_BLOCKED"), "{error}");
+        }
+        let (url, server) = spawn_http_server(vec![http_response(
+            "302 Found",
+            "Location: http://127.0.0.1:1/private\r\n",
+            "",
+        )]);
+        let mut rules = kanzei_harness::Ruleset::default();
+        rules.extend([kanzei_harness::rule(
+            "webfetch",
+            "*",
+            kanzei_harness::Effect::Allow,
+        )]);
+        let error = kanzei_harness::permission::scope(
+            rules,
+            crate::public_http::fixture_scope(super::fetch_bytes(&url, &ctx, 4096)),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(error.contains("WEBFETCH_ADDRESS_BLOCKED"), "{error}");
+        server.join().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unreadable_html_is_not_evidence_and_numbered_preview_resumes_from_cache() {
+        let root = temp_root("readability");
+        let ctx = ToolCtx::new(root.clone(), root.clone()).with_session_id("readability".into());
+        let (url, server) = spawn_http_server(vec![http_response("200 OK", "Content-Type: text/html\r\n", "<title>Advisory</title><noscript>Please enable JavaScript</noscript><div id='app'></div><script>boot()</script>")]);
+        let output = WebFetchTool
+            .execute(serde_json::json!({"url":url}), &ctx)
+            .await;
+        assert_eq!(
+            output.code,
+            Some("WEBFETCH_NO_READABLE_BODY"),
+            "{}",
+            output.content
+        );
+        server.join().unwrap();
+        let body = (1..=30)
+            .map(|n| {
+                format!("<p>Paragraph {n:02}: the complete original evidence is retained.</p>")
+            })
+            .collect::<String>();
+        let (url, server) = spawn_http_server(vec![http_response(
+            "200 OK",
+            "Content-Type: text/html\r\n",
+            &body,
+        )]);
+        let output = WebFetchTool
+            .execute(serde_json::json!({"url":url,"max_chars":150}), &ctx)
+            .await;
+        assert!(
+            output.content.contains("正文预览截断"),
+            "{}",
+            output.content
+        );
+        assert!(
+            output.content.contains("\"from_line\":3"),
+            "{}",
+            output.content
+        );
+        server.join().unwrap();
+        let resumed = WebFetchTool
+            .execute(
+                serde_json::json!({"url":url,"from_line":3,"max_chars":150}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            resumed.content.contains("0003 | Paragraph 03"),
+            "{}",
+            resumed.content
+        );
+        assert!(resumed.content.contains("cache hit"), "{}", resumed.content);
+        assert!(!resumed.content.contains("0001 |"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn spawn_http_server(responses: Vec<String>) -> (String, std::thread::JoinHandle<()>) {
@@ -967,7 +1071,7 @@ mod tests {
                 stream.write_all(response.as_bytes()).unwrap();
             }
         });
-        (format!("http://{address}/page"), handle)
+        (format!("http://8.8.8.8:{}/page", address.port()), handle)
     }
 
     #[tokio::test]
@@ -983,7 +1087,8 @@ mod tests {
                 "Content-Type: application/pdf\r\n",
                 &body,
             )]);
-            let result = super::fetch_cached_page(&ctx, &url).await;
+            let result =
+                crate::public_http::fixture_scope(super::fetch_cached_page(&ctx, &url)).await;
             server.join().unwrap();
             if extra == 0 {
                 let super::FetchPage::Page { page, .. } = result.unwrap() else {
@@ -1017,6 +1122,7 @@ fast = "missing:extractor"
             http_response("302 Found", "Location: /article\r\n", ""),
             http_response("200 OK", "Content-Type: text/html; charset=utf-8\r\n", html),
         ]);
+        approve_project(&root);
         let worktree = root.join("worktree");
         std::fs::create_dir_all(&worktree).unwrap();
         let ctx = ToolCtx::new(worktree, root.clone()).with_session_id("webfetch-session".into());
@@ -1119,7 +1225,10 @@ fast = "missing:extractor"
                 &stream_body,
             ),
         ]);
-        let base_url = url.strip_suffix("/page").unwrap();
+        let base_url = url
+            .strip_suffix("/page")
+            .unwrap()
+            .replace("8.8.8.8", "127.0.0.1");
         std::fs::write(
             root.join(".kanzei/kanzei.toml"),
             format!(
@@ -1135,6 +1244,7 @@ base_url = "{base_url}/v1"
             ),
         )
         .unwrap();
+        approve_project(&root);
         let ctx =
             ToolCtx::new(root.clone(), root.clone()).with_session_id("extract-session".into());
         let output = WebFetchTool
@@ -1190,7 +1300,7 @@ base_url = "{base_url}/v1"
         ] {
             let root = temp_root("redirect-policy");
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let address = listener.local_addr().unwrap();
+            let address = format!("8.8.8.8:{}", listener.local_addr().unwrap().port());
             let denied_hits = Arc::new(AtomicUsize::new(0));
             let observed = denied_hits.clone();
             let server = tokio::spawn(async move {
@@ -1306,6 +1416,7 @@ base_url = "{base_url}/v1"
             project_root: main_root.clone(),
             ..Default::default()
         };
+        approve_project(&main_root);
         let proxy = crate::tool_proxy(&ctx);
         assert!(
             matches!(&proxy, kanzei_llm::proxy::ProxyConfig::Explicit(url) if url == "http://127.0.0.1:12000"),

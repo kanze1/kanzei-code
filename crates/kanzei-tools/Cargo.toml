@@ -24,6 +24,7 @@ tantivy.workspace = true
 grep-searcher.workspace = true
 grep-regex.workspace = true
 reqwest.workspace = true
+url.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 serde.workspace = true

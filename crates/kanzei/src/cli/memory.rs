@@ -40,8 +40,19 @@ pub(crate) fn persist_always_allow(
     action: &str,
     resource: &str,
 ) -> anyhow::Result<kanzei_core::AskReply> {
+    let home = kanzei_harness::kanzei_home()
+        .ok_or_else(|| anyhow::anyhow!("user configuration home is unavailable"))?;
+    persist_always_allow_at(project_root, &home, action, resource)
+}
+
+pub(super) fn persist_always_allow_at(
+    project_root: &std::path::Path,
+    home: &std::path::Path,
+    action: &str,
+    resource: &str,
+) -> anyhow::Result<kanzei_core::AskReply> {
     let pattern = kanzei_harness::config::generalize_resource(action, resource);
-    kanzei_harness::config::append_allow_rule(project_root, action, &pattern)?;
+    kanzei_harness::project_trust::remember_permission_at(project_root, home, action, &pattern)?;
     Ok(kanzei_core::AskReply::AlwaysAllow)
 }
 
