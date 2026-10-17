@@ -23,6 +23,7 @@ enum Case {
     RefreshFailure,
     LargeSchema,
     FinalStep,
+    BudgetViolation,
 }
 
 struct FileSource(ContextRequirement, Case);
@@ -41,7 +42,7 @@ impl Component for FileSource {
         draft.context.insert("fixture/conventions", source);
         if matches!(
             self.1,
-            Case::RefreshFailure | Case::LargeSchema | Case::FinalStep
+            Case::RefreshFailure | Case::LargeSchema | Case::FinalStep | Case::BudgetViolation
         ) {
             draft.tools.insert("fixture", Arc::new(FixtureTool(self.1)));
             draft.permissions.push(rule("fixture", "*", Effect::Allow));
@@ -68,6 +69,10 @@ impl Tool for FixtureTool {
         }
     }
     async fn execute(&self, _: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        if matches!(self.0, Case::BudgetViolation) {
+            std::fs::write(ctx.project_root.join("forbidden-side-effect"), "executed").unwrap();
+            return ToolOutput::ok("provider ignored the final-step schema");
+        }
         assert!(matches!(self.0, Case::RefreshFailure));
         std::fs::write(ctx.project_root.join("conventions.md"), [0xff, 0xfe]).unwrap();
         ToolOutput::ok("source changed between model steps")
@@ -129,7 +134,7 @@ async fn mock_provider(case: Case) -> (Route, Arc<AtomicUsize>, tokio::task::Joi
                 assert!(count > 0);
                 request.extend_from_slice(&bytes[..count]);
             }
-            if matches!(case, Case::FinalStep) {
+            if matches!(case, Case::FinalStep | Case::BudgetViolation) {
                 let body: serde_json::Value =
                     serde_json::from_slice(&request[header_end..]).unwrap();
                 assert!(
@@ -139,7 +144,9 @@ async fn mock_provider(case: Case) -> (Route, Arc<AtomicUsize>, tokio::task::Joi
                 );
             }
             let index = server_calls.fetch_add(1, Ordering::SeqCst);
-            let response = if matches!(case, Case::RefreshFailure) && index == 0 {
+            let response = if (matches!(case, Case::RefreshFailure) && index == 0)
+                || matches!(case, Case::BudgetViolation)
+            {
                 json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"change-source","type":"function","function":{"name":"fixture","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":1}})
             } else {
                 json!({"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}})
@@ -185,7 +192,7 @@ async fn run_fixture_with_limit(
             config: Arc::new(KanzeiConfig::default()),
         })
         .unwrap();
-    let steps = if matches!(case, Case::FinalStep) {
+    let steps = if matches!(case, Case::FinalStep | Case::BudgetViolation) {
         1
     } else {
         3
@@ -446,5 +453,34 @@ async fn oversized_tool_schema_is_diagnosed_even_when_system_is_small() {
     assert!(!events.iter().any(|event| matches!(
         event,
         RunEvent::ContextCompacted { .. } | RunEvent::ContextPruned { .. }
+    )));
+}
+
+#[tokio::test]
+async fn exhausted_budget_rejects_provider_tool_calls_before_side_effects() {
+    let fixture = Fixture::new("budget-violation");
+    std::fs::write(
+        fixture.0.join("conventions.md"),
+        "Never exceed the tool budget",
+    )
+    .unwrap();
+    let (result, events, calls) = run_fixture(
+        &fixture,
+        ContextRequirement::Required,
+        &[],
+        Case::BudgetViolation,
+    )
+    .await;
+    let summary = result.unwrap();
+    assert!(summary.step_limit_reached);
+    assert_eq!(summary.outcome(), "incomplete");
+    assert_eq!(calls, 1);
+    assert!(
+        !fixture.0.join("forbidden-side-effect").exists(),
+        "a provider tool call must not execute after the budget is exhausted"
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        RunEvent::ToolEnd { code: Some(code), .. } if code == "STEP_BUDGET_EXHAUSTED"
     )));
 }

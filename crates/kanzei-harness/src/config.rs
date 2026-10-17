@@ -12,8 +12,8 @@ mod embeddings;
 pub use embeddings::EmbeddingsSection;
 pub(crate) use embeddings::EMBEDDINGS_KEYS;
 mod web;
-pub use web::WebSection;
 pub(crate) use web::WEB_KEYS;
+pub use web::{SearchBackend, WebSection};
 
 mod limits;
 pub use limits::Limits;
@@ -644,7 +644,7 @@ pub fn config_reference() -> String {
                 " = <工具版本>  Claude P3 通过后使用(默认 web_search_20260209)"
             }
             "search_backend" => {
-                " = auto | duckduckgo | codex  websearch 后端(默认 auto,失败回退 DuckDuckGo)"
+                " = auto | duckduckgo | codex  websearch 后端(仅 auto 允许回退,显式选择不会跨服务)"
             }
             _ => "",
         }

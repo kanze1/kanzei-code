@@ -2,6 +2,11 @@
 use super::halt::append_halted_tool_results;
 use super::{CancellationToken, Message, MessageCommitReceipt, Part, RunEvent};
 
+pub(super) enum StepPhase {
+    ExecuteTools(u32),
+    Converge(u32),
+}
+
 pub(super) fn commit_assistant_message(
     messages: &mut Vec<Message>,
     parts: Vec<Part>,
@@ -80,10 +85,13 @@ pub(super) fn commit_step_messages(
     calls: &[(String, String, serde_json::Value, String)],
     final_text: &mut String,
     messages: &mut Vec<Message>,
-    step: u32,
+    phase: StepPhase,
     halt: Option<&CancellationToken>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> anyhow::Result<StepMessageOutcome> {
+    let step = match phase {
+        StepPhase::ExecuteTools(step) | StepPhase::Converge(step) => step,
+    };
     *final_text = parts
         .iter()
         .filter_map(|p| match p {
@@ -113,6 +121,29 @@ pub(super) fn commit_step_messages(
         commit_tool_results(messages, results, Vec::new(), step, on_event)?;
         return Ok(StepMessageOutcome::Return {
             halted_by_user: true,
+        });
+    }
+    // The provider may ignore an empty schema. Enforce the budget before either
+    // child dispatch or the ordinary parallel/serial execution paths can run.
+    if matches!(phase, StepPhase::Converge(_)) {
+        let mut results = Vec::with_capacity(calls.len());
+        for (id, name, input, raw_input) in calls {
+            let output = kanzei_harness::ToolOutput::blocked_by_workflow(
+                "STEP_BUDGET_EXHAUSTED",
+                "The execution step budget is exhausted; this tool call was not executed.",
+            );
+            on_event(RunEvent::ToolStart {
+                id: id.clone(),
+                name: name.clone(),
+                summary: super::summarize_input(input, raw_input),
+                input: input.clone(),
+            });
+            on_event(RunEvent::tool_end(id.clone(), name.clone(), &output));
+            results.push(super::tool_result_part(id.clone(), output));
+        }
+        commit_tool_results(messages, results, Vec::new(), step, on_event)?;
+        return Ok(StepMessageOutcome::Return {
+            halted_by_user: false,
         });
     }
     Ok(StepMessageOutcome::Proceed)

@@ -461,8 +461,12 @@ function outgoingMessage(record, draft) {
   feedback.append(status, retry); message.append(feedback);
   outgoing.subscribe(record, current => {
     message.dataset.deliveryState = current.status;
-    status.textContent = current.status === "accepted" ? t("已接收") : current.status === "pending" ? t("正在发送") : `${t("发送失败")}: ${current.error}`;
-    retry.hidden = current.status !== "failed";
+    if (current.status === "accepted") {
+      feedback.remove();
+    } else {
+      status.textContent = current.status === "pending" ? t("正在发送") : `${t("发送失败")}: ${current.error}`;
+      retry.hidden = current.status !== "failed";
+    }
     const action = message.querySelector(".conversation-action-btn"); if (action) action.disabled = current.status !== "accepted";
   });
 }

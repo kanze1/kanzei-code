@@ -55,14 +55,31 @@ pub(crate) struct CollaborationProbe {
 
 const LINE_STALE_AFTER_MS: u64 = 30_000;
 
-fn line_status(
+#[derive(Default)]
+struct LineProgress<'a> {
     running: bool,
+    run_id: &'a str,
+    waiting_writers: &'a [String],
     run_age_ms: Option<u64>,
-    last_outcome: Option<&str>,
+    last_outcome: Option<&'a str>,
     event_idle_ms: Option<u64>,
     worktree_idle_ms: Option<u64>,
-) -> &'static str {
+}
+
+fn line_status(progress: LineProgress<'_>) -> &'static str {
+    let LineProgress {
+        running,
+        run_id,
+        waiting_writers,
+        run_age_ms,
+        last_outcome,
+        event_idle_ms,
+        worktree_idle_ms,
+    } = progress;
     if running {
+        if waiting_writers.iter().any(|waiting| waiting == run_id) {
+            return "queued";
+        }
         let recent_event = event_idle_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS);
         let recent_worktree = worktree_idle_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS);
         // 新 run 尚未收到第一条事件时给一个启动宽限；之后必须有事件流或源码现场进展。
@@ -80,6 +97,7 @@ fn line_status(
         match last_outcome {
             Some("completed") => "completed",
             Some("halted") => "stopped",
+            Some("incomplete") => "incomplete",
             Some("failed") | None => "failed",
             Some(_) => "failed",
         }
@@ -178,6 +196,7 @@ impl CollaborationProbe {
                     event_idle_ms,
                     run_age_ms,
                     last_outcome,
+                    run_id,
                 ) = runtime
                     .map(|runtime| {
                         let live = runtime.live.lock().unwrap();
@@ -189,9 +208,10 @@ impl CollaborationProbe {
                             elapsed_ms(live.last_event_at),
                             elapsed_ms(live.started_at),
                             live.last_outcome.clone(),
+                            live.run_id.clone(),
                         )
                     })
-                    .unwrap_or((None, 0, 0, 0, None, None, None));
+                    .unwrap_or((None, 0, 0, 0, None, None, None, String::new()));
                 let phase = runtime
                     .map(|runtime| runtime.stage.lock().unwrap().clone())
                     .unwrap_or_else(|| "空闲".into());
@@ -217,13 +237,15 @@ impl CollaborationProbe {
                     process.worktree_path.is_some(),
                 );
                 let worktree_idle_ms = latest_worktree_idle_ms(&code_root, &changed_files);
-                let status = line_status(
+                let status = line_status(LineProgress {
                     running,
+                    run_id: &run_id,
+                    waiting_writers: &waiting_writers,
                     run_age_ms,
-                    last_outcome.as_deref(),
+                    last_outcome: last_outcome.as_deref(),
                     event_idle_ms,
                     worktree_idle_ms,
-                );
+                });
                 let branch = process.branch.clone().unwrap_or_else(|| {
                     git_text(&code_root, &["branch", "--show-current"])
                         .filter(|value| !value.is_empty())
@@ -550,24 +572,70 @@ mod tests {
     #[test]
     fn 泳道状态机按进程事件和工作树进展判定() {
         assert_eq!(
-            line_status(true, Some(1_000), None, Some(100), None),
+            line_status(LineProgress {
+                running: true,
+                run_age_ms: Some(1_000),
+                event_idle_ms: Some(100),
+                ..Default::default()
+            }),
             "running"
         );
         assert_eq!(
-            line_status(true, Some(90_000), None, Some(90_000), None),
+            line_status(LineProgress {
+                running: true,
+                run_age_ms: Some(90_000),
+                event_idle_ms: Some(90_000),
+                ..Default::default()
+            }),
             "suspected_stuck"
         );
         // 真实长任务可能没有新的 RunEvent，但源码仍在变化，不能被判成失败。
         assert_eq!(
-            line_status(true, Some(90_000), None, Some(90_000), Some(100)),
+            line_status(LineProgress {
+                running: true,
+                run_age_ms: Some(90_000),
+                event_idle_ms: Some(90_000),
+                worktree_idle_ms: Some(100),
+                ..Default::default()
+            }),
             "running"
         );
-        assert_eq!(line_status(false, Some(90_000), None, None, None), "failed");
         assert_eq!(
-            line_status(false, Some(90_000), Some("completed"), None, None),
+            line_status(LineProgress {
+                run_age_ms: Some(90_000),
+                ..Default::default()
+            }),
+            "failed"
+        );
+        assert_eq!(
+            line_status(LineProgress {
+                run_age_ms: Some(90_000),
+                last_outcome: Some("completed"),
+                ..Default::default()
+            }),
             "completed"
         );
-        assert_eq!(line_status(false, None, None, None, None), "idle");
+        assert_eq!(line_status(LineProgress::default()), "idle");
+        assert_eq!(
+            line_status(LineProgress {
+                run_age_ms: Some(90_000),
+                last_outcome: Some("incomplete"),
+                ..Default::default()
+            }),
+            "incomplete"
+        );
+        let waiting = vec!["run-waiting".to_string()];
+        assert_eq!(
+            line_status(LineProgress {
+                running: true,
+                run_id: "run-waiting",
+                waiting_writers: &waiting,
+                run_age_ms: Some(90_000),
+                event_idle_ms: Some(90_000),
+                ..Default::default()
+            }),
+            "queued"
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use futures::future::join_all;
-use kanzei_harness::config::KanzeiConfig;
+use kanzei_harness::config::{KanzeiConfig, SearchBackend};
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use kanzei_llm::auth::codex::codex_headers;
 use kanzei_llm::proxy::build_http_client;
@@ -107,7 +107,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> String {
-        "Search the web with 1-4 queries; each query may set recency (day/week/month/year) and domains. Returns result refs that webfetch accepts; Codex /alpha/search falls back to DuckDuckGo when unavailable. Legacy single `query` remains supported. In prior-art work, pass prior_art_topic so the search-round budget is enforced.".into()
+        "Search the web with 1-4 queries; each query may set recency (day/week/month/year) and domains. Returns result refs that webfetch accepts. The configured backend controls network routing: explicit duckduckgo/codex never contacts the other service; auto uses the primary model's provider and permits an explicit DuckDuckGo fallback. Codex /alpha/search is an unpublished adapter, not a supported public search API. Legacy single `query` remains supported. In prior-art work, pass prior_art_topic so the search-round budget is enforced.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -126,12 +126,24 @@ impl Tool for WebSearchTool {
         ]
     }
 
-    fn resources_with_ctx(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        let mut resources = vec![SEARCH_URL.into()];
-        if let Ok((base_url, _)) = resolve_codex_primary(ctx) {
-            resources.push(format!("{}/alpha/search", base_url.trim_end_matches('/')));
+    fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
+        let Ok(config) = KanzeiConfig::load_at_root(&ctx.project_root) else {
+            return self.resources(input);
+        };
+        match selected_backend(&config) {
+            Ok(SearchBackend::Duckduckgo) => vec![SEARCH_URL.into()],
+            Ok(backend) => {
+                let mut resources = Vec::new();
+                if backend == SearchBackend::Auto {
+                    resources.push(SEARCH_URL.into());
+                }
+                if let Ok((base_url, _)) = resolve_codex_primary(&config) {
+                    resources.push(format!("{}/alpha/search", base_url.trim_end_matches('/')));
+                }
+                resources
+            }
+            Err(_) => self.resources(input),
         }
-        resources
     }
 
     /// R-323 并发审计:**按入参分流**,不能一刀切成只读。
@@ -177,12 +189,24 @@ impl Tool for WebSearchTool {
             Ok(client) => client,
             Err(error) => return ToolOutput::error(format!("http client: {error}")),
         };
-        let (codex, codex_unavailable) = match load_codex_backend(ctx, &proxy).await {
-            Ok(backend) => (Some(backend), None),
-            Err(reason) => (None, Some(reason)),
+        let config = match KanzeiConfig::load_at_root(&ctx.project_root) {
+            Ok(config) => config,
+            Err(error) => return ToolOutput::failed("WEB_SEARCH_CONFIG", error.to_string()),
+        };
+        let backend = match selected_backend(&config) {
+            Ok(backend) => backend,
+            Err(error) => return ToolOutput::failed("WEB_SEARCH_CONFIG", error),
+        };
+        let (codex, codex_unavailable) = match backend {
+            SearchBackend::Duckduckgo => (None, None),
+            _ => match load_codex_backend(&config, &proxy).await {
+                Ok(backend) => (Some(backend), None),
+                Err(reason) => (None, Some(reason)),
+            },
         };
         let mut outcomes = join_all(queries.into_iter().map(|query| {
             search_one_query(
+                backend,
                 query,
                 limit,
                 codex.as_ref(),
@@ -295,9 +319,20 @@ fn normalize_domain(domain: &str) -> Result<String, String> {
     Ok(host.to_ascii_lowercase())
 }
 
-fn resolve_codex_primary(ctx: &ToolCtx) -> Result<(String, String), String> {
-    let config = KanzeiConfig::load_at_root(&ctx.project_root)
-        .map_err(|_| "Codex search route configuration unavailable".to_string())?;
+fn selected_backend(config: &KanzeiConfig) -> Result<SearchBackend, String> {
+    match config.web.search_backend() {
+        SearchBackend::Auto => match config.resolve_model("primary") {
+            Ok(resolved) if resolved.provider.auth.as_deref() == Some("codex") => {
+                Ok(SearchBackend::Auto)
+            }
+            Ok(_) => Ok(SearchBackend::Duckduckgo),
+            Err(error) => Err(format!("primary search route configuration: {error}")),
+        },
+        explicit => Ok(explicit),
+    }
+}
+
+fn resolve_codex_primary(config: &KanzeiConfig) -> Result<(String, String), String> {
     let mut defaults = KanzeiConfig::default();
     defaults.fill_defaults();
     for reference in [
@@ -315,8 +350,11 @@ fn resolve_codex_primary(ctx: &ToolCtx) -> Result<(String, String), String> {
     Err("no configured Codex subscription search route".into())
 }
 
-async fn load_codex_backend(ctx: &ToolCtx, proxy: &ProxyConfig) -> Result<CodexBackend, String> {
-    let (base_url, model) = resolve_codex_primary(ctx)?;
+async fn load_codex_backend(
+    config: &KanzeiConfig,
+    proxy: &ProxyConfig,
+) -> Result<CodexBackend, String> {
+    let (base_url, model) = resolve_codex_primary(config)?;
     let headers = tokio::time::timeout(std::time::Duration::from_secs(10), codex_headers(proxy))
         .await
         .map_err(|_| "Codex credential lookup timed out".to_string())?
@@ -329,6 +367,7 @@ async fn load_codex_backend(ctx: &ToolCtx, proxy: &ProxyConfig) -> Result<CodexB
 }
 
 async fn search_one_query(
+    backend: SearchBackend,
     query: SearchQuery,
     limit: usize,
     codex: Option<&CodexBackend>,
@@ -336,6 +375,9 @@ async fn search_one_query(
     client: &reqwest::Client,
     duckduckgo_url: &str,
 ) -> QuerySearchOutput {
+    if backend == SearchBackend::Duckduckgo {
+        return duckduckgo_outcome(query, limit, client, duckduckgo_url, None).await;
+    }
     let codex_result = match codex {
         Some(backend) => search_codex(client, backend, &query, limit).await,
         None => Err(codex_unavailable
@@ -351,29 +393,47 @@ async fn search_one_query(
             truncated,
             error: None,
         },
+        Err(codex_error) if backend == SearchBackend::Codex => QuerySearchOutput {
+            query: query.q,
+            backend: "codex_alpha_search".into(),
+            fallback: None,
+            results: Vec::new(),
+            truncated: false,
+            error: Some(codex_error),
+        },
         Err(codex_error) => {
             let fallback = format!(
                 "Codex /alpha/search unavailable ({codex_error}); automatically fell back to DuckDuckGo."
             );
-            match search_duckduckgo(client, duckduckgo_url, &query, limit).await {
-                Ok((results, truncated)) => QuerySearchOutput {
-                    query: query.q,
-                    backend: "duckduckgo".into(),
-                    fallback: Some(fallback),
-                    results,
-                    truncated,
-                    error: None,
-                },
-                Err(error) => QuerySearchOutput {
-                    query: query.q,
-                    backend: "none".into(),
-                    fallback: Some(fallback),
-                    results: Vec::new(),
-                    truncated: false,
-                    error: Some(search_failure_message(&error)),
-                },
-            }
+            duckduckgo_outcome(query, limit, client, duckduckgo_url, Some(fallback)).await
         }
+    }
+}
+
+async fn duckduckgo_outcome(
+    query: SearchQuery,
+    limit: usize,
+    client: &reqwest::Client,
+    endpoint: &str,
+    fallback: Option<String>,
+) -> QuerySearchOutput {
+    match search_duckduckgo(client, endpoint, &query, limit).await {
+        Ok((results, truncated)) => QuerySearchOutput {
+            query: query.q,
+            backend: "duckduckgo".into(),
+            fallback,
+            results,
+            truncated,
+            error: None,
+        },
+        Err(error) => QuerySearchOutput {
+            query: query.q,
+            backend: "duckduckgo".into(),
+            fallback,
+            results: Vec::new(),
+            truncated: false,
+            error: Some(search_failure_message(&error)),
+        },
     }
 }
 
@@ -915,6 +975,118 @@ mod tests {
         (format!("http://{address}/search"), handle)
     }
 
+    #[test]
+    fn search_backend_is_explicit_and_auto_uses_only_primary() {
+        let mut config = KanzeiConfig::default();
+        config.fill_defaults();
+        config.providers.insert(
+            "plain".into(),
+            kanzei_harness::config::ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "https://example.invalid/v1".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: None,
+            },
+        );
+        config.models.primary = Some("plain:fixture".into());
+        config.models.fast = Some("codex:fixture".into());
+        config.models.compact = Some("codex:fixture".into());
+        assert_eq!(
+            selected_backend(&config).unwrap(),
+            SearchBackend::Duckduckgo
+        );
+        config.models.primary = Some("codex:fixture".into());
+        assert_eq!(selected_backend(&config).unwrap(), SearchBackend::Auto);
+        config.web.search_backend = Some(SearchBackend::Duckduckgo);
+        assert_eq!(
+            selected_backend(&config).unwrap(),
+            SearchBackend::Duckduckgo
+        );
+        config.web.search_backend = Some(SearchBackend::Codex);
+        assert_eq!(selected_backend(&config).unwrap(), SearchBackend::Codex);
+        assert!(serde_json::from_value::<KanzeiConfig>(serde_json::json!({
+            "web": {"search_backend": "typo"}
+        }))
+        .is_err());
+        config.web.search_backend = Some(SearchBackend::Auto);
+        config.models.primary = Some("missing-provider:fixture".into());
+        assert!(selected_backend(&config).is_err());
+    }
+
+    #[tokio::test]
+    async fn explicit_duckduckgo_never_contacts_codex() {
+        let unused_codex = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        unused_codex.set_nonblocking(true).unwrap();
+        let backend = CodexBackend {
+            endpoint: format!("http://{}/search", unused_codex.local_addr().unwrap()),
+            model: "fixture".into(),
+            headers: Vec::new(),
+        };
+        let html = r#"<a class="result__a" href="https://docs.rs/rust">Rust</a>"#;
+        let (ddg_url, server) = spawn_search_server(stub_response("200 OK", "text/html", html));
+        let client = build_http_client(&ProxyConfig::Disabled).unwrap();
+        let outcome = search_one_query(
+            SearchBackend::Duckduckgo,
+            SearchQuery {
+                q: "rust".into(),
+                recency: None,
+                domains: Vec::new(),
+            },
+            5,
+            Some(&backend),
+            None,
+            &client,
+            &ddg_url,
+        )
+        .await;
+        assert_eq!(outcome.backend, "duckduckgo");
+        assert!(outcome.error.is_none());
+        assert!(outcome.fallback.is_none());
+        assert_eq!(outcome.results.len(), 1);
+        assert!(server.join().unwrap().contains("q=rust"));
+        assert!(
+            matches!(unused_codex.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_codex_failure_never_contacts_duckduckgo() {
+        let unused_ddg = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        unused_ddg.set_nonblocking(true).unwrap();
+        let ddg_url = format!("http://{}/search", unused_ddg.local_addr().unwrap());
+        let (codex_url, server) =
+            spawn_search_server(stub_response("401 Unauthorized", "application/json", "{}"));
+        let backend = CodexBackend {
+            endpoint: codex_url,
+            model: "fixture".into(),
+            headers: Vec::new(),
+        };
+        let client = build_http_client(&ProxyConfig::Disabled).unwrap();
+        let outcome = search_one_query(
+            SearchBackend::Codex,
+            SearchQuery {
+                q: "rust".into(),
+                recency: None,
+                domains: Vec::new(),
+            },
+            5,
+            Some(&backend),
+            None,
+            &client,
+            &ddg_url,
+        )
+        .await;
+        assert_eq!(outcome.backend, "codex_alpha_search");
+        assert!(outcome.error.as_deref().unwrap().contains("HTTP 401"));
+        assert!(outcome.fallback.is_none());
+        server.join().unwrap();
+        assert!(
+            matches!(unused_ddg.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+    }
+
     #[tokio::test]
     async fn codex_alpha_failure_falls_back_to_filtered_duckduckgo_with_note() {
         let (codex_url, codex_server) = spawn_search_server(stub_response(
@@ -932,6 +1104,7 @@ mod tests {
             headers: Vec::new(),
         };
         let outcome = search_one_query(
+            SearchBackend::Auto,
             SearchQuery {
                 q: "Rust release".into(),
                 recency: Some(SearchRecency::Week),

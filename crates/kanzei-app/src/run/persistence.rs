@@ -374,6 +374,7 @@ fn persist_round_outcome_with_effects(
     let summary = run_result
         .as_ref()
         .expect("successful durable outcome has a summary");
+    live.lock_or_recover().finish(summary.outcome());
     record_transaction_budget_result(&store, session_id, run_id, summary.outcome());
     let this_run = &summary.round_messages;
     (effects.harvest)(this_run);
@@ -411,7 +412,6 @@ fn persist_round_outcome_with_effects(
         }
         current_episode_id = Some(episode_id);
     }
-    live.lock_or_recover().flushed = true;
     if summary.halted_by_user {
         if let Err(error) =
             append_run_notification(&store, session_id, "stopped", "任务已停止", false)
@@ -1371,6 +1371,11 @@ mod tests {
             }
         } else {
             assert!(result.is_ok());
+            assert_eq!(
+                live.lock_or_recover().last_outcome.as_deref(),
+                Some(if stopped { "halted" } else { "completed" }),
+                "the live projection must publish the committed terminal"
+            );
             drop(result);
             assert!(writer.lock_or_recover().is_terminal());
             assert_eq!(

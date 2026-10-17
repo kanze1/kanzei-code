@@ -2,6 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchBackend {
+    #[default]
+    Auto,
+    Duckduckgo,
+    Codex,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct WebSection {
     /// Enable native hosted search for channels that passed B1. None defaults to true.
@@ -13,9 +22,9 @@ pub struct WebSection {
     /// Anthropic server-search tool version; consumed only after the Claude probe passes.
     #[serde(default)]
     pub anthropic_search_tool: Option<String>,
-    /// auto | duckduckgo | codex; invalid values fail back to auto.
+    /// auto | duckduckgo | codex. Explicit backends never contact another service.
     #[serde(default)]
-    pub search_backend: Option<String>,
+    pub search_backend: Option<SearchBackend>,
 }
 
 pub(crate) const WEB_KEYS: &[&str] = &[
@@ -30,13 +39,8 @@ impl WebSection {
         self.native_search.unwrap_or(true)
     }
 
-    pub fn search_backend(&self) -> &str {
-        match self.search_backend.as_deref().map(str::trim) {
-            Some("codex") => "codex",
-            Some("duckduckgo") => "duckduckgo",
-            Some("auto") | None | Some("") => "auto",
-            Some(_) => "auto",
-        }
+    pub fn search_backend(&self) -> SearchBackend {
+        self.search_backend.unwrap_or_default()
     }
 
     pub fn native_search_disabled_for(&self, profile: &str) -> bool {

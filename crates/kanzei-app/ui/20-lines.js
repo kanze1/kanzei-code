@@ -336,7 +336,7 @@ export function lineStatusKey(line, lineRunning, waiting = "", stopping = false)
   if (waiting === "approval") return "awaiting_approval";
   if (waiting === "answer" && !lineRunning) return "awaiting_answer";
   const status = line.status;
-  if (["running", "suspected_stuck", "failed", "completed", "stopped", "idle"].includes(status)) {
+  if (["running", "queued", "suspected_stuck", "failed", "incomplete", "completed", "stopped", "idle"].includes(status)) {
     return status;
   }
   // 兼容旧快照/测试桩：后端升级前仍按既有 running 字段显示，不猜测卡住。
@@ -346,11 +346,13 @@ export function lineStatusKey(line, lineRunning, waiting = "", stopping = false)
 export function lineStatusLabel(status) {
   return {
     running: t("运行中"),
+    queued: t("排队"),
     stopping: t("停止中…"),
     awaiting_approval: t("在等你批准"),
     awaiting_answer: t("在等你回答"),
     suspected_stuck: t("疑似卡住"),
     failed: t("失败"),
+    incomplete: t("未完成"),
     completed: t("完成"),
     stopped: t("已停止"),
     idle: t("空闲"),

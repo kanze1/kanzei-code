@@ -14,7 +14,7 @@ use tool_catalog::append_deferred_process_hint;
 use tool_catalog::{auto_load_deferred_tool, run_tool_search, tool_spec};
 mod history;
 use history::{
-    commit_step_messages, commit_tool_results, record_round_message, StepMessageOutcome,
+    commit_step_messages, commit_tool_results, record_round_message, StepMessageOutcome, StepPhase,
 };
 
 mod task_results;
@@ -364,7 +364,11 @@ pub fn run_once_with_parts<'a>(
                 &calls,
                 &mut final_text,
                 &mut messages,
-                step,
+                if last_step {
+                    StepPhase::Converge(step)
+                } else {
+                    StepPhase::ExecuteTools(step)
+                },
                 halt,
                 &mut on_event,
             )? {
@@ -1462,7 +1466,7 @@ mod tests {
             &[],
             &mut final_text,
             &mut messages,
-            1,
+            StepPhase::ExecuteTools(1),
             None,
             &mut |ev| events.push(ev),
         );
@@ -1495,7 +1499,7 @@ mod tests {
             &calls,
             &mut final_text,
             &mut messages,
-            1,
+            StepPhase::ExecuteTools(1),
             None,
             &mut |_| {},
         );
@@ -1516,7 +1520,7 @@ mod tests {
             &calls,
             &mut final_text,
             &mut messages,
-            1,
+            StepPhase::ExecuteTools(1),
             Some(&token),
             &mut |_| {},
         );

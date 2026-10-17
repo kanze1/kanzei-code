@@ -225,6 +225,12 @@ impl LiveRun {
         self.last_event_at = Some(std::time::Instant::now());
     }
 
+    /// Publish a terminal only after its durable transaction has committed.
+    pub(crate) fn finish(&mut self, outcome: &str) {
+        self.last_outcome = Some(outcome.to_string());
+        self.flushed = true;
+    }
+
     fn duration_ms(&self) -> u64 {
         self.started_at
             .map(|at| at.elapsed().as_millis() as u64)
@@ -246,8 +252,7 @@ pub(crate) fn flush_live_run(
     if live.flushed || live.started_at.is_none() {
         return false;
     }
-    live.last_outcome = Some(outcome.to_string());
-    live.flushed = true;
+    live.finish(outcome);
     let _ = flush_live_trace_locked(store, session_id, &mut live, Some(outcome));
     // D-297 验收③:run.trace 保留策略——每会话只留最近 N 轮,防止轨迹成本随
     // 使用时间单调增长。收尾路径是清理时机(一轮刚写完,旧轮不再被引用)。
