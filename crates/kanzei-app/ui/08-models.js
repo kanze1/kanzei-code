@@ -108,19 +108,28 @@ export function syncModelSelectToActiveLine() {
   return refreshEffectiveModel();
 }
 
+// A provider failure must not hide the other providers' discovered models or
+// make a partial catalog look like a successful refresh.
+export function reportModelCatalogErrors(errors) {
+  if (errors.length > 0) {
+    toastError(`${t("模型列表获取失败")}:${errors.map(({ provider, message }) => `${provider}: ${message}`).join("; ")}`);
+  }
+}
+
 // 只拉目录(失败走持久错误出口,探测不到不等于用不了),再问一次下一轮视图。
 export async function loadModels() {
   // R-178 批3:首次进入项目时把 localStorage 旧键上迁后端(幂等,成功后不再执行)。
   void migrateLegacyModelPrefs();
   const forProject = currentProject;
   try {
-    const models = await invoke("models_list", { projectDir: forProject });
+    const { models, errors } = await invoke("models_list", { projectDir: forProject });
     if (currentProject === forProject) {
-      modelCatalog = Array.isArray(models) ? models : [];
+      modelCatalog = models;
       modelCatalogProject = forProject;
       announce("kz-model-catalog", modelCatalog);
+      reportModelCatalogErrors(errors);
     }
-    log(`${t("模型列表已刷新")}(${modelCatalog.length} 个可选)`);
+    if (errors.length === 0) log(`${t("模型列表已刷新")}(${modelCatalog.length} 个可选)`);
   } catch (err) {
     reportPersistentError(`${t("模型列表获取失败")}:${err}`);
   }

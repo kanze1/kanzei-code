@@ -1021,14 +1021,14 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     project_models_get: ({ projectDir } = {}) => previewProjectModels(projectDir),
     project_models_save: ({ projectDir } = {}) => previewProjectModels(projectDir),
     project_config_open: null,
-    models_list: () => [
+    models_list: () => ({ models: [
       { id: "primary", label: `primary → ${PROJECT_PRIMARY}` },
       { id: PROJECT_PRIMARY, label: PROJECT_PRIMARY },
       { id: "fast", label: `fast → ${FAST_MODEL}` },
       { id: FAST_MODEL, label: FAST_MODEL },
-      ...["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra"].map((model) => ({ id: `codex:${model}`, label: `codex:${model}` })),
+      ...["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra"].map((model) => ({ id: `codex:${model}`, label: `codex:${model}` })),
       { id: "deepseek:deepseek-chat", label: "deepseek:deepseek-chat" },
-    ],
+    ], errors: [] }),
     git_status: ({ worktreePath }) => worktreePath
       ? { branch: "kanzei/thread-r366-b2", changes: 2, last: "2d3eaef9 D-762 R-366 B1 文件检查点按裁决落地", files: [
         { path: "crates/kanzei-app/src/run/rewind.rs", additions: 142, deletions: 8 },

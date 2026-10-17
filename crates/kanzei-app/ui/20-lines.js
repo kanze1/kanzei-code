@@ -22,7 +22,7 @@ import { askActive, askQueues } from "./07-events.js";
 import { armStoppingWatchdog, awaitingUserSessions, cancelAutoContinueTimer, setAutoRounds } from "./08-auto.js";
 import { lineAutoConfig, queueProcessUpdate, setLineAutoState, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
-import { projectDefaultModel, syncModelSelectToActiveLine } from "./08-models.js";
+import { projectDefaultModel, syncModelSelectToActiveLine, reportModelCatalogErrors } from "./08-models.js";
 import {
   closeParallelProcess,
   createWorktreeLine,
@@ -150,10 +150,11 @@ export async function loadLinesModelCatalog() {
   if (linesModelCatalog && linesModelCatalogProject === currentProject) return linesModelCatalog;
   const forProject = currentProject;
   try {
-    const models = await invoke("models_list", { projectDir: forProject });
+    const { models, errors } = await invoke("models_list", { projectDir: forProject });
     if (currentProject !== forProject) return linesModelCatalog ?? [];
-    linesModelCatalog = models ?? [];
+    linesModelCatalog = models;
     linesModelCatalogProject = forProject;
+    reportModelCatalogErrors(errors);
   } catch (error) {
     // 探测不到不等于用不了(D-167):目录留空,下拉仍保留该线已记住的模型。
     linesModelCatalog = linesModelCatalog ?? [];

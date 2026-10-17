@@ -5,7 +5,7 @@ import { inputDialog } from "./00-dialogs.js";
 import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { currentProject, reasoningLabel, toast, toastError } from "./03-shell.js";
-import { MANUAL_MODEL_PATTERN, MANUAL_MODEL_SENTINEL, manualModels, modelCatalog, modelCatalogProject } from "./08-models.js";
+import { MANUAL_MODEL_PATTERN, MANUAL_MODEL_SENTINEL, manualModels, modelCatalog, modelCatalogProject, reportModelCatalogErrors } from "./08-models.js";
 
 // ---------- 项目模型配置弹窗(UI-0926 #3) ----------
 // 只写一层:项目 .kanzei/kanzei.toml 的 [models] 五个键。每个字段要么「继承全局 · X」,
@@ -194,14 +194,16 @@ function catalogIdsFrom(models) {
 
 // 目录探测可能要几秒(每个 provider 最多 6 秒):弹窗先用已知目录打开,探测回来再只补选项、不动草稿。
 async function refreshCatalog(projectDir, token) {
-  let models;
+  let catalog;
   try {
-    models = await invoke("models_list", { projectDir });
-  } catch {
+    catalog = await invoke("models_list", { projectDir });
+  } catch (error) {
+    if (dialogState?.token === token) toastError(`${t("模型列表获取失败")}:${error}`);
     return;
   }
   if (dialogState?.token !== token) return;
-  const ids = catalogIdsFrom(models);
+  reportModelCatalogErrors(catalog.errors);
+  const ids = catalogIdsFrom(catalog.models);
   for (const key of ["primary", "fast", "compact"]) {
     const select = dialogState.selects?.[key];
     const row = select?.closest?.(".pm-row");

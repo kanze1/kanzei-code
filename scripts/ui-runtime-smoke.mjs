@@ -2183,11 +2183,12 @@ const payloads = {
     ? [{ sequence: 2, sequences: [2], title: "后台线路历史", preview: "后台预览", updated_at: "2026-08-08 00:01" }]
     : [{ sequence: 1, sequences: [1], title: "冒烟会话", preview: "主线预览", updated_at: "2026-08-08 00:00" }],
   // 角色项 + 一个真实模型:角色不该出现在设置页的角色下拉里(会绕成自指)。
-  models_list: [
+  models_list: { models: [
     { id: "primary", label: "primary → anthropic:claude-sonnet-5" },
     { id: "anthropic:claude-sonnet-5", label: "anthropic:claude-sonnet-5" },
     { id: "ollama:qwen3", label: "ollama:qwen3" },
-  ],
+    { id: "codex:gpt-6.1-sol", label: "codex:gpt-6.1-sol" },
+  ], errors: [] },
   git_status: { branch: "main", changes: 2 },
   list_pending_inputs: [],
   // UI-0926 #10:字段是真实 IPC 形状 [{key,value}](ipc-contract.json test_runs_snapshot),不是 [[k,v]]。
@@ -5857,6 +5858,7 @@ assert(
   primaryValues.includes("deepseek:deepseek-chat"),
   "探测不到的已存值未补进选项列表",
 );
+assert(primaryValues.includes("codex:gpt-6.1-sol"), "新发现的 Codex 模型未进入设置页模型选项");
 // 项目级覆盖必须明说(UI-0926 #3 起这张表只报代理/默认模式/运行上限;模型的项目覆盖见
 // #settings-project-overrides 那行中性说明,由下面「分区:模型选择」的设置页用例守)。
 assert(
@@ -5884,6 +5886,16 @@ assert(
   );
   expectedPersistentError = null;
   invokeFailures.delete("models_list");
+
+  payloads.models_list.errors = [{ provider: "codex", message: "模拟目录不可用" }];
+  expectedPersistentError = "模拟目录不可用";
+  const partialBefore = expectedPersistentHits;
+  await sandbox.loadModels();
+  assert(expectedPersistentHits > partialBefore, "部分 provider 失败未反馈到持久错误出口");
+  assert([...primarySelect.options].some((option) => option.value === "codex:gpt-6.1-sol"), "部分探测失败丢失了其他成功返回的模型");
+  assert(primarySelect.value === "deepseek:deepseek-chat", "部分探测失败覆盖了已保存的模型");
+  payloads.models_list.errors = [];
+  expectedPersistentError = null;
 
   invokeFailures.set("fast_model_status", "模拟 fast 状态失败");
   await sandbox.refreshFastStatus();

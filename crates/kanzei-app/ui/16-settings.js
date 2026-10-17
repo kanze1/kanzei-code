@@ -16,7 +16,7 @@ import { flushLayout, onLayoutChange, setLayoutPref } from "./03-layout.js";
 import { isGeneralChat } from "./03-general-scope.js";
 import { fastStatusText } from "./06-activity.js";
 import { state } from "./08-compose.js";
-import { MANUAL_MODEL_SENTINEL } from "./08-models.js";
+import { MANUAL_MODEL_SENTINEL, reportModelCatalogErrors } from "./08-models.js";
 import { openProjectModelsDialog } from "./08-project-models.js";
 // UI-0926 #10:权限规则表的资源列按结构渲染(bash 规则是 {command, workdir} JSON)。
 import { permissionResourceText } from "./04-structured-parse.js";
@@ -622,22 +622,24 @@ export function applyModelOptions(desired, ids) {
 }
 // 探测彻底移出加载的关键路径:它只补下拉选项,不碰任何 value,而且带令牌——
 // 用户在这几秒里切走或重载过设置页,迟到的结果直接丢弃。
-// (models_list 串行探测每个 provider 六秒超时,配几个远端就能拖十几秒,
-// 这段时间里页面是可交互的,原来 resolve 之后一次全量重建就把输入吃掉了。)
+// models_list 并发探测,每个 provider 六秒超时;等待期间页面仍可交互。
 export async function probeModelsAndMergeOptions(token) {
   let ids;
+  let errors;
   try {
-    const models = await invoke("models_list", { projectDir: currentProject });
+    const catalog = await invoke("models_list", { projectDir: currentProject });
+    errors = catalog.errors;
     // 角色不能再指向角色(primary → primary 会绕成死循环)。
-    ids = models.map((m) => m.id).filter((id) => id !== "primary" && id !== "fast" && id !== "compact");
+    ids = catalog.models.map((m) => m.id).filter((id) => id !== "primary" && id !== "fast" && id !== "compact");
   } catch (error) {
     toastError(`${t("模型列表获取失败")}:${error}`);
     return false;
   }
   if (token !== settingsLoadToken) return false;
+  reportModelCatalogErrors(errors);
   applyModelOptions(null, ids);
   syncSettingsDirty();
-  return true;
+  return errors.length === 0;
 }
 
 /// 下拉里没有这个值就补一个兜底 option。选项表写死在 index.html 里,而配置文件的合法

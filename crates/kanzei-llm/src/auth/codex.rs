@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 use crate::error::LlmError;
 use crate::proxy::{build_http_client, ProxyConfig};
 
+pub mod models;
+
 /// access_token 寿命较长,codex CLI 的惯例是临近一个月才刷新。
 const REFRESH_AFTER_DAYS: i64 = 25;
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
