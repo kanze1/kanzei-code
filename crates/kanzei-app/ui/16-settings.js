@@ -1293,14 +1293,17 @@ defer(() => {
       if (!ok) return;
     }
     $("update-result").textContent = t("下载中…(应用将退出,安装完成后请手动启动)");
+    $("update-receipt").hidden = true;
+    $("update-check").disabled = true;
     $("update-install").disabled = true;
     $("update-install").setAttribute("aria-busy", "true");
     try {
       $("update-result").textContent = await invoke("update_install", { url: updateUrl, expectedBuild: updateBuild });
-      await loadUpdateReceipt();
     } catch (err) {
       $("update-result").textContent = String(err);
     } finally {
+      await loadUpdateReceipt();
+      $("update-check").disabled = false;
       $("update-install").disabled = false;
       $("update-install").removeAttribute("aria-busy");
     }

@@ -320,6 +320,14 @@ def main():
         result["surfaceAfterRun"] = surface
         check(not surface["applicationWindows"] and not any("webview" in item["name"].lower() for item in surface["children"]),
               "run, query and stop created no graphical runtime surface")
+        empty = invoke("process_create", projectDir=str(project), profile="dev")
+        invoke("pending_asks_get", projectDir=str(project), processId=empty["id"])
+        database = sqlite3.connect((project / ".kanzei/state.db").as_uri() + "?mode=ro", uri=True)
+        try:
+            check(database.execute("SELECT COUNT(*) FROM sessions WHERE session_id = ?", (empty["session_id"],)).fetchone()[0] == 0,
+                  "opening an empty conversation creates a runtime cache without persisted history")
+        finally:
+            database.close()
         receipt = rpc("shutdown")
         check(receipt.get("stopped") and receipt.get("state") == "quiescent", "shutdown acknowledges actual owner quiescence")
         check(process.wait(timeout=15) == 0, "isolated runtime exits cleanly after the shutdown receipt")
@@ -330,6 +338,8 @@ def main():
             kinds = set(result["durableEventCounts"])
             check("session.turn_completed" in kinds and "session.turn_stopped" in kinds,
                   "completed and stopped typed terminals survive runtime exit")
+            check(database.execute("SELECT COUNT(*) FROM sessions WHERE session_id = ?", (empty["session_id"],)).fetchone()[0] == 0,
+                  "shutdown with an opened empty conversation exits without fabricating history")
         finally:
             database.close()
         result["passed"] = True

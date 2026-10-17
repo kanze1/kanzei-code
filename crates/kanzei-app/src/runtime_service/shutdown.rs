@@ -55,22 +55,7 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
         }
         let session = crate::process_session_id(root, Some(&process.id));
         if let Some(runtime) = runtimes.get(&session) {
-            runtime.task_cancellations.cancel_all();
-            kanzei_harness::pending_question::cancel_owner(root, &session, None)?;
-            let path = kanzei_core::project_state_path(root);
-            let store =
-                kanzei_core::SessionStore::open(&path).map_err(|error| error.to_string())?;
-            // Shutdown owns the completion boundary itself. Do not schedule a
-            // detached stop watchdog or publish idle before the task has ended.
-            let _lifecycle = runtime.lifecycle.lock_or_recover();
-            runtime.retire_async();
-            if let Some(token) = runtime.halt.lock_or_recover().as_ref() {
-                token.cancel();
-            }
-            runtime.asks.lock_or_recover().clear();
-            store
-                .finalize_interrupt(&session)
-                .map_err(|error| error.to_string())?;
+            retire_process_runtime(root, &session, runtime)?;
         }
     }
     // An unregistered execution owner must never be silently omitted from shutdown.
@@ -113,6 +98,29 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
     stop_terminals(&roots).await
 }
 
+fn retire_process_runtime(
+    root: &std::path::Path,
+    session: &str,
+    runtime: &crate::SessionRuntime,
+) -> Result<(), String> {
+    runtime.task_cancellations.cancel_all();
+    kanzei_harness::pending_question::cancel_owner(root, session, None)?;
+    let path = kanzei_core::project_state_path(root);
+    let store = kanzei_core::SessionStore::open(&path).map_err(|error| error.to_string())?;
+    // Shutdown owns the completion boundary itself. Do not schedule a
+    // detached stop watchdog or publish idle before the task has ended.
+    let _lifecycle = runtime.lifecycle.lock_or_recover();
+    runtime.retire_async();
+    if let Some(token) = runtime.halt.lock_or_recover().as_ref() {
+        token.cancel();
+    }
+    runtime.asks.lock_or_recover().clear();
+    store
+        .finalize_interrupt_if_present(session)
+        .map_err(|error| format!("停止会话 {session} 失败 ({}): {error}", root.display()))?;
+    Ok(())
+}
+
 pub(super) fn owners_quiescent(runtime: &crate::SessionRuntime) -> bool {
     !runtime.running.load(Ordering::SeqCst)
         && !runtime.compacting.load(Ordering::SeqCst)
@@ -136,6 +144,48 @@ async fn stop_terminals(roots: &[std::path::PathBuf]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shutdown_retires_opened_empty_conversations_without_creating_history() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-shutdown-empty-{}-{}",
+            std::process::id(),
+            crate::run::now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let root = crate::normalized_project_root(&root);
+        let state = AppState::default();
+        let process = crate::processes::registry::ensure_conversation(&state, &root).unwrap();
+        let session = crate::process_session_id(&root, Some(&process.id));
+        // Opening a conversation hydrates pending asks before the first send.
+        let runtime = crate::runtime_for(&state, &session);
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        assert!(store.get_session(&session).unwrap().is_none());
+        retire_process_runtime(&root, &session, &runtime).unwrap();
+        assert!(owners_quiescent(&runtime));
+        assert!(store.get_session(&session).unwrap().is_none());
+        assert!(store.list_events(&session, 0).unwrap().is_empty());
+        // The same boundary still finalizes real unfinished work atomically.
+        store
+            .create_session(&session, &root.display().to_string(), None)
+            .unwrap();
+        store.set_status(&session, "running").unwrap();
+        store
+            .admit_input(&session, "queued", "hello", kanzei_core::Delivery::Queue)
+            .unwrap();
+        let halt = kanzei_core::CancellationToken::new();
+        *runtime.halt.lock_or_recover() = Some(halt.clone());
+        retire_process_runtime(&root, &session, &runtime).unwrap();
+        assert!(halt.is_cancelled());
+        assert_eq!(store.get_session(&session).unwrap().unwrap().status, "idle");
+        assert_eq!(
+            store.input_status("queued").unwrap().as_deref(),
+            Some("cancelled")
+        );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn idle_and_cancellation_do_not_release_a_live_owner() {
         let runtime = crate::SessionRuntime::default();

@@ -190,13 +190,24 @@ impl SessionStore {
     /// 取消未完成输入,三步在同一事务内原子提交——中断路径不能再留下
     /// 永久 running 的幽灵会话,也不能只做一半。返回被取消的输入数。
     pub fn finalize_interrupt(&self, session_id: &str) -> Result<usize, StoreError> {
+        self.finalize_interrupt_if_present(session_id)?
+            .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows.into())
+    }
+
+    /// Runtime caches can exist before the first persisted turn. Shutdown retires
+    /// these owners too, but must not create history for an untouched conversation.
+    /// Presence and finalization share a transaction; database failures still fail.
+    pub fn finalize_interrupt_if_present(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<usize>, StoreError> {
         let tx = self.connection.unchecked_transaction()?;
         let changed = tx.execute(
             "UPDATE sessions SET status = 'idle', updated_at = ?1 WHERE session_id = ?2",
             params![now_ms(), session_id],
         )?;
         if changed == 0 {
-            return Err(rusqlite::Error::QueryReturnedNoRows.into());
+            return Ok(None);
         }
         append_event_tx(
             &tx,
@@ -212,7 +223,7 @@ impl SessionStore {
             params![now_ms(), session_id],
         )?;
         tx.commit()?;
-        Ok(cancelled)
+        Ok(Some(cancelled))
     }
 
     /// 取消会话中尚无结局的输入，供停止运行时清理 queue。
@@ -611,6 +622,51 @@ mod tests {
             store.finalize_interrupt("missing"),
             Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
         ));
+    }
+
+    #[test]
+    fn optional_interrupt_skips_unpersisted_sessions_and_keeps_errors_atomic() {
+        let store = store();
+        assert_eq!(store.finalize_interrupt_if_present("empty").unwrap(), None);
+        assert!(store.get_session("empty").unwrap().is_none());
+        assert!(store.list_events("empty", 0).unwrap().is_empty());
+        store.set_status("ses_test", "running").unwrap();
+        store
+            .admit_input("ses_test", "queued", "hello", Delivery::Queue)
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_interrupt BEFORE INSERT ON session_events
+             WHEN NEW.event_type = 'session.status_changed'
+             BEGIN SELECT RAISE(ABORT, 'fixture interrupt failure'); END;",
+            )
+            .unwrap();
+        assert!(store.finalize_interrupt_if_present("ses_test").is_err());
+        assert_eq!(
+            store.get_session("ses_test").unwrap().unwrap().status,
+            "running"
+        );
+        assert_eq!(
+            store.input_status("queued").unwrap().as_deref(),
+            Some("pending")
+        );
+        store
+            .connection
+            .execute_batch("DROP TRIGGER reject_interrupt")
+            .unwrap();
+        assert_eq!(
+            store.finalize_interrupt_if_present("ses_test").unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            store.get_session("ses_test").unwrap().unwrap().status,
+            "idle"
+        );
+        assert_eq!(
+            store.input_status("queued").unwrap().as_deref(),
+            Some("cancelled")
+        );
     }
 
     #[test]

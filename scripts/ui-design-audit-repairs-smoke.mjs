@@ -104,6 +104,29 @@ try {
   await settings.locator("#settings-load-retry").click(); await settle(settings);
   check("UI-02: retry restores editable settings", !await settings.locator("#settings-save").isDisabled());
   check("OPS-01: stored update failure is visible on settings load", (await settings.locator("#update-receipt").textContent()).includes("installer failed"));
+  await settings.evaluate(() => {
+    window.__kzPreview.setCommand("update_receipt", { expected_build: "b97f8a2e", phase: "completed", message: "old completed update" });
+    window.__kzPreview.setCommand("update_check", { current: "b97f8a2e", latest: "build-f4df62b2", newer: true, status: "update", expected_build: "f4df62b2", url: "https://github.com/kanze1/kanzei-code/releases/download/build-f4df62b2/kanzei-setup.exe" });
+    window.__kzPreview.setCommand("update_install", () => new Promise((resolve, reject) => {
+      window.auditRejectInstall = () => {
+        window.__kzPreview.setCommand("update_receipt", { expected_build: "f4df62b2", phase: "failed", message: "sqlite error: Query returned no rows" });
+        reject(new Error("sqlite error: Query returned no rows"));
+      };
+    }));
+  });
+  await settings.evaluate(async () => { await (await import("/16-settings.js")).loadSettings({ force: true }); });
+  await settle(settings);
+  await settings.locator('[data-settings-target="sg-update"]').click();
+  check("OPS-01: historical completed receipt is visible before a new attempt", (await settings.locator("#update-receipt").textContent()).includes("old completed update"));
+  await settings.locator("#update-check").click(); await settle(settings);
+  await settings.locator("#update-install").click();
+  await settings.locator("#confirm-ok").click();
+  await settings.waitForFunction(() => typeof window.auditRejectInstall === "function");
+  check("OPS-01: new attempt hides the previous completed receipt", await settings.locator("#update-receipt").isHidden());
+  check("OPS-01: download owns both update controls", await settings.locator("#update-check").isDisabled() && await settings.locator("#update-install").isDisabled());
+  await settings.evaluate(() => window.auditRejectInstall()); await settle(settings);
+  check("OPS-01: failed attempt refreshes its durable receipt", await settings.locator("#update-receipt").getAttribute("data-state") === "failed" && (await settings.locator("#update-receipt").textContent()).includes("f4df62b2"));
+  check("OPS-01: failure remains visible and releases controls for retry", (await settings.locator("#update-result").textContent()).includes("Query returned no rows") && !await settings.locator("#update-check").isDisabled() && !await settings.locator("#update-install").isDisabled());
   await settings.close();
 
   const chat = await open();
