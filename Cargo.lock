@@ -2019,6 +2019,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
+name = "httpdate"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
+
+[[package]]
 name = "hyper"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2521,6 +2527,7 @@ dependencies = [
  "serde_yaml_ng",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
  "toml_edit 0.22.27",
  "tracing",
@@ -2535,6 +2542,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "futures",
+ "httpdate",
  "kanzei-base",
  "kanzei-harness",
  "reqwest 0.12.28",
@@ -2601,6 +2609,7 @@ dependencies = [
  "tantivy",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
  "tracing",
  "windows-sys 0.61.2",

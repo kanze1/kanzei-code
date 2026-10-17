@@ -541,12 +541,7 @@ impl Tool for EditTool {
                 );
             }
         }
-        // 归一匹配的写回:按原文件主导换行风格还原,避免半 CRLF 半 LF。
-        let updated = if !ending_note.is_empty() && dominant_crlf(&content) {
-            updated.replace('\n', "\r\n")
-        } else {
-            updated
-        };
+        let updated = preserve_line_endings(&content, &updated);
         if let Err(e) = crate::write::file_checkpointed_write(ctx, &path, updated.as_bytes()).await
         {
             return crate::write::write_error(&path, e, "EDIT_WRITE_FAILED");
@@ -619,6 +614,16 @@ fn dominant_crlf(content: &str) -> bool {
     let crlf = content.matches("\r\n").count();
     let total_newlines = content.matches('\n').count();
     crlf * 2 > total_newlines
+}
+
+/// Matching and writeback are independent: every edit keeps the original file's style.
+fn preserve_line_endings(original: &str, updated: &str) -> String {
+    let normalized = updated.replace("\r\n", "\n");
+    if dominant_crlf(original) {
+        normalized.replace('\n', "\r\n")
+    } else {
+        normalized
+    }
 }
 
 /// 以 anchor 首次出现的行为中心截取带行号的片段;找不到 anchor 就从头截取。
@@ -743,7 +748,6 @@ impl Tool for InsertTool {
         let mut haystack = original.clone();
         let mut anchor = input.anchor.clone();
         let mut inserted = input.content.clone();
-        let mut normalized_endings = false;
         let mut count = haystack.matches(&anchor).count();
         if count == 0 {
             let normalized = original.replace("\r\n", "\n");
@@ -754,7 +758,6 @@ impl Tool for InsertTool {
                 anchor = normalized_anchor;
                 inserted = input.content.replace("\r\n", "\n");
                 count = normalized_count;
-                normalized_endings = true;
             }
         }
         if count == 0 {
@@ -783,11 +786,7 @@ impl Tool for InsertTool {
             InsertPosition::After => format!("{anchor}{inserted}"),
         };
         let updated = haystack.replacen(&anchor, &replacement, 1);
-        let updated = if normalized_endings && dominant_crlf(&original) {
-            updated.replace('\n', "\r\n")
-        } else {
-            updated
-        };
+        let updated = preserve_line_endings(&original, &updated);
         if let Err(error) =
             crate::write::file_checkpointed_write(ctx, &path, updated.as_bytes()).await
         {
@@ -801,7 +800,7 @@ impl Tool for InsertTool {
             },
             path.display()
         );
-        if normalized_endings {
+        if anchor != input.anchor {
             message.push_str(" (line endings differed and were normalized automatically)");
         }
         let validation = crate::local_validation::validate_after_write(
@@ -1348,6 +1347,76 @@ mod tests {
             "必须保持文件原有 CRLF 风格"
         );
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn exact_edit_and_insert_preserve_original_line_endings() {
+        for (name, original, replacement, expected) in [
+            (
+                "exact-crlf",
+                "head\r\nold\r\ntail\r\n",
+                "old\nextra",
+                "head\r\nold\r\nextra\r\ntail\r\n",
+            ),
+            (
+                "exact-crlf-input",
+                "head\r\nold\r\ntail\r\n",
+                "old\r\nextra",
+                "head\r\nold\r\nextra\r\ntail\r\n",
+            ),
+            (
+                "exact-lf",
+                "head\nold\ntail\n",
+                "old\r\nextra",
+                "head\nold\nextra\ntail\n",
+            ),
+        ] {
+            let (dir, ctx) = setup(name, original);
+            let output = EditTool::default()
+                .execute(
+                    json!({
+                        "path":"target.txt", "old_string":"old", "new_string":replacement
+                    }),
+                    &ctx,
+                )
+                .await;
+            assert!(!output.is_error, "{}", output.content);
+            assert_eq!(
+                std::fs::read_to_string(dir.join("target.txt")).unwrap(),
+                expected
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+        for (name, original, inserted, expected) in [
+            (
+                "insert-crlf",
+                "head\r\nold\r\ntail\r\n",
+                "\nextra",
+                "head\r\nold\r\nextra\r\ntail\r\n",
+            ),
+            (
+                "insert-lf",
+                "head\nold\ntail\n",
+                "\r\nextra",
+                "head\nold\nextra\ntail\n",
+            ),
+        ] {
+            let (dir, ctx) = setup(name, original);
+            let output = InsertTool
+                .execute(
+                    json!({
+                        "path":"target.txt", "anchor":"old", "content":inserted, "position":"after"
+                    }),
+                    &ctx,
+                )
+                .await;
+            assert!(!output.is_error, "{}", output.content);
+            assert_eq!(
+                std::fs::read_to_string(dir.join("target.txt")).unwrap(),
+                expected
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 
     #[tokio::test]

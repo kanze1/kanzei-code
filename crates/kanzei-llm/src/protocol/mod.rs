@@ -101,3 +101,44 @@ pub fn request_path(kind: ProtocolKind) -> &'static str {
         ProtocolKind::DeepSeekResponses => "/responses",
     }
 }
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn every_protocol_preserves_provider_retry_after() {
+        for (kind, error) in [
+            (
+                ProtocolKind::AnthropicMessages,
+                json!({"type":"error","error":{"type":"rate_limit_error","message":"wait","retry_after":60}}),
+            ),
+            (
+                ProtocolKind::OpenAiChat,
+                json!({"error":{"type":"rate_limit_error","message":"wait","retry_after":"60"}}),
+            ),
+            (
+                ProtocolKind::OpenAiResponses,
+                json!({"type":"response.failed","response":{"error":{"code":"rate_limit_error","message":"wait","retry_after":60}}}),
+            ),
+            (
+                ProtocolKind::DeepSeekResponses,
+                json!({"type":"error","error":{"code":"server_is_overloaded","message":"wait","retry_after":60}}),
+            ),
+        ] {
+            let mut state = make_state(kind);
+            let error = state
+                .step(&SseEvent {
+                    event: "error".into(),
+                    data: error.to_string(),
+                })
+                .unwrap_err();
+            assert_eq!(
+                error.retry_after(),
+                Some(std::time::Duration::from_secs(60)),
+                "{kind:?}"
+            );
+        }
+    }
+}

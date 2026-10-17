@@ -32,8 +32,10 @@ use assembly::{assemble_run_once, observe_context_sources, update_source_ledger,
 mod context_budget;
 use context_budget::enforce_context_budget;
 mod halt;
-use halt::{append_halted_tool_results, halt_signalled};
+use halt::{append_halted_tool_results, halt_signalled, wait_for_retry};
 mod batch;
+#[cfg(test)]
+mod execution_tests;
 
 /// R-183:命中规则的展示原文,用于 PermissionResolved.rule 轨迹(验收④)。
 fn describe_rule(rule: &kanzei_harness::permission::Rule) -> String {
@@ -872,7 +874,9 @@ async fn stream_request_step(
                     && stream_restarts < config.limits.stream_restarts() =>
             {
                 stream_restarts += 1;
-                let delay = std::time::Duration::from_millis(2000 * stream_restarts as u64);
+                let delay = error.retry_after().unwrap_or_else(|| {
+                    std::time::Duration::from_millis(2000 * stream_restarts as u64)
+                });
                 tracing::warn!(
                     attempt = stream_restarts,
                     delay_ms = delay.as_millis(),
@@ -884,7 +888,9 @@ async fn stream_request_step(
                     max: config.limits.stream_restarts(),
                     delay_ms: delay.as_millis(),
                 });
-                tokio::time::sleep(delay).await;
+                if !wait_for_retry(delay, halt).await {
+                    return Ok(StepOutcome::Stopped);
+                }
             }
             // 只重放传输层中断:协议错误重放只会原样复现,白烧钱。
             Some(error)
@@ -904,7 +910,9 @@ async fn stream_request_step(
                     max: config.limits.stream_restarts(),
                     delay_ms: delay.as_millis(),
                 });
-                tokio::time::sleep(delay).await;
+                if !wait_for_retry(delay, halt).await {
+                    return Ok(StepOutcome::Stopped);
+                }
             }
             Some(error) => return Err(error.into()),
         }

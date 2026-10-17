@@ -269,7 +269,8 @@ impl ProtocolState for OpenAiState {
                     .as_str()
                     .unwrap_or(&err.to_string())
                     .to_string(),
-            ));
+            )
+            .with_provider_retry_after(&err["retry_after"]));
         }
 
         if !self.started {

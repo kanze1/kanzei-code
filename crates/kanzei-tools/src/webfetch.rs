@@ -198,14 +198,20 @@ impl Tool for WebFetchTool {
         };
         let (page, cache_hit) = match fetch_cached_page(ctx, &normalized_url).await {
             Ok(FetchPage::Page { page, cache_hit }) => (page, cache_hit),
-            Ok(FetchPage::CrossDomainRedirect { status, from, to }) => {
-                return ToolOutput::ok(format!(
-                    "HTTP {status} cross-domain redirect was not followed. Source host: {}. Target: {to}. Call webfetch with the target URL explicitly after reviewing it.",
-                    reqwest::Url::parse(&from)
-                        .ok()
-                        .and_then(|value| value.host_str().map(str::to_string))
-                        .unwrap_or_else(|| "unknown".into())
-                ));
+            Ok(FetchPage::RedirectBlocked {
+                status,
+                from,
+                to,
+                effect,
+            }) => {
+                let message = format!(
+                    "HTTP {status} redirect was not followed. Source: {from}. Target: {to}. The target requires its own webfetch permission; call webfetch with that URL explicitly."
+                );
+                return if effect == kanzei_harness::Effect::Deny {
+                    ToolOutput::needs_correction("WEBFETCH_REDIRECT_DENIED", message)
+                } else {
+                    ToolOutput::needs_confirmation("WEBFETCH_REDIRECT_APPROVAL_REQUIRED", message)
+                };
             }
             Err(error) => return ToolOutput::error(error),
         };
@@ -362,10 +368,11 @@ enum FetchPage {
         page: WebPage,
         cache_hit: bool,
     },
-    CrossDomainRedirect {
+    RedirectBlocked {
         status: u16,
         from: String,
         to: String,
+        effect: kanzei_harness::Effect,
     },
 }
 
@@ -401,6 +408,17 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
         .map(|session| (session.clone(), url.to_string()));
     if let Some(key) = key.as_ref() {
         if let Some(page) = cache_get(key) {
+            if page.final_url != url {
+                let effect = redirect_effect(&page.final_url);
+                if effect != kanzei_harness::Effect::Allow {
+                    return Ok(FetchPage::RedirectBlocked {
+                        status: page.status,
+                        from: url.to_owned(),
+                        to: page.final_url,
+                        effect,
+                    });
+                }
+            }
             return Ok(FetchPage::Page {
                 page,
                 cache_hit: true,
@@ -409,8 +427,18 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
     }
     let response = match fetch_web_response(url, ctx).await? {
         WebFetchResponse::Fetched(response) => response,
-        WebFetchResponse::CrossDomainRedirect { status, from, to } => {
-            return Ok(FetchPage::CrossDomainRedirect { status, from, to });
+        WebFetchResponse::RedirectBlocked {
+            status,
+            from,
+            to,
+            effect,
+        } => {
+            return Ok(FetchPage::RedirectBlocked {
+                status,
+                from,
+                to,
+                effect,
+            });
         }
     };
     let is_pdf = response
@@ -475,10 +503,11 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
 
 enum WebFetchResponse {
     Fetched(WebResponse),
-    CrossDomainRedirect {
+    RedirectBlocked {
         status: u16,
         from: String,
         to: String,
+        effect: kanzei_harness::Effect,
     },
 }
 
@@ -487,7 +516,6 @@ async fn fetch_web_response(url: &str, ctx: &ToolCtx) -> Result<WebFetchResponse
     let client = build_http_client_without_redirect(&proxy)
         .map_err(|error| format!("http client: {error}"))?;
     let initial = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
-    let initial_host = initial.host_str().unwrap_or_default().to_ascii_lowercase();
     let mut current = initial;
     for redirect_count in 0..=MAX_REDIRECTS {
         let response = client
@@ -516,11 +544,13 @@ async fn fetch_web_response(url: &str, ctx: &ToolCtx) -> Result<WebFetchResponse
                 let target_text = parse_http_url(target.as_str())?;
                 let target =
                     reqwest::Url::parse(&target_text).map_err(|error| error.to_string())?;
-                if target.host_str().unwrap_or_default().to_ascii_lowercase() != initial_host {
-                    return Ok(WebFetchResponse::CrossDomainRedirect {
+                let effect = redirect_effect(&target_text);
+                if effect != kanzei_harness::Effect::Allow {
+                    return Ok(WebFetchResponse::RedirectBlocked {
                         status,
                         from: current.to_string(),
                         to: target.to_string(),
+                        effect,
                     });
                 }
                 if redirect_count == MAX_REDIRECTS {
@@ -562,6 +592,11 @@ async fn fetch_web_response(url: &str, ctx: &ToolCtx) -> Result<WebFetchResponse
         }));
     }
     Err(format!("redirect limit exceeded ({MAX_REDIRECTS})"))
+}
+
+fn redirect_effect(url: &str) -> kanzei_harness::Effect {
+    kanzei_harness::permission::execution_effect("webfetch", &normalize_url_resource(url))
+        .unwrap_or(kanzei_harness::Effect::Ask)
 }
 
 fn cache_get(key: &(String, String)) -> Option<WebPage> {
@@ -985,12 +1020,18 @@ fast = "missing:extractor"
         let worktree = root.join("worktree");
         std::fs::create_dir_all(&worktree).unwrap();
         let ctx = ToolCtx::new(worktree, root.clone()).with_session_id("webfetch-session".into());
+        let mut permissions = kanzei_harness::Ruleset::default();
+        permissions.extend([kanzei_harness::rule(
+            "webfetch",
+            "*",
+            kanzei_harness::Effect::Allow,
+        )]);
         let second_url = url.clone();
-        let first = WebFetchTool
+        let first = kanzei_harness::permission::scope(permissions.clone(), WebFetchTool
             .execute(
                 serde_json::json!({"url":url.clone(),"prompt":"What is the target phrase?","find":"Target","links":true}),
                 &ctx,
-            )
+            ))
             .await;
         assert!(
             first.content.contains("Question extraction failed"),
@@ -1019,9 +1060,11 @@ fast = "missing:extractor"
         );
         assert!(saved_path.starts_with(&root));
 
-        let second = WebFetchTool
-            .execute(serde_json::json!({"url":second_url,"from_line":2}), &ctx)
-            .await;
+        let second = kanzei_harness::permission::scope(
+            permissions.clone(),
+            WebFetchTool.execute(serde_json::json!({"url":second_url,"from_line":2}), &ctx),
+        )
+        .await;
         assert!(
             second.content.contains("15-minute session cache hit"),
             "{}",
@@ -1033,6 +1076,22 @@ fast = "missing:extractor"
             second.content
         );
         server.join().unwrap();
+        // A new run's policy must also constrain a previously authorized cached redirect.
+        let final_url = super::cache_get(&(ctx.session_id.clone().unwrap(), url.clone()))
+            .unwrap()
+            .final_url;
+        permissions.extend([kanzei_harness::rule(
+            "webfetch",
+            &normalize_url_resource(&final_url),
+            kanzei_harness::Effect::Deny,
+        )]);
+        let blocked = kanzei_harness::permission::scope(
+            permissions,
+            WebFetchTool.execute(serde_json::json!({"url":url}), &ctx),
+        )
+        .await;
+        assert_eq!(blocked.code, Some("WEBFETCH_REDIRECT_DENIED"));
+        assert!(!blocked.content.contains("Target phrase"));
         let saved = std::fs::read_dir(root.join(".kanzei/artifacts/web"))
             .unwrap()
             .filter_map(Result::ok)
@@ -1108,13 +1167,70 @@ base_url = "{base_url}/v1"
         let output = WebFetchTool
             .execute(serde_json::json!({"url":url}), &ctx)
             .await;
-        assert!(output
-            .content
-            .contains("cross-domain redirect was not followed"));
+        assert!(output.content.contains("redirect was not followed"));
         assert!(output.content.contains("elsewhere.example"));
         server.join().unwrap();
         assert!(!root.join(".kanzei/artifacts/web").exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn same_host_redirect_checks_denied_and_unapproved_paths_before_requesting() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for (effect, code) in [
+            (kanzei_harness::Effect::Deny, "WEBFETCH_REDIRECT_DENIED"),
+            (
+                kanzei_harness::Effect::Ask,
+                "WEBFETCH_REDIRECT_APPROVAL_REQUIRED",
+            ),
+        ] {
+            let root = temp_root("redirect-policy");
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let denied_hits = Arc::new(AtomicUsize::new(0));
+            let observed = denied_hits.clone();
+            let server = tokio::spawn(async move {
+                loop {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0u8; 4096];
+                    let count = socket.read(&mut request).await.unwrap();
+                    if String::from_utf8_lossy(&request[..count]).starts_with("GET /allowed ") {
+                        socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: /private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+                    } else {
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nprivate").await.unwrap();
+                    }
+                }
+            });
+            let mut permissions = kanzei_harness::Ruleset::default();
+            permissions.extend([
+                kanzei_harness::rule(
+                    "webfetch",
+                    &format!("{address}/*"),
+                    kanzei_harness::Effect::Allow,
+                ),
+                kanzei_harness::rule("webfetch", &format!("{address}/private"), effect),
+            ]);
+            let ctx = ToolCtx::new(root.clone(), root.clone());
+            let output = kanzei_harness::permission::scope(
+                permissions,
+                WebFetchTool.execute(
+                    serde_json::json!({"url":format!("http://{address}/allowed")}),
+                    &ctx,
+                ),
+            )
+            .await;
+            assert_eq!(output.code, Some(code), "{}", output.content);
+            assert_eq!(denied_hits.load(Ordering::SeqCst), 0);
+            server.abort();
+            let _ = server.await;
+            assert!(!root.join(".kanzei/artifacts/web").exists());
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[tokio::test]

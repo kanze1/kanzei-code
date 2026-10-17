@@ -1,5 +1,15 @@
 use thiserror::Error;
 
+pub(crate) fn retry_after_seconds(value: &str, now: std::time::SystemTime) -> Option<u64> {
+    let value = value.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(seconds);
+    }
+    let deadline = httpdate::parse_http_date(value).ok()?;
+    let delay = deadline.duration_since(now).unwrap_or_default();
+    Some(delay.as_secs() + u64::from(delay.subsec_nanos() != 0))
+}
+
 #[derive(Debug, Error)]
 pub enum LlmError {
     // reqwest 的 Display 只给出 `error sending request for url (...)` 这一层，
@@ -70,6 +80,24 @@ impl LlmError {
         matches!(self, LlmError::RateLimited { .. })
     }
 
+    pub fn retry_after(&self) -> Option<std::time::Duration> {
+        match self {
+            Self::RateLimited { retry_after, .. } => {
+                retry_after.map(std::time::Duration::from_secs)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn with_provider_retry_after(mut self, value: &serde_json::Value) -> Self {
+        if let Self::RateLimited { retry_after, .. } = &mut self {
+            *retry_after = value
+                .as_u64()
+                .or_else(|| retry_after_seconds(value.as_str()?, std::time::SystemTime::now()));
+        }
+        self
+    }
+
     pub(crate) fn classify_provider(kind: String, message: String) -> Self {
         Self::classify_provider_with_code(kind, None, message)
     }
@@ -135,6 +163,35 @@ fn is_overflow_message(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_after_preserves_seconds_and_http_dates() {
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_445_412_420);
+        assert_eq!(retry_after_seconds("60", now), Some(60));
+        assert_eq!(
+            retry_after_seconds("Wed, 21 Oct 2015 07:28:00 GMT", now),
+            Some(60)
+        );
+        assert_eq!(
+            retry_after_seconds("Wednesday, 21-Oct-15 07:28:00 GMT", now),
+            Some(60)
+        );
+        assert_eq!(
+            retry_after_seconds("Wed Oct 21 07:28:00 2015", now),
+            Some(60)
+        );
+        assert_eq!(
+            retry_after_seconds("Wed, 21 Oct 2015 07:26:00 GMT", now),
+            Some(0)
+        );
+        assert_eq!(retry_after_seconds("invalid", now), None);
+        let error = LlmError::classify_provider("rate_limit_error".into(), "wait".into())
+            .with_provider_retry_after(&serde_json::json!(60));
+        assert_eq!(
+            error.retry_after(),
+            Some(std::time::Duration::from_secs(60))
+        );
+    }
 
     #[derive(Debug)]
     struct TestCause(&'static str);

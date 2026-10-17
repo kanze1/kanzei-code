@@ -479,7 +479,8 @@ impl ProtocolState for ResponsesState {
                         .as_str()
                         .unwrap_or("response failed")
                         .to_string(),
-                ));
+                )
+                .with_provider_retry_after(&err["retry_after"]));
             }
             "error" => {
                 // Responses SSE 的 error 事件有两层包装:
@@ -497,7 +498,8 @@ impl ProtocolState for ResponsesState {
                     .or_else(|| data["message"].as_str())
                     .map(str::to_owned)
                     .unwrap_or_else(|| data.to_string());
-                return Err(LlmError::classify_provider(kind.to_string(), message));
+                return Err(LlmError::classify_provider(kind.to_string(), message)
+                    .with_provider_retry_after(&err["retry_after"]));
             }
             _ => {} // 大量细粒度事件(*.in_progress/*.done 等)按需忽略
         }

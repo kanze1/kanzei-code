@@ -23,6 +23,7 @@ url.workspace = true
 async-stream.workspace = true
 chrono = "0.4"
 dirs.workspace = true
+httpdate = "1.0.3"
 
 [dev-dependencies]
 kanzei-harness = { path = "../kanzei-harness" }

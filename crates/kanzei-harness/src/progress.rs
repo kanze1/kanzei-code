@@ -34,6 +34,11 @@ pub async fn scope<F: std::future::Future>(handle: ProgressHandle, fut: F) -> F:
     PROGRESS.scope(handle, fut).await
 }
 
+/// Capture the caller's progress channel when transferring work to an owned task.
+pub fn current() -> Option<ProgressHandle> {
+    PROGRESS.try_with(Clone::clone).ok()
+}
+
 /// 工具侧上报一段新增输出。未注入通道(直调/测试)时静默丢弃;
 /// 接收端已关闭同样静默——进度是尽力而为的旁路,绝不能让它影响工具本身。
 pub fn emit(chunk: &str) {

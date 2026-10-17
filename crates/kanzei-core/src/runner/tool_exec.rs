@@ -636,6 +636,8 @@ pub(crate) async fn execute_prepared_tools(
     max_parallel: usize,
     images_supported: bool,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
+    permissions: &kanzei_harness::Ruleset,
+    halt: Option<&tokio_util::sync::CancellationToken>,
 ) -> Vec<(usize, Part, Vec<Part>)> {
     let mut results = Vec::new();
     // 进度旁路:每个调用带自己 id 的 ProgressHandle,共用一条通道;
@@ -660,14 +662,18 @@ pub(crate) async fn execute_prepared_tools(
                     // 据此把"专用工具改的"和"后台进程偷改的"分开。非写工具零开销。
                     // R-259:执行包装(wrap_execute:progress 注入)收编——串行/并行
                     // 共用同一 wrapper,工具 body 不再各自实现 progress 注入。
-                    let output = kanzei_harness::managed_fence::tool_scope(
-                        &ctx.project_root,
-                        &name,
-                        kanzei_harness::tool_pipeline::wrap_execute(
-                            id.clone(),
-                            Some(progress_tx.clone()),
-                            None,
-                            tool.execute(input, ctx),
+                    let halted = || halt.is_some_and(|token| token.is_cancelled());
+                    let output = kanzei_harness::permission::scope(
+                        permissions.clone(),
+                        kanzei_harness::managed_fence::tool_scope(
+                            &ctx.project_root,
+                            &name,
+                            kanzei_harness::tool_pipeline::wrap_execute(
+                                id.clone(),
+                                Some(progress_tx.clone()),
+                                Some(&halted),
+                                tool.execute_cancellable(input, ctx, halt),
+                            ),
                         ),
                     )
                     .await;
@@ -836,6 +842,8 @@ mod tests {
             super::MAX_PARALLEL_TOOLS_PER_WAVE,
             true,
             &mut on_event,
+            &kanzei_harness::Ruleset::default(),
+            None,
         )
         .await;
 
@@ -893,6 +901,8 @@ mod tests {
             super::MAX_PARALLEL_TOOLS_PER_WAVE,
             true,
             &mut on_event,
+            &kanzei_harness::Ruleset::default(),
+            None,
         )
         .await;
 
@@ -1548,7 +1558,16 @@ mod tests {
         ];
         let ctx = ToolCtx::new(std::env::temp_dir(), std::env::temp_dir());
         let mut on_event = |_event| {};
-        let results = execute_prepared_tools(calls, &ctx, 1, true, &mut on_event).await;
+        let results = execute_prepared_tools(
+            calls,
+            &ctx,
+            1,
+            true,
+            &mut on_event,
+            &kanzei_harness::Ruleset::default(),
+            None,
+        )
+        .await;
 
         assert_eq!(
             max_in_flight.load(Ordering::SeqCst),

@@ -565,7 +565,8 @@ impl ProtocolState for AnthropicState {
                         .as_str()
                         .unwrap_or("unknown error")
                         .to_string(),
-                ));
+                )
+                .with_provider_retry_after(&err["retry_after"]));
             }
             other => {
                 tracing::debug!(kind = other, "ignoring unknown SSE event");

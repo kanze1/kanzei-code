@@ -135,38 +135,19 @@ pub(super) async fn execute_parallel_tool_calls(
             concurrency,
         });
     }
-    let wave_results = {
-        let wave = execute_prepared_tools(
-            prepared,
-            ctx,
-            config.limits.max_parallel_tools(),
-            images_supported,
-            on_event,
-        );
-        tokio::pin!(wave);
-        tokio::select! {
-            results = &mut wave => Some(results),
-            _ = halt_signalled(halt) => None,
-        }
-    };
-    match wave_results {
-        Some(list) => {
-            for (index, result, images) in list {
-                slots[index] = Some(result);
-                pending_images.extend(images);
-            }
-        }
-        None => {
-            for (index, (id, _, _, _)) in calls.iter().enumerate() {
-                if slots[index].is_none() {
-                    slots[index] = Some(Part::ToolResult {
-                        call_id: id.clone(),
-                        content: "cancelled: run stopped by user during execution".into(),
-                        is_error: true,
-                    });
-                }
-            }
-        }
+    let wave_results = execute_prepared_tools(
+        prepared,
+        ctx,
+        config.limits.max_parallel_tools(),
+        images_supported,
+        on_event,
+        snapshot.permissions(),
+        halt,
+    )
+    .await;
+    for (index, result, images) in wave_results {
+        slots[index] = Some(result);
+        pending_images.extend(images);
     }
     let results = slots
         .into_iter()

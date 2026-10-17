@@ -400,6 +400,24 @@ pub trait Tool: Send + Sync {
         ToolConcurrency::Exclusive
     }
     async fn execute(&self, input: Value, ctx: &ToolCtx) -> ToolOutput;
+
+    /// Cancellation is an execution boundary. Resource-owning tools override this
+    /// method to await cleanup before returning their terminal result.
+    async fn execute_cancellable(
+        &self,
+        input: Value,
+        ctx: &ToolCtx,
+        halt: Option<&tokio_util::sync::CancellationToken>,
+    ) -> ToolOutput {
+        match halt {
+            Some(halt) => tokio::select! {
+                biased;
+                _ = halt.cancelled() => ToolOutput::error("cancelled: run stopped by user during execution"),
+                output = self.execute(input, ctx) => output,
+            },
+            None => self.execute(input, ctx).await,
+        }
+    }
 }
 
 /// 输入解析失败时给模型的纠错反馈(设计红线 1:不崩溃、告知正确格式)。

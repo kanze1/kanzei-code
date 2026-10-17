@@ -189,14 +189,17 @@ pub(super) async fn execute_serial_tool_calls(
                     // 可归因,后台守卫会把它当成越界回滚掉。
                     // R-259:执行包装(wrap_execute:progress 注入)收编——
                     // 串行/并行共用同一 wrapper;halted 前置拦截也在 wrapper。
-                    let exec = kanzei_harness::managed_fence::tool_scope(
-                        &ctx.project_root,
-                        &name,
-                        kanzei_harness::tool_pipeline::wrap_execute(
-                            id.clone(),
-                            Some(progress_tx),
-                            Some(&halted),
-                            tool.execute(input, ctx),
+                    let exec = kanzei_harness::permission::scope(
+                        snapshot.permissions().clone(),
+                        kanzei_harness::managed_fence::tool_scope(
+                            &ctx.project_root,
+                            &name,
+                            kanzei_harness::tool_pipeline::wrap_execute(
+                                id.clone(),
+                                Some(progress_tx),
+                                Some(&halted),
+                                tool.execute_cancellable(input, ctx, halt),
+                            ),
                         ),
                     );
                     tokio::pin!(exec);
@@ -207,14 +210,6 @@ pub(super) async fn execute_serial_tool_calls(
                                 on_event(RunEvent::ToolProgress { id: pid, chunk });
                             }
                             output = &mut exec => break output,
-                            // D-342:执行中的工具对停止敏感——drop future
-                            // 即中断执行(bash 子进程随之回收),以取消
-                            // 错误配对;下一轮 for 循环的检查点负责收尾。
-                            _ = halt_signalled(halt) => {
-                                break kanzei_harness::ToolOutput::error(
-                                    "cancelled: run stopped by user during execution",
-                                );
-                            }
                         }
                     };
                     while let Ok((pid, chunk)) = progress_rx.try_recv() {

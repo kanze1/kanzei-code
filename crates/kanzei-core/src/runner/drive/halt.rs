@@ -2,6 +2,17 @@
 
 use super::{CancellationToken, Part};
 
+pub(super) async fn wait_for_retry(
+    delay: std::time::Duration,
+    halt: Option<&CancellationToken>,
+) -> bool {
+    tokio::select! {
+        biased;
+        _ = halt_signalled(halt) => false,
+        _ = tokio::time::sleep(delay) => true,
+    }
+}
+
 /// D-342:停止信号等待器。halt 未配置时永不就绪——select 里这个分支等价于不存在,
 /// CLI(无停止通道)与引入前逐字节同行为。
 pub(super) async fn halt_signalled(halt: Option<&CancellationToken>) {

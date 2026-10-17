@@ -266,10 +266,13 @@ fn bash_permission_aliases_preserve_command_workdir_and_denial() {
         let plain = json!({field:"git commit"});
         let located = json!({field:"git commit", "workdir":"subdir"});
         assert_eq!(tool.resources(&plain), ["git commit"]);
-        assert_eq!(tool.resources(&located), [raw_rule.clone()]);
         assert_eq!(
-            tool.resources_with_ctx(&located, &ctx),
-            [contextual_rule.clone()]
+            tool.resources(&located).as_slice(),
+            std::slice::from_ref(&raw_rule)
+        );
+        assert_eq!(
+            tool.resources_with_ctx(&located, &ctx).as_slice(),
+            std::slice::from_ref(&contextual_rule)
         );
         for (resource, pattern) in [
             (tool.resources(&plain)[0].clone(), "git commit".to_owned()),

@@ -24,8 +24,8 @@ pub trait ToolGuard: Send + Sync {
 ///   (测试/CLI 直调 no-op)。channel 由调用方建(串行一条、并行 wave 共用一条),
 ///   wrapper 只负责 handle 注入与 scope 包裹,不拥有通道生命周期。
 /// - `halted`:执行前取消检查;返回 true 则 body 不执行,直接回 cancelled 错误。
-///   **执行中**的取消由调用方 select 循环负责(D-342 drop future 中断)——那
-///   是 runner 的事件循环职责,不是 wrap 段;wrap 段管「启动前门禁」。
+///   执行中的取消由 Tool::execute_cancellable 负责；拥有进程等资源的工具
+///   必须完成清理后返回。wrap 段只管启动前门禁。
 pub async fn wrap_execute<B>(
     tool_call_id: String,
     progress_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::progress::ProgressChunk>>,

@@ -22,6 +22,22 @@ pub enum Effect {
     Ask,
 }
 
+tokio::task_local! {
+    static EXECUTION_RULES: Ruleset;
+}
+
+/// Keep dynamically discovered resources under the same immutable policy as
+/// the initial tool call. An absent execution scope grants no new authority.
+pub async fn scope<F: std::future::Future>(rules: Ruleset, future: F) -> F::Output {
+    EXECUTION_RULES.scope(rules, future).await
+}
+
+pub fn execution_effect(action: &str, resource: &str) -> Option<Effect> {
+    EXECUTION_RULES
+        .try_with(|rules| rules.evaluate(action, resource))
+        .ok()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rule {
     pub action: String,

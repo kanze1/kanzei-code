@@ -10,12 +10,15 @@ use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::io::AsyncReadExt;
+use tokio_util::sync::CancellationToken;
 
 use crate::managed::{enforce_managed_files_with_writer_log, managed_scope_exists};
 use crate::shell::{detected_shell, kill_tree};
 
 #[cfg(test)]
 mod guard_tests;
+#[cfg(all(test, windows))]
+mod lifecycle_tests;
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
@@ -106,7 +109,7 @@ fn permission_fields(input: &serde_json::Value) -> (String, Option<String>) {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct BashTool {
     snapshots: std::sync::Arc<crate::managed::SnapshotCollector>,
 }
@@ -138,7 +141,9 @@ impl Tool for BashTool {
              running and the actual exit result, duration and log automatically; no separate \
              test_record calls. test requires foreground execution. Default stdin is closed (EOF). Set interactive=true to start a background command with writable stdin; use process action=input with its id, text and optional close=true (EOF). This is pipe input, without terminal emulation. \
              Set background=true for long-running processes (dev server, watch): it returns a \
-             process id immediately. Where the session has an async mailbox, final output and exit \
+             process id immediately. Foreground commands own their process tree through cleanup; \
+             use background=true for services that must remain running after the shell exits. \
+             Where the session has an async mailbox, final output and exit \
              status automatically return to the same session, including after its current turn ends; \
              continue independent work instead of polling. A steering message can move an eligible \
              foreground command to the background without restarting it. Explicit timeout_ms remains \
@@ -193,6 +198,15 @@ impl Tool for BashTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        self.execute_cancellable(input, ctx, None).await
+    }
+
+    async fn execute_cancellable(
+        &self,
+        input: serde_json::Value,
+        ctx: &ToolCtx,
+        halt: Option<&CancellationToken>,
+    ) -> ToolOutput {
         let input: BashInput = match crate::parse_input(self, input) {
             Ok(input) => input,
             Err(output) => return output,
@@ -200,14 +214,47 @@ impl Tool for BashTool {
         let length_guard = CommandLengthGuard::new(&input.command);
         kanzei_harness::tool_pipeline::guarded_execute(
             &[&length_guard],
-            bash_body(self, input, ctx),
+            execute_owned(self.clone(), input, ctx.clone(), halt),
         )
         .await
     }
 }
 
+/// The owner outlives a dropped caller and observes its cancellation. Normal
+/// cancellation awaits this task, including process-tree and file-fence cleanup.
+async fn execute_owned(
+    tool: BashTool,
+    input: BashInput,
+    ctx: ToolCtx,
+    halt: Option<&CancellationToken>,
+) -> ToolOutput {
+    let cancel = halt.map(CancellationToken::child_token).unwrap_or_default();
+    let _cancel_on_drop = cancel.clone().drop_guard();
+    let progress = kanzei_harness::progress::current();
+    let owner = tokio::spawn(async move {
+        let body = bash_body(&tool, input, &ctx, &cancel);
+        match progress {
+            Some(progress) => kanzei_harness::progress::scope(progress, body).await,
+            None => body.await,
+        }
+    });
+    match owner.await {
+        Ok(output) => output,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => ToolOutput::failed("BASH_OWNER_CANCELLED", error.to_string()),
+    }
+}
+
 /// 输入校验通过后的命令执行；围栏、进程和测试记录归本体持有。
-async fn bash_body(tool: &BashTool, input: BashInput, ctx: &ToolCtx) -> ToolOutput {
+async fn bash_body(
+    tool: &BashTool,
+    input: BashInput,
+    ctx: &ToolCtx,
+    cancel: &CancellationToken,
+) -> ToolOutput {
+    if cancel.is_cancelled() {
+        return ToolOutput::error("cancelled: run stopped before command execution");
+    }
     if let Some(request) = &input.verification {
         if input.test.is_some() || input.background || input.persistent {
             return ToolOutput::error(
@@ -246,7 +293,7 @@ async fn bash_body(tool: &BashTool, input: BashInput, ctx: &ToolCtx) -> ToolOutp
     } else {
         None
     };
-    let mut output = bash_command_body(input, ctx, &tool.snapshots).await;
+    let mut output = bash_command_body(input, ctx, &tool.snapshots, cancel).await;
     if let Some(test) = test {
         if let Err(error) = test.finish(&mut output) {
             output.content.push_str(&format!(
@@ -261,6 +308,7 @@ async fn bash_command_body(
     input: BashInput,
     ctx: &ToolCtx,
     snapshots: &std::sync::Arc<crate::managed::SnapshotCollector>,
+    cancel: &CancellationToken,
 ) -> ToolOutput {
     let timeout = Duration::from_millis(
         input
@@ -359,6 +407,9 @@ async fn bash_command_body(
                 || background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir).is_none()
         })
         .map(|mailbox| mailbox.background_requests());
+    if cancel.is_cancelled() {
+        return ToolOutput::error("cancelled: run stopped before command execution");
+    }
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(e) => return ToolOutput::error(format!("failed to spawn {}: {e}", shell.name)),
@@ -396,18 +447,10 @@ async fn bash_command_body(
     // 否则模型对"卡在哪一步"一无所知,只能盲目加大 timeout 重跑并重复副作用(D-062)。
     let (mut out_buf, mut err_buf) = (Vec::new(), Vec::new());
     let deadline = tokio::time::Instant::now() + timeout;
-    let outcome = {
+    let (outcome, tree_stopped, out_capped, err_capped) = {
         let out_buf = &mut out_buf;
         let err_buf = &mut err_buf;
-        let capture = async {
-            // 有界读取:两条流各自最多 MAX_CAPTURE_BYTES,超出丢弃(内存红线)。
-            let (a, b) = tokio::join!(
-                read_capped(&mut stdout, out_buf),
-                read_capped(&mut stderr, err_buf)
-            );
-            let status = child.wait().await;
-            (status, a, b)
-        };
+        let transferred = CancellationToken::new();
         let background_requested = async {
             match background_requests.as_mut() {
                 Some(requests) => {
@@ -416,10 +459,48 @@ async fn bash_command_body(
                 None => std::future::pending::<()>().await,
             }
         };
-        tokio::select! { biased;
-            result = kanzei_harness::tool_pipeline::with_timeout(capture, timeout) => result.map(Some),
-            _ = background_requested => Ok(None),
-        }
+        let complete = async {
+            let outcome = tokio::select! { biased;
+                _ = cancel.cancelled() => Err(CommandStop::Cancelled),
+                result = kanzei_harness::tool_pipeline::with_timeout(child.wait(), timeout) => result.map(Some).map_err(|_| CommandStop::Timeout),
+                _ = background_requested => Ok(None),
+            };
+            let stopped = match &outcome {
+                Ok(None) => {
+                    transferred.cancel();
+                    true
+                }
+                // Unix process pipes are nonblocking; preserve their existing
+                // root-exit behavior. Windows pipes use blocking reader tasks,
+                // so closing the owned tree is required before joining EOF.
+                #[cfg(not(windows))]
+                Ok(Some(_)) => {
+                    transferred.cancel();
+                    true
+                }
+                _ => {
+                    let stopped = match pid {
+                        Some(pid) => kill_tree(pid).await,
+                        None => true,
+                    };
+                    if stopped {
+                        let _ = child.wait().await;
+                    } else {
+                        transferred.cancel();
+                    }
+                    stopped
+                }
+            };
+            (outcome, stopped)
+        };
+        // The execution deadline ends at root exit. Cleanup and pipe EOF are
+        // joined afterwards, without a grace-period timeout or abandoned reads.
+        let ((outcome, stopped), a, b) = tokio::join!(
+            complete,
+            read_capped(&mut stdout, out_buf, &transferred),
+            read_capped(&mut stderr, err_buf, &transferred)
+        );
+        (outcome, stopped, a, b)
     };
     // 命令可能装了工具链、建了文件、git init 了:项目状态事实的缓存作废。
     crate::project_state::invalidate();
@@ -453,7 +534,7 @@ async fn bash_command_body(
                 Err(error) => ToolOutput::failed("BACKGROUND_REGISTRATION_FAILED", error),
             }
         }
-        Ok(Some((status, out_capped, err_capped))) => {
+        Ok(Some(status)) => {
             let mut text = String::from_utf8_lossy(&out_buf).into_owned();
             if out_capped {
                 text.push_str("\n[stdout truncated at 1 MiB]");
@@ -466,7 +547,7 @@ async fn bash_command_body(
                 }
             }
             let code = status.as_ref().ok().and_then(|s| s.code());
-            let ok = code == Some(0);
+            let ok = code == Some(0) && tree_stopped;
             let text = if text.trim().is_empty() {
                 "(no output)".to_string()
             } else {
@@ -476,6 +557,9 @@ async fn bash_command_body(
                 "exit code: {}\n{text}",
                 code.map_or("unknown".into(), |c| c.to_string())
             );
+            if !tree_stopped {
+                rendered.push_str("\nprocess-tree cleanup failed; termination is not confirmed");
+            }
             // R-268:前台 bash 围栏按写日志对账——窗口内专用工具的合法写入(有日志且
             // 终态一致)吸收进基线,未命中的越界写照旧隔离回滚。
             let breach = enforce_managed_files_with_writer_log(
@@ -528,15 +612,19 @@ async fn bash_command_body(
             };
             output.with_display(display)
         }
-        Err(_) => {
-            if let Some(pid) = pid {
-                kill_tree(pid).await;
-            }
-            // 超时是可预期结果:结构化告知,并回传已捕获的输出(卡在哪一步全靠它)。
-            let mut text = format!(
+        Err(reason) => {
+            let mut text = match reason {
+                CommandStop::Cancelled => "cancelled: run stopped by user during execution; command process tree stopped".to_string(),
+                CommandStop::Timeout => format!(
                     "timeout: true — command did not finish within {} ms and was killed. Retry with a larger timeout_ms if needed.",
                     timeout.as_millis()
+                ),
+            };
+            if !tree_stopped {
+                text = format!(
+                    "process-tree cleanup failed after {reason:?}; termination is not confirmed"
                 );
+            }
             let partial_out = String::from_utf8_lossy(&out_buf).into_owned();
             let partial_err = String::from_utf8_lossy(&err_buf).into_owned();
             if partial_out.trim().is_empty() && partial_err.trim().is_empty() {
@@ -578,7 +666,8 @@ async fn bash_command_body(
                 "kind": "terminal",
                 "command": input.command,
                 "exitCode": serde_json::Value::Null,
-                "timeout": true,
+                "timeout": matches!(reason, CommandStop::Timeout),
+                "cancelled": matches!(reason, CommandStop::Cancelled),
                 "output": text.chars().take(4000).collect::<String>(),
                 "full": text.chars().take(200_000).collect::<String>(),
             });
@@ -586,6 +675,12 @@ async fn bash_command_body(
             ToolOutput::error(text).with_display(display)
         }
     }
+}
+
+#[derive(Debug)]
+enum CommandStop {
+    Timeout,
+    Cancelled,
 }
 
 fn background_result(process: &crate::background::BackgroundProcess, ctx: &ToolCtx) -> ToolOutput {
@@ -696,11 +791,17 @@ fn hide_console_window(_command: &mut tokio::process::Command) {}
 async fn read_capped(
     reader: &mut (impl tokio::io::AsyncRead + Unpin),
     buffer: &mut Vec<u8>,
+    exited: &CancellationToken,
 ) -> bool {
     let mut chunk = [0u8; 8192];
     let mut capped = false;
     loop {
-        match reader.read(&mut chunk).await {
+        let read = tokio::select! {
+            biased;
+            read = reader.read(&mut chunk) => read,
+            _ = exited.cancelled() => break,
+        };
+        match read {
             Ok(0) => break,
             Ok(n) => {
                 // 进度旁路:每读到一段就上报(runner 注入通道时才生效)。长命令

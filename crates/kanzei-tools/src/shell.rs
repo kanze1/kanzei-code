@@ -296,8 +296,8 @@ pub fn command_with_utf8_output(shell_name: &str, command: &str) -> String {
 /// **任意 pid**(不只是自己持有的 `Child`)提问的活性原语:`Child::try_wait` 只能问
 /// 直接子进程,问不了孙进程,也问不了别的 run 留下的后台进程。
 ///
-/// Windows 实现用 `OpenProcess` + `GetExitCodeProcess`:句柄开不出来(内核对象已回收)
-/// 或退出码不再是 `STILL_ACTIVE` 都算已死。只申请 `QUERY_LIMITED_INFORMATION`,
+/// Windows 使用进程对象的终止信号确认线程与句柄清理完成。退出码本身不构成
+/// 清理完成证明，且合法退出码 259 不能被误判为仍在运行。只申请 SYNCHRONIZE,
 /// 这样即使目标已进入"退出但句柄未释放"的中间态也问得出真实退出码。
 ///
 /// 已知边界:pid 会被系统复用,极端情况下可能把"新占用同一 pid 的进程"误判为目标还活着。
@@ -307,21 +307,20 @@ pub fn process_alive(pid: u32) -> bool {
     #[link(name = "kernel32")]
     extern "system" {
         fn OpenProcess(desired_access: u32, inherit_handle: i32, pid: u32) -> isize;
-        fn GetExitCodeProcess(handle: isize, exit_code: *mut u32) -> i32;
+        fn WaitForSingleObject(handle: isize, milliseconds: u32) -> u32;
         fn CloseHandle(handle: isize) -> i32;
     }
-    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
-    const STILL_ACTIVE: u32 = 259;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const WAIT_OBJECT_0: u32 = 0;
     // SAFETY: 三个调用都只读进程状态;句柄由本函数开、本函数关,不外泄。
     unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        let handle = OpenProcess(SYNCHRONIZE, 0, pid);
         if handle == 0 {
             return false;
         }
-        let mut code: u32 = 0;
-        let queried = GetExitCodeProcess(handle, &mut code);
+        let state = WaitForSingleObject(handle, 0);
         CloseHandle(handle);
-        queried != 0 && code == STILL_ACTIVE
+        state != WAIT_OBJECT_0
     }
 }
 
@@ -704,6 +703,18 @@ mod execution_policy_tests {
 mod windows_kill_tree_tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn exit_code_259_is_a_completed_process_not_a_liveness_signal() {
+        let shell = detected_shell();
+        let mut command = std::process::Command::new(&shell.program);
+        command.args(&shell.args).arg("exit 259");
+        crate::hide_console(&mut command);
+        let mut child = command.spawn().unwrap();
+        let pid = child.id();
+        assert_eq!(child.wait().unwrap().code(), Some(259));
+        assert!(!process_alive(pid));
+    }
 
     fn powershell() -> Option<PathBuf> {
         which("pwsh.exe").or_else(|| which("powershell.exe"))

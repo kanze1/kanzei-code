@@ -2,7 +2,7 @@
 
 use futures::{Stream, StreamExt};
 
-use crate::error::LlmError;
+use crate::error::{retry_after_seconds, LlmError};
 use crate::event::LlmEvent;
 use crate::protocol::{self, ProtocolKind};
 use crate::proxy::{build_http_client, ProxyConfig};
@@ -27,8 +27,7 @@ fn transport_retry_delay(attempt: u32) -> std::time::Duration {
 
 fn rate_limit_retry_delay(retry_after: Option<&str>, attempt: u32) -> std::time::Duration {
     let seconds = retry_after
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .map(|seconds| seconds.min(30))
+        .and_then(|value| retry_after_seconds(value, std::time::SystemTime::now()))
         .unwrap_or((attempt as u64).min(30));
     std::time::Duration::from_secs(seconds)
 }
@@ -293,8 +292,7 @@ impl LlmClient {
                 .headers()
                 .get(reqwest::header::RETRY_AFTER)
                 .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.trim().parse::<u64>().ok())
-                .map(|seconds| seconds.min(30));
+                .and_then(|value| retry_after_seconds(value, std::time::SystemTime::now()));
             let text = response.text().await.unwrap_or_default();
             return Err(LlmError::classify_http_with_retry_after(
                 status.as_u16(),
@@ -370,11 +368,13 @@ mod tests {
     }
 
     #[test]
-    fn rate_limit_retry_uses_header_and_caps_delay() {
+    fn rate_limit_retry_preserves_server_minimum_and_bounds_local_backoff() {
         assert_eq!(MAX_RATE_LIMIT_RETRIES, 2);
         assert_eq!(rate_limit_retry_delay(Some("7"), 1).as_secs(), 7);
-        assert_eq!(rate_limit_retry_delay(Some("999"), 1).as_secs(), 30);
+        assert_eq!(rate_limit_retry_delay(Some("60"), 1).as_secs(), 60);
+        assert_eq!(rate_limit_retry_delay(Some("999"), 1).as_secs(), 999);
         assert_eq!(rate_limit_retry_delay(Some("bad"), 2).as_secs(), 2);
+        assert_eq!(rate_limit_retry_delay(None, 50).as_secs(), 30);
     }
 
     #[tokio::test]

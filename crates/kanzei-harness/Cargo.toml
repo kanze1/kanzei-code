@@ -24,4 +24,5 @@ dirs.workspace = true
 tracing.workspace = true
 # progress 模块:工具进度接力的 task-local 通道。
 tokio.workspace = true
+tokio-util.workspace = true
 futures.workspace = true

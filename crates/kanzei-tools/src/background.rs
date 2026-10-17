@@ -1719,19 +1719,11 @@ pub(crate) mod tests {
             .log_path
             .clone()
             .expect("persistent 服务应有落盘路径");
-        // 等进程自然退出(输出完即退)。
-        let exited = wait_until(|| !process.is_running(), 5000).await;
-        assert!(exited, "输出 300KiB 的命令应自然退出");
-
-        // 等退出前最终落盘完成(收集线程在进程退出后写最后一块)。
-        let mut content = String::new();
-        for _ in 0..40 {
-            content = std::fs::read_to_string(&log_path).unwrap_or_default();
-            if content.len() > 256 * 1024 {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
+        // Join the existing completion owner: it includes the readers, final log
+        // flush and fence restoration, independent of scheduler latency.
+        process.exit_completion.wait().await.unwrap();
+        assert!(!process.is_running());
+        let content = std::fs::read_to_string(&log_path).unwrap();
         assert!(
             content.len() > 256 * 1024,
             "落盘日志应超过 256KiB(增量追加,不丢头): {}",
