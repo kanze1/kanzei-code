@@ -8,14 +8,17 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 const MAX_REFERENCES: usize = 500;
+mod evidence;
+pub use evidence::{
+    acquisition_for_url, record_acquisition, AcquisitionMethod, SourceScope, WebAcquisition,
+    WebArtifact,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredReference {
     url: String,
     title: String,
     created_at_ms: u128,
-    #[serde(default)]
-    fetched_at_ms: Option<u128>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -44,17 +47,12 @@ pub fn remember(ctx: &ToolCtx, url: &str, title: &str) -> Result<String, String>
         .map_err(|error| error.to_string())?;
     let _lock = crate::atomic_file::lock_exclusive(&path).map_err(|error| error.to_string())?;
     let mut store = read_store(&path)?;
-    let fetched_at_ms = store
-        .references
-        .get(&id)
-        .and_then(|entry| entry.fetched_at_ms);
     store.references.insert(
         id.clone(),
         StoredReference {
             url: parsed.to_string(),
             title: title.to_string(),
             created_at_ms: now_ms(),
-            fetched_at_ms,
         },
     );
     if store.references.len() > MAX_REFERENCES {
@@ -74,72 +72,6 @@ pub fn remember(ctx: &ToolCtx, url: &str, title: &str) -> Result<String, String>
     let contents = serde_json::to_string_pretty(&store).map_err(|error| error.to_string())?;
     crate::atomic_file::write_atomic(&path, &contents).map_err(|error| error.to_string())?;
     Ok(id)
-}
-
-/// Mark a URL as fetched only after its response and local artifact were successfully saved.
-pub fn mark_fetched(ctx: &ToolCtx, url: &str, title: &str) -> Result<(), String> {
-    let parsed =
-        reqwest::Url::parse(url).map_err(|error| format!("invalid fetched URL: {error}"))?;
-    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-        return Err("fetched URL must use http or https".into());
-    }
-    let id = reference_id(parsed.as_str());
-    let path = registry_path(
-        &ctx.project_root,
-        ctx.session_id.as_deref().unwrap_or("anonymous"),
-    );
-    std::fs::create_dir_all(path.parent().expect("registry path has parent"))
-        .map_err(|error| error.to_string())?;
-    let _lock = crate::atomic_file::lock_exclusive(&path).map_err(|error| error.to_string())?;
-    let mut store = read_store(&path)?;
-    let entry = store
-        .references
-        .entry(id)
-        .or_insert_with(|| StoredReference {
-            url: parsed.to_string(),
-            title: String::new(),
-            created_at_ms: now_ms(),
-            fetched_at_ms: None,
-        });
-    entry.url = parsed.to_string();
-    if !title.trim().is_empty() {
-        entry.title = title.trim().to_string();
-    }
-    entry.fetched_at_ms = Some(now_ms());
-    if store.references.len() > MAX_REFERENCES {
-        let mut oldest: Vec<_> = store
-            .references
-            .iter()
-            .map(|(id, entry)| (entry.created_at_ms, id.clone()))
-            .collect();
-        oldest.sort_unstable();
-        for (_, old_id) in oldest
-            .into_iter()
-            .take(store.references.len() - MAX_REFERENCES)
-        {
-            store.references.remove(&old_id);
-        }
-    }
-    let contents = serde_json::to_string_pretty(&store).map_err(|error| error.to_string())?;
-    crate::atomic_file::write_atomic(&path, &contents).map_err(|error| error.to_string())
-}
-
-/// Whether this exact project/session has a successful webfetch record for the URL.
-pub fn was_fetched(ctx: &ToolCtx, url: &str) -> Result<bool, String> {
-    let parsed =
-        reqwest::Url::parse(url).map_err(|error| format!("invalid source URL: {error}"))?;
-    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-        return Ok(false);
-    }
-    let path = registry_path(
-        &ctx.project_root,
-        ctx.session_id.as_deref().unwrap_or("anonymous"),
-    );
-    let store = read_store(&path)?;
-    let Some(entry) = store.references.get(&reference_id(parsed.as_str())) else {
-        return Ok(false);
-    };
-    Ok(entry.fetched_at_ms.is_some())
 }
 
 /// Resolve only a reference written for this exact project and session.
@@ -198,6 +130,36 @@ fn now_ms() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::{remember, resolve, ToolCtx};
+
+    #[test]
+    fn a_legacy_timestamp_without_an_artifact_is_not_verified_source_evidence() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-web-source-receipt-{}-{}",
+            std::process::id(),
+            super::now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            session_id: Some("selected".into()),
+            ..Default::default()
+        };
+        let url = "https://source.example/security";
+        let id = remember(&ctx, url, "Security source").unwrap();
+        let path = super::registry_path(&root, "selected");
+        let mut registry: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        registry["references"][&id]["fetched_at_ms"] = serde_json::json!(super::now_ms());
+        std::fs::write(path, serde_json::to_vec(&registry).unwrap()).unwrap();
+        assert!(
+            super::acquisition_for_url(&ctx, url, None)
+                .unwrap()
+                .is_none(),
+            "a timestamp alone cannot prove that source evidence exists"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn reference_is_project_and_session_scoped() {

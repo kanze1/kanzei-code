@@ -285,7 +285,17 @@ impl Tool for ResearchLoopTool {
                         ),
                     );
                 }
-                let task_id = format!("r{}-t{}", state.round, state.next_task_id);
+                let nonce = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                {
+                    Ok(time) => time.as_nanos(),
+                    Err(error) => return ToolOutput::failed("CLOCK_INVALID", error.to_string()),
+                };
+                let task_id = format!(
+                    "r{}-t{}-{}-{nonce}",
+                    state.round,
+                    state.next_task_id,
+                    std::process::id()
+                );
                 state.next_task_id += 1;
                 state.active_tasks.push(task_id.clone());
                 match save_state(&ctx.project_root, &state) {
@@ -459,55 +469,7 @@ impl Tool for ResearchLoopTool {
                 {
                     return ToolOutput::needs_correction("FINDING_REQUIRES_SOURCE", "finding 必须提供 title、conclusion、evidence_level、evidence_depth 和 source_ids");
                 }
-                let source_tool = ResearchTrackerTool::new("source", "source", &SOURCES, None);
-                for source_id in &refs {
-                    let source = source_tool
-                        .execute(json!({"action":"get","id":source_id,"topic":topic}), ctx)
-                        .await;
-                    if source.is_error {
-                        return ToolOutput::needs_correction(
-                            "SOURCE_NOT_FOUND",
-                            format!("引用来源 {source_id} 无法读取: {}", source.content),
-                        );
-                    }
-                    let entry: Value = match serde_json::from_str(&source.content) {
-                        Ok(value) => value,
-                        Err(error) => {
-                            return ToolOutput::error(format!("invalid source entry: {error}"))
-                        }
-                    };
-                    let source_url = entry
-                        .get("fields")
-                        .and_then(Value::as_array)
-                        .and_then(|fields| {
-                            fields.iter().find(|field| {
-                                field["name"].as_str().is_some_and(|name| {
-                                    name.eq_ignore_ascii_case("url") || name == "网址"
-                                })
-                            })
-                        })
-                        .and_then(|field| field["value"].as_str());
-                    let Some(source_url) = source_url else {
-                        return ToolOutput::needs_correction(
-                            "SOURCE_URL_REQUIRED",
-                            format!("引用来源 {source_id} 没有 URL 字段;需先登记可核验 URL 并经 webfetch 存证"),
-                        );
-                    };
-                    match crate::web_refs::was_fetched(ctx, source_url) {
-                        Ok(true) => {}
-                        Ok(false) => {
-                            return ToolOutput::needs_correction(
-                                "SOURCE_NOT_WEBFETCHED",
-                                format!("引用来源 {source_id} 尚未通过 webfetch 存证;请先对该 URL 调用 webfetch,再添加 finding"),
-                            );
-                        }
-                        Err(error) => {
-                            return ToolOutput::error(format!(
-                                "cannot verify webfetch provenance: {error}"
-                            ));
-                        }
-                    }
-                }
+                let mut source_receipts = Vec::new();
                 let source_tool = ResearchTrackerTool::new("source", "source", &SOURCES, None);
                 for source_id in &refs {
                     let source = source_tool
@@ -542,24 +504,21 @@ impl Tool for ResearchLoopTool {
                             format!("引用来源 {source_id} 没有 URL 字段;需先登记 URL 并经 webfetch 存证"),
                         );
                     };
-                    match crate::web_refs::was_fetched(ctx, source_url) {
-                        Ok(true) => {}
-                        Ok(false) => {
-                            return ToolOutput::needs_correction(
-                                "SOURCE_NOT_WEBFETCHED",
-                                format!("引用来源 {source_id} 尚未通过 webfetch 存证;请先对该 URL 调用 webfetch,再添加 finding"),
-                            );
-                        }
-                        Err(error) => {
-                            return ToolOutput::error(format!(
-                                "cannot verify webfetch provenance: {error}"
-                            ));
-                        }
+                    let acquisition=match crate::web_refs::acquisition_for_url(ctx,source_url,Some(topic)) {
+                        Ok(Some(acquisition))=>acquisition,
+                        Ok(None)=>return ToolOutput::needs_correction("SOURCE_NOT_WEBFETCHED",format!("引用来源 {source_id} 缺少当前 topic 的任务采集工件；需在活动检索任务中读取该来源")),
+                        Err(error)=>return ToolOutput::failed("SOURCE_PROVENANCE_INVALID",error),
+                    };
+                    match acquisition.ready_for_finding(ctx) {
+                        Ok(true)=>{},
+                        Ok(false)=>return ToolOutput::needs_correction("SOURCE_NOT_READ",format!("引用来源 {source_id} 的采集未完整或正文未读取；PDF 下载不等于读取，动态网页需要可核验的渲染正文")),
+                        Err(error)=>return ToolOutput::failed("SOURCE_PROVENANCE_INVALID",error),
                     }
+                    source_receipts.push(json!({"source_id":source_id,"acquisition_id":acquisition.id,"source_scope":acquisition.source_scope,"original_url":acquisition.original_url,"final_url":acquisition.final_url,"artifact":acquisition.artifact,"raw_artifact":acquisition.raw_artifact,"method":acquisition.method,"fetched_at_utc":acquisition.fetched_at_utc}));
                 }
                 let tracker =
                     ResearchTrackerTool::new("finding", "finding", &FINDINGS, Some(&SOURCES));
-                let output = tracker.execute(json!({ "action": "add", "title": title, "topic": topic, "refs": refs, "fields": { "论断": conclusion, "等级": evidence_level, "证据深度": evidence_depth } }), ctx).await;
+                let output = tracker.execute(json!({ "action": "add", "title": title, "topic": topic, "refs": refs, "fields": { "论断": conclusion, "等级": evidence_level, "证据深度": evidence_depth,"采集存证":serde_json::Value::Array(source_receipts).to_string() } }), ctx).await;
                 if output.is_error {
                     return output;
                 }
@@ -724,7 +683,37 @@ mod tests {
             )
             .await;
         assert_eq!(finding.code, Some("SOURCE_NOT_WEBFETCHED"));
-        crate::web_refs::mark_fetched(&ctx, source_url, "Unfetched test source").unwrap();
+        let path = project.join(".kanzei/artifacts/web/loop-source.md");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let bytes = b"Materialized source evidence.";
+        std::fs::write(&path, bytes).unwrap();
+        let artifact =
+            crate::web_refs::WebArtifact::from_saved(&ctx, &path.to_string_lossy(), bytes).unwrap();
+        crate::web_refs::record_acquisition(
+            &ctx,
+            crate::web_refs::WebAcquisition {
+                format_version: 1,
+                id: String::new(),
+                source_scope: Some(crate::web_refs::SourceScope {
+                    topic: "loop-smoke".into(),
+                    task_id: task_id.clone(),
+                }),
+                session_id: ctx.session_id.clone(),
+                run_id: None,
+                original_url: source_url.into(),
+                final_url: source_url.into(),
+                fetched_at_utc: chrono::Utc::now().to_rfc3339(),
+                observed_at_utc: chrono::Utc::now().to_rfc3339(),
+                http_status: 200,
+                content_type: "text/plain".into(),
+                method: crate::web_refs::AcquisitionMethod::StaticText,
+                truncated: false,
+                cache_hit: false,
+                raw_artifact: artifact.clone(),
+                artifact,
+            },
+        )
+        .unwrap();
         let accepted = tool
             .execute(
                 json!({ "action": "add_finding", "topic": "loop-smoke", "title": "verified after webfetch", "conclusion": "经 webfetch 存证的来源可绑定 finding", "evidence_level": "V2", "evidence_depth": "正文级", "source_ids": [&source_id] }),

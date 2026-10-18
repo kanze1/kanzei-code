@@ -1058,7 +1058,11 @@ mod tests {
             crate::web_refs::resolve(&ctx, &results[0].reference).unwrap(),
             results[0].url
         );
-        assert!(!crate::web_refs::was_fetched(&ctx, &results[0].url).unwrap());
+        assert!(
+            crate::web_refs::acquisition_for_url(&ctx, &results[0].url, None)
+                .unwrap()
+                .is_none()
+        );
         std::fs::remove_dir_all(project).unwrap();
     }
 

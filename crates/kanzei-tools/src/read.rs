@@ -2,6 +2,9 @@
 //! - offset/limit:BufReader 逐行流式,跳过即丢弃;
 //! - tail:从文件尾反向 64KiB 分块 seek,凑够行数即停。
 
+#[cfg(test)]
+pub(crate) mod test_pdf;
+
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
 use async_trait::async_trait;
@@ -975,31 +978,6 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
-    fn tiny_pdf() -> Vec<u8> {
-        let objects = [
-            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
-            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
-            "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
-            "5 0 obj\n<< /Length 45 >>\nstream\nBT /F1 12 Tf 72 220 Td (PDF smoke) Tj ET\nendstream\nendobj\n",
-        ];
-        let mut pdf = b"%PDF-1.4\n".to_vec();
-        let mut offsets = Vec::new();
-        for object in objects {
-            offsets.push(pdf.len());
-            pdf.extend_from_slice(object.as_bytes());
-        }
-        let xref = pdf.len();
-        pdf.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
-        for offset in offsets {
-            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-        }
-        pdf.extend_from_slice(
-            format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
-        );
-        pdf
-    }
-
     #[tokio::test]
     async fn read_pdf_uses_pdftotext_and_keeps_line_window() {
         if std::process::Command::new("pdftotext")
@@ -1011,7 +989,7 @@ mod tests {
         }
         let (dir, ctx) = temp_project();
         let path = dir.join("paper.bin");
-        std::fs::write(&path, tiny_pdf()).unwrap();
+        std::fs::write(&path, super::test_pdf::bytes()).unwrap();
         let out = ReadTool
             .execute(json!({"path": "paper.bin", "offset": 1, "limit": 5}), &ctx)
             .await;

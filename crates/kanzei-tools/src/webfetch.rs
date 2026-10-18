@@ -25,7 +25,12 @@ const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const MAX_CACHE_ENTRIES: usize = 16;
 
 #[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct WebFetchInput {
+    #[serde(default)]
+    topic: Option<String>,
+    #[serde(default)]
+    task_id: Option<String>,
     /// 要抓取的 URL;与 ref 二选一。
     #[serde(default)]
     url: Option<String>,
@@ -132,6 +137,16 @@ impl Tool for WebFetchTool {
             Ok(value) => value,
             Err(output) => return output,
         };
+        let source_scope = match crate::web_refs::SourceScope::from_input(
+            ctx,
+            input.topic.as_deref(),
+            input.task_id.as_deref(),
+        ) {
+            Ok(scope) => scope,
+            Err(error) => {
+                return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error)
+            }
+        };
         let url = match (input.url.as_deref(), input.reference.as_deref()) {
             (Some(url), None) => url.to_string(),
             (None, Some(reference)) => match crate::web_refs::resolve(ctx, reference) {
@@ -174,6 +189,34 @@ impl Tool for WebFetchTool {
             }
             Err(error) => return ToolOutput::error(error),
         };
+        let acquisition = crate::web_refs::WebAcquisition {
+            format_version: 1,
+            id: String::new(),
+            source_scope,
+            session_id: ctx.session_id.clone(),
+            run_id: ctx.run_id.clone(),
+            original_url: normalized_url.clone(),
+            final_url: page.final_url.clone(),
+            fetched_at_utc: page.fetched_at_utc.clone(),
+            observed_at_utc: chrono::Utc::now().to_rfc3339(),
+            http_status: page.status,
+            content_type: page.content_type.clone(),
+            method: if page.content_issue.is_some() {
+                crate::web_refs::AcquisitionMethod::UnverifiedHtml
+            } else if page.is_pdf {
+                crate::web_refs::AcquisitionMethod::DownloadedPdf
+            } else {
+                crate::web_refs::AcquisitionMethod::StaticText
+            },
+            truncated: page.truncated,
+            cache_hit,
+            artifact: page.artifact.clone(),
+            raw_artifact: page.raw_artifact.clone(),
+        };
+        let acquisition_id = match crate::web_refs::record_acquisition(ctx, acquisition) {
+            Ok(id) => id,
+            Err(error) => return ToolOutput::failed("WEBFETCH_PROVENANCE", error),
+        };
         if let Some(issue) = page.content_issue {
             return ToolOutput::needs_correction(
                 "WEBFETCH_NO_READABLE_BODY",
@@ -191,18 +234,6 @@ impl Tool for WebFetchTool {
                     page.status, page.final_url, page.artifact_path
                 ),
             );
-        }
-        if let Err(error) = crate::web_refs::mark_fetched(ctx, &normalized_url, "") {
-            return ToolOutput::error(format!(
-                "page fetched and saved, but source provenance could not be persisted: {error}"
-            ));
-        }
-        if page.final_url != normalized_url {
-            if let Err(error) = crate::web_refs::mark_fetched(ctx, &page.final_url, "") {
-                return ToolOutput::error(format!(
-                    "page fetched and saved, but redirected source provenance could not be persisted: {error}"
-                ));
-            }
         }
         if page.is_pdf {
             return ToolOutput::ok(format!(
@@ -272,7 +303,7 @@ impl Tool for WebFetchTool {
             }
         }
         ToolOutput::ok(format!(
-            "HTTP {} · {}\nSaved full page: `{}`{}\n\n{}",
+            "HTTP {} · {}\nSaved page: `{}`{}\nAcquisition: {acquisition_id}; SHA-256: {}\n\n{}",
             page.status,
             page.final_url,
             page.artifact_path,
@@ -281,6 +312,7 @@ impl Tool for WebFetchTool {
             } else {
                 ""
             },
+            page.artifact.sha256,
             rendered.trim()
         ))
     }
@@ -315,7 +347,7 @@ impl Tool for ResearchWebFetchTool {
         WebFetchTool.resources_with_ctx(input, ctx)
     }
 
-    async fn execute(&self, mut input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let topic = input
             .get("topic")
             .and_then(serde_json::Value::as_str)
@@ -335,10 +367,6 @@ impl Tool for ResearchWebFetchTool {
         {
             return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error);
         }
-        if let Some(object) = input.as_object_mut() {
-            object.remove("topic");
-            object.remove("task_id");
-        }
         WebFetchTool.execute(input, ctx).await
     }
 }
@@ -352,6 +380,11 @@ struct WebPage {
     links: Vec<PageLink>,
     is_pdf: bool,
     content_issue: Option<&'static str>,
+    artifact: crate::web_refs::WebArtifact,
+    raw_artifact: crate::web_refs::WebArtifact,
+    fetched_at_utc: String,
+    content_type: String,
+    truncated: bool,
 }
 
 #[derive(Clone)]
@@ -368,7 +401,7 @@ struct CachedPage {
 
 enum FetchPage {
     Page {
-        page: WebPage,
+        page: Box<WebPage>,
         cache_hit: bool,
     },
     RedirectBlocked {
@@ -422,8 +455,20 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
                     });
                 }
             }
+            if let Err(error) = page
+                .artifact
+                .verify(ctx)
+                .and_then(|_| page.raw_artifact.verify(ctx))
+            {
+                WEB_CACHE
+                    .get_or_init(|| Mutex::new(HashMap::new()))
+                    .lock()
+                    .map_err(|_| "web cache ownership is poisoned")?
+                    .remove(key);
+                return Err(format!("WEBFETCH_CACHED_SOURCE_CHANGED: {error}; invalid cache entry removed; no new HTTP request was sent"));
+            }
             return Ok(FetchPage::Page {
-                page,
+                page: Box::new(page),
                 cache_hit: true,
             });
         }
@@ -489,6 +534,21 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
             markdown.as_bytes()
         },
     )?;
+    let artifact = crate::web_refs::WebArtifact::from_saved(
+        ctx,
+        &artifact_path,
+        if is_pdf {
+            &response.body
+        } else {
+            markdown.as_bytes()
+        },
+    )?;
+    let raw_artifact = if is_pdf {
+        artifact.clone()
+    } else {
+        let raw_path = save_web_artifact(ctx, url, "raw", &response.body)?;
+        crate::web_refs::WebArtifact::from_saved(ctx, &raw_path, &response.body)?
+    };
     let page = WebPage {
         status: response.status,
         final_url: response.final_url,
@@ -497,12 +557,17 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
         links,
         is_pdf,
         content_issue,
+        artifact,
+        raw_artifact,
+        fetched_at_utc: chrono::Utc::now().to_rfc3339(),
+        content_type: response.content_type,
+        truncated: response.truncated,
     };
     if let Some(key) = key {
         cache_insert(key, page.clone());
     }
     Ok(FetchPage::Page {
-        page,
+        page: Box::new(page),
         cache_hit: false,
     })
 }
@@ -616,12 +681,36 @@ fn save_web_artifact(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
-    let filename = format!("page-{timestamp}-{sequence}-{digest}.{extension}");
+    let filename = format!(
+        "page-{timestamp}-{}-{sequence}-{digest}.{extension}",
+        std::process::id()
+    );
     let path = ctx
         .project_root
         .join(".kanzei/artifacts/web")
         .join(&filename);
-    crate::atomic_file::write_atomic_bytes(&path, content).map_err(|error| error.to_string())?;
+    let file = kanzei_harness::permission::ScopedFile::resolve(
+        &ctx.project_root,
+        &ctx.project_root,
+        &path,
+    )
+    .map_err(|error| error.to_string())?;
+    if kanzei_harness::permission::FileResource::resolve(&ctx.project_root, &path)
+        .map_err(|error| error.to_string())?
+        .sensitivity()
+        .is_some()
+    {
+        return Err("web evidence cannot overwrite a sensitive resource".into());
+    }
+    file.write_atomic(content, || match file.metadata() {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+        Ok(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "web evidence artifacts cannot be overwritten",
+        )),
+    })
+    .map_err(|error| error.to_string())?;
     Ok(path.display().to_string())
 }
 
@@ -851,6 +940,18 @@ mod tests {
     use super::{html_to_text, normalize_url_resource};
 
     use kanzei_harness::{Tool, ToolCtx};
+    fn prepare_session(ctx: &ToolCtx) {
+        let state =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&ctx.project_root))
+                .unwrap();
+        state
+            .create_session(
+                ctx.session_id.as_deref().unwrap(),
+                &ctx.cwd.to_string_lossy(),
+                None,
+            )
+            .unwrap();
+    }
 
     struct WebFetchTool;
     impl std::ops::Deref for WebFetchTool {
@@ -1004,6 +1105,7 @@ mod tests {
     async fn unreadable_html_is_not_evidence_and_numbered_preview_resumes_from_cache() {
         let root = temp_root("readability");
         let ctx = ToolCtx::new(root.clone(), root.clone()).with_session_id("readability".into());
+        prepare_session(&ctx);
         let (url, server) = spawn_http_server(vec![http_response("200 OK", "Content-Type: text/html\r\n", "<title>Advisory</title><noscript>Please enable JavaScript</noscript><div id='app'></div><script>boot()</script>")]);
         let output = WebFetchTool
             .execute(serde_json::json!({"url":url}), &ctx)
@@ -1078,6 +1180,7 @@ mod tests {
     async fn pdf_limit_rejects_partial_download_but_accepts_exact_boundary() {
         let root = temp_root("pdf-limit");
         let ctx = ToolCtx::new(root.clone(), root.clone()).with_session_id("pdf-limit".into());
+        prepare_session(&ctx);
         for extra in [0, 1] {
             let mut body = "%PDF-1.4\n".to_string();
             body.push_str(&" ".repeat(super::MAX_RESPONSE_BYTES + extra - body.len() - 5));
@@ -1126,6 +1229,7 @@ fast = "missing:extractor"
         let worktree = root.join("worktree");
         std::fs::create_dir_all(&worktree).unwrap();
         let ctx = ToolCtx::new(worktree, root.clone()).with_session_id("webfetch-session".into());
+        prepare_session(&ctx);
         let mut permissions = kanzei_harness::Ruleset::default();
         permissions.extend([kanzei_harness::rule(
             "webfetch",
@@ -1155,7 +1259,7 @@ fast = "missing:extractor"
         let saved_line = first
             .content
             .lines()
-            .find(|line| line.starts_with("Saved full page: "))
+            .find(|line| line.starts_with("Saved page: "))
             .unwrap();
         let saved_path = saved_line.split('`').nth(1).unwrap();
         let saved_path = std::path::PathBuf::from(saved_path);
@@ -1193,7 +1297,7 @@ fast = "missing:extractor"
         )]);
         let blocked = kanzei_harness::permission::scope(
             permissions,
-            WebFetchTool.execute(serde_json::json!({"url":url}), &ctx),
+            WebFetchTool.execute(serde_json::json!({"url":url.clone()}), &ctx),
         )
         .await;
         assert_eq!(blocked.code, Some("WEBFETCH_REDIRECT_DENIED"));
@@ -1205,6 +1309,23 @@ fast = "missing:extractor"
             .unwrap();
         let saved_text = std::fs::read_to_string(saved.path()).unwrap();
         assert!(saved_text.contains("0001 | First paragraph"));
+        // A cache hit must verify its original digest, even when a later policy allows it.
+        // The HTTP fixture is already closed: a hidden refetch cannot satisfy this assertion.
+        std::fs::write(&saved_path, "tampered source").unwrap();
+        let mut allowed = kanzei_harness::Ruleset::default();
+        allowed.extend([kanzei_harness::rule(
+            "webfetch",
+            "*",
+            kanzei_harness::Effect::Allow,
+        )]);
+        let changed = kanzei_harness::permission::scope(
+            allowed,
+            WebFetchTool.execute(serde_json::json!({"url":url.clone()}), &ctx),
+        )
+        .await;
+        assert!(changed.is_error, "{}", changed.content);
+        assert!(changed.content.contains("WEBFETCH_CACHED_SOURCE_CHANGED"));
+        assert!(super::cache_get(&(ctx.session_id.clone().unwrap(), url)).is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1247,6 +1368,7 @@ base_url = "{base_url}/v1"
         approve_project(&root);
         let ctx =
             ToolCtx::new(root.clone(), root.clone()).with_session_id("extract-session".into());
+        prepare_session(&ctx);
         let output = WebFetchTool
             .execute(
                 serde_json::json!({"url":url,"prompt":"What is the target fact?"}),
@@ -1274,6 +1396,7 @@ base_url = "{base_url}/v1"
         )]);
         let ctx =
             ToolCtx::new(root.clone(), root.clone()).with_session_id("redirect-session".into());
+        prepare_session(&ctx);
         let output = WebFetchTool
             .execute(serde_json::json!({"url":url}), &ctx)
             .await;
@@ -1353,6 +1476,7 @@ base_url = "{base_url}/v1"
             pdf,
         )]);
         let ctx = ToolCtx::new(root.clone(), root.clone()).with_session_id("pdf-session".into());
+        prepare_session(&ctx);
         let output = WebFetchTool
             .execute(serde_json::json!({"url":url}), &ctx)
             .await;
@@ -1377,6 +1501,7 @@ base_url = "{base_url}/v1"
         let root = temp_root("ref-resource");
         let ctx =
             ToolCtx::new(root.clone(), root.clone()).with_session_id("ref-resource-session".into());
+        prepare_session(&ctx);
         let reference =
             crate::web_refs::remember(&ctx, "https://example.org/article", "Article").unwrap();
         let resources =
