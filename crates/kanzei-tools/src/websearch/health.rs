@@ -5,6 +5,7 @@ use serde::Serialize;
 #[serde(rename_all = "snake_case")]
 pub enum SearchErrorCode {
     Unavailable,
+    UnsupportedFilter,
     Unauthorized,
     RateLimited,
     HttpStatus,
@@ -119,7 +120,7 @@ pub fn duckduckgo_page(
     }
     let results = parsed
         .into_iter()
-        .filter(|result| super::allowed_result(&result.url, &query.domains))
+        .filter(|result| super::allowed_result(&result.url, &query.domains, &query.exclude_domains))
         .take(limit)
         .collect::<Vec<_>>();
     let status = if truncated {
@@ -144,6 +145,7 @@ mod tests {
             q: "security".into(),
             recency: None,
             domains: vec!["docs.rs".into()],
+            ..Default::default()
         }
     }
     #[test]

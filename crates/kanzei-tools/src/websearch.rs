@@ -9,6 +9,7 @@ use kanzei_llm::proxy::build_http_client;
 use kanzei_llm::ProxyConfig;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+mod filters;
 mod health;
 use health::{SearchAttempt, SearchData, SearchErrorCode, SearchFailure, SearchStatus};
 
@@ -17,7 +18,7 @@ const MAX_QUERY_CHARS: usize = 500;
 const MAX_RESULTS: usize = 10;
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
-#[derive(Clone, Copy, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 enum SearchRecency {
     Day,
@@ -46,19 +47,28 @@ impl SearchRecency {
     }
 }
 
-#[derive(Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct SearchQuery {
     /// 搜索关键词。
+    #[schemars(length(min = 1, max = 500))]
     q: String,
     /// 最近一天、一周、一月或一年。
     #[serde(default)]
     recency: Option<SearchRecency>,
-    /// 域名白名单过滤(仅主机名,如 docs.rs)。
+    /// 返回 URL 的域名白名单（含子域）。DDG 仅对单域追加 site:，多域在返回结果中筛选。
     #[serde(default)]
     domains: Vec<String>,
+    /// 排除域名及其子域，始终在客户端复核。
+    #[serde(default)]
+    exclude_domains: Vec<String>,
+    /// DuckDuckGo 地区码，如 cn-zh、us-en、hk-tzh、wt-wt。
+    #[serde(default)]
+    locale: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct WebSearchInput {
     /// 向后兼容的单查询形态;与 queries 二选一。
     #[serde(default)]
@@ -69,6 +79,7 @@ struct WebSearchInput {
     queries: Option<Vec<SearchQuery>>,
     /// 每查询返回结果数量，默认 5，最大 10。
     #[serde(default)]
+    #[schemars(range(min = 1, max = 10))]
     max_results: Option<usize>,
     /// R-248:正在填写 prior-art.md 时必传，对应 topic；每次调用消耗一轮预算。
     #[serde(default)]
@@ -87,6 +98,7 @@ struct SearchResult {
 #[derive(Serialize)]
 struct QuerySearchOutput {
     query: String,
+    request: SearchQuery,
     backend: String,
     fallback: Option<String>,
     results: Vec<SearchResult>,
@@ -111,11 +123,17 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> String {
-        "Search the web with 1-4 queries; each query may set recency (day/week/month/year) and domains. Returns result refs that webfetch accepts. The configured backend controls network routing: explicit duckduckgo/codex never contacts the other service; auto uses the primary model's provider and permits an explicit DuckDuckGo fallback. Codex /alpha/search is an unpublished adapter, not a supported public search API. Legacy single `query` remains supported. In prior-art work, pass prior_art_topic so the search-round budget is enforced.".into()
+        "Search with 1-4 queries; each may set recency (day/week/month/year), allowed domains and exclude_domains (including subdomains), and locale (documented DuckDuckGo region, e.g. cn-zh). URL domain filters are enforced locally; a multi-domain DuckDuckGo whitelist may filter out all returned candidates. An unsupported explicit-backend filter is rejected; only auto may select another backend. Returns refs for webfetch plus actual request/filter/attempt status. Explicit duckduckgo/codex never contacts the other service. Codex /alpha/search is an unpublished adapter. Legacy query is supported; filters belong inside queries. Prior-art work must pass prior_art_topic for its search budget.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::to_value(schemars::schema_for!(WebSearchInput)).unwrap();
+        let mut locales = filters::REGIONS
+            .iter()
+            .map(|region| serde_json::json!(region))
+            .collect::<Vec<_>>();
+        locales.push(serde_json::Value::Null);
+        schema["$defs"]["SearchQuery"]["properties"]["locale"]["enum"] = serde_json::json!(locales);
         schema["anyOf"] = serde_json::json!([
             {"required":["query"],"not":{"required":["queries"]}},
             {"required":["queries"],"not":{"required":["query"]}}
@@ -179,7 +197,13 @@ impl Tool for WebSearchTool {
             Ok(value) => value,
             Err(error) => return ToolOutput::needs_correction("INVALID_SEARCH_QUERIES", error),
         };
-        let limit = input.max_results.unwrap_or(5).clamp(1, MAX_RESULTS);
+        let limit = input.max_results.unwrap_or(5);
+        if !(1..=MAX_RESULTS).contains(&limit) {
+            return ToolOutput::needs_correction(
+                "INVALID_SEARCH_BUDGET",
+                "max_results must be between 1 and 10; nothing was dispatched",
+            );
+        }
         let prior_art_budget = if let Some(topic) = input.prior_art_topic.as_deref() {
             match crate::prior_art::consume_search_round(&ctx.project_root, topic) {
                 Ok((used, limit)) => Some((used, limit)),
@@ -203,6 +227,7 @@ impl Tool for WebSearchTool {
         };
         let (codex, codex_unavailable) = match backend {
             SearchBackend::Duckduckgo => (None, None),
+            _ if queries.iter().all(|query| query.locale.is_some()) => (None, None),
             _ => match load_codex_backend(&config, &proxy).await {
                 Ok(backend) => (Some(backend), None),
                 Err(reason) => (None, Some(reason)),
@@ -242,6 +267,7 @@ impl Tool for WebSearchTool {
             return ToolOutput::ok(
                 serde_json::json!({
                     "query": outcome.query,
+                    "request": outcome.request,
                     "backend": outcome.backend,
                     "fallback": outcome.fallback,
                     "results": outcome.results,
@@ -274,6 +300,7 @@ fn normalize_search_queries(
                 q: query,
                 recency: None,
                 domains: Vec::new(),
+                ..Default::default()
             }],
             true,
         ),
@@ -285,21 +312,14 @@ fn normalize_search_queries(
         return Err("queries must contain 1 to 4 items".into());
     }
     for query in &mut queries {
-        query.q = query.q.trim().chars().take(MAX_QUERY_CHARS).collect();
+        query.q = query.q.trim().to_owned();
         if query.q.is_empty() {
             return Err("each query q must not be empty".into());
         }
-        if query.domains.len() > 10 {
-            return Err("each query may specify at most 10 domains".into());
+        if query.q.chars().count() > MAX_QUERY_CHARS {
+            return Err(format!("query exceeds {MAX_QUERY_CHARS} characters; shorten it explicitly before searching"));
         }
-        let mut domains = Vec::new();
-        for domain in &query.domains {
-            let normalized = normalize_domain(domain)?;
-            if !domains.contains(&normalized) {
-                domains.push(normalized);
-            }
-        }
-        query.domains = domains;
+        filters::normalize(query)?;
     }
     Ok((queries, legacy_single))
 }
@@ -384,22 +404,26 @@ async fn search_one_query(
     if backend == SearchBackend::Duckduckgo {
         return duckduckgo_outcome(query, limit, client, duckduckgo_url, None).await;
     }
-    let result = match codex {
-        Some(backend) => search_codex(client, backend, &query, limit).await,
-        None => Err(SearchFailure::new(
-            SearchErrorCode::Unavailable,
-            codex_unavailable.unwrap_or("Codex search route unavailable"),
-        )),
+    let dispatched = codex.is_some() && query.locale.is_none();
+    let result = if query.locale.is_some() {
+        Err(SearchFailure::new(
+            SearchErrorCode::UnsupportedFilter,
+            "The alpha/search adapter has no verified locale support",
+        ))
+    } else {
+        match codex {
+            Some(backend) => search_codex(client, backend, &query, limit).await,
+            None => Err(SearchFailure::new(
+                SearchErrorCode::Unavailable,
+                codex_unavailable.unwrap_or("Codex search route unavailable"),
+            )),
+        }
     };
     match result {
         Ok(data) => backend_outcome(query, "codex_alpha_search", None, Ok(data), true),
-        Err(error) if backend == SearchBackend::Codex => backend_outcome(
-            query,
-            "codex_alpha_search",
-            None,
-            Err(error),
-            codex.is_some(),
-        ),
+        Err(error) if backend == SearchBackend::Codex => {
+            backend_outcome(query, "codex_alpha_search", None, Err(error), dispatched)
+        }
         Err(error) => {
             let fallback =
                 format!("Codex /alpha/search unavailable ({error}); auto selected DuckDuckGo.");
@@ -409,7 +433,7 @@ async fn search_one_query(
                 0,
                 SearchAttempt {
                     backend: "codex_alpha_search".into(),
-                    dispatched: codex.is_some(),
+                    dispatched,
                     status: SearchStatus::Failed,
                     failure: Some(error),
                 },
@@ -428,7 +452,8 @@ fn backend_outcome(
 ) -> QuerySearchOutput {
     match result {
         Ok(data) => QuerySearchOutput {
-            query: query.q,
+            query: query.q.clone(),
+            request: query,
             backend: backend.into(),
             fallback,
             results: data.results,
@@ -443,7 +468,8 @@ fn backend_outcome(
             }],
         },
         Err(error) => QuerySearchOutput {
-            query: query.q,
+            query: query.q.clone(),
+            request: query,
             backend: backend.into(),
             fallback,
             results: Vec::new(),
@@ -478,21 +504,26 @@ async fn search_codex(
 ) -> Result<SearchData, SearchFailure> {
     search_codex_attempt(client, backend, query, limit).await
 }
-fn allowed_result(url: &str, domains: &[String]) -> bool {
+fn allowed_result(url: &str, domains: &[String], exclude_domains: &[String]) -> bool {
     let Ok(url) = reqwest::Url::parse(url) else {
         return false;
     };
-    if !matches!(url.scheme(), "http" | "https") {
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
         return false;
     }
     let Some(host) = url.host_str() else {
         return false;
     };
-    domains.is_empty()
-        || domains.iter().any(|domain| {
-            host.eq_ignore_ascii_case(domain)
-                || host.to_ascii_lowercase().ends_with(&format!(".{domain}"))
-        })
+    (domains.is_empty()
+        || domains
+            .iter()
+            .any(|domain| filters::host_matches(host, domain)))
+        && !exclude_domains
+            .iter()
+            .any(|domain| filters::host_matches(host, domain))
 }
 
 async fn search_codex_attempt(
@@ -558,7 +589,7 @@ async fn search_codex_attempt(
         else {
             continue;
         };
-        if !allowed_result(url, &query.domains) {
+        if !allowed_result(url, &query.domains, &query.exclude_domains) {
             continue;
         }
         results.push(SearchResult {
@@ -599,14 +630,7 @@ async fn search_duckduckgo(
     query: &SearchQuery,
     limit: usize,
 ) -> Result<SearchData, SearchFailure> {
-    let mut terms = query.q.clone();
-    for domain in &query.domains {
-        terms.push_str(&format!(" site:{domain}"));
-    }
-    let mut parameters = vec![("q", terms)];
-    if let Some(recency) = query.recency {
-        parameters.push(("df", recency.duckduckgo_filter().to_string()));
-    }
+    let parameters = filters::duckduckgo_parameters(query);
     let response = client
         .get(endpoint)
         .query(&parameters)
@@ -806,6 +830,87 @@ fn decode_result_url(raw: &str) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn an_overlong_query_is_rejected_instead_of_silently_changing_the_search() {
+        assert!(normalize_search_queries(Some("检".repeat(MAX_QUERY_CHARS + 1)), None).is_err());
+    }
+
+    #[tokio::test]
+    async fn locale_and_exclusions_reach_the_actual_request_and_enforce_subdomain_boundaries() {
+        let html="<div class='result'><a class='result__a' href='https://docs.rs/a'>Allowed</a></div><div class='result'><a class='result__a' href='https://child.private.docs.rs/a'>Blocked</a></div>";
+        let (url, server) = spawn_search_server(stub_response("200 OK", "text/html", html));
+        let client = build_http_client(&ProxyConfig::Disabled).unwrap();
+        let query:SearchQuery=serde_json::from_value(serde_json::json!({"q":"CodeBuddy security","domains":["docs.rs"],"exclude_domains":["private.docs.rs"],"locale":"cn-zh","recency":"week"})).unwrap();
+        let outcome = duckduckgo_outcome(query, 5, &client, &url, None).await;
+        assert_eq!(outcome.results.len(), 1);
+        assert_eq!(outcome.results[0].url, "https://docs.rs/a");
+        assert_eq!(outcome.attempts.len(), 1);
+        assert!(outcome.attempts[0].dispatched);
+        let raw = server.join().unwrap();
+        let request = raw
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap();
+        let url = reqwest::Url::parse(&format!("http://fixture{request}")).unwrap();
+        let parameters = url
+            .query_pairs()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(parameters["kl"], "cn-zh");
+        assert_eq!(parameters["df"], "w");
+        assert!(parameters["q"].contains("-site:private.docs.rs"));
+        assert_eq!(outcome.request.locale.as_deref(), Some("cn-zh"));
+    }
+
+    #[tokio::test]
+    async fn unsupported_explicit_locale_and_invalid_budgets_do_not_dispatch() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/search", listener.local_addr().unwrap());
+        let backend = CodexBackend {
+            endpoint: url.clone(),
+            model: "fixture".into(),
+            headers: Vec::new(),
+        };
+        let client = build_http_client(&ProxyConfig::Disabled).unwrap();
+        let outcome = search_one_query(
+            SearchBackend::Codex,
+            SearchQuery {
+                q: "security".into(),
+                locale: Some("cn-zh".into()),
+                ..Default::default()
+            },
+            5,
+            Some(&backend),
+            None,
+            &client,
+            &url,
+        )
+        .await;
+        assert_eq!(
+            outcome.attempts[0].failure.as_ref().unwrap().code,
+            SearchErrorCode::UnsupportedFilter
+        );
+        assert!(!outcome.attempts[0].dispatched);
+        assert!(outcome.fallback.is_none());
+        assert!(
+            matches!(listener.accept(),Err(error) if error.kind()==std::io::ErrorKind::WouldBlock)
+        );
+        let output = WebSearchTool
+            .execute(
+                serde_json::json!({"query":"security","max_results":0}),
+                &ToolCtx::default(),
+            )
+            .await;
+        assert!(output.is_error && output.content.contains("max_results"));
+        assert!(serde_json::from_value::<WebSearchInput>(
+            serde_json::json!({"query":"security","locale":"cn-zh"})
+        )
+        .is_err());
+    }
+
     #[tokio::test]
     async fn a_changed_html_layout_is_not_evidence_of_zero_search_results() {
         let (url, server) = spawn_search_server(stub_response(
@@ -818,6 +923,7 @@ mod tests {
             q: "CodeBuddy security advisory".into(),
             recency: None,
             domains: Vec::new(),
+            ..Default::default()
         };
         let outcome = duckduckgo_outcome(query, 5, &client, &url, None).await;
         server.join().unwrap();
@@ -839,6 +945,7 @@ mod tests {
             q: "rust".into(),
             recency: None,
             domains: vec!["docs.rs".into()],
+            ..Default::default()
         };
         let backend = CodexBackend {
             endpoint,
@@ -866,10 +973,11 @@ mod tests {
         server.join().unwrap();
         assert!(!allowed_result(
             "https://docs.rs.evil.example/a",
-            &query.domains
+            &query.domains,
+            &[]
         ));
-        assert!(allowed_result("https://sub.docs.rs/a", &query.domains));
-        assert!(!allowed_result("file:///C:/secret", &[]));
+        assert!(allowed_result("https://sub.docs.rs/a", &query.domains, &[]));
+        assert!(!allowed_result("file:///C:/secret", &[], &[]));
         assert_eq!(
             decode_result_url(
                 "//duckduckgo.com/l/?uddg=https%3A%2F%2Fdocs.rs%2F%E4%B8%AD%E6%96%87"
@@ -965,6 +1073,7 @@ mod tests {
                 q: "rust release".into(),
                 recency: Some(SearchRecency::Week),
                 domains: vec!["docs.rs".into(), "docs.rs".into()],
+                ..Default::default()
             }]),
         )
         .unwrap();
@@ -1055,6 +1164,7 @@ mod tests {
                 q: "rust".into(),
                 recency: None,
                 domains: Vec::new(),
+                ..Default::default()
             },
             5,
             Some(&backend),
@@ -1092,6 +1202,7 @@ mod tests {
                 q: "rust".into(),
                 recency: None,
                 domains: Vec::new(),
+                ..Default::default()
             },
             5,
             Some(&backend),
@@ -1131,6 +1242,7 @@ mod tests {
                 q: "Rust release".into(),
                 recency: Some(SearchRecency::Week),
                 domains: vec!["docs.rs".into()],
+                ..Default::default()
             },
             5,
             Some(&backend),
@@ -1180,6 +1292,7 @@ mod tests {
                 q: "Rust release".into(),
                 recency: None,
                 domains: Vec::new(),
+                ..Default::default()
             },
             5,
         )
