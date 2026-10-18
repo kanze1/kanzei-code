@@ -324,8 +324,10 @@ export function lineName(line, item = processItems.find((process) => process.id 
 // 前端的待答队列是这件事的真源;后端 line_status 只看事件流与工作树有没有动静。
 export function lineWaitingFor(item) {
   if (!item?.session_id) return "";
-  const queue = askQueues.get(item.session_id);
-  if ((queue && queue.length > 0) || askActive?.sessionId === item.session_id) return "approval";
+  const pending = [...(askQueues.get(item.session_id) || [])];
+  if (askActive?.sessionId === item.session_id) pending.push(askActive);
+  if (pending.some((request) => request.kind !== "question")) return "approval";
+  if (pending.some((request) => request.kind === "question" && !request.background)) return "answer";
   return awaitingUserSessions.has(item.session_id) ? "answer" : "";
 }
 
@@ -336,7 +338,7 @@ export function lineStatusKey(line, lineRunning, waiting = "", stopping = false)
   if (waiting === "approval") return "awaiting_approval";
   if (waiting === "answer" && !lineRunning) return "awaiting_answer";
   const status = line.status;
-  if (["running", "queued", "suspected_stuck", "failed", "incomplete", "completed", "stopped", "idle"].includes(status)) {
+  if (["starting", "running", "queued", "awaiting_approval", "awaiting_answer", "suspected_stuck", "failed", "incomplete", "interrupted", "unavailable", "completed", "stopped", "idle"].includes(status)) {
     return status;
   }
   // 兼容旧快照/测试桩：后端升级前仍按既有 running 字段显示，不猜测卡住。
@@ -345,6 +347,7 @@ export function lineStatusKey(line, lineRunning, waiting = "", stopping = false)
 
 export function lineStatusLabel(status) {
   return {
+    starting: t("启动中"),
     running: t("运行中"),
     queued: t("排队"),
     stopping: t("停止中…"),
@@ -353,6 +356,8 @@ export function lineStatusLabel(status) {
     suspected_stuck: t("疑似卡住"),
     failed: t("失败"),
     incomplete: t("未完成"),
+    interrupted: t("已中断"),
+    unavailable: t("运行状态未确认"),
     completed: t("完成"),
     stopped: t("已停止"),
     idle: t("空闲"),

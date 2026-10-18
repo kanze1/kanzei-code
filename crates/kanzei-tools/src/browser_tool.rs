@@ -101,6 +101,14 @@ impl kanzei_harness::Tool for BrowserTool {
         kanzei_harness::ToolConcurrency::shared_worktree(ctx)
     }
 
+    fn permission_resources(
+        &self,
+        input: &serde_json::Value,
+        ctx: &kanzei_harness::ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        permission_resources(self.resources_with_ctx(input, ctx))
+    }
+
     async fn execute(&self, input: serde_json::Value, ctx: &kanzei_harness::ToolCtx) -> ToolOutput {
         match parse_browser_input(input) {
             Ok(parsed) => execute_headless(parsed, ctx, false).await,
@@ -116,7 +124,9 @@ pub fn description() -> String {
      (errors/warnings; all=true for every level), click, type, press (key), scroll, wait \
      (selector/text/ms ≤10000), eval (JS expression → JSON). Targets: url (http/https), path \
      (local HTML, served from a 127.0.0.1 static server so ES modules work) or html (inline \
-     snippet). Stateful: open once, then omit url/path/html to keep the current page. Optional \
+     snippet). A local file grants that page and static frontend assets; open a directory \
+     explicitly to grant its non-sensitive data files for local fetch. Stateful: open once, \
+     then omit url/path/html to keep the current page. Optional \
      viewport (mobile/tablet/desktop presets) and color_scheme (light|dark). In the desktop \
      app, when the user has the web preview pane open on this conversation, actions drive that \
      visible pane; otherwise a headless Edge/Chrome. Result line 1 names the backend."
@@ -316,6 +326,20 @@ fn absolute(cwd: &Path, path: &Path) -> PathBuf {
 }
 
 fn local_target(path: &Path, cwd: &Path, project_root: &Path) -> Result<NavTarget, String> {
+    use kanzei_harness::permission::{execution_rules, Effect, FileResource, ScopedFile};
+    let access = ScopedFile::resolve(cwd, project_root, path).map_err(|error| error.to_string())?;
+    let resource = FileResource::resolve(cwd, path).map_err(|error| error.to_string())?;
+    if let Some(sensitivity) = resource.sensitivity() {
+        if !execution_rules().is_some_and(|rules| {
+            rules.evaluate_file_with_rule("browser", &resource).0 == Effect::Allow
+        }) {
+            return Err(format!(
+                "SENSITIVE_FILE_APPROVAL_REQUIRED: {} is a {}",
+                access.path().display(),
+                sensitivity.description()
+            ));
+        }
+    }
     if !path.exists() {
         return Err(format!("本地文件不存在: {}", path.display()));
     }
@@ -324,20 +348,14 @@ fn local_target(path: &Path, cwd: &Path, project_root: &Path) -> Result<NavTarge
         .filter(|root| !root.as_os_str().is_empty())
         .map(|root| root.to_path_buf())
         .collect();
-    match crate::preview_server::global() {
-        Ok(server) => Ok(NavTarget {
-            url: server.url_for_path(path, &roots)?,
-            note: None,
-        }),
-        Err(error) => Ok(NavTarget {
-            url: file_url(path)?,
-            note: Some(format!(
-                "预览静态服务不可用({error}),已回落 file:// 打开;ES module 与 fetch 相对资源在 file:// 下可能失败"
-            )),
-        }),
-    }
+    let server = crate::preview_server::global()?;
+    Ok(NavTarget {
+        url: server.url_for_path(path, &roots)?,
+        note: None,
+    })
 }
 
+#[cfg(test)]
 fn file_url(path: &Path) -> Result<String, String> {
     let abs = std::fs::canonicalize(path)
         .map_err(|e| format!("本地文件不存在或无法解析: {} ({e})", path.display()))?;
@@ -376,9 +394,22 @@ pub fn resources_for(
     }
 }
 
+pub fn permission_resources(resources: Vec<String>) -> Vec<kanzei_harness::permission::Resource> {
+    resources
+        .into_iter()
+        .map(|resource| match resource.strip_prefix("path:") {
+            Some(path) => kanzei_harness::permission::Resource::File(path.into()),
+            None => kanzei_harness::permission::Resource::Literal(resource),
+        })
+        .collect()
+}
+
 /// 单个 URL 的权限资源形态。
 pub fn url_resource(url: &str) -> String {
     let url = url.trim();
+    if let Some(path) = crate::preview_server::granted_path(url) {
+        return format!("path:{}", path.display());
+    }
     let Ok(parsed) = reqwest::Url::parse(url) else {
         return format!("url:{url}");
     };
@@ -881,7 +912,10 @@ mod tests {
         })
         .unwrap()
         .unwrap();
-        assert!(by_path.url.starts_with("http://127.0.0.1:"), "{by_path:?}");
+        assert!(
+            crate::preview_server::owned_url(&by_path.url),
+            "{by_path:?}"
+        );
         assert!(by_path.url.ends_with("/page%20one.html"), "{by_path:?}");
         assert!(by_path.note.is_none());
 

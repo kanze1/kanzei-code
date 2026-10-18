@@ -8,13 +8,13 @@
 | --- | --- | --- |
 | RUN-01 | 待实施 | 相同调查任务的正确性及上下文消耗对照 |
 | RUN-02 | 待实施 | 双会话实际并行调查与无冲突写入 |
-| RUN-03 | 已修成功终态同步及队列投影，待完整验收 | 批准等待、重启恢复及真实 UI 状态一致 |
+| RUN-03 | 桌面 628 项单测通过，含输入启动失败/取消/排队的重启恢复，待状态操作验收 | 真实 UI 状态及故障恢复一致 |
 | RUN-04 | 待实施 | 引擎事实进入报告，日期及构建信息正确 |
-| SEC-01 | 待实施 | 多个内容访问出口的敏感资源正反测试 |
-| SEC-02 | 待实施 | 真实浏览器不能读取未授权 sibling 或外传 |
+| SEC-01 | 统一敏感策略及六个文件工具已修，待整体操作验收 | 子代理、预览及批准后的实际行为 |
+| SEC-02 | 页面/目录能力、独立来源已实现，真实 Edge 与原生内部面板均通过 | 最终 HEAD 完整门禁及发布版复验 |
 | SEC-03 | 定向反例先失败后通过，待完整验收 | 子代理、并行及串行路径的整体回归 |
 | SEC-04 | 待实施 | OS 文件、网络与进程树隔离实测 |
-| SEC-05 | 待实施 | 宽授权下敏感启动配置的专项策略 |
+| SEC-05 | 启动配置已纳入精确授权策略，待操作验收 | 创建、改写及宽授权场景 |
 | SEC-06 | 待实施 | 外部内容标记及对抗网页操作验收 |
 | SEC-07 | 待实施 | 只读子代理错误快照负向用例 |
 | WEB-01 | 14 项搜索回归通过，含无跨服务 HTTP 断言 | 软件内搜索与最终完整门禁 |
@@ -39,8 +39,14 @@
 - 成功收尾反例：durable_outcome_commits_before_success_publication 原实现断言失败，LiveRun.last_outcome 为 None，预期 completed。修复后 durable_outcome 系列 10 项通过。
 - 步数反例：真实 runner 的 mock provider 在最后一步返回工具调用，原实现生成 forbidden-side-effect 文件。修复后 exhausted_budget_rejects_provider_tool_calls_before_side_effects 通过，调用在子代理派发和普通工具执行之前被拒绝。
 - UI 状态：ui-state-admission-smoke 16 项通过；parallel-lines-regression 和已改 UI 文件 ESLint 通过。这些是 UI 冒烟，尚不能证明安装版桌面操作验收。
-- 协作状态：collaboration::tests 5 项通过，含真实协调器排队快照、completed/incomplete/queued 投影。
+- 协作状态：桌面单测 628 项通过，含 10 项协作模块用例，覆盖真实协调器排队、待批准、启动失败、取消和重启后最新输入事实；终态提交在生命周期锁内完成。
 - 搜索路由：websearch::tests 14 项通过，使用本机 HTTP 服务确认显式 DDG 不连接 Codex、显式 Codex 失败不连接 DDG、auto 只按 primary 判定。
+- 敏感资源：通配 Allow 读取 .env 的反例先失败；统一策略后 permission:: 系列 38 项通过。六个文件工具、递归搜索、精确授权读取的联合用例通过；真实执行器确认 AutoAllow 与通配会话规则不能放行凭据，精确人工授权可到达串行与并行的实际 I/O。
+- 浏览器与静态服务：preview_server::tests 19 项通过，含伪造 Host/跨授权路由拒绝。普通 sibling 数据反例先得到 200，修复后得到 403，显式目录能力仍可读取其数据且不扩大旧页面能力。真实 Edge 两条联合测试通过：ES module 正常、私有文本/凭据/JSON 均为 403、外传请求数为 0；两个页面的 localStorage、Cookie 和跨来源读取隔离。
+- 原生 Kanzei 软件操作：ui-browser-security-native-smoke 8 项通过（真实 Rust 静态服务与 WebView2，隔离配置及临时项目）。模块加载、私有数据 403、独立页面存储、返回页面恢复、跨来源读取被拒绝、应用协议拒绝；预览页实际调用 app_info 得到 `app_info not allowed. Plugin not found`。证据 output/playwright/browser-security/native/acceptance.json 及 native-preview.png；该次构建为 dev，正式发布版仍需复验。
+- 上下文组装：context_assembly 10 项通过，保留原有完整来源、刷新失败和容量边界回归。
+- 三个受影响库的首轮全量结果：core 425 通过，harness 217 通过，tools 883 通过、1 失败、3 ignored。唯一失败是旧浏览器默认文件放行断言，已按新的结构化文件授权契约修改且 base::tests 2 项复跑通过；这不是最终完整门禁结果。
+- UI runtime 使用验证清单要求的 VM Modules 模式通过：127 个模块、3392 次 invoke、11 个视图切换、0 运行时错误。
 
 ## 发布验收
 

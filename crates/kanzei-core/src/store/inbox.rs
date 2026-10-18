@@ -177,6 +177,22 @@ impl SessionStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// Admission order also covers startup failures and stops before a typed turn exists.
+    pub fn latest_input_status(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, String)>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT input_id, status FROM session_inputs WHERE session_id = ?1
+             ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     pub fn cancel_input(&self, session_id: &str, input_id: &str) -> Result<bool, StoreError> {
         let changed = self.connection.execute(
             "UPDATE session_inputs SET status = 'cancelled'

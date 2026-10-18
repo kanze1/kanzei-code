@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use kanzei_harness::{Component, Harness, HarnessDraft, ResolveCtx, ToolOutput};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
 #[derive(Default)]
@@ -60,6 +60,134 @@ impl Tool for CleanupProbe {
 }
 
 struct Policy;
+
+#[derive(Default)]
+struct SensitiveProbe(AtomicUsize);
+
+#[async_trait]
+impl Tool for SensitiveProbe {
+    fn name(&self) -> &'static str {
+        "sensitive_probe"
+    }
+    fn action(&self) -> &'static str {
+        "read"
+    }
+    fn description(&self) -> String {
+        "credential consent fixture".into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        json!({"type":"object"})
+    }
+    fn permission_resources(
+        &self,
+        _: &serde_json::Value,
+        _: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        vec![kanzei_harness::permission::Resource::File(".env".into())]
+    }
+    fn concurrency(&self, _: &serde_json::Value, _: &ToolCtx) -> kanzei_harness::ToolConcurrency {
+        kanzei_harness::ToolConcurrency::Shared("sensitive-fixture".into())
+    }
+    async fn execute(&self, _: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let resource = kanzei_harness::permission::FileResource::resolve(
+            &ctx.cwd,
+            std::path::Path::new(".env"),
+        )
+        .unwrap();
+        assert_eq!(
+            kanzei_harness::permission::execution_rules()
+                .unwrap()
+                .evaluate_file_with_rule("read", &resource)
+                .0,
+            Effect::Allow,
+            "the approved grant must reach actual I/O, including parallel calls"
+        );
+        self.0.fetch_add(1, Ordering::SeqCst);
+        ToolOutput::ok(std::fs::read_to_string(ctx.cwd.join(".env")).unwrap())
+    }
+}
+
+#[tokio::test]
+async fn credentials_ignore_auto_allow_and_broad_session_rules_but_honor_exact_user_consent() {
+    for ask_policy in [AskPolicy::AutoAllow, AskPolicy::Interactive] {
+        let root = std::env::temp_dir().join(format!(
+            "kz-sensitive-execution-{}-{ask_policy:?}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(".env"), "FIXTURE_SECRET").unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut harness = Harness::default();
+        harness.add(Policy);
+        let snapshot = harness
+            .resolve(&ResolveCtx {
+                profile: kanzei_harness::ProfileKind::Dev,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: Arc::new(Default::default()),
+            })
+            .unwrap();
+        let mut config = config(kanzei_harness::orchestration::ExecutionPolicy::Default);
+        config.ask_policy = ask_policy;
+        let probe = Arc::new(SensitiveProbe::default());
+        let tools: Vec<Arc<dyn Tool>> = vec![probe.clone()];
+        let calls = (0..2)
+            .map(|index| {
+                (
+                    format!("secret-{index}"),
+                    "sensitive_probe".into(),
+                    json!({}),
+                    "{}".into(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut approved = HashSet::new();
+        let mut session_rules = vec![("read".into(), "*".into())];
+        let questions = AtomicUsize::new(0);
+        for _ in 0..2 {
+            let mut ask = |request| -> AskFuture {
+                assert!(
+                    matches!(request, AskRequest::Permission { ref resource, .. } if resource == ".env")
+                );
+                questions.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async { AskResponse::Permission(AskReply::AllowOnce) })
+            };
+            let outcome = execute_tool_calls(
+                &config,
+                &ctx,
+                &snapshot,
+                &mut Vec::new(),
+                &mut Vec::new(),
+                &tools,
+                &calls,
+                None,
+                &mut HashMap::new(),
+                false,
+                None,
+                &mut |_| {},
+                &mut ask,
+                &mut approved,
+                &mut session_rules,
+                &mut Vec::new(),
+                1,
+                &batch::Batch::new(false),
+            )
+            .await
+            .unwrap();
+            let ToolRunOutcome::Results { results, .. } = outcome else {
+                panic!("consent fixture cannot stop")
+            };
+            assert_eq!(results.len(), 2);
+        }
+        let interactive = matches!(ask_policy, AskPolicy::Interactive);
+        assert_eq!(
+            probe.0.load(Ordering::SeqCst),
+            if interactive { 4 } else { 0 }
+        );
+        assert_eq!(questions.load(Ordering::SeqCst), usize::from(interactive));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
 impl Component for Policy {
     fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {
         draft.permissions.extend([

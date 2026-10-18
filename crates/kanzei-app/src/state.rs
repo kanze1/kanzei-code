@@ -203,6 +203,14 @@ pub(crate) struct LiveRun {
     pub(crate) flushed: bool,
 }
 impl LiveRun {
+    pub(crate) fn prepare(&mut self, input_id: Option<&str>, prompt_head: &str) {
+        *self = Self {
+            input_id: input_id.unwrap_or_default().into(),
+            prompt_head: prompt_head.chars().take(200).collect(),
+            ..Self::default()
+        };
+    }
+
     pub(crate) fn begin(
         &mut self,
         run_id: &str,

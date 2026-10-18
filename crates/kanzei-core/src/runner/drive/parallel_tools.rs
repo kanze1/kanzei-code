@@ -20,7 +20,10 @@ pub(super) struct ParallelPreflight<'a> {
     pub(super) force_serial: bool,
 }
 
-pub(super) struct ParallelPlan(Vec<Option<PermissionPlan>>);
+pub(super) struct ParallelPlan {
+    calls: Vec<Option<PermissionPlan>>,
+    permissions: kanzei_harness::permission::Ruleset,
+}
 
 pub(super) fn prepare_parallel_tool_calls(request: ParallelPreflight<'_>) -> Option<ParallelPlan> {
     let ParallelPreflight {
@@ -56,7 +59,14 @@ pub(super) fn prepare_parallel_tool_calls(request: ParallelPreflight<'_>) -> Opt
         plans.push(Some(plan));
         ordinary_count += 1;
     }
-    (ordinary_count >= 2).then_some(ParallelPlan(plans))
+    (ordinary_count >= 2).then_some(ParallelPlan {
+        calls: plans,
+        permissions: super::permissions::execution_permissions(
+            snapshot,
+            session_approved,
+            session_rules,
+        ),
+    })
 }
 
 pub(super) struct ParallelToolRequest<'a> {
@@ -93,7 +103,7 @@ pub(super) async fn execute_parallel_tool_calls(
     let mut slots: Vec<Option<Part>> = std::iter::repeat_with(|| None).take(calls.len()).collect();
     let mut prepared = Vec::new();
     for ((index, (id, name, input, raw_input)), permission) in
-        calls.iter().cloned().enumerate().zip(plan.0)
+        calls.iter().cloned().enumerate().zip(plan.calls)
     {
         if name == "task" && subagent.is_some() {
             let output = task_results.remove(&id).unwrap_or_else(|| {
@@ -141,7 +151,7 @@ pub(super) async fn execute_parallel_tool_calls(
         config.limits.max_parallel_tools(),
         images_supported,
         on_event,
-        snapshot.permissions(),
+        &plan.permissions,
         halt,
     )
     .await;

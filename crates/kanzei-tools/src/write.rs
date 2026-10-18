@@ -19,9 +19,9 @@ struct WriteInput {
 pub struct WriteTool;
 
 /// A failed receipt never changes the file. The ledger is optional for standalone callers.
-pub(crate) fn check_read_receipt(ctx: &ToolCtx, path: &Path) -> Option<ToolOutput> {
+pub(crate) fn check_read_receipt(ctx: &ToolCtx, path: &Path, action: &str) -> Option<ToolOutput> {
     let ledger = ctx.read_ledger.as_ref()?;
-    let access = match crate::file_access::resolve(ctx, path) {
+    let access = match crate::file_access::resolve(ctx, path, action) {
         Ok(access) => access,
         Err(output) => return Some(*output),
     };
@@ -152,7 +152,7 @@ pub(crate) async fn file_checkpointed_write(
                     std::io::Error::other("FILE_WRITE_BUSY: 另一个写入正在进行，请稍后重新 read")
                 })?;
         let check = || {
-            if let Some(output) = check_read_receipt(&ctx, &path) {
+            if let Some(output) = check_read_receipt(&ctx, &path, "write") {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     format!(
@@ -335,12 +335,12 @@ impl Tool for WriteTool {
             Ok(v) => v,
             Err(out) => return out,
         };
-        let access = match crate::file_access::resolve(ctx, Path::new(&input.path)) {
+        let access = match crate::file_access::resolve(ctx, Path::new(&input.path), self.action()) {
             Ok(access) => access,
             Err(output) => return *output,
         };
         let path = access.path().to_path_buf();
-        if let Some(output) = check_read_receipt(ctx, &path) {
+        if let Some(output) = check_read_receipt(ctx, &path, self.action()) {
             return output;
         }
         if let Err(error) = access.create_parent() {

@@ -97,9 +97,19 @@ pub(crate) async fn run_task(
 
     // D-342:换代 + 安装本 run 的停止令牌。换代在前——stop 的兜底硬杀按代数比对,
     // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
-    handles.run_generation.fetch_add(1, Ordering::SeqCst);
     let halt_token = kanzei_core::CancellationToken::new();
-    *handles.halt_slot.lock_or_recover() = Some(halt_token.clone());
+    {
+        let _lifecycle = handles.lifecycle.lock_or_recover();
+        handles.run_generation.fetch_add(1, Ordering::SeqCst);
+        *handles.halt_slot.lock_or_recover() = Some(halt_token.clone());
+        handles.live_run.lock_or_recover().prepare(
+            request
+                .promoted_input
+                .as_ref()
+                .map(|input| input.input_id.as_str()),
+            &request.prompt,
+        );
+    }
 
     let RunAssembly {
         deps,
@@ -154,13 +164,6 @@ pub(crate) async fn run_task(
     };
     // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
     let live = handles.live_run.clone();
-    live.lock_or_recover().begin(
-        &run_id,
-        &promoted_input_id,
-        &prompt,
-        &deps.resolved.provider_name,
-        &deps.resolved.model,
-    );
     let trace_log = live.clone();
     // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
     // 于是"时间花在模型、shell 还是等用户""用户点了几次权限"事后统统无从查证,

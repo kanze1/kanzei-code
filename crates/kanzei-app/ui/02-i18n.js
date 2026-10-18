@@ -17,6 +17,7 @@ export const I18N_EN = {
   "运行事件订阅失败": "Runtime event subscription failed",
   "草稿恢复或保存失败": "Draft recovery or save failed",
   "本轮未完成": "Turn incomplete",
+  "已中断": "Interrupted",
   "更新已完成": "Update completed",
   "更新失败": "Update failed",
   "等待重启": "Waiting for restart",

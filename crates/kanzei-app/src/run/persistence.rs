@@ -330,6 +330,9 @@ fn persist_round_outcome_with_effects(
             typed_events::TerminalFact::Failed(error.to_string()),
             &json!({ "error": error.to_string() }),
         );
+        if failure_result.is_ok() {
+            flush_live_run(&store, session_id, live, "failed");
+        }
         drop(lifecycle);
         if run_result.is_ok() {
             (effects.report)("提交运行结果", error.to_string());
@@ -342,7 +345,6 @@ fn persist_round_outcome_with_effects(
         }
         record_transaction_budget_result(&store, session_id, run_id, "failed");
         typed_writer.lock_or_recover().write_shadow_report(prior);
-        flush_live_run(&store, session_id, live, "failed");
         if let Err(notification_error) =
             append_run_notification(&store, session_id, "failed", error.to_string(), false)
         {
@@ -359,13 +361,13 @@ fn persist_round_outcome_with_effects(
         }
         return Err(error);
     }
-    drop(lifecycle);
     // The provider error remains available to coordinator's caller, but a stop
     // that won before durable finalization owns this terminal. Do not publish a
     // successful provider result or mark its cancelled input failed.
     if run_result.is_err() {
-        typed_writer.lock_or_recover().write_shadow_report(prior);
         flush_live_run(&store, session_id, live, "halted");
+        drop(lifecycle);
+        typed_writer.lock_or_recover().write_shadow_report(prior);
         return Ok(PersistedRoundOutcome {
             store,
             stopped: true,
@@ -375,6 +377,7 @@ fn persist_round_outcome_with_effects(
         .as_ref()
         .expect("successful durable outcome has a summary");
     live.lock_or_recover().finish(summary.outcome());
+    drop(lifecycle);
     record_transaction_budget_result(&store, session_id, run_id, summary.outcome());
     let this_run = &summary.round_messages;
     (effects.harvest)(this_run);
@@ -1405,6 +1408,9 @@ mod tests {
                     .len(),
                 1
             );
+            let completed = store.latest_event("ses", "run.completed").unwrap().unwrap();
+            assert_eq!(completed.payload["input_id"], "input");
+            assert_eq!(completed.payload["run_id"], "run");
             assert_eq!(
                 notifications
                     .iter()

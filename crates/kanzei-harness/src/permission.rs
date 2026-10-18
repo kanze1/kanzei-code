@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 
 mod filesystem;
 mod scoped_file;
+mod sensitivity;
 pub use filesystem::{execution_rules, FileResource, Resource};
 pub use scoped_file::{EntryKind, ScopedEntry, ScopedFile};
+pub use sensitivity::{file_sensitivity, FileSensitivity};
 
 /// bash 工具的权限 action 名。**这是 D-269 全部分流判据的唯一出处**——
 /// [`normalize_resource_for_action`] 与 [`resource_match_for_action`] 都靠它决定

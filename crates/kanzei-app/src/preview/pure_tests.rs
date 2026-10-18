@@ -94,7 +94,8 @@ fn normalize_target_本地路径含空格与中文() {
         .contains("项目上下文"));
     // 换成静态服务 URL:中文与空格被百分号编码。
     let url = resolve_target(&cjk.display().to_string(), &roots).unwrap();
-    assert!(url.starts_with("http://127.0.0.1:"), "{url}");
+    assert!(kanzei_tools::preview_server::owned_url(&url), "{url}");
+    assert!(nav_allowed(&Url::parse(&url).unwrap()), "{url}");
     assert!(
         url.contains("%E4%B8%AD%E6%96%87%20%E7%9B%AE%E5%BD%95"),
         "{url}"

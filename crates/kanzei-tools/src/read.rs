@@ -95,7 +95,7 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         Err(out) => return out,
     };
     let path = ctx.cwd.join(&input.path);
-    let access = match crate::file_access::resolve(ctx, &path) {
+    let access = match crate::file_access::resolve(ctx, &path, tool.action()) {
         Ok(access) => access,
         Err(output) => return *output,
     };

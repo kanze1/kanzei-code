@@ -1,6 +1,7 @@
 //! 网页预览静态服务(UI2-0926 #8,docs/design/preview_pane.md §2)。
 //!
-//! 本地 HTML 与模型写的代码片段一律经这里以 `http://127.0.0.1:<随机端口>` 提供,
+//! 本地 HTML 经每个授权范围独立的 `http://r-<随机id>.localhost:<端口>` 提供,
+//! 内存片段经 `http://127.0.0.1:<端口>` 提供。
 //! **不用** file://,也**不用** Tauri 的 register_uri_scheme_protocol:
 //! - file:// 下 ES module 与 fetch 相对资源会失败,多文件页面常常白屏;
 //! - 自注册的 custom protocol 在 Windows 上形如 `http://<proto>.localhost`,Tauri 的
@@ -24,7 +25,7 @@
 //!   仍限定在同一个根内。
 //! - 片段(`/s/`)的响应带 [`SNIPPET_CSP`](`sandbox` 且不给 `allow-same-origin`):片段落到不透明源,
 //!   里面的脚本即使从自己的 URL 拿到 token,也读不了同源的 `/r/` 项目文件、碰不到本源的存储;
-//!   项目文件(`/r/`)不加——那是用户自己的页面,ES module、fetch 相对资源、localStorage 都要同源。
+//!   项目文件(`/r/`)使用独立的未注册协议子域，保留 ES module 与页内存储；Host 必须与 root_id 匹配。
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -69,8 +70,39 @@ struct Root {
     id: String,
     /// `std::fs::canonicalize` 的结果(Windows 上是 `\\?\` 形态),与请求侧同一口径比较。
     dir: PathBuf,
-    /// 单文件根:只提供这一个文件(canonical)。目录太宽(盘符根、用户主目录及其上级)时用。
-    only: Option<PathBuf>,
+    scope: PreviewScope,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum PreviewScope {
+    /// The caller explicitly opened this directory, not one page within it.
+    Directory,
+    /// A page and frontend assets; arbitrary sibling documents/data are excluded.
+    Page(PathBuf),
+    /// Broad locations such as the home directory never expose dependencies.
+    FileOnly(PathBuf),
+}
+
+impl PreviewScope {
+    fn permits(&self, file: &Path) -> bool {
+        match self {
+            Self::Directory => true,
+            Self::FileOnly(entry) => entry == file,
+            Self::Page(entry) => {
+                let mime = mime_for(file);
+                entry == file
+                    || matches!(
+                        mime,
+                        "text/javascript; charset=utf-8"
+                            | "text/css; charset=utf-8"
+                            | "application/wasm"
+                    )
+                    || ["image/", "font/", "audio/", "video/"]
+                        .iter()
+                        .any(|prefix| mime.starts_with(prefix))
+            }
+        }
+    }
 }
 
 static SERVER: Mutex<Option<&'static PreviewServer>> = Mutex::new(None);
@@ -153,7 +185,42 @@ impl PreviewServer {
 
     /// 这个 URL 是不是本服务发出的(带本次运行的 token)。
     pub fn owns_url(&self, url: &str) -> bool {
-        url.starts_with(&self.prefix())
+        let Ok(url) = reqwest::Url::parse(url) else {
+            return false;
+        };
+        if url.scheme() != "http"
+            || url.port() != Some(self.port)
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return false;
+        }
+        let Some(rest) = url.path().strip_prefix(&format!("/t/{}/", self.token)) else {
+            return false;
+        };
+        if rest.starts_with("s/") {
+            return url.host_str() == Some("127.0.0.1");
+        }
+        let Some(rooted) = rest.strip_prefix("r/") else {
+            return false;
+        };
+        let id = rooted.split('/').next().unwrap_or("");
+        url.host_str() == Some(root_host(id).as_str()) && find_root(&self.registry, id).is_some()
+    }
+
+    /// Recover the original local grant, never a path supplied by a page.
+    pub fn granted_path(&self, url: &str) -> Option<PathBuf> {
+        if !self.owns_url(url) {
+            return None;
+        }
+        let url = reqwest::Url::parse(url).ok()?;
+        let prefix = format!("/t/{}/r/", self.token);
+        let id = url.path().strip_prefix(&prefix)?.split('/').next()?;
+        let root = find_root(&self.registry, id)?;
+        Some(match root.scope {
+            PreviewScope::Directory => root.dir,
+            PreviewScope::Page(entry) | PreviewScope::FileOnly(entry) => entry,
+        })
     }
 
     /// 登记一个根目录,返回它的 root_id(同一目录重复登记得到同一 id)。
@@ -163,14 +230,14 @@ impl PreviewServer {
         if !canonical.is_dir() {
             return Err(format!("不是目录: {}", dir.display()));
         }
-        register_in(&self.registry, canonical, None)
+        register_in(&self.registry, canonical, PreviewScope::Directory)
     }
 
     /// 把本地文件(或含 index.html 的目录)换成静态服务 URL。
     ///
-    /// `roots` 按优先级给出候选根(通常是代码树 cwd、项目主根):文件落在哪个根里就以它为根,
-    /// 这样页面里的 `../` 相对引用还能在根内解析;都不在时以文件所在目录为根。太宽的目录
-    /// (盘符根、用户主目录及其上级)不当目录根,只登记这一个文件。
+    /// A file grants the entry and static frontend assets beneath its code root.
+    /// Data/documents need an explicit directory grant; opening a nested directory
+    /// never grants its parent. Broad roots retain the single-file restriction.
     pub fn url_for_path(&self, target: &Path, roots: &[PathBuf]) -> Result<String, String> {
         let home = dirs::home_dir().and_then(|home| std::fs::canonicalize(home).ok());
         self.url_for_path_with_home(target, roots, home.as_deref())
@@ -192,30 +259,30 @@ impl PreviewServer {
                 target.display()
             ));
         }
-        let root = roots
-            .iter()
-            .filter_map(|root| std::fs::canonicalize(root).ok())
-            .find(|root| root.is_dir() && canonical.starts_with(root) && !too_broad(root, home))
-            .or_else(|| {
-                if is_dir {
-                    Some(canonical.clone())
-                } else {
-                    canonical.parent().map(Path::to_path_buf)
-                }
-            })
-            .ok_or_else(|| format!("无法确定 {} 的根目录", target.display()))?;
-        let only = if too_broad(&root, home) {
+        let root = if is_dir {
+            Some(canonical.clone())
+        } else {
+            roots
+                .iter()
+                .filter_map(|root| std::fs::canonicalize(root).ok())
+                .find(|root| root.is_dir() && canonical.starts_with(root) && !too_broad(root, home))
+                .or_else(|| canonical.parent().map(Path::to_path_buf))
+        }
+        .ok_or_else(|| format!("无法确定 {} 的根目录", target.display()))?;
+        let scope = if too_broad(&root, home) {
             let file = if is_dir {
                 std::fs::canonicalize(canonical.join("index.html"))
                     .map_err(|e| format!("index.html 无法解析: {e}"))?
             } else {
                 canonical.clone()
             };
-            Some(file)
+            PreviewScope::FileOnly(file)
+        } else if is_dir {
+            PreviewScope::Directory
         } else {
-            None
+            PreviewScope::Page(canonical.clone())
         };
-        let id = register_in(&self.registry, root.clone(), only)?;
+        let id = register_in(&self.registry, root.clone(), scope)?;
         let rel = canonical.strip_prefix(&root).unwrap_or(Path::new(""));
         let mut encoded: Vec<String> = rel
             .components()
@@ -224,7 +291,13 @@ impl PreviewServer {
         if is_dir {
             encoded.push(String::new());
         }
-        Ok(format!("{}r/{id}/{}", self.prefix(), encoded.join("/")))
+        Ok(format!(
+            "http://{}:{}/t/{}/r/{id}/{}",
+            root_host(&id),
+            self.port,
+            self.token,
+            encoded.join("/")
+        ))
     }
 
     /// 登记一段内存 HTML,返回它的 URL。同内容去重(LRU 里挪到最新)。
@@ -232,6 +305,27 @@ impl PreviewServer {
         let id = add_snippet_to(&self.registry, html)?;
         Ok(format!("{}s/{id}.html", self.prefix()))
     }
+}
+
+fn root_host(id: &str) -> String {
+    format!("r-{id}.localhost")
+}
+
+/// Look up an existing server without creating a new service as a side effect.
+pub fn owned_url(url: &str) -> bool {
+    SERVER
+        .lock()
+        .ok()
+        .and_then(|server| *server)
+        .is_some_and(|server| server.owns_url(url))
+}
+
+pub fn granted_path(url: &str) -> Option<PathBuf> {
+    SERVER
+        .lock()
+        .ok()
+        .and_then(|server| *server)?
+        .granted_path(url)
 }
 
 fn add_snippet_to(registry: &Mutex<Registry>, html: &str) -> Result<String, String> {
@@ -262,7 +356,7 @@ fn add_snippet_to(registry: &Mutex<Registry>, html: &str) -> Result<String, Stri
 fn register_in(
     registry: &Mutex<Registry>,
     dir: PathBuf,
-    only: Option<PathBuf>,
+    scope: PreviewScope,
 ) -> Result<String, String> {
     let mut registry = registry
         .lock()
@@ -270,7 +364,7 @@ fn register_in(
     if let Some(root) = registry
         .roots
         .iter()
-        .find(|root| root.dir == dir && root.only == only)
+        .find(|root| root.dir == dir && root.scope == scope)
     {
         return Ok(root.id.clone());
     }
@@ -278,7 +372,7 @@ fn register_in(
     registry.roots.push(Root {
         id: id.clone(),
         dir,
-        only,
+        scope,
     });
     Ok(id)
 }
@@ -403,6 +497,7 @@ pub fn mime_for(path: &Path) -> &'static str {
 struct Request {
     method: String,
     target: String,
+    host: String,
     referer: Option<String>,
 }
 
@@ -485,9 +580,18 @@ fn respond(registry: &Mutex<Registry>, token: &str, request: &Request) -> Respon
         .to_string();
     let prefix = format!("/t/{token}/");
     let Some(rest) = raw_path.strip_prefix(&prefix) else {
-        return respond_rooted(registry, token, &raw_path, request.referer.as_deref());
+        return respond_rooted(
+            registry,
+            token,
+            &raw_path,
+            &request.host,
+            request.referer.as_deref(),
+        );
     };
     if let Some(name) = rest.strip_prefix("s/") {
+        if request.host != "127.0.0.1" {
+            return Response::status(403);
+        }
         // 片段一律沙箱化(含 404):不透明源,读不到同源的 /r/ 项目文件(见 SNIPPET_CSP)。
         let mut response = snippet_response(registry, name);
         response.csp = Some(SNIPPET_CSP);
@@ -500,6 +604,9 @@ fn respond(registry: &Mutex<Registry>, token: &str, request: &Request) -> Respon
     let Some(root) = find_root(registry, root_id) else {
         return Response::status(404);
     };
+    if request.host != root_host(root_id) {
+        return Response::status(403);
+    }
     let Some(decoded) = percent_decode(rel) else {
         return Response::status(400);
     };
@@ -556,7 +663,9 @@ fn serve_file(root: &Root, segments: &[&str], wants_dir: bool, raw_path: &str) -
             response.location = Some(format!("{raw_path}/"));
             return response;
         }
-        let index = canonical.join("index.html");
+        let Ok(index) = std::fs::canonicalize(canonical.join("index.html")) else {
+            return Response::status(404);
+        };
         if !index.is_file() {
             return Response::status(404);
         }
@@ -564,9 +673,20 @@ fn serve_file(root: &Root, segments: &[&str], wants_dir: bool, raw_path: &str) -
     } else {
         canonical
     };
-    if root.only.as_ref().is_some_and(|only| *only != file) {
-        // 单文件根:同目录的其它文件一律不给。
+    if !file.starts_with(&root.dir) {
         return Response::status(404);
+    }
+    if !root.scope.permits(&file) {
+        return Response::status(if matches!(root.scope, PreviewScope::FileOnly(_)) {
+            404
+        } else {
+            403
+        });
+    }
+    // Serving a project is not consent to disclose credentials or startup files
+    // to page scripts. Direct and Referer-rooted requests share this boundary.
+    if kanzei_harness::permission::file_sensitivity(&file).is_some() {
+        return Response::status(403);
     }
     match std::fs::metadata(&file) {
         // 项目文件不加 CSP:用户自己的页面,多文件页面要同源(ES module、fetch 相对资源、存储)。
@@ -587,6 +707,7 @@ fn respond_rooted(
     registry: &Mutex<Registry>,
     token: &str,
     raw_path: &str,
+    host: &str,
     referer: Option<&str>,
 ) -> Response {
     let fallback = || {
@@ -600,6 +721,12 @@ fn respond_rooted(
     let Some(referer) = referer else {
         return fallback();
     };
+    let Ok(referer_url) = reqwest::Url::parse(referer) else {
+        return fallback();
+    };
+    if referer_url.scheme() != "http" || referer_url.host_str() != Some(host) {
+        return fallback();
+    }
     let referer_path = referer
         .split_once("://")
         .map(|(_, rest)| rest)
@@ -612,6 +739,9 @@ fn respond_rooted(
         return fallback();
     };
     let (root_id, referer_rel) = rooted.split_once('/').unwrap_or((rooted, ""));
+    if host != root_host(root_id) {
+        return fallback();
+    }
     let Some(root) = find_root(registry, root_id) else {
         return fallback();
     };
@@ -653,6 +783,7 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
     let method = parts.next()?.to_string();
     let target = parts.next()?.to_string();
     let mut referer = None;
+    let mut host = None;
     loop {
         let mut header = String::new();
         match reader.read_line(&mut header) {
@@ -660,6 +791,21 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
             Ok(_) if header == "\r\n" || header == "\n" => break,
             Ok(_) => {
                 if let Some((name, value)) = header.split_once(':') {
+                    if name.trim().eq_ignore_ascii_case("host") {
+                        if host.is_some() {
+                            return None;
+                        }
+                        let url = reqwest::Url::parse(&format!("http://{}/", value.trim())).ok()?;
+                        if !url.username().is_empty()
+                            || url.password().is_some()
+                            || url.path() != "/"
+                            || url.query().is_some()
+                            || url.fragment().is_some()
+                        {
+                            return None;
+                        }
+                        host = Some(url.host_str()?.to_string());
+                    }
                     if name.trim().eq_ignore_ascii_case("referer") {
                         referer = Some(value.trim().to_string());
                     }
@@ -671,6 +817,7 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
     Some(Request {
         method,
         target,
+        host: host?,
         referer,
     })
 }
@@ -751,7 +898,12 @@ mod tests {
 
     fn registry_with(dir: &Path) -> (Mutex<Registry>, String) {
         let registry = Mutex::new(Registry::default());
-        let id = register_in(&registry, std::fs::canonicalize(dir).unwrap(), None).unwrap();
+        let id = register_in(
+            &registry,
+            std::fs::canonicalize(dir).unwrap(),
+            PreviewScope::Directory,
+        )
+        .unwrap();
         (registry, id)
     }
 
@@ -762,9 +914,17 @@ mod tests {
             &Request {
                 method: "GET".into(),
                 target: target.into(),
+                host: request_host(target),
                 referer: None,
             },
         )
+    }
+
+    fn request_host(target: &str) -> String {
+        match target.split_once("/r/") {
+            Some((_, tail)) => root_host(tail.split('/').next().unwrap()),
+            None => "127.0.0.1".into(),
+        }
     }
 
     fn body_text(response: &Response) -> String {
@@ -773,6 +933,117 @@ mod tests {
             Body::File(path, _) => std::fs::read_to_string(path).unwrap(),
             Body::Empty => String::new(),
         }
+    }
+
+    #[test]
+    fn page_authorities_are_distinct_and_cannot_read_each_others_routes() {
+        let dir = fixture("origin-boundaries");
+        std::fs::write(dir.join("other.html"), "<p>other</p>").unwrap();
+        let server = PreviewServer::start().unwrap();
+        let first = server
+            .url_for_path(&dir.join("site/index.html"), std::slice::from_ref(&dir))
+            .unwrap();
+        let second = server
+            .url_for_path(&dir.join("other.html"), std::slice::from_ref(&dir))
+            .unwrap();
+        let first = reqwest::Url::parse(&first).unwrap();
+        let second = reqwest::Url::parse(&second).unwrap();
+        assert_ne!(first.origin(), second.origin());
+        assert!(server.owns_url(first.as_str()));
+        assert_eq!(
+            server.granted_path(first.as_str()),
+            Some(std::fs::canonicalize(dir.join("site/index.html")).unwrap())
+        );
+        let mut forged = first.clone();
+        forged.set_host(second.host_str()).unwrap();
+        assert!(!server.owns_url(forged.as_str()));
+        let request = Request {
+            method: "GET".into(),
+            target: first.path().into(),
+            host: second.host_str().unwrap().into(),
+            referer: None,
+        };
+        assert_eq!(
+            respond(&server.registry, &server.token, &request).status,
+            403
+        );
+        let request = Request {
+            host: "127.0.0.1".into(),
+            ..request
+        };
+        assert_eq!(
+            respond(&server.registry, &server.token, &request).status,
+            403
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn project_pages_never_serve_credentials_or_agent_startup_files() {
+        let dir = fixture("sensitive");
+        std::fs::create_dir_all(dir.join(".vscode")).unwrap();
+        std::fs::write(dir.join(".env"), "PRIVATE_MARKER").unwrap();
+        std::fs::write(dir.join(".vscode/settings.json"), "{}").unwrap();
+        let (registry, id) = registry_with(&dir);
+        for path in [".env", ".vscode/settings.json"] {
+            let response = get(&registry, &format!("/t/{TOKEN}/r/{id}/{path}"));
+            assert_eq!(response.status, 403, "{path}");
+            assert!(!body_text(&response).contains("PRIVATE_MARKER"));
+        }
+        assert_eq!(
+            get(&registry, &format!("/t/{TOKEN}/r/{id}/site/app.mjs")).status,
+            200
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_page_grant_keeps_static_assets_but_does_not_authorize_sibling_data() {
+        let dir = fixture("page-scope");
+        std::fs::write(dir.join("index.html"), "<p>root</p>").unwrap();
+        std::fs::write(dir.join("data.json"), "{\"private\":true}").unwrap();
+        let server = PreviewServer::start().unwrap();
+        let page = server
+            .url_for_path(&dir.join("site/index.html"), std::slice::from_ref(&dir))
+            .unwrap();
+        let page = reqwest::Url::parse(&page).unwrap();
+        let prefix = page.path().strip_suffix("site/index.html").unwrap();
+        let fetch = |path: &str| {
+            respond(
+                &server.registry,
+                &server.token,
+                &Request {
+                    method: "GET".into(),
+                    target: path.into(),
+                    host: request_host(path),
+                    referer: None,
+                },
+            )
+        };
+        assert_eq!(fetch(page.path()).status, 200);
+        assert_eq!(fetch(&format!("{prefix}site/app.mjs")).status, 200);
+        for path in ["secret.txt", "data.json"] {
+            assert_eq!(
+                fetch(&format!("{prefix}{path}")).status,
+                403,
+                "page grant exposed sibling {path}"
+            );
+        }
+        let directory = server
+            .url_for_path(&dir, std::slice::from_ref(&dir))
+            .unwrap();
+        let directory = reqwest::Url::parse(&directory).unwrap();
+        assert_ne!(
+            page.path().split('/').nth(4),
+            directory.path().split('/').nth(4),
+            "a directory grant must not broaden an existing page capability"
+        );
+        assert_eq!(
+            fetch(directory.join("data.json").unwrap().path()).status,
+            200
+        );
+        assert_eq!(fetch(&format!("{prefix}data.json")).status, 403);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -847,6 +1118,7 @@ mod tests {
             &Request {
                 method: "POST".into(),
                 target: format!("/t/{TOKEN}/r/{id}/index.html"),
+                host: root_host(&id),
                 referer: None,
             },
         );
@@ -933,11 +1205,12 @@ mod tests {
                 &Request {
                     method: "GET".into(),
                     target: target.into(),
+                    host: root_host(&id),
                     referer,
                 },
             )
         };
-        let page = format!("http://127.0.0.1:1/t/{TOKEN}/r/{id}/site/index.html");
+        let page = format!("http://r-{id}.localhost:1/t/{TOKEN}/r/{id}/site/index.html");
         let found = request("/assets/x.js", Some(page.clone()));
         assert_eq!(found.status, 200);
         assert_eq!(body_text(&found), "console.log(1)");
@@ -1013,6 +1286,7 @@ mod tests {
             &Request {
                 method: "HEAD".into(),
                 target: format!("/t/{TOKEN}/s/{snippet}.html"),
+                host: "127.0.0.1".into(),
                 referer: None,
             },
         );
@@ -1040,8 +1314,9 @@ mod tests {
             &Request {
                 method: "GET".into(),
                 target: "/assets/x.js".into(),
+                host: root_host(&id),
                 referer: Some(format!(
-                    "http://127.0.0.1:1/t/{TOKEN}/r/{id}/site/index.html"
+                    "http://r-{id}.localhost:1/t/{TOKEN}/r/{id}/site/index.html"
                 )),
             },
         );
@@ -1056,9 +1331,11 @@ mod tests {
         let dir = fixture("csp-socket");
         let server = PreviewServer::start().unwrap();
         let fetch = |url: &str| {
-            let path = url.trim_start_matches(&server.origin()).to_string();
+            let url = reqwest::Url::parse(url).unwrap();
+            let path = url.path();
+            let host = url.host_str().unwrap();
             let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
-            write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+            write!(stream, "GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n").unwrap();
             let mut text = String::new();
             stream.read_to_string(&mut text).unwrap();
             text
@@ -1094,15 +1371,12 @@ mod tests {
             )
             .unwrap();
         assert!(server.owns_url(&url), "{url}");
-        assert!(url.starts_with(&server.origin()));
-        let path = url.trim_start_matches(&server.origin()).to_string();
+        let parsed = reqwest::Url::parse(&url).unwrap();
+        let path = parsed.path();
+        let host = parsed.host_str().unwrap();
         let fetch = |method: &str| {
             let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
-            write!(
-                stream,
-                "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
-            )
-            .unwrap();
+            write!(stream, "{method} {path} HTTP/1.1\r\nHost: {host}\r\n\r\n").unwrap();
             let mut text = String::new();
             stream.read_to_string(&mut text).unwrap();
             text
@@ -1137,11 +1411,11 @@ mod tests {
         let dir = fixture("rootid");
         let canonical = std::fs::canonicalize(&dir).unwrap();
         let first = Mutex::new(Registry::default());
-        let id = register_in(&first, canonical.clone(), None).unwrap();
+        let id = register_in(&first, canonical.clone(), PreviewScope::Directory).unwrap();
         assert_eq!(id.len(), 16);
         assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(
-            register_in(&first, canonical.clone(), None).unwrap(),
+            register_in(&first, canonical.clone(), PreviewScope::Directory).unwrap(),
             id,
             "同一根重复登记得到同一 id"
         );
@@ -1151,7 +1425,7 @@ mod tests {
         assert!(!path_hash.starts_with(&id), "id 不能是路径哈希");
         let second = Mutex::new(Registry::default());
         assert_ne!(
-            register_in(&second, canonical.clone(), None).unwrap(),
+            register_in(&second, canonical.clone(), PreviewScope::Directory).unwrap(),
             id,
             "另一次运行(另一张登记表)得到另一个 id"
         );
@@ -1178,7 +1452,7 @@ mod tests {
         // 单文件根:只给那一个文件,同目录的秘密文件与 Referer 逐级查找都拿不到。
         let page = std::fs::canonicalize(dir.join("site/index.html")).unwrap();
         let registry = Mutex::new(Registry::default());
-        let id = register_in(&registry, canonical.clone(), Some(page)).unwrap();
+        let id = register_in(&registry, canonical.clone(), PreviewScope::FileOnly(page)).unwrap();
         assert_eq!(
             get(&registry, &format!("/t/{TOKEN}/r/{id}/site/index.html")).status,
             200
@@ -1196,14 +1470,15 @@ mod tests {
             &Request {
                 method: "GET".into(),
                 target: "/secret.txt".into(),
+                host: root_host(&id),
                 referer: Some(format!(
-                    "http://127.0.0.1:1/t/{TOKEN}/r/{id}/site/index.html"
+                    "http://r-{id}.localhost:1/t/{TOKEN}/r/{id}/site/index.html"
                 )),
             },
         );
         assert_eq!(referred.status, 404);
         // 同一目录作普通根登记是另一条记录、另一个 id。
-        let full = register_in(&registry, canonical, None).unwrap();
+        let full = register_in(&registry, canonical, PreviewScope::Directory).unwrap();
         assert_ne!(full, id);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1216,9 +1491,11 @@ mod tests {
         std::fs::write(home.join("note.html"), "<p>note</p>").unwrap();
         let server = PreviewServer::start().unwrap();
         let status = |url: &str| {
-            let path = url.trim_start_matches(&server.origin()).to_string();
+            let url = reqwest::Url::parse(url).unwrap();
+            let path = url.path();
+            let host = url.host_str().unwrap();
             let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
-            write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+            write!(stream, "GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n").unwrap();
             let mut text = String::new();
             stream.read_to_string(&mut text).unwrap();
             text.split_whitespace().nth(1).unwrap_or("").to_string()

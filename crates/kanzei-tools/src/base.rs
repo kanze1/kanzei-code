@@ -89,7 +89,7 @@ impl Component for BaseComponent {
             rule("prior_art", "write:*", Effect::Ask),
             rule("browser", "*", Effect::Ask),
             // UI2-0926 #8:浏览器分级(资源形态见 browser_tool::resources_for,按解析后的 host 取)。
-            // 本机回环、本地文件、内联片段与「还没打开页面」放行;其余外网仍 Ask。
+            // 本机回环、沙箱内联片段与「还没打开页面」放行;文件由结构化文件权限判定。
             // 前缀带 `:`/`/` 分隔,`url:localhost.evil.com` 不会被 `url:localhost:*` 命中。
             rule("browser", "url:localhost", Effect::Allow),
             rule("browser", "url:localhost:*", Effect::Allow),
@@ -100,7 +100,6 @@ impl Component for BaseComponent {
             rule("browser", "url:[::1]", Effect::Allow),
             rule("browser", "url:[::1]:*", Effect::Allow),
             rule("browser", "url:[::1]/*", Effect::Allow),
-            rule("browser", "path:*", Effect::Allow),
             rule("browser", "html:*", Effect::Allow),
             rule("browser", "page:none", Effect::Allow),
             rule("latex", "*", Effect::Ask),
@@ -207,7 +206,7 @@ mod tests {
     /// UI2-0926 #8:browser 权限分级。资源由 browser_tool::resources_for 产出,
     /// 这里照真实判定路径(规范化后 evaluate)逐条断言。
     #[test]
-    fn browser权限分级_本机与本地放行_外网仍问() {
+    fn browser权限_回环与沙箱片段放行_文件与外网需授权() {
         let root = std::env::temp_dir();
         let ctx = ResolveCtx {
             profile: ProfileKind::Dev,
@@ -232,7 +231,6 @@ mod tests {
             serde_json::json!({"url": "http://localhost/app/x"}),
             serde_json::json!({"url": "http://127.0.0.1:4173/t/abc/r/def/index.html"}),
             serde_json::json!({"url": "http://[::1]:8080/"}),
-            serde_json::json!({"path": "C:/proj/site/index.html"}),
             serde_json::json!({"html": "<p>x</p>"}),
             serde_json::json!({"action": "screenshot"}),
         ] {
@@ -240,6 +238,7 @@ mod tests {
             assert_eq!(decision, Effect::Allow, "{allowed} → {resource}");
         }
         for asked in [
+            serde_json::json!({"path": "C:/proj/site/index.html"}),
             serde_json::json!({"url": "https://example.com/"}),
             serde_json::json!({"url": "http://localhost.evil.com/"}),
             serde_json::json!({"url": "http://localhost:80@evil.com/"}),

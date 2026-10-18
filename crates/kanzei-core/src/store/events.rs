@@ -591,6 +591,19 @@ impl SessionStore {
             .map_err(Into::into)
     }
 
+    /// Last committed run boundary, including an unfinished newer turn.
+    /// Trace, notification and housekeeping events cannot overwrite this fact.
+    pub fn latest_run_boundary(&self, session_id: &str) -> Result<Option<StoredEvent>, StoreError> {
+        self.connection.query_row(
+            "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+             FROM session_events
+             WHERE session_id = ?1 AND event_type IN ('session.turn_started', 'run.completed', 'run.failed')
+             ORDER BY sequence DESC LIMIT 1",
+            params![session_id],
+            event_from_row,
+        ).optional().map_err(Into::into)
+    }
+
     /// 回放评估台原料(R-163 批1):最近 N 条 `run.trace` 的 payload_json(新→旧)。
     /// 只取该类型——run.trace 是引擎机械写入的轨迹画像(工具名/输入摘要/ok/error),
     /// 不掺对话快照等其它事件;回放案例由 [`crate::replay::parse_trace_payload`] 解析。

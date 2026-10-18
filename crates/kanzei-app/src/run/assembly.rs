@@ -508,6 +508,17 @@ async fn prepare_session(
                 .map(String::as_str)
                 .unwrap_or("用户事实提交被拒绝")
         );
+        {
+            let _lifecycle = handles.lifecycle.lock_or_recover();
+            anyhow::ensure!(!halt_token.is_cancelled(), "运行已在装配时停止");
+            handles.live_run.lock_or_recover().begin(
+                &run_id,
+                &promoted_input_id,
+                &prompt,
+                &deps.resolved.provider_name,
+                &deps.resolved.model,
+            );
+        }
         let run_started = std::time::Instant::now();
         // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
         // 先于 episode 落库,只能靠时间窗归因到本轮,与 CLI 同一口径)。
@@ -638,7 +649,7 @@ async fn prepare_session(
                 &request.session_id,
                 &promoted_input_id,
                 startup_writer.as_ref(),
-                &handles.lifecycle,
+                handles,
                 halt_token,
                 error,
             ))
@@ -682,15 +693,15 @@ fn finish_startup_failure(
     session_id: &str,
     input_id: &str,
     writer: Option<&Arc<Mutex<typed_events::TypedEventWriter>>>,
-    lifecycle: &Mutex<()>,
+    handles: &RuntimeHandles,
     halt_token: &kanzei_core::CancellationToken,
     error: anyhow::Error,
 ) -> anyhow::Error {
     let stopped;
     let outcome = {
-        let _lifecycle = lifecycle.lock_or_recover();
+        let _lifecycle = handles.lifecycle.lock_or_recover();
         stopped = halt_token.is_cancelled();
-        if let Some(writer) = writer {
+        let outcome = if let Some(writer) = writer {
             super::persistence::commit_outcome(
                 writer,
                 input_id,
@@ -714,7 +725,14 @@ fn finish_startup_failure(
                 );
                 Ok(())
             })()
+        };
+        if outcome.is_ok() {
+            let mut live = handles.live_run.lock_or_recover();
+            if live.input_id == input_id {
+                live.finish(if stopped { "halted" } else { "failed" });
+            }
         }
+        outcome
     };
     if let Err(outcome_error) = outcome {
         return super::persistence::uncommitted_outcome(

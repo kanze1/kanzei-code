@@ -102,7 +102,7 @@ async fn grep_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         Some(p) => ctx.cwd.join(p),
         None => ctx.cwd.clone(),
     };
-    if let Err(output) = crate::file_access::resolve(ctx, &base) {
+    if let Err(output) = crate::file_access::resolve(ctx, &base, tool.action()) {
         return *output;
     }
     if !base.exists() {

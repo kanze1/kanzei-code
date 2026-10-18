@@ -31,12 +31,13 @@ impl SearchScope {
     pub(crate) fn file(&self, action: &str, path: &Path) -> Result<ScopedFile, String> {
         let file = ScopedFile::resolve(&self.cwd, &self.project_root, path)
             .map_err(|error| error.to_string())?;
+        let resource = FileResource::resolve(&self.cwd, path).map_err(|error| error.to_string())?;
         if let Some(rules) = &self.rules {
-            let resource =
-                FileResource::resolve(&self.cwd, path).map_err(|error| error.to_string())?;
             if rules.evaluate_file_with_rule(action, &resource).0 != Effect::Allow {
                 return Err("search resource requires separate permission".into());
             }
+        } else if resource.sensitivity().is_some() {
+            return Err("sensitive search resource requires explicit permission".into());
         }
         Ok(file)
     }

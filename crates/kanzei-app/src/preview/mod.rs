@@ -536,8 +536,8 @@ pub(crate) fn fit_device(host: Rect, preset: DevicePreset) -> (Rect, f64) {
 ///
 /// B0 对照组:不设闸的子 webview 一旦跳到 `http://tauri.localhost` 就拿到全部 IPC
 /// (spike_secret 被执行)。所以:
-/// - http(s):任何 `*.localhost` 子域一律拒绝(tauri / ipc / asset,以及其它自注册协议),
-///   `localhost` 本身放行;尾点(`tauri.localhost.`)先剥再判;
+/// - http(s):拒绝应用协议子域；仅本进程静态服务签发的独立预览来源可使用 localhost 子域。
+///   Tauri 只把已注册协议的子域视为本地应用源，预览随机子域不注册协议。
 /// - about:blank、data:text/html 放行;file:、javascript: 与其它 scheme 一律拒绝。
 pub(crate) fn nav_allowed(url: &Url) -> bool {
     match url.scheme() {
@@ -548,14 +548,15 @@ pub(crate) fn nav_allowed(url: &Url) -> bool {
     }
 }
 
-/// http(s) 的 host 过闸:任何 `*.localhost` 子域一律拒绝(不看端口——tauri 的 is_local_url
-/// 也不看端口,`http://tauri.localhost:3000` 的内容来自本机 3000 端口却被当成本地源)。
+/// 已注册的 tauri/ipc/asset 等来源始终拒绝；独立预览来源必须精确验证端口、token 和登记的 root_id。
 fn web_host_allowed(url: &Url) -> bool {
     match url.host_str() {
         // IP 字面量(含 `[::1]`)不可能以 .localhost 结尾;域名先剥尾点再判。
         Some(host) => {
             let host = host.trim_end_matches('.').to_ascii_lowercase();
-            !host.is_empty() && !host.ends_with(".localhost")
+            !host.is_empty()
+                && (!host.ends_with(".localhost")
+                    || kanzei_tools::preview_server::owned_url(url.as_str()))
         }
         None => false,
     }

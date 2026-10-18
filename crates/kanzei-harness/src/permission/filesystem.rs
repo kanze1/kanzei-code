@@ -17,6 +17,12 @@ pub struct FileResource {
 }
 
 impl FileResource {
+    pub fn sensitivity(&self) -> Option<super::FileSensitivity> {
+        self.identities
+            .iter()
+            .filter_map(|identity| super::file_sensitivity(Path::new(identity)))
+            .next()
+    }
     pub fn resolve(cwd: &Path, path: &Path) -> std::io::Result<Self> {
         let absolute = cwd.join(path);
         let physical = resolve_target(&absolute)?;
@@ -103,7 +109,14 @@ impl Ruleset {
             .iter()
             .rev()
             .find(|rule| file.matches(action, rule));
-        (rule.map_or(Effect::Ask, |rule| rule.effect), rule)
+        let effect = rule.map_or(Effect::Ask, |rule| rule.effect);
+        if effect == Effect::Allow
+            && file.sensitivity().is_some()
+            && rule.is_some_and(|rule| rule.resource.contains('*'))
+        {
+            return (Effect::Ask, rule);
+        }
+        (effect, rule)
     }
 }
 
@@ -115,6 +128,41 @@ pub fn execution_rules() -> Option<Ruleset> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn broad_allows_do_not_grant_sensitive_files_but_exact_consent_does() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-sensitive-policy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".vscode")).unwrap();
+        let mut rules = Ruleset::new(vec![crate::rule("*", "*", Effect::Allow)]);
+        for (action, path) in [
+            ("read", ".env"),
+            ("grep", ".env"),
+            ("write", ".vscode/settings.json"),
+        ] {
+            let file = FileResource::resolve(&root, Path::new(path)).unwrap();
+            assert!(file.sensitivity().is_some());
+            assert_eq!(
+                rules.evaluate_file_with_rule(action, &file).0,
+                Effect::Ask,
+                "{action} {path}"
+            );
+            rules.push(crate::rule(action, path, Effect::Allow));
+            assert_eq!(
+                rules.evaluate_file_with_rule(action, &file).0,
+                Effect::Allow
+            );
+            rules.push_hard_deny(crate::rule(action, path, Effect::Deny));
+            assert_eq!(rules.evaluate_file_with_rule(action, &file).0, Effect::Deny);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn file_identity_preserves_relative_allow_absolute_deny_and_hard_deny_precedence() {

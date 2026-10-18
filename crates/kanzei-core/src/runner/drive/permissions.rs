@@ -12,10 +12,15 @@ struct ResolvedPermission {
     rule: Option<String>,
 }
 
+pub(super) struct PendingPermission {
+    resource: String,
+    sensitivity: Option<kanzei_harness::permission::FileSensitivity>,
+}
+
 pub(super) struct PermissionPlan {
     action: &'static str,
     resolved: Vec<ResolvedPermission>,
-    pub(super) pending_ask: Vec<String>,
+    pub(super) pending_ask: Vec<PendingPermission>,
     pub(super) denied: Option<String>,
 }
 
@@ -25,10 +30,16 @@ impl PermissionPlan {
         approved: &std::collections::HashSet<(String, String)>,
         rules: &[(String, String)],
     ) {
-        self.pending_ask.retain(|resource| {
-            if let Some(source) = session_approval_source(self.action, resource, approved, rules) {
+        self.pending_ask.retain(|pending| {
+            if let Some(source) = session_approval_source(
+                self.action,
+                &pending.resource,
+                pending.sensitivity,
+                approved,
+                rules,
+            ) {
                 self.resolved.push(ResolvedPermission {
-                    resource: resource.clone(),
+                    resource: pending.resource.clone(),
                     decision: "allow",
                     source,
                     rule: None,
@@ -57,6 +68,7 @@ impl PermissionPlan {
 fn session_approval_source(
     action: &str,
     resource: &str,
+    sensitivity: Option<kanzei_harness::permission::FileSensitivity>,
     approved: &std::collections::HashSet<(String, String)>,
     rules: &[(String, String)],
 ) -> Option<&'static str> {
@@ -64,12 +76,25 @@ fn session_approval_source(
         Some("session_approved")
     } else if rules.iter().any(|(known_action, pattern)| {
         known_action == action
+            && (sensitivity.is_none() || !pattern.contains('*'))
             && kanzei_harness::permission::resource_match_for_action(action, pattern, resource)
     }) {
         Some("session_rule")
     } else {
         None
     }
+}
+
+pub(super) fn execution_permissions(
+    snapshot: &HarnessSnapshot,
+    approved: &std::collections::HashSet<(String, String)>,
+    rules: &[(String, String)],
+) -> kanzei_harness::permission::Ruleset {
+    let mut permissions = snapshot.permissions().clone();
+    for (action, resource) in rules.iter().chain(approved.iter()) {
+        permissions.push(kanzei_harness::rule(action, resource, Effect::Allow));
+    }
+    permissions
 }
 
 /// Resolve immutable rules once. Serial execution handles pending user asks;
@@ -89,12 +114,12 @@ pub(super) fn permission_plan(
     };
     for resource in tool.permission_resources(input, ctx) {
         use kanzei_harness::permission::{FileResource, Resource};
-        let (resource, effect, rule) = match resource {
+        let (resource, effect, rule, sensitivity) = match resource {
             Resource::Literal(resource) => {
                 let resource =
                     kanzei_harness::permission::normalize_resource_for_action(action, &resource);
                 let (effect, rule) = snapshot.evaluate_with_rule(action, &resource);
-                (resource, effect, rule)
+                (resource, effect, rule, None)
             }
             Resource::File(path) => {
                 if let Err(error) = kanzei_harness::permission::ScopedFile::resolve(
@@ -131,11 +156,14 @@ pub(super) fn permission_plan(
                 let (effect, rule) = snapshot
                     .permissions()
                     .evaluate_file_with_rule(action, &file);
-                (file.name.clone(), effect, rule)
+                (file.name.clone(), effect, rule, file.sensitivity())
             }
         };
         match effect {
-            Effect::Ask => plan.pending_ask.push(resource),
+            Effect::Ask => plan.pending_ask.push(PendingPermission {
+                resource,
+                sensitivity,
+            }),
             Effect::Allow | Effect::Deny => {
                 let denied = effect == Effect::Deny;
                 plan.resolved.push(ResolvedPermission {
@@ -174,7 +202,8 @@ pub(super) async fn resolve_permission_gate(state: &mut PermissionGateRequest<'_
     plan.emit_resolved(state.id, state.on_event);
     let mut gate_result = plan.denied.map_or(Gate::Pass, Gate::Deny);
     if matches!(gate_result, Gate::Pass) {
-        for resource in plan.pending_ask {
+        for pending in plan.pending_ask {
+            let resource = pending.resource;
             let key = (action.to_string(), resource.clone());
             let mut resolved = |decision, source| {
                 (state.on_event)(RunEvent::PermissionResolved {
@@ -190,6 +219,7 @@ pub(super) async fn resolve_permission_gate(state: &mut PermissionGateRequest<'_
             if let Some(source) = session_approval_source(
                 action,
                 &resource,
+                pending.sensitivity,
                 state.session_approved,
                 state.session_rules,
             ) {
@@ -199,7 +229,7 @@ pub(super) async fn resolve_permission_gate(state: &mut PermissionGateRequest<'_
             match state.config.ask_policy {
                 // D-281:自动放行——权限询问直接放行并落事件,不短路、
                 // 不再需要前端替答(前端 07-events.js 只处理 Interactive 轮)。
-                AskPolicy::AutoAllow => {
+                AskPolicy::AutoAllow if pending.sensitivity.is_none() => {
                     resolved("allow", "auto_allow");
                     continue;
                 }

@@ -24,6 +24,8 @@ pub(crate) struct CollaborationLine {
     pub(crate) running: bool,
     pub(crate) status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) status_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) event_idle_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) worktree_idle_ms: Option<u64>,
@@ -56,8 +58,106 @@ pub(crate) struct CollaborationProbe {
 const LINE_STALE_AFTER_MS: u64 = 30_000;
 
 #[derive(Default)]
+enum LineWait {
+    #[default]
+    None,
+    Approval,
+    Answer,
+}
+
+fn pending_wait(runtime: &SessionRuntime) -> LineWait {
+    let asks = runtime.asks.lock().unwrap();
+    if asks
+        .values()
+        .any(|ask| matches!(ask.request, kanzei_core::AskRequest::Permission { .. }))
+    {
+        LineWait::Approval
+    } else if asks.values().any(|ask| {
+        matches!(
+            ask.request,
+            kanzei_core::AskRequest::Question {
+                background: false,
+                ..
+            }
+        )
+    }) {
+        LineWait::Answer
+    } else {
+        LineWait::None
+    }
+}
+
+fn open_durable_store(root: &Path) -> Result<Option<kanzei_core::SessionStore>, String> {
+    let path = kanzei_core::project_state_path(root);
+    match std::fs::metadata(&path) {
+        Ok(_) => kanzei_core::SessionStore::open_read_only(&path)
+            .map(Some)
+            .map_err(|error| error.to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn durable_outcome(
+    store: &kanzei_core::SessionStore,
+    session: &str,
+) -> Result<Option<String>, String> {
+    let input = store
+        .latest_input_status(session)
+        .map_err(|error| error.to_string())?;
+    if let Some((input_id, status)) = &input {
+        match status.as_str() {
+            "pending" => return Ok(Some("queued".into())),
+            "promoted" | "running" => return Ok(Some("interrupted".into())),
+            "cancelled" => return Ok(Some("halted".into())),
+            "completed" => return Ok(Some("completed".into())),
+            "failed" => {
+                let boundary = store
+                    .latest_run_boundary(session)
+                    .map_err(|error| error.to_string())?;
+                let incomplete = boundary.is_some_and(|event| {
+                    event.payload["input_id"].as_str() == Some(input_id.as_str())
+                        && event.payload["outcome"].as_str() == Some("incomplete")
+                });
+                return Ok(Some(
+                    if incomplete { "incomplete" } else { "failed" }.into(),
+                ));
+            }
+            other => return Err(format!("unsupported persisted input status: {other}")),
+        }
+    }
+    let Some(event) = store
+        .latest_run_boundary(session)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
+    if event.event_type == "session.turn_started" {
+        return Ok(Some("interrupted".into()));
+    }
+    if event.payload["halted_by_user"].as_bool() == Some(true) {
+        return Ok(Some("halted".into()));
+    }
+    match event.payload["outcome"].as_str() {
+        Some(outcome @ ("completed" | "halted" | "incomplete" | "failed")) => {
+            Ok(Some(outcome.into()))
+        }
+        Some(outcome) => Err(format!("unsupported persisted run outcome: {outcome}")),
+        None => Ok(Some(
+            if event.event_type == "run.failed" {
+                "failed"
+            } else {
+                "completed"
+            }
+            .into(),
+        )),
+    }
+}
+
+#[derive(Default)]
 struct LineProgress<'a> {
     running: bool,
+    waiting_for: LineWait,
     run_id: &'a str,
     waiting_writers: &'a [String],
     run_age_ms: Option<u64>,
@@ -69,6 +169,7 @@ struct LineProgress<'a> {
 fn line_status(progress: LineProgress<'_>) -> &'static str {
     let LineProgress {
         running,
+        waiting_for,
         run_id,
         waiting_writers,
         run_age_ms,
@@ -77,8 +178,16 @@ fn line_status(progress: LineProgress<'_>) -> &'static str {
         worktree_idle_ms,
     } = progress;
     if running {
+        match waiting_for {
+            LineWait::Approval => return "awaiting_approval",
+            LineWait::Answer => return "awaiting_answer",
+            LineWait::None => {}
+        }
         if waiting_writers.iter().any(|waiting| waiting == run_id) {
             return "queued";
+        }
+        if run_age_ms.is_none() {
+            return "starting";
         }
         let recent_event = event_idle_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS);
         let recent_worktree = worktree_idle_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS);
@@ -91,15 +200,17 @@ fn line_status(progress: LineProgress<'_>) -> &'static str {
         } else {
             "suspected_stuck"
         }
-    } else if run_age_ms.is_none() {
-        "idle"
     } else {
         match last_outcome {
             Some("completed") => "completed",
             Some("halted") => "stopped",
             Some("incomplete") => "incomplete",
-            Some("failed") | None => "failed",
-            Some(_) => "failed",
+            Some("interrupted") => "interrupted",
+            Some("queued") => "queued",
+            Some("failed") => "failed",
+            None if run_age_ms.is_none() => "idle",
+            None => "failed",
+            Some(_) => "unavailable",
         }
     }
 }
@@ -177,6 +288,7 @@ impl CollaborationProbe {
         // R-247:整份快照只读一次 tracker；取得关系来自「取得线」字段，不再逐线
         // 解析 prompt。读失败也要明示，不能回退到猜测路径。
         let tracker_claims = kanzei_tools::active_claims_by_line(&self.origin_project);
+        let durable_store = open_durable_store(&self.origin_project);
         let mut lines = handles
             .into_iter()
             .filter_map(|process| {
@@ -195,7 +307,7 @@ impl CollaborationProbe {
                     output_tokens,
                     event_idle_ms,
                     run_age_ms,
-                    last_outcome,
+                    mut last_outcome,
                     run_id,
                 ) = runtime
                     .map(|runtime| {
@@ -212,6 +324,17 @@ impl CollaborationProbe {
                         )
                     })
                     .unwrap_or((None, 0, 0, 0, None, None, None, String::new()));
+                let mut status_error = None;
+                if !running && last_outcome.is_none() {
+                    match &durable_store {
+                        Ok(Some(store)) => match durable_outcome(store, &session_id) {
+                            Ok(outcome) => last_outcome = outcome,
+                            Err(error) => status_error = Some(error),
+                        },
+                        Ok(None) => {}
+                        Err(error) => status_error = Some(error.clone()),
+                    }
+                }
                 let phase = runtime
                     .map(|runtime| runtime.stage.lock().unwrap().clone())
                     .unwrap_or_else(|| "空闲".into());
@@ -239,6 +362,9 @@ impl CollaborationProbe {
                 let worktree_idle_ms = latest_worktree_idle_ms(&code_root, &changed_files);
                 let status = line_status(LineProgress {
                     running,
+                    waiting_for: runtime
+                        .map(|runtime| pending_wait(runtime))
+                        .unwrap_or_default(),
                     run_id: &run_id,
                     waiting_writers: &waiting_writers,
                     run_age_ms,
@@ -246,6 +372,11 @@ impl CollaborationProbe {
                     event_idle_ms,
                     worktree_idle_ms,
                 });
+                let status = if status_error.is_some() {
+                    "unavailable"
+                } else {
+                    status
+                };
                 let branch = process.branch.clone().unwrap_or_else(|| {
                     git_text(&code_root, &["branch", "--show-current"])
                         .filter(|value| !value.is_empty())
@@ -277,6 +408,7 @@ impl CollaborationProbe {
                     current_tool,
                     running,
                     status: status.into(),
+                    status_error,
                     event_idle_ms,
                     worktree_idle_ms,
                     steps,
@@ -447,15 +579,19 @@ fn render_lines(title: &str, lines: &[CollaborationLine]) -> String {
             line.changed_files.join(", ")
         };
         output.push(format!(
-            "- {} ({}) · claim: {} · branch: {} · phase: {} · tool: {} · changed files: {}",
+            "- {} ({}) · claim: {} · branch: {} · status: {} · phase: {} · tool: {} · changed files: {}",
             line.label,
             line.process_id,
             line.claim,
             line.branch,
+            line.status,
             line.phase,
             line.current_tool.as_deref().unwrap_or("none"),
             files
         ));
+        if let Some(error) = &line.status_error {
+            output.push(format!("  status unavailable: {error}"));
+        }
     }
     output.push(
         "You are collaborating in the same repository. Before touching a shared file or staging, call `collaboration_status` again because this list changes during the run."
@@ -644,6 +780,188 @@ mod tests {
         assert!(live.last_event_at.is_none());
         live.note_event();
         assert!(live.last_event_at.is_some());
+    }
+
+    #[test]
+    fn restart_recovers_the_latest_run_boundary_without_inventing_success() {
+        let store = kanzei_core::SessionStore::open_in_memory().unwrap();
+        store.create_session("ses", "fixture", None).unwrap();
+        assert_eq!(durable_outcome(&store, "ses").unwrap(), None);
+        for (event_type, payload, expected) in [
+            (
+                "run.completed",
+                serde_json::json!({"outcome":"completed"}),
+                "completed",
+            ),
+            (
+                "run.failed",
+                serde_json::json!({"outcome":"incomplete"}),
+                "incomplete",
+            ),
+            (
+                "run.completed",
+                serde_json::json!({"halted_by_user":true}),
+                "halted",
+            ),
+            ("session.turn_started", serde_json::json!({}), "interrupted"),
+            (
+                "run.failed",
+                serde_json::json!({"error":"failed"}),
+                "failed",
+            ),
+        ] {
+            store.append_event("ses", event_type, &payload).unwrap();
+            store
+                .append_event(
+                    "ses",
+                    "run.trace",
+                    &serde_json::json!({"outcome":"completed"}),
+                )
+                .unwrap();
+            let outcome = durable_outcome(&store, "ses").unwrap();
+            assert_eq!(outcome.as_deref(), Some(expected));
+            let status = line_status(LineProgress {
+                last_outcome: outcome.as_deref(),
+                ..Default::default()
+            });
+            assert_eq!(
+                status,
+                if expected == "halted" {
+                    "stopped"
+                } else {
+                    expected
+                }
+            );
+        }
+        store
+            .append_event(
+                "ses",
+                "run.completed",
+                &serde_json::json!({"outcome":"invalid"}),
+            )
+            .unwrap();
+        assert!(durable_outcome(&store, "ses").is_err());
+    }
+
+    #[test]
+    fn restart_uses_newer_input_facts_for_startup_failure_cancellation_and_queue() {
+        let store = kanzei_core::SessionStore::open_in_memory().unwrap();
+        store.create_session("ses", "fixture", None).unwrap();
+        store
+            .append_event(
+                "ses",
+                "run.completed",
+                &serde_json::json!({"outcome":"completed"}),
+            )
+            .unwrap();
+        let input = store
+            .admit_input(
+                "ses",
+                "new-input",
+                "new request",
+                kanzei_core::Delivery::Queue,
+            )
+            .unwrap();
+        assert_eq!(
+            durable_outcome(&store, "ses").unwrap().as_deref(),
+            Some("queued")
+        );
+        store.promote_next_input("ses").unwrap().unwrap();
+        assert_eq!(
+            durable_outcome(&store, "ses").unwrap().as_deref(),
+            Some("interrupted")
+        );
+        assert!(store.finish_input(&input.input_id, false).unwrap());
+        assert_eq!(
+            durable_outcome(&store, "ses").unwrap().as_deref(),
+            Some("failed")
+        );
+        let input = store
+            .admit_input(
+                "ses",
+                "budget-input",
+                "budget request",
+                kanzei_core::Delivery::Queue,
+            )
+            .unwrap();
+        store.promote_next_input("ses").unwrap().unwrap();
+        store.finish_input(&input.input_id, false).unwrap();
+        store
+            .append_event(
+                "ses",
+                "run.failed",
+                &serde_json::json!({"input_id":input.input_id,"outcome":"incomplete"}),
+            )
+            .unwrap();
+        assert_eq!(
+            durable_outcome(&store, "ses").unwrap().as_deref(),
+            Some("incomplete")
+        );
+        let cancelled = store
+            .admit_input(
+                "ses",
+                "cancelled-input",
+                "cancelled before startup",
+                kanzei_core::Delivery::Queue,
+            )
+            .unwrap();
+        assert!(store.cancel_input("ses", &cancelled.input_id).unwrap());
+        assert_eq!(
+            durable_outcome(&store, "ses").unwrap().as_deref(),
+            Some("halted")
+        );
+    }
+
+    #[test]
+    fn preparing_a_new_input_never_reuses_the_previous_run_result_or_identity() {
+        let mut live = crate::state::LiveRun::default();
+        live.begin("previous-run", "previous-input", "old", "mock", "mock");
+        live.finish("completed");
+        live.prepare(Some("new-input"), "new");
+        assert_eq!(live.input_id, "new-input");
+        assert!(live.run_id.is_empty());
+        assert!(live.started_at.is_none());
+        assert!(live.last_outcome.is_none());
+        assert!(!live.flushed);
+        assert_eq!(
+            line_status(LineProgress {
+                running: true,
+                ..Default::default()
+            }),
+            "starting"
+        );
+    }
+
+    #[test]
+    fn pending_runtime_approval_is_waiting_even_when_the_event_stream_is_old() {
+        let runtime = SessionRuntime::default();
+        let (sender, _receiver) = tokio::sync::oneshot::channel();
+        runtime.asks.lock().unwrap().insert(
+            1,
+            crate::state::PendingAsk {
+                source: "primary".into(),
+                agent_id: None,
+                sender,
+                request: kanzei_core::AskRequest::Permission {
+                    action: "write".into(),
+                    resource: "file".into(),
+                },
+                action: "write".into(),
+                resource: "file".into(),
+                project_root: PathBuf::from("fixture"),
+                session_id: "ses".into(),
+            },
+        );
+        assert_eq!(
+            line_status(LineProgress {
+                running: true,
+                waiting_for: pending_wait(&runtime),
+                run_age_ms: Some(90_000),
+                event_idle_ms: Some(90_000),
+                ..Default::default()
+            }),
+            "awaiting_approval"
+        );
     }
 
     #[test]

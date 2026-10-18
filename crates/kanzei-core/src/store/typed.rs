@@ -1368,6 +1368,20 @@ impl TypedWriterState {
         let facts = self.terminal_facts(terminal);
         let mut next_invariant = self.invariant.clone();
         let result = (|| -> Result<(), SessionFactError> {
+            let mut run_payload = run_payload.as_object().cloned().ok_or_else(|| {
+                SessionFactError::Invariant("run outcome payload must be an object".into())
+            })?;
+            for (key, value) in [("input_id", input_id), ("run_id", self.turn_id.as_str())] {
+                if run_payload
+                    .get(key)
+                    .is_some_and(|known| known.as_str() != Some(value))
+                {
+                    return Err(SessionFactError::Invariant(format!(
+                        "run outcome {key} does not match its owner"
+                    )));
+                }
+                run_payload.insert(key.into(), serde_json::Value::String(value.into()));
+            }
             let store = SessionStore::open(&self.state_path)?;
             let tx = Transaction::new_unchecked(&store.connection, TransactionBehavior::Immediate)
                 .map_err(StoreError::from)?;
@@ -1403,7 +1417,7 @@ impl TypedWriterState {
                 &tx,
                 &self.session_id,
                 if ok { "run.completed" } else { "run.failed" },
-                run_payload,
+                &serde_json::Value::Object(run_payload),
             )?;
             tx.commit().map_err(StoreError::from)?;
             Ok(())

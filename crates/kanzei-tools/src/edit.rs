@@ -356,7 +356,11 @@ impl Tool for EditTool {
                 "old_string must not be empty (use the write tool to create files)",
             );
         }
-        let access = match crate::file_access::resolve(ctx, std::path::Path::new(&input.path)) {
+        let access = match crate::file_access::resolve(
+            ctx,
+            std::path::Path::new(&input.path),
+            self.action(),
+        ) {
             Ok(access) => access,
             Err(output) => return *output,
         };
@@ -378,7 +382,7 @@ impl Tool for EditTool {
             }
             _ => {}
         }
-        if let Some(output) = crate::write::check_read_receipt(ctx, &path) {
+        if let Some(output) = crate::write::check_read_receipt(ctx, &path, self.action()) {
             return output;
         }
         let content = match access.read_to_string() {
@@ -740,7 +744,11 @@ impl Tool for InsertTool {
             );
         }
 
-        let access = match crate::file_access::resolve(ctx, std::path::Path::new(&input.path)) {
+        let access = match crate::file_access::resolve(
+            ctx,
+            std::path::Path::new(&input.path),
+            self.action(),
+        ) {
             Ok(access) => access,
             Err(output) => return *output,
         };
@@ -762,7 +770,7 @@ impl Tool for InsertTool {
             }
             _ => {}
         }
-        if let Some(output) = crate::write::check_read_receipt(ctx, &path) {
+        if let Some(output) = crate::write::check_read_receipt(ctx, &path, self.action()) {
             return output;
         }
         let original = match access.read_to_string() {

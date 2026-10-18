@@ -33,8 +33,8 @@
 
 - **Tauri IPC 的 ACL**:远程源(没有 remote capability)调不了任何 app 命令。B0 实测:127.0.0.1 页面里 `window.__TAURI__` / `__TAURI_INTERNALS__` 是存在的(withGlobalTauri 注入),但 `invoke('spike_secret' | 'spike_ping' | 'plugin:event|emit' | 'plugin:app|version')` 一律 `Command X not allowed by ACL`,spike_secret 没有执行。
 - **坑:自注册的 custom protocol 是本地源**。Windows 上形如 `http://<proto>.localhost`,Tauri 的 `is_local_url` 把它当本地源;kanzei 没有 app ACL manifest,本地源能调全部命令。所以:
-  - 本地文件与片段**一律**走 127.0.0.1 静态服务(远程源),不用 `register_uri_scheme_protocol`;
-  - **导航闸必须有**(`preview::nav_allowed`,on_navigation / 地址栏 / 代理导航共用):http(s) 的任何 `*.localhost` 子域一律拒绝(tauri / ipc / asset 及其它协议;尾点先剥再判),`localhost` 本身放行;`about:blank`、`data:text/html` 放行;`file:`、`javascript:` 与其它 scheme 拒绝。
+  - 本地文件使用静态服务签发的 `r-<root_id>.localhost:<port>` 独立来源，片段使用 127.0.0.1；不注册 custom protocol。Tauri 2.11.5 的 `is_local_url` 仅承认已注册协议子域，其源码回归明确拒绝 `notregistered.localhost`。
+  - **导航闸必须有**(`preview::nav_allowed`,on_navigation / 地址栏 / 代理导航共用)：localhost 子域只有本进程服务校验过端口、token、root_id 的 URL 可进入；tauri / ipc / asset 等应用协议始终拒绝。`about:blank`、`data:text/html` 放行；`file:`、`javascript:` 与其它 scheme 拒绝。
   - B0 **对照组**:一个不设闸的子 webview 导航到 `http://tauri.localhost/` 后调 `invoke('spike_secret')` 拿到了 `SECRET-LEAKED`。闸不是可选项。
   - 闸同样覆盖程序化的 `Webview::navigate(tauri.localhost)` 与程序化的 `file:`;页面发起的 `file:` 在 on_navigation 之前就被 Chromium 自己拦了。
   - **子 frame 同样过闸**(复核修复):on_navigation 对应 NavigationStarting,只管顶层;而 wry 注册 custom protocol 用 `SOURCE_KINDS_ALL`,子 frame 请求 `http://tauri.localhost/…` 同样被应用协议接管,tauri 的 `is_local_url` 又只按 scheme + domain 判、不看端口(`http://tauri.localhost:3000` 的内容来自本机 3000 端口却算本地源),远程页面里还注入了带 invoke key 的 `__TAURI_INTERNALS__`。所以建面板时在 ICoreWebView2 上挂 `FrameNavigationStarting`(`cdp::guard_frame_navigation`),按 `preview::frame_nav_allowed` 判定后 `SetCancel(true)`:http(s) 同样拒绝任何 `*.localhost` 子域;放宽的只有页面内部常见、又拿不到新源的 `about:`(blank / srcdoc)、`data:`、`javascript:` 与内层源过同一规则的 `blob:`;其余 scheme 拒绝。
@@ -43,25 +43,25 @@
 - **代码片段落到不透明源**(集成收尾):静态服务上的片段(`/t/<token>/s/`)与项目文件(`/t/<token>/r/`)同源、共用 token,片段里的脚本从自己的 URL 就能拿到 token;而片段的来源(聊天里 html 代码块的「预览」——文档页、研究页里可能是抓来的网页内容——以及模型的 `browser html`)信任度低于用户自己的项目页面。所以片段响应一律带 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals`(**不**给 allow-same-origin),详见 §3。IPC 这一层片段本来就调不到(远程源,见上),沙箱挡的是「读同一静态服务上的项目文件、碰本源存储」。
 - **站点数据**:面板与主界面共用同一个 WebView2 profile。「清除本站数据」只做 CDP `Storage.clearDataForOrigin{origin: 当前源, storageTypes: "all"}`;清全部浏览数据的 API 会连 kanzei 自己存在 localStorage 里的东西一起清掉,守卫测试保证全仓代码不调用它。
 - **browser 工具权限分级**(`kanzei-tools/src/base.rs`):资源由 `browser_tool::resources_for` 按**解析后的 host** 生成(`http://localhost:80@evil.com/` 的 host 是 evil.com):
-  - `url:localhost[:*|/*]`、`url:127.0.0.1[:*|/*]`、`url:[::1][:*|/*]`、`path:*`、`html:*`、`page:none`(还没打开任何页面)→ Allow;
+  - `url:localhost[:*|/*]`、`url:127.0.0.1[:*|/*]`、`url:[::1][:*|/*]`、`html:*`、`page:none`(还没打开任何页面)→ Allow；本地路径转为结构化文件资源，精确授权由统一文件策略判定，不再默认放行 `path:*`；服务签发的 URL 映射回原始文件/目录授权。
   - 其余外网 → Ask(与 webfetch 一致);只读档位的硬 deny 不变;
   - 不带目标的动作(click / dom / eval …)按「将要执行它的后端」的当前页取资源;
   - 用户自己在面板里导航不走权限。
 
 ## 3. 静态服务(`kanzei-tools/src/preview_server.rs`)
 
-- 只绑 `127.0.0.1:0`,进程内单例,std TcpListener 手写,每连接一个线程;桌面与 CLI 共用。启动失败不缓存,下次重试;失败时 browser 的 `path` 回落 file:// 并在结果里说明。
+- 只绑 `127.0.0.1:0`,进程内单例,std TcpListener 手写,每连接一个线程;桌面与 CLI 共用。静态服务不可用时返回明确错误，不再回落 file:// 绕过服务边界。
 - 每次运行生成 128 位随机 token(OS 随机键的 SipHash + 时间 + 进程号,SHA-256 压成 32 hex)作路径前缀:
-  - `/t/{token}/r/{root_id}/{rel}`:登记过的根;文件落在哪个候选根(代码树 cwd、项目主根)里就以它为根,都不在时以文件所在目录为根;
+  - `/t/{token}/r/{root_id}/{rel}`:登记过的访问范围。打开单个文件授权该入口及代码根内的前端静态资源；普通文档、JSON 等数据需明确打开目录。目录授权只覆盖请求的目录，不向父目录扩大；主目录等过宽位置仍只给单文件。
   - `/t/{token}/s/{id}.html`:内存片段,LRU 32 个,单个 ≤ 2 MB,同内容去重。
-- **root_id 是随机的**(复核修复):所有根与片段同源(127.0.0.1:port)、共用 token,页面自己的 URL 里就带着 token;此前 root_id 取路径哈希、可以推算,经本服务打开的任何页面(项目里的第三方 HTML、聊天里的片段)都能拼出别的已登记根的 URL 去读 `.env` 之类的文件再发出去。现在登记表存「(目录, 单文件) → 随机 16 hex」,同一登记重复登记拿回同一 id,不同登记、不同运行各不相同;页面拿不到自己根以外的 id。同一个根内的文件仍然互相可读(与在该目录里起一个 `python -m http.server` 相同),这是有意的:多文件页面要能取到自己的资源。
+- **root_id 是随机的**：登记表以「目录和访问范围」为键，同一登记复用随机 16 hex，不同范围使用不同 id。后续目录授权不能扩大已经发出的页面能力；页面入口和静态资源之外的 sibling 数据返回拒绝。凭据、私钥和 Agent/IDE 启动配置对全部范围拒绝，复用统一敏感资源分类。随机 id 只保护 URL 能力，不能当成同源存储隔离；存储及不同页面来源的隔离仍需实际桌面验收。
 - **兜底根不能太宽**(复核修复):目录是盘符根、用户主目录本身或其上级(`C:\Users`)时,不整个当根,只登记**单文件根**(只提供这一个文件,同目录其它文件与 Referer 逐级查找一律 404);候选根本身太宽时同样跳过。打开桌面上的 HTML 仍以桌面目录为根(桌面在主目录之下,不算太宽)。
 - 只接受 GET / HEAD(其余 405);百分号解码(中文路径、含空格的 `kanzei code`);逐段拒绝 `.`、`..`、含 `\`、`:`、NUL 的段;canonicalize 之后必须仍在根内(符号链接越界同样 404)。
 - 目录不带尾斜杠 → 301 补斜杠;目录没有 index.html → 404,不列目录;`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`,不加 CORS 头。
 - **片段的 CSP 沙箱**(集成收尾,`preview_server::SNIPPET_CSP`):`/t/<token>/s/…` 的响应(含查无此片段的 404)一律带 `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals`。
   - 效果:片段文档落到不透明源(origin 为 `null`)。它对同一主机的 fetch / XHR 一律按跨源处理,本服务不发 CORS 头,所以读不到 `/r/` 下的任何文件(即便 root_id 泄露);没有本源的 localStorage / sessionStorage / Cookie / IndexedDB / Service Worker;弹窗(`window.open`)不放行(面板的 on_new_window 本来也 Deny)。放行的只有脚本、表单提交与 alert / confirm——片段本来就是拿来跑的演示页。CDN 上的 ES module 照常能加载(CDN 回 `Access-Control-Allow-Origin: *`,不透明源也认)。
   - 代价(写进 §11):片段里用 localStorage 的演示会抛 SecurityError;要存储、要同源 fetch 的页面请写成文件、按路径打开。
-  - **项目文件(`/r/`)不加**,有意为之:那是用户自己项目里的页面,信任度与在该目录里起一个 `python -m http.server` 相同;多文件页面必须同源才能工作——`<script type="module">` 的 import 是 CORS 请求、`fetch('./data.json')`、localStorage 都要同源,沙箱化会让 ES module 页面白屏,正是改用静态服务要解决的问题。不同根之间靠随机 root_id 隔开(见上),页面拿不到自己根以外的 id;根路径引用(`/assets/x.js`)同样不加。
+  - **项目文件(`/r/`)不加 sandbox CSP**，以保留 ES module 和存储行为；其文件读取由访问范围强制限制。页面范围允许入口、JavaScript、CSS、图片、字体、媒体及 WASM；`fetch('./data.json')` 等普通数据需明确目录范围。页面来自不可信仓库时仍按不可信内容处理，不能将“用户项目”当成可信指令来源。根路径资源引用沿用同一范围。
   - 单测:`片段带沙箱csp落到不透明源_项目文件不带`(纯判定:GET/HEAD/404 都带、`/r/` 页面与 module 资源与根路径引用都不带、CSP 不含 allow-same-origin / allow-top-navigation / allow-popups)与 `真实连接_片段响应头带沙箱_项目页面不带`(真 socket,头真的写到线上)。
 - 根路径引用(Vite 构建产物的 `/assets/x.js`):只在 Referer 指向本服务某个根内页面时,从引用页所在目录逐级向上找同名文件,仍限定在同一个根内;没有图标时 `/favicon.ico` 回 204,不在控制台留 404 噪声。
 

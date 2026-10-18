@@ -353,6 +353,14 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
         kanzei_tools::browser::input_schema()
     }
 
+    fn permission_resources(
+        &self,
+        input: &serde_json::Value,
+        ctx: &ToolCtx,
+    ) -> Vec<kanzei_harness::permission::Resource> {
+        kanzei_tools::browser::permission_resources(self.resources_with_ctx(input, ctx))
+    }
+
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
         kanzei_tools::browser::resources_for(input, None, None)
     }

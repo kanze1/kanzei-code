@@ -4,7 +4,7 @@
 //! `drive::execute_tool_calls` 只负责预检、并行 wave 与结果分派。
 
 use super::super::tool_failure_telemetry::{record_permission_denied, record_tool_failure};
-use super::permissions::{resolve_permission_gate, PermissionGateRequest};
+use super::permissions::{execution_permissions, resolve_permission_gate, PermissionGateRequest};
 use super::question::execute_question;
 use super::*;
 
@@ -190,7 +190,7 @@ pub(super) async fn execute_serial_tool_calls(
                     // R-259:执行包装(wrap_execute:progress 注入)收编——
                     // 串行/并行共用同一 wrapper;halted 前置拦截也在 wrapper。
                     let exec = kanzei_harness::permission::scope(
-                        snapshot.permissions().clone(),
+                        execution_permissions(snapshot, session_approved, session_rules),
                         kanzei_harness::managed_fence::tool_scope(
                             &ctx.project_root,
                             &name,
