@@ -208,68 +208,82 @@ fn collect_skills(dir: &Path) -> Vec<SkillDef> {
                 continue;
             }
         };
-        let stem = if path.file_name().map(|f| f == "SKILL.md").unwrap_or(false) {
-            path.parent()
-                .and_then(|p| p.file_name())
-                .and_then(|s| s.to_str())
-                .unwrap_or("skill")
-        } else {
-            path.file_stem().and_then(|s| s.to_str()).unwrap_or("skill")
-        };
-        #[derive(serde::Deserialize)]
-        struct Metadata {
-            name: Option<String>,
-            description: String,
-            #[serde(default, rename = "disable-model-invocation")]
-            disable_model_invocation: bool,
-            #[serde(default = "yes", rename = "user-invocable")]
-            user_invocable: bool,
+        if let Some(skill) = parse_skill(dir, path, &text) {
+            skills.push(skill);
         }
-        fn yes() -> bool {
-            true
-        }
-        let normalized = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
-        let metadata = normalized.strip_prefix("---\n").and_then(|body| {
-            let end = body.lines().position(|line| line == "---")?;
-            let yaml = body.lines().take(end).collect::<Vec<_>>().join("\n");
-            serde_yaml_ng::from_str::<Metadata>(&yaml).ok()
-        });
-        let Some(metadata) = metadata else {
-            tracing::warn!(path = %path.display(), "skill missing description; skipped");
-            continue;
-        };
-        let directory_skill = path.file_name().is_some_and(|file| file == "SKILL.md");
-        if directory_skill && metadata.name.is_none() {
-            continue;
-        }
-        let name = metadata.name.unwrap_or_else(|| stem.to_string());
-        if directory_skill && name != stem
-            || name.is_empty()
-            || name.chars().count() > 64
-            || name.starts_with('-')
-            || name.ends_with('-')
-            || name.contains("--")
-            || !name
-                .chars()
-                .all(|c| c == '-' || c.is_alphanumeric() && !c.is_uppercase())
-            || metadata.description.trim().is_empty()
-            || metadata.description.chars().count() > 1024
-        {
-            continue;
-        }
-        skills.push(SkillDef {
-            id: name.clone(),
-            source: String::new(),
-            embedded_content: None,
-            name,
-            description: metadata.description,
-            path,
-            content_root: Some(dir.to_path_buf()),
-            disable_model_invocation: metadata.disable_model_invocation,
-            user_invocable: metadata.user_invocable,
-        });
     }
     skills
+}
+
+fn parse_skill(dir: &Path, path: std::path::PathBuf, text: &str) -> Option<SkillDef> {
+    let stem = if path.file_name().map(|f| f == "SKILL.md").unwrap_or(false) {
+        path.parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .unwrap_or("skill")
+    } else {
+        path.file_stem().and_then(|s| s.to_str()).unwrap_or("skill")
+    };
+    #[derive(serde::Deserialize)]
+    struct Metadata {
+        name: Option<String>,
+        description: String,
+        #[serde(default, rename = "disable-model-invocation")]
+        disable_model_invocation: bool,
+        #[serde(default = "yes", rename = "user-invocable")]
+        user_invocable: bool,
+    }
+    fn yes() -> bool {
+        true
+    }
+    let normalized = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
+    let metadata = normalized.strip_prefix("---\n").and_then(|body| {
+        let end = body.lines().position(|line| line == "---")?;
+        let yaml = body.lines().take(end).collect::<Vec<_>>().join("\n");
+        serde_yaml_ng::from_str::<Metadata>(&yaml).ok()
+    });
+    let Some(metadata) = metadata else {
+        tracing::warn!(path = %path.display(), "skill missing description; skipped");
+        return None;
+    };
+    let directory_skill = path.file_name().is_some_and(|file| file == "SKILL.md");
+    if directory_skill && metadata.name.is_none() {
+        return None;
+    }
+    let name = metadata.name.unwrap_or_else(|| stem.to_string());
+    if directory_skill && name != stem
+        || name.is_empty()
+        || name.chars().count() > 64
+        || name.starts_with('-')
+        || name.ends_with('-')
+        || name.contains("--")
+        || !name
+            .chars()
+            .all(|c| c == '-' || c.is_alphanumeric() && !c.is_uppercase())
+        || metadata.description.trim().is_empty()
+        || metadata.description.chars().count() > 1024
+    {
+        return None;
+    }
+    Some(SkillDef {
+        id: name.clone(),
+        source: String::new(),
+        embedded_content: None,
+        name,
+        description: metadata.description,
+        path,
+        content_root: Some(dir.to_path_buf()),
+        disable_model_invocation: metadata.disable_model_invocation,
+        user_invocable: metadata.user_invocable,
+    })
+}
+
+/// Read one explicitly selected directory without scanning its parent or siblings.
+pub fn skill_in_directory(directory: &Path) -> anyhow::Result<SkillDef> {
+    let path = directory.join("SKILL.md");
+    let text = crate::skills::read_skill_file(directory, &path)?;
+    parse_skill(directory, path, &text)
+        .ok_or_else(|| anyhow::anyhow!("SKILL.md 无效，请检查名称、描述和 YAML"))
 }
 
 pub fn skills_in_directory(directory: &Path) -> Vec<SkillDef> {

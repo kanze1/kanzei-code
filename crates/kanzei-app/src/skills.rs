@@ -283,21 +283,13 @@ fn copy_resources(
 }
 fn import_at(home: &Path, directory: &Path) -> Result<Value, String> {
     let directory = std::fs::canonicalize(directory).map_err(|e| e.to_string())?;
-    let text = std::fs::read_to_string(directory.join("SKILL.md"))
-        .map_err(|_| "请选择包含 SKILL.md 的技能文件夹")?;
-    if text.len() > 131_072 {
-        return Err("SKILL.md 超过 128 KB".into());
-    }
-    let parent = directory.parent().ok_or("技能目录无效")?;
     // Use the same parser as the runtime, including YAML blocks and invocation flags.
     let name = directory
         .file_name()
         .and_then(|v| v.to_str())
         .ok_or("技能名称无效")?;
-    let skill = kanzei_harness::markdown::skills_in_directory(parent)
-        .into_iter()
-        .find(|skill| skill.path == directory.join("SKILL.md"))
-        .ok_or("SKILL.md 无效，请检查名称、描述和 YAML")?;
+    let skill = kanzei_harness::markdown::skill_in_directory(&directory)
+        .map_err(|error| error.to_string())?;
     if skill.name != name {
         return Err("技能名称必须与文件夹名称一致".into());
     }
