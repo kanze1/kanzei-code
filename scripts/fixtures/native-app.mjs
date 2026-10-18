@@ -6,6 +6,31 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { once } from "node:events";
+
+export async function stopOwnedProcess(child) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, "exit");
+  child.kill();
+  await exited;
+}
+
+export async function closeNativeResources({ browser, app, model, probe }, shutdown) {
+  const failures = [];
+  if (shutdown) {
+    try { await shutdown(); } catch (error) { failures.push(error); }
+  }
+  const closeServer = async server => {
+    if (!server?.listening) return;
+    server.closeAllConnections?.();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  };
+  const results = await Promise.allSettled([
+    Promise.resolve().then(()=>browser?.close()), stopOwnedProcess(app), closeServer(model), closeServer(probe),
+  ]);
+  failures.push(...results.filter(result => result.status === "rejected").map(result => result.reason));
+  if (failures.length) throw new AggregateError(failures, "Native fixture cleanup failed; every owned resource release was attempted");
+}
 
 export async function until(predicate, label, timeout = 60000) {
   const deadline = Date.now() + timeout;
@@ -32,21 +57,36 @@ export async function nativeApp(executable, output, label, handle, extraConfig =
       const body=JSON.parse(raw);requests.push(body);await handle(body,res);
     }catch(error){errors.push(String(error));textReply(res,"FIXTURE_FAILED");}
   });
-  await new Promise(resolve=>model.listen(0,"127.0.0.1",resolve));
-  await writeFile(path.join(appHome,"kanzei.toml"),`[models]\nprimary="stub:test"\nfast="stub:test"\n[providers.stub]\nprotocol="openai"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\ncontext_limit=128000\n${extraConfig}`);
-  const probe=net.createServer();await new Promise(resolve=>probe.listen(0,"127.0.0.1",resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
-  const exe=path.join(run,"kzapp.exe");await copyFile(path.resolve(executable),exe);
-  const app=spawn(exe,[],{cwd:project,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:appHome,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`}});
-  let browser,page;
-  const invoke=(command,args={})=>page.evaluate(({command,args})=>window.__TAURI__.core.invoke(command,args),{command,args});
-  const close=async()=>{
-    if(page&&!page.isClosed()) await invoke("runtime_shutdown").catch(error=>console.warn(String(error)));
-    await browser?.close();app.kill();model.closeAllConnections();await new Promise(resolve=>model.close(resolve));
+  const probe=net.createServer(), exe=path.join(run,"kzapp.exe");
+  const diagnostics={ page_errors:[], failed_invocations:[], resource_errors:[] };
+  let app,browser,page,closing;
+  const invoke=async(command,args={})=>{
+    try { return await page.evaluate(({command,args})=>window.__TAURI__.core.invoke(command,args),{command,args}); }
+    catch(cause) {
+      diagnostics.failed_invocations.push({command,message:String(cause)});
+      throw new Error(`Fixture IPC ${command} failed: ${cause instanceof Error ? cause.message : String(cause)}`,{cause});
+    }
   };
+  const close=()=>closing ??= (async()=>{
+    try {
+      await closeNativeResources({browser,app,model,probe},page&&!page.isClosed()?()=>invoke("runtime_shutdown"):undefined);
+    } catch(error) {
+      diagnostics.resource_errors.push(String(error),...(error.errors??[]).map(String));
+      throw error;
+    } finally {
+      await writeFile(path.join(run,"native-diagnostics.json"),JSON.stringify(diagnostics,null,2));
+    }
+  })();
   try {
+    await new Promise((resolve,reject)=>model.once("error",reject).listen(0,"127.0.0.1",resolve));
+    await writeFile(path.join(appHome,"kanzei.toml"),`[models]\nprimary="stub:test"\nfast="stub:test"\n[providers.stub]\nprotocol="openai"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\ncontext_limit=128000\n${extraConfig}`);
+    await new Promise((resolve,reject)=>probe.once("error",reject).listen(0,"127.0.0.1",resolve));const port=probe.address().port;await new Promise((resolve,reject)=>probe.close(error=>error?reject(error):resolve()));
+    await copyFile(path.resolve(executable),exe);
+    app=spawn(exe,[],{cwd:project,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:appHome,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`}});
+    app.on("error",error=>{errors.push(error.message);diagnostics.resource_errors.push(String(error));});
     await until(async()=>{try{browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`);return true;}catch{return false;}},"Owned native app starts",30000);
     await until(()=>{page=browser.contexts().flatMap(context=>context.pages())[0];return Boolean(page);},"Owned native page exists");
-    page.on("pageerror",error=>errors.push(error.message));
+    page.on("pageerror",error=>{errors.push(error.message);diagnostics.page_errors.push({message:error.message,stack:error.stack});});
     await page.waitForFunction(()=>document.body.dataset.appReady==="true");
     await invoke("projects_init",{path:project,name:label});await page.reload();await page.waitForFunction(()=>document.body.dataset.appReady==="true");
     await page.locator(".workbench-project-name").filter({hasText:label}).click();
@@ -55,6 +95,9 @@ export async function nativeApp(executable, output, label, handle, extraConfig =
       await page.evaluate(async id=>{const sessions=await import("./09-sessions.js");await sessions.refreshProcesses({force:true});await sessions.switchProcess(id,true);},line.id);
       return line;
     };
-    return {run,project,appHome,exe,page,invoke,requests,errors,close,createConversation};
-  }catch(error){await close();throw error;}
+    return {run,project,appHome,exe,page,invoke,requests,errors,diagnostics,close,createConversation};
+  }catch(error){
+    try { await close(); } catch(cleanupError) { throw new AggregateError([error,cleanupError],"Native fixture initialization and cleanup failed"); }
+    throw error;
+  }
 }

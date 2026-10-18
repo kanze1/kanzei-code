@@ -34,7 +34,8 @@ for (const file of fs.readdirSync(ui).filter(f => f.endsWith(".js"))) walk(parse
 assert.deepEqual(failures, [], failures.join("\n"));
 assert.ok(calls > 100, "Frontend contract coverage must not silently become empty");
 const sent = [];
-globalThis.window = { __TAURI__: { core: { invoke: async (...args) => { sent.push(args); return "accepted"; } }, event: { listen() {} } } };
+let rejection;
+globalThis.window = { __TAURI__: { core: { invoke: async (...args) => { sent.push(args); if (rejection !== undefined) throw rejection; return "accepted"; } }, event: { listen() {} } } };
 const { invoke } = await import("../crates/kanzei-app/ui/00-ipc.js");
 await assert.rejects(invoke("process_list", { project_dir: "fixture" }), /Unknown process_list argument/);
 await assert.rejects(invoke("run_prompt", { projectDir: "fixture" }), /Missing run_prompt argument: prompt/);
@@ -43,4 +44,13 @@ assert.equal(sent.length, 0, "Invalid commands must fail before crossing IPC");
 assert.equal(await invoke("process_list", { projectDir: "fixture" }), "accepted");
 assert.equal(await invoke("stop_run", { projectDir: "fixture", processId: "conversation" }), "accepted");
 assert.equal(await invoke("ui_prefs_set", { work_priority: {} }), "accepted", "Explicit snake_case command metadata is preserved");
+rejection = "拒绝访问。 (os error 5)";
+await assert.rejects(invoke("process_list", { projectDir: "private-user-path" }), error => {
+  assert.equal(error.message, "IPC process_list failed: 拒绝访问。 (os error 5)");
+  assert.equal(error.cause, rejection);
+  assert(!error.message.includes("private-user-path"), "Transport context must not serialize argument values");
+  return true;
+});
+rejection = new Error("storage unavailable");
+await assert.rejects(invoke("process_list", { projectDir: "fixture" }), error => error.cause === rejection && error.message.includes("process_list"));
 console.log(`IPC argument contract PASS: ${calls} call sites, ${Object.keys(contracts).length} registered commands, transport rejection and rename cases`);

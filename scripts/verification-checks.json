@@ -8,6 +8,12 @@
     ]
   },
   {
+    "key": "native_fixture_lifecycle",
+    "inputs": "always",
+    "program": "node",
+    "args": ["scripts/native-fixture-lifecycle-smoke.mjs"]
+  },
+  {
     "key": "parallel_lines_regression",
     "inputs": "frontend",
     "program": "node",

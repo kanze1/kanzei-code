@@ -5,14 +5,15 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { nativeApp, until, textReply } from "./fixtures/native-app.mjs";
+import { nativeApp, until, textReply, stopOwnedProcess } from "./fixtures/native-app.mjs";
 
 assert(process.platform === "win32" && process.argv[2], "Pass a fresh kzapp.exe");
 const output=path.resolve("output/playwright/desktop/luna"),fixtureRoot=path.join(output,`form-${Date.now()}`);
 await mkdir(fixtureRoot,{recursive:true});
-const form=spawn("C:\\Program Files\\PowerShell\\7\\pwsh.exe",["-NoProfile","-Sta","-File",path.resolve("scripts/fixtures/desktop-form.ps1"),"-StateDirectory",fixtureRoot],{windowsHide:true,stdio:"ignore"});
 const app=await nativeApp(process.argv[2],output,"Luna 原生窗口验收",async(_body,res)=>textReply(res,"No candidates."),"[limits]\nmax_steps=12\n");
+let form;
 try {
+  form=spawn("C:\\Program Files\\PowerShell\\7\\pwsh.exe",["-NoProfile","-Sta","-File",path.resolve("scripts/fixtures/desktop-form.ps1"),"-StateDirectory",fixtureRoot],{windowsHide:true,stdio:"ignore"});
   await until(()=>existsSync(path.join(fixtureRoot,"window.json")),"Owned form opens");
   const window=JSON.parse(await readFile(path.join(fixtureRoot,"window.json"),"utf8"));
   const line=await app.createConversation();
@@ -36,4 +37,4 @@ try {
   await app.page.screenshot({path:path.join(output,"native-luna.png")});
   console.log("Real Luna native form PASS: submission independently verified");
 } catch(error) { await app.page.screenshot({path:path.join(output,"failure.png")});await writeFile(path.join(output,"failure.json"),JSON.stringify({error:String(error),errors:app.errors,fixtureRoot,run:app.run},null,2));throw error; }
-finally { await app.close();form.kill(); }
+finally { try { await app.close(); } finally { await stopOwnedProcess(form); } }

@@ -5,12 +5,12 @@ import { spawn } from "node:child_process";
 import { mkdir,readFile,writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { nativeApp,until,textReply,toolReply } from "./fixtures/native-app.mjs";
+import { nativeApp,until,textReply,toolReply,stopOwnedProcess } from "./fixtures/native-app.mjs";
 import { decodeExternalSource } from "./fixtures/tool-source.mjs";
 
 assert(process.platform==="win32"&&process.argv[2],"Pass a fresh kzapp.exe");
 const output=path.resolve("output/playwright/desktop/native"),fixtureRoot=path.join(output,`form-${Date.now()}`);await mkdir(fixtureRoot,{recursive:true});
-const form=spawn("C:\\Program Files\\PowerShell\\7\\pwsh.exe",["-NoProfile","-Sta","-File",path.resolve("scripts/fixtures/desktop-form.ps1"),"-StateDirectory",fixtureRoot],{windowsHide:true,stdio:"ignore"});
+let form;
 const results=[],checks=[],check=(value,label)=>{assert(value,label);checks.push(label);};
 let snapshot,done=false,noWindowDone=false,approvalDone=false,firstWindow;
 const actions=["inspect","fill","stale","inspect","key","inspect","submit","inspect","canvas","inspect","open","inspect","secret_file","file","inspect","password","inspect"];
@@ -56,6 +56,7 @@ const app=await nativeApp(process.argv[2],output,"原生窗口软件验收",asyn
   assert(input,action);toolReply(res,"desktop",input,tools.length);
 });
 try{
+  form=spawn("C:\\Program Files\\PowerShell\\7\\pwsh.exe",["-NoProfile","-Sta","-File",path.resolve("scripts/fixtures/desktop-form.ps1"),"-StateDirectory",fixtureRoot],{windowsHide:true,stdio:"ignore"});
   await until(()=>existsSync(path.join(fixtureRoot,"window.json")),"Owned native form starts");
   firstWindow=JSON.parse(await readFile(path.join(fixtureRoot,"window.json"),"utf8"));
   await writeFile(path.join(app.project,"upload.txt"),"NATIVE_COPIED_INPUT_BYTES");
@@ -97,4 +98,4 @@ try{
   await app.page.screenshot({path:path.join(output,"native-desktop.png")});
   await writeFile(path.join(output,"acceptance.json"),JSON.stringify({passed:checks.length,checks,results,fixtureRoot,executable:app.exe},null,2));console.log(`Desktop native PASS: ${checks.length} checks`);
 }catch(error){await writeFile(path.join(output,"failure.json"),JSON.stringify({checks,results,errors:app.errors,request_count:app.requests.length,fixtureRoot},null,2));await app.page.screenshot({path:path.join(output,"native-failure.png")});throw error;}
-finally{await app.close();form.kill();}
+finally{try{await app.close();}finally{await stopOwnedProcess(form);}}

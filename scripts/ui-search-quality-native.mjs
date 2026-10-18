@@ -1,7 +1,8 @@
 /* global document */
 // One live batch through the actual application and configured DDG path, without retries.
 import assert from "node:assert/strict";
-import { mkdir,writeFile } from "node:fs/promises";
+import { mkdir,readFile,writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { dataset,retrievalScore,canonicalSourceKey } from "./search-quality.mjs";
 import { nativeApp,until,textReply,toolReply } from "./fixtures/native-app.mjs";
@@ -10,7 +11,7 @@ import { decodeExternalSource } from "./fixtures/tool-source.mjs";
 assert(process.platform==="win32" && process.argv[2],"Pass a fresh kzapp.exe");
 const output=path.resolve("output/playwright/search-quality/native");await mkdir(output,{recursive:true});
 let receipt,finished=false;
-const bodies=[],fetchUrls=[];
+const bodies=[],fetchTargets=[],missing=[];
 const app=await nativeApp(process.argv[2],output,"实时搜索质量观察",async(body,res)=>{
   const original=body.messages?.find(message=>message.role==="user" && typeof message.content==="string" && message.content.startsWith("NATIVE_SEARCH_QUALITY:"));
   if(!original){textReply(res,"No candidates.");return;}
@@ -20,18 +21,22 @@ const app=await nativeApp(process.argv[2],output,"实时搜索质量观察",asyn
   if(results.length===2){
     const decoded=decodeExternalSource(results[1].content);
     receipt=JSON.parse(decoded.content.replace(/^(?:\[tool error\]\n|\[tool_outcome=[^\n]+\]\n)+/,""));
+    assert.equal(receipt.queries.length,dataset.queries.length);
+    receipt.queries.forEach((group,index)=>{
+      const query=dataset.queries[index];
+      const source=group.results.find(result=>query.expected_urls.some(expected=>canonicalSourceKey(expected)===canonicalSourceKey(result.url)));
+      if(source) fetchTargets.push({query,source});
+      else missing.push({id:query.id,status:group.status,reason:group.error??"No annotated relevant candidate in the observed result set"});
+    });
     toolReply(res,"tool_search",{query:"select:webfetch"},2);return;
   }
   if(results.length>3){
     const index=results.length-4,decoded=decodeExternalSource(results.at(-1).content);
-    bodies[index]={id:dataset.queries[index].id,url:fetchUrls[index],source:decoded.source,content:decoded.content,is_error:decoded.content.startsWith("[tool error]")};
+    bodies[index]={id:fetchTargets[index].query.id,url:fetchTargets[index].source.url,source:decoded.source,content:decoded.content,is_error:/^\[(?:tool error\]|tool_outcome=)/.test(decoded.content)};
   }
   const index=results.length-3;
-  if(index<4){
-    const query=dataset.queries[index];
-    const source=receipt.queries[index].results.find(result=>query.expected_urls.some(expected=>canonicalSourceKey(expected)===canonicalSourceKey(result.url)));
-    assert(source,"Each successful candidate query must supply a fixed relevant source before body verification");
-    fetchUrls[index]=source.url;
+  if(index<fetchTargets.length){
+    const {query,source}=fetchTargets[index];
     const card=dataset.documents.find(document=>document.target===query.id&&document.level==="primary");
     toolReply(res,"webfetch",{ref:source.ref,find:card.find,max_chars:12000},results.length);return;
   }
@@ -51,7 +56,13 @@ try{
     return {id:dataset.queries[index].id,...query};
   });
   const score=retrievalScore(groups);
-  const result={observed_at:new Date().toISOString(),dataset_revision:dataset.schema,scope:dataset.scope,backend:"duckduckgo",attempts:4,groups,score,bodies,health_observed:true,candidate_retrieval_pass:score.coverage===1,answer_quality_pass:null,successful_body_fetches:bodies.filter(body=>!body.is_error).length,recency_assessment:"not assessed: these queries request stable documentation, not recent news",model:"deterministic fixture controls requests; no claim of Luna answer quality",executable:app.exe};
+  for(const body of bodies.filter(body=>!body.is_error)) {
+    const saved=body.content.match(/Saved page: `([^`]+)`/),declared=body.content.match(/SHA-256: ([a-f0-9]{64})/);
+    assert(saved&&declared,"A successful body observation requires its acquisition receipt");
+    assert.equal(createHash("sha256").update(await readFile(saved[1])).digest("hex"),declared[1]);
+    body.document={path:saved[1],sha256:declared[1]};
+  }
+  const result={observed_at:new Date().toISOString(),dataset_revision:dataset.schema,scope:dataset.scope,backend:"duckduckgo",attempts:4,groups,score,bodies,missing,health_observed:true,candidate_retrieval_pass:score.coverage===1,answer_quality_pass:null,successful_body_fetches:bodies.filter(body=>!body.is_error).length,recency_assessment:"not assessed: these queries request stable documentation, not recent news",model:"deterministic fixture controls requests; no claim of Luna answer quality",executable:app.exe};
   await writeFile(path.join(app.run,"live-results.json"),JSON.stringify(result,null,2));
   await writeFile(path.join(output,"live-results.json"),JSON.stringify(result,null,2));
   await app.page.screenshot({path:path.join(output,"native-live-search.png")});

@@ -73,6 +73,39 @@ fn invalid(message: &str) -> SearchFailure {
     SearchFailure::new(SearchErrorCode::InvalidResponse, message)
 }
 
+fn source_field<'a>(item: &'a Value, index: usize, name: &str) -> Result<&'a str, SearchFailure> {
+    item[name]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            invalid(&format!(
+                "Codex search results[{index}].{name} must be a non-empty string"
+            ))
+        })
+}
+
+fn parse_source(item: &Value, index: usize) -> Result<(&str, &str, &str, &str), SearchFailure> {
+    if item["type"] != "text_result" {
+        return Err(invalid(&format!(
+            "Codex search results[{index}].type must be text_result"
+        )));
+    }
+    let url = source_field(item, index, "url")?;
+    let title = source_field(item, index, "title")?;
+    let reference = source_field(item, index, "ref_id")?;
+    let snippet = item["snippet"].as_str().ok_or_else(|| {
+        invalid(&format!(
+            "Codex search results[{index}].snippet must be a string"
+        ))
+    })?;
+    if !allowed_result(url, &[], &[]) {
+        return Err(invalid(&format!(
+            "Codex search results[{index}].url must be an allowed HTTP source URL"
+        )));
+    }
+    Ok((url, title, reference, snippet))
+}
+
 fn parse(
     value: &Value,
     query: &SearchQuery,
@@ -89,26 +122,16 @@ fn parse(
     }
     let mut results = Vec::new();
     let mut sources = Vec::new();
+    let mut rejected = Vec::new();
     let mut seen = HashSet::new();
-    for item in items {
-        let field = |name: &str| {
-            item[name]
-                .as_str()
-                .filter(|value| !value.trim().is_empty())
-                .ok_or_else(|| invalid("Codex search result identity, URL or title is missing"))
+    for (index, item) in items.iter().enumerate() {
+        let (url, title, reference, snippet) = match parse_source(item, index) {
+            Ok(source) => source,
+            Err(failure) => {
+                rejected.push((index, failure));
+                continue;
+            }
         };
-        if item["type"] != "text_result" {
-            return Err(invalid("Codex search result type changed"));
-        }
-        let url = field("url")?;
-        let title = field("title")?;
-        let reference = field("ref_id")?;
-        let snippet = item["snippet"]
-            .as_str()
-            .ok_or_else(|| invalid("Codex search snippet shape changed"))?;
-        if !allowed_result(url, &[], &[]) {
-            return Err(invalid("Codex search returned an invalid source URL"));
-        }
         sources.push(json!({"ref":reference,"url":url}));
         if allowed_result(url, &query.domains, &query.exclude_domains) && seen.insert(url) {
             results.push(SearchResult {
@@ -119,9 +142,18 @@ fn parse(
             });
         }
     }
+    if sources.is_empty() && !rejected.is_empty() {
+        return Err(invalid(&format!(
+            "Codex search returned no valid sources; {} result(s) rejected; {}",
+            rejected.len(),
+            rejected[0].1.message
+        )));
+    }
     let truncated = results.len() > limit;
     results.truncate(limit);
-    let status = if !results.is_empty() {
+    let status = if !rejected.is_empty() {
+        SearchStatus::Partial
+    } else if !results.is_empty() {
         SearchStatus::Results
     } else if items.is_empty() {
         SearchStatus::Empty
@@ -134,7 +166,8 @@ fn parse(
         status,
         evidence: Some(
             json!({"protocol":"codex_direct_search","request_id":request_id,
-        "commands":1,"server_output_token_budget":MAX_SEARCH_OUTPUT_TOKENS,"sources":sources}),
+        "commands":1,"server_output_token_budget":MAX_SEARCH_OUTPUT_TOKENS,"sources":sources,
+        "rejected_results":rejected.into_iter().map(|(index,failure)|json!({"index":index,"failure":failure})).collect::<Vec<_>>()}),
         ),
     })
 }
@@ -195,5 +228,62 @@ mod tests {
         )
         .unwrap();
         assert_eq!(filtered.status, SearchStatus::Filtered);
+    }
+
+    #[test]
+    fn malformed_sources_are_explicit_partial_results_without_discarding_valid_sources() {
+        let mut missing_title = source("https://docs.rs/rejected");
+        missing_title["title"] = json!(null);
+        let value = response(vec![
+            missing_title,
+            source("https://docs.rs/valid"),
+            source("file:///private-source"),
+        ]);
+        let data = parse(&value, &SearchQuery::default(), 5, "request").unwrap();
+        assert_eq!(data.status, SearchStatus::Partial);
+        assert_eq!(data.results.len(), 1);
+        assert_eq!(data.results[0].url, "https://docs.rs/valid");
+        assert!(!data.truncated);
+        let evidence = data.evidence.unwrap();
+        assert_eq!(evidence["sources"].as_array().unwrap().len(), 1);
+        let rejected = evidence["rejected_results"].as_array().unwrap();
+        assert_eq!(rejected.len(), 2);
+        assert_eq!(rejected[0]["index"], 0);
+        assert_eq!(rejected[0]["failure"]["code"], "invalid_response");
+        assert!(rejected[0]["failure"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("results[0].title"));
+        assert!(!evidence.to_string().contains("private-source"));
+    }
+
+    #[test]
+    fn invalid_sources_cannot_become_healthy_filtered_results() {
+        let query = SearchQuery {
+            domains: vec!["docs.rs".into()],
+            ..Default::default()
+        };
+        let data = parse(
+            &response(vec![
+                source("https://other.example/valid"),
+                json!({"type":"text_result"}),
+            ]),
+            &query,
+            5,
+            "request",
+        )
+        .unwrap();
+        assert_eq!(data.status, SearchStatus::Partial);
+        assert!(data.results.is_empty());
+        let failure = parse(
+            &response(vec![json!({"type":"text_result"})]),
+            &query,
+            5,
+            "request",
+        )
+        .err()
+        .unwrap();
+        assert_eq!(failure.code, SearchErrorCode::InvalidResponse);
+        assert!(failure.message.contains("results[0].url"));
     }
 }

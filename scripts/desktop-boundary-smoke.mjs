@@ -3,7 +3,7 @@ import { spawn,spawnSync } from "node:child_process";
 import { mkdir,readFile,writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { until } from "./fixtures/native-app.mjs";
+import { until,stopOwnedProcess } from "./fixtures/native-app.mjs";
 
 assert(process.platform==="win32");
 const output=path.resolve("output/remediation-20261018/desktop"),run=path.join(output,String(Date.now()));await mkdir(run,{recursive:true});
@@ -51,4 +51,4 @@ try{
   await until(async()=>(await state()).file===file,"Native chooser returns the explicit file");
   check(true,"Application callback independently verifies the chosen file");
   await writeFile(path.join(output,"acceptance.json"),JSON.stringify({passed:checks.length,checks,run},null,2));console.log(`Desktop OS boundary PASS: ${checks.length} checks`);
-}finally{fixture.kill();}
+}finally{await stopOwnedProcess(fixture);}

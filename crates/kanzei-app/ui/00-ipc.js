@@ -11,6 +11,11 @@ export function validateCommandArguments(command, args = {}) {
 }
 export async function invoke(command, args = {}) {
   validateCommandArguments(command, args);
-  return transport(command, args);
+  try {
+    return await transport(command, args);
+  } catch (cause) {
+    // Arguments may contain credentials or user content; retain only the command.
+    throw new Error(`IPC ${command} failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+  }
 }
 export const { listen } = window.__TAURI__.event;
