@@ -49,6 +49,7 @@ mod mobile;
 mod mobile_notify;
 /// UI-0926 #3:模型配置的展示真源(model_effective)与项目级模型覆盖的逐键编辑。
 mod model_config;
+mod native_desktop;
 mod native_dispatch;
 mod orchestration_trace;
 mod prefs;

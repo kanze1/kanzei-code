@@ -274,6 +274,7 @@ pub enum ExternalSourceKind {
     Browser,
     File,
     Process,
+    Desktop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

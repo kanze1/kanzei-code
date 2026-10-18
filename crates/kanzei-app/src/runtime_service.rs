@@ -20,6 +20,7 @@ mod shutdown;
 // Control frames and event polls are short. Invokes may run bounded I/O such as
 // compaction; a timeout reports an unknown result and never replays a mutation.
 const CONTROL_DEADLINE: Duration = Duration::from_secs(10);
+const TOOL_DEADLINE: Duration = Duration::from_secs(90);
 const INVOKE_DEADLINE: Duration = Duration::from_secs(300);
 const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(crate::state::STOP_GRACE_SECS + 15);
 
@@ -154,6 +155,7 @@ pub(crate) async fn request(endpoint: &Endpoint, value: Value) -> Result<Value, 
     let deadline = match value["action"].as_str() {
         Some("invoke") => INVOKE_DEADLINE + CONTROL_DEADLINE,
         Some("shutdown") => SHUTDOWN_DEADLINE + CONTROL_DEADLINE,
+        Some("tool") => TOOL_DEADLINE,
         _ => CONTROL_DEADLINE,
     };
     request_with_deadline(endpoint, value, deadline).await

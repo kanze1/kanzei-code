@@ -1467,6 +1467,38 @@
     "path": "commands::models::models_list",
     "returns": "-> Result < serde_json :: Value , String >"
   },
+  "native_desktop_get": {
+    "host": "desktop",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "native_desktop::native_desktop_get",
+    "returns": "-> Option < Value >"
+  },
+  "native_desktop_select": {
+    "host": "desktop",
+    "parameters": {
+      "candidateId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "processId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "native_desktop::native_desktop_select",
+    "returns": "-> Result < Option < Value > , String >"
+  },
+  "native_desktop_windows": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "native_desktop::native_desktop_windows",
+    "returns": "-> Result < Value , String >"
+  },
   "open_delivered_path": {
     "host": "desktop",
     "parameters": {

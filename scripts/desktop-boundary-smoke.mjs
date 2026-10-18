@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import { spawn,spawnSync } from "node:child_process";
+import { mkdir,readFile,writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { until } from "./fixtures/native-app.mjs";
+
+assert(process.platform==="win32");
+const output=path.resolve("output/remediation-20261018/desktop"),run=path.join(output,String(Date.now()));await mkdir(run,{recursive:true});
+const fixture=spawn("C:\\Program Files\\PowerShell\\7\\pwsh.exe",["-NoProfile","-Sta","-File",path.resolve("scripts/fixtures/desktop-form.ps1"),"-StateDirectory",run],{windowsHide:true,stdio:"ignore"});
+const checks=[],check=(value,label)=>{assert(value,label);checks.push(label);};
+const call=request=>{
+  const result=spawnSync("C:\\Program Files\\PowerShell\\7\\pwsh.exe",["-NoProfile","-NonInteractive","-Mta","-File",path.resolve("scripts/desktop-helper.ps1"),"-RequestJson",JSON.stringify(request)],{encoding:"utf8",windowsHide:true,timeout:20000,maxBuffer:5*1024*1024});
+  assert(!result.error,String(result.error));assert(result.stdout.trim(),result.stderr);return JSON.parse(result.stdout);
+};
+let window;
+try{
+  await until(()=>existsSync(path.join(run,"window.json")),"Owned Windows form opens");
+  window=JSON.parse(await readFile(path.join(run,"window.json"),"utf8"));
+  const listed=call({action:"list"});
+  await writeFile(path.join(run,"selection-diagnostic.json"),JSON.stringify({window,matched:listed.windows.filter(row=>row.pid===window.pid),unavailable:listed.unavailable.filter(row=>row.hwnd===window.hwnd),exitCode:fixture.exitCode},null,2));
+  check(listed.windows.some(row=>row.hwnd===window.hwnd),"Actual owned native window is available for human selection");
+  let result=call({action:"inspect",window});assert(result.ok,result.error);
+  await writeFile(path.join(run,"snapshot.json"),JSON.stringify(result.snapshot,null,2));
+  check(result.snapshot.elements.some(row=>row.automation_id==="CustomerName"),"UIA discovers actual native input controls");
+  check(!JSON.stringify(result.snapshot).includes("UIA_PASSWORD_CANARY"),"UIA password values are not exposed");
+  await writeFile(path.join(output,"native-window.png"),Buffer.from(result.image.data,"base64"));
+  const element=id=>result.snapshot.elements.find(row=>row.automation_id===id);
+  const name=element("CustomerName"),submit=element("Submit"),canvas=element("DrawingCanvas"),choose=element("ChooseFile"),secret=element("Secret");
+  result=call({action:"fill",window,runtime_id:name.runtime_id,text:"Native form value"});check(result.ok,"ValuePattern fills actual native field");
+  result=call({action:"key",window,runtime_id:name.runtime_id,key:"Enter"});check(result.ok,result.error||"Single keyboard action targets the selected native control");
+  result=call({action:"invoke",window,runtime_id:submit.runtime_id});check(result.ok,"InvokePattern submits the actual native form");
+  const state=()=>readFile(path.join(run,"state.json"),"utf8").then(JSON.parse);
+  await until(async()=>{const saved=await state();return saved.submitted&&saved.name==="Native form value"&&saved.enter_count===1;},"Native callbacks actually run");
+  check(true,"Application state independently verifies submitted value and keyboard action");
+  result=call({action:"click",window,runtime_id:canvas.runtime_id,x:100,y:80});check(result.ok,result.error||"Real canvas pointer input stays within its observed bounds");
+  await until(async()=>(await state()).canvas_clicks===1,"Canvas receives the actual click");
+  check(true,"Canvas callback independently verifies mouse input");
+  check(!call({action:"fill",window,runtime_id:secret.runtime_id,text:"change"}).ok,"Password controls reject automated input");
+  check(!call({action:"fill",window:{...window,started:"0"},runtime_id:name.runtime_id,text:"change"}).ok,"Reused window handles cannot bypass process creation identity");
+  check(!call({action:"click",window,runtime_id:canvas.runtime_id,x:99999,y:0}).ok,"Out-of-bounds pointer action is refused");
+  check(!call({action:"fill",window,runtime_id:"stale-element",text:"change"}).ok,"Stale or unrelated element identity is refused");
+  result=call({action:"invoke",window,runtime_id:choose.runtime_id});check(result.ok,result.error||"Actual native file chooser opens");
+  check(result.verification==="inspect_required","Mutation receipt requires independent application verification");
+  result=call({action:"inspect",window});check(result.ok,result.error||"A new UIA client can inspect the owned modal dialog");
+  const filename=result.snapshot.elements.find(row=>row.editable && row.automation_id==="1148");
+  assert(filename,`File-name control must be present: ${JSON.stringify(result.snapshot.elements.map(row=>({id:row.automation_id,type:row.type,name:row.name})))}`);
+  check(!call({action:"fill",window,runtime_id:filename.runtime_id,text:"unapproved"}).ok,"Generic typing cannot bypass the dedicated native file choice");
+  const file=path.join(run,"explicit-input.txt");await writeFile(file,"OWNED_FILE_CHOICE");
+  result=call({action:"choose_file",window,runtime_id:filename.runtime_id,file});check(result.ok,result.error||"Dedicated file choice submits the actual native dialog");
+  await until(async()=>(await state()).file===file,"Native chooser returns the explicit file");
+  check(true,"Application callback independently verifies the chosen file");
+  await writeFile(path.join(output,"acceptance.json"),JSON.stringify({passed:checks.length,checks,run},null,2));console.log(`Desktop OS boundary PASS: ${checks.length} checks`);
+}finally{fixture.kill();}

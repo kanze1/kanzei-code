@@ -19,6 +19,7 @@ import "./07-events.js";
 import "./08-auto.js";
 import "./08-compose-runtime.js";
 import "./08-compose.js";
+import "./08-native-desktop.js";
 import "./08-models.js";
 import "./08-project-models.js";
 import "./08-model-picker.js";

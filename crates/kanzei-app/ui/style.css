@@ -4322,3 +4322,6 @@ input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: default;
 #runtime-connection-state { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--border); color: var(--fg); background: var(--panel); font-size: var(--fs-12); }
 #runtime-connection-state[hidden] { display: none; }
 #runtime-connection-state button { margin-left: auto; }
+
+.native-window-list { display: grid; gap: 8px; max-height: 50vh; overflow: auto; }
+.native-window-list button { white-space: normal; overflow-wrap: anywhere; text-align: start; }

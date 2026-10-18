@@ -227,7 +227,7 @@ function sourceBody(text) {
   const frame = parseJsonish(text.slice(SOURCE_PREFIX.length));
   if (frame?.authority !== "untrusted_data" || typeof frame.content !== "string"
       || typeof frame.source?.location !== "string"
-      || !["web", "browser", "file", "process"].includes(frame.source?.kind)) return text;
+      || !["web", "browser", "file", "process", "desktop"].includes(frame.source?.kind)) return text;
   // Decode only the engine's outer frame. Quoted markers remain ordinary source text.
   return frame.content;
 }

@@ -10,6 +10,6 @@ export function decodeExternalSource(value) {
   assert.equal(frame.authority, "untrusted_data");
   assert.equal(typeof frame.content, "string");
   assert.equal(typeof frame.source.location, "string");
-  assert(["web", "browser", "file", "process"].includes(frame.source.kind));
+  assert(["web", "browser", "file", "process", "desktop"].includes(frame.source.kind));
   return { content: prefix + frame.content, source: frame.source };
 }

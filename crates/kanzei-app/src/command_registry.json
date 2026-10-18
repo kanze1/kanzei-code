@@ -882,5 +882,17 @@
   {
     "path": "preview::commands::delivered_image",
     "host": "service"
+  },
+  {
+    "path": "native_desktop::native_desktop_windows",
+    "host": "desktop"
+  },
+  {
+    "path": "native_desktop::native_desktop_select",
+    "host": "desktop"
+  },
+  {
+    "path": "native_desktop::native_desktop_get",
+    "host": "desktop"
   }
 ]

@@ -295,6 +295,7 @@
           </div>
         <div id="composer-more-menu" class="k-surface k-menu composer-menu-panel hidden" popover="manual" data-placement="top-end" role="group" aria-label="更多" data-i18n-aria-label="更多">
 <section class="composer-menu-section"><span class="composer-menu-heading" data-i18n-key="执行选项">执行选项</span>
+<button id="native-desktop-choose" type="button" class="kz-ctl" data-i18n-key="选择原生窗口">选择原生窗口</button>
 <label data-space-only="dev" id="profile-mode-wrap" class="composer-mode-control">
                 <span class="composer-control-label" data-i18n-key="下一轮执行模式">下一轮执行模式</span>
                 <select id="profile-select" class="kz-ctl ctx-mode" aria-label="下一轮执行模式" data-i18n-aria-label="下一轮执行模式">
@@ -1589,6 +1590,17 @@
     </div>
   </div>
   <button id="ask-reopen" class="k-surface k-chip-float ask-reopen hidden" popover="manual" type="button" title="重新打开询问" data-i18n-title="重新打开询问" aria-label="重新打开询问" data-i18n-aria-label="重新打开询问" data-i18n-key="重新打开询问">重新打开询问</button>
+
+  <dialog id="native-desktop-dialog" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="native-desktop-title">
+    <h2 id="native-desktop-title" data-i18n-key="选择原生窗口">选择原生窗口</h2>
+    <p data-i18n-key="选择后，本对话可以观察和操作这个窗口。密码框需要手动输入。">选择后，本对话可以观察和操作这个窗口。密码框需要手动输入。</p>
+    <p id="native-desktop-status" role="status"></p>
+    <div class="native-window-list"></div>
+    <div class="form-actions">
+      <button id="native-desktop-disconnect" type="button" data-i18n-key="断开连接">断开连接</button>
+      <button id="native-desktop-cancel" type="button" data-i18n-key="取消">取消</button>
+    </div>
+  </dialog>
 
   <dialog id="conventions-dialog" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="conventions-title">
     <div class="viewer-head">

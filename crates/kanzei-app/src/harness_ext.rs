@@ -404,6 +404,7 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
 }
 
 pub(crate) const DESKTOP_DEFERRED_TOOLS: &[&str] = &[
+    "desktop",
     "ui_dom",
     "ui_console",
     "ui_style",
@@ -454,6 +455,10 @@ impl kanzei_harness::Component for FrontendToolsComponent {
             ));
         }
         if ctx.profile == kanzei_harness::ProfileKind::Dev {
+            draft.tools.insert(
+                "desktop",
+                Arc::new(crate::native_desktop::DesktopTool::default()),
+            );
             draft
                 .deferred_tools
                 .extend(DESKTOP_DEFERRED_TOOLS.iter().map(|name| (*name).to_owned()));

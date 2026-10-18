@@ -1,6 +1,16 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "选择原生窗口": "Choose native window",
+  "断开连接": "Disconnect",
+  "原生窗口": "Native window",
+  "选择本对话可操作的原生窗口": "Choose the native window this conversation can control",
+  "当前模式不操作原生窗口": "This mode cannot control native windows",
+  "原生窗口状态读取失败": "Native window status unavailable",
+  "选择后，本对话可以观察和操作这个窗口。密码框需要手动输入。": "This conversation can observe and control the selected window. Enter passwords manually.",
+  "正在读取窗口列表": "Reading window list",
+  "选择要交给当前对话的窗口": "Choose a window for this conversation",
+  "没有可选择的原生窗口": "No native windows are available",
   "下一轮执行模式": "Execution mode for the next turn",
   "隔离执行（不可信代码）": "Isolated execution (untrusted code)",
   "做梦": "Dream",

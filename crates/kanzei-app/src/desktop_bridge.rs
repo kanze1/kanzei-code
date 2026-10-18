@@ -20,6 +20,49 @@ struct DesktopPlan {
 }
 static PLANS: LazyLock<Mutex<HashMap<String, Result<DesktopPlan, String>>>> =
     LazyLock::new(Mutex::default);
+
+async fn connected_native_action(
+    stream: &tokio::net::TcpStream,
+    action: impl std::future::Future<Output = ToolOutput>,
+) -> ToolOutput {
+    let mut disconnected = [0u8; 1];
+    tokio::select! {
+        biased;
+        _ = stream.peek(&mut disconnected) => ToolOutput::failed("NATIVE_CLIENT_DISCONNECTED", "调用方已断开；未继续原生窗口动作"),
+        output = action => output,
+    }
+}
+pub(crate) fn native_target(ctx: &ToolCtx) -> Option<String> {
+    let endpoint = DESKTOP.lock_or_recover().clone()?;
+    let meta = read_meta(&endpoint, ctx.process_id.as_deref())?;
+    meta["nativeTarget"]["id"].as_str().map(str::to_owned)
+}
+pub(crate) async fn native_action(
+    input: Value,
+    ctx: &ToolCtx,
+    planned: Option<String>,
+) -> ToolOutput {
+    let Some(planned) = planned else {
+        return ToolOutput::needs_correction(
+            "NATIVE_WINDOW_REQUIRED",
+            "请先在更多菜单为当前对话选择原生窗口",
+        );
+    };
+    let endpoint = DESKTOP.lock_or_recover().clone();
+    let Some(endpoint) = endpoint else {
+        return ToolOutput::error("桌面窗口未连接");
+    };
+    let mut call = tool_request("desktop", input, ctx, None);
+    call["nativeTarget"] = json!(planned);
+    match request(&endpoint, call).await {
+        Ok(value) => serde_json::from_value(value)
+            .unwrap_or_else(|error| ToolOutput::error(format!("原生窗口回执无效: {error}"))),
+        Err(error) => ToolOutput::failed(
+            "NATIVE_ACTION_UNVERIFIED",
+            format!("原生动作未验证，未重试: {error}"),
+        ),
+    }
+}
 pub(crate) fn attach(value: &Value) {
     if let Ok(endpoint) = serde_json::from_value::<Endpoint>(value.clone()) {
         if endpoint
@@ -253,7 +296,7 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                         return Err("桌面认证失败".into());
                     }
                     if value["action"] == "meta" {
-                        return Ok(json!({"target":crate::preview::page_target(value["processId"].as_str())}));
+                        return Ok(json!({"target":crate::preview::page_target(value["processId"].as_str()),"nativeTarget":crate::native_desktop::selected(value["processId"].as_str())}));
                     }
                     if value["action"] == "ui_probe" {
                         let kind = value["kind"].as_str().ok_or("缺少探针类型")?;
@@ -274,6 +317,8 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                     .unwrap_or_default();
                     let out = kanzei_harness::permission::scope(rules, async {
                         let result = match value["tool"].as_str() {
+                            Some("desktop") => connected_native_action(&stream,
+                                crate::native_desktop::execute(value["input"].clone(), &ctx, value["nativeTarget"].as_str().unwrap_or(""))).await,
                             Some("browser") => {
                                 let input = match kanzei_tools::browser::parse_browser_input(
                                     value["input"].clone(),
@@ -347,6 +392,46 @@ fn tool_context(value: &Value) -> Result<ToolCtx, String> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn native_client_eof_drops_the_pending_action() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        struct Cancelled(Arc<AtomicBool>);
+        impl Drop for Cancelled {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (server, _) = listener.accept().await.unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let guard = Cancelled(cancelled.clone());
+        let (started, receiving) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            super::connected_native_action(&server, async move {
+                let _guard = guard;
+                started.send(()).unwrap();
+                std::future::pending::<kanzei_harness::ToolOutput>().await
+            })
+            .await
+        });
+        receiving.await.unwrap();
+        drop(client);
+        let output = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(output.code.as_deref(), Some("NATIVE_CLIENT_DISCONNECTED"));
+        assert!(
+            cancelled.load(Ordering::SeqCst),
+            "Disconnect must cancel the action future, including its owned helper child"
+        );
+    }
     use super::*;
 
     #[test]

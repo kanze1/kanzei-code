@@ -1233,6 +1233,9 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     conversation_cleanup: { artifact_cleanup_errors: [], backup_cleanup_errors: [], actual_freed_bytes: 18432 },
     summarize_chat: { summary: "预览模式不生成总结", path: "" },
     // ---- 文档
+    native_desktop_get: null,
+    native_desktop_windows: { windows: [], unavailable: [] },
+    native_desktop_select: null,
     docs_snapshot: () => state.docs,
     docs_update: (args) => `updated: ${args?.id ?? "?"} (预览模式,未写盘)`,
     // 归档条目带 fields(UX-068:归档行可展开成只读详情);kind 取 req/defect/idea,形状同后端 docs_archive_entries。

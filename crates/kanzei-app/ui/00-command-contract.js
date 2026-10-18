@@ -381,6 +381,14 @@ export const commandParameters = {
   "models_list": {
     "projectDir": false
   },
+  "native_desktop_get": {
+    "processId": true
+  },
+  "native_desktop_select": {
+    "candidateId": false,
+    "processId": true
+  },
+  "native_desktop_windows": {},
   "open_delivered_path": {
     "mode": true,
     "path": true,

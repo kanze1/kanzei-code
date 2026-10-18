@@ -64,6 +64,7 @@ pub const TOOL_AREAS: &[(&str, &str)] = &[
     ("ui_console", "kanzei-app"),
     ("ui_dom", "kanzei-app"),
     ("ui_style", "kanzei-app"),
+    ("desktop", "kanzei-app"),
 ];
 
 /// 注册了但不映射区域的工具(理由写在旁边;新增须同样写明)。
