@@ -112,3 +112,7 @@ ui-web-search-native-smoke 18 项通过：真实 Kanzei 窗口点击拒绝和允
 受信控制器使用独立的 bubblewrap 状态管道取得内核命名空间身份，与自身比较后才记录 isolation_verified；不相信程序自报隔离。命令 stdout/stderr 仍是外部来源数据。超时、显式取消和应用 stdin 关闭都杀掉命名空间所属进程组，等待回收并排空管道后返回；即使被执行程序 setsid 脱离会话也清理。工作区不自动发布，故不能将此称作整个 Kanzei 会话已进入沙箱：当前仍需显式选 sandbox，整会话禁止其他宿主执行面的策略待补齐。
 
 sandbox-boundary-smoke 16 项实际 OS 检查通过：明确输入、只读输入、宿主金丝雀不可见且不变、互操作入口不可见、无额外继承文件描述符、套接字联网失败、64 MiB 满盘，以及超时/取消/EOF 三种场景的脱离会话子进程确实消失。ui-sandbox-native-smoke 10 项通过：真实 Kanzei 模型工具调度和来源框、实际命名空间回执、工作副本可改而项目原文不变、AutoAllow 下 .env 复制被拒、敏感字节零回喂、原生停止等待 Linux 树回收。软件证据 output/playwright/sandbox/native/acceptance.json 和 native-sandbox.png；后端证据 output/remediation-20261018/sandbox-boundary.json。两项 Rust 定向通过。新增工具接入 Dev 延迟目录、只读档硬拒和 refgraph 区域映射，普通工具首轮常驻预算不增长。[bubblewrap 参数和隔离语义](https://manpages.debian.org/bookworm/bubblewrap/bwrap.1.en.html)、[WSL 执行方式](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)。
+
+记忆管理全套卡顿已定位：失败的 owned fixture 持久历史中，第一轮为本机模拟供应商预设的固定答案，第二轮却是另一段有效模型回答；同时测试进程只剩监听连接，正等待没有发生的第 4 个本机请求。用例原先逐轮通过进程全局 KANZEI_HOME 查找信任与配置，而 settings 等并行用例会临时替换该环境变量；只串行化写环境变量的用例，不能保护其他读取者。旧断言只看 followup changes 为空，允许错误路由返回的有效答案漏过。
+
+修复将配置解析保持在 memory_chat_send 命令边界，run_chat 显式接收本轮不可变配置；正常软件仍每轮加载实际配置。用例改用自身持有的确定配置，不修改全局信任文件；还确认两轮确实产生 4 次 owned provider 请求，再等待服务器退出，不能让另一供应商的有效回答冒充通过。定向 0.16 秒通过，桌面完整 635 项在 17.95 秒通过，未使用串行全套、放宽超时、重试或跳过隐藏问题。该结果仍需最终 HEAD 的 Full 门禁复核。

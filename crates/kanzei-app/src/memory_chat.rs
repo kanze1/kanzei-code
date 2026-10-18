@@ -306,11 +306,13 @@ pub(crate) async fn memory_chat_send(
         key: project_key,
         request: request_id,
     };
-    run_chat(&root, &message, target.as_ref(), halt, &on_event).await
+    let config = Arc::new(KanzeiConfig::load_at_root(&root).map_err(|error| error.to_string())?);
+    run_chat(&root, config, &message, target.as_ref(), halt, &on_event).await
 }
 
 async fn run_chat(
     root: &Path,
+    config: Arc<KanzeiConfig>,
     message: &str,
     target: Option<&MemoryTarget>,
     halt: CancellationToken,
@@ -320,7 +322,6 @@ async fn run_chat(
         read_entry(root, target)?;
     }
     let (mut history, mut revision) = load_history(root)?;
-    let config = Arc::new(KanzeiConfig::load_at_root(root).map_err(|error| error.to_string())?);
     let proxy = match config.proxy.as_deref() {
         Some("off") => ProxyConfig::Disabled,
         Some("env") | None => ProxyConfig::Env,
@@ -516,10 +517,8 @@ mod tests {
         let original = read_entry(&root, &target).unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        std::fs::write(
-            root.join(".kanzei/kanzei.toml"),
-            format!(
-                r#"
+        let config: KanzeiConfig = toml::from_str(&format!(
+            r#"
 proxy = "off"
 [models]
 primary = "memorytest:fixture"
@@ -527,12 +526,12 @@ primary = "memorytest:fixture"
 protocol = "openai"
 base_url = "http://{address}/v1"
 "#
-            ),
-        )
+        ))
         .unwrap();
-        let sources = kanzei_harness::project_trust::status(&root).unwrap();
-        kanzei_harness::project_trust::approve(&root, &sources.fingerprint).unwrap();
+        let config = Arc::new(config);
         let expected = original["expected_hash"].clone();
+        let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let served = requests.clone();
         let server = tokio::spawn(async move {
             for step in 0..4 {
                 let (mut socket, _) = listener.accept().await.unwrap();
@@ -565,6 +564,7 @@ base_url = "http://{address}/v1"
                 }
                 let request: Value =
                     serde_json::from_slice(&raw[header_end..header_end + length]).unwrap();
+                served.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 assert!(request["tools"]
                     .as_array()
                     .unwrap()
@@ -606,6 +606,7 @@ base_url = "http://{address}/v1"
             std::time::Duration::from_secs(15),
             run_chat(
                 &root,
+                config.clone(),
                 "请精简这条记忆",
                 Some(&target),
                 CancellationToken::new(),
@@ -626,6 +627,7 @@ base_url = "http://{address}/v1"
             std::time::Duration::from_secs(15),
             run_chat(
                 &root,
+                config,
                 "刚刚改了什么？",
                 None,
                 CancellationToken::new(),
@@ -635,7 +637,13 @@ base_url = "http://{address}/v1"
         .await
         .unwrap()
         .unwrap();
+        assert!(followup["error"].is_null(), "{followup}");
         assert_eq!(followup["changes"], json!([]));
+        assert_eq!(
+            requests.load(std::sync::atomic::Ordering::SeqCst),
+            4,
+            "both turns must reach the owned provider, regardless of another test's global home"
+        );
         server.await.unwrap();
         assert_eq!(load_history(&root).unwrap().0.turns.len(), 4);
         let ctx = ToolCtx {
