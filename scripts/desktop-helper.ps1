@@ -28,8 +28,11 @@ public static class KzDesktop {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out Rect r);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint flags);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool IsChild(IntPtr parent,IntPtr child);
+  [StructLayout(LayoutKind.Sequential)] struct GuiThreadInfo {public uint Size,Flags;public IntPtr Active,Focus,Capture,MenuOwner,MoveSize,Caret;public Rect CaretRect;}
+  [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread,ref GuiThreadInfo info);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
   [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
@@ -39,10 +42,40 @@ public static class KzDesktop {
   [StructLayout(LayoutKind.Sequential)] public struct Input {public uint Type;public InputData Data;}
   [DllImport("user32.dll",SetLastError=true)] static extern uint SendInput(uint count,Input[] inputs,int size);
   public static void Click() {var inputs=new Input[2];inputs[0].Data.Mouse.Flags=2;inputs[1].Data.Mouse.Flags=4;if(SendInput(2,inputs,Marshal.SizeOf(typeof(Input)))!=2)throw new InvalidOperationException("Native pointer input was not fully dispatched");}
-  public static void Key(byte key,UIntPtr tag) {var inputs=new Input[2];for(int i=0;i<2;i++){inputs[i].Type=1;inputs[i].Data.Key.Key=key;inputs[i].Data.Key.Flags=i==0?0u:2u;inputs[i].Data.Key.Extra=tag;}if(SendInput(2,inputs,Marshal.SizeOf(typeof(Input)))!=2)throw new InvalidOperationException("Native keyboard input was not fully dispatched");}
+  static Input MakeKey(ushort key,ushort scan,uint flags,UIntPtr tag) {var input=new Input();input.Type=1;input.Data.Key.Key=key;input.Data.Key.Scan=scan;input.Data.Key.Flags=flags;input.Data.Key.Extra=tag;return input;}
+  static void Dispatch(Input[] inputs) {if(SendInput((uint)inputs.Length,inputs,Marshal.SizeOf(typeof(Input)))!=inputs.Length)throw new InvalidOperationException("Native keyboard input was not fully dispatched");}
+  public static void TypeText(string text,UIntPtr tag) {
+    var inputs=new Input[text.Length*2];
+    for(int i=0;i<text.Length;i++){if(Char.IsControl(text[i]))throw new InvalidOperationException("Use a named key for control characters");inputs[i*2]=MakeKey(0,text[i],4,tag);inputs[i*2+1]=MakeKey(0,text[i],6,tag);}
+    if(inputs.Length>0)Dispatch(inputs);
+  }
+  public static void Key(string chord,UIntPtr tag) {
+    var parts=chord.Split('+');var modifiers=new List<ushort>();
+    for(int i=0;i<parts.Length-1;i++){
+      ushort modifier;
+      switch(parts[i].ToUpperInvariant()){case "CTRL":case "CONTROL":modifier=17;break;case "ALT":modifier=18;break;case "SHIFT":modifier=16;break;default:throw new InvalidOperationException("Unsupported keyboard modifier");}
+      if(modifiers.Contains(modifier))throw new InvalidOperationException("Duplicate keyboard modifier");modifiers.Add(modifier);
+    }
+    var keys=new Dictionary<string,ushort>(StringComparer.OrdinalIgnoreCase){{"Enter",13},{"Tab",9},{"Escape",27},{"Backspace",8},{"Delete",46},{"Left",37},{"Up",38},{"Right",39},{"Down",40},{"Home",36},{"End",35},{"Space",32},{"PageUp",33},{"PageDown",34}};
+    var name=parts[parts.Length-1].ToUpperInvariant();ushort key;
+    if(!keys.TryGetValue(name,out key)){if(name.Length!=1||!(name[0]>='A'&&name[0]<='Z'||name[0]>='0'&&name[0]<='9'))throw new InvalidOperationException("Unsupported named key");key=name[0];}
+    var inputs=new List<Input>();foreach(var modifier in modifiers)inputs.Add(MakeKey(modifier,0,0,tag));
+    inputs.Add(MakeKey(key,0,0,tag));inputs.Add(MakeKey(key,0,2,tag));
+    for(int i=modifiers.Count-1;i>=0;i--)inputs.Add(MakeKey(modifiers[i],0,2,tag));Dispatch(inputs.ToArray());
+  }
+  public static IntPtr Focus(IntPtr window) {
+    uint process;var thread=GetWindowThreadProcessId(window,out process);var info=new GuiThreadInfo();info.Size=(uint)Marshal.SizeOf(typeof(GuiThreadInfo));
+    if(!GetGUIThreadInfo(thread,ref info))throw new InvalidOperationException("Selected window focus is unavailable");return info.Focus;
+  }
   const uint NativeMessageTimeoutMs=1000;
+  const uint NoSize=1,NoMove=2,NoActivate=16;
+  public static void Raise(IntPtr window) {
+    // Raising with NOACTIVATE preserves focus. The actual mouse click performs
+    // the normal Windows activation, including for windows without UIA focus.
+    if(!SetWindowPos(window,IntPtr.Zero,0,0,0,0,NoSize|NoMove|NoActivate))throw new InvalidOperationException("Cannot raise selected window");
+  }
   public static void Activate(IntPtr window) {
-    if(!SetForegroundWindow(window))throw new InvalidOperationException("Cannot focus selected window");
+    if(GetForegroundWindow()!=window&&!SetForegroundWindow(window))throw new InvalidOperationException("Cannot focus selected window");
     ConfirmForeground(window);
   }
   public static void ConfirmForeground(IntPtr window) {
@@ -115,8 +148,13 @@ function Click-Element($element,$root,[double]$offsetX,[double]$offsetY) {
     $bounds=$element.Current.BoundingRectangle
     if ($offsetX -lt 0 -or $offsetY -lt 0 -or $offsetX -ge $bounds.Width -or $offsetY -ge $bounds.Height) { throw 'Pointer is outside the observed element bounds' }
     $x=$bounds.X+$offsetX; $y=$bounds.Y+$offsetY
+    Click-Point $element $root $x $y
+}
+function Click-Point($element,$root,[double]$x,[double]$y) {
     $activeHandle=[IntPtr]$root.Current.NativeWindowHandle
-    [KzDesktop]::Activate($activeHandle)
+    $geometry=Surface-Signature $root
+    [KzDesktop]::Raise($activeHandle)
+    if((Surface-Signature $root) -ne $geometry){throw 'Window geometry changed during activation; inspect again'}
     $hit=[KzDesktop]::WindowFromPoint([KzDesktop+Point]::new([int]$x,[int]$y))
     if ($hit -ne $activeHandle -and -not [KzDesktop]::IsChild($activeHandle,$hit)) { throw 'Another window covers the pointer target' }
     $nativeElement=[IntPtr]$element.Current.NativeWindowHandle
@@ -140,6 +178,10 @@ function Set-ElementValue($element,[string]$text) {
         [KzDesktop]::SetNativeValue([IntPtr]$element.Current.NativeWindowHandle,$text)
     }
 }
+function Hash-Identity([string]$identity) {
+    $hash=[Security.Cryptography.SHA256]::Create()
+    try { return [Convert]::ToHexString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity))) } finally { $hash.Dispose() }
+}
 function Element-Signature($element) {
     $current=$element.Current
     $password=$current.IsPassword -or [KzDesktop]::Password([IntPtr]$current.NativeWindowHandle)
@@ -151,8 +193,27 @@ function Element-Signature($element) {
     }
     $name=if($password){'[password]'}else{$current.Name}
     $identity=@($current.AutomationId,$current.ControlType.ProgrammaticName,$current.IsEnabled,$password,$name,$value,$current.BoundingRectangle.ToString()) | ConvertTo-Json -Compress
-    $hash=[Security.Cryptography.SHA256]::Create()
-    try { return [Convert]::ToHexString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity))) } finally { $hash.Dispose() }
+    return Hash-Identity $identity
+}
+function Window-Bounds([IntPtr]$handle) {
+    $rect=New-Object KzDesktop+Rect
+    if (-not [KzDesktop]::GetWindowRect($handle,[ref]$rect)) { throw 'Cannot read target window bounds' }
+    return @{x=$rect.Left;y=$rect.Top;width=$rect.Right-$rect.Left;height=$rect.Bottom-$rect.Top}
+}
+function Surface-Signature($root) {
+    # A window title is presentation content, not the identity of a screenshot surface.
+    $handle=[IntPtr]$root.Current.NativeWindowHandle
+    $bounds=Window-Bounds $handle
+    $identity=@((Runtime-Key $root),$handle.ToInt64(),$bounds.x,$bounds.y,$bounds.width,$bounds.height) | ConvertTo-Json -Compress
+    return Hash-Identity $identity
+}
+function Confirm-SurfaceFocus($root,$expected) {
+    $handle=[IntPtr]$root.Current.NativeWindowHandle
+    $focus=[KzDesktop]::Focus($handle)
+    if($focus -eq [IntPtr]::Zero -or $focus.ToInt64().ToString() -ne $expected -or ($focus -ne $handle -and -not [KzDesktop]::IsChild($handle,$focus))){throw 'Observed input focus changed or left the selected surface; inspect again'}
+    $native=[System.Windows.Automation.AutomationElement]::FromHandle($focus)
+    $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+    if([KzDesktop]::Password($focus) -or $native.Current.IsPassword -or ($null -ne $focused -and $focused.Current.IsPassword)){throw 'Password controls require manual user input'}
 }
 function Clip-Field([string]$text,[int]$limit) { if($text.Length -gt $limit){return $text.Substring(0,$limit)};return $text }
 function Snapshot($root) {
@@ -175,17 +236,16 @@ function Snapshot($root) {
     return @{ elements=$rows; limit=400; truncated=($elements.Count -eq 400); root=(Runtime-Key $root); hwnd=$root.Current.NativeWindowHandle.ToString();bounds=@{x=$bounds.X;y=$bounds.Y;width=$bounds.Width;height=$bounds.Height} }
 }
 function Screenshot([IntPtr]$handle) {
-    $rect=New-Object KzDesktop+Rect
-    if (-not [KzDesktop]::GetWindowRect($handle,[ref]$rect)) { throw 'Cannot read target window bounds' }
-    $width=$rect.Right-$rect.Left; $height=$rect.Bottom-$rect.Top
+    $bounds=Window-Bounds $handle
+    $width=$bounds.width; $height=$bounds.height
     if ($width -lt 1 -or $height -lt 1 -or [long]$width*$height -gt 16000000) { throw 'Window dimensions outside 16 megapixel capture budget' }
     $bitmap=New-Object Drawing.Bitmap($width,$height)
     try {
         $graphics=[Drawing.Graphics]::FromImage($bitmap)
         try { $dc=$graphics.GetHdc(); try { if (-not [KzDesktop]::PrintWindow($handle,$dc,2)) { throw 'Window provider does not support scoped capture' } } finally { $graphics.ReleaseHdc($dc) } } finally { $graphics.Dispose() }
-        $scale=[Math]::Min(1,[Math]::Min(1600.0/$width,1000.0/$height))
+        $scale=[Math]::Min(1.0,[Math]::Min(1600.0/$width,1000.0/$height))
         $resized=New-Object Drawing.Bitmap($bitmap,[Drawing.Size]::new([Math]::Max(1,[int]($width*$scale)),[Math]::Max(1,[int]($height*$scale))))
-        try { $stream=New-Object IO.MemoryStream; try { $resized.Save($stream,[Drawing.Imaging.ImageFormat]::Png); $bytes=$stream.ToArray(); if ($bytes.Length -gt 2097152) { throw 'Window PNG exceeds 2 MiB' }; return @{data=[Convert]::ToBase64String($bytes);width=$resized.Width;height=$resized.Height;media_type='image/png'} } finally { $stream.Dispose() } } finally { $resized.Dispose() }
+        try { $stream=New-Object IO.MemoryStream; try { $resized.Save($stream,[Drawing.Imaging.ImageFormat]::Png); $bytes=$stream.ToArray(); if ($bytes.Length -gt 2097152) { throw 'Window PNG exceeds 2 MiB' }; return @{data=[Convert]::ToBase64String($bytes);width=$resized.Width;height=$resized.Height;bounds=$bounds;media_type='image/png'} } finally { $stream.Dispose() } } finally { $resized.Dispose() }
     } finally { $bitmap.Dispose() }
 }
 
@@ -204,11 +264,28 @@ try {
     $root=Active-Root $handle $request.window
     $elements=Descendants $root
     if ($request.action -notin @('inspect','screenshot')) {
+        if ($root.Current.ClassName -eq '#32770' -and $request.action -ne 'choose_file') { throw 'Native file/dialog controls require a dedicated file choice; generic input is disabled' }
+        if($request.target -eq 'surface') {
+            if($request.action -notin @('click','type','key')){throw 'Screenshot surfaces support click, type and key; use a UIA element for control actions'}
+            if((Surface-Signature $root) -ne $request.signature){throw 'Observed window surface moved, resized or changed; inspect again'}
+            $element=$root
+            if($request.action -eq 'click') {
+                $bounds=Window-Bounds ([IntPtr]$root.Current.NativeWindowHandle)
+                if($request.x -lt 0 -or $request.y -lt 0 -or $request.x -ge $bounds.width -or $request.y -ge $bounds.height){throw 'Pointer is outside the observed screenshot bounds'}
+                Click-Point $root $root ($bounds.x+$request.x) ($bounds.y+$request.y)
+            } else {
+                [KzDesktop]::ConfirmForeground([IntPtr]$root.Current.NativeWindowHandle)
+                Confirm-SurfaceFocus $root ([string]$request.focus)
+                if($request.action -eq 'type') {
+                    if($null -eq $request.text -or $request.text.Length -gt 4096){throw 'Literal text is required and limited to 4096 characters'}
+                    [KzDesktop]::TypeText([string]$request.text,[UIntPtr]::new([uint64]$request.input_tag))
+                } else { [KzDesktop]::Key([string]$request.key,[UIntPtr]::new([uint64]$request.input_tag)) }
+            }
+        } else {
         $element=$elements | Where-Object { (Runtime-Key $_) -eq $request.runtime_id } | Select-Object -First 1
         if ($null -eq $element -or -not $element.Current.IsEnabled) { throw 'Element is stale, outside the selected window, or disabled; inspect again' }
         if ($element.Current.IsPassword -or [KzDesktop]::Password([IntPtr]$element.Current.NativeWindowHandle)) { throw 'Password controls require manual user input' }
         if ($request.signature -and (Element-Signature $element) -ne $request.signature) { throw 'Observed control content or identity changed; inspect again' }
-        if ($root.Current.ClassName -eq '#32770' -and $request.action -ne 'choose_file') { throw 'Native file/dialog controls require a dedicated file choice; generic input is disabled' }
         switch ($request.action) {
             'choose_file' {
                 if ($root.Current.ClassName -ne '#32770') { throw 'No owned native file dialog is active' }
@@ -225,15 +302,13 @@ try {
             'select' { $pattern=Pattern $element ([System.Windows.Automation.SelectionItemPattern]::Pattern); if ($null -eq $pattern) { throw 'Element does not support SelectionItemPattern' }; $pattern.Select() }
             'click' { Click-Element $element $root ([double]$request.x) ([double]$request.y) }
             'key' {
-                $keys=@{Enter=13;Tab=9;Escape=27;Backspace=8;Delete=46;Left=37;Up=38;Right=39;Down=40;Home=36;End=35;Space=32}
-                if (-not $keys.ContainsKey([string]$request.key)) { throw 'Unsupported single key' }
                 $activeHandle=[IntPtr]$root.Current.NativeWindowHandle
-                [KzDesktop]::Activate($activeHandle)
                 $element.SetFocus()
-                [KzDesktop]::ConfirmForeground($activeHandle)
-                [KzDesktop]::Key([byte]$keys[$request.key],[UIntPtr]::new([uint64]$request.input_tag))
+                [KzDesktop]::Activate($activeHandle)
+                [KzDesktop]::Key([string]$request.key,[UIntPtr]::new([uint64]$request.input_tag))
             }
             default { throw 'Unknown desktop action' }
+        }
         }
     }
     if ($request.action -notin @('inspect','screenshot')) {
@@ -245,6 +320,9 @@ try {
     [void](Same-Window $request.window)
     $root=Active-Root $handle $request.window
     $snapshot=Snapshot $root
+    $surfaceSignature=Surface-Signature $root
     $screenshot=Screenshot ([IntPtr]$root.Current.NativeWindowHandle)
+    if((Surface-Signature $root) -ne $surfaceSignature){throw 'Window geometry changed during capture; inspect again'}
+    $snapshot.surface=@{runtime_id=(Runtime-Key $root);signature=$surfaceSignature;bounds=$screenshot.bounds;width=$screenshot.width;height=$screenshot.height;focus=[KzDesktop]::Focus([IntPtr]$root.Current.NativeWindowHandle).ToInt64().ToString()}
     @{ok=$true;action=$request.action;invocation=$invocation;window=$request.window;snapshot=$snapshot;image=$screenshot} | ConvertTo-Json -Depth 14 -Compress
 } catch { @{ok=$false;error=$_.Exception.Message} | ConvertTo-Json -Compress; exit 1 }

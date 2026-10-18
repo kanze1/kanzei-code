@@ -256,10 +256,14 @@ struct Input {
 
 pub(crate) fn schema() -> Value {
     json!({"type":"object","additionalProperties":false,"required":["action"],"properties":{
-        "action":{"type":"string","enum":["inspect","screenshot","fill","invoke","toggle","select","click","key","choose_file"]},
-        "window_id":{"type":"string"},"snapshot_id":{"type":"string"},"element_id":{"type":"string"},
-        "text":{"type":"string","maxLength":4096},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0},
-        "key":{"type":"string","enum":["Enter","Tab","Escape","Backspace","Delete","Left","Up","Right","Down","Home","End","Space"]},"file":{"type":"string"}}})
+        "action":{"type":"string","enum":["inspect","screenshot","fill","invoke","toggle","select","click","type","key","choose_file"]},
+        "window_id":{"type":"string","description":"Copy window_id from the latest observation."},
+        "snapshot_id":{"type":"string","description":"Copy snapshot_id exactly from the latest observation. One mutation consumes it; inspect again afterwards."},
+        "element_id":{"type":"string","description":"Use an observed control id for UIA actions. Use snapshot.surface.id for screenshot clicks and typing or keys at the observed current focus, including custom-drawn apps."},
+        "text":{"type":"string","maxLength":4096,"description":"fill replaces a UIA value; type sends literal Unicode text to the surface's observed focus. Use key for control characters."},
+        "x":{"type":"number","minimum":0,"description":"For a surface, X in the returned screenshot pixels; for a control, X relative to that control's native bounds."},
+        "y":{"type":"number","minimum":0,"description":"For a surface, Y in the returned screenshot pixels; for a control, Y relative to that control's native bounds."},
+        "key":{"type":"string","maxLength":64,"description":"Named key (Enter, Tab, Escape, Backspace, Delete, arrows, Home, End, Space, PageUp, PageDown), letter or digit, optionally prefixed by Control/Alt/Shift modifiers, e.g. Control+A or Shift+Tab."},"file":{"type":"string"}}})
 }
 
 pub(crate) async fn execute(
@@ -301,6 +305,7 @@ async fn execute_checked(
         "toggle",
         "select",
         "click",
+        "type",
         "key",
         "choose_file",
     ]
@@ -311,7 +316,7 @@ async fn execute_checked(
             "Unknown native action",
         )));
     }
-    if parsed.action == "fill" && parsed.text.is_none()
+    if matches!(parsed.action.as_str(), "fill" | "type") && parsed.text.is_none()
         || parsed.action == "key" && parsed.key.is_none()
         || parsed.action == "click" && (parsed.x.is_none() || parsed.y.is_none())
     {
@@ -359,6 +364,10 @@ async fn execute_checked(
             .ok_or_else(|| rejected("控件不属于当前快照"))?;
         request["runtime_id"] = reference["runtime_id"].clone();
         request["signature"] = reference["signature"].clone();
+        request["target"] = reference["target"].clone();
+        if reference["target"] == "surface" {
+            request["focus"] = reference["focus"].clone();
+        }
         target = reference.clone();
     }
     if let Some(text) = parsed.text {
@@ -370,11 +379,27 @@ async fn execute_checked(
         }
         request["text"] = json!(text);
     }
-    if let Some(x) = parsed.x {
-        request["x"] = json!(x);
-    }
-    if let Some(y) = parsed.y {
-        request["y"] = json!(y);
+    for (axis, extent, coordinate) in [("x", "width", parsed.x), ("y", "height", parsed.y)] {
+        if let Some(mut coordinate) = coordinate {
+            if target["target"] == "surface" {
+                let captured = target[extent]
+                    .as_f64()
+                    .filter(|value| *value > 0.0)
+                    .ok_or_else(|| ToolOutput::error("Native screenshot dimensions missing"))?;
+                let native = target["bounds"][extent]
+                    .as_f64()
+                    .filter(|value| *value > 0.0)
+                    .ok_or_else(|| ToolOutput::error("Native window dimensions missing"))?;
+                if coordinate < 0.0 || coordinate >= captured {
+                    return Err(Box::new(ToolOutput::needs_correction(
+                        "NATIVE_POINTER_OUTSIDE_SCREENSHOT",
+                        "Pointer is outside the observed screenshot bounds",
+                    )));
+                }
+                coordinate *= native / captured;
+            }
+            request[axis] = json!(coordinate);
+        }
     }
     if let Some(key) = parsed.key {
         request["key"] = json!(key);
@@ -517,6 +542,25 @@ async fn execute_checked(
         ));
     }
     let mut refs = HashMap::new();
+    let surface = value["snapshot"]["surface"]
+        .as_object_mut()
+        .ok_or_else(|| ToolOutput::error("Native screenshot surface missing"))?;
+    if !surface.get("runtime_id").is_some_and(Value::is_string)
+        || !surface.get("signature").is_some_and(Value::is_string)
+    {
+        return Err(Box::new(ToolOutput::error(
+            "Native screenshot surface identity missing",
+        )));
+    }
+    let mut reference = Value::Object(surface.clone());
+    reference["target"] = json!("surface");
+    reference["name"] = json!("Window screenshot surface");
+    refs.insert("surface".into(), reference);
+    for field in ["runtime_id", "signature", "focus"] {
+        surface.remove(field);
+    }
+    surface.insert("id".into(), json!("surface"));
+    surface.insert("coordinate_space".into(), json!("screenshot_pixels"));
     for (index, element) in value["snapshot"]["elements"]
         .as_array_mut()
         .ok_or_else(|| ToolOutput::error("Native snapshot missing"))?
@@ -531,7 +575,7 @@ async fn execute_checked(
         }
         refs.insert(
             id.clone(),
-            json!({"runtime_id":element["runtime_id"],"signature":element["signature"],"name":element["name"],"bounds":element["bounds"]}),
+            json!({"target":"element","runtime_id":element["runtime_id"],"signature":element["signature"],"name":element["name"],"bounds":element["bounds"]}),
         );
         element.as_object_mut().unwrap().remove("runtime_id");
         element.as_object_mut().unwrap().remove("signature");
@@ -587,7 +631,7 @@ impl kanzei_harness::Tool for DesktopTool {
         "desktop"
     }
     fn description(&self) -> String {
-        "Windows native UIA and window capture. The human must first select a native window in this conversation's More menu; you cannot enumerate or select windows. inspect first, then use its window_id, snapshot_id and element_id. fill/toggle/select use supported UIA or native control capabilities; invoke clicks the live observed control center; click uses coordinates relative to its element for canvas controls; key sends one named key. Mutations invalidate the snapshot and require inspect to verify the result. choose_file copies one scoped project file (max 8 MiB) into this window session; sensitive files need exact consent. Password controls and agent/approval windows are blocked. Dispatch is not task completion: never blindly repeat a pending action.".into()
+        "Observe and operate a human-selected Windows window. inspect returns both a screenshot surface and UIA controls. Copy its exact window_id and snapshot_id for one action. For custom-drawn apps or sparse UIA trees, click snapshot.surface.id at screenshot pixel coordinates, inspect the focused result, then type literal Unicode text or send key (Enter, Control+A, Shift+Tab, etc.) to the same surface. Surface input preserves the observed focus; title animation does not replace window identity. For accessible controls, fill replaces their value; invoke clicks the live control center; toggle/select use UIA; control click coordinates are relative to native element bounds. Every mutation consumes the snapshot: inspect again to verify and obtain the next reference. Human window selection is required in this conversation's More menu; you cannot enumerate or select windows. choose_file uses a scoped project file (max 8 MiB); sensitive files need exact consent. Password controls and agent/approval windows are blocked. Dispatch is not task completion: never blindly repeat a pending action.".into()
     }
     fn input_schema(&self) -> Value {
         schema()

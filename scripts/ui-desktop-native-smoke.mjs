@@ -13,7 +13,7 @@ const output=path.resolve("output/playwright/desktop/native"),fixtureRoot=path.j
 let form;
 const results=[],checks=[],check=(value,label)=>{assert(value,label);checks.push(label);};
 let snapshot,done=false,noWindowDone=false,approvalDone=false,firstWindow;
-const actions=["inspect","fill","stale","inspect","key","inspect","submit","inspect","canvas","inspect","open","inspect","secret_file","file","inspect","password","inspect"];
+const actions=["inspect","fill","stale","inspect","key","inspect","submit","inspect","canvas","inspect","open","inspect","dialog_type","inspect","secret_file","file","inspect","password","inspect","password_focus","inspect","surface_password","inspect"];
 const app=await nativeApp(process.argv[2],output,"原生窗口软件验收",async(body,res)=>{
   const index=body.messages?.findLastIndex(message=>message.role==="user"&&typeof message.content==="string"&&message.content.startsWith("NATIVE_DESKTOP_"));
   const original=body.messages?.[index];
@@ -53,6 +53,8 @@ const app=await nativeApp(process.argv[2],output,"原生窗口软件验收",asyn
     input={action:"choose_file",window_id:snapshot.window_id,snapshot_id:snapshot.snapshot_id,element_id:name.id,file:action==="secret_file"?".env":"upload.txt"};
   }
   if(action==="password")input={action:"fill",...target("Secret"),text:"SHOULD_NOT_ENTER_PASSWORD"};
+  if(action==="password_focus")input={action:"key",...target("CustomerName"),key:"Tab"};
+  if(action==="surface_password"||action==="dialog_type")input={action:"type",window_id:snapshot.window_id,snapshot_id:snapshot.snapshot_id,element_id:snapshot.snapshot.surface.id,text:"SHOULD_NOT_ENTER"};
   assert(input,action);toolReply(res,"desktop",input,tools.length);
 });
 try{
@@ -79,6 +81,8 @@ try{
   check(results.filter(result=>result.action==="inspect").every(result=>result.source?.kind==="desktop"),"Actual UIA and captured pixels carry Desktop source boundaries");
   check(results.find(result=>result.action==="stale")?.content.includes("NATIVE_WINDOW_TARGET_CHANGED"),"Old snapshots cannot drive another mutation");
   check(results.find(result=>result.action==="password")?.content.includes("Password controls"),"Password input is refused by the actual executor");
+  check(results.find(result=>result.action==="surface_password")?.content.includes("Password controls"),"Screenshot-based text input cannot bypass the focused password boundary");
+  check(results.find(result=>result.action==="dialog_type")?.content.includes("dedicated file choice"),"Screenshot-based text input cannot bypass the native file dialog boundary");
   check(results.find(result=>result.action==="secret_file")?.content.includes("permission requires user approval"),"AutoAllow cannot choose a sensitive file without exact consent");
   check(!JSON.stringify(app.requests).includes("NATIVE_DESKTOP_SECRET_CANARY")&&!JSON.stringify(app.requests).includes("UIA_PASSWORD_CANARY"),"Credential and password canaries never enter provider requests");
   const next=await app.createConversation();
