@@ -382,7 +382,7 @@ pub use file_checkpoints::{
     FILE_CHECKPOINT_MAX_BYTES, FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
 };
 
-pub use memory_observations::{MemoryRecallObservation, MemoryUsageCounts};
+pub use memory_observations::{MemoryFeedbackKind, MemoryRecallObservation, MemoryUsageCounts};
 pub use processes::StoredProcess;
 pub use task::{
     TaskCompatibilityAudit, TaskLegacyProjection, TaskMetricsProjection, TaskOutcome,

@@ -1,6 +1,14 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "已采用": "Adopted",
+  "不准确": "Inaccurate",
+  "撤销评价": "Clear feedback",
+  "被检索考虑": "Considered in retrieval",
+  "采用反馈": "Adoption reports",
+  "纠正反馈": "Correction reports",
+  "请先保存记忆修改": "Save memory changes before reviewing",
+  "记忆反馈保存失败": "Could not save memory feedback",
   "正在加载编辑器…": "Loading editor…",
   "对话设置保存失败": "Could not save conversation settings",
   "系统通知未开启，任务正常执行；完成提示将保留在应用内": "System notifications are off. The task continues normally; completion notices stay in the app.",

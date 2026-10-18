@@ -20,6 +20,7 @@ mod telemetry;
 #[cfg(test)]
 mod test_home;
 mod tools;
+mod usage;
 
 pub use inbox::{InboxBatch, InboxCheckpoint};
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
@@ -298,7 +299,7 @@ pub fn parse_entry(text: &str) -> MemoryEntry {
 
 /// Version the complete source contract, including status and metadata. IDs are
 /// identity, not a freshness marker for derived lexical or vector rows.
-pub(crate) fn entry_revision(entry: &MemoryEntry) -> String {
+pub fn entry_revision(entry: &MemoryEntry) -> String {
     kanzei_base::content_hash(render_entry(entry).as_bytes())
 }
 

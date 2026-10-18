@@ -3,19 +3,36 @@
 use std::collections::{BTreeMap, HashMap};
 
 use kanzei_llm::{Message, Part};
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use super::{SessionStore, StoreError};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryFeedbackKind {
+    Adopted,
+    Corrected,
+    Cleared,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MemoryUsageCounts {
+    /// Distinct retrieval passes that considered this memory as a candidate.
+    pub opportunities: u64,
     pub recalled: u64,
     pub injected: u64,
     pub read: u64,
     /// 有读取观测能力的注入次数；历史 NULL 不进入这个分母。
     pub read_observed: u64,
     pub last_at: i64,
+    /// Explicit user reports, separate from retrieval and verified tool outcomes.
+    pub adopted: u64,
+    pub corrected: u64,
+    pub last_feedback: Option<MemoryFeedbackKind>,
+    pub feedback_revision: Option<String>,
+    pub last_feedback_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +53,44 @@ pub struct MemoryRecallObservation {
 }
 
 impl SessionStore {
+    pub fn record_memory_feedback(
+        &self,
+        session_id: &str,
+        memory_id: &str,
+        revision: &str,
+        kind: MemoryFeedbackKind,
+    ) -> Result<bool, StoreError> {
+        if memory_id.is_empty() || revision.is_empty() {
+            return Err(StoreError::InvalidInput(
+                "memory feedback requires an identity and source revision".into(),
+            ));
+        }
+        let kind = serde_json::to_value(kind)?;
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let latest: Option<(String, String)> = tx.query_row(
+            "SELECT json_extract(payload_json,'$.revision'), json_extract(payload_json,'$.kind') FROM session_events WHERE session_id=?1 AND event_type='memory.feedback' AND json_extract(payload_json,'$.memory_id')=?2 ORDER BY sequence DESC LIMIT 1",
+            params![session_id,memory_id], |row| Ok((row.get(0)?,row.get(1)?)),
+        ).optional()?;
+        let changed = latest
+            .as_ref()
+            .is_none_or(|(previous_revision, previous_kind)| {
+                previous_revision != revision || Some(previous_kind.as_str()) != kind.as_str()
+            });
+        if changed {
+            super::events::append_event_tx(
+                &tx,
+                session_id,
+                "memory.feedback",
+                &serde_json::json!({"memory_id":memory_id,"revision":revision,"kind":kind,"actor":"user"}),
+            )?;
+        }
+        tx.commit()?;
+        Ok(changed)
+    }
+
     pub fn memory_recall_observations(
         &self,
         limit: usize,
@@ -106,28 +161,53 @@ impl SessionStore {
 
     pub fn memory_usage_counts(&self) -> Result<BTreeMap<String, MemoryUsageCounts>, StoreError> {
         let mut statement = self.connection.prepare(
-            "SELECT ids.value, COUNT(DISTINCT r.recall_id),
-                COUNT(DISTINCT CASE WHEN EXISTS(SELECT 1 FROM json_each(r.injected_ids) WHERE value = ids.value) THEN r.recall_id END),
-                COUNT(DISTINCT CASE WHEN EXISTS(SELECT 1 FROM json_each(r.read_ids) WHERE value = ids.value) THEN r.recall_id END),
-                COUNT(DISTINCT CASE WHEN r.read_ids IS NOT NULL AND EXISTS(SELECT 1 FROM json_each(r.injected_ids) WHERE value = ids.value) THEN r.recall_id END),
+            "WITH eligible AS (
+                SELECT r.recall_id, ids.value AS memory_id FROM recall_events r, json_each(r.candidate_ids) ids WHERE r.trigger_type != 'user_search'
+                UNION SELECT r.recall_id, ids.value FROM recall_events r, json_each(r.retrieved_ids) ids WHERE r.trigger_type != 'user_search'
+            ) SELECT e.memory_id, COUNT(DISTINCT r.recall_id),
+                COUNT(DISTINCT CASE WHEN EXISTS(SELECT 1 FROM json_each(r.retrieved_ids) WHERE value = e.memory_id) THEN r.recall_id END),
+                COUNT(DISTINCT CASE WHEN EXISTS(SELECT 1 FROM json_each(r.injected_ids) WHERE value = e.memory_id) THEN r.recall_id END),
+                COUNT(DISTINCT CASE WHEN EXISTS(SELECT 1 FROM json_each(r.read_ids) WHERE value = e.memory_id) THEN r.recall_id END),
+                COUNT(DISTINCT CASE WHEN r.read_ids IS NOT NULL AND EXISTS(SELECT 1 FROM json_each(r.injected_ids) WHERE value = e.memory_id) THEN r.recall_id END),
                 MAX(r.created_at)
-             FROM recall_events r, json_each(r.retrieved_ids) ids
-             WHERE r.trigger_type != 'user_search'
-             GROUP BY ids.value ORDER BY ids.value",
+             FROM eligible e JOIN recall_events r ON r.recall_id=e.recall_id
+             GROUP BY e.memory_id ORDER BY e.memory_id",
         )?;
         let rows = statement.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 MemoryUsageCounts {
-                    recalled: row.get::<_, i64>(1)?.max(0) as u64,
-                    injected: row.get::<_, i64>(2)?.max(0) as u64,
-                    read: row.get::<_, i64>(3)?.max(0) as u64,
-                    read_observed: row.get::<_, i64>(4)?.max(0) as u64,
-                    last_at: row.get(5)?,
+                    opportunities: row.get::<_, i64>(1)?.max(0) as u64,
+                    recalled: row.get::<_, i64>(2)?.max(0) as u64,
+                    injected: row.get::<_, i64>(3)?.max(0) as u64,
+                    read: row.get::<_, i64>(4)?.max(0) as u64,
+                    read_observed: row.get::<_, i64>(5)?.max(0) as u64,
+                    last_at: row.get(6)?,
+                    ..Default::default()
                 },
             ))
         })?;
-        rows.collect::<Result<_, _>>().map_err(Into::into)
+        let mut counts = rows.collect::<Result<BTreeMap<_, _>, _>>()?;
+        let mut statement = self.connection.prepare("SELECT json_extract(payload_json,'$.memory_id'),json_extract(payload_json,'$.revision'),json_extract(payload_json,'$.kind'),created_at FROM session_events WHERE event_type='memory.feedback' ORDER BY created_at,rowid")?;
+        let feedback = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?;
+        for row in feedback {
+            let (id, revision, kind, at) = row?;
+            let kind: MemoryFeedbackKind = serde_json::from_value(serde_json::Value::String(kind))?;
+            let entry = counts.entry(id).or_default();
+            entry.adopted += u64::from(kind == MemoryFeedbackKind::Adopted);
+            entry.corrected += u64::from(kind == MemoryFeedbackKind::Corrected);
+            entry.last_feedback = Some(kind);
+            entry.feedback_revision = Some(revision);
+            entry.last_feedback_at = at;
+        }
+        Ok(counts)
     }
 
     /// 从本轮真实工具配对计算恢复，模型不能通过 memory_promote 的参数伪造此证据。
@@ -248,6 +328,51 @@ mod tests {
     use super::*;
     use crate::{EpisodeRecord, RecallEvent};
 
+    #[test]
+    fn candidate_opportunities_and_explicit_feedback_do_not_invent_adoption_from_injection() {
+        let store = SessionStore::open_in_memory().unwrap();
+        store.create_session("reviews", "fixture", None).unwrap();
+        let mut recall = event("candidate-only");
+        recall.retrieved_ids = "[\"M-1\"]";
+        recall.injected_ids = "[\"M-1\"]";
+        store.record_recall_event(&recall).unwrap();
+        let counts = store.memory_usage_counts().unwrap();
+        assert_eq!(counts["M-2"].opportunities, 1);
+        assert_eq!(counts["M-2"].recalled, 0);
+        assert_eq!(counts["M-1"].injected, 1);
+        assert_eq!(counts["M-1"].adopted, 0);
+        assert!(store
+            .record_memory_feedback("reviews", "M-2", "revision-a", MemoryFeedbackKind::Adopted)
+            .unwrap());
+        assert!(!store
+            .record_memory_feedback("reviews", "M-2", "revision-a", MemoryFeedbackKind::Adopted)
+            .unwrap());
+        assert!(store
+            .record_memory_feedback(
+                "reviews",
+                "M-2",
+                "revision-a",
+                MemoryFeedbackKind::Corrected
+            )
+            .unwrap());
+        assert!(store
+            .record_memory_feedback("reviews", "M-2", "revision-b", MemoryFeedbackKind::Cleared)
+            .unwrap());
+        let counts = store.memory_usage_counts().unwrap();
+        assert_eq!(counts["M-2"].adopted, 1);
+        assert_eq!(counts["M-2"].corrected, 1);
+        assert_eq!(
+            counts["M-2"].last_feedback,
+            Some(MemoryFeedbackKind::Cleared)
+        );
+        assert_eq!(
+            counts["M-2"].feedback_revision.as_deref(),
+            Some("revision-b")
+        );
+        assert_eq!(counts["M-2"].injected, 0);
+        assert_eq!(store.list_events("reviews", 0).unwrap().len(), 3);
+    }
+
     fn event(id: &str) -> RecallEvent<'_> {
         RecallEvent {
             recall_id: id,
@@ -337,6 +462,7 @@ mod tests {
         store
             .record_recall_event_for_run(
                 &RecallEvent {
+                    candidate_ids: "[]",
                     retrieved_ids: "[]",
                     injected_ids: "[]",
                     policy_action: "miss",

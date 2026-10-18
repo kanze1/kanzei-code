@@ -180,6 +180,12 @@ impl MemoryStore {
         ))
     }
 
+    pub fn global_for_project(project_root: &Path) -> Option<Self> {
+        let mut store = Self::global()?;
+        store.project_root = Some(project_root.to_path_buf());
+        Some(store)
+    }
+
     /// D-368:记忆树互斥锁(跨进程 + 跨线程)。锁目标 = 记忆根目录本身,锁文件 =
     /// 同目录 `<root>.lock`(project scope = `.kanzei/memory.lock`)。
     ///

@@ -9,7 +9,7 @@ fn memory_stores_for(project_dir: &str) -> Vec<kanzei_tools::memory::MemoryStore
     let cwd = PathBuf::from(project_dir);
     let root = crate::normalized_project_root(&cwd);
     let mut stores = vec![kanzei_tools::memory::MemoryStore::project(&root)];
-    stores.extend(kanzei_tools::memory::MemoryStore::global());
+    stores.extend(kanzei_tools::memory::MemoryStore::global_for_project(&root));
     stores
 }
 
@@ -183,13 +183,32 @@ fn memory_entry_json(
 ) -> serde_json::Value {
     let (hits, last_hit_at) = profile.get(&entry.id).copied().unwrap_or((0, 0));
     let counts = usage.get(&entry.id).cloned().unwrap_or_default();
+    let revision = kanzei_tools::memory::entry_revision(&entry);
     json!({"id": entry.id, "scope": store.scope.label(), "category": entry.category,
         "title": entry.title, "description": entry.description, "status": entry.status,
         "updated": entry.updated, "source": entry.source, "refs": entry.refs(), "areas": entry.areas(),
         "archived": archived,
         "hits": hits, "last_hit_at": last_hit_at, "recalled": counts.recalled,
         "injected": counts.injected, "read": counts.read, "read_observed": counts.read_observed,
+        "revision": revision, "usage": counts,
         "path": path.display().to_string(), "body": entry.body})
+}
+
+#[tauri::command(async)]
+pub(crate) fn memory_entry_feedback(
+    project_dir: String,
+    scope: String,
+    id: String,
+    expected_revision: String,
+    kind: kanzei_core::MemoryFeedbackKind,
+) -> Result<kanzei_core::MemoryUsageCounts, String> {
+    let store = memory_stores_for(&project_dir)
+        .into_iter()
+        .find(|store| store.scope.label() == scope)
+        .ok_or_else(|| format!("未知记忆域: {scope}"))?;
+    store
+        .record_user_feedback(&id, &expected_revision, kind)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command(async)]

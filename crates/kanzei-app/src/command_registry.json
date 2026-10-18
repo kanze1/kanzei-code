@@ -436,6 +436,10 @@
     "host": "service"
   },
   {
+    "path": "memory::memory_entry_feedback",
+    "host": "service"
+  },
+  {
     "path": "memory::memory_graph",
     "host": "service"
   },

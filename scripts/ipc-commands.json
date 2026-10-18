@@ -1109,6 +1109,33 @@
     "path": "memory::memory_entry_delete",
     "returns": "-> Result < () , String >"
   },
+  "memory_entry_feedback": {
+    "host": "service",
+    "parameters": {
+      "expectedRevision": {
+        "required": true,
+        "type": "String"
+      },
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "kind": {
+        "required": true,
+        "type": "kanzei_core :: MemoryFeedbackKind"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "scope": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_entry_feedback",
+    "returns": "-> Result < kanzei_core :: MemoryUsageCounts , String >"
+  },
   "memory_entry_get": {
     "host": "service",
     "parameters": {

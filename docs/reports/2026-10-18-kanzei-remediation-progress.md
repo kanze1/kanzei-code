@@ -28,10 +28,10 @@
 | BRO-02 | 待实施 | 用户授权的现有 Edge 标签页接管 |
 | BRO-03 | 待实施 | 授权、页面身份和状态连续性验收 |
 | BRO-04 | 待实施 | 原生窗口、对话框和画布操作 |
-| MEM-01 | 待实施 | 类型化使用与结果反馈 |
+| MEM-01 | 候选机会、召回、注入、读取和明确采用/纠正反馈已区分，原生反馈 8 项通过 | 类型化晋升和恢复证据串联 |
 | MEM-02 | 待实施 | 活跃记忆降级、清退和恢复 |
 | MEM-03 | 待实施 | 会话做梦按钮及可追溯产物 |
-| MEM-04 | 待实施 | 作用域、去重、冲突与撤销 |
+| MEM-04 | 反馈已绑定项目和内容版本，去重与撤销原生验收通过 | 做梦产物的来源、冲突替换和撤销 |
 | MEM-05 | 待实施 | 统一作业进度、停止及恢复 |
 
 ## 已取得的原问题与回归证据
@@ -46,6 +46,8 @@
 - 原生 Kanzei 软件操作：ui-browser-security-native-smoke 8 项通过（真实 Rust 静态服务与 WebView2，隔离配置及临时项目）。模块加载、私有数据 403、独立页面存储、返回页面恢复、跨来源读取被拒绝、应用协议拒绝；预览页实际调用 app_info 得到 `app_info not allowed. Plugin not found`。证据 output/playwright/browser-security/native/acceptance.json 及 native-preview.png；该次构建为 dev，正式发布版仍需复验。
 - 原生并发与运行事实：ui-run-concurrency-native-smoke 8 项通过。A 的实际模型 HTTP 响应保持未完成时，B 读取真实来源文件、进入待批准、获得一次批准、写出结果并完成；A 随后独立完成，重载界面仍为两个 completed。实际发往 provider 的事实中，本地日期、时区偏移、provider/model、input_id 与两条独立 run_id 正确。证据 output/playwright/run-concurrency/native/acceptance.json 与 native-concurrency.png。
 - 变更租约：思考和只读工具不持写权，主/子代理、串行/并行入口复用 execute_coordinated；代码树锁和逻辑资源锁使用明确的不同并发类型。两个实际写区间没有重叠，期间读取真实文件可完成；取消等待立即清理队列，零写入，取得/释放审计成对。变更后的 core 428、harness 217、桌面端 629 项全量通过，跨树 merge_ff 4 项通过。
+- 运行版本边界：原生临时项目位于另一 Git 仓库之下时，不再借用上级仓库的 HEAD 和改动列表。嵌套非仓库反例回归及协作 10 项通过，版本与改动状态明确保持未知。
+- 记忆反馈：Core 将 candidate_ids 与 retrieved_ids 分开计算机会和召回，注入不等于采用；明确的用户采用、纠正、撤销以 memory.feedback 事实写入 state.db，并绑定原始内容版本。memory_observations 6 项与内容版本/重新打开用例通过，core 全量 429 项通过。真实桌面 ui-memory-feedback-native-smoke 8 项通过，含按钮操作、重复点击不重复计数、跨项目同编号隔离、旧版本拒绝、撤销及重载恢复；证据 output/playwright/memory-feedback/native/acceptance.json 和 native-memory-feedback.png。该结果不表示做梦与自动清退已经完成。
 - 上下文组装：context_assembly 10 项通过，保留原有完整来源、刷新失败和容量边界回归。
 - 三个受影响库的首轮全量结果：core 425 通过，harness 217 通过，tools 883 通过、1 失败、3 ignored。唯一失败是旧浏览器默认文件放行断言，已按新的结构化文件授权契约修改且 base::tests 2 项复跑通过；这不是最终完整门禁结果。
 - UI runtime 使用验证清单要求的 VM Modules 模式通过：127 个模块、3392 次 invoke、11 个视图切换、0 运行时错误。

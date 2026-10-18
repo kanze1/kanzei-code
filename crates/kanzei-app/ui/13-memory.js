@@ -1559,6 +1559,37 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   });
   const actions = document.createElement("div");
   actions.className = "memory-detail-actions";
+  const feedbackStatus = document.createElement("p");
+  feedbackStatus.className = "dim memory-feedback-status";
+  feedbackStatus.setAttribute("role", "status");
+  const feedbackActions = document.createElement("div");
+  feedbackActions.className = "memory-detail-actions";
+  const feedbackLabels = { adopted: t("已采用"), corrected: t("不准确"), cleared: t("撤销评价") };
+  const renderFeedback = (usage = {}) => {
+    const current = usage.feedback_revision === entry.revision ? feedbackLabels[usage.last_feedback] : "";
+    feedbackStatus.textContent = `${t("被检索考虑")} ${usage.opportunities ?? 0} · ${t("采用反馈")} ${usage.adopted ?? 0} · ${t("纠正反馈")} ${usage.corrected ?? 0}${current ? ` · ${current}` : ""}`;
+  };
+  renderFeedback(entry.usage);
+  for (const [kind, label] of Object.entries(feedbackLabels)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost mini";
+    button.dataset.memoryFeedback = kind;
+    button.textContent = label;
+    button.disabled = !entry.revision;
+    button.addEventListener("click", async () => {
+      if (memoryDetailDirty()) { toast(t("请先保存记忆修改")); return; }
+      feedbackActions.querySelectorAll("button").forEach((item) => { item.disabled = true; });
+      try {
+        const usage = await invoke("memory_entry_feedback", { projectDir: project, scope, id: entry.id, expectedRevision: entry.revision, kind });
+        if (project !== memoryProject || box.dataset.memoryId !== entry.id) return;
+        entry.usage = usage;
+        renderFeedback(usage);
+      } catch (error) { toastError(`${t("记忆反馈保存失败")}:${error}`); }
+      finally { feedbackActions.querySelectorAll("button").forEach((item) => { item.disabled = false; }); }
+    });
+    feedbackActions.append(button);
+  }
   const discuss = document.createElement("button");
   discuss.type = "button";
   discuss.className = "ghost";
@@ -1567,7 +1598,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   actions.append(save, discuss);
   if (entry.status === "candidate" || entry.status === "shadow") actions.append(enableBtn);
   actions.append(archiveBtn, deleteBtn);
-  box.append(heading, meta, profile, recall, field(t("正文"), bodyBox, "div"), metadata, actions);
+  box.append(heading, meta, profile, recall, field(t("正文"), bodyBox, "div"), metadata, feedbackStatus, feedbackActions, actions);
   restoreReaderScroll();
 }
 

@@ -289,6 +289,13 @@ export const commandParameters = {
     "projectDir": true,
     "scope": true
   },
+  "memory_entry_feedback": {
+    "expectedRevision": true,
+    "id": true,
+    "kind": true,
+    "projectDir": true,
+    "scope": true
+  },
   "memory_entry_get": {
     "id": true,
     "projectDir": true,
