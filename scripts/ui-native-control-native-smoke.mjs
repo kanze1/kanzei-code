@@ -113,7 +113,10 @@ try{
   check(app.errors.length===0,'Main native application has no JavaScript errors');
   const executableSha=createHash('sha256').update(await readFile(app.exe)).digest('hex');
   await app.invoke('runtime_shutdown');
-  await app.page.evaluate(()=>window.__TAURI__.window.getCurrentWindow().destroy());
+  const mainClosed=app.page.waitForEvent('close');
+  const [destruction,closure]=await Promise.allSettled([app.page.evaluate(()=>window.__TAURI__.window.getCurrentWindow().destroy()),mainClosed]);
+  assert.equal(closure.status,'fulfilled','Destroy must close the main window');
+  if(destruction.status==='rejected')assert.equal(destruction.reason.message,'page.evaluate: Target page, context or browser has been closed','Only the destroyed execution context can interrupt the destroy receipt');
   await until(()=>app.page.isClosed()&&bar.isClosed()&&highlight.isClosed(),'Closing main destroys both auxiliary surfaces');
   await until(()=>app.child.exitCode!==null,'Closing main exits its OS process');
   checks.push('Closing the main window also exits the auxiliary control UI');
