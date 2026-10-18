@@ -27,10 +27,17 @@ use crate::{BaseComponent, DevProfile, ResearchProfile};
 /// 逐字节一致:CLI 的 Readonly 在 Research 后(→middle),桌面的 FrontendTools 同
 /// 位置、TrackerWritePolicy/Collaboration 在 Config 后(→tail)。
 pub fn build_harness(
+    profile: kanzei_harness::ProfileKind,
     middle: impl FnOnce(&mut Harness),
     tail: impl FnOnce(&mut Harness),
 ) -> Harness {
     let mut harness = Harness::default();
+    if profile == kanzei_harness::ProfileKind::Isolated {
+        harness
+            .add(crate::profiles::IsolatedProfile)
+            .add(ConfigComponent);
+        return harness;
+    }
     harness
         .add(BaseComponent)
         .add(DevProfile)
@@ -144,6 +151,9 @@ pub async fn build_subagent_runtime(
     transcript_sink: Option<BackgroundEventSink>,
     transcript_provider: Option<SubagentTranscriptProvider>,
 ) -> anyhow::Result<Option<SubagentRuntime>> {
+    if rctx.profile == kanzei_harness::ProfileKind::Isolated {
+        return Ok(None);
+    }
     let mut sub_harness = Harness::default();
     sub_harness
         .add(crate::SubagentBase)

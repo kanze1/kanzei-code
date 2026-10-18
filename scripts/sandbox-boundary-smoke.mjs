@@ -76,10 +76,10 @@ check(result.published_files.length === 0 && result.host_writes === "none", "no 
 result = await execute("dd if=/dev/zero of=too-large bs=1048576 count=65 2>&1");
 check(result.exit_code !== 0 && result.output.includes("No space left"), "workspace writes limited by a real 64 MiB tmpfs");
 
-for (const control of ["timeout", "cancel", "eof"]) {
+for (const control of ["complete", "timeout", "cancel", "eof"]) {
   const marker = `kanzei-sandbox-orphan-${randomUUID()}`;
-  result = await execute(`setsid /bin/sh -c 'while :; do sleep 1; done' ${marker} & wait`, control);
-  check(result.status === (control === "timeout" ? "timeout" : "cancelled"), `cleanup acknowledged before ${control} result`);
+  result = await execute(`setsid /bin/sh -c 'while :; do sleep 1; done' ${marker} & ${control === "complete" ? "exit 0" : "wait"}`, control);
+  check(result.status === (control === "complete" ? "completed" : control === "timeout" ? "timeout" : "cancelled"), `cleanup acknowledged before ${control} result`);
   const probe = `import os,pathlib; marker=${JSON.stringify(marker)}.encode(); found=[p.name for p in pathlib.Path('/proc').iterdir() if p.name.isdigit() and int(p.name)!=os.getpid() and (p/'cmdline').exists() and marker in (p/'cmdline').read_bytes()]; print(found); assert not found`;
   const [exe, args] = command(probe);
   execFileSync(exe, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });

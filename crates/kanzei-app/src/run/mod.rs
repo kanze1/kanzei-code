@@ -579,7 +579,7 @@ mod assembly_tests {
             21,
             "桌面 resident 另含 core task_spec"
         );
-        assert_eq!(snapshot.deferred_tools().len(), 19);
+        assert_eq!(snapshot.deferred_tools().len(), 20);
         let all_specs: Vec<kanzei_llm::ToolSpec> = snapshot
             .materialize_tools()
             .iter()

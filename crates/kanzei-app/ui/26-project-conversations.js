@@ -197,6 +197,7 @@ function paint() {
   if (!rail) return;
   if (switcher) relabel();
   const discussion = item()?.profile === "readonly";
+  const workflow = lineAgent(item()).profile === "dev";
   document.body.dataset.conversationKind = discussion ? "discussion" : "conversation";
   const current = item();
   $("project-conversation-kind").textContent = current ? processName(current) : "";
@@ -213,10 +214,10 @@ function paint() {
   const scope = currentProject + "|" + activeProcessId;
   if (handoffScope === scope) return;
   handoffScope = null;
-  const newProject = Boolean(isNew(state) && !state.error && !discussion && !["running", "starting", "stopping", "waiting", "attention"].includes(activity.state));
-  const pendingCapture = Boolean(state.capture) && !discussion;
+  const newProject = Boolean(isNew(state) && !state.error && workflow && !["running", "starting", "stopping", "waiting", "attention"].includes(activity.state));
+  const pendingCapture = Boolean(state.capture) && workflow;
   const capturedEntry = state.docs?.requirements?.find(entry => entry.id === state.capture?.id);
-  onboarding.hidden = !newProject && !pendingCapture && !state.registrationError && !(state.error && (!state.docs || isNew(state)));
+  onboarding.hidden = !workflow || (!newProject && !pendingCapture && !state.registrationError && !(state.error && (!state.docs || isNew(state))));
   $("project-start-actions").hidden = !newProject && !pendingCapture;
   $("project-register").disabled = state.busy;
   $("project-register").textContent = state.busy ? t("登记中…") : pendingCapture ? t(needsRequirementResearch(capturedEntry) ? requirementResearchAction(capturedEntry) : "开始此需求") : t("登记并开始");
@@ -227,7 +228,7 @@ function paint() {
   $("project-onboarding-retry").hidden = !state.error && !state.registrationError;
   $("project-onboarding-retry").textContent = state.registrationError ? t("重试登记") : t("重试读取");
   $("project-onboarding-retry").disabled = state.busy;
-  const signature = JSON.stringify([currentProject, activeProcessId, state.docs, state.snapshot?.current_items, state.error, state.registrationError, activity, detailId, selectedWork(currentProject, activeProcessId)]);
+  const signature = JSON.stringify([currentProject, activeProcessId, workflow, state.docs, state.snapshot?.current_items, state.error, state.registrationError, activity, detailId, selectedWork(currentProject, activeProcessId)]);
   if (signature === rendered) return;
   rendered = signature;
   rail.replaceChildren();
@@ -262,7 +263,7 @@ function paint() {
     rail.append(slot);
   }
   const actions = node("div", null, "work-focus-actions");
-  if (!discussion) actions.append(button(t("选择工作"), () => openWorkPicker(state), "ghost work-focus-choose"));
+  if (workflow) actions.append(button(t("选择工作"), () => openWorkPicker(state), "ghost work-focus-choose"));
   actions.append(button(t("全部工作") + " ↗", () => void openProjectSpace(currentProject, "project"), "ghost work-focus-all"));
   rail.append(actions);
   if (state.error) rail.append(button(t("读取失败 · 重试"), () => void refreshConversationWork(), "ghost"));
@@ -379,7 +380,7 @@ defer(() => {
   }, "ghost"); retry.id = "project-onboarding-retry";
   onboarding.append(copy, details, actions, retry); $("chat-area").prepend(onboarding);
   document.addEventListener("kz:compose-send", event => {
-    if (!active() || item()?.profile === "readonly") return;
+    if (!active() || lineAgent(item()).profile !== "dev") return;
     const state = facts();
     if ((!onboarding.hidden && isNew(state)) || state.capture) {
       event.preventDefault();

@@ -1,6 +1,8 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "下一轮执行模式": "Execution mode for the next turn",
+  "隔离执行（不可信代码）": "Isolated execution (untrusted code)",
   "做梦": "Dream",
   "未调用模型": "No model call",
   "从当前对话沉淀品味、约束、决策、踩过的坑和方法，保留原文供确认": "Extract preferences, constraints, decisions, pitfalls and methods from this conversation, retaining source quotes for review",

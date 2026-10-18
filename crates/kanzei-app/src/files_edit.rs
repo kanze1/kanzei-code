@@ -1292,7 +1292,7 @@ pub(crate) mod tests {
             project_root: root.clone(),
             config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
         };
-        let snapshot = crate::run::assembly::build_run_harness(false, None)
+        let snapshot = crate::run::assembly::build_run_harness(ctx.profile, false, None)
             .resolve(&ctx)
             .unwrap();
         let edit = snapshot

@@ -217,6 +217,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // R-256 批4:与桌面共用 kanzei_tools::run::build_harness(对照表 #5 公共部分单点),
     // CLI 独有 Readonly 经 middle 注入(顺序与原来一致:Research 后、Markdown 前)。
     let mut harness = kanzei_tools::run::build_harness(
+        profile,
         |harness| {
             harness.add(ReadonlyProfile);
         },

@@ -17,6 +17,8 @@ use crate::work::WorkTool;
 mod context_tests;
 mod dev;
 mod general;
+mod isolated;
+pub(crate) use isolated::IsolatedProfile;
 mod policy;
 mod readonly;
 mod research;
@@ -1419,6 +1421,7 @@ mod tool_surface_budget {
             config: Arc::new(KanzeiConfig::default()),
         };
         let mut harness = crate::run::build_harness(
+            ctx.profile,
             |h| {
                 h.add(crate::ReadonlyProfile);
             },
@@ -1444,6 +1447,7 @@ mod tool_surface_budget {
             config: Arc::new(KanzeiConfig::default()),
         };
         let mut harness = crate::run::build_harness(
+            ctx.profile,
             |h| {
                 h.add(crate::ReadonlyProfile);
             },
@@ -1466,6 +1470,7 @@ mod tool_surface_budget {
             config: Arc::new(KanzeiConfig::default()),
         };
         let mut harness = crate::run::build_harness(
+            ctx.profile,
             |h| {
                 h.add(crate::ReadonlyProfile);
             },
@@ -1607,7 +1612,7 @@ mod tool_surface_budget {
         );
         // 档位契约的正面断言:写与命令族必须整体摘除(fully_denied),不是判 Ask。
         // 这几条现在是**通过**的;D-663 记的是 plot/latex/process/browser 没进这个名单。
-        for denied in ["write", "edit", "insert", "bash"] {
+        for denied in ["write", "edit", "insert", "bash", "sandbox"] {
             assert!(
                 !names.contains(&denied),
                 "readonly 档不得看见 {denied}(应被 action_fully_denied 整体摘除)"

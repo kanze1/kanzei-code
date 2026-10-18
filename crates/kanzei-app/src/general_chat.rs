@@ -290,7 +290,7 @@ mod tests {
                 project_root: root,
                 config: std::sync::Arc::new(config),
             };
-            let snapshot = crate::run::assembly::build_run_harness(false, None)
+            let snapshot = crate::run::assembly::build_run_harness(ctx.profile, false, None)
                 .resolve(&ctx)
                 .unwrap();
             let tools: Vec<_> = snapshot

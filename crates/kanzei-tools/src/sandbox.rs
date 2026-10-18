@@ -20,7 +20,7 @@ const MAX_INPUT_FILES: usize = 128;
 struct Input {
     /// POSIX shell command. Runs in an ephemeral Linux workspace, never on the host shell.
     command: String,
-    /// Explicit regular project files to copy. Relative paths; directories and links are not inputs.
+    /// Explicit regular project file contents to copy. Relative paths; directories are not inputs.
     #[serde(default)]
     files: Vec<String>,
     /// Execution deadline in milliseconds, 1..=120000. Includes namespace setup.
@@ -154,9 +154,14 @@ async fn run(
                 "sandbox input files exceed 16 MiB",
             )));
         }
-        let target = staging.path().join(requested);
-        std::fs::create_dir_all(target.parent().expect("staging file parent")).map_err(refused)?;
-        std::fs::write(target, content).map_err(refused)?;
+        let target = kanzei_harness::permission::ScopedFile::resolve(
+            staging.path(),
+            staging.path(),
+            Path::new(requested),
+        )
+        .map_err(refused)?;
+        target.create_parent().map_err(refused)?;
+        target.write_atomic(&content, || Ok(())).map_err(refused)?;
     }
     let inputs = linux_path(staging.path()).await?;
     let mut command = helper_command();

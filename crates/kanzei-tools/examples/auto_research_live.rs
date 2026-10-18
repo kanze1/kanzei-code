@@ -67,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
     };
     let harness = kanzei_tools::run::build_harness(
+        rctx.profile,
         |_| {},
         |harness| {
             harness.add(ResearchWorkflowContext(topic.into()));

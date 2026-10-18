@@ -88,6 +88,7 @@ export function selectedAgent() {
   if (processItems.find((item) => item.id === activeProcessId)?.profile === "readonly") return { profile: "readonly", agent: "readonly" };
   if (processItems.find((item) => item.id === activeProcessId)?.profile === "research") return { profile: "research", agent: "research" };
   const mode = $("profile-select").value;
+  if (mode === "isolated") return { profile: "isolated", agent: "isolated" };
   if (mode === "dev-pair") return { profile: "dev", agent: "dev-pair" };
   if (mode === "dev-auto") return { profile: "dev", agent: "dev" };
   return { profile: "dev", agent: "dev-pair" };
@@ -100,6 +101,7 @@ export function selectedAgent() {
 export function lineAgent(item) {
   if (!item) return { profile: "dev", agent: "dev-pair" };
   if (item.profile === "readonly") return { profile: "readonly", agent: "readonly" };
+  if (item.profile === "isolated") return { profile: "isolated", agent: "isolated" };
   if (item.profile === "research") return { profile: "research", agent: "research" };
   if (item.id === activeProcessId) return selectedAgent();
   const remembered = processProfileUi.get(item.id);

@@ -71,16 +71,20 @@ pub(crate) async fn run_execution_loop(
     } else {
         prompt.to_string()
     };
-    let memory_hints = kanzei_tools::memory::prompt_hints_for_run(
-        &ctx.project_root,
-        &memory_query,
-        false,
-        // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
-        kanzei_tools::embed::embedder_from_config(config)
-            .ok()
-            .flatten(),
-        ctx.run_id.as_deref(),
-    );
+    let memory_hints = if deps.rctx.profile == kanzei_harness::ProfileKind::Isolated {
+        None
+    } else {
+        kanzei_tools::memory::prompt_hints_for_run(
+            &ctx.project_root,
+            &memory_query,
+            false,
+            // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
+            kanzei_tools::embed::embedder_from_config(config)
+                .ok()
+                .flatten(),
+            ctx.run_id.as_deref(),
+        )
+    };
     let run_prompt = prompt.to_string();
     if let Some(item_id) = round.work_item_id.as_deref() {
         stage("领取", format!("按用户选择领取 {item_id}…"));

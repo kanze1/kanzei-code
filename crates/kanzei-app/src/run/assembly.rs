@@ -216,6 +216,7 @@ pub(crate) async fn assemble_run(
 
     let work_priority = normalize_work_priority(mode.work_priority.as_deref());
     let mut harness = build_run_harness(
+        profile,
         mode.block_tracker_writes,
         Some(handles.collaboration_probe.clone()),
     );
@@ -461,6 +462,7 @@ async fn prepare_session(
         // Capture once before any write/claim by this run. Later working
         // tree observations are not evidence of what existed at this boundary.
         let (run_id, _baseline_context) = super::baseline::prepare(
+            profile,
             if general { &ctx.project_root } else { &ctx.cwd },
             &mut store,
             &request.session_id,
@@ -780,6 +782,7 @@ pub(crate) fn run_meta_payload(
 }
 
 pub(crate) fn build_run_harness(
+    profile: kanzei_harness::ProfileKind,
     block_tracker_writes: bool,
     collaboration_probe: Option<crate::collaboration::CollaborationProbe>,
 ) -> kanzei_harness::Harness {
@@ -787,6 +790,7 @@ pub(crate) fn build_run_harness(
     // FrontendTools 在 Markdown 前(middle),TrackerWritePolicy/Collaboration 在
     // Config 后(tail),顺序与原来逐字节一致。
     kanzei_tools::run::build_harness(
+        profile,
         |harness| {
             harness.add(crate::harness_ext::FrontendToolsComponent);
             // R-221 B1:桌面端也注册 readonly 档位；组件只在 ProfileKind::Readonly 生效。
@@ -1545,7 +1549,9 @@ mod tests {
             project_root: root,
             config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
         };
-        let snapshot = build_run_harness(false, None).resolve(&ctx).unwrap();
+        let snapshot = build_run_harness(ctx.profile, false, None)
+            .resolve(&ctx)
+            .unwrap();
         let agent = snapshot.select_primary_agent(Some("readonly")).unwrap();
         assert_eq!(agent.name, "readonly");
         assert_eq!(

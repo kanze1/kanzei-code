@@ -337,6 +337,7 @@ async fn run_steps(
     let profile: ProfileKind = match def.agent.as_str() {
         "readonly" => ProfileKind::Readonly,
         "research" => ProfileKind::Research,
+        "isolated" => ProfileKind::Isolated,
         _ => ProfileKind::Dev,
     };
     let rctx = ResolveCtx {
@@ -346,6 +347,7 @@ async fn run_steps(
         config: config.clone(),
     };
     let harness = crate::run::build_harness(
+        profile,
         |h| {
             h.add(crate::ReadonlyProfile);
         },

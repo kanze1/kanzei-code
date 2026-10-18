@@ -354,6 +354,7 @@ impl KanzeiConfig {
             crate::defs::ProfileKind::Dev => "dev",
             crate::defs::ProfileKind::Research => "research",
             crate::defs::ProfileKind::Readonly => "readonly",
+            crate::defs::ProfileKind::Isolated => return Vec::new(),
         };
         if !self.web.native_search_enabled()
             || self.web.native_search_disabled_for(profile)

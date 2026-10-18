@@ -1201,7 +1201,7 @@ defer(() => {
 // R-115:这份映射必须落盘。早期只放在内存里,重启后它是空的,回退分支就把模式
 // 降级成结伴开发——哪怕 kz-profile 里明明存着自主推进(D-155)。
 export const PROCESS_PROFILE_KEY = "kz-process-profile";
-export const LINE_MODES = ["dev-pair", "dev-auto", "research"];
+export const LINE_MODES = ["dev-pair", "dev-auto", "research", "isolated"];
 // UI2-0926 #13:进程 id 去掉了 `\\?\` 前缀(schema v25),本地存的旧键同样归一(`d|\\?\C:\x` → `d|C:\x`)。
 export function normalizeProcessKey(key) {
   return String(key).replace(/\|\\\\\?\\(?!UNC\\)/, "|");
@@ -1495,7 +1495,7 @@ export function updateLocalProcessItem(processId, fields) {
 }
 
 export function syncAutoContinueWithProfile() {
-  const enabled = $("profile-select").value === "dev-auto" || Boolean(currentGoalText().trim());
+  const enabled = $("profile-select").value !== "isolated" && ($("profile-select").value === "dev-auto" || Boolean(currentGoalText().trim()));
   if ($("auto-continue").checked === enabled) return;
   $("auto-continue").checked = enabled;
   if (!enabled) cancelAutoContinueTimer();
@@ -1517,7 +1517,8 @@ export function applyProfileValue(backendProfile) {
   const fallback = ["dev-pair", "dev-auto"].includes(globalChoice)
     ? globalChoice
     : "dev-pair";
-  if (backendProfile !== "research") $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
+  if (backendProfile === "isolated") $("profile-select").value = "isolated";
+  else if (backendProfile !== "research") $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
   // 回显期间关掉的自动推进只是**跟随显示**,不是用户按下的开关:不落盘、不写全局键。
   applyingProfileEcho = true;
   try {
@@ -1530,13 +1531,13 @@ export function applyProfileValue(backendProfile) {
 defer(() => {
   $("profile-select").addEventListener("change", () => {
     const value = $("profile-select").value;
-    if (selectedAgent().profile !== "dev") return;
+    if (!["dev", "isolated"].includes(selectedAgent().profile)) return;
     syncResearchSectionVisibility();
     localStorage.setItem(PROFILE_STORAGE_KEY, value);
     if (activeProcessId) {
       processProfileUi.set(activeProcessId, value);
       persistProcessProfiles();
-      const profile = "dev";
+      const profile = value === "isolated" ? "isolated" : "dev";
       updateLocalProcessItem(activeProcessId, { profile });
       queueProcessUpdate(activeProcessId, { profile })
         .catch((error) => reportPersistentError(`${t("对话模式保存失败")}:${error}`));

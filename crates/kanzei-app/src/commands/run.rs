@@ -528,7 +528,10 @@ pub(crate) fn schedule_run(
         crate::run::work_start::validate_requested_item(id)?;
         if general
             || discussion
-            || matches!(profile.as_deref(), Some("readonly" | "research"))
+            || matches!(
+                profile.as_deref(),
+                Some("readonly" | "research" | "isolated")
+            )
             || block_tracker_writes
         {
             return Err("当前对话不能领取需求，请返回主对话开始".into());

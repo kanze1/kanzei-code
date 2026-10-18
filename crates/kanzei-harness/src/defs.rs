@@ -9,6 +9,8 @@ pub enum ProfileKind {
     Research,
     /// 只读分析档位(R-102):read/glob/grep/task 放行,写与命令硬拒绝。
     Readonly,
+    /// Untrusted code: project observations plus disposable isolated execution.
+    Isolated,
 }
 
 impl std::str::FromStr for ProfileKind {
@@ -18,7 +20,10 @@ impl std::str::FromStr for ProfileKind {
             "dev" => Ok(ProfileKind::Dev),
             "research" => Ok(ProfileKind::Research),
             "readonly" => Ok(ProfileKind::Readonly),
-            other => Err(format!("unknown profile `{other}` (dev|research|readonly)")),
+            "isolated" => Ok(ProfileKind::Isolated),
+            other => Err(format!(
+                "unknown profile `{other}` (dev|research|readonly|isolated)"
+            )),
         }
     }
 }

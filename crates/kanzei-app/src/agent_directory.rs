@@ -74,7 +74,7 @@ pub(crate) fn agent_directory_get(
         project_root: project_root.clone(),
         config: std::sync::Arc::new(config),
     };
-    let harness = crate::run::assembly::build_run_harness(false, None);
+    let harness = crate::run::assembly::build_run_harness(profile_kind, false, None);
     let snapshot = harness
         .resolve(&ctx)
         .map_err(|e| format!("解析内建 Agent 失败: {e}"))?;

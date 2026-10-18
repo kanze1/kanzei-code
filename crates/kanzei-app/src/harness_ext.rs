@@ -588,10 +588,10 @@ mod browser_registration_tests {
             "FrontendToolsComponent 自己注册 browser"
         );
 
-        let desktop = crate::run::assembly::build_run_harness(false, None);
+        let desktop = crate::run::assembly::build_run_harness(ProfileKind::Dev, false, None);
         assert_eq!(browser_count(desktop), 1, "同名覆盖,不重复");
 
-        let cli = kanzei_tools::run::build_harness(|_| {}, |_| {});
+        let cli = kanzei_tools::run::build_harness(ProfileKind::Dev, |_| {}, |_| {});
         assert_eq!(browser_count(cli), 1, "CLI 仍有无头 browser");
 
         // 权限分级对桌面版同样生效(规则挂在 BaseComponent,按 action 名匹配)。

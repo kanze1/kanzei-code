@@ -155,6 +155,7 @@ pub(crate) async fn capture(cwd: &Path, run_id: &str) -> RunBaseline {
 /// Establish one run's origin and persist it before any scout, claim or main write.
 /// Return the same identity/context for later typed events and the pipeline reviewer.
 pub(crate) async fn prepare(
+    profile: kanzei_harness::ProfileKind,
     cwd: &Path,
     store: &mut SessionStore,
     session_id: &str,
@@ -175,7 +176,24 @@ pub(crate) async fn prepare(
         )?;
         return Ok((run_id, String::new()));
     }
-    let baseline = capture(cwd, &run_id).await;
+    let baseline = if profile == kanzei_harness::ProfileKind::Isolated {
+        RunBaseline {
+            schema_version: 1,
+            run_id: run_id.clone(),
+            captured_at_ms: now_ms(),
+            finished_at_ms: now_ms(),
+            cwd: cwd.to_string_lossy().into_owned(),
+            head: None,
+            head_stable: false,
+            status: "not_observed_isolated".into(),
+            dirty: vec![],
+            untracked: vec![],
+            truncated: false,
+            errors: vec!["隔离档位不执行宿主 Git；起点版本与改动状态未知".into()],
+        }
+    } else {
+        capture(cwd, &run_id).await
+    };
     baseline.persist(store, session_id)?;
     let context = baseline.model_context();
     system.push_str(&context);
@@ -319,6 +337,67 @@ mod tests {
         );
     }
     #[tokio::test]
+    async fn isolated_start_does_not_execute_a_repository_fsmonitor_hook() {
+        let root = fixture("isolated-hook");
+        let state = fixture("isolated-hook-state");
+        git(&root, &["init", "-q"]);
+        std::fs::write(root.join("tracked.txt"), "fixture").unwrap();
+        git(&root, &["add", "tracked.txt"]);
+        let marker = state.join("host-hook-ran.txt");
+        let hook = root.join("fsmonitor-hook.sh");
+        let quoted = marker
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "'\\''");
+        std::fs::write(
+            &hook,
+            format!("#!/bin/sh\nprintf CONTROL > '{quoted}'\nprintf 'token\\0'\n"),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        git(
+            &root,
+            &[
+                "config",
+                "core.fsmonitor",
+                &hook.to_string_lossy().replace('\\', "/"),
+            ],
+        );
+        let _ = capture(&root, "positive-control").await;
+        assert!(
+            marker.is_file(),
+            "the actual host Git observation executes this owned hook"
+        );
+        std::fs::remove_file(&marker).unwrap();
+        let mut store = SessionStore::open(&state.join("state.db")).unwrap();
+        store
+            .create_session("isolated-start", &root.to_string_lossy(), None)
+            .unwrap();
+        let (_, context) = prepare(
+            kanzei_harness::ProfileKind::Isolated,
+            &root,
+            &mut store,
+            "isolated-start",
+            &mut String::new(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            !marker.exists(),
+            "isolated startup must not execute any host Git observation"
+        );
+        assert!(context.contains("not_observed_isolated"));
+        let events = store.list_events("isolated-start", 0).unwrap();
+        assert!(events
+            .iter()
+            .any(|event| event.event_type == "run.baseline" && event.payload["head"].is_null()));
+    }
+
+    #[tokio::test]
     async fn prepared_run_binds_saved_origin_and_main_context_before_later_writes() {
         let root = fixture("prepare");
         let state_root = fixture("prepare-state");
@@ -329,9 +408,15 @@ mod tests {
             .create_session("session-prepare", &root.display().to_string(), None)
             .unwrap();
         let mut system = "main agent".to_string();
-        let (run_id, context) = prepare(&root, &mut store, "session-prepare", &mut system)
-            .await
-            .unwrap();
+        let (run_id, context) = prepare(
+            kanzei_harness::ProfileKind::Dev,
+            &root,
+            &mut store,
+            "session-prepare",
+            &mut system,
+        )
+        .await
+        .unwrap();
         let events = store.list_events("session-prepare", 0).unwrap();
         let origins = events
             .iter()
