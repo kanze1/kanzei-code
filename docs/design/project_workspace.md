@@ -63,8 +63,9 @@
 
 ## 4. 新建项目与打开已有目录
 
-- **新建项目对话框**(项目卡菜单「新建项目…」、项目总览页头、命令面板同一入口,`#new-project-overlay`,00-surface `openDialog`):名称(校验路径分隔符、保留名、尾点)/ 位置(默认上次用过的位置,否则当前项目的上级目录;「浏览…」调原生文件夹选择)/ 预览「将创建:…」/ ☑ 初始化 Git 仓库(默认勾选)/ 一句话描述(可选,创建后放进输入框当第一条消息的**草稿**,不自动发送)。失败(目标已存在且非空等)留在对话框里说原因。
-- **`projects_create {parent, name, gitInit, description}`**:目标存在且除 `.kanzei` 外非空时拒绝并指向「打开文件夹…」;建目录与 `.kanzei`(含先行调研骨架)、写 `.kanzei/.gitignore`;勾了 Git 就 `git init -b main`(旧 git 回退 `init` + `symbolic-ref`),**本机配了 git user.name/email 时再做一次首提交**(`git add -A` + `--allow-empty`,并行线要 HEAD),没配就只建库并在反馈里说明「没有做首次提交——并行线要等第一次提交之后才能用」;git 不在 PATH 上时项目照样建好、反馈给警告。
+- **新建项目对话框**(项目卡菜单、项目总览页头、命令面板同一入口，`#new-project-overlay`，00-surface `openDialog`):名称 / 完整项目文件夹 / 目录预览 / Git / 可选描述。填写名称时建议在上次位置或当前项目的上级目录创建；手动输入或浏览选择的目录直接作为项目根，`projects_create(path)` 不再追加名称。后端只创建这一层目录，上级目录必须已存在；已选空文件夹直接初始化，非空文件夹引导使用添加已有项目。描述只进入首条消息的草稿，不自动发送。
+- **空项目引导**:普通发送和 Enter 都按对话发送，不拦截为需求登记，也不因需求读取失败而阻止聊天。引导说明可直接提问、讨论或工作，只有明确点击「登记并开始」才调用需求登记并进入跟踪流程。模型提示与自主续跑提示遵循同一边界。工程默认直接放在已选项目根，不另建同名包裹目录。
+- **`projects_create {path, name, gitInit, description, knowledgeEnabled}`**:目标存在且除 `.kanzei` 外非空时拒绝并指向「打开文件夹…」;建目录与 `.kanzei`(含先行调研骨架)、写 `.kanzei/.gitignore`;勾了 Git 就 `git init -b main`(旧 git 回退 `init` + `symbolic-ref`),**本机配了 git user.name/email 时再做一次首提交**(`git add -A` + `--allow-empty`,并行线要 HEAD),没配就只建库并在反馈里说明「没有做首次提交——并行线要等第一次提交之后才能用」;git 不在 PATH 上时项目照样建好、反馈给警告。
 - **`.kanzei/.gitignore`**(只在缺失时写,不改用户根 .gitignore):`state.db`、`state.db-*`、`state.db.v*.bak`、`*.lock`、`*.tmp`、`.write-log/`、`artifacts/`、`summaries/`、`quarantine/`、`file-annotations.json`、`memory/index.db`、`memory/index.db-*`、`memory/inbox.md`、`memory/inbox.checkpoint.json`、`project/auto-run-alerts.jsonl`。`project/*.md` tracker、`memory/*.md`、`kanzei.toml` 照常入库。已有 `.kanzei` 的老项目不补写(多半在自己的根 .gitignore 里管着,kanzei 仓库就是)。
 - **项目事实横幅**(`#project-facts`,侧栏项目卡下方的 `.project-warn-slot`,一次一条,D-170 隔离告警在场时让位):上级仓库(琥珀「需要注意」:点名上级仓库 [在此初始化独立仓库](先确认嵌套仓库)[不再提示])> 不是 Git 仓库(中性 [初始化 Git][不再提示])> **仓库还没有提交**(中性「Git 已初始化但还没有提交:并行线要等第一次提交」[知道了])> 空项目(中性「agent 会直接在这个目录里搭工程」[知道了])。「不再提示/知道了」按「项目|类别」记进 `ui_layout.project_facts`。「还没有提交」一类是复核补的:新建项目时本机没配 Git 身份就只 init 不提交,原先这件事只在一闪而过的 toast 里说过,之后横幅只剩「空项目」,并行线为什么不可用只藏在建线入口的 title 里。
 - **`project_git_init`**:给已有的非 Git 项目建库 + 补忽略规则,**不自动提交**(已有文件里可能有不该进库的东西)。前端按后端结果提示:`created:false`(本来就是仓库,横幅过期了)说「本项目已经是 Git 仓库,没有重复初始化」,不再照样报「已初始化」。

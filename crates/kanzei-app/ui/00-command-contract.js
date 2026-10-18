@@ -553,7 +553,7 @@ export const commandParameters = {
     "gitInit": true,
     "knowledgeEnabled": false,
     "name": true,
-    "parent": true
+    "path": true
   },
   "projects_get": {},
   "projects_init": {

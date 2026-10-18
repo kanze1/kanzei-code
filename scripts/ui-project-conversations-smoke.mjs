@@ -145,7 +145,23 @@ try {
     await (await import("/26-project-conversations.js")).refreshConversationWork();
   });
   await settle();
-  check(await page.locator("#project-onboarding").isVisible(), "Confirmed empty project asks for a requirement");
+  check(await page.locator("#project-onboarding").isVisible(), "Confirmed empty project shows optional guidance");
+  check((await page.locator("#project-onboarding-copy").innerText()).includes("可以直接") && !(await page.locator("#project-register").getAttribute("class")).includes("primary"), "Guidance explains direct conversation without making registration the primary action");
+  const firstCaptureCount = await count("quick_req"), firstRunCount = await count("run_prompt");
+  await page.locator("#prompt").fill("先介绍一下这个项目能怎么开始，不要登记需求");
+  await page.locator("#prompt").press("Enter"); await settle();
+  check(await count("quick_req") === firstCaptureCount && await count("run_prompt") === firstRunCount + 1, "First Enter in an empty project sends an ordinary message without registering a requirement");
+  check((await last("run_prompt")).prompt === "先介绍一下这个项目能怎么开始，不要登记需求" && !(await last("run_prompt")).executionBatch, "The first message retains the user's original text and conversation delivery");
+  await page.evaluate(async () => {
+    const shell = await import("/03-shell.js"); window.__kzPreview.emit("kz:idle", { sessionId: shell.activeSessionId });
+    window.__conversationTest.readFailure = true; await (await import("/26-project-conversations.js")).refreshConversationWork();
+  });
+  await page.locator("#prompt").fill("需求暂时读取失败也应该可以正常提问"); await page.locator("#send").click(); await settle();
+  check(await count("quick_req") === firstCaptureCount && (await last("run_prompt")).prompt === "需求暂时读取失败也应该可以正常提问", "Requirement read failure cannot capture or block an ordinary message");
+  await page.evaluate(async () => {
+    const shell = await import("/03-shell.js"); window.__kzPreview.emit("kz:idle", { sessionId: shell.activeSessionId });
+    window.__conversationTest.readFailure = false; await (await import("/26-project-conversations.js")).refreshConversationWork();
+  });
   await page.evaluate(async () => { window.__conversationTest.readFailure = true; await (await import("/26-project-conversations.js")).refreshConversationWork(); });
   check(!await page.locator("#project-register").isVisible(), "Failed requirement reads do not masquerade as an empty ready-to-start project");
   await page.evaluate(() => { window.__conversationTest.readFailure = false; });

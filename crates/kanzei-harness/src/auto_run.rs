@@ -177,7 +177,7 @@ pub fn nudge_prompt(facts: &NudgeFacts) -> String {
             facts.queues.join("、")
         )),
         (None, true) => out.push_str(
-            "项目里还没有 tracker 条目:按用户最近一条消息继续;要做的事先用 req add 登记再推进。\n",
+            "项目里还没有 tracker 条目:按用户最近一条消息继续；提问和讨论直接回应，需求登记由用户明确选择，不作为继续对话或工作的前提。\n",
         ),
     }
     out.push_str(
@@ -1092,6 +1092,10 @@ mod tests {
 
         let empty = nudge_prompt(&NudgeFacts::default());
         assert!(empty.contains("还没有 tracker 条目"), "{empty}");
+        assert!(
+            empty.contains("用户明确选择") && !empty.contains("先用 req add"),
+            "{empty}"
+        );
         assert!(!empty.contains(".md"), "{empty}");
     }
 

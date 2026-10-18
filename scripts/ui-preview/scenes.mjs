@@ -460,7 +460,7 @@ Object.assign(SCENES, {
       el.dispatchEvent(new Event("input", { bubbles: true }));
     };
     set("#new-project-name", "MD文件保存");
-    set("#new-project-parent", "C:\\Users\\kanzei\\Desktop");
+    set("#new-project-path", "C:\\Users\\kanzei\\Desktop\\MD文件保存");
     set("#new-project-desc", "手机上用的 Markdown 上下文库:阅读渲染清晰、顺手");
     await ctx.sleep(80);
     document.activeElement?.blur?.();

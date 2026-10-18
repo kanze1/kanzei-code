@@ -15,7 +15,6 @@ import { kindWord, processName } from "./12-session-tree.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import { backlogTally } from "./12-docs-pages.js";
 import { transitionEntryStatus } from "./11-docs-list.js";
-import { startNewConversation } from "./15-views-misc.js";
 import { sendText, processUpdateQueues } from "./08-compose-runtime.js";
 import { lineAgent, awaitingUserSessions } from "./08-auto.js";
 import { renderWorkFocus, node, button } from "./25-softwire-view.js";
@@ -224,7 +223,7 @@ function paint() {
   $("project-start-actions").hidden = !newProject && !pendingCapture;
   $("project-register").disabled = state.busy;
   $("project-register").textContent = state.busy ? t("登记中…") : pendingCapture ? t(needsRequirementResearch(capturedEntry) ? requirementResearchAction(capturedEntry) : "开始此需求") : t("登记并开始");
-  $("project-onboarding-copy").textContent = state.registrationError ? t("登记未完成，原文已保留。") : state.error || (pendingCapture ? fillTemplate(t(needsRequirementResearch(capturedEntry) ? "{id} 已登记，先完成调研再开始实施。" : "{id} 已登记，可以开始推进。"), { id: state.capture.id }) : t("先说说你想做什么，登记成需求后开始推进。"));
+  $("project-onboarding-copy").textContent = state.registrationError ? t("登记未完成，原文已保留。") : state.error || (pendingCapture ? fillTemplate(t(needsRequirementResearch(capturedEntry) ? "{id} 已登记，先完成调研再开始实施。" : "{id} 已登记，可以开始推进。"), { id: state.capture.id }) : t("可以直接在下方提问、讨论或开始工作。需要持续跟踪时，再选择「登记并开始」。"));
   $("project-registration-details").hidden = !state.registrationError;
   $("project-registration-detail-copy").textContent = registrationFailureDetails(state.registrationError);
   $("project-registration-details").querySelector("summary").textContent = t("查看登记详情");
@@ -374,23 +373,14 @@ defer(() => {
   const detailCopy = node("p", "", "project-work-fact"); detailCopy.id = "project-registration-detail-copy";
   details.append(node("summary", t("查看登记详情")), detailCopy);
   const actions = node("div"); actions.id = "project-start-actions";
-  const register = button(t("登记并开始"), () => void registerRequirement(true), "primary"); register.id = "project-register";
-  actions.append(register, button(t("先讨论"), () => void startNewConversation(), "ghost"));
+  const register = button(t("登记并开始"), () => void registerRequirement(true), "ghost"); register.id = "project-register";
+  actions.append(register, button(t("直接对话"), () => $("prompt").focus(), "ghost"));
   const retry = button(t("重试读取"), () => {
     const state = facts();
     if (state.registrationError && state.failedRegistration) void registerRequirement(state.failedRegistration.start, state.failedRegistration);
     else void refreshConversationWork();
   }, "ghost"); retry.id = "project-onboarding-retry";
   onboarding.append(copy, details, actions, retry); $("chat-area").prepend(onboarding);
-  document.addEventListener("kz:compose-send", event => {
-    if (!active() || lineAgent(item()).profile !== "dev") return;
-    const state = facts();
-    if ((!onboarding.hidden && isNew(state)) || state.capture) {
-      event.preventDefault();
-      if (state.error && !state.capture) { toastError(t("先重试读取需求，输入已保留")); return; }
-      void registerRequirement(true);
-    }
-  });
   let disposeDocuments = null;
   const observe = () => {
     disposeDocuments?.(); disposeDocuments = null;

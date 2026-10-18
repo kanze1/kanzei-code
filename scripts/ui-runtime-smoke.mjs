@@ -3265,16 +3265,16 @@ assert(
   assert(renameCall?.args?.name === "重命名后的项目", "项目重命名未消费输入弹窗的值");
 
   // UI2-0926 #13:「新建项目…」不再是两次输入(路径 + 显示名),改为新建项目对话框 → projects_create。
-  payloads.projects_create = (args) => ({ prefs: structuredClone(payloads.projects_get), path: `${args.parent}\\${args.name}`, facts: null, git: { created: true, committed: true, identity_missing: false, branch: "main" }, gitError: null, description: args.description });
+  payloads.projects_create = (args) => ({ prefs: structuredClone(payloads.projects_get), path: args.path, facts: null, git: { created: true, committed: true, identity_missing: false, branch: "main" }, gitError: null, description: args.description });
   byId.get("project-init").click();
   await flush();
   assert(!byId.get("new-project-overlay").classList.contains("hidden"), "所有项目「新建项目…」未打开新建项目对话框");
   byId.get("new-project-name").value = "新项目显示名";
-  byId.get("new-project-parent").value = "C:/smoke";
+  byId.get("new-project-path").value = "C:/smoke/新项目显示名";
   byId.get("new-project-create").click();
   await flush();
   const initCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_create");
-  assert(initCall?.args?.parent === "C:/smoke" && initCall?.args?.name === "新项目显示名", "新建项目未按对话框的名称与位置调用 projects_create");
+  assert(initCall?.args?.path === "C:/smoke/新项目显示名" && initCall?.args?.name === "新项目显示名", "新建项目未按确认的完整目录调用 projects_create");
   assert(initCall?.args?.gitInit === true, "新建项目对话框的「初始化 Git」应默认勾选");
   assert(byId.get("new-project-overlay").classList.contains("hidden"), "创建成功后新建项目对话框未关闭");
   vm.runInContext(`renderProjects(${JSON.stringify(payloads.projects_get)})`, sandbox);
@@ -10363,16 +10363,16 @@ const docsB = {
     assert(callsOf("projects_select") === selectsBefore && !sessionsNs.projectMenuHandle, "点当前项目应只收起菜单,不发 projects_select");
 
     // ④ 「新建项目…」打开新建项目对话框(UI2-0926 #13);「添加项目文件夹…」走 projects_pick;「所有项目」进 ⌂ 页。
-    payloads.projects_create = (args) => ({ prefs: structuredClone(prefsAB), path: `${args.parent}\\${args.name}`, facts: null, git: null, gitError: null, description: null });
+    payloads.projects_create = (args) => ({ prefs: structuredClone(prefsAB), path: args.path, facts: null, git: null, gitError: null, description: null });
     await openProjectMenuByClick();
     menuItem("新建项目…")?.click();
     await flush();
     assert(!byId.get("new-project-overlay").classList.contains("hidden"), "项目菜单「新建项目…」未打开新建项目对话框");
     byId.get("new-project-name").value = "菜单新项目";
-    byId.get("new-project-parent").value = "C:/smoke";
+    byId.get("new-project-path").value = "C:/smoke/菜单新项目";
     byId.get("new-project-create").click();
     await flush();
-    assert(lastCall("projects_create")?.args?.parent === "C:/smoke" && lastCall("projects_create")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未经对话框调用 projects_create");
+    assert(lastCall("projects_create")?.args?.path === "C:/smoke/菜单新项目" && lastCall("projects_create")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未经对话框调用 projects_create");
     assert(byId.get("new-project-overlay").classList.contains("hidden"), "项目菜单新建项目后对话框未关闭");
     const picksBefore = callsOf("projects_pick");
     await openProjectMenuByClick();
@@ -15180,15 +15180,21 @@ const docsB = {
   {
     const overlay = byId.get("new-project-overlay");
     const priorPrefs = structuredClone(payloads.projects_get);
-    payloads.projects_create = (args) => ({ prefs: structuredClone(priorPrefs), path: `${args.parent}\\${args.name}`, facts: null, git: { created: true, committed: false, identity_missing: true, branch: "main" }, gitError: null, description: args.description });
+    payloads.projects_create = (args) => ({ prefs: structuredClone(priorPrefs), path: args.path, facts: null, git: { created: true, committed: false, identity_missing: true, branch: "main" }, gitError: null, description: args.description });
     sessionsNs.openNewProjectDialog();
     await flush();
     assert(!overlay.classList.contains("hidden") && overlay.open, "新建项目对话框未以模态打开");
     assert(byId.get("new-project-git").checked === true, "「初始化 Git 仓库」应默认勾选");
     byId.get("new-project-name").value = "MD文件保存";
-    byId.get("new-project-parent").value = "C:\\Users\\kanzei\\Desktop";
+    byId.get("new-project-path").value = "C:\\Users\\kanzei\\Desktop\\MD文件保存";
     byId.get("new-project-name").dispatchEvent({ type: "input" });
     assert(byId.get("new-project-preview").textContent.includes("C:\\Users\\kanzei\\Desktop\\MD文件保存"), `预览应写出将创建的完整路径,实为「${byId.get("new-project-preview").textContent}」`);
+    const previousPickDir = payloads.export_pick_dir;
+    payloads.export_pick_dir = "C:\\Users\\kanzei\\Desktop\\MD文件保存";
+    byId.get("new-project-browse").click();
+    await flush();
+    assert(byId.get("new-project-path").value === payloads.export_pick_dir, "文件夹选择应直接使用目标目录，不追加同名子目录");
+    payloads.export_pick_dir = previousPickDir;
     invokeFailures.set("projects_create", "「C:\\Users\\kanzei\\Desktop\\MD文件保存」已存在且不是空目录;换个名字,或用「添加项目文件夹…」打开它");
     byId.get("new-project-create").click();
     await flush();
@@ -15200,7 +15206,7 @@ const docsB = {
     byId.get("new-project-create").click();
     await flush();
     const call = invokeArgs.findLast(({ cmd }) => cmd === "projects_create")?.args;
-    assert(call?.name === "MD文件保存" && call?.parent === "C:\\Users\\kanzei\\Desktop" && call?.gitInit === true && call?.description === "手机上用的 Markdown 上下文库", `projects_create 入参不对:${JSON.stringify(call)}`);
+    assert(call?.name === "MD文件保存" && call?.path === "C:\\Users\\kanzei\\Desktop\\MD文件保存" && call?.gitInit === true && call?.description === "手机上用的 Markdown 上下文库", `projects_create 入参不对:${JSON.stringify(call)}`);
     assert(overlay.classList.contains("hidden"), "创建成功后对话框应关闭");
     assert(coreNs.promptBox.value === "手机上用的 Markdown 上下文库", `一句话描述应进输入框当草稿,实为「${coreNs.promptBox.value}」`);
     assert(invokeArgs.filter(({ cmd }) => cmd === "run_prompt").length === runsBefore, "一句话描述不得自动发送");

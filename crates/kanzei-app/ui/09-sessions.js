@@ -1074,11 +1074,17 @@ export async function initProject() {
 export function defaultNewProjectParent(project = currentProject) {
   const saved = layoutPref("new_project", "parent");
   if (typeof saved === "string" && saved.trim()) return saved;
-  const path = String(project || "");
-  const cut = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
-  return cut > 0 ? path.slice(0, cut) : "";
+  if (isGeneralChat(project)) return "";
+  return newProjectParentPath(project);
 }
-/// 「将创建:<位置>\<名称>」:分隔符跟着位置的写法走。
+function newProjectParentPath(project) {
+  const path = String(project || "").trim().replace(/[\\/]+$/, "");
+  const cut = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  if (cut < 0) return "";
+  const parent = path.slice(0, cut);
+  return /^[A-Za-z]:$/.test(parent) ? path.slice(0, cut + 1) : parent || path[cut];
+}
+/// 名称自动建议的完整路径：分隔符跟着上级目录的写法走。
 export function newProjectTargetPath(parent, name) {
   const base = String(parent ?? "").trim().replace(/[\\/]+$/, "");
   const leaf = String(name ?? "").trim();
@@ -1088,8 +1094,8 @@ export function newProjectTargetPath(parent, name) {
 function syncNewProjectPreview() {
   const preview = $("new-project-preview");
   if (!preview) return;
-  const target = newProjectTargetPath($("new-project-parent")?.value, $("new-project-name")?.value);
-  preview.textContent = target ? fillTemplate(t("将创建:{path}"), { path: target }) : "";
+  const target = $("new-project-path")?.value.trim();
+  preview.textContent = target ? fillTemplate(t("项目目录:{path}"), { path: target }) : "";
 }
 /// 错误条在标题正下方(小窗口里对话框会滚动,放在底部的错误看不见);`field` = 出错的输入框:标 aria-invalid、聚焦并滚进视野(UX-163)。
 function showNewProjectError(message, field = null) {
@@ -1097,7 +1103,7 @@ function showNewProjectError(message, field = null) {
   if (!box) return;
   box.textContent = message || "";
   box.classList.toggle("hidden", !message);
-  for (const id of ["new-project-name", "new-project-parent"]) {
+  for (const id of ["new-project-name", "new-project-path"]) {
     const input = $(id);
     if (!input) continue;
     if (message && field === id) input.setAttribute("aria-invalid", "true"); else input.removeAttribute("aria-invalid");
@@ -1106,17 +1112,18 @@ function showNewProjectError(message, field = null) {
   box.scrollIntoView?.({ block: "nearest" });
   if (field) $(field)?.focus?.();
 }
-/// 后端的错误按内容猜该指哪个输入框:位置相关的指「位置」,其余(重名、非空目录、非法名字)指「项目名称」。
+/// 路径和目录错误指向项目文件夹，显示名称错误指向项目名称。
 function newProjectErrorField(message) {
-  return /位置|不存在|拒绝访问|权限/.test(String(message)) ? "new-project-parent" : "new-project-name";
+  return /位置|文件夹|路径|目录|不存在|拒绝访问|权限/.test(String(message)) ? "new-project-path" : "new-project-name";
 }
 let newProjectHandle = null;
+let newProjectBaseParent = "", newProjectSuggestedPath = "";
 // 点 Esc 关掉、没提交的内容留着,下次打开接着填;只有「取消」或创建成功才清(UX-163)。
 let newProjectDraft = null;
 let newProjectDiscardDraft = false;
 function rememberNewProjectDraft() {
   newProjectDraft = newProjectDiscardDraft ? null : {
-    name: $("new-project-name").value, parent: $("new-project-parent").value,
+    name: $("new-project-name").value, parent: newProjectBaseParent, path: $("new-project-path").value,
     git: $("new-project-git").checked, desc: $("new-project-desc").value,
     knowledge: $("new-project-knowledge").checked,
   };
@@ -1128,7 +1135,9 @@ export function openNewProjectDialog() {
   if (isSurfaceOpen(overlay)) return newProjectHandle;
   const draft = newProjectDraft;
   $("new-project-name").value = draft?.name ?? "";
-  $("new-project-parent").value = draft?.parent || defaultNewProjectParent();
+  newProjectBaseParent = draft?.parent || defaultNewProjectParent();
+  newProjectSuggestedPath = newProjectTargetPath(newProjectBaseParent, $("new-project-name").value);
+  $("new-project-path").value = draft?.path ?? newProjectSuggestedPath;
   $("new-project-git").checked = draft?.git ?? true;
   $("new-project-knowledge").checked = draft?.knowledge ?? false;
   $("new-project-desc").value = draft?.desc ?? "";
@@ -1158,9 +1167,9 @@ let newProjectSubmitting = false;
 export async function submitNewProject() {
   if (newProjectSubmitting) return;
   const name = $("new-project-name").value.trim();
-  const parent = $("new-project-parent").value.trim();
+  const path = $("new-project-path").value.trim();
   if (!name) return showNewProjectError(t("项目名称不能为空"), "new-project-name");
-  if (!parent) return showNewProjectError(t("先选择项目的位置"), "new-project-parent");
+  if (!path) return showNewProjectError(t("请选择项目文件夹的完整路径"), "new-project-path");
   showNewProjectError("");
   const create = $("new-project-create");
   newProjectSubmitting = true;
@@ -1169,13 +1178,13 @@ export async function submitNewProject() {
   try {
     const description = $("new-project-desc").value.trim();
     const result = await invoke("projects_create", {
-      parent,
+      path,
       name,
       gitInit: $("new-project-git").checked,
       knowledgeEnabled: $("new-project-knowledge").checked,
       description: description || null,
     });
-    setLayoutPref("new_project", "parent", parent);
+    setLayoutPref("new_project", "parent", newProjectParentPath(result.path));
     // 没做成首次提交的原因挂到「还没有提交」横幅上(toast 一闪就没了)。
     if (result?.git?.identity_missing || result?.git?.commit_error) {
       projectCommitNote = { project: result.prefs?.current ?? result.path, text: result.git.identity_missing ? gitInitFeedback(result).text : String(result.git.commit_error) };
@@ -1203,9 +1212,14 @@ export async function submitNewProject() {
 defer(() => {
   const overlay = $("new-project-overlay");
   if (!overlay) return;
-  for (const id of ["new-project-name", "new-project-parent"]) {
+  for (const id of ["new-project-name", "new-project-path"]) {
     $(id).addEventListener("input", () => {
       showNewProjectError("");
+      if (id === "new-project-name") {
+        const followsName = $("new-project-path").value.trim() === newProjectSuggestedPath;
+        newProjectSuggestedPath = newProjectTargetPath(newProjectBaseParent, $("new-project-name").value);
+        if (followsName) $("new-project-path").value = newProjectSuggestedPath;
+      }
       syncNewProjectPreview();
     });
     $(id).addEventListener("keydown", (event) => {
@@ -1218,7 +1232,8 @@ defer(() => {
     try {
       const picked = await invoke("export_pick_dir");
       if (!picked) return;
-      $("new-project-parent").value = picked;
+      $("new-project-path").value = picked;
+      if (!$("new-project-name").value.trim()) $("new-project-name").value = baseName(picked);
       syncNewProjectPreview();
     } catch (err) {
       showNewProjectError(String(err));

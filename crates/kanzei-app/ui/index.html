@@ -1662,7 +1662,7 @@
     </div>
   </dialog>
 
-  <!-- UI2-0926 #13 新建项目:名称 / 位置(可浏览)/ 初始化 Git(默认勾选)/ 一句话描述(创建后放进输入框当草稿,不自动发送)。
+  <!-- 新建项目:名称 / 完整项目文件夹(浏览直接使用所选目录)/ Git / 可选描述草稿。
        09-sessions.js openNewProjectDialog → projects_create。 -->
   <!-- 点遮罩不关(closedby=closerequest:只有 Esc / 取消 / 创建成功才关):填了一半的内容不能被一次误点丢掉(UX-163)。
        校验/后端错误条在标题正下方——小窗口里对话框会滚动,放在底部的错误看不见(UX-163)。 -->
@@ -1672,12 +1672,13 @@
       <div id="new-project-error" class="np-error hidden" role="alert" data-i18n-raw></div>
       <label class="np-field" for="new-project-name"><span data-i18n-key="项目名称">项目名称</span></label>
       <input id="new-project-name" type="text" autocomplete="off" spellcheck="false" />
-      <label class="np-field" for="new-project-parent"><span data-i18n-key="位置">位置</span></label>
+      <label class="np-field" for="new-project-path"><span data-i18n-key="项目文件夹">项目文件夹</span></label>
       <div class="np-row">
-        <input id="new-project-parent" type="text" autocomplete="off" spellcheck="false" />
+        <input id="new-project-path" type="text" autocomplete="off" spellcheck="false" placeholder="选择或输入项目文件夹的完整路径" data-i18n-placeholder="选择或输入项目文件夹的完整路径" />
         <button type="button" id="new-project-browse" class="ghost" data-i18n-key="浏览…">浏览…</button>
       </div>
       <div id="new-project-preview" class="np-preview" data-i18n-raw></div>
+      <div class="np-hint" data-i18n-key="直接使用此文件夹，不会再追加项目名称">直接使用此文件夹，不会再追加项目名称</div>
       <label class="np-check"><input id="new-project-git" type="checkbox" checked /><span data-i18n-key="初始化 Git 仓库">初始化 Git 仓库</span></label>
       <div class="np-hint" data-i18n-key="启用独立任务、提交与改动统计;本机配置了 Git 身份时会顺手做一次首提交">启用独立任务、提交与改动统计;本机配置了 Git 身份时会顺手做一次首提交</div>
       <label class="np-check"><input id="new-project-knowledge" type="checkbox" /><span data-i18n-key="启用层级项目知识">启用层级项目知识</span></label>

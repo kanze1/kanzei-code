@@ -104,13 +104,12 @@ fn register_project(dir: &Path, display_name: Option<&str>) -> Result<AppPrefs, 
     Ok(projects_get())
 }
 
-/// UI2-0926 #13 新建项目(对话框):在 `parent` 下建 `name` 目录 + `.kanzei`(含运行时忽略规则),
+/// 新建项目在用户确认的完整 `path` 初始化，不再从显示名称追加一层目录。
 /// `git_init` 时建独立仓库;本机配了 git 身份就再做一次首提交(并行线要 HEAD)。
 /// `description` 原样带回,前端放进输入框当第一条消息的草稿(不自动发送)。
 /// 新建项目的磁盘部分(不碰 app.json,可单测):返回 (目录, git 结果, git 失败原因)。
 pub(crate) fn create_project_dir(
-    parent: &str,
-    name: &str,
+    path: &str,
     git_init: bool,
     knowledge_enabled: bool,
 ) -> Result<
@@ -121,19 +120,28 @@ pub(crate) fn create_project_dir(
     ),
     String,
 > {
-    let name = validate_project_name(name)?;
-    let parent_dir = PathBuf::from(parent.trim());
-    if !parent_dir.is_dir() {
-        return Err(format!("位置不存在: {}", parent_dir.display()));
+    let dir = PathBuf::from(path.trim());
+    if !dir.is_absolute() {
+        return Err("请选择项目文件夹的完整路径".into());
     }
-    let dir = parent_dir.join(&name);
+    let leaf = dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("项目文件夹路径无效")?;
+    validate_project_name(leaf).map_err(|error| format!("项目文件夹无效: {error}"))?;
+    let parent_dir = dir.parent().ok_or("项目文件夹必须位于有效的上级目录中")?;
+    if !parent_dir.is_dir() {
+        return Err(format!("上级文件夹不存在: {}", parent_dir.display()));
+    }
     if dir.exists() && (!dir.is_dir() || has_content_besides_kanzei(&dir)) {
         return Err(format!(
             "「{}」已存在且不是空目录;换个名字,或用「添加项目文件夹…」打开它",
             dir.display()
         ));
     }
-    std::fs::create_dir_all(&dir).map_err(|e| format!("创建项目目录失败: {e}"))?;
+    if !dir.exists() {
+        std::fs::create_dir(&dir).map_err(|e| format!("创建项目目录失败: {e}"))?;
+    }
     initialize_kanzei_space(&dir)?;
     if knowledge_enabled {
         kanzei_tools::project_knowledge::set_enabled(&dir, true)
@@ -165,15 +173,16 @@ async fn blocking<T: Send + 'static>(
 
 #[tauri::command]
 pub async fn projects_create(
-    parent: String,
+    path: String,
     name: String,
     git_init: bool,
     description: Option<String>,
     knowledge_enabled: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     blocking(move || {
+        let name = validate_project_name(&name)?;
         let (dir, git, git_error) = create_project_dir(
-            &parent, &name, git_init, knowledge_enabled.unwrap_or(false),
+            &path, git_init, knowledge_enabled.unwrap_or(false),
         )?;
         let prefs = register_project(&dir, Some(name.trim()))?;
         let root = crate::normalized_project_root(&dir);
@@ -851,8 +860,12 @@ mod prior_art_init_tests {
     #[test]
     fn 新建项目_建目录_忽略规则_git_默认建库() {
         let parent = temp_parent("git");
-        let (dir, git, error) =
-            create_project_dir(&parent.display().to_string(), "MD文件保存", true, false).unwrap();
+        let (dir, git, error) = create_project_dir(
+            &parent.join("MD文件保存").display().to_string(),
+            true,
+            false,
+        )
+        .unwrap();
         assert_eq!(dir, parent.join("MD文件保存"));
         assert!(dir.join(".kanzei").is_dir());
         let ignore = std::fs::read_to_string(dir.join(".kanzei/.gitignore")).unwrap();
@@ -875,17 +888,17 @@ mod prior_art_init_tests {
     fn 新建项目_不勾_git_只建目录_非空目标拒绝() {
         let parent = temp_parent("plain");
         let (dir, git, _) =
-            create_project_dir(&parent.display().to_string(), "demo", false, false).unwrap();
+            create_project_dir(&parent.join("demo").display().to_string(), false, false).unwrap();
         assert!(git.is_none());
         assert!(!dir.join(".git").exists());
         assert!(!kanzei_tools::project_knowledge::enabled(&dir));
         let (complex, _, _) =
-            create_project_dir(&parent.display().to_string(), "complex", false, true).unwrap();
+            create_project_dir(&parent.join("complex").display().to_string(), false, true).unwrap();
         assert!(kanzei_tools::project_knowledge::enabled(&complex));
         std::fs::create_dir_all(parent.join("taken")).unwrap();
         std::fs::write(parent.join("taken").join("x.txt"), "x").unwrap();
-        let err =
-            create_project_dir(&parent.display().to_string(), "taken", false, false).unwrap_err();
+        let err = create_project_dir(&parent.join("taken").display().to_string(), false, false)
+            .unwrap_err();
         assert!(err.contains("添加项目文件夹"), "{err}");
         std::fs::remove_dir_all(&parent).ok();
     }
@@ -903,7 +916,7 @@ mod prior_art_init_tests {
         }
         let parent = temp_parent("git-late");
         let (dir, _, _) =
-            create_project_dir(&parent.display().to_string(), "late", false, false).unwrap();
+            create_project_dir(&parent.join("late").display().to_string(), false, false).unwrap();
         let project = dir.display().to_string();
 
         let plain = project_git_init(project.clone(), None).await.unwrap();
@@ -939,6 +952,31 @@ mod prior_art_init_tests {
             "手机 Markdown"
         );
         assert_eq!(validate_project_name("console").unwrap(), "console");
+    }
+
+    #[test]
+    fn selected_project_folder_is_initialized_directly_without_another_named_child() {
+        let parent = temp_parent("selected-folder");
+        let selected = parent.join("SelectedProject");
+        std::fs::create_dir(&selected).unwrap();
+        let (created, _, _) =
+            create_project_dir(&selected.display().to_string(), false, false).unwrap();
+        assert_eq!(created, selected);
+        assert!(selected.join(".kanzei").is_dir());
+        assert!(!selected.join("SelectedProject").exists());
+        assert!(!parent.join(".kanzei").exists());
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn project_creation_requires_an_absolute_target_and_an_existing_parent() {
+        let parent = temp_parent("missing-parent");
+        assert!(create_project_dir("relative-project", false, false).is_err());
+        let target = parent.join("missing").join("project");
+        let error = create_project_dir(&target.display().to_string(), false, false).unwrap_err();
+        assert!(error.contains("上级文件夹不存在"), "{error}");
+        assert!(!parent.join("missing").exists());
+        std::fs::remove_dir_all(parent).unwrap();
     }
 
     #[test]
