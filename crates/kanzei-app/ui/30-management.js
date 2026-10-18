@@ -30,12 +30,30 @@ function stateFor(project) {
 }
 function live(state) { return mounted === state && state.root?.isConnected && !state.root.hidden; }
 
+function applyDocumentsSnapshot(state, snapshot) {
+  if (state.docs === snapshot) return;
+  state.docs = snapshot;
+  if (!snapshot) return;
+  if (state.detail) {
+    const entry = allEntries(state).find(row => row.id === state.detail.id);
+    if (entry) state.detail = entry;
+    else if (!state.detail.closed) {
+      // Active details belong to the current snapshot. A retired document must
+      // not survive through its cached editor; history is opened explicitly.
+      state.details.get(state.detail.id)?.remove();
+      state.details.delete(state.detail.id);
+      state.detail = null;
+    }
+  }
+  for (const resource of state.archives.values()) resource.invalidate();
+}
+
 export function mountManagement(project, snapshot, error = "") {
   const state = stateFor(project), host = $("project-overview-content");
   if (mounted !== state) hideManagement();
   mounted = state;
   if (!state.disposeDocuments) state.disposeDocuments = observeProjectDocuments(project, documents => {
-    state.docs = documents.data; state.docsStatus = documents.status; state.docsError = documents.error; render(state);
+    applyDocumentsSnapshot(state, documents.data); state.docsStatus = documents.status; state.docsError = documents.error; render(state);
   }, () => live(state));
   if (!state.root) {
     state.root = el("section", null, "management-page"); state.root.id = "management-page";
@@ -91,7 +109,7 @@ export async function openManagementItem(project, entry, { activate = false } = 
   try {
     const docs = await readProjectDocuments(project);
     if (state.detail !== entry) return;
-    state.docs = docs;
+    applyDocumentsSnapshot(state, docs);
     if (live(state)) render(state, true);
   } catch (error) { if (live(state)) toastError(String(error)); }
 }
@@ -117,7 +135,7 @@ function render(state, force = false) {
 }
 
 function renderDetail(state) {
-  const entry = allEntries(state).find(row => row.id === state.detail.id) || state.detail;
+  const entry = state.detail;
   const back = action("← " + t(state.tab === "defect" ? "缺陷" : "需求"), () => { state.detail = null; render(state, true); });
   const head = el("div", null, "management-detail-nav"); head.append(back, el("span", localizedDocStatus(entry.status), "dim")); state.body.append(head);
   if (!entry.closed && !entry.blocked && entry.status !== "awaiting_external" && !needsRequirementResearch(entry)) {
@@ -199,7 +217,7 @@ function renderList(state) {
     const resource = state.archives.get(kind);
     const button = action(`${t("已归档")} · ${archived}`, () => { void resource.load().catch(error => toastError(String(error))); });
     button.disabled = resource.status === "loading"; state.body.append(button);
-    if (resource.data) {
+    if (resource.status === "ready") {
       const archive = el("section", null, "management-archive"); archive.append(el("h2", t("已归档")));
       for (const entry of resource.data) archive.append(action(`${entry.id} · ${entry.title}`, () => void openManagementItem(state.project, { ...entry, closed: true }), "management-archive-row"));
       state.body.append(archive);
@@ -401,7 +419,7 @@ defer(() => {
   });
   document.addEventListener("kz:management-snapshot", event => {
     const state = projects.get(event.detail.project);
-    if (state) { state.docs = event.detail.snapshot; render(state); }
+    if (state) { applyDocumentsSnapshot(state, event.detail.snapshot); render(state); }
   });
   onDeliveriesChanged(project => { const state = projects.get(project); if (state && live(state) && state.tab === "deliveries") render(state, true); });
   document.addEventListener("kz:management-refresh", event => { const state = projects.get(event.detail?.project || currentProject); if (state) void refresh(state); });
