@@ -13,11 +13,21 @@ pub(crate) fn is_general_root(root: &Path) -> bool {
     kanzei_harness::is_general_conversation_root(root)
 }
 
+pub(crate) fn supports_profile(profile: &str) -> bool {
+    matches!(profile, "dev" | "isolated")
+}
+
+pub(crate) fn normalize_profile(profile: Option<String>) -> Option<String> {
+    Some(
+        profile
+            .filter(|value| supports_profile(value))
+            .unwrap_or_else(|| "dev".into()),
+    )
+}
+
 pub(crate) fn enforce(process: &crate::ProcessHandle) {
     let mut profile = process.profile.lock().unwrap();
-    if profile.as_deref() != Some("dev") {
-        *profile = Some("dev".into());
-    }
+    *profile = normalize_profile(profile.take());
     *process.research_topic.lock().unwrap() = None;
     process
         .tracker_writes_enabled
@@ -38,7 +48,12 @@ pub(crate) fn open(state: &crate::AppState) -> Result<String, String> {
         .cloned()
         .collect();
     for process in handles {
-        if process.profile.lock().unwrap().as_deref() != Some("dev")
+        if !process
+            .profile
+            .lock()
+            .unwrap()
+            .as_deref()
+            .is_some_and(supports_profile)
             || process.research_topic.lock().unwrap().is_some()
             || process.tracker_writes_enabled.load(Ordering::SeqCst)
         {
@@ -123,13 +138,14 @@ pub(crate) async fn link_to_project(
         &crate::conversation::project_latest_segment(&source, &session)?,
     );
     let model = process.model.lock().unwrap().clone();
+    let profile = process.profile.lock().unwrap().clone();
     let reasoning = process.reasoning.lock().unwrap().clone();
     let subagent_mode = *process.subagent_mode.lock().unwrap();
     let created = crate::processes::lifecycle::create_process_with_tracker(
         state,
         &target.display().to_string(),
         model,
-        Some("dev".into()),
+        profile,
         reasoning,
         Some(subagent_mode),
         Some(false),
@@ -240,6 +256,10 @@ mod tests {
             *p.subagent_mode.lock().unwrap() = kanzei_harness::SubagentMode::Off;
             enforce(&p);
             assert!(!(*p.subagent_mode.lock().unwrap()).enabled());
+            *p.profile.lock().unwrap() = Some("isolated".into());
+            enforce(&p);
+            assert_eq!(p.profile.lock().unwrap().as_deref(), Some("isolated"));
+            crate::processes::registry::persist_process(&root, &p).unwrap();
             let workspace = kanzei_harness::general_conversation_workspace(&root, "chat-one");
             assert_ne!(
                 workspace,
@@ -265,6 +285,14 @@ mod tests {
             let restarted = crate::AppState::default();
             assert_eq!(open(&restarted).unwrap(), root.display().to_string());
             assert!(restarted.processes.lock().unwrap().contains_key(&p.id));
+            assert_eq!(
+                restarted.processes.lock().unwrap()[&p.id]
+                    .profile
+                    .lock()
+                    .unwrap()
+                    .as_deref(),
+                Some("isolated")
+            );
             let restored_store =
                 kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
             assert_eq!(

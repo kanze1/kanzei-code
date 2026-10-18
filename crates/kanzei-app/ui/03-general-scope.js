@@ -23,6 +23,8 @@ export function rememberConversationMode(mode) {
 export function syncGeneralChatView(view = document.body.dataset.view, translate = text => text) {
   const general = document.body.dataset.space === "dev" && isGeneralChat();
   document.body.dataset.generalChat = String(general);
+  const autonomous = document.querySelector('#profile-select option[value="dev-auto"]');
+  if (autonomous) autonomous.hidden = general;
   document.getElementById("workbench-general-chat")?.classList.toggle("active", general && view === "chat");
   const name = document.getElementById("project-space-name");
   if (general && view === "chat" && name) name.textContent = translate("无项目对话");

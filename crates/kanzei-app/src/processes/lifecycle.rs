@@ -484,7 +484,11 @@ pub(crate) async fn create_process_with_tracker(
     if general && (worktree_name.is_some() || work_item_id.is_some() || research_topic.is_some()) {
         return Err("无项目对话不能绑定工作树、需求或研究课题".into());
     }
-    let profile = if general { Some("dev".into()) } else { profile };
+    let profile = if general {
+        crate::general_chat::normalize_profile(profile)
+    } else {
+        profile
+    };
     let tracker_writes = if general { Some(false) } else { tracker_writes };
     crate::research_topics::validate_run_topic(
         &root,
@@ -695,7 +699,12 @@ pub fn process_update(
         return Err("已绑定课题的研究对话不能切换为开发任务".into());
     }
     let general = crate::general_chat::is_general_root(&process.origin_project.0);
-    if general && (profile.as_deref().is_some_and(|p| p != "dev") || tracker_writes == Some(true)) {
+    if general
+        && (profile
+            .as_deref()
+            .is_some_and(|p| !crate::general_chat::supports_profile(p))
+            || tracker_writes == Some(true))
+    {
         return Err("无项目对话不启用项目阶段或条目流程".into());
     }
     persist_settings_update(&process, |process| {

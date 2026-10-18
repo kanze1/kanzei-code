@@ -34,6 +34,29 @@ use crate::run::input::{
 pub(crate) mod handoff;
 mod input_mode;
 
+/// A durable restricted recipient cannot be upgraded by a stale composer payload.
+fn recipient_mode(
+    general: bool,
+    stored: Option<String>,
+    requested: Option<String>,
+    agent: Option<String>,
+) -> (Option<String>, Option<String>) {
+    let profile = if matches!(stored.as_deref(), Some("readonly" | "isolated")) {
+        stored
+    } else if general {
+        crate::general_chat::normalize_profile(requested.or(stored))
+    } else {
+        requested.or(stored)
+    };
+    let agent = match profile.as_deref() {
+        Some("isolated") => Some("isolated".into()),
+        Some("readonly") => Some("readonly".into()),
+        _ if general => Some("general".into()),
+        _ => agent,
+    };
+    (profile, agent)
+}
+
 /// Assembly failures have no round finalizer. A rejected durable outcome must
 /// retain its transaction's input state rather than receive a separate write.
 pub(crate) fn finish_failed_promoted_input(
@@ -494,25 +517,13 @@ pub(crate) fn schedule_run(
         crate::general_chat::enforce(&process);
     }
     let stored_profile = process.profile.lock().unwrap().clone();
-    // The visible discussion recipient cannot be upgraded by a stale composer
-    // sending its previous dev profile/agent. Its stored boundary is authoritative.
-    let discussion = stored_profile.as_deref() == Some("readonly");
-    let profile = if general {
-        Some("dev".into())
-    } else if discussion {
-        stored_profile
-    } else {
-        profile.or(stored_profile)
-    };
-    let agent = if general {
-        Some("general".into())
-    } else if discussion {
-        Some("readonly".into())
-    } else {
-        agent
-    };
-    let execution_batch =
-        !general && !discussion && agent.as_deref() != Some("dev-pair") && execution_batch;
+    let (profile, agent) = recipient_mode(general, stored_profile, profile, agent);
+    let discussion = profile.as_deref() == Some("readonly");
+    let execution_batch = !general
+        && !discussion
+        && profile.as_deref() != Some("isolated")
+        && agent.as_deref() != Some("dev-pair")
+        && execution_batch;
     let autonomous = !general && !discussion && autonomous;
     let research_topic = crate::research_topics::validate_run_topic(
         &project_root,
@@ -1084,6 +1095,26 @@ mod tests {
     use kanzei_core::store::TaskOutcome;
     use kanzei_core::{EpisodeRecord, SessionStore};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn stored_restricted_recipient_defeats_a_stale_dev_sender() {
+        for general in [false, true] {
+            for stored in ["isolated", "readonly"] {
+                let (profile, agent) = super::recipient_mode(
+                    general,
+                    Some(stored.into()),
+                    Some("dev".into()),
+                    Some("dev-pair".into()),
+                );
+                assert_eq!(profile.as_deref(), Some(stored));
+                assert_eq!(agent.as_deref(), Some(stored));
+            }
+        }
+        assert_eq!(
+            super::recipient_mode(true, Some("dev".into()), Some("isolated".into()), None),
+            (Some("isolated".into()), Some("isolated".into()))
+        );
+    }
 
     #[test]
     fn stop_run_rejects_empty_project_and_missing_conversation() {

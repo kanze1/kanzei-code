@@ -2,7 +2,7 @@
 /* global window, document */
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdir, copyFile, writeFile, readFile } from "node:fs/promises";
+import { mkdir, copyFile, writeFile, readFile, readdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import http from "node:http";
@@ -67,24 +67,35 @@ try {
   await invoke("projects_init", { path: project, name: "命令隔离原生验收" }); await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
   await page.locator(".workbench-project-name").filter({ hasText: "命令隔离原生验收" }).click();
   let isolatedLine;
-  for (const mode of ["NATIVE_SANDBOX_RUN", "NATIVE_SANDBOX_SECRET", "NATIVE_SANDBOX_TIMEOUT", "NATIVE_SANDBOX_CANCEL", "NATIVE_SANDBOX_ISOLATED_RUN", "NATIVE_SANDBOX_ISOLATED_HOST"]) {
-    const line = await invoke("process_create", { projectDir: project, profile: "dev", model: "stub:test", subagentMode: "off" });
-    await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, line.id);
+  let generalRoot;
+  for (const mode of ["NATIVE_SANDBOX_RUN", "NATIVE_SANDBOX_SECRET", "NATIVE_SANDBOX_TIMEOUT", "NATIVE_SANDBOX_CANCEL", "NATIVE_SANDBOX_ISOLATED_RUN", "NATIVE_SANDBOX_ISOLATED_HOST", "NATIVE_SANDBOX_ISOLATED_STALE_HOST", "NATIVE_SANDBOX_ISOLATED_GENERAL_HOST"]) {
+    const general = mode.includes("GENERAL");
+    if (general) {
+      await page.evaluate(async () => (await import("./29-general-chat.js")).openGeneralChat());
+      generalRoot = await invoke("general_chat_open");
+    }
+    const root = general ? generalRoot : project;
+    const line = await invoke("process_create", { projectDir: root, profile: "dev", model: "stub:test", subagentMode: "off" });
+    await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses({ force: true }); await sessions.switchProcess(id, true); }, line.id);
     if (mode.includes("ISOLATED")) {
-      isolatedLine = line.id;
-      await page.locator("#composer-more").click();
+      if (!general) isolatedLine = line.id;
+      if (!await page.locator("#composer-more-menu").isVisible()) await page.locator("#composer-more").click();
       await page.locator("#profile-select").selectOption("isolated");
       await page.locator("#auto-allow").check();
-      await page.locator("#prompt").fill(`${mode}：在隔离工作区执行指定输入。`);
-      await page.locator("#send").click();
+      if (mode.includes("STALE")) {
+        await invoke("run_prompt", { projectDir: root, processId: line.id, prompt: `${mode}：旧发送者试图返回开发模式。`, profile: "dev", agent: "dev-pair", model: "stub:test", autonomous: true, autoAllow: true });
+      } else {
+        await page.locator("#prompt").fill(`${mode}：在隔离工作区执行指定输入。`);
+        await page.locator("#send").click();
+      }
     } else await invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `${mode}：在隔离工作区执行指定输入。`, profile: "dev", agent: "dev-pair", model: "stub:test", autonomous: true, autoAllow: true });
     if (mode.endsWith("CANCEL")) {
       await until(() => children() > 0, "Actual Linux command exists before cancellation");
       await invoke("stop_run", { projectDir: project, processId: line.id });
       check(children() === 0, "Native stop awaits cleanup of the actual detached Linux process tree");
     } else {
-      await until(async () => { assert.equal(errors.length, 0, errors.join("; ")); const rows = await invoke("collaboration_snapshot", { projectDir: project }); return results[mode] && rows.find(row => row.process_id === line.id)?.status === "completed"; }, `${mode} completes`);
-      await invoke("stop_run", { projectDir: project, processId: line.id });
+      await until(async () => { assert.equal(errors.length, 0, errors.join("; ")); const rows = await invoke("collaboration_snapshot", { projectDir: root }); return results[mode] && rows.find(row => row.process_id === line.id)?.status === "completed"; }, `${mode} completes`);
+      await invoke("stop_run", { projectDir: root, processId: line.id });
       if (mode.endsWith("HOST")) check(results[mode].content.includes("unknown tool `bash`"), "Actual isolated conversation rejects a provider attempting to call the absent host shell");
       else if (mode.endsWith("SECRET")) check(results[mode].content.includes("permission requires user approval"), "AutoAllow cannot copy .env into the sandbox without exact consent");
       else {
@@ -104,7 +115,11 @@ try {
   check(!existsSync(path.join(project, "host-escape.txt")), "Forced host command produces zero project writes in isolated mode");
   database = new DatabaseSync(path.join(project, ".kanzei/state.db"), { readOnly: true });
   const baselines = database.prepare("SELECT payload_json FROM session_events WHERE event_type='run.baseline'").all().map(row => JSON.parse(row.payload_json));
-  check(baselines.filter(fact => fact.status === "not_observed_isolated" && fact.head === null).length === 2, "Both isolated starts record unknown origin without running host Git");
+  check(baselines.filter(fact => fact.status === "not_observed_isolated" && fact.head === null).length === 3, "All project isolated starts record unknown origin without running host Git");
+  check(!(await readdir(generalRoot, { recursive: true })).some(file => path.basename(file) === "host-escape.txt"), "Projectless isolated conversation cannot execute the forced host command");
+  const restoredGeneral = await invoke("general_chat_open");
+  check((await invoke("process_list", { projectDir: restoredGeneral })).some(line => line.profile === "isolated"), "Projectless reopening preserves isolated mode");
+  await page.locator(".workbench-project-name").filter({ hasText: "命令隔离原生验收" }).click();
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
   await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, isolatedLine);
   check(await page.locator("#profile-select").inputValue() === "isolated", "Real UI execution-mode selection survives history reload");
