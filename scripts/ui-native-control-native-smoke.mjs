@@ -63,6 +63,7 @@ try{
       await probe();
       await until(async()=>{const value=await status();return value.phase==='stopped'&&value.helper_pid===null;},'Escape acknowledges only after the OS input helper exits');
       assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});checks.push('Independent OS observation confirms helper process exited before stopped');
+      check((await status()).trace.some(action=>action.action==='fill'&&action.status==='cancelled'),'The blocked native action is cancelled rather than failing before emergency stop');
       await probe({action:'release-block'});
       await until(async()=>(await fixture()).blocked===false,'Owned form callback released');
       check((await fixture()).current_name==='CONTROL_BLOCK','Interrupted dispatch is retained as an observed partial result, never rolled back or replayed');
@@ -118,7 +119,7 @@ try{
   checks.push('Closing the main window also exits the auxiliary control UI');
   await writeFile(path.join(output,'acceptance.json'),JSON.stringify({checks,observations,surfaceErrors,fixtureRoot,appRun:app.run,executable:app.exe,executable_sha256:executableSha,scope:'Actual WinForms callbacks, tagged executor input, independent OS Escape, in-flight helper exit, visible WebView surfaces and detached runtime cancellation; one execution of each distinct scenario'},null,2));
   console.log(`Native control experience PASS: ${checks.length} checks`);
-}catch(error){await writeFile(path.join(output,'failure.json'),JSON.stringify({error:String(error),checks,observations,fixtureRoot,appRun:app.run,diagnostics:app.diagnostics},null,2));throw error;}
+}catch(error){await writeFile(path.join(output,'failure.json'),JSON.stringify({error:String(error),checks,observations,cases:[...cases].map(([mode,entry])=>({mode,line:entry.line,results:entry.results})),fixtureRoot,appRun:app.run,diagnostics:app.diagnostics},null,2));throw error;}
 finally{
   for(const entry of cases.values())entry.continue.resolve();
   try{if(form?.exitCode===null&&existsSync(windowFile))await probe({action:'release-block'});}finally{try{await app.close();}finally{await stopOwnedProcess(form);}}

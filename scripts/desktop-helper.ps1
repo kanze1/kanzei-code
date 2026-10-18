@@ -23,6 +23,7 @@ public static class KzDesktop {
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h,StringBuilder s,int n);
   [DllImport("user32.dll",EntryPoint="GetWindowLongW")] static extern int GetWindowStyle(IntPtr h,int index);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern IntPtr SendMessageTimeout(IntPtr h,uint message,UIntPtr wParam,string value,uint flags,uint timeout,out UIntPtr result);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern IntPtr SendMessageTimeout(IntPtr h,uint message,UIntPtr wParam,IntPtr value,uint flags,uint timeout,out UIntPtr result);
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h,uint flag);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out Rect r);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint flags);
@@ -39,10 +40,18 @@ public static class KzDesktop {
   [DllImport("user32.dll",SetLastError=true)] static extern uint SendInput(uint count,Input[] inputs,int size);
   public static void Click() {var inputs=new Input[2];inputs[0].Data.Mouse.Flags=2;inputs[1].Data.Mouse.Flags=4;if(SendInput(2,inputs,Marshal.SizeOf(typeof(Input)))!=2)throw new InvalidOperationException("Native pointer input was not fully dispatched");}
   public static void Key(byte key,UIntPtr tag) {var inputs=new Input[2];for(int i=0;i<2;i++){inputs[i].Type=1;inputs[i].Data.Key.Key=key;inputs[i].Data.Key.Flags=i==0?0u:2u;inputs[i].Data.Key.Extra=tag;}if(SendInput(2,inputs,Marshal.SizeOf(typeof(Input)))!=2)throw new InvalidOperationException("Native keyboard input was not fully dispatched");}
+  const uint NativeMessageTimeoutMs=1000;
+  public static void Activate(IntPtr window) {
+    if(!SetForegroundWindow(window))throw new InvalidOperationException("Cannot focus selected window");
+    // Cross-process activation is asynchronous. WM_NULL waits for that notification.
+    UIntPtr result;
+    if(SendMessageTimeout(window,0,UIntPtr.Zero,IntPtr.Zero,2,NativeMessageTimeoutMs,out result)==IntPtr.Zero)throw new TimeoutException("Selected window did not process its activation");
+    if(GetForegroundWindow()!=window)throw new InvalidOperationException("Selected window lost foreground ownership");
+  }
   public static string Title(IntPtr h) {var s=new StringBuilder(1024);GetWindowText(h,s,s.Capacity);return s.ToString();}
   public static bool Password(IntPtr h) {var s=new StringBuilder(256);GetClassName(h,s,s.Capacity);return s.ToString().IndexOf("EDIT",StringComparison.OrdinalIgnoreCase)>=0&&(GetWindowStyle(h,-16)&0x20)!=0;}
   public static bool NativeValue(IntPtr h) {var s=new StringBuilder(256);GetClassName(h,s,s.Capacity);var c=s.ToString();return c=="Edit"||c=="ComboBox"||c=="ComboBoxEx32"||c.StartsWith("WindowsForms10.EDIT.")||c.StartsWith("WindowsForms10.COMBOBOX.");}
-  public static void SetNativeValue(IntPtr h,string value) {if(!NativeValue(h)||Password(h))throw new InvalidOperationException("Not an editable non-password Win32 control");UIntPtr result;if(SendMessageTimeout(h,0x000C,UIntPtr.Zero,value,2,1000,out result)==IntPtr.Zero)throw new TimeoutException("Win32 value dispatch did not complete");}
+  public static void SetNativeValue(IntPtr h,string value) {if(!NativeValue(h)||Password(h))throw new InvalidOperationException("Not an editable non-password Win32 control");UIntPtr result;if(SendMessageTimeout(h,0x000C,UIntPtr.Zero,value,2,NativeMessageTimeoutMs,out result)==IntPtr.Zero)throw new TimeoutException("Win32 value dispatch did not complete");}
   public static IntPtr[] Windows() {var list=new List<IntPtr>();EnumWindows((h,p)=>{if(IsWindowVisible(h)&&Title(h).Length>0)list.Add(h);return true;},IntPtr.Zero);return list.ToArray();}
 }
 
@@ -104,8 +113,7 @@ function Click-Element($element,$root,[double]$offsetX,[double]$offsetY) {
     if ($offsetX -lt 0 -or $offsetY -lt 0 -or $offsetX -ge $bounds.Width -or $offsetY -ge $bounds.Height) { throw 'Pointer is outside the observed element bounds' }
     $x=$bounds.X+$offsetX; $y=$bounds.Y+$offsetY
     $activeHandle=[IntPtr]$root.Current.NativeWindowHandle
-    if (-not [KzDesktop]::SetForegroundWindow($activeHandle)) { throw 'Cannot focus selected window' }
-    if ([KzDesktop]::GetForegroundWindow() -ne $activeHandle) { throw 'Selected window lost foreground ownership' }
+    [KzDesktop]::Activate($activeHandle)
     $hit=[KzDesktop]::WindowFromPoint([KzDesktop+Point]::new([int]$x,[int]$y))
     if ($hit -ne $activeHandle -and -not [KzDesktop]::IsChild($activeHandle,$hit)) { throw 'Another window covers the pointer target' }
     $nativeElement=[IntPtr]$element.Current.NativeWindowHandle
@@ -217,7 +225,7 @@ try {
                 $keys=@{Enter=13;Tab=9;Escape=27;Backspace=8;Delete=46;Left=37;Up=38;Right=39;Down=40;Home=36;End=35;Space=32}
                 if (-not $keys.ContainsKey([string]$request.key)) { throw 'Unsupported single key' }
                 $activeHandle=[IntPtr]$root.Current.NativeWindowHandle
-                if (-not [KzDesktop]::SetForegroundWindow($activeHandle)) { throw 'Cannot focus selected keyboard window' }
+                [KzDesktop]::Activate($activeHandle)
                 $element.SetFocus()
                 if ([KzDesktop]::GetForegroundWindow() -ne $activeHandle) { throw 'Selected window does not own keyboard focus' }
                 [KzDesktop]::Key([byte]$keys[$request.key],[UIntPtr]::new([uint64]$request.input_tag))
