@@ -21,7 +21,9 @@ pub(super) fn previous_request(
     request_id: &str,
 ) -> anyhow::Result<Option<JobSnapshot>> {
     anyhow::ensure!(
-        !request_id.trim().is_empty() && request_id.len() <= MAX_REQUEST_ID_BYTES,
+        !request_id.trim().is_empty()
+            && request_id.len() <= MAX_REQUEST_ID_BYTES
+            && crate::memory::redact_credentials(request_id) == request_id,
         "记忆整理请求标识无效"
     );
     let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root))?;
@@ -183,7 +185,7 @@ impl JobControl {
         let mut next = current.clone();
         next.status = status;
         if let Some(error) = error {
-            next.error = Some(error.to_owned());
+            next.error = Some(crate::memory::redact_credentials(error));
         }
         self.persist(&next)?;
         *current = next;
@@ -216,7 +218,9 @@ impl JobControl {
 
     pub fn persistence_failed(&self, error: anyhow::Error) {
         let mut snapshot = self.snapshot.lock().unwrap();
-        snapshot.error = Some(format!("作业进度保存失败: {error}"));
+        snapshot.error = Some(crate::memory::redact_credentials(&format!(
+            "作业进度保存失败: {error}"
+        )));
         snapshot.status = MemoryJobStatus::Failed;
         self.halt.cancel();
     }

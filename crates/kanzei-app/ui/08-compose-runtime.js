@@ -12,6 +12,7 @@ import { activePane, promptBox } from "./01-chat-panes.js";
 import { isImeComposing, readJson, writeJson } from "./00-ui-primitives.js";
 import { uiPrefsCache, uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { invoke } from "./00-ipc.js";
+import { refreshMemoryJobStatus } from "./13-memory-jobs.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -44,6 +45,31 @@ import {
   toastError,
   transitionSession,
 } from "./03-shell.js";
+
+defer(() => {
+  $("memory-dream")?.addEventListener("click", async () => {
+    const project = currentProject, process = activeProcessId;
+    if (!project) { toast(t("请先选择项目")); return; }
+    const button = $("memory-dream");
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      const work = invoke("memory_dream", { projectDir: project, processId: process, requestId: crypto.randomUUID() });
+      closeSurface($("composer-more-menu"));
+      document.dispatchEvent(new CustomEvent("kz:memory-review", { detail: { project } }));
+      void refreshMemoryJobStatus();
+      const result = await work;
+      const status = result?.report?.status;
+      if (status === "failed") toastError(result?.report?.stopped_reason || t("做梦失败，来源已保留"));
+      else toast(({ completed: t("做梦完成，候选记忆待确认"), busy: t("已有整理作业在运行"), cancelled: t("整理已停止，可继续"), incomplete: t("整理未完成，可继续"), interrupted: t("上次整理中断，可继续") })[status] || t("做梦失败，来源已保留"));
+    } catch (error) { toastError(String(error)); }
+    finally {
+      button.disabled = false;
+      await refreshMemoryJobStatus();
+      document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
+    }
+  });
+});
 import { addMessage, addUserMessage, outputChars, reportError } from "./05-chat-render.js";
 import { setOutputChars } from "./05-chat-render.js";
 import { hideAsk } from "./07-events.js";

@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 
 mod chunks;
 mod evidence;
+pub(crate) mod manager;
 pub use chunks::{DreamChunk, DreamSpan};
 pub use evidence::{DreamEvidence, ValidatedDreamEvidence};
 const DREAM_SOURCE_FORMAT_VERSION: u32 = 1;
@@ -78,11 +79,12 @@ fn fragment(
 impl DreamSnapshot {
     /// Uses original facts in the current visible segment, never the compacted model prompt.
     pub fn capture(store: &SessionStore, session_id: &str) -> anyhow::Result<Self> {
-        let floor = store.conversation_floor(session_id)?.unwrap_or(0);
-        let facts = store.list_session_facts_in_range(session_id, floor, i64::MAX)?;
+        let original = store.original_conversation(session_id)?;
+        let floor = original.floor;
+        let facts = original.facts;
         let end_sequence = facts.last().map_or(floor, |(event, _)| event.sequence);
-        let inputs = store
-            .original_session_inputs(session_id)?
+        let inputs = original
+            .inputs
             .into_iter()
             .map(|record| (record.input.input_id.clone(), record))
             .collect::<HashMap<_, _>>();

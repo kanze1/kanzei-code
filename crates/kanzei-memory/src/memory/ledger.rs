@@ -39,6 +39,13 @@ impl MemoryStore {
         let entries = self.load_all();
         let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (_, entry) in &entries {
+            if entry
+                .extras
+                .iter()
+                .any(|(key, value)| key == "review_required" && value == "true")
+            {
+                continue;
+            }
             if !matches!(entry.status.as_str(), "active" | "candidate") {
                 continue;
             }

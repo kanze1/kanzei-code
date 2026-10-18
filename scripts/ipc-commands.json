@@ -1079,6 +1079,25 @@
     "path": "memory::memory_control_plane",
     "returns": "-> serde_json :: Value"
   },
+  "memory_dream": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "requestId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_dream",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
   "memory_entries": {
     "host": "service",
     "parameters": {

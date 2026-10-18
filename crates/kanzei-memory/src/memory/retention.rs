@@ -36,7 +36,7 @@ pub fn memory_content_revision(entry: &MemoryEntry) -> String {
     content.updated.clear();
     content
         .extras
-        .retain(|(key, _)| !key.starts_with("retention_"));
+        .retain(|(key, _)| !key.starts_with("retention_") && key != "reviewed_content_revision");
     entry_revision(&content)
 }
 
@@ -108,14 +108,35 @@ impl MemoryStore {
         for (path, mut entry) in self.load_all_checked()? {
             let before = entry.clone();
             let revision = memory_content_revision(&entry);
-            let latest = feedback
-                .get(&entry.id)
+            let reviewed = feedback.get(&entry.id).filter(|usage| {
+                usage.feedback_revision.as_deref() == Some(entry_revision(&entry).as_str())
+            });
+            let latest = reviewed.and_then(|usage| usage.last_feedback);
+            let last_adopted = reviewed
                 .filter(|usage| {
-                    usage.feedback_revision.as_deref() == Some(entry_revision(&entry).as_str())
+                    usage.last_feedback == Some(kanzei_core::MemoryFeedbackKind::Adopted)
                 })
-                .and_then(|usage| usage.last_feedback);
+                .map(|usage| usage.last_feedback_at);
             let cold = field(&entry, "retention_reason") == Some("cold");
-            let reason = if matches!(entry.status.as_str(), "candidate" | "shadow")
+            let previous_review = field(&entry, "retention_previous_status")
+                .filter(|status| matches!(*status, "active" | "candidate" | "shadow"))
+                .map(str::to_owned);
+            let withdrawn_review = previous_review.filter(|_| {
+                latest == Some(kanzei_core::MemoryFeedbackKind::Cleared)
+                    && matches!(
+                        field(&entry, "retention_reason"),
+                        Some("user_reviewed" | "user_corrected")
+                    )
+            });
+            let reason = if let Some(previous_status) = withdrawn_review {
+                entry.status = previous_status;
+                if entry.status == "active" {
+                    report.promoted.push(entry.id.clone());
+                } else {
+                    report.demoted.push(entry.id.clone());
+                }
+                Some("review_withdrawn")
+            } else if matches!(entry.status.as_str(), "candidate" | "shadow")
                 && latest == Some(kanzei_core::MemoryFeedbackKind::Adopted)
                 && (entry.category != "sop" || cold)
             {
@@ -131,7 +152,8 @@ impl MemoryStore {
             } else if protected(&entry) {
                 report.protected.push(entry.id.clone());
                 None
-            } else if entry.status == "active" && cold_enough(&entry, &observations, policy, at_ms)
+            } else if entry.status == "active"
+                && cold_enough(&entry, &observations, policy, at_ms, last_adopted)
             {
                 entry.status = "shadow".into();
                 report.demoted.push(entry.id.clone());
@@ -154,15 +176,34 @@ impl MemoryStore {
             let Some(reason) = reason else {
                 continue;
             };
+            if entry.requires_review() {
+                if entry.status == "active" && reason == "user_reviewed" {
+                    entry
+                        .extras
+                        .retain(|(key, _)| key != "reviewed_content_revision");
+                    entry
+                        .extras
+                        .push(("reviewed_content_revision".into(), revision.clone()));
+                } else if entry.status == "candidate" {
+                    entry
+                        .extras
+                        .retain(|(key, _)| key != "reviewed_content_revision");
+                }
+            }
             entry
                 .extras
                 .retain(|(key, _)| !key.starts_with("retention_"));
-            if entry.status == "shadow" {
+            if entry.status == "shadow" || matches!(reason, "user_reviewed" | "user_corrected") {
                 entry.extras.extend([
                     ("retention_at".into(), at_ms.to_string()),
                     ("retention_reason".into(), reason.into()),
                     ("retention_revision".into(), revision.clone()),
                 ]);
+                if matches!(reason, "user_reviewed" | "user_corrected") {
+                    entry
+                        .extras
+                        .push(("retention_previous_status".into(), before.status.clone()));
+                }
             }
             entry.updated = super::today();
             let payload = serde_json::json!({"memory_id":entry.id,"before_revision":entry_revision(&before),"after_revision":entry_revision(&entry),"from":before.status,"to":entry.status,"reason":reason,"at_ms":at_ms,"observation":observations.get(&(entry.id.clone(),revision))});
@@ -180,6 +221,7 @@ fn cold_enough(
     observations: &BTreeMap<(String, String), kanzei_core::MemoryRetentionCounts>,
     policy: MemoryRetentionPolicy,
     now: i64,
+    last_adopted: Option<i64>,
 ) -> bool {
     let Some(counts) = observations.get(&(entry.id.clone(), memory_content_revision(entry))) else {
         return false;
@@ -190,7 +232,8 @@ fn cold_enough(
     let since = counts
         .last_retrieved_at
         .unwrap_or(counts.first_opportunity_at)
-        .max(updated);
+        .max(updated)
+        .max(last_adopted.unwrap_or(i64::MIN));
     counts.opportunities >= u64::from(policy.minimum_opportunities)
         && now.saturating_sub(since) >= i64::from(policy.cold_after_days) * DAY_MS
 }
@@ -217,6 +260,115 @@ mod tests {
             AddOutcome::Added(entry) => entry,
             outcome => panic!("{outcome:?}"),
         }
+    }
+
+    #[test]
+    fn recent_explicit_adoption_refreshes_an_active_memories_cold_window() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-retention-adopted-{}-{}",
+            std::process::id(),
+            super::super::store::now_ms()
+        ));
+        let store = MemoryStore::project(&root);
+        let mut entry = create(&store, "旧项目事实", "fact", "memory-manager");
+        entry.status = "active".into();
+        entry.updated = "2020-01-01".into();
+        let path = store.load_all_checked().unwrap().remove(0).0;
+        store.write_entry(&entry, Some(&path)).unwrap();
+        store.refresh_derived().unwrap();
+        for index in 0..30 {
+            store.record_availability(&format!("old-{index}")).unwrap();
+        }
+        let now = super::super::store::now_ms();
+        let connection =
+            rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
+        connection
+            .execute(
+                "UPDATE session_events SET created_at=?1 WHERE event_type='memory.availability'",
+                [now - 100 * DAY_MS],
+            )
+            .unwrap();
+        drop(connection);
+        let state =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        assert!(cold_enough(
+            &entry,
+            &state.memory_retention_counts().unwrap(),
+            Default::default(),
+            now,
+            None
+        ));
+        store
+            .record_user_feedback(
+                &entry.id,
+                &entry_revision(&entry),
+                kanzei_core::MemoryFeedbackKind::Adopted,
+            )
+            .unwrap();
+        assert!(store
+            .reconcile_retention(Default::default(), now)
+            .unwrap()
+            .demoted
+            .is_empty());
+        assert_eq!(store.load_all_checked().unwrap()[0].1.status, "active");
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reviewed_candidate_can_be_adopted_and_withdrawn_without_losing_its_source() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-retention-withdraw-{}-{}",
+            std::process::id(),
+            super::super::store::now_ms()
+        ));
+        let store = MemoryStore::project(&root);
+        let provenance =
+            serde_json::json!({"evidence":[{"quote":"喜欢简洁排版","source_id":"original"}]});
+        let entry = match store
+            .add_review_candidate(super::super::ReviewCandidateDraft {
+                category: "preference",
+                title: "简洁排版偏好",
+                description: "编写文档时采用简洁排版",
+                body: "喜欢简洁排版",
+                idempotency_key: "proposal",
+                provenance: &provenance,
+            })
+            .unwrap()
+        {
+            AddOutcome::Added(entry) => entry,
+            other => panic!("{other:?}"),
+        };
+        assert!(store
+            .update(&entry.id, None, None, None, Some("active"), None, false)
+            .is_err());
+        store
+            .record_user_feedback(
+                &entry.id,
+                &entry_revision(&entry),
+                kanzei_core::MemoryFeedbackKind::Adopted,
+            )
+            .unwrap();
+        store
+            .reconcile_retention(Default::default(), super::super::store::now_ms())
+            .unwrap();
+        let active = store.load_all_checked().unwrap().remove(0).1;
+        assert_eq!(active.status, "active");
+        store
+            .record_user_feedback(
+                &active.id,
+                &entry_revision(&active),
+                kanzei_core::MemoryFeedbackKind::Cleared,
+            )
+            .unwrap();
+        store
+            .reconcile_retention(Default::default(), super::super::store::now_ms())
+            .unwrap();
+        let reverted = store.load_all_checked().unwrap().remove(0).1;
+        assert_eq!(reverted.status, "candidate");
+        assert_eq!(reverted.body, entry.body);
+        assert_eq!(field(&reverted, "provenance"), field(&entry, "provenance"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -1591,6 +1591,8 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
         if (project !== memoryProject || box.dataset.memoryId !== entry.id) return;
         entry.usage = usage;
         renderFeedback(usage);
+        memoryEntryCache.clear();
+        await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category, { preserveSelection: true });
       } catch (error) { toastError(`${t("记忆反馈保存失败")}:${error}`); }
       finally { feedbackActions.querySelectorAll("button").forEach((item) => { item.disabled = false; }); }
     });
@@ -1602,7 +1604,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   discuss.textContent = t("用对话修改");
   discuss.addEventListener("click", () => { showMemoryTab("chat"); $("memory-chat-input")?.focus(); });
   actions.append(save, discuss);
-  if (entry.status === "candidate" || entry.status === "shadow") actions.append(enableBtn);
+  if (!entry.review_required && (entry.status === "candidate" || entry.status === "shadow")) actions.append(enableBtn);
   actions.append(archiveBtn, deleteBtn);
   box.append(heading, meta, profile, recall, field(t("正文"), bodyBox, "div"), metadata, feedbackStatus, feedbackActions, actions);
   restoreReaderScroll();
@@ -1725,6 +1727,7 @@ export function renderMemoryBodyRead(container, bodyText) {
   const article = document.createElement("article");
   article.className = "memory-body-document markdown";
   renderMarkdownInto(article, stripMemoryFingerprint(text) || t("无正文"));
+  for (const link of article.querySelectorAll("a.md-path")) link.dataset.projectDir = memoryProject || "";
   container.appendChild(article);
   // 编辑入口:阅读视图是默认态,编辑时提供取消,避免误入 textarea 后只能刷新页面恢复阅读。
   const editRow = document.createElement("div");
@@ -1869,6 +1872,15 @@ defer(() => {
 });
 
 defer(() => {
+  document.addEventListener("kz:memory-review", (event) => {
+    const project = event.detail?.project;
+    if (!project) return;
+    setMemoryProject(project);
+    setLayoutPref("prefs", "memory_project", project);
+    Object.assign(memoryManagerFilters, { scope: "project", category: "all", status: "candidate" });
+    navigate_view("memory");
+    void refreshMemory({ force: true });
+  });
   const consolidate = async () => {
     const project = memoryProject;
     if (!project || memoryConsolidating) return;

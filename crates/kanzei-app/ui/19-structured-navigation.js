@@ -28,7 +28,8 @@ export async function openUrlInApp(url, topic = "") {
   }
 }
 /// docs/ 下的 markdown 进应用内查看器;其余文件切到文件打开预览。
-export async function openStructuredPath(path, line = null) {
+export async function openStructuredPath(path, line = null, target = null) {
+  if (target) return runPathAction(() => openPathTargetInApp(target));
   const rel = String(path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
   if (!rel) return;
   if (/^docs\/.+\.md$/i.test(rel) && currentProject) {
@@ -129,7 +130,7 @@ defer(() => {
     if (!link) return;
     event.preventDefault?.();
     const target = fileLinkTarget(link);
-    structuredNav.openPath(target.previewPath, target.line);
+    void structuredNav.openPath(target.previewPath, target.line, target);
   });
   document.addEventListener("contextmenu", event => {
     const link = event.target?.closest?.("a.md-path, button.delivery-inline");

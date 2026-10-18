@@ -25,7 +25,10 @@ mod test_home;
 mod tools;
 mod usage;
 
-pub use inbox::{InboxBatch, InboxCheckpoint, InboxNote, MemoryJobProgress, MemoryJobStatus};
+pub use inbox::{
+    InboxBatch, InboxCheckpoint, InboxNote, InboxSource, MemoryJobProgress, MemoryJobStatus,
+    SourceDraftNote,
+};
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
 pub use ledger::DeduplicationReport;
 pub use manager::{
@@ -36,7 +39,8 @@ pub use privacy::{redact_credentials, REDACTED_CREDENTIAL};
 pub use relevance::lexical_weight as query_relevance;
 pub use retention::{memory_content_revision, MemoryRetentionPolicy, MemoryRetentionReport};
 pub use store::{
-    AddOutcome, CandidateReconcileReport, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit,
+    AddOutcome, CandidateReconcileReport, MemoryStore, Novelty, RecallHit, RecallRound,
+    ReviewCandidateDraft, SearchHit,
 };
 
 pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
@@ -155,6 +159,11 @@ pub struct MemoryEntry {
 }
 
 impl MemoryEntry {
+    pub fn requires_review(&self) -> bool {
+        self.extras
+            .iter()
+            .any(|(key, value)| key == "review_required" && value == "true")
+    }
     /// 文件名:<id>-<创建时 slug>.md,slug 终身不改(id 才是主键)。
     pub fn file_stem(&self) -> String {
         let slug = slugify(&self.title);

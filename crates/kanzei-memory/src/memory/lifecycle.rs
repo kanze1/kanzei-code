@@ -35,6 +35,26 @@ impl MemoryLifecycle {
         scope: MemoryScope,
         root: &Path,
     ) -> anyhow::Result<()> {
+        if entry
+            .extras
+            .iter()
+            .any(|(key, value)| key == "review_required" && value == "true")
+        {
+            let project = root
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| anyhow::anyhow!("review candidate has no project"))?;
+            let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(project))?;
+            let reviewed = state.memory_usage_counts()?.get(id).is_some_and(|usage| {
+                usage.last_feedback == Some(kanzei_core::MemoryFeedbackKind::Adopted)
+                    && usage.feedback_revision.as_deref()
+                        == Some(super::entry_revision(entry).as_str())
+            });
+            anyhow::ensure!(
+                reviewed,
+                "conversation candidate requires explicit review of this content revision"
+            );
+        }
         if sources.is_empty() {
             anyhow::bail!(
                 "cannot promote `{id}`: no memory_sources evidence — R-165 provenance \

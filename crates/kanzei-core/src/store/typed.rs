@@ -17,6 +17,34 @@ use sha2::{Digest, Sha256};
 use super::events::{append_event_tx, event_from_row};
 use super::{SessionStore, StoreError, StoredEvent};
 
+/// Original admissions and facts from one SQLite read snapshot.
+pub struct OriginalConversation {
+    pub floor: i64,
+    pub facts: Vec<(StoredEvent, SessionFactEnvelope)>,
+    pub inputs: Vec<super::StoredInput>,
+}
+
+impl SessionStore {
+    pub fn original_conversation(
+        &self,
+        session_id: &str,
+    ) -> Result<OriginalConversation, SessionFactError> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(StoreError::from)?;
+        let floor = self.conversation_floor(session_id)?.unwrap_or(0);
+        let facts = self.list_session_facts_in_range(session_id, floor, i64::MAX)?;
+        let inputs = self.original_session_inputs(session_id)?;
+        transaction.commit().map_err(StoreError::from)?;
+        Ok(OriginalConversation {
+            floor,
+            facts,
+            inputs,
+        })
+    }
+}
+
 mod projection;
 mod writer_owner;
 pub use projection::{

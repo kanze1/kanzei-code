@@ -397,8 +397,8 @@ pub use telemetry::{FunnelCounts, RecallEvent, RecallLinkStats, RecallMetrics};
 pub use typed::{
     compare_shadow, decode_session_fact, prepare_typed_session, project_conversation_facts,
     project_session_facts, project_session_facts_with_surface, stable_json_hash,
-    stable_message_hash, summarize_shadow_reports, InterruptedAssistant, SessionFact,
-    SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection,
+    stable_message_hash, summarize_shadow_reports, InterruptedAssistant, OriginalConversation,
+    SessionFact, SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection,
     SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, TypedSessionWriter,
     ASSISTANT_DRAFT_APPENDED, ASSISTANT_MESSAGE_COMMITTED, ASSISTANT_MESSAGE_INTERRUPTED,
     LEGACY_SEEDED, SESSION_EVENT_FORMAT_VERSION, SUBAGENT_TRANSCRIPT, TOOL_CALLED,

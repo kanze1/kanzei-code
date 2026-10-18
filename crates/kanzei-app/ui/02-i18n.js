@@ -1,6 +1,11 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "做梦": "Dream",
+  "未调用模型": "No model call",
+  "从当前对话沉淀品味、约束、决策、踩过的坑和方法，保留原文供确认": "Extract preferences, constraints, decisions, pitfalls and methods from this conversation, retaining source quotes for review",
+  "做梦完成，候选记忆待确认": "Dream complete; memory candidates await review",
+  "做梦失败，来源已保留": "Dream failed; source preserved",
   "停止整理": "Stop consolidation",
   "这一条已整理": "This note has been processed",
   "长期未用，已降级": "Unused for an extended period; demoted",

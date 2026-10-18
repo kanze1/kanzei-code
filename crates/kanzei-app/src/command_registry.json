@@ -508,6 +508,10 @@
     "host": "service"
   },
   {
+    "path": "memory::memory_dream",
+    "host": "service"
+  },
+  {
     "path": "memory::memory_consolidate",
     "host": "service"
   },

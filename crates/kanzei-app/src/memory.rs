@@ -188,6 +188,7 @@ fn memory_entry_json(
         "title": entry.title, "description": entry.description, "status": entry.status,
         "updated": entry.updated, "source": entry.source, "refs": entry.refs(), "areas": entry.areas(),
         "archived": archived,
+        "review_required": entry.requires_review(),
         "retention_reason": entry.extras.iter().find(|(key,_)| key == "retention_reason").map(|(_,value)| value),
         "hits": hits, "last_hit_at": last_hit_at, "recalled": counts.recalled,
         "injected": counts.injected, "read": counts.read, "read_observed": counts.read_observed,
@@ -207,9 +208,15 @@ pub(crate) fn memory_entry_feedback(
         .into_iter()
         .find(|store| store.scope.label() == scope)
         .ok_or_else(|| format!("未知记忆域: {scope}"))?;
-    store
+    let counts = store
         .record_user_feedback(&id, &expected_revision, kind)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    if scope == "project" {
+        store
+            .reconcile_retention(Default::default(), now_ms() as i64)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(counts)
 }
 
 #[tauri::command(async)]
@@ -669,6 +676,30 @@ pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {
         .unwrap_or_else(|| json!([]));
     let episodes: Vec<serde_json::Value> = store.list_episodes(&session, 8).unwrap_or_default().into_iter().map(|(at, prompt, outcome, steps, tools)| json!({"at": at, "prompt": prompt, "outcome": outcome, "steps": steps, "tools": serde_json::from_str::<serde_json::Value>(&tools).unwrap_or(json!({}))})).collect();
     json!({"bill": bill, "episodes": episodes})
+}
+
+#[tauri::command]
+pub(crate) async fn memory_dream(
+    project_dir: String,
+    process_id: Option<String>,
+    request_id: String,
+) -> Result<serde_json::Value, String> {
+    let root = project_root_of(&project_dir);
+    let session = crate::process_session_id(&root, process_id.as_deref());
+    let report = kanzei_tools::memory_consolidation::dream_conversation_for_project(
+        &root.to_string_lossy(),
+        &session,
+        &request_id,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    append_memory_fact(
+        &project_dir,
+        "memory_dream_result",
+        Some(session),
+        serde_json::to_value(&report).map_err(|error| error.to_string())?,
+    )?;
+    Ok(json!({"pending":report.pending_after,"report":report}))
 }
 
 #[tauri::command]

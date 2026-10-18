@@ -22,8 +22,15 @@ const FAILURE_ALERT_THRESHOLD: usize = 3;
 
 struct InboxRequest<'a> {
     current_episode_id: Option<i64>,
-    only: Option<&'a str>,
+    selection: InboxSelection<'a>,
     request_id: Option<&'a str>,
+}
+
+#[derive(Clone, Copy)]
+enum InboxSelection<'a> {
+    All,
+    One(&'a str),
+    Frozen(&'a [String]),
 }
 
 struct ManagerEnvironment<'a> {
@@ -32,6 +39,66 @@ struct ManagerEnvironment<'a> {
     client: &'a LlmClient,
     rctx: &'a ResolveCtx,
     ctx: &'a ToolCtx,
+}
+
+struct ProjectManager {
+    config: std::sync::Arc<KanzeiConfig>,
+    proxy: ProxyConfig,
+    client: LlmClient,
+    rctx: ResolveCtx,
+    ctx: ToolCtx,
+}
+
+impl ProjectManager {
+    fn load(project_dir: &str) -> anyhow::Result<Self> {
+        let root = std::path::PathBuf::from(project_dir);
+        let config = std::sync::Arc::new(KanzeiConfig::load_at_root(&root)?);
+        let proxy = match config.proxy.as_deref() {
+            Some("off") => ProxyConfig::Disabled,
+            Some("env") | None => ProxyConfig::Env,
+            Some(value) => ProxyConfig::Explicit(value.to_owned()),
+        };
+        let client = LlmClient::new(&proxy)?;
+        let rctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: config.clone(),
+        };
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root,
+            ..Default::default()
+        };
+        Ok(Self {
+            config,
+            proxy,
+            client,
+            rctx,
+            ctx,
+        })
+    }
+    fn environment(&self) -> ManagerEnvironment<'_> {
+        ManagerEnvironment {
+            config: &self.config,
+            proxy: &self.proxy,
+            client: &self.client,
+            rctx: &self.rctx,
+            ctx: &self.ctx,
+        }
+    }
+}
+
+fn initial_report(store: &MemoryStore) -> ConsolidationReport {
+    let pending = store.pending_notes();
+    ConsolidationReport {
+        status: ConsolidationStatus::Completed,
+        job: None,
+        pending_before: pending,
+        pending_after: pending,
+        batches: Vec::new(),
+        stopped_reason: None,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -138,7 +205,7 @@ pub async fn consolidate_memory_inbox(
         ctx,
         InboxRequest {
             current_episode_id,
-            only: None,
+            selection: InboxSelection::All,
             request_id: None,
         },
     )
@@ -156,7 +223,9 @@ async fn consolidate_inbox_inner(
     request: InboxRequest<'_>,
 ) -> ConsolidationReport {
     let InboxRequest {
-        only, request_id, ..
+        selection,
+        request_id,
+        ..
     } = request;
     let store = MemoryStore::project(&ctx.project_root);
     let pending_before = store.pending_notes();
@@ -238,7 +307,7 @@ async fn consolidate_inbox_inner(
         }
     };
     report.job = Some(job.control.snapshot.lock().unwrap().clone());
-    if let Some(needle) = only {
+    if let InboxSelection::One(needle) = selection {
         if store.read_inbox_note(needle).is_none() {
             report.status = ConsolidationStatus::Incomplete;
             report.stopped_reason = Some("这条待整理条目已被整理或丢弃".into());
@@ -276,12 +345,13 @@ async fn consolidate_owned_inbox(
     } = environment;
     let InboxRequest {
         current_episode_id,
-        only,
+        selection,
         ..
     } = request;
     let store = MemoryStore::project(&ctx.project_root);
-    let targets = match only {
-        Some(selector) => match store.read_inbox_note(selector) {
+    let targets = match selection {
+        InboxSelection::Frozen(ids) => ids.to_vec(),
+        InboxSelection::One(selector) => match store.read_inbox_note(selector) {
             Some(batch) => batch.note_ids,
             None => {
                 report.status = ConsolidationStatus::Incomplete;
@@ -289,7 +359,7 @@ async fn consolidate_owned_inbox(
                 return finish_job(report, job);
             }
         },
-        None => match store.pending_note_ids_checked() {
+        InboxSelection::All => match store.pending_note_ids_checked() {
             Ok(ids) => ids,
             Err(error) => {
                 report.status = ConsolidationStatus::Failed;
@@ -327,8 +397,6 @@ async fn consolidate_owned_inbox(
             report.stopped_reason = Some("整理作业步骤预算已用尽，未处理草稿可主动续跑".into());
             break;
         }
-        let mut agent = crate::memory::inbox_manager_agent();
-        agent.steps = agent.steps.min(available);
         let batch = store.read_inbox_batch_for(
             &targets,
             MAX_BATCH_NOTES,
@@ -340,9 +408,33 @@ async fn consolidate_owned_inbox(
             report.stopped_reason = Some("inbox could not be read as a batch".into());
             break;
         };
+        let dream = match crate::memory_dream::manager::DreamBatch::load(&store, &batch) {
+            Ok(dream) => dream,
+            Err(error) => {
+                report.status = ConsolidationStatus::Failed;
+                report.stopped_reason = Some(format!("冻结来源校验失败: {error}"));
+                break;
+            }
+        };
+        let mut agent = dream
+            .as_ref()
+            .map_or_else(crate::memory::inbox_manager_agent, |dream| dream.agent());
+        agent.steps = agent.steps.min(available);
+        let prompt = match dream.as_ref().map(|dream| dream.prompt()).transpose() {
+            Ok(Some(prompt)) => prompt,
+            Ok(None) => consolidation_prompt(&batch.text, current_episode_id),
+            Err(error) => {
+                report.status = ConsolidationStatus::Failed;
+                report.stopped_reason = Some(error.to_string());
+                break;
+            }
+        };
         let mut harness = Harness::default();
         harness.add(MemoryManagerComponent);
         harness.add(MemoryManagerComponent::for_batch(&batch));
+        if let Some(dream) = dream {
+            harness.add(dream);
+        }
         let snapshot = match harness.resolve(rctx) {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -375,7 +467,6 @@ async fn consolidate_owned_inbox(
             break;
         }
 
-        let prompt = consolidation_prompt(&batch.text, current_episode_id);
         let result = async {
             let resolved = config.resolve_model(&agent.model)?;
             {
@@ -535,6 +626,16 @@ async fn consolidate_owned_inbox(
 }
 
 fn finish_job(mut report: ConsolidationReport, job: &jobs::JobLease) -> ConsolidationReport {
+    report.stopped_reason = report
+        .stopped_reason
+        .as_deref()
+        .map(crate::memory::redact_credentials);
+    for batch in &mut report.batches {
+        batch.error = batch
+            .error
+            .as_deref()
+            .map(crate::memory::redact_credentials);
+    }
     if report.status == ConsolidationStatus::Completed {
         report.status = if report.stopped_reason.is_some()
             || report.batches.iter().any(|batch| batch.error.is_some())
@@ -585,38 +686,88 @@ async fn consolidate_for_project(
     only: Option<&str>,
     request_id: Option<&str>,
 ) -> anyhow::Result<ConsolidationReport> {
-    let cwd = std::path::PathBuf::from(project_dir);
-    let project_root = cwd.clone();
-    let config = KanzeiConfig::load_at_root(&project_root)?;
-    let config = std::sync::Arc::new(config);
-    let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
-        cwd: cwd.clone(),
-        project_root: project_root.clone(),
-        config: config.clone(),
-    };
-    let proxy = match config.proxy.as_deref() {
-        Some("off") => ProxyConfig::Disabled,
-        Some("env") | None => ProxyConfig::Env,
-        Some(value) => ProxyConfig::Explicit(value.to_string()),
-    };
-    let client = LlmClient::new(&proxy)?;
-    let ctx = ToolCtx {
-        cwd,
-        project_root,
-        ..Default::default()
-    };
+    let manager = ProjectManager::load(project_dir)?;
     Ok(consolidate_inbox_inner(
-        &config,
-        &proxy,
-        &client,
-        &rctx,
-        &ctx,
+        &manager.config,
+        &manager.proxy,
+        &manager.client,
+        &manager.rctx,
+        &manager.ctx,
         InboxRequest {
             current_episode_id,
-            only,
+            selection: only.map_or(InboxSelection::All, InboxSelection::One),
             request_id,
         },
+    )
+    .await)
+}
+
+/// The same project owner protects capture, durable queue admission and model work.
+pub async fn dream_conversation_for_project(
+    project_dir: &str,
+    session_id: &str,
+    request_id: &str,
+) -> anyhow::Result<ConsolidationReport> {
+    const CHUNK_BYTES: usize = MAX_BATCH_BYTES / 2;
+    let manager = ProjectManager::load(project_dir)?;
+    let root = &manager.ctx.project_root;
+    let store = MemoryStore::project(root);
+    let mut report = initial_report(&store);
+    if let Some(previous) = jobs::request_snapshot(root, request_id)? {
+        report.status = previous.status;
+        report.job = Some(previous);
+        return Ok(report);
+    }
+    let Some(job) = jobs::JobLease::begin(root, &store, Some(request_id))? else {
+        report.status = ConsolidationStatus::Busy;
+        report.job = jobs::request_snapshot(root, request_id)?.or(jobs::snapshot(root)?);
+        return Ok(report);
+    };
+    let prepared = (|| -> anyhow::Result<Vec<String>> {
+        let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root))?;
+        anyhow::ensure!(
+            state.get_session(session_id)?.is_some(),
+            "所选对话不存在于当前项目"
+        );
+        let snapshot = crate::memory_dream::DreamSnapshot::capture(&state, session_id)?;
+        let reference = snapshot.persist(&store)?;
+        let notes = snapshot
+            .chunks(CHUNK_BYTES)?
+            .into_iter()
+            .map(|chunk| {
+                Ok(crate::memory::SourceDraftNote {
+                    id: format!("dream-{}-{}", reference.sha256, chunk.index),
+                    summary: format!("对话沉淀 {} · 片段 {}", session_id, chunk.index + 1),
+                    detail: serde_json::to_string(&chunk)?,
+                    source: crate::memory::InboxSource::Conversation {
+                        sha256: reference.sha256.clone(),
+                        chunk_index: chunk.index,
+                        chunk_bytes: CHUNK_BYTES,
+                    },
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        store.queue_source_notes(&notes)
+    })();
+    let targets = match prepared {
+        Ok(targets) => targets,
+        Err(error) => {
+            report.status = ConsolidationStatus::Failed;
+            report.stopped_reason = Some(error.to_string());
+            return Ok(finish_job(report, &job));
+        }
+    };
+    report.pending_before = store.pending_notes();
+    report.pending_after = report.pending_before;
+    Ok(consolidate_owned_inbox(
+        manager.environment(),
+        InboxRequest {
+            current_episode_id: None,
+            selection: InboxSelection::Frozen(&targets),
+            request_id: Some(request_id),
+        },
+        &job,
+        report,
     )
     .await)
 }

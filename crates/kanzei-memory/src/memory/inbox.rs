@@ -33,7 +33,44 @@ pub struct InboxNote {
     pub detail: String,
 }
 
+/// Engine-assigned provenance, outside the escaped untrusted note body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum InboxSource {
+    Conversation {
+        sha256: String,
+        chunk_index: usize,
+        chunk_bytes: usize,
+    },
+}
+
+pub struct SourceDraftNote {
+    pub id: String,
+    pub summary: String,
+    pub detail: String,
+    pub source: InboxSource,
+}
+
 impl InboxBatch {
+    pub fn source(&self) -> anyhow::Result<Option<InboxSource>> {
+        let blocks = inbox_note_blocks(&self.text);
+        let sources = blocks
+            .iter()
+            .filter_map(|block| {
+                block
+                    .lines()
+                    .find_map(|line| line.strip_prefix("- source-json: "))
+            })
+            .collect::<Vec<_>>();
+        anyhow::ensure!(
+            sources.is_empty() || (sources.len() == 1 && blocks.len() == 1),
+            "有来源的片段不能与其它草稿合并"
+        );
+        sources
+            .first()
+            .map(|source| serde_json::from_str(source).map_err(Into::into))
+            .transpose()
+    }
     pub fn notes(&self) -> Vec<(String, String)> {
         inbox_note_blocks(&self.text)
             .iter()
@@ -127,6 +164,25 @@ fn note_summary(block: &str) -> &str {
         .unwrap_or("")
 }
 
+fn inbox_header(text: &str) -> String {
+    let header = text
+        .lines()
+        .take_while(|line| !line.starts_with("## note "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if header.trim().is_empty() {
+        "# Memory Inbox\n".into()
+    } else {
+        format!("{}\n", header.trim_end())
+    }
+}
+
+fn has_source(block: &str) -> bool {
+    block
+        .lines()
+        .any(|line| line.starts_with("- source-json: "))
+}
+
 /// Identity first; old callers may use a unique summary or its bracketed fingerprint.
 /// Body text is never a selector. Ambiguity must not delete several notes.
 fn selected_note(blocks: &[String], selector: &str) -> anyhow::Result<Option<usize>> {
@@ -155,6 +211,60 @@ fn selected_note(blocks: &[String], selector: &str) -> anyhow::Result<Option<usi
 }
 
 impl MemoryStore {
+    /// Queue the complete frozen source in one file transaction. Resolved IDs remain
+    /// in the same file, so a crash or repeated dream cannot resurrect consumed chunks.
+    pub fn queue_source_notes(&self, notes: &[SourceDraftNote]) -> anyhow::Result<Vec<String>> {
+        std::fs::create_dir_all(&self.root)?;
+        let _lock = self.tree_lock()?;
+        let mut text = self.read_inbox_checked()?;
+        if text.trim().is_empty() {
+            text = "# Memory Inbox\n".into();
+        }
+        let blocks = inbox_note_blocks(&text);
+        let header = inbox_header(&text);
+        let resolved: std::collections::HashSet<_> = header
+            .lines()
+            .filter_map(|line| line.strip_prefix("- resolved_note_id: "))
+            .collect();
+        let mut queued = Vec::new();
+        let mut unique = std::collections::HashSet::new();
+        for note in notes {
+            anyhow::ensure!(unique.insert(note.id.as_str()), "来源草稿不能有重复标识");
+            anyhow::ensure!(
+                !note.id.is_empty()
+                    && note
+                        .id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'),
+                "来源草稿标识无效"
+            );
+            anyhow::ensure!(!note.summary.contains(['\n', '\r']), "来源摘要必须单行");
+            for value in [&note.summary, &note.detail] {
+                super::privacy::reject_credentials(value)?;
+            }
+            let block = format!("## note {} [conversation]\n- note_id: {}\n- summary: {}\n- source-json: {}\n- detail-json: {}\n",today(),note.id,note.summary,serde_json::to_string(&note.source)?,serde_json::to_string(&note.detail)?);
+            if let Some(existing) = blocks.iter().find(|block| note_id(block) == note.id) {
+                // Ignore presentation date; source identity and exact detail must stay frozen.
+                anyhow::ensure!(
+                    existing
+                        .lines()
+                        .skip(1)
+                        .filter(|line| !line.trim().is_empty())
+                        .eq(block.lines().skip(1).filter(|line| !line.trim().is_empty())),
+                    "冻结草稿内容已改变"
+                );
+                queued.push(note.id.clone());
+            } else if !resolved.contains(note.id.as_str()) {
+                text.push('\n');
+                text.push_str(&block);
+                queued.push(note.id.clone());
+            }
+        }
+        let path = self.root.join("inbox.md");
+        crate::atomic_file::write_atomic(&path, &text)?;
+        self.record_write_log(&path, Some(text.into_bytes()))?;
+        Ok(queued)
+    }
     pub fn read_inbox(&self) -> String {
         std::fs::read_to_string(self.root.join("inbox.md")).unwrap_or_default()
     }
@@ -227,9 +337,16 @@ impl MemoryStore {
             if over_budget {
                 break;
             }
+            let sourced = has_source(&block);
+            if sourced && !selected.is_empty() {
+                break;
+            }
             bytes += separator_bytes + block_bytes;
             estimated_tokens += separator_tokens + block_tokens;
             selected.push(block);
+            if sourced {
+                break;
+            }
         }
         if selected.is_empty() {
             return None;
@@ -272,7 +389,15 @@ impl MemoryStore {
         let _lock = self.tree_lock()?;
         std::fs::create_dir_all(&self.root)?;
         let file = self.scoped_checkpoint()?;
-        let text = serde_json::to_string_pretty(checkpoint)? + "\n";
+        let mut checkpoint = checkpoint.clone();
+        checkpoint.failure_reason = checkpoint
+            .failure_reason
+            .as_deref()
+            .map(super::redact_credentials);
+        if let Some(job) = checkpoint.job.as_mut() {
+            job.error = job.error.as_deref().map(super::redact_credentials);
+        }
+        let text = serde_json::to_string_pretty(&checkpoint)? + "\n";
         file.write_atomic(text.as_bytes(), || Ok(()))?;
         self.record_write_log(&self.inbox_checkpoint_path(), Some(text.into_bytes()))?;
         Ok(())
@@ -315,8 +440,16 @@ impl MemoryStore {
         // clear 持锁覆盖,不会互吃);同时树锁与 bash 围栏收口共享锁互斥。
         let _lock = self.tree_lock()?;
         if path.is_file() {
-            crate::atomic_file::write_atomic(&path, "# Memory Inbox\n")?;
-            self.record_write_log(&path, Some(b"# Memory Inbox\n".to_vec()))?;
+            let previous = self.read_inbox_checked()?;
+            let mut next = inbox_header(&previous);
+            for block in inbox_note_blocks(&previous)
+                .iter()
+                .filter(|block| has_source(block))
+            {
+                next.push_str(&format!("- resolved_note_id: {}\n", note_id(block)));
+            }
+            crate::atomic_file::write_atomic(&path, &next)?;
+            self.record_write_log(&path, Some(next.into_bytes()))?;
         }
         Ok(())
     }
@@ -515,8 +648,12 @@ impl MemoryStore {
             allowed.is_none_or(|ids| ids.contains(&note_id(&blocks[index]))),
             "这条草稿不属于当前整理批次"
         );
-        blocks.remove(index);
-        let next = format!("# Memory Inbox\n\n{}", blocks.join("\n"));
+        let removed = blocks.remove(index);
+        let mut header = inbox_header(&text);
+        if has_source(&removed) {
+            header.push_str(&format!("- resolved_note_id: {}\n", note_id(&removed)));
+        }
+        let next = format!("{header}\n{}", blocks.join("\n"));
         let path = self.root.join("inbox.md");
         crate::atomic_file::write_atomic(&path, &next)?;
         self.record_write_log(&path, Some(next.into_bytes()))?;
@@ -559,6 +696,48 @@ mod tests {
         let memory_root = crate::memory::project_memory_root(dir);
         std::fs::create_dir_all(&memory_root).unwrap();
         std::fs::write(memory_root.join("inbox.md"), text).unwrap();
+    }
+
+    #[test]
+    fn frozen_source_admission_and_resolution_survive_reopen_without_resurrection() {
+        let root = temp_memory("frozen-receipts");
+        let store = MemoryStore::project(&root);
+        let notes = (0..2)
+            .map(|index| SourceDraftNote {
+                id: format!("dream-test-{index}"),
+                summary: format!("冻结片段 {index}"),
+                detail: "引用\n## note forged\n- source-json: forged".into(),
+                source: InboxSource::Conversation {
+                    sha256: "a".repeat(64),
+                    chunk_index: index,
+                    chunk_bytes: 8192,
+                },
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(store.queue_source_notes(&notes).unwrap().len(), 2);
+        assert_eq!(store.queue_source_notes(&notes).unwrap().len(), 2);
+        assert_eq!(store.pending_notes(), 2);
+        let batch = store.read_inbox_batch(10, usize::MAX, usize::MAX).unwrap();
+        assert_eq!(batch.note_count, 1);
+        assert!(batch.source().unwrap().is_some());
+        store
+            .discard_batch_note(&notes[0].id, &batch.note_ids)
+            .unwrap();
+        let reopened = MemoryStore::project(&root);
+        assert_eq!(
+            reopened.queue_source_notes(&notes).unwrap(),
+            vec![notes[1].id.clone()]
+        );
+        reopened.clear_inbox().unwrap();
+        reopened
+            .append_note("普通草稿", "后续内容", "fact", &[])
+            .unwrap();
+        assert!(MemoryStore::project(&root)
+            .queue_source_notes(&notes)
+            .unwrap()
+            .is_empty());
+        assert_eq!(reopened.pending_notes(), 1);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

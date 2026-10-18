@@ -80,6 +80,16 @@ pub enum AddOutcome {
     Uncertain(Vec<MemoryEntry>),
 }
 
+/// A model proposal with engine-validated provenance. Always requires user review.
+pub struct ReviewCandidateDraft<'a> {
+    pub category: &'a str,
+    pub title: &'a str,
+    pub description: &'a str,
+    pub body: &'a str,
+    pub idempotency_key: &'a str,
+    pub provenance: &'a serde_json::Value,
+}
+
 /// R-165 批2 novelty gate 三档分流结果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Novelty {
@@ -254,6 +264,66 @@ impl MemoryStore {
         subject: Option<&str>,
         force: bool,
     ) -> anyhow::Result<AddOutcome> {
+        self.add_record(
+            category,
+            title,
+            description,
+            body,
+            source,
+            refs,
+            subject,
+            force,
+            &[],
+        )
+    }
+
+    pub fn add_review_candidate(
+        &self,
+        draft: ReviewCandidateDraft<'_>,
+    ) -> anyhow::Result<AddOutcome> {
+        let _lock = self.tree_lock()?;
+        if let Some((_, entry)) = self.load_all_checked()?.into_iter().find(|(_, entry)| {
+            entry
+                .extras
+                .iter()
+                .any(|(key, value)| key == "proposal_id" && value == draft.idempotency_key)
+        }) {
+            return Ok(AddOutcome::Duplicate(entry));
+        }
+        let extras = vec![
+            ("proposal_id".into(), draft.idempotency_key.into()),
+            ("review_required".into(), "true".into()),
+            (
+                "provenance".into(),
+                serde_json::to_string(draft.provenance)?,
+            ),
+        ];
+        self.add_record(
+            draft.category,
+            draft.title,
+            draft.description,
+            draft.body,
+            "conversation-dream",
+            &[],
+            None,
+            false,
+            &extras,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)] // One admission transaction supplies all initial record fields and trusted provenance.
+    fn add_record(
+        &self,
+        category: &str,
+        title: &str,
+        description: &str,
+        body: &str,
+        source: &str,
+        refs: &[String],
+        subject: Option<&str>,
+        force: bool,
+        metadata: &[(String, String)],
+    ) -> anyhow::Result<AddOutcome> {
         for text in [title, description, body, source, subject.unwrap_or("")] {
             super::privacy::reject_credentials(text)?;
         }
@@ -319,7 +389,7 @@ impl MemoryStore {
         }
         let now = today();
         let extras = {
-            let mut extras: Vec<(String, String)> = Vec::new();
+            let mut extras: Vec<(String, String)> = metadata.to_vec();
             let refs: Vec<&str> = refs
                 .iter()
                 .map(|r| r.trim())
@@ -454,6 +524,7 @@ impl MemoryStore {
             anyhow::bail!("unknown memory id `{id}`");
         };
         let previous_status = entry.status.clone();
+        let previous_content = super::memory_content_revision(&entry);
         // D-282 ②:CAS——写前校验调用方看到的版本没被别人改过。
         if let Some(expected) = expected_hash {
             let current = kanzei_base::content_hash(render_entry(&entry).as_bytes());
@@ -496,6 +567,15 @@ impl MemoryStore {
         }
         if let Some(areas) = area {
             archive::set_area_field(&mut entry, areas);
+        }
+        if entry.requires_review()
+            && entry.status == "active"
+            && super::memory_content_revision(&entry) != previous_content
+        {
+            entry.status = "candidate".into();
+            entry.extras.retain(|(key, _)| {
+                !key.starts_with("retention_") && key != "reviewed_content_revision"
+            });
         }
         entry.updated = today();
         // 文件名沿用旧路径(slug 终身不改)。
@@ -666,6 +746,15 @@ impl MemoryStore {
         // R-255 第二刀:provenance 门禁(状态机/episode 真实/证据先落库)提纯到
         // MemoryLifecycle::promote_guard;store 只做查条目 + 置 active + 落盘。
         MemoryLifecycle.promote_guard(id, &entry, sources, source_hash, self.scope, &self.root)?;
+        if entry.requires_review() {
+            let reviewed = super::memory_content_revision(&entry);
+            entry
+                .extras
+                .retain(|(key, _)| key != "reviewed_content_revision");
+            entry
+                .extras
+                .push(("reviewed_content_revision".into(), reviewed));
+        }
         entry.status = "active".into();
         entry.updated = today();
         self.write_entry(&entry, Some(&path))?;
@@ -744,6 +833,14 @@ impl MemoryStore {
                 .map(|(now, updated)| now.saturating_sub(updated));
             // R-255 第二刀:晋升/清退判定提纯到 MemoryLifecycle(should_promote/
             // should_deprecate),store 只执行;promote 失败落回清退判定(与原一致)。
+            if entry
+                .extras
+                .iter()
+                .any(|(key, value)| key == "review_required" && value == "true")
+            {
+                report.untouched.push(entry.id.clone());
+                continue; // A conversation inference waits for explicit review, never age or repetition.
+            }
             if MemoryLifecycle.should_promote(&entry, recurrence, current_episode_id) {
                 if let Some(episode_id) = current_episode_id {
                     if self
@@ -787,7 +884,13 @@ impl MemoryStore {
         let mut over_capacity = self
             .load_all()
             .into_iter()
-            .filter(|(_, entry)| entry.status == "candidate")
+            .filter(|(_, entry)| {
+                entry.status == "candidate"
+                    && !entry
+                        .extras
+                        .iter()
+                        .any(|(key, value)| key == "review_required" && value == "true")
+            })
             .collect::<Vec<_>>();
         if over_capacity.len() > crate::memory::CANDIDATE_MAX_COUNT {
             over_capacity.sort_by_key(|(_, entry)| self.candidate_retention_key(entry));
@@ -841,6 +944,16 @@ impl MemoryStore {
         entry: &MemoryEntry,
         existing_path: Option<&Path>,
     ) -> anyhow::Result<()> {
+        if entry.status == "active" && entry.requires_review() {
+            let current = super::memory_content_revision(entry);
+            anyhow::ensure!(
+                entry
+                    .extras
+                    .iter()
+                    .any(|(key, value)| key == "reviewed_content_revision" && value == &current),
+                "对话候选必须通过当前内容版本的明确复核才能启用"
+            );
+        }
         let rendered = render_entry(entry);
         for text in [
             &entry.id,

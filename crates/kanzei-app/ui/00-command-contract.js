@@ -281,6 +281,11 @@ export const commandParameters = {
   "memory_control_plane": {
     "projectDir": true
   },
+  "memory_dream": {
+    "processId": false,
+    "projectDir": true,
+    "requestId": true
+  },
   "memory_entries": {
     "category": false,
     "projectDir": true,
