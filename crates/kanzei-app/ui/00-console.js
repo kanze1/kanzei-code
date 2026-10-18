@@ -1,15 +1,7 @@
 // R-126:自加载起累积 console 错误与未捕获异常,供 ui_console 工具取样。
 // 必须在最前面装:晚一步就漏掉初始化阶段的错误,而那正是最要命的一段。
-export const uiConsoleLog = [];
-export const UI_CONSOLE_MAX = 200;
-export function recordConsole(level, args) {
-  if (uiConsoleLog.length >= UI_CONSOLE_MAX) uiConsoleLog.shift();
-  uiConsoleLog.push({
-    level,
-    at: Date.now(),
-    text: args.map((a) => (a instanceof Error ? `${a.message}\n${a.stack ?? ""}` : String(a))).join(" "),
-  });
-}
+import { recordConsole } from "./00-console-log.js";
+export { uiConsoleLog, UI_CONSOLE_MAX, recordConsole } from "./00-console-log.js";
 for (const level of ["error", "warn"]) {
   const original = console[level].bind(console);
   console[level] = (...args) => {

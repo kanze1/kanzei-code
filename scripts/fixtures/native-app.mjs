@@ -68,6 +68,10 @@ export async function nativeApp(executable, output, label, handle, extraConfig =
     }
   };
   const close=()=>closing ??= (async()=>{
+    if(page&&!page.isClosed()) {
+      const [captured]=await Promise.allSettled([page.evaluate(async()=>(await import("./00-console-log.js")).uiConsoleLog)]);
+      diagnostics.ui_console=captured.status==="fulfilled"?{status:"captured",entries:captured.value}:{status:"failed",error:String(captured.reason)};
+    }
     try {
       await closeNativeResources({browser,app,model,probe},page&&!page.isClosed()?()=>invoke("runtime_shutdown"):undefined);
     } catch(error) {
