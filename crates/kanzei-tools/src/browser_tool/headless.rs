@@ -45,6 +45,9 @@ pub async fn execute_headless(
     ctx: &kanzei_harness::ToolCtx,
     pane_hint: bool,
 ) -> ToolOutput {
+    if input.backend == Some(Backend::Pane) {
+        return browser_error(Backend::Pane, "内部面板不可用；该动作未转移到独立浏览器");
+    }
     let backend = if input.connection_id.is_some() || input.action == "connect" {
         Backend::Attached
     } else {

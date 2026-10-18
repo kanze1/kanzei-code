@@ -21,8 +21,8 @@ await copyFile("node_modules/react-dom/umd/react-dom.development.js", path.join(
 await writeFile(path.join(project, "attachment.txt"), "ACTUAL_AUTHORIZED_UPLOAD\n");
 await writeFile(path.join(appHome, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
 
-const rounds = { pane: [], headless: [] }, errors = [], checks = [];
-let heldResponse;
+const rounds = { pane: [], headless: [], explicit: [], setup: [], stale: [] }, errors = [], checks = [];
+let heldResponse, heldBackground;
 const check = (value, label) => { assert(value, label); checks.push(label); };
 function reply(res, delta) {
   res.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -37,17 +37,31 @@ const model = http.createServer(async (req, res) => {
     if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
     const messages = JSON.parse(raw).messages, user = messages.findLastIndex(message => message.role === "user" && JSON.stringify(message.content).includes("NATIVE_FORM_ACCEPTANCE"));
     if (user < 0) { reply(res, { content: "No memory candidates for this fixture." }); return; }
-    const mode = JSON.stringify(messages[user].content).includes("NATIVE_FORM_ACCEPTANCE_BG") ? "headless" : "pane";
+    const marker = JSON.stringify(messages[user].content);
+    const mode = marker.includes("NATIVE_FORM_ACCEPTANCE_STALE") ? "stale" : marker.includes("NATIVE_FORM_ACCEPTANCE_SETUP") ? "setup" : marker.includes("NATIVE_FORM_ACCEPTANCE_EDGE") ? "explicit" : marker.includes("NATIVE_FORM_ACCEPTANCE_BG") ? "headless" : "pane";
     const results = rounds[mode];
     const outputs = messages.slice(user + 1).filter(message => message.role === "tool");
     if (outputs.length) {
       const last = outputs.at(-1).content;
       results[outputs.length - 1] = last;
-      assert(!last.startsWith("[tool error]"), `Tool failed at step ${outputs.length}: ${last}`);
-      assert(!last.includes("[tool_outcome="), `Unexpected tool rejection at step ${outputs.length}: ${last}`);
-      assert(!last.includes("浏览器工具失败"), `Browser operation failed at step ${outputs.length}: ${last}`);
+      if (mode !== "stale") {
+        assert(!last.startsWith("[tool error]"), `Tool failed at step ${outputs.length}: ${last}`);
+        assert(!last.includes("[tool_outcome="), `Unexpected tool rejection at step ${outputs.length}: ${last}`);
+        assert(!last.includes("浏览器工具失败"), `Browser operation failed at step ${outputs.length}: ${last}`);
+      }
+    }
+    if (mode === "setup" || mode === "stale") {
+      const plan = [["tool_search", { query: "select:browser" }], ["browser", mode === "setup" ? { action: "open", backend: "pane", path: "form.html" } : { action: "type", selector: "#name", text: "MUST_NOT_REACH_REPLACEMENT" }]];
+      if (outputs.length >= plan.length) { reply(res, { content: `${mode.toUpperCase()}_DONE` }); return; }
+      const [name, args] = plan[outputs.length];
+      reply(res, { tool_calls: [{ index: 0, id: `native-${mode}-${outputs.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }); return;
+    }
+    if (mode === "explicit") {
+      if (outputs.length === 1) { reply(res, { content: "EXPLICIT_EDGE_DONE" }); return; }
+      reply(res, { tool_calls: [{ index: 0, id: "native-explicit-edge", type: "function", function: { name: "browser", arguments: JSON.stringify({ action: "open", backend: "headless", path: "form.html" }) } }] }); return;
     }
     if (outputs.length === actions.length && mode === "pane") { heldResponse = res; return; }
+    if (outputs.length === actions.length && mode === "headless") { heldBackground = res; return; }
     if (outputs.length >= actions.length) { reply(res, { content: "NATIVE_FORM_DONE：已校验、纠正并提交，保存了渲染正文。" }); return; }
     const [name, args] = actions[outputs.length];
     const input = mode === "headless" && args.text === "最后确认" ? { ...args, text: "后台确认" } : args;
@@ -115,22 +129,50 @@ try {
   assert.equal(JSON.parse(await preview.locator("#result").textContent()).state.name, "最后确认");
   await page.locator("#preview-close").click();
   const background = await create(); await select(foreground.id); await start(background, "NATIVE_FORM_ACCEPTANCE_BG");
-  await until(async () => { const rows = await progress([foreground, background]); return rounds.headless.length === actions.length && rows.find(row => row.process_id === background.id)?.status === "completed"; }, "Background Edge form completes while foreground provider is held", 90000);
+  await until(async () => { await progress([foreground, background]); return rounds.headless.length === actions.length && heldBackground; }, "Background Edge form completes while foreground provider is held", 90000);
   const backgroundEvidence = await validateRound(background, "headless");
+  await select(background.id);
+  reply(heldBackground, { tool_calls: [{ index: 0, id: "native-switch-open", type: "function", function: { name: "browser", arguments: JSON.stringify({ action: "open", path: "form.html" }) } }] }); heldBackground = null;
+  await until(async () => { const rows = await progress([foreground, background]); return rounds.headless.length === actions.length + 1 && rows.find(row => row.process_id === background.id)?.status === "completed"; }, "Switched conversation keeps its original browser");
+  check(rounds.headless.at(-1).startsWith("backend: headless"), "Switching a background conversation to the foreground does not migrate its next navigation into WebView2");
   const rows = await invoke("collaboration_snapshot", { projectDir: project });
   check(rows.find(row => row.process_id === foreground.id)?.running && rows.find(row => row.process_id === background.id)?.status === "completed", "Two real conversations run concurrently and background Edge completes independently");
   check(JSON.parse(await preview.locator("#result").textContent()).state.name === "最后确认", "Background Edge does not change the hidden foreground WebView2 form");
+  await select(foreground.id);
   reply(heldResponse, { tool_calls: [{ index: 0, id: "native-hidden-source", type: "function", function: { name: "browser", arguments: JSON.stringify({ action: "source" }) } }] }); heldResponse = null;
   await until(async () => { const rows = await progress([foreground]); return rounds.pane.length === actions.length + 1 && rows.find(row => row.process_id === foreground.id)?.status === "completed"; }, "Hidden foreground page remains operable on the same backend");
   check(rounds.pane.at(-1).startsWith("backend: pane") && rounds.pane.at(-1).includes("最后确认"), "A hidden page is captured through its original pane without switching browser or losing its form");
+  const explicit = await create(); await select(explicit.id); await start(explicit, "NATIVE_FORM_ACCEPTANCE_EDGE");
+  await until(async () => { const rows = await progress([explicit]); return rounds.explicit.length === 1 && rows.find(row => row.process_id === explicit.id)?.status === "completed"; }, "Foreground explicitly selects an independent Edge browser");
+  check(rounds.explicit[0].startsWith("backend: headless"), "An explicit headless backend opens independent Edge even in the foreground");
+  await until(() => page.evaluate(async () => (await import("./00-surface.js")).surfaceElements().every(surface => surface.type === "tooltip")), "Visible-browser capture begins after background approval notifications are dismissed");
+  await start(explicit, "NATIVE_FORM_ACCEPTANCE_SETUP");
+  await until(async () => { const rows = await progress([explicit]); return rounds.setup.length === 2 && rows.find(row => row.process_id === explicit.id)?.status === "completed"; }, "Explicit selection switches this conversation into the internal pane");
+  check(rounds.setup[1].startsWith("backend: pane"), "Explicit backend selection switches an existing headless conversation into its own internal pane");
+  const stalePage = browser.contexts()[0].pages().find(target => target.url().includes(".localhost:") && !target.isClosed()); assert(stalePage);
+  const staleUrl = stalePage.url();
+  await invoke("run_prompt", { projectDir: project, processId: explicit.id, prompt: "NATIVE_FORM_ACCEPTANCE_STALE：修改姓名字段。", profile: "dev", agent: "dev-pair", model: "stub:test", autonomous: false, autoAllow: false });
+  let staleAsk;
+  await until(async () => { staleAsk = (await invoke("pending_asks_get", { projectDir: project, processId: explicit.id })).find(ask => ask.action === "browser"); return Boolean(staleAsk); }, "Browser action waits for actual approval");
+  await invoke("preview_close");
+  await invoke("preview_open", { target: staleUrl, processId: explicit.id, bounds: { x: 420, y: 80, w: 800, h: 600 } });
+  let replacement;
+  await until(() => { replacement = browser.contexts()[0].pages().find(target => target.url() === staleUrl && !target.isClosed()); return Boolean(replacement); }, "Replacement WebView2 target finishes navigation to the same URL");
+  await replacement.locator("#name").waitFor();
+  await invoke("answer_ask", { id: staleAsk.id, reply: "once" });
+  await until(async () => { const rows = await progress([explicit]); return rounds.stale.length === 2 && rows.find(row => row.process_id === explicit.id)?.status === "completed"; }, "Stale approved action returns without modifying replacement page");
+  check(rounds.stale[1].includes("预览页面已变化"), "Actual approval rejects a replaced WebView2 page at the same URL");
+  check(await replacement.locator("#name").inputValue() !== "MUST_NOT_REACH_REPLACEMENT", "The replacement page receives zero stale field mutations");
   await page.screenshot({ path: path.join(output, "native-form.png") });
   await writeFile(path.join(output, "acceptance.json"), JSON.stringify({ passed: checks.length, checks, actions: actions.map(([tool, args]) => ({ tool, action: args.action })), foreground: foregroundEvidence, background: backgroundEvidence, executable: exe, boundary: "Actual native app, runner, WebView2, controlled Edge, React 18.3.1 and SQLite; two concurrent conversations, deterministic local provider and disposable project/profile." }, null, 2));
   console.log(`Browser forms native PASS: ${checks.length} checks`);
 } catch (error) {
+  if (page && !page.isClosed()) console.log("Native UI failure state", await page.evaluate(async () => ({ preview: (await import("./24-preview.js")).previewState(), surfaces: (await import("./00-surface.js")).surfaceElements().map(surface => ({ type: surface.type, id: surface.el.id, text: surface.el.textContent.slice(0, 100) })) })));
   if (page && !page.isClosed()) await page.screenshot({ path: path.join(output, "native-failure.png") });
   await writeFile(path.join(output, "failure.json"), JSON.stringify({ checks, rounds, errors }, null, 2)); throw error;
 } finally {
   heldResponse?.destroy();
+  heldBackground?.destroy();
   database?.close();
   if (page && !page.isClosed()) await invoke("runtime_shutdown").catch(error => console.warn(String(error)));
   await browser?.close(); app.kill(); model.closeAllConnections(); await new Promise(resolve => model.close(resolve));

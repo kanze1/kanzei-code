@@ -16,6 +16,7 @@ mod app_events;
 mod async_mailbox;
 mod attachments;
 mod auto_run;
+mod browser_selection;
 mod collaboration;
 mod commands;
 mod composer_drafts;

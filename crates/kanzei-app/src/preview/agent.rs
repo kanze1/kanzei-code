@@ -19,13 +19,10 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(15);
 const BACKEND: Backend = Backend::Pane;
 
 /// Operate the owned pane. Capture checks visibility separately from page identity.
-pub(crate) async fn execute(input: &BrowserInput, ctx: &ToolCtx) -> Option<ToolOutput> {
-    execute_checked(input, ctx, None).await
-}
 pub(crate) async fn execute_checked(
     input: &BrowserInput,
     ctx: &ToolCtx,
-    expected_url: Option<&str>,
+    expected: Option<&super::PageTarget>,
 ) -> Option<ToolOutput> {
     use tauri::Manager;
     if ctx.browser_owner.is_some() {
@@ -50,8 +47,9 @@ pub(crate) async fn execute_checked(
     ) {
         return Some(ToolOutput::error("预览会话已变化，请重新检查后再操作"));
     }
+    let actual = super::page_target(ctx.process_id.as_deref());
     if pane.shared.meta().url != snapshot.url
-        || expected_url.is_some_and(|url| pane.shared.meta().url != url)
+        || expected.is_some_and(|target| actual.as_ref() != Some(target))
     {
         return Some(ToolOutput::error("预览页面已变化，请重新检查后再操作"));
     }

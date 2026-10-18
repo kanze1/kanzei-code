@@ -208,6 +208,27 @@ pub(crate) struct Rect {
     pub(crate) h: f64,
 }
 
+/// A permission plan names a particular pane incarnation and loaded document.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PageTarget {
+    pub(crate) id: String,
+    pub(crate) document: u64,
+    pub(crate) url: String,
+}
+
+pub(crate) fn page_target(process: Option<&str>) -> Option<PageTarget> {
+    let pane = pane::current(app()?)?;
+    let meta = pane.shared.meta();
+    if route(Some(&meta), process) != Backend::Pane {
+        return None;
+    }
+    Some(PageTarget {
+        id: format!("{}:{}", pane.shared.generation, meta.owner_epoch),
+        document: meta.document_epoch,
+        url: meta.url.clone(),
+    })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ErrorKind {
@@ -236,6 +257,8 @@ pub(crate) struct PaneMeta {
     pub(crate) bound_process_id: Option<String>,
     #[serde(skip)]
     pub(crate) owner_epoch: u64,
+    #[serde(skip)]
+    pub(crate) document_epoch: u64,
     pub(crate) device: DevicePreset,
     pub(crate) scheme: ColorScheme,
     /// User-selected page zoom, independent of fitting the device into the host.
@@ -309,6 +332,7 @@ pub(crate) enum MetaEffect {
 impl PaneMeta {
     /// 顶层导航开始(on_navigation 放行、preview_open、代理导航):错误态只在这里复位。
     pub(crate) fn begin_navigation(&mut self) {
+        self.document_epoch += 1;
         self.error = None;
         self.nav.error_loader = None;
         self.loading = true;

@@ -2543,6 +2543,7 @@ dependencies = [
  "syn 2.0.119",
  "tauri",
  "tauri-build",
+ "tempfile",
  "tokio",
  "toml 0.8.23",
  "toml_edit 0.22.27",

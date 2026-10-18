@@ -929,6 +929,7 @@ defer(() => {
       else if (kind === "console") result = probeConsole();
       else if (kind === "style") result = probeStyle(arg);
       else if (kind === "preview") result = await (await import("./24-preview.js")).prepareAgentPreview(arg);
+      else if (kind === "select_preview") result = await (await import("./24-preview.js")).selectAgentPreview(arg);
       else result = `未知探针类型: ${kind}`;
     } catch (err) {
       // 探针自身出错也要如实回传,不能让后端悬到超时。

@@ -375,18 +375,7 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
                 kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx);
             return kanzei_tools::browser::resources_for(input, Some(&ctx.cwd), current.as_deref());
         }
-        if crate::runtime_service::is_service() {
-            return crate::desktop_bridge::browser_resources(input, ctx);
-        }
-        let current = match crate::preview::route_for(ctx.process_id.as_deref()) {
-            crate::preview::Backend::Pane => crate::preview::current_meta()
-                .map(|meta| meta.url)
-                .filter(|url| !url.is_empty() && url != "about:blank"),
-            crate::preview::Backend::Headless => {
-                kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx)
-            }
-        };
-        kanzei_tools::browser::resources_for(input, Some(&ctx.cwd), current.as_deref())
+        crate::desktop_bridge::browser_resources(input, ctx)
     }
 
     fn concurrency(
@@ -410,35 +399,7 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
                 Err(output) => *output,
             };
         }
-        if crate::runtime_service::is_service() {
-            return crate::desktop_bridge::browser(input, ctx).await;
-        }
-        let input = match kanzei_tools::browser::parse_browser_input(input) {
-            Ok(input) => input,
-            Err(output) => return *output,
-        };
-        // Only an explicit navigation may create a foreground pane. Contextual
-        // actions retain the backend used for their resource check.
-        if input.action == "open"
-            && crate::preview::route_for(ctx.process_id.as_deref())
-                == crate::preview::Backend::Headless
-        {
-            if let Some(process) = ctx.process_id.as_deref() {
-                let _ = crate::ui_probe("preview", process).await;
-            }
-        }
-        // The page's owner determines routing; visibility only affects capture.
-        if crate::preview::route_for(ctx.process_id.as_deref()) == crate::preview::Backend::Pane {
-            return crate::preview::agent::execute(&input, ctx)
-                .await
-                .unwrap_or_else(|| {
-                    kanzei_harness::ToolOutput::failed(
-                        "BROWSER_TARGET_LOST",
-                        "已授权的预览页面已关闭；动作未转移到其他浏览器。",
-                    )
-                });
-        }
-        kanzei_tools::browser::execute_headless(input, ctx, true).await
+        crate::desktop_bridge::browser(input, ctx).await
     }
 }
 

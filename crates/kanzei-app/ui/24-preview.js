@@ -580,8 +580,16 @@ export function closePreviewDock() {
 }
 // Called only after the browser tool's permission decision. Prepare an empty
 // native page; the tool itself performs the authorized navigation once.
+function canPrepareAgentPreview(processId) {
+  return Boolean(processId && processId === activeProcessId && currentView() === "chat" && !document.hidden && !isModalOpen());
+}
+export async function selectAgentPreview(processId) {
+  if (!canPrepareAgentPreview(processId)) return { ready: false };
+  const ready = await openPreviewTarget("about:blank", { record: false });
+  return { ready, url: ready ? "about:blank" : null };
+}
 export async function prepareAgentPreview(processId) {
-  if (!processId || processId !== activeProcessId || currentView() !== "chat" || document.hidden || isModalOpen() || autoDismissed.has(processId)) return { ready: false };
+  if (!canPrepareAgentPreview(processId) || autoDismissed.has(processId)) return { ready: false };
   if (state.alive && state.ownerProcess !== processId) return { ready: false };
   if (state.alive && state.open) return { ready: false };
   const existing = state.alive, url = existing ? state.url : "about:blank";

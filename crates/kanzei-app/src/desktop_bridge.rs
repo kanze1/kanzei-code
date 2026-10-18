@@ -13,8 +13,13 @@ use std::{
 use tauri::Manager;
 
 static DESKTOP: LazyLock<Mutex<Option<Endpoint>>> = LazyLock::new(Mutex::default);
-type DesktopPlan = Option<(Endpoint, String)>;
-static PLANS: LazyLock<Mutex<HashMap<String, DesktopPlan>>> = LazyLock::new(Mutex::default);
+struct DesktopPlan {
+    endpoint: Option<Endpoint>,
+    backend: Option<kanzei_tools::browser::Backend>,
+    target: Option<crate::preview::PageTarget>,
+}
+static PLANS: LazyLock<Mutex<HashMap<String, Result<DesktopPlan, String>>>> =
+    LazyLock::new(Mutex::default);
 pub(crate) fn attach(value: &Value) {
     if let Ok(endpoint) = serde_json::from_value::<Endpoint>(value.clone()) {
         if endpoint
@@ -62,13 +67,14 @@ fn read_meta(endpoint: &Endpoint, process: Option<&str>) -> Option<Value> {
     (response["ok"] == true).then(|| response["value"].clone())
 }
 pub(crate) fn browser_resources(input: &Value, ctx: &ToolCtx) -> Vec<String> {
-    let plan = DESKTOP.lock_or_recover().clone().and_then(|endpoint| {
-        let meta = read_meta(&endpoint, ctx.process_id.as_deref())?;
-        (meta["pane"] == true).then(|| (endpoint, meta["url"].as_str().unwrap_or("").to_owned()))
-    });
-    let url = plan.as_ref().map(|(_, url)| url.clone()).or_else(|| {
-        kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx)
-    });
+    let plan = prepare_browser(input, ctx);
+    let url = plan
+        .as_ref()
+        .ok()
+        .and_then(|plan| plan.target.as_ref().map(|target| target.url.clone()))
+        .or_else(|| {
+            kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx)
+        });
     let mut plans = PLANS.lock_or_recover();
     if plans.len() > 256 {
         plans.clear();
@@ -76,41 +82,101 @@ pub(crate) fn browser_resources(input: &Value, ctx: &ToolCtx) -> Vec<String> {
     plans.insert(plan_key(input, ctx), plan);
     kanzei_tools::browser::resources_for(input, Some(&ctx.cwd), url.as_deref())
 }
+fn prepare_browser(input: &Value, ctx: &ToolCtx) -> Result<DesktopPlan, String> {
+    use kanzei_tools::browser::{Backend, BrowserAction};
+    let parsed =
+        kanzei_tools::browser::parse_browser_input(input.clone()).map_err(|e| e.model_content())?;
+    kanzei_tools::browser::validate(&parsed, BrowserAction::parse(&parsed.action)?)?;
+    let previous = crate::browser_selection::selected(ctx)?;
+    let endpoint = DESKTOP.lock_or_recover().clone();
+    let target = endpoint
+        .as_ref()
+        .and_then(|endpoint| read_meta(endpoint, ctx.process_id.as_deref()))
+        .and_then(|meta| {
+            serde_json::from_value::<Option<crate::preview::PageTarget>>(meta["target"].clone())
+                .ok()
+                .flatten()
+        });
+    let backend = parsed
+        .backend
+        .or_else(|| previous.as_ref().map(|selection| selection.backend))
+        .or_else(|| target.as_ref().map(|_| Backend::Pane));
+    if backend == Some(Backend::Pane) && parsed.backend.is_none() {
+        if let Some(previous) = &previous {
+            if previous.page_id.as_deref() != target.as_ref().map(|target| target.id.as_str()) {
+                return Err(
+                    "原预览页面已关闭或被替换；重新选择 backend: pane 并 open 后再操作".into(),
+                );
+            }
+        }
+    }
+    Ok(DesktopPlan {
+        endpoint,
+        backend,
+        target: if backend == Some(Backend::Pane) {
+            target
+        } else {
+            None
+        },
+    })
+}
 pub(crate) async fn browser(input: Value, ctx: &ToolCtx) -> ToolOutput {
     let plan = PLANS.lock_or_recover().remove(&plan_key(&input, ctx));
     let Some(plan) = plan else {
         return ToolOutput::error("浏览器上下文已过期，请重新检查后再操作");
     };
-    if let Some((endpoint, url)) = plan {
-        return tool_call(&endpoint, "browser", input, ctx, Some(url)).await;
+    let mut plan = match plan {
+        Ok(plan) => plan,
+        Err(error) => return ToolOutput::needs_correction("BROWSER_TARGET_CHANGED", error),
+    };
+    use kanzei_tools::browser::Backend;
+    if let (Some(endpoint), Some(target)) = (&plan.endpoint, &plan.target) {
+        if let Err(error) =
+            crate::browser_selection::remember(ctx, Backend::Pane, Some(target.id.clone()))
+        {
+            return ToolOutput::error(error);
+        }
+        return tool_call(endpoint, "browser", input, ctx, Some(target.clone())).await;
     }
     // Resource authorization has already completed. Creating about:blank is
     // allowed only for an explicit open; click/evaluate/relative actions never
     // migrate from their planned headless page to a different browser.
-    if input["action"] == "open" {
-        let endpoint = DESKTOP.lock_or_recover().clone();
-        if let (Some(endpoint), Some(process)) = (endpoint, ctx.process_id.as_deref()) {
+    if input["action"] == "open" && plan.backend != Some(Backend::Headless) {
+        if let (Some(endpoint), Some(process)) = (&plan.endpoint, ctx.process_id.as_deref()) {
             if let Ok(Ok(value)) = tokio::time::timeout(
                 Duration::from_secs(9),
                 request(
-                    &endpoint,
-                    json!({"action":"ui_probe","kind":"preview","arg":process}),
+                    endpoint,
+                    json!({"action":"ui_probe","kind":if plan.backend == Some(Backend::Pane) { "select_preview" } else { "preview" },"arg":process}),
                 ),
             )
             .await
             {
                 if value["ready"] == true {
-                    return tool_call(
-                        &endpoint,
-                        "browser",
-                        input,
-                        ctx,
-                        Some(value["url"].as_str().unwrap_or("about:blank").to_owned()),
-                    )
-                    .await;
+                    plan.target = read_meta(endpoint, ctx.process_id.as_deref())
+                        .and_then(|meta| serde_json::from_value(meta["target"].clone()).ok());
+                    if let Some(target) = plan.target {
+                        if let Err(error) = crate::browser_selection::remember(
+                            ctx,
+                            Backend::Pane,
+                            Some(target.id.clone()),
+                        ) {
+                            return ToolOutput::error(error);
+                        }
+                        return tool_call(endpoint, "browser", input, ctx, Some(target)).await;
+                    }
                 }
             }
         }
+    }
+    if plan.backend == Some(Backend::Pane) {
+        return ToolOutput::needs_correction(
+            "BROWSER_TARGET_LOST",
+            "内部面板不可用；动作未转移到独立浏览器",
+        );
+    }
+    if let Err(error) = crate::browser_selection::remember(ctx, Backend::Headless, None) {
+        return ToolOutput::error(error);
     }
     match kanzei_tools::browser::parse_browser_input(input) {
         Ok(input) => kanzei_tools::browser::execute_headless(input, ctx, true).await,
@@ -140,9 +206,9 @@ async fn tool_call(
     tool: &str,
     input: Value,
     ctx: &ToolCtx,
-    expected_url: Option<String>,
+    target: Option<crate::preview::PageTarget>,
 ) -> ToolOutput {
-    let call = tool_request(tool, input, ctx, expected_url);
+    let call = tool_request(tool, input, ctx, target);
     match tokio::time::timeout(Duration::from_secs(90), request(endpoint, call)).await {
         Ok(Ok(value)) => serde_json::from_value(value).unwrap_or_else(|error| {
             ToolOutput::failed(
@@ -187,11 +253,7 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                         return Err("桌面认证失败".into());
                     }
                     if value["action"] == "meta" {
-                        let meta = crate::preview::current_meta();
-                        let pane =
-                            crate::preview::route(meta.as_ref(), value["processId"].as_str())
-                                == crate::preview::Backend::Pane;
-                        return Ok(json!({"pane":pane,"url":meta.map(|m|m.url)}));
+                        return Ok(json!({"target":crate::preview::page_target(value["processId"].as_str())}));
                     }
                     if value["action"] == "ui_probe" {
                         let kind = value["kind"].as_str().ok_or("缺少探针类型")?;
@@ -224,10 +286,11 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                                 {
                                     ToolOutput::error("预览窗口已关闭或切换，请重新检查浏览器状态")
                                 } else {
+                                    let target: crate::preview::PageTarget = serde_json::from_value(value["target"].clone()).map_err(|e| format!("缺少授权页面身份: {e}"))?;
                                     crate::preview::agent::execute_checked(
                                         &input,
                                         &ctx,
-                                        value["expectedUrl"].as_str(),
+                                        Some(&target),
                                     )
                                     .await
                                     .unwrap_or_else(|| ToolOutput::error("预览窗口已关闭"))
@@ -252,16 +315,22 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
             });
         }
     });
+    attach(&json!(endpoint));
     Ok(endpoint)
 }
 fn output(out: ToolOutput) -> Value {
     json!(out)
 }
 
-fn tool_request(tool: &str, input: Value, ctx: &ToolCtx, expected_url: Option<String>) -> Value {
+fn tool_request(
+    tool: &str,
+    input: Value,
+    ctx: &ToolCtx,
+    target: Option<crate::preview::PageTarget>,
+) -> Value {
     json!({"action":"tool","tool":tool,"input":input,"cwd":ctx.cwd,"root":ctx.project_root,
         "processId":ctx.process_id,"sessionId":ctx.session_id,"runId":ctx.run_id,
-        "browserOwner":ctx.browser_owner,"expectedUrl":expected_url,"rules":kanzei_harness::permission::execution_rules()})
+        "browserOwner":ctx.browser_owner,"target":target,"rules":kanzei_harness::permission::execution_rules()})
 }
 
 fn tool_context(value: &Value) -> Result<ToolCtx, String> {
@@ -291,7 +360,11 @@ mod tests {
             "browser",
             json!({"action":"source"}),
             &ctx,
-            Some("https://example.com/".into()),
+            Some(crate::preview::PageTarget {
+                id: "pane:owner".into(),
+                document: 12,
+                url: "https://example.com/".into(),
+            }),
         );
         let received = tool_context(&request).unwrap();
         assert_eq!(received.cwd, ctx.cwd);

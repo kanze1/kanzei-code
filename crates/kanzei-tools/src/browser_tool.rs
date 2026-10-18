@@ -3,8 +3,8 @@
 //! - **无头后端**(本 crate,CLI 与桌面兜底):Rust 经 stdio 起 `scripts/browser-helper.mjs`
 //!   (Node 辅进程),playwright-core 以 channel 模式自 launch 本机 Edge/Chrome headless,不碰
 //!   WebView2,天然绕开 D-319。机制见 [`headless`]。
-//! - **面板后端**(kanzei-app `preview::agent`):桌面端「网页预览」面板开着、又正显示这条线时,
-//!   同名动作经进程内 CDP 驱动用户眼前的面板。走哪边由引擎路由(`preview::route`),模型不选。
+//! - **面板后端**(kanzei-app `preview::agent`):同名动作经进程内 CDP 驱动内部面板。
+//!   backend 可明确选择 pane/headless；省略时沿用会话事实，隐藏与会话切换不改变页面归属。
 //!
 //! 两个后端共用这里的输入结构、schema、目标解析(本地路径与 HTML 片段一律走
 //! [`crate::preview_server`] 的 127.0.0.1 静态服务)、权限资源与**全部输出格式**——
@@ -40,7 +40,8 @@ pub const MAX_WAIT_MS: u64 = 10_000;
 pub const CONSOLE_ALL_LIMIT: usize = 200;
 
 /// 结果走了哪个后端。首行必须写明——弱模型分不清两个后端时,至少知道用户看没看见。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Backend {
     Pane,
     Headless,
@@ -142,8 +143,9 @@ pub fn description() -> String {
      explicitly to grant its non-sensitive data files for local fetch. Stateful: open once, \
      then omit url/path/html to keep the current page. Optional \
      viewport (mobile/tablet/desktop presets) and color_scheme (light|dark). In the desktop \
-     app, when the user has the web preview pane open on this conversation, actions drive that \
-     visible pane; otherwise a headless Edge/Chrome. Result line 1 names the backend."
+     app, backend=pane explicitly selects the internal web preview and backend=headless selects \
+     independent Edge/Chrome. Omit backend to retain the conversation's selected browser even \
+     when the pane is hidden or another conversation is selected. Result line 1 names the backend."
         .into()
 }
 
@@ -151,6 +153,7 @@ pub fn description() -> String {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserInput {
+    pub backend: Option<Backend>,
     pub endpoint: Option<String>,
     pub connection_id: Option<String>,
     pub page_id: Option<String>,
@@ -189,6 +192,7 @@ pub struct BrowserInput {
 impl Default for BrowserInput {
     fn default() -> Self {
         BrowserInput {
+            backend: None,
             endpoint: None,
             connection_id: None,
             page_id: None,
@@ -294,6 +298,15 @@ impl BrowserAction {
 
 /// 动作参数的机械校验(两个后端执行前都先过这一道,错误文本一致)。
 pub fn validate(input: &BrowserInput, action: BrowserAction) -> Result<(), String> {
+    if input.backend == Some(Backend::Attached)
+        || (input.backend.is_some()
+            && (input.connection_id.is_some() || action == BrowserAction::Connect))
+    {
+        return Err(
+            "backend 只选择 pane 或 headless；已有浏览器使用 connect 和 connection_id 明确选择"
+                .into(),
+        );
+    }
     if input.frame_id.is_some() != input.expected_frame_url.is_some()
         || ((input.frame_id.is_some() || action == BrowserAction::Frames)
             && input.connection_id.is_none())
@@ -922,6 +935,7 @@ pub fn input_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
+            "backend": { "type": "string", "enum": ["pane", "headless"], "description": "显式选择内部面板或独立 Edge/Chrome；省略则保留会话已选后端，切换会话和隐藏面板不改变它" },
             "endpoint": { "type": "string", "description": "connect: 用户已授权且已启用 CDP 的本机 Edge/Chrome HTTP 地址（例如 http://127.0.0.1:9222）；不自动重启或改动用户配置" },
             "connection_id": { "type": "string", "description": "connect 返回的连接身份；仅当前会话可用，pages 查看标签页，disconnect 断开连接" },
             "page_id": { "type": "string", "description": "已连接浏览器的目标标签页 ID；每次页面动作明确提供" },
