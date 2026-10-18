@@ -2791,6 +2791,73 @@ async fn role_memory_persists_and_stale_writers_cannot_overwrite_it() {
     let value: Value = serde_json::from_str(&current.content).unwrap();
     assert!(PathBuf::from(value["path"].as_str().unwrap())
         .starts_with(root.join(".kanzei/agent-memory")));
+    let path = PathBuf::from(value["path"].as_str().unwrap());
+    let secret = "OPENAI_API_KEY=sk-proj-0123456789abcdefgh";
+    let denied = memory
+        .execute(
+            json!({"revision":value["revision"],"content":secret}),
+            &team.0.ctx,
+        )
+        .await;
+    assert!(denied.is_error && !denied.content.contains("sk-proj-0123456789abcdefgh"));
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("baseline evidence"));
+    std::fs::write(&path, format!("Useful baseline evidence.\n{secret}")).unwrap();
+    let legacy = memory.execute(json!({}), &team.0.ctx).await;
+    assert!(!legacy.is_error && !legacy.content.contains("sk-proj-0123456789abcdefgh"));
+    let legacy: Value = serde_json::from_str(&legacy.content).unwrap();
+    assert!(legacy["content"]
+        .as_str()
+        .unwrap()
+        .contains(crate::memory::REDACTED_CREDENTIAL));
+    let (legacy_context, _) = snapshot.refreshable_system_baseline_with_report().unwrap();
+    assert!(!legacy_context.contains("sk-proj-0123456789abcdefgh"));
+    let restored = memory.execute(json!({"revision":legacy["revision"],"content":"base.txt:1 contains the baseline evidence"}), &team.0.ctx).await;
+    assert!(!restored.is_error, "{}", restored.content);
+    let role_dir = path.parent().unwrap();
+    let backup = role_dir.with_extension("before-junction");
+    assert!(backup.starts_with(&root));
+    std::fs::rename(role_dir, backup).unwrap();
+    let outside = root.join("user-data");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("MEMORY.md"), "ROLE_CACHE_PRIVATE_CANARY").unwrap();
+    #[cfg(windows)]
+    assert!(std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(role_dir.to_string_lossy().replace('/', "\\"))
+        .arg(&outside)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, role_dir).unwrap();
+    let rejected = memory.execute(json!({}), &team.0.ctx).await;
+    use sha2::{Digest, Sha256};
+    let revision = format!("{:x}", Sha256::digest("ROLE_CACHE_PRIVATE_CANARY"));
+    let write = memory
+        .execute(
+            json!({"revision":revision,"content":"FORGED_USER_DATA"}),
+            &team.0.ctx,
+        )
+        .await;
+    assert!(
+        rejected.is_error && !rejected.content.contains("ROLE_CACHE_PRIVATE_CANARY"),
+        "role cache read crossed its own metadata root"
+    );
+    assert!(
+        write.is_error,
+        "role cache write crossed its own metadata root"
+    );
+    assert_eq!(
+        std::fs::read_to_string(outside.join("MEMORY.md")).unwrap(),
+        "ROLE_CACHE_PRIVATE_CANARY"
+    );
+    let (context, reports) = snapshot.refreshable_system_baseline_with_report().unwrap();
+    assert!(!context.contains("ROLE_CACHE_PRIVATE_CANARY"));
+    assert!(reports.iter().any(|report| report.key == "team/memory"
+        && report.status == kanzei_harness::ContextSourceStatus::Failed));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

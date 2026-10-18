@@ -91,7 +91,10 @@ impl Tool for GrepTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        grep_body(self, &input, ctx).await
+        grep_body(self, &input, ctx).await.with_external_source(
+            kanzei_harness::ExternalSourceKind::File,
+            crate::file_access::source_location(&input, ctx),
+        )
     }
 }
 

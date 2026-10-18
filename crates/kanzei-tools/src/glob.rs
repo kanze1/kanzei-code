@@ -63,7 +63,10 @@ impl Tool for GlobTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        glob_body(self, &input, ctx).await
+        glob_body(self, &input, ctx).await.with_external_source(
+            kanzei_harness::ExternalSourceKind::File,
+            crate::file_access::source_location(&input, ctx),
+        )
     }
 }
 

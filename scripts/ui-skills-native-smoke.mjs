@@ -2,7 +2,7 @@
 /* global window, document */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, writeFile, symlink } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -43,10 +43,11 @@ async function start() {
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   app = spawn(exe, [], { cwd: run, windowsHide: true, stdio: "ignore", env: { ...process.env,
     KANZEI_HOME: home, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"),
-    APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: undefined, KANZEI_E2E_CDP: String(port),
+    APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
   } });
   await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 }); return true; } catch { return false; } }, "WebView2 startup");
-  page = browser.contexts()[0].pages()[0]; page.setDefaultTimeout(15000);
+  await until(() => { page = browser.contexts().flatMap(context => context.pages())[0]; return Boolean(page); }, "WebView2 page creation");
+  page.setDefaultTimeout(15000);
   page.on("pageerror", error => errors.push(String(error)));
   await page.waitForFunction(() => document.body.dataset.appReady === "true", null, { timeout: 45000 });
 }
@@ -72,12 +73,22 @@ try {
   const generalBefore = await invoke("process_list", { projectDir: generalRoot });
   const initial = await invoke("skills_list");
   check(initial.length === 9 && initial.every(skill => skill.source === "builtin" && skill.enabled), "Fresh desktop installation discovers nine enabled built-ins");
+  const outside = path.join(run, "outside-skill-source");
+  await mkdir(outside); await mkdir(path.join(home, "skills"));
+  const privateSource = "---\nname: leak\ndescription: NATIVE_PRIVATE_SKILL_DESCRIPTION\n---\nNATIVE_PRIVATE_SKILL_BODY";
+  await writeFile(path.join(outside, "SKILL.md"), privateSource);
+  await symlink(outside, path.join(home, "skills/leak"), "junction");
+  const bounded = await invoke("skills_list");
+  check(bounded.length === 9 && !JSON.stringify(bounded).includes("NATIVE_PRIVATE_SKILL"), "Actual catalog IPC never returns metadata from outside its skills directory");
+  let outsideReadRejected = false;
+  try { await invoke("skills_read", { name: "personal:leak" }); } catch { outsideReadRejected = true; }
+  check(outsideReadRejected, "Actual skill-body IPC rejects an outside directory alias");
   await page.locator("#skills-nav").click();
   await page.waitForFunction(() => document.querySelectorAll(".skill-library-row").length === 9);
   check(await page.locator("body").getAttribute("data-app-scope") === "global", "The native manager opens before any project or conversation exists");
   await page.locator('[data-skill-name="pdf"]').getByRole("switch").uncheck({ force: true });
   await until(async () => !(await invoke("skills_list")).find(skill => skill.name === "pdf").enabled, "global disable");
-  check(JSON.parse(await readFile(path.join(home, "skills.json"), "utf8")).disabled.includes("pdf"), "Native toggle writes global preferences");
+  check(JSON.parse(await readFile(path.join(home, "skills.json"), "utf8")).disabled.includes("builtin:pdf"), "Native toggle writes source-qualified global preferences");
   await page.locator("#skills-generate-open").click(); await page.locator("#skills-generation-prompt").fill("把周报模板整理为一个可复用技能");
   await page.locator("#skills-generate").click();
   await until(async () => await page.locator("#skill-name").inputValue() === "weekly-review", "generated draft");
@@ -107,14 +118,17 @@ try {
   mode = "truncated"; let truncated = false; try { await invoke("skills_generate", { description: "Truncation test" }); } catch { truncated = true; }
   check(invalid && truncated, "Malformed and truncated model responses are reported without saving skills");
   mode = "valid";
-  const active = conversations[0];
-  await invoke("run_prompt", { projectDir: generalRoot, processId: active.id, prompt: "请使用$weekly-review", autoAllow: true });
+  const openedRoot = await invoke("general_chat_open");
+  const active = await invoke("process_create", { projectDir: openedRoot, profile: "dev", model: "mock:skills-global-model", subagentMode: "off" });
+  await invoke("run_prompt", { projectDir: openedRoot, processId: active.id, prompt: "请使用$weekly-review", autoAllow: true });
   await until(async () => requests.some(request => JSON.stringify(request.messages).includes("请使用$weekly-review"))
-    && !(await invoke("process_list", { projectDir: generalRoot })).some(item => item.running), "explicit global skill invocation");
+    && !(await invoke("process_list", { projectDir: openedRoot })).some(item => item.running), "explicit global skill invocation");
   const actual = requests.find(request => JSON.stringify(request.messages).includes("请使用$weekly-review"));
   const system = actual.messages.filter(message => message.role === "system").map(message => typeof message.content === "string" ? message.content : JSON.stringify(message.content)).join("\n");
   check(system.includes("不编造未完成的工作"), "A real conversation receives the explicitly invoked global skill body");
-  check(!system.includes(path.join(home, "builtin-skills/pdf/SKILL.md")), "Disabled skills stay out of the conversation's discovery context");
+  check(!system.includes("builtin:pdf"), "Disabled skills stay out of the conversation's discovery context");
+  check(!JSON.stringify(requests).includes("NATIVE_PRIVATE_SKILL"), "Outside skill metadata and body never enter actual model requests");
+  check(await readFile(path.join(outside, "SKILL.md"), "utf8") === privateSource, "Native management leaves the outside source unchanged");
   await page.locator("#skills-editor-close").click();
   await page.locator("#skills-refresh").click();
   await page.screenshot({ path: path.join(output, "skills-native.png") });

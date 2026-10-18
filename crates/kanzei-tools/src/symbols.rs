@@ -88,6 +88,15 @@ impl Tool for SymbolsTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let location = crate::file_access::source_location(&input, ctx);
+        self.observe(input, ctx)
+            .await
+            .with_external_source(kanzei_harness::ExternalSourceKind::File, location)
+    }
+}
+
+impl SymbolsTool {
+    async fn observe(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let input: SymbolsInput = match crate::parse_input(self, input) {
             Ok(value) => value,
             Err(output) => return output,

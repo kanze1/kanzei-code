@@ -57,6 +57,43 @@ impl ScopedFile {
     pub fn metadata(&self) -> io::Result<cap_std::fs::Metadata> {
         self.root.metadata(&self.relative)
     }
+    pub fn write_atomic_cas(
+        &self,
+        content: &str,
+        expected_hash: &str,
+        fingerprint: impl Fn(&str) -> String,
+    ) -> io::Result<()> {
+        let relative_lock = kanzei_base::atomic_file::lock_path_for(&self.relative);
+        let lock_file = self
+            .root
+            .open_with(
+                &relative_lock,
+                cap_std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(false),
+            )?
+            .into_std();
+        let _lock = kanzei_base::atomic_file::lock_exclusive_opened(
+            &kanzei_base::atomic_file::lock_path_for(&self.path),
+            lock_file,
+        )?;
+        self.write_atomic(content.as_bytes(), || {
+            let current = match self.read_to_string() {
+                Ok(content) => content,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+                Err(error) => return Err(error),
+            };
+            if fingerprint(&current) != expected_hash {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "file revision changed before replacement",
+                ));
+            }
+            Ok(())
+        })
+    }
     pub fn create_parent(&self) -> io::Result<()> {
         self.root.create_dir_all(
             self.relative
@@ -116,6 +153,35 @@ impl AtomicFileSystem for ScopedFile {
 mod tests {
     use super::*;
 
+    #[test]
+    fn scoped_cas_interoperates_with_file_locks_and_rejects_a_replaced_parent() {
+        let root = fixture();
+        let target = root.join("code/child/cache.txt");
+        let file = ScopedFile::resolve(&root.join("code"), &root.join("project"), &target).unwrap();
+        file.write_atomic(b"first", || Ok(())).unwrap();
+        let fingerprint = |text: &str| kanzei_base::content_hash(text.as_bytes());
+        {
+            let _outer = kanzei_base::atomic_file::lock_exclusive(&target).unwrap();
+            file.write_atomic_cas("second", &fingerprint("first"), fingerprint)
+                .unwrap();
+            assert!(file
+                .write_atomic_cas("stale", &fingerprint("first"), fingerprint)
+                .is_err());
+        }
+        assert_eq!(file.read_to_string().unwrap(), "second");
+        std::fs::write(root.join("outside/cache.txt"), "OUTSIDE_CANARY").unwrap();
+        std::fs::rename(root.join("code/child"), root.join("code/child-before-link")).unwrap();
+        link(&root.join("outside"), &root.join("code/child"));
+        assert!(file
+            .write_atomic_cas("escaped", &fingerprint("second"), fingerprint)
+            .is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("outside/cache.txt")).unwrap(),
+            "OUTSIDE_CANARY"
+        );
+        assert!(!root.join("outside/cache.lock").exists());
+    }
+
     fn fixture() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "kz-scoped-{}-{}",
@@ -135,8 +201,8 @@ mod tests {
         #[cfg(windows)]
         assert!(std::process::Command::new("cmd")
             .args(["/C", "mklink", "/J"])
-            .arg(path)
-            .arg(target)
+            .arg(path.to_string_lossy().replace('/', "\\"))
+            .arg(target.to_string_lossy().replace('/', "\\"))
             .output()
             .unwrap()
             .status

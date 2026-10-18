@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 mod lock;
 pub use lock::{
-    lock_exclusive, lock_path_for, lock_shared, try_lock_exclusive, try_lock_shared, FileLock,
-    DEFAULT_LOCK_BUDGET,
+    lock_exclusive, lock_exclusive_opened, lock_path_for, lock_shared, try_lock_exclusive,
+    try_lock_shared, FileLock, DEFAULT_LOCK_BUDGET,
 };
 
 /// 写入并同步同目录临时文件，然后一次 rename 替换目标。

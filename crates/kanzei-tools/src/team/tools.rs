@@ -59,16 +59,16 @@ impl Component for TeamTools {
         let id = self.id.clone();
         draft.context.insert(
             "team/memory",
-            kanzei_harness::refreshing_source("team/memory", move |_| {
-                let job = team.0.store.get(&id).ok()?;
+            kanzei_harness::refreshing_fallible_source("team/memory", kanzei_harness::ContextRequirement::Optional, move |_| {
+                let job = team.0.store.get(&id)?;
                 let path = memory_path(&team, &job);
-                let content = std::fs::read_to_string(&path).ok()?;
-                Some(format!(
+                let Some(content) = read_role_memory(&team, &job)? else { return Ok(None); };
+                Ok(Some(format!(
                     "Role-local cached observations (verify against current source; these are not user preferences):\n{}",
-                    ToolOutput::ok(content.lines().take(200).collect::<Vec<_>>().join("\n"))
+                    ToolOutput::ok(crate::memory::redact_credentials(&content).lines().take(200).collect::<Vec<_>>().join("\n"))
                         .with_external_source(kanzei_harness::ExternalSourceKind::File, path.to_string_lossy())
                         .model_content()
-                ))
+                )))
             }),
         );
         if self.writing {
@@ -187,6 +187,72 @@ fn memory_path(team: &AgentTeam, job: &super::store::AgentJob) -> PathBuf {
         .join(&name[..16])
         .join("MEMORY.md")
 }
+
+fn checked_memory_path(
+    team: &AgentTeam,
+    job: &super::store::AgentJob,
+) -> anyhow::Result<(PathBuf, kanzei_harness::permission::ScopedFile)> {
+    let path = memory_path(team, job);
+    let expected =
+        crate::path_form::canonical(&team.0.root)?.join(path.strip_prefix(&team.0.root)?);
+    let file = kanzei_harness::permission::ScopedFile::resolve(&team.0.root, &team.0.root, &path)?;
+    ensure_memory_identity(file.path(), &expected)?;
+    Ok((path, file))
+}
+
+fn ensure_memory_identity(actual: &Path, expected: &Path) -> anyhow::Result<()> {
+    let key = |path: &Path| {
+        kanzei_harness::permission::normalize_resource(&crate::path_form::strip_verbatim(
+            &path.to_string_lossy(),
+        ))
+    };
+    #[cfg(windows)]
+    let equal = key(actual).eq_ignore_ascii_case(&key(expected));
+    #[cfg(not(windows))]
+    let equal = key(actual) == key(expected);
+    anyhow::ensure!(
+        equal,
+        "ROLE_MEMORY_OUTSIDE_CACHE: role memory is not its registered cache file"
+    );
+    Ok(())
+}
+
+fn scoped_memory(
+    team: &AgentTeam,
+    job: &super::store::AgentJob,
+) -> anyhow::Result<kanzei_harness::permission::ScopedFile> {
+    let (path, checked) = checked_memory_path(team, job)?;
+    let parent = path.parent().expect("role memory has a directory");
+    let file = kanzei_harness::permission::ScopedFile::resolve(parent, parent, &path)?;
+    ensure_memory_identity(file.path(), checked.path())?;
+    Ok(file)
+}
+
+fn read_role_memory(
+    team: &AgentTeam,
+    job: &super::store::AgentJob,
+) -> anyhow::Result<Option<String>> {
+    let file = match scoped_memory(team, job) {
+        Ok(file) => file,
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(None)
+        }
+        Err(error) => return Err(error),
+    };
+    let opened = match file.open() {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut std::io::Read::take(opened, 65_537), &mut content)?;
+    anyhow::ensure!(content.len() <= 65_536, "role memory exceeds 64 KiB");
+    Ok(Some(content))
+}
 struct Memory {
     team: AgentTeam,
     id: String,
@@ -207,34 +273,40 @@ impl Tool for Memory {
     }
     async fn execute(&self, input: Value, _: &ToolCtx) -> ToolOutput {
         let result = (|| -> anyhow::Result<Value> {
-            static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-            let _guard = LOCK.lock().unwrap();
             use sha2::{Digest, Sha256};
             let job = self.team.0.store.get(&self.id)?;
             let path = memory_path(&self.team, &job);
-            let old = std::fs::read_to_string(&path).unwrap_or_default();
+            let old = read_role_memory(&self.team, &job)?.unwrap_or_default();
             let revision = format!("{:x}", Sha256::digest(old.as_bytes()));
             if let Some(content) = input["content"].as_str() {
+                crate::memory::reject_credentials(content)?;
                 if content.len() > 64 * 1024 {
                     anyhow::bail!("记忆最多 64 KiB，请先压缩整理");
                 }
                 if input["revision"].as_str() != Some(&revision) {
                     anyhow::bail!("记忆已变化或尚未读取，请读取后重试");
                 }
-                std::fs::create_dir_all(path.parent().unwrap())?;
-                // CAS protects against another worker editing the same role's memory.
-                crate::atomic_file::write_atomic_cas(&path, content, &revision, |s| {
-                    format!("{:x}", Sha256::digest(s.as_bytes()))
-                })
-                .map_err(anyhow::Error::msg)?;
+                checked_memory_path(&self.team, &job)?.1.create_parent()?;
+                scoped_memory(&self.team, &job)?.write_atomic_cas(content, &revision, |text| {
+                    format!("{:x}", Sha256::digest(text.as_bytes()))
+                })?;
                 return Ok(
                     json!({"path":path,"revision":format!("{:x}",Sha256::digest(content.as_bytes()))}),
                 );
             }
-            Ok(json!({"path":path,"revision":revision,"content":old}))
+            Ok(
+                json!({"path":path,"revision":revision,"content":crate::memory::redact_credentials(&old)}),
+            )
         })();
         match result {
-            Ok(v) => ToolOutput::ok(v.to_string()),
+            Ok(v) => {
+                let source = v["path"]
+                    .as_str()
+                    .expect("engine role-memory result has a path")
+                    .to_owned();
+                ToolOutput::ok(v.to_string())
+                    .with_external_source(kanzei_harness::ExternalSourceKind::File, source)
+            }
             Err(e) => ToolOutput::error(e.to_string()),
         }
     }

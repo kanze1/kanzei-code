@@ -2,6 +2,16 @@ use kanzei_harness::permission::{execution_rules, Effect, FileResource, ScopedFi
 use kanzei_harness::{ToolCtx, ToolOutput};
 use std::path::Path;
 
+pub(crate) fn source_location(input: &serde_json::Value, ctx: &ToolCtx) -> String {
+    input
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .map(|path| ctx.cwd.join(path))
+        .unwrap_or_else(|| ctx.cwd.clone())
+        .to_string_lossy()
+        .into_owned()
+}
+
 pub(crate) fn resolve(
     ctx: &ToolCtx,
     path: &Path,

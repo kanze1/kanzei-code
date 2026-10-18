@@ -88,7 +88,7 @@ fn redact_scalar(text: &str) -> String {
     redacted
 }
 
-pub(super) fn reject_credentials(text: &str) -> anyhow::Result<()> {
+pub fn reject_credentials(text: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         redact_credentials(text) == text,
         "记忆不能保存凭据值；请移除密钥、密码或认证令牌后再保存"

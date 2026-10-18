@@ -110,9 +110,36 @@ pub fn resolve<'a>(skills: &'a [SkillDef], selector: &str) -> anyhow::Result<&'a
 pub fn read_content(skill: &SkillDef) -> anyhow::Result<String> {
     let content = match &skill.embedded_content {
         Some(content) => content.clone(),
-        None => std::fs::read_to_string(&skill.path)?,
+        None => read_skill_file(
+            skill.content_root.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("Skill has no catalog directory capability: {}", skill.id)
+            })?,
+            &skill.path,
+        )?,
     };
     anyhow::ensure!(content.len() <= 131_072, "Skill 太大：{}", skill.id);
+    Ok(content)
+}
+
+pub(crate) fn read_skill_file(root: &Path, path: &Path) -> anyhow::Result<String> {
+    let absolute = std::path::absolute(path)?;
+    let file = crate::permission::ScopedFile::resolve(root, root, &absolute)?;
+    let resource = crate::permission::FileResource::resolve(root, &absolute)?;
+    anyhow::ensure!(
+        resource.sensitivity().is_none(),
+        "Skill source resolves to a protected file: {}",
+        path.display()
+    );
+    let mut content = String::new();
+    std::io::Read::read_to_string(
+        &mut std::io::Read::take(file.open()?, 131_073),
+        &mut content,
+    )?;
+    anyhow::ensure!(
+        content.len() <= 131_072,
+        "Skill source exceeds 128 KiB: {}",
+        path.display()
+    );
     Ok(content)
 }
 
@@ -169,6 +196,7 @@ pub fn catalog_at(home: &Path, user_home: Option<&Path>) -> anyhow::Result<Vec<S
             name: (*name).into(),
             description: metadata.get("description").unwrap_or("").into(),
             path: PathBuf::from(format!("builtin:{name}/SKILL.md")),
+            content_root: None,
             embedded_content: Some((*content).into()),
             disable_model_invocation: false,
             user_invocable: true,
@@ -235,7 +263,7 @@ impl crate::Tool for SkillReadTool {
         crate::ToolConcurrency::shared_worktree(ctx)
     }
     async fn execute(&self, input: serde_json::Value, _: &crate::ToolCtx) -> crate::ToolOutput {
-        let result = (|| -> anyhow::Result<String> {
+        let result = (|| -> anyhow::Result<crate::ToolOutput> {
             let selector = input
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -247,15 +275,23 @@ impl crate::Tool for SkillReadTool {
                 "Skill 仅允许用户显式调用：{}",
                 skill.id
             );
-            Ok(format!(
+            let output = crate::ToolOutput::ok(format!(
                 "Skill {}\nSource: {}\n{}",
                 skill.id,
                 skill.path.display(),
                 read_content(skill)?
-            ))
+            ));
+            Ok(if skill.embedded_content.is_none() {
+                output.with_external_source(
+                    crate::ExternalSourceKind::File,
+                    skill.path.to_string_lossy(),
+                )
+            } else {
+                output
+            })
         })();
         match result {
-            Ok(content) => crate::ToolOutput::ok(content),
+            Ok(output) => output,
             Err(error) => crate::ToolOutput::error(error.to_string()),
         }
     }
@@ -264,6 +300,75 @@ impl crate::Tool for SkillReadTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skill_catalog_cannot_read_metadata_through_a_directory_link_outside_its_root() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-skill-boundary-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let home = root.join("home");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(home.join("skills")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(
+            outside.join("SKILL.md"),
+            "---\nname: leak\ndescription: PRIVATE_DESCRIPTION_CANARY\n---\nPRIVATE_BODY_CANARY",
+        )
+        .unwrap();
+        let link = home.join("skills").join("leak");
+        #[cfg(windows)]
+        assert!(std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .unwrap()
+            .status
+            .success());
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        let catalog = catalog_at(&home, None).unwrap();
+        assert!(
+            !catalog
+                .iter()
+                .any(|skill| skill.description.contains("PRIVATE_DESCRIPTION_CANARY")),
+            "catalog metadata reads must stay inside the granted skills directory"
+        );
+        assert!(resolve(&catalog, "personal:leak").is_err());
+        let good = home.join("skills").join("good");
+        std::fs::create_dir_all(&good).unwrap();
+        std::fs::write(
+            good.join("SKILL.md"),
+            "---\nname: good\ndescription: Owned source\n---\nORIGINAL_SKILL_BODY",
+        )
+        .unwrap();
+        let catalog = catalog_at(&home, None).unwrap();
+        let skill = resolve(&catalog, "personal:good").unwrap();
+        assert!(read_content(skill).unwrap().contains("ORIGINAL_SKILL_BODY"));
+        let backup = root.join("good-before-link");
+        assert!(good.starts_with(&root) && backup.starts_with(&root));
+        std::fs::rename(&good, backup).unwrap();
+        #[cfg(windows)]
+        assert!(std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&good)
+            .arg(&outside)
+            .output()
+            .unwrap()
+            .status
+            .success());
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &good).unwrap();
+        assert!(
+            read_content(skill).is_err(),
+            "retargeting a catalog entry must not retarget its body read"
+        );
+    }
     #[test]
     fn builtins_and_personal_preferences_survive_reload() {
         let home = std::env::temp_dir().join(format!(

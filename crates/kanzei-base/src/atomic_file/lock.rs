@@ -125,8 +125,38 @@ pub fn try_lock_shared(target: &Path, budget: Duration) -> io::Result<Option<Fil
 
 fn try_lock(target: &Path, requested: Mode, budget: Duration) -> io::Result<Option<FileLock>> {
     let started = Instant::now();
-    let deadline = started + budget;
     let (path, file) = open_lock(target)?;
+    acquire_opened(target, path, file, requested, budget, started)
+}
+
+/// The caller opens the lock file through its directory capability. Identity
+/// normalization retains interoperability with the ambient FileLock protocol.
+pub fn lock_exclusive_opened(path: &Path, file: File) -> io::Result<FileLock> {
+    acquire_opened(
+        path,
+        path.canonicalize()?,
+        file,
+        Mode::Exclusive,
+        DEFAULT_LOCK_BUDGET,
+        Instant::now(),
+    )?
+    .ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::WouldBlock,
+            format!("file lock wait expired: {}", path.display()),
+        )
+    })
+}
+
+fn acquire_opened(
+    target: &Path,
+    path: PathBuf,
+    file: File,
+    requested: Mode,
+    budget: Duration,
+    started: Instant,
+) -> io::Result<Option<FileLock>> {
+    let deadline = started + budget;
     let slot = slot_for(path.clone());
     let me = std::thread::current().id();
     let mut state = slot.state.lock().unwrap();

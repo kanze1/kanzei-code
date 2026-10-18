@@ -132,6 +132,9 @@ pub struct SkillDef {
     /// SKILL.md 路径;名称/描述/路径索引进提示词,正文由模型按此路径用 read 读取
     /// (没有 skill 工具)。
     pub path: std::path::PathBuf,
+    /// Directory capability recorded by catalog discovery; never supplied by an IPC client.
+    #[serde(skip)]
+    pub content_root: Option<std::path::PathBuf>,
     /// Packaged skills are immutable resources, available without installation.
     #[serde(skip)]
     pub embedded_content: Option<String>,

@@ -201,8 +201,12 @@ fn collect_skills(dir: &Path) -> Vec<SkillDef> {
     }
     candidates.sort();
     for path in candidates {
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
+        let text = match crate::skills::read_skill_file(dir, &path) {
+            Ok(text) => text,
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "skill source rejected");
+                continue;
+            }
         };
         let stem = if path.file_name().map(|f| f == "SKILL.md").unwrap_or(false) {
             path.parent()
@@ -260,6 +264,7 @@ fn collect_skills(dir: &Path) -> Vec<SkillDef> {
             name,
             description: metadata.description,
             path,
+            content_root: Some(dir.to_path_buf()),
             disable_model_invocation: metadata.disable_model_invocation,
             user_invocable: metadata.user_invocable,
         });
@@ -614,6 +619,7 @@ mod tests {
                 name: "build".into(),
                 description: "构建与格式检查".into(),
                 path: std::path::PathBuf::from("skills/build/SKILL.md"),
+                content_root: None,
                 disable_model_invocation: false,
                 user_invocable: true,
             },

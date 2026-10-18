@@ -35,7 +35,7 @@ pub use manager::{
     consolidation_prompt, inbox_manager_agent, manager_agent, MemoryManagerComponent,
     MemoryStaleTool,
 };
-pub use privacy::{redact_credentials, REDACTED_CREDENTIAL};
+pub use privacy::{redact_credentials, reject_credentials, REDACTED_CREDENTIAL};
 pub use relevance::lexical_weight as query_relevance;
 pub use retention::{memory_content_revision, MemoryRetentionPolicy, MemoryRetentionReport};
 pub use store::{
