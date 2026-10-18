@@ -4,6 +4,7 @@ pub mod anthropic;
 pub mod deepseek_responses;
 pub mod openai;
 pub mod openai_responses;
+mod tool_schema;
 
 use crate::error::LlmError;
 use crate::event::LlmEvent;

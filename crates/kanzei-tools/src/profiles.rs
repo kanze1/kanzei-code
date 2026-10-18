@@ -1490,6 +1490,69 @@ mod tool_surface_budget {
     }
 
     #[test]
+    fn chat_tool_catalog_survives_ollama_parameter_projection() {
+        fn check_refs(value: &serde_json::Value, root: &serde_json::Value, name: &str) {
+            match value {
+                serde_json::Value::Object(object) => {
+                    if let Some(reference) = object.get("$ref").and_then(|v| v.as_str()) {
+                        if let Some(pointer) = reference.strip_prefix('#') {
+                            assert!(
+                                root.pointer(pointer).is_some(),
+                                "{name}: unresolved provider schema reference {reference}"
+                            );
+                        }
+                    }
+                    for nested in object.values() {
+                        check_refs(nested, root, name);
+                    }
+                }
+                serde_json::Value::Array(array) => {
+                    for nested in array {
+                        check_refs(nested, root, name);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for profile in [
+            ProfileKind::Dev,
+            ProfileKind::Research,
+            ProfileKind::Readonly,
+        ] {
+            let request = kanzei_llm::LlmRequest {
+                model: "local-model".into(),
+                system: vec![],
+                messages: vec![],
+                tools: materialized_tool_specs(profile),
+                hosted_tools: vec![],
+                max_tokens: 64,
+                temperature: None,
+                reasoning: kanzei_llm::ReasoningEffort::Off,
+                service_tier: None,
+            };
+            let body = kanzei_llm::protocol::openai::build_body(&request);
+            for tool in body["tools"].as_array().unwrap() {
+                let function = &tool["function"];
+                let name = function["name"].as_str().unwrap();
+                // Ollama 0.40.6 api.ToolFunctionParameters retains these root
+                // fields. In particular, draft-07 definitions is not retained.
+                let mut parameters = function["parameters"].clone();
+                parameters.as_object_mut().unwrap().retain(|key, _| {
+                    matches!(
+                        key.as_str(),
+                        "type" | "$defs" | "items" | "required" | "properties"
+                    )
+                });
+                assert!(
+                    parameters["properties"].is_object(),
+                    "{name}: missing properties map"
+                );
+                check_refs(&parameters, &parameters, name);
+            }
+        }
+    }
+
+    #[test]
     fn 逐工具schema字符账单() {
         let resident = [
             "read",

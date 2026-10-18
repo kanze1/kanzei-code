@@ -123,7 +123,7 @@ pub fn build_body(request: &LlmRequest) -> Value {
                     "function": {
                         "name": t.name,
                         "description": t.description,
-                        "parameters": t.input_schema,
+                        "parameters": super::tool_schema::chat_parameters(&t.input_schema),
                     },
                 })
             })
