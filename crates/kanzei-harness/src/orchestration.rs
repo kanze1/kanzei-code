@@ -14,6 +14,8 @@ type ReleaseCallback = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 pub enum ExecutionPolicy {
     #[default]
     Default,
+    /// Execution rejects every tool operation outside the audited read contract.
+    ReadOnly,
     ReadParallelWriteSerial,
 }
 

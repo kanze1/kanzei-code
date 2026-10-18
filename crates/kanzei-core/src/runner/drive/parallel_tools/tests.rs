@@ -121,6 +121,7 @@ async fn assert_permission_parity(resources: &[&str]) {
         session_approved: &approved,
         session_rules: &rules,
         force_serial: false,
+        execution_policy: kanzei_harness::ExecutionPolicy::Default,
     })
     .expect("batch is preapproved");
     let mut parallel = Vec::new();
@@ -222,6 +223,7 @@ async fn parallel_permission_unresolved_ask_uses_serial_user_decision() {
         session_approved: &approved,
         session_rules: &rules,
         force_serial: false,
+        execution_policy: kanzei_harness::ExecutionPolicy::Default,
     })
     .is_none());
     let mut asked = 0;

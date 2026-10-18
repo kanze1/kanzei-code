@@ -18,6 +18,7 @@ pub(super) struct ParallelPreflight<'a> {
     pub(super) session_approved: &'a std::collections::HashSet<(String, String)>,
     pub(super) session_rules: &'a [(String, String)],
     pub(super) force_serial: bool,
+    pub(super) execution_policy: kanzei_harness::ExecutionPolicy,
 }
 
 pub(super) struct ParallelPlan {
@@ -35,6 +36,7 @@ pub(super) fn prepare_parallel_tool_calls(request: ParallelPreflight<'_>) -> Opt
         session_approved,
         session_rules,
         force_serial,
+        execution_policy,
     } = request;
     if force_serial {
         return None;
@@ -51,7 +53,7 @@ pub(super) fn prepare_parallel_tool_calls(request: ParallelPreflight<'_>) -> Opt
             return None;
         }
         let tool = tools.iter().find(|tool| tool.name() == name)?;
-        let mut plan = permission_plan(snapshot, tool.as_ref(), input, ctx);
+        let mut plan = permission_plan(snapshot, tool.as_ref(), input, ctx, execution_policy);
         plan.resolve_session(session_approved, session_rules);
         if !plan.pending_ask.is_empty() {
             return None;

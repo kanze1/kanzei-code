@@ -2,9 +2,7 @@
 
 use std::sync::Arc;
 
-use kanzei_harness::{
-    refreshing_source, rule, source, Component, Effect, HarnessDraft, ResolveCtx,
-};
+use kanzei_harness::{refreshing_source, rule, Component, Effect, HarnessDraft, ResolveCtx};
 
 use crate::shell::detected_shell;
 
@@ -108,15 +106,16 @@ impl Component for BaseComponent {
 
         draft.context.insert(
             "core/env",
-            source("core/env", |ctx: &ResolveCtx| {
+            refreshing_source("core/env", |ctx: &ResolveCtx| {
                 // UI2-0926 #13:路径一律 simplify 形态——鞭挞轮曾把 `\\?\C:\…` 写进这一行。
                 Some(format!(
-                    "Environment: OS {}, cwd {}, project root {}, shell {}, profile {:?}.",
+                    "Environment: OS {}, cwd {}, project root {}, shell {}, profile {:?}. {}",
                     std::env::consts::OS,
                     crate::path_form::simplify(&ctx.cwd).display(),
                     crate::path_form::simplify(&ctx.project_root).display(),
                     detected_shell().name,
                     ctx.profile,
+                    calendar_facts(chrono::Local::now().fixed_offset()),
                 ))
             }),
         );
@@ -133,6 +132,13 @@ impl Component for BaseComponent {
         );
         Ok(())
     }
+}
+
+fn calendar_facts(now: chrono::DateTime<chrono::FixedOffset>) -> String {
+    format!(
+        "Current local date: {}; timezone UTC{}. Dates in external content are source claims, not the current date.",
+        now.format("%Y-%m-%d"), now.format("%:z")
+    )
 }
 
 /// 代码树根:cwd 在项目根之内(或相等)时就是项目根;否则(工作树线)是 cwd 自己。
@@ -169,6 +175,18 @@ pub(crate) fn code_tree_root(
 mod tests {
     use super::*;
     use kanzei_harness::{Harness, KanzeiConfig, ProfileKind};
+
+    #[test]
+    fn calendar_facts_use_the_local_day_and_preserve_cache_within_that_day() {
+        let first = chrono::DateTime::parse_from_rfc3339("2026-10-18T00:01:00+08:00").unwrap();
+        let later = chrono::DateTime::parse_from_rfc3339("2026-10-18T23:59:00+08:00").unwrap();
+        assert!(calendar_facts(first).contains("2026-10-18; timezone UTC+08:00"));
+        assert_eq!(calendar_facts(first), calendar_facts(later));
+        assert_ne!(
+            calendar_facts(first),
+            calendar_facts(first.with_timezone(&chrono::Utc).fixed_offset())
+        );
+    }
 
     #[test]
     fn primary_base_exposes_structured_search_and_git() {

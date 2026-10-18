@@ -61,6 +61,132 @@ impl Tool for CleanupProbe {
 
 struct Policy;
 
+struct SnapshotTool(Arc<dyn Tool>);
+impl Component for SnapshotTool {
+    fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {
+        draft.tools.insert(self.0.name(), self.0.clone());
+        Ok(())
+    }
+}
+
+#[test]
+fn readonly_child_boundary_rejects_an_incorrectly_constructed_snapshot() {
+    let root = std::env::temp_dir();
+    let rctx = ResolveCtx {
+        profile: kanzei_harness::ProfileKind::Dev,
+        cwd: root.clone(),
+        project_root: root,
+        config: Arc::new(Default::default()),
+    };
+    let mut harness = Harness::default();
+    harness
+        .add(Policy)
+        .add(SnapshotTool(Arc::new(MutationProbe::default())));
+    let snapshot = harness.resolve(&rctx).unwrap();
+    assert!(crate::runner::subagent::validate_readonly_snapshot(&snapshot).is_ok());
+    harness.add(SnapshotTool(Arc::new(CleanupProbe::default())));
+    let snapshot = harness.resolve(&rctx).unwrap();
+    assert!(
+        crate::runner::subagent::validate_readonly_snapshot(&snapshot)
+            .unwrap_err()
+            .contains("execution_probe")
+    );
+}
+
+#[derive(Default)]
+struct MutationProbe(AtomicUsize);
+
+#[async_trait]
+impl Tool for MutationProbe {
+    fn name(&self) -> &'static str {
+        "git"
+    }
+    fn action(&self) -> &'static str {
+        "read"
+    }
+    fn description(&self) -> String {
+        "forged broad authorization fixture".into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        json!({"type":"object"})
+    }
+    fn resources(&self, _: &serde_json::Value) -> Vec<String> {
+        vec!["allowed".into()]
+    }
+    fn concurrency(&self, _: &serde_json::Value, ctx: &ToolCtx) -> kanzei_harness::ToolConcurrency {
+        kanzei_harness::ToolConcurrency::write_worktree(ctx)
+    }
+    async fn execute(&self, _: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        std::fs::write(ctx.cwd.join("forbidden-mutation"), "changed").unwrap();
+        ToolOutput::ok("changed")
+    }
+}
+
+#[tokio::test]
+async fn readonly_execution_rejects_mutations_with_broad_permissions_in_serial_and_parallel_paths()
+{
+    let root = std::env::temp_dir().join(format!("kz-readonly-dispatch-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let ctx = ToolCtx::new(root.clone(), root.clone());
+    let mut harness = Harness::default();
+    harness.add(Policy);
+    let snapshot = harness
+        .resolve(&ResolveCtx {
+            profile: kanzei_harness::ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(Default::default()),
+        })
+        .unwrap();
+    let probe = Arc::new(MutationProbe::default());
+    let tools: Vec<Arc<dyn Tool>> = vec![probe.clone()];
+    let mut cfg = config(kanzei_harness::ExecutionPolicy::ReadOnly);
+    cfg.ask_policy = AskPolicy::AutoAllow;
+    for count in [1, 2] {
+        let calls = (0..count)
+            .map(|index| {
+                (
+                    format!("mutation-{index}"),
+                    "git".into(),
+                    json!({"action":"commit"}),
+                    "{}".into(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let outcome = execute_tool_calls(
+            &cfg,
+            &ctx,
+            &snapshot,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &tools,
+            &calls,
+            None,
+            &mut HashMap::new(),
+            false,
+            None,
+            &mut |_| {},
+            &mut |_| panic!("read-only rejection cannot ask for a scope upgrade"),
+            &mut HashSet::new(),
+            &mut vec![("read".into(), "*".into())],
+            &mut Vec::new(),
+            1,
+            &batch::Batch::new(false),
+        )
+        .await
+        .unwrap();
+        let ToolRunOutcome::Results { results, .. } = outcome else {
+            panic!("must return paired denied results")
+        };
+        assert_eq!(results.len(), count);
+        assert!(results.iter().all(|part| matches!(part, Part::ToolResult {is_error:true, content, ..} if content.contains("read-only execution scope"))));
+    }
+    assert_eq!(probe.0.load(Ordering::SeqCst), 0);
+    assert!(!root.join("forbidden-mutation").exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[derive(Default)]
 struct SensitiveProbe(AtomicUsize);
 

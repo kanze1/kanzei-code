@@ -1,6 +1,6 @@
 # Code Agent 安全漏洞修复对照与 Kanzei 同类风险核查
 
-- **审计日期**：2026-10-21
+- **审计日期**：2026-10-18（运行环境日期；原稿误写 2026-10-21，保留原文件名以免破坏引用）
 - **代码基线**：HEAD `24533867ddc61b442cfd8801c24c8faebe0fa611`。
 - **覆盖产品**：OpenAI Codex CLI、Anthropic Claude Code、Cursor、Google Gemini CLI、Moonshot Kimi Code、Cline Kanban Server。
 - **名称说明**：本轮将“claudecodebuddy”按 **Claude Code** 理解；没有找到可唯一确认的独立产品“Claude Code Buddy”。如用户指向某个 Buddy 仓库，请提供链接后补查。

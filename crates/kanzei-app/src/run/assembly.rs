@@ -471,6 +471,14 @@ async fn prepare_session(
             &mut agent.system,
         )
         .await?;
+        super::facts::prepare(
+            &store,
+            &request.session_id,
+            &run_id,
+            &promoted_input_id,
+            &deps.resolved,
+            &mut agent.system,
+        )?;
         // R-241 shadow 双写：先从最新 legacy snapshot 幂等 seed，并闭合上次强杀留下的
         // open draft/tool；再提交本轮 user fact。恢复必须持有同数据库/session 执行权。
         request

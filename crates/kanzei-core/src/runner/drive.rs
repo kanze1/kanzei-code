@@ -1237,6 +1237,7 @@ async fn execute_tool_calls(
         session_approved,
         session_rules,
         force_serial: serial_writer || batch.is_closing(),
+        execution_policy: config.execution_policy,
     });
 
     // 并行 wave 与串行路径共用同一对齐约定；并行细节已迁移到 parallel_tools.rs。

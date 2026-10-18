@@ -484,6 +484,21 @@ fn assistant_message_text(message: &Message) -> Option<String> {
 /// Run a task through the optional durable host, or the supplied isolated runtime.
 /// Child history, write policy and permission routing belong to that runtime.
 /// 内部轮次/工具事件折叠成 TaskProgress 经 progress 通道上抛(UI 实时可见)。
+pub(crate) fn validate_readonly_snapshot(snapshot: &HarnessSnapshot) -> Result<(), String> {
+    for tool in snapshot.materialize_tools() {
+        if !matches!(
+            tool.name(),
+            "read" | "glob" | "grep" | "files" | "symbols" | "git"
+        ) {
+            return Err(format!(
+                "read-only subagent snapshot contains an unaudited tool: {}",
+                tool.name()
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub async fn run_subagent(
     client: &LlmClient,
     rt: &SubagentRuntime,
@@ -517,6 +532,11 @@ async fn run_subagent_inner(
     input: &serde_json::Value,
     progress: tokio::sync::mpsc::UnboundedSender<RunEvent>,
 ) -> kanzei_harness::ToolOutput {
+    if !rt.writable {
+        if let Err(error) = validate_readonly_snapshot(&rt.snapshot) {
+            return kanzei_harness::ToolOutput::failed("READONLY_SUBAGENT_SNAPSHOT_INVALID", error);
+        }
+    }
     if let Some(host) = &rt.options.host {
         return kanzei_harness::tool_pipeline::wrap_execute(
             parent_call_id.to_owned(),
@@ -603,7 +623,11 @@ async fn run_subagent_inner(
         // 的失败瞬间决策;子代理注入会让同一失败双倍刷屏)。
         recall: None,
         // R-171:子代理是只读勘察/复核,不参与写仲裁,用默认执行策略。
-        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+        execution_policy: if rt.writable {
+            kanzei_harness::orchestration::ExecutionPolicy::Default
+        } else {
+            kanzei_harness::orchestration::ExecutionPolicy::ReadOnly
+        },
         ask_policy: rt.options.ask_policy.unwrap_or(AskPolicy::NonInteractive),
         halt: None,
     };

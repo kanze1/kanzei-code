@@ -2520,6 +2520,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "calamine",
+ "chrono",
  "dirs 5.0.1",
  "futures",
  "getrandom 0.3.4",

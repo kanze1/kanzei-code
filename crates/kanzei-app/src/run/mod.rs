@@ -11,6 +11,7 @@ pub(crate) mod baseline;
 pub(crate) mod coordinator;
 pub(crate) mod events;
 pub(crate) mod execution;
+mod facts;
 pub(crate) mod input;
 pub(crate) mod persistence;
 pub(crate) mod work_start;

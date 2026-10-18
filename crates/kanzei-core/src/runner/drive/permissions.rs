@@ -104,6 +104,7 @@ pub(super) fn permission_plan(
     tool: &dyn Tool,
     input: &serde_json::Value,
     ctx: &ToolCtx,
+    policy: kanzei_harness::ExecutionPolicy,
 ) -> PermissionPlan {
     let action = tool.action();
     let mut plan = PermissionPlan {
@@ -112,6 +113,15 @@ pub(super) fn permission_plan(
         pending_ask: Vec::new(),
         denied: None,
     };
+    if policy == kanzei_harness::ExecutionPolicy::ReadOnly
+        && !matches!(
+            tool.concurrency(input, ctx),
+            kanzei_harness::ToolConcurrency::Shared(_)
+        )
+    {
+        plan.denied = Some(format!("read-only execution scope forbids {}", tool.name()));
+        return plan;
+    }
     for resource in tool.permission_resources(input, ctx) {
         use kanzei_harness::permission::{FileResource, Resource};
         let (resource, effect, rule, sensitivity) = match resource {
@@ -198,7 +208,13 @@ pub(super) struct PermissionGateRequest<'a> {
 
 pub(super) async fn resolve_permission_gate(state: &mut PermissionGateRequest<'_>) -> Gate {
     let action = state.tool.action();
-    let plan = permission_plan(state.snapshot, state.tool, state.input, state.ctx);
+    let plan = permission_plan(
+        state.snapshot,
+        state.tool,
+        state.input,
+        state.ctx,
+        state.config.execution_policy,
+    );
     plan.emit_resolved(state.id, state.on_event);
     let mut gate_result = plan.denied.map_or(Gate::Pass, Gate::Deny);
     if matches!(gate_result, Gate::Pass) {
