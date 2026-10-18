@@ -1,4 +1,4 @@
-import { readProjectDocuments, observeProjectDocuments } from "./01-project-resources.js";
+import { readProjectDocuments, observeProjectDocuments, projectDocumentsView } from "./01-project-resources.js";
 import { renderRequirementDocument } from "./26-requirement-contract.js";
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
@@ -29,12 +29,15 @@ let rail, switcher, onboarding, detailId = null, rendered = "", scheduled = fals
 const active = () => active_space === "dev" && !isGeneralChat() && document.body.dataset.view === "chat";
 const item = () => processItems.find(p => p.id === activeProcessId);
 function facts(project = currentProject) {
-  if (!projects.has(project)) projects.set(project, { docs: null, snapshot: null, error: "", registrationError: "", failedRegistration: null, busy: false, request: null, capture: null });
+  if (!projects.has(project)) projects.set(project, { project, docs: null, snapshot: null, error: "", registrationError: "", failedRegistration: null, busy: false, request: null, capture: null });
   return projects.get(project);
 }
-const entries = state => [...(state.docs?.requirements || []), ...(state.docs?.defects || [])];
+const documentsView = state => projectDocumentsView(state.project, state.docs);
+const entries = state => [...(documentsView(state)?.requirements || []), ...(documentsView(state)?.defects || [])];
 const archivedCount = state => Number(state.docs?.archived?.req || 0) + Number(state.docs?.archived?.defect || 0);
-const isNew = state => state.docs && !entries(state).length && !archivedCount(state);
+// A confirmed closure may hide the last active row before archive counts can
+// refresh. That acknowledged work must not turn into new-project onboarding.
+const isNew = state => state.docs && !state.docs.requirements?.length && !state.docs.defects?.length && !archivedCount(state);
 function closeRail() {
   if (rail.classList.contains("is-open")) closeSurface(rail);
   // The same element is a permanent wide-screen rail and a narrow popover.
@@ -129,7 +132,7 @@ async function registerRequirement(start, retry = null) {
       state.capture = null;
       return;
     }
-    const entry = state.docs?.requirements?.find(entry => entry.id === state.capture.id);
+    const entry = documentsView(state)?.requirements?.find(entry => entry.id === state.capture.id);
     if (!entry || state.error) {
       state.error = state.error || fillTemplate(t("已登记 {id}，但未读到条目；请重试读取，原文已保留"), { id: state.capture.id });
       return;
@@ -216,7 +219,7 @@ function paint() {
   handoffScope = null;
   const newProject = Boolean(isNew(state) && !state.error && workflow && !["running", "starting", "stopping", "waiting", "attention"].includes(activity.state));
   const pendingCapture = Boolean(state.capture) && workflow;
-  const capturedEntry = state.docs?.requirements?.find(entry => entry.id === state.capture?.id);
+  const capturedEntry = documentsView(state)?.requirements?.find(entry => entry.id === state.capture?.id);
   onboarding.hidden = !workflow || (!newProject && !pendingCapture && !state.registrationError && !(state.error && (!state.docs || isNew(state))));
   $("project-start-actions").hidden = !newProject && !pendingCapture;
   $("project-register").disabled = state.busy;
@@ -228,7 +231,7 @@ function paint() {
   $("project-onboarding-retry").hidden = !state.error && !state.registrationError;
   $("project-onboarding-retry").textContent = state.registrationError ? t("重试登记") : t("重试读取");
   $("project-onboarding-retry").disabled = state.busy;
-  const signature = JSON.stringify([currentProject, activeProcessId, workflow, state.docs, state.snapshot?.current_items, state.error, state.registrationError, activity, detailId, selectedWork(currentProject, activeProcessId)]);
+  const signature = JSON.stringify([currentProject, activeProcessId, workflow, documentsView(state), state.snapshot?.current_items, state.error, state.registrationError, activity, detailId, selectedWork(currentProject, activeProcessId)]);
   if (signature === rendered) return;
   rendered = signature;
   rail.replaceChildren();
@@ -395,6 +398,7 @@ defer(() => {
     const project = currentProject;
     disposeDocuments = observeProjectDocuments(project, resource => {
       const state = facts(project);
+      if (resource.data) state.docs = resource.data;
       if (resource.status === "ready") { state.docs = resource.data; state.error = ""; }
       else if (resource.status === "error") state.error = resource.error;
       if (sameProject(project, currentProject)) { rendered = ""; paint(); }

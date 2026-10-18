@@ -161,6 +161,146 @@ try {
     await (await import("/26-project-conversations.js")).refreshConversationWork();
   });
   await page.screenshot({ path: `${output}/rail-en.png` });
+  // Confirmed archive writes own retirement, even if the next read fails or an
+  // older read is still in flight. Keep the raw last-good snapshot as evidence.
+  await page.evaluate(async () => {
+    (await import("/02-i18n.js")).setLanguagePreference("zh");
+    const { currentProject } = await import("/03-shell.js");
+    const entry = { id: "R-401", title: "归档后关闭旧编辑器", status: "doing", priority: "P1", closed: false, blocked: false,
+      fields: [["标签", "前端"], ["验收", "完成后返回列表"]], nextStatuses: ["done", "dropped"] };
+    const survivor = { ...structuredClone(entry), id: "R-402", title: "保留其他活动条目" };
+    const test = window.__archiveCheck = { project: currentProject, other: `${currentProject}/other-project`, entry,
+      committed: false, rejectClose: true, hold: false, recover: false,
+      docs: { requirements: [entry, survivor], defects: [], ideas: [], archived: { req: 0, defect: 0 } } };
+    window.__kzPreview.setCommand("docs_snapshot", args => {
+      if (args.projectDir === test.other) return { ...structuredClone(test.docs), requirements: [structuredClone(entry)] };
+      if (test.hold && !test.release) {
+        const old = structuredClone(test.docs);
+        return new Promise(resolve => { test.release = () => resolve(old); });
+      }
+      if (test.committed && !test.recover) throw new Error("CONTROLLED_POST_COMMIT_SNAPSHOT_READ_ERROR");
+      return structuredClone(test.docs);
+    });
+    window.__kzPreview.setCommand("docs_update", args => {
+      if (args.projectDir !== test.project || args.id !== entry.id || args.action !== "close") throw new Error("Unexpected archive mutation");
+      if (test.rejectClose) throw new Error("CONTROLLED_ARCHIVE_WRITE_ERROR");
+      test.docs.requirements = test.docs.requirements.filter(row => row.id !== entry.id);
+      test.docs.archived.req += 1; test.committed = true;
+      return `${entry.id} 已完成并归档`;
+    });
+    const { readProjectDocuments, projectDocuments } = await import("/01-project-resources.js");
+    await readProjectDocuments(test.other, { force: true });
+    await readProjectDocuments(test.project, { force: true });
+    test.lastGood = projectDocuments(test.project).data;
+  });
+  await page.locator('[data-work-surface="project"]').click();
+  await page.locator('[data-management-tab="req"]').click();
+  await page.locator('.management-row[data-work-id="R-401"]').click();
+  await page.locator(".management-body .doc-edit-toggle").click();
+  await page.locator('.management-body .doc-edit [data-field=":title"]').fill("保留未提交草稿");
+  await page.locator(".management-body").getByRole("button", { name: "→ 转 已完成", exact: true }).click();
+  await page.locator("#confirm-cancel").click();
+  check(await page.locator('.management-body .doc-edit [data-field=":title"]').inputValue() === "保留未提交草稿" && !await page.evaluate(() => window.__archiveCheck.committed), "Cancelling archive preserves the active detail and unsaved draft");
+  await page.evaluate(async () => {
+    const { transitionEntryStatus } = await import("/11-docs-list.js");
+    window.__archiveTransition = transitionEntryStatus(window.__archiveCheck.entry, "req", "done");
+  });
+  await page.locator("#confirm-ok").click();
+  check(!await page.evaluate(() => window.__archiveTransition) && await page.locator('.management-body .doc-edit [data-field=":title"]').inputValue() === "保留未提交草稿", "A failed archive write preserves the editor and its draft");
+  check(!await page.evaluate(async () => {
+    const test = window.__archiveCheck;
+    return (await import("/01-project-resources.js")).projectDocumentIsClosed(test.project, test.entry.id);
+  }), "A failed write publishes no confirmed closure");
+  await page.evaluate(async () => {
+    const test = window.__archiveCheck; test.rejectClose = false; test.hold = true;
+    test.pendingRead = (await import("/01-project-resources.js")).readProjectDocuments(test.project, { force: true }).catch(String);
+  });
+  await page.waitForFunction(() => Boolean(window.__archiveCheck.release));
+  await page.locator(".management-body").getByRole("button", { name: "→ 转 已完成", exact: true }).click();
+  await page.locator("#confirm-ok").click();
+  await page.waitForFunction(() => window.__archiveCheck.committed && !document.querySelector(".management-detail-nav"));
+  check(!await page.locator('.management-row[data-work-id="R-401"]').count() && await page.locator('.management-row[data-work-id="R-402"]').isVisible(), "Successful archive closes the editor and removes only its active row before the in-flight read settles");
+  const failedRead = await page.evaluate(async () => {
+    const test = window.__archiveCheck; test.release(); await test.pendingRead;
+    const { projectDocuments, projectDocumentsView, projectDocumentIsClosed } = await import("/01-project-resources.js");
+    const resource = projectDocuments(test.project);
+    return { status: resource.status, error: resource.error, sameSnapshot: resource.data === test.lastGood,
+      rawIds: resource.data.requirements.map(row => row.id), viewIds: projectDocumentsView(test.project, resource.data).requirements.map(row => row.id),
+      otherOpen: !projectDocumentIsClosed(test.other, test.entry.id) && projectDocumentsView(test.other, projectDocuments(test.other).data).requirements.some(row => row.id === test.entry.id) };
+  });
+  check(failedRead.status === "error" && failedRead.error.includes("CONTROLLED_POST_COMMIT_SNAPSHOT_READ_ERROR") && await page.locator(".management-feedback").innerText().then(text => text.includes("CONTROLLED_POST_COMMIT_SNAPSHOT_READ_ERROR")), "The post-commit read failure remains explicit in the resource and management page");
+  check(failedRead.sameSnapshot && failedRead.rawIds.includes("R-401") && !failedRead.viewIds.includes("R-401"), "An obsolete in-flight read cannot revive the archived row or mutate the last-good backend snapshot");
+  check(failedRead.otherOpen, "A confirmed closure does not affect the same document ID in another project");
+  await page.evaluate(async () => {
+    const test = window.__archiveCheck;
+    await (await import("/30-management.js")).openManagementItem(test.project, test.entry);
+  });
+  check(!await page.locator(".management-detail-nav").count(), "A stale external link cannot reopen the confirmed archived editor after a read failure");
+  await page.evaluate(async () => {
+    const test = window.__archiveCheck;
+    await (await import("/30-management.js")).openManagementItem(test.project, { ...test.entry, status: "done", closed: true, nextStatuses: [] });
+  });
+  check(await page.locator(".management-detail-nav").isVisible() && !await page.locator(".management-body .doc-edit-toggle").count(), "Explicit read-only archive history remains accessible during the read failure");
+  await page.locator('[data-management-tab="req"]').click();
+  await page.locator('.management-tools [aria-label="更多"]').click();
+  await page.getByRole("menuitem", { name: "高级筛选与批量管理", exact: true }).click();
+  check(!await page.locator('#documents-req-list .doc-item[data-doc-id="R-401"]').count() && await page.locator("#documents-error").innerText().then(text => text.includes("CONTROLLED_POST_COMMIT_SNAPSHOT_READ_ERROR")), "Advanced document lists exclude confirmed closures while preserving the read error");
+  await page.evaluate(async () => {
+    await (await import("/12-workbench.js")).openProjectSpace(window.__archiveCheck.project, "chat");
+  });
+  check(!(await rail.innerText()).includes("R-401"), "Conversation candidates cannot offer confirmed archived work from the old snapshot");
+  const lifecycle = await page.evaluate(async () => {
+    const test = window.__archiveCheck;
+    const { projectDocuments, projectDocumentClosed, projectDocumentIsClosed, projectDocumentsView, readProjectDocuments } = await import("/01-project-resources.js");
+    const uncached = `${test.project}/uncached`;
+    projectDocumentClosed(uncached, test.entry.id);
+    const resource = projectDocuments(uncached);
+    const before = resource.data === null && projectDocumentsView(uncached, resource.data) === null;
+    let failure = "";
+    try { await resource.load(); } catch (error) { failure = String(error); }
+    const retained = resource.data === null && resource.status === "error" && projectDocumentIsClosed(uncached, test.entry.id);
+    // A later successful authoritative read may reflect a manual restoration.
+    test.recover = true; test.docs.requirements.unshift(structuredClone(test.entry)); test.docs.archived.req = 0;
+    await readProjectDocuments(test.project, { force: true });
+    const current = projectDocuments(test.project);
+    return { before, retained, failure, current: current.isCurrent(), cleared: !projectDocumentIsClosed(test.project, test.entry.id), exact: projectDocumentsView(test.project, current.data) === current.data };
+  });
+  check(lifecycle.before && lifecycle.retained && lifecycle.failure.includes("CONTROLLED_POST_COMMIT_SNAPSHOT_READ_ERROR"), "A confirmed closure without cached data preserves null and survives read errors");
+  check(lifecycle.current && lifecycle.cleared && lifecycle.exact, "Only a current successful snapshot supersedes pending confirmed closures");
+  await page.evaluate(async () => {
+    const test = window.__archiveCheck;
+    test.docs.requirements = ["R-801", "R-802"].map(id => ({ ...structuredClone(test.entry), id }));
+    test.docs.archived.req = 0; test.committed = false;
+    window.__kzPreview.setCommand("docs_snapshot", () => {
+      if (test.committed) throw new Error("CONTROLLED_POST_COMMIT_SNAPSHOT_READ_ERROR");
+      return structuredClone(test.docs);
+    });
+    window.__kzPreview.setCommand("docs_update", args => {
+      if (args.projectDir !== test.project || args.action !== "update" || args.status !== "done") throw new Error("Unexpected batch mutation");
+      if (args.id === "R-802") throw new Error("CONTROLLED_BATCH_ITEM_WRITE_ERROR");
+      if (args.id !== "R-801") throw new Error("Unexpected batch document");
+      test.docs.requirements = test.docs.requirements.filter(entry => entry.id !== args.id);
+      test.docs.archived.req += 1; test.committed = true;
+      return `${args.id} archived`;
+    });
+    await (await import("/01-project-resources.js")).readProjectDocuments(test.project, { force: true });
+    await (await import("/30-management.js")).openManagementItem(test.project, test.docs.requirements[0]);
+    const { batchSelection, applyBatch } = await import("/11-docs-list.js");
+    document.getElementById("documents-batch-status").innerHTML = '<option value="done">已完成</option>';
+    document.getElementById("documents-batch-tag").value = "";
+    batchSelection.clear(); batchSelection.set("R-801", "req"); batchSelection.set("R-802", "req");
+    await applyBatch();
+  });
+  await page.waitForFunction(async () => {
+    const test = window.__archiveCheck;
+    return (await import("/01-project-resources.js")).projectDocuments(test.project).status === "error";
+  });
+  check(!await page.locator(".management-detail-nav").count() && !await page.locator('.management-row[data-work-id="R-801"]').count() && await page.locator('.management-row[data-work-id="R-802"]').isVisible(), "A partly successful terminal batch retires its successful item and keeps the failed item active");
+  check(await page.evaluate(async () => {
+    const test = window.__archiveCheck;
+    const { projectDocumentIsClosed } = await import("/01-project-resources.js");
+    return projectDocumentIsClosed(test.project, "R-801") && !projectDocumentIsClosed(test.project, "R-802");
+  }), "Batch retirement facts follow individual successful backend acknowledgements");
   check(errors.length === 0, `No browser runtime errors: ${errors.join("; ")}`);
   await writeFile(`${output}/verification.json`, JSON.stringify({ passed, errors, scope: "Browser rendering and IPC inputs; tracker writes verified by Rust tests" }, null, 2));
   console.log(`Backlog maintenance browser checks passed: ${passed.length}`);

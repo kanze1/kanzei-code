@@ -1,5 +1,5 @@
 import { closeSurface } from "./00-surface.js";
-import { readProjectDocuments, projectDocumentsChanged, observeProjectDocuments } from "./01-project-resources.js";
+import { readProjectDocuments, projectDocumentsChanged, observeProjectDocuments, projectDocumentsView } from "./01-project-resources.js";
 import { defer } from "./00-dom.js";
 import { $ } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
@@ -40,8 +40,9 @@ export async function refreshDocs({ extras = document.body.dataset.view !== "doc
   const forProject = currentProject;
   let rendered = false;
   try {
-    const snapshot = await readProjectDocuments(forProject, { force });
+    const data = await readProjectDocuments(forProject, { force });
     if (currentProject !== forProject) return;
+    const snapshot = projectDocumentsView(forProject, data);
     if (latestDocsSnapshot !== snapshot) renderDocsSnapshot(snapshot);
     document.dispatchEvent(new CustomEvent("kz:management-snapshot", { detail: { project: forProject, snapshot } }));
     rendered = true;
@@ -93,8 +94,9 @@ export function refreshDocsSoon() {
     // 合并窗口本身就有 400ms,在飞的概率比手动刷新更高。
     const forProject = currentProject;
     try {
-      const snapshot = await readProjectDocuments(forProject);
+      const data = await readProjectDocuments(forProject);
       if (currentProject !== forProject) return;
+      const snapshot = projectDocumentsView(forProject, data);
       if (latestDocsSnapshot !== snapshot) renderDocsSnapshot(snapshot);
     } catch (err) {
       // 同 refreshDocs:没重绘成 = 挂起的跳转高亮没人消费,不作废就会在下一次
@@ -114,8 +116,9 @@ function observeCurrentDocuments() {
   const project = currentProject;
   documentResourceSubscription = observeProjectDocuments(project, resource => {
     if (project !== currentProject || document.body.dataset.view !== "documents") return;
-    if (resource.status === "ready") renderDocsSnapshot(resource.data);
-    else if (resource.status === "error") showDocsLoadError(resource.error, refreshDocs);
+    const snapshot = projectDocumentsView(project, resource.data);
+    if (resource.status === "ready" || snapshot && snapshot !== resource.data) renderDocsSnapshot(snapshot);
+    if (resource.status === "error") showDocsLoadError(resource.error, refreshDocs);
   }, () => project === currentProject && document.body.dataset.view === "documents");
 }
 defer(() => {

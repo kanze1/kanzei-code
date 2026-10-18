@@ -6,11 +6,12 @@ export function createReadResource(read) {
   const resource = { data: null, error: "", status: "idle", request: null };
   const notify = () => { for (const listener of listeners) listener(resource); };
   resource.subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener); };
+  resource.isCurrent = () => resource.status === "ready" && resolvedRevision === revision;
   resource.invalidate = () => { revision += 1; if (!resource.request) resource.status = "stale"; notify(); };
   resource.load = ({ force = false } = {}) => {
     if (force) resource.invalidate();
     if (resource.request) return resource.request;
-    if (resource.status === "ready" && resolvedRevision === revision) return Promise.resolve(resource.data);
+    if (resource.isCurrent()) return Promise.resolve(resource.data);
     resource.status = "loading"; resource.error = "";
     resource.request = Promise.resolve().then(async () => {
       do {

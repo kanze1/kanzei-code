@@ -5,6 +5,7 @@ import { $ } from "./00-dom.js";
 import { confirmDialog, inputDialog } from "./00-dialogs.js";
 import { promptBox } from "./01-chat-panes.js";
 import { invoke } from "./00-ipc.js";
+import { projectDocumentClosed } from "./01-project-resources.js";
 import { localizeDynamic, languageIsEnglish } from "./02-i18n.js";
 import { localizedDocStatus, localizedStatusWord, t } from "./02-i18n.js";
 import { currentProject, log, navigate_view, setSidebarCollapsed, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
@@ -126,6 +127,7 @@ export async function applyBatch() {
         ...(reason ? { reason } : {}),
         ...(Object.keys(fields).length ? { fields } : {}),
       });
+      if ((DOC_TERMINAL_STATUSES[kind] ?? []).includes(status)) projectDocumentClosed(batchProjectDir, id);
       ok += 1;
     } catch (error) {
       // 逐条独立提交:一条失败(比如状态机不允许后退)不该把整批回滚掉,
@@ -504,6 +506,7 @@ export async function transitionEntryStatus(entry, kind, next, { project = curre
   try {
     const msg = await invoke("docs_update", { projectDir: project, kind, action: terminal ? "close" : "update", id: entry.id, status: next,
       ...(next === "awaiting_external" ? { fields: { "外部验收": reason } } : reason ? { reason } : {}) });
+    if (terminal) projectDocumentClosed(project, entry.id);
     log(msg);
     toast(`${entry.id} → ${localizedDocStatus(next)}${terminal ? ` · ${t("已归档")}` : ""}`);
     refreshDocs();

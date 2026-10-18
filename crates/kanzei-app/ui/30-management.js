@@ -3,7 +3,7 @@ import { invoke } from "./00-ipc.js";
 import { confirmDialog } from "./00-dialogs.js";
 import { openMenu } from "./00-surface.js";
 import { t, localizedDocStatus, languageIsEnglish } from "./02-i18n.js";
-import { observeProjectDocuments, readProjectDocuments } from "./01-project-resources.js";
+import { observeProjectDocuments, readProjectDocuments, projectDocumentIsClosed, projectDocumentsView } from "./01-project-resources.js";
 import { createReadResource } from "./00-resource.js";
 import { currentProject, onInnerBack, toastError } from "./03-shell.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
@@ -19,7 +19,8 @@ const projects = new Map();
 let mounted = null;
 const el = (tag, text, cls) => { const node = document.createElement(tag); if (text != null) node.textContent = text; if (cls) node.className = cls; return node; };
 const action = (label, callback, cls = "ghost") => { const button = el("button", label, cls); button.type = "button"; button.addEventListener("click", callback); return button; };
-const allEntries = state => [...(state.docs?.requirements || []), ...(state.docs?.defects || [])];
+const documentsView = state => projectDocumentsView(state.project, state.docs);
+const allEntries = state => [...(documentsView(state)?.requirements || []), ...(documentsView(state)?.defects || [])];
 const numberText = value => typeof value === "number" ? value.toLocaleString(languageIsEnglish() ? "en-US" : "zh-CN") : value;
 function stateFor(project) {
   if (!projects.has(project)) {
@@ -30,7 +31,16 @@ function stateFor(project) {
 }
 function live(state) { return mounted === state && state.root?.isConnected && !state.root.hidden; }
 
+function discardDetail(state, id) {
+  state.details.get(id)?.remove(); state.details.delete(id);
+  if (state.detail?.id === id) state.detail = null;
+}
+
 function applyDocumentsSnapshot(state, snapshot) {
+  for (const id of state.details.keys()) {
+    if (projectDocumentIsClosed(state.project, id) && !(state.detail?.id === id && state.detail.closed)) discardDetail(state, id);
+  }
+  if (state.detail && !state.detail.closed && projectDocumentIsClosed(state.project, state.detail.id)) discardDetail(state, state.detail.id);
   if (state.docs === snapshot) return;
   state.docs = snapshot;
   if (!snapshot) return;
@@ -40,9 +50,7 @@ function applyDocumentsSnapshot(state, snapshot) {
     else if (!state.detail.closed) {
       // Active details belong to the current snapshot. A retired document must
       // not survive through its cached editor; history is opened explicitly.
-      state.details.get(state.detail.id)?.remove();
-      state.details.delete(state.detail.id);
-      state.detail = null;
+      discardDetail(state, state.detail.id);
     }
   }
   for (const resource of state.archives.values()) resource.invalidate();
@@ -104,7 +112,9 @@ export async function openManagementItem(project, entry, { activate = false } = 
   // Browsing a document does not change the execution recipient. Editing an
   // inactive project's document explicitly activates its existing editor.
   if (!await openProjectSpace(project, "project", { activate })) return;
-  const state = stateFor(project); state.detail = entry; state.tab = entry.id.startsWith("D-") ? "defect" : "req";
+  const state = stateFor(project);
+  state.detail = !entry.closed && projectDocumentIsClosed(project, entry.id) ? null : entry;
+  state.tab = entry.id.startsWith("D-") ? "defect" : "req";
   if (live(state)) render(state, true);
   try {
     const docs = await readProjectDocuments(project);
@@ -119,7 +129,7 @@ function render(state, force = false) {
   state.feedback.replaceChildren();
   for (const error of new Set([state.error, state.docsError].filter(Boolean))) state.feedback.append(el("p", `${t("读取失败")}: ${error}`, "management-error"));
   for (const button of state.nav.children) button.setAttribute("aria-current", String(button.dataset.managementTab === state.tab ? "page" : "false"));
-  const signature = JSON.stringify([state.tab, state.detail, state.docs, state.docsStatus, state.docsError, state.error, languageIsEnglish()]);
+  const signature = JSON.stringify([state.tab, state.detail, documentsView(state), state.docsStatus, state.docsError, state.error, languageIsEnglish()]);
   if (!force && signature === state.signature) return;
   // A background snapshot must never replace an editor containing a user's draft.
   if (state.body.querySelector(".editing") && !force) return;
@@ -180,7 +190,8 @@ function renderList(state) {
   const count = el("p", null, "management-list-count"); count.setAttribute("role", "status");
   const fill = () => {
     list.replaceChildren();
-    const entries = (state.tab === "req" ? state.docs?.requirements : state.docs?.defects) || [];
+    const docs = documentsView(state);
+    const entries = (state.tab === "req" ? docs?.requirements : docs?.defects) || [];
     const query = state.query.toLocaleLowerCase();
     const rows = entries.filter(entry => `${entry.id} ${entry.title}`.toLocaleLowerCase().includes(query) && (state.filter === "all" || state.filter === "open" ? state.filter === "all" || !entry.closed : state.filter === "blocked" ? entry.blocked : state.filter === "doing" ? ["doing", "fixing"].includes(entry.status) : entry.status === state.filter));
     count.replaceChildren(document.createTextNode(`${t("显示条目")} · `), el("strong", state.docs ? `${numberText(rows.length)} / ${numberText(entries.length)}` : "—"));
