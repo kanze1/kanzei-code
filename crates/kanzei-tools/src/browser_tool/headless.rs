@@ -45,7 +45,11 @@ pub async fn execute_headless(
     ctx: &kanzei_harness::ToolCtx,
     pane_hint: bool,
 ) -> ToolOutput {
-    let backend = Backend::Headless;
+    let backend = if input.connection_id.is_some() || input.action == "connect" {
+        Backend::Attached
+    } else {
+        Backend::Headless
+    };
     let action = match BrowserAction::parse(&input.action) {
         Ok(action) => action,
         Err(error) => return browser_error(backend, &error),
@@ -63,12 +67,12 @@ pub async fn execute_headless(
     };
     start_idle_reaper();
     let mut notes: Vec<String> = target.iter().filter_map(|t| t.note.clone()).collect();
-    if pane_hint {
+    if pane_hint && backend == Backend::Headless {
         notes.push(HEADLESS_PANE_HINT.to_string());
     }
     let result = with_helper(|helper| {
         let (output, url) = run_action(helper, ctx, &input, action, target, &notes, source_scope)?;
-        if let Some(url) = url {
+        if let Some(url) = url.filter(|_| backend == Backend::Headless) {
             set_current_url(backend, ctx, Some(url));
         }
         Ok(output)
@@ -91,9 +95,28 @@ fn run_action(
     let owner = super::owner_key(ctx);
     let mut rpc = |method: &str, mut params: serde_json::Value| {
         params["owner"] = owner.as_str().into();
+        if let Some(id) = &input.connection_id {
+            params["connection_id"] = id.as_str().into();
+        }
+        if let Some(id) = &input.page_id {
+            params["page_id"] = id.as_str().into();
+        }
+        if let Some(url) = &input.expected_url {
+            params["expected_url"] = url.as_str().into();
+        }
+        if let Some(id) = &input.frame_id {
+            params["frame_id"] = id.as_str().into();
+        }
+        if let Some(url) = &input.expected_frame_url {
+            params["expected_frame_url"] = url.as_str().into();
+        }
         helper.rpc(method, params)
     };
-    let backend = Backend::Headless;
+    let backend = if input.connection_id.is_some() || action == BrowserAction::Connect {
+        Backend::Attached
+    } else {
+        Backend::Headless
+    };
     let viewport = parse_viewport(input.viewport.as_deref())
         .map(|(width, height)| serde_json::json!({ "width": width, "height": height }));
     let viewport_text = viewport_label(input.viewport.as_deref());
@@ -120,6 +143,38 @@ fn run_action(
     };
     let selector = input.selector.clone().unwrap_or_default();
     Ok(match action {
+        BrowserAction::Connect | BrowserAction::Pages | BrowserAction::Frames => {
+            let result = if action == BrowserAction::Connect {
+                rpc(
+                    "connect",
+                    serde_json::json!({"endpoint":super::connection_endpoint(input.endpoint.as_deref().ok_or("connect requires endpoint")?)?}),
+                )?
+            } else if action == BrowserAction::Frames {
+                rpc("frames", serde_json::json!({}))?
+            } else {
+                rpc("pages", serde_json::json!({}))?
+            };
+            super::connection::remember(ctx, &result)?;
+            (ToolOutput::ok(format!("{}\n{}\nChoose a page_id and copy its current URL into expected_url for each page action. A connected browser must already expose a user-authorized local CDP endpoint.", backend.line(), result)), None)
+        }
+        BrowserAction::Disconnect => {
+            let result = rpc("disconnect", serde_json::json!({}))?;
+            super::connection::forget(
+                ctx,
+                input
+                    .connection_id
+                    .as_deref()
+                    .ok_or("disconnect requires connection_id")?,
+            );
+            (
+                ToolOutput::ok(format!(
+                    "{}\n{}\nDisconnected; the user's existing browser and tabs remain open.",
+                    backend.line(),
+                    result
+                )),
+                None,
+            )
+        }
         BrowserAction::Open => {
             let shot = rpc("screenshot", serde_json::json!({ "viewport": viewport }))?;
             let (title, url) = opened.clone().unwrap_or_default();
@@ -401,6 +456,7 @@ pub(crate) fn shutdown_helper() {
     *guard = None;
     reg.shutting_down.store(false, Ordering::SeqCst);
     super::clear_current_urls(Backend::Headless);
+    super::connection::clear();
 }
 
 static REGISTRY: std::sync::OnceLock<HelperRegistry> = std::sync::OnceLock::new();

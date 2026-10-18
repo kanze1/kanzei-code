@@ -182,6 +182,10 @@ async fn act(
         }
     }
     Ok(match action {
+        BrowserAction::Connect
+        | BrowserAction::Pages
+        | BrowserAction::Frames
+        | BrowserAction::Disconnect => return Err("连接管理动作应操作明确的外部浏览器连接".into()),
         BrowserAction::Open => {
             let (png, _, _) = pane::capture(pane, false, None).await?;
             let title = pane.shared.meta().title.clone();

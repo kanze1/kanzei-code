@@ -17,7 +17,9 @@ use kanzei_harness::ToolOutput;
 use serde::Deserialize;
 use sha2::Digest;
 
+mod connection;
 mod forms;
+pub use connection::{connection_endpoint, connection_resources, uses_connection};
 mod headless;
 mod source;
 pub use crate::web_refs::SourceScope;
@@ -42,6 +44,7 @@ pub const CONSOLE_ALL_LIMIT: usize = 200;
 pub enum Backend {
     Pane,
     Headless,
+    Attached,
 }
 
 impl Backend {
@@ -49,6 +52,7 @@ impl Backend {
         match self {
             Backend::Pane => "backend: pane（用户可见）",
             Backend::Headless => "backend: headless",
+            Backend::Attached => "backend: attached（用户已有浏览器）",
         }
     }
 
@@ -56,6 +60,7 @@ impl Backend {
         match self {
             Backend::Pane => 0,
             Backend::Headless => 1,
+            Backend::Attached => 2,
         }
     }
 }
@@ -90,6 +95,9 @@ impl kanzei_harness::Tool for BrowserTool {
         input: &serde_json::Value,
         ctx: &kanzei_harness::ToolCtx,
     ) -> Vec<String> {
+        if uses_connection(input) {
+            return connection_resources(input, ctx);
+        }
         resources_for(
             input,
             Some(&ctx.cwd),
@@ -124,7 +132,7 @@ impl kanzei_harness::Tool for BrowserTool {
 
 /// 两个后端共用的工具说明。
 pub fn description() -> String {
-    "Drive a browser page and see it. Actions: open (navigate to url/path/html, return a \
+    "Drive a browser page and see it. connect(endpoint) attaches an already running, user-authorized local CDP Edge/Chrome; pages(connection_id) lists targets; frames(connection_id,page_id,expected_url) lists iframe IDs/URLs; disconnect(connection_id) detaches. Connected page actions require connection_id + page_id + expected_url from that list. Existing-browser attachment requires Node.js 22+. Actions: open (navigate to url/path/html, return a \
      screenshot), screenshot (current page, no reload; full_page or selector), dom, console \
      (errors/warnings; all=true for every level), click, type (text/date), select (values[]), check (checked), upload (files[]), validate (form selector), press (key), scroll, wait \
      (selector/text/ms ≤10000), eval (JS expression → JSON), source (save the current rendered \
@@ -143,6 +151,12 @@ pub fn description() -> String {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserInput {
+    pub endpoint: Option<String>,
+    pub connection_id: Option<String>,
+    pub page_id: Option<String>,
+    pub expected_url: Option<String>,
+    pub frame_id: Option<String>,
+    pub expected_frame_url: Option<String>,
     pub topic: Option<String>,
     pub task_id: Option<String>,
     /// 目标 http(s) URL(也接受 file:// 与 about:blank)。
@@ -175,6 +189,12 @@ pub struct BrowserInput {
 impl Default for BrowserInput {
     fn default() -> Self {
         BrowserInput {
+            endpoint: None,
+            connection_id: None,
+            page_id: None,
+            expected_url: None,
+            frame_id: None,
+            expected_frame_url: None,
             topic: None,
             task_id: None,
             url: None,
@@ -218,6 +238,10 @@ pub fn parse_browser_input(input: serde_json::Value) -> Result<BrowserInput, Box
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrowserAction {
+    Connect,
+    Pages,
+    Frames,
+    Disconnect,
     Open,
     Screenshot,
     Dom,
@@ -240,6 +264,10 @@ impl BrowserAction {
     /// 旧实现把未知动作一律当 open,会悄悄重新导航、丢掉页面状态。
     pub fn parse(raw: &str) -> Result<Self, String> {
         Ok(match raw.trim().to_ascii_lowercase().as_str() {
+            "connect" => BrowserAction::Connect,
+            "pages" => BrowserAction::Pages,
+            "frames" => BrowserAction::Frames,
+            "disconnect" => BrowserAction::Disconnect,
             "" | "open" | "navigate" | "goto" | "visit" => BrowserAction::Open,
             "screenshot" | "capture" | "snapshot" => BrowserAction::Screenshot,
             "dom" => BrowserAction::Dom,
@@ -266,6 +294,65 @@ impl BrowserAction {
 
 /// 动作参数的机械校验(两个后端执行前都先过这一道,错误文本一致)。
 pub fn validate(input: &BrowserInput, action: BrowserAction) -> Result<(), String> {
+    if input.frame_id.is_some() != input.expected_frame_url.is_some()
+        || ((input.frame_id.is_some() || action == BrowserAction::Frames)
+            && input.connection_id.is_none())
+    {
+        return Err("iframe 动作需要所属 connection_id/page_id/expected_url，以及成对的 frame_id/expected_frame_url；先用 frames 查看".into());
+    }
+    if input.frame_id.is_some() && input.full_page {
+        return Err("iframe 截图仅支持元素/iframe 当前视口，不支持 full_page".into());
+    }
+    if action == BrowserAction::Connect {
+        connection_endpoint(
+            input
+                .endpoint
+                .as_deref()
+                .ok_or("connect 需要本机 CDP endpoint")?,
+        )?;
+        if input.connection_id.is_some() || input.page_id.is_some() || input.expected_url.is_some()
+        {
+            return Err(
+                "connect 创建独立连接；不要提供旧 connection_id/page_id/expected_url".into(),
+            );
+        }
+    } else if input.endpoint.is_some() {
+        return Err("endpoint 仅用于 connect".into());
+    }
+    if matches!(action, BrowserAction::Pages | BrowserAction::Disconnect)
+        && input.connection_id.as_deref().is_none_or(str::is_empty)
+    {
+        return Err("pages/disconnect 需要当前会话的 connection_id".into());
+    }
+    if input.connection_id.is_some()
+        && !matches!(action, BrowserAction::Pages | BrowserAction::Disconnect)
+        && (input.page_id.as_deref().is_none_or(str::is_empty)
+            || input.expected_url.as_deref().is_none_or(str::is_empty))
+    {
+        return Err(
+            "现有浏览器动作需要 connection_id、page_id 和 expected_url；先用 pages 查看当前目标"
+                .into(),
+        );
+    }
+    if input.connection_id.is_none() && (input.page_id.is_some() || input.expected_url.is_some()) {
+        return Err("page_id/expected_url 需要所属 connection_id".into());
+    }
+    for url in [&input.expected_url, &input.expected_frame_url]
+        .into_iter()
+        .flatten()
+    {
+        let parsed = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
+        if !matches!(parsed.scheme(), "http" | "https")
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.host_str().is_some_and(|host| {
+                host.trim_end_matches('.')
+                    .eq_ignore_ascii_case("tauri.localhost")
+            })
+        {
+            return Err("已连接页面必须是普通 HTTP 网页；应用内部页面不可接管".into());
+        }
+    }
     if input.files.is_some() && action != BrowserAction::Upload {
         return Err("files 仅用于 upload 动作".into());
     }
@@ -284,6 +371,14 @@ pub fn validate(input: &BrowserInput, action: BrowserAction) -> Result<(), Strin
         .count();
     if targets > 1 {
         return Err("url、path、html 只能给一个".into());
+    }
+    if targets > 0
+        && matches!(
+            action,
+            BrowserAction::Connect | BrowserAction::Pages | BrowserAction::Disconnect
+        )
+    {
+        return Err("连接管理动作不接受页面导航参数".into());
     }
     let non_empty = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.trim().is_empty());
     match action {
@@ -428,7 +523,11 @@ pub fn resources_for(
     current: Option<&str>,
 ) -> Vec<String> {
     let mut resources = page_resources_for(input, cwd, current);
-    if input["action"] == "upload" {
+    if input["action"]
+        .as_str()
+        .and_then(|action| BrowserAction::parse(action).ok())
+        == Some(BrowserAction::Upload)
+    {
         for path in input["files"]
             .as_array()
             .into_iter()
@@ -823,6 +922,12 @@ pub fn input_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
+            "endpoint": { "type": "string", "description": "connect: 用户已授权且已启用 CDP 的本机 Edge/Chrome HTTP 地址（例如 http://127.0.0.1:9222）；不自动重启或改动用户配置" },
+            "connection_id": { "type": "string", "description": "connect 返回的连接身份；仅当前会话可用，pages 查看标签页，disconnect 断开连接" },
+            "page_id": { "type": "string", "description": "已连接浏览器的目标标签页 ID；每次页面动作明确提供" },
+            "expected_url": { "type": "string", "description": "pages 返回的目标当前 URL；授权与执行检查同一页面/URL，页面变化时拒绝动作" },
+            "frame_id": { "type": "string", "description": "frames 返回的 iframe 身份；与 expected_frame_url 一起提供" },
+            "expected_frame_url": { "type": "string", "description": "frames 返回的 iframe 当前 HTTP URL；主页面及 frame 的身份/URL 均检查后执行" },
             "topic": { "type": "string", "description": "source: 研究主题；与 task_id 一起提供" },
             "task_id": { "type": "string", "description": "source: 当前活动的研究任务 ID；与 topic 一起提供" },
             "url": { "type": "string", "description": "目标 http(s) URL；open 必填其一(url/path/html)，其他动作省略时复用当前页面，提供时先重新导航" },
@@ -830,7 +935,7 @@ pub fn input_schema() -> serde_json::Value {
             "html": { "type": "string", "description": "内联 HTML 片段(≤2MB)，经静态服务打开" },
             "action": {
                 "type": "string",
-                "enum": ["open", "screenshot", "dom", "source", "console", "click", "type", "select", "check", "upload", "validate", "press", "scroll", "wait", "eval"],
+                "enum": ["connect", "pages", "frames", "disconnect", "open", "screenshot", "dom", "source", "console", "click", "type", "select", "check", "upload", "validate", "press", "scroll", "wait", "eval"],
                 "description": "open(打开并截图)| screenshot(当前页截图)| dom(字段/选项/状态)| source(保存当前渲染正文与 DOM)| console | click | type(selector+text；日期用 ISO 格式)| select(selector+values)| check(selector+checked)| upload(selector+files)| validate(form selector，返回 valid 和错误字段)| press(key)| scroll(selector/dy)| wait(selector/text/ms≤10000)| eval(expression→JSON)"
             },
             "selector": { "type": "string", "description": "目标 CSS selector；表单动作必须唯一匹配；validate 选择 form" },

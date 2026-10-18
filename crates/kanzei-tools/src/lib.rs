@@ -31,14 +31,15 @@ pub mod schedules;
 /// 输出格式、无头执行)。两个后端的输出格式只在 browser_tool 里写一份。
 pub mod browser {
     pub use crate::browser_tool::{
-        browser_error, current_url, description, dom_walker_expression, execute_headless,
-        form_action_expression, format_console_item, input_schema, out_click, out_console, out_dom,
-        out_eval, out_form, out_open, out_press, out_screenshot, out_scroll, out_wait,
-        parse_browser_input, parse_viewport, permission_resources, prepare_source,
+        browser_error, connection_resources, current_url, description, dom_walker_expression,
+        execute_headless, form_action_expression, format_console_item, input_schema, out_click,
+        out_console, out_dom, out_eval, out_form, out_open, out_press, out_screenshot, out_scroll,
+        out_wait, parse_browser_input, parse_viewport, permission_resources, prepare_source,
         record_rendered_source, rendered_source_expression, resolve_nav_target, resources_for,
-        screenshot_scope, scroll_scope, set_current_url, url_resource, validate, viewport_label,
-        wait_scope, Backend, BrowserAction, BrowserInput, ConsoleItem, NavTarget, SourceScope,
-        CONSOLE_ALL_LIMIT, HEADLESS_PANE_HINT, MAX_EVAL_CHARS, MAX_SCREENSHOT_BYTES, MAX_WAIT_MS,
+        screenshot_scope, scroll_scope, set_current_url, url_resource, uses_connection, validate,
+        viewport_label, wait_scope, Backend, BrowserAction, BrowserInput, ConsoleItem, NavTarget,
+        SourceScope, CONSOLE_ALL_LIMIT, HEADLESS_PANE_HINT, MAX_EVAL_CHARS, MAX_SCREENSHOT_BYTES,
+        MAX_WAIT_MS,
     };
 }
 /// R-311:条目关闭收尾链遥测与滚动汇总，供 tracker 写入与 `kz metrics` 消费。

@@ -9,6 +9,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { actions } from "./fixtures/browser-form-actions.mjs";
 
 assert(process.platform === "win32" && process.argv[2], "Usage: node scripts/ui-browser-forms-native-smoke.mjs <exe>");
 const output = path.resolve("output/playwright/browser-forms/native"), run = path.join(output, String(Date.now()));
@@ -19,35 +20,7 @@ await copyFile("node_modules/react/umd/react.development.js", path.join(project,
 await copyFile("node_modules/react-dom/umd/react-dom.development.js", path.join(project, "react-dom.js"));
 await writeFile(path.join(project, "attachment.txt"), "ACTUAL_AUTHORIZED_UPLOAD\n");
 await writeFile(path.join(appHome, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
-const actions = [
-  ["tool_search", { query: "select:browser" }],
-  ["browser", { action: "open", path: "form.html" }],
-  ["browser", { action: "wait", selector: "#name" }],
-  ["browser", { action: "dom", selector: "#form" }],
-  ["browser", { action: "validate", selector: "#form" }],
-  ["browser", { action: "type", selector: "#name", text: "" }],
-  ["browser", { action: "click", selector: "#submit" }],
-  ["browser", { action: "dom", selector: "#error" }],
-  ["browser", { action: "type", selector: "#name", text: "invalid" }],
-  ["browser", { action: "type", selector: "#email", text: "invalid-email" }],
-  ["browser", { action: "validate", selector: "#form" }],
-  ["browser", { action: "type", selector: "#email", text: "kanzei@example.test" }],
-  ["browser", { action: "type", selector: "#date", text: "2026-10-18" }],
-  ["browser", { action: "select", selector: "#city", values: ["sh"] }],
-  ["browser", { action: "select", selector: "#tags", values: ["code", "music"] }],
-  ["browser", { action: "check", selector: "#agreed", checked: true }],
-  ["browser", { action: "check", selector: "#agreed", checked: false }],
-  ["browser", { action: "check", selector: "#agreed", checked: true }],
-  ["browser", { action: "check", selector: "#kind-b", checked: true }],
-  ["browser", { action: "upload", selector: "#attachment", files: ["attachment.txt"] }],
-  ["browser", { action: "validate", selector: "#form" }],
-  ["browser", { action: "click", selector: "#submit" }],
-  ["browser", { action: "dom", selector: "#error" }],
-  ["browser", { action: "type", selector: "#name", text: "最后确认" }],
-  ["browser", { action: "click", selector: "#submit" }],
-  ["browser", { action: "wait", text: '"file_text"' }],
-  ["browser", { action: "source" }],
-];
+
 const rounds = { pane: [], headless: [] }, errors = [], checks = [];
 let heldResponse;
 const check = (value, label) => { assert(value, label); checks.push(label); };

@@ -367,6 +367,9 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
 
     /// Contextual actions authorize the same owned page even when it is hidden.
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
+        if kanzei_tools::browser::uses_connection(input) {
+            return kanzei_tools::browser::connection_resources(input, ctx);
+        }
         if ctx.browser_owner.is_some() {
             let current =
                 kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx);
@@ -395,6 +398,12 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
+        if kanzei_tools::browser::uses_connection(&input) {
+            return match kanzei_tools::browser::parse_browser_input(input) {
+                Ok(input) => kanzei_tools::browser::execute_headless(input, ctx, false).await,
+                Err(output) => *output,
+            };
+        }
         if ctx.browser_owner.is_some() {
             return match kanzei_tools::browser::parse_browser_input(input) {
                 Ok(input) => kanzei_tools::browser::execute_headless(input, ctx, true).await,

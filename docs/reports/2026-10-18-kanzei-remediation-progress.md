@@ -25,8 +25,8 @@
 | WEB-06 | 待实施 | 固定检索集、覆盖及引用质量结果 |
 | WEB-07 | 地区码、排除域及子域、未知参数与预算已实现，实际 HTTP 参数回归通过；搜索系列 26 项通过 | 最终软件内查询及发布版复验 |
 | BRO-01 | select/check/upload/validate 与受控字段填写已接两端；原生联合 25 项通过，含内部面板和实际 Edge 完整填写与提交 | 最终 HEAD 门禁及发布版复验 |
-| BRO-02 | 待实施 | 用户授权的现有 Edge 标签页接管 |
-| BRO-03 | 移除按可见性迁移浏览器的逻辑；隐藏身份反例先失败后通过，双会话与隐藏页面的原生联合 25 项通过 | 现有 Edge 接管、同 URL 重建/授权页面身份及最终门禁 |
+| BRO-02 | 用户授权的本机 CDP 连接、标签页/iframe 身份与断开已实现；辅助层 16 项与原生现有 Edge 11 项通过 | 最终发布版复验；现有 Edge 须已提供用户授权的 CDP 端点 |
+| BRO-03 | 隐藏不迁移页面；连接/页/URL 和 frame/URL 明确绑定，跨会话、页面变化、同 URL 重建负向用例通过；原生并发联合 25 项通过 | 前后台切换时的后端归属复验，最终 HEAD 与发布版复验 |
 | BRO-04 | 待实施 | 原生窗口、对话框和画布操作 |
 | MEM-01 | 候选机会、召回、注入、读取和明确采用/纠正反馈已区分，原生反馈 8 项通过 | 类型化晋升和恢复证据串联 |
 | MEM-02 | 版本化机会、冷却降级、隔离归档和恢复已实现，原生联合 19 项通过 | 最终发布版复验 |
@@ -71,13 +71,17 @@
 
 ## 发布验收
 
-网页来源存证：旧 fetched_at 时间戳在没有工件时仍被当作已读来源的反例已先失败后通过。采集事实写入所属会话的 state.db，保存请求 URL、重定向后的 URL、任务/主题/运行、时间、HTTP 状态、原始响应和正文各自的路径/大小/SHA-256；不再依赖会被淘汰的 URL 索引时间戳。finding 保存具体采集记录及来源版本，跨主题/会话或篡改工件拒绝。下载 PDF 本身不算已读，实际 read 工具读取当前版本后才有独立检查事实；这一事实不代表已通读所有页或验证结论。缓存篡改明确报错并撤销该缓存，不暗中联网重试。web 系列 48 项、research_loop 4 项和 tools all-targets Clippy 通过，动态浏览器正文仍待接入。
+网页来源存证：旧 fetched_at 时间戳在没有工件时仍被当作已读来源的反例已先失败后通过。采集事实写入所属会话的 state.db，保存请求 URL、重定向后的 URL、任务/主题/运行、时间、HTTP 状态、原始响应和正文各自的路径/大小/SHA-256；不再依赖会被淘汰的 URL 索引时间戳。finding 保存具体采集记录及来源版本，跨主题/会话或篡改工件拒绝。下载 PDF 本身不算已读，实际 read 工具读取当前版本后才有独立检查事实；这一事实不代表已通读所有页或验证结论。缓存篡改明确报错并撤销该缓存，不暗中联网重试。web 系列 48 项、research_loop 4 项和 tools all-targets Clippy 通过，动态浏览器正文验证见后文。
 
 动态正文：browser 的 source 动作保存当前渲染 DOM 与可见正文，共用采集与研究门禁，支持活动 topic/task_id；浏览器 DOM 观察的 HTTP 状态明确为 unknown。空壳、仍在加载的文档、挑战页和无正文的登录表单保留未核验记录，不能用于 finding；过大页面明确拒收而不冒充完整正文。挑战页误收反例已先失败后通过，web 系列 49 项、真实 Edge 浏览器系列 20 项通过。内部面板的后台传输原先丢失 session/run/browser owner 和结构化结果，现保留会话身份及完整 ToolOutput（终态、错误码、图片、工件）；相应传输回归通过，五 crate all-targets Clippy 通过。记忆来源链接及取消编辑复用捕获时的项目归属，实际 Markdown 导航 16 项通过。上述不替代最终原生窗口和发布版联合验收。
 
 真实表单操作：新增 select/check/upload/validate；type 对文本、日期、空值和 React 受控字段采用同一套原生属性/事件语义，两浏览器后端共享实现。DOM 显示字段类型、名称、必填/禁用、勾选和 option value。上传先检查页面与每个文件的权限，用 ScopedFile 打开并读取固定字节，总量限制 16 MiB；宽权限不能绕过敏感文件精确授权，权限和大小负向回归 2 项通过。后台向桌面传输完整 Ruleset，保留普通规则、硬拒绝和精确授权；密码填写结果脱敏。
 
-原生 ui-browser-forms-native-smoke 联合 25 项通过：实际 Kanzei runner 和 WebView2 执行 27 次动作完成 React 18.3.1 表单，观察 HTML/应用校验、清空、更正、下拉、多选、勾选/取消、radio、日期、实际附件字节、FormData 提交回显与双工件哈希。前台 provider 保持等待时，另一实际会话在独立 Edge 上完成同样 27 次动作；前台表单保留原值，随后在面板隐藏时继续从原 WebView2 采集正文，会话/run 归属正确。隐藏被误当身份变化的反例先失败后通过，已删除按隐藏时间回退其他浏览器的等待/迁移逻辑，截图仍单独检查可见性；预览 41 项通过。首轮测试模拟器曾把截图追加的图片消息误作新任务，现根据原始任务标记定位对话而保留图片，不跳过视觉路径。证据 output/playwright/browser-forms/native/acceptance.json 和 native-form.png，属于 dev 构建；用户现有已登录 Edge 接管尚未验收，不能与工具自行启动的 Edge 混为一谈。
+原生 ui-browser-forms-native-smoke 联合 25 项通过：实际 Kanzei runner 和 WebView2 执行 27 次动作完成 React 18.3.1 表单，观察 HTML/应用校验、清空、更正、下拉、多选、勾选/取消、radio、日期、实际附件字节、FormData 提交回显与双工件哈希。前台 provider 保持等待时，另一实际会话在独立 Edge 上完成同样 27 次动作；前台表单保留原值，随后在面板隐藏时继续从原 WebView2 采集正文，会话/run 归属正确。隐藏被误当身份变化的反例先失败后通过，已删除按隐藏时间回退其他浏览器的等待/迁移逻辑，截图仍单独检查可见性；预览 41 项通过。首轮测试模拟器曾把截图追加的图片消息误作新任务，现根据原始任务标记定位对话而保留图片，不跳过视觉路径。证据 output/playwright/browser-forms/native/acceptance.json 和 native-form.png，属于 dev 构建；用户现有已登录 Edge 的独立验收见后文。
+
+现有浏览器接管：browser 新增 connect/pages/frames/disconnect。只连接用户已授权且已启用 CDP 的本机 HTTP 端点，返回会话专属 connection_id 与标签页身份；每次页面操作明确带 page_id/expected_url，iframe 再带 frame_id/expected_frame_url。两份 URL 都进入权限资源，执行前核对同一目标，eval 在目标文档内再核对；旧 ID 不重绑到同 URL 新标签页。用户的原有默认 context 不被替换，连接采用 noDefaults；断开和空闲回收只关闭传输，不关闭原浏览器。CDP 握手的 HTTP 与 WebSocket 不跟随跨端点重定向，发现响应限制 64 KiB，应用内部页面不可接管；现有连接需要 Node.js 22+ 与 Playwright 1.62 的公开自定义传输接口。[接口依据](https://playwright.dev/docs/api/class-browsertype#browser-type-connect-over-cdp)。
+
+browser-connection-smoke 辅助层 16 项通过，含连接前已有登录、标签页选择、其他会话拒绝、旧 URL 拒绝、同 URL 重建后旧 ID 拒绝、iframe 独立操作及导航失效、弹窗新 ID、页面级控制台、跨端点 WebSocket 重定向零请求、断开/关闭 helper 后浏览器与登录态保留。原生 ui-browser-connection-native-smoke 首轮 9 项通过，扩展跨来源 iframe 后 11 项通过：实际 Kanzei 权限与 Rust runner 执行 32 次操作，接管软件启动前已有登录态的 Edge，完成 React 填表、真实文件字节、提交、更正、跨来源 frame 操作及正文存证，断开后原标签页、其他标签页及登录仍保留。证据 output/playwright/browser-connection/native/acceptance.json、native-connection.png；属于 dev 构建。连接相关两项 Rust 回归与浏览器系列合计 24 项通过，tools/app all-targets Clippy 通过。该能力不自动启用调试端口，不声称能直接接管未暴露调试连接的普通 Edge 窗口。
 
 运行事实新增 run.facts，先落库后进上下文，与现有 run.baseline 起点版本共用 run_id；固定 UTC+08:00 的跨日及日内缓存稳定性用例通过。审计报告和 prior-art 中错误的 10 月 21 日已纠正为运行环境的 10 月 18 日，保留原文件名与更正说明。只读快照错误装配测试，以及 broad Allow、AutoAllow、会话通配授权下的串行/并行零写入测试均通过。
 
