@@ -8,7 +8,7 @@ pub enum SearchBackend {
     #[default]
     Auto,
     Duckduckgo,
-    #[serde(alias = "codex")]
+    Codex,
     Responses,
 }
 
@@ -23,7 +23,7 @@ pub struct WebSection {
     /// Anthropic server-search tool version; consumed only after the Claude probe passes.
     #[serde(default)]
     pub anthropic_search_tool: Option<String>,
-    /// auto | duckduckgo | responses (legacy codex alias). No implicit route changes.
+    /// auto | duckduckgo | codex | responses. Subscription and API contracts differ.
     #[serde(default)]
     pub search_backend: Option<SearchBackend>,
 }

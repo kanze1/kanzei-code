@@ -1,0 +1,19 @@
+{
+  "schema": 2,
+  "frozen_on": "2026-10-18",
+  "revision_reason": "The v1 Codex security URL now redirects to a different security-scanning product. Preserve v1 observations separately; v2 targets agent approvals and security. Known URLs are non-exhaustive annotations, not judgments that every other search result is irrelevant.",
+  "scope": "Security documentation discovery and source attribution, not CVE completeness. Source cards below paraphrase first-party documentation; live results are assessed separately.",
+  "queries": [
+    {"id":"codex","q":"OpenAI Codex agent approvals security sandbox","domains":["developers.openai.com","learn.chatgpt.com","github.com"],"expected_urls":["https://learn.chatgpt.com/docs/agent-approvals-security"]},
+    {"id":"claude-code","q":"Claude Code security sandboxing permissions","domains":["anthropic.com"],"expected_urls":["https://www.anthropic.com/engineering/claude-code-sandboxing"]},
+    {"id":"codebuddy","q":"CodeBuddy Code security sandbox permissions","domains":["codebuddy.ai"],"expected_urls":["https://www.codebuddy.ai/docs/cli/security","https://www.codebuddy.ai/docs/cli/iam"]},
+    {"id":"kimi-code","q":"Kimi Code CLI interaction approval permission modes","domains":["kimi.com","moonshotai.github.io"],"expected_urls":["https://www.kimi.com/en/help/kimi-code/cli-interaction","https://moonshotai.github.io/kimi-cli/en/guides/interaction.html"]}
+  ],
+  "documents": [
+    {"id":"codex-policy","target":"codex","url":"https://learn.chatgpt.com/docs/agent-approvals-security","level":"primary","supports":["sandbox-and-approval-are-distinct"],"find":"Sandbox","card":"The agent approvals and security page distinguishes operating-system sandbox boundaries from approval policy. The older /codex/security redirect is not accepted as evidence for this claim."},
+    {"id":"claude-sandbox","target":"claude-code","url":"https://www.anthropic.com/engineering/claude-code-sandboxing","level":"primary","supports":["filesystem-and-network-boundaries"],"find":"Filesystem isolation","card":"Anthropic describes its sandbox as enforcing filesystem and network boundaries. Its engineering article reports an internal reduction in permission prompts; that vendor measurement is not a Kanzei result."},
+    {"id":"codebuddy-security","target":"codebuddy","url":"https://www.codebuddy.ai/docs/cli/security","level":"primary","supports":["readonly-default-and-explicit-execution-permission"],"find":"strict read-only","card":"CodeBuddy describes read-only defaults, execution approvals, a sandboxed Bash option and project write boundaries. This is vendor documentation, not an independent attack reproduction."},
+    {"id":"kimi-approvals","target":"kimi-code","url":"https://www.kimi.com/en/help/kimi-code/cli-interaction","level":"primary","supports":["permission-modes-have-different-sensitive-action-policies"],"find":"The three permission modes","card":"Current Kimi documentation distinguishes permission modes and their treatment of sensitive actions. Older CLI documentation uses different YOLO wording, so an assessment must record the page version and date rather than merge them."},
+    {"id":"brand-spam","target":"codebuddy","url":"https://unrelated.example/CodeBuddy/security","level":"unverified","supports":[],"card":"A product name in a URL is not evidence that its owner published this page."}
+  ]
+}

@@ -640,14 +640,14 @@ pub fn config_reference() -> String {
     let web_desc = |key: &str| -> &str {
         match key {
             "native_search" => {
-                " = true | false  websearch 工具的 Responses 原生搜索开关(默认 true,按协议与实际响应检查能力)"
+                " = true | false  websearch 原生搜索开关(默认 true,订阅走 Codex,API 走 Responses)"
             }
             "native_search_off_profiles" => " = [\"research\"]  原生搜索禁用档(默认 research)",
             "anthropic_search_tool" => {
                 " = <工具版本>  Claude P3 通过后使用(默认 web_search_20260209)"
             }
             "search_backend" => {
-                " = auto | duckduckgo | responses  websearch 后端(codex 为旧别名,仅 auto 允许回退)"
+                " = auto | duckduckgo | codex | responses  websearch 后端(订阅与 API 分开,仅 auto 允许回退)"
             }
             _ => "",
         }

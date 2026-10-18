@@ -1,7 +1,7 @@
 //! Responses native search stays behind the ordinary websearch permission and budget.
 //! https://developers.openai.com/api/docs/guides/tools-web-search
 use super::{
-    allowed_result, read_search_body, HostedBackend, SearchData, SearchErrorCode, SearchFailure,
+    allowed_result, read_search_body, NativeBackend, SearchData, SearchErrorCode, SearchFailure,
     SearchQuery, SearchResult, SearchStatus,
 };
 use kanzei_llm::sse::SseParser;
@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) async fn search(
     client: &reqwest::Client,
-    backend: &HostedBackend,
+    backend: &NativeBackend,
     query: &SearchQuery,
     limit: usize,
 ) -> Result<SearchData, SearchFailure> {
