@@ -98,7 +98,7 @@ async fn capture_preserves_original_and_pending_artifact_without_implementing() 
         )
         .await;
     assert!(blocked.is_error, "{}", blocked.content);
-    assert_eq!(blocked.code, Some("PRIOR_ART_REQUIRED"));
+    assert_eq!(blocked.code.as_deref(), Some("PRIOR_ART_REQUIRED"));
     assert_eq!(
         before,
         std::fs::read(f.root.join(".kanzei/project/requirements.md")).unwrap()
@@ -112,7 +112,7 @@ async fn ordinary_claim_waits_for_real_both_sided_evidence_and_revalidates_resum
     let claim = json!({"action":"claim","id":"R-001"});
     let blocked = WorkTool.execute(claim.clone(), &f.ctx).await;
     assert!(blocked.is_error, "{}", blocked.content);
-    assert_eq!(blocked.code, Some("PRIOR_ART_REQUIRED"));
+    assert_eq!(blocked.code.as_deref(), Some("PRIOR_ART_REQUIRED"));
     assert_eq!(f.entry().status, "todo");
     let relative = f.complete();
     assert_eq!(f.state().status, PriorArtStatus::Complete);
@@ -128,7 +128,7 @@ async fn ordinary_claim_waits_for_real_both_sided_evidence_and_revalidates_resum
     assert_eq!(f.state().status, PriorArtStatus::Invalid);
     let resume = WorkTool.execute(claim, &f.ctx).await;
     assert!(resume.is_error, "{}", resume.content);
-    assert_eq!(resume.code, Some("PRIOR_ART_REQUIRED"));
+    assert_eq!(resume.code.as_deref(), Some("PRIOR_ART_REQUIRED"));
 }
 
 #[tokio::test]
@@ -152,7 +152,7 @@ async fn work_unit_claim_keeps_parent_todo_and_unit_unclaimed_until_evidence_com
     let claim = json!({"action":"claim","id":"R-001/W1"});
     let blocked = WorkTool.execute(claim.clone(), &f.ctx).await;
     assert!(blocked.is_error, "{}", blocked.content);
-    assert_eq!(blocked.code, Some("PRIOR_ART_REQUIRED"));
+    assert_eq!(blocked.code.as_deref(), Some("PRIOR_ART_REQUIRED"));
     assert_eq!(f.entry().status, "todo");
     let after = store.get_work_unit("R-001/W1").unwrap().unwrap();
     assert_eq!(before.status, after.status);
@@ -168,7 +168,7 @@ async fn work_unit_claim_keeps_parent_todo_and_unit_unclaimed_until_evidence_com
     std::fs::remove_file(f.root.join(relative)).unwrap();
     let resume = WorkTool.execute(claim, &f.ctx).await;
     assert!(resume.is_error, "{}", resume.content);
-    assert_eq!(resume.code, Some("PRIOR_ART_REQUIRED"));
+    assert_eq!(resume.code.as_deref(), Some("PRIOR_ART_REQUIRED"));
 }
 
 #[tokio::test]
@@ -241,7 +241,7 @@ async fn audit_fields_cannot_be_erased_or_replaced_through_free_fields_or_relabe
         )
         .await;
     assert!(refused.is_error, "{}", refused.content);
-    assert_eq!(refused.code, Some("PRIOR_ART_REQUIRED"));
+    assert_eq!(refused.code.as_deref(), Some("PRIOR_ART_REQUIRED"));
 }
 
 #[tokio::test]

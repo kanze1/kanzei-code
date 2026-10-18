@@ -142,29 +142,14 @@ async fn tool_call(
     ctx: &ToolCtx,
     expected_url: Option<String>,
 ) -> ToolOutput {
-    let call = json!({"action":"tool","tool":tool,"input":input,"cwd":ctx.cwd,"root":ctx.project_root,
-        "processId":ctx.process_id,"expectedUrl":expected_url});
+    let call = tool_request(tool, input, ctx, expected_url);
     match tokio::time::timeout(Duration::from_secs(90), request(endpoint, call)).await {
-        Ok(Ok(value)) => {
-            let mut out = if value["is_error"] == true {
-                ToolOutput::error(value["content"].as_str().unwrap_or(""))
-            } else {
-                ToolOutput::ok(value["content"].as_str().unwrap_or(""))
-            };
-            out.display = value.get("display").filter(|v| !v.is_null()).cloned();
-            out.images = value["images"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|v| {
-                    Some(kanzei_harness::ToolImage {
-                        media_type: v["media_type"].as_str()?.into(),
-                        data: v["data"].as_str()?.into(),
-                    })
-                })
-                .collect();
-            out
-        }
+        Ok(Ok(value)) => serde_json::from_value(value).unwrap_or_else(|error| {
+            ToolOutput::failed(
+                "DESKTOP_INVALID_TOOL_OUTPUT",
+                format!("桌面工具返回格式无效: {error}"),
+            )
+        }),
         Ok(Err(error)) => ToolOutput::error(format!("桌面工具未完成：{error}；请重新检查页面状态")),
         Err(_) => ToolOutput::error("桌面连接中断或响应超时；该工具动作未重试，请重新检查页面状态"),
     }
@@ -221,11 +206,7 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                     if app.get_window("main").is_none() {
                         return Err("桌面已关闭".into());
                     }
-                    let mut ctx = ToolCtx::new(
-                        value["cwd"].as_str().ok_or("缺少工作目录")?.into(),
-                        value["root"].as_str().ok_or("缺少项目")?.into(),
-                    );
-                    ctx.process_id = value["processId"].as_str().map(str::to_owned);
+                    let ctx = tool_context(&value)?;
                     let out = match value["tool"].as_str() {
                         Some("browser") => {
                             let input = match kanzei_tools::browser::parse_browser_input(
@@ -265,6 +246,56 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
     Ok(endpoint)
 }
 fn output(out: ToolOutput) -> Value {
-    json!({"content":out.content,"is_error":out.is_error,"display":out.display,
-        "images":out.images.into_iter().map(|v|json!({"media_type":v.media_type,"data":v.data})).collect::<Vec<_>>()})
+    json!(out)
+}
+
+fn tool_request(tool: &str, input: Value, ctx: &ToolCtx, expected_url: Option<String>) -> Value {
+    json!({"action":"tool","tool":tool,"input":input,"cwd":ctx.cwd,"root":ctx.project_root,
+        "processId":ctx.process_id,"sessionId":ctx.session_id,"runId":ctx.run_id,
+        "browserOwner":ctx.browser_owner,"expectedUrl":expected_url})
+}
+
+fn tool_context(value: &Value) -> Result<ToolCtx, String> {
+    let mut ctx = ToolCtx::new(
+        value["cwd"].as_str().ok_or("缺少工作目录")?.into(),
+        value["root"].as_str().ok_or("缺少项目")?.into(),
+    );
+    ctx.process_id = value["processId"].as_str().map(str::to_owned);
+    ctx.session_id = value["sessionId"].as_str().map(str::to_owned);
+    ctx.run_id = value["runId"].as_str().map(str::to_owned);
+    ctx.browser_owner = value["browserOwner"].as_str().map(str::to_owned);
+    Ok(ctx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_ownership_and_structured_rejection_survive_desktop_transport() {
+        let mut ctx = ToolCtx::new("worktree".into(), "project".into());
+        ctx.session_id = Some("session-source".into());
+        ctx.run_id = Some("run-source".into());
+        ctx.process_id = Some("p-source".into());
+        ctx.browser_owner = Some("child-source".into());
+        let request = tool_request(
+            "browser",
+            json!({"action":"source"}),
+            &ctx,
+            Some("https://example.com/".into()),
+        );
+        let received = tool_context(&request).unwrap();
+        assert_eq!(received.cwd, ctx.cwd);
+        assert_eq!(received.project_root, ctx.project_root);
+        assert_eq!(received.session_id, ctx.session_id);
+        assert_eq!(received.run_id, ctx.run_id);
+        assert_eq!(received.process_id, ctx.process_id);
+        assert_eq!(received.browser_owner, ctx.browser_owner);
+        let source =
+            ToolOutput::needs_correction("BROWSER_SOURCE_UNVERIFIED", "Document is still loading");
+        let roundtrip: ToolOutput = serde_json::from_value(output(source.clone())).unwrap();
+        assert_eq!(roundtrip.outcome, source.outcome);
+        assert_eq!(roundtrip.code, source.code);
+        assert_eq!(roundtrip.model_content(), source.model_content());
+    }
 }

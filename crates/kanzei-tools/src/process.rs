@@ -540,7 +540,7 @@ mod wait_tests {
     #[tokio::test]
     async fn 进程不存在时点名可用动作() {
         let out = super::wait_for("nope", None, Some(1)).await;
-        assert_eq!(out.code, Some("PROCESS_NOT_FOUND"));
+        assert_eq!(out.code.as_deref(), Some("PROCESS_NOT_FOUND"));
         assert!(
             out.content.contains("action=list"),
             "要指路: {}",
@@ -643,7 +643,7 @@ mod wait_tests {
                 .execute(json!({"action": "stop", "id": id}), &ctx())
                 .await;
             assert!(invalid.is_error, "{id} must remain invalid");
-            assert_eq!(invalid.code, Some("PROCESS_STOP_BAD_ID"));
+            assert_eq!(invalid.code.as_deref(), Some("PROCESS_STOP_BAD_ID"));
             assert!(invalid.content.contains("bg<number>"));
         }
     }

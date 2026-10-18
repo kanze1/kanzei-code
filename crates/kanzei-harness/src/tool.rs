@@ -7,9 +7,11 @@ use serde_json::Value;
 /// `is_error` 仍保留给 provider 协议：需要模型修正/确认的调用必须继续以 error
 /// 回喂，不能让模型误以为已经落盘。`outcome` 服务于 UI、轨迹、指标与记忆，避免
 /// 把安全拒绝、no-op 和真实执行故障揉成同一种“失败”。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolOutcome {
     Success,
+    #[serde(rename = "noop")]
     NoOp,
     NeedsCorrection,
     NeedsConfirmation,
@@ -249,7 +251,7 @@ impl ToolConcurrency {
 
 /// 工具随结果回喂模型的图片(R-249)。与 `kanzei_llm::Part::Image` 同形:
 /// `data` 是 base64,**不含** `data:` 前缀。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolImage {
     pub media_type: String,
     pub data: String,
@@ -265,14 +267,14 @@ pub struct ToolArtifact {
     pub retrieval_hint: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
     /// UI/轨迹/指标使用的结构化终态；与 provider 的 `is_error` 正交。
     pub outcome: ToolOutcome,
     /// 稳定错误码，供恢复策略和离线评估使用；人类文案可独立演进。
-    pub code: Option<&'static str>,
+    pub code: Option<String>,
     /// 面向 UI 的结构化展示(diff/终端块等),模型看不到,只给人看。
     /// 形如 {"kind":"diff","path":...,"diff":...} / {"kind":"terminal",...}。
     pub display: Option<serde_json::Value>,
@@ -309,42 +311,42 @@ impl ToolOutput {
         }
     }
 
-    pub fn noop(code: &'static str, content: impl Into<String>) -> Self {
+    pub fn noop(code: impl Into<String>, content: impl Into<String>) -> Self {
         Self::rejected(ToolOutcome::NoOp, code, content)
     }
 
-    pub fn blocked_by_workflow(code: &'static str, content: impl Into<String>) -> Self {
+    pub fn blocked_by_workflow(code: impl Into<String>, content: impl Into<String>) -> Self {
         Self::rejected(ToolOutcome::BlockedByWorkflow, code, content)
     }
 
-    pub fn needs_correction(code: &'static str, content: impl Into<String>) -> Self {
+    pub fn needs_correction(code: impl Into<String>, content: impl Into<String>) -> Self {
         Self::rejected(ToolOutcome::NeedsCorrection, code, content)
     }
 
-    pub fn needs_confirmation(code: &'static str, content: impl Into<String>) -> Self {
+    pub fn needs_confirmation(code: impl Into<String>, content: impl Into<String>) -> Self {
         Self::rejected(ToolOutcome::NeedsConfirmation, code, content)
     }
 
-    pub fn failed(code: &'static str, content: impl Into<String>) -> Self {
+    pub fn failed(code: impl Into<String>, content: impl Into<String>) -> Self {
         ToolOutput {
             content: content.into(),
             is_error: true,
             outcome: ToolOutcome::Failed,
-            code: Some(code),
+            code: Some(code.into()),
             display: None,
             images: Vec::new(),
             artifact: None,
         }
     }
 
-    fn rejected(outcome: ToolOutcome, code: &'static str, content: impl Into<String>) -> Self {
+    fn rejected(outcome: ToolOutcome, code: impl Into<String>, content: impl Into<String>) -> Self {
         debug_assert!(outcome.is_expected_rejection());
         ToolOutput {
             content: content.into(),
             // provider 仍须把它当成需要处理的结果，避免 no-op/保护门禁被当完成。
             is_error: true,
             outcome,
-            code: Some(code),
+            code: Some(code.into()),
             display: None,
             images: Vec::new(),
             artifact: None,
@@ -356,7 +358,7 @@ impl ToolOutput {
         if !self.outcome.is_expected_rejection() {
             return self.content.clone();
         }
-        match self.code {
+        match self.code.as_deref() {
             Some(code) => format!(
                 "[tool_outcome={} code={code}]\n{}",
                 self.outcome.as_str(),
@@ -484,6 +486,39 @@ fn truncate(s: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::{ToolConcurrency, ToolCtx, ToolOutcome, ToolOutput};
+
+    #[test]
+    fn tool_output_transport_preserves_all_outcomes_and_evidence() {
+        for outcome in ToolOutcome::ALL {
+            assert_eq!(serde_json::to_value(outcome).unwrap(), outcome.as_str());
+            let mut output = ToolOutput::ok("source body");
+            output.outcome = outcome;
+            output.is_error = outcome != ToolOutcome::Success;
+            output.code = Some(format!("TRANSPORT_{}", outcome.as_str()));
+            output.display = Some(serde_json::json!({"kind":"source","url":"https://example.com"}));
+            output.images.push(super::ToolImage {
+                media_type: "image/png".into(),
+                data: "aW1hZ2U=".into(),
+            });
+            output.artifact = Some(super::ToolArtifact {
+                artifact_id: "source-1".into(),
+                relative_path: ".kanzei/artifacts/web/source.md".into(),
+                bytes: 11,
+                sha256: "digest".into(),
+                retrieval_hint: "read source".into(),
+            });
+            let decoded: ToolOutput =
+                serde_json::from_slice(&serde_json::to_vec(&output).unwrap()).unwrap();
+            assert_eq!(decoded.content, output.content);
+            assert_eq!(decoded.is_error, output.is_error);
+            assert_eq!(decoded.outcome, output.outcome);
+            assert_eq!(decoded.code, output.code);
+            assert_eq!(decoded.display, output.display);
+            assert_eq!(decoded.images, output.images);
+            assert_eq!(decoded.artifact, output.artifact);
+            assert_eq!(decoded.model_content(), output.model_content());
+        }
+    }
     use std::path::{Path, PathBuf};
 
     /// 复刻 `git worktree add` 之后的真实磁盘形态:
@@ -522,7 +557,7 @@ mod tests {
         let output = ToolOutput::needs_correction("EDIT_ANCHOR_NOT_FOUND", "re-read target");
         assert!(output.is_error, "模型必须继续看到需要纠正的 tool error");
         assert_eq!(output.outcome, ToolOutcome::NeedsCorrection);
-        assert_eq!(output.code, Some("EDIT_ANCHOR_NOT_FOUND"));
+        assert_eq!(output.code.as_deref(), Some("EDIT_ANCHOR_NOT_FOUND"));
         assert_eq!(
             output.model_content(),
             "[tool_outcome=needs_correction code=EDIT_ANCHOR_NOT_FOUND]\nre-read target"

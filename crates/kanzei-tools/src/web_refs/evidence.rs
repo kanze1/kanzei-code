@@ -122,7 +122,7 @@ pub struct WebAcquisition {
     pub final_url: String,
     pub fetched_at_utc: String,
     pub observed_at_utc: String,
-    pub http_status: u16,
+    pub http_status: Option<u16>,
     pub content_type: String,
     pub method: AcquisitionMethod,
     pub truncated: bool,
@@ -148,7 +148,8 @@ impl WebAcquisition {
         Ok(())
     }
     pub fn readable(&self) -> bool {
-        self.http_status < 400
+        self.http_status.is_none_or(|status| status < 400)
+            && (self.http_status.is_some() || self.method == AcquisitionMethod::RenderedDom)
             && !self.truncated
             && matches!(
                 self.method,
@@ -160,7 +161,7 @@ impl WebAcquisition {
         if self.readable() {
             return Ok(true);
         }
-        if self.http_status >= 400
+        if self.http_status.is_none_or(|status| status >= 400)
             || self.truncated
             || self.method != AcquisitionMethod::DownloadedPdf
         {
@@ -343,7 +344,7 @@ mod tests {
                 final_url: original_url.into(),
                 fetched_at_utc: now.clone(),
                 observed_at_utc: now,
-                http_status: 200,
+                http_status: Some(200),
                 content_type: "application/pdf".into(),
                 method: AcquisitionMethod::DownloadedPdf,
                 truncated: false,
@@ -415,7 +416,7 @@ mod tests {
             final_url: "https://source.example/final".into(),
             fetched_at_utc: now.clone(),
             observed_at_utc: now,
-            http_status: 200,
+            http_status: Some(200),
             content_type: "text/plain".into(),
             method: AcquisitionMethod::StaticText,
             truncated: false,

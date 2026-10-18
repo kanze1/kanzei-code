@@ -79,7 +79,7 @@ mod tests {
         for (tool, input) in cases {
             let output = tool.execute(input, &ctx).await;
             assert_eq!(
-                output.code,
+                output.code.as_deref(),
                 Some("SENSITIVE_FILE_APPROVAL_REQUIRED"),
                 "{}: {}",
                 tool.name(),
@@ -182,7 +182,7 @@ mod tests {
             for (tool, input) in cases {
                 let output = tool.execute(input, &ctx).await;
                 assert_eq!(
-                    output.code,
+                    output.code.as_deref(),
                     Some("FILESYSTEM_PATH_REJECTED"),
                     "{}: {}",
                     tool.name(),

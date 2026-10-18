@@ -228,7 +228,7 @@ async fn long_command_guard_covers_input_aliases_without_starting_the_body() {
             .execute(json!({field:"a".repeat(MAX_COMMAND_CHARS + 1)}), &ctx)
             .await;
         assert_eq!(output.outcome, kanzei_harness::ToolOutcome::NeedsCorrection);
-        assert_eq!(output.code, Some("COMMAND_TOO_LONG"));
+        assert_eq!(output.code.as_deref(), Some("COMMAND_TOO_LONG"));
         assert!(output.content.contains("文件中转"));
         assert!(
             !output.content.contains("workdir does not exist"),
@@ -316,7 +316,7 @@ async fn bash_permission_invalid_input_stays_unknown_and_cannot_execute() {
         let resource: serde_json::Value = serde_json::from_str(&resources[0]).unwrap();
         assert_eq!(resource["command"], "*");
         let output = tool.execute(input, &ctx).await;
-        assert_eq!(output.code, Some("INVALID_TOOL_INPUT"));
+        assert_eq!(output.code.as_deref(), Some("INVALID_TOOL_INPUT"));
         assert_eq!(output.outcome, kanzei_harness::ToolOutcome::NeedsCorrection);
     }
 }

@@ -2415,7 +2415,7 @@ pub(crate) mod tests {
             "{action} restore failure must be explicit: {}",
             output.content
         );
-        assert_eq!(output.code, Some("PROCESS_STOP_FAILED"));
+        assert_eq!(output.code.as_deref(), Some("PROCESS_STOP_FAILED"));
         let mut history = std::collections::HashMap::from([(process.id.clone(), process.clone())]);
         registration::prune_finished(&mut history, 0);
         assert!(
@@ -2440,7 +2440,7 @@ pub(crate) mod tests {
             discovered.is_error,
             "failed repair must be visible as a failed discovery"
         );
-        assert_eq!(discovered.code, Some("PROCESS_REGISTRY_FAILED"));
+        assert_eq!(discovered.code.as_deref(), Some("PROCESS_REGISTRY_FAILED"));
         assert!(
             discovered.content.contains("回滚"),
             "{}",

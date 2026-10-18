@@ -128,21 +128,27 @@ async fn user_completion_still_validates_close_targets_and_retirement_reasons() 
         let invalid = tool
             .execute_user_action(json!({"action":"close","id":id,"status":"invented"}), &ctx)
             .await;
-        assert_eq!(invalid.code, Some("TRACKER_CLOSE_TARGET_INVALID"));
+        assert_eq!(
+            invalid.code.as_deref(),
+            Some("TRACKER_CLOSE_TARGET_INVALID")
+        );
         let missing = tool
             .execute_user_action(
                 json!({"action":"close","id":id,"status":kind.terminal[1]}),
                 &ctx,
             )
             .await;
-        assert_eq!(missing.code, Some("TRACKER_CLOSE_REASON_REQUIRED"));
+        assert_eq!(
+            missing.code.as_deref(),
+            Some("TRACKER_CLOSE_REASON_REQUIRED")
+        );
         let forged = tool
             .execute(
                 json!({"action":"update","id":id,"fields":{"用户验收":"pretend"}}),
                 &ctx,
             )
             .await;
-        assert_eq!(forged.code, Some("TRACKER_ENGINE_FIELD"));
+        assert_eq!(forged.code.as_deref(), Some("TRACKER_ENGINE_FIELD"));
         assert_eq!(bytes, std::fs::read(&store.path).unwrap());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -154,7 +160,10 @@ async fn backlog_maintenance_lists_both_queues_without_relaxing_execution_guard(
         let (root, ctx, tool, _) = fixture(kind, "list");
         let rejected = tool.execute(json!({"action":"list"}), &ctx).await;
         assert_eq!(rejected.outcome, ToolOutcome::NeedsCorrection);
-        assert_eq!(rejected.code, Some("TRACKER_LIST_PURPOSE_REQUIRED"));
+        assert_eq!(
+            rejected.code.as_deref(),
+            Some("TRACKER_LIST_PURPOSE_REQUIRED")
+        );
         let output = tool
             .execute(
                 json!({"action":"list","reason":"backlog_maintenance"}),
@@ -181,7 +190,10 @@ async fn retirement_requires_reason_bypasses_delivery_gates_and_preserves_unfini
                     &ctx,
                 )
                 .await;
-            assert_eq!(missing.code, Some("TRACKER_CLOSE_REASON_REQUIRED"));
+            assert_eq!(
+                missing.code.as_deref(),
+                Some("TRACKER_CLOSE_REASON_REQUIRED")
+            );
             assert_eq!(missing.outcome, ToolOutcome::NeedsCorrection);
             assert_eq!(before, std::fs::read(&store.path).unwrap());
             let blank = tool
@@ -221,7 +233,7 @@ async fn retirement_requires_reason_bypasses_delivery_gates_and_preserves_unfini
                     &ctx,
                 )
                 .await;
-            assert_eq!(replay.code, Some("ALREADY_TERMINAL"));
+            assert_eq!(replay.code.as_deref(), Some("ALREADY_TERMINAL"));
             assert_eq!(bytes, std::fs::read(store.archive_file()).unwrap());
             std::fs::remove_dir_all(root).unwrap();
         }
@@ -258,7 +270,10 @@ async fn external_acceptance_preserves_unverified_checks_and_does_not_block_deve
                 &ctx,
             )
             .await;
-        assert_eq!(invalid.code, Some("EXTERNAL_ACCEPTANCE_DETAIL_REQUIRED"));
+        assert_eq!(
+            invalid.code.as_deref(),
+            Some("EXTERNAL_ACCEPTANCE_DETAIL_REQUIRED")
+        );
         let output = tool.execute(json!({"action":"update","id":id,"status":"awaiting_external",
             "fields":{"进展":"实现与本地回归完成，证据 src/example.rs:12；SSH 现场未验证", "外部验收":"真实 SSH 完整运行、断线与取消"}}), &ctx).await;
         assert!(!output.is_error, "{}", output.content);

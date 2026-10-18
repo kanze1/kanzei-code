@@ -3,6 +3,17 @@
 use std::sync::OnceLock;
 
 pub(crate) fn content_issue(html: &str) -> Option<&'static str> {
+    let document = dom_query::Document::from(html);
+    if document.select("#challenge-form, #cf-challenge-running, #challenge-stage, form[action*='/cdn-cgi/challenge']").exists() {
+        return Some("The page is a browser verification challenge, not article evidence.");
+    }
+    if document.select("input[type='password']").exists()
+        && !document.select("article p, main p").exists()
+    {
+        return Some(
+            "The page is a login form without article content, not verified article evidence.",
+        );
+    }
     static NON_CONTENT: OnceLock<regex::Regex> = OnceLock::new();
     let non_content = NON_CONTENT.get_or_init(|| regex::Regex::new(
         r"(?is)<head\b[^>]*>.*?</head\s*>|<title\b[^>]*>.*?</title\s*>|<noscript\b[^>]*>.*?</noscript\s*>|<h[1-6]\b[^>]*>.*?</h[1-6]\s*>"
@@ -65,6 +76,16 @@ pub(crate) fn preview(text: &str, cap: usize) -> Preview {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn challenge_and_login_forms_are_not_article_evidence() {
+        for html in [
+            "<title>Just a moment</title><form id='challenge-form'><p>Checking your browser. Please wait.</p></form>",
+            "<title>Sign in</title><form><label>Account</label><input type='password'><button>Sign in to continue</button></form>",
+        ] {
+            assert!(content_issue(html).is_some(), "{html}");
+        }
+    }
 
     #[test]
     fn script_shells_are_not_articles_and_short_real_text_is_valid() {

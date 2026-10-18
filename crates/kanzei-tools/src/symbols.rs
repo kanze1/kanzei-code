@@ -1068,7 +1068,7 @@ mod tests {
             .execute(serde_json::json!({"path": "coordinatr.rs"}), &ctx)
             .await;
         assert!(out.is_error, "{}", out.content);
-        assert_eq!(out.code, Some("SYMBOLS_PATH_NOT_FOUND"));
+        assert_eq!(out.code.as_deref(), Some("SYMBOLS_PATH_NOT_FOUND"));
         assert!(out.content.contains("coordinator.rs"), "{}", out.content);
         std::fs::remove_dir_all(&dir).ok();
     }

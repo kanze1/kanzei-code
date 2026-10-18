@@ -940,7 +940,7 @@ mod tests {
             .execute(json!({"path": "coordinatr.rs"}), &ctx)
             .await;
         assert!(missing.is_error, "{}", missing.content);
-        assert_eq!(missing.code, Some("READ_PATH_NOT_FOUND"));
+        assert_eq!(missing.code.as_deref(), Some("READ_PATH_NOT_FOUND"));
         assert_eq!(
             missing.outcome,
             kanzei_harness::ToolOutcome::NeedsCorrection
@@ -957,7 +957,7 @@ mod tests {
             .execute(json!({"path": "range.txt", "offset": 4}), &ctx)
             .await;
         assert!(range.is_error, "{}", range.content);
-        assert_eq!(range.code, Some("READ_RANGE_OUT_OF_BOUNDS"));
+        assert_eq!(range.code.as_deref(), Some("READ_RANGE_OUT_OF_BOUNDS"));
         assert!(range.content.contains("2 lines"), "{}", range.content);
         assert!(range.content.contains("1..=2"), "{}", range.content);
 

@@ -1580,11 +1580,11 @@ impl AgentTeam {
                     j.outcome = "candidate".into();
                 })?;
             }
-            let failed = output.is_error || output.code == Some("subagent_empty_answer");
+            let failed = output.is_error || output.code.as_deref() == Some("subagent_empty_answer");
             self.worker_update(id, cancel, Some(running_job.attempt), |j| {
                 j.result = output.content.clone();
                 j.state = if failed { "failed" } else { "done" }.into();
-                if output.code == Some("subagent_step_limit_reached") {
+                if output.code.as_deref() == Some("subagent_step_limit_reached") {
                     j.outcome = "needs_correction".into();
                 } else if !failed && j.outcome == "needs_correction" {
                     j.outcome = "candidate".into();

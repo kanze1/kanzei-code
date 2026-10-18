@@ -27,7 +27,7 @@ try {
   await page.evaluate(async () => {
     const host = document.createElement('div'); host.id = 'wb4-markdown'; document.body.append(host);
     window.__mdOwner = { host, render: (await import('/04-markdown.js')).renderMarkdownInto, paths: [] };
-    (await import('/04-structured.js')).setStructuredNav({ openPath: (path, line) => window.__mdOwner.paths.push({ path, line }) });
+    (await import('/04-structured.js')).setStructuredNav({ openPath: (path, line, target) => window.__mdOwner.paths.push({ path, line, ...(target ? { project: target.args.projectDir } : {}) }) });
   });
   const render = raw => page.evaluate(raw => {
     const { host, render } = window.__mdOwner; render(host, raw);
@@ -39,7 +39,17 @@ try {
   let result = await render('[source](C:/project/(draft)/main.rs:12)');
   check('Balanced parentheses retain the full local path', result.paths, ['C:/project/(draft)/main.rs']);
   await page.locator('#wb4-markdown a.md-path').first().click();
-  check('Actual delegated path click receives the complete path and line', await page.evaluate(() => window.__mdOwner.paths.at(-1)), { path: 'C:/project/(draft)/main.rs', line: 12 });
+  check('Actual delegated path click receives the complete path and line', await page.evaluate(() => { const { path, line } = window.__mdOwner.paths.at(-1); return { path, line }; }), { path: 'C:/project/(draft)/main.rs', line: 12 });
+  await page.evaluate(async () => {
+    const { renderMemoryBodyRead } = await import('/13-memory.js');
+    renderMemoryBodyRead(window.__mdOwner.host, '[source](.kanzei/memory/sources/source.md:3)', 'C:/source-owner');
+  });
+  await page.locator('#wb4-markdown a.md-path').click();
+  check('Memory source link retains the captured owner', await page.evaluate(() => window.__mdOwner.paths.at(-1)), { path: '.kanzei/memory/sources/source.md', line: 3, project: 'C:/source-owner' });
+  await page.locator('#wb4-markdown .memory-body-edit-row button').click();
+  await page.locator('#wb4-markdown > button').click();
+  await page.locator('#wb4-markdown a.md-path').click();
+  check('Cancelling memory editing retains the same source owner', await page.evaluate(() => window.__mdOwner.paths.at(-1)), { path: '.kanzei/memory/sources/source.md', line: 3, project: 'C:/source-owner' });
   result = await render('[reference](https://example.com/Function_(mathematics))');
   check('Balanced parentheses retain the full external URL', result.hrefs, ['https://example.com/Function_(mathematics)']);
   result = await render('See (https://example.com/Function_(mathematics)).');

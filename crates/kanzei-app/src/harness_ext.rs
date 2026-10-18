@@ -654,7 +654,7 @@ mod deliver_tests {
             .execute(serde_json::json!({"path":"report.html"}), &ctx(&root))
             .await;
         assert!(result.is_error);
-        assert_eq!(result.code, Some("DELIVERY_RECEIPT_FAILED"));
+        assert_eq!(result.code.as_deref(), Some("DELIVERY_RECEIPT_FAILED"));
         assert!(result.display.is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -728,9 +728,9 @@ mod deliver_tests {
     fn 目录与不存在的路径给出可行动错误() {
         let root = fixture("bad");
         let dir_err = deliver_target("sub", &ctx(&root)).unwrap_err();
-        assert_eq!(dir_err.code, Some("DELIVER_IS_DIRECTORY"));
+        assert_eq!(dir_err.code.as_deref(), Some("DELIVER_IS_DIRECTORY"));
         let missing = deliver_target("nope.txt", &ctx(&root)).unwrap_err();
-        assert_eq!(missing.code, Some("DELIVER_PATH_NOT_FOUND"));
+        assert_eq!(missing.code.as_deref(), Some("DELIVER_PATH_NOT_FOUND"));
         std::fs::remove_dir_all(&root).ok();
     }
 }

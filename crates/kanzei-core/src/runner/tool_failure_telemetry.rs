@@ -84,7 +84,7 @@ fn now_ms() -> u128 {
 }
 
 fn classify(tool_name: &str, output: &ToolOutput) -> Option<FailureClass> {
-    let code = output.code.unwrap_or_default();
+    let code = output.code.as_deref().unwrap_or_default();
     if output.outcome == kanzei_harness::ToolOutcome::BlockedByWorkflow {
         return Some(FailureClass::WorkflowBlocked);
     }
@@ -226,7 +226,7 @@ pub(crate) fn record_tool_failure(
         tool_call_id,
         tool_name,
         classify(tool_name, output),
-        output.code,
+        output.code.as_deref(),
         output.outcome.as_str(),
     );
 }

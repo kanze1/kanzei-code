@@ -262,7 +262,7 @@ impl RunEvent {
             name,
             ok: !output.is_error,
             outcome: output.outcome.as_str().into(),
-            code: output.code.map(str::to_owned),
+            code: output.code.clone(),
             preview: preview(&output.content),
             content,
             content_bytes,

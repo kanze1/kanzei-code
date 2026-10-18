@@ -533,14 +533,14 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(bad.code, Some("UNKNOWN_RENDERER"));
+        assert_eq!(bad.code.as_deref(), Some("UNKNOWN_RENDERER"));
         let ambiguous = PlotTool
             .execute(
                 serde_json::json!({"python":"print(1)","workdir":"missing"}),
                 &ctx,
             )
             .await;
-        assert_eq!(ambiguous.code, Some("EXPLICIT_ADAPTER"));
+        assert_eq!(ambiguous.code.as_deref(), Some("EXPLICIT_ADAPTER"));
     }
 
     /// 用户色板注册表是进程级状态；串行只解决并发访问，测试中途 panic 仍会把状态

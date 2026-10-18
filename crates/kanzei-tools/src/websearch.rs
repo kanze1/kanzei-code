@@ -1321,7 +1321,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(output.code, Some("RESEARCH_LOOP_TASK_REQUIRED"));
+        assert_eq!(output.code.as_deref(), Some("RESEARCH_LOOP_TASK_REQUIRED"));
         assert!(output.content.contains("尚未启动检索环"));
         std::fs::remove_dir_all(root).ok();
     }
@@ -1353,7 +1353,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(output.code, Some("PRIOR_ART_SEARCH_LIMIT"));
+        assert_eq!(output.code.as_deref(), Some("PRIOR_ART_SEARCH_LIMIT"));
         assert!(output.content.contains("1/1"));
         std::fs::remove_dir_all(root).ok();
     }

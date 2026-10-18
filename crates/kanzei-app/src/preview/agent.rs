@@ -90,6 +90,10 @@ async fn run(
     if let Err(error) = shared::validate(input, action) {
         return shared::browser_error(BACKEND, &error);
     }
+    let source_scope = match shared::prepare_source(input, ctx) {
+        Ok(scope) => scope,
+        Err(error) => return shared::browser_error(BACKEND, &error),
+    };
     let target = match shared::resolve_nav_target(input, &ctx.cwd, &ctx.project_root) {
         Ok(target) => target,
         Err(error) => return shared::browser_error(BACKEND, &error),
@@ -147,7 +151,7 @@ async fn run(
     ) {
         return shared::browser_error(BACKEND, "预览会话已变化，请重新检查后再操作");
     }
-    match act(pane, input, action, &notes).await {
+    match act(pane, input, action, &notes, ctx, source_scope).await {
         Ok(output) => output,
         Err(error) => shared::browser_error(BACKEND, &error),
     }
@@ -171,6 +175,8 @@ async fn act(
     input: &BrowserInput,
     action: BrowserAction,
     notes: &[String],
+    ctx: &ToolCtx,
+    source_scope: Option<shared::SourceScope>,
 ) -> Result<ToolOutput, String> {
     let webview = &pane.webview;
     let selector = input.selector.clone().unwrap_or_default();
@@ -228,6 +234,16 @@ async fn act(
                 &selector,
                 value.as_str().unwrap_or(""),
             )
+        }
+        BrowserAction::Source => {
+            let value = cdp::evaluate(
+                webview,
+                &shared::rendered_source_expression(),
+                false,
+                cdp::CALL_TIMEOUT,
+            )
+            .await?;
+            shared::record_rendered_source(BACKEND, value, source_scope, ctx)?
         }
         BrowserAction::Console => {
             let entries: Vec<ConsoleItem> = pane

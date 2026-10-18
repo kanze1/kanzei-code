@@ -591,7 +591,7 @@ mod tests {
         let blocked = tool
             .execute(json!({ "action": "start", "topic": "loop-smoke" }), &ctx)
             .await;
-        assert_eq!(blocked.code, Some("PLAN_NOT_APPROVED"));
+        assert_eq!(blocked.code.as_deref(), Some("PLAN_NOT_APPROVED"));
         save_plan(&project, &plan("loop-smoke", PlanStatus::Approved)).unwrap();
         let started = tool
             .execute(json!({ "action": "start", "topic": "loop-smoke" }), &ctx)
@@ -606,7 +606,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(invalid.code, Some("MISSING_TASK_ID"));
+        assert_eq!(invalid.code.as_deref(), Some("MISSING_TASK_ID"));
         std::fs::remove_dir_all(project).ok();
     }
 
@@ -639,7 +639,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(second.code, Some("CONCURRENCY_LIMIT"));
+        assert_eq!(second.code.as_deref(), Some("CONCURRENCY_LIMIT"));
         let evidence = tool
             .execute(
                 json!({ "action": "add_evidence", "topic": "loop-smoke", "task_id": task_id, "summary": "正文支撑的压缩摘要", "relevance": 0.9, "source_ids": ["S-999"] }),
@@ -682,7 +682,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(finding.code, Some("SOURCE_NOT_WEBFETCHED"));
+        assert_eq!(finding.code.as_deref(), Some("SOURCE_NOT_WEBFETCHED"));
         let path = project.join(".kanzei/artifacts/web/loop-source.md");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let bytes = b"Materialized source evidence.";
@@ -704,7 +704,7 @@ mod tests {
                 final_url: source_url.into(),
                 fetched_at_utc: chrono::Utc::now().to_rfc3339(),
                 observed_at_utc: chrono::Utc::now().to_rfc3339(),
-                http_status: 200,
+                http_status: Some(200),
                 content_type: "text/plain".into(),
                 method: crate::web_refs::AcquisitionMethod::StaticText,
                 truncated: false,

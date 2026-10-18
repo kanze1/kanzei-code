@@ -18,7 +18,10 @@ use serde::Deserialize;
 use sha2::Digest;
 
 mod headless;
+mod source;
+pub use crate::web_refs::SourceScope;
 pub use headless::execute_headless;
+pub use source::{prepare_source, record_rendered_source, rendered_source_expression};
 
 /// DOM walker 唯一源:无头侧 helper `import`,面板侧经 [`dom_walker_expression`] 包进 CDP 表达式。
 const DOM_WALKER_SOURCE: &str = include_str!("../../../scripts/browser-dom-walker.mjs");
@@ -122,7 +125,8 @@ pub fn description() -> String {
     "Drive a browser page and see it. Actions: open (navigate to url/path/html, return a \
      screenshot), screenshot (current page, no reload; full_page or selector), dom, console \
      (errors/warnings; all=true for every level), click, type, press (key), scroll, wait \
-     (selector/text/ms ≤10000), eval (JS expression → JSON). Targets: url (http/https), path \
+     (selector/text/ms ≤10000), eval (JS expression → JSON), source (save the current rendered \
+     article body and DOM with source receipts; topic + task_id bind a research task). Targets: url (http/https), path \
      (local HTML, served from a 127.0.0.1 static server so ES modules work) or html (inline \
      snippet). A local file grants that page and static frontend assets; open a directory \
      explicitly to grant its non-sensitive data files for local fetch. Stateful: open once, \
@@ -135,7 +139,10 @@ pub fn description() -> String {
 
 /// 工具输入。字段与 [`input_schema`] 对齐;面板后端直接读这些字段。
 #[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct BrowserInput {
+    pub topic: Option<String>,
+    pub task_id: Option<String>,
     /// 目标 http(s) URL(也接受 file:// 与 about:blank)。
     pub url: Option<String>,
     /// 本地 HTML 文件路径(相对代码树或绝对),经静态服务打开。
@@ -163,6 +170,8 @@ pub struct BrowserInput {
 impl Default for BrowserInput {
     fn default() -> Self {
         BrowserInput {
+            topic: None,
+            task_id: None,
             url: None,
             path: None,
             html: None,
@@ -204,6 +213,7 @@ pub enum BrowserAction {
     Open,
     Screenshot,
     Dom,
+    Source,
     Console,
     Click,
     Type,
@@ -221,6 +231,7 @@ impl BrowserAction {
             "" | "open" | "navigate" | "goto" | "visit" => BrowserAction::Open,
             "screenshot" | "capture" | "snapshot" => BrowserAction::Screenshot,
             "dom" => BrowserAction::Dom,
+            "source" => BrowserAction::Source,
             "console" | "logs" => BrowserAction::Console,
             "click" => BrowserAction::Click,
             "type" | "fill" => BrowserAction::Type,
@@ -230,7 +241,7 @@ impl BrowserAction {
             "eval" | "evaluate" | "js" => BrowserAction::Eval,
             other => {
                 return Err(format!(
-                    "未知 browser 动作 {other:?}。可用:open | screenshot | dom | console | click | type | press | scroll | wait | eval"
+                    "未知 browser 动作 {other:?}。可用:open | screenshot | dom | source | console | click | type | press | scroll | wait | eval"
                 ))
             }
         })
@@ -239,6 +250,9 @@ impl BrowserAction {
 
 /// 动作参数的机械校验(两个后端执行前都先过这一道,错误文本一致)。
 pub fn validate(input: &BrowserInput, action: BrowserAction) -> Result<(), String> {
+    if action != BrowserAction::Source && (input.topic.is_some() || input.task_id.is_some()) {
+        return Err("topic/task_id 仅用于 source 存证动作".into());
+    }
     let targets = [&input.url, &input.path, &input.html]
         .iter()
         .filter(|value| value.is_some())
@@ -753,12 +767,14 @@ pub fn input_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
+            "topic": { "type": "string", "description": "source: 研究主题；与 task_id 一起提供" },
+            "task_id": { "type": "string", "description": "source: 当前活动的研究任务 ID；与 topic 一起提供" },
             "url": { "type": "string", "description": "目标 http(s) URL；open 必填其一(url/path/html)，其他动作省略时复用当前页面，提供时先重新导航" },
             "path": { "type": "string", "description": "本地 HTML 文件路径(相对代码树或绝对)，经 127.0.0.1 静态服务打开(ES module 可用)" },
             "html": { "type": "string", "description": "内联 HTML 片段(≤2MB)，经静态服务打开" },
             "action": {
                 "type": "string",
-                "enum": ["open", "screenshot", "dom", "console", "click", "type", "press", "scroll", "wait", "eval"],
+                "enum": ["open", "screenshot", "dom", "source", "console", "click", "type", "press", "scroll", "wait", "eval"],
                 "description": "open(默认,打开并截图)| screenshot(当前页截图不重新导航,可 full_page/selector)| dom(可读 DOM,可选 selector)| console(错误/警告;all=true 返回全部级别最近 200 条)| click | type(selector+text)| press(key)| scroll(selector 或 dy)| wait(selector/text/ms≤10000)| eval(expression→JSON)"
             },
             "selector": { "type": "string", "description": "dom/click/type/scroll/wait/screenshot 用:CSS selector" },

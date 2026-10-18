@@ -370,7 +370,7 @@ mod tests {
         let deferred = tools();
         let result = search("select:missing", None, &deferred, &HashSet::new());
         let output = render_result(&result);
-        assert_eq!(output.code, Some("TOOL_SEARCH_UNKNOWN"));
+        assert_eq!(output.code.as_deref(), Some("TOOL_SEARCH_UNKNOWN"));
         assert!(output.content.contains("process, read_output, background"));
         assert!(output.is_error);
     }

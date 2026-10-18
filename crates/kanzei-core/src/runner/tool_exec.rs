@@ -620,7 +620,7 @@ fn fail_tool_result_spill(
     output.content = format!("[tool_result_spill_failed bytes={bytes} sha256={sha256}]: {reason}");
     output.is_error = true;
     output.outcome = kanzei_harness::ToolOutcome::Failed;
-    output.code = Some("TOOL_RESULT_SPILL_FAILED");
+    output.code = Some("TOOL_RESULT_SPILL_FAILED".into());
     output.artifact = None;
 }
 
@@ -1114,7 +1114,7 @@ mod tests {
         // F1/#12:工具自己的终态与 terminal display 原样保留,只追加配额标注。
         assert!(output.is_error);
         assert_eq!(output.outcome, kanzei_harness::ToolOutcome::Failed);
-        assert_eq!(output.code, Some("PROBE_EXIT_NONZERO"));
+        assert_eq!(output.code.as_deref(), Some("PROBE_EXIT_NONZERO"));
         let display = output.display.as_ref().unwrap();
         assert_eq!(display["kind"], "terminal");
         assert_eq!(display["command"], "cargo test");
@@ -1438,7 +1438,7 @@ mod tests {
         super::materialize_tool_output(&mut output, &ctx, "bash");
 
         assert!(output.is_error);
-        assert_eq!(output.code, Some("TOOL_RESULT_SPILL_FAILED"));
+        assert_eq!(output.code.as_deref(), Some("TOOL_RESULT_SPILL_FAILED"));
         assert!(output.artifact.is_none());
         assert!(output.content.contains("tool_result_spill_failed"));
         let _ = std::fs::remove_dir_all(root);
@@ -1470,7 +1470,7 @@ mod tests {
         drop(lock);
 
         assert!(output.is_error);
-        assert_eq!(output.code, Some("TOOL_RESULT_SPILL_FAILED"));
+        assert_eq!(output.code.as_deref(), Some("TOOL_RESULT_SPILL_FAILED"));
         assert!(output.artifact.is_none());
         assert!(output.content.contains("tool_result_spill_failed"));
         assert_eq!(

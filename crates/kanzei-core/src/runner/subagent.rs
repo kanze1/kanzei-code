@@ -1028,7 +1028,7 @@ mod tests {
         };
         let output = super::bounded_subagent(0, future).await;
         assert!(output.is_error);
-        assert_eq!(output.code, Some("subagent_timeout"));
+        assert_eq!(output.code.as_deref(), Some("subagent_timeout"));
         assert!(
             !registry.cancel("bounded-policy"),
             "timeout must release cancellation ownership"

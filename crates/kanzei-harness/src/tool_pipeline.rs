@@ -182,7 +182,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert!(out.is_error);
         assert_eq!(out.outcome, ToolOutcome::NeedsCorrection);
-        assert_eq!(out.code, Some("INPUT_REJECTED"));
+        assert_eq!(out.code.as_deref(), Some("INPUT_REJECTED"));
         assert_eq!(out.content, "correct the input");
         assert_eq!(out.display, Some(json!({"guard":"input"})));
     }
@@ -194,7 +194,7 @@ mod tests {
             let mut original = ToolOutput::ok("original body content");
             original.outcome = outcome;
             original.is_error = outcome != ToolOutcome::Success;
-            original.code = Some("BODY_CODE");
+            original.code = Some("BODY_CODE".into());
             original.display = Some(json!({"original":true}));
             original.images = vec![ToolImage {
                 media_type: "image/png".into(),
@@ -298,7 +298,7 @@ mod tests {
             ToolOutput::ok("unreachable")
         })
         .await;
-        assert_eq!(output.code, Some("TOOL_PANICKED"));
+        assert_eq!(output.code.as_deref(), Some("TOOL_PANICKED"));
         assert_eq!(output.outcome, ToolOutcome::Failed);
         assert!(output.is_error);
         assert_eq!(rx.recv().await.unwrap().1, "before panic");

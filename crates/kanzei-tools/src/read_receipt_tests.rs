@@ -25,7 +25,7 @@ async fn unread_files_are_unchanged_partial_read_allows_sequential_edits_and_ext
     let result = write
         .execute(json!({"path":"file.txt","content":"lost"}), &ctx)
         .await;
-    assert_eq!(result.code, Some("READ_BEFORE_WRITE"));
+    assert_eq!(result.code.as_deref(), Some("READ_BEFORE_WRITE"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\ntwo\nthree\n");
     assert!(
         !read
@@ -57,14 +57,15 @@ async fn unread_files_are_unchanged_partial_read_allows_sequential_edits_and_ext
         json!({"path":"file.txt","old_string":"missing","new_string":"overwrite"}),
     ] {
         let result = edit.execute(input, &ctx).await;
-        assert_eq!(result.code, Some("FILE_CHANGED_SINCE_READ"));
+        assert_eq!(result.code.as_deref(), Some("FILE_CHANGED_SINCE_READ"));
         assert!(result.content.contains("external"));
     }
     assert_eq!(
         write
             .execute(json!({"path":"file.txt","content":"lost"}), &ctx)
             .await
-            .code,
+            .code
+            .as_deref(),
         Some("FILE_CHANGED_SINCE_READ")
     );
     assert_eq!(
@@ -102,7 +103,8 @@ async fn new_files_are_allowed_and_receipts_do_not_cross_conversations() {
         write
             .execute(json!({"path":"new.txt","content":"third"}), &ctx)
             .await
-            .code,
+            .code
+            .as_deref(),
         Some("READ_BEFORE_WRITE")
     );
     let standalone = ToolCtx::new(root.clone(), root.clone());

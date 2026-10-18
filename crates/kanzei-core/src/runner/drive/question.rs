@@ -266,7 +266,7 @@ mod tests {
             let mut ask = |_| -> AskFuture { panic!("auto mode must not ask") };
             let mut input = serde_json::json!({"question":"选择 provider", "options":["本地","远程"], "default":"远程"});
             let pending = execute_question(policy, &ctx, "call-1", &input, &mut ask).await;
-            assert_eq!(pending.code, Some("DECISION_REQUIRED"));
+            assert_eq!(pending.code.as_deref(), Some("DECISION_REQUIRED"));
             assert_eq!(pending.display.as_ref().unwrap()["status"], "deciding");
             input["decision"] =
                 serde_json::json!({"answer":"本地", "rationale":"已有配置", "impact":"不新增服务"});

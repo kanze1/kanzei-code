@@ -1194,7 +1194,7 @@ mod tests {
             )
             .await;
         assert!(edit.is_error, "{}", edit.content);
-        assert_eq!(edit.code, Some("EDIT_FILE_UNAVAILABLE"));
+        assert_eq!(edit.code.as_deref(), Some("EDIT_FILE_UNAVAILABLE"));
         assert!(edit.content.contains("target-near.txt"), "{}", edit.content);
 
         let insert = InsertTool
@@ -1204,7 +1204,7 @@ mod tests {
             )
             .await;
         assert!(insert.is_error, "{}", insert.content);
-        assert_eq!(insert.code, Some("INSERT_FILE_UNAVAILABLE"));
+        assert_eq!(insert.code.as_deref(), Some("INSERT_FILE_UNAVAILABLE"));
         assert!(insert.content.contains("target.txt"), "{}", insert.content);
 
         let missing_path = InsertTool
@@ -1244,7 +1244,10 @@ mod tests {
         let out = EditTool::default().execute(call.clone(), &ctx).await;
         assert!(out.is_error, "插入却吃掉锚点必须拦下: {}", out.content);
         assert_eq!(out.outcome, ToolOutcome::NeedsCorrection);
-        assert_eq!(out.code, Some("EDIT_INSERTION_WOULD_REPLACE_ANCHOR"));
+        assert_eq!(
+            out.code.as_deref(),
+            Some("EDIT_INSERTION_WOULD_REPLACE_ANCHOR")
+        );
         assert!(
             out.content.contains("pub(crate) fn build("),
             "要指出丢了哪一行: {}",
@@ -1471,7 +1474,7 @@ mod tests {
             first.content
         );
         assert_eq!(first.outcome, ToolOutcome::NeedsCorrection);
-        assert_eq!(first.code, Some("EDIT_ANCHOR_NOT_FOUND"));
+        assert_eq!(first.code.as_deref(), Some("EDIT_ANCHOR_NOT_FOUND"));
         let second = tool.execute(miss, &ctx).await;
         assert!(second.is_error);
         assert!(
@@ -1517,7 +1520,7 @@ mod tests {
             .await;
         assert!(out.is_error, "provider 仍需阻止模型把 no-op 当落盘成功");
         assert_eq!(out.outcome, ToolOutcome::NoOp);
-        assert_eq!(out.code, Some("EDIT_IDENTICAL_INPUT"));
+        assert_eq!(out.code.as_deref(), Some("EDIT_IDENTICAL_INPUT"));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1558,7 +1561,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(missing.code, Some("INSERT_ANCHOR_NOT_FOUND"));
+        assert_eq!(missing.code.as_deref(), Some("INSERT_ANCHOR_NOT_FOUND"));
         assert!(missing.content.contains("Actual file context"));
         let repeated = tool
             .execute(
@@ -1566,7 +1569,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(repeated.code, Some("INSERT_ANCHOR_NOT_UNIQUE"));
+        assert_eq!(repeated.code.as_deref(), Some("INSERT_ANCHOR_NOT_UNIQUE"));
         assert_eq!(
             std::fs::read_to_string(dir.join("target.txt")).unwrap(),
             "same\nsame\n"

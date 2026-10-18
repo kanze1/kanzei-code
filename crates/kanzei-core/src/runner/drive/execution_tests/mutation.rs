@@ -177,7 +177,7 @@ async fn cancelled_mutation_wait_drops_its_queue_claim_without_running_the_tool(
     assert!(futures::poll!(&mut execute).is_pending());
     assert_eq!(raw.snapshot(&root).waiting_writers, vec!["cancelled-run"]);
     halt.cancel();
-    assert_eq!(execute.await.code, Some("RUN_CANCELLED"));
+    assert_eq!(execute.await.code.as_deref(), Some("RUN_CANCELLED"));
     assert!(raw.snapshot(&root).waiting_writers.is_empty());
     assert_eq!(probe.0.load(Ordering::SeqCst), 0);
     assert!(!root.join("forbidden-mutation").exists());

@@ -16,7 +16,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-const MAX_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
+pub(crate) const MAX_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
 const MAX_OUTPUT_CHARS: usize = 40_000;
 const DEFAULT_OUTPUT_CHARS: usize = 20_000;
 const MAX_EXTRACT_INPUT_CHARS: usize = 60_000;
@@ -199,7 +199,7 @@ impl Tool for WebFetchTool {
             final_url: page.final_url.clone(),
             fetched_at_utc: page.fetched_at_utc.clone(),
             observed_at_utc: chrono::Utc::now().to_rfc3339(),
-            http_status: page.status,
+            http_status: Some(page.status),
             content_type: page.content_type.clone(),
             method: if page.content_issue.is_some() {
                 crate::web_refs::AcquisitionMethod::UnverifiedHtml
@@ -664,7 +664,7 @@ fn cache_insert(key: (String, String), page: WebPage) {
     }
 }
 
-fn save_web_artifact(
+pub(crate) fn save_web_artifact(
     ctx: &ToolCtx,
     url: &str,
     extension: &str,
@@ -714,7 +714,7 @@ fn save_web_artifact(
     Ok(path.display().to_string())
 }
 
-fn line_numbered_markdown(text: &str) -> String {
+pub(crate) fn line_numbered_markdown(text: &str) -> String {
     text.lines()
         .enumerate()
         .map(|(index, line)| format!("{:04} | {line}", index + 1))
@@ -1111,7 +1111,7 @@ mod tests {
             .execute(serde_json::json!({"url":url}), &ctx)
             .await;
         assert_eq!(
-            output.code,
+            output.code.as_deref(),
             Some("WEBFETCH_NO_READABLE_BODY"),
             "{}",
             output.content
@@ -1300,7 +1300,7 @@ fast = "missing:extractor"
             WebFetchTool.execute(serde_json::json!({"url":url.clone()}), &ctx),
         )
         .await;
-        assert_eq!(blocked.code, Some("WEBFETCH_REDIRECT_DENIED"));
+        assert_eq!(blocked.code.as_deref(), Some("WEBFETCH_REDIRECT_DENIED"));
         assert!(!blocked.content.contains("Target phrase"));
         let saved = std::fs::read_dir(root.join(".kanzei/artifacts/web"))
             .unwrap()
@@ -1457,7 +1457,7 @@ base_url = "{base_url}/v1"
                 ),
             )
             .await;
-            assert_eq!(output.code, Some(code), "{}", output.content);
+            assert_eq!(output.code.as_deref(), Some(code), "{}", output.content);
             assert_eq!(denied_hits.load(Ordering::SeqCst), 0);
             server.abort();
             let _ = server.await;
@@ -1574,7 +1574,7 @@ base_url = "{base_url}/v1"
                 &ctx,
             )
             .await;
-        assert_eq!(output.code, Some("RESEARCH_LOOP_TASK_REQUIRED"));
+        assert_eq!(output.code.as_deref(), Some("RESEARCH_LOOP_TASK_REQUIRED"));
         assert!(output.content.contains("尚未启动检索环"));
         std::fs::remove_dir_all(root).ok();
     }

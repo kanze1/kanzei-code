@@ -157,7 +157,9 @@ pub(crate) async fn file_checkpointed_write(
                     std::io::ErrorKind::InvalidInput,
                     format!(
                         "{}: {}",
-                        output.code.unwrap_or("FILE_VERSION_UNAVAILABLE"),
+                        output
+                            .code
+                            .unwrap_or_else(|| "FILE_VERSION_UNAVAILABLE".into()),
                         output.content
                     ),
                 ));

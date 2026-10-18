@@ -5285,7 +5285,7 @@ mod tests {
             )
             .await;
         assert!(blocked.is_error, "实施前仍要求完整 prior-art");
-        assert_eq!(blocked.code, Some("PRIOR_ART_REQUIRED"));
+        assert_eq!(blocked.code.as_deref(), Some("PRIOR_ART_REQUIRED"));
         let topic = crate::prior_art::requirement_topic("R-001", "新的核心方向");
         let relative = format!(".kanzei/research/{topic}/prior-art.md");
         let artifact = dir.join(&relative);

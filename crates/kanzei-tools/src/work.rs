@@ -1621,7 +1621,7 @@ mod tests {
             .await;
         assert!(missing_criterion.is_error);
         assert_eq!(
-            missing_criterion.code,
+            missing_criterion.code.as_deref(),
             Some("HANDOFF_COMPLETION_CRITERION_REQUIRED")
         );
         assert!(
@@ -1640,7 +1640,10 @@ mod tests {
             )
             .await;
         assert!(missing_evidence.is_error);
-        assert_eq!(missing_evidence.code, Some("HANDOFF_EVIDENCE_REQUIRED"));
+        assert_eq!(
+            missing_evidence.code.as_deref(),
+            Some("HANDOFF_EVIDENCE_REQUIRED")
+        );
 
         let unscoped = WorkTool
             .execute(
@@ -1650,7 +1653,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(unscoped.code, Some("HANDOFF_SCOPE_REQUIRED"));
+        assert_eq!(unscoped.code.as_deref(), Some("HANDOFF_SCOPE_REQUIRED"));
         let empty_evidence = WorkTool
             .execute(
                 serde_json::json!({
@@ -1660,7 +1663,10 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(empty_evidence.code, Some("HANDOFF_EVIDENCE_REQUIRED"));
+        assert_eq!(
+            empty_evidence.code.as_deref(),
+            Some("HANDOFF_EVIDENCE_REQUIRED")
+        );
 
         let accepted = WorkTool
             .execute(
@@ -1945,7 +1951,7 @@ mod tests {
         let output = tool
             .execute(json!({"action":"close","id":"D-001"}), &ctx)
             .await;
-        assert_eq!(output.code, Some("ALREADY_TERMINAL"));
+        assert_eq!(output.code.as_deref(), Some("ALREADY_TERMINAL"));
         assert!(output.is_error, "已归档重放不得记成一次新的关闭成功");
         assert!(output.content.contains("fixed") && output.content.contains("work next"));
         assert_eq!(store.load_archive().unwrap(), before);

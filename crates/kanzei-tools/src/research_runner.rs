@@ -1503,7 +1503,10 @@ mod tests {
         )
         .await;
         assert_eq!(output.outcome, ToolOutcome::NeedsConfirmation);
-        assert_eq!(output.code, Some("RESEARCH_RUN_CONFIRMATION_REQUIRED"));
+        assert_eq!(
+            output.code.as_deref(),
+            Some("RESEARCH_RUN_CONFIRMATION_REQUIRED")
+        );
         assert!(output.content.contains("approval-budget"));
         assert!(!root.join(".kanzei/state.db").is_file());
         let _ = std::fs::remove_dir_all(root);
@@ -1533,7 +1536,7 @@ mod tests {
             .acquire_research_environment_lease("ENV-managed", "held", "managed", 10_000)
             .unwrap();
         let conflict = run_experiment(managed_input("E-managed-01", "E-managed", None), &ctx).await;
-        assert_eq!(conflict.code, Some("ENVIRONMENT_LEASE_CONFLICT"));
+        assert_eq!(conflict.code.as_deref(), Some("ENVIRONMENT_LEASE_CONFLICT"));
         assert!(conflict.is_error);
         store
             .release_research_environment_lease("ENV-managed", "held")
@@ -1892,7 +1895,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(output.is_error);
-        assert_eq!(output.code, Some("RESEARCH_BUDGET_EXCEEDED"));
+        assert_eq!(output.code.as_deref(), Some("RESEARCH_BUDGET_EXCEEDED"));
         assert!(output.content.contains("环境级"));
     }
 

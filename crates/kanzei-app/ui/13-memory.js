@@ -1450,7 +1450,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   const bodyBox = document.createElement("div");
   bodyBox.className = "memory-body-read";
   const bodyText = String(entry.body ?? "");
-  renderMemoryBodyRead(bodyBox, bodyText);
+  renderMemoryBodyRead(bodyBox, bodyText, project);
   // 输入过但又改回原样不算「有改动」:离开前的确认以表单当前值对原值的比较为准。
   box._memoryDirtyCheck = () => title.value !== entry.title || desc.value !== entry.description || readMemoryBody(bodyBox, bodyText) !== bodyText;
   const restoreReaderScroll = () => {
@@ -1721,13 +1721,13 @@ function renderMemoryAreaRow(project, scope, entry) {
 
 
 // Read the complete document with its Markdown hierarchy; editing remains explicit.
-export function renderMemoryBodyRead(container, bodyText) {
+export function renderMemoryBodyRead(container, bodyText, project) {
   container.innerHTML = "";
   const text = String(bodyText ?? "");
   const article = document.createElement("article");
   article.className = "memory-body-document markdown";
   renderMarkdownInto(article, stripMemoryFingerprint(text) || t("无正文"));
-  for (const link of article.querySelectorAll("a.md-path")) link.dataset.projectDir = memoryProject || "";
+  for (const link of article.querySelectorAll("a.md-path")) link.dataset.projectDir = project || "";
   container.appendChild(article);
   // 编辑入口:阅读视图是默认态,编辑时提供取消,避免误入 textarea 后只能刷新页面恢复阅读。
   const editRow = document.createElement("div");
@@ -1745,7 +1745,7 @@ export function renderMemoryBodyRead(container, bodyText) {
     cancel.type = "button";
     cancel.className = "ghost mini";
     cancel.textContent = t("取消编辑");
-    cancel.addEventListener("click", () => renderMemoryBodyRead(container, text));
+    cancel.addEventListener("click", () => renderMemoryBodyRead(container, text, project));
     container.replaceChildren(ta, cancel);
   });
   editRow.appendChild(editBtn);

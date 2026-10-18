@@ -53,6 +53,10 @@ pub async fn execute_headless(
     if let Err(error) = validate(&input, action) {
         return browser_error(backend, &error);
     }
+    let source_scope = match super::prepare_source(&input, ctx) {
+        Ok(scope) => scope,
+        Err(error) => return browser_error(backend, &error),
+    };
     let target = match resolve_nav_target(&input, &ctx.cwd, &ctx.project_root) {
         Ok(target) => target,
         Err(error) => return browser_error(backend, &error),
@@ -63,14 +67,7 @@ pub async fn execute_headless(
         notes.push(HEADLESS_PANE_HINT.to_string());
     }
     let result = with_helper(|helper| {
-        let (output, url) = run_action(
-            helper,
-            &super::owner_key(ctx),
-            &input,
-            action,
-            target,
-            &notes,
-        )?;
+        let (output, url) = run_action(helper, ctx, &input, action, target, &notes, source_scope)?;
         if let Some(url) = url {
             set_current_url(backend, ctx, Some(url));
         }
@@ -84,14 +81,16 @@ pub async fn execute_headless(
 
 fn run_action(
     helper: &mut HelperProcess,
-    owner: &str,
+    ctx: &kanzei_harness::ToolCtx,
     input: &BrowserInput,
     action: BrowserAction,
     target: Option<super::NavTarget>,
     notes: &[String],
+    source_scope: Option<super::SourceScope>,
 ) -> Result<(ToolOutput, Option<String>), String> {
+    let owner = super::owner_key(ctx);
     let mut rpc = |method: &str, mut params: serde_json::Value| {
-        params["owner"] = owner.into();
+        params["owner"] = owner.as_str().into();
         helper.rpc(method, params)
     };
     let backend = Backend::Headless;
@@ -152,6 +151,25 @@ fn run_action(
             let url = page_url(&dom);
             let structure = dom["dom"].as_str().unwrap_or("");
             (out_dom(backend, &url, &selector, structure), Some(url))
+        }
+        BrowserAction::Source => {
+            let result = rpc(
+                "eval",
+                serde_json::json!({"expression": super::rendered_source_expression()}),
+            )?;
+            let json = result["json"]
+                .as_str()
+                .ok_or("browser source response is missing JSON")?;
+            let page: serde_json::Value =
+                serde_json::from_str(json).map_err(|error| error.to_string())?;
+            let url = page["url"]
+                .as_str()
+                .ok_or("browser source response is missing URL")?
+                .to_string();
+            (
+                super::record_rendered_source(backend, page, source_scope, ctx)?,
+                Some(url),
+            )
         }
         BrowserAction::Console => {
             let console = rpc("console", serde_json::json!({ "all": input.all }))?;
@@ -687,8 +705,9 @@ mod tests {
         assert!(!opened.is_error, "{}", opened.content);
         assert!(opened.content.starts_with("backend: headless\n"));
         assert!(
-            opened.content.contains("http://127.0.0.1:"),
-            "path 走静态服务"
+            opened.content.contains(".localhost:"),
+            "path 应走独立来源的本地静态服务: {}",
+            opened.content
         );
         assert!(!typed.is_error, "{}", typed.content);
         assert!(!clicked.is_error, "{}", clicked.content);
@@ -705,6 +724,66 @@ mod tests {
             "{}",
             console.content
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn rendered_source_keeps_shell_unverified_and_saves_actual_dynamic_body() {
+        let _guard = browser_lock().lock().await;
+        let dir = temp_dir("rendered-source");
+        std::fs::write(
+            dir.join("dynamic.html"),
+            "<!doctype html><title>Dynamic source</title><div id='app'></div>",
+        )
+        .unwrap();
+        let ctx = ctx(&dir);
+        shutdown_helper();
+        let opened = execute_headless(
+            BrowserInput {
+                path: Some("dynamic.html".into()),
+                ..act("open")
+            },
+            &ctx,
+            false,
+        )
+        .await;
+        assert!(!opened.is_error, "{}", opened.content);
+        let shell = execute_headless(act("source"), &ctx, false).await;
+        assert_eq!(
+            shell.code.as_deref(),
+            Some("BROWSER_SOURCE_UNVERIFIED"),
+            "{}",
+            shell.content
+        );
+        let changed = execute_headless(BrowserInput { expression: Some("document.querySelector('#app').innerHTML='<article><h1>Advisory</h1><p>Dynamic release fixes the source validation issue.</p></article>'; true".into()), ..act("eval") }, &ctx, false).await;
+        assert!(!changed.is_error, "{}", changed.content);
+        let captured = execute_headless(act("source"), &ctx, false).await;
+        assert!(!captured.is_error, "{}", captured.content);
+        assert!(captured.content.contains("Dynamic release fixes"));
+        assert!(captured.content.contains("HTTP status: unknown"));
+        let url = super::super::current_url(Backend::Headless, &ctx).unwrap();
+        let receipt = crate::web_refs::acquisition_for_url(&ctx, &url, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            receipt.method,
+            crate::web_refs::AcquisitionMethod::RenderedDom
+        );
+        assert_eq!(receipt.http_status, None);
+        assert!(receipt.ready_for_finding(&ctx).unwrap());
+        assert!(
+            std::fs::read_to_string(dir.join(&receipt.raw_artifact.path))
+                .unwrap()
+                .contains("<article>")
+        );
+        std::fs::write(
+            dir.join(&receipt.artifact.path),
+            "changed after acquisition",
+        )
+        .unwrap();
+        assert!(receipt.ready_for_finding(&ctx).is_err());
+        shutdown_helper();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[cfg(target_os = "windows")]

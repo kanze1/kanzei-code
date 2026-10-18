@@ -58,7 +58,7 @@ async fn auto_pause_and_stage_block_legacy_search_without_resetting_evidence() {
     let blocked = tool
         .execute(json!({"action":"begin_search","topic":"shared"}), &ctx)
         .await;
-    assert_eq!(blocked.code, Some("WORKFLOW_CONTROL"));
+    assert_eq!(blocked.code.as_deref(), Some("WORKFLOW_CONTROL"));
     assert!(crate::research_loop::validate_external_task(dir.path(), "shared", "any").is_err());
     assert_eq!(
         before,
@@ -88,7 +88,8 @@ async fn auto_pause_and_stage_block_legacy_search_without_resetting_evidence() {
     assert_eq!(
         tool.execute(json!({"action":"reflect","topic":"shared","gaps":[]}), &ctx)
             .await
-            .code,
+            .code
+            .as_deref(),
         Some("WORKFLOW_CONTROL")
     );
     assert_eq!(
@@ -98,7 +99,8 @@ async fn auto_pause_and_stage_block_legacy_search_without_resetting_evidence() {
                 &ctx
             )
             .await
-            .code,
+            .code
+            .as_deref(),
         Some("WORKFLOW_CONTROL")
     );
 }

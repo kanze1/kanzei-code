@@ -1754,7 +1754,12 @@ prunable gitdir file points to non-existent location
             kanzei_harness::ToolConcurrency::Exclusive
         );
         let denied = GitTool.execute(input.clone(), &ctx).await;
-        assert_eq!(denied.code, Some("GIT_TARGET_BUSY"), "{}", denied.content);
+        assert_eq!(
+            denied.code.as_deref(),
+            Some("GIT_TARGET_BUSY"),
+            "{}",
+            denied.content
+        );
         assert_eq!(
             std::fs::read_to_string(target.join("a.txt"))
                 .unwrap()
