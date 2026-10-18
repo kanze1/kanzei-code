@@ -18,8 +18,7 @@ use super::{cdp, pane, ColorScheme, DevicePreset, Pane};
 const LOAD_TIMEOUT: Duration = Duration::from_secs(15);
 const BACKEND: Backend = Backend::Pane;
 
-/// 在面板上执行一次 browser 动作。面板在路由之后被关掉、或隐藏超过 [`super::VISIBLE_WAIT`]
-/// (不只是被菜单暂时遮住)时返回 None,由调用方回落无头。
+/// Operate the owned pane. Capture checks visibility separately from page identity.
 pub(crate) async fn execute(input: &BrowserInput, ctx: &ToolCtx) -> Option<ToolOutput> {
     execute_checked(input, ctx, None).await
 }
@@ -37,16 +36,11 @@ pub(crate) async fn execute_checked(
     let selected = pane::current(app)?;
     let generation = selected.shared.generation;
     let snapshot = selected.shared.meta().clone();
-    if super::route_hint(Some(&snapshot), ctx.process_id.as_deref(), super::now_ms())
-        != super::Backend::Pane
-    {
+    if super::route(Some(&snapshot), ctx.process_id.as_deref()) != super::Backend::Pane {
         return Some(ToolOutput::error("预览会话已变化，请重新检查后再操作"));
     }
     let _serial = state.agent.lock().await;
     let pane = pane::current(app)?;
-    if !pane::wait_visible(&pane, super::VISIBLE_WAIT).await {
-        return None;
-    }
     if !same_owner(
         &snapshot,
         generation,
@@ -267,28 +261,19 @@ async fn act(
             settle().await;
             shared::out_click(BACKEND, &selector, &page_url(pane))
         }
-        BrowserAction::Type => {
-            let text = input.text.clone().unwrap_or_default();
-            let focused = cdp::evaluate(
+        BrowserAction::Type
+        | BrowserAction::Select
+        | BrowserAction::Check
+        | BrowserAction::Upload
+        | BrowserAction::Validate => {
+            let state = cdp::evaluate(
                 webview,
-                &format!("({FOCUS_AND_CLEAR})({})", json!(selector)),
+                &shared::form_action_expression(input, ctx)?,
                 false,
                 cdp::CALL_TIMEOUT,
             )
             .await?;
-            if focused != Value::Bool(true) {
-                return Err(format!("没有找到可输入的元素 {selector:?}"));
-            }
-            if !text.is_empty() {
-                cdp::call(
-                    webview,
-                    "Input.insertText",
-                    json!({ "text": text }),
-                    cdp::CALL_TIMEOUT,
-                )
-                .await?;
-            }
-            shared::out_type(BACKEND, &selector, text.chars().count(), &page_url(pane))
+            shared::out_form(BACKEND, &input.action, &selector, &state, &page_url(pane))
         }
         BrowserAction::Press => {
             let key = input.key.clone().unwrap_or_default();
@@ -342,31 +327,6 @@ async fn act(
 async fn settle() {
     tokio::time::sleep(Duration::from_millis(150)).await;
 }
-
-/// 聚焦并清空输入目标;可输入返回 true。
-const FOCUS_AND_CLEAR: &str = r#"(sel) => {
-  const el = document.querySelector(sel);
-  if (!el) return false;
-  el.scrollIntoView({ block: "center", inline: "nearest" });
-  el.focus();
-  if ("value" in el && typeof el.select === "function") {
-    el.select();
-    if (el.value) {
-      el.value = "";
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    return true;
-  }
-  if (el.isContentEditable) {
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-    return true;
-  }
-  return document.activeElement === el;
-}"#;
 
 async fn element_center(webview: &tauri::Webview, selector: &str) -> Result<(f64, f64), String> {
     let expression = format!(
@@ -569,18 +529,29 @@ mod tests {
 mod ownership_tests {
     use super::*;
     #[test]
+    fn hiding_an_owned_page_does_not_change_its_identity() {
+        let mut original = super::super::PaneMeta {
+            alive: true,
+            ..Default::default()
+        };
+        original.set_visibility(true, Some("owned".into()));
+        let mut hidden = original.clone();
+        hidden.set_visibility(false, Some("owned".into()));
+        assert!(same_owner(&original, 7, &hidden, 7, Some("owned")));
+    }
+    #[test]
     fn queued_action_rejects_rebinding_and_recreated_pane_even_at_same_url() {
         let mut original = super::super::PaneMeta {
             alive: true,
             url: "https://example.org".into(),
             ..Default::default()
         };
-        original.set_visibility(true, Some("a".into()), 0);
+        original.set_visibility(true, Some("a".into()));
         assert!(same_owner(&original, 1, &original, 1, Some("a")));
         let mut current = original.clone();
-        current.set_visibility(true, Some("b".into()), 1);
+        current.set_visibility(true, Some("b".into()));
         assert!(!same_owner(&original, 1, &current, 1, Some("a")));
-        current.set_visibility(true, Some("a".into()), 2);
+        current.set_visibility(true, Some("a".into()));
         assert!(!same_owner(&original, 1, &current, 1, Some("a")));
         assert!(!same_owner(&original, 1, &original, 2, Some("a")));
     }

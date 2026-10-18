@@ -545,7 +545,7 @@ pub(crate) async fn open(
         let mut meta = pane.shared.meta();
         meta.host = host;
         // 打开即显示:绑定按这次上报的线覆盖(null = 不绑任何线)。
-        meta.set_visibility(true, process_id, now_ms());
+        meta.set_visibility(true, process_id);
         meta.begin_navigation();
         meta.url = url.to_string();
     }
@@ -568,9 +568,7 @@ pub(crate) fn set_visible(app: &AppHandle, visible: bool, process_id: Option<Str
     let Some(pane) = current(app) else {
         return closed_payload();
     };
-    pane.shared
-        .meta()
-        .set_visibility(visible, process_id, now_ms());
+    pane.shared.meta().set_visibility(visible, process_id);
     if visible {
         apply_bounds(&pane);
         let _ = pane.webview.show();

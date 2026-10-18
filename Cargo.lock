@@ -2682,6 +2682,7 @@ dependencies = [
  "sha2",
  "similar",
  "tantivy",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-util",

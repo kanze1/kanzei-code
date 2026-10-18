@@ -17,9 +17,11 @@ use kanzei_harness::ToolOutput;
 use serde::Deserialize;
 use sha2::Digest;
 
+mod forms;
 mod headless;
 mod source;
 pub use crate::web_refs::SourceScope;
+pub use forms::{form_action_expression, out_form};
 pub use headless::execute_headless;
 pub use source::{prepare_source, record_rendered_source, rendered_source_expression};
 
@@ -124,7 +126,7 @@ impl kanzei_harness::Tool for BrowserTool {
 pub fn description() -> String {
     "Drive a browser page and see it. Actions: open (navigate to url/path/html, return a \
      screenshot), screenshot (current page, no reload; full_page or selector), dom, console \
-     (errors/warnings; all=true for every level), click, type, press (key), scroll, wait \
+     (errors/warnings; all=true for every level), click, type (text/date), select (values[]), check (checked), upload (files[]), validate (form selector), press (key), scroll, wait \
      (selector/text/ms ≤10000), eval (JS expression → JSON), source (save the current rendered \
      article body and DOM with source receipts; topic + task_id bind a research task). Targets: url (http/https), path \
      (local HTML, served from a 127.0.0.1 static server so ES modules work) or html (inline \
@@ -153,6 +155,9 @@ pub struct BrowserInput {
     pub action: String,
     pub selector: Option<String>,
     pub text: Option<String>,
+    pub values: Option<Vec<String>>,
+    pub checked: Option<bool>,
+    pub files: Option<Vec<String>>,
     pub key: Option<String>,
     pub expression: Option<String>,
     pub dy: Option<f64>,
@@ -178,6 +183,9 @@ impl Default for BrowserInput {
             action: default_action(),
             selector: None,
             text: None,
+            values: None,
+            checked: None,
+            files: None,
             key: None,
             expression: None,
             dy: None,
@@ -217,6 +225,10 @@ pub enum BrowserAction {
     Console,
     Click,
     Type,
+    Select,
+    Check,
+    Upload,
+    Validate,
     Press,
     Scroll,
     Wait,
@@ -235,13 +247,17 @@ impl BrowserAction {
             "console" | "logs" => BrowserAction::Console,
             "click" => BrowserAction::Click,
             "type" | "fill" => BrowserAction::Type,
+            "select" => BrowserAction::Select,
+            "check" => BrowserAction::Check,
+            "upload" => BrowserAction::Upload,
+            "validate" => BrowserAction::Validate,
             "press" | "key" | "keypress" => BrowserAction::Press,
             "scroll" => BrowserAction::Scroll,
             "wait" => BrowserAction::Wait,
             "eval" | "evaluate" | "js" => BrowserAction::Eval,
             other => {
                 return Err(format!(
-                    "未知 browser 动作 {other:?}。可用:open | screenshot | dom | source | console | click | type | press | scroll | wait | eval"
+                    "未知 browser 动作 {other:?}。可用:open | screenshot | dom | source | console | click | type | select | check | upload | validate | press | scroll | wait | eval"
                 ))
             }
         })
@@ -250,6 +266,15 @@ impl BrowserAction {
 
 /// 动作参数的机械校验(两个后端执行前都先过这一道,错误文本一致)。
 pub fn validate(input: &BrowserInput, action: BrowserAction) -> Result<(), String> {
+    if input.files.is_some() && action != BrowserAction::Upload {
+        return Err("files 仅用于 upload 动作".into());
+    }
+    if input.values.is_some() && action != BrowserAction::Select {
+        return Err("values 仅用于 select 动作".into());
+    }
+    if input.checked.is_some() && action != BrowserAction::Check {
+        return Err("checked 仅用于 check 动作".into());
+    }
     if action != BrowserAction::Source && (input.topic.is_some() || input.task_id.is_some()) {
         return Err("topic/task_id 仅用于 source 存证动作".into());
     }
@@ -262,6 +287,21 @@ pub fn validate(input: &BrowserInput, action: BrowserAction) -> Result<(), Strin
     }
     let non_empty = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.trim().is_empty());
     match action {
+        BrowserAction::Select
+        | BrowserAction::Check
+        | BrowserAction::Upload
+        | BrowserAction::Validate
+            if !non_empty(&input.selector) =>
+        {
+            Err("表单动作需要唯一 selector".into())
+        }
+        BrowserAction::Select if input.values.is_none() => {
+            Err("select 需要 values 数组（option 的 value）".into())
+        }
+        BrowserAction::Check if input.checked.is_none() => Err("check 需要 checked 布尔值".into()),
+        BrowserAction::Upload if input.files.is_none() => {
+            Err("upload 需要 files 路径数组；空数组清空已选文件".into())
+        }
         BrowserAction::Open if targets == 0 => {
             Err("open 需要 url、path 或 html 之一;其余动作省略目标即复用当前页面".into())
         }
@@ -383,6 +423,29 @@ fn file_url(path: &Path) -> Result<String, String> {
 /// URL 按解析后的 host 取,不按字符串前缀——`http://localhost:80@evil.com/` 的 host 是
 /// evil.com,不能被 `url:localhost:*` 放行。
 pub fn resources_for(
+    input: &serde_json::Value,
+    cwd: Option<&Path>,
+    current: Option<&str>,
+) -> Vec<String> {
+    let mut resources = page_resources_for(input, cwd, current);
+    if input["action"] == "upload" {
+        for path in input["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|path| path.as_str())
+        {
+            let path = match cwd {
+                Some(cwd) => absolute(cwd, Path::new(path)),
+                None => PathBuf::from(path),
+            };
+            resources.push(format!("path:{}", path.display()));
+        }
+    }
+    resources
+}
+
+fn page_resources_for(
     input: &serde_json::Value,
     cwd: Option<&Path>,
     current: Option<&str>,
@@ -675,13 +738,6 @@ pub fn out_click(backend: Backend, selector: &str, url: &str) -> ToolOutput {
     ))
 }
 
-pub fn out_type(backend: Backend, selector: &str, chars: usize, url: &str) -> ToolOutput {
-    ToolOutput::ok(with_backend(
-        backend,
-        format!("已向 {selector:?} 填入文本({chars} 字符);当前 url: {url}"),
-    ))
-}
-
 pub fn out_press(backend: Backend, key: &str, url: &str) -> ToolOutput {
     ToolOutput::ok(with_backend(
         backend,
@@ -774,11 +830,14 @@ pub fn input_schema() -> serde_json::Value {
             "html": { "type": "string", "description": "内联 HTML 片段(≤2MB)，经静态服务打开" },
             "action": {
                 "type": "string",
-                "enum": ["open", "screenshot", "dom", "source", "console", "click", "type", "press", "scroll", "wait", "eval"],
-                "description": "open(默认,打开并截图)| screenshot(当前页截图不重新导航,可 full_page/selector)| dom(可读 DOM,可选 selector)| console(错误/警告;all=true 返回全部级别最近 200 条)| click | type(selector+text)| press(key)| scroll(selector 或 dy)| wait(selector/text/ms≤10000)| eval(expression→JSON)"
+                "enum": ["open", "screenshot", "dom", "source", "console", "click", "type", "select", "check", "upload", "validate", "press", "scroll", "wait", "eval"],
+                "description": "open(打开并截图)| screenshot(当前页截图)| dom(字段/选项/状态)| source(保存当前渲染正文与 DOM)| console | click | type(selector+text；日期用 ISO 格式)| select(selector+values)| check(selector+checked)| upload(selector+files)| validate(form selector，返回 valid 和错误字段)| press(key)| scroll(selector/dy)| wait(selector/text/ms≤10000)| eval(expression→JSON)"
             },
-            "selector": { "type": "string", "description": "dom/click/type/scroll/wait/screenshot 用:CSS selector" },
+            "selector": { "type": "string", "description": "目标 CSS selector；表单动作必须唯一匹配；validate 选择 form" },
             "text": { "type": "string", "description": "type:要填入的文本;wait:等待页面出现的文字" },
+            "values": { "type": "array", "items": {"type":"string"}, "description": "select: option value 列表；多选要求 select[multiple]" },
+            "checked": { "type": "boolean", "description": "check: checkbox 状态或选中 radio；取消 radio 需选择同组另一项" },
+            "files": { "type": "array", "items": {"type":"string"}, "description": "upload: 已授权的本地文件路径；空数组清空；合计不超过 16 MiB。还会检查页面和每个文件的权限" },
             "key": { "type": "string", "description": "press 用:按键名,如 Enter、Tab、Escape、ArrowDown、Control+A" },
             "expression": { "type": "string", "description": "eval 用:JS 表达式(可返回 Promise),结果按 JSON 回显(≤8000 字符)" },
             "dy": { "type": "number", "description": "scroll 用:纵向滚动像素(默认 600,负数向上)" },

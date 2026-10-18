@@ -188,11 +188,9 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                     }
                     if value["action"] == "meta" {
                         let meta = crate::preview::current_meta();
-                        let pane = crate::preview::route_hint(
-                            meta.as_ref(),
-                            value["processId"].as_str(),
-                            crate::preview::now_ms(),
-                        ) == crate::preview::Backend::Pane;
+                        let pane =
+                            crate::preview::route(meta.as_ref(), value["processId"].as_str())
+                                == crate::preview::Backend::Pane;
                         return Ok(json!({"pane":pane,"url":meta.map(|m|m.url)}));
                     }
                     if value["action"] == "ui_probe" {
@@ -207,31 +205,42 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                         return Err("桌面已关闭".into());
                     }
                     let ctx = tool_context(&value)?;
-                    let out = match value["tool"].as_str() {
-                        Some("browser") => {
-                            let input = match kanzei_tools::browser::parse_browser_input(
-                                value["input"].clone(),
-                            ) {
-                                Ok(v) => v,
-                                Err(out) => return Ok(output(*out)),
-                            };
-                            if crate::preview::route_waiting(ctx.process_id.as_deref()).await
-                                != crate::preview::Backend::Pane
-                            {
-                                ToolOutput::error("预览窗口已关闭或切换，请重新检查浏览器状态")
-                            } else {
-                                crate::preview::agent::execute_checked(
-                                    &input,
-                                    &ctx,
-                                    value["expectedUrl"].as_str(),
-                                )
-                                .await
-                                .unwrap_or_else(|| ToolOutput::error("预览窗口已关闭"))
+                    let rules = serde_json::from_value::<Option<kanzei_harness::Ruleset>>(
+                        value["rules"].clone(),
+                    )
+                    .map_err(|error| format!("桌面权限快照无效: {error}"))?
+                    .unwrap_or_default();
+                    let out = kanzei_harness::permission::scope(rules, async {
+                        let result = match value["tool"].as_str() {
+                            Some("browser") => {
+                                let input = match kanzei_tools::browser::parse_browser_input(
+                                    value["input"].clone(),
+                                ) {
+                                    Ok(v) => v,
+                                    Err(out) => return Ok(*out),
+                                };
+                                if crate::preview::route_for(ctx.process_id.as_deref())
+                                    != crate::preview::Backend::Pane
+                                {
+                                    ToolOutput::error("预览窗口已关闭或切换，请重新检查浏览器状态")
+                                } else {
+                                    crate::preview::agent::execute_checked(
+                                        &input,
+                                        &ctx,
+                                        value["expectedUrl"].as_str(),
+                                    )
+                                    .await
+                                    .unwrap_or_else(|| ToolOutput::error("预览窗口已关闭"))
+                                }
                             }
-                        }
-                        Some("ui_screenshot") => crate::harness_ext::capture_desktop(&ctx).await,
-                        _ => return Err("不支持的桌面工具".into()),
-                    };
+                            Some("ui_screenshot") => {
+                                crate::harness_ext::capture_desktop(&ctx).await
+                            }
+                            _ => return Err("不支持的桌面工具".into()),
+                        };
+                        Ok::<_, String>(result)
+                    })
+                    .await?;
                     Ok::<_, String>(output(out))
                 }
                 .await;
@@ -252,7 +261,7 @@ fn output(out: ToolOutput) -> Value {
 fn tool_request(tool: &str, input: Value, ctx: &ToolCtx, expected_url: Option<String>) -> Value {
     json!({"action":"tool","tool":tool,"input":input,"cwd":ctx.cwd,"root":ctx.project_root,
         "processId":ctx.process_id,"sessionId":ctx.session_id,"runId":ctx.run_id,
-        "browserOwner":ctx.browser_owner,"expectedUrl":expected_url})
+        "browserOwner":ctx.browser_owner,"expectedUrl":expected_url,"rules":kanzei_harness::permission::execution_rules()})
 }
 
 fn tool_context(value: &Value) -> Result<ToolCtx, String> {

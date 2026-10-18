@@ -365,8 +365,7 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
         kanzei_tools::browser::resources_for(input, None, None)
     }
 
-    /// 不带目标的动作按「将要执行它的那个后端」的当前页判权限(刚被遮住、执行时会等它露出来的
-    /// 面板按面板算,与 execute 的 route_waiting 同一结论)。
+    /// Contextual actions authorize the same owned page even when it is hidden.
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
         if ctx.browser_owner.is_some() {
             let current =
@@ -376,7 +375,7 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
         if crate::runtime_service::is_service() {
             return crate::desktop_bridge::browser_resources(input, ctx);
         }
-        let current = match crate::preview::route_hint_for(ctx.process_id.as_deref()) {
+        let current = match crate::preview::route_for(ctx.process_id.as_deref()) {
             crate::preview::Backend::Pane => crate::preview::current_meta()
                 .map(|meta| meta.url)
                 .filter(|url| !url.is_empty() && url != "about:blank"),
@@ -412,21 +411,23 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
         // Only an explicit navigation may create a foreground pane. Contextual
         // actions retain the backend used for their resource check.
         if input.action == "open"
-            && crate::preview::route_hint_for(ctx.process_id.as_deref())
+            && crate::preview::route_for(ctx.process_id.as_deref())
                 == crate::preview::Backend::Headless
         {
             if let Some(process) = ctx.process_id.as_deref() {
                 let _ = crate::ui_probe("preview", process).await;
             }
         }
-        // 面板只是被菜单 / 弹窗暂时遮住(前端冻结)时先等它露出来,免得一串动作中途换后端。
-        if crate::preview::route_waiting(ctx.process_id.as_deref()).await
-            == crate::preview::Backend::Pane
-        {
-            if let Some(output) = crate::preview::agent::execute(&input, ctx).await {
-                return output;
-            }
-            // 路由之后面板被关掉 / 长时间隐藏:回落无头,结果首行如实写 backend: headless。
+        // The page's owner determines routing; visibility only affects capture.
+        if crate::preview::route_for(ctx.process_id.as_deref()) == crate::preview::Backend::Pane {
+            return crate::preview::agent::execute(&input, ctx)
+                .await
+                .unwrap_or_else(|| {
+                    kanzei_harness::ToolOutput::failed(
+                        "BROWSER_TARGET_LOST",
+                        "已授权的预览页面已关闭；动作未转移到其他浏览器。",
+                    )
+                });
         }
         kanzei_tools::browser::execute_headless(input, ctx, true).await
     }

@@ -12,6 +12,16 @@ export function domWalker(sel) {
     const node = {
       tag: el.tagName ? el.tagName.toLowerCase() : "#text",
       id: el.id || undefined,
+      name: el.getAttribute?.("name") || undefined,
+      type: el.getAttribute?.("type") || undefined,
+      role: el.getAttribute?.("role") || undefined,
+      label: el.getAttribute?.("aria-label") || undefined,
+      required: el.required || undefined,
+      disabled: el.matches?.(":disabled") || undefined,
+      checked: el.type === "checkbox" || el.type === "radio" ? el.checked : undefined,
+      multiple: el.multiple || undefined,
+      option_value: el.tagName === "OPTION" ? el.value : undefined,
+      selected: el.tagName === "OPTION" ? el.selected : undefined,
       cls:
         el.className && typeof el.className === "string"
           ? el.className.split(/\s+/).filter(Boolean).slice(0, 5)

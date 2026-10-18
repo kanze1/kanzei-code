@@ -252,10 +252,6 @@ pub(crate) struct PaneMeta {
     /// 批注(元素选择)模式是否开着。
     #[serde(skip)]
     pub(crate) pick: bool,
-    /// 最近一次被隐藏的时刻(ms)。前端的「遮挡冻结」(菜单 / 模态压到面板上)也是
-    /// set_visible(false),路由据此区分「刚被遮住」与「早就收起」(见 [`should_wait_visible`])。
-    #[serde(skip)]
-    pub(crate) hidden_at: u64,
     /// 主 frame 错误态的判定状态。
     #[serde(skip)]
     pub(crate) nav: NavTracker,
@@ -327,16 +323,13 @@ impl PaneMeta {
     }
 
     /// 可见性上报(preview_open 视同显示)。显示时按上报的线**覆盖**绑定(null 即解绑:
-    /// 用户此刻看的上下文没有线,就不该让别的线的代理驱动这块面板);隐藏时保留绑定,
-    /// 并记下隐藏时刻。
-    pub(crate) fn set_visibility(&mut self, visible: bool, process_id: Option<String>, now: u64) {
+    /// 用户此刻看的上下文没有线,就不该让别的线的代理驱动这块面板);隐藏时保留绑定。
+    pub(crate) fn set_visibility(&mut self, visible: bool, process_id: Option<String>) {
         if visible {
             if self.bound_process_id != process_id {
                 self.owner_epoch += 1;
             }
             self.bound_process_id = process_id;
-        } else if self.visible {
-            self.hidden_at = now;
         }
         self.visible = visible;
     }
@@ -419,17 +412,12 @@ pub(crate) enum Backend {
     Headless,
 }
 
-/// 路由:面板存在且活着、**正在显示**、绑定了线且就是本次调用的线 → 面板;其余一律无头。
-///
-/// 「正在显示」是硬条件:B0 实测隐藏面板上的 Page.captureScreenshot 永不返回。
-/// 子代理复用父线的 ctx(含 process_id),所以同样会路由到父线绑定的面板;
-/// 与父线的调用经 `PreviewState.agent` 串行,不会交错。
+/// Route by page ownership. Hiding or occluding a page does not transfer its identity.
+/// Only screenshot capture requires a visible native surface.
 pub(crate) fn route(meta: Option<&PaneMeta>, process_id: Option<&str>) -> Backend {
     match (meta, process_id) {
-        (Some(meta), Some(process_id))
-            if meta.alive
-                && meta.visible
-                && meta.bound_process_id.as_deref() == Some(process_id) =>
+        (Some(meta), Some(process))
+            if meta.alive && meta.bound_process_id.as_deref() == Some(process) =>
         {
             Backend::Pane
         }
@@ -437,54 +425,10 @@ pub(crate) fn route(meta: Option<&PaneMeta>, process_id: Option<&str>) -> Backen
     }
 }
 
-/// 遮挡冻结的宽限:隐藏不到这么久的面板视为「被菜单 / 模态暂时遮住」,代理调用先等它露出来。
-pub(crate) const OCCLUSION_GRACE_MS: u64 = 10_000;
-/// 等面板重新露出来的上限。
 pub(crate) const VISIBLE_WAIT: Duration = Duration::from_millis(1500);
 
-/// 面板绑定本线、活着、只是**刚被**隐藏(前端遮挡冻结也走 set_visible(false))→ 值得等一等,
-/// 免得 open→click→截图 这样的序列中途换到无头(另一张页面、另一份状态)。
-/// 早就收起的面板(用户切到别的视图)不等,直接无头,不给每次调用白加延迟。
-pub(crate) fn should_wait_visible(meta: &PaneMeta, process_id: Option<&str>, now: u64) -> bool {
-    process_id.is_some()
-        && meta.alive
-        && !meta.visible
-        // 错误页时前端主动收起面板,等不来。
-        && meta.error.is_none()
-        && meta.bound_process_id.as_deref() == process_id
-        && now.saturating_sub(meta.hidden_at) <= OCCLUSION_GRACE_MS
-}
-
-/// 权限判定用的后端预估:与 [`route_waiting`] 的结论一致(刚被遮住的面板按面板算)。
-pub(crate) fn route_hint(meta: Option<&PaneMeta>, process_id: Option<&str>, now: u64) -> Backend {
-    match meta {
-        Some(meta) if should_wait_visible(meta, process_id, now) => Backend::Pane,
-        _ => route(meta, process_id),
-    }
-}
-
-/// 权限判定用:[`route_hint`] 的当前值(没有面板 / 应用未装配时恒为无头)。
-pub(crate) fn route_hint_for(process_id: Option<&str>) -> Backend {
-    let meta = current_meta();
-    route_hint(meta.as_ref(), process_id, now_ms())
-}
-
-/// 真正执行前的路由:面板刚被遮住时最多等 [`VISIBLE_WAIT`] 让它露出来,再定后端。
-pub(crate) async fn route_waiting(process_id: Option<&str>) -> Backend {
-    let deadline = tokio::time::Instant::now() + VISIBLE_WAIT;
-    loop {
-        let meta = current_meta();
-        if route(meta.as_ref(), process_id) == Backend::Pane {
-            return Backend::Pane;
-        }
-        let worth_waiting = meta
-            .as_ref()
-            .is_some_and(|meta| should_wait_visible(meta, process_id, now_ms()));
-        if !worth_waiting || tokio::time::Instant::now() >= deadline {
-            return Backend::Headless;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+pub(crate) fn route_for(process_id: Option<&str>) -> Backend {
+    route(current_meta().as_ref(), process_id)
 }
 
 /// 当前面板的元数据快照。

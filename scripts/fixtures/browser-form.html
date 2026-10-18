@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Browser form acceptance</title>
+<style>body{font:16px system-ui;max-width:740px;margin:24px auto}label{display:block;margin:12px 0}input,select,button{font:inherit;padding:6px}pre{white-space:pre-wrap}#error{color:#b22}</style>
+<div id="root"></div><script src="react.js"></script><script src="react-dom.js"></script>
+<script>
+const h=React.createElement;
+function Form(){
+  const [name,setName]=React.useState('Initial'),[email,setEmail]=React.useState(''),[date,setDate]=React.useState('');
+  const [city,setCity]=React.useState(''),[tags,setTags]=React.useState([]),[agreed,setAgreed]=React.useState(false),[kind,setKind]=React.useState('a');
+  const [files,setFiles]=React.useState([]),[error,setError]=React.useState(''),[result,setResult]=React.useState(''),[ready,setReady]=React.useState(false);
+  React.useEffect(()=>{Promise.resolve().then(()=>setReady(true));},[]);
+  async function submit(event){event.preventDefault();if(name==='invalid'){setError('Server validation: choose another name');return;}
+    const form=event.currentTarget,data=new FormData(form),actualFile=data.get('attachment');
+    setError('');setResult(JSON.stringify({state:{name,email,date,city,tags,agreed,kind,files},submitted:{name:data.get('name'),email:data.get('email'),date:data.get('date'),city:data.get('city'),tags:data.getAll('tags'),agreed:data.get('agreed'),kind:data.get('kind'),file:actualFile?.name,file_text:await actualFile.text()}}));
+  }
+  return h(React.Fragment,null,h('h1',null,'Controlled React form'),h('p',{id:'ready'},ready?'ready':'loading'),
+    h('form',{id:'form',onSubmit:submit,onInvalid:event=>setError('Browser validation: '+event.target.id)},
+      h('label',null,'Name',h('input',{id:'name',name:'name',value:name,required:true,onChange:event=>setName(event.target.value)})),
+      h('label',null,'Email',h('input',{id:'email',name:'email',type:'email',value:email,required:true,onChange:event=>setEmail(event.target.value)})),
+      h('label',null,'Date',h('input',{id:'date',name:'date',type:'date',value:date,required:true,onChange:event=>setDate(event.target.value)})),
+      h('label',null,'City',h('select',{id:'city',name:'city',value:city,required:true,onChange:event=>setCity(event.target.value)},h('option',{value:''},'Choose'),h('option',{value:'sh'},'Shanghai'),h('option',{value:'hk'},'Hong Kong'))),
+      h('label',null,'Interests',h('select',{id:'tags',name:'tags',multiple:true,value:tags,onChange:event=>setTags([...event.target.selectedOptions].map(option=>option.value))},h('option',{value:'code'},'Code'),h('option',{value:'music'},'Music'),h('option',{value:'research'},'Research'))),
+      h('label',null,h('input',{id:'agreed',name:'agreed',type:'checkbox',checked:agreed,required:true,onChange:event=>setAgreed(event.target.checked)}),'Agree'),
+      h('label',null,h('input',{id:'kind-a',name:'kind',type:'radio',value:'a',checked:kind==='a',onChange:()=>setKind('a')}),'Type A'),
+      h('label',null,h('input',{id:'kind-b',name:'kind',type:'radio',value:'b',checked:kind==='b',onChange:()=>setKind('b')}),'Type B'),
+      h('label',null,'Attachment',h('input',{id:'attachment',name:'attachment',type:'file',accept:'.txt',required:true,onChange:event=>setFiles([...event.target.files].map(file=>file.name))})),
+      h('button',{id:'submit',type:'submit'},'Submit')),h('p',{id:'error',role:'alert'},error),h('pre',{id:'result'},result));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(Form));
+</script></html>

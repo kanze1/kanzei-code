@@ -180,9 +180,9 @@ fn meta(visible: bool, bound: Option<&str>, alive: bool) -> PaneMeta {
     }
 }
 
-/// B0:隐藏面板截图永不返回——路由绝不能选隐藏的面板。
+/// Capture visibility and page ownership are independent.
 #[test]
-fn route_只有可见且绑定本线的面板才走面板() {
+fn route_活着且绑定本线的页面保持所属后端() {
     let line = Some("p|a");
     assert_eq!(
         route(Some(&meta(true, Some("p|a"), true)), line),
@@ -190,8 +190,8 @@ fn route_只有可见且绑定本线的面板才走面板() {
     );
     assert_eq!(
         route(Some(&meta(false, Some("p|a"), true)), line),
-        Backend::Headless,
-        "隐藏面板"
+        Backend::Pane,
+        "隐藏不改变页面身份"
     );
     assert_eq!(
         route(Some(&meta(true, Some("p|b"), true)), line),
@@ -215,18 +215,18 @@ fn route_只有可见且绑定本线的面板才走面板() {
         "调用方没有线身份"
     );
     // 应用未装配(单测进程)时恒为无头。
-    assert_eq!(route_hint_for(Some("p|a")), Backend::Headless);
+    assert_eq!(route_for(Some("p|a")), Backend::Headless);
 }
 
 /// 复核修复:显示时按上报的线覆盖绑定(null 即解绑),隐藏时保留绑定并记下隐藏时刻。
 #[test]
 fn 可见性上报_显示时覆盖绑定_null即解绑_隐藏时保留() {
     let mut meta = meta(false, Some("p|a"), true);
-    meta.set_visibility(true, Some("p|a".into()), 1_000);
+    meta.set_visibility(true, Some("p|a".into()));
     assert_eq!(route(Some(&meta), Some("p|a")), Backend::Pane);
 
     // 用户切到一个没有线的上下文:面板仍显示,但不再绑在上一条线上。
-    meta.set_visibility(true, None, 2_000);
+    meta.set_visibility(true, None);
     assert_eq!(meta.bound_process_id, None);
     assert_eq!(
         route(Some(&meta), Some("p|a")),
@@ -234,54 +234,22 @@ fn 可见性上报_显示时覆盖绑定_null即解绑_隐藏时保留() {
         "旧线的代理不能驱动用户此刻在别的上下文里看到的面板"
     );
 
-    meta.set_visibility(true, Some("p|b".into()), 3_000);
-    meta.set_visibility(false, None, 4_000);
+    meta.set_visibility(true, Some("p|b".into()));
+    meta.set_visibility(false, None);
     assert_eq!(meta.bound_process_id.as_deref(), Some("p|b"), "隐藏不解绑");
-    assert_eq!(meta.hidden_at, 4_000);
-    meta.set_visibility(false, None, 9_000);
-    assert_eq!(meta.hidden_at, 4_000, "已经隐藏的再报隐藏,不刷新隐藏时刻");
+    meta.set_visibility(false, None);
 }
 
-/// 复核修复:前端的遮挡冻结也是 set_visible(false)。刚被遮住的面板值得等一等(权限预估也按面板算),
-/// 早就收起的、别的线的、错误页收起的不等。
 #[test]
-fn 刚被遮住的面板值得等_早就收起的不等() {
-    let line = Some("p|a");
-    let mut meta = meta(true, Some("p|a"), true);
-    meta.set_visibility(false, None, 100_000);
-    assert!(should_wait_visible(&meta, line, 100_500));
-    assert_eq!(
-        route(Some(&meta), line),
-        Backend::Headless,
-        "路由本身仍只认可见"
-    );
-    assert_eq!(route_hint(Some(&meta), line, 100_500), Backend::Pane);
-    assert!(
-        !should_wait_visible(&meta, line, 100_000 + OCCLUSION_GRACE_MS + 1),
-        "隐藏超过宽限:用户收起了面板,不白等"
-    );
-    assert_eq!(
-        route_hint(Some(&meta), line, 100_000 + OCCLUSION_GRACE_MS + 1),
-        Backend::Headless
-    );
-    assert!(!should_wait_visible(&meta, Some("p|b"), 100_500), "别的线");
-    assert!(!should_wait_visible(&meta, None, 100_500), "没有线身份");
-    let mut errored = meta.clone();
-    errored.error = Some(describe_error("net::ERR_CONNECTION_REFUSED", "u"));
-    assert!(
-        !should_wait_visible(&errored, line, 100_500),
-        "错误页收起的等不来"
-    );
-    let mut dead = meta.clone();
-    dead.alive = false;
-    assert!(!should_wait_visible(&dead, line, 100_500));
-    let visible = self::meta(true, Some("p|a"), true);
-    assert!(
-        !should_wait_visible(&visible, line, 100_500),
-        "可见的不用等"
-    );
-    assert_eq!(route_hint(Some(&visible), line, 0), Backend::Pane);
-    assert_eq!(route_hint(None, line, 0), Backend::Headless);
+fn hidden_owned_pages_retain_their_target_without_a_time_based_fallback() {
+    let mut owned = meta(false, Some("p|a"), true);
+    assert_eq!(route(Some(&owned), Some("p|a")), Backend::Pane);
+    owned.error = Some(describe_error("net::ERR_CONNECTION_REFUSED", "u"));
+    assert_eq!(route(Some(&owned), Some("p|a")), Backend::Pane);
+    assert_eq!(route(Some(&owned), Some("p|b")), Backend::Headless);
+    assert_eq!(route(Some(&owned), None), Backend::Headless);
+    owned.alive = false;
+    assert_eq!(route(Some(&owned), Some("p|a")), Backend::Headless);
 }
 
 fn feed(meta: &mut PaneMeta, events: &[(&str, serde_json::Value)]) -> Vec<MetaEffect> {

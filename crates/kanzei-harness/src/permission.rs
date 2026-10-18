@@ -59,7 +59,7 @@ pub struct Rule {
 /// WriteAllText、另起解释器),于是安全边界形同虚设。因此每一条硬 deny
 /// 都必须显式声明它对应的专用工具;确实还没实现的,也必须显式声明为
 /// `required_tool: None`,让拒绝理由如实说成"能力未实现"而不是编一个不存在的工具。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagedResource {
     pub action: String,
     pub resource: String,
@@ -75,7 +75,7 @@ pub struct ManagedResource {
     pub note_only: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Ruleset {
     rules: Vec<Rule>,
     hard_denies: Vec<Rule>,

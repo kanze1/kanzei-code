@@ -201,13 +201,6 @@ async function handle(method, params) {
       await page.click(selector, { timeout: 5000 });
       return { ok: true, url: page.url() };
     }
-    case "type": {
-      requirePage();
-      const { selector, text } = params ?? {};
-      if (!selector || typeof text !== "string") return { error: "type requires selector and text" };
-      await page.fill(selector, text);
-      return { ok: true, url: page.url() };
-    }
     case "press": {
       requirePage();
       const { key } = params ?? {};

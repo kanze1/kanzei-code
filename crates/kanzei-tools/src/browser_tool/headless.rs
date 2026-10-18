@@ -27,9 +27,9 @@ use kanzei_harness::ToolOutput;
 
 use super::{
     browser_error, out_click, out_console, out_dom, out_eval, out_open, out_press, out_screenshot,
-    out_scroll, out_type, out_wait, parse_viewport, resolve_nav_target, screenshot_scope,
-    scroll_scope, set_current_url, validate, viewport_label, wait_scope, Backend, BrowserAction,
-    BrowserInput, ConsoleItem, HEADLESS_PANE_HINT, MAX_WAIT_MS,
+    out_scroll, out_wait, parse_viewport, resolve_nav_target, screenshot_scope, scroll_scope,
+    set_current_url, validate, viewport_label, wait_scope, Backend, BrowserAction, BrowserInput,
+    ConsoleItem, HEADLESS_PANE_HINT, MAX_WAIT_MS,
 };
 
 /// 辅进程空闲回收预算:超过这个时间没有调用就 shutdown。
@@ -185,15 +185,24 @@ fn run_action(
             let url = page_url(&result);
             (out_click(backend, &selector, &url), Some(url))
         }
-        BrowserAction::Type => {
-            let text = input.text.clone().unwrap_or_default();
+        BrowserAction::Type
+        | BrowserAction::Select
+        | BrowserAction::Check
+        | BrowserAction::Upload
+        | BrowserAction::Validate => {
             let result = rpc(
-                "type",
-                serde_json::json!({ "selector": selector, "text": text }),
+                "eval",
+                serde_json::json!({"expression":super::form_action_expression(input, ctx)?}),
             )?;
             let url = page_url(&result);
+            let state: serde_json::Value = serde_json::from_str(
+                result["json"]
+                    .as_str()
+                    .ok_or("form response is missing JSON")?,
+            )
+            .map_err(|error| error.to_string())?;
             (
-                out_type(backend, &selector, text.chars().count(), &url),
+                super::out_form(backend, &input.action, &selector, &state, &url),
                 Some(url),
             )
         }
