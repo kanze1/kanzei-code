@@ -17,11 +17,12 @@ use crate::sse::SseEvent;
 use super::ProtocolState;
 
 pub fn build_body(request: &LlmRequest) -> Value {
-    let mut messages: Vec<Value> = request
-        .system
-        .iter()
-        .map(|s| json!({"role": "system", "content": s}))
-        .collect();
+    let mut messages = Vec::new();
+    // Chat templates may accept only one leading system message. Keep the
+    // harness's ordered prompt blocks together at the protocol boundary.
+    if !request.system.is_empty() {
+        messages.push(json!({"role": "system", "content": request.system.join("\n\n")}));
+    }
 
     for message in &request.messages {
         match message.role {
@@ -747,7 +748,7 @@ mod tests {
     fn body_maps_tool_results_to_tool_role() {
         let req = LlmRequest {
             model: "qwen3".into(),
-            system: vec!["sys".into()],
+            system: vec!["agent instructions".into(), "harness baseline".into()],
             messages: vec![
                 Message::user_text("hi"),
                 Message::assistant(vec![Part::ToolCall {
@@ -769,7 +770,21 @@ mod tests {
             service_tier: None,
         };
         let body = build_body(&req);
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 4);
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|message| message["role"] == "system")
+                .count(),
+            1,
+            "strict chat templates require one leading system message"
+        );
         assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(
+            body["messages"][0]["content"],
+            "agent instructions\n\nharness baseline"
+        );
         assert_eq!(
             body["messages"][2]["tool_calls"][0]["function"]["name"],
             "read"
