@@ -1897,6 +1897,7 @@ const smokeResearchPlan = () => ({
   ],
 });
 const payloads = {
+  native_desktop_status: { revision:0,phase:"idle",owner:null,trace:[],available:false },
   skills_list: [],
   softwire_questions: [],
   app_info: { version: "0.0.0-smoke", build: "smoke" },

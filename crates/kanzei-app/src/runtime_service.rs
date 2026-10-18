@@ -45,6 +45,31 @@ pub(crate) async fn process_roots(process_id: Option<&str>) -> Result<Vec<PathBu
     )
     .map_err(|e| e.to_string())
 }
+pub(crate) async fn stop_owned(
+    app: &tauri::AppHandle,
+    project: PathBuf,
+    process: String,
+) -> Result<(), String> {
+    if embedded() || is_service() {
+        crate::commands::run::stop_run(
+            app.clone(),
+            app.state(),
+            project.to_string_lossy().into_owned(),
+            Some(process),
+        )
+        .await
+    } else {
+        CLIENT
+            .get()
+            .ok_or("后台未就绪")?
+            .invoke(
+                "stop_run",
+                json!({"projectDir":project,"processId":process}),
+            )
+            .await
+            .map(|_| ())
+    }
+}
 pub(crate) fn directory() -> PathBuf {
     // Separate portable builds/profiles cannot silently borrow another version's runtime.
     let exe = std::env::current_exe().unwrap_or_default();
@@ -380,11 +405,10 @@ pub(crate) fn cancel_update_shutdown() {
 }
 #[tauri::command]
 pub(crate) async fn runtime_shutdown() -> Result<Value, String> {
-    let client = CLIENT.get().ok_or("后台未就绪")?;
-    let endpoint = client.endpoint().await?;
-    let value = request(&endpoint, json!({"action":"shutdown"})).await?;
-    client.app.exit(0);
-    Ok(value)
+    // The UI/fixture owns its window lifetime. Exiting before the IPC reply
+    // discarded the stop acknowledgement and could mask successful cleanup.
+    shutdown_for_update().await?;
+    Ok(json!({"stopped":true}))
 }
 pub(crate) fn service_lock() -> Result<Option<kanzei_tools::atomic_file::FileLock>, String> {
     std::fs::create_dir_all(directory()).map_err(|e| e.to_string())?;

@@ -60,6 +60,7 @@ export const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:experience",
 ]);
 export const SESSIONLESS_EVENTS = new Set([
+  "kz:native-control", // Desktop ownership spans conversations and auxiliary windows.
   "kz:schedule-run",
   "kz:ask",
   "kz:ask-resolved",

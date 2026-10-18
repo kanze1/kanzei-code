@@ -381,6 +381,9 @@ export const commandParameters = {
   "models_list": {
     "projectDir": false
   },
+  "native_desktop_dismiss": {
+    "controlId": true
+  },
   "native_desktop_get": {
     "processId": true
   },
@@ -388,6 +391,11 @@ export const commandParameters = {
     "candidateId": false,
     "processId": true
   },
+  "native_desktop_status": {},
+  "native_desktop_stop": {
+    "controlId": true
+  },
+  "native_desktop_surface_ready": {},
   "native_desktop_windows": {},
   "open_delivered_path": {
     "mode": true,

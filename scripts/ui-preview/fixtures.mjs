@@ -1234,6 +1234,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     summarize_chat: { summary: "预览模式不生成总结", path: "" },
     // ---- 文档
     native_desktop_get: null,
+    native_desktop_status: { revision:0,phase:"idle",owner:null,trace:[],available:false },
     native_desktop_windows: { windows: [], unavailable: [] },
     native_desktop_select: null,
     docs_snapshot: () => state.docs,

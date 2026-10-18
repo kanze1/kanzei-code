@@ -1,6 +1,23 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "原生控制": "Native control",
+  "Kanzei 正在控制电脑": "Kanzei is controlling your computer",
+  "正在停止控制": "Stopping computer control",
+  "控制已停止": "Computer control stopped",
+  "本轮控制结束": "Computer control ended",
+  "停止尚未确认": "Stop not yet confirmed",
+  "停止控制": "Stop control",
+  "操作轨迹": "Action history",
+  "观察窗口": "Inspect window",
+  "获取画面": "Capture window",
+  "填写": "Fill",
+  "选择选项": "Select option",
+  "切换选项": "Toggle option",
+  "原生操作": "Native action",
+  "已发送，待核对": "Sent; verification needed",
+  "已取得画面": "Window observed",
+  "等待结果": "Awaiting result",
   "选择原生窗口": "Choose native window",
   "断开连接": "Disconnect",
   "原生窗口": "Native window",

@@ -210,7 +210,7 @@ pub(crate) async fn answer_ask(
 }
 
 #[tauri::command]
-pub(crate) fn stop_run(
+pub(crate) async fn stop_run(
     window: AppEvents,
     state: State<'_, AppState>,
     project_dir: String,
@@ -220,6 +220,7 @@ pub(crate) fn stop_run(
     let session = process_session_id(&root, Some(process));
     match stop_session(&state, &root, &session) {
         Ok(count) => {
+            crate::desktop_bridge::release_native(process).await?;
             let payload = match count {
                 Some(count) => json!({ "cancelled_queue": count }),
                 None => json!({ "cancelled_queue": 0, "already_idle": true }),

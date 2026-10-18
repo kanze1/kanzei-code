@@ -14,6 +14,12 @@
     "args": ["scripts/native-fixture-lifecycle-smoke.mjs"]
   },
   {
+    "key": "native_control_view",
+    "inputs": "frontend",
+    "program": "node",
+    "args": ["scripts/ui-native-control-smoke.mjs"]
+  },
+  {
     "key": "parallel_lines_regression",
     "inputs": "frontend",
     "program": "node",

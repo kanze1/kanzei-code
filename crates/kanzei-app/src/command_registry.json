@@ -894,5 +894,21 @@
   {
     "path": "native_desktop::native_desktop_get",
     "host": "desktop"
+    },
+    {
+      "path": "native_control::native_desktop_status",
+      "host": "desktop"
+    },
+    {
+      "path": "native_control::native_desktop_stop",
+      "host": "desktop"
+    },
+    {
+      "path": "native_control::native_desktop_dismiss",
+      "host": "desktop"
+    },
+    {
+      "path": "native_control::native_desktop_surface_ready",
+      "host": "desktop"
   }
 ]

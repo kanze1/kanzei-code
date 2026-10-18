@@ -49,6 +49,7 @@ mod mobile;
 mod mobile_notify;
 /// UI-0926 #3:模型配置的展示真源(model_effective)与项目级模型覆盖的逐键编辑。
 mod model_config;
+mod native_control;
 mod native_desktop;
 mod native_dispatch;
 mod orchestration_trace;
@@ -225,6 +226,7 @@ fn main() {
                 preview::on_main_page_load(&page_app, window.label(), payload.event())
             });
             let main_window = builder.build()?;
+            native_control::install(app.handle(), &main_window);
             tauri::async_runtime::spawn(schedules::scheduler(app.handle().clone()));
             // UI2-0926 #8:网页预览面板的装配(应用句柄 + DPI 变化重放边界 + 关窗收面板)。
             preview::install(app.handle(), &main_window);

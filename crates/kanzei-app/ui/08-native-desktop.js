@@ -3,6 +3,19 @@ import { invoke } from "./00-ipc.js";
 import { openDialog, closeSurface, isSurfaceOpen } from "./00-surface.js";
 import { activeProcessId, processItems, toastError } from "./03-shell.js";
 import { t } from "./02-i18n.js";
+import { on } from "./01-runtime-events.js";
+import { renderNativeControl } from "./native-control-view.js";
+
+let controlRevision=-1,controlState=null;
+function showControl(value) {
+  if(value.revision<controlRevision)return;
+  controlRevision=value.revision;controlState=value;
+  const root=document.getElementById("native-control-indicator");if(!root)return;
+  renderNativeControl(root,value,{t,stop:controlId=>invoke("native_desktop_stop",{controlId}),dismiss:controlId=>invoke("native_desktop_dismiss",{controlId})});
+  void sync();
+}
+on("kz:native-control",event=>showControl(event.payload));
+on("kz:stopped",()=>void sync());
 
 let generation=0;
 async function sync() {
@@ -48,6 +61,8 @@ async function choose() {
   }catch(error){status.textContent=String(error);}
 }
 defer(()=>{
+  void invoke("native_desktop_status").then(showControl).catch(error=>toastError(String(error)));
+  document.addEventListener("kz:language",()=>{if(controlState)showControl(controlState);});
   document.getElementById("native-desktop-choose")?.addEventListener("click",()=>void choose().catch(error=>toastError(String(error))));
   for(const event of ["kz:conversation-selected","kz:sessions-changed","kz:language"])document.addEventListener(event,()=>void sync());
   document.getElementById("profile-select")?.addEventListener("change",()=>void sync());

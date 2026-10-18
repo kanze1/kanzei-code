@@ -6,7 +6,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use kanzei_harness::{ToolCtx, ToolImage, ToolOutput};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_util::sync::CancellationToken;
 
 use crate::MutexPoisonExt;
 
@@ -22,7 +23,7 @@ struct Selection {
     staged: Vec<std::sync::Arc<tempfile::TempDir>>,
 }
 
-fn identity() -> String {
+pub(super) fn identity() -> String {
     static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     format!(
         "native_{}_{}",
@@ -41,6 +42,14 @@ pub(crate) fn selected(process: Option<&str>) -> Option<Value> {
 }
 
 async fn helper(request: Value) -> Result<Value, String> {
+    helper_owned(request, None, &CancellationToken::new()).await
+}
+async fn helper_owned(
+    mut request: Value,
+    lease: Option<&crate::native_control::Lease>,
+    connection: &CancellationToken,
+) -> Result<Value, String> {
+    request["input_tag"] = json!(crate::native_control::INPUT_TAG);
     let program = std::env::var_os("ProgramFiles")
         .map(std::path::PathBuf::from)
         .ok_or("Windows ProgramFiles is unavailable")?
@@ -63,43 +72,94 @@ async fn helper(request: Value) -> Result<Value, String> {
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    if let Some(lease) = lease {
+        crate::native_control::helper_pid(lease, child.id());
+    }
     let mut input = serde_json::to_vec(&json!({"script":source,"request_json":serde_json::to_string(&request).map_err(|error|error.to_string())?}))
         .map_err(|error| error.to_string())?;
     input.push(b'\n');
-    let output = tokio::time::timeout(Duration::from_secs(30), async move {
-        let mut stdin = child.stdin.take().ok_or("Desktop helper stdin missing")?;
-        stdin
-            .write_all(&input)
-            .await
-            .map_err(|error| error.to_string())?;
-        drop(stdin);
-        child
-            .wait_with_output()
-            .await
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(|_| "原生窗口动作未返回；未重试，请先检查窗口状态".to_string())?
-    .map_err(|error| error.to_string())?;
-    if output.stdout.len() > 8 * 1024 * 1024 {
+    let cancelled = lease.map(|lease| lease.cancel.clone()).unwrap_or_default();
+    let response = helper_exchange(&mut child, &input, &cancelled, connection).await;
+    if child
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
+        if let Some(lease) = lease {
+            crate::native_control::helper_pid(lease, None);
+        }
+    }
+    let (status, stdout, stderr) = response?;
+    if stdout.len() > 8 * 1024 * 1024 {
         return Err("Native window response exceeds 8 MiB".into());
     }
-    let value: Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+    let value: Value = serde_json::from_slice(&stdout).map_err(|error| {
         format!(
             "Native window response invalid: {error}; {}",
-            String::from_utf8_lossy(&output.stderr)
+            String::from_utf8_lossy(&stderr)
                 .chars()
                 .take(2048)
                 .collect::<String>()
         )
     })?;
-    if !output.status.success() || value["ok"] != true {
+    if !status.success() || value["ok"] != true {
         return Err(value["error"]
             .as_str()
             .unwrap_or("Native window helper failed")
             .into());
     }
     Ok(value)
+}
+
+async fn helper_exchange(
+    child: &mut tokio::process::Child,
+    input: &[u8],
+    cancelled: &CancellationToken,
+    connection: &CancellationToken,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), String> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let mut stdin = child.stdin.take().ok_or("Desktop helper stdin missing")?;
+    let stdout = child.stdout.take().ok_or("Desktop helper stdout missing")?;
+    let stderr = child.stderr.take().ok_or("Desktop helper stderr missing")?;
+    let reading = tokio::spawn(async move {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let mut stdout = stdout.take(8 * 1024 * 1024 + 1);
+        let mut stderr = stderr.take(4096);
+        let (outcome, error) =
+            tokio::join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err));
+        outcome.map_err(|error| error.to_string())?;
+        error.map_err(|error| error.to_string())?;
+        Ok::<_, String>((out, err))
+    });
+    // Cancellation owns the entire exchange, including a full stdin pipe while
+    // the helper starts. No request bytes may remain queued after stop.
+    let waited = tokio::select! {
+            biased;
+            _ = cancelled.cancelled() => Err("原生动作已取消".into()),
+            _ = connection.cancelled() => Err("原生调用方已断开".into()),
+            status = tokio::time::timeout_at(deadline, async {
+                stdin.write_all(input).await.map_err(|error|error.to_string())?;
+                drop(stdin);
+                child.wait().await.map_err(|error|error.to_string())
+            }) => status.map_err(|_|"原生窗口动作超时；未重试".to_string()).and_then(|value|value),
+    };
+    if waited.is_err()
+        && child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_none()
+    {
+        child.kill().await.map_err(|error| error.to_string())?;
+    }
+    // A stop receipt cannot precede OS exit and pipe-reader completion.
+    let drained = reading
+        .await
+        .map_err(|error| error.to_string())
+        .and_then(|value| value);
+    let (stdout, stderr) = drained?;
+    let status = waited?;
+    Ok((status, stdout, stderr))
 }
 
 #[tauri::command]
@@ -127,6 +187,7 @@ pub(crate) async fn native_desktop_select(
     if process_id.trim().is_empty() {
         return Err("请先选择对话".into());
     }
+    release(&process_id, None, None).await?;
     let _action = ACTION.lock().await;
     let Some(id) = candidate_id else {
         SELECTED.lock_or_recover().remove(&process_id);
@@ -155,6 +216,29 @@ pub(crate) async fn native_desktop_select(
 pub(crate) fn native_desktop_get(process_id: String) -> Option<Value> {
     selected(Some(&process_id))
 }
+pub(crate) fn revoke(process: &str, window_id: &str) {
+    let mut selected = SELECTED.lock_or_recover();
+    if selected
+        .get(process)
+        .is_some_and(|selection| selection.id == window_id)
+    {
+        selected.remove(process);
+    }
+}
+pub(crate) async fn release(
+    process: &str,
+    run: Option<&str>,
+    window: Option<&str>,
+) -> Result<(), String> {
+    if let Some(window) = window {
+        revoke(process, window);
+    }
+    if let Some(owner) = crate::native_control::cancel_owner(process, run, window)? {
+        let _drained = ACTION.lock().await;
+        crate::native_control::confirm_stopped(&owner.id)?;
+    }
+    Ok(())
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -178,8 +262,13 @@ pub(crate) fn schema() -> Value {
         "key":{"type":"string","enum":["Enter","Tab","Escape","Backspace","Delete","Left","Up","Right","Down","Home","End","Space"]},"file":{"type":"string"}}})
 }
 
-pub(crate) async fn execute(input: Value, ctx: &ToolCtx, planned: &str) -> ToolOutput {
-    let output = match execute_checked(input, ctx, planned).await {
+pub(crate) async fn execute(
+    input: Value,
+    ctx: &ToolCtx,
+    planned: &str,
+    connection: &CancellationToken,
+) -> ToolOutput {
+    let output = match execute_checked(input, ctx, planned, connection).await {
         Ok(output) => output,
         Err(output) => *output,
     };
@@ -193,6 +282,7 @@ async fn execute_checked(
     input: Value,
     ctx: &ToolCtx,
     planned: &str,
+    connection: &CancellationToken,
 ) -> Result<ToolOutput, Box<ToolOutput>> {
     let rejected = |message: &str| {
         Box::new(ToolOutput::needs_correction(
@@ -250,6 +340,7 @@ async fn execute_checked(
     }
     let observation = matches!(parsed.action.as_str(), "inspect" | "screenshot");
     let mut request = json!({"action":parsed.action,"window":selection.window});
+    let mut target = json!({"name":selection.window["title"]});
     if !observation {
         if parsed.window_id.as_deref() != Some(selection.id.as_str()) {
             return Err(rejected("动作必须引用已观察窗口"));
@@ -268,6 +359,7 @@ async fn execute_checked(
             .ok_or_else(|| rejected("控件不属于当前快照"))?;
         request["runtime_id"] = reference["runtime_id"].clone();
         request["signature"] = reference["signature"].clone();
+        target = reference.clone();
     }
     if let Some(text) = parsed.text {
         if text.chars().count() > 4096 {
@@ -356,9 +448,64 @@ async fn execute_checked(
             current.snapshot = None;
         }
     }
-    let mut value = helper(request)
-        .await
-        .map_err(|error| ToolOutput::failed("NATIVE_ACTION_UNVERIFIED", error))?;
+    if connection.is_cancelled() {
+        return Err(Box::new(ToolOutput::failed(
+            "NATIVE_ACTION_CANCELLED",
+            "原生调用方已取消",
+        )));
+    }
+    let lease = crate::native_control::begin(
+        ctx,
+        &selection.id,
+        selection.window["title"].as_str().unwrap_or(""),
+    )
+    .await
+    .map_err(|error| ToolOutput::failed("NATIVE_CONTROL_UNAVAILABLE", error))?;
+    let point = request.get("x").map(|x| json!({"x":x,"y":request["y"]}));
+    let action_id = crate::native_control::start_action(&lease, &parsed.action, &target, point)
+        .map_err(|error| ToolOutput::failed("NATIVE_ACTION_CANCELLED", error))?;
+    let result = helper_owned(request, Some(&lease), connection).await;
+    let interrupted = lease.cancel.is_cancelled() || connection.is_cancelled();
+    let mut value = match result {
+        Ok(value) if !interrupted => value,
+        outcome => {
+            crate::native_control::finish_action(
+                &lease,
+                action_id,
+                if interrupted { "cancelled" } else { "failed" },
+            );
+            if interrupted {
+                crate::native_control::cancel(&lease.id)
+                    .map_err(|error| ToolOutput::failed("NATIVE_STOP_UNCONFIRMED", error))?;
+            }
+            return Err(Box::new(ToolOutput::failed(
+                if interrupted {
+                    "NATIVE_ACTION_CANCELLED"
+                } else {
+                    "NATIVE_ACTION_UNVERIFIED"
+                },
+                outcome
+                    .err()
+                    .unwrap_or_else(|| "动作期间已停止；结果需要重新观察".into()),
+            )));
+        }
+    };
+    if observation {
+        crate::native_control::observed_bounds(
+            &lease,
+            action_id,
+            value["snapshot"]["bounds"].clone(),
+        );
+    }
+    crate::native_control::finish_action(
+        &lease,
+        action_id,
+        if observation {
+            "observed"
+        } else {
+            "dispatched"
+        },
+    );
     if !observation {
         if let Some(current) = SELECTED.lock_or_recover().get_mut(owner) {
             current.snapshot = None;
@@ -384,7 +531,7 @@ async fn execute_checked(
         }
         refs.insert(
             id.clone(),
-            json!({"runtime_id":element["runtime_id"],"signature":element["signature"]}),
+            json!({"runtime_id":element["runtime_id"],"signature":element["signature"],"name":element["name"],"bounds":element["bounds"]}),
         );
         element.as_object_mut().unwrap().remove("runtime_id");
         element.as_object_mut().unwrap().remove("signature");
@@ -479,5 +626,54 @@ impl kanzei_harness::Tool for DesktopTool {
             .remove(&Self::plan_key(&input, ctx))
             .flatten();
         crate::desktop_bridge::native_action(input, ctx, planned).await
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancellation_interrupts_a_blocked_request_write_and_reaps_the_child() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let script = format!(
+            "$signal=[Net.Sockets.TcpClient]::new('127.0.0.1',{});$signal.GetStream().WriteByte(1);[void][Threading.ManualResetEvent]::new($false).WaitOne()",
+            listener.local_addr().unwrap().port()
+        );
+        let program = std::path::PathBuf::from(std::env::var_os("ProgramFiles").unwrap())
+            .join("PowerShell/7/pwsh.exe");
+        let mut child = tokio::process::Command::new(program)
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .creation_flags(0x0800_0000)
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let cancelled = CancellationToken::new();
+        let connection = CancellationToken::new();
+        // The child never reads stdin. This exceeds the OS pipe capacity, so
+        // the exchange stays inside write_all until cancellation owns cleanup.
+        let request = vec![b'x'; 1024 * 1024];
+        let outcome = tokio::time::timeout(Duration::from_secs(10), async {
+            let (response, ()) = tokio::join!(
+                biased;
+                helper_exchange(&mut child, &request, &cancelled, &connection),
+                async {
+                    let (mut signal, _) = listener.accept().await.unwrap();
+                    signal.read_exact(&mut [0u8; 1]).await.unwrap();
+                    cancelled.cancel();
+                }
+            );
+            response
+        })
+        .await
+        .unwrap();
+        assert_eq!(outcome.unwrap_err(), "原生动作已取消");
+        assert!(
+            child.try_wait().unwrap().is_some(),
+            "cancel acknowledgement must follow OS process exit"
+        );
     }
 }

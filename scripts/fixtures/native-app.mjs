@@ -99,7 +99,7 @@ export async function nativeApp(executable, output, label, handle, extraConfig =
       await page.evaluate(async id=>{const sessions=await import("./09-sessions.js");await sessions.refreshProcesses({force:true});await sessions.switchProcess(id,true);},line.id);
       return line;
     };
-    return {run,project,appHome,exe,page,invoke,requests,errors,diagnostics,close,createConversation};
+    return {run,project,appHome,exe,child:app,page,invoke,requests,errors,diagnostics,close,createConversation};
   }catch(error){
     try { await close(); } catch(cleanupError) { throw new AggregateError([error,cleanupError],"Native fixture initialization and cleanup failed"); }
     throw error;

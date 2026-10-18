@@ -1467,6 +1467,17 @@
     "path": "commands::models::models_list",
     "returns": "-> Result < serde_json :: Value , String >"
   },
+  "native_desktop_dismiss": {
+    "host": "desktop",
+    "parameters": {
+      "controlId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "native_control::native_desktop_dismiss",
+    "returns": "-> Result < () , String >"
+  },
   "native_desktop_get": {
     "host": "desktop",
     "parameters": {
@@ -1492,6 +1503,29 @@
     },
     "path": "native_desktop::native_desktop_select",
     "returns": "-> Result < Option < Value > , String >"
+  },
+  "native_desktop_status": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "native_control::native_desktop_status",
+    "returns": "-> Value"
+  },
+  "native_desktop_stop": {
+    "host": "desktop",
+    "parameters": {
+      "controlId": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "native_control::native_desktop_stop",
+    "returns": "-> Result < Value , String >"
+  },
+  "native_desktop_surface_ready": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "native_control::native_desktop_surface_ready",
+    "returns": "-> Result < () , String >"
   },
   "native_desktop_windows": {
     "host": "desktop",

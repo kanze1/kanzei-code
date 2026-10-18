@@ -38,7 +38,7 @@ public static class KzDesktop {
   [StructLayout(LayoutKind.Sequential)] public struct Input {public uint Type;public InputData Data;}
   [DllImport("user32.dll",SetLastError=true)] static extern uint SendInput(uint count,Input[] inputs,int size);
   public static void Click() {var inputs=new Input[2];inputs[0].Data.Mouse.Flags=2;inputs[1].Data.Mouse.Flags=4;if(SendInput(2,inputs,Marshal.SizeOf(typeof(Input)))!=2)throw new InvalidOperationException("Native pointer input was not fully dispatched");}
-  public static void Key(byte key) {var inputs=new Input[2];for(int i=0;i<2;i++){inputs[i].Type=1;inputs[i].Data.Key.Key=key;inputs[i].Data.Key.Flags=i==0?0u:2u;}if(SendInput(2,inputs,Marshal.SizeOf(typeof(Input)))!=2)throw new InvalidOperationException("Native keyboard input was not fully dispatched");}
+  public static void Key(byte key,UIntPtr tag) {var inputs=new Input[2];for(int i=0;i<2;i++){inputs[i].Type=1;inputs[i].Data.Key.Key=key;inputs[i].Data.Key.Flags=i==0?0u:2u;inputs[i].Data.Key.Extra=tag;}if(SendInput(2,inputs,Marshal.SizeOf(typeof(Input)))!=2)throw new InvalidOperationException("Native keyboard input was not fully dispatched");}
   public static string Title(IntPtr h) {var s=new StringBuilder(1024);GetWindowText(h,s,s.Capacity);return s.ToString();}
   public static bool Password(IntPtr h) {var s=new StringBuilder(256);GetClassName(h,s,s.Capacity);return s.ToString().IndexOf("EDIT",StringComparison.OrdinalIgnoreCase)>=0&&(GetWindowStyle(h,-16)&0x20)!=0;}
   public static bool NativeValue(IntPtr h) {var s=new StringBuilder(256);GetClassName(h,s,s.Capacity);var c=s.ToString();return c=="Edit"||c=="ComboBox"||c=="ComboBoxEx32"||c.StartsWith("WindowsForms10.EDIT.")||c.StartsWith("WindowsForms10.COMBOBOX.");}
@@ -160,7 +160,8 @@ function Snapshot($root) {
         $label=if($password){'[password]'}else{$current.Name}
         $rows += @{runtime_id=(Runtime-Key $element);signature=(Element-Signature $element);name=(Clip-Field $label 1024);automation_id=(Clip-Field $current.AutomationId 1024);type=$current.ControlType.ProgrammaticName;enabled=$current.IsEnabled;password=$password;editable=$editable;value=if($null -eq $value){$null}else{Clip-Field $value 4096};bounds=@{x=$rect.X;y=$rect.Y;width=$rect.Width;height=$rect.Height}}
     }
-    return @{ elements=$rows; limit=400; truncated=($elements.Count -eq 400); root=(Runtime-Key $root); hwnd=$root.Current.NativeWindowHandle.ToString() }
+    $bounds=$root.Current.BoundingRectangle
+    return @{ elements=$rows; limit=400; truncated=($elements.Count -eq 400); root=(Runtime-Key $root); hwnd=$root.Current.NativeWindowHandle.ToString();bounds=@{x=$bounds.X;y=$bounds.Y;width=$bounds.Width;height=$bounds.Height} }
 }
 function Screenshot([IntPtr]$handle) {
     $rect=New-Object KzDesktop+Rect
@@ -219,7 +220,7 @@ try {
                 if (-not [KzDesktop]::SetForegroundWindow($activeHandle)) { throw 'Cannot focus selected keyboard window' }
                 $element.SetFocus()
                 if ([KzDesktop]::GetForegroundWindow() -ne $activeHandle) { throw 'Selected window does not own keyboard focus' }
-                [KzDesktop]::Key([byte]$keys[$request.key])
+                [KzDesktop]::Key([byte]$keys[$request.key],[UIntPtr]::new([uint64]$request.input_tag))
             }
             default { throw 'Unknown desktop action' }
         }
