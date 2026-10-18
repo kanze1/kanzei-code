@@ -13,7 +13,7 @@
 | SEC-01 | 统一敏感策略及六个文件工具已修，待整体操作验收 | 子代理、预览及批准后的实际行为 |
 | SEC-02 | 页面/目录能力、独立来源已实现，真实 Edge 与原生内部面板均通过 | 最终 HEAD 完整门禁及发布版复验 |
 | SEC-03 | 定向反例先失败后通过，待完整验收 | 子代理、并行及串行路径的整体回归 |
-| SEC-04 | 待实施 | OS 文件、网络与进程树隔离实测 |
+| SEC-04 | 复制输入的 bubblewrap 命令边界已接入；真实 OS 16 项、原生软件 10 项通过 | 整个不可信会话的工具面约束，最终 HEAD/发布版复验；宿主 Bash 仍明确为未隔离 |
 | SEC-05 | 启动配置已纳入精确授权策略，待操作验收 | 创建、改写及宽授权场景 |
 | SEC-06 | 网页、浏览器、文件和进程输出采用结构化来源边界；恶意网页驱动的真实原生负向操作通过 | 最终 HEAD/发布版复验；该结果不等于模型免疫提示注入 |
 | SEC-07 | 只读快照按工具审计声明校验，派发再检查动作；恢复真实 Team 规划任务，未知工具默认拒绝 | 最终完整门禁及发布版复验 |
@@ -106,3 +106,9 @@ ui-web-search-native-smoke 18 项通过：真实 Kanzei 窗口点击拒绝和允
 只读工具契约：将硬编码六个工具名字改为 Tool::read_only_support 的默认拒绝声明，分别表示只读、按动作验证和已审计内部控制接口；按动作工具仍须声明共享观察，普通写工具仍被拒绝。提问、团队消息和角色缓存仅在自身既有引擎范围内可用，不能改写用户资源或批准权限。完整 Tools 用例暴露此前名字白名单会拒绝 skill_read 等真实规划装配工具，修正契约后恢复，未通过新增名字例外绕过检查。内部缓存的 OS 路径约束和未知工具的安全性不由这个声明自动证明，仍属于后续完整隔离与敏感路径审计范围。
 
 来源与只读契约的最终定向门禁：Core 433 项及集成 10+1 项、Harness 219 项、Tools 920 项全部通过；Tools 的 4 个明确独立联网/子进程入口未在本轮普通套件运行，不计为通过。App/Core/Tools/Harness all-targets Clippy 通过。最终发布版联合门禁尚未完成。
+
+命令 OS 隔离：新增 sandbox 工具，Windows 通过默认 WSL2 发行版中的 Python 3/bubblewrap 0.9+ 执行，Linux 使用同一执行器。仅接受明确的普通相对文件，先经实际 ScopedFile 与敏感资源权限读取，再复制到引擎临时目录；上限 128 文件、16 MiB。宿主目录不映射为可写，输入只读，/usr 为只读运行库，工作区和 /tmp 分别由内核 tmpfs 限为 64/16 MiB。显式启用用户、挂载、网络、PID、IPC、UTS 命名空间，清空环境、去能力、禁止再建用户命名空间；没有 Windows 互操作程序或宿主进程入口。网络不提供允许开关，输出不自动写回项目。命令和全部复制文件都进入既有权限资源；隔离后端或握手失败直接拒绝，不回退宿主。Bash 描述明确它仍使用宿主用户权限。
+
+受信控制器使用独立的 bubblewrap 状态管道取得内核命名空间身份，与自身比较后才记录 isolation_verified；不相信程序自报隔离。命令 stdout/stderr 仍是外部来源数据。超时、显式取消和应用 stdin 关闭都杀掉命名空间所属进程组，等待回收并排空管道后返回；即使被执行程序 setsid 脱离会话也清理。工作区不自动发布，故不能将此称作整个 Kanzei 会话已进入沙箱：当前仍需显式选 sandbox，整会话禁止其他宿主执行面的策略待补齐。
+
+sandbox-boundary-smoke 16 项实际 OS 检查通过：明确输入、只读输入、宿主金丝雀不可见且不变、互操作入口不可见、无额外继承文件描述符、套接字联网失败、64 MiB 满盘，以及超时/取消/EOF 三种场景的脱离会话子进程确实消失。ui-sandbox-native-smoke 10 项通过：真实 Kanzei 模型工具调度和来源框、实际命名空间回执、工作副本可改而项目原文不变、AutoAllow 下 .env 复制被拒、敏感字节零回喂、原生停止等待 Linux 树回收。软件证据 output/playwright/sandbox/native/acceptance.json 和 native-sandbox.png；后端证据 output/remediation-20261018/sandbox-boundary.json。两项 Rust 定向通过。新增工具接入 Dev 延迟目录、只读档硬拒和 refgraph 区域映射，普通工具首轮常驻预算不增长。[bubblewrap 参数和隔离语义](https://manpages.debian.org/bookworm/bubblewrap/bwrap.1.en.html)、[WSL 执行方式](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)。

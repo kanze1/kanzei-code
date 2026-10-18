@@ -130,7 +130,7 @@ impl Tool for BashTool {
             _ => "POSIX sh syntax",
         };
         format!(
-            "Run a shell command via {} — {syntax}. Params: command; optional timeout_ms, workdir, \
+            "Run a HOST shell command via {} — {syntax}. This uses the host user's privileges, without OS isolation. For untrusted POSIX execution use sandbox, whose copied-input workspace cannot publish host writes. Params: command; optional timeout_ms, workdir, \
              background, test, verification. PowerShell commands are parsed by its native AST for dedicated-tool routing; \
              other shells use resource/result guards without PowerShell command-routing checks. \
              For a work_units_v1 unit use verification={{unit_id,criteria,environment,resource}} \

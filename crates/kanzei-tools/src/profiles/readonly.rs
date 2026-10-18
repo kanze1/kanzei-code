@@ -37,12 +37,12 @@ impl Component for ReadonlyProfile {
         // 用 ManagedResource 而非裸 push_hard_deny,拒绝理由能点名替代工具。
         // D-663:process/browser/latex/plot 也会启动进程或落盘,不能落到默认 Ask。
         for action in [
-            "write", "edit", "insert", "bash", "process", "browser", "latex", "plot",
+            "write", "edit", "insert", "bash", "sandbox", "process", "browser", "latex", "plot",
         ] {
             draft.permissions.push_managed_hard_deny(
                 rule(action, "*", Effect::Deny),
                 None,
-                Some("只读档位:write/edit/insert/bash/process/browser/latex/plot 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改或执行副作用命令则告诉用户手动执行"),
+                Some("只读档位:write/edit/insert/bash/sandbox/process/browser/latex/plot 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改或执行副作用命令则告诉用户手动执行"),
             );
         }
         // task 子代理天然只读(SubagentBase 快照),无需规则——runner 直接放行。

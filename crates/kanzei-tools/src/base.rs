@@ -35,6 +35,9 @@ impl Component for BaseComponent {
             .insert("bash", Arc::new(crate::bash::BashTool::default()));
         draft
             .tools
+            .insert("sandbox", Arc::new(crate::sandbox::SandboxTool));
+        draft
+            .tools
             .insert("process", Arc::new(crate::process::ProcessTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));

@@ -1401,7 +1401,7 @@ mod tool_surface_budget {
     /// CLI resident=19 个注册工具 + core 单独追加的 task; desktop 再加 collaboration_status。
     const DEV_RESIDENT_TOOL_BUDGET: usize = 20;
     // Packaged skill bodies use the deferred resource reader; resident schemas stay unchanged.
-    const DEV_DEFERRED_TOOL_BUDGET: usize = 13;
+    const DEV_DEFERRED_TOOL_BUDGET: usize = 14;
 
     /// readonly 档:只读分析,面应当明显更小。
     ///

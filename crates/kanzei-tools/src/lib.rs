@@ -26,6 +26,7 @@ pub mod background;
 mod base;
 pub mod bash;
 mod browser_tool;
+pub mod sandbox;
 pub mod schedules;
 /// UI2-0926 #8:browser 工具对桌面端面板后端开放的共用面(输入、schema、目标解析、权限资源、
 /// 输出格式、无头执行)。两个后端的输出格式只在 browser_tool 里写一份。

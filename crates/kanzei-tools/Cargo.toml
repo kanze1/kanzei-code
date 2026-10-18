@@ -43,6 +43,7 @@ kanzei-core.workspace = true
 pdf-extract = "0.12.0"
 regex = "1.13.1"
 dom_query = "0.27.0"
+tempfile = "3.27.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Threading", "Win32_Security"] }
@@ -51,7 +52,6 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Stora
 # RunnerConfig/SubagentRuntime 构造)需要 core 类型,提升为普通依赖(方向
 # core←tools 单向,无循环);write.rs 的 runner 集成测试仍需要 core,保留 dev 引用。
 [dev-dependencies]
-tempfile = "3.27.0"
 kanzei-core.workspace = true
 serial_test.workspace = true
 

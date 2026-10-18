@@ -10,6 +10,7 @@ pub const TOOL_AREAS: &[(&str, &str)] = &[
     ("edit", "kanzei-tools/edit"),
     ("insert", "kanzei-tools/edit"),
     ("bash", "kanzei-tools/bash"),
+    ("sandbox", "kanzei-tools/sandbox"),
     ("process", "kanzei-tools/process"),
     ("git", "kanzei-tools/git"),
     ("grep", "kanzei-tools/grep"),

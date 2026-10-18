@@ -7,6 +7,7 @@ use super::*;
 /// B1 定稿:CLI Dev 延迟层名单,只在 DevProfile 已注册全部工具后加入草稿。
 pub const DEV_DEFERRED_TOOLS: &[&str] = &[
     "process",
+    "sandbox",
     "files",
     "incident",
     "conventions",
