@@ -373,6 +373,11 @@ fn git_dir_of(dir: &Path) -> Option<PathBuf> {
     })
 }
 
+/// Git must not silently discover a different repository in an ancestor folder.
+pub fn is_repository_root(root: &Path) -> bool {
+    git_dir_of(root).is_some()
+}
+
 fn git_state(root: &Path) -> GitState {
     if let Some(git_dir) = git_dir_of(root) {
         let (branch, has_commits) = head_state(&git_dir);

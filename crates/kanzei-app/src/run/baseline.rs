@@ -54,6 +54,13 @@ fn now_ms() -> u64 {
 }
 
 async fn git_output(cwd: &Path, args: &[&str], limit: usize) -> GitOutput {
+    if !kanzei_tools::project_state::is_repository_root(cwd) {
+        return GitOutput {
+            stdout: vec![],
+            error: Some("代码树根没有独立 Git 仓库，未读取上级仓库".into()),
+            truncated: false,
+        };
+    }
     let mut command = tokio::process::Command::new("git");
     command
         .args(args)
@@ -418,6 +425,38 @@ mod tests {
         assert_eq!(limited.status, "partial");
         assert!(limited.truncated);
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn a_nested_non_repository_never_borrows_its_parents_head_or_changes() {
+        let root = fixture("nested-root");
+        git(&root, &["init", "-q"]);
+        std::fs::write(root.join("parent.txt"), "parent evidence").unwrap();
+        git(&root, &["add", "."]);
+        git(
+            &root,
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@localhost",
+                "commit",
+                "-qm",
+                "parent",
+            ],
+        );
+        let nested = root.join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let facts = capture(&nested, "nested-run").await;
+        assert!(facts.head.is_none());
+        assert!(facts.dirty.is_empty());
+        assert!(facts.untracked.is_empty());
+        assert_eq!(facts.status, "unknown");
+        assert!(facts
+            .errors
+            .iter()
+            .all(|error| error.contains("未读取上级仓库")));
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn porcelain_rename_and_unicode_are_preserved_with_a_bounded_preview() {

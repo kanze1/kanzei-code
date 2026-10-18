@@ -489,6 +489,9 @@ fn process_label(process: &ProcessHandle) -> String {
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    if !kanzei_tools::project_state::is_repository_root(cwd) {
+        return Err("代码树根没有独立 Git 仓库，未读取上级仓库".into());
+    }
     let output = hidden_command("git")
         .arg("-C")
         .arg(cwd)
