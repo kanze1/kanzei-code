@@ -64,6 +64,12 @@ Responses API 的模型回合与 Codex 订阅的直接搜索命令具有不同�
 
 旧二进制的自主观察保存在 `search-autonomous/` 与 `search-autonomous-full-model/`，结构核对在各目录 assessment.json，前一轮 CodeBuddy 引文同样未通过原文核对。它们不作为新源码和后续发布二进制的通过证据。新的完整门禁、发布资产和实测仍须绑定实际提交。
 
+## 普通联网读取的研究范围纠错
+
+d2b19ca7 最终二进制的四对象权限边界题得到 4/4 第一方正文及对应短引文；日期题却在未知字段被拒绝后，误把 `topic="web research"` 当成搜索分类。普通 websearch 暴露的 topic/task_id 原先没有字段说明，只有一个字段时的错误码又是 RESEARCH_LOOP_TASK_REQUIRED。Luna 因此误解为所有搜索都必须先有任务编号，转而提问；没有最终日期答案，也没有发出供应商查询。这一失败完整保留在 search-autonomous-d2b19ca7/，不计为服务故障或通过。
+
+共用 SourceScope 现在为 websearch/webfetch 提供一致的成对字段 schema 与解释：这是已登记 research_loop 活动任务的可选来源归属，普通读取省略两者，不是搜索分类。只传一者返回 INVALID_WEB_SOURCE_SCOPE，并说明如何纠正原请求及尚未联网；伪造或失效的成对身份仍被拒绝。research 档位仍强制提供 begin_search 发出的有效 topic/task_id，专用包装保留字段说明与既有校验。回归同时核对普通读取、单字段误用、伪造身份和 research 必填边界；不新增自动重试或静默降级。
+
 ## 完整门禁中的修复
 
 第一轮全量验证发现项目文档链接的 Enter 路由被活动独立工作树的文件预览抢占。现在项目文档沿项目归属进入文档查看器；对话附件和显式文件打开继续沿各自的所有者解析。文档异步读取沿用查看器的导航代次校验，读取失败明确展示。文件链接回归 34 项通过。

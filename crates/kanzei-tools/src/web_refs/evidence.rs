@@ -11,6 +11,21 @@ pub struct SourceScope {
 }
 
 impl SourceScope {
+    /// Ordinary web tools may attach provenance to a registered research task.
+    /// Keep the pair constraint and its meaning identical across their schemas.
+    pub(crate) fn apply_optional_input_schema(schema: &mut serde_json::Value) {
+        schema["properties"]["topic"]["description"] = serde_json::json!(
+            "Optional provenance scope: the registered research_loop topic, paired with task_id from begin_search. Omit both for an ordinary lookup. This is not a search category. Research profile requires both."
+        );
+        schema["properties"]["task_id"]["description"] = serde_json::json!(
+            "Optional provenance scope: the active task ID returned by research_loop begin_search, paired with its topic. Omit both for an ordinary lookup; never invent an ID. Research profile requires both."
+        );
+        schema["dependencies"] = serde_json::json!({
+            "topic": ["task_id"],
+            "task_id": ["topic"]
+        });
+    }
+
     pub fn from_input(
         ctx: &ToolCtx,
         topic: Option<&str>,
@@ -25,7 +40,10 @@ impl SourceScope {
                     task_id: task_id.into(),
                 }))
             }
-            _ => Err("source provenance requires topic and task_id together".into()),
+            _ => Err(
+                "Incomplete optional source scope: topic and task_id must be supplied together. For an ordinary lookup, omit both fields and correct the same request. To attach research provenance, use the topic and task_id returned by research_loop begin_search. No request was dispatched."
+                    .into(),
+            ),
         }
     }
 }
@@ -330,6 +348,87 @@ pub fn acquisition_for_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn ordinary_web_tools_reject_partial_scope_with_actionable_correction() {
+        use kanzei_harness::Tool;
+        let root = tempfile::tempdir().unwrap();
+        let ctx = ToolCtx::new(root.path().into(), root.path().into());
+        assert_eq!(SourceScope::from_input(&ctx, None, None).unwrap(), None);
+        let tools: Vec<(Box<dyn Tool>, serde_json::Value)> = vec![
+            (
+                Box::new(crate::websearch::WebSearchTool),
+                serde_json::json!({"query": "must not reach network"}),
+            ),
+            (
+                Box::new(crate::webfetch::WebFetchTool),
+                serde_json::json!({"url": "https://example.invalid/"}),
+            ),
+        ];
+        for (tool, input) in tools {
+            for partial in [
+                serde_json::json!({"topic": "web research"}),
+                serde_json::json!({"task_id": "invented"}),
+            ] {
+                let mut request = input.clone();
+                request
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(partial.as_object().unwrap().clone());
+                let result = tool.execute(request, &ctx).await;
+                assert_eq!(result.code.as_deref(), Some("INVALID_WEB_SOURCE_SCOPE"));
+                assert!(result.content.contains("omit both fields"));
+                assert!(result.content.contains("No request was dispatched"));
+            }
+            let mut forged = input;
+            forged["topic"] = serde_json::json!("selected-topic");
+            forged["task_id"] = serde_json::json!("invented");
+            let result = tool.execute(forged, &ctx).await;
+            assert_eq!(result.code.as_deref(), Some("INVALID_WEB_SOURCE_SCOPE"));
+            assert!(result.content.contains("尚未启动检索环"));
+        }
+        assert!(!root.path().join(".kanzei").exists());
+    }
+
+    #[test]
+    fn optional_scope_schema_and_required_research_scope_have_distinct_contracts() {
+        use kanzei_harness::Tool;
+        for schema in [
+            crate::websearch::WebSearchTool.input_schema(),
+            crate::webfetch::WebFetchTool.input_schema(),
+        ] {
+            assert_eq!(
+                schema["dependencies"]["topic"],
+                serde_json::json!(["task_id"])
+            );
+            assert_eq!(
+                schema["dependencies"]["task_id"],
+                serde_json::json!(["topic"])
+            );
+            for field in ["topic", "task_id"] {
+                assert!(schema["properties"][field]["description"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Omit both"));
+                assert!(!schema["required"]
+                    .as_array()
+                    .is_some_and(|fields| fields.contains(&serde_json::json!(field))));
+            }
+        }
+        for schema in [
+            crate::websearch::ResearchWebSearchTool.input_schema(),
+            crate::webfetch::ResearchWebFetchTool.input_schema(),
+        ] {
+            for field in ["topic", "task_id"] {
+                assert!(schema["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!(field)));
+                assert_eq!(schema["properties"][field]["type"], "string");
+            }
+        }
+    }
+
     #[tokio::test]
     async fn a_real_pdf_download_requires_an_actual_successful_read_before_a_finding() {
         use kanzei_harness::Tool;

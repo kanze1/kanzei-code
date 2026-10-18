@@ -159,6 +159,7 @@ impl Tool for WebSearchTool {
             {"required":["query"],"not":{"required":["queries"]}},
             {"required":["queries"],"not":{"required":["query"]}}
         ]);
+        crate::web_refs::SourceScope::apply_optional_input_schema(&mut schema);
         schema
     }
 
@@ -217,9 +218,7 @@ impl WebSearchTool {
             input.task_id.as_deref(),
         ) {
             Ok(scope) => scope,
-            Err(error) => {
-                return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error)
-            }
+            Err(error) => return ToolOutput::needs_correction("INVALID_WEB_SOURCE_SCOPE", error),
         };
         let (queries, legacy_single) = match normalize_search_queries(input.query, input.queries) {
             Ok(value) => value,
@@ -752,11 +751,9 @@ impl Tool for ResearchWebSearchTool {
 
     fn input_schema(&self) -> serde_json::Value {
         let mut schema = WebSearchTool.input_schema();
-        schema["properties"]["topic"] = serde_json::json!({
-            "type": "string",
-            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-        });
-        schema["properties"]["task_id"] = serde_json::json!({ "type": "string" });
+        schema["properties"]["topic"]["type"] = serde_json::json!("string");
+        schema["properties"]["topic"]["pattern"] = serde_json::json!("^[a-z0-9]+(?:-[a-z0-9]+)*$");
+        schema["properties"]["task_id"]["type"] = serde_json::json!("string");
         schema["required"] = serde_json::json!(["topic", "task_id"]);
         schema
     }
