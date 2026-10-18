@@ -87,6 +87,8 @@ impl MemoryStore {
 
     /// D-578:manager 最终决策遥测(noop/produced/rejected),用于区分不产出与门禁拒绝。
     pub fn record_manager_decision(&self, decision: &str, reason: &str, note_head: &str) {
+        let reason = super::redact_credentials(reason);
+        let note_head = super::redact_credentials(note_head);
         let Ok(conn) = self.open_db() else { return };
         let _ = conn.execute(
             "INSERT INTO manager_decisions(at, decision, reason, note_head) VALUES (?1, ?2, ?3, ?4)",

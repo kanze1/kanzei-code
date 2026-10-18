@@ -254,6 +254,12 @@ impl MemoryStore {
         subject: Option<&str>,
         force: bool,
     ) -> anyhow::Result<AddOutcome> {
+        for text in [title, description, body, source, subject.unwrap_or("")] {
+            super::privacy::reject_credentials(text)?;
+        }
+        for reference in refs {
+            super::privacy::reject_credentials(reference)?;
+        }
         // D-368:整个 add(含 classify_novelty 的 FTS 探测——首次会建 index.db)持记忆
         // 树锁,与 bash 围栏窗口互斥。内层 write_entry/refresh_derived 的 tree_lock
         // 同线程重入,由 FileLock 重入计数放行。
@@ -835,6 +841,24 @@ impl MemoryStore {
         entry: &MemoryEntry,
         existing_path: Option<&Path>,
     ) -> anyhow::Result<()> {
+        let rendered = render_entry(entry);
+        for text in [
+            &entry.id,
+            &entry.scope,
+            &entry.category,
+            &entry.title,
+            &entry.description,
+            &entry.body,
+            &entry.source,
+            &entry.created,
+            &entry.updated,
+        ] {
+            super::privacy::reject_credentials(text)?;
+        }
+        for (key, value) in &entry.extras {
+            let fields = serde_json::Map::from_iter([(key.clone(), serde_json::json!(value))]);
+            super::privacy::reject_credentials(&serde_json::Value::Object(fields).to_string())?;
+        }
         // D-368:所有条目落盘统一持记忆树锁,并与围栏收口共享锁互斥;超预算明确报错。
         let _tree_lock = self.tree_lock()?;
         std::fs::create_dir_all(&self.root)?;
@@ -842,7 +866,6 @@ impl MemoryStore {
             Some(p) => p.to_path_buf(),
             None => self.root.join(format!("{}.md", entry.file_stem())),
         };
-        let rendered = render_entry(entry);
         crate::atomic_file::write_atomic(&path, &rendered)?;
         self.record_write_log(&path, Some(rendered.into_bytes()))?;
         Ok(())

@@ -324,6 +324,12 @@ impl MemoryStore {
         refs: &[String],
         audit: impl FnOnce(),
     ) -> anyhow::Result<PathBuf> {
+        for text in [summary, detail, category_hint] {
+            super::privacy::reject_credentials(text)?;
+        }
+        for reference in refs {
+            super::privacy::reject_credentials(reference)?;
+        }
         anyhow::ensure!(
             !summary.contains(['\r', '\n'])
                 && !category_hint.contains(['\r', '\n'])

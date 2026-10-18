@@ -12,10 +12,12 @@ mod ledger;
 mod lifecycle;
 mod manager;
 mod migration;
+mod privacy;
 mod recall_search;
 mod relevance;
 mod retention;
 mod retrieval;
+mod sources;
 mod store;
 mod telemetry;
 #[cfg(test)]
@@ -27,6 +29,7 @@ pub use inbox::{InboxBatch, InboxCheckpoint, InboxNote, MemoryJobProgress, Memor
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
 pub use ledger::DeduplicationReport;
 pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent, MemoryStaleTool};
+pub use privacy::{redact_credentials, REDACTED_CREDENTIAL};
 pub use relevance::lexical_weight as query_relevance;
 pub use retention::{memory_content_revision, MemoryRetentionPolicy, MemoryRetentionReport};
 pub use store::{

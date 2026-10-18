@@ -24,6 +24,7 @@ schemars.workspace = true
 rusqlite.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+regex = "1.13.1"
 
 [dev-dependencies]
 toml.workspace = true
