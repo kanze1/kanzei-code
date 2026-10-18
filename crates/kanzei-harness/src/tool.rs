@@ -219,6 +219,8 @@ impl ToolCtx {
 pub enum ToolConcurrency {
     Shared(String),
     WorktreeWrite(String),
+    /// Shared project metadata/budget ownership, independent of a code-tree write.
+    ResourceWrite(String),
     Exclusive,
 }
 
@@ -235,9 +237,12 @@ impl ToolConcurrency {
         match (self, other) {
             (Self::Exclusive, _) | (_, Self::Exclusive) => true,
             (Self::Shared(_), Self::Shared(_)) => false,
-            (Self::Shared(left), Self::WorktreeWrite(right))
-            | (Self::WorktreeWrite(left), Self::Shared(right))
-            | (Self::WorktreeWrite(left), Self::WorktreeWrite(right)) => left == right,
+            (Self::Shared(left), Self::WorktreeWrite(right) | Self::ResourceWrite(right))
+            | (Self::WorktreeWrite(left) | Self::ResourceWrite(left), Self::Shared(right))
+            | (
+                Self::WorktreeWrite(left) | Self::ResourceWrite(left),
+                Self::WorktreeWrite(right) | Self::ResourceWrite(right),
+            ) => left == right,
         }
     }
 }

@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
+mod mutation;
+
 #[derive(Default)]
 struct CleanupProbe {
     started: Notify,

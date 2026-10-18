@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 type ReleaseCallback = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
 /// 执行策略。`ReadParallelWriteSerial` 同时约束 task 使用阶段、writer 租约
-/// 与普通工具执行模式;`Default` 保持现状(wave 并发、无租约)。
+/// 与普通工具执行模式；有执行协调器时，普通工具只在实际变更期间持有租约。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ExecutionPolicy {
     #[default]
@@ -37,9 +37,9 @@ impl ExecutionPolicy {
 /// **分支干、合并、冲突检测解决、文档一份唯一**。
 ///
 /// 据此本字段从 `project_root` 改名为 `write_scope`,含义由调用方说了算:
-/// - **主对话的每一轮**传本轮**代码树**(线 = worktree)。于是两条线互不排队,
-///   而同一棵树上的两个进程仍然排队——同树两个 writer 会互相覆盖文件,那不是
-///   并行,是丢工作;
+/// - 主对话和子代理在单次变更工具执行期间传代码树；思考、模型请求和只读调查不占写权。
+///   同树变更串行，跨 worktree 独立。ResourceWrite 使用 resource: 命名空间保护共享预算，
+///   不把逻辑资源锁键误当作代码树路径。
 /// - **托管文档的单一性不再靠它**,由 `atomic_file::FileLock` 的毫秒级单次操作
 ///   持锁承担(docstore 早就是这个形态);
 /// - 建树、tracker 快写等入口仍传**主根**——它们争的确实是主根那一份资产。
@@ -307,8 +307,7 @@ impl OrchestrationEvent {
 pub trait ProjectExecutionCoordinator: Send + Sync {
     /// 申请只读槽(勘察/复核阶段并行子代理用)。
     async fn acquire_read_slot(&self, request: ReadSlotRequest) -> Result<ReadPermit, String>;
-    /// 申请写租约。权限询问必须发生在调用此方法之前;拿到租约后跨工具调用持有,
-    /// 直到运行结束/取消/失败收尾统一释放。
+    /// 申请写租约。权限询问先于申请；普通工具在一次实际变更后释放，独立事务可显式持有。
     async fn acquire_writer_lease(
         &self,
         request: WriterLeaseRequest,
@@ -321,7 +320,101 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
 
 /// Shared with tools that must acquire another worktree's write scope.
 #[derive(Clone)]
-pub struct ExecutionCoordinator(pub std::sync::Arc<dyn ProjectExecutionCoordinator>);
+pub struct ExecutionCoordinator {
+    coordinator: std::sync::Arc<dyn ProjectExecutionCoordinator>,
+    observer: Option<std::sync::Arc<dyn CoordinationObserver>>,
+}
+
+impl ExecutionCoordinator {
+    pub fn new(coordinator: std::sync::Arc<dyn ProjectExecutionCoordinator>) -> Self {
+        Self {
+            coordinator,
+            observer: None,
+        }
+    }
+
+    pub fn with_observer(mut self, observer: std::sync::Arc<dyn CoordinationObserver>) -> Self {
+        self.observer = Some(observer);
+        self
+    }
+
+    pub async fn acquire_writer_lease(
+        &self,
+        request: WriterLeaseRequest,
+    ) -> Result<ExecutionLease, String> {
+        let mut pending = PendingExecutionLease {
+            coordinator: self.coordinator.clone(),
+            request: Some(request.clone()),
+        };
+        self.observe(&OrchestrationEvent::WriterQueued {
+            project_root: request.write_scope.clone(),
+            run_id: request.run_id.clone(),
+            process_id: request.process_id.clone(),
+            reason: request.reason.clone(),
+        });
+        let lease = self
+            .coordinator
+            .acquire_writer_lease(request.clone())
+            .await?;
+        pending.request.take();
+        self.observe(&OrchestrationEvent::WriterAcquired {
+            project_root: request.write_scope.clone(),
+            run_id: request.run_id.clone(),
+            process_id: request.process_id.clone(),
+        });
+        Ok(ExecutionLease {
+            lease: Some(lease),
+            observer: self.observer.clone(),
+            request,
+        })
+    }
+
+    fn observe(&self, event: &OrchestrationEvent) {
+        if let Some(observer) = &self.observer {
+            observer.observe(event);
+        }
+    }
+}
+
+impl std::ops::Deref for ExecutionCoordinator {
+    type Target = dyn ProjectExecutionCoordinator;
+    fn deref(&self) -> &Self::Target {
+        self.coordinator.as_ref()
+    }
+}
+
+struct PendingExecutionLease {
+    coordinator: std::sync::Arc<dyn ProjectExecutionCoordinator>,
+    request: Option<WriterLeaseRequest>,
+}
+
+impl Drop for PendingExecutionLease {
+    fn drop(&mut self) {
+        if let Some(request) = self.request.take() {
+            self.coordinator.cancel_waiter(&request.run_id);
+        }
+    }
+}
+
+/// One mutation's ownership and audit lifetime, including cancellation and panic.
+pub struct ExecutionLease {
+    lease: Option<WriterLease>,
+    observer: Option<std::sync::Arc<dyn CoordinationObserver>>,
+    request: WriterLeaseRequest,
+}
+
+impl Drop for ExecutionLease {
+    fn drop(&mut self) {
+        drop(self.lease.take());
+        if let Some(observer) = &self.observer {
+            observer.observe(&OrchestrationEvent::WriterReleased {
+                project_root: self.request.write_scope.clone(),
+                run_id: self.request.run_id.clone(),
+                process_id: self.request.process_id.clone(),
+            });
+        }
+    }
+}
 
 impl std::fmt::Debug for ExecutionCoordinator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

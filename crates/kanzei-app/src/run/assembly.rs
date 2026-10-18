@@ -19,7 +19,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use kanzei_harness::{KanzeiConfig, ResolveCtx, ToolCtx};
 use serde_json::json;
 use tauri::Emitter;
@@ -160,8 +159,6 @@ pub(crate) struct RoundContext {
     pub(crate) work_item_id: Option<String>,
     pub(crate) run_started: std::time::Instant,
     pub(crate) run_epoch_ms: i64,
-    pub(crate) orchestration_trace: Arc<crate::orchestration_trace::SessionEventObserver>,
-    pub(crate) _write_lease: Option<WriterLeaseTrace>,
     pub(crate) ctx: ToolCtx,
 }
 
@@ -344,7 +341,7 @@ pub(crate) async fn assemble_run(
         ask_source,
     };
     let (session, round) =
-        prepare_session(stage, request, &mode, handles, &halt_token, &mut deps, ctx).await?;
+        prepare_session(request, &mode, handles, &halt_token, &mut deps, ctx).await?;
     let _ = window.emit(
         "kz:meta",
         with_session_id(
@@ -369,7 +366,6 @@ pub(crate) async fn assemble_run(
 /// This concrete preparation path is shared by the AppEvents wrapper and real DB tests.
 #[allow(clippy::too_many_arguments)]
 async fn prepare_session(
-    stage: &(dyn Fn(&str, String) + Sync),
     request: RoundRequest,
     mode: &RunMode,
     handles: &RuntimeHandles,
@@ -547,59 +543,12 @@ async fn prepare_session(
             "session.status_changed",
             &json!({ "status": "running" }),
         )?;
-        // R-171 批3:主对话 writer run 获取项目级写租约并持有到本轮结束。
-        // 权限询问发生在租约获取之前(设计不变量 6)——此处无询问,直接申请;
-        // RAII:任何结束路径(正常/错误/取消/abort)都会 drop 释放,绝不永久占用。
-        // 注意:acquire_writer_lease 在项目已有 writer 时会排队等待,这是「串行写」
-        // 的强制点——第二个 ProcessHandle 必须等当前 writer 释放后才能拿到租约。
-        // R-173 批5:writer 事件经 OrchestrationEvent 的**单一出口**落 session_events。
-        // 这里原本是三处手写字符串 + 手拼 payload,与枚举没有类型联系——改名或加字段时
-        // 编译器不会提醒,两边必然漂移。现在类型名与 payload 都由事件自己给出。
+        // Assembly does not own a mutation slot. Each approved mutation acquires
+        // its own scoped lease; the same observer records queue/acquire/release.
         let orchestration_trace = Arc::new(crate::orchestration_trace::SessionEventObserver::open(
             &state_path,
             &request.session_id,
         )?);
-        let plain_lease = if profile == kanzei_harness::ProfileKind::Readonly {
-            None
-        } else {
-            use kanzei_harness::orchestration::{
-                CoordinationObserver, OrchestrationEvent, WriterLeaseRequest,
-            };
-            stage("排队", "等待当前代码树写入槽…".into());
-            orchestration_trace.observe(&OrchestrationEvent::WriterQueued {
-                project_root: ctx.project_root.clone(),
-                run_id: run_id.clone(),
-                process_id: request.process_id.to_string(),
-                reason: format!("session {} writer run", request.session_id),
-            });
-            let lease = handles
-                .coordinator
-                .acquire_writer_lease(WriterLeaseRequest {
-                    write_scope: ctx.cwd.clone(),
-                    run_id: run_id.clone(),
-                    process_id: request.process_id.to_string(),
-                    reason: format!("session {} writer run", request.session_id),
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
-            orchestration_trace.observe(&OrchestrationEvent::WriterAcquired {
-                project_root: ctx.project_root.clone(),
-                run_id: run_id.clone(),
-                process_id: request.process_id.to_string(),
-            });
-            Some(lease)
-        };
-        // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径由
-        // WriterLeaseTrace::drop 补写 Released,acquired/released 始终成对(D-303)。
-        let _write_lease = plain_lease.map(|lease| {
-            WriterLeaseTrace::new(
-                lease,
-                Arc::clone(&orchestration_trace),
-                ctx.project_root.clone(),
-                run_id.clone(),
-                request.process_id.to_string(),
-            )
-        });
         // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
         // 主根文档写入与代码树工具并发分别仲裁。
         //
@@ -623,9 +572,10 @@ async fn prepare_session(
             .to_string();
         let worktree_key = ctx.cwd.display().to_string();
         let mut ctx = ctx;
-        ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator(
-            handles.coordinator.clone(),
-        ));
+        ctx.execution_coordinator = Some(
+            kanzei_harness::orchestration::ExecutionCoordinator::new(handles.coordinator.clone())
+                .with_observer(orchestration_trace),
+        );
         ctx = ctx.with_identity(
             worktree_key,
             project_write_key,
@@ -641,9 +591,7 @@ async fn prepare_session(
                 work_item_id,
                 run_started,
                 run_epoch_ms,
-                orchestration_trace,
 
-                _write_lease,
                 ctx,
             },
         ))
@@ -762,58 +710,6 @@ fn finish_startup_failure(
         super::persistence::stopped_outcome(error)
     } else {
         error
-    }
-}
-
-pub(crate) struct WriterLeaseTrace {
-    pub(crate) _lease: kanzei_harness::orchestration::WriterLease,
-    observer: Arc<crate::orchestration_trace::SessionEventObserver>,
-    project_root: std::path::PathBuf,
-    run_id: String,
-    process_id: String,
-    released: std::sync::atomic::AtomicBool,
-}
-
-impl WriterLeaseTrace {
-    pub(crate) fn new(
-        lease: kanzei_harness::orchestration::WriterLease,
-        observer: Arc<crate::orchestration_trace::SessionEventObserver>,
-        project_root: std::path::PathBuf,
-        run_id: String,
-        process_id: String,
-    ) -> Self {
-        Self {
-            _lease: lease,
-            observer,
-            project_root,
-            run_id,
-            process_id,
-            released: std::sync::atomic::AtomicBool::new(false),
-        }
-    }
-
-    /// 正常路径在写 Released 事件后调用,标记已释放,Drop 不再补写。
-    pub(crate) fn mark_released(&self) {
-        self.released
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-
-impl Drop for WriterLeaseTrace {
-    fn drop(&mut self) {
-        if self.released.load(std::sync::atomic::Ordering::SeqCst) {
-            return;
-        }
-        // 异常/abort/停止路径:租约已由 WriterLease Drop 回调释放,这里补写审计事件,
-        // 让 acquired/released 在会话事件流里成对。落库失败只记日志,不阻断收尾。
-        use kanzei_harness::orchestration::CoordinationObserver;
-        self.observer.observe(
-            &kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
-                project_root: self.project_root.clone(),
-                run_id: self.run_id.clone(),
-                process_id: self.process_id.clone(),
-            },
-        );
     }
 }
 
@@ -949,6 +845,7 @@ pub(crate) fn report_config_warnings(
 #[cfg(test)]
 mod startup_tests {
     use super::*;
+    use kanzei_harness::orchestration::ProjectExecutionCoordinator;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -1153,7 +1050,6 @@ mod startup_tests {
             let ctx =
                 ToolCtx::new(self.root.clone(), self.root.clone()).with_session_id("ses".into());
             prepare_session(
-                &|_, _| {},
                 request,
                 &self.mode,
                 &self.handles,
@@ -1532,7 +1428,7 @@ mod startup_tests {
     }
 
     #[tokio::test]
-    async fn startup_stop_during_actual_lease_wait_commits_stopped() {
+    async fn dev_run_can_reach_provider_while_another_run_owns_the_mutation_slot() {
         use kanzei_harness::orchestration::WriterLeaseRequest;
         let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Dev).await;
         let coordinator = fixture.handles.coordinator.clone();
@@ -1541,65 +1437,26 @@ mod startup_tests {
                 write_scope: fixture.root.clone(),
                 run_id: "blocker".into(),
                 process_id: "blocker".into(),
-                reason: "barrier".into(),
+                reason: "actual mutation barrier".into(),
             })
             .await
             .unwrap();
-        let runtime = fixture.runtime.clone();
-        let root = fixture.root.clone();
-        let path = fixture.path.clone();
-        let stopper = async {
-            let waiting = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-                loop {
-                    if let Some(run_id) = coordinator.snapshot(&root).waiting_writers.first() {
-                        break run_id.clone();
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                }
-            })
-            .await
-            .unwrap();
-            let store = kanzei_core::SessionStore::open(&path).unwrap();
-            crate::stop_runtime_and_finalize(&runtime, &store, &path, "ses").unwrap();
-            runtime.running.store(false, Ordering::SeqCst);
-            coordinator.cancel_waiter(&waiting);
-        };
         let request = fixture.request(None);
-        let (prepared, ()) = tokio::join!(fixture.prepare(request), stopper);
-        let error = fixture.execute_if_prepared(prepared).await.err().unwrap();
-        assert!(
-            super::super::persistence::is_stopped_outcome(&error),
-            "{error:?}"
-        );
-        assert!(error.to_string().contains("无法获取写租约"));
-        assert!(fixture.halt.is_cancelled());
-        assert_eq!(fixture.requests.load(Ordering::SeqCst), 0);
+        let prepared =
+            tokio::time::timeout(std::time::Duration::from_secs(2), fixture.prepare(request))
+                .await
+                .expect("assembly must not queue an investigation behind another writer");
+        let summary = fixture.execute_if_prepared(prepared).await.unwrap();
+        assert!(!summary.halted_by_user);
+        assert!(fixture.requests.load(Ordering::SeqCst) > 0);
         assert_eq!(
-            fixture
-                .store
-                .input_status(&fixture.input_id())
-                .unwrap()
-                .as_deref(),
-            Some("cancelled")
+            coordinator.snapshot(&fixture.root).writer_run_id.as_deref(),
+            Some("blocker")
         );
-        assert_eq!(
-            fixture.store.get_session("ses").unwrap().unwrap().status,
-            "idle"
-        );
-        assert_eq!(fixture.count("session.turn_stopped"), 1);
-        assert_eq!(fixture.count("session.turn_failed"), 0);
-        assert_eq!(fixture.count("run.completed"), 1);
-        assert_eq!(
-            fixture
-                .store
-                .latest_event("ses", "run.completed")
-                .unwrap()
-                .unwrap()
-                .payload["halted_by_user"],
-            true
-        );
-        assert_eq!(fixture.notification_statuses(), vec!["running", "stopped"]);
-        assert!(coordinator.snapshot(&root).waiting_writers.is_empty());
+        assert!(coordinator
+            .snapshot(&fixture.root)
+            .waiting_writers
+            .is_empty());
         drop(blocker);
         fixture.assert_owner_released().await;
     }

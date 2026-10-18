@@ -2,13 +2,10 @@
 //!
 //! 独立理由:「怎么跑」与「跑完怎么落库」是两个变更理由——`persist_round_outcome`
 //! 把一轮的摘要/状态/episode/通知写进会话库,`finalize_round` 做对话落库、轮末
-//! 压缩、kz:done 与写租约收尾。它们不参与事件归约与执行流水线,独立成域后
+//! 压缩和 kz:done。写租约由单次变更工具的 RAII 生命周期释放。独立成域后
 //! 加一个落库字段不必读懂整个运行主链路(照 files_view.rs 模式)。
 //!
-//! 危险点(搬迁纪律):⑤`_write_lease` 是 RAII guard——`Drop` 补写 Released 事件
-//! (D-303);正常路径由 `finalize_round` 显式发 Released 并 `mark_released()` 防重复,
-//! **且仅非流水线路径发**(流水线路径的租约归编排对象管,再发一条会在轨迹里凭空
-//! 多出一次释放)。⑥`typed_flush_task` 是 spawn 出来的弱引用定时任务,`finalize_round`
+//! 危险点(搬迁纪律):`typed_flush_task` 是 spawn 出来的弱引用定时任务,`finalize_round`
 //! 在这里 `abort()` 它——跨模块传递时不能被当成没人用的字段删掉。⑨`stage` 闭包
 //! 签名保持 `&(dyn Fn(&str, String) + Sync)`。
 
@@ -23,7 +20,7 @@ use crate::{
     MutexPoisonExt,
 };
 
-use super::assembly::{RuntimeDeps, RuntimeHandles, WriterLeaseTrace};
+use super::assembly::{RuntimeDeps, RuntimeHandles};
 use super::{append_run_notification, compaction_input_tokens, report_persistence_failure};
 
 /// R-253 批7b:`finalize_round` 参数分组——**会话事务层**:对话历史/会话身份/
@@ -41,9 +38,6 @@ pub(crate) struct FinalizeSession<'a> {
 pub(crate) struct FinalizeRound<'a> {
     pub(crate) ctx: &'a kanzei_harness::ToolCtx,
     pub(crate) run_id: &'a str,
-    pub(crate) process_id: &'a str,
-    pub(crate) _write_lease: &'a Option<WriterLeaseTrace>,
-    pub(crate) writer_event: &'a (dyn Fn(kanzei_harness::orchestration::OrchestrationEvent) + Sync),
 }
 
 /// R-253 批7b:`finalize_round` 参数分组——**本轮结果层**:摘要/历史长/工具画像/
@@ -586,9 +580,6 @@ pub(crate) async fn finalize_round(
     let typed_writer = session.typed_writer;
     let ctx = round.ctx;
     let run_id = round.run_id;
-    let process_id = round.process_id;
-    let _write_lease = round._write_lease;
-    let writer_event = round.writer_event;
     let final_store = session.final_store;
     let typed_flush_task = session.typed_flush_task;
     let history_len = outcome.history_len;
@@ -817,22 +808,6 @@ pub(crate) async fn finalize_round(
             session_id,
         ),
     );
-    // R-171 批5:正常路径显式写 Released 事件(审计闭环 queued→acquired→released)。
-    // 失败/取消路径由协调器快照保证租约不泄漏(WriterLease Drop 回调),审计不缺持有者。
-    // R-173 批5:同样经 OrchestrationEvent 单一出口,与上面两条 writer 事件同源。
-    //
-    // 仅持有实际写租约的运行发释放事件。
-    if let Some(trace) = _write_lease {
-        writer_event(
-            kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
-                project_root: ctx.project_root.clone(),
-                run_id: run_id.to_string(),
-                process_id: process_id.to_string(),
-            },
-        );
-        // 正常路径已落 Released,标记 guard 避免 Drop 重复补写(D-303)。
-        trace.mark_released();
-    }
     // D-342:本 run 收尾,收回停止令牌(stop 已 take 过则本来就是 None,幂等)。
     halt_slot.lock_or_recover().take();
     Ok(())

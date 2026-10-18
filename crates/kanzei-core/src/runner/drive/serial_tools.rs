@@ -198,7 +198,12 @@ pub(super) async fn execute_serial_tool_calls(
                                 id.clone(),
                                 Some(progress_tx),
                                 Some(&halted),
-                                tool.execute_cancellable(input, ctx, halt),
+                                kanzei_harness::tool_pipeline::execute_coordinated(
+                                    tool.as_ref(),
+                                    input,
+                                    ctx,
+                                    halt,
+                                ),
                             ),
                         ),
                     );

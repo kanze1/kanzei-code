@@ -278,7 +278,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         );
     ctx.project_workflow = agent.name == "dev";
     // R-256:RunnerConfig 构造与桌面共用 kanzei_tools::run::build_runner_config(对照表 #12)。
-    ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator(
+    ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator::new(
         std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
     ));
     // CLI 无 reasoning 覆盖；--autonomous 复用 App 自主决策协议，不更改工具权限。

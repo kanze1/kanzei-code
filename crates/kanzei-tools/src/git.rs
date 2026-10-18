@@ -1123,7 +1123,6 @@ async fn merge_ff_body(
                 SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             );
             let lease = coordinator
-                .0
                 .acquire_writer_lease(WriterLeaseRequest {
                     write_scope: dir.to_path_buf(),
                     run_id: request_id.clone(),
@@ -1135,7 +1134,7 @@ async fn merge_ff_body(
                 Some(Ok(lease)) => Some(lease),
                 Some(Err(error)) => return ToolOutput::error(error),
                 None => {
-                    coordinator.0.cancel_waiter(&request_id);
+                    coordinator.cancel_waiter(&request_id);
                     return ToolOutput::needs_correction(
                         "GIT_TARGET_BUSY",
                         "merge_ff target worktree has an active writer; retry after it finishes",
@@ -1684,7 +1683,7 @@ prunable gitdir file points to non-existent location
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
-            execution_coordinator: Some(kanzei_harness::orchestration::ExecutionCoordinator(
+            execution_coordinator: Some(kanzei_harness::orchestration::ExecutionCoordinator::new(
                 std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
             )),
             ..Default::default()
@@ -1746,7 +1745,7 @@ prunable gitdir file points to non-existent location
             .await
             .unwrap();
         let mut ctx = ToolCtx::new(root.clone(), root.clone());
-        ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator(
+        ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator::new(
             coordinator.clone(),
         ));
         let input = serde_json::json!({"action":"merge_ff", "from":"HEAD", "into":"target"});

@@ -156,7 +156,7 @@ impl Tool for WebSearchTool {
     /// 与代码树写入毫无关系,拿工作树键会让它和 edit/bash 无谓地互斥。
     fn concurrency(&self, input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
         match input.get("prior_art_topic").and_then(|v| v.as_str()) {
-            Some(topic) if !topic.trim().is_empty() => ToolConcurrency::WorktreeWrite(format!(
+            Some(topic) if !topic.trim().is_empty() => ToolConcurrency::ResourceWrite(format!(
                 "prior-art:{}",
                 ctx.project_write_key()
                     .replace(0x5c as char, "/")

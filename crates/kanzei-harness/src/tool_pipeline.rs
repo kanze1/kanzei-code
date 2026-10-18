@@ -8,6 +8,55 @@ use std::ops::ControlFlow;
 
 use crate::tool::ToolOutput;
 
+/// After permission approval, serialize only the actual mutation interval.
+pub async fn execute_coordinated(
+    tool: &dyn crate::Tool,
+    input: serde_json::Value,
+    ctx: &crate::ToolCtx,
+    halt: Option<&tokio_util::sync::CancellationToken>,
+) -> ToolOutput {
+    let scope = match tool.concurrency(&input, ctx) {
+        crate::ToolConcurrency::Shared(_) => None,
+        crate::ToolConcurrency::WorktreeWrite(_) | crate::ToolConcurrency::Exclusive => {
+            Some(ctx.cwd.clone())
+        }
+        crate::ToolConcurrency::ResourceWrite(key) => {
+            Some(std::path::PathBuf::from(format!("resource:{key}")))
+        }
+    };
+    let _lease = match (scope, &ctx.execution_coordinator) {
+        (Some(write_scope), Some(coordinator)) => {
+            let (Some(run_id), Some(process_id)) = (&ctx.run_id, &ctx.process_id) else {
+                return ToolOutput::failed(
+                    "MISSING_EXECUTION_IDENTITY",
+                    "Mutation cannot acquire ownership without a run and process identity.",
+                );
+            };
+            let request = crate::WriterLeaseRequest {
+                write_scope,
+                run_id: run_id.clone(),
+                process_id: process_id.clone(),
+                reason: format!("tool {}", tool.name()),
+            };
+            let acquire = coordinator.acquire_writer_lease(request);
+            let result = match halt {
+                Some(halt) => tokio::select! {
+                    biased;
+                    _ = halt.cancelled() => return ToolOutput::blocked_by_workflow("RUN_CANCELLED", "Run stopped before mutation ownership was granted."),
+                    result = acquire => result,
+                },
+                None => acquire.await,
+            };
+            match result {
+                Ok(lease) => Some(lease),
+                Err(error) => return ToolOutput::failed("MUTATION_LEASE_REJECTED", error),
+            }
+        }
+        _ => None,
+    };
+    tool.execute_cancellable(input, ctx, halt).await
+}
+
 /// 工具特有的前置约束。实现持有已解析输入所需的事实；放行不等于权限授权。
 pub trait ToolGuard: Send + Sync {
     /// Continue 放行；Break 携带最终结构化拒绝，后续 Guard 和 body 均不执行。

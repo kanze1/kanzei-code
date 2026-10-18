@@ -672,7 +672,12 @@ pub(crate) async fn execute_prepared_tools(
                                 id.clone(),
                                 Some(progress_tx.clone()),
                                 Some(&halted),
-                                tool.execute_cancellable(input, ctx, halt),
+                                kanzei_harness::tool_pipeline::execute_coordinated(
+                                    tool.as_ref(),
+                                    input,
+                                    ctx,
+                                    halt,
+                                ),
                             ),
                         ),
                     )

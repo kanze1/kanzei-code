@@ -8,7 +8,7 @@
 //!
 //! 危险点(搬迁纪律):③`prior` 的恢复必须留在这里——`SessionStore` 非 `Sync`,
 //! 跨 `await` 持引用会破坏 future 的 `Send` 约束;`run_execution_loop` 只消费
-//! `&[Message]`。⑤`_write_lease` RAII guard 的 Release 事件配对见 persistence.rs。
+//! `&[Message]`。变更租约的作用域与释放由统一工具执行边界管理。
 //! ⑨`stage` 闭包签名保持 `&(dyn Fn(&str, String) + Sync)`。
 
 use std::collections::HashMap;
@@ -139,10 +139,9 @@ pub(crate) async fn run_task(
         halt_token.clone(),
     ));
     // round 在 run_execution_loop 期间整体被 &mut 借用(执行循环驱动 round.pipeline),
-    // 轮末字段(ctx/_write_lease/run_started/run_epoch_ms)在调用返回后移出;
+    // 轮末字段(ctx/run_started/run_epoch_ms)在调用返回后移出;
     // 这里只 clone 调用前后都要用的身份字段。
     let run_id = round.run_id.clone();
-    let orchestration_trace = round.orchestration_trace.clone();
 
     let event_window = window.clone();
     let session_id_for_events = session_id.clone();
@@ -154,13 +153,6 @@ pub(crate) async fn run_task(
             }
         }
         event_window.emit(name, with_session_id(payload, &session_id_for_events))
-    };
-    // R-202 批1:writer 事件闭包原在装配段内联,随 assemble_run 收敛后由
-    // 解构出的 orchestration_trace 重建——单一出口语义不变(OrchestrationEvent 落
-    // session_events),正常路径收尾与 WriterLeaseTrace::drop 兜底都用它。
-    let writer_event = |event: kanzei_harness::orchestration::OrchestrationEvent| {
-        use kanzei_harness::orchestration::CoordinationObserver;
-        orchestration_trace.observe(&event);
     };
     // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
     let live = handles.live_run.clone();
@@ -346,7 +338,6 @@ pub(crate) async fn run_task(
     // UI2-0926 #13:Nudge 事实按本线代码树取活(与 `work next` 同源);下面两处 AutoRunCtx
     // 局部变量同名 `ctx`,先把 cwd 取出来。
     let ctx_cwd = ctx.cwd.clone();
-    let _write_lease = round._write_lease;
     // R-202 批2:轮末收尾段前半(终态落库:typed 终态/会话状态/episode/轮末采集)收敛。
     let persistence_result = persist_round_outcome(
         &state_path,
@@ -745,9 +736,6 @@ pub(crate) async fn run_task(
         FinalizeRound {
             ctx: &ctx,
             run_id: &run_id,
-            process_id: &process_id,
-            _write_lease: &_write_lease,
-            writer_event: &writer_event,
         },
         FinalizeOutcome {
             summary: &summary,
