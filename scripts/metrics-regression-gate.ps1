@@ -42,10 +42,17 @@ if ($baseline.Count -lt 10) {
     throw "metrics baseline has too few parsed rows ($($baseline.Count)); refusing to run a false-green gate"
 }
 
-$kz = Join-Path $Root "target\debug\kz.exe"
+$targetDirectory = $env:CARGO_TARGET_DIR
+if ([string]::IsNullOrWhiteSpace($targetDirectory)) {
+    $targetDirectory = Join-Path $Root "target"
+} elseif (-not [IO.Path]::IsPathRooted($targetDirectory)) {
+    $targetDirectory = Join-Path $Root $targetDirectory
+}
+$kz = Join-Path $targetDirectory "debug\kz.exe"
 if ([string]::IsNullOrWhiteSpace($MetricsOutputPath)) {
     Push-Location $Root
     try {
+        Write-Host "metrics executable: $kz"
         $metricsOutput = @(& $kz metrics --top 30 2>&1)
     } finally {
         Pop-Location

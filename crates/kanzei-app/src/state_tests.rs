@@ -429,6 +429,7 @@ fn docs_snapshot_并发刷新不会返回成功但空的快照() {
     std::fs::write(root.join(".kanzei/project/requirements.md"), &text).unwrap();
 
     let 停 = Arc::new(AtomicBool::new(false));
+    let (已写入, 可读取) = std::sync::mpsc::sync_channel(0);
     // 写线程:反复整文件重写,制造与读的重叠窗口。
     let 写者 = {
         let root = root.clone();
@@ -438,32 +439,43 @@ fn docs_snapshot_并发刷新不会返回成功但空的快照() {
                 &root,
                 &kanzei_tools::docstore::REQUIREMENTS,
             );
+            let entries = store.load().unwrap();
+            store.save(&entries).unwrap();
+            已写入.send(()).unwrap();
+            let mut 写入次数 = 1;
             while !停.load(Ordering::Relaxed) {
-                let entries = match store.load() {
-                    Ok(entries) => entries,
-                    Err(_) => continue,
-                };
                 store.save(&entries).unwrap();
+                写入次数 += 1;
             }
+            写入次数
         })
     };
 
-    let mut 轮次 = 0usize;
-    for _ in 0..60 {
-        let snapshot = docs_snapshot(root.display().to_string())
-            .expect("并发下读失败应当罕见;真发生了也必须是错误而不是空快照");
-        let 需求 = snapshot["requirements"].as_array().unwrap();
-        assert_eq!(
-            需求.len(),
-            条目数,
-            "拿到了「成功但空/缺条目」的快照:{} 条",
-            需求.len()
-        );
-        轮次 += 1;
-    }
+    可读取.recv().unwrap();
+    // D-249 允许明确读失败，由前端保留上一份快照；成功返回的内容必须完整。
+    // 先保存每次真实结果，停写并 join 后再断言，失败也不会遗留忙写线程。
+    let 结果: Vec<_> = (0..60)
+        .map(|_| docs_snapshot(root.display().to_string()))
+        .collect();
     停.store(true, Ordering::Relaxed);
-    写者.join().unwrap();
-    assert!(轮次 > 0);
+    assert!(写者.join().unwrap() > 0);
+    let mut 成功次数 = 0;
+    for result in 结果 {
+        match result {
+            Ok(snapshot) => {
+                let 需求 = snapshot["requirements"].as_array().unwrap();
+                assert_eq!(需求.len(), 条目数, "成功的快照必须包含全部条目");
+                成功次数 += 1;
+            }
+            Err(error) => assert!(
+                error.starts_with("读取 .kanzei/project/requirements.md 失败:"),
+                "读错误必须明确指出被并发写入的文档: {error}"
+            ),
+        }
+    }
+    assert!(成功次数 > 0, "并发期间不能只有错误而没有可用快照");
+    let 恢复 = docs_snapshot(root.display().to_string()).unwrap();
+    assert_eq!(恢复["requirements"].as_array().unwrap().len(), 条目数);
     std::fs::remove_dir_all(root).ok();
 }
 

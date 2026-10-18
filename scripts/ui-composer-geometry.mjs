@@ -179,6 +179,13 @@ async function openApp(browser, origin, { width, height, dpr, theme, state, lang
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
+  const scenario = { width, height, dpr, theme, state, lang };
+  page.on("requestfailed", (request) => console.error("Composer resource request failed:",
+    JSON.stringify({ scenario, url: request.url(), failure: request.failure() })));
+  page.on("response", (response) => {
+    if (response.status() >= 400) console.error("Composer resource HTTP failure:",
+      JSON.stringify({ scenario, url: response.url(), status: response.status(), contentType: response.headers()["content-type"] }));
+  });
   // 运行态 = composer 场景(一轮在跑、自主推进、鞭挞开着);空闲态 = empty 场景(新对话欢迎页,结伴开发)。
   if (state.includes("detached")) await page.addInitScript(() => {
     let real;
