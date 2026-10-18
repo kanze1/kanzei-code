@@ -44,3 +44,13 @@ Responses API 的模型回合与 Codex 订阅的直接搜索命令具有不同�
 完整组四个属性与四个引用均有对应正文；缺失组的三个引用正确，CodeBuddy 明确为证据不足，未编造 URL 或引文。共七个已回答属性的引用核对通过，一个缺失对象正确披露。判分器另有 12 项自检，覆盖缺对象、品牌 URL 冒充、错配引用、伪造引文和重复对象。
 
 证据文件：`output/remediation-20261018/search-answer-v1/acceptance.json`、`model-results.json`、`frozen-input.json`；实时检索分别见 `output/playwright/search-quality/native/live-results.json` 和 `output/remediation-20261018/luna-native-four-object-search.json`。上述结果不评估近期新闻时效、所有问题的相关性或长程自主漏洞调查质量。
+
+## 完整门禁中的修复
+
+第一轮全量验证发现项目文档链接的 Enter 路由被活动独立工作树的文件预览抢占。现在项目文档沿项目归属进入文档查看器；对话附件和显式文件打开继续沿各自的所有者解析。文档异步读取沿用查看器的导航代次校验，读取失败明确展示。文件链接回归 34 项通过。
+
+删除最后一个会话的回归仍断言旧“无监管模式”的开关选项；它已按现有三种下一轮执行模式核对显示文字与实际值，原来的首次绘制、删除、陈旧轮询和空收件箱检查全部保留并通过。
+
+归档缓存失效的订阅原先强制重绘管理页，会在后台刷新时替换搜索框。归档区域现由列表自己的填充函数更新，搜索输入节点和焦点保持不变；项目管理回归 57 项通过。工具 schema 账单沿用实际桌面延迟工具清单，包含新增 desktop，并明确核对它不驻留在首轮 schema 中。
+
+记忆存储的体量门禁发现单文件增长超限。创建准入事务及带来源的复核候选写入整体移入 store/creation.rs，公开接口、锁和准入规则保持一致；原门禁阈值未调整，独立复验通过。第一轮失败记录保留在 dist/verification-runs；最终完整门禁的提交、树、逐项结果和日志哈希以 dist/verification.json 为准。发布二进制复验与资产校验单独保存为 output/remediation-20261018/release-acceptance.json，不能用开发二进制结果替代。

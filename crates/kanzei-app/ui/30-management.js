@@ -176,6 +176,7 @@ function renderList(state) {
   }
   filter.value = state.filter;
   const list = el("div", null, "management-list");
+  const archives = el("div");
   const count = el("p", null, "management-list-count"); count.setAttribute("role", "status");
   const fill = () => {
     list.replaceChildren();
@@ -192,6 +193,7 @@ function renderList(state) {
       list.append(row);
     }
     if (!rows.length && state.docsStatus !== "error") list.append(el("p", t(state.docs ? "没有符合条件的条目" : "正在读取…"), "management-empty"));
+    renderArchives(state, archives);
   };
   state.fillList = fill;
   search.addEventListener("input", () => { state.query = search.value; fill(); });
@@ -205,22 +207,26 @@ function renderList(state) {
   more.setAttribute("aria-label", t("更多"));
   tools.append(search, filter, refreshAction(state), create, more);
   state.body.append(tools);
-  state.body.append(count, list); fill();
+  state.body.append(count, list, archives); fill();
+}
+
+function renderArchives(state, host) {
+  host.replaceChildren();
   const archived = Number(state.docs?.archived?.[state.tab] || 0);
   if (archived) {
     const kind = state.tab;
     if (!state.archives.has(kind)) {
       const resource = createReadResource(() => invoke("docs_archive_entries", { projectDir: state.project, kind }));
-      resource.subscribe(() => { if (live(state) && state.tab === kind && !state.detail) render(state, true); });
+      resource.subscribe(() => { if (live(state) && state.tab === kind && !state.detail) state.fillList?.(); });
       state.archives.set(kind, resource);
     }
     const resource = state.archives.get(kind);
     const button = action(`${t("已归档")} · ${archived}`, () => { void resource.load().catch(error => toastError(String(error))); });
-    button.disabled = resource.status === "loading"; state.body.append(button);
+    button.disabled = resource.status === "loading"; host.append(button);
     if (resource.status === "ready") {
       const archive = el("section", null, "management-archive"); archive.append(el("h2", t("已归档")));
       for (const entry of resource.data) archive.append(action(`${entry.id} · ${entry.title}`, () => void openManagementItem(state.project, { ...entry, closed: true }), "management-archive-row"));
-      state.body.append(archive);
+      host.append(archive);
     }
   }
 }

@@ -12,7 +12,7 @@ import { openFilePreview, switchFilesTree } from "./17-files.js";
 import { filesRoot } from "./17-files-editor.js";
 import { setStructuredNav, structuredNav } from "./04-structured.js";
 import { openMemoryDetailById } from "./13-memory.js";
-import { openRuntimeMarkdown } from "./15-views-misc.js";
+import { openCustomDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 export async function openUrlInApp(url, topic = "") {
   const target = String(url ?? "");
   if (!target) return;
@@ -29,18 +29,17 @@ export async function openUrlInApp(url, topic = "") {
 }
 /// docs/ 下的 markdown 进应用内查看器;其余文件切到文件打开预览。
 export async function openStructuredPath(path, line = null, target = null) {
-  if (target) return runPathAction(() => openPathTargetInApp(target));
   const rel = String(path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
   if (!rel) return;
-  if (/^docs\/.+\.md$/i.test(rel) && currentProject) {
-    try {
-      const file = await invoke("docs_read_custom", { projectDir: currentProject, relPath: rel });
-      openRuntimeMarkdown(file.name || rel, file.content);
-      return;
-    } catch {
-      /* 读不到(不在 docs 白名单/已删除)就退回文件预览,由预览如实报错。 */
-    }
+  const project = target?.args.projectDir || currentProject;
+  const documentPath = target?.preview && sameProject(target.preview.root, project) ? target.preview.path : rel;
+  if (!target?.args.processId && /^docs\/.+\.md$/i.test(documentPath) && project) {
+    return runPathAction(async () => {
+      if (!sameProject(currentProject, project) && !await openProjectSpace(project, "documents")) return;
+      await openCustomDocViewer(project, documentPath);
+    });
   }
+  if (target) return runPathAction(() => openPathTargetInApp(target));
   navigate_view("files");
   void openFilePreview({ path: rel, line });
 }

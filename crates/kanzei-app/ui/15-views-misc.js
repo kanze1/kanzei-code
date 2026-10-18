@@ -113,6 +113,11 @@ export function openRuntimeMarkdown(title, content) {
   // <dialog> 模态经原语打开:原生惰性化背景、Esc/点外关闭、关闭后焦点归还;已开着则只换内容。
   showViewer();
 }
+export async function openCustomDocViewer(project, relPath) {
+  const isCurrent = viewerRequest();
+  const file = await invoke("docs_read_custom", { projectDir: project, relPath });
+  if (isCurrent() && currentProject === project) openRuntimeMarkdown(file.name || relPath, file.content);
+}
 export async function openDocViewer(kind) {
   const isCurrent = viewerRequest();
   const project = currentProject;

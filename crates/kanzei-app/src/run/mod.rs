@@ -579,7 +579,10 @@ mod assembly_tests {
             21,
             "桌面 resident 另含 core task_spec"
         );
-        assert_eq!(snapshot.deferred_tools().len(), 20);
+        let deferred = snapshot.deferred_tools();
+        assert_eq!(deferred.len(), 21);
+        assert!(deferred.iter().any(|tool| tool.name() == "desktop"));
+        assert!(!resident_names.contains(&"desktop"));
         let all_specs: Vec<kanzei_llm::ToolSpec> = snapshot
             .materialize_tools()
             .iter()
@@ -589,20 +592,12 @@ mod assembly_tests {
                 input_schema: tool.input_schema(),
             })
             .collect();
-        let ui_tools = [
-            "ui_dom",
-            "ui_console",
-            "ui_style",
-            "ui_screenshot",
-            "frontend_locate",
-            "frontend_check",
-            "deliver",
-        ];
+        let ui_tools = crate::harness_ext::DESKTOP_DEFERRED_TOOLS;
         let specs: Vec<_> = all_specs
             .into_iter()
             .filter(|spec| ui_tools.contains(&spec.name.as_str()))
             .collect();
-        for expected in ui_tools {
+        for &expected in ui_tools {
             assert!(
                 specs.iter().any(|spec| spec.name.as_str() == expected),
                 "桌面增量工具缺失: {expected}"
