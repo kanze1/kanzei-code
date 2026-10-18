@@ -3,6 +3,7 @@
 pub mod arch_diagram;
 pub mod architecture;
 pub mod memory_consolidation;
+pub mod memory_dream;
 /// 原子写、文件锁和字节指纹由 kanzei-base 提供,各工具共用同一套实现。
 pub use kanzei_base::atomic_file;
 pub use kanzei_base::content_hash;
