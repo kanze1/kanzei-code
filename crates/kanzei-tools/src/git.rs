@@ -6,6 +6,7 @@ use std::path::Path;
 use kanzei_harness::{ToolCtx, ToolOutput};
 
 mod commands;
+pub mod observe;
 use commands::append_diagnostics;
 pub(crate) use commands::{run_git, run_git_owned};
 mod finalize;
@@ -1199,6 +1200,122 @@ mod tests {
     use super::*;
     use crate::test_record::TEST_RUNS_REL;
     use kanzei_harness::Tool;
+
+    #[tokio::test]
+    async fn readonly_observations_do_not_execute_repository_programs() {
+        let root = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        run_git(root.path(), &["init", "-q"]).await.unwrap();
+        std::fs::write(root.path().join("visible.txt"), "before\n").unwrap();
+        run_git(root.path(), &["add", "visible.txt"]).await.unwrap();
+        run_git(
+            root.path(),
+            &[
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "owned initial",
+            ],
+        )
+        .await
+        .unwrap();
+        let marker = state.path().join("repository-program-ran");
+        let quoted = marker
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "'\\''");
+        let hook = root.path().join("owned-hook.sh");
+        std::fs::write(
+            &hook,
+            format!("#!/bin/sh\nprintf RAN > '{quoted}'\nprintf 'token\\0'\n"),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        run_git(
+            root.path(),
+            &[
+                "config",
+                "core.fsmonitor",
+                &hook.to_string_lossy().replace('\\', "/"),
+            ],
+        )
+        .await
+        .unwrap();
+        run_git(root.path(), &["status", "--short"]).await.unwrap();
+        assert!(
+            marker.exists(),
+            "owned raw Git positive control must execute"
+        );
+        std::fs::remove_file(&marker).unwrap();
+        std::fs::write(
+            root.path().join(".gitattributes"),
+            "visible.txt filter=owned diff=owned\n",
+        )
+        .unwrap();
+        let program = format!("printf RAN > '{quoted}'; cat");
+        run_git(root.path(), &["config", "filter.owned.clean", &program])
+            .await
+            .unwrap();
+        run_git(root.path(), &["config", "diff.owned.textconv", &program])
+            .await
+            .unwrap();
+        std::fs::write(root.path().join("visible.txt"), "after longer\n").unwrap();
+        let ctx = ToolCtx::new(root.path().into(), root.path().into());
+        for action in ["status", "diff", "log"] {
+            let output = GitTool
+                .execute(serde_json::json!({"action":action}), &ctx)
+                .await;
+            assert!(!output.is_error, "{action}: {}", output.content);
+            assert!(
+                !marker.exists(),
+                "read-only {action} executed repository code"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn readonly_diff_requires_precise_consent_for_tracked_credentials() {
+        let root = temp_repo("observe-credentials");
+        std::fs::write(root.join(".env"), "OLD_CREDENTIAL_CANARY\n").unwrap();
+        run_git(&root, &["add", "-f", ".env"]).await.unwrap();
+        std::fs::write(root.join(".env"), "NEW_CREDENTIAL_CANARY\n").unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        for staged in [false, true] {
+            let output = GitTool
+                .execute(
+                    serde_json::json!({"action":"diff","files":[".env"],"staged":staged}),
+                    &ctx,
+                )
+                .await;
+            assert_eq!(
+                output.code.as_deref(),
+                Some("SENSITIVE_FILE_APPROVAL_REQUIRED")
+            );
+            assert!(!output.content.contains("CREDENTIAL_CANARY"));
+        }
+        let rules = kanzei_harness::permission::Ruleset::new(vec![kanzei_harness::rule(
+            "read",
+            ".env",
+            kanzei_harness::Effect::Allow,
+        )]);
+        let output = kanzei_harness::permission::scope(
+            rules,
+            GitTool.execute(serde_json::json!({"action":"diff","files":[".env"]}), &ctx),
+        )
+        .await;
+        assert!(!output.is_error, "{}", output.content);
+        assert!(output.content.contains("NEW_CREDENTIAL_CANARY"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     /// R-227 验收①:tracker diff 出现 `T-<数字>xxx` 占位符即拒;真实 10 位 ID 放行;
     /// 非 tracker 文件不受影响;无占位符放行。

@@ -9,7 +9,6 @@ use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use super::commands::{run_git, run_git_owned};
 use super::finalize::finalize;
 use super::{build_commit_plan, commit, merge_ff, stage, with_git_diagnostics};
 
@@ -111,7 +110,15 @@ impl Tool for GitTool {
 async fn git_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
     let mut diagnostics = Vec::new();
     let output = git_body_with_diagnostics(tool, input, ctx, &mut diagnostics).await;
-    with_git_diagnostics(output, &diagnostics)
+    let output = with_git_diagnostics(output, &diagnostics);
+    if matches!(input["action"].as_str(), Some("status" | "diff" | "log")) {
+        output.with_external_source(
+            kanzei_harness::ExternalSourceKind::File,
+            ctx.cwd.to_string_lossy(),
+        )
+    } else {
+        output
+    }
 }
 
 async fn git_body_with_diagnostics(
@@ -142,8 +149,8 @@ async fn git_body_with_diagnostics(
         }
     }
     match input.action.as_str() {
-        "status" => match run_git(&ctx.cwd, &["status", "--short", "--branch"]).await {
-            Ok(output) => ToolOutput::ok(output.render("(clean worktree)")),
+        "status" => match super::observe::status(&ctx.cwd) {
+            Ok(output) => ToolOutput::ok(super::observe::render_status(&output)),
             Err(error) => ToolOutput::error(error),
         },
         "diff" => {
@@ -151,21 +158,9 @@ async fn git_body_with_diagnostics(
                 Ok(files) => files,
                 Err(error) => return ToolOutput::needs_correction("GIT_INVALID_PATH", error),
             };
-            let mut args = vec![
-                "diff".to_string(),
-                "--no-ext-diff".into(),
-                "--no-color".into(),
-            ];
-            if input.staged {
-                args.push("--cached".into());
-            }
-            if !files.is_empty() {
-                args.push("--".into());
-                args.extend(files);
-            }
-            match run_git_owned(&ctx.cwd, &args).await {
-                Ok(output) => ToolOutput::ok(output.render("(no diff)")),
-                Err(error) => ToolOutput::error(error),
+            match super::observe::diff(ctx, &files, input.staged) {
+                Ok(output) => ToolOutput::ok(output),
+                Err(error) => *error,
             }
         }
         "log" => {
@@ -174,18 +169,8 @@ async fn git_body_with_diagnostics(
                 Err(error) => return ToolOutput::needs_correction("GIT_INVALID_PATH", error),
             };
             let count = input.count.unwrap_or(20).clamp(1, 200);
-            let mut args = vec![
-                "log".to_string(),
-                "--format=%h %ad %an | %s".into(),
-                "--date=format:%m-%d %H:%M".into(),
-                format!("-{count}"),
-            ];
-            if !files.is_empty() {
-                args.push("--".into());
-                args.extend(files);
-            }
-            match run_git_owned(&ctx.cwd, &args).await {
-                Ok(output) => ToolOutput::ok(output.render("(no commits)")),
+            match super::observe::log(&ctx.cwd, &files, count as usize) {
+                Ok(output) => ToolOutput::ok(output),
                 Err(error) => ToolOutput::error(error),
             }
         }
@@ -254,36 +239,16 @@ impl RepoState {
     }
 }
 
-fn dir_key(path: &Path) -> String {
-    let resolved = crate::path_form::canonical_or_simplified(path);
-    let text = resolved.display().to_string().replace('/', "\\");
-    let trimmed = text.trim_end_matches('\\').to_string();
-    if cfg!(windows) {
-        trimmed.to_lowercase()
-    } else {
-        trimmed
-    }
-}
-
-async fn repository_state(ctx: &ToolCtx, diagnostics: &mut Vec<String>) -> RepoState {
+async fn repository_state(ctx: &ToolCtx, _diagnostics: &mut Vec<String>) -> RepoState {
     let tree = crate::base::code_tree_root(&ctx.cwd, &ctx.project_root);
     let tree_text = crate::path_form::simplify(&tree).display().to_string();
-    match run_git(&ctx.cwd, &["rev-parse", "--show-toplevel"]).await {
-        Err(_) => RepoState::NotRepo { tree: tree_text },
-        Ok(output) => {
-            let stdout = output.take_stdout(diagnostics);
-            let top = stdout.lines().next().unwrap_or_default().trim().to_string();
-            if dir_key(Path::new(&top)) == dir_key(&tree) {
-                RepoState::Own
-            } else {
-                RepoState::Parent {
-                    tree: tree_text,
-                    toplevel: crate::path_form::simplify(Path::new(&top))
-                        .display()
-                        .to_string(),
-                }
-            }
-        }
+    match crate::project_state::git_state_of(&tree) {
+        crate::project_state::GitState::Repo { .. } => RepoState::Own,
+        crate::project_state::GitState::None => RepoState::NotRepo { tree: tree_text },
+        crate::project_state::GitState::Parent { toplevel } => RepoState::Parent {
+            tree: tree_text,
+            toplevel,
+        },
     }
 }
 

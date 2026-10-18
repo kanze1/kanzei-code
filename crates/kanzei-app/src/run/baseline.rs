@@ -4,9 +4,7 @@
 use kanzei_core::SessionStore;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::process::Stdio;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncReadExt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_STATUS_BYTES: usize = 16 * 1024;
 const MAX_PATHS: usize = 64;
@@ -40,112 +38,11 @@ pub(crate) struct DirtyPath {
     original_path: Option<String>,
 }
 
-struct GitOutput {
-    stdout: Vec<u8>,
-    error: Option<String>,
-    truncated: bool,
-}
-
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
-}
-
-async fn git_output(cwd: &Path, args: &[&str], limit: usize) -> GitOutput {
-    if !kanzei_tools::project_state::is_repository_root(cwd) {
-        return GitOutput {
-            stdout: vec![],
-            error: Some("代码树根没有独立 Git 仓库，未读取上级仓库".into()),
-            truncated: false,
-        };
-    }
-    let mut command = tokio::process::Command::new("git");
-    command
-        .args(args)
-        .current_dir(cwd)
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .kill_on_drop(true)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000);
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => {
-            return GitOutput {
-                stdout: vec![],
-                error: Some(error.to_string()),
-                truncated: false,
-            }
-        }
-    };
-    let result = tokio::time::timeout(Duration::from_secs(3), async {
-        let out = child.stdout.take().unwrap();
-        let err = child.stderr.take().unwrap();
-        let read_out = async {
-            let mut bytes = Vec::new();
-            out.take((limit + 1) as u64).read_to_end(&mut bytes).await?;
-            Ok::<_, std::io::Error>(bytes)
-        };
-        let read_err = async {
-            let mut bytes = Vec::new();
-            err.take(2_049).read_to_end(&mut bytes).await?;
-            Ok::<_, std::io::Error>(bytes)
-        };
-        tokio::pin!(read_out, read_err);
-        // Kill immediately when either bound is reached, so an unread full pipe
-        // cannot block Git while the other reader waits for EOF.
-        let (mut stdout, mut stderr) = tokio::select! {
-            output = &mut read_out => {
-                let stdout = output?;
-                if stdout.len() > limit { let _ = child.kill().await; }
-                (stdout, read_err.await?)
-            }
-            output = &mut read_err => {
-                let stderr = output?;
-                if stderr.len() > 2_048 { let _ = child.kill().await; }
-                (read_out.await?, stderr)
-            }
-        };
-        let truncated = stdout.len() > limit || stderr.len() > 2_048;
-        if truncated {
-            let _ = child.kill().await;
-        }
-        let exit = child.wait().await?;
-        stdout.truncate(limit);
-        stderr.truncate(2_048);
-        Ok::<_, std::io::Error>(GitOutput {
-            stdout,
-            truncated,
-            error: (!exit.success() && !truncated).then(|| {
-                format!(
-                    "git {:?}: {}",
-                    exit.code(),
-                    String::from_utf8_lossy(&stderr).trim()
-                )
-            }),
-        })
-    })
-    .await;
-    match result {
-        Ok(Ok(output)) => output,
-        Ok(Err(error)) => GitOutput {
-            stdout: vec![],
-            error: Some(error.to_string()),
-            truncated: false,
-        },
-        Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            GitOutput {
-                stdout: vec![],
-                error: Some("Git 起点采样超时，状态未知".into()),
-                truncated: false,
-            }
-        }
-    }
 }
 
 pub(crate) async fn capture(cwd: &Path, run_id: &str) -> RunBaseline {
@@ -202,29 +99,39 @@ pub(crate) async fn prepare(
 
 async fn capture_with_limit(cwd: &Path, run_id: &str, limit: usize) -> RunBaseline {
     let captured_at_ms = now_ms();
-    let before = git_output(cwd, &["rev-parse", "--verify", "HEAD"], 128).await;
-    let status = git_output(
-        cwd,
-        &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        limit,
-    )
-    .await;
-    let after = git_output(cwd, &["rev-parse", "--verify", "HEAD"], 128).await;
-    let head = before
-        .error
-        .is_none()
-        .then(|| String::from_utf8_lossy(&before.stdout).trim().to_string())
-        .filter(|value| !value.is_empty());
-    let head_stable = head.is_some() && after.error.is_none() && before.stdout == after.stdout;
-    let mut errors: Vec<_> = [before.error, status.error.clone(), after.error]
-        .into_iter()
-        .flatten()
-        .collect();
-    if head.is_some() && !head_stable {
-        errors.push("采样期间 HEAD 变化或末次读取失败，起点版本未知".into());
-    }
-    let (dirty, untracked, paths_truncated) = parse_status(&status.stdout);
-    let truncated = status.truncated || paths_truncated;
+    let directory = cwd.to_path_buf();
+    let observed = if kanzei_tools::project_state::is_repository_root(cwd) {
+        tokio::task::spawn_blocking(move || kanzei_tools::git_observe::status(&directory))
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result)
+    } else {
+        Err("代码树根没有独立 Git 仓库，未读取上级仓库".into())
+    };
+    let mut errors = Vec::new();
+    let (head, head_stable, mut raw, failed) = match observed {
+        Ok(observation) => {
+            let head = observation.head_before.as_ref().ok().cloned();
+            let stable = head.is_some() && observation.head_before == observation.head_after;
+            errors.extend(
+                [observation.head_before.err(), observation.head_after.err()]
+                    .into_iter()
+                    .flatten(),
+            );
+            if head.is_some() && !stable {
+                errors.push("采样期间 HEAD 变化或末次读取失败，起点版本未知".into());
+            }
+            (head, stable, observation.porcelain, false)
+        }
+        Err(error) => {
+            errors.push(error);
+            (None, false, vec![], true)
+        }
+    };
+    let bytes_truncated = raw.len() > limit;
+    raw.truncate(limit);
+    let (dirty, untracked, paths_truncated) = parse_status(&raw);
+    let truncated = bytes_truncated || paths_truncated;
     RunBaseline {
         schema_version: 1,
         run_id: run_id.into(),
@@ -233,7 +140,7 @@ async fn capture_with_limit(cwd: &Path, run_id: &str, limit: usize) -> RunBaseli
         cwd: cwd.display().to_string(),
         head,
         head_stable,
-        status: if status.error.is_some() {
+        status: if failed {
             "unknown"
         } else if truncated {
             "partial"
@@ -367,7 +274,7 @@ mod tests {
                 &hook.to_string_lossy().replace('\\', "/"),
             ],
         );
-        let _ = capture(&root, "positive-control").await;
+        git(&root, &["status", "--short"]);
         assert!(
             marker.is_file(),
             "the actual host Git observation executes this owned hook"
