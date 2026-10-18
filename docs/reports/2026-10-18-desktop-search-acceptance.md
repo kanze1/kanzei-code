@@ -45,6 +45,25 @@ Responses API 的模型回合与 Codex 订阅的直接搜索命令具有不同�
 
 证据文件：`output/remediation-20261018/search-answer-v1/acceptance.json`、`model-results.json`、`frozen-input.json`；实时检索分别见 `output/playwright/search-quality/native/live-results.json` 和 `output/remediation-20261018/luna-native-four-object-search.json`。上述结果不评估近期新闻时效、所有问题的相关性或长程自主漏洞调查质量。
 
+## 补充评价与原文证据修复
+
+继续按 WEB-06 核对时，发现上述固定集还没有独立评价所有返回结果的相关性和时间过滤，不能将其概括为完整的搜索质量验收。补充评价对两条后端的全部 27 条返回记录、23 个不同 URL 逐项标注：2 为直接说明目标 coding agent 的权限/沙箱，1 为相关指针，0 为其他产品或通用公司资料。单人事后标注，只报告这四个固定查询的实际返回集，不声称全库召回率或一般质量分数。
+
+| 后端 | 返回数 | 相关（含指针） | 直接论据 | 有直接论据的对象 |
+| --- | --- | --- | --- | --- |
+| Codex 订阅直接搜索 | 9 | 7/9 | 4/9 | 3/4 |
+| DuckDuckGo | 18 | 15/18 | 14/18 | 4/4 |
+
+同一官方域名也可能是另一产品：Agents API 环境安全、Codex Security 与 Claude Code Security 的扫描产品页不能自动证明 coding agent 的执行权限；仓库 SECURITY.md、security/policy 等重复指针也不能算多份独立直接论据。标注与可重复判分在 `output/remediation-20261018/search-relevance-annotations.json`、`grade-search-relevance-recency.mjs` 和 `search-relevance-recency-assessment.json`。
+
+时间过滤对照固定于 2026-10-18T12:27:36Z，使用第一方 GitHub release 元数据区分最近一周的 v2.1.302 与区间外的 v2.1.296。每后端各执行 recent-week、old-week、old-unfiltered 一次。两后端带 week 的结果没有发现精确的官方版本 release 页面，而是聚合页、镜像和 issue，不能从这些页面计算已核实的发布日期精度。DDG 无过滤旧版本查询遇到 CAPTCHA，作为失败保留，未重试；参数被正确传递不等于时效保证。
+
+另用最终 14dace59 二进制进行两道冻结自主任务。第一轮主模型为真实 Luna，辅助 web_extract 却为 fixture，因此只保留为受限观察。修正配置后 primary/fast 均使用真实 gpt-6-luna，每题新做一次，保留第一轮结果：安全调查 8 步，三个对象有语义依据，Codex 的两份第一方页面返回 403，明确披露缺失；三个引文只有 Kimi 的引文是对应网页的连续原文。Claude 引文改了枚举连接词，CodeBuddy 引用了辅助摘要对表格的解释。日期任务 5 步，正确核对 v2.1.302、2026-10-16T20:53:06Z；精确时间来自已获取的第一方 API，release 页面仅显示到分钟。两题都有一次把批量字段 q 写成 query 的输入错误，随后自行纠正；批量中的 locale 在显式订阅后端还得到 unsupported_filter，未静默改服务。运行完成、部分覆盖、正确事实和精确引文是不同结果。
+
+这暴露了工具证据通道的实际缺口：`webfetch(prompt=...)` 以前把辅助模型生成的文字直接作为网页提取结果。现在辅助模型仅返回结构化行号范围，程序核对范围后从已采集、带 SHA-256 的正文中返回原文。模型不能提供要输出的引文或摘要；无效 JSON、越界或模型失败明确返回 WEBFETCH_PASSAGE_SELECTION_FAILED，原文仍可通过缓存的 find/from_line 读取。空选择只说明所给预览未选到相关段落，不代表完整页面没有证据。模型选择与渲染分到 webfetch/passages.rs，沿用原有 web_extract 配置和采集所有者。另修复搜索 schema 将 locale 约束写到了未被引用的 $defs，而实际 draft-07 引用 definitions 的问题。
+
+旧二进制的自主观察保存在 `search-autonomous/` 与 `search-autonomous-full-model/`，结构核对在各目录 assessment.json，前一轮 CodeBuddy 引文同样未通过原文核对。它们不作为新源码和后续发布二进制的通过证据。新的完整门禁、发布资产和实测仍须绑定实际提交。
+
 ## 完整门禁中的修复
 
 第一轮全量验证发现项目文档链接的 Enter 路由被活动独立工作树的文件预览抢占。现在项目文档沿项目归属进入文档查看器；对话附件和显式文件打开继续沿各自的所有者解析。文档异步读取沿用查看器的导航代次校验，读取失败明确展示。文件链接回归 34 项通过。

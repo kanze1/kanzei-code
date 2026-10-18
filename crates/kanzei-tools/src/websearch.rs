@@ -153,7 +153,8 @@ impl Tool for WebSearchTool {
             .map(|region| serde_json::json!(region))
             .collect::<Vec<_>>();
         locales.push(serde_json::Value::Null);
-        schema["$defs"]["SearchQuery"]["properties"]["locale"]["enum"] = serde_json::json!(locales);
+        schema["definitions"]["SearchQuery"]["properties"]["locale"]["enum"] =
+            serde_json::json!(locales);
         schema["anyOf"] = serde_json::json!([
             {"required":["query"],"not":{"required":["queries"]}},
             {"required":["queries"],"not":{"required":["query"]}}
@@ -841,6 +842,24 @@ fn decode_result_url(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_query_schema_attaches_constraints_to_the_referenced_definition() {
+        let schema = WebSearchTool.input_schema();
+        let reference = schema["properties"]["queries"]["items"]["$ref"]
+            .as_str()
+            .unwrap();
+        let query = schema
+            .pointer(reference.strip_prefix('#').unwrap())
+            .unwrap();
+        assert_eq!(query["required"], serde_json::json!(["q"]));
+        assert_eq!(query["properties"]["q"]["type"], "string");
+        assert!(query["properties"]["locale"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("cn-zh")));
+        assert!(schema.get("$defs").is_none());
+    }
 
     #[test]
     fn an_overlong_query_is_rejected_instead_of_silently_changing_the_search() {
