@@ -219,6 +219,9 @@ pub struct SkillReadTool;
 
 #[async_trait::async_trait]
 impl crate::Tool for SkillReadTool {
+    fn read_only_support(&self) -> crate::tool::ReadOnlySupport {
+        crate::tool::ReadOnlySupport::ReadOnly
+    }
     fn name(&self) -> &'static str {
         "skill_read"
     }

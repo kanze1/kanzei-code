@@ -49,6 +49,10 @@ pub struct QuestionTool;
 
 #[async_trait]
 impl Tool for QuestionTool {
+    // The runner records/forwards control-plane choices; it never edits user resources.
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ControlPlane
+    }
     fn name(&self) -> &'static str {
         "question"
     }

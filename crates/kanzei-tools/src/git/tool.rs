@@ -52,6 +52,9 @@ pub struct GitTool;
 
 #[async_trait]
 impl Tool for GitTool {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ByAction
+    }
     fn name(&self) -> &'static str {
         "git"
     }

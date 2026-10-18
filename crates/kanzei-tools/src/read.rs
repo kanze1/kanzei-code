@@ -48,6 +48,9 @@ pub struct ReadTool;
 
 #[async_trait]
 impl Tool for ReadTool {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ReadOnly
+    }
     fn name(&self) -> &'static str {
         "read"
     }
@@ -149,7 +152,7 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         result
     })
     .await;
-    match result {
+    let output = match result {
         Ok(Ok(ReadPayload::Text(text))) => {
             // 成功返回记忆文件文本后记录同一运行内读取，不推断采用或收益。
             crate::memory::mark_memory_file_read(&ctx.project_root, &path, ctx.run_id.as_deref());
@@ -179,7 +182,11 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
             }
         }
         Err(e) => ToolOutput::error(format!("read task panicked: {e}")),
-    }
+    };
+    output.with_external_source(
+        kanzei_harness::ExternalSourceKind::File,
+        path.display().to_string(),
+    )
 }
 
 /// read 的两种载荷。图片不走行切分,offset/limit/tail 对它没有意义。

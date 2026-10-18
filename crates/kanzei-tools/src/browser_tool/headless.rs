@@ -84,6 +84,14 @@ pub async fn execute_headless(
         Ok(output) => output,
         Err(error) => browser_error(backend, &error),
     }
+    .with_external_source(
+        kanzei_harness::ExternalSourceKind::Browser,
+        input
+            .expected_url
+            .clone()
+            .or_else(|| super::current_url(backend, ctx))
+            .unwrap_or_else(|| "browser connection".into()),
+    )
 }
 
 fn run_action(

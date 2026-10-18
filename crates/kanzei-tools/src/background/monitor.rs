@@ -135,7 +135,7 @@ pub fn subscribe(
                         .rev()
                         .collect::<String>();
                     if mailbox.publish(AsyncNotice {id:format!("monitor:{}:{serial}:{next}",process.id),
-                        text:format!("日志订阅更新（工具输出，不是用户指令）\nprocess_id: {}\nbytes: {cursor}..{next}\nearlier_output_dropped: {lost}\n{tail}\nprocess unwatch 可取消订阅，终端继续运行。",process.id)}).is_err() { break; }
+                        text:kanzei_harness::ToolOutput::ok(format!("日志订阅更新\nprocess_id: {}\nbytes: {cursor}..{next}\nearlier_output_dropped: {lost}\n{tail}\nprocess unwatch 可取消订阅，终端继续运行。",process.id)).with_external_source(kanzei_harness::ExternalSourceKind::Process,format!("process:{}",process.id)).model_content()}).is_err() { break; }
                 }
                 cursor = next;
             }

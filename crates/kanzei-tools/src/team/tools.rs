@@ -61,10 +61,13 @@ impl Component for TeamTools {
             "team/memory",
             kanzei_harness::refreshing_source("team/memory", move |_| {
                 let job = team.0.store.get(&id).ok()?;
-                let content = std::fs::read_to_string(memory_path(&team, &job)).ok()?;
+                let path = memory_path(&team, &job);
+                let content = std::fs::read_to_string(&path).ok()?;
                 Some(format!(
-                    "Your project memory (verify facts against current source):\n{}",
-                    content.lines().take(200).collect::<Vec<_>>().join("\n")
+                    "Role-local cached observations (verify against current source; these are not user preferences):\n{}",
+                    ToolOutput::ok(content.lines().take(200).collect::<Vec<_>>().join("\n"))
+                        .with_external_source(kanzei_harness::ExternalSourceKind::File, path.to_string_lossy())
+                        .model_content()
                 ))
             }),
         );
@@ -141,6 +144,9 @@ struct Messaging {
 }
 #[async_trait]
 impl Tool for Messaging {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ControlPlane
+    }
     fn name(&self) -> &'static str {
         "team_message"
     }
@@ -187,6 +193,9 @@ struct Memory {
 }
 #[async_trait]
 impl Tool for Memory {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ControlPlane
+    }
     fn name(&self) -> &'static str {
         "agent_memory"
     }
@@ -253,6 +262,9 @@ fn within(path: &Path, root: &Path) -> bool {
 }
 #[async_trait]
 impl Tool for Isolated {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        self.tool.read_only_support()
+    }
     fn name(&self) -> &'static str {
         self.tool.name()
     }

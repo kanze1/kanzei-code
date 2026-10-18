@@ -211,7 +211,7 @@ impl Tool for ProcessTool {
                     "background": true,
                     "processId": p.id,
                     "output": rendered.chars().take(4000).collect::<String>(),
-                }))
+                })).with_external_source(kanzei_harness::ExternalSourceKind::Process,format!("process:{}",p.id))
             }
             "stop" => {
                 let Some(id) = input.id.as_deref() else {

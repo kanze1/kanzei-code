@@ -18,6 +18,7 @@ pub struct SubagentBase;
 
 impl Component for SubagentBase {
     fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+        crate::base::add_source_policy(draft);
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
@@ -58,6 +59,7 @@ pub struct WritableSubagentBase;
 
 impl Component for WritableSubagentBase {
     fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+        crate::base::add_source_policy(draft);
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));

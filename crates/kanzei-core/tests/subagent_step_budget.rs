@@ -19,6 +19,12 @@ struct Probe(Arc<AtomicUsize>);
 
 #[async_trait::async_trait]
 impl Tool for Probe {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ReadOnly
+    }
+    fn concurrency(&self, _: &Value, _: &ToolCtx) -> kanzei_harness::ToolConcurrency {
+        kanzei_harness::ToolConcurrency::Shared("budget-probe".into())
+    }
     fn name(&self) -> &'static str {
         "budget_probe"
     }

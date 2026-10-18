@@ -24,6 +24,9 @@ pub struct ToolSearchTool;
 
 #[async_trait]
 impl Tool for ToolSearchTool {
+    fn read_only_support(&self) -> crate::tool::ReadOnlySupport {
+        crate::tool::ReadOnlySupport::ReadOnly
+    }
     fn name(&self) -> &'static str {
         TOOL_SEARCH
     }

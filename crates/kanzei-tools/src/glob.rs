@@ -26,6 +26,9 @@ pub struct GlobTool;
 
 #[async_trait]
 impl Tool for GlobTool {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ReadOnly
+    }
     fn name(&self) -> &'static str {
         "glob"
     }

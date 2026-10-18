@@ -443,18 +443,22 @@ fn assistant_message_text(message: &Message) -> Option<String> {
 /// Child history, write policy and permission routing belong to that runtime.
 /// 内部轮次/工具事件折叠成 TaskProgress 经 progress 通道上抛(UI 实时可见)。
 pub(crate) fn validate_readonly_snapshot(snapshot: &HarnessSnapshot) -> Result<(), String> {
-    for tool in snapshot.materialize_tools() {
-        if !matches!(
-            tool.name(),
-            "read" | "glob" | "grep" | "files" | "symbols" | "git"
-        ) {
-            return Err(format!(
-                "read-only subagent snapshot contains an unaudited tool: {}",
-                tool.name()
-            ));
-        }
+    let unaudited = snapshot
+        .materialize_tools()
+        .into_iter()
+        .filter(|tool| {
+            tool.read_only_support() == kanzei_harness::tool::ReadOnlySupport::Unsupported
+        })
+        .map(|tool| tool.name())
+        .collect::<Vec<_>>();
+    if unaudited.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "read-only subagent snapshot contains unaudited tools: {}",
+            unaudited.join(", ")
+        ))
     }
-    Ok(())
 }
 
 pub async fn run_subagent(

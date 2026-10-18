@@ -58,7 +58,10 @@ pub use orchestration::{
 pub use permission::{Effect, ManagedResource, Rule, Ruleset};
 pub use registry::Registry;
 pub use repair::tolerant_parse;
-pub use tool::{Tool, ToolArtifact, ToolConcurrency, ToolCtx, ToolImage, ToolOutcome, ToolOutput};
+pub use tool::{
+    ExternalSource, ExternalSourceKind, Tool, ToolArtifact, ToolConcurrency, ToolCtx, ToolImage,
+    ToolOutcome, ToolOutput, EXTERNAL_SOURCE_POLICY, EXTERNAL_SOURCE_PREFIX,
+};
 pub use tool_search::{ToolSearchTool, TOOL_SEARCH};
 
 pub mod pending_question;

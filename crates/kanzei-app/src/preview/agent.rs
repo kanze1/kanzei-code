@@ -53,7 +53,11 @@ pub(crate) async fn execute_checked(
     {
         return Some(ToolOutput::error("预览页面已变化，请重新检查后再操作"));
     }
-    Some(run(app, &pane, input, ctx).await)
+    Some(
+        run(app, &pane, input, ctx)
+            .await
+            .with_external_source(kanzei_harness::ExternalSourceKind::Browser, page_url(&pane)),
+    )
 }
 
 fn same_owner(

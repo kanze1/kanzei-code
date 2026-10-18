@@ -610,7 +610,9 @@ async fn bash_command_body(
             } else {
                 ToolOutput::error(rendered)
             };
-            output.with_display(display)
+            output
+                .with_display(display)
+                .with_external_source(kanzei_harness::ExternalSourceKind::Process, "shell output")
         }
         Err(reason) => {
             let mut text = match reason {
@@ -672,7 +674,9 @@ async fn bash_command_body(
                 "full": text.chars().take(200_000).collect::<String>(),
             });
             // 超时不是成功:按错误返回,上层不再把它计入正常完成。
-            ToolOutput::error(text).with_display(display)
+            ToolOutput::error(text)
+                .with_display(display)
+                .with_external_source(kanzei_harness::ExternalSourceKind::Process, "shell output")
         }
     }
 }
@@ -701,6 +705,10 @@ fn background_result(process: &crate::background::BackgroundProcess, ctx: &ToolC
         "kind": "terminal", "command": process.command, "background": true,
         "processId": process.id, "output": process.output(),
     }))
+    .with_external_source(
+        kanzei_harness::ExternalSourceKind::Process,
+        format!("process:{}", process.id),
+    )
 }
 
 /// 后台任务的 workdir 结构化围栏(D-174 静态第一道)。

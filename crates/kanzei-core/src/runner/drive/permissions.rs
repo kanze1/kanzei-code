@@ -114,10 +114,12 @@ pub(super) fn permission_plan(
         denied: None,
     };
     if policy == kanzei_harness::ExecutionPolicy::ReadOnly
-        && !matches!(
-            tool.concurrency(input, ctx),
-            kanzei_harness::ToolConcurrency::Shared(_)
-        )
+        && (tool.read_only_support() == kanzei_harness::tool::ReadOnlySupport::Unsupported
+            || (tool.read_only_support() != kanzei_harness::tool::ReadOnlySupport::ControlPlane
+                && !matches!(
+                    tool.concurrency(input, ctx),
+                    kanzei_harness::ToolConcurrency::Shared(_)
+                )))
     {
         plan.denied = Some(format!("read-only execution scope forbids {}", tool.name()));
         return plan;

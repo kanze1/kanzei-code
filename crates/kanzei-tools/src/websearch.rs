@@ -168,7 +168,9 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        self.execute_for(input, ctx, ProfileKind::Dev).await
+        self.execute_for(input, ctx, ProfileKind::Dev)
+            .await
+            .with_external_source(kanzei_harness::ExternalSourceKind::Web, "websearch")
     }
 }
 
@@ -738,6 +740,7 @@ impl Tool for ResearchWebSearchTool {
         WebSearchTool
             .execute_for(input, ctx, ProfileKind::Research)
             .await
+            .with_external_source(kanzei_harness::ExternalSourceKind::Web, "websearch")
     }
 }
 

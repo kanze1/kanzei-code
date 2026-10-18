@@ -77,6 +77,9 @@ struct CleanupProbe {
 
 #[async_trait]
 impl Tool for CleanupProbe {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ReadOnly
+    }
     fn name(&self) -> &'static str {
         "execution_probe"
     }
@@ -142,15 +145,15 @@ fn readonly_child_boundary_rejects_an_incorrectly_constructed_snapshot() {
     let mut harness = Harness::default();
     harness
         .add(Policy)
-        .add(SnapshotTool(Arc::new(MutationProbe::default())));
+        .add(SnapshotTool(Arc::new(CleanupProbe::default())));
     let snapshot = harness.resolve(&rctx).unwrap();
     assert!(crate::runner::subagent::validate_readonly_snapshot(&snapshot).is_ok());
-    harness.add(SnapshotTool(Arc::new(CleanupProbe::default())));
+    harness.add(SnapshotTool(Arc::new(MutationProbe::default())));
     let snapshot = harness.resolve(&rctx).unwrap();
     assert!(
         crate::runner::subagent::validate_readonly_snapshot(&snapshot)
             .unwrap_err()
-            .contains("execution_probe")
+            .contains("git")
     );
 }
 

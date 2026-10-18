@@ -10,6 +10,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
 import { actions } from "./fixtures/browser-form-actions.mjs";
+import { decodeExternalSource } from "./fixtures/tool-source.mjs";
 
 assert(process.platform === "win32" && process.argv[2], "Usage: node scripts/ui-browser-connection-native-smoke.mjs <exe>");
 const output = path.resolve("output/playwright/browser-connection/native"), run = path.join(output, String(Date.now()));
@@ -47,9 +48,10 @@ const model = http.createServer(async (req, res) => {
     let raw = ""; for await (const chunk of req) raw += chunk;
     const messages = JSON.parse(raw).messages, user = messages.findLastIndex(message => message.role === "user" && JSON.stringify(message.content).includes("NATIVE_CONNECTED_FORM"));
     if (user < 0) { reply(res, { content: "No candidates for this fixture." }); return; }
-    const outputs = messages.slice(user + 1).filter(message => message.role === "tool");
+    const outputs = messages.slice(user + 1).filter(message => message.role === "tool").map(message => ({ ...message, ...decodeExternalSource(message.content) }));
     if (outputs.length) {
       const last = outputs.at(-1).content; results[outputs.length - 1] = last;
+      if (last.startsWith("backend:")) assert.equal(outputs.at(-1).source?.kind, "browser", "Existing browser observations carry an external source policy");
       assert(!last.startsWith("[tool error]") && !last.includes("[tool_outcome="), `Connected browser action failed: ${last}`);
     }
     if (outputs.length === 2) {

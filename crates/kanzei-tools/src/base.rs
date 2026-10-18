@@ -8,8 +8,18 @@ use crate::shell::detected_shell;
 
 pub struct BaseComponent;
 
+pub(crate) fn add_source_policy(draft: &mut HarnessDraft) {
+    draft.context.insert(
+        "core/source-policy",
+        kanzei_harness::source("core/source-policy", |_| {
+            Some(kanzei_harness::EXTERNAL_SOURCE_POLICY.into())
+        }),
+    );
+}
+
 impl Component for BaseComponent {
     fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+        add_source_policy(draft);
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
         draft
             .tools

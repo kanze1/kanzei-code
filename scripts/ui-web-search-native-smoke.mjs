@@ -9,6 +9,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { decodeExternalSource } from "./fixtures/tool-source.mjs";
 
 assert(process.platform === "win32" && process.argv[2], "Usage: node scripts/ui-web-search-native-smoke.mjs <exe>");
 const output = path.resolve("output/playwright/web-search/native"), run = path.join(output, String(Date.now()));
@@ -51,8 +52,10 @@ const model = http.createServer(async (req, res) => {
     console.log(`Native search ${mode}: ${outputs.length} completed tools`);
     if (outputs.length === 0) { toolReply(res, "tool_search", { query: "select:websearch" }, mode, 0); return; }
     if (outputs.length === 1) { toolReply(res, "websearch", { queries: [{ q: `software acceptance ${mode}`, domains: ["example.test"], exclude_domains: ["blocked.example.test"] }] }, mode, 1); return; }
-    results[mode] = outputs.at(-1).output;
+    const decoded = decodeExternalSource(outputs.at(-1).output);
+    results[mode] = decoded.content;
     const allowed = mode === "NATIVE_SEARCH_ALLOW" || mode === "NATIVE_SEARCH_AUTO_ALLOW";
+    if (allowed) assert.equal(decoded.source?.kind, "web", "Actual native search results remain source data, not instructions");
     textReply(res, allowed ? `SEARCH_COMPLETED：[Verified source](${source})` : "SEARCH_DECLINED：未派发原生搜索。");
   } catch (error) { errors.push(String(error)); textReply(res, `FIXTURE_FAILED: ${error.message}`); }
 });
@@ -101,6 +104,7 @@ try {
   const facts = database.prepare("SELECT session_id,payload_json FROM session_events WHERE event_type='web.searched'").all();
   check(facts.length === 2 && facts.every(row => JSON.parse(row.payload_json).session_id === row.session_id && JSON.parse(row.payload_json).run_id), "Only dispatched searches produce durable receipts bound to their actual session and run");
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
+  await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, lines.at(-1).id);
   await until(() => page.locator(`a[href='${source}']`).count(), "Source link survives history reload");
   check(true, "Answer source is clickable after actual native history reload");
   check(await page.locator("a[href^='javascript:']").count() === 0, "Invalid provider annotation URLs never become clickable sources");
