@@ -10,6 +10,12 @@ pub struct BaseComponent;
 
 pub(crate) fn add_source_policy(draft: &mut HarnessDraft) {
     draft.context.insert(
+        "core/exploration-policy",
+        kanzei_harness::source("core/exploration-policy", |_| Some(
+            "Locate paths and symbols before reading large files. Read the relevant range to answer the current question, then expand only when evidence requires it. Reuse inspected evidence and task handoffs with exact paths, line references, source versions and unresolved questions. Re-read when the version changed or a specific claim needs verification. An engine observation_reference points to identical bytes retained in a later tool result in this request; it is not evidence that the file stayed unchanged between observations.".into()
+        )),
+    );
+    draft.context.insert(
         "core/source-policy",
         kanzei_harness::source("core/source-policy", |_| {
             Some(kanzei_harness::EXTERNAL_SOURCE_POLICY.into())

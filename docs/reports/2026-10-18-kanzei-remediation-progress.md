@@ -6,7 +6,7 @@
 
 | 项目 | 当前状态 | 下一项完成证据 |
 | --- | --- | --- |
-| RUN-01 | 待实施 | 相同调查任务的正确性及上下文消耗对照 |
+| RUN-01 | 请求投影去重与按证据扩展的调查提示已实施；原生 8 项、真实 Luna 两组固定源码配对均保留正确结论 | 更长调查任务的读取量、上下文峰值、压缩次数和交付正确性对照，最终发布版复验 |
 | RUN-02 | 每次变更工具持有租约，普通开发会话可并行调查；原生双会话 8 项检查通过 | 最终发布版复验及冲突用例完整门禁 |
 | RUN-03 | 桌面 628 项单测通过，含输入启动失败/取消/排队的重启恢复，待状态操作验收 | 真实 UI 状态及故障恢复一致 |
 | RUN-04 | 日期/时区按日刷新，身份/模型/构建先持久化再进上下文；原生请求已核对 | 报告与最终发布版本关联复验 |
@@ -144,3 +144,9 @@ ui-sandbox-native-smoke 原生 22 项通过，包含项目隔离正常运行、�
 Git 只读观察：实际 owned fsmonitor 通过普通 Git 正向对照创建金丝雀；原 status 工具也创建金丝雀，负向断言失败。status/diff/log 和运行起点现在共用进程内 libgit2 观察，不启动 Git 程序；Git 修改事务保留原有明确操作及租约。工具仓库归属判定也改为现有无进程的项目事实入口，不能在动作分发前启动 CLI。status 不写索引；工作区 diff 不调用自动转换，而是通过 ScopedFile 读取工作文件，再与索引对象比较；暂存 diff 同样在返回对象内容前核对文件范围与精确凭据许可。输出采用文件来源框。
 
 Git 40 项通过，涵盖 log 条数/路径过滤、既有提交事务，以及 fsmonitor、clean filter、textconv 配置不启动测试程序；跟踪 .env 的工作区和暂存 diff 未授权时不回显金丝雀，精确 read 规则下才能返回。运行起点 6 项通过，包括部分状态、未知 HEAD、父仓库隔离、持久来源和 isolated 不执行 hook。新依赖 git2 0.21.0/libgit2 1.9.7 关闭默认传输功能；API 语义参照 [DiffOptions](https://docs.rs/git2/latest/git2/struct.DiffOptions.html) 和 [libgit2 status](https://libgit2.org/docs/reference/main/status/index.html)。联合回归桌面 636、Core 435+10+1、Tools 925 通过，Tools 4 个独立入口不计通过，三 crate all-targets Clippy 通过。
+
+重复文件观察投影：只处理 read/grep/glob/files/symbols 的成功、纯文本、带引擎 File 来源框且工具输入和完整输出字节完全相同的结果。在当前请求保留最新完整副本，较旧副本改为指向其 call_id、SHA-256 和来源的引擎引用。图像/文档、错误、修改工具、变化的内容和其他来源不合并。持久历史、工具实际执行和 UI 原文不变；每次请求按仍在该请求中的证据重新计算，不留下指向已压缩历史的悬空引用。预算估计与发送使用同一投影。共享调查提示先定位路径/符号，再按问题读取，交接带版本、定位与未解项；需验真或版本变化时继续复核。
+
+原生 ui-observation-native-smoke 8 项通过：真实界面发送后四次实际 read 均完成，实际模型请求有 3 个旧副本引用及 1 个最新正文，四个工具身份保留；SQLite 事实仍有 4 份完整观察，源文件未变，真实重载保留答案与来源。证据 output/playwright/observations/native/acceptance.json、native-observations.png。首次脚本因全新项目的登记入口截获 Dev 输入而未实际运行；改为用户可选的 isolated 观察档走实际发送，不将超时当作产品通过。
+
+真实 gpt-6-luna 固定源码配对：两题各发 raw/projected 请求，第二题交换顺序，不重试。按源码路径核对答案与引用，4/4 正确；题一请求字节 4961→3509、总输入 1269→936 token（-26.24%）；题二 3398→3161、840→825（-1.79%）。记录同时保存 uncached/cache_read/cache_write，不把缓存当成上下文节省。是四次固定源码问答，不是完整自主调查或通用智能评分，两组压缩次数均为 0。首轮严格索要内部 call_id 时 raw 两题返回 functions.read、projected 返回 obs-3：代码结论都正确，但原始引用检查失败；该轮结果保留在 observation-benchmark-1，未删除或计作通过。改用双方都能从来源数据观察到的源码路径后，新输出保存在 observation-benchmark-2。更长调查对照仍待执行。

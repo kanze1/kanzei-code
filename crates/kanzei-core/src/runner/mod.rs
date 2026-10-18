@@ -22,6 +22,8 @@ pub use tokio_util::sync::CancellationToken;
 pub(crate) mod metrics;
 pub use metrics::*;
 mod context;
+mod observations;
+pub use observations::{project_observation_context, ObservationProjection};
 mod redundancy;
 pub(crate) use context::*;
 mod compaction;

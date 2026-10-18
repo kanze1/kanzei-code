@@ -130,7 +130,9 @@ pub(crate) fn estimate_prompt_tokens_for_protocol(
     protocol: Option<ProtocolKind>,
 ) -> u64 {
     let system_bytes: usize = system.iter().map(String::len).sum();
-    let message_bytes: usize = messages
+    let projection = super::observations::project_observation_context(messages);
+    let message_bytes: usize = projection
+        .messages
         .iter()
         .map(|message| {
             if protocol == Some(ProtocolKind::OpenAiChat)

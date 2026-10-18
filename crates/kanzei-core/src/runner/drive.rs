@@ -631,7 +631,8 @@ async fn stream_request_step(
     loop {
         // 每次恢复都会改写 messages，请求必须在重试循环内重建；否则即使压缩了
         // 内存历史，发给 provider 的仍会是第一次克隆出的超长请求。
-        let mut request_messages = messages.clone();
+        let projection = super::observations::project_observation_context(messages);
+        let mut request_messages = projection.messages.into_owned();
         if let Some(prompt) = batch_prompt {
             request_messages.push(Message::user_text(prompt));
         }
