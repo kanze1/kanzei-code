@@ -10,7 +10,7 @@ import vm from 'node:vm';
 const root = resolve(import.meta.dirname, '..');
 const baseline = '26acb7f0ce2d9643826cc9229f430f84e57c13f0';
 const before = process.argv.includes('--before');
-const names = ['03-session-stage.js', '12-conversation-model.js', '01-core.js', '03-shell.js', ...(!before ? ['00-ipc.js', '00-views.js', '00-session-state.js', '00-dom.js', '00-event-subscriptions.js', '00-console.js', '00-ui-primitives.js', '00-dialogs.js', '00-ui-preferences.js', '01-chat-panes.js', '01-runtime-events.js'] : [])];
+const names = ['03-session-stage.js', '12-conversation-model.js', '01-core.js', '03-shell.js', ...(!before ? ['00-ipc.js', '00-views.js', '00-session-state.js', '00-dom.js', '00-event-subscriptions.js', '00-console-log.js', '00-console.js', '00-ui-primitives.js', '00-dialogs.js', '00-ui-preferences.js', '01-chat-panes.js', '01-runtime-events.js'] : [])];
 const sources = new Map(names.map(name => [name, before
   ? execFileSync('git', ['show', `${baseline}:crates/kanzei-app/ui/${name}`], { cwd: root, encoding: 'utf8' })
   : readFileSync(resolve(root, 'crates/kanzei-app/ui', name), 'utf8').replace(/\r\n/g, '\n')]));
