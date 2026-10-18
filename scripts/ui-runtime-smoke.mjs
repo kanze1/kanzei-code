@@ -4,6 +4,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import vm from "node:vm";
+import { webcrypto } from "node:crypto";
 import { loadUiSources } from "./ui-sources.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -2538,6 +2539,7 @@ const sandbox = {
     },
   },
   window: windowShim,
+  crypto: webcrypto,
   performance: globalThis.performance,
   document,
   localStorage: localStorageShim,
@@ -4795,8 +4797,9 @@ assert(document.querySelector("#memory-recalls .memory-recall")?.open === true, 
 // 列表只在选中某个 scope/category 后渲染,冒烟里直接驱动该入口。
 await sandbox.loadMemoryList("project", null);
 await flush();
-const dormantRow = document.querySelector("#memory-list .memory-row.dormant");
-assert(dormantRow, "长期零命中的记忆未被标记(无从判断哪些记忆该清理)");
+assert(!document.querySelector("#memory-list .memory-row.dormant"), "文件陈旧且零命中不能冒充已经过观察窗口的降级结论");
+const dormantRow = document.querySelector('#memory-list .memory-row[data-memory-id="M-DEAD-001"]');
+assert(dormantRow, "尚无使用观测的记忆仍应可见并允许用户处置");
 assert(listText("memory-list").includes("从未命中"), "记忆列表未给出最近命中时间");
 dormantRow.click();
 await flush();

@@ -1025,6 +1025,10 @@
       "projectDir": {
         "required": true,
         "type": "String"
+      },
+      "requestId": {
+        "required": true,
+        "type": "String"
       }
     },
     "path": "memory::memory_consolidate",
@@ -1034,6 +1038,10 @@
     "host": "service",
     "parameters": {
       "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "requestId": {
         "required": true,
         "type": "String"
       },
@@ -1226,6 +1234,32 @@
       }
     },
     "path": "memory::memory_graph",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_job_status": {
+    "host": "service",
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_job_status",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "memory_job_stop": {
+    "host": "service",
+    "parameters": {
+      "jobId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "memory::memory_job_stop",
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_note_candidates": {

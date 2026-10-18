@@ -266,10 +266,12 @@ export const commandParameters = {
     "requestId": true
   },
   "memory_consolidate": {
-    "projectDir": true
+    "projectDir": true,
+    "requestId": true
   },
   "memory_consolidate_note": {
     "projectDir": true,
+    "requestId": true,
     "scope": true,
     "summary": true
   },
@@ -318,6 +320,13 @@ export const commandParameters = {
     "title": false
   },
   "memory_graph": {
+    "projectDir": true
+  },
+  "memory_job_status": {
+    "projectDir": true
+  },
+  "memory_job_stop": {
+    "jobId": true,
     "projectDir": true
   },
   "memory_note_candidates": {

@@ -512,6 +512,14 @@
     "host": "service"
   },
   {
+    "path": "memory::memory_job_status",
+    "host": "service"
+  },
+  {
+    "path": "memory::memory_job_stop",
+    "host": "service"
+  },
+  {
     "path": "memory::memory_consolidate_note",
     "host": "service"
   },

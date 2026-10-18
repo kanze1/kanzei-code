@@ -188,6 +188,7 @@ fn memory_entry_json(
         "title": entry.title, "description": entry.description, "status": entry.status,
         "updated": entry.updated, "source": entry.source, "refs": entry.refs(), "areas": entry.areas(),
         "archived": archived,
+        "retention_reason": entry.extras.iter().find(|(key,_)| key == "retention_reason").map(|(_,value)| value),
         "hits": hits, "last_hit_at": last_hit_at, "recalled": counts.recalled,
         "injected": counts.injected, "read": counts.read, "read_observed": counts.read_observed,
         "revision": revision, "usage": counts,
@@ -428,7 +429,13 @@ pub(crate) fn resolve_area_tokens(
 pub(crate) fn memory_note_candidates(project_dir: String) -> serde_json::Value {
     let mut out = Vec::new();
     for store in memory_stores_for(&project_dir) {
-        for (hint, summary, detail) in store.pending_note_list() {
+        for note in store.pending_note_records() {
+            let kanzei_tools::memory::InboxNote {
+                id,
+                hint,
+                summary,
+                detail,
+            } = note;
             let fingerprint = summary
                 .rfind('[')
                 .and_then(|i| {
@@ -437,7 +444,7 @@ pub(crate) fn memory_note_candidates(project_dir: String) -> serde_json::Value {
                         .map(|j| summary[i..i + j + 1].to_string())
                 })
                 .unwrap_or_default();
-            out.push(json!({"scope": store.scope.label(), "hint": hint, "summary": summary, "detail": detail, "fingerprint": fingerprint}));
+            out.push(json!({"id":id,"scope": store.scope.label(), "hint": hint, "summary": summary, "detail": detail, "fingerprint": fingerprint}));
         }
     }
     json!(out)
@@ -665,16 +672,20 @@ pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {
 }
 
 #[tauri::command]
-pub(crate) async fn memory_consolidate(project_dir: String) -> Result<serde_json::Value, String> {
+pub(crate) async fn memory_consolidate(
+    project_dir: String,
+    request_id: String,
+) -> Result<serde_json::Value, String> {
     // 手动触发(设置页按钮)不在轮末序列里,没有"当轮 episode"可代填。
-    let report = consolidate_memory_inbox(project_dir.clone(), None)
+    let report = consolidate_memory_inbox(project_dir.clone(), None, Some(&request_id))
         .await
         .map_err(|error| error.to_string())?;
-    let event_type = if report.has_failures() {
-        "memory_consolidation_stopped"
-    } else {
-        "memory_consolidation_completed"
-    };
+    let event_type =
+        if report.status != kanzei_tools::memory_consolidation::ConsolidationStatus::Completed {
+            "memory_consolidation_stopped"
+        } else {
+            "memory_consolidation_completed"
+        };
     append_memory_fact(
         &project_dir,
         event_type,
@@ -684,6 +695,27 @@ pub(crate) async fn memory_consolidate(project_dir: String) -> Result<serde_json
     Ok(json!({"pending": report.pending_after, "report": report}))
 }
 
+#[tauri::command(async)]
+pub(crate) fn memory_job_status(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = project_root_of(&project_dir);
+    let job = kanzei_tools::memory_consolidation::jobs::snapshot(&root)
+        .map_err(|error| error.to_string())?;
+    let can_stop = kanzei_tools::memory_consolidation::jobs::can_cancel(&root)
+        .map_err(|error| error.to_string())?;
+    Ok(json!({"job":job,"can_stop":can_stop}))
+}
+
+#[tauri::command(async)]
+pub(crate) fn memory_job_stop(
+    project_dir: String,
+    job_id: String,
+) -> Result<serde_json::Value, String> {
+    let root = project_root_of(&project_dir);
+    let stopped = kanzei_tools::memory_consolidation::jobs::cancel(&root, &job_id)
+        .map_err(|error| error.to_string())?;
+    Ok(json!({"stopped":stopped}))
+}
+
 /// 逐条「采纳」:只让记忆管理子代理提炼这一条待整理笔记(`summary` = 该笔记摘要原文),
 /// 不再顺带把整箱都整理掉。待整理笔记只在项目范围(全局库没有整理链路)。
 #[tauri::command]
@@ -691,6 +723,7 @@ pub(crate) async fn memory_consolidate_note(
     project_dir: String,
     scope: String,
     summary: String,
+    request_id: String,
 ) -> Result<serde_json::Value, String> {
     if scope != "project" {
         return Err("只有项目记忆的待整理条目可以单条采纳".into());
@@ -698,15 +731,19 @@ pub(crate) async fn memory_consolidate_note(
     if summary.trim().is_empty() {
         return Err("缺少要整理的待整理条目标识".into());
     }
-    let report =
-        kanzei_tools::memory_consolidation::consolidate_note_for_project(&project_dir, &summary)
-            .await
-            .map_err(|error| error.to_string())?;
-    let event_type = if report.has_failures() {
-        "memory_consolidation_stopped"
-    } else {
-        "memory_consolidation_completed"
-    };
+    let report = kanzei_tools::memory_consolidation::consolidate_note_for_project(
+        &project_dir,
+        &summary,
+        &request_id,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let event_type =
+        if report.status != kanzei_tools::memory_consolidation::ConsolidationStatus::Completed {
+            "memory_consolidation_stopped"
+        } else {
+            "memory_consolidation_completed"
+        };
     append_memory_fact(
         &project_dir,
         event_type,
@@ -719,10 +756,12 @@ pub(crate) async fn memory_consolidate_note(
 pub(crate) async fn consolidate_memory_inbox(
     project_dir: String,
     current_episode_id: Option<i64>,
+    request_id: Option<&str>,
 ) -> anyhow::Result<kanzei_tools::memory_consolidation::ConsolidationReport> {
     kanzei_tools::memory_consolidation::consolidate_memory_for_project(
         &project_dir,
         current_episode_id,
+        request_id,
     )
     .await
 }

@@ -14,6 +14,7 @@ mod manager;
 mod migration;
 mod recall_search;
 mod relevance;
+mod retention;
 mod retrieval;
 mod store;
 mod telemetry;
@@ -22,11 +23,12 @@ mod test_home;
 mod tools;
 mod usage;
 
-pub use inbox::{InboxBatch, InboxCheckpoint};
+pub use inbox::{InboxBatch, InboxCheckpoint, InboxNote, MemoryJobProgress, MemoryJobStatus};
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
 pub use ledger::DeduplicationReport;
 pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent, MemoryStaleTool};
 pub use relevance::lexical_weight as query_relevance;
+pub use retention::{memory_content_revision, MemoryRetentionPolicy, MemoryRetentionReport};
 pub use store::{
     AddOutcome, CandidateReconcileReport, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit,
 };
@@ -1245,6 +1247,13 @@ pub fn reconcile_candidates(
     current_episode_id: Option<i64>,
     max_age_days: i64,
 ) -> anyhow::Result<CandidateReconcileReport> {
+    let retention = MemoryStore::project(project_root).reconcile_retention(
+        MemoryRetentionPolicy::default(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis()
+            .try_into()?,
+    )?;
     let global = reconcile_global_candidates(max_age_days)?;
     let mut project = MemoryStore::project(project_root)
         .reconcile_candidates(current_episode_id, max_age_days)?;
@@ -1254,6 +1263,7 @@ pub fn reconcile_candidates(
     project.global_deprecated = global.global_deprecated;
     project.global_recall_rows = global.global_recall_rows;
     project.global_review_already_recorded = global.global_review_already_recorded;
+    project.retention = retention;
     Ok(project)
 }
 
@@ -1459,6 +1469,11 @@ fn prompt_hints_scoped(
             return Some(format!("[memory retrieval unavailable] {error:#}. Existing project knowledge was not searched; do not interpret this as no matching memory."));
         }
     };
+    if let Some(run_id) = run_id {
+        if let Err(error) = MemoryStore::project(project_root).record_availability(run_id) {
+            tracing::error!(%error, "memory opportunity recording unavailable; retention will require existing observations");
+        }
+    }
     // 模块约束和预算折叠的项目约束未必常驻；按任务检索，不能按类别静默丢弃。
     let mut hits = found;
     if hits.is_empty() {

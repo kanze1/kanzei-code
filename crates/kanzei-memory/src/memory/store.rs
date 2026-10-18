@@ -94,6 +94,7 @@ pub enum Novelty {
 /// 一轮 candidate 自动处置的可审计结果。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CandidateReconcileReport {
+    pub retention: super::MemoryRetentionReport,
     pub candidate_files_before: usize,
     pub candidate_files_after: usize,
     pub candidate_index_before: usize,
@@ -2726,6 +2727,7 @@ mod tests {
             failure_reason: None,
             consecutive_failures: 0,
             updated_at_ms: 42,
+            job: None,
         };
         store.write_inbox_checkpoint(&checkpoint).unwrap();
         assert_eq!(store.read_inbox_checkpoint(), Some(checkpoint));

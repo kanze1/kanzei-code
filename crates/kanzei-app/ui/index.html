@@ -790,12 +790,14 @@
             <button type="button" id="memory-search-clear" class="ghost" hidden data-i18n-key="清除搜索">清除搜索</button>
             <button type="button" id="memory-refresh" class="ghost" data-i18n-key="刷新">刷新</button>
             <button type="button" class="ghost" id="memory-consolidate-btn" title="让记忆管理子代理把全部待整理条目提炼成记忆条目" data-i18n-title="让记忆管理子代理把全部待整理条目提炼成记忆条目"><span data-i18n-key="全部整理">全部整理</span><span id="memory-consolidate-count" class="memory-consolidate-count"></span></button>
+            <button type="button" class="ghost" id="memory-consolidate-stop" hidden data-i18n-key="停止整理">停止整理</button>
             <button type="button" class="ghost" id="memory-new-btn" title="在管理对话里说明要记住什么，由记忆管理子代理整理成条目(它会先查重、再写召回钩子)" data-i18n-title="在管理对话里说明要记住什么，由记忆管理子代理整理成条目(它会先查重、再写召回钩子)"><span data-i18n-key="新建记忆">新建记忆</span></button>
             <div class="memory-view-switch" role="group" aria-label="记忆视图" data-i18n-aria-label="记忆视图">
               <button type="button" id="memory-view-list" aria-pressed="true" data-i18n-key="列表">列表</button>
               <button type="button" id="memory-view-graph" aria-pressed="false" data-i18n-key="图谱">图谱</button>
             </div>
           </div>
+          <p id="memory-job-progress" class="dim" role="status" aria-live="polite" hidden></p>
           <details class="project-knowledge-wrap">
             <summary data-i18n-key="项目知识">项目知识</summary>
             <div id="memory-arch" aria-label="记忆架构总览" data-i18n-aria-label="记忆架构总览"></div>

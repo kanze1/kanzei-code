@@ -9,12 +9,22 @@ use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, Tool, ToolC
 use kanzei_llm::{LlmClient, ProxyConfig};
 use serde::Serialize;
 
+pub mod jobs;
+
+pub use crate::memory::MemoryJobStatus as ConsolidationStatus;
+
 use crate::memory::{consolidation_prompt, InboxCheckpoint, MemoryManagerComponent, MemoryStore};
 
 const MAX_BATCH_NOTES: usize = 10;
 const MAX_BATCH_BYTES: usize = 32 * 1024;
 const MAX_BATCH_TOKENS: usize = 8 * 1024;
 const FAILURE_ALERT_THRESHOLD: usize = 3;
+
+struct InboxRequest<'a> {
+    current_episode_id: Option<i64>,
+    only: Option<&'a str>,
+    request_id: Option<&'a str>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ConsolidationBatchReport {
@@ -30,6 +40,8 @@ pub struct ConsolidationBatchReport {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ConsolidationReport {
+    pub status: ConsolidationStatus,
+    pub job: Option<crate::memory::MemoryJobProgress>,
     pub pending_before: usize,
     pub pending_after: usize,
     pub batches: Vec<ConsolidationBatchReport>,
@@ -38,7 +50,10 @@ pub struct ConsolidationReport {
 
 impl ConsolidationReport {
     pub fn has_failures(&self) -> bool {
-        self.stopped_reason.is_some() || self.batches.iter().any(|batch| batch.error.is_some())
+        matches!(
+            self.status,
+            ConsolidationStatus::Failed | ConsolidationStatus::Incomplete
+        )
     }
 
     pub fn summary(&self) -> String {
@@ -49,7 +64,8 @@ impl ConsolidationReport {
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "memory inbox: {} -> {} pending; batches=[{}]; stopped_reason={}",
+            "memory inbox {:?}: {} -> {} pending; batches=[{}]; stopped_reason={}",
+            self.status,
             self.pending_before,
             self.pending_after,
             batches,
@@ -76,6 +92,7 @@ fn checkpoint(
     pending_after: usize,
     failure_reason: Option<String>,
     consecutive_failures: usize,
+    job: &jobs::JobControl,
 ) -> anyhow::Result<()> {
     store.write_inbox_checkpoint(&InboxCheckpoint {
         batch_id: batch_id.to_string(),
@@ -87,6 +104,7 @@ fn checkpoint(
         failure_reason,
         consecutive_failures,
         updated_at_ms: now_ms(),
+        job: Some(job.snapshot.lock().unwrap().clone()),
     })
 }
 
@@ -97,7 +115,7 @@ fn checkpoint(
 /// changed `memory-manager` entry in `active` state and visibly carry the note summary.
 fn reconcile_active_notes(
     store: &MemoryStore,
-    batch_text: &str,
+    batch: &crate::memory::InboxBatch,
     before_entries: &[(std::path::PathBuf, crate::memory::MemoryEntry)],
 ) -> anyhow::Result<usize> {
     use std::collections::HashMap;
@@ -121,8 +139,8 @@ fn reconcile_active_notes(
         .collect::<Vec<_>>();
 
     let mut discarded = 0;
-    for (_, summary, _) in store.pending_note_list() {
-        if summary.is_empty() || !batch_text.contains(&summary) {
+    for (id, summary) in batch.notes() {
+        if summary.is_empty() {
             continue;
         }
         let materialized = changed_active.iter().any(|entry| {
@@ -130,7 +148,7 @@ fn reconcile_active_notes(
                 || entry.description.contains(&summary)
                 || entry.body.contains(&summary)
         });
-        if materialized && store.discard_note(&summary)? {
+        if materialized && store.discard_batch_note(&id, &batch.note_ids)? {
             discarded += 1;
         }
     }
@@ -215,16 +233,14 @@ async fn process_explicit_stale_requests(
         }
     }
     let mut discarded = 0;
-    for (_, summary, _) in store.pending_note_list() {
-        if batch.text.contains(&summary) {
-            let removed = kanzei_harness::managed_fence::tool_scope(
-                &ctx.project_root,
-                "memory_inbox_discard",
-                async { store.discard_note(&summary) },
-            )
-            .await?;
-            discarded += usize::from(removed);
-        }
+    for id in &batch.note_ids {
+        let removed = kanzei_harness::managed_fence::tool_scope(
+            &ctx.project_root,
+            "memory_inbox_discard",
+            async { store.discard_batch_note(id, &batch.note_ids) },
+        )
+        .await?;
+        discarded += usize::from(removed);
     }
     Ok(discarded)
 }
@@ -243,7 +259,19 @@ pub async fn consolidate_memory_inbox(
     ctx: &ToolCtx,
     current_episode_id: Option<i64>,
 ) -> ConsolidationReport {
-    consolidate_inbox_inner(config, proxy, client, rctx, ctx, current_episode_id, None).await
+    consolidate_inbox_inner(
+        config,
+        proxy,
+        client,
+        rctx,
+        ctx,
+        InboxRequest {
+            current_episode_id,
+            only: None,
+            request_id: None,
+        },
+    )
+    .await
 }
 
 /// `only` = Some(needle) 时只整理收件箱里包含该摘要原文的那一条草稿(界面逐条「采纳」),
@@ -254,46 +282,104 @@ async fn consolidate_inbox_inner(
     client: &LlmClient,
     rctx: &ResolveCtx,
     ctx: &ToolCtx,
-    current_episode_id: Option<i64>,
-    only: Option<&str>,
+    request: InboxRequest<'_>,
 ) -> ConsolidationReport {
+    let InboxRequest {
+        current_episode_id,
+        only,
+        request_id,
+    } = request;
     let store = MemoryStore::project(&ctx.project_root);
     let pending_before = store.pending_notes();
     let mut report = ConsolidationReport {
+        status: ConsolidationStatus::Completed,
+        job: None,
         pending_before,
         pending_after: pending_before,
         batches: Vec::new(),
         stopped_reason: None,
     };
+    if let Some(id) = request_id {
+        match jobs::request_snapshot(&ctx.project_root, id) {
+            Ok(Some(previous)) => {
+                report.status = previous.status;
+                report.job = Some(previous);
+                return report;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                report.status = ConsolidationStatus::Failed;
+                report.stopped_reason = Some(format!("job receipt unavailable: {error}"));
+                return report;
+            }
+        }
+    }
     if pending_before == 0 {
         return report;
     }
-    if let Some(needle) = only {
-        if store.read_inbox_note(needle).is_none() {
-            report.stopped_reason = Some("这条待整理条目已被整理或丢弃".into());
+    let job = match jobs::JobLease::begin(&ctx.project_root, &store, request_id) {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            report.status = ConsolidationStatus::Busy;
+            report.stopped_reason = Some("已有记忆整理作业，草稿仍保留在收件箱".into());
+            if let Some(request_id) = request_id {
+                match jobs::request_snapshot(&ctx.project_root, request_id) {
+                    Ok(Some(previous)) => {
+                        report.status = previous.status;
+                        report.job = Some(previous);
+                        report.stopped_reason = Some("同一整理请求已经受理，返回原作业结果".into());
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        report.status = ConsolidationStatus::Failed;
+                        report.stopped_reason = Some(format!("job receipt unavailable: {error}"));
+                    }
+                }
+            }
             return report;
         }
-    }
-
-    let mut harness = Harness::default();
-    harness.add(MemoryManagerComponent);
-    let snapshot = match harness.resolve(rctx) {
-        Ok(snapshot) => snapshot,
         Err(error) => {
-            report.stopped_reason = Some(format!("manager harness resolve failed: {error}"));
+            report.status = ConsolidationStatus::Failed;
+            report.stopped_reason = Some(format!("memory job ownership failed: {error}"));
             return report;
         }
     };
+    report.job = Some(job.control.snapshot.lock().unwrap().clone());
+    if let Some(needle) = only {
+        if store.read_inbox_note(needle).is_none() {
+            report.status = ConsolidationStatus::Incomplete;
+            report.stopped_reason = Some("这条待整理条目已被整理或丢弃".into());
+            return finish_job(report, &job);
+        }
+    }
+
     let agent = crate::memory::manager_agent();
 
     loop {
+        if job.control.halt.is_cancelled() {
+            report.status = ConsolidationStatus::Cancelled;
+            report.stopped_reason = Some("记忆整理已停止，未处理的草稿已保留".into());
+            break;
+        }
         let batch = match only {
             Some(needle) => store.read_inbox_note(needle),
             None => store.read_inbox_batch(MAX_BATCH_NOTES, MAX_BATCH_BYTES, MAX_BATCH_TOKENS),
         };
         let Some(batch) = batch else {
+            report.status = ConsolidationStatus::Incomplete;
             report.stopped_reason = Some("inbox could not be read as a batch".into());
             break;
+        };
+        let mut harness = Harness::default();
+        harness.add(MemoryManagerComponent);
+        harness.add(MemoryManagerComponent::for_batch(&batch));
+        let snapshot = match harness.resolve(rctx) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                report.status = ConsolidationStatus::Failed;
+                report.stopped_reason = Some(format!("manager harness resolve failed: {error}"));
+                return finish_job(report, &job);
+            }
         };
         let batch_id = format!("inbox-{}", now_ms());
         let pending_at_start = store.pending_notes();
@@ -313,6 +399,7 @@ async fn consolidate_inbox_inner(
             pending_at_start,
             None,
             previous_failures,
+            &job.control,
         ) {
             report.stopped_reason = Some(format!("checkpoint write failed: {error}"));
             break;
@@ -324,7 +411,14 @@ async fn consolidate_inbox_inner(
                 .err()
                 .map(|error| error.to_string());
             let pending_after = store.pending_notes();
-            let success_notes = pending_at_start.saturating_sub(pending_after);
+            let success_notes = match store.consumed_batch_notes(&batch) {
+                Ok(count) => count,
+                Err(error) => {
+                    report.status = ConsolidationStatus::Failed;
+                    report.stopped_reason = Some(format!("inbox progress read failed: {error}"));
+                    return finish_job(report, &job);
+                }
+            };
             let status = if explicit_error.is_some() {
                 "failed"
             } else if success_notes < batch.note_count {
@@ -347,6 +441,7 @@ async fn consolidate_inbox_inner(
                 pending_after,
                 explicit_error.clone(),
                 failure_streak,
+                &job.control,
             )
             .err()
             .map(|error| format!("checkpoint finalization failed: {error}"));
@@ -381,23 +476,15 @@ async fn consolidate_inbox_inner(
         }
 
         let prompt = consolidation_prompt(&batch.text, current_episode_id);
-        let mut last_error = None;
-        let mut attempted = false;
-        for role in ["primary", "fast"] {
-            let resolved = match config.resolve_model(role) {
-                Ok(resolved) => resolved,
-                Err(error) => {
-                    last_error = Some(format!("resolve {role} model failed: {error}"));
-                    continue;
-                }
-            };
-            let route = match kanzei_core::build_route(&resolved, proxy).await {
-                Ok(route) => route,
-                Err(error) => {
-                    last_error = Some(format!("build {role} route failed: {error}"));
-                    continue;
-                }
-            };
+        let result = async {
+            let resolved = config.resolve_model(&agent.model)?;
+            {
+                let mut snapshot = job.control.snapshot.lock().unwrap();
+                snapshot.provider = Some(resolved.provider_name.clone());
+                snapshot.model = Some(resolved.model.clone());
+            }
+            job.control.publish()?;
+            let route = kanzei_core::build_route(&resolved, proxy).await?;
             let runner_config = RunnerConfig {
                 hosted_tools: Vec::new(),
                 digest_model: None,
@@ -411,9 +498,28 @@ async fn consolidate_inbox_inner(
                 recall: None,
                 execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
                 ask_policy: kanzei_core::AskPolicy::NonInteractive,
-                halt: None,
+                halt: Some(job.control.halt.clone()),
             };
-            let mut on_event = |_event: RunEvent| {};
+            let mut on_event = |event: RunEvent| {
+                if matches!(event, RunEvent::TurnStart { .. } | RunEvent::StepEnd { .. }) {
+                    let mut snapshot = job.control.snapshot.lock().unwrap();
+                    match event {
+                        RunEvent::TurnStart { .. } => snapshot.steps += 1,
+                        RunEvent::StepEnd { usage, .. } => {
+                            snapshot.input_tokens =
+                                snapshot.input_tokens.saturating_add(usage.input);
+                            snapshot.output_tokens =
+                                snapshot.output_tokens.saturating_add(usage.output);
+                            snapshot.usage_reported |= usage.input > 0 || usage.output > 0;
+                        }
+                        _ => unreachable!(),
+                    }
+                    drop(snapshot);
+                    if let Err(error) = job.control.publish() {
+                        job.control.persistence_failed(error);
+                    }
+                }
+            };
             let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
                 Box::pin(async move {
                     match request {
@@ -426,8 +532,7 @@ async fn consolidate_inbox_inner(
                     }
                 })
             };
-            attempted = true;
-            match run_once_with_parts(
+            run_once_with_parts(
                 client,
                 &route,
                 &snapshot,
@@ -443,27 +548,35 @@ async fn consolidate_inbox_inner(
                 &mut ask,
             )
             .await
-            {
-                Ok(_) => {
-                    last_error = None;
-                    break;
-                }
-                Err(error) => {
-                    last_error = Some(format!("{role} manager run failed: {error}"));
-                }
+        }
+        .await;
+        let mut last_error = match result {
+            Ok(summary) if summary.halted_by_user => {
+                report.status = ConsolidationStatus::Cancelled;
+                Some("记忆整理已停止，已完成的写入保留，未处理的草稿可续跑".into())
             }
-        }
-        if !attempted && last_error.is_none() {
-            last_error = Some("no manager model route was available".into());
-        }
+            Ok(summary) if summary.step_limit_reached => {
+                report.status = ConsolidationStatus::Incomplete;
+                Some("整理步骤预算已用尽，未完成的草稿可续跑".into())
+            }
+            Ok(_) => None,
+            Err(error) => Some(format!("{} manager run failed: {error}", agent.model)),
+        };
 
-        if let Err(error) = reconcile_active_notes(&store, &batch.text, &before_entries) {
+        if let Err(error) = reconcile_active_notes(&store, &batch, &before_entries) {
             last_error = Some(format!(
                 "deterministic inbox reconciliation failed: {error}"
             ));
         }
         let pending_after = store.pending_notes();
-        let success_notes = pending_at_start.saturating_sub(pending_after);
+        let success_notes = match store.consumed_batch_notes(&batch) {
+            Ok(count) => count,
+            Err(error) => {
+                report.status = ConsolidationStatus::Failed;
+                report.stopped_reason = Some(format!("inbox progress read failed: {error}"));
+                return finish_job(report, &job);
+            }
+        };
         let status = if success_notes == 0 {
             "failed"
         } else if success_notes < batch.note_count {
@@ -491,6 +604,7 @@ async fn consolidate_inbox_inner(
             pending_after,
             error.clone(),
             failure_streak,
+            &job.control,
         )
         .err()
         .map(|write_error| format!("checkpoint finalization failed: {write_error}"));
@@ -521,6 +635,31 @@ async fn consolidate_inbox_inner(
             break;
         }
     }
+    finish_job(report, &job)
+}
+
+fn finish_job(mut report: ConsolidationReport, job: &jobs::JobLease) -> ConsolidationReport {
+    if report.status == ConsolidationStatus::Completed {
+        report.status = if report.stopped_reason.is_some()
+            || report.batches.iter().any(|batch| batch.error.is_some())
+        {
+            ConsolidationStatus::Failed
+        } else if report.batches.iter().any(|batch| batch.status == "partial") {
+            ConsolidationStatus::Incomplete
+        } else {
+            ConsolidationStatus::Completed
+        };
+    }
+    if let Some(error) = job.control.snapshot.lock().unwrap().error.clone() {
+        report.status = ConsolidationStatus::Failed;
+        report.stopped_reason = Some(error);
+    }
+    if let Err(error) = job.control.transition(report.status) {
+        report.status = ConsolidationStatus::Failed;
+        report.stopped_reason = Some(format!("job finalization failed: {error}"));
+        job.control.persistence_failed(error);
+    }
+    report.job = Some(job.control.snapshot.lock().unwrap().clone());
     report
 }
 
@@ -528,27 +667,29 @@ async fn consolidate_inbox_inner(
 pub async fn consolidate_memory_for_project(
     project_dir: &str,
     current_episode_id: Option<i64>,
+    request_id: Option<&str>,
 ) -> anyhow::Result<ConsolidationReport> {
-    consolidate_for_project(project_dir, current_episode_id, None).await
+    consolidate_for_project(project_dir, current_episode_id, None, request_id).await
 }
 
 /// 桌面端逐条「采纳」:同一套依赖,只整理摘要里包含 `needle` 的那一条草稿。
 pub async fn consolidate_note_for_project(
     project_dir: &str,
     needle: &str,
+    request_id: &str,
 ) -> anyhow::Result<ConsolidationReport> {
-    consolidate_for_project(project_dir, None, Some(needle)).await
+    consolidate_for_project(project_dir, None, Some(needle), Some(request_id)).await
 }
 
 async fn consolidate_for_project(
     project_dir: &str,
     current_episode_id: Option<i64>,
     only: Option<&str>,
+    request_id: Option<&str>,
 ) -> anyhow::Result<ConsolidationReport> {
     let cwd = std::path::PathBuf::from(project_dir);
-    let project_root =
-        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
-    let config = KanzeiConfig::load(&cwd)?;
+    let project_root = cwd.clone();
+    let config = KanzeiConfig::load_at_root(&project_root)?;
     let config = std::sync::Arc::new(config);
     let rctx = ResolveCtx {
         profile: ProfileKind::Dev,
@@ -573,8 +714,11 @@ async fn consolidate_for_project(
         &client,
         &rctx,
         &ctx,
-        current_episode_id,
-        only,
+        InboxRequest {
+            current_episode_id,
+            only,
+            request_id,
+        },
     )
     .await)
 }
@@ -633,7 +777,9 @@ mod tests {
         active_store
             .update(&id, None, None, None, Some("active"), None, false)
             .unwrap();
-        let batch = active_store.read_inbox();
+        let batch = active_store
+            .read_inbox_batch(10, usize::MAX, usize::MAX)
+            .unwrap();
         assert_eq!(
             reconcile_active_notes(&active_store, &batch, &before).unwrap(),
             1
@@ -658,7 +804,9 @@ mod tests {
                 true,
             )
             .unwrap();
-        let batch = candidate_store.read_inbox();
+        let batch = candidate_store
+            .read_inbox_batch(10, usize::MAX, usize::MAX)
+            .unwrap();
         assert_eq!(
             reconcile_active_notes(&candidate_store, &batch, &[]).unwrap(),
             0

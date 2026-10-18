@@ -95,6 +95,12 @@ fn local_command(command: &str) -> bool {
     crate::native_dispatch::desktop_command(command)
 }
 
+fn completed_shutdown(action: &str, reply: &Value) -> bool {
+    matches!(action, "shutdown" | "retire_if_idle")
+        && reply["ok"] == true
+        && reply["value"]["stopped"] == true
+}
+
 pub(crate) fn route<F>(handler: F) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static
 where
     F: Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static,
@@ -430,10 +436,12 @@ pub(crate) fn install_service(app: &tauri::AppHandle) -> Result<(), String> {
             let journal = journal.clone();
             let notify = notify.clone();
             tauri::async_runtime::spawn(async move {
+                let mut action = String::new();
                 let result = async {
                     let input = tokio::time::timeout(Duration::from_secs(10), frame_read(&mut stream)).await.map_err(|_| "后台请求超时")??;
                     if input["token"].as_str() != Some(endpoint.token.as_str()) { return Err("后台认证失败".into()); }
-                    match input["action"].as_str().unwrap_or("") {
+                    action = input["action"].as_str().unwrap_or("").to_owned();
+                    match action.as_str() {
                         "ping" => Ok(json!({"pid":endpoint.pid,"protocol":PROTOCOL,"build":env!("KANZEI_RUNTIME_BUILD"),"cursor":journal.lock_or_recover().seq})),
                         "retire_if_idle" => compatibility::retire_if_idle(&app).await,
                         "process_roots" => {
@@ -476,7 +484,7 @@ pub(crate) fn install_service(app: &tauri::AppHandle) -> Result<(), String> {
                     Ok(value) => json!({"ok":true,"value":value}),
                     Err(error) => json!({"ok":false,"value":error}),
                 };
-                let exiting = reply["ok"] == true && reply["value"]["stopped"] == true;
+                let exiting = completed_shutdown(&action, &reply);
                 let _ =
                     tokio::time::timeout(CONTROL_DEADLINE, frame_write(&mut stream, &reply)).await;
                 if exiting {
@@ -494,6 +502,18 @@ include!("runtime_events.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stopping_one_operation_does_not_exit_the_runtime_owner() {
+        let stopped = json!({"ok":true,"value":{"stopped":true}});
+        assert!(!completed_shutdown("invoke", &stopped));
+        assert!(!completed_shutdown("invoke", &stopped));
+        assert!(completed_shutdown("shutdown", &stopped));
+        assert!(completed_shutdown("retire_if_idle", &stopped));
+        assert!(!completed_shutdown(
+            "shutdown",
+            &json!({"ok":false,"value":{"stopped":true}})
+        ));
+    }
     #[test]
     fn detached_journal_keeps_hosted_tools_and_schedule_notifications() {
         let mut journal = Journal::default();

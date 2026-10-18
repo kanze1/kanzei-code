@@ -1,6 +1,21 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "停止整理": "Stop consolidation",
+  "这一条已整理": "This note has been processed",
+  "长期未用，已降级": "Unused for an extended period; demoted",
+  "正在停止整理": "Stopping consolidation",
+  "整理已完成": "Consolidation completed",
+  "整理已停止，可继续": "Consolidation stopped; ready to resume",
+  "整理未完成，可继续": "Consolidation incomplete; ready to resume",
+  "上次整理中断，可继续": "Previous consolidation interrupted; ready to resume",
+  "正在准备模型": "Preparing model",
+  "用量未报告": "Usage not reported",
+  "已请求停止整理": "Consolidation stop requested",
+  "整理作业已经结束": "Consolidation job has ended",
+  "作业进度读取失败": "Could not read job progress",
+  "停止整理失败": "Could not stop consolidation",
+  "已有整理作业在运行": "A consolidation job is already running",
   "已采用": "Adopted",
   "不准确": "Inaccurate",
   "撤销评价": "Clear feedback",

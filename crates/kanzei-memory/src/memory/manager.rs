@@ -642,42 +642,103 @@ impl Tool for MemoryInboxDiscardTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: InboxDiscardInput = match crate::parse_input(self, input) {
-            Ok(v) => v,
-            Err(out) => return out,
-        };
-        if !matches!(input.decision.as_str(), "noop" | "produced") {
-            let store = MemoryStore::project(&ctx.project_root);
-            return rejected(
-                &store,
-                &input.fingerprint,
-                "memory_inbox_discard decision must be `noop` or `produced`",
-            );
-        }
+        execute_inbox_discard(input, ctx, None)
+    }
+}
+
+fn execute_inbox_discard(
+    input: serde_json::Value,
+    ctx: &ToolCtx,
+    note_ids: Option<&[String]>,
+) -> ToolOutput {
+    let input: InboxDiscardInput = match crate::parse_input(&MemoryInboxDiscardTool, input) {
+        Ok(v) => v,
+        Err(out) => return out,
+    };
+    if !matches!(input.decision.as_str(), "noop" | "produced") {
         let store = MemoryStore::project(&ctx.project_root);
-        match store.discard_note(&input.fingerprint) {
-            Ok(true) => {
-                store.record_manager_decision(
-                    &input.decision,
-                    "manager_final_discard",
-                    &input.fingerprint,
-                );
-                ToolOutput::ok(format!(
-                    "discarded inbox note matching `{}` (decision={})",
-                    input.fingerprint, input.decision
-                ))
-            }
-            Ok(false) => ToolOutput::error(format!(
-                "no inbox note matches fingerprint `{}`; nothing discarded",
-                input.fingerprint
-            )),
-            Err(e) => ToolOutput::error(format!("cannot discard inbox note: {e}")),
+        return rejected(
+            &store,
+            &input.fingerprint,
+            "memory_inbox_discard decision must be `noop` or `produced`",
+        );
+    }
+    let store = MemoryStore::project(&ctx.project_root);
+    let result = match note_ids {
+        Some(ids) => store.discard_batch_note(&input.fingerprint, ids),
+        None => store.discard_note(&input.fingerprint),
+    };
+    match result {
+        Ok(true) => {
+            store.record_manager_decision(
+                &input.decision,
+                "manager_final_discard",
+                &input.fingerprint,
+            );
+            ToolOutput::ok(format!(
+                "discarded inbox note matching `{}` (decision={})",
+                input.fingerprint, input.decision
+            ))
         }
+        Ok(false) => ToolOutput::error(format!(
+            "no inbox note matches fingerprint `{}`; nothing discarded",
+            input.fingerprint
+        )),
+        Err(e) => ToolOutput::error(format!("cannot discard inbox note: {e}")),
+    }
+}
+
+struct BatchInboxDiscardTool {
+    note_ids: Vec<String>,
+}
+
+#[async_trait]
+impl Tool for BatchInboxDiscardTool {
+    fn name(&self) -> &'static str {
+        "memory_inbox_discard"
+    }
+    fn description(&self) -> String {
+        format!(
+            "{} Only notes in this batch may be removed; use the exact note_id. Allowed: {}",
+            MemoryInboxDiscardTool.description(),
+            self.note_ids.join(", ")
+        )
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        MemoryInboxDiscardTool.input_schema()
+    }
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        execute_inbox_discard(input, ctx, Some(&self.note_ids))
+    }
+}
+
+pub struct InboxBatchComponent {
+    note_ids: Vec<String>,
+}
+
+impl Component for InboxBatchComponent {
+    fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+        draft.tools.remove("memory_inbox_clear");
+        draft.tools.insert(
+            "memory_inbox_discard",
+            Arc::new(BatchInboxDiscardTool {
+                note_ids: self.note_ids.clone(),
+            }),
+        );
+        Ok(())
     }
 }
 
 /// manager 专属装配:全套写工具+检索,无 bash/read/write——它只能操作记忆。
 pub struct MemoryManagerComponent;
+
+impl MemoryManagerComponent {
+    pub fn for_batch(batch: &super::InboxBatch) -> InboxBatchComponent {
+        InboxBatchComponent {
+            note_ids: batch.note_ids.clone(),
+        }
+    }
+}
 
 impl Component for MemoryManagerComponent {
     fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
@@ -1729,7 +1790,7 @@ pub fn consolidation_prompt(inbox: &str, current_episode_id: Option<i64>) -> Str
     prompt
 }
 
-/// manager 迷你 run 的 agent 定义(fast 档,调用方 fast 失败可升级 primary)。
+/// manager 迷你 run 使用 fast 路由；错误保留在作业中，由用户选择续跑。
 pub fn manager_agent() -> AgentDef {
     AgentDef {
         name: "memory-manager".into(),

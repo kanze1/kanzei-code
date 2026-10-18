@@ -792,7 +792,9 @@ mod tests {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut buffer = [0u8; 4096];
-                socket.read(&mut buffer).await.unwrap();
+                if socket.read(&mut buffer).await.unwrap() == 0 {
+                    continue;
+                }
                 observed.fetch_add(1, Ordering::SeqCst);
                 socket.write_all(b"HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n").await.unwrap();
             }

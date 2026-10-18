@@ -188,17 +188,19 @@ pub(crate) fn persist_round_outcome(
     let after_success = |episode_id: Option<i64>| {
         let project_dir = ctx.project_root.display().to_string();
         tauri::async_runtime::spawn(async move {
-            match memory::consolidate_memory_inbox(project_dir, episode_id).await {
+            match memory::consolidate_memory_inbox(project_dir, episode_id, None).await {
                 Ok(report) if report.has_failures() => tracing::warn!("{}", report.summary()),
                 Ok(report) => tracing::debug!("{}", report.summary()),
                 Err(error) => tracing::warn!("memory inbox consolidation failed: {error}"),
             }
         });
-        let _ = kanzei_tools::memory::reconcile_candidates(
+        if let Err(error) = kanzei_tools::memory::reconcile_candidates(
             &ctx.project_root,
             episode_id,
             kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
-        );
+        ) {
+            tracing::warn!(%error, "memory lifecycle reconciliation failed");
+        }
     };
     persist_round_outcome_with_effects(
         state_path,

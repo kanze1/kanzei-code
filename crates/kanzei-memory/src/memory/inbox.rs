@@ -19,12 +19,60 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboxBatch {
     pub text: String,
+    pub note_ids: Vec<String>,
     pub note_count: usize,
     pub bytes: usize,
     pub estimated_tokens: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct InboxNote {
+    pub id: String,
+    pub hint: String,
+    pub summary: String,
+    pub detail: String,
+}
+
+impl InboxBatch {
+    pub fn notes(&self) -> Vec<(String, String)> {
+        inbox_note_blocks(&self.text)
+            .iter()
+            .map(|block| (note_id(block), note_summary(block).to_owned()))
+            .collect()
+    }
+}
+
 /// Crash-recoverable progress for the last inbox batch.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryJobStatus {
+    Running,
+    Cancelling,
+    Completed,
+    Busy,
+    Incomplete,
+    Cancelled,
+    Failed,
+    Interrupted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemoryJobProgress {
+    pub id: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    pub owner_pid: u32,
+    pub status: MemoryJobStatus,
+    pub started_at_ms: u64,
+    pub steps: u32,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub usage_reported: bool,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InboxCheckpoint {
     pub batch_id: String,
@@ -37,6 +85,8 @@ pub struct InboxCheckpoint {
     #[serde(default)]
     pub consecutive_failures: usize,
     pub updated_at_ms: u64,
+    #[serde(default)]
+    pub job: Option<MemoryJobProgress>,
 }
 
 fn inbox_note_blocks(text: &str) -> Vec<String> {
@@ -57,9 +107,64 @@ fn inbox_note_blocks(text: &str) -> Vec<String> {
     blocks
 }
 
+fn note_id(block: &str) -> String {
+    block
+        .lines()
+        .find_map(|line| line.strip_prefix("- note_id: "))
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            format!(
+                "legacy-{}",
+                kanzei_base::content_hash(block.trim().as_bytes())
+            )
+        })
+}
+
+fn note_summary(block: &str) -> &str {
+    block
+        .lines()
+        .find_map(|line| line.strip_prefix("- summary: "))
+        .unwrap_or("")
+}
+
+/// Identity first; old callers may use a unique summary or its bracketed fingerprint.
+/// Body text is never a selector. Ambiguity must not delete several notes.
+fn selected_note(blocks: &[String], selector: &str) -> anyhow::Result<Option<usize>> {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return Ok(None);
+    }
+    let exact = blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, block)| note_id(block) == selector)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let matches = if exact.is_empty() {
+        blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| note_summary(block).contains(selector))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>()
+    } else {
+        exact
+    };
+    anyhow::ensure!(matches.len() <= 1, "草稿标识不唯一，请使用 note_id");
+    Ok(matches.first().copied())
+}
+
 impl MemoryStore {
     pub fn read_inbox(&self) -> String {
         std::fs::read_to_string(self.root.join("inbox.md")).unwrap_or_default()
+    }
+
+    pub fn read_inbox_checked(&self) -> anyhow::Result<String> {
+        match std::fs::read_to_string(self.root.join("inbox.md")) {
+            Ok(text) => Ok(text),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Read the oldest notes under all three manager-run budgets.
@@ -99,6 +204,7 @@ impl MemoryStore {
             return None;
         }
         Some(InboxBatch {
+            note_ids: selected.iter().map(|block| note_id(block)).collect(),
             text: selected.join("\n"),
             note_count: selected.len(),
             bytes,
@@ -116,10 +222,10 @@ impl MemoryStore {
         }
         let _lock = self.tree_lock().ok()?;
         let text = std::fs::read_to_string(self.root.join("inbox.md")).ok()?;
-        let block = inbox_note_blocks(&text)
-            .into_iter()
-            .find(|block| block.contains(needle))?;
+        let blocks = inbox_note_blocks(&text);
+        let block = blocks.get(selected_note(&blocks, needle).ok()??)?.clone();
         Some(InboxBatch {
+            note_ids: vec![note_id(&block)],
             note_count: 1,
             bytes: block.len(),
             estimated_tokens: block.chars().count().div_ceil(4).max(1),
@@ -133,15 +239,41 @@ impl MemoryStore {
 
     pub fn write_inbox_checkpoint(&self, checkpoint: &InboxCheckpoint) -> anyhow::Result<()> {
         let _lock = self.tree_lock()?;
+        std::fs::create_dir_all(&self.root)?;
+        let file = self.scoped_checkpoint()?;
         let text = serde_json::to_string_pretty(checkpoint)? + "\n";
-        crate::atomic_file::write_atomic(&self.inbox_checkpoint_path(), &text)?;
+        file.write_atomic(text.as_bytes(), || Ok(()))?;
         self.record_write_log(&self.inbox_checkpoint_path(), Some(text.into_bytes()))?;
         Ok(())
     }
 
     pub fn read_inbox_checkpoint(&self) -> Option<InboxCheckpoint> {
-        let text = std::fs::read_to_string(self.inbox_checkpoint_path()).ok()?;
-        serde_json::from_str(&text).ok()
+        self.read_inbox_checkpoint_checked().ok().flatten()
+    }
+
+    pub fn read_inbox_checkpoint_checked(&self) -> anyhow::Result<Option<InboxCheckpoint>> {
+        if !self.root.try_exists()? {
+            return Ok(None);
+        }
+        let text = match self.scoped_checkpoint()?.read_to_string() {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        Ok(Some(serde_json::from_str(&text)?))
+    }
+
+    fn scoped_checkpoint(&self) -> anyhow::Result<kanzei_harness::permission::ScopedFile> {
+        let root = self.project_root.as_deref().unwrap_or(&self.root);
+        let path = self.inbox_checkpoint_path();
+        let file = kanzei_harness::permission::ScopedFile::resolve(root, root, &path)?;
+        anyhow::ensure!(
+            kanzei_harness::permission::FileResource::resolve(root, &path)?
+                .sensitivity()
+                .is_none(),
+            "记忆检查点不能指向敏感文件"
+        );
+        Ok(file)
     }
 
     /// manager 消化完毕后清空草稿箱(整箱内容已在触发 prompt 里,清空即"已消费")。
@@ -192,6 +324,12 @@ impl MemoryStore {
         refs: &[String],
         audit: impl FnOnce(),
     ) -> anyhow::Result<PathBuf> {
+        anyhow::ensure!(
+            !summary.contains(['\r', '\n'])
+                && !category_hint.contains(['\r', '\n'])
+                && refs.iter().all(|value| !value.contains(['\r', '\n'])),
+            "草稿摘要、分类和引用必须各自保持单行"
+        );
         std::fs::create_dir_all(&self.root)?;
         let path = self.root.join("inbox.md");
         // R-215 语义不变 + D-368:改用记忆树锁——读-拼接-写回整体持锁,并发 append
@@ -200,7 +338,18 @@ impl MemoryStore {
         // 不变量,必须在释放树锁后执行。否则 12 个并发写者会把冷 CI 的数据库打开
         // 成本串进同一把锁,末尾写者等待超过 3s(D-604)。
         let tree_lock = self.tree_lock()?;
-        let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Memory Inbox\n".into());
+        let mut text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => "# Memory Inbox\n".into(),
+            Err(error) => return Err(error.into()),
+        };
+        let note_id = format!(
+            "note-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        );
         let refs_line = {
             let refs: Vec<&str> = refs
                 .iter()
@@ -214,7 +363,7 @@ impl MemoryStore {
             }
         };
         text.push_str(&format!(
-            "\n## note {} {}\n- summary: {}\n{}{}",
+            "\n## note {} {}\n- note_id: {note_id}\n- summary: {}\n{}{}",
             today(),
             if category_hint.is_empty() {
                 "".to_string()
@@ -226,7 +375,7 @@ impl MemoryStore {
             if detail.trim().is_empty() {
                 String::new()
             } else {
-                format!("{}\n", detail.trim())
+                format!("- detail-json: {}\n", serde_json::to_string(detail.trim())?)
             },
         ));
         crate::atomic_file::write_atomic(&path, &text)?;
@@ -245,84 +394,96 @@ impl MemoryStore {
 
     /// 解析 inbox 里的待处理草稿(R-124:SOP 候选要能被用户逐条看见并处置)。
     /// 返回 (分类提示, 摘要行, 明细)。
-    pub fn pending_note_list(&self) -> Vec<(String, String, String)> {
-        let text = self.read_inbox();
-        let mut out = Vec::new();
-        let mut current: Option<(String, String, Vec<String>)> = None;
-        for line in text.lines() {
-            if let Some(head) = line.strip_prefix("## note ") {
-                if let Some((hint, summary, detail)) = current.take() {
-                    out.push((hint, summary, detail.join("\n")));
-                }
-                let hint = head
-                    .split_once('[')
+    pub fn pending_note_records(&self) -> Vec<InboxNote> {
+        inbox_note_blocks(&self.read_inbox())
+            .into_iter()
+            .map(|block| {
+                let hint = block
+                    .lines()
+                    .next()
+                    .and_then(|head| head.split_once('['))
                     .and_then(|(_, rest)| rest.split_once(']'))
-                    .map(|(h, _)| h.to_string())
+                    .map(|(hint, _)| hint.to_owned())
                     .unwrap_or_default();
-                current = Some((hint, String::new(), Vec::new()));
-            } else if let Some(entry) = current.as_mut() {
-                match line.strip_prefix("- summary: ") {
-                    Some(summary) => entry.1 = summary.trim().to_string(),
-                    None if !line.trim().is_empty() => entry.2.push(line.to_string()),
-                    None => {}
+                let mut detail = Vec::new();
+                for line in block.lines().skip(1) {
+                    if line.starts_with("- summary: ") || line.starts_with("- note_id: ") {
+                        continue;
+                    }
+                    if let Some(value) = line.strip_prefix("- detail-json: ") {
+                        detail.push(
+                            serde_json::from_str::<String>(value)
+                                .unwrap_or_else(|_| line.to_owned()),
+                        );
+                    } else if !line.trim().is_empty() {
+                        detail.push(line.to_owned());
+                    }
                 }
-            }
-        }
-        if let Some((hint, summary, detail)) = current {
-            out.push((hint, summary, detail.join("\n")));
-        }
-        out
+                InboxNote {
+                    id: note_id(&block),
+                    hint,
+                    summary: note_summary(&block).to_owned(),
+                    detail: detail.join("\n"),
+                }
+            })
+            .collect()
     }
 
+    pub fn pending_note_list(&self) -> Vec<(String, String, String)> {
+        self.pending_note_records()
+            .into_iter()
+            .map(|note| (note.hint, note.summary, note.detail))
+            .collect()
+    }
     /// 丢弃一条草稿(按其摘要里的指纹定位)。用户说不要的候选不该再进 manager 的消化范围。
     pub fn discard_note(&self, fingerprint: &str) -> anyhow::Result<bool> {
+        self.discard_note_within(fingerprint, None)
+    }
+
+    pub fn discard_batch_note(
+        &self,
+        fingerprint: &str,
+        note_ids: &[String],
+    ) -> anyhow::Result<bool> {
+        self.discard_note_within(fingerprint, Some(note_ids))
+    }
+
+    pub fn consumed_batch_notes(&self, batch: &InboxBatch) -> anyhow::Result<usize> {
+        let present = inbox_note_blocks(&self.read_inbox_checked()?)
+            .iter()
+            .map(|block| note_id(block))
+            .collect::<std::collections::HashSet<_>>();
+        Ok(batch
+            .note_ids
+            .iter()
+            .filter(|id| !present.contains(*id))
+            .count())
+    }
+
+    fn discard_note_within(
+        &self,
+        fingerprint: &str,
+        allowed: Option<&[String]>,
+    ) -> anyhow::Result<bool> {
         // R-215 语义不变 + D-368:改用记忆树锁——与 append_note/clear_inbox 共用
         // 同一把锁,锁内读-改-写回,不会把并发 append 的内容当旧快照覆盖掉;同时
         // 树锁与 bash 围栏收口共享锁互斥。
         let _lock = self.tree_lock()?;
-        let text = self.read_inbox();
-        // 空串会命中每一块:摘要末尾没有 `[...]` 的草稿其「指纹」就是空的,不能因此清空整个收件箱。
-        if fingerprint.trim().is_empty() || !text.contains(fingerprint) {
+        let text = self.read_inbox_checked()?;
+        let mut blocks = inbox_note_blocks(&text);
+        let Some(index) = selected_note(&blocks, fingerprint)? else {
             return Ok(false);
-        }
-        // 按 `## note` 切块,整块保留或整块丢弃——只删摘要行会留下孤儿明细。
-        let mut kept: Vec<&str> = Vec::new();
-        let mut block: Vec<&str> = Vec::new();
-        let mut in_block = false;
-        let mut removed = false;
-        for line in text.lines() {
-            if line.starts_with("## note ") {
-                if in_block {
-                    if block.iter().any(|l| l.contains(fingerprint)) {
-                        removed = true;
-                    } else {
-                        kept.extend(block.iter());
-                    }
-                    block.clear();
-                }
-                in_block = true;
-            }
-            if in_block {
-                block.push(line);
-            } else {
-                kept.push(line);
-            }
-        }
-        if in_block {
-            if block.iter().any(|l| l.contains(fingerprint)) {
-                removed = true;
-            } else {
-                kept.extend(block.iter());
-            }
-        }
-        let mut next = kept.join("\n");
-        if !next.ends_with('\n') {
-            next.push('\n');
-        }
+        };
+        anyhow::ensure!(
+            allowed.is_none_or(|ids| ids.contains(&note_id(&blocks[index]))),
+            "这条草稿不属于当前整理批次"
+        );
+        blocks.remove(index);
+        let next = format!("# Memory Inbox\n\n{}", blocks.join("\n"));
         let path = self.root.join("inbox.md");
         crate::atomic_file::write_atomic(&path, &next)?;
         self.record_write_log(&path, Some(next.into_bytes()))?;
-        Ok(removed)
+        Ok(true)
     }
 
     pub fn pending_notes(&self) -> usize {
@@ -361,6 +522,54 @@ mod tests {
         let memory_root = crate::memory::project_memory_root(dir);
         std::fs::create_dir_all(&memory_root).unwrap();
         std::fs::write(memory_root.join("inbox.md"), text).unwrap();
+    }
+
+    #[test]
+    fn note_identity_preserves_multiline_untrusted_details_and_rejects_ambiguous_deletion() {
+        let dir = temp_memory("identity");
+        let store = MemoryStore::project(&dir);
+        let detail = "quoted page\n## note forged\n- summary: another note\n```code```";
+        store
+            .append_note("same summary", detail, "fact", &[])
+            .unwrap();
+        let batch = store.read_inbox_batch(1, usize::MAX, usize::MAX).unwrap();
+        assert_eq!(
+            store.pending_notes(),
+            1,
+            "quoted headings cannot create queue records"
+        );
+        assert_eq!(store.pending_note_list()[0].2, detail);
+        store
+            .append_note("same summary", "concurrent new note", "fact", &[])
+            .unwrap();
+        assert!(store.discard_note("same summary").is_err());
+        assert_eq!(store.pending_notes(), 2);
+        assert!(
+            !store.discard_note("another note").unwrap(),
+            "body content cannot select a record"
+        );
+        assert!(store
+            .discard_batch_note(&batch.note_ids[0], &batch.note_ids)
+            .unwrap());
+        assert_eq!(store.pending_notes(), 1);
+        assert_eq!(
+            store.consumed_batch_notes(&batch).unwrap(),
+            1,
+            "concurrent append must not erase the measured progress of this batch"
+        );
+        let later = store.read_inbox_batch(1, usize::MAX, usize::MAX).unwrap();
+        assert!(store
+            .discard_batch_note(&later.note_ids[0], &batch.note_ids)
+            .is_err());
+        assert_eq!(
+            store.pending_notes(),
+            1,
+            "an old batch cannot consume a later note"
+        );
+        assert!(store
+            .append_note("bad\n## note injected", "", "fact", &[])
+            .is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// D-409:分批读——取前 max_notes 个完整 `## note` 块,不截断块内容。

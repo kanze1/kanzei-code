@@ -17,6 +17,7 @@ import { generalChatRoot } from "./03-general-scope.js";
 import { memoryProject, setMemoryProject } from "./03-memory-scope.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { renderProjectKnowledge } from "./24-project-knowledge.js";
+import { memoryJobActive, refreshMemoryJobStatus } from "./13-memory-jobs.js";
 
 // ---------- 记忆页(R-107/R-332):管理工作区 + 透明化诊断 ----------
 export let memorySelection = { scope: "project", category: "all" };
@@ -363,7 +364,7 @@ function renderMemoryPendingState() {
   const buttonCount = $("memory-consolidate-count");
   if (buttonCount) buttonCount.textContent = memoryConsolidating ? ` ${t("整理中…")}` : count ? ` (${count})` : "";
   const button = $("memory-consolidate-btn");
-  if (button) button.disabled = !memoryProject || memoryConsolidating || (loaded && !count);
+  if (button) button.disabled = !memoryProject || memoryConsolidating || memoryJobActive(memoryProject) || (loaded && !count);
   syncMemoryNotice();
 }
 
@@ -381,6 +382,7 @@ function dismissMemoryNotice() {
 
 function memoryFailureNotice() {
   const batch = memoryPending.project === memoryProject ? memoryPending.control?.batch : null;
+  if (batch?.job?.status === "cancelled") return null;
   if (!batch || batch.status !== "failed" || batch.batch_id === memoryFailureDismissed) return null;
   const reason = batch.failure_reason ? `:${batch.failure_reason}` : "";
   return { text: `${t("上次整理没有成功")}${reason}`, label: t("重试整理"), run: () => $("memory-consolidate-btn")?.click(), kind: "err", batchId: batch.batch_id };
@@ -948,6 +950,7 @@ export function displayMemoryTitle(title) {
 
 // 一次整理的失败原因(成功返回空串):批次里任一条带 error,或整体被中止。
 function memoryConsolidationFailure(report) {
+  if (["cancelled", "busy"].includes(report?.status)) return "";
   const failed = (report?.batches ?? []).find((batch) => batch.error);
   return failed?.error || report?.stopped_reason || "";
 }
@@ -967,7 +970,7 @@ export function renderMemoryCandidates(list) {
   }
   for (const item of items) {
     // 逐条操作靠摘要原文定位:指纹可能为空(摘要末尾没有 [...]),空串会匹配所有笔记,绝不能当键。
-    const key = item.summary || item.fingerprint || "";
+    const key = item.id || item.summary || item.fingerprint || "";
     const scope = item.scope || "project";
     const row = document.createElement("div");
     row.className = `memory-candidate${item.hint === "sop" ? " sop" : ""}`;
@@ -1006,11 +1009,11 @@ export function renderMemoryCandidates(list) {
       drop.disabled = true;
       neuralFlowEmit?.("memory_consolidation_started", { fingerprint: item.fingerprint });
       try {
-        const result = await invoke("memory_consolidate_note", { projectDir: project, scope, summary: key });
+        const result = await invoke("memory_consolidate_note", { projectDir: project, scope, summary: key, requestId: crypto.randomUUID() });
         const failure = memoryConsolidationFailure(result?.report);
         if (failure) throw new Error(failure);
         neuralFlowEmit?.("memory_consolidation_completed", { fingerprint: item.fingerprint });
-        toast(t("已提炼成记忆条目"));
+        toast(result?.report?.status === "cancelled" ? t("整理已停止，可继续") : result?.report?.status === "busy" ? t("已有整理作业在运行") : t("这一条已整理"));
       } catch (err) {
         neuralFlowEmit?.("memory_consolidation_failed", { fingerprint: item.fingerprint });
         adopt.disabled = false;
@@ -1293,9 +1296,8 @@ export function renderMemoryList(entries, { search = false, keepScroll = false, 
   for (const entry of entries) {
     const row = document.createElement("button");
     row.type = "button";
-    const ageDays = memoryAgeDays(entry.updated);
     const live = !search && !entry.archived && entry.status !== "stale";
-    const dormant = live && (entry.hits ?? 0) === 0 && ageDays >= 3;
+    const dormant = live && entry.status === "shadow" && entry.retention_reason === "cold";
     const zeroRead = live && (entry.read_observed ?? 0) >= 3 && (entry.read ?? 0) === 0;
     row.className = `memory-row${entry.id === memoryCurrentEntryId ? " selected" : ""}${entry.status === "stale" || entry.archived ? " stale" : ""}${dormant ? " dormant" : ""}${zeroRead ? " zero-read" : ""}${entry.category === "sop" ? " sop" : ""}`;
     row.dataset.memoryId = entry.id;
@@ -1307,7 +1309,7 @@ export function renderMemoryList(entries, { search = false, keepScroll = false, 
     const snippet = stripMemoryFingerprint(search ? entry.snippet : entry.description);
     // 「启用」是常态,不给它画徽标;候选/试运行/已归档才值得在行上标出来。
     const badge = entry.status && entry.status !== "active" ? `<span class="memory-status-badge ${escapeHtml(entry.status)}">${escapeHtml(memoryWord(entry.status))}</span>` : "";
-    const flags = `${dormant ? `<em class="memory-dormant-flag">${t("长期零命中")}</em> · ` : ""}${zeroRead ? `<em class="memory-zero-read-flag">${t("多次注入但未记录正文读取")}</em> · ` : ""}`;
+    const flags = `${dormant ? `<em class="memory-dormant-flag">${t("长期未用，已降级")}</em> · ` : ""}${zeroRead ? `<em class="memory-zero-read-flag">${t("多次注入但未记录正文读取")}</em> · ` : ""}`;
     const scopeWord = t(MEMORY_SCOPE_WORDS[entry.scope || memoryManagerFilters.scope] ?? "项目记忆");
     const metaText = [`${scopeWord}/${memoryWord(entry.category)}`, `${t("命中")} ${entry.hits ?? 0}`, recallMeta, lastHit, entry.updated || ""].filter(Boolean).join(" · ");
     row.innerHTML =
@@ -1757,12 +1759,6 @@ export function splitMemoryParagraphs(text) {
     .filter(Boolean);
 }
 
-// 条目"年纪":用于零命中判定——刚写下来还没被检索过不算没用。
-export function memoryAgeDays(updated) {
-  const stamp = Date.parse(`${updated}T00:00:00Z`);
-  if (Number.isNaN(stamp)) return 0;
-  return Math.max(0, Math.floor((Date.now() - stamp) / 86_400_000));
-}
 
 
 
@@ -1876,20 +1872,22 @@ defer(() => {
     renderMemoryPendingState();
     neuralFlowEmit?.("memory_consolidation_started");
     try {
-      const result = await invoke("memory_consolidate", { projectDir: project });
+      const result = await invoke("memory_consolidate", { projectDir: project, requestId: crypto.randomUUID() });
       // 整理失败(模型不可用、批次没进展)后端仍返回报告而不是报错:把原因说出来并给重试,不再只说「尚有草稿」。
       const failure = memoryConsolidationFailure(result?.report);
       neuralFlowEmit?.(failure ? "memory_consolidation_failed" : result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { pending: Boolean(result?.pending) });
       if (failure) toastError(`${t("整理失败")}:${failure}`, { retry: consolidate });
-      else toast(result?.pending ? t("还有待整理条目没处理完") : t("待整理条目已全部整理"));
+      else toast(result?.report?.status === "cancelled" ? t("整理已停止，可继续") : result?.report?.status === "busy" ? t("已有整理作业在运行") : result?.pending ? t("还有待整理条目没处理完") : t("待整理条目已全部整理"));
     } catch (err) {
       neuralFlowEmit?.("memory_consolidation_failed");
       toastError(`${t("整理失败")}:${err}`, { retry: consolidate });
     } finally {
       memoryConsolidating = false;
+      void refreshMemoryJobStatus();
       if (project === memoryProject) void refreshMemory({ force: true });
       else renderMemoryPendingState();
     }
   };
   $("memory-consolidate-btn")?.addEventListener("click", () => void consolidate());
+  document.addEventListener("kz:memory-job-state", (event) => { if (event.detail.project === memoryProject) renderMemoryPendingState(); });
 });

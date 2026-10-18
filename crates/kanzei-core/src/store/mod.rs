@@ -361,6 +361,8 @@ pub use rewind::{RewindFile, RewindPlan};
 mod file_checkpoints;
 mod inbox;
 mod memory_observations;
+mod memory_retention;
+pub use memory_retention::{AvailableMemory, MemoryRetentionCounts};
 mod mobile_devices;
 mod notifications;
 mod path_migration;
