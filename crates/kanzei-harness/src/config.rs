@@ -343,9 +343,8 @@ impl KanzeiConfig {
             .unwrap_or(crate::defs::ProfileKind::Dev)
     }
 
-    /// Hosted search is exposed only for a channel and model with a passing live B1 probe.
-    /// Claude remains closed while P3 is rate-limited; research is off by default because it
-    /// has separate source/budget evidence gates.
+    /// Native search candidates depend on wire capability, rather than model spelling.
+    /// The websearch executor still requires permission and an actual provider search receipt.
     pub fn hosted_tools_for(
         &self,
         resolved: &ResolvedModel,
@@ -358,8 +357,11 @@ impl KanzeiConfig {
         };
         if !self.web.native_search_enabled()
             || self.web.native_search_disabled_for(profile)
-            || resolved.provider.auth.as_deref() != Some("codex")
-            || resolved.model != "gpt-6-luna"
+            || (resolved.provider.auth.as_deref() != Some("codex")
+                && resolved
+                    .provider
+                    .effective_protocol(&resolved.provider_name)
+                    != "openai-responses")
         {
             return Vec::new();
         }
@@ -637,14 +639,14 @@ pub fn config_reference() -> String {
     let web_desc = |key: &str| -> &str {
         match key {
             "native_search" => {
-                " = true | false  服务端原生搜索总开关(默认 true,只对探针通过的通道生效)"
+                " = true | false  websearch 工具的 Responses 原生搜索开关(默认 true,按协议与实际响应检查能力)"
             }
             "native_search_off_profiles" => " = [\"research\"]  原生搜索禁用档(默认 research)",
             "anthropic_search_tool" => {
                 " = <工具版本>  Claude P3 通过后使用(默认 web_search_20260209)"
             }
             "search_backend" => {
-                " = auto | duckduckgo | codex  websearch 后端(仅 auto 允许回退,显式选择不会跨服务)"
+                " = auto | duckduckgo | responses  websearch 后端(codex 为旧别名,仅 auto 允许回退)"
             }
             _ => "",
         }

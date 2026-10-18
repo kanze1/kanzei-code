@@ -97,6 +97,7 @@ pub fn run_once_with_parts<'a>(
     ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
     Box::pin(async move {
+        anyhow::ensure!(config.hosted_tools.is_empty(), "Ambient provider-hosted tools are unsupported: use the registered websearch tool so permission, unattended policy, search budgets and source receipts apply before dispatch");
         // R-202 批6:装配段(工具/specs/system 分块/消息初始化/各类运行态)抽离为
         // assemble_run_once,返回 RunOnceAssembly;halt/halted 借用 config 留本地。
         let RunOnceAssembly {

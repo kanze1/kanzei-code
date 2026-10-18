@@ -87,7 +87,8 @@ pub struct RunnerConfig {
     pub reasoning: ReasoningEffort,
     /// Responses 服务档位;仅 Codex Fast mode 使用 priority。
     pub service_tier: Option<String>,
-    /// Provider-hosted declarations authorized for this exact profile/run.
+    /// Reserved transport declarations. Nonempty values are rejected before dispatch;
+    /// native search runs through the permission-controlled websearch tool.
     pub hosted_tools: Vec<serde_json::Value>,
 
     /// 该模型的上下文窗口。None = 未知,轮内不做主动预算(只保留撞墙后的被动恢复)。

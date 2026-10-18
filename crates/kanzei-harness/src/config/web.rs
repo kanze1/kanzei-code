@@ -8,7 +8,8 @@ pub enum SearchBackend {
     #[default]
     Auto,
     Duckduckgo,
-    Codex,
+    #[serde(alias = "codex")]
+    Responses,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -22,7 +23,7 @@ pub struct WebSection {
     /// Anthropic server-search tool version; consumed only after the Claude probe passes.
     #[serde(default)]
     pub anthropic_search_tool: Option<String>,
-    /// auto | duckduckgo | codex. Explicit backends never contact another service.
+    /// auto | duckduckgo | responses (legacy codex alias). No implicit route changes.
     #[serde(default)]
     pub search_backend: Option<SearchBackend>,
 }
@@ -50,5 +51,44 @@ impl WebSection {
                 .any(|name| name.eq_ignore_ascii_case(profile)),
             None => profile.eq_ignore_ascii_case("research"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        config::{KanzeiConfig, ProviderConfig},
+        ProfileKind, ResolvedModel,
+    };
+    #[test]
+    fn native_search_candidates_follow_protocol_and_profile_without_model_name_gates() {
+        let mut config = KanzeiConfig::default();
+        let mut model = ResolvedModel {
+            provider_name: "fixture".into(),
+            model: "arbitrary-capable-model".into(),
+            provider: ProviderConfig {
+                protocol: "openai-responses".into(),
+                base_url: "https://api.example.test/v1".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: None,
+            },
+        };
+        assert_eq!(config.hosted_tools_for(&model, ProfileKind::Dev).len(), 1);
+        assert!(config
+            .hosted_tools_for(&model, ProfileKind::Research)
+            .is_empty());
+        config.web.native_search_off_profiles = Some(vec![]);
+        assert_eq!(
+            config.hosted_tools_for(&model, ProfileKind::Research).len(),
+            1
+        );
+        model.provider.protocol = "deepseek-responses".into();
+        assert!(config.hosted_tools_for(&model, ProfileKind::Dev).is_empty());
+        model.provider.auth = Some("codex".into());
+        assert_eq!(config.hosted_tools_for(&model, ProfileKind::Dev).len(), 1);
+        config.web.native_search = Some(false);
+        assert!(config.hosted_tools_for(&model, ProfileKind::Dev).is_empty());
     }
 }

@@ -18,10 +18,10 @@
 | SEC-06 | 待实施 | 外部内容标记及对抗网页操作验收 |
 | SEC-07 | 执行前校验只读工具集，并在串行/并行调度拒绝写操作，两项负向测试通过 | 实际子任务及最终完整门禁 |
 | WEB-01 | 14 项搜索回归通过，含无跨服务 HTTP 断言 | 软件内搜索与最终完整门禁 |
-| WEB-02 | 待实施 | 请求、授权、引用及历史回放验收 |
+| WEB-02 | Responses 原生搜索在 websearch 权限/预算内执行，按协议与真实响应检查能力；原生窗口 18 项通过。真实 Luna 订阅端点明确不支持 max_tool_calls | 最终 HEAD/发布版复验；不把当前订阅端点标成支持有界原生搜索 |
 | WEB-03 | 采集记录绑定任务/会话/运行与原始及最终 URL，工件 SHA-256 在引用时复核；网页系列 48 项通过 | 动态正文与软件内端到端验收 |
 | WEB-04 | HTML 登录/布局异常零结果反例先失败后通过；类型化健康状态与尝试路径已实现，22 项回归通过 | 软件内真实查询及最终发布版复验 |
-| WEB-05 | browser source 已接两后端；真实 Edge 验证空壳拒收、动态正文、存证与篡改拒绝，浏览器系列 20 项通过 | 内部面板经后台转发的原生软件验收及发布版复验 |
+| WEB-05 | browser source 已接两后端；内部面板与 Edge 原生表单/正文联合 30 项、现有 Edge/iframe 原生 11 项通过，工件和会话/run 身份已核对 | 最终研究 finding 联合操作及发布版复验 |
 | WEB-06 | 待实施 | 固定检索集、覆盖及引用质量结果 |
 | WEB-07 | 地区码、排除域及子域、未知参数与预算已实现，实际 HTTP 参数回归通过；搜索系列 26 项通过 | 最终软件内查询及发布版复验 |
 | BRO-01 | select/check/upload/validate 与受控字段填写已接两端；原生联合 25 项通过，含内部面板和实际 Edge 完整填写与提交 | 最终 HEAD 门禁及发布版复验 |
@@ -90,3 +90,11 @@ browser-connection-smoke 辅助层 16 项通过，含连接前已有登录、标
 浏览器后端归属：backend=pane/headless 成为明确的目标选择，省略时读取所属会话的 browser.target_selected 事实，不再随当前选中对话或面板可见性重新选择。事实按项目、会话和子任务隔离；内部面板保存页面代次与归属代次，权限计划还冻结 URL 和导航代次。桌面服务和嵌入式运行共用同一桥接计划，删除重复路由。已有浏览器依旧由 connection_id/page_id 明确定位。前台明确选择独立 Edge 的原版本反例先因未知 backend 参数失败，再通过；单纯切换会话后的导航在旧版本测试也通过，未把这个推断路径写成已复现缺陷。
 
 ui-browser-forms-native-smoke 扩展至 30 项：保留两会话完整 React 填表与隐藏正文采集，新增前台独立 Edge、切换会话后后端不变、明确切回内部面板，以及真实待批准期间关闭/重建同 URL 页面后拒绝原填写，替代页面零字段变更。可见截图测试明确等待批准通知消失，不能用被遮挡的隐藏画面证明截图可用；重建页面则等待真实 CDP 导航事件，而非假定 IPC 返回即等于页面已加载。证据仍为 output/playwright/browser-forms/native/acceptance.json（开发构建）。
+
+原生搜索执行契约：删除生产路径的私有 /alpha/search，改用配置 primary 的标准 Responses web_search；不再从 fast/compact/default 借用另一条订阅路由，也不按 Luna 型号拼写放行。保留原 codex 配置值作为 responses 的兼容别名。通过公共 build_route 取得实际协议、认证与端点约束，不跟随 HTTP 重定向；发送搜索问题和过滤参数，不发送完整对话。native_search 与禁用档位配置在普通和 research 工具入口分别生效；research 仍检查活动 topic/task_id 和 prior-art 预算。主循环直接附加 provider 托管声明明确不支持，在任何 provider I/O、询问和运行事件之前拒绝；注册的 websearch 工具提供受权限管理的原生执行入口。
+
+每个原生查询发送 max_tool_calls=1，要求实际 completed web_search_call 与请求的 action.sources 来源列表；模型正文或自写引用不能充当检索证据。过滤和去重在客户端再次执行，不将供应商生成的总结冒充网页摘要。来源 URL、响应/搜索身份、实际 queries 和 usage 写入结果；搜索输入、所有尝试及终态另存带 SHA-256 的 JSON 工件，并以 web.searched 绑定会话、run、topic/task。搜索回执不替代网页正文采集或 finding 的已读门禁。DuckDuckGo 地区码和 recency 在原生协议没有已核验的等价硬约束，显式原生调用拒绝，只有 auto 可记录原因后选 DDG。[标准来源列表和过滤接口](https://developers.openai.com/api/docs/guides/tools-web-search)、[官方 SDK 的 max_tool_calls 定义](https://github.com/openai/openai-node/blob/main/src/resources/responses/responses.ts)。
+
+真实供应商观察：本机 primary 为 gpt-6-luna，经已授权订阅端点实际返回 HTTP 400 / Unsupported parameter: max_tool_calls。该观察写为 supported=false、unsupported_capability，不能称为真实原生搜索成功；未删除调用上限、未换回私有接口，也没有跨供应商静默重试。仅 auto 保留显式尝试记录后允许 DDG 回退。output/remediation-20261018/search-live-capability.json 保存这项负向观察，手动 live probe 的“通过”仅表示观察契约验证成功，不表示供应商能力可用。
+
+ui-web-search-native-smoke 18 项通过：真实 Kanzei 窗口点击拒绝和允许；批准前零原生请求，拒绝按既有契约停止本轮，无人值守缺授权时零请求，明确自动放行时一次请求。实际 Responses 传输携带调用上限和域名白/黑名单；返回的未检索引用和无效 URL 不进入结果，回执 SHA-256 与 SQLite 会话/run 身份正确，重载后答案来源仍可点击。测试使用确定的本地供应商，证明软件接线和权限，不证明实时检索相关性或当前 Codex 订阅能力。权限测试等待实际弹窗出现及防误触状态结束，拒绝终态按 stopped 核对，不要求模型在拒绝后继续回答。证据 output/playwright/web-search/native/acceptance.json 与 native-search.png。网页系列 53 项、能力配置 1 项、Core 全套 433 项及四 crate all-targets Clippy 通过；最终发布版复验仍待完成。

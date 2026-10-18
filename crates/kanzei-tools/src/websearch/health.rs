@@ -6,6 +6,7 @@ use serde::Serialize;
 pub enum SearchErrorCode {
     Unavailable,
     UnsupportedFilter,
+    UnsupportedCapability,
     Unauthorized,
     RateLimited,
     HttpStatus,
@@ -75,6 +76,7 @@ pub struct SearchData {
     pub results: Vec<super::SearchResult>,
     pub truncated: bool,
     pub status: SearchStatus,
+    pub evidence: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -108,6 +110,7 @@ pub fn duckduckgo_page(
             .exists()
         {
             return Ok(SearchData {
+                evidence: None,
                 results: Vec::new(),
                 truncated: false,
                 status: SearchStatus::Empty,
@@ -131,6 +134,7 @@ pub fn duckduckgo_page(
         SearchStatus::Results
     };
     Ok(SearchData {
+        evidence: None,
         results,
         truncated,
         status,

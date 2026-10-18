@@ -208,7 +208,42 @@ fn state(ctx: &ToolCtx) -> Result<(kanzei_core::SessionStore, String), String> {
     let state =
         kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&ctx.project_root))
             .map_err(|error| error.to_string())?;
+    if ctx.session_id.is_some() {
+        if state
+            .get_session(&session)
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            return Err("source owner no longer exists".into());
+        }
+    } else {
+        state
+            .create_session(&session, &ctx.project_root.to_string_lossy(), None)
+            .map_err(|error| error.to_string())?;
+    }
     Ok((state, session))
+}
+
+pub fn record_search(
+    ctx: &ToolCtx,
+    scope: Option<SourceScope>,
+    queries: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (state, session) = state(ctx)?;
+    let bytes = serde_json::to_vec_pretty(queries).map_err(|error| error.to_string())?;
+    let path = crate::webfetch::save_web_artifact(ctx, "websearch", "json", &bytes)?;
+    let artifact = WebArtifact::from_saved(ctx, &path, &bytes)?;
+    let event = state
+        .append_event(
+            &session,
+            "web.searched",
+            &serde_json::json!({
+                "session_id":session,"run_id":ctx.run_id,"process_id":ctx.process_id,
+                "source_scope":scope,"queries":queries,"artifact":artifact
+            }),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({"event_id":event.event_id,"artifact":artifact}))
 }
 
 pub fn record_acquisition(
@@ -230,19 +265,6 @@ pub fn record_acquisition(
         super::digest_hex(&serde_json::to_vec(&acquisition).map_err(|error| error.to_string())?);
     acquisition.verify(ctx)?;
     let (state, session) = state(ctx)?;
-    if ctx.session_id.is_some() {
-        if state
-            .get_session(&session)
-            .map_err(|error| error.to_string())?
-            .is_none()
-        {
-            return Err("source acquisition owner no longer exists".into());
-        }
-    } else {
-        state
-            .create_session(&session, &ctx.project_root.to_string_lossy(), None)
-            .map_err(|error| error.to_string())?;
-    }
     let mut urls = vec![acquisition.original_url.as_str()];
     if acquisition.final_url != acquisition.original_url {
         urls.push(&acquisition.final_url);

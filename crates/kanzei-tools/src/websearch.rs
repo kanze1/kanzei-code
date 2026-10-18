@@ -3,14 +3,15 @@
 use async_trait::async_trait;
 use futures::future::join_all;
 use kanzei_harness::config::{KanzeiConfig, SearchBackend};
+use kanzei_harness::ProfileKind;
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
-use kanzei_llm::auth::codex::codex_headers;
-use kanzei_llm::proxy::build_http_client;
+use kanzei_llm::proxy::build_http_client_without_redirect as build_http_client;
 use kanzei_llm::ProxyConfig;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 mod filters;
 mod health;
+mod hosted;
 use health::{SearchAttempt, SearchData, SearchErrorCode, SearchFailure, SearchStatus};
 
 const SEARCH_URL: &str = "https://html.duckduckgo.com/html/";
@@ -28,15 +29,6 @@ enum SearchRecency {
 }
 
 impl SearchRecency {
-    fn days(self) -> u16 {
-        match self {
-            Self::Day => 1,
-            Self::Week => 7,
-            Self::Month => 30,
-            Self::Year => 365,
-        }
-    }
-
     fn duckduckgo_filter(self) -> &'static str {
         match self {
             Self::Day => "d",
@@ -70,6 +62,8 @@ struct SearchQuery {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct WebSearchInput {
+    topic: Option<String>,
+    task_id: Option<String>,
     /// 向后兼容的单查询形态;与 queries 二选一。
     #[serde(default)]
     query: Option<String>,
@@ -106,9 +100,10 @@ struct QuerySearchOutput {
     error: Option<String>,
     status: SearchStatus,
     attempts: Vec<SearchAttempt>,
+    evidence: Option<serde_json::Value>,
 }
 
-struct CodexBackend {
+struct HostedBackend {
     endpoint: String,
     model: String,
     headers: Vec<(String, String)>,
@@ -123,7 +118,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> String {
-        "Search with 1-4 queries; each may set recency (day/week/month/year), allowed domains and exclude_domains (including subdomains), and locale (documented DuckDuckGo region, e.g. cn-zh). URL domain filters are enforced locally; a multi-domain DuckDuckGo whitelist may filter out all returned candidates. An unsupported explicit-backend filter is rejected; only auto may select another backend. Returns refs for webfetch plus actual request/filter/attempt status. Explicit duckduckgo/codex never contacts the other service. Codex /alpha/search is an unpublished adapter. Legacy query is supported; filters belong inside queries. Prior-art work must pass prior_art_topic for its search budget.".into()
+        "Search with 1-4 queries; each may set recency (day/week/month/year), allowed domains and exclude_domains (including subdomains), and locale (documented DuckDuckGo region, e.g. cn-zh). URL domain filters are enforced locally; a multi-domain DuckDuckGo whitelist may filter out all returned candidates. An unsupported explicit-backend filter is rejected; only auto may select another backend. Returns refs for webfetch plus actual request/filter/attempt status. Explicit duckduckgo/responses never contacts the other service. Responses native search uses the configured primary route and its capability response; no model-name allowlist. Native search does not support DuckDuckGo locale/recency filters; only auto may fall back. Legacy query is supported; filters belong inside queries. Prior-art work must pass prior_art_topic for its search budget.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -144,28 +139,12 @@ impl Tool for WebSearchTool {
     fn resources(&self, _input: &serde_json::Value) -> Vec<String> {
         vec![
             SEARCH_URL.into(),
-            "https://chatgpt.com/backend-api/codex/alpha/search".into(),
+            "https://chatgpt.com/backend-api/codex/responses".into(),
         ]
     }
 
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        let Ok(config) = KanzeiConfig::load_at_root(&ctx.project_root) else {
-            return self.resources(input);
-        };
-        match selected_backend(&config) {
-            Ok(SearchBackend::Duckduckgo) => vec![SEARCH_URL.into()],
-            Ok(backend) => {
-                let mut resources = Vec::new();
-                if backend == SearchBackend::Auto {
-                    resources.push(SEARCH_URL.into());
-                }
-                if let Ok((base_url, _)) = resolve_codex_primary(&config) {
-                    resources.push(format!("{}/alpha/search", base_url.trim_end_matches('/')));
-                }
-                resources
-            }
-            Err(_) => self.resources(input),
-        }
+        search_resources(self, input, ctx, ProfileKind::Dev)
     }
 
     /// R-323 并发审计:**按入参分流**,不能一刀切成只读。
@@ -189,9 +168,30 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        self.execute_for(input, ctx, ProfileKind::Dev).await
+    }
+}
+
+impl WebSearchTool {
+    async fn execute_for(
+        &self,
+        input: serde_json::Value,
+        ctx: &ToolCtx,
+        profile: ProfileKind,
+    ) -> ToolOutput {
         let input: WebSearchInput = match crate::parse_input(self, input) {
             Ok(value) => value,
             Err(output) => return output,
+        };
+        let source_scope = match crate::web_refs::SourceScope::from_input(
+            ctx,
+            input.topic.as_deref(),
+            input.task_id.as_deref(),
+        ) {
+            Ok(scope) => scope,
+            Err(error) => {
+                return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error)
+            }
         };
         let (queries, legacy_single) = match normalize_search_queries(input.query, input.queries) {
             Ok(value) => value,
@@ -221,14 +221,14 @@ impl Tool for WebSearchTool {
             Ok(config) => config,
             Err(error) => return ToolOutput::failed("WEB_SEARCH_CONFIG", error.to_string()),
         };
-        let backend = match selected_backend(&config) {
+        let backend = match selected_backend_for(&config, profile) {
             Ok(backend) => backend,
             Err(error) => return ToolOutput::failed("WEB_SEARCH_CONFIG", error),
         };
         let (codex, codex_unavailable) = match backend {
             SearchBackend::Duckduckgo => (None, None),
-            _ if queries.iter().all(|query| query.locale.is_some()) => (None, None),
-            _ => match load_codex_backend(&config, &proxy).await {
+            _ if queries.iter().all(|query| !native_filters_supported(query)) => (None, None),
+            _ => match load_native_backend(&config, &proxy, profile).await {
                 Ok(backend) => (Some(backend), None),
                 Err(reason) => (None, Some(reason)),
             },
@@ -252,11 +252,24 @@ impl Tool for WebSearchTool {
                 ));
             }
         }
+        let receipt =
+            match crate::web_refs::record_search(ctx, source_scope, &serde_json::json!(outcomes)) {
+                Ok(receipt) => receipt,
+                Err(error) => {
+                    return ToolOutput::failed(
+                        "WEB_SEARCH_RECEIPT",
+                        format!(
+                        "Search requests finished but their receipt could not be saved: {error}"
+                    ),
+                    )
+                }
+            };
         if outcomes.iter().all(|outcome| outcome.error.is_some()) {
             return ToolOutput::failed(
                 "WEB_SEARCH_FAILED",
                 serde_json::to_string(&serde_json::json!({
                     "queries": outcomes,
+                    "receipt": receipt,
                     "prior_art_budget": prior_art_budget.map(|(used, limit)| serde_json::json!({"used": used, "limit": limit})),
                 }))
                 .unwrap_or_else(|_| "all web search backends failed".into()),
@@ -275,6 +288,8 @@ impl Tool for WebSearchTool {
                     "error": outcome.error,
                     "status": outcome.status,
                     "attempts": outcome.attempts,
+                    "evidence": outcome.evidence,
+                    "receipt": receipt,
                     "prior_art_budget": prior_art_budget.map(|(used, limit)| serde_json::json!({"used": used, "limit": limit})),
                 })
                 .to_string(),
@@ -283,6 +298,7 @@ impl Tool for WebSearchTool {
         ToolOutput::ok(
             serde_json::json!({
                 "queries": outcomes,
+                "receipt": receipt,
                 "prior_art_budget": prior_art_budget.map(|(used, limit)| serde_json::json!({"used": used, "limit": limit})),
             })
             .to_string(),
@@ -345,58 +361,106 @@ fn normalize_domain(domain: &str) -> Result<String, String> {
     Ok(host.to_ascii_lowercase())
 }
 
-fn selected_backend(config: &KanzeiConfig) -> Result<SearchBackend, String> {
-    match config.web.search_backend() {
-        SearchBackend::Auto => match config.resolve_model("primary") {
-            Ok(resolved) if resolved.provider.auth.as_deref() == Some("codex") => {
-                Ok(SearchBackend::Auto)
+fn search_resources(
+    tool: &WebSearchTool,
+    input: &serde_json::Value,
+    ctx: &ToolCtx,
+    profile: ProfileKind,
+) -> Vec<String> {
+    let Ok(config) = KanzeiConfig::load_at_root(&ctx.project_root) else {
+        return tool.resources(input);
+    };
+    match selected_backend_for(&config, profile) {
+        Ok(SearchBackend::Duckduckgo) => vec![SEARCH_URL.into()],
+        Ok(backend) => {
+            let mut resources = Vec::new();
+            if backend == SearchBackend::Auto {
+                resources.push(SEARCH_URL.into());
             }
-            Ok(_) => Ok(SearchBackend::Duckduckgo),
-            Err(error) => Err(format!("primary search route configuration: {error}")),
-        },
+            if let Ok(resolved) = resolve_native_primary(&config) {
+                resources.push(format!(
+                    "{}/responses",
+                    resolved.provider.base_url.trim_end_matches('/')
+                ));
+            }
+            resources
+        }
+        Err(_) => tool.resources(input),
+    }
+}
+
+#[cfg(test)]
+fn selected_backend(config: &KanzeiConfig) -> Result<SearchBackend, String> {
+    selected_backend_for(config, ProfileKind::Dev)
+}
+fn selected_backend_for(
+    config: &KanzeiConfig,
+    profile: ProfileKind,
+) -> Result<SearchBackend, String> {
+    match config.web.search_backend() {
+        SearchBackend::Auto => {
+            let resolved = config
+                .resolve_model("primary")
+                .map_err(|error| format!("primary search route configuration: {error}"))?;
+            Ok(if config.hosted_tools_for(&resolved, profile).is_empty() {
+                SearchBackend::Duckduckgo
+            } else {
+                SearchBackend::Auto
+            })
+        }
         explicit => Ok(explicit),
     }
 }
-
-fn resolve_codex_primary(config: &KanzeiConfig) -> Result<(String, String), String> {
-    let mut defaults = KanzeiConfig::default();
-    defaults.fill_defaults();
-    for reference in [
-        "primary",
-        "fast",
-        "compact",
-        defaults.models.primary.as_deref().unwrap_or(""),
-    ] {
-        if let Ok(resolved) = config.resolve_model(reference) {
-            if resolved.provider.auth.as_deref() == Some("codex") {
-                return Ok((resolved.provider.base_url, resolved.model));
-            }
-        }
+fn resolve_native_primary(config: &KanzeiConfig) -> Result<kanzei_harness::ResolvedModel, String> {
+    let resolved = config
+        .resolve_model("primary")
+        .map_err(|error| error.to_string())?;
+    if resolved.provider.auth.as_deref() != Some("codex")
+        && resolved
+            .provider
+            .effective_protocol(&resolved.provider_name)
+            != "openai-responses"
+    {
+        return Err(
+            "the configured primary route does not implement OpenAI Responses native search".into(),
+        );
     }
-    Err("no configured Codex subscription search route".into())
+    Ok(resolved)
 }
-
-async fn load_codex_backend(
+async fn load_native_backend(
     config: &KanzeiConfig,
     proxy: &ProxyConfig,
-) -> Result<CodexBackend, String> {
-    let (base_url, model) = resolve_codex_primary(config)?;
-    let headers = tokio::time::timeout(std::time::Duration::from_secs(10), codex_headers(proxy))
-        .await
-        .map_err(|_| "Codex credential lookup timed out".to_string())?
-        .map_err(|_| "Codex subscription credentials unavailable".to_string())?;
-    Ok(CodexBackend {
-        endpoint: format!("{}/alpha/search", base_url.trim_end_matches('/')),
-        model,
-        headers,
+    profile: ProfileKind,
+) -> Result<HostedBackend, String> {
+    let resolved = resolve_native_primary(config)?;
+    if config.hosted_tools_for(&resolved, profile).is_empty() {
+        return Err("native search is disabled for this profile or route".into());
+    }
+    let route = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        kanzei_core::build_route(&resolved, proxy),
+    )
+    .await
+    .map_err(|_| "native search credential lookup timed out".to_owned())?
+    .map_err(|_| "native search route or credentials unavailable".to_owned())?;
+    Ok(HostedBackend {
+        endpoint: format!(
+            "{}/responses",
+            route.endpoint.base_url.trim_end_matches('/')
+        ),
+        model: resolved.model,
+        headers: route.endpoint.headers,
     })
+}
+fn native_filters_supported(query: &SearchQuery) -> bool {
+    query.locale.is_none() && query.recency.is_none()
 }
 
 async fn search_one_query(
     backend: SearchBackend,
     query: SearchQuery,
     limit: usize,
-    codex: Option<&CodexBackend>,
+    codex: Option<&HostedBackend>,
     codex_unavailable: Option<&str>,
     client: &reqwest::Client,
     duckduckgo_url: &str,
@@ -404,15 +468,15 @@ async fn search_one_query(
     if backend == SearchBackend::Duckduckgo {
         return duckduckgo_outcome(query, limit, client, duckduckgo_url, None).await;
     }
-    let dispatched = codex.is_some() && query.locale.is_none();
-    let result = if query.locale.is_some() {
+    let dispatched = codex.is_some() && native_filters_supported(&query);
+    let result = if !native_filters_supported(&query) {
         Err(SearchFailure::new(
             SearchErrorCode::UnsupportedFilter,
-            "The alpha/search adapter has no verified locale support",
+            "Responses native search has no verified support for DuckDuckGo locale/recency filters",
         ))
     } else {
         match codex {
-            Some(backend) => search_codex(client, backend, &query, limit).await,
+            Some(backend) => search_native(client, backend, &query, limit).await,
             None => Err(SearchFailure::new(
                 SearchErrorCode::Unavailable,
                 codex_unavailable.unwrap_or("Codex search route unavailable"),
@@ -420,19 +484,19 @@ async fn search_one_query(
         }
     };
     match result {
-        Ok(data) => backend_outcome(query, "codex_alpha_search", None, Ok(data), true),
-        Err(error) if backend == SearchBackend::Codex => {
-            backend_outcome(query, "codex_alpha_search", None, Err(error), dispatched)
+        Ok(data) => backend_outcome(query, "responses_web_search", None, Ok(data), true),
+        Err(error) if backend == SearchBackend::Responses => {
+            backend_outcome(query, "responses_web_search", None, Err(error), dispatched)
         }
         Err(error) => {
             let fallback =
-                format!("Codex /alpha/search unavailable ({error}); auto selected DuckDuckGo.");
+                format!("Responses native search unavailable ({error}); auto selected DuckDuckGo.");
             let mut outcome =
                 duckduckgo_outcome(query, limit, client, duckduckgo_url, Some(fallback)).await;
             outcome.attempts.insert(
                 0,
                 SearchAttempt {
-                    backend: "codex_alpha_search".into(),
+                    backend: "responses_web_search".into(),
                     dispatched,
                     status: SearchStatus::Failed,
                     failure: Some(error),
@@ -460,6 +524,7 @@ fn backend_outcome(
             truncated: data.truncated,
             error: None,
             status: data.status,
+            evidence: data.evidence,
             attempts: vec![SearchAttempt {
                 backend: backend.into(),
                 dispatched,
@@ -476,6 +541,7 @@ fn backend_outcome(
             truncated: false,
             error: Some(search_failure_message(&error.to_string())),
             status: SearchStatus::Failed,
+            evidence: None,
             attempts: vec![SearchAttempt {
                 backend: backend.into(),
                 dispatched,
@@ -496,13 +562,13 @@ async fn duckduckgo_outcome(
     let result = search_duckduckgo(client, endpoint, &query, limit).await;
     backend_outcome(query, "duckduckgo", fallback, result, true)
 }
-async fn search_codex(
+async fn search_native(
     client: &reqwest::Client,
-    backend: &CodexBackend,
+    backend: &HostedBackend,
     query: &SearchQuery,
     limit: usize,
 ) -> Result<SearchData, SearchFailure> {
-    search_codex_attempt(client, backend, query, limit).await
+    hosted::search(client, backend, query, limit).await
 }
 fn allowed_result(url: &str, domains: &[String], exclude_domains: &[String]) -> bool {
     let Ok(url) = reqwest::Url::parse(url) else {
@@ -524,104 +590,6 @@ fn allowed_result(url: &str, domains: &[String], exclude_domains: &[String]) -> 
         && !exclude_domains
             .iter()
             .any(|domain| filters::host_matches(host, domain))
-}
-
-async fn search_codex_attempt(
-    client: &reqwest::Client,
-    backend: &CodexBackend,
-    query: &SearchQuery,
-    limit: usize,
-) -> Result<SearchData, SearchFailure> {
-    let mut command = serde_json::json!({"q": query.q});
-    if let Some(recency) = query.recency {
-        command["recency"] = serde_json::json!(recency.days());
-    }
-    if !query.domains.is_empty() {
-        command["domains"] = serde_json::json!(query.domains);
-    }
-    let body = serde_json::json!({
-        "id": search_request_id(),
-        "model": backend.model,
-        "commands": {"search_query": [command]},
-        "settings": {"allowed_callers": ["direct"], "external_web_access": true},
-        "max_output_tokens": 2500,
-    });
-    let mut request = client
-        .post(&backend.endpoint)
-        .header("content-type", "application/json")
-        .timeout(std::time::Duration::from_secs(8))
-        .json(&body);
-    for (name, value) in &backend.headers {
-        request = request.header(name.as_str(), value.as_str());
-    }
-    let response = request
-        .send()
-        .await
-        .map_err(|error| SearchFailure::transport("Codex /alpha/search", &error))?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(SearchFailure::http("Codex /alpha/search", status.as_u16()));
-    }
-    let (bytes, truncated) = read_search_body(response).await?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| {
-        SearchFailure::new(
-            SearchErrorCode::InvalidResponse,
-            "Codex /alpha/search returned invalid JSON",
-        )
-    })?;
-    let items = value["results"].as_array().ok_or_else(|| {
-        SearchFailure::new(
-            SearchErrorCode::InvalidResponse,
-            "Codex /alpha/search response is missing results[]",
-        )
-    })?;
-    let mut results = Vec::new();
-    for item in items {
-        let Some(url) = item["url"]
-            .as_str()
-            .filter(|value| !value.trim().is_empty())
-        else {
-            continue;
-        };
-        let Some(title) = item["title"]
-            .as_str()
-            .filter(|value| !value.trim().is_empty())
-        else {
-            continue;
-        };
-        if !allowed_result(url, &query.domains, &query.exclude_domains) {
-            continue;
-        }
-        results.push(SearchResult {
-            reference: String::new(),
-            title: title.to_string(),
-            url: url.to_string(),
-            snippet: item["snippet"].as_str().unwrap_or_default().to_string(),
-        });
-        if results.len() >= limit {
-            break;
-        }
-    }
-    if !items.is_empty() && results.is_empty() && query.domains.is_empty() {
-        return Err(SearchFailure::new(
-            SearchErrorCode::InvalidResponse,
-            "Codex /alpha/search result item shape changed",
-        ));
-    }
-    let status = if truncated {
-        SearchStatus::Partial
-    } else if items.is_empty() {
-        SearchStatus::Empty
-    } else if results.is_empty() {
-        SearchStatus::Filtered
-    } else {
-        SearchStatus::Results
-    };
-    Ok(SearchData {
-        results,
-        truncated,
-        status,
-    })
 }
 
 async fn search_duckduckgo(
@@ -708,14 +676,6 @@ fn persist_result_references(ctx: &ToolCtx, results: &mut [SearchResult]) -> Res
     Ok(())
 }
 
-fn search_request_id() -> String {
-    let ticks = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    format!("kz-search-{}-{ticks}", std::process::id())
-}
-
 fn search_failure_message(error: &str) -> String {
     format!(
         "search failed: {error}. 本次没有取得可验证搜索结果；不要静默重试。已知原始来源可用 webfetch 或 browser 读取；调查任务继续携带原 topic/task_id。"
@@ -752,10 +712,10 @@ impl Tool for ResearchWebSearchTool {
     }
 
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        WebSearchTool.resources_with_ctx(input, ctx)
+        search_resources(&WebSearchTool, input, ctx, ProfileKind::Research)
     }
 
-    async fn execute(&self, mut input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let topic = input
             .get("topic")
             .and_then(serde_json::Value::as_str)
@@ -775,11 +735,9 @@ impl Tool for ResearchWebSearchTool {
         {
             return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error);
         }
-        if let Some(object) = input.as_object_mut() {
-            object.remove("topic");
-            object.remove("task_id");
-        }
-        WebSearchTool.execute(input, ctx).await
+        WebSearchTool
+            .execute_for(input, ctx, ProfileKind::Research)
+            .await
     }
 }
 
@@ -869,14 +827,14 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}/search", listener.local_addr().unwrap());
-        let backend = CodexBackend {
+        let backend = HostedBackend {
             endpoint: url.clone(),
             model: "fixture".into(),
             headers: Vec::new(),
         };
         let client = build_http_client(&ProxyConfig::Disabled).unwrap();
         let outcome = search_one_query(
-            SearchBackend::Codex,
+            SearchBackend::Responses,
             SearchQuery {
                 q: "security".into(),
                 locale: Some("cn-zh".into()),
@@ -947,12 +905,12 @@ mod tests {
             domains: vec!["docs.rs".into()],
             ..Default::default()
         };
-        let backend = CodexBackend {
+        let backend = HostedBackend {
             endpoint,
             model: "test".into(),
             headers: vec![],
         };
-        let failure = search_codex(&client, &backend, &query, 5)
+        let failure = search_native(&client, &backend, &query, 5)
             .await
             .err()
             .unwrap();
@@ -1082,7 +1040,7 @@ mod tests {
         )
         .unwrap();
         assert!(!is_legacy);
-        assert_eq!(batch[0].recency.unwrap().days(), 7);
+        assert!(matches!(batch[0].recency, Some(SearchRecency::Week)));
         assert_eq!(batch[0].domains, ["docs.rs"]);
         assert!(normalize_search_queries(Some("x".into()), Some(batch)).is_err());
         assert!(normalize_search_queries(None, Some(Vec::new())).is_err());
@@ -1139,8 +1097,8 @@ mod tests {
             selected_backend(&config).unwrap(),
             SearchBackend::Duckduckgo
         );
-        config.web.search_backend = Some(SearchBackend::Codex);
-        assert_eq!(selected_backend(&config).unwrap(), SearchBackend::Codex);
+        config.web.search_backend = Some(SearchBackend::Responses);
+        assert_eq!(selected_backend(&config).unwrap(), SearchBackend::Responses);
         assert!(serde_json::from_value::<KanzeiConfig>(serde_json::json!({
             "web": {"search_backend": "typo"}
         }))
@@ -1154,7 +1112,7 @@ mod tests {
     async fn explicit_duckduckgo_never_contacts_codex() {
         let unused_codex = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         unused_codex.set_nonblocking(true).unwrap();
-        let backend = CodexBackend {
+        let backend = HostedBackend {
             endpoint: format!("http://{}/search", unused_codex.local_addr().unwrap()),
             model: "fixture".into(),
             headers: Vec::new(),
@@ -1194,14 +1152,14 @@ mod tests {
         let ddg_url = format!("http://{}/search", unused_ddg.local_addr().unwrap());
         let (codex_url, server) =
             spawn_search_server(stub_response("401 Unauthorized", "application/json", "{}"));
-        let backend = CodexBackend {
+        let backend = HostedBackend {
             endpoint: codex_url,
             model: "fixture".into(),
             headers: Vec::new(),
         };
         let client = build_http_client(&ProxyConfig::Disabled).unwrap();
         let outcome = search_one_query(
-            SearchBackend::Codex,
+            SearchBackend::Responses,
             SearchQuery {
                 q: "rust".into(),
                 recency: None,
@@ -1215,7 +1173,7 @@ mod tests {
             &ddg_url,
         )
         .await;
-        assert_eq!(outcome.backend, "codex_alpha_search");
+        assert_eq!(outcome.backend, "responses_web_search");
         assert!(outcome.error.as_deref().unwrap().contains("HTTP 401"));
         assert!(outcome.fallback.is_none());
         server.join().unwrap();
@@ -1225,7 +1183,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_alpha_failure_falls_back_to_filtered_duckduckgo_with_note() {
+    async fn responses_failure_falls_back_only_when_auto_is_selected() {
         let (codex_url, codex_server) = spawn_search_server(stub_response(
             "503 Service Unavailable",
             "application/json",
@@ -1235,7 +1193,7 @@ mod tests {
         let (ddg_url, ddg_server) =
             spawn_search_server(stub_response("200 OK", "text/html", ddg_html));
         let client = build_http_client(&ProxyConfig::Disabled).unwrap();
-        let backend = CodexBackend {
+        let backend = HostedBackend {
             endpoint: codex_url,
             model: "gpt-test".into(),
             headers: Vec::new(),
@@ -1244,7 +1202,7 @@ mod tests {
             SearchBackend::Auto,
             SearchQuery {
                 q: "Rust release".into(),
-                recency: Some(SearchRecency::Week),
+                recency: None,
                 domains: vec!["docs.rs".into()],
                 ..Default::default()
             },
@@ -1261,35 +1219,34 @@ mod tests {
         assert_eq!(outcome.results[0].url, "https://docs.rs/rust");
         let _ = codex_server.join().unwrap();
         let ddg_request = ddg_server.join().unwrap();
-        assert!(ddg_request.contains("df=w"), "{ddg_request}");
         assert!(ddg_request.contains("docs.rs"), "{ddg_request}");
     }
 
     #[tokio::test]
-    async fn codex_alpha_results_are_parsed_without_fallback() {
-        let body = serde_json::json!({
-            "encrypted_output":"",
-            "output":"Rust documentation",
-            "results":[{
-                "type":"text_result",
-                "title":"Rust docs",
-                "url":"https://docs.rs/rust",
-                "snippet":"API reference",
-                "domain":"docs.rs",
-                "ref_id":"turn0search0"
-            }]
-        })
-        .to_string();
-        let (url, server) = spawn_search_server(stub_response("200 OK", "application/json", &body));
+    async fn responses_native_search_requires_actual_search_items_and_source_lists() {
+        let response = serde_json::json!({
+            "id":"response-search-fixture", "status":"completed", "model":"any-capable-model",
+            "output":[
+                {"id":"search-fixture","type":"web_search_call","status":"completed","action":{"type":"search","queries":["Rust release"],"sources":[{"type":"url","url":"https://docs.rs/rust"}]}},
+                {"type":"message","content":[{"type":"output_text","text":"Rust documentation", "annotations":[{"type":"url_citation","url":"https://docs.rs/rust","title":"Rust docs","start_index":0,"end_index":18}]}]}
+            ],
+            "usage":{"input_tokens":12,"output_tokens":5}
+        });
+        let body = format!(
+            "data: {}\n\n",
+            serde_json::json!({"type":"response.completed","response":response})
+        );
+        let (url, server) =
+            spawn_search_server(stub_response("200 OK", "text/event-stream", &body));
         let client = build_http_client(&ProxyConfig::Disabled).unwrap();
-        let backend = CodexBackend {
+        let backend = HostedBackend {
             endpoint: url,
             model: "gpt-test".into(),
             headers: Vec::new(),
         };
         let SearchData {
             results, truncated, ..
-        } = search_codex(
+        } = search_native(
             &client,
             &backend,
             &SearchQuery {
@@ -1306,7 +1263,100 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Rust docs");
         assert_eq!(results[0].url, "https://docs.rs/rust");
-        let _ = server.join().unwrap();
+        let request = server.join().unwrap();
+        let request: serde_json::Value =
+            serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(request["max_tool_calls"], 1);
+        assert_eq!(request["tools"][0]["type"], "web_search");
+        assert_eq!(request["tool_choice"]["type"], "web_search");
+        assert!(request["include"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("web_search_call.action.sources")));
+        assert!(request.get("commands").is_none());
+    }
+
+    #[tokio::test]
+    async fn unsupported_native_budget_is_an_explicit_capability_failure_with_redacted_details() {
+        let body = serde_json::json!({"error":{"message":"Unsupported parameter: max_tool_calls; fixture-native-credential"}}).to_string();
+        let (endpoint, server) =
+            spawn_search_server(stub_response("400 Bad Request", "application/json", &body));
+        let backend = HostedBackend {
+            endpoint,
+            model: "any-model".into(),
+            headers: vec![(
+                "authorization".into(),
+                "Bearer fixture-native-credential".into(),
+            )],
+        };
+        let error = search_native(
+            &build_http_client(&ProxyConfig::Disabled).unwrap(),
+            &backend,
+            &SearchQuery {
+                q: "fixture".into(),
+                ..Default::default()
+            },
+            5,
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(error.code, SearchErrorCode::UnsupportedCapability);
+        assert_eq!(error.http_status, Some(400));
+        assert!(error.message.contains("max_tool_calls"));
+        assert!(!error.message.contains("fixture-native-credential"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "live: observes supported or explicitly unsupported native search on the configured primary route"]
+    async fn native_web_search_live_capability_probe() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let config = KanzeiConfig::load_at_root(&root).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let proxy = crate::tool_proxy(&ctx);
+        let backend = load_native_backend(&config, &proxy, ProfileKind::Dev)
+            .await
+            .unwrap();
+        let client = build_http_client(&proxy).unwrap();
+        let query = SearchQuery {
+            q: "OpenAI Responses web search complete source list".into(),
+            domains: vec!["developers.openai.com".into()],
+            ..Default::default()
+        };
+        let result = search_native(&client, &backend, &query, 5).await;
+        let output = root.join("output/remediation-20261018/search-live-capability.json");
+        let data = match result {
+            Ok(data) => data,
+            Err(error) => {
+                std::fs::write(
+                    output,
+                    serde_json::to_vec_pretty(
+                        &serde_json::json!({"supported":false,"model":backend.model,"query":query,"failure":error}),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+                if error.code == SearchErrorCode::UnsupportedCapability {
+                    println!("Live route observation: native search unsupported by the required capability contract; model={}", backend.model);
+                    return;
+                }
+                panic!("Native live capability probe failed: {}", error);
+            }
+        };
+        std::fs::write(output, serde_json::to_vec_pretty(&serde_json::json!({"supported":true,"model":backend.model,"query":query,"results":data.results,"evidence":data.evidence,"status":data.status})).unwrap()).unwrap();
+        assert!(
+            !data.results.is_empty(),
+            "Live native search returned no matching sources"
+        );
+        println!(
+            "Live native search passed: model={}, results={}",
+            backend.model,
+            data.results.len()
+        );
     }
 
     #[tokio::test]

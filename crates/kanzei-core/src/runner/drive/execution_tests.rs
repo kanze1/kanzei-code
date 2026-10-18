@@ -8,6 +8,65 @@ use tokio::sync::Notify;
 
 mod mutation;
 
+#[tokio::test]
+async fn ambient_hosted_declarations_are_rejected_before_provider_io_or_approval() {
+    let root = std::env::temp_dir().join("kz-ambient-hosted-rejection");
+    let mut harness = Harness::default();
+    harness.add(Policy);
+    let snapshot = harness
+        .resolve(&ResolveCtx {
+            profile: kanzei_harness::ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(Default::default()),
+        })
+        .unwrap();
+    let agent: AgentDef = serde_json::from_value(
+        json!({"name":"fixture","profile":"dev","mode":"primary","steps":3,"system":"fixture"}),
+    )
+    .unwrap();
+    let mut config = config(kanzei_harness::orchestration::ExecutionPolicy::Default);
+    config.hosted_tools = vec![json!({"type":"web_search"})];
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let client = LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+    let route = Route::openai_responses_at(
+        &format!("http://{}", listener.local_addr().unwrap()),
+        vec![],
+    );
+    let ctx = ToolCtx::new(root.clone(), root);
+    let mut events = Vec::new();
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        run_once(
+            &client,
+            &route,
+            &snapshot,
+            &agent,
+            &config,
+            &ctx,
+            "search",
+            None,
+            &[],
+            None,
+            &mut |event| events.push(event),
+            &mut |_| panic!("ambient hosted tools must not reach an approval callback"),
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(outcome
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("Ambient provider-hosted tools are unsupported"));
+    assert!(events.is_empty());
+    assert_eq!(
+        listener.accept().err().unwrap().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
 #[derive(Default)]
 struct CleanupProbe {
     started: Notify,
