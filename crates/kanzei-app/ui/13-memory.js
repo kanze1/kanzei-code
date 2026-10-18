@@ -950,9 +950,13 @@ export function displayMemoryTitle(title) {
 
 // 一次整理的失败原因(成功返回空串):批次里任一条带 error,或整体被中止。
 function memoryConsolidationFailure(report) {
-  if (["cancelled", "busy"].includes(report?.status)) return "";
+  if (["cancelled", "busy", "incomplete", "interrupted"].includes(report?.status)) return "";
   const failed = (report?.batches ?? []).find((batch) => batch.error);
   return failed?.error || report?.stopped_reason || "";
+}
+
+function memoryConsolidationMessage(report, completed) {
+  return ({ cancelled: t("整理已停止，可继续"), busy: t("已有整理作业在运行"), incomplete: t("整理未完成，可继续"), interrupted: t("上次整理中断，可继续") })[report?.status] || completed;
 }
 
 // R-124:待整理笔记。笔记是运行中顺手记下的原料,不会自己入库——
@@ -1013,7 +1017,7 @@ export function renderMemoryCandidates(list) {
         const failure = memoryConsolidationFailure(result?.report);
         if (failure) throw new Error(failure);
         neuralFlowEmit?.("memory_consolidation_completed", { fingerprint: item.fingerprint });
-        toast(result?.report?.status === "cancelled" ? t("整理已停止，可继续") : result?.report?.status === "busy" ? t("已有整理作业在运行") : t("这一条已整理"));
+        toast(memoryConsolidationMessage(result?.report, t("这一条已整理")));
       } catch (err) {
         neuralFlowEmit?.("memory_consolidation_failed", { fingerprint: item.fingerprint });
         adopt.disabled = false;
@@ -1877,7 +1881,7 @@ defer(() => {
       const failure = memoryConsolidationFailure(result?.report);
       neuralFlowEmit?.(failure ? "memory_consolidation_failed" : result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { pending: Boolean(result?.pending) });
       if (failure) toastError(`${t("整理失败")}:${failure}`, { retry: consolidate });
-      else toast(result?.report?.status === "cancelled" ? t("整理已停止，可继续") : result?.report?.status === "busy" ? t("已有整理作业在运行") : result?.pending ? t("还有待整理条目没处理完") : t("待整理条目已全部整理"));
+      else toast(memoryConsolidationMessage(result?.report, result?.pending ? t("还有待整理条目没处理完") : t("待整理条目已全部整理")));
     } catch (err) {
       neuralFlowEmit?.("memory_consolidation_failed");
       toastError(`${t("整理失败")}:${err}`, { retry: consolidate });

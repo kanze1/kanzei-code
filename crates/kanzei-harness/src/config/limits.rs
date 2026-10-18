@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 /// 项目层只覆盖它显式写了的那几个键,不会把没写的键打回默认值。
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Limits {
+    /// 一个记忆整理作业全部批次共用的模型步数预算。
+    #[serde(default)]
+    pub memory_job_steps: Option<u32>,
     /// 主对话单次输出上限(tokens)
     #[serde(default)]
     pub max_tokens: Option<u32>,
@@ -65,6 +68,9 @@ pub struct Limits {
 }
 
 impl Limits {
+    pub fn memory_job_steps(&self) -> u32 {
+        self.memory_job_steps.unwrap_or(64)
+    }
     pub fn max_tokens(&self) -> u32 {
         self.max_tokens.unwrap_or(8192)
     }
@@ -117,6 +123,7 @@ impl Limits {
 
 /// kanzei.toml [limits] 节已知键名单(R-220 单源)。
 pub(crate) const LIMITS_KEYS: &[&str] = &[
+    "memory_job_steps",
     "max_tokens",
     "subagent_max_tokens",
     "subagent_timeout_secs",

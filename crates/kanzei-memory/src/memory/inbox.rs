@@ -179,12 +179,43 @@ impl MemoryStore {
         max_bytes: usize,
         max_tokens: usize,
     ) -> Option<InboxBatch> {
+        self.bounded_inbox_batch(None, max_notes, max_bytes, max_tokens)
+    }
+
+    pub fn read_inbox_batch_for(
+        &self,
+        note_ids: &[String],
+        max_notes: usize,
+        max_bytes: usize,
+        max_tokens: usize,
+    ) -> Option<InboxBatch> {
+        self.bounded_inbox_batch(Some(note_ids), max_notes, max_bytes, max_tokens)
+    }
+
+    pub fn pending_note_ids_checked(&self) -> anyhow::Result<Vec<String>> {
+        let _lock = self.tree_lock()?;
+        Ok(inbox_note_blocks(&self.read_inbox_checked()?)
+            .iter()
+            .map(|block| note_id(block))
+            .collect())
+    }
+
+    fn bounded_inbox_batch(
+        &self,
+        note_ids: Option<&[String]>,
+        max_notes: usize,
+        max_bytes: usize,
+        max_tokens: usize,
+    ) -> Option<InboxBatch> {
         let _lock = self.tree_lock().ok()?;
         let text = std::fs::read_to_string(self.root.join("inbox.md")).ok()?;
         let mut selected = Vec::new();
         let mut bytes = 0;
         let mut estimated_tokens = 0;
         for block in inbox_note_blocks(&text) {
+            if note_ids.is_some_and(|ids| !ids.contains(&note_id(&block))) {
+                continue;
+            }
             let separator_bytes = usize::from(!selected.is_empty());
             let block_bytes = block.len();
             let block_tokens = block.chars().count().div_ceil(4).max(1);
