@@ -43,6 +43,9 @@ public static class KzDesktop {
   const uint NativeMessageTimeoutMs=1000;
   public static void Activate(IntPtr window) {
     if(!SetForegroundWindow(window))throw new InvalidOperationException("Cannot focus selected window");
+    ConfirmForeground(window);
+  }
+  public static void ConfirmForeground(IntPtr window) {
     // Cross-process activation is asynchronous. WM_NULL waits for that notification.
     UIntPtr result;
     if(SendMessageTimeout(window,0,UIntPtr.Zero,IntPtr.Zero,2,NativeMessageTimeoutMs,out result)==IntPtr.Zero)throw new TimeoutException("Selected window did not process its activation");
@@ -227,7 +230,7 @@ try {
                 $activeHandle=[IntPtr]$root.Current.NativeWindowHandle
                 [KzDesktop]::Activate($activeHandle)
                 $element.SetFocus()
-                if ([KzDesktop]::GetForegroundWindow() -ne $activeHandle) { throw 'Selected window does not own keyboard focus' }
+                [KzDesktop]::ConfirmForeground($activeHandle)
                 [KzDesktop]::Key([byte]$keys[$request.key],[UIntPtr]::new([uint64]$request.input_tag))
             }
             default { throw 'Unknown desktop action' }
