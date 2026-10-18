@@ -48,7 +48,7 @@ pub use store::{
     SessionArtifactReport, SessionDeletionPlan, SessionDeletionResult, SessionFact,
     SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection, SessionStore,
     SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, StorageBackupReport,
-    StorageCleanupPlan, StorageCleanupResult, StorageReport, StoreError, StoredEvent,
+    StorageCleanupPlan, StorageCleanupResult, StorageReport, StoreError, StoredEvent, StoredInput,
     StoredProcess, StoredWorkEvent, TypedSessionWriter, WorkCheckpoint, WorkEvidence, WorkFact,
     WorkProjection, WorkUnitSpec, WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS,
     MAX_WORK_ITEM_CHARS, MAX_WORK_LIST_ITEMS, MAX_WORK_OBJECTIVE_CHARS, SUBAGENT_TRANSCRIPT,

@@ -7,7 +7,34 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use super::events::append_event_tx;
 use super::{now_ms, AdmittedInput, Delivery, SessionStore, StoreError};
 
+#[derive(Debug, Clone)]
+pub struct StoredInput {
+    pub input: AdmittedInput,
+    /// None means unspecified legacy provenance, never proof of human authorship.
+    pub source: Option<String>,
+}
+
 impl SessionStore {
+    /// Original admissions, before file expansion or model compaction, for one exact session.
+    pub fn original_session_inputs(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<StoredInput>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT i.input_id,i.session_id,i.prompt,i.delivery,i.created_at,
+                (SELECT json_extract(e.payload_json,'$.source') FROM session_events e
+                 WHERE e.session_id=i.session_id AND e.event_type='prompt.admitted'
+                   AND json_extract(e.payload_json,'$.input_id')=i.input_id ORDER BY e.sequence DESC LIMIT 1)
+             FROM session_inputs i WHERE i.session_id=?1 ORDER BY i.created_at,i.rowid"
+        )?;
+        let rows = statement.query_map(params![session_id], |row| {
+            Ok(StoredInput {
+                input: input_from_row(row)?,
+                source: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
     /// Commit the mobile receipt and its visible user fact as one input, then
     /// return the same transaction's current surface for cache publication.
     /// This does not admit a runnable inbox item or fabricate a completed turn.
@@ -416,9 +443,9 @@ fn admit_input_tx(
         append_event_tx(tx, session_id, "prompt.admitted", &payload)?;
     }
     tx.query_row(
-        "SELECT input_id, session_id, prompt, delivery, created_at FROM session_inputs WHERE input_id = ?1",
-        params![input_id], input_from_row,
-    ).map_err(Into::into)
+        "SELECT input_id, session_id, prompt, delivery, created_at FROM session_inputs WHERE input_id = ?1 AND session_id = ?2",
+        params![input_id,session_id], input_from_row,
+    ).optional()?.ok_or_else(|| StoreError::InvalidInput("input_id 已属于其他会话".into()))
 }
 
 /// 输入行解析。
@@ -456,6 +483,69 @@ pub(super) fn finish_input_in(
 mod tests {
     use crate::store::testutil::store;
     use crate::store::*;
+
+    #[test]
+    fn admission_never_borrows_another_sessions_input() {
+        let store = store();
+        store.create_session("other", ".", None).unwrap();
+        store
+            .admit_input(
+                "ses_test",
+                "owned-input",
+                "original human input",
+                Delivery::Queue,
+            )
+            .unwrap();
+        assert!(
+            store
+                .admit_input("other", "owned-input", "different request", Delivery::Queue)
+                .is_err(),
+            "a globally unique input ID cannot make another session accept the owner's input"
+        );
+        assert!(store.list_pending_inputs("other").unwrap().is_empty());
+    }
+
+    #[test]
+    fn original_inputs_keep_the_first_prompt_and_its_actual_admission_source() {
+        let store = store();
+        store.create_session("other", ".", None).unwrap();
+        store
+            .admit_input_with_source(
+                "ses_test",
+                "automatic",
+                "scheduled context",
+                Delivery::Queue,
+                Some("schedule"),
+            )
+            .unwrap();
+        store
+            .admit_input_with_source(
+                "ses_test",
+                "automatic",
+                "replacement",
+                Delivery::Steer,
+                Some("user"),
+            )
+            .unwrap();
+        store
+            .admit_input(
+                "ses_test",
+                "legacy",
+                "original unexpanded prompt",
+                Delivery::Queue,
+            )
+            .unwrap();
+        let records = store.original_session_inputs("ses_test").unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].input.prompt, "scheduled context");
+        assert_eq!(records[0].source.as_deref(), Some("schedule"));
+        assert_eq!(records[1].input.prompt, "original unexpanded prompt");
+        assert_eq!(
+            records[1].source, None,
+            "a missing source is unknown, not a fabricated human label"
+        );
+        assert!(store.original_session_inputs("other").unwrap().is_empty());
+    }
 
     #[test]
     fn mobile_receipt_and_visible_fact_commit_or_rollback_together() {

@@ -360,6 +360,7 @@ pub mod session_execution;
 pub use rewind::{RewindFile, RewindPlan};
 mod file_checkpoints;
 mod inbox;
+pub use inbox::StoredInput;
 mod memory_observations;
 mod memory_retention;
 pub use memory_retention::{AvailableMemory, MemoryRetentionCounts};
