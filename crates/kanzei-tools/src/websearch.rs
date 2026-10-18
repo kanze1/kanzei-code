@@ -9,6 +9,8 @@ use kanzei_llm::proxy::build_http_client;
 use kanzei_llm::ProxyConfig;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+mod health;
+use health::{SearchAttempt, SearchData, SearchErrorCode, SearchFailure, SearchStatus};
 
 const SEARCH_URL: &str = "https://html.duckduckgo.com/html/";
 const MAX_QUERY_CHARS: usize = 500;
@@ -90,6 +92,8 @@ struct QuerySearchOutput {
     results: Vec<SearchResult>,
     truncated: bool,
     error: Option<String>,
+    status: SearchStatus,
+    attempts: Vec<SearchAttempt>,
 }
 
 struct CodexBackend {
@@ -225,7 +229,7 @@ impl Tool for WebSearchTool {
         }
         if outcomes.iter().all(|outcome| outcome.error.is_some()) {
             return ToolOutput::failed(
-                "WEB_SEARCH_BACKENDS_UNAVAILABLE",
+                "WEB_SEARCH_FAILED",
                 serde_json::to_string(&serde_json::json!({
                     "queries": outcomes,
                     "prior_art_budget": prior_art_budget.map(|(used, limit)| serde_json::json!({"used": used, "limit": limit})),
@@ -243,6 +247,8 @@ impl Tool for WebSearchTool {
                     "results": outcome.results,
                     "truncated": outcome.truncated,
                     "error": outcome.error,
+                    "status": outcome.status,
+                    "attempts": outcome.attempts,
                     "prior_art_budget": prior_art_budget.map(|(used, limit)| serde_json::json!({"used": used, "limit": limit})),
                 })
                 .to_string(),
@@ -378,35 +384,79 @@ async fn search_one_query(
     if backend == SearchBackend::Duckduckgo {
         return duckduckgo_outcome(query, limit, client, duckduckgo_url, None).await;
     }
-    let codex_result = match codex {
+    let result = match codex {
         Some(backend) => search_codex(client, backend, &query, limit).await,
-        None => Err(codex_unavailable
-            .unwrap_or("Codex search route unavailable")
-            .to_string()),
+        None => Err(SearchFailure::new(
+            SearchErrorCode::Unavailable,
+            codex_unavailable.unwrap_or("Codex search route unavailable"),
+        )),
     };
-    match codex_result {
-        Ok((results, truncated)) => QuerySearchOutput {
+    match result {
+        Ok(data) => backend_outcome(query, "codex_alpha_search", None, Ok(data), true),
+        Err(error) if backend == SearchBackend::Codex => backend_outcome(
+            query,
+            "codex_alpha_search",
+            None,
+            Err(error),
+            codex.is_some(),
+        ),
+        Err(error) => {
+            let fallback =
+                format!("Codex /alpha/search unavailable ({error}); auto selected DuckDuckGo.");
+            let mut outcome =
+                duckduckgo_outcome(query, limit, client, duckduckgo_url, Some(fallback)).await;
+            outcome.attempts.insert(
+                0,
+                SearchAttempt {
+                    backend: "codex_alpha_search".into(),
+                    dispatched: codex.is_some(),
+                    status: SearchStatus::Failed,
+                    failure: Some(error),
+                },
+            );
+            outcome
+        }
+    }
+}
+
+fn backend_outcome(
+    query: SearchQuery,
+    backend: &str,
+    fallback: Option<String>,
+    result: Result<SearchData, SearchFailure>,
+    dispatched: bool,
+) -> QuerySearchOutput {
+    match result {
+        Ok(data) => QuerySearchOutput {
             query: query.q,
-            backend: "codex_alpha_search".into(),
-            fallback: None,
-            results,
-            truncated,
+            backend: backend.into(),
+            fallback,
+            results: data.results,
+            truncated: data.truncated,
             error: None,
+            status: data.status,
+            attempts: vec![SearchAttempt {
+                backend: backend.into(),
+                dispatched,
+                status: data.status,
+                failure: None,
+            }],
         },
-        Err(codex_error) if backend == SearchBackend::Codex => QuerySearchOutput {
+        Err(error) => QuerySearchOutput {
             query: query.q,
-            backend: "codex_alpha_search".into(),
-            fallback: None,
+            backend: backend.into(),
+            fallback,
             results: Vec::new(),
             truncated: false,
-            error: Some(codex_error),
+            error: Some(search_failure_message(&error.to_string())),
+            status: SearchStatus::Failed,
+            attempts: vec![SearchAttempt {
+                backend: backend.into(),
+                dispatched,
+                status: SearchStatus::Failed,
+                failure: Some(error),
+            }],
         },
-        Err(codex_error) => {
-            let fallback = format!(
-                "Codex /alpha/search unavailable ({codex_error}); automatically fell back to DuckDuckGo."
-            );
-            duckduckgo_outcome(query, limit, client, duckduckgo_url, Some(fallback)).await
-        }
     }
 }
 
@@ -417,75 +467,16 @@ async fn duckduckgo_outcome(
     endpoint: &str,
     fallback: Option<String>,
 ) -> QuerySearchOutput {
-    match search_duckduckgo(client, endpoint, &query, limit).await {
-        Ok((results, truncated)) => QuerySearchOutput {
-            query: query.q,
-            backend: "duckduckgo".into(),
-            fallback,
-            results,
-            truncated,
-            error: None,
-        },
-        Err(error) => QuerySearchOutput {
-            query: query.q,
-            backend: "duckduckgo".into(),
-            fallback,
-            results: Vec::new(),
-            truncated: false,
-            error: Some(search_failure_message(&error)),
-        },
-    }
-}
-
-fn search_cooldowns(
-) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>> {
-    static CACHE: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
-    > = std::sync::OnceLock::new();
-    CACHE.get_or_init(Default::default)
+    let result = search_duckduckgo(client, endpoint, &query, limit).await;
+    backend_outcome(query, "duckduckgo", fallback, result, true)
 }
 async fn search_codex(
     client: &reqwest::Client,
     backend: &CodexBackend,
     query: &SearchQuery,
     limit: usize,
-) -> Result<(Vec<SearchResult>, bool), String> {
-    {
-        let mut cooldowns = search_cooldowns().lock().unwrap_or_else(|e| e.into_inner());
-        cooldowns.retain(|_, at| at.elapsed().as_secs() < 60);
-        if cooldowns.contains_key(&backend.endpoint) {
-            return Err("backend cooling down after a failed request".into());
-        }
-    }
-    let first = match search_codex_attempt(client, backend, query, limit).await {
-        Ok(result) => return Ok(result),
-        Err(error) => error,
-    };
-    let transient = first.contains("request failed")
-        || [
-            "HTTP 429",
-            "HTTP 500",
-            "HTTP 502",
-            "HTTP 503",
-            "HTTP 504",
-            "error reading",
-        ]
-        .iter()
-        .any(|text| first.contains(text));
-    let error = if transient {
-        match search_codex_attempt(client, backend, query, limit).await {
-            Ok(result) => return Ok(result),
-            Err(second) => format!("{first}; bounded retry: {second}"),
-        }
-    } else {
-        first
-    };
-    let mut cooldowns = search_cooldowns().lock().unwrap_or_else(|e| e.into_inner());
-    if cooldowns.len() >= 64 {
-        cooldowns.clear();
-    }
-    cooldowns.insert(backend.endpoint.clone(), std::time::Instant::now());
-    Err(error)
+) -> Result<SearchData, SearchFailure> {
+    search_codex_attempt(client, backend, query, limit).await
 }
 fn allowed_result(url: &str, domains: &[String]) -> bool {
     let Ok(url) = reqwest::Url::parse(url) else {
@@ -509,7 +500,7 @@ async fn search_codex_attempt(
     backend: &CodexBackend,
     query: &SearchQuery,
     limit: usize,
-) -> Result<(Vec<SearchResult>, bool), String> {
+) -> Result<SearchData, SearchFailure> {
     let mut command = serde_json::json!({"q": query.q});
     if let Some(recency) = query.recency {
         command["recency"] = serde_json::json!(recency.days());
@@ -535,17 +526,24 @@ async fn search_codex_attempt(
     let response = request
         .send()
         .await
-        .map_err(|_| "Codex /alpha/search request failed".to_string())?;
+        .map_err(|error| SearchFailure::transport("Codex /alpha/search", &error))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("Codex /alpha/search HTTP {}", status.as_u16()));
+        return Err(SearchFailure::http("Codex /alpha/search", status.as_u16()));
     }
     let (bytes, truncated) = read_search_body(response).await?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|_| "Codex /alpha/search returned invalid JSON".to_string())?;
-    let items = value["results"]
-        .as_array()
-        .ok_or_else(|| "Codex /alpha/search response is missing results[]".to_string())?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| {
+        SearchFailure::new(
+            SearchErrorCode::InvalidResponse,
+            "Codex /alpha/search returned invalid JSON",
+        )
+    })?;
+    let items = value["results"].as_array().ok_or_else(|| {
+        SearchFailure::new(
+            SearchErrorCode::InvalidResponse,
+            "Codex /alpha/search response is missing results[]",
+        )
+    })?;
     let mut results = Vec::new();
     for item in items {
         let Some(url) = item["url"]
@@ -574,9 +572,25 @@ async fn search_codex_attempt(
         }
     }
     if !items.is_empty() && results.is_empty() && query.domains.is_empty() {
-        return Err("Codex /alpha/search result item shape changed".into());
+        return Err(SearchFailure::new(
+            SearchErrorCode::InvalidResponse,
+            "Codex /alpha/search result item shape changed",
+        ));
     }
-    Ok((results, truncated))
+    let status = if truncated {
+        SearchStatus::Partial
+    } else if items.is_empty() {
+        SearchStatus::Empty
+    } else if results.is_empty() {
+        SearchStatus::Filtered
+    } else {
+        SearchStatus::Results
+    };
+    Ok(SearchData {
+        results,
+        truncated,
+        status,
+    })
 }
 
 async fn search_duckduckgo(
@@ -584,7 +598,7 @@ async fn search_duckduckgo(
     endpoint: &str,
     query: &SearchQuery,
     limit: usize,
-) -> Result<(Vec<SearchResult>, bool), String> {
+) -> Result<SearchData, SearchFailure> {
     let mut terms = query.q.clone();
     for domain in &query.domains {
         terms.push_str(&format!(" site:{domain}"));
@@ -601,31 +615,47 @@ async fn search_duckduckgo(
         .timeout(std::time::Duration::from_secs(30))
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| SearchFailure::transport("DuckDuckGo", &error))?;
     if !response.status().is_success() {
-        return Err(format!("DuckDuckGo HTTP {}", response.status().as_u16()));
+        return Err(SearchFailure::http(
+            "DuckDuckGo",
+            response.status().as_u16(),
+        ));
     }
-    let (body, truncated) = read_search_body(response)
-        .await
-        .map_err(|error| error.to_string())?;
-    let html = String::from_utf8_lossy(&body);
-    if html.contains("anomaly-modal")
-        || html.contains("anomaly.js")
-        || html.contains("challenge-form")
-    {
-        return Err("DuckDuckGo returned a CAPTCHA challenge".into());
+    let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if !matches!(content_type, "text/html" | "application/xhtml+xml") {
+        let mut failure = SearchFailure::new(
+            SearchErrorCode::InvalidResponse,
+            "DuckDuckGo response is not HTML",
+        );
+        failure.http_status = Some(status);
+        return Err(failure);
     }
-    Ok((
-        parse_results(&html)
-            .into_iter()
-            .filter(|result| allowed_result(&result.url, &query.domains))
-            .take(limit)
-            .collect(),
-        truncated,
-    ))
+    let (body, truncated) = read_search_body(response).await?;
+    let html = String::from_utf8(body).map_err(|_| {
+        SearchFailure::new(
+            SearchErrorCode::InvalidResponse,
+            "DuckDuckGo response is not valid UTF-8",
+        )
+    })?;
+    health::duckduckgo_page(&html, truncated, query, limit).map_err(|mut failure| {
+        failure.http_status = Some(status);
+        failure
+    })
 }
 
-async fn read_search_body(mut response: reqwest::Response) -> Result<(Vec<u8>, bool), String> {
+async fn read_search_body(
+    mut response: reqwest::Response,
+) -> Result<(Vec<u8>, bool), SearchFailure> {
     let mut body = Vec::new();
     loop {
         match response.chunk().await {
@@ -637,7 +667,12 @@ async fn read_search_body(mut response: reqwest::Response) -> Result<(Vec<u8>, b
                 }
             }
             Ok(None) => return Ok((body, false)),
-            Err(_) => return Err("error reading search response".into()),
+            Err(_) => {
+                return Err(SearchFailure::new(
+                    SearchErrorCode::BodyRead,
+                    "error reading search response",
+                ))
+            }
         }
     }
 }
@@ -659,7 +694,7 @@ fn search_request_id() -> String {
 
 fn search_failure_message(error: &str) -> String {
     format!(
-        "search failed: {error}. DuckDuckGo HTML 端点当前不可达；不要静默重试。若已有论文/项目地址，改用 webfetch；学术检索可直接访问 arXiv abs/pdf 或 `https://export.arxiv.org/api/query?...`，并继续携带 research topic/task_id。"
+        "search failed: {error}. 本次没有取得可验证搜索结果；不要静默重试。已知原始来源可用 webfetch 或 browser 读取；调查任务继续携带原 topic/task_id。"
     )
 }
 
@@ -724,58 +759,32 @@ impl Tool for ResearchWebSearchTool {
     }
 }
 
-fn parse_results(html: &str) -> Vec<SearchResult> {
-    let mut results = Vec::new();
-    let mut rest = html;
-    while let Some(start) = rest.find("result__a") {
-        rest = &rest[start..];
-        let Some(href_start) = rest.find("href=\"") else {
-            break;
-        };
-        let after_href = &rest[href_start + 6..];
-        let Some(end) = after_href.find('"') else {
-            break;
-        };
-        let raw_url = &after_href[..end];
-        let Some(title_start) = after_href[end..].find('>') else {
-            break;
-        };
-        let title_body = &after_href[end + title_start + 1..];
-        let Some(title_end) = title_body.find("</a>") else {
-            break;
-        };
-        let title = crate::webfetch::html_to_text(&title_body[..title_end])
-            .trim()
-            .to_string();
-        let url = decode_result_url(raw_url);
-        // 逐级把基址累进 rest,避免像原实现那样在第三步丢掉 result__snippet 的偏移,
-        // 导致起点落在开标签内部、snippet 带 `snippet">` 垃圾前缀(D-069)。
-        let snippet = {
-            let rest = &title_body[title_end + 4..];
-            rest.find("result__snippet")
-                .map(|offset| &rest[offset..])
-                .and_then(|rest| rest.find('>').map(|offset| &rest[offset + 1..]))
-                .and_then(|rest| {
-                    rest.find('<')
-                        .map(|end| crate::webfetch::html_to_text(&rest[..end]))
-                })
-                .unwrap_or_default()
-                .trim()
-                .to_string()
-        };
-        if !url.is_empty() && !title.is_empty() {
-            results.push(SearchResult {
+fn parse_results(document: &dom_query::Document) -> Vec<SearchResult> {
+    document.select("script, style").remove();
+    document
+        .select("a.result__a")
+        .iter()
+        .filter_map(|anchor| {
+            let url = decode_result_url(anchor.attr("href")?.as_ref());
+            let title = anchor.text().trim().to_owned();
+            if title.is_empty() || url.is_empty() {
+                return None;
+            }
+            let snippet = anchor
+                .ancestors(None)
+                .iter()
+                .find(|parent| parent.has_class("result"))
+                .map(|parent| parent.select(".result__snippet").text().trim().to_owned())
+                .unwrap_or_default();
+            Some(SearchResult {
                 reference: String::new(),
                 title,
                 url,
                 snippet,
-            });
-        }
-        rest = &title_body[title_end + 4..];
-    }
-    results
+            })
+        })
+        .collect()
 }
-
 fn decode_result_url(raw: &str) -> String {
     let raw = raw.replace("&amp;", "&");
     let absolute = if raw.starts_with("//") {
@@ -798,26 +807,33 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn transient_search_failure_retries_once_and_captcha_is_not_empty_success() {
-        use std::io::{Read, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let endpoint = format!("http://{}/search", listener.local_addr().unwrap());
-        let server = std::thread::spawn(move || {
-            for response in [
-                stub_response("503 Service Unavailable", "application/json", "{}"),
-                stub_response(
-                    "200 OK",
-                    "application/json",
-                    r#"{"results":[{"title":"Docs","url":"https://docs.rs/a"}]}"#,
-                ),
-            ] {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0; 4096];
-                let length = stream.read(&mut request).unwrap();
-                assert!(length > 0);
-                stream.write_all(response.as_bytes()).unwrap();
-            }
-        });
+    async fn a_changed_html_layout_is_not_evidence_of_zero_search_results() {
+        let (url, server) = spawn_search_server(stub_response(
+            "200 OK",
+            "text/html",
+            "<html><body><h1>Sign in to continue</h1></body></html>",
+        ));
+        let client = build_http_client(&ProxyConfig::Disabled).unwrap();
+        let query = SearchQuery {
+            q: "CodeBuddy security advisory".into(),
+            recency: None,
+            domains: Vec::new(),
+        };
+        let outcome = duckduckgo_outcome(query, 5, &client, &url, None).await;
+        server.join().unwrap();
+        assert!(
+            outcome.error.is_some(),
+            "an unknown page is not an empty successful search"
+        );
+    }
+
+    #[tokio::test]
+    async fn each_query_attempt_is_explicit_and_captcha_is_not_empty_success() {
+        let (endpoint, server) = spawn_search_server(stub_response(
+            "503 Service Unavailable",
+            "application/json",
+            "{}",
+        ));
         let client = build_http_client(&ProxyConfig::Disabled).unwrap();
         let query = SearchQuery {
             q: "rust".into(),
@@ -829,14 +845,12 @@ mod tests {
             model: "test".into(),
             headers: vec![],
         };
-        assert_eq!(
-            search_codex(&client, &backend, &query, 5)
-                .await
-                .unwrap()
-                .0
-                .len(),
-            1
-        );
+        let failure = search_codex(&client, &backend, &query, 5)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(failure.code, SearchErrorCode::HttpStatus);
+        assert_eq!(failure.http_status, Some(503));
         server.join().unwrap();
         let (url, server) = spawn_search_server(stub_response(
             "200 OK",
@@ -847,6 +861,7 @@ mod tests {
             .await
             .err()
             .unwrap()
+            .message
             .contains("CAPTCHA"));
         server.join().unwrap();
         assert!(!allowed_result(
@@ -866,7 +881,9 @@ mod tests {
     #[test]
     fn parses_duckduckgo_results() {
         let html = r#"<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa&amp;rut=x">Example <b>title</b></a><a class="result__snippet">A useful snippet</a>"#;
-        let results = parse_results(html);
+        let results = parse_results(&dom_query::Document::from(format!(
+            "<div class=\"result\">{html}</div>"
+        )));
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].url, "https://example.com/a");
         assert_eq!(results[0].title, "Example title");
@@ -878,7 +895,9 @@ mod tests {
     #[test]
     fn 中文摘要不错位也不panic() {
         let html = r#"<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2F%E4%B8%AD%E6%96%87">中文标题</a><a class="result__snippet">这是一段中文摘要内容</a>"#;
-        let results = parse_results(html);
+        let results = parse_results(&dom_query::Document::from(format!(
+            "<div class=\"result\">{html}</div>"
+        )));
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "中文标题");
         assert_eq!(results[0].snippet, "这是一段中文摘要内容");
@@ -888,18 +907,21 @@ mod tests {
     #[test]
     fn unicode_title_keeps_visible_text_and_skips_script() {
         let html = r#"<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com">İ <SCRIPT>ẞ hidden</SCRIPT>可见标题</a>"#;
-        let results = parse_results(html);
+        let results = parse_results(&dom_query::Document::from(format!(
+            "<div class=\"result\">{html}</div>"
+        )));
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "İ 可见标题");
         assert!(!results[0].title.contains("hidden"));
     }
 
     #[test]
-    fn 端点失败诊断给出arxiv与webfetch降级通道() {
+    fn 端点失败保留真实原因且不把任务导向另一研究主题() {
         let message = search_failure_message("connection refused");
-        assert!(message.contains("DuckDuckGo HTML"));
+        assert!(message.contains("connection refused"));
         assert!(message.contains("webfetch"));
-        assert!(message.contains("export.arxiv.org/api/query"));
+        assert!(message.contains("browser"));
+        assert!(!message.contains("arxiv"));
         assert!(message.contains("不要静默重试"));
     }
 
@@ -1149,7 +1171,9 @@ mod tests {
             model: "gpt-test".into(),
             headers: Vec::new(),
         };
-        let (results, truncated) = search_codex(
+        let SearchData {
+            results, truncated, ..
+        } = search_codex(
             &client,
             &backend,
             &SearchQuery {
