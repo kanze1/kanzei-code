@@ -6,6 +6,7 @@ import { mkdir, copyFile, writeFile, readFile } from "node:fs/promises";
 import net from "node:net";
 import http from "node:http";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { chromium } from "playwright-core";
 
 assert(process.platform === "win32" && process.argv[2], "Usage: node scripts/ui-memory-job-native-smoke.mjs <exe>");
@@ -15,7 +16,7 @@ for (const dir of [path.join(project, ".kanzei/memory"), appHome, path.join(run,
 const inbox = path.join(project, ".kanzei/memory/inbox.md");
 await writeFile(inbox, "# Memory Inbox\n\n## note 2026-10-18 [fact]\n- note_id: native-note-1\n- summary: native-memory-job-source\nNo durable change is needed.\n");
 await writeFile(path.join(appHome, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
-const requests = []; let holding = true, stage = "starting"; const states = [], clicks = [], ipcRequests = [];
+const requests = []; let primaryCalls = 0, holding = true, stage = "starting"; const states = [], clicks = [], ipcRequests = [];
 const reply = (res, delta) => {
   res.writeHead(200, { "Content-Type": "text/event-stream" });
   res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`);
@@ -29,7 +30,9 @@ const model = http.createServer(async (req, res) => {
   }
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
   let raw = ""; for await (const part of req) raw += part;
-  const data = JSON.parse(raw); requests.push({ stage, model: data.model, tools: data.tools?.map(tool => tool.function.name) || [] });
+  const data = JSON.parse(raw);
+  if (data.model === "test") { primaryCalls += 1; reply(res,{ content:"NATIVE_BACKGROUND_GUARD: 已完成这一轮简短对话。" }); return; }
+  requests.push({ stage, model: data.model, tools: data.tools?.map(tool => tool.function.name) || [] });
   if (holding) return;
   if (!data.messages.some(message => message.role === "tool")) {
     reply(res, { tool_calls: [{ index: 0, id: "job-discard-1", type: "function", function: {
@@ -42,12 +45,17 @@ const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "
 const exe = path.join(run, "kzapp.exe"); await copyFile(path.resolve(process.argv[2]), exe);
 const app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", env: { ...process.env, KANZEI_HOME: appHome, USERPROFILE: profile, HOME: profile,
   LOCALAPPDATA: path.join(profile, "AppData/Local"), APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(port) } });
-let browser, page; const checks = [], errors = [];
+let browser, page, auditDb; const checks = [], errors = [];
 const check = (value, label) => { assert(value, label); checks.push(label); };
 const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
 const waitStatus = status => page.locator("#memory-job-progress").filter({ hasText: {
   cancelled: "整理已停止，可继续", completed: "整理已完成",
 }[status] }).waitFor({ state: "visible", timeout: 25000 });
+async function until(predicate, label) {
+  const deadline = Date.now()+25000;
+  while (Date.now()<deadline) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve,100)); }
+  throw new Error(label);
+}
 try {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); break; } catch { await new Promise(resolve => setTimeout(resolve, 250)); } }
@@ -89,6 +97,23 @@ try {
   check((await invoke("runtime_status")).pid === first.owner_pid, "Stopping a memory job and reloading leave the same detached runtime alive");
   await page.locator("#memory-job-progress").filter({ hasText: "整理已停止，可继续" }).waitFor();
   check((await invoke("memory_job_status", { projectDir: project })).job.id === first.id, "Native reload retains the previous cancellation checkpoint");
+  const line = await invoke("process_create", { projectDir: project, profile:"dev", model:"stub:test", subagentMode:"off" });
+  auditDb = new DatabaseSync(path.join(project,".kanzei/state.db"),{ readOnly:true });
+  await invoke("run_prompt",{ projectDir:project,processId:line.id,prompt:"只需简短回答 NATIVE_BACKGROUND_GUARD。",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false });
+  let automatic;
+  await until(() => {
+    automatic = auditDb.prepare("SELECT json_extract(payload_json,'$.payload.status') AS status,json_extract(payload_json,'$.payload.job.id') AS job_id FROM session_events WHERE json_extract(payload_json,'$.payload.trigger')='automatic' ORDER BY sequence DESC LIMIT 1").get();
+    return automatic?.status === "cancelled";
+  },"A real completed main run must record that its automatic maintenance respected the prior stop");
+  check(primaryCalls === 1 && automatic.job_id === first.id && requests.length === 1,
+    "A real main-model completion records an automatic skip and makes no new manager request after the user's stop");
+  let currentRun;
+  await until(async () => {
+    currentRun = (await invoke("collaboration_snapshot",{projectDir:project})).find(row=>row.process_id===line.id);
+    return currentRun?.status === "completed";
+  },"The real main run must durably complete after its background maintenance check");
+  check(currentRun?.status === "completed" && (await invoke("memory_job_status",{projectDir:project})).job.id === first.id,
+    "Background memory pause preserves the normal main run's durable completion and the stopped job's identity");
   holding = false;
   await page.locator("#memory-consolidate-btn").click();
   await waitStatus("completed");
@@ -100,11 +125,12 @@ try {
     "An older request remains idempotent after a later job has completed");
   check(errors.length === 0, `No native page errors: ${errors.join("; ")}`);
   await page.screenshot({ path: path.join(output, "native-memory-job.png") });
-  await writeFile(path.join(output, "acceptance.json"), JSON.stringify({ passed: checks.length, checks, requests, first, last, executable: exe,
+  await writeFile(path.join(output, "acceptance.json"), JSON.stringify({ passed: checks.length, checks, requests, primaryCalls, automatic, first, last, executable: exe,
     boundary: "Actual native UI, Rust manager, HTTP streaming/cancellation and persistent checkpoint; disposable project and profile." }, null, 2));
   console.log(`Memory job native PASS: ${checks.length} checks`);
 } catch (error) { if (page && !page.isClosed()) states.push((await invoke("memory_job_status", { projectDir: project })).job); console.error(JSON.stringify({ checks, errors, requests, states, clicks, ipcRequests },null,2)); if (page && !page.isClosed()) await page.screenshot({ path: path.join(output, "failure.png") }); throw error; }
 finally {
+  auditDb?.close();
   if (page && !page.isClosed()) {
     try {
       const active = await invoke("memory_job_status", { projectDir: project });

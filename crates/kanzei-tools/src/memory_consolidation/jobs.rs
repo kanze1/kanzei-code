@@ -14,11 +14,16 @@ pub(super) struct JobControl {
 }
 
 static JOBS: LazyLock<Mutex<HashMap<PathBuf, Arc<JobControl>>>> = LazyLock::new(Mutex::default);
+const MAX_REQUEST_ID_BYTES: usize = 128;
 
 pub(super) fn previous_request(
     root: &Path,
     request_id: &str,
 ) -> anyhow::Result<Option<JobSnapshot>> {
+    anyhow::ensure!(
+        !request_id.trim().is_empty() && request_id.len() <= MAX_REQUEST_ID_BYTES,
+        "记忆整理请求标识无效"
+    );
     let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root))?;
     let session = kanzei_core::project_session_id(root);
     state
@@ -113,10 +118,6 @@ impl JobLease {
             Err(TryLockError::Error(error)) => return Err(error.into()),
         }
         if let Some(id) = request_id {
-            anyhow::ensure!(
-                !id.trim().is_empty() && id.len() <= 128,
-                "记忆整理请求标识无效"
-            );
             if previous_request(&root, id)?.is_some() {
                 return Ok(None);
             }
@@ -177,10 +178,13 @@ impl JobControl {
         self.persist(&snapshot)
     }
 
-    pub fn transition(&self, status: MemoryJobStatus) -> anyhow::Result<()> {
+    pub fn transition(&self, status: MemoryJobStatus, error: Option<&str>) -> anyhow::Result<()> {
         let mut current = self.snapshot.lock().unwrap();
         let mut next = current.clone();
         next.status = status;
+        if let Some(error) = error {
+            next.error = Some(error.to_owned());
+        }
         self.persist(&next)?;
         *current = next;
         Ok(())
@@ -229,7 +233,7 @@ impl Drop for JobLease {
         } else {
             status
         };
-        if let Err(error) = self.control.transition(status) {
+        if let Err(error) = self.control.transition(status, None) {
             tracing::error!(%error, "memory job final checkpoint failed");
         }
         drop(self.file.take());

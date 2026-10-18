@@ -299,6 +299,30 @@ async fn consolidate_inbox_inner(
         batches: Vec::new(),
         stopped_reason: None,
     };
+    if request_id.is_none() && pending_before > 0 {
+        match jobs::snapshot(&ctx.project_root) {
+            Ok(Some(previous))
+                if matches!(
+                    previous.status,
+                    ConsolidationStatus::Cancelled
+                        | ConsolidationStatus::Failed
+                        | ConsolidationStatus::Incomplete
+                        | ConsolidationStatus::Interrupted
+                ) =>
+            {
+                report.status = previous.status;
+                report.job = Some(previous);
+                report.stopped_reason = Some("上次整理已停止或未完成，请主动续跑".into());
+                return report;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                report.status = ConsolidationStatus::Failed;
+                report.stopped_reason = Some(format!("previous job state unavailable: {error}"));
+                return report;
+            }
+        }
+    }
     if let Some(id) = request_id {
         match jobs::request_snapshot(&ctx.project_root, id) {
             Ok(Some(previous)) => {
@@ -654,7 +678,11 @@ fn finish_job(mut report: ConsolidationReport, job: &jobs::JobLease) -> Consolid
         report.status = ConsolidationStatus::Failed;
         report.stopped_reason = Some(error);
     }
-    if let Err(error) = job.control.transition(report.status) {
+    let failure = report
+        .stopped_reason
+        .as_deref()
+        .filter(|_| report.has_failures());
+    if let Err(error) = job.control.transition(report.status, failure) {
         report.status = ConsolidationStatus::Failed;
         report.stopped_reason = Some(format!("job finalization failed: {error}"));
         job.control.persistence_failed(error);
@@ -727,6 +755,54 @@ async fn consolidate_for_project(
 mod tests {
     use super::{explicit_stale_ids, reconcile_active_notes};
     use crate::memory::{AddOutcome, MemoryStore};
+
+    #[tokio::test]
+    async fn a_stopped_job_is_not_restarted_by_automatic_consolidation() {
+        let root = temp_project("automatic-stop");
+        let store = MemoryStore::project(&root);
+        store
+            .append_note(
+                "stopped source",
+                "must wait for explicit resume",
+                "fact",
+                &[],
+            )
+            .unwrap();
+        let job = super::jobs::JobLease::begin(&root, &store, Some("manual-stop-request"))
+            .unwrap()
+            .unwrap();
+        let job_id = job.control.snapshot.lock().unwrap().id.clone();
+        job.control
+            .transition(super::ConsolidationStatus::Cancelled, None)
+            .unwrap();
+        drop(job);
+        let config = std::sync::Arc::new(toml::from_str::<kanzei_harness::KanzeiConfig>(
+            "[models]\nprimary='stub:test'\nfast='stub:test'\n[providers.stub]\nprotocol='openai'\nbase_url='http://127.0.0.1:9/v1'\ncontext_limit=64000\n"
+        ).unwrap());
+        let rctx = kanzei_harness::ResolveCtx {
+            profile: kanzei_harness::ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: config.clone(),
+        };
+        let ctx = kanzei_harness::ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let proxy = kanzei_llm::ProxyConfig::Disabled;
+        let client = kanzei_llm::LlmClient::new(&proxy).unwrap();
+        let report =
+            super::consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx, None).await;
+        assert_eq!(report.status, super::ConsolidationStatus::Cancelled);
+        assert!(
+            report.batches.is_empty(),
+            "automatic maintenance cannot restart a stopped queue"
+        );
+        assert_eq!(report.job.unwrap().id, job_id);
+        assert_eq!(store.pending_notes(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn temp_project(label: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(

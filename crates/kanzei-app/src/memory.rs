@@ -758,12 +758,32 @@ pub(crate) async fn consolidate_memory_inbox(
     current_episode_id: Option<i64>,
     request_id: Option<&str>,
 ) -> anyhow::Result<kanzei_tools::memory_consolidation::ConsolidationReport> {
-    kanzei_tools::memory_consolidation::consolidate_memory_for_project(
+    let report = kanzei_tools::memory_consolidation::consolidate_memory_for_project(
         &project_dir,
         current_episode_id,
         request_id,
     )
-    .await
+    .await?;
+    if request_id.is_none() {
+        let mut payload = serde_json::to_value(&report)?;
+        payload["trigger"] = json!("automatic");
+        payload["episode_id"] = json!(current_episode_id);
+        let event_type = if report.status
+            == kanzei_tools::memory_consolidation::ConsolidationStatus::Completed
+        {
+            "memory_consolidation_completed"
+        } else {
+            "memory_consolidation_stopped"
+        };
+        append_memory_fact(
+            &project_dir,
+            event_type,
+            Some("memory_consolidation".into()),
+            payload,
+        )
+        .map_err(anyhow::Error::msg)?;
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
