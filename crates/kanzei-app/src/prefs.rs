@@ -249,7 +249,12 @@ pub(crate) fn purge_project_prefs(prefs: &mut AppPrefs, project: &str) {
 /// Hold this across the complete read/modify/write transaction, including RPC
 /// callers running concurrently in the detached runtime.
 pub(crate) fn write_guard() -> Result<kanzei_tools::atomic_file::FileLock, String> {
-    kanzei_tools::atomic_file::lock_exclusive(&prefs_path()).map_err(|e| e.to_string())
+    // app.json is atomically replaced while other callers are waiting. Resolve
+    // the persistent sibling lock itself, so acquisition never opens that
+    // changing data entry. lock_path_for(app.lock) retains the same lock path.
+    let path = kanzei_tools::atomic_file::lock_path_for(&prefs_path());
+    kanzei_tools::atomic_file::lock_exclusive(&path)
+        .map_err(|error| format!("获取偏好写锁 {} 失败: {error}", path.display()))
 }
 pub(crate) fn save_prefs(prefs: &AppPrefs) -> Result<(), String> {
     let path = prefs_path();
@@ -260,7 +265,7 @@ pub(crate) fn save_prefs(prefs: &AppPrefs) -> Result<(), String> {
         &path,
         &serde_json::to_string_pretty(prefs).map_err(|e| e.to_string())?,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|error| format!("写入偏好文件 {} 失败: {error}", path.display()))
 }
 
 // ---------- D-404:关键 UI 偏好后端持久化 ----------
@@ -524,6 +529,59 @@ pub(crate) mod failure_tests {
             "process_auto_state": {format!("p1|{a}"): {"enabled": true}, format!("p2|{a}"): {"enabled": false}},
             "open_tools": [{"id": "kept", "label": "Kept tool", "command": "fixture-unused.exe", "args": ["{path}"]}]
         })
+    }
+
+    #[test]
+    fn overlapping_project_and_ui_transactions_preserve_both_preference_domains() {
+        with_home("concurrent-replacement", |home| {
+            let initial = fixture(home);
+            std::fs::write(home.join("app.json"), serde_json::to_vec(&initial).unwrap()).unwrap();
+            let project = initial["projects"][0].as_str().unwrap().to_string();
+            let barrier = std::sync::Barrier::new(8);
+            std::thread::scope(|scope| {
+                for worker in 0..8 {
+                    let project = project.clone();
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        for revision in 0..32 {
+                            if worker % 2 == 0 {
+                                crate::projects::projects_rename(
+                                    project.clone(),
+                                    format!("Renamed-{worker}-{revision}"),
+                                )
+                                .unwrap();
+                            } else {
+                                ui_prefs_set(
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    Some(
+                                        json!({format!("worker-{worker}"): {"revision": revision}}),
+                                    ),
+                                    None,
+                                )
+                                .unwrap();
+                            }
+                        }
+                    });
+                }
+            });
+            let saved = load_prefs_for_write().unwrap();
+            assert_eq!(
+                serde_json::to_value(&saved.projects).unwrap(),
+                initial["projects"]
+            );
+            assert!(saved.names[&project].starts_with("Renamed-"));
+            assert_eq!(saved.theme.as_deref(), Some("dark"));
+            for worker in [1, 3, 5, 7] {
+                assert_eq!(saved.ui_layout[format!("worker-{worker}")]["revision"], 31);
+            }
+        });
     }
 
     pub(crate) fn damaged_inputs(good: &Value) -> Vec<(&'static str, Vec<u8>)> {

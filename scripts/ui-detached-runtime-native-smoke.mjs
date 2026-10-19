@@ -38,15 +38,13 @@ const model = task.server(http.createServer(async (req, res) => {
     const system = JSON.stringify(messages.filter(m => m.role === "system")), last = JSON.stringify(messages.findLast(m => m.role === "user")?.content || "");
     const child = system.includes("You own one delegated task");
     const boundWork = last.includes("MAIN_WORK_ITEM");
-    const kind = boundWork ? last.includes("只读勘察代理") ? "work-scout" : last.includes("只读复核代理") ? "work-review" : "work-main"
+    const kind = boundWork ? "work-main"
       : child ? history.includes("CHILD_DURABLE") ? "child-question" : history.includes("CHILD_ONE") ? "child-one" : "child-two"
       : last.includes("用户回答异步问题") ? "answer" : last.includes("日志订阅更新") ? "monitor" : last.includes("后台终端完成") ? "terminal-callback"
         : last.includes("MAIN_HOLD") ? "main-hold" : last.includes("MAIN_DURABLE") ? "main-question" : last.includes("MAIN_LOGS") ? "terminal"
           : last.includes("MAIN_BROWSER") ? "browser" : last.includes("MAIN_SCREENSHOT") ? "screenshot" : last.includes("AUTO_GOAL") ? "auto" : "callback";
     const step = (counts.get(kind) || 0) + 1; counts.set(kind, step); requests.push({ kind, child, messages, tools: data.tools, model: data.model });
     if (["main-hold", "child-one", "child-two", "work-main"].includes(kind)) held.set(kind, () => answer(res, `${kind.toUpperCase()}_DONE`));
-    else if (kind === "work-scout") answer(res, "original.txt:1 contains the isolated fixture. No product changes are requested by this IPC check.");
-    else if (kind === "work-review") answer(res, "NO_ISSUES");
     else if (kind === "auto") { if (step === 1) held.set("auto", () => answer(res, "继续推进，目标尚未达成。")); else held.set("auto-next", () => answer(res, "已暂停验收模型。")); }
     else if (kind === "main-question" && step === 1) answer(res, null, [call("durable-main", "question", { question: "MAIN_DURABLE_CHOICE", options: ["A", "B"], background: true })]);
     else if (kind === "child-question" && step === 1) answer(res, null, [call("durable-child", "question", { question: "CHILD_DURABLE_CHOICE", options: ["A", "B"], background: true })]);
@@ -60,7 +58,10 @@ await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(appHome, "kanzei.toml"), `[models]\nprimary = "stub:primary"\nfast = "stub:fast"\n[providers.stub]\nprotocol = "openai"\nbase_url = "http://127.0.0.1:${model.address().port}/v1"\ncontext_limit = 64000\n`);
 const exe = path.join(run, "kzapp.exe"); await task.copyInput(path.resolve(process.argv[2]), exe);
 let app, browser, page, owner, servicePid;
-const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
+const invoke = (command, args = {}) => page.evaluate(async ({ command, args }) => {
+  try { return await window.__TAURI__.core.invoke(command, args); }
+  catch (error) { throw new Error(`${command}: ${error}`); }
+}, { command, args });
 const command = input => invoke("agent_team_command", { projectDir: project, processId: owner.id, input });
 const prompt = (text, extra = {}) => invoke("run_prompt", { projectDir: project, processId: owner.id, profile: "dev", agent: "dev-pair", model: "stub:chosen", prompt: text, autonomous: false, ...extra });
 const running = async () => (await invoke("process_list", { projectDir: project })).find(p => p.id === owner.id)?.running;
@@ -82,24 +83,29 @@ const alive = pid => { try { process.kill(pid, 0); return true; } catch { return
 try {
   await open(); check(servicePid !== app.pid && alive(servicePid), "Execution runs in a separate OS process");
   await invoke("projects_init", { path: project, name: "后台运行验收" }); await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
-  await Promise.all(Array.from({length:24},(_,i)=>Promise.all([
-    invoke("projects_rename",{path:project,name:"后台运行验收"}),
-    invoke("ui_prefs_set",{ui_layout:{detachedAcceptance:{revision:i}}}),
-  ])));
+  for (const wave of [0, 1, 2, 3]) {
+    await Promise.all(Array.from({length:24},(_,i)=>Promise.all([
+      invoke("projects_rename",{path:project,name:"后台运行验收"}),
+      invoke("ui_prefs_set",{ui_layout:{detachedAcceptance:{revision:wave*24+i}}}),
+    ])));
+  }
   const prefs=await invoke("projects_get");
   check(prefs.projects.length===1&&prefs.names[project.replaceAll("/","\\")]==="后台运行验收","Concurrent project and UI preference saves preserve project identity");
-  owner = (await invoke("process_list", { projectDir: project })).find(p => !["readonly", "research"].includes(p.profile));
+  await page.evaluate(async prefs => (await import("./09-sessions.js")).enterProject(prefs), prefs);
+  check((await invoke("process_list", { projectDir: project })).length === 0, "Project initialization leaves an unsent draft without an implicit conversation");
+  owner = await invoke("process_create", { projectDir: project, profile: "dev", model: "stub:interactive-main" });
+  await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, owner.id);
   await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await invoke("docs_update", { projectDir: project, kind: "req", action: "add", id: "", title: "原生条目绑定验收", status: "todo", priority: "P1", fields: { "复杂度": "小", "标签": "前端", "验收": "工作台选择的 R-001 在真实 IPC 中认领并绑定本轮" } });
-  await prompt("MAIN_WORK_ITEM validate this native start/continue binding", { executionBatch: true, workItemId: "R-001" });
+  await prompt("MAIN_WORK_ITEM validate this native start/continue binding", { agent: "dev", executionBatch: true, workItemId: "R-001" });
   await until(() => held.has("work-main"), "bound work main request");
   const boundDocs = await invoke("docs_snapshot", { projectDir: project });
   check(boundDocs.requirements.find(item => item.id === "R-001")?.status === "doing", "Native workItemId IPC claims the selected requirement before model execution");
   const boundProject = (await invoke("workspace_overview")).projects.find(item => item.path === project.replaceAll("/", "\\"));
   check(boundProject?.lines.find(line => line.id === owner.id)?.current_item_id === "R-001", "Native running overview binds the exact selected item to the current run");
-  check(requests.filter(r => r.kind === "work-scout").length === 2, "Native execution batch runs both required scouts before the main request");
+  check((await command({ action: "list" })).length === 0, "Selecting work starts the main executor without implicitly dispatching children");
   held.get("work-main")(); await idle();
-  check(requests.some(r => r.kind === "work-review"), "Native selected-item execution retains the independent review gate");
+  check((await command({ action: "list" })).length === 0 && !await running(), "Selected-work input finishes without an implicit review task");
   await prompt("MAIN_HOLD keep the original run active"); await until(() => held.has("main-hold"), "main request");
   const firstChild = await command({ action: "spawn", agent: "explore", description: "第一项", prompt: "CHILD_ONE" });
   const secondChild = await command({ action: "spawn", agent: "plan", description: "第二项", prompt: "CHILD_TWO" });
@@ -142,7 +148,7 @@ try {
   await invoke("preview_close");
   await prompt("MAIN_SCREENSHOT capture current UI"); await idle();
   check(requests.some(r=>r.messages.some(m=>m.tool_call_id==="screen"&&String(m.content).includes("[screenshot]"))&&JSON.stringify(r.messages).includes("data:image/png;base64,")),"Background screenshot tool returns pixels from the visible UI process");
-  await prompt("MAIN_LOGS start a terminal"); await page.getByRole("button", { name: "允许一次", exact: true }).click(); await idle();
+  await prompt("MAIN_LOGS start a terminal"); await page.getByRole("button", { name: "允许一次", exact: true }).press("Enter"); await idle();
   const listArgs = { projectDir: project, processId: owner.id, action: "list" }; let terminal;
   await until(async () => (terminal = (await invoke("terminal_monitor", listArgs)).find(p => p.running)), "terminal");
   await invoke("terminal_monitor", { ...listArgs, action: "watch", id: terminal.id });
