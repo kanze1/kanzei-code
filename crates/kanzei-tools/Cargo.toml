@@ -32,7 +32,6 @@ serde_json.workspace = true
 schemars.workspace = true
 rusqlite.workspace = true
 dirs.workspace = true
-thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 similar.workspace = true

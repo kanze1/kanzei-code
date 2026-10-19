@@ -2328,7 +2328,7 @@
 - 影响(提权,不是可用性): 在**任一条已批准命令**里含至少一个 `/` 时,把该 `/` 替换成 `T/../`(T 为任意不含 `/` 的串)即可注入任意 shell 语句——T 在规范化时被 `..` 整段弹掉,注入版与原版的规范化结果逐字节相等。用户配置里 21 条 bash 规则大多含 `/`。
   **D-051 的降级同时失效**:注入段里的 `*` 在 pattern 成形前就被抹掉,pattern 不含 `*`,`command_chaining_escapes` 不触发。
   命令文本确实原样执行:`crates/kanzei-tools/src/bash.rs:87` 把 `input["command"]` 逐字节放进 resource JSON,`execute` 用的是同一个 `input.command`,**中间无任何再校验**。
-- 实测(2026-08-11,**我在 dev HEAD `b53b9aa` 上独立跑的**,scratch crate 依赖仓内真实 `kanzei-harness`,未改仓库任何文件): 
+- 实测(2026-08-11,**我在 dev HEAD `b53b9aa` 上独立跑的**,scratch crate 依赖仓内真实 `kanzei-harness`,未改仓库任何文件):
   已批准(取自 `.kanzei/kanzei.toml` 第 11 条真实规则):
   `git grep -n "cleanup_orphan_webviews" -- crates/kanzei-app/src/main.rs`
   注入版:
@@ -2793,7 +2793,7 @@
 - 证据等级: E1(2026-08-12 用户报「我每次打开都要重新设置」+ 读码定位 + 冒烟反验)
 - 来源: 用户 2026-08-12。用户明确指出这条早已提过——R-115/D-155 那轮(requirements-archive.md:891-898「四类设置跨重启保留」)确实修过 `processProfileUi` 落盘与回退链,但**只修了读的一半,写的一半仍在污染存档**,于是同一个症状复发。
 - 复现: 开 app → 模式选择器回到「结伴开发」、鞭挞开关回到未勾选(其余设置——侧栏宽度、筛选、继续文案——都正常保留,用户实测确认范围就这两个)。
-- 根因(两条写路径,互为补充,只修一条照样复发): 
+- 根因(两条写路径,互为补充,只修一条照样复发):
   ①`switchProcess` 拿 `$("profile-select").value` 当「旧进程的用户意图」写进 `kz-process-profile`(09-sessions.js:356-358)。选择器的值在**回显期间**是算出来的,不是用户选的——启动竞态里 `activeProcessId` 尚未就绪时 `applyProfileValue` 会按回退链算出 dev-pair 刷进控件,随后任何一次切线就把存档里的 dev-auto 覆盖成 dev-pair。
   ②`applyProfileValue` 末尾的 `syncAutoContinueWithProfile()` 在模式不是 dev-auto 时关掉鞭挞,并**落盘**(`rememberAutoUiState()` + `kz-auto-continue="0"`)。于是①算错一次,②立刻把「关」写成用户意图,下次冷启动 `normalizeAutoState` 读回 false——**自我延续**,再也回不来。
 - 影响: 每次开 app 都要手动重设两个控件;更隐蔽的是它直接触发 D-291——模式被降级成结伴开发后 `autoContinueAllowed()` 恒 false,鞭挞开着却永远不续跑,且旧代码对此一声不吭。
@@ -4610,7 +4610,7 @@
 - refs: D-422 D-425
 - 来源: 用户 2026-08-17 会话 #122581(OPEN-code:mimo-v2.5-pro 走 openai 协议):模型连续两条工具调用全部失败,`unknown tool workread` 与 `Invalid input ... 你的原始输入是 {"action": "claim", "id": `,整轮取活死掉。
 - 复现: state.db 里该轮 assistant 消息实证——`{"id":"call_332be4c46d0a4e6d8b1f79a7call_d6d78b1a7a604df0a48329d4","input":{},"name":"workread","type":"tool_call"}`:两条调用的 id 首尾相接、name 拼成 `workread`、arguments 是两段 JSON 相接故解析成空。
-- 根因(两处,同在 openai.rs 的 30 行内): 
+- 根因(两处,同在 openai.rs 的 30 行内):
   ①**槽位塌缩**:`tc["index"].as_u64().unwrap_or(0)` —— provider 不发 `index`(或把多条调用都标成同一 index)时全部落 0 号槽,而槽里 id/name/arguments 都是 `push_str` 累加的,于是两条调用被拼成一条不存在的工具。opencode zen 把模型吐的 Hermes XML 二次转 tool_calls 时正是这个形态(见 D-425)。
   ②**提前收尾**:`finish_reason` 一到就 `settle`,`calls_emitted` 置位后,finish_reason 之后还在来的参数增量被永久丢弃 —— 放出去的是 `{"action": "claim", "id": ` 这类切在 chunk 边界上的半截 JSON。原意是兜「服务端不发 [DONE]」,代价是任何「finish_reason 不在最后一帧」的方言都被截断。
 - 修复: ①新增 `slot_for`:`index` 是权威键,但已被别的 id 占住的槽不接受新 id(另起一槽);`index` 缺席时带**新** id 的帧开新调用、不带 id 的帧是续帧。整条 id 每帧重发的 provider 不再被接成两遍。②`ProtocolState` 加 `finish()` 流末收尾钩子(默认空实现),client 在 SSE 循环退出后调一次;`finish_reason` 只记原因 + 关闭文本/推理块,工具调用改由 `[DONE]` 或流末 `finish()` 放出。顺带补上了旧路径的一个洞:不发 `[DONE]` 的 provider 此前**永远收不到 StepFinish**。
@@ -4737,7 +4737,7 @@
 
 - 阻塞: 2026-08-16 复核:工程面①②③早已交付并全量绿,阻塞仍是验收④一条(用户复查)。原文点名的 build-9a06e05 已过时——当前最新发布为 **build-e579472**,其后又叠了多轮修复。解除动作: 装 build-e579472 后打开 Memory 页,看 SOP 的总结质量/查看展示/产生时机三处是否确有改善,确认即可关闭。解除人: 用户。
 
-- priority: 
+- priority:
 - 关闭结论: 三个工程维度已交付，用户复查认可关闭，旧低价值 SOP 已安全归档，按 fixed 收口。
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -5440,7 +5440,7 @@
 - 复现: 在真实对话中触发需要向用户提问的交互，询问弹窗当前会居中覆盖对话上下文。用户需要先暂时收起弹窗查看上下文，再重新打开继续回答。
 - 标签: 前端
 - 优先级: P1
-- 停车: 
+- 停车:
 - 进展: 已完成并准备提交。逐项对照验收：①“询问弹窗默认居中”——`crates/kanzei-app/ui/style.css:1054-1074` 保持 fixed 弹窗布局，并由 `07-events.js:657-721` 在新询问进入时显示；②“提供明确暂时收起/折叠操作，收起后可阅读上下文”——`index.html:1044-1047,1072` 新增 `ask-collapse` 与独立 `ask-reopen`，`07-events.js:719-747` 的 `collapseAsk` 只隐藏弹窗、不清除 `askActive`，重开入口不遮挡底层对话；③“再次打开保留原问题、选项和已填写内容”——收起不重建 DOM，`askActive`、`askSelectedOptions` 和 `ask-answer.value` 原样保留，`scripts/ui-runtime-smoke.mjs` D-435 专项断言覆盖问题文本、选中选项、输入内容和最终 reply；④“核心交互可用”——T-1786922726190 六条前端门禁通过，专项 runtime smoke 0 运行时错误，CSS 结构检查通过。既有权限询问/取消/提交行为未改写，本次新增仅为询问状态的非破坏性收起与恢复。
 - observed_head: 1a1592a3a18f017908982966821f3ed11836e319
 - observed_worktree_hash: fnv1a64:3968be902e4bde56
@@ -6064,7 +6064,7 @@
 - 验收: 该测试在 kanzei-tools 定向运行稳定通过；cargo test --workspace 与 scripts/release.ps1 的 workspace 阶段通过；不改变后台隔离语义。
 - refs: R-296
 - 优先级: P1
-- 停车: 
+- 停车:
 - observed_head: 8edde07161272f1603e4bd3bffdbd2c5d092e0a7
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787060811604
@@ -6489,7 +6489,7 @@
 - observed_head: d5e61015b8a0a321255e7ebbf23bf2fd337081a2
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787168566813
-- 停车: 
+- 停车:
 
 ## D-563 package.ps1 发布进度总数与实际步骤不一致 [fixed] (low)
 - 复现: 在发布树执行 `.scripts\package.ps1 -Ack 14 -Publish -VerificationPath <verification.json>`，输出步骤会出现 `[9/8]` 和 `[10/8]`。
@@ -8456,7 +8456,7 @@
 - observed_head: d48ba988230d8e4a63e2faa2fd6ae7dbd9ba242c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788309921890
-- 停车: 
+- 停车:
 
 ## D-733 ui_a11y 拒绝研究 LaTeX PDF 预览字面量背景色 [fixed] (low)
 - 复现: 运行 .\scripts\verify.ps1 或 node scripts/ui-a11y-smoke.mjs；检查 crates/kanzei-app/ui/style.css:2249，.research-latex-pdf 使用 background: #fff。
@@ -8465,7 +8465,7 @@
 - 标签: 前端
 - refs: R-350
 - 优先级: P1
-- 停车: 
+- 停车:
 - 进展: 已修复并提交 2d57bb46：crates/kanzei-app/ui/style.css:2375 将 .research-latex-pdf 的 background: #fff 改为 background: var(--panel)，不改变布局尺寸。验收=原复现项的主题外字面量颜色已消除；frontend_check 通过，D-733 专项 node scripts/ui-a11y-smoke.mjs 已记录为 T-1786922726910（该次随后暴露的是独立裸字号），相关 kanzei-app 256 项测试为 T-1786922726911；D-735 修复后 T-1786922726919 证明当前 HEAD 完整 .\scripts\verify.ps1 全绿并生成绑定 d48ba988 的 dist/verification.json。
 - observed_head: d48ba988230d8e4a63e2faa2fd6ae7dbd9ba242c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -8483,7 +8483,7 @@
 - observed_head: 1b3115ea3e39fb001a1b431f12bf87e469245b0d
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788348449338
-- 停车: 
+- 停车:
 
 ## D-718 browser 连续 click/type/dom/console 重复导航导致页面状态丢失 [fixed] (high)
 - 复杂度: small
@@ -8496,7 +8496,7 @@
 - observed_head: ee2503dce9341e25fc5d9cef919b316cc184c575
 - observed_worktree_hash: fnv1a64:62f219d59ffcf79b
 - recorded_at: 1787732247483
-- 停车: 
+- 停车:
 
 ## D-719 process stop 对已自然退出的 bg 句柄返回 unknown error [fixed] (medium)
 - 复杂度: small
@@ -8523,7 +8523,7 @@
 - observed_head: 1b3115ea3e39fb001a1b431f12bf87e469245b0d
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788348920574
-- 停车: 
+- 停车:
 - 验收对账: ①已完成：`crates/kanzei-app/src/run/coordinator.rs:350-351` 改用 `summary.round_messages` 作为稳定本轮真源，不再按 `prior.len()` 盲切；②已完成：`crates/kanzei-app/src/run/persistence.rs:190-196` 与 `crates/kanzei/src/cli/run/finalize.rs:150-158、180-193` 统一使用本轮消息边界，三处调用链不再依赖压缩后的 prior 切片；③已完成：轮中压缩删短 prior 的回归由 T-1786922726649（kanzei-core）、T-1786922726650（kanzei-app）、T-1786922726651（kanzei CLI）passed 覆盖，且当前 HEAD full verify 由 T-1786922726927、`dist/verification.json` 绑定 `1b3115ea` 通过。
 
 ## D-736 取活裁决全局死锁:对账把 24 条判成已提交并硬拦,executable_wip 为空 [fixed] (high)
@@ -8846,7 +8846,7 @@
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056939721
-- 停车: 
+- 停车:
 
 ## D-755 架构索引的既有五个非 snake_case 文档名使专用更新通道拒绝所有修改 [fixed] (medium)
 - 复现: architecture.get 在 HEAD eab92725 返回 5 个 validation issue：oc-playback.md、oc-production.md、oc-idle-direction.md、oc-h3-deployment.md、oc-voice-direction.md 均被判为非 snake_case；architecture.update 因索引整体校验失败而拒绝写入，因此无法更新 D-748 要求同步的 harness_m1.md 索引描述。
@@ -8859,7 +8859,7 @@
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056946276
-- 停车: 
+- 停车:
 
 ## D-760 R-245 B8 配额:每次工具调用加锁全扫目录、超限只剩 120 字、锁超时判失败 [fixed] (medium)
 - 复杂度: 中
@@ -8871,7 +8871,7 @@
 - 验收: ①不超过外置阈值的结果不取锁、不扫描;②外置路径的计量排除 shadow 子目录;③超限时保留头 8 KiB 加尾 4 KiB 并注明省略字节与不可回取;④锁超时与计量失败降级为同样的截断且不改变工具的成败;⑤保留工具原有 display 并附配额信息,前端显示配额提示;⑥复用已存在的同 sha 外置文件不受配额阻挡
 - refs: R-245 docs/design/bootstrap_quality_audit.md
 - 优先级: P1
-- 停车: 
+- 停车:
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056952857
@@ -8886,7 +8886,7 @@
 - 验收: ①block_reasons 含「循环依赖:」的条目进被阻塞层;②ui-runtime-smoke 增加互相依赖的环夹具并断言两条均为被阻塞
 - refs: D-750 docs/design/bootstrap_quality_audit.md
 - 优先级: P2
-- 停车: 
+- 停车:
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056960023
@@ -8901,7 +8901,7 @@
 - 验收: ①规范写明提交门禁、verify、CI 各自的 clippy 口径;②写明改测试代码时需自跑 --all-targets clippy;③守护测试保持通过
 - refs: D-754 D-758 docs/design/bootstrap_quality_audit.md
 - 优先级: P2
-- 停车: 
+- 停车:
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:60bfcc394e5eb461
 - recorded_at: 1791056966652
@@ -9033,3 +9033,48 @@
 - observed_head: db04445efd6a7831bd20bd745eae2ea682c16a5f
 - observed_worktree_hash: fnv1a64:b6253f626de30553
 - recorded_at: 1792231036038
+
+## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [wontfix] (medium)
+- 复杂度: 小
+- 复现: .kanzei/memory/INDEX.md:M-014 标题「HTML 静态文案必须登记进资源表」但描述整段是 M-009 的「edit 报 old_string not found 时必读…」;M-015 标题「SSE 流内 context overflow」描述却是 M-029 的「处理 bash git 拦截…结构化工具显式 stage」。index.db 的 memory_fts 索引 description 字段,错配描述使这两条在错误查询下被召回
+- 影响: FTS 检索被毒化:错误主题命中错误记忆;INDEX 是每会话注入的真源,串号直接影响召回质量
+- 标签: 后端
+- 验收: ①M-014/M-015 描述修正与源文件 description 一致;②全量 INDEX 行与对应 M-*.md 的 description 做一次机械一致性核对,输出不一致清单并修复;③重建 index.db FTS 后检索抽查不再串号;④INDEX 生成/更新路径补一致性断言防复发
+- 优先级: P2
+- 进展: 对账 2026-08-20(resume reconcile):④已落地——7c238573(D-590)在 store.rs assert_index_matches_entries 接入 refresh_derived 写入路径+守护测试 index_description_guard_rejects_mismatched_source,验收④视为既有能力核销。①②③未落地,且发现比登记更深:不止 INDEX 串号,M-014/M-015 源文件本身 description+正文整段串号(当前 M-014 正文是 M-009 的 edit SOP、M-015 正文是 M-029 的 git 拦截 SOP),真源=git 1476098e 建条原始版(已从历史取出全文)。修正路径被 managed fence 挡死:.kanzei/memory/*.md 仅 memory 写工具白名单可写,edit 被拒(R-316 来源实录);同步修正通道 R-316 仍 todo。下一步:探查既有 memory 工具族是否已有改现有条目文本的能力,无则按 R-316 最小实现(memory 文本修正工具+fence 白名单+审计留痕),落地后修 M-014/M-015 源文件→refresh_derived 重建 INDEX+FTS→②全量机械核对→③FTS 抽查。 [terminal-fix 2026-10-19] wontfix → wontfix: 2026-10-20 使用修正后的托管序列化器重新输出，状态仍为 wontfix，原验收与退役原因不变；消除空字段尾随空格。
+- observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787203506741
+- 停车: 排队:D-504 现为 defect-first 队首 WIP,本条排其后恢复;R-316 修正通道已 done,恢复后按进展所列路径修 M-014/M-015 源文件→refresh_derived 重建 INDEX/FTS→②全量核对→③抽查;恢复人:agent;解除条件:D-504
+- 关闭原因: 2026-10-20 用户授权清理旧缺陷。污染对象 M-014/M-015 已退出活动记忆，当前36条 INDEX 与源 description 逐项一致，FTS 无这两个旧ID；memory/store.rs 已有 INDEX 来源一致性门禁。原数据事故退出，不以历史污染对象继续阻塞工具与账本工作；原验收与历史现场保留。
+
+## D-662 托管文档专用工具膨胀致工具选择面过载 [wontfix] (medium)
+- 复现: 当前注册工具已 30+，其中 req/defect/idea/decision/architecture/test_record/work/memory_* 等托管域工具与通用 edit/write 语义重叠；模型需在 edit 与 req(update) 之间做领域判断，工具越多误选概率越高，且每个工具签名等同公开 API
+- 标签: 流程
+- 优先级: P2
+- 进展: 第一步做「量」不做「并」:工具面预算门禁 profiles.rs::tool_surface_budget(dev/readonly 各一条 + 记忆写路径护栏),预算取实测值不留余量。第二步按写读分离减面:2026-08-21 摘除 todowrite——它与 tracker 的 批次/进展 是同一件事的两个真源,而后者持久(过夜断了也接得上),且 dev 提示词本就写着「批次单元格是进度从外部唯一可见的地方」;实测 1019 轮里 todowrite 只用 57 次而 req+defect 用了 2378 次。dev 工具面 30 → 29,连带摘除 #todo-panel 面板/CSS/i18n/D-350 冒烟段(工具一摘没人能填它,留着就是死代码)。剩余:tracker 四件套与 research 五件套的减面按同一原则(挪进流程专用子代理快照)另行评估
+- observed_head: 81a80c64d552d4da9aba0f5692c23d2b5bafb012
+- observed_worktree_hash: fnv1a64:a1d1426a5522a197
+- recorded_at: 1787288788389
+- 停车: 排队:排在 D-568 之后恢复(原停车前提 R-353 未提交改动已不存在,按 defect-first 改排在缺陷队列末);恢复后继续 tracker 四件套与 research 五件套减面评估;恢复人:agent;解除条件:D-568
+- 关闭原因: 2026-10-20 用户授权清理旧缺陷。旧按专用工具总数删除/搬迁 tracker/research 工具的方案已由 resident/deferred catalog 和 tool_search 分层替代；合法专用写通道仍应保留。后续原生延迟加载等真实缺口由 R-364 承接，不继续用本条阻塞账本。
+
+## D-769 ci.yml 只有手动触发,代码注释与规范却称 CI 每次 push 兜底 [wontfix] (low)
+- 复杂度: 小
+- 复现: .github/workflows/ci.yml 只有 workflow_dispatch;crates/kanzei-tools/src/git.rs:791-792 注释称「CI 每次 push 兜住」;d4e230d8 发版时 CI 口径的 all-targets clippy 已是红的而无人发现
+- 影响: 测试代码 lint 与全量测试没有任何自动门禁,注释给出错误安全感
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 发布
+- 验收: ①二选一:给 ci.yml 加 push 触发,或改正注释并让 package/full verify 跑一次 all-targets clippy;②规范与注释口径一致
+- refs: docs/design/bootstrap_quality_audit.md
+- 优先级: P3
+- 关闭原因: 2026-10-20 用户授权清理旧缺陷。本轮已统一 README、Cargo 规范和 CI 专题：CI 仅 workflow_dispatch，共享验证注册表且 CI 使用 all-targets clippy；本地轻量 clippy 是现行明确分工。旧额外要求启用自动 CI 或提高本地门禁的验收退出，不把未执行的 CI 记为通过。
+
+## D-770 连续两次 insert 锚点误复制导致源码重复 [wontfix] (low)
+- 复现: R-364 期间两次 insert 边界误用：第一次新增内容重复包含既有 `mod question;`，导致模块重复定义；第二次在 before 操作中复制函数签名尾部，实际接到了前一条注释上。局部结构检查分别发现，第一处 Cargo check 失败、第二处 Cargo check 通过但注释内容错误。
+- 影响: 第一次误插造成临时重复模块并由 Cargo check 捕获；第二次仅把签名尾部文本接到注释上，未造成语法错误。两处均在预提交阶段清理，未提交、未逃逸；共同风险是未清楚区分 insert 保留锚点与插入内容边界。
+- 来源: self-found；相关执行事件 I-1790359944182-110、I-1790360271460-111，发生于用户要求继续 R-364 的实现中。
+- 标签: 流程
+- refs: R-364
+- 优先级: P2
+- 关闭原因: 2026-10-20 用户授权清理旧缺陷。原条记录的是一次历史 insert 锚点误用，没有独立产品复现和验收；草稿锚点或工具参数错误按现行 dev_system.md 直接修正并留执行记录，不维持永久产品缺陷。原事件保留归档。

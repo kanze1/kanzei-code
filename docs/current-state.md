@@ -1,9 +1,23 @@
 # Kanzei 当前实现与文档口径
 
-2026-10-04 工作区改造：正式前端已采用「对话 / 管理」，管理包含需求、缺陷、交付、项目地图；全局记忆统一入口，子代理/终端共用活动栏，网页预览独立浮动。研究空间和想法退出导航。当前实现、数据口径和试用验收见 [工作区设计](design/familiar_workspace.md) 与 [改造验收](reviews/2026-10-04-ui-information-architecture/production-acceptance.md)。发布与安装状态以对应提交的发布回执为准；下面的文件审查进度仍是独立工作。
+核对日期：2026-10-20。实现基线：`df452a2cb79055ef7ce9b28a68bf989ba058fc23`，本页包含本轮文档与需求清理。发布和本机安装状态分别读取对应提交的发布回执，不由本页推定。
 
-> 当前审查计划（2026-10-03）：仅工作台与交互控制台、对话执行与恢复、工具与代码操作、多任务与自动运行，按此顺序。记忆、科研、任务管理/自举、手机语音及配置升级专项已移出执行范围。见 [四块审查计划](reviews/file-audit-2026-10-03/parallel-plan.md)；下面的全产品实现说明不代表审查待办。
+## 当前产品与运行合同
 
-当前审查进度（2026-10-04）：WB1–WB6 累计新增全文审查 27 文件。WB6 修复附件时长误读、旧交付回执覆盖、卡片大小不刷新、侧栏交互归属和活动表现顺序共 6 个问题，58 项新增回归、Rust app 检查/直接 caller 与完整 UI gate 通过；四块已完成/可复用 88/269，剩余 181 文件，下一包 WB7（项目概览后端 → 项目会话列表/异步工作台）。WB1–WB6 已提交为 9875810c，正在合并远端 c6654fae 并进行最终发布验证；详见 [WB6 逐文件报告](reviews/file-audit-2026-10-03/WB6-delivery-activity.md)，前轮见 [WB5](reviews/file-audit-2026-10-03/WB5-rendering-ownership.md)。
+正式工作区采用「对话 / 管理」，项目内和无项目对话使用同级身份。管理提供需求、缺陷、交付和项目地图；记忆由全局入口管理，子代理和终端共用活动区，网页预览独立浮动。界面合同见 [熟悉的工作区](design/familiar_workspace.md)、[对话模式](design/conversation_modes.md) 与 [对话身份](design/conversation_peers.md)。旧工作台优先和 Softwire 总体草案已退出当前实施范围。
 
-对话语义以 [统一模型](design/conversation_peers.md) 为准：对话同级、新建默认 dev、readonly 显式选择，操作指定真实 process_id；WB 修复继续保护原请求和会话归属。新增测试文件已计入待审，合并不虚增审查完成数。发布整合见 [报告](reports/2026-10-04-workbench-release.md)。
+CLI 与桌面共用工具及运行装配。代码和用途指纹读取当前工作树，tracker、记忆和持久运行事实读取主项目根；界面状态、图与检索索引各自从真源派生。职责和消费边界见 [系统边界](architecture/00_system_boundaries.md)、[项目知识](architecture/03_project_knowledge.md) 与 [前后端协议](architecture/06_frontend_protocol.md)。
+
+Skills 由全局 catalog 提供，启用技能正文按需读取；项目目录不参与发现，不按对话绑定正文。开发与研究的业务合同分别维护，语音使用当前本地 Faster-Whisper + Qwen3-TTS 路线；退出旧总控不表示未完成的原生设备或远程链路验证已经通过。
+
+## 约束与工作范围
+
+[当前约束](design/current_contracts.md) 导航项目规范、正式决策、动态验证策略和专题真源。[设计身份索引](../.kanzei/project/architecture/README.md) 区分现行设计、已验证设计、历史快照和替代关系。历史报告、原型以及归档条目的旧待办不自动生成当前任务或依赖。
+
+活动需求和缺陷以 `.kanzei/project/requirements.md`、`defects.md` 为准；退役条目的原文、未完成验收和关闭原因保留在相应归档。当前需求的已完成前置转为 `refs`，只保留仍未满足的技术依赖；真实设备/SSH 待验收与未实现开发分别保留。
+
+## 历史记录与验证
+
+2026-10-03 至 10-04 的 WB1–WB6 逐文件审查属于截至点记录，见 [WB6 报告](reviews/file-audit-2026-10-03/WB6-delivery-activity.md) 与 [工作区验收](reviews/2026-10-04-ui-information-architecture/production-acceptance.md)。其中的文件数、下一包、待合并分支和安装进度不描述今天的排期。
+
+本轮清理范围和验证结果见 [约束与需求清理记录](reports/2026-10-20-constraints-and-backlog-cleanup.md)。真实链路、安装发布和研究收益分别按专题证据记录。

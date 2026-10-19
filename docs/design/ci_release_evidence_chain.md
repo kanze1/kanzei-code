@@ -2,7 +2,7 @@
 
 - 身份：validated_design
 - 状态：发布证据门禁已实现；CI 当前为手动触发。
-- 核对日期：2026-10-02，主工作树源码。
+- 核对日期：2026-10-20，主工作树源码；本次校正不代表执行了一次发布。
 - 关联：R-152、R-146、R-156、R-298；A-009、A-010、A-013。
 
 ## 当前合同
@@ -20,13 +20,15 @@ pwsh -File scripts/package.ps1 -Ack <脚本实际统计的提交数> -Publish
 
 `.github/workflows/ci.yml` 当前只有 `workflow_dispatch`，没有 push 或 pull_request 触发。因此 push 不代表发生了独立环境复跑，定向本地检查也不能依赖自动 CI 补齐。
 
-workflow 已包含 fmt、clippy、workspace 测试和前端检查。但 CI 的 `ui-runtime-smoke.mjs` 命令缺少本地 verify 使用的 `--experimental-vm-modules` 参数；清单同步约束不证明两个命令语义相同。本文记录差异，不把文档修订记作 CI 修复或一次成功运行。
+workflow 统一调用 `scripts/verify.ps1 -Full -Ci`。本地与 CI 共享 `scripts/verification-checks.json`；`ui_runtime` 的共享参数包含 `--experimental-vm-modules`。CI 的 clippy 通过注册表中的 `ci_args` 检查全部目标，本地提交与 verify 使用轻量 clippy。修改检查项或启动参数时维护注册表，不在 workflow 或文档中另抄一份命令清单。
 
 本地 `verify.ps1 -Full` 是正式发布的验证入口；手动 CI 的实际结果另行记录到具体提交。后台冻结快照与独立 worker 提供执行隔离，仍不等于设计中的完整四角色独立裁决体系。
 
 ## 安装与交付
 
 桌面端唯一安装位是 `%LOCALAPPDATA%\kanzei\kzapp.exe`。`release.ps1` 的本机安装、`package.ps1 -Publish` 的公开 Release、安装后真实版本核对分别记录。程序运行中不能把安装器退出码 0 当作替换成功。
+
+本地产物由 `scripts/artifact-lifecycle.mjs` 管理：新版本发布且安装验收后保留当前及上一版安装器；发布引用的验证证据单独保护。公开 Release 的保留规则与本地安装器的恢复保留分开执行。
 
 ## 历史与本次校正
 

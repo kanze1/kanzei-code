@@ -13184,3 +13184,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-762
 - 收尾: 1791062863
 - 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
+
+## T-1786922727160 约束与需求清理合入文件锁生命周期修复：Windows 全仓组合验证 [passed]
+- 命令: cargo test --locked --offline --workspace --quiet
+- 摘要: 2700 passed, 0 failed, 10 ignored。随后 cargo clippy --locked --offline --workspace --all-targets -- -D warnings 与 cargo fmt --all -- --check 均通过。日志 output/constraints-cleanup-20261020/integration-workspace-tests.log、integration-clippy.log、integration-fmt.log。仅本地 Windows 源码验证，未替换桌面运行时。
+- 收尾: 1792434696
+- 源码指纹: v2 crates/kanzei-app/src/prefs.rs@5fc0c2deb061,crates/kanzei-base/cargo.toml@26dec07264bb,crates/kanzei-base/src/atomic_file.rs@a9ef2334a133,crates/kanzei-base/src/atomic_file/lock.rs@2ffb06752170,crates/kanzei-base/src/atomic_file/lock/directory.rs@872b7ca956a4,crates/kanzei-base/src/atomic_file/lock_tests.rs@808abb175622,crates/kanzei-base/src/lib.rs@7661c69717ec,crates/kanzei-base/src/path_form.rs@d29ff4f7e077,crates/kanzei-harness/Cargo.toml@3c74bb592513,crates/kanzei-harness/src/permission/filesystem.rs@2fedc25be78c,crates/kanzei-harness/src/permission/scoped_file.rs@1a65d5fa8758,crates/kanzei-memory/src/docstore/parse.rs@cf6ca7795304,crates/kanzei-memory/src/memory/migration.rs@87d4a3c848c4,crates/kanzei-memory/src/memory/store.rs@4f12f90cadbe,crates/kanzei-tools/Cargo.toml@ea7d8787545d,crates/kanzei-tools/src/edit.rs@733eb9b70855,crates/kanzei-tools/src/managed.rs@44f9f0c5f597,crates/kanzei-tools/src/write.rs@39b218bd7cc6

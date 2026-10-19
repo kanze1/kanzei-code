@@ -42,6 +42,23 @@ pub fn strip_verbatim(raw: &str) -> Cow<'_, str> {
     }
 }
 
+/// The same comparison-key normalization without losing non-UTF-8 Windows names.
+#[cfg(windows)]
+pub fn strip_verbatim_os(raw: &std::ffi::OsStr) -> Cow<'_, std::ffi::OsStr> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let units: Vec<_> = raw.encode_wide().collect();
+    let unc: Vec<_> = VERBATIM_UNC.encode_utf16().collect();
+    let verbatim: Vec<_> = VERBATIM.encode_utf16().collect();
+    let stripped = if let Some(rest) = units.strip_prefix(unc.as_slice()) {
+        r"\\".encode_utf16().chain(rest.iter().copied()).collect()
+    } else if let Some(rest) = units.strip_prefix(verbatim.as_slice()) {
+        rest.to_vec()
+    } else {
+        return Cow::Borrowed(raw);
+    };
+    Cow::Owned(std::ffi::OsString::from_wide(&stripped))
+}
+
 /// 可安全去掉前缀时返回去掉后的形态,否则原样(规则见模块注释)。非 verbatim 路径原样返回;幂等。
 pub fn simplify_str(raw: &str) -> Cow<'_, str> {
     if !raw.starts_with(VERBATIM) {
@@ -88,6 +105,37 @@ pub fn simplify(path: &Path) -> PathBuf {
 /// `std::fs::canonicalize` + [`simplify`]:解析符号链接与大小写,输出能直接当路径用的经典形态。
 pub fn canonical(path: &Path) -> std::io::Result<PathBuf> {
     std::fs::canonicalize(path).map(|resolved| simplify(&resolved))
+}
+
+/// Resolve physical parents without creating missing leaves or directories.
+/// Parent traversal follows symlinks before removing `..`; errors other than
+/// NotFound remain visible to both permission checks and file-lock identity.
+pub fn resolve_target(path: &Path) -> std::io::Result<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                normalized = resolve_target(&normalized)?;
+                normalized.pop();
+            }
+            std::path::Component::CurDir => {}
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    let path = normalized.as_path();
+    match canonical(path) {
+        Ok(path) => Ok(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let Some(parent) = path.parent() else {
+                return Err(error);
+            };
+            let Some(name) = path.file_name() else {
+                return Err(error);
+            };
+            Ok(resolve_target(parent)?.join(name))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// [`canonical`] 失败(目录不存在等)时退回 `simplify(path)`。
@@ -146,6 +194,29 @@ fn is_reserved(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn comparison_keys_preserve_native_names_and_match_text_prefix_rules() {
+        use std::ffi::{OsStr, OsString};
+        use std::os::windows::ffi::OsStringExt;
+        for raw in [
+            r"C:\project\file.js",
+            r"\\?\C:\project\file.js",
+            r"\\?\UNC\server\share\file.js",
+        ] {
+            assert_eq!(
+                &*strip_verbatim_os(OsStr::new(raw)),
+                OsStr::new(strip_verbatim(raw).as_ref())
+            );
+        }
+        let name = OsString::from_wide(&[0xd800]);
+        let mut native = OsString::from(r"\\?\C:\project\");
+        native.push(&name);
+        let mut expected = OsString::from(r"C:\project\");
+        expected.push(&name);
+        assert_eq!(&*strip_verbatim_os(&native), expected.as_os_str());
+    }
 
     #[test]
     fn candidate_length_reserves_nul_for_drive_and_unc() {

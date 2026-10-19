@@ -1101,7 +1101,7 @@
 - 复杂度: 中
 - 优先级: P3
 - 验收: 对可机械识别的冗余模式在工具结果中就地提醒(不阻断,先观察后升级):同一工作树无变化时的重复 git status/diff、无文件变更的重复全量测试、缺陷 fields 已含文件路径时的 task 子代理调用;每类触发计数进入 R-099 度量。
-- 依赖: 
+- 依赖:
 - 阶段: 1
 
 - 标签: 核心
@@ -1192,7 +1192,7 @@
 - 边界: 零行为变更;run_once 保持 boxed 签名(与 run_subagent 递归的断点,改 async fn 立刻 E0072,两处加注释锁死);run_once_with_parts(778 行)只整体搬迁;不删零调用 pub 方法;唯一允许的非 move 改动是给 RedundancyWatch::note_step 加 debug_assert_eq!(calls.len(), results.len()) 与三处下标不变式注释。
 - 验收: ①每批独立提交且定向绿(cargo test -p kanzei-core + cargo check -p kanzei -p kanzei-app -p kanzei-tools),条目关闭前全量 cargo test --workspace 一次全绿(节奏见 conventions §1.4);②lib.rs 与外部三 crate(kanzei/kanzei-app/kanzei-tools)全程零改动仍编译(以①的 cargo check 为每批断言);③runner.rs/store.rs 单文件消失,各子文件 ≤900 行;④下标不变式 debug_assert 与注释落位;⑤拆前后行数对照记入进展。
 - refs: A-008
-- 依赖: 
+- 依赖:
 
 - 批次: 16/16
 - 进展: 16 批全部完成并提交:B1 event.rs 2e52179 / B2 metrics.rs 2ab49b3 / B3 redundancy.rs+testutil 26e802e / B4 context.rs 7c77194 / B5 compaction.rs 07297ff / B6 tool_exec.rs 219fd94 / B7 subagent.rs 15f857c / B8 drive.rs 2f4d449(每批独立提交+定向绿);store 域按锚点 4 提交:S1-S4 拆壳+episodes/notifications/events 2fd36cf / S5-S6 inbox/session d4fd6ad / S7-S8 schema+测试分域 c4faded(S1 拆壳无独立编译意义、同域连续小批按 §1.3 合并,每锚点前 cargo test -p kanzei-core 71 passed + cargo check 下游三 crate 绿)。
@@ -1208,7 +1208,7 @@
 - 边界: 与 R-146(clippy)同理必须避开在飞的源码工作;两条可同轮或相邻轮做,均在 R-153~R-155 完成之后。
 - 验收: ①cargo fmt --all -- --check exit=0;②ci.yml 与 verify.ps1 的 fmt 步骤启用且 CI 全绿;③拦截实测记入进展;④格式化提交 diff 零逻辑变更(全量测试全绿佐证)。
 - refs: R-152 R-146
-- 依赖: 
+- 依赖:
 
 - 进展: 验收对照:
 ①cargo fmt --all -- --check exit=0——格式化后与漂移撤销后两次实测均 0(提交 cee7aa8)。
@@ -1265,7 +1265,7 @@
 - refs: R-098 R-099 D-088 D-114 R-104 R-107
 - 阶段: 4
 - 设计定位: 记忆作为 first-class primitive 的总纲与门禁
-- 依赖: 
+- 依赖:
 
 - 标签: 核心
 
@@ -1415,7 +1415,7 @@
 - 复杂度: 大
 - 标签: 核心
 - 阶段: 2
-- 依赖: 
+- 依赖:
 - 来源: 同 R-161。「记了但没进决策」的结构性根因:召回时机只有开跑一次,M-009 类条目该在 edit 失败的瞬间被想起。文献锚点 MemCon(memory 操作是序列决策)、Memory in the Loop(存了≠读了)。
 - 内容: ①RecallWatch 挂 runner 工具结果回喂钩位(先例 R-100 RedundancyWatch,runner.rs 的 note_step 同款,主循环零架构改动);②错误分类在线化:抽出 summarize_failures 的 (tool,kind) 分类为共享函数;③Tier0 fingerprint 精确匹配(内存索引,p95<5ms)→ miss 则 Tier1 BM25(错误原文+文件+符号构 query,p95<10ms),超时降级不阻塞;④重复失败(同 tool+kind ≥2)走 ReRetrieve 换 query,禁止原 top-k 重塞;⑤Memory Packet 注入格式:触发原因/行动/状态/来源,同轮同条目只注入一次;⑥frontmatter 扩展 fingerprint/trigger/valid_from/supersedes/version 一等字段(宽容读零迁移),引擎维护 fingerprint→id 内存索引。
 - 验收: ①录制回放或 E2E 证明:edit 失败后下一次 LLM 请求前 M-009 类 Packet 已进上下文;②预算超时降级有单测;③每次触发落 recall_events(trigger/action/延迟);④同轮同条目注入一次有单测;⑤CLI/桌面端同源。
@@ -1430,7 +1430,7 @@
 - 复杂度: 大
 - 标签: 核心
 - 阶段: 2
-- 依赖: 
+- 依赖:
 - 来源: 同 R-161。episodes/events 已存完整轨迹与 overflow,回放原料在库里,缺的是评估协议。
 - 内容: ①回放模块:取历史 episode,ToolResult 走录制回放(不真执行外部工具),LLM 真调(fast 档跑批),固定 repo commit/model/prompt 版本;②六臂:NoMemory(下界)/Current/Candidate(新策略)/Oracle(人工标定,上界)/Leave-One-Out(单条消融)/CompressionCF(合并前后对照);③J 用可执行判据分层:terminal 成功→工具失败数→重试→重复动作→步数→token,LLM judge 仅评软性 SOP 质量;④首批 30–50 case 从 M-009/M-010/M-019/M-021/M-022/M-023/M-026 的触发历史提取;⑤结果落 memory_eval。
 - 验收: ①六臂各自可跑并落 memory_eval;②首批 ≥30 case 可重复执行;③产出 NoMemory vs Current vs Oracle 对照报告(判读:C≪D=触发/检索问题,C≈D 仍败=内容/utilization 问题);④录制回放不真执行外部工具有测试。
@@ -1445,7 +1445,7 @@
 - 复杂度: 大
 - 标签: 核心
 - 阶段: 2
-- 依赖: 
+- 依赖:
 - 来源: 同 R-161。范式反转:evidence 不可被 LLM 持续改写(文献:持续 consolidation 使记忆效用先升后降),manager 从 CRUD 升级为编译语义。
 - 内容: ①动词升级 OBSERVE/PROPOSE/VERIFY/PROMOTE/SUPERSEDE/DEPRECATE,evidence(state.db events/episodes)对自治流程 append-only;②novelty gate 三档:明显新→PROPOSE、明显重复→NOOP、不确定→才起 LLM 判断;③转换三问检查:coverage/preservation/faithfulness;④后台触发扩展(现只有轮末):compaction 边界、recurrence(第 2 次才 candidate、第 3 次+修复成功才 promote)、idle debounce、memory pressure;⑤lifecycle 轻量四态 candidate→active→deprecated|invalid(stale 兼容映射 deprecated,shadow 留给 R-166);⑥provenance 硬约束:PROMOTE 必须带 memory_sources 行,无来源不入 active;⑦归档落地修 D-231;⑧merge 保守闸:评估器落地前只合并同 fingerprint 或用户确认的。
 - 验收: ①无 provenance 不入 active(引擎拒绝有测试);②recurrence 三段晋升有单测;③deprecated/invalid 移入 archive/ 且默认检索不可见;④novelty 三档分流有计数遥测;⑤evidence 表无任何自治写路径(代码审计+测试)。
@@ -1460,7 +1460,7 @@
 - 复杂度: 大
 - 标签: 核心
 - 阶段: 2
-- 依赖: 
+- 依赖:
 - 来源: 同 R-161。理论锚点 DeMem(决策失真,安全合并=存在共同近优动作,而非文本相似);kanzei 有可执行 verifier,J 不靠 LLM judge。
 - 内容: ①F(m)=E[J(e;M)−J(e;M∖{m})] 离线定向回放,绝不在线算;②每条 memory 维护 Q(m)=触发匹配 episode+near-miss+negative control;③周期性 with/without 回放,memory_eval 维护 effect_mean/effect_ci/eval_n/last_eval;④merge 由 D(S→m')<ε 把关,压缩变成有测试的行为等价变换;⑤shadow 态引入(五态齐):可被评估、不注入生产;⑥只有 low value+high confidence 进 deprecate 候选,age 不作为独立淘汰判据。
 - 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
@@ -1510,7 +1510,7 @@
 - 复杂度: 中
 - 标签: 核心
 - 阶段: 2
-- 依赖: 
+- 依赖:
 - 来源: 2026-08-09 R-149 全环节评审结论:论文里决策价值最高的信息形态(用户在对话里随口说的约束,如「以后别动 production」)目前完全依赖主 agent 自觉 memory_note,是写入环节唯一没有机械通道兜底的缺口;用户拍板「占位,等 R-150 遥测数据积累后再评估值不值得做」。
 - 内容: 占位。方向:轮末由引擎对本轮用户消息做机械提取(候选形态:祈使+否定/「以后」「必须」「不要」类定调句),投 preference/habit 候选进 inbox,由 manager 判 NOOP/ADD——引擎只采集不判语义,与 harvest_failures 同哲学。是否立项取决于 R-150 遥测:若真实轨迹里出现「用户说过但没进记忆、后续违反」的实例,则升优先级动工;若 memory_note 自觉率足够,关闭本条。
 - 验收: 先出判定报告(基于 R-150 遥测与轨迹实证,给出做/不做结论与依据);若做,再补机械提取的功能验收。
@@ -1525,7 +1525,7 @@
 - 复杂度: 中
 - 标签: 核心
 - 阶段: 2
-- 依赖: 
+- 依赖:
 - 来源: 同 R-161,MemCon 方向。占位:确定性 RecallPolicy 数据积累后才评估是否值得上 contextual bandit(state:goal/tool/error/stuck 计数;reward:任务成功−失败成本−token−延迟)。
 - 内容: 占位。是否立项取决于 R-162 落地后的 trigger_precision/recall 实证——确定性规则已够好则关闭本条,不硬上学习组件。
 - 验收: 先出判定报告(基于 R-161/R-163 数据,给出做/不做结论与依据);若做,再补功能验收。
@@ -1626,7 +1626,7 @@
 - 优先级: P3
 - 范围界定: 2026-08-08 用户澄清真实意图是"子代理能对当前运行状态进行观察",并明确表示在 R-095 的呈现优化落地后不确定是否仍需要独立入口。
 - 待定: 本条挂在 R-095 之后再定去留。R-095 交付后由用户判断:若活动面板的筛选折叠与后台任务操作已足够观察子代理状态,则本条关闭;若仍缺子代理各自的进度维度,则按缺口重写验收。
-- 依赖: 
+- 依赖:
 
 - 标签: 前端
 
@@ -1714,7 +1714,7 @@
 ## R-173 阶段编排对象:勘察屏障→串行实现→复核屏障→修正闭环 [done]
 - refs: R-171 R-117 R-050 docs/design/parallel_read_serial_write_orchestration.md
 - 优先级: P1
-- 依赖: 
+- 依赖:
 - 内容: R-171 验收②⑦ 转移承接:①阶段编排对象:baseline→scouting(并行只读子代理)→汇总屏障→implementation(单 writer 租约,串行)→integration(同一 writer)→review(并行只读复核)→复核屏障→fixup(重新获取写租约串行修正);②汇总屏障:scouting 全部任务进入终态(完成/失败/超时)前 writer 不得启动,失败/超时都有确定终态,屏障不永久挂起;③复核屏障:writer 释放租约后复核才启动,保证审查的是稳定快照(设计不变量 9);④真实闭环验证:一条真实需求留下「并行勘察→串行实现/集成→并行复核→串行修正」完整轨迹,事件落 session/run 轨迹(复用 R-171 批5 的 orchestration.* 事件与批6 的读槽登记)。
 - 复杂度: 大
 - 来源: 2026-08-10 R-171 关闭裁决:验收②⑦ 依赖阶段编排对象,按用户选择 A 拆为本 P1 需求承接
@@ -1732,7 +1732,7 @@
   **④「writer 活跃时允许只读勘察继续」✓** —— `core/orchestration.rs::acquire_read_slot` 全程不读 `writer_run_id`、唯一返回路径是 `Ok`(**R-171 既有性质,本次只补验证与真实消费者,不作为本次产出申报**)。生产路径证据:`parallel_scouting_under_serial_writer.rs` **整轮真实持有写租约**跑勘察,并断言全程无写租约排队事件。
   交付批次: 批1 契约(`6f98db2`)/ 批2-4 实现(`67c3fa2`,顺带修 `release_writer` 交接断档与 `process_id` 恒空两缺陷 + `normalize_project_root` 不剥 `\\?\` 导致 worktree 写命令与主对话 writer 落在两个仲裁桶的漏洞)/ 批4.5 恢复桌面端并行查(`e933262`,顺带修读槽按 agent_name 回收导致 `AgentCompleted` 张冠李戴)/ 批5 事件落库(`38716a7`)/ 批6 流水线接线(`45a5e54`)/ 批6.5 路由可配与进度事件(`a921b14`)/ 批7 闭环测试与设计基线回写(`40fe3d8`)/ 前端进度上面板(`ff287c4`)。
   **三个同族缺陷值得单记**:`release_writer` 交接断档、`process_id` 恒空、读槽按 agent_name 回收——全部是「R-171 时这条路不可达所以没人发现,阶段编排与并行查一恢复就变成真实的审计错误」。**不可达的代码不是没有 bug,是 bug 还没被叫醒。**
-- 残余缺口(§1.2 转移,不丢弃): 
+- 残余缺口(§1.2 转移,不丢弃):
   ①**「一次真实需求」的真机佐证不存在**——R-173 自身的开发在外部 agent 环境完成,没有走过 kanzei 桌面端的自主推进轮,所以验收②目前只有自动化证据。补法:用户开着自主推进跑一条需求,从 state.db 导出那段事件流。**不含混过去,如实记录。**
   ②`run_task` 外围那层无测试覆盖:闭环测试复刻的是它在流水线开启时的完整调用序列(同一批生产函数),但 `run_task` 本身需要真实 Tauri Window,单测起不来。未覆盖 Window 事件发射、store 生命周期记账、`phase_pipeline_on` 的 auto_runs 闸门取值(三行 `is_some_and`)。转 R-101(桌面端 E2 harness)。
   ③修正段触发判据是「非 NO_ISSUES 即有发现」,**失败/超时也算有发现**(宁可多跑一段,不把没复核过的当成复核通过)——有意的保守取向,但弱模型下大概率每轮都跑修正段,自主推进轮的成本上限是「5 勘察 + 主对话 + 3 复核 + 修正」。旋钮是既有的 `[limits] max_tasks_per_turn`。
@@ -1754,7 +1754,7 @@
 - 收益(写实,别高估): 并行写**不会**发生。真正拿到的是三条:①线与主树自举循环**代码互不覆盖**(git 物理隔离,不靠锁);②线 A 等 review 时线 B 可以编译/跑测试/读代码/做只读勘察;③自举 agent 跑在主树时,用户可以在线上手动改东西不打架。
 - 验收: ①`process_create` 带 `worktree_name` 后 `ProcessHandle.worktree_path` 是真实路径(有断言,不是 `None`);建树成功但绑定失败时 worktree 被回收,不留半绑定态,有测试。②线上的一轮 `run_prompt` 实测:`cwd` = worktree、`project_root` = 主根;线内写代码落在 worktree,而 tracker/state.db/记忆全部落主根;worktree 内的 `.kanzei` 副本**字节级零改动**(测试直接比对文件哈希)。③配置解析取主根的 `.kanzei/kanzei.toml`,worktree 里的分支副本改了也不生效,有测试。④线清单来自 `git worktree list --porcelain`:手工 `git worktree add` 出来的树也能被发现,localStorage 键清空后清单不丢;全仓 grep `kz-worktrees` 零命中。⑤同一 worktree 再建第二条线被拒(D4),错误文案指出已绑定的线。⑥线 `session_id` 与主树进程互不覆盖,删树后会话历史仍可回放。⑦四个 worktree 命令(create/diff/merge/discard)各有测试,`processes.rs` 不再零测试。⑧N3 开关默认关:线里的 agent 调 tracker 写工具时被明确拒绝并说明原因(不是静默失败),打开开关后能写且走写租约排队。
 - refs: R-050 R-141 R-171 R-173 R-178 R-179 D-096 D-251 docs/design/deep_parallel_dev.md docs/design/parallel_read_serial_write_orchestration.md
-- 依赖: 
+- 依赖:
 - 前置(不是阻塞,解除权在 agent 手里,按 D-239 教训**不写进「依赖」字段**免得调度器整条跳过): **R-141 批2**。R-141 批1(`8574b63`)已落一半——`ToolCtx::new` 改双参不再发现式取根、`ToolCtx::discovering` 只留给进程/IPC 入口,`run_task` 已收显式 `main_root` 并令 `project_root = main_root`、`cwd = project_dir`,`run_prompt` 在 IPC 入口解析一次主根后显式传入(crates/kanzei-app/src/run.rs 已有「R-050 D1 运行时重定向主根的落点」注释)。批2(`app/run.rs` 显式传根收尾 + 双键拆开)落地后本条即可动工;R-141 未完成时先做本条的 ③(线清单从 git 发现)与 ⑤(补测试)也不受影响。
 
 - 批次: 6/6
@@ -1768,7 +1768,7 @@
 - 证据等级: E1(2026-08-11 四组机械实测,可复现,命令见「实测」字段)
 - refs: R-171 R-177 R-138 R-181 R-183 docs/design/parallel_read_serial_write_orchestration.md docs/design/deep_parallel_dev.md
 - 来源: 2026-08-11 用户指出此前的并行都不满意,原因是**子代理只是单个回合内的扇出,不是任务级并行**——N 个无依赖任务各自独立跑、独立提交、无汇合点。为拿实测数据而搭了三条独立 worktree 线,实测结果把「并行查、串行写」的不变量 3(同一 project_root 同时最多一个 writer)顶翻。用户定调:**分支干、合并、冲突检测解决,文档保持一份唯一**。
-- 实测(四组,主树全程未受影响): 
+- 实测(四组,主树全程未受影响):
   ①**跨 worktree 编号必撞**:`kz defect add` 在 kz-par-a 与 kz-par-c 相隔 **10 秒**各跑一次,两边都拿到 `D-267`。零并发也撞——因为两边锁的是**两个不同的文件**。不是竞态,是必然。
   ②**同根并发反而安全**:同一个根三条并发 `kz defect add` → D-267/268/269,三条全部存活、编号互不重复。**R-138 的 `FileLock` 是真有效的**。
   ③**改已有条目跨线合并零冲突零丢失**:三条线各改自己那一段(翻 `[open]`→`[fixed]` + 追加进展行),顺序 `git merge --no-ff` 三次全干净,三条进展行一条不少。**这证伪了 deep_parallel_dev.md §3.2「docstore 整文件重写的冲突几乎必然」的判断——那句话只对「新增条目」成立。**
@@ -1777,7 +1777,7 @@
 - 内容: ①**撤销不变量 3**(项目级单 writer 覆盖 implementation+integration 全程)与 `ExecutionPolicy::ReadParallelWriteSerial` 对普通工具的全程串行强制;写互斥收缩为 R-138 `atomic_file::FileLock` 的**毫秒级单次操作持锁**(docstore 已是这个形态,②有实测背书)。②**补 `kz` CLI 侧的主根重定向**——R-177 只收口桌面端 `process_create`/`run_prompt`,`crates/kanzei/src/main.rs:138` 与 `:639` 的 `discover_project_root(&cwd)` **不在其范围内**,从 worktree 跑 `kz` 仍会命中副本(实测①就是这个状态);`kz` 需要一个显式主根入口(CLI 参数或环境变量),它今天**完全没有**。③代码层冲突检测**不新造**:复用既有 `worktree_*` 四命令的 `merge-tree --write-tree` 预检与 `worktree_diff` 的真实 diff。④`processes`/`state.db`/memory 同样只认主根一份(与 D1-A 同一条原则)。⑤把「分支干、合并、冲突检测解决、文档一份唯一」写成 conventions 的一节,取代「并行查、串行写」的旧口径。
 - 边界: 不做**语义撞车**检测(A 把某签名重构成形态①、B 按形态②写,git 一字不报)——本条只交付文本层,语义层作为**已知缺口**记在设计文档,不在本条造机制。不动 worktree 的物理隔离(那是 R-177)。不做无人值守通道(R-183)。R-171 已交付的协调器**不删代码**,只把强制口径从「run 级项目锁」降为「单次操作文件锁」,接口保留给未来可能的重新收紧。
 - 验收: ①从任意 worktree 跑 `kz defect add`,新条目落**主根**的 defects.md,worktree 内的 `.kanzei` 副本**字节级零改动**(哈希比对);重跑实测① 两条线不再撞号。②两条独立 OS 进程在**不同 worktree** 并发登记条目,编号互不重复、条目全部存活(= 把实测②的结论从同根扩到跨树)。③实现阶段的普通工具不再被强制串行:同一 run 内互不冲突的工具可并发,有轨迹证据;`ReadParallelWriteSerial` 的全程串行断言测试相应改写而非删除。④三条线各改自己那段 tracker 后顺序合并仍全干净(实测③固化成回归测试)。⑤`kz` 有显式主根入口且有测试:从 worktree 跑时 `project_root` = 主根、`cwd` = worktree,断言不相等。⑥conventions 新口径落地,旧「并行查、串行写」表述全仓无残留矛盾。
-- 依赖: 
+- 依赖:
 - 前置(不写进依赖,按 D-239 教训): R-177 的 D1-A 落点覆盖桌面端;本条覆盖 CLI 侧。两条可并行,但**本条验收①②必须在 R-177 之后或与之同批**才能端到端成立。
 
 - 批次: 5/5
@@ -1857,7 +1857,7 @@
 - 内容(B 面 · 前端给用户): ⑤**跨线并列视图**:一屏看到 N 条线各自的 认领条目 / 当前阶段 / 当前工具 / 已改文件数 / 分支 / running-idle / token。R-179 的线页签徽标是**单线视角**,本条是**并列视角**,两者不重复。⑥**冲突预警要早于合并**:两条线改到同一个文件就在界面上标出来,**不等到点合并才由 `merge-tree` 告诉用户**。第一版取「改动文件集合求交」即可,不必上 `merge-tree` 两两预检(N 条线是 N² 次,成本不划算)。⑦冲突预警可下钻:点开看是哪两条线、哪些文件。
 - 边界: 不做自动分派 / 自动解冲突 / DAG 画布(与 §2.3 及 R-111 的克制一致)。**不做语义撞车检测**——R-182 已把它记为该模型的已知缺口,本条同样只覆盖文本层。不重做 R-179 的 diff 查看器与合并确认流,本条只负责「合并**之前**的并列与预警」。不与 R-183 的非交互授权混在一起。
 - 验收: ①线的上下文里真的出现其他线的信息,内容取自**真实运行态**(不是常量占位,§1.25);②只有一条线在跑时**不注入**协作块,有反证测试;③协作块随其他线的改动集合变化而更新,且**不逐轮累积进对话历史**(D-185 同族反证测试);④主动查询通道有真实数据源,agent 调用后能拿到当前写入者清单;⑤并列视图六要素全部来自真实事件,冒烟脚本逐字段断言;⑥两条线改同一文件时界面出现冲突预警,且预警发生在**任何合并动作之前**(实测轨迹为证,不是点了合并才提示);⑦预警可下钻到「哪两条线 / 哪些文件」;⑧提交纪律进了提示词并有反证测试(改动纪律文案被删则测试变红);⑨前端 `node --check` + `node scripts/ui-runtime-smoke.mjs`,并列视图与冲突预警各有冒烟断言(conventions §1.3);⑩800/1024/1280 三档布局检查。
-- 依赖: 
+- 依赖:
 - 前置(不写进依赖,按 D-239 教训): 需要 R-177 提供真实的线(`worktree_path` 有真实值)才能端到端取证;R-177 之前可以先做 A 面的注入通道与提交纪律(对当前的「主树自举 + 外部 agent」两方已经立即有用,正是 D-263 的场景)。
 
 - 批次: 4/4
@@ -1883,7 +1883,7 @@
 - 复杂度: 大
 - 标签: 核心
 - 阶段: 2
-- 依赖: 
+- 依赖:
 - 来源: A-011 向量翻案(废止「不要向量库」,用户 2026-08-10 拍板)。向量是第二通道:coding memory 里 exact token(错误码/符号/命令)信息密度高于 embedding,fingerprint/BM25 优先。
 - 内容: ①trait MemoryIndex(search_lexical/dense/hybrid/upsert/remove/rebuild)+ SqliteMemoryIndex 默认实现;②trait Embedder,第一实现走 provider 体系 openai 兼容 /embeddings(含本地 ollama,用户拍板),进程内模型只做后续 challenger 不 bundle;③sqlite-vec brute-force 起步(不依赖 experimental ANN),向量列在 index.db(派生物可重建);④RRF 融合(k=60,BM25 top10+dense top10→top5),禁止线性加权;⑤reranker 默认关闭;⑥无 embedder 时 hybrid 自动退化 lexical,功能完整。
 - 验收: ①无 embedder 降级测试:fingerprint+BM25 完整可用;②配置 embeddings provider 后 hybrid 生效且分段延迟落 recall_events;③R-163 三臂对比(lexical/dense/hybrid),hybrid 显著优才切默认,报告落库;④删 index.db 后向量索引可全量重建。
@@ -1922,7 +1922,7 @@
 ## R-191 约束下沉 harness:通用开发规则引擎化,跨项目上下文与硬约束一致 [done]
 - refs: D-279 R-190 R-136 R-157 D-278
 - 优先级: P1
-- 依赖: 
+- 依赖:
 - 复杂度: 大
 - 方案: 三管齐下,通用规则单源进引擎:①kanzei-harness 内置 default_conventions.md(通用规则全文,从现有 conventions.md 提炼,去掉 §4/§6/§9 特有节与 kanzei 历史定调注解),作为所有项目通用约束的唯一真源;②conv-init 改用该模板生成(空骨架退役),生成文件开头注明「通用规则由引擎维护,此文件只放项目特有规则」,新项目一键创建即获得完整约束;③硬约束进引擎注入与工具校验——profile 提示词补「登记字段清单」(req 必带 复杂度 小/中/大 + priority + label + 来源;defect 必带 severity + priority + label;确实分批的条目登记当天写 批次: 0/N),tracker req add/defect add 对必填字段做校验(缺失报错并提示补什么,不静默放行);④kanzei 自己 conventions.md 重构:通用节删掉(引擎已单源),保留 §4/§6/§9 项目特有节,避免两处漂移。上下文管理:完整规则仍在文件按需读,不进 system prompt 全文(避免 dev prompt 再膨胀 170 行),提示词只注入硬约束要点。
 - 来源: 2026-08-14 用户定调:「把我们现在仓库的独立的一些约束分析拆分出来,做到系统的 harness 里——我们在做自举开发,但还要给其他项目用,必须保持上下文管理和硬约束一致性」。直接触发:D-279(另一个项目 agent 登记需求缺复杂度/批次)暴露跨项目约束不一致。
@@ -1942,7 +1942,7 @@
 - refs: R-030 R-086 R-169 R-178 D-209 D-271 D-281 D-283
 - 目标: 以 `session_id` 统一后端运行真源、实时事件、左侧线路按钮、顶部状态栏、停止控制、鞭挞设置、活动轨迹和历史恢复；轮询只做校准，不再把轮次结束误当成会话空闲。
 - 边界: 本需求只处理会话/线路状态、任务设置作用域、活动轨迹和历史恢复；不扩展子代理后台化、跨 agent 消息、移动端或新的模型能力。已有 UI 和后端接口优先抽象复用，不引入新框架。
-- 实现顺序（10 批次，依赖从后端到前端）: 
+- 实现顺序（10 批次，依赖从后端到前端）:
   1. **状态契约与迁移基线**：落设计文档；盘点 `session_id`、进程、事件、trace、设置字段；定义 `idle/starting/running/round_finished/auto_pending/stopping/failed`，记录旧字段兼容和迁移策略。
   2. **后端会话运行态抽象**：抽出会话运行快照/状态转换与目标进程解析，统一 `ProcessInfo`、`CollaborationLine`、停止入口读取的 session；保证 `kz:done` 与 `kz:idle` 语义分离。
   3. **后端实时事件投影**：统一进度事件、阶段事件和会话终态事件的发射/状态更新出口；所有事件带 `session_id`，后台线路事件不依赖当前前端选中线路。
@@ -1953,7 +1953,7 @@
   8. **前端活动/历史恢复**：活动面板按 session 隔离并实时追加；切线、重载、停止后回放目标 trace；历史对话继续挂在线路按钮下面，和 trace 使用相同 process_id。
   9. **回归与真实运行验证**：补 Rust 状态/事件/trace/停止/设置隔离测试；补 UI 事件时序、两线并行、鞭挞串线、活动回放、历史归属、停止按钮测试；运行最小相关集、全工作区 cargo 门禁和桌面 E2。
   10. **提交与发版验收**：只提交本需求相关代码、设计、需求/缺陷和测试；构建安装新版 kzapp，确认实际运行实例 hash 已更新；在桌面端实测两条线同时运行、切线、鞭挞、活动、停止和历史恢复，再关闭相关缺陷。
-- 验收: 
+- 验收:
   1. 两条线路同时运行时，左侧和并行线路页在事件到达后立即显示正确运行态/阶段，不依赖下一轮或 3.5 秒轮询。
   2. `kz:done` 后仍有排队输入或自动续跑时，不能显示普通空闲；真正 `kz:idle` 后才收回运行态。
   3. 当前线路运行时 stop 始终可见且只停止当前 process；`auto_pending` 可停止鞭挞，不影响其他线路。
@@ -2145,7 +2145,7 @@
 - refs: R-182 R-184 R-177 D-239 docs/design/parallel_read_serial_write_orchestration.md
 - 来源: 2026-08-11 用户在 R-182/R-184 定调后指出的第三条:「分析需求和缺陷的依赖性这个变得更重要了」。本条把它落成条目。
 - 为什么它从调度优化升级成正确性前提(本条的全部理由): **串行写的时候,依赖判错是廉价且自愈的**——若 R-A 与 R-B 真有耦合,第二条跑起来会看到第一条的结果,自己就发现了。任务级并行把这个自愈机制拆掉了:两条线各自基于同一个陈旧基线往下做,**到合并时才暴露**。而暴露形态恰恰是 **git 检测不到的语义撞车**——A 把某个签名重构成形态①、B 按形态②写完,两边测试各自都绿,合并干净,语义已经坏了。R-182 的「边界」已明确**不做**语义撞车的事后检测(git 只做文本层),所以**事前的依赖判定是唯一的防线**。判错的代价从「多等一会」变成「合并出一个测试抓不到的坏语义」。
-- 现状与缺口: 
+- 现状与缺口:
   ①**判据今天是人工的**。本轮三条线(D-262/D-257/D-261)是人工挑的「文件面不重叠」,靠读条目正文推断,没有任何机械判据参与。
   ②**`依赖` 字段的语义不够用**。仓里实际存在两种前置——**阻塞依赖**(没它就做不了)与**非阻塞前置**(有它更好,解除权在 agent 手里),但字段只有一个。R-177 与 R-182 都在正文里写了「前置(不是阻塞,解除权在 agent 手里,按 D-239 教训**不写进「依赖」字段**免得调度器整条跳过)」——**用注释绕过字段缺陷已经成了惯例**,这本身就是缺口的证据。
   ③**D-239**(取活口径漂移:伪阻塞/伪可执行/挂起无载体)记的是同一个病在串行下的表现;并行会把它放大。
@@ -2153,7 +2153,7 @@
 - 内容: ①同批派发前的**耦合证伪**:给出一组可机械计算的信号,把「这两条能不能同时开」从推断变成判定。候选信号(按成本排序):`refs` 字段互指、条目正文点名的文件/路径面求交、以及**契约面求交**(函数签名、表结构、事件名、配置键——与 R-182 边界里记的语义撞车同一组维度)。②`依赖` 字段**拆成两个语义**:`阻塞依赖`(调度器必须跳过)与 `前置`(可并行,但要在协作上下文里对另一条线**显式说明**),消灭「靠注释绕过字段」的惯例。③判定结果**留痕**:派发时记下「凭什么判定这两条无关」,合并后若真出语义问题,能回查当初的判据错在哪——否则同一类误判会反复发生且无从改进。④判定为**耦合**时给出可执行的处置(串行化、或合并成一条、或明确指定谁先落地由谁重新适配),不是只报一个警告。
 - 边界: 不做**全自动**依赖推断——信号用来收窄和提醒,最终判定仍可由人/编排者拍板,但拍板必须留痕(内容③)。不做语义撞车的**事后**检测(R-182 已明确不做,本条是它的事前对策)。不重做 R-184 的协作可见性(那是「谁在跑」,本条是「该不该同时跑」)。不改既有条目的历史 `依赖` 数据语义——迁移时旧值一律视为「阻塞依赖」,保守不激进。
 - 验收: ①存在可机械计算的耦合信号并对**真实历史条目**跑出结果:至少能对本轮三条(D-262/D-257/D-261)判定为可并行,且能对一组**已知耦合**的历史条目(如 R-177 与 R-182 的主根重定向两半)判定为耦合,两个方向各有证据。②`依赖` 与 `前置` 两个语义分离落地,调度器只对 `阻塞依赖` 跳过;R-177/R-182 正文里那两段「不写进依赖字段」的注释可以删掉而行为不变(这是本条是否真解决了问题的判据)。③判定留痕可回查:能对任一次并行派发回答「当时凭什么认为这两条无关」。④判定为耦合时给出的处置是可执行的,不是一句警告,有实测轨迹。⑤旧数据迁移保守:既有 `依赖` 值一律按阻塞处理,无行为回归,有测试。⑥与 R-184 的边界在文档上写清,不留「协作可见性顺带解决依赖判定」的误解。
-- 依赖: 
+- 依赖:
 - 前置(不写进依赖,按 D-239 教训): 与 R-182/R-184 同族,三条构成任务级并行的最小可用集——R-182 拆掉多余的锁、R-184 让各方知道彼此在写、本条决定**哪些能同时写**。缺任何一条,并行都会以不同方式出事。
 - 批次: 3/3
 - 进展: R-185 四段工作全部落地(B1 依赖/前置分离 / B2 耦合证伪信号 / B3 判定留痕+处置 / B4 全量+边界文档),Git 提交:B1=5a5f12c,B2+B3=d77d871(提交标题含 B2+B3 两个标记),B4 纯验证+文档无代码提交。批次按 Git 提交真源(3 个标记)修正为 3/3。验收①-⑥逐条证据见此前进展。关闭。
@@ -2519,7 +2519,7 @@
 - 边界: 不改一键安装链路本身(R-136 既有)。**自动开启只覆盖「起已装的服务」**——安装 Ollama(数百 MB)与拉模型(以 GB 计)仍需用户点一次,R-136「未经确认的后台大流量下载不可接受」的设计取舍不推翻。fast 指向非本地 Ollama 的 provider 时一律不托管(fast_model.rs:152-161 既有行为),启动路径同样零动作。不做跨平台安装(winget 为 Windows 专用,现状如此)。
 - 验收: ①自动开启实测:Ollama 已安装、服务未运行的状态下启动应用,服务被自动拉起、状态转就绪,有实测轨迹或日志证据(只断言函数返回不算);②不越界:未安装 Ollama 时启动应用不触发 winget 安装、不拉模型,只如实报告缺环,有定向测试;③fast 指向外部 provider 时启动路径零动作,有测试;④运行状态在设置页/子代理面板之外可见,且把 Ollama 服务停掉后界面状态能转为「服务未运行」、重新起来后能转回就绪——不需要重开视图,有实测证据;⑤前端改动有冒烟断言(node --check + node scripts/ui-runtime-smoke.mjs),新增的状态指示与状态刷新各有断言;⑥R-136 既有 Rust 2 项(拉取进度行解析、服务探测对未监听端口不悬挂)与冒烟 6 项、D-278 的 fastStatusText 断言全部保持绿。
 - refs: R-136 D-278 D-167 D-279
-- 依赖: 
+- 依赖:
 - 进展: 2026-08-16 完成并关闭。既有能力标注:自动安装(fast_model_setup)为 R-136 已交付,本条未重做。验收逐条:①自动开启——fast_model.rs 新增 fast_model_ensure_running:fast 指向本地 Ollama(ollama_fast_target 11434 判据)且 CLI 已装但服务未运行 → spawn `ollama serve` 并轮询 20s;main.rs setup 挂后台调用;决策纯函数 fast_ensure_decision 测试覆盖「已装未运行→拉起」(返回 true);②不越界——fast_ensure_decision(false,*)→ false 断言(未安装绝不触发 winget/拉模型),R-136 一键安装链路未改;③外部 provider 零动作——ollama_fast_target 非 11434 端口返回 None,ensure 立即 false(测试断言 managed 语义);④常驻运行状态——ui/03-shell.js 新增 #status-fast 状态栏指示 + FAST_STATUS_POLL_MS=10s 轮询调 fast_model_status,服务停掉自动翻 warn 红、恢复自动转就绪(无需重开视图),复用 D-278 fastStatusText 共享口径;冒烟断言验证 fastStatusTimer 已注册 + 桩 serviceUp=false 时显示「服务未运行」+ warn-text;⑤前端冒烟断言——ui-runtime-smoke R-190 块(#status-fast 存在/内容/定时器),node --check 通过;⑥R-136 既有 2 项(拉取进度解析/服务探测不悬挂)与 D-278 fastStatusText 断言保持绿(kanzei-app 146 passed 含全部既有)。提交 408a117;前端五冒烟 + kanzei-app 146 + 关闭前全量 cargo test --workspace 全绿(T-1786654534)。
 - observed_head: 408a117df50fe1800b12b033b753819bd799320c
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2785,11 +2785,11 @@
 - 证据等级: E1(2026-08-11 实测三次全失败 + 读码定位)
 - refs: R-182 R-177 R-030 docs/design/parallel_read_serial_write_orchestration.md
 - 来源: 2026-08-11 搭任务级并行实测时,**`kz run` 在 worktree 里无法无人值守跑**,是当天唯一让实验彻底停摆的硬卡点(另一个候选载体 `claude -p` 因 OAuth token 被吊销同样不可用)。任务级并行的前提是「N 条线各自跑到底」,没有这个通道就只能靠外部 CLI。
-- 现状与缺口(逐点读码核实): 
+- 现状与缺口(逐点读码核实):
 - 内容: ①非交互检测 + 显式策略:无 TTY 时不再落 Deny,改为按配置的**非交互默认策略**(建议三态:`deny`(现状,保守) / `rules-only`(只认预授权规则,规则外拒) / `allow-listed`(规则 + 本次运行的显式 allowlist));策略必须显式配置,**不提供"全放行"的隐式默认**。②permission 规则的 worktree 继承:worktree 内运行时,规则匹配按**主根**而非 cwd 解析 workdir(与 R-182 的主根重定向同一条原则),避免线一启动就没有任何授权。③可审计:非交互模式下每一次自动放行都落轨迹(动作、资源、命中的规则、时刻),`kz` 退出时给出汇总;拒绝同样可见(D-004 口径)。④补齐开发所需的基础规则模板(cargo/node/git 的只读与构建子集),放进新建配置的注释模板(与 R-172 同族)。
 - 边界: 不做「全部自动同意」的开关——那等于把权限系统关掉,与仓库既有的硬 deny 纪律冲突。不改 profile/agent 体系。不做桌面端的无人值守(桌面端有 UI 可问,不是同一个问题)。
 - 验收: ①`kz run` 在 worktree 里后台运行(stdin 关闭)能完成一次真实的「改代码 → `cargo test` → 提交」闭环,不因权限被拒而中断;②非交互默认策略三态各有测试,**缺省仍是 `deny`**(不改变现有用户的行为,旧配置无该键时行为不变);③从 worktree 运行时,主根的 permission 规则能命中(有测试直接断言同一条规则在主根与 worktree 下匹配结果一致);④每次自动放行有可查轨迹,含命中的规则原文;⑤无 TTY 检测本身有测试(不是靠"读到 EOF"倒推)。
-- 依赖: 
+- 依赖:
 - 进展: 批3 完成(2026-08-16),条目收口。验收对照(逐项引用实现位置):①`kz run` 无 TTY 无人值守闭环——E2E `crates/kanzei/tests/always_allow_bash.rs:92 cli_allow_listed_executes_bash_without_tty`(用户 D-363 落地,非交互 allow_listed + `--allow bash:*` 下 bash 真执行、本轮成功,反证 --allow 一次性不落常驻规则);worktree 后台跑的前提由验收③覆盖。②三态各有测试、缺省 deny——`crates/kanzei-harness/src/config.rs` `non_interactive_三态解析`/`non_interactive_缺省与非法取值_fail_closed回落deny`(缺键/空串/非法全回落 Deny,旧配置不变)+ main.rs 决策三态测试。③worktree 主根规则命中——`crates/kanzei-tools/src/bash.rs:30 permission_workdir_view`(worktree_key 存在时 workdir 视图按主根,仅权限判定文本、执行目录不变)+ 测试 `权限workdir视图_worktree映射回主根`/`同一规则_主根与worktree下匹配结果一致`(7db3b48)。④自动放行轨迹含规则原文——`permission.rs evaluate_with_rule`(last-match-wins 命中规则,硬 deny/无匹配 None)+ `event.rs:84 PermissionResolved.rule` + drive.rs 串行门禁/并行 wave 两评估站点填 describe_rule + CLI 打印 `[规则: ...]`(ba0726f)。⑤无 TTY 检测有测试——`main.rs interactive_stdin()`(stdin.is_terminal 显式检测,不靠读 EOF)+ non_interactive_decision 测试(批1,caa9d62)。全量:cargo test --workspace 全绿 0 failed(T-1786737712 复核,含 D-363 桩服务器超时修复)。边界遵守:无全放行隐式默认(allow_listed 需显式 --allow)、不改 profile/agent、不做桌面端。关闭。 [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
 - observed_head: 87471a232e7946d358ecb7e21565318f8961d42f
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -2967,7 +2967,7 @@
 - 边界: 不做后台化(R-175)、不做写权(R-176);面板本条只需渲染**轮内并发**的子代理,跨轮存活条目待 R-175 提供数据后再接。不改 `max_tasks_per_turn` 的配置通道本身(已可用),只调默认值口径与设置页说明。
 - 验收: ①并发度实测:`kanzei.toml [limits] max_tasks_per_turn = N`(N 取远大于 8 的值)后,同轮派发 N 个 task 全部执行、第 N+1 个才落 drive.rs:441-444 的溢出错误,有轨迹或日志证据;②旧配置无该键时行为不变——config.rs 既有 serde default 单测保持绿(若本条上调默认值,须同步更新 :918-920 断言并保留「缺键=内置默认」语义),settings.rs:745-752 往返单测保持绿(保存不丢字段);③面板存在且分区正确,每条的 名称/类型/时长/token/工具调用数/当前工具名 六个字段**均取自真实 RunEvent**(ToolStart/TaskProgress/ToolEnd),冒烟脚本用桩事件逐字段断言渲染出真实值而非常量占位;④单条停止真能停:点击后该子代理不再产出 TaskProgress、以「被停」终态收尾、读槽被释放,有实测证据(仅改 UI 类名/状态不算通过);⑤transcript 有真实数据源:能查看单个子代理的完整工具调用序列与每次调用的入参/输出——§1.25 明令「只展示但未接入真实数据源的界面壳不算完成」,不得以摘要冒充 transcript;⑥前端改动有冒烟断言:`node --check` + `node scripts/ui-runtime-smoke.mjs`,分区切换、单条停止、打开 transcript 三个新交互各有对应断言(§1.3);⑦桌面端可达性:R-173 修复前置回归后,在桌面端主对话实测面板真出现子代理条目(不能只在 CLI 或单测里成立)。
 - refs: R-095 R-117 R-173 R-175 R-176
-- 依赖: 
+- 依赖:
 - 进展: 批1-3已提交(9179ae8/68ee84ec/25ea2c0),cargo test --workspace 全量全绿。验收①并发度实测✓(集成测试+轨迹)、②旧配置无键行为不变✓(serde default 测试绿)、③面板分区与六字段真实数据✓(冒烟逐字段断言)、④单条停止✓(stop_task + task_cancel_parallel.rs 实测)、⑤transcript 真实数据源✓(TaskTrace.input 渲染,冒烟断言入参)、⑥冒烟断言✓(分区切换/停止/transcript/被停终态/Clear 均有断言)。仅剩验收⑦「桌面端主对话实测面板真出现子代理条目」未闭环——需要构建新版 kzapp 安装,2026-08-11 用户定调:先不装,等下次发版一起实测。本条保持 doing 待发版,不占可执行槽位。
   2026-08-11 本次发布补齐面板生命周期：停止→已完成→已关闭→删除；关闭/删除只改变当前 UI 条目，后端 transcript/审计保留，真实 stop_task 仍是停止通道。主代理权限边界在系统提示与子代理 task_spec 中显式固化：子代理仅 read/glob/grep，写入、比对、合并和发版由主代理负责。发版后验收⑦转为用户桌面实测。
   ①**前置回归已解除**——「桌面端主对话根本不注册 task 工具」那条(本条与 R-175/R-176 共同记录的前置)已由 R-173 批4.5 修掉(`e933262`),验收⑦现在可以真去桌面端取证了。
@@ -3170,7 +3170,7 @@
 - 内容: ①把 `ManagedSnapshot` 的保护范围从「主根 `.kanzei` 托管文档」扩到「**不属于本线的 worktree**」:执行前拍快照的集合 = 托管文档 ∪ 其它线的工作树;②越界写入的处置沿用 D-174 既有形态(隔离留证 + 整体回滚 + 归因到 owner run),**不新造机制**;③「本线的树」由 `ProcessHandle.worktree_path` 给出(前置 R-177),主树进程的"本线"= 主根;④性能:快照集合可能很大,按**只对其它线的树做 mtime 级粗筛、命中再细查**收敛,不得让每条 bash 都全量哈希(D-233 的教训:同步全量读+哈希会把主线程占死);⑤越界事件进轨迹,**同时作为 R-184 冲突带的数据源**——"谁写了不属于自己的文件"与"谁和谁改了同一个文件"是同一份数据,不要采两次。
 - 边界: **不做事前拦截**(那是被砍掉的 D-267 的路子)。不保护未纳入任何线的目录(用户自己的其它项目不在范围内——本条只管本仓的树之间)。不做跨机器。`ManagedSnapshot` 对**托管文档**的既有行为**一个字不改**(它是 D-173/D-174 的交付,只加范围不改语义)。
 - 验收: ①A 线执行 `cd <B线树> && <写操作>` 后:改动被检测、被隔离留证、被回滚,B 线的工作树**逐字节复原**,有实测轨迹(不是只断言函数返回);②归因正确:轨迹里指出是哪条线(owner run)越的界;③**`cargo run` 里 build.rs 写别人的树**同样被抓——这条是本条相对闸门的核心优势,必须有定向测试;④托管文档的既有保护行为无回归(D-174 既有测试全绿);⑤性能:单条 bash 的快照开销有实测数字,N 条线时不随 N 线性劣化到不可用(给出实测,不接受"看起来还行");⑥越界事件与 R-184 冲突带共用同一份数据,不存在两套采集(机械核验:grep 只有一处采集点)。
-- 依赖: 
+- 依赖:
 - 前置(不写进依赖,按 D-239 教训): **R-177**(要有 `worktree_path` 才知道"本线的树"是哪棵)。R-177 之前可以先做托管文档侧的重构与 mtime 粗筛。
 - 进展: 自动运行已认领(doing)。2026-08-13 用户明确指示暂停本条、先交付 R-200(测试隔离夹具)并按其批次发版——本条 park,不占可执行槽位。未开工。 || 2026-08-16 复核:实质前置全部达成——R-200/R-202 done、缺陷队列 D-357/358/359 全部 fixed、发版多轮执行。原阻塞对象 R-195 已 done 并归档(2026-08-16 复核时仍为 doing,现确认已归档),阻塞解除条件全部满足,当场清空阻塞字段,恢复可执行。 || 2026-08-16 取活开工。勘察:①现有围栏=ManagedSnapshot(kanzei-tools/src/managed.rs)只拍 .kanzei/project+.kanzei/memory,前/后台 bash_body(kanzei-tools/src/bash.rs:300/410/456)共用;②其它线工作树清单通道已存在:kanzei-tools/src/worktree.rs:225 git_worktrees() 返回全仓 worktree(含主树),bash 用 ctx.cwd 判定本线后排除;③归因身份已在 ToolCtx(run_id/process_id),ProcessHandle.worktree_path(R-177)在 kanzei-app 侧。**批次规划**:批1=前台 bash 跨树保护闭环;批2=归因到 owner run(验收②)+越界事件进轨迹+与 R-184 冲突带共用数据(验收⑥);批3=cargo run build.rs 定向测试(验收③)+性能实测(验收⑤)+D-174 回归全绿(验收④)。 || **批1 完成(2026-08-16,提交 e40a93b)**:新增 crates/kanzei-tools/src/cross_tree.rs, bash.rs 前台路径接入。单测 5 条全绿,既有 bash 19+managed 6+background 22 全绿无回归。 || **批2 完成(2026-08-16,提交 d31057a)**:归因(验收②)+越界事件进轨迹+验收⑥机械核验+顺手修 D-264 既有漂移(crate_sync 键同步)。kanzei-tools 全量 284 passed。 || **批3 完成(2026-08-16,提交 a13cbb6)**:验收③ build.rs 定向测试、验收⑤性能实测(5×31 文件 155 镜像 73.9ms)、验收④ workspace 全量 15 段全 ok(T-1786837373)。 || **关闭(2026-08-16)**:六条验收逐项核对证据——①A线bash写b线树检出隔离回滚逐字节复原(cross_tree.rs:346 测试,bash.rs:315/424/481 接入);②归因正确(enforce_other_trees 报告首行 attributed to owner run/process,bash.rs 传 ctx.run_id/process_id,测试断言含 run-a);③cargo build 的 build.rs 写 B 线树被抓(cross_tree.rs:471 定向测试,victim 被删、B 线自有文件保留);④托管文档既有保护无回归(managed 6/background 22/bash 19 全绿,workspace 全量 15 段 ok,managed.rs 零改动);⑤性能实测(5 worktree×31 文件=155 镜像文件 capture 73.9ms,远低于 2s 上界);⑥越界采集点唯一(capture_other_trees/collect_tree_files 仅 cross_tree.rs 定义,R-184 冲突带 changed_files 是 git status 既有展示数据,非越界采集)。交付物:crates/kanzei-tools/src/cross_tree.rs(新模块)+ bash.rs 前台接入 + git.rs 门禁清单同步;三批提交 e40a93b/d31057a/a13cbb6 已 push。按 §1.2 可用即关闭,本条 done。
 - observed_head: a13cbb62d18c03c499f2bd203cec0f10c39af45a
@@ -3404,7 +3404,7 @@
 - recorded_at: 1786958400176
 - 批次: 5/5
 - 依赖: D-428
-- 停车: 
+- 停车:
 
 ## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [done]
 - refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
@@ -3421,11 +3421,11 @@
 - observed_head: c6099025771f6793f55a501f21120ec114a55caf
 - observed_worktree_hash: fnv1a64:47fa0d10aca59693
 - recorded_at: 1786970281338
-- 停车: 
+- 停车:
 
 ## R-276 research 模式前端:双面板/计划审批/来源呈现 [done]
 - refs: R-221 R-267 R-273 R-274 R-277 R-283 R-284 D-412 D-413
-- 依赖: 
+- 依赖:
 - 内容: 按 docs/design/research_workspace.md(2026-08-16 用户首轮实测反馈驱动的设计稿)实施研究工作台六批:批1 设计稿过审;批2 交互修复(去 kind gating,source/finding 与 req/defect 同权:可开/可编/可删/不截断,即 D-413);批3 双面板工作台+报告 tab(内联 [S-00x] 与 file:line 可跳、V 等级徽章与过滤);批4 来源/发现卡片化+筛选+反查+复制引用(BibTeX);批5 全文通道(read 支持 PDF、arXiv 正文通道、来源卡标注摘要级/正文级并与 V 表联动);批6 计划树面板(依赖 R-277)。设计原则取自 prior_art §1 前端横评:结果>过程、溯源三处冗余、计划先行可编辑、数据已结构化的 UI 不许降级成字符串。建议顺序:批2 与批5 先行(不依赖引擎,正是用户点名痛点)。
 - 复杂度: 大
 - 批次: 6/6
@@ -3452,7 +3452,7 @@
 - observed_head: 1a1592a3a18f017908982966821f3ed11836e319
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786972886838
-- 停车: 
+- 停车:
 
 ## R-290 并行线路页按线操控鞭挞与模型 [done]
 - 优先级: P1
@@ -3467,7 +3467,7 @@
 - refs: D-481 T-1786922726197
 - observed_head: 4985c2c4b32f3992d5df1d4bfd1b31a87d56e5a6
 - recorded_at: 1786992270
-- 停车: 
+- 停车:
 
 ## R-216 记忆写入侧质量三闸:近似去重下沉 store.add 双 scope、[fp:] 指纹一致性校验、tracker 交付状态内容拒收 [done]
 - 优先级: P2
@@ -3481,15 +3481,15 @@
 - observed_head: 82b5cdfce1f709b26869f888e3a319a110cab2c0
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786993824175
-- 依赖: 
-- 停车: 
+- 依赖:
+- 停车:
 
 ## R-286 记忆晋升与遥测恢复:修复 inbox 分批整理真实交付、来源账本和 outcome 漏斗 [done]
 - 优先级: P0
 - 复杂度: 大
 - 标签: 核心 后端 前端 记忆
 - 来源: 2026-08-17 自举一期结项后的二期全面升级;用户反馈「记忆系统很久没有晋升」;只读审计确认 D-409 修复提交未进入 dev、当前桌面端仍整份读取 inbox 且忽略 manager 结果。
-- 依赖: 
+- 依赖:
 - refs: R-195 R-235 R-283 R-284 docs/design/phase2_system_upgrade.md docs/design/memory_control_plane.md docs/design/memory_system.md
 - 内容: 按 phase2_system_upgrade.md §5.2 分四批恢复记忆控制面。批1 交付事实修复:从 D-409 分支隔离出分批读取/checkpoint/错误回传,桌面与 CLI 共用整理服务,禁止直接合并无关分支;修正 defects/tests 里「已修复」与 dev 实现不一致。批2 生命周期账本:note→candidate→shadow→active/deprecated 每次转换写来源、reason code 与关联 episode。批3 遥测漏斗:AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED,补 memory_eval_agg 和单条价值画像。批4 UI:backlog/最老等待/批次状态/晋升缺口/召回与 outcome 全链展示,失败可重试。
 - 边界: 不伪造历史 provenance;R-235 的 28 条存量零证据 active 仍由用户拍板;不把 action_changed 直接写成 outcome_improved;不静默删除 inbox/candidate/active;数据库 schema 变化需 Alembic 不适用(Rust SQLite migration),必须提供前滚、已有数据兼容和恢复策略。
@@ -3502,7 +3502,7 @@
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [done]
 - refs: R-242 R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md
-- 依赖: 
+- 依赖:
 - 内容: 将现有 compact_with_digest 的存储语义改为 compaction_started→compaction_summary→surface_replaced→compaction_ended 追加事务；模型上下文只消费 surface projection，原始 Session 事件不修改不删除；连续压缩走已交付滚动合并。
 - 复杂度: 中
 - 批次: 4/4
@@ -3673,7 +3673,7 @@
 - observed_head: f74190424c0bbf129c107776e8b3d52b4b908b61
 - observed_worktree_hash: fnv1a64:22647b63185a2bb9
 - recorded_at: 1787162500319
-- 停车: 
+- 停车:
 - 验收核验: ①落点约定落档并有工具/文档支持：`docs/design/research_mode.md:55-65`；`README.md:110`；既有工具消费者为 `crates/kanzei-tools/src/profiles/dev.rs:102-157` 的项目资产权限边界与 dev 侧 write/edit/insert、read/glob/grep/files 通道（既有能力，本次仅固化约定）。②勘察产物可按条目回溯：`docs/design/research_mode.md:61` 规定 tracker refs 只写 R-/D-/T-、进展写报告路径、报告头写 entry_refs；`.kanzei/research/r304-dev-recon/report.md:1-8` 实例化 `entry_refs: R-304`，T-1786922726481 通过。③R-248 恢复时可直接复用：`docs/design/research_mode.md:65` 与 `.kanzei/research/r304-dev-recon/report.md:28-30` 复用根目录、命名、report.md 和 active→archived 生命周期，同时保留 R-248 原有 refs API/topic 来源用户阻塞；T-1786922726481 通过。
 
 ## R-305 subagent 策略层与 Agent 目录 [done]
@@ -3708,7 +3708,7 @@
 
 ## R-242 会话投影真源切换与分段清空恢复 [done]
 - refs: D-209 D-342 D-417 R-236 R-279 docs/design/deepseek_harness_upgrade.md
-- 依赖: 
+- 依赖:
 - 内容: 在 shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复逐项切到事件投影；进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment，新 segment 的模型 prior 为空，旧 segment 仍可审计。验证期保留 legacy snapshot 只读对照，五条读路径全部稳定后停止新增 conversation.updated。
 - 复杂度: 大
 - 批次: 8/8
@@ -3722,7 +3722,7 @@
 - observed_head: 3b8b0e7bc6801248f91ca8d30196a4d966825e9d
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787176334013
-- 停车: 
+- 停车:
 
 ## R-306 并行线交付收编:R-257/p13 线已关条目提交未合入 dev,冲突随演进扩大 [done]
 - refs: R-257 D-396 D-397 D-398 D-399 D-400 D-401 D-409 R-293 R-299 R-283
@@ -3750,7 +3750,7 @@
 - 边界: 不改回放台六臂框架;先点亮既有链路再谈扩展
 - 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
 - 优先级: P1
-- 停车: 
+- 停车:
 - 进展: 批次1（既有本条交付）已点亮在线 outcome 写入：crates/kanzei-core/src/runner/drive.rs:200-424 的 RecallWatch 全部结局路径提交 RecallRunOutcome；crates/kanzei-core/src/runner/recall.rs:61-166 提供 finish/outcome_improved；crates/kanzei-memory/src/memory/mod.rs:714-775 仅 Completed 写 outcome_improved，Halted/Unknown 不写。批次2（本次交付）已提交 a0bb285e：crates/kanzei-core/src/replay.rs:196-203 将真实命中 memory_id 作为 F(m) 主键来源，:278-364 仅按真实 ID 落 memory_eval 并逐 ID recompute；crates/kanzei-memory/src/replay_eval.rs:193-205 从 Current 检索返回真实首个命中 ID。验收逐条对照：①生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED：既有 recall_events 真实 retrieved/injected 计数与本次独立 outcome 写入由 crates/kanzei-core/src/store/telemetry.rs:175-214 统一计数，action_changed 与 outcome_improved 不互相推导；②控制面 F(m) 非空：crates/kanzei-core/src/store/eval.rs:54-92 读取真实 memory_eval_agg，crates/kanzei-app/src/memory.rs:88-116 暴露 effects，既有消费者 crates/kanzei-app/ui/13-memory.js:15,37-79 调用并展示非空价值画像；本次回放真实 ID 回归 crates/kanzei-core/src/replay.rs:619-626 断言 M-real 有 eval_n=1 且 case_id 不产生聚合；③deprecate 可被真实数据触发：crates/kanzei-core/src/store/eval.rs:322-349 按 effect_mean<=0、eval_n、effect_ci 从真实 memory_eval_agg 筛选，回归 crates/kanzei-core/src/store/eval.rs:608-653 覆盖低价值/高置信度候选；④回归测试：T-1786922726510、T-1786922726512、T-1786922726514、T-1786922726515、T-1786922726516、T-1786922726517、T-1786922726520 均通过；本仓库 cadence 明确全 workspace 仅发版执行，未重复运行无关全量套件。既有能力已明确标注，批次2新增真实 memory_id 配对与聚合调度。
 - observed_head: a0bb285e0c845cc70035687f0c151f51d049bc5f
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -3779,7 +3779,7 @@
 - 边界: 不追求覆盖率数字,优先真实断言关键路径;不重构业务逻辑
 - 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
 - 优先级: P1
-- 停车: 
+- 停车:
 - 进展: 验收对账完成：run 主链关键路径已有真实断言——crates/kanzei-app/src/commands/run.rs:654、667 分别验证真实 episode 投影与 requirement 复杂度来源，crates/kanzei-app/src/run/mod.rs:565 验证真实 SessionStore 的轮末通知持久化/回放（实现提交 1e076db6）；这三处同时给新增 command 建立就地 #[cfg(test)]/真实存储边界的测试落点范式。现行提交 c85f3c99 上 cargo test --workspace exit=0：kz 42、integration 32、kzapp 230、kanzei-memory 156、kanzei-tools 396 passed（另 2 ignored），覆盖 D-570 新增上下文投影；全仓门禁满足。
 - observed_head: c85f3c998e8a0fe59571ca8baec5ee855b2c9814
 - observed_worktree_hash: fnv1a64:70daf09539db7acb
@@ -3796,7 +3796,7 @@
 - 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
-- 停车: 
+- 停车:
 - 进展: 验收逐项完成：① crates/kanzei-tools/src/prior_art.rs:551 三种触发均创建同形骨架，crates/kanzei-tools/src/tracker.rs:4052 断言普通后端条目不受影响；② crates/kanzei-tools/src/prior_art.rs:257 与 :577 逐结论校验出处、V级、差异、决策，无出处拒绝；③ crates/kanzei-tools/src/prior_art.rs:577-598 独立断言外部 URL 与仓内 file:line 双侧至少各一条，删去仓内章节后以双侧覆盖不足拒绝；④ crates/kanzei-tools/src/tracker.rs:725 与 :4052 核心空refs缺工件拒绝、有效 prior_art 放行、prior_art_waiver 审计落字段；⑤ crates/kanzei-tools/src/prior_art.rs:602 与 crates/kanzei-tools/src/websearch.rs:318 验证轮次上限在联网前返回 PRIOR_ART_SEARCH_LIMIT；⑥ crates/kanzei-tools/src/tracker.rs:3600 与 :3756 既有完整登记及8路并发新增回归通过。实现提交 34c78f40、35aa11ee、571001f1，夹具对齐 37023013；cargo test --workspace exit=0（kz 42/integration 32/kzapp 231/memory 156/tools 406，0 failed）；cargo clippy --workspace -- -D warnings exit=0。真实网络探测：DuckDuckGo HTML HTTP 200/33616B/1158ms，arXiv API HTTP 200/2957B/493ms；当前无需触发降级，失败诊断由 crates/kanzei-tools/src/websearch.rs:281 单测覆盖。
 - observed_head: 3702301328886e835c552b5174252853e795f372
 - observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
@@ -3981,7 +3981,7 @@
 - 验收: ①小/中复杂度条目登记或修订验收字段时含开放式全量审计类条款被拒,有定向测试;②验收证据强度按复杂度分级的规则写入 default_conventions.md;③D-568 这类真实历史案例重放校验会被正确拦下,有回归用例;④存量条目扫描产出不匹配清单
 - 优先级: P1
 - 批次: 4/4
-- 停车: 
+- 停车:
 - 进展: R-315 B1-B4 已全部落地，验收逐条对照：①小/中复杂度开放式验收在 add 与验收字段 update patch 拒绝，代码 crates/kanzei-tools/src/tracker.rs:738-785、crates/kanzei-tools/src/tracker/actions.rs:299-300 与 410-414，定向证据 T-1786922726681；②复杂度分级规则已写入 crates/kanzei-harness/assets/default_conventions.md:48，大复杂度 close 证据门禁在 crates/kanzei-tools/src/tracker/actions/action_helpers.rs:197-238 并由 actions.rs:531-533 接线，完整 kanzei-tools 回归 T-1786922726682；③D-568 原文「全量 INDEX 行与对应 M-*.md 做一次机械一致性核对并修复」重放被拒，回归测试 tracker.rs:2603-2670，证据 T-1786922726681；④真实 CLI `cargo run -p kanzei -- req audit_acceptance_scope` 扫描活动与归档 requirements，输出 schema_version=1、mismatch_count=34，列出 R-315/R-320 与归档 R-037/R-040/R-048 等存量不匹配清单且不自动修改，证据 T-1786922726683。既有能力：tracker 的状态迁移、验收对账与 test_record；本次交付：开放度识别、登记/修订拒绝、分级 close 门禁和真实 CLI 扫描。
 - observed_head: 46831d94d7149a49199ebc52df5e88e3e86158ce
 - observed_worktree_hash: fnv1a64:4896c9829eea1c37
@@ -4181,7 +4181,7 @@
 - 验收: ①迁移/回滚说明覆盖 schema、旧数据、备份和失败恢复；②旧 episodes/session_inputs/session_events 可读且计数对账有自动化证据；③无 task close 的历史记录明确为 legacy/未归属且排除 completed trend；④旧 API 与新 projection 的过渡边界有真实调用方验证
 - refs: R-337 R-338
 - 优先级: P1
-- 依赖: 
+- 依赖:
 - 进展: R-339 已完成，逐条验收对账：①迁移/回滚说明覆盖 schema、旧数据、备份和失败恢复：`docs/design/run_metrics_task_migration.md:19-27,61-70`；既有 `backup_before_upgrade` 使用 `VACUUM INTO` 位于 `crates/kanzei-core/src/store/session.rs:229-261`，高版本拒绝/备份回归位于 `crates/kanzei-core/src/store/schema.rs:988-1067`，证据 `T-1786922726846`。②旧 `episodes/session_inputs/session_events` 可读且计数对账：`crates/kanzei-core/src/store/task.rs:361-440` 的 `task_compatibility_audit`，测试 `task_compatibility_audit_marks_legacy_without_entering_trend` 位于 `:777-867`，证据 `T-1786922726844`、`T-1786922726846`。③无 task close 的历史记录明确为 `legacy_unassigned` 且排除 completed trend：`task.rs:442-466` 输出 legacy 并只将 closed task 加入 trend，`:848-866` 逐项断言，app response 断言位于 `crates/kanzei-app/src/commands/run.rs:771-786`，证据 `T-1786922726844`、`T-1786922726845`。④旧 API 与新 projection 的过渡边界有真实调用方：`run.rs:448-475` 的两个 Tauri command，真实 SQLite fixture 同时调用旧 `run_metrics` 与新 `run_metrics_by_task` 的测试位于 `:700-795`，证据 `T-1786922726845`、`T-1786922726846`。本次交付为读取契约迁移，不提升 schema v18、不回填旧 task close；R-340/R-341 保留后续 UI/端到端边界。
 - observed_head: 288bb57adfbebd38988c2a29cfc0e3648d2d5e23
 - observed_worktree_hash: fnv1a64:7816ba6d4c4efd95
@@ -4409,7 +4409,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788569909496
 - 发现记录: {"Intent":"完成原生 ESM 迁移剩余批4并移除全局补偿机制","Explicit":"先完成 withSessionRender 跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序适配，再逐文件迁移并删除 globals 补偿","Assumptions":"批1-B3 的既有提交仍是当前 dev 基线且六条前端冒烟可作为迁移回归入口","Ambiguities":"现有条目进展标注批3/4但代码与 HEAD 已偏离，需要先按提交和工作树复核真实落点；设计文档索引显示路径存在性需以实际仓库为准","领域对象":"ui/*.js、index.html、scripts/ui-* smoke、ESLint globals 生成与配置","最小成功闭环":"测试 harness 能执行 ESM 且六条冒烟全绿，迁移后的浏览器入口能加载并保留逐文件 TDZ 语义","延后决策":"不引入打包器/TypeScript，不改 vendor 与业务逻辑；未能在本批收口的深层跨模块写另开后续条目"}
-- 停车: 
+- 停车:
 
 ## R-360 开发与研究信息架构分离：独立空间、课题会话与研究工作页面 [done]
 - 内容: 实施 docs/design/workspace_information_architecture.md。
@@ -4487,7 +4487,7 @@
 - observed_worktree_hash: fnv1a64:c446b90c50bf3901
 - recorded_at: 1791049749734
 - 确认记录: 2026-09-26 波次审计更正:用户未对单个批次作答;09-25 23:17 B1 冻结方案发出后只收到自动续跑提示「继续推进,规则按系统提示执行。」,不构成授权,也不存在「仅授权 B1」的限定(见 D-764)。R-366 整体方案经用户 2026-09-25「直接登记就行」批准,B2-B4 按 docs/design/cc_codex_alignment_impl_maps.md §3 实施,无需逐批授权;09-26 00:38 的 question(seq 12791)作废。
-- 停车: 
+- 停车:
 
 ## R-367 先读后写:edit/write/insert 对未读或读后被改的文件返回纠错码 [done]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.6;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §4。B1 ReadLedger 与 ToolCtx 接线(含与 content_hash 格式一致的流式 hash);B2 read 记账与三个写工具的门禁;B3 桌面与 CLI 生产接线,子代理使用独立账本。
@@ -4571,3 +4571,161 @@
 - observed_head: ee007e598b7a45448c8a893608a98d045e446a23
 - observed_worktree_hash: fnv1a64:616ef5b83b0d169b
 - recorded_at: 1791115061969
+
+## R-283 自举二期系统升级编排:research/memory/运行体验/动画/voice 依赖和联合验收 [dropped]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 架构 流程 自举
+- 来源: 2026-08-17 用户确认「自举一期应该差不多可以算结束,需要对已有系统全面升级改造」并要求详细拆解需求依赖加入当前自举清单。
+- refs: R-221 R-276 R-277 R-284 R-285 R-286 R-287 docs/design/phase2_system_upgrade.md
+- 内容: 以 docs/design/phase2_system_upgrade.md 为二期真源维护五批:批1 设计/依赖/需求映射;批2 P0 事实恢复(D-409 与 memory backlog);批3 research+memory 引擎 E2;批4 animation+voice E3/E4;批5 真实联合闭环(语音研究请求→research 报告→dev 实施→memory 晋升→动画可见→定制声音复述)。
+- 边界: 本条只做跨条目编排、依赖和结项门禁,不重复实现 R-221/R-277/R-286/R-287;一期 loop/dev 主链进入稳定维护,存量缺陷仍按原条目处理;每个边界分别报告静态、测试、WebView2、provider、安装和工作树状态。
+- 验收: ①所有二期子条目有明确依赖、批次、风险、数据边界和证据等级;②Wave 0～4 各有 Go/No-Go 记录;③联合闭环按 session/topic/memory id 可回溯;④二期结项时 requirements/defects/tests/实现无相互矛盾状态。
+- 批次: 3/5
+- 进展: 2026-08-17 用户确认：R-283 是二期系统升级总控条目，具体工作必须按不同任务展开为独立条目。现有子条目为 research(R-221/R-276/R-277)、记忆晋升与遥测(R-286)、统一事件契约(R-284)、金色神经流(R-285)、voice(R-287)；Wave 0 先修当前 dev 缺失的 D-428。R-283 保持 3/5，只在子条目形成真实证据后更新门禁，不再被取活为实现任务。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。 [terminal-fix 2026-10-19] dropped → dropped: 2026-10-20 使用修正后的托管序列化器重新输出，状态仍为 dropped，原验收与退役原因不变；消除空字段尾随空格。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786925390809
+- 依赖: R-284 R-287
+- 关闭原因: 2026-10-20 用户授权清理旧需求。2026-08 二期联合总控包含已退役的 R-285 动画及旧 R-287 路线，已不对应当前对话/管理产品与专题交付；总控退出，当前合同见 docs/design/current_contracts.md。原未完成联合验收保留，不记作完成。
+
+## R-287 voice 语音交互:流式 ASR/VAD、语音回复、定制声音与打断 [dropped]
+- 优先级: P2
+- 复杂度: 大
+- 标签: 后端 前端 语音 集成
+- 来源: 2026-08-17 用户要求接入语音功能并优先支持定制语音；用户原话：「接入语音功能并优先支持定制语音」；技术调研结论为 chained voice:音频→ASR→现有文本 Agent→TTS。
+- 依赖:
+- refs: R-285 docs/design/phase2_system_upgrade.md
+- 内容: 按 phase2_system_upgrade.md §5.6 分五批。批1 Rust cpal/WASAPI 设备枚举、录音播放和 50 条中英/代码术语基准,sherpa-onnx 与 whisper.cpp 对照。批2 push-to-talk+partial/final 字幕回填输入框。批3 TTS provider adapter 与播放/暂停/停止。批4 经授权的 voice profile:CosyVoice 本地 sidecar、OpenAI Custom Voice、ElevenLabs 可替换。批5 VAD 自动收尾、barge-in、流式首包和 R-285 动画联动。
+- 安全: 默认不保存原始录音;参考音频/consent 放应用数据目录且不进 Git/memory/普通日志;provider key 只在 Rust/后端;删除 voice 同时报告本地与云端结果;无明确授权不得克隆声音。
+- 边界: 第一阶段不改为端到端 speech-to-speech,保留文本、工具、权限、审计和记忆链;模型下载/长时间 GPU 基准先由用户确认执行;任何 provider 激活必须有真实认证输出,配置或容器日志不算完成。
+- 验收: ①真麦克风设备切换、录音和播放;②50 条基准报告 partial/final 延迟、CER/术语修正率、实时率与资源;③ASR 文本进入现有输入和权限链;④TTS 失败不阻断文本回复;⑤真实授权定制声音输出;⑥播放中插话能中断并恢复会话状态;⑦原始音频、consent、key 的存储与删除边界有测试。
+- 批次: 0/5
+- 进展: 已完成设计冻结与登记完整性补齐；早期“尚未改源码”记录已过时。2026-10-04 当前源码/设计复核：`crates/kanzei-app/src/voice.rs:194-308` 已有流式 TTS 与转写 IPC，`crates/kanzei-app/ui/23-voice-controller.js:87` 调用转写；`docs/design/voice_interaction.md:12,50-75` 记录 Faster-Whisper + Qwen3-TTS 路线及虚拟麦克风/开发版验证。此实现与本条冻结的 sherpa-onnx/whisper.cpp、CosyVoice/OpenAI/ElevenLabs 选型和50条基准计划不一致，不能仅凭已有代码视为验收或自动改写规格。实体麦克风/扬声器、50条基准、ASR进入输入权限链、真实授权定制声音、打断恢复及敏感数据存删验收仍需逐项对账；保持 doing/现有阻塞，待用户决定采用现有路线还是继续原定路线后再更新验收和批次。
+- 前置: R-284(事件契约 B1-B4 已交付,voice 词表可直接消费;voice state 生产者由本条产出,R-284 验收②反向等待本条)
+- 发现记录: {"Intent":"在保留文本 Agent、权限、工具、审计和记忆链的前提下接入可用语音交互","Explicit":"R-287五批：设备录放与ASR基准、PTT字幕、TTS、授权定制声音、VAD/barge-in/动画联动；验收含真设备、50条报告、输入权限链、TTS降级、真实授权输出、打断恢复与敏感数据边界","Assumptions":"首版采用音频→ASR→现有文本Agent→TTS；默认不保存原始录音；provider key仅后端；模型下载和长GPU基准由用户确认","Ambiguities":"真麦克风/音频设备、ASR/TTS provider凭据与模型、授权定制声音目标、真机与性能基准环境尚未指定；R-285动画联动接口需与现有事件契约核对","领域对象":"VoiceDevice、AudioCapture、ASR partial/final、VoiceProfile、TTS playback、barge-in、voice state event、consent与secret storage","最小成功闭环":"真实麦克风录音→ASR文本进入现有输入与权限链→文本回复可见；TTS可选且失败不阻断；退出后敏感音频/consent/key边界可验证","延后决策":"provider与模型组合、定制声音授权方式、VAD阈值、原始音频保留策略、50条基准硬指标与真设备/真机验收窗口由用户确认后冻结"}
+- 阻塞: 用户：确认 R-287 的 ASR/TTS/provider 与模型组合、Windows 真麦克风/播放设备、模型下载/GPU 基准权限、授权定制声音及真实验收窗口；agent 不得在这些高影响决策未确认时实现第三方集成。解除条件:用户
+- observed_head: 6638a30a739226cacb1846fdcd6647dc997e6381
+- observed_worktree_hash: fnv1a64:1f8cdc3418809061
+- recorded_at: 1791096484577
+- 关闭原因: 2026-10-20 用户授权清理旧需求。原 sherpa/whisper.cpp、CosyVoice/OpenAI/ElevenLabs 多路线、50条基准与角色动画联合方案退出；当前实现路线为 Faster-Whisper + Qwen3-TTS，按 docs/design/voice_interaction.md 维护。旧方案未完成条款不记作通过，实体设备与敏感数据验证边界继续在现行语音设计中保留。
+
+## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [dropped]
+- 优先级: P1
+- 复杂度: 中
+- 标签: 前端 后端
+- 来源: 2026-08-17 用户「左侧的子代理按钮弹出的东西太简单了,没啥用,我们要的是能看到子代理的运行状态、可以看到内容」;同轮用户拍板形态=完整对话读取器(留在右侧面板,不做独立主视图)。
+- 内容: 数据真源已经就位——R-279 把子代理完整消息历史落 `subagent.transcript` 事件,crates/kanzei-core/src/store/typed.rs:770 有 recover_subagent_transcript(session, call_id),projection_gate.rs:24 已缺省启用。缺的是三件:批1 后端补正文——run_subagent 的 on_event 把子代理每轮文本折成 TaskTrace(新 phase="text")上抛,终态把**完整答案原文**带给面板(编排路径同步改掉 lines().next() 截断);批2 读取通道——新增 Tauri 命令按 (session_id, call_id) 取 subagent.transcript 的完整消息历史,复用 projection_gate 既有开关;批3 阅读器 UI——面板条目点开进完整对话读取器,子代理每轮正文按主对话同一 markdown 渲染,工具调用**默认折叠**(一行名称+摘要,展开才看入参与输出),运行中实时追加、结束后从事件重放(含跨重启)。
+- 边界: 不做独立主视图(用户拍板留右侧面板读取器形态);不改 subagent.transcript 事件格式(R-279 是真源,本条只读它);不给子代理开思考(RunnerConfig reasoning 仍 Off,subagent.rs:490);不重做活动面板。
+- 验收: ①运行中能逐轮看到子代理**自己说的话**,不只是工具名(实测一轮真实 task,事件轨迹或截图为证);②结束后点开条目看到的是完整最终答案原文,不是被截成首行的 preview(反向断言:编排路径不得再用 lines().next() 当终态文本);③工具调用默认折叠、展开才显示入参与输出,进度事件不得强制展开 detail(反向断言 06-agent-panel.js:243 那行 remove("hidden") 已消失);④重启后打开历史子代理条目仍能读到完整对话——数据来自 subagent.transcript 事件,不依赖进程内 TranscriptStore(跨进程实测);⑤编排派发的角色(architecture_scout 等)与模型自派的 task 走同一个读取器,不出现第二套渲染;⑥六条前端冒烟全绿(node --check 不算证据)。
+- refs: R-279 R-174 R-175 D-419
+- 批次: 1/3
+- 进展: 批1代码已完成并通过：crates/kanzei-core/src/runner/event.rs 增加 TaskTrace.text；runner/subagent.rs 上抛 AssistantMessageCommitted 完整 Text parts 并有 assistant_message_text_keeps_full_text_parts 测试；crates/kanzei-app/src/run/events/mod.rs 转发 text/usage；phase_pipeline.rs 两处终态文本改为完整原文、不再使用 lines().next()；ui/06-agent-panel.js 使用 renderMarkdown 渲染正文且工具/正文默认折叠。T-1786922726071、T-1786922726072、T-1786922726077 均通过，六条前端冒烟与 workspace 全量覆盖已完成。当前 39 文件 staged，最近实际 hash 6eb4f03c4de88cb4；已按该 hash 执行 R-281 B1 提交，仍被结构化 git 的旧 source_test_gate 拒绝：门禁仍选 R-285 Playwright 记录，未读取当前源码指纹记录。源码侧 crates/kanzei-tools/src/git.rs:746 已有 last_passed_for_fingerprint 修复且对应测试通过，但当前 git 工具运行态尚未加载。批1 已提交(ed305ae8)。被拦的真实原因是旧 kzapp(2026-08-09 安装版)把 13 位毫秒测试 id 当秒比较，恒选无收尾的 R-285 Playwright 记录，详见 D-349 进展。下一步做批2 transcript Tauri 读取通道。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:6aa6fbd939a238f6
+- recorded_at: 1786933041284
+- 停车: 排队:前置 R-221 已 done;排在 R-340 之后恢复批2 transcript Tauri 读取通道;恢复人:agent;解除条件:R-340
+- 关闭原因: 2026-10-20 用户授权清理旧需求。旧独立子代理面板改造与分批排队退出，当前子代理读取、持久 transcript、活动呈现由已交付 R-384 和 docs/design/subagent_modes.md、subagent_presentation.md 管理。R-369 保留当前 schema/嵌套限制核验缺口；本条不冒充旧真实现场验收已通过。
+
+## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [dropped]
+- refs: D-510 D-555 D-539 D-540 D-458 R-300 D-642 D-643 D-644 D-645 D-646 D-647 D-648 D-649 D-650
+- 内容: 批1 globals 免手工同步:eslint.config.js 加载时直接调 gen-ui-lint-globals 计算 globals,ui-lint-globals.json 降级缓存或删除——结构性消灭 D-458/D-484/D-523/D-547/D-560/D-562 一族(占门禁缺陷 18%)。批2 verify 按改动路径三档裁剪:无 Rust 改动跳 fmt/clippy/test(省 100.2s),无前端改动跳六冒烟(省 5.9s),verification.json 记录裁剪判据与被跳步骤,package.ps1 发版证据要求全量 verify 不受裁剪污染。批3 关闭门禁复用 verify 证据:frontend_smoke_passed 接受绑定当前 HEAD 且 ui_runtime/ui_lint/ui_i18n 全 pass 的 verification.json,去掉每批第 3 轮冒烟;同时补冒烟记录新鲜度校验(现状:三天前的 passed 记录可放行今天的关闭,coverage.rs frontend_smoke_passed 无时间/指纹比对)。批4 脆性加固:metrics 闸基线口径版本断言(口径不同拒绝出数而非出错数),metrics-regression-gate.ps1 里的 cargo build 移出 crate_sync 单独计时;parallel-lines-regression.mjs 改用 loadUiSources() 不再写死 8 个文件名;ipc-event-smoke/check-ps1-bom 补空集与下限断言(D-510 模式推广)
+- 复杂度: 大
+- 来源: 2026-08-20 门禁矩阵审计(115 条近期缺陷归因):门禁真假阳性比 1:4.7;34 条门禁类缺陷中 29% 是「忘了重跑生成器」类机械同步;verify 14 步 108.1s 中 Rust 三步占 92.7%,改前端的批次全额买单;fmt/clippy 每批次跑 4 轮、前端冒烟 3 轮。P0 两项(finalize 去重、删 ui_syntax)已由主会话落地
+- 标签: 流程
+- 边界: cargo test --workspace 的 90.3s 是真实成本不动;CI 全量保持;裁剪只作用本地 verify,发版通道必须全量
+- 验收: ①改一行前端的批次 verify 墙钟 <15s(实测);②改 globals 清单的缺陷族在门禁上线后零新增;③关闭前端条目不再需要第三轮冒烟(用 verify 证据通过一次真实关闭);④metrics 口径漂移场景拒绝出数的定向测试;⑤裁剪过的 verification.json 被 package.ps1 拒绝的定向测试
+- 优先级: P1
+- 进展: B1 已提交：`a173eb6a`，globals 实时收集与缓存降级已验证。B2 已提交：`481f4463`，`scripts/verify-policy.mjs:5-91`、`scripts/verify.ps1:41-178`、`scripts/package.ps1:109-114` 完成路径裁剪和 full evidence 门禁；D-642/D-643/D-644 已关闭，归档收口提交 `1e28fe28`，真实 package 拒绝 cropped evidence 证据 T-1786922726629。B3 已提交：`b5d23c28`，`crates/kanzei-tools/src/test_record/coverage.rs` 优先消费当前 HEAD 的 `dist/verification.json`，要求 `all_pass=true`、`ui_runtime/ui_lint/ui_i18n` 三项 pass，并校验 24 小时新鲜度与工作区源码指纹；T-1786922726630：424 passed、0 failed、1 ignored。B4 已提交：`f2d10c44`，`crates/kanzei/src/cli/metrics.rs:401-437` 输出 v1；`scripts/metrics-regression-gate.ps1:27-70` 拒绝口径漂移且 cargo build 已移至 `scripts/verify.ps1:99-101` 独立 metrics_build；`scripts/parallel-lines-regression.mjs:4-23` 使用 loadUiSources 与源码标记；`scripts/ipc-event-smoke.mjs:46-53`、`scripts/check-ps1-bom.mjs:36-40` 增加下限/空集断言；`crates/kanzei-tools/src/git.rs:1929-2008`、`.github/workflows/ci.yml:32-33` 清单同步；`docs/design/metrics_baseline.md:4,11-60` 更新 v1 基线。D-645～D-650 已逐项 fixed，T-1786922726632：fmt、kanzei-tools 424 passed、kanzei 44+32 passed、JS/PS smoke 和真实 metrics gate 全通过。提交锚点补正：`8ad3bb28`。T-1786922726633：真实当前 HEAD targeted verify 3.34s，生成绑定 HEAD 的 verification.json，但 changed=1 且 rust/frontend 均 false，明确不能核销 frontend-only ①。T-1786922726634 与 T-1786922726635：cargo test --workspace 全量通过（各 crate 无 failed）。T-1786922726636：真实当前 HEAD full verify 通过，14/14 checks、skipped_steps 为空、rust/frontend 均执行，绑定 `b564f2134ae6c8d8828a33b42745df0f48a42b5a`，耗时 105.67s；该证据证明 full evidence，不冒充 frontend-only ①或真实前端关闭③。验收对账：①仍缺真实“只改一行前端”verify 墙钟 <15s；②仍缺门禁上线后 globals 缺陷族零新增证据；③仍缺一次真实前端条目关闭复用 verify 证据；④已满足，T-1786922726632 的 v999 metrics fixture 拒绝与真实 gate 通过；⑤已满足，T-1786922726629 证明 package 拒绝 cropped verification。R-309 保持 doing，批次 4/4；虽然 B4、targeted/full verify 与 workspace 测试已完成，不能把①-③的证据缺口降级或误标 done。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。
+- observed_head: f2d10c44f9e47b2f199d346d13429e25d4a9f196
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787266377330
+- 批次: 4/4
+- 停车: 排队:原停车前提(用户当轮指示从缺陷队首开始)已过期;排在 R-319 之后恢复①～③真实证据:①只改前端的 targeted verify 墙钟实测;②globals 补偿机制已由 R-331 整体删除,该缺陷族无法再新增;③一次真实前端条目关闭复用 verify 证据;恢复人:agent;解除条件:R-319
+- 关闭原因: 2026-10-20 用户授权清理旧需求。早期固定15秒前端门禁、globals 清单补偿与14步验证验收已失去当前适用面；globals 路径被 R-331 删除，现有验证使用 verification-checks.json 统一注册表与路径分类。旧性能/复用实验退出，发布全量证据合同由 ci_release_evidence_chain.md 继续约束。
+
+## R-312 Agent 减负:上下文供给账单、状态机字段瘦身与压缩协同(勘察+设计) [dropped]
+- refs: D-573 R-310 docs/design/context_compaction.md docs/design/weakness_register_20260820.md
+- 内容: 本条只做测量+设计,实施条目由设计文档评审后另立(先计划后自举)。批1 测量:上下文账单按注入块出数(conventions 全量/memory-index/resolved-control-state/条目全文/工具输出),并统计真实会话里模型侧维护状态机自由文本字段(进展/对账/停车)的 token 占比与写入频次;批2 设计四个方向的方案与取舍:①机器可代填字段(测试记录号/提交号/批次等机械部分由引擎代写,模型只写判断性内容);②注入分层(当前 WIP 条目全文+依赖闭包,其余给索引行);③进展/对账历史段落按批次折叠沉档,req get 默认返回当前批次视图;④压缩与注入协同——可机械重取的注入块不进纪要预算(context_compaction.md L0 prune 思路从工具输出延伸到 harness 注入面),条目内 file:line 锚点腐烂的对策一并评估;批3 用户评审拍板后拆实施条目
+- 复杂度: 中
+- 来源: 2026-08-20 用户:「上下文压缩管理实际上有点问题,包括导航的问题;很多负载都维护到状态机里,应该思考怎么给 agent 减负」;外部评估同向——认知预算耗在操作 harness 而非解决问题
+- 标签: 核心
+- 设计文档: docs/design/weakness_register_20260820.md
+- 边界: 本条不改任何代码;不推翻 conventions 全量注入决策(D-201)——除非账单证明占比失衡且经用户拍板;不动记忆注入口径(R-104);压缩引擎本体缺陷(如 D-573)走各自条目不并入
+- 验收: ①注入块账单数据落档且覆盖不少于 5 个真实会话;②设计文档含字段瘦身/注入分层/沉档/压缩协同四方案及取舍与 token 收益估算;③有用户评审拍板记录;④实施条目登记完成并与本条互链
+- 优先级: P1
+- 批次: 2/3
+- 进展: B0 已复核：R-312 无既有实现，边界保留 D-201/R-104/D-573。B1 已完成：读取真实 `.kanzei/state.db` 的 `episodes.context_json`，覆盖 11 个 distinct session 中 7 个最新账单非空 session；账单落档 `docs/design/context_supply_bill_20260821.md`，并确认 6 个现代 dev session 平均 66868.7 字符，tools/schema 48.6%、agent/system 20.7%、dev/conventions 17.4%、dev/memory 5.7%；当前 context_report 尚未拆出进展/对账/停车字段级 token 与写入频次，已明确记录缺口。B2 已完成：同一设计文档第 6-7 节形成四方向候选——机器事实信封、WIP/依赖注入分层、当前批次视图与完整历史分离、可重取注入与压缩协同；每项均写现有能力、取舍、收益假设和不应相加的估算，初步建议先方向一/三，再协同方向二/四，暂不改变 D-201/R-104。架构索引已登记并校验通过。下一步 B3：取得用户对四个拍板问题的明确选择，登记实施条目并与 R-312 互链；未获拍板前不写 accepted decision、不关闭本条。
+- observed_head: f446bd018e2e03242a0d4756cdb77ccf4b76b56b
+- observed_worktree_hash: fnv1a64:7580d1080253583e
+- recorded_at: 1787299505789
+- 停车: 原停车前提 R-333 已 done;B1/B2 已完成,B3 需用户对 docs/design/context_supply_bill_20260821.md §7 的四个拍板问题作出选择(注入层级默认、当前批次视图+可回放历史、方向一先行、conventions 按需化实验),拍板后 agent 登记实施条目并关闭本条;解除人:用户;解除条件:用户
+- 关闭原因: 2026-10-20 用户授权清理旧需求。2026-08-21 上下文测量及四项待拍板属于旧阶段研究，现有提示词、有效验证策略、延迟工具与有界控制状态已经分项维护。旧测量保留为 historical_snapshot，不继续等待旧方案选择；R-364/R-373 等当前独立任务保留各自验收。
+
+## R-319 事务边界感知的步数预算:收尾软延长避免 stage 后切轮 [dropped]
+- refs: R-307 R-311 D-335
+- 内容: 让运行预算识别显式交付事务阶段；当剩余步数不足、且当前仅余 commit 与 tracker anchor 等确定性收尾动作时，授予小额 soft transaction extension 完成原子边界，再结束本轮；事件记录触发条件、扩展步数、实际动作与结果。
+- 复杂度: 中
+- 来源: 2026-08-21 用户提供运行复盘：多次在 steps 32 用尽时恰好切在 tests passed/files staged/commit pending，续轮必须重新 work next、status、log、diff 才恢复。可见日志只是尾段，结论限定为已观察到的事务中断形态。
+- 标签: 流程
+- 边界: 不增加通用自动轮数；只允许白名单收尾状态与有界额外步数；不得跳过 fmt/clippy/test/source_test_gate/权限/CAS；出现新代码编辑、测试失败、用户输入或未知状态立即取消扩展并正常切轮。
+- 验收: ①tests passed+files staged+commit pending 且只剩 2 步时可完成 commit+tracker anchor 后结束；②测试失败、未暂存、存在审批或发生源码编辑时不延长；③扩展上限和原因进入 session event，可审计且重启恢复不重复提交；④对比至少 10 个真实长程条目，事务中点切轮和纯恢复工具调用显著下降且事故率不升。
+- 优先级: P1
+- 批次: 3/4
+- 进展: B1 已完成：复核真实步数边界与轮末收口链。B2 已落地并提交 08992b47：events/mod.rs:256-435 以真实 test_record passed、git stage 成功、无源码编辑/审批/未知工具为白名单，最多授予一次 2 步 extension；core runner/drive.rs:243-256 在事件回调后读取有界信号，普通 max_steps 不变。B3 已提交并补强，提交 f62097cf：events/mod.rs:167-216 写 run.transaction_budget_extended，含 run_id、step、base_max_steps、extension_steps、reason、trigger、allowed_actions，并按 run_id 去重；persistence.rs:70-119 新增轮末 run.transaction_budget_result，按同一 run_id 的 run.trace 重放 extension 后实际 tool.completed 动作并写 completed/failed 结果。T-1786922726709 覆盖事务状态/taint/去重/结果事件；D-679 已由 2b27245f 修复失败 test_record/stage 永久 taint，回归 T-1786922726707。B4 基线已取：T-1786922726710 从真实 .kanzei/state.db 选取最近 10 条 steps>=28 episode，9 条 32-step、1 条 28-step，均无新 extension/result event；这是 rollout 前基线，不能宣称事务中点切轮或纯恢复调用已下降。完整 kzapp 回归 T-1786922726708 为既有两夹具失败（243 passed/2 failed），新增 5 个 R-319 测试均通过。下一步：积累并重放至少 10 条 f62097cf rollout 后真实长程条目；若无足够 post-rollout 样本，验收④保持未满足，不关闭 R-319。
+- observed_head: f62097cfde97e559534c16f898a6c0f1fb5a3e23
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787306265598
+- 停车: 排队:排在 R-281 之后恢复 B4(重放 f62097cf rollout 后不少于 10 条真实长程 episode 对比基线 T-1786922726710);恢复人:agent;解除条件:R-281
+- 关闭原因: 2026-10-20 用户授权清理旧需求。早期固定步数预算的额外10轮对照专项退出当前排期；默认 dev 的 steps=0，既有事务预算兼容路径仍保留并按运行时合同维护。没有把未运行的长程对照记为完成，不再以其阻塞门禁或子代理工作。
+
+## R-323 工具编排抽象层：模型声明执行计划 [dropped]
+- 复杂度: 大
+- 标签: 核心
+- 验收: 模型可声明工具调用的并行分组；引擎以 ToolConcurrency 冲突检测为安全网单调收紧；声明缺失时行为与现状逐字节一致
+- 先行调研: .kanzei/research/r323-prior-art/prior-art.md
+- refs: R-322 D-661
+- 优先级: P2
+- 批次: 1/2
+- 进展: B1 已落地:工具并发契约审计。勘察发现 30+ 工具中 13 个未实现 concurrency() 走 Exclusive 默认,而该默认原意是「未审计前不自动并行」——是信息缺失的占位不是安全断言,#2 说的「保守规则成为模型能力上限」在这里字面成立。审计后提升:webfetch/frontend_locate/frontend_check/todowrite → Shared(生产路径只读或完全无状态,写全在 mod tests 之后);websearch 按入参分流(带 prior_art_topic 时读-改-写轮次预算,用 prior-art 专属锁键,不拖住代码树写入)。仍为 Exclusive 的 9 个(question/process/prior_art/research_*/tracker 四件套/work)真有共享可变状态,留 B2。关键结论:审计后剩余 Exclusive 大多真有状态,模型对其并行安全性并不比引擎知道得多,纯收紧方向在当前契约下也几乎无用武之地,故不预先造声明通道,等真实现场再做。3 条审计单测,workspace 15 个二进制全绿,clippy 干净
+- observed_head: a032aa492ae157c2791c2cfa9cf768740f093517
+- observed_worktree_hash: fnv1a64:dee5f1692c68b6ad
+- recorded_at: 1787276362163
+- 停车: 排队:原停车前提 R-353 未提交改动已不存在;排在 R-309 之后恢复 B2;恢复人:agent;解除条件:R-309
+- 关闭原因: 2026-10-20 用户授权清理旧需求。原 B1 审计已明确剩余 Exclusive 工具有共享状态，尚无需要模型额外声明分组的真实场景；未实施的声明层退出，沿用 ToolConcurrency 和公共并行工具批，不继续为占位需求增加编排协议。
+
+## R-357 活动面按裁决可达性划分:停车超期移出、tests.md 废止、缺口由 work gaps 回答 [dropped]
+- 内容: 按设计 §3.7 重划活动面与归档面:停车超过 14 天且解除条件未变的条目移入 parked 面,裁决不再遍历但 work reconcile 与前端仍可见;废止 tests.md 作为 Markdown 面(它只有 12 字节、零记录,唯一可能的居民 running 是瞬态,不该占治理真源),running 迁 state.db;新增 kz work gaps 回答「还需要跑什么」,输入为账本改动面加该条目 passed 记录的指纹覆盖与关闭门禁判据,每条缺口一行并附一条可直接复制的命令,给不出可执行命令的缺口不出行。
+- 发现记录: {"Intent":"让活动面重新回答得了「还剩什么没做、还需要跑什么」这两个问题","Explicit":"按裁决可达性划面而非按是否终态;tests.md 废止;缺口由命令回答","Assumptions":"parked 面可被前端与 reconcile 消费;running 迁 state.db 不影响回放","Ambiguities":"14 天阈值与解除条件未变的判定方式,本条按字段文本未变处理","领域对象":"活动面、parked 面、tests.md、running 记录、work gaps、缺口","最小成功闭环":"裁决只遍历真正可达的条目,work gaps 对一条待关闭条目给出可复制命令","延后决策":"parked 面的复活策略、归档面对账、阈值可配置化"}
+- 复杂度: 中
+- 来源: 用户原话「tests.md 只有一个 #,全部 1600+ 测试记录进入 archive,当前活动测试面无法直接表达还需要跑什么」;实测活动面 29 条里 23 条处于停车,有效不足 6 条却每轮全遍历。
+- 标签: 流程
+- 边界: 不回改归档条目;不改 Markdown 作为治理真源的地位;停车条目只移面不改内容;work gaps 只读不写。
+- 验收: ①停车超期条目不再进入取活遍历,但在 work reconcile 与前端可见;②tests.md 不再作为治理面存在且 running 记录可从 state.db 读回;③work gaps 对每条活动条目给出缺口与可执行命令;④缺口行为零时该条目确实可关闭。
+- refs: R-353 R-355
+- 优先级: P2
+- 批次: 0/4
+- 进展: 批次: 0/4；已确认现状：调度/取活入口在 `crates/kanzei-tools/src/work.rs` 与 `tracker/scheduling.rs`，显式停车目前仍作为 `parked_items` 输出但没有超期面判定；test_record 的 running/终态写入与 coverage 查询仍以 `tests.md`/`tests-archive.md` 为真源；CLI 只有 `work next/claim/...`，没有 gaps。B1 下一步：增加停车超期判定并确保 reconcile/前端仍读取完整可见条目。
+- observed_head: f321ee34118a9cbfbd95dfa90a02a1862cc718b6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788393813821
+- 停车: 排队:原停车前提 R-359 已 done 归档并提交(0ac5755c);排在 R-353 之后恢复 B1;恢复人:agent;解除条件:R-353
+- 关闭原因: 2026-10-20 用户授权清理旧需求。14天自动停车移面、废止 tests.md 与另建 work gaps 的旧组合方案退出；当前队列已有 awaiting_external 和显式清单维护入口。tests.md/tests-archive.md 仍被 test_record 消费，不能为文档清理删除真实存储面。旧验收原文归档，不计交付。
+
+## R-381 工作台优先的多项目产品重整与单项目减负 [dropped]
+- 内容: 设计并分批迁移全局工作台→项目→工作与对话的产品层级；复用长期维护、自主推进、子代理与决策反馈底座；减少常驻界面、运行资源和模型上下文负担。
+- 发现记录: {"Intent":"以工作台统筹多项目长期推进，并降低单项目负担","Explicit":"默认进入工作台，对话下沉项目内，保留长期维护与子代理，砍掉多余功能","Assumptions":"复用现有项目、tracker批次、会话、运行与决策事实；不新增常驻总控模型","Ambiguities":"具体导航层级、能力折叠方式和性能预算由本轮设计提出，尚未实施","领域对象":"全局工作台、项目、工作条目与批次、对话、执行线路、子代理、交付、决策","最小成功闭环":"冷启动进入工作台，看见两个项目各自进度，进入项目继续对话再返回，全程不影响后台执行","延后决策":"用阅读器实验确定默认并发和性能预算；旧功能删除以调用审计为准"}
+- 复杂度: 大
+- 批次: 3/4
+- 来源: 2026-09-28 用户原话「默认进入应该是在这个工作台，反而是对话要降级」「更多是全局多项目管理，并且在每个项目里才是GPT里的对话管理」「尽量保持单项目负载比较低，砍掉多余功能」「需要好好的设计一下」。
+- 标签: 核心
+- 边界: 发布分支B1-B3已实现；主目录源码整合与B4真实双项目验收尚未完成。不覆盖主目录已有改动，不切换或抢占正在运行的线路。阅读器独立项目可直接使用新安装版；继续构建Kanzei自身前须先对齐源码。
+- 验收: ①普通启动默认工作台，明确深链可直达目标，旧项目与会话可恢复；②全局项目进度与待处理事项身份、状态和来源准确；③项目内管理工作、多个对话和子代理，切页与切项目不改变运行生命周期；④摘要读取无会话创建和调度副作用，空闲项目不产生模型请求，重型视图按需加载；⑤按调用方清单合并重复入口、下沉专业能力，删除无调用功能有迁移与回退；⑥阅读器及第二项目完成并行推进、局部阻塞、决策纠正、重启恢复实验，并提供资源与上下文前后对照。
+- refs: R-379 R-380 D-771 docs/design/workbench_first.md
+- 优先级: P1
+- 进展: 2026-09-28：B1-B3、D-771、R-380已在kanzei/workbench-first-20260928实现，功能提交4b5f38fc，发布基线d5955ed8，全量15项验证通过。正式源码位于C:/Users/kanzei/.codex/worktrees/release-decisions/kanzei code；当前主目录尚未同步，不得重复开发B1-B3或把安装新版视为源码已同步。下一步先在隔离树整合发布基线与主目录既有工作，再做B4真实双项目验收。 2026-10-02 主目录复核：cargo test -p kanzei-core d773 --lib 在编译阶段失败，16 个诊断集中于 Route.with_provider_identity、LlmRequest.hosted_tools、LlmEvent/Part Hosted 变体、Usage.web_search_requests 与当前 kanzei-llm 接口不一致。这些引用已存在于本轮修复前的 drive/compaction 快照和既有 assemble.rs 改动。本轮未删除这些在途实现；D-772/D-773/D-774 从 build-2546703e 隔离交付，build-c5bf3e32 的 full verify 15 项全绿。源码整合仍按本条目边界处理。原始证据见归档 2026-10-02-bootstrap-fixes/evidence.zip 中 main-validation.log 与 before/。 路径现状纠正：上述旧工作树已于 2026-10-02 清理；历史源码由 build-d5955ed8 等 tag 与 kanzei-archives/2026-10-02-cleanup 归档保留。当前公开发布基线为 build-c5bf3e32，主工作目录仍待整合，不能继续引用已删除工作树作为现存源码位。
+- observed_head: 21c36e9d3a332ebb10a1e0d841887713d9911571
+- observed_worktree_hash: fnv1a64:0f0de4dafb39842e
+- recorded_at: 1790898412584
+- 批次计划: B4第一步：在隔离树以21c36e9d为共同基线，将发布HEAD d5955ed8与主目录现有改动做三方整合，核对并保留已有工作；整合完成后再开展阅读器与第二项目的真实并行推进、局部阻塞、决策纠正、重启恢复及资源对照。
+- 关闭原因: 2026-10-20 用户授权清理旧需求。2026-09 工作台优先/Softwire 总体导航与运行重构已被2026-10对话/管理、同级会话、按需子代理的熟悉工作区路线替代。旧总体改造退出，当前合同见 familiar_workspace.md、conversation_modes.md；仍有效的 D-771、R-340/R-341 等独立缺口保留，不再等待旧分支整合。

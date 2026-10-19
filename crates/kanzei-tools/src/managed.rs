@@ -190,10 +190,9 @@ fn known_active_doc_paths(project_root: &Path) -> Vec<PathBuf> {
 /// 见 kanzei-memory store.rs `MemoryStore::tree_lock`)。
 ///
 /// 为什么锁**整树**而不是逐个文件:动态条目文件(M-xxx.md、inbox.md、voided-ids.md
-/// 等)在创建前无法预锁,逐个枚举必然漏;锁目标 = memory 根目录本身,锁文件 =
-/// 同目录 `<root>.lock`(`.kanzei/memory.lock`,由 [`crate::atomic_file::lock_path_for`]
-/// 派生)。锁文件落在 `.kanzei/`(不是任何托管根,不进镜像),且被 `.kanzei/**/*.lock`
-/// 忽略——围栏快照对它无感,前后两张镜像都不会因锁文件而误报。
+/// 等)在创建前无法预锁,逐个枚举必然漏;锁目标 = memory 根目录本身。
+/// [`crate::atomic_file::lock_path_for`] 把协调文件放在用户缓存中，
+/// 围栏快照不包含它，前后两张镜像都不会因锁文件而误报。
 fn memory_tree_lock_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("memory")
 }
@@ -211,8 +210,8 @@ const LOCK_ACQUIRE_BUDGET: std::time::Duration = crate::atomic_file::DEFAULT_LOC
 /// 确保 after 快照不会读到写事务中间态。随后按写日志吸收合法变化、回滚越界变化。
 ///
 /// `.kanzei/memory/` 下的动态条目文件(M-xxx.md、inbox.md 等)创建前无法逐个锁,
-/// 围栏额外取一把 **memory 树共享锁**(锁目标 = memory 根目录,锁文件 =
-/// `.kanzei/memory.lock`),与 memory 写入口的排他树锁互斥。
+/// 围栏额外取一把 **memory 树共享锁**(锁目标 = memory 根目录)，
+/// 与 memory 写入口的排他树锁互斥。
 ///
 /// 为什么用独立线程持有:`FileLock` 被刻意做成 `!Send`,而收口函数需要把整组锁作为
 /// 句柄返回给调用线程完成快照和对账。锁留在**获取它的线程**上直到 release 信号,

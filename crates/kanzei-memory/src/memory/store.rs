@@ -190,16 +190,16 @@ impl MemoryStore {
         Some(store)
     }
 
-    /// D-368:记忆树互斥锁(跨进程 + 跨线程)。锁目标 = 记忆根目录本身,锁文件 =
-    /// 同目录 `<root>.lock`(project scope = `.kanzei/memory.lock`)。
+    /// D-368:记忆树互斥锁(跨进程 + 跨线程)。锁目标 = 记忆根目录本身；
+    /// 协调文件由 atomic_file 按完整物理路径派生，统一放在用户缓存中。
     ///
     /// bash 围栏收口(kanzei-tools managed.rs `acquire_managed_locks`)短暂取同一目标的
     /// 共享锁——确保 after 快照不会读到 memory 写入(条目/INDEX.md/inbox.md/
     /// voided-ids.md/归档搬移/index.db 重建)的中间态;超过预算(默认 3s)明确报错。
     ///
     /// 为什么锁目录而不是逐文件:动态条目文件(M-xxx.md、inbox.md)创建前无法预锁,
-    /// 锁整树一劳永逸;写操作毫秒级,持有窗口极短。锁文件落在 `.kanzei/`(非托管根,
-    /// 不进围栏镜像)且被 `.kanzei/**/*.lock` 忽略,围栏快照对它无感。
+    /// 锁整树一劳永逸;写操作毫秒级,持有窗口极短。协调文件不落在工作区，
+    /// 不进入围栏镜像，也不影响项目根发现。
     pub(crate) fn tree_lock(&self) -> anyhow::Result<crate::atomic_file::FileLock> {
         Ok(crate::atomic_file::lock_exclusive(&self.root)?)
     }

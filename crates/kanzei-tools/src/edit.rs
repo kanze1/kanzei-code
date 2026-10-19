@@ -923,6 +923,7 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "gamma\nanchor\ninserted\nomega\n"
         );
+        assert!(!path.with_extension("lock").exists());
         assert!(dir.join(".kanzei/.write-log").is_dir());
         let logs = crate::write_log::entries_after(&dir, 0).unwrap();
         assert!(

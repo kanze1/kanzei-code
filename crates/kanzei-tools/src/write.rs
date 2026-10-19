@@ -541,6 +541,7 @@ mod tests {
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("--edition 2021"), "{}", out.content);
         assert!(!out.content.contains("E0670"), "{}", out.content);
+        assert!(!root.join("tree/src/lib.lock").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 

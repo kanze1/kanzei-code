@@ -104,8 +104,11 @@ fn contention_times_out_but_io_errors_are_not_contention() {
     .unwrap());
     assert!(started.elapsed() >= Duration::from_millis(40));
     drop(guard);
-    std::fs::create_dir(root.join("bad.lock")).unwrap();
-    assert!(try_lock_shared(&root.join("bad.md"), Duration::from_secs(10)).is_err());
+    let bad = root.join("bad.md");
+    let bad_lock = lock_path_for(&bad).unwrap();
+    std::fs::create_dir(&bad_lock).unwrap();
+    assert!(try_lock_shared(&bad, Duration::from_secs(10)).is_err());
+    std::fs::remove_dir(bad_lock).unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -154,6 +157,7 @@ fn relative_and_absolute_paths_share_identity_before_and_after_creation() {
         .unwrap()
         .as_nanos();
     let root = PathBuf::from(format!(".kz-lock-test-{}-{nanos}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
     let relative = root.join("doc.md");
     let absolute = std::env::current_dir().unwrap().join(&relative);
     let guard = lock_exclusive(&relative).unwrap();
@@ -169,7 +173,7 @@ fn relative_and_absolute_paths_share_identity_before_and_after_creation() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
-fn child(mode: &str, path: &Path, hold: bool) -> (Child, bool) {
+fn child_command(mode: &str, path: &Path, hold: bool) -> Command {
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
         .args([
@@ -188,6 +192,14 @@ fn child(mode: &str, path: &Path, hold: bool) -> (Child, bool) {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
+    command
+}
+
+fn child(mode: &str, path: &Path, hold: bool) -> (Child, bool) {
+    spawn_child(child_command(mode, path, hold))
+}
+
+fn spawn_child(mut command: Command) -> (Child, bool) {
     let mut child = command.spawn().unwrap();
     let stdout = child.stdout.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -245,7 +257,7 @@ fn real_process_matrix_and_crash_release_ignore_lock_file_age() {
     drop(shared);
     let (mut process, acquired) = child("exclusive", &path, true);
     assert!(acquired);
-    let lock_path = lock_path_for(&path);
+    let lock_path = lock_path_for(&path).unwrap();
     OpenOptions::new()
         .read(true)
         .write(true)
@@ -261,4 +273,181 @@ fn real_process_matrix_and_crash_release_ignore_lock_file_age() {
     assert!(try_lock_exclusive(&path, Duration::ZERO).unwrap().is_some());
     assert!(try_lock_exclusive(&path, Duration::ZERO).unwrap().is_some());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn regression_locking_does_not_create_workspace_artifacts() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("missing/child/script.js");
+    let _guard = lock_exclusive(&target).unwrap();
+    assert!(
+        !root.path().join("missing").exists(),
+        "coordination must not create target directories or sibling lock files"
+    );
+}
+
+#[test]
+fn regression_different_extensions_have_independent_locks() {
+    let root = tempfile::tempdir().unwrap();
+    let _guard = lock_exclusive(&root.path().join("script.js")).unwrap();
+    let other = root.path().join("script.py");
+    assert!(
+        std::thread::spawn(move || try_lock_exclusive(&other, Duration::ZERO)
+            .unwrap()
+            .is_some())
+        .join()
+        .unwrap()
+    );
+}
+
+#[test]
+fn regression_lock_named_document_stays_locked_across_atomic_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("package.lock");
+    std::fs::write(&target, "original dependency data").unwrap();
+    let _guard = lock_exclusive(&target).unwrap();
+    crate::atomic_file::write_atomic(&target, "new dependency data").unwrap();
+    let (mut process, acquired) = child("exclusive", &target, false);
+    assert!(process.wait().unwrap().success());
+    assert!(!acquired, "atomic replacement must preserve lock identity");
+}
+
+#[test]
+fn regression_slots_are_reclaimed_after_the_last_holder() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("script.js");
+    let outer = lock_exclusive(&target).unwrap();
+    let key = outer.path.clone();
+    let slot = Arc::downgrade(&outer.slot);
+    let inner = lock_exclusive(&target).unwrap();
+    drop(outer);
+    assert!(slot.upgrade().is_some());
+    drop(inner);
+    assert!(
+        slot.upgrade().is_none(),
+        "idle paths must not retain lock slots"
+    );
+    assert!(!slots().lock().unwrap().contains_key(&key));
+}
+
+#[test]
+fn slot_reclamation_preserves_exclusion_with_contending_waiters() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("counter.txt");
+    let active = AtomicUsize::new(0);
+    let start = std::sync::Barrier::new(8);
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            scope.spawn(|| {
+                start.wait();
+                for _ in 0..64 {
+                    let _guard = lock_exclusive(&target).unwrap();
+                    assert_eq!(active.fetch_add(1, Ordering::SeqCst), 0);
+                    std::thread::yield_now();
+                    assert_eq!(active.fetch_sub(1, Ordering::SeqCst), 1);
+                }
+            });
+        }
+    });
+    assert!(!slots()
+        .lock()
+        .unwrap()
+        .contains_key(&lock_path_for(&target).unwrap()));
+}
+
+#[test]
+fn distinct_completed_paths_leave_no_registry_entries() {
+    let root = tempfile::tempdir().unwrap();
+    for index in 0..128 {
+        let target = root.path().join(format!("script-{index}.js"));
+        let guard = lock_exclusive(&target).unwrap();
+        let key = guard.path.clone();
+        drop(guard);
+        assert!(!slots().lock().unwrap().contains_key(&key));
+    }
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn failed_acquisition_reclaims_its_slot_without_releasing_another_owner() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("contended.txt");
+    let (key, owner) = open_lock(&target).unwrap();
+    owner.lock().unwrap();
+    for _ in 0..2 {
+        assert!(try_lock_exclusive(&target, Duration::ZERO)
+            .unwrap()
+            .is_none());
+        assert!(!slots().lock().unwrap().contains_key(&key));
+    }
+    drop(owner);
+    assert!(try_lock_exclusive(&target, Duration::ZERO)
+        .unwrap()
+        .is_some());
+    assert!(!slots().lock().unwrap().contains_key(&key));
+}
+
+#[test]
+fn isolated_configuration_does_not_split_cross_process_lock_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("script.js");
+    let _guard = lock_exclusive(&target).unwrap();
+    let mut command = child_command("exclusive", &target, false);
+    command
+        .env("HOME", root.path())
+        .env("USERPROFILE", root.path())
+        .env("APPDATA", root.path().join("AppData/Roaming"))
+        .env("LOCALAPPDATA", root.path().join("AppData/Local"))
+        .env("XDG_CACHE_HOME", root.path().join(".cache"))
+        .env("KANZEI_HOME", root.path().join(".kanzei"));
+    let (mut process, acquired) = spawn_child(command);
+    assert!(process.wait().unwrap().success());
+    assert!(!acquired);
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[cfg(windows)]
+#[test]
+fn missing_paths_preserve_identity_after_creation_with_different_case() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("新目录/ÜScript.js");
+    let key = lock_path_for(&target).unwrap();
+    let _guard = lock_exclusive(&target).unwrap();
+    let created = root.path().join("新目录/üscript.JS");
+    std::fs::create_dir_all(created.parent().unwrap()).unwrap();
+    std::fs::write(&created, "contents").unwrap();
+    let alias = root.path().join("新目录/ÜSCRIPT.Js");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "contents");
+    assert_eq!(key, lock_path_for(&alias).unwrap());
+    assert!(
+        std::thread::spawn(move || try_lock_exclusive(&alias, Duration::ZERO)
+            .unwrap()
+            .is_none())
+        .join()
+        .unwrap()
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn missing_long_paths_keep_identity_after_creation_adds_a_verbatim_prefix() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root
+        .path()
+        .join("a".repeat(150))
+        .join("b".repeat(100))
+        .join("script.js");
+    let key = lock_path_for(&target).unwrap();
+    let _guard = lock_exclusive(&target).unwrap();
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, "contents").unwrap();
+    assert_eq!(key, lock_path_for(&target).unwrap());
+    assert!(
+        std::thread::spawn(move || try_lock_exclusive(&target, Duration::ZERO)
+            .unwrap()
+            .is_none())
+        .join()
+        .unwrap()
+    );
 }

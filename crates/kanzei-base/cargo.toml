@@ -11,8 +11,15 @@ description = "原子写与文件锁"
 group = "基础"
 
 [dependencies]
+sha2.workspace = true
 tracing.workspace = true
 tempfile = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_Shell"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 test-support = ["dep:tempfile"]

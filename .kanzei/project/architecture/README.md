@@ -11,6 +11,8 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: df452a2c] [`current_contracts.md`](../../../docs/design/current_contracts.md)：当前规则来源、专题所有权、历史退役和依赖边界；只导航现行合同，不增加实施范围。
+
 - [identity: live_design; last_verified_commit: b97f8a2e] [`async_conversation_terminal_callbacks.md`](../../../docs/design/async_conversation_terminal_callbacks.md)：异步邮箱、前台终端移交、会话所有权与完成回调契约。实现已随 build-46e2e63a 及后续 build-b97f8a2e 发布，并于 2026-10-17 合入 dev；正文保留 2026-10-07 原生验收记录，本次整理未重跑原生验收。
 
 - [identity: live_design; last_verified_commit: ad9cff9a] [`project_knowledge.md`](../../../docs/design/project_knowledge.md)：项目知识数据结构、层级与依赖、按需上下文、旧标注迁移及过时能力清理。提交号锚定改造前基线，实现与验证见本次任务报告。
@@ -32,11 +34,7 @@
 - [identity: live_design; last_verified_commit: 3ce8805b] [`chat_presentation_contract.md`](../../../docs/design/chat_presentation_contract.md)：主对话区分层契约——正文/轨迹/后台三层,工具一行可展开、轮间留白、单行思考不成块;附 state.db 复核的正文与轨迹字节比(R-350~R-352,D-725);§4.4 单列与工具组——列宽唯一真源 --chat-col、连续工具调用合成一行、失败常驻、ui-column-layout-smoke 浏览器量边(UI2-0926 #12)。
 
 - [identity: live_design; last_verified_commit: 21c36e9d] [`decision_console_integration.md`](../../../docs/design/decision_console_integration.md)：决定、复核、偏好、冻结快照 worker 与完成唤醒的已接线入口；验证范围见正文，不等于完整产品方向已交付。2026-10-02 核对当前未提交工作树，提交号只锚定基线。
-- [identity: live_design; last_verified_commit: 21c36e9d] [`product_operating_model.md`](../../../docs/design/product_operating_model.md)：产品方向与 2026-09-27 源码观察；后续工作台与 Softwire 为设计续案，历史问题表不作为当前状态。2026-10-02 核对当前未提交工作树，提交号只锚定基线。
-- [identity: live_design; last_verified_commit: 21c36e9d] [`softwire_context_workbench.md`](../../../docs/design/softwire_context_workbench.md)：上下文与就地操作台设计及 V4 示例原型；未接入正式运行服务。2026-10-02 核对当前未提交工作树，提交号只锚定基线。
-- [identity: live_design; last_verified_commit: 21c36e9d] [`softwire_runtime_refactor.md`](../../../docs/design/softwire_runtime_refactor.md)：长期工作、有界批次、子任务整合与交付闭环的总体重构方案；当前主树未完成该总体改造。2026-10-02 核对当前未提交工作树，提交号只锚定基线。
 
-- [identity: live_design; last_verified_commit: 21c36e9d] [`workbench_first.md`](../../../docs/design/workbench_first.md)：R-381 工作台优先设计草案，全局多项目→项目工作/对话，D-771稳定刷新、R-380共享进度标签、轻量摘要与功能收敛；2026-09-28勘察基线含未提交源码，方案待实施，该版本标记不表示实现验收。
 
 - [identity: live_design; last_verified_commit: 23fbbcb5] [`brand_refresh.md`](../../../docs/design/brand_refresh.md)：三模块并行 agent SVG、亮橙/墨蓝/电光青提示色、侧栏与输入框静态暖灰质感；消息对话移除背景装饰并停止动画，欢迎页与语音舞台保留可关闭装饰。
 
@@ -60,7 +58,6 @@
 - [identity: live_design; last_verified_commit: 02342e17] [`agent_visualization_tools.md`](../../../docs/design/agent_visualization_tools.md)：Agent 绘图工具统一设计草案(R-335；架构图与 research 科学图表 API、验证、产物和迁移边界；架构图一侧 2026-09-26 已定为 Mermaid 默认、节点可点击,见 architecture_diagrams.md,科学图表的引擎组合仍待用户评审)。
 
 - [identity: live_design; last_verified_commit: d374cb9f] [`bootstrap_quality_audit.md`](../../../docs/design/bootstrap_quality_audit.md)：自举质量波次审计 SOP，规定只读审计、证据替身、最后一公里接线与注释承诺检查。
-- [identity: live_design; last_verified_commit: d374cb9f] [`context_supply_bill_20260821.md`](../../../docs/design/context_supply_bill_20260821.md)：R-312 B1 真实 session 上下文注入账单；记录块级字符占比、粗 token 估算及当前测量缺口。
 - [identity: live_design; last_verified_commit: d374cb9f] [`deepseek_harness_upgrade.md`](../../../docs/design/deepseek_harness_upgrade.md)：Typed Session Events、Surface Projection、Tool Pipeline/Spill 与 LineRuntime 的升级草案(R-241～R-246,A-012 待转 accepted)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`design_freshness_audit_20260820.md`](../../../docs/design/design_freshness_audit_20260820.md)：设计文档时效审计与 R-318 治理基线；审计结论和四类身份契约仍约束本轮治理。
 - [identity: live_design; last_verified_commit: d374cb9f] [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线——可替代区复刻优先、创新只投护城河；取活与验收判据。
@@ -68,7 +65,6 @@
 - [identity: live_design; last_verified_commit: d374cb9f] [`memory_control_plane.md`](../../../docs/design/memory_control_plane.md)：Memory 控制平面——证据账本/编译器/召回控制器/反事实评估四模块(R-161~R-167,D-229~D-231)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`memory_system.md`](../../../docs/design/memory_system.md)：文件记忆、可重建索引与生命周期；global 保存/检索差异、dense/RRF、FileLock 和状态库边界已校正。
 - [identity: live_design; last_verified_commit: 1e2347e3] [`model_autonomy_and_harness_intensity.md`](../../../docs/design/model_autonomy_and_harness_intensity.md)：模型自治与门禁强度——结伴/自主两档门禁、模型停机权与编排抽象层(R-322/R-323,D-661/D-662;2026-08-21 外部七点评估的逐点定调)。
-- [identity: live_design; last_verified_commit: d374cb9f] [`phase2_system_upgrade.md`](../../../docs/design/phase2_system_upgrade.md)：自举二期 research/memory/运行体验/动画/voice 的依赖、波次、Go/No-Go 与联合验收总纲(R-283)。
 - [identity: live_design; last_verified_commit: f6b57f9b] [`auto_research.md`](../../../docs/design/auto_research.md)：AUTO research 完整流程：调研地图、用户选题、MVP、本机/SSH 环境、完整实验、分析与论文 PDF；两例真实 GPU 验收（R-363，当前工作树增量）。
 - [identity: live_design; last_verified_commit: 1ebbb218] [`research_experiment_runner.md`](../../../docs/design/research_experiment_runner.md)：Research 实验运行与路线图的字段与 Markdown 格式冻结(两层模型、@@kanzei 回调、本机+SSH、环境策略分档与路线图投影;A-014~A-019,R-343~R-348 承接)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`research_mode.md`](../../../docs/design/research_mode.md)：研究模式设计基线草案(2026-08-12 八维度审计维度 8 产出；八个定调点待用户确认,R-221 承接)。
@@ -104,6 +100,8 @@
 
 ## historical_snapshot
 
+- [identity: historical_snapshot; as_of_commit: d374cb9f] [`context_supply_bill_20260821.md`](../../../docs/design/context_supply_bill_20260821.md)：保留2026-08-21测量和当时的设计选择；旧待拍板清单不再进入当前取活。
+
 - [identity: historical_snapshot; as_of_commit: d374cb9f] [`subagent_management.md`](../../../docs/design/subagent_management.md)：R-058 历史四层扩展方案；现有目录、侧栏、只读 task 与编排写租约见 subagent_presentation.md 和 current-state.md。
 
 - [identity: historical_snapshot; as_of_commit: d374cb9f] [`ui_esm_migration.md`](../../../docs/design/ui_esm_migration.md)：迁移前评估；当前入口已使用 ESM，旧 classic scripts 结论不再作为现行约束（2026-09-27 校正）。
@@ -119,6 +117,12 @@
 - [identity: historical_snapshot; as_of_commit: 3e510b1] [`tool_edit_recovery.md`](../../../docs/design/tool_edit_recovery.md)：edit 工具恢复机制设计(匹配失败诊断与恢复策略,M-021/M-022)。
 
 ## superseded
+
+- [identity: superseded; as_of_commit: d374cb9f; superseded_by: current_contracts.md] [`phase2_system_upgrade.md`](../../../docs/design/phase2_system_upgrade.md)：旧二期联合总控已退出；当前功能按专题合同维护，历史目标与波次记录保留。
+- [identity: superseded; as_of_commit: 21c36e9d; superseded_by: familiar_workspace.md] [`workbench_first.md`](../../../docs/design/workbench_first.md)：工作台优先导航草案已由熟悉工作区替代；原型、旧分支与实验计划仅供历史追溯。
+- [identity: superseded; as_of_commit: 21c36e9d; superseded_by: familiar_workspace.md] [`softwire_context_workbench.md`](../../../docs/design/softwire_context_workbench.md)：Softwire 原型不再作为正式工作区接线计划；当前界面按熟悉工作区和对话模式维护。
+- [identity: superseded; as_of_commit: 21c36e9d; superseded_by: current_contracts.md] [`softwire_runtime_refactor.md`](../../../docs/design/softwire_runtime_refactor.md)：Softwire 总体重构退出当前实施范围；执行、上下文、子代理和交付分别使用现行专题合同。
+- [identity: superseded; as_of_commit: 21c36e9d; superseded_by: current_contracts.md] [`product_operating_model.md`](../../../docs/design/product_operating_model.md)：旧多项目导航方案退出；已交付的决策闭环继续由 decision_console_integration.md 维护。
 
 - [identity: superseded; as_of_commit: d374cb9f; superseded_by: brand_refresh.md] [`app_icon.md`](../../../docs/design/app_icon.md)：R-061 旧 K / Memory Layers 图标历史；当前三模块 SVG 与平台资产生成方式见 brand_refresh.md。
 

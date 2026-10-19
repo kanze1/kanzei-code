@@ -2571,8 +2571,11 @@ dependencies = [
 name = "kanzei-base"
 version = "0.1.0"
 dependencies = [
+ "libc",
+ "sha2",
  "tempfile",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2613,7 +2616,6 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "sha2",
- "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "toml 0.8.23",
@@ -2699,7 +2701,6 @@ dependencies = [
  "similar",
  "tantivy",
  "tempfile",
- "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "toml 0.8.23",

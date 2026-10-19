@@ -11,23 +11,10 @@
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:cafc4773a6bc95ae
 - recorded_at: 1791055307670
-- 阻塞: 
+- 阻塞:
 - 对账: 2026-09-05 对账:kzapp 安装位进程当前未运行(Get-Process kzapp 为空),停车前提「等待用户空闲窗口」已达成,恢复为 defect-first 队首 WIP;剩余动作=启动安装位 kzapp 回读持久化 auto state 完成真实重启验收
-- 停车: 
+- 停车:
 - 外部验收: 真实安装版退出后重启，回读持久化自动推进状态并核对界面与状态一致。
-
-## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [fixing] (medium)
-- 复杂度: 小
-- 复现: .kanzei/memory/INDEX.md:M-014 标题「HTML 静态文案必须登记进资源表」但描述整段是 M-009 的「edit 报 old_string not found 时必读…」;M-015 标题「SSE 流内 context overflow」描述却是 M-029 的「处理 bash git 拦截…结构化工具显式 stage」。index.db 的 memory_fts 索引 description 字段,错配描述使这两条在错误查询下被召回
-- 影响: FTS 检索被毒化:错误主题命中错误记忆;INDEX 是每会话注入的真源,串号直接影响召回质量
-- 标签: 后端
-- 验收: ①M-014/M-015 描述修正与源文件 description 一致;②全量 INDEX 行与对应 M-*.md 的 description 做一次机械一致性核对,输出不一致清单并修复;③重建 index.db FTS 后检索抽查不再串号;④INDEX 生成/更新路径补一致性断言防复发
-- 优先级: P2
-- 进展: 对账 2026-08-20(resume reconcile):④已落地——7c238573(D-590)在 store.rs assert_index_matches_entries 接入 refresh_derived 写入路径+守护测试 index_description_guard_rejects_mismatched_source,验收④视为既有能力核销。①②③未落地,且发现比登记更深:不止 INDEX 串号,M-014/M-015 源文件本身 description+正文整段串号(当前 M-014 正文是 M-009 的 edit SOP、M-015 正文是 M-029 的 git 拦截 SOP),真源=git 1476098e 建条原始版(已从历史取出全文)。修正路径被 managed fence 挡死:.kanzei/memory/*.md 仅 memory 写工具白名单可写,edit 被拒(R-316 来源实录);同步修正通道 R-316 仍 todo。下一步:探查既有 memory 工具族是否已有改现有条目文本的能力,无则按 R-316 最小实现(memory 文本修正工具+fence 白名单+审计留痕),落地后修 M-014/M-015 源文件→refresh_derived 重建 INDEX+FTS→②全量机械核对→③FTS 抽查。
-- observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787203506741
-- 停车: 排队:D-504 现为 defect-first 队首 WIP,本条排其后恢复;R-316 修正通道已 done,恢复后按进展所列路径修 M-014/M-015 源文件→refresh_derived 重建 INDEX/FTS→②全量核对→③抽查;恢复人:agent;解除条件:D-504
 
 ## D-577 raw_lines 把空行判成游离段落且 raw_delete 报成功后游离行仍在,后置条件不成立 [awaiting_external] (medium)
 - 复杂度: 中
@@ -42,8 +29,8 @@
 - observed_worktree_hash: fnv1a64:cafc4773a6bc95ae
 - recorded_at: 1791055316194
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
-- 阻塞: 
-- 停车: 
+- 阻塞:
+- 停车:
 - 外部验收: 在外部项目「文章获取器」复核 R-002：raw_lines 不再返回布局空行，raw_delete 后游离行清零。
 
 ## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [awaiting_external] (high)
@@ -65,17 +52,6 @@
 - 停车: 
 - 外部验收: llama-local / llama-server 小窗口真实长任务：多步工具循环读取大文件时先压缩，不再触发 exceed_context_size_error / 400。
 
-## D-662 托管文档专用工具膨胀致工具选择面过载 [fixing] (medium)
-- 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
-- 复现: 当前注册工具已 30+，其中 req/defect/idea/decision/architecture/test_record/work/memory_* 等托管域工具与通用 edit/write 语义重叠；模型需在 edit 与 req(update) 之间做领域判断，工具越多误选概率越高，且每个工具签名等同公开 API
-- 标签: 流程
-- 优先级: P2
-- 进展: 第一步做「量」不做「并」:工具面预算门禁 profiles.rs::tool_surface_budget(dev/readonly 各一条 + 记忆写路径护栏),预算取实测值不留余量。第二步按写读分离减面:2026-08-21 摘除 todowrite——它与 tracker 的 批次/进展 是同一件事的两个真源,而后者持久(过夜断了也接得上),且 dev 提示词本就写着「批次单元格是进度从外部唯一可见的地方」;实测 1019 轮里 todowrite 只用 57 次而 req+defect 用了 2378 次。dev 工具面 30 → 29,连带摘除 #todo-panel 面板/CSS/i18n/D-350 冒烟段(工具一摘没人能填它,留着就是死代码)。剩余:tracker 四件套与 research 五件套的减面按同一原则(挪进流程专用子代理快照)另行评估
-- observed_head: 81a80c64d552d4da9aba0f5692c23d2b5bafb012
-- observed_worktree_hash: fnv1a64:a1d1426a5522a197
-- recorded_at: 1787288788389
-- 停车: 排队:排在 D-568 之后恢复(原停车前提 R-353 未提交改动已不存在,按 defect-first 改排在缺陷队列末);恢复后继续 tracker 四件套与 research 五件套减面评估;恢复人:agent;解除条件:D-568
-
 ## D-746 运行画像历史输入关联审计反复全表扫描并阻塞桌面窗口 [awaiting_external] (high)
 - 复杂度: 小
 - 复现: 进入运行画像触发 run_metrics_by_task；当前项目只读数据库统计 session_inputs=1664、session_events=55211、task事件=0。task_compatibility_audit 的 assigned_input_count 使用相关 EXISTS，EXPLAIN QUERY PLAN 为 SCAN input + CORRELATED SCALAR SUBQUERY + SCAN event；旧查询超过5秒诊断上限仍未完成。
@@ -91,8 +67,8 @@
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
 - observed_worktree_hash: fnv1a64:cafc4773a6bc95ae
 - recorded_at: 1791055336574
-- 阻塞: 
-- 停车: 
+- 阻塞:
+- 停车:
 - 外部验收: 真实安装修复版，在长历史项目中点击运行画像：页面能返回，窗口仍可切换对话与操作。
 
 ## D-764 自动续跑提示被当成用户授权:R-366 写入不存在的确认记录并挂用户阻塞 [open] (medium)
@@ -145,24 +121,6 @@
 - refs: D-756 docs/design/bootstrap_quality_audit.md
 - 优先级: P3
 
-## D-769 ci.yml 只有手动触发,代码注释与规范却称 CI 每次 push 兜底 [open] (low)
-- 复杂度: 小
-- 复现: .github/workflows/ci.yml 只有 workflow_dispatch;crates/kanzei-tools/src/git.rs:791-792 注释称「CI 每次 push 兜住」;d4e230d8 发版时 CI 口径的 all-targets clippy 已是红的而无人发现
-- 影响: 测试代码 lint 与全量测试没有任何自动门禁,注释给出错误安全感
-- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
-- 标签: 发布
-- 验收: ①二选一:给 ci.yml 加 push 触发,或改正注释并让 package/full verify 跑一次 all-targets clippy;②规范与注释口径一致
-- refs: docs/design/bootstrap_quality_audit.md
-- 优先级: P3
-
-## D-770 连续两次 insert 锚点误复制导致源码重复 [open] (low)
-- 复现: R-364 期间两次 insert 边界误用：第一次新增内容重复包含既有 `mod question;`，导致模块重复定义；第二次在 before 操作中复制函数签名尾部，实际接到了前一条注释上。局部结构检查分别发现，第一处 Cargo check 失败、第二处 Cargo check 通过但注释内容错误。
-- 影响: 第一次误插造成临时重复模块并由 Cargo check 捕获；第二次仅把签名尾部文本接到注释上，未造成语法错误。两处均在预提交阶段清理，未提交、未逃逸；共同风险是未清楚区分 insert 保留锚点与插入内容边界。
-- 来源: self-found；相关执行事件 I-1790359944182-110、I-1790360271460-111，发生于用户要求继续 R-364 的实现中。
-- 标签: 流程
-- refs: R-364
-- 优先级: P2
-
 ## D-771 决策复核页自动刷新时闪烁 [open] (medium)
 - 复杂度: 小
 - 复现: 打开项目总览的决策复核页，其他项目或当前项目持续运行时等待后台刷新；用户观察到页面闪一下。本轮静态核查发现每8秒请求快照，项目数据变化时重建控制台根节点；尚未做真实桌面复现。
@@ -173,8 +131,9 @@
 - 验收: ①连续三次自动刷新无整页空白、闪烁和重复入场动画；②无关项目变化不重建当前决策行；③滚动、焦点、勾选、展开与编辑草稿保持；④手动刷新、单条决策变化及请求失败保留可用旧内容并正确显示新鲜度。
 - refs: R-379 docs/design/workbench_first.md
 - 优先级: P2
-- 停车: 发布分支已实现，待R-381完成源码整合与验收后按本地证据对账关闭；解除条件:R-381
-- 进展: 2026-09-28：发布分支kanzei/workbench-first-20260928已修复，功能提交4b5f38fc，发布基线d5955ed8；实现和验证见该树docs/reports/2026-09-28-workbench-first.md。主目录尚未同步，保持open仅表示本地整合待完成，不再重复实现。
-- observed_head: 21c36e9d3a332ebb10a1e0d841887713d9911571
-- observed_worktree_hash: fnv1a64:01bea2ca652acc0b
-- recorded_at: 1790549157172
+- 停车:
+- 进展: 2026-10-20 清理：旧工作台分支已不再是现存源码位，R-381 已退役，清除发布分支待整合停车。现行决策控制台见 docs/design/decision_console_integration.md；本条仍按原四项刷新、交互保留及失败状态验收核对，未将旧发布说明当作当前现场通过。
+- observed_head: df452a2cb79055ef7ce9b28a68bf989ba058fc23
+- observed_worktree_hash: fnv1a64:4189e8dc168f5a1a
+- recorded_at: 1792431977797
+- 对账: 2026-10-20 清单与依赖核对完成：旧分支整合停车已取消，按现行决策控制台复核原四项刷新验收；空字段按当前托管格式输出。

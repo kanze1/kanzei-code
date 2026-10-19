@@ -1,11 +1,7 @@
 
 # Agent 开发规则(项目特有部分)
 
-本文件只放 **kanzei 仓库特有** 规则(架构契约 §4、分支与提交流程 §6、构建与发版 §9)。
-**通用**开发规则——取活与阻塞口径、关闭边界、验收证据、标签与依赖字段、批次与
-验证节奏、代码修改原则、命名风格、测试与文档纪律、任务级并行——由 kanzei 引擎
-内置注入(R-191,单源 kanzei-harness),所有项目默认一致,不要抄到这里:在项目
-文件里复制通用规则只会漂移。
+本文件维护 **kanzei 仓库特有** 规则：架构契约 §4、分支与提交流程 §6、构建与发版 §9。通用开发行为以 `crates/kanzei-tools/src/profiles/dev_system.md` 为源；项目规则维护方式见 `kanzei-harness/assets/default_conventions.md`，本仓库 Cargo 门禁见同目录 `cargo_conventions.md`。验证节奏由合并后的 `kanzei.toml [cadence]` 生成 `effective-verification-policy`，不在这里复制旧的通用章节。用户当前明确要求和已有授权优先。专题真源与历史替代关系见 `docs/design/current_contracts.md` 和架构身份索引。
 - 对话与思考一律使用中文。
 ## 4. 架构与契约规则(kanzei 版)
 
@@ -38,11 +34,11 @@
 - 本仓库是 Rust workspace:`crates/kanzei-{base,harness,llm,memory,core,tools,app}` + `crates/kanzei`(bin `kz`)。
 - **分支流程**:日常开发(含 agent 自举)按既有策略进入 `dev`；`main` 接收已验证的集成版本并保持可发布。已有未提交工作继续在当前分支处理，不能强行换树。隔离发布使用临时干净 worktree，完成后删除；不依赖任何常驻本机发布目录。
 - **提交身份铁律**:commit 的 author/committer 必须且只能是 kanzei 本人(`kanzei <vraniumzwt@gmail.com>`);message 不得包含任何 `Co-Authored-By` 尾注(GitHub 会把共同作者计入贡献者头像墙)。任何工具/AI 不得以自己的身份出现在 git 历史里,发现异常身份立即改写修正并强推。
-- 测试:批内定向(`cargo test -p <改动 crate>`),全量 `cargo test --workspace` 的触发点按 §1.4(中/大条目关闭前 + 发版前),全量必须全绿才算条目完成;单 crate 快速检查用 `cargo build -p <crate>`。**正式发布全绿由当前 `verify.ps1 -Full` 与 `verify-policy.mjs` 判定，不固定为旧文档的十步**(D-371):声称「前端冒烟全过」必须六条全跑——test_record 会对声称「冒烟」且 status=passed 的记录强制比对六条清单,差集非空即拒(机械判据,不靠自觉)。
+- 测试按当前 `effective-verification-policy` 和改动面执行；定向入口为 `cargo test -p <crate>`，中/大条目关闭与发版的全量节奏以有效策略为准。Rust 提交门禁固定为 `cargo check --workspace --all-targets`、`cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`；改测试代码另跑 `cargo clippy -p <crate> --all-targets -- -D warnings`。**正式发布以当前 `verify.ps1 -Full`、`verification-checks.json` 和 `verify-policy.mjs` 为准**，不得沿用旧固定步数或把部分冒烟称为全量。
 - **发版安装(用户可见的”构建”)**:`.\scripts\release.ps1`
   - 流程 = 全量测试 → 安装 `kz` 到 `~\.cargo\bin` → release 构建桌面端 kzapp 并复制安装;
   - **桌面端只有一个安装位:`%LOCALAPPDATA%\kanzei\kzapp.exe`**(应用内更新与开始菜单都指向它)。`~\.cargo\bin` 只放 `kz` CLI 与转发启动器 `kzapp.cmd`,**绝不能再放 kzapp.exe**——两份副本各自更新就会出现"发布了但仍在跑旧版"(D-145)。判断当前跑的是哪份:`Get-Process kzapp | Select-Object Path`。
-  - kzapp 正在运行时复制会失败,脚本会把新版本存为 `kzapp.exe.pending` 并提示——此时告知用户”关闭 kzapp 后重跑 release.ps1”,**不要强杀用户正在使用的窗口**;
+  - kzapp 正在运行时新版本存为 `kzapp.exe.pending`，下次启动自动接力替换；告知用户当前仍在运行旧进程，并在下一次启动核对版本，**不要强杀用户正在使用的窗口**。
   - `-SkipTests` 仅在用户明确要求时使用。
 - 版本验证:`kz --version` 输出 `kanzei 0.1.0 (<git hash> <日期>)`;桌面端右下角有相同版本徽章,以此确认用户装到的是新版。
 - 网络:`git push` / 访问 GitHub 需要代理,PowerShell 里先 `$env:HTTPS_PROXY = “http://127.0.0.1:12000”` 再执行。
@@ -58,7 +54,7 @@
 - **发布时机与检查单**:完成一批已验证需求/缺陷后发布;发布前必须 ①`cargo test --workspace` 全绿 ②工作区干净且已 push ③`kz --version` 的 hash 与 HEAD 一致。
 - **发布树(worktree)**:需要隔离时临时创建干净工作树，核对交付提交与远端后运行 `verify.ps1 -Full`、`package.ps1 -Ack <实际提交数> -Publish`，结束后删除该树。提交、公开 Release 与安装后版本核对分别留证。
 - **Release 标签与保留规范**:tag = `build-<short-hash>`,标题 `kanzei <日期> (<hash>)`;公开 Releases 只保留最新稳定版及其安装器,旧 Release 对象与资产发布新版后清理,日常发布保留对应 Git tags 与提交历史用于审计和恢复。2026-10-03 用户另行授权的历史整理先完整归档，再重建 dev/main 开发基线；旧历史以仓库外 bundle 恢复。
-- **产物卫生**:`dist/` 只保留最新安装器,`dist/`、`target/`、安装器一律不入库。
+- **产物卫生**：`dist/`、`target/`、安装器一律不入库。本地产物按 `scripts/artifact-lifecycle.mjs` 管理；新版本发布且安装验收后保留当前及上一版安装器，发布引用的验证证据单独保护。公开 Release 清理按上一条执行，不套用为本地恢复产物的保留规则。
 ### 9.15 波次质量审计(手动触发,2026-08-16)
 
 - 触发方式:**用户手动发起**,不进定时任务、不挂关闭门禁——审计频率由用户按波次节奏掌握,避免拖慢自举吞吐。建议时机:一波密集交付(≥10 提交)后、或发版前。

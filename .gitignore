@@ -4,7 +4,8 @@
 .kanzei/summaries/
 *.pending
 .kanzei/state.db
-# SQLite 边车与记忆索引都是可重建派生物(A-001:真源是 markdown,库删了能全量重建)。
+# state.db 保存运行事实；其边车是本机运行文件，备份时须与数据库一致处理。
+# 只有 memory/index.db 等检索索引可从 Markdown 真源重建。
 .kanzei/state.db-shm
 .kanzei/state.db-wal
 # R-148 文件用途标注缓存:按内容 hash 失效、运行时重建,不是仓库资产。

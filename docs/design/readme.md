@@ -1,6 +1,6 @@
 # 设计与 AI 讨论记录规范
 
-> 2026-10-02 现状校正：当前实现口径集中在 [current-state.md](../current-state.md)，本地清理见 [cleanup-2026-10-02.md](../cleanup-2026-10-02.md)。live_design 表示仍参与设计约束，不自动表示整篇方案已实施；历史提交号与本地未提交核对必须分别标明。
+> 当前实现口径见 [current-state.md](../current-state.md)，约束来源与专题入口见 [current_contracts.md](current_contracts.md)。live_design 表示仍参与设计约束，不自动表示整篇方案已实施；历史提交号与本地未提交核对必须分别标明。历史快照和被替代设计的待办不自动进入当前需求队列。
 
 本目录记录已经形成方案、仍在演进中的设计讨论，以及与需求、缺陷和技术决策之间的证据链。它不是聊天全文的存档，而是团队可检索、可复用、可回溯的设计知识资产。
 
@@ -57,5 +57,5 @@
 
 - [`r108_ai_design_decision_records.md`](r108_ai_design_decision_records.md)：R-108 的双层记录方案示例，关联草案决策 A-006。
 - [`memory_system.md`](memory_system.md)：记忆系统设计基线与既有工程决策。
-- [`parallel_read_serial_write_orchestration.md`](parallel_read_serial_write_orchestration.md)：多进程代理“并行查、串行写”的阶段流、项目级单 writer 与工具串行契约。
+- [`deep_parallel_dev.md`](deep_parallel_dev.md)：源码工作树隔离、主根项目资产与受控合并。早期“实现阶段全串行”只作历史输入，见身份索引。
 - [`reliability_usability_self_hosting_quality.md`](reliability_usability_self_hosting_quality.md)：可靠性、可用性与自举质量基线。

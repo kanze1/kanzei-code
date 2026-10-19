@@ -163,6 +163,8 @@ claim)、暂存了哪些文件(`git/plan.rs` 已算出 safe stage set)、提交�
 
 ### 3.7 活动面/归档面按「裁决会不会读到它」划
 
+> 历史方案：R-357 已于 2026-10-20 按用户清理要求退役。下文的14天自动移面、删除 tests.md 和新增 work gaps 不再是当前实施合同；当前 test_record 仍消费 tests.md/tests-archive.md，待外部验收和清单维护使用 §0 的现行入口。
+
 1. **停车超期条目移出活动面**:停车 > 14 天且解除条件未变 → 移入 parked 面,裁决不再遍历,
    但 `work reconcile` 与前端面板仍能看到。
 2. **`tests.md` 废止为 Markdown 面**:它 12 字节、0 条记录;唯一可能的居民是 `running` 记录,

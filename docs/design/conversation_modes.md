@@ -15,6 +15,6 @@
 
 侧栏会话右键的导出菜单提供保存 Markdown、复制 Markdown、生成摘要并导出。三种操作都读取所选会话的结构化记录，不扫描当前页面的消息 DOM；保存文件使用原生文件选择器。消息复制保留原始 Markdown，排除附件控件与操作按钮，复制成功后提供反馈。
 
-Skills 使用 [Agent Skills 协议](https://agentskills.io/specification)：目录 `name/SKILL.md`、YAML 名称与描述、按需加载正文和相对资源。支持 `.agents/skills`、`.claude/skills`、`.codex/skills`、`.kanzei/skills` 的项目与用户目录，兼容已有单文件技能。项目定义覆盖同名用户技能。绑定选择按对话保存，绑定的正文在每轮装配时载入；其它资源通过 `read` 按需读取。
+Skills 使用 [Agent Skills 协议](https://agentskills.io/specification)：目录 `name/SKILL.md`、YAML 名称与描述、按需加载正文和相对资源。当前目录与启停状态由全局 catalog 统一维护：个人 `<KANZEI_HOME>/skills`、内置技能及兼容的用户级 `.agents/skills`、`.claude/skills`、`.codex/skills`；项目目录不参与发现，也不按对话绑定正文。运行时先提供启用技能的名称与描述，匹配后通过 `skill_read` 按需读取，资源通过 `read` 读取。完整合同见 [全局 Skills](global-skills.md)，实现见 `crates/kanzei-harness/src/skills.rs` 的 `catalog_at`、`enabled_catalog` 和 `SkillReadTool`。
 
 验收范围：内部子任务通知保留供模型整合，不作为用户气泡显示；清空对话与旧更多入口退出用户流程；侧栏复制结构化 Markdown；活动中的 Git 变更默认折叠，手动折叠后新事件保持折叠；交付记录可搜索、分组、归档/恢复和从清单删除；项目地图可转到同项目对话请求生成；运行数据提供轮次、Token、耗时、工具结果、记忆与逐轮明细；待处理按项目分组、计数并连续决策；每条活跃对话有运行点。

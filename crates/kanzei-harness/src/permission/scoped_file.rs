@@ -63,22 +63,9 @@ impl ScopedFile {
         expected_hash: &str,
         fingerprint: impl Fn(&str) -> String,
     ) -> io::Result<()> {
-        let relative_lock = kanzei_base::atomic_file::lock_path_for(&self.relative);
-        let lock_file = self
-            .root
-            .open_with(
-                &relative_lock,
-                cap_std::fs::OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .create(true)
-                    .truncate(false),
-            )?
-            .into_std();
-        let _lock = kanzei_base::atomic_file::lock_exclusive_opened(
-            &kanzei_base::atomic_file::lock_path_for(&self.path),
-            lock_file,
-        )?;
+        // Only coordination storage is opened by this lock. Document reads and
+        // replacements stay on the authorized directory capability below.
+        let _lock = kanzei_base::atomic_file::lock_exclusive(&self.path)?;
         self.write_atomic(content.as_bytes(), || {
             let current = match self.read_to_string() {
                 Ok(content) => content,
@@ -169,6 +156,8 @@ mod tests {
                 .is_err());
         }
         assert_eq!(file.read_to_string().unwrap(), "second");
+        assert!(!target.with_extension("lock").exists());
+        assert!(!root.join("code/.kanzei").exists());
         std::fs::write(root.join("outside/cache.txt"), "OUTSIDE_CANARY").unwrap();
         std::fs::rename(root.join("code/child"), root.join("code/child-before-link")).unwrap();
         link(&root.join("outside"), &root.join("code/child"));

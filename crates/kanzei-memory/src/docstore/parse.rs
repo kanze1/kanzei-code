@@ -225,7 +225,12 @@ pub(crate) fn push_field(out: &mut String, key: &str, value: &str) {
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    out.push_str(&format!("- {key}: {single_line}\n"));
+    out.push_str(&format!("- {key}:"));
+    if !single_line.is_empty() {
+        out.push(' ');
+        out.push_str(&single_line);
+    }
+    out.push('\n');
 }
 
 #[cfg(test)]

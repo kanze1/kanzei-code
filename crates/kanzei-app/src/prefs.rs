@@ -249,10 +249,7 @@ pub(crate) fn purge_project_prefs(prefs: &mut AppPrefs, project: &str) {
 /// Hold this across the complete read/modify/write transaction, including RPC
 /// callers running concurrently in the detached runtime.
 pub(crate) fn write_guard() -> Result<kanzei_tools::atomic_file::FileLock, String> {
-    // app.json is atomically replaced while other callers are waiting. Resolve
-    // the persistent sibling lock itself, so acquisition never opens that
-    // changing data entry. lock_path_for(app.lock) retains the same lock path.
-    let path = kanzei_tools::atomic_file::lock_path_for(&prefs_path());
+    let path = prefs_path();
     kanzei_tools::atomic_file::lock_exclusive(&path)
         .map_err(|error| format!("获取偏好写锁 {} 失败: {error}", path.display()))
 }

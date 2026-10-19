@@ -1,6 +1,6 @@
 //! Filesystem identities used by both preflight and dynamically discovered files.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::{normalize_resource, wildcard_match, Effect, Rule, Ruleset};
 
@@ -56,38 +56,7 @@ impl FileResource {
     }
 }
 
-// Missing leaves still have a physical parent (write and missing-path errors).
-// Other resolution failures must remain visible instead of granting lexical access.
-pub(crate) fn resolve_target(path: &Path) -> std::io::Result<PathBuf> {
-    // Resolve each parent traversal against its physical prefix before removing
-    // it, including missing write parents. Keep symlink/.. semantics consistent
-    // with the identity that is authorized and opened.
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                normalized = resolve_target(&normalized)?;
-                normalized.pop();
-            }
-            std::path::Component::CurDir => {}
-            component => normalized.push(component.as_os_str()),
-        }
-    }
-    let path = normalized.as_path();
-    match kanzei_base::path_form::canonical(path) {
-        Ok(path) => Ok(path),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let Some(parent) = path.parent() else {
-                return Err(error);
-            };
-            let Some(name) = path.file_name() else {
-                return Err(error);
-            };
-            Ok(resolve_target(parent)?.join(name))
-        }
-        Err(error) => Err(error),
-    }
-}
+pub(crate) use kanzei_base::path_form::resolve_target;
 
 impl Ruleset {
     /// Match all identities in one ordered policy evaluation. Evaluating each
@@ -128,6 +97,7 @@ pub fn execution_rules() -> Option<Ruleset> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn broad_allows_do_not_grant_sensitive_files_but_exact_consent_does() {

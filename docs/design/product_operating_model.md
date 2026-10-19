@@ -1,5 +1,11 @@
 # Kanzei 产品重整：多项目推进、批量验收与决策记忆
 
+- 身份：superseded
+- 整理日期：2026-10-20
+- 替代入口：[current_contracts.md](current_contracts.md)
+
+旧多项目导航方案退出；已交付的决策闭环继续由 decision_console_integration.md 维护。 下文保留原始方案和截至点，不作为当前实施或验收清单。
+
 > 2026-09-28 导航方向更新：[工作台优先设计](workbench_first.md)（R-381）细化为全局工作台 → 项目 → 工作/对话。该草案替代本文第4节“四个一级面”的导航建议；自主决策、成果试用与偏好闭环仍沿用本文。本页以下状态和源码观察保留为9月27日记录。
 
 - 状态：用户已确认方向；决策闭环与后台验证已接入源码，并用手机阅读器验证，未发布。边界见 [decision_console_integration.md](decision_console_integration.md)。

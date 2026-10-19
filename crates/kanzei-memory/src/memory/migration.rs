@@ -423,10 +423,8 @@ mod tests {
                     .iter()
                     .filter(|event| event.contains("file lock acquired"))
                     .collect();
-                let legacy_lock =
-                    crate::atomic_file::lock_path_for(&fixture.legacy.canonicalize().unwrap());
-                let tree_lock =
-                    crate::atomic_file::lock_path_for(&fixture.store.root.canonicalize().unwrap());
+                let legacy_lock = crate::atomic_file::lock_path_for(&fixture.legacy).unwrap();
+                let tree_lock = crate::atomic_file::lock_path_for(&fixture.store.root).unwrap();
                 assert!(
                     acquired[0].contains(&legacy_lock.display().to_string()),
                     "{acquired:?}"
