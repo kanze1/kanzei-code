@@ -4,7 +4,7 @@ import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.
 //   窄窗抽屉点会话/Esc 收起、拖动排序越界或 Esc 取消、对话搜索 Esc 与切换对话重算、概览页 toast 与权限卡不压输入卡、
 //   概览等批准转「待你回复」、概览内二级页 Esc 先回概览、状态栏上下文读数不截断、线路卡「停止」即时反馈、
 //   设置页成对输入框整对折行与 Provider 表横向滚动、需求页「＋ 新建」展开态文字可读、「新建记忆」清掉目标、
-//   ◉ 后台常驻菜单锚在按钮上、自动放行/提示音写 app.json 而不是 localStorage、右键菜单的重命名限长与「添加打开方式」直达设置分区、
+//   运行时管理不占对话菜单、自动放行/提示音写 app.json 而不是 localStorage、右键菜单的重命名限长与「添加打开方式」直达设置分区、
 //   研究空间命令面板不列做不了的条目、「待我处理」侧栏高亮。
 // 文件页编辑器那一组(首次点保存、切树 Canceled、html 404)在 ui-files-editor-smoke.mjs。
 /* global window, document, getComputedStyle, localStorage */
@@ -191,14 +191,18 @@ try {
     check((await where()).view === "chat", "overview-back: the next Esc leaves the overview for the conversation");
   });
 
-  // ---- 状态栏上下文读数:1000 宽也完整显示「占用/上限(百分比)」 ----
+  // ---- 底栏显示占比,运行详情保留完整读数,1000 宽也不截断 ----
   await section("status-tokens", { scene: "chat", width: 1000, height: 700 }, async (app) => {
+    const { page } = app;
+    check(/^上下文 \d+%$/.test(await page.locator("#status-tokens").innerText()), "status-tokens: footer keeps a compact context percentage");
+    await page.locator("#log-toggle").click();
+    await page.locator("#log-panel").waitFor({ state: "visible" });
     const info = await app.page.evaluate(() => {
-      const button = document.querySelector("#status-tokens");
-      const main = button.querySelector(".ctx-main");
-      return { text: main?.textContent ?? "", clipped: !main || main.getBoundingClientRect().right > button.getBoundingClientRect().right + 1 };
+      const detail = document.querySelector("#runtime-context");
+      const main = detail.querySelector(".ctx-main");
+      return { text: main?.textContent ?? "", clipped: !main || main.getBoundingClientRect().right > detail.getBoundingClientRect().right + 1 };
     });
-    check(/\d+(?:\.\d+)?k\/\d+k \(\d+%\)/.test(info.text) && !info.clipped, `status-tokens: at 1000px the context reading keeps used/limit and the percentage (${info.text})`);
+    check(/\d+(?:\.\d+)?k\/\d+k \(\d+%\)/.test(info.text) && !info.clipped, `status-tokens: runtime details keep used/limit and percentage without clipping at 1000px (${info.text})`);
   });
 
   // ---- 线路卡「停止」:点击立刻进「停止中…」、按钮禁用、只发一次 stop_run ----
@@ -311,10 +315,10 @@ try {
     },
   }, async (app) => {
     const { page } = app;
-    check(await page.locator("#composer-more").isVisible() && !await page.locator("#runtime-indicator").isVisible(), "runtime-chip: runtime status stays inside the advanced menu");
-  await openComposerOptions(page);
+    check(await page.locator("#composer-more").isVisible() && await page.locator("#runtime-indicator").count() === 0, "runtime-chip: execution options stay available without a resident-runtime setting");
+    await openComposerOptions(page);
     check(await page.locator("#skills-nav").isVisible() && await page.locator("#goal-picker").isVisible(), "runtime-chip: Global Skills and Goal remain available with a detached runtime");
-  await closeComposerOptions(page);
+    await closeComposerOptions(page);
   });
 
   // ---- 存储整理结果:人读的大小(KB/MB),不是「18432 bytes」 ----
