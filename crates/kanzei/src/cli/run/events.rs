@@ -31,6 +31,10 @@ pub(crate) fn make_event_handler(
             let _ = stdout.flush();
         }
         kanzei_core::RunEvent::Reasoning(_) => {}
+        kanzei_core::RunEvent::ResponseInterrupted => {
+            typed_writer.lock().unwrap().stream_restarted();
+            let _ = writeln!(stdout, "\n收到新消息，正在接续回答");
+        }
         kanzei_core::RunEvent::AssistantMessageCommitted {
             step,
             message,
@@ -208,6 +212,59 @@ mod tests {
     };
     use kanzei_llm::{Message, Part};
     use serde_json::json;
+
+    #[test]
+    fn new_input_supersedes_the_cli_draft_without_committing_it_to_history() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-cli-input-interruption-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.db");
+        let store = SessionStore::open(&path).unwrap();
+        store
+            .create_session("ses", root.to_str().unwrap(), None)
+            .unwrap();
+        let writer = Arc::new(Mutex::new(TypedSessionWriter::new(&path, "ses", "turn")));
+        writer.lock().unwrap().turn_started(1, 0);
+        let mut handler = make_event_handler(writer.clone());
+        handler(kanzei_core::RunEvent::Text("DISCARDED_CLI_DRAFT".into()));
+        handler(kanzei_core::RunEvent::ResponseInterrupted);
+        writer.lock().unwrap().turn_started(1, 0);
+        let answer = Message::assistant(vec![Part::Text {
+            text: "NEW_CLI_ANSWER".into(),
+        }]);
+        handler(kanzei_core::RunEvent::Text("NEW_CLI_ANSWER".into()));
+        let commit = kanzei_core::runner::MessageCommitReceipt::default();
+        handler(kanzei_core::RunEvent::AssistantMessageCommitted {
+            step: 1,
+            message: answer.clone(),
+            commit: commit.clone(),
+        });
+        commit.check().unwrap();
+        writer
+            .lock()
+            .unwrap()
+            .finish(kanzei_core::SessionTurnTerminal::Completed);
+        let facts = store.list_session_facts("ses").unwrap();
+        assert_eq!(project_session_facts(&facts).surface_messages, vec![answer]);
+        assert!(facts.iter().any(|(_, fact)| matches!(
+            fact.fact,
+            kanzei_core::SessionFact::AssistantMessageInterrupted {
+                superseded: true,
+                ..
+            }
+        )));
+        assert!(writer.lock().unwrap().errors().is_empty());
+        drop(handler);
+        drop(writer);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn handler_rejects_terminal_commits_even_without_new_writer_errors() {

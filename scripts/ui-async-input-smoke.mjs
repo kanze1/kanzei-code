@@ -1,5 +1,5 @@
 // Real keyboard delivery through the production composer, with isolated IPC.
-/* global window, document */
+/* global window, document, requestAnimationFrame */
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
