@@ -6,7 +6,7 @@
 //   ④ 模式芯片截图找文字墨迹的纵向范围,中心偏离盒中线 ≤1.5 CSS px(用户截图 13 里「自主推进」贴在上半截);
 //   ⑤ 带明确功能标签的工具行允许两行(高 ≤72);旧版无标签中文工具行保持单行。
 //      英文界面按设计回退(右段整体换到第二行靠右,不隐藏控件),
-//      改量「至多两行」(高 ≤72);后台常驻 / 停止后重启状态按内容换行,模型与思考文字仍可读;
+//      改量「至多两行」(高 ≤72);后台运行 / 停止后重启状态按内容换行,模型与思考文字仍可读;
 //   ⑥ 交付方式「排队」选项:中文显示「排队」、英文显示动词 Queue(「排队」这个 key 已译作状态词 Queued);
 //   ⑦ 项目级来源标签空闲态显示、运行态收起。
 // 每次运行都做自检:注入五种回归(select 不居中 / 某控件回到 30px / 模型芯片左移压住邻居 / 项目级标签一律藏起 / 模型文字被挤没),任一没被判红即报
@@ -165,8 +165,8 @@ const COMBOS = [
   // 按设计回退(ui_surface_stack.md §11.3)。只量 ①②③⑥ 与「至多两行」(④ 墨迹判据只对中文成立,见 measureComposer)。
   { width: 1280, height: 860, dpr: 1.5, themes: ["dark"], states: ["running", "idle"], lang: "en" },
   { width: 2000, height: 1000, dpr: 1, themes: ["light"], states: ["running"], lang: "en" },
-  // Real detached runtimes expose an extra permanent control. Stop/restart hints
-  // can also remain visible during a manual turn with auto-run switched off.
+  // Detached execution shares the same controls. Stop/restart hints can remain
+  // visible during a manual turn with auto-run switched off.
   { width: 960, height: 800, dpr: 1, themes: ["light"], states: ["running-detached-stopped", "idle-detached-stopped"], extended: true },
   { width: 1280, height: 860, dpr: 1.5, themes: ["dark", "light"], states: ["running-detached", "running-detached-stopped"], extended: true },
   { width: 1600, height: 900, dpr: 1.25, themes: ["light"], states: ["running-detached-stopped", "idle-stopped"], extended: true },
@@ -206,7 +206,6 @@ async function openApp(browser, origin, { width, height, dpr, theme, state, lang
       await (await import("/09-sessions.js")).switchProcess(main.id);
     });
   }
-  if (state.includes("detached")) await page.waitForFunction(() => !document.getElementById("runtime-indicator").hidden);
   if (state.includes("stopped")) await page.evaluate(async () => {
     const auto = await import("/08-auto.js");
     document.querySelector("#auto-continue").checked = false;
