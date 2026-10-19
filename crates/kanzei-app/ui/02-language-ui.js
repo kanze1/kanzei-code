@@ -1,7 +1,7 @@
 // View coordination belongs at the composition root, not in the translator.
 import { $, defer } from "./00-dom.js";
 import { t } from "./02-i18n.js";
-import { currentProject, syncSidebar } from "./03-shell.js";
+import { currentProject, renderTokens, syncSidebar } from "./03-shell.js";
 import { renderAgentAudit, syncDynamicUiLanguage } from "./06-activity.js";
 import { reconcileTasksPanel } from "./06-agent-panel.js";
 import { askActive, updateAskQueueStatus } from "./07-events.js";
@@ -18,7 +18,7 @@ defer(() => {
     syncSidebar();
     renderAgentAudit();
     if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
-    $("status-tokens").title = t("点击查看上下文成分");
+    renderTokens();
     if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
     if (document.body.classList.contains("documents-active")) refreshDocs();
     if (currentProject) {

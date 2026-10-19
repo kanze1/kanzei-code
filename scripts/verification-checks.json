@@ -536,6 +536,12 @@
     ]
   },
   {
+    "key": "ui_composer_cleanup",
+    "inputs": "frontend",
+    "program": "node",
+    "args": ["scripts/ui-composer-cleanup-smoke.mjs"]
+  },
+  {
     "key": "ui_skills",
     "inputs": "frontend",
     "suite": "ui_runtime",

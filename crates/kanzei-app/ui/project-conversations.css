@@ -110,6 +110,5 @@ body[data-space="dev"] #view-chat[data-preview-narrow="preview"] > #project-spac
   body[data-space="dev"] .composer-right { justify-content: flex-end; }
   body[data-space="dev"] .composer-right > * { max-width: 100%; }
   body[data-space="dev"] .tool-sum-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  #status-version { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .project-overview-signal::before { animation: none !important; } }

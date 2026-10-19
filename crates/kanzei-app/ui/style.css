@@ -590,8 +590,6 @@ body {
 .lines-header h1 { color: var(--fg-strong); font-size: var(--fs-25); font-weight: 600; letter-spacing: -.3px; }
 .lines-header p { margin-top: 6px; max-width: 680px; line-height: 1.55; }
 .lines-actions { display: flex; align-items: flex-end; gap: 7px; flex-shrink: 0; }
-.lines-work-picker { display: grid; gap: 4px; min-width: min(360px, 34vw); color: var(--dim); font-size: var(--fs-10); }
-.lines-work-picker select { width: 100%; min-height: 30px; color: var(--fg); }
 /* 主区宽度会因侧栏和窗口缩放早于 viewport media query 进入窄态；
    线路页的标题与开线控件必须按主区预算换行，不能把标题压成竖排。 */
 @media (max-width: 1400px) {
@@ -1252,7 +1250,7 @@ html[data-backdrop="off"] .neural-flow-chat { display: none; }
 /* :where() 把三个 :not(#id) 的 ID 特异性抹平——否则这条是 (4,0,0),下面那两条
    `#composer > #id { display: flex }` 只有 (2,0,0),永远赢不了它,flex 行会被
    悄悄压成 block(上下文胶囊竖着叠、composer-bar 靠 inline 流「看起来像」一行)。 */
-#composer > *:where(:not(#file-suggestions):not(#sop-picker-panel):not(#attachment-input)) {
+#composer > *:where(:not(#file-suggestions):not(#attachment-input)) {
   max-width: 100%;
   margin-left: auto;
   margin-right: auto;
@@ -1296,34 +1294,23 @@ button.ghost:hover { background: var(--surface-hover); color: var(--fg-strong); 
 #auto-pause.active { color: var(--warn); border-color: var(--warn); }
 button:disabled { opacity: .45; cursor: default; }
 .hidden { display: none !important; }
+.copy-btn[data-copied="true"] svg { display: none; }
+.copy-btn[data-copied="true"]::before { content: "✓"; }
 .dim { color: var(--dim); font-size: var(--fs-12); }
 
 /* ---------- 状态栏 ---------- */
 #statusbar {
-  height: 26px; background: var(--statusbar); color: var(--statusbar-fg); flex-shrink: 0;
-  display: flex; align-items: center; justify-content: space-between; padding: 0 12px;
+  min-height: var(--ctl-h); background: var(--statusbar); color: var(--statusbar-fg); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px;
   font-size: var(--fs-11-5); font-weight: 400; border-top: 1px solid var(--border-soft);
   transition: background .25s, color .25s;
-  container: statusbar / inline-size;
 }
-/* 视觉走查(1000×700 开着侧栏,状态栏只剩 ~670px):八个片段一起挤成「运… 工具执… ·… cod…」,全是省略号。
-   次要的三项先让位——git 分支在输入区上下文带里有、模型在输入区芯片里有、耗时只是附注——主状态与上下文读数留得下。 */
-@container statusbar (max-width: 760px) { #status-git, #status-elapsed, #status-model { display: none; } }
-/* 验收缺陷(1000/1333 宽):上下文读数被截成「279.2k/40…」,占比丢失还露出一个错的分母。右侧按宽度分档让位,
-   占用/上限/百分比(.ctx-main)永远留着:≤1250 先收构建信息(版本号后面的提交 + 日期,完整串在提示里)与模型;
-   ≤1100 再收 git 分支与耗时(输入区上下文带里有分支);≤900 才收「本轮输入/缓存/输出」那段(点开「上下文成分」气泡看全部)。 */
-@container statusbar (max-width: 1250px) { #status-model, #status-version .ver-build { display: none; } }
-@container statusbar (max-width: 1100px) { #status-git, #status-elapsed { display: none; } }
-@container statusbar (max-width: 900px) { #status-tokens .ctx-usage { display: none; } }
-#statusbar.running { background: var(--statusbar-run); color: var(--statusbar-run-fg); }
 .status-left, .status-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.status-left { flex: 1 1 auto; overflow: hidden; }
-.status-right { flex: 0 1 auto; max-width: 66%; }
-.status-left > span, .status-right > span, #status-tokens {
+.status-left { flex: 1 1 auto; }
+.status-right { flex: none; }
+#status-tokens {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-#status-tokens { max-width: min(58vw, 680px); }
-#status-version { flex: 0 0 auto; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.idle { background: var(--dot-idle); }
 .dot.run { background: var(--dot-run); }
@@ -1522,9 +1509,15 @@ button:disabled { opacity: .45; cursor: default; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 4px 12px; color: var(--dim); font-size: var(--fs-11); letter-spacing: 0;
   border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
 }
+.runtime-detail-summary { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 8px 12px; overflow: auto; border-bottom: 1px solid var(--border-soft); color: var(--dim); font-size: var(--fs-11-5); }
+.runtime-status, .runtime-meta, .runtime-context { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
+.runtime-meta > span, #runtime-context { min-width: 0; overflow-wrap: anywhere; }
+.runtime-context #ctx-bar { flex: none; }
+.runtime-status #status-mode { color: var(--fg); }
 #log-lines {
-  flex: 1; overflow-y: auto; padding: 6px 12px;
+  flex: 1; min-height: 0; overflow-y: auto; padding: 6px 12px;
   font-family: var(--mono); font-size: var(--fs-13); line-height: 1.65; user-select: text;
 }
 .log-line { color: var(--fg); white-space: pre-wrap; word-break: break-all; }
@@ -1537,7 +1530,7 @@ button:disabled { opacity: .45; cursor: default; }
 .statusbar-btn {
   background: transparent; border: none; color: inherit; cursor: pointer;
   font-size: var(--fs-11-5); padding: 0 6px;
-  /* 状态栏右段被长用量串挤窄时「日志」被竖排成两行(1333 宽截图可见):按钮不参与收缩、不换行。 */
+  /* 常驻入口不参与收缩、不换行。 */
   white-space: nowrap; flex: none;
   align-self: stretch;
 }
@@ -2044,9 +2037,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
   border-radius: var(--r-pill);
   padding: 0 8px;
-  margin-left: 8px;
+  margin-left: 0;
   font-size: var(--fs-11);
-  cursor: default;
+  background: transparent;
+  cursor: pointer;
   white-space: nowrap;
 }
 
@@ -2070,13 +2064,6 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   #continue-panel { grid-template-columns: 1fr; }
   #continue-panel label { padding-top: 0; }
 }
-/* SOP 选择:锚在「SOP」按钮上方的浮层(openPopover),外观与位置在 surface.css。 */
-#sop-picker-panel { width: min(420px, calc(100vw - 28px)); }
-.sop-picker-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.sop-list { display: flex; flex-direction: column; gap: 6px; }
-.sop-entry { display: flex; flex-direction: column; gap: 3px; text-align: left; background: var(--input); color: var(--fg); border: 1px solid var(--border-soft); border-radius: var(--r-md); }
-.sop-entry:hover, .sop-entry:focus-visible { border-color: var(--border-strong); background: var(--surface-hover); }
-
 .idea-add-form input, .doc-progress input {
   width: 100%; background: var(--input); border: 1px solid var(--border);
   color: var(--fg); border-radius: var(--r-sm); padding: 4px 8px; font-size: var(--fs-12);
@@ -3676,11 +3663,9 @@ html[data-kz-activity="running"] .documents-list .doc-item.agent-active .doc-met
 .kz-pop { animation: kz-pop var(--motion-base) var(--ease-spring) 1; }
 .kz-shake { animation: kz-shake var(--motion-slow) var(--ease-out) 1; }
 .kz-tick { display: inline-block; animation: kz-tick var(--motion-base) var(--ease-out) 1; }
-/* 状态栏:点的扩散环要有地方画,不能被 overflow 裁掉;轮末一次性反馈;上下文条等本轮 usage 时慢呼吸。
-   父容器靠 stretch + padding 让出画环的余量;基线 `.status-left > span { overflow: hidden }`(防长文案撑破)
-   同样命中这个点、会把 ::after 的环整个裁掉,用更高特异性单独放开它自己。 */
-.status-left { align-self: stretch; padding-left: 7px; margin-left: -7px; }
-.status-left > #status-dot { overflow: visible; }
+/* 运行详情:状态点留出扩散环空间;轮末一次性反馈;上下文条等本轮 usage 时慢呼吸。 */
+.runtime-status { padding-left: 7px; margin-left: -7px; }
+.runtime-status > #status-dot { overflow: visible; }
 #status-dot[data-flash="completed"] { animation: kz-pop var(--motion-slow) var(--ease-spring) 1; }
 #status-dot[data-flash="completed"]::after { background: var(--ok); animation: kz-ring var(--motion-slow) var(--ease-out) 1; }
 #status-dot[data-flash="failed"] { animation: kz-shake var(--motion-slow) var(--ease-out) 1; }
@@ -3987,19 +3972,20 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .tp-card[data-single="true"] .tp-phase { grid-column: 1; grid-row: 1; padding: 0; margin: 0; background: transparent; }
 .tp-card[data-single="true"] .tp-agent-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; padding: 4px; }
 .tp-card[data-single="true"] .tp-agent-row:hover { background: transparent; }
-.tp-card[data-single="true"] .tp-agent-name { grid-column: 1; grid-row: 1; align-items: center; font-size: var(--fs-13); }
-.tp-card[data-single="true"] .tp-agent-label { white-space: normal; text-align: left; }
-.tp-card[data-single="true"] .tp-agent-state { display: block; grid-column: 2; grid-row: 1; color: var(--dim); font-size: var(--fs-11-5); }
-.tp-card[data-single="true"] .tp-agent-latest { display: block; grid-column: 1 / -1; grid-row: 2; text-align: left; color: var(--dim); padding-left: 18px; }
+/* 单任务的说明独占主行;模型与用量另起一行,拖宽侧栏也不再把说明挤回表格的一列。 */
+.tp-card[data-single="true"] .tp-agent-name { grid-column: 1 / -1; grid-row: 1; align-items: baseline; font-size: var(--fs-13); }
+.tp-card[data-single="true"] .tp-agent-label { white-space: normal; text-align: left; line-height: 1.5; text-wrap: balance; overflow-wrap: anywhere; }
+.tp-card[data-single="true"] .tp-agent-state { display: block; grid-column: 1 / -1; grid-row: 2; text-align: left; padding-left: 18px; color: var(--dim); font-size: var(--fs-11-5); }
+.tp-card[data-single="true"] .tp-agent-latest { display: block; grid-column: 1 / -1; grid-row: 3; text-align: left; color: var(--dim); padding-left: 18px; }
 .tp-card[data-single="true"] .tp-agent-latest:empty { display: none; }
 .tp-card[data-single="true"] :is(.tp-agent-model, .tp-agent-tok, .tp-agent-time) { display: none; }
 @container tasks (min-width: 441px) {
-  .tp-card[data-single="true"] .tp-agent-row { grid-template-columns: minmax(0, 1fr) minmax(0, 24%) 50px 52px; gap: 5px 6px; }
+  .tp-card[data-single="true"] .tp-agent-row { grid-template-columns: minmax(0, 1fr) auto auto; }
   .tp-card[data-single="true"] .tp-agent-state { display: none; }
-  .tp-card[data-single="true"] :is(.tp-agent-model, .tp-agent-tok, .tp-agent-time) { display: block; grid-row: 1; }
-  .tp-card[data-single="true"] .tp-agent-model { grid-column: 2; }
-  .tp-card[data-single="true"] .tp-agent-tok { grid-column: 3; }
-  .tp-card[data-single="true"] .tp-agent-time { grid-column: 4; }
+  .tp-card[data-single="true"] :is(.tp-agent-model, .tp-agent-tok, .tp-agent-time) { display: block; grid-row: 2; }
+  .tp-card[data-single="true"] .tp-agent-model { grid-column: 1; text-align: left; padding-left: 18px; }
+  .tp-card[data-single="true"] .tp-agent-tok { grid-column: 2; }
+  .tp-card[data-single="true"] .tp-agent-time { grid-column: 3; }
 }
 .tp-card[data-single="true"] .tp-agent-row[data-sa-state="waiting_user"] .tp-agent-state { color: var(--warn); }
 .tp-agent-row[data-s="warn"] .sa-glyph { color: var(--warn); }

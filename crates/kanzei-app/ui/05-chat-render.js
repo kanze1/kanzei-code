@@ -123,6 +123,15 @@ export function copyButton() {
   // UI2-0926 #12:按钮改成图标;可读名挂在 sr-only 的 span 上——data-i18n-key 若挂在按钮本身,
   // 切语言时 applyDataI18nKeys 写 textContent 会把 SVG 冲掉。
   button.dataset.i18nTitle = "复制消息";
+  button.setAttribute("aria-label", t("复制消息"));
+  button.dataset.i18nAriaLabel = "复制消息";
+  const reset = () => {
+    delete button.dataset.copied;
+    button.title = t("复制消息"); button.dataset.i18nTitle = "复制消息";
+    button.setAttribute("aria-label", t("复制消息")); button.dataset.i18nAriaLabel = "复制消息";
+  };
+  button.addEventListener("pointerleave", reset);
+  button.addEventListener("blur", reset);
   button.innerHTML = COPY_ICON;
   const label = document.createElement("span");
   label.className = "sr-only";

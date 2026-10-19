@@ -108,17 +108,7 @@ assert(compose.includes("function lineAutoConfig(processId)"), "缺少按线鞭�
 assert(lines.includes("buildLineAutoControls(line)"), "线路页每条线缺少鞭挞控件");
 assert(lines.includes("buildLineModelSelect(item)"), "线路页每条线缺少模型选择");
 assert(lines.includes("queueProcessUpdate(item.id, { model: value })"), "线路页改模型未走按线保存队列");
-assert(sessions.includes("worktreeLineCreateInFlight"), "并行线路创建缺少单飞请求护栏");
-assert(sessions.includes("worktreeLineCreateSequence"), "并行线路创建缺少进程内唯一序号");
-assert(sessions.includes('const addButtons = [$("worktree-add"), $("lines-add")].filter(Boolean)'), "并行线路两个创建入口没有共用忙碌态");
-assert(sessions.includes('button.setAttribute("aria-busy", "true")'), "并行线路创建请求期间没有暴露忙碌态");
-assert(sessions.includes('button.removeAttribute("aria-busy")'), "并行线路创建结束后忙碌态没有恢复");
-assert(sessions.includes('linesAddLabel.textContent = t("创建中…")'), "线路页没有创建中反馈");
-assert(sessions.includes("Date.now()"), "并行线路名称没有使用毫秒级时间戳");
-assert(index.includes('id="lines-work-item"'), "并行视图缺少开线条目选择器");
-assert(lines.includes('function renderLineWorkItemOptions(snapshot = null)'), "开线条目选择器缺少 tracker 快照投影");
-assert(sessions.includes('...(workItemId ? { workItemId } : {})'), "process_create 没有携带用户选择的条目 ID");
-assert(sessions.includes('trackerWrites: false'), "开线绑定不得顺带开放通用 tracker 写权限");
+assert(!sessions.includes("createWorktreeLine") && !index.includes('id="worktree-add"') && !index.includes('id="lines-add"'), "Retired independent-task creation controls must remain absent");
 assert(docsList.includes('entry.claimed_by'), "backlog 被取得标记没有读取 tracker claimed_by");
 assert(!docsList.includes('String(candidate.claim ?? "").match'), "backlog 又回退到解析线路 prompt/claim 文本");
 const collaboration = await readFile(resolve(root, "crates", "kanzei-app", "src", "collaboration.rs"), "utf8");

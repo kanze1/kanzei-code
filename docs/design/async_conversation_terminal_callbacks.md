@@ -41,6 +41,8 @@ sequenceDiagram
 5. 完成通知先等待输出收集，再发布稳定的 `terminal:<id>` 回调。桌面入口以 owner 和回调 ID 保存输入，避免重复启动。回调是工具结果，不构成新的人类指令或授权。
 6. 明确停止/关闭会话会关闭邮箱并推进生命周期代数；旧回调不能重新启动该会话。普通轮次结束不关闭邮箱，因此后台命令可以跨轮完成。
 7. 可写子代理沿用项目的独立工作树。是否需要初始化应用自有的无项目资料仓库，由实际存储根身份决定；结对模式的 `project_workflow=false` 只关闭项目交付流程，不把普通项目变成无项目存储。
+8. `task wait` 在本地子任务均连接完成回调时返回 `state=waiting, delivery=automatic` 回执，`pending` 列出仍在运行的任务，`jobs` 只包含已完成且已释放执行所有权的结果。主模型没有独立工作时应结束本轮，等待完成或失败回调唤醒；回执和空 `collect` 均不代表任务完成。没有回调的环境、外部执行者和显式 `background=false` 仍等待实际结果。
+9. 任务结果摘要的 `result_available` 明确区分运行状态与终态；`get` 读取运行中的任务时说明尚未完成。通知发布与模型结果确认通过同一把通知锁串行化，发布前重新核对已通知和已读取的版本，已读取结果的旧快照不能再次唤醒父会话。UI 从任务状态解析等待、运行、完成、失败与空收集结果，不再仅显示 JSON 字节数。
 
 ## 行为边界
 
@@ -63,6 +65,8 @@ Kanzei 的一次性 `kz run` 没有在本次改成常驻交互终端；现有 CL
 - `cargo test -p kanzei-harness background_requests`：新请求唤醒当前等待者，旧请求不会重放给后续命令。
 - `cargo test -p kanzei-tools foreground_handoff`：真实 PowerShell 进程；不重跑、保留前后输出、单次完成回调、原截止时间有效。
 - `cargo test -p kanzei-tools background::`：进程树停止、围栏归因、输出收集及后台生命周期回归。
+- `cargo test -p kanzei-tools team::tests::`：异步 wait 立即交还控制、单次真实结果通知、外部执行所有权、显式前台等待、已读结果拒绝旧通知，以及原有子任务生命周期回归。
+- `node scripts/ui-tool-summary-contract-smoke.mjs`：任务等待回执、运行/完成/失败状态、空结果与等待操作标签的浏览器显示。
 - `cargo test -p kanzei-app async_mailbox`：停止与正在发布的回调竞态、幂等准入。
 - `cargo test -p kanzei-tools writer_background_isolated_result_then_explicit_adoption`：项目流程与结对模式都能完成真实子代理写入、独立工作树和显式采纳。
 - `node scripts/ui-async-agents-native-smoke.mjs <fresh kzapp.exe>`：真实 WebView2、Rust 调度器、SQLite、Git、终端和本地确定性模型。覆盖后台子代理、插话、异步问答、Ctrl+Enter 前台移交、OS PID 连续性、切换会话后的结果交付和停止。

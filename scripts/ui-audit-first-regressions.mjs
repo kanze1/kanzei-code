@@ -23,16 +23,6 @@ const results=[];
   results.push({id:'AF-R01',observed:'Retry retains the failed A request and refuses a click from B',evidence:sent});
 }
 {
-  const calls=[],body=new Element();
-  const ctx=vm.createContext({document,body,t:x=>x,scope:{project:'project-A',process:'conversation-A'},node:(tag,cls,text='')=>{const e=new Element(tag);e.className=cls;e.textContent=text;return e},invoke:async(...x)=>calls.push(x),refresh:async()=>{},status:{}});
-  vm.runInContext(fn('28-async-workspace.js','args')+'\n'+fn('28-async-workspace.js','renderLogs'),ctx);
-  ctx.renderLogs([{id:'bg-1',running:true,subscribed:false,command:'A command',output:''}]);
-  ctx.scope={project:'project-B',process:'conversation-B'};
-  await body.querySelector('.mini').onclick();
-  assert.equal(calls[0][1].projectDir,'project-A');assert.equal(calls[0][1].id,'bg-1');
-  results.push({id:'AF-R02',observed:'A terminal row retains its A owner after scope changes',evidence:calls});
-}
-{
   const ctx=vm.createContext({document,t:x=>x,highlightLine:(node,text)=>{node.textContent=text},compactDiffLines:x=>x});
   vm.runInContext(fn('06-activity.js','renderDiff'),ctx);
   const result=ctx.renderDiff({path:'x.rs',lines:[{kind:'ctx',text:'unchanged',old_line:10,new_line:12}]});

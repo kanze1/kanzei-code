@@ -23,7 +23,7 @@ import {
 } from "./09-sessions.js";
 import {
   activateRow, buildRows, closedOpen, dropClosedSessions, dropRemoteSessions, forgetSessionPrefs, invalidateSessionTree, kindWord,
-  loadRemoteSessions, closeSessionHistory, historyElement, historyProjectPath, sessionItemsOf, newDiscussionIn, newTaskIn, openSession,
+  loadRemoteSessions, closeSessionHistory, historyElement, historyProjectPath, sessionItemsOf, newDiscussionIn, openSession,
   openSessionHistory, orderedProjects, orderRows, projectPinned, projectRunningCount, setClosedOpen, setProjectPinned,
   setSessionDragging, setSessionOrder, setSessionPinned, setSidebarOpen, sidebarOpen,
 } from "./12-session-tree.js";
@@ -335,6 +335,27 @@ function afterDialog(key, work) {
   void Promise.resolve(work).finally(() => requestAnimationFrame(() => focusRowByKey(key)));
 }
 
+async function exportSession(row, format) {
+  try {
+    const messages = await invoke("conversation_display_get", { projectDir: row.project, processId: row.id, sequence: null });
+    const markdown = conversationMarkdown({ name: row.name, project: row.project, sessionId: row.session_id, messages });
+    if (format === "copy") { await copyText(markdown, t("复制为 Markdown")); return; }
+    const content = format === "summary"
+      ? (await invoke("summarize_chat", { projectDir: row.project, transcript: markdown })).summary
+      : markdown;
+    const name = row.name + (format === "summary" ? `-${t("摘要")}` : "");
+    const saved = await invoke("save_conversation_export", { name, content });
+    if (saved) toast(`${t("导出完成")}: ${saved}`, { kind: "ok" });
+  } catch (error) { failure(`${t("导出失败")}: ${error}`); }
+}
+function openSessionExport(point, host, row) {
+  showMenu(point, host, [
+    { label: t("保存为 Markdown…"), onSelect: () => void exportSession(row, "markdown") },
+    { label: t("复制为 Markdown"), onSelect: () => void exportSession(row, "copy") },
+    { label: t("生成摘要并导出…"), onSelect: () => void exportSession(row, "summary") },
+  ], { label: t("导出对话") });
+}
+
 // 常用动作保持一屏；复制、排序、交付与外部工具放到二级菜单。
 function compactContextMenu(point, host, items, options, primaryLabels) {
   const primary = items.filter(item => item && primaryLabels.includes(item.label));
@@ -375,12 +396,7 @@ export async function openSessionContextMenu(wrap, point, host) {
     ...(general ? [] : toolItems(tools, (tool) => void openWithTool(tool, project, id))),
     "separator",
     { label: t("复制对话名"), onSelect: () => void copyText(live.name, live.name) },
-    { label: t("复制为 Markdown"), onSelect: async () => {
-      try {
-        const messages = await invoke("conversation_display_get", { projectDir: project, processId: id, sequence: null });
-        await copyText(conversationMarkdown({ name: live.name, project, sessionId: live.session_id, messages }), t("复制为 Markdown"));
-      } catch (error) { failure(error); }
-    } },
+    { label: t("导出…"), onSelect: () => openSessionExport(point, host, live) },
     { label: t("复制对话 ID"), onSelect: () => void copyText(live.session_id, t("对话 ID")) },
     live.worktree && { label: t("复制工作树路径"), onSelect: () => void copyText(live.worktree, t("工作树路径")) },
     live.branch && { label: t("复制分支名"), desc: live.branch, onSelect: () => void copyText(live.branch, live.branch) },
@@ -394,7 +410,7 @@ export async function openSessionContextMenu(wrap, point, host) {
   ];
   return compactContextMenu(point, host, items, { label: live.name, focusKey: wrap.dataset.key }, [
     `${t("重命名")}…`, t("置顶"), t("取消置顶"),
-    t("复制为 Markdown"), `${t("关闭独立任务")}…`, `${t("删除对话")}…`,
+    t("导出…"), `${t("关闭独立任务")}…`, `${t("删除对话")}…`,
   ]);
 }
 function chooseHandoffProject(point, host, source) {
@@ -421,7 +437,6 @@ export async function openProjectContextMenu(row, point, host) {
   const items = [
     { label: t("打开"), onSelect: () => void openProjectSpace(path, "chat") },
     { label: t("新对话"), onSelect: () => void newDiscussionIn(path) },
-    { label: t("新建独立任务"), onSelect: () => void newTaskIn(path) },
     "separator",
     { label: `${t("重命名项目")}…`, kbd: "F2", desc: t("只改显示名,不改磁盘文件夹"), onSelect: () => afterDialog(`project\u001f${path}`, renameProject(path)) },
     { label: pinned ? t("取消置顶") : t("置顶"), onSelect: () => toggleProjectPin(path) },
@@ -526,11 +541,11 @@ export function installSessionInteractions(root, { host = null } = {}) {
       return;
     }
     const act = closest(event.target, "[data-act]")?.dataset.act;
-    if (act === "new-discussion" || act === "new-task") {
+    if (act === "new-discussion") {
       const project = historyProjectPath();
       if (!project) return;
       closeSessionHistory();
-      void (act === "new-discussion" ? newDiscussionIn(project) : newTaskIn(project));
+      void newDiscussionIn(project);
       return;
     }
     const link = closest(event.target, ".workbench-session-link");

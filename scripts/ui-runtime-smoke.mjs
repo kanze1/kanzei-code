@@ -474,11 +474,6 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*if \(Number\(before\.dataset\.count\) \+ Number\(after\.dataset\.count\) > TOOL_GROUP_MAX\) return false;\r?\n/,
       replace: "",
     },
-    // SOP 列表退回以菜单项为锚:菜单一关锚点就不在了(弹层定位到左上角)。
-    sopAnchor: {
-      pattern: /openPopover\(\$\("composer-more"\), panel,/,
-      replace: 'openPopover($("sop-picker"), panel,',
-    },
     // 展开继续文案时不收鞭挞菜单:菜单盖在编辑区上面。
     continueClosesWhip: {
       pattern: /[ \t]*closeSurface\(\$\("autorun-menu"\)\);\r?\n/,
@@ -1241,7 +1236,7 @@ if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
 if (!source.includes('else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd')) {
   fail("活动面板仍会接收全部工具调用(或降噪分流被移除,或分流判定不再看 input.phase)");
 }
-if (!source.includes("function reportPersistentError(text, { retry = null } = {})") || !html.includes('id="log-retry"') || !source.includes("function copyReadable(el)")) {
+if (!source.includes("function reportPersistentError(text, { retry = null } = {})") || !html.includes('id="log-retry"') || !source.includes("function copyReadable(el, button = null)")) {
   fail("错误反馈缺少持久详情、恢复入口或复制能力");
 }
 if (!source.includes("function renderRecoveredMessages(items)") || !source.includes("if (running) {")) {
@@ -3463,13 +3458,6 @@ assert(!document.querySelector("#parallel-task-status .parallel-task-row"), "开
   // 说明条不能反过来被裁剪循环吃掉：再追加一批后它仍只有一条。
   for (let i = 0; i < 250; i++) vm.runInContext(`addMessage("notice", "裁剪压测二 ${i}")`, sandbox);
   const hints = pane.querySelectorAll(".pane-trimmed-hint").length;
-  // D-490:复制上下文不能把当前 pane 的裁剪提示静默丢掉。
-  byId.get("copy-context").click();
-  await flush();
-  assert(
-    copiedResearchCitation.includes("较早的") && copiedResearchCitation.includes("已移出视图以保持流畅"),
-    `长会话复制缺少明确裁剪标记: ${copiedResearchCitation.slice(0, 120)}`,
-  );
   assert(hints === 1, `裁剪说明条应始终只有一条，实际 ${hints}`);
   vm.runInContext("activePane = globalThis.__paneSave; delete globalThis.__paneSave;", sandbox);
 }
@@ -3532,9 +3520,9 @@ assert(!document.querySelector("#parallel-task-status .parallel-task-row"), "开
 {
   const bar = byId.get("chat-search");
   bar.classList.add("hidden");
-  byId.get("chat-search-toggle").click();
+  vm.runInContext("openChatSearch()", sandbox);
   assert(!bar.classList.contains("hidden"), "点搜索后搜索条仍是 hidden");
-  byId.get("chat-search-toggle").click();
+  vm.runInContext("openChatSearch()", sandbox);
   assert(!bar.classList.contains("hidden"), "再点一次搜索入口不得把搜索条反向关掉(入口是「打开并聚焦」,关闭靠 Esc / ✕)");
   byId.get("chat-search-close").click();
   assert(bar.classList.contains("hidden"), "✕ 应关闭搜索条");
@@ -4719,26 +4707,6 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   await flush();
 }
 
-byId.get("sop-picker").click();
-await flush();
-const sopEntry = document.querySelector("#sop-list .sop-entry");
-assert(sopEntry, "继续按钮旁未展示可调用 SOP");
-// UX-046:线在运行中选 SOP = 补充(进当前轮的队列),鞭挞照常开着;空闲时选 SOP 才是接管,关掉鞭挞。
-const sopShell = esmModuleCache.get("03-shell.js").namespace;
-sopShell.setRunning(true);
-byId.get("auto-continue").checked = true;
-sopEntry.click();
-await flush();
-assert(!byId.get("auto-continue").checked, "结伴对话不因旧 SOP 入口获得自动循环");
-sopShell.setRunning(false);
-byId.get("sop-picker").click();
-await flush();
-document.querySelector("#sop-list .sop-entry").click();
-await flush();
-assert(!byId.get("auto-continue").checked, "选择流程 后未打断自动推进");
-assert(invokeLog.includes("memory_entries"), "SOP 入口未读取已沉淀 SOP");
-assert(invokeLog.includes("run_prompt"), "选择流程 后未进入输入执行链路");
-
 // ---------- R-125 记忆召回可视化：召回了什么、为什么召回、是否被采纳 ----------
 // 走真实路径:点活动栏的「记忆」进入该视图,由它触发 refreshMemory。
 const memoryTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "memory");
@@ -5339,17 +5307,6 @@ assert(scoutCards[0]?.querySelector(".sa-result")?.textContent.includes("勘察�
   "第一轮的结果被第二轮覆写(或没留在第一轮的卡里)");
 assert(scoutCards[1]?.querySelector(".sa-result")?.textContent.includes("第二轮简报"), "第二轮的结果没有落在第二轮的卡里");
 for (const card of scoutCards) card.querySelector(".sa-head")?.click();
-
-// ---------- D-727:复制上下文包含子代理卡片(身份 · 描述 / 计数 / 结果)----------
-byId.get("copy-context").click();
-await flush();
-assert(
-  copiedResearchCitation.includes("architecture_scout") &&
-    copiedResearchCitation.includes("勘察简报首行") &&
-    copiedResearchCitation.includes("第二轮简报"),
-  "复制上下文漏掉子代理卡片的结果",
-);
-assert(/子代理|Subagent/.test(copiedResearchCitation), "复制上下文里的子代理段没有标明是子代理");
 
 // ---------- D-237 活动面板:diff 汇总着色 + bash 完整输出可展开 ----------
 const d237ToolStart = handlers.get("kz:tool-start");
@@ -8272,11 +8229,11 @@ assert(
   sandbox.applyLanguage();
   assert(attrOf("rail-sidebar-toggle", "title") === "Open or close the sidebar", `英文态 rail 侧栏开关 title 未翻译,实际 "${attrOf("rail-sidebar-toggle", "title")}"`);
   assert(attrOf("rail-sidebar-toggle", "aria-label") === "Open or close the sidebar", `英文态 rail 侧栏开关 aria-label 未翻译,实际 "${attrOf("rail-sidebar-toggle", "aria-label")}"`);
-  assert(b9Key("运行日志") === "Runtime log", `英文态「运行日志」未翻译,实际 "${b9Key("运行日志")}"`);
+  assert(b9Key("运行详情") === "Run details", `英文态「运行详情」未翻译,实际 "${b9Key("运行详情")}"`);
   assert(attrOf("log-copy", "aria-label") === "Copy runtime log", `英文态 log-copy aria-label 未翻译,实际 "${attrOf("log-copy", "aria-label")}"`);
   assert(attrOf("status-git", "title") === "Git branch · uncommitted changes", `英文态 status-git title 未翻译,实际 "${attrOf("status-git", "title")}"`);
   assert(attrOf("status-tokens", "aria-label") === "View context components", `英文态 status-tokens aria-label 未翻译,实际 "${attrOf("status-tokens", "aria-label")}"`);
-  assert(b9Key("日志") === "Logs", `英文态「日志」未翻译,实际 "${b9Key("日志")}"`);
+  assert(byId.get("log-toggle").textContent === "Run details", "英文态运行详情入口未翻译");
   assert(b9Key("回到最新") === "Jump to latest", `英文态「回到最新」未翻译,实际 "${b9Key("回到最新")}"`);
   assert(b9Key("全部类型") === "All types", `英文态「全部类型」未翻译(option 渲染点),实际 "${b9Key("全部类型")}"`);
   assert(b9Key("终端") === "terminal", `英文态「终端」未翻译(option 渲染点),实际 "${b9Key("终端")}"`);
@@ -8878,10 +8835,11 @@ const docsB = {
   const eA = handlers.get("kz:tool-end");
   handlers.get("kz:meta")({ payload: { model: "smoke-provider:main", profile: "dev", contextLimit: 65536, sessionId: "sess-smoke" } });
   handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 1, sessionId: "sess-smoke" } });
-  assert(/等待模型|Waiting for model/.test(byId.get("status-tokens").textContent), "长 prefill 期间上下文旧值未标注等待模型");
+  assert(/等待模型|Waiting for model/.test(byId.get("runtime-context").textContent), "长 prefill 期间运行详情的上下文旧值未标注等待模型");
   handlers.get("kz:step")({ payload: { input: 200, output: 100, cacheRead: 20, cacheWrite: 0, sessionId: "sess-smoke" } });
-  assert(!/等待模型|Waiting for model/.test(byId.get("status-tokens").textContent), "真实 step usage 到达后上下文仍标注等待模型");
-  assert(/^(上下文|context) 0\.2k\/66k \(0%\)/.test(byId.get("status-tokens").textContent), "真实 usage 后 context_limit 百分比展示不准确(UX-044:上下文占用放最前、用词中文)");
+  assert(!/等待模型|Waiting for model/.test(byId.get("runtime-context").textContent), "真实 step usage 到达后上下文仍标注等待模型");
+  assert(/^(上下文|context) 0\.2k\/66k \(0%\)/.test(byId.get("runtime-context").textContent), "真实 usage 后运行详情的 context_limit 百分比展示不准确");
+  assert(/^(上下文|context) 0%$/.test(byId.get("status-tokens").textContent), "底栏应仅显示上下文占比");
   handlers.get("kz:ask")({ payload: { id: 991, kind: "permission", action: "read", resource: "src/main.rs", source: "parallel", sessionId: "sess-smoke" } });
   handlers.get("kz:permission-resolved")({ payload: { tool_call_id: "ask-991", action: "read", resource: "src/main.rs", decision: "deny", source: "user", sessionId: "sess-smoke" } });
   sA({ payload: { id: "my_scout", name: "task", summary: "勘察文件结构", input: { prompt: "review the repo", phase: "scouting", role: "my_scout", description: "勘察文件结构" }, sessionId: "sess-smoke" } });
@@ -9529,58 +9487,6 @@ const docsB = {
   await sandbox.switchProcess(processBeforeHarvest);
   await flush();
 
-  // ---------- ③ 建线原子创建「工作树 + 进程绑定」,前端不维护影子清单 ----------
-  await gotoProject(PROJECT, docsA);
-  const beforeAdd = invokeArgs.length;
-  const addButton = byId.get("worktree-add");
-  const linesAddButton = byId.get("lines-add");
-  const workItemSelect = byId.get("lines-work-item");
-  assert(
-    workItemSelect?.options.some((option) => option.value === "D-001"),
-    "开线区没有列出未被持有且未阻塞的 D-001",
-  );
-  // B26:开线入口合并为带文字的「新建独立任务」,条目绑定可选——不选条目也能点(原来必须先选条目)。
-  workItemSelect.value = "";
-  workItemSelect.dispatchEvent({ type: "change" });
-  assert(!linesAddButton.disabled, "绑定条目是可选的:未选条目时「新建独立任务」不应被禁用");
-  // 静态文案在 index.html 里(假 DOM 不解析按钮内层 span,不读 textContent):两个入口都写着「新建独立任务」。
-  assert(/id="lines-add"[^>]*>\s*<span data-i18n-key="新建独立任务">新建独立任务<\/span>/.test(html) && /id="worktree-add"[^>]*>\s*<span data-i18n-key="新建独立任务">新建独立任务<\/span>/.test(html), "两个建线入口都应是带文字的「新建独立任务」");
-  workItemSelect.value = "D-001";
-  workItemSelect.dispatchEvent({ type: "change" });
-  assert(!linesAddButton.disabled, "选择可领取条目后「新建独立任务」不应被禁用");
-  linesAddButton.click();
-  addButton.click();
-  assert(addButton.disabled && linesAddButton.disabled, "并行线路创建期间两个入口没有同步禁用");
-  assert(
-    addButton.getAttribute("aria-busy") === "true" && linesAddButton.getAttribute("aria-busy") === "true",
-    "并行线路创建期间入口没有暴露 aria-busy",
-  );
-  assert(/创建中|Creating/.test(linesAddButton.textContent), "线路页按钮没有显示创建中反馈");
-  await flush();
-  const addCalls = invokeArgs.slice(beforeAdd);
-  const processCreateCalls = addCalls.filter((entry) => entry.cmd === "process_create");
-  assert(
-    processCreateCalls.length === 1 && processCreateCalls[0].args?.projectDir === PROJECT &&
-      /^line-\d+-\d+$/.test(processCreateCalls[0].args?.worktreeName ?? "") &&
-      processCreateCalls[0].args?.trackerWrites === false &&
-      processCreateCalls[0].args?.workItemId === "D-001",
-    `新建线路没有原子发出唯一命名的 process_create(${JSON.stringify(addCalls)})`,
-  );
-  assert(!addButton.disabled && !linesAddButton.disabled, "并行线路创建完成后两个入口没有恢复");
-  assert(
-    !addButton.hasAttribute("aria-busy") && !linesAddButton.hasAttribute("aria-busy") &&
-      /新建独立任务|New independent task/.test(linesAddButton.textContent),
-    "并行线路创建完成后忙碌状态或按钮文案没有恢复",
-  );
-  assert(
-    !addCalls.some((entry) => entry.cmd === "worktree_create"),
-    "建线仍在调用只建树不绑进程的 worktree_create",
-  );
-  assert(
-    addCalls.some((entry) => entry.cmd === "worktree_list"),
-    "新建之后没有重新向 git 要清单(前端已不持有清单,不刷就看不见新树)",
-  );
-
   // ---------- ④ 放弃工作树后必须刷新进程投影 ----------
   // 后端会同步注销绑定进程；若这里只刷新 worktree_list，旧线路 tab 仍会把已删
   // 目录作为 cwd 发送，直到 provider/tool 报“工作目录不存在”才暴露。这个断言
@@ -9711,11 +9617,6 @@ const docsB = {
     linesSrc.includes('t("Git 合并冲突文件")'),
     "R-179:冲突文件列表未进入合并确认文案",
   );
-  // 验收⑤:建线 UI 有磁盘/冷编译成本提示。
-  assert(
-    sessionsSrc.includes('t("每个独立任务有自己的 target/ 目录,磁盘占用随任务数成倍增加;首次冷编译需数分钟")'),
-    "R-179:建线 UI 缺少磁盘/冷编译成本提示",
-  );
   // 验收⑧:三档宽度下线路页不崩(列表容器仍在 DOM)。
   for (const width of [800, 1024, 1280]) {
     windowShim.innerWidth = width;
@@ -9803,7 +9704,6 @@ const docsB = {
   assert(/\.msg\.assistant[^{]*\{[^}]*color:\s*var\(--fg-strong\)/.test(style), "D-348:正文未使用亮色主题前景 token");
   assert(/\.tool-display\.term[^{]*\{[^}]*color:\s*var\(--fg\)/.test(style), "D-348:运行输出未使用主题前景 token");
   assert(/#statusbar[^{]*\{[^}]*color:\s*var\(--statusbar-fg\)/.test(style), "D-351:状态栏未使用独立前景 token");
-  assert(/#statusbar\.running[^{]*\{[^}]*color:\s*var\(--statusbar-run-fg\)/.test(style), "D-351:运行态状态栏未使用可读前景 token");
   // D-351 的可读性下限:断言**解析出来的字号数值**,不是源码里那串字面量。
   // D-380 把字号 1:1 token 化之后,原来的 /font-size:\s*15px/ 全部落空——而可读性
   // 一点没变。写死字面量的断言拦不住"改小了但换了写法",还会把纯重构判成回归;
@@ -11286,7 +11186,7 @@ const docsB = {
   if (surface && events) {
     // 起点:把前面用例留下的弹层全部收掉,深度断言才有意义。
     events.hideAsk();
-    for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette", "context-detail", "sop-picker-panel", "file-suggestions", "composer-more-menu", "autorun-menu", "voice-settings-panel"]) {
+    for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette", "context-detail", "file-suggestions", "composer-more-menu", "autorun-menu", "voice-settings-panel"]) {
       surface.closeSurface(byId.get(id));
     }
     assert(surface.stackDepth() === 0, `弹层用例起点栈不为空(深度 ${surface.stackDepth()}):有弹层绕过原语打开或没关`);
@@ -11693,7 +11593,11 @@ const docsB = {
       // symbols
       ["symbols 多文件(旧 verbatim 路径)", "symbols", { content: `== ${VROOT}\\src\\a.rs\n  pub fn one:1\n     fn two:3\n== ${VROOT}\\src\\b.rs\n  pub struct S:2` }, "3 个符号 · 2 个文件"],
       ["symbols 单文件", "symbols", { content: "== src/lib.rs\n  pub fn a:1\n  pub fn b:2" }, "2 个符号"],
-      ["symbols callers", "symbols", { content: "callers of `helper` (2 hits):\nsrc/lib.rs:2: fn caller() { helper(); }\nsrc/lib.rs:3: fn b() { helper(); }" }, "2 处调用"],
+      ["symbols 文本候选", "symbols", { content: "text candidates for `helper` (2 hits):\nText substring matches only; not verified callers or references.\nsrc/a.js:1: // helper();\nsrc/a.js:2: helperOther();" }, "2 条文本候选"],
+      ["symbols 零候选", "symbols", { content: "text candidates for `helper` (0 hits):\nText substring matches only; zero matches do not prove there are no callers." }, "0 条文本候选"],
+      ["symbols 历史 callers", "symbols", { content: "callers of `helper` (2 hits):\nsrc/lib.rs:2: fn caller() { helper(); }\nsrc/lib.rs:3: fn b() { helper(); }" }, "2 条文本候选"],
+      ["symbols 历史无 callers", "symbols", { content: "(no callers of `helper` found)" }, "无文本候选"],
+      ["symbols 无支持的源码", "symbols", { content: "(no supported source files under .; extensions: rs, js, mjs)" }, "无符号"],
       ["symbols define", "symbols", { content: "definition of `helper` (1 hit):\n  pub fn helper  src/lib.rs:1\n(no `pub use` re-export of this symbol found in tree)\n" }, "1 处定义"],
       ["symbols 无", "symbols", { content: "(no symbols found)" }, "无符号"],
       ["symbols 地图", "symbols", { content: "repo map (crates: 1, modules: 4, public_symbols: 37)\n== crate `kanzei_tools`\n  module `read` (crates/kanzei-tools/src/read.rs)" }, "4 个模块 · 37 个符号"],
@@ -11843,9 +11747,13 @@ const docsB = {
         const addArg = toolArgSummary("req", { action: "add", title: "T" }).text;
         const updateArg = toolArgSummary("req", { action: "update", id: "R-364" }).text;
         const added = sum("req", { content: "added R-365 [todo] T", input: { action: "add" } }).text;
+        const oneCandidate = sum("symbols", { content: "text candidates for `helper` (1 hits):\nsrc/a.js:1: // helper();" }).text;
+        const candidates = sum("symbols", { content: "callers of `helper` (2 hits):\nsrc/a.js:1: // helper();\nsrc/a.js:2: helperOther();" }).text;
+        const candidateArg = toolArgSummary("symbols", { callers: "helper" }).text;
         assert(oneFile === "1 file" && oneLine === "exit 0 · 1 line of output", `英文单数仍是复数:"${oneFile}" / "${oneLine}"`);
         assert(lines === "2 independent tasks", `英文独立任务计数与行数撞义:"${lines}"`);
         assert(addArg === "Add · T" && updateArg === "Update R-364" && added === "Added R-365", `参数列动作与结果列共用一个英文词:"${addArg}" / "${updateArg}" / "${added}"`);
+        assert(oneCandidate === "1 text candidate" && candidates === "2 text candidates" && candidateArg === "text candidates for helper", `symbols 英文仍将候选称为调用:"${oneCandidate}" / "${candidates}" / "${candidateArg}"`);
       } finally {
         localStorageShim.setItem("kz-language", "zh");
       }
@@ -11871,12 +11779,14 @@ const docsB = {
       assert(taskArg.text === "第一行任务说明", `task 参数未取 prompt 首行:"${taskArg.text}"`);
       const questionArg = toolArgSummary("question", { question: "用哪个方案?" });
       assert(!questionArg.code, "question 参数是自然语言,不该标成代码记号");
+      assert(toolArgSummary("symbols", { callers: "helper" }).text === "文本候选 helper", "symbols 参数摘要不得声称查询已确认的调用方");
 
       // ---------- 端到端(实时):tool-end 带 content/durationMs ----------
       const live = [
         ["G4L-READ", "read", { path: `${VROOT}\\crates\\x.rs` }, { content: `${readLines(1, 42)}\n` }, "全文 42 行"],
         ["G4L-GREP", "grep", { pattern: "fn" }, { content: "src/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:1: fn two() {}" }, "2 处匹配 · 2 个文件"],
         ["G4L-SYM", "symbols", { path: "src" }, { content: "== src/a.rs\n  pub fn one:1\n     fn two:3" }, "2 个符号"],
+        ["G4L-SYM-CANDIDATES", "symbols", { callers: "helper" }, { content: "text candidates for `helper` (2 hits):\nText substring matches only; not verified callers or references.\nsrc/a.js:1: // helper();\nsrc/a.js:2: helperOther();" }, "2 条文本候选"],
         ["G4L-BASH", "bash", { command: "cargo test" }, {
           content: "exit code: 0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored",
           display: { kind: "terminal", command: "cargo test", exitCode: 0, output: "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored", full: "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored" },
@@ -12386,9 +12296,6 @@ const docsB = {
         const compaction = [...document.querySelectorAll(".compaction-entry")].at(-1);
         assert(compaction?.querySelector(".bg-detail.md")?.innerHTML.includes("<ul>"), "压缩纪要未按 markdown 渲染");
         compaction?.remove();
-        const summary = eventsNs.addSummaryEntry("- 做了甲\n- 做了乙", "C:/smoke/project/.kanzei/summaries/s1.md");
-        assert(summary?.querySelector(".bg-detail.md") && summary.querySelector(".sv-archived .sv-path"), "对话总结未按 markdown 渲染或存档路径不是 chip");
-        summary?.remove();
         // 研究运行卡的 execution_json 断言在研究视图用例里(卡片只在选中研究主题时存在)。
       }
       // ---------- markdown 路径链接的点击委托 ----------
@@ -13146,6 +13053,8 @@ const docsB = {
   sandbox.setCtxPending(true);
   sandbox.renderTokens();
   assert(byId.get("ctx-bar").classList.contains("pending"), "#7 等本轮 usage 时上下文条没有 pending");
+  assert(/^(上下文|context) 5%$/.test(byId.get("status-tokens").textContent), "等待模型时底栏应保留精简占比");
+  assert(/等待模型|Waiting for model/.test(byId.get("status-tokens").title), "底栏提示应保留上下文读数等待更新的说明");
   sandbox.setCtxPending(false);
   sandbox.renderTokens();
   assert(!byId.get("ctx-bar").classList.contains("pending"), "#7 usage 到达后上下文条仍 pending");
@@ -13714,11 +13623,6 @@ const docsB = {
     await flush();
     await live(...GLOB);
     assert(top(pane).map(kind).join(",") === "group,assistant,group,sa,group", `正文/子代理卡没有断开工具组:${top(pane).map(kind).join(",")}`);
-    // ③ 复制上下文:组逐项导出(工具名、⎿ 摘要、组内思考),折叠态也不丢。
-    copiedResearchCitation = "";
-    byId.get("copy-context").click();
-    await flush();
-    assert(["read", "glob", "bash", "⎿", "> 先看测试怎么挂的"].every((part) => copiedResearchCitation.includes(part)), `复制上下文丢了工具组里的行或思考:${copiedResearchCitation.slice(0, 200)}`);
     // ④ 搜索:命中只在折叠组的某一行时先展开那一组。
     const firstGroup = top(pane)[0];
     byId.get("chat-search-input").value = "cargo test";
@@ -13874,7 +13778,7 @@ const docsB = {
     assert(trigger.includes('id="auto-progress"') && trigger.includes('id="auto-phase"') && trigger.includes('id="auto-round-now"'), "鞭挞设置触发器里应含轮次(#auto-progress/#auto-round-now)与阶段(#auto-phase):状态即入口");
     assert(!/id="(?:hint|change-bar-branch)"|class="[^"]*\b(?:composer-actions|composer-secondary|seg-btn|seg-select|ctx-select)\b/.test(footer), "旧输入区结构(#hint、分段组、.ctx-select、改动条里的分支)不应再出现");
     const moreMenu = footer.slice(footer.indexOf('id="composer-more-menu"'));
-    assert(moreMenu.indexOf('id="sop-picker"') >= 0 && moreMenu.indexOf('id="sop-picker"') < moreMenu.indexOf('id="summarize-btn"'), "SOP 应是「更多」菜单的首项");
+    assert(!moreMenu.includes('id="sop-picker"') && !moreMenu.includes('id="summarize-btn"'), "Retired composer actions must stay removed");
   }
   // ⑬ 输入区行为:鞭挞触发器的读屏名带轮次与阶段;无改动时分支仍显示在上下文带;语音切换不冲掉图标。
   {
@@ -13976,18 +13880,6 @@ const docsB = {
   //     继续文案的开关住在鞭挞菜单里:展开编辑区时收起鞭挞菜单。
   {
     const surface = esmModuleCache.get("00-surface.js")?.namespace;
-    const compose = esmModuleCache.get("08-compose-runtime.js")?.namespace;
-    const more = byId.get("composer-more");
-    const moreMenu = byId.get("composer-more-menu");
-    const sopPanel = byId.get("sop-picker-panel");
-    surface.openPopover(more, moreMenu);
-    assert(surface.isSurfaceOpen(moreMenu), "前置:「更多」菜单没有打开");
-    const pendingSop = compose.openSopPicker();
-    assert(!surface.isSurfaceOpen(moreMenu) && surface.isSurfaceOpen(sopPanel), "点 SOP 后应先收起「更多」菜单、再弹出 SOP 列表");
-    assert(more.dataset.kzAnchor && sopPanel.style.getPropertyValue("position-anchor") === more.dataset.kzAnchor, `SOP 列表应以「更多」触发器为锚:${sopPanel.style.getPropertyValue("position-anchor")} ≠ ${more.dataset.kzAnchor}`);
-    await pendingSop;
-    await flush();
-    surface.closeSurface(sopPanel);
     const whipMenu = byId.get("autorun-menu");
     const continuePanel = byId.get("continue-panel");
     const toggle = byId.get("continue-toggle");
@@ -15237,10 +15129,10 @@ const docsB = {
     assert(!box.classList.contains("hidden") && box.dataset.kind === "no-git", `不是 Git 仓库时横幅应出现(no-git),实为 ${box.dataset.kind}`);
     assert(buttons().includes("初始化并首次提交") && buttons().includes("仅初始化 Git") && buttons().includes("不再提示"), `无 Git 横幅应有 [初始化并首次提交][仅初始化 Git][不再提示],实为 ${buttons().join("|")}`);
     // UX-130:阻断原因常驻——title 不再被 data-i18n-title 覆盖(拦着时摘掉),线路页有常驻阻断条带下一步。
-    assert(byId.get("worktree-add").getAttribute("data-i18n-title") === null && byId.get("lines-add").getAttribute("data-i18n-title") === null, "建线入口被拦时应摘掉 data-i18n-title(否则语言一应用就把阻断原因盖回用途提示)");
-    const linesBlock = byId.get("lines-git-block");
-    assert(linesBlock && !linesBlock.classList.contains("hidden") && linesBlock.textContent.includes("需要 Git") && [...linesBlock.querySelectorAll("button")].some((el) => el.textContent === "初始化并首次提交"), `并行线路页应有常驻阻断条(原因 + 初始化并首次提交),实为 ${linesBlock?.textContent}`);
-    assert(byId.get("worktree-add").getAttribute("aria-disabled") === "true" && String(byId.get("worktree-add").title).includes("Git"), "无 Git 时建线入口应禁用并说明原因");
+
+
+
+
     payloads.project_git_init = () => ({ git: { created: true, branch: "main" }, facts: { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] } });
     // 真实后端的 project_facts 与 project_git_init 同源:初始化之后再探测就是「有仓库、没提交」(刷新事实时不能退回旧的 none)。
     payloads.project_facts = { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] };
@@ -15252,7 +15144,7 @@ const docsB = {
     assert(!box.classList.contains("hidden") && box.dataset.kind === "no-commit" && box.textContent.includes("还没有提交") && buttons().includes("知道了") && buttons().includes("首次提交"),
       `初始化 Git(无提交)后横幅应换成「还没有提交」+[知道了],实为 ${box.dataset.kind}:${box.textContent}`);
     assert(listText("toast").includes("已初始化 Git 仓库"), `新建了仓库应提示「已初始化 Git 仓库」,实为 ${listText("toast")}`);
-    assert(String(byId.get("worktree-add").title).includes("提交"), `仓库没有提交时建线入口应说明「需要一次提交」,实为「${byId.get("worktree-add").title}」`);
+
     // 复核:后端说本来就是仓库(created:false)时不能照样报「已初始化」。
     payloads.project_git_init = () => ({ git: { created: false, branch: "main" }, facts: { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] } });
     await sessionsNs.initProjectGit();
@@ -15260,7 +15152,7 @@ const docsB = {
     assert(listText("toast").split("已初始化 Git 仓库").at(-1).includes("已经是 Git 仓库"), `created:false 时应提示「已经是 Git 仓库」,实为 ${listText("toast")}`);
     // 建线入口按事实拦下:不发 process_create;toast 带「首次提交」动作(UX-130)。
     const createsBefore = invokeArgs.filter(({ cmd }) => cmd === "process_create").length;
-    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
+
     await flush();
     assert(invokeArgs.filter(({ cmd }) => cmd === "process_create").length === createsBefore, "仓库没有提交时建线不应发 process_create");
     assert(listText("toast").includes("首次提交"), `建线被拦的 toast 应带「首次提交」动作:${listText("toast")}`);
@@ -15278,20 +15170,20 @@ const docsB = {
     payloads.project_git_init = () => ({ git: { created: false, branch: "main", committed: true }, facts: { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: true }, stacks: ["node"], planned: [], toolchains: [], installers: [] } });
     [...box.querySelectorAll("button")].find((el) => el.textContent === "首次提交")?.click();
     await flush();
-    assert(box.classList.contains("hidden") && byId.get("worktree-add").getAttribute("aria-disabled") !== "true", "首次提交成功后横幅应收起、建线入口解除禁用");
-    assert(byId.get("worktree-add").getAttribute("data-i18n-title") !== null && byId.get("lines-git-block").classList.contains("hidden"), "解除禁用后应还回 data-i18n-title、收起线路页阻断条");
+
+
     sandbox.confirmDialog = priorFixConfirm;
     // agent 在终端里 init/提交过(UX-129):git_status 与缓存的项目事实对不上,refreshGit 顺手把事实刷新,入口不再按旧事实拦人。
     payloads.project_facts = { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: false }, stacks: ["node"], planned: [], toolchains: [], installers: [] };
     await sessionsNs.refreshProjectFacts(PROJECT);
-    assert(byId.get("worktree-add").getAttribute("aria-disabled") === "true", "前置:无提交的事实应拦住建线入口");
+
     payloads.project_facts = { root: PROJECT, layout: "existing", files: 12, git: { state: "repo", branch: "main", has_commits: true }, stacks: ["node"], planned: [], toolchains: [], installers: [] };
     const priorStatusFacts = payloads.git_status;
     payloads.git_status = { repo: "own", branch: "main", changes: 0, last: "abc1234 初始化项目", additions: 0, deletions: 0, files: [] };
     const factsCallsBefore = invokeArgs.filter(({ cmd }) => cmd === "project_facts").length;
     await viewsNs.refreshGit();
     await flush();
-    assert(invokeArgs.filter(({ cmd }) => cmd === "project_facts").length > factsCallsBefore && byId.get("worktree-add").getAttribute("aria-disabled") !== "true", "refreshGit 发现仓库已有提交时应刷新缓存的项目事实并解除建线入口的拦截(UX-129)");
+
     payloads.git_status = priorStatusFacts;
     payloads.project_facts = { root: PROJECT, layout: "existing", files: 3, git: { state: "none" }, stacks: [], planned: [], toolchains: [], installers: [] };
     await sessionsNs.refreshProjectFacts(PROJECT);
@@ -15316,27 +15208,12 @@ const docsB = {
     payloads.project_facts = { root: PROJECT, layout: "greenfield", files: 0, git: { state: "repo", branch: "main", has_commits: true }, stacks: [], planned: [], toolchains: [], installers: [] };
     await sessionsNs.refreshProjectFacts(PROJECT);
     assert(box.dataset.kind === "greenfield" && box.textContent.includes("空项目"), `空项目横幅不对:${box.textContent}`);
-    assert(byId.get("worktree-add").getAttribute("aria-disabled") !== "true", "有提交的仓库不应禁用建线入口");
+
     [...box.querySelectorAll("button")].find((el) => el.textContent === "知道了")?.click();
     await flush();
     assert(box.classList.contains("hidden"), "点「知道了」后空项目横幅应收起");
     await sessionsNs.refreshProjectFacts(PROJECT);
     assert(box.classList.contains("hidden"), "「知道了」应按项目记住,再次刷新不再出现");
-    // 建线确认框:target/ 与冷编译只对 Rust 工程说。
-    let confirmMessage = "";
-    const priorConfirm = sandbox.confirmDialog;
-    sandbox.confirmDialog = (options) => { confirmMessage = options?.message ?? ""; return Promise.resolve(false); };
-    payloads.project_facts = { root: PROJECT, layout: "existing", files: 30, git: { state: "repo", branch: "main", has_commits: true }, stacks: ["node"], planned: [], toolchains: [], installers: [] };
-    await sessionsNs.refreshProjectFacts(PROJECT);
-    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
-    await flush();
-    assert(confirmMessage && !confirmMessage.includes("target/") && !confirmMessage.includes("冷编译"), `非 Rust 工程的建线确认不应提 target/ 冷编译:${confirmMessage}`);
-    payloads.project_facts = { ...payloads.project_facts, stacks: ["rust"] };
-    await sessionsNs.refreshProjectFacts(PROJECT);
-    await sessionsNs.createWorktreeLine({ currentTarget: byId.get("worktree-add") });
-    await flush();
-    assert(confirmMessage.includes("target/"), `Rust 工程的建线确认应提 target/ 成本:${confirmMessage}`);
-    sandbox.confirmDialog = priorConfirm;
     delete payloads.project_facts;
     await sessionsNs.refreshProjectFacts(PROJECT);
   }

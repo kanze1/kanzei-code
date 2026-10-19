@@ -1,9 +1,4 @@
-//! 对话总结 IPC(command 侧,纯搬迁自 run.rs,R-253 批0)。
-//!
-//! 独立理由:轮末/手动总结与运行编排零耦合——`summarize_chat` 是「对话页手动
-//! 总结按钮」的入口,`fast_summarize` 是它的实现(fast 模型把 transcript 压成
-//! 中文纪要)。两者只依赖 config/llm/文件系统,不经 run_task、不碰事件循环,
-//! 留在 run.rs 里只是给「运行主链路」文件加行数(照 files_view.rs 模式)。
+//! Sidebar conversation export: optional summaries and a user-selected Markdown file.
 
 use std::path::Path;
 
@@ -47,7 +42,7 @@ pub(crate) async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<Strin
 // render_transcript 已随 R-021 轮末整段替换一并删除(R-236 B1):轮末压缩的
 // 纪要输入渲染统一走 core 的 render_for_digest,不留第二份渲染实现。
 
-/// 对话总结 Tauri command(原 run.rs 2476):总结并落盘到 .kanzei/summaries/。
+/// Summarize a structured, conversation-scoped export supplied by the sidebar.
 #[tauri::command]
 pub(crate) async fn summarize_chat(
     project_dir: String,
@@ -55,13 +50,36 @@ pub(crate) async fn summarize_chat(
 ) -> Result<serde_json::Value, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
     let summary = fast_summarize(&root, &transcript).await?;
-    let dir = root.join(".kanzei").join("summaries");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let path = dir.join(format!("summary-{secs}.md"));
-    std::fs::write(&path, &summary).map_err(|e| e.to_string())?;
-    Ok(json!({ "summary": summary, "path": path.display().to_string() }))
+    Ok(json!({ "summary": summary }))
+}
+
+#[tauri::command]
+pub(crate) async fn save_conversation_export(
+    name: String,
+    content: String,
+) -> Result<Option<String>, String> {
+    let filename: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || "<>:\"/\\|?*".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let Some(destination) = rfd::AsyncFileDialog::new()
+        .set_file_name(format!("{filename}.md"))
+        .add_filter("Markdown", &["md"])
+        .save_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let path = destination.path().to_path_buf();
+    let saved = path.display().to_string();
+    tokio::fs::write(path, content)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(Some(saved))
 }

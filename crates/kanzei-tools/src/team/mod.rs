@@ -70,6 +70,12 @@ struct ChildWorker {
     cancel: CancellationToken,
     owner: Arc<SessionExecutionGuard>,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResultDelivery {
+    Collect,
+    Wait,
+    Callback,
+}
 impl std::ops::Deref for ChildWorker {
     type Target = CancellationToken;
     fn deref(&self) -> &Self::Target {
@@ -213,6 +219,7 @@ fn fresh_id() -> String {
 
 fn result_summary(job: &AgentJob) -> Value {
     json!({"id":job.id,"name":job.name,"role":job.role,"model":job.model,"state":job.state,
+        "result_available":!job.active() && job.revision > 0,
         "outcome":job.outcome,"result":short_text(&job.result, 2400),"latest":short_text(&job.latest, 400),"worktree":job.worktree,
         "result_chars":job.result.chars().count(),"result_truncated":job.result.chars().count()>2400,
         "files":job.files.iter().take(32).collect::<Vec<_>>(),"file_count":job.files.len(),
@@ -348,12 +355,14 @@ impl AgentTeam {
             && job.revision > job.reported
         {
             let _delivery = self.0.notification_lock.lock().unwrap();
-            if self
-                .0
-                .store
-                .get(&job.id)
-                .is_ok_and(|j| j.notified >= job.revision)
-            {
+            let current = match self.0.store.get(&job.id) {
+                Ok(current) => current,
+                Err(error) => {
+                    tracing::warn!(%error, child=%job.id, "child callback state unavailable");
+                    return;
+                }
+            };
+            if current.notified >= job.revision || current.reported >= job.revision {
                 return;
             }
             if let Some(mailbox) = self.0.mailbox.lock().unwrap().clone() {
@@ -518,6 +527,7 @@ impl AgentTeam {
         } else if let (Some(id), Some(revision)) =
             (value["id"].as_str(), value["revision"].as_u64())
         {
+            let _delivery = self.0.notification_lock.lock().unwrap();
             self.0.store.update(id, |job| {
                 job.reported = job.reported.max(revision);
             })?;
@@ -558,6 +568,9 @@ impl AgentTeam {
             "get" => {
                 let j = self.resolve(input["id"].as_str().context("需要子任务 id")?)?;
                 let mut value = json!({"job":result_summary(&j)});
+                if j.active() {
+                    value["message"] = json!("子任务仍在执行，尚未完成。空 result 不是完成通知；可继续独立工作，或用 task wait 等待结果。");
+                }
                 match input["view"].as_str().unwrap_or("summary") {
                     "summary" => {}
                     "history" => value["history"] = page(&self.0.store.history(&j.id)?, &input),
@@ -606,74 +619,21 @@ impl AgentTeam {
                 Ok(json!({"id":j.id,"state":"stopping"}))
             }
             "wait" | "collect" => {
-                let wanted = input["id"]
-                    .as_str()
-                    .map(|id| self.resolve(id))
-                    .transpose()?;
-                loop {
-                    let notify = self.0.changed.notified();
-                    let (jobs, workers) = {
-                        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-                        let jobs = self.list()?;
-                        let mut workers: std::collections::HashSet<_> =
-                            self.0.active.lock().unwrap().keys().cloned().collect();
-                        for job in jobs
-                            .iter()
-                            .filter(|job| wanted.as_ref().is_none_or(|wanted| wanted.id == job.id))
-                        {
-                            if workers.contains(&job.id) {
-                                continue;
-                            }
-                            match try_child_owner(&self.0.store, &job.id) {
-                                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                                    // A remote worker (or its final callback) is
-                                    // still live. Use the existing DB/notify wait.
-                                    workers.insert(job.id.clone());
-                                }
-                                Err(error) => return Err(error.into()),
-                                Ok(owner) => {
-                                    if action == "wait"
-                                        && job.active()
-                                        && recover_owned_child(&self.0.store, &job.id, &owner).map_err(|error| anyhow::anyhow!("子任务 {} 没有运行中的执行者；恢复状态保存失败：{error:#}", job.id))?
-                                    {
-                                        bail!("子任务 {} 没有运行中的执行者；状态保存或启动失败，可明确续做或停止", job.id);
-                                    }
-                                }
-                            }
-                        }
-                        (jobs, workers)
-                    };
-                    let active = jobs.iter().any(|j| {
-                        (j.active() || workers.contains(&j.id))
-                            && wanted.as_ref().is_none_or(|w| w.id == j.id)
-                    });
-                    if !active || action == "collect" {
-                        let results: Vec<_> = jobs
-                            .into_iter()
-                            .filter(|j| wanted.as_ref().is_none_or(|w| w.id == j.id))
-                            .filter(|j| action != "collect" || j.revision > j.reported)
-                            .filter(|j| {
-                                action != "collect" || !j.active() && !workers.contains(&j.id)
-                            })
-                            .collect();
-                        if action == "collect" {
-                            for job in &results {
-                                self.0.store.update(&job.id, |j| {
-                                    j.reported = j.reported.max(job.revision)
-                                })?;
-                            }
-                            return Ok(json!(results
-                                .iter()
-                                .map(result_summary)
-                                .collect::<Vec<_>>()));
-                        }
-                        return Ok(json!(results
-                            .iter()
-                            .map(result_summary)
-                            .collect::<Vec<_>>()));
-                    }
-                    tokio::select! {_=notify=>{},_=tokio::time::sleep(Duration::from_millis(500))=>{}}
-                }
+                let delivery = if action == "collect" {
+                    ResultDelivery::Collect
+                } else if self
+                    .0
+                    .mailbox
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|m| !m.is_closed())
+                {
+                    ResultDelivery::Callback
+                } else {
+                    ResultDelivery::Wait
+                };
+                self.results(&input, delivery).await
             }
             "diff" => {
                 let j = self.resolve(input["id"].as_str().context("需要子任务 id")?)?;
@@ -686,6 +646,79 @@ impl AgentTeam {
                 workspace::adopt,
             )?)),
             _ => bail!("未知子任务操作：{action}"),
+        }
+    }
+    async fn results(&self, input: &Value, delivery: ResultDelivery) -> Result<Value> {
+        let wanted = input["id"]
+            .as_str()
+            .map(|id| self.resolve(id))
+            .transpose()?;
+        loop {
+            let notify = self.0.changed.notified();
+            tokio::pin!(notify);
+            // Register before reading state; a completion between the snapshot
+            // and await must not be lost.
+            notify.as_mut().enable();
+            let (jobs, workers, local_workers) = {
+                let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+                let jobs: Vec<_> = self
+                    .list()?
+                    .into_iter()
+                    .filter(|j| wanted.as_ref().is_none_or(|w| w.id == j.id))
+                    .collect();
+                let local_workers: std::collections::HashSet<_> =
+                    self.0.active.lock().unwrap().keys().cloned().collect();
+                let mut workers = local_workers.clone();
+                for job in &jobs {
+                    if workers.contains(&job.id) {
+                        continue;
+                    }
+                    match try_child_owner(&self.0.store, &job.id) {
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            workers.insert(job.id.clone());
+                        }
+                        Err(error) => return Err(error.into()),
+                        Ok(owner) => {
+                            if delivery != ResultDelivery::Collect && job.active()
+                                && recover_owned_child(&self.0.store, &job.id, &owner).map_err(|error| anyhow::anyhow!("子任务 {} 没有运行中的执行者；恢复状态保存失败：{error:#}", job.id))?
+                            {
+                                bail!("子任务 {} 没有运行中的执行者；状态保存或启动失败，可明确续做或停止", job.id);
+                            }
+                        }
+                    }
+                }
+                (jobs, workers, local_workers)
+            };
+            let pending: Vec<_> = jobs
+                .iter()
+                .filter(|j| j.active() || workers.contains(&j.id))
+                .collect();
+            let deferred = delivery == ResultDelivery::Callback
+                && !pending.is_empty()
+                && pending
+                    .iter()
+                    .all(|j| j.active() && j.notify_on_completion && local_workers.contains(&j.id));
+            if pending.is_empty() || delivery == ResultDelivery::Collect || deferred {
+                let results: Vec<_> = jobs
+                    .iter()
+                    .filter(|j| !j.active() && !workers.contains(&j.id))
+                    .filter(|j| delivery != ResultDelivery::Collect || j.revision > j.reported)
+                    .map(result_summary)
+                    .collect();
+                if delivery == ResultDelivery::Collect {
+                    self.acknowledge_result(&json!(results))?;
+                }
+                if deferred {
+                    return Ok(json!({
+                        "state":"waiting", "delivery":"automatic", "jobs":results,
+                        "pending":pending.iter().map(|j| result_summary(j)).collect::<Vec<_>>(),
+                        "message":"尚有子任务执行中。完成或失败后会自动回传并唤醒本对话；没有独立工作时请结束本轮，等待完成通知。不要循环查询，也不要把等待回执当作完成结果。"
+                    }));
+                }
+                return Ok(json!(results));
+            }
+            // Other processes have no access to this process-local Notify.
+            tokio::select! { _=&mut notify=>{}, _=tokio::time::sleep(Duration::from_millis(500))=>{} }
         }
     }
     fn adopt_with(
@@ -846,10 +879,10 @@ impl AgentTeam {
         }
         drop(creation);
         if input["background"].as_bool() == Some(false) {
-            return Box::pin(self.command("", json!({"action":"wait","id":id}))).await;
+            return self.results(&json!({"id":id}), ResultDelivery::Wait).await;
         }
         Ok(
-            json!({"id":id,"state":"queued","background":true,"message":"已派发。桌面端完成后自动回传；可以继续独立工作或回复用户。task list/get/collect 查询，wait 仅用于必须等待的依赖。未完成前不要报告成功。"}),
+            json!({"id":id,"state":"queued","background":true,"message":"已派发，尚未完成。桌面端完成或失败后自动回传并唤醒本对话；继续独立工作，没有独立工作时结束本轮等待通知。不要循环查询 task list/get/collect/wait，未完成前不要报告成功。"}),
         )
     }
     pub async fn message(&self, id: &str, from: &str, text: &str) -> Result<Value> {
@@ -1646,7 +1679,7 @@ impl DelegationHost for AgentTeam {
         let global_capacity = config.config.limits.subagent_global_concurrency();
         ToolSpec {
             name: "task".into(),
-            description: format!("Delegate real work. Preference: {}; concurrency: {} for this conversation, {} across conversations. Extra tasks wait for capacity. Registered custom agents preserve their prompt and run read-only. Subtasks have no step limit. explore/plan are read-only; implement/verify/general use isolated writable Git checkouts when available in the role enum. Children cannot delegate recursively. Background defaults true. Use message/resume to continue the SAME task/history, restart to create a NEW task retaining the old record. list/get return bounded status/result summaries; list uses offset/limit and returns jobs/total/next_offset. For explicit detail use get view=result or prompt; view=history, trace, messages returns a page of items with offset/limit (max 20) and next_offset. collect reads completed updates without waiting. Wait when the result is needed; continue independent work meanwhile. Inspect diff before adopt to integrate candidate changes. Dependencies use existing task IDs and inspect their actual candidate files. Never claim a dispatched task is complete. Avoid duplicate assignments. Use context=fork only when the full conversation is needed.", mode.as_str(), capacity, global_capacity),
+            description: format!("Delegate real work. Preference: {}; concurrency: {} for this conversation, {} across conversations. Extra tasks wait for capacity. Registered custom agents preserve their prompt and run read-only. Subtasks have no step limit. explore/plan are read-only; implement/verify/general use isolated writable Git checkouts when available in the role enum. Children cannot delegate recursively. Background defaults true. Background completion/failure automatically wakes a connected conversation. Continue independent work; when none remains, end your turn and await that notification instead of polling list/get/collect/wait. wait returns a state=waiting, delivery=automatic receipt when callbacks will deliver the pending tasks; it is not a completion result. Without callbacks, wait blocks until the selected tasks finish. background=false explicitly waits for the spawned task. Use message/resume to continue the SAME task/history, restart to create a NEW task retaining the old record. list/get return bounded status/result summaries; result_available=false means the current task has not completed. list uses offset/limit and returns jobs/total/next_offset. For explicit detail use get view=result or prompt; view=history, trace, messages returns a page of items with offset/limit (max 20) and next_offset. collect reads completed updates without waiting; an empty array means no newly completed result, never that a running task has finished. Inspect diff before adopt to integrate candidate changes. Dependencies use existing task IDs and inspect their actual candidate files. Never claim a dispatched task is complete. Avoid duplicate assignments. Use context=fork only when the full conversation is needed.", mode.as_str(), capacity, global_capacity),
             input_schema: json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["spawn","list","get","message","resume","restart","stop","wait","collect","diff","adopt"]},
                 "id":{"type":"string"},"prompt":{"type":"string"},"description":{"type":"string"},

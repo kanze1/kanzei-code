@@ -81,7 +81,10 @@ async function harness() {
   const document = { body: new Element("body"), createElement: tag => new Element(tag), querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {}, dispatchEvent: () => {} };
   const context = vm.createContext({ document, console, Date, Option: class { constructor(text, value) { this.textContent = text; this.value = value; } }, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } }, Event: class {}, setTimeout, clearTimeout });
   const values = new Map([
-    ["./01-core.js", { $: get, invoke, confirmDialog: (...args) => confirm(...args), defer: () => {}, promptBox: new Element() }],
+    ["./00-dom.js", { $: get, defer: () => {} }],
+    ["./00-ipc.js", { invoke }],
+    ["./00-dialogs.js", { confirmDialog: (...args) => confirm(...args) }],
+    ["./01-chat-panes.js", { promptBox: new Element() }],
     ["./03-shell.js", { ...state, setCurrentProject: value => set("currentProject", value), setActiveProcessId: value => set("activeProcessId", value), setActiveSessionId: value => set("activeSessionId", value), setProcessItems: value => set("processItems", value), sessionState, sessionStates: states, transitionSession, setRunning: value => set("running", value), toast: text => notices.push(text), toastError: text => notices.push(text), ensureChatView: () => notices.push("ensureChatView") }],
     ["./02-i18n.js", { t: text => text, localizeDynamic: text => text, localizedStage: text => text }],
     ["./03-general-scope.js", { isGeneralChat: () => false }],
@@ -180,24 +183,11 @@ test("old A isolation button cannot detach the newly selected B", async () => {
   assert.equal(h.calls.filter(call => call.command === "project_detach").length, 0);
 });
 
-test("creation confirmed after project switch never creates a tree in B", async () => {
-  const h = await harness(), confirmation = deferred(); h.confirm(() => confirmation.promise);
-  const creation = h.sessions.createWorktreeLine(); await flush(); h.select(B); confirmation.resolve(true); await creation;
-  assert.equal(h.calls.filter(call => call.command === "process_create" && call.args.projectDir === B).length, 0);
-  assert.equal(h.sessions.worktreeLineCreateInFlight, false);
-});
 
-test("project switch during facts cannot retarget worktree creation", async () => {
-  const h = await harness(), facts = deferred(); h.handlers.set("project_facts", () => facts.promise);
-  const creation = h.sessions.createWorktreeLine(); h.select(B); facts.resolve({ git: { state: "repo", has_commits: true } }); await creation;
-  assert.equal(h.calls.filter(call => call.command === "process_create").length, 0);
-});
 
-test("facts await is already inside worktree creation admission", async () => {
-  const h = await harness(), facts = deferred(); h.handlers.set("project_facts", () => facts.promise);
-  const first = h.sessions.createWorktreeLine(), second = h.sessions.createWorktreeLine(); facts.resolve({ git: { state: "repo", has_commits: true } }); await Promise.all([first, second]);
-  assert.equal(h.calls.filter(call => call.command === "process_create").length, 1); assert.equal(h.sessions.worktreeLineCreateInFlight, false);
-});
+
+
+
 
 test("successful close cannot clear another process selected while close awaited", async () => {
   const h = await harness(), close = deferred();
@@ -227,24 +217,6 @@ test("closing failure cannot overwrite the terminal event received while IPC awa
 test("legacy project switch preserves same-project refresh through the shared navigation owner", async () => {
   const h = await harness(); h.handlers.set("projects_select", () => ({ current: A, projects: [A, B], names: {} }));
   await h.sessions.switchProject(A); assert.equal(h.calls.filter(call => call.command === "projects_select").length, 1);
-});
-
-test("cancelled worktree confirmation releases admission without creating", async () => {
-  const h = await harness(); h.confirm(() => false); await h.sessions.createWorktreeLine();
-  assert.equal(h.sessions.worktreeLineCreateInFlight, false); assert.equal(h.calls.filter(call => call.command === "process_create").length, 0);
-});
-
-test("failed worktree creation releases admission and allows a legitimate retry", async () => {
-  const h = await harness(); h.handlers.set("process_create", () => { throw new Error("git creation rejected"); });
-  await h.sessions.createWorktreeLine(); assert.equal(h.sessions.worktreeLineCreateInFlight, false);
-  assert.equal(h.get("worktree-add").disabled, false); h.handlers.delete("process_create"); await h.sessions.createWorktreeLine();
-  assert.equal(h.calls.filter(call => call.command === "process_create").length, 2); assert.equal(h.sessions.worktreeLineCreateInFlight, false);
-});
-
-test("blocked Git facts reject creation and release admission", async () => {
-  const h = await harness(); h.handlers.set("project_facts", () => ({ git: { state: "none" } }));
-  await h.sessions.createWorktreeLine(); assert.equal(h.calls.filter(call => call.command === "process_create").length, 0);
-  assert.equal(h.sessions.worktreeLineCreateInFlight, false);
 });
 
 test("legitimate isolation action uses its original project", async () => {

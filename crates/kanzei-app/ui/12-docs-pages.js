@@ -28,7 +28,6 @@ import { batchSelection, consumePendingJump, renderDocList, syncBatchBar } from 
 import { renderIncidentMetrics } from "./13-memory.js";
 import { applyDocFilter, clearDocFilters, refreshDocs } from "./14-docs-actions.js";
 import { syncConventionsEntry } from "./15-conventions.js";
-import { renderLineWorkItemOptions } from "./20-lines.js";
 import { renderDecisionConsole, workspaceConsoleBusy, workspaceConsoleState } from "./12-decision-console.js";
 
 export function formatWorkspaceTime(value) {
@@ -407,7 +406,6 @@ export function renderActiveFilterChips() {
 }
 export function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
-  if (typeof renderLineWorkItemOptions === "function") renderLineWorkItemOptions(snapshot);
   // tab 直调不经 renderDocsSnapshot,work-priority 可能刚切过——重算一次,幂等。
   agentFocus = computeAgentFocus(snapshot, activeSessionId, activeProcessItem());
   // 文档列表的「被取得」标记必须按主线焦点计算,不能因为用户当前查看并行线

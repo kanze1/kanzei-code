@@ -258,7 +258,6 @@ export function on(event, handler) {
     }
     // The floating temporary Q&A keeps its own visible recipient even when the
     // main conversation changes. It never changes main-run state or timers.
-    if (event === "kz:side-question") { handler(eventPayload); return; }
     // R-086:kz:turn 是每轮开头必发的信号,拿它把会话状态机拨回运行中并解除
     // converged。后端一次运行可以跨多轮(排队输入 promote 后接着跑),轮末的
     // kz:done 之后会话仍在跑,只有这条能把被前一轮 idle 焊住的状态解开。

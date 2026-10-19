@@ -1231,7 +1231,8 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       return null;
     },
     conversation_cleanup: { artifact_cleanup_errors: [], backup_cleanup_errors: [], actual_freed_bytes: 18432 },
-    summarize_chat: { summary: "预览模式不生成总结", path: "" },
+    summarize_chat: { summary: "预览模式不生成总结" },
+    save_conversation_export: null,
     // ---- 文档
     native_desktop_get: null,
     native_desktop_status: { revision:0,phase:"idle",owner:null,trace:[],available:false },

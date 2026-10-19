@@ -138,6 +138,7 @@ try {
   const peerRow = page.locator(`.workbench-session[data-process-id="${ids.peer.id}"]`).first();
   await peerRow.click({ button: "right" });
   check(await page.getByRole("menuitem", { name: "清空对话…", exact: true }).count() === 0, "Sidebar context menus no longer offer Clear conversation");
+  await page.getByRole("menuitem", { name: "导出…", exact: true }).click();
   await page.getByRole("menuitem", { name: "复制为 Markdown", exact: true }).click(); await settle();
   const copy = await page.evaluate(async () => ({ text: window.__redesign.clipboard, active: (await import("/03-shell.js")).activeProcessId }));
   check(copy.text.includes(`- Session: ${ids.peer.session_id}`) && copy.active === ids.process, "Markdown copy reads its sidebar recipient without changing the active conversation");

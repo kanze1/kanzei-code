@@ -334,6 +334,7 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
   $(`view-${view}`).classList.add("active");
   syncBackBars();
   if (view !== "files") filesViewLeft();
+  if (view !== "chat") setLogPanelOpen(false);
   document.dispatchEvent(new CustomEvent("kz:view-changed", { detail: { view } }));
   // 先让选中态和新页面绘制；快速连续切换只加载最后一个页面。
   requestAnimationFrame(() => {
@@ -794,7 +795,6 @@ export function setStatus(text, isRunning) {
   if (awaiting) $("status-mode").textContent = t("待你回复");
   // 去重:空闲时两格都是「空闲」、刚开跑时都是「运行中」——同一个词不在状态栏并排写两遍。
   $("status-text").classList.toggle("hidden", $("status-text").textContent === $("status-mode").textContent);
-  $("statusbar").classList.toggle("running", statusRunning && !awaiting);
   syncElapsed();
   renderTurnActivity();
 }
@@ -965,8 +965,7 @@ function compactTokens(value) {
   const n = Number(value) || 0;
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
-// UX-044:状态栏右侧空间有限、尾部会被省略号吃掉,所以把**最要紧的上下文占用放最前面**(用词也改成中文,
-// 带占比),本轮用量排在后面;完整数字在点开的「上下文成分」气泡里。
+// 底栏只投影上下文占比;完整读数与本轮用量留在运行详情,两处共用同一份会话数据。
 export function renderTokens() {
   const tokens = runTokens;
   const usage = tokens.input + tokens.output === 0
@@ -979,13 +978,14 @@ export function renderTokens() {
     ].filter(Boolean).join(" · ");
   let head = "";
   const bar = $("ctx-bar");
+  const pct = ctxTokens > 0 && ctxLimit ? Math.round((ctxTokens / ctxLimit) * 100) : null;
+  const button = $("status-tokens");
+  button.classList.toggle("ctx-warn", pct !== null && pct >= 70);
   if (ctxTokens > 0) {
     const k = (ctxTokens / 1000).toFixed(1);
     const pending = ctxPending ? ` (${t("等待模型")})` : "";
     if (ctxLimit) {
-      const pct = Math.round((ctxTokens / ctxLimit) * 100);
       head = `${t("上下文")} ${k}k/${Math.round(ctxLimit / 1000)}k (${pct}%)${pending}`;
-      $("status-tokens").classList.toggle("ctx-warn", pct >= 70);
       // 进度条:容量占用一眼可见,≥70% 变警示色;压缩由运行器的实际预算决定。
       bar.classList.remove("hidden");
       bar.classList.toggle("warn", pct >= 70);
@@ -1000,16 +1000,17 @@ export function renderTokens() {
     bar.classList.add("hidden");
     head = ctxPending ? `${t("上下文")} ${t("等待模型")}` : "";
   }
-  // 主读数(占用/上限/占比)与「本轮输入/缓存/输出」用量分两段:状态栏窄时(CSS 里 flex-wrap + 溢出裁掉)先让用量那段
-  // 让位,主读数不再被截成「279.2k/40…」(UX-044 验收缺陷);完整数字在点开的「上下文成分」气泡与按钮提示里。
-  const button = $("status-tokens");
-  button.textContent = "";
+  button.textContent = ctxTokens > 0 ? `${t("上下文")} ${pct === null ? compactTokens(ctxTokens) : `${pct}%`}` : "";
+  button.classList.toggle("hidden", ctxTokens <= 0);
+  button.title = [head, usage, t("点击查看上下文成分")].filter(Boolean).join(" · ");
+  const detail = $("runtime-context");
+  detail.textContent = "";
   for (const [cls, value, lead] of [["ctx-main", head, ""], ["ctx-usage", usage, head ? " · " : ""]]) {
     if (!value) continue;
     const span = document.createElement("span");
     span.className = cls;
     span.textContent = lead + value;
-    button.append(span);
+    detail.append(span);
   }
 }
 

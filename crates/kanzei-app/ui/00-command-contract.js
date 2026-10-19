@@ -704,6 +704,10 @@ export const commandParameters = {
   },
   "runtime_shutdown": {},
   "runtime_status": {},
+  "save_conversation_export": {
+    "content": true,
+    "name": true
+  },
   "save_delivered_file": {
     "path": true,
     "projectDir": true
@@ -722,21 +726,6 @@ export const commandParameters = {
   "settings_open": {},
   "settings_save": {
     "payload": true
-  },
-  "side_question_list": {
-    "processId": false,
-    "projectDir": true
-  },
-  "side_question_send": {
-    "id": true,
-    "processId": false,
-    "projectDir": true,
-    "question": true
-  },
-  "side_question_stop": {
-    "id": true,
-    "processId": false,
-    "projectDir": true
   },
   "skills_delete": {
     "expectedHash": true,

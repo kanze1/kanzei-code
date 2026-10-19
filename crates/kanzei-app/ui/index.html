@@ -117,7 +117,7 @@
       <div class="sidebar-section" data-space-only="research" data-collapse-key="live" id="live-section">
         <div class="section-title">
           <span><span data-i18n-key="任务与对话">任务与对话</span> <em id="parallel-task-count"></em></span>
-          <button id="process-add" class="icon-btn" title="新建独立任务" data-i18n-title="新建独立任务" aria-label="新建独立任务" data-i18n-aria-label="新建独立任务">＋</button>
+          <button id="process-add" class="icon-btn" title="新对话" data-i18n-title="新对话" aria-label="新对话" data-i18n-aria-label="新对话">＋</button>
         </div>
         <div id="live-status">
           <div id="parallel-task-status" class="parallel-task-status" role="list" aria-label="对话状态" data-i18n-aria-label="对话状态"></div>
@@ -240,10 +240,6 @@
           <div id="continue-panel" class="hidden">
             <label for="continue-prompt" data-i18n-key="推进指令">推进指令</label>
             <textarea id="continue-prompt" rows="6" spellcheck="false"></textarea>
-          </div>
-          <div id="sop-picker-panel" class="k-surface k-popover sop-picker-panel hidden" popover="manual" data-placement="top-end" role="dialog" aria-label="选择流程" data-i18n-aria-label="选择流程">
-            <div class="sop-picker-head"><strong data-i18n-key="选择流程">选择流程</strong><button id="sop-picker-close" class="icon-btn" type="button" aria-label="关闭流程列表" data-i18n-title="关闭流程列表">×</button></div>
-            <div id="sop-list" class="sop-list"></div>
           </div>
           <div id="file-suggestions" class="k-surface k-popover file-suggestions hidden" popover="manual" data-placement="top-start" role="listbox"></div>
           <div id="goal-menu" class="k-surface k-menu goal-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="Goal"></div>
@@ -391,18 +387,8 @@
               </div>
 </section>
 <section class="composer-menu-section">
-<button type="button" id="memory-dream" class="kz-ctl" title="从当前对话沉淀品味、约束、决策、踩过的坑和方法，保留原文供确认" data-i18n-title="从当前对话沉淀品味、约束、决策、踩过的坑和方法，保留原文供确认" data-i18n-key="做梦">做梦</button>
-<button type="button" id="side-question-open" class="kz-ctl" title="向对话旁路提一个问题，主任务继续运行" data-i18n-title="向对话旁路提一个问题，主任务继续运行" data-i18n-key="旁路提问">旁路提问</button>
+
 <button id="continue-btn" type="button" class="kz-ctl" title="按当前文案继续推进" data-i18n-title="按当前文案继续推进"><span data-i18n-key="继续">继续</span></button>
-<button type="button" id="runtime-indicator" class="kz-ctl" title="关闭窗口后任务继续运行,重开会接回当前任务" data-i18n-title="关闭窗口后任务继续运行,重开会接回当前任务" hidden>◉ <span data-i18n-key="后台常驻">后台常驻</span></button>
-
-                <button id="terminal-monitor-open" class="ghost" type="button" data-i18n-key="终端日志">终端日志</button>
-                <button id="sop-picker" class="ghost" type="button" title="选择已沉淀的流程" data-i18n-title="选择已沉淀的流程" data-i18n-key="流程(已沉淀)" data-i18n-zh="流程">流程</button>
-                <button data-space-only="dev" id="worktree-add" class="ghost" title="新建独立任务:在单独的 Git 工作树里与主对话并行工作;要求仓库里至少有一次提交" data-i18n-title="新建独立任务:在单独的 Git 工作树里与主对话并行工作;要求仓库里至少有一次提交"><span data-i18n-key="新建独立任务">新建独立任务</span></button>
-                <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/" data-i18n-title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/"><span data-i18n-key="总结">总结</span></button>
-                <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI" data-i18n-title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI"><span data-i18n-key="复制上下文">复制上下文</span></button>
-                <button id="chat-search-toggle" class="ghost" title="搜索当前对话(Ctrl+F)" data-i18n-title="搜索当前对话(Ctrl+F)"><span data-i18n-key="搜索">搜索</span></button>
-
 </section></div>
 </footer>
         <!-- UI2-0926 #8 网页预览停靠面板(24-preview.js;docs/design/preview_pane.md §前端):对话视图的最后一个子元素,
@@ -512,19 +498,9 @@
               <p class="dim" data-i18n-key="每个独立任务在自己的分支与工作树里并行工作；状态与改动文件来自当前运行现场。">每个独立任务在自己的分支与工作树里并行工作；状态与改动文件来自当前运行现场。</p>
             </div>
             <div class="lines-actions">
-              <!-- B26:开线入口合并——只有这一颗「新建独立任务」(输入区「更多」菜单里的同名项走同一个函数);条目绑定是可选的。 -->
-              <label class="lines-work-picker" for="lines-work-item">
-                <span data-i18n-key="绑定条目(可选)">绑定条目(可选)</span>
-                <select id="lines-work-item" aria-label="为新独立任务选择要绑定的条目(可选)" data-i18n-aria-label="为新独立任务选择要绑定的条目(可选)">
-                  <option value="" data-i18n-key="不绑定条目">不绑定条目</option>
-                </select>
-              </label>
               <button id="lines-refresh" class="ghost" type="button"><span data-i18n-key="刷新">刷新</span></button>
-              <button id="lines-add" class="primary" type="button" title="新建独立任务:在单独的 Git 工作树里与主对话并行工作;可先选一个条目绑定,不选也行" data-i18n-title="新建独立任务:在单独的 Git 工作树里与主对话并行工作;可先选一个条目绑定,不选也行"><span data-i18n-key="新建独立任务">新建独立任务</span></button>
             </div>
           </header>
-          <!-- 新建独立任务被 Git 事实拦住时的页内常驻说明(UX-130):原因 + 初始化并首次提交 / 首次提交。09-sessions.js renderWorktreeBlockBar。 -->
-          <div id="lines-git-block" class="project-facts lines-git-block hidden" role="status" aria-live="polite"></div>
           <div id="lines-summary" class="lines-summary" role="status" aria-live="polite"></div>
           <section class="lines-section" aria-labelledby="lines-board-title">
             <div class="lines-section-head">
@@ -794,6 +770,7 @@
             <input id="memory-search-input" type="search" placeholder="搜索记忆(标题、钩子、正文)" data-i18n-placeholder="搜索记忆(标题、钩子、正文)" aria-label="检索记忆" data-i18n-aria-label="检索记忆" />
             <button type="button" id="memory-search-clear" class="ghost" hidden data-i18n-key="清除搜索">清除搜索</button>
             <button type="button" id="memory-refresh" class="ghost" data-i18n-key="刷新">刷新</button>
+            <button type="button" id="memory-dream" class="ghost" title="选择来源对话，沉淀经验并保留原文供确认" data-i18n-title="选择来源对话，沉淀经验并保留原文供确认" data-i18n-key="做梦">做梦</button>
             <button type="button" class="ghost" id="memory-consolidate-btn" title="让记忆管理子代理把全部待整理条目提炼成记忆条目" data-i18n-title="让记忆管理子代理把全部待整理条目提炼成记忆条目"><span data-i18n-key="全部整理">全部整理</span><span id="memory-consolidate-count" class="memory-consolidate-count"></span></button>
             <button type="button" class="ghost" id="memory-consolidate-stop" hidden data-i18n-key="停止整理">停止整理</button>
             <button type="button" class="ghost" id="memory-new-btn" title="在管理对话里说明要记住什么，由记忆管理子代理整理成条目(它会先查重、再写召回钩子)" data-i18n-title="在管理对话里说明要记住什么，由记忆管理子代理整理成条目(它会先查重、再写召回钩子)"><span data-i18n-key="新建记忆">新建记忆</span></button>
@@ -1534,34 +1511,45 @@
 
       <div id="log-panel" class="hidden">
         <div class="log-head">
-          <span data-i18n-key="运行日志">运行日志</span>
+          <span data-i18n-key="运行详情">运行详情</span>
           <span>
             <button id="log-retry" class="icon-btn hidden" title="重试上次失败操作" data-i18n-title="重试上次失败操作" aria-label="重试上次失败操作" data-i18n-aria-label="重试上次失败操作">↻</button>
             <button id="log-copy" class="icon-btn" title="复制日志" data-i18n-title="复制日志" aria-label="复制运行日志" data-i18n-aria-label="复制运行日志">⧉</button>
             <button id="log-clear" class="icon-btn" title="清空" data-i18n-title="清空" aria-label="清空日志" data-i18n-aria-label="清空日志">⌫</button>
-            <button id="log-close" type="button" class="icon-btn" title="收起日志" data-i18n-title="收起日志" aria-label="收起日志" data-i18n-aria-label="收起日志"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
+            <button id="log-close" type="button" class="icon-btn" title="收起运行详情" data-i18n-title="收起运行详情" aria-label="收起运行详情" data-i18n-aria-label="收起运行详情"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
           </span>
+        </div>
+        <div class="runtime-detail-summary">
+          <div class="runtime-status">
+            <span id="status-dot" class="dot kz-dot idle" data-state="idle" aria-hidden="true"></span>
+            <span id="status-mode">空闲</span>
+            <span id="status-text"></span>
+            <span id="status-elapsed"></span>
+          </div>
+          <div class="runtime-meta">
+            <span id="status-model"></span>
+            <span id="status-fast" class="status-fast hidden" role="status" title="fast 子代理模型状态" data-i18n-title="fast 子代理模型状态"></span>
+          </div>
+          <div class="runtime-context">
+            <span id="ctx-bar" class="hidden" title="上下文占用" data-i18n-title="上下文占用"><i id="ctx-bar-fill"></i></span>
+            <span id="runtime-context"></span>
+          </div>
+          <div class="runtime-meta">
+            <span id="status-git" title="git 分支 · 未提交改动" data-i18n-title="git 分支 · 未提交改动"></span>
+            <span id="status-version"></span>
+          </div>
         </div>
         <div id="log-lines"></div>
       </div>
 
       <footer id="statusbar">
         <div class="status-left">
-          <span id="status-dot" class="dot kz-dot idle" data-state="idle" aria-hidden="true"></span>
-          <span id="status-fast" class="status-fast hidden" role="status" title="fast 子代理模型状态" data-i18n-title="fast 子代理模型状态"></span>
-          <span id="status-mode">空闲</span>
-          <span id="status-text">空闲</span>
-          <span id="status-elapsed"></span>
-          <span id="status-git" title="git 分支 · 未提交改动" data-i18n-title="git 分支 · 未提交改动"></span>
-          <span id="status-auto-allow" class="hidden status-auto-allow" title="自动放行已开启:所有权限询问直接通过,此选择会被记住并跨重启生效" data-i18n-title="自动放行已开启:所有权限询问直接通过,此选择会被记住并跨重启生效">⚡&#xFE0E; <span data-i18n-key="自动放行">自动放行</span></span>
+          <button id="status-tokens" type="button" class="context-status hidden" aria-label="查看上下文成分" data-i18n-aria-label="查看上下文成分" aria-expanded="false"></button>
+          <div id="context-detail" class="k-surface k-popover context-detail hidden" popover="manual" data-placement="top-end"></div>
         </div>
         <div class="status-right">
-          <span id="ctx-bar" class="hidden" title="上下文占用" data-i18n-title="上下文占用"><i id="ctx-bar-fill"></i></span>
-          <button id="status-tokens" type="button" class="context-status" aria-label="查看上下文成分" data-i18n-aria-label="查看上下文成分" aria-expanded="false"></button>
-          <div id="context-detail" class="k-surface k-popover context-detail hidden" popover="manual" data-placement="top-end"></div>
-          <span id="status-model"></span>
-          <button id="log-toggle" class="statusbar-btn" aria-controls="log-panel" aria-expanded="false" title="显示/隐藏运行日志" data-i18n-title="显示/隐藏运行日志" data-i18n-key="日志">日志</button>
-          <span id="status-version"></span>
+          <button id="status-auto-allow" type="button" class="hidden status-auto-allow" aria-pressed="false" aria-label="关闭自动放行" data-i18n-aria-label="关闭自动放行" title="关闭自动放行" data-i18n-title="关闭自动放行">⚡&#xFE0E; <span data-i18n-key="自动放行">自动放行</span></button>
+          <button id="log-toggle" type="button" class="statusbar-btn" aria-controls="log-panel" aria-expanded="false" title="显示/隐藏运行详情" data-i18n-title="显示/隐藏运行详情" data-i18n-key="运行详情">运行详情</button>
         </div>
       </footer>
     </main>

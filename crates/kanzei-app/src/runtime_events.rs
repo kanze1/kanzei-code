@@ -22,7 +22,6 @@ const EVENTS: &[&str] = &[
     "kz:reasoning",
     "kz:runtime-resync",
     "kz:schedule-run",
-    "kz:side-question",
     "kz:status",
     "kz:step",
     "kz:stopped",

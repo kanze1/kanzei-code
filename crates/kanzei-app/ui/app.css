@@ -8,7 +8,6 @@
 @import url("workbench.css") layer(app);
 @import url("softwire.css") layer(app);
 @import url("project-conversations.css") layer(app);
-@import url("async-workspace.css") layer(app);
 @import url("resource-types.css") layer(app);
 @import url("familiar-workspace.css") layer(app);
 @import url("skills.css") layer(app);

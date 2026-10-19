@@ -70,7 +70,6 @@ import {
   subagentSealPaneTail,
 } from "./05-subagents.js";
 import { bgClear, renderRecoveredTraces } from "./06-activity.js";
-import { addSummaryEntry } from "./07-events.js";
 import { cancelAutoContinueTimer } from "./08-auto.js";
 import { initProjectGit, processRunning, processSwitchGeneration, projectFactsStale, refreshProcesses, refreshProjectFacts, switchProcess } from "./09-sessions.js";
 import { fillTemplate, formatByteSize, stripInternalHandoff } from "./04-structured-parse.js";
@@ -1289,39 +1288,6 @@ export async function startNewConversation() {
 
 defer(() => {
   $("new-chat").addEventListener("click", () => void startNewConversation());
-});
-
-// ---------- 对话总结 ----------
-defer(() => {
-  $("summarize-btn").addEventListener("click", async () => {
-    if (!currentProject) {
-      toast(t("先选择一个项目"));
-      return;
-    }
-    const transcript = [...messages.querySelectorAll(".msg, .tool-chip")]
-      .map((el) => el.textContent.trim())
-      .filter(Boolean)
-      .join("\n\n")
-      .slice(0, 60000);
-    if (!transcript) {
-      toast(t("当前没有可总结的对话"));
-      return;
-    }
-    $("summarize-btn").disabled = true;
-    setStatus(`${t("总结中")}(fast model)`, true);
-    log(t("开始总结当前对话…"));
-    try {
-      const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
-      addSummaryEntry(r.summary, r.path);
-      toast(t("小总结已收纳到活动面板"));
-      log(`${t("总结完成,已收纳并存档")}:${r.path}`);
-    } catch (err) {
-      toastError(`${t("总结失败")}:${err}`, { retry: () => $("summarize-btn").click() });
-    } finally {
-      $("summarize-btn").disabled = false;
-      setStatus(running ? t("运行中") : t("空闲"), running);
-    }
-  });
 });
 
 defer(() => {

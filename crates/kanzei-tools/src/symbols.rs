@@ -3,8 +3,8 @@
 //! 带行号与可见性),agent 不必 read 全文即可定位质量热点。
 //!
 //! 解析策略:轻量行级扫描,不引入 syn 等重依赖(与 R-154 拆分的轻量哲学一致)。
-//! 精确识别 `fn name` / `struct Name` / `enum Name` / `impl` / `pub fn` 等定义行,
-//! 跳过注释与字符串内的伪命中;不支持跨行宏展开(那是 IDE 的事,这里只给结构地图)。
+//! 按行识别部分 Rust/JavaScript 声明,不是 AST/LSP;注释与字符串处理不完整,
+//! 不解析作用域、类型绑定或宏展开。callers 仅返回文本候选,不验证调用关系。
 
 use std::path::Path;
 
@@ -15,22 +15,22 @@ use serde::Deserialize;
 
 #[derive(Deserialize, JsonSchema)]
 struct SymbolsInput {
-    /// 要扫描的文件或目录(相对 cwd)。目录 = 递归扫 .rs 文件。
+    /// 要扫描的文件或目录(相对 cwd)。目录递归扫描 .rs/.js/.mjs 文件。
     #[serde(default)]
     path: Option<String>,
     /// 只列出匹配此子串的符号名(定位特定函数)。
     #[serde(default)]
     filter: Option<String>,
-    /// 只输出公共符号(pub fn/pub struct 等)。默认全量。
+    /// 只输出标记为公共的符号。Rust 按 pub、JS 按列 0 或 export 近似判定;默认全量。
     #[serde(default)]
     public_only: bool,
-    /// R-234 B2:查「谁调用此符号」——在目标树里列出对该符号名的引用点
-    /// (file:line)。填符号名(如 `parse_symbol_line`),与 path 配合使用。
+    /// R-234 B2:按子串查询文本候选(file:line),最多显示 50 行,不是已验证的调用或引用。
+    /// 可能命中注释、字符串、定义和同名符号,也可能漏掉别名调用;零命中不能证明无调用者。
     #[serde(default)]
     callers: Option<String>,
     /// R-265:查「这个符号定义在哪」——输入裸名或限定路径
     /// (如 `try_lock_exclusive` 或 `crate::atomic_file::try_lock_exclusive`),
-    /// 全树按符号名精确命中定义点,并给出跨 crate re-export 链。
+    /// 限定路径仅取末段,全树按名查找声明候选,并给出 Rust re-export 线索。
     /// 与 callers 互斥(同时给出会显式报错)。
     #[serde(default)]
     define: Option<String>,
@@ -64,15 +64,19 @@ impl Tool for SymbolsTool {
     }
 
     fn description(&self) -> String {
-        "Code symbol map (R-234/R-324): list functions/structs/enums/impls with line numbers \
-         and visibility for a Rust, JavaScript or ESM (.rs/.js/.mjs) file or directory, WITHOUT reading the whole file. For JS the `pub` marker means top-level (column 0 = global in classic scripts) or exported; kinds are fn/class/const. \
-         Fills the granularity gap between `files` (line counts) and `read` (full text): \
-         use it to locate quality hotspots (huge functions, orphan impls, non-pub \
-         surface) before deciding what to read. When full file listings are needed, the deferred `files` tool is available after `tool_search select:files`. Params: path (file or dir, relative to \
-         cwd), filter (substring match on symbol name), public_only, callers (symbol \
-         name — list reference points that call it, capped at 50), define (bare name or \
-         crate::path — locate its definition anywhere in the tree, resolving cross-crate \
-         re-exports; mutually exclusive with callers), crate (workspace crate ident, \
+        "Line-based code outline (R-234/R-324), not AST/LSP: list recognized declarations \
+         with line numbers and heuristic visibility for Rust or JavaScript/ESM \
+         (.rs/.js/.mjs), without returning full source. May miss multiline syntax or \
+         JS method shorthand; does not resolve scope or type bindings. For JS, `pub` \
+         means column 0 or an export prefix, not verified global/module visibility. \
+         Use the outline to choose what to read. Full file listings are available via \
+         `tool_search select:files`. Params: path (file or dir, relative to cwd), filter \
+         (substring match on symbol name), public_only, callers (text substring — \
+         candidate lines only, capped at 50; may include comments, strings, definitions \
+         and same-name symbols, and miss aliases; not verified callers or references; \
+         zero matches do not prove there are no callers), define (bare or qualified \
+         name — match the final :: segment across scanned declarations, with Rust \
+         re-export hints; mutually exclusive with callers), crate (workspace crate ident, \
          `-` becomes `_`) and module (module path prefix) for a live crate→module→public \
          symbol map. Map queries rescan the current worktree, so commits never leave a \
          stale persisted index behind.)"
@@ -138,8 +142,9 @@ impl SymbolsTool {
         };
         if files.is_empty() {
             return ToolOutput::ok(format!(
-                "(no .rs files under {})",
-                shown_path(&target, &ctx.cwd)
+                "(no supported source files under {}; extensions: {})",
+                shown_path(&target, &ctx.cwd),
+                SOURCE_EXTENSIONS.join(", ")
             ));
         }
         if input.crate_name.is_some() || input.module.is_some() {
@@ -154,14 +159,15 @@ impl SymbolsTool {
         // R-265:define 与 callers 互斥——同时给出是参数错误,而非静默取其一。
         if input.define.is_some() && input.callers.is_some() {
             return ToolOutput::error(
-                "symbols: `define` 与 `callers` 互斥,一次只能查一个(定义位置 vs 调用点)。",
+                "symbols: `define` 与 `callers` 互斥,一次只能查一个(声明候选 vs 文本候选)。",
             );
         }
-        // R-265:符号反查——全树按名精确命中定义点,并解释跨 crate re-export 链。
+        // R-265:按名查找声明候选,并解释 Rust re-export 线索。
         if let Some(define) = &input.define {
             let report = resolve_define(&files, define, &ctx.cwd);
             return ToolOutput::ok(report);
-        } // R-234 B2:调用链查询——列出对指定符号的引用点。
+        }
+        // R-234 B2:文本候选查询。参数名 callers 保留,结果不声称建立调用关系。
         if let Some(callers) = &input.callers {
             let mut hits: Vec<String> = Vec::new();
             for file in &files {
@@ -169,7 +175,7 @@ impl SymbolsTool {
                     continue;
                 };
                 for (idx, raw) in text.lines().enumerate() {
-                    // 匹配引用点,排除「定义行本身」:形如 `fn helper` / `pub fn helper`。
+                    // 按子串匹配,仅排除部分 Rust 声明行;不解析注释、字符串或符号绑定。
                     let line = raw;
                     let is_definition = {
                         let mut rest = line.trim_start();
@@ -202,18 +208,19 @@ impl SymbolsTool {
             const DEFAULT_LIMIT: usize = 50;
             let total = hits.len();
             let shown = hits.iter().take(DEFAULT_LIMIT).cloned().collect::<Vec<_>>();
-            return if total == 0 {
-                ToolOutput::ok(format!("(no callers of `{callers}` found)"))
-            } else {
-                let mut report = format!("callers of `{callers}` ({} hits):\n", total);
-                report.push_str(&shown.join("\n"));
-                if total > DEFAULT_LIMIT {
-                    report.push_str(&format!(
-                        "\n... (stopped at limit {DEFAULT_LIMIT}; narrow the pattern or raise limit)"
-                    ));
-                }
-                ToolOutput::ok(report)
-            };
+            let mut report = format!(
+                "text candidates for `{callers}` ({total} hits):\n\
+                 Text substring matches only; not verified callers or references. \
+                 May include comments, strings, definitions and same-name symbols, \
+                 and miss aliases; zero matches do not prove there are no callers.\n"
+            );
+            report.push_str(&shown.join("\n"));
+            if total > DEFAULT_LIMIT {
+                report.push_str(&format!(
+                    "\n... (stopped at limit {DEFAULT_LIMIT}; narrow path or substring)"
+                ));
+            }
+            return ToolOutput::ok(report);
         }
         let mut all: Vec<(String, Vec<Symbol>)> = Vec::new();
         for file in files {
@@ -750,7 +757,7 @@ fn collect_reexports(files: &[std::path::PathBuf]) -> Vec<ReExport> {
     out
 }
 
-/// 行级扫描符号。状态机跳过字符串/注释内的伪命中。
+/// 行级扫描符号,仅处理部分注释形态,不维护完整的字符串/作用域状态。
 ///
 /// R-324:按扩展名分流解析规则。注释/块注释/行尾裁剪这套状态机对两种语言通用
 /// (`//` 与 `/* */` 语法一致),分歧只在「一行代码算不算一个定义」,所以只换
@@ -796,7 +803,7 @@ fn scan_symbols(file: &Path) -> Vec<Symbol> {
         if in_block_comment {
             continue;
         }
-        // 去掉行注释与字符串字面量(粗略:遇到 // 或 " 截断;字符串内引号场景稀少,可接受)。
+        // 按 // 截断行尾,不解析字符串中的 // 或跨行字符串。
         let code = strip_line_tail(rest);
         let code = code.trim();
         if code.is_empty() {
@@ -826,14 +833,14 @@ fn strip_line_tail(line: &str) -> &str {
     }
 }
 
-/// R-324:从单行 JS/TS 代码解析一个符号定义。
+/// R-324:从单行 JS 代码近似识别声明。
 ///
 /// 与 Rust 侧同哲学——**行级、无 AST**。JS 没有 `pub`,可见性改用两条判据:
 /// 显式 `export` 前缀,或**位于列 0**(经典 script 里顶层声明即全局,判据与
 /// `scripts/gen-ui-lint-globals.mjs` 一致)。`top_level` 由调用方按原始行的
 /// 缩进给出——`code` 已被 trim,这里自己看不出缩进。
 ///
-/// 识别范围有意收窄到「一眼能确定是定义」的形态,宁可漏不可错:
+/// 仅识别部分声明形态,结果仍为行级近似:
 /// 对象字面量里的方法简写(`foo() {`)与 `if (x) {` 无法在行级区分,一律不认。
 fn parse_js_symbol_line(code: &str, line: usize, top_level: bool) -> Option<Symbol> {
     let code = code.trim();
@@ -1231,9 +1238,9 @@ mod tests {
         std::fs::remove_file(&file).ok();
     }
 
-    /// R-234 B2:调用链查询——callers 列出引用点,排除定义行本身。
+    /// callers 保留词法匹配,正文明确标为候选,零命中不声称无调用者。
     #[tokio::test]
-    async fn 调用链查询_列出引用点排除定义行() {
+    async fn 文本候选查询_标明未验证且零命中不推断调用关系() {
         let dir = std::env::temp_dir().join(format!(
             "kz-symbols-callers-{}-{}",
             std::process::id(),
@@ -1250,6 +1257,11 @@ mod tests {
              fn caller_b() { helper(); helper(); }\n",
         )
         .unwrap();
+        std::fs::write(
+            dir.join("probe.js"),
+            "function helper() {}\n// helper();\nconst message = \"helper\";\nhelperOther();\n",
+        )
+        .unwrap();
         let ctx = kanzei_harness::ToolCtx::new(dir.clone(), dir.clone());
         let tool = SymbolsTool;
         let out = tool
@@ -1260,7 +1272,46 @@ mod tests {
         assert!(out.content.contains("caller_b"), "{}", out.content);
         // 定义行 `pub fn helper()` 不应被算作调用点(那是定义不是调用)。
         assert!(!out.content.contains("pub fn helper"), "{}", out.content);
-        assert!(out.content.contains("2 hits"), "{}", out.content);
+        assert!(
+            out.content
+                .starts_with("text candidates for `helper` (6 hits):\n"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("not verified callers or references"),
+            "{}",
+            out.content
+        );
+        for candidate in [
+            "probe.js:1: function helper() {}",
+            "probe.js:2: // helper();",
+            "probe.js:3: const message = \"helper\";",
+            "probe.js:4: helperOther();",
+        ] {
+            assert!(out.content.contains(candidate), "{}", out.content);
+        }
+        let empty = tool
+            .execute(
+                serde_json::json!({"path": ".", "callers": "missing_symbol"}),
+                &ctx,
+            )
+            .await;
+        assert!(!empty.is_error, "{}", empty.content);
+        assert!(
+            empty
+                .content
+                .starts_with("text candidates for `missing_symbol` (0 hits):\n"),
+            "{}",
+            empty.content
+        );
+        assert!(
+            empty
+                .content
+                .contains("zero matches do not prove there are no callers"),
+            "{}",
+            empty.content
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

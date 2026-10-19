@@ -70,7 +70,6 @@ mod runtime_service;
 mod schedules;
 mod screenshot;
 mod settings;
-mod side_question;
 mod skills;
 mod softwire;
 mod state;

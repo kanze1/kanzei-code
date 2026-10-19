@@ -64,7 +64,7 @@ export function collectPaletteEntries() {
   // 剔掉的话「搜索」这类功能就从面板里凭空消失了。
   // 研究空间没有「当前项目」和讨论入口:新讨论按钮被 CSS 藏起来(点了毫无反应),记需求/记缺陷/记想法/总结
   // 点了只会弹「先选择项目」。这些条目在研究空间不进清单(面板自述「不提供点了没反应的条目」)。
-  const devOnlyIds = new Set(["new-chat", "summarize-btn", "documents-new-req", "documents-new-defect", "documents-new-idea"]);
+  const devOnlyIds = new Set(["new-chat", "documents-new-req", "documents-new-defect", "documents-new-idea"]);
   const action = (label, id) => {
     const el = $(id);
     if (!el || el.disabled || el.classList.contains("hidden")) return;
@@ -90,15 +90,11 @@ export function collectPaletteEntries() {
   action(t("添加项目文件夹…"), "project-add");
   action(t("新建项目…"), "project-init");
   action(t("停止"), "stop");
-  action(t("总结"), "summarize-btn");
-  action(t("复制上下文"), "copy-context");
-  action(t("搜索"), "chat-search-toggle");
   action(t("活动"), "tasks-toggle");
   // UI2-0926 #8:网页预览(rail 开关同一实现:关着就打开,开着就收起)与文件页「在预览中打开」。
   action(t("网页预览"), "preview-toggle");
   action(t("在预览中打开当前文件"), "files-open-preview");
   action(t("切换主题"), "theme-toggle");
-  action(t("新建独立任务"), "worktree-add");
   // 记需求/记缺陷/记想法(UX-053/B7):点需求页「＋ 新建」菜单里的同名项——它们会打开需求页上**可见**的表单。
   // 原来点的是被隐藏的侧栏里的 #req-quick/#defect-quick,表单进了 0×0 的容器,点了毫无反应。
   action(t("记需求"), "documents-new-req");

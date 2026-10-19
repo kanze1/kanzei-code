@@ -149,7 +149,7 @@ import { fillTemplate, permissionResourceText, stripInternalHandoff } from "./04
 import { pathChip, renderPermissionResource } from "./04-structured.js";
 import { toolResultSummary } from "./05-tool-summary.js";
 // UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
-import { isSubagentSpawn, subagentByKey, subagentKey, subagentCopyText, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
+import { isSubagentSpawn, subagentByKey, subagentKey, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
 import { openTasksPanel } from "./06-agent-panel.js";
 import { restoreAgent } from "./27-agent-team.js";
 
@@ -270,36 +270,6 @@ export function addCompactionEntry(summary) {
   lastCompactionEntry = el;
 }
 
-export function addSummaryEntry(summary, path = "") {
-  const el = document.createElement("div");
-  el.className = "bg-entry ok summary-entry";
-  const title = document.createElement("button");
-  title.type = "button";
-  title.className = "bg-title";
-  title.setAttribute("aria-label", t("展开或收起对话总结"));
-  title.setAttribute("aria-expanded", "true");
-  title.textContent = t("对话小总结 · 点击查看");
-  const detail = document.createElement("div");
-  detail.className = "bg-detail md sv-md";
-  renderMarkdownInto(detail, String(summary ?? ""));
-  if (path) {
-    const archived = document.createElement("div");
-    archived.className = "sv-archived";
-    archived.append(document.createTextNode(`${t("已存档")}: `), pathChip(path));
-    detail.append(archived);
-  }
-  el.append(title, detail);
-  title.addEventListener("click", () => {
-    detail.classList.toggle("hidden");
-    title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
-  });
-  // 压缩/总结这类通知也落「运行中」段。原来直接挂 #bg-list 并按 firstElementChild
-  // 裁剪——分段之后那会把段骨架当成最老的条目摘掉。裁剪只在本段内按 .bg-entry 走。
-  const notices = $("bg-running") ?? $("bg-list");
-  notices.appendChild(el);
-  while (notices.querySelectorAll(".bg-entry").length > BG_MAX) notices.querySelector(".bg-entry").remove();
-  return el;
-}
 export function renderContextDetail() {
   const detail = $("context-detail");
   const tokens = runTokens;
@@ -361,6 +331,9 @@ defer(() => {
 // Esc 与点外关闭由 00-surface 的弹层栈统一处理(锚点按钮自身除外,点它是切换)。
 defer(() => {
   $("status-tokens").addEventListener("click", toggleContextDetail);
+  document.addEventListener("kz:view-changed", event => {
+    if (event.detail.view !== "chat") hideContextDetail();
+  });
 });
 on("kz:tool-start", (e) => {
   markFirstSignal();
@@ -1048,6 +1021,7 @@ defer(() => {
 export function syncAutoAllowBadge() {
   const on = $("auto-allow").checked;
   $("status-auto-allow").classList.toggle("hidden", !on);
+  $("status-auto-allow").setAttribute("aria-pressed", String(on));
 }
 defer(() => {
   $("auto-allow").checked = autoAllowEnabled();
@@ -1061,12 +1035,17 @@ defer(() => {
   });
 });
 defer(() => {
-  $("auto-allow").addEventListener("change", () => {
+  const save = () => {
     setAutoAllowEnabled($("auto-allow").checked);
     syncAutoAllowBadge();
     // 由关变开的那一下弹一次(启动时的同步不播);常驻警示不做循环,避免一直唠叨。
     if ($("auto-allow").checked) motionOnce($("status-auto-allow"), "kz-pop", 500);
     log($("auto-allow").checked ? t("已开启自动放行(所有权限询问直接通过;此选择会被记住)") : t("已关闭自动放行"));
+  };
+  $("auto-allow").addEventListener("change", save);
+  $("status-auto-allow").addEventListener("click", () => {
+    $("auto-allow").checked = false;
+    save();
   });
 });
 defer(() => {
@@ -1268,10 +1247,12 @@ defer(() => {
   $("ask-allow").addEventListener("click", (event) => answerAskGuarded(event, "once"));
 });
 // ---------- 阅读辅助 ----------
-export async function copyReadable(el) {
+export async function copyReadable(el, button = null) {
+  const body = el.querySelector(".message-body");
+  const source = el.dataset.raw ?? body?.dataset.raw;
   // 复制与所见一致:助手消息界面上藏起来的内部交接块(HTML 注释、交接范围/目标…)不能经剪贴板带出去。
-  const raw = el.dataset.raw && el.classList.contains("assistant") ? stripInternalHandoff(el.dataset.raw).trim() : el.dataset.raw;
-  const text = raw || [...el.childNodes]
+  const raw = source && el.classList.contains("assistant") ? stripInternalHandoff(source).trim() : source;
+  const text = raw ?? body?.innerText ?? body?.textContent ?? [...el.childNodes]
     .filter((node) => !(node.nodeType === Node.ELEMENT_NODE && node.classList.contains("msg-actions")))
     .map((node) => node.textContent || "")
     .join("")
@@ -1279,6 +1260,11 @@ export async function copyReadable(el) {
   if (!text) return toast(t("没有可复制的内容"));
   try {
     await navigator.clipboard.writeText(text);
+    if (button) {
+      button.dataset.copied = "true";
+      button.title = t("已复制"); button.dataset.i18nTitle = "已复制";
+      button.setAttribute("aria-label", t("已复制")); button.dataset.i18nAriaLabel = "已复制";
+    }
     toast(t("已复制"), { kind: "ok" });
   } catch (err) {
     toastError(`${t("复制失败")}:${err}`);
@@ -1287,74 +1273,7 @@ export async function copyReadable(el) {
 defer(() => {
   messages.addEventListener("click", (event) => {
     const button = event.target.closest(".copy-btn");
-    if (button) copyReadable(button.closest(".msg, .tool-chip"));
-  });
-});
-
-// ---------- 复制上下文:整段对话导出为 markdown(贴给其他 AI 用) ----------
-defer(() => {
-  $("copy-context").addEventListener("click", async () => {
-    const parts = [];
-    const reasoningPart = (el) => {
-      // 完整思维链:收起态也全量导出(dataset.raw 一直在),不再截首行 160 字——
-      // 摘要贴给别的 AI 没有用,断链的思考等于没复制。
-      const raw = el.querySelector(".reasoning-body")?.dataset.raw?.trim();
-      if (raw) parts.push(`### ${t("思考")}\n${raw.split("\n").map((line) => `> ${line}`).join("\n")}`);
-    };
-    for (const el of activePane.children) {
-      if (el.classList.contains("user")) {
-        const text = (el.querySelector(".message-body")?.textContent ?? el.textContent).trim();
-        if (text) parts.push(`## ${t("用户")}\n${text}`);
-      } else if (el.classList.contains("assistant")) {
-        const raw = stripInternalHandoff(el.dataset.raw ?? el.textContent).trim();
-        if (raw) parts.push(`## ${t("助手")}\n${raw}`);
-      } else if (el.classList.contains("reasoning")) {
-        reasoningPart(el);
-      } else if (el.classList.contains("tool-group")) {
-        // UI2-0926 #12:工具组逐项导出(折叠态也全量):思考按思考格式,工具行按「> 工具:头 / > ⎿ 摘要」。
-        // 组不带 .msg 类,漏了这个分支整段工具轨迹会被静默丢掉。
-        for (const item of el.querySelector(".tool-group-body")?.children ?? []) {
-          if (item.classList.contains("reasoning")) {
-            reasoningPart(item);
-            continue;
-          }
-          if (!item.classList.contains("tool-msg")) continue;
-          const head = [item.querySelector(".tool-msg-name")?.textContent, item.querySelector(".tool-msg-arg")?.textContent].filter(Boolean).join(" ").trim();
-          const result = item.querySelector(".tool-msg-result")?.textContent?.trim();
-          if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
-        }
-      } else if (el.classList.contains("tool-chip")) {
-        const head = el.querySelector(".head")?.textContent?.trim();
-        const result = el.querySelector(".result")?.textContent?.trim();
-        if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
-      } else if (el.classList.contains("sa-group")) {
-        // D-727:子代理以卡片为单位导出(身份 · 描述 / 计数 / 结果前 400 字),同批并行的逐张导出;
-        // 展开区里的子工具行不重复贴进上下文。
-        const text = subagentCopyText(el);
-        if (text) parts.push(text);
-      } else if (el.classList.contains("turn-divider")) {
-        parts.push(`---\n${el.textContent}`);
-      } else if (el.classList.contains("pane-trimmed-hint") || el.classList.contains("earlier-hint")) {
-        // activePane 可能只是当前可见窗口:剪裁/尚未补齐都不能在导出时静默丢失。
-        const hint = el.textContent?.trim();
-        if (hint) parts.push(`> ⚠ ${hint}`);
-      } else if (el.classList.contains("msg")) {
-        // 其余消息形态(error 等)不再被静默跳过:主对话缺失错误上下文,导出就失真。
-        // 错误卡的展开区是结构化视图,导出取级别 + dataset.raw 原文。
-        const text = (el.dataset?.raw ? `${el.querySelector(".error-level")?.textContent ?? ""} ${el.dataset.raw}` : el.textContent)?.trim();
-        if (text) parts.push(`> ${text.slice(0, 500)}`);
-      }
-    }
-    if (!parts.length) {
-      toast(t("当前没有可复制的对话"));
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(parts.join("\n\n"));
-      toast(`${t("已复制上下文")}(${parts.length} ${t("段")})`);
-    } catch (err) {
-      toastError(`${t("复制上下文失败")}:${err}`);
-    }
+    if (button) void copyReadable(button.closest(".msg, .tool-chip"), button);
   });
 });
 
@@ -1405,9 +1324,6 @@ export function closeChatSearch() {
   updateSearch(); // 清掉命中高亮与计数
   promptBox.focus();
 }
-defer(() => {
-  $("chat-search-toggle").addEventListener("click", openChatSearch);
-});
 // 浮条开着时 Esc 在对话区任意位置都关(原来只在搜索框自己的 keydown 里处理,点一下消息区再按 Esc 毫无反应,
 // 而 ✕ 的提示写着「关闭搜索(Esc)」);切换对话后命中与计数按新对话重算(否则残留着旧对话的「1/4」与高亮)。
 defer(() => {

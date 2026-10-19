@@ -278,10 +278,11 @@ function summarizeGlob(s) {
 function summarizeSymbols(s) {
   const head = firstLine(s.lines).trim();
   let m;
-  if (/^\((?:no symbols|no public symbols|no \.rs files)/.test(head)) return { groups: [t("无符号")], key: "symbols.none" };
-  if (/^\(no callers of/.test(head)) return { groups: [t("无调用方")], key: "symbols.none" };
-  if ((m = head.match(/^callers of `[^`]*` \((\d+) hits?\)/))) {
-    return { groups: [countText(Number(m[1]), t("{n} 处调用"), t("1 处调用"))], key: "symbols.callers" };
+  if (/^\((?:no symbols|no public symbols|no \.rs files|no supported source files)/.test(head)) return { groups: [t("无符号")], key: "symbols.none" };
+  // 历史 callers of 正文也是词法候选,回放时使用相同的准确标识。
+  if (/^\(no callers of/.test(head)) return { groups: [t("无文本候选")], key: "symbols.none" };
+  if ((m = head.match(/^(?:text candidates for|callers of) `[^`]*` \((\d+) hits?\)/))) {
+    return { groups: [countText(Number(m[1]), t("{n} 条文本候选"), t("1 条文本候选"))], key: "symbols.text_candidates" };
   }
   if ((m = s.text.match(/definition of `[^`]*` \((\d+) hits?\)/))) {
     return { groups: [countText(Number(m[1]), t("{n} 处定义"), t("1 处定义"))], key: "symbols.define" };
@@ -548,6 +549,17 @@ function summarizeWebsearch(s) {
 function summarizeTask(s) {
   if (/\(超时,未产出结果\)|subagent hit the \d+s wall-clock/.test(s.text)) {
     return { groups: [t("超时"), t("未产出结果")], key: "task.timeout" };
+  }
+  const value = parseJsonish(s.text);
+  if (value?.state === "waiting" && value.delivery === "automatic") {
+    return { groups: [t("等待结果"), t("完成后自动唤醒")], key: "task.waiting" };
+  }
+  const jobs = Array.isArray(value) ? value : Array.isArray(value?.jobs) ? value.jobs : value?.job ? [value.job] : value?.state ? [value] : null;
+  if (jobs) {
+    if (!jobs.length) return { groups: [t("暂无完成结果")], key: "task.empty" };
+    const states = { queued: "等待结果", waiting: "等待结果", waiting_user: "等待答复", running: "运行中", stopping: "停止中", stopped: "已停止", done: "已完成", failed: "失败", blocked: "已阻塞" };
+    const statuses = [...new Set(jobs.map(job => states[job.state]).filter(Boolean))];
+    if (statuses.length) return { groups: statuses.map(t), key: "task.status" };
   }
   for (const line of s.lines) {
     if (/^\s*(?:```|~~~)/.test(line)) continue;
@@ -1090,7 +1102,7 @@ export const TOOL_ARG_SUMMARIZERS = {
   architecture: (input, roots) => pathArg(input, roots) ?? { text: pickString(input, "action") },
   symbols(input, roots) {
     if (input.define) return { text: fillTemplate(t("定义 {name}"), { name: input.define }), code: true };
-    if (input.callers) return { text: fillTemplate(t("调用方 {name}"), { name: input.callers }), code: true };
+    if (input.callers) return { text: fillTemplate(t("文本候选 {name}"), { name: input.callers }), code: true };
     if (input.crate) return { text: `crate ${input.crate}${input.module ? `::${input.module}` : ""}`, code: true };
     const path = pickString(input, "path");
     const shown = path ? displayPath(path, roots) : "";
@@ -1131,6 +1143,9 @@ export const TOOL_ARG_SUMMARIZERS = {
     return query ? { text: `“${clipText(query, 60)}”`, title: query } : { text: t("搜索结果"), title: t("搜索结果") };
   },
   task(input) {
+    const action = pickString(input, "action");
+    const labels = { wait: "等待结果", collect: "收集结果", get: "查看", list: "列表" };
+    if (labels[action]) return { text: t(labels[action]), title: [action, pickString(input, "id")].filter(Boolean).join(" ") };
     const prompt = pickString(input, "prompt").split(/\r?\n/).find((line) => line.trim()) ?? "";
     const text = pickString(input, "description") || prompt.trim() || pickString(input, "role");
     return text ? { text: clipText(text, 48), title: pickString(input, "description", "prompt", "role") } : null;

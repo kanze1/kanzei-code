@@ -22,7 +22,7 @@ import {
 import { active_space } from "./03-workspaces.js";
 import { askActive, askQueues } from "./07-events.js";
 import { awaitingUserSessions } from "./08-auto.js";
-import { createWorktreeLine, lastProjectPrefs, processRunning, projectDisplayName, switchProcess } from "./09-sessions.js";
+import { lastProjectPrefs, processRunning, projectDisplayName, switchProcess } from "./09-sessions.js";
 import { generalChatRoot, isGeneralChat, openGeneralChat } from "./03-general-scope.js";
 import { conversationRecord, matchesConversation, uniqueConversations } from "./12-conversation-model.js";
 import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
@@ -550,11 +550,6 @@ async function enterChat(project) {
 export async function newDiscussionIn(project) {
   if (await enterChat(project)) await startNewConversation();
 }
-export async function newTaskIn(project) {
-  if (isGeneralChat(project)) return newDiscussionIn(project);
-  if (await enterChat(project)) await createWorktreeLine();
-}
-
 // ---------- 「对话与历史」弹层 ----------
 let historyNode = null;
 let historyProject = null;
@@ -582,15 +577,7 @@ export function historyElement() {
   const discussionLabel = el("span", "", t("新对话"));
   discussionLabel.dataset.i18nKey = "新讨论";
   discussion.append("＋ ", discussionLabel);
-  const task = el("button", "ghost mini");
-  task.type = "button";
-  task.dataset.act = "new-task";
-  task.title = t("独立任务有自己的工作树,可以并行写代码");
-  task.dataset.i18nTitle = "独立任务有自己的工作树,可以并行写代码";
-  const taskLabel = el("span", "", t("新建独立任务"));
-  taskLabel.dataset.i18nKey = "新建独立任务";
-  task.append("＋ ", taskLabel);
-  head.append(title, project, spacer, discussion, task);
+  head.append(title, project, spacer, discussion);
   const body = el("div", "session-history-body");
   body.id = "session-history-body";
   body.setAttribute("role", "list");
@@ -660,8 +647,6 @@ function paintHistory() {
   node._head.querySelector("[data-act='new-discussion']").hidden = !project;
   const newDiscussion = node.querySelector("[data-act='new-discussion'] span");
   if (newDiscussion) { newDiscussion.textContent = t(general ? "新对话" : "新讨论"); newDiscussion.dataset.i18nKey = general ? "新对话" : "新讨论"; }
-  const newTask = node.querySelector("[data-act='new-task']");
-  if (newTask) newTask.hidden = !project || general;
   const groups = projects.map(path => {
     void loadRemoteSessions(path);
     void loadClosedSessions(path);

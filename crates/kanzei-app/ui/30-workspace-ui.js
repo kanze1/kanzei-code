@@ -39,7 +39,6 @@ defer(() => {
   }
   advancedMenu.prepend(bindings);
   bindMenus(advancedMenu);
-  const runtime = $("runtime-indicator");
   $("auto-continue")?.setAttribute("role", "switch");
 
   const projectLabel = $("settings-tools-project");
@@ -60,7 +59,6 @@ defer(() => {
     identity.textContent = project ? projectDisplayName(project) : t("对话");
     context.hidden = view !== "chat";
     actions.hidden = view !== "chat";
-    if (runtime) runtime.hidden = view !== "chat";
     if ($("delivery-select")) $("delivery-select").hidden = !running;
     projectLabel.textContent = project ? projectDisplayName(project) : t("请先选择项目");
   };

@@ -2725,6 +2725,21 @@
     "path": "runtime_service::runtime_status",
     "returns": "-> Result < Value , String >"
   },
+  "save_conversation_export": {
+    "host": "desktop",
+    "parameters": {
+      "content": {
+        "required": true,
+        "type": "String"
+      },
+      "name": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::summarize::save_conversation_export",
+    "returns": "-> Result < Option < String > , String >"
+  },
   "save_delivered_file": {
     "host": "desktop",
     "parameters": {
@@ -2797,63 +2812,6 @@
       }
     },
     "path": "settings::settings_save",
-    "returns": "-> Result < () , String >"
-  },
-  "side_question_list": {
-    "host": "service",
-    "parameters": {
-      "processId": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "side_question::side_question_list",
-    "returns": "-> Vec < Value >"
-  },
-  "side_question_send": {
-    "host": "service",
-    "parameters": {
-      "id": {
-        "required": true,
-        "type": "String"
-      },
-      "processId": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "question": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "side_question::side_question_send",
-    "returns": "-> Result < Value , String >"
-  },
-  "side_question_stop": {
-    "host": "service",
-    "parameters": {
-      "id": {
-        "required": true,
-        "type": "String"
-      },
-      "processId": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "side_question::side_question_stop",
     "returns": "-> Result < () , String >"
   },
   "skills_delete": {

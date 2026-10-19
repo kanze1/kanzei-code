@@ -36,16 +36,15 @@ const model = task.server(http.createServer(async (req, res) => {
   try {
     const data = JSON.parse(raw), messages = data.messages || [], history = JSON.stringify(messages);
     const system = JSON.stringify(messages.filter(m => m.role === "system")), last = JSON.stringify(messages.findLast(m => m.role === "user")?.content || "");
-    const child = system.includes("You own one delegated task"), side = system.includes("独立的临时问题");
+    const child = system.includes("You own one delegated task");
     const boundWork = last.includes("MAIN_WORK_ITEM");
-    const kind = side ? "side" : boundWork ? last.includes("只读勘察代理") ? "work-scout" : last.includes("只读复核代理") ? "work-review" : "work-main"
+    const kind = boundWork ? last.includes("只读勘察代理") ? "work-scout" : last.includes("只读复核代理") ? "work-review" : "work-main"
       : child ? history.includes("CHILD_DURABLE") ? "child-question" : history.includes("CHILD_ONE") ? "child-one" : "child-two"
       : last.includes("用户回答异步问题") ? "answer" : last.includes("日志订阅更新") ? "monitor" : last.includes("后台终端完成") ? "terminal-callback"
         : last.includes("MAIN_HOLD") ? "main-hold" : last.includes("MAIN_DURABLE") ? "main-question" : last.includes("MAIN_LOGS") ? "terminal"
           : last.includes("MAIN_BROWSER") ? "browser" : last.includes("MAIN_SCREENSHOT") ? "screenshot" : last.includes("AUTO_GOAL") ? "auto" : "callback";
     const step = (counts.get(kind) || 0) + 1; counts.set(kind, step); requests.push({ kind, child, messages, tools: data.tools, model: data.model });
-    if (side) { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "独立回答正在流式显示" }, finish_reason: null }] })}\n\n`); held.set("side", () => answer(res, "。临时问答完成。")); }
-    else if (["main-hold", "child-one", "child-two", "work-main"].includes(kind)) held.set(kind, () => answer(res, `${kind.toUpperCase()}_DONE`));
+    if (["main-hold", "child-one", "child-two", "work-main"].includes(kind)) held.set(kind, () => answer(res, `${kind.toUpperCase()}_DONE`));
     else if (kind === "work-scout") answer(res, "original.txt:1 contains the isolated fixture. No product changes are requested by this IPC check.");
     else if (kind === "work-review") answer(res, "NO_ISSUES");
     else if (kind === "auto") { if (step === 1) held.set("auto", () => answer(res, "继续推进，目标尚未达成。")); else held.set("auto-next", () => answer(res, "已暂停验收模型。")); }
@@ -102,25 +101,6 @@ try {
   held.get("work-main")(); await idle();
   check(requests.some(r => r.kind === "work-review"), "Native selected-item execution retains the independent review gate");
   await prompt("MAIN_HOLD keep the original run active"); await until(() => held.has("main-hold"), "main request");
-  await page.getByRole("button", { name: "旁路提问", exact: true }).click();
-  await page.getByRole("textbox", { name: "临时问题", exact: true }).fill("SIDE_ISOLATED explain the current task");
-  await page.locator("#async-workspace").getByRole("button", { name: "发送", exact: true }).click();
-  await until(() => held.has("side"), "independent model request");
-  await page.locator(".async-answer-text").filter({ hasText: "独立回答正在流式显示" }).waitFor();
-  check(await running(), "Side Q&A streams while the main model request is still held");
-  check(!requests.find(r => r.kind === "side").tools?.length, "Side Q&A has no executable tools");
-  held.get("side")(); await until(async () => (await invoke("side_question_list", { projectDir: project, processId: owner.id }))[0]?.status === "done", "side complete");
-  check(!JSON.stringify(await invoke("conversation_display_get", { projectDir: project, processId: owner.id })).includes("SIDE_ISOLATED"), "Temporary question never enters the main conversation");
-  await page.screenshot({ path: path.join(output, "side-question-dark.png") });
-  await page.evaluate(() => document.documentElement.dataset.theme = "light");
-  await page.screenshot({ path: path.join(output, "side-question-light.png") });
-  await page.setViewportSize({width:800,height:700});
-  await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))); });
-  check(await page.locator("#async-workspace").evaluate(el => { const r=el.getBoundingClientRect(); return r.left>=0&&r.top>=0&&r.right<=window.innerWidth+1&&r.bottom<=window.innerHeight+1; }), "Temporary Q&A remains reachable in a narrow desktop window");
-  await page.screenshot({ path: path.join(output, "side-question-narrow.png") });
-  await page.setViewportSize({width:1440,height:1000});
-  await page.evaluate(() => document.documentElement.dataset.theme = "dark");
-  await page.locator("#async-workspace").getByRole("button", { name: "收起", exact: true }).click();
   const firstChild = await command({ action: "spawn", agent: "explore", description: "第一项", prompt: "CHILD_ONE" });
   const secondChild = await command({ action: "spawn", agent: "plan", description: "第二项", prompt: "CHILD_TWO" });
   check(firstChild.id && secondChild.id && firstChild.id !== secondChild.id, "Native team IPC dispatches two distinct child tasks");
@@ -172,20 +152,15 @@ try {
   check(String(updates[0]).includes("LOG_ONE")&&String(updates[1]).includes("LOG_TWO")&&!String(updates[1]).includes("LOG_ONE"),"Incremental log callbacks do not replay old lines");
   await invoke("terminal_monitor", { ...listArgs, action: "unwatch", id: terminal.id });
   check((await invoke("terminal_monitor", listArgs)).find(p => p.id === terminal.id).running, "Cancelling the subscription leaves the terminal running");
-  await page.evaluate(async () => (await import("./28-async-workspace.js")).openAsyncWorkspace("", "logs"));
-  await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))); });
-  await page.screenshot({ path: path.join(output, "terminal-logs-dark.png") });
   await until(() => counts.has("terminal-callback"), "terminal final callback"); await idle();
   check(requests.some(r => r.kind === "terminal-callback" && JSON.stringify(r.messages).includes("LOG_DONE")), "Final terminal callback contains the complete final output");
-  await page.locator("#async-workspace").getByRole("button", { name: "收起", exact: true }).click();
   await invoke("auto_state_update", { sessionId: owner.session_id, enabled: true, paused: false, goal: "AUTO_GOAL verify continued execution after closing the UI" });
   await prompt("AUTO_GOAL initial round", { agent: "dev", autonomous: true }); await until(() => held.has("auto"), "auto first request");
   await closeUi(); held.get("auto")(); await until(() => held.has("auto-next"), "backend next round", 65000);
   check(true, "Autonomous next-round scheduling continues while the desktop process is closed");
   await open(); await invoke("stop_run", { projectDir: project, processId: owner.id });
   check(errors.length === 0, `No UI errors: ${errors.join("; ")}`);
-  await page.getByRole("button",{name:"后台运行",exact:true}).click();
-  await page.getByRole("button",{name:"停止后台任务并退出",exact:true}).click();
+  await invoke("runtime_shutdown");
   await until(()=>!alive(servicePid),"explicit background exit");
   check(true,"Explicit exit stops the background process");
   await writeFile(path.join(output, "acceptance.json"), JSON.stringify({ checks, errors, executable: exe, requests: requests.map(({ kind, model }) => ({ kind, model })), boundary: "Real independent Windows runtime, WebView2, SQLite, filesystem, terminal. Deterministic local model." }, null, 2));

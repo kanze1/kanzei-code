@@ -25,11 +25,9 @@ import { state } from "./08-compose.js";
 import { projectDefaultModel, syncModelSelectToActiveLine, reportModelCatalogErrors } from "./08-models.js";
 import {
   closeParallelProcess,
-  createWorktreeLine,
   processRunning,
   refreshWorktrees,
   switchProcess,
-  worktreeLineCreateInFlight,
 } from "./09-sessions.js";
 import { jumpToEntry } from "./11-docs-list.js";
 import { latestDocsSnapshot, renderDocuments } from "./12-docs-pages.js";
@@ -58,34 +56,6 @@ export function lineAgentCodes(lines) {
     branchIndex += 1;
   }
   return codes;
-}
-
-// R-247:可绑定的条目只列当前可领取(todo/open)、未阻塞的 R/D 条目。最终 claim 仍由
-// 后端 WorkTool 原子校验；这里负责让用户先选事实对象，不在前端复制调度器。
-export function renderLineWorkItemOptions(snapshot = null) {
-  const select = $("lines-work-item");
-  const add = $("lines-add");
-  if (!select || !add) return;
-  const source = snapshot ?? (typeof latestDocsSnapshot !== "undefined" ? latestDocsSnapshot : null);
-  const candidates = [
-    ...(source?.requirements ?? []),
-    ...(source?.defects ?? []),
-  ].filter((entry) => !entry.closed && !entry.blocked && ["todo", "open"].includes(entry.status));
-  const previous = select.value;
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = t(candidates.length ? "不绑定条目" : "没有可绑定的条目");
-  select.replaceChildren(placeholder);
-  for (const entry of candidates) {
-    const option = document.createElement("option");
-    option.value = entry.id;
-    option.textContent = `${entry.id} · ${entry.title}`;
-    select.appendChild(option);
-  }
-  select.value = candidates.some((entry) => entry.id === previous) ? previous : "";
-  select.disabled = worktreeLineCreateInFlight || candidates.length === 0;
-  // B26:绑定条目是可选的,「新建独立任务」不再要求先选条目才能点;只在建线进行中禁用(防重入)。
-  add.disabled = worktreeLineCreateInFlight;
 }
 
 export function normalizedChangedFile(path) {
@@ -1278,12 +1248,6 @@ export async function confirmWorktreeMerge(item, forProject) {
 // 侧栏的 ↻ 撤掉之后,这一颗要同时刷线路与工作树清单——否则孤儿树没有任何刷新入口。
 defer(() => {
   $("lines-refresh").addEventListener("click", () => { void refreshLines(); void refreshWorktrees(); });
-});
-defer(() => {
-  $("lines-work-item").addEventListener("change", () => renderLineWorkItemOptions());
-});
-defer(() => {
-  $("lines-add").addEventListener("click", createWorktreeLine);
 });
 // 会话相位一变(点了「停止」→ 停止中 → 收到终态)线路卡立刻跟上,不等下一轮 3.5s / 8s 的轮询:
 // 视图签名里带着「是否停止中」,没变化时 renderLines 不会动 DOM。只在线路页开着时重画。

@@ -517,7 +517,7 @@ export function inputDialog(options = {}) {
 }
 
 // ---------- ② 锚定弹层:菜单与信息浮层 ----------
-// 已有的静态面板(#sop-picker-panel、#context-detail、#file-suggestions、各 data-kz-menu 菜单)。
+// 已有的静态面板(#context-detail、#file-suggestions、各 data-kz-menu 菜单)。
 // anchorEl 为空时取 bindMenus 登记的触发器。已开着就返回原句柄(幂等)。
 //
 // 模态开着时,浏览器把 dialog 子树之外的一切(包括之后才弹出的顶层 popover)设为惰性:点不到、拿不到焦点。

@@ -55,9 +55,6 @@
 .decision-editing select { margin-right: auto; }
 @keyframes console-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .console-decision, .console-delivery { animation: none; } }
-@media (max-width: 720px) {
-  body[data-view="workspace"] #status-version { flex: 0 1 auto; max-width: 20vw; }
-}
 @media (max-width: 720px) { .console-summary { gap: 8px; } .console-toolbar { align-items: stretch; } .console-tabs { flex: 1 0 100%; } .console-tab { padding: 8px; } .console-decision-head, .console-delivery summary { flex-wrap: wrap; } .console-reason { grid-template-columns: 1fr; gap: 2px; } .console-reason dd { margin-bottom: 8px; } .decision-editing, .console-answer, .console-origin, .console-reason, .console-operations { margin-left: 0; } }
 
 /* ---------- 需求页:工具条、新建表单、测试页签、归档行、读取失败条 ---------- */

@@ -12,7 +12,6 @@ import { activePane, promptBox } from "./01-chat-panes.js";
 import { isImeComposing, readJson, writeJson } from "./00-ui-primitives.js";
 import { uiPrefsCache, uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { invoke } from "./00-ipc.js";
-import { refreshMemoryJobStatus } from "./13-memory-jobs.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -46,30 +45,6 @@ import {
   transitionSession,
 } from "./03-shell.js";
 
-defer(() => {
-  $("memory-dream")?.addEventListener("click", async () => {
-    const project = currentProject, process = activeProcessId;
-    if (!project) { toast(t("请先选择项目")); return; }
-    const button = $("memory-dream");
-    if (button.disabled) return;
-    button.disabled = true;
-    try {
-      const work = invoke("memory_dream", { projectDir: project, processId: process, requestId: crypto.randomUUID() });
-      closeSurface($("composer-more-menu"));
-      document.dispatchEvent(new CustomEvent("kz:memory-review", { detail: { project } }));
-      void refreshMemoryJobStatus();
-      const result = await work;
-      const status = result?.report?.status;
-      if (status === "failed") toastError(result?.report?.stopped_reason || t("做梦失败，来源已保留"));
-      else toast(({ completed: t("做梦完成，候选记忆待确认"), busy: t("已有整理作业在运行"), cancelled: t("整理已停止，可继续"), incomplete: t("整理未完成，可继续"), interrupted: t("上次整理中断，可继续") })[status] || t("做梦失败，来源已保留"));
-    } catch (error) { toastError(String(error)); }
-    finally {
-      button.disabled = false;
-      await refreshMemoryJobStatus();
-      document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
-    }
-  });
-});
 import { addMessage, addUserMessage, outputChars, reportError } from "./05-chat-render.js";
 import { setOutputChars } from "./05-chat-render.js";
 import { hideAsk } from "./07-events.js";
@@ -904,92 +879,6 @@ defer(() => {
 });
 defer(() => {
   $("continue-btn").addEventListener("click", () => sendText(continuePrompt()));
-});
-
-let sopPickerRequest = 0;
-export async function openSopPicker() {
-  if (!currentProject) {
-    toast(t("先在左侧「项目」里添加并选择一个目录"));
-    return;
-  }
-  const panel = $("sop-picker-panel");
-  const list = $("sop-list");
-  // 再点一次「SOP」= 收起(锚点按钮不触发点外关闭,切换语义在这里)。
-  if (isSurfaceOpen(panel)) {
-    closeSurface(panel);
-    return;
-  }
-  const project = currentProject;
-  const request = ++sopPickerRequest;
-  // UI2-0926 #11:SOP 住在「更多」菜单首项。菜单一关菜单项就不能当锚点,先收起菜单再以「更多」触发器为锚弹出。
-  closeSurface($("composer-more-menu"));
-  const handle = openPopover($("composer-more"), panel, { placement: "top-end" });
-  list.replaceChildren();
-  const loading = document.createElement("p");
-  loading.className = "dim";
-  loading.textContent = `${t("选择流程")}…`;
-  list.appendChild(loading);
-  try {
-    const scopes = await Promise.all(["project", "global"].map((scope) =>
-      invoke("memory_entries", { projectDir: project, scope, category: "sop" })
-    ));
-    if (request !== sopPickerRequest || handle.closed) return;
-    if (project !== currentProject) { closeSurface(handle); return; }
-    const entries = scopes.flat().filter((entry) => entry.status === "active");
-    list.replaceChildren();
-    if (!entries.length) {
-      const empty = document.createElement("p");
-      empty.className = "dim";
-      empty.textContent = t("暂无可调用的流程");
-      list.appendChild(empty);
-      return;
-    }
-    for (const entry of entries) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "sop-entry";
-      const title = document.createElement("strong");
-      title.textContent = entry.title;
-      const description = document.createElement("span");
-      description.className = "dim";
-      description.textContent = entry.description || entry.body?.slice(0, 120) || "";
-      button.append(title, description);
-      button.addEventListener("click", () => {
-        if (request !== sopPickerRequest || handle.closed) return;
-        if (project !== currentProject) { closeSurface(handle); return; }
-        const content = String(entry.body || "").trim();
-        promptBox.value = content;
-        closeSurface(panel);
-        stopAutoForManualInput({ supplement: running });
-        promptBox.focus();
-        if (!content) {
-          toast(t("流程内容为空"));
-          return;
-        }
-        rememberPrompt(content);
-        const delivery = $("delivery-select");
-        const previous = delivery.value;
-        delivery.value = "queue";
-        void sendText(content).finally(() => { delivery.value = previous; });
-        toast(t("流程已填入继续输入"));
-      });
-      list.appendChild(button);
-    }
-  } catch (error) {
-    if (request !== sopPickerRequest || handle.closed) return;
-    if (project !== currentProject) { closeSurface(handle); return; }
-    list.replaceChildren();
-    const failed = document.createElement("p");
-    failed.className = "dim";
-    failed.textContent = `${t("流程加载失败")}: ${error}`;
-    list.appendChild(failed);
-  }
-}
-defer(() => {
-  $("sop-picker").addEventListener("click", openSopPicker);
-});
-defer(() => {
-  $("sop-picker-close").addEventListener("click", () => closeSurface($("sop-picker-panel")));
 });
 
 defer(() => {

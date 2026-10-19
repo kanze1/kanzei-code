@@ -9,6 +9,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
 import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+import { decodeExternalSource } from "./fixtures/tool-source.mjs";
 
 await withTask({ suite: "ui-async-agents-native-smoke" }, async task => {
 
@@ -53,6 +54,7 @@ const model = task.server(http.createServer(async (req, res) => {
       call("async-alpha", "task", { agent: "explore", description: "实现检查", prompt: "CHILD_ALPHA inspect original.txt" }),
       call("async-beta", "task", { agent: "plan", description: "验收检查", prompt: "CHILD_BETA inspect test boundaries" }),
     ]);
+    else if (kind === "parallel" && step === 2) answer(res, null, [call("async-wait", "task", { action: "wait", id: "async-alpha" })]);
     else if (kind === "alpha" || kind === "beta") held.set(kind, () => answer(res, kind.toUpperCase() + "_RESULT"));
     else if (kind === "steer") held.set("steer", () => answer(res, null, [call("steer-read", "read", { path: "original.txt" })]));
     else if (kind === "main-question" && step === 1) answer(res, null, [call("main-async-ask", "question", { question: "MAIN_ASYNC_CHOICE", options: ["A", "B"], background: true })]);
@@ -116,6 +118,10 @@ try {
   await idle();
   check((await jobs()).filter(j => j.state === "running").length === 2, "Two real child requests remain active after the main turn returns");
   check(!await running(), "Main conversation does not wait for all background children");
+  const waitReceipt = requests.filter(r => r.kind === "parallel").flatMap(r => r.messages)
+    .find(m => m.role === "tool" && String(m.content).includes('"delivery":"automatic"'));
+  check(Boolean(waitReceipt) && JSON.parse(waitReceipt.content).state === "waiting", "Explicit task wait returns a waiting receipt and lets the main turn become idle while its child is still running");
+  check(JSON.parse(waitReceipt.content).pending[0].result_available === false, "The waiting receipt distinguishes an unfinished task from an actual returned result");
   check(requests.find(r => r.kind === "parallel").messages.filter(m => m.role === "user" && JSON.stringify(m).includes("MAIN_PARALLEL")).length === 1, "Initial input is fed once rather than repeated in restored history");
   if (!await page.locator("#tasks-panel").isVisible()) await page.locator("#tasks-toggle").click();
   await page.locator("#tasks-panel").waitFor({ state: "visible" });
@@ -148,8 +154,10 @@ try {
   await until(() => counts.has("handoff-steered"), "Ctrl+Enter foreground handoff"); await idle();
   const handoffResult = requests.find(r => r.kind === "handoff-steered").messages.findLast(m => m.role === "tool" && String(m.content).includes("background: true"));
   check(Boolean(handoffResult), "Ctrl+Enter bypasses queue mode and admits steering in the current tool batch");
-  const processId = /process_id: (\S+)/.exec(handoffResult.content)[1];
-  check(/pid: (\d+)/.exec(handoffResult.content)[1] === /HANDOFF_PREFIX:(\d+)/.exec(prefix)[1], "The handed-off shell keeps the original OS process, with no rerun");
+  const handoff = decodeExternalSource(handoffResult.content);
+  check(handoff.source?.kind === "process", "The handed-off process output preserves its external-source identity");
+  const processId = /^process_id: (\S+)$/m.exec(handoff.content)[1];
+  check(/pid: (\d+)/.exec(handoff.content)[1] === /HANDOFF_PREFIX:(\d+)/.exec(prefix)[1], "The handed-off shell keeps the original OS process, with no rerun");
   check(!requests.some(r => r.kind === "terminal-callback" && JSON.stringify(r.messages).includes(processId)), "Main answers the new input before the blocked shell finishes");
   const other = await invoke("process_create", { projectDir: project, profile: "dev" });
   await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, other.id);

@@ -62,12 +62,22 @@ try {
     ['edit', { ok: false, content: '[tool_outcome=noop code=EDIT_NO_CHANGE]\nNothing changed' }, '无需修改'],
     ['bash', { ok: false, content: 'exit code: 1\nError: command failed' }, '退出码 1 · Error: command failed'],
     ['read', { ok: false, content: '[tool_outcome=needs_correction code=READ_PATH_NOT_FOUND]\npath not found: src/missing.rs' }, '路径不存在 · src/missing.rs'],
+    ['task', { content: '[]', input: { action: 'collect' } }, '暂无完成结果'],
+    ['task', { content: JSON.stringify({ state: 'waiting', delivery: 'automatic', jobs: [], pending: [{ id: 'child', state: 'running' }] }), input: { action: 'wait', id: 'child' } }, '等待结果 · 完成后自动唤醒'],
+    ['task', { content: JSON.stringify({ job: { id: 'child', state: 'running', result_available: false, result: '' } }), input: { action: 'get', id: 'child' } }, '运行中'],
+    ['task', { content: JSON.stringify([{ id: 'child', state: 'done', result: 'Actual evidence' }]), input: { action: 'wait' } }, '已完成'],
+    ['task', { content: JSON.stringify([{ id: 'child', state: 'failed', result: 'Actual failure' }]), input: { action: 'collect' } }, '失败'],
   ]) check(`${name} control: ${expected}`, (await summarize(name, ctx)).text, expected);
   const timed = await page.evaluate(async () => {
     const { toolResultSummary, withToolDuration } = await import('/05-tool-summary.js');
     return withToolDuration(toolResultSummary('git', { content: '## main', input: { action: 'status' }, roots: [] }), 2200).text;
   });
   check('Late duration decorates the existing summary once', timed, '工作区干净 · 2.2s');
+  const taskWaitArg = await page.evaluate(async () => {
+    const { toolArgSummary } = await import('/05-tool-summary.js');
+    return toolArgSummary('task', { action: 'wait', id: 'child-id' }, []);
+  });
+  check('Task wait shows its action and keeps the task identity in its tooltip', { text: taskWaitArg.text, title: taskWaitArg.title }, { text: '等待结果', title: 'wait child-id' });
   check('Browser module graph has no runtime errors', errors, []);
 } finally { await browser.close(); await server.close(); }
 const failures = checks.filter(check => !check.passed);

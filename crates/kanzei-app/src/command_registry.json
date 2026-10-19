@@ -4,18 +4,6 @@
     "host": "service"
   },
   {
-    "path": "side_question::side_question_send",
-    "host": "service"
-  },
-  {
-    "path": "side_question::side_question_list",
-    "host": "service"
-  },
-  {
-    "path": "side_question::side_question_stop",
-    "host": "service"
-  },
-  {
     "path": "runtime_service::runtime_status",
     "host": "desktop"
   },
@@ -894,21 +882,25 @@
   {
     "path": "native_desktop::native_desktop_get",
     "host": "desktop"
-    },
-    {
-      "path": "native_control::native_desktop_status",
-      "host": "desktop"
-    },
-    {
-      "path": "native_control::native_desktop_stop",
-      "host": "desktop"
-    },
-    {
-      "path": "native_control::native_desktop_dismiss",
-      "host": "desktop"
-    },
-    {
-      "path": "native_control::native_desktop_surface_ready",
-      "host": "desktop"
+  },
+  {
+    "path": "native_control::native_desktop_status",
+    "host": "desktop"
+  },
+  {
+    "path": "native_control::native_desktop_stop",
+    "host": "desktop"
+  },
+  {
+    "path": "native_control::native_desktop_dismiss",
+    "host": "desktop"
+  },
+  {
+    "path": "native_control::native_desktop_surface_ready",
+    "host": "desktop"
+  },
+  {
+    "path": "commands::summarize::save_conversation_export",
+    "host": "desktop"
   }
 ]

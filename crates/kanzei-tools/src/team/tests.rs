@@ -1949,7 +1949,7 @@ async fn collect_is_nonblocking_while_two_real_children_run_and_notify_the_paren
     respond(&mut second, json!({"content":"ACCEPTANCE_EVIDENCE"})).await;
     let results = tokio::time::timeout(
         Duration::from_secs(5),
-        team.command("", json!({"action":"wait"})),
+        team.results(&json!({}), ResultDelivery::Wait),
     )
     .await
     .unwrap()
@@ -1974,6 +1974,201 @@ async fn collect_is_nonblocking_while_two_real_children_run_and_notify_the_paren
         .await
         .unwrap();
     assert!(rx.recv().await.unwrap().text.contains("additional finding"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn async_wait_yields_to_one_completion_notice_without_polling() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let team = team(
+        project(),
+        &format!("http://{}/v1", listener.local_addr().unwrap()),
+        "yield-owner",
+    );
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    team.set_mailbox(AsyncMailbox::new(move |notice| {
+        tx.send(notice).map_err(|e| e.to_string())
+    }));
+    team.command(
+        "held-child",
+        json!({"agent":"explore","prompt":"inspect evidence"}),
+    )
+    .await
+    .unwrap();
+    let (mut child, _) = listener.accept().await.unwrap();
+    request(&mut child).await;
+
+    let pending = tokio::time::timeout(
+        Duration::from_millis(500),
+        team.execute(
+            "wait-call".into(),
+            json!({"action":"wait","id":"held-child"}),
+        ),
+    )
+    .await
+    .expect("async wait must release the parent while the child is held");
+    assert!(!pending.is_error);
+    let receipt: Value = serde_json::from_str(&pending.content).unwrap();
+    assert_eq!(receipt["state"], "waiting");
+    assert_eq!(receipt["delivery"], "automatic");
+    assert_eq!(receipt["jobs"], json!([]));
+    assert_eq!(receipt["pending"][0]["id"], "held-child");
+    assert_eq!(receipt["pending"][0]["state"], "running");
+    assert_eq!(receipt["pending"][0]["result_available"], false);
+    assert_eq!(team.0.store.get("held-child").unwrap().reported, 0);
+    assert!(
+        rx.try_recv().is_err(),
+        "a waiting receipt cannot emit a completion notice"
+    );
+    let detail = team
+        .command(
+            "",
+            json!({"action":"get","id":"held-child","view":"result"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detail["job"]["result_available"], false);
+    assert!(detail["message"].as_str().unwrap().contains("尚未完成"));
+
+    respond(&mut child, json!({"content":"ACTUAL_CHILD_RESULT"})).await;
+    let notice = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(notice.id, "child:held-child:1");
+    assert!(notice.text.contains("ACTUAL_CHILD_RESULT"));
+    let complete = team
+        .results(&json!({"id":"held-child"}), ResultDelivery::Wait)
+        .await
+        .unwrap();
+    assert_eq!(complete[0]["result_available"], true);
+    assert_eq!(complete[0]["result"], "ACTUAL_CHILD_RESULT");
+    let job = team.0.store.get("held-child").unwrap();
+    team.emit(&job);
+    assert!(
+        rx.try_recv().is_err(),
+        "completion is published only once per revision"
+    );
+
+    // An execution lease without a local worker does not promise that its
+    // callback is attached to this host's mailbox.
+    let foreign_owner = claim_child(&team.0.store, "held-child").unwrap();
+    team.0
+        .store
+        .update("held-child", |job| job.state = "running".into())
+        .unwrap();
+    let waiting = team.command("", json!({"action":"wait","id":"held-child"}));
+    tokio::pin!(waiting);
+    assert!(
+        futures::poll!(&mut waiting).is_pending(),
+        "a mailbox alone cannot promise delivery for a foreign worker"
+    );
+    team.0
+        .store
+        .update("held-child", |job| {
+            job.state = "done".into();
+            job.revision += 1;
+        })
+        .unwrap();
+    drop(foreign_owner);
+    team.0.changed.notify_waiters();
+    let foreign_result = tokio::time::timeout(Duration::from_secs(2), waiting)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(foreign_result[0]["state"], "done");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn foreground_spawn_still_waits_when_a_mailbox_is_connected() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let team = team(
+        project(),
+        &format!("http://{}/v1", listener.local_addr().unwrap()),
+        "foreground-owner",
+    );
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    team.set_mailbox(AsyncMailbox::new(move |notice| {
+        tx.send(notice).map_err(|e| e.to_string())
+    }));
+    let running = team.clone();
+    let foreground = tokio::spawn(async move {
+        running
+            .command(
+                "foreground-child",
+                json!({"agent":"plan","prompt":"return evidence","background":false}),
+            )
+            .await
+    });
+    let (mut child, _) = listener.accept().await.unwrap();
+    request(&mut child).await;
+    assert!(
+        !foreground.is_finished(),
+        "explicit foreground dispatch must not defer to callbacks"
+    );
+    respond(&mut child, json!({"content":"FOREGROUND_RESULT"})).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), foreground)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result[0]["state"], "done");
+    assert_eq!(result[0]["result"], "FOREGROUND_RESULT");
+    assert!(
+        rx.try_recv().is_err(),
+        "foreground results do not also wake another turn"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_consumed_result_cannot_publish_a_stale_completion_notice() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let team = team(
+        project(),
+        &format!("http://{}/v1", listener.local_addr().unwrap()),
+        "consumed-owner",
+    );
+    team.command(
+        "finished-child",
+        json!({"agent":"plan","prompt":"return evidence"}),
+    )
+    .await
+    .unwrap();
+    let (mut child, _) = listener.accept().await.unwrap();
+    request(&mut child).await;
+    respond(&mut child, json!({"content":"CONSUMED_RESULT"})).await;
+    team.command("", json!({"action":"wait","id":"finished-child"}))
+        .await
+        .unwrap();
+    let stale = team.0.store.get("finished-child").unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    team.set_mailbox(AsyncMailbox::new(move |notice| {
+        tx.send(notice).map_err(|e| e.to_string())
+    }));
+    let delivered = team
+        .execute(
+            "read-result".into(),
+            json!({"action":"get","id":"finished-child"}),
+        )
+        .await;
+    assert!(!delivered.is_error);
+    assert_eq!(team.0.store.get("finished-child").unwrap().reported, 1);
+    team.emit(&stale);
+    assert!(
+        rx.try_recv().is_err(),
+        "a tool result already delivered to the model must not wake it again"
+    );
+    let next = team
+        .0
+        .store
+        .update("finished-child", |job| {
+            job.revision += 1;
+            job.result = "NEW_REVISION".into();
+        })
+        .unwrap();
+    team.emit(&next);
+    let notice = rx.try_recv().unwrap();
+    assert_eq!(notice.id, "child:finished-child:2");
+    assert!(notice.text.contains("NEW_REVISION"));
 }
 
 #[tokio::test]

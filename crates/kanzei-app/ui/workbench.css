@@ -135,17 +135,8 @@ body[data-view="chat"] #workspace-bar #project-switch { display: none; }
 #activitybar .rail-section-separator { display: none; }
 body[data-space="research"] #activitybar .activity-item[data-view="files"],
 body[data-space="research"] #activitybar .activity-item[data-view="memory"] { display: flex; }
-body:not([data-view="chat"]) #status-fast,
-body:not([data-view="chat"]) #status-model,
-body:not([data-view="chat"]) #status-tokens,
-body:not([data-view="chat"]) #ctx-bar,
-body:not([data-view="chat"]) #status-git,
-body:not([data-view="chat"]) #status-elapsed,
-body:not([data-view="chat"]) #status-auto-allow { display: none; }
-body:not([data-view="chat"]) #statusbar { overflow: hidden; }
-/* The chat footer belongs to the activated session; overview has its own selected line. */
-body[data-view="project"] #statusbar .status-left { visibility: hidden; }
-body[data-view="project"] #statusbar.running { background: var(--statusbar); color: var(--statusbar-fg); }
+/* The footer describes the active conversation; other pages own their status. */
+body:not([data-view="chat"]) #statusbar { display: none; }
 body:not([data-view="chat"]) #activitybar #tasks-toggle,
 body:not([data-view="chat"]) #activitybar #preview-toggle { display: none; }
 #workspace-scroll, #project-overview-content { padding: clamp(24px, 4vw, 64px); }

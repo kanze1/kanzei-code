@@ -103,7 +103,7 @@ assert.equal((js.match(/function reportError\(/g) || []).length, 1, "reportError
 assert.match(js, /function toastError\(text, options = \{\}\) \{\s*reportPersistentError\(text, options\);/);
 assert.match(js, /function reportPersistentError\([\s\S]*?label: t\("查看日志"\), onClick: \(\) => setLogPanelOpen\(true\)/);
 assert.match(html, /id="log-toggle"[^>]*aria-controls="log-panel"[^>]*aria-expanded="false"/);
-assert.match(html, /id="log-close"[^>]*aria-label="收起日志"/);
+assert.match(html, /id="log-close"[^>]*aria-label="收起运行详情"/);
 // UI2-0926 #14:活动/子代理两块浮层合成一个停靠的后台任务侧栏(用户推翻 R-334 的浮层定调)。
 // 侧栏是 complementary 地标(<aside> + aria-labelledby),不是 dialog;rail 上只剩一个开关,带 aria-controls/expanded。
 assert.match(html, /<aside id="tasks-panel"[^>]*aria-labelledby="tasks-panel-title"/, "#tasks-panel 必须是带 aria-labelledby 的 <aside> 地标");
@@ -225,8 +225,8 @@ assert.match(js, /function collapseSidebarForOverlay\([\s\S]*?applySidebarState\
 assert.match(js, /export function restoreSidebarForWide\(/, "回到宽窗口要恢复用户自己的侧栏偏好");
 assert.ok(html.includes('id="send"'), "缺少发送按钮");
 assert.ok(html.includes('id="stop"'), "缺少停止按钮");
-assert.match(html, /id="composer-more"[\s\S]*id="summarize-btn"/);
-assert.match(html, /id="composer-more"[\s\S]*id="worktree-add"/);
+assert.match(html, /id="composer-more"[\s\S]*id="native-desktop-choose"/);
+assert.doesNotMatch(html, /id="(?:worktree-add|sop-picker|side-question-open|runtime-indicator|chat-search-toggle)"/);
 // B22:任务设置菜单已撤——「自动放行」直接是上下文带里的开关(role=switch),「勘察复核」开关整个删除(UX-039),
 // 「改主项目需求记录」搬到并行线路页的线路卡上。
 assert.match(html, /id="auto-allow-wrap"[^>]*>\s*<input type="checkbox" id="auto-allow" role="switch"/, "「自动放行」必须是带 role=switch 的直接开关");
@@ -383,10 +383,8 @@ assert.match(js, /t\("实际差异"\)/);
   }
   assert.match(html, /id="turn-activity-label"[^>]*data-i18n-raw/, "#7 活动行文案由 JS 本地化后写入,必须挡住 i18n 观察者二次翻译");
   assert.match(html, /<span id="status-dot" class="[^"]*\bkz-dot\b[^"]*"[^>]*aria-hidden="true"/, "#7 状态栏点未改用 .kz-dot 原语(或未对读屏隐藏)");
-  // 状态点的扩散环画在 ::after 上。基线 `.status-left > span { overflow: hidden }`(防长文案撑破)同样命中
-  // 这个点,会把环整个裁掉,运行中看起来仍是静止的点。冒烟的假 DOM 算不出 computed overflow,只能静态查覆盖规则
-  // (特异性 1,1,0 高于 0,1,1)。
-  assert.match(motionCss, /(?:^|\})\s*\.status-left > #status-dot\s*\{[^}]*overflow:\s*visible/, "#7 状态点没有放开 overflow(基线 .status-left > span 会裁掉扩散环)");
+  // 状态点已迁入运行详情,仍需为 ::after 的扩散环保留可见空间。
+  assert.match(motionCss, /(?:^|\})\s*\.runtime-status > #status-dot\s*\{[^}]*overflow:\s*visible/, "#7 运行详情的状态点没有放开 overflow");
   // ⑧ 钩子接线:隐藏暂停监听、相位投影入口、停止收尾与后台守卫。
   assert.match(js, /document\.addEventListener\("visibilitychange", syncMotionVisibility\)/, "#7 窗口可见性变化未接 syncMotionVisibility");
   assert.match(js, /function setTurnPhase\(phase\) \{[\s\S]{0,200}?if \(typeof renderingBackground !== "undefined" && renderingBackground\) return;/, "#7 setTurnPhase 缺后台渲染守卫(后台线会改写活动线相位)");

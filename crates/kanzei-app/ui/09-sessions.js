@@ -83,8 +83,6 @@ import { reset_files_scope } from "./17-files.js";
 // UI-0926 #10:测试记录行展开后的结构化字段。
 
 export let worktreeItems = [];
-export let worktreeLineCreateInFlight = false;
-export let worktreeLineCreateSequence = 0;
 // 工作树清单只服务并行线路页(renderLinesWorktrees):侧栏曾有一块「隔离工作树」只读分区,开发档里永远 display:none
 // 却每次刷新照样重建,已删(UX-069 / B5)。这里只留清单状态(worktreeItems)与线路页的重绘。
 export function renderWorktrees(items) {
@@ -220,89 +218,6 @@ export function renderLinesWorktrees() {
     list.appendChild(row);
   }
 }
-export async function createWorktreeLine(event) {
-  if (!currentProject || worktreeLineCreateInFlight) return;
-  const forProject = currentProject;
-  // B26:线路页按钮与输入区「更多」里的同名项是同一个入口;条目绑定是可选的——只有从线路页发起时才读那里的选择器,
-  // 不选就是不绑定(原来线路页必须选条目才能点、「更多」里又选不了条目,是两套互斥的流程)。
-  const fromLinesView = (event?.currentTarget?.id || event?.target?.id) === "lines-add";
-  const workItemId = fromLinesView ? String($("lines-work-item")?.value ?? "").trim() : "";
-  // R-179 内容④:建线成本提示(D6 定案)——每树独立 target/ = 磁盘占用 ×N,
-  // 首次冷编译需数分钟。让用户在建线前知道代价,不是悄悄发生。
-  const binding = workItemId ? `\n${t("绑定条目")}:${workItemId}` : "";
-  const addButtons = [$("worktree-add"), $("lines-add")].filter(Boolean);
-  const workItemSelect = $("lines-work-item");
-  // 真实 DOM 取内层 i18n span；运行时测试桩没有复建 id 节点的子树，回退到按钮本身。
-  const linesAddLabel = $("lines-add")?.querySelector("[data-i18n-key]") || $("lines-add");
-  const restore = () => {
-    worktreeLineCreateInFlight = false;
-    for (const button of addButtons) {
-      button.disabled = false;
-      button.removeAttribute("aria-busy");
-    }
-    if (workItemSelect) workItemSelect.disabled = workItemSelect.options.length <= 1;
-    if (linesAddLabel) linesAddLabel.textContent = t("新建独立任务");
-  };
-  // facts 与确认都在同一次准入内;项目身份在第一个 await 前认领。
-  // D-418:in-flight + 禁用/aria-busy/创建中反馈提前到异步读取
-  // 前,期间防重入防误操作(await 期间重复点击不会二次 process_create);
-  // 取消/失败统一走 restore。
-  worktreeLineCreateInFlight = true;
-  for (const button of addButtons) {
-    button.disabled = true;
-    button.setAttribute("aria-busy", "true");
-  }
-  if (workItemSelect) workItemSelect.disabled = true;
-  if (linesAddLabel) linesAddLabel.textContent = t("创建中…");
-  try {
-    // UI2-0926 #13:先查原项目的仓库事实,不把迟到响应用于另一个项目。
-    let facts = projectFactsFor === forProject ? projectFacts : await refreshProjectFacts(forProject);
-    if (currentProject !== forProject) return;
-    if (worktreeBlockedReason(facts)) facts = (await refreshProjectFacts(forProject)) ?? facts;
-    if (currentProject !== forProject) return;
-    const blocked = worktreeBlockedReason(facts);
-    if (blocked) {
-      const fix = gitFixActions(facts)[0];
-      toast(blocked, { kind: "warn", ...(fix ? { action: { label: fix.label, onClick: () => {
-        if (currentProject === forProject) void fix.run();
-      } } } : {}) });
-      return;
-    }
-    // target/ 与冷编译是 Rust 工程的代价,只在识别到 rust 栈时才这么说。
-    const cost = facts?.stacks?.includes("rust")
-      ? t("每个独立任务有自己的 target/ 目录,磁盘占用随任务数成倍增加;首次冷编译需数分钟")
-      : t("每个独立任务是一份完整的工作树检出,磁盘占用随任务数增加");
-    if (!(await confirmDialog({ title: t("新建独立任务"), message: `${t("新建独立任务会创建一个独立工作树")}:${cost}。${binding}\n${t("继续创建吗")}` }))) return;
-    if (currentProject !== forProject) return;
-    const name = `line-${Date.now()}-${worktreeLineCreateSequence += 1}`;
-    // 建线必须原子完成「建 worktree + 注册进程绑定」；只调用 worktree_create 会留下
-    // 一棵没有会话身份的孤树，看得见却不能并行跑任务。
-    const item = await invoke("process_create", {
-      projectDir: forProject,
-      worktreeName: name,
-      trackerWrites: false,
-      ...(workItemId ? { workItemId } : {}),
-    });
-    if (currentProject !== forProject) return;
-    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
-    if (currentProject !== forProject) return;
-    await switchProcess(item.id);
-    if (currentProject !== forProject) return;
-    // 新开的独立任务已是当前对话:从线路页等非对话页发起时跳回对话,别只在后台切了线(UX-052 / D15)。
-    ensureChatView();
-    // 提示里写任务的显示名(用户命名 ‖ 首条消息 ‖「独立任务 N」),不露自动生成的分支标识 line-<时间戳>-N。
-    const created = processItems.find((candidate) => candidate.id === item.id) ?? item;
-    toast(`${t("独立任务已创建")}:${processName(created)}${workItemId ? ` · ${workItemId}` : ""}`);
-  } catch (error) {
-    toastError(`${t("创建独立任务失败")}:${error}`);
-  } finally {
-    restore();
-  }
-}
-defer(() => {
-  $("worktree-add").addEventListener("click", createWorktreeLine);
-});
-
 // ---------- R-030:项目内独立进程 ----------
 export let syncedRunningProcessId = null;
 export let syncedRunningState = null;
@@ -951,7 +866,6 @@ export function activate_execution_root(root) {
     isolationCheckGeneration += 1;
     $("project-shared-warn")?.classList.add("hidden");
     renderProjectFactsBanner(null, root);
-    syncWorktreeEntry(null);
     renderWorktrees([]);
     resetPendingInputs();
   }
@@ -1261,7 +1175,6 @@ export async function refreshProjectFacts(project = currentProject) {
   projectFacts = facts;
   projectFactsFor = project;
   renderProjectFactsBanner(facts, project);
-  syncWorktreeEntry(facts);
   return facts;
 }
 /// 横幅一次只说一件事:上级仓库(风险)> 不是 Git 仓库 > 仓库还没有提交 > 空项目。
@@ -1388,22 +1301,12 @@ export async function initProjectGit({ nested = false, commit = false } = {}) {
     projectFacts = result?.facts ?? null;
     projectFactsFor = project;
     renderProjectFactsBanner(projectFacts, project);
-    syncWorktreeEntry(projectFacts);
     refreshGit();
     return result;
   } catch (err) {
     toastError(`${t("初始化 Git 失败")}:${err}`);
     return null;
   }
-}
-/// 独立任务(工作树)需要一个有提交的独立仓库;不满足时说出原因。facts 未知时不拦(交给后端)。
-export function worktreeBlockedReason(facts) {
-  const git = facts?.git;
-  if (!git) return "";
-  if (git.state === "none") return t("新建独立任务需要 Git:本项目还不是 Git 仓库,先初始化 Git");
-  if (git.state === "parent") return t("新建独立任务需要本项目自己的 Git 仓库:它只是位于上级仓库内,先在此初始化独立仓库");
-  if (git.state === "repo" && !git.has_commits) return t("新建独立任务需要仓库里至少有一次提交(工作树从 HEAD 分出),先做首次提交");
-  return "";
 }
 /// 缓存的项目事实和 git_status 对不上了(agent 刚在终端里 init / 提交过,横幅与开线入口还按旧事实拦人,UX-129)。
 /// git_status 的 last 非空 = 仓库里有提交。只比对项目根自己的状态(线路工作树的状态不说明项目根)。
@@ -1413,67 +1316,10 @@ export function projectFactsStale(status, project = currentProject) {
   if (status.repo === "own") return git?.state !== "repo" || Boolean(git.has_commits) !== Boolean(status.last);
   return git?.state !== status.repo;
 }
-/// 开线的页内阻断条(并行线路页,UX-130):原因 + 能直接做的下一步常驻在那里,不再只是 2.6 秒的 toast 和会被 i18n 覆盖的 title。
-function renderWorktreeBlockBar(facts, reason) {
-  const bar = $("lines-git-block");
-  if (!bar) return;
-  if (!reason) {
-    bar.classList.add("hidden");
-    bar.replaceChildren();
-    return;
-  }
-  const text = document.createElement("div");
-  text.className = "project-facts-text";
-  text.textContent = reason;
-  const actions = document.createElement("div");
-  actions.className = "project-facts-actions";
-  for (const fix of gitFixActions(facts)) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = fix.primary ? "primary mini" : "ghost mini";
-    button.textContent = fix.label;
-    button.addEventListener("click", () => void fix.run());
-    actions.appendChild(button);
-  }
-  bar.replaceChildren(text, actions);
-  bar.classList.remove("hidden");
-}
-/// 建线入口的禁用态与原因(aria-disabled + title,不动 disabled:那是建线在途的防重入位)。
-export function syncWorktreeEntry(facts = projectFacts) {
-  const reason = worktreeBlockedReason(facts);
-  for (const button of [$("worktree-add"), $("lines-add")].filter(Boolean)) {
-    if (reason) {
-      if (button.dataset.blockedReason === undefined) {
-        // 入口自带的用途提示(B26 后两颗「新建独立任务」都有)先记下,解除禁用时还回去。
-        if (button.title) button.dataset.defaultTitle = button.title;
-        // 静态 title 归 data-i18n-title 管:语言一应用它就把阻断原因盖回用途提示(UX-130)。拦着的时候摘掉,解除时还回去。
-        const i18nKey = button.getAttribute("data-i18n-title");
-        if (i18nKey !== null) {
-          button.dataset.defaultI18nTitle = i18nKey;
-          button.removeAttribute("data-i18n-title");
-        }
-      }
-      button.setAttribute("aria-disabled", "true");
-      button.dataset.blockedReason = reason;
-      button.title = reason;
-    } else if (button.dataset.blockedReason) {
-      button.removeAttribute("aria-disabled");
-      delete button.dataset.blockedReason;
-      if (button.dataset.defaultI18nTitle !== undefined) {
-        button.setAttribute("data-i18n-title", button.dataset.defaultI18nTitle);
-        delete button.dataset.defaultI18nTitle;
-      }
-      if (button.dataset.defaultTitle) button.title = button.dataset.defaultTitle;
-      else button.removeAttribute("title");
-    }
-  }
-  renderWorktreeBlockBar(facts, reason);
-}
 defer(() => {
   // 语言切换:原因文案是按当时语言翻好的,重算一遍(切语言会把静态文案换掉,这里让阻断原因跟上)。
   document.addEventListener("kz:language", () => {
     renderProjectFactsBanner();
-    syncWorktreeEntry();
   });
 });
 

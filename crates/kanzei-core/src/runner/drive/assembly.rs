@@ -153,6 +153,7 @@ pub(super) fn assemble_run_once<'a>(
         if runtime.options.mode.enabled() {
             guidance.push('\n');
             guidance.push_str(kanzei_harness::subagent_policy::DELEGATION_GUIDANCE);
+            guidance.push_str("\nWhen the task tool reports automatic completion delivery, continue independent work while tasks run; when only their results remain, end this turn and await the notification. A task wait receipt with state=waiting hands control to automatic delivery; do not poll again. An empty collect result means no new completed result. Only a terminal task result or completion notification supports saying a task has returned.");
         }
         context_report.push(("runtime/delegation".into(), guidance.chars().count()));
         stable_system.push(guidance);
