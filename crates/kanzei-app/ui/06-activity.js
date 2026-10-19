@@ -54,6 +54,7 @@ export function renderDiffSummary() {
   const files = [...diffSummary.values()];
   const additions = files.reduce((sum, item) => sum + item.additions, 0);
   const deletions = files.reduce((sum, item) => sum + item.deletions, 0);
+  label.classList.toggle("hidden", files.length === 0);
   label.innerHTML = files.length
     ? `· ${files.length} ${escapeHtml(t("文件"))} <span class="diff-add">+${additions}</span>/<span class="diff-del">−${deletions}</span>`
     : "";

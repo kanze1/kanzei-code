@@ -1,7 +1,8 @@
 /* The workbench owns global navigation. Existing tools keep their contracts and
    state, but appear within a project rather than competing at the top level. */
 #workbench-navigation { padding: 20px 12px 12px; }
-.workbench-brand { padding: 0 10px 18px; color: var(--fg-strong); font-size: 23px; font-weight: 650; letter-spacing: -.7px; }
+.workbench-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 18px 10px; }
+.workbench-brand { min-width: 0; color: var(--fg-strong); font-size: 23px; font-weight: 650; letter-spacing: -.7px; }
 .workbench-nav-link, .workbench-project-link { display: block; width: 100%; padding: 10px 12px; margin: 2px 0; border: 0; border-radius: var(--r-md); background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-nav-link.active, .workbench-project-link.active { background: var(--surface-selected); color: var(--accent-text); }
 .workbench-nav-link:hover, .workbench-project-link:hover { background: var(--surface-hover); }
@@ -17,7 +18,7 @@ body[data-attention-open="true"] .workbench-session-link[aria-current="true"]:ho
 body[data-space="dev"] #workbench-conversation-actions,
 body[data-space="research"][data-view="chat"] #workbench-conversation-actions { display: flex; }
 #workbench-conversation-actions .new-chat-btn { flex: 1; min-width: 0; width: auto; padding: 10px 12px; }
-#workbench-chat-history { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; }
+#workbench-chat-history { display: flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; margin: 0; }
 #workbench-chat-history svg { width: 18px; height: 18px; }
 #workbench-project-list { min-height: 0; }
 #workbench-conversation-scroll { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }

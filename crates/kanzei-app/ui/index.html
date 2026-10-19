@@ -51,16 +51,17 @@
     <aside id="sidebar">
       <nav id="workbench-navigation" aria-label="全局导航" data-i18n-aria-label="全局导航">
         <!-- 品牌块只写「kanzei」:原来的副标题「工作台」与「所有项目」页名重复(命名词表 2026-10-01:全局项目页统一叫「所有项目」)。 -->
-        <div class="workbench-brand">kanzei</div>
+        <div class="workbench-header">
+          <div class="workbench-brand">kanzei</div>
+          <button type="button" id="workbench-chat-history" class="icon-btn" data-space-only="dev" aria-haspopup="dialog" title="搜索所有对话" data-i18n-title="搜索所有对话" aria-label="搜索对话" data-i18n-aria-label="搜索对话">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </button>
+        </div>
 
         <div id="workbench-conversation-actions">
           <button type="button" id="new-chat" class="new-chat-btn" title="新讨论" data-i18n-title="新讨论">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
             <span data-i18n-key="新讨论">新讨论</span>
-          </button>
-          <button type="button" id="workbench-chat-history" class="workbench-nav-link" data-space-only="dev" aria-haspopup="dialog" title="搜索所有对话" data-i18n-title="搜索所有对话" aria-label="搜索对话" data-i18n-aria-label="搜索对话">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-            <span data-i18n-key="搜索对话">搜索对话</span>
           </button>
         </div>
         <button type="button" id="workbench-schedules" class="workbench-nav-link" data-i18n-key="定时任务">定时任务</button>
@@ -1464,7 +1465,7 @@
           <button type="button" id="agent-back" class="icon-btn hidden" title="返回全部活动" data-i18n-title="返回全部活动" aria-label="返回全部活动" data-i18n-aria-label="返回全部活动">‹</button>
           <span id="tasks-panel-title" class="tp-title" data-i18n-key="活动">活动</span>
           <span id="tasks-count" class="tp-count" data-i18n-raw></span>
-          <button type="button" id="diff-summary-toggle" class="diff-summary-label ghost mini" aria-label="展开或收起文件变更" data-i18n-aria-label="展开或收起文件变更"></button>
+          <button type="button" id="diff-summary-toggle" class="diff-summary-label ghost mini hidden" aria-label="展开或收起文件变更" data-i18n-aria-label="展开或收起文件变更"></button>
           <span class="spacer"></span>
           <button type="button" id="tasks-filter" class="icon-btn" data-kz-menu="tasks-filter-menu" title="筛选与清理" data-i18n-title="筛选与清理" aria-label="筛选与清理" data-i18n-aria-label="筛选与清理">⋯</button>
           <div id="tasks-filter-menu" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-end" role="group" aria-label="筛选与清理" data-i18n-aria-label="筛选与清理">

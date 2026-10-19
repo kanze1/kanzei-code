@@ -265,7 +265,7 @@ defer(() => {
     if (event.defaultPrevented) return;
     setWorkspaceConsoleState({ tab: "decisions", projectFilter: "" }); navigate_view("workspace");
   });
-  // 「对话与历史」只有侧栏时钟图标这一个入口(UX-032);弹层本体在 12-session-tree.js,走 openPopover 的唯一写法(UX-003)。
+  // 品牌栏的搜索图标打开全局对话历史;弹层本体在 12-session-tree.js,走 openPopover 的唯一写法(UX-003)。
   $("workbench-chat-history")?.addEventListener("click", (event) => openSessionHistory(event.currentTarget, null));
   // 「项目」标题右侧的「＋」:添加已有文件夹 / 新建项目(与所有项目页头两个按钮同一实现,点它们本人);零项目时这是侧栏唯一入口。
   $("workbench-add-project")?.addEventListener("click", (event) => {
