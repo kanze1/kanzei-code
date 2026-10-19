@@ -945,7 +945,10 @@ pub(crate) mod tests {
         // 重试写入,变成"只回滚不终止"的无限回滚循环(reconcile 的文档注释即此意)。
         assert_tree_gone(breach_root_pid, breach_grandchild, "越界即终止").await;
 
-        // 进程已经终态并从注册表回收；归因仍由持有的进程句柄保留，供本次操作审计。
+        // OS 进程消失与异步输出/守卫收尾是不同的完成点。等待既有完成凭据,
+        // 再检查逻辑终态；不能把内核探活结果当成 Tokio 任务已被调度的证明。
+        process.exit_completion.wait().await.unwrap();
+        process.guard_completion.wait().await.unwrap();
         assert!(!process.is_running(), "越界终止后进程句柄应进入终态");
         assert_eq!(process.breaches().len(), 1, "应保留一条越界归因记录");
         std::fs::remove_dir_all(&root).ok();
