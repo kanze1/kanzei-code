@@ -34,7 +34,6 @@ import {
   toastError,
   transitionSession,
 } from "./03-shell.js";
-import { addMessage } from "./05-chat-render.js";
 import { onSubagentChange, SA_ACTIVE, subagentRunsFor, subagentStateWord } from "./05-subagents.js";
 import { bgClear } from "./06-activity.js";
 import { agentPanelSync } from "./06-agent-panel.js";
@@ -1105,7 +1104,7 @@ export async function submitNewProject() {
     }
     newProjectDiscardDraft = true;
     closeSurface($("new-project-overlay"));
-    await enterProject(result.prefs, { notice: t("已新建并切换到新项目") });
+    await enterProject(result.prefs);
     // 一句话描述只进输入框当草稿,不自动发送(用户 2026-09-26 定):先看一眼、改一改再发。
     if (result.description) {
       promptBox.value = result.description;
@@ -1448,7 +1447,6 @@ export async function enterProject(prefs, options = {}) {
     if (activeProcessId) await loadConversation();
     else showFreshConversation();
     if (!isCurrent()) return;
-    if (previous !== target && options.notice) addMessage("notice", options.notice);
     await loadModels();
     if (!isCurrent()) return;
     await refreshPendingInputs();
