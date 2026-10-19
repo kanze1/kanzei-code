@@ -229,7 +229,6 @@ function relabel() {
   const req = switcher.querySelector(".project-work-toggle"); if (req) req.textContent = "☷ " + t("需求");
   $("project-return-main").textContent = t("返回对话");
   $("project-handoff").textContent = t("交给其它对话") + " ↗";
-  const cancel = $("project-start-actions")?.lastElementChild; if (cancel) cancel.textContent = t("先讨论");
 }
 function paint() {
   if (!rail) return;
@@ -253,14 +252,16 @@ function paint() {
   const scope = currentProject + "|" + activeProcessId;
   if (handoffScope === scope) return;
   handoffScope = null;
-  const newProject = Boolean(isNew(state) && !state.error && workflow && !["running", "starting", "stopping", "waiting", "attention"].includes(activity.state));
   const pendingCapture = Boolean(state.capture) && workflow;
   const capturedEntry = documentsView(state)?.requirements?.find(entry => entry.id === state.capture?.id);
-  onboarding.hidden = !workflow || (!newProject && !pendingCapture && !state.registrationError && !(state.error && (!state.docs || isNew(state))));
-  $("project-start-actions").hidden = !newProject && !pendingCapture;
+  // Project metadata does not describe whether a conversation is empty. Routine
+  // guidance belongs to its welcome state; this notice reports actionable errors
+  // or a captured requirement that still needs an explicit start.
+  onboarding.hidden = !workflow || (!pendingCapture && !state.registrationError && !(state.error && (!state.docs || isNew(state))));
+  $("project-start-actions").hidden = !pendingCapture;
   $("project-register").disabled = state.busy;
   $("project-register").textContent = state.busy ? t("登记中…") : pendingCapture ? t(needsRequirementResearch(capturedEntry) ? requirementResearchAction(capturedEntry) : "开始此需求") : t("登记并开始");
-  $("project-onboarding-copy").textContent = state.registrationError ? t("登记未完成，原文已保留。") : state.error || (pendingCapture ? fillTemplate(t(needsRequirementResearch(capturedEntry) ? "{id} 已登记，先完成调研再开始实施。" : "{id} 已登记，可以开始推进。"), { id: state.capture.id }) : t("可以直接在下方提问、讨论或开始工作。需要持续跟踪时，再选择「登记并开始」。"));
+  $("project-onboarding-copy").textContent = state.registrationError ? t("登记未完成，原文已保留。") : state.error || (pendingCapture ? fillTemplate(t(needsRequirementResearch(capturedEntry) ? "{id} 已登记，先完成调研再开始实施。" : "{id} 已登记，可以开始推进。"), { id: state.capture.id }) : "");
   $("project-registration-details").hidden = !state.registrationError;
   $("project-registration-detail-copy").textContent = registrationFailureDetails(state.registrationError);
   $("project-registration-details").querySelector("summary").textContent = t("查看登记详情");
@@ -342,6 +343,14 @@ function openWorkPicker(state) {
   };
   search.addEventListener("input", draw);
   dialog.append(head, node("p", t("选择在下一次发送或自动续跑时生效；当前轮次保持不变。"), "dim"), search, list); draw();
+  if (isNew(state) && !state.error) {
+    const register = button(t("登记并开始"), () => {
+      if (project !== currentProject || process !== activeProcessId) return;
+      closeSurface(dialog); void registerRequirement(true);
+    }, "ghost");
+    register.id = "work-picker-register"; register.disabled = state.busy;
+    dialog.append(register);
+  }
   openDialog(dialog, { initialFocus: search });
 }
 
@@ -424,13 +433,14 @@ defer(() => {
   const forward = button(t("交给其它对话") + " ↗", () => openHandoffForm(), "ghost"); forward.id = "project-handoff";
   switcher.append(signal, node("span", null, "sw-spacer"), main, forward, req); $("composer").prepend(switcher);
   onboarding = node("section", null, "project-onboarding"); onboarding.id = "project-onboarding";
+  onboarding.hidden = true;
   const copy = node("p"); copy.id = "project-onboarding-copy";
   const details = node("details"); details.id = "project-registration-details"; details.hidden = true;
   const detailCopy = node("p", "", "project-work-fact"); detailCopy.id = "project-registration-detail-copy";
   details.append(node("summary", t("查看登记详情")), detailCopy);
   const actions = node("div"); actions.id = "project-start-actions";
   const register = button(t("登记并开始"), () => void registerRequirement(true), "ghost"); register.id = "project-register";
-  actions.append(register, button(t("直接对话"), () => $("prompt").focus(), "ghost"));
+  actions.append(register);
   const retry = button(t("重试读取"), () => {
     const state = facts();
     if (state.registrationError && state.failedRegistration) void registerRequirement(state.failedRegistration.start, state.failedRegistration);

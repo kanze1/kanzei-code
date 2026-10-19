@@ -15,6 +15,10 @@ const check = (value, text) => { assert(value, text); passed.push(text); };
 const settle = () => page.evaluate(() => window.__kzPreview.settle());
 const count = cmd => page.evaluate(cmd => window.__kzPreview.calls.filter(c => c.cmd === cmd).length, cmd);
 const last = cmd => page.evaluate(cmd => window.__kzPreview.calls.filter(c => c.cmd === cmd).at(-1)?.args, cmd);
+const registerFromWorkPicker = async () => {
+  await page.locator("#composer-work-current").click();
+  await page.locator("#work-picker-register").click(); await settle();
+};
 page.on("pageerror", error => errors.push(error.message));
 page.setDefaultTimeout(10000);
 try {
@@ -84,6 +88,30 @@ try {
   await page.locator("#new-chat").click(); await settle();
   check((await last("process_create")).profile === "dev", "New conversation creates an ordinary development recipient");
   check(await count("conversation_clear") === 0, "New discussion never clears the main conversation");
+  const welcomeHint = page.locator('#messages .msg-pane[data-active="1"] .empty-auto-hint');
+  check(await welcomeHint.isVisible(), "An empty conversation briefly explains where to enable autonomous progress");
+  check(await page.locator('#messages .msg-pane[data-active="1"] .empty-state :is(button, a, input, select)').count() === 0, "Welcome guidance introduces no extra action controls");
+  for (const [theme, width, language] of [["dark", 1600, "zh"], ["light", 420, "en"]]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.evaluate(async ({ theme, language }) => {
+      document.documentElement.setAttribute("data-theme", theme);
+      (await import("/02-i18n.js")).setLanguagePreference(language);
+    }, { theme, language }); await settle();
+    check((await welcomeHint.innerText()).includes(language === "zh" ? "「更多」" : "Self-directed progress"), `Welcome guidance follows ${language} in the ${theme} theme`);
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await page.locator("#send").isVisible(), `Welcome guidance preserves page width and sending at ${width}px`);
+    await page.screenshot({ path: `${output}/welcome-${theme}-${width}.png` });
+  }
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.evaluate(async () => {
+    document.documentElement.setAttribute("data-theme", "dark");
+    (await import("/02-i18n.js")).setLanguagePreference("zh");
+    const sessions = await import("/09-sessions.js"), shell = await import("/03-shell.js");
+    window.__welcomeProcess = shell.activeProcessId;
+    await sessions.switchProcess(window.__conversationTest.f.ids.mainProcess);
+  }); await settle();
+  check(!await welcomeHint.isVisible(), "Switching to an existing conversation restores messages without welcome guidance");
+  await page.evaluate(async () => (await import("/09-sessions.js")).switchProcess(window.__welcomeProcess)); await settle();
+  check(await welcomeHint.isVisible(), "Returning to an empty conversation restores its own welcome guidance");
   check(await page.locator("#project-conversation-kind").textContent().then(t => t.trim().length > 0), "Conversation title is visible");
   await openComposerOptions(page);
   check(await page.locator("#skills-nav").isVisible() && !await page.locator("#skills-picker").count() && await page.locator("#goal-picker").isVisible(), "Skills stays global while new conversations offer Goal controls");
@@ -99,6 +127,7 @@ try {
   await page.evaluate(async id => (await import("/09-sessions.js")).switchProcess(id), discussionId);
   check(await page.locator("#prompt").inputValue() === "讨论自己的草稿", "Discussion draft survives viewing main execution");
   await page.locator("#prompt").fill("只分析这个方案"); await page.locator("#send").click(); await settle();
+  check(!await welcomeHint.isVisible(), "Sending the first message removes autonomous guidance with the welcome state");
   const peerRequest = await last("run_prompt");
   check(peerRequest.profile === "dev" && ["dev", "dev-pair"].includes(peerRequest.agent), `Conversation sends with its selected development mode: ${JSON.stringify(peerRequest)}`);
   // The handoff form is a compatibility API; the retired composer entry is no longer a user surface.
@@ -150,13 +179,15 @@ try {
     await (await import("/26-project-conversations.js")).refreshConversationWork();
   });
   await settle();
-  check(await page.locator("#project-onboarding").isVisible(), "Confirmed empty project shows optional guidance");
-  check((await page.locator("#project-onboarding-copy").innerText()).includes("可以直接") && !(await page.locator("#project-register").getAttribute("class")).includes("primary"), "Guidance explains direct conversation without making registration the primary action");
+  check(!await page.locator("#project-onboarding").isVisible(), "An existing conversation with no registered work never shows a persistent setup banner");
+  check(!await welcomeHint.isVisible() && !await page.locator("#project-start-actions").isVisible(), "An empty work registry does not replace conversation history with setup guidance or buttons");
   const firstCaptureCount = await count("quick_req"), firstRunCount = await count("run_prompt");
   await page.locator("#prompt").fill("先介绍一下这个项目能怎么开始，不要登记需求");
   await page.locator("#prompt").press("Enter"); await settle();
   check(await count("quick_req") === firstCaptureCount && await count("run_prompt") === firstRunCount + 1, "First Enter in an empty project sends an ordinary message without registering a requirement");
   check((await last("run_prompt")).prompt === "先介绍一下这个项目能怎么开始，不要登记需求" && !(await last("run_prompt")).executionBatch, "The first message retains the user's original text and conversation delivery");
+  await page.evaluate(async () => (await import("/26-project-conversations.js")).refreshConversationWork()); await settle();
+  check(!await page.locator("#project-onboarding").isVisible(), "Work polling cannot restore routine setup guidance after a message");
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js"); window.__kzPreview.emit("kz:idle", { sessionId: shell.activeSessionId });
     window.__conversationTest.readFailure = true; await (await import("/26-project-conversations.js")).refreshConversationWork();
@@ -171,11 +202,11 @@ try {
   check(!await page.locator("#project-register").isVisible(), "Failed requirement reads do not masquerade as an empty ready-to-start project");
   await page.evaluate(() => { window.__conversationTest.readFailure = false; });
   await page.locator("#project-onboarding-retry").click(); await settle();
-  await page.screenshot({ path: `${output}/onboarding-dark.png` });
+  await page.screenshot({ path: `${output}/empty-project-history-dark.png` });
   await page.locator("#prompt").fill("建立一个支持导出的本地笔记工具");
   await page.evaluate(() => { window.__conversationTest.captureFailure = true; });
   const beforeCapture = await count("run_prompt");
-  await page.locator("#project-register").click(); await settle();
+  await registerFromWorkPicker();
   check(await page.locator("#prompt").inputValue() === "建立一个支持导出的本地笔记工具", "Failed registration retains original input");
   check(await count("run_prompt") === beforeCapture, "Failed registration never starts unowned work");
   check(await page.locator("#project-onboarding-retry").textContent() === "重试登记", "Registration failures explicitly offer retry registration");
@@ -206,7 +237,7 @@ try {
     await (await import("/26-project-conversations.js")).refreshConversationWork();
   }, owner.session_id);
   await page.locator("#prompt").fill("整理番剧收藏库，先调研已有实现");
-  await page.locator("#project-register").click(); await settle();
+  await registerFromWorkPicker();
   const preparation = await last("run_prompt");
   check(preparation.executionBatch === false && preparation.workItemId == null && preparation.prompt.includes("R-1000"), "Pending research starts in the main conversation without a premature claim");
   check(preparation.prompt.includes("原始描述") && preparation.prompt.includes("外部已有实现") && preparation.prompt.includes("仓内既有设计") && preparation.prompt.includes("检索预算") && preparation.prompt.includes("证据验证通过") && preparation.prompt.includes("待我处理") && !/req get|question|background=true|prior_art validate|work claim|doing/.test(preparation.prompt), "Preparation requests real evidence, validation and Needs attention in concise user-facing language");

@@ -72,6 +72,7 @@ try {
   check(await page.locator(`[data-ctx='session'][data-process-id=${JSON.stringify(ids.id)}]`).count() === 0, "The deleted chat disappears from the sidebar");
   check(!await page.locator("#profile-mode-wrap").isVisible(), "General chat hides the complete project-mode control including its label");
   check(!await page.locator("#composer-work-context").isVisible(), "General chat cannot retain work context from the previous project");
+  check(await page.locator('#messages .msg-pane[data-active="1"] .empty-state').isVisible() && !await page.locator('#messages .msg-pane[data-active="1"] .empty-auto-hint').isVisible(), "An empty general chat does not advertise the unavailable project autonomy mode");
   await page.evaluate(async () => {
     window.__kzPreview.setCommand("softwire_questions", () => []);
     document.dispatchEvent(new CustomEvent("kz:refresh-work-questions"));

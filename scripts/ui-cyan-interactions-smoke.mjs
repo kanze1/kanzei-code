@@ -22,10 +22,10 @@ async function open(scene = "empty", theme = "light", width = 1440) {
 async function scenario(name, run) {
   try { await run(); } catch (error) { result.failures.push({ name, error: String(error.stack || error) }); }
 }
-const colorIsOk = locator => locator.evaluate(el => {
-  const reference = document.createElement("span"); reference.style.color = "var(--ok)"; el.append(reference);
+const colorIs = (locator, token = "--ok") => locator.evaluate((el, token) => {
+  const reference = document.createElement("span"); reference.style.color = `var(${token})`; el.append(reference);
   const matches = getComputedStyle(el).color === getComputedStyle(reference).color; reference.remove(); return matches;
-});
+}, token);
 try {
   await scenario("model rejection", async () => {
     const page = await open();
@@ -118,8 +118,8 @@ try {
   for (const theme of ["light", "dark"]) await scenario(`management ${theme}`, async () => {
     const page = await open("empty", theme);
     await page.locator('[data-work-surface="project"]').click(); await page.locator(".management-row").first().waitFor();
-    check(`${theme}: requirement identifiers use the cyan token`, await colorIsOk(page.locator(".management-id").first()));
-    check(`${theme}: list counts use the cyan token`, await colorIsOk(page.locator(".management-list-count strong")));
+    check(`${theme}: requirement identifiers use the cyan token`, await colorIs(page.locator(".management-id").first()));
+    check(`${theme}: list counts use the neutral secondary token`, await colorIs(page.locator(".management-list-count strong"), "--dim"));
     const total = await page.locator(".management-row").count();
     await page.locator(".management-tools input").fill("no matching requirement");
     check(`${theme}: filtering updates counts and the empty state`, await page.locator(".management-row").count() === 0 && (await page.locator(".management-list-count").innerText()).includes("0 /") && await page.locator(".management-empty").isVisible());
@@ -145,7 +145,7 @@ try {
       window.__kzPreview.setCommand("memory_recalls", { rounds: [] });
     });
     await page.locator('[data-management-tab="map"]').click(); await page.locator(".management-metrics dd").first().waitFor();
-    check(`${theme}: known operational counts are cyan`, await colorIsOk(page.locator('.management-metrics [data-tone="value"] dd').first()));
+    check(`${theme}: known operational counts are cyan`, await colorIs(page.locator('.management-metrics [data-tone="value"] dd').first()));
     check(`${theme}: large counts use readable thousands separators`, (await page.locator(".management-metrics").innerText()).includes("12,840"));
     check(`${theme}: failures retain an error tone`, await page.locator(".management-metrics > div").filter({ has: page.locator("dt", { hasText: "失败调用" }) }).getAttribute("data-tone") === "error");
     check(`${theme}: unobserved metrics remain unknown`, await page.locator('.management-metrics [data-tone="unknown"] dd').first().innerText() === "—");
@@ -162,7 +162,7 @@ try {
     check("Running attachment restriction is persistent before clicking Send", await page.locator("#attachment-send-hint").isVisible());
     await page.locator("#prompt").fill("retain my attachment draft"); await page.locator("#send").click();
     check("Blocked attachment send preserves text and attachment", await page.locator("#prompt").inputValue() === "retain my attachment draft" && await page.locator(".attachment-chip").count() === 1);
-    check("Attachment icon uses the cyan token", await colorIsOk(page.locator(".attachment-chip .resource-mark")));
+    check("Attachment icon uses the cyan token", await colorIs(page.locator(".attachment-chip .resource-mark")));
     await page.evaluate(async () => { const s = await import("/03-shell.js"); window.__kzPreview.emit("kz:stopped", { sessionId: s.activeSessionId }); });
     await page.locator("#attachment-send-hint").waitFor({ state: "hidden" });
     check("Terminal state removes the attachment restriction", true);

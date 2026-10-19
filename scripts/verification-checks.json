@@ -542,6 +542,12 @@
     ]
   },
   {
+    "key": "ui_visual_polish",
+    "inputs": "frontend",
+    "program": "node",
+    "args": ["scripts/ui-visual-polish-smoke.mjs"]
+  },
+  {
     "key": "ui_conversation_redesign",
     "inputs": "frontend",
     "suite": "ui_runtime",

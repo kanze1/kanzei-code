@@ -828,6 +828,7 @@ export const I18N_EN = {
   "语音服务已就绪，点击语音开始": "Voice service is ready. Click Voice to begin.",
   "开始一段对话": "Start a conversation",
   "描述任务，或添加图片与 PDF。": "Describe a task, or add images and PDFs.",
+  "需要持续推进任务时，可在「更多」中切换为「自主推进」。": "For ongoing work, choose Self-directed progress in More.",
   "AUTO research": "AUTO research",
   "自动调研并绘制研究地图，等待你选方向，再完成实验、分析和论文 PDF。": "Review literature and map directions, wait for your choice, then complete experiments, analysis and a paper PDF.",
   "完整实验方案": "Full experiment protocol",

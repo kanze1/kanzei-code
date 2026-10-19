@@ -247,7 +247,7 @@ assert.doesNotMatch(js, /function syncActivityPanel\(\)/, "syncActivityPanel 已
 assert.match(js, /export function installSplit\(/, "布局分隔条的唯一入口 installSplit 丢失");
 assert.match(js, /rootStyle\.setProperty\(cssVar, `\$\{next\}px`\);\s*storeSet\("splits"/, "分隔条必须把尺寸写成 CSS 变量并经存储持久化");
 assert.doesNotMatch(js, /function setupResize\(/, "旧 setupResize(写内联 width)不得复活");
-assert.match(css, /#sidebar \{ width: var\(--kz-split-sidebar\); \}/, "#sidebar 宽度必须引用 --kz-split-sidebar");
+assert.match(css, /#sidebar\s*\{[^}]*\bwidth:\s*var\(--kz-split-sidebar\)\s*;/, "#sidebar 宽度必须引用 --kz-split-sidebar");
 assert.match(css, /#sidebar\.collapsed \{ width: 0;/, "#sidebar.collapsed { width: 0 } 丢失(收起后会留空栏)");
 assert.match(js, /function setRunning\(value, statusText\)[\s\S]*send\.disabled = false/);
 assert.match(js, /已发送给 agent/);
@@ -609,7 +609,7 @@ assert.match(js, /t\("实际差异"\)/);
   const primary = bodiesFor("button.primary").join(";");
   assert.ok(primary.includes("var(--primary-bg)") && primary.includes("var(--primary-fg)"), "button.primary 必须用单色主按钮 token --primary-bg/--primary-fg(不用强调色填充)");
   const composer = bodiesFor("#composer").join(";");
-  assert.ok(composer.includes("var(--r-xl)") && composer.includes("var(--elev-composer)"), "#composer 必须用 var(--r-xl) 圆角与 var(--elev-composer) 阴影");
+  assert.ok(composer.includes("var(--r-composer)") && composer.includes("var(--elev-composer)"), "#composer 必须用输入区圆角 token 与 var(--elev-composer) 阴影");
   const userBubble = bodiesFor(".msg.user");
   assert.ok(userBubble.length, "找不到 .msg.user 规则(判据定位失效)");
   assert.ok(!userBubble.some((body) => /border-left/.test(body)), ".msg.user 不得再有左竖条(border-left):用户消息是圆角灰气泡");
@@ -1028,7 +1028,7 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     const clean = strip(text);
     if (/padding-right:\s*222px/.test(clean)) out.push("#messages 仍给 OC 立绘预留 222px 右沟(OC 关着也整列左移)");
     const view = bodiesOf(text, "#view-chat").join(";");
-    if (!/--chat-col:\s*768px/.test(view) || !/--chat-gutter:\s*\d+px/.test(view) || !/container-type:\s*inline-size/.test(view)) {
+    if (!/--chat-col:\s*[1-9]\d*(?:\.\d+)?px/.test(view) || !/--chat-gutter:\s*\d+px/.test(view) || !/container-type:\s*inline-size/.test(view)) {
       out.push("#view-chat 必须定义 --chat-col / --chat-gutter 并是 inline-size 容器(列宽唯一真源)");
     }
     for (const selector of ["#messages > .msg-pane", "#turn-activity", "#composer"]) {
@@ -1057,9 +1057,11 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     assert.ok(cssText.includes(from), `对话单列自测:样式表里找不到 ${from}`);
     return cssText.replace(from, to);
   };
+  const columnDefinition = cssText.match(/--chat-col:\s*[1-9]\d*(?:\.\d+)?px\s*;/);
+  assert.ok(columnDefinition, "对话列宽必须有明确的正值定义");
   const counterexamples = [
     ["222px", `${cssText}\n#messages:not(:has(.empty-state)) { padding-right: 222px; }`],
-    ["列宽真源", swap("--chat-col: 768px;", "--chat-width: 768px;")],
+    ["列宽真源", swap(columnDefinition[0], columnDefinition[0].replace("--chat-col", "--chat-width"))],
     ["pane 宽度", swap(`width: ${COLUMN_EXPR}; margin: 0 auto;\n}`, "width: 100%; max-width: 1080px; margin: 0 auto;\n}")],
     ["活动行宽度", swap(`gap: 8px; width: ${COLUMN_EXPR};`, "gap: 8px; width: calc(100% - 48px); max-width: 1080px;")],
     ["滚动条对称", swap("scrollbar-gutter: stable both-edges;", "")],
@@ -1098,8 +1100,10 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
   };
   const composerFound = composerViolations(cssText, surfaceText, htmlText);
   assert.deepEqual(composerFound, [], `输入区控件几何静态门禁未通过:\n - ${composerFound.join("\n - ")}`);
+  const selectRule = cssText.match(/^select\s*\{[^}]*\}/m)?.[0];
+  assert.ok(selectRule && /align-items:\s*center/.test(selectRule), "select 居中自测必须定位基础规则");
   const composerCounterexamples = [
-    ["select 居中", swap("text-overflow: ellipsis; align-items: center;\n}", "text-overflow: ellipsis;\n}"), surfaceText, htmlText],
+    ["select 居中", swap(selectRule, selectRule.replace(/align-items:\s*center\s*;/, "")), surfaceText, htmlText],
     ["控件高度", swap("height: var(--ctl-h); min-height: 0;", "height: 30px; min-height: 0;"), surfaceText, htmlText],
     ["旧类", `${cssText}\n.seg-btn { padding: 6px 10px; }`, surfaceText, htmlText],
     ["鞭挞外框", `${cssText}\n.autorun-bar[data-phase="running"] { border-color: var(--accent); background: var(--statusbar-run); }`, surfaceText, htmlText],

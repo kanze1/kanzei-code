@@ -14111,7 +14111,7 @@ const docsB = {
   assert(documentElement.style.getPropertyValue("--kz-split-sidebar") === "400px", `拖侧栏分隔条后 --kz-split-sidebar 应为 400px,实为 "${documentElement.style.getPropertyValue("--kz-split-sidebar")}"`);
   assert(!sidebar.style.width, "侧栏分隔条又写了内联 width(压过 #sidebar.collapsed,收起后留空栏)");
   assert(layoutNs.layoutPref("splits", "sidebar") === 400, "侧栏宽度没有进 ui_layout.splits");
-  assert(/#sidebar \{ width: var\(--kz-split-sidebar\); \}/.test(style) && /#sidebar\.collapsed \{ width: 0;/.test(style), "style.css 的 #sidebar 宽度须引用 --kz-split-sidebar 且保留 .collapsed{width:0}");
+  assert(/#sidebar\s*\{[^}]*\bwidth:\s*var\(--kz-split-sidebar\)\s*;/.test(style) && /#sidebar\.collapsed \{ width: 0;/.test(style), "style.css 的 #sidebar 宽度须引用 --kz-split-sidebar 且保留 .collapsed{width:0}");
   split.handle.dispatchEvent({ type: "dblclick", target: split.handle });
   assert(!documentElement.style.getPropertyValue("--kz-split-sidebar") && layoutNs.layoutPref("splits", "sidebar") === null, "双击分隔条没有回到默认宽度");
   assert(byId.get("log-panel")?._kzSplit?.handle.getAttribute("aria-orientation") === "horizontal", "日志面板顶边没有装上横向分隔条");

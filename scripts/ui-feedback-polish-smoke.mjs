@@ -62,7 +62,7 @@ try {
     check(await page.locator("#set-max-tokens").inputValue() === "4100" && await page.locator("#settings-dirty").isVisible(), `${theme}: Section navigation preserves unsaved changes`);
     await page.locator('#settings-toc [data-settings-target="sg-general"]').click();
     await page.screenshot({ path: `${output}/settings-${theme}.png` });
-    for (const width of [1000, 390]) {
+    for (const width of [1000, 720, 390]) {
       await page.setViewportSize({ width, height: 860 });
       await page.locator('#settings-toc [data-settings-target="sg-update"]').click();
       const geometry = await page.evaluate(() => {

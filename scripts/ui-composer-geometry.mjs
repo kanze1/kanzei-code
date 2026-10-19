@@ -83,16 +83,19 @@ function geometryInPage({ lang = "zh", extended = false } = {}) {
   const queue = document.querySelector('#delivery-select option[value="queue"]')?.textContent?.trim();
   const expectQueue = lang === "en" ? "Queue" : "排队";
   if (queue !== expectQueue) out.push(`⑥ 交付方式「排队」选项应显示「${expectQueue}」,实际「${queue}」`);
-  // ⑦ 项目级来源标签:空闲态显示(768 列宽放得下),运行态收起(右段多出排队与停止,只剩约 30px)。复核:它曾挂在
-  //    860 容器查询里,输入区最宽 768 → 任何宽度都看不到。输入区窄于 640 时全部来源标签都收,不在此列。
+  // ⑦ 来源标签与 composer 容器查询一致:内容盒宽于 640px 且空闲时显示,运行或窄内容盒时收起。
+  //    容器查询使用内容盒,不能把边框和内边距计入可用宽度。
   const projectTags = [...composer.querySelectorAll('.picker-btn .picker-source[data-source="project"]')];
   const activity = document.documentElement.dataset.kzActivity;
   const busy = activity === "running" || activity === "stopping";
+  const composerStyle = getComputedStyle(composer);
+  const contentWidth = C.width - ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
+    .reduce((sum, property) => sum + parseFloat(composerStyle[property]), 0);
   if (!projectTags.length) out.push("⑦ 找不到项目级来源标签(预览数据变了)");
-  else if (C.width > 640) {
+  else {
     const visibleTags = projectTags.filter(shown).length;
-    if (busy && visibleTags) out.push(`⑦ 运行态项目级来源标签应收起,实际显示 ${visibleTags} 个`);
-    if (!busy && visibleTags !== projectTags.length) out.push(`⑦ 空闲态项目级来源标签应显示(${projectTags.length} 个),实际 ${visibleTags} 个`);
+    if ((busy || contentWidth <= 640) && visibleTags) out.push(`⑦ 运行或窄内容盒的项目级来源标签应收起,实际显示 ${visibleTags} 个`);
+    if (!busy && contentWidth > 640 && visibleTags !== projectTags.length) out.push(`⑦ 宽内容盒空闲态项目级来源标签应显示(${projectTags.length} 个),实际 ${visibleTags} 个`);
   }
   const project = document.querySelector("#workspace-project-name") || document.querySelector("#project-label");
   const info = { composer: Math.round(C.width), bar: Math.round(bar.height), controls: items.length };

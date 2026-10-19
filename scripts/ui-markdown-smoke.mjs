@@ -24,7 +24,8 @@ const css = await readFile(new URL("../crates/kanzei-app/ui/style.css", import.m
 for (const [level, token] of [[1, "20"], [2, "18"], [3, "16"], [4, "14"], [5, "13"], [6, "12"]]) {
   assert.match(css, new RegExp(`\\.md-h-${level}\\s*\\{[^}]*font-size: var\\(--fs-${token}\\)`), `${level} 级标题字号 token 未定义`);
 }
-assert.match(css, /\.msg\.md p \{ margin: \.7em 0; \}/, "段落间距未达到 0.7em");
+const paragraphSpacing = css.match(/\.msg\.md p\s*\{[^}]*\bmargin:\s*([\d.]+)em\s+0\s*;/);
+assert.ok(paragraphSpacing && Number(paragraphSpacing[1]) >= .7, "段落间距未达到 0.7em");
 
 const table = markdown.renderMarkdown("| name | score |\n| :--- | ---: |\n| kanzei | 10 |");
 assert.match(table, /<table>[\s\S]*<th[^>]*>name<\/th>[\s\S]*<td[^>]*>10<\/td>[\s\S]*<\/table>/, "Markdown 表格未渲染");

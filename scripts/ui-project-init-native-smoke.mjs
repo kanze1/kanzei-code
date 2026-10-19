@@ -37,12 +37,29 @@ try {
   const reqFile=path.join(selected,'.kanzei/project/requirements.md');
   const hasRequirements=async()=>existsSync(reqFile)&&/^##\s+R-\d+/m.test(await readFile(reqFile,'utf8'));
   check(!await hasRequirements(),'Creation and description do not register a requirement');
+  check(await app.page.locator('.msg-pane[data-active="1"] .empty-auto-hint').isVisible(),'Native empty conversation shows one automatic-mode hint');
+  check(!await app.page.locator('#project-onboarding').isVisible(),'Native empty project has no persistent onboarding buttons');
+  for (const theme of ['light','dark']) {
+    await app.page.evaluate(async theme => (await import('./03-shell.js')).applyTheme(theme),theme);
+    await app.page.waitForFunction(background=>window.getComputedStyle(document.getElementById('composer')).backgroundColor===background,theme==='light'?'rgb(255, 255, 255)':'rgb(35, 35, 35)');
+    const layout=await app.page.evaluate(()=>{
+      const button=document.getElementById('tasks-toggle'),badge=document.getElementById('tasks-badge');
+      const text=badge.textContent,hidden=badge.classList.contains('hidden');
+      badge.textContent='120';badge.classList.remove('hidden');
+      const icon=button.querySelector('svg').getBoundingClientRect(),count=badge.getBoundingClientRect(),target=button.getBoundingClientRect();
+      const result={gap:count.left-icon.right,contained:count.right<=target.right,background:window.getComputedStyle(document.getElementById('composer')).backgroundColor};
+      badge.textContent=text;badge.classList.toggle('hidden',hidden);return result;
+    });
+    check(layout.gap>=4&&layout.contained,`${theme}: native activity icon and multi-digit count stay separate`);
+    check(layout.background===(theme==='light'?'rgb(255, 255, 255)':'rgb(35, 35, 35)'),`${theme}: native composer keeps the approved background`);
+  }
   await app.page.locator('#prompt').press('Enter');
   await until(()=>received,'First Enter reaches the actual provider as a conversation');
   await until(async()=>await app.page.locator('#prompt').inputValue()===''&&!(await app.invoke('collaboration_snapshot',{projectDir:selected})).some(line=>line.running),'First conversation finishes');
   check(await app.page.evaluate(()=>window.__projectInitSendPrevented===false),'Onboarding does not intercept ordinary composer delivery');
   check(app.requests.some(body=>body.messages?.some(message=>message.role==='user'&&message.content===description)),'First message reaches the provider with its original text');
   check(!await hasRequirements(),'Project requirements stay empty after the first ordinary message');
+  check(!await app.page.locator('.msg-pane[data-active="1"] .empty-auto-hint').isVisible()&&!await app.page.locator('#project-onboarding').isVisible(),'Native guidance disappears after the first conversation');
   check(app.errors.length===0,'Native project workflow has no JavaScript errors');
   await app.page.screenshot({path:path.join(app.run,'project-init.png')});
   await writeFile(path.join(app.run,'acceptance.json'),JSON.stringify({passed:checks.length,checks,selected,executable:app.exe,scope:'Exact owned target folder; real UI handlers, native backend, filesystem and provider request; picker response binding is covered by UI runtime regression'},null,2));

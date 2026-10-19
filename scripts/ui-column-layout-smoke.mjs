@@ -5,7 +5,7 @@
 // 左移 100px;列宽又各有一套写法)。静态断言(ui-a11y-smoke「对话单列」)只能锁住写法,这里在无头 Edge 里真量:
 //   1. column 场景(空闲:历史 + 一轮已结束 + 发一条消息后的回复)在用户三档缩放 1280@1.5、1600@1.25、2000@1 与 1600@1:
 //      以 pane 左右边为基准 L/R,正文首行字、工具组、子代理卡、notice 左缘 = L,子代理卡、用户气泡、输入区右缘 = R,
-//      输入区左缘 = L(容差 1px);pane 宽 = min(768, 对话区宽 − 2×沟);#messages 左右内边距 0;
+//      输入区左缘 = L(容差 1px);pane 宽 = min(--chat-col, 对话区宽 − 2×--chat-gutter);#messages 左右内边距 0;
 //   2. 工具组:折叠的多行组里调用详情统一收起;单行组不显示组头;⎿ 摘要紧跟参数(间距 0~16px);
 //      复制行(强制显形)在块下方、助手靠左/用户靠右,且不压下一块(至少量到一对「消息 → notice」);
 //   3. composer 场景(运行中):活动行字形左缘 = L = 输入区左缘;
@@ -78,9 +78,11 @@ function measureColumn({ tolerance, checkGroups }) {
     }
     return null;
   };
-  const gutter = window.innerWidth <= 1024 ? 12 : 24;
-  const expected = Math.min(768, rect(chatArea).width - 2 * gutter);
-  if (!near(P.width, expected)) out.push(`pane 宽 ${P.width.toFixed(1)},应为 min(768, 对话区宽 − 2×${gutter}) = ${expected.toFixed(1)}`);
+  const columnStyle = getComputedStyle(chatArea);
+  const gutter = parseFloat(columnStyle.getPropertyValue("--chat-gutter"));
+  const column = parseFloat(columnStyle.getPropertyValue("--chat-col"));
+  const expected = Math.min(column, rect(chatArea).width - 2 * gutter);
+  if (!near(P.width, expected)) out.push(`pane 宽 ${P.width.toFixed(1)},应为 min(${column}, 对话区宽 − 2×${gutter}) = ${expected.toFixed(1)}`);
   const pad = getComputedStyle(messages);
   if (pad.paddingLeft !== "0px" || pad.paddingRight !== "0px") out.push(`#messages 左右内边距应为 0,实为 ${pad.paddingLeft} / ${pad.paddingRight}`);
   const lefts = {

@@ -1,23 +1,23 @@
 /* The workbench owns global navigation. Existing tools keep their contracts and
    state, but appear within a project rather than competing at the top level. */
-#workbench-navigation { padding: 20px 12px 12px; }
-.workbench-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 18px 10px; }
-.workbench-brand { min-width: 0; color: var(--fg-strong); font-size: 23px; font-weight: 650; letter-spacing: -.7px; }
-.workbench-nav-link, .workbench-project-link { display: block; width: 100%; padding: 10px 12px; margin: 2px 0; border: 0; border-radius: var(--r-md); background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workbench-nav-link.active, .workbench-project-link.active { background: var(--surface-selected); color: var(--accent-text); }
+#workbench-navigation { padding: 26px 12px 16px; }
+.workbench-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 24px 10px; }
+.workbench-brand { min-width: 0; color: var(--fg-strong); font-size: 22px; font-weight: 650; letter-spacing: -.65px; }
+.workbench-nav-link, .workbench-project-link { display: block; width: 100%; margin: 2px 0; border: 0; background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 9px 11px; font-size: 13px; border-radius: 7px; }
+.workbench-nav-link.active, .workbench-project-link.active { background: var(--surface-selected); color: var(--fg-strong); }
 .workbench-nav-link:hover, .workbench-project-link:hover { background: var(--surface-hover); }
 /* 「待我处理」页开着(D12):高亮落在「待我处理」本身,所在项目行与会话行退成普通态,不再充当当前位置。 */
 body[data-attention-open="true"] .workbench-project-link.active,
 body[data-attention-open="true"] .workbench-session-link[aria-current="true"] { background: transparent; color: var(--fg); }
 body[data-attention-open="true"] .workbench-project-link.active:hover,
 body[data-attention-open="true"] .workbench-session-link[aria-current="true"]:hover { background: var(--surface-hover); }
-.workbench-nav-label { display: flex; align-items: center; justify-content: space-between; margin: 18px 12px 6px; color: var(--dim); font-size: 11px; }
+.workbench-nav-label { display: flex; align-items: center; justify-content: space-between; margin: 24px 12px 8px; font-size: 11px; color: var(--dim); }
 /* 「项目」标题右侧的「＋」:零项目时侧栏唯一的添加入口(UX-152),有项目时也随手可点。 */
 #workbench-add-project { flex: none; margin-right: -6px; }
-#workbench-conversation-actions { display: none; flex-direction: column; align-items: stretch; gap: 2px; margin: 8px 0; }
+#workbench-conversation-actions { display: none; flex-direction: column; align-items: stretch; gap: 2px; margin: 0 0 15px; }
 body[data-space="dev"] #workbench-conversation-actions,
 body[data-space="research"][data-view="chat"] #workbench-conversation-actions { display: flex; }
-#workbench-conversation-actions .new-chat-btn { flex: 1; min-width: 0; width: auto; padding: 10px 12px; }
+#workbench-conversation-actions .new-chat-btn { flex: 1; min-width: 0; width: auto; font-size: 13px; padding: 10px 11px; color: var(--fg-strong); background: var(--surface-selected); border-radius: 7px; }
 #workbench-chat-history { display: flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; margin: 0; }
 #workbench-chat-history svg { width: 18px; height: 18px; }
 #workbench-project-list { min-height: 0; }
@@ -45,24 +45,24 @@ body[data-space="dev"] #sidebar > .sidebar-section, body[data-space="dev"] #work
 .workbench-project-link:is([data-activity="waiting"], [data-activity="stopping"]) .workbench-project-activity { color: var(--accent-text); }
 .workbench-project-link:is([data-activity="attention"], [data-activity="failed"]) .workbench-project-activity { color: var(--accent-text); border: 1px solid currentColor; line-height: 12px; }
 .workbench-project-link[data-activity="failed"] .workbench-project-activity { border-radius: 3px; }
-.workbench-project-attention { background: var(--accent); color: var(--panel); min-width: 14px; padding: 1px 3px; border-radius: 4px; text-align: center; font-size: 10px; }
+.workbench-project-attention { min-width: 14px; text-align: center; color: var(--accent-text); background: var(--accent-soft); border-radius: 4px; padding: 1px 5px; font-size: 10px; }
 @keyframes workbench-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .workbench-project-activity { animation: none !important; transition: none !important; } }
 /* ---------- 侧栏会话树:点击项目名称展开,对话使用统一文字行 ---------- */
 .workbench-project { margin: 2px 0; }
 .workbench-project-row { display: flex; align-items: center; border-radius: var(--r-md); }
 .workbench-project-row:hover { background: var(--surface-hover); }
-.workbench-project-row:has(.workbench-project-link.active) { background: var(--surface-selected); }
-.workbench-project-row .workbench-project-link { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; padding: 9px 12px; background: transparent; }
-.workbench-session-list { margin: 0 0 6px 13px; padding-left: 8px; border-left: 1px solid var(--border-soft); }
+.workbench-project-row:has(.workbench-project-link.active) { background: transparent; }
+.workbench-project-row .workbench-project-link { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; padding: 9px 12px; background: transparent; padding-block: 10px; }
+.workbench-session-list { margin: 0 0 6px 13px; border-left: 0; padding-left: 9px; margin-left: 6px; }
 .workbench-session-list[hidden] { display: none; }
-.workbench-session { display: flex; align-items: center; min-width: 0; border-radius: var(--r-sm); }
-.workbench-session:has([aria-current="true"]) { background: var(--surface-selected); }
+.workbench-session { display: flex; align-items: center; min-width: 0; border-radius: var(--r-sm); margin: 2px 0; }
+.workbench-session:has([aria-current="true"]) { position: relative; background: var(--surface-selected); }
 .workbench-session:hover { background: var(--surface-hover); }
-.workbench-session > .workbench-session-link { flex: 1; min-width: 0; background: transparent; }
-.workbench-session-link { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; margin: 1px 0; padding: 5px 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; overflow: hidden; }
+.workbench-session > .workbench-session-link { flex: 1; min-width: 0; background: transparent; font-weight: 450; }
+.workbench-session-link { display: flex; align-items: center; gap: 8px; width: 100%; margin: 1px 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; overflow: hidden; font-size: 12px; min-height: 33px; padding: 7px 10px; }
 .workbench-session-link:hover { background: var(--surface-hover); }
-.workbench-session-link[aria-current="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+.workbench-session-link[aria-current="true"] { background: transparent; color: var(--fg-strong); font-weight: 550; }
 .workbench-session-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .workbench-session-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-session-tag, .workbench-session-time { flex: 0 0 auto; color: var(--dim); font-size: 10.5px; }

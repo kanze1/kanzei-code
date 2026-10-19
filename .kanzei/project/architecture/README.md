@@ -36,7 +36,7 @@
 - [identity: live_design; last_verified_commit: 21c36e9d] [`decision_console_integration.md`](../../../docs/design/decision_console_integration.md)：决定、复核、偏好、冻结快照 worker 与完成唤醒的已接线入口；验证范围见正文，不等于完整产品方向已交付。2026-10-02 核对当前未提交工作树，提交号只锚定基线。
 
 
-- [identity: live_design; last_verified_commit: 23fbbcb5] [`brand_refresh.md`](../../../docs/design/brand_refresh.md)：三模块并行 agent SVG、亮橙/墨蓝/电光青提示色、侧栏与输入框静态暖灰质感；消息对话移除背景装饰并停止动画，欢迎页与语音舞台保留可关闭装饰。
+- [identity: live_design; last_verified_commit: 8fb9f71d] [`brand_refresh.md`](../../../docs/design/brand_refresh.md)：基于发行版实际色值核对的深浅色底色、正文与纹理；按用户确认的原型 03 整合橙青点缀、紧凑页签悬停和活动图标数量排布。提交号锚定配色基线，本轮实现与证据以发布回执为准。
 
 - [identity: live_design; last_verified_commit: 250fb219] [`cc_codex_alignment_20260925.md`](../../../docs/design/cc_codex_alignment_20260925.md)：Claude Code / Codex 能力对照与对齐清单(复刻清单 v1;接口定义与用户筛选结论,R-364~R-367、R-369~R-377、D-748、D-751 承接)。
 - [identity: live_design; last_verified_commit: 250fb219] [`cc_codex_alignment_impl_maps.md`](../../../docs/design/cc_codex_alignment_impl_maps.md)：CC/Codex 对齐条目实施地图(行号、批次、陷阱与裁决;勘察加对抗核对产出)。
