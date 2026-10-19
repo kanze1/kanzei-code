@@ -25,6 +25,7 @@ import { t } from "./02-i18n.js";
 import { activeProcessId, attachments, currentProject, log, navigate_view, toast } from "./03-shell.js";
 import { layoutPref, onLayoutChange, setLayoutPref } from "./03-layout.js";
 import { addMarkdownHook } from "./04-markdown.js";
+import { codeBlockActions } from "./04-code-blocks.js";
 import { openTasksPanel, reconcileTasksPanel } from "./06-agent-panel.js";
 import { addPickAttachment, addPngAttachment } from "./08-compose-runtime.js";
 import { openRuntimeImage } from "./15-views-misc.js";
@@ -1217,7 +1218,7 @@ async function previewSnippet(html, invoker) {
     toast(`${t("在预览中打开失败")}:${err?.message ?? err}`, { kind: "warn" });
   }
 }
-/// renderMarkdownInto 的钩子:闭合的 ```html / ```svg 代码块右上角加「预览」(流式写到一半的 data-open 围栏不加)。
+/// renderMarkdownInto 的钩子:闭合的 ```html / ```svg 在代码工具栏加「预览」(未闭合的围栏不加)。
 export function decorateCodeBlocks(root) {
   for (const pre of root?.querySelectorAll?.("pre.code") ?? []) {
     if (pre.dataset?.open === "true" || pre.getAttribute?.("data-open") === "true" || pre.dataset?.kzPreview === "1") continue;
@@ -1225,7 +1226,6 @@ export function decorateCodeBlocks(root) {
     const lang = String(code?.className ?? "").match(/language-([\w+-]+)/)?.[1]?.toLowerCase() ?? "";
     if (!CODE_PREVIEW_LANGS.has(lang)) continue;
     pre.dataset.kzPreview = "1";
-    pre.classList.add("has-preview");
     const button = el("button", "ghost mini code-preview", t("在预览中打开"));
     button.type = "button";
     button.setAttribute("aria-label", t("在预览中打开这段代码"));
@@ -1233,7 +1233,7 @@ export function decorateCodeBlocks(root) {
       event.stopPropagation?.();
       void previewSnippet(code?.textContent ?? "", button);
     });
-    pre.append(button);
+    codeBlockActions(pre).append(button);
   }
 }
 

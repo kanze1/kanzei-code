@@ -200,6 +200,9 @@ pub fn run_once_with_parts<'a>(
                     .iter()
                     .any(|tool| matches!(tool.name(), "edit" | "write" | "insert")),
         );
+        let mut input_requests = kanzei_harness::InputRequests::new(
+            ctx.input_inbox.as_ref().and(ctx.async_mailbox.as_ref()),
+        );
         loop {
             step += 1;
             // D-342 步首检查点:停止已置位就不再发起新的 provider 请求,以 halted
@@ -225,7 +228,7 @@ pub fn run_once_with_parts<'a>(
             }
             // Deliver new input only after the preceding tool/result batch.
             if let Some(inbox) = &ctx.input_inbox {
-                for input in inbox.take().map_err(anyhow::Error::msg)? {
+                for input in input_requests.take(inbox).map_err(anyhow::Error::msg)? {
                     let message = Message::user_text(input.text);
                     on_event(RunEvent::InputMessageCommitted {
                         input_id: input.id,
@@ -320,6 +323,7 @@ pub fn run_once_with_parts<'a>(
                 &mut messages,
                 batch_prompt.as_deref(),
                 halt,
+                &mut input_requests,
                 &mut on_event,
                 &mut calibration,
                 &mut last_input_tokens,
@@ -335,6 +339,11 @@ pub fn run_once_with_parts<'a>(
                     calls,
                     finish,
                 } => (parts, calls, finish),
+                StepOutcome::InputPending => {
+                    on_event(RunEvent::ResponseInterrupted);
+                    step = step.saturating_sub(1);
+                    continue;
+                }
                 StepOutcome::Stopped => {
                     recall.finish(RecallRunOutcome::Halted);
                     return Ok(RunSummary {
@@ -567,6 +576,8 @@ enum StepOutcome {
     },
     /// D-342:流内收到停止信号,本步半成品丢弃。调用方构造 halted RunSummary。
     Stopped,
+    /// New human input owns the next request; no incomplete tool call is committed.
+    InputPending,
 }
 
 fn budget_instruction(
@@ -619,6 +630,7 @@ async fn stream_request_step(
     messages: &mut Vec<Message>,
     batch_prompt: Option<&str>,
     halt: Option<&CancellationToken>,
+    input_requests: &mut kanzei_harness::InputRequests,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
     calibration: &mut f64,
     last_input_tokens: &mut Option<u64>,
@@ -656,6 +668,7 @@ async fn stream_request_step(
         let opened = tokio::select! {
             biased;
             _ = halt_signalled(halt) => return Ok(StepOutcome::Stopped),
+            _ = input_requests.changed() => return Ok(StepOutcome::InputPending),
             result = client
             .stream_with_retry_notice_with_limits(
                 route,
@@ -698,14 +711,16 @@ async fn stream_request_step(
             // D-342 流内检查点:停止时丢弃本步半成品(messages 尚未被本步
             // 触碰),立即收尾——不等模型把整步吐完。
             let event = tokio::select! {
-                event = stream.next() => match event {
-                    Some(event) => event,
-                    None => break,
-                },
+                biased;
                 _ = halt_signalled(halt) => {
                     halted_mid_stream = true;
                     break;
                 }
+                _ = input_requests.changed() => return Ok(StepOutcome::InputPending),
+                event = stream.next() => match event {
+                    Some(event) => event,
+                    None => break,
+                },
             };
             let event = match event {
                 Ok(event) => event,
@@ -896,7 +911,12 @@ async fn stream_request_step(
                     max: config.limits.stream_restarts(),
                     delay_ms: delay.as_millis(),
                 });
-                if !wait_for_retry(delay, halt).await {
+                let retry = tokio::select! { biased;
+                    _ = halt_signalled(halt) => return Ok(StepOutcome::Stopped),
+                    _ = input_requests.changed() => return Ok(StepOutcome::InputPending),
+                    retry = wait_for_retry(delay, halt) => retry,
+                };
+                if !retry {
                     return Ok(StepOutcome::Stopped);
                 }
             }
@@ -918,7 +938,12 @@ async fn stream_request_step(
                     max: config.limits.stream_restarts(),
                     delay_ms: delay.as_millis(),
                 });
-                if !wait_for_retry(delay, halt).await {
+                let retry = tokio::select! { biased;
+                    _ = halt_signalled(halt) => return Ok(StepOutcome::Stopped),
+                    _ = input_requests.changed() => return Ok(StepOutcome::InputPending),
+                    retry = wait_for_retry(delay, halt) => retry,
+                };
+                if !retry {
                     return Ok(StepOutcome::Stopped);
                 }
             }

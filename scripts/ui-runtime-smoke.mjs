@@ -17160,10 +17160,13 @@ const docsB = {
     const openPre = mkPre("svg", "<svg>", true);
     pv.decorateCodeBlocks(container);
     pv.decorateCodeBlocks(container);
-    assert(htmlPre.querySelectorAll(".code-preview").length === 1 && !jsPre.querySelector(".code-preview") && !openPre.querySelector(".code-preview"),
+    const htmlBlock = htmlPre.closest(".md-code-block");
+    assert(htmlBlock?.querySelectorAll(".code-preview").length === 1 && !jsPre.closest(".md-code-block") && !openPre.closest(".md-code-block"),
       "只有闭合的 html/svg 代码块加一个「预览」(重复装饰不叠加;流式写到一半的 data-open 不加)");
+    assert(!htmlPre.querySelector("button") && htmlBlock.querySelectorAll(".code-copy").length === 1,
+      "复制与预览共用独立工具栏,不能覆盖源码或污染 pre 的文本");
     from = mark();
-    htmlPre.querySelector(".code-preview").click();
+    htmlBlock.querySelector(".code-preview").click();
     await flush();
     assert(callsSince(from, "preview_snippet").some((call) => call.args?.html === "<h1>你好</h1>") && callsSince(from, "preview_open").some((call) => call.args?.target === "http://127.0.0.1:50001/t/tok/s/1.html"),
       "代码块「预览」应 preview_snippet{html} 再在面板打开返回的地址");

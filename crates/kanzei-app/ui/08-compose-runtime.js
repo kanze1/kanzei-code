@@ -527,7 +527,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     try { if (!await ensure_workspace_process()) return; }
     catch (error) { toastError(String(error)); return; }
   }
-  const recipient = { project: currentProject, process: activeProcessId, session: activeSessionId };
+  const recipient = { project: currentProject, process: activeProcessId, session: activeSessionId, running };
   const recipientIsCurrent = () => recipient.project === currentProject && recipient.process === activeProcessId && recipient.session === activeSessionId;
   try {
     await processUpdateQueues.get(recipient.process);
@@ -537,7 +537,9 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   }
   if (!recipientIsCurrent()) { toast(t("对话已切换，请在目标对话中重新发送")); return false; }
   if (selectedAgent().agent !== "dev") { executionBatch = false; workItemId = null; }
-  if (!workItemId && selectedAgent().agent === "dev") {
+  // A running conversation receives a message. A pending work choice belongs to
+  // the next execution request, and must not turn a question into a new batch.
+  if (!workItemId && selectedAgent().agent === "dev" && !recipient.running) {
     const project = currentProject, process = activeProcessId;
     try {
       workItemId = await (await import("./31-work-selection.js")).validateSelectedWork(project, process);

@@ -416,6 +416,22 @@
     ]
   },
   {
+    "key": "ui_code_blocks",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-code-blocks-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_async_input",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-async-input-smoke.mjs"
+    ]
+  },
+  {
     "key": "ui_i18n_contract",
     "inputs": "frontend",
     "suite": "ui_runtime",

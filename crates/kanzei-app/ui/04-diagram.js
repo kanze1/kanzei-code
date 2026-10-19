@@ -892,7 +892,7 @@ export function hydrateDiagrams(root, { streaming = false } = {}) {
     const swap = () => {
       const holder = document.createElement("div");
       holder.className = "kz-diagram-host";
-      pre.replaceWith(holder);
+      (pre.closest(".md-code-block") || pre).replaceWith(holder);
       mountDiagram(holder, source, { mode: "inline" });
       replaced += 1;
     };

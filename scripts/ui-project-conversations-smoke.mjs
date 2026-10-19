@@ -41,9 +41,14 @@ try {
   check(!await page.locator("#project-onboarding").isVisible(), "Existing requirements never trigger new-project onboarding");
   check(await count("run_prompt") === 0, "Startup does not start a model run");
   if (await page.locator("#tasks-close").isVisible()) await page.locator("#tasks-close").click();
+  await page.locator("#composer-work-next").click();
   await page.locator("#project-chat-work .work-focus-entry").first().waitFor({ state: "visible" });
-  check(await page.locator("#project-chat-work").isVisible(), "Closing child details restores the visible requirement rail");
+  check(await page.locator("#project-chat-work").isVisible(), "Work details open from the composer");
+  await page.locator("#project-chat-work .work-focus-entry").first().focus();
+  await page.evaluate(async () => (await import("/26-project-conversations.js")).refreshConversationWork());
+  check(await page.locator("#project-chat-work .work-focus-entry").first().evaluate(el => el === document.activeElement), "An unchanged work refresh preserves focus inside the open details");
   await page.screenshot({ path: `${output}/conversation-dark.png` });
+  await page.keyboard.press("Escape");
   await page.evaluate(async sid => {
     (await import("/06-agent-panel.js")).tasksPanelUserRun(sid);
   }, owner.session_id);
@@ -68,7 +73,7 @@ try {
   await page.locator('[data-work-surface="chat"]').click(); await settle();
   await page.locator("#prompt").fill("概览补充的草稿");
   check(await page.locator("#prompt").inputValue() === "概览补充的草稿", "Returning to conversation retains overview edits");
-  check(await page.locator("#project-chat-work").isVisible(), "Returning from overview keeps requirements visible on wide screens");
+  check(await page.locator("#composer-work-context").isVisible() && !await page.locator("#project-chat-work").isVisible(), "Returning from overview restores composer work context without a permanent rail");
   await page.locator("#send").click(); await settle();
   check(await page.locator("#prompt").inputValue() === "", "Sending the restored main draft clears its editor");
   await page.locator('[data-work-surface="project"]').click(); await settle();
@@ -114,7 +119,7 @@ try {
   check(forwarded.prompt.includes("来自对话") && forwarded.prompt.endsWith("按讨论推进，先验收导出功能"), "Handoff preserves the user's conclusion independently of source context");
   check(await page.locator("#prompt").inputValue() === "概览补充的草稿", "Returning from discussion restores main draft");
   const beforeCard = await count("run_prompt");
-  if (!await page.locator("#project-chat-work").isVisible()) await page.locator(".project-work-toggle").click();
+  if (!await page.locator("#project-chat-work").isVisible()) await page.locator("#composer-work-next").click();
   await page.locator("#project-chat-work .work-focus-entry").first().click(); await settle();
   check(await page.getByRole("button", { name: "继续此需求", exact: true }).isVisible(), "Requirement card opens detail with explicit continue action");
   check(await count("run_prompt") === beforeCard, "Inspecting a requirement does not start work");
@@ -255,7 +260,7 @@ try {
     check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `No horizontal page overflow at ${width}px`);
     check(await page.locator('#project-work-switch [data-work-surface="project"]').isVisible(), `Overview remains accessible at ${width}px`);
   }
-  check(await page.locator("#project-chat-work").isVisible(), "Current work and next candidate remain visible on narrow screens");
+  check(await page.locator("#composer-work-context").isVisible() && !await page.locator("#project-chat-work").isVisible(), "Composer work context remains available without a permanent narrow-screen rail");
   await page.screenshot({ path: `${output}/conversation-mobile.png` });
   check(errors.length === 0, `No browser errors: ${errors.join("; ")}`);
   await writeFile(`${output}/acceptance.json`, JSON.stringify({ passed, errors }, null, 2));

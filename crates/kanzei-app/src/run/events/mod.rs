@@ -738,6 +738,10 @@ pub(crate) fn build_event_handler(
                 ui.emit("kz:text", json!({ "text": text }))
             }
             RunEvent::Reasoning(text) => ui.emit("kz:reasoning", json!({ "text": text })),
+            RunEvent::ResponseInterrupted => {
+                typed.stream_restarted();
+                ui.emit("kz:response-interrupted", json!({}))
+            }
             RunEvent::InputMessageCommitted { input_id, .. } => {
                 ui.emit("kz:input-received", json!({"inputId":input_id}))
             }

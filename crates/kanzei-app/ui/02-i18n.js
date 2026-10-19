@@ -1,6 +1,10 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "插入优先处理新消息；排队等待本轮结束（Ctrl+Enter 立即插话）": "Steer handles new messages first; Queue waits for the current turn (Ctrl+Enter sends now)",
+  "收到新消息，正在接续回答": "New message received; continuing the conversation",
+  "代码": "Code",
+  "复制代码": "Copy code",
   "选择来源对话，沉淀经验并保留原文供确认": "Choose a source conversation and extract experience for review",
   "选择做梦的来源对话": "Choose a conversation to dream about",
   "这个项目还没有可做梦的对话": "This project has no conversations to dream about yet",
@@ -293,6 +297,10 @@ export const I18N_EN = {
   "当前工作": "Current work",
   "已选工作 · 下一轮生效": "Selected · next round",
   "下一个候选": "Next candidate",
+  "本轮工作": "Current round",
+  "下轮已选": "Next selected",
+  "下一项": "Next",
+  "对话工作": "Conversation work",
   "最近 24 小时": "Last 24 hours",
   "最近 7 天": "Last 7 days",
   "最近样本": "Recent samples",

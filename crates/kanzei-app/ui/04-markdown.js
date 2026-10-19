@@ -272,7 +272,7 @@ export function isTableSeparator(line) {
 
 export function setRenderMarkdown(value) { renderMarkdown = value; }
 
-// UI2-0926 #8:渲染后装饰钩子(24-preview.js 给闭合的 ```html / ```svg 代码块加「预览」)。本模块不知道装饰方是谁,
+// 渲染后装饰钩子:04-code-blocks.js 安装代码工具栏,24-preview.js 为闭合的 html/svg 围栏添加预览操作。本模块不知道装饰方是谁,
 // 保持只依赖 04-diagram;钩子抛错只告警,不影响正文渲染。
 const markdownHooks = [];
 export function addMarkdownHook(fn) {

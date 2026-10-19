@@ -26,6 +26,7 @@ const EVENTS: &[&str] = &[
     "kz:step",
     "kz:stopped",
     "kz:stream-restart",
+    "kz:response-interrupted",
     "kz:task-progress",
     "kz:text",
     "kz:tool-end",

@@ -2120,6 +2120,73 @@ async fn foreground_spawn_still_waits_when_a_mailbox_is_connected() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn human_input_releases_foreground_child_without_restarting_or_losing_its_result() {
+    for early in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let team = team(
+            project(),
+            &format!("http://{}/v1", listener.local_addr().unwrap()),
+            if early {
+                "early-handoff-owner"
+            } else {
+                "handoff-owner"
+            },
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mailbox = AsyncMailbox::new(move |notice| tx.send(notice).map_err(|e| e.to_string()));
+        team.set_mailbox(mailbox.clone());
+        if early {
+            mailbox.request_input();
+        }
+        let running = team.clone();
+        let foreground = tokio::spawn(async move {
+            running
+                .command(
+                    "held-foreground",
+                    json!({
+                        "agent":"plan", "prompt":"keep the original child", "background":false
+                    }),
+                )
+                .await
+        });
+        let (mut child, _) = listener.accept().await.unwrap();
+        request(&mut child).await;
+        if !early {
+            assert!(!foreground.is_finished());
+            mailbox.request_input();
+        }
+        let receipt = tokio::time::timeout(Duration::from_secs(5), foreground)
+            .await
+            .expect("human input must release the parent before the child returns")
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt["state"], "waiting");
+        assert_eq!(receipt["delivery"], "automatic");
+        assert_eq!(receipt["pending"][0]["id"], "held-foreground");
+        assert_eq!(receipt["pending"][0]["result_available"], false);
+        assert!(rx.try_recv().is_err());
+        respond(&mut child, json!({"content":"ORIGINAL_FOREGROUND_RESULT"})).await;
+        let notice = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(notice.text.contains("ORIGINAL_FOREGROUND_RESULT"));
+        let result = team
+            .results(&json!({"id":"held-foreground"}), ResultDelivery::Wait)
+            .await
+            .unwrap();
+        assert_eq!(result[0]["result"], "ORIGINAL_FOREGROUND_RESULT");
+        let job = team.0.store.get("held-foreground").unwrap();
+        assert_eq!(job.attempt, 1, "handoff preserves the original worker");
+        team.emit(&job);
+        assert!(
+            rx.try_recv().is_err(),
+            "one callback per completed revision"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_consumed_result_cannot_publish_a_stale_completion_notice() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let team = team(

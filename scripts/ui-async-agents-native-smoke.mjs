@@ -27,7 +27,7 @@ const check = (value, label) => { assert(value, label); checks.push(label); };
 function answer(res, content, calls = []) {
   if (res.destroyed || res.writableEnded) return;
   const delta = calls.length ? { tool_calls: calls.map((call, index) => ({ index, id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input) } })) } : { content };
-  res.writeHead(200, { "Content-Type": "text/event-stream" });
+  if (!res.headersSent) res.writeHead(200, { "Content-Type": "text/event-stream" });
   res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`);
   res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: calls.length ? "tool_calls" : "stop" }], usage: { prompt_tokens: 60, completion_tokens: 15 } })}\n\n`);
   res.end("data: [DONE]\n\n");
@@ -42,11 +42,12 @@ const model = task.server(http.createServer(async (req, res) => {
     const last = JSON.stringify(messages.findLast(m => m.role === "user")?.content || "");
     const child = system.includes("You own one delegated task");
     const assignment = String(messages.findLast(m => m.role === "user" && typeof m.content === "string" && m.content.startsWith("main: CHILD_"))?.content || "");
-    const kind = child ? assignment.includes("CHILD_ASK_ASYNC") ? "child-question" : assignment.includes("CHILD_TERMINAL") ? "child-terminal" : assignment.includes("CHILD_ALPHA") ? "alpha" : "beta"
+    const kind = child ? assignment.includes("CHILD_ASK_ASYNC") ? "child-question" : assignment.includes("CHILD_TERMINAL") ? "child-terminal" : assignment.includes("CHILD_FOREGROUND") ? "foreground-child" : assignment.includes("CHILD_ALPHA") ? "alpha" : "beta"
       : last.includes("后台终端完成") ? "terminal-callback" : last.includes("MAIN_PARALLEL") ? "parallel" : last.includes("MAIN_ASK_ASYNC") ? "main-question"
         : last.includes("MAIN_HANDOFF") ? "handoff" : last.includes("HANDOFF_STEER") ? "handoff-steered"
           : last.includes("MAIN_TERMINAL") ? "main-terminal" : last.includes("MAIN_STEER") ? "steer"
-          : last.includes("STEERING_BOUNDARY") ? "steered" : last.includes("用户回答异步问题") ? "main-answer"
+          : last.includes("MAIN_FOREGROUND") ? "foreground" : last.includes("FOREGROUND_STEER") ? "foreground-steered"
+            : last.includes("STEERING_BOUNDARY") ? "steered" : last.includes("用户回答异步问题") ? "main-answer"
             : last.includes("STATUS_WHILE_BACKGROUND") ? "status" : "callback";
     const step = (counts.get(kind) || 0) + 1; counts.set(kind, step);
     requests.push({ kind, child, messages, model: data.model, at: Date.now() });
@@ -56,6 +57,13 @@ const model = task.server(http.createServer(async (req, res) => {
     ]);
     else if (kind === "parallel" && step === 2) answer(res, null, [call("async-wait", "task", { action: "wait", id: "async-alpha" })]);
     else if (kind === "alpha" || kind === "beta") held.set(kind, () => answer(res, kind.toUpperCase() + "_RESULT"));
+    else if (kind === "status") {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "BACKGROUND_STATUS_DRAFT: " }, finish_reason: null }] })}\n\n`);
+      held.set("status", () => answer(res, "STATUS_COMPLETE"));
+    }
+    else if (kind === "foreground" && step === 1) answer(res, null, [call("foreground-child", "task", { agent: "plan", prompt: "CHILD_FOREGROUND keep the original worker", background: false })]);
+    else if (kind === "foreground-child") held.set("foreground-child", () => answer(res, "FOREGROUND_CHILD_RESULT"));
     else if (kind === "steer") held.set("steer", () => answer(res, null, [call("steer-read", "read", { path: "original.txt" })]));
     else if (kind === "main-question" && step === 1) answer(res, null, [call("main-async-ask", "question", { question: "MAIN_ASYNC_CHOICE", options: ["A", "B"], background: true })]);
     else if (kind === "child-question" && !last.includes("用户回答异步问题") && step === 1) answer(res, null, [call("child-async-ask", "question", { question: "CHILD_ASYNC_CHOICE", options: ["A", "B"], background: true })]);
@@ -109,8 +117,10 @@ try {
   await page.evaluate(async () => {
     window.asyncProgress = [];
     window.asyncJobs = [];
+    window.asyncInterruptions = [];
     await window.__TAURI__.event.listen("kz:tool-progress", event => window.asyncProgress.push(event.payload));
     await window.__TAURI__.event.listen("kz:agent-job", event => window.asyncJobs.push(event.payload));
+    await window.__TAURI__.event.listen("kz:response-interrupted", event => window.asyncInterruptions.push(event.payload));
   });
   await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await prompt("MAIN_PARALLEL: dispatch two independent tasks");
@@ -127,12 +137,16 @@ try {
   await page.locator("#tasks-panel").waitFor({ state: "visible" });
   await page.screenshot({ path: path.join(output, "two-children-dark.png") });
   await prompt("STATUS_WHILE_BACKGROUND: answer while both children are busy");
-  await until(() => counts.has("status"), "Main follow-up"); await idle();
+  await until(() => held.has("status"), "Main follow-up is streaming");
+  await page.getByText("BACKGROUND_STATUS_DRAFT:", { exact: false }).waitFor();
   check((await jobs()).filter(j => j.state === "running").length === 2, "Main accepts a new conversation turn while two children keep running");
   const snapshot = await command({ action: "collect" });
   check(snapshot.length === 0, "Collect returns immediately without waiting for running tasks");
   held.get("alpha")(); held.get("beta")();
   await until(async () => (await jobs()).every(j => j.state === "done"), "Child completion");
+  check((counts.get("status") || 0) === 1 && await page.evaluate(() => window.asyncInterruptions.length) === 0,
+    "Automatic background results do not interrupt the answer being written for a human");
+  held.get("status")();
   await until(() => requests.some(r => !r.child && JSON.stringify(r.messages).includes("ALPHA_RESULT") && JSON.stringify(r.messages).includes("BETA_RESULT")), "Automatic completion delivery"); await idle();
   check(true, "Completion callbacks wake the idle original main conversation");
   check(requests.filter(r => r.kind === "callback").every(r => r.model === "interactive-main"), "Idle callbacks retain the main conversation's selected model");
@@ -140,9 +154,28 @@ try {
   await prompt("MAIN_STEER: hold this request before a read");
   await until(() => held.has("steer"), "Main held");
   await prompt("STEERING_BOUNDARY: use my updated acceptance criterion", { delivery: "steer" });
-  held.get("steer")();
   await until(() => counts.has("steered"), "Steering consumed"); await idle();
-  check(requests.find(r => r.kind === "steered").messages.some(m => m.role === "tool" && JSON.stringify(m).includes("unchanged")), "Steering is consumed between complete tool/result batches");
+  check(!requests.find(r => r.kind === "steered").messages.some(m => m.role === "tool" && m.tool_call_id === "steer-read"),
+    "New input is handled before the old provider responds, without executing its uncommitted tools");
+  check(await page.evaluate(() => window.asyncInterruptions.length) === 1, "Provider interruption is distinct from stopping the conversation");
+  held.get("steer")();
+
+  await prompt("MAIN_FOREGROUND: start a foreground child and wait for it");
+  await until(() => held.has("foreground-child"), "Foreground child is in flight");
+  const foregroundJob = (await jobs()).find(j => j.id === "foreground-child");
+  await prompt("FOREGROUND_STEER: answer this while the child continues", { delivery: "steer" });
+  await until(() => counts.has("foreground-steered"), "Foreground child handoff"); await idle();
+  const childReceipt = requests.find(r => r.kind === "foreground-steered").messages
+    .find(m => m.role === "tool" && m.tool_call_id === foregroundJob.id && String(m.content).includes('"delivery":"automatic"'));
+  check(Boolean(childReceipt) && JSON.parse(childReceipt.content).pending[0].id === foregroundJob.id,
+    "Foreground child returns an honest waiting receipt so the new question can be answered");
+  check((await jobs()).find(j => j.id === foregroundJob.id)?.state === "running", "The original foreground child remains alive after the new answer");
+  held.get("foreground-child")();
+  await until(() => requests.some(r => !r.child && JSON.stringify(r.messages.findLast(m => m.role === "user")).includes("FOREGROUND_CHILD_RESULT")), "Foreground child completion callback"); await idle();
+  check((await jobs()).find(j => j.id === foregroundJob.id)?.attempt === 1,
+    "Foreground child completes through its original attempt, with no redispatch");
+  check(requests.filter(r => !r.child && JSON.stringify(r.messages.findLast(m => m.role === "user")).includes("FOREGROUND_CHILD_RESULT")).length === 1,
+    "Foreground child result is delivered to its parent once");
 
   await prompt("MAIN_HANDOFF: run a foreground terminal and wait for my release file");
   await allowOnce();

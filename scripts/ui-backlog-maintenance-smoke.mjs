@@ -36,6 +36,7 @@ try {
   });
   const rail = page.locator("#project-chat-work");
   if (await page.locator("#tasks-close").isVisible()) await page.locator("#tasks-close").click();
+  await page.locator("#composer-work-next").click();
   await rail.waitFor({ state: "visible" });
   check(await rail.locator(".work-focus-slot").count() === 2, "Conversation keeps only current work and next candidate");
   check(!/R-003|R-004|D-002/.test(await rail.innerText()), "Parked, external acceptance and blocked items are excluded from conversation candidates");

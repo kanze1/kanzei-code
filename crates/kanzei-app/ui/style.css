@@ -1033,10 +1033,10 @@ html[data-backdrop="off"] .neural-flow-chat { display: none; }
 .chat-question-input { display: block; width: 100%; box-sizing: border-box; margin: 12px 0; padding: 8px 10px; resize: vertical; font: inherit; line-height: 1.5; border: 1px solid var(--border); border-radius: 6px; color: inherit; background: transparent; }
 .chat-question-send { display: block; margin-left: auto; }
 .msg { position: relative; }
-/* 复制:悬停(或键盘聚焦)时出现在块**下方**——助手消息靠左、用户消息靠右;不再漂在段落右上角
+/* 复制:常驻在块下方,悬停或键盘聚焦时加强——助手消息靠左、用户消息靠右;不再漂在段落右上角
    (旧版贴在 92% 宽盒子的右缘,离正文末尾很远,还压住首行最后几个字)。notice 不挂复制。
    错误卡的「重试」常驻在流内(原先要悬停才看得见)。 */
-.msg-actions { position: absolute; top: 100%; left: -6px; /* 复制键 24px 高(UX-125),块后只留 24px:紧贴正文下缘,不再 +1px */ display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.msg-actions { position: absolute; top: 100%; left: -6px; /* 复制键 24px 高(UX-125),块后只留 24px:紧贴正文下缘,不再 +1px */ display: flex; gap: 2px; opacity: .65; transition: opacity .12s; }
 .msg.user > .msg-actions { left: auto; right: 0; }
 .msg:is(:hover, :focus-within) > .msg-actions, .tool-chip:hover .msg-actions { opacity: 1; }
 .msg.error > .msg-actions { position: static; opacity: 1; margin-top: 8px; }
@@ -1840,7 +1840,6 @@ button.ghost.danger:hover { background: var(--danger-soft); }
   flex: 1; overflow-y: auto; padding: 16px 20px; line-height: 1.7;
   user-select: text; font-size: var(--fs-13);
 }
-#viewer-body pre.code { white-space: pre-wrap; word-break: break-all; }
 
 /* ---------- D-418:统一确认弹窗(替代 window.confirm) ----------
    宿主 #confirm-overlay / #input-overlay 是 <dialog class="k-surface k-dialog">(00-surface.js 的
@@ -1953,15 +1952,30 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .ask-line .dim { white-space: nowrap; min-width: 52px; }
 .ask-line code { word-break: break-all; }
 
-.msg.md pre.code, .reasoning-body pre.code {
+pre.code {
   background: var(--code-output-bg); border: 1px solid var(--border-soft); border-radius: var(--r-md);
   padding: 10px 12px; margin: 8px 0; overflow-x: auto;
   font-family: var(--mono); font-size: var(--fs-13); line-height: 1.58;
+  white-space: pre; word-break: normal; overflow-wrap: normal;
 }
-.msg.md code, .reasoning-body code {
+.msg.md :not(pre) > code, .reasoning-body :not(pre) > code {
   background: var(--code-inline); border-radius: var(--r-sm); padding: 1px 6px;
   font-family: var(--mono); font-size: var(--fs-13);
 }
+/* 围栏代码的操作与源码分层:工具栏不参与横向滚动,源码不继承正文的折行或行内代码底色。 */
+.md-code-block {
+  min-width: 0; max-width: 100%; margin: 8px 0; overflow: hidden;
+  background: var(--code-output-bg); border: 1px solid var(--border-soft); border-radius: var(--r-md);
+  font: var(--fs-13)/1.58 var(--mono); white-space: normal; word-break: normal; overflow-wrap: normal;
+}
+.md-code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 3px 8px 3px 12px; border-bottom: 1px solid var(--border-soft); }
+.md-code-language { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-size: var(--fs-11); }
+.md-code-actions { display: flex; align-items: center; flex-shrink: 0; gap: 4px; }
+.md-code-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; height: 28px; padding: 0 7px; border: 0; background: transparent; color: var(--dim); font: var(--fs-12)/1 var(--sans); white-space: nowrap; }
+.md-code-actions > button:hover { background: var(--surface-hover); color: var(--fg-strong); }
+.md-code-block > pre.code { margin: 0; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; overflow-x: auto; white-space: pre; word-break: normal; overflow-wrap: normal; font: inherit; }
+.md-code-block > pre.code > code { display: block; padding: 0; border: 0; border-radius: 0; background: transparent; font: inherit; white-space: inherit; word-break: normal; overflow-wrap: normal; }
+.sv-md .md-code-block { font-size: var(--fs-12); }
 .msg.md p { margin: .7em 0; }
 .msg.md .message-body > :first-child { margin-top: 0; }
 .msg.md .message-body > :last-child { margin-bottom: 0; }
@@ -3388,12 +3402,7 @@ button.sv-chip:focus-visible, .sv-linklike:focus-visible, .sv-search-title:focus
 .sv-md p { margin: .45em 0; }
 .sv-md ul, .sv-md ol { margin: 4px 0; padding-left: 22px; }
 .sv-md li { margin: 2px 0; }
-.sv-md pre.code {
-  margin: 6px 0; padding: 6px 8px; overflow-x: auto;
-  background: var(--code-output-bg); border: 1px solid var(--border-soft); border-radius: var(--r-xs);
-  font-family: var(--mono); font-size: var(--fs-12); line-height: 1.5;
-}
-.sv-md code { padding: 1px 4px; background: var(--code-inline); border-radius: 3px; font-family: var(--mono); font-size: var(--fs-12); }
+.sv-md :not(pre) > code { padding: 1px 4px; background: var(--code-inline); border-radius: 3px; font-family: var(--mono); font-size: var(--fs-12); }
 .sv-md table { display: block; width: max-content; max-width: 100%; margin: 6px 0; overflow-x: auto; border-collapse: collapse; }
 .sv-md th, .sv-md td { border: 1px solid var(--border-soft); padding: 3px 8px; text-align: left; vertical-align: top; }
 .sv-md th { color: var(--fg-strong); background: var(--panel2); }
@@ -4183,8 +4192,6 @@ body[data-space="research"] .ctx-git { display: none; }
 /* 折叠的工具组里,最后一张截图所在的行常驻可见(与失败行同理:模型看到的画面不该藏起来)。 */
 .tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.has-shot) { display: flex; }
 .tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body > .tool-msg.has-shot:not(:has(~ .tool-msg.has-shot)) { display: block; }
-pre.code.has-preview { position: relative; }
-pre.code.has-preview > .code-preview { position: absolute; top: 6px; right: 6px; }
 #viewer-body.kz-image-view { display: flex; align-items: center; justify-content: center; padding: 12px; background: var(--panel2); }
 .kz-image-view-img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
 /* ===== 分区:网页预览(完) ===== */

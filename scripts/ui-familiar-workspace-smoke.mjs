@@ -41,6 +41,8 @@ try {
   check(await page.locator("#workspace-sidebar-footer [data-view=memory]").isVisible(), "Global memory entry is in the sidebar footer");
   check(!await page.locator('[data-workspace="research"]').isVisible(), "Research workspace entry is removed");
   check(await page.locator("#project-chat-work .work-focus-slot").count() === 2, "Chat work list contains only current work and next candidate");
+  check(await page.locator("#composer > #composer-work-context").isVisible(), "Work context stays beside the next submission");
+  check(!await page.locator("#project-chat-work").isVisible() && await page.locator("#view-chat > #project-chat-work").count() === 0, "Work details reserve no conversation row or column");
   check(!await page.locator(".project-work-toggle").isVisible(), "Activity panel does not restore the retired requirements drawer toggle");
   await openComposerOptions(page);
   check(await page.locator("#subagent-control").isVisible(), "Subagents are directly reachable in the composer");
@@ -99,7 +101,10 @@ try {
   await openComposerOptions(page);
   await page.locator("#profile-select").selectOption("dev-auto");
   await closeComposerOptions(page);
-  await page.getByRole("button", { name: "选择工作", exact: true }).click();
+  const currentWorkBefore = await page.locator("#composer-work-current").innerText();
+  await page.locator("#composer-work-next").click();
+  check(await page.locator("#project-chat-work").isVisible(), "Next candidate opens the shared work details surface");
+  await page.locator("#project-chat-work .work-focus-choose").click();
   await page.locator("#work-picker input").fill("R-365");
   await page.locator("#work-picker-list").count();
   await page.locator(".work-picker-list button").filter({ hasText: "R-365" }).click();
@@ -107,7 +112,15 @@ try {
     const shell = await import("/03-shell.js"); return (await import("/31-work-selection.js")).selectedWork(shell.currentProject, shell.activeProcessId);
   });
   check(selected === "R-365", "Manual work selection is bound to the selected conversation");
+  check(await page.locator("#composer-work-current").innerText() === currentWorkBefore, "Selecting during a run preserves the visible current work");
+  check((await page.locator("#composer-work-next").innerText()).includes("下轮已选") && (await page.locator("#composer-work-next").innerText()).includes("R-365"), "Composer identifies the deferred selection independently of current work");
+  check(!await page.locator("#project-chat-work").isVisible(), "Choosing closes work details without leaving an empty rail");
   await page.evaluate(async () => {
+    // Work admission is validated on an idle submission; input during a run is steering.
+    const shell = await import("/03-shell.js"), fixtures = await window.__kzPreview.fixtures();
+    for (const item of fixtures.state.processes) item.running = false;
+    await (await import("/09-sessions.js")).refreshProcesses();
+    shell.transitionSession(shell.activeSessionId, "idle"); shell.setRunning(false);
     window.__kzPreview.setCommand("docs_snapshot", () => { throw new Error("fixture read failure"); });
     await (await import("/08-compose-runtime.js")).send();
   });
@@ -211,6 +224,14 @@ try {
     await page.locator('[data-management-tab="req"]').click();
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${theme} management has no page overflow at ${width}px`);
     await page.screenshot({ path: `${output}/management-${theme}-${width}.png` });
+    await page.locator('[data-work-surface="chat"]').click();
+    await page.locator("#composer-work-context").waitFor({ state: "visible" });
+    check(await page.locator("#composer-work-context").isVisible() && !await page.locator("#project-chat-work").isVisible(), `${theme} work context stays compact at ${width}px`);
+    const composerBounds = await page.locator("#composer").boundingBox();
+    const workBounds = await page.locator("#composer-work-context").boundingBox();
+    const sendBounds = await page.locator("#send").boundingBox();
+    check(workBounds.height <= 29, `${theme} work context remains a single compact line at ${width}px`);
+    check(workBounds.x >= composerBounds.x && workBounds.x + workBounds.width <= composerBounds.x + composerBounds.width && sendBounds.x + sendBounds.width <= width, `${theme} work context and Send fit at ${width}px`);
   }
   check(errors.length === 0, `No browser exceptions: ${errors.join("; ")}`);
   await writeFile(`${output}/acceptance.json`, JSON.stringify({ checks, errors }, null, 2));

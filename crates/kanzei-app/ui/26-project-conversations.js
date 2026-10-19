@@ -4,7 +4,7 @@ import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { isGeneralChat } from "./03-general-scope.js";
 import { localizedDocStatus, localizedStage, t } from "./02-i18n.js";
-import { openPopover, openDialog, closeSurface } from "./00-surface.js";
+import { openPopover, openDialog, closeSurface, isSurfaceOpen } from "./00-surface.js";
 import { workChoices } from "./30-workspace-model.js";
 import { selectedWork, selectWork } from "./31-work-selection.js";
 import { currentProject, activeProcessId, activeSessionId, processItems, sessionStates, pendingQuestionSessions, attachments, toast, toastError } from "./03-shell.js";
@@ -24,7 +24,7 @@ import { needsRequirementResearch, requirementResearchAction, requirementResearc
 // Project facts and conversation drafts have different lifetimes. A failed read
 // must never become an empty project, and async replies retain their recipient.
 const projects = new Map();
-let rail, switcher, onboarding, detailId = null, rendered = "", scheduled = false, handoffScope = null;
+let rail, workContext, currentWork, nextWork, switcher, onboarding, detailId = null, rendered = "", scheduled = false, handoffScope = null;
 const active = () => active_space === "dev" && !isGeneralChat() && document.body.dataset.view === "chat";
 const item = () => processItems.find(p => p.id === activeProcessId);
 function facts(project = currentProject) {
@@ -38,20 +38,55 @@ const archivedCount = state => Number(state.docs?.archived?.req || 0) + Number(s
 // refresh. That acknowledged work must not turn into new-project onboarding.
 const isNew = state => state.docs && !state.docs.requirements?.length && !state.docs.defects?.length && !archivedCount(state);
 function closeRail() {
-  if (rail.classList.contains("is-open")) closeSurface(rail);
-  // The same element is a permanent wide-screen rail and a narrow popover.
-  // Closing the drawer must not leave the permanent rail hidden on navigation.
-  rail.classList.remove("is-open", "hidden");
-  rail.removeAttribute("popover");
+  closeSurface(rail);
 }
 function openRail(anchor) {
-  rail.classList.add("is-open");
-  openPopover(anchor, rail, { onClose: () => {
-    rail.classList.remove("is-open", "hidden");
-    rail.removeAttribute("popover");
-    // UX-038:Esc/点外关掉交接表单后,表单还留在常驻右栏里替换了需求栏——收起时把栏恢复成需求列表。
+  openPopover(anchor, rail, { placement: "top-start", onClose: () => {
     if (handoffScope) { handoffScope = null; detailId = null; rendered = ""; paint(); }
   } });
+}
+function toggleWorkDetails(anchor) {
+  if (isSurfaceOpen(rail)) closeRail(); else openRail(anchor);
+}
+
+function renderWorkContext(state, { current, candidate, busy, pending, chosen, workflow }) {
+  currentWork.disabled = false;
+  currentWork.replaceChildren();
+  const icon = node("span", null, "composer-work-icon");
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = '<svg viewBox="0 0 20 20"><rect x="3" y="6" width="14" height="11" rx="2"/><path d="M7 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M3 10h14M8 10v2h4v-2"/></svg>';
+  currentWork.append(icon);
+  const label = t(state.error ? "读取失败" : busy ? "本轮工作" : chosen ? "当前选取" : "当前工作");
+  if (current) {
+    currentWork.append(node("span", label, "composer-work-label"), node("span", current.id, "work-focus-id"), node("span", current.title, "work-focus-title"));
+    currentWork.title = `${label} · ${current.id} · ${current.title}`;
+  } else {
+    const text = t(state.error ? "需求读取失败" : workflow ? "选择工作" : "当前工作");
+    currentWork.append(node("span", text, "work-focus-title"));
+    currentWork.title = text;
+  }
+  const choose = !current && workflow && !state.error;
+  currentWork.onclick = choose ? () => openWorkPicker(state) : () => toggleWorkDetails(currentWork);
+  currentWork.setAttribute("aria-label", currentWork.title);
+  currentWork.setAttribute("aria-controls", choose ? "work-picker" : rail.id);
+  currentWork.append(node("span", null, "kz-chev"));
+  nextWork.replaceChildren();
+  nextWork.dataset.pending = String(pending);
+  if (candidate) {
+    const nextLabel = t(pending ? "下轮已选" : "下一项");
+    nextWork.append(node("span", nextLabel), node("span", candidate.id, "work-focus-id"));
+    nextWork.title = `${t(pending ? "已选工作 · 下一轮生效" : "下一个候选")} · ${candidate.id} · ${candidate.title}`;
+    nextWork.onclick = () => toggleWorkDetails(nextWork);
+    nextWork.setAttribute("aria-haspopup", "dialog");
+    nextWork.setAttribute("aria-controls", rail.id);
+  } else {
+    nextWork.textContent = t("全部工作") + " ↗";
+    nextWork.title = t("全部工作");
+    nextWork.onclick = () => void openProjectSpace(currentProject, "project");
+    nextWork.removeAttribute("aria-haspopup");
+    nextWork.removeAttribute("aria-controls");
+  }
+  nextWork.setAttribute("aria-label", candidate ? nextWork.title : nextWork.textContent);
 }
 
 export async function refreshConversationWork(project = currentProject, { force = true } = {}) {
@@ -69,7 +104,7 @@ export async function refreshConversationWork(project = currentProject, { force 
         if (selected && state.snapshot?.lines?.some(line => line.id === activeProcessId && line.current_item_id === selected)) selectWork(project, activeProcessId, null);
       }
     } catch (error) { state.error = String(error); }
-    finally { state.request = null; if (sameProject(project, currentProject)) { rendered = ""; paint(); } }
+    finally { state.request = null; if (sameProject(project, currentProject)) paint(); }
   })();
   return state.request;
 }
@@ -185,9 +220,10 @@ function renderDetail(state, entry) {
   rail.append(actions);
 }
 
-// 右栏/页签/按钮是 defer 里建的静态骨架:每次 paint 重写一遍文案,切语言后立刻跟上。
+// Static context buttons remain stable focus anchors while their work data refreshes.
 function relabel() {
-  rail.setAttribute("aria-label", t("项目需求"));
+  rail.setAttribute("aria-label", t("对话工作"));
+  workContext.setAttribute("aria-label", t("对话工作"));
   switcher.setAttribute("aria-label", t("对话与管理"));
   for (const b of switcher.querySelectorAll("[data-work-surface]")) b.textContent = b.dataset.workSurface === "chat" ? t("对话") : t("管理");
   const req = switcher.querySelector(".project-work-toggle"); if (req) req.textContent = "☷ " + t("需求");
@@ -212,6 +248,7 @@ function paint() {
   const activity = executionActivity(item(), sessionStates.get(activeSessionId), { waiting: awaitingUserSessions.has(activeSessionId) || pendingQuestionSessions.has(activeSessionId) });
   const signal = $("project-overview-signal"); signal.dataset.state = activity.state;
   signal.textContent = localizedStage(activity.label); signal.hidden = !item() || discussion;
+  workContext.hidden = !active();
   if (!active()) return;
   const scope = currentProject + "|" + activeProcessId;
   if (handoffScope === scope) return;
@@ -230,12 +267,21 @@ function paint() {
   $("project-onboarding-retry").hidden = !state.error && !state.registrationError;
   $("project-onboarding-retry").textContent = state.registrationError ? t("重试登记") : t("重试读取");
   $("project-onboarding-retry").disabled = state.busy;
-  const signature = JSON.stringify([currentProject, activeProcessId, workflow, documentsView(state), state.snapshot?.current_items, state.error, state.registrationError, activity, detailId, selectedWork(currentProject, activeProcessId)]);
+  const signature = JSON.stringify([currentProject, activeProcessId, workflow, documentsView(state), state.snapshot?.lines, current?.current_item_id, state.error, state.registrationError, activity.state, detailId, selectedWork(currentProject, activeProcessId)]);
   if (signature === rendered) return;
   rendered = signature;
   rail.replaceChildren();
+  const heading = node("header", null, "work-focus-heading");
+  const close = button("×", closeRail, "ghost"); close.setAttribute("aria-label", t("关闭"));
+  heading.append(node("strong", t("对话工作")), close); rail.append(heading);
   if (!state.docs) {
-    rail.append(node("p", state.error ? t("需求读取失败") : t("读取需求…")));
+    const text = state.error ? t("需求读取失败") : t("读取需求…");
+    currentWork.textContent = text; currentWork.title = text; currentWork.setAttribute("aria-label", text);
+    currentWork.disabled = !state.error;
+    currentWork.setAttribute("aria-controls", rail.id);
+    currentWork.onclick = () => toggleWorkDetails(currentWork);
+    nextWork.hidden = true;
+    rail.append(node("p", text));
     if (state.error) rail.append(button(t("重试"), () => void refreshConversationWork(), "ghost"));
     return;
   }
@@ -250,11 +296,14 @@ function paint() {
   const busy = ["running", "starting", "stopping", "waiting"].includes(activity.state);
   const displayedCurrent = busy ? currentEntry : chosenEntry || currentEntry;
   const candidate = (busy && nextEntry) || choices.find(entry => entry.selectable && entry.id !== displayedCurrent?.id);
+  nextWork.hidden = false;
+  renderWorkContext(state, { current: displayedCurrent, candidate, busy, pending: Boolean(nextEntry && busy), chosen: chosenEntry, workflow });
   for (const [position, label, entry] of [["current", t(busy ? "正在进行" : chosenEntry ? "当前选取" : "当前工作"), displayedCurrent],
     ["next", t(nextEntry && busy ? "已选工作 · 下一轮生效" : "下一个候选"), candidate]]) {
     const slot = node("section", null, "work-focus-slot"); slot.append(node("small", label));
     slot.dataset.position = position;
     slot.dataset.hasWork = String(Boolean(entry));
+    slot.dataset.pending = String(position === "next" && Boolean(nextEntry && busy));
     if (entry) {
       const link = button("", () => void openWorkbenchItem(currentProject, entry), "work-focus-entry");
       link.title = `${entry.id} · ${entry.title}`;
@@ -272,6 +321,7 @@ function paint() {
 }
 
 function openWorkPicker(state) {
+  closeRail();
   const project = currentProject, process = activeProcessId;
   let dialog = $("work-picker");
   if (!dialog) { dialog = node("dialog", null, "k-surface k-dialog work-picker"); dialog.id = "work-picker"; dialog.setAttribute("aria-label", t("选择当前工作")); document.body.append(dialog); }
@@ -341,7 +391,7 @@ export function openHandoffForm({ target = null } = {}) {
         prompt: `来自${kindWord(sourceKind)}「${sourceName}」${requirement.value ? `，关联 ${requirement.value}` : ""}。用户明确交给其它对话的结论：\n\n${text}`, executionBatch: true, autonomous: false });
       if (currentProject === project && activeProcessId === source.id) {
         if ($("prompt").value.trim() === text) $("prompt").value = "";
-        handoffScope = null; rail.classList.remove("is-open"); rendered = "";
+        handoffScope = null; closeRail(); rendered = "";
         if (!target) await switchProcess(main.id);
         paint();
       }
@@ -351,8 +401,14 @@ export function openHandoffForm({ target = null } = {}) {
 }
 
 defer(() => {
-  rail = node("aside", null, "project-chat-work"); rail.id = "project-chat-work";
-  rail.setAttribute("aria-label", t("项目需求")); $("chat-area").after(rail);
+  rail = node("aside", null, "k-surface k-popover project-chat-work hidden"); rail.id = "project-chat-work";
+  rail.setAttribute("aria-label", t("对话工作")); rail.setAttribute("role", "dialog"); document.body.append(rail);
+  workContext = node("div", null, "composer-work-context"); workContext.id = "composer-work-context";
+  workContext.hidden = true; workContext.setAttribute("role", "group");
+  currentWork = node("button", null, "composer-work-current"); currentWork.id = "composer-work-current";
+  currentWork.type = "button"; currentWork.setAttribute("aria-haspopup", "dialog"); currentWork.setAttribute("aria-expanded", "false");
+  nextWork = node("button", null, "composer-work-next"); nextWork.id = "composer-work-next"; nextWork.type = "button";
+  workContext.append(currentWork, nextWork); $("composer").prepend(workContext);
   switcher = node("nav", null, "project-work-switch"); switcher.id = "project-work-switch"; switcher.setAttribute("aria-label", t("对话与概览"));
   for (const [view, label] of [["chat", t("对话")], ["project", t("概览")]]) {
     const b = button(label, async () => {
@@ -362,7 +418,7 @@ defer(() => {
     b.dataset.workSurface = view; switcher.append(b);
   }
   const signal = button("", () => void openProjectSpace(workbenchProject(), "project"), "project-overview-signal"); signal.id = "project-overview-signal";
-  const req = button("☷ " + t("需求"), () => { if (rail.classList.contains("is-open")) closeRail(); else openRail(req); }, "project-work-toggle");
+  const req = button("☷ " + t("需求"), () => toggleWorkDetails(req), "project-work-toggle");
   req.setAttribute("aria-controls", rail.id); req.setAttribute("aria-expanded", "false");
   const main = button(t("返回对话"), () => void returnToSelectedConversation(), "ghost"); main.id = "project-return-main";
   const forward = button(t("交给其它对话") + " ↗", () => openHandoffForm(), "ghost"); forward.id = "project-handoff";
@@ -391,7 +447,7 @@ defer(() => {
       if (resource.data) state.docs = resource.data;
       if (resource.status === "ready") { state.docs = resource.data; state.error = ""; }
       else if (resource.status === "error") state.error = resource.error;
-      if (sameProject(project, currentProject)) { rendered = ""; paint(); }
+      if (sameProject(project, currentProject)) paint();
     }, () => active() && sameProject(project, currentProject));
   };
   const refresh = () => { observe(); closeRail(); detailId = null; rendered = ""; paint(); if (active()) void refreshConversationWork(); };

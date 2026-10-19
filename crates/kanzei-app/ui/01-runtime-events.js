@@ -1,7 +1,7 @@
 // App-level event routing and lifecycle coordination. This is not a foundation module.
 import { subscribeRuntimeEvent } from "./00-event-subscriptions.js";
 import { t } from "./02-i18n.js";
-import { chatAbortRunningFor, markPreviousRunErrors } from "./05-chat-render.js";
+import { beginStreamResponse, chatAbortRunningFor, commitStreamResponse, markPreviousRunErrors } from "./05-chat-render.js";
 import {
   activeSessionId,
   currentProject,
@@ -49,6 +49,7 @@ export const SESSION_PROGRESS_EVENTS = new Set([
 export const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:text",
   "kz:reasoning",
+  "kz:response-interrupted",
   "kz:tool-start",
   "kz:hosted-tool",
   "kz:tool-end",
@@ -93,7 +94,7 @@ export const EXPERIENCE_NEURAL_EVENTS = new Map([
   ["stream_restarted", "stream_restarted"],
   ["usage_delta", "usage_delta"],
 ]);
-export const EXPERIENCE_KNOWN_EVENTS = new Set([...EXPERIENCE_NEURAL_EVENTS.keys(), "task_progressed", "permission_resolved"]);
+export const EXPERIENCE_KNOWN_EVENTS = new Set([...EXPERIENCE_NEURAL_EVENTS.keys(), "task_progressed", "permission_resolved", "response_interrupted"]);
 export function rememberExperienceEvent(event) {
   if (experienceEventIds.has(event.event_id)) return false;
   experienceEventIds.add(event.event_id);
@@ -264,12 +265,14 @@ export function on(event, handler) {
     // 必须写在下面那句非活动会话 early-return 之前,否则后台会话永远收不到。
     // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
     if (event === "kz:turn" && sessionId) {
+      withSessionRender(sessionId, beginStreamResponse);
       if (eventPayload.payload?.step === 1) markPreviousRunErrors(sessionId);
       if (takeAwaitingUser(sessionId) && sessionId === activeSessionId && autoStopReason === t("模型在等你回答")) setAutoStopReason("");
       transitionSession(sessionId, "running", {
         roundResult: null,
       });
     }
+    if (event === "kz:done" && sessionId) withSessionRender(sessionId, commitStreamResponse);
     // 运行事件不保证每条线路都先收到 kz:turn:并行线路可能先收到 meta、status
     // 或工具进度。任何带会话身份的实时进度都说明该线路仍在运行,否则左侧线路按钮
     // 会在实际执行时显示「空闲」,直到下一次轮询或下一轮 turn 才被纠正。

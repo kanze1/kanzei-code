@@ -398,15 +398,16 @@ async fn bash_command_body(
     }
     // The same workdir boundary applies to explicit background execution and
     // foreground handoff. Recorded tests retain their single-call exit contract.
-    let mut background_requests = ctx
+    let handoff_mailbox = ctx
         .async_mailbox
         .as_ref()
         .filter(|mailbox| !mailbox.is_closed() && input.test.is_none())
         .filter(|_| {
             !managed_scope_exists(&ctx.project_root)
                 || background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir).is_none()
-        })
-        .map(|mailbox| mailbox.background_requests());
+        });
+    let mut background_requests = handoff_mailbox.map(|mailbox| mailbox.background_requests());
+    let mut input_requests = kanzei_harness::InputRequests::new(handoff_mailbox);
     if cancel.is_cancelled() {
         return ToolOutput::error("cancelled: run stopped before command execution");
     }
@@ -452,11 +453,14 @@ async fn bash_command_body(
         let err_buf = &mut err_buf;
         let transferred = CancellationToken::new();
         let background_requested = async {
-            match background_requests.as_mut() {
-                Some(requests) => {
-                    let _ = requests.changed().await;
-                }
-                None => std::future::pending::<()>().await,
+            tokio::select! {
+                _ = input_requests.changed() => {},
+                _ = async {
+                    match background_requests.as_mut() {
+                        Some(requests) => { let _ = requests.changed().await; }
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {},
             }
         };
         let complete = async {
@@ -854,7 +858,7 @@ mod tests {
     }
 
     #[cfg(windows)]
-    async fn foreground_handoff(timeout_ms: u64, finish: bool) {
+    async fn foreground_handoff(timeout_ms: u64, finish: bool, early_input: bool) {
         let _guard = crate::background::tests::fence_guard();
         let root = temp_project("handoff");
         let (notice_tx, mut notices) = tokio::sync::mpsc::unbounded_channel();
@@ -863,6 +867,9 @@ mod tests {
         });
         // This request belongs to an earlier input and must not affect this command.
         mailbox.request_background();
+        if early_input {
+            mailbox.request_input();
+        }
         let ctx = ToolCtx {
             async_mailbox: Some(mailbox.clone()),
             run_id: Some("handoff-run".into()),
@@ -881,16 +888,19 @@ mod tests {
             )
             .await
         });
-        let prefix = tokio::time::timeout(std::time::Duration::from_secs(10), progress_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(prefix.1.contains("HANDOFF_PREFIX"));
-        assert!(
-            !executing.is_finished(),
-            "an old steering request must not be replayed"
-        );
-        mailbox.request_background();
+        if !early_input {
+            let prefix =
+                tokio::time::timeout(std::time::Duration::from_secs(10), progress_rx.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert!(prefix.1.contains("HANDOFF_PREFIX"));
+            assert!(
+                !executing.is_finished(),
+                "an old steering request must not be replayed"
+            );
+            mailbox.request_background();
+        }
         let output = tokio::time::timeout(std::time::Duration::from_secs(5), executing)
             .await
             .unwrap()
@@ -907,7 +917,9 @@ mod tests {
             process.is_running(),
             "handoff must not terminate or rerun the command"
         );
-        assert!(process.output().contains("HANDOFF_PREFIX"));
+        if !early_input {
+            assert!(process.output().contains("HANDOFF_PREFIX"));
+        }
         if finish {
             std::fs::write(root.join("release.txt"), "continue").unwrap();
         }
@@ -941,13 +953,19 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn foreground_handoff_keeps_process_prefix_and_single_completion() {
-        foreground_handoff(30_000, true).await;
+        foreground_handoff(30_000, true, false).await;
     }
 
     #[cfg(windows)]
     #[tokio::test]
     async fn foreground_handoff_preserves_the_original_timeout() {
-        foreground_handoff(3_000, false).await;
+        foreground_handoff(3_000, false, false).await;
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn foreground_handoff_observes_input_admitted_before_tool_subscription() {
+        foreground_handoff(30_000, true, true).await;
     }
 
     /// UI2-0926 #13:中文项目路径曾被 GBK 输出 + UTF-8 解码弄成 U+FFFD(「MD文件保存」现场

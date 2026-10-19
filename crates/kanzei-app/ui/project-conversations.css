@@ -1,8 +1,8 @@
 /* Conversation and observation share the same editor and project palette. */
 body[data-space="dev"] #view-chat.active {
-  display: grid; grid-template-columns: minmax(0, 1fr) 286px;
+  display: grid; grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  grid-template-areas: "head head" "chat work" "activity work" "composer work";
+  grid-template-areas: "head" "chat" "activity" "composer";
   gap: 0; min-height: 0;
 }
 body[data-space="dev"] #project-space-nav { grid-area: head; padding-bottom: 10px; min-width: 0; flex-wrap: wrap; }
@@ -11,12 +11,9 @@ body[data-space="dev"] #chat-area { grid-area: chat; min-width: 0; }
 body[data-space="dev"] #turn-activity { grid-area: activity; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); margin-inline: auto; }
 body[data-space="dev"] #view-chat > #composer { grid-area: composer; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); max-width: none; margin: 8px auto 18px; }
 body[data-space="dev"] #messages > .msg-pane { width: min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)); }
-.project-chat-work { grid-area: work; min-height: 0; overflow: auto; border-left: 1px solid var(--border); padding: 20px 16px; background: var(--chat-bg); }
-.project-chat-work .sw-work-focus { padding: 0; height: auto; min-height: 100%; border: none; }
-.project-chat-work .sw-work-rows { flex: 0 0 auto; overflow: visible; }
-.project-chat-work .sw-idle-lines { display: none; }
-.project-chat-work .sw-work-focus > header { font-size: 14px; }
-.project-chat-work .sw-backlog { margin-top: auto; }
+.project-chat-work { width: min(390px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 0; }
+.project-chat-work .project-handoff-form { padding: 16px; }
+.project-chat-work .project-handoff-form textarea { min-height: 120px; }
 .project-work-fact { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; color: var(--dim); }
 .project-work-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 #composer > .project-work-switch, #composer.sw-composer > .project-work-switch {
@@ -63,11 +60,6 @@ body[data-general-chat="true"] #sg-permissions { display: none; }
 .sw-tabs [data-tab="network"], .sw-tabs [data-tab="conversation"] { display: none; }
 @keyframes project-run-breath { 50% { opacity: .4; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent); } }
 @keyframes project-run-spin { to { transform: rotate(360deg); } }
-/* A child task owns the contextual rail while open. The requirement entry is
-   still reachable from the composer, without adding another narrow column. */
-body[data-space="dev"] #main[data-side="docked"] #view-chat.active { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "chat" "activity" "composer"; }
-#main[data-side="docked"] .project-chat-work { display: none; }
-#main[data-side="docked"] .project-work-toggle { display: inline-flex; }
 /* Preview and the conversation header must occupy separate grid cells. The
    original three-row preview layout otherwise overlays the header actions. */
 body[data-space="dev"] #view-chat.active[data-preview="open"] {
@@ -79,8 +71,6 @@ body[data-space="dev"] #view-chat[data-preview="open"] > #chat-area { grid-area:
 body[data-space="dev"] #view-chat[data-preview="open"] > #turn-activity { grid-area: activity; }
 body[data-space="dev"] #view-chat[data-preview="open"] > #composer { grid-area: composer; }
 body[data-space="dev"] #view-chat[data-preview="open"] > #preview-dock { grid-area: preview; }
-#view-chat[data-preview="open"] .project-chat-work { display: none; }
-#view-chat[data-preview="open"] .project-work-toggle { display: inline-flex; }
 body[data-space="dev"] #view-chat.active[data-preview="open"][data-preview-narrow] {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "head" "chat" "activity" "composer";
@@ -89,15 +79,6 @@ body[data-space="dev"] #view-chat.active[data-preview="open"][data-preview-narro
   grid-template-rows: minmax(0, 1fr); grid-template-areas: "preview";
 }
 body[data-space="dev"] #view-chat[data-preview-narrow="preview"] > #project-space-nav { display: none; }
-@media (max-width: 1240px) {
-  body[data-space="dev"] #view-chat.active { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "chat" "activity" "composer"; }
-  .project-chat-work { display: none; }
-  .project-work-toggle { display: inline-flex; }
-}
-.project-chat-work.is-open { display: block !important; position: fixed; inset: 70px 16px 210px auto; margin: 0; width: min(340px, calc(100vw - 32px)); height: auto; max-height: none; z-index: 70; border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--elev-2); background: var(--panel); }
-/* UX-038:抽屉形态的需求栏/交给主对话表单底边落在输入区上沿(锚点 --kz-composer 见 surface.css),不再盖住输入区右端的「交给主对话 / 需求」按钮;锚点不可用时回到原来的 210px。 */
-.project-chat-work.is-open { position-anchor: --kz-composer; bottom: calc(anchor(top, 210px) + 8px); }
-.project-chat-work.is-open .project-handoff-form textarea { min-height: 120px; }
 @media (max-width: 680px) {
   body[data-space="dev"] #project-space-nav { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
   body[data-space="dev"] #view-chat > #composer { margin-bottom: 8px; }

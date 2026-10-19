@@ -1,5 +1,6 @@
 import { closeSurface, hideCard, isModalOpen, onEscapeFallthrough, openPopover, showCard } from "./00-surface.js";
 import { defer } from "./00-dom.js";
+import { writeClipboardText } from "./00-clipboard.js";
 import { eventSubscriptionState, onEventSubscriptionChange, restoreEventSubscriptions } from "./00-event-subscriptions.js";
 import { motionOnce } from "./00-ui-primitives.js";
 import { sessionState, onSessionStateChange } from "./00-session-state.js";
@@ -33,7 +34,7 @@ defer(() => {
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setTurnPhase, turnPhase } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
-import { appendCitations, clearHostedSearchBlocks, chatAbortRunning, chatToolBlocks, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion, setToolGroupExpanded } from "./05-chat-render.js";
+import { appendCitations, chatAbortRunning, chatToolBlocks, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion, setToolGroupExpanded } from "./05-chat-render.js";
 import { setCtxPending, setCtxTokens } from "./03-shell.js";
 import { setCtxLimit } from "./03-shell.js";
 import { showRunMeta } from "./03-shell.js";
@@ -52,7 +53,6 @@ import {
   ctxLimit,
   ctxPending,
   ctxTokens,
-  currentAssistant,
   currentProject,
   currentReasoning,
   log,
@@ -80,11 +80,11 @@ import {
   chatToolEnd,
   chatToolStart,
   clearEmptyState,
+  discardStreamResponse,
   currentReasoningHead,
   followLatest,
   setFollowLatest,
   outputChars,
-  setOutputChars,
   reportError,
   scrollBottom,
   toolCallSummary,
@@ -208,11 +208,7 @@ defer(() => {
       // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
     }
     // 活动面板跨轮保留历史,由用户主动清空/切换项目时清理。
-    endReasoningLive();
     setTurnPhase("waiting");
-    setCurrentAssistant(null);
-    setCurrentReasoning(null);
-    setCurrentReasoningHead(null);
     const roundLabel = languageIsEnglish() ? `Round ${p.step}${p.maxSteps > 0 ? `/${p.maxSteps}` : ""}` : p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`;
     liveTurn(roundLabel);
     if (running) setStatus(`${roundLabel} · ${t("等待模型")}`, true);
@@ -639,19 +635,16 @@ defer(() => {
 defer(() => {
   on("kz:stream-restart", (e) => {
     const p = e.payload ?? {};
-    clearHostedSearchBlocks();
-    if (currentAssistant) {
-      currentAssistant.remove();
-      setCurrentAssistant(null);
-    }
-    endReasoningLive();
+    discardStreamResponse();
     setTurnPhase("waiting");
-    setCurrentReasoning(null);
-    setCurrentReasoningHead(null);
-    setOutputChars(0);
     addMessage("notice", `⟳ ${localizeDynamic("连接中断,正在重新请求本轮")}(${p.attempt}/${p.max})`);
     log(`${localizeDynamic("连接中断,重放本轮")} ${p.attempt}/${p.max},${localizeDynamic("等待")} ${p.delayMs}ms`, "warn");
     setStatus(`${t("连接中断")} · ${t("重放本轮")} ${p.attempt}/${p.max}`, true);
+  });
+  on("kz:response-interrupted", () => {
+    discardStreamResponse();
+    setTurnPhase("waiting");
+    setStatus(t("收到新消息，正在接续回答"), true);
   });
 });
 defer(() => {
@@ -1257,22 +1250,15 @@ export async function copyReadable(el, button = null) {
     .map((node) => node.textContent || "")
     .join("")
     .trim();
-  if (!text) return toast(t("没有可复制的内容"));
   try {
-    await navigator.clipboard.writeText(text);
-    if (button) {
-      button.dataset.copied = "true";
-      button.title = t("已复制"); button.dataset.i18nTitle = "已复制";
-      button.setAttribute("aria-label", t("已复制")); button.dataset.i18nAriaLabel = "已复制";
-    }
-    toast(t("已复制"), { kind: "ok" });
+    await writeClipboardText(text, button);
   } catch (err) {
     toastError(`${t("复制失败")}:${err}`);
   }
 }
 defer(() => {
   messages.addEventListener("click", (event) => {
-    const button = event.target.closest(".copy-btn");
+    const button = event.target.closest(".msg-actions > .copy-btn");
     if (button) void copyReadable(button.closest(".msg, .tool-chip"), button);
   });
 });

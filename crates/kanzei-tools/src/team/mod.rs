@@ -13,8 +13,8 @@ use futures::FutureExt;
 use kanzei_core::store::session_execution::{try_acquire, SessionExecutionGuard};
 use kanzei_core::{CancellationToken, DelegationFuture, DelegationHost, RunEvent, SubagentRuntime};
 use kanzei_harness::{
-    AsyncMailbox, AsyncNotice, ConfigComponent, Harness, MarkdownComponent, ResolveCtx, ToolCtx,
-    ToolOutput,
+    AsyncMailbox, AsyncNotice, ConfigComponent, Harness, InputRequests, MarkdownComponent,
+    ResolveCtx, ToolCtx, ToolOutput,
 };
 use kanzei_llm::{LlmClient, Message, ToolSpec};
 use serde_json::{json, Value};
@@ -648,11 +648,12 @@ impl AgentTeam {
             _ => bail!("未知子任务操作：{action}"),
         }
     }
-    async fn results(&self, input: &Value, delivery: ResultDelivery) -> Result<Value> {
+    async fn results(&self, input: &Value, mut delivery: ResultDelivery) -> Result<Value> {
         let wanted = input["id"]
             .as_str()
             .map(|id| self.resolve(id))
             .transpose()?;
+        let mut input_requests = InputRequests::new(self.0.mailbox.lock().unwrap().as_ref());
         loop {
             let notify = self.0.changed.notified();
             tokio::pin!(notify);
@@ -718,7 +719,27 @@ impl AgentTeam {
                 return Ok(json!(results));
             }
             // Other processes have no access to this process-local Notify.
-            tokio::select! { _=&mut notify=>{}, _=tokio::time::sleep(Duration::from_millis(500))=>{} }
+            tokio::select! {
+                _ = input_requests.changed() => {
+                    // The same durable workers continue. Arm callbacks under
+                    // lifecycle ownership so completion cannot fall between
+                    // releasing the foreground and enabling result delivery.
+                    let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+                    let local = self.0.active.lock().unwrap();
+                    for job in &pending {
+                        if local.contains_key(&job.id) {
+                            self.0.store.update(&job.id, |current| {
+                                if current.active() {
+                                    current.notify_on_completion = true;
+                                }
+                            })?;
+                        }
+                    }
+                    delivery = ResultDelivery::Callback;
+                },
+                _ = &mut notify => {},
+                _ = tokio::time::sleep(Duration::from_millis(500)) => {},
+            }
         }
     }
     fn adopt_with(

@@ -1,4 +1,5 @@
 import { defer } from "./00-dom.js";
+import { copyButton } from "./00-clipboard.js";
 import { messagePanes } from "./01-chat-panes.js";
 import { motionOnce } from "./00-ui-primitives.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
@@ -6,7 +7,7 @@ import { appendDisplayBlock, renderFileCard, compactDiffLines, quotaNoticeHeadli
 import { deliveredFileFor, registerDelivery } from "./06-deliveries.js";
 import { openTasksPanel } from "./06-agent-panel.js";
 import { $ } from "./00-dom.js";
-import { activePane, promptBox, appendToPane, messages, trimLivePane } from "./01-chat-panes.js";
+import { activePane, promptBox, appendToPane, messages, renderingBackground, trimLivePane } from "./01-chat-panes.js";
 import { t } from "./02-i18n.js";
 import { attachments, activeSessionId, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdownInto } from "./04-markdown.js";
@@ -111,35 +112,7 @@ export function scrollBottom(force = false) {
 // 内部交接块过滤(UX-008 / UX-037)的唯一真源在 04-structured-parse.js 的 stripInternalHandoff:
 // 对话流、历史回放/复制与概览页共用,这里只负责调用。
 
-/// 复制图标(两个叠放的圆角方块,描边随 currentColor)。常量字面量,没有外部输入。
-export const COPY_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"/><path d="M10.5 5.5V3.6A1.1 1.1 0 0 0 9.4 2.5H3.6a1.1 1.1 0 0 0-1.1 1.1v5.8a1.1 1.1 0 0 0 1.1 1.1h1.9"/></svg>';
-export function copyButton() {
-  const button = document.createElement("button");
-  button.className = "copy-btn";
-  button.type = "button";
-  button.title = t("复制消息");
-  // R-140 批1/批10:消息容器豁免 observer 后,容器内 t() 渲染点靠 data-i18n-key
-  // 在语言切换时由 applyDataI18nKeys(document.body) 重算(渲染点翻译,不再靠事后回译)。
-  // UI2-0926 #12:按钮改成图标;可读名挂在 sr-only 的 span 上——data-i18n-key 若挂在按钮本身,
-  // 切语言时 applyDataI18nKeys 写 textContent 会把 SVG 冲掉。
-  button.dataset.i18nTitle = "复制消息";
-  button.setAttribute("aria-label", t("复制消息"));
-  button.dataset.i18nAriaLabel = "复制消息";
-  const reset = () => {
-    delete button.dataset.copied;
-    button.title = t("复制消息"); button.dataset.i18nTitle = "复制消息";
-    button.setAttribute("aria-label", t("复制消息")); button.dataset.i18nAriaLabel = "复制消息";
-  };
-  button.addEventListener("pointerleave", reset);
-  button.addEventListener("blur", reset);
-  button.innerHTML = COPY_ICON;
-  const label = document.createElement("span");
-  label.className = "sr-only";
-  label.textContent = t("复制");
-  label.dataset.i18nKey = "复制";
-  button.appendChild(label);
-  return button;
-}
+export { COPY_ICON, copyButton } from "./00-clipboard.js";
 
 export function renderUserContent(body, value) {
   body.dataset.raw = String(value || "");
@@ -161,7 +134,7 @@ export function addMessage(cls, text) {
   if (String(cls).split(/\s+/).includes("user")) renderUserContent(body, text);
   else body.textContent = text;
   el.appendChild(body);
-  // UI2-0926 #12:notice(本轮结束、鞭挞停止…)是系统提示,不挂复制;其余消息的复制悬停出现在块下方。
+  // notice(本轮结束、鞭挞停止…)不挂复制;其余消息的复制常驻在块下方。
   if (!String(cls).split(/\s+/).includes("notice")) {
     const actions = document.createElement("span");
     actions.className = "msg-actions";
@@ -260,6 +233,38 @@ export function setOutputChars(value) { outputChars = Number(value) || 0; }
 // 后台会话的待渲染节点不会再覆盖活动会话的末帧。
 export const pendingAssistantRender = new WeakMap();
 export const pendingReasoningRender = new WeakMap();
+const provisionalResponseNodes = new WeakMap();
+function trackStreamNode(node) {
+  if (!provisionalResponseNodes.has(activePane)) provisionalResponseNodes.set(activePane, new Set());
+  provisionalResponseNodes.get(activePane).add(node);
+}
+export function commitStreamResponse() {
+  // Another model step can arrive before the scheduled animation frame. Commit
+  // the final render before the next step reuses its pane's coalescing slots.
+  flushStreamRender();
+  provisionalResponseNodes.delete(activePane);
+}
+export function beginStreamResponse() {
+  commitStreamResponse();
+  endReasoningLive();
+  setCurrentAssistant(null);
+  setCurrentReasoning(null);
+  setCurrentReasoningHead(null);
+}
+
+// Only the current provider response is provisional. Committed messages and
+// running tool cards belong to the conversation and survive a new input.
+export function discardStreamResponse() {
+  pendingAssistantRender.delete(activePane);
+  pendingReasoningRender.delete(activePane);
+  clearHostedSearchBlocks();
+  for (const node of provisionalResponseNodes.get(activePane) || []) node.remove();
+  provisionalResponseNodes.delete(activePane);
+  setCurrentAssistant(null);
+  setCurrentReasoning(null);
+  setCurrentReasoningHead(null);
+  if (!renderingBackground) setOutputChars(0);
+}
 export const streamFlushScheduled = new WeakSet();
 export const streamRenderCost = new WeakMap();
 export function scheduleStreamRender() {
@@ -296,6 +301,7 @@ export function flushStreamRender(pane = activePane) {
 export function appendAssistant(text) {
   if (!currentAssistant) {
     setCurrentAssistant(addMessage("assistant md", ""));
+    trackStreamNode(currentAssistant);
     currentAssistant.dataset.raw = "";
   }
   currentAssistant.dataset.raw += text;
@@ -766,6 +772,7 @@ export function appendReasoning(text) {
     clearEmptyState();
     const block = buildReasoningBlock("");
     appendToPane(block.wrap);
+    trackStreamNode(block.wrap);
     setCurrentReasoning(block.body);
     setCurrentReasoningHead(block.head);
     // #7:正在流的思考块(全局运行中时扫光);下一段文本/工具/新一轮开始时 endReasoningLive 摘掉。

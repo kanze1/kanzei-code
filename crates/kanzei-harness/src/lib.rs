@@ -31,7 +31,7 @@ pub mod repair;
 pub mod skills;
 pub mod subagent_policy;
 pub mod tool;
-pub use async_mailbox::{AsyncMailbox, AsyncNotice, InputInbox};
+pub use async_mailbox::{AsyncMailbox, AsyncNotice, InputInbox, InputRequests};
 pub use read_ledger::ReadLedger;
 pub use subagent_policy::SubagentMode;
 pub mod tool_pipeline;

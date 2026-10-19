@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
+mod input;
 mod mutation;
 
 #[tokio::test]

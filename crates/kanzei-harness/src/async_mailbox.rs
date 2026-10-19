@@ -1,5 +1,11 @@
 //! Actor-lived delivery, deliberately independent of a single model turn.
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 #[derive(Debug, Clone)]
 pub struct AsyncNotice {
@@ -8,7 +14,8 @@ pub struct AsyncNotice {
     pub text: String,
 }
 
-/// The runner drains steering only between complete tool/result batches.
+/// The runner drains steering before provider requests, between complete
+/// tool/result batches. An uncommitted response can yield to that boundary.
 #[derive(Clone)]
 pub struct InputInbox(Arc<dyn Fn() -> Result<Vec<AsyncNotice>, String> + Send + Sync>);
 impl fmt::Debug for InputInbox {
@@ -32,6 +39,8 @@ pub struct AsyncMailbox {
     deliver: Arc<dyn Fn(AsyncNotice) -> Result<(), String> + Send + Sync>,
     closed: tokio::sync::watch::Sender<bool>,
     background_requests: tokio::sync::watch::Sender<u64>,
+    input_requests: tokio::sync::watch::Sender<u64>,
+    consumed_inputs: Arc<AtomicU64>,
 }
 
 impl fmt::Debug for AsyncMailbox {
@@ -48,10 +57,13 @@ impl AsyncMailbox {
     ) -> Self {
         let (closed, _) = tokio::sync::watch::channel(false);
         let (background_requests, _) = tokio::sync::watch::channel(0);
+        let (input_requests, _) = tokio::sync::watch::channel(0);
         Self {
             deliver: Arc::new(deliver),
             closed,
             background_requests,
+            input_requests,
+            consumed_inputs: Arc::new(AtomicU64::new(0)),
         }
     }
     pub fn publish(&self, notice: AsyncNotice) -> Result<(), String> {
@@ -66,9 +78,8 @@ impl AsyncMailbox {
     pub fn close(&self) {
         self.closed.send_replace(true);
     }
-    /// An admitted steering input releases an eligible foreground shell without
-    /// cancelling it. Subscribe before starting the command: old requests must
-    /// never background a command started for a later input.
+    /// Automatic result delivery can release an eligible foreground shell.
+    /// Human input additionally uses InputRequests to cover late subscribers.
     pub fn background_requests(&self) -> tokio::sync::watch::Receiver<u64> {
         self.background_requests.subscribe()
     }
@@ -76,15 +87,132 @@ impl AsyncMailbox {
         self.background_requests
             .send_modify(|sequence| *sequence += 1);
     }
+    /// Human steering can interrupt an unfinished response and release eligible
+    /// tools. Automatic completion notices only request tool handoff: they must
+    /// not repeatedly discard an answer being written for the user.
+    pub fn request_input(&self) {
+        self.input_requests.send_modify(|sequence| *sequence += 1);
+        self.request_background();
+    }
     pub async fn cancelled(&self) {
         let mut rx = self.closed.subscribe();
         let _ = rx.wait_for(|closed| *closed).await;
     }
 }
 
+/// A reader observes unconsumed input even when it subscribes after admission.
+/// Only the runner's successful inbox transaction acknowledges delivery; a new
+/// tool cannot miss input arriving between model completion and tool dispatch.
+#[derive(Default)]
+pub struct InputRequests(Option<InputReceiver>);
+
+struct InputReceiver {
+    receiver: tokio::sync::watch::Receiver<u64>,
+    consumed: Arc<AtomicU64>,
+    observed: u64,
+}
+
+impl InputRequests {
+    pub fn new(mailbox: Option<&AsyncMailbox>) -> Self {
+        Self(mailbox.map(|mailbox| InputReceiver {
+            receiver: mailbox.input_requests.subscribe(),
+            consumed: mailbox.consumed_inputs.clone(),
+            observed: mailbox.consumed_inputs.load(Ordering::SeqCst),
+        }))
+    }
+
+    pub fn take(&mut self, inbox: &InputInbox) -> Result<Vec<AsyncNotice>, String> {
+        // Capture before reading. Input admitted during the transaction can at
+        // worst cause another delivery boundary; it can never be acknowledged
+        // without having been read. Failed transactions retain the signal.
+        let through = self.0.as_ref().map(|r| *r.receiver.borrow()).unwrap_or(0);
+        let inputs = inbox.take()?;
+        if let Some(reader) = &mut self.0 {
+            reader.consumed.fetch_max(through, Ordering::SeqCst);
+            reader.observed = through;
+        }
+        Ok(inputs)
+    }
+
+    pub async fn changed(&mut self) {
+        if let Some(reader) = &mut self.0 {
+            let consumed = &reader.consumed;
+            let observed = reader.observed;
+            if let Ok(sequence) = reader
+                .receiver
+                .wait_for(|sequence| *sequence > observed.max(consumed.load(Ordering::SeqCst)))
+                .await
+            {
+                reader.observed = *sequence;
+                return;
+            }
+        }
+        // A disconnected inbox cannot produce input; session cancellation is
+        // handled independently by the caller, without spinning on a closed watch.
+        std::future::pending().await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn is_pending(requests: &mut InputRequests) -> bool {
+        use std::{
+            future::Future,
+            task::{Context, Poll, Waker},
+        };
+        let mut changed = std::pin::pin!(requests.changed());
+        matches!(
+            changed
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        )
+    }
+
+    #[tokio::test]
+    async fn pending_input_reaches_late_subscribers_once_and_acknowledgement_prevents_replay() {
+        let mailbox = AsyncMailbox::new(|_| Ok(()));
+        mailbox.request_input();
+        let mut tool = InputRequests::new(Some(&mailbox));
+        assert!(
+            !is_pending(&mut tool),
+            "input before tool dispatch must release it"
+        );
+        assert!(
+            is_pending(&mut tool),
+            "one reader observes each request once"
+        );
+        let mut runner = InputRequests::new(Some(&mailbox));
+        runner.take(&InputInbox::new(|| Ok(vec![]))).unwrap();
+        let mut next_tool = InputRequests::new(Some(&mailbox));
+        assert!(
+            is_pending(&mut next_tool),
+            "consumed input cannot release later work"
+        );
+        mailbox.request_input();
+        assert!(!is_pending(&mut next_tool));
+        assert!(!is_pending(&mut runner));
+    }
+
+    #[tokio::test]
+    async fn failed_inbox_transaction_keeps_input_pending_and_automatic_notices_do_not_interrupt() {
+        let mailbox = AsyncMailbox::new(|_| Ok(()));
+        let mut runner = InputRequests::new(Some(&mailbox));
+        mailbox.request_background();
+        assert!(is_pending(&mut runner));
+        mailbox.request_input();
+        assert!(runner
+            .take(&InputInbox::new(|| Err("transaction failed".into())))
+            .is_err());
+        assert!(!is_pending(&mut runner));
+        let mut late = InputRequests::new(Some(&mailbox));
+        assert!(!is_pending(&mut late));
+        runner.take(&InputInbox::new(|| Ok(vec![]))).unwrap();
+        assert!(is_pending(&mut late));
+        assert!(is_pending(&mut InputRequests::default()));
+    }
 
     #[tokio::test]
     async fn background_requests_wake_current_commands_without_replaying_old_input() {

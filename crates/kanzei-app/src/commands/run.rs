@@ -650,7 +650,7 @@ pub(crate) fn schedule_run(
                 .map_err(|e| e.to_string())?;
                 if delivery == kanzei_core::Delivery::Steer {
                     if let Some(mailbox) = runtime.async_mailbox.lock().unwrap().as_ref() {
-                        mailbox.request_background();
+                        mailbox.request_input();
                     }
                 }
                 let (stage, detail) = if delivery == kanzei_core::Delivery::Steer {

@@ -98,6 +98,8 @@ pub enum RunEvent {
     },
     Text(String),
     Reasoning(String),
+    /// Discard the uncommitted response and continue the same actor with new input.
+    ResponseInterrupted,
     /// Steering admitted at a safe boundary, with a stable durable input receipt.
     InputMessageCommitted {
         input_id: String,
