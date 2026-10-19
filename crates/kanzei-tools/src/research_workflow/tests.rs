@@ -1,12 +1,8 @@
 use super::*;
 use kanzei_harness::{Tool, ToolCtx};
 
-pub(super) fn root() -> PathBuf {
-    let id = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("kz-auto-research-{}-{id}", std::process::id()));
+pub(super) fn root() -> kanzei_base::test_support::TestDir {
+    let root = kanzei_base::test_support::TestDir::new("kz-auto-research-");
     let dir = root.join(".kanzei/research/demo");
     std::fs::create_dir_all(dir.join("explorations")).unwrap();
     for file in [

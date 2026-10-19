@@ -1,20 +1,23 @@
 /* WebView2 + real Rust IPC + global files, using a local model fixture. */
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { copyFile, mkdir, readFile, readdir, writeFile, symlink } from "node:fs/promises";
+
+import { mkdir, readFile, readdir, writeFile, symlink } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-skills-native-smoke" }, async task => {
 
 if (process.platform !== "win32" || !process.argv[2]) throw new Error("Usage: node scripts/ui-skills-native-smoke.mjs <fresh kzapp.exe>");
-const output = path.resolve("output/playwright/skills-native"), run = path.join(output, String(Date.now()));
+const output = task.evidence, run = task.environment;
 const profile = path.join(run, "profile"), home = path.join(profile, ".kanzei"), project = path.join(run, "project");
 for (const dir of [home, project, path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
 const checks = [], errors = [], requests = [];
 let mode = "valid";
-const model = http.createServer(async (request, response) => {
+const model = task.server(http.createServer(async (request, response) => {
   if (request.method === "GET") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ data: [{ id: "skills-global-model", object: "model" }] })); return; }
   let body = ""; for await (const part of request) body += part;
   if (!body) { response.writeHead(400); response.end("empty request"); return; }
@@ -23,13 +26,13 @@ const model = http.createServer(async (request, response) => {
   const text = mode === "invalid" ? "invalid json" : JSON.stringify(draft);
   response.writeHead(200, { "content-type": "text/event-stream" });
   response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text }, finish_reason: mode === "truncated" ? "length" : "stop" }] })}\n\ndata: [DONE]\n\n`);
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(home, "kanzei.toml"), `proxy = "off"\n[models]\nprimary = "mock:skills-global-model"\nfast = "mock:skills-global-model"\n[providers.mock]\nprotocol = "openai"\nbase_url = "http://127.0.0.1:${model.address().port}/v1"\n`);
 await mkdir(path.join(project, ".kanzei"), { recursive: true });
 await writeFile(path.join(project, ".kanzei/kanzei.toml"), '[models]\nprimary = "mock:wrong-project-model"\n');
 await writeFile(path.join(home, "app.json"), JSON.stringify({ projects: [], current: null, theme: "light" }));
-const exe = path.join(run, "kzapp.exe"); await copyFile(path.resolve(process.argv[2]), exe);
+const exe = path.join(run, "kzapp.exe"); await task.copyInput(path.resolve(process.argv[2]), exe);
 let app, browser, page;
 const check = (value, label) => { assert(value, label); checks.push(label); console.log(`PASS ${label}`); };
 const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
@@ -39,13 +42,13 @@ async function until(fn, label) {
   throw new Error(`${label} timed out`);
 }
 async function start() {
-  const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
+  const probe = task.server(net.createServer()); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   app = spawn(exe, [], { cwd: run, windowsHide: true, stdio: "ignore", env: { ...process.env,
     KANZEI_HOME: home, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"),
     APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
   } });
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 }); return true; } catch { return false; } }, "WebView2 startup");
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 })); return true; } catch { return false; } }, "WebView2 startup");
   await until(() => { page = browser.contexts().flatMap(context => context.pages())[0]; return Boolean(page); }, "WebView2 page creation");
   page.setDefaultTimeout(15000);
   page.on("pageerror", error => errors.push(String(error)));
@@ -144,3 +147,4 @@ try {
   await writeFile(path.join(output, "checks.json"), JSON.stringify({ checks, errors, modelRequests: requests.length, executable: exe, boundary: "Actual WebView2 and Rust; model responses served by an isolated local fixture" }, null, 2));
 } catch (error) { if (page) await page.screenshot({ path: path.join(output, "failure.png") }).catch(() => {}); console.error({ checks, errors }); throw error; }
 finally { await close(); await new Promise(resolve => model.close(resolve)); }
+});

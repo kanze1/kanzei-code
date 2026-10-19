@@ -27,4 +27,5 @@ tracing.workspace = true
 regex = "1.13.1"
 
 [dev-dependencies]
+kanzei-base = { workspace = true, features = ["test-support"] }
 toml.workspace = true

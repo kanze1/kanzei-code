@@ -701,15 +701,8 @@ mod tests {
     use crate::memory::MemoryScope;
     use kanzei_core::RecallPolicy;
 
-    fn temp_root() -> (PathBuf, MemoryStore) {
-        let dir = std::env::temp_dir().join(format!(
-            "kz-mem-index-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn temp_root() -> (kanzei_base::test_support::TestDir, MemoryStore) {
+        let dir = kanzei_base::test_support::TestDir::new("kz-mem-index-");
         std::fs::create_dir_all(&dir).unwrap();
         let store = MemoryStore::open(MemoryScope::Project, dir.join(".kanzei").join("memory"));
         (dir, store)
@@ -788,7 +781,6 @@ mod tests {
                 .is_empty(),
             "标识符前缀不能误配"
         );
-        std::fs::remove_dir_all(root).ok();
     }
 
     fn add(
@@ -1151,7 +1143,6 @@ mod tests {
             assert!(!rows.contains(&e1.id), "归档条目向量必须清除: {rows:?}");
             assert!(rows.contains(&e2.id) && rows.contains(&e3.id), "{rows:?}");
         }
-        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
@@ -1459,7 +1450,6 @@ mod tests {
                 want_ids.iter().map(|s| s.to_string()).collect();
             assert_eq!(got, want, "query {q:?} top{k} 命中集合与改动前快照漂移");
         }
-        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
@@ -1495,7 +1485,6 @@ mod tests {
             .unwrap();
         assert!(store.recall_profile().contains_key("M-001"));
         assert!(store.fresh_recall_profile(86_400_000).is_empty());
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

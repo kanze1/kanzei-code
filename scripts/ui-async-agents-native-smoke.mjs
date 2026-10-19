@@ -1,17 +1,20 @@
 // Actual WebView2 + Rust scheduler + deterministic local model and terminal processes.
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn, execFileSync } from "node:child_process";
-import { mkdir, copyFile, writeFile, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-async-agents-native-smoke" }, async task => {
 
 if (process.platform !== "win32" || !process.argv[2]) throw new Error("Pass a freshly built kzapp.exe");
-const output = path.resolve("output/playwright/async-agents");
-const run = path.join(output, String(Date.now())), project = path.join(run, "project");
+const output = task.evidence;
+const run = task.environment, project = path.join(run, "project");
 const profile = path.join(run, "profile"), appHome = path.join(profile, ".kanzei");
 for (const dir of [project, appHome, path.join(run, "webview"), path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
 await writeFile(path.join(appHome, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
@@ -29,7 +32,7 @@ function answer(res, content, calls = []) {
   res.end("data: [DONE]\n\n");
 }
 const call = (id, name, input) => ({ id, name, input });
-const model = http.createServer(async (req, res) => {
+const model = task.server(http.createServer(async (req, res) => {
   let raw = ""; for await (const part of req) raw += part;
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
   try {
@@ -61,12 +64,12 @@ const model = http.createServer(async (req, res) => {
     else if (kind === "child-terminal" && step === 1) answer(res, null, [call("terminal-child", "bash", { command: "Start-Sleep -Milliseconds 1600; Write-Output CHILD_TERMINAL_RESULT", background: true })]);
     else answer(res, `RESULT_${kind}_${step}: 已处理实际输入，可以继续独立工作。`);
   } catch (error) { errors.push(String(error)); answer(res, "LOCAL_SERVER_ERROR"); }
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(appHome, "kanzei.toml"), `[models]\nprimary = "stub:primary"\nfast = "stub:fast"\n[providers.stub]\nprotocol = "openai"\nbase_url = "http://127.0.0.1:${model.address().port}/v1"\ncontext_limit = 64000\n`);
-const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
+const probe = task.server(net.createServer()); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
-const exe = path.join(run, "kzapp.exe"); await copyFile(path.resolve(process.argv[2]), exe);
+const exe = path.join(run, "kzapp.exe"); await task.copyInput(path.resolve(process.argv[2]), exe);
 const executableSha256 = createHash("sha256").update(await readFile(exe)).digest("hex");
 const app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", env: { ...process.env,
   KANZEI_HOME: appHome, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"),
@@ -93,7 +96,7 @@ async function allowOnce() {
   await button.press("Enter");
 }
 try {
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1000 }); return true; } catch { return false; } }, "WebView2");
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1000 })); return true; } catch { return false; } }, "WebView2");
   page = browser.contexts()[0].pages()[0]; page.setDefaultTimeout(15000); page.on("pageerror", e => errors.push(e.message));
   await page.waitForFunction(() => document.body.dataset.appReady === "true");
   const prefs = await invoke("projects_init", { path: project, name: "异步协作验收" });
@@ -220,3 +223,4 @@ try {
   if (app.exitCode === null) { const stopped = new Promise(resolve => app.once("exit", resolve)); app.kill(); await stopped; }
   model.closeAllConnections(); await new Promise(resolve => model.close(resolve));
 }
+});

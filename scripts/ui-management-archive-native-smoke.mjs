@@ -4,9 +4,12 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { nativeApp, textReply } from "./fixtures/native-app.mjs";
+import { withTask } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-management-archive-native-smoke" }, async task => {
 
 assert(process.platform === "win32" && process.argv[2], "Pass a fresh kzapp.exe");
-const output = path.resolve("output/playwright/management-archive/native");
+const output = task.evidence;
 const app = await nativeApp(process.argv[2], output, "归档详情验收", async (_body, res) => textReply(res, "No candidates."));
 const checks = [], check = (value, label) => { assert(value, label); checks.push(label); console.log(`PASS ${label}`); };
 const { page } = app;
@@ -80,3 +83,4 @@ try {
   await writeFile(path.join(output, "failure.json"), JSON.stringify({ checks, errors: app.errors, error: String(error), project: app.project }, null, 2));
   throw error;
 } finally { await app.close(); }
+});

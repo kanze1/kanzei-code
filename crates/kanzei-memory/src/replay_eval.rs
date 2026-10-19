@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn oracle臂注入自动事后正确做法_no_memory臂恒空() {
         // 临时目录,避免在源码树里留下 memory 索引(D-174 文件隔离精神)。
-        let root = std::env::temp_dir().join(format!("kz-replay-eval-{}", std::process::id()));
+        let root = kanzei_base::test_support::TestDir::new("kz-replay-eval-");
         let provider = ReplayMemoryProvider::new(&root);
         let case = parse_trace_payload(SAMPLE, "t").unwrap();
         // Oracle:失败后成功步骤(read)合成事后正确做法。
@@ -344,9 +344,7 @@ mod tests {
     #[test]
     fn candidate臂_有记忆条目时用hybrid检索并落recall_events() {
         // 验收②装配:Candidate 臂走三通道混合检索,命中后分段延迟落 recall_events。
-        let root = std::env::temp_dir().join(format!("kz-replay-eval-cand-{}", std::process::id()));
-        // 清理历史残留,保证断言独立。
-        let _ = std::fs::remove_dir_all(&root);
+        let root = kanzei_base::test_support::TestDir::new("kz-replay-eval-cand-");
         let store = crate::memory::MemoryStore::project(&root);
         // 种子:一条与 SAMPLE 失败指纹(tool=edit,kind=old string not found)精确匹配的
         // 记忆条目——fingerprint 触发应命中。
@@ -432,7 +430,7 @@ mod tests {
 
     #[test]
     fn leave_one_out_去掉第一条命中_无命中时不变() {
-        let root = std::env::temp_dir().join(format!("kz-replay-eval-loo-{}", std::process::id()));
+        let root = kanzei_base::test_support::TestDir::new("kz-replay-eval-loo-");
         let provider = ReplayMemoryProvider::new(&root);
         let case = parse_trace_payload(SAMPLE, "t2").unwrap();
         let current = provider.context_for(&Arm::Current, &case);

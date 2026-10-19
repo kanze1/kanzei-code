@@ -1,8 +1,8 @@
 // Real Kanzei runner, desktop bridge, WebView2, React 18 and a deterministic local provider.
 /* global window, document, DOMParser */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdir, copyFile, writeFile, readFile } from "node:fs/promises";
+
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import http from "node:http";
@@ -11,14 +11,17 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import { actions } from "./fixtures/browser-form-actions.mjs";
 import { decodeExternalSource } from "./fixtures/tool-source.mjs";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-browser-forms-native-smoke" }, async task => {
 
 assert(process.platform === "win32" && process.argv[2], "Usage: node scripts/ui-browser-forms-native-smoke.mjs <exe>");
-const output = path.resolve("output/playwright/browser-forms/native"), run = path.join(output, String(Date.now()));
+const output = task.evidence, run = task.environment;
 const project = path.join(run, "project"), profile = path.join(run, "profile"), appHome = path.join(profile, ".kanzei");
 for (const dir of [project, appHome, path.join(run, "webview"), path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
-await copyFile("scripts/fixtures/browser-form.html", path.join(project, "form.html"));
-await copyFile("node_modules/react/umd/react.development.js", path.join(project, "react.js"));
-await copyFile("node_modules/react-dom/umd/react-dom.development.js", path.join(project, "react-dom.js"));
+await task.copyInput("scripts/fixtures/browser-form.html", path.join(project, "form.html"));
+await task.copyInput("node_modules/react/umd/react.development.js", path.join(project, "react.js"));
+await task.copyInput("node_modules/react-dom/umd/react-dom.development.js", path.join(project, "react-dom.js"));
 await writeFile(path.join(project, "attachment.txt"), "ACTUAL_AUTHORIZED_UPLOAD\n");
 await mkdir(path.join(project, ".claude"), { recursive: true });
 await writeFile(path.join(project, ".env"), "NATIVE_SOURCE_SECRET_CANARY\n");
@@ -35,7 +38,7 @@ function reply(res, delta) {
   res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: delta.tool_calls ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } })}\n\n`);
   res.end("data: [DONE]\n\n");
 }
-const model = http.createServer(async (req, res) => {
+const model = task.server(http.createServer(async (req, res) => {
   try {
     if (req.url === "/v1/models") { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "test" }] })); return; }
     let raw = ""; for await (const part of req) raw += part;
@@ -85,11 +88,11 @@ const model = http.createServer(async (req, res) => {
     console.log(`Native form ${mode} step ${outputs.length + 1}/${actions.length}: ${name} ${args.action ?? args.query}`);
     reply(res, { tool_calls: [{ index: 0, id: `native-form-${mode}-${outputs.length}`, type: "function", function: { name, arguments: JSON.stringify(input) } }] });
   } catch (error) { errors.push(String(error)); reply(res, { content: `NATIVE_FORM_FAILED: ${error.message}` }); }
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(appHome, "kanzei.toml"), `[models]\nprimary="stub:test"\nfast="stub:test"\n[providers.stub]\nprotocol="openai"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\ncontext_limit=128000\n`);
-const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve)); const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
-const exe = path.join(run, "kzapp.exe"); await copyFile(path.resolve(process.argv[2]), exe);
+const probe = task.server(net.createServer()); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve)); const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
+const exe = path.join(run, "kzapp.exe"); await task.copyInput(path.resolve(process.argv[2]), exe);
 const app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", env: { ...process.env, KANZEI_HOME: appHome, USERPROFILE: profile, HOME: profile,
   LOCALAPPDATA: path.join(profile, "AppData/Local"), APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(port) } });
 let browser, page, database;
@@ -129,7 +132,7 @@ async function progress(lines) {
   return invoke("collaboration_snapshot", { projectDir: project });
 }
 try {
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); return true; } catch { return false; } }, "Native app starts", 30000);
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`)); return true; } catch { return false; } }, "Native app starts", 30000);
   page = browser.contexts()[0].pages()[0]; page.on("pageerror", error => errors.push(error.message));
   browser.contexts()[0].on("page", target => target.on("framenavigated", frame => { if (frame === target.mainFrame()) console.log(`Native preview navigation: ${frame.url()}`); }));
   await page.waitForFunction(() => document.body.dataset.appReady === "true");
@@ -202,3 +205,4 @@ try {
   if (page && !page.isClosed()) await invoke("runtime_shutdown").catch(error => console.warn(String(error)));
   await browser?.close(); app.kill(); model.closeAllConnections(); await new Promise(resolve => model.close(resolve));
 }
+});

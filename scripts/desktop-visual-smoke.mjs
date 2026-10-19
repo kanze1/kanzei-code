@@ -1,15 +1,15 @@
 // Actual provider calls -> conversation-owned snapshot -> custom-drawn native UI.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { mkdir,readFile,writeFile } from 'node:fs/promises';
+import { spawnOwned as spawn, withTask } from './artifact-lifecycle.mjs';
+import { readFile,writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { nativeApp,until,stopOwnedProcess,toolReply,textReply } from './fixtures/native-app.mjs';
 import { decodeExternalSource } from './fixtures/tool-source.mjs';
 
+await withTask({suite:'desktop-visual-smoke'},async task=>{
 assert(process.platform==='win32'&&process.argv[2],'Pass a fresh kzapp.exe');
-const output=path.resolve('output/desktop-visual'),run=path.join(output,String(Date.now()));
-await mkdir(run,{recursive:true});
+const output=task.evidence,run=task.environment;
 const program='C:\\Program Files\\PowerShell\\7\\pwsh.exe';
 const checks=[],results=[],check=(value,label)=>{assert(value,label);checks.push(label);};
 const actions=['inspect','root','inspect','click','inspect','type','inspect','chord','inspect','invalid','inspect','final','inspect','key','inspect','submit','stale','inspect','bounds','inspect','geometry'];
@@ -76,3 +76,4 @@ try {
 } catch(error) {
   await writeFile(path.join(run,'failure.json'),JSON.stringify({error:String(error),checks,results,errors:app.errors},null,2));throw error;
 } finally {try{await app.close();}finally{await stopOwnedProcess(fixture);}}
+});

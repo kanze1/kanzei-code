@@ -1,15 +1,18 @@
 // Real desktop/UI exit + independently surviving runtime + model/terminal callbacks.
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn, execFileSync } from "node:child_process";
-import { mkdir, copyFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
 
-const output = path.resolve("output/playwright/detached-runtime");
-const run = path.join(output, String(Date.now())), project = path.join(run, "project"), profile = path.join(run, "profile"), appHome = path.join(profile, ".kanzei");
+await withTask({ suite: "ui-detached-runtime-native-smoke" }, async task => {
+
+const output = task.evidence;
+const run = task.environment, project = path.join(run, "project"), profile = path.join(run, "profile"), appHome = path.join(profile, ".kanzei");
 for (const dir of [project, appHome, path.join(run, "webview"), path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
 await writeFile(path.join(appHome, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
 await writeFile(path.join(project, "original.txt"), "unchanged");
@@ -26,7 +29,7 @@ function answer(res, text, calls = []) {
   res.end("data: [DONE]\n\n");
 }
 const call = (id, name, input) => ({ id, name, input });
-const model = http.createServer(async (req, res) => {
+const model = task.server(http.createServer(async (req, res) => {
   let raw = ""; for await (const chunk of req) raw += chunk;
   if (req.url === "/preview") { res.writeHead(200, {"Content-Type":"text/html; charset=utf-8"}); res.end("<title>Native preview</title><h1>VISIBLE_PANE_CONTENT</h1>"); return; }
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
@@ -53,10 +56,10 @@ const model = http.createServer(async (req, res) => {
     else if (kind === "terminal" && step === 1) answer(res, null, [call("logs", "bash", { command: "Write-Output LOG_ONE; Start-Sleep -Seconds 6; Write-Output LOG_TWO; Start-Sleep -Seconds 6; Write-Output LOG_THREE; Start-Sleep -Seconds 10; Write-Output LOG_DONE", background: true })]);
     else answer(res, `RESULT_${kind}_${step}`);
   } catch (e) { errors.push(String(e)); answer(res, "LOCAL_MODEL_ERROR"); }
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(appHome, "kanzei.toml"), `[models]\nprimary = "stub:primary"\nfast = "stub:fast"\n[providers.stub]\nprotocol = "openai"\nbase_url = "http://127.0.0.1:${model.address().port}/v1"\ncontext_limit = 64000\n`);
-const exe = path.join(run, "kzapp.exe"); await copyFile(path.resolve(process.argv[2]), exe);
+const exe = path.join(run, "kzapp.exe"); await task.copyInput(path.resolve(process.argv[2]), exe);
 let app, browser, page, owner, servicePid;
 const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
 const command = input => invoke("agent_team_command", { projectDir: project, processId: owner.id, input });
@@ -65,9 +68,9 @@ const running = async () => (await invoke("process_list", { projectDir: project 
 async function until(fn, label, ms = 50000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return; await new Promise(resolve => setTimeout(resolve, 150)); } throw new Error(`${label} timed out`); }
 async function idle() { await until(async () => !await running(), "main idle"); }
 async function open() {
-  const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve)); const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
+  const probe = task.server(net.createServer()); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve)); const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", env: { ...process.env, KANZEI_HOME: appHome, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"), APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(port) } });
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 800 }); return true; } catch { return false; } }, "WebView2");
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 800 })); return true; } catch { return false; } }, "WebView2");
   page = browser.contexts()[0].pages()[0]; page.setDefaultTimeout(25000); page.on("pageerror", e => errors.push(e.message));
   await page.waitForFunction(() => document.body.dataset.appReady === "true", null, { timeout: 60000 });
   servicePid = (await invoke("runtime_status")).pid;
@@ -196,3 +199,4 @@ try {
   if (servicePid && alive(servicePid)) process.kill(servicePid);
   model.closeAllConnections(); await new Promise(resolve => model.close(resolve));
 }
+});

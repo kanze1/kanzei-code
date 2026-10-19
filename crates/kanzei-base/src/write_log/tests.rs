@@ -7,15 +7,8 @@ fn last_entry(root: &Path, path: &str) -> io::Result<Option<WriteLogEntry>> {
         .find(|entry| entry.path == path))
 }
 
-fn temp_root(tag: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root =
-        std::env::temp_dir().join(format!("kz-journal-{tag}-{}-{nanos}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
-    root
+fn temp_root(tag: &str) -> crate::test_support::TestDir {
+    crate::test_support::TestDir::new(&format!("kz-journal-{tag}-"))
 }
 
 fn entry(at_ms: u128, path: &str, bytes: &[u8]) -> WriteLogEntry {
@@ -39,7 +32,7 @@ fn roundtrip_and_window_filter_preserve_binary_content() {
     assert_eq!(all[0], first);
     assert_eq!(entries_after(&root, 11).unwrap().len(), 1);
     assert!(last_entry(&root, "missing.md").unwrap().is_none());
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -70,7 +63,7 @@ fn line_break_metadata_roundtrips_without_poisoning_journal() {
         ordinary
     );
     assert_eq!(entries_after(&root, 0).unwrap().len(), 4);
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -84,7 +77,7 @@ fn line_break_identity_uses_versioned_metadata_even_with_an_ordinary_path() {
         assert!(std::fs::read_to_string(file).unwrap().starts_with("v3:1\n"));
         assert_eq!(last_entry(&root, &current.path).unwrap().unwrap(), current);
     }
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -129,7 +122,7 @@ fn invalid_versioned_metadata_stops_reads_and_writes_without_changing_records() 
             1
         );
     }
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -151,7 +144,7 @@ fn same_millisecond_paths_and_same_path_writes_never_overwrite() {
     let newest = entry(1, "a/b.md", b"clock moved back");
     record(&root, &newest).unwrap();
     assert_eq!(last_entry(&root, "a/b.md").unwrap().unwrap(), newest);
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -174,7 +167,7 @@ fn empty_file_deleted_file_and_omitted_body_are_distinct() {
         last_entry(&root, "rules.md").unwrap().unwrap().content,
         LoggedContent::FingerprintOnly
     );
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -191,7 +184,7 @@ fn quiet_document_checkpoint_survives_more_than_500_hot_writes() {
     }
     assert_eq!(last_entry(&root, "quiet.md").unwrap().unwrap(), quiet);
     assert_eq!(entries_after(&root, 0).unwrap().len(), WRITE_LOG_MAX_FILES);
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -213,7 +206,7 @@ fn retention_target_never_deletes_unique_checkpoints_or_newer_metadata() {
         .iter()
         .any(|e| e.path == "a.md" && e.content == LoggedContent::Stored(b"checkpoint".to_vec())));
     assert_eq!(last_entry(&root, "a.md").unwrap().unwrap(), omitted);
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -236,7 +229,7 @@ fn existing_six_line_logs_remain_readable_and_untouched() {
         LoggedContent::Stored(b"new".to_vec())
     );
     assert_eq!(std::fs::read_to_string(file).unwrap(), old);
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -257,7 +250,7 @@ fn corrupt_or_ambiguous_legacy_records_are_errors_not_empty_history() {
         assert!(record(&root, &entry(101, "rules.md", b"new")).is_err());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
     }
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -276,7 +269,7 @@ fn legacy_same_path_same_time_has_no_invented_order() {
         .unwrap_err()
         .to_string()
         .contains("无法确定"));
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -321,5 +314,5 @@ fn multiple_processes_order_records_inside_document_transaction() {
         records.last().unwrap().content,
         LoggedContent::Stored(actual)
     );
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }

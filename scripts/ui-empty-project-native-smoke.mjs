@@ -1,15 +1,18 @@
 // Actual WebView2, Rust IPC and SQLite, with a disposable home/local model.
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdir, copyFile, writeFile } from "node:fs/promises";
+
+import { mkdir, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-empty-project-native-smoke" }, async task => {
 
 if (process.platform !== "win32" || !process.argv[2]) throw new Error("Usage: node scripts/ui-empty-project-native-smoke.mjs <fresh kzapp.exe>");
-const output = path.resolve("dist/sidebar-draft-20261007/native"), run = path.join(output, String(Date.now()));
+const output = task.evidence, run = task.environment;
 const project = path.join(run, "project"), profile = path.join(run, "profile"), home = path.join(profile, ".kanzei");
 for (const dir of [project, home, path.join(run, "webview"), path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
 await writeFile(path.join(home, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
@@ -22,7 +25,7 @@ const reply = (res, delta, finish = "stop") => {
   res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finish }], usage: { prompt_tokens: 80, completion_tokens: 20 } })}\n\n`);
   res.end("data: [DONE]\n\n");
 };
-const model = http.createServer(async (req, res) => {
+const model = task.server(http.createServer(async (req, res) => {
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
   let raw = ""; for await (const part of req) raw += part;
   const data = JSON.parse(raw), messages = data.messages || [];
@@ -38,12 +41,12 @@ const model = http.createServer(async (req, res) => {
       }),
     }) } }] }, "tool_calls");
   } else reply(res, { content: capture ? "R-001" : "本地验收回复：首次发送的身份已绑定。" });
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(home, "kanzei.toml"), `[models]\nprimary = "stub:base"\nfast = "stub:base"\n[providers.stub]\nprotocol = "openai"\nbase_url = "http://127.0.0.1:${model.address().port}/v1"\ncontext_limit = 64000\n`);
-const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
+const probe = task.server(net.createServer()); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
-const exe = path.join(run, "kzapp.exe"); await copyFile(path.resolve(process.argv[2]), exe);
+const exe = path.join(run, "kzapp.exe"); await task.copyInput(path.resolve(process.argv[2]), exe);
 const app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", env: { ...process.env,
   KANZEI_HOME: home, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"),
   APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(port),
@@ -56,7 +59,7 @@ async function until(fn, label) {
   throw new Error(`${label} timed out`);
 }
 try {
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 }); return true; } catch { return false; } }, "WebView2 startup");
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 })); return true; } catch { return false; } }, "WebView2 startup");
   page = browser.contexts()[0].pages()[0]; page.setDefaultTimeout(15000);
   page.on("pageerror", error => errors.push(error.message));
   await page.waitForFunction(() => document.body.dataset.appReady === "true", null, { timeout: 45000 });
@@ -107,3 +110,4 @@ try {
   await browser?.close(); app.kill();
   model.closeAllConnections(); await new Promise(resolve => model.close(resolve));
 }
+});

@@ -51,7 +51,7 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 getrandom = "0.3"
-tempfile = "3.27.0"
+tempfile.workspace = true
 httparse = "1"
 
 [target.'cfg(windows)'.dependencies]
@@ -81,4 +81,5 @@ webview2-com = "0.38"
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com"] }
 
 [dev-dependencies]
+kanzei-base = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true

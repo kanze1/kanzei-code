@@ -1,15 +1,18 @@
 // Actual Windows WebView2, requirement tools, durable questions and a local model.
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdir, copyFile, readFile, writeFile } from "node:fs/promises";
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-registration-research-native-smoke" }, async task => {
 
 if (process.platform !== "win32" || !process.argv[2]) throw new Error("Usage: node scripts/ui-registration-research-native-smoke.mjs <fresh kzapp.exe>");
-const output = path.resolve("output/playwright/registration-research/native"), run = path.join(output, String(Date.now()));
+const output = task.evidence, run = task.environment;
 const project = path.join(run, "project"), profile = path.join(run, "profile"), appHome = path.join(profile, ".kanzei");
 for (const dir of [project, appHome, path.join(run, "webview"), path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
 await writeFile(path.join(appHome, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
@@ -27,7 +30,7 @@ function answer(res, content, tool = null, toolName = "req") {
   res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: tool ? "tool_calls" : "stop" }], usage: { prompt_tokens: 80, completion_tokens: 20 } })}\n\n`);
   res.end("data: [DONE]\n\n");
 }
-const model = http.createServer(async (req, res) => {
+const model = task.server(http.createServer(async (req, res) => {
   let raw = ""; for await (const part of req) raw += part;
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
   try {
@@ -59,12 +62,12 @@ const model = http.createServer(async (req, res) => {
     } else if (kind === "answer") answer(res, `已收到设备范围：${replyLabel}。调研仍待补齐，尚未领取实施。`);
     else answer(res, "原生验收没有安排子任务或实施。");
   } catch (error) { errors.push(String(error)); answer(res, "LOCAL_SERVER_ERROR"); }
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(appHome, "kanzei.toml"), `[models]\nprimary = "stub:primary"\nfast = "stub:fast"\n[providers.stub]\nprotocol = "openai"\nbase_url = "http://127.0.0.1:${model.address().port}/v1"\ncontext_limit = 64000\n`);
-const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
+const probe = task.server(net.createServer()); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
-const exe = path.join(run, "kzapp.exe"); await copyFile(path.resolve(process.argv[2]), exe);
+const exe = path.join(run, "kzapp.exe"); await task.copyInput(path.resolve(process.argv[2]), exe);
 const app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", env: { ...process.env,
   KANZEI_HOME: appHome, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"),
   APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(port),
@@ -86,7 +89,7 @@ const idle = () => until(async () => {
   return !(await invoke("process_list", { projectDir: project })).find(line => line.id === owner.id)?.running;
 }, "Main idle");
 try {
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1000 }); return true; } catch { return false; } }, "WebView2 start");
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1000 })); return true; } catch { return false; } }, "WebView2 start");
   page = browser.contexts()[0].pages()[0]; page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
   await page.waitForFunction(() => document.body.dataset.appReady === "true");
   check((await invoke("projects_get")).projects.length === 0, "Native registration runs only in the disposable profile");
@@ -169,3 +172,4 @@ try {
   if (page) await invoke("runtime_shutdown").catch(() => {});
   await browser?.close(); app.kill(); model.closeAllConnections(); await new Promise(resolve => model.close(resolve));
 }
+});

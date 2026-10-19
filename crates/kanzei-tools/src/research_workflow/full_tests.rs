@@ -1,6 +1,6 @@
 use super::*;
 
-fn fixture() -> PathBuf {
+fn fixture() -> kanzei_base::test_support::TestDir {
     let root = super::tests::root();
     super::tests::through_selection(&root);
     super::tests::advance_ok(&root, "define_mvp", super::tests::mvp());

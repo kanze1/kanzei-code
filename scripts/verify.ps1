@@ -3,11 +3,16 @@ param([switch]$Full, [switch]$Ci)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
+. (Join-Path $PSScriptRoot "artifact-lifecycle.ps1")
+$artifactRun = $null
+$artifactSucceeded = $false
 Push-Location $root
 try {
     $baselineJson = node scripts/verify-policy.mjs assert-clean $root
     if ($LASTEXITCODE -ne 0) { throw "Build inputs are not clean" }
     $baseline = $baselineJson | ConvertFrom-Json
+    $suite = if ($Full -or $Ci) { "verify-full" } else { "verify-targeted" }
+    $artifactRun = Start-ArtifactRun $root "verification" $suite "dist/verification-runs"
     # A new run supersedes the previous receipt even when HEAD is unchanged.
     # Failed or interrupted verification must not leave an older green receipt
     # available for packaging the same commit.
@@ -29,16 +34,15 @@ try {
         Remove-Item -LiteralPath $pathFile -Force
     }
     $checks = [ordered]@{}
-    $runId = "$(Get-Date -Format 'yyyyMMddTHHmmssfff')-$PID"
-    $runDirectory = Join-Path $root "dist/verification-runs/$runId"
-    New-Item -ItemType Directory -Path $runDirectory | Out-Null
+    $runId = $artifactRun.id
+    $runDirectory = $artifactRun.evidence
     foreach ($check in $policy.checks) {
         Write-Host "==> $($check.key)" -ForegroundColor Cyan
         $timer = [Diagnostics.Stopwatch]::StartNew()
         $arguments = @($check.args)
         if ($Ci -and $check.ci_args) { $arguments = @($check.ci_args) }
         $logRelative = "dist/verification-runs/$runId/$($check.key).log"
-        $logPath = Join-Path $root $logRelative
+        $logPath = Join-Path $runDirectory "$($check.key).log"
         $writer = [IO.StreamWriter]::new($logPath, $false, [Text.UTF8Encoding]::new($false))
         $result = [ordered]@{ status = "pass"; exit_code = 0; elapsed_seconds = 0.0; command = @($check.program) + $arguments; log_path = $logRelative; log_sha256 = "" }
         try {
@@ -77,6 +81,10 @@ try {
             try { $result.log_sha256 = [BitConverter]::ToString($hash.ComputeHash($logStream)).Replace("-", "").ToLowerInvariant() }
             finally { $logStream.Dispose(); $hash.Dispose() }
             $checks[$check.key] = $result
+            if ($check.program -eq "cargo") {
+                node (Join-Path $root "scripts/artifact-lifecycle.mjs") sample $artifactRun.id $check.key | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw "Cannot record build-cache measurement" }
+            }
         }
     }
     $allPassed = @($checks.Values | Where-Object { $_.status -ne "pass" }).Count -eq 0
@@ -88,6 +96,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Build inputs changed during verification" }
     $evidence = [ordered]@{
         schema_version = 3
+        lifecycle_run_id = $artifactRun.id
+        artifact_project_root = $artifactRun.project
         execution_environment = $runReport.execution_environment
         commit = $baseline.commit
         tree = $baseline.tree
@@ -102,5 +112,18 @@ try {
     }
     New-Item -ItemType Directory -Force (Join-Path $root "dist") | Out-Null
     [IO.File]::WriteAllText($evidencePath, ($evidence | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath $evidencePath -Destination (Join-Path $runDirectory "verification.json")
+    $artifactSucceeded = $true
     Write-Host "==> Evidence saved for $($baseline.commit) ($($policy.mode))" -ForegroundColor Green
-} finally { Pop-Location }
+} finally {
+    try {
+        Stop-ArtifactRun $root $artifactRun $artifactSucceeded
+        if ($artifactSucceeded) {
+            node (Join-Path $root "scripts/artifact-lifecycle.mjs") pin "verification:$root" $artifactRun.id | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Cannot pin current verification evidence" }
+        }
+    } catch {
+        if ($evidencePath -and (Test-Path -LiteralPath $evidencePath)) { Remove-Item -LiteralPath $evidencePath }
+        throw
+    } finally { Pop-Location }
+}

@@ -1,8 +1,8 @@
 // Actual Kanzei -> permission -> Rust -> helper -> an already authenticated Edge.
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdir, copyFile, writeFile, readFile } from "node:fs/promises";
+
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import http from "node:http";
@@ -11,27 +11,30 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import { actions } from "./fixtures/browser-form-actions.mjs";
 import { decodeExternalSource } from "./fixtures/tool-source.mjs";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-browser-connection-native-smoke" }, async task => {
 
 assert(process.platform === "win32" && process.argv[2], "Usage: node scripts/ui-browser-connection-native-smoke.mjs <exe>");
-const output = path.resolve("output/playwright/browser-connection/native"), run = path.join(output, String(Date.now()));
+const output = task.evidence, run = task.environment;
 const project = path.join(run, "project"), profile = path.join(run, "profile"), appHome = path.join(profile, ".kanzei");
 for (const dir of [project, appHome, path.join(run, "webview"), path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
 await writeFile(path.join(project, "attachment.txt"), "ACTUAL_AUTHORIZED_UPLOAD\n");
 await writeFile(path.join(appHome, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
-const frameSite = http.createServer((_req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end('<title>Selected iframe</title><p>Frame evidence from the selected existing browser</p><input id="frame-value" value="original-frame">'); });
+const frameSite = task.server(http.createServer((_req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end('<title>Selected iframe</title><p>Frame evidence from the selected existing browser</p><input id="frame-value" value="original-frame">'); }));
 await new Promise(resolve => frameSite.listen(0, "127.0.0.1", resolve));
 const frameUrl = `http://127.0.0.1:${frameSite.address().port}/embedded`;
 const html = (await readFile("scripts/fixtures/browser-form.html", "utf8")).replace('<div id="root">', `<p id="authenticated">Existing login preserved</p><iframe id="embedded" src="${frameUrl}"></iframe><div id="root">`);
 const react = await readFile("node_modules/react/umd/react.development.js"), reactDom = await readFile("node_modules/react-dom/umd/react-dom.development.js");
-const site = http.createServer((req, res) => {
+const site = task.server(http.createServer((req, res) => {
   if (req.url === "/react.js" || req.url === "/react-dom.js") { res.writeHead(200, { "Content-Type": "text/javascript" }); res.end(req.url === "/react.js" ? react : reactDom); return; }
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   if (req.url === "/unrelated") res.end('<title>Unrelated tab</title><input id="unrelated" value="unchanged">');
   else res.end(req.headers.cookie?.includes("owned-login=ready") ? html : "<p>Login required</p>");
-});
+}));
 await new Promise(resolve => site.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${site.address().port}`;
-async function freePort() { const server = net.createServer(); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); const port = server.address().port; await new Promise(resolve => server.close(resolve)); return port; }
+async function freePort() { const server = task.server(net.createServer()); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); const port = server.address().port; await new Promise(resolve => server.close(resolve)); return port; }
 const edgePort = await freePort(), appPort = await freePort(), endpoint = `http://127.0.0.1:${edgePort}/`;
 const results = [], errors = [], checks = [], formActions = actions.slice(2);
 let target, frameTarget;
@@ -42,7 +45,7 @@ function reply(res, delta) {
   res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: delta.tool_calls ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } })}\n\n`);
   res.end("data: [DONE]\n\n");
 }
-const model = http.createServer(async (req, res) => {
+const model = task.server(http.createServer(async (req, res) => {
   try {
     if (req.url === "/v1/models") { res.end(JSON.stringify({ data: [{ id: "test" }] })); return; }
     let raw = ""; for await (const chunk of req) raw += chunk;
@@ -77,22 +80,22 @@ const model = http.createServer(async (req, res) => {
     console.log(`Connected native step ${outputs.length + 1}: ${input.action ?? input.query}`);
     reply(res, { tool_calls: [{ index: 0, id: `connected-${outputs.length}`, type: "function", function: { name, arguments: JSON.stringify(input) } }] });
   } catch (error) { errors.push(String(error)); reply(res, { content: `NATIVE_CONNECTED_FORM_FAILED: ${error.message}` }); }
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(appHome, "kanzei.toml"), `[models]\nprimary="stub:test"\nfast="stub:test"\n[providers.stub]\nprotocol="openai"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\ncontext_limit=128000\n`);
-const exe = path.join(run, "kzapp.exe"); await copyFile(path.resolve(process.argv[2]), exe);
+const exe = path.join(run, "kzapp.exe"); await task.copyInput(path.resolve(process.argv[2]), exe);
 let existing, original, unrelated, app, browser, page, database;
 const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
 async function until(predicate, label, timeout = 60000) { const deadline = Date.now() + timeout; while (Date.now() < deadline) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw new Error(label); }
 try {
-  existing = await chromium.launchPersistentContext(path.join(run, "existing-edge"), { channel: "msedge", headless: true, args: [`--remote-debugging-port=${edgePort}`] });
+  existing = await task.browser(chromium.launchPersistentContext(path.join(run, "existing-edge"), { channel: "msedge", headless: true, args: [`--remote-debugging-port=${edgePort}`] }));
   await existing.addCookies([{ name: "owned-login", value: "ready", url: origin, httpOnly: true, sameSite: "Lax" }]);
   original = existing.pages()[0]; await original.goto(`${origin}/form`); await original.locator("#name").waitFor();
   unrelated = await existing.newPage(); await unrelated.goto(`${origin}/unrelated`);
   check(await original.locator("#authenticated").textContent() === "Existing login preserved", "An authenticated Edge tab exists before Kanzei starts");
   app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", env: { ...process.env, KANZEI_HOME: appHome, USERPROFILE: profile, HOME: profile,
     LOCALAPPDATA: path.join(profile, "AppData/Local"), APPDATA: path.join(profile, "AppData/Roaming"), WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(appPort) } });
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${appPort}`); return true; } catch { return false; } }, "Native app starts", 30000);
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${appPort}`)); return true; } catch { return false; } }, "Native app starts", 30000);
   page = browser.contexts()[0].pages()[0]; page.on("pageerror", error => errors.push(error.message));
   await page.waitForFunction(() => document.body.dataset.appReady === "true");
   await invoke("projects_init", { path: project, name: "现有 Edge 接管原生验收" }); await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
@@ -129,3 +132,4 @@ finally {
   await browser?.close(); app?.kill(); await existing?.close();
   for (const server of [site, frameSite, model]) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 }
+});

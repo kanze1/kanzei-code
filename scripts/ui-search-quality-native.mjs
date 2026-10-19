@@ -7,9 +7,12 @@ import path from "node:path";
 import { dataset,retrievalScore,canonicalSourceKey } from "./search-quality.mjs";
 import { nativeApp,until,textReply,toolReply } from "./fixtures/native-app.mjs";
 import { decodeExternalSource } from "./fixtures/tool-source.mjs";
+import { withTask } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-search-quality-native" }, async task => {
 
 assert(process.platform==="win32" && process.argv[2],"Pass a fresh kzapp.exe");
-const output=path.resolve("output/playwright/search-quality/native");await mkdir(output,{recursive:true});
+const output=task.evidence;await mkdir(output,{recursive:true});
 let receipt,finished=false;
 const bodies=[],fetchTargets=[],missing=[];
 const app=await nativeApp(process.argv[2],output,"实时搜索质量观察",async(body,res)=>{
@@ -69,3 +72,4 @@ try{
   console.log(`Live search observation complete: candidate coverage ${score.covered}/${score.total}; statuses ${groups.map(group=>group.status).join(",")}; answer quality awaits separate evaluation`);
 }catch(error){await writeFile(path.join(app.run,"failure.json"),JSON.stringify({error:String(error),receipt,bodies,errors:app.errors},null,2));throw error;}
 finally{await app.close();}
+});

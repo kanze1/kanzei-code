@@ -865,20 +865,13 @@ mod startup_tests {
         halt: kanzei_core::CancellationToken,
         requests: Arc<AtomicUsize>,
         server: tokio::task::JoinHandle<()>,
+        _directory: kanzei_base::test_support::TestDir,
     }
 
     impl Fixture {
         async fn new(profile: kanzei_harness::ProfileKind) -> Self {
-            static NEXT: AtomicU64 = AtomicU64::new(0);
-            let root = std::env::temp_dir().join(format!(
-                "kz-c6-startup-{}-{}-{}",
-                std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
+            let directory = kanzei_base::test_support::TestDir::new("kz-c6-startup-");
+            let root = directory.to_path_buf();
             let path = kanzei_core::project_state_path(&root);
             let store = kanzei_core::SessionStore::open(&path).unwrap();
             store
@@ -1024,6 +1017,7 @@ mod startup_tests {
                 halt,
                 requests,
                 server,
+                _directory: directory,
             }
         }
 

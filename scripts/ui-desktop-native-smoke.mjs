@@ -1,15 +1,18 @@
 /* global document */
 // Actual human window selection -> provider tool calls -> native GUI callbacks.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+
 import { mkdir,readFile,writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { nativeApp,until,textReply,toolReply,stopOwnedProcess } from "./fixtures/native-app.mjs";
 import { decodeExternalSource } from "./fixtures/tool-source.mjs";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-desktop-native-smoke" }, async task => {
 
 assert(process.platform==="win32"&&process.argv[2],"Pass a fresh kzapp.exe");
-const output=path.resolve("output/playwright/desktop/native"),fixtureRoot=path.join(output,`form-${Date.now()}`);await mkdir(fixtureRoot,{recursive:true});
+const output=task.evidence,fixtureRoot=path.join(task.environment,`form-${Date.now()}`);await mkdir(fixtureRoot,{recursive:true});
 let form;
 const results=[],checks=[],check=(value,label)=>{assert(value,label);checks.push(label);};
 let snapshot,done=false,noWindowDone=false,approvalDone=false,firstWindow;
@@ -103,3 +106,4 @@ try{
   await writeFile(path.join(output,"acceptance.json"),JSON.stringify({passed:checks.length,checks,results,fixtureRoot,executable:app.exe},null,2));console.log(`Desktop native PASS: ${checks.length} checks`);
 }catch(error){await writeFile(path.join(output,"failure.json"),JSON.stringify({checks,results,errors:app.errors,request_count:app.requests.length,fixtureRoot},null,2));await app.page.screenshot({path:path.join(output,"native-failure.png")});throw error;}
 finally{try{await app.close();}finally{await stopOwnedProcess(form);}}
+});

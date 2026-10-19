@@ -11,6 +11,10 @@ param([switch]$SkipTests)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
+. (Join-Path $PSScriptRoot "artifact-lifecycle.ps1")
+$artifactRun = Start-ArtifactRun $root "development-release" "development-release"
+$artifactSucceeded = $false
+try {
 
 # 确保 cargo 在 PATH(新终端由 rustup 配好;兜底手动加)。
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
@@ -19,21 +23,20 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 
 if (-not $SkipTests) {
     Write-Host "==> cargo test --workspace" -ForegroundColor Cyan
-    cargo test --workspace
-    if ($LASTEXITCODE -ne 0) { throw "tests failed" }
+    if ((Invoke-ArtifactCommand "cargo" @("test", "--workspace") $artifactRun "tests.log") -ne 0) { throw "tests failed" }
 }
 
 # 版本信息:git 短 hash + UTC 构建时间,注入 kz --version。
 $hash = (git rev-parse --short HEAD 2>$null); if (-not $hash) { $hash = "nogit" }
-$build_at = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+$commitTime = [long](git -C $root show -s --format=%ct HEAD)
+$build_at = [DateTimeOffset]::FromUnixTimeSeconds($commitTime).UtcDateTime.ToString("yyyyMMddHHmmss")
 $env:KANZEI_BUILD_INFO = "$hash $build_at"
 
 # `cargo install --path` 默认在自己的私有 target 目录里从头构建，不复用 target/release；
 # 紧接着的 kanzei-app 构建又要把同一批依赖重编一遍 = 整整一轮全量 release 构建白烧。
 # 改成「构建 → 拷贝」：两步共享 target/release 的依赖产物，落点仍是 ~\.cargo\bin\kz.exe。
 Write-Host "==> cargo build --release -p kanzei (kz CLI)" -ForegroundColor Cyan
-cargo build --release -p kanzei
-if ($LASTEXITCODE -ne 0) { throw "kz build failed" }
+if ((Invoke-ArtifactCommand "cargo" @("build", "--release", "-p", "kanzei") $artifactRun "cli-build.log") -ne 0) { throw "kz build failed" }
 
 $cargo_bin = "$env:USERPROFILE\.cargo\bin"
 New-Item -ItemType Directory -Force $cargo_bin | Out-Null
@@ -42,8 +45,7 @@ Copy-Item "$root\target\release\kz.exe" "$cargo_bin\kz.exe" -Force
 if (-not $?) { throw "install failed" }
 
 Write-Host "==> cargo build --release -p kanzei-app (kzapp)" -ForegroundColor Cyan
-cargo build --release -p kanzei-app
-if ($LASTEXITCODE -ne 0) { throw "app build failed" }
+if ((Invoke-ArtifactCommand "cargo" @("build", "--release", "-p", "kanzei-app") $artifactRun "app-build.log") -ne 0) { throw "app build failed" }
 
 $app_source = "$root\target\release\kzapp.exe"
 $app_dir = "$env:LOCALAPPDATA\kanzei"
@@ -118,3 +120,5 @@ Write-Host "==> installed:" -ForegroundColor Green
 kz --version
 "kzapp.exe $((Get-Item $app_destination).Length / 1MB -as [int]) MB -> $app_destination"
 "启动器: $launcher(终端输入 kzapp 即转发到上面这一份)"
+$artifactSucceeded = $true
+} finally { Stop-ArtifactRun $root $artifactRun $artifactSucceeded }

@@ -12,3 +12,10 @@ group = "基础"
 
 [dependencies]
 tracing.workspace = true
+tempfile = { workspace = true, optional = true }
+
+[features]
+test-support = ["dep:tempfile"]
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -2,30 +2,33 @@
 // Usage: node scripts/ui-runtime-upgrade-native-smoke.mjs <old exe> <new exe>
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { copyFile, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import net from "node:net";
 import http from "node:http";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-runtime-upgrade-native-smoke" }, async task => {
 
 if (process.platform !== "win32" || !process.argv[3]) throw new Error("Provide old and new Windows executables");
-const output = path.resolve("output/playwright/runtime-upgrade"), run = path.join(output, String(Date.now()));
+const output = task.evidence, run = task.environment;
 const profile = path.join(run, "profile"), home = path.join(profile, ".kanzei"), project = path.join(run, "project");
 for (const dir of [home, project, path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
 await writeFile(path.join(home, "app.json"), JSON.stringify({ projects: [project], current: project, theme: "light" }));
 let finishReply;
-const model = http.createServer(async (req, res) => {
+const model = task.server(http.createServer(async (req, res) => {
   for await (const _chunk of req) { /* Drain the local fixture request. */ }
   finishReply = () => {
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     res.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "UPGRADE_TASK_FINISHED" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
   };
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(home, "kanzei.toml"), `[models]\nprimary = "stub:primary"\nfast = "stub:primary"\n[providers.stub]\nprotocol = "openai"\nbase_url = "http://127.0.0.1:${model.address().port}/v1"\ncontext_limit = 64000\n`);
 const exe = path.join(run, "kzapp.exe");
-await copyFile(path.resolve(process.argv[2]), exe);
+await task.copyInput(path.resolve(process.argv[2]), exe);
 const env = { ...process.env, KANZEI_HOME: home, USERPROFILE: profile, HOME: profile,
   LOCALAPPDATA: path.join(profile, "AppData/Local"), APPDATA: path.join(profile, "AppData/Roaming") };
 delete env.KANZEI_EMBEDDED_RUNTIME; delete env.KANZEI_E2E_CDP; delete env.WEBVIEW2_USER_DATA_FOLDER;
@@ -80,12 +83,12 @@ try {
   await command(previous, "run_prompt", { projectDir: project, prompt: "UPGRADE_BUSY_INPUT", model: "stub:primary", profile: "readonly", autonomous: false });
   await until(() => Boolean(finishReply), "old model request");
   await rename(exe, path.join(run, "previous.exe"));
-  await copyFile(path.resolve(process.argv[3]), exe);
-  const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
+  await task.copyInput(path.resolve(process.argv[3]), exe);
+  const probe = task.server(net.createServer()); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore",
     env: { ...env, WEBVIEW2_USER_DATA_FOLDER: path.join(run, "webview"), KANZEI_E2E_CDP: String(port) } });
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1200 }); return true; } catch { return false; } }, "new desktop");
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1200 })); return true; } catch { return false; } }, "new desktop");
   page = browser.contexts()[0].pages()[0]; page.on("pageerror", e => errors.push(String(e)));
   await page.waitForFunction(() => document.body.dataset.appReady === "true", null, { timeout: 60000 });
   const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
@@ -116,3 +119,4 @@ try {
   for (const child of [old, app]) if (child && child.exitCode === null) child.kill();
   model.closeAllConnections(); await new Promise(resolve => model.close(resolve));
 }
+});

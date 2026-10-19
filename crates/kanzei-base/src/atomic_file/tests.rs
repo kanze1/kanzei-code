@@ -1,13 +1,7 @@
 use super::*;
 
-pub(super) fn temp_root(tag: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("kz-base-{tag}-{}-{nanos}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
-    root
+pub(super) fn temp_root(tag: &str) -> crate::test_support::TestDir {
+    crate::test_support::TestDir::new(&format!("kz-base-{tag}-"))
 }
 
 fn hash(text: &str) -> String {
@@ -25,7 +19,7 @@ fn atomic_replacement_preserves_bytes_and_creates_parents() {
         std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
         1
     );
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -39,7 +33,7 @@ fn temp_names_are_unique_siblings() {
     assert!(names
         .iter()
         .all(|name| name.parent() == Some(root.as_path())));
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -55,7 +49,7 @@ fn failed_check_leaves_target_and_removes_candidate() {
     assert_eq!(error.to_string(), "conflict");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "external edit");
     assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -76,7 +70,7 @@ fn cas_matches_rejects_stale_and_reenters_outer_transaction() {
         .path()
         .extension()
         .is_some_and(|e| e == "tmp")));
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -105,7 +99,7 @@ fn concurrent_cas_has_exactly_one_winner() {
         std::fs::read_to_string(&path).unwrap().as_str(),
         "one" | "two"
     ));
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[cfg(windows)]
@@ -134,7 +128,7 @@ fn replacement_error_is_immediate_and_keeps_complete_candidate() {
         std::fs::read_to_string(&candidates[0]).unwrap(),
         "replacement"
     );
-    std::fs::remove_dir_all(root).unwrap();
+    root.close().unwrap();
 }
 
 #[test]
@@ -175,5 +169,5 @@ fn cas_serializes_competing_writers() {
         .unwrap_err()
         .contains("stale expected_hash"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
-    std::fs::remove_dir_all(dir).unwrap();
+    dir.close().unwrap();
 }

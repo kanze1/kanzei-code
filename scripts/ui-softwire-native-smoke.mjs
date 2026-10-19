@@ -2,15 +2,18 @@
 // never starts a model run. Pass the freshly built kzapp.exe as the first argument.
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdir, copyFile, writeFile } from "node:fs/promises";
+
+import { mkdir, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-softwire-native-smoke" }, async task => {
 
 if (process.platform !== "win32" || !process.argv[2]) throw new Error("Usage: node scripts/ui-softwire-native-smoke.mjs <fresh kzapp.exe>");
-const output = path.resolve("output/playwright/softwire/native");
-const run = path.join(output, String(Date.now()));
+const output = task.evidence;
+const run = task.environment;
 const project = path.join(run, "project");
 const profile = path.join(run, "profile");
 const appHome = path.join(profile, ".kanzei");
@@ -19,8 +22,8 @@ for (const dir of [project,appHome,webview,path.join(profile,"AppData/Local"),pa
 await writeFile(path.join(appHome,"app.json"),JSON.stringify({projects:[],current:null,theme:"light"}));
 const exe = path.join(run,"kzapp.exe");
 // Only the GUI is copied: no CLI sidecar can update the user's installed CLI.
-await copyFile(path.resolve(process.argv[2]),exe);
-const probe = net.createServer();
+await task.copyInput(path.resolve(process.argv[2]),exe);
+const probe = task.server(net.createServer());
 await new Promise(resolve=>probe.listen(0,"127.0.0.1",resolve));
 const port=probe.address().port;
 await new Promise(resolve=>probe.close(resolve));
@@ -35,7 +38,7 @@ let browser,page,servicePid;
 try {
   const deadline=Date.now()+25000;
   while(Date.now()<deadline) {
-    try {browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`,{timeout:1500});break;}
+    try {browser=await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`,{timeout:1500}));break;}
     catch {await new Promise(resolve=>setTimeout(resolve,400));}
   }
   assert(browser,"Native WebView2 CDP did not become ready");
@@ -158,3 +161,4 @@ try {
   // This exact PID belongs to the runtime started in this test's disposable profile.
   if(servicePid) { try { process.kill(servicePid); } catch {} }
 }
+});

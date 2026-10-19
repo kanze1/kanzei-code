@@ -3,19 +3,22 @@ import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.
 // and deterministic local model. No installed profile or external model calls.
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdir, copyFile, writeFile } from "node:fs/promises";
+
+import { mkdir, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-chat-question-native-smoke" }, async task => {
 
 if (process.platform !== "win32" || !process.argv[2]) throw new Error("Usage: node scripts/ui-chat-question-native-smoke.mjs <fresh kzapp.exe>");
-const output = path.resolve("output/playwright/chat-question/native"), run = path.join(output, String(Date.now()));
+const output = task.evidence, run = task.environment;
 const profile = path.join(run, "profile"), home = path.join(profile, ".kanzei"), exe = path.join(run, "kzapp.exe");
 for (const dir of [home, path.join(run, "webview"), path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) await mkdir(dir, { recursive: true });
 await writeFile(path.join(home, "app.json"), JSON.stringify({ projects: [], current: null, theme: "light" }));
-await copyFile(path.resolve(process.argv[2]), exe);
+await task.copyInput(path.resolve(process.argv[2]), exe);
 const checks = [], errors = [], requests = [];
 const check = (value, label) => { assert(value, label); checks.push(label); console.log(`PASS ${label}`); };
 function answer(res, content, tool) {
@@ -25,7 +28,7 @@ function answer(res, content, tool) {
   res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: tool ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } })}\n\n`);
   res.end("data: [DONE]\n\n");
 }
-const model = http.createServer(async (req, res) => {
+const model = task.server(http.createServer(async (req, res) => {
   if (req.url?.endsWith("/models")) { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "test" }] })); return; }
   let body = ""; for await (const chunk of req) body += chunk;
   const payload = JSON.parse(body || "{}"); requests.push(payload);
@@ -33,10 +36,10 @@ const model = http.createServer(async (req, res) => {
   const user = JSON.stringify(payload.messages[userIndex]?.content);
   if (payload.messages.slice(userIndex + 1).some(message => message.role === "tool")) answer(res, "NATIVE_QUESTION_RESUMED：收到回答，继续制作。");
   else answer(res, null, { question: user.includes("FREE_TEXT") ? "请补充制作要求" : "确认第一阶段的沟通方案与模板方式吗？", options: user.includes("FREE_TEXT") ? [] : [{ label: "继续制作", note: "采用当前方案" }, "修改方案"] });
-});
+}));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(path.join(home, "kanzei.toml"), `[models]\nprimary = "stub:test"\nfast = "stub:test"\n[providers.stub]\nprotocol = "openai"\nbase_url = "http://127.0.0.1:${model.address().port}/v1"\ncontext_limit = 64000\n`);
-const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
+const probe = task.server(net.createServer()); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
 const app = spawn(exe, [], { cwd: run, windowsHide: true, stdio: "ignore", env: { ...process.env,
   KANZEI_HOME: home, USERPROFILE: profile, HOME: profile, LOCALAPPDATA: path.join(profile, "AppData/Local"),
@@ -50,7 +53,7 @@ async function until(fn, label, timeout = 45000) {
 }
 const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
 try {
-  await until(async () => { try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 }); return true; } catch { return false; } }, "WebView2 startup");
+  await until(async () => { try { browser = await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 1500 })); return true; } catch { return false; } }, "WebView2 startup");
   page = browser.contexts()[0].pages()[0];
   page.setDefaultTimeout(12000); page.on("pageerror", error => errors.push(error.message));
   await page.waitForFunction(() => document.body.dataset.appReady === "true");
@@ -114,3 +117,4 @@ try {
   if (app.exitCode === null) { app.kill(); await new Promise(resolve => app.once("exit", resolve)); }
   await new Promise(resolve => model.close(resolve));
 }
+});

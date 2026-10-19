@@ -157,6 +157,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 $evidence = Get-Content $verification -Raw | ConvertFrom-Json
 Write-Host "==> 验证证据核对通过($($evidence.verified_at_utc), full verify)" -ForegroundColor Green
+. (Join-Path $PSScriptRoot "artifact-lifecycle.ps1")
+$artifactRun = Start-ArtifactRun $root "package" "package"
+$artifactSucceeded = $false
+try {
 
 # kz CLI 随安装包一起发(D-175)。桌面端与 CLI 共用同一个 .kanzei/state.db,
 # 而 schema 迁移是单向的:只发 kzapp 的话,一次 schema 变更就会让机器上的旧 kz
@@ -174,6 +178,7 @@ try {
     $tauri_exit_code = $LASTEXITCODE
 } finally { Pop-Location }
 Get-Content $tauri_log | ForEach-Object { Write-Host $_ }
+Copy-Item -LiteralPath $tauri_log -Destination (Join-Path $artifactRun.evidence "build.log")
 if ($tauri_exit_code -ne 0) { throw "Windows build failed" }
 $sidecar_dir = "$root\crates\kanzei-app\binaries"
 New-Item -ItemType Directory -Force $sidecar_dir | Out-Null
@@ -189,6 +194,7 @@ try {
     $tauri_exit_code = $LASTEXITCODE
 } finally { Pop-Location }
 Get-Content $tauri_log | ForEach-Object { Write-Host $_ }
+Copy-Item -LiteralPath $tauri_log -Destination (Join-Path $artifactRun.evidence "bundle.log")
 if ($tauri_exit_code -ne 0) { throw "Windows bundle failed" }
 
 Step "收集安装包产物"
@@ -201,15 +207,10 @@ $out = "$root\dist\kanzei-setup-$hash.exe"
 Copy-Item $setup.FullName $out -Force
 Write-Host "==> installer: $out ($([math]::Round((Get-Item $out).Length/1MB)) MB)" -ForegroundColor Green
 
-# ---- dist 保留策略(R-298):只留最新安装器 ----
-# dist/ 是产物卫生区,历史安装器无人引用还占磁盘(实测曾堆 6 个 setup.exe 约 85MB)。
-# 旧包一律清掉,发布只认最新;历史版本由 GitHub Releases 保留(§9.1 只留最新稳定版)。
-$old_installers = @(Get-ChildItem "$root\dist\kanzei-setup-*.exe" -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -ne $out })
-foreach ($old in $old_installers) { Remove-Item $old.FullName -Force }
-if ($old_installers.Count -gt 0) {
-    Write-Host "==> dist 保留:清理 $($old_installers.Count) 个旧安装器,只留 $out" -ForegroundColor Yellow
-}
+# Keep the installer and its receipts outside the temporary source worktree.
+$retainedInstaller = Join-Path $artifactRun.evidence "kanzei-setup-$hash.exe"
+Copy-Item -LiteralPath $out -Destination $retainedInstaller
+Register-ArtifactRelease $root $full_hash $retainedInstaller "packaged" $evidence.lifecycle_run_id $artifactRun.id
 
 # ---- 打包后自动静默装+装后自校验入链(R-298)----
 # 打包链不再止于拷进 dist:产物一出来就自动走 install-setup.ps1(静默装 + 安装位变更/
@@ -255,6 +256,8 @@ if ($Publish) {
     Get-Content $gh_log | ForEach-Object { Write-Host $_ }
     if ($gh_exit_code -ne 0) { throw "gh release create failed" }
     Write-Host "==> published: https://github.com/kanze1/kanzei-code/releases/tag/$tag" -ForegroundColor Green
+    Copy-Item -LiteralPath $notesFile -Destination (Join-Path $artifactRun.evidence "release-notes.md")
+    Register-ArtifactRelease $root $full_hash $retainedInstaller "published" $evidence.lifecycle_run_id $artifactRun.id
     # D-656:gh 在远端创建 tag 不会自动更新本地 refs/tags;发布成功后主动补齐,
     # 但补齐失败只告警,不把已成功的远端 release 伪报成发布失败。
     $fetchOutput = @(git -C $root fetch origin "tag" $tag 2>&1)
@@ -273,3 +276,6 @@ if ($script:stageLabel) {
     $script:buildTimings[$script:stageLabel] = [math]::Round($script:stageClock.Elapsed.TotalSeconds, 1)
 }
 $script:buildTimings | ConvertTo-Json | Set-Content (Join-Path $root "dist\build-timings.json") -Encoding UTF8
+Copy-Item -LiteralPath (Join-Path $root "dist\build-timings.json") -Destination (Join-Path $artifactRun.evidence "build-timings.json")
+$artifactSucceeded = $true
+} finally { Stop-ArtifactRun $root $artifactRun $artifactSucceeded }

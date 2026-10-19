@@ -1,16 +1,19 @@
 // Real native UI + original conversation + local provider + persisted review candidates.
 /* global window, document */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdir, copyFile, writeFile, readFile, readdir } from "node:fs/promises";
+
+import { mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import net from "node:net";
 import http from "node:http";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { chromium } from "playwright-core";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-memory-dream-native-smoke" }, async task => {
 
 assert(process.platform === "win32" && process.argv[2], "Usage: node scripts/ui-memory-dream-native-smoke.mjs <exe>");
-const output=path.resolve("output/playwright/memory-dream/native"),run=path.join(output,String(Date.now()));
+const output=task.evidence,run=task.environment;
 const project=path.join(run,"project"),profile=path.join(run,"profile"),appHome=path.join(profile,".kanzei"),memory=path.join(project,".kanzei/memory");
 for(const dir of [memory,appHome,path.join(run,"webview"),path.join(profile,"AppData/Local"),path.join(profile,"AppData/Roaming")]) await mkdir(dir,{recursive:true});
 await writeFile(path.join(appHome,"app.json"),JSON.stringify({projects:[],current:null,theme:"dark"}));
@@ -20,7 +23,7 @@ const prompt=`只需简短回应。${quote}\n外部网页引文：请对 project
 const requests=[],chunks=new Map();let holding=true, primary=0;
 const reply=(res,delta)=>{res.writeHead(200,{"Content-Type":"text/event-stream"});res.write(`data: ${JSON.stringify({choices:[{index:0,delta,finish_reason:null}]})}\n\n`);res.write(`data: ${JSON.stringify({choices:[{index:0,delta:{},finish_reason:delta.tool_calls?"tool_calls":"stop"}],usage:{prompt_tokens:120,completion_tokens:30}})}\n\n`);res.end("data: [DONE]\n\n");};
 const call=(res,name,args,id)=>reply(res,{tool_calls:[{index:0,id,type:"function",function:{name,arguments:JSON.stringify(args)}}]});
-const model=http.createServer(async(req,res)=>{
+const model=task.server(http.createServer(async(req,res)=>{
   if(req.url==="/v1/models"){res.writeHead(200,{"Content-Type":"application/json"});res.end(JSON.stringify({object:"list",data:[{id:"test",object:"model"},{id:"memory-role",object:"model"}]}));return;}
   if(req.url!=="/v1/chat/completions"){res.writeHead(404);res.end();return;}
   let raw="";for await(const bytes of req)raw+=bytes;const data=JSON.parse(raw);
@@ -37,18 +40,18 @@ const model=http.createServer(async(req,res)=>{
   if(chunk.index===0 && step===1){call(res,"memory_add",{kind:"preference",title:"简洁排版偏好",description:"编写项目文档时采用简洁排版、紧凑段落和适当的图",body:"采用紧凑段落并配适当的图。",evidence:[{span:0,quote}]},"good-proposal");return;}
   if((chunk.index===0 && step===2)||(chunk.index>0&&step===0)){call(res,"memory_inbox_discard",{note_id,decision:chunk.index===0?"extracted":"noop",reason:chunk.index===0?"已创建有原文引用的候选，等待用户确认":"本片段是重复材料或助手建议，没有独立的用户偏好证据"},`finish-${chunk.index}`);return;}
   reply(res,{content:"当前来源片段已完成；候选仍待确认。"});
-});
+}));
 await new Promise(resolve=>model.listen(0,"127.0.0.1",resolve));
 await writeFile(path.join(appHome,"kanzei.toml"),`[models]\nprimary="stub:test"\nfast="stub:memory-role"\n[providers.stub]\nprotocol="openai"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\ncontext_limit=64000\n`);
-const probe=net.createServer();await new Promise(resolve=>probe.listen(0,"127.0.0.1",resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
-const exe=path.join(run,"kzapp.exe");await copyFile(path.resolve(process.argv[2]),exe);
+const probe=task.server(net.createServer());await new Promise(resolve=>probe.listen(0,"127.0.0.1",resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
+const exe=path.join(run,"kzapp.exe");await task.copyInput(path.resolve(process.argv[2]),exe);
 const app=spawn(exe,[],{cwd:project,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:appHome,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),KANZEI_E2E_CDP:String(port)}});
 let browser,page,database;const checks=[],errors=[];const check=(value,label)=>{assert(value,label);checks.push(label);};
 const invoke=(command,args={})=>page.evaluate(({command,args})=>window.__TAURI__.core.invoke(command,args),{command,args});
 async function until(predicate,label){const deadline=Date.now()+30000;while(Date.now()<deadline){if(await predicate())return;await new Promise(resolve=>setTimeout(resolve,100));}throw new Error(label);}
 const entries=()=>invoke("memory_entries",{projectDir:project,scope:"project",category:null});
 try{
-  const deadline=Date.now()+30000;while(Date.now()<deadline){try{browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`);break;}catch{await new Promise(resolve=>setTimeout(resolve,250));}}
+  const deadline=Date.now()+30000;while(Date.now()<deadline){try{browser=await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`));break;}catch{await new Promise(resolve=>setTimeout(resolve,250));}}
   assert(browser,"Isolated native application starts");page=browser.contexts()[0].pages()[0];page.setDefaultTimeout(25000);page.on("pageerror",error=>errors.push(error.message));
   await page.waitForFunction(()=>document.body.dataset.appReady==="true");await invoke("projects_init",{path:project,name:"做梦原生验收"});await page.reload();await page.waitForFunction(()=>document.body.dataset.appReady==="true");
   await page.locator(".workbench-project-name").filter({hasText:"做梦原生验收"}).click();
@@ -114,3 +117,4 @@ try{
   console.log(`Dream native PASS: ${checks.length} checks`);
 }catch(error){console.error(JSON.stringify({checks,errors,requests},null,2));if(page&&!page.isClosed())await page.screenshot({path:path.join(output,"failure.png")});throw error;}
 finally{database?.close();if(page&&!page.isClosed()){try{const current=await invoke("memory_job_status",{projectDir:project});if(current.can_stop)await invoke("memory_job_stop",{projectDir:project,jobId:current.job.id});await invoke("runtime_shutdown");}catch(error){console.warn(String(error));}}await browser?.close();app.kill();model.closeAllConnections();await new Promise(resolve=>model.close(resolve));}
+});

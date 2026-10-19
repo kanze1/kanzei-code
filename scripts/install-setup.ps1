@@ -59,3 +59,7 @@ if ($ExpectedHash) {
 }
 
 Write-Host "==> 安装完成。重启 kzapp 即运行新版。" -ForegroundColor Green
+if ($ExpectedHash) {
+    . (Join-Path $PSScriptRoot "artifact-lifecycle.ps1")
+    Register-ArtifactRelease $root $ExpectedHash $Setup "installed"
+}

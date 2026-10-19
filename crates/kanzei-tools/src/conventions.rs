@@ -327,17 +327,9 @@ fn read_text(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    static NONCE: AtomicUsize = AtomicUsize::new(0);
-
-    fn tmp_dir() -> PathBuf {
-        let nonce = NONCE.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!(
-            "kanzei-conventions-test-{}-{nonce}",
-            std::process::id()
-        ));
+    fn tmp_dir() -> kanzei_base::test_support::TestDir {
+        let dir = kanzei_base::test_support::TestDir::new("kanzei-conventions-test-");
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         dir
     }
@@ -364,7 +356,6 @@ mod tests {
             std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap(),
             after
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// 在临时项目里写一份 SAMPLE,执行一次工具调用,返回 (输出, 项目根)。
@@ -373,7 +364,7 @@ mod tests {
         old: Option<&str>,
         new: Option<&str>,
         expected: Option<&str>,
-    ) -> (ToolOutput, PathBuf) {
+    ) -> (ToolOutput, kanzei_base::test_support::TestDir) {
         let root = tmp_dir();
         std::fs::write(root.join(CONVENTIONS_REL), SAMPLE).unwrap();
         let mut input = serde_json::json!({ "action": action });
@@ -483,7 +474,6 @@ mod tests {
             "conventions.md 应有写日志: {:?}",
             logs.iter().map(|l| &l.path).collect::<Vec<_>>()
         );
-        std::fs::remove_dir_all(&root).ok();
     }
 
     #[tokio::test]

@@ -1,12 +1,8 @@
 use super::*;
 use kanzei_harness::auto_run::{BacklogStatus, RoundFailure};
 
-fn root() -> PathBuf {
-    let time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("kz-auto-research-app-{time}"));
+fn root() -> kanzei_base::test_support::TestDir {
+    let root = kanzei_base::test_support::TestDir::new("kz-auto-research-app-");
     std::fs::create_dir_all(root.join(".kanzei/research/demo")).unwrap();
     workflow::start(&root, "demo", Default::default(), 4).unwrap();
     root

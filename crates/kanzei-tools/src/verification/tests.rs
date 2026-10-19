@@ -1,14 +1,8 @@
 use super::*;
 use kanzei_core::WorkUnitSpec;
 
-fn fixture() -> (PathBuf, ToolCtx) {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "kz-verification-test-{}-{}-{}",
-        std::process::id(),
-        now(),
-        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
+fn fixture() -> (kanzei_base::test_support::TestDir, ToolCtx) {
+    let dir = kanzei_base::test_support::TestDir::new("kz-verification-test-");
     std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
     assert!(std::process::Command::new("git")
         .args(["init", "--quiet"])

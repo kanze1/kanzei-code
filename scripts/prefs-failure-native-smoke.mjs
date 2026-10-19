@@ -1,16 +1,19 @@
 // Isolated native IPC regression. Supply the executable's recorded SHA256 explicitly.
 import assert from "node:assert/strict";
-import { spawn, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, readdir, stat, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile, rm } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "prefs-failure-native-smoke" }, async task => {
 
 const [binary, output, expectedSha, provenance = "caller-supplied binary; no build claim"] = process.argv.slice(2);
 assert(binary && output && /^[a-f0-9]{64}$/i.test(expectedSha ?? ""),
   "usage: node scripts/prefs-failure-native-smoke.mjs BINARY OUTPUT RECORDED_SHA256 [PROVENANCE]");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
-const evidence = path.resolve(output), run = path.join(evidence, `native-${Date.now()}`);
+const evidence = task.evidence, run = task.environment;
 const profile = path.join(run, "profile"), home = path.join(profile, ".kanzei");
 const project = path.join(run, "project-A"), otherProject = path.join(run, "project-B");
 const prefsFile = path.join(home, "app.json"), exe = path.join(run, "kzapp.exe");
@@ -19,7 +22,7 @@ assert.equal(hash(sourceExe), expectedSha.toLowerCase(), "input binary matches i
 for (const dir of [home, project, otherProject, path.join(profile, ".codex"), path.join(profile, "AppData/Local"), path.join(profile, "AppData/Roaming")]) {
   await mkdir(dir, { recursive: true });
 }
-await copyFile(path.resolve(binary), exe);
+await task.copyInput(path.resolve(binary), exe);
 assert.equal(hash(await readFile(exe)), hash(sourceExe), "private executable copy matches input bytes");
 await writeFile(path.join(home, "kanzei.toml"), "[models]\nprimary = 'fixture:unused'\nfast = 'fixture:unused'\nscout = 'fixture:unused'\ncompact = 'fixture:unused'\n");
 const good = { projects: [project, otherProject], current: project,
@@ -210,3 +213,4 @@ try {
   console.log(`RESULT pass=${result.pass} fail=${result.fail} execution_errors=${errors.length} app_exit=${exit} remaining=${remaining.length}`);
   process.exitCode = errors.length ? 2 : failures.length ? 1 : 0;
 }
+});

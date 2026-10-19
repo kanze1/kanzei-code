@@ -1,14 +1,17 @@
 /* global document */
 // Real Luna chooses desktop tools; independent native callbacks verify the result.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { nativeApp, until, textReply, stopOwnedProcess } from "./fixtures/native-app.mjs";
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-desktop-luna-native-smoke" }, async task => {
 
 assert(process.platform === "win32" && process.argv[2], "Pass a fresh kzapp.exe");
-const output=path.resolve("output/playwright/desktop/luna"),fixtureRoot=path.join(output,`form-${Date.now()}`);
+const output=task.evidence,fixtureRoot=path.join(task.environment,`form-${Date.now()}`);
 await mkdir(fixtureRoot,{recursive:true});
 const app=await nativeApp(process.argv[2],output,"Luna 原生窗口验收",async(_body,res)=>textReply(res,"No candidates."),"[limits]\nmax_steps=12\n");
 let form;
@@ -38,3 +41,4 @@ try {
   console.log("Real Luna native form PASS: submission independently verified");
 } catch(error) { await app.page.screenshot({path:path.join(output,"failure.png")});await writeFile(path.join(output,"failure.json"),JSON.stringify({error:String(error),errors:app.errors,fixtureRoot,run:app.run},null,2));throw error; }
 finally { try { await app.close(); } finally { await stopOwnedProcess(form); } }
+});

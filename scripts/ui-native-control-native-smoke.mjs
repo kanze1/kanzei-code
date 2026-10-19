@@ -1,7 +1,7 @@
 /* global window, document */
 // Published-binary acceptance: actual native input, visible surfaces and OS Escape.
 import assert from 'node:assert/strict';
-import {spawn,execFile} from 'node:child_process';
+import { execFile } from 'node:child_process';
 import {promisify} from 'node:util';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
@@ -9,9 +9,12 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {nativeApp,until,toolReply,textReply,stopOwnedProcess} from './fixtures/native-app.mjs';
 import {decodeExternalSource} from './fixtures/tool-source.mjs';
-const exec=promisify(execFile),output=path.resolve('output/playwright/native-control/native'),stamp=String(Date.now());
+import { withTask, spawnOwned as spawn } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-native-control-native-smoke" }, async task => {
+const exec=promisify(execFile),output=task.evidence,stamp=String(Date.now());
 await mkdir(output,{recursive:true});
-const fixtureRoot=path.join(output,`form-${stamp}`),windowFile=path.join(fixtureRoot,'window.json');await mkdir(fixtureRoot);
+const fixtureRoot=path.join(task.environment,`form-${stamp}`),windowFile=path.join(fixtureRoot,'window.json');await mkdir(fixtureRoot);
 const cases=new Map(),checks=[],observations=[],check=(value,label)=>{assert(value,label);checks.push(label);};
 const deferred=()=>{let complete;const entry={ready:false},promise=new Promise(done=>{complete=done;});return Object.assign(entry,{promise,resolve:()=>{entry.ready=true;complete();}});};
 const sequences={trajectory:['inspect','fill','inspect','invoke','inspect'],escape:['inspect','key','inspect'],button:['inspect','fill','inspect'],normal:['inspect','fill','inspect'],inflight:['inspect','key','inspect','fill']};
@@ -127,3 +130,4 @@ finally{
   for(const entry of cases.values())entry.continue.resolve();
   try{if(form?.exitCode===null&&existsSync(windowFile))await probe({action:'release-block'});}finally{try{await app.close();}finally{await stopOwnedProcess(form);}}
 }
+});

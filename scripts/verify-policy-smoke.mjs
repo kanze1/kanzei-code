@@ -140,7 +140,7 @@ try {
   if (process.platform === "win32") {
     const scripts = path.join(temp, "scripts");
     fs.mkdirSync(scripts);
-    for (const name of ["verify.ps1", "verify-policy.mjs"]) {
+    for (const name of ["verify.ps1", "verify-policy.mjs", "artifact-lifecycle.mjs", "artifact-lifecycle.ps1"]) {
       fs.copyFileSync(new URL(`./${name}`, import.meta.url), path.join(scripts, name));
     }
     const fixtureChecks = [

@@ -141,6 +141,17 @@ export function validateFullVerification(evidence, expectedCommit) {
 }
 
 export function validateVerificationFiles(evidence, root) {
+  if (evidence.lifecycle_run_id) {
+    const common = execFileSync("git", ["-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" }).trim();
+    const project = fs.realpathSync.native(path.dirname(common));
+    if (evidence.artifact_project_root !== project) return "验证证据的项目归属不一致";
+    const markerPath = path.join(project, "dist", "verification-runs", evidence.lifecycle_run_id, ".kanzei-artifact-owner.json");
+    if (!fs.existsSync(markerPath)) return "验证证据缺少任务所有权登记";
+    const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+    if (marker.project !== project || marker.run_id !== evidence.lifecycle_run_id || marker.type !== "evidence") return "验证证据任务所有权不一致";
+    if (Object.values(evidence.checks).some(check => !check.log_path.startsWith(`dist/verification-runs/${evidence.lifecycle_run_id}/`))) return "验证日志没有绑定同一次任务";
+    root = project;
+  }
   for (const [key, result] of Object.entries(evidence.checks)) {
     const log = path.resolve(root, result.log_path);
     if (!fs.existsSync(log)) return `验证步骤 ${key} 的日志不存在`;

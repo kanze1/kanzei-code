@@ -2,13 +2,15 @@
 // A real local vision model chooses every action in the user's selected QQ Music window.
 // Playback must be checked independently afterwards; model completion alone is not acceptance.
 import assert from 'node:assert/strict';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {nativeApp,until,textReply} from './fixtures/native-app.mjs';
+import {withTask} from './artifact-lifecycle.mjs';
 
+await withTask({suite:'ui-desktop-qqmusic-native-smoke'},async task=>{
 assert(process.platform==='win32'&&process.argv[2]&&process.argv[3],'Pass a fresh kzapp.exe and an ollama:model route');
 const model=process.argv[3];assert(model.startsWith('ollama:'));
-const output=path.resolve('output/desktop-qqmusic');await mkdir(output,{recursive:true});
+const output=task.evidence;
 const app=await nativeApp(process.argv[2],output,'QQ 音乐真实模型验收',async(_body,res)=>textReply(res,'No candidates.'),
   '[providers.ollama]\nprotocol="openai"\nbase_url="http://127.0.0.1:11434/v1"\ncontext_limit=262144\n[limits]\nmax_steps=24\n');
 let line,outcome;
@@ -39,3 +41,4 @@ try {
   const history=line?await app.invoke('conversation_display_get',{projectDir:app.project,processId:line.id}):[];
   await writeFile(path.join(app.run,'failure.json'),JSON.stringify({error:String(error),model,line,outcome,history,diagnostics:app.diagnostics},null,2));throw error;
 } finally {await app.close();}
+});

@@ -5,9 +5,12 @@ import { readFile,writeFile,mkdir } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { nativeApp,until,textReply,toolReply } from "./fixtures/native-app.mjs";
+import { withTask } from "./artifact-lifecycle.mjs";
+
+await withTask({ suite: "ui-observation-native-smoke" }, async task => {
 
 assert(process.platform==="win32" && process.argv[2],"Pass a fresh kzapp.exe");
-const output=path.resolve("output/playwright/observations/native");await mkdir(output,{recursive:true});
+const output=task.evidence;await mkdir(output,{recursive:true});
 const source="NATIVE_OBSERVATION_ORIGINAL_SOURCE\n"+"pub fn repeated_evidence() -> bool { true }\n".repeat(200);
 let finalRequest;
 const app=await nativeApp(process.argv[2],output,"上下文投影原生验收",async(body,res)=>{
@@ -44,3 +47,4 @@ try{
   console.log(`Observation native PASS: ${checks.length} checks`);
 }catch(error){await writeFile(path.join(output,"failure.json"),JSON.stringify({checks,errors:app.errors,requests:app.requests},null,2));throw error;}
 finally{database?.close();await app.close();}
+});

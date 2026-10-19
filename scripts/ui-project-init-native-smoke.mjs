@@ -5,9 +5,11 @@ import { mkdir,readFile,writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { nativeApp,until,textReply } from './fixtures/native-app.mjs';
+import { withTask } from './artifact-lifecycle.mjs';
 
+await withTask({suite:'ui-project-init-native-smoke'},async task=>{
 assert(process.platform==='win32'&&process.argv[2],'Pass a fresh kzapp.exe');
-const output=path.resolve('output/project-init-native');await mkdir(output,{recursive:true});
+const output=task.evidence;
 const description='INIT_CONVERSATION: 我想先讨论该怎么开始，请直接解释，不要登记需求。';
 let received=false;
 const app=await nativeApp(process.argv[2],output,'项目创建回归',async(body,res)=>{
@@ -47,3 +49,4 @@ try {
   console.log(`Native project init PASS: ${checks.length} checks; ${app.run}`);
 }catch(error){await writeFile(path.join(app.run,'failure.json'),JSON.stringify({error:String(error),checks,errors:app.errors},null,2));throw error;}
 finally{await app.close();}
+});
