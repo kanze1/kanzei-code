@@ -20,6 +20,7 @@ use tokio::{
 #[derive(Clone, Copy)]
 enum Case {
     Stable,
+    WireManifest,
     RefreshFailure,
     LargeSchema,
     FinalStep,
@@ -157,6 +158,13 @@ async fn mock_provider(case: Case) -> (Route, Arc<AtomicUsize>, tokio::task::Joi
                 || matches!(case, Case::BudgetViolation)
             {
                 json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"change-source","type":"function","function":{"name":"fixture","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":1}})
+            } else if matches!(case, Case::WireManifest) {
+                use sha2::{Digest, Sha256};
+                let digest = format!(
+                    "{:x}",
+                    Sha256::digest(&request[header_end..header_end + length])
+                );
+                json!({"choices":[{"index":0,"delta":{"content":digest},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}})
             } else {
                 json!({"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}})
             };
@@ -359,6 +367,23 @@ async fn optional_source_failure_is_reported_while_the_run_can_continue() {
     assert_eq!(result.unwrap().text, "done");
     assert_eq!(calls, 1);
     assert!(events.iter().any(|event| matches!(event, RunEvent::ContextSources { sources } if sources.iter().any(|source| source.key == "fixture/conventions" && source.requirement == ContextRequirement::Optional && source.error.is_some()))));
+    let snapshot = events
+        .iter()
+        .find_map(|event| match event {
+            RunEvent::ContextRequest { snapshot } => Some(snapshot),
+            _ => None,
+        })
+        .unwrap();
+    assert!(snapshot
+        .manifest
+        .source_reads
+        .iter()
+        .any(|source| source["key"] == "fixture/conventions" && source["status"] == "failed"));
+    assert!(!snapshot
+        .manifest
+        .blocks
+        .iter()
+        .any(|block| block.label == "fixture/conventions"));
 }
 
 #[tokio::test]
@@ -499,4 +524,72 @@ async fn exhausted_budget_rejects_provider_tool_calls_before_side_effects() {
         event,
         RunEvent::ToolEnd { code: Some(code), .. } if code == "STEP_BUDGET_EXHAUSTED"
     )));
+}
+
+#[tokio::test]
+async fn request_manifest_records_exact_named_sources_and_final_tool_surface() {
+    use kanzei_core::store::context_manifest::ContextManifest;
+    let fixture = Fixture::new("manifest");
+    let original = "中文约定：保留原始验证证据。";
+    std::fs::write(fixture.0.path().join("conventions.md"), original).unwrap();
+    let (result, events, calls) =
+        run_fixture(&fixture, ContextRequirement::Required, &[], Case::FinalStep).await;
+    result.unwrap();
+    assert_eq!(calls, 1);
+    let snapshot = events
+        .iter()
+        .find_map(|event| match event {
+            RunEvent::ContextRequest { snapshot } => Some(snapshot),
+            _ => None,
+        })
+        .expect("a dispatched request needs a manifest");
+    let manifest: &ContextManifest = &snapshot.manifest;
+    let source = manifest
+        .blocks
+        .iter()
+        .find(|block| block.label == "fixture/conventions")
+        .unwrap();
+    assert_eq!(snapshot.contents[&source.sha256], original);
+    assert_eq!(source.chars, original.chars().count());
+    assert_eq!(source.bytes, original.len());
+    assert!(
+        manifest
+            .blocks
+            .iter()
+            .all(|block| block.kind != "tool_schema"),
+        "final convergence removes schemas from both actual request and manifest"
+    );
+    assert_eq!(manifest.wire_sha256.len(), 64);
+    assert!(manifest.wire_bytes > original.len());
+    std::fs::write(fixture.0.path().join("conventions.md"), "changed later").unwrap();
+    assert_eq!(
+        snapshot.contents[&source.sha256], original,
+        "later file changes cannot rewrite request evidence"
+    );
+}
+
+#[tokio::test]
+async fn request_fingerprint_matches_bytes_received_by_the_provider() {
+    let fixture = Fixture::new("wire-manifest");
+    std::fs::write(
+        fixture.0.path().join("conventions.md"),
+        "中文规则与来源版本",
+    )
+    .unwrap();
+    let (result, events, _) = run_fixture(
+        &fixture,
+        ContextRequirement::Required,
+        &[],
+        Case::WireManifest,
+    )
+    .await;
+    let actual_wire_sha256 = result.unwrap().text;
+    let snapshot = events
+        .iter()
+        .find_map(|event| match event {
+            RunEvent::ContextRequest { snapshot } => Some(snapshot),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(actual_wire_sha256, snapshot.manifest.wire_sha256);
 }

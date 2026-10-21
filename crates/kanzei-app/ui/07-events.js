@@ -4,6 +4,7 @@ import { writeClipboardText } from "./00-clipboard.js";
 import { eventSubscriptionState, onEventSubscriptionChange, restoreEventSubscriptions } from "./00-event-subscriptions.js";
 import { motionOnce } from "./00-ui-primitives.js";
 import { sessionState, onSessionStateChange } from "./00-session-state.js";
+import { renderRequestContext, notifyContextRequest } from "./07-context-view.js";
 import { confirmSessionRuntime } from "./03-session-runtime.js";
 
 defer(() => {
@@ -269,10 +270,10 @@ export function addCompactionEntry(summary) {
 export function renderContextDetail() {
   const detail = $("context-detail");
   const tokens = runTokens;
-  const total = tokens.input + tokens.cacheRead + tokens.output;
+  const total = tokens.input + tokens.cacheRead + tokens.cacheWrite + tokens.output;
   // UI-0926 #10:键值两列(标签 | 数值),不再用 innerHTML 拼 <br>。
   const title = document.createElement("strong");
-  title.textContent = localizeDynamic("上下文成分");
+  title.textContent = t("上下文");
   const table = document.createElement("div");
   table.className = "sv-kv sv-context";
   const row = (labelText, value) => {
@@ -290,24 +291,25 @@ export function renderContextDetail() {
   // 占用与占比放第一行(UX-044:原来气泡里只有 tokens 数,看不出离上限还有多远)。
   if (ctxTokens > 0) {
     const used = `${(ctxTokens / 1000).toFixed(1)}k`;
-    row("上下文占用", ctxLimit ? `${used} / ${Math.round(ctxLimit / 1000)}k (${Math.round((ctxTokens / ctxLimit) * 100)}%)` : used);
+    row("最近回传占用", ctxLimit ? `${used} / ${Math.round(ctxLimit / 1000)}k (${Math.round((ctxTokens / ctxLimit) * 100)}%)` : used);
   }
   row("输入上下文(系统/历史/工具结果)", tokens.input);
   row("缓存读取(已复用上下文)", tokens.cacheRead);
+  row("缓存写入", tokens.cacheWrite);
   row("本轮输出", tokens.output);
   row("合计", total);
-  detail.replaceChildren(title, table);
-  if (lastCompactionSummary) {
-    const note = document.createElement("div");
-    note.className = "sv-note";
-    note.textContent = localizeDynamic("最近一次压缩纪要已收进活动面板");
-    detail.append(note);
-  }
+  const usage = document.createElement("details"), usageTitle = document.createElement("summary");
+  usageTitle.textContent = t("本轮累计用量"); usage.append(usageTitle, table);
+  const manifest = document.createElement("section"); manifest.className = "context-manifest";
+  detail.replaceChildren(title, manifest, usage);
+  renderRequestContext(manifest);
   openPopover($("status-tokens"), detail, { placement: "top-end" });
   $("status-tokens").setAttribute("aria-expanded", "true");
-  // UI2-0926 #14:纪要在后台任务侧栏里——只打开、不切换(此前直接开活动面板,子代理面板不收,两块同屏,缺陷 D)。
-  if (lastCompactionEntry) openTasksPanel({ reveal: lastCompactionEntry });
 }
+
+defer(() => on("kz:context-request", event => notifyContextRequest(event.payload.sessionId)));
+defer(() => document.addEventListener("kz:active-session-changed", hideContextDetail));
+defer(() => document.addEventListener("kz:conversation-epoch-changed", event => {if(event.detail.sessionId===activeSessionId)hideContextDetail();}));
 
 export function hideContextDetail() {
   closeSurface($("context-detail"));
@@ -518,7 +520,7 @@ defer(() => {
     runTokens.cacheRead += p.cacheRead;
     runTokens.cacheWrite += p.cacheWrite;
     // 本轮 prompt 体积 ≈ 当前上下文占用。
-    setCtxTokens(p.input + p.cacheRead);
+    setCtxTokens(p.input + p.cacheRead + (p.cacheWrite || 0));
     renderTokens();
     log(`${t("一轮完成")}:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
   });

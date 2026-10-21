@@ -45,8 +45,13 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
 // ---------- UI-0926 #10:markdown-lite 补语法(引用/分隔线/任务列表/删除线/裸链接/路径链接) ----------
 {
   const quote = markdown.renderMarkdown("> 第一行 **粗**\n> 第二行 <script>alert(1)</script>\n\n正文");
-  assert.match(quote, /<blockquote class="md-quote">第一行 <strong>粗<\/strong><br>第二行 &lt;script&gt;/, "引用块未合并连续 > 行或未转义");
+  assert.match(quote, /<blockquote class="md-quote"><div class="md-quote-content"><p>第一行 <strong>粗<\/strong>\n第二行 &lt;script&gt;/, "引用块未合并连续 > 行或未转义");
   assert.doesNotMatch(quote, /<script>/, "引用块里的 <script> 未转义");
+  const structuredQuote = markdown.renderMarkdown("> ## 回复\n>\n> 第一段\n>\n> 第二段\n>\n> - 父项\n>   - 子项\n>\n> > 内层引用\n>\n> ```text\n> <原文>\n> ```");
+  assert.match(structuredQuote, /<h2 class="md-h md-h-2">回复<\/h2><p>第一段<\/p><p>第二段<\/p>/, "引用块内标题与段落边界丢失");
+  assert.match(structuredQuote, /<ul><li>父项<ul><li>子项<\/li><\/ul><\/li><\/ul>/, "引用块内列表层级丢失");
+  assert.match(structuredQuote, /<blockquote class="md-quote"><div class="md-quote-content"><p>内层引用<\/p><\/div><\/blockquote>/, "嵌套引用未按层级解析");
+  assert.match(structuredQuote, /<pre class="code"><code class="language-text">&lt;原文&gt;<\/code><\/pre>/, "引用块内围栏代码未正确渲染或转义");
   assert.equal(markdown.renderMarkdown("a\n\n---\n\n* * *\n\nb"), "<p>a</p><hr><hr><p>b</p>", "分隔线未渲染(或 * * * 被当成列表项)");
   const tasks = markdown.renderMarkdown("- [ ] 待办\n- [x] 完成\n- 普通");
   assert.match(tasks, /<li class="md-task-item"><span class="md-task" data-checked="false">☐<\/span> 待办<\/li>/, "未勾选任务项未渲染");
@@ -76,6 +81,25 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
   assert.match(codeLabel, /<a class="md-path" role="link" tabindex="0" data-path="\.\.\/\.\.\/\.\.\/docs\/design\/memory_control_plane\.md"[^>]*><code>memory_control_plane\.md<\/code><\/a>/, `链接文字里的行内码未展开:${codeLabel}`);
   assert.match(codeLabel, /<a href="https:\/\/x\.com\/kz"[^>]*><code>kz<\/code><\/a>/, "外链文字里的行内码未展开");
   assert.doesNotMatch(codeLabel, /\u0000|md-\d/, "占位符漏到了渲染结果里");
+
+  // An artifact created without a delivery receipt must still have an opening entry.
+  const artifact = String.raw`C:\Users\kanzei\.kanzei\conversations\general\artifacts\fnv-37febed659b71441\monty-hall-两对话整理.md`;
+  const saved = markdown.renderMarkdown(`文件已保存到 \`${artifact}\`。`);
+  assert.ok(saved.includes(`data-path="${artifact}"`), "截图中的反引号产物路径仍然不可点击");
+  assert.ok(saved.includes(`<code>${artifact}</code></a>。`), "文件链接应保留完整路径与原有行内代码文字");
+  assert.doesNotMatch(saved, /href=/, "行内路径应复用应用内导航");
+  for (const path of ["docs/两份 对话 (最终).md", "/tmp/my report.pdf", "./output/deck.pptx", "../report.xlsx", String.raw`\\server\share\报告.md`]) {
+    assert.ok(markdown.renderMarkdown(`\`${path}\``).includes(`data-path="${path}"`), `行内文件路径未识别: ${path}`);
+  }
+  assert.match(markdown.renderMarkdown("`src/main.rs:3-9`"), /data-path="src\/main.rs" data-line="3"/, "行内路径丢失定位行号");
+  for (const literal of ["Math.PI", "v1.2.3", "1/2", "a/b", "cat docs/report.md", "https://example.com/report.md", "javascript:report.md", "docs/a%20b.md"]) {
+    assert.doesNotMatch(markdown.renderMarkdown(`\`${literal}\``), /<a /, `非文件表达式被当成路径: ${literal}`);
+  }
+  const linkedCode = markdown.renderMarkdown("[`docs/source.md`](docs/target.md) [`docs/local.md`](https://example.com)");
+  assert.equal((linkedCode.match(/<a /g) || []).length, 2, "链接文字中的路径产生了嵌套链接");
+  assert.doesNotMatch(linkedCode, /data-path="docs\/(?:source|local)\.md"/, "链接文字覆盖了显式链接的目标");
+  assert.doesNotMatch(markdown.renderMarkdown(`\`\`\`text\n${artifact}\n\`\`\``), /<a /, "围栏代码中的路径不应自动成链");
+  assert.doesNotMatch(markdown.renderMarkdown(`文件已保存到 \`${artifact}`), /<a /, "流式未闭合的行内代码不应提前成链");
 }
 
 // ---------- UI-0926 #10:结构化纯解析(04-structured-parse.js)的真实样例夹具 ----------

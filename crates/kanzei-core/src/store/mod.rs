@@ -349,6 +349,7 @@ pub struct ResearchRunEvent {
 }
 
 pub mod artifact_liveness;
+pub mod context_manifest;
 pub mod decisions;
 mod deliveries;
 mod episodes;

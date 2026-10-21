@@ -2,7 +2,7 @@
 // 补 node --check(纯语法)与静态正则冒烟都抓不到的 ReferenceError / 初始化崩坏(D-048 类问题)。
 // 覆盖:整页加载与初始化、需求/缺陷/目标/测试列表非空渲染、主视图切换、console.error 与未捕获异常 → 非零退出码。
 import { readFile, readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, posix } from "node:path";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { loadUiSources } from "./ui-sources.mjs";
@@ -2656,7 +2656,7 @@ function createEsmModule(filename, instrumentedSource) {
   if (existing) return existing;
   const module = new vm.SourceTextModule(instrumentedSource, {
     context: productionSandbox,
-    filename,
+    identifier: filename,
     importModuleDynamically: async (specifier) => {
       const target = specifier.replace(/^\.\//, "");
       const dependency = esmModuleCache.get(target);
@@ -2676,18 +2676,17 @@ function createEsmModule(filename, instrumentedSource) {
 async function linkAndEvaluate(filename, instrumentedSource, sandbox, sourcesByName) {
   const module = createEsmModule(filename, instrumentedSource, sandbox);
   if (module.status === "evaluated") return module;
-  await module.link(async (childSpec) => {
-    const match = /^\.\/([^/]+\.js)$/.exec(childSpec);
-    if (!match) {
+  await module.link(async (childSpec, parent) => {
+    if (!/^\.{1,2}\//.test(childSpec)) {
       throw new Error(`unsupported import specifier "${childSpec}" in ${filename}`);
     }
-    const target = match[1];
+    const target = posix.normalize(posix.join(posix.dirname(parent.identifier), childSpec));
+    if (target.startsWith("../") || posix.isAbsolute(target) || !/\.m?js$/.test(target)) {
+      throw new Error(`import "${childSpec}" in ${parent.identifier}: target is outside ui/ or not an ESM source`);
+    }
     const cached = esmModuleCache.get(target);
     if (cached) return cached;
-    const childSource = sourcesByName.get(target);
-    if (childSource === undefined) {
-      throw new Error(`import "${childSpec}" in ${filename}: target ${target} not in ui/`);
-    }
+    const childSource = sourcesByName.get(target) ?? await readFile(resolve(root, "crates/kanzei-app/ui", target), "utf8");
     // 创建后返回——vm 自动链接该依赖及其子依赖。
     return createEsmModule(target, childSource, sandbox);
   });
@@ -2703,7 +2702,7 @@ async function linkAndEvaluate(filename, instrumentedSource, sandbox, sourcesByN
  * 抛错向上传播,由调用方统一 fail。
  */
 async function executeUiSource(instrumented, filename, sandbox, sourcesByName) {
-  const isEsm = /^\s*(import|export)\b/m.test(instrumented);
+  const isEsm = filename.endsWith(".mjs") || /^\s*(import|export)\b/m.test(instrumented);
   if (!isEsm) {
     vm.runInContext(instrumented, sandbox, { filename });
     return;
@@ -2721,11 +2720,10 @@ async function runUiSources() {
   const initialEntries = htmlScriptSrcs.includes("bootstrap.js")
     ? [...bootstrap.matchAll(/^import(?:\s+[^;]*?from)?\s*["']\.\/([^"']+)["'];/gm)].map(match => match[1]).concat("bootstrap.js")
     : htmlScriptSrcs;
-  const executionSources = [...new Set([...initialEntries, ...optionalTestEntries])].map((name) => {
-    const src = sourcesByName.get(name);
-    if (src === undefined) throw new Error(`index.html 执行入口 ${name} 不在 ui/ 源码清单中`);
+  const executionSources = await Promise.all([...new Set([...initialEntries, ...optionalTestEntries])].map(async (name) => {
+    const src = sourcesByName.get(name) ?? await readFile(resolve(root, "crates/kanzei-app/ui", name), "utf8");
     return [name, src];
-  });
+  }));
   const sourceIndexes = new Map(scriptSrcs.map((name, index) => [name, index]));
   try {
     // R-264 批3:两阶段加载。第一阶段:创建+link 全部 ESM 模块(link 回调按依赖
@@ -2754,7 +2752,7 @@ async function runUiSources() {
     }
     for (const [name] of executionSources) {
       const instrumented = sourcesByName.get(name);
-      const isEsm = /^\s*(import|export)\b/m.test(instrumented);
+      const isEsm = name.endsWith(".mjs") || /^\s*(import|export)\b/m.test(instrumented);
       if (!isEsm) {
         vm.runInContext(instrumented, sandbox, { filename: name });
       } else {
@@ -14394,11 +14392,13 @@ const docsB = {
   endTask("tp-6");
   await settleAll();
 
-  // 缺陷 D:上下文详情里的压缩纪要入口只打开这一个侧栏(没有第二块面板可以同屏)。
+  // 上下文装配详情就地检查纪要与来源，不再自动打开活动侧栏。
   eventsNs.addCompactionEntry("## 纪要\n- 保留了关键决定");
   eventsNs.renderContextDetail();
   await settleAll();
-  assert(visible() && !byId.has("bg-panel") && !byId.has("agent-panel"), "缺陷 D:压缩纪要入口应只打开后台任务侧栏");
+  assert(!visible(), "查看上下文装配不得自动打开活动侧栏");
+  assert(Array.from(byId.get("context-detail").children).some(child=>child.className==="context-manifest"), "上下文入口应承载装配清单");
+  assert(!byId.has("bg-panel") && !byId.has("agent-panel"), "上下文入口不得恢复旧的重复侧栏");
   eventsNs.hideContextDetail();
   panelNs.closeTasksPanel();
 

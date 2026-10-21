@@ -423,6 +423,7 @@ export function bumpConversationEpoch(sessionId) {
   const key = sessionId || "";
   const next = conversationEpoch(key) + 1;
   conversationEpochs.set(key, next);
+  document.dispatchEvent(new CustomEvent("kz:conversation-epoch-changed", {detail:{sessionId:key}}));
   return next;
 }
 

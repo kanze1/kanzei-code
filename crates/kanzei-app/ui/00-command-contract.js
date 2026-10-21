@@ -51,6 +51,17 @@ export const commandParameters = {
     "key": true
   },
   "composer_drafts_load": {},
+  "context_content": {
+    "processId": false,
+    "projectDir": true,
+    "sequence": true,
+    "sha256": true
+  },
+  "context_snapshot": {
+    "processId": false,
+    "projectDir": true,
+    "sequence": false
+  },
   "conventions_discard": {
     "expectedHash": true,
     "projectDir": true

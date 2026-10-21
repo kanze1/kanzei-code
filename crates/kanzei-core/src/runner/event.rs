@@ -204,6 +204,11 @@ pub enum RunEvent {
     ContextSources {
         sources: Vec<kanzei_harness::ContextSourceReport>,
     },
+    /// Final assembled input after budget/projection maintenance. Emitted only
+    /// after the provider stream opens; consumers persist immutable references.
+    ContextRequest {
+        snapshot: crate::store::context_manifest::ContextSnapshot,
+    },
     /// 轮内主动压缩:到达上下文预算线,就地裁剪历史(D-176)。
     /// 与撞墙后的被动恢复区分开——这条是"没撞墙就先让了路"。
     ContextCompacted {

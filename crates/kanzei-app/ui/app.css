@@ -3,7 +3,9 @@
    surface 是弹层外观(surface.css),排在 app 之后——层序优先于选择器特异性,
    视图规则写得再「重」也压不过弹层外观。见 docs/design/ui_surface_stack.md。 */
 @layer tokens, base, app, surface;
+@import url("vendor/katex/katex.min.css") layer(base);
 @import url("style.css") layer(app);
+@import url("context.css") layer(app);
 @import url("decision-console.css") layer(app);
 @import url("workbench.css") layer(app);
 @import url("softwire.css") layer(app);

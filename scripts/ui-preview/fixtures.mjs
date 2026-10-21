@@ -1446,6 +1446,8 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     memory_control_plane: { backlog: 0, oldest_waiting: null, batch: null, promotion_gaps: 0, recall: { recalled: 0, injected: 0, read: 0, read_observed: 0 }, effects: [], experience_facts: [] },
     // 形状对照 memory.rs memory_context_bill:bill = 主对话最近一轮 context_report 的 [来源路径, 字符数](来源名是引擎内部路径),
     // episodes = 主对话最近几轮(新→旧),运行画像页只取 episodes[0].at 标注账单是哪一轮的。
+    context_snapshot: ({processId}) => ({sessionId:state.processes.find(item=>item.id===processId)?.session_id||IDS.mainSession,requests:[],selected:null,web:[]}),
+    context_content: () => { throw new Error("No recorded request content in this preview"); },
     memory_context_bill: {
       bill: [["agent/system", 5200], ["tools/schema", 21800], ["dev/memory", 1300], ["dev/conventions", 2600], ["dev/design-index", 3400], ["core/env", 640],
         ["core/project-state", 1900], ["memory/hints", 880], ["tools/catalog", 1200], ["tools/loaded:bash", 760], ["scout/brief", 420]],

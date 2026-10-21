@@ -20,6 +20,7 @@ mod browser_selection;
 mod collaboration;
 mod commands;
 mod composer_drafts;
+mod context_view;
 mod conversation;
 mod conversation_actions;
 mod decisions;

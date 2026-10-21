@@ -3,20 +3,20 @@
 // 换成图(04-diagram.js)。别处不得再写 `x.innerHTML = renderMarkdown(…)`(ui-markdown-smoke 静态门禁)。
 import { hydrateDiagrams } from "./04-diagram.js";
 import { resourceIcon } from "./04-resource-types.js";
+import { escapeHtml } from "./00-html.js";
+import { codeSpanAt, mathSpanAt, renderMathSpan } from "./04-math.js";
+export { escapeHtml } from "./00-html.js";
 
-export function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 export function splitTableRow(line) {
   const value = line.trim().replace(/^\|/, ""), cells = [];
   let cell = "";
   for (let i = 0; i < value.length; i += 1) {
-    if (value[i] === "\\" && value[i + 1] === "|") { cell += "|"; i += 1; }
+    const code = codeSpanAt(value, i), math = code ? null : mathSpanAt(value, i);
+    if (code || math?.closed) {
+      const span = code || math;
+      cell += code ? span.raw.replace(/\\\|/g, "|") : span.raw;
+      i = span.end - 1;
+    } else if (value[i] === "\\" && value[i + 1] === "|") { cell += "|"; i += 1; }
     else if (value[i] === "\\" && value[i + 1] === "\\") { cell += "\\\\"; i += 1; }
     else if (value[i] === "|") { cells.push(cell.trim()); cell = ""; }
     else cell += value[i];
@@ -38,6 +38,9 @@ export function safeMarkdownUrl(value) {
 export function safeMarkdownPath(value) {
   let target = String(value ?? "").trim();
   try { target = decodeURIComponent(target); } catch { return null; }
+  return parseMarkdownPath(target);
+}
+function parseMarkdownPath(target) {
   if (!target || /[\u0000-\u001f\u007f"'<>`]/.test(target)) return null;
   if (/^[a-z][\w+.-]*:/i.test(target) && !/^[A-Za-z]:[\\/]/.test(target)) return null;
   const match = target.match(/^((?:[A-Za-z]:[\\/])?[\p{L}\p{N}\p{M}_.@~\-\/\\ ()]+?)(?::(\d+)(?:-(\d+))?)?$/u);
@@ -46,16 +49,33 @@ export function safeMarkdownPath(value) {
   if (!/[\\/]/.test(path) && !/\.[A-Za-z0-9]{1,8}$/.test(path)) return null;
   return { path, line: match[2] ? Number(match[2]) : null, endLine: match[3] ? Number(match[3]) : null };
 }
-function replaceMarkdownLinks(text, render) {
-  let output = "", cursor = 0;
+function decodeMarkdownEntities(value) {
+  return value.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+function renderMarkdownPath(local, label) {
+  const lineAttr = local.line ? ` data-line="${local.line}"` : "";
+  const title = `${local.path}${local.line ? `:${local.line}${local.endLine ? `-${local.endLine}` : ""}` : ""}`;
+  return `<a class="md-path" role="link" tabindex="0" data-path="${escapeHtml(local.path)}"${lineAttr} title="${escapeHtml(title)}">${label}</a>`;
+}
+function inlineMarkdownPath(code) {
+  const value = decodeMarkdownEntities(code);
+  // Require a path root/first directory and a filename extension. Expressions,
+  // commands, URLs and bare identifiers stay code; explicit links need no guess.
+  if (!/^(?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/]|[\p{L}\p{N}\p{M}_.@~-]+[\\/])/u.test(value)) return null;
+  const local = parseMarkdownPath(value);
+  return local && /\.[A-Za-z0-9]{1,8}$/.test(local.path) ? local : null;
+}
+function* markdownLinks(text) {
+  let cursor = 0;
   for (const match of text.matchAll(/\[([^\]]+)\]\(/g)) {
     if (match.index < cursor) continue;
     const start = match.index + match[0].length;
     let end = start;
-    if (text.startsWith("&lt;", start)) {
-      const closing = text.indexOf("&gt;", start + 4);
+    const angle = text.startsWith("&lt;", start) ? ["&lt;", "&gt;"] : text[start] === "<" ? ["<", ">"] : null;
+    if (angle) {
+      const closing = text.indexOf(angle[1], start + angle[0].length);
       if (closing < 0) continue;
-      end = closing + 4;
+      end = closing + angle[1].length;
     } else {
       let depth = 0;
       for (; end < text.length; end += 1) {
@@ -65,33 +85,62 @@ function replaceMarkdownLinks(text, render) {
       }
     }
     if (text[end] !== ")" || end === start) continue;
-    output += text.slice(cursor, match.index) + render(match[1], text.slice(start, end));
+    yield { index: match.index, label: match[1], url: text.slice(start, end), start, end };
     cursor = end + 1;
+  }
+}
+function replaceMarkdownLinks(text, render) {
+  let output = "", cursor = 0;
+  for (const match of markdownLinks(text)) {
+    output += text.slice(cursor, match.index) + render(match.label, match.url);
+    cursor = match.end + 1;
   }
   return output + text.slice(cursor);
 }
 export function renderInlineMarkdown(raw) {
   const placeholders = [];
+  const inlineCodes = new Map();
   const stash = (html) => {
     const token = `\u0000md-${placeholders.length}\u0000`;
     placeholders.push(html);
     return token;
   };
-  let html = escapeHtml(raw);
-  html = html.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${code}</code>`));
+  raw = String(raw);
+  const destinations = [...markdownLinks(raw)];
+  let protectedText = "";
+  for (let index = 0; index < raw.length;) {
+    const destination = destinations.find(link => index >= link.start && index < link.end);
+    if (destination) { protectedText += raw.slice(index, destination.end); index = destination.end; continue; }
+    const code = codeSpanAt(raw, index);
+    if (code) {
+      const escaped = escapeHtml(code.code);
+      const token = stash(`<code>${escaped}</code>`);
+      inlineCodes.set(token, escaped);
+      protectedText += token; index = code.end; continue;
+    }
+    const math = mathSpanAt(raw, index);
+    if (math && (math.closed || math.display || raw.startsWith("\\(", index))) {
+      protectedText += stash(renderMathSpan(math)); index = math.end; continue;
+    }
+    protectedText += raw[index++];
+  }
+  let html = escapeHtml(protectedText);
   html = replaceMarkdownLinks(html, (label, url) => {
-    const decodedUrl = url.replace(/^&lt;|&gt;$/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    const decodedUrl = decodeMarkdownEntities(url.replace(/^&lt;|&gt;$/g, ""));
     const safeUrl = safeMarkdownUrl(decodedUrl);
     if (safeUrl) return stash(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>`);
     // 相对/绝对路径链接:不带 href(不让 WebView 自己导航),点击由 04-structured 的
     // structuredNav.openPath 委托处理;属性值全部转义。
     const local = safeMarkdownPath(decodedUrl);
-    if (local) {
-      const lineAttr = local.line ? ` data-line="${local.line}"` : "";
-      const title = `${local.path}${local.line ? `:${local.line}${local.endLine ? `-${local.endLine}` : ""}` : ""}`;
-      return stash(`<a class="md-path" role="link" tabindex="0" data-path="${escapeHtml(local.path)}"${lineAttr} title="${escapeHtml(title)}">${label}</a>`);
-    }
+    if (local) return stash(renderMarkdownPath(local, label));
     return `${label} (${escapeHtml(decodedUrl)})`;
+  });
+  // Explicit links have already hidden their labels inside placeholders. Only
+  // standalone code spans remain here, so path detection cannot nest anchors.
+  html = html.replace(/\u0000md-\d+\u0000/g, token => {
+    const code = inlineCodes.get(token);
+    const local = code === undefined ? null : inlineMarkdownPath(code);
+    return local ? stash(renderMarkdownPath(local, `<code>${code}</code>`)) : token;
   });
   // 裸 URL 自动成链:只作用在代码与已成链接之外的文本段(二者已换成占位符),且必须过
   // safeMarkdownUrl。转义后的引号/尖括号实体与中文标点不属于 URL。
@@ -146,7 +195,7 @@ export let renderMarkdown = function renderMarkdown(raw) {
   let quote = [];
   const flushQuote = () => {
     if (!quote.length) return;
-    html += `<blockquote class="md-quote">${quote.map(renderInlineMarkdown).join("<br>")}</blockquote>`;
+    html += `<blockquote class="md-quote"><div class="md-quote-content">${renderMarkdown(quote.join("\n"))}</div></blockquote>`;
     quote = [];
   };
   const flushList = () => {
@@ -185,7 +234,7 @@ export let renderMarkdown = function renderMarkdown(raw) {
       code = { language: fence[2], marker: fence[1][0], length: fence[1].length, lines: [] };
       continue;
     }
-    // UI-0926 #10:连续的 `> ` 行合成一个引用块(行内语法照常,仍先转义)。
+    // Strip one quote level, then use the same block parser for paragraphs, lists and nested quotes.
     const quoteLine = line.match(/^\s{0,3}>\s?(.*)$/);
     if (quoteLine) {
       flushParagraph();
@@ -194,6 +243,21 @@ export let renderMarkdown = function renderMarkdown(raw) {
       continue;
     }
     flushQuote();
+    // A display block owns its lines before list/table/paragraph parsing. Quote
+    // prefixes have already been stripped by the recursive block parser.
+    if (/^\s*(?:\$\$|\\\[)/.test(line)) {
+      flushParagraph();
+      flushList();
+      const remaining = lines.slice(index).join("\n");
+      const start = remaining.search(/\S/);
+      const math = mathSpanAt(remaining, start);
+      html += renderMathSpan(math);
+      const consumed = remaining.slice(0, math.end).split("\n");
+      index += consumed.length - 1;
+      const tail = lines[index].slice(consumed.at(-1).length);
+      if (tail.trim()) paragraph.push(tail);
+      continue;
+    }
     if (!line.trim()) {
       flushParagraph();
       flushList();

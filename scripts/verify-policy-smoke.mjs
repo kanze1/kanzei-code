@@ -6,17 +6,29 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { VERIFY_CHECKS, VERIFY_STEP_KEYS, assertCleanBuildInputs, classifyChangedPaths, validateCheckRegistry, validateFullVerification, validateVerificationFiles } from "./verify-policy.mjs";
+import { VERIFY_CHECKS, VERIFY_STEP_KEYS, assertCleanBuildInputs, inspectBuildInputs, classifyChangedPaths, validateCheckRegistry, validateFullVerification, validateVerificationFiles } from "./verify-policy.mjs";
 
 const frontendOnly = classifyChangedPaths(["crates/kanzei-app/ui/01-core.js"]);
 assert.equal(frontendOnly.run_frontend, true);
 assert.equal(frontendOnly.run_rust, false);
-assert.deepEqual(frontendOnly.skipped_steps, ["fmt", "clippy", "test"]);
+assert(VERIFY_CHECKS.filter(check => check.inputs === "frontend").every(check => !frontendOnly.skipped_steps.includes(check.key)), "shared runtime changes select every frontend suite");
+assert(frontendOnly.skipped_steps.includes("metrics_build"));
+assert(frontendOnly.skipped_steps.includes("artifact_lifecycle"));
+
+const selectedKeys = file => classifyChangedPaths([file]).checks.map(check => check.key);
+const contextStyle = selectedKeys("crates/kanzei-app/ui/context.css");
+assert(contextStyle.includes("context_inspection"));
+for (const unrelated of ["ui_backdrop", "ui_surfaces", "ui_math_browser", "artifact_lifecycle", "metrics_build", "ipc_signatures", "verify_policy"]) assert(!contextStyle.includes(unrelated), `context styles do not trigger ${unrelated}`);
+assert(selectedKeys("crates/kanzei-app/ui/04-math.js").includes("ui_math_browser"));
+assert(selectedKeys("scripts/ui-math-browser-smoke.mjs").includes("ui_math_browser"), "editing a test always selects itself");
+assert(selectedKeys("scripts/metrics-regression-gate.ps1").includes("metrics_build"), "selected checks bring their producer dependencies");
+assert(!selectedKeys("docs/design/memory_system.md").includes("ipc_signatures"));
 
 const rustOnly = classifyChangedPaths(["crates/kanzei-core/src/lib.rs"]);
 assert.equal(rustOnly.run_frontend, false);
 assert.equal(rustOnly.run_rust, true);
-assert.deepEqual(rustOnly.skipped_steps, VERIFY_CHECKS.filter(c => ["frontend", "diagram"].includes(c.inputs)).map(c => c.key));
+assert(rustOnly.checks.some(check => check.key === "test"));
+assert(rustOnly.skipped_steps.includes("ui_runtime"));
 for (const input of ["package.json", "package-lock.json", "npm-shrinkwrap.json", ".npmrc"]) {
   assert.equal(classifyChangedPaths([input]).run_frontend, true, `${input} changes frontend execution`);
 }
@@ -116,6 +128,11 @@ try {
   const baseline = assertCleanBuildInputs(temp);
   fs.appendFileSync(path.join(temp, "Cargo.lock"), "dependency edit\n");
   assert.throws(() => assertCleanBuildInputs(temp, baseline.commit), /Cargo.lock/);
+  const dirty = inspectBuildInputs(temp);
+  assert.deepEqual(dirty.dirty_paths, ["Cargo.lock"]);
+  inspectBuildInputs(temp, dirty);
+  fs.appendFileSync(path.join(temp, "Cargo.lock"), "another edit\n");
+  assert.throws(() => inspectBuildInputs(temp, dirty), /changed during verification/);
   fs.writeFileSync(path.join(temp, "Cargo.lock"), "baseline\n");
   fs.mkdirSync(path.join(temp, ".cargo"));
   fs.writeFileSync(path.join(temp, ".cargo/config.toml"), "[build]\njobs=1\n");
@@ -140,7 +157,7 @@ try {
   if (process.platform === "win32") {
     const scripts = path.join(temp, "scripts");
     fs.mkdirSync(scripts);
-    for (const name of ["verify.ps1", "verify-policy.mjs", "artifact-lifecycle.mjs", "artifact-lifecycle.ps1"]) {
+    for (const name of ["verify.ps1", "verify-policy.mjs", "verify-runner.mjs", "artifact-lifecycle.mjs", "artifact-lifecycle.ps1"]) {
       fs.copyFileSync(new URL(`./${name}`, import.meta.url), path.join(scripts, name));
     }
     const fixtureChecks = [
@@ -196,6 +213,14 @@ try {
     assert.throws(() => run({ KANZEI_FIXTURE_EXIT: "7" }));
     assert.equal(fs.existsSync(path.join(temp, "dist/verification.json")), false, "failure at the same HEAD invalidates a previous successful receipt");
     assert.equal(reports().length, 4);
+    fs.appendFileSync(path.join(scripts, "after-failure.mjs"), '\nconsole.log("uncommitted fix");');
+    run({}, "");
+    const targeted = JSON.parse(fs.readFileSync(path.join(temp, "dist/verification-targeted.json"), "utf8"));
+    assert.equal(targeted.mode, "targeted");
+    assert.equal(targeted.full_verify, false);
+    assert(targeted.changed_paths.includes("scripts/after-failure.mjs"));
+    assert.equal(targeted.worktree_sha256, inspectBuildInputs(temp).worktree_sha256);
+    assert.match(validateFullVerification(targeted, git("rev-parse", "HEAD")), /targeted\/cropped/);
   }
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

@@ -44,7 +44,10 @@ pub(super) struct RunOnceAssembly<'a> {
     pub(super) specs: Vec<ToolSpec>,
     pub(super) context_report: Vec<(String, usize)>,
     pub(super) stable_system: Vec<String>,
+    pub(super) stable_system_sources: Vec<Vec<(String, usize)>>,
     pub(super) refreshable_baseline: String,
+    pub(super) refreshable_sources: Vec<(String, usize)>,
+    pub(super) context_source_reads: Vec<kanzei_harness::ContextSourceReport>,
     pub(super) messages: Vec<Message>,
     pub(super) total_usage: Usage,
     pub(super) last_input_tokens: Option<u64>,
@@ -148,6 +151,19 @@ pub(super) fn assemble_run_once<'a>(
         .into_iter()
         .filter(|s| !s.trim().is_empty())
         .collect();
+    let mut stable_system_sources = Vec::new();
+    if !agent.system.trim().is_empty() {
+        stable_system_sources.push(vec![("agent/system".into(), agent.system.len())]);
+    }
+    let stable_sources = source_spans(&stable_report);
+    if !stable_sources.is_empty() {
+        stable_system_sources.push(stable_sources);
+    }
+    let refreshable_sources = source_spans(&refreshable_report);
+    let context_source_reads = stable_report
+        .into_iter()
+        .chain(refreshable_report)
+        .collect();
     if let Some(runtime) = subagent {
         let mut guidance = runtime.options.mode.guidance().to_string();
         if runtime.options.mode.enabled() {
@@ -157,18 +173,28 @@ pub(super) fn assemble_run_once<'a>(
         }
         context_report.push(("runtime/delegation".into(), guidance.chars().count()));
         stable_system.push(guidance);
+        stable_system_sources.push(vec![(
+            "runtime/delegation".into(),
+            stable_system.last().unwrap().len(),
+        )]);
     }
     if config.ask_policy.records_questions() {
         let instructions = super::question::AUTONOMOUS_DECISIONS;
         context_report.push(("runtime/decisions".into(), instructions.chars().count()));
         stable_system.push(instructions.into());
+        stable_system_sources.push(vec![("runtime/decisions".into(), instructions.len())]);
     }
     if let Some(catalog) = deferred_catalog {
         stable_system.push(catalog);
+        stable_system_sources.push(vec![(
+            "tools/catalog".into(),
+            stable_system.last().unwrap().len(),
+        )]);
     }
     if let Some(hints) = memory_hints {
         if !hints.trim().is_empty() {
             stable_system.push(hints.to_string());
+            stable_system_sources.push(vec![("memory/hints".into(), hints.len())]);
         }
     }
 
@@ -238,7 +264,10 @@ pub(super) fn assemble_run_once<'a>(
         specs,
         context_report,
         stable_system,
+        stable_system_sources,
         refreshable_baseline,
+        refreshable_sources,
+        context_source_reads,
         messages,
         total_usage,
         last_input_tokens,
@@ -255,6 +284,16 @@ pub(super) fn assemble_run_once<'a>(
         recall,
         step,
     })
+}
+
+pub(super) fn source_spans(
+    reports: &[kanzei_harness::ContextSourceReport],
+) -> Vec<(String, usize)> {
+    reports
+        .iter()
+        .filter(|report| report.status == kanzei_harness::ContextSourceStatus::Loaded)
+        .map(|report| (report.key.clone(), report.bytes))
+        .collect()
 }
 
 #[cfg(test)]

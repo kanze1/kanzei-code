@@ -1,4 +1,6 @@
 [
+  { "path": "context_view::context_snapshot", "host": "service" },
+  { "path": "context_view::context_content", "host": "service" },
   {
     "path": "terminal_monitor::terminal_monitor",
     "host": "service"

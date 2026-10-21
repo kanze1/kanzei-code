@@ -2286,8 +2286,10 @@ prunable gitdir file points to non-existent location
             checks.iter().map(|c| c["key"].as_str().unwrap()).collect();
         assert_eq!(keys.len(), checks.len(), "check keys must be unique");
         assert!(verify.contains("verify-policy.mjs classify"));
-        assert!(verify.contains("foreach ($check in $policy.checks)"));
-        assert!(verify.contains("$global:LASTEXITCODE = 0"));
+        assert!(verify.contains("node scripts/verify-runner.mjs"));
+        let runner = std::fs::read_to_string(repo_root.join("scripts/verify-runner.mjs")).unwrap();
+        assert!(runner.contains("check.ci_args ?? check.args"));
+        assert!(runner.contains("child.stderr.on(\"data\", write)"));
         assert!(ci.contains("verify.ps1 -Full -Ci"));
         assert!(ci.contains("npm ci"));
         let this = std::fs::read_to_string(

@@ -39,8 +39,11 @@ export let activeProcessId = null;
 export function setActiveProcessId(v) { activeProcessId = v; }
 export let activeSessionId = null;
 export function setActiveSessionId(v) {
+  const changed = activeSessionId !== v;
   activeSessionId = v;
   syncElapsed();
+  if (changed) document.dispatchEvent(new CustomEvent("kz:active-session-changed"));
+  renderTokens();
 }
 export let processItems = [];
 export function setProcessItems(value) { processItems = value; }
@@ -1000,8 +1003,8 @@ export function renderTokens() {
     bar.classList.add("hidden");
     head = ctxPending ? `${t("上下文")} ${t("等待模型")}` : "";
   }
-  button.textContent = ctxTokens > 0 ? `${t("上下文")} ${pct === null ? compactTokens(ctxTokens) : `${pct}%`}` : "";
-  button.classList.toggle("hidden", ctxTokens <= 0);
+  button.textContent = ctxTokens > 0 ? `${t("上下文")} ${pct === null ? compactTokens(ctxTokens) : `${pct}%`}` : t("上下文");
+  button.classList.toggle("hidden", !activeSessionId);
   button.title = [head, usage, t("点击查看上下文成分")].filter(Boolean).join(" · ");
   const detail = $("runtime-context");
   detail.textContent = "";

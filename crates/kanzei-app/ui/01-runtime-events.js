@@ -94,7 +94,7 @@ export const EXPERIENCE_NEURAL_EVENTS = new Map([
   ["stream_restarted", "stream_restarted"],
   ["usage_delta", "usage_delta"],
 ]);
-export const EXPERIENCE_KNOWN_EVENTS = new Set([...EXPERIENCE_NEURAL_EVENTS.keys(), "task_progressed", "permission_resolved", "response_interrupted"]);
+export const EXPERIENCE_KNOWN_EVENTS = new Set([...EXPERIENCE_NEURAL_EVENTS.keys(), "task_progressed", "permission_resolved", "response_interrupted", "context_request_recorded"]);
 export function rememberExperienceEvent(event) {
   if (experienceEventIds.has(event.event_id)) return false;
   experienceEventIds.add(event.event_id);

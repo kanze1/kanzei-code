@@ -1,0 +1,24 @@
+/* Context uses the existing anchored surface and product tokens. */
+#context-detail > strong { display:block; margin-bottom:var(--sp-5); font-size:var(--fs-14); }
+.context-manifest { margin-bottom:var(--sp-6); }
+.context-request-select { width:100%; min-width:0; font:inherit; padding:var(--sp-4); color:var(--fg); background:var(--panel); border:1px solid var(--border); border-radius:var(--r-sm); }
+.context-note { margin:var(--sp-4) 0 var(--sp-5); overflow-wrap:anywhere; }
+.context-tabs { display:flex; gap:var(--sp-4); margin:var(--sp-5) 0; }
+.context-tabs [aria-selected="true"] { background:var(--surface-selected); color:var(--fg-strong); }
+.context-assembly-group, .context-source { padding:var(--sp-5) 0; border-bottom:1px solid var(--border-soft); }
+.context-assembly-group > summary { display:list-item; cursor:pointer; overflow-wrap:anywhere; }
+.context-assembly-group > summary > .dim { float:right; margin-left:var(--sp-4); }
+.context-block { padding:var(--sp-4) 0 var(--sp-4) var(--sp-5); }
+.context-block > summary { cursor:pointer; overflow-wrap:anywhere; }
+.context-block-label { margin-right:var(--sp-5); }
+.context-block-body { padding:var(--sp-4) 0; }
+.context-fact { display:grid; grid-template-columns:minmax(72px,auto) minmax(0,1fr); align-items:start; gap:var(--sp-5); padding:var(--sp-3) 0; }
+.context-fact > :last-child { text-align:right; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.context-original, .context-parameters { white-space:pre-wrap; overflow-wrap:anywhere; max-height:320px; overflow:auto; padding:var(--sp-5); background:var(--code-bg); font-family:var(--mono); font-size:var(--fs-12); }
+.context-order { padding-left:24px; overflow-wrap:anywhere; }
+.context-source > summary { cursor:pointer; }
+.context-source-title { overflow-wrap:anywhere; }
+.context-source-meta { display:block; padding-left:var(--sp-5); margin-top:var(--sp-3); }
+.context-mentioned button { max-width:100%; white-space:normal; overflow-wrap:anywhere; text-align:left; }
+.context-new-request { margin-bottom:var(--sp-5); }
+@media (max-width:480px) { .context-assembly-group > summary > .dim { float:none; display:block; margin-left:var(--sp-5); } .context-fact { grid-template-columns:1fr; gap:var(--sp-2); } .context-fact > :last-child { text-align:left; } }

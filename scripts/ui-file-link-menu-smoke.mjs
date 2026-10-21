@@ -39,11 +39,11 @@ async function screenshot(page, name) {
   await page.screenshot({ path: target, fullPage: true });
   result.screenshots.push(target);
 }
-async function setup(page, { independent = false, baselineSource = null } = {}) {
+async function setup(page, { independent = false, baselineSource = null, general = false } = {}) {
   if (baselineSource) await page.route("**/19-structured-navigation.js", route => route.fulfill({ contentType: "text/javascript", body: baselineSource }));
   await page.goto(`${server.origin}/?scene=empty&theme=light`);
   await page.waitForFunction(() => window.__kzPreview?.ready);
-  await page.evaluate(async ({ project, reportPath, imagePath, relativePath, worktree, tools, independent }) => {
+  await page.evaluate(async ({ project, reportPath, imagePath, relativePath, worktree, tools, independent, general }) => {
     const shell = await import("/03-shell.js");
     const panes = await import("/01-chat-panes.js");
     const { enterProject } = await import("/09-sessions.js");
@@ -53,7 +53,8 @@ async function setup(page, { independent = false, baselineSource = null } = {}) 
       project_dir: project, worktree_path: independent ? worktree : null, profile: "dev", running: false,
       title: "文件链接回归", label: "文件链接回归", branch: null,
     };
-    const projects = { current: project, projects: [project], names: { [project]: "文件链接测试项目" } };
+    const projects = general ? { current: null, projects: [], names: {} }
+      : { current: project, projects: [project], names: { [project]: "文件链接测试项目" } };
     window.__kzPreview.setCommand("projects_get", projects);
     window.__kzPreview.setCommand("projects_select", ({ path }) => {
       if (path !== project) throw new Error(`未登记的测试项目: ${path}`);
@@ -85,7 +86,10 @@ async function setup(page, { independent = false, baselineSource = null } = {}) 
     // transaction. Setting only currentProject leaves the preview's old
     // browsingProject selected, so navigate_view would switch back and replace
     // these messages when this script runs outside the preview fixture's path.
-    await enterProject(projects);
+    if (general) {
+      window.__kzPreview.setCommand("general_chat_open", project);
+      await (await import("/29-general-chat.js")).openGeneralChat();
+    } else await enterProject(projects);
     if (shell.currentProject !== project || shell.activeProcessId !== fixture.id || shell.activeSessionId !== fixture.session_id) {
       throw new Error("文件链接夹具未进入目标项目与会话");
     }
@@ -104,7 +108,7 @@ async function setup(page, { independent = false, baselineSource = null } = {}) 
     document.addEventListener("contextmenu", event => window.__fileLink.contextEvents.push({
       text: event.target.textContent, prevented: event.defaultPrevented,
     }));
-  }, { project, reportPath, imagePath, relativePath, worktree, tools, independent });
+  }, { project: general ? "C:/Users/kanzei/.kanzei/conversations/general" : project, reportPath, imagePath, relativePath, worktree, tools, independent, general });
   await page.locator("#file-link-fixture a.md-path").first().waitFor({ state: "visible" });
 }
 async function delayTools(page) {
@@ -162,6 +166,45 @@ try {
       await screenshot(page, "released-baseline-no-menu");
     }, { baselineSource });
   }
+  await scenario("inline-artifact", async page => {
+    const identity = await page.evaluate(async () => {
+      const { renderMarkdownInto } = await import("/04-markdown.js");
+      const body = document.getElementById("file-link-fixture");
+      const root = window.__fileLink.fixture.origin_project;
+      const path = "artifacts/fnv-37febed659b71441/monty-hall-两对话整理.md";
+      const absolute = `${root}/${path}`.replaceAll("/", "\\");
+      const reply = `两份对话都用表格和分隔线整理，便于阅读。文件已保存到 \`${absolute}\`。`;
+      renderMarkdownInto(body, reply.slice(0, -2), { streaming: true });
+      const incompleteLinks = body.querySelectorAll("a.md-path").length;
+      renderMarkdownInto(body, reply, { streaming: true });
+      return { root, path, absolute, reply, incompleteLinks };
+    });
+    const link = page.locator("#file-link-fixture a.md-path");
+    check(identity.incompleteLinks === 0 && await link.count() === 1,
+      "streaming artifact path becomes a link only after its inline code closes, without a delivery receipt");
+    check(await link.getAttribute("data-path") === identity.absolute && await link.innerText() === identity.absolute,
+      "the screenshot's Windows/Chinese artifact path is preserved as a clickable link");
+    check(await link.locator(".resource-icon").count() === 1, "automatic file links share the existing resource icon");
+    await screenshot(page, "inline-artifact-general-chat");
+    await link.click();
+    await waitPreview(page, identity.root, identity.path);
+    assert.deepEqual((await calls(page, "file_preview")).at(-1).args, { projectDir: identity.root, path: identity.path });
+    check(true, "clicking the artifact in a projectless conversation opens its exact file in the real editor");
+    await page.evaluate(async reply => {
+      window.__fileLink.shell.navigate_view("chat");
+      const body = document.getElementById("file-link-fixture");
+      (await import("/04-markdown.js")).renderMarkdownInto(body, reply);
+      const saved = body.innerHTML;
+      body.innerHTML = saved;
+    }, identity.reply);
+    await link.click({ button: "right" }); await item(page, "复制路径").click();
+    check(await page.evaluate(expected => window.__fileLink.copied.at(-1) === expected, identity.absolute.replaceAll("\\", "/")),
+      "restored history links reuse the file menu and copy the complete absolute path");
+    await link.focus(); await page.keyboard.press("Enter");
+    await waitPreview(page, identity.root, identity.path);
+    check(true, "Enter opens restored artifact links through the delegated navigation owner");
+    await screenshot(page, "inline-artifact-preview");
+  }, { general: true });
   await scenario("immediate-menu", async page => {
     await delayTools(page);
     const before = (await calls(page, "file_preview")).length;

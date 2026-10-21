@@ -5,6 +5,7 @@ const EVENTS: &[&str] = &[
     "kz:ask-resolved",
     "kz:auto-fail",
     "kz:compacted",
+    "kz:context-request",
     "kz:done",
     "kz:error",
     "kz:experience",

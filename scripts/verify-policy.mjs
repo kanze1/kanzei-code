@@ -14,6 +14,8 @@ export function validateCheckRegistry(checks) {
   for (const check of checks) {
     if (!/^[a-z][a-z0-9_]*$/.test(check.key) || seen.has(check.key)) throw new Error(`Invalid or duplicate verification key: ${check.key}`);
     if (!["always", "rust", "frontend", "diagram"].includes(check.inputs)) throw new Error(`Unknown inputs for ${check.key}`);
+    if (check.paths !== undefined && (!Array.isArray(check.paths) || !check.paths.length || check.paths.some(pattern => typeof pattern !== "string" || !pattern || pattern.startsWith("/") || pattern.includes("..")))) throw new Error(`Invalid paths for ${check.key}`);
+    if (check.resources !== undefined && (!Array.isArray(check.resources) || check.resources.some(resource => !["cargo", "browser", "host"].includes(resource)))) throw new Error(`Invalid resources for ${check.key}`);
     if (typeof check.program !== "string" || !check.program.trim() || !Array.isArray(check.args) || !check.args.every(arg => typeof arg === "string") || (check.ci_args !== undefined && (!Array.isArray(check.ci_args) || !check.ci_args.every(arg => typeof arg === "string")))) throw new Error(`Invalid command for ${check.key}`);
     for (const dependency of check.depends_on ?? []) if (!seen.has(dependency)) throw new Error(`Dependency must precede ${check.key}: ${dependency}`);
     seen.add(check.key);
@@ -41,8 +43,64 @@ export function assertCleanBuildInputs(root, expectedCommit) {
   return { commit, tree: git("rev-parse", "HEAD^{tree}") };
 }
 
+// Development checks include uncommitted inputs and bind their result to those
+// bytes. Only the clean Full path can create a packaging receipt.
+export function inspectBuildInputs(root, expectedState) {
+  const git = (...args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 }).trim();
+  const commit = git("rev-parse", "HEAD"), tree = git("rev-parse", "HEAD^{tree}");
+  const dirtyPaths = [...new Set([
+    ...git("diff", "--name-only", "-z", "HEAD", "--", ...BUILD_INPUT_PATHS).split("\0"),
+    ...git("ls-files", "--others", "--exclude-standard", "-z", "--", ...BUILD_INPUT_PATHS).split("\0"),
+  ].filter(Boolean))].sort();
+  const hash = createHash("sha256").update(commit);
+  for (const file of dirtyPaths) {
+    hash.update("\0" + file + "\0");
+    const absolute = path.join(root, file);
+    if (fs.existsSync(absolute)) hash.update("file\0").update(fs.readFileSync(absolute));
+    else hash.update("deleted\0");
+  }
+  const state = { commit, tree, dirty_paths: dirtyPaths, worktree_sha256: hash.digest("hex") };
+  if (expectedState && (state.commit !== expectedState.commit || state.worktree_sha256 !== expectedState.worktree_sha256)) throw new Error("Build inputs changed during verification");
+  return state;
+}
+
 function normalizePath(value) {
   return String(value).replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+export function matchesInput(file, pattern) {
+  const tokens = pattern.split(/(\*\*\/|\*\*|\*)/);
+  const expression = tokens.map(token => token === "**/" ? "(?:.*/)?" : token === "**" ? ".*" : token === "*" ? "[^/]*" : token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("");
+  return new RegExp(`^${expression}$`).test(normalizePath(file));
+}
+
+// Shared owners can affect every view. Feature styles/modules use the narrower
+// paths declared by their checks; changing a test selects that test directly.
+const SHARED_FRONTEND_INPUTS = [
+  "crates/kanzei-app/ui/00-*.js", "crates/kanzei-app/ui/01-*.js",
+  "crates/kanzei-app/ui/02-*.js", "crates/kanzei-app/ui/03-*.js",
+  "crates/kanzei-app/ui/18-*.js", "crates/kanzei-app/ui/resource-types.css",
+  "crates/kanzei-app/ui/bootstrap.js", "crates/kanzei-app/ui/index.html",
+  "crates/kanzei-app/ui/app.css", "crates/kanzei-app/ui/style.css",
+  "crates/kanzei-app/ui/surface.css", "crates/kanzei-app/ui/tokens.css",
+  "scripts/ui-preview/**", "package.json", "package-lock.json",
+  "npm-shrinkwrap.json", ".npmrc", "eslint.config.js",
+];
+
+function scriptInputs(check) {
+  const root = fileURLToPath(new URL("../", import.meta.url)), found = new Set();
+  const visit = file => {
+    if (found.has(file)) return;
+    found.add(file);
+    if (!file.endsWith(".mjs")) return;
+    const source = fs.readFileSync(path.join(root, file), "utf8");
+    for (const match of source.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.[^"']+)["']/g)) {
+      const dependency = normalizePath(path.posix.normalize(path.posix.join(path.posix.dirname(file), match[1])));
+      if (dependency.startsWith("scripts/")) visit(dependency);
+    }
+  };
+  for (const arg of [...check.args, ...(check.ci_args ?? [])]) if (arg.startsWith("scripts/")) visit(arg);
+  return found;
 }
 
 function isRustPath(path) {
@@ -95,7 +153,17 @@ export function classifyChangedPaths(paths, { full = false } = {}) {
   const hasFrontend = full || policyChanged || changedPaths.some(isFrontendPath);
   const hasDiagram = hasFrontend || changedPaths.some(isDiagramPath);
   const selectedInputs = { always: true, rust: hasRust, frontend: hasFrontend, diagram: hasDiagram };
-  const skippedSteps = VERIFY_CHECKS.filter(({ inputs }) => !selectedInputs[inputs]).map(({ key }) => key);
+  const sharedFrontend = changedPaths.some(file => SHARED_FRONTEND_INPUTS.some(pattern => matchesInput(file, pattern)));
+  const selected = new Set(VERIFY_CHECKS.filter(check => {
+    if (full || policyChanged || (["frontend", "diagram"].includes(check.inputs) && sharedFrontend)) return true;
+    const scripts = scriptInputs(check);
+    return changedPaths.some(file => scripts.has(file)) ||
+      (check.paths ? changedPaths.some(file => check.paths.some(pattern => matchesInput(file, pattern))) : selectedInputs[check.inputs]);
+  }).map(check => check.key));
+  for (const check of [...VERIFY_CHECKS].reverse()) {
+    if (selected.has(check.key)) for (const dependency of check.depends_on ?? []) selected.add(dependency);
+  }
+  const skippedSteps = VERIFY_CHECKS.filter(check => !selected.has(check.key)).map(({ key }) => key);
   return {
     mode: full ? "full" : "targeted",
     full_verify: full,
@@ -183,4 +251,6 @@ if (command === "classify") {
   console.log("full verification evidence accepted");
 } else if (command === "assert-clean") {
   console.log(JSON.stringify(assertCleanBuildInputs(arg1, arg2)));
+} else if (command === "inspect") {
+  console.log(JSON.stringify(inspectBuildInputs(arg1, arg2 ? readJson(arg2) : undefined)));
 }

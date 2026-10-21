@@ -21,7 +21,9 @@ pub const SEGMENT_DELETED: &str = "conversation.segment_deleted";
 /// 元数据骨架显式保留,不在此列:conversation.reset(段界)、conversation.segment_deleted
 /// (审计)、session.*、orchestration.*、prompt.*、experience.fact、task.*、
 /// permission.resolved、run.transaction_budget_*、worktree.orphaned。
-pub(crate) const SEGMENT_CONTENT_TYPES: [&str; 13] = [
+pub(crate) const SEGMENT_CONTENT_TYPES: [&str; 15] = [
+    "context.request",
+    "context.content",
     "file.delivered",
     "conversation.updated",
     "conversation.rewind",

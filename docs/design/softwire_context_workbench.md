@@ -168,6 +168,10 @@ MD 继续是可编辑外部知识的真源。运行事件、工具产物和配�
 
 `ContextManifest`：`project_id, work_id, session_id, run_id, agent_id, request_id, revision, created_at, model, budget, items[]`。每项含类别、角色、来源 ID、来源版本/哈希、片段范围、纳入状态、理由、估算 token 与计量方式。凭最终 provider 请求确认实际纳入，区分缓存统计和上下文长度。
 
+2026-10-22 接入说明：对话框下方的既有“上下文”入口现在承载装配详情与来源资料。实际类型位于 `kanzei-core/src/store/context_manifest.rs`：记录最终装配块、来源读取状态、整理事件、协议及请求体 SHA-256。会话/运行/步骤由 `context.request` 的事件归属和载荷固定；正文按哈希写入同段的 `context.content`，后续请求复用内容引用。记录点位于预算整理、重复读取投影之后和 provider 建流成功之后；系统分块保持原请求字节与顺序。分项字符、输入 token 估算与服务端计费分开展示。
+
+查看请求不会切换会话或打开活动侧栏。历史请求固定原版本，原文检查使用请求内授权的内容哈希；同段可选最近 30 次记录。切会话或开启新段会关闭旧详情，迟到响应通过既有会话纪元失效。网页获取收据和消息链接单独展示，不能从“已获取”推断“已装入”。旧对话没有装配清单时显示未记录。本次接入提供查看与追溯，前述定向干预协议仍是独立的后续装配能力。
+
 `SignalEvent` 是现有 typed events 的投影：`event_id, project_id, run_id, request_id?, agent_id, sequence, occurred_at, kind, source_ref?, target_ref?, tool_call_id?, evidence_ref?, observation_level`。已有字段复用，缺字段用新增兼容版本；历史保留 unknown。投影自身不是第二份事件真源。
 
 `Intervention`：目标工作/agent/对象版本、作用范围、用户内容、幂等键、预期 revision、生效边界和 `queued / delivered / applied / failed` 回执。`applied` 必须关联实际新请求或成功文件版本；重复提交返回同一结果。版本变化要求展示变化后再提交，防止旧表单覆盖新版。

@@ -8,6 +8,8 @@ import "./03-layout.js";
 import "./03-workspaces.js";
 import "./04-diagram.js";
 import "./04-markdown.js";
+import "./vendor/katex/copy-tex.mjs";
+import "./04-quote-blocks.js";
 import "./04-structured-parse.js";
 import "./04-structured.js";
 import "./05-chat-render.js";

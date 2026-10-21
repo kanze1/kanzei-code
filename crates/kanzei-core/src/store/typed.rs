@@ -1588,6 +1588,22 @@ impl TypedWriterState {
         }
     }
 
+    fn record_context_request(
+        &mut self,
+        snapshot: &super::context_manifest::ContextSnapshot,
+    ) -> Result<StoredEvent, String> {
+        if self.terminal {
+            return Err("context request arrived after turn finalized".into());
+        }
+        let store = self
+            .store
+            .as_ref()
+            .ok_or("session writer has not started")?;
+        store
+            .append_context_request(&self.session_id, &self.turn_id, self.logical_step, snapshot)
+            .map_err(|error| error.to_string())
+    }
+
     pub fn errors(&self) -> &[String] {
         &self.errors
     }

@@ -28,7 +28,9 @@ use parallel_tools::{
     ParallelToolRequest,
 };
 mod assembly;
-use assembly::{assemble_run_once, observe_context_sources, update_source_ledger, RunOnceAssembly};
+use assembly::{
+    assemble_run_once, observe_context_sources, source_spans, update_source_ledger, RunOnceAssembly,
+};
 mod context_budget;
 use context_budget::enforce_context_budget;
 mod halt;
@@ -105,7 +107,10 @@ pub fn run_once_with_parts<'a>(
             mut specs,
             mut context_report,
             stable_system,
+            stable_system_sources,
             mut refreshable_baseline,
+            mut refreshable_sources,
+            mut context_source_reads,
             mut messages,
             mut total_usage,
             mut last_input_tokens,
@@ -140,7 +145,14 @@ pub fn run_once_with_parts<'a>(
         ));
         let round_messages_for_events = std::sync::Arc::clone(&round_messages);
         let outer_on_event = on_event;
-        let mut on_event = move |event: RunEvent| {
+        let mut context_adjustments = Vec::new();
+        let mut on_event = move |mut event: RunEvent| {
+            match &mut event {
+                RunEvent::ContextPruned { cleared_results, before_tokens, after_tokens } => context_adjustments.push(serde_json::json!({"kind":"pruned","cleared_results":cleared_results,"before_tokens":before_tokens,"after_tokens":after_tokens})),
+                RunEvent::ContextCompacted { before_tokens, after_tokens, dropped_messages, .. } => context_adjustments.push(serde_json::json!({"kind":"compacted","before_tokens":before_tokens,"after_tokens":after_tokens,"dropped_messages":dropped_messages})),
+                RunEvent::ContextRequest { snapshot } => snapshot.manifest.adjustments = std::mem::take(&mut context_adjustments),
+                _ => {}
+            }
             let pending_round = match &event {
                 RunEvent::AssistantMessageCommitted {
                     step,
@@ -168,7 +180,21 @@ pub fn run_once_with_parts<'a>(
                 }
                 _ => None,
             };
+            let pending_context = match &event {
+                RunEvent::WorkContextPrepared {
+                    report, accepted, ..
+                } => Some((
+                    serde_json::json!({"kind":"work_item","report":report}),
+                    accepted.clone(),
+                )),
+                _ => None,
+            };
             outer_on_event(event);
+            if let Some((change, accepted)) = pending_context {
+                if accepted.load(std::sync::atomic::Ordering::Acquire) {
+                    context_adjustments.push(change);
+                }
+            }
             if let Some(pending_round) = pending_round {
                 record_round_message(
                     &mut round_messages_for_events.lock().unwrap(),
@@ -244,11 +270,18 @@ pub fn run_once_with_parts<'a>(
                     &mut on_event,
                 )?;
                 refreshable_baseline = baseline;
+                refreshable_sources = source_spans(&sources);
+                for source in &sources {
+                    context_source_reads.retain(|old| old.key != source.key);
+                    context_source_reads.push(source.clone());
+                }
                 update_source_ledger(&mut context_report, &sources);
             }
             let mut system = stable_system.clone();
+            let mut system_sources = stable_system_sources.clone();
             if !refreshable_baseline.trim().is_empty() {
                 system.push(refreshable_baseline.clone());
+                system_sources.push(refreshable_sources.clone());
             }
             let budget_extension = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
             let winddown_signal = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -280,6 +313,10 @@ pub fn run_once_with_parts<'a>(
                 budget_instruction(last_step, winddown, budget_checkpoint, step)
             {
                 system.push(instruction);
+                system_sources.push(vec![(
+                    "runtime/budget".into(),
+                    system.last().unwrap().len(),
+                )]);
             }
             let step_specs: &[ToolSpec] = if last_step { &[] } else { &specs };
 
@@ -322,6 +359,9 @@ pub fn run_once_with_parts<'a>(
                 step_specs,
                 &mut messages,
                 batch_prompt.as_deref(),
+                &context_report,
+                &system_sources,
+                &context_source_reads,
                 halt,
                 &mut input_requests,
                 &mut on_event,
@@ -629,6 +669,9 @@ async fn stream_request_step(
     specs: &[ToolSpec],
     messages: &mut Vec<Message>,
     batch_prompt: Option<&str>,
+    context_report: &[(String, usize)],
+    system_sources: &[Vec<(String, usize)>],
+    context_source_reads: &[kanzei_harness::ContextSourceReport],
     halt: Option<&CancellationToken>,
     input_requests: &mut kanzei_harness::InputRequests,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
@@ -644,6 +687,8 @@ async fn stream_request_step(
         // 每次恢复都会改写 messages，请求必须在重试循环内重建；否则即使压缩了
         // 内存历史，发给 provider 的仍会是第一次克隆出的超长请求。
         let projection = super::observations::project_observation_context(messages);
+        let repeated_results = projection.repeated_results;
+        let omitted_bytes = projection.omitted_bytes;
         let mut request_messages = projection.messages.into_owned();
         if let Some(prompt) = batch_prompt {
             request_messages.push(Message::user_text(prompt));
@@ -697,6 +742,20 @@ async fn stream_request_step(
             }
             result => result?,
         };
+        on_event(RunEvent::ContextRequest {
+            snapshot: crate::store::context_manifest::ContextSnapshot::capture(
+                &request,
+                route,
+                crate::store::context_manifest::ContextCapture {
+                    contributions: context_report,
+                    system_sources,
+                    source_reads: context_source_reads,
+                    estimated_tokens: last_estimated,
+                    repeated_results,
+                    omitted_bytes,
+                },
+            ),
+        });
         let mut text_buffers: BTreeMap<usize, String> = BTreeMap::new();
         let mut reasoning_buffers: BTreeMap<usize, String> = BTreeMap::new();
         let mut hosted_calls: BTreeMap<usize, (String, String)> = BTreeMap::new();

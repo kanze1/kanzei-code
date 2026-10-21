@@ -844,6 +844,12 @@ pub(crate) fn build_event_handler(
                 }
                 Ok(())
             }
+            RunEvent::ContextRequest { snapshot } => {
+                match typed.writer.lock().unwrap().record_context_request(snapshot) {
+                    Ok(event) => ui.emit("kz:context-request", json!({"sequence":event.sequence})),
+                    Err(error) => ui.emit("kz:status", json!({"stage":"上下文记录失败","detail":error})),
+                }
+            }
             RunEvent::ContextSources { sources } => {
                 trace.record(json!({"kind": "context.sources", "sources": sources, "at": now_ms()}));
                 let failures = sources.iter().filter_map(|source| source.failure_message()).collect::<Vec<_>>();

@@ -155,6 +155,13 @@ impl TypedSessionWriter {
     pub fn errors(&self) -> &[String] {
         &self.errors
     }
+
+    pub fn record_context_request(
+        &mut self,
+        snapshot: super::super::context_manifest::ContextSnapshot,
+    ) -> Result<super::super::StoredEvent, String> {
+        self.execute(move |state| state.record_context_request(&snapshot))
+    }
     pub fn is_terminal(&self) -> bool {
         self.terminal
     }

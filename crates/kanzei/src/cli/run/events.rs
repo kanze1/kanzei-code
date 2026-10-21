@@ -125,6 +125,15 @@ pub(crate) fn make_event_handler(
             };
             let _ = writeln!(stdout, "  {mark} {preview}");
         }
+        kanzei_core::RunEvent::ContextRequest { snapshot } => {
+            if let Err(error) = typed_writer
+                .lock()
+                .unwrap()
+                .record_context_request(snapshot)
+            {
+                eprintln!("上下文记录失败：{error}");
+            }
+        }
         kanzei_core::RunEvent::ContextSources { sources } => {
             for source in sources {
                 if let Some(message) = source.failure_message() {

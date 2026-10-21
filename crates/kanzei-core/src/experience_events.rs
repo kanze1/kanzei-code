@@ -191,6 +191,7 @@ pub fn legacy_event_type(name: &str) -> (&'static str, ExperienceEventClass) {
         "kz:stream-restart" => ("stream_restarted", ExperienceEventClass::Presentation),
         "kz:response-interrupted" => ("response_interrupted", ExperienceEventClass::Presentation),
         "kz:step" => ("usage_delta", ExperienceEventClass::Delta),
+        "kz:context-request" => ("context_request_recorded", ExperienceEventClass::Fact),
         "kz:status" => ("run_status_changed", ExperienceEventClass::Presentation),
         _ => ("unknown_event", ExperienceEventClass::Presentation),
     }

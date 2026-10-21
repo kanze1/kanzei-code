@@ -195,6 +195,48 @@
     "path": "composer_drafts::composer_drafts_load",
     "returns": "-> Result < Vec < Value > , String >"
   },
+  "context_content": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "sequence": {
+        "required": true,
+        "type": "i64"
+      },
+      "sha256": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "context_view::context_content",
+    "returns": "-> Result < String , String >"
+  },
+  "context_snapshot": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "sequence": {
+        "required": false,
+        "type": "Option < i64 >"
+      }
+    },
+    "path": "context_view::context_snapshot",
+    "returns": "-> Result < Value , String >"
+  },
   "conventions_discard": {
     "host": "service",
     "parameters": {
