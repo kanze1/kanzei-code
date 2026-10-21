@@ -1,6 +1,8 @@
 //! Execution identity shared by requests, work claims and verification receipts.
 use std::collections::BTreeSet;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use anyhow::{ensure, Context};
 use serde::{Deserialize, Serialize};
@@ -29,7 +31,40 @@ pub struct PythonEnvironment {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BinaryIdentity {
+    pub path: PathBuf,
+    pub sha256: String,
+    pub version: String,
+}
+
+fn binary_identity() -> anyhow::Result<BinaryIdentity> {
+    static CURRENT: OnceLock<BinaryIdentity> = OnceLock::new();
+    if let Some(identity) = CURRENT.get() {
+        return Ok(identity.clone());
+    }
+    let path = kanzei_base::path_form::canonical(&std::env::current_exe()?)?;
+    let mut file = std::fs::File::open(&path)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    let identity = BinaryIdentity {
+        path,
+        sha256: format!("{:x}", digest.finalize()),
+        version: env!("CARGO_PKG_VERSION").into(),
+    };
+    Ok(CURRENT.get_or_init(|| identity).clone())
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExecutionIdentity {
+    #[serde(default)]
+    pub harness: Option<BinaryIdentity>,
     pub cwd: PathBuf,
     pub project_root: PathBuf,
     pub source: Option<SourceIdentity>,
@@ -181,6 +216,7 @@ impl ExecutionIdentity {
             break;
         }
         Ok(Self {
+            harness: Some(binary_identity()?),
             source: source_snapshot(&cwd)?.map(|(identity, _)| identity),
             cwd,
             project_root,
@@ -255,6 +291,8 @@ mod tests {
         });
         std::fs::write(&python, "interpreter fixture").unwrap();
         let identity = ExecutionIdentity::capture(&root, &root).unwrap();
+        assert_eq!(identity.harness.as_ref().unwrap().sha256.len(), 64);
+        assert_eq!(identity.harness, Some(binary_identity().unwrap()));
         assert_eq!(
             identity.python.as_ref().unwrap().executable,
             kanzei_base::path_form::canonical(&python).unwrap()
