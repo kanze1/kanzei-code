@@ -71,8 +71,10 @@ pub(crate) struct RunMode {
 }
 
 impl RunMode {
-    pub(crate) fn ask_policy(&self) -> kanzei_core::AskPolicy {
-        if !self.autonomous {
+    pub(crate) fn ask_policy(&self, agent: &str) -> kanzei_core::AskPolicy {
+        if !self.autonomous && agent == "dev" {
+            kanzei_core::AskPolicy::DeferredQuestions
+        } else if !self.autonomous {
             kanzei_core::AskPolicy::Interactive
         } else if self.auto_allow {
             kanzei_core::AskPolicy::AutoAllow
@@ -295,7 +297,7 @@ pub(crate) async fn assemble_run(
         // D-281:自动轮默认 NonInteractive(避免后台 ASK 挂起弹窗);用户勾选
         // 自动放行后传 AutoAllow——权限询问直接放行并落 PermissionResolved
         // 事件,不再静默 declined(开关因此对鞭挞/自主推进轮生效)。
-        mode.ask_policy(),
+        mode.ask_policy(&agent.name),
         // D-342:主对话 run 全部接停止令牌(协作式停止的接收端)。
         Some(halt_token.clone()),
     );
@@ -1496,7 +1498,7 @@ mod tests {
     use kanzei_harness::ProfileKind;
 
     #[test]
-    fn 所有用户对话使用同一交互策略() {
+    fn 自动模式首轮续跑与复核输入都留档_权限仍按输入来源处理() {
         let mut mode = super::RunMode {
             execution_batch: false,
 
@@ -1511,11 +1513,24 @@ mod tests {
             autonomous: false,
             auto_allow: false,
         };
-        assert!(matches!(
-            mode.ask_policy(),
-            kanzei_core::AskPolicy::Interactive
-        ));
-        mode.autonomous = true;
+        use kanzei_core::AskPolicy::{AutoAllow, DeferredQuestions, Interactive, NonInteractive};
+        for (agent, autonomous, auto_allow, expected) in [
+            ("dev", false, false, DeferredQuestions),
+            ("dev", false, true, DeferredQuestions),
+            ("dev", true, false, NonInteractive),
+            ("dev", true, true, AutoAllow),
+            ("dev-pair", false, false, Interactive),
+            ("dev-pair", true, false, NonInteractive),
+            ("dev-pair", true, true, AutoAllow),
+            ("research", false, false, Interactive),
+            ("research", true, false, NonInteractive),
+            ("general", false, false, Interactive),
+            ("readonly", false, false, Interactive),
+        ] {
+            mode.autonomous = autonomous;
+            mode.auto_allow = auto_allow;
+            assert_eq!(mode.ask_policy(agent), expected);
+        }
         mode.agent_name = Some("dev-pair".into());
         assert!(
             !mode.uses_project_workflow(),
@@ -1523,15 +1538,6 @@ mod tests {
         );
         mode.agent_name = Some("dev".into());
         assert!(mode.uses_project_workflow());
-        assert!(matches!(
-            mode.ask_policy(),
-            kanzei_core::AskPolicy::NonInteractive
-        ));
-        mode.auto_allow = true;
-        assert!(matches!(
-            mode.ask_policy(),
-            kanzei_core::AskPolicy::AutoAllow
-        ));
     }
 
     #[test]

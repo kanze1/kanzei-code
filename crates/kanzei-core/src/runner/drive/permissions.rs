@@ -251,7 +251,7 @@ pub(super) async fn resolve_permission_gate(state: &mut PermissionGateRequest<'_
                     resolved("allow", "auto_allow");
                     continue;
                 }
-                _ if !state.config.ask_policy.allows_user_prompt() => {
+                _ if !state.config.ask_policy.allows_permission_prompt() => {
                     resolved("declined", "noninteractive");
                     gate_result = Gate::NonInteractive(format!(
                         "permission requires user approval: {action} on `{resource}`; autonomous/parallel run skipped it",

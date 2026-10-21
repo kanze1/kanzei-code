@@ -158,7 +158,7 @@ pub(super) fn assemble_run_once<'a>(
         context_report.push(("runtime/delegation".into(), guidance.chars().count()));
         stable_system.push(guidance);
     }
-    if !config.ask_policy.allows_user_prompt() {
+    if config.ask_policy.records_questions() {
         let instructions = super::question::AUTONOMOUS_DECISIONS;
         context_report.push(("runtime/decisions".into(), instructions.chars().count()));
         stable_system.push(instructions.into());

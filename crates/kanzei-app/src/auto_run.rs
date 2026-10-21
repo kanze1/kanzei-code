@@ -326,25 +326,14 @@ pub fn nudge_facts(cwd: &Path, project_root: &Path, work_priority: WorkPriority)
     }
 }
 
-/// UI2-0926 #13 兜底判据:最终回复是否明显以**向用户提问 / 请用户提供或决定**收尾。
-///
-/// 主信号是 question 工具(pending_question);这一条只兜「模型用散文提问」的情形——「MD文件保存」
-/// 现场模型最后一句是「请提供实际应用仓库的路径…」,引擎看不出来,先 Continue 再 Nudge。
-/// 判据刻意保守(用户 2026-09-26 接受偶尔误停:代价是回一句话就续跑):
-/// - 只看去掉代码块之后的最后一段(末段是选项列表时连同前一段);
-/// - 末句以 `？`/`?` 结尾,或含「请提供/请确认/请选择…」「please provide/confirm…」这类直接请求;
-/// - 客套的收尾邀请(「如有问题请告诉我」「需要的话随时说」「feel free to…」)不算。
+/// 只有交互模式的问题能进入等待用户状态。自动模式的问题持久留档，
+/// 不决定线路是否继续；没有可推进工作时由 backlog/无动作/零产出判据收口。
 pub(crate) fn awaiting_user_for_round(
     missing_fact: bool,
     last_text: Option<&str>,
     autonomous: bool,
-    backlog: kanzei_harness::auto_run::BacklogStatus,
 ) -> bool {
-    if autonomous {
-        missing_fact && backlog != kanzei_harness::auto_run::BacklogStatus::Workable
-    } else {
-        missing_fact || last_text.is_some_and(ends_with_user_question)
-    }
+    !autonomous && (missing_fact || last_text.is_some_and(ends_with_user_question))
 }
 
 pub fn ends_with_user_question(text: &str) -> bool {
@@ -608,31 +597,57 @@ pub fn work_priority_enum(v: &str) -> WorkPriority {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn autonomous_questions_stop_only_for_unavailable_facts_without_independent_work() {
-        use super::{awaiting_user_for_round, BacklogStatus};
-        assert!(!awaiting_user_for_round(
+    fn 自动问题不改变线路状态_队列和目标仍由状态机判定() {
+        use kanzei_harness::auto_run::{AutoRunCtx, AutoRunState, BacklogStatus};
+        for backlog in [
+            BacklogStatus::Workable,
+            BacklogStatus::AllBlocked,
+            BacklogStatus::Empty,
+            BacklogStatus::Unknown,
+        ] {
+            for goal_active in [false, true] {
+                let round = |missing_fact| AutoRunCtx {
+                    backlog,
+                    halted: false,
+                    intensity: kanzei_harness::HarnessIntensity::Autonomous,
+                    completion: None,
+                    awaiting_user: super::awaiting_user_for_round(
+                        missing_fact,
+                        Some("请提供路径？"),
+                        true,
+                    ),
+                    goal_active,
+                    steps: 3,
+                    tools: &[],
+                    auto_allowed: true,
+                    closed_this_round: 0,
+                    round_failure: None,
+                    progress_signature: "initial",
+                };
+                let mut with_question = AutoRunState::default();
+                let mut without_question = AutoRunState::default();
+                assert_eq!(
+                    with_question.decide(&round(true)),
+                    without_question.decide(&round(false)),
+                    "backlog={backlog:?}, goal={goal_active}"
+                );
+                assert_eq!(with_question.rounds, without_question.rounds);
+            }
+        }
+    }
+
+    #[test]
+    fn 交互问题仍然等待真实回答() {
+        assert!(super::awaiting_user_for_round(
             false,
             Some("需要分页吗？"),
-            true,
-            BacklogStatus::Workable
+            false
         ));
-        assert!(!awaiting_user_for_round(
-            true,
-            Some("请提供路径"),
-            true,
-            BacklogStatus::Workable
-        ));
-        assert!(awaiting_user_for_round(
-            true,
-            None,
-            true,
-            BacklogStatus::AllBlocked
-        ));
-        assert!(awaiting_user_for_round(
+        assert!(super::awaiting_user_for_round(true, None, false));
+        assert!(!super::awaiting_user_for_round(
             false,
-            Some("需要分页吗？"),
-            false,
-            BacklogStatus::Workable
+            Some("已完成修改。"),
+            false
         ));
     }
     use super::{apply_state_update, AutoRunController};

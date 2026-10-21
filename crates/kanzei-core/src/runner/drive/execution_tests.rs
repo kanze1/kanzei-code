@@ -300,7 +300,11 @@ impl Tool for SensitiveProbe {
 
 #[tokio::test]
 async fn credentials_ignore_auto_allow_and_broad_session_rules_but_honor_exact_user_consent() {
-    for ask_policy in [AskPolicy::AutoAllow, AskPolicy::Interactive] {
+    for ask_policy in [
+        AskPolicy::AutoAllow,
+        AskPolicy::Interactive,
+        AskPolicy::DeferredQuestions,
+    ] {
         let root = std::env::temp_dir().join(format!(
             "kz-sensitive-execution-{}-{ask_policy:?}",
             std::process::id()
@@ -370,7 +374,7 @@ async fn credentials_ignore_auto_allow_and_broad_session_rules_but_honor_exact_u
             };
             assert_eq!(results.len(), 2);
         }
-        let interactive = matches!(ask_policy, AskPolicy::Interactive);
+        let interactive = ask_policy.allows_permission_prompt();
         assert_eq!(
             probe.0.load(Ordering::SeqCst),
             if interactive { 4 } else { 0 }

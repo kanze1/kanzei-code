@@ -512,11 +512,7 @@ pub(crate) async fn run_task(
     let awaiting_user = crate::auto_run::awaiting_user_for_round(
         round_awaiting_user.load(std::sync::atomic::Ordering::Relaxed),
         crate::auto_run::last_assistant_text(&summary.round_messages).as_deref(),
-        !matches!(
-            deps.runner_config.ask_policy,
-            kanzei_core::AskPolicy::Interactive
-        ),
-        backlog,
+        deps.runner_config.ask_policy.records_questions(),
     );
     // D-583:真实进展签名——放在锁外算,避免在持锁期间做文件 IO/git 子进程调用。
     let progress_signature = if crate::general_chat::is_general_root(&deps.project_root) {

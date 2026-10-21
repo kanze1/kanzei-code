@@ -20,7 +20,7 @@ pub(super) async fn execute_question(
     if question.is_empty() {
         return ToolOutput::error("question must not be empty");
     }
-    if !ask_policy.allows_user_prompt() {
+    if ask_policy.records_questions() {
         return match record_question(ctx, call_id, question, &options, input) {
             Ok(record) => decision_output(record),
             Err(error) => ToolOutput::needs_correction(
@@ -254,7 +254,11 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        for policy in [AskPolicy::NonInteractive, AskPolicy::AutoAllow] {
+        for policy in [
+            AskPolicy::DeferredQuestions,
+            AskPolicy::NonInteractive,
+            AskPolicy::AutoAllow,
+        ] {
             let ctx = ToolCtx::new(root.clone(), root.clone())
                 .with_session_id("origin".into())
                 .with_identity(
@@ -279,6 +283,16 @@ mod tests {
             );
             let repeated = execute_question(policy, &ctx, "call-3", &input, &mut ask).await;
             assert_eq!(repeated.display, output.display);
+            let missing = execute_question(
+                policy,
+                &ctx,
+                "call-4",
+                &serde_json::json!({"question":"实际部署目录在哪里？", "missing_fact":"用户机器上的部署目录"}),
+                &mut ask,
+            ).await;
+            assert!(!missing.is_error);
+            assert_eq!(missing.display.as_ref().unwrap()["status"], "needs_input");
+            assert!(!missing.content.contains("User answer:"));
         }
         let store = crate::SessionStore::open(&crate::project_state_path(&root)).unwrap();
         assert_eq!(
@@ -286,7 +300,7 @@ mod tests {
                 .list_decisions(&crate::project_session_id(&root))
                 .unwrap()
                 .len(),
-            2
+            6
         );
         drop(store);
         std::fs::remove_dir_all(root).unwrap();

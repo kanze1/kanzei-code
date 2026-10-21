@@ -61,20 +61,27 @@ use event::{drain_task_events, preview};
 /// 必须非交互，否则一个后台 ASK 会把整条自动链路挂在桌面弹窗上。
 ///
 /// D-281 第三档 `AutoAllow`：自动轮在用户勾选「自动放行」时的策略——不弹窗
-/// （`allows_user_prompt()` 仍 false），但权限询问**直接放行**并落
+/// （`allows_permission_prompt()` 仍 false），但权限询问**直接放行**并落
 /// `PermissionResolved(allow, "auto_allow")` 事件保可审计，而不是像
 /// `NonInteractive` 那样短路 declined。自动放行放的是**权限**；问题工具
 /// （question）在非交互模式要求模型自行决定并持久留档，不伪造用户回答。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AskPolicy {
     Interactive,
+    /// 自动模式的手动输入：问题持久留档，工具权限仍由用户审批。
+    DeferredQuestions,
     NonInteractive,
     AutoAllow,
 }
 
 impl AskPolicy {
-    pub(crate) fn allows_user_prompt(self) -> bool {
-        matches!(self, Self::Interactive)
+    pub(crate) fn allows_permission_prompt(self) -> bool {
+        matches!(self, Self::Interactive | Self::DeferredQuestions)
+    }
+
+    /// 问题留档与工具权限分别判断，手动输入不能让自动模式退回同步提问。
+    pub fn records_questions(self) -> bool {
+        !matches!(self, Self::Interactive)
     }
 }
 
@@ -303,10 +310,15 @@ mod tests {
 
     #[test]
     fn 自举与并行线禁止用户询问() {
-        assert!(AskPolicy::Interactive.allows_user_prompt());
-        assert!(!AskPolicy::NonInteractive.allows_user_prompt());
+        assert!(AskPolicy::Interactive.allows_permission_prompt());
+        assert!(!AskPolicy::Interactive.records_questions());
+        assert!(AskPolicy::DeferredQuestions.allows_permission_prompt());
+        assert!(AskPolicy::DeferredQuestions.records_questions());
+        assert!(!AskPolicy::NonInteractive.allows_permission_prompt());
+        assert!(AskPolicy::NonInteractive.records_questions());
         // D-281:AutoAllow 也不弹用户窗——自动放行放的是权限,不是问题。
-        assert!(!AskPolicy::AutoAllow.allows_user_prompt());
+        assert!(!AskPolicy::AutoAllow.allows_permission_prompt());
+        assert!(AskPolicy::AutoAllow.records_questions());
     }
 
     #[test]
