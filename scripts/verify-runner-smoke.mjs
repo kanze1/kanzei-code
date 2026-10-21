@@ -6,6 +6,8 @@ import { createHash } from "node:crypto";
 import { runChecks } from "./verify-runner.mjs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "kanzei-verify-scheduler-"));
+const previousTemp = process.env.TEMP;
+process.env.TEMP = root;
 try {
   const fixture = path.join(root, "fixture.mjs");
   fs.writeFileSync(fixture, `
@@ -74,5 +76,7 @@ if(action === 'cargo_a') {
   assert.deepEqual(ci.checks.ci.command, [process.execPath, fixture, "dependent"]);
   console.log("Verification scheduler passed: real process overlap, Cargo exclusion, dependencies, host isolation, failure propagation, CI commands and log hashes");
 } finally {
+  if (previousTemp === undefined) delete process.env.TEMP;
+  else process.env.TEMP = previousTemp;
   fs.rmSync(root, { recursive: true, force: true });
 }
