@@ -360,11 +360,12 @@ mod tests {
             return;
         }
         let ctx = fixture();
+        let program = crate::shell::detected_shell().program.display().to_string();
         for suffix in [
-            "; Write-Output tail-ok",
-            " | Out-String; Write-Output tail-ok",
+            "; Write-Output tail-ok".to_string(),
+            " | Out-String; Write-Output tail-ok".to_string(),
+            format!(" | & '{program}' -NoProfile -Command '$input | Out-Null; exit 0'; Write-Output tail-ok"),
         ] {
-            let program = crate::shell::detected_shell().program.display().to_string();
             let command = format!("& '{program}' -NoProfile -Command 'exit 7'{suffix}");
             let output = crate::bash::BashTool::default()
                 .execute(

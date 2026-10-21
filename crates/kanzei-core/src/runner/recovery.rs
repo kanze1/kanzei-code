@@ -2,6 +2,9 @@
 use kanzei_llm::{Message, Part};
 use std::collections::{BTreeMap, HashMap};
 
+/// Bump whenever evidence requirements change; old observations remain auditable.
+pub(crate) const RECOVERY_CONTRACT_VERSION: i64 = 1;
+
 pub(crate) struct VerifiedRecovery {
     pub(crate) fingerprint: String,
     pub(crate) failed_call_id: String,

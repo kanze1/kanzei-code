@@ -185,6 +185,7 @@ impl SessionStore {
                  CREATE INDEX IF NOT EXISTS recall_events_episode
                      ON recall_events(episode_id, created_at);
                  CREATE TABLE IF NOT EXISTS memory_recoveries (
+                     contract_version INTEGER NOT NULL DEFAULT 0,
                      episode_id INTEGER NOT NULL REFERENCES episodes(episode_id),
                      fingerprint TEXT NOT NULL,
                      failed_call_id TEXT NOT NULL,
@@ -350,7 +351,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS file_checkpoints_path
                      ON file_checkpoints(path_key, updated_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '28')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '29')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -418,6 +419,12 @@ impl SessionStore {
             }
         }
         tx.execute_batch("CREATE INDEX IF NOT EXISTS recall_events_run_created ON recall_events(run_id, created_at);")?;
+        let recovery_version_exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('memory_recoveries') WHERE name = 'contract_version')", [], |row| row.get(0),
+        )?;
+        if !recovery_version_exists {
+            tx.execute_batch("ALTER TABLE memory_recoveries ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0;")?;
+        }
         // v21(R-347):运行态的进度、指标序列与成本必须在旧库中补齐,否则既有
         // state.db 会在读取 research_runs 时因 no such column 失效。
         for column in [
@@ -650,6 +657,7 @@ mod tests {
         "memory_eval_agg.eval_n",
         "memory_eval_agg.last_eval",
         "memory_eval_agg.memory_id",
+        "memory_recoveries.contract_version",
         "memory_recoveries.episode_id",
         "memory_recoveries.failed_call_id",
         "memory_recoveries.fingerprint",

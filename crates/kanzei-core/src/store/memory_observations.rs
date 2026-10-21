@@ -227,15 +227,16 @@ impl SessionStore {
         for recovery in verified_recoveries(messages) {
             tx.execute(
                 "INSERT OR IGNORE INTO memory_recoveries
-                 (episode_id, fingerprint, failed_call_id, recovered_call_id, tool, target)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (episode_id, fingerprint, failed_call_id, recovered_call_id, tool, target, contract_version)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     episode_id,
                     recovery.fingerprint,
                     recovery.failed_call_id,
                     recovery.recovered_call_id,
                     recovery.tool,
-                    recovery.target
+                    recovery.target,
+                    crate::runner::recovery::RECOVERY_CONTRACT_VERSION,
                 ],
             )?;
         }
@@ -249,8 +250,8 @@ impl SessionStore {
         fingerprint: &str,
     ) -> Result<bool, StoreError> {
         Ok(self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM memory_recoveries WHERE episode_id = ?1 AND fingerprint = ?2)",
-            params![episode_id, crate::normalize_fp_marker(fingerprint)], |row| row.get(0),
+            "SELECT EXISTS(SELECT 1 FROM memory_recoveries WHERE episode_id = ?1 AND fingerprint = ?2 AND contract_version = ?3)",
+            params![episode_id, crate::normalize_fp_marker(fingerprint), crate::runner::recovery::RECOVERY_CONTRACT_VERSION], |row| row.get(0),
         )?)
     }
 }
@@ -498,6 +499,47 @@ mod tests {
         }
         messages.extend(noop);
         assert!(verified_recoveries(&messages).is_empty());
+    }
+
+    #[test]
+    fn v28_recovery_rows_remain_auditable_but_cannot_verify_a_new_promotion() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let episode = store
+            .append_episode(&EpisodeRecord {
+                session_id: "legacy",
+                run_id: "legacy",
+                ..Default::default()
+            })
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "ALTER TABLE memory_recoveries DROP COLUMN contract_version;
+            UPDATE schema_meta SET value='28' WHERE key='schema_version';",
+            )
+            .unwrap();
+        store.connection.execute("INSERT INTO memory_recoveries (episode_id,fingerprint,failed_call_id,recovered_call_id,tool,target)
+            VALUES (?1,'[fp:edit|old_string not found]','old-failed','old-recovered','edit','a/x.rs')", [episode]).unwrap();
+        store.migrate().unwrap();
+        store.migrate().unwrap();
+        let count: i64 = store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM memory_recoveries WHERE contract_version=0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(!store
+            .has_memory_recovery(episode, "[fp:edit|old_string not found]")
+            .unwrap());
+        let mut messages = tool("failed", "edit", "a/x.rs", true);
+        messages.extend(tool("fixed", "edit", "a/x.rs", false));
+        store.record_episode_recoveries(episode, &messages).unwrap();
+        assert!(store
+            .has_memory_recovery(episode, "[fp:edit|old_string not found]")
+            .unwrap());
     }
 
     #[test]

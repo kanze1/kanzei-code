@@ -39,6 +39,18 @@ foreach ($kanzeiCall in $kanzeiAst.FindAll({param($node) $node -is [System.Manag
 # are data; nested invocation ASTs are checked before any user statement runs.
 if ($env:KANZEI_SHELL_VERIFICATION -eq '1') {
     Remove-Item Env:KANZEI_SHELL_VERIFICATION
+    $ErrorActionPreference = 'Stop'
+    if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction Ignore) {
+        $PSNativeCommandUseErrorActionPreference = $true
+    } elseif ($kanzeiAst.FindAll({param($node) $node -is [System.Management.Automation.Language.PipelineAst] -and $node.PipelineElements.Count -gt 1}, $true).Count -gt 0) {
+        Stop-KanzeiSyntaxGuard 'SHELL_VERIFICATION_PIPELINE' 'This PowerShell cannot track native failures inside pipelines. Run separate verification statements or use PowerShell with native error tracking.'
+    }
+    trap {
+        $kanzeiStepExit = if ($_.Exception.PSObject.Properties['ExitCode']) { $_.Exception.ExitCode } elseif ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+        [Console]::Error.WriteLine($_.ToString())
+        [Console]::Error.WriteLine('KANZEI_SHELL_STEP:' + (@{index=$kanzeiStepIndex; command=$kanzeiStatement.Extent.Text; exit_code=$kanzeiStepExit} | ConvertTo-Json -Compress))
+        exit $kanzeiStepExit
+    }
     # Verification is a sequence of top-level statements with checked status.
     # Dot-source in one scope so assignments and explicit error handling inside
     # a statement retain PowerShell semantics. Never let a later success hide

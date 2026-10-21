@@ -56,9 +56,25 @@ pub(super) fn check_revision(ctx: &ToolCtx, revision: &str) -> Result<(), String
     {
         let mut command = std::process::Command::new("git");
         crate::hide_console(&mut command);
+        let resolved = command
+            .current_dir(&ctx.cwd)
+            .args([
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                &format!("{revision}^{{commit}}"),
+            ])
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !resolved.status.success() {
+            return Err(format!("Work Unit 的基线不是可读取的提交: {revision}"));
+        }
+        let commit = String::from_utf8(resolved.stdout).map_err(|error| error.to_string())?;
+        let mut command = std::process::Command::new("git");
+        crate::hide_console(&mut command);
         let output = command
             .current_dir(&ctx.cwd)
-            .args(["merge-base", "--is-ancestor", revision, "HEAD"])
+            .args(["merge-base", "--is-ancestor", commit.trim(), "HEAD"])
             .output()
             .map_err(|error| error.to_string())?;
         if !output.status.success() {
