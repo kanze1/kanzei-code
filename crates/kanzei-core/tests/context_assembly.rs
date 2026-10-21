@@ -79,25 +79,34 @@ impl Tool for FixtureTool {
     }
 }
 
-struct Fixture(std::path::PathBuf);
+struct Fixture(tempfile::TempDir);
 impl Fixture {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "kz-context-run-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        Self(root)
+        Self(
+            tempfile::Builder::new()
+                .prefix(&format!("kz-context-run-{label}-"))
+                .tempdir()
+                .unwrap(),
+        )
     }
 }
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).unwrap();
-    }
+
+#[test]
+fn same_label_fixtures_keep_files_and_cleanup_independent() {
+    let first = Fixture::new("soft-target");
+    let second = Fixture::new("soft-target");
+    assert_ne!(first.0.path(), second.0.path());
+    std::fs::write(first.0.path().join("conventions.md"), "first policy").unwrap();
+    std::fs::write(second.0.path().join("conventions.md"), "second policy").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(first.0.path().join("conventions.md")).unwrap(),
+        "first policy"
+    );
+    drop(first);
+    assert_eq!(
+        std::fs::read_to_string(second.0.path().join("conventions.md")).unwrap(),
+        "second policy"
+    );
 }
 
 async fn mock_provider(case: Case) -> (Route, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
@@ -187,8 +196,8 @@ async fn run_fixture_with_limit(
     let snapshot = harness
         .resolve(&ResolveCtx {
             profile: ProfileKind::Dev,
-            cwd: fixture.0.clone(),
-            project_root: fixture.0.clone(),
+            cwd: fixture.0.path().to_path_buf(),
+            project_root: fixture.0.path().to_path_buf(),
             config: Arc::new(KanzeiConfig::default()),
         })
         .unwrap();
@@ -226,7 +235,10 @@ async fn run_fixture_with_limit(
             &snapshot,
             &agent,
             &config,
-            &ToolCtx::new(fixture.0.clone(), fixture.0.clone()),
+            &ToolCtx::new(
+                fixture.0.path().to_path_buf(),
+                fixture.0.path().to_path_buf(),
+            ),
             "Continue the task",
             None,
             prior,
@@ -246,7 +258,7 @@ async fn assert_admitted_above_soft_target(context_limit: Option<u64>, paragraph
     let fixture = Fixture::new("soft-target");
     let conventions = "Policy: retain source, boundary, constraint, verification, and recovery.\n"
         .repeat(paragraphs);
-    std::fs::write(fixture.0.join("conventions.md"), &conventions).unwrap();
+    std::fs::write(fixture.0.path().join("conventions.md"), &conventions).unwrap();
     let prior = vec![
         Message::user_text("Existing task history must remain intact"),
         Message::assistant(vec![Part::Text {
@@ -303,7 +315,7 @@ async fn cold_start_safety_factor_is_not_a_capacity_measurement() {
 async fn final_step_budgets_only_the_schemas_actually_sent_to_the_provider() {
     let fixture = Fixture::new("final-step");
     std::fs::write(
-        fixture.0.join("conventions.md"),
+        fixture.0.path().join("conventions.md"),
         "complete small conventions",
     )
     .unwrap();
@@ -323,7 +335,7 @@ async fn final_step_budgets_only_the_schemas_actually_sent_to_the_provider() {
 #[tokio::test]
 async fn required_source_failure_stops_before_any_provider_call() {
     let fixture = Fixture::new("required");
-    std::fs::write(fixture.0.join("conventions.md"), [0xff, 0xfe]).unwrap();
+    std::fs::write(fixture.0.path().join("conventions.md"), [0xff, 0xfe]).unwrap();
     let (result, events, calls) =
         run_fixture(&fixture, ContextRequirement::Required, &[], Case::Stable).await;
     let error = result
@@ -341,7 +353,7 @@ async fn required_source_failure_stops_before_any_provider_call() {
 #[tokio::test]
 async fn optional_source_failure_is_reported_while_the_run_can_continue() {
     let fixture = Fixture::new("optional");
-    std::fs::write(fixture.0.join("conventions.md"), [0xff, 0xfe]).unwrap();
+    std::fs::write(fixture.0.path().join("conventions.md"), [0xff, 0xfe]).unwrap();
     let (result, events, calls) =
         run_fixture(&fixture, ContextRequirement::Optional, &[], Case::Stable).await;
     assert_eq!(result.unwrap().text, "done");
@@ -357,7 +369,7 @@ async fn oversized_complete_conventions_refuse_before_compaction_or_provider_cal
         conventions.push_str(&format!("\n## 模块 {index} 的职责与验收\n所有变更必须保留来源、依赖边界、测试证据与失败原因。未完成的工作不得标为完成；用户确认的约束必须完整遵守。\n"));
     }
     conventions.push_str("\n最后一条必须规则：保留恢复入口和完整原文。\n");
-    std::fs::write(fixture.0.join("conventions.md"), &conventions).unwrap();
+    std::fs::write(fixture.0.path().join("conventions.md"), &conventions).unwrap();
     let prior = vec![
         Message::user_text("此前任务"),
         Message::assistant(vec![Part::Text {
@@ -387,7 +399,7 @@ async fn oversized_complete_conventions_refuse_before_compaction_or_provider_cal
     )));
     assert!(events.iter().any(|event| matches!(event, RunEvent::ContextSources { sources } if sources.iter().any(|source| source.chars == conventions.trim().chars().count() && source.status == ContextSourceStatus::Loaded))));
     assert_eq!(
-        std::fs::read_to_string(fixture.0.join("conventions.md")).unwrap(),
+        std::fs::read_to_string(fixture.0.path().join("conventions.md")).unwrap(),
         conventions
     );
 }
@@ -396,7 +408,11 @@ async fn oversized_complete_conventions_refuse_before_compaction_or_provider_cal
 async fn refreshed_required_failure_stops_next_request_but_optional_failure_updates_ledger() {
     for requirement in [ContextRequirement::Required, ContextRequirement::Optional] {
         let fixture = Fixture::new("refresh");
-        std::fs::write(fixture.0.join("conventions.md"), "initial conventions").unwrap();
+        std::fs::write(
+            fixture.0.path().join("conventions.md"),
+            "initial conventions",
+        )
+        .unwrap();
         let (result, events, calls) =
             run_fixture(&fixture, requirement, &[], Case::RefreshFailure).await;
         assert!(events.iter().any(|event| matches!(event, RunEvent::ContextSources { sources } if sources.iter().any(|source| source.refresh_each_step && source.status == ContextSourceStatus::Loaded))));
@@ -430,7 +446,7 @@ async fn refreshed_required_failure_stops_next_request_but_optional_failure_upda
 async fn oversized_tool_schema_is_diagnosed_even_when_system_is_small() {
     let fixture = Fixture::new("schema");
     std::fs::write(
-        fixture.0.join("conventions.md"),
+        fixture.0.path().join("conventions.md"),
         "complete small conventions",
     )
     .unwrap();
@@ -460,7 +476,7 @@ async fn oversized_tool_schema_is_diagnosed_even_when_system_is_small() {
 async fn exhausted_budget_rejects_provider_tool_calls_before_side_effects() {
     let fixture = Fixture::new("budget-violation");
     std::fs::write(
-        fixture.0.join("conventions.md"),
+        fixture.0.path().join("conventions.md"),
         "Never exceed the tool budget",
     )
     .unwrap();
@@ -476,7 +492,7 @@ async fn exhausted_budget_rejects_provider_tool_calls_before_side_effects() {
     assert_eq!(summary.outcome(), "incomplete");
     assert_eq!(calls, 1);
     assert!(
-        !fixture.0.join("forbidden-side-effect").exists(),
+        !fixture.0.path().join("forbidden-side-effect").exists(),
         "a provider tool call must not execute after the budget is exhausted"
     );
     assert!(events.iter().any(|event| matches!(
