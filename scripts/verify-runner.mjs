@@ -8,8 +8,11 @@ import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 
-export async function runChecks({ checks, root, directory, runId, ci = false, workers = Math.min(4, os.availableParallelism()), browserWorkers = 2, report = console.log }) {
+let nextTemporaryDirectory = 0;
+
+export async function runChecks({ checks, root, directory, runId, temporaryRoot, ci = false, workers = Math.min(4, os.availableParallelism()), browserWorkers = 2, report = console.log }) {
   if (!Number.isInteger(workers) || workers < 1 || !Number.isInteger(browserWorkers) || browserWorkers < 1) throw new Error("Invalid verification concurrency");
+  if (!temporaryRoot || !path.isAbsolute(temporaryRoot)) throw new Error("Verification requires a task-owned temporary root");
   const pending = [...checks], running = new Map(), results = new Map();
   const started = performance.now();
   fs.mkdirSync(directory, { recursive: true });
@@ -34,7 +37,10 @@ export async function runChecks({ checks, root, directory, runId, ci = false, wo
       result.status = "fail"; result.exit_code = 1; result.error = dependencyError;
       write(dependencyError + "\n");
     } else {
-      const temp = fs.mkdtempSync(path.join(process.env.TEMP ?? os.tmpdir(), "check-"));
+      // Short slot names preserve the path budget for nested Windows Git
+      // worktree metadata. The caller owns and reclaims their common root.
+      const temp = path.join(temporaryRoot, (nextTemporaryDirectory++).toString(36));
+      fs.mkdirSync(temp);
       result.temporary_directory = temp;
       await new Promise(resolve => {
         const child = spawn(check.program, args, { cwd: root, windowsHide: true, env: { ...process.env, TEMP: temp, TMP: temp, TMPDIR: temp }, stdio: ["ignore", "pipe", "pipe"] });
@@ -71,7 +77,7 @@ export async function runChecks({ checks, root, directory, runId, ci = false, wo
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const [planFile, directory, runId, environment] = process.argv.slice(2);
   const plan = JSON.parse(fs.readFileSync(planFile, "utf8").replace(/^\uFEFF/, ""));
-  const result = await runChecks({ checks: plan.checks, root: process.cwd(), directory, runId, ci: environment === "ci" });
+  const result = await runChecks({ checks: plan.checks, root: process.cwd(), directory, runId, temporaryRoot: process.env.TEMP, ci: environment === "ci" });
   fs.writeFileSync(path.join(directory, "results.json"), JSON.stringify({ ...result, execution_environment: environment }, null, 2) + "\n");
   process.exitCode = result.all_pass ? 0 : 1;
 }

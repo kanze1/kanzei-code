@@ -6,8 +6,6 @@ import { createHash } from "node:crypto";
 import { runChecks } from "./verify-runner.mjs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "kanzei-verify-scheduler-"));
-const previousTemp = process.env.TEMP;
-process.env.TEMP = root;
 try {
   const fixture = path.join(root, "fixture.mjs");
   fs.writeFileSync(fixture, `
@@ -56,7 +54,7 @@ if(action === 'cargo_a') {
       active.add(key);
     } else active.delete(line.split(" ")[1]);
   };
-  const result = await runChecks({ checks, root, directory, runId: "fixture", workers: 3, browserWorkers: 1, report });
+  const result = await runChecks({ checks, root, directory, runId: "fixture", temporaryRoot: root, workers: 3, browserWorkers: 1, report });
   assert.equal(result.all_pass, false);
   for (const key of ["cargo_a", "cargo_b", "guard", "dependent", "host", "independent"]) assert.equal(result.checks[key].status, "pass", key);
   assert.equal(result.checks.failure.exit_code, 7);
@@ -69,14 +67,12 @@ if(action === 'cargo_a') {
     assert.equal(createHash("sha256").update(log).digest("hex"), check.log_sha256);
   }
   assert.match(fs.readFileSync(path.join(directory, "dependent.log"), "utf8"), /stderr is evidence/);
-  const browser = await runChecks({ checks: [make("browser_a", ["browser"]), make("browser_b", ["browser"]), make("browser_guard")], root, directory, runId: "fixture", workers: 3, browserWorkers: 1, report: () => {} });
+  const browser = await runChecks({ checks: [make("browser_a", ["browser"]), make("browser_b", ["browser"]), make("browser_guard")], root, directory, runId: "fixture", temporaryRoot: root, workers: 3, browserWorkers: 1, report: () => {} });
   assert.equal(browser.all_pass, true, "browser capacity is independent of the total worker budget");
-  const ci = await runChecks({ checks: [{ ...make("ci"), ci_args: [fixture, "dependent"] }], root, directory, runId: "fixture", ci: true, report: () => {} });
+  const ci = await runChecks({ checks: [{ ...make("ci"), ci_args: [fixture, "dependent"] }], root, directory, runId: "fixture", temporaryRoot: root, ci: true, report: () => {} });
   assert.equal(ci.all_pass, true);
   assert.deepEqual(ci.checks.ci.command, [process.execPath, fixture, "dependent"]);
   console.log("Verification scheduler passed: real process overlap, Cargo exclusion, dependencies, host isolation, failure propagation, CI commands and log hashes");
 } finally {
-  if (previousTemp === undefined) delete process.env.TEMP;
-  else process.env.TEMP = previousTemp;
   fs.rmSync(root, { recursive: true, force: true });
 }
