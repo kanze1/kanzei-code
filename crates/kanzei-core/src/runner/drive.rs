@@ -706,17 +706,7 @@ async fn stream_request_step(
         // 固定 system/tools 已由步级装配选好，与预算准入使用同一份输入。
         let last_estimated =
             estimate_prompt_tokens_for_protocol(system, &request_messages, specs, Some(route.kind));
-        let request = LlmRequest {
-            model: config.model.clone(),
-            system: system.to_vec(),
-            messages: request_messages,
-            tools: specs.to_vec(),
-            hosted_tools: vec![],
-            max_tokens: config.max_tokens,
-            temperature: None,
-            reasoning: config.reasoning,
-            service_tier: config.service_tier.clone(),
-        };
+        let request = assembly::build_request(config, system, request_messages, specs);
         // Persist the request before dispatch, including failed transports.
         let mut context_snapshot = crate::store::context_manifest::ContextSnapshot::capture(
             &request,

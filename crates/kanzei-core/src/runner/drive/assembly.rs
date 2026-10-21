@@ -5,6 +5,26 @@
 
 use super::*;
 
+/// Construct the provider request alongside the existing context assembly owner.
+pub(super) fn build_request(
+    config: &RunnerConfig,
+    system: &[String],
+    messages: Vec<Message>,
+    specs: &[ToolSpec],
+) -> LlmRequest {
+    LlmRequest {
+        model: config.model.clone(),
+        system: system.to_vec(),
+        messages,
+        tools: specs.to_vec(),
+        hosted_tools: vec![],
+        max_tokens: config.max_tokens,
+        temperature: None,
+        reasoning: config.reasoning,
+        service_tier: config.service_tier.clone(),
+    }
+}
+
 /// Publish the same report on both success and required-source failure.
 pub(super) fn observe_context_sources(
     baseline: kanzei_harness::ContextBaseline,
