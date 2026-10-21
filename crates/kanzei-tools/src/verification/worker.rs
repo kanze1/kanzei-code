@@ -77,12 +77,22 @@ async fn execute(job: &mut VerificationJob) -> anyhow::Result<()> {
     )?;
     let shell = crate::shell::detected_shell();
     let mut command = tokio::process::Command::new(&shell.program);
-    let text = crate::shell::command_with_utf8_output(shell.name, &job.command);
+    let source = crate::shell::execution_source(shell.name, &job.command, true)?;
+    let text = crate::shell::command_with_utf8_output(shell.name, &source);
     command
         .args(&shell.args)
         .arg(text)
+        .env("KANZEI_SHELL_SOURCE", &job.command)
+        .env("KANZEI_SHELL_VERIFICATION", "1")
         .current_dir(&job.snapshot)
-        .env("PATH", crate::shell::fresh_path())
+        .env(
+            "PATH",
+            crate::shell::execution_path(
+                job.execution
+                    .as_ref()
+                    .and_then(|execution| execution.python.as_ref()),
+            )?,
+        )
         .env_remove("KANZEI_PROJECT_ROOT")
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
@@ -95,6 +105,13 @@ async fn execute(job: &mut VerificationJob) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         command.process_group(0);
+    }
+    if let Some(python) = job
+        .execution
+        .as_ref()
+        .and_then(|execution| execution.python.as_ref())
+    {
+        command.env("VIRTUAL_ENV", &python.root);
     }
     let mut child = command.spawn()?;
     job.command_pid = child.id();

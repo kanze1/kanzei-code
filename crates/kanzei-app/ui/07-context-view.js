@@ -41,6 +41,10 @@ function blockDetails(view, block) {
 function assembly(view) {
   const manifest=view.data.selected.manifest, box=node("div");
   box.append(row(t("请求输入估算"),`${number(manifest.estimated_tokens)} tokens`),node("p","dim context-note",t("分项按字符统计；输入估算与服务端计费分别记录。")));
+  if(manifest.execution) {
+    const execution=node("details","context-assembly-group");execution.append(node("summary","",t("运行快照")));
+    execution.append(node("pre","context-parameters",JSON.stringify({execution:manifest.execution,provider_channel:manifest.provider_channel,request_parameters:manifest.request_parameters},null,2)));box.append(execution);
+  }
   for(const group of contextGroups(manifest)) {
     const detail=node("details","context-assembly-group"), summary=node("summary");
     summary.append(node("span","",t(group.label)),node("span","dim",`${number(group.chars)} ${t("字符")} · ${group.blocks.length}`));detail.append(summary);

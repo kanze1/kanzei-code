@@ -28,6 +28,12 @@ pub struct ContextBlock {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContextManifest {
+    #[serde(default)]
+    pub provider_channel: String,
+    #[serde(default)]
+    pub request_parameters: Value,
+    #[serde(default)]
+    pub execution: Option<kanzei_harness::execution::ExecutionIdentity>,
     pub format_version: u32,
     pub model: String,
     pub protocol: String,
@@ -80,9 +86,26 @@ impl ContextSnapshot {
             request,
             &route.hosted_channel(&request.model),
         );
+        let request_parameters: serde_json::Map<String, Value> = [
+            "model",
+            "max_tokens",
+            "max_completion_tokens",
+            "max_output_tokens",
+            "temperature",
+            "reasoning",
+            "reasoning_effort",
+            "service_tier",
+            "thinking",
+        ]
+        .into_iter()
+        .filter_map(|key| wire.get(key).cloned().map(|value| (key.to_string(), value)))
+        .collect();
         let wire = wire.to_string();
         let mut snapshot = Self {
             manifest: ContextManifest {
+                provider_channel: route.provider_channel.clone(),
+                request_parameters: Value::Object(request_parameters),
+                execution: None,
                 format_version: 1,
                 model: request.model.clone(),
                 protocol: format!("{:?}", route.kind),
@@ -355,6 +378,9 @@ mod tests {
         store.create_session("b", "project", None).unwrap();
         let mut snapshot = ContextSnapshot {
             manifest: ContextManifest {
+                provider_channel: "fixture".into(),
+                request_parameters: json!({}),
+                execution: None,
                 format_version: 1,
                 model: "fixture".into(),
                 protocol: "fixture".into(),

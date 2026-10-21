@@ -16,7 +16,8 @@ struct WorkInput {
     /// next=true 时显式读取完整状态；默认返回有界决策摘要。
     #[serde(default)]
     detail: bool,
-    /// claim/get_unit/checkpoint/block/unblock/verify/evidence/complete/supersede 必填。
+    /// claim accepts a requirement/defect ID or a Work Unit ID. Unit lifecycle actions
+    /// require the exact unit_id returned by create_unit/list_units, e.g. R-001/W1.
     #[serde(default)]
     id: Option<String>,
     #[serde(default)]
@@ -97,6 +98,13 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         input.action == "claim" && input.id.as_deref().is_some_and(|id| id.contains("/W"));
     if !is_unit_claim && !UNIT_ACTIONS.contains(&input.action.as_str()) {
         return None;
+    }
+    if !matches!(input.action.as_str(), "list_units" | "create_unit")
+        && input.id.as_deref().is_some_and(|id| !id.contains("/W"))
+    {
+        let parent = input.id.as_deref().unwrap();
+        return Some(ToolOutput::needs_correction("WORK_UNIT_ID_REQUIRED",
+            format!("此动作需要 Work Unit 的 unit_id（例如 {parent}/W1），不能使用父需求 {parent}。先 work list_units(requirement_id={parent})，使用返回的 unit_id；req update 只记录需求进展，不代表 Work Unit 完成。")));
     }
 
     if input.action == "list_units" {
@@ -223,6 +231,14 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
     };
 
     if is_unit_claim {
+        if current.status == WorkUnitStatus::Ready {
+            if let Err(error) = super::execution::check_revision(ctx, &current.base_revision) {
+                return Some(ToolOutput::needs_correction(
+                    "EXECUTION_REVISION_MISMATCH",
+                    error,
+                ));
+            }
+        }
         let me = line_identity(&ctx.cwd, &ctx.project_root);
         let state = match resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority) {
             Ok(state) => state,
@@ -331,6 +347,22 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         if !uses_work_units(outcome) {
             return Some(ToolOutput::error("父需求未启用 work_units_v1"));
         }
+        let execution = match super::execution::preflight(ctx, outcome) {
+            Ok(execution) => execution,
+            Err(error) => {
+                return Some(ToolOutput::needs_correction(
+                    "EXECUTION_INPUTS_NOT_READY",
+                    error,
+                ))
+            }
+        };
+        crate::work::log::append(
+            &ctx.project_root,
+            "execution_bound",
+            Some(id),
+            ctx,
+            execution,
+        );
         if let Err(error) = crate::prior_art::check_start(&ctx.project_root, outcome) {
             return Some(ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error));
         }
@@ -739,6 +771,10 @@ impl Tool for WorkTool {
                 ));
             }
         }
+        let execution = match super::execution::preflight(ctx, &entries[position]) {
+            Ok(execution) => execution,
+            Err(error) => return ToolOutput::needs_correction("EXECUTION_INPUTS_NOT_READY", error),
+        };
         if kind.prefix == "R" {
             if let Err(error) = crate::prior_art::check_start(&ctx.project_root, &entries[position])
             {
@@ -776,6 +812,7 @@ impl Tool for WorkTool {
             ctx,
             serde_json::json!({
                 "source": if is_default { "engine" } else { "override" },
+                "execution": execution,
                 "reason": if is_default {
                     state.reason.clone()
                 } else {
@@ -807,6 +844,7 @@ impl Tool for WorkTool {
         ToolOutput::ok(
             json!({
                 "claimed": id,
+                "execution": execution,
                 "lifecycle_status": wip_status,
                 "override": !is_default,
                 "line": me,

@@ -47,6 +47,8 @@ fn default_resource() -> String {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VerificationJob {
+    #[serde(default)]
+    pub execution: Option<kanzei_harness::execution::ExecutionIdentity>,
     pub id: String,
     /// Results return to the conversation that submitted this job, regardless of its ID format.
     #[serde(default)]
@@ -209,6 +211,10 @@ fn prepare(
     let snapshot = artifact.join("source");
     let (manifest, fingerprint) = snapshot::freeze(&source, &snapshot)?;
     let mut job = VerificationJob {
+        execution: Some(kanzei_harness::execution::ExecutionIdentity::capture(
+            &ctx.cwd,
+            &ctx.project_root,
+        )?),
         id,
         session_id: ctx.session_id.clone(),
         project: root,

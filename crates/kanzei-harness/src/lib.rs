@@ -64,4 +64,5 @@ pub use tool::{
 };
 pub use tool_search::{ToolSearchTool, TOOL_SEARCH};
 
+pub mod execution;
 pub mod pending_question;

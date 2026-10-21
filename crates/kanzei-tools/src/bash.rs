@@ -296,6 +296,9 @@ async fn bash_body(
     let mut output = bash_command_body(input, ctx, &tool.snapshots, cancel).await;
     if let Some(test) = test {
         if let Err(error) = test.finish(&mut output) {
+            output.is_error = true;
+            output.outcome = kanzei_harness::ToolOutcome::Failed;
+            output.code = Some("TEST_RECORD_FAILED".into());
             output.content.push_str(&format!(
                 "\n自动测试记录未完成: {error}；不能据此声称测试已登记。"
             ));
@@ -361,11 +364,16 @@ async fn bash_command_body(
     .unwrap_or_default();
 
     let shell = detected_shell();
-    let execution_source = if matches!(shell.name, "pwsh" | "powershell") {
-        include_str!("bash/powershell.ps1")
-    } else {
-        &input.command
-    };
+    let execution_source =
+        match crate::shell::execution_source(shell.name, &input.command, input.test.is_some()) {
+            Ok(source) => source,
+            Err(error) => {
+                return ToolOutput::needs_correction(
+                    "VERIFICATION_SHELL_REQUIRED",
+                    error.to_string(),
+                )
+            }
+        };
     let mut command = tokio::process::Command::new(&shell.program);
     // UI2-0926 #13:① 命令前加 UTF-8 输出前导(中文路径曾被 GBK→UTF-8 解码成 U+FFFD);
     // ② PATH 每次按注册表新鲜合并(会话中途装好的工具立刻可用);③ 工作目录用 simplify
@@ -375,9 +383,13 @@ async fn bash_command_body(
         .args(&shell.args)
         .arg(crate::shell::command_with_utf8_output(
             shell.name,
-            execution_source,
+            &execution_source,
         ))
         .env("KANZEI_SHELL_SOURCE", &input.command)
+        .env(
+            "KANZEI_SHELL_VERIFICATION",
+            if input.test.is_some() { "1" } else { "0" },
+        )
         .env("PATH", crate::shell::fresh_path())
         .current_dir(crate::path_form::simplify(&workdir))
         .stdin(if input.interactive {
@@ -389,6 +401,35 @@ async fn bash_command_body(
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     hide_console_window(&mut command);
+
+    let identity = match &ctx.execution_identity {
+        Some(identity)
+            if crate::path_form::canonical(&workdir)
+                .is_ok_and(|directory| directory.starts_with(&identity.cwd)) =>
+        {
+            identity.clone()
+        }
+        Some(_) | None => {
+            match kanzei_harness::execution::ExecutionIdentity::capture(&workdir, &ctx.project_root)
+            {
+                Ok(identity) => std::sync::Arc::new(identity),
+                Err(error) => {
+                    return ToolOutput::failed("EXECUTION_IDENTITY_UNAVAILABLE", error.to_string())
+                }
+            }
+        }
+    };
+    match crate::shell::execution_path(identity.python.as_ref()) {
+        Ok(path) => {
+            command.env("PATH", path);
+        }
+        Err(error) => {
+            return ToolOutput::failed("EXECUTION_ENVIRONMENT_CHANGED", error.to_string())
+        }
+    }
+    if let Some(python) = &identity.python {
+        command.env("VIRTUAL_ENV", &python.root);
+    }
 
     if input.interactive && input.persistent {
         return ToolOutput::needs_correction(
@@ -592,6 +633,11 @@ async fn bash_command_body(
             }
             let display = serde_json::json!({
                 "kind": "terminal",
+                "execution": identity.as_ref(),
+                "steps": String::from_utf8_lossy(&err_buf).lines()
+                    .filter_map(|line| line.strip_prefix("KANZEI_SHELL_STEP:"))
+                    .filter_map(|payload| serde_json::from_str::<serde_json::Value>(payload).ok())
+                    .collect::<Vec<_>>(),
                 "command": input.command,
                 "exitCode": code,
                 "output": text.chars().take(4000).collect::<String>(),

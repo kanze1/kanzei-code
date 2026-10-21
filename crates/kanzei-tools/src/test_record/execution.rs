@@ -25,6 +25,7 @@ pub(crate) struct TestExecutionGuard {
     recorded_command: String,
     refs: Vec<String>,
     fingerprint: String,
+    execution: kanzei_harness::execution::ExecutionIdentity,
     started: Instant,
     finished: bool,
 }
@@ -49,7 +50,18 @@ impl TestExecutionGuard {
             .collect::<String>();
         // Keep the Markdown ledger one line; the artifact retains the exact command.
         let recorded_command = command.replace('\r', "\\r").replace('\n', "\\n");
-        let fingerprint = crate::git::source_endorsement_fingerprint(&ctx.cwd).unwrap_or_default();
+        let execution_workdir = workdir
+            .map(|dir| {
+                ctx.cwd
+                    .join(kanzei_harness::permission::normalize_resource(dir))
+            })
+            .unwrap_or_else(|| ctx.cwd.clone());
+        let fingerprint = crate::git::source_endorsement_fingerprint(&execution_workdir)?;
+        let execution = kanzei_harness::execution::ExecutionIdentity::capture(
+            &execution_workdir,
+            &ctx.project_root,
+        )
+        .map_err(|error| error.to_string())?;
         let _lock = super::lock_test_runs(&ctx.project_root)?;
         let snapshot = super::record_test_run_with_duration(
             &ctx.project_root,
@@ -80,6 +92,7 @@ impl TestExecutionGuard {
                 .unwrap_or_else(|| ctx.cwd.clone()),
             refs: input.refs.clone(),
             fingerprint,
+            execution,
             started: Instant::now(),
             finished: false,
         };
@@ -113,7 +126,22 @@ impl TestExecutionGuard {
 
     pub(crate) fn finish(mut self, output: &mut ToolOutput) -> Result<(), String> {
         let exit_code = output.display.as_ref().and_then(|d| d["exitCode"].as_i64());
-        let status = if !output.is_error && exit_code == Some(0) {
+        let after = kanzei_harness::execution::ExecutionIdentity::capture(
+            &self.workdir,
+            &self.ctx.project_root,
+        )
+        .map_err(|error| error.to_string())?;
+        // Tracker-only commits may move HEAD without changing tested inputs.
+        let source_changed = self.execution.cwd != after.cwd
+            || self.execution.project_root != after.project_root
+            || self.execution.python != after.python
+            || self
+                .execution
+                .source
+                .as_ref()
+                .map(|source| &source.fingerprint)
+                != after.source.as_ref().map(|source| &source.fingerprint);
+        let status = if !output.is_error && exit_code == Some(0) && !source_changed {
             "passed"
         } else {
             "failed"
@@ -123,16 +151,20 @@ impl TestExecutionGuard {
         std::fs::create_dir_all(path.parent().ok_or("test artifact parent missing")?)
             .map_err(|error| error.to_string())?;
         let artifact = json!({
-            "id": self.id, "command": self.command, "source_cwd": self.ctx.cwd,
+            "id": self.id, "command": self.command, "source_cwd": self.execution.cwd,
+            "controller_cwd": self.ctx.cwd,
             "workdir": self.workdir,
             "status": status, "exit_code": exit_code,
             "duration_secs": self.started.elapsed().as_secs_f64(),
-            "source_fingerprint_before": self.fingerprint,
-            "source_binding": if self.fingerprint.is_empty() {
-                "no_source_fingerprint"
+            "source_fingerprint_before": self.execution.source.as_ref().map(|source| &source.fingerprint),
+            "commit_source_fingerprint": self.fingerprint,
+            "source_binding": if self.execution.source.is_none() {
+                "unversioned_directory"
             } else {
-                "existing_source_endorsement_rules"
+                "git_visible_inputs_sha256"
             },
+            "execution": self.execution, "execution_after": after,
+            "source_changed": source_changed,
             "run_id": self.ctx.run_id, "refs": self.refs,
             "content": output.content, "display": output.display,
         });
@@ -145,6 +177,14 @@ impl TestExecutionGuard {
         ),
         )?;
         self.finished = true;
+        if source_changed {
+            output.is_error = true;
+            output.outcome = kanzei_harness::ToolOutcome::Failed;
+            output.code = Some("TEST_SOURCE_CHANGED".into());
+            output.content.push_str(
+                "\nSource changed during verification; exit 0 cannot endorse the starting inputs.",
+            );
+        }
         output.content.push_str(&format!(
             "\n自动测试记录: {} [{status}]，日志: {relative}。无需再次调用 test_record。",
             self.id
@@ -287,6 +327,7 @@ mod tests {
         let input: TestExecution =
             serde_json::from_value(json!({"title": "source identity"})).unwrap();
         let guard = TestExecutionGuard::start(&ctx, "exit 0", None, &input).unwrap();
+        let source_before = guard.execution.source.as_ref().unwrap().fingerprint.clone();
         let id = guard.id.clone();
         std::fs::write(ctx.cwd.join("crates/sample.rs"), "fn after() {}").unwrap();
         let after = crate::git::source_endorsement_fingerprint(&ctx.cwd).unwrap();
@@ -301,11 +342,78 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(artifact["source_fingerprint_before"], before);
+        assert_eq!(artifact["source_fingerprint_before"], source_before);
+        assert_eq!(artifact["commit_source_fingerprint"], before);
+        assert_eq!(artifact["status"], "failed");
+        assert_eq!(artifact["source_changed"], true);
+        assert!(result.is_error);
         let archive =
             std::fs::read_to_string(ctx.cwd.join(super::super::TEST_RUNS_ARCHIVE_REL)).unwrap();
         assert!(archive.contains(&before));
         assert!(!archive.contains(&after));
+        std::fs::remove_dir_all(ctx.project_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_failure_cannot_be_hidden_by_a_later_success_in_recorded_tests() {
+        if !matches!(crate::shell::detected_shell().name, "pwsh" | "powershell") {
+            return;
+        }
+        let ctx = fixture();
+        for suffix in [
+            "; Write-Output tail-ok",
+            " | Out-String; Write-Output tail-ok",
+        ] {
+            let program = crate::shell::detected_shell().program.display().to_string();
+            let command = format!("& '{program}' -NoProfile -Command 'exit 7'{suffix}");
+            let output = crate::bash::BashTool::default()
+                .execute(
+                    json!({
+                        "command":command,"test":{"title":"masked native failure"}
+                    }),
+                    &ctx,
+                )
+                .await;
+            assert!(output.is_error, "{}", output.content);
+            let display = output.display.unwrap();
+            assert_eq!(display["exitCode"], 7);
+            assert_eq!(display["steps"][0]["exit_code"], 7);
+            assert!(!output.content.contains("tail-ok\r\n"));
+        }
+        std::fs::remove_dir_all(ctx.project_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn project_python_is_resolved_before_system_path_and_cannot_change_mid_run() {
+        if !matches!(crate::shell::detected_shell().name, "pwsh" | "powershell") {
+            return;
+        }
+        let mut ctx = fixture();
+        let bin = ctx.cwd.join(".venv/Scripts");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(ctx.cwd.join(".venv/pyvenv.cfg"), "version = 3.11.9").unwrap();
+        std::fs::write(bin.join("python.exe"), "interpreter fixture").unwrap();
+        ctx.execution_identity = Some(std::sync::Arc::new(
+            kanzei_harness::execution::ExecutionIdentity::capture(&ctx.cwd, &ctx.project_root)
+                .unwrap(),
+        ));
+        let output = crate::bash::BashTool::default()
+            .execute(json!({"command":"(Get-Command python.exe).Source"}), &ctx)
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        assert!(
+            output.content.contains(".venv\\Scripts\\python.exe"),
+            "{}",
+            output.content
+        );
+        std::fs::write(bin.join("python.exe"), "replaced interpreter").unwrap();
+        let output = crate::bash::BashTool::default()
+            .execute(json!({"command":"Write-Output must-not-run"}), &ctx)
+            .await;
+        assert_eq!(
+            output.code.as_deref(),
+            Some("EXECUTION_ENVIRONMENT_CHANGED")
+        );
         std::fs::remove_dir_all(ctx.project_root).unwrap();
     }
 }

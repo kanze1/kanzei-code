@@ -19,6 +19,47 @@ pub fn detected_shell() -> &'static DetectedShell {
     SHELL.get_or_init(detect)
 }
 
+/// Verification checks top-level statement/pipeline failure; interactive commands
+/// retain the host shell's normal last-command semantics.
+pub(crate) fn execution_source(
+    shell: &str,
+    command: &str,
+    verification: bool,
+) -> anyhow::Result<String> {
+    Ok(match shell {
+        "pwsh" | "powershell" => include_str!("bash/powershell.ps1").into(),
+        "bash" | "zsh" if verification => format!("set -e\nset -o pipefail\n{command}"),
+        _ if verification => anyhow::bail!("Recorded verification requires PowerShell, bash or zsh with checked statement and pipeline failures"),
+        _ => command.into(),
+    })
+}
+
+pub(crate) fn execution_path(
+    python: Option<&kanzei_harness::execution::PythonEnvironment>,
+) -> anyhow::Result<std::ffi::OsString> {
+    let mut paths = Vec::new();
+    if let Some(python) = python {
+        use sha2::{Digest, Sha256};
+        let configuration = std::fs::read(python.root.join("pyvenv.cfg"))?;
+        anyhow::ensure!(
+            python.executable.is_file()
+                && format!("{:x}", Sha256::digest(configuration)) == python.configuration_sha256
+                && format!("{:x}", Sha256::digest(std::fs::read(&python.executable)?))
+                    == python.executable_sha256,
+            "bound Python environment changed; start a new execution with the intended environment"
+        );
+        paths.push(
+            python
+                .executable
+                .parent()
+                .expect("Python executable has a parent")
+                .to_path_buf(),
+        );
+    }
+    paths.extend(std::env::split_paths(&fresh_path()));
+    Ok(std::env::join_paths(paths)?)
+}
+
 #[cfg(windows)]
 fn detect() -> DetectedShell {
     if let Some(p) = which("pwsh.exe") {

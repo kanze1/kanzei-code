@@ -1019,14 +1019,10 @@ pub fn harvest_failures(store: &MemoryStore, signals: &[kanzei_core::FailureSign
         }
         let summary = match &signal.recovered_by {
             Some(by) if by == &signal.tool => format!(
-                "{} 反复失败后重试成功({} 次){}",
+                "{} 本轮失败 {} 次；存在相同操作成功重试的证据{}",
                 signal.tool, signal.count, fingerprint
             ),
-            Some(by) => format!(
-                "{} 失败({} 次)、改用 {} 成功{}",
-                signal.tool, signal.count, by, fingerprint
-            ),
-            None => format!(
+            _ => format!(
                 "{} 本轮重复失败 {} 次{}",
                 signal.tool, signal.count, fingerprint
             ),
@@ -2144,7 +2140,7 @@ mod tests {
             sample: "edit 报 old_string 未命中".into(),
             targets: vec!["runner.rs".into()],
             count: 2,
-            recovered_by: Some("read".into()),
+            recovered_by: Some("edit".into()),
         }];
 
         assert!(
@@ -2433,14 +2429,14 @@ mod tests {
             sample: "edit 报 old_string 未命中".into(),
             targets: vec!["runner.rs".into()],
             count: 3,
-            recovered_by: Some("read".into()),
+            recovered_by: Some("edit".into()),
         };
         let fingerprint = format!("[fp:edit|{kind}]");
 
         // 第一次:库里没有该指纹 → 正常失败笔记,且要求把指纹带进条目正文。
         assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 1);
         let inbox = store.read_inbox();
-        assert!(inbox.contains("改用 read 成功"), "{inbox}");
+        assert!(inbox.contains("相同操作成功重试"), "{inbox}");
         assert!(
             inbox.contains("原样放进正文"),
             "正常笔记未要求保留指纹: {inbox}"
@@ -2494,7 +2490,7 @@ mod tests {
             "修订笔记未指路 update: {inbox}"
         );
         assert!(
-            !inbox.contains("改用 read 成功"),
+            !inbox.contains("相同操作成功重试"),
             "复发时不该再投原始失败笔记: {inbox}"
         );
 

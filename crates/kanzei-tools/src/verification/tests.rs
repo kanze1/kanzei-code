@@ -261,3 +261,25 @@ async fn timeout_stops_worker_and_does_not_create_success_evidence() {
         .evidence
         .is_empty());
 }
+
+#[tokio::test]
+async fn worker_does_not_promote_a_masked_native_failure() {
+    if !matches!(crate::shell::detected_shell().name, "pwsh" | "powershell") {
+        return;
+    }
+    let (root, ctx) = fixture();
+    let shell = crate::shell::detected_shell().program.display().to_string();
+    let command = format!("& '{shell}' -NoProfile -Command 'exit 7'; Write-Output tail-ok");
+    let job = prepare(&ctx, &command, 10_000, &request()).unwrap();
+    worker::run(&root, &job.id).await.unwrap();
+    let job = read_job(&root, &job.id).unwrap();
+    assert_eq!(job.status, "failed");
+    assert_eq!(job.exit_code, Some(7));
+    assert!(store(&root)
+        .unwrap()
+        .get_work_unit("R-001/W1")
+        .unwrap()
+        .unwrap()
+        .evidence
+        .is_empty());
+}

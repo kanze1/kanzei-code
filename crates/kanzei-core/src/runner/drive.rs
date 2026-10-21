@@ -100,6 +100,13 @@ pub fn run_once_with_parts<'a>(
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
     Box::pin(async move {
         anyhow::ensure!(config.hosted_tools.is_empty(), "Ambient provider-hosted tools are unsupported: use the registered websearch tool so permission, unattended policy, search budgets and source receipts apply before dispatch");
+        let mut run_ctx = ctx.clone();
+        if run_ctx.execution_identity.is_none() {
+            run_ctx.execution_identity = Some(Arc::new(
+                kanzei_harness::execution::ExecutionIdentity::capture(&ctx.cwd, &ctx.project_root)?,
+            ));
+        }
+        let ctx = &run_ctx;
         // R-202 批6:装配段(工具/specs/system 分块/消息初始化/各类运行态)抽离为
         // assemble_run_once,返回 RunOnceAssembly;halt/halted 借用 config 留本地。
         let RunOnceAssembly {
@@ -352,6 +359,7 @@ pub fn run_once_with_parts<'a>(
             // 重放)抽离为 stream_request_step。可变运行态经 &mut 传入,步内累积的
             // calibration/usage/恢复计数在 Stopped 提前退出时同样已生效。
             let outcome = stream_request_step(
+                ctx,
                 client,
                 route,
                 config,
@@ -662,6 +670,7 @@ fn budget_instruction(
 /// calibration/usage/恢复计数也如实保留,调用方照常构造 RunSummary。
 #[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202)。
 async fn stream_request_step(
+    ctx: &ToolCtx,
     client: &LlmClient,
     route: &Route,
     config: &RunnerConfig,
@@ -708,6 +717,23 @@ async fn stream_request_step(
             reasoning: config.reasoning,
             service_tier: config.service_tier.clone(),
         };
+        // Persist the request before dispatch, including failed transports.
+        let mut context_snapshot = crate::store::context_manifest::ContextSnapshot::capture(
+            &request,
+            route,
+            crate::store::context_manifest::ContextCapture {
+                contributions: context_report,
+                system_sources,
+                source_reads: context_source_reads,
+                estimated_tokens: last_estimated,
+                repeated_results,
+                omitted_bytes,
+            },
+        );
+        context_snapshot.manifest.execution = ctx.execution_identity.as_deref().cloned();
+        on_event(RunEvent::ContextRequest {
+            snapshot: context_snapshot,
+        });
         // Stop can win while the inbox or context maintenance runs after the
         // step-start check. Never poll the provider first when already stopped.
         let opened = tokio::select! {
@@ -742,20 +768,6 @@ async fn stream_request_step(
             }
             result => result?,
         };
-        on_event(RunEvent::ContextRequest {
-            snapshot: crate::store::context_manifest::ContextSnapshot::capture(
-                &request,
-                route,
-                crate::store::context_manifest::ContextCapture {
-                    contributions: context_report,
-                    system_sources,
-                    source_reads: context_source_reads,
-                    estimated_tokens: last_estimated,
-                    repeated_results,
-                    omitted_bytes,
-                },
-            ),
-        });
         let mut text_buffers: BTreeMap<usize, String> = BTreeMap::new();
         let mut reasoning_buffers: BTreeMap<usize, String> = BTreeMap::new();
         let mut hosted_calls: BTreeMap<usize, (String, String)> = BTreeMap::new();

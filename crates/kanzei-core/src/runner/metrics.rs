@@ -27,7 +27,7 @@ pub struct FailureSignal {
     /// 涉及的目标(路径/命令首词),最多 3 个。
     pub targets: Vec<String>,
     pub count: usize,
-    /// 同目标后续成功的调用:「X 不行、Y 可以」是最值得记的形状。
+    /// 与晋升证据共用的、相同操作随后成功的工具；文本相关不等于恢复。
     pub recovered_by: Option<String>,
 }
 
@@ -261,21 +261,15 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
     // call_id → (工具名, 目标):ToolResult 只有 call_id,工具名要回溯 ToolCall。
     let mut calls: std::collections::HashMap<String, (String, String)> =
         std::collections::HashMap::new();
-    let mut raw_inputs: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    // 指纹 → 信号;另记每个目标最近一次失败,便于配对后续成功。
+    // Recovery is computed once by the same predicate used by persistent evidence.
+    let recoveries = super::recovery::verified_recoveries(messages);
     let mut signals: Vec<FailureSignal> = Vec::new();
-    let mut failed_targets: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
 
     for message in messages {
         for part in &message.parts {
             match part {
                 Part::ToolCall { id, name, input } => {
-                    // 同时留原始输入:判定恢复对时要看"失败的目标是否出现在后续成功调用里"
-                    // (edit main.rs 失败 → bash 用脚本改 main.rs 成功,是同一个目标)。
                     calls.insert(id.clone(), (name.clone(), failure_target(input)));
-                    raw_inputs.insert(id.clone(), input.to_string().to_lowercase());
                 }
                 Part::ToolResult {
                     call_id,
@@ -290,7 +284,7 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
                             continue;
                         }
                         let kind = failure_kind(content);
-                        let position = match signals
+                        match signals
                             .iter()
                             .position(|s| s.tool == tool && s.kind == kind)
                         {
@@ -301,7 +295,6 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
                                 {
                                     signals[index].targets.push(target.clone());
                                 }
-                                index
                             }
                             None => {
                                 signals.push(FailureSignal {
@@ -316,26 +309,6 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
                                     count: 1,
                                     recovered_by: None,
                                 });
-                                signals.len() - 1
-                            }
-                        };
-                        if !target.is_empty() {
-                            failed_targets.insert(target, position);
-                        }
-                    } else {
-                        // 恢复对:失败过的目标出现在后续某次成功调用的输入里。工具不必相同——
-                        // 「edit 不行、改用 bash 脚本可以」正是最值得记的形状。
-                        let haystack = raw_inputs.get(call_id).cloned().unwrap_or_default();
-                        let recovered: Vec<String> = failed_targets
-                            .keys()
-                            .filter(|failed| haystack.contains(failed.as_str()))
-                            .cloned()
-                            .collect();
-                        for failed in recovered {
-                            if let Some(position) = failed_targets.remove(&failed) {
-                                if signals[position].recovered_by.is_none() {
-                                    signals[position].recovered_by = Some(tool.clone());
-                                }
                             }
                         }
                     }
@@ -345,6 +318,13 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
         }
     }
 
+    for signal in &mut signals {
+        let fingerprint = normalize_fp_marker(&format!("[fp:{}|{}]", signal.tool, signal.kind));
+        signal.recovered_by = recoveries
+            .iter()
+            .find(|recovery| recovery.fingerprint == fingerprint)
+            .map(|recovery| recovery.tool.clone());
+    }
     // 机械闸门:一次性失败不入库(搜索空间无限的负面事实没有记忆价值);
     // 重复 ≥2 次说明是稳定的坑,或带恢复对说明有现成解药——两者才值得记。
     signals.retain(|s| s.count >= 2 || s.recovered_by.is_some());
@@ -721,17 +701,16 @@ mod tests {
     }
 
     #[test]
-    fn 失败后换工具成功构成恢复对_单次也上报() {
-        // 「X 不行、Y 可以」自带解药,是最值得记的形状,阈值降到 1。
+    fn 相同操作成功才构成恢复对_单次也上报() {
         let messages = vec![
             call("c1", "edit", "path", "C:/p/main.rs"),
             result("c1", "old_string not found in C:/p/main.rs", true),
-            call("c2", "bash", "command", "python fix.py C:/p/main.rs"),
-            result("c2", "exit code: 0", false),
+            call("c2", "edit", "path", "C:/p/main.rs"),
+            result("c2", "replaced 1 occurrence(s)", false),
         ];
         let signals = summarize_failures(&messages);
         assert_eq!(signals.len(), 1);
-        assert_eq!(signals[0].recovered_by.as_deref(), Some("bash"));
+        assert_eq!(signals[0].recovered_by.as_deref(), Some("edit"));
         assert_eq!(signals[0].count, 1, "有恢复对时单次失败即上报");
     }
 

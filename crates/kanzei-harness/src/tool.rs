@@ -63,6 +63,8 @@ impl ToolOutcome {
 /// 工具执行上下文。
 #[derive(Debug, Clone)]
 pub struct ToolCtx {
+    /// Frozen at the common runner entry; direct tool calls capture at execution.
+    pub execution_identity: Option<std::sync::Arc<crate::execution::ExecutionIdentity>>,
     /// Same coordinator as the run's writer lease; inherited by child tools.
     pub execution_coordinator: Option<crate::orchestration::ExecutionCoordinator>,
     pub cwd: std::path::PathBuf,
@@ -95,6 +97,7 @@ pub struct ToolCtx {
 impl Default for ToolCtx {
     fn default() -> Self {
         ToolCtx {
+            execution_identity: None,
             execution_coordinator: None,
             cwd: std::path::PathBuf::new(),
             project_root: std::path::PathBuf::new(),
@@ -127,6 +130,7 @@ impl ToolCtx {
     pub fn new(cwd: std::path::PathBuf, project_root: std::path::PathBuf) -> Self {
         let project_workflow = !crate::is_general_conversation_root(&project_root);
         ToolCtx {
+            execution_identity: None,
             execution_coordinator: None,
             cwd,
             project_root,

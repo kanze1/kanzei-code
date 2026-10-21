@@ -1,12 +1,15 @@
 //! 记忆使用事实：召回、注入、同轮正文读取与可核对的工具恢复。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-use kanzei_llm::{Message, Part};
+use kanzei_llm::Message;
+#[cfg(test)]
+use kanzei_llm::Part;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use super::{SessionStore, StoreError};
+use crate::runner::recovery::verified_recoveries;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -252,77 +255,6 @@ impl SessionStore {
     }
 }
 
-struct VerifiedRecovery {
-    fingerprint: String,
-    failed_call_id: String,
-    recovered_call_id: String,
-    tool: String,
-    target: String,
-}
-
-fn verified_recoveries(messages: &[Message]) -> Vec<VerifiedRecovery> {
-    let mut calls = HashMap::new();
-    let mut pending = HashMap::<(String, String), (String, String)>::new();
-    let mut recovered = BTreeMap::<(String, String), VerifiedRecovery>::new();
-    for part in messages.iter().flat_map(|message| &message.parts) {
-        match part {
-            Part::ToolCall { id, name, input } => {
-                // 完整目标及相同工具，避免 edit a/x.rs 后 read b/x.rs 被当成修复。
-                let target = if name == "bash" {
-                    input.get("command").and_then(serde_json::Value::as_str)
-                } else if matches!(name.as_str(), "edit" | "write" | "insert" | "read") {
-                    input.get("path").and_then(serde_json::Value::as_str)
-                } else {
-                    None
-                };
-                if let Some(target) = target.filter(|target| !target.trim().is_empty()) {
-                    calls.insert(id.clone(), (name.clone(), target.trim().to_string()));
-                }
-            }
-            Part::ToolResult {
-                call_id,
-                content,
-                is_error,
-                ..
-            } => {
-                let Some(key) = calls.get(call_id) else {
-                    continue;
-                };
-                if *is_error {
-                    recovered.remove(key);
-                    pending.remove(key);
-                    if crate::runner::metrics::is_expected_tool_rejection(content) {
-                        continue;
-                    }
-                    let kind = crate::runner::metrics::failure_kind(content);
-                    if !crate::is_usable_failure_kind(&kind) {
-                        continue;
-                    }
-                    let fingerprint = crate::normalize_fp_marker(&format!("[fp:{}|{kind}]", key.0));
-                    pending.insert(key.clone(), (call_id.clone(), fingerprint));
-                } else if crate::runner::metrics::is_expected_tool_rejection(content) {
-                    // noop 等受控结果不是成功恢复，也不能沿用之前未解决的失败。
-                    pending.remove(key);
-                    recovered.remove(key);
-                } else if let Some((failed_call_id, fingerprint)) = pending.remove(key) {
-                    recovered.insert(
-                        key.clone(),
-                        VerifiedRecovery {
-                            fingerprint,
-                            failed_call_id,
-                            recovered_call_id: call_id.clone(),
-                            tool: key.0.clone(),
-                            target: key.1.clone(),
-                        },
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-    recovered.into_values().collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,5 +498,97 @@ mod tests {
         }
         messages.extend(noop);
         assert!(verified_recoveries(&messages).is_empty());
+    }
+
+    #[test]
+    fn summary_and_promotion_share_recovery_contract_for_audited_false_positives() {
+        let cases = [
+            (
+                "read",
+                serde_json::json!({"path":"docs/architectures.json"}),
+                "permission denied by ruleset",
+                "glob",
+                serde_json::json!({"pattern":"**/architectures.json"}),
+                "(no files match)",
+                false,
+            ),
+            (
+                "work",
+                serde_json::json!({"action":"complete","id":"R-034"}),
+                "unknown work unit R-034",
+                "req",
+                serde_json::json!({"action":"update","id":"R-034"}),
+                "updated: R-034 [doing]",
+                false,
+            ),
+            (
+                "edit",
+                serde_json::json!({"path":"a/x.rs"}),
+                "old_string not found",
+                "read",
+                serde_json::json!({"path":"b/x.rs"}),
+                "contents",
+                false,
+            ),
+            (
+                "edit",
+                serde_json::json!({"path":"a/x.rs"}),
+                "old_string not found",
+                "edit",
+                serde_json::json!({"path":"a/x.rs"}),
+                "[tool_outcome=noop code=EDIT_IDENTICAL_INPUT] unchanged",
+                false,
+            ),
+            (
+                "read",
+                serde_json::json!({"path":"x.rs","offset":1}),
+                "permission denied by ruleset",
+                "read",
+                serde_json::json!({"path":"x.rs","offset":50}),
+                "other section",
+                false,
+            ),
+            (
+                "read",
+                serde_json::json!({"path":"x.rs"}),
+                "permission denied by ruleset",
+                "read",
+                serde_json::json!({"path":"x.rs"}),
+                "source contents",
+                true,
+            ),
+        ];
+        for (name, input, error, next_name, next_input, output, expected) in cases {
+            let messages = vec![
+                Message::assistant(vec![Part::ToolCall {
+                    id: "failed".into(),
+                    name: name.into(),
+                    input,
+                }]),
+                Message::tool_results(vec![Part::ToolResult {
+                    call_id: "failed".into(),
+                    content: error.into(),
+                    is_error: true,
+                }]),
+                Message::assistant(vec![Part::ToolCall {
+                    id: "next".into(),
+                    name: next_name.into(),
+                    input: next_input,
+                }]),
+                Message::tool_results(vec![Part::ToolResult {
+                    call_id: "next".into(),
+                    content: output.into(),
+                    is_error: false,
+                }]),
+            ];
+            let recovery = verified_recoveries(&messages);
+            assert_eq!(!recovery.is_empty(), expected, "{name} -> {next_name}");
+            let summaries = crate::summarize_failures(&messages);
+            assert_eq!(
+                summaries.iter().any(|signal| signal.recovered_by.is_some()),
+                expected,
+                "{name} -> {next_name}"
+            );
+        }
     }
 }

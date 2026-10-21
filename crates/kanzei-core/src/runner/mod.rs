@@ -20,6 +20,7 @@ pub use event::*;
 /// 引 tokio-util,与 TaskCancellations 用的是同一个类型。
 pub use tokio_util::sync::CancellationToken;
 pub(crate) mod metrics;
+pub(crate) mod recovery;
 pub use metrics::*;
 mod context;
 mod observations;
