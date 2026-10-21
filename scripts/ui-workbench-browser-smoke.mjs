@@ -1,4 +1,5 @@
 import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
+import { previewContentType } from "./ui-preview/server.mjs";
 // 工作台/项目/对话分层的真实浏览器回归。IPC 仅用隔离夹具，不访问用户项目。
 /* global window, document, CanvasRenderingContext2D, innerWidth, MouseEvent */
 import assert from "node:assert/strict";
@@ -138,8 +139,7 @@ const server = http.createServer(async (request, response) => {
     const file = path.resolve(uiRoot, relative);
     if (!file.startsWith(uiRoot + path.sep)) throw new Error("静态资源越界");
     const bytes = await readFile(file);
-    const mime = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml" }[path.extname(file)] || "application/octet-stream";
-    response.writeHead(200, { "Content-Type": `${mime}; charset=utf-8` });
+    response.writeHead(200, { "Content-Type": previewContentType(file) });
     response.end(bytes);
   } catch (error) {
     response.writeHead(request.url === "/ipc" ? 200 : 404, { "Content-Type": "application/json" });

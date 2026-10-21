@@ -56,6 +56,10 @@ const TYPES = {
   ".txt": "text/plain; charset=utf-8",
 };
 
+export function previewContentType(file) {
+  return TYPES[path.extname(file).toLowerCase()] || "application/octet-stream";
+}
+
 /// 把模拟 IPC 注入 index.html:放在 <head> 最前面,保证它在任何 module 脚本求值前装好 window.__TAURI__。
 export function injectMock(html) {
   if (html.includes(MOCK_TAG)) return html;
@@ -97,7 +101,7 @@ async function handle(req, res) {
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return send(res, 403, "forbidden");
   try {
     const body = await readFile(file);
-    return send(res, 200, body, TYPES[path.extname(file).toLowerCase()] || "application/octet-stream");
+    return send(res, 200, body, previewContentType(file));
   } catch {
     return send(res, 404, "not found");
   }

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFile, mkdir } from "node:fs/promises";
 import http from "node:http";
+import { previewContentType } from "./ui-preview/server.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -125,8 +126,7 @@ const server = http.createServer(async (request, response) => {
     const file = path.resolve(ui_root, relative);
     if (!file.startsWith(ui_root + path.sep)) throw new Error("无效静态资源路径");
     const bytes = await readFile(file);
-    const mime = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml" }[path.extname(file)] || "application/octet-stream";
-    response.writeHead(200, { "Content-Type": `${mime}; charset=utf-8` });
+    response.writeHead(200, { "Content-Type": previewContentType(file) });
     response.end(bytes);
   } catch (error) {
     response.writeHead(request.url === "/ipc" ? 200 : 404, { "Content-Type": "application/json" });
