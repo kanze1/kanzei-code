@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use kanzei_base::test_support::TestDir;
 use kanzei_harness::{Tool, ToolCtx};
 
 use super::{
@@ -58,9 +59,10 @@ fn git(root: &Path, args: &[&str]) -> String {
 ///
 /// 提交真实文件(而不是 `--allow-empty`)是为了让「未提交改动」那条测试能同时
 /// 验到 `files` 与 `diff` 两路都非空——空仓里改不出 diff。
-fn git_repo(tag: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(unique(tag));
-    std::fs::create_dir_all(&root).unwrap();
+fn git_repo() -> TestDir {
+    // Git repeats the repository name in .git/worktrees/<worktree-name>.
+    // A short owned name leaves room for that metadata on Windows runners.
+    let root = TestDir::new("kz-wt-");
     git(&root, &["init", "-q", "."]);
     git(&root, &["config", "user.email", "f4@kanzei.test"]);
     git(&root, &["config", "user.name", "f4"]);
@@ -98,7 +100,7 @@ fn harvest_claim_only_accepts_strict_r_or_d_ids() {
 
 #[test]
 fn harvest_candidates_只取线路对话中真实存在的活动条目且最新优先() {
-    let root = std::env::temp_dir().join(unique("kz-harvest-candidates"));
+    let root = TestDir::new("kz-harvest-");
     std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
     std::fs::write(
         root.join(".kanzei/project/requirements.md"),
@@ -120,12 +122,11 @@ fn harvest_candidates_只取线路对话中真实存在的活动条目且最新�
         harvest_tracker_candidates_from_messages(&root, &messages),
         vec!["D-297", "R-001"]
     );
-    cleanup(&root, &[]);
 }
 
 #[tokio::test]
 async fn close_process_先停止运行会话再回收已合并干净工作树并注销线路() {
-    let root = git_repo("kz-close-running-line");
+    let root = git_repo();
     let state = AppState::default();
     let info = create_process(
         &state,
@@ -171,7 +172,7 @@ async fn close_process_先停止运行会话再回收已合并干净工作树并
     assert!(!state.processes.lock().unwrap().contains_key(&info.id));
     assert!(!worktree.exists(), "已合并且干净的工作树应自动回收");
     assert!(result.contains("已关闭") && result.contains("回收"));
-    cleanup(&root, &[worktree]);
+    cleanup_worktrees(&[worktree]);
 }
 
 /// 测试里手工收尾用的凭据:分支停在哪儿现取,语义等价于「刚建出来还没动过」。
@@ -186,11 +187,10 @@ fn rollback_receipt(root: &Path, worktree: &Path, branch: &str) -> WorktreeRecei
     }
 }
 
-fn cleanup(root: &Path, worktrees: &[PathBuf]) {
+fn cleanup_worktrees(worktrees: &[PathBuf]) {
     for worktree in worktrees {
         let _ = std::fs::remove_dir_all(worktree);
     }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 /// 目录的逐文件字节快照。F13 原方案写 sha256；测试内直接保留全部字节更强：
@@ -230,7 +230,7 @@ fn discard_clean_tree_and_branch(root: &Path, worktree: &Path, branch: &str) {
 /// 分支是 `kanzei/thread-<name>`;同时钉住 `project_dir` 恒主根这条口径。
 #[tokio::test]
 async fn 建线后worktree_path是真实路径() {
-    let root = git_repo("kz-f4-bind");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("bind");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -272,14 +272,14 @@ async fn 建线后worktree_path是真实路径() {
     assert_ne!(info.project_dir, bound);
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// R-247 验收①③④:并行视图选择条目后，建树、注册与真实 work claim 一次完成；
 /// 分支线的通用 tracker 写权限仍为关闭。关线统一释放取得线并退回可领取态。
 #[tokio::test]
 async fn r247_开线绑定条目且关线释放_无需开放tracker写权限() {
-    let root = git_repo("kz-r247-bind");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("r247-bind");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -343,12 +343,12 @@ async fn r247_开线绑定条目且关线释放_无需开放tracker写权限() {
     if target.exists() {
         rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
     }
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 #[tokio::test]
 async fn r247_条目claim失败时建线整体回滚() {
-    let root = git_repo("kz-r247-bind-rollback");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("r247-bind-rollback");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -383,12 +383,12 @@ async fn r247_条目claim失败时建线整体回滚() {
             .all(|process| process.id.starts_with("d|")),
         "claim 失败后不得留下并行进程注册"
     );
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 #[tokio::test]
 async fn r247_收活合并后立即释放取得线且保留线路供合并后门禁() {
-    let root = git_repo("kz-r247-merge-release");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("r247-merge");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -442,14 +442,14 @@ async fn r247_收活合并后立即释放取得线且保留线路供合并后门
     close_process(&state, &process).await.unwrap();
     assert!(!target.exists());
     assert!(!branch_exists(&canonical, &branch));
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// R-177 验收⑤ / D4 定案:同一棵工作树不得同时绑两条线,且**查重先于建树** ——
 /// 拒绝的时候磁盘上不许多出任何东西。
 #[tokio::test]
 async fn 同一worktree不得绑定第二条线() {
-    let root = git_repo("kz-f4-dup");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("dup");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -488,7 +488,7 @@ async fn 同一worktree不得绑定第二条线() {
     );
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// R-177 验收① 后半:任一步失败整体回滚,不留半绑定态。
@@ -505,7 +505,7 @@ async fn 同一worktree不得绑定第二条线() {
 /// 文档里写的契约本身(「宁可让建线失败,也不许静默改写既有行」)。
 #[tokio::test]
 async fn 落库失败时worktree被回收_不留半绑定态() {
-    let root = git_repo("kz-f4-rollback");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let project = canonical.display().to_string();
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical))
@@ -567,7 +567,7 @@ async fn 落库失败时worktree被回收_不留半绑定态() {
     );
     drop(processes);
 
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// 建线返回的 `clean`/`files`/`diff` 必须是真实探测,不是硬编码乐观值。
@@ -577,7 +577,7 @@ async fn 落库失败时worktree被回收_不留半绑定态() {
 /// 空/true/空,收活流程会把「线还有活没提交」当成干净合并。
 #[test]
 fn worktree_create返回的clean反映真实工作区() {
-    let root = git_repo("kz-f4-clean");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("clean");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -597,12 +597,12 @@ fn worktree_create返回的clean反映真实工作区() {
     );
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 #[test]
 fn worktree_diff返回真实改动与diff() {
-    let root = git_repo("kz-f13-diff");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("diff");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -627,12 +627,12 @@ fn worktree_diff返回真实改动与diff() {
     assert_eq!(info.path, created.path);
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 #[test]
 fn worktree_merge干净时以no_ff落地() {
-    let root = git_repo("kz-f13-merge-clean");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("merge-clean");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -658,12 +658,12 @@ fn worktree_merge干净时以no_ff落地() {
     );
 
     discard_clean_tree_and_branch(&canonical, &target, &branch);
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 #[test]
 fn worktree_merge冲突时不执行合并且保留双方() {
-    let root = git_repo("kz-f13-merge-conflict");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("merge-conflict");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -694,12 +694,12 @@ fn worktree_merge冲突时不执行合并且保留双方() {
     );
 
     discard_clean_tree_and_branch(&canonical, &target, &branch);
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 #[test]
 fn worktree_discard有未提交改动时保留现场() {
-    let root = git_repo("kz-f13-discard-dirty");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("discard-dirty");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -714,7 +714,7 @@ fn worktree_discard有未提交改动时保留现场() {
     assert!(branch_exists(&canonical, &branch));
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// 放弃已绑定的线不能只删目录。否则 state.db 与页签仍保留 worktree_path，下一次
@@ -722,7 +722,7 @@ fn worktree_discard有未提交改动时保留现场() {
 /// 与持久登记同时消失。
 #[tokio::test]
 async fn worktree_discard同时注销绑定进程() {
-    let root = git_repo("kz-discard-unregister");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let state = AppState::default();
     let name = unique("discard-bound");
@@ -761,12 +761,12 @@ async fn worktree_discard同时注销绑定进程() {
     );
 
     git(&canonical, &["branch", "-D", &branch]);
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 #[tokio::test]
 async fn 注销线路后新线路不得复用旧session身份() {
-    let root = git_repo("kz-retired-process-id");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let state = AppState::default();
     let first = create_process(
@@ -792,12 +792,11 @@ async fn 注销线路后新线路不得复用旧session身份() {
     .unwrap();
     assert_ne!(first.id, second.id, "线路显示身份不得复用");
     assert_ne!(first.session_id, second.session_id, "历史会话身份不得复用");
-    cleanup(&root, &[]);
 }
 
 #[tokio::test]
 async fn 运行中线路不能合并或放弃工作树() {
-    let root = git_repo("kz-running-worktree-guard");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let state = AppState::default();
     let info = create_process(
@@ -832,7 +831,7 @@ async fn 运行中线路不能合并或放弃工作树() {
         .running
         .store(false, std::sync::atomic::Ordering::SeqCst);
     unregister_parallel_process(&state, &canonical, &info.id).unwrap();
-    cleanup(&root, &[worktree]);
+    cleanup_worktrees(&[worktree]);
 }
 
 /// 旧版已经留下了只剩 state.db 登记的死线。重启恢复必须自动删除这类记录，而不是
@@ -842,7 +841,7 @@ async fn restart_prunes_missing_worktree_process_registration() {
     // The repo already has a unique fixture directory. Repeating PID/timestamp in
     // the worktree name pushes Git's administrative path past MAX_PATH under an
     // isolated Windows TEMP, before this test reaches the restoration behavior.
-    let root = git_repo("kz-prune");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let state = AppState::default();
     let name = "legacy-missing".to_string();
@@ -878,12 +877,12 @@ async fn restart_prunes_missing_worktree_process_registration() {
     );
 
     git(&canonical, &["branch", "-D", &branch]);
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 #[tokio::test]
 async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变() {
-    let root = git_repo("kz-f13-loop");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     std::fs::create_dir_all(canonical.join(".kanzei/project")).unwrap();
     std::fs::write(canonical.join(".kanzei/kanzei.toml"), "profile = \"dev\"\n").unwrap();
@@ -998,12 +997,12 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
     );
 
     discard_clean_tree_and_branch(&canonical, &worktree, branch);
-    cleanup(&root, &[worktree]);
+    cleanup_worktrees(&[worktree]);
 }
 
 #[tokio::test]
 async fn 删树后线的会话历史仍可回放() {
-    let root = git_repo("kz-f13-history");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let state = AppState::default();
     let info = create_process(
@@ -1059,14 +1058,14 @@ async fn 删树后线的会话历史仍可回放() {
     );
     drop(reopened);
 
-    cleanup(&root, &[worktree]);
+    cleanup_worktrees(&[worktree]);
 }
 
 /// 不传 `worktree_name` 时行为与今天逐字节一致:`worktree_path` 恒 `None`、
 /// `p{n}` 递增规则不变、`project_dir` 是主根。
 #[tokio::test]
 async fn 不带worktree_name时行为与今天一致() {
-    let root = git_repo("kz-f4-plain");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let state = AppState::default();
 
@@ -1095,8 +1094,6 @@ async fn 不带worktree_name时行为与今天一致() {
         1,
         "不建线时不得有任何多余工作树"
     );
-
-    cleanup(&root, &[]);
 }
 
 // ── 以下四条补的是 F4 首版漏掉的两条失败路径(建树成功之后 / 建树自己失败),
@@ -1112,7 +1109,7 @@ async fn 不带worktree_name时行为与今天一致() {
 /// 看见它们,`create_process` 的回滚也够不着(它认为这一层什么都没建出来)。
 #[test]
 fn 建树成功后探测失败必须整体回滚_不留孤儿树与孤儿分支() {
-    let root = git_repo("kz-f4-probefail");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("probefail");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -1145,7 +1142,7 @@ fn 建树成功后探测失败必须整体回滚_不留孤儿树与孤儿分支(
     assert!(Path::new(&rebuilt.path).is_dir());
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target, bystander]);
+    cleanup_worktrees(&[target, bystander]);
 }
 
 /// 致命 2:`git worktree add` **自己失败**时不得留下孤儿分支。
@@ -1158,7 +1155,7 @@ fn 建树成功后探测失败必须整体回滚_不留孤儿树与孤儿分支(
 /// 没有任何入口能删掉那条分支。
 #[test]
 fn 建树失败不得留下孤儿分支_同名可立即重建() {
-    let root = git_repo("kz-f4-addfail");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("addfail");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -1189,7 +1186,7 @@ fn 建树失败不得留下孤儿分支_同名可立即重建() {
     assert_eq!(rebuilt.branch, branch);
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target, bystander]);
+    cleanup_worktrees(&[target, bystander]);
 }
 
 /// K2' 验收②:**认领失败时零回滚** —— 调用前后 git 状态逐字节相同。
@@ -1205,7 +1202,7 @@ fn 建树失败不得留下孤儿分支_同名可立即重建() {
 /// 也落进同一个判据里。
 #[test]
 fn 认领失败时零回滚_git状态逐字节不变() {
-    let root = git_repo("kz-k2-zerorollback");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("zerorollback");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -1263,7 +1260,7 @@ fn 认领失败时零回滚_git状态逐字节不变() {
     );
 
     git(&root, &["branch", "-D", &branch]);
-    cleanup(&root, &[target, bystander]);
+    cleanup_worktrees(&[target, bystander]);
 }
 
 /// 复核点:`project_dir` 是不是**真的**恒主根?
@@ -1306,7 +1303,7 @@ async fn project_dir恒主根_三个构造点逐处成立() {
          证明完再改这个数字"
     );
 
-    let root = git_repo("kz-f4-mainroot");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let expected = canonical.display().to_string();
     let name = unique("mainroot");
@@ -1356,7 +1353,7 @@ async fn project_dir恒主根_三个构造点逐处成立() {
     drop(processes);
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// D-176 红线:线的 `session_id` 只由**主根** + `p{n}` 决定,worktree 不参与。
@@ -1365,7 +1362,7 @@ async fn project_dir恒主根_三个构造点逐处成立() {
 /// 主根 ⇒ `#p{n}` 在项目内已唯一,后缀带不来唯一性收益,却会让既有会话历史失联。
 #[tokio::test]
 async fn 线的session_id仍由主根算出() {
-    let root = git_repo("kz-f4-session");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("session");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -1394,7 +1391,7 @@ async fn 线的session_id仍由主根算出() {
     );
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 // ══ K2 返工:并发下的回滚曾经是破坏动作 ══════════════════════════════════════
@@ -1437,7 +1434,7 @@ fn park_bystander_worktree(repo: &Path, canonical: &Path) -> PathBuf {
 /// 一半走 `worktree_create` 的内核,同一个名字,同一个 `AppState`(⇒ 同一个协调器)。
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn 并发建同名树_赢家的树与分支必须完好无损() {
-    let root = git_repo("kz-k2-race");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("race");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -1521,7 +1518,7 @@ async fn 并发建同名树_赢家的树与分支必须完好无损() {
     assert!(bound <= 1, "内存表里绑着这棵树的线最多一条");
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// 反方向的双保险:分支**动过**(不再停在建出来时那个 sha)就不许删。
@@ -1531,7 +1528,7 @@ async fn 并发建同名树_赢家的树与分支必须完好无损() {
 /// 就删不动。老版无条件 `branch -D`,这条测试在它上面必红。
 #[test]
 fn 回滚不得删掉sha已经变了的同名分支() {
-    let root = git_repo("kz-k2-sha");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("sha");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -1563,7 +1560,7 @@ fn 回滚不得删掉sha已经变了的同名分支() {
     );
 
     git(&canonical, &["branch", "-D", &branch]);
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// 验收②:`add` 失败的回滚不得把仓里**别的**缺失工作树 prune 掉。
@@ -1573,7 +1570,7 @@ fn 回滚不得删掉sha已经变了的同名分支() {
 /// 把用户只是临时挪走目录、或放在未挂载盘上的那些树,从清单里摘掉。
 #[test]
 fn add失败不得prune掉仓里别的缺失工作树() {
-    let root = git_repo("kz-k2-prune");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let bystander = park_bystander_worktree(&root, &canonical);
     let before = worktree_registry(&canonical);
@@ -1594,7 +1591,7 @@ fn add失败不得prune掉仓里别的缺失工作树() {
     );
 
     git(&root, &["config", "--unset", "checkout.workers"]);
-    cleanup(&root, &[bystander]);
+    cleanup_worktrees(&[bystander]);
 }
 
 /// 验收③:目录清理失败必须**可见**,且名字不会永久中毒。
@@ -1611,7 +1608,7 @@ fn add失败不得prune掉仓里别的缺失工作树() {
 fn 目录清理失败必须点名残留路径_且名字不会永久中毒() {
     use std::os::windows::fs::OpenOptionsExt;
 
-    let root = git_repo("kz-k2-residue");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("residue");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -1650,7 +1647,7 @@ fn 目录清理失败必须点名残留路径_且名字不会永久中毒() {
     assert_eq!(rebuilt.branch, branch);
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// D-318 验收①②:建线不能排主线源码写租约,但必须和 `worktree_create`
@@ -1662,7 +1659,7 @@ fn 目录清理失败必须点名残留路径_且名字不会永久中毒() {
 async fn 建线不排源码写租约_只排工作树元数据闸() {
     use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLeaseRequest};
 
-    let root = git_repo("kz-k2-lease");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("lease");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -1739,7 +1736,7 @@ async fn 建线不排源码写租约_只排工作树元数据闸() {
         &rollback_receipt(&canonical, &gated_target, &gated_branch),
     )
     .unwrap();
-    cleanup(&root, &[target, gated_target]);
+    cleanup_worktrees(&[target, gated_target]);
 }
 
 /// 验收⑤:编号分配要看库,且**绝不覆盖**库里既有行。
@@ -1749,7 +1746,7 @@ async fn 建线不排源码写租约_只排工作树元数据闸() {
 /// `worktree_path` 一起改写——旧线绑的那棵树从此在库里失联。
 #[tokio::test]
 async fn 编号看库_不覆盖库里既有行的worktree_path() {
-    let root = git_repo("kz-k2-number");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let project = canonical.display().to_string();
     let state_path = kanzei_core::project_state_path(&canonical);
@@ -1805,7 +1802,6 @@ async fn 编号看库_不覆盖库里既有行的worktree_path() {
 
     // Windows 上 state.db 的连接还开着就删不掉目录,夹具会残留。
     drop(store);
-    cleanup(&root, &[]);
 }
 
 /// 次要②:同一个父目录下的两个项目,用同名工作树不得撞同一条路径。
@@ -1891,7 +1887,7 @@ async fn k2_cross_process_child() {
 /// 删掉的是赢家刚建好的树和分支。
 #[test]
 fn 跨进程并发建同名树_赢家的树与分支完好无损() {
-    let root = git_repo("kz-k2-xproc");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("xproc");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -2003,7 +1999,7 @@ fn 跨进程并发建同名树_赢家的树与分支完好无损() {
     );
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// 验收④ 后半:一树一线查重必须**查库**,并点名占着这棵树的那条线。
@@ -2014,7 +2010,7 @@ fn 跨进程并发建同名树_赢家的树与分支完好无损() {
 /// 未提交改动**的活树,而且完全不点名那条线。
 #[tokio::test]
 async fn 查重必须查库_重启后同名建线点名占用的线() {
-    let root = git_repo("kz-k2-storedup");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("storedup");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -2065,7 +2061,7 @@ async fn 查重必须查库_重启后同名建线点名占用的线() {
     );
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// 验收⑤:写租约获取必须有上界,超时报明确错误,而不是永久 pending。
@@ -2081,7 +2077,7 @@ async fn 查重必须查库_重启后同名建线点名占用的线() {
 async fn 写租约获取有超时_不留永久pending() {
     use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLeaseRequest};
 
-    let root = git_repo("kz-k2-leasetimeout");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let state = AppState::default();
     let holder = state
@@ -2142,7 +2138,6 @@ async fn 写租约获取有超时_不留永久pending() {
     .expect("超时路径不得把协调器留在死锁/半状态")
     .expect("持有者释放后必须能立刻拿到租约");
     drop(next);
-    cleanup(&root, &[]);
 }
 
 /// 默认档必须是「有上界」,不是某次调用忘了传就退回无限等。
@@ -2174,7 +2169,7 @@ fn 写租约默认上界是有限的() {
 /// `worktree add` 会秒回,下面那条「前提」断言会先红出来,不会伪装成绿。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn 建树期间进程表锁不被独占() {
-    let root = git_repo("kz-k2-lockfree");
+    let root = git_repo();
     let hooks = root.join("kz-hooks");
     std::fs::create_dir_all(&hooks).unwrap();
     std::fs::write(hooks.join("post-checkout"), "#!/bin/sh\nsleep 3\n").unwrap();
@@ -2235,7 +2230,7 @@ async fn 建树期间进程表锁不被独占() {
 
     git(&root, &["config", "--unset", "core.hooksPath"]);
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// 重要3:关线时对绑定工作树的处置 —— 干净且已合并的自动回收。
@@ -2244,7 +2239,7 @@ async fn 建树期间进程表锁不被独占() {
 /// app 内再没有入口能收,之后同名建线就撞进「工作树已存在」/「分支已存在」。
 #[test]
 fn 关线时干净且已合并的工作树被自动回收() {
-    let root = git_repo("kz-k2-closeclean");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("closeclean");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -2272,7 +2267,7 @@ fn 关线时干净且已合并的工作树被自动回收() {
     assert_eq!(rebuilt.branch, branch);
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 /// 重要3 反方向:有未提交改动 / 分支没合过来的树,关线时**一律保留**,并给出可执行回收动作。
@@ -2280,7 +2275,7 @@ fn 关线时干净且已合并的工作树被自动回收() {
 /// 自动删一棵还挂着几小时活的树是丢工作,比留下孤儿严重得多。
 #[test]
 fn 关线时有活的工作树必须保留并给出回收动作() {
-    let root = git_repo("kz-k2-closedirty");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("closedirty");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -2320,7 +2315,7 @@ fn 关线时有活的工作树必须保留并给出回收动作() {
     assert!(branch_exists(&canonical, &branch));
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
 
 // ---------- R-184 P5:收活五格之③ 门禁 ----------
@@ -2366,7 +2361,7 @@ fn 门禁步骤表随工作树内容自适应() {
 /// 门禁对乱路径不 panic(路径合法性由 worktree_gate 命令在调用前用 validate 校验)。
 #[tokio::test]
 async fn 门禁对非工作树路径不panic() {
-    let root = git_repo("kz-gate-nonwt");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let outside = canonical.join("not-a-worktree");
     std::fs::create_dir_all(&outside).unwrap();
@@ -2376,14 +2371,13 @@ async fn 门禁对非工作树路径不panic() {
         result.is_empty(),
         "乱路径上没有 Cargo.toml 无冒烟脚本 ⇒ 步骤应为空"
     );
-    cleanup(&root, &[]);
 }
 
 /// 门禁执行:真实建一棵树,放一个 Cargo.toml + 冒烟脚本,跑 run_worktree_gate,
 /// 应拿到对应步骤且命令真实执行(退出码/输出进入 summary)。
 #[tokio::test]
 async fn 门禁真实执行并返回步骤结果() {
-    let root = git_repo("kz-gate-real");
+    let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     let name = unique("gate-real");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
@@ -2424,5 +2418,5 @@ async fn 门禁真实执行并返回步骤结果() {
     }
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    cleanup_worktrees(&[target]);
 }
