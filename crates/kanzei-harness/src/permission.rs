@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+mod destructive_shell;
 mod filesystem;
 mod scoped_file;
 mod sensitivity;
@@ -18,7 +19,7 @@ pub use sensitivity::{file_sensitivity, FileSensitivity};
 /// 静默走进路径分支——也就是静默重新打开 D-269,而且没有任何测试会红。
 ///
 /// 本 crate 是 `kanzei-tools` 的**上游**,拿不到 `BashTool` 来断言,所以钉住这条耦合的
-/// 用例放在下游:`crates/kanzei/tests/bash_action_literal.rs`。改这里的值 = 必须同时改那条用例。
+/// 用例放在下游:`crates/kanzei/tests/integration/bash_action_literal.rs`。改这里的值需同步该用例。
 pub const BASH_ACTION: &str = "bash";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,30 +163,7 @@ impl Ruleset {
 
     /// 硬 deny 优先；普通规则保持 last-match-wins，无匹配 → Ask。
     pub fn evaluate(&self, action: &str, resource: &str) -> Effect {
-        if self.hard_denies.iter().any(|r| {
-            wildcard_match(&r.action, action)
-                && resource_match_for_action(action, &r.resource, resource)
-        }) {
-            return Effect::Deny;
-        }
-        let matched = self.rules.iter().rev().find(|r| {
-            wildcard_match(&r.action, action)
-                && resource_match_for_action(action, &r.resource, resource)
-        });
-        let Some(rule) = matched else {
-            return Effect::Ask;
-        };
-        if rule.effect == Effect::Allow
-            && command_chaining_escapes(action, resource, &rule.resource)
-        {
-            // D-051:通配规则默认降级 Ask。R-198:若规则是「程序名+参数前缀」
-            // 形态且命令安全匹配(程序名一致、无 shell 结构、参数前缀通配命中),
-            // 则放行——这是显式的中间档位,不再是整串通配的隐患。
-            if !(action == BASH_ACTION && bash_prefix_match(&rule.resource, resource)) {
-                return Effect::Ask;
-            }
-        }
-        rule.effect
+        self.evaluate_with_rule(action, resource).0
     }
 
     /// R-183:与 [`evaluate`] 同一判定,额外返回命中的普通规则原文(last-match-wins)。
@@ -195,6 +173,9 @@ impl Ruleset {
     /// - 命中普通规则 → `(effect, Some(rule))`;D-051 把 allow 降级为 Ask 时规则
     ///   仍如实返回(它确实是"命中的规则",只是被 chaining 防线挡了)。
     pub fn evaluate_with_rule(&self, action: &str, resource: &str) -> (Effect, Option<&Rule>) {
+        if destructive_shell::denied(action, resource) {
+            return (Effect::Deny, None);
+        }
         if self.hard_denies.iter().any(|r| {
             wildcard_match(&r.action, action)
                 && resource_match_for_action(action, &r.resource, resource)
@@ -346,7 +327,7 @@ pub fn normalize_resource_for_action(action: &str, resource: &str) -> String {
 }
 
 /// bash 资源的**结构化**形态判定:`BashTool::resources_with_ctx` 产出的
-/// `{"command":…,"workdir":…}` JSON 串。判据只有一条(全仓唯一实现,`config.rs` 的
+/// `{"command":…,"workdir":…}` JSON 串。判据只有一条(config/permissions.rs 的
 /// 历史规则分类也走它,免得两处判据漂移):可解析成 JSON 且同时带 `command` 与 `workdir`。
 pub fn is_structured_bash_resource(text: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(text)
@@ -535,7 +516,7 @@ mod tests {
             },
         ]);
         assert_eq!(rs.evaluate("bash", "git status"), Effect::Allow);
-        assert_eq!(rs.evaluate("bash", "rm -rf /"), Effect::Deny);
+        assert_eq!(rs.evaluate("bash", "rm -rf /tmp/build"), Effect::Deny);
         assert_eq!(rs.evaluate("write", "a.txt"), Effect::Ask);
     }
 
@@ -697,7 +678,7 @@ mod tests {
             "git -c alias.x=!calc x",                       // 别名/历史展开
             "python -c open_secret",                        // 其它程序
             "pwsh -Command Set-Content secret x",           // 其它程序
-            "git status; rm -rf /",                         // 命令链接
+            "git status; rm -rf /tmp/build",                // 命令链接
         ] {
             assert_eq!(
                 rs.evaluate("bash", command),
@@ -715,7 +696,10 @@ mod tests {
             resource: "*".into(),
             effect: Effect::Allow,
         }]);
-        assert_eq!(rs.evaluate("bash", "git status; rm -rf ~"), Effect::Allow);
+        assert_eq!(
+            rs.evaluate("bash", "git status; rm -rf ./build"),
+            Effect::Allow
+        );
     }
 
     #[test]
@@ -794,7 +778,7 @@ mod tests {
             effect: Effect::Allow,
         }]);
         for command in [
-            "node scripts/x.mjs; rm -rf /",
+            "node scripts/x.mjs; rm -rf /tmp/build",
             "node scripts/x.mjs && whoami",
             "node scripts/x.mjs | cat",
             "node scripts/x.mjs > out.txt",
@@ -865,12 +849,15 @@ mod tests {
             resource: "*".into(),
             effect: Effect::Allow,
         }]);
-        assert_eq!(rs.evaluate("bash", "git status; rm -rf ~"), Effect::Allow);
+        assert_eq!(
+            rs.evaluate("bash", "git status; rm -rf ./build"),
+            Effect::Allow
+        );
     }
 
     /// D-269 定向反证:已批准命令的任一 `/` 换成 `T/../` 即可把任意 shell 语句藏进 T。
     /// 规范化后两条命令逐字节相等——所以判定站点一旦对 bash 资源做路径规范化,一条规则
-    /// 准入的就是整个原像类。分流之后注入版必须回到 Ask。
+    /// 准入的就是整个原像类。分流后普通注入回到 Ask，破坏性注入由内置边界 Deny。
     #[test]
     fn bash注入形态不再借历史授权提权() {
         let 已批准 = r#"{"command":"cat src/main.rs","workdir":"c:/project"}"#;
@@ -886,9 +873,8 @@ mod tests {
             resource: 已批准.into(),
             effect: Effect::Allow,
         }]);
-        // 判定站点看到的串由 normalize_resource_for_action 产出。drive.rs 里共三处,
-        // 按**名字**记(行号会随任何一次编辑漂,原来写的 :545/:604/:764 已经全部对不上了):
-        // 并行预检(can_parallel_tools 的资源循环)、并行 deny 预筛、串行门禁。
+        // 判定站点统一消费 drive/permissions.rs 规范化的资源串；
+        // 并行预检 prepare_parallel_tool_calls 与串行门禁共用该入口。
         assert_eq!(
             rs.evaluate("bash", &normalize_resource_for_action("bash", 已批准)),
             Effect::Allow,
@@ -896,8 +882,8 @@ mod tests {
         );
         assert_eq!(
             rs.evaluate("bash", &normalize_resource_for_action("bash", 注入版)),
-            Effect::Ask,
-            "注入版必须回到询问,而不是借原像类拿到 Allow"
+            Effect::Deny,
+            "破坏性注入必须硬拒绝,而不是借原像类拿到 Allow"
         );
     }
 
