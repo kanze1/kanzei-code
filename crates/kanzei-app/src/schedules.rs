@@ -1,7 +1,34 @@
+use kanzei_base::sync::MutexPoisonExt;
 use kanzei_tools::schedules::{self as shared, ScheduleDef};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
+
+type PendingPulls = std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>;
+
+/// Own the reservation from admission through completion, cancellation or unwind.
+struct PullClaim {
+    pending: PendingPulls,
+    key: String,
+}
+
+impl PullClaim {
+    fn acquire(pending: &PendingPulls, key: String) -> Option<Self> {
+        if !pending.lock_or_recover().insert(key.clone()) {
+            return None;
+        }
+        Some(Self {
+            pending: pending.clone(),
+            key,
+        })
+    }
+}
+
+impl Drop for PullClaim {
+    fn drop(&mut self) {
+        self.pending.lock_or_recover().remove(&self.key);
+    }
+}
 
 async fn host(root: &Path, def: &ScheduleDef, enabled: bool) -> Result<(), String> {
     match def.host.as_str() {
@@ -76,9 +103,18 @@ pub(crate) async fn scheduler(app: tauri::AppHandle) {
         return;
     }
     let pulling = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+    let mut pulls = tokio::task::JoinSet::new();
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
     loop {
-        interval.tick().await;
+        tokio::select! {
+            _ = interval.tick() => {},
+            Some(result) = pulls.join_next(), if !pulls.is_empty() => {
+                if let Err(error) = result {
+                    tracing::error!(%error, "schedule server pull task terminated");
+                }
+                continue;
+            }
+        }
         for root in schedule_roots() {
             if !root.join(".kanzei/schedules").is_dir() {
                 continue;
@@ -88,21 +124,19 @@ pub(crate) async fn scheduler(app: tauri::AppHandle) {
                 if def.host.starts_with("server:") {
                     if def.enabled {
                         let key = format!("{}:{}", root.display(), def.name);
-                        if !pulling.lock().unwrap().insert(key.clone()) {
-                            continue;
-                        }
-                        let Ok(admission) = crate::runtime_service::admit_work() else {
-                            pulling.lock().unwrap().remove(&key);
+                        let Some(claim) = PullClaim::acquire(&pulling, key) else {
                             continue;
                         };
-                        let pending = pulling.clone();
+                        let Ok(admission) = crate::runtime_service::admit_work() else {
+                            continue;
+                        };
                         let root = root.clone();
-                        tokio::spawn(async move {
+                        pulls.spawn(async move {
+                            let _claim = claim;
                             let _admission = admission;
                             if let Err(error) = shared::hosts::pull(&root, &def).await {
                                 tracing::warn!(%error,"schedule server pull failed");
                             }
-                            pending.lock().unwrap().remove(&key);
                         });
                     }
                     continue;
@@ -301,6 +335,27 @@ fn list_tasks(root: &Path, now: i64, after_load: impl FnOnce()) -> Result<Value,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn pull_reservation_is_released_after_panic_and_cancellation() {
+        let pending = PendingPulls::default();
+        let key = "project:task".to_owned();
+        let claim = PullClaim::acquire(&pending, key.clone()).unwrap();
+        assert!(PullClaim::acquire(&pending, key.clone()).is_none());
+        let task = tokio::spawn(async move {
+            let _claim = claim;
+            panic!("injected pull failure");
+        });
+        assert!(task.await.unwrap_err().is_panic());
+        let claim = PullClaim::acquire(&pending, key.clone()).unwrap();
+        let task = tokio::spawn(async move {
+            let _claim = claim;
+            std::future::pending::<()>().await;
+        });
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(PullClaim::acquire(&pending, key).is_some());
+    }
     #[test]
     fn only_runtime_owners_start_the_timer() {
         assert!(
@@ -389,19 +444,25 @@ mod tests {
     }
     #[test]
     fn timer_scans_general_tasks_without_registering_a_project() {
-        let home = std::env::temp_dir().join(format!(
-            "kz-general-scheduler-{}-{}",
-            std::process::id(),
-            chrono_now()
-        ));
-        crate::settings::with_kanzei_home(&home, || {
-            let root = crate::general_chat::storage_root().unwrap();
-            std::fs::create_dir_all(root.join(".kanzei/schedules")).unwrap();
-            assert!(schedule_roots().contains(&root));
-            assert!(crate::prefs::load_prefs().projects.is_empty());
-            assert!(!home.join("app.json").exists());
-        });
-        std::fs::remove_dir_all(home).unwrap();
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "timer_scans_general_tasks_without_registering_a_project",
+            || {
+                let home = std::env::temp_dir().join(format!(
+                    "kz-general-scheduler-{}-{}",
+                    std::process::id(),
+                    chrono_now()
+                ));
+                crate::settings::with_kanzei_home(&home, || {
+                    let root = crate::general_chat::storage_root().unwrap();
+                    std::fs::create_dir_all(root.join(".kanzei/schedules")).unwrap();
+                    assert!(schedule_roots().contains(&root));
+                    assert!(crate::prefs::load_prefs().projects.is_empty());
+                    assert!(!home.join("app.json").exists());
+                });
+                std::fs::remove_dir_all(home).unwrap();
+            },
+        );
     }
     #[test]
     fn definition_changes_and_rollback_never_replace_an_external_edit() {
