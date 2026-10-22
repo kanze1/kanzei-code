@@ -346,6 +346,9 @@ pub(crate) async fn run_prompt(
     work_item_id: Option<String>,
     handoff_source: Option<handoff::HandoffSource>,
     wake_queued: Option<bool>,
+    // D-764:这一轮由引擎自动推进投递,不是用户按键。前端自动续跑闸门发枪时置真;
+    // 引擎侧的 Submission::Automatic 不需要这个参数(提交形态本身就是证据)。
+    auto_round: Option<bool>,
 ) -> Result<(), String> {
     if wake_queued.unwrap_or(false) {
         if !prompt.trim().is_empty() || attachments.as_ref().is_some_and(|items| !items.is_empty())
@@ -381,6 +384,8 @@ pub(crate) async fn run_prompt(
                 research_topic,
                 autonomous: autonomous.unwrap_or(false),
                 auto_allow: auto_allow.unwrap_or(false),
+                // 唤醒已有输入:归属在当初投递时定过,这里不重新判定。
+                auto_round: false,
             },
         )
         .map(|_| ());
@@ -414,6 +419,7 @@ pub(crate) async fn run_prompt(
             research_topic,
             autonomous: autonomous.unwrap_or(false),
             auto_allow: auto_allow.unwrap_or(false),
+            auto_round: auto_round.unwrap_or(false),
         },
     )
     .map(|_| ())
@@ -431,6 +437,9 @@ pub(crate) struct RunOptions {
     pub(crate) research_topic: Option<String>,
     pub(crate) autonomous: bool,
     pub(crate) auto_allow: bool,
+    /// D-764:引擎自动推进投递的这一轮(与用户按键相对)。
+    #[serde(default)]
+    pub(crate) auto_round: bool,
 }
 
 pub(crate) enum Submission {
@@ -456,6 +465,22 @@ pub(crate) enum Submission {
     },
 }
 
+/// D-764:哪些枪是引擎放的。`Submission::Automatic` 形态本身就是证据;UI 的自动续跑闸门
+/// 走 `Submission::Prompt`,靠 `auto_round` 声明。用户按键两者都不成立,文本原样进上下文。
+fn is_engine_round(submission: &Submission, auto_round: bool) -> bool {
+    matches!(submission, Submission::Automatic { .. }) || auto_round
+}
+
+/// D-764:引擎自动推进轮的文本加上非用户归属前缀;用户按键原样通过。
+/// 纯函数,幂等由 `mark_engine_round` 保证(重放同一份文本不会叠第二层前缀)。
+fn attribute_engine_round(engine_round: bool, prompt: String) -> String {
+    if engine_round {
+        kanzei_harness::auto_run::mark_engine_round(&prompt)
+    } else {
+        prompt
+    }
+}
+
 pub(crate) fn schedule_run(
     window: AppEvents,
     state: &AppState,
@@ -476,7 +501,11 @@ pub(crate) fn schedule_run(
         research_topic,
         autonomous,
         auto_allow,
+        auto_round,
     } = options;
+    // D-764:投递点定归属。必须在 Automatic→Prompt 归一之前判定,否则两种来源已被压成
+    // 同一种形态,再分不出来。
+    let engine_round = is_engine_round(&submission, auto_round);
     // 规范化主根:会话 id 与进程归属的身份键(canonicalize 过,形态唯一)。
     let project_root = normalized_project_root(Path::new(&project_dir));
     // R-141:IPC 显式选中的主根只解析一次并传给 run_task;worktree cwd 另行选择。
@@ -626,6 +655,9 @@ pub(crate) fn schedule_run(
             delivery,
             attachments,
         } => {
+            // D-764:引擎投递的枪先定归属再入库。队列去重、模型上下文、压缩纪要和界面
+            // 气泡读的都是这一份文字,所以归一在准入点做一次,不在四处各写一遍。
+            let prompt = attribute_engine_round(engine_round, prompt);
             if runtime.running.load(Ordering::SeqCst) {
                 if attachments.as_ref().is_some_and(|items| !items.is_empty()) {
                     return Err("当前任务运行中不能排队附件，请等待本轮完成后再发送".into());
@@ -689,6 +721,8 @@ pub(crate) fn schedule_run(
             research_topic: research_topic.clone(),
             autonomous: false,
             auto_allow,
+            // 回调选项描述「下一轮怎么发」;自动轮的归属由 submission 形态与 auto_round 判定。
+            auto_round: false,
         };
     }
     runtime.running.store(true, Ordering::SeqCst);
@@ -874,6 +908,46 @@ mod tests {
     use kanzei_core::TaskOutcome;
     use kanzei_core::{EpisodeRecord, SessionStore};
     use std::path::{Path, PathBuf};
+
+    /// D-764:自动续跑轮不得冒用用户名义。判定看投递形态与 auto_round,标注发生在准入点。
+    #[test]
+    fn engine_gun_is_attributed_to_the_engine_not_the_user() {
+        assert!(super::is_engine_round(
+            &super::Submission::Automatic {
+                prompt: "继续推进".into(),
+                generation: 1,
+                async_generation: 1,
+            },
+            false
+        ));
+        assert!(!super::is_engine_round(
+            &super::Submission::Prompt {
+                prompt: "把这条改成 P1".into(),
+                delivery: kanzei_core::Delivery::Queue,
+                attachments: None,
+            },
+            false
+        ));
+        // UI 的自动续跑闸门走 Prompt 形态,靠 auto_round 声明归属。
+        assert!(super::is_engine_round(
+            &super::Submission::Prompt {
+                prompt: "继续推进".into(),
+                delivery: kanzei_core::Delivery::Queue,
+                attachments: None,
+            },
+            true
+        ));
+
+        let marked =
+            super::attribute_engine_round(true, "继续推进,规则按系统提示执行。".to_string());
+        assert!(marked.starts_with(kanzei_harness::auto_run::ENGINE_ROUND_MARKER));
+        assert_eq!(
+            super::attribute_engine_round(false, "把这条改成 P1".to_string()),
+            "把这条改成 P1"
+        );
+        // 队列去重比的是入库文本:重放同一枪若叠第二层前缀,同文案永不相等 → 重复轮次。
+        assert_eq!(super::attribute_engine_round(true, marked.clone()), marked);
+    }
 
     #[test]
     fn stored_restricted_recipient_defeats_a_stale_dev_sender() {

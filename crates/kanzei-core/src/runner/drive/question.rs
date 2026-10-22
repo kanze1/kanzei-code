@@ -33,10 +33,8 @@ pub(super) async fn execute_question(
     if background && ctx.async_mailbox.is_none() {
         return ToolOutput::error("当前入口未连接异步回答通道；请使用普通 question");
     }
-    let id = format!(
-        "question:{}:{call_id}",
-        ctx.run_id.as_deref().unwrap_or("run")
-    );
+    let run_id = ctx.run_id.as_deref().unwrap_or("run");
+    let id = kanzei_harness::question_ref::pending_question_ref(run_id, call_id);
     let response = ask(AskRequest::Question {
         question: question.into(),
         options,
@@ -50,6 +48,8 @@ pub(super) async fn execute_question(
         let question = question.to_owned();
         let root = ctx.project_root.clone();
         let reply_id = id.clone();
+        let run_id = run_id.to_owned();
+        let call_id = call_id.to_owned();
         tokio::spawn(async move {
             let answer = tokio::select! { biased;
                 _ = mailbox.cancelled() => { let _ = kanzei_harness::pending_question::settle(&root,&reply_id,"cancelled"); return; },
@@ -57,7 +57,8 @@ pub(super) async fn execute_question(
             };
             let text = match answer {
                 AskResponse::Answer(answer) => {
-                    format!("用户回答异步问题 {reply_id}\n原问题：{question}\n回答：{answer}")
+                    let answered = kanzei_harness::question_ref::question_ref(&run_id, &call_id);
+                    format!("用户回答异步问题 {reply_id}\n原问题：{question}\n回答：{answer}\n需要用户确认留痕时,把作答凭证 {answered} 逐字写进 tracker 条目的 `确认记录`。")
                 }
                 AskResponse::Cancelled => format!(
                     "用户取消了异步问题 {reply_id}：{question}。没有提供回答，不得视为同意。"
@@ -76,7 +77,14 @@ pub(super) async fn execute_question(
         return ToolOutput::ok(format!("问题已发送（{id}）。尚无答案；可以继续独立工作，依赖答案的部分保持等待。回答会送回此任务。"));
     }
     match response.await {
-        AskResponse::Answer(answer) => ToolOutput::ok(format!("User answer: {answer}")),
+        // R-374 冻结的是首行 `User answer: {答案}` 的逐字格式;凭证是第二行,删掉它
+        // tracker 的确认门禁就没有可引用的作答凭据,只剩模型自述。
+        AskResponse::Answer(answer) => {
+            let answered = kanzei_harness::question_ref::question_ref(run_id, call_id);
+            ToolOutput::ok(format!(
+                "User answer: {answer}\n需要用户确认留痕时,把作答凭证 {answered} 逐字写进 tracker 条目的 `确认记录`。"
+            ))
+        }
         AskResponse::Cancelled => ToolOutput::error("question cancelled by user"),
         AskResponse::Permission(_) => ToolOutput::error("invalid question response"),
     }
@@ -205,7 +213,11 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(notice.id, "question:original-run:original-question");
+        assert_eq!(notice.id, "pending-question:original-run:original-question");
+        assert_eq!(
+            kanzei_harness::question_ref::find_question_ref(&notice.text),
+            Some("question:original-run:original-question")
+        );
         assert!(notice.text.contains("docs/output") && notice.text.contains("选择发布目录"));
         mailbox.close();
         assert!(mailbox
@@ -311,15 +323,117 @@ mod tests {
             assert!(matches!(request, AskRequest::Question { .. }));
             Box::pin(async { AskResponse::Answer("本地".into()) })
         };
+        let ctx = ToolCtx::default().with_identity(
+            "tree".into(),
+            "project".into(),
+            "run-9".into(),
+            "p9".into(),
+        );
         let output = execute_question(
             AskPolicy::Interactive,
-            &ToolCtx::default(),
+            &ctx,
             "call-1",
             &serde_json::json!({"question":"选择 provider", "decision":{"answer":"远程"}}),
             &mut ask,
         )
         .await;
         assert!(!output.is_error);
-        assert_eq!(output.content, "User answer: 本地");
+        assert!(
+            output.content.starts_with("User answer: 本地"),
+            "{}",
+            output.content
+        );
+        // D-764③:作答凭证必须能被 tracker 确认门禁识别,否则诚实留痕无路可走。
+        assert!(
+            kanzei_harness::question_ref::find_question_ref(&output.content)
+                == Some("question:run-9:call-1"),
+            "{}",
+            output.content
+        );
+    }
+
+    #[tokio::test]
+    async fn background_question_carries_the_same_citation_shape() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mailbox = kanzei_harness::AsyncMailbox::new(move |notice| {
+            tx.send(notice).map_err(|e| e.to_string())
+        });
+        let root = kanzei_base::test_support::TestDir::new("answered-question");
+        let ctx = ToolCtx {
+            run_id: Some("run-9".into()),
+            project_root: root.to_path_buf(),
+            async_mailbox: Some(mailbox.clone()),
+            ..Default::default()
+        };
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        let mut answer = Some(answer);
+        let mut ask = |request| -> AskFuture {
+            let AskRequest::Question { callback_id, .. } = request else {
+                panic!("expected a question")
+            };
+            assert_eq!(
+                callback_id.as_deref(),
+                Some("pending-question:run-9:call-1")
+            );
+            let answer = answer.take().unwrap();
+            Box::pin(async move { answer.await.unwrap() })
+        };
+        let sent = execute_question(
+            AskPolicy::Interactive,
+            &ctx,
+            "call-1",
+            &serde_json::json!({"question":"收藏口径","background":true}),
+            &mut ask,
+        )
+        .await;
+        assert!(
+            kanzei_harness::question_ref::find_question_ref(&sent.content).is_none(),
+            "{}",
+            sent.content
+        );
+        reply.send(AskResponse::Answer("先站内".into())).unwrap();
+        let notice = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            kanzei_harness::question_ref::find_question_ref(&notice.text)
+                == Some("question:run-9:call-1"),
+            "{}",
+            notice.text
+        );
+        mailbox.close();
+    }
+
+    #[tokio::test]
+    async fn cancelled_background_question_never_issues_an_answer_citation() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mailbox = kanzei_harness::AsyncMailbox::new(move |notice| {
+            tx.send(notice).map_err(|e| e.to_string())
+        });
+        let root = kanzei_base::test_support::TestDir::new("cancelled-question");
+        let ctx = ToolCtx {
+            run_id: Some("run-9".into()),
+            project_root: root.to_path_buf(),
+            async_mailbox: Some(mailbox.clone()),
+            ..Default::default()
+        };
+        let mut ask = |_| -> AskFuture { Box::pin(async { AskResponse::Cancelled }) };
+        let sent = execute_question(
+            AskPolicy::Interactive,
+            &ctx,
+            "call-1",
+            &serde_json::json!({"question":"是否发布", "background":true}),
+            &mut ask,
+        )
+        .await;
+        assert!(kanzei_harness::question_ref::find_question_ref(&sent.content).is_none());
+        let notice = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(notice.text.contains("没有提供回答"));
+        assert!(kanzei_harness::question_ref::find_question_ref(&notice.text).is_none());
+        mailbox.close();
     }
 }

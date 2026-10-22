@@ -23,6 +23,8 @@ pub mod progress;
 /// R-205:项目根发现与 HOME 守卫(config.rs 拆出,D-270 修复落点)。
 pub mod project_root;
 pub mod project_trust;
+/// D-764:已作答 question 的可引用凭证,生产方在 runner,消费方在 tracker 确认门禁。
+pub mod question_ref;
 pub mod read_ledger;
 /// 统一引用分词(doc_reference_graph §2):拆分、区间展开、关系前缀、脏 token 上报。
 pub mod refs;
