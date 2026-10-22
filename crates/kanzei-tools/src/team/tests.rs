@@ -314,11 +314,33 @@ async fn cross_process_inspection_and_resume_preserve_live_child_and_idle_can_tr
     assert_eq!(team.resolve(&before.id).unwrap().attempt, 2);
 }
 
+// Keep the original process object alive through PID assertions. After Child::wait
+// drops its handle, parallel process launches could otherwise reuse the same PID.
+struct ProcessIdentity {
+    #[cfg(windows)]
+    _handle: std::os::windows::io::OwnedHandle,
+}
+
+impl ProcessIdentity {
+    fn retain(_child: &tokio::process::Child) -> Self {
+        Self {
+            #[cfg(windows)]
+            _handle: {
+                // SAFETY: child owns this valid handle while it is borrowed and duplicated.
+                let handle = unsafe {
+                    std::os::windows::io::BorrowedHandle::borrow_raw(_child.raw_handle().unwrap())
+                };
+                handle.try_clone_to_owned().unwrap()
+            },
+        }
+    }
+}
+
 async fn owned_process_fixture(
     team: &AgentTeam,
     id: &str,
     attempt: u32,
-) -> Arc<crate::background::BackgroundProcess> {
+) -> (Arc<crate::background::BackgroundProcess>, ProcessIdentity) {
     let child = tokio::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
@@ -331,6 +353,7 @@ async fn owned_process_fixture(
         .kill_on_drop(true)
         .spawn()
         .unwrap();
+    let identity = ProcessIdentity::retain(&child);
     let process = crate::background::register_with_mailbox(
         child,
         "D2 owned identity fixture".into(),
@@ -355,7 +378,7 @@ async fn owned_process_fixture(
     })
     .await
     .unwrap();
-    process
+    (process, identity)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -408,8 +431,8 @@ async fn same_db_different_parents_same_call_id_keep_model_and_cleanup_independe
             .kind(),
         std::io::ErrorKind::WouldBlock
     );
-    let first_process = owned_process_fixture(&first_team, id, 1).await;
-    let second_process = owned_process_fixture(&second_team, id, 1).await;
+    let (first_process, _first_identity) = owned_process_fixture(&first_team, id, 1).await;
+    let (second_process, _second_identity) = owned_process_fixture(&second_team, id, 1).await;
     let before = second_team.resolve(id).unwrap();
     first_team.stop(id).unwrap();
     tokio::time::timeout(
@@ -586,16 +609,7 @@ async fn finishing_callback_panic_reaps_real_process_before_last_owner_release()
         .kill_on_drop(true)
         .spawn()
         .unwrap();
-    // Keep the original Windows process object alive until all PID assertions finish.
-    // Otherwise parallel process launches can reuse its PID after Child::wait drops it.
-    #[cfg(windows)]
-    let _process_identity = {
-        // SAFETY: child owns this valid handle while it is borrowed and duplicated.
-        let handle = unsafe {
-            std::os::windows::io::BorrowedHandle::borrow_raw(child.raw_handle().unwrap())
-        };
-        handle.try_clone_to_owned().unwrap()
-    };
+    let _process_identity = ProcessIdentity::retain(&child);
     let process = crate::background::register_with_mailbox(
         child,
         "D2 owned test fixture".into(),
