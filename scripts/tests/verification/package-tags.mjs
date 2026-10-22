@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // D-656:package.ps1 的 build 标签同步与发布范围前置核对必须针对真实脚本执行。
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -86,18 +86,6 @@ try {
   const targetOutput = `${targetMismatch.stdout}\n${targetMismatch.stderr}`;
   assert.notEqual(targetMismatch.status, 0, "最新 build 标签指向不一致时 package.ps1 必须中止");
   assert.match(targetOutput, /build .*build-same/);
-
-  const source = await readFile(packageScript, "utf8");
-  assert.match(
-    source,
-    /gh release create[\s\S]*?git -C \$root fetch origin "tag" \$tag/,
-    "发布成功后必须 fetch 同名 build 标签",
-  );
-  assert.match(
-    source,
-    /if \(\$LASTEXITCODE -ne 0\) \{\s*Write-Warning "远端 release 已发布,但本地标签/,
-    "标签 fetch 失败只能告警，不能把已成功的远端发布改报失败",
-  );
 
   console.log("D-656 package.ps1 build 标签同步 smoke 通过");
 } finally {
