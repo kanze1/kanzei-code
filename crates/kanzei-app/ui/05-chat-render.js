@@ -9,7 +9,7 @@ import { openTasksPanel } from "./06-agent-panel.js";
 import { $ } from "./00-dom.js";
 import { activePane, promptBox, appendToPane, messages, renderingBackground, trimLivePane } from "./01-chat-panes.js";
 import { t } from "./02-i18n.js";
-import { attachments, activeSessionId, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
+import { activeSessionId, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdownInto } from "./04-markdown.js";
 import { appendLinkedText, resourceIcon, resourceType } from "./04-resource-types.js";
 import { fillTemplate, parseJsonish, stripInternalHandoff, stripToolOutcome } from "./04-structured-parse.js";
@@ -75,10 +75,10 @@ defer(() => {
     updateLatestButton();
     // 读历史期间 trimLivePane 会让步(见 01-core.js);人滚回底部了就把欠下的那次补上,
     // 否则跑一整轮回来 pane 还挂在硬顶上。
-    if (wasReading && followLatest && typeof trimLivePane === "function") trimLivePane(activePane);
+    if (wasReading && followLatest) trimLivePane(activePane);
     // R-267 批2:触顶自动补齐上一窗。按钮仍在(可点),但滚上去就该出来,
     // 不该让人先找到按钮再点——这是「更丝滑」的一部分。
-    if (messages.scrollTop < 80 && typeof loadEarlierMessages === "function") loadEarlierMessages();
+    if (messages.scrollTop < 80) loadEarlierMessages();
   });
 });
 /// 跟随滚动按帧合并。`messages.scrollTop = messages.scrollHeight` 是一次**强制同步

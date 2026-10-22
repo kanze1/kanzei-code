@@ -20,7 +20,7 @@ export function createComposer(actions) {
     const element = $(id), anchor = document.createComment("native " + id);
     element.before(anchor); return { element, anchor };
   });
-  let raw = ""; try { raw = localStorage.getItem("kz-softwire-drafts"); } catch {}
+  let raw = ""; try { raw = localStorage.getItem("kz-softwire-drafts"); } catch (error) { console.warn("25-softwire-composer: optional persisted state unavailable", error); }
   const restored = safeRestore(raw);
   let target = null, active = false, nativeDraft = null, floating = false, drag = null;
   let position = restored.position || { x: 0, y: 0 };

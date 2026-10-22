@@ -12,11 +12,10 @@ import {
   activeSessionId,
   currentProject,
   processItems,
-  running,
   toastError,
 } from "./03-shell.js";
 import { selectedWorkPriority } from "./08-auto.js";
-import { state } from "./08-compose.js";
+import "./08-compose.js";
 import { removeProject, renameProject, switchProject } from "./09-sessions.js";
 import {
   NEUTRAL_DOC_FILTERS,
@@ -26,7 +25,7 @@ import {
 } from "./10-docs-core.js";
 import { batchSelection, consumePendingJump, renderDocList, syncBatchBar } from "./11-docs-list.js";
 import { renderIncidentMetrics } from "./13-memory.js";
-import { applyDocFilter, clearDocFilters, refreshDocs } from "./14-docs-actions.js";
+import { applyDocFilter, clearDocFilters } from "./14-docs-actions.js";
 import { syncConventionsEntry } from "./15-conventions.js";
 import { renderDecisionConsole, workspaceConsoleBusy, workspaceConsoleState } from "./12-decision-console.js";
 
@@ -512,7 +511,7 @@ export function renderDependencyView(snapshot) {
       row.dataset.docId = e.id;
       row.setAttribute("role", "button");
       row.tabIndex = 0;
-      const kind = e.id.startsWith("D-") ? "defect" : "req";
+
       const st = document.createElement("span");
       st.className = `st st-${e.status || "todo"}`;
       st.textContent = e.id;

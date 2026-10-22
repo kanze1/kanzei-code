@@ -3,9 +3,9 @@ import { readProjectDocuments, projectDocumentsChanged, observeProjectDocuments,
 import { defer } from "./00-dom.js";
 import { $ } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
-import { on } from "./01-runtime-events.js";
+import "./01-runtime-events.js";
 import { t } from "./02-i18n.js";
-import { currentProject, running, toast, toastError } from "./03-shell.js";
+import { currentProject, toast, toastError } from "./03-shell.js";
 import { applyBgFilters, bgDoneOpen, bgEntries, bgFilters, bgSync, renderBgSections, setBgDoneOpen } from "./06-activity.js";
 import { refreshWorktrees } from "./09-sessions.js";
 import { saveDocFilters } from "./10-docs-core.js";
@@ -17,7 +17,6 @@ import {
   setDependencyViewOpen,
   docFilterTargets,
   documentFilters,
-  documentsKind,
   latestDocsSnapshot,
   renderDocsSnapshot,
   renderDocuments,
@@ -27,7 +26,7 @@ import {
   refreshWorkspaceSoon,
 } from "./12-docs-pages.js";
 import { openRuntimeMarkdown, refreshConversationList } from "./15-views-misc.js";
-import { forProject } from "./20-lines.js";
+import "./20-lines.js";
 
 // await 前后各认一次项目。这份快照是替 forProject 取的:await 期间用户切走了,它就是
 // **上一个项目**的数据,照旧渲染的后果不止"闪一下上个项目的列表"——syncDocumentFilters

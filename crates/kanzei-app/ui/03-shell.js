@@ -13,8 +13,8 @@ import { renderErrorDetail } from "./04-structured.js";
 import { fastStatusText } from "./06-activity.js";
 import { reconcileTasksPanel } from "./06-agent-panel.js";
 import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
-import { send } from "./08-compose-runtime.js";
-import { state } from "./08-compose.js";
+import "./08-compose-runtime.js";
+import "./08-compose.js";
 import { lastProjectPrefs, refreshWorktrees, switchProcess } from "./09-sessions.js";
 import { clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
 import { refreshWorkspace } from "./12-docs-pages.js";
@@ -32,7 +32,7 @@ import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
 import { layoutPref, onLayoutChange, prefObject, setLayoutPref, setPrefObject } from "./03-layout.js";
 import { sameProject } from "./25-softwire-model.js";
 
-// 布局分隔条(侧栏宽、日志高、文件树宽、记忆列表宽)归 00-frame.js 的 installSplit,在 03-layout.js 统一安装:
+// 分隔条共用 00-frame.js 的 installSplit：主布局在 03-layout.js 安装，代理面板与预览控制台各自安装。
 // 尺寸写成 <html> 上的 --kz-split-<id>,不再写元素内联 width(内联宽度压过 #sidebar.collapsed{width:0},
 // 拖过宽度再收起侧栏会留一整条空栏——UI2-0926 #4 的缺陷 A)。
 export let activeProcessId = null;
@@ -48,7 +48,7 @@ export function setActiveSessionId(v) {
 export let processItems = [];
 export function setProcessItems(value) { processItems = value; }
 
-import { sessionState, sessionStates, reduceSession, onSessionStateChange } from "./00-session-state.js";
+import { sessionState, reduceSession, onSessionStateChange } from "./00-session-state.js";
 export { sessionState, sessionStates, sessionDetails } from "./00-session-state.js";
 
 export let running = false;
@@ -68,6 +68,10 @@ export function setRunTokens(value) { runTokens = value; }
 
 // ---------- 视图切换 ----------
 let viewLoadTimer = null;
+// 作废范围 = 「正在装载哪一个视图页」。切页时旧的 await 迟到不能盖掉新页。
+// 它与 processSwitchGeneration(切线)、conversationLoadGeneration(装载会话历史)、
+// actionGeneration(回退/分叉对话框)各管一层,合并会让其中一层过度作废:
+// 切一条线不该顺手作废用户正在看的文档页装载。
 let viewLoadGeneration = 0;
 
 // ---------- 导航栈(UX-001、D1~D20) ----------
@@ -949,8 +953,8 @@ export function formatRunMeta(meta) {
   const parts = [meta.model];
   if (meta.reasoning && meta.reasoning !== "off") parts.push(reasoningLabel(meta.reasoning));
   if (meta.codexFastMode) parts.push("⚡\uFE0E"); // 文字字形,随状态栏文字色(彩色 emoji 不受主题控制)
-  // profile 是后端的原始档位名(dev/research):中文界面写「开发」「研究」,不把英文枚举摆给人看。
-  if (meta.profile) parts.push({ dev: t("开发"), research: t("研究") }[meta.profile] ?? meta.profile);
+  // ProfileKind 的各现役档位均显示本地化名称；未知新档位保留服务端名称。
+  if (meta.profile) parts.push({ dev: t("开发"), research: t("研究"), readonly: t("只读"), isolated: t("隔离执行") }[meta.profile] ?? meta.profile);
   return parts.filter(Boolean).join(" · ");
 }
 export function showRunMeta(meta) {

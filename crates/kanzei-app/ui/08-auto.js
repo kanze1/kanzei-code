@@ -1,9 +1,10 @@
-import { defer } from "./00-dom.js";
+import "./00-dom.js";
 import { motionCount } from "./00-ui-primitives.js";
 import { $ } from "./00-dom.js";
 import { activePane, messages } from "./01-chat-panes.js";
 import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { invoke } from "./00-ipc.js";
+import { setSessionDetails } from "./00-session-state.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -11,14 +12,13 @@ import {
   currentProject,
   log,
   processItems,
-  running,
   sessionState,
   setRunning,
   toast,
   transitionSession,
 } from "./03-shell.js";
-import { __kzProcessAutoState, normalizeAutoState, processAutoState, processProfileUi } from "./08-compose-runtime.js";
-import { state } from "./08-compose.js";
+import { normalizeAutoState, processAutoState, processProfileUi } from "./08-compose-runtime.js";
+import "./08-compose.js";
 import { refreshProcesses } from "./09-sessions.js";
 
 // ---------- 自动续跑状态与渲染 ----------
@@ -33,12 +33,20 @@ export function currentAutoRounds(sessionId = activeSessionId) {
 }
 export function setAutoRounds(sessionId, value) {
   const rounds = Number(value) || 0;
-  if (sessionId) sessionState(sessionId).auto_rounds = rounds;
+  if (sessionId && sessionState(sessionId).auto_rounds !== rounds) setSessionDetails(sessionId, { auto_rounds: rounds });
   if (!sessionId || sessionId === activeSessionId) autoRounds = rounds;
   return rounds;
 }
 export let autoStopAfterRound = false;
 export const autoContinueTimers = new Map();
+// 续跑竞态令牌:取消后重新 arm 必须产生比旧回调更大的代,旧回调靠 entry.generation 认出自己过期。
+// 因此这里只增不删——删了会让下一次从 1 重启,与仍在队列里的旧回调同号,重新引入被取代的续跑。
+const autoGenerations = new Map();
+export function nextAutoGeneration(sessionId) {
+  const generation = (autoGenerations.get(sessionId) ?? 0) + 1;
+  autoGenerations.set(sessionId, generation);
+  return generation;
+}
 // 自动续跑的 IPC 会在后端真正结束前立即返回；用在途集合挡住同一会话的
 // 重复 kz:done/定时器事件，终态事件再释放。否则重复事件会不断追加 queue 输入。
 export const autoContinueInFlight = new Set();
@@ -196,10 +204,9 @@ export function syncWorkPriorityControl() {
 //
 // 这里原先还把开关镜像成一条 preference 记忆(开发重心),理由写着「提示词由记忆
 // 生成,所以开关与提示词不可能再互相矛盾」。那个理由在当时成立,后来不成立了:
-// 权威提示词现在由 run.rs work_priority_guidance 从**枚举**生成,而 preference
-// 记忆走的是另一条路——它以「STANDING DIRECTIVES(obey these; they are the
-// user's own words)」的抬头全文常驻注入,与 <resolved-control-state> 里那句
-// 「do not re-arbitrate queue priority from tracker prose」正面对撞。
+// 取活提示由 tools/work/context.rs 从解析后的枚举生成 <resolved-control-state>。
+// preference 约束由 dev profile 的 <project-constraints> 按上下文预算加载；
+// 两者职责不同，把取活开关再镜像成约束记忆仍会制造第二份相互冲突的来源。
 //
 // 于是模型每轮同时收到两条都自称最高优先级的指令。而那条记忆改不动队列顺序
 // (引擎只读枚举),它唯一能起的作用是怂恿模型借 WorkInput.reason 偏离引擎裁决,
@@ -268,13 +275,13 @@ export function renderAutoRun() {
   const stopRound = $("auto-stop-round");
   if (stopRound) stopRound.disabled = !armed;
 }
-// 兼容既有 9 个调用点:带参 = 写一次性提示槽,无参 = 纯重绘(不再回写原因)。
+// 调用约定：带参写一次性提示槽，无参纯重绘(不再回写原因)。
 export function renderAutoStatus(text) {
   if (text !== undefined) autoHint = text;
   renderAutoRun();
 }
 // R-170:继续文案 = 用户附加意图 + 极简默认兜底。开发重心/引擎规则已由
-// run.rs work_priority_guidance + memory preference 注入 system prompt,不再拼接。
+// tools 的 work context 与 profile 约束通道注入 system prompt，不在继续文案中重复拼接。
 export function continuePrompt() {
   return $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
 }
@@ -297,7 +304,7 @@ export function armStoppingWatchdog(sessionId) {
     if (sessionId === activeSessionId) setRunning(false, t("已停止"));
     log(t("停止已发出但未收到后端确认,已按停止处理"), "warn");
     toast(t("停止已发出但未收到后端确认,已按停止处理"));
-    if (typeof refreshProcesses === "function") refreshProcesses();
+    refreshProcesses();
   }, STOPPING_WATCHDOG_MS));
 }
 export function clearStoppingWatchdog(sessionId) {

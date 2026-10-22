@@ -1,6 +1,6 @@
 // Conversation DOM ownership; presentation state is scoped to its session pane.
 import { $ } from "./00-dom.js";
-import { sessionState } from "./00-session-state.js";
+import "./00-session-state.js";
 import { activeSessionId, currentAssistant, currentReasoning, setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { currentReasoningHead, setCurrentReasoningHead, followLatest, noteProgrammaticScroll, scrollBottom } from "./05-chat-render.js";
 import { renderTrimmedHint, sessionLiveNow } from "./15-views-misc.js";
@@ -191,18 +191,18 @@ export function trimLivePane(pane) {
     // 删头部节点时浏览器会**自己**把 scrollTop 夹到新上限,那一下同样会发 scroll 事件。
     // 不先把落点登记成程序滚动,它就会被当成「用户往上滚了」——实测跟随态下 601 条触发
     // 裁剪后 followLatest 立刻翻成 false,此后 flushScrollBottom 不再钉底,永远回不到最新。
-    if (typeof noteProgrammaticScroll === "function") noteProgrammaticScroll();
+    noteProgrammaticScroll();
     // 跟随态下用户要的是「一直贴着底」,不是保住某个位置:交给 scrollBottom 重新钉底。
-    if (!reading && typeof scrollBottom === "function") scrollBottom(true);
+    if (!reading) scrollBottom(true);
   }
-  if (typeof renderTrimmedHint === "function") renderTrimmedHint(pane);
+  renderTrimmedHint(pane);
 }
 /// 清空当前 pane 并复位「有内容」标志。
 export function resetPane() {
   activePane.replaceChildren();
   delete activePane.dataset.hasContent;
   delete activePane.dataset.droppedLive;
-  if (typeof renderTrimmedHint === "function") renderTrimmedHint(activePane);
+  renderTrimmedHint(activePane);
 }
 
 /// 超出上限时淘汰最久未访问的 pane。**运行中的会话永不淘汰**——它正在往里写,
@@ -210,7 +210,7 @@ export function resetPane() {
 export function evictStalePanes() {
   if (messagePanes.size <= MESSAGE_PANE_MAX) return;
   const candidates = [...messagePanes.entries()]
-    .filter(([id, pane]) => pane !== activePane && !(typeof sessionLiveNow === "function" && sessionLiveNow(id)))
+    .filter(([id, pane]) => pane !== activePane && !sessionLiveNow(id))
     .sort((a, b) => Number(a[1].dataset.usedAt || 0) - Number(b[1].dataset.usedAt || 0));
   for (const [id, pane] of candidates) {
     if (messagePanes.size <= MESSAGE_PANE_MAX) break;

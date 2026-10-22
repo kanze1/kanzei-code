@@ -19,7 +19,6 @@ import {
   activeSessionId,
   applySessionMeta,
   currentProject,
-  ensureChatView,
   navigate_view,
   log,
   processItems,
@@ -59,7 +58,7 @@ import {
   rememberAutoUiState,
   updateLocalProcessItem,
 } from "./08-compose-runtime.js";
-import { state } from "./08-compose.js";
+import "./08-compose.js";
 import { addMenuCheckColumn } from "./08-model-picker.js";
 import { loadModels, modelCatalogProject, restoreProjectPrefs, syncModelSelectToActiveLine } from "./08-models.js";
 import { lineAuthorityLabel, refreshWorkspace } from "./12-docs-pages.js";
@@ -71,7 +70,7 @@ import {
   renderLineConversationHistory,
   showFreshConversation,
 } from "./15-views-misc.js";
-import { forProject, refreshLines } from "./20-lines.js";
+import { refreshLines } from "./20-lines.js";
 import { active_space, adopt_process_workspace, create_workspace_process, preferred_workspace_process, project_workspace, workspace_processes } from "./03-workspaces.js";
 
 import { sync_composer_scope } from "./03-workspaces.js";
@@ -229,6 +228,10 @@ export let askSyncedSession = null;
 // 键控:同项目去重(合并并发调用),跨项目各自独立请求,返回的 Promise 恒为「本项目
 // 列表刷新完成」——等待方(loadConversation)等到的就是 B 自己的列表。
 export const processRefreshInFlight = new Map();
+// 作废范围 = 「当前选中的是哪一条线」。每次 switchProcess +1,凡是在途工作绑定了
+// 某条线的项目/进程/会话,都要在返回前比对它没变。视图页装载(03-shell 的
+// viewLoadGeneration)与历史装载(15-views-misc 的 conversationLoadGeneration)是
+// 不同的失效粒度,不要合到这一个计数上。
 export let processSwitchGeneration = 0;
 export function processRunning(item) {
   const state = sessionState(item.session_id);
@@ -394,7 +397,7 @@ export function renderParallelTaskStatus(items) {
     history.dataset.processId = item.id;
     line.appendChild(history);
     target.appendChild(line);
-    if (typeof renderLineConversationHistory === "function") renderLineConversationHistory(item.id);
+    renderLineConversationHistory(item.id);
     if (item.id === activeProcessId && view.pendingNow) {
       setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
     }
@@ -560,7 +563,7 @@ export function renderProcesses(items) {
   // 「改主项目需求记录」是工作树线的属性,开关在并行线路页对应线路卡上(20-lines.js)。
   renderSubagentControl();
   renderAutoStatus();
-  if (previousProcessKey !== nextProcessKey && typeof refreshConversationLists === "function") {
+  if (previousProcessKey !== nextProcessKey) {
     void refreshConversationLists();
   }
 }

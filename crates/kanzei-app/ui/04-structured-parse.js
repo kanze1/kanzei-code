@@ -4,7 +4,9 @@
 // 文案要走 t(),而本模块必须能在 Node 里被直接 import 做单测,所以不碰 i18n。
 
 // ---- 终端转义 ----
+// eslint-disable-next-line no-control-regex -- intentionally reject control bytes or strip terminal escape sequences
 const ANSI_CSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+// eslint-disable-next-line no-control-regex -- intentionally reject control bytes or strip terminal escape sequences
 const ANSI_OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 /// 去掉 CSI(颜色/光标)与 OSC(标题/超链接)转义。cargo 等彩色输出原样进 DOM 会显示成
 /// `\u001b[1m\u001b[32m` 乱码。

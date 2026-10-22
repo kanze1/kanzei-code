@@ -41,9 +41,10 @@ export function safeMarkdownPath(value) {
   return parseMarkdownPath(target);
 }
 function parseMarkdownPath(target) {
+  // eslint-disable-next-line no-control-regex -- intentionally reject control bytes or strip terminal escape sequences
   if (!target || /[\u0000-\u001f\u007f"'<>`]/.test(target)) return null;
   if (/^[a-z][\w+.-]*:/i.test(target) && !/^[A-Za-z]:[\\/]/.test(target)) return null;
-  const match = target.match(/^((?:[A-Za-z]:[\\/])?[\p{L}\p{N}\p{M}_.@~\-\/\\ ()]+?)(?::(\d+)(?:-(\d+))?)?$/u);
+  const match = target.match(/^((?:[A-Za-z]:[\\/])?[\p{L}\p{N}\p{M}_.@~\-/\\ ()]+?)(?::(\d+)(?:-(\d+))?)?$/u);
   if (!match) return null;
   const path = match[1];
   if (!/[\\/]/.test(path) && !/\.[A-Za-z0-9]{1,8}$/.test(path)) return null;
@@ -137,6 +138,7 @@ export function renderInlineMarkdown(raw) {
   });
   // Explicit links have already hidden their labels inside placeholders. Only
   // standalone code spans remain here, so path detection cannot nest anchors.
+  // eslint-disable-next-line no-control-regex -- intentionally reject control bytes or strip terminal escape sequences
   html = html.replace(/\u0000md-\d+\u0000/g, token => {
     const code = inlineCodes.get(token);
     const local = code === undefined ? null : inlineMarkdownPath(code);
@@ -144,6 +146,7 @@ export function renderInlineMarkdown(raw) {
   });
   // 裸 URL 自动成链:只作用在代码与已成链接之外的文本段(二者已换成占位符),且必须过
   // safeMarkdownUrl。转义后的引号/尖括号实体与中文标点不属于 URL。
+  // eslint-disable-next-line no-control-regex -- intentionally reject control bytes or strip terminal escape sequences
   html = html.replace(/https?:\/\/[^\s<>\u0000，。；）】」、]+/g, (hit) => {
     let url = hit;
     let tail = "";
@@ -168,6 +171,7 @@ export function renderInlineMarkdown(raw) {
   html = html.replace(/(^|[^\p{L}\p{N}_])_([^_\n]+)_(?![\p{L}\p{N}_])/gu, "$1<em>$2</em>");
   // 占位符可以嵌套(链接文字里有行内码:`[`x.md`](path)`):链接的占位内容里还有码的占位符,
   // 单趟替换会把 `md-0` 原样漏到界面上。按引用逐层展开(只会引用更早的占位,不会成环)。
+  // eslint-disable-next-line no-control-regex -- intentionally reject control bytes or strip terminal escape sequences
   const restore = (text) => text.replace(/\u0000md-(\d+)\u0000/g, (_, index) => restore(placeholders[Number(index)]));
   return restore(html);
 }

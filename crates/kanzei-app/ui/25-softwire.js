@@ -35,7 +35,7 @@ const MODULE_EN = { work: "Requirements & plan", batch: "Verification & delivery
 const moduleLabel = module => (languageIsEnglish() ? MODULE_EN[module] ?? moduleNames[module] : moduleNames[module]);
 const states = new Map(), projectDetails = new Map(), sending = new Set(), replies = new Map();
 const editingReplies = new Set();
-let root, composer, runner, current, questions = [], generation = 0, initialized = false;
+let root, composer, runner, current, questions = [], initialized = false;
 let questionsRequest = null, inboxRequest = null, painted = "", notificationBaseline = false;
 const seenQuestions = new Set();
 const presentedQuestions = new Set();
@@ -829,7 +829,6 @@ defer(() => {
     if (visible()) { mount(state); if (!state.detail) void refreshCurrent(); }
   });
   document.addEventListener("kz:view-changed", event => {
-    generation += 1;
     if (event.detail.view !== "project") {
       hideManagement();
       composer.leave(); runner.close();

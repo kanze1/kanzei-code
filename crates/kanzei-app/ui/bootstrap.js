@@ -1,4 +1,6 @@
 // Composition root: evaluate the complete initial graph, then install UI owners.
+// 诊断采集必须第一个求值:00-console.js 的注释要求"最前面装",晚一步就漏掉初始化阶段的错误。
+import "./00-console.js";
 import "./00-surface.js";
 import "./00-frame.js";
 import "./02-i18n.js";
@@ -55,7 +57,6 @@ import "./29-general-chat.js";
 import "./30-workspace-ui.js";
 import "./31-conversation-controls.js";
 import "./32-skills.js";
-import "./00-console.js";
 import "./01-runtime-events.js";
 import { initializeUi } from "./00-dom.js";
 initializeUi();

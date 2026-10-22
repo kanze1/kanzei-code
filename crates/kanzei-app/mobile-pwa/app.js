@@ -49,7 +49,8 @@ const I18N_EN = {
   "对话列表加载失败({0})": "Failed to load conversations ({0})",
   "{0} · 运行中": "{0} · running",
   "{0} · 讨论": "{0} · discussion",
-  "{0} · 独立任务": "{0} · independent task",
+  "{0} · 对话": "{0} · conversation",
+  "{0} · 研究": "{0} · research",
   // 发消息
   "发消息到电脑": "Send a message to desktop",
   "输入消息内容": "Enter message text",
@@ -676,7 +677,7 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-// ---- 会话列表(UX-017):桥接给出主对话 + 讨论/独立任务,下拉选择并记住上次的选择 ----
+// ---- 会话列表：桥接 ProcessKind 给出对话、讨论、研究，下拉选择并记住上次选择 ----
 async function fetchSessions(device) {
   const res = await bridgeFetch(device, "/v1/sessions");
   if (!res.ok) throw await apiError(res, (status) => t("对话列表加载失败({0})", status));
@@ -686,7 +687,7 @@ async function fetchSessions(device) {
 // 下拉里的名字:用户命名的会话补上类型,正在运行的标出来。
 function sessionOptionText(session) {
   let text = session.label;
-  const kindWord = session.kind === "discussion" ? "讨论" : session.kind === "task" ? "独立任务" : "";
+  const kindWord = { discussion: "讨论", conversation: "对话", research: "研究" }[session.kind];
   if (kindWord && !text.startsWith(kindWord)) text = t(`{0} · ${kindWord}`, text);
   return session.running ? t("{0} · 运行中", text) : text;
 }

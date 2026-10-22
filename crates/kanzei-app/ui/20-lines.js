@@ -11,7 +11,6 @@ import {
   navigate_view,
   log,
   processItems,
-  running,
   sessionState,
   toastError,
   transitionSession,
@@ -21,7 +20,7 @@ import { fillTemplate, parseUnifiedDiff } from "./04-structured-parse.js";
 import { askActive, askQueues } from "./07-events.js";
 import { armStoppingWatchdog, awaitingUserSessions, cancelAutoContinueTimer, setAutoRounds } from "./08-auto.js";
 import { lineAutoConfig, queueProcessUpdate, setLineAutoState, updateLocalProcessItem } from "./08-compose-runtime.js";
-import { state } from "./08-compose.js";
+import "./08-compose.js";
 import { projectDefaultModel, syncModelSelectToActiveLine, reportModelCatalogErrors } from "./08-models.js";
 import {
   closeParallelProcess,
@@ -201,8 +200,15 @@ export function buildLineAutoControls(line) {
   checkbox.type = "checkbox";
   checkbox.checked = config.enabled;
   checkbox.dataset.focusKey = "auto";
-  checkbox.addEventListener("change", () => {
-    void setLineAutoState(line.process_id, { enabled: checkbox.checked });
+  checkbox.addEventListener("change", async () => {
+    const enabled = checkbox.checked;
+    try {
+      await setLineAutoState(line.process_id, { enabled });
+    } catch (error) {
+      // 引擎没收下这一枪,勾选就必须退回真实投影;留着才是骗用户「这条线在自动推进」。
+      checkbox.checked = lineAutoConfig(line.process_id).enabled;
+      toastError(`${t("自动推进状态更新失败")}:${error}`);
+    }
   });
   const toggleText = document.createElement("span");
   toggleText.textContent = t("自动推进");
@@ -219,8 +225,12 @@ export function buildLineAutoControls(line) {
   pause.textContent = config.paused ? t("恢复自动推进") : t("暂停自动推进");
   pause.disabled = !config.enabled;
   pause.dataset.focusKey = "pause";
-  pause.addEventListener("click", () => {
-    void setLineAutoState(line.process_id, { paused: !config.paused });
+  pause.addEventListener("click", async () => {
+    try {
+      await setLineAutoState(line.process_id, { paused: !config.paused });
+    } catch (error) {
+      toastError(`${t("自动推进状态更新失败")}:${error}`);
+    }
   });
 
   const stopRound = document.createElement("button");
@@ -229,8 +239,12 @@ export function buildLineAutoControls(line) {
   stopRound.textContent = t("本轮后停");
   stopRound.disabled = !config.enabled;
   stopRound.dataset.focusKey = "stop-round";
-  stopRound.addEventListener("click", () => {
-    void setLineAutoState(line.process_id, { stopAfterRound: !config.stopAfterRound });
+  stopRound.addEventListener("click", async () => {
+    try {
+      await setLineAutoState(line.process_id, { stopAfterRound: !config.stopAfterRound });
+    } catch (error) {
+      toastError(`${t("自动推进状态更新失败")}:${error}`);
+    }
   });
 
   const modelLabel = document.createElement("span");
@@ -304,7 +318,7 @@ export function lineWaitingFor(item) {
 export function lineStatusKey(line, lineRunning, waiting = "", stopping = false) {
   // 已点「停止」、等对话收尾:卡片立刻进「停止中」,不等下一轮轮询(此前点了毫无反馈、按钮还能重复点)。
   if (stopping) return "stopping";
-  // 等批准/等回答的线不是「卡住」:权限询问挂着时事件流与工作树都静默,后端会把它判成 suspected_stuck(UX-072)。
+  // 等批准/等回答优先显示等待状态；后端也在静默超时判定前识别等待，避免误报卡住。
   if (waiting === "approval") return "awaiting_approval";
   if (waiting === "answer" && !lineRunning) return "awaiting_answer";
   const status = line.status;
@@ -669,7 +683,7 @@ export function renderLines(lines) {
   }
   restoreLinesFocus(savedFocus);
   // R-247:协作快照与文档快照都来自同一 tracker 取得线；线路代号变化后同步重绘 badge。
-  if ($("view-documents")?.classList.contains("active") && latestDocsSnapshot && typeof renderDocuments === "function") {
+  if ($("view-documents")?.classList.contains("active") && latestDocsSnapshot) {
     renderDocuments(latestDocsSnapshot);
   }
 }
@@ -764,7 +778,7 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
       });
       const diffPanel = document.createElement("div");
       diffPanel.className = "harvest-diff-tree";
-      diffPanel.replaceChildren(typeof buildDiffTree === "function" ? buildDiffTree(treeFiles) : document.createTextNode(treeFiles.map((f) => f.path).join("\n")));
+      diffPanel.replaceChildren(buildDiffTree(treeFiles));
       const fileDiffs = document.createElement("div");
       fileDiffs.className = "sv-diff-files";
       for (const file of parsedDiff) {

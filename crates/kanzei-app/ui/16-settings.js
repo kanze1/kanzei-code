@@ -15,7 +15,7 @@ import {
 import { flushLayout, onLayoutChange, setLayoutPref } from "./03-layout.js";
 import { isGeneralChat } from "./03-general-scope.js";
 import { fastStatusText } from "./06-activity.js";
-import { state } from "./08-compose.js";
+import "./08-compose.js";
 import { MANUAL_MODEL_SENTINEL, reportModelCatalogErrors } from "./08-models.js";
 import { openProjectModelsDialog } from "./08-project-models.js";
 // UI-0926 #10:权限规则表的资源列按结构渲染(bash 规则是 {command, workdir} JSON)。

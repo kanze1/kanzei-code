@@ -17,7 +17,7 @@ export function setSurfaceTranslator(fn) {
 }
 
 const hasDocument = typeof document !== "undefined" && document !== null;
-const now = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+
 
 // 栈元素:{ el, type: "modal"|"menu"|"popover"|"card", escape, onClose, anchor, lightDismiss, ... }
 const stack = [];
