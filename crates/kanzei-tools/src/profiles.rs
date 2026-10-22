@@ -289,12 +289,12 @@ mod tests {
         assert!(render(FullTestCadence::EntryClose).contains("中/大条目关闭前一次"));
         std::fs::write(root.join("Cargo.toml"), "[workspace]").unwrap();
         assert!(
-            !render(FullTestCadence::EntryClose).contains("clippy 四处分工"),
+            !render(FullTestCadence::EntryClose).contains(kanzei_harness::CARGO_CONVENTIONS),
             "generic Rust is not the Kanzei repository"
         );
         std::fs::create_dir_all(root.join("crates/kanzei-app")).unwrap();
         std::fs::write(root.join("crates/kanzei-app/Cargo.toml"), "[package]").unwrap();
-        assert!(render(FullTestCadence::EntryClose).contains("clippy 四处分工"));
+        assert!(render(FullTestCadence::EntryClose).contains(kanzei_harness::CARGO_CONVENTIONS));
         std::fs::remove_dir_all(root).unwrap();
     }
 
