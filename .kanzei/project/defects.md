@@ -33,25 +33,6 @@
 - 停车:
 - 外部验收: 在外部项目「文章获取器」复核 R-002：raw_lines 不再返回布局空行，raw_delete 后游离行清零。
 
-## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [awaiting_external] (high)
-- refs: D-203 D-206 R-219 R-236
-- 复现: 2026-08-20 现场:llama-local(qwen3.8-27b,llama-server n_ctx=65536)鞭挞 D-568 任务,真实请求 69889 tokens 撞 provider 400(exceed_context_size_error),全程主动压缩零触发。判定链 context_budget.rs:51 用 bytes/4 估算(context.rs:130)×校准因子与触发线比大小,三重系统性偏低叠加:①bytes/4 对中文(UTF-8 3字节/字实际≈1~1.5 token/字)、代码、llama.cpp jinja 模板渲染的工具 schema 膨胀,合计偏低>2.1×(69889 真实 vs 触发线 32768 未达);②校准单步比值 clamp [0.5,2.0](context.rs:165),系统性偏差≥2× 时数学上限封死追不上,EMA 0.7/0.3 收敛慢且每 run 重置 1.0(assembly.rs:195),恢复大历史的新对话首步最脆;③compaction_budget=limit−max(max_tokens,buffer)(context.rs:92),全局 max_tokens=32768 吃掉 65536 窗口一半。usage 回读链路本身是通的(openai.rs:110 include_usage,drive.rs:609 拿真实 prompt_tokens),但只喂校准 EMA,预算比大小不直接用——真实值在手边,决策看估算
-- 影响: 本地小窗口 provider 跑长任务必然在压缩触发前撞墙 400,自主推进直接致命中断;窗口越小、内容越偏中文/代码,撞墙越早;98304 窗口同样防不住(偏差>1.5× 即穿)
-- 来源: 2026-08-20 用户实测反馈『快摸到上限了还是没压缩』,主会话诊断
-- 标签: 核心
-- 边界: 历史侧 Part::Reasoning 剪枝(openai 协议 build_body openai.rs:83-91 从不回传,drive.rs:582 却存进历史虚增估算)只能与本条①同批落地——单独剪会让估算更小、压缩触发更晚,加重症状;Qwen 官方口径『多轮剥离 thinking 但多步工具调用期间保留』的质量权衡(llama-server --reasoning-preserve)不在本条,另行评估
-- 验收: ①预算检查锚定上一步真实 prompt_tokens(last_input_tokens 已在手)+本步新增内容估算增量,bytes/4 全量估算只做冷启动兜底;②校准按 provider 持久化或冷启动用保守初值,消除每 run 重置 1.0 的首步裸奔;③compaction_budget 对小窗口自适应,max_tokens 不得吃掉固定一半窗口;④回归:模拟估算偏低 2 倍场景压缩在撞墙前触发;⑤llama-local 真实长任务(多步工具循环读大文件)实测不再 400
-- 优先级: P1
-- 批次: 3/3
-- 批次表: B1/3：核对预算决策与 usage 调用链，落地真实 prompt_tokens 锚定及回归；B2/3：落地 provider 校准持久化/保守冷启动与小窗口 compaction_budget；B3/3：修正 Reasoning 历史估算一致性、跑全链路验证并收口。
-- 进展: B3 已落地并提交 `2871fee7`（D-592 B3 修正协议感知上下文预算），提交文件与预期一致。实现与证据逐条对账：① `crates/kanzei-core/src/runner/drive/context_budget.rs:54-61` 用 `last_input_tokens + max(current_estimated - last_estimated, 0)` 锚定上一步真实 usage，冷启动才走完整估算×校准；`drive.rs:500-507` 用实际 `route.kind` 记录与 wire 请求一致的原始估算；B1 回归 `T-1786922726566`。② `context.rs:16-21` 提供保守冷启动校准 2.0，`drive/assembly.rs:195-198` 消费该值，`T-1786922726568` 通过；本条已明确采用冷启动保守初值，不新增 provider 持久化真源。③ `context.rs:99-107` 将 max_tokens 与 buffer reserve 各限制在 context_limit/3，保留 context_limit/4 封底，`T-1786922726568` 覆盖 16k/32k/65k。④ `context.rs:125-155` 与 `drive/context_budget.rs:54-61,98-107` 按 ProtocolKind 对齐估算、预算检查和 trim_tail；OpenAI Chat 不计实际 builder 丢弃的 Reasoning，Responses 保留；回归 `context.rs:530-551`、`T-1786922726569`（223 passed），并由 B1 的 `T-1786922726566` 覆盖低估增量触发链。⑤ 验收降级：原文要求 llama-local 真实长任务多步工具循环不再 400→本批未执行真实 provider 长任务，原因是当前环境没有可安全接管的用户 llama-local 实测窗口；代码级预算链已验证，但该现场证据仍由用户/后续真实窗口执行。workspace 门禁 `T-1786922726570`：fmt/check 通过，clippy 被 D-603 `manager.rs:644,653` 的既有 &PathBuf 问题阻断；D-592 代码未混入该无关修复。下一步：由用户提供或释放可安全接管的 llama-local 实测窗口，执行多步工具循环读大文件并记录真实请求不再 400；在此之前保持 fixing。 2026-10-04 维护核对：保留上述实现与本地证据，按用户新要求转为待外部验收。真实现场尚未通过；本条不占开发名额、不阻塞其他开发。待测事项见外部验收字段。
-- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
-- observed_worktree_hash: fnv1a64:cafc4773a6bc95ae
-- recorded_at: 1791055325573
-- 阻塞: 
-- 停车: 
-- 外部验收: llama-local / llama-server 小窗口真实长任务：多步工具循环读取大文件时先压缩，不再触发 exceed_context_size_error / 400。
-
 ## D-746 运行画像历史输入关联审计反复全表扫描并阻塞桌面窗口 [awaiting_external] (high)
 - 复杂度: 小
 - 复现: 进入运行画像触发 run_metrics_by_task；当前项目只读数据库统计 session_inputs=1664、session_events=55211、task事件=0。task_compatibility_audit 的 assigned_input_count 使用相关 EXISTS，EXPLAIN QUERY PLAN 为 SCAN input + CORRELATED SCALAR SUBQUERY + SCAN event；旧查询超过5秒诊断上限仍未完成。
@@ -71,16 +52,6 @@
 - 停车:
 - 外部验收: 真实安装修复版，在长历史项目中点击运行画像：页面能返回，窗口仍可切换对话与操作。
 
-## D-764 自动续跑提示被当成用户授权:R-366 写入不存在的确认记录并挂用户阻塞 [open] (medium)
-- 复杂度: 中
-- 复现: session_events seq 10634 循环请求用户批准 B1 冻结方案;seq 10645 唯一的 user 消息是自动续跑提示「继续推进,规则按系统提示执行。」;seq 10654 循环据此自述「仅批准该冻结方案,B2-B4 不在授权范围」,随后在 R-366 写入「确认记录: 此前用户确认仅授权 B1」并以「解除条件:用户」阻塞 B2;压缩纪要把 work next 锁定改写成了用户指令
-- 影响: tracker 出现冒用用户名义的记录;用户最看重的 P1 回退被一个从未设下的授权门卡住;同样的逻辑可能放行真正需要确认的动作
-- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
-- 标签: 核心
-- 验收: ①自动续跑与 nudge 消息在模型上下文中带「自动」标记,不能被当作对 question 或方案请求的答复;②压缩纪要的用户指令清单只收用户原话;③tracker 写入声称「用户确认/授权」时须引用已作答 question 的 call_id 或真实用户消息;④规范写明:从用户已审阅的设计文档登记且带裁决的条目视为方案已确认,分批实施不需逐批授权
-- refs: R-366 R-322 docs/design/bootstrap_quality_audit.md
-- 优先级: P1
-
 ## D-765 自举提交只提交代码,tracker 关闭记录长期停留在未提交工作副本 [open] (medium)
 - 复杂度: 中
 - 复现: d4e230d8..811497b8 共 11 个自举提交无一包含 .kanzei/project;D-748~D-758 的关闭记录、R-245/R-364/R-366 进展与约 470 行测试记录只存在主树未提交副本;压缩纪要(seq 11435)显式排除 .kanzei/project/defects-archive.md
@@ -88,16 +59,6 @@
 - 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
 - 标签: 流程
 - 验收: ①结构化 git 提交把本条目对应的 tracker 块与代码同批提交(共享文件只暂存本条目的块);②关闭动作后的 tracker 改动在下一次提交前入库;③补回归测试
-- refs: docs/design/bootstrap_quality_audit.md
-- 优先级: P2
-
-## D-766 发版 verify 在未提交的 .kanzei 索引上通过,已提交树的时效门禁实际是红的 [open] (medium)
-- 复杂度: 小
-- 复现: build-d4e230d8 提交了 docs/design/oc-*.md 与 research_library.md,但对应架构索引行留在工作副本未提交;verify.ps1 的干净判定只看 crates/scripts/.github/Cargo.*,时效门禁读的是工作副本;2026-09-26 在 ec5dc41f 干净工作树跑 verify -Full,crate_sync 的设计时效门禁失败(index 56 条 vs 磁盘 63 篇)
-- 影响: 发版证据与发布提交的真实状态不一致,已提交树过不了自己的门禁
-- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
-- 标签: 发布
-- 验收: ①verify/package 对 .kanzei/project/architecture 与 docs/design 的未提交改动视为不干净,或门禁读取 HEAD 内容;②回归测试覆盖「索引行未提交」场景
 - refs: docs/design/bootstrap_quality_audit.md
 - 优先级: P2
 

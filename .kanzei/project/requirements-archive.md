@@ -4572,6 +4572,125 @@
 - observed_worktree_hash: fnv1a64:616ef5b83b0d169b
 - recorded_at: 1791115061969
 
+## R-380 全局项目总览显示当前需求与批次进度标签 [done]
+- 内容: 每个项目行显示该项目当前有效在途条目的编号、标题、状态、优先级、批次进度与负责线路；复用侧栏/需求列表的数据口径。不得把当前选中项目的标签套给其他项目。
+- 复杂度: 小
+- 来源: 2026-09-28 用户要求「在全局项目管理这里也渲染一个这个需求进度开发的标签」并圈选 R-001 doing P1 批次2/5 示例。
+- 标签: 前端
+- 边界: 这是项目行的进度信息补齐，可独立交付，不等待整体导航重构；历史doing不等于正在执行，批次完成不等于用户验收。
+- 验收: ①全局页可见项目所属条目ID、标题、状态、优先级和批次n/m；②至少两项目使用各自的条目和进度，同项目多条线能区分归属；③批次来自后端既有Git推导/明确回退，缺总量不造百分比；④无活、未绑定条目、读取失败与状态过期分别展示；⑤点标签直达对应项目条目并可返回原列表位置；⑥与侧栏显示一致，查看总览不切换活动会话、不启动模型。
+- refs: R-379 R-381 docs/design/workbench_first.md
+- 优先级: P2
+- 停车: 发布分支已实现，待R-381完成源码整合与验收后按本地证据对账关闭；解除条件:R-381
+- 进展: 2026-09-28 原记录称功能仍在发布分支、主目录未同步；该进展已过时。2026-10-04 当前树核查：`crates/kanzei-app/ui/12-workbench.js:185-210` 已呈现条目 ID/标题/状态/优先级/批次/线路归属；后端 `crates/kanzei-app/src/projects.rs:934-985` 汇总项目时会创建 session 并调用进程列表与 verification recover，与验收⑥“查看总览不切换活动会话、不启动模型/副作用”仍需实测及复核。两项目隔离、线路归属、旧列表位置恢复及侧栏一致性尚未由本次审计逐项验证；工作台总设计仍为草案（`docs/design/workbench_first.md:3-11`）。R-381 未完成，继续保持 todo/原停车条件；此更新不代表完成。
+- observed_head: 6638a30a739226cacb1846fdcd6647dc997e6381
+- observed_worktree_hash: fnv1a64:1f8cdc3418809061
+- recorded_at: 1791096492282
+- 用户验收: 2026-10-18 18:57 用户手动确认 → done
+
+## R-361 记忆收益闭环与任务信息呈现改进 [done]
+- 内容: 分三批：观测真源与证据判据；决策点召回与固定任务收益对照；有界任务上下文与结果呈现。
+- 发现记录: {"Intent":"让记忆改善任务表现并可理解呈现","Explicit":"统一召回真源，厘清注入读取采用验证，收紧晋升与效果判据，改善当前任务呈现","Assumptions":"复用 SQLite 与现有记忆生命周期","Ambiguities":"无阻碍第一批实施的未决项","领域对象":"recall_event、memory_entry、episode、work_unit","最小成功闭环":"同一运行召回读取与恢复证据可对应且不夸大收益","延后决策":"真实 provider 对照结果与长期调度策略"}
+- 复杂度: 大
+- 批次: 3/3
+- 来源: 2026-09-06 用户原话「同意，开工吧」，确认上一轮审计建议
+- 标签: 前端
+- 进展: B3 已提交：8057f2cc R-361 B3 完善有界任务上下文与结果呈现；需求证据更新已提交 6e9969ea。工具层 `structured_control_output` 在 crates/kanzei-tools/src/work/output.rs:45-108 派生有界 `context_capsule`，phase scout/review 在 crates/kanzei-app/src/phase_pipeline.rs:606-670 消费 checkpoint/决策/来源/验证，docs snapshot 在 crates/kanzei-app/src/docs.rs:404-418 提供 Work Projection，UI 在 crates/kanzei-app/ui/11-docs-list.js:729-800 展示实质进展、决策记录、记忆来源、验证结果；D-747 已 fixed（02-i18n.js:92-98）。T-1786922726986 六项前端冒烟与卡片 DOM 断言通过；T-1786922726988 为 rustfmt 后当前源码的 kanzei-tools 545、kanzei-app 261 定向回归通过。验收①～⑤已有 B1/B2/B3 代码、测试与当前提交证据；验收⑥「实际收益独立对照留证」仍开放，不能用单测/replay 底座冒充真实 provider 结果。当前阻塞为真实 provider、固定任务与执行窗口，解除后下一步运行 Current/NoMemory 配对并写入成功率、重试、重复探索、用户纠正、耗时证据。
+- 验收: 新旧库迁移可回归；读取按运行隔离；正常结束不冒充收益；无匹配恢复证据不得自动晋升；前端区分注入读取与未知；实际收益独立对照留证。
+- 优先级: P1
+- observed_head: 8057f2cc91fa44016bfc38b17ff813e8f60a9845
+- observed_worktree_hash: fnv1a64:d1d568a4ca377cc2
+- recorded_at: 1788803004691
+- 阻塞: 用户：提供一个可重复的真实 provider 运行入口（已配置模型/凭据或运行中的 provider）、固定任务与允许执行窗口；解除条件:用户
+- 用户验收: 2026-10-18 18:58 用户手动确认 → done
+
+## R-358 批次与 Work Unit 收敛为一套:分子停手写,验收条款绑结构化证据 [done]
+- 内容: 按设计 §3.8 废除 Work Unit 的独立机制、保留批次,并把 Work Unit 唯一不可替代的能力搬上来:①批次分子由 git 推导,add/update 接受 批次: /N 形式,存量 k/N 继续解析但 k 被忽略,删掉那道分子对账门(引擎已能推导且推导值已优先,只是对模型不可见,导致模型必然在 close 那一刻才知道对不对得上);②把 acceptance 与 evidence 的机械绑定下沉到条目级,从「进展文本包含条款号」升级为「每条验收条款一行结构化 evidence(file:line 或 T- 记录 id)」;③删除 执行模型: work_units_v1 开关。
+- 发现记录: {"Intent":"把两套并行的子任务机制并成一套,并消除模型手写分子这个必然漂移源","Explicit":"废 Work Unit 独立机制、保留批次、分子由 git 推导、验收条款绑结构化证据、删开关","Assumptions":"git_batches 的推导已可用且推导值已优先;条目级已有半成品的条款覆盖检查","Ambiguities":"结构化 evidence 的最小格式,本条按 file:line 或 T- 记录 id 两种处理","领域对象":"批次、Work Unit、批次分子、验收条款、evidence、work_units_v1 开关","最小成功闭环":"一条多批次需求在不手写分子的情况下走完并关闭,未覆盖条款被逐条点名","延后决策":"历史 work_events 的处置、跨批次证据继承、分母的自动建议"}
+- 复杂度: 中
+- 来源: 勘察发现两套并行账本 close 时两道门同时跑而中间零一致性校验(设计文档明写这是有意的);Work Unit 全库只用过一条而批次遍地,且「Git 是批次真源」对 work_units_v1 因命名空间不认 W 而静默失效。
+- 标签: 流程
+- 边界: 分母(总批数)git 推不出来,继续手写,不属冗余;不回改存量条目的 k/N 写法;不迁移 state.db 里既有 work_events 记录;删开关不等于删历史数据。
+- 验收: ①批次分子不再由模型手写,且 R-283 R-101 R-312 R-249 这四条分子与实际不符的存量条目不再触发对账拒绝;②每条验收条款可绑定结构化 evidence,关闭时逐条点名未覆盖项;③work_units_v1 开关移除后不再存在两道互不校验的并行门;④批次推导认得 W 命名空间,不再对 work_units_v1 静默失效。
+- refs: R-353
+- 优先级: P2
+- 批次: 0/4
+- 进展: 批次: 0/4；已确认设计 §3.8 的目标是保留批次但让 git 推导分子、条目级 evidence 逐条绑定、移除 `执行模型: work_units_v1` 分流；现有 `git_batches` 已可推导 B/S/批次，但需核对 W 命名空间，`actions` close 仍检查批次和验收文本，work_units_v1 仍由 `work.rs`/`work` 工具消费。B1 下一步：先收敛批次分子写入/校验与 git marker 解析，不改存量条目。
+- observed_head: f321ee34118a9cbfbd95dfa90a02a1862cc718b6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788393904818
+- 停车: 排队:原停车前提 R-359 已 done 归档并提交(0ac5755c);排在 R-357 之后恢复 B1;恢复人:agent;解除条件:R-357
+- 用户验收: 2026-10-18 18:58 用户手动确认 → done
+
+## R-284 运行体验事件契约:统一 session/tool/memory/research/voice 的事实投影和瞬时表现事件 [done]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心 后端 前端
+- 来源: 2026-08-17 二期升级依赖分析;主对话已有 kz:* 事件,但 memory/research/voice 无共同事件词表,动画若直接从 DOM 推断会形成影子状态。
+- 依赖: R-242
+- refs: R-277 R-285 R-286 R-287 docs/design/phase2_system_upgrade.md docs/design/session_state_and_line_runtime.md
+- 内容: 按 phase2_system_upgrade.md §5.4 分四批。批1 定义 snake_case 事件包络、持久事实/瞬时表现/高频 delta 三类边界与词表。批2 memory/research/voice 后端生产者接线,统一 project/session/run/topic/entity 归属。批3 前端按归属先归并 store 再分发 animation/audio/工作台,重放幂等。批4 高频 delta 合并、未知事件诊断、重连恢复和跨会话回归。
+- 边界: 不改变 R-242 的 session 真源;瞬时表现事件允许丢帧且不写长期数据库;动画和音频不得反向决定业务状态;未知事件不崩 UI;事件字段不混用 camelCase,第三方/旧事件在适配层转换。
+- 验收: ①词表和 JSON 契约有 schema/单测;②同一 memory promote/research verify/voice state 事实可重放且不重复副作用;③后台会话事件不驱动当前会话动画;④text delta 压缩后长回复无事件风暴;⑤重连从持久事实恢复状态,不依赖错过的表现事件。
+- 批次: 4/4
+- 进展: B4 已实现并提交 `605c6413`，按验收逐条对账：① 既有 B1 `crates/kanzei-core/src/experience_events.rs:20-41,97-119` 提供 snake_case JSON schema/validate，`T-1786922726586` 覆盖 schema 与 legacy 归一化；② memory/research 事实由 B2 `crates/kanzei-core/src/experience_events.rs:126-164` 幂等落库/回放，`crates/kanzei-app/ui/13-memory.js:18` 消费 `experience_facts` 恢复前端投影，`T-1786922726586` 覆盖 memory/research；验收降级：voice state 原文→当前仓库无真实 ASR/TTS/VAD 生产者，不能伪造 voice 证据，保留 R-287 缺口；③ B3 `crates/kanzei-app/ui/01-core.js:78-100,180-213` 按 session/topic/entity 归并并隔离后台 session，`T-1786922726593` 回归通过；④ B4 `01-core.js:102-150,197-200` 在一帧内合并 text delta、携带 delta_count，未知事件只诊断，`scripts/ui-runtime-smoke.mjs:1447-1481` 断言三段文本合为一次表现事件，`T-1786922726593` 通过；⑤ B4 `01-core.js:152-160` + `13-memory.js:18` 从持久 facts 恢复且 event_id 幂等，`scripts/ui-runtime-smoke.mjs:1483-1495` 断言首次恢复/重复恢复，`T-1786922726593` 通过。最终验证：`T-1786922726593` 六条前端冒烟全通过，`T-1786922726594` cargo test -p kanzei-app 231 passed。当前仍保持 doing：voice state 生产者缺口未满足，不能关闭 R-284。；状态对账: 正文旧字段 `todo` 与权威标题状态 `doing` 冲突;已移除正文副本。
+- observed_head: 605c64135451bae1bd3128ef2a20666b98d57504
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787246367339
+- 停车: B1-B4 已完成并通过验证;剩余验收②的 voice state 生产者属于 R-287 的真实 ASR/TTS/VAD 范围,本条让位 R-287,待其落地后回来补验收②;恢复人:agent;解除条件:R-287
+- 用户验收: 2026-10-18 18:59 用户手动确认 → done
+
+## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [done]
+- refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
+- 依赖: R-242
+- 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash、git、test_record、web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供存储与整理入口，按类别、会话、日期、大小预览占用，支持清理无引用 artifact；经风险确认后，用可恢复失败的删除计划物理删除已选会话的事件、投影和引用 artifact；并支持 SQLite checkpoint、VACUUM 与迁移备份管理。默认不自动过期。
+- 复杂度: 大
+- 批次: 8/9
+- 来源: DeepSeek Harness spill policy、本地 state.db 输出分布统计，以及用户确认“不自动过期但需要显式整理入口”。
+- 标签: 核心
+- 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
+- 迁移与回滚: artifact 原子写入后再提交引用事件；任一步失败不得留下有效事件指向缺失文件。删除使用引用图和事务清单，失败可重试；schema 迁移前备份。关闭 Spill 可回到 Inline，但已有引用仍必须可读。
+- 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
+- 优先级: P1
+- 进展: B8 已提交 eab92725：`crates/kanzei-core/src/runner/tool_exec.rs` 增加 2 GiB 全目录配额计量、共享独占锁保护 spill/telemetry 写入、超限时 Inline 截断且不创建 artifact；保留现有 1 MiB spill 阈值。配额专项 19 项通过(T-1786922727007)，crate 全量 292 项通过(T-1786922727010)，workspace fmt 通过(T-1786922727011)。B9 仅剩验收⑦真实桌面删除弹窗 E2；当前 kzapp 是既有用户会话，D-746 禁止接管，需用户确认窗口空闲并允许执行；届时验证弹窗内容、两种删除选项与取消零写入。 2026-10-04 清单复核：D-760 已 fixed 并归档，B8 验收证据在上；原停车记录“待 D-760 核验、待 R-101 之后执行 B9”的排队条件改为真实安装位 kzapp 上的 UI 验收，不要求新增实现。按用户口径转为 awaiting_external，不占开发名额；保留“需窗口主人确认空闲，禁止接管现有会话”的安全边界。
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:92c7228bb0086680
+- recorded_at: 1791060815571
+- 停车:
+- 外部验收: 真实安装位 kzapp 中打开会话删除弹窗，核对事件/轨迹/草稿/artifact 清单及“仅删除”与“删除并安全整理”差异；取消操作必须零写入。需要窗口主人确认可执行的空闲窗口；不得接管现有用户会话。
+- 用户验收: 2026-10-18 18:59 用户手动确认 → done
+
+## R-288 Android 真机 E3 验收:移动端 PWA 通知与双向消息真实链路 [dropped]
+- refs: R-059 R-270 R-271 D-389
+- 内容: 在同一 LAN 下使用 Android 真机打开 PWA，完成 bearer 配对，验证主/次代理通知展示、SSE 更新与消息发送；只补真实设备证据，不重做桥接或 PWA。
+- 复杂度: 小
+- 批次: 0/1
+- 来源: R-059 拆分；R-270/R-271 已完成服务端与 PWA 实现，剩余仅是真实 Android 设备验收。
+- 标签: 流程
+- 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
+- 优先级: P3
+- 停车:
+- 外部验收: 用户提供同一 LAN 下的 Android 真机与一次配对窗口后：打开 PWA 并完成 bearer 鉴权；收到真实成功/失败通知；手机发出的消息在服务端形成可追溯事件；保存截图、端口/设备与 session 证据。
+- 进展: 2026-10-04 清单复核：服务端与 PWA 实现由 R-270/R-271 完成，本条内容明确限定为真实 Android 设备的端到端验收，不补做桥接或 PWA。原停车条件是 agent 无设备、需用户提供同一 LAN 下的 Android 真机并预留配对窗口；现在将这项唯一剩余工作列为待外部验收，不占开发名额。
+- observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
+- observed_worktree_hash: fnv1a64:92c7228bb0086680
+- recorded_at: 1791060837635
+- 关闭原因: 放弃安卓开发了
+
+## R-285 金色神经流:主对话与记忆层的真实事件驱动动画 [dropped]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 前端 视觉
+- 来源: 2026-08-17 用户愿望「记忆层有流动的黄色神经网络,结合主对话运行触发动态效果」;同轮明确由当前主会话完成,自举模型不负责视觉 taste。
+- 依赖: R-284(仅批3/4硬依赖;批1/2可使用现有 kz:* 与记忆页真实操作先行)
+- refs: R-276 R-286 R-287 docs/design/phase2_system_upgrade.md docs/design/app_icon.md
+- 内容: 按 phase2_system_upgrade.md §5.5 分四批。批1 Canvas 2D 金色神经场、主题 token、ResizeObserver、DPR 上限、后台暂停和 reduced-motion。批2 接现有 turn/text/tool/done/error 与 memory refresh/search/consolidate/cleanup,完成呼吸/流动/结晶三种运动。批3 接 R-284 的 recall retrieved/injected、candidate promoted、research verified、voice listening/speaking。批4 设置开关、质量档位、WebView2 E3、窗口/长对话/性能/视觉回归。
+- 视觉主张: 深暖近黑工作台中的低亮金色生命体;常态静息,真实运行才增强;主对话内容与操作状态始终高于动画。静态网络是运行场,不冒充知识图谱或伪造记忆关系。
+- 验收: ①主对话 run→text→tool→done/error 的动画状态与真实事件一致;②记忆页真实搜索/整理/清理触发对应流动且失败不播放成功结晶;③后台会话不串到当前动画;④Canvas 不拦点击/选择/滚动;⑤reduced-motion 下无连续动画仍保留静态层;⑥暗/亮主题、800/1024/1280 三档可读;⑦WebView2 长回复和记忆页实测无明显帧率/CPU 回退并留截图或录屏工件。
+- 批次: 2/4
+- 进展: 2026-08-17 主会话完成批1+批2。新增 22-neural-flow.js:确定性神经拓扑、单 RAF 调度、活动/静息节流、ResizeObserver、DPR≤1.75、窗口隐藏暂停、reduced-motion 静态降级,实现呼吸/流动/结晶与失败阻塞四类表现;index.html 接主对话 Canvas 与记忆流舞台,style.css 使用 app 金色 token 且 Canvas pointer-events:none。真实接线:07-events.js 的 turn/text/reasoning/tool start/end/compacted/stopped/done/error;13-memory.js 的 snapshot/search/consolidate/candidate discard/cleanup,失败事件独立且不播放成功结晶。测试:T-1786922726035 前端全冒烟通过;T-1786922726036 真实 Chromium 1440/800 视觉验收通过。剩余批3=依赖 R-284 的原生 recall injected/candidate promoted/research/voice 事件;批4=设置/质量档/真实 WebView2 长会话性能与录屏。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。
+- 关闭原因: 前端设计已经更改
+
 ## R-283 自举二期系统升级编排:research/memory/运行体验/动画/voice 依赖和联合验收 [dropped]
 - 优先级: P1
 - 复杂度: 大

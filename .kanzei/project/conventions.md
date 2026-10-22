@@ -14,6 +14,10 @@
 - M2 起 SQLite 表结构变更需附迁移与回滚说明。
 - **>8k 字符的文本不进命令行参数**(R-238):bash 命令串与 `kz run` 位置 prompt 都受 Windows 命令行 32767 字符上限约束,大文本一律**文件中转**——先用 `write` 工具落文件、命令里引用路径,或以 `kz run --prompt-file <path>` 交付。超长命令由 bash 工具在 spawn 前结构化拒绝(文案同源,见 `kanzei-tools/src/bash.rs` 的 `MAX_COMMAND_CHARS`;不要绕开防护,不要用等价命令换拼法把长文本塞进 shell)。
 
+## 4.1 已确认设计的实施授权(D-764)
+
+- 从用户已审阅的设计文档登记、且已有用户裁决的条目，视为方案已确认。确认记录应注明设计文档路径与用户裁决原话；在既有范围内分批实施无需逐批再次授权。只有新增范围、未决核心语义或尚未授权的操作需要补充确认。模型自主决定、引擎自动续跑和系统通知均不构成用户确认，不得据此扩张或缩减已有授权。
+
 ## 6. 分支与提交流程(kanzei 版)
 
 - 分支与发布规则统一见 §9。当前有未提交工作的分支继续保留；整理文档不切换或合并这些改动。
@@ -33,7 +37,7 @@
 
 - 本仓库是 Rust workspace:`crates/kanzei-{base,harness,llm,memory,core,tools,app}` + `crates/kanzei`(bin `kz`)。
 - **分支流程**:日常开发(含 agent 自举)按既有策略进入 `dev`；`main` 接收已验证的集成版本并保持可发布。已有未提交工作继续在当前分支处理，不能强行换树。隔离发布使用临时干净 worktree，完成后删除；不依赖任何常驻本机发布目录。
-- **提交身份铁律**:commit 的 author/committer 必须且只能是 kanzei 本人(`kanzei <vraniumzwt@gmail.com>`);message 不得包含任何 `Co-Authored-By` 尾注(GitHub 会把共同作者计入贡献者头像墙)。任何工具/AI 不得以自己的身份出现在 git 历史里,发现异常身份立即改写修正并强推。
+- **提交身份铁律**:commit 的 author/committer 必须且只能是 kanzei 本人(`kanzei <vraniumzwt@gmail.com>`);message 不得包含任何 `Co-Authored-By` 尾注(GitHub 会把共同作者计入贡献者头像墙)。任何工具/AI 不得以自己的身份出现在 git 历史里。提交前发现身份错误时修正待提交内容与 Git 身份；已发布历史中的异常以向前修复和审计记录处理，禁止把改写历史、删除历史 refs 或强推共享分支作为常规修复。
 - 测试按当前 `effective-verification-policy` 和改动面执行；定向入口为 `cargo test -p <crate>`，中/大条目关闭与发版的全量节奏以有效策略为准。Rust 提交门禁固定为 `cargo check --workspace --all-targets`、`cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`；改测试代码另跑 `cargo clippy -p <crate> --all-targets -- -D warnings`。**正式发布以当前 `verify.ps1 -Full`、`verification-checks.json` 和 `verify-policy.mjs` 为准**，不得沿用旧固定步数或把部分冒烟称为全量。
 - **发版安装(用户可见的”构建”)**:`.\scripts\release.ps1`
   - 流程 = 全量测试 → 安装 `kz` 到 `~\.cargo\bin` → release 构建桌面端 kzapp 并复制安装;

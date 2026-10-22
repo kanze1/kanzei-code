@@ -13185,6 +13185,36 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 收尾: 1791062863
 - 源码指纹: v2 crates/kanzei-app/Cargo.toml@85a873d4ba2c
 
+## T-1786922727155 ScopedFile workspace and symlink race regressions [passed]
+- 命令: cargo test -p kanzei-harness scoped_file::tests
+- 时长: 16.2s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727155.json; 仅背书该命令的验证范围
+- 收尾: 1792275248
+
+## T-1786922727156 webfetch SSRF private target and redirect guard [passed]
+- 命令: cargo test -p kanzei-tools public_fetch_blocks_private_targets_and_redirects_including_raw_downloads
+- 时长: 59.7s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727156.json; 仅背书该命令的验证范围
+- 收尾: 1792275313
+
+## T-1786922727157 Project configuration requires content-bound trust approval [passed]
+- 命令: cargo test -p kanzei-harness approvals_bind_root_and_source_content_and_do_not_approve_future_agents
+- 时长: 1.7s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727157.json; 仅背书该命令的验证范围
+- 收尾: 1792275322
+
+## T-1786922727158 Default tool permissions require approval for writes and shell [passed]
+- 命令: cargo test -p kanzei-tools primary_base_exposes_structured_search_and_git
+- 时长: 1.9s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727158.json; 仅背书该命令的验证范围
+- 收尾: 1792275329
+
+## T-1786922727159 Preview project page response omits CSP while allowing local files [passed]
+- 命令: cargo test -p kanzei-tools preview_server::tests::真实连接_片段响应头带沙箱_项目页面不带
+- 时长: 2.2s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727159.json; 仅背书该命令的验证范围
+- 收尾: 1792275812
+
 ## T-1786922727160 约束与需求清理合入文件锁生命周期修复：Windows 全仓组合验证 [passed]
 - 命令: cargo test --locked --offline --workspace --quiet
 - 摘要: 2700 passed, 0 failed, 10 ignored。随后 cargo clippy --locked --offline --workspace --all-targets -- -D warnings 与 cargo fmt --all -- --check 均通过。日志 output/constraints-cleanup-20261020/integration-workspace-tests.log、integration-clippy.log、integration-fmt.log。仅本地 Windows 源码验证，未替换桌面运行时。
