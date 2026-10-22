@@ -1,17 +1,13 @@
-// A6 loads complete production owner modules; native receipts are controlled.
-// --before loads the complete committed owners without mutating production.
+// Load complete production surface owners with controlled native receipts.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
-import { createFixtures } from "./ui-preview/fixtures.mjs";
-import { mergeWorkspacePrefs } from "./ui-preview/workspace-prefs-fixture.mjs";
+import { createFixtures } from "../../ui-preview/fixtures.mjs";
+import { mergeWorkspacePrefs } from "../../ui-preview/workspace-prefs-fixture.mjs";
 
-const root = resolve(import.meta.dirname, "..");
-const baseline = "7fbe6a9f692b3d5cb6940987a707a02532a16c1b";
-const before = process.argv.includes("--before");
+const root = resolve(import.meta.dirname, "../../..");
 const clone = value => JSON.parse(JSON.stringify(value));
 const drain = async () => { await new Promise(done => setImmediate(done)); };
 function deferred() { let resolvePromise; const promise = new Promise(done => { resolvePromise = done; }); return { promise, resolve: resolvePromise }; }
@@ -50,7 +46,7 @@ async function harness(initial, { project = "project-A", backend = { value: clon
     if (command === "ui_prefs_set") {
       if (failSave) { failSave = false; throw new Error("injected native write rejection"); }
       const durable = backend.value;
-      if (args.workspace_state) durable.workspace_state = before ? clone(args.workspace_state) : mergeWorkspacePrefs(durable.workspace_state, args.workspace_state);
+      if (args.workspace_state) durable.workspace_state = mergeWorkspacePrefs(durable.workspace_state, args.workspace_state);
       for (const [section, bucket] of Object.entries(args.ui_layout ?? {})) {
         durable.ui_layout ??= {}; durable.ui_layout[section] ??= {};
         for (const [key, value] of Object.entries(bucket)) { if (value === null) delete durable.ui_layout[section][key]; else durable.ui_layout[section][key] = clone(value); }
@@ -59,27 +55,86 @@ async function harness(initial, { project = "project-A", backend = { value: clon
     }
     return [];
   };
-  const document = { readyState: "loading", activeElement: null, body: new Element("body"), documentElement: new Element("html"), getElementById: get, createElement: tag => new Element(tag), querySelector: () => null, querySelectorAll: () => [], dispatchEvent() {}, addEventListener: (event, callback) => { if (event === "DOMContentLoaded") initializers.push(callback); } };
+  const domListeners = new Map();
+  // 00-dom.js 的 defer 走 kz:ui-ready 自定义事件;只认 DOMContentLoaded 会静默收不到任何安装器。
+  const listen = (event, callback) => {
+    const values = domListeners.get(event) ?? [];
+    values.push(callback);
+    domListeners.set(event, values);
+    if (event === "DOMContentLoaded" || event === "kz:ui-ready") initializers.push(callback);
+  };
+  const document = { readyState: "loading", activeElement: null, body: new Element("body"), documentElement: new Element("html"), getElementById: get, createElement: tag => new Element(tag), querySelector: () => null, querySelectorAll: () => [], dispatchEvent: fired => { for (const callback of (domListeners.get(fired.type) ?? []).splice(0)) callback(fired); return true; }, addEventListener: listen };
   const context = vm.createContext({ document, console: { warn() {}, error() {}, log() {} }, navigator: {}, TextEncoder, performance: { now: () => 0 },
     window: { innerWidth: 1200, innerHeight: 900, __TAURI__: { core: { invoke: native }, event: { listen() {} } }, addEventListener() {} },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
     setTimeout: (callback, ms) => { const id = ++timer; timers.set(id, { callback, ms }); return id; }, clearTimeout: id => timers.delete(id), setInterval: () => ++timer, clearInterval() {}, requestAnimationFrame() {},
   });
-  const names = ["00-surface.js", "00-frame.js", "01-core.js", "03-layout.js", "03-workspaces.js"];
-  const sources = new Map(names.map(name => [name, before ? execFileSync("git", ["show", `${baseline}:crates/kanzei-app/ui/${name}`], { cwd: root, encoding: "utf8" }) : readFileSync(resolve(root, "crates/kanzei-app/ui", name), "utf8")]));
-  const needed = new Map();
-  for (const source of sources.values()) for (const [, body, specifier] of source.matchAll(/(?:import|export)\s*\{([\s\S]*?)\}\s*from\s*"([^"]+)"/g)) {
-    const names = needed.get(specifier) ?? new Set(); for (const name of body.split(",").map(value => value.trim()).filter(Boolean)) names.add(name.split(/\s+as\s+/)[0]); needed.set(specifier, names);
+  const entryNames = ["00-surface.js", "00-frame.js", "01-core.js", "03-layout.js", "03-workspaces.js"];
+  const isolation = new Map([
+    ["./03-shell.js", { ...shellValues, "*": true }],
+    ["./08-auto.js", { autoContinueTimers: new Map(), "*": true }],
+    ["./08-compose.js", { state: {}, "*": true }],
+  ]);
+  const aliasIn = body => body.split(",").map(value => value.trim()).filter(Boolean).map(value => value.split(/\s+as\s+/)[0]);
+  const aliasOut = body => body.split(",").map(value => value.trim()).filter(Boolean).map(value => value.split(/\s+as\s+/).pop());
+  const fileText = name => { try { return readFileSync(resolve(root, "crates/kanzei-app/ui", name), "utf8"); } catch { return null; } };
+  const ownExports = specifier => {
+    const text = fileText(specifier.slice(2));
+    if (text === null) return [];
+    const names = [];
+    for (const [, body] of text.matchAll(/export\s*\{([\s\S]*?)\}(?:\s*from\s*"[^"]+")?/g)) names.push(...aliasOut(body));
+    for (const [, name] of text.matchAll(/export\s+(?:async\s+)?(?:function|class|const|let|var)\s+([\w$]+)/g)) names.push(name);
+    return names;
+  };
+  const specifiersOf = source => {
+    const out = new Map();
+    const need = (specifier, names) => {
+      const set = out.get(specifier) ?? new Set();
+      for (const name of names) set.add(name);
+      out.set(specifier, set);
+    };
+    for (const [, specifier] of source.matchAll(/\bfrom\s*"([^"]+)"/g)) need(specifier, []);
+    for (const [, specifier] of source.matchAll(/^\s*import\s*"([^"]+)"/gm)) need(specifier, []);
+    for (const [, body, specifier] of source.matchAll(/(?:import|export)\s*\{([\s\S]*?)\}\s*from\s*"([^"]+)"/g)) need(specifier, aliasIn(body));
+    return out;
+  };
+  const sources = new Map(), required = new Map(), queue = [...entryNames];
+  while (queue.length) {
+    const name = queue.shift();
+    if (sources.has(name)) continue;
+    const source = fileText(name);
+    if (source === null) continue;
+    sources.set(name, source);
+    for (const [specifier, names] of specifiersOf(source)) {
+      const set = required.get(specifier) ?? new Set();
+      for (const n of names) set.add(n);
+      required.set(specifier, set);
+      if (!specifier.startsWith("./") || isolation.has(specifier) || sources.has(specifier.slice(2))) continue;
+      queue.push(specifier.slice(2));
+    }
   }
   const deps = new Map(), noop = () => {};
-  for (const [specifier, exports] of needed) {
+  for (const [specifier, names] of required) {
     if (sources.has(specifier.slice(2))) continue;
-    const values = specifier === "./03-shell.js" ? shellValues : specifier === "./02-i18n.js" ? { t: value => value } : specifier === "./03-general-scope.js" ? { isGeneralChat: () => false } : specifier === "./08-auto.js" ? { autoContinueTimers: new Map() } : specifier === "./08-compose.js" ? { state: {} } : {};
-    deps.set(specifier, new vm.SyntheticModule([...exports], function () { for (const key of exports) this.setExport(key, Object.hasOwn(values, key) ? values[key] : noop); }, { context }));
+    const values = isolation.get(specifier);
+    const exports = new Set([...names, ...(specifier.startsWith("./") ? ownExports(specifier) : [])]);
+    if (specifier.startsWith("./") && !values && fileText(specifier.slice(2)) !== null)
+      throw new Error(`相对依赖 ${specifier} 既没被加载也没有隔离桩`);
+    const present = values ?? {};
+    // 只对源码真实 import 的名字严格要求;"*" 表示整模块有意接管(如重型视图控制器)。
+    const missing = [...names].filter(name => !Object.hasOwn(present, name) && !present["*"]);
+    if (values && missing.length) throw new Error(`隔离桩 ${specifier} 未登记导出: ${missing.join(", ")}`);
+    deps.set(specifier, new vm.SyntheticModule([...exports], function () { for (const key of exports) this.setExport(key, Object.hasOwn(present, key) ? present[key] : noop); }, { context }));
   }
   const modules = new Map([...sources].map(([name, source]) => [name, new vm.SourceTextModule(source, { context, identifier: name })]));
-  for (const module of modules.values()) { if (module.status === "unlinked") await module.link(specifier => modules.get(specifier.slice(2)) ?? deps.get(specifier)); if (module.status === "linked") await module.evaluate(); }
+  // 未登记的依赖必须点名报错:返回 undefined 只会得到与真实原因无关的 ERR_VM_MODULE_NOT_MODULE。
+  const linkTo = specifier => {
+    const found = modules.get(specifier.slice(2)) ?? deps.get(specifier);
+    if (!found) throw new Error(`夹具缺少依赖桩: ${specifier}`);
+    return found;
+  };
+  for (const module of modules.values()) { if (module.status === "unlinked") await module.link(linkTo); if (module.status === "linked") await module.evaluate(); }
   return { core: modules.get("01-core.js").namespace, layout: modules.get("03-layout.js").namespace, workspace: modules.get("03-workspaces.js").namespace, get, document, calls, durable: () => clone(backend.value), rejectNextSave: () => { failSave = true; }, resolveGet: () => getGate.resolve(clone(initial)), initializeLayout: () => { const callback = initializers.find(fn => fn.toString().includes("bindFrames(document)")); assert(callback); callback(); } };
 }
 

@@ -15,7 +15,7 @@ if ($Root.StartsWith($providerPrefix, [System.StringComparison]::OrdinalIgnoreCa
 if ($Root.StartsWith("\\?\")) {
     $Root = $Root.Substring(4)
 }
-$baselinePath = Join-Path $Root "docs\design\metrics_baseline.md"
+$baselinePath = Join-Path $Root "scripts\metrics-baseline.json"
 if (-not (Test-Path $baselinePath)) {
     throw "metrics baseline not found: $baselinePath"
 }
@@ -24,22 +24,21 @@ function Normalize-PathKey([string]$Value) {
     return (($Value.Trim() -replace "\\", "/").TrimStart("./"))
 }
 
+$contract = Get-Content -LiteralPath $baselinePath -Raw -Encoding UTF8 | ConvertFrom-Json
 $baseline = @{}
-$baselineVersion = $null
-foreach ($line in Get-Content -LiteralPath $baselinePath) {
-    if ($line -match 'metrics_format_version:\s*(?<version>v\d+)') {
-        $baselineVersion = $Matches.version
-    }
-    if ($line -match '^\|\s*\d+\s*\|\s*(?<path>[^|]+?)\s*\|\s*\d+\s*\|\s*(?<production>\d+)\s*\|') {
-        $key = Normalize-PathKey $Matches.path
-        $baseline[$key] = [int]$Matches.production
-    }
+foreach ($property in $contract.files.PSObject.Properties) {
+    $baseline[(Normalize-PathKey $property.Name)] = [int]$property.Value
 }
-if ([string]::IsNullOrWhiteSpace($baselineVersion)) {
-    throw "metrics baseline missing 口径版本; refusing to compare incompatible readings"
+$baselineVersion = $contract.format_version
+if ([string]::IsNullOrWhiteSpace($baselineVersion) -or $baseline.Count -lt 10) {
+    throw "invalid metrics baseline; refusing a false-green gate"
 }
-if ($baseline.Count -lt 10) {
-    throw "metrics baseline has too few parsed rows ($($baseline.Count)); refusing to run a false-green gate"
+
+# Exercise the rejection cases before measuring real source. Fixture invocations
+# already provide MetricsOutputPath and do not recursively run the self-tests.
+if ([string]::IsNullOrWhiteSpace($MetricsOutputPath)) {
+    node (Join-Path $Root "scripts/tests/verification/metrics-gate.mjs")
+    if ($LASTEXITCODE -ne 0) { throw "metrics gate self-tests failed" }
 }
 
 $targetDirectory = $env:CARGO_TARGET_DIR
@@ -53,7 +52,7 @@ if ([string]::IsNullOrWhiteSpace($MetricsOutputPath)) {
     Push-Location $Root
     try {
         Write-Host "metrics executable: $kz"
-        $metricsOutput = @(& $kz metrics --top 30 2>&1)
+        $metricsOutput = @(& $kz metrics --top 1000000 2>&1)
     } finally {
         Pop-Location
     }
@@ -61,7 +60,7 @@ if ([string]::IsNullOrWhiteSpace($MetricsOutputPath)) {
         throw "kz metrics failed (exit=$LASTEXITCODE)"
     }
 } else {
-    # 定向测试注入只含版本行的 fixture，验证口径漂移在解析 Top-30 前拒绝出数。
+    # 定向测试注入只含版本行的 fixture，验证口径漂移在解析 full inventory 前拒绝出数。
     $metricsOutput = @(Get-Content -LiteralPath $MetricsOutputPath)
 }
 
@@ -86,30 +85,32 @@ foreach ($line in $metricsOutput) {
     }
 }
 if ($current.Count -eq 0) {
-    throw "kz metrics returned no parseable Top-30 rows; refusing to pass"
+    throw "kz metrics returned no parseable full inventory rows; refusing to pass"
 }
 
 $failures = @()
-$growthAllowance = 100
+$growthAllowance = [int]$contract.existing_file_growth_budget
+$giantThreshold = [int]$contract.max_production_lines
+$seen = @{}
+foreach ($row in $current) {
+    if ($seen.ContainsKey($row.Path)) { throw "duplicate metrics row: $($row.Path)" }
+    $seen[$row.Path] = $true
+    if ($baseline.ContainsKey($row.Path)) {
+        $growth = $row.Production - [int]$baseline[$row.Path]
+        if ($growth -gt $growthAllowance) {
+            $failures += "$($row.Path): production lines grew $growth (budget $growthAllowance)"
+        }
+    }
+    if ($row.Production -gt $giantThreshold -and
+        (-not $baseline.ContainsKey($row.Path) -or [int]$baseline[$row.Path] -le $giantThreshold)) {
+        $failures += "$($row.Path): new giant with $($row.Production) production lines (threshold $giantThreshold)"
+    }
+}
 foreach ($entry in $baseline.GetEnumerator()) {
-    $row = $current | Where-Object { $_.Path -eq $entry.Key } | Select-Object -First 1
-    if ($null -eq $row) {
-        continue
-    }
-    $growth = $row.Production - [int]$entry.Value
-    if ($growth -gt $growthAllowance) {
-        $failures += "$($entry.Key): production lines grew $growth (baseline $($entry.Value), current $($row.Production), allowance $growthAllowance)"
+    if ((Test-Path -LiteralPath (Join-Path $Root $entry.Key)) -and -not $seen.ContainsKey($entry.Key)) {
+        $failures += "metrics inventory omitted existing baseline file $($entry.Key)"
     }
 }
-
-$baselineGiantCount = @($baseline.Values | Where-Object { [int]$_ -gt 1200 }).Count
-$currentGiantCount = @($current | Where-Object { $_.Production -gt 1200 }).Count
-if ($currentGiantCount -gt ($baselineGiantCount + 1)) {
-    $failures += "Top-30 giant count grew from $baselineGiantCount to $currentGiantCount (allowance 1)"
-}
-
-if ($failures.Count -gt 0) {
-    throw "metrics regression gate failed:`n$($failures -join "`n")"
-}
-
-Write-Host "metrics regression gate passed: $($current.Count) rows, giants $currentGiantCount/$baselineGiantCount, per-file allowance $growthAllowance" -ForegroundColor Green
+if ($failures.Count -gt 0) { throw "metrics regression gate failed:`n$($failures -join "`n")" }
+$giants = @($current | Where-Object { $_.Production -gt $giantThreshold }).Count
+Write-Host "metrics regression gate passed: $($current.Count) files, $giants existing giants, no new giants" -ForegroundColor Green

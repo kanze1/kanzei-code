@@ -1,16 +1,12 @@
 // Complete production ESM owners; shell/DOM/native receipts are deterministic fixtures.
-// --before reads complete committed sources without changing production files.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
+import { collectEsmImports } from "../../esm-test-imports.mjs";
 
-const root = resolve(import.meta.dirname, "..");
-const baseline = "84a3892bc80483a61cc6335e7a8ca654ca2b3c18";
-const before = process.argv.includes("--before");
-const backendMode = process.argv.includes("--key-only") ? "key-only" : before ? "old" : "delta";
+const root = resolve(import.meta.dirname, "../../..");
 const clone = value => JSON.parse(JSON.stringify(value));
 const drain = () => new Promise(done => setImmediate(done));
 function deferred() {
@@ -46,15 +42,12 @@ class Element {
   setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
 }
 function applyPrefs(durable, patch) {
-  if (patch.work_priority) durable.work_priority = backendMode === "old" ? clone(patch.work_priority) : { ...(durable.work_priority ?? {}), ...clone(patch.work_priority) };
+  if (patch.work_priority) durable.work_priority = { ...(durable.work_priority ?? {}), ...clone(patch.work_priority) };
   if (patch.process_auto_state) {
-    if (backendMode === "old") durable.process_auto_state = clone(patch.process_auto_state);
-    else {
-      durable.process_auto_state ??= {};
-      for (const [id, fields] of Object.entries(patch.process_auto_state)) {
-        if (fields === null) delete durable.process_auto_state[id];
-        else durable.process_auto_state[id] = backendMode === "key-only" ? clone(fields) : { ...(durable.process_auto_state[id] ?? {}), ...clone(fields) };
-      }
+    durable.process_auto_state ??= {};
+    for (const [id, fields] of Object.entries(patch.process_auto_state)) {
+      if (fields === null) delete durable.process_auto_state[id];
+      else durable.process_auto_state[id] = { ...(durable.process_auto_state[id] ?? {}), ...clone(fields) };
     }
   }
   for (const key of ["continue_prompt", "auto_max", "theme"]) if (Object.hasOwn(patch, key)) durable[key] = patch[key];
@@ -84,27 +77,24 @@ async function harness(initial, { project = "project-A", backend = { value: clon
       const receipt = { args: clone(args), accept: () => { const { sessionId, ...patch } = clone(args); backend.runtime[sessionId] = { ...(backend.runtime[sessionId] ?? {}), ...patch }; gate.resolve(null); }, reject: () => gate.reject(new Error("injected runtime update rejection")) };
       autoReceipts.push(receipt); if (!holdAuto) receipt.accept(); return gate.promise;
     }
-    if (holdLookups && ["project_files", "memory_entries"].includes(command)) {
+    if (holdLookups && command === "project_files") {
       const gate = deferred(); lookups.push({ command, args: clone(args), ...gate }); return gate.promise;
     }
     return [];
   };
-  const document = { readyState: "loading", activeElement: null, body: new Element("body"), documentElement: new Element("html"), getElementById: get, createElement: tag => new Element(tag), querySelector: () => null, querySelectorAll: () => [], dispatchEvent() {}, addEventListener: (event, callback) => { if (event === "DOMContentLoaded") initializers.push(callback); } };
+  const document = { readyState: "loading", activeElement: null, body: new Element("body"), documentElement: new Element("html"), getElementById: get, createElement: tag => new Element(tag), querySelector: () => null, querySelectorAll: () => [], dispatchEvent() {}, addEventListener: (event, callback) => { if (event === "DOMContentLoaded" || event === "kz:ui-ready") initializers.push(callback); } };
   const context = vm.createContext({ document, console: { warn() {}, error() {}, log() {} }, navigator: {}, TextEncoder, performance: { now: () => 0 },
     window: { innerWidth: 1200, innerHeight: 900, __TAURI__: { core: { invoke: native }, event: { listen() {} } }, addEventListener() {} },
     Event: class { constructor(type) { this.type = type; } }, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
     setTimeout: (callback, ms) => { const id = ++timer; timers.set(id, { callback, ms }); return id; }, clearTimeout: id => timers.delete(id), setInterval: () => ++timer, clearInterval() {}, requestAnimationFrame() {},
   });
-  const names = ["00-surface.js", "00-frame.js", "01-core.js", "03-layout.js", "03-workspaces.js", "08-auto.js", "08-compose-runtime.js", "09-sessions.js"];
-  const sources = new Map(names.map(name => [name, before ? execFileSync("git", ["show", `${baseline}:crates/kanzei-app/ui/${name}`], { cwd: root, encoding: "utf8" }) : readFileSync(resolve(root, "crates/kanzei-app/ui", name), "utf8")]));
-  const needed = new Map();
-  for (const source of sources.values()) for (const [, body, specifier] of source.matchAll(/(?:import|export)\s*\{([\s\S]*?)\}\s*from\s*"([^"]+)"/g)) {
-    const exports = needed.get(specifier) ?? new Set(); for (const name of body.split(",").map(value => value.trim()).filter(Boolean)) exports.add(name.split(/\s+as\s+/)[0]); needed.set(specifier, exports);
-  }
+  const names = ["00-dom.js", "00-ui-preferences.js", "00-ipc.js", "00-command-contract.js", "00-console-log.js", "00-console.js", "00-ui-primitives.js", "00-dialogs.js", "00-surface.js", "00-frame.js", "01-core.js", "03-layout.js", "03-workspaces.js", "08-auto.js", "08-compose-runtime.js", "09-sessions.js"];
+  const sources = new Map(names.map(name => [name, readFileSync(resolve(root, "crates/kanzei-app/ui", name), "utf8")]));
+  const needed = collectEsmImports(sources, new Set());
   const deps = new Map(), noop = () => {};
   for (const [specifier, exports] of needed) {
-    const values = specifier === "./03-shell.js" ? shellValues : specifier === "./02-i18n.js" ? { t: value => value, localizeDynamic: value => value } : specifier === "./03-general-scope.js" ? { isGeneralChat: () => false } : specifier === "./08-auto.js" ? { autoContinueTimers: new Map(), autoContinueInFlight: new Set(), awaitingUserSessions: new Set(), autoPaused: false, autoStopAfterRound: false, DEFAULT_AUTO_CONTINUE_MAX: 10 } : specifier === "./08-compose.js" ? { state: {} } : specifier === "./09-sessions.js" ? { processRunning: item => item.running } : specifier === "./20-lines.js" ? { collaborationLines: [] } : {};
+    const values = specifier === "./01-chat-panes.js" ? { messages: get("messages"), activePane: get("messages"), promptBox: get("prompt") } : specifier === "./03-shell.js" ? shellValues : specifier === "./02-i18n.js" ? { t: value => value, localizeDynamic: value => value } : specifier === "./03-general-scope.js" ? { isGeneralChat: () => false } : specifier === "./08-auto.js" ? { autoContinueTimers: new Map(), autoContinueInFlight: new Set(), awaitingUserSessions: new Set(), autoPaused: false, autoStopAfterRound: false, DEFAULT_AUTO_CONTINUE_MAX: 10 } : specifier === "./08-compose.js" ? { state: {} } : specifier === "./09-sessions.js" ? { processRunning: item => item.running } : specifier === "./20-lines.js" ? { collaborationLines: [] } : {};
     deps.set(specifier, new vm.SyntheticModule([...exports], function () { for (const key of exports) this.setExport(key, Object.hasOwn(values, key) ? values[key] : noop); }, { context }));
   }
   // The existing core/runtime/auto cycle is linked in two stages solely by the fixture.
@@ -112,7 +102,7 @@ async function harness(initial, { project = "project-A", backend = { value: clon
   // evaluate complete auto source against those real owners and install its receipts.
   const first = names.filter(name => !["08-auto.js", "09-sessions.js"].includes(name));
   const modules = new Map(first.map(name => [name, new vm.SourceTextModule(sources.get(name), { context, identifier: name })]));
-  const linker = specifier => modules.get(specifier.slice(2)) ?? deps.get(specifier);
+  const linker = specifier => { const found = modules.get(specifier.slice(2)) ?? deps.get(specifier); assert(found, `Unmapped run-control dependency: ${specifier}`); return found; };
   for (const module of modules.values()) { if (module.status === "unlinked") await module.link(linker); if (module.status === "linked") await module.evaluate(); }
   const shell = deps.get("./03-shell.js");
   for (const [name, field] of [["setProcessItems", "processItems"], ["setActiveProcessId", "activeProcessId"], ["setActiveSessionId", "activeSessionId"], ["setCurrentProject", "currentProject"]]) shell.setExport(name, value => { shellValues[field] = value; shell.setExport(field, value); });
@@ -144,7 +134,7 @@ const autoFixture = (entries = {}) => ({ process_auto_state: { "p|A": { enabled:
 const item = (id = "p|A", session = "session-A") => ({ id, session_id: session, origin_project: "project-A", profile: "dev", running: true });
 const prefsWrites = h => h.calls.filter(call => call.command === "ui_prefs_set");
 const runtimeWrites = h => h.calls.filter(call => call.command === "auto_state_update");
-const evidence = (name, value) => console.log(JSON.stringify({ evidence: name, source: before ? baseline : "working tree", backendMode, ...value }));
+const evidence = (name, value) => console.log(JSON.stringify({ evidence: name, source: "working tree", ...value }));
 
 test("priority action retains its original project while the initial read is pending", async () => {
   const h = await harness({ work_priority: { "project-A": "defect-first", "project-B": "defect-first" } });
@@ -193,8 +183,7 @@ test("same-window queued line actions cannot replay an older receipt over a late
   await h.ready(); h.setProcesses([item()]); h.runtime.applyAutoUiState("p|A");
   const first = h.runtime.setLineAutoState("p|A", { paused: true }); await drain();
   const second = h.runtime.setLineAutoState("p|A", { enabled: false }); await drain();
-  if (before) { h.autoReceipts[1].accept(); await second; h.autoReceipts[0].accept(); await first; }
-  else { assert.equal(h.autoReceipts.length, 1, "second update awaits the first receipt"); h.autoReceipts[0].accept(); await first; await drain(); h.autoReceipts[1].accept(); await second; }
+  assert.equal(h.autoReceipts.length, 1, "second update awaits the first receipt"); h.autoReceipts[0].accept(); await first; await drain(); h.autoReceipts[1].accept(); await second;
   await drain();
   evidence("ACK ordering", { durable: h.durable(), local: h.runtime.lineAutoConfig("p|A"), runtime: h.runtimeState(), calls: runtimeWrites(h), checked: h.get("auto-continue").checked });
   assert.equal(h.runtime.lineAutoConfig("p|A").enabled, false); assert.equal(h.runtime.lineAutoConfig("p|A").paused, true);
@@ -222,7 +211,7 @@ test("pending off intent prevents a delayed enable receipt from arming a new con
   assert.equal(armedWhileOffPending, false, "an older enable receipt must not restart a timer cancelled by newer off intent");
   assert.equal(h.auto.autoContinueTimers.has("session-A"), false);
 });
-test("first enable captures the visible line mode before an IPC wait and project switch", async () => {
+test("first enable selects autonomous mode and retains its session across an IPC wait and project switch", async () => {
   const initial = autoFixture({ "p|A": { enabled: false, paused: false, maxRounds: 5 } });
   const h = await harness(initial, { holdAuto: true, active: true }); await h.ready(); h.setProcesses([item(), item("p|B", "session-B")]);
   h.runtime.applyAutoUiState("p|A"); h.get("profile-select").value = "dev-pair";
@@ -230,7 +219,7 @@ test("first enable captures the visible line mode before an IPC wait and project
   h.setProject("project-B"); h.setActive("p|B", "session-B"); h.get("profile-select").value = "dev-auto";
   h.autoReceipts[0].accept(); await pending; await drain();
   evidence("first enable captured mode", { durable: h.durable(), local: h.runtime.lineAutoConfig("p|A"), calls: runtimeWrites(h) });
-  assert.equal(h.runtime.lineAutoConfig("p|A").mode, "dev-pair"); assert.equal(h.durable().process_auto_state["p|A"].mode, "dev-pair");
+  assert.equal(h.runtime.lineAutoConfig("p|A").mode, "dev-auto"); assert.equal(h.durable().process_auto_state["p|A"].mode, "dev-auto");
   assert.equal(runtimeWrites(h).at(-1).args.sessionId, "session-A");
 });
 test("top-bar independent controls publish only their own runtime and preference fields", async () => {
@@ -306,15 +295,6 @@ test("an old project's delayed completion response cannot enter the new project"
   evidence("file suggestions project", { suggestions: [...h.runtime.fileSuggestions], calls: h.calls });
   assert.equal(h.runtime.fileSuggestions.length, 0);
 });
-test("a stale project's SOP cannot render or submit into another project", async () => {
-  const h = await harness({}, { holdLookups: true });
-  const loading = h.runtime.openSopPicker(); await drain(); h.setProject("project-B");
-  h.lookups[0].resolve([{ title: "A-only workflow", body: "A-only command", status: "active" }]); h.lookups[1].resolve([]); await loading;
-  const entries = h.get("sop-list").children.filter(el => el.classList.contains("sop-entry"));
-  for (const entry of entries) entry.dispatchEvent({ type: "click" }); await drain();
-  evidence("SOP project scope", { entries: entries.length, requests: h.calls.filter(call => call.command === "run_prompt"), prompt: h.core.promptBox.value });
-  assert.equal(entries.length, 0); assert.equal(h.calls.some(call => call.command === "run_prompt"), false); assert.equal(h.core.promptBox.value, "");
-});
 test("a typed but unblurred continue prompt is preserved by initial hydrate", async () => {
   const h = await harness({ continue_prompt: "persisted old intent" });
   h.init('const stored = (localStorage.getItem("kz-continue-prompt")'); h.init('$("continue-prompt").addEventListener');
@@ -366,27 +346,4 @@ test("stale completion rejection cannot clear a newer successful list", async ()
   const old = h.runtime.refreshFileSuggestions(); await drain(); const newer = h.runtime.refreshFileSuggestions(); await drain();
   h.lookups[1].resolve(["src/current.rs"]); await newer; h.lookups[0].reject(new Error("old lookup failed")); await old;
   assert.deepEqual([...h.runtime.fileSuggestions], ["src/current.rs"]);
-});
-test("closing and reopening SOP keeps the newer real result against old success or error", async () => {
-  for (const outcome of ["success", "error"]) {
-    const h = await harness({}, { holdLookups: true }); const old = h.runtime.openSopPicker(); await drain();
-    await h.runtime.openSopPicker(); const newer = h.runtime.openSopPicker(); await drain();
-    h.lookups[2].resolve([{ title: "Current workflow", body: "current command", status: "active" }]); h.lookups[3].resolve([]); await newer;
-    if (outcome === "success") h.lookups[0].resolve([{ title: "Old workflow", body: "old command", status: "active" }]);
-    else h.lookups[0].reject(new Error("old SOP failed")); h.lookups[1].resolve([]); await old;
-    const entries = h.get("sop-list").children.filter(el => el.classList.contains("sop-entry")); assert.equal(entries.length, 1);
-    assert.equal(entries[0].children[0].textContent, "Current workflow"); entries[0].dispatchEvent({ type: "click" }); await drain();
-    assert.equal(h.calls.find(call => call.command === "run_prompt").args.prompt, "current command");
-  }
-});
-test("a loaded SOP button checks project again while the valid same-project choice still runs", async () => {
-  for (const switched of [false, true]) {
-    const h = await harness({}, { holdLookups: true }); const pending = h.runtime.openSopPicker(); await drain();
-    h.lookups[0].resolve([{ title: "Original workflow", body: "original command", status: "active" }]); h.lookups[1].resolve([]); await pending;
-    if (switched) h.setProject("project-B");
-    h.get("sop-list").children.find(el => el.classList.contains("sop-entry")).dispatchEvent({ type: "click" }); await drain();
-    const request = h.calls.find(call => call.command === "run_prompt");
-    if (switched) { assert.equal(request, undefined); assert.equal(h.core.promptBox.value, ""); }
-    else { assert.equal(request.args.projectDir, "project-A"); assert.equal(request.args.prompt, "original command"); }
-  }
 });

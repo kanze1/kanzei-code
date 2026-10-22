@@ -1,23 +1,10 @@
 /* global window, requestAnimationFrame */
-import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import { chromium } from "playwright-core";
-import { startPreviewServer } from "./ui-preview/server.mjs";
 
-const before = process.argv.includes("--before");
-const output = `output/audit-WB6/activity/experience-${before ? "before" : "current"}`;
-await mkdir(output, { recursive: true });
-const server = await startPreviewServer({ port: 0 });
-const browser = await chromium.launch({ channel: "msedge", headless: true });
-const page = await browser.newPage();
-const errors = [], checks = [];
-page.on("pageerror", error => errors.push(String(error)));
-try {
-  if (before) {
-    const body = execFileSync("git", ["show", "26acb7f0:crates/kanzei-app/ui/01-core.js"], { encoding: "utf8" });
-    await page.route("**/01-core.js", route => route.fulfill({ contentType: "text/javascript", body }));
-  }
+export default async function run({ browser, server, check }) {
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+
   await page.goto(`${server.origin}/?scene=chat`);
   await page.waitForFunction(() => window.__kzPreview?.ready);
   const results = await page.evaluate(async () => {
@@ -93,12 +80,6 @@ try {
     return rows;
   });
   results.push({ name: "Production ESM and event caller have no browser errors", actual: errors, expected: [] });
-  for (const item of results) {
-    try { assert.deepEqual(item.actual, item.expected); checks.push({ ...item, passed: true }); }
-    catch (error) { checks.push({ ...item, passed: false, error: error.message }); }
-  }
-} finally { await browser.close(); await server.close(); }
-await writeFile(`${output}/acceptance.json`, JSON.stringify({ before, checks }, null, 2));
-for (const item of checks) console.log(`${item.passed ? "PASS" : "FAIL"} ${item.name}${item.error ? `: ${item.error}` : ""}`);
-console.log(`Experience contract: ${checks.filter(item => item.passed).length}/${checks.length} passed.`);
-if (checks.some(item => !item.passed)) process.exitCode = 1;
+  for (const item of results) check(item.name, item.actual, item.expected);
+
+}

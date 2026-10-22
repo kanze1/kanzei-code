@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(import.meta.dirname, "../../..");
 const packageScript = resolve(root, "scripts", "package.ps1");
 const temp = await mkdtemp(join(tmpdir(), "kz-package-tag-smoke-"));
 const fakeBin = join(temp, "bin");

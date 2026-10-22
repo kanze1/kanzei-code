@@ -16,11 +16,26 @@ assert(frontendOnly.skipped_steps.includes("metrics_build"));
 assert(frontendOnly.skipped_steps.includes("artifact_lifecycle"));
 
 const selectedKeys = file => classifyChangedPaths([file]).checks.map(check => check.key);
+const sharedGeometry = selectedKeys("crates/kanzei-app/fixtures/preview-geometry.json");
+assert(sharedGeometry.includes("test"), "shared geometry fixtures must run native Rust tests");
+assert(sharedGeometry.includes("ui_runtime"), "shared geometry fixtures must run the frontend consumer");
 const contextStyle = selectedKeys("crates/kanzei-app/ui/context.css");
 assert(contextStyle.includes("context_inspection"));
 for (const unrelated of ["ui_backdrop", "ui_surfaces", "ui_math_browser", "artifact_lifecycle", "metrics_build", "ipc_signatures", "verify_policy"]) assert(!contextStyle.includes(unrelated), `context styles do not trigger ${unrelated}`);
 assert(selectedKeys("crates/kanzei-app/ui/04-math.js").includes("ui_math_browser"));
 assert(selectedKeys("scripts/ui-math-browser-smoke.mjs").includes("ui_math_browser"), "editing a test always selects itself");
+for (const file of ["resource", "markdown", "i18n", "tool-summary", "structured-render", "delivery", "side-policy", "experience"]) {
+  assert(selectedKeys("scripts/tests/browser-contracts/" + file + ".mjs").includes("ui_browser_contracts"), "each browser domain selects its containing suite");
+}
+for (const file of ["state.test", "session-identity.test", "surface.test", "permission.test", "run-control.test", "schedules.test", "schedule-notification.test", "schedules-fixture"]) {
+  assert(selectedKeys("scripts/tests/ownership/" + file + ".mjs").includes("ui_state_ownership"), "each state domain and shared fixture selects its containing suite");
+}
+assert(selectedKeys("scripts/tests/verification/package-tags.mjs").includes("verify_policy"));
+assert(selectedKeys("scripts/package.ps1").includes("verify_policy"));
+assert(selectedKeys("scripts/tests/verification/metrics-gate.mjs").includes("metrics_regression"));
+const stateOwnership = VERIFY_CHECKS.find(check => check.key === "ui_state_ownership");
+assert(stateOwnership.args.includes("scripts/ui-state-ownership-smoke.mjs"), "state ownership key must execute state ownership tests");
+assert(VERIFY_CHECKS.find(check => check.key === "ui_design_audit_repairs").args.includes("scripts/ui-design-audit-repairs-smoke.mjs"), "browser audit remains independently covered");
 assert(selectedKeys("scripts/metrics-regression-gate.ps1").includes("metrics_build"), "selected checks bring their producer dependencies");
 assert(!selectedKeys("docs/design/memory_system.md").includes("ipc_signatures"));
 
@@ -44,9 +59,10 @@ assert.throws(() => validateCheckRegistry([VERIFY_CHECKS[0], VERIFY_CHECKS[0]]),
 assert.throws(() => validateCheckRegistry([{ ...VERIFY_CHECKS[0], depends_on: ["future"] }]), /precede/);
 const runtimeSource = fs.readFileSync(new URL("./ui-runtime-smoke.mjs", import.meta.url), "utf8");
 assert(!/await import\(["']\.\/ui-[^"']*(?:smoke|regressions)\.mjs["']\)/.test(runtimeSource), "runtime gate must not hide independent verification suites");
-const runtimeSuites = VERIFY_CHECKS.filter(check => check.suite === "ui_runtime");
-assert.equal(runtimeSuites.length, 41, "all previously nested runtime suites must remain independently registered");
-assert.equal(new Set(runtimeSuites.map(check => check.args.at(-1))).size, runtimeSuites.length);
+for (const environment of ["local", "ci"]) {
+  const commands = VERIFY_CHECKS.map(check => JSON.stringify([check.program, ...(environment === "ci" ? check.ci_args ?? check.args : check.args)]));
+  assert.equal(new Set(commands).size, commands.length, `${environment} must not register the same command twice`);
+}
 
 // ── 分区:架构图 ──(UI2-0926 #7:ui_diagram 步的路径触发)
 // 只改一般设计文档:只跑图门禁(文档里的图只判能渲染、安全、点击映射),Rust 与其余前端步都跳过。
@@ -112,7 +128,7 @@ for (const invalid of [null, "", "pass 0.1s", "fail 0.1s", {}, { status: "pass",
 }
 assert.match(validateFullVerification({ ...evidence, schema_version: 1 }, "abc123"), /schema_version/);
 const missingChild = structuredClone(evidence);
-delete missingChild.checks[runtimeSuites[0].key];
+delete missingChild.checks.ui_browser_contracts;
 assert.match(validateFullVerification(missingChild, "abc123"), /缺少步骤/);
 assert.match(validateFullVerification({ ...evidence, checks: { ...checks, test: { ...checks.test, command: ["node", "irrelevant.mjs"] } } }, "abc123"), /执行命令/);
 assert.match(validateFullVerification({ ...evidence, checks: { ...checks, test: { ...checks.test, log_path: "../outside.log" } } }, "abc123"), /日志证据/);
@@ -134,6 +150,13 @@ try {
   fs.appendFileSync(path.join(temp, "Cargo.lock"), "another edit\n");
   assert.throws(() => inspectBuildInputs(temp, dirty), /changed during verification/);
   fs.writeFileSync(path.join(temp, "Cargo.lock"), "baseline\n");
+  // D-766:需求/缺陷/架构索引是构建输入。未提交的项目资产必须挡住发版门禁,
+  // 否则回执绑定的那棵树过不了它自己声明的时效判据。
+  fs.mkdirSync(path.join(temp, ".kanzei", "project", "architecture"), { recursive: true });
+  fs.writeFileSync(path.join(temp, ".kanzei", "project", "architecture", "README.md"), "index row\n");
+  assert.throws(() => assertCleanBuildInputs(temp), /\.kanzei\/project\/architecture/);
+  assert.deepEqual(inspectBuildInputs(temp).dirty_paths, [".kanzei/project/architecture/README.md"]);
+  fs.rmSync(path.join(temp, ".kanzei"), { recursive: true, force: true });
   fs.mkdirSync(path.join(temp, ".cargo"));
   fs.writeFileSync(path.join(temp, ".cargo/config.toml"), "[build]\njobs=1\n");
   assert.throws(() => assertCleanBuildInputs(temp), /config.toml/);
@@ -155,6 +178,7 @@ try {
   // stderr is evidence, while exit codes determine results. A failed check
   // must retain its evidence and must not prevent independent checks running.
   if (process.platform === "win32") {
+    await import("./tests/verification/package-tags.mjs");
     const scripts = path.join(temp, "scripts");
     fs.mkdirSync(scripts);
     for (const name of ["verify.ps1", "verify-policy.mjs", "verify-runner.mjs", "artifact-lifecycle.mjs", "artifact-lifecycle.ps1"]) {

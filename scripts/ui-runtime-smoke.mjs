@@ -4988,8 +4988,15 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
   assert(h2Detail.classList.contains("hidden") && h2Head.getAttribute("aria-expanded") === "false", "再次点击工具行未收起详情");
   assert(!style.includes(".turn-divider"), "样式表仍残留无创建点的 .turn-divider");
   // UI2-0926 #12:轨迹压紧改由列内节奏承担——相邻工具组/思考 6px(轮内),轮间 36px(下一条)。
-  assert(/#messages > \.msg-pane > :is\(\.tool-group, \.msg\.reasoning\) \+ :is\(\.tool-group, \.msg\.reasoning\)\s*\{[^}]*margin-top:\s*6px/.test(style), "工具行间距未收紧");
-  assert(/\.msg\.user:not\(:first-child\)\s*\{[^}]*margin-top:\s*36px/.test(style), "轮间留白未显著拉开");
+  // 间距已改走 --sp-* 刻度,这里按 token 表解析回像素再比,不再钉死字面量写法。
+  const spacingScale = Object.fromEntries([...style.matchAll(/--sp-(\d+):\s*(\d+)px/g)].map(([, step, px]) => [`--sp-${step}`, Number(px)]));
+  const marginTopPx = (selectorPattern) => {
+    const body = new RegExp(`${selectorPattern}\\s*\\{([^}]*)\\}`).exec(style)?.[1] ?? "";
+    const declared = /margin-top:\s*(?:var\((--sp-\d+)\)|(\d+)px)/.exec(body);
+    return declared?.[1] ? spacingScale[declared[1]] : Number(declared?.[2]);
+  };
+  assert(marginTopPx("#messages > \\.msg-pane > :is\\(\\.tool-group, \\.msg\\.reasoning\\) \\+ :is\\(\\.tool-group, \\.msg\\.reasoning\\)") === 6, "工具行间距未收紧");
+  assert(marginTopPx("\\.msg\\.user:not\\(:first-child\\)") === 36, "轮间留白未显著拉开");
   const chatRenderer = esmModuleCache.get("05-chat-render.js")?.namespace;
   const activityRenderer = esmModuleCache.get("06-activity.js")?.namespace;
   // ---------- R-352:主区展示预算、限定上下文与活动面板出口 ----------
@@ -9599,7 +9606,7 @@ const docsB = {
   const sessionsSrc = await readFile(resolve(root, "crates", "kanzei-app", "ui", "09-sessions.js"), "utf8");
   // 验收①:线的 diff 用 06-activity.js 既有 buildDiffTree,不新写查看器。
   assert(
-    linesSrc.includes('typeof buildDiffTree === "function" ? buildDiffTree(treeFiles)'),
+    linesSrc.includes("buildDiffTree(treeFiles)"),
     "R-179:线 diff 未接入既有 buildDiffTree 目录树渲染器",
   );
   assert(
@@ -10995,6 +11002,9 @@ const docsB = {
     // ⚡ 带 U+FE0E(文字字形):彩色 emoji 不受 CSS color 控制,文字字形才随状态栏文字色。
     assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡\uFE0E · 开发", `⑥ 状态栏格式不对:"${status.textContent}"`);
     assert(status.title === "上一轮实际使用", `⑥ 状态栏应说明是上一轮实际使用:"${status.title}"`);
+    for (const [profile, label] of [["dev", "开发"], ["research", "研究"], ["readonly", "只读"], ["isolated", "隔离执行"]]) {
+      assert(esmModuleCache.get("03-shell.js").namespace.formatRunMeta({ model: "example", profile }) === `example · ${label}`, `状态栏应本地化 ${profile}`);
+    }
     const before = invokeLog.filter((cmd) => cmd === "model_effective").length;
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
     await flush();
@@ -11641,6 +11651,8 @@ const docsB = {
       ["task 超时", "task", { ok: false, content: "(超时,未产出结果)" }, "超时 · 未产出结果"],
       ["task 失败", "task", { ok: false, content: "子代理内部报错" }, "子代理内部报错"],
       ["question", "question", { content: "User answer: 用本地" }, "用户回答: 用本地"],
+      // D-764③:作答输出第二行是引擎凭证,不得混进「用户回答」摘要
+      ["question 带作答凭证", "question", { content: "User answer: 用本地\n需要用户确认留痕时,把作答凭证 question:run-9:call-1 逐字写进 tracker 条目的 `确认记录`。" }, "用户回答: 用本地"],
       // tracker
       ["req add", "req", { content: "added R-365 [todo] 新需求标题", input: { action: "add", title: "新需求标题" } }, "新增 R-365"],
       ["req 状态变化", "req", { content: "updated: R-364 [doing] 工具行摘要\n变更: 状态: todo → doing; 进展: ∅ → 开工", input: { action: "update", id: "R-364" } }, "R-364 → 进行中"],
@@ -16578,6 +16590,13 @@ const docsB = {
     assert(Math.abs(phone.scale - expectScale) < 1e-9 && Math.abs(phone.x - (360 - 390 * expectScale) / 2) < 1e-9 && Math.abs(phone.y - (700 - 844 * expectScale) / 2) < 1e-9,
       `fitDevice 手机 390×844 放进 360×700 应按 ${expectScale.toFixed(3)} 缩放并居中,实得 ${JSON.stringify(phone)}`);
     assert(pv.fitDevice({ x: 0, y: 0, w: 2000, h: 1400 }, "tablet").scale === 1, "fitDevice 设备比占位框小时不放大(scale 不超过 1)");
+    const geometryCases = JSON.parse(await readFile(resolve(root, "crates/kanzei-app/fixtures/preview-geometry.json"), "utf8"));
+    for (const { name, host, preset, expected } of geometryCases) {
+      const actual = pv.fitDevice(host, preset);
+      for (const [key, value] of Object.entries(expected)) {
+        assert(Math.abs(actual[key] - value) < 1e-9, `预览几何契约 ${name}.${key}: ${actual[key]} != ${value}`);
+      }
+    }
     const marker = "backend: headless\n已截图\nurl: http://localhost:5173/\n[tool-image] .kanzei/artifacts/tool-images/0a1b2c.png\n[tool-image] .kanzei/artifacts/tool-images/0a1b2c.png\n";
     const shots = pv.extractToolImages(marker);
     assert(same(shots.images, [".kanzei/artifacts/tool-images/0a1b2c.png"]) && !shots.content.includes("[tool-image]") && shots.content.endsWith("url: http://localhost:5173/"),

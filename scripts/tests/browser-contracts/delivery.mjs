@@ -1,29 +1,10 @@
 /* global window, document */
-import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import { chromium } from "playwright-core";
-import { startPreviewServer } from "./ui-preview/server.mjs";
 
-const before = process.argv.includes("--before");
-const output = `output/audit-WB6/deliveries/${before ? "before" : "current"}`;
-await mkdir(output, { recursive: true });
-const server = await startPreviewServer({ port: 0 });
-const browser = await chromium.launch({ channel: "msedge", headless: true });
-const page = await browser.newPage();
-const errors = [], checks = [];
-page.on("pageerror", error => errors.push(String(error)));
-const check = (name, actual, expected) => {
-  try { assert.deepEqual(actual, expected); checks.push({ name, passed: true }); }
-  catch (error) { checks.push({ name, passed: false, actual, expected, message: error.message }); }
-};
-try {
-  if (before) {
-    for (const file of ["06-deliveries.js", "05-chat-render.js"]) {
-      const source = execFileSync("git", ["show", `26acb7f0:crates/kanzei-app/ui/${file}`], { encoding: "utf8" });
-      await page.route(`**/${file}`, route => route.fulfill({ contentType: "text/javascript", body: source }));
-    }
-  }
+export default async function run({ browser, server, check }) {
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+
   await page.goto(`${server.origin}/?scene=chat`);
   await page.waitForFunction(() => window.__kzPreview?.ready);
   const result = await page.evaluate(async () => {
@@ -110,7 +91,5 @@ try {
   check("Failed load retains receipts and exposes error with pending request cleared", result.failure, { retained: "receipt-live", error: true, pending: false });
   check("Retry clears the old error and completes loading", result.recovered, { id: "receipt-live", error: "", loaded: true });
   check("No browser runtime errors", errors, []);
-  await writeFile(`${output}/acceptance.json`, JSON.stringify({ before, checks, errors }, null, 2));
-  console.log(`Delivery contracts: ${checks.filter(c => c.passed).length} passed, ${checks.filter(c => !c.passed).length} failed`);
-  assert(checks.every(c => c.passed), JSON.stringify(checks.filter(c => !c.passed)));
-} finally { await browser.close(); await server.close(); }
+
+}

@@ -1,37 +1,22 @@
 /* global window, document */
-import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { chromium } from 'playwright-core';
-import { startPreviewServer } from './ui-preview/server.mjs';
+import { execFileSync } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
-const before = process.argv.includes('--before');
-const output = `output/audit-WB5/summary/${before ? 'before' : 'current'}`;
-await mkdir(output, { recursive: true });
-const oldDir = path.resolve(output, 'old'), newDir = path.resolve(output, 'new');
-await mkdir(oldDir, { recursive: true }); await mkdir(newDir, { recursive: true });
-// Read-only Git produces the protocol: Markdown rules and ++ expressions are real content.
-await writeFile(path.join(oldDir, '中文.md'), '--old\n---\n');
-await writeFile(path.join(newDir, '中文.md'), '++new\n+++\n');
-let diff;
-try { diff = execFileSync('git', ['-c', 'core.quotePath=true', 'diff', '--no-index', '--no-ext-diff', oldDir, newDir], { encoding: 'utf8' }); }
-catch (error) { if (error.status !== 1) throw error; diff = String(error.stdout); }
-await writeFile(path.join(output, 'actual-git.diff'), diff);
-const server = await startPreviewServer({ port: 0 });
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
-const page = await browser.newPage();
-const errors = [], checks = [];
-page.on('pageerror', error => errors.push(String(error)));
-const check = (name, actual, expected) => {
-  try { assert.deepEqual(actual, expected); checks.push({ name, passed: true }); }
-  catch (error) { checks.push({ name, passed: false, actual, expected, message: error.message }); }
-};
-try {
-  if (before) {
-    const source = execFileSync('git', ['show', '26acb7f0:crates/kanzei-app/ui/05-tool-summary.js'], { encoding: 'utf8' });
-    await page.route('**/05-tool-summary.js', route => route.fulfill({ contentType: 'text/javascript', body: source }));
-  }
+export default async function run({ browser, server, output, check }) {
+  const oldDir = path.resolve(output, 'old'), newDir = path.resolve(output, 'new');
+  await mkdir(oldDir, { recursive: true }); await mkdir(newDir, { recursive: true });
+  // Read-only Git produces the protocol: Markdown rules and ++ expressions are real content.
+  await writeFile(path.join(oldDir, '中文.md'), '--old\n---\n');
+  await writeFile(path.join(newDir, '中文.md'), '++new\n+++\n');
+  let diff;
+  try { diff = execFileSync('git', ['-c', 'core.quotePath=true', 'diff', '--no-index', '--no-ext-diff', oldDir, newDir], { encoding: 'utf8' }); }
+  catch (error) { if (error.status !== 1) throw error; diff = String(error.stdout); }
+  await writeFile(path.join(output, 'actual-git.diff'), diff);
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+
   await page.goto(`${server.origin}/?scene=chat`);
   await page.waitForFunction(() => window.__kzPreview?.ready);
   const summarize = (name, ctx) => page.evaluate(async ({ name, ctx }) => {
@@ -79,9 +64,5 @@ try {
   });
   check('Task wait shows its action and keeps the task identity in its tooltip', { text: taskWaitArg.text, title: taskWaitArg.title }, { text: '等待结果', title: 'wait child-id' });
   check('Browser module graph has no runtime errors', errors, []);
-} finally { await browser.close(); await server.close(); }
-const failures = checks.filter(check => !check.passed);
-await writeFile(path.join(output, 'acceptance.json'), JSON.stringify({ before, checks, failures }, null, 2));
-console.log(`Tool summary contracts: ${checks.length - failures.length} PASS, ${failures.length} FAIL`);
-for (const failure of failures) console.error(`${failure.name}: ${failure.message}`);
-if (failures.length) process.exitCode = 1;
+
+}

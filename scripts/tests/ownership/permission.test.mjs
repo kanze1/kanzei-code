@@ -1,16 +1,13 @@
-// A3: execute the actual permission UI modules with controllable IPC/confirmation
+// Execute the actual permission UI modules with controllable IPC/confirmation
 // promises. These fixtures verify project/rule ownership, not layout or Rust IPC.
-// --before loads the exact pre-fix source from Git for a data-failure replay.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
+import { collectEsmImports } from "../../esm-test-imports.mjs";
 
-const root = resolve(import.meta.dirname, "..");
-const before = process.argv.includes("--before");
-const beforeCommit = "441e0c2983b8e8aeaf287bfc330d3df76d5b01b2";
+const root = resolve(import.meta.dirname, "../../..");
 const A = "C:/fixture/project-a";
 const B = "C:/fixture/project-b";
 const ruleA = { action: "bash", resource: "command A", effect: "allow" };
@@ -95,22 +92,15 @@ async function harness() {
   });
   const sources = new Map(["07-events.js", "16-settings.js"].map(name => {
     const path = `crates/kanzei-app/ui/${name}`;
-    return [name, before ? execFileSync("git", ["show", `${beforeCommit}:${path}`], { cwd: root, encoding: "utf8" }) : readFileSync(resolve(root, path), "utf8")];
+    return [name, readFileSync(resolve(root, path), "utf8")];
   }));
-  const imported = new Map();
-  for (const source of sources.values()) {
-    for (const [, body, specifier] of source.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*"([^"]+)"/g)) {
-      const names = imported.get(specifier) ?? new Set();
-      for (const name of body.split(",").map(value => value.trim()).filter(Boolean)) names.add(name.split(/\s+as\s+/)[0]);
-      imported.set(specifier, names);
-    }
-  }
+  const imported = collectEsmImports(sources, new Set());
   const core = { $: get, invoke, confirmDialog: (...args) => confirm(...args), defer: callback => initializers.push(callback), on: (name, callback) => subscriptions.set(name, callback), messages: new Element(), activePane: new Element(), promptBox: new Element() };
   const shell = { currentProject: A, activeSessionId: "session-a", processItems: [], sessionStates: new Map(), sessionMetaCache: new Map(), runTokens: {},
     toast: (text, options) => toasts.push({ text, options }), toastError: (text, options) => errors.push({ text, options }), reportPersistentError: text => persistentErrors.push(text) };
   const deps = new Map();
   for (const [specifier, names] of imported) {
-    const values = specifier === "./01-core.js" ? core : specifier === "./03-shell.js" ? shell :
+    const values = ["./01-core.js", "./00-dom.js", "./00-dialogs.js", "./00-ipc.js", "./01-runtime-events.js", "./01-chat-panes.js"].includes(specifier) ? core : specifier === "./03-shell.js" ? shell :
       specifier === "./02-i18n.js" ? { t: text => text, LANGUAGE_PREFERENCES: new Set() } :
       specifier === "./03-general-scope.js" ? { isGeneralChat: project => project === "general" } :
       specifier === "./04-structured-parse.js" ? { permissionResourceText: (action, resource) => `${action} ${resource}` } :
@@ -142,7 +132,7 @@ async function harness() {
       return subscriptions.get(name)({ payload });
     },
     language: () => {
-      const initializer = initializers.find(callback => callback.toString().includes('document.addEventListener("kz:language"'));
+      const initializer = initializers.find(callback => callback.toString().includes("renderPermissionRules"));
       assert(initializer, "actual language handler must exist"); initializer(); document.dispatchEvent({ type: "kz:language" });
     },
     close: () => timerIds.forEach(clearTimeout),

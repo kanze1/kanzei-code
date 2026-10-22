@@ -1,23 +1,10 @@
 /* global window, document */
-import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { chromium } from 'playwright-core';
-import { startPreviewServer } from './ui-preview/server.mjs';
-const before = process.argv.includes('--before');
-const output = `output/audit-WB6/side/${before ? 'before' : 'current'}`;
-await mkdir(output, { recursive: true });
-const server = await startPreviewServer({ port: 0 });
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
-const page = await browser.newPage({ viewport: { width: 2000, height: 1000 } });
-const checks = [], errors = [];
-page.on('pageerror', error => errors.push(String(error)));
-const check = (name, actual, expected) => {
-  try { assert.deepEqual(actual, expected); checks.push({ name, passed: true }); }
-  catch (error) { checks.push({ name, passed: false, actual, expected, message: error.message }); }
-};
-try {
-  if (before) await page.route('**/06-side-policy.js', route => route.fulfill({ contentType: 'text/javascript', body: execFileSync('git', ['show', '26acb7f0:crates/kanzei-app/ui/06-side-policy.js'], { encoding: 'utf8' }) }));
+
+export default async function run({ browser, server, check }) {
+  const page = await browser.newPage({ viewport: { width: 2000, height: 1000 } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+
   await page.goto(`${server.origin}/?scene=chat`); await page.waitForFunction(() => window.__kzPreview?.ready);
   await page.evaluate(async () => {
     const shell = await import('/03-shell.js'), panel = await import('/06-agent-panel.js'), agents = await import('/05-subagents.js');
@@ -69,7 +56,5 @@ try {
   });
   for (const [key, expected] of Object.entries({ hoverB: true, closesB: false, closesA: false, pinned: 'pinned', suppressed: false, fresh: true, failure: { count: 1, tone: 'err' }, drawer: false, outside: false })) check(`Policy transition: ${key}`, controls[key], expected);
   check('No browser runtime errors', errors, []);
-  await writeFile(`${output}/acceptance.json`, JSON.stringify({ before, checks }, null, 2));
-  console.log(`Side policy contracts: ${checks.filter(c => c.passed).length} PASS / ${checks.filter(c => !c.passed).length} FAIL`);
-  assert(checks.every(c => c.passed), JSON.stringify(checks.filter(c => !c.passed)));
-} finally { await browser.close(); await server.close(); }
+
+}

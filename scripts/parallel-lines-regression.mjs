@@ -2,6 +2,7 @@
 // 具体 DOM/IPC 行为由 ui-runtime-smoke 覆盖；这里专门防止后续改动把已修复的
 // 高频轮询、无序切换或全局 profile 回写重新引入。
 import { readFile } from "node:fs/promises";
+import { parse } from "espree";
 import { resolve } from "node:path";
 import { loadUiSources } from "./ui-sources.mjs";
 
@@ -84,10 +85,21 @@ assert(
   /function handleBackgroundSessionDone\(payload\) \{[\s\S]{0,800}?releaseAutoContinue\(sessionId\)/.test(compose),
   "后台线轮末未释放自主推进在飞标记(切走线路后鞭挞一轮即停)",
 );
-assert(
-  allUiSources.includes('event === "kz:auto-fail" && typeof handleBackgroundAutoFail'),
-  "后台线的失败退避重试仍被路由层整条丢弃(断一次网即永久停摆)",
-);
+const containsNode = (node, predicate) => {
+  if (!node || typeof node !== "object") return false;
+  return predicate(node) || Object.values(node).some(value => containsNode(value, predicate));
+};
+const routesBackgroundFailure = source => containsNode(parse(source, { ecmaVersion: "latest", sourceType: "module" }), node =>
+  node.type === "IfStatement" &&
+  containsNode(node.test, condition => condition.type === "BinaryExpression" && condition.operator === "===" && condition.left.name === "event" && condition.right.value === "kz:auto-fail") &&
+  containsNode(node.consequent, call => call.type === "CallExpression" && call.callee.name === "handleBackgroundAutoFail"));
+for (const [fixture, expected] of [
+  ['if (event === "kz:auto-fail") { handleBackgroundAutoFail(payload); }', true],
+  ['if (event === "kz:auto-fail" && typeof handleBackgroundAutoFail === "function") { handleBackgroundAutoFail(payload); }', true],
+  ['if (event === "kz:auto-fail") { return; }', false],
+  ['if (event !== "kz:auto-fail") { handleBackgroundAutoFail(payload); }', false],
+]) assert(routesBackgroundFailure(`function route() { ${fixture} }`) === expected, "后台失败路由判据错误");
+assert(sources.some(routesBackgroundFailure), "后台线的失败退避重试仍被路由层整条丢弃(断一次网即永久停摆)");
 assert(compose.includes("function handleBackgroundAutoFail(payload)"), "后台线失败退避重试缺少专用处理器");
 // 线路页按线操控:鞭挞与模型不再只属于「当前打开的那条线」。
 // 模型必须按线回显、按线发送。回显只写在 switchProcess 里的话,冷启动/兜底选中活动线

@@ -1,19 +1,14 @@
-// M4: run the actual sessions module with controlled IPC completion ordering.
-// --before replays exact committed source; dependency fixtures model existing
-// shell/queue contracts and do not copy any function being repaired.
+// Run the actual sessions module with controlled IPC completion ordering.
+// Shell/queue fixtures do not copy any function being tested.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(import.meta.dirname, "../../..");
 const file = "crates/kanzei-app/ui/09-sessions.js";
-const before = process.argv.includes("--before");
-const readModule = path => before
-  ? execFileSync("git", ["show", `aff48f96:${path}`], { cwd: root, encoding: "utf8" })
-  : readFileSync(resolve(root, path), "utf8");
+const readModule = path => readFileSync(resolve(root, path), "utf8");
 const source = readModule(file);
 const workbenchSource = readModule("crates/kanzei-app/ui/12-workbench.js");
 const A = "C:/fixture/project-a", B = "C:/fixture/project-b";
@@ -103,6 +98,9 @@ async function harness() {
       for (const name of body.split(",").map(value => value.trim()).filter(Boolean)) names.add(name.split(/\s+as\s+/)[0]);
       imported.set(specifier, names);
     }
+    // 只为副作用的 import "./x.js" 没有花括号,上面的正则抓不到;漏了它,link 回调会把
+    // 一个真实存在的依赖判成「未建模」,整组用例在 link 期就失败。
+    for (const [, specifier] of actual.matchAll(/import\s*"([^"]+)"/g)) if (!imported.has(specifier)) imported.set(specifier, new Set());
   }
   for (const [specifier, names] of imported) {
     const exports = values.get(specifier) ?? {};

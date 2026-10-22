@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import * as espree from "espree";
 import { loadUiSources } from "./ui-sources.mjs";
 import { checkSurfaceRules, formatViolations, selfTestSurfaceRules } from "./ui-surface-rules.mjs";
 
@@ -1059,16 +1060,22 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
   };
   const columnDefinition = cssText.match(/--chat-col:\s*[1-9]\d*(?:\.\d+)?px\s*;/);
   assert.ok(columnDefinition, "对话列宽必须有明确的正值定义");
+  // 反例锚点跟着样式真源取,不硬编码 `gap: 8px`:间距改用 --sp-* 刻度后,写死的字面量会让这条
+  // 反例先于真正的回归失败(自测找不到锚点),或者更糟——再也找不到、却没人注意到它已失效。
+  const activityGap = /(?:gap|column-gap):\s*[^;]+;(?=\s*width: )/.exec(cssText.slice(cssText.indexOf("#turn-activity {")))?.[0];
+  assert.ok(activityGap, "对话单列自测:#turn-activity 里找不到紧邻 width 的 gap 声明");
+  const retryRule = /\.msg\.error > \.msg-actions\s*\{[^}]*\}/.exec(cssText)?.[0];
+  assert.ok(retryRule, "对话单列自测:找不到 .msg.error > .msg-actions 规则");
   const counterexamples = [
     ["222px", `${cssText}\n#messages:not(:has(.empty-state)) { padding-right: 222px; }`],
     ["列宽真源", swap(columnDefinition[0], columnDefinition[0].replace("--chat-col", "--chat-width"))],
     ["pane 宽度", swap(`width: ${COLUMN_EXPR}; margin: 0 auto;\n}`, "width: 100%; max-width: 1080px; margin: 0 auto;\n}")],
-    ["活动行宽度", swap(`gap: 8px; width: ${COLUMN_EXPR};`, "gap: 8px; width: calc(100% - 48px); max-width: 1080px;")],
+    ["活动行宽度", swap(`${activityGap} width: ${COLUMN_EXPR};`, "gap: 8px; width: calc(100% - 48px); max-width: 1080px;")],
     ["滚动条对称", swap("scrollbar-gutter: stable both-edges;", "")],
     ["失败强行展开", `${cssText}\n.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err) { display: flex; }`],
     ["统一折叠", swap('.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body > * { display: none; }', "")],
     ["单行组头", swap('.tool-group[data-count="1"] > .tool-group-head { display: none; }', "")],
-    ["重试常驻", swap(".msg.error > .msg-actions { position: static; opacity: 1; margin-top: 8px; }", ".msg.error > .msg-actions { margin-top: 8px; }")],
+    ["重试常驻", swap(retryRule, retryRule.replace(/position:\s*static;\s*opacity:\s*1;\s*/, ""))],
     ["组转圈", swap('.tool-group[data-running="1"] .tool-group-spin { display: inline-block; animation: kz-spin var(--motion-spin) linear infinite; }', '.tool-group[data-running="1"] .tool-group-spin { display: inline-block; }')],
   ];
   const silent = counterexamples.filter(([, text]) => columnViolations(text).length === 0).map(([label]) => label);
@@ -1267,4 +1274,109 @@ function filesEditorA11yViolations(htmlText, cssText, sourceText) {
 }
 // ── 分区:文件编辑(完) ──
 
-console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);
+// ── 分区:点击可达性通则(覆盖全部模块) ──
+// 前面各节逐个断言具体控件的 role/aria;这条是通则:给非交互元素(div、li、section……)
+// 挂点击,就必须同时把它放进键盘焦点序并接住 Enter/Space,否则那段界面只有鼠标能用。
+// 走 AST 而不是正则,是为了只认「同一个变量」——上一行给别的元素设过 tabindex 不该让它过关。
+const NON_INTERACTIVE = new Set(["div", "span", "li", "ul", "ol", "p", "tr", "td", "section", "article",
+  "header", "footer", "nav", "pre", "table", "tbody", "strong", "em", "i", "b", "img", "svg", "g", "h1", "h2", "h3", "h4", "h5", "h6"]);
+
+function clickReachabilityViolations(modules) {
+  const out = [];
+  let checked = 0;
+  const has = (scope, name) => { for (let node = scope; node; node = Object.getPrototypeOf(node)) if (Object.hasOwnProperty.call(node, name)) return true; return false; };
+  for (const { name, text } of modules) {
+    const ast = espree.parse(text, { ecmaVersion: "latest", sourceType: "module", loc: true });
+    const clicks = [];
+    const tagIn = (scope, id) => { for (let node = scope; node; node = Object.getPrototypeOf(node)) if (Object.hasOwnProperty.call(node, id)) return node[id]; return undefined; };
+    const onlyContainment = (fn) => {
+      if (!fn || fn.type !== "FunctionExpression" && fn.type !== "ArrowFunctionExpression") return false;
+      const body = fn.body.type === "BlockStatement" ? fn.body.body : [fn.body];
+      if (!body.length) return false;
+      const calls = [];
+      const collect = (node) => {
+        if (!node || typeof node !== "object") return;
+        if (node.type === "CallExpression") calls.push(node.callee?.property?.name ?? node.callee?.name ?? "");
+        for (const [key, value] of Object.entries(node)) {
+          if (key === "loc" || key === "range") continue;
+          if (Array.isArray(value)) value.forEach(collect);
+          else if (value && typeof value === "object" && value.type) collect(value);
+        }
+      };
+      body.forEach(collect);
+      return calls.every((id) => id === "stopPropagation" || id === "preventDefault");
+    };
+    // 作用域用原型链,且函数体与块级 {} 都开新的一层:同名变量在不同块里是不同元素
+    // (11-docs-list 的 badge 既可能是外层 span 徽标,也可能是内层 button),
+    // 按文件全局记名会误报。
+    const walk = (node, tags, focusable) => {
+      if (!node || typeof node !== "object") return;
+      if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression", "BlockStatement"].includes(node.type)) {
+        tags = Object.create(tags); focusable = Object.create(focusable);
+      }
+      if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+        const init = node.init;
+        const created = init?.type === "CallExpression" && init.callee?.type === "MemberExpression"
+          && init.callee.property?.name === "createElement" && typeof init.arguments?.[0]?.value === "string";
+        if (created) tags[node.id.name] = init.arguments[0].value;
+      }
+      if (node.type === "CallExpression" && node.callee?.type === "MemberExpression" && node.callee.object?.type === "Identifier") {
+        const id = node.callee.object.name, method = node.callee.property?.name, first = node.arguments?.[0]?.value;
+        if (method === "addEventListener" && first === "keydown") focusable[id] = true;
+        if (method === "setAttribute" && (first === "role" || first === "tabindex")) focusable[id] = true;
+        if (method === "addEventListener" && first === "click" && !onlyContainment(node.arguments?.[1])) {
+          clicks.push({ id, line: node.loc.start.line, tags, focusable });
+        }
+      }
+      if (node.type === "AssignmentExpression" && node.left?.type === "MemberExpression" && node.left.object?.type === "Identifier") {
+        const id = node.left.object.name;
+        if (node.left.property?.name === "onclick") clicks.push({ id, line: node.loc.start.line, tags, focusable });
+        if (node.left.property?.name === "tabIndex") focusable[id] = true;
+      }
+      for (const [key, value] of Object.entries(node)) {
+        if (key === "loc" || key === "range") continue;
+        if (Array.isArray(value)) value.forEach((item) => walk(item, tags, focusable));
+        else if (value && typeof value === "object" && value.type) walk(value, tags, focusable);
+      }
+    };
+    walk(ast, Object.create(null), Object.create(null));
+    for (const click of clicks) {
+      const tag = tagIn(click.tags, click.id);
+      if (!tag || !NON_INTERACTIVE.has(tag)) continue;
+      checked += 1;
+      if (has(click.focusable, click.id)) continue;
+      out.push(`${name}:${click.line} <${tag}>.${click.id} 挂了点子但没进焦点序(role/tabindex/keydown 至少一样)`);
+    }
+  }
+  return { violations: out, checked };
+}
+
+{
+  // 自检:夹具里有「合格」「漏焦点」「只是拦截冒泡」「同名变量跨作用域」四类,
+  // 判据必须只抓第二类与第四类里的 div,并且真的数到了点击目标——否则 0 违规
+  // 可能只是探测器坏了。
+  const probe = clickReachabilityViolations([{ name: "probe.js", text: `
+const good = document.createElement("div");
+good.setAttribute("role", "button"); good.tabIndex = 0;
+good.addEventListener("click", run); good.addEventListener("keydown", onKey);
+const bad = document.createElement("li");
+bad.addEventListener("click", run);
+const box = document.createElement("div");
+box.addEventListener("click", (event) => event.stopPropagation());
+const other = document.createElement("span");
+other.tabIndex = 0;
+other.onclick = run;
+function asButton() { const head = document.createElement("button"); head.addEventListener("click", run); }
+function asDiv() { const head = document.createElement("div"); head.addEventListener("click", run); }
+function asFocusedRow() { const row = document.createElement("div"); row.tabIndex = 0; row.addEventListener("click", run); }
+` }]);
+  assert.deepEqual(probe.violations.map((line) => line.split(" ")[1]), ["<li>.bad", "<div>.head"],
+    "点击可达性判据自检失败:应只抓住缺焦点序的 <li>.bad 与 asDiv 里的 <div>.head(同名 button 版 head、已设 tabindex 的 row、纯拦截冒泡项都不该误报)");
+  assert.equal(probe.checked, 5, "点击可达性判据自检失败:非交互点击目标应数到 5 个(good/bad/other/asDiv.head/asFocusedRow.row),box 只拦冒泡不计,button 不算非交互");
+}
+
+const clickReach = clickReachabilityViolations(uiSources);
+assert.deepEqual(clickReach.violations, [], `非交互元素的点击没有键盘入口(${clickReach.violations.length} 处):\n${clickReach.violations.join("\n")}`);
+// ── 分区:点击可达性通则(完) ──
+
+console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖；${uiSources.length} 个模块里 ${clickReach.checked} 个 document.createElement 出来的点击目标全部有键盘入口`);

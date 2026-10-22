@@ -1,6 +1,6 @@
-// R-142:前端最低配 ESLint(flat config)。
-// 只开 no-undef 类规则(防手误),不引入构建步骤。ui/*.js 以 ESM 显式 import/export 连接。
+// Native ESM correctness checks. No bundler or formatting dependency is needed.
 import globals from "globals";
+import js from "@eslint/js";
 
 export default [
   {
@@ -53,10 +53,8 @@ export default [
       },
     },
     rules: {
-      // 唯一启用的规则:未定义变量。其余规则一律不开(最低配,不引入格式化约束)。
-      "no-undef": "error",
-      // 注释里的全局用法允许(如 JSDoc @type)
-      "no-unused-vars": "off",
+      ...js.configs.recommended.rules,
+      "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
     },
   },
   {
@@ -84,21 +82,14 @@ export default [
     },
   },
   {
-    // R-292:mobile-pwa(PWA 页面脚本 + service worker)独立覆盖——不在 ui/*.js 的
-    // 经典 script 共享作用域内,也不与 scripts/*.mjs 的 node 环境混。app.js 走
-    // 浏览器全局;sw.js 额外需要 service worker 宿主(self/caches/clients 等)。
+    // PWA 页面脚本使用浏览器宿主；与桌面 ESM 和 Node 冒烟脚本分别检查。
+    // 旧 service worker 已删除，不向页面声明 worker 专属全局。
     files: ["crates/kanzei-app/mobile-pwa/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "script",
       globals: {
         ...globals.browser,
-        // service worker 宿主全局(sw.js);页面脚本 app.js 不需要但声明无害。
-        self: "readonly",
-        caches: "readonly",
-        clients: "readonly",
-        skipWaiting: "readonly",
-        Response: "readonly",
       },
     },
     rules: {

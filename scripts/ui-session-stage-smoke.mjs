@@ -1,3 +1,4 @@
+import { collectEsmImports } from "./esm-test-imports.mjs";
 // Complete ESM stage/model owners plus the real core event router and session state machine.
 // --before loads the exact committed pre-fix modules without changing production files.
 import assert from 'node:assert/strict';
@@ -99,13 +100,7 @@ async function harness() {
   // Defer callbacks stay behind DOMContentLoaded; only explicit core on() registrations run.
   const context = vm.createContext({ document, window, console: { ...console }, localStorage: { getItem: () => null, setItem() {} }, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } }, setTimeout: callback => { timers.push(callback); return timers.length; }, clearTimeout() {}, setInterval: () => 1, clearInterval() {}, performance: { now: () => 0 } });
   const modules = new Map(names.map(name => [`./${name}`, new vm.SourceTextModule(sources.get(name), { context, identifier: name })]));
-  const imported = new Map();
-  for (const text of sources.values()) for (const match of text.matchAll(/import\s*\{([^}]+)\}\s*from\s*["']([^"']+)["']/g)) {
-    if (modules.has(match[2])) continue;
-    const exports = imported.get(match[2]) ?? new Set();
-    for (const entry of match[1].split(',')) { const name = entry.trim().split(/\s+as\s+/)[0]; if (name) exports.add(name); }
-    imported.set(match[2], exports);
-  }
+  const imported = collectEsmImports(sources, modules);
   const values = { t: value => value, localizeDynamic: value => value, I18N_EN: {}, autoContinueTimers: new Map(), takeAwaitingUser: () => false, autoStopReason: '', state: () => {}, active_space: 'dev', view_allowed: () => true, workbenchProject: null, lastProjectPrefs: {}, lastWorkspaceSnapshot: null, prefObject: () => ({}), layoutPref: () => undefined, parseErrorText: () => ({ json: false, chain: [] }), surfaceElements: () => [], isGeneralChat: () => false };
   const external = new Map([...imported].map(([specifier, exports]) => [specifier, new vm.SyntheticModule([...exports], function () { for (const name of exports) this.setExport(name, Object.hasOwn(values, name) ? values[name] : () => {}); }, { context })]));
   const linker = specifier => modules.get(specifier) ?? external.get(specifier);

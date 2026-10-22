@@ -1,5 +1,39 @@
 [
   {
+    "key": "architecture_boundaries",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/architecture-boundaries-smoke.mjs"
+    ],
+    "paths": [
+      "Cargo.toml",
+      "Cargo.lock",
+      "crates/**",
+      "scripts/architecture-boundaries*",
+      "AGENTS.md",
+      "CONTRIBUTING.md",
+      ".github/workflows/ci.yml"
+    ],
+    "resources": [
+      "cargo"
+    ]
+  },
+  {
+    "key": "esm_test_imports",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/esm-test-imports-smoke.mjs"
+    ],
+    "paths": [
+      "scripts/esm-test-imports*",
+      "scripts/ui-session-stage-smoke.mjs",
+      "scripts/ui-general-chat-owner-smoke.mjs"
+    ]
+  },
+  {
     "key": "context_inspection",
     "inputs": "frontend",
     "program": "node",
@@ -27,7 +61,8 @@
     "paths": [
       "scripts/verify*",
       "scripts/verification-checks.json",
-      ".github/workflows/ci.yml"
+      ".github/workflows/ci.yml",
+      "scripts/package.ps1"
     ]
   },
   {
@@ -170,7 +205,8 @@
     "inputs": "always",
     "program": "node",
     "args": [
-      "scripts/check-design-freshness.mjs"
+      "scripts/check-design-freshness.mjs",
+      "--self-test"
     ]
   },
   {
@@ -218,14 +254,16 @@
       "."
     ],
     "paths": [
+      ".cargo/**",
+      "Cargo.lock",
+      "Cargo.toml",
       "crates/**/*.rs",
       "crates/**/Cargo.toml",
-      "Cargo.toml",
-      "Cargo.lock",
-      ".cargo/**",
-      "rust-toolchain*",
       "docs/design/metrics_baseline.md",
-      "scripts/metrics-regression-gate.ps1"
+      "rust-toolchain*",
+      "scripts/metrics-baseline.json",
+      "scripts/metrics-regression-gate.ps1",
+      "scripts/tests/verification/metrics-gate.mjs"
     ]
   },
   {
@@ -479,6 +517,7 @@
     "paths": [
       "crates/kanzei-app/ui/*.js",
       "crates/kanzei-app/ui/index.html",
+      "crates/kanzei-app/fixtures/**",
       "crates/kanzei-app/mobile-pwa/**"
     ]
   },
@@ -511,7 +550,6 @@
   {
     "key": "ui_activity_state",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -524,7 +562,6 @@
   {
     "key": "ui_constellation",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -537,7 +574,6 @@
   {
     "key": "ui_voice",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -550,7 +586,6 @@
   {
     "key": "ui_mobile_approval",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -567,7 +602,6 @@
   {
     "key": "ui_workbench_browser",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -590,7 +624,6 @@
   {
     "key": "ui_workbench_resource_owner",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -609,7 +642,6 @@
   {
     "key": "ui_session_navigation_owner",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -627,7 +659,6 @@
   {
     "key": "ui_session_stage",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -645,7 +676,6 @@
   {
     "key": "ui_general_chat_owner",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -682,7 +712,6 @@
   {
     "key": "ui_conversation_history_owner",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -701,7 +730,6 @@
   {
     "key": "ui_conversation_action_owner",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -719,19 +747,31 @@
     ]
   },
   {
-    "key": "ui_resource_contract",
+    "key": "ui_browser_contracts",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-resource-contract-smoke.mjs"
+      "scripts/ui-browser-contracts-smoke.mjs"
     ],
     "paths": [
       "crates/kanzei-app/ui/04-resource-types.js",
       "crates/kanzei-app/ui/04-status-words.js",
       "crates/kanzei-app/ui/08-compose*.js",
-      "crates/kanzei-app/ui/03-shell.js"
+      "crates/kanzei-app/ui/03-shell.js",
+      "crates/kanzei-app/ui/04-*.js",
+      "crates/kanzei-app/ui/13-memory.js",
+      "crates/kanzei-app/ui/02-i18n.js",
+      "crates/kanzei-app/ui/05-tool-summary.js",
+      "crates/kanzei-app/ui/04-structured*.js",
+      "crates/kanzei-app/ui/06-deliveries.js",
+      "crates/kanzei-app/ui/05-chat-render.js",
+      "crates/kanzei-app/ui/04-markdown.js",
+      "crates/kanzei-app/ui/05-subagents.js",
+      "crates/kanzei-app/ui/01-core.js",
+      "crates/kanzei-app/ui/06-side-policy.js",
+      "crates/kanzei-app/ui/06-agent-panel.js",
+      "crates/kanzei-app/ui/22-*.js",
+      "crates/kanzei-app/ui/07-events.js"
     ],
     "resources": [
       "browser"
@@ -740,7 +780,6 @@
   {
     "key": "ui_structured_contract",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -748,23 +787,6 @@
     ],
     "paths": [
       "crates/kanzei-app/ui/04-structured*.js"
-    ]
-  },
-  {
-    "key": "ui_markdown_contract",
-    "inputs": "frontend",
-    "suite": "ui_runtime",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-markdown-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-*.js",
-      "crates/kanzei-app/ui/13-memory.js"
-    ],
-    "resources": [
-      "browser"
     ]
   },
   {
@@ -860,25 +882,8 @@
     ]
   },
   {
-    "key": "ui_i18n_contract",
-    "inputs": "frontend",
-    "suite": "ui_runtime",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-i18n-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/02-i18n.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
     "key": "ui_diagram_owner",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -893,80 +898,8 @@
     ]
   },
   {
-    "key": "ui_tool_summary_contract",
-    "inputs": "frontend",
-    "suite": "ui_runtime",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-tool-summary-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/05-tool-summary.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_structured_render_contract",
-    "inputs": "frontend",
-    "suite": "ui_runtime",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-structured-render-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-structured*.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_delivery_contract",
-    "inputs": "frontend",
-    "suite": "ui_runtime",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-delivery-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/06-deliveries.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/04-markdown.js",
-      "crates/kanzei-app/ui/05-subagents.js",
-      "crates/kanzei-app/ui/01-core.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_side_policy_contract",
-    "inputs": "frontend",
-    "suite": "ui_runtime",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-side-policy-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/06-side-policy.js",
-      "crates/kanzei-app/ui/06-agent-panel.js",
-      "crates/kanzei-app/ui/05-subagents.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
     "key": "ui_activity_contract",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -977,28 +910,8 @@
     ]
   },
   {
-    "key": "ui_experience_contract",
-    "inputs": "frontend",
-    "suite": "ui_runtime",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-experience-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/22-*.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/01-core.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
     "key": "ui_decision_console",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1019,7 +932,6 @@
   {
     "key": "ui_familiar_workspace",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1044,7 +956,6 @@
   {
     "key": "ui_feedback_polish",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1083,7 +994,6 @@
   {
     "key": "ui_conversation_redesign",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1123,7 +1033,6 @@
   {
     "key": "ui_skills",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1144,7 +1053,6 @@
   {
     "key": "ui_softwire_ownership",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1172,7 +1080,6 @@
   {
     "key": "ui_chat_question",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1192,7 +1099,6 @@
   {
     "key": "ui_deleted_general_inbox",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1214,7 +1120,6 @@
   {
     "key": "ui_softwire_choice",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1232,7 +1137,6 @@
   {
     "key": "ui_reply_timer_browser",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1251,7 +1155,6 @@
   {
     "key": "ui_project_conversations",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1276,7 +1179,6 @@
   {
     "key": "ui_input_resources",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1297,7 +1199,6 @@
   {
     "key": "ui_agent_team",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1316,7 +1217,6 @@
   {
     "key": "ui_files_editor",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1334,7 +1234,6 @@
   {
     "key": "ui_project_knowledge",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1354,7 +1253,6 @@
   {
     "key": "ui_qa_defects",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1376,7 +1274,6 @@
   {
     "key": "ui_harness_actions",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1396,7 +1293,6 @@
   {
     "key": "ui_audit_first_regressions",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1412,7 +1308,6 @@
   {
     "key": "ui_backlog_maintenance",
     "inputs": "frontend",
-    "suite": "ui_runtime",
     "program": "node",
     "args": [
       "--experimental-vm-modules",
@@ -1436,7 +1331,7 @@
     ]
   },
   {
-    "key": "ui_state_ownership",
+    "key": "ui_design_audit_repairs",
     "inputs": "frontend",
     "program": "node",
     "args": [
@@ -1503,7 +1398,31 @@
       "--workspace"
     ],
     "resources": [
-      "cargo"
+      "cargo",
+      "host"
+    ]
+  },
+  {
+    "key": "ui_state_ownership",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-state-ownership-smoke.mjs"
+    ],
+    "paths": [
+      "crates/kanzei-app/ui/00-*.js",
+      "crates/kanzei-app/ui/01-*.js",
+      "crates/kanzei-app/ui/02-*.js",
+      "crates/kanzei-app/ui/03-*.js",
+      "crates/kanzei-app/ui/05-chat-render.js",
+      "crates/kanzei-app/ui/07-events.js",
+      "crates/kanzei-app/ui/08-*.js",
+      "crates/kanzei-app/ui/09-sessions.js",
+      "crates/kanzei-app/ui/12-workbench.js",
+      "crates/kanzei-app/ui/15-views-misc.js",
+      "crates/kanzei-app/ui/16-settings.js",
+      "crates/kanzei-app/ui/24-schedules.js"
     ]
   }
 ]

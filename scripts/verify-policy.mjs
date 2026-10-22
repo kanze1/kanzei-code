@@ -24,8 +24,10 @@ export function validateCheckRegistry(checks) {
 validateCheckRegistry(VERIFY_CHECKS);
 // Shared by verification and packaging. Build configuration and test fixtures are
 // inputs too; project runtime data and generated output are deliberately outside.
+// D-766:`.kanzei/project` 是需求/缺陷/架构索引本体,规范 §6 要求它随代码一起提交;
+// 把它排除在外,才让「文档提交了、索引行还在工作副本」这种树过得了发版门禁。
 export const BUILD_INPUT_PATHS = [
-  "crates", "scripts", "ui", ".github", ".cargo", "docs", "README.md",
+  "crates", "scripts", "ui", ".github", ".cargo", "docs", ".kanzei/project", "README.md", "AGENTS.md", "CONTRIBUTING.md",
   "Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain", "rust-toolchain.toml",
   "package.json", "package-lock.json", "npm-shrinkwrap.json", ".npmrc",
   "eslint.config.js", ".gitattributes",
@@ -94,7 +96,7 @@ function scriptInputs(check) {
     found.add(file);
     if (!file.endsWith(".mjs")) return;
     const source = fs.readFileSync(path.join(root, file), "utf8");
-    for (const match of source.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.[^"']+)["']/g)) {
+    for (const match of source.matchAll(/(?:from\s*|import\s*(?:\(\s*)?)["'](\.[^"']+)["']/g)) {
       const dependency = normalizePath(path.posix.normalize(path.posix.join(path.posix.dirname(file), match[1])));
       if (dependency.startsWith("scripts/")) visit(dependency);
     }
@@ -106,6 +108,7 @@ function scriptInputs(check) {
 function isRustPath(path) {
   return (
     path.endsWith(".rs") ||
+    (path.startsWith("crates/") && path.includes("/fixtures/")) ||
     path === "Cargo.toml" ||
     path === "Cargo.lock" ||
     path.endsWith("/Cargo.toml") ||
@@ -134,6 +137,7 @@ function isFrontendPath(path) {
   return (
     path.startsWith("crates/kanzei-app/ui/") ||
     path.startsWith("crates/kanzei-app/mobile-pwa/") ||
+    path.startsWith("crates/kanzei-app/fixtures/") ||
     path === "eslint.config.js" ||
     path === "package.json" ||
     path === "package-lock.json" ||

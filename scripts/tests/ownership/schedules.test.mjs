@@ -1,14 +1,8 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
+import { loadSchedules } from "./schedules-fixture.mjs";
 
-const root = resolve(import.meta.dirname, "..");
-const baseline = "aff48f96b3c310fd83196e143541515c9a18643f";
-const beforeOwnership = process.argv.includes("--before-ownership");
-const before = process.argv.includes("--before") || beforeOwnership;
 const flush = async () => { await new Promise(resolveValue => setImmediate(resolveValue)); };
 const deferred = () => { let release; const promise = new Promise(resolveValue => { release = resolveValue; }); return { promise, release }; };
 class Element {
@@ -45,21 +39,12 @@ async function harness(currentProject = "A") {
     // Real openDialog returns the existing handle when the same modal is open;
     // a repeated opening does not replace that handle's original close callback.
     "./00-surface.js": { openDialog: (_, options) => { if (!opened) { opened = true; close = options.onClose; } }, closeSurface: closeDialog },
-    "./01-core.js": { invoke, on() {}, uiPrefsLoad: async () => ({ theme: "dark", ui_layout: {} }) },
+    "./00-ipc.js": { invoke },
+    "./01-runtime-events.js": { on() {} },
     "./03-shell.js": { currentProject, toast() {}, toastError: error => errors.push(error) },
     "./02-i18n.js": { t: text => text }, "./03-general-scope.js": { isGeneralChat: () => false },
   };
-  const path = "crates/kanzei-app/ui/24-schedules.js";
-  let source = before ? execFileSync("git", ["show", `${baseline}:${path}`], {cwd:root, encoding:"utf8"}) : readFileSync(resolve(root, path), "utf8");
-  // The original selector has no B option. This stage applies only the required
-  // projects source repair, then proves the original owner logic still fails.
-  if (beforeOwnership) source = source.replace("await uiPrefsLoad()", 'await invoke("projects_get")');
-  const module = new vm.SourceTextModule(source, { context });
-  await module.link(specifier => {
-    const values = imports[specifier]; assert(values, `known import ${specifier}`);
-    return new vm.SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
-  });
-  await module.evaluate();
+  const module = await loadSchedules(context, imports);
   return {
     open: () => module.namespace.showSchedules(), dialog, calls, handlers, errors,
     project: () => dialog.querySelector("select"),
@@ -75,7 +60,7 @@ test("global schedule entry obtains registered projects from the real projects_g
   assert.equal(h.calls.find(call => call.command === "schedule_action").args.projectDir, "A");
 });
 
-test("late A list cannot replace the selected B list", { skip: before && !beforeOwnership }, async () => {
+test("late A list cannot replace the selected B list", async () => {
   const h = await harness(), a = deferred();
   h.handlers.set("schedule_action", args => args.action === "list" && args.projectDir === "A" ? a.promise : listed("B"));
   const opening = h.open(); await flush(); h.choose("B"); await flush();
@@ -86,7 +71,7 @@ test("late A list cannot replace the selected B list", { skip: before && !before
   assert.equal(toggle.args.expectedHash, "B-revision", "the displayed row must belong to B's loaded definition");
 });
 
-test("a clicked A run retains its original project when selection changes before the queued handler", { skip: before && !beforeOwnership }, async () => {
+test("a clicked A run retains its original project when selection changes before the queued handler", async () => {
   const h = await harness(); await h.open();
   h.button("立即运行").click(); h.choose("B"); await flush();
   const run = h.calls.find(call => call.args.action === "run");
@@ -121,7 +106,7 @@ test("closed schedule dialog stays empty when its list receipt arrives", async (
   assert.equal(h.dialog.children.length, 0, "closed scope cannot repopulate the shared modal");
 });
 
-test("out-of-order open requests leave the latest dialog intact", { skip: before && !beforeOwnership }, async () => {
+test("out-of-order open requests leave the latest dialog intact", async () => {
   const h = await harness(), first = deferred(); let count = 0;
   h.handlers.set("projects_get", () => ++count === 1 ? first.promise : { projects: ["A", "B"] });
   const oldOpening = h.open(); await flush(); await h.open();
@@ -130,7 +115,7 @@ test("out-of-order open requests leave the latest dialog intact", { skip: before
   assert.equal(h.dialog.querySelector("form") === editor, true, "obsolete opening must not replace the newest dialog state");
 });
 
-test("closing a reused real surface handle cancels a pending later opening", { skip: before && !beforeOwnership }, async () => {
+test("closing a reused real surface handle cancels a pending later opening", async () => {
   const h = await harness(); await h.open(); await h.open();
   const late = deferred(); h.handlers.set("projects_get", () => late.promise);
   const opening = h.open(); await flush(); h.close();

@@ -1,7 +1,14 @@
 name: ci
 
 on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  merge_group:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -15,7 +22,7 @@ jobs:
       # v5 起跑在 Node 24 上;v4 目标 Node 20 已被 GitHub 弃用(Actions 面板黄条警告)
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

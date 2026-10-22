@@ -1,33 +1,15 @@
 /* global window, document, localStorage, Event */
-import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { chromium } from 'playwright-core';
-import { startPreviewServer } from './ui-preview/server.mjs';
+import { readFile } from "node:fs/promises";
 
-const before = process.argv.includes('--before');
-const output = `output/audit-WB5/i18n/${before ? 'before' : 'current'}`;
-await mkdir(output, { recursive: true });
-const server = await startPreviewServer({ port: 0 });
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
-const checks = [];
-const check = (name, actual, expected) => {
-  try { assert.deepEqual(actual, expected); checks.push({ name, passed: true }); }
-  catch (error) { checks.push({ name, passed: false, actual, expected, message: error.message }); }
-};
-try {
+export default async function run({ browser, server, check }) {
+
   for (const scenario of ['modern-race', 'legacy-race', 'modern-normal', 'legacy-normal']) {
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     const legacy = scenario.startsWith('legacy');
     const race = scenario.endsWith('race');
-    if (before) {
-      for (const file of ['02-i18n.js', '18-startup.js']) {
-        const source = execFileSync('git', ['show', `26acb7f0:crates/kanzei-app/ui/${file}`], { encoding: 'utf8' });
-        await page.route(`**/${file}`, route => route.fulfill({ contentType: 'text/javascript', body: source }));
-      }
-    }
+
     const mock = await readFile('scripts/ui-preview/mock-ipc.js', 'utf8');
     await page.route('**/__preview/mock-ipc.js', route => route.fulfill({ contentType: 'text/javascript', body: mock + `
       window.__languageGate = {};
@@ -75,7 +57,5 @@ try {
     check(`${scenario}: no browser runtime errors`, errors, []);
     await page.close();
   }
-  await writeFile(`${output}/acceptance.json`, JSON.stringify({ before, checks }, null, 2));
-  console.log(`I18n contracts: ${checks.filter(c => c.passed).length} passed, ${checks.filter(c => !c.passed).length} failed`);
-  assert(checks.every(c => c.passed), JSON.stringify(checks.filter(c => !c.passed)));
-} finally { await browser.close(); await server.close(); }
+
+}
